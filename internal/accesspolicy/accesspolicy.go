@@ -233,6 +233,14 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 	}
 	if alias, suffix, ok := splitRootQualifiedPath(rawPath); ok {
 		root := expandRootAlias(alias, session)
+		if alias == "@connectors" {
+			id, remaining, _ := strings.Cut(suffix, "/")
+			root = session.ConnectorDirs[id]
+			if root == "" {
+				return "", fmt.Errorf("connector %q is not mounted", id)
+			}
+			suffix = remaining
+		}
 		if root == "" {
 			if strings.EqualFold(alias, "@workspace") {
 				return "", fmt.Errorf("workspace_unavailable: workspace is required; use an explicit root such as @chat")
@@ -254,6 +262,13 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 		if strings.EqualFold(alias, "@workspace") {
 			return requireSessionWorkspacePath(session, resolved)
 		}
+		if alias == "@connectors" {
+			base, baseErr := pathutil.Canonicalize(root)
+			target, targetErr := pathutil.Canonicalize(resolved)
+			if baseErr != nil || targetErr != nil || !pathutil.WithinRoot(target, base) {
+				return "", fmt.Errorf("path escapes mounted connector")
+			}
+		}
 		return resolved, nil
 	}
 	candidate := pathutil.ExpandHome(rawPath)
@@ -273,6 +288,10 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 func translateExecutionPath(session QuerySession, rawPath string) (string, bool, error) {
 	if !session.AgentHasRuntimeSandbox {
 		return "", false, nil
+	}
+	if rawPath == "/connectors" || strings.HasPrefix(rawPath, "/connectors/") {
+		resolved, err := ResolveSessionPath(session, "@connectors"+strings.TrimPrefix(rawPath, "/connectors"))
+		return resolved, true, err
 	}
 	tempRoot := expandRootAlias("@temp", session)
 	for _, roots := range []struct {
@@ -331,7 +350,7 @@ func sessionRoots(session QuerySession) (rootpaths.Roots, error) {
 
 func splitRootQualifiedPath(rawPath string) (string, string, bool) {
 	normalized := filepath.ToSlash(strings.TrimSpace(rawPath))
-	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-center", "@owner", "@temp"} {
+	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-center", "@connectors", "@owner", "@temp"} {
 		if strings.EqualFold(normalized, alias) {
 			return alias, "", true
 		}

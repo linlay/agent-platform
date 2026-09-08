@@ -36,3 +36,11 @@ func runtimeConnectorMounts(mounts []contracts.SandboxExtraMount, def catalog.Ag
 	}
 	return mounts
 }
+
+func runtimeConnectorDirs(def catalog.AgentDefinition) map[string]string {
+	dirs := make(map[string]string, len(def.ConnectorMounts))
+	for _, mount := range def.ConnectorMounts {
+		dirs[mount.ID] = mount.Dir
+	}
+	return dirs
+}

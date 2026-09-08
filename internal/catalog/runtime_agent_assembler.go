@@ -59,7 +59,7 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 	if err != nil {
 		return nil, fmt.Errorf("resolve ru-agents directory: %w", err)
 	}
-	connectorsDir := filepath.Join(filepath.Dir(absolute), "connectors")
+	connectorsDir := filepath.Join(filepath.Dir(absolute), "connectors-center")
 	if len(connectorsDirs) > 0 {
 		connectorsDir = connectorsDirs[0]
 	}
@@ -71,6 +71,17 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 	}
 	if len(connectorsDirs) > 1 {
 		assembler.connectors.BuiltinRoot = connectorsDirs[1]
+	}
+	if len(connectorsDirs) > 2 {
+		assembler.connectors.RuntimeRoot = connectorsDirs[2]
+	}
+	if len(connectorsDirs) > 3 {
+		assembler.connectors.StateRoot = connectorsDirs[3]
+	}
+	for _, other := range []string{assembler.centerDir, assembler.connectors.ExternalRoot, assembler.connectors.BuiltinRoot, assembler.connectors.RuntimeRoot, assembler.connectors.StateRoot} {
+		if connector.RootsOverlap(assembler.root, other) {
+			return nil, fmt.Errorf("ru-agents directory overlaps a skill or connector root: %s", other)
+		}
 	}
 	if info, err := os.Lstat(assembler.root); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -235,8 +246,10 @@ func (a *runtimeAgentAssembler) materializeSkills(source EditableAgentSource, ca
 			return err
 		}
 		target := filepath.Join(candidate, "skills", skillID)
-		if err := copyRuntimePath(skillSource, target); err != nil {
-			return fmt.Errorf("copy skill %q: %w", skillID, err)
+		if !def.IsConnectorSkill(skillID) {
+			if err := copyRuntimePath(skillSource, target); err != nil {
+				return fmt.Errorf("copy skill %q: %w", skillID, err)
+			}
 		}
 		if err := collectSkillConfig(skillID, filepath.Join(skillSource, ".config"), configEntries); err != nil {
 			return err
@@ -613,6 +626,11 @@ func validateRuntimeAgentCandidate(candidate string, expected AgentDefinition) e
 	}
 	for _, skillID := range ordered {
 		dir := filepath.Join(candidate, "skills", skillID)
+		for _, skill := range expected.ConnectorSkills {
+			if skill.Key == skillID {
+				dir = skill.RuntimeDir
+			}
+		}
 		if err := validateSourceSkill(dir, skillID, "runtime"); err != nil {
 			return err
 		}

@@ -173,8 +173,8 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 		writeTestFile(t, filepath.Join(runtimeRoot, scope, "unknown", "content.txt"), "unknown-"+scope)
 	}
 	for _, id := range []string{"existing", "unknown"} {
-		writeTestFile(t, filepath.Join(runtimeRoot, "connectors", id, "connector.json"), fmt.Sprintf(`{"id":%q,"name":%q,"version":"1.0.0","type":"cli","auth_mode":"none"}`, id, id))
-		writeTestFile(t, filepath.Join(runtimeRoot, "connectors", id, "cli.json"), `{}`)
+		writeTestFile(t, filepath.Join(runtimeRoot, "connectors-center", id, "connector.json"), fmt.Sprintf(`{"id":%q,"name":%q,"version":"1.0.0","type":"cli","auth_mode":"none"}`, id, id))
+		writeTestFile(t, filepath.Join(runtimeRoot, "connectors-center", id, "cli.json"), `{}`)
 	}
 	existingScript := filepath.Join(runtimeRoot, "agents", "existing", "keep-mode.sh")
 	writeTestFile(t, existingScript, "#!/bin/sh\necho old\n")
@@ -193,8 +193,8 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 	entries["env/agents/new/run.sh"] = "#!/bin/sh\n"
 	entries["env/registries/authoritative.yml"] = "new-registry"
 	for _, id := range []string{"existing", "new"} {
-		entries["env/connectors/"+id+"/connector.json"] = fmt.Sprintf(`{"id":%q,"name":%q,"version":"2.0.0","type":"cli","auth_mode":"none"}`, id, id)
-		entries["env/connectors/"+id+"/cli.json"] = `{}`
+		entries["env/connectors-center/"+id+"/connector.json"] = fmt.Sprintf(`{"id":%q,"name":%q,"version":"2.0.0","type":"cli","auth_mode":"none"}`, id, id)
+		entries["env/connectors-center/"+id+"/cli.json"] = `{}`
 	}
 	source := writeTestZip(t, entries)
 	result, err := Sync(Options{

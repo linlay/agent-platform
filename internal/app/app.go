@@ -195,7 +195,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err != nil {
 		return nil, fmt.Errorf("load builtin connectors: %w", err)
 	}
-	mcpRegistry, err := mcp.NewRegistry(cfg.Paths.EffectiveConnectorsDir(), cfg.Paths.BuiltinConnectorsDir)
+	if err := cfg.Paths.ConnectorSources().MigrateLegacy(cfg.Paths.LegacyConnectorsDir); err != nil {
+		return nil, fmt.Errorf("migrate connector layout: %w", err)
+	}
+	mcpRegistry, err := mcp.NewRegistryWithSources(cfg.Paths.ConnectorSources())
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)
 	}

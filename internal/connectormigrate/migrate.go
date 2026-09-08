@@ -57,6 +57,17 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 		}
 	}
 	result := Result{}
+	layoutChanged := false
+	for _, scope := range []string{"connectors", "connectors-center/.state", "connectors-center/.credentials"} {
+		if _, err := os.Lstat(filepath.Join(root, scope)); err == nil {
+			layoutChanged = true
+			result.Retired = append(result.Retired, scope)
+		}
+	}
+	sources := connector.Sources{ExternalRoot: filepath.Join(stage, "connectors-center"), StateRoot: filepath.Join(stage, "connector-state")}
+	if err := sources.MigrateLegacy(filepath.Join(stage, "connectors")); err != nil {
+		return Result{}, err
+	}
 	err = filepath.WalkDir(filepath.Join(stage, "registries", "mcp-servers"), func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -96,7 +107,7 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 				}
 			}
 		}
-		dir := filepath.Join(stage, "connectors", manifest.ID)
+		dir := filepath.Join(stage, "connectors-center", manifest.ID)
 		if _, err := os.Stat(dir); err == nil {
 			return fmt.Errorf("connector %q already exists; migration does not overwrite it", manifest.ID)
 		} else if !os.IsNotExist(err) {
@@ -109,7 +120,7 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 			return err
 		}
 		if len(credentials) > 0 {
-			if err := writeJSON(filepath.Join(stage, "connectors", ".credentials", manifest.ID+".json"), credentials, 0o600); err != nil {
+			if err := writeJSON(filepath.Join(stage, "connector-state", ".credentials", manifest.ID+".json"), credentials, 0o600); err != nil {
 				return err
 			}
 		}
@@ -167,7 +178,7 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 			if connector.BuiltinSkillConnector("builtin-"+strings.TrimPrefix(id, "builtin.")) == id {
 				continue
 			}
-			if _, err := connector.Load(filepath.Join(stage, "connectors"), mount.(string)); err != nil {
+			if _, err := connector.Load(filepath.Join(stage, "connectors-center"), mount.(string)); err != nil {
 				return fmt.Errorf("agent %s references unavailable connector %s: %w", name, mount, err)
 			}
 		}
@@ -181,7 +192,7 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	for _, scope := range []string{"connectors/builtin.dbx", "connectors/builtin.httpx", "skills-center/builtin-dbx", "skills-center/builtin-httpx", "connectors/.builtin-state"} {
+	for _, scope := range []string{"connectors/builtin.dbx", "connectors/builtin.httpx", "connectors-center/builtin.dbx", "connectors-center/builtin.httpx", "connectors-center/.builtin-state", "skills-center/builtin-dbx", "skills-center/builtin-httpx", "connectors/.builtin-state"} {
 		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(scope))); err == nil {
 			result.Retired = append(result.Retired, scope)
 		} else if !os.IsNotExist(err) {
@@ -191,10 +202,15 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 			return Result{}, err
 		}
 	}
-	if _, err := mcp.NewRegistry(filepath.Join(stage, "connectors")); err != nil {
+	for _, name := range []string{"builtin.dbx", "builtin.httpx", ".builtin-state"} {
+		if err := os.RemoveAll(filepath.Join(stage, "connectors-center", name)); err != nil {
+			return Result{}, err
+		}
+	}
+	if _, err := mcp.NewRegistryWithSources(sources); err != nil {
 		return Result{}, fmt.Errorf("validate migrated connectors: %w", err)
 	}
-	if !apply || !legacyExists && len(result.Agents) == 0 && len(result.Retired) == 0 {
+	if !apply || !legacyExists && !layoutChanged && len(result.Agents) == 0 && len(result.Retired) == 0 {
 		return result, nil
 	}
 	after, err := fingerprints(root)
@@ -234,7 +250,7 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 			return Result{}, err
 		}
 		moved = append(moved, scope)
-		if scope == "connectors" || scope == "agents" {
+		if scope == "connectors-center" || scope == "connector-state" || scope == "agents" {
 			if err := os.Rename(filepath.Join(stage, scope), target); err != nil {
 				rollback()
 				return Result{}, err

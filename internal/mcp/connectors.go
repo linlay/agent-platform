@@ -13,7 +13,7 @@ import (
 )
 
 func loadConnectorServers(sources connector.Sources) (map[string]ServerDefinition, error) {
-	packages, err := sources.LoadAll()
+	packages, err := sources.AssembleRuntime(ValidateConnectorPackages)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	credentials := map[string]string{}
 	credentialReady := false
 	if pkg.AuthMode == "token" {
-		err := connector.ReadJSON(filepath.Join(filepath.Dir(pkg.Dir), ".credentials", pkg.ID+".json"), &credentials)
+		err := connector.ReadJSON(filepath.Join(pkg.PersistentRoot(), ".credentials", pkg.ID+".json"), &credentials)
 		if err == nil {
 			credentialReady = true
 		} else if !os.IsNotExist(err) {
@@ -194,6 +194,22 @@ func ValidateConnectorPackage(pkg connector.Package) error {
 	for name := range pkg.MCP {
 		if _, err := connectorServer(pkg, name); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func ValidateConnectorPackages(packages []connector.Package) error {
+	seen := map[string]bool{}
+	for _, pkg := range packages {
+		if err := ValidateConnectorPackage(pkg); err != nil {
+			return err
+		}
+		for _, key := range pkg.ServerKeys() {
+			if seen[key] {
+				return fmt.Errorf("duplicate connector MCP server key %q", key)
+			}
+			seen[key] = true
 		}
 	}
 	return nil

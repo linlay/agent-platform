@@ -296,8 +296,9 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
-	RequestID string
-	RunID     string
+	ConnectorDirs map[string]string `json:"-"` // Frozen mounted connector runtime paths.
+	RequestID     string
+	RunID         string
 	// TempRoot and TempRoots are the process-start temporary-directory snapshot
 	// attached by trusted session producers. They are runtime-only so callers
 	// cannot expand file access by forging protocol fields.

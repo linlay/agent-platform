@@ -874,7 +874,7 @@ func runtimeAgentEnv(value any) map[string]string {
 	}
 }
 
-func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, centerDir string, skillKeys []string) ([]string, map[string]string, error) {
+func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, centerDir string, skillKeys []string, agents ...catalog.AgentDefinition) ([]string, map[string]string, error) {
 	_ = centerDir
 	runtimeEnv := contracts.CloneStringMap(agentEnv)
 	if err := agentconfig.ValidateUserEnvironment(runtimeEnv); err != nil {
@@ -894,7 +894,11 @@ func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, ce
 			continue
 		}
 		seen[skillKey] = struct{}{}
-		def, ok, err := catalog.ResolveRuntimeSkillDefinition(agentDir, skillKey)
+		agent := catalog.AgentDefinition{RuntimeDir: agentDir}
+		if len(agents) > 0 {
+			agent = agents[0]
+		}
+		def, ok, err := agent.ResolveSkillDefinition(skillKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolve skill runtime %q: %w", skillKey, err)
 		}

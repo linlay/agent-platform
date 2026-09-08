@@ -651,7 +651,7 @@ program_prepare_runtime_dirs() {
     "$LOG_DIR" \
     "$RUNTIME_ROOT/registries/providers" \
     "$RUNTIME_ROOT/registries/models" \
-    "$RUNTIME_ROOT/connectors" \
+    "$RUNTIME_ROOT/connectors-center" \
     "$RUNTIME_ROOT/registries/viewport-servers" \
     "$RUNTIME_ROOT/tools" \
     "$RUNTIME_ROOT/viewports" \

@@ -23,9 +23,9 @@ const (
 	maxArchiveContentBytes = int64(8 << 30)
 )
 
-var resourceScopes = []string{"agents", "skills-center", "tools", "teams", "connectors", "registries"}
+var resourceScopes = []string{"agents", "skills-center", "tools", "teams", "connectors-center", "registries"}
 
-var unitScopes = []string{"agents", "skills-center", "tools", "teams", "connectors"}
+var unitScopes = []string{"agents", "skills-center", "tools", "teams", "connectors-center"}
 
 type archiveInventory struct {
 	version              string
@@ -73,6 +73,11 @@ func extractArchive(sourcePath, expectedVersion, workRoot string) (archiveInvent
 		}
 		if relative == "" {
 			continue
+		}
+		// Older environment archives used connectors/. Normalize only the
+		// source package scope; generated runtime and credentials remain excluded.
+		if relative == "connectors" || strings.HasPrefix(relative, "connectors/") {
+			relative = "connectors-center" + strings.TrimPrefix(relative, "connectors")
 		}
 		key := archivePathKey(relative)
 		if _, exists := seen[key]; exists {

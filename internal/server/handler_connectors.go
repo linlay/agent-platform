@@ -100,7 +100,7 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) connectorSources() connector.Sources {
-	return connector.Sources{ExternalRoot: s.deps.Config.Paths.EffectiveConnectorsDir(), BuiltinRoot: s.deps.Config.Paths.BuiltinConnectorsDir}
+	return s.deps.Config.Paths.ConnectorSources()
 }
 
 func (s *Server) connectorMCPToolCount(serverKey string) int {

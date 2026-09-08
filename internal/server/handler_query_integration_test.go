@@ -236,7 +236,7 @@ func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
 			{Key: "other_search", Name: "other_search", Meta: map[string]any{"sourceType": "mcp", "serverKey": "other"}},
 		}},
 		setupRuntime: func(_ string, cfg *config.Config) {
-			writeMCPConnectorForTest(t, cfg.Paths.EffectiveConnectorsDir(), "flowcenter")
+			writeMCPConnectorForTest(t, cfg.Paths.EffectiveConnectorsCenterDir(), "flowcenter")
 			definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\nconnectorConfig:\n  connectors:\n    - flowcenter\n"
 			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
 				t.Fatalf("write REACT agent: %v", err)

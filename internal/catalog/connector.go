@@ -12,10 +12,10 @@ type ConnectorSkill struct {
 	Key         string
 	ConnectorID string
 	Name        string
-	SourceDir   string
+	RuntimeDir  string
 }
 
-// ConnectorMount freezes the package source for this Agent snapshot.
+// ConnectorMount freezes the shared package runtime path for this Agent snapshot.
 type ConnectorMount struct {
 	ID  string
 	Dir string
@@ -72,7 +72,7 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 		}
 	}
 	for _, id := range def.Connectors {
-		pkg, err := a.connectors.Load(id)
+		pkg, err := a.connectors.LoadRuntime(id)
 		if err != nil {
 			return err
 		}
@@ -85,7 +85,7 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 		def.ConnectorMounts = append(def.ConnectorMounts, ConnectorMount{ID: id, Dir: pkg.Dir})
 		def.ConnectorMCPServers = append(def.ConnectorMCPServers, pkg.ServerKeys()...)
 		for _, skill := range pkg.Skills {
-			def.ConnectorSkills = append(def.ConnectorSkills, ConnectorSkill{Key: connector.SkillKey(id, skill.Name), ConnectorID: id, Name: skill.Name, SourceDir: skill.Dir})
+			def.ConnectorSkills = append(def.ConnectorSkills, ConnectorSkill{Key: connector.SkillKey(id, skill.Name), ConnectorID: id, Name: skill.Name, RuntimeDir: skill.Dir})
 		}
 	}
 	return nil
@@ -94,7 +94,7 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 func (a *runtimeAgentAssembler) resolveEffectiveSkillSource(source EditableAgentSource, def AgentDefinition, key string) (string, error) {
 	for _, skill := range def.ConnectorSkills {
 		if skill.Key == key {
-			return skill.SourceDir, nil
+			return skill.RuntimeDir, nil
 		}
 	}
 	return a.resolveSkillSource(source, key)
@@ -103,7 +103,35 @@ func (a *runtimeAgentAssembler) resolveEffectiveSkillSource(source EditableAgent
 func (d AgentDefinition) ConnectorRuntimeSkillDirs() []string {
 	var result []string
 	for _, skill := range d.ConnectorSkills {
-		result = append(result, filepath.Join(d.RuntimeDir, "skills", skill.Key))
+		result = append(result, skill.RuntimeDir)
 	}
 	return result
+}
+
+// ResolveSkillDefinition resolves shared connector skills from the mounted
+// runtime package and ordinary skills from this Agent's generated directory.
+func (d AgentDefinition) ResolveSkillDefinition(key string) (SkillDefinition, bool, error) {
+	for _, skill := range d.ConnectorSkills {
+		if skill.Key == key {
+			return loadSkillDefinitionFromDir(skill.RuntimeDir, key, 0)
+		}
+	}
+	return ResolveRuntimeSkillDefinition(d.RuntimeDir, key)
+}
+
+func (d AgentDefinition) SkillInstructionsPath(key string) string {
+	for _, skill := range d.ConnectorSkills {
+		if skill.Key != key {
+			continue
+		}
+		for _, mount := range d.ConnectorMounts {
+			if mount.ID == skill.ConnectorID {
+				rel, err := filepath.Rel(mount.Dir, skill.RuntimeDir)
+				if err == nil {
+					return "@connectors/" + mount.ID + "/" + filepath.ToSlash(rel) + "/SKILL.md"
+				}
+			}
+		}
+	}
+	return "@skills/" + key + "/SKILL.md"
 }

@@ -13,6 +13,8 @@ import (
 type Sources struct {
 	ExternalRoot string
 	BuiltinRoot  string
+	RuntimeRoot  string
+	StateRoot    string
 }
 
 var ErrBuiltinReadOnly = errors.New("builtin connectors are platform-owned and cannot be modified or deleted")
@@ -36,6 +38,7 @@ func (s Sources) Load(id string) (Package, error) {
 	}
 	pkg, err := Load(root, id)
 	pkg.Builtin = IsBuiltin(id)
+	pkg.StateRoot = s.PersistentRoot()
 	return pkg, err
 }
 

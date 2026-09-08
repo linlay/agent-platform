@@ -153,8 +153,8 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	if paths.ProvidersDir != filepath.Join(cfg.Paths.RegistriesDir, "providers") {
 		t.Fatalf("providers dir = %q", paths.ProvidersDir)
 	}
-	if paths.ConnectorsDir != cfg.Paths.EffectiveConnectorsDir() {
-		t.Fatalf("mcp servers dir = %q", paths.ConnectorsDir)
+	if paths.ConnectorsCenterDir != cfg.Paths.EffectiveConnectorsCenterDir() {
+		t.Fatalf("mcp servers dir = %q", paths.ConnectorsCenterDir)
 	}
 	if paths.ViewportServersDir != filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers") {
 		t.Fatalf("viewport servers dir = %q", paths.ViewportServersDir)

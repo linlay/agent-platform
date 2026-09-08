@@ -63,3 +63,8 @@ agent.md
 # Logs
 *.log
 logs/
+
+# Imported connector sources, generated shared runtime and persistent authorization.
+/connectors-center/
+/ru-connectors/
+/connector-state/

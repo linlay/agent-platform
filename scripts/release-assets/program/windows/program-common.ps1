@@ -557,7 +557,7 @@ function Initialize-ProgramRuntime {
     $Script:LogDir, `
     (Join-Path $Script:RuntimeRoot 'registries/providers'), `
     (Join-Path $Script:RuntimeRoot 'registries/models'), `
-    (Join-Path $Script:RuntimeRoot 'connectors'), `
+    (Join-Path $Script:RuntimeRoot 'connectors-center'), `
     (Join-Path $Script:RuntimeRoot 'registries/viewport-servers'), `
     (Join-Path $Script:RuntimeRoot 'tools'), `
     (Join-Path $Script:RuntimeRoot 'viewports'), `

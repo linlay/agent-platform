@@ -18,7 +18,7 @@ func TestValidateCandidateIgnoresLegacyMCPRegistry(t *testing.T) {
 	if err != nil || string(data) != content {
 		t.Fatalf("validation changed ignored source: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "connectors", "invalid")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "connectors-center", "invalid")); !os.IsNotExist(err) {
 		t.Fatal("legacy source was imported as a connector")
 	}
 }

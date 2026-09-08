@@ -261,10 +261,13 @@ type platformMountDefinition struct {
 
 func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey string) (platformMountDefinition, bool) {
 	defs := map[string]platformMountDefinition{
-		"agent":         {destination: "/agent", overrideOnly: true},
-		"agents":        {destination: "/agents", source: func() (string, error) { return hostPath("RU_AGENTS_DIR", r.paths.EffectiveRUAgentsDir()) }},
-		"memory":        {destination: "/memory", overrideOnly: true},
-		"connectors":    {destination: "/connectors", source: func() (string, error) { return hostPath("paths.connectors-dir", r.paths.EffectiveConnectorsDir()) }},
+		"agent":  {destination: "/agent", overrideOnly: true},
+		"agents": {destination: "/agents", source: func() (string, error) { return hostPath("RU_AGENTS_DIR", r.paths.EffectiveRUAgentsDir()) }},
+		"memory": {destination: "/memory", overrideOnly: true},
+		"connectors-center": {destination: "/connectors-center", source: func() (string, error) {
+			return hostPath("paths.connectors-center-dir", r.paths.EffectiveConnectorsCenterDir())
+		}},
+		"connectors":    {destination: "/connectors", source: func() (string, error) { return hostPath("paths.ru-connectors-dir", r.paths.EffectiveRUConnectorsDir()) }},
 		"models":        {destination: "/models", source: func() (string, error) { return r.registryChildSource("models") }},
 		"owner":         {destination: "/owner", overrideOnly: true},
 		"providers":     {destination: "/providers", source: func() (string, error) { return r.registryChildSource("providers") }},

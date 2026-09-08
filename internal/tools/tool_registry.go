@@ -105,7 +105,7 @@ func isDeprecatedExternalToolConfig(path string, root map[string]any) bool {
 }
 
 func deprecatedExternalToolConfigError(path string) error {
-	return fmt.Errorf("deprecated external stdio tool config %s: move the subprocess to runtime/connectors with mcp.json type: stdio", path)
+	return fmt.Errorf("deprecated external stdio tool config %s: move the subprocess to runtime/connectors-center with mcp.json type: stdio", path)
 }
 
 func MergeToolDefinitions(base []api.ToolDetailResponse, runtime []api.ToolDetailResponse, mcp []api.ToolDetailResponse) []api.ToolDetailResponse {

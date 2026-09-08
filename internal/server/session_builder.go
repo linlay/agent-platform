@@ -177,6 +177,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		agentDef.RuntimeDir,
 		s.deps.Config.Paths.SkillsCenterDir,
 		agentDef.EffectiveSkills(),
+		agentDef,
 	)
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -244,6 +245,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ScopedFilePolicy:              scopedFilePolicy,
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
+		ConnectorDirs:                 runtimeConnectorDirs(agentDef),
 		SkillKeys:                     append([]string(nil), agentDef.EffectiveSkills()...),
 		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
 		ConnectorBinDirs:              append([]string(nil), agentDef.ConnectorBinDirs...),

@@ -14,7 +14,7 @@ import (
 func TestConnectorMountsGrantOnlySelectedReadonlyRoots(t *testing.T) {
 	root := t.TempDir()
 	packages := filepath.Join(root, "platform", "connectors")
-	def := catalog.AgentDefinition{Connectors: []string{"selected"}, ConnectorMounts: []catalog.ConnectorMount{{ID: "selected", Dir: filepath.Join(packages, "selected")}}, RuntimeDir: filepath.Join(root, "ru-agents", "demo"), Runtime: map[string]any{"environmentId": "linux"}, ConnectorSkills: []catalog.ConnectorSkill{{Key: "connector-8-selected-usage"}}}
+	def := catalog.AgentDefinition{Connectors: []string{"selected"}, ConnectorMounts: []catalog.ConnectorMount{{ID: "selected", Dir: filepath.Join(packages, "selected")}}, RuntimeDir: filepath.Join(root, "ru-agents", "demo"), Runtime: map[string]any{"environmentId": "linux"}, ConnectorSkills: []catalog.ConnectorSkill{{Key: "usage", RuntimeDir: filepath.Join(packages, "selected", "skills", "usage")}}}
 	selected := filepath.Join(packages, "selected", "bin", "command")
 	sibling := filepath.Join(packages, "sibling", "bin", "command")
 	skill := filepath.Join(def.ConnectorRuntimeSkillDirs()[0], "SKILL.md")

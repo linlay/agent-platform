@@ -11,8 +11,9 @@ MCP registry、session client、availability gate、后台同步/重连与热重
 ## 连接器与 MCP
 
 ```text
-runtime/connectors/<id>/{connector.json,mcp.json}
-  -> MCP registry 本地校验
+runtime/connectors-center/<id>/{connector.json,mcp.json} + Platform builtin
+  -> 本地校验并组装 runtime/ru-connectors/<id>
+  -> MCP registry
   -> 后台 official SDK initialize + notifications/initialized
   -> per-server session / tools/list
   -> 已挂载 connector 的 Agent run 工具集合

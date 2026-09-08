@@ -26,7 +26,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	if err := os.WriteFile(path, []byte(base+"connectorConfig:\n  connectors:\n    - builtin.dbx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: agents, BuiltinConnectorsDir: connectorRoot, ConnectorsDir: filepath.Join(root, "connectors"), RUAgentsDir: filepath.Join(root, "ru-agents"), TeamsDir: filepath.Join(root, "teams"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: agents, BuiltinConnectorsDir: connectorRoot, ConnectorsCenterDir: filepath.Join(root, "connectors"), RUAgentsDir: filepath.Join(root, "ru-agents"), TeamsDir: filepath.Join(root, "teams"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	for _, name := range []string{"builtin-dbx", "builtin-httpx"} {
 		legacy := filepath.Join(cfg.Paths.SkillsCenterDir, name)
 		if err := os.MkdirAll(legacy, 0o755); err != nil {
@@ -36,6 +36,11 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	otherPath := filepath.Join(agents, "other", "agent.yml")
+	writeRuntimeAssemblerFile(t, otherPath, strings.ReplaceAll(base, "key: demo", "key: other")+"connectorConfig:\n  connectors:\n    - builtin.dbx\n")
+	sourceSkill := filepath.Join(connectorRoot, "builtin.dbx", "skills", "builtin-dbx")
+	writeRuntimeAssemblerFile(t, filepath.Join(sourceSkill, ".config", "dbx", "default.json"), "default")
+	writeRuntimeAssemblerFile(t, filepath.Join(agents, "demo", ".config", "dbx", "default.json"), "demo override")
 	registry, err := NewFileRegistry(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -47,14 +52,27 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	if !ok {
 		t.Fatalf("agent unavailable: %#v", registry.adminAgents)
 	}
-	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 1 || len(def.ConnectorMounts) != 1 || def.ConnectorMounts[0].Dir != filepath.Join(connectorRoot, "builtin.dbx") {
+	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 1 || len(def.ConnectorMounts) != 1 || def.ConnectorMounts[0].Dir != filepath.Join(cfg.Paths.EffectiveRUConnectorsDir(), "builtin.dbx") {
 		t.Fatalf("bad mounted definition %#v", def)
 	}
 	key := def.EffectiveSkills()[0]
+	other, ok := registry.AgentDefinition("other")
+	if !ok || other.ConnectorSkills[0].RuntimeDir != def.ConnectorSkills[0].RuntimeDir {
+		t.Fatal("Agents do not share the same skill directory")
+	}
+	if _, err := os.Stat(filepath.Join(def.RuntimeDir, "skills", key)); !os.IsNotExist(err) {
+		t.Fatal("connector skill copied into Agent runtime")
+	}
+	if def.SkillInstructionsPath(key) != "@connectors/builtin.dbx/skills/builtin-dbx/SKILL.md" {
+		t.Fatal(def.SkillInstructionsPath(key))
+	}
+	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, ".config", "dbx", "default.json"), "demo override")
+	assertRuntimeAssemblerContent(t, filepath.Join(other.RuntimeDir, ".config", "dbx", "default.json"), "default")
+
 	if !def.IsConnectorSkill(key) {
 		t.Fatal("lost connector origin")
 	}
-	if _, err := os.Stat(filepath.Join(def.RuntimeDir, "skills", key, "references", "commands.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(def.ConnectorSkills[0].RuntimeDir, "references", "commands.md")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.Paths.SkillsCenterDir, key)); !os.IsNotExist(err) {

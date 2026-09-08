@@ -313,7 +313,7 @@ func backgroundWatchEntries(cfg config.Config) []watchEntry {
 		{filepath.Join(cfg.Paths.RegistriesDir, "providers"), "providers"},
 		{cfg.Paths.ToolsDir, "tools"},
 		{filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports"), "viewports"},
-		{cfg.Paths.EffectiveConnectorsDir(), "connectors"},
+		{cfg.Paths.EffectiveConnectorsCenterDir(), "connectors"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"), "viewport-servers"},
 	}
 }

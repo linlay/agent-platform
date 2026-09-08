@@ -26,7 +26,7 @@ func validateCandidate(root string) error {
 	if _, err := models.LoadModelRegistry(registriesDir); err != nil {
 		return fmt.Errorf("validate Model/Provider Registry: %w", err)
 	}
-	if _, err := mcp.NewRegistry(filepath.Join(root, "connectors"), builtinRoot); err != nil {
+	if _, err := mcp.NewRegistry(filepath.Join(root, "connectors-center"), builtinRoot); err != nil {
 		return fmt.Errorf("validate MCP Registry: %w", err)
 	}
 	toolDefinitions, err := tools.LoadRuntimeToolDefinitions(filepath.Join(root, "tools"))
@@ -36,7 +36,9 @@ func validateCandidate(root string) error {
 	cfg := config.Config{
 		Paths: config.PathsConfig{
 			BuiltinConnectorsDir: builtinRoot,
-			ConnectorsDir:        filepath.Join(root, "connectors"),
+			ConnectorsCenterDir:  filepath.Join(root, "connectors-center"),
+			RUConnectorsDir:      filepath.Join(root, ".validation", "ru-connectors"),
+			ConnectorStateDir:    filepath.Join(root, "connector-state"),
 			RegistriesDir:        registriesDir,
 			ToolsDir:             filepath.Join(root, "tools"),
 			AgentsDir:            filepath.Join(root, "agents"),

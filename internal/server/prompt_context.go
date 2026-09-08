@@ -441,7 +441,7 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 			continue
 		}
 		seen[skillID] = struct{}{}
-		definition, ok, err := catalog.ResolveRuntimeSkillDefinition(def.RuntimeDir, skillID)
+		definition, ok, err := def.ResolveSkillDefinition(skillID)
 		if err != nil {
 			log.Printf("[server][skill-catalog][warn] resolve skill %s failed: %v", skillID, err)
 			continue
@@ -449,7 +449,7 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 		if !ok {
 			continue
 		}
-		blocks = append(blocks, skillCatalogBlock(definition, "@skills/"+definition.Key+"/SKILL.md"))
+		blocks = append(blocks, skillCatalogBlock(definition, def.SkillInstructionsPath(definition.Key)))
 	}
 	for _, skill := range mustUseSkills {
 		normalized := strings.ToLower(strings.TrimSpace(skill.Key))
@@ -718,26 +718,27 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		agentSkillsDir = cleanOrEmpty(filepath.Join(agentDir, "skills"))
 	}
 	return contracts.LocalPaths{
-		RuntimeHome:        runtimeHome,
-		WorkspaceDir:       workspaceRoot,
-		ChatDir:            chatDir,
-		RootDir:            cleanOrEmpty(paths.RootDir),
-		PanDir:             cleanOrEmpty(paths.PanDir),
-		AgentDir:           agentDir,
-		AgentsDir:          cleanOrEmpty(paths.AgentsDir),
-		RUAgentsDir:        cleanOrEmpty(ruAgentsDir),
-		TeamsDir:           cleanOrEmpty(paths.TeamsDir),
-		ChatsDir:           cleanOrEmpty(paths.ChatsDir),
-		MemoryDir:          cleanOrEmpty(paths.MemoryDir),
-		SkillsDir:          agentSkillsDir,
-		AutomationsDir:     cleanOrEmpty(paths.AutomationsDir),
-		OwnerDir:           cleanOrEmpty(paths.OwnerDir),
-		ModelsDir:          cleanOrEmpty(filepath.Join(paths.RegistriesDir, "models")),
-		ProvidersDir:       cleanOrEmpty(filepath.Join(paths.RegistriesDir, "providers")),
-		ConnectorsDir:      cleanOrEmpty(paths.EffectiveConnectorsDir()),
-		ViewportServersDir: cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
-		ToolsDir:           cleanOrEmpty(paths.ToolsDir),
-		ViewportsDir:       cleanOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(paths.RegistriesDir)), "viewports")),
+		RuntimeHome:         runtimeHome,
+		WorkspaceDir:        workspaceRoot,
+		ChatDir:             chatDir,
+		RootDir:             cleanOrEmpty(paths.RootDir),
+		PanDir:              cleanOrEmpty(paths.PanDir),
+		AgentDir:            agentDir,
+		AgentsDir:           cleanOrEmpty(paths.AgentsDir),
+		RUAgentsDir:         cleanOrEmpty(ruAgentsDir),
+		TeamsDir:            cleanOrEmpty(paths.TeamsDir),
+		ChatsDir:            cleanOrEmpty(paths.ChatsDir),
+		MemoryDir:           cleanOrEmpty(paths.MemoryDir),
+		SkillsDir:           agentSkillsDir,
+		AutomationsDir:      cleanOrEmpty(paths.AutomationsDir),
+		OwnerDir:            cleanOrEmpty(paths.OwnerDir),
+		ModelsDir:           cleanOrEmpty(filepath.Join(paths.RegistriesDir, "models")),
+		ProvidersDir:        cleanOrEmpty(filepath.Join(paths.RegistriesDir, "providers")),
+		ConnectorsCenterDir: cleanOrEmpty(paths.EffectiveConnectorsCenterDir()),
+		RUConnectorsDir:     cleanOrEmpty(paths.EffectiveRUConnectorsDir()),
+		ViewportServersDir:  cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
+		ToolsDir:            cleanOrEmpty(paths.ToolsDir),
+		ViewportsDir:        cleanOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(paths.RegistriesDir)), "viewports")),
 	}, nil
 }
 
@@ -825,6 +826,10 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	var modelsDir string
 	var providersDir string
 	var connectorsDir string
+	var connectorsCenterDir string
+	if len(def.ConnectorMounts) > 0 {
+		connectorsDir = "/connectors"
+	}
 	var viewportServersDir string
 	var toolsDir string
 	var viewportsDir string
@@ -846,6 +851,8 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 			providersDir = "/providers"
 		case "connectors":
 			connectorsDir = "/connectors"
+		case "connectors-center":
+			connectorsCenterDir = "/connectors-center"
 		case "viewport-servers":
 			viewportServersDir = "/viewport-servers"
 		case "tools":
@@ -856,25 +863,26 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	}
 
 	return contracts.SandboxPaths{
-		WorkspaceDir:       "/workspace",
-		ChatDir:            "/chat",
-		RootDir:            ifNonEmpty(cfg.Paths.RootDir, "/root"),
-		SkillsDir:          boolPath(hasSkillsDir, "/skills"),
-		SkillsCenterDir:    skillsCenterDir,
-		PanDir:             ifNonEmpty(cfg.Paths.PanDir, "/pan"),
-		AgentDir:           boolPath(hasAgentDir, "/agent"),
-		OwnerDir:           ownerDir,
-		RUAgentsDir:        ruAgentsDir,
-		TeamsDir:           teamsDir,
-		AutomationsDir:     automationsDir,
-		ChatsDir:           chatsDir,
-		MemoryDir:          memoryDir,
-		ModelsDir:          modelsDir,
-		ProvidersDir:       providersDir,
-		ConnectorsDir:      connectorsDir,
-		ViewportServersDir: viewportServersDir,
-		ToolsDir:           toolsDir,
-		ViewportsDir:       viewportsDir,
+		WorkspaceDir:        "/workspace",
+		ChatDir:             "/chat",
+		RootDir:             ifNonEmpty(cfg.Paths.RootDir, "/root"),
+		SkillsDir:           boolPath(hasSkillsDir, "/skills"),
+		SkillsCenterDir:     skillsCenterDir,
+		PanDir:              ifNonEmpty(cfg.Paths.PanDir, "/pan"),
+		AgentDir:            boolPath(hasAgentDir, "/agent"),
+		OwnerDir:            ownerDir,
+		RUAgentsDir:         ruAgentsDir,
+		TeamsDir:            teamsDir,
+		AutomationsDir:      automationsDir,
+		ChatsDir:            chatsDir,
+		MemoryDir:           memoryDir,
+		ModelsDir:           modelsDir,
+		ProvidersDir:        providersDir,
+		RUConnectorsDir:     connectorsDir,
+		ConnectorsCenterDir: connectorsCenterDir,
+		ViewportServersDir:  viewportServersDir,
+		ToolsDir:            toolsDir,
+		ViewportsDir:        viewportsDir,
 	}
 }
 
@@ -916,7 +924,9 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		case "providers":
 			paths.ProvidersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "providers"))
 		case "connectors":
-			paths.ConnectorsDir = absOrEmpty(cfg.Paths.EffectiveConnectorsDir())
+			paths.RUConnectorsDir = absOrEmpty(cfg.Paths.EffectiveRUConnectorsDir())
+		case "connectors-center":
+			paths.ConnectorsCenterDir = absOrEmpty(cfg.Paths.EffectiveConnectorsCenterDir())
 		case "viewport-servers":
 			paths.ViewportServersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"))
 		case "tools":
@@ -924,6 +934,9 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		case "viewports":
 			paths.ViewportsDir = absOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports"))
 		}
+	}
+	if len(def.ConnectorMounts) > 0 {
+		paths.RUConnectorsDir = absOrEmpty(cfg.Paths.EffectiveRUConnectorsDir())
 	}
 	return paths
 }

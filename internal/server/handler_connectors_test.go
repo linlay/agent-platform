@@ -33,7 +33,7 @@ func writeMCPConnectorForTest(t *testing.T, root, id string) {
 
 func TestConnectorDefinitionSaveConflictAndRollback(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
-	root := fixture.server.deps.Config.Paths.EffectiveConnectorsDir()
+	root := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	writeMCPConnectorForTest(t, root, "demo")
 	previous, err := connector.ReadFile(root, "demo", "mcp.json")
 	if err != nil {
@@ -89,7 +89,7 @@ func TestConnectorSkillsExcludedFromMustUseCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range result.Skills {
-		if strings.HasPrefix(skill.Key, "connector-") {
+		if skill.Key == "builtin-dbx" || strings.HasPrefix(skill.Key, "connector-") {
 			t.Fatal("connector skill is selectable")
 		}
 	}
@@ -102,7 +102,7 @@ func TestBuiltinConnectorAPIListsReadsAndRejectsMutation(t *testing.T) {
 	if err := connector.WriteBuiltin(filepath.Join(root, "builtin.httpx"), "httpx", "0.1.8", "darwin"); err != nil {
 		t.Fatal(err)
 	}
-	external := fixture.server.deps.Config.Paths.EffectiveConnectorsDir()
+	external := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	writeMCPConnectorForTest(t, external, "remote")
 	for _, endpoint := range []string{"/api/connectors", "/api/admin/connectors"} {
 		rec := httptest.NewRecorder()

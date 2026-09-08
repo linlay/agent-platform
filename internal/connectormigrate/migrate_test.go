@@ -54,7 +54,7 @@ func TestMigrationPreservesCredentialsOutsidePackageAndSwitchesAgent(t *testing.
 	if strings.Contains(string(converted), "mcp-servers") || !strings.Contains(string(converted), "connectorConfig:\n  connectors:\n    - search") || !strings.Contains(string(converted), "UNCHANGED: ${UNCHANGED}") {
 		t.Fatalf("agent conversion %s", converted)
 	}
-	pkg, err := connector.Load(filepath.Join(root, "connectors"), "search")
+	pkg, err := connector.Load(filepath.Join(root, "connectors-center"), "search")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestMigrationPreservesCredentialsOutsidePackageAndSwitchesAgent(t *testing.
 			t.Fatal("secret in package")
 		}
 	}
-	registry, err := mcp.NewRegistry(filepath.Join(root, "connectors"))
+	registry, err := mcp.NewRegistryWithSources(connector.Sources{ExternalRoot: filepath.Join(root, "connectors-center"), StateRoot: filepath.Join(root, "connector-state")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestMigrationMovesBuiltinSkillsAndCopiesWithoutLegacyMCP(t *testing.T) {
 		}
 	}
 	preview, err := Run(root, false)
-	if err != nil || preview.Applied || len(preview.Agents) != 1 || len(preview.Retired) != 5 {
+	if err != nil || preview.Applied || len(preview.Agents) != 1 || len(preview.Retired) != 6 {
 		t.Fatalf("preview: %#v %v", preview, err)
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != original {
@@ -176,6 +176,9 @@ func TestMigrationMovesBuiltinSkillsAndCopiesWithoutLegacyMCP(t *testing.T) {
 		t.Fatalf("unrelated bytes changed: %s", converted)
 	}
 	for _, scope := range result.Retired {
+		if scope == "connectors" {
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(scope))); !os.IsNotExist(err) {
 			t.Fatalf("retired copy retained: %s %v", scope, err)
 		}

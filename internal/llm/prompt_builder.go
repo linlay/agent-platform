@@ -197,10 +197,10 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 		lines = append(lines, `- file_glob and file_grep must pass an explicit path, normally "@chat" or "@temp".`)
 	}
 	if hasTool("file_read", "file_write", "file_edit", "artifact_publish", "vision_recognize") {
-		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, @owner, or @temp, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
+		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, @connectors, @owner, or @temp, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
 	}
 	if hasSkills {
-		lines = append(lines, "- Load an applicable skill directly from @skills/<skillId>/SKILL.md with file_read. Do not search or traverse directories to discover its location.")
+		lines = append(lines, "- Load an applicable skill with file_read using the exact instructionsPath in its catalog entry (@skills or @connectors). Do not search or traverse directories to discover its location.")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -390,7 +390,8 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
 	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
-	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "连接器安装目录")
+	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "外部连接器包来源目录")
+	appendContextDir(lines, "ru_connectors_dir", paths.RUConnectorsDir, "Platform 生成的共享连接器运行目录，禁止人工编辑")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
 }
@@ -411,7 +412,8 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
 	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
-	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "连接器安装目录")
+	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "外部连接器包来源目录")
+	appendContextDir(lines, "ru_connectors_dir", paths.RUConnectorsDir, "Platform 生成的共享连接器运行目录，禁止人工编辑")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
 }

@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
 )
@@ -287,10 +288,15 @@ type FileRegistry struct {
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
+	for _, generated := range []string{cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.EffectiveRUConnectorsDir()} {
+		if connector.RootsOverlap(generated, cfg.Paths.AgentsDir) || connector.RootsOverlap(generated, cfg.Paths.SkillsCenterDir) {
+			return nil, fmt.Errorf("generated runtime overlaps Agent or Skill sources")
+		}
+	}
 	if err := cleanupEditableSkillImportStaging(cfg.Paths.SkillsCenterDir); err != nil {
 		return nil, fmt.Errorf("cleanup skill import staging: %w", err)
 	}
-	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsDir(), cfg.Paths.BuiltinConnectorsDir)
+	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsCenterDir(), cfg.Paths.BuiltinConnectorsDir, cfg.Paths.EffectiveRUConnectorsDir(), cfg.Paths.EffectiveConnectorStateDir())
 	if err != nil {
 		return nil, err
 	}
@@ -319,6 +325,11 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 //
 // Other reasons fall through to a full reload.
 func (r *FileRegistry) Reload(_ context.Context, reason string) error {
+	if reason != "teams" && reason != "skills" {
+		if _, err := r.assembler.connectors.AssembleRuntime(nil); err != nil {
+			return err
+		}
+	}
 	switch reason {
 	case "agents":
 		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsCenterDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)

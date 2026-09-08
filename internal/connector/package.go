@@ -32,12 +32,13 @@ type Manifest struct {
 // Package is an immutable, secret-free description of an installed package.
 type Package struct {
 	Manifest
-	Builtin bool
-	Dir     string
-	BinDir  string
-	Skills  []Skill
-	MCP     map[string]map[string]any
-	CLI     map[string]any
+	Builtin   bool
+	StateRoot string
+	Dir       string
+	BinDir    string
+	Skills    []Skill
+	MCP       map[string]map[string]any
+	CLI       map[string]any
 }
 
 type Skill struct {

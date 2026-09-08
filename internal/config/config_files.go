@@ -46,7 +46,10 @@ func loadYAMLMap(path string) (map[string]any, error) {
 }
 
 func (c *Config) applyPathsValues(values map[string]any) {
-	c.Paths.ConnectorsDir = stringValue(anyValue(values["connectors-dir"], c.Paths.ConnectorsDir), c.Paths.ConnectorsDir)
+	c.Paths.LegacyConnectorsDir = stringValue(anyValue(values["connectors-dir"], c.Paths.LegacyConnectorsDir), c.Paths.LegacyConnectorsDir)
+	c.Paths.ConnectorsCenterDir = stringValue(anyValue(values["connectors-center-dir"], c.Paths.ConnectorsCenterDir), c.Paths.ConnectorsCenterDir)
+	c.Paths.RUConnectorsDir = stringValue(anyValue(values["ru-connectors-dir"], c.Paths.RUConnectorsDir), c.Paths.RUConnectorsDir)
+	c.Paths.ConnectorStateDir = stringValue(anyValue(values["connector-state-dir"], c.Paths.ConnectorStateDir), c.Paths.ConnectorStateDir)
 	c.Paths.RegistriesDir = stringValue(anyValue(values["registries-dir"], c.Paths.RegistriesDir), c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = stringValue(anyValue(values["tools-dir"], c.Paths.ToolsDir), c.Paths.ToolsDir)
 	c.Paths.OwnerDir = stringValue(anyValue(values["owner-dir"], c.Paths.OwnerDir), c.Paths.OwnerDir)

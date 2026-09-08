@@ -84,7 +84,10 @@ type PathsConfig struct {
 	// BuiltinConnectorsDir is set by app assembly from the verified Platform
 	// bundle. It is not a user-configurable runtime path.
 	BuiltinConnectorsDir string
-	ConnectorsDir        string
+	ConnectorsCenterDir  string
+	RUConnectorsDir      string
+	ConnectorStateDir    string
+	LegacyConnectorsDir  string
 	RegistriesDir        string
 	ToolsDir             string
 	OwnerDir             string
@@ -121,15 +124,15 @@ func (p PathsConfig) EffectiveRUAgentsDir() string {
 	return ""
 }
 
-func (p PathsConfig) EffectiveConnectorsDir() string {
-	if value := strings.TrimSpace(p.ConnectorsDir); value != "" {
+func (p PathsConfig) EffectiveConnectorsCenterDir() string {
+	if value := strings.TrimSpace(p.ConnectorsCenterDir); value != "" {
 		return value
 	}
 	if value := strings.TrimSpace(p.AgentsDir); value != "" {
-		return filepath.Join(filepath.Dir(filepath.Clean(value)), "connectors")
+		return filepath.Join(filepath.Dir(filepath.Clean(value)), "connectors-center")
 	}
 	if value := strings.TrimSpace(p.RegistriesDir); value != "" {
-		return filepath.Join(filepath.Dir(filepath.Clean(value)), "connectors")
+		return filepath.Join(filepath.Dir(filepath.Clean(value)), "connectors-center")
 	}
 	return ""
 }
@@ -683,6 +686,9 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	if err := validateExplicitDirEnv("AP_RUNTIME_PAN_DIR", cfg.Paths.PanDir); err != nil {
 		return Config{}, err
 	}
+	if err := validateConnectorPaths(cfg.Paths); err != nil {
+		return Config{}, err
+	}
 	if err := validateRUAgentsDir(cfg.Paths); err != nil {
 		return Config{}, err
 	}
@@ -701,19 +707,21 @@ func validateRUAgentsDir(paths PathsConfig) error {
 		return fmt.Errorf("paths.ru-agents-dir must not be a filesystem root")
 	}
 	for name, candidate := range map[string]string{
-		"connectors-dir":    paths.EffectiveConnectorsDir(),
-		"registries-dir":    paths.RegistriesDir,
-		"tools-dir":         paths.ToolsDir,
-		"owner-dir":         paths.OwnerDir,
-		"agents-dir":        paths.AgentsDir,
-		"teams-dir":         paths.TeamsDir,
-		"root-dir":          paths.RootDir,
-		"automations-dir":   paths.AutomationsDir,
-		"chats-dir":         paths.ChatsDir,
-		"memory-dir":        paths.MemoryDir,
-		"kbase-dir":         paths.KBaseDir,
-		"pan-dir":           paths.PanDir,
-		"skills-center-dir": paths.SkillsCenterDir,
+		"connectors-center-dir": paths.EffectiveConnectorsCenterDir(),
+		"ru-connectors-dir":     paths.EffectiveRUConnectorsDir(),
+		"connector-state-dir":   paths.EffectiveConnectorStateDir(),
+		"registries-dir":        paths.RegistriesDir,
+		"tools-dir":             paths.ToolsDir,
+		"owner-dir":             paths.OwnerDir,
+		"agents-dir":            paths.AgentsDir,
+		"teams-dir":             paths.TeamsDir,
+		"root-dir":              paths.RootDir,
+		"automations-dir":       paths.AutomationsDir,
+		"chats-dir":             paths.ChatsDir,
+		"memory-dir":            paths.MemoryDir,
+		"kbase-dir":             paths.KBaseDir,
+		"pan-dir":               paths.PanDir,
+		"skills-center-dir":     paths.SkillsCenterDir,
 	} {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {

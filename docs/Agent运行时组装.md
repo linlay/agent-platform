@@ -7,7 +7,9 @@ Agent Platform 将可编辑事实源与执行目录分离：
 ```text
 <AP_RUNTIME_DIR>/
 ├── agents/                         # Agent 定义与 Agent 自有 Skill
-├── connectors/                     # 外部连接器；内置包由 Platform 随包提供
+├── connectors-center/              # 导入、下载的外部连接器原包
+├── ru-connectors/                   # 所有连接器共享运行副本，Platform 生成
+├── connector-state/                 # 持久化授权与受管 CLI 状态
 ├── skills-center/                  # 共享 Skill；.package/ 保存技能包控制状态
 └── ru-agents/                      # Platform 生成，禁止人工编辑
     ├── .staging/
@@ -19,9 +21,9 @@ Agent Platform 将可编辑事实源与执行目录分离：
         └── .config/
 ```
 
-`agents/` 和 `skills-center/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>`。唯一的共享目录 run-scoped 例外是 query 的 `mustUseSkills` 选中了 Agent 未配置的技能中心 Skill：该 run 只读访问该选中 Skill 的 canonical 目录，不修改稳定 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
+`agents/` 和 `skills-center/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>`。普通技能的共享目录 run-scoped 例外是 query 的 `mustUseSkills` 选中了 Agent 未配置的技能中心 Skill：该 run 只读访问该选中 Skill 的 canonical 目录，不修改稳定 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
 
-连接器通过 `connectorConfig.connectors` 挂载后，其技能用保留的 `connector-<id长度>-<id>-<skillName>` key 自动合入 `ru-agents`，复用技能资源、配置、runtime env 和 hooks 组装；不写入普通 skills 配置或技能中心。内置包和外部包经统一 Sources 解析，包实际来源随 Agent snapshot 保存。连接器 bin 从解析后的包目录加入当前 Agent 的 PATH，Container 自动只读挂载所选包。连接器技能永远不能作为 mustUseSkills，详见 [连接器](连接器.md)。
+连接器通过 `connectorConfig.connectors` 挂载后，自动导入技能元数据；技能正文、资源、runtime env 和 hooks 直接读取共享 `ru-connectors/<id>/skills`，不再复制进 `ru-agents`。逻辑指令路径为 `@connectors/<id>/skills/<name>/SKILL.md`；`.config` 默认值仍按 Agent 独立合并。连接器 bin 从共享运行包加入当前 Agent 的 PATH，Container 只读挂载所选包。连接器技能不能作为 mustUseSkills，详见 [连接器](连接器.md)。
 
 Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每个子技能平铺到 `skills-center/<skill-id>/`，只在 `skills-center/.package/<package-id>.json` 保存包版本、归档摘要和子技能归属，用于整包更新、卸载与回滚。隐藏 `.package`、安装 staging 和 backup 都不进入 Skill Catalog；技能包 ZIP 仅作为临时请求输入，不在 `skills-center` 持久化。
 
@@ -38,7 +40,7 @@ paths:
   ru-agents-dir: ./runtime/ru-agents
 ```
 
-该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-center、connectors、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等根目录相同或互相包含。
+该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-center、connectors-center、ru-connectors、connector-state、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等根目录相同或互相包含。
 
 ## Skill 来源选择
 
@@ -50,7 +52,7 @@ paths:
 4. 两处都不存在或技能中心 Skill 非法时，Agent 无效。
 5. 重复 ID 保留第一次。
 
-选中的 Skill 会完整复制到 `ru-agents/<agentKey>/skills/<id>`，包括 `SKILL.md`、`.bash-hooks`、`.runtime-env.json`、scripts、references 和 assets。Standalone YAML Agent 会在运行目录生成规范的 `agent.yml`，只能使用技能中心 Skill。
+普通 Agent 自有或技能中心的选中 Skill 会完整复制到 `ru-agents/<agentKey>/skills/<id>`，包括 `SKILL.md`、`.bash-hooks`、`.runtime-env.json`、scripts、references 和 assets。Standalone YAML Agent 会在运行目录生成规范的 `agent.yml`，只能使用技能中心 Skill。
 
 目录型 Agent 的专属 Skill 可由 Admin Agent 页面导入。导入时 Key 自动取 ZIP 内 `SKILL.md` frontmatter 的 `key`，没有 `key` 则取 `name`；ZIP 只写入 `<agentsDir>/<agentKey>/skills/<id>`，并自动将 ID 加到 `skillConfig.skills`，它永远不复制到 `skills-center`。若与技能中心 Skill 同名，该 Agent 使用专属版本，其他 Agent 继续使用技能中心版本。专属 Skill 的删除仅能在该 Agent 的管理入口完成；技能中心不会展示、编辑或删除它。
 
@@ -108,7 +110,7 @@ ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子�
 - 热重载候选校验失败不修改该 Agent 的稳定目录，但新 Catalog 不再发布其定义。
 - Agent 删除后清理对应稳定目录；活跃 Run 不主动中断。
 
-`agents/`（包括 Agent 自有 Skill）、`skills-center/` 或 `connectors/` 变化都会触发全量 Agent 重组。`ru-agents/` 本身不加入 watcher，避免生成循环。既有 QuerySession 的 prompt、env 和 Team snapshot 不重算；后续打开的 Skill 文件、脚本、hook 和 `.config` 会读取稳定目录中的新内容。
+`agents/`（包括 Agent 自有 Skill）、`skills-center/` 或 `connectors-center/` 变化都会触发全量 Agent 重组。`ru-agents/` 和 `ru-connectors/` 本身不加入 watcher，避免生成循环。既有 QuerySession 的 prompt、env 和 Team snapshot 不重算；后续打开的 Skill 文件、脚本、hook 和 `.config` 会读取稳定目录中的新内容。
 
 ## Sandbox 与保留变量
 

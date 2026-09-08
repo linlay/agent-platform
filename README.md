@@ -180,7 +180,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` / `desktop_cdp` 优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
-外部连接器安装在 `<AP_RUNTIME_DIR>/connectors/<id>`；内置连接器由 Platform 直接从随包 `connectors/` 读取，不可修改或删除。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加 bin PATH、导入全部技能并接入 MCP 工具。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio、严格 `2025-11-25` 与后台 tool sync 保持不变。包结构、管理接口、迁移步骤及未实现的认证生命周期见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
+外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。两类包统一组装到共享 `<AP_RUNTIME_DIR>/ru-connectors/<id>`，持久化授权状态独立存放 `connector-state/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加共享运行包 bin PATH、导入全部技能元数据并接入 MCP 工具；技能正文和资源从 `@connectors/<id>/skills/...` 读取，不再复制到各 Agent 的 ru-agents。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio、严格 `2025-11-25` 与后台 tool sync 保持不变。包结构、管理接口、迁移步骤及未实现的认证生命周期见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
 ### 根 `.env.example`
 
@@ -199,7 +199,7 @@ Auth 默认开启，默认公钥文件为 `configs/local-public-key.pem`；相�
 
 以下低频项统一改到 `configs/runtime.yml`：
 
-- 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.ru-agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-center-dir`、`paths.connectors-dir`
+- 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.ru-agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-center-dir`、`paths.connectors-center-dir`、`paths.ru-connectors-dir`、`paths.connector-state-dir`
 - memory 深度调优：`memory.*`
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。

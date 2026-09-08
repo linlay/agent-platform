@@ -39,6 +39,23 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "configs", "tools.yml"), []byte("bash:\n  git-bash:\n    enabled: false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	oldPackage := filepath.Join(root, "runtime", "connectors", "demo")
+	if err := os.MkdirAll(oldPackage, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldPackage, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldPackage, "cli.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldState := filepath.Join(root, "runtime", "connectors", ".credentials")
+	if err := os.MkdirAll(oldState, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldState, "demo.json"), []byte(`{"TOKEN":"test-state"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	application, err := New(ctx, config.LoadOptions{ConfigDir: root})
@@ -50,6 +67,14 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	application.Router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("health: %d %s", recorder.Code, recorder.Body.String())
+	}
+	for _, path := range []string{"connectors-center/demo/connector.json", "ru-connectors/demo/connector.json", "connector-state/.credentials/demo.json"} {
+		if _, err := os.Stat(filepath.Join(root, "runtime", path)); err != nil {
+			t.Fatalf("startup did not prepare %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(oldPackage); !os.IsNotExist(err) {
+		t.Fatal("startup retained old package location")
 	}
 	data, err := os.ReadFile(legacy)
 	if err != nil || string(data) != string(content) {

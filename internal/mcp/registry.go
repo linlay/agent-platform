@@ -41,6 +41,14 @@ func NewRegistry(root string, builtinRoots ...string) (*Registry, error) {
 	return registry, nil
 }
 
+func NewRegistryWithSources(sources connector.Sources) (*Registry, error) {
+	r := &Registry{sources: sources, servers: map[string]ServerDefinition{}}
+	if err := r.Reload(); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 func (r *Registry) Reload() error {
 	servers, err := loadConnectorServers(r.sources)
 	if err != nil {

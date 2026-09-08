@@ -15,7 +15,9 @@
 #   memory-dir: ./runtime/memory
 #   kbase-dir: ./runtime/kbase
 #   pan-dir: ./runtime/pan
-#   connectors-dir: ./runtime/connectors # 外部连接器；内置连接器与技能随 Platform 提供
+#   connectors-center-dir: ./runtime/connectors-center # 导入、下载的外部连接器包
+#   ru-connectors-dir: ./runtime/ru-connectors # 所有连接器共享运行副本，Platform 生成
+#   connector-state-dir: ./runtime/connector-state # 登录凭据及受管 CLI 持久化状态
 #   skills-center-dir: ./runtime/skills-center
 
 skills:
