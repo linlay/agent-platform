@@ -46,12 +46,6 @@ type Skill struct {
 	Dir  string
 }
 
-// SkillKey is a reserved, filesystem-safe identity. The dot separators alone
-// would be ambiguous, so lengths delimit both package ID and local skill name.
-func SkillKey(connectorID, name string) string {
-	return fmt.Sprintf("connector-%d-%s-%s", len(connectorID), connectorID, name)
-}
-
 func ValidID(id string) bool { return idPattern.MatchString(id) && id != "." && id != ".." }
 
 func LoadAll(root string) ([]Package, error) {

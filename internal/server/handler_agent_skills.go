@@ -82,7 +82,7 @@ func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, e
 	}
 	for _, centerSkill := range centerSkills {
 		normalized := strings.ToLower(strings.TrimSpace(centerSkill.Key))
-		if normalized == "" || connector.IsReservedSkill(centerSkill.Key) {
+		if normalized == "" || connector.IsReservedSkill(centerSkill.Key) || definition.IsConnectorSkill(centerSkill.Key) {
 			continue
 		}
 		if _, duplicate := seen[normalized]; duplicate {

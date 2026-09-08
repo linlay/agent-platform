@@ -107,8 +107,8 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 }
 
 func TestMustUseRejectsMountedConnectorSkillEvenIfAlsoInConfiguredList(t *testing.T) {
-	key := "connector-11-builtin.dbx-dbx"
-	def := catalog.AgentDefinition{Skills: []string{key}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "builtin.dbx", Name: "dbx"}}}
+	key := "wecomcli-shared"
+	def := catalog.AgentDefinition{Skills: []string{key}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "wecom", Name: key}}}
 	if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{strings.ToUpper(key)}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
 		t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
 	}

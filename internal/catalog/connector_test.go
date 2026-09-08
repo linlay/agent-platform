@@ -56,6 +56,9 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 		t.Fatalf("bad mounted definition %#v", def)
 	}
 	key := def.EffectiveSkills()[0]
+	if key != "builtin-dbx" {
+		t.Fatalf("connector skill ID must retain its original name: %q", key)
+	}
 	other, ok := registry.AgentDefinition("other")
 	if !ok || other.ConnectorSkills[0].RuntimeDir != def.ConnectorSkills[0].RuntimeDir {
 		t.Fatal("Agents do not share the same skill directory")
@@ -75,9 +78,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(def.ConnectorSkills[0].RuntimeDir, "references", "commands.md")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.Paths.SkillsCenterDir, key)); !os.IsNotExist(err) {
-		t.Fatal("connector skill entered skills center")
-	}
+	assertRuntimeAssemblerContent(t, filepath.Join(cfg.Paths.SkillsCenterDir, key, "SKILL.md"), "invalid retired skill")
 	if err := os.WriteFile(path, []byte(base), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -100,5 +101,48 @@ func TestOldMCPAgentFieldIsRejected(t *testing.T) {
 	}
 	if _, _, err := parseAgentFileRaw(path); err == nil || !strings.Contains(err.Error(), "was removed") {
 		t.Fatalf("old field accepted: %v", err)
+	}
+}
+
+func TestConnectorSkillNameConflictsRejectAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		skills     []string
+		connectors []string
+		conflict   string
+	}{
+		{name: "configured", skills: []string{"shared"}, connectors: []string{"first"}, conflict: "skillConfig.skills"},
+		{name: "configured case insensitive", skills: []string{"SHARED"}, connectors: []string{"first"}, conflict: "skillConfig.skills"},
+		{name: "two connectors", connectors: []string{"first", "second"}, conflict: `connector "first"`},
+		{name: "distinct", skills: []string{"ordinary"}, connectors: []string{"first"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, id := range tc.connectors {
+				pkg := filepath.Join(root, "connectors", id)
+				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "connector.json"), `{"id":"`+id+`","name":"Fixture","version":"1.0.0","type":"cli","auth_mode":"none"}`)
+				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "cli.json"), `{}`)
+				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "skills", "shared", "SKILL.md"), "---\nname: shared\ndescription: Shared fixture\n---\n")
+			}
+			assembler := runtimeAgentAssembler{connectors: connector.Sources{ExternalRoot: filepath.Join(root, "connectors")}}
+			def := AgentDefinition{Skills: tc.skills, Connectors: tc.connectors}
+			err := assembler.resolveConnectors(&def)
+			if tc.conflict != "" {
+				if err == nil || !strings.Contains(err.Error(), `skill "shared"`) || !strings.Contains(err.Error(), "conflicts with "+tc.conflict) {
+					t.Fatalf("expected skill name conflict with %s, got %v", tc.conflict, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(def.EffectiveSkills(), ","); got != "ordinary,shared" {
+				t.Fatalf("effective skill IDs = %q", got)
+			}
+			definition, found, err := def.ResolveSkillDefinition("shared")
+			if err != nil || !found || definition.Key != "shared" || definition.Name != "shared" {
+				t.Fatalf("original skill name did not resolve: %#v %v %v", definition, found, err)
+			}
+		})
 	}
 }

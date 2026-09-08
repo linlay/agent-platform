@@ -9,6 +9,7 @@ import (
 )
 
 type ConnectorSkill struct {
+	// Key is the original skill name; ConnectorID records its source separately.
 	Key         string
 	ConnectorID string
 	Name        string
@@ -66,10 +67,12 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 	def.ConnectorBinDirs = nil
 	def.ConnectorMounts = nil
 	def.ConnectorMCPServers = nil
+	skillSources := make(map[string]string, len(def.Skills))
 	for _, key := range def.Skills {
-		if strings.HasPrefix(strings.ToLower(key), "connector-") || connector.BuiltinSkillConnector(key) != "" {
+		if connector.IsReservedSkill(key) {
 			return fmt.Errorf("connector skills are imported by connectorConfig.connectors, not skillConfig.skills")
 		}
+		skillSources[strings.ToLower(strings.TrimSpace(key))] = "skillConfig.skills"
 	}
 	for _, id := range def.Connectors {
 		pkg, err := a.connectors.LoadRuntime(id)
@@ -85,7 +88,12 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 		def.ConnectorMounts = append(def.ConnectorMounts, ConnectorMount{ID: id, Dir: pkg.Dir})
 		def.ConnectorMCPServers = append(def.ConnectorMCPServers, pkg.ServerKeys()...)
 		for _, skill := range pkg.Skills {
-			def.ConnectorSkills = append(def.ConnectorSkills, ConnectorSkill{Key: connector.SkillKey(id, skill.Name), ConnectorID: id, Name: skill.Name, RuntimeDir: skill.Dir})
+			key := skill.Name
+			if source, exists := skillSources[key]; exists {
+				return fmt.Errorf("skill %q from connector %q conflicts with %s; skill names must be unique within an Agent", key, id, source)
+			}
+			skillSources[key] = fmt.Sprintf("connector %q", id)
+			def.ConnectorSkills = append(def.ConnectorSkills, ConnectorSkill{Key: key, ConnectorID: id, Name: skill.Name, RuntimeDir: skill.Dir})
 		}
 	}
 	return nil
