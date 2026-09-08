@@ -83,24 +83,25 @@ type ServerConfig struct {
 type PathsConfig struct {
 	// BuiltinConnectorsDir is set by app assembly from the verified Platform
 	// bundle. It is not a user-configurable runtime path.
-	BuiltinConnectorsDir string
-	ConnectorsCenterDir  string
-	RUConnectorsDir      string
-	ConnectorStateDir    string
-	LegacyConnectorsDir  string
-	RegistriesDir        string
-	ToolsDir             string
-	OwnerDir             string
-	AgentsDir            string
-	RUAgentsDir          string
-	TeamsDir             string
-	RootDir              string
-	AutomationsDir       string
-	ChatsDir             string
-	MemoryDir            string
-	KBaseDir             string
-	PanDir               string
-	SkillsCenterDir      string
+	BuiltinConnectorsDir    string
+	ConnectorsCenterDir     string
+	RUConnectorsDir         string
+	StateDir                string
+	LegacyConnectorStateDir string
+	LegacyConnectorsDir     string
+	RegistriesDir           string
+	ToolsDir                string
+	OwnerDir                string
+	AgentsDir               string
+	RUAgentsDir             string
+	TeamsDir                string
+	RootDir                 string
+	AutomationsDir          string
+	ChatsDir                string
+	MemoryDir               string
+	KBaseDir                string
+	PanDir                  string
+	SkillsCenterDir         string
 }
 
 type PlatformControlConfig struct {
@@ -699,17 +700,17 @@ func validateRUAgentsDir(paths PathsConfig) error {
 	runtimeDir, err := filepath.Abs(filepath.Clean(strings.TrimSpace(paths.RUAgentsDir)))
 	if err != nil || strings.TrimSpace(paths.RUAgentsDir) == "" {
 		if err != nil {
-			return fmt.Errorf("resolve paths.ru-agents-dir: %w", err)
+			return fmt.Errorf("resolve runtime ru-agents directory: %w", err)
 		}
-		return fmt.Errorf("paths.ru-agents-dir must not be empty")
+		return fmt.Errorf("runtime ru-agents directory must not be empty")
 	}
 	if runtimeDir == filepath.Clean(string(filepath.Separator)) || runtimeDir == filepath.VolumeName(runtimeDir)+string(filepath.Separator) {
-		return fmt.Errorf("paths.ru-agents-dir must not be a filesystem root")
+		return fmt.Errorf("runtime ru-agents directory must not be a filesystem root")
 	}
 	for name, candidate := range map[string]string{
 		"connectors-center-dir": paths.EffectiveConnectorsCenterDir(),
+		"state-dir":             paths.EffectiveStateDir(),
 		"ru-connectors-dir":     paths.EffectiveRUConnectorsDir(),
-		"connector-state-dir":   paths.EffectiveConnectorStateDir(),
 		"registries-dir":        paths.RegistriesDir,
 		"tools-dir":             paths.ToolsDir,
 		"owner-dir":             paths.OwnerDir,
@@ -729,10 +730,10 @@ func validateRUAgentsDir(paths PathsConfig) error {
 		}
 		other, absErr := filepath.Abs(filepath.Clean(candidate))
 		if absErr != nil {
-			return fmt.Errorf("resolve paths.%s: %w", name, absErr)
+			return fmt.Errorf("resolve runtime directory %s: %w", name, absErr)
 		}
 		if pathsOverlap(runtimeDir, other) {
-			return fmt.Errorf("paths.ru-agents-dir must not overlap paths.%s", name)
+			return fmt.Errorf("runtime ru-agents directory must not overlap runtime directory %s", name)
 		}
 	}
 	return nil

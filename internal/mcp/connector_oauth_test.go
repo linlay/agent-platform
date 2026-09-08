@@ -51,7 +51,7 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 	if definition.SetupError == "" {
 		t.Fatal("missing credentials did not require setup")
 	}
-	state, err := connectorauth.StateDir(root, "demo")
+	state, err := connectorauth.StateDir((connector.Sources{ExternalRoot: root}).PersistentRoot(), "demo")
 	if err != nil {
 		t.Fatal(err)
 	}

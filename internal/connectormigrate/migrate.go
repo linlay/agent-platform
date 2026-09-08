@@ -31,6 +31,23 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return Result{}, err
+	}
+	stateDir, err := config.ResolveStateDir(cwd, root)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := (connector.Sources{ExternalRoot: filepath.Join(root, "connectors-center"), StateRoot: stateDir}).ValidateRoots(); err != nil {
+		return Result{}, err
+	}
+	for _, scope := range migrationScopes {
+		if scope != ".state/connectors" && connector.RootsOverlap(stateDir, filepath.Join(root, scope)) {
+			return Result{}, fmt.Errorf("AP_RUNTIME_STATE_DIR must not overlap migration scope %s", scope)
+		}
+	}
+	stateNamespace := filepath.Join(stateDir, "connectors")
 	legacy := filepath.Join(root, "registries", "mcp-servers")
 	legacyExists := false
 	if _, err := os.Stat(legacy); err == nil {
@@ -47,24 +64,24 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 		return Result{}, err
 	}
 	defer os.RemoveAll(stage)
-	before, err := fingerprints(root)
+	before, err := fingerprints(root, stateNamespace)
 	if err != nil {
 		return Result{}, err
 	}
 	for _, scope := range migrationScopes {
-		if err := copyTree(filepath.Join(root, filepath.FromSlash(scope)), filepath.Join(stage, filepath.FromSlash(scope))); err != nil {
+		if err := copyTree(migrationScopePath(root, scope, stateNamespace), filepath.Join(stage, filepath.FromSlash(scope))); err != nil {
 			return Result{}, err
 		}
 	}
 	result := Result{}
 	layoutChanged := false
-	for _, scope := range []string{"connectors", "connectors-center/.state", "connectors-center/.credentials"} {
+	for _, scope := range []string{"connectors", "connectors-center/.state", "connectors-center/.credentials", "connector-state"} {
 		if _, err := os.Lstat(filepath.Join(root, scope)); err == nil {
 			layoutChanged = true
 			result.Retired = append(result.Retired, scope)
 		}
 	}
-	sources := connector.Sources{ExternalRoot: filepath.Join(stage, "connectors-center"), StateRoot: filepath.Join(stage, "connector-state")}
+	sources := connector.Sources{ExternalRoot: filepath.Join(stage, "connectors-center"), StateRoot: filepath.Join(stage, ".state", "connectors")}
 	if err := sources.MigrateLegacy(filepath.Join(stage, "connectors")); err != nil {
 		return Result{}, err
 	}
@@ -120,7 +137,14 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 			return err
 		}
 		if len(credentials) > 0 {
-			if err := writeJSON(filepath.Join(stage, "connector-state", ".credentials", manifest.ID+".json"), credentials, 0o600); err != nil {
+			path, err := connector.CredentialsPath(sources.PersistentRoot(), manifest.ID)
+			if err != nil {
+				return err
+			}
+			if _, err := os.Lstat(path); !os.IsNotExist(err) {
+				return fmt.Errorf("connector %q credentials already exist; migration does not overwrite them", manifest.ID)
+			}
+			if err := writeJSON(path, credentials, 0o600); err != nil {
 				return err
 			}
 		}
@@ -213,7 +237,7 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 	if !apply || !legacyExists && !layoutChanged && len(result.Agents) == 0 && len(result.Retired) == 0 {
 		return result, nil
 	}
-	after, err := fingerprints(root)
+	after, err := fingerprints(root, stateNamespace)
 	if err != nil {
 		return Result{}, err
 	}
@@ -228,13 +252,13 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 	rollback := func() {
 		for i := len(moved) - 1; i >= 0; i-- {
 			scope := moved[i]
-			target := filepath.Join(root, filepath.FromSlash(scope))
+			target := migrationScopePath(root, scope, stateNamespace)
 			_ = os.RemoveAll(target)
 			_ = os.Rename(filepath.Join(backup, filepath.FromSlash(scope)), target)
 		}
 	}
 	for _, scope := range migrationScopes {
-		target := filepath.Join(root, filepath.FromSlash(scope))
+		target := migrationScopePath(root, scope, stateNamespace)
 		old := filepath.Join(backup, filepath.FromSlash(scope))
 		if err := os.MkdirAll(filepath.Dir(old), 0o700); err != nil {
 			rollback()
@@ -250,7 +274,11 @@ func Run(runtimeRoot string, apply bool) (Result, error) {
 			return Result{}, err
 		}
 		moved = append(moved, scope)
-		if scope == "connectors-center" || scope == "connector-state" || scope == "agents" {
+		if scope == "connectors-center" || scope == ".state/connectors" || scope == "agents" {
+			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+				rollback()
+				return Result{}, err
+			}
 			if err := os.Rename(filepath.Join(stage, scope), target); err != nil {
 				rollback()
 				return Result{}, err
@@ -363,14 +391,18 @@ func copyTree(source, target string) error {
 		if err != nil {
 			return err
 		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("migration does not follow symlinks: %s", path)
-		}
 		rel, err := filepath.Rel(source, path)
 		if err != nil {
 			return err
 		}
 		dest := filepath.Join(target, rel)
+		if entry.Type()&os.ModeSymlink != 0 {
+			link, err := migrationStateLink(source, path, filepath.Base(target) == "connectors" && filepath.Base(filepath.Dir(target)) == ".state")
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, dest)
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
@@ -392,10 +424,15 @@ func copyTree(source, target string) error {
 	})
 }
 
-func fingerprints(root string) (string, error) {
+func fingerprints(root string, stateNamespaces ...string) (string, error) {
+	stateNamespace := filepath.Join(root, ".state", "connectors")
+	if len(stateNamespaces) > 0 {
+		stateNamespace = stateNamespaces[0]
+	}
 	hash := sha256.New()
 	for _, scope := range migrationScopes {
-		err := filepath.WalkDir(filepath.Join(root, scope), func(path string, entry os.DirEntry, err error) error {
+		source := migrationScopePath(root, scope, stateNamespace)
+		err := filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
 			if os.IsNotExist(err) {
 				return nil
 			}
@@ -406,7 +443,12 @@ func fingerprints(root string) (string, error) {
 				return nil
 			}
 			if entry.Type()&os.ModeSymlink != 0 {
-				return fmt.Errorf("migration does not follow symlinks")
+				link, err := migrationStateLink(source, path, scope == ".state/connectors")
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(hash, "link\x00%s\x00%s\x00", path, link)
+				return nil
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -421,4 +463,29 @@ func fingerprints(root string) (string, error) {
 		}
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func migrationStateLink(scopeRoot, path string, connectorNamespace bool) (string, error) {
+	namespace := filepath.Join(scopeRoot, ".state")
+	if connectorNamespace {
+		namespace = scopeRoot
+	} else if name := filepath.Base(scopeRoot); name != "connectors" && name != "connectors-center" && name != "connector-state" {
+		return "", fmt.Errorf("migration does not follow symlinks: %s", path)
+	}
+	rel, err := filepath.Rel(namespace, path)
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) < 2 || !connector.ValidID(parts[0]) || connector.IsBuiltin(parts[0]) {
+		return "", fmt.Errorf("migration link is outside connector state: %s", path)
+	}
+	return connector.InternalStateLink(filepath.Join(namespace, parts[0]), path)
+}
+
+func migrationScopePath(root, scope, stateNamespace string) string {
+	if scope == ".state/connectors" {
+		return stateNamespace
+	}
+	return filepath.Join(root, filepath.FromSlash(scope))
 }

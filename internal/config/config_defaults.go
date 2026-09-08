@@ -13,23 +13,24 @@ func defaultConfig(options LoadOptions) Config {
 	runtimeMode, _ := ParseRuntimeMode(options.RuntimeMode)
 	runtimeRoot := defaultRuntimeRoot()
 	paths := PathsConfig{
-		LegacyConnectorsDir: filepath.Join(runtimeRoot, "connectors"),
-		ConnectorsCenterDir: filepath.Join(runtimeRoot, "connectors-center"),
-		RUConnectorsDir:     filepath.Join(runtimeRoot, "ru-connectors"),
-		ConnectorStateDir:   filepath.Join(runtimeRoot, "connector-state"),
-		RegistriesDir:       filepath.Join(runtimeRoot, "registries"),
-		ToolsDir:            filepath.Join(runtimeRoot, "tools"),
-		OwnerDir:            filepath.Join(runtimeRoot, "owner"),
-		AgentsDir:           filepath.Join(runtimeRoot, "agents"),
-		RUAgentsDir:         filepath.Join(runtimeRoot, "ru-agents"),
-		TeamsDir:            filepath.Join(runtimeRoot, "teams"),
-		RootDir:             filepath.Join(runtimeRoot, "root"),
-		AutomationsDir:      filepath.Join(runtimeRoot, "automations"),
-		ChatsDir:            filepath.Join(runtimeRoot, "chats"),
-		MemoryDir:           filepath.Join(runtimeRoot, "memory"),
-		KBaseDir:            filepath.Join(runtimeRoot, "kbase"),
-		PanDir:              filepath.Join(runtimeRoot, "pan"),
-		SkillsCenterDir:     filepath.Join(runtimeRoot, "skills-center"),
+		LegacyConnectorsDir:     filepath.Join(runtimeRoot, "connectors"),
+		ConnectorsCenterDir:     filepath.Join(runtimeRoot, "connectors-center"),
+		RUConnectorsDir:         filepath.Join(runtimeRoot, "ru-connectors"),
+		StateDir:                filepath.Join(runtimeRoot, ".state"),
+		LegacyConnectorStateDir: filepath.Join(runtimeRoot, "connector-state"),
+		RegistriesDir:           filepath.Join(runtimeRoot, "registries"),
+		ToolsDir:                filepath.Join(runtimeRoot, "tools"),
+		OwnerDir:                filepath.Join(runtimeRoot, "owner"),
+		AgentsDir:               filepath.Join(runtimeRoot, "agents"),
+		RUAgentsDir:             filepath.Join(runtimeRoot, "ru-agents"),
+		TeamsDir:                filepath.Join(runtimeRoot, "teams"),
+		RootDir:                 filepath.Join(runtimeRoot, "root"),
+		AutomationsDir:          filepath.Join(runtimeRoot, "automations"),
+		ChatsDir:                filepath.Join(runtimeRoot, "chats"),
+		MemoryDir:               filepath.Join(runtimeRoot, "memory"),
+		KBaseDir:                filepath.Join(runtimeRoot, "kbase"),
+		PanDir:                  filepath.Join(runtimeRoot, "pan"),
+		SkillsCenterDir:         filepath.Join(runtimeRoot, "skills-center"),
 	}
 	return Config{
 		IdentityFile: options.IdentityFile,
@@ -242,6 +243,10 @@ func resolveIdentityFile(configRoot string, configured string) (string, error) {
 }
 
 func expandRuntimeRootHome(runtimeRoot string) (string, error) {
+	return expandPathHome(runtimeRoot, "AP_RUNTIME_DIR")
+}
+
+func expandPathHome(runtimeRoot, envKey string) (string, error) {
 	if runtimeRoot != "~" && !strings.HasPrefix(runtimeRoot, "~/") && !strings.HasPrefix(runtimeRoot, `~\`) {
 		return runtimeRoot, nil
 	}
@@ -250,7 +255,7 @@ func expandRuntimeRootHome(runtimeRoot string) (string, error) {
 		if err == nil {
 			err = fmt.Errorf("home directory is empty")
 		}
-		return "", fmt.Errorf("expand AP_RUNTIME_DIR home: %w", err)
+		return "", fmt.Errorf("expand %s home: %w", envKey, err)
 	}
 	if runtimeRoot == "~" {
 		return home, nil
@@ -322,10 +327,15 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 }
 
 func (c *Config) normalize(configRoot string) error {
+	stateDir, err := resolveStatePath(configRoot, c.Paths.EffectiveStateDir())
+	if err != nil {
+		return err
+	}
+	c.Paths.StateDir = stateDir
 	for name, value := range map[string]*string{
 		"connectors-center-dir": &c.Paths.ConnectorsCenterDir,
 		"ru-connectors-dir":     &c.Paths.RUConnectorsDir,
-		"connector-state-dir":   &c.Paths.ConnectorStateDir,
+		"connector-state-dir":   &c.Paths.LegacyConnectorStateDir,
 		"connectors-dir":        &c.Paths.LegacyConnectorsDir,
 	} {
 		if strings.TrimSpace(*value) == "" {
@@ -336,13 +346,13 @@ func (c *Config) normalize(configRoot string) error {
 		}
 		absolute, err := filepath.Abs(*value)
 		if err != nil {
-			return fmt.Errorf("resolve paths.%s: %w", name, err)
+			return fmt.Errorf("resolve runtime directory %s: %w", name, err)
 		}
 		*value = absolute
 	}
 	c.Paths.ConnectorsCenterDir = filepath.Clean(c.Paths.ConnectorsCenterDir)
 	c.Paths.RUConnectorsDir = filepath.Clean(c.Paths.EffectiveRUConnectorsDir())
-	c.Paths.ConnectorStateDir = filepath.Clean(c.Paths.EffectiveConnectorStateDir())
+	c.Paths.StateDir = filepath.Clean(c.Paths.EffectiveStateDir())
 	c.Paths.RegistriesDir = filepath.Clean(c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = filepath.Clean(c.Paths.ToolsDir)
 	c.Paths.OwnerDir = filepath.Clean(c.Paths.OwnerDir)
@@ -351,9 +361,9 @@ func (c *Config) normalize(configRoot string) error {
 	if !filepath.IsAbs(ruAgentsDir) {
 		ruAgentsDir = filepath.Join(resolveConfigRoot(configRoot), ruAgentsDir)
 	}
-	ruAgentsDir, err := filepath.Abs(ruAgentsDir)
+	ruAgentsDir, err = filepath.Abs(ruAgentsDir)
 	if err != nil {
-		return fmt.Errorf("resolve paths.ru-agents-dir: %w", err)
+		return fmt.Errorf("resolve runtime ru-agents directory: %w", err)
 	}
 	c.Paths.RUAgentsDir = ruAgentsDir
 	c.Paths.TeamsDir = filepath.Clean(c.Paths.TeamsDir)

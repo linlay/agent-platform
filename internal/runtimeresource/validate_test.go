@@ -22,3 +22,21 @@ func TestValidateCandidateIgnoresLegacyMCPRegistry(t *testing.T) {
 		t.Fatal("legacy source was imported as a connector")
 	}
 }
+
+func TestResourceArchiveExcludesPlatformState(t *testing.T) {
+	source := writeTestZip(t, map[string]string{
+		"env/VERSION":                                "1.0.0",
+		"env/.state/connectors/demo/oauth.json":      "private",
+		"env/.state/other/session.json":              "other-state",
+		"env/connector-state/.credentials/demo.json": "legacy-private",
+	})
+	archive, err := extractArchive(source, "1.0.0", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".state", "connector-state"} {
+		if _, err := os.Stat(filepath.Join(archive.extractedRoot, name)); !os.IsNotExist(err) {
+			t.Fatalf("archive imported private state %s: %v", name, err)
+		}
+	}
+}

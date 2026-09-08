@@ -45,26 +45,6 @@ func loadYAMLMap(path string) (map[string]any, error) {
 	return values, nil
 }
 
-func (c *Config) applyPathsValues(values map[string]any) {
-	c.Paths.LegacyConnectorsDir = stringValue(anyValue(values["connectors-dir"], c.Paths.LegacyConnectorsDir), c.Paths.LegacyConnectorsDir)
-	c.Paths.ConnectorsCenterDir = stringValue(anyValue(values["connectors-center-dir"], c.Paths.ConnectorsCenterDir), c.Paths.ConnectorsCenterDir)
-	c.Paths.RUConnectorsDir = stringValue(anyValue(values["ru-connectors-dir"], c.Paths.RUConnectorsDir), c.Paths.RUConnectorsDir)
-	c.Paths.ConnectorStateDir = stringValue(anyValue(values["connector-state-dir"], c.Paths.ConnectorStateDir), c.Paths.ConnectorStateDir)
-	c.Paths.RegistriesDir = stringValue(anyValue(values["registries-dir"], c.Paths.RegistriesDir), c.Paths.RegistriesDir)
-	c.Paths.ToolsDir = stringValue(anyValue(values["tools-dir"], c.Paths.ToolsDir), c.Paths.ToolsDir)
-	c.Paths.OwnerDir = stringValue(anyValue(values["owner-dir"], c.Paths.OwnerDir), c.Paths.OwnerDir)
-	c.Paths.AgentsDir = stringValue(anyValue(values["agents-dir"], c.Paths.AgentsDir), c.Paths.AgentsDir)
-	c.Paths.RUAgentsDir = stringValue(anyValue(values["ru-agents-dir"], c.Paths.RUAgentsDir), c.Paths.RUAgentsDir)
-	c.Paths.TeamsDir = stringValue(anyValue(values["teams-dir"], c.Paths.TeamsDir), c.Paths.TeamsDir)
-	c.Paths.RootDir = stringValue(anyValue(values["root-dir"], c.Paths.RootDir), c.Paths.RootDir)
-	c.Paths.AutomationsDir = stringValue(anyValue(values["automations-dir"], c.Paths.AutomationsDir), c.Paths.AutomationsDir)
-	c.Paths.ChatsDir = stringValue(anyValue(values["chats-dir"], c.Paths.ChatsDir), c.Paths.ChatsDir)
-	c.Paths.MemoryDir = stringValue(anyValue(values["memory-dir"], c.Paths.MemoryDir), c.Paths.MemoryDir)
-	c.Paths.KBaseDir = stringValue(anyValue(values["kbase-dir"], c.Paths.KBaseDir), c.Paths.KBaseDir)
-	c.Paths.PanDir = stringValue(anyValue(values["pan-dir"], c.Paths.PanDir), c.Paths.PanDir)
-	c.Paths.SkillsCenterDir = stringValue(anyValue(values["skills-center-dir"], c.Paths.SkillsCenterDir), c.Paths.SkillsCenterDir)
-}
-
 func (c *Config) applySkillsValues(values map[string]any) {
 	c.Skills.MaxPromptChars = intValue(anyValue(values["max-prompt-chars"], c.Skills.MaxPromptChars), c.Skills.MaxPromptChars)
 }
@@ -183,11 +163,8 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	if paths, ok := values["paths"].(map[string]any); ok && len(paths) > 0 {
-		if _, exists := paths["skills-market-dir"]; exists {
-			return deprecation.New("%s: paths.skills-market-dir was removed; use paths.skills-center-dir", path)
-		}
-		c.applyPathsValues(paths)
+	if _, exists := values["paths"]; exists {
+		return deprecation.New("%s: paths configuration was removed; use AP_RUNTIME_DIR and the supported AP_RUNTIME_*_DIR environment variables; other runtime subdirectories are fixed", path)
 	}
 	if skills, ok := values["skills"].(map[string]any); ok && len(skills) > 0 {
 		c.applySkillsValues(skills)

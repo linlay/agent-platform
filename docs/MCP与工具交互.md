@@ -30,7 +30,7 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 ## 工具来源与结果
 
-本地 platform tools 从 `internal/resources/tools/*.yml` 装载；`configs/runtime.yml -> paths.tools-dir` 中的 YAML 只能覆盖已有 Go 实现的 schema、文案、权限和可选 UI 元数据。没有已注册代码实现的名字会使启动或热重载失败；动态新能力必须由 Go handler 或 MCP 提供。`sourceCategory: external` 仍可作为普通工具的来源分类，但不表示执行类型或子进程协议。
+本地 platform tools 从 `internal/resources/tools/*.yml` 装载；`<AP_RUNTIME_DIR>/tools` 中的 YAML 只能覆盖已有 Go 实现的 schema、文案、权限和可选 UI 元数据。没有已注册代码实现的名字会使启动或热重载失败；动态新能力必须由 Go handler 或 MCP 提供。`sourceCategory: external` 仍可作为普通工具的来源分类，但不表示执行类型或子进程协议。
 
 工具 YAML 根级不再接受 `type`、`kind`、`toolAction`、`submitResultFormat`。`viewportType`、`viewportKey` 只是客户端展示元数据，不决定路由、等待或结果格式。MCP 工具在 catalog 中固定返回 `sourceType: mcp`、`sourceCategory: mcp` 和对应 `serverKey`；MCP viewport 元数据也不会自动产生 awaiting。`/api/admin/tools` 不返回 `kind` 或内部 `meta`。MCP `annotations.readOnlyHint:true` 会映射为平台 `meta.readOnly:true`，供 BTW 只读门禁使用。
 
@@ -94,7 +94,7 @@ Desktop 模式只将 `scope=app` 且 JWT `device_id` 与握手 `deviceId` 完全
 
 ## 旧 external stdio 配置已删除
 
-私有 external stdio JSON-RPC 协议、`ExternalToolManager`、私有 `initialize/shutdown/tools/call` 和 `kind: external` 调用分支均已删除，不提供兼容期。`paths.tools-dir` 中出现以下任一内容时，启动和热重载都会返回带迁移提示的硬错误：
+私有 external stdio JSON-RPC 协议、`ExternalToolManager`、私有 `initialize/shutdown/tools/call` 和 `kind: external` 调用分支均已删除，不提供兼容期。`<AP_RUNTIME_DIR>/tools` 中出现以下任一内容时，启动和热重载都会返回带迁移提示的硬错误：
 
 - `service.yml` 或 `service.yaml`
 - `type: external`

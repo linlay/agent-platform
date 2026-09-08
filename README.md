@@ -180,27 +180,24 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` / `desktop_cdp` 优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
-外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。两类包统一组装到共享 `<AP_RUNTIME_DIR>/ru-connectors/<id>`，持久化授权状态独立存放 `connector-state/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加共享运行包 bin PATH、导入全部技能元数据并接入 MCP 工具；技能正文和资源从 `@connectors/<id>/skills/...` 读取，不再复制到各 Agent 的 ru-agents；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。ZIP 导入、CLI 登录与独立凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
+外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。两类包统一组装到共享 `<AP_RUNTIME_DIR>/ru-connectors/<id>`，持久化授权状态保存在通用 `.state` 根下的 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加共享运行包 bin PATH、导入全部技能元数据并接入 MCP 工具；技能正文和资源从 `@connectors/<id>/skills/...` 读取，不再复制到各 Agent 的 ru-agents；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。ZIP 导入、CLI 登录与独立凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
 ### 根 `.env.example`
 
 根 `.env.example` 现在是面向最终用户的最小启动模板，只保留以下配置：
 
 - `SERVER_PORT`
-- `AP_RUNTIME_DIR` / `AP_RUNTIME_REGISTRIES_DIR` / `AP_RUNTIME_CHATS_DIR` / `AP_RUNTIME_MEMORY_DIR` / `AP_RUNTIME_PAN_DIR`
+- `AP_RUNTIME_DIR` / `AP_RUNTIME_REGISTRIES_DIR` / `AP_RUNTIME_CHATS_DIR` / `AP_RUNTIME_MEMORY_DIR` / `AP_RUNTIME_KBASE_DIR` / `AP_RUNTIME_PAN_DIR` / `AP_RUNTIME_STATE_DIR`
 - `AP_CONTAINER_HUB_BASE_URL`
 - `AP_CHAT_RESOURCE_TICKET_SECRET`
 - `AP_DEBUG_LLM_CONSOLE`
 - `AP_DEBUG_LLM_CHAT_RECORD`
 
-除上述 allowlist 外，旧环境变量不再生效。resource ticket TTL 属于非敏感运行策略，使用 `configs/runtime.yml` 的 `resource.ticket-ttl-seconds` 配置。
+目录只允许通过上述环境变量配置，其余子目录固定从 `AP_RUNTIME_DIR` 派生；YAML `paths` 节已删除，出现即报错。`AP_RUNTIME_STATE_DIR` 留空时使用 `<AP_RUNTIME_DIR>/.state`。除上述 allowlist 外，旧环境变量不再生效。resource ticket TTL 属于非敏感运行策略，使用 `configs/runtime.yml` 的 `resource.ticket-ttl-seconds` 配置。
 
 Auth 默认开启，默认公钥文件为 `configs/local-public-key.pem`；相关默认值展示在 `configs/runtime.example.yml` 的 `auth` 节，根 `.env.example` 不再放 Auth 变量。
 
-以下低频项统一改到 `configs/runtime.yml`：
-
-- 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.ru-agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-center-dir`、`paths.connectors-center-dir`、`paths.ru-connectors-dir`、`paths.connector-state-dir`
-- memory 深度调优：`memory.*`
+Memory 深度调优使用 `configs/runtime.yml` 中的 `memory.*`。
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 
@@ -303,7 +300,7 @@ make docker-up
 - 宿主机端口映射为 `${SERVER_PORT}:8080`
 - 容器内应用监听端口固定为 `8080`
 - 宿主机 runtime 根目录来自 `${AP_RUNTIME_DIR:-./runtime}`
-- `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_PAN_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${AP_RUNTIME_DIR}` 下
+- `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_KBASE_DIR`、`AP_RUNTIME_PAN_DIR`、`AP_RUNTIME_STATE_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${AP_RUNTIME_DIR}` 下
 - 容器内 runtime 根目录固定为 `/opt/runtime`，应用通过 `AP_RUNTIME_DIR=/opt/runtime` 解析子目录
 - `./configs` 只读挂载到 `/opt/configs`
 
@@ -311,11 +308,11 @@ Container Hub 使用严格双根协议，基础挂载包括：
 
 - `/workspace` -> 当前 Agent 的 canonical `runtimeConfig.workspaceRoot`，`rw`
 - `/chat` -> `AP_RUNTIME_CHATS_DIR/<chatId>`（`rw`）
-- `/root` -> `paths.root-dir`（`rw`）
-- `/skills` -> `paths.ru-agents-dir/<agentKey>/skills`（仅 `run/agent`，`global` 默认不挂载），`ro`
+- `/root` -> `<AP_RUNTIME_DIR>/root`（`rw`）
+- `/skills` -> `<AP_RUNTIME_DIR>/ru-agents/<agentKey>/skills`（仅 `run/agent`，`global` 默认不挂载），`ro`
 - `/pan` -> `AP_RUNTIME_PAN_DIR`（`rw`）
-- `/agent` -> `paths.ru-agents-dir/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
-- `/owner` -> `paths.owner-dir`（`ro`，目录缺失时自动创建）
+- `/agent` -> `<AP_RUNTIME_DIR>/ru-agents/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
+- `/owner` -> `<AP_RUNTIME_DIR>/owner`（`ro`，目录缺失时自动创建）
 - `/memory` -> `AP_RUNTIME_MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
 
 容器 session 与未显式指定 cwd 的命令固定使用 `/workspace`。协议为 `dual-root-v2`。当 ChatsRoot 位于 Workspace 内时，Platform 下发 `/workspace/<ChatsRoot-relative>` mask，Hub 按 Workspace bind → mask tmpfs → current Chat bind 的顺序创建容器，确保 Chat 只从 `/chat` 可见。`/workspace`、`/chat`、mask 及其子路径是保留挂载目标，`runtimeConfig.sandboxMounts` 不能覆盖。session 复用身份包含 environment、canonical Workspace、canonical Chat、mask 和完整 mount fingerprint。

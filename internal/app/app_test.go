@@ -68,7 +68,7 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("health: %d %s", recorder.Code, recorder.Body.String())
 	}
-	for _, path := range []string{"connectors-center/demo/connector.json", "ru-connectors/demo/connector.json", "connector-state/.credentials/demo.json"} {
+	for _, path := range []string{"connectors-center/demo/connector.json", "ru-connectors/demo/connector.json", ".state/connectors/demo/credentials.json"} {
 		if _, err := os.Stat(filepath.Join(root, "runtime", path)); err != nil {
 			t.Fatalf("startup did not prepare %s: %v", path, err)
 		}

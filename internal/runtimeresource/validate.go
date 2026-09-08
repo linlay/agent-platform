@@ -38,7 +38,7 @@ func validateCandidate(root string) error {
 			BuiltinConnectorsDir: builtinRoot,
 			ConnectorsCenterDir:  filepath.Join(root, "connectors-center"),
 			RUConnectorsDir:      filepath.Join(root, ".validation", "ru-connectors"),
-			ConnectorStateDir:    filepath.Join(root, "connector-state"),
+			StateDir:             filepath.Join(root, ".state"),
 			RegistriesDir:        registriesDir,
 			ToolsDir:             filepath.Join(root, "tools"),
 			AgentsDir:            filepath.Join(root, "agents"),

@@ -20,14 +20,17 @@ func (s Sources) PersistentRoot() string {
 	if s.StateRoot != "" {
 		return s.StateRoot
 	}
-	return s.ExternalRoot
+	if s.ExternalRoot == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(s.ExternalRoot), ".state", "connectors")
 }
 
 func (p Package) PersistentRoot() string {
 	if p.StateRoot != "" {
 		return p.StateRoot
 	}
-	return filepath.Dir(p.Dir)
+	return (Sources{ExternalRoot: filepath.Dir(p.Dir)}).PersistentRoot()
 }
 
 func RootsOverlap(a, b string) bool {
@@ -324,7 +327,7 @@ func prepareRuntimeState(pkg Package, dir string) error {
 	if pkg.AuthMode != "cli" {
 		return nil
 	}
-	stateDir, err := filepath.Abs(filepath.Join(pkg.PersistentRoot(), ".state", pkg.ID))
+	stateDir, err := StateDir(pkg.PersistentRoot(), pkg.ID)
 	if err != nil {
 		return err
 	}

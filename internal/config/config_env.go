@@ -21,6 +21,7 @@ func (c *Config) applyEnv(options LoadOptions) {
 	c.Paths.MemoryDir = pathEnv("AP_RUNTIME_MEMORY_DIR", c.Paths.MemoryDir)
 	c.Paths.KBaseDir = pathEnv("AP_RUNTIME_KBASE_DIR", c.Paths.KBaseDir)
 	c.Paths.PanDir = pathEnv("AP_RUNTIME_PAN_DIR", c.Paths.PanDir)
+	c.Paths.StateDir = pathEnv("AP_RUNTIME_STATE_DIR", c.Paths.StateDir)
 
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))

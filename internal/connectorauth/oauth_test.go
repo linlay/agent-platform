@@ -149,6 +149,7 @@ func TestOAuthPKCEPersistenceRefreshLogoutAndDestinationBinding(t *testing.T) {
 	}))
 	defer upstream.Close()
 	root := t.TempDir()
+	stateRoot := (connector.Sources{ExternalRoot: root}).PersistentRoot()
 	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "oauth", "oauth": map[string]any{"discovery": true, "resourceMetadataUrl": upstream.URL + "/resource-metadata"}}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -176,7 +177,7 @@ func TestOAuthPKCEPersistenceRefreshLogoutAndDestinationBinding(t *testing.T) {
 	if resp.StatusCode != 400 {
 		t.Fatal("bad state accepted")
 	}
-	if CredentialReady(root, "demo", upstream.URL+"/mcp") {
+	if CredentialReady(stateRoot, "demo", upstream.URL+"/mcp") {
 		t.Fatal("credentials saved before valid callback")
 	}
 	resp, err = http.Get(redirect + "?" + url.Values{"state": {u.Query().Get("state")}, "code": {"test-code"}}.Encode())
@@ -185,7 +186,7 @@ func TestOAuthPKCEPersistenceRefreshLogoutAndDestinationBinding(t *testing.T) {
 	}
 	resp.Body.Close()
 	waitStatus(t, m, "demo", "authorized")
-	path, _ := credentialPath(root, "demo")
+	path, _ := credentialPath(stateRoot, "demo")
 	info, _ := os.Stat(path)
 	if info.Mode().Perm() != 0o600 {
 		t.Fatal("credentials are not private")
@@ -194,18 +195,18 @@ func TestOAuthPKCEPersistenceRefreshLogoutAndDestinationBinding(t *testing.T) {
 	if status.Status != "authorized" {
 		t.Fatal("login not restored after restart")
 	}
-	unlock, err := lockCredentials(ctx, root, "demo")
+	unlock, err := lockCredentials(ctx, stateRoot, "demo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cred, _ := readCredential(root, "demo")
+	cred, _ := readCredential(stateRoot, "demo")
 	cred.Token.Expiry = time.Now().Add(-time.Hour)
-	err = saveCredential(root, "demo", cred)
+	err = saveCredential(stateRoot, "demo", cred)
 	unlock()
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := AuthorizingTransport{Base: http.DefaultTransport, Client: upstream.Client(), Root: root, ID: "demo", Resource: upstream.URL + "/mcp"}
+	transport := AuthorizingTransport{Base: http.DefaultTransport, Client: upstream.Client(), Root: stateRoot, ID: "demo", Resource: upstream.URL + "/mcp"}
 	client := &http.Client{Transport: transport}
 	resp, err = client.Get(upstream.URL + "/mcp")
 	if err != nil {
@@ -215,7 +216,7 @@ func TestOAuthPKCEPersistenceRefreshLogoutAndDestinationBinding(t *testing.T) {
 	if refreshCount.Load() != 1 {
 		t.Fatal("no refresh")
 	}
-	cred, _ = readCredential(root, "demo")
+	cred, _ = readCredential(stateRoot, "demo")
 	if cred.Token.RefreshToken != "rotated-refresh" {
 		t.Fatal("rotated token not persisted")
 	}

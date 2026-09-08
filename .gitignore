@@ -67,4 +67,6 @@ logs/
 # Imported connector sources, generated shared runtime and persistent authorization.
 /connectors-center/
 /ru-connectors/
+/.state/
+# Retired connector state layout (migration source).
 /connector-state/

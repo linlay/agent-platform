@@ -1,25 +1,5 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
-# paths:
-#   # AP_RUNTIME_DIR controls the common runtime root. Use these only when a
-#   # specific runtime subdirectory must live outside that root.
-#   registries-dir: ./runtime/registries
-#   tools-dir: ./runtime/tools
-#   owner-dir: ./runtime/owner
-#   agents-dir: ./runtime/agents
-#   ru-agents-dir: ./runtime/ru-agents
-#   teams-dir: ./runtime/teams
-#   root-dir: ./runtime/root
-#   automations-dir: ./runtime/automations
-#   chats-dir: ./runtime/chats
-#   memory-dir: ./runtime/memory
-#   kbase-dir: ./runtime/kbase
-#   pan-dir: ./runtime/pan
-#   connectors-center-dir: ./runtime/connectors-center # 导入、下载的外部连接器包
-#   ru-connectors-dir: ./runtime/ru-connectors # 所有连接器共享运行副本，Platform 生成
-#   connector-state-dir: ./runtime/connector-state # 登录凭据及受管 CLI 持久化状态
-#   skills-center-dir: ./runtime/skills-center
-
 skills:
   max-prompt-chars: 8000
 
@@ -87,11 +67,11 @@ container-hub:
   # Default mounts come from runtime directory config:
   # /workspace -> canonical runtimeConfig.workspaceRoot (rw)
   # /chat      -> AP_RUNTIME_CHATS_DIR/<chatId> (rw)
-  # /root      -> paths.root-dir (rw)
-  # /skills    -> paths.ru-agents-dir/<agentKey>/skills (ro, only run/agent; global skips it)
+  # /root      -> AP_RUNTIME_DIR/root (rw)
+  # /skills    -> AP_RUNTIME_DIR/ru-agents/<agentKey>/skills (ro, only run/agent; global skips it)
   # /pan       -> AP_RUNTIME_PAN_DIR (rw)
-  # /agent     -> paths.ru-agents-dir/<agentKey> (ro, required)
-  # /owner     -> paths.owner-dir (ro)
+  # /agent     -> AP_RUNTIME_DIR/ru-agents/<agentKey> (ro, required)
+  # /owner     -> AP_RUNTIME_DIR/owner (ro)
   # /memory    -> AP_RUNTIME_MEMORY_DIR/<agentKey> (ro)
   #
   # runtimeConfig.sandboxMounts controls Container Hub session mounts:

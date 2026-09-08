@@ -62,7 +62,11 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	credentials := map[string]string{}
 	credentialReady := false
 	if pkg.AuthMode == "token" {
-		err := connector.ReadJSON(filepath.Join(pkg.PersistentRoot(), ".credentials", pkg.ID+".json"), &credentials)
+		path, err := connector.CredentialsPath(pkg.PersistentRoot(), pkg.ID)
+		if err != nil {
+			return ServerDefinition{}, fmt.Errorf("connector credential store is invalid")
+		}
+		err = connector.ReadJSON(path, &credentials)
 		if err == nil {
 			credentialReady = true
 		} else if !os.IsNotExist(err) {

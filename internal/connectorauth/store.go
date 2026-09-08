@@ -67,23 +67,7 @@ type oauthCredential struct {
 // StateDir is outside the installed, read-only package. Credentials are never
 // part of connector.json, ZIP exports, prompts, or catalog response objects.
 func StateDir(root, id string) (string, error) {
-	if !connector.ValidID(id) || connector.IsBuiltin(id) {
-		return "", fmt.Errorf("invalid external connector id")
-	}
-	root, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	for _, p := range []string{filepath.Join(root, ".state"), filepath.Join(root, ".state", id)} {
-		if info, err := os.Lstat(p); err == nil {
-			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-				return "", fmt.Errorf("connector state must be a real directory")
-			}
-		} else if !os.IsNotExist(err) {
-			return "", err
-		}
-	}
-	return filepath.Join(root, ".state", id), nil
+	return connector.StateDir(root, id)
 }
 
 func credentialPath(root, id string) (string, error) {

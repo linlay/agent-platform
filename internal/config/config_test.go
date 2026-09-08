@@ -443,6 +443,7 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"AP_RUNTIME_MEMORY_DIR":          true,
 		"AP_RUNTIME_KBASE_DIR":           true,
 		"AP_RUNTIME_PAN_DIR":             true,
+		"AP_RUNTIME_STATE_DIR":           true,
 		"AP_CONTAINER_HUB_BASE_URL":      true,
 		"AP_CHAT_RESOURCE_TICKET_SECRET": true,
 		"AP_DEBUG_LLM_CONSOLE":           true,
@@ -1515,7 +1516,7 @@ func TestLoadRejectsRemovedSkillsMarketPathKey(t *testing.T) {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
 				_, err := Load()
-				if err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), "paths.skills-market-dir was removed") {
+				if err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), "paths configuration was removed") {
 					t.Fatalf("expected removed skills-market-dir error, got %v", err)
 				}
 			})
@@ -1550,100 +1551,49 @@ func TestLoadRejectsRemovedSkillsMarketRuntimeDirectory(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsRemovedSkillsMarketRuntimeDirectoryWithCustomCenterDir(t *testing.T) {
+func TestLoadRejectsRemovedSkillsMarketRuntimeDirectoryWithStateOverride(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	legacyDir := filepath.Join(runtimeRoot, "skills-market")
 	if err := os.Mkdir(legacyDir, 0o755); err != nil {
-		t.Fatalf("mkdir legacy runtime dir: %v", err)
+		t.Fatal(err)
 	}
-	customCenterDir := filepath.Join(t.TempDir(), "skills-center")
-	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot}, func() {
-		configDir := t.TempDir()
-		runtimeConfig := fmt.Sprintf("paths:\n  skills-center-dir: %q\n", customCenterDir)
-		if err := os.WriteFile(filepath.Join(configDir, "runtime.yml"), []byte(runtimeConfig), 0o600); err != nil {
-			t.Fatalf("write runtime config: %v", err)
-		}
-		if _, err := Load(LoadOptions{ConfigDir: configDir}); err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), legacyDir) {
-			t.Fatalf("expected AP_RUNTIME_DIR legacy directory error, got %v", err)
+	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot, "AP_RUNTIME_STATE_DIR": filepath.Join(t.TempDir(), "state")}, func() {
+		if _, err := Load(LoadOptions{ConfigDir: t.TempDir()}); err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), legacyDir) {
+			t.Fatalf("expected legacy runtime directory error, got %v", err)
 		}
 	})
 }
 
-func TestLoadRuntimePathsFromYAML(t *testing.T) {
-	runtimeConfig := "" +
-		"paths:\n" +
-		"  registries-dir: var/yaml-registries\n" +
-		"  tools-dir: var/yaml-tools\n" +
-		"  owner-dir: var/yaml-owner\n" +
-		"  agents-dir: var/yaml-agents\n" +
-		"  ru-agents-dir: var/yaml-ru-agents\n" +
-		"  teams-dir: var/yaml-teams\n" +
-		"  root-dir: var/yaml-root\n" +
-		"  automations-dir: var/yaml-automations\n" +
-		"  chats-dir: var/yaml-chats\n" +
-		"  memory-dir: var/yaml-memory\n" +
-		"  kbase-dir: var/yaml-kbase\n" +
-		"  pan-dir: var/yaml-pan\n" +
-		"  skills-center-dir: var/yaml-skills-center\n"
-	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
-			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.Paths.RegistriesDir != filepath.Join("var", "yaml-registries") {
-					t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
-				}
-				if cfg.Paths.ToolsDir != filepath.Join("var", "yaml-tools") {
-					t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
-				}
-				if cfg.Paths.OwnerDir != filepath.Join("var", "yaml-owner") {
-					t.Fatalf("unexpected owner dir: %q", cfg.Paths.OwnerDir)
-				}
-				if cfg.Paths.AgentsDir != filepath.Join("var", "yaml-agents") {
-					t.Fatalf("unexpected agents dir: %q", cfg.Paths.AgentsDir)
-				}
-				wantRUAgentsDir := ProjectFile(filepath.Join("var", "yaml-ru-agents"))
-				if cfg.Paths.RUAgentsDir != wantRUAgentsDir {
-					t.Fatalf("unexpected ru-agents dir: %q", cfg.Paths.RUAgentsDir)
-				}
-				if cfg.Paths.TeamsDir != filepath.Join("var", "yaml-teams") {
-					t.Fatalf("unexpected teams dir: %q", cfg.Paths.TeamsDir)
-				}
-				if cfg.Paths.RootDir != filepath.Join("var", "yaml-root") {
-					t.Fatalf("unexpected root dir: %q", cfg.Paths.RootDir)
-				}
-				if cfg.Paths.AutomationsDir != filepath.Join("var", "yaml-automations") {
-					t.Fatalf("unexpected automations dir: %q", cfg.Paths.AutomationsDir)
-				}
-				if cfg.Paths.ChatsDir != filepath.Join("var", "yaml-chats") {
-					t.Fatalf("unexpected chats dir: %q", cfg.Paths.ChatsDir)
-				}
-				if cfg.Paths.MemoryDir != filepath.Join("var", "yaml-memory") {
-					t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
-				}
-				if cfg.Paths.KBaseDir != filepath.Join("var", "yaml-kbase") {
-					t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
-				}
-				if cfg.Paths.PanDir != filepath.Join("var", "yaml-pan") {
-					t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
-				}
-				if cfg.Paths.SkillsCenterDir != filepath.Join("var", "yaml-skills-center") {
-					t.Fatalf("unexpected skills center dir: %q", cfg.Paths.SkillsCenterDir)
-				}
-				if cfg.Providers.ExternalDir != filepath.Join("var", "yaml-registries", "providers") {
-					t.Fatalf("unexpected providers dir: %q", cfg.Providers.ExternalDir)
-				}
-				if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "yaml-chats") {
-					t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
-				}
-				if cfg.Memory.StorageDir != filepath.Join("var", "yaml-memory") {
-					t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
+func TestLoadRejectsRuntimePathsFromYAML(t *testing.T) {
+	for _, key := range []string{"registries-dir", "tools-dir", "owner-dir", "agents-dir", "ru-agents-dir", "teams-dir", "root-dir", "automations-dir", "chats-dir", "memory-dir", "kbase-dir", "pan-dir", "skills-center-dir", "connectors-center-dir", "ru-connectors-dir", "state-dir", "connectors-dir", "connector-state-dir"} {
+		t.Run(key, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, "configs"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			contents := "paths:\n  " + key + ": var/custom-directory\n"
+			if err := os.WriteFile(filepath.Join(root, "configs", "runtime.yml"), []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": filepath.Join(root, "runtime"), "AP_RUNTIME_STATE_DIR": filepath.Join(root, "env-state")}, func() {
+				if _, err := Load(LoadOptions{ConfigDir: root}); err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), "paths configuration was removed") {
+					t.Fatalf("YAML override accepted: %v", err)
 				}
 			})
 		})
-	})
+	}
+	for _, value := range []string{"{}", "null", "[]", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "runtime.yml")
+			if err := os.WriteFile(path, []byte("paths: "+value+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var cfg Config
+			if err := cfg.applyRuntimeFile(path); err == nil || !deprecation.Is(err) {
+				t.Fatalf("removed paths block accepted: %v", err)
+			}
+		})
+	}
 }
 
 func TestRUAgentsDirHasNoDedicatedEnvironmentOverride(t *testing.T) {
@@ -1677,7 +1627,7 @@ func TestValidateRUAgentsDirRejectsOverlapAndFilesystemRoot(t *testing.T) {
 		want string
 	}{
 		{name: "same", path: base.AgentsDir, want: "agents-dir"},
-		{name: "contains source", path: root, want: "agents-dir"},
+		{name: "contains source", path: root, want: "must not overlap"},
 		{name: "inside source", path: filepath.Join(base.AgentsDir, "generated"), want: "agents-dir"},
 		{name: "filesystem root", path: string(filepath.Separator), want: "filesystem root"},
 	}
@@ -2646,6 +2596,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 
 	keys := []string{
 		"AP_RUNTIME_DIR",
+		"AP_RUNTIME_STATE_DIR",
 		"SERVER_PORT",
 		"AP_RUNTIME_REGISTRIES_DIR",
 		"OWNER_DIR",

@@ -30,7 +30,7 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 		data, _ := json.Marshal(value)
 		os.WriteFile(filepath.Join(dir, name), data, 0o644)
 	}
-	state, _ := StateDir(root, id)
+	state, _ := StateDir((connector.Sources{ExternalRoot: root}).PersistentRoot(), id)
 	npm := filepath.Join(state, "npm", "node_modules", "demo-cli")
 	os.MkdirAll(npm, 0o755)
 	os.WriteFile(filepath.Join(npm, "package.json"), []byte(`{"name":"demo-cli","version":"1.2.0"}`), 0o644)

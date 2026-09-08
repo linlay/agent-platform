@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 )
 
 // Legacy snippets remain useful as migration fixtures. The runtime under test
@@ -46,11 +47,15 @@ func writeConnectorFixture(path string, data []byte, mode os.FileMode) error {
 		}
 	}
 	if len(credentials) > 0 {
-		if err := os.MkdirAll(filepath.Join(root, ".credentials"), 0o700); err != nil {
+		credentialPath, err := connector.CredentialsPath((connector.Sources{ExternalRoot: root}).PersistentRoot(), manifest.ID)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(credentialPath), 0o700); err != nil {
 			return err
 		}
 		bytes, _ := json.Marshal(credentials)
-		if err := os.WriteFile(filepath.Join(root, ".credentials", manifest.ID+".json"), bytes, 0o600); err != nil {
+		if err := os.WriteFile(credentialPath, bytes, 0o600); err != nil {
 			return err
 		}
 	}

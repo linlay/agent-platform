@@ -67,7 +67,7 @@ func TestMigrationPreservesCredentialsOutsidePackageAndSwitchesAgent(t *testing.
 			t.Fatal("secret in package")
 		}
 	}
-	registry, err := mcp.NewRegistryWithSources(connector.Sources{ExternalRoot: filepath.Join(root, "connectors-center"), StateRoot: filepath.Join(root, "connector-state")})
+	registry, err := mcp.NewRegistryWithSources(connector.Sources{ExternalRoot: filepath.Join(root, "connectors-center"), StateRoot: filepath.Join(root, ".state", "connectors")})
 	if err != nil {
 		t.Fatal(err)
 	}

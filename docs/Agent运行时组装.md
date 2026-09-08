@@ -9,7 +9,8 @@ Agent Platform 将可编辑事实源与执行目录分离：
 ├── agents/                         # Agent 定义与 Agent 自有 Skill
 ├── connectors-center/              # 导入、下载的外部连接器原包
 ├── ru-connectors/                   # 所有连接器共享运行副本，Platform 生成
-├── connector-state/                 # 持久化授权与受管 CLI 状态
+├── .state/                         # Platform 通用持久化运行状态
+│   └── connectors/<id>/            # 连接器授权与受管 CLI 状态
 ├── skills-center/                  # 共享 Skill；.package/ 保存技能包控制状态
 └── ru-agents/                      # Platform 生成，禁止人工编辑
     ├── .staging/
@@ -33,14 +34,9 @@ Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每
 
 ## 路径配置
 
-`paths.ru-agents-dir` 默认解析为 `<AP_RUNTIME_DIR>/ru-agents`，只支持 `configs/runtime.yml`，没有独立环境变量：
+`ru-agents` 固定使用 `<AP_RUNTIME_DIR>/ru-agents`，不提供单独环境变量或 YAML 覆盖。其位置随 `AP_RUNTIME_DIR` 一起调整。
 
-```yaml
-paths:
-  ru-agents-dir: ./runtime/ru-agents
-```
-
-该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-center、connectors-center、ru-connectors、connector-state、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等根目录相同或互相包含。
+该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-center、connectors-center、ru-connectors、通用 state 根、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等目录相同或互相包含。
 
 ## Skill 来源选择
 

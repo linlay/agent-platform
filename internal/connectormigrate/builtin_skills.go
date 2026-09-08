@@ -9,7 +9,7 @@ import (
 	"agent-platform/internal/connector"
 )
 
-var migrationScopes = []string{"connectors", "connectors-center", "connector-state", "agents", "registries/mcp-servers", "skills-center/builtin-dbx", "skills-center/builtin-httpx"}
+var migrationScopes = []string{"connectors", "connectors-center", "connector-state", ".state/connectors", "agents", "registries/mcp-servers", "skills-center/builtin-dbx", "skills-center/builtin-httpx"}
 
 // migrateBuiltinSkills preserves unrelated YAML bytes and merges the retired
 // standalone skill references into the explicit connector mount list.

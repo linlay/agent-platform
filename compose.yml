@@ -20,14 +20,11 @@ services:
       SERVER_PORT: 8080
       AP_RUNTIME_DIR: /opt/runtime
       AP_RUNTIME_REGISTRIES_DIR: /opt/runtime/registries
-      OWNER_DIR: /opt/runtime/owner
-      AGENTS_DIR: /opt/runtime/agents
-      TEAMS_DIR: /opt/runtime/teams
-      ROOT_DIR: /opt/runtime/root
-      AUTOMATIONS_DIR: /opt/runtime/automations
       AP_RUNTIME_CHATS_DIR: /opt/runtime/chats
       AP_RUNTIME_MEMORY_DIR: /opt/runtime/memory
+      AP_RUNTIME_KBASE_DIR: /opt/runtime/kbase
       AP_RUNTIME_PAN_DIR: /opt/runtime/pan
+      AP_RUNTIME_STATE_DIR: /opt/runtime/.state
     volumes:
       - type: bind
         source: ./configs
@@ -46,5 +43,11 @@ services:
         source: ${AP_RUNTIME_MEMORY_DIR:-${AP_RUNTIME_DIR:-./runtime}/memory}
         target: /opt/runtime/memory
       - type: bind
+        source: ${AP_RUNTIME_KBASE_DIR:-${AP_RUNTIME_DIR:-./runtime}/kbase}
+        target: /opt/runtime/kbase
+      - type: bind
         source: ${AP_RUNTIME_PAN_DIR:-${AP_RUNTIME_DIR:-./runtime}/pan}
         target: /opt/runtime/pan
+      - type: bind
+        source: ${AP_RUNTIME_STATE_DIR:-${AP_RUNTIME_DIR:-./runtime}/.state}
+        target: /opt/runtime/.state

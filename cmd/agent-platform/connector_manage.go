@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/mcp"
@@ -25,36 +26,32 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	action := args[0]
 	flags := flag.NewFlagSet("connector-manage "+action, flag.ContinueOnError)
 	runtimeDir := flags.String("runtime-dir", "", "deployment runtime root")
-	connectorsDir := flags.String("connectors-center-dir", "", "external connector package source root")
-	legacyDir := flags.String("connectors-dir", "", "legacy package root to migrate")
-	stateDir := flags.String("connector-state-dir", "", "persistent connector state root")
 	id := flags.String("id", "", "connector id")
 	overwrite := flags.Bool("overwrite", false, "replace an existing external package")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
-	root := *connectorsDir
-	if root == "" && *runtimeDir != "" {
-		root = filepath.Join(*runtimeDir, "connectors-center")
+	if *runtimeDir == "" {
+		return fmt.Errorf("--runtime-dir is required")
 	}
-	if root == "" && *legacyDir != "" {
-		root = filepath.Join(filepath.Dir(*legacyDir), "connectors-center")
-	}
-	if root == "" {
-		return fmt.Errorf("--runtime-dir or --connectors-center-dir is required")
-	}
-	root, err := filepath.Abs(root)
+	runtimeRoot, err := filepath.Abs(*runtimeDir)
 	if err != nil {
 		return err
 	}
-	if *stateDir == "" {
-		*stateDir = filepath.Join(filepath.Dir(root), "connector-state")
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
 	}
-	if *legacyDir == "" && *runtimeDir != "" {
-		*legacyDir = filepath.Join(*runtimeDir, "connectors")
+	stateDir, err := config.ResolveStateDir(cwd, runtimeRoot)
+	if err != nil {
+		return err
 	}
-	sources := connector.Sources{ExternalRoot: root, StateRoot: *stateDir}
-	if err := sources.MigrateLegacy(*legacyDir); err != nil {
+	root := filepath.Join(runtimeRoot, "connectors-center")
+	if err := (connector.Sources{ExternalRoot: root, StateRoot: stateDir}).ValidateRoots(); err != nil {
+		return err
+	}
+	sources := connector.Sources{ExternalRoot: root, StateRoot: filepath.Join(stateDir, "connectors"), LegacyStateRoot: filepath.Join(runtimeRoot, "connector-state")}
+	if err := sources.MigrateLegacy(filepath.Join(runtimeRoot, "connectors")); err != nil {
 		return err
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)

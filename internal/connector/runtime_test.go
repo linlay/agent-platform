@@ -12,7 +12,7 @@ import (
 func runtimeFixture(t *testing.T) Sources {
 	t.Helper()
 	root := t.TempDir()
-	s := Sources{ExternalRoot: filepath.Join(root, "connectors-center"), BuiltinRoot: filepath.Join(root, "platform", "connectors"), RuntimeRoot: filepath.Join(root, "ru-connectors"), StateRoot: filepath.Join(root, "connector-state")}
+	s := Sources{ExternalRoot: filepath.Join(root, "connectors-center"), BuiltinRoot: filepath.Join(root, "platform", "connectors"), RuntimeRoot: filepath.Join(root, "ru-connectors"), StateRoot: filepath.Join(root, ".state", "connectors")}
 	if err := WriteBuiltin(filepath.Join(s.BuiltinRoot, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestRuntimeAssemblySharesPackagesAndKeepsPersistentState(t *testing.T) {
 	s := runtimeFixture(t)
 	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "search", "connector.json"), `{"id":"search","name":"Search","version":"1.0.0","type":"cli","auth_mode":"none"}`)
 	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "search", "cli.json"), `{}`)
-	putRuntimeFile(t, filepath.Join(s.StateRoot, ".state", "search", "oauth.json"), "credential")
+	putRuntimeFile(t, filepath.Join(s.StateRoot, "search", "oauth.json"), "credential")
 	packages, err := s.AssembleRuntime(nil)
 	if err != nil || len(packages) != 2 {
 		t.Fatalf("assemble: %#v %v", packages, err)
@@ -58,7 +58,7 @@ func TestRuntimeAssemblySharesPackagesAndKeepsPersistentState(t *testing.T) {
 	if _, err := s.AssembleRuntime(nil); err != nil {
 		t.Fatal(err)
 	}
-	if data, err := os.ReadFile(filepath.Join(s.StateRoot, ".state", "search", "oauth.json")); err != nil || string(data) != "credential" {
+	if data, err := os.ReadFile(filepath.Join(s.StateRoot, "search", "oauth.json")); err != nil || string(data) != "credential" {
 		t.Fatal("rebuild lost credentials")
 	}
 	if _, err := os.Stat(filepath.Join(s.RuntimeRoot, ".state")); !os.IsNotExist(err) {
@@ -128,7 +128,7 @@ func TestLegacyLayoutMigrationMovesPackagesAndStateWithoutOverwriting(t *testing
 	if err := s.MigrateLegacy(""); err != nil {
 		t.Fatal("repeat migration:", err)
 	}
-	for path, want := range map[string]string{filepath.Join(s.ExternalRoot, "demo", "connector.json"): "package", filepath.Join(s.StateRoot, ".state", "demo", "oauth.json"): "token", filepath.Join(s.StateRoot, ".credentials", "demo.json"): "secret"} {
+	for path, want := range map[string]string{filepath.Join(s.ExternalRoot, "demo", "connector.json"): "package", filepath.Join(s.StateRoot, "demo", "oauth.json"): "token", filepath.Join(s.StateRoot, "demo", "credentials.json"): "secret"} {
 		if data, err := os.ReadFile(path); err != nil || string(data) != want {
 			t.Fatalf("migration lost %s: %v", path, err)
 		}
@@ -186,7 +186,7 @@ func TestManagedLauncherUsesPersistentStateFromSharedRuntime(t *testing.T) {
 		t.Skip("Node is unavailable")
 	}
 	output, err := exec.Command(node, target).CombinedOutput()
-	if err != nil || strings.TrimSpace(string(output)) != filepath.Join(s.StateRoot, ".state", "demo") {
+	if err != nil || strings.TrimSpace(string(output)) != filepath.Join(s.StateRoot, "demo") {
 		t.Fatalf("launcher state: %s %v", output, err)
 	}
 }
@@ -237,7 +237,7 @@ func TestLegacyStateMigrationPreservesInternalNPMLinks(t *testing.T) {
 	if err := s.MigrateLegacy(""); err != nil {
 		t.Fatal(err)
 	}
-	migrated := filepath.Join(s.StateRoot, ".state", "demo", "npm", "node_modules", ".bin", "demo")
+	migrated := filepath.Join(s.StateRoot, "demo", "npm", "node_modules", ".bin", "demo")
 	if link, err := os.Readlink(migrated); err != nil || link != "../demo/cli.js" {
 		t.Fatalf("npm link changed: %q %v", link, err)
 	}

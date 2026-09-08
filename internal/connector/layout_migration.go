@@ -14,6 +14,10 @@ import (
 func (s Sources) MigrateLegacy(legacy string) error {
 	mutationMu.Lock()
 	defer mutationMu.Unlock()
+	return s.migrateLegacy(legacy, os.Rename)
+}
+
+func (s Sources) migrateLegacy(legacy string, rename func(string, string) error) error {
 	if s.ExternalRoot == "" || s.StateRoot == "" {
 		return nil
 	}
@@ -34,8 +38,22 @@ func (s Sources) MigrateLegacy(legacy string) error {
 	if legacy != center && (RootsOverlap(legacy, center) || RootsOverlap(legacy, s.StateRoot) || RootsOverlap(legacy, s.RuntimeRoot) || RootsOverlap(legacy, s.BuiltinRoot)) {
 		return fmt.Errorf("legacy connector directory overlaps a current connector root")
 	}
+	oldState := s.LegacyStateRoot
+	if oldState == "" {
+		oldState = filepath.Join(filepath.Dir(center), "connector-state")
+	}
+	oldState, err = filepath.Abs(oldState)
+	if err != nil {
+		return err
+	}
+	for _, current := range []string{legacy, center, s.StateRoot, s.RuntimeRoot, s.BuiltinRoot} {
+		if RootsOverlap(oldState, current) {
+			return fmt.Errorf("legacy connector state overlaps another connector root: %s", oldState)
+		}
+	}
 	type move struct{ source, target string }
 	var moves []move
+	var directories []string
 	planned := map[string]bool{}
 	var plan func(string, string, bool) error
 	plan = func(source, target string, merge bool) error {
@@ -46,8 +64,11 @@ func (s Sources) MigrateLegacy(legacy string) error {
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 && !safeLegacyStateLink(source, legacy, center) {
+		if info.Mode()&os.ModeSymlink != 0 && !safeLegacyStateLink(source, legacy, center, oldState) {
 			return fmt.Errorf("legacy connector layout contains an unsafe link: %s", source)
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("unsupported connector migration file: %s", source)
 		}
 		targetInfo, targetErr := os.Lstat(target)
 		if merge && info.IsDir() {
@@ -57,6 +78,10 @@ func (s Sources) MigrateLegacy(legacy string) error {
 			if targetErr != nil && !os.IsNotExist(targetErr) {
 				return targetErr
 			}
+			if planned[target] {
+				return fmt.Errorf("connector migration destination already planned as a file: %s", target)
+			}
+			directories = append(directories, target)
 			entries, err := os.ReadDir(source)
 			if err != nil {
 				return err
@@ -80,7 +105,7 @@ func (s Sources) MigrateLegacy(legacy string) error {
 		return nil
 	}
 	backupRoot := filepath.Join(filepath.Dir(center), ".connector-layout-backup-"+time.Now().UTC().Format("20060102T150405.000000000"))
-	roots := []string{center}
+	roots := []string{center, oldState}
 	if legacy != center {
 		roots = append([]string{legacy}, roots...)
 	}
@@ -99,7 +124,44 @@ func (s Sources) MigrateLegacy(legacy string) error {
 			target := filepath.Join(center, entry.Name())
 			state := entry.Name() == ".state" || entry.Name() == ".credentials"
 			if state {
-				target = filepath.Join(s.StateRoot, entry.Name())
+				source := filepath.Join(root, entry.Name())
+				info, err := os.Lstat(source)
+				if err != nil {
+					return err
+				}
+				if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+					return fmt.Errorf("legacy connector state must be a real directory: %s", source)
+				}
+				items, err := os.ReadDir(source)
+				if err != nil {
+					return err
+				}
+				for _, item := range items {
+					id := item.Name()
+					if entry.Name() == ".credentials" {
+						if !strings.HasSuffix(id, ".json") || !item.Type().IsRegular() {
+							return fmt.Errorf("invalid legacy credential file: %s", filepath.Join(source, id))
+						}
+						id = strings.TrimSuffix(id, ".json")
+					} else if !item.IsDir() {
+						return fmt.Errorf("legacy connector state must be a real directory: %s", filepath.Join(source, id))
+					}
+					target, err := StateDir(s.StateRoot, id)
+					if err != nil {
+						return err
+					}
+					if entry.Name() == ".credentials" {
+						directories = append(directories, target)
+						target = filepath.Join(target, "credentials.json")
+					}
+					if err := plan(filepath.Join(source, item.Name()), target, entry.Name() == ".state"); err != nil {
+						return err
+					}
+				}
+				continue
+			} else if root == oldState {
+				// Only the known state layouts belong to this migration.
+				continue
 			} else if IsBuiltin(entry.Name()) || entry.Name() == ".builtin-state" {
 				scope := "connectors"
 				if root == center {
@@ -114,23 +176,58 @@ func (s Sources) MigrateLegacy(legacy string) error {
 			}
 		}
 	}
-	if err := os.MkdirAll(center, 0700); err != nil {
-		return err
+	for _, dir := range directories {
+		if planned[dir] {
+			return fmt.Errorf("connector migration destination is both file and directory: %s", dir)
+		}
+	}
+	var created []string
+	var mkdir func(string) error
+	mkdir = func(dir string) error {
+		if info, err := os.Lstat(dir); err == nil {
+			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("migration destination must be a real directory: %s", dir)
+			}
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := mkdir(filepath.Dir(dir)); err != nil {
+			return err
+		}
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			return err
+		}
+		created = append(created, dir)
+		return nil
 	}
 	var applied []move
 	rollback := func(cause error) error {
 		for i := len(applied) - 1; i >= 0; i-- {
-			if err := os.Rename(applied[i].target, applied[i].source); err != nil {
+			if err := rename(applied[i].target, applied[i].source); err != nil {
 				return fmt.Errorf("%w; restoring %s: %v", cause, applied[i].source, err)
 			}
 		}
+		for i := len(created) - 1; i >= 0; i-- {
+			_ = os.Remove(created[i])
+		}
 		return cause
 	}
-	for _, m := range moves {
-		if err := os.MkdirAll(filepath.Dir(m.target), 0o700); err != nil {
+	for _, dir := range append([]string{center}, directories...) {
+		if err := mkdir(dir); err != nil {
 			return rollback(err)
 		}
-		if err := os.Rename(m.source, m.target); err != nil {
+	}
+	for _, m := range moves {
+		if err := mkdir(filepath.Dir(m.target)); err != nil {
+			return rollback(err)
+		}
+		// Recheck immediately before mutation; a conflicting destination is
+		// never intentionally replaced, including one created after preflight.
+		if _, err := os.Lstat(m.target); !os.IsNotExist(err) {
+			return rollback(fmt.Errorf("connector migration destination appeared: %s", m.target))
+		}
+		if err := rename(m.source, m.target); err != nil {
 			return rollback(err)
 		}
 		applied = append(applied, m)
@@ -142,6 +239,7 @@ func (s Sources) MigrateLegacy(legacy string) error {
 	if legacy != center {
 		_ = os.Remove(legacy)
 	} // remove only an empty legacy root
+	_ = os.Remove(oldState)
 	return nil
 }
 
@@ -162,14 +260,6 @@ func removeEmptyMigrationDirs(root string) {
 // Moving those leaf links preserves their meaning without following them or
 // granting access to another connector's state. Linked state roots are rejected.
 func safeLegacyStateLink(source string, roots ...string) bool {
-	link, err := os.Readlink(source)
-	if err != nil || filepath.IsAbs(link) {
-		return false
-	}
-	target, err := filepath.EvalSymlinks(source)
-	if err != nil {
-		return false
-	}
 	for _, root := range roots {
 		state := filepath.Join(root, ".state")
 		rel, err := filepath.Rel(state, source)
@@ -180,12 +270,7 @@ func safeLegacyStateLink(source string, roots ...string) bool {
 		if len(parts) < 2 || !ValidID(parts[0]) {
 			continue
 		}
-		owner, err := filepath.EvalSymlinks(filepath.Join(state, parts[0]))
-		if err != nil {
-			continue
-		}
-		inside, err := filepath.Rel(owner, target)
-		if err == nil && inside != ".." && !strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		if _, err := InternalStateLink(filepath.Join(state, parts[0]), source); err == nil {
 			return true
 		}
 	}
