@@ -1299,6 +1299,7 @@ type ToolSummary struct {
 	SourceType     string `json:"sourceType"`
 	SourceCategory string `json:"sourceCategory"`
 	ServerKey      string `json:"serverKey,omitempty"`
+	MCPToolName    string `json:"mcpToolName,omitempty"`
 }
 
 type ToolDetailResponse struct {

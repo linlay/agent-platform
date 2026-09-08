@@ -186,3 +186,20 @@ func assertToolNames(t *testing.T, tools []api.ToolSummary, want []string) {
 		}
 	}
 }
+
+func TestAdminToolsPreservesOriginalMCPNameWithoutChangingRoutingIdentity(t *testing.T) {
+	const key = "mcp_0006cb5d2c648af7_sheet_unset_freeze"
+	const original = "sheet_unset_freeze.with_original_characters_and_a_long_name"
+	server := &Server{deps: Dependencies{Tools: adminToolsStubExecutor{defs: []api.ToolDetailResponse{
+		{Key: key, Name: key, Meta: map[string]any{"sourceType": "mcp", "serverKey": "agent-mcp-demo", "mcpToolName": original}},
+		{Key: "local_tool", Name: "local_tool", Meta: map[string]any{"sourceType": "local", "mcpToolName": "ignored"}},
+	}}}}
+	items := requestAdminTools(t, server, "/api/admin/tools")
+	if len(items) != 2 || items[0].MCPToolName != original || items[0].Name != key || items[0].Key != key {
+		t.Fatalf("original name or routing identity changed: %#v", items)
+	}
+	if items[1].MCPToolName != "" {
+		t.Fatalf("non-MCP tool exposed MCP metadata: %#v", items[1])
+	}
+	assertAdminToolsResponseOmitsMeta(t, server, "/api/admin/tools")
+}

@@ -70,8 +70,10 @@ func (s *Server) listTools() []api.ToolSummary {
 		seen[normalized] = struct{}{}
 		sourceType := strings.TrimSpace(anyStringValue(tool.Meta["sourceType"]))
 		serverKey := ""
+		mcpToolName := ""
 		if strings.EqualFold(sourceType, "mcp") {
 			serverKey = strings.TrimSpace(anyStringValue(tool.Meta["serverKey"]))
+			mcpToolName = strings.TrimSpace(anyStringValue(tool.Meta["mcpToolName"]))
 		}
 		items = append(items, api.ToolSummary{
 			Key:            tool.Key,
@@ -81,6 +83,7 @@ func (s *Server) listTools() []api.ToolSummary {
 			SourceType:     sourceType,
 			SourceCategory: sourceCategory,
 			ServerKey:      serverKey,
+			MCPToolName:    mcpToolName,
 		})
 	}
 	return items
