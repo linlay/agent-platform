@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep macOS metadata out of archives produced by every child builtin builder.
+# COPYFILE_DISABLE removes AppleDouble entries; bsdtar flags also remove PAX
+# extended attributes, ACLs, and file flags while preserving executable modes.
+export COPYFILE_DISABLE=1
+if [[ "$(uname -s)" == Darwin ]]; then
+  tar() {
+    /usr/bin/tar --no-xattrs --no-acls --no-fflags "$@"
+  }
+  export -f tar
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_ROOT="$REPO_ROOT/build/builtins"
