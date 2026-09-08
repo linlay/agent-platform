@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -87,19 +88,50 @@ func TestDisplayedScriptApprovalCannotGrantChangedContent(t *testing.T) {
 	}
 }
 
-func TestApprovalItemShowsAllBashRequirements(t *testing.T) {
-	dir := t.TempDir()
-	ctx := &ExecutionContext{Session: QuerySession{WorkspaceRoot: dir}}
-	stream := &llmRunStream{ctx: context.Background(), engine: &LLMAgentEngine{tools: &recordingToolExecutor{}}, session: ctx.Session, execCtx: ctx}
-	invocation := &preparedToolInvocation{toolID: "bash", toolName: "bash", args: map[string]any{"command": "sh task.sh > /outside-review/output"}}
-	request, ok := stream.approvalRequestForInvocation(invocation)
-	if !ok || request.bashAccessReview == nil {
-		t.Fatal("missing aggregate approval")
-	}
-	invocation.shownApproval = &request
-	item := stream.buildApprovalAskItem(invocation)
-	description := mapStringArg(item, "description")
-	if !strings.Contains(description, "outside-review") || !strings.Contains(description, "internally") {
-		t.Fatalf("requirements hidden: %#v", item)
+func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
+	for _, command := range []string{"sh ./self.sh", "sh task.sh > /outside-review/output"} {
+		for _, description := range []string{"重试：sh ./self.sh", ""} {
+			t.Run(command+"/"+description, func(t *testing.T) {
+				dir := t.TempDir()
+				ctx := &ExecutionContext{Session: QuerySession{WorkspaceRoot: dir}}
+				stream := &llmRunStream{ctx: context.Background(), engine: &LLMAgentEngine{tools: &recordingToolExecutor{}}, session: ctx.Session, execCtx: ctx}
+				args := map[string]any{"command": command, "cwd": dir}
+				if description != "" {
+					args["description"] = description
+				}
+				invocation := &preparedToolInvocation{toolID: "bash", toolName: "bash", args: args}
+				request, ok := stream.approvalRequestForInvocation(invocation)
+				if !ok || request.bashAccessReview == nil || !request.bashAccessReview.RequiresApproval() {
+					t.Fatal("missing access approval")
+				}
+				if !strings.Contains(request.bashAccessReview.Reason, "internally") {
+					t.Fatalf("missing internal script requirement: %#v", request.bashAccessReview)
+				}
+				if strings.Contains(command, ">") {
+					if request.bashSecurityReview == nil || request.bashSecurityReview.Reason == "" || !strings.Contains(request.bashAccessReview.Reason, "outside-review") {
+						t.Fatalf("missing aggregate requirements: %#v", request)
+					}
+				}
+				invocation.shownApproval = &request
+				wantDescription := description
+				if wantDescription == "" {
+					wantDescription = command
+				}
+				want := map[string]any{
+					"id":            "bash",
+					"command":       command,
+					"description":   wantDescription,
+					"options":       buildApprovalOptions(),
+					"allowFreeText": true,
+					"ruleKey":       request.result.Rule.RuleKey,
+				}
+				if item := stream.buildApprovalAskItem(invocation); !reflect.DeepEqual(item, want) {
+					t.Fatalf("approval item changed command/description or added policy notes: got %#v, want %#v", item, want)
+				}
+				if accesspolicy.HasApproval(ctx, *request.bashAccessReview) {
+					t.Fatal("building the approval item must not authorize execution")
+				}
+			})
+		}
 	}
 }

@@ -304,14 +304,6 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		command = s.fileToolApprovalDisplayCommand(invocation, nil, plan)
 	}
 	description := approvalDescription(invocation)
-	if request := invocation.shownApproval; request != nil && isBashTool(invocation.toolName) {
-		if request.bashSecurityReview != nil {
-			description += "\n" + request.bashSecurityReview.Reason
-		}
-		if request.bashAccessReview != nil {
-			description += "\n" + request.bashAccessReview.Reason
-		}
-	}
 	if combinedWriteApproval {
 		description = strings.TrimSpace(description)
 		if description == "" {

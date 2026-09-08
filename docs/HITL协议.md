@@ -76,6 +76,7 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 - 子智能体 HITL 的 `request.submit` 与 `awaiting.answer` 会继续回显 public `awaitingId`，并携带 `taskId`，用于前端归并到子任务面板；后端内部唤醒的仍是 raw awaiting。
 - run owner 校验是互斥的：Agent-owned run 缺少/错传 `agentKey` 会失败；Team-owned run 缺少/错传 `teamId` 会失败，同时传 `agentKey` 也会失败。
 - `approval.options[]` 与 `plan.options[]` 的内置动作只下发 `decision` code，按钮文案由 webclient 按当前语言本地化；`question.options[].label` 仍是用户可见答案文本与答案匹配值，`form.title/form` 仍是业务或工具内容。
+- Bash 的 `approval.description` 使用工具调用传入的描述，缺省时沿用命令摘要兜底；后端不追加安全检查、路径/脚本审批原因或 cwd 说明。审批项仍保留原始 `command` 和 `ruleKey`，内部冻结的审批要求、审计及授权范围不因描述精简而改变。
 - 对 `question` / `approval` / `form`，`awaiting.ask.timeout == 0` 表示无限等待、不自动超时；`timeout > 0` 表示后端从发出等待项开始按真实时间独立倒计时。planning confirmation 的 `mode:"planning"` 永远省略该字段，含义同样是永久等待；前端不得为它显示倒计时。observer / attach / detach 状态不会暂停或延长后端超时。
 - `awaiting.answer.error.code == "timeout"` 时，`error.message` 会包含超时秒数与详细原因，并可携带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
 - `/api/submit` 对已自动终态或已经由其他提交处理的 known awaiting 返回 HTTP 409：`awaiting_expired`、`awaiting_interrupted` 或 `already_resolved`。响应 `data` 携带 `chatId/runId/awaitingId/status/errorCode` 和结构化 `error`；真正不存在或 `chatId/runId/awaitingId` 身份不匹配时返回 HTTP 400 `unknown_awaiting`。
