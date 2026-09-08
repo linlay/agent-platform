@@ -62,6 +62,7 @@ cmd/agent-platform/main.go
 - `internal/tools`：通用 tool registry/router、Bash、FileTools、memory、desktop、MCP tool 调用；mode 工具通过命名 handler 接入，不在 executor 中增加 mode switch。
 - `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
 - `internal/memory`：SQLite memory、FTS 文本检索、上下文召回与显式生命周期整理。
+- `internal/view`：VIEW 展示定义、声明资源、远端模板获取和 Chat 内容寻址快照；无 Tool 执行或 HITL 决策职责。VIEW 与 MCP/CLI 组件可组合，纯 VIEW 不授予 Bash/PATH。
 - `internal/connector`：中立连接器包/JSON/技能结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取各 Agent 的 ru-agents/<agentKey>/connectors，MCP 按 Agent/连接器/组件建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级受管 CLI 准备/扫码、HTTP MCP OAuth 发现、PKCE、loopback 回调和持久化刷新。按用户凭据绑定与通用 runtime 安装尚未实现，见连接器专题。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析；Team 只接受目录式 orchestrated 定义，并以原子快照冻结成员、协调器配置和 prompt。
 - `internal/config`：环境变量、YAML、默认值。
@@ -140,7 +141,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - Memory：memory console 的记录、scope 与历史接口；`/api/learn` 和 `/api/memory/context-preview` 已删除。
 - KBASE：`/api/kbase/{agentKey}/status`、`/api/kbase/{agentKey}/refresh` 以及五个 KBASE tools。
 - Project / Resource：`/api/project/tree`、`/api/project/changes`、`/api/project/diff`、`/api/upload`、`/api/resource`、`/api/resource/image/commit`。Project 只读接口只接受 CODER/KBASE 的 Workspace 相对 POSIX 路径，复用 file-history 作为 Run Diff 基线；图片 commit 只修改 active Chat 的 Artifact/Reference 资源域。
-- Viewport / WebSocket：`/api/viewport`、`/ws`。
+- View / WebSocket：`/api/view`、旧兼容 `/api/viewport`、`/ws`。
 
 详细协议拆分到专题文档：REST / SSE / WebSocket 见 [API与协议](docs/API与协议.md)，真流式与 attach 见 [真流式和H2A](docs/真流式和H2A.md)，HITL 见 [HITL协议](docs/HITL协议.md)。
 
@@ -218,7 +219,8 @@ make test
 - [HITL协议](docs/HITL协议.md)：question / approval / form、submit、awaiting 事件。
 - [自动化](docs/自动化.md)：automation registry、orchestrator、dispatch、执行记录。
 - [子智能体调度](docs/子智能体调度.md)：`agent_invoke`、TEAM 隐藏调度与 `run_query` / `run_status` / `run_interrupt` 独立根 run 控制。
-- [连接器](docs/连接器.md)：统一 MCP/CLI、builtin 包、Agent 挂载、自动技能、mustUse 边界、管理接口与旧目录迁移。
+- [连接器](docs/连接器.md)：统一 MCP/CLI/VIEW、builtin 包、Agent 挂载、自动技能、mustUse 边界、管理接口与旧目录迁移。
+- [VIEW连接器](docs/VIEW连接器.md)：VIEW 包、Agent 作用域、快照、HTTP/WS 和 WebClient 表单桥接、旧 viewport 迁移。
 - [MCP与工具交互](docs/MCP与工具交互.md)：统一 Tool、MCP registry、tool sync 与可选 viewport 交互元数据。
 - [会话存储与回放](docs/会话存储与回放.md)：chat store、StepLine、raw messages、archive、search、resource。
 - [鉴权与安全边界](docs/鉴权与安全边界.md)：JWT、JWKS、本地公钥、resource ticket、CORS、敏感配置。

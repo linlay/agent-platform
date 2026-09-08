@@ -182,6 +182,7 @@ func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]an
 	}
 	await.ViewportType = strings.TrimSpace(AnyStringNode(args["viewportType"]))
 	await.ViewportKey = strings.TrimSpace(AnyStringNode(args["viewportKey"]))
+	await.View, await.ViewError = s.resolveView(args["view"], "form")
 	switch await.Mode {
 	case "question":
 		if await.ViewportType == "" {

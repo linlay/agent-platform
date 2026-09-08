@@ -189,6 +189,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		resultError := value.Result.Error
 		resultExitCode := value.Result.ExitCode
 		return []stream.StreamInput{stream.ToolResult{
+			View:            value.View,
+			ViewError:       value.ViewError,
 			ToolID:          value.ToolID,
 			ToolName:        value.ToolName,
 			ToolLabel:       toolLabel,
@@ -315,6 +317,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunID:        value.RunID,
 			ViewportType: value.ViewportType,
 			ViewportKey:  value.ViewportKey,
+			View:         value.View,
+			ViewError:    value.ViewError,
 			Questions:    append([]any(nil), value.Questions...),
 			Approvals:    append([]any(nil), value.Approvals...),
 			Forms:        append([]any(nil), value.Forms...),

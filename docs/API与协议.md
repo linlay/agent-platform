@@ -1031,3 +1031,7 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 - `internal/api/types_memory_console.go`
 - `internal/ws/protocol.go`
 - `docs/手工测试用例.md`
+
+## VIEW 连接器 API
+
+HTTP GET 和 WS `/api/view` 接受 `chatId/connectorId/key/hash?/usage?`，返回带快照引用的 HTML/QLC 文档和声明资源。工具结果与表单事件新增 `view/viewError`，业务结果与提交协议不变。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。

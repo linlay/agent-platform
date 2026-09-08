@@ -27,7 +27,7 @@ func (s *llmRunStream) usesHostBashAuthorization(invocation *preparedToolInvocat
 	}
 	// Forms can rebuild commands on submit and keep their existing serial path.
 	match := s.lookupPrecheckedHITL(invocation)
-	return !match.Intercepted || strings.EqualFold(match.Rule.ViewportType, "builtin")
+	return !match.Intercepted || match.Rule.IsBuiltinApproval()
 }
 
 // prepareHostBashAuthorization runs on the stream's scheduling goroutine. It

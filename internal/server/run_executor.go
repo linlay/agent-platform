@@ -342,6 +342,9 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 				payload["timeout"] = contracts.AnyIntNode(timeout)
 			}
 			decorateNotificationRunOwner(payload, params.Session)
+			if ref := data.Value("view"); ref != nil {
+				payload["view"] = ref
+			}
 			if viewportType := strings.TrimSpace(data.String("viewportType")); viewportType != "" {
 				payload["viewportType"] = viewportType
 			}

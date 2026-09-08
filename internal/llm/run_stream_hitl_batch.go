@@ -29,7 +29,7 @@ func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInv
 }
 
 func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
-	if s.execCtx == nil || !strings.EqualFold(result.Rule.ViewportType, "builtin") {
+	if s.execCtx == nil || !result.Rule.IsBuiltinApproval() {
 		return false
 	}
 	if len(s.execCtx.AutoApproveLevels) == 0 {
@@ -122,8 +122,7 @@ func (s *llmRunStream) queuedApprovalCandidate(invocation *preparedToolInvocatio
 }
 
 func approvalRequestCanJoinBatch(request approvalRequest) bool {
-	viewportType := strings.TrimSpace(request.result.Rule.ViewportType)
-	return viewportType == "" || strings.EqualFold(viewportType, "builtin")
+	return request.result.Rule.IsBuiltinApproval()
 }
 
 func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvocation) (queuedBashApprovalCandidate, bool) {
@@ -159,7 +158,7 @@ func (s *llmRunStream) queuedGenericHITLApprovalCandidate(invocation *preparedTo
 		return queuedBashApprovalCandidate{}, false
 	}
 	result := s.lookupPrecheckedHITL(invocation)
-	if !result.Intercepted || !strings.EqualFold(result.Rule.ViewportType, "builtin") {
+	if !result.Intercepted || !result.Rule.IsBuiltinApproval() {
 		return queuedBashApprovalCandidate{}, false
 	}
 	request := hitlApprovalRequest(invocation, result)
@@ -610,7 +609,7 @@ func hitlDecisionScope(decision string) string {
 }
 
 func hitlDecisionMode(result hitl.InterceptResult) string {
-	if strings.EqualFold(strings.TrimSpace(result.Rule.ViewportType), "builtin") {
+	if result.Rule.IsBuiltinApproval() {
 		return "approval"
 	}
 	return "form"

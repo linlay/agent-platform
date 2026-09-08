@@ -274,6 +274,8 @@ type SubmitLine struct {
 // ---------------------------------------------------------------------------
 
 type StoredMessage struct {
+	View             map[string]any   `json:"view,omitempty"`
+	ViewError        string           `json:"viewError,omitempty"`
 	Role             string           `json:"role"`
 	Content          []ContentPart    `json:"content,omitempty"`
 	Approval         *StepApproval    `json:"approval,omitempty"`

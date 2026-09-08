@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/scriptstate"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/view"
 )
 
 const (
@@ -296,7 +297,10 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
-	ConnectorDirs map[string]string `json:"-"` // Frozen mounted connector runtime paths.
+	// ResolveView freezes a mounted presentation in this Chat before publication.
+	// It is installed by the session producer, never supplied by query clients.
+	ResolveView   func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
+	ConnectorDirs map[string]string                                                     `json:"-"` // Frozen mounted connector runtime paths.
 	RequestID     string
 	RunID         string
 	// TempRoot and TempRoots are the process-start temporary-directory snapshot

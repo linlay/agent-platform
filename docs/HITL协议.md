@@ -105,3 +105,7 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 - `internal/server/deferred_awaiting.go`（迁移期适配）
 - `internal/server/restart_awaiting.go`
 - `docs/手工测试用例.md`
+
+## VIEW 连接器表单
+
+新表单采用显式 `mode: form` 与 `view: {connectorId,key}`，renderer 不决定 HITL 语义。`awaiting.ask.view` 提供版本与快照 hash，失败保留等待和拒绝入口。Team 成员引用在 `forms[i].form.view`。`/api/submit` 不变；旧 viewport 字段仅用于兼容。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。

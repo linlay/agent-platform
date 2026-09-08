@@ -721,6 +721,12 @@ func teamMergedAwaitingDefinition(pending []*teamChildAwaiting) ([]any, []contra
 			"awaitingId": item.RawID,
 			"mode":       item.Ask.Mode,
 		}
+		if item.Ask.View != nil {
+			definition["view"] = item.Ask.View.Map()
+		}
+		if item.Ask.ViewError != "" {
+			definition["viewError"] = item.Ask.ViewError
+		}
 		if len(item.Ask.Questions) > 0 {
 			definition["questions"] = append([]any(nil), item.Ask.Questions...)
 		}

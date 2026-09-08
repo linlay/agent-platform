@@ -358,7 +358,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "request.query":
 		return []string{"requestId", "runId", "chatId", "role", "message", "agentKey", "teamId", "kind", "stage", "btwId", "parentChatId", "hidden", "references", "params", "scene", "stream", "includeUsage", "includeFullText", "planningMode", "editingMode", "accessLevel", "model", "messages", "system"}
 	case "awaiting.ask":
-		return []string{"awaitingId", "mode", "viewportType", "viewportKey", "timeout", "runId", "taskId", "agentKey", "questions", "approvals", "forms", "planning"}
+		return []string{"awaitingId", "mode", "view", "viewError", "viewportType", "viewportKey", "timeout", "runId", "taskId", "agentKey", "questions", "approvals", "forms", "planning"}
 	case "awaiting.answer":
 		return []string{"awaitingId", "taskId", "mode", "status", "submitId", "durationMs", "answers", "approvals", "forms", "planning", "error"}
 	case "request.submit":
@@ -413,7 +413,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "tool.output":
 		return []string{"runId", "taskId", "toolId", "toolName", "stream", "delta", "chunkIndex"}
 	case "tool.result":
-		return []string{"toolId", "toolName", "result", "durationMs", "fileChange", "hitl", "approval"}
+		return []string{"toolId", "toolName", "result", "view", "viewError", "durationMs", "fileChange", "hitl", "approval"}
 	case "source.publish":
 		return []string{"publishId", "runId", "taskId", "toolId", "kind", "query", "sourceCount", "chunkCount", "sources"}
 	case "plan.create", "plan.update":

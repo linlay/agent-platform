@@ -190,6 +190,8 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				for k, v := range m {
 					msg[k] = v
 				}
+				delete(msg, "view")
+				delete(msg, "viewError")
 				// Flatten content parts to plain text for LLM context
 				if role == "user" || role == "assistant" {
 					if parts, ok := m["content"].([]any); ok {
@@ -390,6 +392,8 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 	var out []map[string]any
 	for _, raw := range anyMessageSlice(line["messages"]) {
 		msg := cloneMessageMap(raw)
+		delete(msg, "view")
+		delete(msg, "viewError")
 		msg["runId"] = runID
 		role, _ := msg["role"].(string)
 		if role == "user" || role == "assistant" || role == "tool" {

@@ -302,6 +302,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		session.Subject = principal.Subject
 	}
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
+	if err := s.configureSessionViews(&session, agentDef); err != nil {
+		return contracts.QuerySession{}, err
+	}
 	return session, nil
 }
 

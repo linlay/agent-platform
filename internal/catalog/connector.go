@@ -84,7 +84,7 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 		if (pkg.CLI != nil || len(pkg.Skills) > 0) && !strings.EqualFold(def.Mode, AgentModeKBase) && !containsString(def.Tools, "bash") {
 			def.Tools = append(def.Tools, "bash")
 		}
-		if pkg.BinDir != "" {
+		if pkg.BinDir != "" && (pkg.CLI != nil || len(pkg.MCP) > 0 || len(pkg.Skills) > 0) {
 			def.ConnectorBinDirs = append(def.ConnectorBinDirs, pkg.BinDir)
 		}
 		def.ConnectorMounts = append(def.ConnectorMounts, ConnectorMount{ID: id, Dir: pkg.Dir})
@@ -161,11 +161,16 @@ func (d *AgentDefinition) bindConnectorRuntime() {
 			}
 		}
 	}
+	binDirs := make(map[string]bool, len(d.ConnectorBinDirs))
+	for _, dir := range d.ConnectorBinDirs {
+		binDirs[filepath.Clean(dir)] = true
+	}
 	d.ConnectorBinDirs = nil
 	for i := range d.ConnectorMounts {
 		mount := &d.ConnectorMounts[i]
+		hasExecutableComponent := binDirs[filepath.Join(mount.Dir, "bin")]
 		mount.Dir = filepath.Join(root, mount.ID)
-		if info, err := os.Stat(filepath.Join(mount.Dir, "bin")); err == nil && info.IsDir() {
+		if info, err := os.Stat(filepath.Join(mount.Dir, "bin")); hasExecutableComponent && err == nil && info.IsDir() {
 			d.ConnectorBinDirs = append(d.ConnectorBinDirs, filepath.Join(mount.Dir, "bin"))
 		}
 	}

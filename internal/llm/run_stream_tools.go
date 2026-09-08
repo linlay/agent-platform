@@ -1115,7 +1115,7 @@ func (s *llmRunStream) handleHITLApproval(invocation *preparedToolInvocation, re
 	request := hitlApprovalRequest(invocation, result)
 	access := s.lookupBashAccessReview(invocation)
 	request.bashAccessReview = &access
-	if strings.EqualFold(result.Rule.ViewportType, "builtin") {
+	if result.Rule.IsBuiltinApproval() {
 		if options.allowExistingDecision && request.hasApprovalDecision() {
 			return s.executeApprovedApprovalRequest(request)
 		}
@@ -1459,12 +1459,18 @@ func (s *llmRunStream) emitToolResult(invocation *preparedToolInvocation, result
 	if invocation == nil {
 		return
 	}
-	s.pending = append(s.pending, DeltaToolResult{
+	delta := DeltaToolResult{
 		ToolID:       invocation.toolID,
 		ToolName:     invocation.toolName,
 		Result:       result,
 		InternalOnly: internalOnly,
-	})
+	}
+	if !internalOnly && s.engine != nil {
+		if definition, ok := s.lookupToolDefinition(invocation.toolName); ok {
+			delta.View, delta.ViewError = s.resolveView(definition.Meta["view"], "display")
+		}
+	}
+	s.pending = append(s.pending, delta)
 }
 
 func (s *llmRunStream) resolveQueuedToolCallsAfterBudgetExceeded() {
@@ -1726,6 +1732,9 @@ func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResp
 			strings.EqualFold(strings.TrimSpace(tool.Key), strings.TrimSpace(toolName)) {
 			return tool, true
 		}
+	}
+	if s.engine == nil || s.engine.tools == nil {
+		return api.ToolDetailResponse{}, false
 	}
 	effectiveSession := s.session
 	if s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox {

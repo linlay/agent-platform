@@ -78,6 +78,12 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 		"toolName": input.ToolName,
 		"result":   buildToolResultValue(input),
 	}
+	if input.View != nil {
+		payload["view"] = input.View.Map()
+	}
+	if input.ViewError != "" {
+		payload["viewError"] = input.ViewError
+	}
 	if input.InternalOnly {
 		payload["internalOnly"] = true
 	}

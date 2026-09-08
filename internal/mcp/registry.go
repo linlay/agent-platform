@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/view"
 )
 
 const (
@@ -231,7 +232,18 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 		parameters = contracts.AnyMapNode(root["parameters"])
 	}
 	aliases := normalizeAliases(root["aliases"])
+	ref, err := view.ParseConfigReference(root["view"])
+	if err != nil {
+		return ToolDefinition{}, err
+	}
+	if ref == nil {
+		ref, err = view.ParseConfigReference(meta["view"])
+	}
+	if err != nil {
+		return ToolDefinition{}, err
+	}
 	return ToolDefinition{
+		View:          ref,
 		Key:           strings.TrimSpace(contracts.FirstNonEmptyString(root["key"])),
 		Name:          name,
 		Label:         strings.TrimSpace(contracts.FirstNonEmptyString(root["label"])),

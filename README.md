@@ -30,7 +30,8 @@
 - `POST /api/submit`
 - `POST /api/steer`
 - `POST /api/interrupt`
-- `GET /api/viewport?viewportKey=...`
+- `GET /api/view?chatId=...&connectorId=...&key=...[&hash=...]`（[VIEW 连接器](docs/VIEW连接器.md)）
+- `GET /api/viewport?viewportKey=...`（旧协议兼容）
 - `GET /api/resource?file=...`
 - `POST /api/upload`
 - `POST /api/resource/image/commit`

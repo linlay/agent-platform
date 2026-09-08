@@ -1,12 +1,20 @@
 package hitl
 
+import (
+	"strings"
+
+	"agent-platform/internal/view"
+)
+
 type SubcommandRule struct {
-	Match        string `yaml:"match"`
-	Level        int    `yaml:"level"`
-	Title        string `yaml:"title"`
-	ViewportType string `yaml:"viewportType"`
-	ViewportKey  string `yaml:"viewportKey"`
-	Timeout      int    `yaml:"timeout"`
+	Mode         string          `yaml:"mode"`
+	View         *view.Reference `yaml:"view"`
+	Match        string          `yaml:"match"`
+	Level        int             `yaml:"level"`
+	Title        string          `yaml:"title"`
+	ViewportType string          `yaml:"viewportType"`
+	ViewportKey  string          `yaml:"viewportKey"`
+	Timeout      int             `yaml:"timeout"`
 }
 
 type CommandBlock struct {
@@ -22,6 +30,8 @@ type RuleFile struct {
 }
 
 type FlatRule struct {
+	Mode             string
+	View             *view.Reference
 	RuleKey          string
 	FileKey          string
 	SourcePath       string
@@ -35,6 +45,22 @@ type FlatRule struct {
 	ViewportType     string
 	ViewportKey      string
 	Timeout          int
+}
+
+// Legacy YAML infers form from html only at the compatibility boundary.
+// New definitions declare their interaction mode independently of rendering.
+func (r FlatRule) EffectiveMode() string {
+	if r.Mode != "" {
+		return r.Mode
+	}
+	if strings.EqualFold(r.ViewportType, "html") {
+		return "form"
+	}
+	return "approval"
+}
+
+func (r FlatRule) IsBuiltinApproval() bool {
+	return r.EffectiveMode() == "approval" && r.View == nil && (r.ViewportType == "" || strings.EqualFold(r.ViewportType, "builtin"))
 }
 
 type CommandComponents struct {

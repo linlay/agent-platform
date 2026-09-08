@@ -269,6 +269,13 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 		payload["agentKey"] = agentKey
 	}
 	viewportType, viewportKey := awaitAskViewport(input)
+	if input.View != nil {
+		payload["view"] = input.View.Map()
+		viewportType, viewportKey = "", ""
+	}
+	if input.ViewError != "" {
+		payload["viewError"] = input.ViewError
+	}
 	if viewportType != "" {
 		payload["viewportType"] = viewportType
 	}

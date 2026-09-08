@@ -7,18 +7,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 )
 
 type Summary struct {
 	Manifest
-	Builtin   bool     `json:"builtin"`
-	ReadOnly  bool     `json:"readOnly"`
-	CanDelete bool     `json:"canDelete"`
-	HasMCP    bool     `json:"hasMcp"`
-	HasCLI    bool     `json:"hasCli"`
-	HasBin    bool     `json:"hasBin"`
-	Skills    []string `json:"skills"`
+	Builtin   bool          `json:"builtin"`
+	ReadOnly  bool          `json:"readOnly"`
+	CanDelete bool          `json:"canDelete"`
+	HasMCP    bool          `json:"hasMcp"`
+	HasCLI    bool          `json:"hasCli"`
+	HasView   bool          `json:"hasView"`
+	Views     []ViewSummary `json:"views,omitempty"`
+	HasBin    bool          `json:"hasBin"`
+	Skills    []string      `json:"skills"`
+}
+
+type ViewSummary struct {
+	Key      string   `json:"key"`
+	Title    string   `json:"title,omitempty"`
+	Renderer string   `json:"renderer"`
+	Usage    []string `json:"usage"`
+	Source   string   `json:"source"`
 }
 
 func Summaries(root string) ([]Summary, error) {
@@ -36,6 +47,15 @@ func (s Sources) Summaries() ([]Summary, error) {
 		for _, skill := range pkg.Skills {
 			summary.Skills = append(summary.Skills, skill.Name)
 		}
+		summary.HasView = len(pkg.Views) > 0
+		for key, definition := range pkg.Views {
+			source := "local"
+			if definition.Remote != nil {
+				source = "remote"
+			}
+			summary.Views = append(summary.Views, ViewSummary{Key: key, Title: definition.Title, Renderer: definition.Renderer, Usage: append([]string(nil), definition.Usage...), Source: source})
+		}
+		sort.Slice(summary.Views, func(i, j int) bool { return summary.Views[i].Key < summary.Views[j].Key })
 		result = append(result, summary)
 	}
 	return result, nil
@@ -128,6 +148,6 @@ func SaveDefinition(root string, input File, expected string, validate func(Pack
 }
 
 func definitionFile(file string) bool {
-	return file == "connector.json" || file == "mcp.json" || file == "cli.json"
+	return file == "connector.json" || file == "mcp.json" || file == "cli.json" || file == "view.json"
 }
 func digest(data []byte) string { hash := sha256.Sum256(data); return hex.EncodeToString(hash[:]) }

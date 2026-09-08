@@ -3,6 +3,7 @@ package contracts
 import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/view"
 )
 
 type AgentDelta interface {
@@ -51,6 +52,8 @@ type DeltaToolOutput struct {
 func (DeltaToolOutput) agentDeltaTag() {}
 
 type DeltaToolResult struct {
+	View         *view.Reference
+	ViewError    string
 	ToolID       string
 	ToolName     string
 	Result       ToolExecutionResult
@@ -226,6 +229,8 @@ type DeltaSourcePublish struct {
 func (DeltaSourcePublish) agentDeltaTag() {}
 
 type DeltaAwaitAsk struct {
+	View         *view.Reference
+	ViewError    string
 	AwaitingID   string
 	Mode         string
 	Timeout      int64

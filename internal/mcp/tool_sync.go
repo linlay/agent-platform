@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/view"
 )
 
 type ToolSync struct {
@@ -481,6 +482,9 @@ func applyServerToolOverride(base ToolDefinition, override *ToolDefinition) Tool
 	}
 	if strings.TrimSpace(override.ViewportKey) != "" {
 		merged.ViewportKey = strings.TrimSpace(override.ViewportKey)
+	}
+	if override.View != nil {
+		merged.View = view.Clone(override.View)
 	}
 	if len(override.Meta) > 0 {
 		if merged.Meta == nil {

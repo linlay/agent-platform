@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/view"
 )
 
 type ServerDefinition struct {
@@ -58,6 +59,7 @@ func (s ServerDefinition) ResolvedURL() string {
 }
 
 type ToolDefinition struct {
+	View          *view.Reference
 	Key           string
 	Name          string
 	Label         string
@@ -73,6 +75,7 @@ type ToolDefinition struct {
 
 func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 	type rawToolDefinition struct {
+		View          any            `json:"view"`
 		Key           string         `json:"key"`
 		Name          string         `json:"name"`
 		Label         string         `json:"label"`
@@ -91,6 +94,13 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	ref, err := view.ParseConfigReference(raw.View)
+	if raw.View == nil {
+		ref, err = view.ParseConfigReference(raw.Meta["view"])
+	}
+	if err != nil {
+		return err
+	}
 	parameters := raw.InputSchema
 	if len(parameters) == 0 {
 		parameters = raw.Parameters
@@ -103,6 +113,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		meta["readOnly"] = true
 	}
 	*t = ToolDefinition{
+		View:          ref,
 		Key:           raw.Key,
 		Name:          raw.Name,
 		Label:         raw.Label,
@@ -134,6 +145,11 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 	}
 	for key, value := range t.Meta {
 		meta[key] = value
+	}
+	if t.View != nil {
+		meta["view"] = t.View.Map()
+		delete(meta, "viewportType")
+		delete(meta, "viewportKey")
 	}
 	for _, key := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
 		delete(meta, key)

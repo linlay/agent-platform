@@ -236,7 +236,7 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 
 func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result hitl.InterceptResult) map[string]any {
 	command := mapStringArg(invocation.args, "command")
-	if strings.EqualFold(result.Rule.ViewportType, "html") {
+	if result.Rule.EffectiveMode() == "form" {
 		return s.buildFormApprovalArgs(command, result)
 	}
 	return s.buildConfirmApprovalArgs(invocation, result)
@@ -266,6 +266,11 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 		"mode":         "form",
 		"viewportType": result.Rule.ViewportType,
 		"viewportKey":  result.Rule.ViewportKey,
+	}
+	if result.Rule.View != nil {
+		args["view"] = result.Rule.View.Map()
+		delete(args, "viewportType")
+		delete(args, "viewportKey")
 	}
 	form := map[string]any{
 		"id":      "form-1",

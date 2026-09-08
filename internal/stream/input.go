@@ -1,5 +1,7 @@
 package stream
 
+import "agent-platform/internal/view"
+
 type StreamInput interface {
 	streamInputTag()
 }
@@ -57,6 +59,8 @@ type ToolOutput struct {
 func (ToolOutput) streamInputTag() {}
 
 type ToolResult struct {
+	View            *view.Reference
+	ViewError       string
 	ToolID          string
 	ToolName        string
 	ToolLabel       string
@@ -243,6 +247,8 @@ type SourceChunk struct {
 }
 
 type AwaitAsk struct {
+	View         *view.Reference
+	ViewError    string
 	AwaitingID   string
 	Mode         string
 	Timeout      int64

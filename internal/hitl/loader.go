@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/view"
 )
 
 func loadRulesFromDir(root string) ([]FlatRule, error) {
@@ -66,13 +67,22 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 				}
 				viewportType, viewportKey := normalizeViewport(sub)
 				viewportTypeKey := strings.ToLower(strings.TrimSpace(viewportKey))
-				if existing, ok := viewportTypes[viewportTypeKey]; ok && existing != viewportType {
+				if existing, ok := viewportTypes[viewportTypeKey]; ok && viewportTypeKey != "" && existing != viewportType {
 					return nil, fmt.Errorf("%s: viewportKey %q is associated with multiple viewportType values", path, viewportKey)
 				}
 				viewportTypes[viewportTypeKey] = viewportType
 				seen[key] = true
 				ruleKey := buildRuleKey(file.Key, command, match, sub.Level, viewportType, viewportKey)
+				mode := sub.Mode
+				if mode == "" {
+					mode = (FlatRule{ViewportType: viewportType}).EffectiveMode()
+				}
+				if sub.View != nil {
+					ruleKey += "::" + mode + "::" + sub.View.ConnectorID + "::" + sub.View.Key
+				}
 				rules = append(rules, FlatRule{
+					Mode:             mode,
+					View:             view.Clone(sub.View),
 					RuleKey:          ruleKey,
 					FileKey:          file.Key,
 					SourcePath:       path,
@@ -134,7 +144,13 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 			PassThroughFlags: stringList(rawCommand["passThroughFlags"]),
 		}
 		for _, rawSub := range listMaps(rawCommand["subcommands"]) {
+			ref, err := view.ParseConfigReference(rawSub["view"])
+			if err != nil {
+				return RuleFile{}, false, fmt.Errorf("%s: %w", path, err)
+			}
 			block.Subcommands = append(block.Subcommands, SubcommandRule{
+				Mode:         strings.ToLower(strings.TrimSpace(stringValue(rawSub["mode"]))),
+				View:         ref,
 				Match:        strings.TrimSpace(stringValue(rawSub["match"])),
 				Level:        intValue(rawSub["level"]),
 				Title:        strings.TrimSpace(stringValue(rawSub["title"])),
@@ -155,7 +171,28 @@ func validateSubcommandRule(command string, sub SubcommandRule, matchTokens []st
 	if sub.Level <= 0 {
 		return fmt.Errorf("level must be greater than 0")
 	}
+	if strings.TrimSpace(sub.Match) != "" && len(matchTokens) == 0 {
+		return fmt.Errorf("match is invalid")
+	}
 	viewportType, viewportKey := normalizeViewport(sub)
+	if sub.Mode != "" && sub.Mode != "approval" && sub.Mode != "form" {
+		return fmt.Errorf("mode must be approval or form")
+	}
+	if sub.View != nil {
+		if sub.Mode != "form" {
+			return fmt.Errorf("a connector view requires mode=form")
+		}
+		if sub.ViewportType != "" || sub.ViewportKey != "" {
+			return fmt.Errorf("view cannot be mixed with legacy viewport fields")
+		}
+		return sub.View.Validate()
+	}
+	if sub.Mode == "form" && viewportType != "html" {
+		return fmt.Errorf("mode=form requires a view or legacy HTML viewport")
+	}
+	if sub.Mode == "approval" && viewportType == "html" {
+		return fmt.Errorf("mode=approval cannot use legacy HTML form semantics")
+	}
 	switch viewportType {
 	case "builtin", "html":
 	default:
@@ -164,13 +201,13 @@ func validateSubcommandRule(command string, sub SubcommandRule, matchTokens []st
 	if strings.TrimSpace(viewportKey) == "" {
 		return fmt.Errorf("viewportKey is required")
 	}
-	if strings.TrimSpace(sub.Match) != "" && len(matchTokens) == 0 {
-		return fmt.Errorf("match is invalid")
-	}
 	return nil
 }
 
 func normalizeViewport(sub SubcommandRule) (string, string) {
+	if sub.View != nil {
+		return "", ""
+	}
 	viewportType := strings.ToLower(strings.TrimSpace(sub.ViewportType))
 	viewportKey := strings.TrimSpace(sub.ViewportKey)
 	if viewportType == "" && viewportKey == "" {

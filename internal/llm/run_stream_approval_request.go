@@ -280,7 +280,7 @@ func (s *llmRunStream) tryResolveBashAccessApprovalFastPath(request approvalRequ
 }
 
 func (s *llmRunStream) tryResolveHITLApprovalFastPath(request approvalRequest, mode approvalFastPathMode) (bool, error) {
-	if request.kind != approvalKindHITL || !strings.EqualFold(request.result.Rule.ViewportType, "builtin") {
+	if request.kind != approvalKindHITL || !request.result.Rule.IsBuiltinApproval() {
 		return false, nil
 	}
 	if s.isRuleWhitelisted(request.result.Rule.RuleKey) {

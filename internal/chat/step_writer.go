@@ -213,6 +213,8 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			},
 		}, StoredMessage{
 			Role:         "tool",
+			View:         cloneStringAnyMap(anyMap(event.Value("view"))),
+			ViewError:    event.String("viewError"),
 			Name:         toolName,
 			ToolCallID:   toolID,
 			Content:      textContent(formatResult(event.Value("result"))),

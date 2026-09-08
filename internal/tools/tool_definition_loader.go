@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/view"
 )
 
 type toolDefinitionParseOptions struct {
@@ -35,6 +36,13 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	outputSchema := AnyMapNode(root["outputSchema"])
 	viewportType := AnyStringNode(root["viewportType"])
 	viewportKey := AnyStringNode(root["viewportKey"])
+	viewRef, err := view.ParseConfigReference(root["view"])
+	if err != nil {
+		return api.ToolDetailResponse{}, err
+	}
+	if viewRef != nil && (viewportType != "" || viewportKey != "") {
+		return api.ToolDetailResponse{}, fmt.Errorf("view cannot be mixed with legacy viewport fields")
+	}
 	external := AnyMapNode(root["external"])
 	_, hasExternal := root["external"]
 	if len(external) > 0 || hasExternal {
@@ -98,6 +106,9 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	}
 	if viewportType != "" {
 		meta["viewportType"] = viewportType
+	}
+	if viewRef != nil {
+		meta["view"] = viewRef.Map()
 	}
 	if viewportKey != "" {
 		meta["viewportKey"] = viewportKey

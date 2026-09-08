@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"agent-platform/internal/view"
 )
 
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -39,6 +41,7 @@ type Package struct {
 	Skills    []Skill
 	MCP       map[string]map[string]any
 	CLI       map[string]any
+	Views     map[string]view.Definition
 }
 
 type Skill struct {
@@ -144,6 +147,15 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 	if pkg.Type == "cli" && pkg.CLI == nil {
 		return Package{}, fmt.Errorf("connector %s cli.json must be an object", id)
 	}
+	var viewConfig view.Config
+	if err := read("view.json", &viewConfig); err == nil {
+		if err := view.ValidateDefinitions(dir, viewConfig.Views); err != nil {
+			return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
+		}
+		pkg.Views = viewConfig.Views
+	} else if pkg.Type == "view" || !os.IsNotExist(err) {
+		return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
+	}
 	if pkg.AuthMode == "cli" {
 		for _, field := range []string{"auth", "status", "unAuth"} {
 			if pkg.CLI[field] == nil {
@@ -171,8 +183,8 @@ func validateManifest(id string, pkg Manifest) error {
 	if !ValidID(id) || pkg.ID != id || strings.TrimSpace(pkg.Name) == "" || !validVersion(pkg.Version) {
 		return fmt.Errorf("connector %s requires matching id, name and SemVer version", id)
 	}
-	if pkg.Type != "mcp" && pkg.Type != "cli" {
-		return fmt.Errorf("connector %s type must be mcp or cli", id)
+	if pkg.Type != "mcp" && pkg.Type != "cli" && pkg.Type != "view" {
+		return fmt.Errorf("connector %s type must be mcp, cli or view", id)
 	}
 	switch pkg.AuthMode {
 	case "none", "cli", "mcp":

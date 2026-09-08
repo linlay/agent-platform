@@ -135,6 +135,12 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage s
 			"toolId": id,
 			"result": text,
 		}
+		if ref := anyMap(msg["view"]); len(ref) > 0 {
+			payload["view"] = cloneStringAnyMap(ref)
+		}
+		if message := stringFromAny(msg["viewError"]); message != "" {
+			payload["viewError"] = message
+		}
 		if _, ok := msg["durationMs"]; ok {
 			payload["durationMs"] = msg["durationMs"]
 		}
