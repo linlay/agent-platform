@@ -475,8 +475,11 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 		}
 	}
 	sections = append(sections, `Skill loading contract:
-- When a listed skill applies, read its exact instructionsPath with file_read before acting.
-- Do not use Bash, directory traversal, or filesystem search to discover installed skill locations.`)
+- Check all catalog entries for applicability, including connector skills. When a listed skill applies or the user names it, read its exact instructionsPath with file_read before acting or running its CLI; do not wait for the user to ask you to read it.
+- Copy instructionsPath verbatim into file_read.file_path. @skills, @skills-center, and @connectors are distinct semantic roots accepted directly by file_read; do not replace the prefix, derive a path from skillId, or guess an absolute path.
+- An instructionsPath under @connectors/<id>/... resolves inside the current Agent's mounted connector package. Pass the entire value directly to file_read.file_path. CLI availability does not mean its skill instructions have been read.
+- If a read fails, compare the attempted path with the catalog and retry with the exact instructionsPath if they differ. If the exact path fails, report that failure; do not substitute a same-named copy from another root or claim the skill was read successfully.
+- Do not use Bash, directory traversal, or filesystem search to discover installed skill locations. Resolve relative references inside a skill against the directory containing its exact instructionsPath.`)
 	sections = append(sections, strings.TrimSpace(appendConfig.Skill.CatalogHeader))
 	sections = append(sections, strings.Join(blocks, "\n\n---\n\n"))
 	return strings.Join(sections, "\n\n")

@@ -6,7 +6,7 @@ inputSchema:
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, an explicit @workspace/@chat/@agent/@skills/@skills-center/@owner/@temp path, or a path relative to the current Workspace.
+      description: Required. Absolute path, an explicit semantic-root path (@workspace, @chat, @agent, @skills, @skills-center, @connectors/<id>, @owner, or @temp), or a path relative to the current Workspace. For installed skills, copy the catalog instructionsPath verbatim into this field; @connectors/<id>/skills/.../SKILL.md is accepted directly and must not be rewritten to @skills or another root.
     offset:
       type: integer
       description: One-based line number to start reading from. Defaults to the beginning of the file.
