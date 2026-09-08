@@ -10,6 +10,32 @@ import (
 
 const maxAccessTokenFileBytes = 64 * 1024
 
+// ReadIdentityEnvironment supplies the reserved, invocation-local SSO variable.
+// Never merge this into os.Environ or persist it in a connector/runtime package.
+func ReadIdentityEnvironment(filePath string) (map[string]string, error) {
+	token, err := ReadAccessTokenFile(filePath)
+	if err != nil || token == "" {
+		return nil, err
+	}
+	return map[string]string{EnvAccessToken: token}, nil
+}
+
+// WithIdentityEnvironment removes inherited/spoofed SSO values before injecting
+// a fresh identity snapshot. A nil snapshot deliberately removes the variable.
+func WithIdentityEnvironment(base []string, identity map[string]string) []string {
+	env := make([]string, 0, len(base)+1)
+	for _, item := range base {
+		key, _, _ := strings.Cut(item, "=")
+		if !strings.EqualFold(strings.TrimSpace(key), EnvAccessToken) {
+			env = append(env, item)
+		}
+	}
+	if token := identity[EnvAccessToken]; token != "" {
+		env = append(env, EnvAccessToken+"="+token)
+	}
+	return env
+}
+
 // ReadAccessTokenFile reads the current Desktop identity token without
 // caching it. A missing path or empty file means that no identity is active.
 func ReadAccessTokenFile(filePath string) (string, error) {

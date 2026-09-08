@@ -3,6 +3,6 @@
   "name": "httpx",
   "version": "0.1.8",
   "type": "cli",
-  "auth_mode": "none",
+  "auth_mode": null,
   "description": "Platform bundled httpx CLI"
 }

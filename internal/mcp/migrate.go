@@ -32,7 +32,7 @@ func ConvertLegacy(path string, tree any) (connector.Manifest, map[string]any, m
 	if !connector.ValidID(server.Key) {
 		return connector.Manifest{}, nil, nil, fmt.Errorf("legacy server %q cannot become a connector id", server.Key)
 	}
-	manifest := connector.Manifest{ID: server.Key, Name: server.Name, Version: "1.0.0", Type: "mcp", AuthMode: "none"}
+	manifest := connector.Manifest{ID: server.Key, Name: server.Name, Version: "1.0.0", Type: "mcp", AuthMode: connector.AuthDelegated}
 	platform := map[string]any{"connect-timeout": server.ConnectTimeout, "startup-timeout": server.StartupTimeout, "retry": server.Retry}
 	if enabled, ok := root["enabled"].(bool); ok && !enabled {
 		platform["enabled"] = false
@@ -48,6 +48,9 @@ func ConvertLegacy(path string, tree any) (connector.Manifest, map[string]any, m
 	}
 	if server.AuthSource != "" {
 		platform["authSource"] = server.AuthSource
+		if server.AuthSource == AuthSourceIdentityFile {
+			manifest.AuthMode = connector.AuthOneID
+		}
 	}
 	component := map[string]any{"timeout": server.ReadTimeout * 1000, "platform": platform}
 	if server.Transport == TransportStdio {

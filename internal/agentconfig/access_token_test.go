@@ -63,3 +63,36 @@ func TestReadAccessTokenFileReturnsErrorForUnreadableTarget(t *testing.T) {
 		t.Fatalf("ReadAccessTokenFile(directory) = %q, %v; want read error", token, err)
 	}
 }
+
+func TestIdentityEnvironmentIsFreshScopedAndRemovesInheritedValues(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sso-access-token.txt")
+	t.Setenv(EnvAccessToken, "process-value")
+	original := []string{"KEEP=value", "ap_access_token=spoofed", "AP_ACCESS_TOKEN=stale"}
+	for _, token := range []string{"first", "second", ""} {
+		if err := os.WriteFile(file, []byte(token), 0600); err != nil {
+			t.Fatal(err)
+		}
+		identity, err := ReadIdentityEnvironment(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		env := WithIdentityEnvironment(original, identity)
+		want := []string{"KEEP=value"}
+		if token != "" {
+			want = append(want, EnvAccessToken+"="+token)
+		}
+		if strings.Join(env, "|") != strings.Join(want, "|") {
+			t.Fatal("incorrect identity environment")
+		}
+		if original[1] != "ap_access_token=spoofed" || os.Getenv(EnvAccessToken) != "process-value" {
+			t.Fatal("modified caller or process environment")
+		}
+	}
+	if err := os.WriteFile(file, []byte("invalid\nlines"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := ReadIdentityEnvironment(file)
+	if err == nil || len(WithIdentityEnvironment(original, identity)) != 1 {
+		t.Fatal("invalid identity propagated")
+	}
+}

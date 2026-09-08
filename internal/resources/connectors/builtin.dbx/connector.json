@@ -3,6 +3,6 @@
   "name": "dbx",
   "version": "0.1.2",
   "type": "cli",
-  "auth_mode": "none",
+  "auth_mode": null,
   "description": "Platform bundled dbx CLI"
 }

@@ -51,7 +51,7 @@ func TestConnectorZIPImportHTTPConflictAndAuthContract(t *testing.T) {
 		} `json:"data"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	if rec.Code != 200 || response.Data.Status != "not_required" || rec.Header().Get("Cache-Control") != "no-store" {
+	if rec.Code != 200 || response.Data.Status != "delegated" || rec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("auth status: %s", rec.Body.String())
 	}
 	rec = httptest.NewRecorder()

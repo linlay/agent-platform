@@ -10,34 +10,39 @@ import (
 )
 
 type ServerDefinition struct {
-	AgentKey          string
-	SourceKey         string
-	RuntimeDigest     string
-	ConnectorID       string
-	ConnectorBinDir   string
-	ConnectorAuthRoot string
-	ConnectorOAuth    bool
-	DisabledTools     []string
-	SetupError        string
-	Key               string
-	Name              string
-	Transport         string
-	BaseURL           string
-	EndpointPath      string
-	Command           string
-	Args              []string
-	Env               map[string]string
-	WorkingDir        string
-	ToolPrefix        string
-	AuthToken         string
-	AuthSource        string
-	Headers           map[string]string
-	AliasMap          map[string]string
-	ConnectTimeout    int
-	StartupTimeout    int
-	ReadTimeout       int
-	Retry             int
-	Tools             []ToolDefinition
+	AgentKey               string
+	SourceKey              string
+	RuntimeDigest          string
+	ConnectorID            string
+	ConnectorBinDir        string
+	ConnectorAuthRoot      string
+	ConnectorOAuth         bool
+	ConnectorOneID         bool
+	ConnectorOAuthResource string
+	ConnectorTokenQuery    bool
+	ConnectorToken         bool
+	ConnectorTokenHeaders  map[string]string
+	DisabledTools          []string
+	SetupError             string
+	Key                    string
+	Name                   string
+	Transport              string
+	BaseURL                string
+	EndpointPath           string
+	Command                string
+	Args                   []string
+	Env                    map[string]string
+	WorkingDir             string
+	ToolPrefix             string
+	AuthToken              string
+	AuthSource             string
+	Headers                map[string]string
+	AliasMap               map[string]string
+	ConnectTimeout         int
+	StartupTimeout         int
+	ReadTimeout            int
+	Retry                  int
+	Tools                  []ToolDefinition
 }
 
 const (
@@ -50,6 +55,9 @@ const (
 )
 
 func (s ServerDefinition) ResolvedURL() string {
+	if s.ConnectorID != "" && s.Transport == TransportStreamableHTTP && s.EndpointPath == "" {
+		return s.BaseURL
+	}
 	base := strings.TrimRight(s.BaseURL, "/")
 	path := strings.TrimLeft(s.EndpointPath, "/")
 	if path == "" {

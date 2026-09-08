@@ -21,8 +21,8 @@ const (
 	// EnvChatDir is the current chat's writable runtime directory. Tools keep
 	// chat-scoped state below this directory.
 	EnvChatDir = "AP_CHAT_DIR"
-	// EnvAccessToken is the Desktop identity token injected only into ordinary
-	// agent Host Bash processes.
+	// EnvAccessToken is the Desktop identity token injected into ordinary Agent
+	// Host Bash and explicitly mounted oneid-token stdio MCP processes.
 	EnvAccessToken = "AP_ACCESS_TOKEN"
 )
 

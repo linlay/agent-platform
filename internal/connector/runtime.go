@@ -246,7 +246,7 @@ func copyPackage(source, target string) error {
 // The managed Host CLI launcher needs only its state directory, never a token.
 // This generated descriptor keeps custom source/runtime/state roots independent.
 func prepareRuntimeState(pkg Package, dir string) error {
-	if pkg.AuthMode != "cli" {
+	if !pkg.ManagedCLI() {
 		return nil
 	}
 	stateDir, err := StateDir(pkg.PersistentRoot(), pkg.ID)

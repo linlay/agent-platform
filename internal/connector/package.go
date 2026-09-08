@@ -25,7 +25,7 @@ type Manifest struct {
 	Name        string          `json:"name"`
 	Version     string          `json:"version"`
 	Type        string          `json:"type"`
-	AuthMode    string          `json:"auth_mode"`
+	AuthMode    AuthMode        `json:"auth_mode"`
 	Description string          `json:"description,omitempty"`
 	TokenSchema json.RawMessage `json:"token_schema,omitempty"`
 	OAuth       json.RawMessage `json:"oauth,omitempty"`
@@ -106,6 +106,7 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 	if err := read("connector.json", &pkg.Manifest); err != nil {
 		return Package{}, fmt.Errorf("connector %s manifest: %w", id, err)
 	}
+	pkg.Manifest.normalizeAuth()
 	if err := validateManifest(id, pkg.Manifest); err != nil {
 		return Package{}, err
 	}
@@ -139,6 +140,7 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 	} else if pkg.Type == "mcp" || !os.IsNotExist(err) {
 		return Package{}, fmt.Errorf("connector %s mcp.json: %w", id, err)
 	}
+	pkg.normalizeLegacyIdentityAuth()
 	if err := read("cli.json", &pkg.CLI); err != nil {
 		if pkg.Type == "cli" || !os.IsNotExist(err) {
 			return Package{}, fmt.Errorf("connector %s cli.json: %w", id, err)
@@ -156,13 +158,6 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 	} else if pkg.Type == "view" || !os.IsNotExist(err) {
 		return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 	}
-	if pkg.AuthMode == "cli" {
-		for _, field := range []string{"auth", "status", "unAuth"} {
-			if pkg.CLI[field] == nil {
-				return Package{}, fmt.Errorf("connector %s CLI auth requires %s", id, field)
-			}
-		}
-	}
 	pkg.Skills, err = loadSkills(filepath.Join(dir, "skills"))
 	if err != nil {
 		return Package{}, fmt.Errorf("connector %s skills: %w", id, err)
@@ -176,6 +171,7 @@ func ValidateManifest(id string, content []byte) error {
 	if err := DecodeJSON(content, &manifest); err != nil {
 		return err
 	}
+	manifest.normalizeAuth()
 	return validateManifest(id, manifest)
 }
 
@@ -187,10 +183,10 @@ func validateManifest(id string, pkg Manifest) error {
 		return fmt.Errorf("connector %s type must be mcp, cli or view", id)
 	}
 	switch pkg.AuthMode {
-	case "none", "cli", "mcp":
+	case AuthDelegated, AuthOneID, AuthMCP:
 	case "token":
-		if len(pkg.TokenSchema) == 0 {
-			return fmt.Errorf("connector %s token_schema is required", id)
+		if _, err := TokenFields(pkg); err != nil {
+			return fmt.Errorf("connector %s: %w", id, err)
 		}
 	case "oauth":
 		if len(pkg.OAuth) == 0 {
@@ -199,7 +195,7 @@ func validateManifest(id string, pkg Manifest) error {
 	default:
 		return fmt.Errorf("connector %s has invalid auth_mode", id)
 	}
-	if pkg.AuthMode != "token" && len(pkg.TokenSchema) != 0 || pkg.AuthMode != "oauth" && len(pkg.OAuth) != 0 {
+	if pkg.AuthMode != AuthToken && len(pkg.TokenSchema) != 0 || (pkg.AuthMode != AuthOAuth && pkg.AuthMode != AuthMCP) && len(pkg.OAuth) != 0 {
 		return fmt.Errorf("connector %s has authentication fields for another mode", id)
 	}
 	return nil

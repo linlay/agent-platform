@@ -3,7 +3,6 @@ package mcp
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -62,15 +61,10 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	credentials := map[string]string{}
 	credentialReady := false
 	if pkg.AuthMode == "token" {
-		path, err := connector.CredentialsPath(pkg.PersistentRoot(), pkg.ID)
+		var err error
+		credentials, credentialReady, err = connectorauth.TokenValues(pkg)
 		if err != nil {
-			return ServerDefinition{}, fmt.Errorf("connector credential store is invalid")
-		}
-		err = connector.ReadJSON(path, &credentials)
-		if err == nil {
-			credentialReady = true
-		} else if !os.IsNotExist(err) {
-			return ServerDefinition{}, fmt.Errorf("connector credential store is invalid")
+			return ServerDefinition{}, err
 		}
 	}
 	tree := map[string]any{}
@@ -86,6 +80,9 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	} else if _, exists := component["platform"]; exists {
 		return ServerDefinition{}, fmt.Errorf("platform must be an object")
 	}
+	if pkg.AuthMode == connector.AuthToken && tree["authSource"] != nil && tree["authSource"] != "" {
+		return ServerDefinition{}, fmt.Errorf("token authentication cannot combine with platform authSource")
+	}
 	tree["serverKey"] = connector.ServerKey(pkg.ID, name)
 	switch component["type"] {
 	case "streamableHttp":
@@ -96,6 +93,18 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		parsed, err := url.Parse(rawURL)
 		if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Fragment != "" {
 			return ServerDefinition{}, fmt.Errorf("MCP url must be an HTTP(S) URL without userinfo or fragment")
+		}
+		if err := validateTokenQuery(pkg, parsed); err != nil {
+			return ServerDefinition{}, err
+		}
+		if pkg.AuthMode == connector.AuthOneID {
+			if err := validateIdentityFileRequest(parsed, parsed.Hostname()); err != nil {
+				return ServerDefinition{}, err
+			}
+			if value := tree["authSource"]; value != nil && value != "" && value != AuthSourceIdentityFile {
+				return ServerDefinition{}, fmt.Errorf("oneid-token cannot combine with another authSource")
+			}
+			tree["authSource"] = AuthSourceIdentityFile
 		}
 		tree["transport"] = TransportStreamableHTTP
 		tree["baseUrl"] = component["url"]
@@ -142,6 +151,18 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 				if !ok {
 					return ServerDefinition{}, fmt.Errorf("%s values must be strings", field)
 				}
+				if pkg.AuthMode == connector.AuthOneID {
+					if (field == "staticHeaders" || field == "staticEnv") && strings.Contains(value, "${") {
+						return ServerDefinition{}, fmt.Errorf("oneid-token templates belong in headers/env, not static fields")
+					}
+					resolved, err := resolveConnectorCredential(pkg, value, map[string]string{agentconfig.EnvAccessToken: "identity"})
+					if err != nil || strings.Contains(resolved, "${") {
+						return ServerDefinition{}, fmt.Errorf("oneid-token only supplies AP_ACCESS_TOKEN")
+					}
+					if pair[0] == "headers" && strings.EqualFold(key, "Authorization") && (field != "headers" || value != "Bearer ${AP_ACCESS_TOKEN}") {
+						return ServerDefinition{}, fmt.Errorf("oneid-token manages Authorization; omit it or use Bearer ${AP_ACCESS_TOKEN}")
+					}
+				}
 				normalized := key
 				if pair[0] == "headers" {
 					normalized = strings.ToLower(key)
@@ -179,7 +200,17 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		server.EndpointPath = ""
 	}
 	server.ConnectorID = pkg.ID
+	server.ConnectorOneID = pkg.AuthMode == connector.AuthOneID
 	server.ConnectorBinDir = pkg.BinDir
+	server.ConnectorTokenQuery = pkg.AuthMode == connector.AuthToken && strings.Contains(server.ResolvedURL(), "${")
+	server.ConnectorToken = pkg.AuthMode == connector.AuthToken && server.Transport == TransportStreamableHTTP
+	if server.ConnectorToken {
+		server.ConnectorTokenHeaders = map[string]string{}
+		headers, _ := component["headers"].(map[string]any)
+		for key, value := range headers {
+			server.ConnectorTokenHeaders[key], _ = value.(string)
+		}
+	}
 	if err := agentconfig.ValidateUserEnvironment(server.Env); err != nil {
 		return ServerDefinition{}, err
 	}
@@ -193,12 +224,19 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		}
 		server.ConnectorOAuth = true
 		server.ConnectorAuthRoot = pkg.PersistentRoot()
-		credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ResolvedURL())
+		server.ConnectorOAuthResource, err = connectorauth.OAuthResource(pkg)
+		if err != nil {
+			return ServerDefinition{}, err
+		}
+		credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ConnectorOAuthResource, server.ResolvedURL())
 	}
-	if pkg.AuthMode != "none" && !((pkg.AuthMode == "token" || server.ConnectorOAuth) && credentialReady) {
+	if server.ConnectorToken {
+		server.ConnectorAuthRoot = pkg.PersistentRoot()
+	}
+	if (pkg.AuthMode == connector.AuthToken || server.ConnectorOAuth) && !credentialReady {
 		// Account authorization is deliberately not inferred from process env or
 		// CLI output. These modes require a configured credential provider.
-		server.SetupError = "connector authentication requires setup: " + pkg.AuthMode
+		server.SetupError = "connector authentication requires setup: " + string(pkg.AuthMode)
 	}
 	if _, exists := component["runtime"]; exists {
 		server.SetupError = "connector runtime preparation is not implemented; provide a prepared command without runtime requirements"

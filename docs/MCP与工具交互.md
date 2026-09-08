@@ -26,7 +26,7 @@ Agent 使用 `connectorConfig.connectors: [remote-search]` 挂载。挂载同时
 
 连接器目录变化先校验本地来源，再发布空闲 Agent 的运行包并绑定 MCP 实例；活动 Agent 在使用者结束后更新。实例按 Agent、连接器和组件隔离，工具路由使用稳定实例标识，并在远端调用时恢复原始工具名。未挂载组件不建立连接，认证仍共享 `.state/connectors/<id>`。`PUT /api/admin/connectors/detail` 校验完整候选包并立即 reload；失败恢复原文件。远端初始化、工具发现与重连由后台协调器串行、合并执行；删除、禁用或连接配置变化会清除对应旧工具快照，只有匹配当前 Registry version 的结果可以发布。远端暂时不可用时保留合法配置，标记 unavailable 并重试；同步状态或工具集合变化发送 `catalog.updated(reason=connectors)`。
 
-SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；stdio session 关闭时回收子进程。已发出的 tools/call 不自动重放。清单 `auth_mode` 和已准备环境的当前支持范围见连接器专题，部署级 CLI 登录和 MCP OAuth 已实现，按用户绑定凭据和通用 runtime 安装尚未实现。迁移后的 `platform.authSource=identity-file` 保持已有的即时读 token、限定 HTTPS 目标和拒绝跨主机转发规则。
+SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；stdio session 关闭时回收子进程。已发出的 tools/call 不自动重放。清单 `auth_mode` 和已准备环境的当前支持范围见连接器专题，部署级 CLI 登录和 MCP OAuth 已实现，按用户绑定凭据和通用 runtime 安装尚未实现。迁移后的 `platform.authSource=identity-file` 归入 oneid-token，复用 Desktop SSO 的 `AP_ACCESS_TOKEN` 身份环境，不复制 Token 到 `.state/connectors`。stdio MCP 仅该模式注入此变量，身份变化后下次调用重建进程；HTTP MCP 即时生成 Bearer Header，限定 HTTPS 默认端口和完整 endpoint，拒绝跨目的地转发。
 
 ## 工具来源与结果
 

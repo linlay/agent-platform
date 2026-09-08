@@ -150,7 +150,7 @@ func TestOAuthPKCEPersistenceRefreshLogoutAndDestinationBinding(t *testing.T) {
 	defer upstream.Close()
 	root := t.TempDir()
 	stateRoot := (connector.Sources{ExternalRoot: root}).PersistentRoot()
-	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "oauth", "oauth": map[string]any{"discovery": true, "resourceMetadataUrl": upstream.URL + "/resource-metadata"}}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
+	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "mcp", "oauth": map[string]any{"discovery": true, "resourceMetadataUrl": upstream.URL + "/resource-metadata"}}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m := New(ctx, connector.Sources{ExternalRoot: root}, nil)

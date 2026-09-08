@@ -50,9 +50,10 @@ type sessionSlot struct {
 }
 
 type managedSession struct {
-	fingerprint string
-	transport   string
-	session     *sdkmcp.ClientSession
+	fingerprint    string
+	identityDigest string
+	transport      string
+	session        *sdkmcp.ClientSession
 }
 
 func NewClientWithGate(registry *Registry, httpClient *http.Client, gate *AvailabilityGate) *Client {
@@ -248,7 +249,20 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	fingerprint := serverFingerprint(server)
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	if slot.current != nil && slot.current.fingerprint == fingerprint {
+	identity, identityErr := c.stdioIdentity(server)
+	if identityErr != nil {
+		if slot.current != nil {
+			_ = closeManagedSession(slot.current)
+			slot.current = nil
+		}
+		return nil, identityErr
+	}
+	identityDigest := ""
+	if server.ConnectorOneID && server.Transport == TransportStdio {
+		digest := sha256.Sum256([]byte(identity[agentconfig.EnvAccessToken]))
+		identityDigest = hex.EncodeToString(digest[:])
+	}
+	if slot.current != nil && slot.current.fingerprint == fingerprint && slot.current.identityDigest == identityDigest {
 		return slot.current, nil
 	}
 	if slot.current != nil {
@@ -257,7 +271,7 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	}
 	connectCtx, cancel := operationContext(ctx, server.StartupTimeout)
 	defer cancel()
-	transport, err := c.transport(server)
+	transport, err := c.transportWithIdentity(server, identity)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", contracts.ErrMCPCallFailed, err)
 	}
@@ -277,7 +291,7 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	}
 	// The SDK validates its supported versions and applies the negotiated
 	// version to the transport before sending notifications/initialized.
-	managed := &managedSession{fingerprint: fingerprint, transport: server.Transport, session: session}
+	managed := &managedSession{fingerprint: fingerprint, identityDigest: identityDigest, transport: server.Transport, session: session}
 	slot.current = managed
 	observability.Log("mcp.response", map[string]any{"serverKey": server.Key, "method": "initialize", "protocolVersion": session.InitializeResult().ProtocolVersion})
 	return managed, nil
@@ -327,6 +341,25 @@ func (c *Client) slot(serverKey string) (*sessionSlot, error) {
 }
 
 func (c *Client) transport(server ServerDefinition) (sdkmcp.Transport, error) {
+	identity, err := c.stdioIdentity(server)
+	if err != nil {
+		return nil, err
+	}
+	return c.transportWithIdentity(server, identity)
+}
+
+func (c *Client) stdioIdentity(server ServerDefinition) (map[string]string, error) {
+	if !server.ConnectorOneID || server.Transport != TransportStdio {
+		return nil, nil
+	}
+	identity, err := agentconfig.ReadIdentityEnvironment(c.identityFile)
+	if err != nil || identity[agentconfig.EnvAccessToken] == "" {
+		return nil, fmt.Errorf("%w: Desktop SSO token is unavailable", contracts.ErrMCPCallFailed)
+	}
+	return identity, nil
+}
+
+func (c *Client) transportWithIdentity(server ServerDefinition, identity map[string]string) (sdkmcp.Transport, error) {
 	if server.SetupError != "" {
 		return nil, fmt.Errorf("%s", server.SetupError)
 	}
@@ -334,7 +367,19 @@ func (c *Client) transport(server ServerDefinition) (sdkmcp.Transport, error) {
 	case TransportStdio:
 		cmd := exec.Command(server.Command, server.Args...)
 		cmd.Dir = server.WorkingDir
-		cmd.Env = connector.WithPath(builtins.EnsureBinInEnv(append(os.Environ(), envPairs(server.Env)...)), []string{server.ConnectorBinDir})
+		env := server.Env
+		if server.ConnectorOneID {
+			env = map[string]string{}
+			for key, value := range server.Env {
+				resolved, err := resolveConnectorCredential(connector.Package{Manifest: connector.Manifest{ID: server.ConnectorID}}, value, identity)
+				if err != nil {
+					return nil, fmt.Errorf("oneid-token environment requires AP_ACCESS_TOKEN")
+				}
+				env[key] = resolved
+			}
+		}
+		cmd.Env = connector.WithPath(builtins.EnsureBinInEnv(append(os.Environ(), envPairs(env)...)), []string{server.ConnectorBinDir})
+		cmd.Env = agentconfig.WithIdentityEnvironment(cmd.Env, identity)
 		cmd.Stderr = os.Stderr
 		return &sdkmcp.CommandTransport{
 			Command:           cmd,
@@ -398,22 +443,42 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 		transport = typed
 	}
 	configuredHost := ""
+	headers := server.Headers
+	if server.ConnectorToken {
+		headers = map[string]string{}
+		for key, value := range server.Headers {
+			dynamic := false
+			for name := range server.ConnectorTokenHeaders {
+				if strings.EqualFold(key, name) {
+					dynamic = true
+				}
+			}
+			if !dynamic {
+				headers[key] = value
+			}
+		}
+	}
 	if server.AuthSource == AuthSourceIdentityFile {
 		if parsed, err := url.Parse(server.BaseURL); err == nil {
 			configuredHost = parsed.Hostname()
 		}
 	}
 	cloned.Transport = headerRoundTripper{
-		base: transport, headers: server.Headers, authToken: server.AuthToken,
+		base: transport, headers: headers, authToken: server.AuthToken,
 		authSource: server.AuthSource, identityFile: c.identityFile, configuredHost: configuredHost,
 		closeTimeout: sessionCloseTimeout, cancellationTimeout: cancellationNotificationTimeout,
+		oneID: server.ConnectorOneID, identityResource: server.ResolvedURL(),
 	}
 	if server.ConnectorOAuth {
 		authClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
 		cloned.Transport = connectorauth.AuthorizingTransport{
 			Base: cloned.Transport, Client: authClient,
 			Root: server.ConnectorAuthRoot, ID: server.ConnectorID, Resource: server.ResolvedURL(),
+			CredentialResource: server.ConnectorOAuthResource,
 		}
+	}
+	if server.ConnectorToken {
+		cloned.Transport = tokenQueryTransport{base: cloned.Transport, root: server.ConnectorAuthRoot, id: server.ConnectorID, resource: server.ResolvedURL(), headers: server.ConnectorTokenHeaders}
 	}
 	return &cloned
 }
@@ -425,6 +490,8 @@ type headerRoundTripper struct {
 	authSource          string
 	identityFile        string
 	configuredHost      string
+	oneID               bool
+	identityResource    string
 	closeTimeout        time.Duration
 	cancellationTimeout time.Duration
 }
@@ -445,22 +512,37 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	}
 	cloned := req.Clone(requestCtx)
 	cloned.Header = req.Header.Clone()
-	for key, value := range t.headers {
-		cloned.Header.Set(key, value)
-	}
 	token := strings.TrimSpace(t.authToken)
+	var identity map[string]string
 	if t.authSource == AuthSourceIdentityFile {
 		var err error
-		token, err = agentconfig.ReadAccessTokenFile(t.identityFile)
+		identity, err = agentconfig.ReadIdentityEnvironment(t.identityFile)
 		if err != nil {
 			return nil, fmt.Errorf("read identity file for MCP: %w", err)
 		}
+		token = identity[agentconfig.EnvAccessToken]
 		if token == "" {
 			return nil, fmt.Errorf("identity file token is unavailable")
 		}
 		if err := validateIdentityFileRequest(cloned.URL, t.configuredHost); err != nil {
 			return nil, err
 		}
+		if t.oneID {
+			want, err := url.Parse(t.identityResource)
+			if err != nil || cloned.URL.Scheme != want.Scheme || cloned.URL.Host != want.Host || cloned.URL.EscapedPath() != want.EscapedPath() || cloned.URL.RawQuery != want.RawQuery {
+				return nil, fmt.Errorf("oneid-token credential destination mismatch")
+			}
+		}
+	}
+	for key, value := range t.headers {
+		if t.oneID {
+			var err error
+			value, err = resolveConnectorCredential(connector.Package{}, value, identity)
+			if err != nil {
+				return nil, fmt.Errorf("oneid-token header requires AP_ACCESS_TOKEN")
+			}
+		}
+		cloned.Header.Set(key, value)
 	}
 	if token != "" {
 		cloned.Header.Set("Authorization", "Bearer "+token)

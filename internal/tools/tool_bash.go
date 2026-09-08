@@ -454,12 +454,8 @@ func mergeBashCommandEnv(execCtx *ExecutionContext, identityFile string) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	env := removeEnvironmentKey(commandEnv, agentconfig.EnvAccessToken)
-	token, err := agentconfig.ReadAccessTokenFile(identityFile)
-	if err != nil || token == "" {
-		return env, nil
-	}
-	return append(env, agentconfig.EnvAccessToken+"="+token), nil
+	identity, _ := agentconfig.ReadIdentityEnvironment(identityFile)
+	return agentconfig.WithIdentityEnvironment(commandEnv, identity), nil
 }
 
 func removeEnvironmentKey(env []string, key string) []string {

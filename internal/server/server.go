@@ -256,7 +256,7 @@ func New(deps Dependencies) (*Server, error) {
 			return s.deps.CatalogReloader.Reload(ctx, "connectors")
 		}
 		return nil
-	})
+	}).WithIdentityFile(s.deps.Config.IdentityFile)
 	if s.deps.Runtime == nil {
 		// Compatibility for direct package tests and small embedders. app.New
 		// always supplies the assembled Runtime service.

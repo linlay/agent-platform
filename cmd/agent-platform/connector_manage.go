@@ -21,22 +21,32 @@ import (
 // authenticating a package does not require models, Agents, or KBASE sidecars.
 func runConnectorManagement(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: connector-manage <import|login|status|logout> --runtime-dir <path> [--id <id>] [--overwrite] [package.zip]")
+		return fmt.Errorf("usage: connector-manage <import|login|status|logout|set-token> --runtime-dir <path> [--id <id>] [--credentials-file <path>] [--overwrite] [package.zip]")
 	}
 	action := args[0]
 	flags := flag.NewFlagSet("connector-manage "+action, flag.ContinueOnError)
 	runtimeDir := flags.String("runtime-dir", "", "deployment runtime root")
 	id := flags.String("id", "", "connector id")
 	overwrite := flags.Bool("overwrite", false, "replace an existing external package")
+	credentialsFile := flags.String("credentials-file", "", "JSON file containing token field values (set-token only)")
+	identityFile := flags.String("identity-file", "", "Desktop SSO token file (absolute path; defaults to runtime/identity/access-token)")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
 	if *runtimeDir == "" {
 		return fmt.Errorf("--runtime-dir is required")
 	}
+	if action != "set-token" && *credentialsFile != "" {
+		return fmt.Errorf("--credentials-file is only valid for set-token")
+	}
 	runtimeRoot, err := filepath.Abs(*runtimeDir)
 	if err != nil {
 		return err
+	}
+	if *identityFile == "" {
+		*identityFile = filepath.Join(runtimeRoot, "identity", "access-token")
+	} else if !filepath.IsAbs(*identityFile) {
+		return fmt.Errorf("--identity-file requires an absolute path")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -88,8 +98,21 @@ func runConnectorManagement(args []string, out io.Writer) error {
 		}
 		_, err = connector.SaveDefinition(root, file, file.SHA256, nil, nil)
 		return err
-	})
+	}).WithIdentityFile(*identityFile)
 	switch action {
+	case "set-token":
+		if *credentialsFile == "" {
+			return fmt.Errorf("set-token requires --credentials-file")
+		}
+		var values map[string]string
+		if err := connector.ReadJSON(*credentialsFile, &values); err != nil {
+			return fmt.Errorf("cannot read token credentials JSON file")
+		}
+		s, err := manager.SetToken(ctx, *id, values)
+		if err != nil {
+			return err
+		}
+		return encoder.Encode(s)
 	case "status":
 		s, err := manager.Status(ctx, *id)
 		if err != nil {

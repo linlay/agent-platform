@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -79,6 +80,23 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeAgentHTTPResponse(w, result, nil)
+	case http.MethodPut:
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		var req struct {
+			Credentials map[string]string `json:"credentials"`
+		}
+		data, readErr := io.ReadAll(r.Body)
+		r.Body.Close()
+		if readErr != nil || connector.DecodeJSON(data, &req) != nil {
+			s.writeConnectorError(w, errors.New("invalid connector credentials request"))
+			return
+		}
+		result, err := s.connectorAuth.SetToken(r.Context(), id, req.Credentials)
+		if err != nil {
+			s.writeConnectorError(w, err)
+			return
+		}
+		s.writeAgentHTTPResponse(w, result, nil)
 	case http.MethodDelete:
 		if err := s.connectorAuth.Logout(r.Context(), id); err != nil {
 			s.writeConnectorError(w, err)
@@ -86,7 +104,7 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 		}
 		s.writeAgentHTTPResponse(w, map[string]any{"id": id, "status": "unauthorized"}, nil)
 	default:
-		w.Header().Set("Allow", "GET, POST, DELETE")
+		w.Header().Set("Allow", "GET, POST, PUT, DELETE")
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(405, "method_not_allowed", "method not allowed"))
 	}
 }

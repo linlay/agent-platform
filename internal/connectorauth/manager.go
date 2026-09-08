@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/connector"
 )
 
@@ -28,13 +30,14 @@ type login struct {
 }
 
 type Manager struct {
-	ctx        context.Context
-	sources    connector.Sources
-	reload     func(context.Context, string) error
-	client     *http.Client
-	mu         sync.Mutex
-	sessions   map[string]*login
-	loggingOut map[string]bool
+	ctx          context.Context
+	sources      connector.Sources
+	reload       func(context.Context, string) error
+	client       *http.Client
+	identityFile string
+	mu           sync.Mutex
+	sessions     map[string]*login
+	loggingOut   map[string]bool
 }
 
 func New(ctx context.Context, sources connector.Sources, reload func(context.Context, string) error) *Manager {
@@ -42,6 +45,11 @@ func New(ctx context.Context, sources connector.Sources, reload func(context.Con
 		ctx = context.Background()
 	}
 	return &Manager{ctx: ctx, sources: sources, reload: reload, client: &http.Client{Timeout: 30 * time.Second}, sessions: map[string]*login{}, loggingOut: map[string]bool{}}
+}
+
+func (m *Manager) WithIdentityFile(path string) *Manager {
+	m.identityFile = strings.TrimSpace(path)
+	return m
 }
 
 func (m *Manager) Start(id string) (Session, error) {
@@ -52,7 +60,7 @@ func (m *Manager) Start(id string) (Session, error) {
 	if pkg.Builtin {
 		return Session{}, connector.ErrBuiltinReadOnly
 	}
-	if pkg.AuthMode != "cli" && pkg.AuthMode != "oauth" && pkg.AuthMode != "mcp" {
+	if !(pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI()) && pkg.AuthMode != connector.AuthOAuth && pkg.AuthMode != connector.AuthMCP {
 		return Session{}, fmt.Errorf("connector does not support interactive login")
 	}
 	m.mu.Lock()
@@ -74,7 +82,7 @@ func (m *Manager) Start(id string) (Session, error) {
 		defer close(s.done)
 		defer cancel()
 		var err error
-		if pkg.AuthMode == "cli" {
+		if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
 			err = m.loginCLI(ctx, pkg, s)
 		} else {
 			err = m.loginOAuth(ctx, pkg, s)
@@ -120,11 +128,21 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 	}
 	m.mu.Unlock()
 	result := Session{ConnectorID: id, Status: "unauthorized"}
-	if pkg.AuthMode == "none" {
-		result.Status = "not_required"
+	if pkg.AuthMode == connector.AuthOneID {
+		identity, err := agentconfig.ReadIdentityEnvironment(m.identityFile)
+		if err == nil && identity[agentconfig.EnvAccessToken] != "" {
+			result.Status = "authorized"
+		} else {
+			result.Message = "Desktop SSO is unavailable; sign in through Desktop"
+		}
 		return result, nil
 	}
-	if pkg.AuthMode == "cli" {
+	if pkg.AuthMode == connector.AuthDelegated && !pkg.ManagedCLI() {
+		result.Status = "delegated"
+		result.Message = "Authentication is handled by the connector skill or CLI"
+		return result, nil
+	}
+	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
 		ok, err := m.cliStatus(ctx, pkg)
 		if err != nil {
 			result.Status = "setup_required"
@@ -134,11 +152,21 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 		}
 		return result, nil
 	}
+	if pkg.AuthMode == connector.AuthToken {
+		_, ready, err := TokenValues(pkg)
+		if err != nil {
+			return result, err
+		}
+		if ready {
+			result.Status = "authorized"
+		}
+		return result, nil
+	}
 	resource, _, err := oauthResource(pkg)
 	if err != nil {
 		return result, err
 	}
-	if CredentialReady(m.sources.PersistentRoot(), id, resource) {
+	if CredentialReady(m.sources.PersistentRoot(), id, resource, oauthDestination(pkg)) {
 		result.Status = "authorized"
 	}
 	return result, nil
@@ -169,6 +197,9 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 	if pkg.Builtin {
 		return connector.ErrBuiltinReadOnly
 	}
+	if pkg.AuthMode == connector.AuthOneID || pkg.AuthMode == connector.AuthDelegated && !pkg.ManagedCLI() {
+		return fmt.Errorf("authentication is managed by the identity provider or connector CLI")
+	}
 	m.mu.Lock()
 	if m.loggingOut[id] {
 		m.mu.Unlock()
@@ -180,7 +211,7 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 	if err := m.Cancel(id); err != nil {
 		return err
 	}
-	if pkg.AuthMode == "cli" {
+	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
 		err = m.logoutCLI(ctx, pkg)
 	} else {
 		unlock, lockErr := lockCredentials(ctx, m.sources.PersistentRoot(), id)
@@ -188,7 +219,11 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 			return lockErr
 		}
 		var p string
-		p, err = credentialPath(m.sources.PersistentRoot(), id)
+		if pkg.AuthMode == connector.AuthToken {
+			p, err = connector.CredentialsPath(m.sources.PersistentRoot(), id)
+		} else {
+			p, err = credentialPath(m.sources.PersistentRoot(), id)
+		}
 		if err == nil {
 			err = os.Remove(p)
 			if os.IsNotExist(err) {

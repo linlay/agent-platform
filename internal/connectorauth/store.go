@@ -59,9 +59,10 @@ func lockCredentials(ctx context.Context, root, id string) (func(), error) {
 }
 
 type oauthCredential struct {
-	Resource string        `json:"resource"`
-	Config   oauth2.Config `json:"config"`
-	Token    *oauth2.Token `json:"token"`
+	Resource    string        `json:"resource"`
+	Destination string        `json:"destination,omitempty"`
+	Config      oauth2.Config `json:"config"`
+	Token       *oauth2.Token `json:"token"`
 }
 
 // StateDir is outside the installed, read-only package. Credentials are never
@@ -99,10 +100,14 @@ func saveCredential(root, id string, c oauthCredential) error {
 	if err != nil {
 		return err
 	}
+	return savePrivateJSON(p, c)
+}
+
+func savePrivateJSON(p string, value any) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(c)
+	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
@@ -125,23 +130,34 @@ func saveCredential(root, id string, c oauthCredential) error {
 	return os.Rename(f.Name(), p)
 }
 
-func CredentialReady(root, id, resource string) bool {
+func CredentialReady(root, id, resource string, destinations ...string) bool {
 	// Atomic file replacement allows a local snapshot without waiting for a
 	// token refresh. Catalog reload must never wait on authentication network I/O.
 	c, err := readCredential(root, id)
-	return err == nil && c.Resource == resource && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != "")
+	return err == nil && credentialMatches(c, resource, destinations) && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != "")
+}
+
+func credentialMatches(c oauthCredential, resource string, destinations []string) bool {
+	if c.Resource != resource {
+		return false
+	}
+	destination := c.Destination
+	if destination == "" {
+		destination = c.Resource
+	} // Credentials written before audience/destination separation.
+	return len(destinations) == 0 || destination == destinations[0]
 }
 
 // AccessToken re-reads storage for every request, so logout and rotated refresh
 // tokens also affect existing MCP sessions. Refresh is serialized across clients.
-func AccessToken(ctx context.Context, root, id, resource string, client *http.Client) (string, error) {
+func AccessToken(ctx context.Context, root, id, resource string, client *http.Client, destinations ...string) (string, error) {
 	unlock, err := lockCredentials(ctx, root, id)
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
 	c, err := readCredential(root, id)
-	if err != nil || c.Resource != resource || c.Token == nil {
+	if err != nil || !credentialMatches(c, resource, destinations) || c.Token == nil {
 		return "", fmt.Errorf("connector requires login")
 	}
 	if c.Token.Valid() {
@@ -175,6 +191,7 @@ type AuthorizingTransport struct {
 	Base               http.RoundTripper
 	Client             *http.Client
 	Root, ID, Resource string
+	CredentialResource string
 }
 
 func (t AuthorizingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -182,7 +199,11 @@ func (t AuthorizingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if err != nil || req.URL.Scheme != want.Scheme || req.URL.Host != want.Host || req.URL.EscapedPath() != want.EscapedPath() || req.URL.RawQuery != want.RawQuery {
 		return nil, fmt.Errorf("connector credential destination mismatch")
 	}
-	token, err := AccessToken(req.Context(), t.Root, t.ID, t.Resource, t.Client)
+	audience := t.CredentialResource
+	if audience == "" {
+		audience = t.Resource
+	}
+	token, err := AccessToken(req.Context(), t.Root, t.ID, audience, t.Client, t.Resource)
 	if err != nil {
 		return nil, err
 	}

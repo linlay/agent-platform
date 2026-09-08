@@ -20,7 +20,7 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	id := "demo"
 	dir := filepath.Join(root, id)
 	os.MkdirAll(dir, 0o755)
-	manifest := connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "cli", AuthMode: "cli"}
+	manifest := connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "cli", AuthMode: connector.AuthDelegated}
 	settings := cliSettings{NPMPackage: "demo-cli", NPMVersion: "1.2.0", Entry: "cli.js", Command: "demo", ConfigEnv: "DEMO_CLI_CONFIG_DIR", LogoutMode: "delete-config"}
 	cli := map[string]any{"platform": settings, "versionCheck": map[string]any{"minVersion": "1.2.0"}, "statusMatch": `(?m)^authorized\s*$`, "authUrlDomain": "example.test"}
 	for key, cmd := range map[string]string{"auth": "demo login", "status": "demo status", "unAuth": ""} {
