@@ -150,7 +150,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 	s.refreshAccessLevelForInvocation(invocation)
 	if isBashTool(invocation.toolName) {
-		review := s.reviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
+		review := s.lookupBashSecurityReview(invocation)
 		switch review.Decision {
 		case bashsec.ReviewRequiresApproval:
 		case bashsec.ReviewBlock:
@@ -1042,8 +1042,7 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 		})
 	}
 	if s.checker != nil && isBashTool(invocation.toolName) {
-		command := mapStringArg(invocation.args, "command")
-		if result := s.checker.Check(command, s.execCtx.HITLLevel); result.Intercepted {
+		if result := s.checkBashHITL(invocation); result.Intercepted {
 			return true, s.handleHITLApproval(invocation, result, hitlApprovalOptions{
 				skipPostToolHookImmediately: true,
 			})

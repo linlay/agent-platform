@@ -175,18 +175,15 @@ func (s *llmRunStream) lookupPrecheckedHITL(invocation *preparedToolInvocation) 
 	if invocation == nil || s.checker == nil {
 		return hitl.InterceptResult{}
 	}
-	if invocation.precheckedHITL != nil {
+	if invocation.precheckedHITL != nil && (s.execCtx == nil || len(s.execCtx.Session.ConnectorCLIEntries) == 0) {
 		return *invocation.precheckedHITL
 	}
-	command := mapStringArg(invocation.args, "command")
-	hitlLevel := 0
-	if s.execCtx != nil {
-		hitlLevel = s.execCtx.HITLLevel
-	}
-	result := s.checker.Check(command, hitlLevel)
+	result := s.checkBashHITL(invocation)
 	if result.Intercepted {
 		cloned := result
 		invocation.precheckedHITL = &cloned
+	} else {
+		invocation.precheckedHITL = nil
 	}
 	return result
 }

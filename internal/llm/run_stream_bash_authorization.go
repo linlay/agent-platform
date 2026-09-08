@@ -79,8 +79,8 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 	}
 
 	command := strings.TrimSpace(mapStringArg(invocation.args, "command"))
-	security := s.reviewBashSecurity(command)
 	access := s.rawBashAccessReview(invocation)
+	security := access.SecurityReview(command, s.knownRuntimeVariables())
 	if security.Decision == bashsec.ReviewBlock {
 		result := bashSecurityBlockedToolResult(security)
 		invocation.queuedResult = &result
@@ -121,7 +121,7 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 		}
 	}
 	if s.checker != nil {
-		match := s.checker.Check(command, s.execCtx.HITLLevel)
+		match := s.checkBashHITL(invocation)
 		if match.Intercepted && !(a.hitlCommand == command && a.hitlRule == match.Rule.RuleKey) {
 			if s.isRuleWhitelisted(match.Rule.RuleKey) || s.shouldAutoApproveHITL(match) {
 				a.hitlCommand, a.hitlRule = command, match.Rule.RuleKey

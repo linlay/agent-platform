@@ -9,12 +9,18 @@ const (
 )
 
 type SimpleCommand struct {
+	Words     []WordSpan        // source spans; shell substitutions stay visible in review projections
 	Uncertain bool              // loop iterations may observe different variable values
 	Variables map[string]string // statically known shell scope before this command
 	Argv      []string
 	EnvVars   []EnvVar
 	Redirects []Redirect
 	Text      string
+}
+
+type WordSpan struct {
+	Start, End int
+	Expansion  bool
 }
 
 type EnvVar struct {

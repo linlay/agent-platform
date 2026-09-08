@@ -19,6 +19,12 @@ func ParseForSecurityWithKnownVariables(command string, variables map[string]str
 	if ok, reason := runPrechecks(command); !ok {
 		return ParseResult{Kind: TooComplex, Reason: reason, NodeType: "precheck"}
 	}
+	return ParseForExecution(command, variables)
+}
+
+// ParseForExecution only identifies shell structure. Callers must still run
+// security checks on every part not covered by a verified execution grant.
+func ParseForExecution(command string, variables map[string]string) ParseResult {
 
 	type parseResponse struct {
 		file *syntax.File

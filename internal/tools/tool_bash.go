@@ -33,14 +33,15 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(command) > maxInt(t.cfg.Bash.MaxCommandChars, 16000) {
 		return ToolExecutionResult{Output: "Command is too long", Error: "command_too_long", ExitCode: -1}, nil
 	}
-	securityReview := bashsec.ReviewBashSecurityWithKnownVariables(command, bashSecurityKnownVariables(execCtx))
+	rawAccessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
+	securityReview := rawAccessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx))
 	switch securityReview.Decision {
 	case bashsec.ReviewAllow:
 	case bashsec.ReviewRequiresApproval:
 	default:
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
-	if len(t.cfg.Bash.AllowedCommands) == 0 {
+	if len(t.cfg.Bash.AllowedCommands) == 0 && !rawAccessReview.ConnectorOnly {
 		return ToolExecutionResult{Output: "Bash command whitelist is empty", Error: "command_whitelist_empty", ExitCode: -1}, nil
 	}
 	session := accessPolicySession(execCtx)
@@ -63,7 +64,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		}
 		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
-	accessReview := accesspolicy.PendingBashPlan(execCtx, t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy))
+	accessReview := accesspolicy.PendingBashPlan(execCtx, rawAccessReview)
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
@@ -74,7 +75,11 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
 	}
 	if !t.cfg.Bash.ShellFeaturesEnabled {
-		if err := validateStrictCommand(command, t.cfg.Bash); err != nil {
+		strictConfig := t.cfg.Bash
+		if rawAccessReview.HasConnector {
+			strictConfig.AllowedCommands = append(append([]string(nil), strictConfig.AllowedCommands...), ":")
+		}
+		if err := validateStrictCommand(rawAccessReview.ShellReviewCommand(command), strictConfig); err != nil {
 			return ToolExecutionResult{Output: err.Error(), Error: "command_not_allowed", ExitCode: -1}, nil
 		}
 	}
@@ -117,6 +122,10 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	// Revalidate immediately before launch against the environment actually passed
 	// to the child. Only this final check consumes a one-shot approval.
 	rawFinalReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, accessPolicySession(execCtx), command, workingDir, bashEnvironmentVariables(cmd.Env), execCtx)
+	securityReview = rawFinalReview.SecurityReview(command, bashEnvironmentVariables(cmd.Env))
+	if securityReview.Decision == bashsec.ReviewBlock {
+		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
+	}
 	approvalSource := accesspolicy.BashApprovalSource(execCtx, rawFinalReview)
 	accessReview = accesspolicy.PendingBashPlan(execCtx, rawFinalReview)
 	if accessReview.Blocked() {
@@ -159,7 +168,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if accessReview.AutoApproved() {
 		appendBashAccessPolicyMetadata(&result, accessReview, stdout, stderr, workingDir, exitCode)
 	}
-	if approvalSource != "" || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" {
+	if approvalSource != "" || accessReview.HasConnector || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" {
 		if result.Structured == nil {
 			result.Structured = map[string]any{"stdout": stdout, "stderr": stderr, "mode": "host", "cwd": workingDir, "exitCode": exitCode}
 		}

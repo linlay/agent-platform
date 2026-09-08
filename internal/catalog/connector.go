@@ -67,6 +67,7 @@ func parseConnectorIDs(value any) ([]string, error) {
 func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 	def.ConnectorSkills = nil
 	def.ConnectorBinDirs = nil
+	def.ConnectorCLIEntries = nil
 	def.ConnectorMounts = nil
 	def.ConnectorMCPServers = nil
 	skillSources := make(map[string]string, len(def.Skills))
@@ -149,7 +150,7 @@ func (d AgentDefinition) SkillInstructionsPath(key string) string {
 }
 
 // bindConnectorRuntime converts source metadata to stable Agent-local paths.
-func (d *AgentDefinition) bindConnectorRuntime() {
+func (d *AgentDefinition) bindConnectorRuntime() error {
 	root := filepath.Join(d.RuntimeDir, "connectors")
 	for i := range d.ConnectorSkills {
 		skill := &d.ConnectorSkills[i]
@@ -166,14 +167,21 @@ func (d *AgentDefinition) bindConnectorRuntime() {
 		binDirs[filepath.Clean(dir)] = true
 	}
 	d.ConnectorBinDirs = nil
+	d.ConnectorCLIEntries = nil
 	for i := range d.ConnectorMounts {
 		mount := &d.ConnectorMounts[i]
 		hasExecutableComponent := binDirs[filepath.Join(mount.Dir, "bin")]
 		mount.Dir = filepath.Join(root, mount.ID)
 		if info, err := os.Stat(filepath.Join(mount.Dir, "bin")); hasExecutableComponent && err == nil && info.IsDir() {
 			d.ConnectorBinDirs = append(d.ConnectorBinDirs, filepath.Join(mount.Dir, "bin"))
+			entries, err := connector.SnapshotCLIEntries(mount.ID, mount.Dir)
+			if err != nil {
+				return err
+			}
+			d.ConnectorCLIEntries = append(d.ConnectorCLIEntries, entries...)
 		}
 	}
+	return nil
 }
 
 func (r *FileRegistry) ConnectorRuntimes() []connector.AgentRuntime {

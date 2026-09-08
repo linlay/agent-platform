@@ -86,7 +86,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 		t.Fatal(err)
 	}
 	def, _ = registry.AgentDefinition("demo")
-	if len(def.EffectiveSkills()) != 0 || len(def.ConnectorBinDirs) != 0 || len(def.ConnectorMounts) != 0 {
+	if len(def.EffectiveSkills()) != 0 || len(def.ConnectorBinDirs) != 0 || len(def.ConnectorMounts) != 0 || len(def.ConnectorCLIEntries) != 0 {
 		t.Fatal("detach retained connector resources")
 	}
 	if _, err := os.Stat(filepath.Join(def.RuntimeDir, "skills", key)); !os.IsNotExist(err) {

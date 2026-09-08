@@ -59,7 +59,6 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 		}
 		add(reviewBashPathPlan(command, accessLevel, level, mode, p, reason))
 	}
-	pathReview(ReadAccess, workingDir)
 	if session.AgentHasRuntimeSandbox && environment != nil && environment.Directory != nil {
 		if canonical, err := environment.Directory(workingDir); err == nil {
 			workingDir = canonical
@@ -70,49 +69,63 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 		}
 	}
 	parsed := bashast.ParseForSecurityWithKnownVariables(command, variables)
+	if len(session.ConnectorCLIEntries) > 0 {
+		parsed = bashast.ParseForExecution(command, variables)
+	}
 	if parsed.Kind != bashast.Simple {
+		pathReview(ReadAccess, workingDir)
 		add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash command is too complex for access-policy path analysis", "bash-access:complex"))
 		return combineBashPlans(command, accessLevel, plans)
 	}
+	var connectorWords []bashast.WordSpan
+	onlyConnectors := len(parsed.Commands) > 0
+	if len(parsed.Commands) == 0 {
+		pathReview(ReadAccess, workingDir)
+	}
 	possibleCwds := []string{workingDir}
 	for _, cmd := range parsed.Commands {
+		allConnector := len(cmd.Words) > 0
 		for _, candidateCwd := range append([]string(nil), possibleCwds...) {
 			x := analyzeBashExecution(session, cmd, candidateCwd, variables, environment)
 			if x.BlockReason != "" {
 				add(bashPlan(command, accessLevel, DecisionBlock, x.BlockReason, "bash-access:temp-escape", cmd.Text))
 			}
-			pathReview(ReadAccess, x.Cwd)
-			if x.Program != "" {
-				pathReview(ReadAccess, x.Program)
-			}
-			if x.Script != "" {
-				pathReview(ReadAccess, resolveAgainstCwd(x.Script, x.Cwd))
-			}
-			if x.Uncertain {
-				add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash execution wrapper or target cannot be resolved statically", "bash-access:complex"))
-			} else if x.Opaque {
-				exempt := false
-				if decisionForAction(level.Approvals.BashOpaqueCommand) == DecisionBlock {
-					add(opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd))
+			allConnector = allConnector && x.Connector
+			if !x.Connector {
+				pathReview(ReadAccess, candidateCwd)
+				pathReview(ReadAccess, x.Cwd)
+				if x.Program != "" {
+					pathReview(ReadAccess, x.Program)
 				}
-				if x.Script != "" && execCtx != nil && execCtx.AuthoredScripts != nil {
-					if host, ok := executableHostPath(session, resolveAgainstCwd(x.Script, x.Cwd)); ok && authoredExecutionMatches(session, execCtx, host, resolveAgainstCwd(x.Script, x.Cwd), environment) {
-						add(bashPlan(command, accessLevel, DecisionAllow, "script matches this run's complete write", "bash-access:authored-script", host))
-						exempt = true
-					}
+				if x.Script != "" {
+					pathReview(ReadAccess, resolveAgainstCwd(x.Script, x.Cwd))
 				}
-				if !exempt && x.TrustedInterpreter && !x.Wrapped && len(parsed.Commands) == 1 && len(cmd.Redirects) == 0 {
-					tempArgv := append([]string(nil), x.Argv...)
-					if len(tempArgv) > 1 && x.Script != "" && !strings.HasPrefix(tempArgv[1], "-") {
-						tempArgv[1] = x.Script
+				if x.Uncertain {
+					add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash execution wrapper or target cannot be resolved statically", "bash-access:complex"))
+				} else if x.Opaque {
+					exempt := false
+					if decisionForAction(level.Approvals.BashOpaqueCommand) == DecisionBlock {
+						add(opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd))
 					}
-					if p, handled := directTempScriptExecutionPlan(cfg, session, command, accessLevel, commandFamily(x.Argv[0]), tempArgv, x.Cwd); handled && x.Program == "" {
-						add(p)
-						exempt = true
+					if x.Script != "" && execCtx != nil && execCtx.AuthoredScripts != nil {
+						if host, ok := executableHostPath(session, resolveAgainstCwd(x.Script, x.Cwd)); ok && authoredExecutionMatches(session, execCtx, host, resolveAgainstCwd(x.Script, x.Cwd), environment) {
+							add(bashPlan(command, accessLevel, DecisionAllow, "script matches this run's complete write", "bash-access:authored-script", host))
+							exempt = true
+						}
 					}
-				}
-				if !exempt {
-					add(executionFingerprint(opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd), x, variables, environment))
+					if !exempt && x.TrustedInterpreter && !x.Wrapped && len(parsed.Commands) == 1 && len(cmd.Redirects) == 0 {
+						tempArgv := append([]string(nil), x.Argv...)
+						if len(tempArgv) > 1 && x.Script != "" && !strings.HasPrefix(tempArgv[1], "-") {
+							tempArgv[1] = x.Script
+						}
+						if p, handled := directTempScriptExecutionPlan(cfg, session, command, accessLevel, commandFamily(x.Argv[0]), tempArgv, x.Cwd); handled && x.Program == "" {
+							add(p)
+							exempt = true
+						}
+					}
+					if !exempt {
+						add(executionFingerprint(opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd), x, variables, environment))
+					}
 				}
 			}
 			for _, redirect := range cmd.Redirects {
@@ -131,7 +144,7 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 				// The invoking shell opens redirects before a wrapper changes cwd.
 				pathReview(mode, resolveAgainstCwd(redirect.Target, candidateCwd))
 			}
-			if len(x.Argv) > 0 {
+			if !x.Connector && len(x.Argv) > 0 {
 				mode := commandPathMode(commandFamily(x.Argv[0]))
 				if x.Opaque || x.Uncertain {
 					mode = ReadAccess
@@ -159,8 +172,22 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 				}
 			}
 		}
+		onlyConnectors = onlyConnectors && allConnector && len(cmd.EnvVars) == 0 && len(cmd.Redirects) == 0
+		if allConnector {
+			connectorWords = append(connectorWords, cmd.Words...)
+		}
 	}
-	return combineBashPlans(command, accessLevel, plans)
+	result := combineBashPlans(command, accessLevel, plans)
+	if len(connectorWords) > 0 {
+		result.HasConnector = true
+		result.ConnectorOnly = onlyConnectors
+		result.ReviewCommand = connectorReviewCommand(command, connectorWords)
+		if result.Decision == DecisionAllow {
+			result.RuleKey = "bash-access:connector"
+			result.Reason = "mounted connector CLI"
+		}
+	}
+	return result
 }
 
 func authoredExecutionMatches(session QuerySession, ctx *ExecutionContext, host, target string, env *BashEnvironment) bool {
@@ -267,7 +294,9 @@ func PendingBashPlan(ctx *ExecutionContext, p BashPlan) BashPlan {
 		}
 		leaves = append(leaves, leaf)
 	}
-	return combineBashPlans(p.CommandText, p.AccessLevel, leaves)
+	result := combineBashPlans(p.CommandText, p.AccessLevel, leaves)
+	result.HasConnector, result.ReviewCommand, result.ConnectorOnly = p.HasConnector, p.ReviewCommand, p.ConnectorOnly
+	return result
 }
 
 func BashPlanMetadata(p BashPlan) map[string]any {

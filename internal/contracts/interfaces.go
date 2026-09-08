@@ -7,6 +7,7 @@ import (
 
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/scriptstate"
 	"agent-platform/internal/stream"
@@ -357,6 +358,7 @@ type QuerySession struct {
 	Subject                       string
 	SkillKeys                     []string
 	MustUseSkills                 []string
+	ConnectorCLIEntries           []connector.CLIEntry `json:"-"`
 	ConnectorBinDirs              []string
 	ContextTags                   []string
 	Budget                        map[string]any

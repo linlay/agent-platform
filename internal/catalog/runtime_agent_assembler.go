@@ -150,7 +150,9 @@ func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDe
 	def.ConnectorSkills = append([]ConnectorSkill(nil), def.ConnectorSkills...)
 	def.ConnectorMounts = append([]ConnectorMount(nil), def.ConnectorMounts...)
 	def.RuntimeDir = candidate
-	def.bindConnectorRuntime()
+	if err := def.bindConnectorRuntime(); err != nil {
+		return "", err
+	}
 	if err := a.materializeSkills(source, candidate, def); err != nil {
 		return "", err
 	}

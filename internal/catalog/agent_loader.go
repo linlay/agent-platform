@@ -133,7 +133,10 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 	}
 	def.AgentDir = source.AgentDir
 	def.RuntimeDir = runtimeDir
-	def.bindConnectorRuntime()
+	if err := def.bindConnectorRuntime(); err != nil {
+		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_connector", err)
+		return err
+	}
 	loadAgentPrompts(runtimeDir, &def, definition)
 	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
 	items[def.Key] = def

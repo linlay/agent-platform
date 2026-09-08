@@ -54,6 +54,7 @@ type AgentDefinition struct {
 	Tools               []string
 	Connectors          []string
 	ConnectorMCPServers []string
+	ConnectorCLIEntries []connector.CLIEntry
 	ConnectorBinDirs    []string
 	ConnectorMounts     []ConnectorMount
 	ConnectorSkills     []ConnectorSkill
@@ -774,6 +775,7 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst.Connectors = append([]string(nil), src.Connectors...)
 	dst.ConnectorMCPServers = append([]string(nil), src.ConnectorMCPServers...)
 	dst.ConnectorBinDirs = append([]string(nil), src.ConnectorBinDirs...)
+	dst.ConnectorCLIEntries = append([]connector.CLIEntry(nil), src.ConnectorCLIEntries...)
 	dst.ConnectorMounts = append([]ConnectorMount(nil), src.ConnectorMounts...)
 	dst.ConnectorSkills = append([]ConnectorSkill(nil), src.ConnectorSkills...)
 	if len(src.Controls) > 0 {

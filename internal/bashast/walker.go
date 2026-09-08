@@ -280,18 +280,29 @@ func (w *walker) walkCallExpr(call *syntax.CallExpr, redirs []*syntax.Redirect, 
 		return next, nil
 	}
 	argv := make([]string, 0, len(call.Args))
+	words := make([]WordSpan, 0, len(call.Args))
 	for _, word := range call.Args {
 		value, err := w.parseWord(word, scope)
 		if err != nil {
 			return scope, err
 		}
 		argv = append(argv, value)
+		span := WordSpan{Start: int(word.Pos().Offset()), End: int(word.End().Offset())}
+		syntax.Walk(word, func(node syntax.Node) bool {
+			switch node.(type) {
+			case *syntax.CmdSubst, *syntax.ProcSubst, *syntax.ArithmExp:
+				span.Expansion = true
+			}
+			return true
+		})
+		words = append(words, span)
 	}
 	redirects, err := w.parseRedirects(redirs, scope)
 	if err != nil {
 		return scope, err
 	}
 	if err := w.appendCommand(SimpleCommand{
+		Words:     words,
 		Variables: scope.knownValues(),
 		Argv:      argv,
 		EnvVars:   envVars,

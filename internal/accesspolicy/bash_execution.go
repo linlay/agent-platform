@@ -18,6 +18,7 @@ import (
 
 // BashExecution is analysis only: the original command is never rewritten.
 type BashExecution struct {
+	Connector          bool
 	Argv               []string
 	Cwd                string
 	Program            string
@@ -144,8 +145,8 @@ func isOrdinaryCommand(base string) bool {
 	return false
 }
 
-func analyzeBashExecution(session QuerySession, cmd bashast.SimpleCommand, cwd string, variables map[string]string, env *BashEnvironment) BashExecution {
-	x := BashExecution{Argv: cmd.Argv, Cwd: cwd, Uncertain: cmd.Uncertain}
+func analyzeBashExecution(session QuerySession, cmd bashast.SimpleCommand, cwd string, variables map[string]string, env *BashEnvironment) (x BashExecution) {
+	x = BashExecution{Argv: cmd.Argv, Cwd: cwd, Uncertain: cmd.Uncertain}
 	allowBuiltins := true
 	vars := CloneStringMap(variables)
 	if vars == nil {
@@ -157,6 +158,7 @@ func analyzeBashExecution(session QuerySession, cmd bashast.SimpleCommand, cwd s
 	for _, assignment := range cmd.EnvVars {
 		vars[assignment.Name] = assignment.Value
 	}
+	defer func() { x.Connector = connectorExecution(session, x, vars, env) }()
 	for depth := 0; depth < 8 && len(x.Argv) > 0; depth++ {
 		name := x.Argv[0]
 		base := commandFamily(name)

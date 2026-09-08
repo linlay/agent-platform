@@ -20,7 +20,10 @@ func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocati
 	if invocation.bashSecurityReview != nil {
 		return *invocation.bashSecurityReview
 	}
-	review := s.reviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
+	if s.execCtx == nil || len(s.execCtx.Session.ConnectorCLIEntries) == 0 {
+		return s.reviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
+	}
+	review := s.rawBashAccessReview(invocation).SecurityReview(strings.TrimSpace(mapStringArg(invocation.args, "command")), s.knownRuntimeVariables())
 	return review
 }
 

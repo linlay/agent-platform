@@ -18,9 +18,6 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 	if command == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
 	}
-	if security := bashsec.ReviewBashSecurityWithKnownVariables(command, bashSecurityKnownVariables(execCtx)); security.Decision == bashsec.ReviewBlock {
-		return ToolExecutionResult{Output: security.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
-	}
 	invocationEnv, err := sandboxInvocationEnvArg(args)
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "invalid_environment", ExitCode: -1}, nil
@@ -37,6 +34,9 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
 	accessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
+	if security := accessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx)); security.Decision == bashsec.ReviewBlock {
+		return ToolExecutionResult{Output: security.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
+	}
 	approvalSource := accesspolicy.BashApprovalSource(execCtx, accessReview)
 	accessReview = accesspolicy.PendingBashPlan(execCtx, accessReview)
 	switch accessReview.Decision {
@@ -54,7 +54,7 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
 	output := bashResult(result.Stdout, result.Stderr, "sandbox", result.Cwd, result.ExitCode, "")
-	if approvalSource != "" || accessReview.AutoApproved() || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" {
+	if approvalSource != "" || accessReview.HasConnector || accessReview.AutoApproved() || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" {
 		if output.Structured == nil {
 			output.Structured = map[string]any{"stdout": result.Stdout, "stderr": result.Stderr, "mode": "sandbox", "cwd": result.Cwd, "exitCode": result.ExitCode}
 		}

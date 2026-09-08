@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
@@ -246,6 +247,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
 		ConnectorDirs:                 runtimeConnectorDirs(agentDef),
+		ConnectorCLIEntries:           append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
 		SkillKeys:                     append([]string(nil), agentDef.EffectiveSkills()...),
 		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
 		ConnectorBinDirs:              append([]string(nil), agentDef.ConnectorBinDirs...),

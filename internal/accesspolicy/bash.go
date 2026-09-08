@@ -14,6 +14,10 @@ import (
 )
 
 type BashPlan struct {
+	// ReviewCommand excludes verified connector payloads, for analysis only.
+	ReviewCommand string
+	HasConnector  bool
+	ConnectorOnly bool
 	// Requirements are leaf decisions; a rule approval never approves sibling requirements.
 	Requirements []BashPlan
 	Decision     Decision
