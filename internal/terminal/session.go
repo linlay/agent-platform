@@ -13,6 +13,7 @@ import (
 const replayBufferLimitBytes = 256 * 1024
 
 type Session struct {
+	onExit      func()
 	id          string
 	ownerKey    string
 	agentKey    string
@@ -211,6 +212,9 @@ func (s *Session) appendReplayLocked(data string) {
 func (s *Session) finishSubscribers() {
 	if !s.finished.CompareAndSwap(false, true) {
 		return
+	}
+	if s.onExit != nil {
+		s.onExit()
 	}
 	if s.done != nil {
 		close(s.done)

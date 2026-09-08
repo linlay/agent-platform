@@ -1,7 +1,6 @@
 package connector
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +11,7 @@ import (
 func runtimeFixture(t *testing.T) Sources {
 	t.Helper()
 	root := t.TempDir()
-	s := Sources{ExternalRoot: filepath.Join(root, "connectors-center"), BuiltinRoot: filepath.Join(root, "platform", "connectors"), RuntimeRoot: filepath.Join(root, "ru-connectors"), StateRoot: filepath.Join(root, ".state", "connectors")}
+	s := Sources{ExternalRoot: filepath.Join(root, "connectors-center"), BuiltinRoot: filepath.Join(root, "platform", "connectors"), StateRoot: filepath.Join(root, ".state", "connectors")}
 	if err := WriteBuiltin(filepath.Join(s.BuiltinRoot, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
@@ -29,90 +28,59 @@ func putRuntimeFile(t *testing.T, path, content string) {
 	}
 }
 
-func TestRuntimeAssemblySharesPackagesAndKeepsPersistentState(t *testing.T) {
+func TestAgentMaterializationCopiesOnlyMountsAndKeepsState(t *testing.T) {
 	s := runtimeFixture(t)
 	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "search", "connector.json"), `{"id":"search","name":"Search","version":"1.0.0","type":"cli","auth_mode":"none"}`)
 	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "search", "cli.json"), `{}`)
 	putRuntimeFile(t, filepath.Join(s.StateRoot, "search", "oauth.json"), "credential")
-	packages, err := s.AssembleRuntime(nil)
-	if err != nil || len(packages) != 2 {
-		t.Fatalf("assemble: %#v %v", packages, err)
-	}
-	for _, pkg := range packages {
-		if pkg.Dir != filepath.Join(s.RuntimeRoot, pkg.ID) || pkg.PersistentRoot() != s.StateRoot {
-			t.Fatalf("wrong runtime source: %#v", pkg)
+	a := filepath.Join(t.TempDir(), "agent-a", "connectors")
+	b := filepath.Join(t.TempDir(), "agent-b", "connectors")
+	for _, target := range []string{a, b} {
+		pkgs, err := s.Materialize(target, []string{"builtin.dbx"})
+		if err != nil || len(pkgs) != 1 {
+			t.Fatalf("materialize: %#v %v", pkgs, err)
+		}
+		if pkgs[0].Dir != filepath.Join(target, "builtin.dbx") || pkgs[0].PersistentRoot() != s.StateRoot {
+			t.Fatal("wrong mounted metadata")
+		}
+		if _, err := os.Stat(filepath.Join(target, "search")); !os.IsNotExist(err) {
+			t.Fatal("unmounted package copied")
 		}
 	}
-	skill := filepath.Join(s.RuntimeRoot, "builtin.dbx", "skills", "builtin-dbx", "SKILL.md")
-	before, _ := os.Stat(skill)
-	if _, err := s.AssembleRuntime(nil); err != nil {
-		t.Fatal(err)
+	rel := filepath.Join("builtin.dbx", "skills", "builtin-dbx", "SKILL.md")
+	one, _ := os.Stat(filepath.Join(a, rel))
+	two, _ := os.Stat(filepath.Join(b, rel))
+	if os.SameFile(one, two) {
+		t.Fatal("Agents share mutable file identity")
 	}
-	after, _ := os.Stat(skill)
-	if !os.SameFile(before, after) {
-		t.Fatal("unchanged shared skill was replaced")
+	original, _ := os.ReadFile(filepath.Join(b, rel))
+	putRuntimeFile(t, filepath.Join(a, rel), "changed")
+	if data, _ := os.ReadFile(filepath.Join(b, rel)); string(data) != string(original) {
+		t.Fatal("one Agent changed another")
 	}
-	if err := os.RemoveAll(s.RuntimeRoot); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AssembleRuntime(nil); err != nil {
+	if err := os.RemoveAll(a); err != nil {
 		t.Fatal(err)
 	}
 	if data, err := os.ReadFile(filepath.Join(s.StateRoot, "search", "oauth.json")); err != nil || string(data) != "credential" {
-		t.Fatal("rebuild lost credentials")
-	}
-	if _, err := os.Stat(filepath.Join(s.RuntimeRoot, ".state")); !os.IsNotExist(err) {
-		t.Fatal("state copied into runtime")
-	}
-	if err := os.RemoveAll(filepath.Join(s.ExternalRoot, "search")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AssembleRuntime(nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(s.RuntimeRoot, "search")); !os.IsNotExist(err) {
-		t.Fatal("removed external package retained")
-	}
-	if _, err := os.Stat(skill); err != nil {
-		t.Fatal("builtin removed with external package")
+		t.Fatal("Agent deletion lost state")
 	}
 }
 
-func TestRuntimeAssemblyRejectsInvalidCandidateBeforePublication(t *testing.T) {
+func TestAgentCandidateRejectsOverlapLinksAndMissingMounts(t *testing.T) {
 	s := runtimeFixture(t)
-	if _, err := s.AssembleRuntime(nil); err != nil {
-		t.Fatal(err)
+	for _, target := range []string{s.ExternalRoot, filepath.Join(s.StateRoot, "candidate"), filepath.Join(s.BuiltinRoot, "candidate")} {
+		if _, err := s.Materialize(target, []string{"builtin.dbx"}); err == nil {
+			t.Fatal("overlap accepted")
+		}
 	}
-	skill := filepath.Join(s.RuntimeRoot, "builtin.dbx", "skills", "builtin-dbx", "SKILL.md")
-	before, _ := os.ReadFile(skill)
-	putRuntimeFile(t, filepath.Join(s.BuiltinRoot, "builtin.dbx", "skills", "builtin-dbx", "SKILL.md"), string(before)+"\nUpdated\n")
-	_, err := s.AssembleRuntime(func([]Package) error { return errors.New("MCP contract rejected") })
-	if err == nil {
-		t.Fatal("invalid source accepted")
+	target := filepath.Join(t.TempDir(), "connectors")
+	if err := os.Symlink(s.BuiltinRoot, target); err == nil {
+		if _, err := s.Materialize(target, []string{"builtin.dbx"}); err == nil {
+			t.Fatal("linked target accepted")
+		}
 	}
-	if after, _ := os.ReadFile(skill); string(after) != string(before) {
-		t.Fatal("validation failure changed published package")
-	}
-	if _, err := s.AssembleRuntime(nil); err != nil {
-		t.Fatal(err)
-	}
-	if after, _ := os.ReadFile(skill); string(after) == string(before) {
-		t.Fatal("valid update was not published")
-	}
-}
-
-func TestRuntimeRootsRejectOverlapAndLinkedRoots(t *testing.T) {
-	s := runtimeFixture(t)
-	s.RuntimeRoot = filepath.Join(s.ExternalRoot, "generated")
-	if _, err := s.AssembleRuntime(nil); err == nil {
-		t.Fatal("overlapping runtime accepted")
-	}
-	s.RuntimeRoot = filepath.Join(t.TempDir(), "linked")
-	if err := os.Symlink(s.BuiltinRoot, s.RuntimeRoot); err != nil {
-		t.Skip(err)
-	}
-	if _, err := s.AssembleRuntime(nil); err == nil {
-		t.Fatal("linked runtime root accepted")
+	if _, err := s.Materialize(filepath.Join(t.TempDir(), "connectors"), []string{"missing"}); err == nil {
+		t.Fatal("missing connector accepted")
 	}
 }
 
@@ -158,7 +126,7 @@ func TestLegacyStateCollisionIsDetectedBeforeMovingAnyFiles(t *testing.T) {
 	}
 }
 
-func TestManagedLauncherUsesPersistentStateFromSharedRuntime(t *testing.T) {
+func TestManagedLauncherUsesPersistentStateFromAgentRuntime(t *testing.T) {
 	s := runtimeFixture(t)
 	s.StateRoot = filepath.Join(t.TempDir(), "custom-state")
 	dir := filepath.Join(s.ExternalRoot, "demo")
@@ -166,18 +134,11 @@ func TestManagedLauncherUsesPersistentStateFromSharedRuntime(t *testing.T) {
 	putRuntimeFile(t, filepath.Join(dir, "cli.json"), `{"auth":{},"status":{},"unAuth":{}}`)
 	launcher := "const fs = require('node:fs'); const path = require('node:path'); const pkgDir = path.resolve(__dirname, '..'); const manifest = {id:'demo'};\nconst state = path.join(path.dirname(pkgDir), '.state', manifest.id);\nconsole.log(state);"
 	putRuntimeFile(t, filepath.Join(dir, "bin", "launcher.cjs"), launcher)
-	if _, err := s.AssembleRuntime(nil); err != nil {
+	runtimeRoot := filepath.Join(t.TempDir(), "agent", "connectors")
+	if _, err := s.Materialize(runtimeRoot, []string{"demo"}); err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(s.RuntimeRoot, "demo", "bin", "launcher.cjs")
-	before, _ := os.Stat(target)
-	if _, err := s.AssembleRuntime(nil); err != nil {
-		t.Fatal(err)
-	}
-	after, _ := os.Stat(target)
-	if !os.SameFile(before, after) {
-		t.Fatal("unchanged managed runtime replaced")
-	}
+	target := filepath.Join(runtimeRoot, "demo", "bin", "launcher.cjs")
 	if data, _ := os.ReadFile(filepath.Join(dir, "bin", "launcher.cjs")); string(data) != launcher {
 		t.Fatal("runtime adapter changed source")
 	}
@@ -213,11 +174,9 @@ func TestLegacyBuiltinCopiesAreBackedUpOutsideCenter(t *testing.T) {
 			t.Fatal("builtin backup lost", scope, err)
 		}
 	}
-	if _, err := s.AssembleRuntime(nil); err != nil {
-		t.Fatal(err)
-	}
-	pkg, err := s.LoadRuntime("builtin.dbx")
-	if err != nil || pkg.Version != "1.0.0" {
+	runtimeRoot := filepath.Join(t.TempDir(), "agent", "connectors")
+	packages, err := s.Materialize(runtimeRoot, []string{"builtin.dbx"})
+	if err != nil || len(packages) != 1 || packages[0].Version != "1.0.0" {
 		t.Fatal("builtin did not come from Platform", err)
 	}
 }

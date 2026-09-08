@@ -198,7 +198,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err := cfg.Paths.ConnectorSources().MigrateLegacy(cfg.Paths.LegacyConnectorsDir); err != nil {
 		return nil, fmt.Errorf("migrate connector layout: %w", err)
 	}
-	mcpRegistry, err := mcp.NewRegistryWithSources(cfg.Paths.ConnectorSources())
+	mcpRegistry, err := mcp.NewAgentRegistry(cfg.Paths.ConnectorSources())
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)
 	}
@@ -238,6 +238,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			cfg.Paths.SkillsCenterDir,
 			err,
 		)
+	}
+	if err := mcpRegistry.BindAgents(registry); err != nil {
+		return nil, fmt.Errorf("bind Agent MCP instances: %w", err)
+	}
+	mcpToolSync.ReconcileRegistry()
+	if err := cfg.Paths.ConnectorSources().RetireSharedRuntime(filepath.Dir(cfg.Paths.EffectiveRUAgentsDir())); err != nil {
+		return nil, fmt.Errorf("retire shared connector runtime: %w", err)
 	}
 	kbaseSource := kbaseCatalogSource{registry: registry}
 	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseSource, modelRegistry).WithSupportPackages(supportPackages)
@@ -299,6 +306,15 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry)
 	mcpSyncCoordinator := mcp.NewSyncCoordinator(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second, notifications)
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync, mcpSyncCoordinator), toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
+	registry.SetRuntimeReload(func() {
+		if backgroundCtx.Err() == nil {
+			go func() {
+				if err := reloader.Reload(backgroundCtx, "agents"); err != nil {
+					log.Printf("[reload] deferred Agent runtime: %v", err)
+				}
+			}()
+		}
+	})
 	reloader.AddObserver(cardReporter)
 	kbaseManager.Start(backgroundCtx)
 	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)

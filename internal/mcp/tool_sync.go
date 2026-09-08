@@ -394,6 +394,7 @@ func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (ser
 	}
 	toolsByName := map[string]api.ToolDetailResponse{}
 	aliasToCanonical := map[string]string{}
+	seenWireNames := map[string]bool{}
 	for _, tool := range discovered {
 		disabled := false
 		for _, name := range server.DisabledTools {
@@ -409,17 +410,33 @@ func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (ser
 		if normalizedName == "" {
 			continue
 		}
-		if _, exists := toolsByName[normalizedName]; exists {
+		if seenWireNames[normalizedName] {
 			log.Printf("[mcp] duplicate MCP tool %q from server %q, keep first", tool.Name, server.Key)
 			continue
 		}
+		seenWireNames[normalizedName] = true
 		tool = applyServerToolOverride(tool, findServerToolOverride(server.Tools, tool))
 		def := tool.ToAPITool(server.Key)
 		if server.ConnectorID != "" {
 			def.Meta["connectorId"] = server.ConnectorID
 		}
-		toolsByName[normalizedName] = def
-		registerAliases(server, normalizedName, tool.Aliases, aliasToCanonical)
+
+		if server.AgentKey != "" {
+			def.Meta["agentKey"] = server.AgentKey
+			def.Meta["connectorServerKey"] = server.SourceKey
+			def.Meta["mcpToolName"] = tool.Name
+			def.Name = agentToolName(server.Key, tool.Name)
+			def.Key = def.Name
+			toolsByName[normalizeKey(def.Name)] = def
+			aliases := map[string]string{}
+			registerAliases(server, normalizedName, tool.Aliases, aliases)
+			for alias := range aliases {
+				aliasToCanonical[normalizeKey(agentToolName(server.Key, alias))] = normalizeKey(def.Name)
+			}
+		} else {
+			toolsByName[normalizedName] = def
+			registerAliases(server, normalizedName, tool.Aliases, aliasToCanonical)
+		}
 	}
 	return serverToolSnapshot{toolsByName: toolsByName, aliasToCanonical: aliasToCanonical}, nil
 }

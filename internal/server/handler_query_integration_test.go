@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
 	platformws "agent-platform/internal/ws"
@@ -232,7 +233,7 @@ func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
 		)
 	}, testFixtureOptions{
 		mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{
-			{Key: "flow_start", Name: "flow_start", Meta: map[string]any{"sourceType": "mcp", "serverKey": "flowCenter"}},
+			{Key: "flow_start", Name: "flow_start", Meta: map[string]any{"sourceType": "mcp", "serverKey": connector.AgentServerKey("mock-agent", "flowcenter")}},
 			{Key: "other_search", Name: "other_search", Meta: map[string]any{"sourceType": "mcp", "serverKey": "other"}},
 		}},
 		setupRuntime: func(_ string, cfg *config.Config) {

@@ -13,9 +13,9 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestSharedConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
+func TestAgentConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 	root := t.TempDir()
-	pkg := filepath.Join(root, "ru-connectors", "builtin.dbx")
+	pkg := filepath.Join(root, "ru-agents", "demo", "connectors", "builtin.dbx")
 	if err := connector.WriteBuiltin(pkg, "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestSharedConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 	}
 }
 
-func TestWecomConnectorSkillUsesOriginalIDAndSharedPath(t *testing.T) {
+func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 	for _, layout := range []string{"single", "multiple"} {
 		t.Run(layout, func(t *testing.T) {
 			const key = "wecomcli-shared"
@@ -116,7 +116,7 @@ func TestWecomConnectorSkillUsesOriginalIDAndSharedPath(t *testing.T) {
 				t.Fatal(prompt)
 			}
 			if _, err := os.Stat(filepath.Join(def.RuntimeDir, "skills", key)); !os.IsNotExist(err) {
-				t.Fatalf("connector skill must stay in shared runtime: %v", err)
+				t.Fatalf("connector skill must stay in its Agent connector runtime: %v", err)
 			}
 			result, err := fixture.server.listSkillsForAgent("mock-agent")
 			if err != nil {

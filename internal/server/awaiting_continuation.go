@@ -167,6 +167,27 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	agentKey := admission.agentKey
 	teamSnapshot := admission.teamSnapshot
 	agentDef := admission.agentDef
+	var releaseRuntime func()
+	var runtimeFound bool
+	if admission.teamSnapshot != nil {
+		leasedTeam, release, ok := acquireTeamRuntime(s.deps.Registry, admission.teamSnapshot.TeamID)
+		releaseRuntime, runtimeFound = release, ok
+		if ok {
+			teamSnapshot = &leasedTeam
+			agentDef, runtimeFound = leasedTeam.AgentDefinition(agentDef.Key)
+		}
+	} else {
+		agentDef, releaseRuntime, runtimeFound = acquireAgentRuntime(s.deps.Registry, agentDef.Key)
+	}
+	transferredRuntime := false
+	defer func() {
+		if !transferredRuntime {
+			releaseQuery(releaseRuntime)
+		}
+	}()
+	if !runtimeFound {
+		return false, fmt.Errorf("Agent runtime is unavailable")
+	}
 
 	originalQuery, err := s.deps.Chats.LoadRunQuery(chatID, sourceRunID)
 	if err != nil {
@@ -297,6 +318,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
+	transferredRuntime = true
 	StartRunExecutor(RunExecutorParams{
 		RunCtx:            runCtx,
 		Request:           req,
@@ -328,6 +350,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
 		},
 		OnComplete: func(completion chat.RunCompletion) {
+			releaseQuery(releaseRuntime)
 			s.deps.Runs.Finish(completion.RunID)
 			s.broadcast("run.finished", runFinishedPushPayload(
 				completion.RunID,

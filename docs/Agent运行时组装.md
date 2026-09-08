@@ -8,7 +8,6 @@ Agent Platform 将可编辑事实源与执行目录分离：
 <AP_RUNTIME_DIR>/
 ├── agents/                         # Agent 定义与 Agent 自有 Skill
 ├── connectors-center/              # 导入、下载的外部连接器原包
-├── ru-connectors/                   # 所有连接器共享运行副本，Platform 生成
 ├── .state/                         # Platform 通用持久化运行状态
 │   └── connectors/<id>/            # 连接器授权与受管 CLI 状态
 ├── skills-center/                  # 共享 Skill；.package/ 保存技能包控制状态
@@ -18,25 +17,27 @@ Agent Platform 将可编辑事实源与执行目录分离：
         ├── agent.yml
         ├── SOUL.md
         ├── AGENTS.md
-        ├── skills/
+        ├── connectors/              # 仅本 Agent 已挂载的完整连接器
+        │   └── <connectorId>/       # 清单、bin/libs、skills 与引用资源
+        ├── skills/                  # 普通 Agent/技能中心技能
         └── .config/
 ```
 
 `agents/` 和 `skills-center/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>`。普通技能的共享目录 run-scoped 例外是 query 的 `mustUseSkills` 选中了 Agent 未配置的技能中心 Skill：该 run 只读访问该选中 Skill 的 canonical 目录，不修改稳定 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
 
-连接器通过 `connectorConfig.connectors` 挂载后，自动导入技能元数据；技能正文、资源、runtime env 和 hooks 直接读取共享 `ru-connectors/<id>/skills`，不再复制进 `ru-agents`。`skillId` 保留包内原始技能名，不加前缀；同一 Agent 下与已配置技能或其他连接器技能重名时返回冲突诊断。逻辑指令路径为 `@connectors/<id>/skills/<name>/SKILL.md`；`.config` 默认值仍按 Agent 独立合并。连接器 bin 从共享运行包加入当前 Agent 的 PATH，Container 只读挂载所选包。连接器技能不能作为 mustUseSkills，详见 [连接器](连接器.md)。
+连接器通过 `connectorConfig.connectors` 挂载后，自动导入技能元数据；完整包复制到 `ru-agents/<agentKey>/connectors/<id>`，技能正文、资源、runtime env 和 hooks 读取该包的 skills，不再重复复制到同级 skills 目录。`skillId` 保留包内原始技能名，不加前缀；同一 Agent 下与已配置技能或其他连接器技能重名时返回冲突诊断。逻辑指令路径为 `@connectors/<id>/skills/<name>/SKILL.md`；`.config` 默认值仍按 Agent 独立合并。连接器 bin 从当前 Agent 的运行包加入 PATH，Container 只读挂载所选包。连接器技能不能作为 mustUseSkills，详见 [连接器](连接器.md)。
 
 Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每个子技能平铺到 `skills-center/<skill-id>/`，只在 `skills-center/.package/<package-id>.json` 保存包版本、归档摘要和子技能归属，用于整包更新、卸载与回滚。隐藏 `.package`、安装 staging 和 backup 都不进入 Skill Catalog；技能包 ZIP 仅作为临时请求输入，不在 `skills-center` 持久化。
 
 `ru-agents` 不是来源追踪系统：不生成版本目录、Skill lock、provenance 或来源 API，也不进入 release bundle、`zenmind-env/package.sh` 产物或环境 overlay。服务启动或 Catalog 热重载时可从事实源完整重建。
 
-模型的 system runtime context 同样保持这条边界：`agents_dir` 指向可编辑事实源 `agents/`，`ru_agents_dir` 指向 Platform 生成且禁止人工编辑的 `ru-agents/`，`agent_dir` 指向当前 Agent 的 `ru-agents/<agentKey>` 运行目录。Host/local 普通运行可同时看到源目录与生成目录；Container Hub 不默认暴露 Agent 事实源，已有 `platform: agents` 挂载仍只提供生成目录 `/agents`，并在上下文中标记为 `ru_agents_dir`。沙箱治理任务缺少 `agents_dir` 时必须停止，不能从 `/agents`、`runtime_home` 或相邻目录推断事实源。
+模型的 system runtime context 同样保持这条边界：`agents_dir` 指向可编辑事实源 `agents/`，`ru_agents_dir` 指向 Platform 生成且禁止人工编辑的 `ru-agents/`，`agent_dir` 指向当前 Agent 的 `ru-agents/<agentKey>` 运行目录，`connectors_dir` 指向其 connectors 子目录。Host/local 普通运行可同时看到源目录与生成目录；Container Hub 不默认暴露 Agent 事实源，已有 `platform: agents` 挂载仍只提供生成目录 `/agents`，并在上下文中标记为 `ru_agents_dir`。沙箱治理任务缺少 `agents_dir` 时必须停止，不能从 `/agents`、`runtime_home` 或相邻目录推断事实源。
 
 ## 路径配置
 
 `ru-agents` 固定使用 `<AP_RUNTIME_DIR>/ru-agents`，不提供单独环境变量或 YAML 覆盖。其位置随 `AP_RUNTIME_DIR` 一起调整。
 
-该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-center、connectors-center、ru-connectors、通用 state 根、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等目录相同或互相包含。
+该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-center、connectors-center、通用 state 根、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等目录相同或互相包含。
 
 ## Skill 来源选择
 
@@ -97,16 +98,15 @@ ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子�
 
 启动时 Platform 无条件删除并重建整个 `ru-agents/`，不会复用上次进程遗留的稳定目录或 `.staging`；随后为每个 Agent 建立候选目录，重新解析 Agent 和 Skill runtime 内容，全部校验成功后才安装到新的稳定目录。启动组装失败的 Agent 不会留下旧执行副本。
 
-运行中的热重载不会清空整个根目录。稳定根 `ru-agents/<agentKey>` 不改名：
+运行中的热重载不会清空整个根目录：
 
-- 新文件和替换文件通过同目录临时文件加 rename 安装。
-- 新内容先安装，陈旧内容最后删除。
-- 不提供跨文件快照，也不保留历史版本。
-- 单 Agent 组装失败只隔离该 Agent，其他 Agent 继续发布。
-- 热重载候选校验失败不修改该 Agent 的稳定目录，但新 Catalog 不再发布其定义。
-- Agent 删除后清理对应稳定目录；活跃 Run 不主动中断。
+- 活动 Run、子 Agent 调用、Team 成员和 Terminal 持有目录租约；被占用 Agent 保留原定义及文件，最后一个使用者结束后触发重载。删除 Agent 同样延迟清理。
+- 空闲且含连接器的 Agent 在 `.staging` 组装完整候选，再整目录替换；未变化时保留稳定目录。替换失败尝试恢复旧目录。
+- 无连接器的 Agent 沿用稳定根中的逐文件同步方式。
+- 候选校验失败保留原执行文件；该 Agent 的新定义显示无效诊断，其他 Agent 继续发布。
+- 本地 MCP 绑定与 Agent 发布共同阻止新租约准入，避免目录和路由错配；远端发现与重试仍在后台执行。
 
-`agents/`（包括 Agent 自有 Skill）、`skills-center/` 或 `connectors-center/` 变化都会触发全量 Agent 重组。`ru-agents/` 和 `ru-connectors/` 本身不加入 watcher，避免生成循环。既有 QuerySession 的 prompt、env 和 Team snapshot 不重算；后续打开的 Skill 文件、脚本、hook 和 `.config` 会读取稳定目录中的新内容。
+`agents/`、`skills-center/` 或 `connectors-center/` 变化触发 Agent 重组。生成的 `ru-agents/` 不加入 watcher，不再存在独立 `ru-connectors/`。已有 Run 的 prompt、env、工具和 Team snapshot 保持原快照；新 Run 读取已发布的定义。连接器认证状态始终保存在 `.state/connectors`，不随 Agent 运行目录重建。
 
 ## Sandbox 与保留变量
 

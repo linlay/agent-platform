@@ -391,7 +391,7 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
 	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "外部连接器包来源目录")
-	appendContextDir(lines, "ru_connectors_dir", paths.RUConnectorsDir, "Platform 生成的共享连接器运行目录，禁止人工编辑")
+	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "当前 Agent 的连接器运行目录，由 Platform 生成，禁止人工编辑")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
 }
@@ -413,7 +413,7 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
 	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "外部连接器包来源目录")
-	appendContextDir(lines, "ru_connectors_dir", paths.RUConnectorsDir, "Platform 生成的共享连接器运行目录，禁止人工编辑")
+	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "当前 Agent 的连接器运行目录，由 Platform 生成，禁止人工编辑")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
 }

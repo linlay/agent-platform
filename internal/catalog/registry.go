@@ -269,9 +269,13 @@ type SkillDefinition struct {
 }
 
 type FileRegistry struct {
-	cfg       config.Config
-	tools     []api.ToolDetailResponse
-	assembler *runtimeAgentAssembler
+	executionMu    sync.Mutex
+	runtimeUsers   map[string]int
+	runtimePending map[string]bool
+	onRuntimeIdle  func()
+	cfg            config.Config
+	tools          []api.ToolDetailResponse
+	assembler      *runtimeAgentAssembler
 
 	mu             sync.RWMutex
 	privateSkillMu sync.Mutex
@@ -288,7 +292,7 @@ type FileRegistry struct {
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
-	for _, generated := range []string{cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.EffectiveRUConnectorsDir()} {
+	for _, generated := range []string{cfg.Paths.EffectiveRUAgentsDir()} {
 		if connector.RootsOverlap(generated, cfg.Paths.AgentsDir) || connector.RootsOverlap(generated, cfg.Paths.SkillsCenterDir) {
 			return nil, fmt.Errorf("generated runtime overlaps Agent or Skill sources")
 		}
@@ -296,7 +300,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	if err := cleanupEditableSkillImportStaging(cfg.Paths.SkillsCenterDir); err != nil {
 		return nil, fmt.Errorf("cleanup skill import staging: %w", err)
 	}
-	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsCenterDir(), cfg.Paths.BuiltinConnectorsDir, cfg.Paths.EffectiveRUConnectorsDir(), cfg.Paths.EffectiveConnectorStateDir())
+	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsCenterDir(), cfg.Paths.BuiltinConnectorsDir, cfg.Paths.EffectiveConnectorStateDir())
 	if err != nil {
 		return nil, err
 	}
@@ -324,12 +328,32 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 //	"skills" — reload only skills
 //
 // Other reasons fall through to a full reload.
-func (r *FileRegistry) Reload(_ context.Context, reason string) error {
-	if reason != "teams" && reason != "skills" {
-		if _, err := r.assembler.connectors.AssembleRuntime(nil); err != nil {
+func (r *FileRegistry) Reload(ctx context.Context, reason string) error {
+	return r.ReloadWithRuntimeBindings(ctx, reason, nil, nil)
+}
+
+// ReloadWithRuntimeBindings keeps new runtime leases out until local component
+// routes have been rebound to the published Agent files. Neither callback may
+// perform remote discovery or acquire another runtime lease.
+func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason string, validate, bind func() error) error {
+	r.executionMu.Lock()
+	defer r.executionMu.Unlock()
+	if validate != nil {
+		if err := validate(); err != nil {
 			return err
 		}
 	}
+	if err := r.reloadLocked(reason); err != nil {
+		return err
+	}
+	if bind != nil {
+		return bind()
+	}
+	return nil
+}
+
+func (r *FileRegistry) reloadLocked(reason string) error {
+	r.freezeActiveRuntimes()
 	switch reason {
 	case "agents":
 		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsCenterDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)

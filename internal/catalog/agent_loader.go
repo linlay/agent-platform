@@ -31,6 +31,11 @@ func loadAgentsWithAdminAssembler(root, centerDir, chatsDir string, globalMemory
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
 	expectedRuntimeAgents := map[string]struct{}{}
+	for key, def := range assembler.frozenAgents {
+		items[key] = def
+		adminItems[key] = assembler.frozenAdmin[key]
+		expectedRuntimeAgents[key] = struct{}{}
+	}
 	err := visitRuntimeEntries(
 		root,
 		func(root string) {
@@ -71,6 +76,9 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 		return nil
 	}
 	fallbackKey := adminAgentFallbackKey(source)
+	if _, frozen := assembler.frozenAgents[fallbackKey]; frozen {
+		return nil
+	}
 	definition, err := readAdminAgentDefinitionMap(source.Path)
 	if err != nil {
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
@@ -83,6 +91,9 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
 		return err
+	}
+	if _, frozen := assembler.frozenAgents[def.Key]; frozen {
+		return nil
 	}
 	if source.Kind == "directory" && def.Key != name {
 		err := fmt.Errorf("key mismatch (file key=%q, directory=%q)", def.Key, name)
@@ -122,6 +133,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 	}
 	def.AgentDir = source.AgentDir
 	def.RuntimeDir = runtimeDir
+	def.bindConnectorRuntime()
 	loadAgentPrompts(runtimeDir, &def, definition)
 	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
 	items[def.Key] = def

@@ -66,13 +66,25 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		return preparedQuery{}, teamErr
 	}
 	var agentDef catalog.AgentDefinition
+	var releaseRuntime func()
+	keepRuntime := false
+	defer func() {
+		if !keepRuntime {
+			releaseQuery(releaseRuntime)
+		}
+	}()
 	if teamSnapshot != nil {
-		agentDef, ok = teamSnapshot.AgentDefinition(agentKey)
+		leasedTeam, release, found := acquireTeamRuntime(s.deps.Registry, teamID)
+		releaseRuntime, ok = release, found
+		if found {
+			teamSnapshot = &leasedTeam
+			agentDef, ok = leasedTeam.AgentDefinition(agentKey)
+		}
 	} else {
 		if agentKey == "" {
 			agentKey = s.deps.Registry.DefaultAgentKey()
 		}
-		agentDef, ok = s.deps.Registry.AgentDefinition(agentKey)
+		agentDef, releaseRuntime, ok = acquireAgentRuntime(s.deps.Registry, agentKey)
 	}
 	if !ok {
 		return preparedQuery{}, btwStatusError(http.StatusBadRequest, "agent_not_found", "parent chat agent not found")
@@ -197,7 +209,9 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 	summaryCopy.Usage = nil
 	summaryCopy.PendingAwaiting = nil
 	keepBranch = true
+	keepRuntime = true
 	return preparedQuery{
+		release:            releaseRuntime,
 		req:                req,
 		summary:            summaryCopy,
 		created:            false,

@@ -52,7 +52,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	if !ok {
 		t.Fatalf("agent unavailable: %#v", registry.adminAgents)
 	}
-	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 1 || len(def.ConnectorMounts) != 1 || def.ConnectorMounts[0].Dir != filepath.Join(cfg.Paths.EffectiveRUConnectorsDir(), "builtin.dbx") {
+	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 1 || len(def.ConnectorMounts) != 1 || def.ConnectorMounts[0].Dir != filepath.Join(def.RuntimeDir, "connectors", "builtin.dbx") {
 		t.Fatalf("bad mounted definition %#v", def)
 	}
 	key := def.EffectiveSkills()[0]
@@ -60,8 +60,8 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 		t.Fatalf("connector skill ID must retain its original name: %q", key)
 	}
 	other, ok := registry.AgentDefinition("other")
-	if !ok || other.ConnectorSkills[0].RuntimeDir != def.ConnectorSkills[0].RuntimeDir {
-		t.Fatal("Agents do not share the same skill directory")
+	if !ok || other.ConnectorSkills[0].RuntimeDir == def.ConnectorSkills[0].RuntimeDir {
+		t.Fatal("Agents unexpectedly share the same skill directory")
 	}
 	if _, err := os.Stat(filepath.Join(def.RuntimeDir, "skills", key)); !os.IsNotExist(err) {
 		t.Fatal("connector skill copied into Agent runtime")

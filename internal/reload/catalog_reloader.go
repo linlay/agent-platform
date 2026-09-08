@@ -141,13 +141,7 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 			return err
 		}
 	case "connectors":
-		if r.mcp != nil {
-			if err := r.mcp.Reload(ctx); err != nil {
-				log.Printf("[reload] mcp registry reload failed: %v", err)
-				return err
-			}
-		}
-		log.Printf("[reload] cascade: connectors → agents")
+		log.Printf("[reload] cascade: connectors → agents → MCP instances")
 		if err := r.reloadCatalog(ctx, "agents"); err != nil {
 			return err
 		}
@@ -160,12 +154,6 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		log.Printf("[reload] local viewports changed; registry reads templates on demand")
 	default:
 		// startup / config / unknown — full reload
-		if r.mcp != nil {
-			if err := r.mcp.Reload(ctx); err != nil {
-				log.Printf("[reload] %s mcp registry reload failed: %v", reason, err)
-				return err
-			}
-		}
 		if r.tools != nil {
 			if err := r.tools.ReloadRuntimeToolDefinitions(r.toolsDir); err != nil {
 				log.Printf("[reload] %s tools reload failed: %v", reason, err)
@@ -201,9 +189,35 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 
 func (r *RuntimeCatalogReloader) reloadCatalog(ctx context.Context, reason string) error {
 	if r.registry == nil {
+		if r.mcp != nil && catalogReloadIncludesAgents(reason) {
+			return r.mcp.Reload(ctx)
+		}
 		return nil
 	}
-	if err := r.registry.Reload(ctx, reason); err != nil {
+	var validate, bind func() error
+	if r.mcp != nil && catalogReloadIncludesAgents(reason) {
+		bind = func() error { return r.mcp.Reload(ctx) }
+		if validator, ok := r.mcp.(interface{ ValidateSources() error }); ok {
+			validate = validator.ValidateSources
+		}
+	}
+	var err error
+	if publisher, ok := r.registry.(interface {
+		ReloadWithRuntimeBindings(context.Context, string, func() error, func() error) error
+	}); ok {
+		err = publisher.ReloadWithRuntimeBindings(ctx, reason, validate, bind)
+	} else {
+		if validate != nil {
+			err = validate()
+		}
+		if err == nil {
+			err = r.registry.Reload(ctx, reason)
+		}
+		if err == nil && bind != nil {
+			err = bind()
+		}
+	}
+	if err != nil {
 		log.Printf("[reload] %s catalog reload failed: %v", reason, err)
 		return err
 	}

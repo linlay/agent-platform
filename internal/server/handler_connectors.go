@@ -20,12 +20,17 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	}
 	type mcpStatus struct {
 		ServerKey string `json:"serverKey"`
+		AgentKey  string `json:"agentKey,omitempty"`
 		ToolCount int    `json:"toolCount"`
 		api.MCPServerToolSyncStatus
 	}
 	type entry struct {
 		connector.Summary
 		MCP []mcpStatus `json:"mcp,omitempty"`
+	}
+	var mounts []connector.AgentRuntime
+	if provider, ok := s.deps.Registry.(mcp.AgentConnectorSource); ok {
+		mounts = provider.ConnectorRuntimes()
 	}
 	result := make([]entry, 0, len(items))
 	for _, item := range items {
@@ -35,14 +40,26 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 			s.writeAgentHTTPResponse(w, nil, err)
 			return
 		}
-		for _, key := range pkg.ServerKeys() {
-			status := api.MCPServerToolSyncStatus{Status: "pending"}
-			if s.deps.MCPToolSyncStatus != nil {
-				if current, ok := s.deps.MCPToolSyncStatus.ServerStatus(key); ok {
-					status = current
+
+		for _, sourceKey := range pkg.ServerKeys() {
+			mounted := false
+			for _, mount := range mounts {
+				if mount.ID != pkg.ID {
+					continue
 				}
+				mounted = true
+				key := connector.AgentServerKey(mount.AgentKey, sourceKey)
+				status := api.MCPServerToolSyncStatus{Status: "pending"}
+				if s.deps.MCPToolSyncStatus != nil {
+					if current, ok := s.deps.MCPToolSyncStatus.ServerStatus(key); ok {
+						status = current
+					}
+				}
+				value.MCP = append(value.MCP, mcpStatus{ServerKey: key, AgentKey: mount.AgentKey, ToolCount: s.connectorMCPToolCount(key), MCPServerToolSyncStatus: status})
 			}
-			value.MCP = append(value.MCP, mcpStatus{ServerKey: key, ToolCount: s.connectorMCPToolCount(key), MCPServerToolSyncStatus: status})
+			if !mounted {
+				value.MCP = append(value.MCP, mcpStatus{ServerKey: sourceKey, MCPServerToolSyncStatus: api.MCPServerToolSyncStatus{Status: "unmounted"}})
+			}
 		}
 		result = append(result, value)
 	}

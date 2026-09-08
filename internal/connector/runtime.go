@@ -8,13 +8,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"sync"
 
 	"agent-platform/internal/pathutil"
 )
-
-var assemblyMu sync.Mutex
 
 func (s Sources) PersistentRoot() string {
 	if s.StateRoot != "" {
@@ -43,7 +39,7 @@ func RootsOverlap(a, b string) bool {
 }
 
 func (s Sources) ValidateRoots() error {
-	roots := []string{s.ExternalRoot, s.BuiltinRoot, s.RuntimeRoot, s.StateRoot}
+	roots := []string{s.ExternalRoot, s.BuiltinRoot, s.StateRoot}
 	for i, root := range roots {
 		if root == "" {
 			continue
@@ -69,154 +65,80 @@ func (s Sources) ValidateRoots() error {
 	return nil
 }
 
-// AssembleRuntime publishes one shared copy per connector. All source packages
-// and candidates are validated before publication; a failed publication rolls
-// back the changed packages. Unchanged packages retain their paths and inodes.
-// Persistent credentials and CLI preparation are never copied into this tree.
-func (s Sources) AssembleRuntime(validate func([]Package) error) ([]Package, error) {
-	assemblyMu.Lock()
-	defer assemblyMu.Unlock()
-	packages, err := s.LoadAll()
-	if err != nil {
-		return nil, err
-	}
-	if validate != nil {
-		if err := validate(packages); err != nil {
-			return nil, err
-		}
-	}
-	if s.RuntimeRoot == "" {
-		return packages, nil
+// Materialize copies only the selected packages into a fresh Agent candidate.
+// The caller publishes the whole Agent after its skills and configuration pass
+// validation. Credentials are never loaded or copied by this operation.
+func (s Sources) Materialize(target string, ids []string) ([]Package, error) {
+	if target == "" {
+		return nil, fmt.Errorf("agent connector target is required")
 	}
 	if err := s.ValidateRoots(); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(s.RuntimeRoot, 0o700); err != nil {
+	for _, root := range []string{s.ExternalRoot, s.BuiltinRoot, s.PersistentRoot()} {
+		if RootsOverlap(target, root) {
+			return nil, fmt.Errorf("agent connector target overlaps source or state")
+		}
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		return nil, fmt.Errorf("agent connector candidate already exists or is inaccessible: %s", target)
+	}
+	if err := os.MkdirAll(target, 0700); err != nil {
 		return nil, err
 	}
-	stage, err := os.MkdirTemp(s.RuntimeRoot, ".assembly-")
-	if err != nil {
-		return nil, err
-	}
-	keepStage := false
-	defer func() {
-		if !keepStage {
-			_ = os.RemoveAll(stage)
-		}
-	}()
-	changes := []string{}
-	present := map[string]bool{}
-	for _, pkg := range packages {
-		present[pkg.ID] = true
-		target := filepath.Join(s.RuntimeRoot, pkg.ID)
-		sourceHash, err := packageDigest(pkg.Dir)
-		if err != nil {
-			return nil, err
-		}
-		if targetHash, err := packageDigest(target); pkg.AuthMode != "cli" && err == nil && sourceHash == targetHash {
+	result := make([]Package, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id] {
 			continue
 		}
-		candidate := filepath.Join(stage, "new", pkg.ID)
-		if err := copyPackage(pkg.Dir, candidate); err != nil {
-			return nil, err
-		}
-		if _, err := Load(filepath.Join(stage, "new"), pkg.ID); err != nil {
-			return nil, err
-		}
-		candidateHash, err := packageDigest(candidate)
+		seen[id] = true
+		pkg, err := s.Load(id)
 		if err != nil {
 			return nil, err
 		}
-		if sourceHash != candidateHash {
-			return nil, fmt.Errorf("connector %s changed during assembly", pkg.ID)
+		for _, name := range []string{".state", ".credentials", "connector-state", "credentials.json", "oauth.json"} {
+			if _, err := os.Lstat(filepath.Join(pkg.Dir, name)); !os.IsNotExist(err) {
+				return nil, fmt.Errorf("connector %s contains reserved persistent state entry %s", id, name)
+			}
 		}
-		if err := prepareRuntimeState(pkg, candidate); err != nil {
-			return nil, err
-		}
-		candidateHash, err = packageDigest(candidate)
+		before, err := packageDigest(pkg.Dir)
 		if err != nil {
 			return nil, err
 		}
-		if targetHash, err := packageDigest(target); err == nil && candidateHash == targetHash {
-			continue
+		dest := filepath.Join(target, id)
+		if err := copyPackage(pkg.Dir, dest); err != nil {
+			return nil, err
 		}
-		changes = append(changes, pkg.ID)
-	}
-	entries, err := os.ReadDir(s.RuntimeRoot)
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), ".") && !present[entry.Name()] {
-			changes = append(changes, entry.Name())
-		}
-	}
-	if err := os.MkdirAll(filepath.Join(stage, "old"), 0o700); err != nil {
-		return nil, err
-	}
-	type change struct {
-		id  string
-		old bool
-	}
-	var applied []change
-	rollback := func(cause error) ([]Package, error) {
-		keepStage = true
-		for i := len(applied) - 1; i >= 0; i-- {
-			c := applied[i]
-			if err := os.RemoveAll(filepath.Join(s.RuntimeRoot, c.id)); err != nil {
-				return nil, fmt.Errorf("%w; rollback failed, backup retained at %s: %v", cause, stage, err)
-			}
-			if c.old {
-				if err := os.Rename(filepath.Join(stage, "old", c.id), filepath.Join(s.RuntimeRoot, c.id)); err != nil {
-					return nil, fmt.Errorf("%w; rollback failed, backup retained at %s: %v", cause, stage, err)
-				}
-			}
-		}
-		keepStage = false
-		return nil, cause
-	}
-	for _, id := range changes {
-		target := filepath.Join(s.RuntimeRoot, id)
-		c := change{id: id}
-		if _, err := os.Lstat(target); err == nil {
-			if err := os.Rename(target, filepath.Join(stage, "old", id)); err != nil {
-				return rollback(err)
-			}
-			c.old = true
-		} else if !os.IsNotExist(err) {
-			return rollback(err)
-		}
-		applied = append(applied, c)
-		if present[id] {
-			if err := os.Rename(filepath.Join(stage, "new", id), target); err != nil {
-				return rollback(err)
-			}
-		}
-	}
-	result := make([]Package, 0, len(packages))
-	for _, source := range packages {
-		pkg, err := s.LoadRuntime(source.ID)
+		after, err := packageDigest(dest)
 		if err != nil {
-			return rollback(err)
+			return nil, err
 		}
-		result = append(result, pkg)
+		if before != after {
+			return nil, fmt.Errorf("connector %s changed during assembly", id)
+		}
+		if err := prepareRuntimeState(pkg, dest); err != nil {
+			return nil, err
+		}
+		mounted, err := Load(target, id)
+		if err != nil {
+			return nil, err
+		}
+		mounted.Builtin = pkg.Builtin
+		mounted.StateRoot = s.PersistentRoot()
+		result = append(result, mounted)
 	}
 	return result, nil
 }
 
-func (s Sources) LoadRuntime(id string) (Package, error) {
-	if s.RuntimeRoot == "" {
-		return s.Load(id)
+// RuntimeFingerprint includes all executable and skill bytes, so changing a
+// binary without changing mcp.json also invalidates the corresponding session.
+func RuntimeFingerprint(root string) (string, error) {
+	hash, err := packageDigest(root)
+	if err != nil {
+		return "", err
 	}
-	// Check the authoritative source so an orphaned runtime package is never
-	// sufficient to mount a removed external connector or a missing builtin.
-	if _, err := s.Load(id); err != nil {
-		return Package{}, err
-	}
-	pkg, err := Load(s.RuntimeRoot, id)
-	pkg.Builtin = IsBuiltin(id)
-	pkg.StateRoot = s.PersistentRoot()
-	return pkg, err
+	return fmt.Sprintf("%x", hash), nil
 }
 
 func packageDigest(root string) ([32]byte, error) {

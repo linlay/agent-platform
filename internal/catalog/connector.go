@@ -2,7 +2,9 @@ package catalog
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"agent-platform/internal/connector"
@@ -16,7 +18,7 @@ type ConnectorSkill struct {
 	RuntimeDir  string
 }
 
-// ConnectorMount freezes the shared package runtime path for this Agent snapshot.
+// ConnectorMount freezes the package path in this Agent execution directory.
 type ConnectorMount struct {
 	ID  string
 	Dir string
@@ -75,7 +77,7 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 		skillSources[strings.ToLower(strings.TrimSpace(key))] = "skillConfig.skills"
 	}
 	for _, id := range def.Connectors {
-		pkg, err := a.connectors.LoadRuntime(id)
+		pkg, err := a.connectors.Load(id)
 		if err != nil {
 			return err
 		}
@@ -86,7 +88,9 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 			def.ConnectorBinDirs = append(def.ConnectorBinDirs, pkg.BinDir)
 		}
 		def.ConnectorMounts = append(def.ConnectorMounts, ConnectorMount{ID: id, Dir: pkg.Dir})
-		def.ConnectorMCPServers = append(def.ConnectorMCPServers, pkg.ServerKeys()...)
+		for _, component := range pkg.ServerKeys() {
+			def.ConnectorMCPServers = append(def.ConnectorMCPServers, connector.AgentServerKey(def.Key, component))
+		}
 		for _, skill := range pkg.Skills {
 			key := skill.Name
 			if source, exists := skillSources[key]; exists {
@@ -116,7 +120,7 @@ func (d AgentDefinition) ConnectorRuntimeSkillDirs() []string {
 	return result
 }
 
-// ResolveSkillDefinition resolves shared connector skills from the mounted
+// ResolveSkillDefinition resolves connector skills from this Agent's mounted
 // runtime package and ordinary skills from this Agent's generated directory.
 func (d AgentDefinition) ResolveSkillDefinition(key string) (SkillDefinition, bool, error) {
 	for _, skill := range d.ConnectorSkills {
@@ -142,4 +146,45 @@ func (d AgentDefinition) SkillInstructionsPath(key string) string {
 		}
 	}
 	return "@skills/" + key + "/SKILL.md"
+}
+
+// bindConnectorRuntime converts source metadata to stable Agent-local paths.
+func (d *AgentDefinition) bindConnectorRuntime() {
+	root := filepath.Join(d.RuntimeDir, "connectors")
+	for i := range d.ConnectorSkills {
+		skill := &d.ConnectorSkills[i]
+		for _, mount := range d.ConnectorMounts {
+			if mount.ID == skill.ConnectorID {
+				rel, _ := filepath.Rel(mount.Dir, skill.RuntimeDir)
+				skill.RuntimeDir = filepath.Join(root, mount.ID, rel)
+				break
+			}
+		}
+	}
+	d.ConnectorBinDirs = nil
+	for i := range d.ConnectorMounts {
+		mount := &d.ConnectorMounts[i]
+		mount.Dir = filepath.Join(root, mount.ID)
+		if info, err := os.Stat(filepath.Join(mount.Dir, "bin")); err == nil && info.IsDir() {
+			d.ConnectorBinDirs = append(d.ConnectorBinDirs, filepath.Join(mount.Dir, "bin"))
+		}
+	}
+}
+
+func (r *FileRegistry) ConnectorRuntimes() []connector.AgentRuntime {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []connector.AgentRuntime
+	for _, def := range r.agents {
+		for _, mount := range def.ConnectorMounts {
+			result = append(result, connector.AgentRuntime{AgentKey: def.Key, ID: mount.ID, Dir: mount.Dir})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].AgentKey != result[j].AgentKey {
+			return result[i].AgentKey < result[j].AgentKey
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result
 }

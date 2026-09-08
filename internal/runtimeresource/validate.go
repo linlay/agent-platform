@@ -37,7 +37,6 @@ func validateCandidate(root string) error {
 		Paths: config.PathsConfig{
 			BuiltinConnectorsDir: builtinRoot,
 			ConnectorsCenterDir:  filepath.Join(root, "connectors-center"),
-			RUConnectorsDir:      filepath.Join(root, ".validation", "ru-connectors"),
 			StateDir:             filepath.Join(root, ".state"),
 			RegistriesDir:        registriesDir,
 			ToolsDir:             filepath.Join(root, "tools"),

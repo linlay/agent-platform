@@ -14,7 +14,7 @@ import (
 )
 
 func loadConnectorServers(sources connector.Sources) (map[string]ServerDefinition, error) {
-	packages, err := sources.AssembleRuntime(ValidateConnectorPackages)
+	packages, err := sources.LoadAll()
 	if err != nil {
 		return nil, err
 	}

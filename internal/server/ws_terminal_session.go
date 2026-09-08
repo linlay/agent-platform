@@ -30,7 +30,13 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	if s.deps.Registry == nil {
 		return terminalpkg.OpenResult{}, &statusError{status: http.StatusServiceUnavailable, message: "agent registry is not configured"}
 	}
-	def, ok := s.deps.Registry.AgentDefinition(agentKey)
+	def, release, ok := acquireAgentRuntime(s.deps.Registry, agentKey)
+	transferred := false
+	defer func() {
+		if !transferred {
+			releaseQuery(release)
+		}
+	}()
 	if !ok {
 		return terminalpkg.OpenResult{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
 	}
@@ -55,6 +61,7 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		}
 	}
 	result, openErr := s.terminals.Open(terminalpkg.OpenRequest{
+		OnExit:      release,
 		OwnerKey:    ownerKey,
 		AgentKey:    agentKey,
 		TerminalKey: strings.TrimSpace(payload.TerminalKey),
@@ -81,6 +88,7 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		}
 		return terminalpkg.OpenResult{}, &statusError{status: http.StatusInternalServerError, message: openErr.Error()}
 	}
+	transferred = !result.Reused
 	return result, nil
 }
 

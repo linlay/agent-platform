@@ -42,9 +42,11 @@ func runtimeAgentAssemblyDiagnosticCode(err error) string {
 }
 
 type runtimeAgentAssembler struct {
-	root       string
-	centerDir  string
-	connectors connector.Sources
+	frozenAgents map[string]AgentDefinition
+	frozenAdmin  map[string]AdminAgent
+	root         string
+	centerDir    string
+	connectors   connector.Sources
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
@@ -73,12 +75,9 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 		assembler.connectors.BuiltinRoot = connectorsDirs[1]
 	}
 	if len(connectorsDirs) > 2 {
-		assembler.connectors.RuntimeRoot = connectorsDirs[2]
+		assembler.connectors.StateRoot = connectorsDirs[2]
 	}
-	if len(connectorsDirs) > 3 {
-		assembler.connectors.StateRoot = connectorsDirs[3]
-	}
-	for _, other := range []string{assembler.centerDir, assembler.connectors.ExternalRoot, assembler.connectors.BuiltinRoot, assembler.connectors.RuntimeRoot, assembler.connectors.StateRoot} {
+	for _, other := range []string{assembler.centerDir, assembler.connectors.ExternalRoot, assembler.connectors.BuiltinRoot, assembler.connectors.StateRoot} {
 		if connector.RootsOverlap(assembler.root, other) {
 			return nil, fmt.Errorf("ru-agents directory overlaps a skill or connector root: %s", other)
 		}
@@ -143,6 +142,15 @@ func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDe
 	if err := os.MkdirAll(filepath.Join(candidate, ".config"), 0o700); err != nil {
 		return "", fmt.Errorf("create runtime config directory: %w", err)
 	}
+	if _, err := a.connectors.Materialize(filepath.Join(candidate, "connectors"), def.Connectors); err != nil {
+		return "", err
+	}
+	// Merge defaults from the same verified package copy that will execute.
+	// Copy slice storage before rebinding this local definition.
+	def.ConnectorSkills = append([]ConnectorSkill(nil), def.ConnectorSkills...)
+	def.ConnectorMounts = append([]ConnectorMount(nil), def.ConnectorMounts...)
+	def.RuntimeDir = candidate
+	def.bindConnectorRuntime()
 	if err := a.materializeSkills(source, candidate, def); err != nil {
 		return "", err
 	}
@@ -159,7 +167,7 @@ func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDe
 	if !insideDir(a.root, stable) {
 		return "", fmt.Errorf("runtime agent target escapes ru-agents: %s", stable)
 	}
-	if err := syncRuntimeTree(candidate, stable); err != nil {
+	if err := publishAgentCandidate(candidate, stable, len(def.Connectors) > 0); err != nil {
 		return "", fmt.Errorf("publish runtime agent %s: %w", key, err)
 	}
 	return stable, nil
@@ -214,7 +222,7 @@ func copyRuntimeAgentSource(source EditableAgentSource, candidate string) error 
 			return fmt.Errorf("read agent directory: %w", err)
 		}
 		for _, entry := range entries {
-			if entry.Name() == "skills" || entry.Name() == ".config" {
+			if entry.Name() == "skills" || entry.Name() == ".config" || entry.Name() == "connectors" {
 				continue
 			}
 			if err := copyRuntimePath(

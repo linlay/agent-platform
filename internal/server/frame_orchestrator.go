@@ -873,6 +873,18 @@ func (o *frameOrchestrator) runChildTaskWithOptions(index int, task preparedSubT
 		Status:      "completed",
 	}
 
+	leasedDef, release, ok := acquireAgentRuntime(o.registry, task.spec.SubAgentKey)
+	if !ok {
+		result.Status = "failed"
+		result.Error = "Agent runtime is unavailable"
+		result.Text = result.Error
+		return result
+	}
+	defer releaseQuery(release)
+	if o.session.TeamID == "" {
+		task.agentDef = leasedDef
+	}
+
 	if catalog.AgentUsesACPCoderBackend(task.agentDef) {
 		result.Status = "failed"
 		result.Text = "ACP CODER sub-agent is not supported"

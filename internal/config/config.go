@@ -85,7 +85,6 @@ type PathsConfig struct {
 	// bundle. It is not a user-configurable runtime path.
 	BuiltinConnectorsDir    string
 	ConnectorsCenterDir     string
-	RUConnectorsDir         string
 	StateDir                string
 	LegacyConnectorStateDir string
 	LegacyConnectorsDir     string
@@ -710,7 +709,6 @@ func validateRUAgentsDir(paths PathsConfig) error {
 	for name, candidate := range map[string]string{
 		"connectors-center-dir": paths.EffectiveConnectorsCenterDir(),
 		"state-dir":             paths.EffectiveStateDir(),
-		"ru-connectors-dir":     paths.EffectiveRUConnectorsDir(),
 		"registries-dir":        paths.RegistriesDir,
 		"tools-dir":             paths.ToolsDir,
 		"owner-dir":             paths.OwnerDir,

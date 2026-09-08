@@ -20,7 +20,9 @@ const (
 )
 
 type Registry struct {
-	sources connector.Sources
+	sources     connector.Sources
+	agentScoped bool
+	agents      AgentConnectorSource
 
 	mu      sync.RWMutex
 	version int64
@@ -50,7 +52,13 @@ func NewRegistryWithSources(sources connector.Sources) (*Registry, error) {
 }
 
 func (r *Registry) Reload() error {
-	servers, err := loadConnectorServers(r.sources)
+	var servers map[string]ServerDefinition
+	var err error
+	if r.agentScoped {
+		servers, err = r.loadAgentServers()
+	} else {
+		servers, err = loadConnectorServers(r.sources)
+	}
 	if err != nil {
 		return err
 	}

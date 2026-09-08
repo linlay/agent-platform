@@ -64,9 +64,8 @@ agent.md
 *.log
 logs/
 
-# Imported connector sources, generated shared runtime and persistent authorization.
+# Imported connector sources and persistent authorization.
 /connectors-center/
-/ru-connectors/
 /.state/
 # Retired connector state layout (migration source).
 /connector-state/

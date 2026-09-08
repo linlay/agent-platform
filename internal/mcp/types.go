@@ -9,6 +9,9 @@ import (
 )
 
 type ServerDefinition struct {
+	AgentKey          string
+	SourceKey         string
+	RuntimeDigest     string
 	ConnectorID       string
 	ConnectorBinDir   string
 	ConnectorAuthRoot string

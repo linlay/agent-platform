@@ -37,6 +37,7 @@ var (
 )
 
 type OpenRequest struct {
+	OnExit      func()
 	OwnerKey    string
 	AgentKey    string
 	TerminalKey string
@@ -133,6 +134,7 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 
 	id := newTerminalID(m.nextID.Add(1))
 	session := &Session{
+		onExit:      req.OnExit,
 		id:          id,
 		ownerKey:    req.OwnerKey,
 		agentKey:    req.AgentKey,
@@ -204,6 +206,7 @@ func (m *Manager) Close(ownerKey string, terminalID string) error {
 		return err
 	}
 	session.Close("closed")
+	session.Start(m.remove)
 	return nil
 }
 
@@ -212,6 +215,7 @@ func (m *Manager) Discard(session *Session) {
 		return
 	}
 	session.Close("closed")
+	session.Start(m.remove)
 	m.remove(session.ID())
 }
 

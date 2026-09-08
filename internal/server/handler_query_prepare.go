@@ -183,6 +183,11 @@ func (s *Server) prepareQueryAdmissionRequest(
 		chatID = newChatID()
 	}
 	var admissionRelease queryReleaseFunc
+	defer func() {
+		if resultErr != nil || result.release == nil {
+			releaseQuery(admissionRelease)
+		}
+	}()
 	if reservations, ok := s.deps.Runs.(contracts.ChatQueryAdmissionService); ok {
 		release, reserveErr := reservations.ReserveChatQuery(chatID, requestID)
 		if reserveErr != nil {
@@ -200,11 +205,6 @@ func (s *Server) prepareQueryAdmissionRequest(
 			return queryAdmission{}, reserveErr
 		}
 		admissionRelease = release
-		defer func() {
-			if resultErr != nil || result.release == nil {
-				releaseQuery(admissionRelease)
-			}
-		}()
 	}
 	var existingSummary *chat.Summary
 	if s.deps.Chats != nil {
@@ -239,10 +239,18 @@ func (s *Server) prepareQueryAdmissionRequest(
 	var agentDef catalog.AgentDefinition
 	var found bool
 	if orchestratedTeam {
+		leasedTeam, release, ok := acquireTeamRuntime(s.deps.Registry, teamID)
+		if !ok {
+			return queryAdmission{}, fmt.Errorf("team runtime is unavailable")
+		}
+		admissionRelease = combineQueryReleases(admissionRelease, release)
+		teamSnapshot = &leasedTeam
 		agentDef = buildTeamCoordinatorDefinition(*teamSnapshot)
 		found = true
 	} else {
-		agentDef, found = s.deps.Registry.AgentDefinition(agentKey)
+		var release func()
+		agentDef, release, found = acquireAgentRuntime(s.deps.Registry, agentKey)
+		admissionRelease = combineQueryReleases(admissionRelease, release)
 		if !found {
 			return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
 		}

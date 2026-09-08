@@ -13,7 +13,6 @@ import (
 type Sources struct {
 	ExternalRoot string
 	BuiltinRoot  string
-	RuntimeRoot  string
 	StateRoot    string
 	// LegacyStateRoot is only read by the startup/offline layout migration.
 	LegacyStateRoot string

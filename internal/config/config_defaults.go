@@ -15,7 +15,6 @@ func defaultConfig(options LoadOptions) Config {
 	paths := PathsConfig{
 		LegacyConnectorsDir:     filepath.Join(runtimeRoot, "connectors"),
 		ConnectorsCenterDir:     filepath.Join(runtimeRoot, "connectors-center"),
-		RUConnectorsDir:         filepath.Join(runtimeRoot, "ru-connectors"),
 		StateDir:                filepath.Join(runtimeRoot, ".state"),
 		LegacyConnectorStateDir: filepath.Join(runtimeRoot, "connector-state"),
 		RegistriesDir:           filepath.Join(runtimeRoot, "registries"),
@@ -334,7 +333,6 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.StateDir = stateDir
 	for name, value := range map[string]*string{
 		"connectors-center-dir": &c.Paths.ConnectorsCenterDir,
-		"ru-connectors-dir":     &c.Paths.RUConnectorsDir,
 		"connector-state-dir":   &c.Paths.LegacyConnectorStateDir,
 		"connectors-dir":        &c.Paths.LegacyConnectorsDir,
 	} {
@@ -351,7 +349,6 @@ func (c *Config) normalize(configRoot string) error {
 		*value = absolute
 	}
 	c.Paths.ConnectorsCenterDir = filepath.Clean(c.Paths.ConnectorsCenterDir)
-	c.Paths.RUConnectorsDir = filepath.Clean(c.Paths.EffectiveRUConnectorsDir())
 	c.Paths.StateDir = filepath.Clean(c.Paths.EffectiveStateDir())
 	c.Paths.RegistriesDir = filepath.Clean(c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = filepath.Clean(c.Paths.ToolsDir)

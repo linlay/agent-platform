@@ -735,7 +735,7 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		ModelsDir:           cleanOrEmpty(filepath.Join(paths.RegistriesDir, "models")),
 		ProvidersDir:        cleanOrEmpty(filepath.Join(paths.RegistriesDir, "providers")),
 		ConnectorsCenterDir: cleanOrEmpty(paths.EffectiveConnectorsCenterDir()),
-		RUConnectorsDir:     cleanOrEmpty(paths.EffectiveRUConnectorsDir()),
+		ConnectorsDir:       agentConnectorPath(agentDir),
 		ViewportServersDir:  cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
 		ToolsDir:            cleanOrEmpty(paths.ToolsDir),
 		ViewportsDir:        cleanOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(paths.RegistriesDir)), "viewports")),
@@ -878,7 +878,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		MemoryDir:           memoryDir,
 		ModelsDir:           modelsDir,
 		ProvidersDir:        providersDir,
-		RUConnectorsDir:     connectorsDir,
+		ConnectorsDir:       connectorsDir,
 		ConnectorsCenterDir: connectorsCenterDir,
 		ViewportServersDir:  viewportServersDir,
 		ToolsDir:            toolsDir,
@@ -924,7 +924,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		case "providers":
 			paths.ProvidersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "providers"))
 		case "connectors":
-			paths.RUConnectorsDir = absOrEmpty(cfg.Paths.EffectiveRUConnectorsDir())
+			paths.ConnectorsDir = agentConnectorPath(def.RuntimeDir)
 		case "connectors-center":
 			paths.ConnectorsCenterDir = absOrEmpty(cfg.Paths.EffectiveConnectorsCenterDir())
 		case "viewport-servers":
@@ -936,7 +936,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		}
 	}
 	if len(def.ConnectorMounts) > 0 {
-		paths.RUConnectorsDir = absOrEmpty(cfg.Paths.EffectiveRUConnectorsDir())
+		paths.ConnectorsDir = agentConnectorPath(def.RuntimeDir)
 	}
 	return paths
 }
@@ -1232,4 +1232,11 @@ func containsString(items []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func agentConnectorPath(agentDir string) string {
+	if strings.TrimSpace(agentDir) == "" {
+		return ""
+	}
+	return filepath.Join(agentDir, "connectors")
 }

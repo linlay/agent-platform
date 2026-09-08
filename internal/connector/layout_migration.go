@@ -35,7 +35,7 @@ func (s Sources) migrateLegacy(legacy string, rename func(string, string) error)
 	if err != nil {
 		return err
 	}
-	if legacy != center && (RootsOverlap(legacy, center) || RootsOverlap(legacy, s.StateRoot) || RootsOverlap(legacy, s.RuntimeRoot) || RootsOverlap(legacy, s.BuiltinRoot)) {
+	if legacy != center && (RootsOverlap(legacy, center) || RootsOverlap(legacy, s.StateRoot) || RootsOverlap(legacy, s.BuiltinRoot)) {
 		return fmt.Errorf("legacy connector directory overlaps a current connector root")
 	}
 	oldState := s.LegacyStateRoot
@@ -46,7 +46,7 @@ func (s Sources) migrateLegacy(legacy string, rename func(string, string) error)
 	if err != nil {
 		return err
 	}
-	for _, current := range []string{legacy, center, s.StateRoot, s.RuntimeRoot, s.BuiltinRoot} {
+	for _, current := range []string{legacy, center, s.StateRoot, s.BuiltinRoot} {
 		if RootsOverlap(oldState, current) {
 			return fmt.Errorf("legacy connector state overlaps another connector root: %s", oldState)
 		}

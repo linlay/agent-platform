@@ -56,6 +56,20 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(oldState, "demo.json"), []byte(`{"TOKEN":"test-state"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	agentDir := filepath.Join(root, "runtime", "agents", "demo")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - demo\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldRuntime := filepath.Join(root, "runtime", "ru-connectors")
+	if err := os.MkdirAll(oldRuntime, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldRuntime, "retained.txt"), []byte("legacy content"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	application, err := New(ctx, config.LoadOptions{ConfigDir: root})
@@ -68,13 +82,20 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("health: %d %s", recorder.Code, recorder.Body.String())
 	}
-	for _, path := range []string{"connectors-center/demo/connector.json", "ru-connectors/demo/connector.json", ".state/connectors/demo/credentials.json"} {
+	for _, path := range []string{"connectors-center/demo/connector.json", "ru-agents/demo/connectors/demo/connector.json", ".state/connectors/demo/credentials.json"} {
 		if _, err := os.Stat(filepath.Join(root, "runtime", path)); err != nil {
 			t.Fatalf("startup did not prepare %s: %v", path, err)
 		}
 	}
 	if _, err := os.Stat(oldPackage); !os.IsNotExist(err) {
 		t.Fatal("startup retained old package location")
+	}
+	if _, err := os.Stat(oldRuntime); !os.IsNotExist(err) {
+		t.Fatal("old shared runtime remains")
+	}
+	backups, err := filepath.Glob(filepath.Join(root, "runtime", ".connector-layout-backup-*", "ru-connectors", "retained.txt"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("missing legacy runtime backup: %v %v", backups, err)
 	}
 	data, err := os.ReadFile(legacy)
 	if err != nil || string(data) != string(content) {

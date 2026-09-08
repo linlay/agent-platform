@@ -356,7 +356,16 @@ func (r *ToolRouter) invokeMCPTool(ctx context.Context, def api.ToolDetailRespon
 	if strings.TrimSpace(serverKey) == "" {
 		return mcpErrorResult(def.Name, "mcp_source_key_missing", "MCP server key is missing")
 	}
-	payload, err := r.mcp.CallTool(ctx, serverKey, def.Name, args, buildMCPMeta(def.Name, execCtx))
+	if agentKey := AnyStringNode(def.Meta["agentKey"]); agentKey != "" {
+		if execCtx == nil || execCtx.Session.AgentKey != agentKey {
+			return mcpErrorResult(def.Name, "mcp_agent_mismatch", "MCP instance is not mounted by this Agent")
+		}
+	}
+	wireName := AnyStringNode(def.Meta["mcpToolName"])
+	if wireName == "" {
+		wireName = def.Name
+	}
+	payload, err := r.mcp.CallTool(ctx, serverKey, wireName, args, buildMCPMeta(def.Name, execCtx))
 	if err != nil {
 		return mcpErrorResult(def.Name, "mcp_server_unavailable", err.Error())
 	}
