@@ -174,7 +174,7 @@ GET /ws -> request / response / stream / push / error frames
 
 带图标的连接器另返回 `icon`（例如 `assets/icon.svg`）、`iconSha256` 和 `iconUrl`（`/api/connectors/icon?id=<id>&v=<sha256>`）；未声明图标时省略这些字段。图标接口成功响应直接为 `image/svg+xml` 或 `image/png` 字节，失败沿用 JSON 错误包裹；仅允许读取该连接器清单声明的图片，不能用 `file` 参数读取其他包文件。启用鉴权时必须携带有效认证。缓存使用 `private, max-age=0, must-revalidate` 和内容 SHA-256 ETag；`If-None-Match` 命中返回 304。客户端通过带认证请求获取 Blob，再用 `<img>` 显示，失败显示默认图标。
 
-Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
+Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；provider 与 model 均通过 `summary.icon` 透传 YAML 中的非空图标标识，未配置时省略，前端使用默认图标；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
 
 `/api/teams` 每项返回 `teamId`、`name`、可选 `description/icon`、`agentKeys` 与安全摘要 `meta`。`meta` 包含 `validAgentKeys`、`invalidAgentKeys`、`orchestrated:true` 与 `maxParallel`；不再返回 `runtimeMode` 或任何 legacy runtime metadata。接口不会返回隐藏总控 key、总控模型配置、system prompt、`SOUL.md/AGENTS.md` 内容或 internal-only `agent_delegate` 定义；`/api/admin/tools` 同样不列出该工具。
 

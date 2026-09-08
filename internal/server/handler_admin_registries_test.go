@@ -93,6 +93,7 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "capability-model.yml"), []byte(strings.Join([]string{
 				"key: capability-model",
 				"name: Capability Model",
+				"icon: qwen",
 				"provider: mock",
 				"type: chat",
 				"protocol: OPENAI",
@@ -106,6 +107,7 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "warning-only.yml"), []byte(strings.Join([]string{
 				"key: warning-only",
 				"name: Warning Only",
+				"icon: deepseek",
 				"baseUrl: http://localhost:19998",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write warning-only provider: %v", err)
@@ -157,6 +159,9 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	}
 	if item := byFile["providers/mock.yml"]; item.Summary["baseUrl"] == "" {
 		t.Fatalf("provider list summary should expose baseUrl: %#v", item)
+	}
+	if byFile["models/capability-model.yml"].Summary["icon"] != "qwen" || byFile["providers/warning-only.yml"].Summary["icon"] != "deepseek" {
+		t.Fatal("registry list must expose explicit model and provider icons")
 	}
 	for key := range byFile {
 		if strings.HasPrefix(key, "mcp-servers/") {
@@ -481,5 +486,25 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/registries/detail?category=providers&file=../mock.yml", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("path traversal should fail, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminRegistryPublicSummaryOptionalIcon(t *testing.T) {
+	for _, category := range []string{"models", "providers"} {
+		for _, icon := range []string{"", " ", "qwen", " custom-icon "} {
+			t.Run(category+"/"+icon, func(t *testing.T) {
+				summary := adminRegistryPublicSummary(category, map[string]any{
+					"key": "deepseek", "name": "DeepSeek", "icon": icon,
+				})
+				expected := strings.TrimSpace(icon)
+				if expected == "" {
+					if _, exists := summary["icon"]; exists {
+						t.Fatal("empty icons must be omitted instead of inferred")
+					}
+				} else if summary["icon"] != expected {
+					t.Fatalf("icon = %v, want %q", summary["icon"], expected)
+				}
+			})
+		}
 	}
 }

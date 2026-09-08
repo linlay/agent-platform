@@ -463,6 +463,7 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 	}
 	switch category {
 	case "providers":
+		put("icon", contracts.FirstNonEmptyString(root["icon"]))
 		put("baseUrl", contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"]))
 		put("defaultModel", contracts.FirstNonEmptyString(root["defaultModel"], root["default-model"]))
 		if protocols := contracts.AnyMapNode(root["protocols"]); len(protocols) > 0 {
@@ -476,6 +477,7 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 	case "models":
 		modelType, _ := models.NormalizeModelType(contracts.FirstNonEmptyString(root["type"]))
 		put("type", modelType)
+		put("icon", contracts.FirstNonEmptyString(root["icon"]))
 		put("provider", contracts.FirstNonEmptyString(root["provider"]))
 		put("protocol", contracts.FirstNonEmptyString(root["protocol"]))
 		put("modelId", contracts.FirstNonEmptyString(root["modelId"], root["model-id"]))
