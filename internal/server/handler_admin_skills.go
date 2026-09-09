@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 )
@@ -447,12 +448,9 @@ func (s *Server) writeAdminSkillFile(ctx context.Context, req api.WriteAdminSkil
 	if err != nil {
 		return api.AdminSkillMutationResponse{}, err
 	}
-	file, err := registry.WriteEditableSkillFile(req.Key, req.Path, req.Content, req.Encoding, req.BaseSHA256)
+	file, err := s.adminSources.WriteSkillFile(ctx, registry, req.Key, req.Path, req.Content, req.Encoding, req.BaseSHA256, s.reloadAdminSkills)
 	if err != nil {
 		return api.AdminSkillMutationResponse{}, mapSkillEditError(err)
-	}
-	if err := s.reloadAdminSkills(ctx); err != nil {
-		return api.AdminSkillMutationResponse{}, err
 	}
 	item, err := adminSkillItem(registry, req.Key)
 	if err != nil {
@@ -1021,6 +1019,10 @@ func adminSkillDiagnostics(items []catalog.AdminSkillDiagnostic) []api.AdminAgen
 func mapSkillEditError(err error) error {
 	if err == nil {
 		return nil
+	}
+	var reloadFailure *adminsource.SkillFileReloadError
+	if errors.As(err, &reloadFailure) {
+		return newAgentStatusError(http.StatusInternalServerError, "reload_failed", reloadFailure.Error())
 	}
 	var archiveValidation *catalog.SkillArchiveValidationError
 	if errors.As(err, &archiveValidation) {

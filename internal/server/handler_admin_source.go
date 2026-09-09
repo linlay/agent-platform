@@ -261,11 +261,8 @@ func (s *Server) writeAdminSkillTextSource(ctx context.Context, target api.Admin
 	if err != nil {
 		return api.AdminSourceResponse{}, err
 	}
-	if _, err := registry.WriteEditableSkillFile(target.Key, target.Path, content, "utf-8", baseSHA256); err != nil {
+	if _, err := s.adminSources.WriteSkillFile(ctx, registry, target.Key, target.Path, content, "utf-8", baseSHA256, s.reloadAdminSkills); err != nil {
 		return api.AdminSourceResponse{}, mapSkillEditError(err)
-	}
-	if err := s.reloadAdminSkills(ctx); err != nil {
-		return api.AdminSourceResponse{}, err
 	}
 	return s.readAdminSkillTextSource(target)
 }
