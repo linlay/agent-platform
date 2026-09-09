@@ -544,7 +544,7 @@ Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `C
 - `defaultModelKey`: 可展示模型中的默认模型；优先普通可调用模型，没有时可回退到 ACP 透传模型，无默认模型时为空
 - `defaultReasoningEffort`: 固定为 `MEDIUM`
 
-`GET /api/admin/agents/editor-options` 的 reasoner model 同样返回 `reasoningEfforts: [LOW, MEDIUM, HIGH, XHIGH, MAX]`。这里及聊天、usage、回放中记录的均为用户选择的逻辑档位；provider 实际映射值不会作为额外字段回显。
+`GET /api/admin/agents/editor-options` 的 `models` 仅返回 `type: chat` 的模型（未声明 `type` 时按 `chat` 兼容），供 Agent 创建与编辑选择；`embedding`、`image-generation`、`vl` 不进入选项，支持看图的 `chat` 模型仍保留。该接口无需类型过滤参数。reasoner model 同样返回 `reasoningEfforts: [LOW, MEDIUM, HIGH, XHIGH, MAX]`。这里及聊天、usage、回放中记录的均为用户选择的逻辑档位；provider 实际映射值不会作为额外字段回显。
 
 其中 `contextWindow` 是 API 响应字段名；model registry YAML 中对应配置字段为 `maxInputTokens`。
 

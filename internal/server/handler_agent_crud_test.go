@@ -1649,6 +1649,63 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	}
 }
 
+func TestAgentEditorOptionsOnlyIncludeChatModels(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			for key, modelConfig := range map[string]string{
+				"vision-chat": "type: chat\nisVision: true",
+				"embedding":   "type: embedding\nembedding:\n  dimension: 1024",
+				"image":       "type: image-generation\nimage:\n  generation:\n    endpointPath: /v1/images/generations\n    requestFormat: openai-images-json",
+				"vl":          "type: vl\nisVision: true",
+			} {
+				content := strings.Join([]string{
+					"key: " + key,
+					"name: " + key,
+					"provider: mock",
+					"protocol: OPENAI",
+					"modelId: " + key,
+					modelConfig,
+				}, "\n")
+				if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", key+".yml"), []byte(content), 0o644); err != nil {
+					t.Fatalf("write %s model: %v", key, err)
+				}
+			}
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/agents/editor-options", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.AgentEditorOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+	if len(response.Data.Models) != 2 {
+		t.Fatalf("expected only legacy and vision chat models, got %#v", response.Data.Models)
+	}
+	foundLegacy, foundVision := false, false
+	for _, model := range response.Data.Models {
+		switch model.Key {
+		case "mock-model":
+			foundLegacy = true
+		case "vision-chat":
+			foundVision = true
+			if !model.IsVision {
+				t.Fatalf("vision chat model lost its vision capability: %#v", model)
+			}
+		default:
+			t.Fatalf("non-chat model should not appear in editor options: %#v", model)
+		}
+	}
+	if !foundLegacy || !foundVision {
+		t.Fatalf("expected legacy and vision chat models, got %#v", response.Data.Models)
+	}
+}
+
 func TestAgentEditorOptionsExposeFiveEffortsForNativeReasoner(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, _ *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)

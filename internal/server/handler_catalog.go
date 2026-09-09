@@ -600,6 +600,9 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 	modelOptions := []api.AgentEditorModelOption{}
 	if s.deps.Models != nil {
 		for _, model := range s.deps.Models.List() {
+			if !models.IsChatModel(model) {
+				continue
+			}
 			reasoningEfforts := make([]string, 0)
 			if model.IsReasoner && !models.IsACPPassthroughModel(model) {
 				reasoningEfforts = models.ActiveReasoningEfforts()
