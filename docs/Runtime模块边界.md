@@ -17,8 +17,8 @@ run tools ────────┘                    ├> runexec
 ## 子包职责
 
 - `runtime/types`：`Caller`、`QueryCommand`、`RunRef`、`RunHandle`、控制命令、查询结果和订阅等内部值对象；不携带 `http.Request`、`ws.Conn` 或 `api.*` DTO。
-- `runtime/query`：Query/continuation 门面、控制命令准入和 restart-safe deferred awaiting registry；通过端口连接正在迁移的 session/admission 实现。
-- `runtime/runstate`：活动 Run 注册、Chat 独占、observer/backlog、attach/detach、控制状态、compact barrier、Run 环境销毁和快照查询。
+- `runtime/query`：Query/continuation 门面和控制命令准入；通过端口连接正在迁移的 session/admission 实现。
+- `runtime/runstate`：活动 Run 注册、Chat 独占、observer/backlog、attach/detach、控制状态、compact barrier、Run 环境销毁、快照查询与恢复等待项的内存登记。
 - `runtime/runexec`：Native Query 共用执行核心 `Execute`，负责启动模型流、驱动编排、组装事件消费、StepLine 写入、模型轮次提交/丢弃、usage/cost 聚合和终态识别。
 - `runtime/orchestration`：解释普通 delta、`agent_invoke` 与 Team dispatch，并提供 Reference 去重等公共逻辑；具体子 Session 与结果回注通过端口完成。
 - `runtime/proxy`：上游 HTTP/WS 协议值对象、Reference 物化规则、事件/usage 映射、活动 Proxy route 和 submit/steer/interrupt 控制客户端。
@@ -39,6 +39,8 @@ run tools ────────┘                    ├> runexec
 `runtime/runstate.Manager` 是生产与集成测试唯一的 RunManager 实现，统一由 `runstate.NewManager()` 创建；同一运行环境的 Query、控制接口与客户端目标绑定共享该实例。`contracts` 保留 `RunManager` 等接口、`RunControl`、错误与不透明 `CompactControlHandle`，依赖方向固定为 `runstate -> contracts`，不提供旧 Manager 的别名或转发构造函数。
 
 Manager 行为测试位于 `runtime/runstate` 同包，回收测试可以直接调整私有时间状态并调用回收逻辑，不为测试扩展生产接口。`contracts` 中的纯 RunControl 和 owner 契约测试继续保留。Server fixture 固定持有 `*runstate.Manager`；模拟重启时显式注入新 Manager，只从持久化存储恢复 awaiting、原始开始时间和事件游标，不复用旧实例中的 Run、claim 或 compact 状态。
+
+恢复等待项统一使用 `runstate.NewDeferredAwaitingStore()` 创建的内存存储。`app.New` 创建后通过窄接口注入 Server；单独构造 Server 且未提供该依赖时，也使用同一实现创建独立实例。Server 不再维护第二套存储实现。存储持有等待记录、supervisor 取消函数和按等待项串行的 resolution coordinator；Chat 持久化读取、恢复 claim、supervisor 与终态补写仍由现有 continuation 适配流程负责。
 
 异步 Query 的稳定时序是：
 

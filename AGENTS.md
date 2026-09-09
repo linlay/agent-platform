@@ -53,7 +53,7 @@ cmd/agent-platform/main.go
 - `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init、创建默认值与严格工具/memory 边界。
 - `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
-- `internal/runtime`：HTTP/WS 无关的 Query 与 Run 应用门面；`types` 保存内部命令和结果，`query` 负责准入/continuation 门面，`runstate` 持有活动 Run、observer 与 compact 协调，`runexec` 持有 usage/终态执行部件，`orchestration` 持有子 Agent/Team 公共编排部件，`proxy` 持有上游协议、活动 Proxy Run 路由和 HTTP/WS 控制客户端。Runtime 不得依赖 `internal/server`。
+- `internal/runtime`：HTTP/WS 无关的 Query 与 Run 应用门面；`types` 保存内部命令和结果，`query` 负责准入/continuation 门面，`runstate` 持有活动 Run、observer、compact 协调与恢复等待项的唯一内存存储实现，`runexec` 持有 usage/终态执行部件，`orchestration` 持有子 Agent/Team 公共编排部件，`proxy` 持有上游协议、活动 Proxy Run 路由和 HTTP/WS 控制客户端。Runtime 不得依赖 `internal/server`。
 - `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；直接依赖 `internal/runtime` 的窄接口，不经过 Server。
 - `internal/platformcontrol` 与 `internal/runenv`：统一 system control operation registry/handler，以及当前普通 native root run 的进程内并发 Scope、revision、limits 与幂等状态。
 - `internal/server`：HTTP/WS 解码、鉴权、响应映射、SSE flush 和迁移期薄适配；不得直接依赖 `llm`、`tools` 或具体 Agent mode。

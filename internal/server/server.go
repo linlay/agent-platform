@@ -26,6 +26,7 @@ import (
 	"agent-platform/internal/models"
 	projectpkg "agent-platform/internal/project"
 	runtimeproxy "agent-platform/internal/runtime/proxy"
+	"agent-platform/internal/runtime/runstate"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/skills"
 	terminalpkg "agent-platform/internal/terminal"
@@ -214,7 +215,7 @@ func New(deps Dependencies) (*Server, error) {
 		}
 	}
 	if deps.DeferredAwaitings == nil {
-		deps.DeferredAwaitings = newLocalDeferredAwaitingStore()
+		deps.DeferredAwaitings = runstate.NewDeferredAwaitingStore()
 	}
 	authVerifier := NewJWTVerifier(deps.Config.Auth)
 	if deps.Config.Auth.Enabled {

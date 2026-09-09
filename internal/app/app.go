@@ -390,7 +390,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
-	deferredAwaitings := runtimequery.NewDeferredAwaitingStore()
+	deferredAwaitings := runstate.NewDeferredAwaitingStore()
 	var projectHistory contracts.ProjectFileHistoryReader = toolExecutor
 	projectService := &projectpkg.Service{
 		Registry: registry, Chats: chatStore, History: projectHistory,
