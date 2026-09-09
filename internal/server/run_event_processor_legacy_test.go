@@ -70,16 +70,3 @@ func (p *runEventProcessor) terminalFinishReason() string {
 func (p *runEventProcessor) terminalErrorPayload() map[string]any {
 	return p.processor().TerminalErrorPayload()
 }
-
-func (p *runEventProcessor) RunControl() *contracts.RunControl {
-	if p == nil {
-		return nil
-	}
-	return p.runControl
-}
-
-func applyModelTurnControl(processor *runEventProcessor, input stream.StreamInput) {
-	if processor != nil {
-		processor.processor().ApplyModelTurnControl(input)
-	}
-}

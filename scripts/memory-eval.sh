@@ -1,6 +1,9 @@
 #!/bin/bash
 # Memory System Evaluation Report
 # Usage: ./scripts/memory-eval.sh [path-to-memory.log]
+# Metrics follow build_context_bundle fields in internal/memory/sqlite_snapshot.go.
+
+set -euo pipefail
 
 LOG="${1:-runtime/memory/memory.log}"
 
@@ -20,56 +23,38 @@ echo "Source: $LOG"
 echo "Lines: $(wc -l < "$LOG")"
 echo ""
 
-echo "--- 1. Reference Rate ---"
-cat "$LOG" \
-  | jq -r 'select(.operation=="disclosure_feedback") | .referenceRate' \
-  | awk '{s+=$1; n++} END {if(n>0) printf "  avg: %.3f  samples: %d\n", s/n, n; else print "  no feedback data yet"}'
+echo "--- 1. Context Bundles ---"
+jq -r 'select(.operation=="build_context_bundle") | .agentKey' "$LOG" \
+  | awk '{agents[$0]++; n++} END {printf "  bundles: %d  agents: %d\n", n, length(agents)}'
 
 echo ""
 echo "--- 2. Selection Rate ---"
-cat "$LOG" \
-  | jq -r 'select(.operation=="build_context_bundle" and .totalCandidates > 0) | (.stableFacts + .sessionItems + .observations) / .totalCandidates' \
+jq -r 'select(.operation=="build_context_bundle" and .totalCandidates > 0) | (.stableFacts + .sessionItems + .observations) / .totalCandidates' "$LOG" \
   | awk '{s+=$1; n++} END {if(n>0) printf "  avg: %.3f  samples: %d\n", s/n, n; else print "  no bundle data yet"}'
 
 echo ""
 echo "--- 3. Layer Coverage ---"
-cat "$LOG" \
-  | jq -r 'select(.operation=="build_context_bundle" and .layers != null) | .layers[]' \
+jq -r 'select(.operation=="build_context_bundle" and .layers != null) | .layers[]' "$LOG" \
   | sort | uniq -c | sort -rn | awk '{printf "  %s: %d\n", $2, $1}'
 
 echo ""
 echo "--- 4. Budget Utilization ---"
-cat "$LOG" \
-  | jq -r 'select(.operation=="build_context_bundle" and .maxChars > 0) | (.stableChars + .sessionChars + .observationChars) / .maxChars' \
+jq -r 'select(.operation=="build_context_bundle" and .maxChars > 0) | (.stableChars + .sessionChars + .observationChars) / .maxChars' "$LOG" \
   | awk '{s+=$1; n++} END {if(n>0) printf "  avg: %.3f  samples: %d\n", s/n, n; else print "  no budget data yet"}'
 
 echo ""
 echo "--- 5. Stop Reason Distribution ---"
-cat "$LOG" \
-  | jq -r 'select(.operation=="build_context_bundle") | .stopReason' \
+jq -r 'select(.operation=="build_context_bundle") | .stopReason' "$LOG" \
   | sort | uniq -c | sort -rn | awk '{printf "  %s: %d\n", $2, $1}'
 
 echo ""
-echo "--- 6. Hybrid Search Usage ---"
-cat "$LOG" \
-  | jq -r 'select(.operation=="build_context_bundle") | .hybrid' \
-  | sort | uniq -c | sort -rn | awk '{printf "  hybrid=%s: %d\n", $2, $1}'
-
-echo ""
-echo "--- 7. Per-Agent Reference Rate ---"
-cat "$LOG" \
-  | jq -r 'select(.operation=="disclosure_feedback") | "\(.agentKey) \(.referenceRate)"' \
-  | awk '{sum[$1]+=$2; n[$1]++} END {for(k in sum) printf "  %s: avg_ref_rate=%.3f (n=%d)\n", k, sum[k]/n[k], n[k]}'
-
-echo ""
-echo "--- 8. Per-Layer Avg Counts ---"
-cat "$LOG" \
-  | jq -r 'select(.operation=="disclosure_feedback") | "\(.stableCount) \(.sessionCount) \(.obsCount) \(.referenced) \(.disclosedTotal)"' \
+echo "--- 6. Per-Layer Avg Counts ---"
+jq -r 'select(.operation=="build_context_bundle") | "\(.stableFacts) \(.sessionItems) \(.observations)"' "$LOG" \
   | awk '{
-      stable+=$1; session+=$2; obs+=$3; ref+=$4; total+=$5; n++
+      stable+=$1; session+=$2; obs+=$3; n++
     } END {
       if(n>0) {
         printf "  stable_avg: %.1f  session_avg: %.1f  obs_avg: %.1f\n", stable/n, session/n, obs/n
-        printf "  overall_ref_rate: %.3f  total_runs: %d\n", (total>0?ref/total:0), n
-      } else print "  no data"
+        printf "  bundles: %d\n", n
+      } else print "  no bundle data yet"
     }'

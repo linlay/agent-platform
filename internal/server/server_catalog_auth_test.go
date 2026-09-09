@@ -390,15 +390,6 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	}
 }
 
-func containsAnyString(values []any, needle string) bool {
-	for _, value := range values {
-		if s, ok := value.(string); ok && s == needle {
-			return true
-		}
-	}
-	return false
-}
-
 func TestAgentEndpointRequiresAgentKey(t *testing.T) {
 	fixture := newTestFixture(t)
 	rec := httptest.NewRecorder()

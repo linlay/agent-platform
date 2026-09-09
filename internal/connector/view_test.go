@@ -27,7 +27,7 @@ func TestViewPackageValidationSummaryAndDefinitionSave(t *testing.T) {
 	if err != nil || len(pkg.Views) != 1 || len(pkg.MCP) != 0 || pkg.CLI != nil || pkg.BinDir != "" {
 		t.Fatalf("view package: %#v %v", pkg, err)
 	}
-	items, err := Summaries(root)
+	items, err := (Sources{ExternalRoot: root}).Summaries()
 	if err != nil || !items[0].HasView || items[0].Views[0].Key != "edit" {
 		t.Fatalf("summary: %#v %v", items, err)
 	}

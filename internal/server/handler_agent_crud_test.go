@@ -1970,20 +1970,6 @@ func TestAgentUpdateNameEndpoint(t *testing.T) {
 	}
 }
 
-func getAgentDetail(t *testing.T, server *Server, key string) api.AgentDetailResponse {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey="+key, nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("agent detail returned %d: %s", rec.Code, rec.Body.String())
-	}
-	var response api.ApiResponse[api.AgentDetailResponse]
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode detail response: %v", err)
-	}
-	return response.Data
-}
-
 func getAdminAgentDetail(t *testing.T, server *Server, key string) api.AdminAgentDetailResponse {
 	t.Helper()
 	rec := httptest.NewRecorder()

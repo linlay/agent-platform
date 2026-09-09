@@ -22,8 +22,6 @@ type compactChatStore interface {
 	CommitToolCompact(chatID string, snapshot chat.ToolCompactSnapshot, line chat.ToolCompactLine) error
 }
 
-const historyCompactTargetPercent = 60
-
 func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	var req api.CompactRequest
 	if err := decodeJSON(r, &req); err != nil {

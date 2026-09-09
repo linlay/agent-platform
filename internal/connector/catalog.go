@@ -33,10 +33,6 @@ type ViewSummary struct {
 	Source   string   `json:"source"`
 }
 
-func Summaries(root string) ([]Summary, error) {
-	return (Sources{ExternalRoot: root}).Summaries()
-}
-
 func (s Sources) Summaries() ([]Summary, error) {
 	packages, err := s.LoadAll()
 	if err != nil {

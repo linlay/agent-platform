@@ -53,34 +53,6 @@ type Skill struct {
 
 func ValidID(id string) bool { return idPattern.MatchString(id) && id != "." && id != ".." }
 
-func LoadAll(root string) ([]Package, error) {
-	if strings.TrimSpace(root) == "" {
-		return nil, nil
-	}
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var packages []Package
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		if !entry.IsDir() {
-			return nil, fmt.Errorf("connectors entry %q must be a package directory", entry.Name())
-		}
-		pkg, err := Load(root, entry.Name())
-		if err != nil {
-			return nil, err
-		}
-		packages = append(packages, pkg)
-	}
-	return packages, nil
-}
-
 func Load(root, id string) (Package, error) {
 	return loadDefinition(root, id, "", nil)
 }

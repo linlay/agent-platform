@@ -2,14 +2,15 @@ package server
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	agentteam "agent-platform/internal/agent/team"
+	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	toolruntime "agent-platform/internal/tools"
 )
 
@@ -106,12 +107,11 @@ func TestResolveQueryTeamRejectsUnrunnableMemberBeforeStartingRun(t *testing.T) 
 func TestPrepareQueryAdmissionSynthesizesHiddenTeamCoordinator(t *testing.T) {
 	registry := orchestratedTeamTestRegistry()
 	server := &Server{deps: Dependencies{Registry: registry}}
-	req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"teamId":"research","message":"compare approaches"}`))
-	req.Header.Set("Content-Type", "application/json")
+	req := api.QueryRequest{TeamID: "research", Message: "compare approaches"}
 
-	admission, err := server.prepareQueryAdmission(req, true)
+	admission, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if err != nil {
-		t.Fatalf("prepareQueryAdmission: %v", err)
+		t.Fatalf("prepareQueryAdmissionRequest: %v", err)
 	}
 	if !admission.orchestratedTeam || admission.req.AgentKey != "" || admission.agentDef.Mode != agentteam.Mode {
 		t.Fatalf("unexpected Team admission %#v", admission)

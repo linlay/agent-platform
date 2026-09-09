@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/modelclient"
 	. "agent-platform/internal/models"
@@ -87,12 +86,4 @@ func (e *LLMAgentEngine) executeProviderRequest(req *http.Request, firstResponse
 
 func providerTransportError(err error) error {
 	return modelclient.TransportError(err)
-}
-
-func providerResponseError(status int, body []byte) error {
-	return modelclient.ResponseError(status, body)
-}
-
-func classifyProviderResponseError(status int, body string) (apperrors.Code, string) {
-	return modelclient.ClassifyResponseError(status, body)
 }

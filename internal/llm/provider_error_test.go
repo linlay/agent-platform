@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/config"
+	"agent-platform/internal/modelclient"
 )
 
 type providerTimeoutTestError struct{}
@@ -71,16 +72,16 @@ func TestClassifyProviderResponseError(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := classifyProviderResponseError(tt.status, tt.body)
+			got, _ := modelclient.ClassifyResponseError(tt.status, tt.body)
 			if got != tt.want {
-				t.Fatalf("classifyProviderResponseError() = %q, want %q", got, tt.want)
+				t.Fatalf("modelclient.ClassifyResponseError() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
 func TestProviderResponseErrorCarriesStructuredPayload(t *testing.T) {
-	err := providerResponseError(429, []byte(`{"error":"api key quota exhausted"}`))
+	err := modelclient.ResponseError(429, []byte(`{"error":"api key quota exhausted"}`))
 	var appErr *apperrors.Error
 	if !errors.As(err, &appErr) {
 		t.Fatalf("expected app error, got %T", err)
@@ -99,7 +100,7 @@ func TestProviderResponseErrorCarriesStructuredPayload(t *testing.T) {
 }
 
 func TestProviderAuthFailureIsNotExposedAsEndUserUnauthorized(t *testing.T) {
-	err := providerResponseError(http.StatusUnauthorized, []byte(`{"error":{"message":"invalid api key"}}`))
+	err := modelclient.ResponseError(http.StatusUnauthorized, []byte(`{"error":{"message":"invalid api key"}}`))
 	var appErr *apperrors.Error
 	if !errors.As(err, &appErr) {
 		t.Fatalf("expected app error, got %T", err)

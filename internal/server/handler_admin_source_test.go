@@ -218,21 +218,3 @@ func putAdminSourceForTest(t *testing.T, server *Server, target api.AdminSourceT
 	}
 	return response.Data
 }
-
-func deleteAdminSourceForTest(t *testing.T, server *Server, target api.AdminSourceTarget, baseSHA256 string) api.DeleteAdminSourceResponse {
-	t.Helper()
-	payload, err := json.Marshal(api.DeleteAdminSourceRequest{Target: target, BaseSHA256: baseSHA256})
-	if err != nil {
-		t.Fatalf("marshal admin source delete: %v", err)
-	}
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/admin/source", bytes.NewReader(payload)))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("delete admin source status = %d body=%s", rec.Code, rec.Body.String())
-	}
-	var response api.ApiResponse[api.DeleteAdminSourceResponse]
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode deleted admin source response: %v", err)
-	}
-	return response.Data
-}

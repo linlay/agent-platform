@@ -139,11 +139,3 @@ func (s *Server) resolveTerminalWorkspace(def catalog.AgentDefinition) (string, 
 	}
 	return resolved, nil
 }
-
-func resolveTerminalShell(configured string) string {
-	return resolveTerminalShellForGOOS(configured, os.Getenv("SHELL"), runtime.GOOS)
-}
-
-func resolveTerminalShellForGOOS(configured string, envShell string, goos string) string {
-	return hostshell.TerminalExecutable(configured, envShell, goos)
-}

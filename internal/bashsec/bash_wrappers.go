@@ -15,25 +15,6 @@ func normalizedCommandBase(command string) string {
 	return base
 }
 
-// UnwrapCommandForPaths exposes only deterministic wrappers. Cwd-changing env
-// wrappers are rejected until the filesystem planner can model their cwd.
-func UnwrapCommandForPaths(argv []string) ([]string, bool) {
-	chain := deterministicCommandChain(argv)
-	if len(chain) == 0 {
-		return nil, false
-	}
-	for _, command := range chain {
-		if normalizedCommandBase(command[0]) == "env" {
-			for _, arg := range command[1:] {
-				if arg == "-C" || strings.HasPrefix(arg, "--chdir") || arg == "-S" || strings.HasPrefix(arg, "--split-string") || arg == "-i" || arg == "--ignore-environment" {
-					return nil, false
-				}
-			}
-		}
-	}
-	return chain[len(chain)-1], true
-}
-
 func deterministicCommandChain(argv []string) [][]string {
 	var chain [][]string
 	current := append([]string(nil), argv...)

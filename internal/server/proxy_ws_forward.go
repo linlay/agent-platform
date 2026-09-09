@@ -29,14 +29,6 @@ func proxyUpstreamTransport(proxy *catalog.ProxyConfig) string {
 	return runtimeproxy.UpstreamTransport(proxy)
 }
 
-func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, references []api.Reference) map[string]any {
-	return runtimeproxy.QueryPayload(queryCommandFromAPI(req), proxy, runtimeReferencesFromAPI(references))
-}
-
-func proxyRequestType(proxy *catalog.ProxyConfig, name string) string {
-	return runtimeproxy.RequestType(proxy, name)
-}
-
 func proxyRouteRequestType(route *proxyRunRoute, name string) string {
 	return route.RequestType(name)
 }
@@ -85,14 +77,6 @@ func decodeProxyEventAt(data []byte, eventLocation string) (stream.EventData, bo
 
 func normalizeProxyEventIdentity(event stream.EventData, req api.QueryRequest) stream.EventData {
 	return runtimeproxy.NormalizeEventIdentity(event, queryCommandFromAPI(req))
-}
-
-func normalizeProxyArtifactURLs(event *stream.EventData, chatID string) {
-	runtimeproxy.NormalizeArtifactURLs(event, chatID)
-}
-
-func proxyPublicArtifactURL(raw string, chatID string) (string, bool) {
-	return runtimeproxy.PublicArtifactURL(raw, chatID)
 }
 
 func proxyRunErrorEvent(req api.QueryRequest, err error) stream.EventData {

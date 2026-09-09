@@ -22,6 +22,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 	platformws "agent-platform/internal/ws"
 
@@ -682,9 +683,10 @@ func TestQueryRejectsInvalidAccessLevel(t *testing.T) {
 
 func TestQueryRejectsPlanningModeForNonCoderAgent(t *testing.T) {
 	fixture := newTestFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","agentKey":"mock-agent","planningMode":true}`))
+	enabled := true
+	req := api.QueryRequest{Message: "hello", AgentKey: "mock-agent", PlanningMode: &enabled}
 
-	_, err := fixture.server.prepareQueryAdmission(req, true)
+	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.message != "planningMode is only supported for CODER agents" {
 		t.Fatalf("expected non-CODER planningMode rejection, got %#v", err)
@@ -693,9 +695,10 @@ func TestQueryRejectsPlanningModeForNonCoderAgent(t *testing.T) {
 
 func TestQueryRejectsEditingModeForNonKBaseAgent(t *testing.T) {
 	fixture := newTestFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","agentKey":"mock-agent","editingMode":true}`))
+	enabled := true
+	req := api.QueryRequest{Message: "hello", AgentKey: "mock-agent", EditingMode: &enabled}
 
-	_, err := fixture.server.prepareQueryAdmission(req, true)
+	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.code != "editing_mode_unsupported" {
 		t.Fatalf("expected non-KBASE editingMode rejection, got %#v", err)
@@ -741,12 +744,8 @@ func TestQueryModelOverrideKeepsCoderPlanningStageSettingsSeparate(t *testing.T)
 func TestQueryRoleValidation(t *testing.T) {
 	fixture := newTestFixture(t)
 	for _, role := range []string{"", "user", "assistant", "automation", "system"} {
-		body := `{"message":"hello"}`
-		if role != "" {
-			body = `{"message":"hello","role":"` + role + `"}`
-		}
-		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(body))
-		admission, err := fixture.server.prepareQueryAdmission(req, true)
+		req := api.QueryRequest{Message: "hello", Role: role}
+		admission, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 		if err != nil {
 			t.Fatalf("role %q should be accepted: %v", role, err)
 		}
@@ -759,8 +758,8 @@ func TestQueryRoleValidation(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","role":"scheduler"}`))
-	_, err := fixture.server.prepareQueryAdmission(req, true)
+	req := api.QueryRequest{Message: "hello", Role: "scheduler"}
+	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "role must be") {
 		t.Fatalf("expected invalid role 400, got %#v", err)
@@ -932,12 +931,8 @@ func TestQueryRejectsUnavailableMustUseSkillWithExplicitCode(t *testing.T) {
 
 func TestQueryRejectsMustUseSkillsForTeam(t *testing.T) {
 	fixture := newTestFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
-		"message":"team",
-		"teamId":"default",
-		"mustUseSkills":["mock-skill"]
-	}`))
-	_, err := fixture.server.prepareQueryAdmission(req, true)
+	req := api.QueryRequest{Message: "team", TeamID: "default", MustUseSkills: []string{"mock-skill"}}
+	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.code != "must_use_skills_unsupported" {
 		t.Fatalf("expected Team mustUseSkills rejection, got %#v", err)
@@ -957,12 +952,8 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 			}
 		},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
-		"message":"use both",
-		"agentKey":"mock-agent",
-		"mustUseSkills":["mock-skill","center-extra"]
-	}`))
-	admission, err := fixture.server.prepareQueryAdmission(req, true)
+	req := api.QueryRequest{Message: "use both", AgentKey: "mock-agent", MustUseSkills: []string{"mock-skill", "center-extra"}}
+	admission, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if err != nil {
 		t.Fatalf("prepare admission: %v", err)
 	}

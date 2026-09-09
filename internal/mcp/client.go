@@ -340,14 +340,6 @@ func (c *Client) slot(serverKey string) (*sessionSlot, error) {
 	return slot, nil
 }
 
-func (c *Client) transport(server ServerDefinition) (sdkmcp.Transport, error) {
-	identity, err := c.stdioIdentity(server)
-	if err != nil {
-		return nil, err
-	}
-	return c.transportWithIdentity(server, identity)
-}
-
 func (c *Client) stdioIdentity(server ServerDefinition) (map[string]string, error) {
 	if !server.ConnectorOneID || server.Transport != TransportStdio {
 		return nil, nil

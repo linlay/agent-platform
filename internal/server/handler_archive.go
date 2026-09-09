@@ -190,10 +190,6 @@ func (s *Server) restoreArchives(chatIDs []string) (api.ArchiveRestoreResponse, 
 	return response, nil
 }
 
-func (s *Server) ensureNoActiveRun(chatID string) error {
-	return s.conversationService().EnsureNoActiveRun(chatID)
-}
-
 func (s *Server) listArchives(req api.ArchivesRequest) (api.ArchivesResponse, error) {
 	items, total, err := s.conversationService().ListArchives(req.AgentKey, req.Limit, req.Offset)
 	if err != nil {

@@ -385,7 +385,6 @@ func TestCompactCheckpointPersistenceFailurePublishesFailureAndResolvesRequest(t
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
-	processor := &runEventProcessor{runControl: control}
 	complete := stream.EventData{
 		Seq:       7,
 		Type:      "context.compact.complete",
@@ -401,7 +400,7 @@ func TestCompactCheckpointPersistenceFailurePublishesFailureAndResolvesRequest(t
 		},
 	}
 
-	handleCompactCheckpointPersistenceFailure(RunExecutorParams{EventBus: bus}, processor, complete)
+	handleCompactCheckpointPersistenceFailure(RunExecutorParams{EventBus: bus, RunControl: control}, complete)
 
 	select {
 	case <-handle.Done():

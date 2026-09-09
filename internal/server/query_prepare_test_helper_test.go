@@ -1,9 +1,17 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+
+	"agent-platform/internal/i18n"
+)
 
 func prepareQueryForTest(s *Server, r *http.Request) (preparedQuery, error) {
-	admission, err := s.prepareQueryAdmission(r, true)
+	req, err := decodeQueryRequest(r)
+	if err != nil {
+		return preparedQuery{}, err
+	}
+	admission, err := s.prepareQueryAdmissionRequest(r.Context(), req, true, requestLocale(r, i18n.DefaultLocale), requestBaseURL(r))
 	if err != nil {
 		return preparedQuery{}, err
 	}

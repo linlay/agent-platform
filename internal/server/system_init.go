@@ -1,7 +1,6 @@
 package server
 
 import (
-	"log"
 	"reflect"
 	"strings"
 
@@ -98,34 +97,6 @@ func sameSystemInitPayload(initLine *chat.SystemInitLine, system chat.QueryLineS
 		reflect.DeepEqual(initLine.Model, system.Model) &&
 		initLine.ToolChoice == system.ToolChoice &&
 		reflect.DeepEqual(initLine.RequestOptions, system.RequestOptions)
-}
-
-func (s *Server) hydrateSystemInitCache(req api.QueryRequest, session *contracts.QuerySession) {
-	if session == nil || s.deps.SystemInits == nil {
-		return
-	}
-	var toolDefs []api.ToolDetailResponse
-	if s.deps.Tools != nil {
-		toolDefs = s.deps.Tools.Definitions()
-	}
-	profiles, err := s.deps.SystemInits.BuildSystemInitProfiles(contracts.SystemInitBuildInput{
-		Session: *session, Request: req, ToolDefinitions: toolDefs,
-	})
-	if err != nil {
-		log.Printf("[server][system-init] hydrate profiles failed chatId=%s agentKey=%s: %v", req.ChatID, session.AgentKey, err)
-		return
-	}
-	if len(profiles) == 0 {
-		return
-	}
-	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
-	for _, profile := range profiles {
-		line := queryLineSystemFromProfile(profile)
-		sanitizeTeamCoordinatorSystemInit(session, &line)
-		cache[line.CacheKey] = systemInitSnapshotFromLine(line)
-	}
-	session.SystemInitCache = cache
-	session.PendingSystemInitKeys = nil
 }
 
 // The coordinator's AgentKey exists only inside the run so the model and

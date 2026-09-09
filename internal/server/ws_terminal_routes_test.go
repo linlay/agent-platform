@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/hostshell"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -791,7 +792,7 @@ func TestResolveTerminalShellDefaultsByPlatform(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveTerminalShellForGOOS(tt.configured, tt.envShell, tt.goos); got != tt.want {
+			if got := hostshell.TerminalExecutable(tt.configured, tt.envShell, tt.goos); got != tt.want {
 				t.Fatalf("shell = %q, want %q", got, tt.want)
 			}
 		})

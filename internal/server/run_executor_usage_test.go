@@ -159,7 +159,7 @@ func TestSystemInitQueryIsNotPublishedToClients(t *testing.T) {
 			"system": map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:test"},
 		},
 	}
-	if shouldPublishClientEvent(event) {
+	if stream.IsClientVisibleEventData(event) {
 		t.Fatalf("system-init query must remain storage-only: %#v", event)
 	}
 	visible := clientVisibleEventData(stream.EventData{
@@ -183,7 +183,7 @@ func TestInternalOnlyToolResultIsNotPublishedToClients(t *testing.T) {
 			"result":       `{"error":"tool_calls_exceeded","executed":false}`,
 		},
 	}
-	if shouldPublishClientEvent(event) {
+	if stream.IsClientVisibleEventData(event) {
 		t.Fatalf("internal-only tool result must remain storage-only: %#v", event)
 	}
 

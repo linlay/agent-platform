@@ -458,18 +458,6 @@ func mergeBashCommandEnv(execCtx *ExecutionContext, identityFile string) ([]stri
 	return agentconfig.WithIdentityEnvironment(commandEnv, identity), nil
 }
 
-func removeEnvironmentKey(env []string, key string) []string {
-	filtered := make([]string, 0, len(env))
-	for _, item := range env {
-		name, _, ok := strings.Cut(item, "=")
-		if ok && strings.EqualFold(strings.TrimSpace(name), key) {
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	return filtered
-}
-
 func containsString(values []string, needle string) bool {
 	for _, value := range values {
 		if strings.TrimSpace(value) == "*" {

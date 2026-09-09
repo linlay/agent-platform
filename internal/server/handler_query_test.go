@@ -772,12 +772,3 @@ func TestPrepareQueryCapsDesktopImageStudioZenmiRunToOneToolCall(t *testing.T) {
 		t.Fatalf("normal Zenmi run must keep its configured budget: %#v", normal.session.RunLimits)
 	}
 }
-
-func containsAll(text string, needles []string) bool {
-	for _, needle := range needles {
-		if !strings.Contains(text, needle) {
-			return false
-		}
-	}
-	return true
-}

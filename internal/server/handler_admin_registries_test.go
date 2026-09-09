@@ -269,17 +269,6 @@ func TestRetiredMCPRegistryDetailRejectsWrite(t *testing.T) {
 	}
 }
 
-func intFromAny(value any) int {
-	switch typed := value.(type) {
-	case int:
-		return typed
-	case float64:
-		return int(typed)
-	default:
-		return 0
-	}
-}
-
 func assertAdminRegistryListOmitsDetailFields(t *testing.T, body []byte) {
 	t.Helper()
 	var raw map[string]any

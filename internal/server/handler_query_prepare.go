@@ -18,7 +18,6 @@ import (
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/i18n"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/stream"
 	platformws "agent-platform/internal/ws"
@@ -109,20 +108,6 @@ func combineQueryReleases(releases ...queryReleaseFunc) queryReleaseFunc {
 			}
 		})
 	}
-}
-
-func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (queryAdmission, error) {
-	req, err := decodeQueryRequest(r)
-	if err != nil {
-		return queryAdmission{}, err
-	}
-	return s.prepareQueryAdmissionRequest(
-		r.Context(),
-		req,
-		requireMessage,
-		requestLocale(r, i18n.DefaultLocale),
-		requestBaseURL(r),
-	)
 }
 
 func decodeQueryRequest(r *http.Request) (api.QueryRequest, error) {

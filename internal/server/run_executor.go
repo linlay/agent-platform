@@ -108,10 +108,6 @@ func compactFloat64(value any) float64 {
 	}
 }
 
-func shouldPublishClientEvent(data stream.EventData) bool {
-	return stream.IsClientVisibleEventData(data)
-}
-
 func clientVisibleEventData(data stream.EventData) stream.EventData {
 	if len(data.Payload) == 0 {
 		return data
@@ -146,7 +142,7 @@ func runExecutor(params RunExecutorParams) runexec.Result {
 		Models: params.Models, StepWriter: params.StepWriter, RunControl: params.RunControl,
 		ObserveEvent:         params.ObserveEvent,
 		OnCompactEvent:       func(data stream.EventData) { completeCompactControl(params.RunControl, data) },
-		OnPersistenceFailure: func(data stream.EventData) { handleCompactCheckpointPersistenceFailure(params, nil, data) },
+		OnPersistenceFailure: func(data stream.EventData) { handleCompactCheckpointPersistenceFailure(params, data) },
 		OnProcessingError:    func(err error) { publishLocalRunProcessingError(params, err) },
 		OnEvent:              func(data stream.EventData) { handleAwaitingLifecycle(params, data, tracker) },
 		Publish: func(data stream.EventData) error {
@@ -264,18 +260,12 @@ func compactCycleFlag(value any) *bool {
 	return nil
 }
 
-func handleCompactCheckpointPersistenceFailure(params RunExecutorParams, processor any, data stream.EventData) {
+func handleCompactCheckpointPersistenceFailure(params RunExecutorParams, data stream.EventData) {
 	if data.Type != "context.compact.complete" {
 		return
 	}
 	failed := compactCheckpointPersistenceFailedEvent(data)
-	runControl := params.RunControl
-	if runControl == nil {
-		if provider, ok := processor.(interface{ RunControl() *contracts.RunControl }); ok {
-			runControl = provider.RunControl()
-		}
-	}
-	completeCompactControl(runControl, failed)
+	completeCompactControl(params.RunControl, failed)
 	if params.EventBus != nil {
 		params.EventBus.Publish(clientVisibleEventData(failed))
 	}

@@ -104,7 +104,7 @@ func TestOneIDStdioInjectionRotationAndLogout(t *testing.T) {
 	client := NewClientWithGate(registry, nil, nil).WithIdentityFile(file)
 	defer client.Close()
 	definition, _ := registry.Server("demo")
-	if _, err := client.transport(definition); err == nil {
+	if _, err := client.CallTool(t.Context(), "demo", "check_identity", nil, nil); err == nil {
 		t.Fatal("stdio started without SSO")
 	}
 	var previousPID int
@@ -147,7 +147,11 @@ func TestOneIDStdioInjectionRotationAndLogout(t *testing.T) {
 	waitForProcessExit(t, previousPID)
 	definition.ConnectorOneID = false
 	definition.Env = map[string]string{"SAFE": "value"}
-	transport, err := client.transport(definition)
+	identity, err := client.stdioIdentity(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := client.transportWithIdentity(definition, identity)
 	if err != nil {
 		t.Fatal(err)
 	}

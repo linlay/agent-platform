@@ -19,10 +19,6 @@ func (d usageCostDecorator) decorateCurrentUsage(data *stream.EventData) (chat.U
 	return (runexec.UsageCostDecorator{Models: d.models, Billing: d.billing}).DecorateCurrentUsage(data)
 }
 
-func (d usageCostDecorator) decorateDebugLLMReturnUsage(inner map[string]any) (chat.UsageData, bool) {
-	return (runexec.UsageCostDecorator{Models: d.models, Billing: d.billing}).DecorateDebugLLMReturnUsage(inner)
-}
-
 func (d usageCostDecorator) estimateForModel(usage chat.UsageData) chat.UsageData {
 	return (runexec.UsageCostDecorator{Models: d.models, Billing: d.billing}).EstimateForModel(usage)
 }

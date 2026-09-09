@@ -61,15 +61,6 @@ func NewProcessor(options ProcessorOptions) *Processor {
 	}
 }
 
-// RunControl exposes the lifecycle control associated with this processor to
-// executor-level failure handling. It does not mutate the control itself.
-func (p *Processor) RunControl() *contracts.RunControl {
-	if p == nil {
-		return nil
-	}
-	return p.runControl
-}
-
 func (p *Processor) Consume(event stream.StreamEvent) (stream.EventData, bool, error) {
 	data := event.Data()
 	if err := stream.ValidateEventData(data, "run.executor.event"); err != nil {

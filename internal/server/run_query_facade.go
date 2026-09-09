@@ -203,7 +203,3 @@ func mapRunStatusError(err *statusError) error {
 func runToolError(code string, message string) error {
 	return &contracts.RunToolError{Code: strings.TrimSpace(code), Message: strings.TrimSpace(message)}
 }
-
-func cloneRunOrigin(origin *contracts.RunOrigin) *contracts.RunOrigin {
-	return runstate.CloneRunOrigin(origin)
-}

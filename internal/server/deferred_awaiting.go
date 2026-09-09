@@ -29,10 +29,6 @@ func newLocalDeferredAwaitingStore() *localDeferredAwaitingStore {
 	return &localDeferredAwaitingStore{items: map[string]DeferredAwaiting{}}
 }
 
-func NewDeferredAwaitingStore() DeferredAwaitingStore {
-	return newLocalDeferredAwaitingStore()
-}
-
 func (s *localDeferredAwaitingStore) Register(item DeferredAwaiting) {
 	if s == nil || strings.TrimSpace(item.AwaitingID) == "" {
 		return

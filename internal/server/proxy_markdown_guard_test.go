@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	runtimeproxy "agent-platform/internal/runtime/proxy"
 	"agent-platform/internal/stream"
 )
 
@@ -42,7 +43,7 @@ func TestNormalizeProxyArtifactURLsKeepsOnlyChatScopeURLs(t *testing.T) {
 			{"artifactId": "wrong-chat", "url": "/api/resource?file=chat_other%2Fsecret.png"},
 		},
 	}}
-	normalizeProxyArtifactURLs(&event, "chat_proxy")
+	runtimeproxy.NormalizeArtifactURLs(&event, "chat_proxy")
 	items, ok := event.Payload["artifacts"].([]map[string]any)
 	if !ok || len(items) != 2 {
 		t.Fatalf("normalized artifacts=%#v", event.Payload["artifacts"])

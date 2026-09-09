@@ -16,6 +16,7 @@ import (
 	channelpkg "agent-platform/internal/channel"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/i18n"
 	platformws "agent-platform/internal/ws"
 )
 
@@ -106,8 +107,8 @@ func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 		t.Fatalf("expected existing chat agent to win, got %q", prepared.req.AgentKey)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#team#u1","teamId":"team-a","message":"team route"}`))
-	admission, err := server.prepareQueryAdmission(req, true)
+	teamReq := api.QueryRequest{ChatID: "wecom#team#u1", TeamID: "team-a", Message: "team route"}
+	admission, err := server.prepareQueryAdmissionRequest(t.Context(), teamReq, true, i18n.DefaultLocale, "http://example.com")
 	if err != nil {
 		t.Fatalf("prepareQueryAdmission Team: %v", err)
 	}
@@ -514,16 +515,16 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		body       string
+		request    api.QueryRequest
 		wantStatus int
 	}{
-		{name: "unknown team", body: `{"chatId":"new-unknown","teamId":"missing","message":"hello"}`, wantStatus: http.StatusBadRequest},
-		{name: "agent supplied for team", body: `{"chatId":"new-outside","teamId":"team-a","agentKey":"code-helper","message":"hello"}`, wantStatus: http.StatusBadRequest},
+		{name: "unknown team", request: api.QueryRequest{ChatID: "new-unknown", TeamID: "missing", Message: "hello"}, wantStatus: http.StatusBadRequest},
+		{name: "agent supplied for team", request: api.QueryRequest{ChatID: "new-outside", TeamID: "team-a", AgentKey: "code-helper", Message: "hello"}, wantStatus: http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(tt.body))
-			_, err := server.prepareQueryAdmission(req, true)
+			req := tt.request
+			_, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 			var statusErr *statusError
 			if !errors.As(err, &statusErr) || statusErr.status != tt.wantStatus {
 				t.Fatalf("error = %#v, want status %d", err, tt.wantStatus)
@@ -534,8 +535,8 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 	if _, _, err := chats.EnsureChat("plain-chat", "assistant", "", "seed"); err != nil {
 		t.Fatalf("seed plain chat: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"plain-chat","teamId":"team-a","message":"hello"}`))
-	_, err := server.prepareQueryAdmission(req, true)
+	req := api.QueryRequest{ChatID: "plain-chat", TeamID: "team-a", Message: "hello"}
+	_, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
 		t.Fatalf("empty-team chat adoption error = %#v, want 409", err)
@@ -544,14 +545,14 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 	if _, _, err := chats.EnsureChat("team-chat", "", "team-a", "seed"); err != nil {
 		t.Fatalf("seed team chat: %v", err)
 	}
-	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"team-chat","teamId":"team-b","message":"hello"}`))
-	_, err = server.prepareQueryAdmission(req, true)
+	req = api.QueryRequest{ChatID: "team-chat", TeamID: "team-b", Message: "hello"}
+	_, err = server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
 		t.Fatalf("team replacement error = %#v, want 409", err)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"team-chat","agentKey":"assistant","message":"switch"}`))
-	_, err = server.prepareQueryAdmission(req, true)
+	req = api.QueryRequest{ChatID: "team-chat", AgentKey: "assistant", Message: "switch"}
+	_, err = server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest {
 		t.Fatalf("team member override must fail: %#v", err)
 	}
@@ -565,8 +566,8 @@ func TestPrepareQueryTeamAdmissionReturnsUnavailableForInvalidTeamAndRejectsHist
 		AgentKeys: []string{"missing-agent"},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"invalid-default-chat","teamId":"invalid-default","message":"hello"}`))
-	_, err := server.prepareQueryAdmission(req, true)
+	req := api.QueryRequest{ChatID: "invalid-default-chat", TeamID: "invalid-default", Message: "hello"}
+	_, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusServiceUnavailable {
 		t.Fatalf("invalid default error = %#v, want 503", err)
@@ -575,8 +576,8 @@ func TestPrepareQueryTeamAdmissionReturnsUnavailableForInvalidTeamAndRejectsHist
 	if _, _, err := chats.EnsureChat("drifted-chat", "removed-agent", "team-a", "seed"); err != nil {
 		t.Fatalf("seed drifted chat: %v", err)
 	}
-	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"drifted-chat","message":"hello"}`))
-	_, err = server.prepareQueryAdmission(req, true)
+	req = api.QueryRequest{ChatID: "drifted-chat", Message: "hello"}
+	_, err = server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "historical Team chat") {
 		t.Fatalf("historical Team pair error = %#v, want 400", err)
 	}
@@ -596,8 +597,8 @@ func TestPrepareQueryTeamAdmissionUsesFrozenMemberDefinition(t *testing.T) {
 		snapshots:                  map[string]catalog.TeamSnapshot{"team-a": snapshot},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"snapshot-chat","teamId":"team-a","message":"hello"}`))
-	admission, err := server.prepareQueryAdmission(req, true)
+	req := api.QueryRequest{ChatID: "snapshot-chat", TeamID: "team-a", Message: "hello"}
+	admission, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if err != nil {
 		t.Fatalf("prepare admission from frozen snapshot: %v", err)
 	}
@@ -612,15 +613,15 @@ func TestPrepareQueryTeamAdmissionUsesFrozenMemberDefinition(t *testing.T) {
 
 func TestCompleteQueryPreparationRechecksFixedTeamAfterConcurrentChatCreation(t *testing.T) {
 	server, chats := newServerForChannelTests(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"raced-chat","teamId":"team-a","message":"hello"}`))
-	admission, err := server.prepareQueryAdmission(req, true)
+	req := api.QueryRequest{ChatID: "raced-chat", TeamID: "team-a", Message: "hello"}
+	admission, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if err != nil {
 		t.Fatalf("prepare admission: %v", err)
 	}
 	if _, _, err := chats.EnsureChat("raced-chat", "assistant", "", "other creator"); err != nil {
 		t.Fatalf("seed raced chat: %v", err)
 	}
-	_, err = server.completeQueryPreparation(req.Context(), admission, nil)
+	_, err = server.completeQueryPreparation(t.Context(), admission, nil)
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
 		t.Fatalf("complete error = %#v, want 409", err)

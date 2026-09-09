@@ -9,7 +9,7 @@ import (
 )
 
 func TestDeferredAwaitingStoreRegisterLookupRemove(t *testing.T) {
-	store := NewDeferredAwaitingStore()
+	store := newLocalDeferredAwaitingStore()
 	item := DeferredAwaiting{
 		ChatID:     "chat-1",
 		AwaitingID: "await-1",
@@ -37,7 +37,7 @@ func TestDeferredAwaitingStoreRegisterLookupRemove(t *testing.T) {
 }
 
 func TestDeferredAwaitingStoreConcurrentAccess(t *testing.T) {
-	store := NewDeferredAwaitingStore()
+	store := newLocalDeferredAwaitingStore()
 	var wg sync.WaitGroup
 
 	for i := 0; i < 32; i++ {

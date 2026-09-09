@@ -260,10 +260,6 @@ func bashPlan(command string, accessLevel string, decision Decision, reason stri
 	}
 }
 
-func normalizedCommandBase(command string) string {
-	return strings.ToLower(filepath.Base(strings.TrimSpace(command)))
-}
-
 func isOpaqueCommand(base string) bool {
 	base = commandFamily(base)
 	if isInterpreter(base) {

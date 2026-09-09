@@ -226,21 +226,6 @@ func int64Value(value any, fallback int64) int64 {
 	}
 }
 
-func floatValue(value any, fallback float64) float64 {
-	switch v := value.(type) {
-	case float64:
-		return v
-	case int:
-		return float64(v)
-	case int64:
-		return float64(v)
-	case string:
-		return parseFloat(v, fallback)
-	default:
-		return fallback
-	}
-}
-
 func listValue(value any, fallback []string) []string {
 	switch v := value.(type) {
 	case []string:
@@ -262,19 +247,6 @@ func listValue(value any, fallback []string) []string {
 	default:
 		return fallback
 	}
-}
-
-func parseFloat(raw string, fallback float64) float64 {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return fallback
-	}
-	var parsed float64
-	_, err := fmt.Sscanf(value, "%f", &parsed)
-	if err != nil {
-		return fallback
-	}
-	return parsed
 }
 
 func csvOrList(value any, fallback []string) []string {
