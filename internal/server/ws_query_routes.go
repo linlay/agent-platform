@@ -297,28 +297,24 @@ func (s *Server) wsSteer(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
-		s.sendWSStatusError(conn, req.ID, statusErr)
+	if len(payload.References) > 0 && channelIDFromContext(conn.Context()) != "" {
+		conn.SendResponse(req.Type, req.ID, 0, "success", api.SteerResponse{Status: "unsupported", RunID: payload.RunID, SteerID: payload.SteerID, Detail: "image steer is not supported for channel runs"})
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if response, statusErr, ok := s.forwardProxySteer(payload); ok {
-		if statusErr != nil {
+	result, err := s.deps.Runtime.Steer(conn.Context(), runtimeSteerCommand(payload))
+	if err != nil {
+		var statusErr *statusError
+		if errors.As(err, &statusErr) {
 			s.sendWSStatusError(conn, req.ID, statusErr)
-			conn.CompleteRequest(req.ID)
-			return
+		} else {
+			conn.SendError(req.ID, "invalid_request", 400, err.Error(), nil)
 		}
-		conn.SendResponse(req.Type, req.ID, 0, "success", response)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	ack := s.deps.Runs.Steer(payload)
 	conn.SendResponse(req.Type, req.ID, 0, "success", api.SteerResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    payload.RunID,
-		SteerID:  ack.SteerID,
-		Detail:   ack.Detail,
+		Accepted: result.Accepted, Status: result.Status, RunID: result.RunID, SteerID: result.SteerID, Detail: result.Detail,
 	})
 	conn.CompleteRequest(req.ID)
 }

@@ -340,11 +340,13 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaRequestSteer:
 		return []stream.StreamInput{stream.RequestSteer{
-			RequestID: value.RequestID,
-			ChatID:    value.ChatID,
-			RunID:     value.RunID,
-			SteerID:   value.SteerID,
-			Message:   value.Message,
+			RequestID:  value.RequestID,
+			ChatID:     value.ChatID,
+			RunID:      value.RunID,
+			SteerID:    value.SteerID,
+			Message:    value.Message,
+			References: value.References,
+			Messages:   value.Messages,
 		}}
 	case DeltaLLMRequest:
 		m.lastKind = ""

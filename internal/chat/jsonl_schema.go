@@ -28,6 +28,7 @@ var currentJSONLLineTypes = map[string]struct{}{
 }
 
 var currentSteerLineFields = map[string]struct{}{
+	"messages":  {},
 	"_compact":  {},
 	"_type":     {},
 	"chatId":    {},
@@ -38,12 +39,13 @@ var currentSteerLineFields = map[string]struct{}{
 }
 
 var currentSteerPayloadFields = map[string]struct{}{
-	"requestId": {},
-	"chatId":    {},
-	"runId":     {},
-	"steerId":   {},
-	"message":   {},
-	"role":      {},
+	"references": {},
+	"requestId":  {},
+	"chatId":     {},
+	"runId":      {},
+	"steerId":    {},
+	"message":    {},
+	"role":       {},
 }
 
 // JSONLSchemaViolation reports persisted chat data that does not satisfy the
@@ -231,6 +233,27 @@ func validateCurrentSteerSchema(line map[string]any) error {
 	}
 	if stringFromAny(steer["role"]) != "user" {
 		return newJSONLSchemaViolation(line, "steer.role", "user", stringFromAny(steer["role"]), "steer role must be user")
+	}
+	if raw, found := steer["references"]; found {
+		refs, ok := raw.([]any)
+		if !ok {
+			return newJSONLSchemaViolation(line, "steer.references", "array of objects", jsonValueType(raw), "invalid references")
+		}
+		for _, ref := range refs {
+			if _, ok := ref.(map[string]any); !ok {
+				return newJSONLSchemaViolation(line, "steer.references", "array of objects", jsonValueType(ref), "invalid reference")
+			}
+		}
+		if len(refs) > 0 && len(messageMapsFromAny(line["messages"])) == 0 {
+			return newJSONLSchemaViolation(line, "messages", "one user message snapshot", "missing", "image steer requires a frozen input snapshot")
+		}
+	}
+	if raw, found := line["messages"]; found {
+		items, ok := raw.([]any)
+		messages := messageMapsFromAny(raw)
+		if !ok || len(items) != 1 || len(messages) != 1 || stringFromAny(messages[0]["role"]) != "user" || messages[0]["content"] == nil {
+			return newJSONLSchemaViolation(line, "messages", "one user message snapshot", jsonValueType(raw), "invalid steer input snapshot")
+		}
 	}
 	for _, field := range []string{"chatId", "runId"} {
 		if stringFromAny(steer[field]) != stringFromAny(line[field]) {

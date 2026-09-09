@@ -75,9 +75,10 @@ type SubmitResult struct {
 
 type SteerCommand struct {
 	RunRef
-	RequestID string
-	SteerID   string
-	Message   string
+	RequestID  string
+	SteerID    string
+	Message    string
+	References []Reference
 }
 
 type SteerResult struct {

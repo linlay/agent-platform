@@ -251,12 +251,13 @@ type EventLine struct {
 }
 
 type SteerLine struct {
-	ChatID    string         `json:"chatId"`
-	RunID     string         `json:"runId"`
-	UpdatedAt int64          `json:"updatedAt"`
-	LiveSeq   int64          `json:"liveSeq,omitempty"`
-	Steer     map[string]any `json:"steer"`
-	Type      string         `json:"_type"`
+	ChatID    string           `json:"chatId"`
+	RunID     string           `json:"runId"`
+	UpdatedAt int64            `json:"updatedAt"`
+	LiveSeq   int64            `json:"liveSeq,omitempty"`
+	Steer     map[string]any   `json:"steer"`
+	Messages  []map[string]any `json:"messages,omitempty"`
+	Type      string           `json:"_type"`
 }
 
 type SubmitLine struct {

@@ -11,6 +11,7 @@ import (
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -77,9 +78,17 @@ func LoadImageFile(path string, mimeHint string, options ImageLoadOptions) (Imag
 	if info.Size() > options.MaxBytes {
 		return ImagePayload{}, fmt.Errorf("%w: %d > %d", ErrImageTooLarge, info.Size(), options.MaxBytes)
 	}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return ImagePayload{}, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, options.MaxBytes+1))
+	if err != nil {
+		return ImagePayload{}, err
+	}
+	if int64(len(data)) > options.MaxBytes {
+		return ImagePayload{}, ErrImageTooLarge
 	}
 	mime := normalizeImageMime(mimeHint)
 	if mime == "" {

@@ -197,6 +197,7 @@ type RunControl struct {
 	mu              sync.Mutex
 	steerQueue      []api.SteerRequest
 	steerClosed     bool
+	steerPreparer   func(api.SteerRequest) (api.SteerRequest, error)
 	submitWaiters   map[string]*submitWaiter
 	pendingSubmits  map[string]SubmitResult
 	resolvedSubmits map[string]SubmitResult
@@ -545,7 +546,10 @@ func (c *RunControl) EnqueueSteer(req api.SteerRequest) bool {
 	if c.interrupted.Load() || c.finished.Load() || c.steerClosed {
 		return false
 	}
-	c.steerQueue = append(c.steerQueue, req)
+	if len(req.References) > 0 && len(req.PreparedMessages) != 1 {
+		return false
+	}
+	c.steerQueue = append(c.steerQueue, cloneSteerInput(req))
 	return true
 }
 

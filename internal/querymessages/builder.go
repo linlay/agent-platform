@@ -51,6 +51,13 @@ func BuildContentWithOptions(chatsDir string, chatID string, text string, refere
 	}
 
 	imageBlocks := collectImageBlocks(chatsDir, chatID, references, logMedia, options)
+	return BuildContentWithImageBlocks(text, references, imageBlocks, options)
+}
+
+// BuildContentWithImageBlocks shares prompt formatting with query while using
+// images already validated and frozen during steer admission.
+func BuildContentWithImageBlocks(text string, references []api.Reference, imageBlocks []map[string]any, options BuildOptions) any {
+	messageText := formatMessageText(text, references, options)
 	if len(imageBlocks) == 0 {
 		return messageText
 	}

@@ -179,10 +179,12 @@ func marshalJSON(value any) string {
 
 func NewSteerDelta(req api.SteerRequest) DeltaRequestSteer {
 	return DeltaRequestSteer{
-		RequestID: req.RequestID,
-		ChatID:    req.ChatID,
-		RunID:     req.RunID,
-		SteerID:   req.SteerID,
-		Message:   req.Message,
+		RequestID:  req.RequestID,
+		ChatID:     req.ChatID,
+		RunID:      req.RunID,
+		SteerID:    req.SteerID,
+		Message:    req.Message,
+		References: req.References,
+		Messages:   req.PreparedMessages,
 	}
 }

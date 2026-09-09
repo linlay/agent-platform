@@ -110,7 +110,7 @@ func TestBTWBranchCopiesParentAndAppendsIndependently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load branch messages: %v", err)
 	}
-	if len(messages) != 2 || messages[1]["content"] != "side question" {
+	if len(messages) != 3 || messages[1]["content"] != "side question" || messages[2]["content"] != "side clarification" {
 		t.Fatalf("unexpected branch messages %#v", messages)
 	}
 }

@@ -265,11 +265,13 @@ type DeltaAwaitingAnswer struct {
 func (DeltaAwaitingAnswer) agentDeltaTag() {}
 
 type DeltaRequestSteer struct {
-	RequestID string
-	ChatID    string
-	RunID     string
-	SteerID   string
-	Message   string
+	RequestID  string
+	ChatID     string
+	RunID      string
+	SteerID    string
+	Message    string
+	References []api.Reference
+	Messages   []map[string]any
 }
 
 func (DeltaRequestSteer) agentDeltaTag() {}

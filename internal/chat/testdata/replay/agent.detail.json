@@ -48,6 +48,12 @@
       "ts": 1700000000046
     },
     {
+      "content": "补充说明",
+      "role": "user",
+      "runId": "run-1",
+      "ts": 1700000000060
+    },
+    {
       "content": "子任务结果",
       "role": "assistant",
       "runId": "run-1",

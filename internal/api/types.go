@@ -456,13 +456,16 @@ type SubmitResponse struct {
 }
 
 type SteerRequest struct {
-	RequestID string `json:"requestId,omitempty"`
-	ChatID    string `json:"chatId,omitempty"`
-	RunID     string `json:"runId"`
-	SteerID   string `json:"steerId,omitempty"`
-	AgentKey  string `json:"agentKey,omitempty"`
-	TeamID    string `json:"teamId,omitempty"`
-	Message   string `json:"message"`
+	RequestID  string      `json:"requestId,omitempty"`
+	ChatID     string      `json:"chatId,omitempty"`
+	RunID      string      `json:"runId"`
+	SteerID    string      `json:"steerId,omitempty"`
+	AgentKey   string      `json:"agentKey,omitempty"`
+	TeamID     string      `json:"teamId,omitempty"`
+	Message    string      `json:"message"`
+	References []Reference `json:"references,omitempty"`
+	// PreparedMessages is an immutable, server-prepared input; never accepted from the wire.
+	PreparedMessages []map[string]any `json:"-"`
 }
 
 type SteerResponse struct {

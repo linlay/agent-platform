@@ -125,18 +125,7 @@ func lineIsStep(line map[string]any) bool {
 }
 
 func llmRequestMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
-	var messages []map[string]any
-	for _, line := range lines {
-		if lineIsCompacted(line) {
-			continue
-		}
-		if steerMessage := llmRequestSteerMessageFromLine(line); len(steerMessage) > 0 {
-			messages = append(messages, steerMessage)
-			continue
-		}
-		messages = append(messages, rawMessagesFromJSONLLines([]map[string]any{line})...)
-	}
-	return messages
+	return rawMessagesFromJSONLLines(lines)
 }
 
 func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
@@ -159,6 +148,10 @@ func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
 		"role":    role,
 		"content": content,
 		"ts":      line["updatedAt"],
+	}
+	if snapshot := messageMapsFromAny(line["messages"]); len(snapshot) == 1 {
+		msg = cloneMessageMap(snapshot[0])
+		msg["ts"] = line["updatedAt"]
 	}
 	if runID := strings.TrimSpace(stringValue(line["runId"])); runID != "" {
 		msg["runId"] = runID

@@ -416,3 +416,5 @@ docker compose logs -f
 - [鉴权与安全边界](./docs/鉴权与安全边界.md)
 - [版本化打包方案](./docs/版本化打包方案.md)
 - [手工测试用例](./docs/手工测试用例.md)
+
+运行中的普通 native Agent / Team 协调器支持图片 steer：先通过 `/api/upload` 上传，再向 `/api/steer` 传文字和 `references`。图片冻结、回放和续聊契约见 [API与协议](docs/API与协议.md)；PROXY/CHANNEL 含图 steer 尚不支持。

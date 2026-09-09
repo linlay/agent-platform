@@ -286,6 +286,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if options.EstimateOnly {
 		return stream, nil
 	}
+	if stream.runControl != nil && !options.DisableRunControl && options.SummaryOutputTokens == 0 && strings.TrimSpace(session.SubTaskID) == "" {
+		stream.runControl.SetSteerPreparer(e.steerPreparer(session, model.IsVision))
+	}
 	if err := stream.prepareNextTurn(); err != nil {
 		stream.Close()
 		return nil, err

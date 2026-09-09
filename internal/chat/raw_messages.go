@@ -121,6 +121,10 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 		runID, _ := line["runId"].(string)
 
 		switch lineType {
+		case "steer":
+			if message := llmRequestSteerMessageFromLine(line); len(message) > 0 {
+				messages = append(messages, message)
+			}
 		case CompactCheckpointLineType:
 			if snapshot := anyMessageSlice(line["messages"]); len(snapshot) > 0 {
 				messages = nil

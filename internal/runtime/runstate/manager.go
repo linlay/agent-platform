@@ -359,7 +359,11 @@ func (m *Manager) Steer(req api.SteerRequest) contracts.SteerAck {
 		return contracts.SteerAck{Accepted: false, Status: "unmatched", SteerID: steerID, Detail: "No active run found"}
 	}
 	req.SteerID = steerID
-	if !control.EnqueueSteer(req) {
+	accepted, err := control.PrepareAndEnqueueSteer(req)
+	if err != nil {
+		return contracts.SteerAck{Accepted: false, Status: "invalid_reference", SteerID: steerID, Detail: err.Error()}
+	}
+	if !accepted {
 		return contracts.SteerAck{Accepted: false, Status: "unmatched", SteerID: steerID, Detail: "Run is no longer accepting steer"}
 	}
 	return contracts.SteerAck{Accepted: true, Status: "accepted", SteerID: steerID, Detail: "Steer accepted"}

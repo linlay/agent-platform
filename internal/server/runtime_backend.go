@@ -154,10 +154,16 @@ func (s *Server) SteerRuntime(_ context.Context, command runtimetypes.SteerComma
 	req := api.SteerRequest{
 		RequestID: command.RequestID, ChatID: command.ChatID, RunID: command.RunID,
 		SteerID: command.SteerID, AgentKey: command.AgentKey, TeamID: command.TeamID, Message: command.Message,
+		References: apiReferencesFromRuntime(command.References),
 	}
 	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
 		return runtimetypes.SteerResult{}, statusErr
 	}
+	status, _ := s.deps.Runs.RunStatus(req.RunID)
+	if req.ChatID != "" && req.ChatID != status.ChatID {
+		return runtimetypes.SteerResult{}, &statusError{status: http.StatusBadRequest, message: "chatId does not match run"}
+	}
+	req.ChatID = status.ChatID
 	if response, statusErr, ok := s.forwardProxySteer(req); ok {
 		if statusErr != nil {
 			return runtimetypes.SteerResult{}, statusErr

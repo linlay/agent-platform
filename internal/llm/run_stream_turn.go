@@ -868,17 +868,14 @@ func (s *llmRunStream) appendTailSteersBeforeFinish() bool {
 
 func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 	for _, steer := range steers {
-		s.pending = append(s.pending, NewSteerDelta(steer))
-		if strings.TrimSpace(steer.Message) != "" {
-			s.pendingSteerInputs = append(s.pendingSteerInputs, map[string]any{
-				"role":    "user",
-				"content": steer.Message,
-			})
+		if len(steer.PreparedMessages) == 0 {
+			steer.PreparedMessages = []map[string]any{{"role": "user", "content": steer.Message}}
 		}
-		s.messages = append(s.messages, openAIMessage{
-			Role:    "user",
-			Content: steer.Message,
-		})
+		s.pending = append(s.pending, NewSteerDelta(steer))
+		for _, message := range steer.PreparedMessages {
+			s.pendingSteerInputs = append(s.pendingSteerInputs, message)
+			s.messages = append(s.messages, openAIMessage{Role: "user", Content: message["content"]})
+		}
 	}
 }
 

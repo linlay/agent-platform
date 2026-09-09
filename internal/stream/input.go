@@ -285,11 +285,13 @@ type AwaitingAnswer struct {
 func (AwaitingAnswer) streamInputTag() {}
 
 type RequestSteer struct {
-	RequestID string
-	ChatID    string
-	RunID     string
-	SteerID   string
-	Message   string
+	RequestID  string
+	ChatID     string
+	RunID      string
+	SteerID    string
+	Message    string
+	References any
+	Messages   []map[string]any
 }
 
 func (RequestSteer) streamInputTag() {}

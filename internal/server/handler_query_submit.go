@@ -81,6 +81,7 @@ func runtimeSteerCommand(req api.SteerRequest) runtimetypes.SteerCommand {
 	return runtimetypes.SteerCommand{
 		RunRef:    runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID},
 		RequestID: req.RequestID, SteerID: req.SteerID, Message: req.Message,
+		References: runtimeReferencesFromAPI(req.References),
 	}
 }
 

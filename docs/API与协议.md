@@ -31,7 +31,7 @@ JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 Num
 
 Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.run.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
 
-`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 只保存 `requestId/chatId/runId/steerId/message/role` 业务字段，且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
+`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 保存 `requestId/chatId/runId/steerId/message/role` 与可选 `references` 业务字段；顶层可选 `messages` 保存实际注入模型的 user message 快照，且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
 
 HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`field`、`location`、`expected`、可选 `actual`、`status:422`、`retryable:false`。`location` 使用 1-based 物理行号；响应不会携带完整 JSONL 行或 system prompt。时间字段不合法仍使用 `time_contract_violation`。
 
@@ -304,7 +304,7 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 | POST | `/api/btw` | body: `chatId`、`message`、可选 `btwId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`accessLevel`、`model` | 创建或继续隐藏只读分支；复用 query SSE，`stream:false` 返回带 `btwId` 的 JSON |
 | GET | `/api/attach` | query: `runId`、`agentKey` 或 `teamId`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: `agentKey` 或 `teamId`、`runId`、`awaitingId`、`params` | HITL submit ack |
-| POST | `/api/steer` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId`、`steerId` | steer ack |
+| POST | `/api/steer` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
 | POST | `/api/interrupt` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId` | interrupt ack |
 | POST | `/api/access-level` | body: `agentKey` 或 `teamId`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 | POST | `/api/compact` | body: `requestId`、`chatId`、`trigger:"manual"`、`level:"summary"` | 无活动 Run 时压缩历史；活动 native root Run 时阻塞到安全点压缩结束 |
@@ -1086,3 +1086,12 @@ Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinn
 偏好原子保存到 `runtime/connectors-center/order.json`，文件结构与技能中心一致，按 `users` 隔离，同一用户所有 Agent 共享。新置顶排在最前，重复请求幂等，取消后保留其他项的顺序；未安装的连接器不能新增置顶，已移除的连接器仍可取消置顶。内置只读连接器同样可以置顶，偏好不修改包内容、挂载、配置或登录凭证。两个中心的顺序彼此独立，根目录下的偏好及临时文件不会触发 Agent 热重载。连接器目录扫描跳过外部中心根目录下的普通 `order.json` 偏好文件与隐藏临时文件，写入置顶后列表、导入校验和运行时装配仍读取真实连接器包；同名目录、符号链接及其他异常包条目继续按包规则校验。
 
 技能中心列表也使用 `/api/skills/order`，与 Composer 共用用户置顶顺序；已安装但无效或禁用的技能可在管理列表置顶，置顶不会改变其可运行状态或令其进入 Composer 可用候选。
+
+
+### 含图 steer
+
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 仍必填。`chatId` 缺省时从 Run 补齐，提供时必须匹配。首版仅接受当前 Chat 的图片资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+
+普通 native Agent 与 Team 协调器在原有安全点接收图片。当前模型不支持视觉、资源不可用或混入非图片时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 含图路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。图片在准入时读取并冻结，入队后同名文件修改不会替换模型输入。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
+
+公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带图记录要求 `messages`。前后端按后端先、前端后的顺序更新。

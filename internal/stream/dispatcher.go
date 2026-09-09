@@ -111,14 +111,17 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return []StreamEvent{event}
 	case RequestSteer:
 		events := d.closeOpenBlocks()
-		events = append(events, NewEvent("request.steer", map[string]any{
-			"requestId": value.RequestID,
-			"chatId":    value.ChatID,
-			"runId":     value.RunID,
-			"steerId":   value.SteerID,
-			"message":   value.Message,
-			"role":      "user",
-		}))
+		if len(value.Messages) > 0 {
+			events = append(events, NewEvent("request.steer.snapshot", map[string]any{"steerId": value.SteerID, "messages": cloneMessagePayloads(value.Messages)}))
+		}
+		payload := map[string]any{
+			"requestId": value.RequestID, "chatId": value.ChatID, "runId": value.RunID,
+			"steerId": value.SteerID, "message": value.Message, "role": "user",
+		}
+		if !isEmptyValue(value.References) {
+			payload["references"] = value.References
+		}
+		events = append(events, NewEvent("request.steer", payload))
 		return events
 	case RunCancel:
 		events := d.closeOpenBlocks()
