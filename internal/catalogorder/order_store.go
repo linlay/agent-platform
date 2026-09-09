@@ -1,4 +1,4 @@
-package skills
+package catalogorder
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 )
 
 const OrderFileName = "order.json"
-const MaxPinnedSkills = 4096
+const MaxPinnedEntries = 4096
 
 type OrderState struct {
 	Order     []string `json:"order"`
@@ -27,14 +27,14 @@ type orderFile struct {
 }
 
 // FileOrderStore owns user-level pins shared by every Agent. The catalog itself
-// is unchanged: skills absent from a particular picker simply do not appear.
+// is unchanged: entries absent from a particular picker simply do not appear.
 type FileOrderStore struct {
 	path string
 	mu   sync.Mutex
 }
 
-func NewFileOrderStore(skillsCenterDir string) *FileOrderStore {
-	return &FileOrderStore{path: filepath.Join(skillsCenterDir, OrderFileName)}
+func NewFileOrderStore(centerDir string) *FileOrderStore {
+	return &FileOrderStore{path: filepath.Join(centerDir, OrderFileName)}
 }
 
 func (s *FileOrderStore) Read(user string) (OrderState, error) {
@@ -52,7 +52,7 @@ func (s *FileOrderStore) Read(user string) (OrderState, error) {
 func (s *FileOrderStore) SetPinned(user, key string, pinned bool) (OrderState, error) {
 	key = strings.ToLower(strings.TrimSpace(key))
 	if key == "" || len(key) > 256 || strings.ContainsAny(key, "/\\\x00\r\n") {
-		return OrderState{}, fmt.Errorf("invalid skill key")
+		return OrderState{}, fmt.Errorf("invalid catalog key")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -73,8 +73,8 @@ func (s *FileOrderStore) SetPinned(user, key string, pinned bool) (OrderState, e
 	}
 	next := make([]string, 0, len(current.Order)+1)
 	if pinned {
-		if len(current.Order) >= MaxPinnedSkills {
-			return OrderState{}, fmt.Errorf("pinned skill limit reached")
+		if len(current.Order) >= MaxPinnedEntries {
+			return OrderState{}, fmt.Errorf("pinned entry limit reached")
 		}
 		next = append(next, key)
 	}
@@ -108,22 +108,22 @@ func (s *FileOrderStore) readLocked() (orderFile, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&file); err != nil {
-		return file, fmt.Errorf("decode skill order: %w", err)
+		return file, fmt.Errorf("decode catalog order: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return file, fmt.Errorf("skill order must contain one JSON value")
+		return file, fmt.Errorf("catalog order must contain one JSON value")
 	}
 	if file.Version != 1 || file.Users == nil {
-		return file, fmt.Errorf("unsupported skill order file")
+		return file, fmt.Errorf("unsupported catalog order file")
 	}
 	for _, state := range file.Users {
-		if state.UpdatedAt <= 0 || len(state.Order) > MaxPinnedSkills {
-			return file, fmt.Errorf("invalid skill order state")
+		if state.UpdatedAt <= 0 || len(state.Order) > MaxPinnedEntries {
+			return file, fmt.Errorf("invalid catalog order state")
 		}
 		seen := map[string]bool{}
 		for _, key := range state.Order {
 			if key == "" || len(key) > 256 || key != strings.ToLower(strings.TrimSpace(key)) || strings.ContainsAny(key, "/\\\x00\r\n") || seen[key] {
-				return file, fmt.Errorf("invalid pinned skill key")
+				return file, fmt.Errorf("invalid pinned catalog key")
 			}
 			seen[key] = true
 		}
@@ -139,7 +139,7 @@ func (s *FileOrderStore) writeLocked(file orderFile) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".skill-order-*.json")
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".catalog-order-*.json")
 	if err != nil {
 		return err
 	}

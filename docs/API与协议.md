@@ -1064,3 +1064,11 @@ Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinn
 ```
 
 同一用户的全部 Agent 共用一份 order，不存在 agentKey 维度；不同用户的记录互相隔离，接口只返回当前用户的记录。未写入前 GET 返回空列表，不创建文件；重启后读取原文件，损坏或未知版本不自动覆写。技能中心只加载技能目录，order.json 与原子写临时文件均不触发技能/Agent 重载。置顶不改变 Agent 技能配置、Query mustUseSkills 或技能权限；候选排序时只对当前 Agent 已有的候选应用置顶顺序。
+
+### 连接器中心置顶顺序
+
+`GET /api/connectors/order` 返回当前用户的 `{version:1,order:[connectorId],updatedAt?}`。`PUT /api/connectors/order` 接收 `{key:connectorId,pinned:boolean}`；WebSocket 同路径的空 payload 读取、非空 `{key,pinned}` 更新。HTTP 和 WebSocket 共用服务端认证主体，忽略客户端用户与 Agent 路由提示，未启用鉴权时使用本地用户。
+
+偏好原子保存到 `runtime/connectors-center/order.json`，文件结构与技能中心一致，按 `users` 隔离，同一用户所有 Agent 共享。新置顶排在最前，重复请求幂等，取消后保留其他项的顺序；未安装的连接器不能新增置顶，已移除的连接器仍可取消置顶。内置只读连接器同样可以置顶，偏好不修改包内容、挂载、配置或登录凭证。两个中心的顺序彼此独立，根目录下的偏好及临时文件不会触发 Agent 热重载。连接器目录扫描跳过外部中心根目录下的普通 `order.json` 偏好文件与隐藏临时文件，写入置顶后列表、导入校验和运行时装配仍读取真实连接器包；同名目录、符号链接及其他异常包条目继续按包规则校验。
+
+技能中心列表也使用 `/api/skills/order`，与 Composer 共用用户置顶顺序；已安装但无效或禁用的技能可在管理列表置顶，置顶不会改变其可运行状态或令其进入 Composer 可用候选。

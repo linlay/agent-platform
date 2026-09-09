@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/catalogorder"
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/chatresource"
@@ -155,7 +156,8 @@ type Server struct {
 	backgroundCancel  context.CancelFunc
 	shutdownHookOnce  sync.Once
 	connectorAuth     *connectorauth.Manager
-	skillOrder        *skills.FileOrderStore
+	skillOrder        *catalogorder.FileOrderStore
+	connectorOrder    *catalogorder.FileOrderStore
 }
 
 type syncQueryContextKey struct{}
@@ -253,7 +255,8 @@ func New(deps Dependencies) (*Server, error) {
 		backgroundCtx:     backgroundCtx,
 		backgroundCancel:  backgroundCancel,
 	}
-	s.skillOrder = skills.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
+	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
+	s.connectorOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.EffectiveConnectorsCenterDir())
 	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), func(ctx context.Context, _ string) error {
 		if s.deps.CatalogReloader != nil {
 			return s.deps.CatalogReloader.Reload(ctx, "connectors")

@@ -6,6 +6,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"agent-platform/internal/catalogorder"
 )
 
 // Sources resolves platform-owned packages and external installations through
@@ -69,6 +71,12 @@ func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 				continue
 			}
 			if strings.HasPrefix(id, ".") {
+				continue
+			}
+			// The external center also owns user pin preferences, not a package.
+			// Only skip the regular metadata file; directories and symlinks
+			// still go through normal package validation.
+			if !source.builtin && id == catalogorder.OrderFileName && entry.Type().IsRegular() {
 				continue
 			}
 			// Legacy runtime copies never override or become fallback builtins.

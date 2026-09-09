@@ -90,3 +90,19 @@ func TestSkillOrderWebSocketUsesSameStore(t *testing.T) {
 		t.Fatalf("WS read: %#v", read)
 	}
 }
+
+func TestSkillOrderAllowsInvalidInstalledCenterSkill(t *testing.T) {
+	fixture := newAgentSkillsTestFixture(t, false)
+	path := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "broken-skill")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("---\nname: [broken\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest("PUT", "/api/skills/order", strings.NewReader(`{"key":"broken-skill","pinned":true}`)))
+	if rec.Code != 200 {
+		t.Fatalf("pin installed invalid skill: %d %s", rec.Code, rec.Body.String())
+	}
+}

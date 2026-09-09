@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/catalogorder"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
-	"agent-platform/internal/skills"
 	runtimewatch "agent-platform/internal/watch"
 )
 
@@ -275,7 +275,7 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 		Roots:     roots,
 		Debounce:  reloadDebounce,
 		Ignore: func(path string) bool {
-			return shouldIgnoreBackgroundWatchPath(path, cfg.Paths.SkillsCenterDir)
+			return shouldIgnoreBackgroundWatchPath(path, cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsCenterDir())
 		},
 		OnEvent: func(event runtimewatch.Event) {
 			reason := resolveChangeReason(event.Path, entries)
@@ -342,14 +342,20 @@ func resolveChangeReason(changedPath string, dirs []watchEntry) string {
 	return "config"
 }
 
-// Pin preferences never change skill contents or assembled Agent runtimes.
-func shouldIgnoreBackgroundWatchPath(path, skillsCenterDir string) bool {
+// Pin preferences never change catalog contents or assembled Agent runtimes.
+func shouldIgnoreBackgroundWatchPath(path string, centerDirs ...string) bool {
 	if catalog.ShouldIgnoreRuntimeWatchPath(path) {
 		return true
 	}
-	if filepath.Dir(filepath.Clean(path)) != filepath.Clean(skillsCenterDir) {
+	name := filepath.Base(path)
+	isOrder := name == catalogorder.OrderFileName || ((strings.HasPrefix(name, ".catalog-order-") || strings.HasPrefix(name, ".skill-order-")) && strings.HasSuffix(name, ".json"))
+	if !isOrder {
 		return false
 	}
-	name := filepath.Base(path)
-	return name == skills.OrderFileName || (strings.HasPrefix(name, ".skill-order-") && strings.HasSuffix(name, ".json"))
+	for _, root := range centerDirs {
+		if filepath.Dir(filepath.Clean(path)) == filepath.Clean(root) {
+			return true
+		}
+	}
+	return false
 }

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"agent-platform/internal/catalogorder"
 )
 
 func TestSourcesReserveBuiltinsAndIgnoreLegacyRuntimeCopies(t *testing.T) {
@@ -56,5 +58,59 @@ func TestBuiltinDefinitionRejectsMutationBeforeFilesystemOrReload(t *testing.T) 
 		if !errors.Is(err, ErrBuiltinReadOnly) {
 			t.Fatalf("%s mutation: %v", id, err)
 		}
+	}
+}
+
+func TestSourcesIgnoreUserOrderMetadata(t *testing.T) {
+	builtin, external := t.TempDir(), t.TempDir()
+	if err := WriteBuiltin(filepath.Join(builtin, "builtin.dbx"), "dbx", "1.2.3", "darwin"); err != nil {
+		t.Fatal(err)
+	}
+	sources := Sources{BuiltinRoot: builtin, ExternalRoot: external}
+	before, err := sources.Summaries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := catalogorder.NewFileOrderStore(external)
+	if _, err := store.SetPinned("user:alice", "builtin.dbx", true); err != nil {
+		t.Fatal(err)
+	}
+	// Atomic-write temporary files must also stay out of the package catalog.
+	if err := os.WriteFile(filepath.Join(external, ".catalog-order-pending.json"), []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := sources.Summaries()
+	if err != nil || len(after) != len(before) || after[0].ID != "builtin.dbx" {
+		t.Fatalf("catalog after pin: %#v %v", after, err)
+	}
+	state, err := store.Read("user:alice")
+	if err != nil || len(state.Order) != 1 || state.Order[0] != "builtin.dbx" {
+		t.Fatalf("preference changed by catalog scan: %#v %v", state, err)
+	}
+}
+
+func TestSourcesStillValidatePackageRootsBesideOrderMetadata(t *testing.T) {
+	for _, kind := range []string{"order-directory", "order-symlink", "other-file"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			order := filepath.Join(root, catalogorder.OrderFileName)
+			switch kind {
+			case "order-directory":
+				if err := os.Mkdir(order, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			case "order-symlink":
+				if err := os.Symlink(t.TempDir(), order); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			case "other-file":
+				if err := os.WriteFile(filepath.Join(root, "broken-package"), []byte("broken"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := (Sources{ExternalRoot: root}).LoadAll(); err == nil {
+				t.Fatal("invalid package root silently ignored")
+			}
+		})
 	}
 }

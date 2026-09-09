@@ -6,20 +6,10 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalogorder"
 	"agent-platform/internal/connector"
-	"agent-platform/internal/skills"
 	"agent-platform/internal/ws"
 )
-
-func (s *Server) skillOrderUser(ctx context.Context) (string, error) {
-	if principal := PrincipalFromContext(ctx); principal != nil && strings.TrimSpace(principal.Subject) != "" {
-		return "user:" + strings.TrimSpace(principal.Subject), nil
-	}
-	if s.deps.Config.Auth.Enabled {
-		return "", newAgentStatusError(http.StatusUnauthorized, "auth.required", "authenticated user is required")
-	}
-	return "local", nil
-}
 
 func (s *Server) handleSkillOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -42,7 +32,7 @@ func (s *Server) handleSkillOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) readSkillOrder(ctx context.Context) (api.SkillOrderResponse, error) {
-	user, err := s.skillOrderUser(ctx)
+	user, err := s.catalogOrderUser(ctx)
 	if err != nil {
 		return api.SkillOrderResponse{}, err
 	}
@@ -51,7 +41,7 @@ func (s *Server) readSkillOrder(ctx context.Context) (api.SkillOrderResponse, er
 }
 
 func (s *Server) updateSkillOrder(ctx context.Context, request api.UpdateSkillOrderRequest) (api.SkillOrderResponse, error) {
-	user, err := s.skillOrderUser(ctx)
+	user, err := s.catalogOrderUser(ctx)
 	if err != nil {
 		return api.SkillOrderResponse{}, err
 	}
@@ -69,6 +59,11 @@ func (s *Server) updateSkillOrder(ctx context.Context, request api.UpdateSkillOr
 func (s *Server) knownPinnableSkill(key string) bool {
 	if s.deps.Registry == nil || connector.IsReservedSkill(key) {
 		return false
+	}
+	if registry, err := s.adminSkillRegistry(); err == nil {
+		if _, found, err := registry.AdminSkill(key); err == nil && found {
+			return true
+		}
 	}
 	for _, skill := range s.deps.Registry.Skills("") {
 		if strings.EqualFold(strings.TrimSpace(skill.Key), key) {
@@ -89,7 +84,7 @@ func (s *Server) knownPinnableSkill(key string) bool {
 	return false
 }
 
-func skillOrderResponse(state skills.OrderState) api.SkillOrderResponse {
+func skillOrderResponse(state catalogorder.OrderState) api.SkillOrderResponse {
 	response := api.SkillOrderResponse{Version: 1, Order: state.Order}
 	if response.Order == nil {
 		response.Order = []string{}

@@ -256,3 +256,20 @@ func TestSkillOrderFilesDoNotReloadAgentRuntimes(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectorOrderFilesDoNotReloadAgentRuntimes(t *testing.T) {
+	base := t.TempDir()
+	skills, connectors := filepath.Join(base, "skills-center"), filepath.Join(base, "connectors-center")
+	for _, root := range []string{skills, connectors} {
+		for _, name := range []string{"order.json", ".catalog-order-123.json"} {
+			if !shouldIgnoreBackgroundWatchPath(filepath.Join(root, name), skills, connectors) {
+				t.Fatalf("preference file not ignored: %s/%s", root, name)
+			}
+		}
+		for _, name := range []string{"demo/order.json", "demo/connector.json", "demo/SKILL.md", "another.json"} {
+			if shouldIgnoreBackgroundWatchPath(filepath.Join(root, name), skills, connectors) {
+				t.Fatalf("catalog content ignored: %s/%s", root, name)
+			}
+		}
+	}
+}

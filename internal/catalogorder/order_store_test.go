@@ -1,4 +1,4 @@
-package skills
+package catalogorder
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestSkillOrderPersistsPerUserAcrossRestarts(t *testing.T) {
+func TestCatalogOrderPersistsPerUserAcrossRestarts(t *testing.T) {
 	root := t.TempDir()
 	store := NewFileOrderStore(root)
 	empty, err := store.Read("alice")
@@ -47,7 +47,7 @@ func TestSkillOrderPersistsPerUserAcrossRestarts(t *testing.T) {
 	}
 }
 
-func TestSkillOrderConcurrentPinsDoNotLoseChanges(t *testing.T) {
+func TestCatalogOrderConcurrentPinsDoNotLoseChanges(t *testing.T) {
 	store := NewFileOrderStore(t.TempDir())
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
@@ -66,7 +66,7 @@ func TestSkillOrderConcurrentPinsDoNotLoseChanges(t *testing.T) {
 	}
 }
 
-func TestSkillOrderRejectsCorruptFileWithoutOverwriting(t *testing.T) {
+func TestCatalogOrderRejectsCorruptFileWithoutOverwriting(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, OrderFileName)
 	for _, content := range []string{`bad-json`, `{"version":2,"users":{}}`, `{"version":1,"users":{"alice":{"order":["pdf","pdf"],"updatedAt":1}}}`} {

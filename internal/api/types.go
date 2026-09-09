@@ -1588,3 +1588,14 @@ type RenameChatResponse struct {
 	ChatName string `json:"chatName"`
 	Updated  bool   `json:"updated"`
 }
+
+type ConnectorOrderResponse struct {
+	Version   int      `json:"version"`
+	Order     []string `json:"order"`
+	UpdatedAt *int64   `json:"updatedAt,omitempty"`
+}
+
+type UpdateConnectorOrderRequest struct {
+	Key    string `json:"key"`
+	Pinned *bool  `json:"pinned"`
+}
