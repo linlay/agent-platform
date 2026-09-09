@@ -47,20 +47,20 @@ func (t *RuntimeToolExecutor) loadImageGenerateInputs(args map[string]any, execC
 	rawImages, imagesProvided := args["images"]
 	if !imagesProvided || rawImages == nil {
 		if maskProvided {
-			return nil, nil, imageGenerateToolError("image_generate_mask_requires_images", "mask requires images and applies to images[0]", nil), true
+			return nil, nil, modelToolError("image_generate_mask_requires_images", "mask requires images and applies to images[0]", nil), true
 		}
 		return nil, nil, ToolExecutionResult{}, false
 	}
 	imageItems, ok := rawImages.([]any)
 	if !ok || len(imageItems) == 0 {
-		return nil, nil, imageGenerateToolError("image_generate_images_invalid", "images must contain at least one item", nil), true
+		return nil, nil, modelToolError("image_generate_images_invalid", "images must contain at least one item", nil), true
 	}
 	maxImages := profile.MaxImages
 	if maxImages <= 0 || maxImages > defaultImageGenerateMaxImages {
 		maxImages = defaultImageGenerateMaxImages
 	}
 	if len(imageItems) > maxImages {
-		return nil, nil, imageGenerateToolError("image_generate_too_many_images", fmt.Sprintf("images exceeds max-images: %d", maxImages), map[string]any{"maxImages": maxImages}), true
+		return nil, nil, modelToolError("image_generate_too_many_images", fmt.Sprintf("images exceeds max-images: %d", maxImages), map[string]any{"maxImages": maxImages}), true
 	}
 	normalizedSources := make([]map[string]any, 0, len(imageItems))
 	for index, raw := range imageItems {
@@ -83,19 +83,19 @@ func (t *RuntimeToolExecutor) loadImageGenerateInputs(args map[string]any, execC
 		switch maskMode {
 		case "alpha", "white_edit", "black_edit":
 		default:
-			return nil, nil, imageGenerateToolError("image_generate_mask_mode_invalid", "mask.mode must be alpha, white_edit, or black_edit", nil), true
+			return nil, nil, modelToolError("image_generate_mask_mode_invalid", "mask.mode must be alpha, white_edit, or black_edit", nil), true
 		}
 	}
 
 	edit := model.Image.Edit
 	if strings.TrimSpace(edit.RequestFormat) == "" {
-		return nil, nil, imageGenerateToolError("image_generate_edit_unsupported", "selected image model does not declare image.edit support", map[string]any{"modelKey": model.Key}), true
+		return nil, nil, modelToolError("image_generate_edit_unsupported", "selected image model does not declare image.edit support", map[string]any{"modelKey": model.Key}), true
 	}
 	if err := models.ValidateModelImageEditConfig(edit); err != nil {
-		return nil, nil, imageGenerateToolError("image_generate_edit_config_invalid", err.Error(), map[string]any{"modelKey": model.Key}), true
+		return nil, nil, modelToolError("image_generate_edit_config_invalid", err.Error(), map[string]any{"modelKey": model.Key}), true
 	}
 	if maskProvided && !strings.EqualFold(strings.TrimSpace(edit.MaskProtocol), models.ImageMaskProtocolOpenAIAlpha) {
-		return nil, nil, imageGenerateToolError("image_generate_mask_unsupported", "selected image model does not support native mask/inpainting", map[string]any{"modelKey": model.Key}), true
+		return nil, nil, modelToolError("image_generate_mask_unsupported", "selected image model does not support native mask/inpainting", map[string]any{"modelKey": model.Key}), true
 	}
 
 	options := multimodal.DefaultImageLoadOptions()
@@ -121,15 +121,15 @@ func (t *RuntimeToolExecutor) loadImageGenerateInputs(args map[string]any, execC
 	}
 	targetData, err := base64.StdEncoding.DecodeString(images[0].DataBase64)
 	if err != nil {
-		return nil, nil, imageGenerateToolError("image_generate_image_load_failed", "decode images[0]: "+err.Error(), nil), true
+		return nil, nil, modelToolError("image_generate_image_load_failed", "decode images[0]: "+err.Error(), nil), true
 	}
 	maskData, err := base64.StdEncoding.DecodeString(maskImage.DataBase64)
 	if err != nil {
-		return nil, nil, imageGenerateToolError("image_generate_mask_invalid", "decode mask: "+err.Error(), nil), true
+		return nil, nil, modelToolError("image_generate_mask_invalid", "decode mask: "+err.Error(), nil), true
 	}
 	normalized, err := normalizeImageGenerateMask(targetData, maskData, maskImage.MimeType, maskMode)
 	if err != nil {
-		return nil, nil, imageGenerateToolError("image_generate_mask_invalid", err.Error(), nil), true
+		return nil, nil, modelToolError("image_generate_mask_invalid", err.Error(), nil), true
 	}
 	return images, &imageGenerateMaskPayload{Name: normalizedMaskFilename(maskImage.Name), Data: normalized}, ToolExecutionResult{}, false
 }
@@ -143,7 +143,7 @@ func normalizeImageGenerateSource(raw any, label string, index int, allowMode bo
 	node, ok := raw.(map[string]any)
 	if !ok {
 		diagnostics["actualType"] = fmt.Sprintf("%T", raw)
-		return nil, imageGenerateToolError(
+		return nil, modelToolError(
 			"image_generate_image_source_invalid",
 			label+" must be an object like {\"source_type\":\"reference_name\",\"value\":\"image.png\"}",
 			diagnostics,
@@ -158,7 +158,7 @@ func normalizeImageGenerateSource(raw any, label string, index int, allowMode bo
 		if allowMode {
 			allowed += " plus mode"
 		}
-		return nil, imageGenerateToolError(
+		return nil, modelToolError(
 			"image_generate_image_source_invalid",
 			label+" only accepts "+allowed+"; legacy reference_name/file_path properties are not supported",
 			diagnostics,
@@ -169,7 +169,7 @@ func normalizeImageGenerateSource(raw any, label string, index int, allowMode bo
 	value, valueOK := node["value"].(string)
 	value = strings.TrimSpace(value)
 	if !sourceTypeOK || !valueOK || value == "" {
-		return nil, imageGenerateToolError(
+		return nil, modelToolError(
 			"image_generate_image_source_invalid",
 			label+" requires non-empty string fields source_type and value; example: {\"source_type\":\"reference_name\",\"value\":\"image.png\"}",
 			diagnostics,
@@ -182,7 +182,7 @@ func normalizeImageGenerateSource(raw any, label string, index int, allowMode bo
 		return map[string]any{"file_path": value}, ToolExecutionResult{}, false
 	default:
 		diagnostics["sourceType"] = sourceType
-		return nil, imageGenerateToolError(
+		return nil, modelToolError(
 			"image_generate_image_source_invalid",
 			label+".source_type must be reference_name or file_path",
 			diagnostics,
@@ -199,11 +199,11 @@ func (t *RuntimeToolExecutor) loadPreservedImageGenerateSource(raw any, execCtx 
 	if err != nil {
 		switch {
 		case errors.Is(err, multimodal.ErrUnsupportedImageMime):
-			return multimodal.ImagePayload{}, imageGenerateToolError("image_generate_image_unsupported", "unsupported image mime", map[string]any{"filePath": resolved.Path}), true
+			return multimodal.ImagePayload{}, modelToolError("image_generate_image_unsupported", "unsupported image mime", map[string]any{"filePath": resolved.Path}), true
 		case errors.Is(err, multimodal.ErrImageTooLarge):
-			return multimodal.ImagePayload{}, imageGenerateToolError("image_generate_image_too_large", err.Error(), map[string]any{"filePath": resolved.Path}), true
+			return multimodal.ImagePayload{}, modelToolError("image_generate_image_too_large", err.Error(), map[string]any{"filePath": resolved.Path}), true
 		default:
-			return multimodal.ImagePayload{}, imageGenerateToolError("image_generate_image_load_failed", err.Error(), map[string]any{"filePath": resolved.Path}), true
+			return multimodal.ImagePayload{}, modelToolError("image_generate_image_load_failed", err.Error(), map[string]any{"filePath": resolved.Path}), true
 		}
 	}
 	imagePayload.Name = resolved.Name
@@ -220,7 +220,7 @@ func imageGenerateSourcePolicy() toolImageSourcePolicy {
 		DeviceBlockedCode:        "image_generate_file_device_blocked",
 		ApprovalRequiredCode:     "image_generate_approval_required",
 		ApprovalMessage:          "image_generate read exceeds allowed roots",
-		Error:                    imageGenerateToolError,
+		Error:                    modelToolError,
 	}
 }
 

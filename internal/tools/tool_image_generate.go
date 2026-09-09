@@ -26,14 +26,14 @@ import (
 func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	cfg := t.cfg.ImageGenerate
 	if !cfg.Enabled {
-		return imageGenerateToolError("image_generate_disabled", "image_generate is disabled by configs/ai-tools.yml", nil), nil
+		return modelToolError("image_generate_disabled", "image_generate is disabled by configs/ai-tools.yml", nil), nil
 	}
 	if t.models == nil {
-		return imageGenerateToolError("image_generate_model_registry_unavailable", "model registry is not configured for image_generate", nil), nil
+		return modelToolError("image_generate_model_registry_unavailable", "model registry is not configured for image_generate", nil), nil
 	}
 	prompt := strings.TrimSpace(AnyStringNode(args["prompt"]))
 	if prompt == "" {
-		return imageGenerateToolError("image_generate_prompt_required", "prompt is required", nil), nil
+		return modelToolError("image_generate_prompt_required", "prompt is required", nil), nil
 	}
 	profileName := strings.TrimSpace(AnyStringNode(args["profile"]))
 	if profileName == "" {
@@ -44,27 +44,27 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	}
 	profile, ok := cfg.Profiles[profileName]
 	if !ok {
-		return imageGenerateToolError("image_generate_profile_not_found", "image_generate profile not found: "+profileName, map[string]any{"profile": profileName}), nil
+		return modelToolError("image_generate_profile_not_found", "image_generate profile not found: "+profileName, map[string]any{"profile": profileName}), nil
 	}
 	if strings.TrimSpace(profile.ModelKey) == "" {
-		return imageGenerateToolError("image_generate_profile_model_missing", "image_generate profile model-key is required: "+profileName, map[string]any{"profile": profileName}), nil
+		return modelToolError("image_generate_profile_model_missing", "image_generate profile model-key is required: "+profileName, map[string]any{"profile": profileName}), nil
 	}
 	if profile.MaxPromptChars > 0 && utf8.RuneCountInString(prompt) > profile.MaxPromptChars {
-		return imageGenerateToolError("image_generate_prompt_too_long", fmt.Sprintf("prompt exceeds max-prompt-chars: %d", profile.MaxPromptChars), map[string]any{"maxPromptChars": profile.MaxPromptChars}), nil
+		return modelToolError("image_generate_prompt_too_long", fmt.Sprintf("prompt exceeds max-prompt-chars: %d", profile.MaxPromptChars), map[string]any{"maxPromptChars": profile.MaxPromptChars}), nil
 	}
 	modelInfo, err := t.models.GetModel(profile.ModelKey)
 	if err != nil {
-		return imageGenerateToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+		return modelToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
 	if !models.IsImageGenerationModel(modelInfo) {
-		return imageGenerateToolError("image_generate_model_not_image_generation", "configured model is not type: image-generation", map[string]any{"modelKey": modelInfo.Key, "type": modelInfo.Type}), nil
+		return modelToolError("image_generate_model_not_image_generation", "configured model is not type: image-generation", map[string]any{"modelKey": modelInfo.Key, "type": modelInfo.Type}), nil
 	}
 	model, provider, err := t.models.GetImageGeneration(profile.ModelKey)
 	if err != nil {
-		return imageGenerateToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+		return modelToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
 	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
-		return imageGenerateToolError("image_generate_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
+		return modelToolError("image_generate_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 	}
 	inputImages, inputMask, inputResult, handled := t.loadImageGenerateInputs(args, execCtx, profile, model)
 	if handled {
@@ -77,14 +77,14 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	}
 	responseFormat, ok := resolveImageGenerateResponseFormat(AnyStringNode(args["response_format"]), profile.ResponseFormat, model.Image.ResponseFormats)
 	if !ok {
-		return imageGenerateToolError("image_generate_response_format_invalid", "response_format must be b64_json or url", nil), nil
+		return modelToolError("image_generate_response_format_invalid", "response_format must be b64_json or url", nil), nil
 	}
 	n := AnyIntNode(args["n"])
 	if n <= 0 {
 		n = 1
 	}
 	if n > 4 {
-		return imageGenerateToolError("image_generate_n_invalid", "n must be between 1 and 4", map[string]any{"n": n}), nil
+		return modelToolError("image_generate_n_invalid", "n must be between 1 and 4", map[string]any{"n": n}), nil
 	}
 
 	start := time.Now()
@@ -97,14 +97,14 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 		decoded, err = t.completeImageGenerateEdit(callCtx, model, provider, prompt, size, responseFormat, n, inputImages, inputMask)
 	}
 	if err != nil {
-		return imageGenerateToolError("image_generate_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+		return modelToolError("image_generate_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 	}
 	images, err := t.materializeGeneratedImages(callCtx, decoded.Data, profile, execCtx)
 	if err != nil {
-		return imageGenerateToolError("image_generate_model_response_invalid", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+		return modelToolError("image_generate_model_response_invalid", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 	}
 	if len(images) == 0 {
-		return imageGenerateToolError("image_generate_model_response_invalid", "model returned no image data", map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+		return modelToolError("image_generate_model_response_invalid", "model returned no image data", map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 	}
 
 	payload := map[string]any{
@@ -434,18 +434,4 @@ func generatedImageExtension(imageMime string) string {
 	default:
 		return ".png"
 	}
-}
-
-func imageGenerateToolError(code string, message string, diagnostics map[string]any) ToolExecutionResult {
-	payload := map[string]any{
-		"ok":      false,
-		"error":   strings.TrimSpace(code),
-		"message": strings.TrimSpace(message),
-	}
-	for key, value := range diagnostics {
-		payload[key] = value
-	}
-	result := structuredResultWithExit(payload, -1)
-	result.Error = strings.TrimSpace(code)
-	return result
 }

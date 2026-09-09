@@ -21,10 +21,10 @@ const defaultVisionRecognizeMaxImages = 4
 func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	cfg := t.cfg.VisionRecognize
 	if !cfg.Enabled {
-		return visionToolError("vision_recognize_disabled", "vision_recognize is disabled by configs/ai-tools.yml", nil), nil
+		return modelToolError("vision_recognize_disabled", "vision_recognize is disabled by configs/ai-tools.yml", nil), nil
 	}
 	if t.models == nil {
-		return visionToolError("vision_model_registry_unavailable", "model registry is not configured for vision_recognize", nil), nil
+		return modelToolError("vision_model_registry_unavailable", "model registry is not configured for vision_recognize", nil), nil
 	}
 	profileName := strings.TrimSpace(AnyStringNode(args["profile"]))
 	if profileName == "" {
@@ -35,29 +35,29 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 	}
 	profile, ok := cfg.Profiles[profileName]
 	if !ok {
-		return visionToolError("vision_profile_not_found", "vision profile not found: "+profileName, map[string]any{"profile": profileName}), nil
+		return modelToolError("vision_profile_not_found", "vision profile not found: "+profileName, map[string]any{"profile": profileName}), nil
 	}
 	if strings.TrimSpace(profile.ModelKey) == "" {
-		return visionToolError("vision_profile_model_missing", "vision profile model-key is required: "+profileName, map[string]any{"profile": profileName}), nil
+		return modelToolError("vision_profile_model_missing", "vision profile model-key is required: "+profileName, map[string]any{"profile": profileName}), nil
 	}
 	outputFormat := resolveVisionOutputFormat(AnyStringNode(args["output_format"]), profile.OutputFormat)
 	prompt := strings.TrimSpace(AnyStringNode(args["prompt"]))
 	if prompt == "" {
-		return visionToolError("vision_prompt_required", "prompt is required", nil), nil
+		return modelToolError("vision_prompt_required", "prompt is required", nil), nil
 	}
 	model, err := t.models.GetModel(profile.ModelKey)
 	if err != nil {
-		return visionToolError("vision_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+		return modelToolError("vision_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
 	if !models.IsVLModel(model) {
-		return visionToolError("vision_model_not_vl", "configured model must use type: vl", map[string]any{"modelKey": model.Key}), nil
+		return modelToolError("vision_model_not_vl", "configured model must use type: vl", map[string]any{"modelKey": model.Key}), nil
 	}
 	model, provider, err := t.models.GetVL(model.Key)
 	if err != nil {
-		return visionToolError("vision_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+		return modelToolError("vision_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
 	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
-		return visionToolError("vision_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
+		return modelToolError("vision_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 	}
 	images, result, handled := t.loadVisionImages(args, execCtx, profile)
 	if handled {
@@ -69,7 +69,7 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 	defer cancel()
 	content, usage, err := t.completeVisionRecognition(callCtx, model, provider, profile, outputFormat, prompt, images)
 	if err != nil {
-		return visionToolError("vision_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+		return modelToolError("vision_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 	}
 	payload := map[string]any{
 		"ok":           true,
@@ -88,11 +88,11 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 func (t *RuntimeToolExecutor) loadVisionImages(args map[string]any, execCtx *ExecutionContext, profile config.VisionRecognizeProfileConfig) ([]multimodal.ImagePayload, ToolExecutionResult, bool) {
 	raw, exists := args["images"]
 	if !exists || raw == nil {
-		return nil, visionToolError("vision_images_required", "images must contain at least one item", nil), true
+		return nil, modelToolError("vision_images_required", "images must contain at least one item", nil), true
 	}
 	rawImages, ok := raw.([]any)
 	if !ok {
-		return nil, visionToolError(
+		return nil, modelToolError(
 			"vision_images_invalid_type",
 			`images must be a JSON array; for one image use {"images":[{"file_path":"@chat/image.png"}]}`,
 			map[string]any{
@@ -102,11 +102,11 @@ func (t *RuntimeToolExecutor) loadVisionImages(args map[string]any, execCtx *Exe
 		), true
 	}
 	if len(rawImages) == 0 {
-		return nil, visionToolError("vision_images_required", "images must contain at least one item", nil), true
+		return nil, modelToolError("vision_images_required", "images must contain at least one item", nil), true
 	}
 	maxImages := maxInt(profile.MaxImages, defaultVisionRecognizeMaxImages)
 	if len(rawImages) > maxImages {
-		return nil, visionToolError("vision_too_many_images", fmt.Sprintf("images exceeds max-images: %d", maxImages), map[string]any{"maxImages": maxImages}), true
+		return nil, modelToolError("vision_too_many_images", fmt.Sprintf("images exceeds max-images: %d", maxImages), map[string]any{"maxImages": maxImages}), true
 	}
 	options := multimodal.DefaultImageLoadOptions()
 	if profile.MaxImageBytes > 0 {
@@ -121,12 +121,12 @@ func (t *RuntimeToolExecutor) loadVisionImages(args map[string]any, execCtx *Exe
 		image, err := multimodal.LoadImageFile(resolved.Path, resolved.MimeHint, options)
 		if err != nil {
 			if errors.Is(err, multimodal.ErrUnsupportedImageMime) {
-				return nil, visionToolError("vision_image_unsupported", "unsupported image mime", map[string]any{"filePath": resolved.Path}), true
+				return nil, modelToolError("vision_image_unsupported", "unsupported image mime", map[string]any{"filePath": resolved.Path}), true
 			}
 			if errors.Is(err, multimodal.ErrImageTooLarge) {
-				return nil, visionToolError("vision_image_too_large", err.Error(), map[string]any{"filePath": resolved.Path}), true
+				return nil, modelToolError("vision_image_too_large", err.Error(), map[string]any{"filePath": resolved.Path}), true
 			}
-			return nil, visionToolError("vision_image_load_failed", err.Error(), nil), true
+			return nil, modelToolError("vision_image_load_failed", err.Error(), nil), true
 		}
 		image.Name = resolved.Name
 		images = append(images, image)
@@ -163,7 +163,7 @@ func visionImageSourcePolicy() toolImageSourcePolicy {
 		DeviceBlockedCode:        "vision_file_device_blocked",
 		ApprovalRequiredCode:     "vision_recognize_approval_required",
 		ApprovalMessage:          "vision_recognize read exceeds allowed roots",
-		Error:                    visionToolError,
+		Error:                    modelToolError,
 	}
 }
 
@@ -411,18 +411,4 @@ func visionImageMetadata(images []multimodal.ImagePayload) []map[string]any {
 		out = append(out, item)
 	}
 	return out
-}
-
-func visionToolError(code string, message string, diagnostics map[string]any) ToolExecutionResult {
-	payload := map[string]any{
-		"ok":      false,
-		"error":   strings.TrimSpace(code),
-		"message": strings.TrimSpace(message),
-	}
-	for key, value := range diagnostics {
-		payload[key] = value
-	}
-	result := structuredResultWithExit(payload, -1)
-	result.Error = strings.TrimSpace(code)
-	return result
 }

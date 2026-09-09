@@ -47,18 +47,18 @@ type webFetchRedirect struct {
 func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	cfg := t.cfg.WebFetch
 	if !cfg.Enabled {
-		return webFetchToolError("web_fetch_disabled", "web_fetch is disabled by configs/ai-tools.yml", nil), nil
+		return modelToolError("web_fetch_disabled", "web_fetch is disabled by configs/ai-tools.yml", nil), nil
 	}
 	if t.models == nil {
-		return webFetchToolError("web_fetch_model_registry_unavailable", "model registry is not configured for web_fetch", nil), nil
+		return modelToolError("web_fetch_model_registry_unavailable", "model registry is not configured for web_fetch", nil), nil
 	}
 	rawURL := strings.TrimSpace(AnyStringNode(args["url"]))
 	if rawURL == "" {
-		return webFetchToolError("web_fetch_url_required", "url is required", nil), nil
+		return modelToolError("web_fetch_url_required", "url is required", nil), nil
 	}
 	prompt := strings.TrimSpace(AnyStringNode(args["prompt"]))
 	if prompt == "" {
-		return webFetchToolError("web_fetch_prompt_required", "prompt is required", nil), nil
+		return modelToolError("web_fetch_prompt_required", "prompt is required", nil), nil
 	}
 	profileName := strings.TrimSpace(AnyStringNode(args["profile"]))
 	if profileName == "" {
@@ -69,17 +69,17 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 	}
 	profile, ok := cfg.Profiles[profileName]
 	if !ok {
-		return webFetchToolError("web_fetch_profile_not_found", "web_fetch profile not found: "+profileName, map[string]any{"profile": profileName}), nil
+		return modelToolError("web_fetch_profile_not_found", "web_fetch profile not found: "+profileName, map[string]any{"profile": profileName}), nil
 	}
 	if strings.TrimSpace(profile.ModelKey) == "" {
-		return webFetchToolError("web_fetch_profile_model_missing", "web_fetch profile model-key is required: "+profileName, map[string]any{"profile": profileName}), nil
+		return modelToolError("web_fetch_profile_model_missing", "web_fetch profile model-key is required: "+profileName, map[string]any{"profile": profileName}), nil
 	}
 	model, provider, err := t.models.Get(profile.ModelKey)
 	if err != nil {
-		return webFetchToolError("web_fetch_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+		return modelToolError("web_fetch_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
 	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
-		return webFetchToolError("web_fetch_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
+		return modelToolError("web_fetch_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 	}
 
 	start := time.Now()
@@ -87,7 +87,7 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 	defer cancel()
 	response, redirect, err := t.fetchWebFetchContent(fetchCtx, rawURL, profile, execCtx)
 	if err != nil {
-		return webFetchToolError("web_fetch_request_failed", err.Error(), map[string]any{"url": rawURL}), nil
+		return modelToolError("web_fetch_request_failed", err.Error(), map[string]any{"url": rawURL}), nil
 	}
 	if redirect != nil {
 		result := webFetchRedirectMessage(*redirect, prompt)
@@ -126,7 +126,7 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 		defer callCancel()
 		result, usage, err = t.applyWebFetchPrompt(callCtx, model, provider, profile, prompt, content, response.FinalURL, isPreapproved)
 		if err != nil {
-			return webFetchToolError("web_fetch_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+			return modelToolError("web_fetch_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 		}
 	}
 
@@ -470,18 +470,4 @@ func webFetchHostPreapproved(rawURL string, hosts []string) bool {
 		}
 	}
 	return false
-}
-
-func webFetchToolError(code string, message string, diagnostics map[string]any) ToolExecutionResult {
-	payload := map[string]any{
-		"ok":      false,
-		"error":   strings.TrimSpace(code),
-		"message": strings.TrimSpace(message),
-	}
-	for key, value := range diagnostics {
-		payload[key] = value
-	}
-	result := structuredResultWithExit(payload, -1)
-	result.Error = strings.TrimSpace(code)
-	return result
 }

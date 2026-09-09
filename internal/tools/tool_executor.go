@@ -314,6 +314,20 @@ func structuredResult(payload map[string]any) ToolExecutionResult {
 	return structuredResultWithExit(payload, 0)
 }
 
+func modelToolError(code string, message string, diagnostics map[string]any) ToolExecutionResult {
+	payload := map[string]any{
+		"ok":      false,
+		"error":   strings.TrimSpace(code),
+		"message": strings.TrimSpace(message),
+	}
+	for key, value := range diagnostics {
+		payload[key] = value
+	}
+	result := structuredResultWithExit(payload, -1)
+	result.Error = strings.TrimSpace(code)
+	return result
+}
+
 func bashResult(stdout, stderr, mode, cwd string, exitCode int, hardError string) ToolExecutionResult {
 	if exitCode == 0 && stderr == "" && strings.TrimSpace(hardError) == "" {
 		return ToolExecutionResult{
