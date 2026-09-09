@@ -1008,8 +1008,8 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 		}
 	}
 	for _, expected := range []string{
-		"instructionsPath: @skills/mock-skill/SKILL.md",
-		"instructionsPath: @skills-center/center-extra/SKILL.md",
+		"path: @skills/mock-skill/SKILL.md",
+		"path: @skills-center/center-extra/SKILL.md",
 		"None may be skipped",
 	} {
 		if !strings.Contains(prepared.session.SkillCatalogPrompt, expected) {

@@ -200,7 +200,7 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, @connectors, @owner, or @temp, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
 	}
 	if hasSkills {
-		lines = append(lines, "- Load an applicable skill with file_read using the exact instructionsPath in its catalog entry (@skills or @connectors). Do not search or traverse directories to discover its location.")
+		lines = append(lines, "- Load an applicable skill with file_read using the exact path in its catalog entry (@skills or @connectors). Do not search or traverse directories to discover its location.")
 	}
 	return strings.Join(lines, "\n")
 }

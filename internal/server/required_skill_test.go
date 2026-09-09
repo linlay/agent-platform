@@ -146,7 +146,7 @@ func TestBuildMustUseSkillConstraintIsMandatory(t *testing.T) {
 	for _, expected := range []string{
 		"Must-use skills for this run:",
 		"skillId: design",
-		"instructionsPath: @skills/design/SKILL.md",
+		"path: @skills/design/SKILL.md",
 		"must read the complete SKILL.md",
 		"None may be skipped",
 	} {

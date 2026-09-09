@@ -93,7 +93,7 @@ func TestBuildSystemPromptIncludesWorkspaceLessPathPolicy(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:           "demo",
 		Mode:               "REACT",
-		SkillCatalogPrompt: "skillId: demo\ninstructionsPath: @skills/demo/SKILL.md",
+		SkillCatalogPrompt: "skillId: demo\npath: @skills/demo/SKILL.md",
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{ChatDir: "/runtime/chats/chat-1"},
 		},
@@ -110,7 +110,7 @@ func TestBuildSystemPromptIncludesWorkspaceLessPathPolicy(t *testing.T) {
 		"Workspace is unavailable",
 		`cwd: "@chat"`,
 		`explicit path, normally "@chat"`,
-		"exact instructionsPath",
+		"exact path",
 		"Do not search or traverse directories",
 	} {
 		if !strings.Contains(prompt, expected) {

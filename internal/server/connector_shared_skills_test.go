@@ -30,7 +30,7 @@ func TestAgentConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 	def := catalog.AgentDefinition{RuntimeDir: filepath.Join(root, "ru-agents", "demo"), Connectors: []string{"builtin.dbx"}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "builtin.dbx", Name: "builtin-dbx", RuntimeDir: skill}}, ConnectorMounts: []catalog.ConnectorMount{{ID: "builtin.dbx", Dir: pkg}}}
 	prompt := buildSkillCatalogPrompt(def, "", contracts.DefaultPromptAppendConfig())
 	alias := "@connectors/builtin.dbx/skills/builtin-dbx/SKILL.md"
-	if !strings.Contains(prompt, "skillId: builtin-dbx\n") || !strings.Contains(prompt, "instructionsPath: "+alias) || strings.Contains(prompt, "@skills/"+key) || strings.Contains(prompt, "connector-11-") {
+	if !strings.Contains(prompt, "skillId: builtin-dbx\n") || !strings.Contains(prompt, "path: "+alias) || strings.Contains(prompt, "@skills/"+key) || strings.Contains(prompt, "connector-11-") {
 		t.Fatal(prompt)
 	}
 	hooks, env, err := resolveSkillRuntimeSettings(map[string]string{"SHARED_SETTING": "agent"}, def.RuntimeDir, "", def.EffectiveSkills(), def)
@@ -112,7 +112,7 @@ func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 			}
 			alias += "SKILL.md"
 			prompt := buildSkillCatalogPrompt(def, "", contracts.DefaultPromptAppendConfig())
-			if !strings.Contains(prompt, "skillId: "+key+"\ninstructionsPath: "+alias+"\n") || strings.Contains(prompt, "connector-5-") || strings.Contains(prompt, "@skills/"+key) {
+			if !strings.Contains(prompt, "skillId: "+key+"\npath: "+alias+"\n") || strings.Contains(prompt, "connector-5-") || strings.Contains(prompt, "@skills/"+key) {
 				t.Fatal(prompt)
 			}
 			if _, err := os.Stat(filepath.Join(def.RuntimeDir, "skills", key)); !os.IsNotExist(err) {

@@ -9,7 +9,7 @@ skill:
     Skill Dispatch Rules:
     1. Determine applicability: Before responding or calling tools, check the descriptions of all available skills, including connector skills. Proactively use matching skills; an explicitly named skill must be read without waiting for a separate request to read it.
     2. Do not fabricate skills: Only invoke skills listed in the catalog. Never invent skill names, parameters, or capabilities that do not exist.
-    3. Read skill documentation first: When a skill applies, copy its exact instructionsPath from the catalog into file_read.file_path before acting or running its CLI. Preserve @skills, @skills-center, or @connectors exactly as listed; never construct the path from skillId. If reading fails, check the catalog path, not other directories or same-named copies.
+    3. Read skill documentation first: When a skill applies, copy its exact path from the catalog into file_read.file_path before acting or running its CLI. Preserve @skills, @skills-center, or @connectors exactly as listed; never construct the path from skillId. If reading fails, check the catalog path, not other directories or same-named copies.
     4. Gather missing inputs: If a skill requires parameters the user has not provided, ask the user to supply them before invoking the skill.
     5. Multi-skill coordination: When a task requires multiple skills, invoke them in dependency order - complete prerequisites before dependents - then synthesize a unified response.
     6. Graceful fallback: If no skill matches the request, respond using your general capabilities. Do not force a skill invocation when none is appropriate.
