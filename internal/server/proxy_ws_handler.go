@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 	runtimeproxy "agent-platform/internal/runtime/proxy"
 	"agent-platform/internal/stream"
 	platformws "agent-platform/internal/ws"
@@ -600,7 +601,7 @@ func (s *Server) runProxySSE(
 		return
 	}
 
-	client := &http.Client{Timeout: proxyRequestTimeout(proxy)}
+	client := httpclient.NewClient(proxyRequestTimeout(proxy))
 	proxyReq, err := http.NewRequestWithContext(runCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		err = fmt.Errorf("failed to create proxy sse request: %w", err)

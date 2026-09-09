@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/httpclient"
 )
 
 type Session struct {
@@ -44,7 +45,7 @@ func New(ctx context.Context, sources connector.Sources, reload func(context.Con
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &Manager{ctx: ctx, sources: sources, reload: reload, client: &http.Client{Timeout: 30 * time.Second}, sessions: map[string]*login{}, loggingOut: map[string]bool{}}
+	return &Manager{ctx: ctx, sources: sources, reload: reload, client: httpclient.NewClient(30 * time.Second), sessions: map[string]*login{}, loggingOut: map[string]bool{}}
 }
 
 func (m *Manager) WithIdentityFile(path string) *Manager {

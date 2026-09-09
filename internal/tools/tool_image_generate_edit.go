@@ -24,6 +24,7 @@ import (
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/models"
 	"agent-platform/internal/multimodal"
 )
@@ -444,7 +445,7 @@ func (t *RuntimeToolExecutor) doImageGenerateRequest(req *http.Request, model mo
 	}
 	client := t.httpClient
 	if client == nil {
-		client = http.DefaultClient
+		client = httpclient.NewClient(0)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

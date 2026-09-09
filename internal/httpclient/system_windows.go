@@ -1,0 +1,44 @@
+package httpclient
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+var getIEProxyConfig = windows.NewLazySystemDLL("winhttp.dll").NewProc("WinHttpGetIEProxyConfigForCurrentUser")
+var globalFree = windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalFree")
+
+// Native pointer alignment supplies the padding after BOOL on 64-bit Windows.
+type ieProxyConfig struct {
+	AutoDetect    int32
+	AutoConfigURL *uint16
+	Proxy         *uint16
+	Bypass        *uint16
+}
+
+func readSystemSettings(ctx context.Context) (systemSettings, error) {
+	if err := ctx.Err(); err != nil {
+		return systemSettings{}, err
+	}
+	if err := getIEProxyConfig.Find(); err != nil {
+		return systemSettings{}, errors.New("WinHTTP proxy configuration API unavailable")
+	}
+	var cfg ieProxyConfig
+	ok, _, callErr := getIEProxyConfig.Call(uintptr(unsafe.Pointer(&cfg)))
+	for _, p := range []*uint16{cfg.AutoConfigURL, cfg.Proxy, cfg.Bypass} {
+		if p != nil {
+			defer globalFree.Call(uintptr(unsafe.Pointer(p)))
+		}
+	}
+	if ok == 0 {
+		if errors.Is(callErr, windows.ERROR_FILE_NOT_FOUND) {
+			return systemSettings{}, nil
+		}
+		return systemSettings{}, fmt.Errorf("WinHttpGetIEProxyConfigForCurrentUser failed: %w", callErr)
+	}
+	return parseWindowsSettings(windows.UTF16PtrToString(cfg.Proxy), windows.UTF16PtrToString(cfg.Bypass), cfg.AutoDetect != 0 || windows.UTF16PtrToString(cfg.AutoConfigURL) != "")
+}

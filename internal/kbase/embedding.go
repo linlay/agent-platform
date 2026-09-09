@@ -10,6 +10,8 @@ import (
 	neturl "net/url"
 	"strings"
 	"time"
+
+	"agent-platform/internal/httpclient"
 )
 
 type Embedder struct {
@@ -35,7 +37,7 @@ func NewEmbedder(baseURL, apiKey, model string, dimension, timeout int) *Embedde
 		Dimension:    dimension,
 		Timeout:      timeout,
 		EndpointPath: "/v1/embeddings",
-		httpClient:   &http.Client{},
+		httpClient:   httpclient.NewClient(0),
 	}
 }
 

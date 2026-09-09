@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/models"
 	"agent-platform/internal/textcodec"
 )
@@ -220,7 +221,7 @@ func (t *RuntimeToolExecutor) fetchWebFetchContent(ctx context.Context, rawURL s
 func (t *RuntimeToolExecutor) webFetchHTTPClient() *http.Client {
 	base := t.httpClient
 	if base == nil {
-		base = http.DefaultClient
+		base = httpclient.NewClient(0)
 	}
 	client := *base
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {

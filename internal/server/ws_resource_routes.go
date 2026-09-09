@@ -19,6 +19,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/ws"
 )
 
@@ -211,7 +212,7 @@ func (s *Server) wsResource(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 	if token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 	}
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := httpclient.NewClient(0).Do(httpReq)
 	if err != nil {
 		conn.SendError(req.ID, "resource_push_failed", 502, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
@@ -284,7 +285,7 @@ func (s *Server) fetchGatewayDownload(ctx context.Context, chatID string, rawURL
 	if token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 	}
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := httpclient.NewClient(0).Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("http get: %w", err)
 	}

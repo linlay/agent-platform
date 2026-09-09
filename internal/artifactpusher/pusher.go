@@ -19,6 +19,7 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 )
 
 // Pusher forwards platform-hosted artifact files to the gateway's upload
@@ -54,7 +55,7 @@ func New(cfg Config) *Pusher {
 		resolver:      cfg.Resolver,
 		uploadPath:    strings.TrimSpace(cfg.UploadPath),
 		chatsDir:      strings.TrimSpace(cfg.ChatsDir),
-		http:          &http.Client{Timeout: 60 * time.Second},
+		http:          httpclient.NewClient(60 * time.Second),
 		notifications: cfg.Notifications,
 	}
 	if p.resolver == nil || p.uploadPath == "" {

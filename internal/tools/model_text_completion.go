@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/models"
 )
@@ -131,7 +132,7 @@ func (t *RuntimeToolExecutor) postModelJSON(ctx context.Context, provider models
 	}
 	client := t.httpClient
 	if client == nil {
-		client = http.DefaultClient
+		client = httpclient.NewClient(0)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

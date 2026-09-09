@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 	runtimeorchestration "agent-platform/internal/runtime/orchestration"
 	"agent-platform/internal/stream"
 )
@@ -1086,7 +1087,7 @@ func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq ap
 		return result
 	}
 
-	client := &http.Client{Timeout: proxyRequestTimeout(proxy)}
+	client := httpclient.NewClient(proxyRequestTimeout(proxy))
 	req, err := http.NewRequestWithContext(o.runCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		result.Status = "failed"

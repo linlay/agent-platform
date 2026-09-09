@@ -25,6 +25,7 @@ import (
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/gateway"
 	"agent-platform/internal/hostshell"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
@@ -87,6 +88,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cfg, err := config.Load(configOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
+	}
+	if err := httpclient.ConfigureDefault(cfg.HTTPProxy); err != nil {
+		return nil, fmt.Errorf("initialize HTTP clients: %w", err)
 	}
 	if err := hostshell.Configure(&cfg.Bash, hostEnv.GOOS, hostEnv.GOARCH); err != nil {
 		return nil, fmt.Errorf("initialize host shell: %w", err)
@@ -285,7 +289,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
 	}
 
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandboxClient)
+	agentEngine := llm.NewLLMAgentEngineWithHTTPClient(cfg, modelRegistry, toolExecutor, interactionRegistry, sandboxClient, httpclient.NewClient(0))
 	var notifications contracts.NotificationSink = wsHub
 	// gatewayResolver 在 Registry 构建完成后（server 依赖就绪之后）绑定。
 	// pusher 先拿到 resolver 指针，Registry 构建完调用 SetRegistry 就能工作。

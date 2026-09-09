@@ -5,9 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"agent-platform/internal/httpclient"
 )
 
 type Config struct {
+	HTTPProxy       httpclient.Config
 	IdentityFile    string
 	RuntimeMode     RuntimeMode
 	Server          ServerConfig

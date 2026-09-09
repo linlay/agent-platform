@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agent-platform/internal/connector"
+	"agent-platform/internal/httpclient"
 	"golang.org/x/oauth2"
 )
 
@@ -168,9 +169,10 @@ func AccessToken(ctx context.Context, root, id, resource string, client *http.Cl
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if client != nil {
-		ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
+	if client == nil {
+		client = httpclient.NewClient(30 * time.Second)
 	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
 	token, err := c.Config.TokenSource(ctx, c.Token).Token()
 	if err != nil {
 		return "", fmt.Errorf("connector token refresh failed; sign in again")

@@ -13,6 +13,7 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 )
 
 type ContainerHubClient struct {
@@ -39,12 +40,10 @@ type RuntimeInfo struct {
 
 func NewContainerHubClient(cfg config.ContainerHubConfig) *ContainerHubClient {
 	return &ContainerHubClient{
-		baseURL:   strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
-		authToken: strings.TrimSpace(cfg.AuthToken),
-		timeout:   time.Duration(maxInt(cfg.RequestTimeout, 1)) * time.Second,
-		httpClient: &http.Client{
-			Timeout: time.Duration(maxInt(cfg.RequestTimeout, 1)) * time.Second,
-		},
+		baseURL:    strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
+		authToken:  strings.TrimSpace(cfg.AuthToken),
+		timeout:    time.Duration(maxInt(cfg.RequestTimeout, 1)) * time.Second,
+		httpClient: httpclient.DirectClient(time.Duration(maxInt(cfg.RequestTimeout, 1)) * time.Second),
 	}
 }
 

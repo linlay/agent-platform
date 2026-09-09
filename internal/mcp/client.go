@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +21,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/observability"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -58,7 +58,7 @@ type managedSession struct {
 
 func NewClientWithGate(registry *Registry, httpClient *http.Client, gate *AvailabilityGate) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{}
+		httpClient = httpclient.NewClient(0)
 	}
 	return &Client{
 		registry:   registry,
@@ -420,20 +420,10 @@ func (c *Client) markSuccess(serverKey string) {
 func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 	base := c.httpClient
 	if base == nil {
-		base = &http.Client{}
+		base = httpclient.NewClient(0)
 	}
 	cloned := *base
-	transport := base.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	if typed, ok := transport.(*http.Transport); ok && typed != nil {
-		typed = typed.Clone()
-		if server.ConnectTimeout > 0 {
-			typed.DialContext = (&net.Dialer{Timeout: time.Duration(server.ConnectTimeout) * time.Second}).DialContext
-		}
-		transport = typed
-	}
+	transport := httpclient.CloneTransport(base.Transport, time.Duration(server.ConnectTimeout)*time.Second)
 	configuredHost := ""
 	headers := server.Headers
 	if server.ConnectorToken {

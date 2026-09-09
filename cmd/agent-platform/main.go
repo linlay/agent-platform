@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/app"
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
+	"agent-platform/internal/httpclient"
 )
 
 const gracefulShutdownTimeout = 3 * time.Second
@@ -142,7 +143,7 @@ func runHealthcheck() error {
 	if err != nil {
 		return err
 	}
-	response, err := http.DefaultClient.Do(request)
+	response, err := httpclient.DirectClient(0).Do(request)
 	if err != nil {
 		return fmt.Errorf("runtime health probe failed: %w", err)
 	}

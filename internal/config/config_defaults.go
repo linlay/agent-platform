@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"agent-platform/internal/httpclient"
 )
 
 func defaultConfig(options LoadOptions) Config {
@@ -32,6 +34,7 @@ func defaultConfig(options LoadOptions) Config {
 		SkillsCenterDir:         filepath.Join(runtimeRoot, "skills-center"),
 	}
 	return Config{
+		HTTPProxy:    httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
 		IdentityFile: options.IdentityFile,
 		RuntimeMode:  runtimeMode,
 		Server:       ServerConfig{Port: "8080"},

@@ -1,5 +1,11 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
+http-proxy:
+  mode: auto # auto / direct / fixed
+  system-refresh-interval: 15s
+  # url: http://127.0.0.1:10809 # fixed 模式
+  # bypass: ["*.example.internal"]
+
 skills:
   max-prompt-chars: 8000
 

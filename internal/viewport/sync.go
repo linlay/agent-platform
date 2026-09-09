@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"agent-platform/internal/httpclient"
 )
 
 type Syncer struct {
@@ -18,7 +20,7 @@ type Syncer struct {
 
 func NewSyncer(servers *ServerRegistry, httpClient *http.Client) *Syncer {
 	if httpClient == nil {
-		httpClient = &http.Client{}
+		httpClient = httpclient.NewClient(0)
 	}
 	return &Syncer{servers: servers, httpClient: httpClient}
 }

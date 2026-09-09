@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/stream"
 )
 
@@ -91,7 +92,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 
-	client := &http.Client{Timeout: proxyRequestTimeout(proxy)}
+	client := httpclient.NewClient(proxyRequestTimeout(proxy))
 
 	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/httpclient"
 )
 
 type principalContextKey struct{}
@@ -46,10 +47,8 @@ type ResourceTicketService struct {
 
 func NewJWTVerifier(cfg config.AuthConfig) *JWTVerifier {
 	return &JWTVerifier{
-		cfg: cfg,
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		cfg:    cfg,
+		client: httpclient.DirectClient(10 * time.Second),
 	}
 }
 

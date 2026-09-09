@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/config"
+	"agent-platform/internal/httpclient"
 )
 
 // Route is the transport-neutral runtime record for one active proxy run.
@@ -80,7 +81,7 @@ func (r *Route) PostControl(path string, payload map[string]any, target any) err
 	if r.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+r.Token)
 	}
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	resp, err := (httpclient.NewClient(timeout)).Do(req)
 	if err != nil {
 		return apperrors.Wrap(apperrors.CodeProxyRequestFailed, err)
 	}

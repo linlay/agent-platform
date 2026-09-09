@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"agent-platform/internal/httpclient"
 )
 
 type Service struct {
@@ -177,7 +179,7 @@ func (s *Service) fetch(ctx context.Context, connectorID, key, renderer string, 
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := http.Client{}
+	client := *httpclient.NewClient(0)
 	if s != nil && s.HTTPClient != nil {
 		client = *s.HTTPClient
 	}

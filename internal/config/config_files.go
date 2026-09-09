@@ -166,6 +166,11 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if _, exists := values["paths"]; exists {
 		return deprecation.New("%s: paths configuration was removed; use AP_RUNTIME_DIR and the supported AP_RUNTIME_*_DIR environment variables; other runtime subdirectories are fixed", path)
 	}
+	if value, exists := values["http-proxy"]; exists {
+		if err := c.applyHTTPProxy(value); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
 	if skills, ok := values["skills"].(map[string]any); ok && len(skills) > 0 {
 		c.applySkillsValues(skills)
 	}

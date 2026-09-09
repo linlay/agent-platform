@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agent-platform/internal/apperrors"
+	"agent-platform/internal/httpclient"
 )
 
 type Client struct {
@@ -27,7 +28,7 @@ type Stream struct {
 
 func New(httpClient *http.Client) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{}
+		httpClient = httpclient.NewClient(0)
 	}
 	return &Client{http: httpClient}
 }
@@ -76,7 +77,7 @@ func (c *Client) OpenStream(request *http.Request, firstResponseTimeout time.Dur
 func (c *Client) do(request *http.Request) (io.ReadCloser, error) {
 	client := c.http
 	if client == nil {
-		client = &http.Client{}
+		client = httpclient.NewClient(0)
 	}
 	response, err := client.Do(request)
 	if err != nil {

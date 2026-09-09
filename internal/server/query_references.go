@@ -15,6 +15,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/httpclient"
 )
 
 const (
@@ -109,7 +110,7 @@ func (s *Server) materializeRemoteResourceReference(
 	if err != nil {
 		return api.Reference{}, queryReferenceStatusError(http.StatusBadRequest, "resource_reference_unavailable", "invalid remote resource request")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.NewClient(0).Do(req)
 	if err != nil {
 		return api.Reference{}, queryReferenceStatusError(http.StatusBadGateway, "resource_reference_unavailable", "remote resource download failed: "+err.Error())
 	}

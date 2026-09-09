@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/modelclient"
 	. "agent-platform/internal/models"
 	"agent-platform/internal/pathutil"
@@ -54,7 +55,7 @@ func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecu
 
 func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient, httpClient *http.Client) *LLMAgentEngine {
 	if httpClient == nil {
-		httpClient = &http.Client{}
+		httpClient = httpclient.NewClient(0)
 	}
 	return &LLMAgentEngine{
 		cfg:          cfg,

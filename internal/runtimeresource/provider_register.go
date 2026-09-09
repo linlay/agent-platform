@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/httpclient"
 )
 
 const (
@@ -171,6 +172,7 @@ func requestProviderAPIKey(endpoint, token, desktopDeviceID string) (string, err
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	client := &http.Client{
+		Transport: httpclient.DirectClient(0).Transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return fmt.Errorf("provider registration endpoint redirects are not allowed")
 		},

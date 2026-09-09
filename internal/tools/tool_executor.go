@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/runtimeenv"
@@ -61,7 +62,7 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 		chats:           chats,
 		memory:          memoryStore,
 		skillCandidates: skillCandidates,
-		httpClient:      &http.Client{},
+		httpClient:      httpclient.NewClient(0),
 		defs:            filtered,
 		runtimeEnv:      runtimeenv.Detect(),
 	}, nil

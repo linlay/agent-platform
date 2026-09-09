@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/supportpkg"
 )
 
@@ -66,7 +67,7 @@ func NewLanceEngineProcess(registry *supportpkg.Registry) *LanceEngineProcess {
 		// Operation-specific deadlines are applied by doJSON/doArrow. A shared
 		// Client.Timeout would silently cap long-running imports, index builds,
 		// validation, and optimize calls at the search timeout.
-		client: &http.Client{},
+		client: httpclient.DirectClient(0),
 	}
 }
 

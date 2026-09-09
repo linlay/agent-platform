@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/models"
 )
 
@@ -245,7 +246,7 @@ func fetchACPCoderModelOptions(bridge config.CoderACPBridgeConfig) ([]api.CoderM
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
-	client := &http.Client{Timeout: timeout}
+	client := httpclient.NewClient(timeout)
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/models", nil)
 	if err != nil {
 		return nil, err

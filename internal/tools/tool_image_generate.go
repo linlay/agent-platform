@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/httpclient"
 	"agent-platform/internal/models"
 )
 
@@ -255,7 +256,7 @@ func (t *RuntimeToolExecutor) downloadGeneratedImage(ctx context.Context, rawURL
 	}
 	client := t.httpClient
 	if client == nil {
-		client = http.DefaultClient
+		client = httpclient.NewClient(0)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
