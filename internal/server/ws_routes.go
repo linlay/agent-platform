@@ -228,10 +228,11 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 
 func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
-		IncludeChats int    `json:"includeChats"`
-		IncludeTeam  bool   `json:"includeTeam"`
-		Scope        string `json:"scope"`
-		Mode         string `json:"mode"`
+		IncludeChats int             `json:"includeChats"`
+		ChatsPinned  json.RawMessage `json:"chatsPinned"`
+		IncludeTeam  bool            `json:"includeTeam"`
+		Scope        string          `json:"scope"`
+		Mode         string          `json:"mode"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
@@ -248,6 +249,13 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	pinned, pinErr := parseOptionalBoolPayload(payload.ChatsPinned, "chatsPinned")
+	if pinErr != nil {
+		conn.SendError(req.ID, "invalid_request", 400, pinErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+
 	scope, err := catalog.NormalizeAgentSummaryScope(payload.Scope)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, err.Error(), nil)
@@ -261,7 +269,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		return
 	}
 	if payload.IncludeTeam {
-		items, listErr := s.listAgentCatalogSummariesWithModes(payload.IncludeChats, scope, modes)
+		items, listErr := s.listAgentCatalogSummariesWithPinned(payload.IncludeChats, scope, modes, pinned)
 		if listErr != nil {
 			if isTimeContractViolation(listErr) {
 				sendTimeContractViolation(conn, req.ID, listErr)
@@ -276,7 +284,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	items, listErr := s.listAgentSummariesWithModes(payload.IncludeChats, scope, modes)
+	items, listErr := s.listAgentSummariesWithPinned(payload.IncludeChats, scope, modes, pinned)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)
@@ -331,6 +339,7 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		AgentKey  string          `json:"agentKey"`
 		Mode      string          `json:"mode"`
 		Limit     json.RawMessage `json:"limit"`
+		Pinned    json.RawMessage `json:"pinned"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
@@ -354,7 +363,13 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummariesWithAgentModesAndLimit(payload.LastRunID, payload.AgentKey, modes, limit)
+	pinned, pinErr := parseOptionalBoolPayload(payload.Pinned, "pinned")
+	if pinErr != nil {
+		conn.SendError(req.ID, "invalid_request", 400, pinErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)

@@ -135,8 +135,13 @@ func writeChatOrderWSRequest(t *testing.T, conn *gws.Conn, id string, payload ma
 func assertChatOrderWSResponse(t *testing.T, conn *gws.Conn, id string, wantMode string) {
 	t.Helper()
 	var frame ws.ResponseFrame
-	if err := conn.ReadJSON(&frame); err != nil {
-		t.Fatalf("read websocket response %s: %v", id, err)
+	for {
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read websocket response %s: %v", id, err)
+		}
+		if frame.Frame != ws.FramePush {
+			break
+		}
 	}
 	if frame.Frame != ws.FrameResponse || frame.Type != "/api/chats/order" || frame.ID != id || frame.Code != 0 {
 		t.Fatalf("unexpected websocket response %s: %#v", id, frame)

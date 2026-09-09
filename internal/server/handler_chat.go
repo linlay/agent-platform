@@ -16,7 +16,11 @@ import (
 )
 
 func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]api.ChatSummaryResponse, error) {
-	items, err := s.conversationService().ListSummaries(lastRunID, agentKey, agentModes, limit)
+	return s.listChatSummariesWithPinned(lastRunID, agentKey, agentModes, limit, nil)
+}
+
+func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool) ([]api.ChatSummaryResponse, error) {
+	items, err := s.conversationService().ListSummariesWithPinned(lastRunID, agentKey, agentModes, limit, pinned)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +94,7 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 	response := make([]api.ChatSummaryResponse, 0, len(items))
 	for _, item := range items {
 		resp := api.ChatSummaryResponse{
+			Pinned:         item.Pinned,
 			ChatID:         item.ChatID,
 			ChatName:       item.ChatName,
 			AgentKey:       item.AgentKey,
@@ -167,6 +172,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
 
 	response := api.ChatDetailResponse{
+		Pinned:         summary.Pinned,
 		ChatID:         detail.ChatID,
 		ChatName:       detail.ChatName,
 		AgentKey:       summary.AgentKey,
@@ -358,7 +364,12 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	response, err := s.listChatSummariesWithAgentModesAndLimit(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit)
+	pinned, err := parseOptionalBoolQuery(r, "pinned")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

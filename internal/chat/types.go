@@ -318,6 +318,7 @@ type StoredFunction struct {
 // ---------------------------------------------------------------------------
 
 type Summary struct {
+	Pinned        bool   `json:"pinned"`
 	ChatID        string `json:"chatId"`
 	ChatName      string `json:"chatName"`
 	AgentKey      string `json:"agentKey,omitempty"`

@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	chatOrderOperationSetMode = "set_mode"
-	chatOrderOperationMove    = "move"
+	chatOrderOperationSetMode   = "set_mode"
+	chatOrderOperationMove      = "move"
+	chatOrderOperationSetPinned = "set_pinned"
 )
 
 func (s *Server) chatOrderStore() (chat.OrderStore, error) {
@@ -52,7 +53,7 @@ func (s *Server) readChatOrder() (api.ChatOrderResponse, error) {
 	if err != nil {
 		return api.ChatOrderResponse{}, err
 	}
-	return chatOrderResponse(state), nil
+	return s.chatOrderResponseWithPins(state)
 }
 
 func (s *Server) updateChatOrder(request api.UpdateChatOrderRequest) (api.ChatOrderResponse, error) {
@@ -62,28 +63,64 @@ func (s *Server) updateChatOrder(request api.UpdateChatOrderRequest) (api.ChatOr
 	}
 	operation := strings.TrimSpace(request.Operation)
 	var state chat.OrderState
+	changed := true
 	switch operation {
 	case chatOrderOperationSetMode:
-		if strings.TrimSpace(request.ChatID) != "" || strings.TrimSpace(request.BeforeChatID) != "" || strings.TrimSpace(request.AfterChatID) != "" {
+		if request.Pinned != nil || strings.TrimSpace(request.ChatID) != "" || strings.TrimSpace(request.BeforeChatID) != "" || strings.TrimSpace(request.AfterChatID) != "" {
 			return api.ChatOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "set_mode only accepts sortMode")
 		}
 		state, err = store.SetChatSortMode(chat.SortMode(strings.TrimSpace(request.SortMode)))
 	case chatOrderOperationMove:
-		if strings.TrimSpace(request.SortMode) != "" {
+		if request.Pinned != nil || strings.TrimSpace(request.SortMode) != "" {
 			return api.ChatOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "move does not accept sortMode")
 		}
 		state, err = store.MoveChat(request.ChatID, request.BeforeChatID, request.AfterChatID)
+	case chatOrderOperationSetPinned:
+		if request.Pinned == nil || strings.TrimSpace(request.ChatID) == "" || request.SortMode != "" || request.BeforeChatID != "" || request.AfterChatID != "" {
+			return api.ChatOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "set_pinned requires chatId and boolean pinned only")
+		}
+		pinStore, ok := s.deps.Chats.(chat.PinnedStore)
+		if !ok {
+			return api.ChatOrderResponse{}, newAgentStatusError(http.StatusNotImplemented, "not_supported", "chat pinning is not supported")
+		}
+		_, changed, err = pinStore.SetChatPinned(request.ChatID, *request.Pinned)
+		if err == nil {
+			state, err = store.ChatOrder()
+		}
 	default:
-		return api.ChatOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "operation must be set_mode or move")
+		return api.ChatOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "operation must be set_mode, move or set_pinned")
 	}
 	if err != nil {
+		if errors.Is(err, chat.ErrChatNotFound) {
+			return api.ChatOrderResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "chat not found")
+		}
 		var validationErr *chat.OrderValidationError
 		if errors.As(err, &validationErr) {
 			return api.ChatOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", validationErr.Error())
 		}
 		return api.ChatOrderResponse{}, err
 	}
-	return chatOrderResponse(state), nil
+	response, err := s.chatOrderResponseWithPins(state)
+	if err == nil && changed {
+		s.broadcast("chats.order.changed", map[string]any{"updatedAt": response.UpdatedAt})
+	}
+	return response, err
+}
+
+func (s *Server) chatOrderResponseWithPins(state chat.OrderState) (api.ChatOrderResponse, error) {
+	response := chatOrderResponse(state)
+	response.PinnedOrder = []string{}
+	if store, ok := s.deps.Chats.(chat.PinnedStore); ok {
+		pins, err := store.ChatPinned()
+		if err != nil {
+			return api.ChatOrderResponse{}, err
+		}
+		response.PinnedOrder = pins.Order
+		if pins.UpdatedAt > state.UpdatedAt {
+			response.UpdatedAt = &pins.UpdatedAt
+		}
+	}
+	return response, nil
 }
 
 func chatOrderResponse(state chat.OrderState) api.ChatOrderResponse {
@@ -104,6 +141,10 @@ func (s *Server) wsChatOrder(_ context.Context, conn *ws.Conn, req ws.RequestFra
 		return
 	}
 	if strings.TrimSpace(request.Operation) == "" {
+		if request.ChatID != "" || request.SortMode != "" || request.BeforeChatID != "" || request.AfterChatID != "" || request.Pinned != nil {
+			s.sendAgentWSResponse(conn, req, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "operation is required"))
+			return
+		}
 		response, readErr := s.readChatOrder()
 		s.sendAgentWSResponse(conn, req, response, readErr)
 		return

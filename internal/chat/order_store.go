@@ -117,6 +117,26 @@ func (s *FileStore) MoveChat(chatID string, beforeChatID string, afterChatID str
 	if err != nil {
 		return OrderState{}, err
 	}
+	pins, err := s.readChatPinnedLocked()
+	if err != nil {
+		return OrderState{}, err
+	}
+	movedPinned, anchorPinned := containsChatID(pins.Order, chatID), containsChatID(pins.Order, anchorID)
+	if movedPinned != anchorPinned {
+		return OrderState{}, &OrderValidationError{Message: "cannot move chats between pinned and unpinned groups"}
+	}
+	if movedPinned {
+		if !containsChatID(recent, chatID) || !containsChatID(recent, anchorID) {
+			return OrderState{}, &OrderValidationError{Message: "unknown active pinned chat"}
+		}
+		pins.Order = moveChatID(pins.Order, chatID, anchorID, afterChatID != "")
+		if err := s.writeChatPinnedLocked(&pins); err != nil {
+			return OrderState{}, err
+		}
+		state.UpdatedAt = max(state.UpdatedAt, pins.UpdatedAt)
+		return state, nil
+	}
+
 	baseline := append([]string(nil), recent...)
 	if state.SortMode == SortModeManual {
 		baseline = orderChatIDs(recent, state.Order)
@@ -128,26 +148,7 @@ func (s *FileStore) MoveChat(chatID string, beforeChatID string, afterChatID str
 		return OrderState{}, &OrderValidationError{Message: fmt.Sprintf("unknown active anchor chat: %s", anchorID)}
 	}
 
-	withoutMoved := make([]string, 0, len(baseline)-1)
-	for _, id := range baseline {
-		if id != chatID {
-			withoutMoved = append(withoutMoved, id)
-		}
-	}
-	anchorIndex := -1
-	for index, id := range withoutMoved {
-		if id == anchorID {
-			anchorIndex = index
-			break
-		}
-	}
-	insertAt := anchorIndex
-	if afterChatID != "" {
-		insertAt++
-	}
-	baseline = append(withoutMoved, "")
-	copy(baseline[insertAt+1:], baseline[insertAt:])
-	baseline[insertAt] = chatID
+	baseline = moveChatID(baseline, chatID, anchorID, afterChatID != "")
 
 	state = OrderState{
 		Version:   1,
@@ -318,4 +319,22 @@ func containsChatID(ids []string, target string) bool {
 func cloneOrderState(state OrderState) OrderState {
 	state.Order = append([]string(nil), state.Order...)
 	return state
+}
+
+// Callers validate both IDs and hold the store lock.
+func moveChatID(order []string, chatID, anchorID string, after bool) []string {
+	result := make([]string, 0, len(order))
+	for _, id := range order {
+		if id == chatID {
+			continue
+		}
+		if id == anchorID && !after {
+			result = append(result, chatID)
+		}
+		result = append(result, id)
+		if id == anchorID && after {
+			result = append(result, chatID)
+		}
+	}
+	return result
 }

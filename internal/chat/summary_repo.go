@@ -82,7 +82,11 @@ func (s *FileStore) EnsureChatWithSourceAndMode(chatID string, agentKey string, 
 func (s *FileStore) Summary(chatID string) (*Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.loadSummary(chatID)
+	summary, err := s.loadSummary(chatID)
+	if err == nil && summary != nil {
+		summary.Pinned = containsChatID(s.readChatPinnedForListLocked().Order, chatID)
+	}
+	return summary, err
 }
 
 func (s *FileStore) PromotePendingChatName(chatID string, firstMessage string) (Summary, bool, error) {
@@ -351,12 +355,25 @@ func (s *FileStore) ListChatsWithAgentModes(lastRunID string, agentKey string, a
 // before truncating the result. A non-positive limit means no truncation for
 // internal callers; public handlers validate supplied limit values first.
 func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]Summary, error) {
+	return s.ListChatsWithOptions(ListOptions{LastRunID: lastRunID, AgentKey: agentKey, AgentModes: agentModes, Limit: limit})
+}
+
+func (s *FileStore) ListChatsWithOptions(options ListOptions) ([]Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.listChatsLocked(options, true)
+}
+
+func (s *FileStore) listChatsLocked(options ListOptions, applyOrder bool) ([]Summary, error) {
+	lastRunID, agentKey, agentModes, limit := options.LastRunID, options.AgentKey, options.AgentModes, options.Limit
 
 	query := "SELECT " + summarySelectColumns + " FROM CHATS WHERE 1=1"
 	var args []any
-	if agentKey != "" {
+	if options.TeamID != "" {
+		query += " AND AGENT_KEY_='' AND TEAM_ID_=?"
+		args = append(args, options.TeamID)
+	}
+	if agentKey != "" || options.OwnerOnly && options.TeamID == "" {
 		query += " AND AGENT_KEY_=?"
 		args = append(args, agentKey)
 	}
@@ -382,6 +399,7 @@ func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey s
 	}
 	defer rows.Close()
 
+	pins := s.readChatPinnedForListLocked()
 	var items []Summary
 	for rows.Next() {
 		var sum Summary
@@ -407,15 +425,25 @@ func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey s
 		if lastRunID != "" && !RunIDAfter(sum.LastRunID, lastRunID) {
 			continue
 		}
+		sum.Pinned = containsChatID(pins.Order, sum.ChatID)
+		if options.Pinned != nil && sum.Pinned != *options.Pinned {
+			continue
+		}
 		items = append(items, sum)
+		if !applyOrder && limit > 0 && len(items) >= limit {
+			break
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	orderState := s.readChatOrderForListLocked()
-	if orderState.SortMode == SortModeManual {
-		items = orderSummaries(items, orderState.Order)
+	if applyOrder {
+		orderState := s.readChatOrderForListLocked()
+		if orderState.SortMode == SortModeManual {
+			items = orderSummaries(items, orderState.Order)
+		}
 	}
+	items = applyChatPins(items, pins, options.Pinned, applyOrder)
 	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
@@ -423,73 +451,19 @@ func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey s
 }
 
 func (s *FileStore) RecentChatsByAgent(agentKey string, limit int) ([]Summary, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if limit <= 0 {
-		return nil, nil
-	}
-	rows, err := s.db.Query("SELECT "+summarySelectColumns+" FROM CHATS WHERE AGENT_KEY_=? ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC LIMIT ?", agentKey, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	items := make([]Summary, 0, limit)
-	for rows.Next() {
-		var sum Summary
-		var usage UsageData
-		var pendingAwaitingID, pendingRunID, pendingMode string
-		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.AgentMode, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
-			return nil, err
-		}
-		if hasUsageData(usage) {
-			sum.Usage = &usage
-		}
-		applyDerivedReadState(&sum)
-		sum.PendingAwaiting = pendingAwaitingFromRow(pendingAwaitingID, pendingRunID, pendingMode, pendingCreatedAt)
-		if err := validateActiveSummaryTimeContract(sum, fmt.Sprintf("chat.recent[%d]", len(items))); err != nil {
-			return nil, err
-		}
-		items = append(items, sum)
-	}
-	return items, rows.Err()
+	return s.RecentChatsByOwner(agentKey, "", limit, nil)
 }
 
-// RecentChatsByTeam returns recent chats for one public orchestrated-Team
-// owner. Its ordering intentionally matches RecentChatsByAgent.
 func (s *FileStore) RecentChatsByTeam(teamID string, limit int) ([]Summary, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return s.RecentChatsByOwner("", teamID, limit, nil)
+}
 
+// Owner previews retain recent ordering, with pin filtering before truncation.
+func (s *FileStore) RecentChatsByOwner(agentKey, teamID string, limit int, pinned *bool) ([]Summary, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	rows, err := s.db.Query("SELECT "+summarySelectColumns+" FROM CHATS WHERE AGENT_KEY_='' AND TEAM_ID_=? ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC LIMIT ?", teamID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	items := make([]Summary, 0, limit)
-	for rows.Next() {
-		var sum Summary
-		var usage UsageData
-		var pendingAwaitingID, pendingRunID, pendingMode string
-		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.AgentMode, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
-			return nil, err
-		}
-		if hasUsageData(usage) {
-			sum.Usage = &usage
-		}
-		applyDerivedReadState(&sum)
-		sum.PendingAwaiting = pendingAwaitingFromRow(pendingAwaitingID, pendingRunID, pendingMode, pendingCreatedAt)
-		if err := validateActiveSummaryTimeContract(sum, fmt.Sprintf("chat.recent_team[%d]", len(items))); err != nil {
-			return nil, err
-		}
-		items = append(items, sum)
-	}
-	return items, rows.Err()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listChatsLocked(ListOptions{OwnerOnly: true, AgentKey: agentKey, TeamID: teamID, Limit: limit, Pinned: pinned}, false)
 }

@@ -106,6 +106,7 @@ cmd/agent-platform/main.go
 Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 - `chats.db`：chat 摘要索引。
+- `chat-order.json` / `chat-pinned.json`：实例级 recent/manual 展示排序与独立跨 mode 置顶顺序，不修改 Chat 内容时间或数据库 schema。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。
 - `<chatId>/<uploaded-or-generated-file>`：上传与图片生成资源；工具返回内部绝对 `path` 和相对于当前 Chat 的稳定 `url`（不含 `chatId`），用户可见内容只使用 `url`。
 - `<chatId>/artifacts/<runId>/<filename>`：`artifact_publish` 的发布副本；发布结果 URL 必须指向该副本。
@@ -137,7 +138,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 
 - 用户目录置顶：`/api/skills/order` 与 `/api/connectors/order` 支持 HTTP GET/PUT 和 WebSocket；共用 `internal/catalogorder` 用户隔离与原子落盘，分别保存到 `skills-center/order.json`、`connectors-center/order.json`。同一用户全部 Agent 共用各自有序置顶列表，更新单个 `{key,pinned}`，不触发 catalog/runtime 重载，不修改连接器配置或授权状态。
 - Catalog：`/api/agents`、HTTP-only `/api/agents/order`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/skill-packages/*`、`/api/admin/tools`、`/api/connectors`、`/api/admin/connectors`、`/api/admin/connectors/detail`；`/api/skills` 同时支持 HTTP 与 WebSocket，按 `agentKey` 返回有效技能中心 Skill 和该 Agent 已配置 Skill 的并集，并用 `agentHasSkill` 标识 Agent 当前是否已有。
-- Chat：`/api/chats`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。
+- Chat：`/api/chats`、`/api/chats/order`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。Chat order 支持 HTTP/WS `set_mode/move/set_pinned`，同实例跨 mode 共用置顶组；列表 `pinned` 与 catalog 附带 Chat 的 `chatsPinned` 在 limit/includeChats 之前筛选，归档/删除清理置顶，恢复不继承。
 - Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。
 - Run：`/api/query`、`/api/btw`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。Desktop 的普通 `/ws` 同时支持唯一 `desktop-main` lane 与按需 `desktop-btw` lane；Primary 是默认 Desktop target 并接收全局 Push，BTW 只承载 BTW 请求和 Run。
 - Memory：memory console 的记录、scope 与历史接口；`/api/learn` 和 `/api/memory/context-preview` 已删除。

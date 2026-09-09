@@ -1326,6 +1326,7 @@ type ToolDetailResponse struct {
 }
 
 type ChatSummaryResponse struct {
+	Pinned         bool           `json:"pinned"`
 	ChatID         string         `json:"chatId"`
 	ChatName       string         `json:"chatName"`
 	AgentKey       string         `json:"agentKey,omitempty"`
@@ -1344,11 +1345,13 @@ type ChatSummaryResponse struct {
 }
 
 type ChatOrderResponse struct {
-	SortMode  string `json:"sortMode"`
-	UpdatedAt *int64 `json:"updatedAt,omitempty"`
+	PinnedOrder []string `json:"pinnedOrder"`
+	SortMode    string   `json:"sortMode"`
+	UpdatedAt   *int64   `json:"updatedAt,omitempty"`
 }
 
 type UpdateChatOrderRequest struct {
+	Pinned       *bool  `json:"pinned,omitempty"`
 	Operation    string `json:"operation"`
 	SortMode     string `json:"sortMode,omitempty"`
 	ChatID       string `json:"chatId,omitempty"`
@@ -1444,6 +1447,7 @@ type MarkChatReadResponse struct {
 }
 
 type ChatDetailResponse struct {
+	Pinned         bool                `json:"pinned"`
 	ChatID         string              `json:"chatId"`
 	ChatName       string              `json:"chatName"`
 	AgentKey       string              `json:"agentKey,omitempty"`

@@ -38,6 +38,10 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 }
 
 func (s *Server) listAgentSummariesWithModes(includeChats int, scope string, modes []string) ([]api.AgentSummary, error) {
+	return s.listAgentSummariesWithPinned(includeChats, scope, modes, nil)
+}
+
+func (s *Server) listAgentSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool) ([]api.AgentSummary, error) {
 	items := s.filteredAgentSummaries(scope, modes)
 	if s.deps.Chats == nil {
 		return items, nil
@@ -49,7 +53,7 @@ func (s *Server) listAgentSummariesWithModes(includeChats int, scope string, mod
 	for i := range items {
 		items[i].Stats = toAPIAgentStats(stats[items[i].Key])
 		if includeChats > 0 {
-			chats, err := s.deps.Chats.RecentChatsByAgent(items[i].Key, includeChats)
+			chats, err := s.conversationService().RecentSummaries(items[i].Key, "", includeChats, pinned)
 			if err != nil {
 				return nil, err
 			}
@@ -110,6 +114,10 @@ func agentCatalogSummary(agent api.AgentSummary) api.AgentCatalogSummary {
 // navigation catalog. Scope and mode are intentionally only applied before
 // this point, while enumerating ordinary agents.
 func (s *Server) listAgentCatalogSummariesWithModes(includeChats int, scope string, modes []string) ([]api.AgentCatalogSummary, error) {
+	return s.listAgentCatalogSummariesWithPinned(includeChats, scope, modes, nil)
+}
+
+func (s *Server) listAgentCatalogSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool) ([]api.AgentCatalogSummary, error) {
 	agents := s.filteredAgentSummaries(scope, modes)
 	teams := s.deps.Registry.Teams()
 	agentStats := map[string]chat.AgentChatStats{}
@@ -132,7 +140,7 @@ func (s *Server) listAgentCatalogSummariesWithModes(includeChats int, scope stri
 		stats := agentStats[agent.Key]
 		agent.Stats = toAPIAgentStats(stats)
 		if includeChats > 0 && s.deps.Chats != nil {
-			chats, err := s.deps.Chats.RecentChatsByAgent(agent.Key, includeChats)
+			chats, err := s.conversationService().RecentSummaries(agent.Key, "", includeChats, pinned)
 			if err != nil {
 				return nil, err
 			}
@@ -162,7 +170,7 @@ func (s *Server) listAgentCatalogSummariesWithModes(includeChats int, scope stri
 			Meta:        team.Meta,
 		}
 		if includeChats > 0 && s.deps.Chats != nil {
-			chats, err := s.deps.Chats.RecentChatsByTeam(team.TeamID, includeChats)
+			chats, err := s.conversationService().RecentSummaries("", team.TeamID, includeChats, pinned)
 			if err != nil {
 				return nil, err
 			}

@@ -31,6 +31,38 @@ func (s *Service) ListSummaries(lastRunID string, agentKey string, agentModes []
 	return s.Chats.ListChatsWithAgentModesAndLimit(lastRunID, agentKey, agentModes, limit)
 }
 
+// ListSummariesWithPinned keeps filtering and truncation in the persistence layer.
+func (s *Service) ListSummariesWithPinned(lastRunID, agentKey string, modes []string, limit int, pinned *bool) ([]chat.Summary, error) {
+	if pinned == nil {
+		return s.ListSummaries(lastRunID, agentKey, modes, limit)
+	}
+	if s == nil || s.Chats == nil {
+		return nil, ErrNotConfigured
+	}
+	store, ok := s.Chats.(chat.PinnedListStore)
+	if !ok {
+		return nil, errors.New("chat pin filtering is not supported")
+	}
+	return store.ListChatsWithOptions(chat.ListOptions{LastRunID: lastRunID, AgentKey: agentKey, AgentModes: modes, Limit: limit, Pinned: pinned})
+}
+
+func (s *Service) RecentSummaries(agentKey, teamID string, limit int, pinned *bool) ([]chat.Summary, error) {
+	if s == nil || s.Chats == nil {
+		return nil, ErrNotConfigured
+	}
+	if pinned == nil {
+		if teamID != "" {
+			return s.Chats.RecentChatsByTeam(teamID, limit)
+		}
+		return s.Chats.RecentChatsByAgent(agentKey, limit)
+	}
+	store, ok := s.Chats.(chat.PinnedListStore)
+	if !ok {
+		return nil, errors.New("chat pin filtering is not supported")
+	}
+	return store.RecentChatsByOwner(agentKey, teamID, limit, pinned)
+}
+
 func (s *Service) ActiveRun(chatID string) (contracts.RunStatusInfo, bool, error) {
 	if s == nil || s.Runs == nil {
 		return contracts.RunStatusInfo{}, false, nil

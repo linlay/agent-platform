@@ -421,6 +421,9 @@ func (s *FileStore) DeleteChat(chatID string) error {
 	if !ValidChatID(chatID) {
 		return os.ErrPermission
 	}
+	if err := s.clearChatPinnedLocked(chatID); err != nil {
+		return err
+	}
 	result, err := s.db.Exec("DELETE FROM CHATS WHERE CHAT_ID_=?", chatID)
 	if err != nil {
 		return err
