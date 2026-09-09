@@ -154,6 +154,7 @@ type Server struct {
 	backgroundCancel  context.CancelFunc
 	shutdownHookOnce  sync.Once
 	connectorAuth     *connectorauth.Manager
+	skillOrder        *skills.FileOrderStore
 }
 
 type syncQueryContextKey struct{}
@@ -251,6 +252,7 @@ func New(deps Dependencies) (*Server, error) {
 		backgroundCtx:     backgroundCtx,
 		backgroundCancel:  backgroundCancel,
 	}
+	s.skillOrder = skills.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
 	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), func(ctx context.Context, _ string) error {
 		if s.deps.CatalogReloader != nil {
 			return s.deps.CatalogReloader.Reload(ctx, "connectors")

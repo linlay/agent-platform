@@ -1041,3 +1041,26 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 HTTP GET 和 WS `/api/view` 接受 `chatId/connectorId/key/hash?/usage?`，返回带快照引用的 HTML/QLC 文档和声明资源。工具结果与表单事件新增 `view/viewError`，业务结果与提交协议不变。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
 
 技能候选的 `icon` 使用 `/api/skills/icon?agentKey=...&key=...`，按现有 `assets/<skill-id>.png` 约定提供。已配置技能读取 Agent 运行副本，其余读取技能中心；私有同名技能缺图时不回退到中心同名图标。缺图省略 `icon`，客户端显示默认图标。HTTP 与 WebSocket 技能列表共享该字段；图片接口校验来源与图片类型，拒绝越界和符号链接，返回私有缓存及 ETag。Composer 的加号技能菜单和 slash 技能候选共用此接口。
+
+
+## 用户技能置顶
+
+`GET /api/skills/order` 返回当前用户的 `{version:1,order:["skill-key"],updatedAt?}`，`order` 仅包含已置顶的技能 key，最近一次新置顶在前。`PUT /api/skills/order` 接收 `{key:"skill-key",pinned:true|false}`，显式设置单个技能，重复请求幂等；空 key、非法 key、缺少 boolean pinned 拒绝，置顶未知技能返回 404，取消置顶允许清理已删除的技能。更新在锁内读取、合并并原子写入，避免不同客户端整表覆盖。
+
+Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinned}` 对应 PUT，复用相同存储及错误语义。HTTP 不缓存用户置顶响应。用户身份只取已验证 Principal 的 subject，忽略客户端指定的 userKey；认证开启但没有用户身份时拒绝。认证关闭的本地部署使用独立 `local` 记录。
+
+唯一持久化位置是 `<runtime>/skills-center/order.json`，具体根目录复用 `Config.Paths.SkillsCenterDir`。文件格式：
+
+```json
+{
+  "version": 1,
+  "users": {
+    "user:<subject>": {
+      "order": ["online-docx", "pdf"],
+      "updatedAt": 1788912000000
+    }
+  }
+}
+```
+
+同一用户的全部 Agent 共用一份 order，不存在 agentKey 维度；不同用户的记录互相隔离，接口只返回当前用户的记录。未写入前 GET 返回空列表，不创建文件；重启后读取原文件，损坏或未知版本不自动覆写。技能中心只加载技能目录，order.json 与原子写临时文件均不触发技能/Agent 重载。置顶不改变 Agent 技能配置、Query mustUseSkills 或技能权限；候选排序时只对当前 Agent 已有的候选应用置顶顺序。

@@ -965,6 +965,17 @@ type UpdateAgentNameRequest struct {
 	Name     string `json:"name"`
 }
 
+type SkillOrderResponse struct {
+	Version   int      `json:"version"`
+	Order     []string `json:"order"`
+	UpdatedAt *int64   `json:"updatedAt,omitempty"`
+}
+
+type UpdateSkillOrderRequest struct {
+	Key    string `json:"key"`
+	Pinned *bool  `json:"pinned"`
+}
+
 type AgentOrderResponse struct {
 	Version   int      `json:"version"`
 	Order     []string `json:"order"`

@@ -242,3 +242,17 @@ func assertReloadReason(t *testing.T, reasons <-chan string, want string, timeou
 		t.Fatalf("timed out waiting for reload reason %q", want)
 	}
 }
+
+func TestSkillOrderFilesDoNotReloadAgentRuntimes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills-center")
+	for _, name := range []string{"order.json", ".skill-order-123.json"} {
+		if !shouldIgnoreBackgroundWatchPath(filepath.Join(root, name), root) {
+			t.Fatalf("preference file not ignored: %s", name)
+		}
+	}
+	for _, path := range []string{filepath.Join(root, "pdf", "order.json"), filepath.Join(root, "pdf", "SKILL.md"), filepath.Join(root, "another.json")} {
+		if shouldIgnoreBackgroundWatchPath(path, root) {
+			t.Fatalf("skill content ignored: %s", path)
+		}
+	}
+}
