@@ -109,6 +109,7 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 
 	return SkillDefinition{
 		Key:             skillID,
+		IconPath:        skillIconPath(skillDir, skillID),
 		Name:            skillDisplayName(name, description, skillID),
 		Description:     description,
 		Triggers:        triggers,

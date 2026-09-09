@@ -76,6 +76,7 @@ func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, e
 		response.Skills = append(response.Skills, api.AgentSkillResponse{
 			Key:           runtimeSkill.Key,
 			Name:          runtimeSkill.Name,
+			Icon:          agentSkillIconURL(definition.Key, runtimeSkill),
 			Description:   runtimeSkill.Description,
 			AgentHasSkill: true,
 		})
@@ -89,7 +90,9 @@ func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, e
 			continue
 		}
 		seen[normalized] = struct{}{}
+		centerDefinition, _ := s.deps.Registry.SkillDefinition(centerSkill.Key)
 		response.Skills = append(response.Skills, api.AgentSkillResponse{
+			Icon:        agentSkillIconURL(definition.Key, centerDefinition),
 			Key:         centerSkill.Key,
 			Name:        centerSkill.Name,
 			Description: centerSkill.Description,

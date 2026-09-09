@@ -1083,6 +1083,7 @@ type SkillSummary struct {
 }
 
 type AgentSkillResponse struct {
+	Icon          string `json:"icon,omitempty"`
 	Key           string `json:"key"`
 	Name          string `json:"name"`
 	Description   string `json:"description,omitempty"`

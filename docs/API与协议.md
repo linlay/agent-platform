@@ -63,6 +63,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET/PUT | `/api/agents/order` | PUT body: `order` | 全部有效 runtime Agent 的 catalog 顺序 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | GET | `/api/skills` | query: `agentKey` | 有效技能中心 Skill 与该 Agent 已配置 Skill 的并集 |
+| GET | `/api/skills/icon` | query: `agentKey`, `key` | 读取对应 Agent 技能候选的 PNG 图标，沿用接口鉴权 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
 | POST | `/api/agent/open-directory` | body: `agentKey`、`directoryType` | 打开 Agent 工作目录或配置目录 |
 | GET | `/api/teams` | 无 | 目录式 Team 列表 |
@@ -73,7 +74,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `GET /api/agents/order` 返回所有有效 runtime Agent 的完整 catalog 顺序，不接受 `scope` 或 `mode` 过滤，也不暴露 invalid Agent。`PUT` 接受 `{ "order": ["agent-b", "agent-a"] }`：key 会裁剪空白并校验为空、重复、数量上限和当前有效 catalog 成员；请求未携带的当前有效 Agent 按现有 catalog 顺序追加。Platform 再把这份有效顺序替换进完整 admin 序列的有效 Agent 槽位，invalid Agent 的位置和相对顺序保持不变，并原子写入既有 `agent-order.json`、reload catalog、发布一次 `catalog.updated`。该接口仅提供 HTTP；`/api/admin/agents/order` 继续面向管理台，允许完整 admin catalog 与 invalid Agent，两者共享同一顺序文件且不迁移已有数据。
 
-`GET /api/skills` 是 WebClient slash 技能选择器的只读接口，要求精确的 `agentKey`。响应 `data` 固定为 `{ "agentKey": "...", "skills": [...] }`，每个 Skill 只包含 `key`、`name`、可选 `description` 与布尔值 `agentHasSkill`；不使用 `items`，也不返回 `meta` 或运行时选择来源。Agent 已配置 Skill 先按 Agent 配置顺序返回并标记为 `true`，其中包括只存在于 Agent 本地 `skills/` 的 Skill；随后按当前有效 skills-center catalog 的稳定顺序追加其余 Skill并标记为 `false`。两组按 key 大小写不敏感去重，`skills` 无结果时仍返回空数组。缺少 `agentKey` 返回 400 `agent_key_required`，Agent 不存在返回 404 `agent_not_found`，已配置 Skill 无法从稳定 Agent runtime 解析时返回 503 `skill_catalog_unavailable`。
+`GET /api/skills` 是 WebClient slash 技能选择器的只读接口，要求精确的 `agentKey`。响应 `data` 固定为 `{ "agentKey": "...", "skills": [...] }`，每个 Skill 包含 `key`、`name`、可选 `description`、可选 `icon` 与布尔值 `agentHasSkill`；不使用 `items`，也不返回 `meta` 或运行时选择来源。Agent 已配置 Skill 先按 Agent 配置顺序返回并标记为 `true`，其中包括只存在于 Agent 本地 `skills/` 的 Skill；随后按当前有效 skills-center catalog 的稳定顺序追加其余 Skill并标记为 `false`。两组按 key 大小写不敏感去重，`skills` 无结果时仍返回空数组。缺少 `agentKey` 返回 400 `agent_key_required`，Agent 不存在返回 404 `agent_not_found`，已配置 Skill 无法从稳定 Agent runtime 解析时返回 503 `skill_catalog_unavailable`。
 
 普通 Agent 摘要中的 `workspaceDir` 表示该 Agent 的运行工作区，`agentConfigDir` 表示 catalog 已解析的 Agent 配置目录；两者互不替代。`agentConfigDir` 原样返回运行时 `AgentDefinition.AgentDir`，为空时省略。`/api/agent` 继续通过现有的 `source.agentDir` 返回编辑来源目录，不新增顶层字段。
 
@@ -1038,3 +1039,5 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 ## VIEW 连接器 API
 
 HTTP GET 和 WS `/api/view` 接受 `chatId/connectorId/key/hash?/usage?`，返回带快照引用的 HTML/QLC 文档和声明资源。工具结果与表单事件新增 `view/viewError`，业务结果与提交协议不变。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
+
+技能候选的 `icon` 使用 `/api/skills/icon?agentKey=...&key=...`，按现有 `assets/<skill-id>.png` 约定提供。已配置技能读取 Agent 运行副本，其余读取技能中心；私有同名技能缺图时不回退到中心同名图标。缺图省略 `icon`，客户端显示默认图标。HTTP 与 WebSocket 技能列表共享该字段；图片接口校验来源与图片类型，拒绝越界和符号链接，返回私有缓存及 ETag。Composer 的加号技能菜单和 slash 技能候选共用此接口。

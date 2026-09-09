@@ -257,6 +257,7 @@ func (s TeamSnapshot) AgentDefinition(agentKey string) (AgentDefinition, bool) {
 }
 
 type SkillDefinition struct {
+	IconPath        string `json:"-"`
 	Key             string
 	Name            string
 	Description     string

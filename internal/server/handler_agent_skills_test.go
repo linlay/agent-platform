@@ -122,6 +122,11 @@ func newAgentSkillsTestFixture(t *testing.T, withWebSocket bool) testFixture {
 			}
 			writeTestSkill(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "skills"), "private-skill")
 			writeTestSkill(t, cfg.Paths.SkillsCenterDir, "center-extra")
+			writeTestSkill(t, cfg.Paths.SkillsCenterDir, "private-skill")
+			writeAgentSkillIconPNG(t, cfg.Paths.SkillsCenterDir, "mock-skill", 30)
+			writeAgentSkillIconPNG(t, cfg.Paths.SkillsCenterDir, "center-extra", 60)
+			writeAgentSkillIconPNG(t, cfg.Paths.SkillsCenterDir, "private-skill", 90)
+			writeAgentSkillIconPNG(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "skills"), "private-skill", 180)
 		},
 	}
 	if withWebSocket {
@@ -150,6 +155,9 @@ func assertAgentSkillsResponse(t *testing.T, response api.AgentSkillsResponse) {
 		got := response.Skills[index]
 		if got.Key != wantKeys[index] || got.AgentHasSkill != wantConfigured[index] {
 			t.Fatalf("skills[%d] = %#v, want key=%q agentHasSkill=%t", index, got, wantKeys[index], wantConfigured[index])
+		}
+		if !strings.HasPrefix(got.Icon, "/api/skills/icon?agentKey=mock-agent&key=") {
+			t.Fatalf("skills[%d] missing icon: %#v", index, got)
 		}
 		if strings.TrimSpace(got.Name) == "" {
 			t.Fatalf("skills[%d] must include name: %#v", index, got)
