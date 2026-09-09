@@ -15,6 +15,7 @@ import (
 
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/httpclient"
+	"agent-platform/internal/observability"
 )
 
 type Client struct {
@@ -22,8 +23,36 @@ type Client struct {
 }
 
 type Stream struct {
-	Body   io.ReadCloser
-	Cancel context.CancelFunc
+	Body     io.ReadCloser
+	Cancel   context.CancelFunc
+	Response ResponseMetadata
+}
+
+// ResponseMetadata contains only bounded, allowlisted transport diagnostics.
+// Never retain arbitrary headers (cookies and credentials may be present).
+type ResponseMetadata struct {
+	StatusCode      int    `json:"httpStatus"`
+	ContentType     string `json:"contentType,omitempty"`
+	RequestID       string `json:"upstreamRequestId,omitempty"`
+	RequestIDHeader string `json:"upstreamRequestIdHeader,omitempty"`
+}
+
+func responseMetadata(response *http.Response) ResponseMetadata {
+	bounded := func(value string) string {
+		value = observability.SanitizeLog(strings.TrimSpace(value))
+		if len(value) > 256 {
+			value = value[:256]
+		}
+		return value
+	}
+	metadata := ResponseMetadata{StatusCode: response.StatusCode, ContentType: bounded(response.Header.Get("Content-Type"))}
+	for _, key := range []string{"X-Request-Id", "Request-Id", "X-Ms-Request-Id", "X-Amzn-Requestid"} {
+		if value := bounded(response.Header.Get(key)); value != "" {
+			metadata.RequestID, metadata.RequestIDHeader = value, key
+			break
+		}
+	}
+	return metadata
 }
 
 func New(httpClient *http.Client) *Client {
@@ -38,22 +67,18 @@ func (c *Client) OpenStream(request *http.Request, firstResponseTimeout time.Dur
 		return nil, apperrors.New(apperrors.CodeProviderBadRequest, "provider request is required")
 	}
 	if firstResponseTimeout <= 0 {
-		body, err := c.do(request)
-		if err != nil {
-			return nil, err
-		}
-		return &Stream{Body: body}, nil
+		return c.do(request)
 	}
 	ctx, cancel := context.WithCancel(request.Context())
 	timedRequest := request.WithContext(ctx)
 	type result struct {
-		body io.ReadCloser
-		err  error
+		stream *Stream
+		err    error
 	}
 	resultCh := make(chan result, 1)
 	go func() {
-		body, err := c.do(timedRequest)
-		resultCh <- result{body: body, err: err}
+		stream, err := c.do(timedRequest)
+		resultCh <- result{stream: stream, err: err}
 	}()
 	timer := time.NewTimer(firstResponseTimeout)
 	defer timer.Stop()
@@ -63,18 +88,19 @@ func (c *Client) OpenStream(request *http.Request, firstResponseTimeout time.Dur
 			cancel()
 			return nil, response.err
 		}
-		if response.body == nil {
+		if response.stream == nil || response.stream.Body == nil {
 			cancel()
 			return nil, errors.New("provider returned no stream")
 		}
-		return &Stream{Body: response.body, Cancel: cancel}, nil
+		response.stream.Cancel = cancel
+		return response.stream, nil
 	case <-timer.C:
 		cancel()
 		return nil, StreamTimeoutError(firstResponseTimeout)
 	}
 }
 
-func (c *Client) do(request *http.Request) (io.ReadCloser, error) {
+func (c *Client) do(request *http.Request) (*Stream, error) {
 	client := c.http
 	if client == nil {
 		client = httpclient.NewClient(0)
@@ -91,7 +117,7 @@ func (c *Client) do(request *http.Request) (io.ReadCloser, error) {
 		}
 		return nil, ResponseError(response.StatusCode, body)
 	}
-	return response.Body, nil
+	return &Stream{Body: response.Body, Response: responseMetadata(response)}, nil
 }
 
 func StreamTimeoutError(timeout time.Duration) error {

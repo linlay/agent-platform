@@ -119,6 +119,7 @@ type llmRunStream struct {
 }
 
 type providerTurnStream struct {
+	observation    providerStreamObservation
 	body           io.ReadCloser
 	cancel         context.CancelFunc
 	reader         *bufio.Reader

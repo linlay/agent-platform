@@ -41,7 +41,9 @@ type openAIToolDefinition struct {
 
 type openAIStreamResponse struct {
 	Choices []struct {
-		Delta struct {
+		Message json.RawMessage `json:"message"`
+		Delta   struct {
+			Refusal          json.RawMessage         `json:"refusal"`
 			Content          string                  `json:"content"`
 			ReasoningContent string                  `json:"reasoning_content"`
 			Reasoning        string                  `json:"reasoning"`
@@ -192,8 +194,10 @@ func (p *openAIProtocol) OpenStream(ctx context.Context, params protocolStreamPa
 func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string) (bool, error) {
 	var decoded openAIStreamResponse
 	if err := json.Unmarshal([]byte(rawChunk), &decoded); err != nil {
+		s.currentTurn.observation.DecodeErrors++
 		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
 	}
+	s.currentTurn.observation.recordOpenAIChunk(decoded)
 	if s.awaitingOpenAITerminalMetadata() {
 		if decoded.Usage != nil {
 			s.accumulateUsage(decoded.Usage)
@@ -242,6 +246,7 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 			if decoded.Usage == nil {
 				s.drainUsageChunk()
 			}
+			s.currentTurn.observation.CompletionTrigger = "finish_reason"
 			return true, s.finishCurrentTurn()
 		}
 	}

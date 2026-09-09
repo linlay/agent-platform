@@ -222,6 +222,9 @@ func (s *llmRunStream) handleModelAttemptError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if s.currentTurn != nil {
+		s.observeModelAttempt(s.currentTurn, s.currentTurn.trace, err)
+	}
 	var appErr *apperrors.Error
 	if errors.As(err, &appErr) && appErr.Code() == apperrors.CodeProviderContextLengthExceeded &&
 		s.modelCall != nil && s.currentModelTurnRetrySafe() {

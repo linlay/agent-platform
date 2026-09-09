@@ -511,7 +511,12 @@ func (s *llmRunStream) drainUsageChunk() {
 			break
 		}
 		var decoded openAIStreamResponse
-		if json.Unmarshal([]byte(rawChunk), &decoded) == nil && decoded.Usage != nil {
+		if json.Unmarshal([]byte(rawChunk), &decoded) != nil {
+			s.currentTurn.observation.DecodeErrors++
+			continue
+		}
+		s.currentTurn.observation.recordOpenAIChunk(decoded)
+		if decoded.Usage != nil {
 			s.accumulateUsage(decoded.Usage)
 			break
 		}

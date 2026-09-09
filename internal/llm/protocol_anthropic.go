@@ -76,6 +76,7 @@ func (p *anthropicProtocol) OpenStream(ctx context.Context, params protocolStrea
 func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawChunk string) (bool, error) {
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(rawChunk), &payload); err != nil {
+		s.currentTurn.observation.DecodeErrors++
 		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
 	}
 
@@ -85,7 +86,10 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 	case "content_block_start":
 		block := AnyMapNode(payload["content_block"])
 		blockType := AnyStringNode(block["type"])
+		s.currentTurn.observation.RawContentBytes += len(AnyStringNode(block["text"]))
+		s.currentTurn.observation.RawReasoningBytes += len(AnyStringNode(block["thinking"]))
 		if blockType == "tool_use" {
+			s.currentTurn.observation.RawToolDeltas++
 			index := AnyIntNode(payload["index"])
 			input, _ := block["input"].(map[string]any)
 			toolID := AnyStringNode(block["id"])
@@ -109,10 +113,13 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 		delta := AnyMapNode(payload["delta"])
 		switch AnyStringNode(delta["type"]) {
 		case "text_delta":
+			s.currentTurn.observation.RawContentBytes += len(AnyStringNode(delta["text"]))
 			s.appendCompatContent(AnyStringNode(delta["text"]))
 		case "thinking_delta":
+			s.currentTurn.observation.RawReasoningBytes += len(AnyStringNode(delta["thinking"]))
 			s.appendCompatAnthropicThinking(AnyStringNode(delta["thinking"]))
 		case "input_json_delta":
+			s.currentTurn.observation.RawToolDeltas++
 			partialJSON := AnyStringNode(delta["partial_json"])
 			if partialJSON == "" {
 				return false, nil
@@ -135,14 +142,18 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 			stopReason = "tool_calls"
 		}
 		s.currentTurn.finishReason = stopReason
+		s.currentTurn.observation.CompletionTrigger = "message_delta_stop_reason"
 		s.engine.logParsedDelta(s.session.RunID, "finish_reason", s.currentTurn.finishReason)
 		return true, s.finishCurrentTurn()
 	case "message_stop":
+		s.currentTurn.observation.CompletionTrigger = "message_stop"
 		if strings.TrimSpace(s.currentTurn.finishReason) == "" {
 			s.currentTurn.finishReason = "end_turn"
 			s.engine.logParsedDelta(s.session.RunID, "finish_reason", s.currentTurn.finishReason)
 		}
 		return true, s.finishCurrentTurn()
+	default:
+		s.currentTurn.observation.IgnoredAnthropicEvents++
 	}
 
 	return false, nil

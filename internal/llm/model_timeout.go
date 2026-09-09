@@ -37,7 +37,9 @@ func (s *llmRunStream) readCurrentSSEFrame() (string, string, error) {
 	if s == nil || s.currentTurn == nil || s.currentTurn.reader == nil {
 		return "", "", io.EOF
 	}
-	return readSSEFrameWithIdleTimeout(s.currentTurn.reader, s.currentTurn.body, s.currentSSEIdleTimeout())
+	event, raw, err := readSSEFrameWithIdleTimeout(s.currentTurn.reader, s.currentTurn.body, s.currentSSEIdleTimeout())
+	s.currentTurn.observation.recordRead(raw, err)
+	return event, raw, err
 }
 
 func (s *llmRunStream) currentSSEIdleTimeout() time.Duration {

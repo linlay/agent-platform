@@ -78,9 +78,10 @@ func (e *LLMAgentEngine) executeProviderRequest(req *http.Request, firstResponse
 		return nil, err
 	}
 	return &providerTurnStream{
-		body:   opened.Body,
-		reader: bufio.NewReader(opened.Body),
-		cancel: opened.Cancel,
+		body:        opened.Body,
+		reader:      bufio.NewReader(opened.Body),
+		cancel:      opened.Cancel,
+		observation: providerStreamObservation{Response: opened.Response},
 	}, nil
 }
 

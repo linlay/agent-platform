@@ -260,6 +260,7 @@ func (s *llmRunStream) openPendingModelCall() error {
 		modelTimeout:   s.modelStreamIdleTimeout(),
 	}, call.prepared)
 	if err != nil {
+		s.observeModelAttempt(nil, trace, err)
 		if trace != nil {
 			trace.completeError(err)
 		}
@@ -389,10 +390,12 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 				}
 				return false, streamErr
 			}
+			s.currentTurn.observation.CompletionTrigger = "eof_after_finish"
 			return true, s.finishCurrentTurn()
 		}
 		streamErr := providerTransportError(err)
 		if s.awaitingOpenAITerminalMetadata() && isProviderTimeoutError(streamErr) {
+			s.currentTurn.observation.CompletionTrigger = "trailing_timeout"
 			return true, s.finishCurrentTurn()
 		}
 		if s.currentTurn != nil && s.currentTurn.trace != nil {
@@ -410,6 +413,7 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		return false, nil
 	}
 	if rawChunk == "[DONE]" {
+		s.currentTurn.observation.CompletionTrigger = "done_marker"
 		return true, s.finishCurrentTurn()
 	}
 	if s.protocol == nil {
@@ -449,9 +453,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		completedAt = turn.finishSeenAt
 	}
 	s.recordCurrentTurnTiming(completedAt)
-	s.modelCall = nil
-
 	toolCalls, err := turn.materializeToolCalls()
+	s.observeModelAttempt(turn, turn.trace, err)
+	s.modelCall = nil
 	if err != nil {
 		errorCode := apperrors.CodeProviderStreamInvalid
 		var appErr *apperrors.Error

@@ -236,6 +236,20 @@ func (t *llmChatTrace) completeOK(content string, reasoningContent string, toolC
 	t.complete("ok", "", content, reasoningContent, toolCalls, finishReason, usage, nil)
 }
 
+func (t *llmChatTrace) setDiagnostics(diagnostics map[string]any) {
+	if t == nil || !t.enabled {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.payload["diagnostics"] = diagnostics
+	// Read/decode failures can complete the trace before retry handling records
+	// the attempt; retain that attempt's diagnostics before its stream is closed.
+	if t.completed {
+		t.writeLocked()
+	}
+}
+
 func (t *llmChatTrace) completeError(err error) {
 	if err == nil {
 		return
@@ -255,6 +269,9 @@ func (t *llmChatTrace) complete(status string, errText string, content string, r
 	defer t.mu.Unlock()
 	if t.completed {
 		return
+	}
+	if diagnostics, ok := t.payload["diagnostics"].(map[string]any); ok && status == "ok" && diagnostics["emptyResponse"] == true {
+		status = "empty_response"
 	}
 	t.completed = true
 	t.status = strings.TrimSpace(status)

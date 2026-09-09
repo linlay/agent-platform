@@ -373,6 +373,8 @@ KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展
 
 ### 查看日志
 
+模型出现 `Model returned no assistant content.` 时，按 `runId` 检索服务日志中的 `llm_empty_response` 或 `llm_model_attempt_error`，区分模型空响应与传输/解析失败；字段与 trace 开关见 [模型空响应排查](./docs/配置化说明.md#模型空响应排查)。
+
 ```bash
 docker compose logs -f
 ```
