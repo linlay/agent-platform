@@ -49,6 +49,7 @@ type llmRunStream struct {
 	toolChoice                  string
 	teamStateMachine            *agentteam.StateMachine
 	postToolHook                func(string, string) PostToolHookResult
+	preserveSteersOnFinish      bool
 	checker                     hitl.Checker
 
 	step                 int

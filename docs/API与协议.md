@@ -1088,6 +1088,12 @@ Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinn
 技能中心列表也使用 `/api/skills/order`，与 Composer 共用用户置顶顺序；已安装但无效或禁用的技能可在管理列表置顶，置顶不会改变其可运行状态或令其进入 Composer 可用候选。
 
 
+### planning 期间的 steer
+
+活动 native CODER planning Run 的阶段结束不会关闭 Run 的 steer 队列。生成候选计划期间入队的 steer 会在当前模型调用结束后使该计划失效，并在同一 Run 中生成新 revision；等待确认期间收到 steer 也会立即使旧确认失效并唤醒规划。旧计划失效统一发布 `planning.superseded`，字段为 `planningId`、`planningFile`、`awaitingId`、`reason:"steer"`；客户端应将该计划标为已失效，不再允许执行。已有确认框还会收到 `awaiting.answer(status:"error", error.code:"planning_superseded")`，没有确认框时不会补造 `awaiting.ask` 或 `request.submit`。
+
+steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 返回 `409 already_resolved`；approve 先被接受并创建 execution continuation 时，旧 Run 的 steer 返回 `accepted:false,status:"unmatched"`。后续指令应发往新 execution Run。新计划仍需重新确认。此行为适用于仍有 planning 执行者的活动 Run，跨进程 suspended 等待项仍通过 submit 恢复；完整时序见 [HITL协议](HITL协议.md)。
+
 ### 含图 steer
 
 `POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 仍必填。`chatId` 缺省时从 Run 补齐，提供时必须匹配。首版仅接受当前 Chat 的图片资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。

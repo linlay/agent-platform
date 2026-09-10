@@ -424,6 +424,8 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"planningId", "delta"}
 	case "planning.end":
 		return []string{"planningId"}
+	case "planning.superseded":
+		return []string{"planningId", "planningFile", "awaitingId", "reason"}
 	case "planning.snapshot":
 		return []string{"planningId", "planningFile", "chatId", "runId", "text"}
 	case "task.start":

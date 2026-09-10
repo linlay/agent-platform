@@ -214,6 +214,30 @@ func (r *historyReplay) replayEvent(line map[string]any) error {
 		return err
 	}
 	rd := ensureRun(r.runs, &r.runOrder, runID)
+	if parsed.Type == "planning.superseded" {
+		planningID := parsed.String("planningId")
+		// A proposal superseded before confirmation has no awaiting.ask from
+		// which to reconstruct its snapshot. Keep it readable as history while
+		// removing it from the current planning state.
+		seen := false
+		for _, event := range rd.events {
+			if event.Type == "planning.snapshot" && event.String("planningId") == planningID {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			if plan := planningStateFromRef(planningID, parsed.String("planningFile"), "", r.chatDir); plan != nil {
+				rd.events = append(rd.events, stream.EventData{
+					Type: "planning.snapshot", Timestamp: parsed.Timestamp,
+					Payload: map[string]any{"planningId": plan.PlanningID, "planningFile": plan.PlanningFile, "text": plan.Markdown, "runId": runID},
+				})
+			}
+		}
+		if r.planning != nil && r.planning.PlanningID == planningID {
+			r.planning = nil
+		}
+	}
 	rd.events = append(rd.events, parsed)
 	return nil
 }

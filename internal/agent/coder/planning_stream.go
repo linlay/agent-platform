@@ -34,6 +34,7 @@ type coderPlanningStream struct {
 	planningDone              bool
 	executionDone             bool
 	confirmationPending       bool
+	confirmationAsked         bool
 	confirmationDone          bool
 	summaryDone               bool
 	completed                 bool
@@ -44,6 +45,7 @@ type coderPlanningStream struct {
 	rejectedPlanningMarkdown string
 	rejectedPlanningDecision string
 	rejectedPlanningReason   string
+	planningSuperseded       bool
 
 	executeMessages []contracts.ModelMessage
 }
@@ -130,6 +132,9 @@ func (s *coderPlanningStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.execCtx != nil && s.execCtx.RunControl != nil {
+		s.execCtx.RunControl.CloseSteers()
+	}
 	if s.current != nil {
 		return s.current.Close()
 	}
@@ -164,12 +169,13 @@ func (s *coderPlanningStream) startPlanningStage() error {
 	stageSession := s.sessionForStage(s.settings.Planning, s.planningStageTools())
 	stageSession.CurrentMessages = s.runtime.BuildCurrentMessagesForRequest(req, stageSession, false)
 	stream, err := s.runtime.NewStageRunStream(s.ctx, req, stageSession, true, StageRunOptions{
-		ExecCtx:      s.execCtx,
-		ToolNames:    s.planningStageTools(),
-		ModelKey:     s.resolveStageModelKey(s.settings.Planning),
-		MaxSteps:     s.settings.MaxSteps,
-		Stage:        PlanningStage,
-		PostToolHook: s.planningStagePostToolHook,
+		ExecCtx:                s.execCtx,
+		ToolNames:              s.planningStageTools(),
+		ModelKey:               s.resolveStageModelKey(s.settings.Planning),
+		MaxSteps:               s.settings.MaxSteps,
+		Stage:                  PlanningStage,
+		PostToolHook:           s.planningStagePostToolHook,
+		PreserveSteersOnFinish: true,
 	})
 	if err != nil {
 		return err
@@ -188,12 +194,13 @@ func (s *coderPlanningStream) startPlanningFeedbackStage() error {
 	stageSession.HistoryMessages = append(stageSession.HistoryMessages, rawMessagesFromModelMessages(s.executeMessages)...)
 	stageSession.CurrentMessages = s.runtime.BuildCurrentMessagesForRequest(req, stageSession, false)
 	stream, err := s.runtime.NewStageRunStream(s.ctx, req, stageSession, true, StageRunOptions{
-		ExecCtx:      s.execCtx,
-		ToolNames:    s.planningStageTools(),
-		ModelKey:     s.resolveStageModelKey(s.settings.Planning),
-		MaxSteps:     s.settings.MaxSteps,
-		Stage:        "coder-planning-feedback",
-		PostToolHook: s.planningStagePostToolHook,
+		ExecCtx:                s.execCtx,
+		ToolNames:              s.planningStageTools(),
+		ModelKey:               s.resolveStageModelKey(s.settings.Planning),
+		MaxSteps:               s.settings.MaxSteps,
+		Stage:                  "coder-planning-feedback",
+		PostToolHook:           s.planningStagePostToolHook,
+		PreserveSteersOnFinish: true,
 	})
 	if err != nil {
 		return err
@@ -367,6 +374,15 @@ func (s *coderPlanningStream) afterStageEOF() error {
 		s.currentPlanningIsFeedback = false
 		s.planningDone = true
 		if s.execCtx == nil || s.execCtx.PlanningState == nil || strings.TrimSpace(s.execCtx.PlanningState.Markdown) == "" {
+			// A stage can end with plain text instead of a proposal. Finish the
+			// root steer gate here, allowing a last accepted instruction to
+			// continue planning rather than disappearing between stage and run EOF.
+			if s.execCtx != nil && s.execCtx.RunControl != nil {
+				if steers := s.execCtx.RunControl.DrainSteersBeforeFinish(); len(steers) > 0 {
+					s.prepareSteeredPlanning(steers)
+					return nil
+				}
+			}
 			if wasFeedback {
 				s.summaryDone = true
 				s.completed = true
@@ -405,12 +421,14 @@ func (s *coderPlanningStream) afterStageEOF() error {
 
 func (s *coderPlanningStream) emitPlanningConfirmationAsk() {
 	awaitAsk := s.planningConfirmationAsk()
+	s.confirmationAsked = true
 	if s.execCtx != nil && s.execCtx.RunControl != nil {
 		awaitingCtx := awaitingContextFromDeltaAsk(awaitAsk)
-		awaitingCtx.NoTimeout = true
-		s.execCtx.RunControl.ExpectSubmit(awaitingCtx)
+		s.confirmationAsked = s.execCtx.RunControl.ExpectPlanningSubmit(awaitingCtx)
 	}
-	s.pending = append(s.pending, awaitAsk)
+	if s.confirmationAsked {
+		s.pending = append(s.pending, awaitAsk)
+	}
 	s.confirmationPending = true
 }
 
@@ -478,6 +496,10 @@ func (s *coderPlanningStream) awaitPlanningConfirmation() error {
 
 	s.execCtx.RunLoopState = contracts.RunLoopStateToolExecuting
 	s.execCtx.RunControl.TransitionState(contracts.RunLoopStateToolExecuting)
+	if submitResult.Status == contracts.PlanningSuperseded {
+		s.prepareSteeredPlanning(s.execCtx.RunControl.DrainSteers())
+		return nil
+	}
 	s.pending = append(s.pending, contracts.DeltaRequestSubmit{
 		RequestID:  s.session.RequestID,
 		ChatID:     s.session.ChatID,
@@ -605,6 +627,17 @@ func (s *coderPlanningStream) currentPlanningRevision() int {
 }
 
 func (s *coderPlanningStream) planningFeedbackPrompt() string {
+	if s.planningSuperseded {
+		return strings.TrimSpace(joinNonEmptyPrompts(
+			s.planningPrompt(),
+			`The previous planning proposal is obsolete because the user sent new instructions while planning.
+Do not execute it. Use the original request, conversation, and all subsequent user instructions to produce a complete replacement plan via finalize_planning.
+If the user asks to stop or the request no longer needs a plan, respond accordingly without calling finalize_planning.
+Any replacement plan must be confirmed by the user before execution.`,
+			"Original request:\n"+s.req.Message,
+			"Superseded planning markdown:\n"+s.rejectedPlanningMarkdown,
+		))
+	}
 	reason := strings.TrimSpace(s.rejectedPlanningReason)
 	if reason == "" {
 		reason = "(empty)"
@@ -637,6 +670,7 @@ func confirmationReason(normalized map[string]any) string {
 }
 
 func (s *coderPlanningStream) preparePlanningFeedback(normalized map[string]any) {
+	s.planningSuperseded = false
 	markdown := ""
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		markdown = s.execCtx.PlanningState.Markdown

@@ -47,6 +47,8 @@ type runStreamOptions struct {
 	PostToolHook                 func(toolName string, toolID string) PostToolHookResult
 	DisableContextCompaction     bool
 	DisableRunControl            bool
+	// The enclosing stream owns run completion across multiple stages.
+	PreserveSteersOnFinish bool
 }
 
 func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient) *LLMAgentEngine {
@@ -228,34 +230,35 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		IncludeAfterCallHints:   true,
 	}
 	stream := &llmRunStream{
-		summaryCall:         options.SummaryOutputTokens > 0,
-		engine:              e,
-		protocol:            resolveProtocol(e, model),
-		ctx:                 ctx,
-		req:                 req,
-		session:             session,
-		runControl:          execCtx.RunControl,
-		model:               model,
-		provider:            provider,
-		toolSpecs:           toolSpecs,
-		requestedToolNames:  append([]string(nil), allowedTools...),
-		messages:            append([]openAIMessage(nil), messages...),
-		pinnedMessageStart:  pinnedMessageStart,
-		pinnedMessageEnd:    pinnedMessageEnd,
-		compactDisabled:     options.DisableContextCompaction || strings.HasPrefix(strings.TrimSpace(session.RunScopeID), "btw:"),
-		protocolConfig:      protocolConfig,
-		stageSettings:       stageSettings,
-		execCtx:             execCtx,
-		maxSteps:            maxSteps,
-		budgetStage:         budgetStage,
-		toolChoice:          toolChoice,
-		teamStateMachine:    teamStateMachine,
-		postToolHook:        options.PostToolHook,
-		allowToolUse:        allowToolUse,
-		promptBuildOptions:  promptBuildOptions,
-		onApprovalSummary:   approvalSummarySinkFromContext(ctx),
-		systemInitCacheKey:  cacheKey,
-		systemInitCacheUsed: useCachedSystemInit,
+		summaryCall:            options.SummaryOutputTokens > 0,
+		engine:                 e,
+		protocol:               resolveProtocol(e, model),
+		ctx:                    ctx,
+		req:                    req,
+		session:                session,
+		runControl:             execCtx.RunControl,
+		model:                  model,
+		provider:               provider,
+		toolSpecs:              toolSpecs,
+		requestedToolNames:     append([]string(nil), allowedTools...),
+		messages:               append([]openAIMessage(nil), messages...),
+		pinnedMessageStart:     pinnedMessageStart,
+		pinnedMessageEnd:       pinnedMessageEnd,
+		compactDisabled:        options.DisableContextCompaction || strings.HasPrefix(strings.TrimSpace(session.RunScopeID), "btw:"),
+		protocolConfig:         protocolConfig,
+		stageSettings:          stageSettings,
+		execCtx:                execCtx,
+		maxSteps:               maxSteps,
+		budgetStage:            budgetStage,
+		toolChoice:             toolChoice,
+		teamStateMachine:       teamStateMachine,
+		postToolHook:           options.PostToolHook,
+		preserveSteersOnFinish: options.PreserveSteersOnFinish,
+		allowToolUse:           allowToolUse,
+		promptBuildOptions:     promptBuildOptions,
+		onApprovalSummary:      approvalSummarySinkFromContext(ctx),
+		systemInitCacheKey:     cacheKey,
+		systemInitCacheUsed:    useCachedSystemInit,
 	}
 	if stream.runControl != nil && session.SupportsContextCompaction && strings.TrimSpace(session.SubTaskID) == "" && !options.DisableContextCompaction {
 		stream.runControl.EnableContextCompact()

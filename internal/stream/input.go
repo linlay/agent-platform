@@ -147,6 +147,14 @@ type PlanningEnd struct {
 
 func (PlanningEnd) streamInputTag() {}
 
+type PlanningSuperseded struct {
+	PlanningID   string
+	PlanningFile string
+	AwaitingID   string
+}
+
+func (PlanningSuperseded) streamInputTag() {}
+
 type TaskStart struct {
 	TaskID       string
 	RunID        string

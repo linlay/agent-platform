@@ -353,7 +353,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			w.lastTimestamp = event.Timestamp
 		}
 
-	case "context.compact.start", "context.compact.failed":
+	case "planning.superseded", "context.compact.start", "context.compact.failed":
 		w.flushCurrentStep()
 		w.flushAllTaskSteps()
 		w.appendTypedEventLine(event, "event")

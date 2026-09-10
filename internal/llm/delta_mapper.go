@@ -268,6 +268,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return []stream.StreamInput{stream.PlanningEnd{
 			PlanningID: value.PlanningID,
 		}}
+	case DeltaPlanningSuperseded:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.PlanningSuperseded{
+			PlanningID: value.PlanningID, PlanningFile: value.PlanningFile, AwaitingID: value.AwaitingID,
+		}}
 	case DeltaTaskLifecycle:
 		m.lastKind = ""
 		switch strings.ToLower(value.Kind) {

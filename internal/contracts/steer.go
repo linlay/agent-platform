@@ -6,6 +6,38 @@ import (
 	"agent-platform/internal/api"
 )
 
+const PlanningSuperseded = "planning_superseded"
+
+// ExpectPlanningSubmit closes the race between checking queued steers and
+// registering a confirmation. False means the producer must resolve the wait
+// without publishing an obsolete awaiting.ask.
+func (c *RunControl) ExpectPlanningSubmit(ctx AwaitingSubmitContext) bool {
+	ctx.Mode = "planning"
+	ctx.NoTimeout = true
+	ctx.SteerReplan = true
+	return c.expectSubmit(ctx)
+}
+
+// supersedePlanningLocked uses the submit delivery path so both queued and
+// already-blocking waits wake exactly once. It does not invent a user submit.
+func (c *RunControl) supersedePlanningLocked(awaiting AwaitingSubmitContext) {
+	id := awaiting.AwaitingID
+	result := SubmitResult{
+		Request: api.SubmitRequest{RunID: c.runID, AwaitingID: id},
+		Status:  PlanningSuperseded,
+		Detail:  "Planning superseded by a new user instruction",
+	}
+	c.recordResolvedSubmitLocked(awaiting.PublicAwaitingID, id, result)
+	delete(c.awaitingSubmits, id)
+	c.deleteAwaitingAliasesLocked(id)
+	if waiter := c.submitWaiters[id]; waiter != nil {
+		delete(c.submitWaiters, id)
+		waiter.deliver(result)
+	} else {
+		c.pendingSubmits[id] = result
+	}
+}
+
 func cloneSteerInput(req api.SteerRequest) api.SteerRequest {
 	refs := make([]api.Reference, len(req.References))
 	for i, ref := range req.References {

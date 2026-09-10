@@ -22,6 +22,7 @@ type StageRunOptions struct {
 	ToolChoice                   string
 	PreserveProvidedSystemPrompt bool
 	PostToolHook                 func(toolName string, toolID string) contracts.PostToolHookResult
+	PreserveSteersOnFinish       bool
 }
 
 type Runtime interface {

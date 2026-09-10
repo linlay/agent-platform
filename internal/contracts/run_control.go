@@ -550,6 +550,11 @@ func (c *RunControl) EnqueueSteer(req api.SteerRequest) bool {
 		return false
 	}
 	c.steerQueue = append(c.steerQueue, cloneSteerInput(req))
+	for _, awaiting := range c.awaitingSubmits {
+		if awaiting.SteerReplan {
+			c.supersedePlanningLocked(awaiting)
+		}
+	}
 	return true
 }
 
@@ -850,7 +855,14 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		}
 		return SubmitAck{Accepted: false, Status: "already_resolved", SubmitID: firstNonBlankSubmitID(resolved.Request.SubmitID, req.SubmitID), Detail: detail}
 	}
+	awaiting := c.awaitingSubmits[awaitingID]
 	waiter, ok := c.submitWaiters[awaitingID]
+	// A planning approval handed off to a new run must close the old steer
+	// gate in the same critical section as accepting the decision. A steer
+	// admitted first has already resolved this awaiting as superseded above.
+	if awaiting.SteerReplan && req.ContinuationRunID != "" && (ok || awaiting.AwaitingID != "") {
+		c.steerClosed = true
+	}
 	if ok {
 		delete(c.submitWaiters, awaitingID)
 		delete(c.awaitingSubmits, awaitingID)
@@ -1003,12 +1015,22 @@ func (c *RunControl) deleteAwaitingAliasesLocked(rawAwaitingID string) {
 }
 
 func (c *RunControl) ExpectSubmit(ctx AwaitingSubmitContext) {
+	c.expectSubmit(ctx)
+}
+
+func (c *RunControl) expectSubmit(ctx AwaitingSubmitContext) bool {
 	ctx.AwaitingID = strings.TrimSpace(ctx.AwaitingID)
 	ctx.PublicAwaitingID = strings.TrimSpace(ctx.PublicAwaitingID)
 	if c == nil || ctx.AwaitingID == "" {
-		return
+		return false
 	}
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Lifecycle delivery may race a submit or a steer after the producer has
+	// registered the awaiting. Never resurrect a resolved confirmation.
+	if _, resolved := c.lookupResolvedSubmitLocked(ctx.PublicAwaitingID, ctx.AwaitingID); resolved {
+		return false
+	}
 	// The run executor observes the emitted awaiting.ask after the Team
 	// coordinator has registered its reversible child routes. Preserve that
 	// internal routing metadata when the generic lifecycle registration for the
@@ -1016,11 +1038,18 @@ func (c *RunControl) ExpectSubmit(ctx AwaitingSubmitContext) {
 	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && len(ctx.Routes) == 0 && len(existing.Routes) > 0 {
 		ctx.Routes = cloneAwaitingSubmitRoutes(existing.Routes)
 	}
+	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && existing.SteerReplan {
+		ctx.SteerReplan = true
+	}
 	c.awaitingSubmits[ctx.AwaitingID] = ctx.Clone()
 	if ctx.PublicAwaitingID != "" && ctx.PublicAwaitingID != ctx.AwaitingID {
 		c.awaitingAliases[ctx.PublicAwaitingID] = ctx.AwaitingID
 	}
-	c.mu.Unlock()
+	if ctx.SteerReplan && len(c.steerQueue) > 0 {
+		c.supersedePlanningLocked(ctx)
+		return false
+	}
+	return true
 }
 
 func (c *RunControl) ClearExpectedSubmit(awaitingID string) {

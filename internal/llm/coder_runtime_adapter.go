@@ -35,6 +35,7 @@ func (a coderRuntimeAdapter) NewStageRunStream(ctx context.Context, req api.Quer
 		ToolChoice:                   options.ToolChoice,
 		PreserveProvidedSystemPrompt: options.PreserveProvidedSystemPrompt,
 		PostToolHook:                 options.PostToolHook,
+		PreserveSteersOnFinish:       options.PreserveSteersOnFinish,
 	})
 }
 

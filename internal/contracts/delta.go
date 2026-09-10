@@ -166,6 +166,14 @@ type DeltaPlanningEnd struct {
 
 func (DeltaPlanningEnd) agentDeltaTag() {}
 
+type DeltaPlanningSuperseded struct {
+	PlanningID   string
+	PlanningFile string
+	AwaitingID   string
+}
+
+func (DeltaPlanningSuperseded) agentDeltaTag() {}
+
 type DeltaTaskLifecycle struct {
 	Kind         string
 	TaskID       string

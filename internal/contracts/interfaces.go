@@ -600,6 +600,9 @@ type AwaitingSubmitContext struct {
 	Routes    []AwaitingSubmitRoute
 	NoTimeout bool
 	Timeout   int64
+	// SteerReplan lets the native planning producer supersede this confirmation
+	// atomically with steer admission. Generic/recovered waiters do not opt in.
+	SteerReplan bool
 }
 
 type AwaitingSubmitRoute struct {
@@ -622,6 +625,7 @@ func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 		Routes:           cloneAwaitingSubmitRoutes(c.Routes),
 		NoTimeout:        c.NoTimeout,
 		Timeout:          c.Timeout,
+		SteerReplan:      c.SteerReplan,
 	}
 }
 

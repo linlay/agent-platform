@@ -418,3 +418,5 @@ docker compose logs -f
 - [手工测试用例](./docs/手工测试用例.md)
 
 运行中的普通 native Agent / Team 协调器支持图片 steer：先通过 `/api/upload` 上传，再向 `/api/steer` 传文字和 `references`。图片冻结、回放和续聊契约见 [API与协议](docs/API与协议.md)；PROXY/CHANNEL 含图 steer 尚不支持。
+
+活动 native CODER 在 planning 输出或确认等待时收到 steer，会使旧计划失效并按新要求重新规划；新计划仍需确认，旧批准请求不能启动执行。时序与 `planning.superseded` 事件见 [HITL协议](docs/HITL协议.md)。

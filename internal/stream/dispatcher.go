@@ -53,6 +53,11 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return d.handlePlanningDelta(value)
 	case PlanningEnd:
 		return d.handlePlanningEnd(value)
+	case PlanningSuperseded:
+		return []StreamEvent{NewEvent("planning.superseded", map[string]any{
+			"planningId": value.PlanningID, "planningFile": value.PlanningFile,
+			"awaitingId": value.AwaitingID, "reason": "steer",
+		})}
 	case TaskStart:
 		return d.handleTaskStart(value)
 	case TaskComplete:

@@ -858,7 +858,12 @@ func (s *llmRunStream) appendTailSteersBeforeFinish() bool {
 	if s.runControl == nil {
 		return false
 	}
-	steers := s.runControl.DrainSteersBeforeFinish()
+	var steers []api.SteerRequest
+	if s.preserveSteersOnFinish {
+		steers = s.runControl.DrainSteers()
+	} else {
+		steers = s.runControl.DrainSteersBeforeFinish()
+	}
 	if len(steers) == 0 {
 		return false
 	}
@@ -897,7 +902,7 @@ func (s *llmRunStream) enqueueTerminalRunError(payload map[string]any) {
 }
 
 func (s *llmRunStream) closeSteers() {
-	if s.runControl != nil {
+	if s.runControl != nil && !s.preserveSteersOnFinish {
 		s.runControl.CloseSteers()
 	}
 }
