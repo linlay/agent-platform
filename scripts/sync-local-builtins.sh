@@ -137,7 +137,8 @@ collection_root="$work_dir/collection"
 copy_project() {
   local name="$1"
   mkdir -p "$collection_root/$name"
-  rsync -a --exclude 'dist' --exclude 'target' "$BUILTINS_ROOT/$name/" "$collection_root/$name/"
+  # Anchor build-output exclusions so nested runtime payload directories survive.
+  rsync -a --exclude '/dist/' --exclude '/target/' "$BUILTINS_ROOT/$name/" "$collection_root/$name/"
 }
 
 copy_project ripgrep

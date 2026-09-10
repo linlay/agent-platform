@@ -46,7 +46,8 @@ function Copy-IsolatedProject {
     $source = Join-Path $BuiltinsRoot $Name
     $destination = Join-Path $CollectionRoot $Name
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
-    & robocopy $source $destination /E /XD dist target /XF .DS_Store /NFL /NDL /NJH /NJS /NP
+    # Exclude only project build outputs; payloads may contain runtime dist/target directories.
+    & robocopy $source $destination /E /XD (Join-Path $source "dist") (Join-Path $source "target") /XF .DS_Store /NFL /NDL /NJH /NJS /NP
     if ($LASTEXITCODE -ge 8) {
         throw "robocopy failed for $Name with exit code $LASTEXITCODE"
     }

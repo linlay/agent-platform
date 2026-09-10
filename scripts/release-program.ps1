@@ -108,6 +108,8 @@ function Compress-Directory {
     }
 
     if ($Format -eq "zip") {
+        # Windows PowerShell 5.1 requires both assemblies before resolving ZipArchiveMode.
+        Add-Type -AssemblyName System.IO.Compression
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         if (Test-Path -LiteralPath $OutputPath) {
             Remove-Item -LiteralPath $OutputPath -Force
@@ -115,7 +117,23 @@ function Compress-Directory {
         # Archive the stage root directly. Moving the bundle into another
         # temporary directory deleted the staging tree that size and SBOM
         # generation still consume after compression.
-        [System.IO.Compression.ZipFile]::CreateFromDirectory($StageRoot, $OutputPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+        # .NET Framework on Windows emits backslash entry names. ZIP requires
+        # forward slashes so Go and other readers preserve empty directories.
+        $stagePrefix = [IO.Path]::GetFullPath($StageRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        $archive = [IO.Compression.ZipFile]::Open($OutputPath, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($item in Get-ChildItem -LiteralPath $StageRoot -Recurse -Force) {
+                $entryName = $item.FullName.Substring($stagePrefix.Length).Replace('\', '/')
+                if ($item.PSIsContainer) {
+                    $entry = $archive.CreateEntry($entryName + '/')
+                    $entry.ExternalAttributes = 16 # DOS directory attribute.
+                } else {
+                    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $item.FullName, $entryName, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+                }
+            }
+        } finally {
+            $archive.Dispose()
+        }
     } else {
         $oldPwd = $PWD
         Push-Location $StageRoot

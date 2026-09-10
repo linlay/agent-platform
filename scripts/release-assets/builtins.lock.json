@@ -187,14 +187,14 @@
           "sha256": "186214fd85c7228ab7618ef00e1ccc032c3d524a5cd7f2d5e3c72943927bb969"
         },
         "windows-amd64": {
-          "version": "v0.1.1",
+          "version": "v0.1.9",
           "source": "https://github.com/linlay/cli-httpx.git",
-          "commit": "9ae78b3aa8a928dadce57566bf8d92667ae5eeee",
-          "path": "dist/v0.1.1/httpx_v0.1.1_windows_amd64.zip",
+          "commit": "6dcca791338a95bfba983dbd03f6aed17e19dec7",
+          "path": "dist/v0.1.9/httpx_v0.1.9_windows_amd64.zip",
           "format": "zip",
           "entry": "httpx.exe",
           "output": "httpx.exe",
-          "sha256": "abccf98ea7ef694c17061a23c9b62d771099d80810b14fc7dd022956a4044b1a"
+          "sha256": "d76d0851f3baa14937aa75616b09c8193b723679af8db0ca2352b189b71c6ab1"
         },
         "windows-arm64": {
           "version": "v0.1.1",

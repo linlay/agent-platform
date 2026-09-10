@@ -8,8 +8,11 @@
 
 ## 已实现部件
 
-- 相邻 `agent-platform-builtins/git-bash` 项目：独立包版本 `v1.0.0`；完整 PortableGit
+- 相邻 `agent-platform-builtins/git-bash` 项目：独立包版本 `v1.1.0`；来源为 PortableGit
   `2.55.0.windows.5` Windows/amd64；原始上游版本、URL、SHA 与包版本分离。
+  完整 source payload 保留 9,586 个文件；默认 build 校验来源后生成 `minimal-v1`
+  精简发布树，当前 ZIP 为 2,978 个文件。裁剪沿用两轮候选规则，额外保留其中的
+  许可证/版权文件；源 payload 数量不代表最终发布数量。
 - 上游导入前验证 SHA；保留完整运行目录、DLL、配置、原始许可证、包版本清单。
   准备阶段完成可搬移 DLL 复制及虚拟设备目录创建，差异写入
   `platform-initialization.txt`；不复制准备机器的 hosts/services，也不执行安装器。
@@ -58,8 +61,17 @@ Windows 交叉编译仅用于编译检查，不构成 Windows 原生验收。整
 ## 本地产物记录
 
 - 上游原始 SHA-256：`5aa8a20f6e9abb2c755f0e73c91c687701a46b309ad84a0ca6509380fa4ae290`。
-- 包：相邻项目 `git-bash/dist/v1.0.0/git-bash_v1.0.0_windows_amd64.zip`。
-- 当前包 SHA-256：`0c9c3c680c45098de40dccc5150c73cab3d776b23b30f4e24511dac45b4e5a69`。
-- 这些是本次跨平台准备产物记录，不是正式 Windows release target。
+- 包：相邻项目 `git-bash/dist/v1.1.0/git-bash_v1.1.0_windows_amd64.zip`。
+- 当前包 SHA-256：`6217255a329beef15d95ad19be512973bff855db93241fa22d068339e066a8a8`。
+- Windows 本地精简 ZIP 为 2,978 个文件、227 个目录条目、约 90.36 MiB。
+  保留 Bash/Git、常用命令、SSH、LFS、凭据管理器及其运行依赖；不带编辑器、Perl、
+  GPG、Tcl/Tk、Git GUI、mintty 和离线帮助。Office/PDF textconv 配置随转换器移除。
+  重复 DLL 必须与保留的 bin 副本 SHA/大小一致，保留 PE 静态引用被移除 DLL 时构建失败。
+- 新包已通过单元测试、真实 PE 静态依赖检查，以及中文/空格搬移路径下的 Bash、Git
+  本地提交/clone/worktree、压缩解压冒烟测试；SSH、LFS、凭据管理器可启动。
+  真实登录、网络及完整 ConPTY 验收仍未完成，不能据此视为全部发布阻断项已解决。
+- 本次未更新 Platform cache 或 Desktop 最终包。需先执行 `scripts/sync-local-builtins.ps1`，
+  再执行 Desktop 的 `scripts/build-builtin-services.ps1`；仅执行后者仍复用旧 cache。
+  正式 lock promotion 继续遵守干净 Git commit 和原生 host 等既有约束。
 
 继续实施前需先协调重叠文件的修改归属；不要覆盖、回滚或提交另一项任务的改动。
