@@ -295,6 +295,35 @@
           }
         }
       }
+    },
+    {
+      "name": "git-bash",
+      "version": "v1.1.0",
+      "repository": "git-bash",
+      "source": "agent-platform-builtins/git-bash",
+      "commit": "f502c67351b15f836be893541330c6e9af5c55ed",
+      "kind": "archive-tree",
+      "required": false,
+      "license": "See bundled LICENSE.txt and mingw64/share/licenses",
+      "targets": {
+        "windows-amd64": {
+          "version": "v1.1.0",
+          "source": "agent-platform-builtins/git-bash",
+          "commit": "f502c67351b15f836be893541330c6e9af5c55ed",
+          "path": "dist/v1.1.0/git-bash_v1.1.0_windows_amd64.zip",
+          "format": "zip",
+          "sha256": "6217255a329beef15d95ad19be512973bff855db93241fa22d068339e066a8a8",
+          "tree": {
+            "root": "runtime",
+            "outputs": [
+              {
+                "path": "libexec/git-bash/windows-amd64",
+                "type": "dir"
+              }
+            ]
+          }
+        }
+      }
     }
   ]
 }
