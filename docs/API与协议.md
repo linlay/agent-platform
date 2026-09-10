@@ -117,6 +117,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/connectors`、`/api/admin/connectors` | 无 | 已安装连接器及组件、技能和 MCP 同步状态 |
 | GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 清单声明的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
 | GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
+| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
 | GET/POST/DELETE | `/api/admin/connectors/auth?id=<id>` | 连接器 id | 查询状态、发起登录、退出登录 |
 | POST | `/api/admin/connectors/auth/cancel?id=<id>` | 连接器 id | 取消当前登录会话 |

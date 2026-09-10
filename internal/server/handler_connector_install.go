@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/mcp"
 )
@@ -124,7 +125,16 @@ func (s *Server) handleConnectorAuthCancel(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 	status, code := http.StatusBadRequest, "invalid_connector"
+	var inUse *adminsource.ConnectorInUseError
+	if errors.As(err, &inUse) {
+		s.writeAgentHTTPResponse(w, nil, newAgentStatusErrorWithData(http.StatusConflict, "connector_in_use", err.Error(), map[string]any{"agentKeys": inUse.AgentKeys}))
+		return
+	}
 	switch {
+	case errors.Is(err, connector.ErrPackageNotFound):
+		status, code = http.StatusNotFound, "connector_not_found"
+	case errors.Is(err, connector.ErrDeleteReload):
+		status, code = http.StatusInternalServerError, "connector_reload_failed"
 	case errors.Is(err, connector.ErrBuiltinReadOnly):
 		status, code = http.StatusForbidden, "builtin_connector_readonly"
 	case errors.Is(err, connector.ErrPackageExists):

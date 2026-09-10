@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/mcp"
@@ -111,12 +112,22 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		s.writeAgentHTTPResponse(w, file, nil)
-	default:
-		if r.Method == http.MethodDelete && connector.IsBuiltin(r.URL.Query().Get("id")) {
-			s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusForbidden, "builtin_connector_readonly", connector.ErrBuiltinReadOnly.Error()))
+	case http.MethodDelete:
+		id := strings.TrimSpace(r.URL.Query().Get("id"))
+		reader, _ := s.deps.Registry.(adminsource.ConnectorUsageReader)
+		err := s.adminSources.DeleteConnector(r.Context(), sources, reader, id, func(ctx context.Context) error {
+			if s.deps.CatalogReloader != nil {
+				return s.deps.CatalogReloader.Reload(ctx, "connectors")
+			}
+			return nil
+		})
+		if err != nil {
+			s.writeConnectorError(w, err)
 			return
 		}
-		w.Header().Set("Allow", "GET, PUT")
+		s.writeAgentHTTPResponse(w, map[string]any{"id": id, "deleted": true}, nil)
+	default:
+		w.Header().Set("Allow", "GET, PUT, DELETE")
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed"))
 	}
 }
