@@ -1102,3 +1102,40 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 普通 native Agent 与 Team 协调器在原有安全点接收图片。当前模型不支持视觉、资源不可用或混入非图片时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 含图路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。图片在准入时读取并冻结，入队后同名文件修改不会替换模型输入。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
 公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带图记录要求 `messages`。前后端按后端先、前端后的顺序更新。
+
+
+## Office 在线预览 HTTP API
+
+以下接口仅使用普通 HTTP 与现有 Platform 鉴权，不通过 Run、WebSocket action 或 Agent 工具执行；响应沿用 `ApiResponse`，`Cache-Control: no-store`。
+
+`GET /api/document/preview/capabilities` 的 `data`：
+
+```json
+{"enabled":true,"supportedExtensions":["docx","pptx","xlsx"],"maxFileBytes":52428800,"openMode":"iframe"}
+```
+
+能力响应不暴露服务内部地址或凭据。`POST /api/document/preview` 的两类请求体：
+
+```json
+{"requestId":"preview-unique-id","source":{"kind":"workspace-file","agentKey":"coder","path":"reports/summary.xlsx"}}
+```
+
+```json
+{"requestId":"preview-unique-id","source":{"kind":"chat-resource","chatId":"chat-123","relativePath":"artifacts/report.pptx"}}
+```
+
+`relativePath` 是解码后的 ChatScope 相对路径，支持 Artifact、Reference、上传文件、可读取的 Team 与归档资源。不得混用两类 source 字段，也不接收任意外链。Platform 复用 `/api/file` 和 `/api/resource` 的定位、越界及读取权限检查，每次请求（包括缓存命中）重新鉴权并读取普通文件快照，校验后缀、Office 包结构与大小。
+
+成功 `data`：
+
+```json
+{"previewId":"opaque-id","sourceRevision":"sha256:content-hash","openMode":"iframe","url":"http://127.0.0.1:8090/s/opaque-share-token","expiresAt":1789084800000}
+```
+
+`expiresAt` 为毫秒 Unix 时间。成功表示上传及只读链接准备完成，渲染由 document-hub/ONLYOFFICE 页面执行，无转换轮询接口。固定分享策略为 `expiry: "1d"`、无密码、禁止下载/打印、允许复制；原文件下载继续走 Platform。
+
+相同用户、服务/认证作用域、文件身份及内容 SHA-256 复用副本，并发请求合并上传与分享准备。同一 `requestId` 绑定文件版本；变更文件必须使用新 ID，否则返回 409。文件修改上传新副本；链接到期前一分钟内重新创建链接；远端副本已删除则重新上传。前端刷新重新请求检查版本，不应把 URL 持久化为文件身份。
+
+错误使用 HTTP 状态、`msg` 和可用时的 `data.code`：400 非法请求/来源，403 无读取权限，404 文件或副本缺失，409 版本变化或 requestId 冲突，413 超限，415 不支持/无效 Office，503 未配置或凭据不可读，502 上游失败/响应不合法/上传结果未知，504 请求等待超时。上传接口无幂等键，结果未知时不自动重试；并发等待者共享失败，用户重新发起新 requestId 后才再尝试。已有远端 ID 会在创建分享前落盘，分享失败可复用该副本重试。
+
+本地读取权限变化只阻止后续预览请求，不会实时撤销已签发的公开分享；链接仍受一天有效期约束。配置和副本回收规则见 [配置化说明](配置化说明.md#office-在线预览服务)。

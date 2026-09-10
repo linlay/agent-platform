@@ -6,10 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/documentpreview"
 	"agent-platform/internal/httpclient"
 )
 
 type Config struct {
+	DocumentPreview documentpreview.Config
 	HTTPProxy       httpclient.Config
 	IdentityFile    string
 	RuntimeMode     RuntimeMode

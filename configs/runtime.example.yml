@@ -98,3 +98,17 @@ cors:
 
 billing:
   currency: CNY
+
+# Office readonly preview: local / intranet / internet document-hub.
+# Changes take effect after restarting Platform.
+document-preview:
+  enabled: false
+  provider: document-hub
+  api-base-url: http://127.0.0.1:8090
+  public-base-url: http://127.0.0.1:8090
+  auth:
+    mode: none # none / bearer-token-file
+    # token-file: /absolute/path/to/document-hub-token
+  open-mode: iframe # iframe / external
+  max-file-bytes: 52428800
+  request-timeout: 120s

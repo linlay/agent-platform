@@ -22,6 +22,7 @@ import (
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
+	"agent-platform/internal/documentpreview"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
@@ -141,6 +142,7 @@ type ChannelConnectionSnapshotProvider interface {
 }
 
 type Server struct {
+	documentPreview   *documentpreview.Service
 	router            *http.ServeMux
 	deps              Dependencies
 	authVerifier      *JWTVerifier
@@ -273,6 +275,14 @@ func New(deps Dependencies) (*Server, error) {
 	}
 	if hub, ok := deps.Notifications.(*ws.Hub); ok {
 		s.wsHandler = s.newWSHandler(hub)
+	}
+	if deps.Config.DocumentPreview.Enabled {
+		preview, err := documentpreview.New(deps.Config.DocumentPreview, deps.Config.Paths.StateDir)
+		if err != nil {
+			return nil, fmt.Errorf("initialize document preview: %w", err)
+		}
+		s.documentPreview = preview
+		go preview.RunCleanup(backgroundCtx)
 	}
 	s.routes()
 	return s, nil

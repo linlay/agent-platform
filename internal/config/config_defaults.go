@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/documentpreview"
 	"agent-platform/internal/httpclient"
 )
 
@@ -34,13 +35,14 @@ func defaultConfig(options LoadOptions) Config {
 		SkillsCenterDir:         filepath.Join(runtimeRoot, "skills-center"),
 	}
 	return Config{
-		HTTPProxy:    httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
-		IdentityFile: options.IdentityFile,
-		RuntimeMode:  runtimeMode,
-		Server:       ServerConfig{Port: "8080"},
-		Paths:        paths,
-		Agents:       CatalogConfig{ExternalDir: paths.AgentsDir},
-		Teams:        CatalogConfig{ExternalDir: paths.TeamsDir},
+		DocumentPreview: documentpreview.DefaultConfig(),
+		HTTPProxy:       httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
+		IdentityFile:    options.IdentityFile,
+		RuntimeMode:     runtimeMode,
+		Server:          ServerConfig{Port: "8080"},
+		Paths:           paths,
+		Agents:          CatalogConfig{ExternalDir: paths.AgentsDir},
+		Teams:           CatalogConfig{ExternalDir: paths.TeamsDir},
 		Skills: SkillCatalogConfig{
 			CatalogConfig:  CatalogConfig{ExternalDir: paths.SkillsCenterDir},
 			MaxPromptChars: 8000,
