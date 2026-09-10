@@ -65,7 +65,7 @@ func TestAdminSkillPackageImportAndDelete(t *testing.T) {
 	}
 }
 
-func TestAdminSkillPackageImportAdoptsExistingStandaloneSkill(t *testing.T) {
+func TestAdminSkillPackageImportRejectsExistingStandaloneSkill(t *testing.T) {
 	fixture := newTestFixture(t)
 	standaloneRoot := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "word-helper")
 	if err := os.MkdirAll(standaloneRoot, 0o755); err != nil {
@@ -83,18 +83,15 @@ func TestAdminSkillPackageImportAdoptsExistingStandaloneSkill(t *testing.T) {
 	request.Header.Set("Content-Type", "application/zip")
 	recorder := httptest.NewRecorder()
 	fixture.server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("package import over standalone skill expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected standalone ownership conflict, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 	content, err := os.ReadFile(filepath.Join(standaloneRoot, "SKILL.md"))
-	if err != nil {
-		t.Fatalf("read adopted package child: %v", err)
+	if err != nil || !bytes.Contains(content, []byte("Standalone content.")) {
+		t.Fatalf("standalone skill changed: %q err=%v", content, err)
 	}
-	if !bytes.Contains(content, []byte("Package content.")) {
-		t.Fatalf("package content did not replace standalone skill: %q", content)
-	}
-	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, ".package", "office-pack.json")); err != nil {
-		t.Fatalf("missing package state after adoption: %v", err)
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, ".package", "office-pack.json")); !os.IsNotExist(err) {
+		t.Fatalf("conflict left package state: %v", err)
 	}
 }
 

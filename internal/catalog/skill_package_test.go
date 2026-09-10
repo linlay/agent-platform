@@ -110,7 +110,7 @@ func TestEditableSkillPackageInstallUpdateDeleteAndRollback(t *testing.T) {
 	}
 }
 
-func TestEditableSkillPackageAdoptsStandaloneSkillAndRestoresItOnRollback(t *testing.T) {
+func TestEditableSkillPackageRejectsStandaloneSkillWithoutChangingIt(t *testing.T) {
 	root := t.TempDir()
 	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	standaloneRoot := filepath.Join(root, "word-helper")
@@ -127,22 +127,9 @@ func TestEditableSkillPackageAdoptsStandaloneSkillAndRestoresItOnRollback(t *tes
 		{ID: "word-helper", Version: "1.0.0", Present: true},
 		{ID: "excel-helper", Version: "1.0.0", Present: true},
 	})
-	mutation, record, err := registry.BeginImportEditableSkillPackageArchive("office-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
-	if err != nil {
-		t.Fatalf("begin package install over standalone skill: %v", err)
-	}
-	if record.ID != "office-pack" || len(record.Skills) != 2 {
-		t.Fatalf("unexpected adopted package record: %#v", record)
-	}
-	installedContent, err := os.ReadFile(standalonePath)
-	if err != nil {
-		t.Fatalf("read package-owned replacement: %v", err)
-	}
-	if bytes.Equal(installedContent, standaloneContent) {
-		t.Fatal("standalone skill was not replaced by package content")
-	}
-	if err := mutation.Rollback(); err != nil {
-		t.Fatalf("rollback package adoption: %v", err)
+	_, _, err := registry.BeginImportEditableSkillPackageArchive("office-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
+	if !errors.Is(err, ErrSkillPackageConflict) {
+		t.Fatalf("expected standalone ownership conflict, got %v", err)
 	}
 	restoredContent, err := os.ReadFile(standalonePath)
 	if err != nil {

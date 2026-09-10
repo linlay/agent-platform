@@ -38,6 +38,7 @@ type SkillPackageRecordSkill struct {
 }
 
 type SkillPackageRecord struct {
+	Name          string                    `json:"name,omitempty"`
 	SchemaVersion int                       `json:"schemaVersion"`
 	ID            string                    `json:"id"`
 	Version       string                    `json:"version"`
@@ -47,6 +48,7 @@ type SkillPackageRecord struct {
 }
 
 type skillPackageManifest struct {
+	Name          string                      `json:"name,omitempty"`
 	SchemaVersion int                         `json:"schemaVersion"`
 	Type          string                      `json:"type"`
 	ID            string                      `json:"id"`
@@ -217,15 +219,22 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
+	existingEntries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, SkillPackageRecord{}, err
+	}
+	existingKeys := make(map[string]string, len(existingEntries))
+	for _, entry := range existingEntries {
+		existingKeys[strings.ToLower(entry.Name())] = entry.Name()
+	}
 	newIDs := make(map[string]struct{}, len(prepared))
 	for _, skill := range prepared {
 		newIDs[skill.ID] = struct{}{}
 		if owner := owners[skill.ID]; owner != "" && owner != packageID {
 			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is owned by package %s", ErrSkillPackageConflict, skill.ID, owner)
 		}
-		target := filepath.Join(root, skill.ID)
-		if _, statErr := os.Lstat(target); statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-			return nil, SkillPackageRecord{}, statErr
+		if existing := existingKeys[strings.ToLower(skill.ID)]; existing != "" && (existing != skill.ID || owners[existing] != packageID) {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s already exists outside package %s", ErrSkillPackageConflict, existing, packageID)
 		}
 	}
 	for _, skill := range oldRecord.Skills {
@@ -285,6 +294,7 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 		}
 	}
 	record := SkillPackageRecord{
+		Name:          strings.TrimSpace(manifest.Name),
 		SchemaVersion: 1,
 		ID:            packageID,
 		Version:       version,

@@ -188,7 +188,8 @@ func adminSkillPackageResponse(record catalog.SkillPackageRecord) api.AdminSkill
 		skills = append(skills, api.AdminSkillPackageSkill{ID: skill.ID, Version: skill.Version})
 	}
 	return api.AdminSkillPackageResponse{
-		ID: record.ID, Version: record.Version, SHA256: record.SHA256,
+		Name: record.Name,
+		ID:   record.ID, Version: record.Version, SHA256: record.SHA256,
 		Skills: skills, InstalledAt: record.InstalledAt,
 	}
 }

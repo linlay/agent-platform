@@ -1160,7 +1160,16 @@ type AdminSkillPackageSkill struct {
 	Version string `json:"version,omitempty"`
 }
 
+// AdminSkillImportResponse keeps single-skill detail fields at the top level
+// for existing clients and identifies package imports explicitly.
+type AdminSkillImportResponse struct {
+	Kind string `json:"kind"`
+	*AdminSkillDetailResponse
+	Package *AdminSkillPackageResponse `json:"package,omitempty"`
+}
+
 type AdminSkillPackageResponse struct {
+	Name        string                   `json:"name,omitempty"`
 	ID          string                   `json:"id"`
 	Version     string                   `json:"version"`
 	SHA256      string                   `json:"sha256"`

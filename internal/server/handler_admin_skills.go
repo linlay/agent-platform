@@ -98,8 +98,13 @@ func (s *Server) handleAdminSkillCreate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleAdminSkillImport(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, catalog.EditableSkillMaxUploadBytes+(1<<20))
-	if err := r.ParseMultipartForm(catalog.EditableSkillMaxUploadBytes); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, catalog.EditableSkillPackageMaxUploadBytes+(1<<20))
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			s.writeAgentHTTPResponse(w, nil, mapSkillEditError(catalog.ErrSkillArchiveUploadTooLarge))
@@ -109,10 +114,6 @@ func (s *Server) handleAdminSkillImport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	key := strings.TrimSpace(r.FormValue("key"))
-	if key == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "key is required"))
-		return
-	}
 	file, header, err := pickSkillArchiveUpload(r.MultipartForm)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
@@ -127,9 +128,26 @@ func (s *Server) handleAdminSkillImport(w http.ResponseWriter, r *http.Request) 
 		s.writeAgentHTTPResponse(w, nil, mapSkillEditError(catalog.ErrSkillArchiveInvalid))
 		return
 	}
-	if header.Size > catalog.EditableSkillMaxUploadBytes {
-		s.writeAgentHTTPResponse(w, nil, mapSkillEditError(catalog.ErrSkillArchiveUploadTooLarge))
+	packageID, version, isPackage, err := catalog.DetectSkillPackageArchive(file, header.Size)
+	if err != nil {
+		s.writeAgentHTTPResponse(w, nil, mapSkillEditError(err))
 		return
+	}
+	if isPackage {
+		installed, err := s.importAdminSkillPackage(r.Context(), packageID, version, file, header.Size)
+		if err != nil {
+			s.writeAgentHTTPResponse(w, nil, err)
+			return
+		}
+		s.writeAgentHTTPResponse(w, api.AdminSkillImportResponse{Kind: "skill-package", Package: &installed}, nil)
+		return
+	}
+	if key == "" {
+		key, err = catalog.DetectEditableSkillArchiveKey(file, header.Size)
+		if err != nil {
+			s.writeAgentHTTPResponse(w, nil, mapSkillEditError(err))
+			return
+		}
 	}
 	created, err := s.importAdminSkill(r.Context(), key, file, header.Size)
 	if err != nil {
@@ -137,7 +155,7 @@ func (s *Server) handleAdminSkillImport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	response, err := s.adminSkillDetail(created.Key, "SKILL.md")
-	s.writeAgentHTTPResponse(w, response, err)
+	s.writeAgentHTTPResponse(w, api.AdminSkillImportResponse{Kind: "skill", AdminSkillDetailResponse: &response}, err)
 }
 
 func pickSkillArchiveUpload(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {
