@@ -340,7 +340,7 @@ run 控制接口从 `agentKey/teamId` 推导互斥身份：Agent-owned run 必�
 
 BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
 
-Desktop 的 BTW 实时入口是普通 WebSocket v2 上的 route `/api/btw`，但只接受已认证且握手 metadata 为 `source=desktop-btw` 的连接；普通 `/api/query` 在该 lane 固定拒绝。一个 BTW 连接可以并发创建、继续和 attach 多个 BTW Run，detach、submit、steer 与 interrupt 沿用现有 run owner 校验。HTTP `POST /api/btw` 保留为 Platform 公共接口，但 Desktop 不把它作为旧协议 fallback。
+Desktop 的 BTW 实时入口是普通 WebSocket v2 上的 route `/api/btw`，只接受已认证的 `source=desktop-btw` 或 `source=desktop-selection-explain` 连接。前者承载主聊天 WorkPanel 的顺便问，后者为 Desktop 独立详细解释窗口保留单独物理连接；两个 lane 都固定拒绝普通 `/api/query`。一个 lane 可以并发创建、继续和 attach 多个 BTW Run，detach、submit、steer 与 interrupt 沿用现有 run owner 校验。独立解释 lane 不新增模型业务 API，不放宽 app 身份校验，也不为普通浏览器增加解释 WS 入口。HTTP `POST /api/btw` 保留为 Platform 公共接口，但 Desktop 不把它作为旧协议 fallback。
 
 BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 chat 保持一致；只读说明放在本次 user message。平台内置查询工具可执行，写文件、Bash、memory mutation、plan mutation、agent invoke、artifact/image、desktop、frontend/action 等工具返回 `btw_tool_disabled` 且不会进入 HITL。MCP / agent-local / external 工具只有 `meta.readOnly:true` 时可执行；MCP `annotations.readOnlyHint:true` 会映射为该字段。proxy/channel/ACP coder 因工具执行不经过本地门禁，返回 `btw_backend_unsupported`。
 
@@ -734,9 +734,10 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - 入口：`GET /ws`，HTTP upgrade 为 WebSocket。
 - 鉴权：复用 HTTP token 校验链路。
 - token 可通过 `Sec-WebSocket-Protocol: bearer.<token>` 或 query token 传递；服务端会在握手成功时回写匹配的 subprotocol。
-- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`。普通 source 转小写后只用于监控和日志展示，不参与权限或能力声明；Desktop 的 `desktop-main` / `desktop-btw` 是两个受限 lane 标识，但仍必须同时通过 app scope、JWT device claim 与握手 deviceId 校验，`source` 本身绝不构成授权。
-- WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。Desktop Broker 不再按 Main Chat、Copilot 或 WebView surface 创建连接：同一设备只登记一个 `desktop-main`，并在首次 BTW 时登记一个 `desktop-btw`。
-- `desktop-main` 是唯一 Desktop Main 默认 target，接收全局 Push 和反向 Desktop Action/CDP；`desktop-btw` 不参与默认 target replacement，不接收这些 Push/request。第二条相同 Desktop lane 连接只替换该 lane 的旧连接，Primary 与 BTW 可以同时存活。
+- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`。普通 source 转小写后只用于监控和日志展示，不参与权限或能力声明；Desktop 的 `desktop-main` / `desktop-btw` / `desktop-selection-explain` 是三个受限 lane 标识，但仍必须同时通过 app scope、JWT device claim 与握手 deviceId 校验，`source` 本身绝不构成授权。
+- WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。Desktop Broker 不按 Main Chat、Copilot 或普通 WebView surface 创建连接：同一设备登记一个 `desktop-main`，按需登记一个 WorkPanel `desktop-btw` 和一个独立解释 `desktop-selection-explain`。三个物理 lane 使用各自独立的 surfaceId；解释 lane 的 source 与 surfaceId 均为 `desktop-selection-explain`。
+- `desktop-main` 是唯一 Desktop Main 默认 target，接收全局 Push 和反向 Desktop Action/CDP；`desktop-btw` 与 `desktop-selection-explain` 不参与默认 target replacement，也不接收这些 Push/request。相同 Desktop lane 的新连接只替换本 lane 的旧连接，三个 lane 可以同时存活；任一辅助 lane 关闭或重连不关闭其他 lane，旧 generation 的迟到注销不移除新连接。
+- 这三个 source 及同名 surfaceId 都是保留身份，在 WebSocket upgrade 和通用 Surface map 登记前校验对应 app/device 授权；未授权或 source/surfaceId 不匹配返回 HTTP 403，即使尚无合法 lane 也不得预先占用。物理 lane 可省略 surfaceId，显式提供时必须与自身 source 同名。Main 未提供 surfaceId 时保持空值，不进入普通 Surface map，其反向 target 按服务端生成的 SessionId 精确解析。
 - WebSocket 控制面常开；没有单独的关闭开关。
 
 普通 `/ws` 使用唯一的协议版本 2。Upgrade 成功后服务端必须先发送 `push.connected`；客户端校验该帧后才能把连接视为可用。版本缺失/不匹配、首帧不是 connected、字段缺失或存活参数越界都属于协议错误，应立即关闭而不是继续收发业务帧。握手等待上限为 10 秒。
@@ -827,7 +828,7 @@ Desktop 模式由 Main Broker 按正式 Action 注册表处理 83 个具体 `des
 | `awaiting.answered` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`answeredAt`、可选 `errorCode` / `submitId` / `durationMs` |
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`pushedAt` |
 
-上述全局 Push 广播排除 `desktop-btw` 连接。BTW lane 只接收握手、heartbeat、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW RunChannel。
+上述全局 Push 广播排除 `desktop-btw` 与 `desktop-selection-explain` 连接。两个辅助 lane 只接收握手、heartbeat、auth.expiring、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW 与解释 RunChannel。
 
 除 `heartbeat.timestamp` 外，platform 主动发送的 push payload 不使用 `timestamp`；它们用上表的业务语义时间字段。这是硬切换，不会双写旧字段，前端与服务端需要同版本发布。SSE 与 WebSocket `frame:"stream"` 的 `event.timestamp` 仍是每个业务流事件必填的 epoch milliseconds。`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
 
@@ -851,7 +852,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `reason` | stream | stream 结束或中断原因 |
 | `lastSeq` | stream | 已发送事件序号，可用于 attach |
 
-当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 与后续 `GET /api/attach` 中发送 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。WebSocket query/attach 则直接使用发起请求的连接。每次成功且具有有效 target 的 attach 都把该连接或逻辑 surface 设为 run 的最新反向 Action target；失败 attach 和不带 target headers 的普通 HTTP attach 不改变原绑定。统一 Desktop Action 与 CDP 都使用当前 run 的通用 `budget.tool.timeout`，没有独立 Desktop 超时配置。
+当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 与后续 `GET /api/attach` 中发送 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。WebSocket query/attach 则直接使用发起请求的连接。普通连接每次成功且具有有效 target 的 attach 都把该连接或逻辑 surface 设为 run 的最新反向 Action target；`desktop-btw` 和 `desktop-selection-explain` 的 attach 只建立 observer，不改写已有反向 Action target。失败 attach 和不带 target headers 的普通 HTTP attach 不改变原绑定。统一 Desktop Action 与 CDP 都使用当前 run 的通用 `budget.tool.timeout`，没有独立 Desktop 超时配置。
 
 回放事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的公开 live stream 游标；replay 时会把它注入到对应事件 payload，供 attach cursor 使用。新的 Native / Team run 对外事件序号严格连续，`llm.request`、内部 snapshot、隐藏工具等不发布事件不占号；PROXY / CHANNEL 保持上游序号语义。
 
@@ -888,7 +889,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/automation/execution` | `executionId` 或 `id` | `response` |
 | `/api/chats/search` | `query`、`agentKey`、`teamId`、`limit` | `response` |
 | `/api/query` | `QueryRequest` | `stream` |
-| `/api/btw` | BTW query payload | `stream`；仅 `source=desktop-btw` 的已认证 Desktop lane |
+| `/api/btw` | BTW query payload | `stream`；仅 `source=desktop-btw` 或 `source=desktop-selection-explain` 的已认证 Desktop lane |
 | `/api/attach` | `runId`、`agentKey` 或 `teamId`、`lastSeq` | `stream` |
 | `/api/detach` | `runId`、`agentKey` 或 `teamId`、`reason` | `response`；关闭当前 WS 连接上该 run 的 observer，不中断 run |
 | `/api/terminal/open` | `agentKey`、可选 `terminalKey`、`cols`、`rows` | `stream`；agent scope attach-or-create；兼容传入的 `chatId` 会被忽略 |

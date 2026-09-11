@@ -22,6 +22,14 @@ import (
 )
 
 func TestBTWStreamsOverWebSocket(t *testing.T) {
+	testBTWStreamsOverWebSocket(t, "desktop-btw")
+}
+
+func TestSelectionExplainStreamsOverWebSocket(t *testing.T) {
+	testBTWStreamsOverWebSocket(t, "desktop-selection-explain")
+}
+
+func testBTWStreamsOverWebSocket(t *testing.T, source string) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-btw-websocket"
 	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
@@ -32,7 +40,7 @@ func TestBTWStreamsOverWebSocket(t *testing.T) {
 	server := newLoopbackServer(t, fixture.server)
 	defer server.Close()
 	conn, _, err := gws.DefaultDialer.Dial(
-		"ws"+strings.TrimPrefix(server.URL, "http")+"/ws?source=desktop-btw&deviceId=device-btw",
+		"ws"+strings.TrimPrefix(server.URL, "http")+"/ws?source="+source+"&deviceId=device-btw&surfaceId="+source,
 		nil,
 	)
 	if err != nil {
@@ -88,6 +96,14 @@ func TestBTWStreamsOverWebSocket(t *testing.T) {
 }
 
 func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
+	testBTWWebSocketLaneGuardsAndMultiplexing(t, "desktop-btw", "btw_lane_query_forbidden")
+}
+
+func TestSelectionExplainWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
+	testBTWWebSocketLaneGuardsAndMultiplexing(t, "desktop-selection-explain", "selection_explain_lane_query_forbidden")
+}
+
+func testBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T, source string, queryErrorType string) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-btw-websocket-multiplex"
 	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
@@ -131,8 +147,16 @@ func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
 		t.Fatalf("primary BTW error type = %q, want btw_ws_lane_required", laneError.Type)
 	}
 
-	btw := dial("desktop-btw")
+	var workPanelBTW *gws.Conn
+	if source == "desktop-selection-explain" {
+		workPanelBTW = dial("desktop-btw")
+		defer workPanelBTW.Close()
+	}
+	btw := dial(source)
 	defer btw.Close()
+	if workPanelBTW != nil && hub.MonitorOverview(5).WS.ConnectionCount != 3 {
+		t.Fatal("Main, WorkPanel BTW and selection explanation must keep three physical connections")
+	}
 	if err := btw.WriteJSON(platformws.RequestFrame{
 		Frame:   platformws.FrameRequest,
 		Type:    "/api/query",
@@ -144,8 +168,8 @@ func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
 	if err := btw.ReadJSON(&laneError); err != nil {
 		t.Fatalf("read BTW query lane error: %v", err)
 	}
-	if laneError.Type != "btw_lane_query_forbidden" {
-		t.Fatalf("BTW query error type = %q, want btw_lane_query_forbidden", laneError.Type)
+	if laneError.Type != queryErrorType {
+		t.Fatalf("BTW query error type = %q, want %s", laneError.Type, queryErrorType)
 	}
 
 	requestIDs := []string{"btw-multiplex-1", "btw-multiplex-2"}
@@ -184,6 +208,34 @@ func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
 	}
 	if len(runIDs) != 2 || runIDs[requestIDs[0]] == "" || runIDs[requestIDs[0]] == runIDs[requestIDs[1]] {
 		t.Fatalf("multiplexed BTW runs are not independent: %#v", runIDs)
+	}
+	if workPanelBTW != nil {
+		for _, request := range []struct {
+			conn    *gws.Conn
+			id      string
+			route   string
+			payload map[string]any
+		}{
+			{primary, "main-after-explanation", "/api/query", map[string]any{"chatId": "chat-main-after-explanation", "agentKey": "mock-agent", "message": "main still available"}},
+			{workPanelBTW, "work-panel-after-explanation", "/api/btw", map[string]any{"chatId": chatID, "message": "work panel still available"}},
+		} {
+			sendSelectionLaneRequest(t, request.conn, request.id, request.route, request.payload)
+			for {
+				frame := readSelectionLaneFrame(t, request.conn)
+				if frame.ID != request.id {
+					continue
+				}
+				if frame.Frame != platformws.FrameStream {
+					t.Fatalf("explanation affected %s: %#v", request.route, frame)
+				}
+				if frame.Reason != "" {
+					if frame.Reason != "done" {
+						t.Fatalf("%s ended with %s", request.route, frame.Reason)
+					}
+					break
+				}
+			}
+		}
 	}
 }
 

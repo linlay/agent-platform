@@ -119,7 +119,7 @@ func newClientRequestTestConnection(t *testing.T) (*Hub, *httptest.Server, *gws.
 	hub := NewHub()
 	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 8, PingInterval: 30}, hub, testAuthenticator{})
 	server := httptest.NewServer(handler)
-	socketURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?source=desktop-main&deviceId=device-1&surfaceId=surface-1"
+	socketURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?source=webclient&deviceId=device-1&surfaceId=surface-1"
 	client, _, err := gws.DefaultDialer.Dial(socketURL, nil)
 	if err != nil {
 		server.Close()
