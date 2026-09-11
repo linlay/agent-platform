@@ -363,7 +363,8 @@ func extractZip(archivePath, destination string) error {
 			return fmt.Errorf("unsafe archive entry %q: %w", entry.Name, err)
 		}
 		targetPath := filepath.Join(destination, filepath.FromSlash(relativePath))
-		if entry.FileInfo().IsDir() {
+		isDir := entry.FileInfo().IsDir() || strings.HasSuffix(entry.Name, "/") || strings.HasSuffix(entry.Name, "\\")
+		if isDir {
 			if err := os.MkdirAll(targetPath, 0o755); err != nil {
 				return err
 			}
