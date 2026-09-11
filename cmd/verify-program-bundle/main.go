@@ -134,6 +134,9 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 	if err := builtins.VerifyManifest(root, builtinManifest); err != nil {
 		return err
 	}
+	if err := builtins.VerifyPlatformSelection(root, builtinManifest); err != nil {
+		return err
+	}
 	component, err := findSidecarComponent(builtinManifest)
 	if err != nil {
 		return err

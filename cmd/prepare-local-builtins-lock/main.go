@@ -93,9 +93,22 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 	if err != nil {
 		return err
 	}
+	bundleGitBash, err := builtins.BundleGitBashFromEnv()
+	if err != nil {
+		return err
+	}
+	if !bundleGitBash {
+		components := make([]builtins.Component, 0, len(lock.Components))
+		for _, component := range lock.Components {
+			if component.Name != builtins.GitBashComponent {
+				components = append(components, component)
+			}
+		}
+		lock.Components = components
+	}
 	lock.SchemaVersion = 2
 	for _, requested := range requestedTargets {
-		if requested == "windows/amd64" {
+		if bundleGitBash && requested == "windows/amd64" {
 			if _, err := builtins.FindComponent(lock, builtins.GitBashComponent); err != nil {
 				lock.Components = append(lock.Components, gitBashSeed())
 			}

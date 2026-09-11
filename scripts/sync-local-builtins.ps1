@@ -6,6 +6,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$bundleGitBashValue = "$env:BUNDLE_GIT_BASH".Trim().ToLowerInvariant()
+if ($bundleGitBashValue -notin @('', 'true', 'false')) { throw 'BUNDLE_GIT_BASH must be true or false' }
+$bundleGitBash = $bundleGitBashValue -ne 'false'
+Write-Host "[builtins-sync] bundle Git Bash: $bundleGitBash"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ScriptDir
 $BuildRoot = Join-Path $RepoRoot "build/builtins"
@@ -124,7 +128,7 @@ try {
         Copy-IsolatedProject -Name $component -CollectionRoot $CollectionRoot
     }
 
-    if ($Targets -contains "windows/amd64") {
+    if ($bundleGitBash -and ($Targets -contains "windows/amd64")) {
         if (-not (Test-Path -LiteralPath (Join-Path $BuiltinsRoot "git-bash") -PathType Container)) {
             throw "Missing prepared git-bash builtin project"
         }

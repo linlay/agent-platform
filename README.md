@@ -100,6 +100,8 @@ make build-local
 make run-local
 ```
 
+Windows 可用构建环境变量 `BUNDLE_GIT_BASH=false` 排除 Git Bash，默认 `true`。该变量同时适用于 builtin sync、Platform release 和继承环境的 Desktop 构建脚本；不修改正式 lock 或运行时 Shell 配置。已有完整 cache 时可直接执行 `make release BUNDLE_GIT_BASH=false`。详见 [Git Bash 可选打包](docs/WindowsGitBash实施进度.md#可选打包-git-bash)。
+
 本次连接器布局升级后，本机 cache 需要通过 `sync-local-builtins` 更新一次：dbx/httpx 从全局 bin 转为完整 builtin connector，由 Platform 直接加载随包版本，仅挂载它们的 Agent 会增加相应 PATH。旧全局 bin cache 会明确阻止启动。
 
 `make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 包含 agents、connectors、chats、skills-center、registries、memory 等运行数据；Platform 会由 agents、skills-center 与挂载的 connectors 重建 `ru-agents/` 作为唯一 Agent 执行目录。

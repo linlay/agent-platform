@@ -1,3 +1,5 @@
+BUNDLE_GIT_BASH ?= true
+export BUNDLE_GIT_BASH
 COMPOSE_FILE ?= compose.yml
 CGO_ENABLED ?= 0
 LOCAL_RELEASE_ROOT ?= release-local

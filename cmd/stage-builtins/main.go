@@ -21,6 +21,10 @@ func main() {
 	targetArch := flag.String("arch", "", "target architecture")
 	resolveComponent := flag.String("resolve-component", "", "print locked version and repository path")
 	flag.Parse()
+	bundleGitBash, err := builtins.BundleGitBashFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	root, err := filepath.Abs(*repoRoot)
 	if err != nil {
@@ -62,10 +66,11 @@ func main() {
 			resolvedCacheDir = filepath.Join(root, resolvedCacheDir)
 		}
 		result, err := builtins.StageCache(builtins.CacheStageOptions{
-			CacheDir:  resolvedCacheDir,
-			OutputDir: *outputDir,
-			GOOS:      *targetOS,
-			GOARCH:    *targetArch,
+			ExcludeGitBash: !bundleGitBash,
+			CacheDir:       resolvedCacheDir,
+			OutputDir:      *outputDir,
+			GOOS:           *targetOS,
+			GOARCH:         *targetArch,
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -74,12 +79,13 @@ func main() {
 		return
 	}
 	result, err := builtins.Stage(builtins.StageOptions{
-		RepoRoot:     root,
-		LockPath:     resolvedLockPath,
-		BuiltinsRoot: *builtinsRoot,
-		OutputDir:    *outputDir,
-		GOOS:         *targetOS,
-		GOARCH:       *targetArch,
+		ExcludeGitBash: !bundleGitBash,
+		RepoRoot:       root,
+		LockPath:       resolvedLockPath,
+		BuiltinsRoot:   *builtinsRoot,
+		OutputDir:      *outputDir,
+		GOOS:           *targetOS,
+		GOARCH:         *targetArch,
 	})
 	if err != nil {
 		log.Fatal(err)

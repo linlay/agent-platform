@@ -84,18 +84,20 @@ type TargetMetadata struct {
 }
 
 type StageOptions struct {
-	RepoRoot     string
-	LockPath     string
-	BuiltinsRoot string
-	OutputDir    string
-	GOOS         string
-	GOARCH       string
+	ExcludeGitBash bool
+	RepoRoot       string
+	LockPath       string
+	BuiltinsRoot   string
+	OutputDir      string
+	GOOS           string
+	GOARCH         string
 }
 
 type Manifest struct {
-	SchemaVersion int                 `json:"schemaVersion"`
-	Platform      ManifestPlatform    `json:"platform"`
-	Components    []ManifestComponent `json:"components"`
+	GitBashExcluded bool                `json:"gitBashExcluded,omitempty"`
+	SchemaVersion   int                 `json:"schemaVersion"`
+	Platform        ManifestPlatform    `json:"platform"`
+	Components      []ManifestComponent `json:"components"`
 }
 
 type ManifestPlatform struct {
@@ -198,6 +200,7 @@ func FindComponent(lock Lock, name string) (Component, error) {
 }
 
 func Stage(options StageOptions) (StageResult, error) {
+	options.ExcludeGitBash = options.ExcludeGitBash && options.GOOS == "windows" && options.GOARCH == "amd64"
 	repoRoot, err := filepath.Abs(options.RepoRoot)
 	if err != nil {
 		return StageResult{}, err
@@ -233,7 +236,16 @@ func Stage(options StageOptions) (StageResult, error) {
 			Arch: options.GOARCH,
 		},
 	}
+	manifest.GitBashExcluded = options.ExcludeGitBash
+	if options.ExcludeGitBash {
+		if err := removeExcludedGitBash(outputDir); err != nil {
+			return StageResult{}, err
+		}
+	}
 	for _, component := range lock.Components {
+		if options.ExcludeGitBash && component.Name == GitBashComponent {
+			continue
+		}
 		target, ok := component.Targets[targetKey]
 		if !ok {
 			if component.Required {

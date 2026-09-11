@@ -75,3 +75,23 @@ Windows 交叉编译仅用于编译检查，不构成 Windows 原生验收。整
   正式 lock promotion 继续遵守干净 Git commit 和原生 host 等既有约束。
 
 继续实施前需先协调重叠文件的修改归属；不要覆盖、回滚或提交另一项任务的改动。
+
+### 可选打包 Git Bash
+
+macOS 原本不打包 Git Bash，保持现有流程且不增加排除标记。以下开关只控制 Windows/amd64 的 Git Bash 打包选择。
+
+构建环境变量 `BUNDLE_GIT_BASH` 默认 `true`，仅接受 `true`/`false`（不区分大小写）。它独立于运行时 `bash.git-bash.enabled`，不写入 `.env` 或正式 builtin lock。
+
+```powershell
+$env:BUNDLE_GIT_BASH = "false"
+# 已有完整 cache 时，可直接执行 Desktop 构建入口：
+& C:\Project\zenmind\zenmind-desktop\scripts\build-builtin-services.ps1
+# 或在 Platform 仓库仅生成 Platform 包：
+make release ARCH=amd64
+```
+
+需要首次准备或更新其他 builtin 时，同一环境下执行 `scripts/sync-local-builtins.ps1`：关闭开关会跳过 Git Bash 来源复制、构建、临时 lock 解析与 staging，且不 promotion Git Bash 正式 lock 记录。其他 builtin 仍按既有流程处理。Shell 入口同样支持 `BUNDLE_GIT_BASH=false ./scripts/sync-local-builtins.sh`，也可用 `make release BUNDLE_GIT_BASH=false`。
+
+release 关闭时直接从既有 cache 排除 Git Bash 文件、独立许可证/SBOM 目录及组件记录，不修改源 cache。生成的 `builtins.manifest.json` 使用 `gitBashExcluded: true` 明确记录主动排除；发布校验拒绝标记与组件冲突、残留 Git Bash 文件，以及默认开启却缺少组件的情况。sync 则会原子更新 cache 为本次选择的组件集；若重新开启后 cache 缺少 Git Bash，需先以 `true` 重新 sync。
+
+恢复默认可用 `$env:BUNDLE_GIT_BASH = "true"` 或 `Remove-Item Env:BUNDLE_GIT_BASH`。不含 Git Bash 的包应保持运行时 `bash.git-bash.enabled: false`，使用已有 Shell 配置；错误开启会明确报组件缺失，不会自动切换到 PowerShell。当前默认运行配置无需改变。

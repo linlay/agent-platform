@@ -64,6 +64,14 @@ func verifyGitBashAt(root string) (string, error) {
 // RequirePlatformComponents is a release completeness gate in addition to
 // checksum verification (which alone cannot detect an omitted component).
 func RequirePlatformComponents(manifest Manifest) error {
+	if manifest.GitBashExcluded {
+		for _, component := range manifest.Components {
+			if component.Name == GitBashComponent {
+				return fmt.Errorf("git-bash is both excluded and present in builtin manifest")
+			}
+		}
+		return nil
+	}
 	if manifest.Platform.OS != "windows" || manifest.Platform.Arch != "amd64" {
 		return nil
 	}
