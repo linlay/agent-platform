@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -636,7 +637,7 @@ func TreeDigest(root string, outputs []TreeOutput) (string, error) {
 			}
 			relative = filepath.ToSlash(relative)
 			if info.IsDir() {
-				records = append(records, "d\x00"+relative+"\x00"+fmt.Sprintf("%04o", info.Mode().Perm()))
+				records = append(records, "d\x00"+relative+"\x00"+fmt.Sprintf("%04o", archiveModeForPath(relative, info.Mode()).Perm()))
 				return nil
 			}
 			file, err := os.Open(current)
@@ -653,7 +654,7 @@ func TreeDigest(root string, outputs []TreeOutput) (string, error) {
 				return closeErr
 			}
 			hashes[relative] = hex.EncodeToString(hash.Sum(nil))
-			records = append(records, "f\x00"+relative+"\x00"+fmt.Sprintf("%04o", info.Mode().Perm()))
+			records = append(records, "f\x00"+relative+"\x00"+fmt.Sprintf("%04o", archiveModeForPath(relative, info.Mode()).Perm()))
 			return nil
 		})
 		if walkErr != nil {
@@ -761,7 +762,8 @@ func extractArchiveTree(archivePath, format string, layout TreeLayout, destinati
 		}
 		defer reader.Close()
 		for _, entry := range reader.File {
-			if entry.FileInfo().IsDir() {
+			isDir := entry.FileInfo().IsDir() || strings.HasSuffix(entry.Name, "/") || strings.HasSuffix(entry.Name, "\\")
+			if isDir {
 				if err := writeEntry(entry.Name, entry.Mode(), true, nil); err != nil {
 					return err
 				}
@@ -836,7 +838,18 @@ func treePathAllowed(value string, directory bool, outputs []TreeOutput) bool {
 }
 
 func archiveMode(mode os.FileMode) os.FileMode {
-	if mode.Perm()&0o111 != 0 {
+	return archiveModeForPath("", mode)
+}
+
+func archiveModeForPath(path string, mode os.FileMode) os.FileMode {
+	if mode.IsDir() {
+		return 0o755
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".exe" || ext == ".dll" || ext == ".so" || ext == ".dylib" {
+		return 0o755
+	}
+	if runtime.GOOS != "windows" && mode.Perm()&0o111 != 0 {
 		return 0o755
 	}
 	return 0o644
