@@ -20,7 +20,7 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	id := "demo"
 	dir := filepath.Join(root, id)
 	os.MkdirAll(dir, 0o755)
-	manifest := connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "cli", AuthMode: connector.AuthDelegated}
+	manifest := connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "cli", AuthMode: connector.AuthDelegated, AuthBrowser: "embedded"}
 	settings := cliSettings{NPMPackage: "demo-cli", NPMVersion: "1.2.0", Entry: "cli.js", Command: "demo", ConfigEnv: "DEMO_CLI_CONFIG_DIR", LogoutMode: "delete-config"}
 	cli := map[string]any{"platform": settings, "versionCheck": map[string]any{"minVersion": "1.2.0"}, "statusMatch": `(?m)^authorized\s*$`, "authUrlDomain": "example.test"}
 	for key, cmd := range map[string]string{"auth": "demo login", "status": "demo status", "unAuth": ""} {
@@ -39,10 +39,15 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m := New(ctx, connector.Sources{ExternalRoot: root}, nil)
-	if _, err := m.Start(id); err != nil {
+	if started, err := m.Start(id); err != nil {
 		t.Fatal(err)
+	} else if started.AuthBrowser != "embedded" {
+		t.Fatal("start lost manifest browser policy", started)
 	}
 	s := waitStatus(t, m, id, "pending")
+	if s.AuthBrowser != "embedded" {
+		t.Fatal("pending lost browser policy", s)
+	}
 	if s.URL != "https://example.test/authorize?state=test" {
 		t.Fatal("untrusted authorization URL")
 	}

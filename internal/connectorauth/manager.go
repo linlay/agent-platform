@@ -20,6 +20,7 @@ type Session struct {
 	ConnectorID string    `json:"connectorId"`
 	Status      string    `json:"status"`
 	URL         string    `json:"authorizationUrl,omitempty"`
+	AuthBrowser string    `json:"authBrowser"`
 	Message     string    `json:"message,omitempty"`
 	ExpiresAt   time.Time `json:"expiresAt"`
 }
@@ -75,7 +76,7 @@ func (m *Manager) Start(id string) (Session, error) {
 		return result, nil
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
-	s := &login{Session: Session{ID: rand.Text(), ConnectorID: id, Status: "preparing", ExpiresAt: time.Now().Add(15 * time.Minute)}, cancel: cancel, done: make(chan struct{})}
+	s := &login{Session: Session{ID: rand.Text(), ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "preparing", ExpiresAt: time.Now().Add(15 * time.Minute)}, cancel: cancel, done: make(chan struct{})}
 	m.sessions[id] = s
 	result := s.Session
 	m.mu.Unlock()
@@ -128,7 +129,7 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 		return out, nil
 	}
 	m.mu.Unlock()
-	result := Session{ConnectorID: id, Status: "unauthorized"}
+	result := Session{ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "unauthorized"}
 	if pkg.AuthMode == connector.AuthOneID {
 		identity, err := agentconfig.ReadIdentityEnvironment(m.identityFile)
 		if err == nil && identity[agentconfig.EnvAccessToken] != "" {
@@ -174,8 +175,17 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 }
 
 func (m *Manager) Cancel(id string) error {
+	return m.CancelSession(id, "")
+}
+
+// A stale browser must never cancel a replacement authorization session.
+func (m *Manager) CancelSession(id, sessionID string) error {
 	m.mu.Lock()
 	s := m.sessions[id]
+	if sessionID != "" && (s == nil || s.ID != sessionID) {
+		m.mu.Unlock()
+		return fmt.Errorf("authorization session has changed")
+	}
 	if s != nil {
 		s.cancel()
 	}

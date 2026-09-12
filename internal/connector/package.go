@@ -26,6 +26,7 @@ type Manifest struct {
 	Version     string          `json:"version"`
 	Type        string          `json:"type"`
 	AuthMode    AuthMode        `json:"auth_mode"`
+	AuthBrowser string          `json:"auth_browser,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Icon        string          `json:"icon,omitempty"`
 	TokenSchema json.RawMessage `json:"token_schema,omitempty"`
@@ -165,6 +166,9 @@ func validateManifest(id string, pkg Manifest) error {
 	}
 	if pkg.Icon != "" && !validIconPath(pkg.Icon) {
 		return fmt.Errorf("connector %s icon must be a package-relative SVG or PNG path under assets/", id)
+	}
+	if pkg.AuthBrowser != "" && pkg.AuthBrowser != "system" && pkg.AuthBrowser != "embedded" {
+		return fmt.Errorf("connector %s auth_browser must be system or embedded", id)
 	}
 	switch pkg.AuthMode {
 	case AuthDelegated, AuthOneID, AuthMCP:
@@ -404,4 +408,12 @@ func checkValue(d *json.Decoder) error {
 	}
 	_, err = d.Token()
 	return err
+}
+
+// AuthorizationBrowser is presentation policy, independent of authentication mode.
+func (m Manifest) AuthorizationBrowser() string {
+	if m.AuthBrowser == "embedded" {
+		return "embedded"
+	}
+	return "system"
 }

@@ -128,6 +128,7 @@ def cli_package(source, dest, key):
         cli["statusMatch"] = r"(?m)^authorized\s*$"
     elif key == "tmeet":
         cli["statusMatch"] = r"(?m)^Logged in\b"
+    cli.pop("authQrModal", None)
     write_json(dest / "cli.json", cli)
     bindir = dest / "bin"
     bindir.mkdir()
@@ -250,6 +251,8 @@ def build(source_root, output):
             shutil.rmtree(dest)
         dest.mkdir()
         manifest = {"id": key, "name": name, "version": versions[key], "type": kind, "auth_mode": auth, "description": name + ("：CLI 安装定义、启动器与技能（不含真实 CLI）" if kind == "cli" else "：远程 MCP 服务定义"), "icon": copy_icon(source_root, dest, key)}
+        if key == "wecom":
+            manifest["auth_browser"] = "embedded"
         upstream = dest / "upstream"
         upstream.mkdir()
         write_json(upstream / "catalog-entry.json", upstream_entries[key])

@@ -116,7 +116,7 @@ func (s *Server) handleConnectorAuthCancel(w http.ResponseWriter, r *http.Reques
 		s.writeConnectorError(w, errors.New("connector id is required"))
 		return
 	}
-	if err := s.connectorAuth.Cancel(id); err != nil {
+	if err := s.connectorAuth.CancelSession(id, r.URL.Query().Get("sessionId")); err != nil {
 		s.writeConnectorError(w, err)
 		return
 	}
