@@ -38,7 +38,8 @@ localhost、loopback 地址始终直连；专用内部通信客户端也始终�
 2. `auto` 先判断 `NO_PROXY`，命中后直接结束解析；即使没有同时设置环境代理也生效。
 3. 根据目标协议选择 `HTTP_PROXY` 或 `HTTPS_PROXY`。支持对应小写变量，大写非空值优先。HTTP 与 HTTPS 独立解析，不以 `HTTP_PROXY` 代替缺失的 `HTTPS_PROXY`。
 4. 当前协议未配置环境代理时，读取系统固定代理与系统绕过规则；对应 HTTP/HTTPS 代理未启用时可使用系统 SOCKS 代理。
-5. 没有适用代理或自动代理配置时直连。
+5. Windows 存在自动代理配置且没有适用固定代理时，按请求 URL 调用 WinHTTP 解析 PAC/WPAD；只有系统明确返回直连才直连。
+6. 没有适用代理或自动代理配置时直连。
 
 `NO_PROXY` 支持域名、子域、IP、CIDR、可选端口和 `*`，复用 Go 的 `golang.org/x/net/http/httpproxy` 匹配器。仅系统代理被选用时才应用系统绕过规则。进程环境在工厂初始化时取快照；Agent/run 的环境变量不改变 Platform 自身 HTTP 路由。`ALL_PROXY` 不属于本次支持范围。
 
@@ -49,16 +50,22 @@ localhost、loopback 地址始终直连；专用内部通信客户端也始终�
 | 平台 | 首期实现 |
 | --- | --- |
 | macOS | 调用系统自带 `/usr/sbin/scutil --proxy`，解析全局 HTTP、HTTPS、SOCKS、ExceptionsList 与 ExcludeSimpleHostnames |
-| Windows | 无 CGO 调用 `WinHttpGetIEProxyConfigForCurrentUser`，读取当前进程用户的固定代理与绕过列表，并释放 API 返回的内存 |
+| Windows | 无 CGO 调用 `WinHttpGetIEProxyConfigForCurrentUser` 读取当前进程用户的代理设置，通过 `WinHttpGetProxyForUrl` 执行 PAC 或 DHCP/DNS WPAD，并释放 API 返回的内存 |
 | Linux / 容器及其他系统 | 显式配置与环境变量；没有额外的系统设置读取器 |
 
 macOS 命令不经过 Shell，读取期限为 2 秒。系统快照在缓存到期后的首个请求中刷新，并发请求共用同一读取结果，不会每个请求都执行系统命令。工厂还提供 `Refresh()` 主动使缓存失效；目前没有新增 HTTP 管理接口。
 
 系统绕过支持精确主机/IP、通配符、CIDR（包括 macOS 常见的 `169.254/16`）、可选协议与端口，以及 Windows `<local>` / macOS 简单主机名排除。匹配不会额外解析 DNS，CIDR 针对 URL 中的 IP 地址生效。macOS 的接口级 `__SCOPED__` 和补充配置暂不解析。
 
-**PAC/WPAD 尚未实现。** 检测到自动代理时会记录诊断；若同时有适用的固定代理或绕过规则，使用它们。只有自动代理、没有适用固定设置的请求明确报错，可通过显式代理、环境代理或 `mode: direct` 指定行为。不会把 PAC URL 当成代理地址，也不会宣称完整支持 CFNetwork/WinHTTP 的按 URL 自动代理结果。
+**Windows 已接入原生 PAC/WPAD 解析。** 不新增外部程序或依赖，保持 `CGO_ENABLED=0`。自动代理在已有显式配置、环境变量、系统绕过和适用固定代理之后执行；固定代理与 PAC 同时启用时仍优先固定代理。按完整请求 URL（移除用户信息及 fragment）解析，不按主机缓存路由结果，避免不同路径的 PAC 规则串用。系统配置继续按默认 15 秒周期刷新；每次自动解析创建独立 WinHTTP session，不由 Platform 持久缓存 PAC 脚本。
 
-Windows 服务账户读取的是该账户的设置，不会自动读取另一个已登录用户的代理。后续完整 PAC/WPAD、接口级代理与原生系统变更通知需要独立实现和目标系统验证。
+自动解析包含排队的调用等待上限为 10 秒，也遵守请求取消；进程最多同时保留 4 个原生解析调用。WinHTTP 同步调用可能在调用方超时后继续执行，由原 worker 回收 session 和返回内存，期间仍占用名额，避免无限堆积；不强制中断系统 PAC 执行。原生 session 的解析、连接、发送和接收超时分别设为 5 秒，这不是整个 PAC 执行的硬期限。
+
+PAC 返回明确的 `DIRECT` 时直连；返回代理列表时选择第一个适用入口。解析错误、脚本下载失败、WPAD 发现失败及选中代理连接失败均报错，不隐式直连。暂不支持列表内代理故障切换，不自动重放模型 POST。PAC 下载不自动发送当前用户的 Windows 登录凭据，要求集成认证的 PAC 服务可能返回授权失败；这与模型请求经过代理时的认证是两个不同环节。
+
+macOS 仍只支持固定系统代理与绕过，PAC/WPAD 尚未实现；只有自动代理时明确报错，可用显式固定代理、环境变量或 `mode: direct` 覆盖。
+
+Windows 服务账户读取自身设置，不自动读取另一个已登录用户的配置。原生 PAC 集成测试位于 `internal/httpclient/autoproxy_windows_test.go`；本次 macOS 开发环境仅验证公共回归和 Windows 交叉编译，真实 Windows PAC 执行及企业网络 DHCP/DNS WPAD 仍需在目标系统验证。接口级代理与原生系统变更通知尚未实现。
 
 ## 客户端与生命周期
 
@@ -78,4 +85,4 @@ Container Hub、Identity/JWKS 和 provider registration、KBASE Lance 本机 sid
 
 回归测试位于 `internal/httpclient` 与 `internal/config/config_http_test.go`，覆盖优先级、单独 `NO_PROXY`、绕过、缓存并发/刷新/错误、macOS/Windows 设置解析、HTTP 代理、HTTPS CONNECT、SOCKS5 远端 DNS、无直连回退和刷新期间 SSE 保持。
 
-接口依据：[Go ProxyFromEnvironment](https://pkg.go.dev/net/http#ProxyFromEnvironment)、macOS 本机 `scutil(8)` 手册、[WinHttpGetIEProxyConfigForCurrentUser](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpgetieproxyconfigforcurrentuser)。
+接口依据：[Go ProxyFromEnvironment](https://pkg.go.dev/net/http#ProxyFromEnvironment)、macOS 本机 `scutil(8)` 手册、[WinHttpGetIEProxyConfigForCurrentUser](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpgetieproxyconfigforcurrentuser)、[WinHttpGetProxyForUrl](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpgetproxyforurl)。

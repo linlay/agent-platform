@@ -402,7 +402,7 @@ docker compose logs -f
 - [Runtime模块边界](./docs/Runtime模块边界.md)
 - [智能体配置说明](./docs/智能体配置说明.md)
 - [配置化说明](./docs/配置化说明.md)
-- [HTTP客户端与系统代理](./docs/HTTP客户端与系统代理.md)：默认自动代理、显式覆盖、系统固定代理与刷新。
+- [HTTP客户端与系统代理](./docs/HTTP客户端与系统代理.md)：默认自动代理、显式覆盖、系统固定代理、Windows PAC/WPAD 与刷新（原生能力待 Windows 验证）。
 - [工具目录权限](./docs/工具目录权限.md)
 - [真流式和H2A](./docs/真流式和H2A.md)
 - [记忆系统](./docs/记忆系统.md)

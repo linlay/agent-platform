@@ -56,6 +56,7 @@ type systemSettings struct {
 	Bypass             []string
 	ExcludeSimple      bool
 	Auto               bool
+	ResolveAuto        func(context.Context, *url.URL) (*url.URL, error)
 }
 
 type systemReader func(context.Context) (systemSettings, error)
@@ -141,7 +142,7 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (Decision, error) {
 	if err != nil {
 		return Decision{Source: "system"}, fmt.Errorf("read system proxy settings: %w", err)
 	}
-	if s.Auto {
+	if s.Auto && s.ResolveAuto == nil {
 		r.autoWarning.Do(func() {
 			log.Print("system PAC/WPAD detected; automatic scripts are not executed; only fixed proxies and bypass settings are supported")
 		})
@@ -158,6 +159,10 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (Decision, error) {
 	}
 	if p != nil {
 		return Decision{Proxy: p, Source: "system"}, nil
+	}
+	if s.Auto && s.ResolveAuto != nil {
+		p, err := s.ResolveAuto(ctx, u)
+		return Decision{Proxy: p, Source: "system-auto"}, err
 	}
 	if s.Auto {
 		return Decision{Source: "system-auto"}, errors.New("system PAC/WPAD is not supported yet; configure a fixed system proxy, HTTP_PROXY/HTTPS_PROXY, or http-proxy mode")
