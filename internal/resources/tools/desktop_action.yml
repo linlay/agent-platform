@@ -49,8 +49,7 @@ inputSchema:
         - desktop.webapp.restart
         - desktop.webapp.open
         - desktop.webapp.updatePreferences
-        - desktop.webapp.manifest.init
-        - desktop.webapp.manifest.validate
+        - desktop.webapp.package.init
         - desktop.webapp.package.validate
         - desktop.webapp.package.build
         - desktop.webapp.install
