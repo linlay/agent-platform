@@ -21,7 +21,7 @@ import (
 // authenticating a package does not require models, Agents, or KBASE sidecars.
 func runConnectorManagement(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: connector-manage <import|login|status|logout|set-token> --runtime-dir <path> [--id <id>] [--credentials-file <path>] [--overwrite] [package.zip]")
+		return fmt.Errorf("usage: connector-manage <import|prepare|login|status|logout|set-token> --runtime-dir <path> [--id <id>] [--credentials-file <path>] [--overwrite] [package.zip]")
 	}
 	action := args[0]
 	flags := flag.NewFlagSet("connector-manage "+action, flag.ContinueOnError)
@@ -84,7 +84,20 @@ func runConnectorManagement(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return encoder.Encode(map[string]any{"id": pkg.ID, "version": pkg.Version, "installed": true, "authMode": pkg.AuthMode})
+		result := map[string]any{"id": pkg.ID, "version": pkg.Version, "installed": true, "authMode": pkg.AuthMode}
+		if pkg.CLI != nil {
+			manager := connectorauth.New(ctx, sources, nil)
+			prepared, prepareErr := manager.Prepare(ctx, pkg.ID)
+			result["preparation"] = prepared
+			if err := encoder.Encode(result); err != nil {
+				return err
+			}
+			if prepareErr != nil {
+				return fmt.Errorf("package imported, CLI preparation failed: %w", prepareErr)
+			}
+			return nil
+		}
+		return encoder.Encode(result)
 	}
 	if flags.NArg() != 0 || !connector.ValidID(*id) {
 		return fmt.Errorf("a valid --id is required")
@@ -100,6 +113,12 @@ func runConnectorManagement(args []string, out io.Writer) error {
 		return err
 	}).WithIdentityFile(*identityFile)
 	switch action {
+	case "prepare":
+		prepared, err := manager.Prepare(ctx, *id)
+		if outputErr := encoder.Encode(prepared); outputErr != nil {
+			return outputErr
+		}
+		return err
 	case "set-token":
 		if *credentialsFile == "" {
 			return fmt.Errorf("set-token requires --credentials-file")

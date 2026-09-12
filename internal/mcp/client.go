@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/observability"
 
@@ -372,6 +374,14 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 		}
 		cmd.Env = connector.WithPath(builtins.EnsureBinInEnv(append(os.Environ(), envPairs(env)...)), []string{server.ConnectorBinDir})
 		cmd.Env = agentconfig.WithIdentityEnvironment(cmd.Env, identity)
+		if !filepath.IsAbs(server.Command) && !strings.ContainsAny(server.Command, "/\\") {
+			resolved, err := hostenv.LookPath(server.Command, cmd.Env)
+			if err != nil {
+				return nil, err
+			}
+			cmd.Path = resolved
+			cmd.Err = nil
+		}
 		cmd.Stderr = os.Stderr
 		return &sdkmcp.CommandTransport{
 			Command:           cmd,

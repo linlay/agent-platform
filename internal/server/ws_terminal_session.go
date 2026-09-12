@@ -9,8 +9,10 @@ import (
 	"strings"
 
 	"agent-platform/internal/agentconfig"
+	"agent-platform/internal/builtins"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/hostshell"
 	terminalpkg "agent-platform/internal/terminal"
 )
@@ -94,18 +96,19 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 
 func terminalEnvironment(def catalog.AgentDefinition, workspaceDir string) []string {
 	env := agentconfig.Merge(
-		runtimeAgentEnv(def.Runtime["env"]),
+		runtimeAgentEnv(def.Runtime["env"]), def.ConnectorEnv,
 		agentconfig.HostEnvironment(def.RuntimeDir, workspaceDir, ""),
 	)
-	if len(def.ConnectorBinDirs) > 0 {
-		if env == nil {
-			env = map[string]string{}
-		}
-		current := env["PATH"]
-		if current == "" {
-			current = os.Getenv("PATH")
-		}
-		env["PATH"] = connector.PathValue(current, def.ConnectorBinDirs, string(os.PathListSeparator))
+	base := os.Environ()
+	for key, value := range env {
+		base = hostenv.Set(base, key, value)
+	}
+	actual := connector.WithPath(builtins.EnsureBinInEnv(base), def.ConnectorBinDirs)
+	if env == nil {
+		env = map[string]string{}
+	}
+	if value := hostenv.Value(actual, "PATH"); value != hostenv.Value(base, "PATH") || len(def.ConnectorBinDirs) > 0 {
+		env["PATH"] = value
 	}
 	for key := range env {
 		if strings.EqualFold(strings.TrimSpace(key), agentconfig.EnvChatDir) ||

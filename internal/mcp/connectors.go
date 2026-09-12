@@ -199,6 +199,18 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	if server.Transport == TransportStreamableHTTP {
 		server.EndpointPath = ""
 	}
+	if server.Transport == TransportStdio {
+		values, err := pkg.CLIConfigEnvironment()
+		if err != nil {
+			return ServerDefinition{}, err
+		}
+		if len(values) > 0 && server.Env == nil {
+			server.Env = map[string]string{}
+		}
+		for key, value := range values {
+			server.Env[key] = value
+		}
+	}
 	server.ConnectorID = pkg.ID
 	server.ConnectorOneID = pkg.AuthMode == connector.AuthOneID
 	server.ConnectorBinDir = pkg.BinDir

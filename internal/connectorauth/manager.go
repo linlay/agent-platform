@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/httpclient"
 )
 
@@ -38,6 +39,7 @@ type Manager struct {
 	client       *http.Client
 	identityFile string
 	mu           sync.Mutex
+	preparations map[string]*preparationJob
 	sessions     map[string]*login
 	loggingOut   map[string]bool
 }
@@ -46,7 +48,8 @@ func New(ctx context.Context, sources connector.Sources, reload func(context.Con
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &Manager{ctx: ctx, sources: sources, reload: reload, client: httpclient.NewClient(30 * time.Second), sessions: map[string]*login{}, loggingOut: map[string]bool{}}
+	go hostenv.WithNPM(os.Environ())
+	return &Manager{ctx: ctx, sources: sources, reload: reload, client: httpclient.NewClient(30 * time.Second), preparations: map[string]*preparationJob{}, sessions: map[string]*login{}, loggingOut: map[string]bool{}}
 }
 
 func (m *Manager) WithIdentityFile(path string) *Manager {
@@ -75,6 +78,27 @@ func (m *Manager) Start(id string) (Session, error) {
 		m.mu.Unlock()
 		return result, nil
 	}
+	release := func() {}
+	if pkg.ManagedCLI() {
+		var err error
+		release, err = connector.AcquireOperation(m.sources.ExternalRoot, id)
+		if err != nil {
+			m.mu.Unlock()
+			return Session{}, err
+		}
+		pkg, err = m.sources.Load(id)
+		if err == nil && !pkg.ManagedCLI() {
+			err = fmt.Errorf("connector does not support interactive login")
+		}
+		if err == nil {
+			err = m.requirePrepared(pkg)
+		}
+		if err != nil {
+			release()
+			m.mu.Unlock()
+			return Session{}, err
+		}
+	}
 	ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
 	s := &login{Session: Session{ID: rand.Text(), ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "preparing", ExpiresAt: time.Now().Add(15 * time.Minute)}, cancel: cancel, done: make(chan struct{})}
 	m.sessions[id] = s
@@ -83,12 +107,20 @@ func (m *Manager) Start(id string) (Session, error) {
 	go func() {
 		defer close(s.done)
 		defer cancel()
+		released := false
+		defer func() {
+			if !released {
+				release()
+			}
+		}()
 		var err error
 		if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
 			err = m.loginCLI(ctx, pkg, s)
 		} else {
 			err = m.loginOAuth(ctx, pkg, s)
 		}
+		release()
+		released = true
 		if err == nil && ctx.Err() == nil && m.reload != nil {
 			err = m.reload(ctx, id)
 		}
@@ -145,6 +177,17 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 		return result, nil
 	}
 	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
+		release, lockErr := connector.AcquireOperation(m.sources.ExternalRoot, id)
+		if lockErr != nil {
+			result.Status = "setup_required"
+			result.Message = lockErr.Error()
+			return result, nil
+		}
+		defer release()
+		pkg, err = m.sources.Load(id)
+		if err != nil {
+			return Session{}, err
+		}
 		ok, err := m.cliStatus(ctx, pkg)
 		if err != nil {
 			result.Status = "setup_required"
@@ -223,7 +266,12 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 		return err
 	}
 	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
+		release, lockErr := connector.AcquireOperation(m.sources.ExternalRoot, id)
+		if lockErr != nil {
+			return lockErr
+		}
 		err = m.logoutCLI(ctx, pkg)
+		release()
 	} else {
 		unlock, lockErr := lockCredentials(ctx, m.sources.PersistentRoot(), id)
 		if lockErr != nil {

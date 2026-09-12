@@ -41,7 +41,7 @@ func TestDeletePackageRollbackAndStatePreservation(t *testing.T) {
 	if err := DeletePackage(context.Background(), sources, "demo", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if entries, err := os.ReadDir(sources.ExternalRoot); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(sources.ExternalRoot); err != nil || len(entries) != 1 || entries[0].Name() != ".cli-demo.lock" {
 		t.Fatalf("leftover package or staging: %v %v", entries, err)
 	}
 	if data, err := os.ReadFile(state); err != nil || string(data) != "retained" {

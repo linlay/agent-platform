@@ -111,3 +111,10 @@ func terminalEnvironmentValues(entries []string) map[string]string {
 	}
 	return got
 }
+
+func TestTerminalUsesMountedConnectorCredentialDirectory(t *testing.T) {
+	def := catalog.AgentDefinition{ConnectorEnv: map[string]string{"DEMO_CONFIG_DIR": "/platform/config"}, Runtime: map[string]any{"env": map[string]string{"DEMO_CONFIG_DIR": "/wrong"}}}
+	if got := terminalEnvironmentValues(terminalEnvironment(def, ""))["DEMO_CONFIG_DIR"]; got != "/platform/config" {
+		t.Fatal(got)
+	}
+}

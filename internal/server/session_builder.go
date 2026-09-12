@@ -1,6 +1,7 @@
 package server
 
 import (
+	"agent-platform/internal/agentconfig"
 	"context"
 	"fmt"
 	"log"
@@ -251,6 +252,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		SkillKeys:                     append([]string(nil), agentDef.EffectiveSkills()...),
 		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
 		ConnectorBinDirs:              append([]string(nil), agentDef.ConnectorBinDirs...),
+		ConnectorEnv:                  agentconfig.Merge(agentDef.ConnectorEnv),
 		ContextTags:                   append([]string(nil), agentDef.ContextTags...),
 		Budget:                        contracts.CloneMap(agentDef.Budget),
 		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),

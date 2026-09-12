@@ -22,7 +22,7 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	os.MkdirAll(dir, 0o755)
 	manifest := connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "cli", AuthMode: connector.AuthDelegated, AuthBrowser: "embedded"}
 	settings := cliSettings{NPMPackage: "demo-cli", NPMVersion: "1.2.0", Entry: "cli.js", Command: "demo", ConfigEnv: "DEMO_CLI_CONFIG_DIR", LogoutMode: "delete-config"}
-	cli := map[string]any{"platform": settings, "versionCheck": map[string]any{"minVersion": "1.2.0"}, "statusMatch": `(?m)^authorized\s*$`, "authUrlDomain": "example.test"}
+	cli := map[string]any{"platform": settings, "versionCheck": map[string]any{"minVersion": "1.2.0", "command": osCommands("demo --version")}, "statusMatch": `(?m)^authorized\s*$`, "authUrlDomain": "example.test"}
 	for key, cmd := range map[string]string{"auth": "demo login", "status": "demo status", "unAuth": ""} {
 		cli[key] = map[string]string{"darwin": cmd, "linux": cmd, "win32": cmd}
 	}
@@ -38,7 +38,14 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	os.WriteFile(filepath.Join(npm, "cli.js"), []byte(script), 0o644)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	testNodeCLI(t, filepath.Join(npm, "cli.js"))
 	m := New(ctx, connector.Sources{ExternalRoot: root}, nil)
+	if _, err := m.Prepare(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Prepare(ctx, id); err != nil {
+		t.Fatal(err)
+	}
 	if started, err := m.Start(id); err != nil {
 		t.Fatal(err)
 	} else if started.AuthBrowser != "embedded" {
@@ -66,6 +73,9 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	}
 	// A canceled subprocess must not complete later and resurrect credentials.
 	os.WriteFile(filepath.Join(npm, "cli.js"), []byte(`const fs=require('fs'),path=require('path');if(process.argv[2]==='--version'){console.log('1.2.0')}else if(process.argv[2]==='status'){console.log('unauthorized')}else{console.log('https://example.test/pending');setTimeout(()=>fs.writeFileSync(path.join(process.env.DEMO_CLI_CONFIG_DIR,'login'),'unexpected'),1000)}`), 0o644)
+	if _, err := m.Prepare(ctx, id); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := m.Start(id); err != nil {
 		t.Fatal(err)
 	}

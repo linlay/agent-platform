@@ -118,6 +118,11 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 	if prefix != "" && strings.TrimSuffix(prefix, "/") != manifest.ID {
 		return Package{}, fmt.Errorf("ZIP directory must match connector id")
 	}
+	release, err := AcquireOperation(root, manifest.ID)
+	if err != nil {
+		return Package{}, err
+	}
+	defer release()
 	candidate := filepath.Join(stage, manifest.ID)
 	if err := os.Mkdir(candidate, 0o755); err != nil {
 		return Package{}, err

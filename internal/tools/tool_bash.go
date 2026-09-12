@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/textcodec"
 )
@@ -98,6 +99,13 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
 	}
+	var configEnv map[string]string
+	if execCtx != nil {
+		configEnv = execCtx.Session.ConnectorEnv
+	}
+	bound := hostenv.BindShellEnvironment(shellExecutable, command, commandEnv, configEnv)
+	_, boundArgs := resolveHostShellInvocation(t.cfg.Bash, bound, runtimeInfo.GOOS)
+	cmd.Args = append([]string{shellExecutable}, boundArgs...)
 	cmd.Env = commandEnv
 
 	stdoutFile, err := os.CreateTemp("", "agent-platform-bash-stdout-*.log")
@@ -417,8 +425,12 @@ func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
 		}
 		runtimeEnv = agentconfig.Merge(runtimeEnv, dynamic)
 	}
+	var connectorEnv map[string]string
+	if execCtx != nil {
+		connectorEnv = execCtx.Session.ConnectorEnv
+	}
 	overrides := agentconfig.Merge(
-		runtimeEnv,
+		runtimeEnv, connectorEnv,
 		agentconfig.HostEnvironment(agentDir, workspaceDir, chatDir),
 	)
 	if len(overrides) == 0 {

@@ -91,6 +91,11 @@ func SaveDefinition(root string, input File, expected string, validate func(Pack
 	}
 	mutationMu.Lock()
 	defer mutationMu.Unlock()
+	release, err := AcquireOperation(root, input.ID)
+	if err != nil {
+		return File{}, err
+	}
+	defer release()
 	previous, err := ReadFile(root, input.ID, input.File)
 	if err != nil {
 		return File{}, err

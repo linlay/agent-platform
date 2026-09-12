@@ -61,8 +61,7 @@ func (m *Manifest) normalizeAuth() {
 // ManagedCLI opts into the existing explicit CLI lifecycle adapter. It is a
 // component capability, not an authentication mode or proof of authorization.
 func (p Package) ManagedCLI() bool {
-	platform, _ := p.CLI["platform"].(map[string]any)
-	return platform["npmPackage"] != nil
+	return p.CLI != nil && p.CLI["auth"] != nil
 }
 
 func (p *Package) normalizeLegacyIdentityAuth() {

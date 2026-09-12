@@ -306,6 +306,13 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 
 // ValidatePackage checks local authentication declarations without network I/O.
 func ValidatePackage(pkg connector.Package) error {
+	if pkg.CLI != nil {
+		if _, exists := pkg.CLI["versionCheck"]; exists {
+			if _, err := cliSettingsFor(pkg); err != nil {
+				return err
+			}
+		}
+	}
 	switch pkg.AuthMode {
 	case "oauth", "mcp":
 		_, _, err := oauthResource(pkg)

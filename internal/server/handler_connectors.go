@@ -28,8 +28,9 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	}
 	type entry struct {
 		connector.Summary
-		MCP     []mcpStatus `json:"mcp,omitempty"`
-		IconURL string      `json:"iconUrl,omitempty"`
+		MCP         []mcpStatus `json:"mcp,omitempty"`
+		IconURL     string      `json:"iconUrl,omitempty"`
+		Preparation any         `json:"preparation,omitempty"`
 	}
 	var mounts []connector.AgentRuntime
 	if provider, ok := s.deps.Registry.(mcp.AgentConnectorSource); ok {
@@ -38,6 +39,15 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	result := make([]entry, 0, len(items))
 	for _, item := range items {
 		value := entry{Summary: item}
+		if item.HasCLI && !item.Builtin {
+			prepared, err := s.connectorAuth.PreparationStatus(item.ID)
+			if err != nil {
+				value.Preparation = map[string]string{"status": "failed", "message": err.Error()}
+			} else {
+				prepared.Diagnostic = ""
+				value.Preparation = prepared
+			}
+		}
 		if item.Icon != "" {
 			value.IconURL = "/api/connectors/icon?id=" + url.QueryEscape(item.ID) + "&v=" + item.IconSHA256
 		}
@@ -104,7 +114,7 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 				s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusForbidden, "builtin_connector_readonly", err.Error()))
 				return
 			}
-			if errors.Is(err, connector.ErrConflict) {
+			if errors.Is(err, connector.ErrConflict) || errors.Is(err, connector.ErrBusy) {
 				s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusConflict, "conflict", err.Error()))
 				return
 			}

@@ -67,6 +67,7 @@ func parseConnectorIDs(value any) ([]string, error) {
 func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 	def.ConnectorSkills = nil
 	def.ConnectorBinDirs = nil
+	def.ConnectorEnv = map[string]string{}
 	def.ConnectorCLIEntries = nil
 	def.ConnectorMounts = nil
 	def.ConnectorMCPServers = nil
@@ -81,6 +82,16 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 		pkg, err := a.connectors.Load(id)
 		if err != nil {
 			return err
+		}
+		values, err := pkg.CLIConfigEnvironment()
+		if err != nil {
+			return err
+		}
+		for key, value := range values {
+			if previous, exists := def.ConnectorEnv[key]; exists && previous != value {
+				return fmt.Errorf("connectors have conflicting configEnv %s", key)
+			}
+			def.ConnectorEnv[key] = value
 		}
 		if (pkg.CLI != nil || len(pkg.Skills) > 0) && !strings.EqualFold(def.Mode, AgentModeKBase) && !containsString(def.Tools, "bash") {
 			def.Tools = append(def.Tools, "bash")

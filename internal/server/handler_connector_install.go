@@ -56,7 +56,16 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		s.writeConnectorError(w, err)
 		return
 	}
-	s.writeAgentHTTPResponse(w, map[string]any{"id": pkg.ID, "name": pkg.Name, "version": pkg.Version, "installed": true, "authMode": pkg.AuthMode}, nil)
+	response := map[string]any{"id": pkg.ID, "name": pkg.Name, "version": pkg.Version, "installed": true, "authMode": pkg.AuthMode}
+	if pkg.CLI != nil {
+		prepared, err := s.connectorAuth.StartPreparation(pkg.ID)
+		if err != nil {
+			response["preparation"] = map[string]any{"connectorId": pkg.ID, "status": "failed", "message": err.Error()}
+		} else {
+			response["preparation"] = prepared
+		}
+	}
+	s.writeAgentHTTPResponse(w, response, nil)
 }
 
 func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +144,8 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		status, code = http.StatusNotFound, "connector_not_found"
 	case errors.Is(err, connector.ErrDeleteReload):
 		status, code = http.StatusInternalServerError, "connector_reload_failed"
+	case errors.Is(err, connector.ErrBusy):
+		status, code = http.StatusConflict, "connector_busy"
 	case errors.Is(err, connector.ErrBuiltinReadOnly):
 		status, code = http.StatusForbidden, "builtin_connector_readonly"
 	case errors.Is(err, connector.ErrPackageExists):
@@ -143,4 +154,43 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		status, code = http.StatusRequestEntityTooLarge, "payload_too_large"
 	}
 	s.writeAgentHTTPResponse(w, nil, newAgentStatusError(status, code, err.Error()))
+}
+
+func (s *Server) handleConnectorPrepare(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if !connector.ValidID(id) {
+		s.writeConnectorError(w, errors.New("connector id is required"))
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		result, err := s.connectorAuth.PreparationStatus(id)
+		if err != nil {
+			s.writeConnectorError(w, err)
+			return
+		}
+		s.writeAgentHTTPResponse(w, result, nil)
+	case http.MethodPost:
+		result, err := s.connectorAuth.StartPreparation(id)
+		if err != nil {
+			s.writeConnectorError(w, err)
+			return
+		}
+		s.writeAgentHTTPResponse(w, result, nil)
+	case http.MethodDelete:
+		if err := s.connectorAuth.CancelPreparation(id); err != nil {
+			s.writeConnectorError(w, err)
+			return
+		}
+		result, err := s.connectorAuth.PreparationStatus(id)
+		if err != nil {
+			s.writeConnectorError(w, err)
+			return
+		}
+		s.writeAgentHTTPResponse(w, result, nil)
+	default:
+		w.Header().Set("Allow", "GET, POST, DELETE")
+		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(405, "method_not_allowed", "method not allowed"))
+	}
 }

@@ -220,7 +220,7 @@ HTTP 与 WebSocket 使用相同字段和错误语义；WebSocket 空 payload 相
 
 Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详情顶层固定返回 `pinned` boolean。chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；Team 固定为 `TEAM`，不会暴露隐藏协调器 key。历史 chat/run 不根据当前 catalog 回填或转换，原始 mode 仅用于历史读取，不能作为当前筛选或运行输入；Team-owned chat 在合法 `/api/chats` mode 查询中始终保留。
 
-`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `wecom#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
+`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `channel#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
 `/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`，并与列表 summary 一样返回 owner `agentKey`/`teamId`、可选 `mode`、`lastRunId`、`lastRunContent` 和完整 `read { isRead, readAt?, readRunId? }`；客户端不得从 runs、events 或本机时间推断这些字段。该详情 summary 是外部路由直接打开未进入列表缓存的 Chat 时的权威 read 基线。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取；没有顶层 `awaiting` 的历史 ask 不可提交。Platform 重启时，未超时/无限等待的 question 与永久 planning 可恢复，approval/form 会按 timeout 或 runtime restart 原因终态化。可恢复 question/planning 还会同时返回同一 `runId` 的 `activeRun`，其 `state:"WAITING_SUBMIT"`、`startedAt` 保留原 run 时刻，且对应 Platform 内已真实注册的 suspended run，不是 API 层合成摘要。
 
@@ -1139,3 +1139,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 错误使用 HTTP 状态、`msg` 和可用时的 `data.code`：400 非法请求/来源，403 无读取权限，404 文件或副本缺失，409 版本变化或 requestId 冲突，413 超限，415 不支持/无效 Office，503 未配置或凭据不可读，502 上游失败/响应不合法/上传结果未知，504 请求等待超时。上传接口无幂等键，结果未知时不自动重试；并发等待者共享失败，用户重新发起新 requestId 后才再尝试。已有远端 ID 会在创建分享前落盘，分享失败可复用该副本重试。
 
 本地读取权限变化只阻止后续预览请求，不会实时撤销已签发的公开分享；链接仍受一天有效期约束。配置和副本回收规则见 [配置化说明](配置化说明.md#office-在线预览服务)。
+
+### CLI 独立准备
+
+`/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。

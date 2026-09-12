@@ -360,6 +360,7 @@ type QuerySession struct {
 	MustUseSkills                 []string
 	ConnectorCLIEntries           []connector.CLIEntry `json:"-"`
 	ConnectorBinDirs              []string
+	ConnectorEnv                  map[string]string `json:"-"`
 	ContextTags                   []string
 	Budget                        map[string]any
 	StageSettings                 map[string]any
