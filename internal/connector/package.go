@@ -417,3 +417,14 @@ func (m Manifest) AuthorizationBrowser() string {
 	}
 	return "system"
 }
+
+// AuthorizationBrowser prefers the manifest and preserves legacy CLI presentation hints.
+func (p Package) AuthorizationBrowser() string {
+	if p.AuthBrowser != "" {
+		return p.Manifest.AuthorizationBrowser()
+	}
+	if embedded, _ := p.CLI["authQrModal"].(bool); embedded {
+		return "embedded"
+	}
+	return "system"
+}

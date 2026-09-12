@@ -27,3 +27,26 @@ func TestAuthorizationBrowserManifest(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthorizationBrowserPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		manifest string
+		legacy   any
+		want     string
+	}{
+		{"default", "", nil, "system"},
+		{"legacy embedded", "", true, "embedded"},
+		{"legacy system", "", false, "system"},
+		{"legacy string ignored", "", "true", "system"},
+		{"explicit system wins", "system", true, "system"},
+		{"explicit embedded wins", "embedded", false, "embedded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pkg := Package{Manifest: Manifest{AuthBrowser: tc.manifest}, CLI: map[string]any{"authQrModal": tc.legacy}}
+			if got := pkg.AuthorizationBrowser(); got != tc.want {
+				t.Fatalf("got %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
