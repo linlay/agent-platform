@@ -104,20 +104,20 @@ Platform 读取后沿现有链路归一化布尔参数并发送 `params`；`para
 
 ## Desktop 反向 Provider
 
-Agent 可看到静态 Desktop 工具 `desktop_action`、AWCP 专用工具 `desktop_awcp` 与 `desktop_cdp`。普通 Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明；AWCP 动态页面 Action 不进入该白名单。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
+Agent 可看到静态 Desktop 工具 `desktop_action` 与 `desktop_cdp`。普通 Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明；AWCP 动态页面 Action 不进入该白名单，而通过 `desktop_cdp` 的 `AWCP.getSnapshot` / `AWCP.invoke` 两个静态 method 使用。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
 
-- Desktop 模式：87 个普通 `desktop.*` 由 `desktop_action` 直接以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`desktop_awcp` 固定映射到 wire action `desktop.awcp.invoke`；`desktop_cdp` 继续使用 `desktop.cdp.call`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
+- Desktop 模式：87 个普通 `desktop.*` 由 `desktop_action` 直接以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`desktop_cdp` 的普通 CDP method 使用 `desktop.cdp.call`，两个 AWCP method 分别映射到 `desktop.awcp.snapshot` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
 - Standalone 模式：只有七个 `desktop.workpanel.*` 与 `desktop.display` 具体类型发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`，CDP 返回 `desktop_cdp_unsupported_runtime`。
 
 Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey/teamId`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,targetId,sessionId,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
 
-AWCP snapshot 只由 Agent 通过 `desktop_cdp` 在当前授权页发现。Platform 校验 `Runtime.evaluate` 返回的 snapshot 边界，并在当前 run 内暂存发现时的 `targetId`、revision 及 Action `inputSchema`；下一轮模型请求中的 `desktop_awcp` parameters 会被替换为按 revision/action 常量分支的动态 `oneOf`，`args` 直接使用对应 `inputSchema`。该覆盖不写入 system-init 缓存、Chat 或数据库，run 结束即释放；已知导航、刷新、关闭或 target 切换会立即清除，无法观测的页面变化仍由 Desktop 返回 `stale_snapshot`。模型调用及 wire payload 仍是 `desktop_awcp {revision,action,args}`；Platform 生成 request ID、注入可信 source，并映射为 `desktop.awcp.invoke`。Desktop 在单次调用内临时读取当前 snapshot，在页面 handler 前按 `inputSchema` 做最终校验；成功结果仅在 descriptor 声明 `outputSchema` 时校验，未声明时按不透明 JSON 处理。合法 `AwcpActionResponse` 始终是普通 response data；`stale_snapshot` 只允许一次完整重新发现，其他业务失败或宿主失败会移除后续工具并进入一次最终回答，不再猜测参数或回退 DOM。Schema、scope、页面、协议或 transport 等宿主失败仍走 AGW error frame，两类错误不互相转换。
+AWCP snapshot 由 Agent 直接调用 `desktop_cdp {method:"AWCP.getSnapshot"}` 从当前授权页发现，不再通过 `Runtime.evaluate` 探测。Platform 严格校验 snapshot 边界，并在当前 run 内只暂存 revision、Action 名集合和 stale 次数；`desktop_cdp` Tool Schema 始终是普通静态对象，不随页面 Action 改写，也不向 system-init cache、Chat 或数据库写入页面状态。`AWCP.invoke` 顶层只接受 `method + params`，params 精确为 `{revision,action,args}`；Platform 生成 request ID、注入可信 source，并映射到 `desktop.awcp.invoke`。Desktop 在单次调用内重新读取当前 snapshot，在页面 handler 前按 `inputSchema` 做边界校验；页面 Registry 随后调用选中 Action 自己的 validator 和 handler。成功结果仅在 descriptor 声明 `outputSchema` 时校验。合法 `AwcpActionResponse` 始终是普通 response data；`stale_snapshot` 只允许一次显式重新发现，其他业务失败或宿主失败会移除后续工具并进入一次最终回答，不再猜测参数或回退 DOM。Schema、scope、页面、协议或 transport 等宿主失败仍走 AGW error frame，两类错误不互相转换。
 
 WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 与 attach 通过 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。WS attach 直接使用发起 attach 的连接。每次成功且携带有效 WebClient target 的 attach 都以 last-writer-wins 更新该 run 的反向 Action target；失败 attach 或普通无 target attach 不改变已有绑定，已发出的 Action 不迁移。Team 内部成员与 `agent_invoke` 子 run 按根 run 动态读取相同 target，planning 新 execution run 继承 source run 的当前 target。
 
 Desktop 模式只将 `scope=app` 且 JWT `device_id` 与握手 `deviceId` 完全一致的已认证 `source=desktop-main` WebSocket 作为默认连接 generation；`source` 或 query device metadata 本身不构成授权。已有且可达的 run target 始终优先；automation、`run_query` 等独立根 run 首次调用 Desktop 工具时若无 target，才把当前默认连接写入该 run。旧 target 已无法解析且请求尚未发送时，可以原子改绑新 generation 并发送一次；连接在请求发送后断开时返回 `*_client_disconnected`，不得自动重放。父 run 终态不撤销独立子 run 的绑定。Standalone 不读取该默认连接。目标元数据只保存在运行内存，不进入 prompt、事件、chat 或数据库。
 
-`desktop_action_target_unavailable` 保持稳定错误码。Standalone 无 target 使用 `run_target_missing`；Desktop Main 从未建立使用 `desktop_main_missing`，曾建立但当前离线使用 `desktop_main_disconnected`，无法进一步归类的旧绑定仍使用 `target_connection_unavailable`。`desktop_awcp` 与 `desktop_cdp` 使用各自对应的 `*_target_unavailable` 和相同 reason。
+`desktop_action_target_unavailable` 保持稳定错误码。Standalone 无 target 使用 `run_target_missing`；Desktop Main 从未建立使用 `desktop_main_missing`，曾建立但当前离线使用 `desktop_main_disconnected`，无法进一步归类的旧绑定仍使用 `target_connection_unavailable`。普通 CDP 与 AWCP 均通过 `desktop_cdp` 返回对应的 `desktop_cdp_*` 工具错误和相同 reason。
 
 默认 Desktop target 只决定反向请求送达位置，不扩大 WorkPanel 或页面权限。`desktop.workpanel.*` 到达 Desktop 后仍必须通过该 run 的 canonical Chat/grant；没有 grant 的独立 run 返回 `source_chat_not_ready`，不能借用当前可见 Chat。Team WorkPanel 的现有限制同样不变。
 
@@ -146,7 +146,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 - MCP server 暂时不可用或协议版本不兼容时，调用返回结构化 MCP unavailable 错误。
 - MCP streamable HTTP 和 stdio session、ACP、Proxy、Channel、LSP、KBASE sidecar 与其他长期驻留服务不继承动态 run env。stdio MCP 子进程仍只使用 registry 启动时的静态 `env`；运行中 `platform_control run.env.set/unset` 不重启或修改已存在 session。
 - `qiuerscript-tool` 在 stdin 关闭后正常退出，不支持私有 `shutdown` RPC。
-- `desktop_action`、`desktop_awcp`、`desktop_cdp` 及 Desktop Main Broker 反向 Action/AWCP/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
+- `desktop_action`、`desktop_cdp` 及 Desktop Main Broker 反向 Action/AWCP/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
 - `ask_user_question` 由 `internal/toolinteraction` 中明确注册的 handler 负责等待、submit 规范化和固定 QA 模型输出；没有通用 YAML 表单 fallback。
 - HITL viewport 细节见 [HITL协议](HITL协议.md)。
 

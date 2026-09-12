@@ -124,11 +124,7 @@ func (s *llmRunStream) currentSystemMatchesSnapshot(snapshot SystemInitSnapshot)
 	if strings.TrimSpace(s.forcedFinalAnswer) != "" {
 		return true
 	}
-	toolSpecs := s.toolSpecs
-	if s.awcpConstraint.revision != "" {
-		toolSpecs = cloneOpenAIToolSpecsForAwcpProfile(s.toolSpecs, s.desktopAwcpBaseParameters())
-	}
-	return systemToolsEqual(openAIToolSpecsToAny(toolSpecs), snapshot.Tools)
+	return systemToolsEqual(openAIToolSpecsToAny(s.toolSpecs), snapshot.Tools)
 }
 
 func (s *llmRunStream) currentSystemMatchesCallSnapshot(snapshot SystemInitSnapshot, prepared preparedProviderRequest, effectiveToolChoice string) bool {

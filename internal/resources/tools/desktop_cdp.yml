@@ -1,12 +1,12 @@
 name: desktop_cdp
 label: 桌面端CDP
-description: Call Desktop CDP through the current run's reverse WebSocket target. This tool is supported only in Desktop runtime mode and never falls back to local HTTP or another client window. Use desktop_action for high-level surface/tab control. For a chat-owned WorkPanel, desktop.workpanel.* manages its tabs and WebViews; a WorkPanel tabId is not a CDP targetId, and Desktop authorizes supplied WorkPanel CDP targets only when they belong to the current run's trusted chat.
+description: Call Desktop CDP or the current authorized page's AWCP contract through the current run's reverse WebSocket target. Use AWCP.getSnapshot before AWCP.invoke; AWCP methods do not accept CDP target, session, surface, request, or paramsFile fields. This tool is supported only in Desktop runtime mode and never falls back to local HTTP or another client window. Use desktop_action for high-level surface/tab control. For a chat-owned WorkPanel, desktop.workpanel.* manages its tabs and WebViews; a WorkPanel tabId is not a CDP targetId, and Desktop authorizes supplied WorkPanel CDP targets only when they belong to the current run's trusted chat.
 inputSchema:
   type: object
   properties:
     method:
       type: string
-      description: Required. Chrome DevTools Protocol method name to execute through the Desktop CDP Bridge. Use a Domain.method value such as Target.getTargets, Target.closeTarget, Runtime.evaluate, or Page.captureScreenshot. Do not pass HTTP gateway endpoints such as /json/version, /json, or /json/list as method values, and do not invent Target.refreshTarget; use Page.reload for one target.
+      description: Required. Chrome DevTools Protocol method or AWCP.getSnapshot/AWCP.invoke. Discover AWCP actions with AWCP.getSnapshot, then call AWCP.invoke with params containing revision, action and args. Do not pass HTTP gateway endpoints such as /json/version, /json, or /json/list as method values, and do not invent Target.refreshTarget; use Page.reload for one target.
       enum:
         - Target.getTargets
         - Target.getCurrentTarget
@@ -27,16 +27,18 @@ inputSchema:
         - Input.insertText
         - Network.enable
         - Network.disable
+        - AWCP.getSnapshot
+        - AWCP.invoke
     params:
       type: object
-      description: JSON parameters for the selected CDP method. Mutually exclusive with paramsFile; omit both for no parameters. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings "true"/"false". Prefer the top-level targetId for Target.closeTarget; params.targetId exists only for CDP compatibility, and conflicting values are invalid.
+      description: JSON parameters for the selected method. For AWCP.invoke this must contain exactly revision, action and args; omit params for AWCP.getSnapshot. For CDP it is mutually exclusive with paramsFile; omit both for no parameters. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings "true"/"false". Prefer the top-level targetId for Target.closeTarget; params.targetId exists only for CDP compatibility, and conflicting values are invalid.
       additionalProperties: true
     paramsFile:
       type: string
-      description: Optional path to a UTF-8 JSON file containing only the params object, not the full request. Mutually exclusive with params. Relative paths resolve from the execution workspace; explicit roots such as @chat and authorized absolute paths follow the standard file read AccessPolicy and approval rules. The file must be regular and fit within file-tools.max-read-bytes (default 1 MiB); it is read in full without truncation. Platform sends its contents as params through the existing CDP request.
+      description: CDP methods only. Optional path to a UTF-8 JSON file containing only the params object, not the full request. Mutually exclusive with params and rejected for AWCP methods. Relative paths resolve from the execution workspace; explicit roots such as @chat and authorized absolute paths follow the standard file read AccessPolicy and approval rules. The file must be regular and fit within file-tools.max-read-bytes (default 1 MiB); it is read in full without truncation. Platform sends its contents as params through the existing CDP request.
     targetId:
       type: string
-      description: Desktop-managed target id required for every method except Target.getCurrentTarget and Target.getTargets. It may identify the current Desktop surface or a WorkPanel target owned by the current run's chat. Do not pass a desktop.workpanel.* tabId here; WorkPanel tab ids and CDP target ids are different identifiers.
+      description: Desktop-managed target id required for every CDP method except Target.getCurrentTarget and Target.getTargets. Omit it for both AWCP methods. It may identify the current Desktop surface or a WorkPanel target owned by the current run's chat. Do not pass a desktop.workpanel.* tabId here; WorkPanel tab ids and CDP target ids are different identifiers.
     sessionId:
       type: string
       description: Optional CDP session id for an attached target session.
