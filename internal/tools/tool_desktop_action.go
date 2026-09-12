@@ -339,9 +339,16 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 	if err != nil {
 		return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
 	}
+	awcpFailure := false
+	if requestType == desktopAwcpInvokeAction {
+		awcpFailure, err = validateDesktopAwcpResponse(decoded, requestID, payloadMap)
+		if err != nil {
+			return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
+		}
+	}
 	structured := map[string]any{"transport": "reverse-websocket", "response": decoded}
 	result := structuredResultWithExit(structured, 0)
-	if decoded["ok"] == false {
+	if awcpFailure || decoded["ok"] == false {
 		result = structuredResultWithExit(structured, -1)
 	}
 	if screenshot && result.ExitCode == 0 {

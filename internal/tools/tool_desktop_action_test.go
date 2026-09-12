@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -37,6 +38,21 @@ type scriptedClientRequestInvoker struct {
 	request     ClientRequest
 	deadline    time.Time
 	hadDeadline bool
+}
+
+type awcpClientRequestInvoker struct {
+	request  ClientRequest
+	response func(ClientRequest) map[string]any
+	calls    int
+}
+
+func (i *awcpClientRequestInvoker) InvokeClientRequest(_ context.Context, _ ClientTarget, request ClientRequest, onFrame func(ClientResponseFrame) error) error {
+	i.calls++
+	i.request = request
+	response := i.response(request)
+	data, _ := json.Marshal(response)
+	code := 0
+	return onFrame(ClientResponseFrame{Frame: "response", Type: request.Type, ID: request.ID, Code: &code, Data: data})
 }
 
 type desktopMainTargetProviderStub struct {
@@ -76,7 +92,10 @@ func (i *routingClientRequestInvoker) InvokeClientRequest(_ context.Context, tar
 		return err
 	}
 	response := map[string]any{"ok": true, "result": map[string]any{}}
-	if strings.HasPrefix(request.Type, "desktop.") && request.Type != desktopCDPRequestType {
+	if request.Type == desktopAwcpInvokeAction {
+		response["requestId"] = request.ID
+		response["action"] = request.Payload["action"]
+	} else if strings.HasPrefix(request.Type, "desktop.") && request.Type != desktopCDPRequestType {
 		response["action"] = request.Type
 	}
 	if method := strings.TrimSpace(AnyStringNode(request.Payload["method"])); method != "" {
@@ -1287,6 +1306,7 @@ func TestInvokeDesktopActionRejectsLegacyAndUnsupportedActions(t *testing.T) {
 
 func TestInvokeDesktopActionRejectsPageActions(t *testing.T) {
 	for _, action := range []string{
+		"desktop.awcp.invoke",
 		"desktop.page.readCurrent",
 		"desktop.embeddedWeb.readPageData",
 	} {
@@ -1458,6 +1478,119 @@ func TestDesktopActionRejectsReservedArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDesktopAwcpInvokePreservesEnvelopeSourceAndBusinessFailure(t *testing.T) {
+	var response map[string]any
+	invoker := &awcpClientRequestInvoker{response: func(request ClientRequest) map[string]any {
+		response = map[string]any{
+			"ok":        false,
+			"requestId": request.ID,
+			"action":    "orders.select",
+			"error": map[string]any{
+				"code":    "stale_snapshot",
+				"message": "The AWCP snapshot is stale.",
+			},
+		}
+		return response
+	}}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: invoker,
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	args := map[string]any{"revision": "opaque-revision", "action": "orders.select", "args": map[string]any{"ids": []any{"1", "2"}}}
+	result, err := executor.invokeDesktopAwcp(context.Background(), args, desktopActionTestExecutionContext())
+	if err != nil || result.ExitCode != -1 || result.Error != "" {
+		t.Fatalf("AWCP business failure result=%#v err=%v", result, err)
+	}
+	if !strings.HasPrefix(invoker.request.ID, "daw-") || invoker.request.Type != desktopAwcpInvokeAction || !reflect.DeepEqual(invoker.request.Payload, args) {
+		t.Fatalf("AWCP request was rewritten: %#v", invoker.request)
+	}
+	if invoker.request.Source == nil || invoker.request.Source.RunID != "run-desktop-action-test" || invoker.request.Source.ChatID != "chat-desktop-action-test" || invoker.request.Source.AgentKey != "agent-desktop-action-test" {
+		t.Fatalf("AWCP trusted source = %#v", invoker.request.Source)
+	}
+	if !reflect.DeepEqual(result.Structured["response"], response) {
+		t.Fatalf("AWCP structured failure was not preserved: %#v", result.Structured)
+	}
+}
+
+func TestDesktopAwcpInvokeRejectsInvalidPayloadWithoutCallingClient(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "missing revision", args: map[string]any{"action": "orders.read", "args": map[string]any{}}},
+		{name: "extra target", args: map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{}, "targetId": "forged"}},
+		{name: "invalid action", args: map[string]any{"revision": "r", "action": "Orders.read", "args": map[string]any{}}},
+		{name: "non object args", args: map[string]any{"revision": "r", "action": "orders.read", "args": []any{}}},
+		{name: "non JSON args", args: map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{"value": math.NaN()}}},
+		{name: "oversized revision", args: map[string]any{"revision": strings.Repeat("r", 129), "action": "orders.read", "args": map[string]any{}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invoker := &routingClientRequestInvoker{}
+			executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
+			result, err := executor.invokeDesktopAwcp(context.Background(), test.args, desktopActionTestExecutionContext())
+			if err != nil || result.Error != "invalid_args" || result.ExitCode != -1 {
+				t.Fatalf("invalid AWCP payload result=%#v err=%v", result, err)
+			}
+			_, requests := invoker.snapshots()
+			if len(requests) != 0 {
+				t.Fatalf("invalid AWCP payload reached client: %#v", requests)
+			}
+		})
+	}
+
+	invoker := &routingClientRequestInvoker{}
+	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeStandalone}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
+	result, err := executor.invokeDesktopAwcp(context.Background(), map[string]any{
+		"revision": "r", "action": "orders.read", "args": map[string]any{},
+	}, desktopActionTestExecutionContext())
+	if err != nil || result.Error != "desktop_awcp_unsupported_runtime" {
+		t.Fatalf("standalone AWCP result=%#v err=%v", result, err)
+	}
+}
+
+func TestDesktopAwcpInvokeRejectsMismatchedResponseLocally(t *testing.T) {
+	invoker := &awcpClientRequestInvoker{response: func(ClientRequest) map[string]any {
+		return map[string]any{"ok": true, "requestId": "other", "action": "orders.read", "result": nil}
+	}}
+	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
+	result, err := executor.invokeDesktopAwcp(context.Background(), map[string]any{
+		"revision": "r", "action": "orders.read", "args": map[string]any{},
+	}, desktopActionTestExecutionContext())
+	if err != nil || result.Error != "desktop_awcp_invalid_client_response" || result.ExitCode != -1 {
+		t.Fatalf("mismatched AWCP response result=%#v err=%v", result, err)
+	}
+}
+
+func TestDesktopAwcpToolSchemaIsExact(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tools: %v", err)
+	}
+	for _, def := range defs {
+		if def.Name != "desktop_awcp" {
+			continue
+		}
+		if def.Parameters["type"] != "object" || def.Parameters["additionalProperties"] != false {
+			t.Fatalf("desktop_awcp schema is not a closed object: %#v", def.Parameters)
+		}
+		if !reflect.DeepEqual(def.Parameters["required"], []any{"revision", "action", "args"}) {
+			t.Fatalf("desktop_awcp required = %#v", def.Parameters["required"])
+		}
+		properties, _ := def.Parameters["properties"].(map[string]any)
+		if len(properties) != 3 {
+			t.Fatalf("desktop_awcp properties = %#v", properties)
+		}
+		argsSchema, _ := properties["args"].(map[string]any)
+		if argsSchema["type"] != "object" {
+			t.Fatalf("desktop_awcp args schema = %#v", argsSchema)
+		}
+		return
+	}
+	t.Fatal("desktop_awcp tool definition is unavailable")
 }
 
 func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {

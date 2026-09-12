@@ -1,0 +1,26 @@
+name: desktop_awcp
+label: AWCP 页面动作
+description: Invoke one AWCP action on the current run's authorized Desktop page. Discover the current AWCP snapshot with desktop_cdp, then pass that snapshot revision, the selected action, and an args object built only from the action inputSchema. The tool is Desktop-only. Platform generates request identity and trusted source metadata; do not add target, surface, tab, guest, source, or request fields.
+inputSchema:
+  type: object
+  required:
+    - revision
+    - action
+    - args
+  additionalProperties: false
+  properties:
+    revision:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: Required. Opaque revision copied exactly from the current AWCP snapshot.
+    action:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*$'
+      description: Required. AWCP action selected from the same snapshot.
+    args:
+      type: object
+      additionalProperties: true
+      description: Required. Plain JSON object built only from the selected action inputSchema. Use {} when the action takes no input.
