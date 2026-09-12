@@ -88,6 +88,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(auth.DeviceID) == "" {
 		auth.DeviceID = wsAuthDeviceIDFromRequest(r)
 	}
+	source, deviceID := wsClientMetadataFromRequest(r, auth)
+	surfaceID := NormalizeWebClientSurfaceID(r.URL.Query().Get("surfaceId"))
+	if !desktopLaneMetadataAuthorized(source, deviceID, surfaceID, auth) {
+		http.Error(w, "forbidden desktop lane identity", http.StatusForbidden)
+		return
+	}
 	auth.Subprotocol = subprotocol
 	responseHeader := http.Header{}
 	if subprotocol != "" {
@@ -106,8 +112,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn.SetLocale(wsLocaleFromRequest(r, h.defaultLocale))
 	conn.SetRequestBaseURL(wsRequestBaseURL(r))
 	conn.SetClientInfo(r.RemoteAddr, r.UserAgent())
-	conn.SetClientMetadata(wsClientMetadataFromRequest(r, auth))
-	conn.SetClientSurfaceID(r.URL.Query().Get("surfaceId"))
+	conn.SetClientMetadata(source, deviceID)
+	conn.SetClientSurfaceID(surfaceID)
 	dispatch := h.Dispatch
 	if h.dispatch != nil {
 		dispatch = h.dispatch
