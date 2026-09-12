@@ -121,7 +121,14 @@ func (s *llmRunStream) currentSystemMatchesSnapshot(snapshot SystemInitSnapshot)
 	if !jsonValuesEqual(currentSystem, snapshot.SystemMessage) {
 		return false
 	}
-	return systemToolsEqual(openAIToolSpecsToAny(s.toolSpecs), snapshot.Tools)
+	if strings.TrimSpace(s.forcedFinalAnswer) != "" {
+		return true
+	}
+	toolSpecs := s.toolSpecs
+	if s.awcpConstraint.revision != "" {
+		toolSpecs = cloneOpenAIToolSpecsForAwcpProfile(s.toolSpecs, s.desktopAwcpBaseParameters())
+	}
+	return systemToolsEqual(openAIToolSpecsToAny(toolSpecs), snapshot.Tools)
 }
 
 func (s *llmRunStream) currentSystemMatchesCallSnapshot(snapshot SystemInitSnapshot, prepared preparedProviderRequest, effectiveToolChoice string) bool {
@@ -131,7 +138,7 @@ func (s *llmRunStream) currentSystemMatchesCallSnapshot(snapshot SystemInitSnaps
 	if !jsonMapsEqual(s.currentModelSnapshot(prepared), snapshot.Model) {
 		return false
 	}
-	if strings.TrimSpace(effectiveToolChoice) != strings.TrimSpace(snapshot.ToolChoice) {
+	if strings.TrimSpace(s.forcedFinalAnswer) == "" && strings.TrimSpace(effectiveToolChoice) != strings.TrimSpace(snapshot.ToolChoice) {
 		return false
 	}
 	return jsonMapsEqual(requestOptionsFromPreparedBody(prepared.RequestBody), snapshot.RequestOptions)

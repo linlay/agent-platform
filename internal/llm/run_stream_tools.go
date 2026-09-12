@@ -44,6 +44,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		return nil, deltas, message
 	}
 	args, _ = expandedArgs.(map[string]any)
+	s.invalidateAwcpForDesktopCdpCall(toolCall.Function.Name, args)
 
 	if s.readOnlyToolDenied(toolCall.Function.Name, args) {
 		result := toolpolicy.DisabledResult(toolCall.Function.Name)
@@ -1321,6 +1322,9 @@ func (s *llmRunStream) markRunLimitFinalAnswerCompleted() {
 }
 
 func (s *llmRunStream) finalAnswerToolCallFallback() string {
+	if s != nil && s.forcedFinalAnswer != "" {
+		return awcpFailureFinalFallback
+	}
 	if s.runLimitFinalAnswerActive() {
 		return "BTW reached its read-only tool limit. It cannot continue the parent task; ask the side question again or continue in the main conversation."
 	}
@@ -1542,6 +1546,7 @@ func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolIn
 	if s.lastTrace != nil {
 		s.lastTrace.appendToolResult(invocation, content, result)
 	}
+	s.observeDesktopToolResult(invocation, result)
 	if entry, ok := s.buildHITLNoticeEntry(invocation); ok {
 		s.pendingHITLNotices = append(s.pendingHITLNotices, entry)
 	}

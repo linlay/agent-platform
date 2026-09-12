@@ -66,6 +66,8 @@ type llmRunStream struct {
 	cancellationErr      error
 	toolShutdownTimeout  time.Duration
 	finalTurnAttempted   bool
+	forcedFinalAnswer    string
+	awcpConstraint       awcpRunConstraint
 	allowToolUse         bool
 	previousToolResult   any
 	queuedToolCalls      []*preparedToolInvocation

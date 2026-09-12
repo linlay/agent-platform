@@ -49,6 +49,7 @@ var alwaysDeniedTools = map[string]struct{}{
 	"artifact_publish":        {},
 	"image_generate":          {},
 	"desktop_action":          {},
+	"desktop_awcp":            {},
 	"desktop_cdp":             {},
 	"ask_user_question":       {},
 	"skill_candidate_write":   {},

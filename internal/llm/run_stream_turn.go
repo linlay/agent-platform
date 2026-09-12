@@ -146,6 +146,11 @@ func (s *llmRunStream) invokeActiveToolCallAndPostHook() error {
 }
 
 func (s *llmRunStream) prepareTurnForPending() error {
+	if strings.TrimSpace(s.forcedFinalAnswer) != "" && !s.finalTurnAttempted {
+		s.finalTurnAttempted = true
+		s.prepareFinalAnswerTurn()
+		return s.prepareNextTurn()
+	}
 	if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerPending {
 		if !s.finalTurnAttempted {
 			s.finalTurnAttempted = true
@@ -357,7 +362,9 @@ func (s *llmRunStream) registerCurrentSystemProfile(prepared preparedProviderReq
 
 func (s *llmRunStream) prepareFinalAnswerTurn() {
 	prompt := finalAnswerInstruction
-	if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerActive && strings.TrimSpace(s.execCtx.RunLimits.FinalAnswerPrompt) != "" {
+	if strings.TrimSpace(s.forcedFinalAnswer) != "" {
+		prompt = s.forcedFinalAnswer
+	} else if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerActive && strings.TrimSpace(s.execCtx.RunLimits.FinalAnswerPrompt) != "" {
 		prompt = s.execCtx.RunLimits.FinalAnswerPrompt
 	}
 	s.messages = append(s.messages, openAIMessage{
