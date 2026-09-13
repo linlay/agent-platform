@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"regexp"
 	"sort"
@@ -12,26 +13,25 @@ import (
 )
 
 const (
-	desktopAwcpToolName      = "desktop_awcp"
-	desktopCdpToolName       = "desktop_cdp"
-	awcpMaxActions           = 128
-	awcpMaxNameLength        = 128
-	awcpMaxDescriptionLength = 2048
-	awcpMaxSnapshotBytes     = 256 * 1024
-	awcpMaxSchemaDepth       = 20
-	awcpFailureFinalPrompt   = "The AWCP call failed and must not be retried. Do not call any tools or fall back to DOM interaction. Briefly explain the failure from the immediately preceding tool result and, when useful, tell the user what must change before trying again."
-	awcpFailureFinalFallback = "The AWCP action failed and cannot be retried in this run. Review the preceding tool error and correct the page action or its arguments before trying again."
+	desktopCdpToolName        = "desktop_cdp"
+	desktopAwcpSnapshotMethod = "AWCP.getSnapshot"
+	desktopAwcpInvokeMethod   = "AWCP.invoke"
+	awcpMaxActions            = 128
+	awcpMaxNameLength         = 128
+	awcpMaxDescriptionLength  = 2048
+	awcpMaxSnapshotBytes      = 256 * 1024
+	awcpMaxSchemaDepth        = 20
+	awcpFailureFinalPrompt    = "The AWCP call failed and must not be retried. Do not call any tools or fall back to DOM interaction. Briefly explain the failure from the immediately preceding tool result and, when useful, tell the user what must change before trying again."
+	awcpFailureFinalFallback  = "The AWCP action failed and cannot be retried in this run. Review the preceding tool error and correct the page action or its arguments before trying again."
 )
 
 var awcpActionNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*$`)
 
 type awcpActionConstraint struct {
-	action      string
-	inputSchema map[string]any
+	action string
 }
 
 type awcpRunConstraint struct {
-	targetID        string
 	revision        string
 	actions         []awcpActionConstraint
 	staleRecoveries int
@@ -41,12 +41,47 @@ func (s *llmRunStream) observeDesktopToolResult(invocation *preparedToolInvocati
 	if s == nil || invocation == nil {
 		return
 	}
-	switch strings.TrimSpace(invocation.toolName) {
-	case desktopCdpToolName:
-		s.observeDesktopCdpResult(invocation, result)
-	case desktopAwcpToolName:
+	if strings.TrimSpace(invocation.toolName) != desktopCdpToolName {
+		return
+	}
+	switch strings.TrimSpace(stringMapValue(invocation.args, "method")) {
+	case desktopAwcpSnapshotMethod:
+		s.observeDesktopAwcpSnapshotResult(result)
+	case desktopAwcpInvokeMethod:
 		s.observeDesktopAwcpResult(result)
 	}
+}
+
+func (s *llmRunStream) validateAwcpDesktopCdpCall(toolName string, args map[string]any) error {
+	if s == nil || strings.TrimSpace(toolName) != desktopCdpToolName {
+		return nil
+	}
+	switch strings.TrimSpace(stringMapValue(args, "method")) {
+	case desktopAwcpSnapshotMethod:
+		if len(args) == 1 {
+			s.clearAwcpConstraint()
+		}
+	case desktopAwcpInvokeMethod:
+		params := anyMap(args["params"])
+		revision := stringMapValue(params, "revision")
+		action := stringMapValue(params, "action")
+		if revision == "" || action == "" {
+			return nil
+		}
+		if s.awcpConstraint.revision == "" {
+			return fmt.Errorf("AWCP.getSnapshot must succeed before AWCP.invoke")
+		}
+		if revision != s.awcpConstraint.revision {
+			return fmt.Errorf("AWCP.invoke revision does not match the latest snapshot")
+		}
+		for _, candidate := range s.awcpConstraint.actions {
+			if candidate.action == action {
+				return nil
+			}
+		}
+		return fmt.Errorf("AWCP.invoke action was not present in the latest snapshot")
+	}
+	return nil
 }
 
 func (s *llmRunStream) invalidateAwcpForDesktopCdpCall(toolName string, args map[string]any) {
@@ -60,30 +95,20 @@ func (s *llmRunStream) invalidateAwcpForDesktopCdpCall(toolName string, args map
 	}
 }
 
-func (s *llmRunStream) observeDesktopCdpResult(invocation *preparedToolInvocation, result contracts.ToolExecutionResult) {
-	if strings.TrimSpace(stringMapValue(invocation.args, "method")) != "Runtime.evaluate" || result.ExitCode != 0 || strings.TrimSpace(result.Error) != "" {
-		return
-	}
-	targetID := strings.TrimSpace(stringMapValue(invocation.args, "targetId"))
-	if targetID == "" {
+func (s *llmRunStream) observeDesktopAwcpSnapshotResult(result contracts.ToolExecutionResult) {
+	if result.ExitCode != 0 || strings.TrimSpace(result.Error) != "" {
 		return
 	}
 	response := anyMap(result.Structured["response"])
-	if ok, valid := response["ok"].(bool); !valid || !ok || strings.TrimSpace(stringMapValue(response, "method")) != "Runtime.evaluate" {
+	if ok, valid := response["ok"].(bool); !valid || !ok || strings.TrimSpace(stringMapValue(response, "method")) != desktopAwcpSnapshotMethod {
 		return
 	}
-	cdpResult := anyMap(response["result"])
-	remoteObject := anyMap(cdpResult["result"])
-	value := anyMap(remoteObject["value"])
-	if ok, valid := value["ok"].(bool); !valid || !ok {
-		return
-	}
-	snapshot := anyMap(value["snapshot"])
+	snapshot := map[string]any{"revision": response["revision"], "actions": response["actions"]}
 	revision, actions, valid := validateAwcpSnapshot(snapshot)
-	if !valid || len(actions) == 0 {
+	if !valid {
 		return
 	}
-	s.applyAwcpConstraint(targetID, revision, actions)
+	s.applyAwcpConstraint(revision, actions)
 }
 
 func (s *llmRunStream) observeDesktopAwcpResult(result contracts.ToolExecutionResult) {
@@ -111,94 +136,24 @@ func (s *llmRunStream) queueAwcpFinalAnswer() {
 	s.toolChoice = "none"
 }
 
-func (s *llmRunStream) applyAwcpConstraint(targetID, revision string, actions []awcpActionConstraint) {
+func (s *llmRunStream) applyAwcpConstraint(revision string, actions []awcpActionConstraint) {
 	if s == nil {
 		return
 	}
-	for index := range s.toolSpecs {
-		if strings.TrimSpace(s.toolSpecs[index].Function.Name) != desktopAwcpToolName {
-			continue
-		}
-		branches := make([]any, 0, len(actions))
-		for _, descriptor := range actions {
-			branches = append(branches, map[string]any{
-				"type":                 "object",
-				"required":             []any{"revision", "action", "args"},
-				"additionalProperties": false,
-				"properties": map[string]any{
-					"revision": map[string]any{"type": "string", "const": revision},
-					"action":   map[string]any{"type": "string", "const": descriptor.action},
-					"args":     cloneToolSchemaMap(descriptor.inputSchema),
-				},
-			})
-		}
-		s.toolSpecs[index].Function.Parameters = map[string]any{"oneOf": branches}
-		s.awcpConstraint.targetID = targetID
-		s.awcpConstraint.revision = revision
-		s.awcpConstraint.actions = cloneAwcpActions(actions)
-		return
-	}
+	s.awcpConstraint.revision = revision
+	s.awcpConstraint.actions = cloneAwcpActions(actions)
 }
 
 func (s *llmRunStream) clearAwcpConstraint() {
 	if s == nil {
 		return
 	}
-	for index := range s.toolSpecs {
-		if strings.TrimSpace(s.toolSpecs[index].Function.Name) == desktopAwcpToolName {
-			s.toolSpecs[index].Function.Parameters = s.desktopAwcpBaseParameters()
-			break
-		}
-	}
-	s.awcpConstraint.targetID = ""
 	s.awcpConstraint.revision = ""
 	s.awcpConstraint.actions = nil
 }
 
-func (s *llmRunStream) desktopAwcpBaseParameters() map[string]any {
-	if s != nil && s.engine != nil && s.engine.tools != nil {
-		definitions := mergeToolDefinitions(s.engine.tools.Definitions(), s.session.ModeToolDefinitions)
-		for _, definition := range definitions {
-			if normalizedToolDefinitionName(definition) == desktopAwcpToolName {
-				return cloneToolSchemaMap(definition.Parameters)
-			}
-		}
-	}
-	return map[string]any{
-		"type":                 "object",
-		"required":             []any{"revision", "action", "args"},
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"revision": map[string]any{"type": "string", "minLength": float64(1), "maxLength": float64(128)},
-			"action": map[string]any{
-				"type":      "string",
-				"minLength": float64(1),
-				"maxLength": float64(128),
-				"pattern":   `^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*$`,
-			},
-			"args": map[string]any{"type": "object", "additionalProperties": true},
-		},
-	}
-}
-
 func cloneAwcpActions(actions []awcpActionConstraint) []awcpActionConstraint {
-	cloned := make([]awcpActionConstraint, len(actions))
-	for index, action := range actions {
-		cloned[index] = awcpActionConstraint{action: action.action, inputSchema: cloneToolSchemaMap(action.inputSchema)}
-	}
-	return cloned
-}
-
-func cloneOpenAIToolSpecsForAwcpProfile(specs []openAIToolSpec, baseParameters map[string]any) []openAIToolSpec {
-	cloned := make([]openAIToolSpec, len(specs))
-	for index, spec := range specs {
-		cloned[index] = spec
-		cloned[index].Function.Parameters = cloneToolSchemaMap(spec.Function.Parameters)
-		if strings.TrimSpace(spec.Function.Name) == desktopAwcpToolName {
-			cloned[index].Function.Parameters = cloneToolSchemaMap(baseParameters)
-		}
-	}
-	return cloned
+	return append([]awcpActionConstraint(nil), actions...)
 }
 
 func validateAwcpSnapshot(snapshot map[string]any) (string, []awcpActionConstraint, bool) {
@@ -243,7 +198,7 @@ func validateAwcpSnapshot(snapshot map[string]any) (string, []awcpActionConstrai
 			}
 		}
 		previous = action
-		actions = append(actions, awcpActionConstraint{action: action, inputSchema: cloneToolSchemaMap(inputSchema)})
+		actions = append(actions, awcpActionConstraint{action: action})
 	}
 	return revision, actions, true
 }

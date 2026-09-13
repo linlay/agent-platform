@@ -45,6 +45,10 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 	args, _ = expandedArgs.(map[string]any)
 	s.invalidateAwcpForDesktopCdpCall(toolCall.Function.Name, args)
+	if validationErr := s.validateAwcpDesktopCdpCall(toolCall.Function.Name, args); validationErr != nil {
+		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
+		return nil, deltas, message
+	}
 
 	if s.readOnlyToolDenied(toolCall.Function.Name, args) {
 		result := toolpolicy.DisabledResult(toolCall.Function.Name)

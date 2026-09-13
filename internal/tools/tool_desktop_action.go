@@ -199,6 +199,18 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 	if method == "" {
 		return desktopActionErrorResult("invalid_args", "method is required", nil), nil
 	}
+	switch method {
+	case desktopAwcpGetSnapshotMethod:
+		return t.invokeDesktopAwcpSnapshot(ctx, args, execCtx)
+	case desktopAwcpInvokeMethod:
+		return t.invokeDesktopAwcpFromCDP(ctx, args, execCtx)
+	default:
+		return t.invokeRawDesktopCDP(ctx, args, execCtx)
+	}
+}
+
+func (t *RuntimeToolExecutor) invokeRawDesktopCDP(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	method := strings.TrimSpace(stringArg(args, "method"))
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
 	}
@@ -343,6 +355,10 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 	if requestType == desktopAwcpInvokeAction {
 		awcpFailure, err = validateDesktopAwcpResponse(decoded, requestID, payloadMap)
 		if err != nil {
+			return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
+		}
+	} else if requestType == desktopAwcpSnapshotAction {
+		if err = validateDesktopAwcpSnapshotResponse(decoded); err != nil {
 			return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
 		}
 	}

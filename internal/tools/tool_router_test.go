@@ -481,7 +481,7 @@ func TestToolInvocationResultStatus(t *testing.T) {
 func TestRuntimeCompactModelOutputPolicyIsCodeOwned(t *testing.T) {
 	for _, name := range []string{
 		"bash", "bash_sandbox",
-		"desktop_action", "desktop_awcp", "desktop_cdp",
+		"desktop_action", "desktop_cdp",
 		"file_read", "file_write", "file_edit", "file_glob", "file_grep",
 		"image_generate", "vision_recognize", "web_fetch",
 		"regex",
