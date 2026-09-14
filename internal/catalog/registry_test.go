@@ -42,6 +42,11 @@ func TestShouldIgnoreRuntimeWatchPath(t *testing.T) {
 		path string
 		want bool
 	}{
+		{path: filepath.Join("connectors-center", ".connector-import-123"), want: true},
+		{path: filepath.Join("connectors-center", ".connector-import-123", "demo", "skills", "SKILL.md"), want: true},
+		{path: filepath.Join("connectors-center", ".CONNECTOR-IMPORT-123", "demo"), want: true},
+		{path: filepath.Join("connectors-center", "demo", "connector.json"), want: false},
+		{path: filepath.Join("connectors-center", "my.connector-import-123", "connector.json"), want: false},
 		{path: ".DS_Store", want: true},
 		{path: "/tmp/runtime/.DS_Store", want: true},
 		{path: "/tmp/runtime/agents/agent-order.json", want: true},
@@ -72,6 +77,8 @@ func TestShouldWatchRuntimeDir(t *testing.T) {
 		{name: "cutej.bootstrap", want: false},
 		{name: "dailyOfficeProAssistant.bootstrap", want: false},
 		{name: "Agent.Bootstrap", want: false},
+		{name: ".connector-import-123", want: false},
+		{name: ".CONNECTOR-IMPORT-123", want: false},
 		{name: ".skill-import-abcd1234", want: false},
 		{name: ".agent-import-abcd1234", want: false},
 		{name: ".agent-import-backup-abcd1234", want: false},
