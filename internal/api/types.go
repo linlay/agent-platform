@@ -90,6 +90,15 @@ type ProjectTreeEntry struct {
 	ModifiedUnixMs int64  `json:"modifiedUnixMs,omitempty"`
 }
 
+// ProjectGitResponse is a live, read-only snapshot, never Agent configuration.
+type ProjectGitResponse struct {
+	AgentKey string `json:"agentKey"`
+	Status   string `json:"status"`
+	Branch   string `json:"branch,omitempty"`
+	Commit   string `json:"commit,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
 type ProjectTreeResponse struct {
 	AgentKey      string             `json:"agentKey"`
 	Mode          string             `json:"mode"`

@@ -10,6 +10,12 @@ import (
 	projectpkg "agent-platform/internal/project"
 )
 
+func (s *Server) handleProjectGit(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	response, err := s.projectService().Git(r.Context(), r.URL.Query().Get("agentKey"))
+	s.writeProjectHTTPResponse(w, response, err)
+}
+
 func (s *Server) handleProjectTree(w http.ResponseWriter, r *http.Request) {
 	limit, err := projectPageLimit(r.URL.Query().Get("limit"))
 	if err != nil {

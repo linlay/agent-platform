@@ -458,6 +458,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/document/preview", s.method(http.MethodPost, s.handleDocumentPreview))
 	s.router.HandleFunc("/api/document/commit", s.method(http.MethodPost, s.handleDocumentCommit))
 	s.router.HandleFunc("/api/file/history", s.method(http.MethodGet, s.handleFileHistory))
+	s.router.HandleFunc("/api/project/git", s.method(http.MethodGet, s.handleProjectGit))
 	s.router.HandleFunc("/api/project/tree", s.method(http.MethodGet, s.handleProjectTree))
 	s.router.HandleFunc("/api/project/changes", s.method(http.MethodGet, s.handleProjectChanges))
 	s.router.HandleFunc("/api/project/diff", s.method(http.MethodGet, s.handleProjectDiff))
