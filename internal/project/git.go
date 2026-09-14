@@ -2,6 +2,8 @@ package project
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"os"
@@ -42,6 +44,7 @@ func (s Service) Git(ctx context.Context, agentKey string) (api.ProjectGitRespon
 	}
 	snapshot := probeGit(ctx, ws.roots.Workspace.Host)
 	snapshot.AgentKey = agentKey
+	setGitRevision(&snapshot, ws.roots.Workspace.Host)
 	return snapshot, nil
 }
 
@@ -56,21 +59,7 @@ func probeGit(ctx context.Context, directory string) (result api.ProjectGitRespo
 		}
 	}()
 	unavailable := api.ProjectGitResponse{Status: "unavailable", Reason: "probe_failed"}
-	env := make([]string, 0, len(os.Environ())+2)
-	for _, entry := range os.Environ() {
-		key := strings.ToUpper(strings.SplitN(entry, "=", 2)[0])
-		if !strings.HasPrefix(key, "GIT_") && key != "LC_ALL" && key != "LANGUAGE" {
-			env = append(env, entry)
-		}
-	}
-	env = append(env, "LC_ALL=C", "GIT_OPTIONAL_LOCKS=0")
-	run := func(args ...string) (string, error) {
-		cmd := exec.CommandContext(ctx, "git", args...)
-		cmd.Dir, cmd.Env = directory, env
-		cmd.WaitDelay = 100 * time.Millisecond
-		out, err := cmd.CombinedOutput()
-		return strings.TrimSpace(string(out)), err
-	}
+	run := func(args ...string) (string, error) { return runProjectGit(ctx, directory, args...) }
 	if output, err := run("rev-parse", "--absolute-git-dir"); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			unavailable.Reason = "git_unavailable"
@@ -147,4 +136,29 @@ func hasGitMarker(directory string) bool {
 		}
 		directory = parent
 	}
+}
+
+func setGitRevision(snapshot *api.ProjectGitResponse, directory string) {
+	if snapshot.Status != "branch" && snapshot.Status != "detached" {
+		return
+	}
+	sum := sha256.Sum256([]byte(directory + "\x00" + snapshot.Status + "\x00" + snapshot.Branch + "\x00" + snapshot.Commit))
+	snapshot.Revision = hex.EncodeToString(sum[:])
+}
+
+func runProjectGit(ctx context.Context, directory string, args ...string) (string, error) {
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, entry := range os.Environ() {
+		key := strings.ToUpper(strings.SplitN(entry, "=", 2)[0])
+		if !strings.HasPrefix(key, "GIT_") && key != "LC_ALL" && key != "LANGUAGE" {
+			env = append(env, entry)
+		}
+	}
+	env = append(env, "LC_ALL=C", "GIT_OPTIONAL_LOCKS=0")
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir, cmd.Env = directory, env
+	cmd.WaitDelay = 100 * time.Millisecond
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
 }

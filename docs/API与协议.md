@@ -665,6 +665,8 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 |---|---|---|---|
 | GET | `/api/file` | query: `agentKey`、`path`、`response` 可选 | agent workspace 文件；默认 JSON metadata/text，`response=content` 返回文件内容流 |
 | GET | `/api/project/git` | query: `agentKey` | 实际 Workspace 的只读 Git 快照，与 Agent 列表/详情独立 |
+| GET | `/api/project/git/branches` | query: `agentKey` | 本地分支列表、Git 快照及写操作边界 |
+| POST | `/api/project/git/branches` | body: `agentKey,operation,branch,expectedRevision` | 切换或新建并切换后返回最新 Git 快照 |
 | GET | `/api/project/tree` | query: `agentKey`、`path`、`limit`、`cursor` | CODER/KBASE Workspace 单层目录树，目录优先稳定排序 |
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
@@ -683,7 +685,7 @@ Project 的 tree/changes/diff 三个端点是只读 HTTP 数据面，只接受�
 
 `GET /api/project/git?agentKey=...` 是独立的只读 HTTP 查询，不扩展 `/api/agents`、`/api/agent`，不扫描工作区改动。仅按 catalog 中真实 `Workspace.Root` 解析 canonical 目录及 ChatsRoot 边界，不按 CODER/KBASE mode 限制；没有目录也不会退回 Agent 配置目录或当前进程目录。
 
-成功响应 `data` 为 `{agentKey,status,branch?,commit?,reason?}`：
+成功响应 `data` 为 `{agentKey,status,branch?,commit?,reason?,revision?}`：
 
 | status | 含义与字段 |
 |---|---|
@@ -694,6 +696,14 @@ Project 的 tree/changes/diff 三个端点是只读 HTTP 数据面，只接受�
 | `unavailable` | 目录或 Git 读取失败；`reason` 为 `workspace_unavailable`、`git_unavailable`、`probe_failed` 或 `probe_timeout` |
 
 参数错误、未知 Agent、文件系统权限拒绝仍走已有 HTTP 错误包裹。需要宿主 PATH 中可用的 Git；Git 不可用不会阻塞 Agent 列表/详情。探测限时 3 秒，清除继承的 Git 路由/配置环境变量，支持仓库子目录与 worktree；损坏 `.git` 不作为普通非 Git 目录。接口不执行分支切换、创建、checkout、索引刷新或项目写入，响应 `Cache-Control: no-store`。`projectConfig.git.expectedBranch` 保持原 CODER 运行约束，既不决定探测资格，也不作为实际分支的回退值。
+
+`GET /api/project/git/branches` 按需返回 `{git,branches,canChange,blockedReason?,expectedBranch?}`。`branches` 为本地分支名数组，包含空仓库当前尚未产生提交的分支；不 fetch、不列远端分支。`git.revision` 绑定解析后的项目目录、当前 HEAD 状态、分支及提交，是客户端操作前置条件。CODER 的 `expectedBranch` 仅提示既有运行约束，不会被写操作修改。
+
+`POST /api/project/git/branches` 请求 `{agentKey,operation:"switch"|"create",branch,expectedRevision}`。`switch` 仅切换已有本地分支；`create` 从当前 HEAD 创建并切换（空仓库可创建新的初始分支）。分支名须通过 Git ref 格式校验，拒绝选项注入及不合法名称。请求缺少 revision、非法操作或名称返回 400；HEAD/目录已变返回 409 `revision_conflict`，同仓库并行操作返回 `git_busy`，重复名称返回 `branch_exists`，目标不存在返回 `branch_not_found`。成功返回新的 Git 快照。
+
+切换影响整个 worktree，因此只有 Workspace 正好覆盖仓库工作树根且不包含 ChatsRoot 时 `canChange:true`；子目录仍可读分支，mutation 返回 403 `workspace_not_repo_root`，包含聊天存储返回 `workspace_contains_chats`，bare/不可访问 worktree 返回 `worktree_unavailable`。这是用户直接项目操作，不借用 KBASE run 的 editingMode，也不扩大普通文件工具授权。
+
+操作在进程内按 canonical Git common-dir 串行，使用 Git 自有锁及未提交/未跟踪/被忽略文件保护，不 force、stash、clean，不自动猜测远端分支、不递归切换 submodule、不执行 checkout hooks。其他 worktree 占用目标分支时由 Git 拒绝，返回 409 `git_switch_rejected` 及截断后的原因。操作最长 30 秒；超时或执行后无法确认返回 503 `git_operation_uncertain`，客户端必须刷新确认后再决定是否重试，不承诺命令被中止后自动回滚。外部 Git 进程不参与 Platform 进程内锁；用户应避免同一工作树同时进行其他 Git 操作或运行文件写入任务。
 
 `/api/project/tree` 每次只枚举一个目录，默认 `limit=200`、最大 1000；目录优先并按名称稳定排序。游标绑定响应 `revision`，继续分页前目录发生变化会返回 HTTP 409，错误码为 `data.error.code=directory_changed`。目录 symlink 不允许展开；指向 Workspace 内普通文件的 symlink 可交给 `/api/file` 预览，逃逸、断链、目录目标或非普通文件保留 `kind:"symlink"` 但返回 `accessible:false`。Workspace 为文件系统根时仍屏蔽整个 ChatsRoot。
 

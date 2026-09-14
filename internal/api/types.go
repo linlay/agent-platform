@@ -97,6 +97,22 @@ type ProjectGitResponse struct {
 	Branch   string `json:"branch,omitempty"`
 	Commit   string `json:"commit,omitempty"`
 	Reason   string `json:"reason,omitempty"`
+	Revision string `json:"revision,omitempty"`
+}
+
+type ProjectGitBranchesResponse struct {
+	Git            ProjectGitResponse `json:"git"`
+	Branches       []string           `json:"branches"`
+	CanChange      bool               `json:"canChange"`
+	BlockedReason  string             `json:"blockedReason,omitempty"`
+	ExpectedBranch string             `json:"expectedBranch,omitempty"`
+}
+
+type ProjectGitBranchRequest struct {
+	AgentKey         string `json:"agentKey"`
+	Operation        string `json:"operation"`
+	Branch           string `json:"branch"`
+	ExpectedRevision string `json:"expectedRevision"`
 }
 
 type ProjectTreeResponse struct {

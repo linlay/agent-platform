@@ -149,6 +149,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - Memory：memory console 的记录、scope 与历史接口；`/api/learn` 和 `/api/memory/context-preview` 已删除。
 - KBASE：`/api/kbase/{agentKey}/status`、`/api/kbase/{agentKey}/refresh` 以及五个 KBASE tools。
 - Project Git：独立 HTTP `GET /api/project/git?agentKey=...` 按实际 Workspace 读取分支/游离 HEAD/非 Git/无目录/不可用状态，不按 mode 筛选；依赖宿主 Git，只读且限时，不进入 `/api/agents` 或 `/api/agent`，不改变 `expectedBranch` 约束。
+- Project Git 分支操作：HTTP `GET/POST /api/project/git/branches` 按需列本地分支、切换或新建并切换，校验 revision；只允许完整且不包含 ChatsRoot 的 worktree，保留 Git 改动保护，不 force/stash/clean、不执行 hooks，不修改 `expectedBranch` 配置。
 - Project / Resource：`/api/project/tree`、`/api/project/changes`、`/api/project/diff`、`/api/upload`、`/api/resource`、`/api/resource/image/commit`。Project 只读接口只接受 CODER/KBASE 的 Workspace 相对 POSIX 路径，复用 file-history 作为 Run Diff 基线；图片 commit 只修改 active Chat 的 Artifact/Reference 资源域。
 - View / WebSocket：`/api/view`、旧兼容 `/api/viewport`、`/ws`。
 
