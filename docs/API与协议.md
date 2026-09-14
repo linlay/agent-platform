@@ -254,7 +254,7 @@ Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详�
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`（包括 `includeTeam=true`）附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。KBASE editing run 的摘要带可选 `editingMode:true`，方便客户端重连后恢复 badge；false 时省略。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
-`/api/agent` 会返回 agent 配置中的 `greetings` 与 `wonders` 数组。客户端可将 `greetings` 作为开场/占位介绍，并随机挑选一条显示在聊天输入框 placeholder 或空状态里；`wonders` 用于展示可直接提交的具体 query 示例。`/api/agents` 是列表摘要接口，不返回 `greetings` 或 `wonders`。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
+`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；新增的 `introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
 ### Archive
 
@@ -792,6 +792,8 @@ Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信�
 ```
 
 Desktop 模式由 Main Broker 处理 87 个普通 `desktop.*` request type、AWCP 专用 wire action `desktop.awcp.snapshot` / `desktop.awcp.invoke` 和 `desktop.cdp.call`；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Desktop-only 的 `desktop.workpanel.openLocalFile` 在 Standalone 由 `desktop_action` 返回 `desktop_action_unsupported_runtime`；`desktop_cdp` 的普通 CDP 与 AWCP method 均返回 `desktop_cdp_unsupported_runtime`，不转发给 agent-webclient。普通 Action 的调用方可选 request ID 继续映射为帧 `id`；AWCP 的帧 `id` 只由 Platform 生成。响应必须保持同 `id`、同 request `type`；旧统一 envelope 不提供兼容入口。模型通过 `desktop_cdp` 的两个静态 AWCP method 分别映射到 snapshot/invoke wire，snapshot payload 为空，invoke payload 只含 `{revision,action,args}`，目标和来源仅由可信 Run 决定；合法 AWCP `ok:false` 保持普通 response data 并让工具失败，宿主错误仍使用 error frame。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
+
+Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame，外层 `frame/type/id/code/msg/data` 不变。`type/msg` 承载原始错误类型和消息，`data` 只保存 `{action, details?}`，不再嵌套完整 Action result 或 `error`。Platform 从 `data.details` 提取有界的 `issues`（最多 16 项，每项 `path/code/expected/actual` 字符串最多 256 字节）与恢复提示；`actual` 只表示类型或缺失，不返回输入值。参数错误在模型工具结果中保留 `invalid_args`，其他 provider 错误保留既有分类。此边界由 Desktop/Platform 配套发布；不猜测历史嵌套格式，不改变 CDP/AWCP 各自的诊断协议。
 
 服务端响应帧：
 

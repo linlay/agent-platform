@@ -42,12 +42,15 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if response.Data.Mode != "REACT" {
 		t.Fatalf("expected REACT mode, got %#v", response.Data)
 	}
-	wantGreetings := []string{
+	if !reflect.DeepEqual(response.Data.Greetings, []string{"今天想试试什么？"}) {
+		t.Fatalf("expected heading greetings, got %#v", response.Data.Greetings)
+	}
+	wantIntroductions := []string{
 		"我可以帮你演示平台工具、审批交互和运行时上下文。",
 		"你可以把我当作一个用于验证 agent-platform 能力的测试智能体。",
 	}
-	if !reflect.DeepEqual(response.Data.Greetings, wantGreetings) {
-		t.Fatalf("expected greetings in detail response, got %#v", response.Data.Greetings)
+	if !reflect.DeepEqual(response.Data.Introductions, wantIntroductions) {
+		t.Fatalf("expected introductions in detail response, got %#v", response.Data.Introductions)
 	}
 	wantWonders := []string{
 		"帮我演示提问式确认",

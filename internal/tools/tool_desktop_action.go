@@ -261,8 +261,12 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if toolName == "desktop_cdp" {
 			appendDesktopCDPDiagnostics(details, frame.Data)
 		}
+		errorCode := toolName + "_client_rejected"
+		if toolName == "desktop_action" && frame.Type == "invalid_args" {
+			errorCode = "invalid_args"
+		}
 		return desktopActionErrorResult(
-			toolName+"_client_rejected",
+			errorCode,
 			firstDesktopActionMessage(frame.Msg, "client rejected the request"),
 			details,
 		), nil
@@ -326,10 +330,11 @@ func desktopClientRejectionDetails(frame ClientResponseFrame) map[string]any {
 		details["retryable"] = *metadata.Retryable
 	}
 	for _, key := range []string{"recovery", "reason"} {
-		if value, ok := metadata.Details[key].(string); ok && strings.TrimSpace(value) != "" {
+		if value, ok := metadata.Details[key].(string); ok && strings.TrimSpace(value) != "" && len(value) <= 1024 {
 			details[key] = strings.TrimSpace(value)
 		}
 	}
+	appendDesktopActionIssues(details, metadata.Details)
 	return details
 }
 

@@ -188,19 +188,20 @@ func defaultRole(role string) string {
 func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.AgentDetailResponse {
 	modelName, meta := s.buildAgentDetailMeta(def)
 	response := api.AgentDetailResponse{
-		Key:         def.Key,
-		Name:        def.Name,
-		Icon:        def.Icon,
-		Description: def.Description,
-		Role:        def.Role,
-		Greetings:   append([]string(nil), def.Greetings...),
-		Wonders:     append([]string(nil), def.Wonders...),
-		Model:       modelName,
-		Mode:        catalog.AgentModeForAPI(def.Mode),
-		Tools:       effectiveAgentTools(def),
-		Skills:      append([]string{}, def.Skills...),
-		Controls:    cloneListMaps(def.Controls),
-		Meta:        meta,
+		Key:           def.Key,
+		Name:          def.Name,
+		Icon:          def.Icon,
+		Description:   def.Description,
+		Role:          def.Role,
+		Greetings:     append([]string(nil), def.Greetings...),
+		Introductions: append([]string(nil), def.Introductions...),
+		Wonders:       append([]string(nil), def.Wonders...),
+		Model:         modelName,
+		Mode:          catalog.AgentModeForAPI(def.Mode),
+		Tools:         effectiveAgentTools(def),
+		Skills:        append([]string{}, def.Skills...),
+		Controls:      cloneListMaps(def.Controls),
+		Meta:          meta,
 	}
 	if catalog.AgentUsesACPCoderBackend(def) {
 		modelOptions := s.buildModelOptionsForAgent(def.Key)

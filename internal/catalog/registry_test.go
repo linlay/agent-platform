@@ -274,7 +274,39 @@ func TestParseAgentFilePreservesMultilineGreetings(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileReadsSingularGreeting(t *testing.T) {
+func TestParseAgentFilePreservesMultilineIntroductions(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: demo\n"+
+			"name: Demo\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"introductions:\n"+
+			"  - 我可以帮你练习词汇、复盘错题，也能把今天的学习拆成小步骤。\n"+
+			"  - |-\n"+
+			"    我会先帮你定位最容易提分的地方\n"+
+			"    再给出可以马上开始的练习。\n"+
+			"  - \"\"\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentDefinitionForTest(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+
+	want := []string{
+		"我可以帮你练习词汇、复盘错题，也能把今天的学习拆成小步骤。",
+		"我会先帮你定位最容易提分的地方\n再给出可以马上开始的练习。",
+	}
+	if got := def.Introductions; !reflect.DeepEqual(got, want) {
+		t.Fatalf("introductions = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseAgentFileIgnoresSingularGreeting(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	if err := os.WriteFile(path, []byte(
@@ -292,7 +324,7 @@ func TestParseAgentFileReadsSingularGreeting(t *testing.T) {
 		t.Fatalf("parse agent file: %v", err)
 	}
 
-	want := []string{"我可以帮你快速看懂这个项目，并给出下一步行动建议。"}
+	var want []string
 	if got := def.Greetings; !reflect.DeepEqual(got, want) {
 		t.Fatalf("greeting = %#v, want %#v", got, want)
 	}
@@ -1382,6 +1414,9 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 		!strings.Contains(string(workerData), `"defaultReasoningEffort":"HIGH"`) ||
 		!strings.Contains(string(workerData), `"role":"Code worker"`) {
 		t.Fatalf("CODER summary JSON should include root defaults, got %s", workerData)
+	}
+	if strings.Contains(string(workerData), `"introductions"`) {
+		t.Fatalf("summary JSON should omit introductions, got %s", workerData)
 	}
 	if strings.Contains(string(workerData), `"greetings"`) {
 		t.Fatalf("CODER summary JSON should omit greetings, got %s", workerData)
