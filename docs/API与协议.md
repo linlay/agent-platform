@@ -254,7 +254,7 @@ Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详�
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`（包括 `includeTeam=true`）附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。KBASE editing run 的摘要带可选 `editingMode:true`，方便客户端重连后恢复 badge；false 时省略。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
-`/api/agent` 会返回 agent 配置中的 `greetings` 与 `wonders` 数组。客户端可将 `greetings` 作为开场/占位介绍，并随机挑选一条显示在聊天输入框 placeholder 或空状态里；`wonders` 用于展示可直接提交的具体 query 示例。`/api/agents` 是列表摘要接口，不返回 `greetings` 或 `wonders`。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
+`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；新增的 `introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
 ### Archive
 

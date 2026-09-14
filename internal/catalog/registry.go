@@ -45,6 +45,7 @@ type AgentDefinition struct {
 	Description         string
 	Role                string
 	Greetings           []string
+	Introductions       []string
 	Wonders             []string
 	ModelKey            string
 	ServiceTier         string
@@ -770,6 +771,7 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst := src
 	dst.Icon = cloneAgentSnapshotValue(src.Icon)
 	dst.Greetings = append([]string(nil), src.Greetings...)
+	dst.Introductions = append([]string(nil), src.Introductions...)
 	dst.Wonders = append([]string(nil), src.Wonders...)
 	dst.VisibilityScopes = append([]string(nil), src.VisibilityScopes...)
 	dst.Tools = append([]string(nil), src.Tools...)

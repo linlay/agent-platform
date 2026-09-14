@@ -638,7 +638,8 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		Icon:             root["icon"],
 		Description:      stringNode(root["description"]),
 		Role:             stringNode(root["role"]),
-		Greetings:        parseAgentGreetings(root),
+		Greetings:        normalizeAgentTextList(root["greetings"]),
+		Introductions:    normalizeAgentTextList(root["introductions"]),
 		Wonders:          normalizeWonderStrings(root["wonders"]),
 		VisibilityScopes: parseAgentVisibilityScopes(root["visibility"]),
 	}
@@ -1096,13 +1097,6 @@ func runtimeRequiresBash(runtime map[string]any) bool {
 	}
 	env, ok := runtime["env"].(map[string]string)
 	return ok && len(env) > 0
-}
-
-func parseAgentGreetings(root map[string]any) []string {
-	if items := normalizeAgentTextList(root["greetings"]); len(items) > 0 {
-		return items
-	}
-	return normalizeAgentTextList(root["greeting"])
 }
 
 func validateAgentSamplingConfig(path string, root map[string]any) error {
