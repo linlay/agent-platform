@@ -793,6 +793,8 @@ Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信�
 
 Desktop 模式由 Main Broker 处理 87 个普通 `desktop.*` request type、AWCP 专用 wire action `desktop.awcp.snapshot` / `desktop.awcp.invoke` 和 `desktop.cdp.call`；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Desktop-only 的 `desktop.workpanel.openLocalFile` 在 Standalone 由 `desktop_action` 返回 `desktop_action_unsupported_runtime`；`desktop_cdp` 的普通 CDP 与 AWCP method 均返回 `desktop_cdp_unsupported_runtime`，不转发给 agent-webclient。普通 Action 的调用方可选 request ID 继续映射为帧 `id`；AWCP 的帧 `id` 只由 Platform 生成。响应必须保持同 `id`、同 request `type`；旧统一 envelope 不提供兼容入口。模型通过 `desktop_cdp` 的两个静态 AWCP method 分别映射到 snapshot/invoke wire，snapshot payload 为空，invoke payload 只含 `{revision,action,args}`，目标和来源仅由可信 Run 决定；合法 AWCP `ok:false` 保持普通 response data 并让工具失败，宿主错误仍使用 error frame。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
 
+Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame，外层 `frame/type/id/code/msg/data` 不变。`type/msg` 承载原始错误类型和消息，`data` 只保存 `{action, details?}`，不再嵌套完整 Action result 或 `error`。Platform 从 `data.details` 提取有界的 `issues`（最多 16 项，每项 `path/code/expected/actual` 字符串最多 256 字节）与恢复提示；`actual` 只表示类型或缺失，不返回输入值。参数错误在模型工具结果中保留 `invalid_args`，其他 provider 错误保留既有分类。此边界由 Desktop/Platform 配套发布；不猜测历史嵌套格式，不改变 CDP/AWCP 各自的诊断协议。
+
 服务端响应帧：
 
 ```json
