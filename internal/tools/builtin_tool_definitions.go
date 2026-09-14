@@ -20,7 +20,6 @@ var requiredBuiltinToolNames = []string{
 	"bash",
 	"datetime",
 	"desktop_action",
-	"desktop_awcp",
 	"desktop_cdp",
 	"file_edit",
 	"file_glob",

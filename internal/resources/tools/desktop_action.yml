@@ -1,6 +1,6 @@
 name: desktop_action
 label: 桌面端动作
-description: Execute an allowlisted Desktop action through the current run's reverse WebSocket target. In Desktop runtime mode, desktop.* routes to Desktop Main Broker. In standalone mode, desktop.workpanel.* except the Desktop-only desktop.workpanel.openLocalFile and desktop.display route to the originating agent-webclient; other desktop.* actions are unsupported. No route falls back to local HTTP or another client window. Use desktop_awcp, not this tool, for AWCP page actions.
+description: Execute an allowlisted Desktop action through the current run's reverse WebSocket target. In Desktop runtime mode, desktop.* routes to Desktop Main Broker. In standalone mode, desktop.workpanel.* except the Desktop-only desktop.workpanel.openLocalFile and desktop.display route to the originating agent-webclient; other desktop.* actions are unsupported. No route falls back to local HTTP or another client window. Use desktop_cdp AWCP methods, not this tool, for AWCP page actions.
 inputSchema:
   type: object
   properties:
