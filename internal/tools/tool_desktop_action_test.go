@@ -1661,6 +1661,7 @@ func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 		"DOM.querySelectorAll",
 		"Input.dispatchKeyEvent",
 		"Input.dispatchMouseEvent",
+		"Input.click",
 		"Input.insertText",
 		"Network.disable",
 		"Network.enable",

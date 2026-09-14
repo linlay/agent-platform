@@ -6,7 +6,7 @@ inputSchema:
   properties:
     method:
       type: string
-      description: Required. Chrome DevTools Protocol method or AWCP.getSnapshot/AWCP.invoke. Discover AWCP actions with AWCP.getSnapshot, then call AWCP.invoke with params containing revision, action and args. Do not pass HTTP gateway endpoints such as /json/version, /json, or /json/list as method values, and do not invent Target.refreshTarget; use Page.reload for one target.
+      description: Required. Select an allowed protocol or Desktop virtual method from the enum, using Domain.method format. HTTP endpoints are not method names.
       enum:
         - Target.getTargets
         - Target.getCurrentTarget
@@ -22,6 +22,7 @@ inputSchema:
         - DOM.querySelectorAll
         - DOM.getOuterHTML
         - DOM.getBoxModel
+        - Input.click
         - Input.dispatchMouseEvent
         - Input.dispatchKeyEvent
         - Input.insertText
