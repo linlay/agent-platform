@@ -5,18 +5,130 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
 )
+
+func TestResolutionFailureDoesNotClaimDirectOrDial(t *testing.T) {
+	cause := errors.New("PAC discovery failed")
+	r, _ := newResolver(Config{}, httpproxy.Config{}, func(context.Context) (systemSettings, error) {
+		return systemSettings{Auto: true, ResolveAuto: func(context.Context, *url.URL) (*url.URL, error) { return nil, cause }}, nil
+	})
+	f := factoryForResolver(r)
+	t.Cleanup(f.CloseIdleConnections)
+	f.transport.base.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		t.Error("resolution failure must not dial")
+		return nil, errors.New("unexpected dial")
+	}
+	_, err := f.NewClient(time.Second).Post("https://model.test/", "application/json", strings.NewReader("{}"))
+	var route *TransportError
+	if !errors.As(err, &route) || route.Proxy != "unresolved" || route.Stage != "proxy-resolution" || !errors.Is(err, cause) || strings.Contains(err.Error(), "proxy=direct") {
+		t.Fatalf("incorrect resolution diagnostics: %v", err)
+	}
+}
+
+func TestMissingWPADPostsDirectOnce(t *testing.T) {
+	var requests atomic.Int32
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		if r.Method != http.MethodPost || string(body) != "model payload" {
+			t.Errorf("changed request: %s %q", r.Method, body)
+		}
+		io.WriteString(w, "model result")
+	}))
+	defer s.Close()
+	r, _ := newResolver(Config{}, httpproxy.Config{}, func(context.Context) (systemSettings, error) {
+		return systemSettings{Auto: true, ResolveAuto: func(context.Context, *url.URL) (*url.URL, error) { return nil, errAutoProxyNotDiscovered }}, nil
+	})
+	f := factoryForResolver(r)
+	t.Cleanup(f.CloseIdleConnections)
+	f.transport.base.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != "model.test:80" {
+			t.Errorf("unexpected destination: %s", address)
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, s.Listener.Addr().String())
+	}
+	resp, err := f.NewClient(time.Second).Post("http://model.test/", "application/json", strings.NewReader("model payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || string(body) != "model result" || requests.Load() != 1 {
+		t.Fatalf("body=%q err=%v requests=%d", body, err, requests.Load())
+	}
+}
+
+func TestDNSFailureDiagnostics(t *testing.T) {
+	for _, proxy := range []string{"", "http://user:secret@proxy.test:80"} {
+		cfg := Config{Mode: "direct"}
+		stage, routeProxy := "dns-resolution", "direct"
+		if proxy != "" {
+			cfg = Config{Mode: "fixed", URL: proxy}
+			stage, routeProxy = "proxy-dns-resolution", "http://proxy.test:80"
+		}
+		f, err := NewFactory(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(f.CloseIdleConnections)
+		cause := &net.DNSError{Name: "private-host", Server: "private-dns", Err: "secret", IsNotFound: true}
+		f.transport.base.DialContext = func(context.Context, string, string) (net.Conn, error) {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: cause}
+		}
+		_, err = f.NewClient(time.Second).Get("https://model.test/")
+		var route *TransportError
+		if !errors.As(err, &route) || route.Stage != stage || route.Proxy != routeProxy || !errors.Is(err, cause) || !strings.Contains(err.Error(), "DNS name not found") {
+			t.Fatalf("incorrect DNS diagnostics: %v", err)
+		}
+		for _, secret := range []string{"private-host", "private-dns", "secret", "user:"} {
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("leaked %s: %v", secret, err)
+			}
+		}
+	}
+}
+
+func TestFailureKindSafeClassification(t *testing.T) {
+	cases := []struct {
+		err  error
+		want string
+	}{
+		{&net.DNSError{Err: "secret", IsTimeout: true}, "DNS lookup timeout"},
+		{&net.DNSError{Err: "secret", IsTemporary: true}, "DNS lookup temporarily failed"},
+		{&net.DNSError{Err: "secret"}, "DNS lookup failed"},
+		{context.Canceled, "request canceled"},
+		{context.DeadlineExceeded, "deadline exceeded"},
+		{errors.New("secret"), "transport failure"},
+	}
+	if runtime.GOOS == "windows" {
+		for _, code := range []syscall.Errno{10013, 10051, 10053, 10054, 10060, 10061, 10065, 12345} {
+			got := failureKind(fmt.Errorf("secret: %w", &net.OpError{Op: "dial", Err: code}))
+			if !strings.Contains(got, fmt.Sprintf("windows error %d", code)) || strings.Contains(got, "secret") {
+				t.Fatalf("unsafe or missing Windows code: %s", got)
+			}
+		}
+	}
+	for _, tt := range cases {
+		if got := failureKind(fmt.Errorf("secret: %w", tt.err)); got != tt.want {
+			t.Errorf("got %q want %q", got, tt.want)
+		}
+	}
+}
 
 func getBody(t *testing.T, c *http.Client, target string) string {
 	t.Helper()

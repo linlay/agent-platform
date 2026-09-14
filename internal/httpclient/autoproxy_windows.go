@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"runtime"
@@ -77,7 +78,15 @@ func resolveWindowsAutoProxy(pacURL string, detect bool, target *url.URL) (*url.
 		}
 	}
 	if ok == 0 {
-		return nil, fmt.Errorf("WinHttpGetProxyForUrl: %w", err)
+		return nil, windowsAutoProxyError(pacURL, detect, err)
 	}
 	return windowsAutoProxyResult(target, info.Access, windows.UTF16PtrToString(info.Proxy), windows.UTF16PtrToString(info.Bypass))
+}
+
+func windowsAutoProxyError(pacURL string, detect bool, err error) error {
+	// Absence of optional WPAD configuration is not a broken explicit PAC.
+	if pacURL == "" && detect && errors.Is(err, windows.Errno(12180)) {
+		return errAutoProxyNotDiscovered
+	}
+	return fmt.Errorf("WinHttpGetProxyForUrl: %w", err)
 }

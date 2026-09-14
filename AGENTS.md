@@ -70,7 +70,7 @@ cmd/agent-platform/main.go
 - `internal/connector`：中立连接器包/JSON/技能与 assets 图标结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取各 Agent 的 ru-agents/<agentKey>/connectors，MCP 按 Agent/连接器/组件建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级 token 保存/退出、null 模式显式受管 CLI 准备/扫码、普通 OAuth 授权码与 MCP OAuth 发现、PKCE、loopback 回调和持久化刷新；oneid-token 复用 Desktop identity-file，按调用环境注入 AP_ACCESS_TOKEN，HTTP MCP 按同一来源生成 Bearer Header，不复制 SSO 凭据到连接器状态目录。按用户凭据绑定与通用 runtime 安装尚未实现，见连接器专题。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析；Team 只接受目录式 orchestrated 定义，并以原子快照冻结成员、协调器配置和 prompt。
 - `internal/config`：环境变量、YAML、默认值。
-- `internal/httpclient`：Platform 出站 HTTP 客户端工厂、显式/环境/系统固定代理解析与缓存刷新；内部服务使用直连客户端，不修改标准库全局 Transport 或进程环境；Windows 已接入 WinHTTP PAC/WPAD（待目标系统验证），macOS PAC/WPAD 尚未实现。
+- `internal/httpclient`：Platform 出站 HTTP 客户端工厂、显式/环境/系统固定代理解析与缓存刷新；内部服务使用直连客户端，不修改标准库全局 Transport 或进程环境；Windows 已接入 WinHTTP PAC/WPAD（企业网络待目标系统验证），仅无显式 PAC 的 WPAD 发现返回 12180 时按无代理直连；解析失败标记 `proxy=unresolved`，DNS 与 Windows 网络错误提供脱敏分类。macOS PAC/WPAD 尚未实现。
 - `internal/stream`：统一事件、dispatcher、assembler、normalizer 与 EventBus；SSE writer 属于 `internal/server` 传输层。
 - `internal/sandbox`：Container Hub client、mounts、sandbox 执行。
 - `internal/automation`：automation 注册、调度、执行记录。

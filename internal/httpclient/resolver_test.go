@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -168,13 +169,17 @@ func TestEnvironmentCasePrecedence(t *testing.T) {
 	}
 	u, _ := url.Parse("https://example.org")
 	d, err := r.Resolve(context.Background(), u)
-	if err != nil || d.Proxy.Host != "upper.test:80" {
+	if err != nil || d.Proxy == nil || d.Proxy.Host != "upper.test:80" {
 		t.Fatalf("%+v %v", d, err)
 	}
 	t.Setenv("HTTPS_PROXY", "")
+	if runtime.GOOS == "windows" {
+		// Windows aliases upper/lowercase names; clearing one clears both.
+		t.Setenv("https_proxy", "lower.test:80")
+	}
 	r, _ = NewResolver(Config{})
 	d, err = r.Resolve(context.Background(), u)
-	if err != nil || d.Proxy.Host != "lower.test:80" {
+	if err != nil || d.Proxy == nil || d.Proxy.Host != "lower.test:80" {
 		t.Fatalf("%+v %v", d, err)
 	}
 }

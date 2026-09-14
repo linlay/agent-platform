@@ -38,7 +38,7 @@ localhost、loopback 地址始终直连；专用内部通信客户端也始终�
 2. `auto` 先判断 `NO_PROXY`，命中后直接结束解析；即使没有同时设置环境代理也生效。
 3. 根据目标协议选择 `HTTP_PROXY` 或 `HTTPS_PROXY`。支持对应小写变量，大写非空值优先。HTTP 与 HTTPS 独立解析，不以 `HTTP_PROXY` 代替缺失的 `HTTPS_PROXY`。
 4. 当前协议未配置环境代理时，读取系统固定代理与系统绕过规则；对应 HTTP/HTTPS 代理未启用时可使用系统 SOCKS 代理。
-5. Windows 存在自动代理配置且没有适用固定代理时，按请求 URL 调用 WinHTTP 解析 PAC/WPAD；只有系统明确返回直连才直连。
+5. Windows 存在自动代理配置且没有适用固定代理时，按请求 URL 调用 WinHTTP 解析 PAC/WPAD；系统明确返回直连时直连。没有显式 PAC URL、仅开启自动检测且 WinHTTP 返回 `12180`（未发现 WPAD 配置）时，也按无自动代理直连，来源标记为 `system-wpad-not-found`。
 6. 没有适用代理或自动代理配置时直连。
 
 `NO_PROXY` 支持域名、子域、IP、CIDR、可选端口和 `*`，复用 Go 的 `golang.org/x/net/http/httpproxy` 匹配器。仅系统代理被选用时才应用系统绕过规则。进程环境在工厂初始化时取快照；Agent/run 的环境变量不改变 Platform 自身 HTTP 路由。`ALL_PROXY` 不属于本次支持范围。
@@ -61,11 +61,11 @@ macOS 命令不经过 Shell，读取期限为 2 秒。系统快照在缓存到�
 
 自动解析包含排队的调用等待上限为 10 秒，也遵守请求取消；进程最多同时保留 4 个原生解析调用。WinHTTP 同步调用可能在调用方超时后继续执行，由原 worker 回收 session 和返回内存，期间仍占用名额，避免无限堆积；不强制中断系统 PAC 执行。原生 session 的解析、连接、发送和接收超时分别设为 5 秒，这不是整个 PAC 执行的硬期限。
 
-PAC 返回明确的 `DIRECT` 时直连；返回代理列表时选择第一个适用入口。解析错误、脚本下载失败、WPAD 发现失败及选中代理连接失败均报错，不隐式直连。暂不支持列表内代理故障切换，不自动重放模型 POST。PAC 下载不自动发送当前用户的 Windows 登录凭据，要求集成认证的 PAC 服务可能返回授权失败；这与模型请求经过代理时的认证是两个不同环节。
+PAC 返回明确的 `DIRECT` 时直连；返回代理列表时选择第一个适用入口。唯一的发现失败直连例外是：没有显式 PAC URL、仅开启 WPAD 自动检测且返回 `ERROR_WINHTTP_AUTODETECTION_FAILED`（12180）。显式 PAC 即使同时开启自动检测并返回 12180 也仍报错；其他解析错误、脚本下载失败、超时及选中代理连接失败均不隐式直连。该例外在模型请求发送前决定路由，不重放模型 POST。暂不支持列表内代理故障切换。PAC 下载不自动发送当前用户的 Windows 登录凭据，要求集成认证的 PAC 服务可能返回授权失败；这与模型请求经过代理时的认证是两个不同环节。
 
 macOS 仍只支持固定系统代理与绕过，PAC/WPAD 尚未实现；只有自动代理时明确报错，可用显式固定代理、环境变量或 `mode: direct` 覆盖。
 
-Windows 服务账户读取自身设置，不自动读取另一个已登录用户的配置。原生 PAC 集成测试位于 `internal/httpclient/autoproxy_windows_test.go`；本次 macOS 开发环境仅验证公共回归和 Windows 交叉编译，真实 Windows PAC 执行及企业网络 DHCP/DNS WPAD 仍需在目标系统验证。接口级代理与原生系统变更通知尚未实现。
+Windows 服务账户读取自身设置，不自动读取另一个已登录用户的配置。原生 PAC 集成测试位于 `internal/httpclient/autoproxy_windows_test.go`；已在 Windows 验证本地 PAC 的 DIRECT/PROXY 执行，并以注入错误覆盖 WPAD 12180 与显式 PAC、下载失败、超时的策略边界。企业网络 DHCP/DNS WPAD 与故障电脑的实际连通性仍需在目标系统验证。接口级代理与原生系统变更通知尚未实现。
 
 ## 客户端与生命周期
 
@@ -81,7 +81,7 @@ Container Hub、Identity/JWKS 和 provider registration、KBASE Lance 本机 sid
 
 ## 诊断与验证
 
-请求失败日志和错误包含 `source`、去除用户信息的 `proxy`、`stage`。阶段区分代理解析、代理连接、CONNECT/TLS、请求发送、响应头等待和响应体读取；HTTP 407 另记 `proxy-auth`。网络错误保留底层错误链供超时分类，普通日志不打印可能包含凭据的原始上游错误。路由选择另外提供 `slog.Debug` 记录。
+请求失败日志和错误包含 `source`、去除用户信息的 `proxy`、`stage`。代理解析失败使用 `proxy=unresolved`（路由尚未确定，未尝试连接），只有已确定直连才使用 `proxy=direct`。WPAD 未发现后直连的来源为 `source=system-wpad-not-found`；这表示已选择直连，不保证连接成功。阶段区分代理解析、DNS 解析（`dns-resolution` / `proxy-dns-resolution`）、代理连接、CONNECT/TLS、请求发送、响应头等待和响应体读取；HTTP 407 另记 `proxy-auth`。DNS 错误区分名称不存在、超时、临时失败和其他失败；Windows socket/system 错误输出固定分类与数字错误码，不输出原始错误中的域名、DNS 服务器、地址或凭据。网络错误保留底层错误链供超时分类。路由选择另外提供 `slog.Debug` 记录。
 
 回归测试位于 `internal/httpclient` 与 `internal/config/config_http_test.go`，覆盖优先级、单独 `NO_PROXY`、绕过、缓存并发/刷新/错误、macOS/Windows 设置解析、HTTP 代理、HTTPS CONNECT、SOCKS5 远端 DNS、无直连回退和刷新期间 SSE 保持。
 

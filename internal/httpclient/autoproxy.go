@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// Only native Windows WPAD discovery without an explicit PAC may return this.
+var errAutoProxyNotDiscovered = errors.New("WPAD configuration not discovered")
+
 // WinHTTP's synchronous PAC evaluator cannot be interrupted safely by closing
 // its session from another goroutine. Bound both caller latency and outstanding
 // native calls; the worker owns and eventually frees all native resources.

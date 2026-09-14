@@ -162,6 +162,9 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (Decision, error) {
 	}
 	if s.Auto && s.ResolveAuto != nil {
 		p, err := s.ResolveAuto(ctx, u)
+		if errors.Is(err, errAutoProxyNotDiscovered) {
+			return Decision{Source: "system-wpad-not-found"}, nil
+		}
 		return Decision{Proxy: p, Source: "system-auto"}, err
 	}
 	if s.Auto {

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -146,6 +147,13 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 				stage = "proxy-tunnel-or-tls"
 			}
 		}
+		var dns *net.DNSError
+		if errors.As(err, &dns) {
+			stage = "dns-resolution"
+			if d.Proxy != nil {
+				stage = "proxy-dns-resolution"
+			}
+		}
 		return nil, reportFailure(d, stage, err)
 	}
 	if d.Proxy != nil && response.StatusCode == http.StatusProxyAuthRequired {
@@ -190,6 +198,9 @@ func (e *TransportError) Timeout() bool {
 
 func reportFailure(d Decision, stage string, err error) error {
 	e := &TransportError{Source: d.Source, Proxy: safeProxy(d.Proxy), Stage: stage, cause: err}
+	if stage == "proxy-resolution" {
+		e.Proxy = "unresolved"
+	}
 	// Resolution errors originate here and are deliberately free of addresses
 	// and credentials. Other errors may include upstream-controlled strings.
 	log.Print(e.Error())
@@ -197,19 +208,62 @@ func reportFailure(d Decision, stage string, err error) error {
 }
 
 func failureKind(err error) string {
-	switch {
-	case errors.Is(err, context.Canceled):
+	if errors.Is(err, context.Canceled) {
 		return "request canceled"
-	case errors.Is(err, context.DeadlineExceeded):
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
 		return "deadline exceeded"
+	}
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		switch {
+		case dns.IsTimeout:
+			return "DNS lookup timeout"
+		case dns.IsNotFound:
+			return "DNS name not found"
+		case dns.IsTemporary:
+			return "DNS lookup temporarily failed"
+		default:
+			return "DNS lookup failed"
+		}
+	}
+	switch {
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return "connection refused"
 	case errors.Is(err, syscall.ECONNRESET):
 		return "connection reset"
+	case errors.Is(err, syscall.ENETUNREACH):
+		return "network unreachable"
+	case errors.Is(err, syscall.EHOSTUNREACH):
+		return "host unreachable"
+	}
+	var errno syscall.Errno
+	if runtime.GOOS == "windows" && errors.As(err, &errno) {
+		kind := "Windows network/system failure"
+		switch errno {
+		case 10013:
+			kind = "socket access denied"
+		case 10051:
+			kind = "network unreachable"
+		case 10053:
+			kind = "connection aborted"
+		case 10054:
+			kind = "connection reset"
+		case 10060:
+			kind = "network timeout"
+		case 10061:
+			kind = "connection refused"
+		case 10065:
+			kind = "host unreachable"
+		}
+		return fmt.Sprintf("%s (windows error %d)", kind, errno)
 	}
 	var n net.Error
 	if errors.As(err, &n) && n.Timeout() {
 		return "network timeout"
+	}
+	if errors.As(err, &errno) {
+		return fmt.Sprintf("system failure (os error %d)", errno)
 	}
 	return "transport failure"
 }
