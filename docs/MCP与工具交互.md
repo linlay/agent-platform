@@ -100,7 +100,7 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 文件必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
 
-Platform 读取后沿现有链路归一化布尔参数并发送 `params`；`paramsFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
+Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符串布尔值静默转换；`paramsFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
 
 ## Desktop 反向 Provider
 
@@ -162,3 +162,9 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 ## VIEW 展示元数据
 
 工具 YAML、MCP 工具声明与配置覆盖可使用 `view: {connectorId,key}` 绑定展示连接器。`tool.result` 独立携带服务端冻结的 `view`；不把展示定义混入工具结果。旧 `viewportType/viewportKey` 保留兼容。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
+
+### CDP 失败诊断
+
+Desktop 拥有按方法的参数预检和目标授权；Platform 不复制 Chromium 参数校验器，不修改参数类型。预检失败明确说明当前命令尚未执行，必须修正输入后重试；已执行命令的超时或脚本异常不能声称无副作用。反向错误保留 Desktop 的字段级诊断与恢复建议，按公开字段白名单有界投影，不透传原始参数、宿主身份或任意嵌套数据。
+
+`Runtime.evaluate` 的传输成功与脚本成功独立。Platform 保留原始 CDP 响应，同时将包含 `exceptionDetails` 的结果标为工具失败，显式提示异常位置沿用 CDP 零基行列。普通脚本返回值中的 `ok` 不视为宿主协议状态，页面业务是否完成由调用方回读期望状态核验。参数错误不得作为刷新、关闭表单或切换应用的理由；目标失效只在当前 Run 授权范围内重新发现。

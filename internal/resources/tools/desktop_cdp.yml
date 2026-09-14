@@ -1,6 +1,6 @@
 name: desktop_cdp
 label: 桌面端CDP
-description: Call Desktop CDP through the current run's reverse WebSocket target. This tool is supported only in Desktop runtime mode and never falls back to local HTTP or another client window. Use desktop_action for high-level surface/tab control. For a chat-owned WorkPanel, desktop.workpanel.* manages its tabs and WebViews; a WorkPanel tabId is not a CDP targetId, and Desktop authorizes supplied WorkPanel CDP targets only when they belong to the current run's trusted chat.
+description: Call Desktop CDP through the current run's reverse WebSocket target. This tool is supported only in Desktop runtime mode and never falls back to local HTTP or another client window. Use desktop_action for high-level surface/tab control. Runtime.evaluate exceptionDetails is a script failure even when CDP transport succeeds. After a mutation, read back the expected field value; dispatching an event does not prove success. After target errors, rediscover authorized targets; never infer a stuck bridge from invalid parameters. For a chat-owned WorkPanel, desktop.workpanel.* manages its tabs and WebViews; a WorkPanel tabId is not a CDP targetId, and Desktop authorizes supplied WorkPanel CDP targets only when they belong to the current run's trusted chat.
 inputSchema:
   type: object
   properties:
@@ -29,7 +29,7 @@ inputSchema:
         - Network.disable
     params:
       type: object
-      description: JSON parameters for the selected CDP method. Mutually exclusive with paramsFile; omit both for no parameters. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings "true"/"false". Prefer the top-level targetId for Target.closeTarget; params.targetId exists only for CDP compatibility, and conflicting values are invalid.
+      description: "JSON parameters for the selected CDP method. Mutually exclusive with paramsFile; omit both for no parameters. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings \"true\"/\"false\". For Input.dispatchMouseEvent, x/y must be JSON numbers (fractions are valid), clickCount must be an integer, and button is a string such as \"left\". Example {\"type\":\"mousePressed\",\"x\":646,\"y\":344,\"button\":\"left\",\"clickCount\":1}. Platform does not coerce strings to numbers or booleans. On invalid_args, fix every reported field before retrying; do not reload or close a page to fix parameter types. Prefer the top-level targetId for Target.closeTarget; params.targetId exists only for CDP compatibility, and conflicting values are invalid."
       additionalProperties: true
     paramsFile:
       type: string

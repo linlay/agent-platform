@@ -42,8 +42,8 @@ func TestDesktopCDPParamsFileSendsParamsThroughExistingRequest(t *testing.T) {
 			}
 			payload := requests[0].Payload
 			wantParams := map[string]any{
-				"expression": "document.title + '\\n标题'", "returnByValue": true, "awaitPromise": false,
-				"nested": map[string]any{"pierce": false}, "items": []any{float64(1), nil, "text"},
+				"expression": "document.title + '\\n标题'", "returnByValue": "true", "awaitPromise": false,
+				"nested": map[string]any{"pierce": "false"}, "items": []any{float64(1), nil, "text"},
 			}
 			if !reflect.DeepEqual(payload["params"], wantParams) {
 				t.Fatalf("params mismatch: %#v", payload["params"])

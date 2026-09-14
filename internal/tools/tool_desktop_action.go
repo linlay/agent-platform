@@ -34,40 +34,6 @@ const (
 	desktopMaxDecodedResponseBytes  = 64 << 20
 )
 
-var desktopCdpBooleanParamKeys = map[string]bool{
-	"allowUnsafeEvalBlockedByCSP": true,
-	"autoAttach":                  true,
-	"autoRepeat":                  true,
-	"awaitPromise":                true,
-	"background":                  true,
-	"captureBeyondViewport":       true,
-	"disableBreaks":               true,
-	"discover":                    true,
-	"dontSetVisibleSize":          true,
-	"exclude":                     true,
-	"flatten":                     true,
-	"fromSurface":                 true,
-	"generatePreview":             true,
-	"hasTouch":                    true,
-	"hidden":                      true,
-	"ignoreCache":                 true,
-	"includeCommandLineAPI":       true,
-	"isKeypad":                    true,
-	"isMobile":                    true,
-	"isSystemKey":                 true,
-	"landscape":                   true,
-	"newWindow":                   true,
-	"optimizeForSpeed":            true,
-	"pierce":                      true,
-	"replMode":                    true,
-	"reportDirectSocketTraffic":   true,
-	"returnByValue":               true,
-	"silent":                      true,
-	"throwOnSideEffect":           true,
-	"userGesture":                 true,
-	"waitForDebuggerOnStart":      true,
-}
-
 var (
 	desktopActionAllowlistOnce sync.Once
 	desktopActionAllowlist     map[string]bool
@@ -213,7 +179,7 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 	payload := desktopCDPRequest{
 		RequestID: requestID,
 		Method:    method,
-		Params:    normalizeDesktopCDPParams(params),
+		Params:    params,
 		TargetID:  strings.TrimSpace(stringArg(args, "targetId")),
 		SessionID: strings.TrimSpace(stringArg(args, "sessionId")),
 		SurfaceID: strings.TrimSpace(stringArg(args, "surfaceId")),
@@ -228,50 +194,6 @@ func newDesktopRequestID(prefix string) string {
 		return prefix + "-" + hex.EncodeToString(raw[:])
 	}
 	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), desktopRequestSeq.Add(1))
-}
-
-func normalizeDesktopCDPParams(params map[string]any) map[string]any {
-	normalized := make(map[string]any, len(params))
-	for key, value := range params {
-		normalized[key] = normalizeDesktopCDPParamValue(key, value)
-	}
-	return normalized
-}
-
-func normalizeDesktopCDPParamValue(key string, value any) any {
-	if desktopCdpBooleanParamKeys[key] {
-		if boolValue, ok := parseDesktopCDPStringBool(value); ok {
-			return boolValue
-		}
-	}
-
-	switch typed := value.(type) {
-	case map[string]any:
-		return normalizeDesktopCDPParams(typed)
-	case []any:
-		normalized := make([]any, len(typed))
-		for index, item := range typed {
-			normalized[index] = normalizeDesktopCDPParamValue("", item)
-		}
-		return normalized
-	default:
-		return value
-	}
-}
-
-func parseDesktopCDPStringBool(value any) (bool, bool) {
-	raw, ok := value.(string)
-	if !ok {
-		return false, false
-	}
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "true":
-		return true, true
-	case "false":
-		return false, true
-	default:
-		return false, false
-	}
 }
 
 func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, requestID string, requestType string, payload any, source *ClientRequestSource, toolName string, screenshot bool, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -323,10 +245,14 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if strings.TrimSpace(frame.Type) == "" || frame.Code == nil || *frame.Code <= 0 {
 			return desktopActionErrorResult(toolName+"_invalid_client_response", "client error frame type or code is invalid", nil), nil
 		}
+		details := desktopClientRejectionDetails(*frame)
+		if toolName == "desktop_cdp" {
+			appendDesktopCDPDiagnostics(details, frame.Data)
+		}
 		return desktopActionErrorResult(
 			toolName+"_client_rejected",
 			firstDesktopActionMessage(frame.Msg, "client rejected the request"),
-			desktopClientRejectionDetails(*frame),
+			details,
 		), nil
 	}
 	if frame.Type != requestType || frame.Code == nil {
@@ -347,6 +273,11 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		}
 	}
 	structured := map[string]any{"transport": "reverse-websocket", "response": decoded}
+	if requestType == desktopCDPRequestType {
+		if failure, failed := desktopCDPEvaluationFailure(decoded, structured); failed {
+			return failure, nil
+		}
+	}
 	result := structuredResultWithExit(structured, 0)
 	if awcpFailure || decoded["ok"] == false {
 		result = structuredResultWithExit(structured, -1)
