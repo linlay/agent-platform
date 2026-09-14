@@ -70,6 +70,15 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 	resolutions := map[string]string{}
 	directories := map[string]string{}
 	guestPath := func(raw string) string {
+		for _, root := range execCtx.Session.SkillScripts.Roots() {
+			if root.Guest == "" {
+				continue
+			}
+			rel, err := filepath.Rel(root.Host, raw)
+			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return path.Join(root.Guest, filepath.ToSlash(rel))
+			}
+		}
 		for _, root := range []struct{ host, guest string }{
 			{accesspolicy.SessionWorkspaceRoot(execCtx.Session), execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir},
 			{accesspolicy.SessionChatDir(execCtx.Session), execCtx.Session.RuntimeContext.SandboxPaths.ChatDir},

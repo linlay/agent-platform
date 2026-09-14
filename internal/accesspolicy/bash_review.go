@@ -35,7 +35,7 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 	}
 	var plans []BashPlan
 	add := func(p BashPlan) {
-		if p.Decision != DecisionAllow || p.RuleKey == "bash-access:temp-script" || p.RuleKey == "bash-access:authored-script" {
+		if p.Decision != DecisionAllow || p.RuleKey == "bash-access:temp-script" || p.RuleKey == "bash-access:authored-script" || p.RuleKey == "bash-access:skill-script" {
 			plans = append(plans, p)
 		}
 	}
@@ -113,6 +113,10 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 							exempt = true
 						}
 					}
+					if !exempt && x.Script != "" && execCtx != nil && skillExecutionMatches(session, execCtx, resolveAgainstCwd(x.Script, x.Cwd), environment) {
+						add(bashPlan(command, accessLevel, DecisionAllow, "script matches this run's selected skill", "bash-access:skill-script", x.Script))
+						exempt = true
+					}
 					if !exempt && x.TrustedInterpreter && !x.Wrapped && len(parsed.Commands) == 1 && len(cmd.Redirects) == 0 {
 						tempArgv := append([]string(nil), x.Argv...)
 						if len(tempArgv) > 1 && x.Script != "" && !strings.HasPrefix(tempArgv[1], "-") {
@@ -188,6 +192,29 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 		}
 	}
 	return result
+}
+
+func skillExecutionMatches(session QuerySession, ctx *ExecutionContext, target string, env *BashEnvironment) bool {
+	if session.SkillScripts == nil {
+		return false
+	}
+	if !session.AgentHasRuntimeSandbox {
+		host, err := ResolveSessionPath(session, target)
+		return err == nil && session.SkillScripts.Matches(ctx.ScriptOwner(), host, "", false)
+	}
+	if env == nil || env.Canonical == nil || env.Inspect == nil {
+		return false
+	}
+	canonical, err := env.Canonical(target, "/")
+	if err != nil {
+		return false
+	}
+	host, ok := session.SkillScripts.HostPath(canonical)
+	if !ok {
+		return false
+	}
+	_, hash, err := env.Inspect(canonical)
+	return err == nil && session.SkillScripts.Matches(ctx.ScriptOwner(), host, hash, true)
 }
 
 func authoredExecutionMatches(session QuerySession, ctx *ExecutionContext, host, target string, env *BashEnvironment) bool {

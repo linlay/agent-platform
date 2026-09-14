@@ -62,9 +62,11 @@ Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每
 - 只要有一个 key 不可用，整个 run 以 `must_use_skill_unavailable` 失败，不执行其余部分。
 - Prompt 按请求顺序列出全部精确路径，并把“读取且遵循全部指令”作为强制约束。
 - 每个选中的已配置或额外 Skill 都解析为最终 canonical 目录，并进入本 run 的 trusted read + readonly roots；整个选中目录免读路径 HITL，未选中的 skills-center 兄弟目录不继承，symlink 逃逸按最终目标重新判权。
-- 不复制 Skill、不生成快照、不创建 `run-runtime/`；运行中读取技能中心当前内容。
+- 不复制 Skill、不生成文件快照、不创建 `run-runtime/`；运行中读取技能中心当前内容。脚本执行另有本 Run 内存凭据，内容变化后不继续享有入口豁免。
 
-额外技能中心 Skill 只提供目录内容、scripts、references 和 assets 的只读访问。run readonly 先于 writeRoots、hostAccess、`full_access` 和 HITL，不能通过 exact/rule approval 写入选中目录。本次动态选择不合并它的 `.config`、`.runtime-env.json` 或 `.bash-hooks`，也不注入 Tool、MCP、其他 mount、Agent hostAccess 或更高 `accessLevel`。这些运行时扩展只有写入 Agent `skillConfig.skills` 并完成常规 `ru-agents` 组装后才生效。
+额外技能中心 Skill 的目录内容、scripts、references 和 assets 仍按只读访问。run readonly 先于 writeRoots、hostAccess、`full_access` 和 HITL，不能通过 exact/rule approval 写入选中目录。本次动态选择不合并它的 `.config`、`.runtime-env.json` 或 `.bash-hooks`，也不注入 Tool、MCP、其他 mount、Agent hostAccess 或更高 `accessLevel`。这些运行时扩展只有写入 Agent `skillConfig.skills` 并完成常规 `ru-agents` 组装后才生效。
+
+Agent YAML 已配置的普通 Skill，以及本次 `mustUseSkills` 选中的 Skill，其 `scripts/**` 入口在 Run 准入时建立独立的内存执行凭据（canonical 路径、内容 SHA-256、Agent/Run/执行环境）。匹配通用脚本入口且执行前复验通过时免入口 HITL；不改变读取策略，不授权未配置、未选中技能，也不扩大外围 Shell、写入或工具权限。凭据不落盘、不跨 Run 继承；同 Run 压缩保留，跨进程恢复不重建。详见 [工具目录权限](工具目录权限.md#技能脚本入口执行凭据)。
 
 ## `.config` 合并
 

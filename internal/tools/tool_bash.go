@@ -176,7 +176,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if accessReview.AutoApproved() {
 		appendBashAccessPolicyMetadata(&result, accessReview, stdout, stderr, workingDir, exitCode)
 	}
-	if approvalSource != "" || accessReview.HasConnector || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" {
+	if approvalSource != "" || accessReview.HasConnector || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" || accessReview.RuleKey == "bash-access:skill-script" {
 		if result.Structured == nil {
 			result.Structured = map[string]any{"stdout": stdout, "stderr": stderr, "mode": "host", "cwd": workingDir, "exitCode": exitCode}
 		}
