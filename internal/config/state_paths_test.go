@@ -26,6 +26,9 @@ func TestStateDirectoryEnvironmentAndFixedRuntimeLayout(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				if cfg.IdentityFile != filepath.Join(tc.want, "identity", "access-token") {
+					t.Fatalf("identity did not follow state directory: %q", cfg.IdentityFile)
+				}
 				if cfg.Paths.EffectiveStateDir() != tc.want || cfg.Paths.EffectiveConnectorStateDir() != filepath.Join(tc.want, "connectors") {
 					t.Fatalf("wrong state layout: %#v", cfg.Paths)
 				}

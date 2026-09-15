@@ -45,7 +45,7 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
 					t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 				}
-				if cfg.IdentityFile != ProjectFile(filepath.Join("runtime", "identity", "access-token")) {
+				if cfg.IdentityFile != ProjectFile(filepath.Join("runtime", ".state", "identity", "access-token")) {
 					t.Fatalf("unexpected default identity file: %q", cfg.IdentityFile)
 				}
 				if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
@@ -175,7 +175,7 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadExplicitIdentityFileOverridesRuntimeDefault(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": filepath.Join(t.TempDir(), "runtime")}, func() {
+	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": filepath.Join(t.TempDir(), "runtime"), "AP_RUNTIME_STATE_DIR": filepath.Join(t.TempDir(), "state")}, func() {
 		identityFile := filepath.Join(t.TempDir(), "desktop state", "sso-access-token.txt")
 		cfg, err := Load(LoadOptions{IdentityFile: identityFile})
 		if err != nil {
@@ -210,7 +210,7 @@ func TestLoadDerivesIdentityFileFromRuntimeDir(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			want := filepath.Join(runtimeRoot, "identity", "access-token")
+			want := filepath.Join(runtimeRoot, ".state", "identity", "access-token")
 			if cfg.IdentityFile != want {
 				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
 			}
@@ -225,7 +225,7 @@ func TestLoadDerivesIdentityFileFromRuntimeDir(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			want := filepath.Join(configRoot, runtimeRoot, "identity", "access-token")
+			want := filepath.Join(configRoot, runtimeRoot, ".state", "identity", "access-token")
 			if cfg.IdentityFile != want {
 				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
 			}
@@ -243,7 +243,7 @@ func TestLoadDerivesIdentityFileFromRuntimeDir(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			want := filepath.Join(home, "agent-platform-runtime", "identity", "access-token")
+			want := filepath.Join(home, "agent-platform-runtime", ".state", "identity", "access-token")
 			if cfg.IdentityFile != want {
 				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
 			}

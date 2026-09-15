@@ -67,5 +67,7 @@ logs/
 # Imported connector sources and persistent authorization.
 /connectors-center/
 /.state/
+# Legacy identity credentials remain private.
+/identity/
 # Retired connector state layout (migration source).
 /connector-state/

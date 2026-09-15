@@ -661,12 +661,6 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 	options.RuntimeMode = string(runtimeMode)
-	identityFile, err := resolveIdentityFile(options.ConfigDir, options.IdentityFile)
-	if err != nil {
-		return Config{}, err
-	}
-	options.IdentityFile = identityFile
-
 	cfg := defaultConfig(options)
 	if err := cfg.applyStructuredConfig(options.ConfigDir, options.IgnoreRemovedWorkingDirectoryForAudit); err != nil {
 		return Config{}, err
@@ -678,6 +672,11 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	if err := cfg.normalize(options.ConfigDir); err != nil {
 		return Config{}, err
 	}
+	identityFile, err := ResolveIdentityFile(cfg.Paths.StateDir, options.IdentityFile)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.IdentityFile = identityFile
 	if err := validateRemovedSkillsMarketRuntimeDirs(defaultRuntimeRoot(), cfg.Paths.SkillsCenterDir); err != nil {
 		return Config{}, err
 	}

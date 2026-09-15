@@ -29,7 +29,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	id := flags.String("id", "", "connector id")
 	overwrite := flags.Bool("overwrite", false, "replace an existing external package")
 	credentialsFile := flags.String("credentials-file", "", "JSON file containing token field values (set-token only)")
-	identityFile := flags.String("identity-file", "", "Desktop SSO token file (absolute path; defaults to runtime/identity/access-token)")
+	identityFile := flags.String("identity-file", "", "Desktop SSO token file (absolute path; defaults to <state-dir>/identity/access-token)")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -43,16 +43,15 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if *identityFile == "" {
-		*identityFile = filepath.Join(runtimeRoot, "identity", "access-token")
-	} else if !filepath.IsAbs(*identityFile) {
-		return fmt.Errorf("--identity-file requires an absolute path")
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 	stateDir, err := config.ResolveStateDir(cwd, runtimeRoot)
+	if err != nil {
+		return err
+	}
+	*identityFile, err = config.ResolveIdentityFile(stateDir, *identityFile)
 	if err != nil {
 		return err
 	}
