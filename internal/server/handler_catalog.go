@@ -817,7 +817,14 @@ func (s *Server) writeAgentHTTPResponse(w http.ResponseWriter, response any, err
 	}
 	var statusErr agentStatusError
 	if errors.As(err, &statusErr) {
-		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message, statusErr.data))
+		details := make(map[string]any, len(statusErr.data)+3)
+		for key, value := range statusErr.data {
+			details[key] = value
+		}
+		details["code"] = statusErr.code
+		details["message"] = statusErr.message
+		details["status"] = statusErr.status
+		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message, details))
 		return
 	}
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))

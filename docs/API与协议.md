@@ -14,6 +14,8 @@
 }
 ```
 
+管理接口通过统一 Agent HTTP 错误出口返回失败时，外层保留数字 `code` 与 `msg`，`data.error` 同时保留业务错误码、原因、状态及领域诊断。HTTP 状态码不能代替业务错误码；前端依业务错误码提供处理建议，领域诊断用于解释具体阻塞对象。
+
 ## 统一时间契约
 
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。
@@ -117,7 +119,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/connectors`、`/api/admin/connectors` | 无 | 已安装连接器及组件、技能和 MCP 同步状态 |
 | GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 清单声明的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
 | GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
-| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
+| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.error.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
 | GET/POST/DELETE | `/api/admin/connectors/auth?id=<id>` | 连接器 id | 查询状态、发起登录、退出登录 |
 | POST | `/api/admin/connectors/auth/cancel?id=<id>` | 连接器 id | 取消当前登录会话 |
