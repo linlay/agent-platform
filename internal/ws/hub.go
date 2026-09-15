@@ -7,16 +7,17 @@ import (
 )
 
 type Hub struct {
-	mu              sync.RWMutex
-	conns           map[*Conn]struct{}
-	gatewayConns    map[string]*Conn
-	gatewayConnMeta map[*Conn]gatewayConnectionState
-	gatewayConnSeq  int64
-	webClientConns  map[string]*Conn
-	webClientKeys   map[*Conn]string
-	desktopMainConn *Conn
-	desktopMainSeen bool
-	desktopBTWConn  *Conn
+	mu                          sync.RWMutex
+	conns                       map[*Conn]struct{}
+	gatewayConns                map[string]*Conn
+	gatewayConnMeta             map[*Conn]gatewayConnectionState
+	gatewayConnSeq              int64
+	webClientConns              map[string]*Conn
+	webClientKeys               map[*Conn]string
+	desktopMainConn             *Conn
+	desktopMainSeen             bool
+	desktopBTWConn              *Conn
+	desktopSelectionExplainConn *Conn
 
 	monitorMu          sync.RWMutex
 	monitorConns       map[string]*monitorConnectionState
@@ -46,6 +47,10 @@ func (h *Hub) register(conn *Conn) {
 	if h == nil || conn == nil {
 		return
 	}
+	if !conn.canRegisterClientIdentity() {
+		conn.close(1008, "forbidden desktop lane identity")
+		return
+	}
 	h.mu.Lock()
 	h.conns[conn] = struct{}{}
 	if gateway, ok := GatewayFromContext(conn.Context()); ok {
@@ -60,6 +65,7 @@ func (h *Hub) register(conn *Conn) {
 	replacedWebClient := h.registerWebClientLocked(conn)
 	replacedDesktopMain := h.registerDesktopMainLocked(conn)
 	replacedDesktopBTW := h.registerDesktopBTWLocked(conn)
+	replacedDesktopSelectionExplain := h.registerDesktopSelectionExplainLocked(conn)
 	h.mu.Unlock()
 	h.monitorRegister(conn)
 	if replacedWebClient != nil {
@@ -70,6 +76,9 @@ func (h *Hub) register(conn *Conn) {
 	}
 	if replacedDesktopBTW != nil && replacedDesktopBTW != replacedWebClient {
 		replacedDesktopBTW.close(1000, "desktop btw replaced")
+	}
+	if replacedDesktopSelectionExplain != nil && replacedDesktopSelectionExplain != replacedWebClient {
+		replacedDesktopSelectionExplain.close(1000, "desktop selection explain replaced")
 	}
 }
 
@@ -102,6 +111,7 @@ func (h *Hub) unregister(conn *Conn) {
 	h.unregisterWebClientLocked(conn)
 	h.unregisterDesktopMainLocked(conn)
 	h.unregisterDesktopBTWLocked(conn)
+	h.unregisterDesktopSelectionExplainLocked(conn)
 	h.mu.Unlock()
 	h.monitorClose(conn)
 }
@@ -112,7 +122,7 @@ func (h *Hub) Broadcast(eventType string, data map[string]any) {
 	}
 	conns := h.snapshotConnections()
 	for _, conn := range conns {
-		if conn.IsDesktopBTW() {
+		if conn.IsDesktopBTW() || conn.IsDesktopSelectionExplain() {
 			continue
 		}
 		conn.SendPush(eventType, data)

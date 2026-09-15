@@ -21,6 +21,11 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if conn.IsDesktopSelectionExplain() {
+		conn.SendError(req.ID, "selection_explain_lane_query_forbidden", http.StatusForbidden, "desktop-selection-explain connections must use /api/btw", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	payload, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
 	if statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
@@ -96,8 +101,8 @@ func (s *Server) sendWSQueryStartError(conn *ws.Conn, requestID string, err erro
 }
 
 func (s *Server) wsBTW(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	if !conn.IsDesktopBTW() {
-		conn.SendError(req.ID, "btw_ws_lane_required", http.StatusForbidden, "/api/btw requires the desktop-btw connection", nil)
+	if !conn.IsDesktopBTW() && !conn.IsDesktopSelectionExplain() {
+		conn.SendError(req.ID, "btw_ws_lane_required", http.StatusForbidden, "/api/btw requires a desktop-btw or desktop-selection-explain connection", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -196,7 +201,7 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(payload.RunID, observer.ID)
 	})
-	if !conn.IsDesktopBTW() {
+	if !conn.IsDesktopBTW() && !conn.IsDesktopSelectionExplain() {
 		bindRunWebClientTarget(s.deps.Runs, payload.RunID, conn.WebClientTarget())
 	}
 	conn.StartStreamForward(req.ID, observer)
