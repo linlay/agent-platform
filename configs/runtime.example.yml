@@ -1,7 +1,7 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
 http-proxy:
-  mode: auto # auto / direct / fixed
+  mode: auto # auto / pac_auto / direct / fixed; auto skips PAC/WPAD, pac_auto opts in
   system-refresh-interval: 15s
   # url: http://127.0.0.1:10809 # fixed 模式
   # bypass: ["*.example.internal"]

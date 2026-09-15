@@ -14,7 +14,10 @@ func TestHTTPProxyConfiguration(t *testing.T) {
 		fail             bool
 	}{
 		{name: "omitted", body: "query:\n  advanced-user-prompt: false\n", mode: "auto"},
-		{name: "auto", body: "http-proxy:\n  mode: auto # auto / direct / fixed\n  system-refresh-interval: 15s\n", mode: "auto"},
+		{name: "auto", body: "http-proxy:\n  mode: auto # auto / pac_auto / direct / fixed\n  system-refresh-interval: 15s\n", mode: "auto"},
+		{name: "pac auto", body: "http-proxy:\n  mode: pac_auto\n", mode: "pac_auto"},
+		{name: "pac auto rejects URL", body: "http-proxy:\n  mode: pac_auto\n  url: http://proxy.test:80\n", fail: true},
+		{name: "pac auto rejects bypass", body: "http-proxy:\n  mode: pac_auto\n  bypass: [localhost]\n", fail: true},
 		{name: "direct", body: "http-proxy:\n  mode: direct\n", mode: "direct"},
 		{name: "fixed", body: "http-proxy:\n  mode: fixed\n  url: http://127.0.0.1:10809\n  bypass: [localhost, \"*.internal\"]\n  system-refresh-interval: 30s\n", mode: "fixed"},
 		{name: "missing URL", body: "http-proxy:\n  mode: fixed\n", fail: true},

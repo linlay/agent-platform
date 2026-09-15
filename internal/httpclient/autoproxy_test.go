@@ -56,15 +56,17 @@ func TestAutoProxyResolutionAndPrecedence(t *testing.T) {
 		want                        string
 		calls                       int
 	}{
-		{name: "automatic proxy", want: "system-auto", calls: 1},
-		{name: "PAC direct", direct: true, want: "system-auto", calls: 1},
-		{name: "PAC failure no fallback", fail: true, want: "system-auto", calls: 1},
-		{name: "fixed system first", fixed: true, want: "system"},
-		{name: "system bypass first", bypass: true, want: "system-bypass"},
+		{name: "default skips PAC", direct: true, want: "system-auto-skipped-direct"},
+		{name: "auto skips PAC", cfg: Config{Mode: "auto"}, direct: true, want: "system-auto-skipped-direct"},
+		{cfg: Config{Mode: "pac_auto"}, name: "automatic proxy", want: "system-auto", calls: 1},
+		{cfg: Config{Mode: "pac_auto"}, name: "PAC direct", direct: true, want: "system-auto", calls: 1},
+		{cfg: Config{Mode: "pac_auto"}, name: "PAC failure no fallback", fail: true, want: "system-auto", calls: 1},
+		{cfg: Config{Mode: "pac_auto"}, name: "fixed system first", fixed: true, want: "system"},
+		{cfg: Config{Mode: "pac_auto"}, name: "system bypass first", bypass: true, want: "system-bypass"},
 		{name: "explicit direct", cfg: Config{Mode: "direct"}, want: "explicit-direct"},
 		{name: "explicit proxy", cfg: Config{Mode: "fixed", URL: "fixed.test:80"}, want: "explicit"},
-		{name: "environment", env: httpproxy.Config{HTTPSProxy: "env.test:80"}, want: "environment"},
-		{name: "environment bypass", env: httpproxy.Config{NoProxy: "*"}, want: "environment-bypass"},
+		{cfg: Config{Mode: "pac_auto"}, name: "environment", env: httpproxy.Config{HTTPSProxy: "env.test:80"}, want: "environment"},
+		{cfg: Config{Mode: "pac_auto"}, name: "environment bypass", env: httpproxy.Config{NoProxy: "*"}, want: "environment-bypass"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			calls := 0

@@ -33,7 +33,7 @@ func TestWindowsWPADFailurePolicy(t *testing.T) {
 			s := systemSettings{Auto: true, ResolveAuto: func(context.Context, *url.URL) (*url.URL, error) {
 				return nil, windowsAutoProxyError(tt.pac, tt.detect, tt.err)
 			}}
-			r, err := newResolver(Config{}, httpproxy.Config{}, func(context.Context) (systemSettings, error) { return s, nil })
+			r, err := newResolver(Config{Mode: "pac_auto"}, httpproxy.Config{}, func(context.Context) (systemSettings, error) { return s, nil })
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -24,7 +24,7 @@ import (
 
 func TestResolutionFailureDoesNotClaimDirectOrDial(t *testing.T) {
 	cause := errors.New("PAC discovery failed")
-	r, _ := newResolver(Config{}, httpproxy.Config{}, func(context.Context) (systemSettings, error) {
+	r, _ := newResolver(Config{Mode: "pac_auto"}, httpproxy.Config{}, func(context.Context) (systemSettings, error) {
 		return systemSettings{Auto: true, ResolveAuto: func(context.Context, *url.URL) (*url.URL, error) { return nil, cause }}, nil
 	})
 	f := factoryForResolver(r)
@@ -40,36 +40,45 @@ func TestResolutionFailureDoesNotClaimDirectOrDial(t *testing.T) {
 	}
 }
 
-func TestMissingWPADPostsDirectOnce(t *testing.T) {
-	var requests atomic.Int32
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		body, _ := io.ReadAll(r.Body)
-		if r.Method != http.MethodPost || string(body) != "model payload" {
-			t.Errorf("changed request: %s %q", r.Method, body)
-		}
-		io.WriteString(w, "model result")
-	}))
-	defer s.Close()
-	r, _ := newResolver(Config{}, httpproxy.Config{}, func(context.Context) (systemSettings, error) {
-		return systemSettings{Auto: true, ResolveAuto: func(context.Context, *url.URL) (*url.URL, error) { return nil, errAutoProxyNotDiscovered }}, nil
-	})
-	f := factoryForResolver(r)
-	t.Cleanup(f.CloseIdleConnections)
-	f.transport.base.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		if address != "model.test:80" {
-			t.Errorf("unexpected destination: %s", address)
-		}
-		return (&net.Dialer{}).DialContext(ctx, network, s.Listener.Addr().String())
-	}
-	resp, err := f.NewClient(time.Second).Post("http://model.test/", "application/json", strings.NewReader("model payload"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil || string(body) != "model result" || requests.Load() != 1 {
-		t.Fatalf("body=%q err=%v requests=%d", body, err, requests.Load())
+func TestAutomaticProxyPostsDirectOnce(t *testing.T) {
+	for _, mode := range []string{"", "auto", "pac_auto"} {
+		t.Run("mode="+mode, func(t *testing.T) {
+			var requests atomic.Int32
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				body, _ := io.ReadAll(r.Body)
+				if r.Method != http.MethodPost || string(body) != "model payload" {
+					t.Errorf("changed request: %s %q", r.Method, body)
+				}
+				io.WriteString(w, "model result")
+			}))
+			defer s.Close()
+			r, _ := newResolver(Config{Mode: mode}, httpproxy.Config{}, func(context.Context) (systemSettings, error) {
+				return systemSettings{Auto: true, ResolveAuto: func(context.Context, *url.URL) (*url.URL, error) {
+					if mode != "pac_auto" {
+						t.Error("default/auto must not execute PAC/WPAD")
+					}
+					return nil, errAutoProxyNotDiscovered
+				}}, nil
+			})
+			f := factoryForResolver(r)
+			t.Cleanup(f.CloseIdleConnections)
+			f.transport.base.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+				if address != "model.test:80" {
+					t.Errorf("unexpected destination: %s", address)
+				}
+				return (&net.Dialer{}).DialContext(ctx, network, s.Listener.Addr().String())
+			}
+			resp, err := f.NewClient(time.Second).Post("http://model.test/", "application/json", strings.NewReader("model payload"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil || string(body) != "model result" || requests.Load() != 1 {
+				t.Fatalf("body=%q err=%v requests=%d", body, err, requests.Load())
+			}
+		})
 	}
 }
 
