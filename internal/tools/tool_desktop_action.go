@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -334,6 +335,7 @@ func desktopClientRejectionDetails(frame ClientResponseFrame) map[string]any {
 			details[key] = strings.TrimSpace(value)
 		}
 	}
+	appendDesktopActionDiagnostics(details, metadata.Details)
 	appendDesktopActionIssues(details, metadata.Details)
 	return details
 }
@@ -808,7 +810,7 @@ func buildDesktopActionSource(execCtx *ExecutionContext) (ClientRequestSource, e
 	source := ClientRequestSource{
 		RunID:         strings.TrimSpace(execCtx.Session.RunID),
 		ChatID:        strings.TrimSpace(execCtx.Session.ChatID),
-		WorkspaceRoot: strings.TrimSpace(execCtx.Session.WorkspaceRoot),
+		WorkspaceRoot: accesspolicy.SessionWorkspaceRoot(execCtx.Session),
 	}
 	owner := ResolveRunOwner(execCtx.Session.RunOwner)
 	if owner.IsTeam() {

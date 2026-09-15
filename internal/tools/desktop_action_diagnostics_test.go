@@ -51,3 +51,34 @@ func TestDesktopActionDiagnosticsAreBounded(t *testing.T) {
 		t.Fatalf("unsafe diagnostics: %s", encoded)
 	}
 }
+
+func TestDesktopActionWorkerDiagnosticsSurviveTransport(t *testing.T) {
+	code := 500
+	frame := ClientResponseFrame{Code: &code, Data: []byte(`{"details":{"category":"internal","stage":"internal","executionState":"not_started","diagnosticId":"diag-1","cause":{"code":"ENOENT","message":"missing /Users/example/private/worker.js token=secret-value"},"recovery":{"strategy":"repair_host","message":"Rebuild Desktop Main and Worker together."},"context":{"workerEntry":"dist-electron/main/webapp-tooling-worker.js","token":"secret-value"}}}`)}
+	details := desktopClientRejectionDetails(frame)
+	if details["stage"] != "internal" || details["executionState"] != "not_started" || details["diagnosticId"] != "diag-1" {
+		t.Fatalf("lost diagnostics: %#v", details)
+	}
+	if details["cause"].(map[string]any)["code"] != "ENOENT" || details["recovery"].(map[string]any)["strategy"] != "repair_host" {
+		t.Fatalf("lost root cause: %#v", details)
+	}
+	encoded, _ := json.Marshal(details)
+	if strings.Contains(string(encoded), "secret-value") || strings.Contains(string(encoded), "/Users/") {
+		t.Fatalf("unsafe diagnostics: %s", encoded)
+	}
+}
+
+func TestDesktopActionSourceUsesFileToolsWorkspace(t *testing.T) {
+	root := t.TempDir()
+	chat := t.TempDir()
+	session := QuerySession{RunID: "run-1", ChatID: "chat-1", RunOwner: AgentRunOwner("agent-1", "agent-1"), RuntimeContext: RuntimeRequestContext{LocalPaths: LocalPaths{WorkspaceDir: root, ChatDir: chat}}}
+	source, err := buildDesktopActionSource(&ExecutionContext{Session: session})
+	if err != nil || source.WorkspaceRoot != root {
+		t.Fatalf("workspace mismatch: %#v %v", source, err)
+	}
+	session.RuntimeContext.LocalPaths.WorkspaceDir = ""
+	source, err = buildDesktopActionSource(&ExecutionContext{Session: session})
+	if err != nil || source.WorkspaceRoot != "" {
+		t.Fatalf("must not infer workspace from Chat directory: %#v %v", source, err)
+	}
+}
