@@ -9,7 +9,10 @@ inputSchema:
       description: Required. Allowlisted desktop.* action name.
       enum:
         - desktop.navigate.toRoute
+        - desktop.assistant.chat
         - desktop.general.deviceName
+        - desktop.runtime.info
+        - desktop.runtime.diagnostics
         - desktop.theme.get
         - desktop.theme.set
         - desktop.locale.get
@@ -19,6 +22,9 @@ inputSchema:
         - desktop.copilot.setPagePreference
         - desktop.web.listSurfaces
         - desktop.web.getSurfaceState
+        - desktop.web.interactElement
+        - desktop.web.executeScript
+        - desktop.web.exportArtifact
         - desktop.web.activateSurface
         - desktop.web.navigate
         - desktop.web.reload
@@ -26,7 +32,6 @@ inputSchema:
         - desktop.web.goBack
         - desktop.web.openTab
         - desktop.web.closeTab
-        - desktop.web.exportArtifact
         - desktop.web.switchTab
         - desktop.workpanel.getState
         - desktop.workpanel.openTab
@@ -49,8 +54,7 @@ inputSchema:
         - desktop.webapp.restart
         - desktop.webapp.open
         - desktop.webapp.updatePreferences
-        - desktop.webapp.manifest.init
-        - desktop.webapp.manifest.validate
+        - desktop.webapp.package.init
         - desktop.webapp.package.validate
         - desktop.webapp.package.build
         - desktop.webapp.install
@@ -59,6 +63,7 @@ inputSchema:
         - desktop.webapp.publish
         - desktop.webapp.unpublish
         - desktop.controlCenter.listServices
+        - desktop.controlCenter.openService
         - desktop.controlCenter.getServiceStatus
         - desktop.controlCenter.getServiceDetail
         - desktop.controlCenter.getServiceLogsMeta
@@ -79,11 +84,16 @@ inputSchema:
         - desktop.market.installItem
         - desktop.market.updateItem
         - desktop.market.uninstallItem
+        - desktop.market.openItem
         - desktop.market.importSkill
         - desktop.market.importSandboxImage
         - desktop.market.exportSandboxImage
         - desktop.market.deleteSandboxImage
         - desktop.help.openTopic
+        - desktop.agent.open
+        - desktop.agent.update
+        - desktop.skill.open
+        - desktop.skill.update
         - desktop.kanban.listIssues
         - desktop.kanban.getIssue
         - desktop.kanban.createIssue

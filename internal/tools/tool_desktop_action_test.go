@@ -1296,6 +1296,9 @@ func TestInvokeDesktopActionRejectsLegacyAndUnsupportedActions(t *testing.T) {
 		"desktop.webapp.checkPrerequisites",
 		"desktop.webapp.getPublishInfo",
 		"desktop.webapp.selectDirectory",
+		"desktop.webapp.manifest.init",
+		"desktop.webapp.manifest.validate",
+		"desktop.webapp.init",
 	} {
 		t.Run(action, func(t *testing.T) {
 			result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
@@ -1333,6 +1336,9 @@ func TestInvokeDesktopActionRejectsPageActions(t *testing.T) {
 
 func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 	want := []string{
+		"desktop.agent.open",
+		"desktop.agent.update",
+		"desktop.assistant.chat",
 		"desktop.controlCenter.getServiceDetail",
 		"desktop.controlCenter.getServiceLogsMeta",
 		"desktop.controlCenter.getServiceStatus",
@@ -1340,18 +1346,11 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.controlCenter.installService",
 		"desktop.controlCenter.listServices",
 		"desktop.controlCenter.openLogViewer",
+		"desktop.controlCenter.openService",
 		"desktop.controlCenter.readServiceLog",
 		"desktop.controlCenter.restartService",
 		"desktop.controlCenter.startService",
 		"desktop.controlCenter.stopService",
-		"desktop.workpanel.activateTab",
-		"desktop.workpanel.closeTab",
-		"desktop.workpanel.closeWorkpanel",
-		"desktop.workpanel.getState",
-		"desktop.workpanel.openTab",
-		"desktop.workpanel.openWeb",
-		"desktop.workpanel.openLocalFile",
-		"desktop.workpanel.refreshWeb",
 		"desktop.copilot.getPagePreferences",
 		"desktop.copilot.setPagePreference",
 		"desktop.display",
@@ -1374,6 +1373,7 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.market.importSkill",
 		"desktop.market.installItem",
 		"desktop.market.listItems",
+		"desktop.market.openItem",
 		"desktop.market.previewSettingsPatch",
 		"desktop.market.refresh",
 		"desktop.market.uninstallItem",
@@ -1385,14 +1385,20 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.pet.set",
 		"desktop.pet.show",
 		"desktop.pet.state",
+		"desktop.runtime.diagnostics",
+		"desktop.runtime.info",
 		"desktop.site.list",
+		"desktop.skill.open",
+		"desktop.skill.update",
 		"desktop.theme.get",
 		"desktop.theme.set",
 		"desktop.web.activateSurface",
 		"desktop.web.closeTab",
+		"desktop.web.executeScript",
 		"desktop.web.exportArtifact",
 		"desktop.web.getSurfaceState",
 		"desktop.web.goBack",
+		"desktop.web.interactElement",
 		"desktop.web.listSurfaces",
 		"desktop.web.navigate",
 		"desktop.web.openTab",
@@ -1402,12 +1408,11 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.webapp.checkRuntime",
 		"desktop.webapp.getPublishStatus",
 		"desktop.webapp.getStatus",
-		"desktop.webapp.manifest.init",
-		"desktop.webapp.manifest.validate",
-		"desktop.webapp.package.build",
-		"desktop.webapp.package.validate",
 		"desktop.webapp.install",
 		"desktop.webapp.open",
+		"desktop.webapp.package.build",
+		"desktop.webapp.package.init",
+		"desktop.webapp.package.validate",
 		"desktop.webapp.publish",
 		"desktop.webapp.restart",
 		"desktop.webapp.start",
@@ -1420,6 +1425,14 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.website.open",
 		"desktop.website.remove",
 		"desktop.website.update",
+		"desktop.workpanel.activateTab",
+		"desktop.workpanel.closeTab",
+		"desktop.workpanel.closeWorkpanel",
+		"desktop.workpanel.getState",
+		"desktop.workpanel.openLocalFile",
+		"desktop.workpanel.openTab",
+		"desktop.workpanel.openWeb",
+		"desktop.workpanel.refreshWeb",
 	}
 	sort.Strings(want)
 
@@ -1436,8 +1449,8 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 87 {
-		t.Fatalf("desktop action count = %d, want 87", len(actions))
+	if len(actions) != 97 {
+		t.Fatalf("desktop action count = %d, want 97", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{
