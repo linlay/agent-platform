@@ -115,19 +115,22 @@ Agent 可看到静态 Desktop 工具 `desktop_action` 与 `desktop_cdp`。普通
 
 Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey/teamId`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,targetId,sessionId,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
 
-AWCP snapshot 由 Agent 直接调用 `desktop_cdp {method:"AWCP.getSnapshot"}` 从当前授权页发现。Platform 验证快照及完整输入 Schema，在当前 Run 保存 revision、Action 描述符和失效 generation。下一次模型请求仅在 `desktop_cdp` 参数副本的可选 `params.action` 下附加各 Action 的明确输入类型；工具名称、数量及普通 CDP 的开放 params 保持不变，静态 system-init/cachedTools 不被原地修改。每个 Action 的 inputSchema 副本直接挂到 `params.action.properties[Action名称]`，根类型和字段直接可见；不再添加平台生成的 `awcp_aN` 根引用包装。页面 Schema 自带的 `$defs` 保留在该 Action 内，本地 `$ref` 按 Action 在完整工具 Schema 中的位置重定位，保留递归与约束，支持结构完整的 anyOf 互斥对象分支；oneOf/allOf 与 if/then/else 不用于 AWCP 输入，也不接受外部引用和无类型业务值。
+AWCP 按网站操作手册渐进披露，`desktop_cdp` 的工具定义始终固定。模型先读取动作目录，再按任务读取某个动作的页面说明、参数约束及示例，最后使用通用 `AWCP.invoke`。页面描述是普通工具结果，不注册成工具，不注入 system prompt，也不改写下一轮模型请求的 Schema。网站新增动作无需修改 Platform 核心。
 
-模型调用形状为 `{"method":"AWCP.invoke","params":{"action":{"orders.read":{}}}}`：action 恰好一个已发现键，键值就是业务输入。模型不传 revision 或并列 args。调用捕获产生它的模型请求绑定；准备及审批后执行均不能借用最新快照，也不能跨 Run、跨 generation 执行。Platform 通过可信执行上下文传递 revision，在原 tools 层解包为内部 `{revision,action,args}`，生成 request ID、注入 source，并沿既有 `desktop.awcp.invoke` 链路发送。旧模型包装和旧 desktop_awcp 工具入口不提供兼容。
+```json
+{"method":"AWCP.getSnapshot"}
+{"method":"AWCP.getSnapshot","params":{"action":"orders.select"}}
+{"method":"AWCP.invoke","params":{"revision":"page-revision","action":"orders.select","args":{"ids":["order-1"]}}}
+```
 
-Desktop 在 handler 前按当前快照的 `inputSchema` 校验，页面 Registry 随后调用自身 validator 和 handler；成功输出按可选 `outputSchema` 校验。发现结果正文列 revision、名称、说明和每个 Action 唯一完整 example；完整描述符仍留在宿主，完整输入 Schema 放入 tools，原 wire 响应仍留给校验与诊断。非法快照明确返回合同错误，不允许转入 DOM。可信 Desktop preflight 的 `input_schema_mismatch` 可有限修参，`stale_snapshot` 可有限重新发现；页面业务失败、页面切换、权限或不确定执行结果不自动重放。串行、审批、取消和 AGW 错误分层沿用原链路。
+- 目录读取：省略 params 或传 `{}`，只返回当前 revision 和动作名称、描述，不提前加载全部参数说明到模型上下文。
+- 单项手册读取：`params.action` 选择一个动作，返回网站原始描述符（包含网站提供的 inputSchema、可选 example/outputSchema 和其他手册字段）。Platform 不编译这些 Schema，不要求 example，也不限制为模型提供商支持的 Schema 子集。若网站在描述中提供更详细的手册入口，模型按需通过已授权的读取工具阅读。
+- 当前 Desktop wire 仍返回完整 snapshot；上述目录/单项投影在 Platform 工具层完成，两种读取均发送空 `desktop.awcp.snapshot` payload，不缓存页面状态。网站/ Desktop 原生分章节手册拉取尚未实现，不宣称网络层已经按章节获取。
+- 调用：params 精确为 `{revision,action,args}`，模型使用手册返回的 revision。Platform 校验固定外壳，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，在 handler 前验证业务输入，网站自己的 validator/handler 负责业务。原来的单 Action 键包装与运行核心注入 revision 已移除。
 
-Platform 的 AWCP 参数从模型原始 JSON 严格解析，拒绝重复键、不可安全表示的数字和半截 JSON；AWCP 不进入通用模板展开或普通 CDP 的类型归一化路径。OpenAI 和 Anthropic 当前按普通工具调用模式传递完整 Schema；实际模型接口是否接受其完整约束必须通过真实请求联调确认，不能把 Schema 可序列化当成约束生成已启用。AWCP 执行准备不创建纠错状态：同批合法 Action 可按原队列和审批规则执行，只有实际格式拒绝或可信 preflight 失败才建立纠错目标。目标从失败调用绑定，不从最后准备的调用推断。同一模型响应内的错误分别返回，但不重复扣纠错预算；同批或旧回合成功保留结果，不清除模型尚未收到反馈的错误。同 revision、Action、参数和值错误的无变化重试在派发前终止；后续响应的有效纠正成功才结束恢复，Run 总恢复预算不清零。stale 仍使快照失效并要求重新发现；该规则不为页面业务失败或不确定副作用增加重放机会。
+运行核心不保存 AWCP revision、动作集合、模型请求绑定、失效 generation 或纠错预算；发现、调用和失败都走普通工具循环。错误原样按既有 response/error 分层返回，模型结合网站手册和执行状态决定修参、重新读取或向用户解释，Platform 不自动重放、不强制最终回答、不移除工具，也不因批次出现 AWCP 就改变通用排序和并发规则。有先后依赖的操作须逐步发起；不要在执行状态未知时盲目重复可能有副作用的操作。权限、审批、取消、通用 Run 限额和 Desktop 授权页面边界继续生效。
 
-AWCP 纠错门禁只限制 AWCP 方法和待纠正的 Action，不拦截文件、Bash、普通 CDP 或用户交互。纠错耗尽或不可恢复的 AWCP 失败只停止当前 Run 的 AWCP：后续请求从 `desktop_cdp.method.enum` 的副本移除两个 AWCP 方法，保留普通 CDP、其他工具和原权限审批；执行入口也拒绝已排队的 AWCP 调用。迟到的成功或重新发现不能解除停止状态，新 Run 使用独立状态。不含 AWCP 的批次继续采用原并发、排序和批量审批规则；实际含 AWCP 的批次仍保留顺序屏障。技能负责禁止通过 DOM 或其他通道替代失败操作，不妨碍其他独立获授权的工作。
-
-Desktop 的类型校验错误携带受限的预期类型和实际类型，Platform 保留这些诊断字段及错误路径，不回显业务值。AWCP 停止原因附在对应的模型工具反馈中；历史错误仍保留确定事实，最终说明不得因 Action Schema 不再出现而猜测类型或声称未发现合同。通用 Run 限额及其总结流程不受 AWCP 状态影响。
-
-OpenAI 流严格按原协议配置处理 finish_reason 和尾帧等待，不因非法 JSON 增加等待。非法参数数量继续记录；仅在既有协议尾帧处理和 usage drain 读取路径中记录原始帧及结束后工具增量数量，保持原脱敏规则，后续增量不修改已结束的调用。原始非法参数返回未执行的格式错误，能读到完整 AWCP method 的半截 JSON 才附加 AWCP 纠错提示并纳入按轮预算，其他工具保留通用错误。平台不补括号、不重建参数、不自动重放模型请求。
+普通 provider 的非法参数及尾帧诊断保持独立；不为 AWCP 修补半截 JSON 或增加模型重试。Skill 只需说明如何发现、阅读网站手册和调用通用方法，网站知识通过工具结果按需进入上下文，不要求安装网站专属 Skill 或修改 Agent Catalog。
 
 WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 与 attach 通过 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。WS attach 直接使用发起 attach 的连接。每次成功且携带有效 WebClient target 的 attach 都以 last-writer-wins 更新该 run 的反向 Action target；失败 attach 或普通无 target attach 不改变已有绑定，已发出的 Action 不迁移。Team 内部成员与 `agent_invoke` 子 run 按根 run 动态读取相同 target，planning 新 execution run 继承 source run 的当前 target。
 

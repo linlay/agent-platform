@@ -490,8 +490,6 @@ type ToolOutputSink interface {
 }
 
 type ExecutionContext struct {
-	// DesktopAwcpRevision is injected from the invocation's frozen request binding.
-	DesktopAwcpRevision string `json:"-"`
 	// AuthoredScripts is shared only by tool invocations of this run; never serialized.
 	AuthoredScripts       *scriptstate.Scope `json:"-"`
 	Request               api.QueryRequest

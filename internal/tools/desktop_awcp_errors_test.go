@@ -45,8 +45,8 @@ func TestDesktopAwcpWirePreflightProofReachesToolResult(t *testing.T) {
 	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop},
 		clientRequest: &scriptedClientRequestInvoker{frames: []contracts.ClientResponseFrame{frame}}, clientTargets: emptyRunClientTargetStore{}}
 	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
-		"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": map[string]any{"orders.read": map[string]any{}}},
-	}, desktopAwcpBoundExecutionContext("revision-a"))
+		"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "revision-a", "action": "orders.read", "args": map[string]any{}},
+	}, desktopActionTestExecutionContext())
 	if err != nil || result.Error != "desktop_cdp_client_rejected" || result.ExitCode == 0 {
 		t.Fatalf("wire rejection lost: %#v %v", result, err)
 	}

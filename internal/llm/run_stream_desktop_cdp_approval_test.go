@@ -91,33 +91,3 @@ func TestDesktopCDPParamsFileSkipsUnnecessaryReadApproval(t *testing.T) {
 		})
 	}
 }
-
-func TestDesktopAwcpParamsFileIsRejectedBeforeReadApproval(t *testing.T) {
-	for _, method := range []string{desktopAwcpSnapshotMethod, desktopAwcpInvokeMethod} {
-		t.Run(method, func(t *testing.T) {
-			stream := &llmRunStream{
-				engine:  &LLMAgentEngine{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}},
-				session: QuerySession{RunID: "run-awcp", WorkspaceRoot: t.TempDir()},
-				execCtx: &ExecutionContext{},
-			}
-			invocation, deltas, message := stream.prepareToolCall(openAIToolCall{
-				ID:   "awcp-params-file",
-				Type: "function",
-				Function: openAIFunctionCall{
-					Name:      desktopCdpToolName,
-					Arguments: `{"method":"` + method + `","paramsFile":"outside.json"}`,
-				},
-			})
-			if invocation != nil || message == nil || len(deltas) != 1 {
-				t.Fatalf("AWCP paramsFile was not rejected during preparation: invocation=%#v deltas=%#v message=%#v", invocation, deltas, message)
-			}
-			result, ok := deltas[0].(DeltaToolResult)
-			if !ok || result.Result.Error != "invalid_tool_arguments" {
-				t.Fatalf("unexpected AWCP paramsFile rejection: %#v", deltas)
-			}
-			if len(stream.pending) != 0 {
-				t.Fatalf("AWCP paramsFile requested read approval: %#v", stream.pending)
-			}
-		})
-	}
-}

@@ -35,8 +35,6 @@ func (s *llmRunStream) Close() error {
 		return nil
 	}
 	s.closed = true
-	s.clearAwcpConstraint()
-	s.awcpRequest = nil
 	if s.activeToolExecution != nil {
 		s.activeToolExecution.cancel()
 	}
@@ -201,11 +199,6 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if s.protocol == nil {
 		return fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
-	requestTools, binding, err := s.awcpRequestTools()
-	if err != nil {
-		return err
-	}
-	s.awcpRequest = binding
 	preparedRequest, err := s.protocol.PrepareRequest(protocolStreamParams{
 		runID:          s.session.RunID,
 		provider:       s.provider,
@@ -213,7 +206,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		protocolConfig: s.protocolConfig,
 		stageSettings:  s.stageSettings,
 		messages:       s.messages,
-		toolSpecs:      requestTools,
+		toolSpecs:      s.toolSpecs,
 		toolChoice:     s.toolChoice,
 	})
 	if err != nil {
@@ -225,7 +218,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		}
 	}
 	runSeq := s.runLLMChatCompletionCount + 1
-	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, requestTools)
+	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, s.toolSpecs)
 	if err := s.ensureSystemProfileRegistered(preparedRequest, effectiveToolChoice); err != nil {
 		return err
 	}
@@ -234,7 +227,6 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.runLLMChatCompletionCount++
 	s.lastCallLLMChatCompletionCount = 1
 	s.modelCall = &pendingModelCall{
-		toolSpecs:           requestTools,
 		prepared:            preparedRequest,
 		effectiveToolChoice: effectiveToolChoice,
 		runSeq:              runSeq,
@@ -263,7 +255,7 @@ func (s *llmRunStream) openPendingModelCall() error {
 		protocolConfig: s.protocolConfig,
 		stageSettings:  s.stageSettings,
 		messages:       s.messages,
-		toolSpecs:      call.toolSpecs,
+		toolSpecs:      s.toolSpecs,
 		toolChoice:     s.toolChoice,
 		modelTimeout:   s.modelStreamIdleTimeout(),
 	}, call.prepared)
