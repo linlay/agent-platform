@@ -52,7 +52,7 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 			return s.deps.CatalogReloader.Reload(context.WithoutCancel(r.Context()), "connectors")
 		}
 		return nil
-	})
+	}, connector.ArchiveExpectation{ID: strings.TrimSpace(r.FormValue("expectedId")), Version: strings.TrimSpace(r.FormValue("expectedVersion"))})
 	if err != nil {
 		s.writeConnectorError(w, err)
 		return
@@ -71,6 +71,11 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	manager, ownerErr := s.connectorOwnerManager(r)
+	if ownerErr != nil {
+		s.writeAgentHTTPResponse(w, nil, ownerErr)
+		return
+	}
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	if !connector.ValidID(id) {
 		s.writeConnectorError(w, errors.New("connector id is required"))
@@ -78,14 +83,14 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		result, err := s.connectorAuth.StatusComponent(r.Context(), id, r.URL.Query().Get("component"))
+		result, err := manager.StatusComponent(r.Context(), id, r.URL.Query().Get("component"))
 		if err != nil {
 			s.writeConnectorError(w, err)
 			return
 		}
 		s.writeAgentHTTPResponse(w, result, nil)
 	case http.MethodPost:
-		result, err := s.connectorAuth.StartComponent(id, r.URL.Query().Get("component"))
+		result, err := manager.StartComponent(id, r.URL.Query().Get("component"))
 		if err != nil {
 			s.writeConnectorError(w, err)
 			return
@@ -110,9 +115,9 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 				s.writeConnectorError(w, errors.New("choose credentials or oauthClient"))
 				return
 			}
-			result, err = s.connectorAuth.SetOAuthClient(r.Context(), id, r.URL.Query().Get("component"), *req.OAuthClient)
+			result, err = manager.SetOAuthClient(r.Context(), id, r.URL.Query().Get("component"), *req.OAuthClient)
 		} else {
-			result, err = s.connectorAuth.SetToken(r.Context(), id, req.Credentials)
+			result, err = manager.SetToken(r.Context(), id, req.Credentials)
 		}
 		if err != nil {
 			s.writeConnectorError(w, err)
@@ -124,7 +129,18 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 			s.writeConnectorError(w, errors.New("logout clears the entire connector; omit component"))
 			return
 		}
-		if err := s.connectorAuth.Logout(r.Context(), id); err != nil {
+		// Legacy auth logout must not imply mutation of Desktop-owned OneID.
+		// The new connection/disconnect endpoint only clears this user's binding.
+		pkg, loadErr := s.connectorSources().Load(id)
+		if loadErr != nil {
+			s.writeConnectorError(w, loadErr)
+			return
+		}
+		if pkg.AuthMode == connector.AuthOneID {
+			s.writeConnectorError(w, errors.New("Desktop SSO is managed by Desktop"))
+			return
+		}
+		if _, err := manager.Disconnect(r.Context(), id); err != nil {
 			s.writeConnectorError(w, err)
 			return
 		}
@@ -136,12 +152,17 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnectorAuthCancel(w http.ResponseWriter, r *http.Request) {
+	manager, ownerErr := s.connectorOwnerManager(r)
+	if ownerErr != nil {
+		s.writeAgentHTTPResponse(w, nil, ownerErr)
+		return
+	}
 	id := r.URL.Query().Get("id")
 	if !connector.ValidID(id) {
 		s.writeConnectorError(w, errors.New("connector id is required"))
 		return
 	}
-	if err := s.connectorAuth.CancelSession(id, r.URL.Query().Get("sessionId")); err != nil {
+	if err := manager.CancelSession(id, r.URL.Query().Get("sessionId")); err != nil {
 		s.writeConnectorError(w, err)
 		return
 	}
@@ -156,6 +177,12 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, connectorauth.ErrTokenRejected):
+		status, code = http.StatusConflict, "AUTH_REQUIRED"
+	case errors.Is(err, connectorauth.ErrCredentialValidatorUnavailable):
+		status, code = http.StatusServiceUnavailable, "SETUP_REQUIRED"
+	case errors.Is(err, connectorauth.ErrCredentialCheckFailed):
+		status, code = http.StatusBadGateway, "EXECUTION_FAILED"
 	case errors.Is(err, connector.ErrPackageNotFound):
 		status, code = http.StatusNotFound, "connector_not_found"
 	case errors.Is(err, connector.ErrDeleteReload):

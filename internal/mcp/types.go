@@ -11,6 +11,9 @@ import (
 )
 
 type ServerDefinition struct {
+	ConnectorPackage   *connector.Package `json:"-"`
+	ConnectorComponent string
+
 	AgentKey               string
 	SourceKey              string
 	RuntimeDigest          string

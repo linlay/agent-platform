@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,8 @@ import (
 )
 
 type oauthSettings struct {
+	Issuer              string   `json:"issuer,omitempty"`
+	RevocationURL       string   `json:"revocation_endpoint,omitempty"`
 	Discovery           bool     `json:"discovery,omitempty"`
 	ResourceMetadataURL string   `json:"resourceMetadataUrl,omitempty"`
 	Scopes              []string `json:"scopes,omitempty"`
@@ -31,10 +34,9 @@ type oauthSettings struct {
 	Resource            string   `json:"resource,omitempty"`
 	RedirectURI         string   `json:"redirect_uri,omitempty"`
 	ClientMetadataURL   string   `json:"client_metadata_url,omitempty"`
-	Issuer              string   `json:"issuer,omitempty"`
 }
 
-func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
+func oauthSingleResource(pkg connector.Package) (string, oauthSettings, error) {
 	var settings oauthSettings
 	if len(pkg.OAuth) > 0 {
 		if err := connector.DecodeJSON(pkg.OAuth, &settings); err != nil {
@@ -45,7 +47,13 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		if settings.Discovery || settings.ResourceMetadataURL != "" || settings.ClientMetadataURL != "" {
 			return "", settings, fmt.Errorf("MCP discovery belongs to auth_mode=mcp")
 		}
-		if strings.TrimSpace(settings.ClientID) == "" || !secureURL(settings.AuthorizationURL) || !secureURL(settings.TokenURL) || !secureURL(settings.Resource) {
+		if (settings.Issuer != "" && !secureURL(settings.Issuer)) || (settings.RevocationURL != "" && !secureURL(settings.RevocationURL)) {
+			return "", settings, fmt.Errorf("oauth issuer and revocation endpoint must use HTTPS")
+		}
+		if (settings.AuthorizationURL == "") != (settings.TokenURL == "") {
+			return "", settings, fmt.Errorf("oauth authorization and token endpoints must be supplied together")
+		}
+		if !secureURL(settings.Resource) || (settings.Issuer == "" && (strings.TrimSpace(settings.ClientID) == "" || !secureURL(settings.AuthorizationURL) || !secureURL(settings.TokenURL))) || (settings.AuthorizationURL != "" && (!secureURL(settings.AuthorizationURL) || !secureURL(settings.TokenURL))) {
 			return "", settings, fmt.Errorf("oauth requires client_id, secure authorization_endpoint, token_endpoint and resource")
 		}
 	} else {
@@ -55,8 +63,8 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		if settings.Resource != "" && !secureURL(settings.Resource) {
 			return "", settings, fmt.Errorf("invalid MCP OAuth resource")
 		}
-		if len(pkg.MCP) != 1 {
-			return "", settings, fmt.Errorf("MCP OAuth requires one HTTP MCP component")
+		if len(pkg.MCP) == 0 {
+			return "", settings, fmt.Errorf("MCP OAuth requires an HTTP MCP component")
 		}
 	}
 	if settings.RedirectURI != "" {
@@ -66,9 +74,6 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 	}
 	if settings.ResourceMetadataURL != "" && !secureURL(settings.ResourceMetadataURL) {
 		return "", settings, fmt.Errorf("invalid OAuth metadata URL")
-	}
-	if len(pkg.MCP) > 1 {
-		return "", settings, fmt.Errorf("OAuth supports one resource per connector")
 	}
 	for _, component := range pkg.MCP {
 		if platform, ok := component["platform"].(map[string]any); ok && platform["authSource"] != nil && platform["authSource"] != "" {
@@ -84,7 +89,7 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		for _, field := range []string{"headers", "staticHeaders"} {
 			if headers, ok := component[field].(map[string]any); ok {
 				for key := range headers {
-					if strings.EqualFold(key, "Authorization") {
+					if strings.EqualFold(key, "Authorization") && !(field == "headers" && headers[key] == "Bearer ${OAUTH_ACCESS_TOKEN}") {
 						return "", settings, fmt.Errorf("OAuth manages Authorization; remove the configured header")
 					}
 				}
@@ -98,23 +103,92 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 	return settings.Resource, settings, nil
 }
 
-// OAuthResource is the authorization audience; the MCP endpoint remains the
-// independently frozen HTTP destination, including its path and query.
+type oauthTarget struct {
+	Component   string
+	Resource    string
+	Destination string
+	Settings    oauthSettings
+}
+
+// Each HTTP component is an independent audience/destination binding. Explicit
+// oauth.resource changes the audience only; it never broadens the destination.
+func oauthTargets(pkg connector.Package) ([]oauthTarget, error) {
+	names := make([]string, 0, len(pkg.MCP))
+	for name := range pkg.MCP {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		resource, settings, err := oauthSingleResource(pkg)
+		if err != nil {
+			return nil, err
+		}
+		return []oauthTarget{{Resource: resource, Destination: resource, Settings: settings}}, nil
+	}
+	targets := make([]oauthTarget, 0, len(names))
+	for _, name := range names {
+		single, err := OAuthComponent(pkg, name)
+		if err != nil {
+			return nil, err
+		}
+		resource, settings, err := oauthSingleResource(single)
+		if err != nil {
+			return nil, fmt.Errorf("MCP component %s: %w", name, err)
+		}
+		destination, _ := pkg.MCP[name]["url"].(string)
+		targets = append(targets, oauthTarget{Component: name, Resource: resource, Destination: destination, Settings: settings})
+	}
+	return targets, nil
+}
+
+func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
+	targets, err := oauthTargets(pkg)
+	if err != nil {
+		return "", oauthSettings{}, err
+	}
+	if len(targets) != 1 {
+		return "", oauthSettings{}, fmt.Errorf("select an OAuth MCP component resource")
+	}
+	return targets[0].Resource, targets[0].Settings, nil
+}
+
 func OAuthResource(pkg connector.Package) (string, error) {
 	resource, _, err := oauthResource(pkg)
 	return resource, err
 }
 
-func oauthDestination(pkg connector.Package) string {
-	for _, component := range pkg.MCP {
-		destination, _ := component["url"].(string)
-		if destination != "" {
-			return destination
+func OAuthResourceForComponent(pkg connector.Package, name string) (string, error) {
+	targets, err := oauthTargets(pkg)
+	if err != nil {
+		return "", err
+	}
+	for _, target := range targets {
+		if target.Component == name {
+			return target.Resource, nil
 		}
 	}
-	var settings oauthSettings
-	_ = connector.DecodeJSON(pkg.OAuth, &settings)
-	return settings.Resource
+	return "", fmt.Errorf("OAuth MCP component not found")
+}
+
+func oauthDestination(pkg connector.Package) string {
+	targets, err := oauthTargets(pkg)
+	if err != nil || len(targets) != 1 {
+		return ""
+	}
+	return targets[0].Destination
+}
+
+func oauthPackageReady(pkg connector.Package) (bool, error) {
+	targets, err := oauthTargets(pkg)
+	if err != nil {
+		return false, err
+	}
+	for _, target := range targets {
+		if !CredentialReady(pkg.CredentialRoot(), pkg.ID, target.Resource, target.Destination) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // Only the local Platform process can receive this callback. A pre-registered
@@ -222,17 +296,42 @@ func (m *Manager) discover(ctx context.Context, resource, destination string, se
 }
 
 func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *login) error {
-	initialState, err := readAuthState(m.sources.PersistentRoot(), pkg.ID)
+	targets, err := oauthTargets(pkg)
+	if err != nil {
+		return err
+	}
+	for _, target := range targets {
+		if len(targets) > 1 && CredentialReady(pkg.CredentialRoot(), pkg.ID, target.Resource, target.Destination) {
+			continue
+		}
+		m.mu.Lock()
+		s.URL = ""
+		s.Status = "preparing"
+		s.Message = "Preparing authorization for " + target.Component
+		m.mu.Unlock()
+		selected := pkg
+		if target.Component != "" {
+			selected, err = OAuthComponent(pkg, target.Component)
+			if err != nil {
+				return err
+			}
+		}
+		if err := m.loginOAuthTarget(ctx, selected, s, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) loginOAuthTarget(ctx context.Context, pkg connector.Package, s *login, target oauthTarget) error {
+	initialState, err := readAuthState(m.credentialRoot(), pkg.ID)
 	if err != nil {
 		return err
 	}
 	if s.generation != nil {
 		initialState.Generation = *s.generation
 	}
-	resource, settings, err := oauthResource(pkg)
-	if err != nil {
-		return err
-	}
+	resource, settings := target.Resource, target.Settings
 	clientInfo, err := readClientInfo(pkg)
 	if err != nil {
 		return err
@@ -246,7 +345,7 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	}
 	scopes := settings.Scopes
 	stepUp := false
-	if existing, readErr := readCredential(pkg.PersistentRoot(), pkg.ID); readErr == nil {
+	if existing, readErr := readCredential(pkg.CredentialRoot(), pkg.ID); readErr == nil {
 		if grant, ok := selectCredential(existing, resource, []string{oauthDestination(pkg)}); ok && len(grant.RequiredScopes) > 0 {
 			scopes = grant.RequiredScopes
 			stepUp = true
@@ -260,11 +359,37 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	if clientInfo.AuthMethod == "client_secret_post" {
 		cfg.Endpoint.AuthStyle = oauth2.AuthStyleInParams
 	}
-	var registrationEndpoint string
 	var discoveredIssuer string
+	var registrationEndpoint string
+	var revocationURL string
+	var revocationMethods []string
+	if pkg.AuthMode == connector.AuthOAuth {
+		revocationURL = settings.RevocationURL
+		if settings.Issuer != "" && (cfg.Endpoint.AuthURL == "" || cfg.ClientID == "") {
+			asm, err := sdkauth.GetAuthServerMetadata(ctx, settings.Issuer, m.client)
+			if err != nil || asm == nil || asm.Issuer != settings.Issuer {
+				return fmt.Errorf("OAuth issuer discovery failed")
+			}
+			if cfg.Endpoint.AuthURL == "" {
+				if !secureURL(asm.AuthorizationEndpoint) || !secureURL(asm.TokenEndpoint) {
+					return fmt.Errorf("OAuth endpoints must use HTTPS")
+				}
+				cfg.Endpoint.AuthURL, cfg.Endpoint.TokenURL = asm.AuthorizationEndpoint, asm.TokenEndpoint
+			}
+			discoveredIssuer = asm.Issuer
+			registrationEndpoint = asm.RegistrationEndpoint
+			if cfg.ClientID == "" && !secureURL(registrationEndpoint) {
+				return fmt.Errorf("OAuth client configuration is required")
+			}
+			if revocationURL == "" && secureURL(asm.RevocationEndpoint) {
+				revocationURL = asm.RevocationEndpoint
+				revocationMethods = asm.RevocationEndpointAuthMethodsSupported
+			}
+		}
+	}
 	if pkg.AuthMode == connector.AuthMCP {
 		var requiredScopes []string
-		prm, asm, err := m.discover(ctx, resource, oauthDestination(pkg), settings, &requiredScopes)
+		prm, asm, err := m.discover(ctx, resource, target.Destination, settings, &requiredScopes)
 		if err != nil {
 			return err
 		}
@@ -276,7 +401,7 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 		}
 		cfg.Endpoint.AuthURL, cfg.Endpoint.TokenURL = asm.AuthorizationEndpoint, asm.TokenEndpoint
 		discoveredIssuer = asm.Issuer
-		dir, dirErr := StateDir(pkg.PersistentRoot(), pkg.ID)
+		dir, dirErr := StateDir(pkg.CredentialRoot(), pkg.ID)
 		if dirErr != nil {
 			return dirErr
 		}
@@ -290,6 +415,10 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 			cfg.ClientID = settings.ClientMetadataURL
 		}
 		registrationEndpoint = asm.RegistrationEndpoint
+		if secureURL(asm.RevocationEndpoint) {
+			revocationURL = asm.RevocationEndpoint
+			revocationMethods = asm.RevocationEndpointAuthMethodsSupported
+		}
 	}
 	address, callbackPath, err := callbackAddress(settings.RedirectURI)
 	if err != nil {
@@ -363,7 +492,7 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	go callback.Serve(listener)
 	authorizeOptions := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}
 	exchangeOptions := []oauth2.AuthCodeOption{oauth2.VerifierOption(verifier)}
-	if pkg.AuthMode == connector.AuthMCP {
+	if pkg.AuthMode == connector.AuthMCP || settings.Issuer != "" {
 		authorizeOptions = append(authorizeOptions, oauth2.SetAuthURLParam("resource", resource))
 		exchangeOptions = append(exchangeOptions, oauth2.SetAuthURLParam("resource", resource))
 	}
@@ -391,19 +520,20 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	unlock, err := lockCredentials(ctx, m.sources.PersistentRoot(), pkg.ID)
+	unlock, err := lockCredentials(ctx, m.credentialRoot(), pkg.ID)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	currentState, err := readAuthState(m.sources.PersistentRoot(), pkg.ID)
+	currentState, err := readAuthState(m.credentialRoot(), pkg.ID)
 	if err != nil {
 		return err
 	}
 	if currentState.Generation != initialState.Generation || ctx.Err() != nil {
 		return fmt.Errorf("authorization was canceled or signed out")
 	}
-	return saveCredential(m.sources.PersistentRoot(), pkg.ID, oauthCredential{Generation: currentState.Generation, MCP: pkg.AuthMode == connector.AuthMCP, Resource: resource, Destination: oauthDestination(pkg), Config: cfg, Token: token})
+	credential := oauthCredential{Generation: currentState.Generation, MCP: pkg.AuthMode == connector.AuthMCP, Resource: resource, Destination: target.Destination, Config: cfg, Token: token, RevocationURL: revocationURL, RevocationAuthMethods: revocationMethods}
+	return saveCredential(m.credentialRoot(), pkg.ID, credential)
 }
 
 // ValidatePackage checks local authentication declarations without network I/O.

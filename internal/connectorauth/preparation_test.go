@@ -37,13 +37,20 @@ func writeCLIPackage(t *testing.T, root, id string, cli map[string]any) connecto
 	}
 	return pkg
 }
-func testNodeCLI(t *testing.T, script string) {
+func testNodeCLI(t *testing.T, script string, pkg connector.Package) {
 	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node required")
 	}
-	dir := t.TempDir()
+	install, err := pkg.InstallDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(install, "bin")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	name := "demo"
 	body := "#!/bin/sh\nexec '" + node + "' '" + script + "' \"$@\"\n"
 	if runtime.GOOS == "windows" {
@@ -68,7 +75,7 @@ func TestPreparationRawInitAndBundledPrecedence(t *testing.T) {
 	bin := t.TempDir()
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	t.Setenv("TEST_CLI_BIN", bin)
-	cli["init"] = osCommands("test -f connector.json && { printf '#!/bin/sh\\nprintf 1.2.0\\n' > \"$TEST_CLI_BIN/demo\"; chmod +x \"$TEST_CLI_BIN/demo\"; }\nprintf cwd-ok > initialized")
+	cli["init"] = osCommands("test -f connector.json && { printf '#!/bin/sh\\nprintf 1.2.0\\n' > \"$CONNECTOR_BIN_DIR/demo\"; chmod +x \"$CONNECTOR_BIN_DIR/demo\"; }\nprintf cwd-ok > initialized")
 	pkg := writeCLIPackage(t, root, "demo", cli)
 	m := New(context.Background(), connector.Sources{ExternalRoot: root}, nil)
 	s, err := m.Prepare(context.Background(), pkg.ID)
@@ -78,15 +85,15 @@ func TestPreparationRawInitAndBundledPrecedence(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(pkg.Dir, "initialized")); err != nil || string(data) != "cwd-ok" {
 		t.Fatalf("raw script cwd: %s %v", data, err)
 	}
-	// Empty bin is an explicit bundled package and cannot fall back to global demo.
+	// A package bin directory does not override a compatible private installation.
 	if err := os.Mkdir(filepath.Join(pkg.Dir, "bin"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(pkg.Dir, "initialized")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = m.Prepare(context.Background(), pkg.ID); err == nil {
-		t.Fatal("empty bin used global executable")
+	if _, err = m.Prepare(context.Background(), pkg.ID); err != nil {
+		t.Fatal("private installation was not preferred", err)
 	}
 	if _, err = os.Stat(filepath.Join(pkg.Dir, "initialized")); !os.IsNotExist(err) {
 		t.Fatal("bundled package executed init")
@@ -150,12 +157,12 @@ func TestPreparationCancellationConflictRecoveryAndRetry(t *testing.T) {
 		t.Fatalf("failure: %+v %v", s, err)
 	}
 }
-func TestPreparationExternalCommandWithoutInit(t *testing.T) {
+func TestPreparationPrivateCommandWithoutInit(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "cli.js")
 	os.WriteFile(script, []byte("console.log('1.2.0')"), 0600)
-	testNodeCLI(t, script)
 	root := t.TempDir()
-	writeCLIPackage(t, root, "demo", simpleCLI())
+	pkg := writeCLIPackage(t, root, "demo", simpleCLI())
+	testNodeCLI(t, script, pkg)
 	m := New(context.Background(), connector.Sources{ExternalRoot: root}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -198,5 +205,31 @@ func TestGeneratedWorkBuddyCLIContracts(t *testing.T) {
 		if string(before) != string(after) {
 			t.Fatalf("%s init was rewritten", id)
 		}
+	}
+}
+
+func TestPreparationDoesNotUseLegacyOrUserAuthorizationHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell integration")
+	}
+	root := t.TempDir()
+	cli := simpleCLI()
+	cli["init"] = osCommands(`printf '#!/bin/sh\nprintf 1.2.0\n' > "$CONNECTOR_BIN_DIR/demo"; chmod +x "$CONNECTOR_BIN_DIR/demo"; printf '%s' "$HOME" > preparation-home`)
+	pkg := writeCLIPackage(t, root, "demo", cli)
+	m := New(t.Context(), connector.Sources{ExternalRoot: root}, nil)
+	if _, err := m.Prepare(t.Context(), pkg.ID); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := os.ReadFile(filepath.Join(pkg.Dir, "preparation-home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	install, _ := pkg.InstallDir()
+	if string(actual) != filepath.Join(install, "setup", "home") {
+		t.Fatalf("installer used authorization HOME: %s", actual)
+	}
+	legacy, _ := pkg.UserStateDir()
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatal("installer created legacy credential tree")
 	}
 }

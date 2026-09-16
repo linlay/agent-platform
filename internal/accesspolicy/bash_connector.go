@@ -72,6 +72,9 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 	}
 	for _, entry := range session.ConnectorCLIEntries {
 		root := session.ConnectorDirs[entry.ConnectorID]
+		if root != "" && entry.Root != "" {
+			root = entry.Root
+		}
 		r, rootErr := pathutil.Canonicalize(root)
 		p, pathErr := pathutil.Canonicalize(canonical)
 		if root == "" || rootErr != nil || pathErr != nil || !pathutil.WithinRoot(p, r) {

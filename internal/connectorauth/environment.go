@@ -12,7 +12,7 @@ import (
 // CLIEnvironment freezes only the credential locator and public templates.
 func CLIEnvironment(pkg connector.Package) (connector.CredentialEnvironment, error) {
 	binding := pkg.AuthBindings["cli"]
-	d := connector.CredentialEnvironment{Root: pkg.PersistentRoot(), ID: pkg.ID, Mode: pkg.AuthMode, Env: binding.Env}
+	d := connector.CredentialEnvironment{Root: pkg.CredentialRoot(), ID: pkg.ID, Mode: pkg.AuthMode, Env: binding.Env}
 	if len(binding.Env) > 0 && (pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP) {
 		var err error
 		pkg, err = OAuthComponent(pkg, "cli")

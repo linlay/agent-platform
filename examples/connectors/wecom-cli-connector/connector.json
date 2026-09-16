@@ -1,0 +1,8 @@
+{
+  "id": "wecom-cli-connector",
+  "name": "企业微信",
+  "version": "1.0.1",
+  "type": "cli",
+  "auth_mode": null,
+  "description": "通过企业微信官方 CLI 管理消息、文档、日程和会议；账号授权由连接器私有环境保存。"
+}

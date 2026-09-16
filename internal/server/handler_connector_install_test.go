@@ -14,7 +14,7 @@ func TestConnectorZIPImportHTTPConflictAndAuthContract(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	var archive bytes.Buffer
 	z := zip.NewWriter(&archive)
-	for name, data := range map[string]string{"connector.json": `{"id":"import-demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"none"}`, "mcp.json": `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`} {
+	for name, data := range map[string]string{"connector.json": `{"id":"import-demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":null}`, "mcp.json": `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`} {
 		f, _ := z.Create(name)
 		f.Write([]byte(data))
 	}

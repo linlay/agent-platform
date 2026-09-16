@@ -130,3 +130,20 @@ func TestMCPOAuthResourceCanDifferFromDestination(t *testing.T) {
 type oauthTestRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f oauthTestRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestOAuthIssuerOnlyConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		raw   string
+		valid bool
+	}{
+		{`{"issuer":"https://auth.example.test","resource":"https://api.example.test/mcp","scopes":[]}`, true},
+		{`{"issuer":"http://auth.example.test","resource":"https://api.example.test/mcp"}`, false},
+		{`{"issuer":"https://auth.example.test","resource":"https://api.example.test/mcp","authorization_endpoint":"https://auth.example.test/authorize"}`, false},
+	} {
+		pkg := connector.Package{Manifest: connector.Manifest{ID: "issuer-test", AuthMode: connector.AuthOAuth, OAuth: json.RawMessage(tc.raw)}}
+		_, _, err := oauthSingleResource(pkg)
+		if (err == nil) != tc.valid {
+			t.Fatalf("configuration valid=%v: %v", tc.valid, err)
+		}
+	}
+}

@@ -301,10 +301,12 @@ type RunLimits struct {
 type QuerySession struct {
 	// ResolveView freezes a mounted presentation in this Chat before publication.
 	// It is installed by the session producer, never supplied by query clients.
-	ResolveView   func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
-	ConnectorDirs map[string]string                                                     `json:"-"` // Frozen mounted connector runtime paths.
-	RequestID     string
-	RunID         string
+	ResolveView          func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
+	BeginConnectorBash   func(context.Context, string) (context.Context, func(), error)        `json:"-"`
+	ResolveConnectorBash func(context.Context, string) (map[string]string, error)              `json:"-"`
+	ConnectorDirs        map[string]string                                                     `json:"-"` // Frozen mounted connector runtime paths.
+	RequestID            string
+	RunID                string
 	// TempRoot and TempRoots are the process-start temporary-directory snapshot
 	// attached by trusted session producers. They are runtime-only so callers
 	// cannot expand file access by forging protocol fields.
@@ -340,6 +342,7 @@ type QuerySession struct {
 	// ModeToolDefinitions are session-local tools owned by a built-in mode.
 	// They are included in model/system-init schemas but never enter catalog.
 	ModeToolDefinitions           []api.ToolDetailResponse
+	ConnectorToolDefinitions      []api.ToolDetailResponse `json:"-"`
 	AgentName                     string
 	AgentRole                     string
 	AgentDescription              string
@@ -408,6 +411,7 @@ type QuerySession struct {
 	SkillScripts           *skillsexec.Scope `json:"-"`
 	AgentHasRuntimeSandbox bool
 	AgentHasMemoryConfig   bool
+	ConnectorStateRoot     string `json:"-"`
 	WorkspaceRoot          string
 	ChatRoot               string
 	AccessLevel            string

@@ -14,6 +14,7 @@ import (
 // one namespace. BuiltinRoot is supplied by application assembly, never YAML.
 type Sources struct {
 	ExternalRoot string
+	Owner        string
 	BuiltinRoot  string
 	StateRoot    string
 	// LegacyStateRoot is only read by the startup/offline layout migration.
@@ -42,6 +43,7 @@ func (s Sources) Load(id string) (Package, error) {
 	pkg, err := Load(root, id)
 	pkg.Builtin = IsBuiltin(id)
 	pkg.StateRoot = s.PersistentRoot()
+	pkg.Owner = s.Owner
 	return pkg, err
 }
 

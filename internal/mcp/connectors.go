@@ -80,7 +80,7 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		}
 	}
 	credentialReady := false
-	if pkg.AuthMode == "token" {
+	if pkg.AuthMode == "token" && pkg.Owner != "" {
 		var err error
 		_, credentialReady, err = connectorauth.TokenValues(pkg)
 		if err != nil {
@@ -178,13 +178,20 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 				if !ok {
 					return ServerDefinition{}, fmt.Errorf("%s values must be strings", field)
 				}
+				if pair[0] == "headers" && field == "headers" && (pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP) && strings.EqualFold(key, "Authorization") && value == "Bearer ${OAUTH_ACCESS_TOKEN}" {
+					// OAuth transport supplies the real bearer token; never forward a placeholder.
+					continue
+				}
 				if pkg.AuthMode == connector.AuthOneID {
 					if (field == "staticHeaders" || field == "staticEnv") && strings.Contains(value, "${") {
 						return ServerDefinition{}, fmt.Errorf("oneid-token templates belong in headers/env, not static fields")
 					}
+					// The public connector protocol uses ONEID_TOKEN. Keep the legacy
+					// AP_ACCESS_TOKEN spelling as an alias to the same trusted identity.
+					value = strings.ReplaceAll(value, "${ONEID_TOKEN}", "${AP_ACCESS_TOKEN}")
 					resolved, err := resolveConnectorCredential(pkg, value, map[string]string{agentconfig.EnvAccessToken: "identity"})
 					if err != nil || strings.Contains(resolved, "${") {
-						return ServerDefinition{}, fmt.Errorf("oneid-token only supplies AP_ACCESS_TOKEN")
+						return ServerDefinition{}, fmt.Errorf("oneid-token only supplies ONEID_TOKEN (legacy AP_ACCESS_TOKEN is also supported)")
 					}
 					if pair[0] == "headers" && strings.EqualFold(key, "Authorization") && (field != "headers" || value != "Bearer ${AP_ACCESS_TOKEN}") {
 						return ServerDefinition{}, fmt.Errorf("oneid-token manages Authorization; omit it or use Bearer ${AP_ACCESS_TOKEN}")
@@ -219,8 +226,8 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	if server.Transport == TransportStreamableHTTP {
 		server.EndpointPath = ""
 	}
-	if server.Transport == TransportStdio {
-		values, err := pkg.CLIConfigEnvironment()
+	if server.Transport == TransportStdio && pkg.Owner != "" && !pkg.Builtin && !connector.IsBuiltin(pkg.ID) {
+		values, err := pkg.CLIPrivateEnvironment()
 		if err != nil {
 			return ServerDefinition{}, err
 		}
@@ -243,14 +250,16 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		}
 	}
 	if pkg.AuthMode == connector.AuthToken || pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP {
-		server.ConnectorAuthRoot = pkg.PersistentRoot()
-		server.CredentialRevision = credentialStateDigest(filepath.Join(pkg.PersistentRoot(), pkg.ID))
+		server.ConnectorAuthRoot = pkg.CredentialRoot()
+		server.CredentialRevision = credentialStateDigest(filepath.Join(pkg.CredentialRoot(), pkg.ID))
 		if server.Transport == TransportStreamableHTTP {
 			// Refresh rotates HTTP tokens without tearing down an in-flight SDK
 			// session. Login/logout mutations have a separate durable revision.
-			server.CredentialRevision = credentialStateDigest(filepath.Join(pkg.PersistentRoot(), pkg.ID, "auth-state.json"))
+			server.CredentialRevision = credentialStateDigest(filepath.Join(pkg.CredentialRoot(), pkg.ID, "auth-state.json"))
 		}
 	}
+	server.ConnectorPackage = &pkg
+	server.ConnectorComponent = name
 	server.ConnectorOneID = pkg.AuthMode == connector.AuthOneID
 	server.ConnectorBinDir = pkg.BinDir
 	server.ConnectorTokenQuery = pkg.AuthMode == connector.AuthToken && strings.Contains(server.ResolvedURL(), "${")
@@ -278,7 +287,7 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 			return ServerDefinition{}, selectErr
 		}
 		server.ConnectorOAuth = server.Transport == TransportStreamableHTTP
-		server.ConnectorAuthRoot = pkg.PersistentRoot()
+		server.ConnectorAuthRoot = pkg.CredentialRoot()
 		server.ConnectorOAuthResource, err = connectorauth.OAuthResource(selected)
 		if err != nil {
 			return ServerDefinition{}, err
@@ -287,10 +296,12 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		if server.Transport == TransportStdio {
 			destination = server.ConnectorOAuthResource
 		}
-		credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ConnectorOAuthResource, destination)
+		if pkg.Owner != "" {
+			credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ConnectorOAuthResource, destination)
+		}
 	}
 	if server.ConnectorToken {
-		server.ConnectorAuthRoot = pkg.PersistentRoot()
+		server.ConnectorAuthRoot = pkg.CredentialRoot()
 	}
 	if (pkg.AuthMode == connector.AuthToken || pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP) && !credentialReady {
 		// Account authorization is deliberately not inferred from process env or

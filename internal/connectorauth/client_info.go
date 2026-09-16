@@ -25,7 +25,7 @@ type OAuthClientInfo struct {
 }
 
 func clientInfoPath(pkg connector.Package) (string, error) {
-	dir, err := StateDir(pkg.PersistentRoot(), pkg.ID)
+	dir, err := StateDir(pkg.CredentialRoot(), pkg.ID)
 	if err != nil {
 		return "", err
 	}
@@ -65,12 +65,12 @@ func (m *Manager) SetOAuthClient(ctx context.Context, id, component string, info
 	if err != nil {
 		return Session{}, err
 	}
-	unlock, err := lockCredentials(ctx, pkg.PersistentRoot(), id)
+	unlock, err := lockCredentials(ctx, pkg.CredentialRoot(), id)
 	if err != nil {
 		return Session{}, err
 	}
 	defer unlock()
-	if err := changeAuthState(pkg.PersistentRoot(), id, true); err != nil {
+	if err := changeAuthState(pkg.CredentialRoot(), id, true); err != nil {
 		return Session{}, err
 	}
 	if err := savePrivateJSON(path, info); err != nil {
@@ -93,12 +93,12 @@ func readClientInfo(pkg connector.Package) (OAuthClientInfo, error) {
 }
 
 func saveRegisteredClient(ctx context.Context, pkg connector.Package, info OAuthClientInfo, generation string) error {
-	unlock, err := lockCredentials(ctx, pkg.PersistentRoot(), pkg.ID)
+	unlock, err := lockCredentials(ctx, pkg.CredentialRoot(), pkg.ID)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	state, err := readAuthState(pkg.PersistentRoot(), pkg.ID)
+	state, err := readAuthState(pkg.CredentialRoot(), pkg.ID)
 	if err != nil {
 		return err
 	}

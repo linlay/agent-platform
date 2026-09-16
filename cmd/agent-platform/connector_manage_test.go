@@ -2,8 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -61,13 +68,30 @@ func TestConnectorManagementRejectsDirectoryOverrideFlags(t *testing.T) {
 }
 
 func TestConnectorManageTokenFileDoesNotEchoCredentials(t *testing.T) {
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "credential-test", Version: "1.0.0"}, &sdkmcp.ServerOptions{Capabilities: &sdkmcp.ServerCapabilities{}})
+	server.AddTool(&sdkmcp.Tool{Name: "read_document", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		t.Error("credential check must not invoke business tools")
+		return &sdkmcp.CallToolResult{}, nil
+	})
+	handler := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.StreamableHTTPOptions{JSONResponse: true})
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Header.Get("X-API-Key") != "private-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	defer upstream.Close()
+
 	runtimeRoot := t.TempDir()
 	t.Setenv("AP_RUNTIME_STATE_DIR", "")
 	dir := filepath.Join(runtimeRoot, "connectors-center", "demo")
 	os.MkdirAll(dir, 0755)
 	files := map[string]string{
 		filepath.Join(dir, "connector.json"):     `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"token","token_schema":{"fields":[{"key":"API_KEY","required":true}]}}`,
-		filepath.Join(dir, "mcp.json"):           `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp","headers":{"X-API-Key":"${API_KEY}"}}}}`,
+		filepath.Join(dir, "mcp.json"):           fmt.Sprintf(`{"mcpServers":{"main":{"type":"streamableHttp","url":%q,"headers":{"X-API-Key":"${API_KEY}"}}}}`, upstream.URL),
 		filepath.Join(t.TempDir(), "input.json"): `{"API_KEY":"private-token"}`,
 	}
 	input := ""
@@ -83,6 +107,9 @@ func TestConnectorManageTokenFileDoesNotEchoCredentials(t *testing.T) {
 	var out bytes.Buffer
 	if err := runConnectorManagement(args, &out); err != nil {
 		t.Fatal(err)
+	}
+	if calls.Load() == 0 {
+		t.Fatal("credential validation never reached MCP")
 	}
 	if bytes.Contains(out.Bytes(), []byte("private-token")) || !bytes.Contains(out.Bytes(), []byte(`"status":"authorized"`)) {
 		t.Fatal("unsafe token response", out.String())

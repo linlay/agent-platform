@@ -107,6 +107,10 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 			def.ConnectorCredentials = append(def.ConnectorCredentials, credential)
 		}
 		for key, value := range values {
+			// A user-private HOME belongs to a particular command, never the Agent catalog.
+			if key == "HOME" || key == "USERPROFILE" || key == "APPDATA" || key == "LOCALAPPDATA" || strings.HasPrefix(key, "XDG_") || strings.HasPrefix(key, "CONNECTOR_") {
+				continue
+			}
 			if previous, exists := def.ConnectorEnv[key]; exists && previous != value {
 				return fmt.Errorf("connectors have conflicting configEnv %s", key)
 			}

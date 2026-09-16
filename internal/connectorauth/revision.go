@@ -45,11 +45,11 @@ func changeAuthState(root, id string, logout bool) error {
 }
 
 func (m *Manager) changed(ctx context.Context, id string) error {
-	unlock, err := lockCredentials(ctx, m.sources.PersistentRoot(), id)
+	unlock, err := lockCredentials(ctx, m.credentialRoot(), id)
 	if err != nil {
 		return err
 	}
-	err = changeAuthState(m.sources.PersistentRoot(), id, false)
+	err = changeAuthState(m.credentialRoot(), id, false)
 	unlock()
 	if err == nil && m.reload != nil {
 		err = m.reload(ctx, id)

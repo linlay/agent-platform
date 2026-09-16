@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/connector"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,12 +21,13 @@ func TestClientStdioSessionConcurrencyReloadAndClose(t *testing.T) {
 	registryPath := filepath.Join(root, "stdio.yml")
 	writeStdioHelperRegistry(t, registryPath, "first_tool")
 	registry, err := NewRegistry(root)
+	ctx := connector.WithOwner(t.Context(), "local")
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	client := NewClientWithGate(registry, nil, nil)
 
-	tools, err := client.ListTools(t.Context(), "stdio-test")
+	tools, err := client.ListTools(ctx, "stdio-test")
 	if err != nil {
 		t.Fatalf("ListTools(first): %v", err)
 	}
@@ -41,7 +43,7 @@ func TestClientStdioSessionConcurrencyReloadAndClose(t *testing.T) {
 		wg.Add(1)
 		go func(value int) {
 			defer wg.Done()
-			result, callErr := client.CallTool(context.Background(), "stdio-test", "first_tool", map[string]any{"value": value}, nil)
+			result, callErr := client.CallTool(ctx, "stdio-test", "first_tool", map[string]any{"value": value}, nil)
 			if callErr != nil {
 				errors <- callErr
 				return
@@ -75,14 +77,14 @@ func TestClientStdioSessionConcurrencyReloadAndClose(t *testing.T) {
 	}
 	client.Reconcile()
 	waitForProcessExit(t, firstPID)
-	tools, err = client.ListTools(t.Context(), "stdio-test")
+	tools, err = client.ListTools(ctx, "stdio-test")
 	if err != nil {
 		t.Fatalf("ListTools(second): %v", err)
 	}
 	if len(tools) != 1 || tools[0].Name != "second_tool" {
 		t.Fatalf("unexpected reloaded tools: %#v", tools)
 	}
-	result, err := client.CallTool(t.Context(), "stdio-test", "second_tool", map[string]any{}, nil)
+	result, err := client.CallTool(ctx, "stdio-test", "second_tool", map[string]any{}, nil)
 	if err != nil {
 		t.Fatalf("CallTool(second): %v", err)
 	}
@@ -137,6 +139,26 @@ func writeStdioHelperRegistry(t *testing.T, path string, toolName string) {
 		"read-timeout: 5\n" +
 		"retry: 0\n"
 	writeMCPRegistryFile(t, path, content)
+	sources := connector.Sources{ExternalRoot: filepath.Dir(path)}
+	pkg, err := sources.Load("stdio-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, _ := connector.CredentialsPath(pkg.PersistentRoot(), pkg.ID)
+	data, err := os.ReadFile(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg.Owner = "local"
+	target, _ := connector.CredentialsPath(pkg.CredentialRoot(), pkg.ID)
+	os.MkdirAll(filepath.Dir(target), 0700)
+	if err := os.WriteFile(target, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mcpResultPID(result any) (int, error) {

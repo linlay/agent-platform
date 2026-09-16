@@ -16,7 +16,7 @@ import (
 )
 
 func TestTokenQueryStaysOutOfRegistryAndReadsCurrentCredentials(t *testing.T) {
-	sources := connector.Sources{ExternalRoot: t.TempDir()}
+	sources := connector.Sources{ExternalRoot: t.TempDir(), Owner: "local"}
 	dir := filepath.Join(sources.ExternalRoot, "demo")
 	os.MkdirAll(dir, 0755)
 	endpoint := "https://example.test/mcp?key=${API_KEY}&format=0"
@@ -30,7 +30,8 @@ func TestTokenQueryStaysOutOfRegistryAndReadsCurrentCredentials(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	manager := connectorauth.New(ctx, sources, nil)
+	// This unit exercises transport encoding; component probes are covered in connector_credentials_validation_test.
+	manager := connectorauth.New(ctx, sources, nil).WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error { return nil })
 	current := "first&other=not-another-param+#中文"
 	if _, err := manager.SetToken(ctx, "demo", map[string]string{"API_KEY": current}); err != nil {
 		t.Fatal(err)

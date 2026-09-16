@@ -102,7 +102,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	budgetStage := budgetStageForName(session, options.Stage)
 	allowedTools := resolveAllowedToolNames(session, options.Stage, options.ToolNames)
-	allToolDefs := mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions)
+	allToolDefs := mergeToolDefinitions(mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions), session.ConnectorToolDefinitions)
 	effectiveDefs := effectiveToolDefinitions(allToolDefs, allowedTools, session)
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
 	execCtx := options.ExecCtx

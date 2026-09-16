@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"agent-platform/internal/connector"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -237,6 +239,17 @@ func (r *ToolRouter) ListFileHistory(chatID string, runID string) ([]FileHistory
 
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	def, ok := r.lookup(toolName)
+	if execCtx != nil {
+		for _, candidate := range execCtx.Session.ConnectorToolDefinitions {
+			if strings.EqualFold(candidate.Name, toolName) || strings.EqualFold(candidate.Key, toolName) {
+				// Session MCP cannot replace a configured local tool with the same name.
+				if !ok || strings.EqualFold(AnyStringNode(def.Meta["sourceType"]), "mcp") {
+					def, ok = candidate, true
+				}
+				break
+			}
+		}
+	}
 	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !allowsReadOnlyInvocation(def, ok, toolName, args) {
 		return toolpolicy.DisabledResult(toolName), nil
 	}
@@ -365,8 +378,18 @@ func (r *ToolRouter) invokeMCPTool(ctx context.Context, def api.ToolDetailRespon
 	if wireName == "" {
 		wireName = def.Name
 	}
-	payload, err := r.mcp.CallTool(ctx, serverKey, wireName, args, buildMCPMeta(def.Name, execCtx))
+	owner := "local"
+	if execCtx != nil && strings.TrimSpace(execCtx.Session.Subject) != "" {
+		owner = "user:" + strings.TrimSpace(execCtx.Session.Subject)
+	}
+	payload, err := r.mcp.CallTool(connector.WithOwner(ctx, owner), serverKey, wireName, args, buildMCPMeta(def.Name, execCtx))
 	if err != nil {
+		if errors.Is(err, connector.ErrOutcomeUnknown) {
+			result := mcpErrorResult(def.Name, "OUTCOME_UNKNOWN", "The connector call was interrupted after dispatch. Verify external state before retrying; do not automatically replay a write.")
+			result.Structured["retryable"] = false
+			result.Output = MarshalJSON(result.Structured)
+			return result
+		}
 		return mcpErrorResult(def.Name, "mcp_server_unavailable", err.Error())
 	}
 	return normalizeMCPResult(def.Name, payload)

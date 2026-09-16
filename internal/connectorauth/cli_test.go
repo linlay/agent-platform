@@ -38,7 +38,11 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	os.WriteFile(filepath.Join(npm, "cli.js"), []byte(script), 0o644)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	testNodeCLI(t, filepath.Join(npm, "cli.js"))
+	pkg, err := (connector.Sources{ExternalRoot: root}).Load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testNodeCLI(t, filepath.Join(npm, "cli.js"), pkg)
 	m := New(ctx, connector.Sources{ExternalRoot: root}, nil)
 	if _, err := m.Prepare(ctx, id); err != nil {
 		t.Fatal(err)
@@ -89,11 +93,11 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	}
 }
 
-func TestLifecycleRejectsShellOperationsAndVersionComparison(t *testing.T) {
+func TestLifecyclePreservesDeclaredShellAndVersionComparison(t *testing.T) {
 	for _, cmd := range []string{"demo status; touch /tmp/x", "demo $(whoami)", "demo status > x", "A=B demo status", "demo status &", "other status"} {
 		pkg := connector.Package{CLI: map[string]any{"status": map[string]any{"darwin": cmd, "linux": cmd, "win32": cmd}}}
-		if _, err := cliArgs(pkg, "status", "demo"); err == nil {
-			t.Fatalf("accepted %q", cmd)
+		if args, err := cliArgs(pkg, "status", "demo"); err != nil || len(args) != 1 || args[0] != cmd {
+			t.Fatalf("changed declared command %q: %v", cmd, err)
 		}
 	}
 	if !versionAtLeast("v1.0.16", "1.0.16") || versionAtLeast("1.0.9", "1.0.16") {

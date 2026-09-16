@@ -43,7 +43,8 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	registry, err := NewRegistry(root)
+	sources := connector.Sources{ExternalRoot: root, Owner: "local"}
+	registry, err := NewRegistryWithSources(sources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 	if definition.SetupError == "" {
 		t.Fatal("missing credentials did not require setup")
 	}
-	state, err := connectorauth.StateDir((connector.Sources{ExternalRoot: root}).PersistentRoot(), "demo")
+	state, err := connectorauth.StateDir(connector.OwnerStateRoot(sources.PersistentRoot(), "local"), "demo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,15 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 	}
 	client := NewClientWithGate(registry, server.Client(), nil)
 	defer client.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	pkg, err := sources.Load("demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(connector.WithOwner(context.Background(), "local"), 10*time.Second)
 	defer cancel()
 	tools, err := client.ListTools(ctx, "demo")
 	if err != nil || len(tools) != 1 || tools[0].Name != "read_document" {
@@ -83,7 +92,7 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 	if _, err := client.CallTool(ctx, "demo", "read_document", map[string]any{}, nil); err != nil {
 		t.Fatal(err)
 	}
-	manager := connectorauth.New(ctx, connector.Sources{ExternalRoot: root}, nil)
+	manager := connectorauth.New(ctx, sources, nil)
 	if err := manager.Logout(ctx, "demo"); err != nil {
 		t.Fatal(err)
 	}
@@ -100,5 +109,22 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 	definition, _ = registry.Server("demo")
 	if definition.SetupError == "" {
 		t.Fatal("logout was not reflected by registry")
+	}
+}
+
+func TestMCPMultipleOAuthComponentsUseTheirOwnResources(t *testing.T) {
+	pkg := connector.Package{Manifest: connector.Manifest{ID: "multi", Name: "Multi", Version: "1.0.0", Type: "mcp", AuthMode: connector.AuthMCP}, StateRoot: t.TempDir(), Owner: "alice", Dir: t.TempDir(), MCP: map[string]map[string]any{
+		"calendar": {"type": "streamableHttp", "url": "https://calendar.example.test/mcp"},
+		"mail":     {"type": "streamableHttp", "url": "https://mail.example.test/mcp"},
+	}}
+	for _, name := range []string{"calendar", "mail"} {
+		def, err := connectorServer(pkg, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := pkg.MCP[name]["url"].(string)
+		if def.ConnectorOAuthResource != want || def.ResolvedURL() != want || def.ConnectorAuthRoot != pkg.CredentialRoot() {
+			t.Fatalf("wrong %s credential binding: %+v", name, def)
+		}
 	}
 }

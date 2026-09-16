@@ -85,7 +85,7 @@ func validateSystemInitProfiles(profiles []contracts.SystemInitProfile) error {
 }
 
 func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, defaultCoderPlanningMaxSteps int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
-	toolDefs = mergeToolDefinitions(toolDefs, session.ModeToolDefinitions)
+	toolDefs = mergeToolDefinitions(mergeToolDefinitions(toolDefs, session.ModeToolDefinitions), session.ConnectorToolDefinitions)
 	mode := normalizedSystemInitMode(session.Mode)
 	if session.PlanningMode {
 		if mode != agentcoder.MainStage {

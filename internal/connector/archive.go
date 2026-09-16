@@ -20,7 +20,7 @@ var ErrPackageExists = errors.New("connector already installed; overwrite is req
 
 // ImportArchive publishes a fully validated package while sharing the same
 // mutation boundary as definition edits. Network availability is not validation.
-func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, size int64, overwrite bool, validate func([]Package) error, reload func() error) (Package, error) {
+func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, size int64, overwrite bool, validate func([]Package) error, reload func() error, expected ...ArchiveExpectation) (Package, error) {
 	if size <= 0 || size > MaxArchiveUploadBytes {
 		return Package{}, ErrArchiveTooLarge
 	}
@@ -191,6 +191,24 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 	if err != nil {
 		return Package{}, err
 	}
+	manifestData, err := os.ReadFile(filepath.Join(pkg.Dir, "connector.json"))
+	if err != nil {
+		return Package{}, err
+	}
+	if err = ValidateSpecManifest(manifestData); err != nil {
+		return Package{}, err
+	}
+	if err = ValidateExternalCLI(pkg); err != nil {
+		return Package{}, err
+	}
+	if len(expected) > 0 {
+		if expected[0].ID != "" && expected[0].ID != pkg.ID {
+			return Package{}, fmt.Errorf("connector package id does not match expected id")
+		}
+		if expected[0].Version != "" && expected[0].Version != pkg.Version {
+			return Package{}, fmt.Errorf("connector package version does not match expected version")
+		}
+	}
 	installed, err := sources.loadAllExcept(pkg.ID)
 	if err != nil {
 		return Package{}, err
@@ -276,4 +294,10 @@ func safeArchivePath(n string) bool {
 		}
 	}
 	return true
+}
+
+// ArchiveExpectation binds a verified market download to its requested identity before publication.
+type ArchiveExpectation struct {
+	ID      string
+	Version string
 }

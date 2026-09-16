@@ -35,6 +35,28 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(command) > maxInt(t.cfg.Bash.MaxCommandChars, 16000) {
 		return ToolExecutionResult{Output: "Command is too long", Error: "command_too_long", ExitCode: -1}, nil
 	}
+	if execCtx != nil && execCtx.Session.BeginConnectorBash != nil {
+		scoped, release, err := execCtx.Session.BeginConnectorBash(ctx, command)
+		if err != nil {
+			return ToolExecutionResult{Output: err.Error(), Error: "connector_unavailable", ExitCode: -1}, nil
+		}
+		defer release()
+		ctx = scoped
+	}
+	connectorInvocation := false
+	if execCtx != nil && execCtx.Session.ResolveConnectorBash != nil {
+		privateEnv, err := execCtx.Session.ResolveConnectorBash(ctx, command)
+		if err != nil {
+			return ToolExecutionResult{Output: err.Error(), Error: "connector_unavailable", ExitCode: -1}, nil
+		}
+		if len(privateEnv) > 0 {
+			connectorInvocation = true
+			copyContext := *execCtx
+			copyContext.Session = execCtx.Session
+			copyContext.Session.ConnectorEnv = agentconfig.Merge(execCtx.Session.ConnectorEnv, privateEnv)
+			execCtx = &copyContext
+		}
+	}
 	rawAccessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
 	securityReview := rawAccessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx))
 	switch securityReview.Decision {
@@ -94,6 +116,9 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	runtimeInfo := t.runtimeInfo()
 	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, runtimeInfo.GOOS)
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
+	if connectorInvocation {
+		connector.ConfigureProcessTree(cmd)
+	}
 	cmd.WaitDelay = bashOutputPipeWaitDelay
 	cmd.Dir = workingDir
 	commandEnv, err := mergeBashCommandEnvContext(runCtx, execCtx, t.cfg.IdentityFile)
@@ -102,7 +127,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	}
 	var configEnv map[string]string
 	if execCtx != nil {
-		configEnv = execCtx.Session.ConnectorEnv
+		configEnv = connectorShellPathBindings(execCtx.Session.ConnectorEnv)
 	}
 	bound := hostenv.BindShellEnvironment(shellExecutable, command, commandEnv, configEnv)
 	_, boundArgs := resolveHostShellInvocation(t.cfg.Bash, bound, runtimeInfo.GOOS)
@@ -128,6 +153,11 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd.Stdout = stdoutCapture
 	cmd.Stderr = stderrCapture
 
+	if execCtx != nil && execCtx.Session.ResolveConnectorBash != nil {
+		if _, err := execCtx.Session.ResolveConnectorBash(ctx, command); err != nil {
+			return ToolExecutionResult{Output: err.Error(), Error: "connector_unavailable", ExitCode: -1}, nil
+		}
+	}
 	// Revalidate immediately before launch against the environment actually passed
 	// to the child. Only this final check consumes a one-shot approval.
 	rawFinalReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, accessPolicySession(execCtx), command, workingDir, bashEnvironmentVariables(cmd.Env), execCtx)
@@ -147,19 +177,20 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_approval_required", ExitCode: -1}, nil
 	}
 	err = cmd.Run()
+	unknownOutcome := connectorInvocation && err != nil && runCtx.Err() != nil && cmd.Process != nil
 	stdoutCapture.Close()
 	stderrCapture.Close()
 	if captureErr := firstBashOutputCaptureError(stdoutCapture, stderrCapture); captureErr != nil {
-		return bashResult("", captureErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+		return connectorInterruptedResult(bashResult("", captureErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), unknownOutcome), nil
 	}
 	err = normalizeBashCommandError(err, runCtx, cmd)
 	stdout, readErr := readBashOutputFile(stdoutFile, runtimeInfo)
 	if readErr != nil {
-		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+		return connectorInterruptedResult(bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), unknownOutcome), nil
 	}
 	stderr, readErr := readBashOutputFile(stderrFile, runtimeInfo)
 	if readErr != nil {
-		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+		return connectorInterruptedResult(bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), unknownOutcome), nil
 	}
 	exitCode := 0
 	if err != nil {
@@ -188,7 +219,16 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 			metadata["approvalSource"] = approvalSource
 		}
 	}
-	return result, nil
+	if connectorInvocation && err != nil && cmd.Process == nil {
+		result.Error = "EXECUTION_FAILED"
+		if result.Structured == nil {
+			result.Structured = map[string]any{}
+		}
+		result.Structured["code"] = "EXECUTION_FAILED"
+		result.Structured["executed"] = false
+		result.Output = MarshalJSON(result.Structured)
+	}
+	return connectorInterruptedResult(result, unknownOutcome), nil
 }
 
 func firstBashOutputCaptureError(captures ...*bashOutputCapture) error {
@@ -510,4 +550,32 @@ func int64Arg(args map[string]any, key string) int64 {
 	default:
 		return 0
 	}
+}
+
+// Secret values remain in the child environment, never in shell argv. Only
+// Platform's private path variables may be rebound after a login profile.
+func connectorShellPathBindings(values map[string]string) map[string]string {
+	result := map[string]string{}
+	for _, key := range []string{"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMPDIR", "TMP", "TEMP", "CONNECTOR_BIN_DIR", "CONNECTOR_INSTALL_DIR", "CONNECTOR_ARCH"} {
+		if value, ok := values[key]; ok {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func connectorInterruptedResult(result ToolExecutionResult, unknown bool) ToolExecutionResult {
+	if !unknown {
+		return result
+	}
+	if result.Structured == nil {
+		result.Structured = map[string]any{"output": result.Output}
+	}
+	result.Error = "OUTCOME_UNKNOWN"
+	result.Structured["code"] = "OUTCOME_UNKNOWN"
+	result.Structured["retryable"] = false
+	result.Structured["message"] = "Connector execution was interrupted after starting. Verify external state before retrying; do not automatically replay a write."
+	delete(result.Structured, "executed")
+	result.Output = MarshalJSON(result.Structured)
+	return result
 }

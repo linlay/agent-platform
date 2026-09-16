@@ -15,6 +15,7 @@ import (
 // CLIEntry is a frozen entry in an Agent's mounted runtime package. It grants
 // execution of the entry, not of an arbitrary program with the same name.
 type CLIEntry struct {
+	Root         string // Trusted explicit package or private installation root.
 	ConnectorID  string
 	Path         string
 	PathKey      string

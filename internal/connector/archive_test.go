@@ -32,7 +32,7 @@ func archiveFixture(t *testing.T, files map[string]string) []byte {
 func TestImportArchivePublishesWholePackageAndRollsBack(t *testing.T) {
 	root := t.TempDir()
 	sources := Sources{ExternalRoot: root}
-	files := map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": `{}`, "old.txt": "previous"}
+	files := map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": `{}`, "old.txt": "previous"}
 	install := func(overwrite bool, reload func() error) (Package, error) {
 		data := archiveFixture(t, files)
 		return ImportArchive(context.Background(), sources, bytes.NewReader(data), int64(len(data)), overwrite, nil, reload)
@@ -84,7 +84,7 @@ func TestImportArchivePublishesWholePackageAndRollsBack(t *testing.T) {
 func TestImportArchiveRejectsUnsafeAndReservedPackages(t *testing.T) {
 	for _, extra := range []string{"../escape", "/absolute", "bin/../escape", "a\\b", "CON.txt", "a/x", "connector.json/child"} {
 		t.Run(extra, func(t *testing.T) {
-			files := map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": "{}", extra: "bad"}
+			files := map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": "{}", extra: "bad"}
 			if extra == "a/x" {
 				files["A/y"] = "case collision"
 			}
@@ -94,7 +94,7 @@ func TestImportArchiveRejectsUnsafeAndReservedPackages(t *testing.T) {
 			}
 		})
 	}
-	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"builtin.demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": "{}"})
+	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"builtin.demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": "{}"})
 	if _, err := ImportArchive(context.Background(), Sources{ExternalRoot: t.TempDir()}, bytes.NewReader(data), int64(len(data)), true, nil, nil); !errors.Is(err, ErrBuiltinReadOnly) {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestImportArchiveRejectsUnsafeAndReservedPackages(t *testing.T) {
 
 func TestImportArchiveAcceptsSingleWrapperAndValidatesBeforePublish(t *testing.T) {
 	root := t.TempDir()
-	data := archiveFixture(t, map[string]string{"demo/connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "demo/cli.json": "{}"})
+	data := archiveFixture(t, map[string]string{"demo/connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "demo/cli.json": "{}"})
 	_, err := ImportArchive(context.Background(), Sources{ExternalRoot: root}, bytes.NewReader(data), int64(len(data)), false, func(packages []Package) error {
 		if len(packages) != 1 || packages[0].ID != "demo" {
 			t.Fatal(packages)
@@ -114,5 +114,22 @@ func TestImportArchiveAcceptsSingleWrapperAndValidatesBeforePublish(t *testing.T
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestArchiveExpectedIdentityRejectsBeforeActivation(t *testing.T) {
+	root := t.TempDir()
+	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": `{}`})
+	for _, expected := range []ArchiveExpectation{{ID: "other"}, {ID: "demo", Version: "2.0.0"}} {
+		reloaded := false
+		if _, err := ImportArchive(context.Background(), Sources{ExternalRoot: root}, bytes.NewReader(data), int64(len(data)), false, nil, func() error { reloaded = true; return nil }, expected); err == nil {
+			t.Fatal("mismatched market identity accepted")
+		}
+		if reloaded {
+			t.Fatal("mismatch reached runtime reload")
+		}
+		if _, err := os.Stat(filepath.Join(root, "demo")); !os.IsNotExist(err) {
+			t.Fatal("mismatch was activated")
+		}
 	}
 }

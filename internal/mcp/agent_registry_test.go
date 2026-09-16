@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -108,7 +109,7 @@ func TestAgentMCPInstancesUseOwnBinariesSessionsAndToolRoutes(t *testing.T) {
 	}
 }
 
-func TestAgentMCPReadsSharedTokenWithoutWritingItIntoRuntime(t *testing.T) {
+func TestAgentMCPCatalogDoesNotReadSharedTokenIntoRuntime(t *testing.T) {
 	root := t.TempDir()
 	sources := connector.Sources{ExternalRoot: filepath.Join(root, "connectors-center"), StateRoot: filepath.Join(root, ".state", "connectors")}
 	source := filepath.Join(sources.ExternalRoot, "demo")
@@ -159,8 +160,38 @@ func TestAgentMCPReadsSharedTokenWithoutWritingItIntoRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, server := range registry.Servers() {
-		if server.Headers["Authorization"] != "Bearer ${TOKEN}" {
-			t.Fatal("credential must remain a template in Agent registry")
+		if server.Headers["Authorization"] != "Bearer ${TOKEN}" || server.SetupError == "" {
+			t.Fatal("ownerless Agent catalog resolved private credentials")
 		}
+	}
+}
+
+func TestAgentRegistryStartupValidatesBundledCLIWithoutUserState(t *testing.T) {
+	root := t.TempDir()
+	builtin := filepath.Join(root, "builtin")
+	external := filepath.Join(root, "connectors-center")
+	for _, name := range []string{"dbx", "httpx"} {
+		if err := connector.WriteBuiltin(filepath.Join(builtin, "builtin."+name), name, "1.0.0", runtime.GOOS); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(external, "legacy-wecom"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{"connector.json": `{"id":"legacy-wecom","name":"Legacy WeCom","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": `{"versionCheck":{"command":{"darwin":"wecom-cli --version","linux":"wecom-cli --version","win32":"wecom-cli --version"},"minVersion":"1.2.1"},"platform":{"configEnv":"WECOM_CONFIG_DIR"}}`} {
+		if err := os.WriteFile(filepath.Join(external, "legacy-wecom", name), []byte(value), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := filepath.Join(root, "state", "connectors")
+	reg, err := NewAgentRegistry(connector.Sources{ExternalRoot: external, BuiltinRoot: builtin, StateRoot: state})
+	if err != nil {
+		t.Fatal("startup registry rejected bundled CLI", err)
+	}
+	if len(reg.Servers()) != 0 {
+		t.Fatal("unmounted CLI started transport")
+	}
+	if _, err := os.Stat(state); !os.IsNotExist(err) {
+		t.Fatal("startup created ownerless credentials")
 	}
 }

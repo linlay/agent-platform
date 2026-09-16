@@ -62,15 +62,17 @@ func lockCredentials(ctx context.Context, root, id string) (func(), error) {
 }
 
 type oauthCredential struct {
-	Generation     string                     `json:"generation,omitempty"`
-	MCP            bool                       `json:"mcp,omitempty"`
-	RequiredScopes []string                   `json:"requiredScopes,omitempty"`
-	RequiresLogin  bool                       `json:"requiresLogin,omitempty"`
-	Grants         map[string]oauthCredential `json:"grants,omitempty"`
-	Resource       string                     `json:"resource"`
-	Destination    string                     `json:"destination,omitempty"`
-	Config         oauth2.Config              `json:"config"`
-	Token          *oauth2.Token              `json:"token"`
+	Generation            string                     `json:"generation,omitempty"`
+	MCP                   bool                       `json:"mcp,omitempty"`
+	RequiredScopes        []string                   `json:"requiredScopes,omitempty"`
+	RequiresLogin         bool                       `json:"requiresLogin,omitempty"`
+	Grants                map[string]oauthCredential `json:"grants,omitempty"`
+	RevocationURL         string                     `json:"revocationEndpoint,omitempty"`
+	RevocationAuthMethods []string                   `json:"revocationAuthMethods,omitempty"`
+	Resource              string                     `json:"resource"`
+	Destination           string                     `json:"destination,omitempty"`
+	Config                oauth2.Config              `json:"config"`
+	Token                 *oauth2.Token              `json:"token"`
 }
 
 // StateDir is outside the installed, read-only package. Credentials are never
@@ -238,8 +240,9 @@ func AccessToken(ctx context.Context, root, id, resource string, client *http.Cl
 			if persistErr := saveCredential(root, id, c); persistErr != nil {
 				return "", fmt.Errorf("persist authentication failure")
 			}
+			return "", fmt.Errorf("authorization_required: connector login expired")
 		}
-		return "", fmt.Errorf("connector token refresh failed; sign in again")
+		return "", fmt.Errorf("connector token refresh unavailable; retry later")
 	}
 	if token.RefreshToken == "" {
 		token.RefreshToken = c.Token.RefreshToken

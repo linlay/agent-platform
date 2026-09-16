@@ -105,7 +105,9 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	if flags.NArg() != 0 || !connector.ValidID(*id) {
 		return fmt.Errorf("a valid --id is required")
 	}
-	manager := connectorauth.New(ctx, sources, nil).WithIdentityFile(*identityFile)
+	credentialProbe := mcp.NewClientWithGate(nil, nil, nil)
+	defer credentialProbe.Close()
+	manager := connectorauth.New(ctx, sources, nil).WithIdentityFile(*identityFile).WithCredentialValidator(credentialProbe.ValidateOwnerCredentials)
 	switch action {
 	case "set-oauth-client":
 		if *credentialsFile == "" {

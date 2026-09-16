@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
@@ -259,7 +260,27 @@ func New(deps Dependencies) (*Server, error) {
 	}
 	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
 	s.connectorOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.EffectiveConnectorsCenterDir())
-	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), nil).WithIdentityFile(s.deps.Config.IdentityFile)
+	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), func(ctx context.Context, _ string) error {
+		if s.deps.CatalogReloader != nil {
+			return s.deps.CatalogReloader.Reload(ctx, "connectors")
+		}
+		return nil
+	}).WithIdentityFile(s.deps.Config.IdentityFile).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {
+		validator, ok := s.deps.MCP.(interface {
+			ValidateOwnerCredentials(context.Context, connector.Package, map[string]string) error
+		})
+		if !ok {
+			return connectorauth.ErrCredentialValidatorUnavailable
+		}
+		return validator.ValidateOwnerCredentials(ctx, pkg, values)
+	}).WithDisconnectHandler(func(ctx context.Context, owner, id string) error {
+		if closer, ok := s.deps.MCP.(interface {
+			DisconnectOwnerConnector(context.Context, string, string) error
+		}); ok {
+			return closer.DisconnectOwnerConnector(ctx, owner, id)
+		}
+		return nil
+	})
 	if s.deps.Runtime == nil {
 		// Compatibility for direct package tests and small embedders. app.New
 		// always supplies the assembled Runtime service.

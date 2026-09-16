@@ -38,6 +38,7 @@ type Manifest struct {
 type Package struct {
 	Manifest
 	Builtin    bool
+	Owner      string // Trusted execution subject; never read from a package.
 	StateRoot  string
 	Dir        string
 	BinDir     string

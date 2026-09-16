@@ -1,13 +1,13 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
@@ -48,20 +48,26 @@ func TestHTTPBindingAndCredentialWatcherKeepPackageUntouched(t *testing.T) {
 	manifestInfo, _ := os.Stat(filepath.Join(dir, "connector.json"))
 	reloader := NewRegistryReloader(registry, nil)
 	reloader.WatchCredentials(t.Context())
-	manager := connectorauth.New(t.Context(), sources, nil)
+	manager := connectorauth.New(t.Context(), sources, nil).WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error { return nil }).ForOwner("alice")
 	if _, err := manager.SetToken(t.Context(), "docx", map[string]string{"API_KEY": "configured-token"}); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(4 * time.Second)
-	for time.Now().Before(deadline) {
-		server, _ = registry.Server("docx.docx")
-		if server.SetupError == "" {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	// Global catalog remains ownerless even after private credentials change.
+	if err := reloader.Reload(t.Context()); err != nil {
+		t.Fatal(err)
 	}
-	if server.SetupError != "" {
-		t.Fatal("credential watcher did not update registry")
+	server, _ = registry.Server("docx.docx")
+	if server.SetupError == "" {
+		t.Fatal("private credentials entered global catalog")
+	}
+	pkg, err := sources.Load("docx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg.Owner = "alice"
+	server, err = connectorServer(pkg, "DocX")
+	if err != nil || server.SetupError != "" {
+		t.Fatal("owner credentials unavailable", err)
 	}
 	if server.Headers["X-API-Key"] != "${API_KEY}" {
 		t.Fatal("secret in registry")

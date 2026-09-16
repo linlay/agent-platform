@@ -193,10 +193,30 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		sortedStringKeys(runtimeEnvOverrides),
 	)
 
-	configuredToolNames := append(
-		effectiveAgentTools(agentDef),
-		mcpToolNamesForServers(s.deps.Tools, agentDef.ConnectorMCPServers)...,
-	)
+	owner := "local"
+	if hasExternalConnector(agentDef.Connectors) {
+		var ownerErr error
+		owner, ownerErr = s.connectorOwnerUser(ctx)
+		if ownerErr != nil {
+			return contracts.QuerySession{}, ownerErr
+		}
+	}
+	configuredToolNames := effectiveAgentTools(agentDef)
+	var connectorDefinitions []api.ToolDetailResponse
+	if discovery, ok := s.deps.MCP.(interface {
+		DiscoverOwnerTools(context.Context, []string) ([]api.ToolDetailResponse, error)
+	}); ok {
+		connectorDefinitions, err = discovery.DiscoverOwnerTools(connector.WithOwner(ctx, owner), agentDef.ConnectorMCPServers)
+		if err != nil {
+			log.Printf("[server][connector-discovery] unavailable for agent=%s", agentDef.Key)
+		}
+		for _, definition := range connectorDefinitions {
+			configuredToolNames = append(configuredToolNames, definition.Name)
+		}
+	} else {
+		configuredToolNames = append(configuredToolNames, mcpToolNamesForServers(s.deps.Tools, agentDef.ConnectorMCPServers)...)
+	}
+
 	toolNames := buildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
 	toolNames = agentbuiltin.CoderRuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentbuiltin.CoderMainStage, toolNames)
 	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
@@ -249,6 +269,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ScopedFilePolicy:              scopedFilePolicy,
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
+		ConnectorToolDefinitions:      connectorDefinitions,
 		ConnectorDirs:                 runtimeConnectorDirs(agentDef),
 		ConnectorCLIEntries:           append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
 		SkillKeys:                     append([]string(nil), agentDef.EffectiveSkills()...),
@@ -286,6 +307,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		RunAccessRoots:                runAccessRoots,
 		AgentHasRuntimeSandbox:        hasRuntimeSandbox(agentDef.Runtime),
 		AgentHasMemoryConfig:          agentDef.MemoryEnabled,
+		ConnectorStateRoot:            s.deps.Config.Paths.EffectiveConnectorStateDir(),
 		WorkspaceRoot:                 resolvedWorkspaceRoot,
 		ChatRoot:                      strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
 		AccessLevel:                   normalizedAccessLevel(req.AccessLevel),
@@ -311,6 +333,30 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	if principal != nil {
 		session.Subject = principal.Subject
 	}
+	if len(agentDef.Connectors) > 0 {
+		if s.connectorAuth == nil {
+			return contracts.QuerySession{}, fmt.Errorf("connector lifecycle manager unavailable")
+		}
+		connectorManager := s.connectorAuth.ForOwner(owner)
+		connectorIDs := append([]string(nil), agentDef.Connectors...)
+		declared, bins := connectorManager.DeclaredEntries(connectorIDs)
+		builtinEntries := session.ConnectorCLIEntries[:0]
+		for _, entry := range session.ConnectorCLIEntries {
+			if connector.IsBuiltin(entry.ConnectorID) {
+				builtinEntries = append(builtinEntries, entry)
+			}
+		}
+		session.ConnectorCLIEntries = append(builtinEntries, declared...)
+		session.ConnectorBinDirs = append(bins, session.ConnectorBinDirs...)
+
+		session.BeginConnectorBash = func(callCtx context.Context, command string) (context.Context, func(), error) {
+			return connectorManager.BeginBash(callCtx, connectorIDs, command, session.ConnectorDirs)
+		}
+		session.ResolveConnectorBash = func(callCtx context.Context, command string) (map[string]string, error) {
+			return connectorManager.ResolveBashEnvironment(callCtx, connectorIDs, command, session.ConnectorDirs)
+		}
+	}
+
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	if err := s.configureSessionViews(&session, agentDef); err != nil {
 		return contracts.QuerySession{}, err
@@ -506,4 +552,13 @@ func mcpToolNamesForServers(tools contracts.ToolExecutor, serverKeys []string) [
 		return nil
 	}
 	return resolver.MCPToolNamesForServers(serverKeys)
+}
+
+func hasExternalConnector(ids []string) bool {
+	for _, id := range ids {
+		if !connector.IsBuiltin(id) {
+			return true
+		}
+	}
+	return false
 }

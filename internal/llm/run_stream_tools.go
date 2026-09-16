@@ -1735,7 +1735,7 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
-	for _, tool := range s.session.ModeToolDefinitions {
+	for _, tool := range append(append([]api.ToolDetailResponse(nil), s.session.ModeToolDefinitions...), s.session.ConnectorToolDefinitions...) {
 		if strings.EqualFold(strings.TrimSpace(tool.Name), strings.TrimSpace(toolName)) ||
 			strings.EqualFold(strings.TrimSpace(tool.Key), strings.TrimSpace(toolName)) {
 			return tool, true

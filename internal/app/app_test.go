@@ -6,9 +6,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
+	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
 )
 
@@ -18,6 +20,16 @@ type blockingAutomation struct {
 
 func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	root := t.TempDir()
+	// Exercise the process bootstrap used by the packaged binary, including
+	// verified bundled dbx/httpx. CI without a staged cache still tests legacy flow.
+	cache, cacheErr := filepath.Abs(filepath.Join("..", "..", "build", "builtins", runtime.GOOS+"-"+runtime.GOARCH, "bin"))
+	if info, err := os.Stat(cache); cacheErr == nil && err == nil && info.IsDir() {
+		t.Setenv("AP_BUILTINS_BIN", cache)
+		t.Setenv("PATH", os.Getenv("PATH"))
+		if _, err = builtins.ConfigureProcessPath(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_KBASE_DIR", "AP_RUNTIME_PAN_DIR"} {
 		t.Setenv(key, "")
 	}

@@ -138,7 +138,7 @@ func TestTokenEnvironmentReadsLatestValueAndPreservesSources(t *testing.T) {
 	root := t.TempDir()
 	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}}, map[string]any{"type": "http", "url": "https://example.com/mcp"})
 	sources := connector.Sources{ExternalRoot: root}
-	m := New(t.Context(), sources, nil)
+	m := New(t.Context(), sources, nil).WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error { return nil })
 	pkg, err := sources.Load("demo")
 	if err != nil {
 		t.Fatal(err)

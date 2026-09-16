@@ -1,0 +1,39 @@
+{
+  "runtime": {
+    "type": "node",
+    "version": ">=18"
+  },
+  "init": {
+    "darwin": "npm install --global @wecom/cli@1.2.1",
+    "linux": "npm install --global @wecom/cli@1.2.1",
+    "win32": "npm.cmd install --global @wecom/cli@1.2.1"
+  },
+  "versionCheck": {
+    "command": {
+      "darwin": "wecom-cli --version",
+      "linux": "wecom-cli --version",
+      "win32": "wecom-cli.cmd --version"
+    },
+    "minVersion": "1.2.1",
+    "versionPattern": "wecom-cli\\s+v?(\\d+\\.\\d+\\.\\d+)"
+  },
+  "auth": {
+    "darwin": "wecom-cli auth init --noninteractive --no-browser",
+    "linux": "wecom-cli auth init --noninteractive --no-browser",
+    "win32": "wecom-cli.cmd auth init --noninteractive --no-browser"
+  },
+  "status": {
+    "darwin": "wecom-cli auth show --status",
+    "linux": "wecom-cli auth show --status",
+    "win32": "wecom-cli.cmd auth show --status"
+  },
+  "unAuth": {
+    "darwin": "node -e \"require('node:fs').rmSync(require('node:path').join(require('node:os').homedir(),'.config','wecom'),{recursive:true,force:true})\"",
+    "linux": "node -e \"require('node:fs').rmSync(require('node:path').join(require('node:os').homedir(),'.config','wecom'),{recursive:true,force:true})\"",
+    "win32": "node -e \"require('node:fs').rmSync(require('node:path').join(require('node:os').homedir(),'.config','wecom'),{recursive:true,force:true})\""
+  },
+  "statusMatch": "^\\s*authorized\\s*$",
+  "authUrlDomain": "work.weixin.qq.com",
+  "authWaitForExit": true,
+  "authSuppressBrowser": true
+}

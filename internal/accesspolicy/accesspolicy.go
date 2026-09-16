@@ -79,6 +79,9 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if err != nil {
 		return PathPlan{}, err
 	}
+	if root, blocked := connectorPrivatePath(session, realCandidate); blocked {
+		return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionBlock, "connector private credentials are not available to ordinary file or shell tools"), nil
+	}
 	tempState, _, tempRoot, tempErr := sessionTempResolver(session).Classify(candidate)
 	if tempErr != nil {
 		return PathPlan{}, tempErr

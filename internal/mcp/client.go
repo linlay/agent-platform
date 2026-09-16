@@ -30,15 +30,19 @@ import (
 )
 
 type Client struct {
-	registry     *Registry
-	httpClient   *http.Client
-	gate         *AvailabilityGate
-	identityFile string
-	sdk          *sdkmcp.Client
+	activeOwnerCalls map[string]map[*ownerInvocation]struct{}
+	registry         *Registry
+	httpClient       *http.Client
+	gate             *AvailabilityGate
+	identityFile     string
+	sdk              *sdkmcp.Client
 
-	mu     sync.Mutex
-	slots  map[string]*sessionSlot
-	closed bool
+	mu                    sync.Mutex
+	slots                 map[string]*sessionSlot
+	closed                bool
+	owner                 string
+	ownerClients          map[string]*Client
+	ownerBaseFingerprints map[string]string
 }
 
 const (
@@ -80,6 +84,18 @@ func (c *Client) WithIdentityFile(filePath string) *Client {
 }
 
 func (c *Client) Initialize(ctx context.Context, serverKey string) error {
+	scoped, release, callErr := c.beginOwnerInvocation(ctx, serverKey)
+	if callErr != nil {
+		return callErr
+	}
+	defer release()
+	ctx = scoped
+	if child, err := c.forConnectorOwner(ctx, serverKey); err != nil {
+		return err
+	} else if child != nil {
+		return child.Initialize(ctx, serverKey)
+	}
+
 	server, ok := c.registry.Server(serverKey)
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", contracts.ErrMCPCallFailed, serverKey)
@@ -94,6 +110,18 @@ func (c *Client) Initialize(ctx context.Context, serverKey string) error {
 }
 
 func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string, args map[string]any, meta map[string]any) (any, error) {
+	scoped, release, callErr := c.beginOwnerInvocation(ctx, serverKey)
+	if callErr != nil {
+		return nil, callErr
+	}
+	defer release()
+	ctx = scoped
+	if child, err := c.forConnectorOwner(ctx, serverKey); err != nil {
+		return nil, err
+	} else if child != nil {
+		return child.CallTool(ctx, serverKey, toolName, args, meta)
+	}
+
 	if c.gate != nil && c.gate.IsBlocked(serverKey) {
 		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", contracts.ErrMCPCallFailed, serverKey)
 	}
@@ -108,6 +136,9 @@ func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string
 	}
 	callCtx, cancel := operationContext(ctx, server.ReadTimeout)
 	defer cancel()
+	if err := callCtx.Err(); err != nil {
+		return nil, err
+	}
 	observability.Log("mcp.request", map[string]any{"serverKey": server.Key, "method": "tools/call"})
 	result, err := managed.session.CallTool(callCtx, &sdkmcp.CallToolParams{
 		Meta:      sdkmcp.Meta(contracts.CloneMap(meta)),
@@ -117,6 +148,9 @@ func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string
 	if err != nil {
 		c.invalidate(server.Key, managed)
 		c.markFailure(server.Key)
+		if callCtx.Err() != nil {
+			return nil, fmt.Errorf("%w: %w: connector call interrupted; verify external state before retrying", contracts.ErrMCPCallFailed, connector.ErrOutcomeUnknown)
+		}
 		return nil, fmt.Errorf("%w: %v", contracts.ErrMCPCallFailed, err)
 	}
 	c.markSuccess(server.Key)
@@ -125,6 +159,18 @@ func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string
 }
 
 func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinition, error) {
+	scoped, release, callErr := c.beginOwnerInvocation(ctx, serverKey)
+	if callErr != nil {
+		return nil, callErr
+	}
+	defer release()
+	ctx = scoped
+	if child, err := c.forConnectorOwner(ctx, serverKey); err != nil {
+		return nil, err
+	} else if child != nil {
+		return child.ListTools(ctx, serverKey)
+	}
+
 	if c.gate != nil && c.gate.IsBlocked(serverKey) {
 		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", contracts.ErrMCPCallFailed, serverKey)
 	}
@@ -160,6 +206,7 @@ func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinit
 // Reconcile closes sessions for removed or connection-changed registry entries.
 // Unchanged sessions remain live and continue to serve concurrent tool calls.
 func (c *Client) Reconcile() {
+	c.reconcileOwnerClients()
 	if c == nil || c.registry == nil {
 		return
 	}
@@ -200,9 +247,16 @@ func (c *Client) Close() error {
 	}
 	c.closed = true
 	slots := c.slots
+	children := c.ownerClients
+	c.ownerClients = nil
 	c.slots = map[string]*sessionSlot{}
 	c.mu.Unlock()
 	var errs []error
+	for _, child := range children {
+		if err := child.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	for _, slot := range slots {
 		slot.mu.Lock()
 		current := slot.current
@@ -354,8 +408,8 @@ func (c *Client) stdioIdentity(server ServerDefinition) (map[string]string, erro
 		return nil, nil
 	}
 	identity, err := agentconfig.ReadIdentityEnvironment(c.identityFile)
-	if err != nil || identity[agentconfig.EnvAccessToken] == "" {
-		return nil, fmt.Errorf("%w: Desktop SSO token is unavailable", contracts.ErrMCPCallFailed)
+	if err != nil || identity[agentconfig.EnvAccessToken] == "" || !connector.IdentityMatchesOwner(c.owner, identity[agentconfig.EnvAccessToken]) {
+		return nil, fmt.Errorf("%w: Desktop SSO token is unavailable for this user", contracts.ErrMCPCallFailed)
 	}
 	return identity, nil
 }
@@ -374,6 +428,15 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 	}
 	switch server.Transport {
 	case TransportStdio:
+		if c.owner != "" {
+			for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
+				if dir := server.Env[key]; dir != "" {
+					if err := os.MkdirAll(dir, 0700); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
 		cmd := exec.Command(server.Command, server.Args...)
 		cmd.Dir = server.WorkingDir
 		env := server.Env
@@ -483,6 +546,7 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 	cloned.Transport = headerRoundTripper{
 		base: transport, headers: headers, authToken: server.AuthToken,
 		authSource: server.AuthSource, identityFile: c.identityFile, configuredHost: configuredHost,
+		owner:        c.owner,
 		closeTimeout: sessionCloseTimeout, cancellationTimeout: cancellationNotificationTimeout,
 		oneID: server.ConnectorOneID, identityResource: server.ResolvedURL(),
 	}
@@ -501,6 +565,7 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 }
 
 type headerRoundTripper struct {
+	owner               string
 	base                http.RoundTripper
 	headers             map[string]string
 	authToken           string
@@ -538,8 +603,8 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			return nil, fmt.Errorf("read identity file for MCP: %w", err)
 		}
 		token = identity[agentconfig.EnvAccessToken]
-		if token == "" {
-			return nil, fmt.Errorf("identity file token is unavailable")
+		if token == "" || !connector.IdentityMatchesOwner(t.owner, token) {
+			return nil, fmt.Errorf("identity file token is unavailable for this user")
 		}
 		if err := validateIdentityFileRequest(cloned.URL, t.configuredHost); err != nil {
 			return nil, err

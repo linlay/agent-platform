@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"agent-platform/internal/connector"
-	"agent-platform/internal/hostenv"
 )
 
 // Preparation describes installation independently of authentication.
@@ -57,7 +56,11 @@ func exitCode(cmd *exec.Cmd) int {
 }
 
 func (m *Manager) preparationPath(id string) (string, error) {
-	dir, err := StateDir(m.sources.PersistentRoot(), id)
+	pkg, err := m.sources.Load(id)
+	if err != nil {
+		return "", err
+	}
+	dir, err := pkg.InstallDir()
 	if err != nil {
 		return "", err
 	}
@@ -188,16 +191,9 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 		if err == nil {
 			s.Fingerprint, err = connector.RuntimeFingerprint(pkg.Dir)
 			if err == nil {
-				env, envErr := m.cliEnvironment(pkg)
-				err = envErr
+				s.Executable, err = m.cliPrivateEntry(pkg, settings.Command)
 				if err == nil {
-					if pkg.BinDir != "" {
-						env = hostenv.Set(env, "PATH", pkg.BinDir)
-					}
-					s.Executable, err = hostenv.LookPath(settings.Command, env)
-					if err == nil {
-						s.ExecutableSHA256, err = connector.CLIFileHash(s.Executable)
-					}
+					s.ExecutableSHA256, err = connector.CLIFileHash(s.Executable)
 				}
 			}
 		}
@@ -289,14 +285,7 @@ func (m *Manager) verifyPreparedEntry(pkg connector.Package, s Preparation) erro
 	if err != nil {
 		return err
 	}
-	env, err := m.cliEnvironment(pkg)
-	if err != nil {
-		return err
-	}
-	if pkg.BinDir != "" {
-		env = hostenv.Set(env, "PATH", pkg.BinDir)
-	}
-	entry, err := hostenv.LookPath(settings.Command, env)
+	entry, err := m.cliPrivateEntry(pkg, settings.Command)
 	if err != nil {
 		return err
 	}

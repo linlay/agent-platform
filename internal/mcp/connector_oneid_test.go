@@ -2,6 +2,9 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,7 +43,7 @@ func writeOneIDFixture(t *testing.T, root string, component map[string]any) conn
 
 func TestOneIDHTTPUsesCurrentEnvironmentAndBoundDestination(t *testing.T) {
 	root := t.TempDir()
-	pkg := writeOneIDFixture(t, root, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp/", "headers": map[string]any{"Authorization": "Bearer ${AP_ACCESS_TOKEN}", "X-SSO": "${AP_ACCESS_TOKEN}"}})
+	pkg := writeOneIDFixture(t, root, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp/", "headers": map[string]any{"Authorization": "Bearer ${ONEID_TOKEN}", "X-SSO": "${AP_ACCESS_TOKEN}"}})
 	definition, err := connectorServer(pkg, "main")
 	if err != nil || definition.SetupError != "" || definition.AuthSource != AuthSourceIdentityFile || !definition.ConnectorOneID {
 		t.Fatal("oneid registry", err)
@@ -94,8 +97,14 @@ func TestOneIDStdioInjectionRotationAndLogout(t *testing.T) {
 	root := t.TempDir()
 	pkg := writeOneIDFixture(t, root, map[string]any{
 		"type": "stdio", "command": os.Args[0], "args": []string{"-test.run=^TestOneIDStdioHelperProcess$"},
-		"env": map[string]any{"AP_ONEID_TEST_HELPER": "1", "SERVICE_TOKEN": "${AP_ACCESS_TOKEN}"},
+		"env": map[string]any{"AP_ONEID_TEST_HELPER": "1", "SERVICE_TOKEN": "${ONEID_TOKEN}"},
 	})
+	pkg.Owner = "local"
+	yes := true
+	if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+		t.Fatal(err)
+	}
+	ctx := connector.WithOwner(t.Context(), "local")
 	registry, err := NewRegistry(root)
 	if err != nil {
 		t.Fatal(err)
@@ -104,13 +113,13 @@ func TestOneIDStdioInjectionRotationAndLogout(t *testing.T) {
 	client := NewClientWithGate(registry, nil, nil).WithIdentityFile(file)
 	defer client.Close()
 	definition, _ := registry.Server("demo")
-	if _, err := client.CallTool(t.Context(), "demo", "check_identity", nil, nil); err == nil {
+	if _, err := client.CallTool(ctx, "demo", "check_identity", nil, nil); err == nil {
 		t.Fatal("stdio started without SSO")
 	}
 	var previousPID int
 	for _, generation := range []string{"a", "b"} {
 		os.WriteFile(file, []byte("identity-"+generation), 0600)
-		result, err := client.CallTool(t.Context(), "demo", "check_identity", map[string]any{}, nil)
+		result, err := client.CallTool(ctx, "demo", "check_identity", map[string]any{}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -131,7 +140,7 @@ func TestOneIDStdioInjectionRotationAndLogout(t *testing.T) {
 		}
 		previousPID = pid
 		client.Reconcile()
-		repeated, err := client.CallTool(t.Context(), "demo", "check_identity", nil, nil)
+		repeated, err := client.CallTool(ctx, "demo", "check_identity", nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,7 +150,7 @@ func TestOneIDStdioInjectionRotationAndLogout(t *testing.T) {
 		}
 	}
 	os.Remove(file)
-	if _, err := client.CallTool(t.Context(), "demo", "check_identity", nil, nil); err == nil {
+	if _, err := client.CallTool(ctx, "demo", "check_identity", nil, nil); err == nil {
 		t.Fatal("old stdio session survived Desktop logout")
 	}
 	waitForProcessExit(t, previousPID)
@@ -212,5 +221,115 @@ func TestOneIDLocalValidationAndLegacyClassification(t *testing.T) {
 	current, _ := os.ReadFile(path)
 	if string(current) != string(raw) {
 		t.Fatal("classification rewrote source")
+	}
+}
+
+func desktopIdentityFixture(t *testing.T, subject string) (owner, token string) {
+	t.Helper()
+	issuer := "https://identity.example.test"
+	identity, _ := json.Marshal([]string{issuer, subject})
+	digest := sha256.Sum256(identity)
+	owner = "user:desktop-user:" + hex.EncodeToString(digest[:])
+	claims, _ := json.Marshal(map[string]string{"iss": issuer, "sub": subject})
+	// These synthetic JWTs test identity comparison only, not signature validation.
+	token = "h." + base64.RawURLEncoding.EncodeToString(claims) + ".s"
+	return owner, token
+}
+
+func TestOneIDHTTPRejectsNewAccountTokenForStaleDesktopOwner(t *testing.T) {
+	pkg := writeOneIDFixture(t, t.TempDir(), map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp", "headers": map[string]any{"X-SSO": "${AP_ACCESS_TOKEN}"}})
+	definition, err := connectorServer(pkg, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice, aliceToken := desktopIdentityFixture(t, "alice")
+	bob, bobToken := desktopIdentityFixture(t, "bob")
+	file := filepath.Join(t.TempDir(), "identity.txt")
+	calls := 0
+	expected := aliceToken
+	base := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if req.Header.Get("Authorization") != "Bearer "+expected || req.Header.Get("X-SSO") != expected {
+			t.Error("wrong owner's identity reached upstream")
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	})
+	makeClient := func(owner string) *http.Client {
+		return (&Client{owner: owner, httpClient: &http.Client{Transport: base}}).WithIdentityFile(file).httpClientForServer(definition)
+	}
+	oldClient := makeClient(alice)
+	if err := os.WriteFile(file, []byte(aliceToken), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response, err := oldClient.Get(definition.ResolvedURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	expected = bobToken
+	if err := os.WriteFile(file, []byte(bobToken), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldClient.Get(definition.ResolvedURL()); err == nil {
+		t.Fatal("old Alice owner used Bob identity")
+	}
+	if calls != 1 {
+		t.Fatal("mismatched identity request was sent upstream")
+	}
+	response, err = makeClient(bob).Get(definition.ResolvedURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if calls != 2 {
+		t.Fatal("current Bob owner could not use its identity")
+	}
+}
+
+func TestOneIDStdioAccountSwitchClosesOldOwnerProcess(t *testing.T) {
+	root := t.TempDir()
+	pkg := writeOneIDFixture(t, root, map[string]any{"type": "stdio", "command": os.Args[0], "args": []string{"-test.run=^TestOneIDStdioHelperProcess$"}, "env": map[string]any{"AP_ONEID_TEST_HELPER": "1", "SERVICE_TOKEN": "${AP_ACCESS_TOKEN}"}})
+	alice, aliceToken := desktopIdentityFixture(t, "alice")
+	bob, bobToken := desktopIdentityFixture(t, "bob")
+	yes := true
+	for _, owner := range []string{alice, bob} {
+		pkg.Owner = owner
+		if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "identity.txt")
+	if err := os.WriteFile(file, []byte(aliceToken), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClientWithGate(registry, nil, nil).WithIdentityFile(file)
+	defer client.Close()
+	aliceCtx := connector.WithOwner(t.Context(), alice)
+	result, err := client.CallTool(aliceCtx, "demo", "check_identity", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPID, err := mcpResultPID(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(bobToken), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CallTool(aliceCtx, "demo", "check_identity", nil, nil); err == nil {
+		t.Fatal("old owner's stdio process received new account credentials")
+	}
+	waitForProcessExit(t, oldPID)
+	result, err = client.CallTool(connector.WithOwner(t.Context(), bob), "demo", "check_identity", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPID, err := mcpResultPID(result)
+	if err != nil || newPID == oldPID {
+		t.Fatal("account switch reused process", err)
 	}
 }
