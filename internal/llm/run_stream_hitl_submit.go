@@ -219,6 +219,11 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 		s.runControl.TransitionState(RunLoopStateToolExecuting)
 	}
 
+	// AWCP keeps the request binding through approval and uses the same final
+	// validity check and invocation context as an immediately executed call.
+	if awcpMethod(invocation.toolName, invocation.args) != "" {
+		return s.invokeToolAndPublishResult(invocation)
+	}
 	s.recordAccessPolicyAutoApproval(invocation)
 	if s.toolSupportsOutputStreaming(invocation) {
 		return s.startActiveToolExecution(invocation)

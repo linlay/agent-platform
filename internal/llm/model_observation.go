@@ -24,6 +24,8 @@ type providerStreamObservation struct {
 	RawContentBytes        int                          `json:"rawContentBytes"`
 	RawReasoningBytes      int                          `json:"rawReasoningBytes"`
 	RawToolDeltas          int                          `json:"rawToolDeltas"`
+	InvalidToolArguments   int                          `json:"invalidToolArguments,omitempty"`
+	PostFinishToolDeltas   int                          `json:"postFinishToolDeltas,omitempty"`
 	RefusalBytes           int                          `json:"refusalBytes"`
 	NonStreamingMessages   int                          `json:"nonStreamingMessages"`
 	IgnoredAnthropicEvents int                          `json:"ignoredAnthropicEvents"`

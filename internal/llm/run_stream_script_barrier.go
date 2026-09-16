@@ -3,7 +3,7 @@ package llm
 import "agent-platform/internal/platformcontrol"
 
 func hasToolExecutionBarrier(calls []*preparedToolInvocation) bool {
-	if hasWriteExecutionBarrier(calls) {
+	if hasWriteExecutionBarrier(calls) || hasAwcpInvocation(calls) {
 		return true
 	}
 	for _, call := range calls {
@@ -11,6 +11,15 @@ func hasToolExecutionBarrier(calls []*preparedToolInvocation) bool {
 			if descriptor, ok := platformcontrol.InvocationDescriptor(call.toolName, call.args); ok && descriptor.Barrier {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func hasAwcpInvocation(calls []*preparedToolInvocation) bool {
+	for _, call := range calls {
+		if call != nil && awcpMethod(call.toolName, call.args) != "" {
+			return true
 		}
 	}
 	return false
