@@ -1,9 +1,12 @@
 package llm
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/stream"
 )
 
 func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T) {
@@ -28,5 +31,34 @@ func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T)
 	ordered := stream.prioritizeAwaitingToolCalls([]*preparedToolInvocation{bash, write})
 	if len(ordered) != 2 || ordered[0] != bash || ordered[1] != write {
 		t.Fatalf("barrier changed provider call order: %#v", ordered)
+	}
+}
+
+func TestCatalogValidationHistoryAndStreamHideContentWithoutAddingParams(t *testing.T) {
+	const raw = `{"operation":"catalog.validate","params":{"resourceType":"agent","resourceKey":"demo","content":"key: demo\nname: confidential-candidate\n"}}`
+	calls := []openAIToolCall{{ID: "validate-1", Type: "function", Function: openAIFunctionCall{Name: "platform_control", Arguments: raw}}}
+	history := sanitizedToolCalls(calls)
+	if calls[0].Function.Arguments != raw {
+		t.Fatal("history redaction mutated execution arguments")
+	}
+	if sanitizedToolCalls(history)[0].Function.Arguments != history[0].Function.Arguments {
+		t.Fatal("repeated history redaction changed arguments")
+	}
+	mapper := NewDeltaMapper("run-1", "chat-1", contracts.Budget{}, nil, nil)
+	mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "validate-1", Name: "platform_control", ArgsDelta: raw})
+	events := mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"validate-1"}})
+	if len(events) != 2 {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	args := events[0].(stream.ToolArgs).Delta
+	if args != history[0].Function.Arguments {
+		t.Fatalf("SSE/history differ: %s / %s", args, history[0].Function.Arguments)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(args), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed["params"].(map[string]any)) != 3 || strings.Contains(args, "confidential-candidate") || strings.Contains(args, "contentBytes") {
+		t.Fatalf("unsafe history: %s", args)
 	}
 }

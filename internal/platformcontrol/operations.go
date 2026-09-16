@@ -83,6 +83,9 @@ func InvocationDescriptor(toolName string, args map[string]any) (Descriptor, boo
 	return LookupOperation(stringArg(args, "operation"))
 }
 
+// SanitizeArguments preserves the request shape: display metadata belongs in
+// results, never in params that a model may copy into a subsequent request.
+// Reapplying this transformation must not change an already sanitized call.
 func SanitizeArguments(raw string) string {
 	var args map[string]any
 	if json.Unmarshal([]byte(raw), &args) != nil {
@@ -130,12 +133,9 @@ func redactSensitivePath(node any, path []string) {
 		redactSensitivePath(object[path[0]], path[1:])
 		return
 	}
-	value, exists := object[path[0]]
+	_, exists := object[path[0]]
 	if !exists {
 		return
-	}
-	if text, ok := value.(string); ok && (path[0] == "value" || path[0] == "content") {
-		object[path[0]+"Bytes"] = len([]byte(text))
 	}
 	object[path[0]] = "[REDACTED]"
 }
