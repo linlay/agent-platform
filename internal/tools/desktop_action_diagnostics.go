@@ -45,9 +45,25 @@ func appendDesktopActionIssues(out, details map[string]any) {
 	}
 }
 
-var desktopDiagnosticSecret = regexp.MustCompile(`(?i)(token|password|secret|authorization|cookie|api[_-]?key)\s*[=:]\s*("[^"]*"|'[^']*'|[^\s,;]+)`)
-var desktopDiagnosticBearer = regexp.MustCompile(`(?i)Bearer\s+\S+`)
-var desktopDiagnosticPath = regexp.MustCompile(`([A-Za-z]:[\\/]|/(Users|home|private|tmp)/)[^\s'"\n)]+`)
+var desktopDiagnosticSecret = regexp.MustCompile(`(?i)(["']?\b(?:(?:(?:access|refresh|session|id|auth|client|db|database|login|user|proxy)[_.-]?)?(?:token|password|passwd|pwd|secret)|authorization|cookies?|api[_. -]?key|credential|private[_.-]?key)["']?\s*[=:]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|Bearer\s+[^\s,;&"'}]+|[^\s,;&"'}]+)`)
+var desktopDiagnosticCredentialKey = regexp.MustCompile(`(?i)^(?:(?:(?:access|refresh|session|id|auth|client|db|database|login|user|proxy)[_.-]?)?(?:token|password|passwd|pwd|secret)|authorization|cookies?|api[_. -]?key|credential|private[_.-]?key)$`)
+var desktopDiagnosticBearer = regexp.MustCompile(`(?i)(\bBearer\s+)[^\s,;&"'}]+`)
+var desktopDiagnosticURLPassword = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://[^\s/@:]+:)[^\s/@]*(@)`)
+
+func redactDesktopDiagnosticText(value string) string {
+	value = desktopDiagnosticSecret.ReplaceAllStringFunc(value, func(match string) string {
+		parts := desktopDiagnosticSecret.FindStringSubmatch(match)
+		quote := ""
+		if strings.HasPrefix(parts[2], "\"") {
+			quote = "\""
+		} else if strings.HasPrefix(parts[2], "'") {
+			quote = "'"
+		}
+		return parts[1] + quote + "[REDACTED]" + quote
+	})
+	value = desktopDiagnosticBearer.ReplaceAllString(value, "${1}[REDACTED]")
+	return desktopDiagnosticURLPassword.ReplaceAllString(value, "${1}[REDACTED]${2}")
+}
 
 // Preserve the public Action diagnostic skeleton, independently of CDP.
 // Unknown fields and raw inputs never become model-visible metadata.
@@ -67,9 +83,7 @@ func cleanDesktopActionDiagnostic(value any, budget *int, depth int) any {
 	*budget -= 8
 	switch v := value.(type) {
 	case string:
-		v = desktopDiagnosticSecret.ReplaceAllString(v, "$1=[REDACTED]")
-		v = desktopDiagnosticBearer.ReplaceAllString(v, "Bearer [REDACTED]")
-		v = desktopDiagnosticPath.ReplaceAllString(v, "[HOST_PATH]")
+		v = redactDesktopDiagnosticText(v)
 		chars := []rune(v)
 		limit := min(2048, *budget)
 		if len(chars) > limit {
@@ -87,14 +101,7 @@ func cleanDesktopActionDiagnostic(value any, budget *int, depth int) any {
 			if len(key) > 128 {
 				continue
 			}
-			normalized := strings.ToLower(key)
-			sensitive := false
-			for _, word := range []string{"token", "password", "secret", "authorization", "cookie", "credential", "privatekey", "stack", "workspaceRoot"} {
-				if strings.Contains(normalized, strings.ToLower(word)) {
-					sensitive = true
-					break
-				}
-			}
+			sensitive := desktopDiagnosticCredentialKey.MatchString(key)
 			if sensitive {
 				result[key] = "[REDACTED]"
 			} else {

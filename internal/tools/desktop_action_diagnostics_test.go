@@ -62,8 +62,11 @@ func TestDesktopActionWorkerDiagnosticsSurviveTransport(t *testing.T) {
 	if details["cause"].(map[string]any)["code"] != "ENOENT" || details["recovery"].(map[string]any)["strategy"] != "repair_host" {
 		t.Fatalf("lost root cause: %#v", details)
 	}
+	if !strings.Contains(details["cause"].(map[string]any)["message"].(string), "/Users/example/private/worker.js") {
+		t.Fatalf("lost original error path: %#v", details)
+	}
 	encoded, _ := json.Marshal(details)
-	if strings.Contains(string(encoded), "secret-value") || strings.Contains(string(encoded), "/Users/") {
+	if strings.Contains(string(encoded), "secret-value") {
 		t.Fatalf("unsafe diagnostics: %s", encoded)
 	}
 }
@@ -80,5 +83,43 @@ func TestDesktopActionSourceUsesFileToolsWorkspace(t *testing.T) {
 	source, err = buildDesktopActionSource(&ExecutionContext{Session: session})
 	if err != nil || source.WorkspaceRoot != "" {
 		t.Fatalf("must not infer workspace from Chat directory: %#v %v", source, err)
+	}
+}
+
+func TestDesktopActionDiagnosticPathsAndStackPreserved(t *testing.T) {
+	for _, path := range []string{"/", "/Users/example/a b/worker.js", `/personal-workbench/distribution`, `C:\Users\example\distribution`, `\\server\share\distribution`} {
+		message := "ENOENT: mkdir '" + path + "'; version 5.5.0"
+		stack := "Error: " + message + "\n at worker.js:12:3"
+		budget := 12000
+		got := cleanDesktopActionDiagnostic(map[string]any{"workspaceRoot": path, "message": message, "stack": stack}, &budget, 0).(map[string]any)
+		if got["workspaceRoot"] != path || got["message"] != message || got["stack"] != stack {
+			t.Fatalf("modified diagnostics: %#v", got)
+		}
+	}
+}
+
+func TestDesktopActionCredentialRedactionPreservesContext(t *testing.T) {
+	for _, pair := range [][2]string{
+		{`{"accessToken": "example-credential", "path": "/Users/example/file"}`, `{"accessToken": "[REDACTED]", "path": "/Users/example/file"}`},
+		{"https://example.test/error?token=example-credential&path=/tmp/build&version=5.5.0", "https://example.test/error?token=[REDACTED]&path=/tmp/build&version=5.5.0"},
+		{"Authorization: Bearer example-credential", "Authorization: [REDACTED]"},
+		{"tokenCount=42 passwordPolicy=required", "tokenCount=42 passwordPolicy=required"},
+		{"connect postgres://alice:p%40ss@localhost:5432/db", "connect postgres://alice:[REDACTED]@localhost:5432/db"},
+	} {
+		if got := redactDesktopDiagnosticText(pair[0]); got != pair[1] {
+			t.Fatalf("got %q, want %q", got, pair[1])
+		}
+	}
+	for _, key := range []string{"password", "accessToken", "refresh_token", "Cookie", "api_key", "clientSecret"} {
+		if !desktopDiagnosticCredentialKey.MatchString(key) {
+			t.Fatalf("credential not identified: %s", key)
+		}
+	}
+	for _, key := range []string{"tokenCount", "passwordPolicy", "secretName", "cookiePath", "authorizationStatus", "workspaceRoot", "stack"} {
+		budget := 12000
+		got := cleanDesktopActionDiagnostic(map[string]any{key: "original"}, &budget, 0).(map[string]any)
+		if got[key] != "original" {
+			t.Fatalf("metadata modified: %s", key)
+		}
 	}
 }

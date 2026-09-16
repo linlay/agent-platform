@@ -183,4 +183,4 @@ Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；�
 
 ## Desktop Action 错误诊断
 
-普通 Desktop Action 保留宿主的错误类别、阶段、执行状态、直接原因、结构化恢复建议和诊断编号。Platform 在固定诊断位置按白名单有界投影，并独立脱敏；不把宿主内部失败推断成参数错误，不自动重放写动作。Workspace 始终来自当前 Execution Session，不能从 Chat 目录或模型参数补造；build 返回的相对路径只能在同一 Workspace 下交给 install。Desktop 与 Platform 配套发布。
+普通 Desktop Action 保留宿主的错误类别、阶段、执行状态、直接原因、结构化恢复建议和诊断编号。Platform 在固定诊断位置按白名单有界投影，仅对明确的密码及认证凭据值脱敏，路径、堆栈、版本号及其他非凭据内容保持原文；不把宿主内部失败推断成参数错误，不自动重放写动作。Workspace 始终来自当前 Execution Session，不能从 Chat 目录或模型参数补造；build 返回的相对路径只能在同一 Workspace 下交给 install。Desktop 与 Platform 配套发布。
