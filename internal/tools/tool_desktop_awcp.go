@@ -6,9 +6,9 @@ import (
 	"errors"
 	"math"
 	"regexp"
-	"strings"
 	"unicode/utf16"
 
+	"agent-platform/internal/awcp"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 )
@@ -24,8 +24,8 @@ const (
 var desktopAwcpActionPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*$`)
 
 func (t *RuntimeToolExecutor) invokeDesktopAwcpSnapshot(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	if len(args) != 1 {
-		return desktopActionErrorResult("invalid_args", "AWCP.getSnapshot accepts only method", nil), nil
+	if err := ValidateDesktopAwcpCall(args); err != nil {
+		return desktopActionErrorResult("invalid_args", err.Error(), map[string]any{"executionStarted": false, "stage": "platform_parse"}), nil
 	}
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
@@ -39,13 +39,14 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpSnapshot(ctx context.Context, arg
 }
 
 func (t *RuntimeToolExecutor) invokeDesktopAwcpFromCDP(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	if len(args) != 2 {
-		return desktopActionErrorResult("invalid_args", "AWCP.invoke arguments must contain exactly method and params", nil), nil
+	if err := ValidateDesktopAwcpCall(args); err != nil {
+		return desktopActionErrorResult("invalid_args", err.Error(), map[string]any{"executionStarted": false, "stage": "platform_parse"}), nil
 	}
-	params, ok := args["params"].(map[string]any)
-	if !ok || params == nil {
-		return desktopActionErrorResult("invalid_args", "AWCP.invoke params must be an object", map[string]any{"field": "params"}), nil
+	if execCtx == nil || execCtx.DesktopAwcpRevision == "" {
+		return desktopActionErrorResult("awcp_request_binding_missing", "AWCP.invoke requires the model request's trusted snapshot binding", map[string]any{"executionStarted": false, "stage": "platform_parse"}), nil
 	}
+	action, input, _ := DesktopAwcpInvocation(args)
+	params := map[string]any{"revision": execCtx.DesktopAwcpRevision, "action": action, "args": input}
 	if failure, failed := validateDesktopAwcpArgs(params); failed {
 		return failure, nil
 	}
@@ -62,7 +63,7 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpFromCDP(ctx context.Context, args
 
 func validateDesktopAwcpArgs(args map[string]any) (ToolExecutionResult, bool) {
 	if len(args) != 3 {
-		return desktopActionErrorResult("invalid_args", "AWCP.invoke params must contain exactly revision, action and args", nil), true
+		return desktopActionErrorResult("invalid_args", "internal AWCP payload must contain exactly revision, action and args", nil), true
 	}
 	revision, revisionOK := args["revision"].(string)
 	action, actionOK := args["action"].(string)
@@ -85,91 +86,11 @@ func validateDesktopAwcpSnapshotResponse(response map[string]any) error {
 	}
 	ok, okIsBool := response["ok"].(bool)
 	method, methodIsString := response["method"].(string)
-	revision, revisionIsString := response["revision"].(string)
-	actions, actionsIsArray := response["actions"].([]any)
-	if !okIsBool || !ok || !methodIsString || method != desktopAwcpGetSnapshotMethod ||
-		!revisionIsString || revision == "" || utf16Length(revision) > 128 ||
-		!actionsIsArray || len(actions) > 128 {
+	if !okIsBool || !ok || !methodIsString || method != desktopAwcpGetSnapshotMethod {
 		return errors.New("AWCP snapshot response is invalid")
 	}
-	snapshot := map[string]any{"revision": revision, "actions": actions}
-	encoded, err := json.Marshal(snapshot)
-	if err != nil || len(encoded) > 256*1024 {
-		return errors.New("AWCP snapshot response exceeds its JSON boundary")
-	}
-	previous := ""
-	for _, rawAction := range actions {
-		descriptor, ok := rawAction.(map[string]any)
-		if !ok || (len(descriptor) != 3 && len(descriptor) != 4) {
-			return errors.New("AWCP snapshot action descriptor is invalid")
-		}
-		if _, ok := descriptor["action"]; !ok {
-			return errors.New("AWCP snapshot action descriptor is invalid")
-		}
-		if _, ok := descriptor["description"]; !ok {
-			return errors.New("AWCP snapshot action descriptor is invalid")
-		}
-		if _, ok := descriptor["inputSchema"]; !ok {
-			return errors.New("AWCP snapshot action descriptor is invalid")
-		}
-		if len(descriptor) == 4 {
-			if _, ok := descriptor["outputSchema"]; !ok {
-				return errors.New("AWCP snapshot action descriptor is invalid")
-			}
-		}
-		action, actionOK := descriptor["action"].(string)
-		description, descriptionOK := descriptor["description"].(string)
-		inputSchema, inputOK := descriptor["inputSchema"].(map[string]any)
-		if !actionOK || action == "" || utf16Length(action) > 128 ||
-			!desktopAwcpActionPattern.MatchString(action) || action <= previous ||
-			!descriptionOK || strings.TrimSpace(description) == "" || utf16Length(description) > 2048 ||
-			!inputOK || inputSchema == nil || !validDesktopAwcpJSONTree(inputSchema, 0, 20) {
-			return errors.New("AWCP snapshot action descriptor is invalid")
-		}
-		if outputSchema, present := descriptor["outputSchema"]; present {
-			output, outputOK := outputSchema.(map[string]any)
-			if !outputOK || output == nil || !validDesktopAwcpJSONTree(output, 0, 20) {
-				return errors.New("AWCP snapshot output schema is invalid")
-			}
-		}
-		previous = action
-	}
-	return nil
-}
-
-func validDesktopAwcpJSONTree(value any, depth, maximumDepth int) bool {
-	if depth > maximumDepth {
-		return false
-	}
-	switch typed := value.(type) {
-	case nil, bool, string,
-		int, int8, int16, int32, int64,
-		uint, uint8, uint16, uint32, uint64:
-		return true
-	case float32:
-		return !math.IsNaN(float64(typed)) && !math.IsInf(float64(typed), 0)
-	case float64:
-		return !math.IsNaN(typed) && !math.IsInf(typed, 0)
-	case json.Number:
-		parsed, err := typed.Float64()
-		return err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0)
-	case []any:
-		for _, item := range typed {
-			if !validDesktopAwcpJSONTree(item, depth+1, maximumDepth) {
-				return false
-			}
-		}
-		return true
-	case map[string]any:
-		for _, item := range typed {
-			if !validDesktopAwcpJSONTree(item, depth+1, maximumDepth) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
+	_, _, err := awcp.ParseSnapshot(map[string]any{"revision": response["revision"], "actions": response["actions"]})
+	return err
 }
 
 func validateDesktopAwcpResponse(response map[string]any, requestID string, payload map[string]any) (bool, error) {

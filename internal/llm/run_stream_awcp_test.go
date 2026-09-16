@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"reflect"
@@ -16,30 +17,43 @@ import (
 	"agent-platform/internal/models"
 )
 
-func TestAwcpDiscoveryStoresRunConstraintWithoutChangingToolSchema(t *testing.T) {
+func TestAwcpDiscoveryPreservesStaticSchema(t *testing.T) {
 	stream := awcpTestStream()
 	baseSchema := cloneToolSchemaMap(stream.toolSpecs[0].Function.Parameters)
 	actions := []any{
 		map[string]any{
 			"action":      "orders.query",
 			"description": "Query orders",
+			"example":     map[string]any{"condition": map[string]any{}},
 			"inputSchema": map[string]any{
 				"type":                 "object",
 				"required":             []any{"condition"},
 				"additionalProperties": false,
 				"properties": map[string]any{
-					"condition": map[string]any{"type": "object"},
+					"condition": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 				},
 			},
 		},
 		map[string]any{
 			"action":      "orders.read",
 			"description": "Read one order",
-			"inputSchema": map[string]any{"type": "object", "additionalProperties": false},
+			"example":     map[string]any{},
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 		},
 	}
 
 	stream.observeDesktopToolResult(awcpDiscoveryInvocation(), awcpDiscoveryResult("revision-7", actions))
+	var discovery map[string]any
+	if err := json.Unmarshal([]byte(stream.toolResultContent(desktopCdpToolName, awcpDiscoveryResult("revision-7", actions))), &discovery); err != nil {
+		t.Fatal(err)
+	}
+	if discovery["revision"] != "revision-7" || discovery["method"] != nil {
+		t.Fatalf("model discovery did not include the bound revision: %#v", discovery)
+	}
+	modelActions, _ := discovery["actions"].([]any)
+	if len(modelActions) != 2 || anyMap(modelActions[0])["example"] == nil || anyMap(modelActions[0])["inputSchema"] != nil {
+		t.Fatalf("model discovery omitted example or repeated schema: %#v", discovery)
+	}
 
 	if stream.awcpConstraint.revision != "revision-7" || len(stream.awcpConstraint.actions) != 2 ||
 		stream.awcpConstraint.actions[0].action != "orders.query" || stream.awcpConstraint.actions[1].action != "orders.read" {
@@ -56,6 +70,7 @@ func TestAwcpInvalidSnapshotDoesNotConstrainRunOrAnotherRun(t *testing.T) {
 	invalid := []any{map[string]any{
 		"action":      "orders.query",
 		"description": "Query orders",
+		"example":     map[string]any{},
 		"inputSchema": []any{},
 	}}
 
@@ -69,30 +84,31 @@ func TestAwcpInvalidSnapshotDoesNotConstrainRunOrAnotherRun(t *testing.T) {
 	}
 }
 
-func TestAwcpInvokeRequiresLatestDiscoveredRevisionAndAction(t *testing.T) {
+func TestAwcpInvokeRequiresRequestBoundDiscovery(t *testing.T) {
 	stream := awcpTestStream()
-	invoke := func(revision, action string) error {
+	invoke := func(action string) error {
 		return stream.validateAwcpDesktopCdpCall(desktopCdpToolName, map[string]any{
 			"method": desktopAwcpInvokeMethod,
-			"params": map[string]any{
-				"revision": revision,
-				"action":   action,
-				"args":     map[string]any{},
-			},
+			"params": map[string]any{"action": map[string]any{action: map[string]any{}}},
 		})
 	}
-	if err := invoke("revision-7", "orders.read"); err == nil {
-		t.Fatal("AWCP.invoke succeeded before discovery")
+	if err := invoke("orders.read"); err == nil {
+		t.Fatal("invoke before discovery")
 	}
 	stream.observeDesktopToolResult(awcpDiscoveryInvocation(), awcpDiscoveryResult("revision-7", validAwcpTestActions()))
-	if err := invoke("revision-6", "orders.read"); err == nil {
-		t.Fatal("AWCP.invoke accepted a stale revision")
+	if err := invoke("orders.read"); err == nil {
+		t.Fatal("discovery retroactively authorized a model request")
 	}
-	if err := invoke("revision-7", "orders.write"); err == nil {
-		t.Fatal("AWCP.invoke accepted an undiscovered action")
+	_, stream.awcpRequest, _ = stream.awcpRequestTools()
+	if err := invoke("orders.write"); err == nil {
+		t.Fatal("undiscovered action accepted")
 	}
-	if err := invoke("revision-7", "orders.read"); err != nil {
-		t.Fatalf("AWCP.invoke rejected the discovered action: %v", err)
+	if err := invoke("orders.read"); err != nil {
+		t.Fatal(err)
+	}
+	stream.applyAwcpConstraint("revision-7", stream.awcpConstraint.actions)
+	if err := invoke("orders.read"); err == nil {
+		t.Fatal("old generation with same revision accepted")
 	}
 }
 
@@ -109,13 +125,13 @@ func TestAwcpConstraintClearsOnKnownTargetChanges(t *testing.T) {
 	}
 }
 
-func TestAwcpFailureStopsFurtherToolsAndStaleAllowsOneRecovery(t *testing.T) {
+func TestAwcpFailureStopsOnlyAwcpAndStaleAllowsOneRecovery(t *testing.T) {
 	for _, code := range []string{"invalid_arguments", "action_not_found", "execution_failed", "action.failed"} {
 		t.Run(code, func(t *testing.T) {
 			stream := awcpConstrainedTestStream()
 			stream.observeDesktopToolResult(awcpInvokeInvocation(), awcpFailureResult(code))
-			if stream.forcedFinalAnswer == "" || len(stream.toolSpecs) != 0 || stream.toolChoice != "none" {
-				t.Fatalf("non-stale failure did not force a tool-free final answer: %#v", stream)
+			if stream.awcpConstraint.stoppedReason == "" || len(stream.toolSpecs) != 1 || stream.toolChoice == "none" {
+				t.Fatalf("non-stale failure did not stop AWCP while preserving ordinary tools: %#v", stream)
 			}
 		})
 	}
@@ -125,21 +141,23 @@ func TestAwcpFailureStopsFurtherToolsAndStaleAllowsOneRecovery(t *testing.T) {
 		result := awcpFailureResult("stale_snapshot")
 		result.Error = "desktop_cdp_client_rejected"
 		stream.observeDesktopToolResult(awcpInvokeInvocation(), result)
-		if stream.forcedFinalAnswer == "" || stream.awcpConstraint.staleRecoveries != 0 {
+		if stream.awcpConstraint.stoppedReason == "" || stream.awcpConstraint.staleRecoveries != 0 {
 			t.Fatalf("host failure incorrectly entered stale recovery: %#v", stream.awcpConstraint)
 		}
 	})
 
 	t.Run("single stale recovery", func(t *testing.T) {
 		stream := awcpConstrainedTestStream()
-		stream.observeDesktopToolResult(awcpInvokeInvocation(), awcpFailureResult("stale_snapshot"))
-		if stream.forcedFinalAnswer != "" || stream.awcpConstraint.staleRecoveries != 1 || stream.awcpConstraint.revision != "" {
+		stream.observeDesktopToolResult(awcpInvokeInvocation(), awcpTrustedPreflightResult("stale_snapshot"))
+		if stream.awcpConstraint.stoppedReason != "" || stream.awcpConstraint.staleRecoveries != 1 || stream.awcpConstraint.revision != "" {
 			t.Fatalf("first stale did not permit exactly one rediscovery: %#v", stream.awcpConstraint)
 		}
 
 		stream.observeDesktopToolResult(awcpDiscoveryInvocation(), awcpDiscoveryResult("revision-8", validAwcpTestActions()))
-		stream.observeDesktopToolResult(awcpInvokeInvocation(), awcpFailureResult("stale_snapshot"))
-		if stream.forcedFinalAnswer == "" || len(stream.toolSpecs) != 0 || stream.awcpConstraint.staleRecoveries != 2 {
+		corrected := awcpInvokeInvocation()
+		corrected.modelRunSeq = 1
+		stream.observeDesktopToolResult(corrected, awcpTrustedPreflightResult("stale_snapshot"))
+		if stream.awcpConstraint.stoppedReason == "" || len(stream.toolSpecs) != 1 || stream.awcpConstraint.staleRecoveries != 2 {
 			t.Fatalf("second stale did not stop tools: %#v", stream.awcpConstraint)
 		}
 	})
@@ -209,15 +227,15 @@ func TestAwcpScriptedInvalidArgumentsExecutesOnlyOnce(t *testing.T) {
 	if protocol.openCount != 3 || len(protocol.requests) != 3 {
 		t.Fatalf("model calls = %d requests=%d, want discovery, action, final", protocol.openCount, len(protocol.requests))
 	}
-	if !reflect.DeepEqual(protocol.requests[0].toolSpecs, protocol.requests[1].toolSpecs) {
-		t.Fatalf("desktop_cdp schema changed after AWCP discovery: before=%#v after=%#v", protocol.requests[0].toolSpecs, protocol.requests[1].toolSpecs)
+	if len(protocol.requests[0].toolSpecs) != 1 || len(protocol.requests[1].toolSpecs) != 1 {
+		t.Fatal("tool count changed")
 	}
 	secondCdp := findDesktopCdpToolSpec(protocol.requests[1].toolSpecs)
-	if secondCdp == nil || secondCdp.Function.Parameters["oneOf"] != nil {
-		t.Fatalf("second request did not retain the static desktop_cdp schema: %#v", protocol.requests[1].toolSpecs)
+	if secondCdp == nil || anyMap(anyMap(anyMap(secondCdp.Function.Parameters["properties"])["params"])["properties"])["action"] == nil {
+		t.Fatal("request after discovery lacks typed action schema")
 	}
-	if len(protocol.requests[2].toolSpecs) != 0 || protocol.requests[2].toolChoice != "none" {
-		t.Fatalf("final request retained tools: %#v", protocol.requests[2])
+	if len(protocol.requests[2].toolSpecs) != 1 || protocol.requests[2].toolChoice == "none" {
+		t.Fatalf("AWCP failure removed ordinary tools: %#v", protocol.requests[2])
 	}
 	if !strings.Contains(content.String(), "AWCP arguments were rejected") {
 		t.Fatalf("unexpected final content %q", content.String())
@@ -233,6 +251,7 @@ type awcpScriptedProtocol struct {
 	chunks    []string
 	openCount int
 	requests  []awcpScriptedRequest
+	turns     map[string][]openAIToolCall
 }
 
 func (p *awcpScriptedProtocol) PrepareRequest(params protocolStreamParams) (preparedProviderRequest, error) {
@@ -258,14 +277,27 @@ func (p *awcpScriptedProtocol) OpenStream(context.Context, protocolStreamParams,
 }
 
 func (p *awcpScriptedProtocol) ConsumeChunk(stream *llmRunStream, _ string, chunk string) (bool, error) {
+	if calls, ok := p.turns[chunk]; ok {
+		stream.currentTurn.toolCalls = make(map[int]*toolCallAccumulator, len(calls))
+		for index, call := range calls {
+			stream.currentTurn.toolCalls[index] = scriptedToolCalls(call.ID, call.Function.Name, call.Function.Arguments)[0]
+		}
+		stream.currentTurn.finishReason = "tool_calls"
+		stream.currentTurn.hasMeaningful = true
+		return true, stream.finishCurrentTurn()
+	}
 	switch chunk {
+	case "success-final":
+		stream.appendCompatContent("The Action completed.")
+		stream.currentTurn.finishReason = "stop"
+		return true, stream.finishCurrentTurn()
 	case "discovery":
 		stream.currentTurn.toolCalls = scriptedToolCalls("call-discovery", desktopCdpToolName, `{"method":"AWCP.getSnapshot"}`)
 		stream.currentTurn.finishReason = "tool_calls"
 		stream.currentTurn.hasMeaningful = true
 		return true, stream.finishCurrentTurn()
 	case "invalid-awcp":
-		stream.currentTurn.toolCalls = scriptedToolCalls("call-awcp", desktopCdpToolName, `{"method":"AWCP.invoke","params":{"revision":"revision-7","action":"orders.query","args":{"nodes":{"item":[]}}}}`)
+		stream.currentTurn.toolCalls = scriptedToolCalls("call-awcp", desktopCdpToolName, `{"method":"AWCP.invoke","params":{"action":{"orders.query":{"nodes":{"item":[]}}}}}`)
 		stream.currentTurn.finishReason = "tool_calls"
 		stream.currentTurn.hasMeaningful = true
 		return true, stream.finishCurrentTurn()
@@ -279,8 +311,10 @@ func (p *awcpScriptedProtocol) ConsumeChunk(stream *llmRunStream, _ string, chun
 }
 
 type awcpScriptedExecutor struct {
-	mu    sync.Mutex
-	calls []string
+	mu        sync.Mutex
+	calls     []string
+	results   []contracts.ToolExecutionResult
+	arguments []map[string]any
 }
 
 func (e *awcpScriptedExecutor) Definitions() []api.ToolDetailResponse {
@@ -290,11 +324,18 @@ func (e *awcpScriptedExecutor) Definitions() []api.ToolDetailResponse {
 	}}
 }
 
-func (e *awcpScriptedExecutor) Invoke(_ context.Context, name string, _ map[string]any, _ *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
+func (e *awcpScriptedExecutor) Invoke(_ context.Context, name string, args map[string]any, _ *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
 	e.mu.Lock()
 	e.calls = append(e.calls, name)
+	e.arguments = append(e.arguments, args)
 	callCount := len(e.calls)
 	e.mu.Unlock()
+	if len(e.results) > 0 {
+		if callCount > len(e.results) {
+			return contracts.ToolExecutionResult{}, errors.New("unexpected extra tool execution")
+		}
+		return e.results[callCount-1], nil
+	}
 	if name != desktopCdpToolName {
 		return contracts.ToolExecutionResult{}, errors.New("unexpected tool")
 	}
@@ -302,12 +343,13 @@ func (e *awcpScriptedExecutor) Invoke(_ context.Context, name string, _ map[stri
 		return awcpDiscoveryResult("revision-7", []any{map[string]any{
 			"action":      "orders.query",
 			"description": "Query orders",
+			"example":     map[string]any{"nodes": []any{"one"}},
 			"inputSchema": map[string]any{
 				"type":                 "object",
 				"required":             []any{"nodes"},
 				"additionalProperties": false,
 				"properties": map[string]any{
-					"nodes": map[string]any{"type": "array", "minItems": float64(1)},
+					"nodes": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": float64(1)},
 				},
 			},
 		}}), nil
@@ -355,7 +397,7 @@ func awcpTestStream() *llmRunStream {
 				"required":             []any{"method"},
 				"additionalProperties": false,
 				"properties": map[string]any{
-					"method": map[string]any{"type": "string", "enum": []any{desktopAwcpSnapshotMethod, desktopAwcpInvokeMethod}},
+					"method": map[string]any{"type": "string", "enum": []any{"Runtime.evaluate", "Target.getCurrentTarget", desktopAwcpSnapshotMethod, desktopAwcpInvokeMethod}},
 					"params": map[string]any{"type": "object", "additionalProperties": true},
 				},
 			},
@@ -366,6 +408,7 @@ func awcpTestStream() *llmRunStream {
 func awcpConstrainedTestStream() *llmRunStream {
 	stream := awcpTestStream()
 	stream.observeDesktopToolResult(awcpDiscoveryInvocation(), awcpDiscoveryResult("revision-7", validAwcpTestActions()))
+	_, stream.awcpRequest, _ = stream.awcpRequestTools()
 	return stream
 }
 
@@ -373,7 +416,8 @@ func validAwcpTestActions() []any {
 	return []any{map[string]any{
 		"action":      "orders.read",
 		"description": "Read orders",
-		"inputSchema": map[string]any{"type": "object", "additionalProperties": false},
+		"example":     map[string]any{},
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 	}}
 }
 
@@ -389,7 +433,8 @@ func awcpDiscoveryInvocation() *preparedToolInvocation {
 func awcpInvokeInvocation() *preparedToolInvocation {
 	return &preparedToolInvocation{
 		toolName: desktopCdpToolName,
-		args:     map[string]any{"method": desktopAwcpInvokeMethod},
+		args: map[string]any{"method": desktopAwcpInvokeMethod,
+			"params": map[string]any{"action": map[string]any{"orders.read": map[string]any{}}}},
 	}
 }
 

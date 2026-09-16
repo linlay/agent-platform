@@ -35,6 +35,8 @@ func (s *llmRunStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	s.clearAwcpConstraint()
+	s.awcpRequest = nil
 	if s.activeToolExecution != nil {
 		s.activeToolExecution.cancel()
 	}
@@ -146,11 +148,6 @@ func (s *llmRunStream) invokeActiveToolCallAndPostHook() error {
 }
 
 func (s *llmRunStream) prepareTurnForPending() error {
-	if strings.TrimSpace(s.forcedFinalAnswer) != "" && !s.finalTurnAttempted {
-		s.finalTurnAttempted = true
-		s.prepareFinalAnswerTurn()
-		return s.prepareNextTurn()
-	}
 	if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerPending {
 		if !s.finalTurnAttempted {
 			s.finalTurnAttempted = true
@@ -204,6 +201,11 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if s.protocol == nil {
 		return fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
+	requestTools, binding, err := s.awcpRequestTools()
+	if err != nil {
+		return err
+	}
+	s.awcpRequest = binding
 	preparedRequest, err := s.protocol.PrepareRequest(protocolStreamParams{
 		runID:          s.session.RunID,
 		provider:       s.provider,
@@ -211,7 +213,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		protocolConfig: s.protocolConfig,
 		stageSettings:  s.stageSettings,
 		messages:       s.messages,
-		toolSpecs:      s.toolSpecs,
+		toolSpecs:      requestTools,
 		toolChoice:     s.toolChoice,
 	})
 	if err != nil {
@@ -223,7 +225,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		}
 	}
 	runSeq := s.runLLMChatCompletionCount + 1
-	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, s.toolSpecs)
+	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, requestTools)
 	if err := s.ensureSystemProfileRegistered(preparedRequest, effectiveToolChoice); err != nil {
 		return err
 	}
@@ -232,6 +234,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.runLLMChatCompletionCount++
 	s.lastCallLLMChatCompletionCount = 1
 	s.modelCall = &pendingModelCall{
+		toolSpecs:           requestTools,
 		prepared:            preparedRequest,
 		effectiveToolChoice: effectiveToolChoice,
 		runSeq:              runSeq,
@@ -260,7 +263,7 @@ func (s *llmRunStream) openPendingModelCall() error {
 		protocolConfig: s.protocolConfig,
 		stageSettings:  s.stageSettings,
 		messages:       s.messages,
-		toolSpecs:      s.toolSpecs,
+		toolSpecs:      call.toolSpecs,
 		toolChoice:     s.toolChoice,
 		modelTimeout:   s.modelStreamIdleTimeout(),
 	}, call.prepared)
@@ -362,9 +365,7 @@ func (s *llmRunStream) registerCurrentSystemProfile(prepared preparedProviderReq
 
 func (s *llmRunStream) prepareFinalAnswerTurn() {
 	prompt := finalAnswerInstruction
-	if strings.TrimSpace(s.forcedFinalAnswer) != "" {
-		prompt = s.forcedFinalAnswer
-	} else if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerActive && strings.TrimSpace(s.execCtx.RunLimits.FinalAnswerPrompt) != "" {
+	if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerActive && strings.TrimSpace(s.execCtx.RunLimits.FinalAnswerPrompt) != "" {
 		prompt = s.execCtx.RunLimits.FinalAnswerPrompt
 	}
 	s.messages = append(s.messages, openAIMessage{

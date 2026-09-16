@@ -266,6 +266,9 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if toolName == "desktop_action" && frame.Type == "invalid_args" {
 			errorCode = "invalid_args"
 		}
+		if requestType == desktopAwcpSnapshotAction || requestType == desktopAwcpInvokeAction {
+			details = desktopAwcpRejectionDetails(requestType, *frame)
+		}
 		return desktopActionErrorResult(
 			errorCode,
 			firstDesktopActionMessage(frame.Msg, "client rejected the request"),
@@ -298,6 +301,8 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if failure, failed := desktopCDPEvaluationFailure(decoded, structured); failed {
 			return failure, nil
 		}
+	} else if requestType == desktopAwcpInvokeAction {
+		structured["stage"] = "page_execution"
 	}
 	result := structuredResultWithExit(structured, 0)
 	if awcpFailure || decoded["ok"] == false {

@@ -1519,14 +1519,25 @@ func TestDesktopAwcpInvokePreservesEnvelopeSourceAndBusinessFailure(t *testing.T
 		clientRequest: invoker,
 		clientTargets: emptyRunClientTargetStore{},
 	}
-	payload := map[string]any{"revision": "opaque-revision", "action": "orders.select", "args": map[string]any{"ids": []any{"1", "2"}}}
-	args := map[string]any{"method": desktopAwcpInvokeMethod, "params": payload}
-	result, err := executor.invokeDesktopCDP(context.Background(), args, desktopActionTestExecutionContext())
+	payload := map[string]any{"revision": "opaque-revision", "action": "orders.select", "args": map[string]any{
+		"ids": []any{"1", "2"}, "value": map[string]any{}, "nodes": []any{}, "numberValue": json.Number("10"),
+	}}
+	args := map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": map[string]any{"orders.select": payload["args"]}}}
+	execCtx := desktopActionTestExecutionContext()
+	execCtx.DesktopAwcpRevision = "opaque-revision"
+	result, err := executor.invokeDesktopCDP(context.Background(), args, execCtx)
 	if err != nil || result.ExitCode != -1 || result.Error != "" {
 		t.Fatalf("AWCP business failure result=%#v err=%v", result, err)
 	}
-	if !strings.HasPrefix(invoker.request.ID, "daw-") || invoker.request.Type != desktopAwcpInvokeAction || !reflect.DeepEqual(invoker.request.Payload, payload) {
-		t.Fatalf("AWCP request was rewritten: %#v", invoker.request)
+	wire, err := json.Marshal(invoker.request.Payload)
+	wantWire, wantErr := json.Marshal(payload)
+	if wantErr != nil || !strings.HasPrefix(invoker.request.ID, "daw-") || invoker.request.Type != desktopAwcpInvokeAction ||
+		string(wire) != string(wantWire) {
+		t.Fatalf("AWCP request changed its JSON values: got=%s want=%s %v", wire, wantWire, err)
+	}
+	if err != nil || !strings.Contains(string(wire), `"numberValue":10`) ||
+		!strings.Contains(string(wire), `"nodes":[]`) || !strings.Contains(string(wire), `"value":{}`) {
+		t.Fatalf("AWCP JSON types changed before Desktop: %s %v", wire, err)
 	}
 	if invoker.request.Source == nil || invoker.request.Source.RunID != "run-desktop-action-test" || invoker.request.Source.ChatID != "chat-desktop-action-test" || invoker.request.Source.AgentKey != "agent-desktop-action-test" {
 		t.Fatalf("AWCP trusted source = %#v", invoker.request.Source)
@@ -1541,14 +1552,13 @@ func TestDesktopAwcpInvokeRejectsInvalidPayloadWithoutCallingClient(t *testing.T
 		name string
 		args map[string]any
 	}{
-		{name: "missing revision", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": "orders.read", "args": map[string]any{}}}},
-		{name: "extra target", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{}}, "targetId": "forged"}},
+		{name: "old envelope", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{}}}},
+		{name: "extra target", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": map[string]any{"orders.read": map[string]any{}}}, "targetId": "forged"}},
 		{name: "params file", args: map[string]any{"method": desktopAwcpInvokeMethod, "paramsFile": "missing.json"}},
-		{name: "extra param", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{}, "targetId": "forged"}}},
-		{name: "invalid action", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "Orders.read", "args": map[string]any{}}}},
-		{name: "non object args", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "orders.read", "args": []any{}}}},
-		{name: "non JSON args", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{"value": math.NaN()}}}},
-		{name: "oversized revision", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": strings.Repeat("r", 129), "action": "orders.read", "args": map[string]any{}}}},
+		{name: "extra param", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": map[string]any{"orders.read": map[string]any{}}, "targetId": "forged"}}},
+		{name: "invalid action", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": map[string]any{"Orders.read": map[string]any{}}}}},
+		{name: "non object input", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": map[string]any{"orders.read": []any{}}}}},
+		{name: "non JSON input", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": map[string]any{"orders.read": map[string]any{"value": math.NaN()}}}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1569,8 +1579,8 @@ func TestDesktopAwcpInvokeRejectsInvalidPayloadWithoutCallingClient(t *testing.T
 	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeStandalone}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
 	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
 		"method": desktopAwcpInvokeMethod,
-		"params": map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{}},
-	}, desktopActionTestExecutionContext())
+		"params": map[string]any{"action": map[string]any{"orders.read": map[string]any{}}},
+	}, desktopAwcpBoundExecutionContext("r"))
 	if err != nil || result.Error != "desktop_cdp_unsupported_runtime" {
 		t.Fatalf("standalone AWCP result=%#v err=%v", result, err)
 	}
@@ -1583,8 +1593,8 @@ func TestDesktopAwcpInvokeRejectsMismatchedResponseLocally(t *testing.T) {
 	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
 	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
 		"method": desktopAwcpInvokeMethod,
-		"params": map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{}},
-	}, desktopActionTestExecutionContext())
+		"params": map[string]any{"action": map[string]any{"orders.read": map[string]any{}}},
+	}, desktopAwcpBoundExecutionContext("r"))
 	if err != nil || result.Error != "desktop_cdp_invalid_client_response" || result.ExitCode != -1 {
 		t.Fatalf("mismatched AWCP response result=%#v err=%v", result, err)
 	}
@@ -1624,7 +1634,7 @@ func TestDesktopAwcpSnapshotUsesDedicatedWireAndRejectsExtraFields(t *testing.T)
 		t.Fatalf("AWCP snapshot request=%#v", requests)
 	}
 
-	for _, field := range []string{"params", "paramsFile", "targetId", "sessionId", "surfaceId", "requestId"} {
+	for _, field := range []string{"paramsFile", "targetId", "sessionId", "surfaceId", "requestId"} {
 		t.Run(field, func(t *testing.T) {
 			badInvoker := &routingClientRequestInvoker{}
 			badExecutor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: badInvoker, clientTargets: emptyRunClientTargetStore{}}
@@ -1697,6 +1707,64 @@ func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 	for _, endpoint := range []string{"/json/version", "/json", "/json/list"} {
 		if enumContainsString(got, endpoint) {
 			t.Fatalf("desktop_cdp method enum must not include HTTP endpoint %q", endpoint)
+		}
+	}
+}
+
+func TestDesktopCDPRecommendedMethodsKeepRawBridgeRoute(t *testing.T) {
+	methods := []string{
+		"DOM.getBoxModel",
+		"DOM.getDocument",
+		"DOM.getOuterHTML",
+		"DOM.querySelector",
+		"DOM.querySelectorAll",
+		"Input.dispatchKeyEvent",
+		"Input.dispatchMouseEvent",
+		"Input.insertText",
+		"Network.disable",
+		"Network.enable",
+		"Page.bringToFront",
+		"Page.captureScreenshot",
+		"Page.enable",
+		"Page.navigate",
+		"Page.reload",
+		"Runtime.evaluate",
+		"Target.closeTarget",
+		"Target.getCurrentTarget",
+		"Target.getTargets",
+	}
+	invoker := &routingClientRequestInvoker{}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: invoker,
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	for index, method := range methods {
+		requestID := fmt.Sprintf("raw-cdp-%d", index)
+		_, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+			"requestId": requestID,
+			"method":    method,
+			"params":    map[string]any{"marker": requestID},
+		}, desktopActionTestExecutionContext())
+		if err != nil {
+			t.Fatalf("raw CDP method %s returned an executor error: %v", method, err)
+		}
+	}
+
+	_, requests := invoker.snapshots()
+	if len(requests) != len(methods) {
+		t.Fatalf("raw CDP request count = %d, want %d", len(requests), len(methods))
+	}
+	for index, request := range requests {
+		if request.Type != desktopCDPRequestType {
+			t.Fatalf("method %s used wire %q, want %q", methods[index], request.Type, desktopCDPRequestType)
+		}
+		if request.ID != fmt.Sprintf("raw-cdp-%d", index) || request.Payload["method"] != methods[index] {
+			t.Fatalf("method %s request identity changed: %#v", methods[index], request)
+		}
+		params, ok := request.Payload["params"].(map[string]any)
+		if !ok || params["marker"] != request.ID {
+			t.Fatalf("method %s params changed: %#v", methods[index], request.Payload["params"])
 		}
 	}
 }
@@ -1806,4 +1874,10 @@ func newDesktopTestExecutor(actionURL string, cdpURL string) *RuntimeToolExecuto
 		clientRequest: &httpBackedClientRequestInvoker{actionURL: actionURL, cdpURL: cdpURL},
 		clientTargets: emptyRunClientTargetStore{},
 	}
+}
+
+func desktopAwcpBoundExecutionContext(revision string) *ExecutionContext {
+	ctx := desktopActionTestExecutionContext()
+	ctx.DesktopAwcpRevision = revision
+	return ctx
 }

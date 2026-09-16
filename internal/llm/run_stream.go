@@ -66,8 +66,8 @@ type llmRunStream struct {
 	cancellationErr      error
 	toolShutdownTimeout  time.Duration
 	finalTurnAttempted   bool
-	forcedFinalAnswer    string
 	awcpConstraint       awcpRunConstraint
+	awcpRequest          *awcpRequestBinding
 	allowToolUse         bool
 	previousToolResult   any
 	queuedToolCalls      []*preparedToolInvocation
@@ -141,6 +141,7 @@ type providerTurnStream struct {
 }
 
 type pendingModelCall struct {
+	toolSpecs           []openAIToolSpec
 	prepared            preparedProviderRequest
 	effectiveToolChoice string
 	runSeq              int
@@ -164,6 +165,8 @@ type toolCallAccumulator struct {
 }
 
 type preparedToolInvocation struct {
+	awcpBinding           *awcpRequestBinding
+	modelRunSeq           int
 	toolID                string
 	toolName              string
 	args                  map[string]any
