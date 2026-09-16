@@ -49,8 +49,29 @@ func loadConnectorServers(sources connector.Sources) (map[string]ServerDefinitio
 // It is not a second source of MCP definitions.
 func connectorServer(pkg connector.Package, name string) (ServerDefinition, error) {
 	component := pkg.MCP[name]
+	// Merge public credential mappings into a private in-memory component only.
+	component = cloneAuthComponent(component)
+	if binding, ok := pkg.AuthBindings["mcp:"+name]; ok {
+		for field, entries := range map[string]map[string]string{"headers": binding.Headers, "env": binding.Env} {
+			values, _ := component[field].(map[string]any)
+			if values == nil {
+				values = map[string]any{}
+			}
+			for key, value := range entries {
+				for existing := range values {
+					if strings.EqualFold(existing, key) {
+						return ServerDefinition{}, fmt.Errorf("conflicting credential binding")
+					}
+				}
+				values[key] = value
+			}
+			if len(values) > 0 {
+				component[field] = values
+			}
+		}
+	}
 	allowed := map[string]bool{}
-	for _, key := range []string{"type", "url", "command", "args", "runtime", "timeout", "headers", "staticHeaders", "env", "staticEnv", "disabledTools", "platform"} {
+	for _, key := range []string{"type", "url", "command", "args", "runtime", "timeout", "headers", "staticHeaders", "env", "staticEnv", "disabledTools", "platform", "disabled"} {
 		allowed[key] = true
 	}
 	for key := range component {
@@ -58,11 +79,10 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 			return ServerDefinition{}, fmt.Errorf("unknown MCP field %q", key)
 		}
 	}
-	credentials := map[string]string{}
 	credentialReady := false
 	if pkg.AuthMode == "token" {
 		var err error
-		credentials, credentialReady, err = connectorauth.TokenValues(pkg)
+		_, credentialReady, err = connectorauth.TokenValues(pkg)
 		if err != nil {
 			return ServerDefinition{}, err
 		}
@@ -84,8 +104,15 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		return ServerDefinition{}, fmt.Errorf("token authentication cannot combine with platform authSource")
 	}
 	tree["serverKey"] = connector.ServerKey(pkg.ID, name)
+	if disabled, exists := component["disabled"]; exists {
+		value, ok := disabled.(bool)
+		if !ok {
+			return ServerDefinition{}, fmt.Errorf("disabled must be boolean")
+		}
+		tree["enabled"] = !value
+	}
 	switch component["type"] {
-	case "streamableHttp":
+	case "streamableHttp", "http":
 		if hasAnyKey(component, "command", "args", "env", "staticEnv", "runtime") {
 			return ServerDefinition{}, fmt.Errorf("HTTP MCP cannot declare stdio fields")
 		}
@@ -171,13 +198,6 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 					return ServerDefinition{}, fmt.Errorf("conflicting %s field %q", pair[0], key)
 				}
 				seen[normalized] = true
-				if field == pair[0] && credentialReady {
-					var err error
-					value, err = resolveConnectorCredential(pkg, value, credentials)
-					if err != nil {
-						return ServerDefinition{}, err
-					}
-				}
 				if pair[0] == "headers" && strings.ContainsAny(value, "\r\n") {
 					return ServerDefinition{}, fmt.Errorf("header contains newline")
 				}
@@ -212,6 +232,25 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		}
 	}
 	server.ConnectorID = pkg.ID
+	server.ConnectorAuthMode = pkg.AuthMode
+	server.ConnectorCredentialEnv = map[string]string{}
+	if env, ok := component["env"].(map[string]any); ok {
+		for key, value := range env {
+			template, _ := value.(string)
+			if strings.Contains(template, "${") {
+				server.ConnectorCredentialEnv[key] = template
+			}
+		}
+	}
+	if pkg.AuthMode == connector.AuthToken || pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP {
+		server.ConnectorAuthRoot = pkg.PersistentRoot()
+		server.CredentialRevision = credentialStateDigest(filepath.Join(pkg.PersistentRoot(), pkg.ID))
+		if server.Transport == TransportStreamableHTTP {
+			// Refresh rotates HTTP tokens without tearing down an in-flight SDK
+			// session. Login/logout mutations have a separate durable revision.
+			server.CredentialRevision = credentialStateDigest(filepath.Join(pkg.PersistentRoot(), pkg.ID, "auth-state.json"))
+		}
+	}
 	server.ConnectorOneID = pkg.AuthMode == connector.AuthOneID
 	server.ConnectorBinDir = pkg.BinDir
 	server.ConnectorTokenQuery = pkg.AuthMode == connector.AuthToken && strings.Contains(server.ResolvedURL(), "${")
@@ -234,18 +273,26 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		if err := connectorauth.ValidatePackage(pkg); err != nil {
 			return ServerDefinition{}, err
 		}
-		server.ConnectorOAuth = true
+		selected, selectErr := connectorauth.OAuthComponent(pkg, name)
+		if selectErr != nil {
+			return ServerDefinition{}, selectErr
+		}
+		server.ConnectorOAuth = server.Transport == TransportStreamableHTTP
 		server.ConnectorAuthRoot = pkg.PersistentRoot()
-		server.ConnectorOAuthResource, err = connectorauth.OAuthResource(pkg)
+		server.ConnectorOAuthResource, err = connectorauth.OAuthResource(selected)
 		if err != nil {
 			return ServerDefinition{}, err
 		}
-		credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ConnectorOAuthResource, server.ResolvedURL())
+		destination := server.ResolvedURL()
+		if server.Transport == TransportStdio {
+			destination = server.ConnectorOAuthResource
+		}
+		credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ConnectorOAuthResource, destination)
 	}
 	if server.ConnectorToken {
 		server.ConnectorAuthRoot = pkg.PersistentRoot()
 	}
-	if (pkg.AuthMode == connector.AuthToken || server.ConnectorOAuth) && !credentialReady {
+	if (pkg.AuthMode == connector.AuthToken || pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP) && !credentialReady {
 		// Account authorization is deliberately not inferred from process env or
 		// CLI output. These modes require a configured credential provider.
 		server.SetupError = "connector authentication requires setup: " + string(pkg.AuthMode)
@@ -254,6 +301,22 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		server.SetupError = "connector runtime preparation is not implemented; provide a prepared command without runtime requirements"
 	}
 	return server, nil
+}
+
+func cloneAuthComponent(original map[string]any) map[string]any {
+	copy := map[string]any{}
+	for key, value := range original {
+		if values, ok := value.(map[string]any); ok {
+			inner := map[string]any{}
+			for k, v := range values {
+				inner[k] = v
+			}
+			copy[key] = inner
+		} else {
+			copy[key] = value
+		}
+	}
+	return copy
 }
 
 func ValidateConnectorPackage(pkg connector.Package) error {

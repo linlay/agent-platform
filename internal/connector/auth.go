@@ -70,7 +70,7 @@ func (p *Package) normalizeLegacyIdentityAuth() {
 	}
 	for _, component := range p.MCP {
 		platform, _ := component["platform"].(map[string]any)
-		if component["type"] != "streamableHttp" || platform["authSource"] != "identity-file" {
+		if (component["type"] != "streamableHttp" && component["type"] != "http") || platform["authSource"] != "identity-file" {
 			return
 		}
 	}

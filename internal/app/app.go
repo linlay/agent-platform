@@ -309,7 +309,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}()
 	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry)
 	mcpSyncCoordinator := mcp.NewSyncCoordinator(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second, notifications)
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync, mcpSyncCoordinator), toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
+	mcpReloader := mcp.NewRegistryReloader(mcpRegistry, mcpToolSync, mcpSyncCoordinator)
+	mcpReloader.WatchCredentials(backgroundCtx)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcpReloader, toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
 	registry.SetRuntimeReload(func() {
 		if backgroundCtx.Err() == nil {
 			go func() {

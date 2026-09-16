@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/adminsource"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/mcp"
 )
 
@@ -77,14 +78,14 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		result, err := s.connectorAuth.Status(r.Context(), id)
+		result, err := s.connectorAuth.StatusComponent(r.Context(), id, r.URL.Query().Get("component"))
 		if err != nil {
 			s.writeConnectorError(w, err)
 			return
 		}
 		s.writeAgentHTTPResponse(w, result, nil)
 	case http.MethodPost:
-		result, err := s.connectorAuth.Start(id)
+		result, err := s.connectorAuth.StartComponent(id, r.URL.Query().Get("component"))
 		if err != nil {
 			s.writeConnectorError(w, err)
 			return
@@ -93,7 +94,8 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var req struct {
-			Credentials map[string]string `json:"credentials"`
+			Credentials map[string]string              `json:"credentials"`
+			OAuthClient *connectorauth.OAuthClientInfo `json:"oauthClient,omitempty"`
 		}
 		data, readErr := io.ReadAll(r.Body)
 		r.Body.Close()
@@ -101,13 +103,27 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 			s.writeConnectorError(w, errors.New("invalid connector credentials request"))
 			return
 		}
-		result, err := s.connectorAuth.SetToken(r.Context(), id, req.Credentials)
+		var result connectorauth.Session
+		var err error
+		if req.OAuthClient != nil {
+			if req.Credentials != nil {
+				s.writeConnectorError(w, errors.New("choose credentials or oauthClient"))
+				return
+			}
+			result, err = s.connectorAuth.SetOAuthClient(r.Context(), id, r.URL.Query().Get("component"), *req.OAuthClient)
+		} else {
+			result, err = s.connectorAuth.SetToken(r.Context(), id, req.Credentials)
+		}
 		if err != nil {
 			s.writeConnectorError(w, err)
 			return
 		}
 		s.writeAgentHTTPResponse(w, result, nil)
 	case http.MethodDelete:
+		if r.URL.Query().Get("component") != "" {
+			s.writeConnectorError(w, errors.New("logout clears the entire connector; omit component"))
+			return
+		}
 		if err := s.connectorAuth.Logout(r.Context(), id); err != nil {
 			s.writeConnectorError(w, err)
 			return

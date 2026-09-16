@@ -255,6 +255,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
 		ConnectorBinDirs:              append([]string(nil), agentDef.ConnectorBinDirs...),
 		ConnectorEnv:                  agentconfig.Merge(agentDef.ConnectorEnv),
+		ConnectorCredentials:          agentDef.ConnectorCredentials,
 		ContextTags:                   append([]string(nil), agentDef.ContextTags...),
 		Budget:                        contracts.CloneMap(agentDef.Budget),
 		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),

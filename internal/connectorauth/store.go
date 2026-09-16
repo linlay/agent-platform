@@ -4,7 +4,9 @@ package connectorauth
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -60,10 +62,15 @@ func lockCredentials(ctx context.Context, root, id string) (func(), error) {
 }
 
 type oauthCredential struct {
-	Resource    string        `json:"resource"`
-	Destination string        `json:"destination,omitempty"`
-	Config      oauth2.Config `json:"config"`
-	Token       *oauth2.Token `json:"token"`
+	Generation     string                     `json:"generation,omitempty"`
+	MCP            bool                       `json:"mcp,omitempty"`
+	RequiredScopes []string                   `json:"requiredScopes,omitempty"`
+	RequiresLogin  bool                       `json:"requiresLogin,omitempty"`
+	Grants         map[string]oauthCredential `json:"grants,omitempty"`
+	Resource       string                     `json:"resource"`
+	Destination    string                     `json:"destination,omitempty"`
+	Config         oauth2.Config              `json:"config"`
+	Token          *oauth2.Token              `json:"token"`
 }
 
 // StateDir is outside the installed, read-only package. Credentials are never
@@ -101,7 +108,37 @@ func saveCredential(root, id string, c oauthCredential) error {
 	if err != nil {
 		return err
 	}
+	previous, err := readCredential(root, id)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if previous.Grants == nil {
+		previous.Grants = map[string]oauthCredential{}
+	}
+	if previous.Token != nil && !credentialMatches(previous, c.Resource, []string{c.Destination}) {
+		old := previous
+		old.Grants = nil
+		previous.Grants[grantKey(old.Resource, old.Destination)] = old
+	}
+	delete(previous.Grants, grantKey(c.Resource, c.Destination))
+	c.Grants = previous.Grants
 	return savePrivateJSON(p, c)
+}
+
+func grantKey(resource, destination string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(resource+"\x00"+destination)))
+}
+
+func selectCredential(c oauthCredential, resource string, destinations []string) (oauthCredential, bool) {
+	if credentialMatches(c, resource, destinations) {
+		return c, true
+	}
+	for _, grant := range c.Grants {
+		if credentialMatches(grant, resource, destinations) {
+			return grant, true
+		}
+	}
+	return oauthCredential{}, false
 }
 
 func savePrivateJSON(p string, value any) error {
@@ -131,11 +168,24 @@ func savePrivateJSON(p string, value any) error {
 	return os.Rename(f.Name(), p)
 }
 
+func readPrivateJSON(p string, value any) error {
+	info, err := os.Lstat(p)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("invalid credential file")
+	}
+	return connector.ReadJSON(p, value)
+}
+
 func CredentialReady(root, id, resource string, destinations ...string) bool {
 	// Atomic file replacement allows a local snapshot without waiting for a
 	// token refresh. Catalog reload must never wait on authentication network I/O.
 	c, err := readCredential(root, id)
-	return err == nil && credentialMatches(c, resource, destinations) && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != "")
+	c, matches := selectCredential(c, resource, destinations)
+	s, stateErr := readAuthState(root, id)
+	return err == nil && stateErr == nil && c.Generation == s.Generation && !c.RequiresLogin && matches && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != "")
 }
 
 func credentialMatches(c oauthCredential, resource string, destinations []string) bool {
@@ -158,7 +208,9 @@ func AccessToken(ctx context.Context, root, id, resource string, client *http.Cl
 	}
 	defer unlock()
 	c, err := readCredential(root, id)
-	if err != nil || !credentialMatches(c, resource, destinations) || c.Token == nil {
+	c, matches := selectCredential(c, resource, destinations)
+	s, stateErr := readAuthState(root, id)
+	if err != nil || stateErr != nil || c.Generation != s.Generation || c.RequiresLogin || !matches || c.Token == nil {
 		return "", fmt.Errorf("connector requires login")
 	}
 	if c.Token.Valid() {
@@ -172,9 +224,21 @@ func AccessToken(ctx context.Context, root, id, resource string, client *http.Cl
 	if client == nil {
 		client = httpclient.NewClient(30 * time.Second)
 	}
+	refreshResource := ""
+	if c.MCP {
+		refreshResource = c.Resource
+	}
+	client = tokenHTTPClient(client, c.Config.Endpoint.TokenURL, refreshResource)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
 	token, err := c.Config.TokenSource(ctx, c.Token).Token()
 	if err != nil {
+		var rejected *oauth2.RetrieveError
+		if errors.As(err, &rejected) && (rejected.ErrorCode == "invalid_grant" || rejected.ErrorCode == "invalid_client") {
+			c.RequiresLogin = true
+			if persistErr := saveCredential(root, id, c); persistErr != nil {
+				return "", fmt.Errorf("persist authentication failure")
+			}
+		}
 		return "", fmt.Errorf("connector token refresh failed; sign in again")
 	}
 	if token.RefreshToken == "" {
@@ -212,5 +276,33 @@ func (t AuthorizingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	clone := req.Clone(req.Context())
 	clone.Header = req.Header.Clone()
 	clone.Header.Set("Authorization", "Bearer "+token)
-	return t.Base.RoundTrip(clone)
+	response, err := t.Base.RoundTrip(clone)
+	if err != nil {
+		return nil, err
+	}
+	retry, rejectErr := t.rejected(req.Context(), response, token, false)
+	if rejectErr != nil {
+		response.Body.Close()
+		return nil, fmt.Errorf("connector authentication update failed")
+	}
+	if !retry || req.Body != nil && req.GetBody == nil {
+		return response, nil
+	}
+	response.Body.Close()
+	newToken, err := AccessToken(req.Context(), t.Root, t.ID, audience, t.Client, t.Resource)
+	if err != nil {
+		return nil, err
+	}
+	if req.Body != nil {
+		clone.Body, err = req.GetBody()
+		if err != nil {
+			return nil, err
+		}
+	}
+	clone.Header.Set("Authorization", "Bearer "+newToken)
+	response, err = t.Base.RoundTrip(clone)
+	if err == nil {
+		_, _ = t.rejected(req.Context(), response, newToken, true)
+	}
+	return response, err
 }

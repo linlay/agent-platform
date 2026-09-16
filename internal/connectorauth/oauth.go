@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -29,6 +30,8 @@ type oauthSettings struct {
 	TokenURL            string   `json:"token_endpoint,omitempty"`
 	Resource            string   `json:"resource,omitempty"`
 	RedirectURI         string   `json:"redirect_uri,omitempty"`
+	ClientMetadataURL   string   `json:"client_metadata_url,omitempty"`
+	Issuer              string   `json:"issuer,omitempty"`
 }
 
 func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
@@ -39,7 +42,7 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		}
 	}
 	if pkg.AuthMode == connector.AuthOAuth {
-		if settings.Discovery || settings.ResourceMetadataURL != "" {
+		if settings.Discovery || settings.ResourceMetadataURL != "" || settings.ClientMetadataURL != "" {
 			return "", settings, fmt.Errorf("MCP discovery belongs to auth_mode=mcp")
 		}
 		if strings.TrimSpace(settings.ClientID) == "" || !secureURL(settings.AuthorizationURL) || !secureURL(settings.TokenURL) || !secureURL(settings.Resource) {
@@ -71,8 +74,11 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		if platform, ok := component["platform"].(map[string]any); ok && platform["authSource"] != nil && platform["authSource"] != "" {
 			return "", settings, fmt.Errorf("OAuth cannot combine with platform authSource")
 		}
+		if component["type"] == "stdio" && pkg.AuthMode == connector.AuthOAuth {
+			return settings.Resource, settings, nil
+		}
 		resource, _ := component["url"].(string)
-		if component["type"] != "streamableHttp" || !secureURL(resource) {
+		if (component["type"] != "streamableHttp" && component["type"] != "http") || !secureURL(resource) {
 			return "", settings, fmt.Errorf("OAuth requires an HTTPS MCP resource")
 		}
 		for _, field := range []string{"headers", "staticHeaders"} {
@@ -102,7 +108,9 @@ func OAuthResource(pkg connector.Package) (string, error) {
 func oauthDestination(pkg connector.Package) string {
 	for _, component := range pkg.MCP {
 		destination, _ := component["url"].(string)
-		return destination
+		if destination != "" {
+			return destination
+		}
 	}
 	var settings oauthSettings
 	_ = connector.DecodeJSON(pkg.OAuth, &settings)
@@ -130,8 +138,10 @@ func secureURL(raw string) bool {
 	return u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1")
 }
 
-func (m *Manager) discover(ctx context.Context, resource, destination string, settings oauthSettings) (*oauthex.ProtectedResourceMetadata, *oauthex.AuthServerMeta, error) {
+func (m *Manager) discover(ctx context.Context, resource, destination string, settings oauthSettings, scopeOutput ...*[]string) (*oauthex.ProtectedResourceMetadata, *oauthex.AuthServerMeta, error) {
 	metadata := settings.ResourceMetadataURL
+	fallback := false
+	var challengedScopes []string
 	if metadata == "" {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, destination, nil)
 		if err != nil {
@@ -149,6 +159,9 @@ func (m *Manager) discover(ctx context.Context, resource, destination string, se
 		}
 		for _, c := range challenges {
 			if strings.EqualFold(c.Scheme, "Bearer") {
+				if scope := c.Params["scope"]; scope != "" {
+					challengedScopes = strings.Fields(scope)
+				}
 				metadata = c.Params["resource_metadata"]
 				if metadata != "" {
 					break
@@ -156,6 +169,7 @@ func (m *Manager) discover(ctx context.Context, resource, destination string, se
 			}
 		}
 		if metadata == "" {
+			fallback = true
 			u, _ := url.Parse(destination)
 			u.Path = "/.well-known/oauth-protected-resource" + u.Path
 			u.RawQuery = ""
@@ -165,14 +179,28 @@ func (m *Manager) discover(ctx context.Context, resource, destination string, se
 	if !secureURL(metadata) {
 		return nil, nil, fmt.Errorf("invalid OAuth resource metadata URL")
 	}
-	prm, err := oauthex.GetProtectedResourceMetadata(ctx, metadata, resource, m.client)
+	prm, missing, err := m.resourceMetadata(ctx, metadata, resource)
+	if missing && fallback {
+		u, _ := url.Parse(destination)
+		u.Path = "/.well-known/oauth-protected-resource"
+		u.RawPath = ""
+		u.RawQuery = ""
+		prm, _, err = m.resourceMetadata(ctx, u.String(), resource)
+	}
 	if err != nil || prm == nil || len(prm.AuthorizationServers) == 0 {
 		return nil, nil, fmt.Errorf("OAuth protected resource discovery failed")
 	}
-	if !secureURL(prm.AuthorizationServers[0]) {
+	issuer := prm.AuthorizationServers[0]
+	if settings.Issuer != "" {
+		if !slices.Contains(prm.AuthorizationServers, settings.Issuer) {
+			return nil, nil, fmt.Errorf("configured issuer is not advertised by resource")
+		}
+		issuer = settings.Issuer
+	}
+	if !secureURL(issuer) {
 		return nil, nil, fmt.Errorf("invalid OAuth issuer")
 	}
-	asm, err := sdkauth.GetAuthServerMetadata(ctx, prm.AuthorizationServers[0], m.client)
+	asm, err := sdkauth.GetAuthServerMetadata(ctx, issuer, m.client)
 	if err != nil || asm == nil {
 		return nil, nil, fmt.Errorf("OAuth authorization server discovery failed")
 	}
@@ -181,32 +209,86 @@ func (m *Manager) discover(ctx context.Context, resource, destination string, se
 			return nil, nil, fmt.Errorf("OAuth server requires secure authorization and token endpoints")
 		}
 	}
-	if settings.ClientID == "" && !secureURL(asm.RegistrationEndpoint) {
-		return nil, nil, fmt.Errorf("MCP OAuth requires client_id or a secure registration endpoint")
+	if settings.ClientID == "" && !(asm.ClientIDMetadataDocumentSupported && settings.ClientMetadataURL != "") && !secureURL(asm.RegistrationEndpoint) {
+		return nil, nil, fmt.Errorf("MCP OAuth requires registered client information; configure OAuth client credentials")
 	}
 	if !slices.Contains(asm.CodeChallengeMethodsSupported, "S256") {
 		return nil, nil, fmt.Errorf("OAuth server does not advertise PKCE S256")
+	}
+	if len(scopeOutput) > 0 && scopeOutput[0] != nil {
+		*scopeOutput[0] = challengedScopes
 	}
 	return prm, asm, nil
 }
 
 func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *login) error {
+	initialState, err := readAuthState(m.sources.PersistentRoot(), pkg.ID)
+	if err != nil {
+		return err
+	}
+	if s.generation != nil {
+		initialState.Generation = *s.generation
+	}
 	resource, settings, err := oauthResource(pkg)
 	if err != nil {
 		return err
 	}
+	clientInfo, err := readClientInfo(pkg)
+	if err != nil {
+		return err
+	}
+	if clientInfo.ClientID != "" {
+		settings.ClientID = clientInfo.ClientID
+		settings.Issuer = clientInfo.Issuer
+		if clientInfo.RedirectURI != "" {
+			settings.RedirectURI = clientInfo.RedirectURI
+		}
+	}
 	scopes := settings.Scopes
+	stepUp := false
+	if existing, readErr := readCredential(pkg.PersistentRoot(), pkg.ID); readErr == nil {
+		if grant, ok := selectCredential(existing, resource, []string{oauthDestination(pkg)}); ok && len(grant.RequiredScopes) > 0 {
+			scopes = grant.RequiredScopes
+			stepUp = true
+		}
+	}
 	cfg := oauth2.Config{ClientID: settings.ClientID, Endpoint: oauth2.Endpoint{AuthURL: settings.AuthorizationURL, TokenURL: settings.TokenURL, AuthStyle: oauth2.AuthStyleInParams}}
+	cfg.ClientSecret = clientInfo.ClientSecret
+	if cfg.ClientSecret != "" {
+		cfg.Endpoint.AuthStyle = oauth2.AuthStyleInHeader
+	}
+	if clientInfo.AuthMethod == "client_secret_post" {
+		cfg.Endpoint.AuthStyle = oauth2.AuthStyleInParams
+	}
 	var registrationEndpoint string
+	var discoveredIssuer string
 	if pkg.AuthMode == connector.AuthMCP {
-		prm, asm, err := m.discover(ctx, resource, oauthDestination(pkg), settings)
+		var requiredScopes []string
+		prm, asm, err := m.discover(ctx, resource, oauthDestination(pkg), settings, &requiredScopes)
 		if err != nil {
 			return err
+		}
+		if len(requiredScopes) > 0 && !stepUp {
+			scopes = requiredScopes
 		}
 		if len(scopes) == 0 {
 			scopes = prm.ScopesSupported
 		}
 		cfg.Endpoint.AuthURL, cfg.Endpoint.TokenURL = asm.AuthorizationEndpoint, asm.TokenEndpoint
+		discoveredIssuer = asm.Issuer
+		dir, dirErr := StateDir(pkg.PersistentRoot(), pkg.ID)
+		if dirErr != nil {
+			return dirErr
+		}
+		if err := savePrivateJSON(filepath.Join(dir, "discovery-"+grantKey(resource, oauthDestination(pkg))+".json"), map[string]any{"resource": prm, "authorizationServer": asm}); err != nil {
+			return err
+		}
+		if cfg.ClientID == "" && asm.ClientIDMetadataDocumentSupported && settings.ClientMetadataURL != "" {
+			if err := validateClientMetadata(ctx, m.client, settings.ClientMetadataURL, settings.RedirectURI); err != nil {
+				return err
+			}
+			cfg.ClientID = settings.ClientMetadataURL
+		}
 		registrationEndpoint = asm.RegistrationEndpoint
 	}
 	address, callbackPath, err := callbackAddress(settings.RedirectURI)
@@ -234,8 +316,17 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 			return fmt.Errorf("OAuth registration returned no client id")
 		}
 		cfg.ClientID, cfg.ClientSecret = registration.ClientID, registration.ClientSecret
+		if registration.TokenEndpointAuthMethod != "" && registration.TokenEndpointAuthMethod != "none" && registration.TokenEndpointAuthMethod != "client_secret_basic" && registration.TokenEndpointAuthMethod != "client_secret_post" {
+			return fmt.Errorf("unsupported registered client authentication method")
+		}
 		if registration.TokenEndpointAuthMethod == "client_secret_basic" {
 			cfg.Endpoint.AuthStyle = oauth2.AuthStyleInHeader
+		}
+		if registration.TokenEndpointAuthMethod == "none" {
+			cfg.ClientSecret = ""
+		}
+		if err := saveRegisteredClient(ctx, pkg, OAuthClientInfo{Issuer: discoveredIssuer, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, RedirectURI: redirect, AuthMethod: registration.TokenEndpointAuthMethod}, initialState.Generation); err != nil {
+			return err
 		}
 	}
 	cfg.RedirectURL, cfg.Scopes = redirect, scopes
@@ -286,7 +377,11 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	if code == "" {
 		return fmt.Errorf("OAuth authorization was declined")
 	}
-	token, err := cfg.Exchange(context.WithValue(ctx, oauth2.HTTPClient, m.client), code, exchangeOptions...)
+	exchangeResource := ""
+	if pkg.AuthMode == connector.AuthMCP {
+		exchangeResource = resource
+	}
+	token, err := cfg.Exchange(context.WithValue(ctx, oauth2.HTTPClient, tokenHTTPClient(m.client, cfg.Endpoint.TokenURL, exchangeResource)), code, exchangeOptions...)
 	if err != nil {
 		return fmt.Errorf("OAuth token exchange failed; start login again")
 	}
@@ -301,11 +396,21 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 		return err
 	}
 	defer unlock()
-	return saveCredential(m.sources.PersistentRoot(), pkg.ID, oauthCredential{Resource: resource, Destination: oauthDestination(pkg), Config: cfg, Token: token})
+	currentState, err := readAuthState(m.sources.PersistentRoot(), pkg.ID)
+	if err != nil {
+		return err
+	}
+	if currentState.Generation != initialState.Generation || ctx.Err() != nil {
+		return fmt.Errorf("authorization was canceled or signed out")
+	}
+	return saveCredential(m.sources.PersistentRoot(), pkg.ID, oauthCredential{Generation: currentState.Generation, MCP: pkg.AuthMode == connector.AuthMCP, Resource: resource, Destination: oauthDestination(pkg), Config: cfg, Token: token})
 }
 
 // ValidatePackage checks local authentication declarations without network I/O.
 func ValidatePackage(pkg connector.Package) error {
+	if err := pkg.ValidateAuthBindings(); err != nil {
+		return err
+	}
 	if pkg.CLI != nil {
 		if _, exists := pkg.CLI["versionCheck"]; exists {
 			if _, err := cliSettingsFor(pkg); err != nil {
@@ -315,8 +420,35 @@ func ValidatePackage(pkg connector.Package) error {
 	}
 	switch pkg.AuthMode {
 	case "oauth", "mcp":
-		_, _, err := oauthResource(pkg)
-		return err
+		if len(pkg.OAuth) > 0 {
+			var settings oauthSettings
+			if err := connector.DecodeJSON(pkg.OAuth, &settings); err != nil {
+				return fmt.Errorf("invalid OAuth settings")
+			}
+		}
+		if binding := pkg.AuthBindings["cli"]; pkg.CLI != nil && (len(binding.OAuth) > 0 || binding.Grant != "" || len(binding.Env) > 0) {
+			selected, err := OAuthComponent(pkg, "cli")
+			if err != nil {
+				return err
+			}
+			if _, _, err := oauthResource(selected); err != nil {
+				return err
+			}
+		}
+		if len(pkg.MCP) == 0 {
+			_, _, err := oauthResource(pkg)
+			return err
+		}
+		for name := range pkg.MCP {
+			selected, err := OAuthComponent(pkg, name)
+			if err != nil {
+				return err
+			}
+			if _, _, err := oauthResource(selected); err != nil {
+				return err
+			}
+		}
+		return nil
 	case connector.AuthDelegated:
 		if pkg.ManagedCLI() {
 			_, err := cliSettingsFor(pkg)

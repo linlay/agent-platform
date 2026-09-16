@@ -41,7 +41,7 @@ read-timeout: 30
 	if server.Transport != TransportStdio || server.Command != wantCommand || server.WorkingDir != wantWorkDir {
 		t.Fatalf("unexpected stdio server: %#v", server)
 	}
-	if strings.Join(server.Args, " ") != "serve --datasource dev" || server.Env["QS_PROFILE"] != "test" {
+	if strings.Join(server.Args, " ") != "serve --datasource dev" || server.Env["QS_PROFILE"] != "${MIGRATED_1}" {
 		t.Fatalf("unexpected stdio arguments/env: %#v", server)
 	}
 	if server.StartupTimeout != 7 || server.ReadTimeout != 30 {

@@ -189,6 +189,8 @@ Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 
 
 连接器资源包通过清单声明组件、图标、认证方式与授权页面展示。包内程序、安装脚本和远程服务定义的分发边界见 [连接器打包与分发](./docs/连接器打包与分发.md)。
 
+五种认证模式（token / oneid-token / oauth / mcp / null）统一使用包外凭证来源；认证操作不触碰连接器定义文件。`auth_bindings` 声明 HTTP Header 或 Host CLI/stdio 环境模板，HTTP 发送前、进程启动前读取票据；自管 CLI 继续通过 `configEnv` 使用独立目录。MCP 支持多资源授权、客户端注册信息落盘、元数据发现回退、PKCE、刷新及追加权限提示，详见 [凭证消费映射与多组件授权](./docs/连接器安装与授权.md#凭证消费映射与多组件授权)。
+
 ### 根 `.env.example`
 
 根 `.env.example` 现在是面向最终用户的最小启动模板，只保留以下配置：

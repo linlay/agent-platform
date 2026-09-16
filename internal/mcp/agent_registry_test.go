@@ -159,8 +159,8 @@ func TestAgentMCPReadsSharedTokenWithoutWritingItIntoRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, server := range registry.Servers() {
-		if server.Headers["Authorization"] != "Bearer private-test-token" {
-			t.Fatal("central token not resolved for Agent instance")
+		if server.Headers["Authorization"] != "Bearer ${TOKEN}" {
+			t.Fatal("credential must remain a template in Agent registry")
 		}
 	}
 }

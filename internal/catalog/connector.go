@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
 )
 
 type ConnectorSkill struct {
@@ -68,6 +69,8 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 	def.ConnectorSkills = nil
 	def.ConnectorBinDirs = nil
 	def.ConnectorEnv = map[string]string{}
+	def.ConnectorCredentials = nil
+	credentialNames := map[string]bool{}
 	def.ConnectorCLIEntries = nil
 	def.ConnectorMounts = nil
 	def.ConnectorMCPServers = nil
@@ -86,6 +89,22 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 		values, err := pkg.CLIConfigEnvironment()
 		if err != nil {
 			return err
+		}
+		if err := connectorauth.ValidatePackage(pkg); err != nil {
+			return err
+		}
+		credential, err := connectorauth.CLIEnvironment(pkg)
+		if err != nil {
+			return err
+		}
+		if len(credential.Env) > 0 {
+			for name := range credential.Env {
+				if credentialNames[name] {
+					return fmt.Errorf("connectors have conflicting credential env %s", name)
+				}
+				credentialNames[name] = true
+			}
+			def.ConnectorCredentials = append(def.ConnectorCredentials, credential)
 		}
 		for key, value := range values {
 			if previous, exists := def.ConnectorEnv[key]; exists && previous != value {

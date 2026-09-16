@@ -252,6 +252,12 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
 	identity, identityErr := c.stdioIdentity(server)
+	if identityErr == nil && server.Transport == TransportStdio && server.ConnectorAuthMode != connector.AuthOneID && server.ConnectorAuthMode != connector.AuthDelegated {
+		identity, identityErr = connectorauth.ResolveEnvironment(ctx, connector.CredentialEnvironment{
+			Root: server.ConnectorAuthRoot, ID: server.ConnectorID, Mode: server.ConnectorAuthMode,
+			Resource: server.ConnectorOAuthResource, Destination: server.ConnectorOAuthResource, Env: server.ConnectorCredentialEnv,
+		}, c.identityFile)
+	}
 	if identityErr != nil {
 		if slot.current != nil {
 			_ = closeManagedSession(slot.current)
@@ -260,8 +266,9 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 		return nil, identityErr
 	}
 	identityDigest := ""
-	if server.ConnectorOneID && server.Transport == TransportStdio {
-		digest := sha256.Sum256([]byte(identity[agentconfig.EnvAccessToken]))
+	if server.Transport == TransportStdio && len(identity) > 0 {
+		encoded, _ := json.Marshal(identity)
+		digest := sha256.Sum256(encoded)
 		identityDigest = hex.EncodeToString(digest[:])
 	}
 	if slot.current != nil && slot.current.fingerprint == fingerprint && slot.current.identityDigest == identityDigest {
@@ -353,6 +360,14 @@ func (c *Client) stdioIdentity(server ServerDefinition) (map[string]string, erro
 	return identity, nil
 }
 
+func cloneStringMap(values map[string]string) map[string]string {
+	copy := map[string]string{}
+	for key, value := range values {
+		copy[key] = value
+	}
+	return copy
+}
+
 func (c *Client) transportWithIdentity(server ServerDefinition, identity map[string]string) (sdkmcp.Transport, error) {
 	if server.SetupError != "" {
 		return nil, fmt.Errorf("%s", server.SetupError)
@@ -372,8 +387,18 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 				env[key] = resolved
 			}
 		}
+		if !server.ConnectorOneID && len(identity) > 0 {
+			env = cloneStringMap(server.Env)
+			for key, value := range identity {
+				env[key] = value
+			}
+		}
 		cmd.Env = connector.WithPath(builtins.EnsureBinInEnv(append(os.Environ(), envPairs(env)...)), []string{server.ConnectorBinDir})
-		cmd.Env = agentconfig.WithIdentityEnvironment(cmd.Env, identity)
+		if server.ConnectorOneID {
+			cmd.Env = agentconfig.WithIdentityEnvironment(cmd.Env, identity)
+		} else {
+			cmd.Env = agentconfig.WithIdentityEnvironment(cmd.Env, nil)
+		}
 		if !filepath.IsAbs(server.Command) && !strings.ContainsAny(server.Command, "/\\") {
 			resolved, err := hostenv.LookPath(server.Command, cmd.Env)
 			if err != nil {

@@ -27,6 +27,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("connector-manage "+action, flag.ContinueOnError)
 	runtimeDir := flags.String("runtime-dir", "", "deployment runtime root")
 	id := flags.String("id", "", "connector id")
+	component := flags.String("component", "", "MCP component to authorize")
 	overwrite := flags.Bool("overwrite", false, "replace an existing external package")
 	credentialsFile := flags.String("credentials-file", "", "JSON file containing token field values (set-token only)")
 	identityFile := flags.String("identity-file", "", "Desktop SSO token file (absolute path; defaults to <state-dir>/identity/access-token)")
@@ -36,8 +37,11 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	if *runtimeDir == "" {
 		return fmt.Errorf("--runtime-dir is required")
 	}
-	if action != "set-token" && *credentialsFile != "" {
-		return fmt.Errorf("--credentials-file is only valid for set-token")
+	if *component != "" && action != "login" && action != "status" && action != "set-oauth-client" {
+		return fmt.Errorf("--component is only valid for login, status or set-oauth-client")
+	}
+	if action != "set-token" && action != "set-oauth-client" && *credentialsFile != "" {
+		return fmt.Errorf("--credentials-file is only valid for set-token or set-oauth-client")
 	}
 	runtimeRoot, err := filepath.Abs(*runtimeDir)
 	if err != nil {
@@ -101,17 +105,21 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	if flags.NArg() != 0 || !connector.ValidID(*id) {
 		return fmt.Errorf("a valid --id is required")
 	}
-	manager := connectorauth.New(ctx, sources, func(_ context.Context, changedID string) error {
-		// Wake the standard source watcher after CLI login/logout; file contents
-		// and definition hashes do not change. Live API login reloads directly.
-		file, err := connector.ReadFile(root, changedID, "connector.json")
+	manager := connectorauth.New(ctx, sources, nil).WithIdentityFile(*identityFile)
+	switch action {
+	case "set-oauth-client":
+		if *credentialsFile == "" {
+			return fmt.Errorf("--credentials-file is required")
+		}
+		var info connectorauth.OAuthClientInfo
+		if err := connector.ReadJSON(*credentialsFile, &info); err != nil {
+			return fmt.Errorf("invalid OAuth client file")
+		}
+		result, err := manager.SetOAuthClient(ctx, *id, *component, info)
 		if err != nil {
 			return err
 		}
-		_, err = connector.SaveDefinition(root, file, file.SHA256, nil, nil)
-		return err
-	}).WithIdentityFile(*identityFile)
-	switch action {
+		return encoder.Encode(result)
 	case "prepare":
 		prepared, err := manager.Prepare(ctx, *id)
 		if outputErr := encoder.Encode(prepared); outputErr != nil {
@@ -132,7 +140,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 		}
 		return encoder.Encode(s)
 	case "status":
-		s, err := manager.Status(ctx, *id)
+		s, err := manager.StatusComponent(ctx, *id, *component)
 		if err != nil {
 			return err
 		}
@@ -143,7 +151,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 		}
 		return encoder.Encode(map[string]string{"id": *id, "status": "unauthorized"})
 	case "login":
-		s, err := manager.Start(*id)
+		s, err := manager.StartComponent(*id, *component)
 		if err != nil {
 			return err
 		}
@@ -160,7 +168,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 				return ctx.Err()
 			case <-ticker.C:
 			}
-			s, err = manager.Status(ctx, *id)
+			s, err = manager.StatusComponent(ctx, *id, *component)
 			if err != nil {
 				return err
 			}
