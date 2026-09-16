@@ -151,7 +151,16 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 		// not expose the host workspace root. Desktop-only actions are rejected above.
 		source.WorkspaceRoot = ""
 	}
-	return t.invokeDesktopClientRequest(ctx, requestID, action, actionArgs, &source, "desktop_action", false, execCtx)
+	resolvedArgs, pathErr := resolveDesktopActionPaths(execCtx.Session, action, actionArgs)
+	if pathErr != nil {
+		return desktopActionErrorResult("invalid_args", pathErr.err.Error(), map[string]any{
+			"category": "validation", "stage": "arguments", "executionState": "not_started",
+			"field":    "args." + pathErr.field,
+			"context":  map[string]any{"inputPath": pathErr.input, "workspaceRoot": source.WorkspaceRoot},
+			"recovery": map[string]any{"strategy": "fix_input", "message": "Use @chat for the current Chat or @workspace for the bound project, within the current trusted Workspace. Do not change source or use parent traversal."},
+		}), nil
+	}
+	return t.invokeDesktopClientRequest(ctx, requestID, action, resolvedArgs, &source, "desktop_action", false, execCtx)
 }
 
 func firstDesktopActionMessage(message string, fallback string) string {
