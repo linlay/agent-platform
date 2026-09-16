@@ -199,6 +199,9 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 	}
 	s.currentTurn.observation.recordOpenAIChunk(decoded)
 	if s.awaitingOpenAITerminalMetadata() {
+		for _, choice := range decoded.Choices {
+			s.currentTurn.observation.PostFinishToolDeltas += len(choice.Delta.ToolCalls)
+		}
 		if decoded.Usage != nil {
 			s.accumulateUsage(decoded.Usage)
 		}
@@ -240,6 +243,11 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 				s.currentTurn.finishSeenAt = time.Now()
 			}
 			s.engine.logParsedDelta(s.session.RunID, "finish_reason", s.currentTurn.finishReason)
+			for _, call := range s.currentTurn.toolCalls {
+				if raw := strings.TrimSpace(call.Arguments.String()); raw != "" && !json.Valid([]byte(raw)) {
+					s.currentTurn.observation.InvalidToolArguments++
+				}
+			}
 			if openAIStreamWaitsForEnd(s.protocolConfig) {
 				return false, nil
 			}

@@ -33,22 +33,62 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 	args := map[string]any{}
 	if strings.TrimSpace(toolCall.Function.Arguments) != "" {
-		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+err.Error(), "invalid_tool_arguments")
+		if err := decodeToolCallArguments(toolCall.Function.Name, toolCall.Function.Arguments, &args); err != nil {
+			output := "invalid tool arguments: " + err.Error()
+			awcpMalformed := !json.Valid([]byte(toolCall.Function.Arguments)) &&
+				s.noteAwcpMalformedArguments(toolCall.Function.Name, toolCall.Function.Arguments)
+			if awcpMalformed {
+				output += ". Execution did not start. Submit one complete JSON object matching the AWCP schema; the previous arguments were not repaired or executed."
+				if notice := s.awcpStopNotice(); notice != "" {
+					output += "\n" + notice
+				}
+			}
+			if awcpMalformed {
+				deltas, message := preparedAwcpToolErrorResult(toolID, toolCall.Function.Name, output, "invalid_tool_arguments", "model_generation")
+				return nil, deltas, message
+			}
+			if strings.TrimSpace(toolCall.Function.Name) == desktopCdpToolName && awcpMethodInValidJSON(toolCall.Function.Arguments) {
+				deltas, message := preparedAwcpToolErrorResult(toolID, toolCall.Function.Name, output, "invalid_tool_arguments", "platform_parse")
+				return nil, deltas, message
+			}
+			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, output, "invalid_tool_arguments")
 			return nil, deltas, message
 		}
 	}
-	expandedArgs, err := ExpandToolArgsTemplates(args, s.previousToolResult)
-	if err != nil {
-		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, err.Error(), "tool_args_template_missing_value")
+	if awcpMethod(toolCall.Function.Name, args) == "" {
+		expandedArgs, err := ExpandToolArgsTemplates(args, s.previousToolResult)
+		if err != nil {
+			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, err.Error(), "tool_args_template_missing_value")
+			return nil, deltas, message
+		}
+		args, _ = expandedArgs.(map[string]any)
+	}
+	if s.awcpConstraint.stoppedReason != "" && awcpMethod(toolCall.Function.Name, args) != "" {
+		result := awcpGateResult(s.awcpRecoveryGate(toolCall.Function.Name, args))
+		deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, result, result.Output)
 		return nil, deltas, message
 	}
-	args, _ = expandedArgs.(map[string]any)
-	s.invalidateAwcpForDesktopCdpCall(toolCall.Function.Name, args)
 	if validationErr := s.validateAwcpDesktopCdpCall(toolCall.Function.Name, args); validationErr != nil {
-		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
+		s.noteAwcpArgumentRejection(toolCall.Function.Name, args)
+		output := "invalid tool arguments: " + validationErr.Error()
+		if notice := s.awcpStopNotice(); notice != "" {
+			output += "\n" + notice
+		}
+		deltas, message := preparedAwcpToolErrorResult(toolID, toolCall.Function.Name, output, "invalid_tool_arguments", "platform_parse")
 		return nil, deltas, message
 	}
+	if s.unchangedAwcpInputError(toolCall.Function.Name, args) {
+		s.stopAwcp("unchanged_parameter_error")
+		output := "AWCP parameter error repeated with the same revision, Action and JSON input. Execution did not start; stop this AWCP attempt."
+		deltas, message := preparedAwcpToolErrorResult(toolID, toolCall.Function.Name, output, "awcp_unchanged_parameter_error", "platform_parse")
+		return nil, deltas, message
+	}
+	if gateErr := s.awcpRecoveryGate(toolCall.Function.Name, args); gateErr != nil {
+		result := awcpGateResult(gateErr)
+		deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, result, result.Output)
+		return nil, deltas, message
+	}
+	s.invalidateAwcpForDesktopCdpCall(toolCall.Function.Name, args)
 
 	if s.readOnlyToolDenied(toolCall.Function.Name, args) {
 		result := toolpolicy.DisabledResult(toolCall.Function.Name)
@@ -148,10 +188,17 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 
 	invocation := &preparedToolInvocation{
-		toolID:   toolID,
-		toolName: toolCall.Function.Name,
-		args:     args,
-		prelude:  s.preToolInvocationDeltas(toolID, toolCall.Function.Name, args),
+		modelRunSeq: s.runLLMChatCompletionCount,
+		toolID:      toolID,
+		toolName:    toolCall.Function.Name,
+		args:        args,
+		prelude:     s.preToolInvocationDeltas(toolID, toolCall.Function.Name, args),
+	}
+	if awcpMethod(invocation.toolName, args) == desktopAwcpInvokeMethod {
+		invocation.awcpBinding = &awcpRequestBinding{
+			owner: s.awcpRequest.owner, revision: s.awcpRequest.revision,
+			generation: s.awcpRequest.generation,
+		}
 	}
 	s.refreshAccessLevelForInvocation(invocation)
 	if isBashTool(invocation.toolName) {
@@ -172,6 +219,9 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		if plan, err := s.buildFileWritePlan(invocation); err == nil && s.fileWritePlanNeedsApproval(plan) {
 			invocation.fileWritePlan = &plan
 		}
+	}
+	if awcpMethod(toolCall.Function.Name, args) == desktopAwcpSnapshotMethod {
+		s.clearAwcpConstraint()
 	}
 	return invocation, nil, nil
 }
@@ -218,6 +268,9 @@ func (s *llmRunStream) invokeQueuedToolCallsAndPostHook() error {
 }
 
 func (s *llmRunStream) prioritizeAwaitingToolCalls(invocations []*preparedToolInvocation) []*preparedToolInvocation {
+	if hasAwcpInvocation(invocations) {
+		return invocations
+	}
 	if len(invocations) < 2 {
 		return invocations
 	}
@@ -296,6 +349,9 @@ func (s *llmRunStream) isInteractionTool(toolName string) bool {
 }
 
 func (s *llmRunStream) canInvokeQueuedToolCallsConcurrently(invocations []*preparedToolInvocation) bool {
+	if hasAwcpInvocation(invocations) {
+		return false
+	}
 	runnable := 0
 	for _, invocation := range invocations {
 		if invocation == nil {
@@ -763,6 +819,7 @@ func (s *llmRunStream) serialExecutionContext(invocation *preparedToolInvocation
 		}
 	}
 	cloned := *s.execCtx
+	s.bindAwcpExecutionContext(invocation, &cloned)
 	cloned.CurrentToolID = invocation.toolID
 	cloned.CurrentToolName = invocation.toolName
 	cloned.RunLoopState = RunLoopStateToolExecuting
@@ -874,6 +931,7 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 		}
 	}
 	cloned := *s.execCtx
+	s.bindAwcpExecutionContext(invocation, &cloned)
 	cloned.CurrentToolID = invocation.toolID
 	cloned.CurrentToolName = invocation.toolName
 	cloned.RunLoopState = RunLoopStateToolExecuting
@@ -950,6 +1008,10 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			s.finishToolInvocation(invocation)
 		}
 	}()
+	if gateErr := s.awcpInvocationRecoveryGate(invocation); gateErr != nil {
+		s.appendOriginalToolResult(invocation, awcpGateResult(gateErr))
+		return nil
+	}
 	if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
 		s.recordTerminalToolBudgetError(*result)
 		s.appendOriginalToolResult(invocation, *result)
@@ -1134,12 +1196,20 @@ func (s *llmRunStream) handleHITLApproval(invocation *preparedToolInvocation, re
 }
 
 func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvocation) error {
+	if gateErr := s.awcpInvocationRecoveryGate(invocation); gateErr != nil {
+		s.appendOriginalToolResult(invocation, awcpGateResult(gateErr))
+		return nil
+	}
+	if err := s.validateAwcpInvocationBinding(invocation); err != nil {
+		s.appendOriginalToolResult(invocation, ToolExecutionResult{Error: "awcp_request_binding_expired", ExitCode: -1, Output: err.Error(), Structured: map[string]any{"executed": false}})
+		return nil
+	}
 	s.recordAccessPolicyAutoApproval(invocation)
 	if s.toolSupportsOutputStreaming(invocation) {
 		return s.startActiveToolExecution(invocation)
 	}
 	execCtx := s.execCtx
-	if invocation.hostBashAuthorization != nil {
+	if invocation.hostBashAuthorization != nil || invocation.awcpBinding != nil {
 		execCtx = s.serialExecutionContext(invocation)
 	}
 	invocation.executionStarted = true
@@ -1217,6 +1287,13 @@ func preparedToolErrorResult(toolID, toolName, output, errorCode string) ([]Agen
 		Output:   output,
 		Error:    errorCode,
 		ExitCode: -1,
+	}, output)
+}
+
+func preparedAwcpToolErrorResult(toolID, toolName, output, errorCode, stage string) ([]AgentDelta, *openAIMessage) {
+	return preparedToolResultMessage(toolID, toolName, ToolExecutionResult{
+		Output: output, Error: errorCode, ExitCode: -1,
+		Structured: map[string]any{"stage": stage, "executionStarted": false},
 	}, output)
 }
 
@@ -1326,9 +1403,6 @@ func (s *llmRunStream) markRunLimitFinalAnswerCompleted() {
 }
 
 func (s *llmRunStream) finalAnswerToolCallFallback() string {
-	if s != nil && s.forcedFinalAnswer != "" {
-		return awcpFailureFinalFallback
-	}
 	if s.runLimitFinalAnswerActive() {
 		return "BTW reached its read-only tool limit. It cannot continue the parent task; ask the side question again or continue in the main conversation."
 	}
@@ -1447,6 +1521,14 @@ func (s *llmRunStream) emitRecordedTerminalToolBudgetError() {
 }
 
 func (s *llmRunStream) prepareToolResultForPublish(invocation *preparedToolInvocation, result ToolExecutionResult) ToolExecutionResult {
+	if awcpMethod(invocation.toolName, invocation.args) == desktopAwcpSnapshotMethod && result.ExitCode == 0 && result.Error == "" {
+		response := anyMap(result.Structured["response"])
+		if _, _, err := validateAwcpSnapshot(map[string]any{"revision": response["revision"], "actions": response["actions"]}); err != nil {
+			result.Error = "awcp_invalid_snapshot"
+			result.ExitCode = -1
+			result.Output = err.Error()
+		}
+	}
 	if authorization := invocation.hostBashAuthorization; authorization != nil {
 		authorization.access, authorization.security = nil, nil
 		authorization.retired = true
@@ -1540,7 +1622,13 @@ func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolIn
 		return
 	}
 	s.previousToolResult = structuredOrOutput(result)
+	s.observeDesktopToolResult(invocation, result)
 	content := s.toolResultContent(invocation.toolName, result)
+	if awcpMethod(invocation.toolName, invocation.args) != "" && result.Error != "awcp_recovery_required" {
+		if notice := s.awcpStopNotice(); notice != "" {
+			content += "\n" + notice
+		}
+	}
 	s.messages = append(s.messages, openAIMessage{
 		Role:       "tool",
 		ToolCallID: invocation.toolID,
@@ -1550,7 +1638,6 @@ func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolIn
 	if s.lastTrace != nil {
 		s.lastTrace.appendToolResult(invocation, content, result)
 	}
-	s.observeDesktopToolResult(invocation, result)
 	if entry, ok := s.buildHITLNoticeEntry(invocation); ok {
 		s.pendingHITLNotices = append(s.pendingHITLNotices, entry)
 	}
@@ -1608,6 +1695,19 @@ func applyHITLMetadata(result ToolExecutionResult, invocation *preparedToolInvoc
 }
 
 func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionResult) string {
+	if toolName == desktopCdpToolName && result.ExitCode == 0 && result.Error == "" {
+		response := anyMap(result.Structured["response"])
+		if response["method"] == desktopAwcpSnapshotMethod && response["ok"] == true {
+			if raw, ok := response["actions"].([]any); ok {
+				actions := make([]any, 0, len(raw))
+				for _, item := range raw {
+					descriptor := anyMap(item)
+					actions = append(actions, map[string]any{"action": descriptor["action"], "description": descriptor["description"], "example": descriptor["example"]})
+				}
+				return MarshalJSON(map[string]any{"revision": response["revision"], "actions": actions})
+			}
+		}
+	}
 	return result.Output
 }
 

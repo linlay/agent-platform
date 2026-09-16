@@ -99,6 +99,50 @@ func TestOpenAIFinishReasonTerminationKeepsImmediateBehavior(t *testing.T) {
 	}
 }
 
+func TestOpenAIConfiguredTailObservesButNeverAppliesMalformedToolDeltas(t *testing.T) {
+	engine := &LLMAgentEngine{}
+	protocol := &openAIProtocol{engine: engine}
+	stream := newOpenAITerminationTestStream(engine, protocol, qwenStyleStreamEndCompat(50), io.NopCloser(strings.NewReader("")))
+	stream.allowToolUse = true
+	done, err := protocol.ConsumeChunk(stream, "", `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"partial","type":"function","function":{"name":"desktop_cdp","arguments":"{\"method\":\"AWCP.invoke\""}}]},"finish_reason":"tool_calls"}]}`)
+	if err != nil || done || !stream.awaitingOpenAITerminalMetadata() {
+		t.Fatalf("malformed arguments skipped terminal observation: done=%v err=%v", done, err)
+	}
+	if timeout := stream.currentSSEIdleTimeout(); timeout <= 0 || timeout > time.Duration(models.OpenAITrailingTimeoutDefaultMS)*time.Millisecond {
+		t.Fatalf("terminal wait is not bounded: %v", timeout)
+	}
+	done, err = protocol.ConsumeChunk(stream, "", `{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":",\"params\":{}}"}}]}}]}`)
+	if err != nil || done {
+		t.Fatalf("tail observation failed: done=%v err=%v", done, err)
+	}
+	turn := stream.currentTurn
+	if turn.toolCalls[0].Arguments.String() != `{"method":"AWCP.invoke"` || turn.observation.InvalidToolArguments != 1 || turn.observation.PostFinishToolDeltas != 1 {
+		t.Fatal("tail repaired the original arguments or diagnostics were lost")
+	}
+	done, err = stream.consumeCurrentTurn()
+	if err != nil || !done || stream.currentTurn != nil || turn.observation.CompletionTrigger != "eof_after_finish" {
+		t.Fatalf("EOF did not finish malformed response: done=%v err=%v", done, err)
+	}
+	if len(stream.queuedToolCalls) != 0 {
+		t.Fatal("malformed arguments reached execution")
+	}
+}
+
+func TestOpenAIMalformedOrdinaryToolKeepsConfiguredFinishReason(t *testing.T) {
+	engine := &LLMAgentEngine{}
+	protocol := &openAIProtocol{engine: engine}
+	stream := newOpenAITerminationTestStream(engine, protocol, protocolRuntimeConfig{}, io.NopCloser(strings.NewReader("")))
+	stream.allowToolUse = true
+	turn := stream.currentTurn
+	done, err := protocol.ConsumeChunk(stream, "", `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"partial","type":"function","function":{"name":"file_read","arguments":"{"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`)
+	if err != nil || !done || stream.currentTurn != nil || turn.observation.CompletionTrigger != "finish_reason" {
+		t.Fatalf("malformed ordinary tool changed termination: done=%v err=%v", done, err)
+	}
+	if turn.observation.InvalidToolArguments != 1 || len(stream.queuedToolCalls) != 0 {
+		t.Fatal("diagnostics were lost or malformed arguments reached execution")
+	}
+}
+
 func TestOpenAIStreamEndIgnoresTrailingContentAndToolCalls(t *testing.T) {
 	engine := &LLMAgentEngine{}
 	protocol := &openAIProtocol{engine: engine}

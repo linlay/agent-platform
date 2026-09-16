@@ -51,7 +51,7 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 		request, manual = s.runControl.ClaimCompact()
 	}
 	preTokens := s.estimatedNextCallSize()
-	if raw := estimateModelContext(s.messages, s.toolSpecs); raw > 0 && preTokens > raw {
+	if raw := estimateModelContext(s.messages, s.toolSpecsForContextEstimate()); raw > 0 && preTokens > raw {
 		s.compactEstimateScale = max(s.compactEstimateScale, float64(preTokens)/float64(raw))
 	}
 	if !manual {
@@ -216,7 +216,7 @@ func (s *llmRunStream) buildContextCompactPlan(force bool) contextCompactPlan {
 	progress := cloneModelMessages(s.messages[pinnedEnd:])
 	groups := compactMessageGroups(progress)
 	target := s.effectiveContextWindow() * runCompactTargetPercent / 100
-	mandatory := estimateModelContext(plan.system, s.toolSpecs) + estimateModelContext(plan.pinned, nil)
+	mandatory := estimateModelContext(plan.system, s.toolSpecsForContextEstimate()) + estimateModelContext(plan.pinned, nil)
 	summaryAllowance := s.effectiveContextWindow() / 10
 	if summaryAllowance > 4096 {
 		summaryAllowance = 4096
@@ -501,7 +501,7 @@ func (s *llmRunStream) compactRunToolMessages(keepRecent, targetTokens int) ([]o
 	}
 	raw := modelMessagesToMaps(s.messages)
 	if targetTokens > 0 {
-		targetTokens = max(1, targetTokens-estimateModelContext(nil, s.toolSpecs))
+		targetTokens = max(1, targetTokens-estimateModelContext(nil, s.toolSpecsForContextEstimate()))
 	}
 	projected, cleared, kept := chat.CompactToolMessages(raw, keepRecent, targetTokens, s.pinnedMessageStart, s.pinnedMessageEnd)
 	// Keep all ordinary content and protocol fields byte-for-byte in the model
@@ -719,7 +719,7 @@ func modelMessagesToMaps(messages []openAIMessage) []map[string]any {
 }
 
 func (s *llmRunStream) estimateCompactContext(messages []openAIMessage) int {
-	raw := estimateModelContext(messages, s.toolSpecs)
+	raw := estimateModelContext(messages, s.toolSpecsForContextEstimate())
 	scale := max(1.0, s.compactEstimateScale)
 	return int(float64(raw)*scale + 0.999999)
 }
