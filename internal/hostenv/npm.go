@@ -144,13 +144,18 @@ func WithNPM(env []string) []string {
 	if bin == "" {
 		return append([]string(nil), env...)
 	}
-	dirs := []string{bin}
-	for _, p := range filepath.SplitList(Value(env, "PATH")) {
-		if p != "" && !samePath(p, bin) {
-			dirs = append(dirs, p)
+	// Discovery supplements the caller's PATH; never promote a system Node
+	// ahead of an explicitly supplied runtime (for example Desktop's Node).
+	current := Value(env, "PATH")
+	for _, p := range filepath.SplitList(current) {
+		if p != "" && samePath(p, bin) {
+			return append([]string(nil), env...)
 		}
 	}
-	return Set(env, "PATH", strings.Join(dirs, string(os.PathListSeparator)))
+	if current == "" {
+		return Set(env, "PATH", bin)
+	}
+	return Set(env, "PATH", current+string(os.PathListSeparator)+bin)
 }
 func samePath(a, b string) bool {
 	if runtime.GOOS == "windows" {
