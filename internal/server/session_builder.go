@@ -1,6 +1,7 @@
 package server
 
 import (
+	"agent-platform/internal/agentconfig"
 	"context"
 	"fmt"
 	"log"
@@ -22,15 +23,17 @@ import (
 )
 
 type querySessionBuildOptions struct {
-	Created                bool
-	SubTaskID              string
-	Locale                 string
-	IncludeHistory         bool
-	IncludeMemory          bool
-	AllowInvokeAgents      bool
-	Principal              *Principal
-	TeamHistoryAgentKey    string
-	TeamCoordinatorHistory bool
+	// Recovered runs cannot reconstruct their original in-memory script grants.
+	DisableSkillScriptGrants bool
+	Created                  bool
+	SubTaskID                string
+	Locale                   string
+	IncludeHistory           bool
+	IncludeMemory            bool
+	AllowInvokeAgents        bool
+	Principal                *Principal
+	TeamHistoryAgentKey      string
+	TeamCoordinatorHistory   bool
 }
 
 var memoryInjectionEnabled = false
@@ -251,6 +254,8 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		SkillKeys:                     append([]string(nil), agentDef.EffectiveSkills()...),
 		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
 		ConnectorBinDirs:              append([]string(nil), agentDef.ConnectorBinDirs...),
+		ConnectorEnv:                  agentconfig.Merge(agentDef.ConnectorEnv),
+		ConnectorCredentials:          agentDef.ConnectorCredentials,
 		ContextTags:                   append([]string(nil), agentDef.ContextTags...),
 		Budget:                        contracts.CloneMap(agentDef.Budget),
 		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),
@@ -286,6 +291,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AccessLevel:                   normalizedAccessLevel(req.AccessLevel),
 		SkillHookDirs:                 skillHookDirs,
 		StaticRuntimeEnv:              runtimeEnvOverrides,
+	}
+	if !options.DisableSkillScriptGrants && !isProxyRoutedAgent(agentDef) && !agentbuiltin.IsCoderACPBackend(agentDef.Mode, agentDef.ACPBridgeID) && !strings.EqualFold(agentDef.Mode, agentbuiltin.TeamMode) {
+		session.SkillScripts = buildSkillScriptScope(session, agentDef, mustUseSkills.Skills)
 	}
 	if options.SubTaskID == "" && strings.TrimSpace(req.TeamID) == "" && !isProxyRoutedAgent(agentDef) && containsTool(agentDef.Tools, "platform_control") {
 		if existing, ok := lookupRunEnvironment(s.deps.Runs, req.RunID); ok {

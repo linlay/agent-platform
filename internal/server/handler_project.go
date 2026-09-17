@@ -10,6 +10,33 @@ import (
 	projectpkg "agent-platform/internal/project"
 )
 
+func (s *Server) handleProjectGit(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	response, err := s.projectService().Git(r.Context(), r.URL.Query().Get("agentKey"))
+	s.writeProjectHTTPResponse(w, response, err)
+}
+
+func (s *Server) handleProjectGitBranches(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	switch r.Method {
+	case http.MethodGet:
+		response, err := s.projectService().GitBranches(r.Context(), r.URL.Query().Get("agentKey"))
+		s.writeProjectHTTPResponse(w, response, err)
+	case http.MethodPost:
+		var request api.ProjectGitBranchRequest
+		r.Body = http.MaxBytesReader(w, r.Body, 8192)
+		if err := decodeJSON(r, &request); err != nil {
+			s.writeProjectHTTPResponse(w, nil, projectpkg.Error{Status: 400, Code: "invalid_request", Message: "invalid branch request"})
+			return
+		}
+		response, err := s.projectService().ChangeGitBranch(r.Context(), request)
+		s.writeProjectHTTPResponse(w, response, err)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		s.writeProjectHTTPResponse(w, nil, projectpkg.Error{Status: 405, Code: "method_not_allowed", Message: "method not allowed"})
+	}
+}
+
 func (s *Server) handleProjectTree(w http.ResponseWriter, r *http.Request) {
 	limit, err := projectPageLimit(r.URL.Query().Get("limit"))
 	if err != nil {

@@ -289,6 +289,11 @@ func translateExecutionPath(session QuerySession, rawPath string) (string, bool,
 	if !session.AgentHasRuntimeSandbox {
 		return "", false, nil
 	}
+	// Translate only skill mounts frozen for this run, then apply the ordinary
+	// host path policy (including readonly and selected-skill read roots).
+	if host, ok := session.SkillScripts.HostPath(rawPath); ok {
+		return host, true, nil
+	}
 	if rawPath == "/connectors" || strings.HasPrefix(rawPath, "/connectors/") {
 		resolved, err := ResolveSessionPath(session, "@connectors"+strings.TrimPrefix(rawPath, "/connectors"))
 		return resolved, true, err

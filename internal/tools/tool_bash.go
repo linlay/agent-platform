@@ -18,7 +18,9 @@ import (
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/textcodec"
 )
@@ -94,10 +96,17 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.WaitDelay = bashOutputPipeWaitDelay
 	cmd.Dir = workingDir
-	commandEnv, err := mergeBashCommandEnv(execCtx, t.cfg.IdentityFile)
+	commandEnv, err := mergeBashCommandEnvContext(runCtx, execCtx, t.cfg.IdentityFile)
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
 	}
+	var configEnv map[string]string
+	if execCtx != nil {
+		configEnv = execCtx.Session.ConnectorEnv
+	}
+	bound := hostenv.BindShellEnvironment(shellExecutable, command, commandEnv, configEnv)
+	_, boundArgs := resolveHostShellInvocation(t.cfg.Bash, bound, runtimeInfo.GOOS)
+	cmd.Args = append([]string{shellExecutable}, boundArgs...)
 	cmd.Env = commandEnv
 
 	stdoutFile, err := os.CreateTemp("", "agent-platform-bash-stdout-*.log")
@@ -168,7 +177,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if accessReview.AutoApproved() {
 		appendBashAccessPolicyMetadata(&result, accessReview, stdout, stderr, workingDir, exitCode)
 	}
-	if approvalSource != "" || accessReview.HasConnector || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" {
+	if approvalSource != "" || accessReview.HasConnector || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" || accessReview.RuleKey == "bash-access:skill-script" {
 		if result.Structured == nil {
 			result.Structured = map[string]any{"stdout": stdout, "stderr": stderr, "mode": "host", "cwd": workingDir, "exitCode": exitCode}
 		}
@@ -417,8 +426,12 @@ func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
 		}
 		runtimeEnv = agentconfig.Merge(runtimeEnv, dynamic)
 	}
+	var connectorEnv map[string]string
+	if execCtx != nil {
+		connectorEnv = execCtx.Session.ConnectorEnv
+	}
 	overrides := agentconfig.Merge(
-		runtimeEnv,
+		runtimeEnv, connectorEnv,
 		agentconfig.HostEnvironment(agentDir, workspaceDir, chatDir),
 	)
 	if len(overrides) == 0 {
@@ -450,11 +463,24 @@ func mergeEnvironmentList(base []string, overrides map[string]string) []string {
 }
 
 func mergeBashCommandEnv(execCtx *ExecutionContext, identityFile string) ([]string, error) {
+	return mergeBashCommandEnvContext(context.Background(), execCtx, identityFile)
+}
+
+func mergeBashCommandEnvContext(ctx context.Context, execCtx *ExecutionContext, identityFile string) ([]string, error) {
 	commandEnv, err := mergeCommandEnv(execCtx)
 	if err != nil {
 		return nil, err
 	}
 	identity, _ := agentconfig.ReadIdentityEnvironment(identityFile)
+	if execCtx != nil && len(execCtx.Session.ConnectorCredentials) > 0 {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		values, err := connectorauth.ResolveEnvironments(ctx, execCtx.Session.ConnectorCredentials, identityFile)
+		if err != nil {
+			return nil, err
+		}
+		commandEnv = mergeEnvironmentList(commandEnv, values)
+	}
 	return agentconfig.WithIdentityEnvironment(commandEnv, identity), nil
 }
 

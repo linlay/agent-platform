@@ -25,6 +25,11 @@ func DeletePackage(ctx context.Context, sources Sources, id string, check func(s
 	}
 	mutationMu.Lock()
 	defer mutationMu.Unlock()
+	release, err := AcquireOperation(sources.ExternalRoot, id)
+	if err != nil {
+		return err
+	}
+	defer release()
 	target := filepath.Join(sources.ExternalRoot, id)
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {

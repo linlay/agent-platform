@@ -90,6 +90,31 @@ type ProjectTreeEntry struct {
 	ModifiedUnixMs int64  `json:"modifiedUnixMs,omitempty"`
 }
 
+// ProjectGitResponse is a live, read-only snapshot, never Agent configuration.
+type ProjectGitResponse struct {
+	AgentKey string `json:"agentKey"`
+	Status   string `json:"status"`
+	Branch   string `json:"branch,omitempty"`
+	Commit   string `json:"commit,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	Revision string `json:"revision,omitempty"`
+}
+
+type ProjectGitBranchesResponse struct {
+	Git            ProjectGitResponse `json:"git"`
+	Branches       []string           `json:"branches"`
+	CanChange      bool               `json:"canChange"`
+	BlockedReason  string             `json:"blockedReason,omitempty"`
+	ExpectedBranch string             `json:"expectedBranch,omitempty"`
+}
+
+type ProjectGitBranchRequest struct {
+	AgentKey         string `json:"agentKey"`
+	Operation        string `json:"operation"`
+	Branch           string `json:"branch"`
+	ExpectedRevision string `json:"expectedRevision"`
+}
+
 type ProjectTreeResponse struct {
 	AgentKey      string             `json:"agentKey"`
 	Mode          string             `json:"mode"`
@@ -697,25 +722,26 @@ type AdminAgentSummary struct {
 }
 
 type AgentDetailResponse struct {
-	Key          string                     `json:"key"`
-	Name         string                     `json:"name"`
-	Icon         any                        `json:"icon,omitempty"`
-	Description  string                     `json:"description,omitempty"`
-	Role         string                     `json:"role,omitempty"`
-	Greetings    []string                   `json:"greetings,omitempty"`
-	Wonders      []string                   `json:"wonders,omitempty"`
-	Model        string                     `json:"model,omitempty"`
-	Mode         string                     `json:"mode"`
-	Tools        []string                   `json:"tools"`
-	Skills       []string                   `json:"skills"`
-	Controls     []map[string]any           `json:"controls"`
-	Meta         map[string]any             `json:"meta"`
-	ModelConfig  map[string]any             `json:"modelConfig,omitempty"`
-	ModelOptions *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
-	Definition   map[string]any             `json:"definition,omitempty"`
-	SoulPrompt   string                     `json:"soulPrompt,omitempty"`
-	AgentsPrompt string                     `json:"agentsPrompt,omitempty"`
-	Source       *AgentSource               `json:"source,omitempty"`
+	Key           string                     `json:"key"`
+	Name          string                     `json:"name"`
+	Icon          any                        `json:"icon,omitempty"`
+	Description   string                     `json:"description,omitempty"`
+	Role          string                     `json:"role,omitempty"`
+	Greetings     []string                   `json:"greetings,omitempty"`
+	Introductions []string                   `json:"introductions,omitempty"`
+	Wonders       []string                   `json:"wonders,omitempty"`
+	Model         string                     `json:"model,omitempty"`
+	Mode          string                     `json:"mode"`
+	Tools         []string                   `json:"tools"`
+	Skills        []string                   `json:"skills"`
+	Controls      []map[string]any           `json:"controls"`
+	Meta          map[string]any             `json:"meta"`
+	ModelConfig   map[string]any             `json:"modelConfig,omitempty"`
+	ModelOptions  *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
+	Definition    map[string]any             `json:"definition,omitempty"`
+	SoulPrompt    string                     `json:"soulPrompt,omitempty"`
+	AgentsPrompt  string                     `json:"agentsPrompt,omitempty"`
+	Source        *AgentSource               `json:"source,omitempty"`
 }
 
 type AgentSource struct {

@@ -8,6 +8,7 @@ import (
 
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/models"
+	"agent-platform/internal/platformcontrol"
 )
 
 func (s *llmRunStream) currentContextSize() int {
@@ -503,9 +504,14 @@ func (s *llmRunStream) drainUsageChunk() {
 		return
 	}
 	for i := 0; i < 3; i++ {
-		_, rawChunk, err := s.readCurrentSSEFrame()
+		eventName, rawChunk, err := s.readCurrentSSEFrame()
 		if err != nil {
 			break
+		}
+		if sessionHasTool(s.session, platformcontrol.ToolName) {
+			s.engine.logRawChunk(s.session.RunID, "[REDACTED_RAW_PROVIDER_FRAME]")
+		} else {
+			s.engine.logRawChunk(s.session.RunID, formatRawSSEFrame(eventName, rawChunk))
 		}
 		if rawChunk == "" || rawChunk == "[DONE]" {
 			break
@@ -516,6 +522,9 @@ func (s *llmRunStream) drainUsageChunk() {
 			continue
 		}
 		s.currentTurn.observation.recordOpenAIChunk(decoded)
+		for _, choice := range decoded.Choices {
+			s.currentTurn.observation.PostFinishToolDeltas += len(choice.Delta.ToolCalls)
+		}
 		if decoded.Usage != nil {
 			s.accumulateUsage(decoded.Usage)
 			break

@@ -154,13 +154,20 @@ func prepareRolloutCandidate(lockPath, collectionRoot, durableRoot, hostTarget s
 	lock.SchemaVersion = 2
 	candidate := rolloutCandidate{Lock: lock, Original: original, LockPath: absLockPath, TargetKey: targetKey}
 
+	bundleGitBash, err := builtins.BundleGitBashFromEnv()
+	if err != nil {
+		return rolloutCandidate{}, err
+	}
 	components := append([]builtins.Component(nil), candidate.Lock.Components...)
-	if targetKey == "windows-amd64" {
+	if bundleGitBash && targetKey == "windows-amd64" {
 		if _, err := builtins.FindComponent(lock, builtins.GitBashComponent); err != nil {
 			components = append(components, gitBashSeed())
 		}
 	}
 	for index, canonical := range components {
+		if !bundleGitBash && canonical.Name == builtins.GitBashComponent {
+			continue
+		}
 		if !isLocallyVersionedComponent(canonical.Name) {
 			continue
 		}

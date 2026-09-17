@@ -6,6 +6,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$bundleGitBashValue = "$env:BUNDLE_GIT_BASH".Trim().ToLowerInvariant()
+if ($bundleGitBashValue -notin @('', 'true', 'false')) { throw 'BUNDLE_GIT_BASH must be true or false' }
+$bundleGitBash = $bundleGitBashValue -ne 'false'
+Write-Host "[builtins-sync] bundle Git Bash: $bundleGitBash"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ScriptDir
 $BuildRoot = Join-Path $RepoRoot "build/builtins"
@@ -46,7 +50,8 @@ function Copy-IsolatedProject {
     $source = Join-Path $BuiltinsRoot $Name
     $destination = Join-Path $CollectionRoot $Name
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
-    & robocopy $source $destination /E /XD dist target /XF .DS_Store /NFL /NDL /NJH /NJS /NP
+    # Exclude only project build outputs; payloads may contain runtime dist/target directories.
+    & robocopy $source $destination /E /XD (Join-Path $source "dist") (Join-Path $source "target") /XF .DS_Store /NFL /NDL /NJH /NJS /NP
     if ($LASTEXITCODE -ge 8) {
         throw "robocopy failed for $Name with exit code $LASTEXITCODE"
     }
@@ -123,7 +128,7 @@ try {
         Copy-IsolatedProject -Name $component -CollectionRoot $CollectionRoot
     }
 
-    if ($Targets -contains "windows/amd64") {
+    if ($bundleGitBash -and ($Targets -contains "windows/amd64")) {
         if (-not (Test-Path -LiteralPath (Join-Path $BuiltinsRoot "git-bash") -PathType Container)) {
             throw "Missing prepared git-bash builtin project"
         }

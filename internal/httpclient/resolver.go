@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -21,7 +20,7 @@ import (
 const DefaultRefreshInterval = 15 * time.Second
 
 type Config struct {
-	Mode                  string // auto (default), direct, or fixed
+	Mode                  string // auto (default), pac_auto, direct, or fixed
 	URL                   string
 	Bypass                []string // NO_PROXY syntax; used only in fixed mode
 	SystemRefreshInterval time.Duration
@@ -29,7 +28,7 @@ type Config struct {
 
 func (c Config) Validate() error {
 	switch c.Mode {
-	case "", "auto", "direct":
+	case "", "auto", "pac_auto", "direct":
 		if c.URL != "" || len(c.Bypass) != 0 {
 			return errors.New("http-proxy url and bypass require mode: fixed")
 		}
@@ -38,7 +37,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("http-proxy url: %w", err)
 		}
 	default:
-		return errors.New("http-proxy mode must be auto, direct, or fixed")
+		return errors.New("http-proxy mode must be auto, pac_auto, direct, or fixed")
 	}
 	if c.SystemRefreshInterval < 0 {
 		return errors.New("http-proxy system-refresh-interval must be positive")
@@ -56,6 +55,7 @@ type systemSettings struct {
 	Bypass             []string
 	ExcludeSimple      bool
 	Auto               bool
+	ResolveAuto        func(context.Context, *url.URL) (*url.URL, error)
 }
 
 type systemReader func(context.Context) (systemSettings, error)
@@ -72,7 +72,6 @@ type Resolver struct {
 	settings    systemSettings
 	settingsErr error
 	expires     time.Time
-	autoWarning sync.Once
 }
 
 func NewResolver(c Config) (*Resolver, error) {
@@ -141,11 +140,6 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (Decision, error) {
 	if err != nil {
 		return Decision{Source: "system"}, fmt.Errorf("read system proxy settings: %w", err)
 	}
-	if s.Auto {
-		r.autoWarning.Do(func() {
-			log.Print("system PAC/WPAD detected; automatic scripts are not executed; only fixed proxies and bypass settings are supported")
-		})
-	}
 	if systemBypass(u, s.Bypass, s.ExcludeSimple) {
 		return Decision{Source: "system-bypass"}, nil
 	}
@@ -159,8 +153,19 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (Decision, error) {
 	if p != nil {
 		return Decision{Proxy: p, Source: "system"}, nil
 	}
+	// PAC/WPAD is opt-in on every platform, even when a native resolver exists.
+	if s.Auto && r.config.Mode == "auto" {
+		return Decision{Source: "system-auto-skipped-direct"}, nil
+	}
+	if s.Auto && s.ResolveAuto != nil {
+		p, err := s.ResolveAuto(ctx, u)
+		if errors.Is(err, errAutoProxyNotDiscovered) {
+			return Decision{Source: "system-wpad-not-found"}, nil
+		}
+		return Decision{Proxy: p, Source: "system-auto"}, err
+	}
 	if s.Auto {
-		return Decision{Source: "system-auto"}, errors.New("system PAC/WPAD is not supported yet; configure a fixed system proxy, HTTP_PROXY/HTTPS_PROXY, or http-proxy mode")
+		return Decision{Source: "system-auto"}, errors.New("system PAC/WPAD is not supported on this platform; use http-proxy mode auto or direct to skip PAC/WPAD, or configure a fixed proxy")
 	}
 	return Decision{Source: "direct"}, nil
 }

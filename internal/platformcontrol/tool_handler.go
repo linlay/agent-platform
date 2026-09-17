@@ -2,6 +2,7 @@ package platformcontrol
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -95,6 +96,9 @@ func validateOperationParams(operationName string, params map[string]any) error 
 		}
 		return requireStringFields(params, "path")
 	case "catalog.validate":
+		if _, exists := params["contentBytes"]; exists {
+			return fmt.Errorf("unknown params field %q: this is redacted display metadata, not a request parameter; catalog.validate accepts only resourceType, resourceKey, content; reread the candidate file and submit its complete content", "contentBytes")
+		}
 		if err := requireFields(params, []string{"resourceType", "resourceKey", "content"}, nil); err != nil {
 			return err
 		}
@@ -166,6 +170,9 @@ func (h *ToolHandler) validate(resourceType string, resourceKey string, content 
 	if strings.TrimSpace(content) == "" {
 		return errorResult("invalid_request", "content is required")
 	}
+	if strings.TrimSpace(content) == "[REDACTED]" {
+		return errorResult("catalog_candidate_redacted", "content is a redacted history placeholder, not candidate content; reread the candidate file and submit its complete content using only resourceType, resourceKey, content")
+	}
 	if len(content) > maxCandidateBytes {
 		return errorResult("invalid_request", "content exceeds 1 MiB")
 	}
@@ -199,7 +206,11 @@ func (h *ToolHandler) validate(resourceType string, resourceKey string, content 
 		"resourceType": resourceType,
 		"resourceKey":  resourceKey,
 		"valid":        !hasErrorDiagnostic(diagnostics),
-		"diagnostics":  diagnostics,
+		"candidate": map[string]any{
+			"sha256": fmt.Sprintf("%x", sha256.Sum256([]byte(content))),
+			"bytes":  len([]byte(content)),
+		},
+		"diagnostics": diagnostics,
 	})
 }
 

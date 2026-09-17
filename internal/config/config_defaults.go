@@ -223,7 +223,9 @@ func defaultRuntimeRoot() string {
 	return runtimeRoot
 }
 
-func resolveIdentityFile(configRoot string, configured string) (string, error) {
+// ResolveIdentityFile selects the shared identity source after state paths resolve.
+// It does not read or create credentials.
+func ResolveIdentityFile(stateDir, configured string) (string, error) {
 	configured = strings.TrimSpace(configured)
 	if configured != "" {
 		if !filepath.IsAbs(configured) {
@@ -231,19 +233,7 @@ func resolveIdentityFile(configRoot string, configured string) (string, error) {
 		}
 		return filepath.Clean(configured), nil
 	}
-
-	runtimeRoot, err := expandRuntimeRootHome(defaultRuntimeRoot())
-	if err != nil {
-		return "", err
-	}
-	if !filepath.IsAbs(runtimeRoot) {
-		runtimeRoot = filepath.Join(resolveConfigRoot(configRoot), runtimeRoot)
-	}
-	identityFile, err := filepath.Abs(filepath.Join(runtimeRoot, "identity", "access-token"))
-	if err != nil {
-		return "", fmt.Errorf("resolve default identity file: %w", err)
-	}
-	return filepath.Clean(identityFile), nil
+	return filepath.Join(stateDir, "identity", "access-token"), nil
 }
 
 func expandRuntimeRootHome(runtimeRoot string) (string, error) {

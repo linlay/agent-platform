@@ -941,9 +941,10 @@ func TestMergeBashCommandEnvReadsCurrentIdentityTokenAndRejectsOverrides(t *test
 }
 
 func TestInvokeHostBashInjectsCurrentDefaultIdentityToken(t *testing.T) {
+	t.Setenv("AP_RUNTIME_STATE_DIR", "")
 	root := t.TempDir()
 	runtimeRoot := filepath.Join(root, "runtime")
-	identityFile := filepath.Join(runtimeRoot, "identity", "access-token")
+	identityFile := filepath.Join(runtimeRoot, ".state", "identity", "access-token")
 	if err := os.MkdirAll(filepath.Dir(identityFile), 0o700); err != nil {
 		t.Fatal(err)
 	}

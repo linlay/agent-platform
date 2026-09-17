@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"agent-platform/internal/hostenv"
 	"errors"
 	"os"
 	"path/filepath"
@@ -68,6 +69,7 @@ func configureProcessPathForDirectory(candidate string) (string, error) {
 }
 
 func EnsureBinInEnv(env []string) []string {
+	env = hostenv.WithNPM(env)
 	processBinState.RLock()
 	binDir := processBinState.dir
 	processBinState.RUnlock()

@@ -100,22 +100,43 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 文件必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
 
-Platform 读取后沿现有链路归一化布尔参数并发送 `params`；`paramsFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
+Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符串布尔值静默转换；`paramsFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
 
 ## Desktop 反向 Provider
 
-Agent 仍然只看到 `desktop_action` 与 `desktop_cdp`。Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
+Agent 可看到静态 Desktop 工具 `desktop_action` 与 `desktop_cdp`。普通 Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明；AWCP 动态页面 Action 不进入该白名单，而通过 `desktop_cdp` 的 `AWCP.getSnapshot` / `AWCP.invoke` 两个静态 method 使用。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
 
-- Desktop 模式：83 个 `desktop.*` 直接以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`desktop_cdp` 继续使用 `desktop.cdp.call`。Broker 调用现有 Action/CDP 核心 handler。
+- Desktop 模式：97 个普通 `desktop.*` 由 `desktop_action` 直接以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`desktop_cdp` 的普通 CDP method 使用 `desktop.cdp.call`，两个 AWCP method 分别映射到 `desktop.awcp.snapshot` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
 - Standalone 模式：只有七个 `desktop.workpanel.*` 与 `desktop.display` 具体类型发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`，CDP 返回 `desktop_cdp_unsupported_runtime`。
 
+普通 Action 名称跟随 `zenmind-desktop/src/shared/desktop-actions.ts` 的 `DESKTOP_ACTION_DEFINITIONS`，排除 Desktop 明确限制为 WebApp page 调用的 11 个动作（`desktop.assistant.image/image.cancel`、`desktop.capabilities.list` 与八个 `desktop.native.*`）。当前 108 个定义中，97 个进入 Platform 白名单；参数校验、目标授权和确认仍由 Desktop 执行。两个旧 `desktop.webapp.manifest.*` 动作已删除，工程初始化使用 `desktop.webapp.package.init`。
+
+本地存在相邻 `zenmind-desktop` checkout 时，`go test ./internal/tools -run TestDesktopActionContractMatchesDesktopSource -count=1` 会直接核对上游定义。CI 或非相邻 checkout 可设置 `ZENMIND_DESKTOP_SOURCE` 为 Desktop 仓库路径；显式配置路径缺失会失败，未配置且无相邻仓库时跳过这项跨仓检查。更新 Desktop 后需同步 YAML 和契约测试；内嵌工具 Schema 的变更需要重新构建并重启 Platform。
+
 Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey/teamId`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,targetId,sessionId,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
+
+AWCP 按网站操作手册渐进披露，`desktop_cdp` 的工具定义始终固定。模型先读取动作目录，再按任务读取某个动作的页面说明、参数约束及示例，最后使用通用 `AWCP.invoke`。页面描述是普通工具结果，不注册成工具，不注入 system prompt，也不改写下一轮模型请求的 Schema。网站新增动作无需修改 Platform 核心。
+
+```json
+{"method":"AWCP.getSnapshot"}
+{"method":"AWCP.getSnapshot","params":{"action":"orders.select"}}
+{"method":"AWCP.invoke","params":{"revision":"page-revision","action":"orders.select","args":{"ids":["order-1"]}}}
+```
+
+- 目录读取：省略 params 或传 `{}`，只返回当前 revision 和动作名称、描述，不提前加载全部参数说明到模型上下文。
+- 单项手册读取：`params.action` 选择一个动作，返回网站原始描述符（包含网站提供的 inputSchema、可选 example/outputSchema 和其他手册字段）。Platform 不编译这些 Schema，不要求 example，也不限制为模型提供商支持的 Schema 子集。若网站在描述中提供更详细的手册入口，模型按需通过已授权的读取工具阅读。
+- 当前 Desktop wire 仍返回完整 snapshot；上述目录/单项投影在 Platform 工具层完成，两种读取均发送空 `desktop.awcp.snapshot` payload，不缓存页面状态。网站/ Desktop 原生分章节手册拉取尚未实现，不宣称网络层已经按章节获取。
+- 调用：params 精确为 `{revision,action,args}`，模型使用手册返回的 revision。Platform 校验固定外壳，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，在 handler 前验证业务输入，网站自己的 validator/handler 负责业务。原来的单 Action 键包装与运行核心注入 revision 已移除。
+
+运行核心不保存 AWCP revision、动作集合、模型请求绑定、失效 generation 或纠错预算；发现、调用和失败都走普通工具循环。错误原样按既有 response/error 分层返回，模型结合网站手册和执行状态决定修参、重新读取或向用户解释，Platform 不自动重放、不强制最终回答、不移除工具，也不因批次出现 AWCP 就改变通用排序和并发规则。有先后依赖的操作须逐步发起；不要在执行状态未知时盲目重复可能有副作用的操作。权限、审批、取消、通用 Run 限额和 Desktop 授权页面边界继续生效。
+
+普通 provider 的非法参数及尾帧诊断保持独立；不为 AWCP 修补半截 JSON 或增加模型重试。Skill 只需说明如何发现、阅读网站手册和调用通用方法，网站知识通过工具结果按需进入上下文，不要求安装网站专属 Skill 或修改 Agent Catalog。
 
 WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 与 attach 通过 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。WS attach 直接使用发起 attach 的连接。每次成功且携带有效 WebClient target 的 attach 都以 last-writer-wins 更新该 run 的反向 Action target；失败 attach 或普通无 target attach 不改变已有绑定，已发出的 Action 不迁移。Team 内部成员与 `agent_invoke` 子 run 按根 run 动态读取相同 target，planning 新 execution run 继承 source run 的当前 target。
 
 Desktop 模式只将 `scope=app` 且 JWT `device_id` 与握手 `deviceId` 完全一致的已认证 `source=desktop-main` WebSocket 作为默认连接 generation；`source` 或 query device metadata 本身不构成授权。已有且可达的 run target 始终优先；automation、`run_query` 等独立根 run 首次调用 Desktop 工具时若无 target，才把当前默认连接写入该 run。旧 target 已无法解析且请求尚未发送时，可以原子改绑新 generation 并发送一次；连接在请求发送后断开时返回 `*_client_disconnected`，不得自动重放。父 run 终态不撤销独立子 run 的绑定。Standalone 不读取该默认连接。目标元数据只保存在运行内存，不进入 prompt、事件、chat 或数据库。
 
-`desktop_action_target_unavailable` 保持稳定错误码。Standalone 无 target 使用 `run_target_missing`；Desktop Main 从未建立使用 `desktop_main_missing`，曾建立但当前离线使用 `desktop_main_disconnected`，无法进一步归类的旧绑定仍使用 `target_connection_unavailable`。`desktop_cdp` 使用对应的 `desktop_cdp_target_unavailable` 与相同 reason。
+`desktop_action_target_unavailable` 保持稳定错误码。Standalone 无 target 使用 `run_target_missing`；Desktop Main 从未建立使用 `desktop_main_missing`，曾建立但当前离线使用 `desktop_main_disconnected`，无法进一步归类的旧绑定仍使用 `target_connection_unavailable`。普通 CDP 与 AWCP 均通过 `desktop_cdp` 返回对应的 `desktop_cdp_*` 工具错误和相同 reason。
 
 默认 Desktop target 只决定反向请求送达位置，不扩大 WorkPanel 或页面权限。`desktop.workpanel.*` 到达 Desktop 后仍必须通过该 run 的 canonical Chat/grant；没有 grant 的独立 run 返回 `source_chat_not_ready`，不能借用当前可见 Chat。Team WorkPanel 的现有限制同样不变。
 
@@ -144,7 +165,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 - MCP server 暂时不可用或协议版本不兼容时，调用返回结构化 MCP unavailable 错误。
 - MCP streamable HTTP 和 stdio session、ACP、Proxy、Channel、LSP、KBASE sidecar 与其他长期驻留服务不继承动态 run env。stdio MCP 子进程仍只使用 registry 启动时的静态 `env`；运行中 `platform_control run.env.set/unset` 不重启或修改已存在 session。
 - `qiuerscript-tool` 在 stdin 关闭后正常退出，不支持私有 `shutdown` RPC。
-- `desktop_action` 的四个旧 WebClient sidebar Action、七个 Standalone WorkPanel Action 以及 Desktop Main Broker 反向 Action/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
+- `desktop_action`、`desktop_cdp` 及 Desktop Main Broker 反向 Action/AWCP/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
 - `ask_user_question` 由 `internal/toolinteraction` 中明确注册的 handler 负责等待、submit 规范化和固定 QA 模型输出；没有通用 YAML 表单 fallback。
 - HITL viewport 细节见 [HITL协议](HITL协议.md)。
 
@@ -160,3 +181,25 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 ## VIEW 展示元数据
 
 工具 YAML、MCP 工具声明与配置覆盖可使用 `view: {connectorId,key}` 绑定展示连接器。`tool.result` 独立携带服务端冻结的 `view`；不把展示定义混入工具结果。旧 `viewportType/viewportKey` 保留兼容。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
+
+### CDP 失败诊断
+
+Desktop 拥有按方法的参数预检和目标授权；Platform 不复制 Chromium 参数校验器，不修改参数类型。预检失败明确说明当前命令尚未执行，必须修正输入后重试；已执行命令的超时或脚本异常不能声称无副作用。反向错误保留 Desktop 的字段级诊断与恢复建议，按公开字段白名单有界投影，不透传原始参数、宿主身份或任意嵌套数据。
+
+`Runtime.evaluate` 的传输成功与脚本成功独立。Platform 保留原始 CDP 响应，同时将包含 `exceptionDetails` 的结果标为工具失败，显式提示异常位置沿用 CDP 零基行列。普通脚本返回值中的 `ok` 不视为宿主协议状态，页面业务是否完成由调用方回读期望状态核验。参数错误不得作为刷新、关闭表单或切换应用的理由；目标失效只在当前 Run 授权范围内重新发现。
+
+## 整合点击能力
+
+已挂载 `desktop_cdp` 的 Agent 可通过 `method: "Input.click"` 使用整合点击能力，参数放在 `params` 中，目标使用顶层 `targetId`。该方法复用一次 `desktop.cdp.call` 反向请求、可信 Run 来源和现有页面/WorkPanel 授权，不增加网络入口。`Input.click` 由 Desktop 编排，不直接转发给 Chromium。
+
+Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；模型不构造按下/释放事件、不写参数文件。Desktop 执行唯一定位、滚动和命中检查、真实左键单击、可选的后置条件观察。`waitFor` 完全可省略，此时只证明输入完成。等待超时、取消、导航和输入结果不确定分别保留动作阶段，不自动重放点击。Windows/macOS 均使用 Chromium CSS 视口坐标，不做宿主 DPI 换算。
+
+`params` 使用标准 CSS `selector` 或数字 `x/y`，二者互斥；可选整数 `timeoutMs` 为 100–10000，默认 3000。可选 `waitFor` 支持 visible/hidden（selector）、value（selector 与字符串 value）、checked（selector 与布尔 checked）、url（仅字符串 value）条件。Desktop 的执行结果区分 `action.outcome` 与 `conditionMatched`。工具结果外层成功只证明协议成功，不能代替页面/业务成功。原始 CDP 仍保留，但正常点击不再拆为多次模型调用。Desktop 与 Platform 需配套更新；旧 Desktop 拒绝新方法时明确报告版本能力缺失，不把它当成点击失败后重试。
+
+## Desktop Action 错误诊断
+
+普通 Desktop Action 保留宿主的错误类别、阶段、执行状态、直接原因、结构化恢复建议和诊断编号。Platform 在固定诊断位置按白名单有界投影，仅对明确的密码及认证凭据值脱敏，路径、堆栈、版本号及其他非凭据内容保持原文；不把宿主内部失败推断成参数错误，不自动重放写动作。Workspace 始终来自当前 Execution Session，不能从 Chat 目录或模型参数补造；build 返回的相对路径只能在同一 Workspace 下交给 install。Desktop 与 Platform 配套发布。
+
+## WebApp Action 路径别名
+
+Platform 对 WebApp init、validate、build 和 install 的指定路径字段复用 Session 路径解析，支持 `@chat` 与 `@workspace`。别名只来自当前 Run 的可信上下文，目标必须同时位于别名根和 Workspace 内；解析后转换为 Workspace 相对路径发送给 Desktop，不修改 source 根，不解析其他 Action 或嵌套业务字段。普通相对路径及 build 返回路径保持兼容。Desktop 继续在执行前检查真实路径、链接边界和文件权限；Platform 解析不是文件访问授权。无项目默认 Chat 内落盘，有项目默认项目内落盘；缺根、跨卷及越界明确拒绝，不自动选择替代目录。

@@ -62,9 +62,11 @@ Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每
 - 只要有一个 key 不可用，整个 run 以 `must_use_skill_unavailable` 失败，不执行其余部分。
 - Prompt 按请求顺序列出全部精确路径，并把“读取且遵循全部指令”作为强制约束。
 - 每个选中的已配置或额外 Skill 都解析为最终 canonical 目录，并进入本 run 的 trusted read + readonly roots；整个选中目录免读路径 HITL，未选中的 skills-center 兄弟目录不继承，symlink 逃逸按最终目标重新判权。
-- 不复制 Skill、不生成快照、不创建 `run-runtime/`；运行中读取技能中心当前内容。
+- 不复制 Skill、不生成文件快照、不创建 `run-runtime/`；运行中读取技能中心当前内容。脚本执行另有本 Run 内存凭据，内容变化后不继续享有入口豁免。
 
-额外技能中心 Skill 只提供目录内容、scripts、references 和 assets 的只读访问。run readonly 先于 writeRoots、hostAccess、`full_access` 和 HITL，不能通过 exact/rule approval 写入选中目录。本次动态选择不合并它的 `.config`、`.runtime-env.json` 或 `.bash-hooks`，也不注入 Tool、MCP、其他 mount、Agent hostAccess 或更高 `accessLevel`。这些运行时扩展只有写入 Agent `skillConfig.skills` 并完成常规 `ru-agents` 组装后才生效。
+额外技能中心 Skill 的目录内容、scripts、references 和 assets 仍按只读访问。run readonly 先于 writeRoots、hostAccess、`full_access` 和 HITL，不能通过 exact/rule approval 写入选中目录。本次动态选择不合并它的 `.config`、`.runtime-env.json` 或 `.bash-hooks`，也不注入 Tool、MCP、其他 mount、Agent hostAccess 或更高 `accessLevel`。这些运行时扩展只有写入 Agent `skillConfig.skills` 并完成常规 `ru-agents` 组装后才生效。
+
+Agent YAML 已配置的普通 Skill，以及本次 `mustUseSkills` 选中的 Skill，其 `scripts/**` 入口在 Run 准入时建立独立的内存执行凭据（canonical 路径、内容 SHA-256、Agent/Run/执行环境）。匹配通用脚本入口且执行前复验通过时免入口 HITL；不改变读取策略，不授权未配置、未选中技能，也不扩大外围 Shell、写入或工具权限。凭据不落盘、不跨 Run 继承；同 Run 压缩保留，跨进程恢复不重建。详见 [工具目录权限](工具目录权限.md#技能脚本入口执行凭据)。
 
 ## `.config` 合并
 
@@ -90,7 +92,7 @@ Agent runtimeConfig.env
   < Platform reserved context
 ```
 
-后声明 Skill 覆盖前面的同名键。动态层由 `platform_control run.env.set/unset` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启后的续接 run 从空动态层开始。`mustUseSkills` 不合并额外 Skill runtime env，也不会挂载 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；`AP_ACCESS_TOKEN` 由普通 Agent Host Bash 和已挂载 oneid-token 连接器的 stdio MCP 在进程创建前读取有效 identity 文件后注入，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
+后声明 Skill 覆盖前面的同名键。动态层由 `platform_control run.env.set/unset` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启后的续接 run 从空动态层开始。`mustUseSkills` 不合并额外 Skill runtime env，也不会挂载 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；`AP_ACCESS_TOKEN` 由普通 Agent Host Bash 和已挂载 oneid-token 连接器的 stdio MCP 在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
 
 ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子任务 session 时即使复用相同 RunID 也禁止取得 root Scope。`run_query` 新 root、子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 与长期服务都不继承。
 
@@ -101,7 +103,7 @@ ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子�
 运行中的热重载不会清空整个根目录：
 
 - 活动 Run、子 Agent 调用、Team 成员和 Terminal 持有目录租约；被占用 Agent 保留原定义及文件，最后一个使用者结束后触发重载。删除 Agent 同样延迟清理。
-- 空闲且含连接器的 Agent 在 `.staging` 组装完整候选，再整目录替换；未变化时保留稳定目录。替换失败尝试恢复旧目录。
+- 空闲且含连接器的 Agent 在 `.staging` 组装完整候选，再整目录替换；未变化时保留稳定目录。替换失败尝试恢复旧目录。Windows 对目录重命名的访问拒绝、共享冲突及锁冲突进行有界退避重试，macOS 与其他 Unix 平台立即返回错误；目标路径被其他写入方重新创建时拒绝覆盖。失败诊断保留发布阶段、操作系统错误码、进程、重试次数、路径元数据及回滚结果，不读取配置正文。回滚失败时保留旧目录备份并报告其路径。
 - 无连接器的 Agent 沿用稳定根中的逐文件同步方式。
 - 候选校验失败保留原执行文件；该 Agent 的新定义显示无效诊断，其他 Agent 继续发布。
 - 本地 MCP 绑定与 Agent 发布共同阻止新租约准入，避免目录和路由错配；远端发现与重试仍在后台执行。

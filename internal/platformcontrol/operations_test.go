@@ -1,6 +1,7 @@
 package platformcontrol
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -64,5 +65,29 @@ func TestSetAndUnsetStagesComeFromDescriptor(t *testing.T) {
 		if !mutation.AllowsExecutionPolicy("") || mutation.AllowsExecutionPolicy("read_only") {
 			t.Fatalf("mutation descriptor must allow main but reject planning: %#v", mutation)
 		}
+	}
+}
+
+func TestSanitizeCandidateArgumentsIsIdempotentAndPreservesRequestShape(t *testing.T) {
+	raw := `{"operation":"catalog.validate","params":{"resourceType":"agent","resourceKey":"demo","content":"key: demo\nname: 中文文档\n"}}`
+	once := SanitizeArguments(raw)
+	for i := 0; i < 3; i++ {
+		if got := SanitizeArguments(once); got != once {
+			t.Fatalf("sanitization changed history: %s -> %s", once, got)
+		}
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(once), &args); err != nil {
+		t.Fatal(err)
+	}
+	params := args["params"].(map[string]any)
+	if len(params) != 3 || params["content"] != "[REDACTED]" {
+		t.Fatalf("unexpected request shape: %s", once)
+	}
+	if err := validateOperationParams("catalog.validate", params); err != nil {
+		t.Fatalf("sanitizer injected invalid parameters: %v", err)
+	}
+	if strings.Contains(once, "中文") {
+		t.Fatal("candidate leaked")
 	}
 }

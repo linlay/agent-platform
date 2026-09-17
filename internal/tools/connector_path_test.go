@@ -44,3 +44,21 @@ func TestMountedConnectorPathMatchesExecutionAndApprovalEnvironment(t *testing.T
 		t.Fatal("mounted command leaked to another agent")
 	}
 }
+
+func TestMountedCLIConfigurationOverridesRuntimeOnlyOnHost(t *testing.T) {
+	ctx := &contracts.ExecutionContext{Session: contracts.QuerySession{ConnectorEnv: map[string]string{"DEMO_CONFIG_DIR": "/platform/config"}}, StaticRuntimeEnv: map[string]string{"DEMO_CONFIG_DIR": "/wrong"}}
+	env, err := mergeCommandEnv(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bashEnvironmentVariables(env)["DEMO_CONFIG_DIR"]; got != "/platform/config" {
+		t.Fatal(got)
+	}
+	other, err := mergeCommandEnv(&contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bashEnvironmentVariables(other)["DEMO_CONFIG_DIR"]; got == "/platform/config" {
+		t.Fatal("mounted credentials env leaked")
+	}
+}

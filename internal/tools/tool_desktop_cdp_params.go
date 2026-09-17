@@ -15,8 +15,14 @@ import (
 func (t *RuntimeToolExecutor) resolveDesktopCDPParams(args map[string]any, execCtx *ExecutionContext) (map[string]any, ToolExecutionResult, bool) {
 	rawFile, hasFile := args["paramsFile"]
 	if !hasFile {
-		params, _ := args["params"].(map[string]any)
-		if params == nil {
+		raw, present := args["params"]
+		params, valid := raw.(map[string]any)
+		if present && (!valid || params == nil) {
+			return nil, desktopActionErrorResult("invalid_args", "params must be a JSON object; omit params for a method with no parameters. The request was not sent.", map[string]any{
+				"executed": false, "retryable": false, "recovery": "Replace params with a JSON object; do not retry the same input.",
+			}), true
+		}
+		if !present {
 			params = map[string]any{}
 		}
 		return params, ToolExecutionResult{}, false

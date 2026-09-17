@@ -8,8 +8,11 @@
 
 ## 已实现部件
 
-- 相邻 `agent-platform-builtins/git-bash` 项目：独立包版本 `v1.0.0`；完整 PortableGit
+- 相邻 `agent-platform-builtins/git-bash` 项目：独立包版本 `v1.1.0`；来源为 PortableGit
   `2.55.0.windows.5` Windows/amd64；原始上游版本、URL、SHA 与包版本分离。
+  完整 source payload 保留 9,586 个文件；默认 build 校验来源后生成 `minimal-v1`
+  精简发布树，当前 ZIP 为 2,978 个文件。裁剪沿用两轮候选规则，额外保留其中的
+  许可证/版权文件；源 payload 数量不代表最终发布数量。
 - 上游导入前验证 SHA；保留完整运行目录、DLL、配置、原始许可证、包版本清单。
   准备阶段完成可搬移 DLL 复制及虚拟设备目录创建，差异写入
   `platform-initialization.txt`；不复制准备机器的 hosts/services，也不执行安装器。
@@ -58,8 +61,37 @@ Windows 交叉编译仅用于编译检查，不构成 Windows 原生验收。整
 ## 本地产物记录
 
 - 上游原始 SHA-256：`5aa8a20f6e9abb2c755f0e73c91c687701a46b309ad84a0ca6509380fa4ae290`。
-- 包：相邻项目 `git-bash/dist/v1.0.0/git-bash_v1.0.0_windows_amd64.zip`。
-- 当前包 SHA-256：`0c9c3c680c45098de40dccc5150c73cab3d776b23b30f4e24511dac45b4e5a69`。
-- 这些是本次跨平台准备产物记录，不是正式 Windows release target。
+- 包：相邻项目 `git-bash/dist/v1.1.0/git-bash_v1.1.0_windows_amd64.zip`。
+- 当前包 SHA-256：`6217255a329beef15d95ad19be512973bff855db93241fa22d068339e066a8a8`。
+- Windows 本地精简 ZIP 为 2,978 个文件、227 个目录条目、约 90.36 MiB。
+  保留 Bash/Git、常用命令、SSH、LFS、凭据管理器及其运行依赖；不带编辑器、Perl、
+  GPG、Tcl/Tk、Git GUI、mintty 和离线帮助。Office/PDF textconv 配置随转换器移除。
+  重复 DLL 必须与保留的 bin 副本 SHA/大小一致，保留 PE 静态引用被移除 DLL 时构建失败。
+- 新包已通过单元测试、真实 PE 静态依赖检查，以及中文/空格搬移路径下的 Bash、Git
+  本地提交/clone/worktree、压缩解压冒烟测试；SSH、LFS、凭据管理器可启动。
+  真实登录、网络及完整 ConPTY 验收仍未完成，不能据此视为全部发布阻断项已解决。
+- 本次未更新 Platform cache 或 Desktop 最终包。需先执行 `scripts/sync-local-builtins.ps1`，
+  再执行 Desktop 的 `scripts/build-builtin-services.ps1`；仅执行后者仍复用旧 cache。
+  正式 lock promotion 继续遵守干净 Git commit 和原生 host 等既有约束。
 
 继续实施前需先协调重叠文件的修改归属；不要覆盖、回滚或提交另一项任务的改动。
+
+### 可选打包 Git Bash
+
+macOS 原本不打包 Git Bash，保持现有流程且不增加排除标记。以下开关只控制 Windows/amd64 的 Git Bash 打包选择。
+
+构建环境变量 `BUNDLE_GIT_BASH` 默认 `true`，仅接受 `true`/`false`（不区分大小写）。它独立于运行时 `bash.git-bash.enabled`，不写入 `.env` 或正式 builtin lock。
+
+```powershell
+$env:BUNDLE_GIT_BASH = "false"
+# 已有完整 cache 时，可直接执行 Desktop 构建入口：
+& C:\Project\zenmind\zenmind-desktop\scripts\build-builtin-services.ps1
+# 或在 Platform 仓库仅生成 Platform 包：
+make release ARCH=amd64
+```
+
+需要首次准备或更新其他 builtin 时，同一环境下执行 `scripts/sync-local-builtins.ps1`：关闭开关会跳过 Git Bash 来源复制、构建、临时 lock 解析与 staging，且不 promotion Git Bash 正式 lock 记录。其他 builtin 仍按既有流程处理。Shell 入口同样支持 `BUNDLE_GIT_BASH=false ./scripts/sync-local-builtins.sh`，也可用 `make release BUNDLE_GIT_BASH=false`。
+
+release 关闭时直接从既有 cache 排除 Git Bash 文件、独立许可证/SBOM 目录及组件记录，不修改源 cache。生成的 `builtins.manifest.json` 使用 `gitBashExcluded: true` 明确记录主动排除；发布校验拒绝标记与组件冲突、残留 Git Bash 文件，以及默认开启却缺少组件的情况。sync 则会原子更新 cache 为本次选择的组件集；若重新开启后 cache 缺少 Git Bash，需先以 `true` 重新 sync。
+
+恢复默认可用 `$env:BUNDLE_GIT_BASH = "true"` 或 `Remove-Item Env:BUNDLE_GIT_BASH`。不含 Git Bash 的包应保持运行时 `bash.git-bash.enabled: false`，使用已有 Shell 配置；错误开启会明确报组件缺失，不会自动切换到 PowerShell。当前默认运行配置无需改变。

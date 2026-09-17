@@ -4,6 +4,8 @@
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
+网站 AWCP 操作采用手册渐进披露：按需读取动作目录和单项说明，再通过固定 `invoke` 调用；不向模型运行核心注入页面工具 Schema 或专属状态机。参见 [Desktop 反向 Provider](docs/MCP与工具交互.md#desktop-反向-provider)。
+
 ## 1. 项目简介
 
 当前已提供的接口：
@@ -67,6 +69,7 @@
 - `image_generate` 对 Agent 使用统一参数：无输入图时文生图，最多四张 Chat/本地输入图时图生图；生成和编辑端点及请求格式完全由模型 YAML 选择 Images JSON、Images Multipart 或 Chat Completions，不按模型名/provider 分支。可选 mask 支持 alpha、白区编辑和黑区编辑三种显式语义，仅在模型声明原生 `openai-alpha` 能力时执行局部重绘。
 - 文件工具与 Bash 共享 `AccessPolicy`；effective `default` 无条件包含冻结的 `@temp` 读写根（Unix/macOS 为启动时 `os.TempDir()` 与 canonical `/tmp`，Windows 为启动时 `os.TempDir()`）。所有 Agent 使用统一脚本入口策略：本 run 经 `file_write` 完整写入且字节未变化的脚本免 opaque 入口审批；已挂载连接器 CLI 直接执行（见连接器专题）；其他普通脚本/自定义程序在 `default` 下 HITL、`auto_approve` 下自动批准并审计、`full_access` 下通过。同批独立 Host Bash 在仅本次批准、本轮批准和自动批准后均可按现有并发规则同时执行，一次性授权按调用隔离。保留单条临时 Python/Node 例外，不泛化为 `/tmp` 程序免审；路径、readonly、hard block 和文件写前读约束独立生效。详见 [工具目录权限](docs/工具目录权限.md)。
 - `mustUseSkills` 为本次 run 选中的每个 Skill 目录追加 trusted read + readonly roots：完整目录免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，任何 `accessLevel`、hostAccess 或 approval 都不能写入这些选中目录。Container 仍只读挂载整个 `/skills-center`，mount 可见性不等同于 AccessPolicy 授权。
+- Agent YAML 已配置普通 Skill 与本次 `mustUseSkills` 选中 Skill 的 `scripts/**` 入口，经本 Run 内存凭据（canonical 路径与 SHA-256）及执行前复验匹配后免入口 HITL；凭据不落盘、不跨 Run 继承，外围 Shell 和写入限制保持独立。见 [工具目录权限](docs/工具目录权限.md#技能脚本入口执行凭据)。
 - 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 在 main/editing 两种 stage 提供相同的五个通用文本文件工具，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 - `platform_control` 对所有显式配置它的 Agent 暴露同一固定 Schema 和全部注册 operation；动态环境只保留当前普通 native root run 的 `run.env.set/unset`，无需在 Agent 配置预声明 key。动态值仅存在于当前 Platform 进程内，只在新建 Host/Container 命令前生成独立快照，绝不调用 `os.Setenv`；Platform 重启后的 question/planning 续接使用新的空环境。
 
@@ -99,6 +102,8 @@ make run
 make build-local
 make run-local
 ```
+
+Windows 可用构建环境变量 `BUNDLE_GIT_BASH=false` 排除 Git Bash，默认 `true`。该变量同时适用于 builtin sync、Platform release 和继承环境的 Desktop 构建脚本；不修改正式 lock 或运行时 Shell 配置。已有完整 cache 时可直接执行 `make release BUNDLE_GIT_BASH=false`。详见 [Git Bash 可选打包](docs/WindowsGitBash实施进度.md#可选打包-git-bash)。
 
 本次连接器布局升级后，本机 cache 需要通过 `sync-local-builtins` 更新一次：dbx/httpx 从全局 bin 转为完整 builtin connector，由 Platform 直接加载随包版本，仅挂载它们的 Agent 会增加相应 PATH。旧全局 bin cache 会明确阻止启动。
 
@@ -182,9 +187,11 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` / `desktop_cdp` 优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
-外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-agents/<agentKey>/connectors/<id>`，持久化授权状态保存在通用 `.state` 根下的 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下直接执行、无需 HITL 或自动审批审计；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。外部包支持通过 `DELETE /api/admin/connectors/detail?id=<id>` 删除；需先解除 Agent 引用并等待旧运行挂载释放，授权和 CLI 状态保留，重载失败恢复原包。ZIP 导入、CLI 登录与独立凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
+外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-agents/<agentKey>/connectors/<id>`，持久化授权状态保存在通用 `.state` 根下的 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下直接执行、无需 HITL 或自动审批审计；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。外部包支持通过 `DELETE /api/admin/connectors/detail?id=<id>` 删除；需先解除 Agent 引用并等待旧运行挂载释放，授权和 CLI 状态保留，重载失败恢复原包。ZIP 导入后异步 CLI 准备（有 bin 跳过 init）、独立准备状态与登录凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
-WorkBuddy 来源的十个独立 ZIP 都包含 `assets/` 品牌图标，并由 `connector.json.icon` 引用。版本沿用 WorkBuddy 清单，未声明时使用约定的 `0.1.0`，补图标不自行升级版本。图标导入与显示、CLI 安装命令保留方式，以及“真实 CLI / 启动器 / 远程 MCP 定义”的区别见 [WorkBuddy 连接器打包](./docs/WorkBuddy连接器打包.md)。
+连接器资源包通过清单声明组件、图标、认证方式与授权页面展示。包内程序、安装脚本和远程服务定义的分发边界见 [连接器打包与分发](./docs/连接器打包与分发.md)。
+
+五种认证模式（token / oneid-token / oauth / mcp / null）统一使用包外凭证来源；认证操作不触碰连接器定义文件。`auth_bindings` 声明 HTTP Header 或 Host CLI/stdio 环境模板，HTTP 发送前、进程启动前读取票据；自管 CLI 继续通过 `configEnv` 使用独立目录。MCP 支持多资源授权、客户端注册信息落盘、元数据发现回退、PKCE、刷新及追加权限提示，详见 [凭证消费映射与多组件授权](./docs/连接器安装与授权.md#凭证消费映射与多组件授权)。
 
 ### 根 `.env.example`
 
@@ -321,7 +328,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 
 容器 session 与未显式指定 cwd 的命令固定使用 `/workspace`。协议为 `dual-root-v2`。当 ChatsRoot 位于 Workspace 内时，Platform 下发 `/workspace/<ChatsRoot-relative>` mask，Hub 按 Workspace bind → mask tmpfs → current Chat bind 的顺序创建容器，确保 Chat 只从 `/chat` 可见。`/workspace`、`/chat`、mask 及其子路径是保留挂载目标，`runtimeConfig.sandboxMounts` 不能覆盖。session 复用身份包含 environment、canonical Workspace、canonical Chat、mask 和完整 mount fingerprint。
 
-目录型 agent 可在源目录 `.config/` 保存专属覆盖，Skill `.config/` 提供可分发默认值；Platform 合并到 `ru-agents/<agentKey>/.config/`。平台冻结四个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN`。Host 注入前三者对应的生成配置目录、真实 Workspace（无 Workspace 时省略）和 Chat；Workspace Terminal 只注入 Agent 配置目录与真实 Workspace，不注入 `AP_CHAT_DIR`；Container 固定为 `/agent/.config`、`/workspace` 与 `/chat`。第四个在普通 Agent Host Bash 及显式 oneid-token stdio MCP 创建前从有效 identity 文件即时读取，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，可由最高优先级的 `--identity-file <absolute-path>` 覆盖，不进入 Terminal 或 Container。agent `runtimeConfig.env`、skill `.runtime-env.json`、run dynamic env 与调用级 env 均不得覆盖。动态层只通过 `platform_control run.env.set/unset` 修改当前普通 native root run 的进程内 Scope；Host Bash、直接短进程和 Container 新 command 获取快照，子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 和已启动进程不继承或更新，Platform 重启后的续接 run 从空动态层开始。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。完整组装、冲突和迁移规则见 [Agent 运行时组装](./docs/Agent运行时组装.md)。
+目录型 agent 可在源目录 `.config/` 保存专属覆盖，Skill `.config/` 提供可分发默认值；Platform 合并到 `ru-agents/<agentKey>/.config/`。平台冻结四个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN`。Host 注入前三者对应的生成配置目录、真实 Workspace（无 Workspace 时省略）和 Chat；Workspace Terminal 只注入 Agent 配置目录与真实 Workspace，不注入 `AP_CHAT_DIR`；Container 固定为 `/agent/.config`、`/workspace` 与 `/chat`。第四个在普通 Agent Host Bash 及显式 oneid-token stdio MCP 创建前从有效 identity 文件即时读取，默认文件为 `<有效 StateDir>/identity/access-token`，可由最高优先级的 `--identity-file <absolute-path>` 覆盖，不进入 Terminal 或 Container。agent `runtimeConfig.env`、skill `.runtime-env.json`、run dynamic env 与调用级 env 均不得覆盖。动态层只通过 `platform_control run.env.set/unset` 修改当前普通 native root run 的进程内 Scope；Host Bash、直接短进程和 Container 新 command 获取快照，子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 和已启动进程不继承或更新，Platform 重启后的续接 run 从空动态层开始。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。完整组装、冲突和迁移规则见 [Agent 运行时组装](./docs/Agent运行时组装.md)。
 
 `runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 
@@ -400,7 +407,7 @@ docker compose logs -f
 - [Runtime模块边界](./docs/Runtime模块边界.md)
 - [智能体配置说明](./docs/智能体配置说明.md)
 - [配置化说明](./docs/配置化说明.md)
-- [HTTP客户端与系统代理](./docs/HTTP客户端与系统代理.md)：默认自动代理、显式覆盖、系统固定代理与刷新。
+- [HTTP客户端与系统代理](./docs/HTTP客户端与系统代理.md)：默认 `auto` 跳过 PAC/WPAD、显式覆盖、系统固定代理、`pac_auto` 启用 Windows PAC/WPAD、纯 WPAD 未发现时直连与脱敏网络诊断（企业网络待目标系统验证）。
 - [工具目录权限](./docs/工具目录权限.md)
 - [真流式和H2A](./docs/真流式和H2A.md)
 - [记忆系统](./docs/记忆系统.md)

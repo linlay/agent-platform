@@ -259,12 +259,7 @@ func New(deps Dependencies) (*Server, error) {
 	}
 	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
 	s.connectorOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.EffectiveConnectorsCenterDir())
-	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), func(ctx context.Context, _ string) error {
-		if s.deps.CatalogReloader != nil {
-			return s.deps.CatalogReloader.Reload(ctx, "connectors")
-		}
-		return nil
-	}).WithIdentityFile(s.deps.Config.IdentityFile)
+	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), nil).WithIdentityFile(s.deps.Config.IdentityFile)
 	if s.deps.Runtime == nil {
 		// Compatibility for direct package tests and small embedders. app.New
 		// always supplies the assembled Runtime service.

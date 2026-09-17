@@ -21,15 +21,17 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
 
 type Manifest struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Version     string          `json:"version"`
-	Type        string          `json:"type"`
-	AuthMode    AuthMode        `json:"auth_mode"`
-	Description string          `json:"description,omitempty"`
-	Icon        string          `json:"icon,omitempty"`
-	TokenSchema json.RawMessage `json:"token_schema,omitempty"`
-	OAuth       json.RawMessage `json:"oauth,omitempty"`
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Version      string                 `json:"version"`
+	Type         string                 `json:"type"`
+	AuthMode     AuthMode               `json:"auth_mode"`
+	AuthBrowser  string                 `json:"auth_browser,omitempty"`
+	Description  string                 `json:"description,omitempty"`
+	Icon         string                 `json:"icon,omitempty"`
+	TokenSchema  json.RawMessage        `json:"token_schema,omitempty"`
+	OAuth        json.RawMessage        `json:"oauth,omitempty"`
+	AuthBindings map[string]AuthBinding `json:"auth_bindings,omitempty"`
 }
 
 // Package is an immutable, secret-free description of an installed package.
@@ -113,10 +115,12 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 			return Package{}, fmt.Errorf("connector %s mcpServers must not be empty", id)
 		}
 		pkg.MCP = mcpConfig.Servers
+		seenComponents := map[string]bool{}
 		for key := range pkg.MCP {
-			if !ValidID(key) {
+			if !ValidID(strings.ToLower(key)) || seenComponents[strings.ToLower(key)] {
 				return Package{}, fmt.Errorf("connector %s invalid MCP component %q", id, key)
 			}
+			seenComponents[strings.ToLower(key)] = true
 		}
 	} else if pkg.Type == "mcp" || !os.IsNotExist(err) {
 		return Package{}, fmt.Errorf("connector %s mcp.json: %w", id, err)
@@ -143,6 +147,9 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 	if err != nil {
 		return Package{}, fmt.Errorf("connector %s skills: %w", id, err)
 	}
+	if err := pkg.ValidateAuthBindings(); err != nil {
+		return Package{}, err
+	}
 	return pkg, nil
 }
 
@@ -165,6 +172,9 @@ func validateManifest(id string, pkg Manifest) error {
 	}
 	if pkg.Icon != "" && !validIconPath(pkg.Icon) {
 		return fmt.Errorf("connector %s icon must be a package-relative SVG or PNG path under assets/", id)
+	}
+	if pkg.AuthBrowser != "" && pkg.AuthBrowser != "system" && pkg.AuthBrowser != "embedded" {
+		return fmt.Errorf("connector %s auth_browser must be system or embedded", id)
 	}
 	switch pkg.AuthMode {
 	case AuthDelegated, AuthOneID, AuthMCP:
@@ -222,6 +232,7 @@ func (p Package) ServerKeys() []string {
 }
 
 func ServerKey(id, component string) string {
+	component = strings.ToLower(component)
 	if component == "main" {
 		return id
 	}
@@ -404,4 +415,23 @@ func checkValue(d *json.Decoder) error {
 	}
 	_, err = d.Token()
 	return err
+}
+
+// AuthorizationBrowser is presentation policy, independent of authentication mode.
+func (m Manifest) AuthorizationBrowser() string {
+	if m.AuthBrowser == "embedded" {
+		return "embedded"
+	}
+	return "system"
+}
+
+// AuthorizationBrowser prefers the manifest and preserves legacy CLI presentation hints.
+func (p Package) AuthorizationBrowser() string {
+	if p.AuthBrowser != "" {
+		return p.Manifest.AuthorizationBrowser()
+	}
+	if embedded, _ := p.CLI["authQrModal"].(bool); embedded {
+		return "embedded"
+	}
+	return "system"
 }

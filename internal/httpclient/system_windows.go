@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -40,5 +41,18 @@ func readSystemSettings(ctx context.Context) (systemSettings, error) {
 		}
 		return systemSettings{}, fmt.Errorf("WinHttpGetIEProxyConfigForCurrentUser failed: %w", callErr)
 	}
-	return parseWindowsSettings(windows.UTF16PtrToString(cfg.Proxy), windows.UTF16PtrToString(cfg.Bypass), cfg.AutoDetect != 0 || windows.UTF16PtrToString(cfg.AutoConfigURL) != "")
+	pacURL := windows.UTF16PtrToString(cfg.AutoConfigURL)
+	detect := cfg.AutoDetect != 0
+	settings, err := parseWindowsSettings(windows.UTF16PtrToString(cfg.Proxy), windows.UTF16PtrToString(cfg.Bypass), detect || pacURL != "")
+	if err == nil && settings.Auto {
+		settings.ResolveAuto = func(ctx context.Context, target *url.URL) (*url.URL, error) {
+			// Own a URL copy: the native worker may outlive the request deadline.
+			clean := *target
+			clean.User, clean.Fragment = nil, ""
+			return windowsAutoWorkers.resolve(ctx, func() (*url.URL, error) {
+				return resolveWindowsAutoProxy(pacURL, detect, &clean)
+			})
+		}
+	}
+	return settings, err
 }

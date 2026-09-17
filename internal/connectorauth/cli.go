@@ -16,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform/internal/builtins"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/hostenv"
 	"mvdan.cc/sh/v3/shell"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -34,45 +36,58 @@ type cliSettings struct {
 func cliSettingsFor(pkg connector.Package) (cliSettings, error) {
 	var s cliSettings
 	data, _ := json.Marshal(pkg.CLI["platform"])
-	if err := connector.DecodeJSON(data, &s); err != nil {
+	if err := json.Unmarshal(data, &s); err != nil {
 		return s, err
 	}
-	if !regexp.MustCompile(`^(?:@[a-z0-9._-]+/)?[a-z0-9._-]+$`).MatchString(s.NPMPackage) || !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(s.NPMVersion) {
-		return s, fmt.Errorf("CLI requires a pinned npm package and version in platform settings")
+	config, _ := pkg.CLI["versionCheck"].(map[string]any)
+	line, err := cliOSCommand(config["command"])
+	if err != nil {
+		return s, fmt.Errorf("versionCheck.command: %w", err)
 	}
-	if !connector.ValidID(s.Command) || !regexp.MustCompile(`^[A-Z][A-Z0-9_]*_CONFIG_DIR$`).MatchString(s.ConfigEnv) || strings.HasPrefix(s.ConfigEnv, "AP_") {
-		return s, fmt.Errorf("invalid CLI command or isolated config environment")
+	words, err := shell.Fields(line, func(string) string { return "" })
+	if err != nil || len(words) == 0 {
+		return s, fmt.Errorf("versionCheck.command is required")
 	}
-	if s.Entry == "" || filepath.IsAbs(s.Entry) || strings.ContainsAny(s.Entry, "\\:") || strings.Contains(s.Entry, "..") {
-		return s, fmt.Errorf("invalid npm entry path")
+	command := strings.TrimSuffix(words[0], ".cmd")
+	if !connector.ValidID(command) {
+		return s, fmt.Errorf("versionCheck must invoke a command name")
 	}
-	if s.NativeEntry != "" && (filepath.IsAbs(s.NativeEntry) || strings.ContainsAny(s.NativeEntry, "\\:") || strings.Contains(s.NativeEntry, "..")) {
-		return s, fmt.Errorf("invalid native entry path")
+	if s.Command != "" && s.Command != command {
+		return s, fmt.Errorf("platform.command must match versionCheck.command")
+	}
+	s.Command = command
+	if _, err := pkg.CLIConfigEnvironment(); err != nil {
+		return s, err
+	}
+	if s.LogoutMode == "delete-config" && s.ConfigEnv == "" {
+		return s, fmt.Errorf("delete-config requires configEnv")
 	}
 	if s.LogoutMode != "" && s.LogoutMode != "delete-config" {
 		return s, fmt.Errorf("invalid CLI logout mode")
 	}
-	if _, err := cliAuthSteps(pkg, s.Command); err != nil {
-		return s, err
-	}
-	if _, err := cliArgs(pkg, "status", s.Command); err != nil {
-		return s, err
-	}
-	if s.LogoutMode == "" {
-		if _, err := cliArgs(pkg, "unAuth", s.Command); err != nil {
+	if pkg.ManagedCLI() {
+		if _, err := cliAuthSteps(pkg, s.Command); err != nil {
 			return s, err
 		}
-	}
-	pattern, _ := pkg.CLI["statusMatch"].(string)
-	if expected, exists := pkg.CLI["statusMatchJson"]; exists {
-		fields, ok := expected.(map[string]any)
-		if !ok || len(fields) == 0 || pattern != "" {
-			return s, fmt.Errorf("CLI requires a nonempty statusMatchJson object or statusMatch")
+		if _, err := cliArgs(pkg, "status", s.Command); err != nil {
+			return s, err
 		}
-	} else if pattern == "" {
-		return s, fmt.Errorf("CLI requires statusMatch or statusMatchJson")
-	} else if _, err := regexp.Compile(pattern); err != nil {
-		return s, fmt.Errorf("invalid statusMatch")
+		if s.LogoutMode == "" {
+			if _, err := cliArgs(pkg, "unAuth", s.Command); err != nil {
+				return s, err
+			}
+		}
+		pattern, _ := pkg.CLI["statusMatch"].(string)
+		if expected, exists := pkg.CLI["statusMatchJson"]; exists {
+			fields, ok := expected.(map[string]any)
+			if !ok || len(fields) == 0 || pattern != "" {
+				return s, fmt.Errorf("CLI requires a nonempty statusMatchJson object or statusMatch")
+			}
+		} else if pattern == "" {
+			return s, fmt.Errorf("CLI requires statusMatch or statusMatchJson")
+		} else if _, err := regexp.Compile(pattern); err != nil {
+			return s, fmt.Errorf("invalid statusMatch")
+		}
 	}
 	if _, err := cliVersionArgs(pkg, s.Command); err != nil {
 		return s, err
@@ -183,113 +198,190 @@ func cliArgs(pkg connector.Package, key, command string) ([]string, error) {
 	return args[1:], nil
 }
 
-func (m *Manager) cliCommand(ctx context.Context, pkg connector.Package, s cliSettings, args ...string) (*exec.Cmd, error) {
-	dir, err := StateDir(m.sources.PersistentRoot(), pkg.ID)
+func cliOSCommand(raw any) (string, error) {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return "", err
+	}
+	var commands map[string]string
+	if json.Unmarshal(data, &commands) != nil {
+		return "", fmt.Errorf("OS command map is required")
+	}
+	key := runtime.GOOS
+	if key == "windows" {
+		key = "win32"
+	}
+	line, ok := commands[key]
+	if !ok || strings.TrimSpace(line) == "" {
+		return "", fmt.Errorf("command for %s is required", key)
+	}
+	return line, nil
+}
+
+func (m *Manager) cliEnvironment(pkg connector.Package) ([]string, error) {
+	env := builtins.EnsureBinInEnv(os.Environ())
+	if pkg.BinDir != "" {
+		env = connector.WithPath(env, []string{pkg.BinDir})
+	}
+	values, err := pkg.CLIConfigEnvironment()
 	if err != nil {
 		return nil, err
 	}
-	entry := filepath.Join(dir, "npm", "node_modules", filepath.FromSlash(s.NPMPackage), filepath.FromSlash(s.Entry))
-	if _, err := os.Stat(entry); err != nil {
-		return nil, fmt.Errorf("CLI is not prepared; start connector login to install it")
+	for key, value := range values {
+		env = hostenv.Set(env, key, value)
 	}
-	node, err := exec.LookPath("node")
+	return env, nil
+}
+
+func (m *Manager) cliCommand(ctx context.Context, pkg connector.Package, s cliSettings, args ...string) (*exec.Cmd, error) {
+	env, err := m.cliEnvironment(pkg)
 	if err != nil {
-		return nil, fmt.Errorf("Node.js is required for this CLI")
+		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, node, append([]string{entry}, args...)...)
+	lookup := env
+	if pkg.BinDir != "" {
+		lookup = hostenv.Set(env, "PATH", pkg.BinDir)
+	}
+	entry, err := hostenv.LookPath(s.Command, lookup)
+	if err != nil {
+		return nil, err
+	}
+	return cliExecutable(ctx, entry, args, pkg.Dir, env)
+}
+
+func cliExecutable(ctx context.Context, entry string, args []string, dir string, env []string) (*exec.Cmd, error) {
+	if runtime.GOOS == "windows" && (strings.EqualFold(filepath.Ext(entry), ".cmd") || strings.EqualFold(filepath.Ext(entry), ".bat")) {
+		// Only lifecycle arguments parsed as literals reach this adapter. Avoid cmd
+		// expansion of percent, quotes and metacharacters in these arguments.
+		words := append([]string{entry}, args...)
+		for i, word := range words {
+			if strings.ContainsAny(word, "\"%\r\n&|<>^!") {
+				return nil, fmt.Errorf("unsupported Windows CLI argument")
+			}
+			words[i] = "\"" + word + "\""
+		}
+		shellPath, err := hostenv.LookPath("cmd.exe", env)
+		if err != nil {
+			return nil, err
+		}
+		entry = shellPath
+		args = []string{"/d", "/s", "/c", "\"" + strings.Join(words, " ") + "\""}
+	}
+	cmd := exec.CommandContext(ctx, entry, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), s.ConfigEnv+"="+filepath.Join(dir, "config"))
+	cmd.Env = env
 	configureProcess(cmd)
+	configureCommandLine(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	return cmd, nil
 }
 
+// prepareCLI obeys init verbatim. Only an explicit preparation may invoke it.
 func (m *Manager) prepareCLI(ctx context.Context, pkg connector.Package, s cliSettings) error {
 	dir, err := StateDir(m.sources.PersistentRoot(), pkg.ID)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o700); err != nil {
+	if err = os.MkdirAll(filepath.Join(dir, "config"), 0700); err != nil {
 		return err
 	}
-	if runtimeConfig, ok := pkg.CLI["runtime"].(map[string]any); ok {
-		required, _ := runtimeConfig["version"].(string)
+	env, err := m.cliEnvironment(pkg)
+	if err != nil {
+		return err
+	}
+	if requirement, ok := pkg.CLI["runtime"].(map[string]any); ok {
+		required, _ := requirement["version"].(string)
 		major, err := strconv.Atoi(strings.TrimPrefix(required, ">="))
-		if runtimeConfig["type"] != "node" || err != nil {
+		if requirement["type"] != "node" || err != nil {
 			return fmt.Errorf("unsupported CLI runtime requirement")
 		}
-		node, err := exec.LookPath("node")
+		node, err := hostenv.LookPath("node", env)
 		if err != nil {
 			return fmt.Errorf("Node.js >=%d is required", major)
 		}
-		check := exec.CommandContext(ctx, node, "--version")
-		data, err := check.Output()
-		if err != nil || !versionAtLeast(string(data), strconv.Itoa(major)+".0.0") {
+		cmd, err := cliExecutable(ctx, node, []string{"--version"}, pkg.Dir, env)
+		if err != nil {
+			return err
+		}
+		var out boundedOutput
+		cmd.Stdout = &out
+		if err = cmd.Run(); err != nil || !versionAtLeast(out.String(), strconv.Itoa(major)+".0.0") {
 			return fmt.Errorf("Node.js >=%d is required", major)
 		}
 	}
-	// Pin both name and version; initialization never executes shell text from ZIP.
-	var installed struct{ Name, Version string }
-	packageFile := filepath.Join(dir, "npm", "node_modules", filepath.FromSlash(s.NPMPackage), "package.json")
-	if data, err := os.ReadFile(packageFile); err == nil {
-		_ = json.Unmarshal(data, &installed)
-	}
-	if installed.Name != s.NPMPackage || strings.TrimPrefix(installed.Version, "v") != s.NPMVersion {
-		npm, err := exec.LookPath("npm")
+	if pkg.BinDir == "" && pkg.CLI["init"] != nil {
+		line, err := cliOSCommand(pkg.CLI["init"])
 		if err != nil {
-			return fmt.Errorf("npm and Node.js are required to prepare the CLI")
+			return err
 		}
-		args := []string{"install", "--prefix", filepath.Join(dir, "npm"), "--cache", filepath.Join(dir, "npm-cache"), "--ignore-scripts", "--no-audit", "--no-fund", s.NPMPackage + "@" + s.NPMVersion}
+		shellName, args := "bash", []string{"-c", line}
 		if runtime.GOOS == "windows" {
-			// npm.cmd is shell text. Run the adjacent npm JS entry through Node.
-			entry := filepath.Join(filepath.Dir(npm), "node_modules", "npm", "bin", "npm-cli.js")
-			if _, err := os.Stat(entry); err != nil {
-				return fmt.Errorf("npm-cli.js is required next to npm.cmd")
-			}
-			npm, err = exec.LookPath("node")
+			shellName = "cmd.exe"
+			args = []string{"/d", "/s", "/c", line}
+		}
+		executable, err := hostenv.LookPath(shellName, env)
+		if err != nil {
+			return err
+		}
+		if runtime.GOOS == "windows" {
+			script, err := os.CreateTemp(dir, ".init-*.cmd")
 			if err != nil {
-				return fmt.Errorf("Node.js is required")
+				return err
 			}
-			args = append([]string{entry}, args...)
+			defer os.Remove(script.Name())
+			if _, err = script.WriteString(line); err != nil {
+				script.Close()
+				return err
+			}
+			if err = script.Close(); err != nil {
+				return err
+			}
+			args = []string{"/d", "/s", "/c", "\"\"" + script.Name() + "\"\""}
 		}
-		cmd := exec.CommandContext(ctx, npm, args...)
+		cmd := exec.CommandContext(ctx, executable, args...)
+		cmd.Dir = pkg.Dir
+		cmd.Env = env
 		configureProcess(cmd)
+		configureCommandLine(cmd)
 		cmd.WaitDelay = 2 * time.Second
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("CLI installation failed; check npm, network access and platform support")
+		var out boundedOutput
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		err = cmd.Run()
+		hostenv.Refresh()
+		if err != nil {
+			return &CLIExecutionError{Stage: "init", ExitCode: exitCode(cmd), Diagnostic: out.String(), Cause: err}
 		}
 	}
-	versionArgs, err := cliVersionArgs(pkg, s.Command)
+	args, err := cliVersionArgs(pkg, s.Command)
 	if err != nil {
 		return err
 	}
-	cmd, err := m.cliCommand(ctx, pkg, s, versionArgs...)
+	cmd, err := m.cliCommand(ctx, pkg, s, args...)
 	if err != nil {
 		return err
 	}
-	var output boundedOutput
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("CLI version check failed")
+	var out boundedOutput
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err = cmd.Run(); err != nil {
+		return &CLIExecutionError{Stage: "versionCheck", ExitCode: exitCode(cmd), Diagnostic: out.String(), Cause: err}
 	}
-	versionConfig, _ := pkg.CLI["versionCheck"].(map[string]any)
-	minimum, _ := versionConfig["minVersion"].(string)
-	versionOutput := output.String()
-	if pattern, ok := versionConfig["versionPattern"].(string); ok && pattern != "" {
+	config, _ := pkg.CLI["versionCheck"].(map[string]any)
+	minimum, _ := config["minVersion"].(string)
+	output := out.String()
+	if pattern, _ := config["versionPattern"].(string); pattern != "" {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			return fmt.Errorf("invalid CLI versionPattern")
+			return err
 		}
-		match := re.FindStringSubmatch(versionOutput)
+		match := re.FindStringSubmatch(output)
 		if len(match) < 2 {
 			return fmt.Errorf("CLI versionPattern did not match")
 		}
-		versionOutput = match[1]
+		output = match[1]
 	}
-	if !versionAtLeast(versionOutput, minimum) {
+	if !versionAtLeast(output, minimum) {
 		return fmt.Errorf("CLI version is below required %s", minimum)
 	}
 	return nil
@@ -410,7 +502,7 @@ func (m *Manager) loginCLI(ctx context.Context, pkg connector.Package, l *login)
 	if err != nil {
 		return err
 	}
-	if err := m.prepareCLI(ctx, pkg, s); err != nil {
+	if err := m.requirePrepared(pkg); err != nil {
 		return err
 	}
 	if ok, err := m.cliStatus(ctx, pkg); err == nil && ok {
@@ -535,20 +627,5 @@ func (m *Manager) logoutCLI(ctx context.Context, pkg connector.Package) error {
 }
 
 func (m *Manager) requireNativeCLI(pkg connector.Package, s cliSettings) error {
-	if s.NativeEntry == "" {
-		return nil
-	}
-	dir, err := StateDir(m.sources.PersistentRoot(), pkg.ID)
-	if err != nil {
-		return err
-	}
-	entry := s.NativeEntry
-	if runtime.GOOS == "windows" {
-		entry += ".exe"
-	}
-	info, err := os.Stat(filepath.Join(dir, "npm", "node_modules", filepath.FromSlash(s.NPMPackage), filepath.FromSlash(entry)))
-	if err != nil || !info.Mode().IsRegular() {
-		return fmt.Errorf("native CLI is not prepared; start connector login to install it")
-	}
-	return nil
+	return m.requirePrepared(pkg)
 }

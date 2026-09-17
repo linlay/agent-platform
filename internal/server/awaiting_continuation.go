@@ -222,11 +222,12 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	req.TeamID = teamID
 	req.AgentKey = agentKey
 	session, err := s.BuildQuerySession(context.Background(), req, summary, agentDef, querySessionBuildOptions{
-		Created:           false,
-		Locale:            submitReq.Locale,
-		IncludeHistory:    true,
-		IncludeMemory:     true,
-		AllowInvokeAgents: resolvedModeCapabilities(agentDef).InvokeChildren,
+		DisableSkillScriptGrants: !newExecutionRun,
+		Created:                  false,
+		Locale:                   submitReq.Locale,
+		IncludeHistory:           true,
+		IncludeMemory:            true,
+		AllowInvokeAgents:        resolvedModeCapabilities(agentDef).InvokeChildren,
 	})
 	if err != nil {
 		return false, err

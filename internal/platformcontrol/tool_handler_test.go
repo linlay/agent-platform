@@ -2,6 +2,9 @@ package platformcontrol
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -256,6 +259,10 @@ func TestValidateCandidateResources(t *testing.T) {
 			if got, _ := result.Structured["valid"].(bool); got != tc.wantValid {
 				t.Fatalf("valid = %v, want %v; diagnostics=%#v", got, tc.wantValid, result.Structured["diagnostics"])
 			}
+			receipt, ok := result.Structured["candidate"].(map[string]any)
+			if !ok || receipt["bytes"] != len([]byte(tc.content)) || receipt["sha256"] != fmt.Sprintf("%x", sha256.Sum256([]byte(tc.content))) {
+				t.Fatalf("receipt does not identify the submitted bytes: %#v", receipt)
+			}
 			if strings.Contains(result.Output, tc.content) {
 				t.Fatalf("validation response echoed candidate content")
 			}
@@ -436,3 +443,58 @@ func (s stubRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
 	return catalog.TeamDefinition{}, false
 }
 func (s stubRegistry) Reload(context.Context, string) error { return nil }
+
+func TestValidateRecoversFromRedactedHistory(t *testing.T) {
+	handler := NewToolHandler(config.Config{}, nil)
+	for _, name := range []string{"AI建设文档", "冒烟文档"} {
+		t.Run(name, func(t *testing.T) {
+			// Use an isolated source directory; never create agents in a live catalog.
+			dir := t.TempDir()
+			key := "kbase-docs"
+			content := "key: " + key + "\nname: " + name + "\nmode: KBASE\nruntimeConfig:\n  workspaceRoot: " + filepath.ToSlash(dir) + "\nkbaseConfig:\n  embedding:\n    modelKey: embedding-model\nmodelConfig:\n  modelKey: chat-model\n"
+			candidatePath := filepath.Join(dir, "candidate.yml")
+			if err := os.WriteFile(candidatePath, []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			params := map[string]any{"resourceType": "agent", "resourceKey": key, "content": "[REDACTED]", "contentBytes": 10}
+			bad, _ := invokeTestOperation(handler, "catalog.validate", params)
+			if bad.Error != "platform_control_invalid_params" || !strings.Contains(bad.Output, "reread the candidate file") {
+				t.Fatalf("missing recovery guidance: %#v", bad)
+			}
+			delete(params, "contentBytes")
+			for _, placeholder := range []string{"[REDACTED]", " \n[REDACTED]\n"} {
+				params["content"] = placeholder
+				bad, _ = invokeTestOperation(handler, "catalog.validate", params)
+				if bad.Error != "catalog_candidate_redacted" {
+					t.Fatalf("placeholder accepted: %#v", bad)
+				}
+			}
+			candidate, err := os.ReadFile(candidatePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			params["content"] = string(candidate)
+			good, err := invokeTestOperation(handler, "catalog.validate", params)
+			if err != nil || good.Error != "" || good.Structured["valid"] != true {
+				t.Fatalf("real candidate rejected: %#v, %v", good, err)
+			}
+			receipt := good.Structured["candidate"].(map[string]any)
+			target := filepath.Join(dir, "agent.yml")
+			if err := os.WriteFile(target, candidate, 0600); err != nil {
+				t.Fatal(err)
+			}
+			saved, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if receipt["bytes"] != len(saved) || receipt["sha256"] != fmt.Sprintf("%x", sha256.Sum256(saved)) {
+				t.Fatalf("saved candidate differs from receipt: %#v", receipt)
+			}
+			params["content"] = string(candidate) + "# changed\n"
+			changed, _ := invokeTestOperation(handler, "catalog.validate", params)
+			if changed.Structured["candidate"].(map[string]any)["sha256"] == receipt["sha256"] {
+				t.Fatal("receipt did not change with candidate")
+			}
+		})
+	}
+}

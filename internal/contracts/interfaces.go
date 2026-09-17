@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/scriptstate"
+	"agent-platform/internal/skillsexec"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/view"
 )
@@ -360,6 +361,8 @@ type QuerySession struct {
 	MustUseSkills                 []string
 	ConnectorCLIEntries           []connector.CLIEntry `json:"-"`
 	ConnectorBinDirs              []string
+	ConnectorEnv                  map[string]string                 `json:"-"`
+	ConnectorCredentials          []connector.CredentialEnvironment `json:"-"`
 	ContextTags                   []string
 	Budget                        map[string]any
 	StageSettings                 map[string]any
@@ -400,7 +403,9 @@ type QuerySession struct {
 	// RunAccessRoots contains trusted, run-scoped path grants assembled by the
 	// Platform. It is runtime-only so protocol callers cannot forge additional
 	// access. ReadonlyRoots are hard mutation blocks for the lifetime of the run.
-	RunAccessRoots         RunAccessRoots `json:"-"`
+	RunAccessRoots RunAccessRoots `json:"-"`
+	// SkillScripts is an admission-built, memory-only grant for this run.
+	SkillScripts           *skillsexec.Scope `json:"-"`
 	AgentHasRuntimeSandbox bool
 	AgentHasMemoryConfig   bool
 	WorkspaceRoot          string

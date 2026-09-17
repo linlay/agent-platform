@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	exampleSuffix = ".example"
-	demoSuffix    = ".demo"
+	exampleSuffix                = ".example"
+	demoSuffix                   = ".demo"
+	connectorImportStagingPrefix = ".connector-import-"
 )
 
 // ShouldLoadRuntimeName applies to both runtime file names and directory names.
@@ -18,6 +19,19 @@ func ShouldLoadRuntimeName(rawName string) bool {
 // ShouldIgnoreRuntimeWatchPath returns true for filesystem noise and
 // API-managed files that must not trigger a second runtime reload.
 func ShouldIgnoreRuntimeWatchPath(path string) bool {
+	// Ignore the entire unpublished tree, including queued child events.
+	// Windows watcher handles can prevent the importer's atomic directory rename;
+	// macOS also must not reload a partially extracted package.
+	for current := filepath.Clean(strings.TrimSpace(path)); ; {
+		if strings.HasPrefix(strings.ToLower(filepath.Base(current)), connectorImportStagingPrefix) {
+			return true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
 	name := filepath.Base(filepath.Clean(strings.TrimSpace(path)))
 	return name == ".DS_Store" ||
 		name == AgentOrderFileName ||
@@ -34,6 +48,9 @@ func ShouldWatchRuntimeDir(name string) bool {
 		return false
 	}
 	lower := strings.ToLower(name)
+	if strings.HasPrefix(lower, connectorImportStagingPrefix) {
+		return false
+	}
 	if strings.HasPrefix(lower, editableSkillImportStagingPrefix) {
 		return false
 	}

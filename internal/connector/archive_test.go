@@ -76,7 +76,7 @@ func TestImportArchivePublishesWholePackageAndRollsBack(t *testing.T) {
 		t.Fatalf("cannot repair malformed package: %v", err)
 	}
 	entries, _ := os.ReadDir(root)
-	if len(entries) != 1 {
+	if len(entries) != 2 || entries[0].Name() != ".cli-demo.lock" || entries[1].Name() != "demo" {
 		t.Fatalf("staging leaked: %v", entries)
 	}
 }

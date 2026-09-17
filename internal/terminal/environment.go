@@ -55,5 +55,13 @@ func processEnvironment(req startPTYRequest) []string {
 			filtered = append(filtered, entry)
 		}
 	}
+	// The server already built the final ordered PATH. Do not put builtins
+	// ahead of mounted connectors a second time.
+	for _, entry := range req.Env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(key, "PATH") {
+			return filtered
+		}
+	}
 	return builtins.EnsureBinInEnv(filtered)
 }

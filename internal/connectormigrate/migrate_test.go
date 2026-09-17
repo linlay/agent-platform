@@ -72,8 +72,8 @@ func TestMigrationPreservesCredentialsOutsidePackageAndSwitchesAgent(t *testing.
 		t.Fatal(err)
 	}
 	server, ok := registry.Server("search")
-	if !ok || server.ResolvedURL() != "https://example.test/mcp" || server.Headers["Authorization"] != "Bearer private-value" || server.SetupError != "" {
-		t.Fatal("migrated server lost URL or credentials")
+	if !ok || server.ResolvedURL() != "https://example.test/mcp" || server.Headers["Authorization"] != "${MIGRATED_1}" || server.SetupError != "" {
+		t.Fatal("migrated server lost URL or credential template")
 	}
 	if again, err := Run(root, true); err != nil || again.Applied {
 		t.Fatalf("migration is not idempotent: %#v %v", again, err)

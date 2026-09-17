@@ -22,7 +22,7 @@ func TestCLIOrderedAuthStepsAndJSONStatus(t *testing.T) {
 	root := t.TempDir()
 	pkg := connector.Package{Manifest: connector.Manifest{ID: "steps"}, CLI: map[string]any{
 		"platform":     map[string]any{"npmPackage": "demo-cli", "npmVersion": "1.2.0", "entry": "cli.js", "command": "demo", "configEnv": "DEMO_CLI_CONFIG_DIR", "logoutMode": "delete-config"},
-		"versionCheck": map[string]any{"minVersion": "1.2.0"},
+		"versionCheck": map[string]any{"minVersion": "1.2.0", "command": commands("demo --version")},
 		"auth": []any{
 			map[string]any{"command": commands("demo init"), "skipIf": commands("demo configured"), "authUrlDomain": "setup.example.test"},
 			map[string]any{"command": commands("demo login"), "authUrlDomain": "login.example.test"},
@@ -62,6 +62,11 @@ else {
 `)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
+	testNodeCLI(t, filepath.Join(npm, "cli.js"))
+	pkg = writeCLIPackage(t, root, pkg.ID, pkg.CLI)
+	if _, err := m.Prepare(ctx, pkg.ID); err != nil {
+		t.Fatal(err)
+	}
 	l := &login{}
 	done := make(chan error, 1)
 	go func() { done <- m.loginCLI(ctx, pkg, l) }()
@@ -116,6 +121,7 @@ else {
 	// A version wrapper with a missing native payload must not be started by
 	// read-only status; it could otherwise download a binary implicitly.
 	pkg.CLI["platform"].(map[string]any)["nativeEntry"] = "bin/native-demo"
+	pkg = writeCLIPackage(t, root, pkg.ID, pkg.CLI)
 	write(filepath.Join(npm, "cli.js"), `require('fs').writeFileSync(require('path').join(process.env.DEMO_CLI_CONFIG_DIR,'unexpected-install'),'started')`)
 	if _, err := m.cliStatus(ctx, pkg); err == nil {
 		t.Fatal("missing native CLI was reported ready")

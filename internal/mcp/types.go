@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/view"
 )
@@ -14,6 +15,9 @@ type ServerDefinition struct {
 	SourceKey              string
 	RuntimeDigest          string
 	ConnectorID            string
+	ConnectorAuthMode      connector.AuthMode
+	ConnectorCredentialEnv map[string]string
+	CredentialRevision     string
 	ConnectorBinDir        string
 	ConnectorAuthRoot      string
 	ConnectorOAuth         bool

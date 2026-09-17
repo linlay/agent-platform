@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,23 @@ func TestConnectorDeleteHTTPContractAndRollback(t *testing.T) {
 		}
 		if status == 409 && !strings.Contains(rec.Body.String(), `"agentKeys":["mock-agent"]`) {
 			t.Fatal(rec.Body.String())
+		}
+		if status == 409 {
+			var body struct {
+				Data struct {
+					Error struct {
+						Code      string   `json:"code"`
+						Message   string   `json:"message"`
+						AgentKeys []string `json:"agentKeys"`
+					} `json:"error"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Data.Error.Code != "connector_in_use" || !strings.Contains(body.Data.Error.Message, "mock-agent") || len(body.Data.Error.AgentKeys) != 1 {
+				t.Fatal(rec.Body.String())
+			}
 		}
 	}
 	reloader := &recordingServerCatalogReloader{err: errServerCatalogReload}

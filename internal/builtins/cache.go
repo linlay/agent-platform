@@ -16,10 +16,11 @@ import (
 // sync-local-builtins. Formal release staging only consumes this cache; it
 // never falls back to the sibling builtin source collection.
 type CacheStageOptions struct {
-	CacheDir  string
-	OutputDir string
-	GOOS      string
-	GOARCH    string
+	ExcludeGitBash bool
+	CacheDir       string
+	OutputDir      string
+	GOOS           string
+	GOARCH         string
 }
 
 type CacheStageResult struct {
@@ -57,6 +58,11 @@ func LoadManifest(manifestPath string) (Manifest, error) {
 // artifacts intentionally have a different archive hash from the canonical
 // source lock used by sync-local-builtins.
 func VerifyManifest(root string, manifest Manifest) error {
+	if manifest.GitBashExcluded {
+		if err := RequirePlatformComponents(manifest); err != nil {
+			return err
+		}
+	}
 	if manifest.SchemaVersion != manifestSchemaVersion {
 		return fmt.Errorf("unsupported builtins manifest schema %d", manifest.SchemaVersion)
 	}
@@ -124,6 +130,7 @@ func VerifyManifest(root string, manifest Manifest) error {
 // bundle. Only package-owned cache subtrees are copied, so sibling source
 // projects cannot become an implicit release input.
 func StageCache(options CacheStageOptions) (CacheStageResult, error) {
+	options.ExcludeGitBash = options.ExcludeGitBash && options.GOOS == "windows" && options.GOARCH == "amd64"
 	cacheDir, err := filepath.Abs(options.CacheDir)
 	if err != nil {
 		return CacheStageResult{}, err
@@ -151,6 +158,7 @@ func StageCache(options CacheStageOptions) (CacheStageResult, error) {
 	if manifest.Platform.OS != options.GOOS || manifest.Platform.Arch != options.GOARCH {
 		return CacheStageResult{}, fmt.Errorf("local builtins cache platform %s/%s does not match target %s/%s", manifest.Platform.OS, manifest.Platform.Arch, options.GOOS, options.GOARCH)
 	}
+	manifest = selectGitBash(manifest, options.ExcludeGitBash)
 	if err := VerifyManifest(cacheDir, manifest); err != nil {
 		return CacheStageResult{}, fmt.Errorf("local builtins cache verification failed: %w", err)
 	}
@@ -160,6 +168,11 @@ func StageCache(options CacheStageOptions) (CacheStageResult, error) {
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return CacheStageResult{}, err
+	}
+	if options.ExcludeGitBash {
+		if err := removeExcludedGitBash(outputDir); err != nil {
+			return CacheStageResult{}, err
+		}
 	}
 	for _, subtree := range []string{"bin", "connectors", "libexec", "licenses", "sbom"} {
 		source := filepath.Join(cacheDir, subtree)
@@ -177,7 +190,7 @@ func StageCache(options CacheStageOptions) (CacheStageResult, error) {
 		if err := os.RemoveAll(destination); err != nil {
 			return CacheStageResult{}, err
 		}
-		if err := copyCacheDirectory(source, destination); err != nil {
+		if err := copyCacheDirectory(source, destination, options.ExcludeGitBash); err != nil {
 			return CacheStageResult{}, err
 		}
 	}
@@ -228,10 +241,16 @@ func pathContains(parent, candidate string) bool {
 	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 
-func copyCacheDirectory(source, destination string) error {
+func copyCacheDirectory(source, destination string, excludeGitBash ...bool) error {
 	return filepath.WalkDir(source, func(current string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if len(excludeGitBash) > 0 && excludeGitBash[0] && strings.EqualFold(entry.Name(), GitBashComponent) && current == filepath.Join(source, entry.Name()) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		info, err := os.Lstat(current)
 		if err != nil {

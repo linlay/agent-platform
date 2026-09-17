@@ -126,4 +126,38 @@ func TestConnectorManageOneIDUsesIdentityFileAndNeverStoresToken(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(runtimeRoot, ".state", "connectors", "demo")); !os.IsNotExist(err) {
 		t.Fatal("SSO created a connector credential directory")
 	}
+	// An old identity file must never revive authorization after logout.
+	legacy := filepath.Join(runtimeRoot, "identity", "access-token")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("test-private-sso"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, stateDir := range []string{filepath.Join(runtimeRoot, ".state"), filepath.Join(t.TempDir(), "custom state")} {
+		t.Setenv("AP_RUNTIME_STATE_DIR", stateDir)
+		file := filepath.Join(stateDir, "identity", "access-token")
+		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+			t.Fatal(err)
+		}
+		for _, status := range []string{"unauthorized", "authorized", "unauthorized"} {
+			if status == "authorized" {
+				if err := os.WriteFile(file, []byte("test-private-sso"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out.Reset()
+			if err := runConnectorManagement([]string{"status", "--runtime-dir", runtimeRoot, "--id", "demo"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(out.Bytes(), []byte(`"status":"`+status+`"`)) || bytes.Contains(out.Bytes(), []byte("test-private-sso")) {
+				t.Fatal("unexpected identity state or leaked credential")
+			}
+			if status == "authorized" {
+				if err := os.Remove(file); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
 }

@@ -52,10 +52,8 @@ func (m *Manager) SetToken(ctx context.Context, id string, values map[string]str
 	if err != nil {
 		return Session{}, fmt.Errorf("save connector credentials failed")
 	}
-	if m.reload != nil {
-		if err := m.reload(ctx, id); err != nil {
-			return Session{}, err
-		}
+	if err := m.changed(ctx, id); err != nil {
+		return Session{}, err
 	}
 	return Session{ConnectorID: id, Status: "authorized"}, nil
 }

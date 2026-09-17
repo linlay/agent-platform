@@ -39,40 +39,43 @@ type TeamResolver interface {
 }
 
 type AgentDefinition struct {
-	Key                 string
-	Name                string
-	Icon                any
-	Description         string
-	Role                string
-	Greetings           []string
-	Wonders             []string
-	ModelKey            string
-	ServiceTier         string
-	Mode                string
-	ACPBridgeID         string
-	VisibilityScopes    []string
-	Tools               []string
-	Connectors          []string
-	ConnectorMCPServers []string
-	ConnectorCLIEntries []connector.CLIEntry
-	ConnectorBinDirs    []string
-	ConnectorMounts     []ConnectorMount
-	ConnectorSkills     []ConnectorSkill
-	Skills              []string
-	Controls            []map[string]any
-	Runtime             map[string]any
-	HostAccess          AgentHostAccessConfig
-	Workspace           AgentWorkspaceConfig
-	Project             AgentProjectConfig
-	KBaseConfig         kbase.Config
-	KBaseRequirement    kbase.Requirement
-	ContextTags         []string
-	ContextAgents       []string
-	Budget              map[string]any
-	StageSettings       map[string]any
-	RuntimePrompts      AgentRuntimePrompts
-	AgentDir            string
-	RuntimeDir          string `json:"-"`
+	Key                  string
+	Name                 string
+	Icon                 any
+	Description          string
+	Role                 string
+	Greetings            []string
+	Introductions        []string
+	Wonders              []string
+	ModelKey             string
+	ServiceTier          string
+	Mode                 string
+	ACPBridgeID          string
+	VisibilityScopes     []string
+	Tools                []string
+	Connectors           []string
+	ConnectorMCPServers  []string
+	ConnectorCLIEntries  []connector.CLIEntry
+	ConnectorBinDirs     []string
+	ConnectorEnv         map[string]string
+	ConnectorCredentials []connector.CredentialEnvironment
+	ConnectorMounts      []ConnectorMount
+	ConnectorSkills      []ConnectorSkill
+	Skills               []string
+	Controls             []map[string]any
+	Runtime              map[string]any
+	HostAccess           AgentHostAccessConfig
+	Workspace            AgentWorkspaceConfig
+	Project              AgentProjectConfig
+	KBaseConfig          kbase.Config
+	KBaseRequirement     kbase.Requirement
+	ContextTags          []string
+	ContextAgents        []string
+	Budget               map[string]any
+	StageSettings        map[string]any
+	RuntimePrompts       AgentRuntimePrompts
+	AgentDir             string
+	RuntimeDir           string `json:"-"`
 
 	// PROXY mode: forward /api/query to a remote AGW-compatible service.
 	ProxyConfig *ProxyConfig
@@ -769,6 +772,7 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst := src
 	dst.Icon = cloneAgentSnapshotValue(src.Icon)
 	dst.Greetings = append([]string(nil), src.Greetings...)
+	dst.Introductions = append([]string(nil), src.Introductions...)
 	dst.Wonders = append([]string(nil), src.Wonders...)
 	dst.VisibilityScopes = append([]string(nil), src.VisibilityScopes...)
 	dst.Tools = append([]string(nil), src.Tools...)
@@ -776,6 +780,18 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst.Connectors = append([]string(nil), src.Connectors...)
 	dst.ConnectorMCPServers = append([]string(nil), src.ConnectorMCPServers...)
 	dst.ConnectorBinDirs = append([]string(nil), src.ConnectorBinDirs...)
+	dst.ConnectorEnv = make(map[string]string, len(src.ConnectorEnv))
+	dst.ConnectorCredentials = append([]connector.CredentialEnvironment(nil), src.ConnectorCredentials...)
+	for i := range dst.ConnectorCredentials {
+		env := map[string]string{}
+		for key, value := range src.ConnectorCredentials[i].Env {
+			env[key] = value
+		}
+		dst.ConnectorCredentials[i].Env = env
+	}
+	for k, v := range src.ConnectorEnv {
+		dst.ConnectorEnv[k] = v
+	}
 	dst.ConnectorCLIEntries = append([]connector.CLIEntry(nil), src.ConnectorCLIEntries...)
 	dst.ConnectorMounts = append([]ConnectorMount(nil), src.ConnectorMounts...)
 	dst.ConnectorSkills = append([]ConnectorSkill(nil), src.ConnectorSkills...)

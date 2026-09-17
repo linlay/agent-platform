@@ -16,6 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_ROOT="$REPO_ROOT/build/builtins"
 BUILTINS_ROOT="${BUILTINS_ROOT:-}"
+BUNDLE_GIT_BASH="$(printf '%s' "${BUNDLE_GIT_BASH:-true}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+case "$BUNDLE_GIT_BASH" in true|false) ;; *) echo 'BUNDLE_GIT_BASH must be true or false' >&2; exit 1 ;; esac
+export BUNDLE_GIT_BASH
 ALL_TARGETS=false
 TARGETS=()
 
@@ -137,7 +140,8 @@ collection_root="$work_dir/collection"
 copy_project() {
   local name="$1"
   mkdir -p "$collection_root/$name"
-  rsync -a --exclude 'dist' --exclude 'target' "$BUILTINS_ROOT/$name/" "$collection_root/$name/"
+  # Anchor build-output exclusions so nested runtime payload directories survive.
+  rsync -a --exclude '/dist/' --exclude '/target/' "$BUILTINS_ROOT/$name/" "$collection_root/$name/"
 }
 
 copy_project ripgrep
@@ -147,7 +151,7 @@ copy_project kbase-lance-engine
 copy_project poppler-pdftotext
 
 for target in "${TARGETS[@]}"; do
-  if [[ "$target" == "windows/amd64" ]]; then
+  if [[ "$BUNDLE_GIT_BASH" == true && "$target" == "windows/amd64" ]]; then
     [[ -d "$BUILTINS_ROOT/git-bash" ]] || die "missing prepared git-bash builtin project"
     copy_project git-bash
     (cd "$collection_root/git-bash" && scripts/release/build.sh)

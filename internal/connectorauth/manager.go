@@ -12,22 +12,27 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/httpclient"
 )
 
 type Session struct {
 	ID          string    `json:"sessionId"`
 	ConnectorID string    `json:"connectorId"`
+	ComponentID string    `json:"componentId,omitempty"`
 	Status      string    `json:"status"`
 	URL         string    `json:"authorizationUrl,omitempty"`
+	AuthBrowser string    `json:"authBrowser"`
 	Message     string    `json:"message,omitempty"`
 	ExpiresAt   time.Time `json:"expiresAt"`
 }
 
 type login struct {
 	Session
-	cancel context.CancelFunc
-	done   chan struct{}
+	generation       *string
+	terminalRevision string
+	cancel           context.CancelFunc
+	done             chan struct{}
 }
 
 type Manager struct {
@@ -37,6 +42,7 @@ type Manager struct {
 	client       *http.Client
 	identityFile string
 	mu           sync.Mutex
+	preparations map[string]*preparationJob
 	sessions     map[string]*login
 	loggingOut   map[string]bool
 }
@@ -45,7 +51,8 @@ func New(ctx context.Context, sources connector.Sources, reload func(context.Con
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &Manager{ctx: ctx, sources: sources, reload: reload, client: httpclient.NewClient(30 * time.Second), sessions: map[string]*login{}, loggingOut: map[string]bool{}}
+	go hostenv.WithNPM(os.Environ())
+	return &Manager{ctx: ctx, sources: sources, reload: reload, client: httpclient.NewClient(30 * time.Second), preparations: map[string]*preparationJob{}, sessions: map[string]*login{}, loggingOut: map[string]bool{}}
 }
 
 func (m *Manager) WithIdentityFile(path string) *Manager {
@@ -54,12 +61,22 @@ func (m *Manager) WithIdentityFile(path string) *Manager {
 }
 
 func (m *Manager) Start(id string) (Session, error) {
+	return m.StartComponent(id, "")
+}
+
+func (m *Manager) StartComponent(id, component string) (Session, error) {
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
 	}
 	if pkg.Builtin {
 		return Session{}, connector.ErrBuiltinReadOnly
+	}
+	if pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP {
+		pkg, err = OAuthComponent(pkg, component)
+		if err != nil {
+			return Session{}, err
+		}
 	}
 	if !(pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI()) && pkg.AuthMode != connector.AuthOAuth && pkg.AuthMode != connector.AuthMCP {
 		return Session{}, fmt.Errorf("connector does not support interactive login")
@@ -70,29 +87,72 @@ func (m *Manager) Start(id string) (Session, error) {
 		return Session{}, fmt.Errorf("connector logout is in progress")
 	}
 	if old := m.sessions[id]; old != nil && (old.Status == "preparing" || old.Status == "pending") {
+		if old.ComponentID != component {
+			m.mu.Unlock()
+			return Session{}, fmt.Errorf("another component authorization is pending")
+		}
 		result := old.Session
 		m.mu.Unlock()
 		return result, nil
 	}
+	release := func() {}
+	if pkg.ManagedCLI() {
+		var err error
+		release, err = connector.AcquireOperation(m.sources.ExternalRoot, id)
+		if err != nil {
+			m.mu.Unlock()
+			return Session{}, err
+		}
+		pkg, err = m.sources.Load(id)
+		if err == nil && !pkg.ManagedCLI() {
+			err = fmt.Errorf("connector does not support interactive login")
+		}
+		if err == nil {
+			err = m.requirePrepared(pkg)
+		}
+		if err != nil {
+			release()
+			m.mu.Unlock()
+			return Session{}, err
+		}
+	}
+	state, stateErr := readAuthState(m.sources.PersistentRoot(), id)
+	if stateErr != nil {
+		release()
+		m.mu.Unlock()
+		return Session{}, stateErr
+	}
 	ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
-	s := &login{Session: Session{ID: rand.Text(), ConnectorID: id, Status: "preparing", ExpiresAt: time.Now().Add(15 * time.Minute)}, cancel: cancel, done: make(chan struct{})}
+	s := &login{Session: Session{ID: rand.Text(), ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "preparing", ExpiresAt: time.Now().Add(15 * time.Minute)}, cancel: cancel, done: make(chan struct{})}
+	s.ComponentID = component
+	s.generation = &state.Generation
 	m.sessions[id] = s
 	result := s.Session
 	m.mu.Unlock()
 	go func() {
 		defer close(s.done)
 		defer cancel()
+		released := false
+		defer func() {
+			if !released {
+				release()
+			}
+		}()
 		var err error
 		if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
 			err = m.loginCLI(ctx, pkg, s)
 		} else {
 			err = m.loginOAuth(ctx, pkg, s)
 		}
-		if err == nil && ctx.Err() == nil && m.reload != nil {
-			err = m.reload(ctx, id)
+		release()
+		released = true
+		if err == nil && ctx.Err() == nil {
+			err = m.changed(ctx, id)
 		}
+		terminalState, _ := readAuthState(m.sources.PersistentRoot(), id)
 		m.mu.Lock()
 		defer m.mu.Unlock()
+		s.terminalRevision = terminalState.Revision
 		s.URL = ""
 		if ctx.Err() != nil {
 			s.Status = "canceled"
@@ -117,18 +177,25 @@ func (m *Manager) setURL(s *login, u string) {
 }
 
 func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
+	return m.StatusComponent(ctx, id, "")
+}
+
+func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Session, error) {
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
 	}
 	m.mu.Lock()
 	if s := m.sessions[id]; s != nil && s.Status != "authorized" {
-		out := s.Session
-		m.mu.Unlock()
-		return out, nil
+		state, stateErr := readAuthState(m.sources.PersistentRoot(), id)
+		if s.Status == "pending" || s.Status == "preparing" || stateErr != nil || state.Revision == s.terminalRevision {
+			out := s.Session
+			m.mu.Unlock()
+			return out, nil
+		}
 	}
 	m.mu.Unlock()
-	result := Session{ConnectorID: id, Status: "unauthorized"}
+	result := Session{ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "unauthorized"}
 	if pkg.AuthMode == connector.AuthOneID {
 		identity, err := agentconfig.ReadIdentityEnvironment(m.identityFile)
 		if err == nil && identity[agentconfig.EnvAccessToken] != "" {
@@ -144,6 +211,17 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 		return result, nil
 	}
 	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
+		release, lockErr := connector.AcquireOperation(m.sources.ExternalRoot, id)
+		if lockErr != nil {
+			result.Status = "setup_required"
+			result.Message = lockErr.Error()
+			return result, nil
+		}
+		defer release()
+		pkg, err = m.sources.Load(id)
+		if err != nil {
+			return Session{}, err
+		}
 		ok, err := m.cliStatus(ctx, pkg)
 		if err != nil {
 			result.Status = "setup_required"
@@ -163,6 +241,28 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 		}
 		return result, nil
 	}
+	if len(pkg.MCP) > 1 && component == "" {
+		result.Status = "authorized"
+		for name := range pkg.MCP {
+			selected, err := OAuthComponent(pkg, name)
+			if err != nil {
+				return result, err
+			}
+			resource, _, err := oauthResource(selected)
+			if err != nil {
+				return result, err
+			}
+			if !CredentialReady(m.sources.PersistentRoot(), id, resource, oauthDestination(selected)) {
+				result.Status = "unauthorized"
+			}
+		}
+		return result, nil
+	}
+	pkg, err = OAuthComponent(pkg, component)
+	if err != nil {
+		return result, err
+	}
+	result.ComponentID = component
 	resource, _, err := oauthResource(pkg)
 	if err != nil {
 		return result, err
@@ -174,8 +274,17 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 }
 
 func (m *Manager) Cancel(id string) error {
+	return m.CancelSession(id, "")
+}
+
+// A stale browser must never cancel a replacement authorization session.
+func (m *Manager) CancelSession(id, sessionID string) error {
 	m.mu.Lock()
 	s := m.sessions[id]
+	if sessionID != "" && (s == nil || s.ID != sessionID) {
+		m.mu.Unlock()
+		return fmt.Errorf("authorization session has changed")
+	}
 	if s != nil {
 		s.cancel()
 	}
@@ -213,7 +322,12 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 		return err
 	}
 	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
+		release, lockErr := connector.AcquireOperation(m.sources.ExternalRoot, id)
+		if lockErr != nil {
+			return lockErr
+		}
 		err = m.logoutCLI(ctx, pkg)
+		release()
 	} else {
 		unlock, lockErr := lockCredentials(ctx, m.sources.PersistentRoot(), id)
 		if lockErr != nil {
@@ -224,6 +338,9 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 			p, err = connector.CredentialsPath(m.sources.PersistentRoot(), id)
 		} else {
 			p, err = credentialPath(m.sources.PersistentRoot(), id)
+		}
+		if err == nil {
+			err = changeAuthState(m.sources.PersistentRoot(), id, true)
 		}
 		if err == nil {
 			err = os.Remove(p)
@@ -239,8 +356,5 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 	m.mu.Lock()
 	delete(m.sessions, id)
 	m.mu.Unlock()
-	if m.reload != nil {
-		return m.reload(ctx, id)
-	}
-	return nil
+	return m.changed(ctx, id)
 }

@@ -1532,7 +1532,7 @@ func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolIn
 		return
 	}
 	s.previousToolResult = structuredOrOutput(result)
-	content := s.toolResultContent(invocation.toolName, result)
+	content := result.Output
 	s.messages = append(s.messages, openAIMessage{
 		Role:       "tool",
 		ToolCallID: invocation.toolID,
@@ -1596,10 +1596,6 @@ func applyHITLMetadata(result ToolExecutionResult, invocation *preparedToolInvoc
 		result.HITL = buildHITLFormPayload(invocation.hitlDecision)
 	}
 	return result
-}
-
-func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionResult) string {
-	return result.Output
 }
 
 func bashSecurityBlockedToolResult(review bashsec.ReviewResult) ToolExecutionResult {

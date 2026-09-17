@@ -256,6 +256,11 @@ func (s Service) resolveWorkspace(agentKey string) (workspace, error) {
 	if mode != catalog.AgentModeCoder && mode != catalog.AgentModeKBase {
 		return workspace{}, Error{Status: http.StatusBadRequest, Code: "project_not_supported", Message: "project browsing only supports CODER or KBASE agents"}
 	}
+	return s.resolveDefinitionWorkspace(def)
+}
+
+// resolveDefinitionWorkspace validates a real content directory independently of mode.
+func (s Service) resolveDefinitionWorkspace(def catalog.AgentDefinition) (workspace, error) {
 	root := strings.TrimSpace(def.Workspace.Root)
 	if root == "" {
 		return workspace{}, Error{Status: http.StatusBadRequest, Code: "invalid_request", Message: "agent workspace is not a stable directory"}

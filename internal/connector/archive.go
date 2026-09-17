@@ -118,6 +118,11 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 	if prefix != "" && strings.TrimSuffix(prefix, "/") != manifest.ID {
 		return Package{}, fmt.Errorf("ZIP directory must match connector id")
 	}
+	release, err := AcquireOperation(root, manifest.ID)
+	if err != nil {
+		return Package{}, err
+	}
+	defer release()
 	candidate := filepath.Join(stage, manifest.ID)
 	if err := os.Mkdir(candidate, 0o755); err != nil {
 		return Package{}, err
@@ -220,15 +225,15 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 		return Package{}, err
 	}
 	if hadPrevious {
-		if err := os.Rename(target, backup); err != nil {
+		if err := renameArchiveDirectory(ctx, "backup_previous", target, backup); err != nil {
 			return Package{}, err
 		}
 	}
-	if err := os.Rename(candidate, target); err != nil {
+	if err := renameArchiveDirectory(ctx, "publish", candidate, target); err != nil {
 		if hadPrevious {
-			if restoreErr := os.Rename(backup, target); restoreErr != nil {
+			if restoreErr := renameArchiveDirectory(context.WithoutCancel(ctx), "restore_previous", backup, target); restoreErr != nil {
 				keepStage = true
-				return Package{}, fmt.Errorf("install: %v; backup retained at %s: %w", err, backup, restoreErr)
+				return Package{}, fmt.Errorf("install: %w; backup retained at %s: %w", err, backup, restoreErr)
 			}
 		}
 		return Package{}, err
@@ -237,12 +242,12 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 		err = reload()
 	}
 	if err != nil {
-		if restoreErr := os.Rename(target, candidate); restoreErr != nil {
+		if restoreErr := renameArchiveDirectory(context.WithoutCancel(ctx), "rollback_publication", target, candidate); restoreErr != nil {
 			keepStage = true
 			return Package{}, fmt.Errorf("reload: %v; cannot move failed package: %w", err, restoreErr)
 		}
 		if hadPrevious {
-			if restoreErr := os.Rename(backup, target); restoreErr != nil {
+			if restoreErr := renameArchiveDirectory(context.WithoutCancel(ctx), "restore_previous", backup, target); restoreErr != nil {
 				keepStage = true
 				return Package{}, fmt.Errorf("reload: %v; cannot restore backup %s: %w", err, backup, restoreErr)
 			}

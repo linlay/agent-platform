@@ -14,6 +14,8 @@
 }
 ```
 
+管理接口通过统一 Agent HTTP 错误出口返回失败时，外层保留数字 `code` 与 `msg`，`data.error` 同时保留业务错误码、原因、状态及领域诊断。HTTP 状态码不能代替业务错误码；前端依业务错误码提供处理建议，领域诊断用于解释具体阻塞对象。
+
 ## 统一时间契约
 
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。
@@ -117,7 +119,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/connectors`、`/api/admin/connectors` | 无 | 已安装连接器及组件、技能和 MCP 同步状态 |
 | GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 清单声明的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
 | GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
-| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
+| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.error.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
 | GET/POST/DELETE | `/api/admin/connectors/auth?id=<id>` | 连接器 id | 查询状态、发起登录、退出登录 |
 | POST | `/api/admin/connectors/auth/cancel?id=<id>` | 连接器 id | 取消当前登录会话 |
@@ -220,7 +222,7 @@ HTTP 与 WebSocket 使用相同字段和错误语义；WebSocket 空 payload 相
 
 Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详情顶层固定返回 `pinned` boolean。chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；Team 固定为 `TEAM`，不会暴露隐藏协调器 key。历史 chat/run 不根据当前 catalog 回填或转换，原始 mode 仅用于历史读取，不能作为当前筛选或运行输入；Team-owned chat 在合法 `/api/chats` mode 查询中始终保留。
 
-`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `wecom#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
+`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `channel#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
 `/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`，并与列表 summary 一样返回 owner `agentKey`/`teamId`、可选 `mode`、`lastRunId`、`lastRunContent` 和完整 `read { isRead, readAt?, readRunId? }`；客户端不得从 runs、events 或本机时间推断这些字段。该详情 summary 是外部路由直接打开未进入列表缓存的 Chat 时的权威 read 基线。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取；没有顶层 `awaiting` 的历史 ask 不可提交。Platform 重启时，未超时/无限等待的 question 与永久 planning 可恢复，approval/form 会按 timeout 或 runtime restart 原因终态化。可恢复 question/planning 还会同时返回同一 `runId` 的 `activeRun`，其 `state:"WAITING_SUBMIT"`、`startedAt` 保留原 run 时刻，且对应 Platform 内已真实注册的 suspended run，不是 API 层合成摘要。
 
@@ -254,7 +256,7 @@ Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详�
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`（包括 `includeTeam=true`）附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。KBASE editing run 的摘要带可选 `editingMode:true`，方便客户端重连后恢复 badge；false 时省略。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
-`/api/agent` 会返回 agent 配置中的 `greetings` 与 `wonders` 数组。客户端可将 `greetings` 作为开场/占位介绍，并随机挑选一条显示在聊天输入框 placeholder 或空状态里；`wonders` 用于展示可直接提交的具体 query 示例。`/api/agents` 是列表摘要接口，不返回 `greetings` 或 `wonders`。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
+`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；新增的 `introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
 ### Archive
 
@@ -664,6 +666,9 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/file` | query: `agentKey`、`path`、`response` 可选 | agent workspace 文件；默认 JSON metadata/text，`response=content` 返回文件内容流 |
+| GET | `/api/project/git` | query: `agentKey` | 实际 Workspace 的只读 Git 快照，与 Agent 列表/详情独立 |
+| GET | `/api/project/git/branches` | query: `agentKey` | 本地分支列表、Git 快照及写操作边界 |
+| POST | `/api/project/git/branches` | body: `agentKey,operation,branch,expectedRevision` | 切换或新建并切换后返回最新 Git 快照 |
 | GET | `/api/project/tree` | query: `agentKey`、`path`、`limit`、`cursor` | CODER/KBASE Workspace 单层目录树，目录优先稳定排序 |
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
@@ -678,7 +683,29 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 
 `/api/file` 与 `/api/agent/open-directory` 的 `directoryType:"workspace"` 都使用 `runtimeConfig.workspaceRoot`。`path` 可以是 Workspace 相对路径，也可以是宿主机绝对路径；绝对路径经 canonical 解析后必须分类为 Workspace，进入整个 ChatsRoot 会返回 `path_crosses_chat_root`，`..` 与 symlink escape 会返回 forbidden。默认响应使用统一 JSON 包裹，文本文件内联 `content`，二进制/PDF/图片只返回 metadata 与 `contentUrl`；`response=content` 时直接返回文件字节流，不使用 JSON 包裹。文件 JSON 与内容流共用文档元数据解析器，返回一致的 `documentKind/contentKind/mimeType/revision/sizeBytes`；Markdown 与普通文本 MIME 明确声明 UTF-8。该接口不读取 KBASE 索引库，也不扩大 `hostAccess.readRoots`。
 
-Project 三个端点是只读 HTTP 数据面，只接受服务端从 `agentKey` 解析出的精确 `mode: CODER|KBASE`，不接受 Team、其他 mode 或客户端 `workspaceRoot`。所有 `path` 都是 Workspace 相对 POSIX 路径：拒绝绝对路径、反斜杠、`..`、ChatsRoot、symlink 逃逸和 device file。KBASE 不要求 `editingMode:true`。
+Project 的 tree/changes/diff 三个端点是只读 HTTP 数据面，只接受服务端从 `agentKey` 解析出的精确 `mode: CODER|KBASE`，不接受 Team、其他 mode 或客户端 `workspaceRoot`。所有 `path` 都是 Workspace 相对 POSIX 路径：拒绝绝对路径、反斜杠、`..`、ChatsRoot、symlink 逃逸和 device file。KBASE 不要求 `editingMode:true`。
+
+`GET /api/project/git?agentKey=...` 是独立的只读 HTTP 查询，不扩展 `/api/agents`、`/api/agent`，不扫描工作区改动。仅按 catalog 中真实 `Workspace.Root` 解析 canonical 目录及 ChatsRoot 边界，不按 CODER/KBASE mode 限制；没有目录也不会退回 Agent 配置目录或当前进程目录。
+
+成功响应 `data` 为 `{agentKey,status,branch?,commit?,reason?,revision?}`：
+
+| status | 含义与字段 |
+|---|---|
+| `branch` | 实际分支名 `branch`；HEAD 有提交时包含完整 SHA `commit`，空仓库可省略 |
+| `detached` | 游离 HEAD，只返回 `commit`，不虚构分支名 |
+| `not_repository` | 普通非 Git 目录 |
+| `no_workspace` | Agent 未配置稳定项目目录 |
+| `unavailable` | 目录或 Git 读取失败；`reason` 为 `workspace_unavailable`、`git_unavailable`、`probe_failed` 或 `probe_timeout` |
+
+参数错误、未知 Agent、文件系统权限拒绝仍走已有 HTTP 错误包裹。需要宿主 PATH 中可用的 Git；Git 不可用不会阻塞 Agent 列表/详情。探测限时 3 秒，清除继承的 Git 路由/配置环境变量，支持仓库子目录与 worktree；损坏 `.git` 不作为普通非 Git 目录。接口不执行分支切换、创建、checkout、索引刷新或项目写入，响应 `Cache-Control: no-store`。`projectConfig.git.expectedBranch` 保持原 CODER 运行约束，既不决定探测资格，也不作为实际分支的回退值。
+
+`GET /api/project/git/branches` 按需返回 `{git,branches,canChange,blockedReason?,expectedBranch?}`。`branches` 为本地分支名数组，包含空仓库当前尚未产生提交的分支；不 fetch、不列远端分支。`git.revision` 绑定解析后的项目目录、当前 HEAD 状态、分支及提交，是客户端操作前置条件。CODER 的 `expectedBranch` 仅提示既有运行约束，不会被写操作修改。
+
+`POST /api/project/git/branches` 请求 `{agentKey,operation:"switch"|"create",branch,expectedRevision}`。`switch` 仅切换已有本地分支；`create` 从当前 HEAD 创建并切换（空仓库可创建新的初始分支）。分支名须通过 Git ref 格式校验，拒绝选项注入及不合法名称。请求缺少 revision、非法操作或名称返回 400；HEAD/目录已变返回 409 `revision_conflict`，同仓库并行操作返回 `git_busy`，重复名称返回 `branch_exists`，目标不存在返回 `branch_not_found`。成功返回新的 Git 快照。
+
+切换影响整个 worktree，因此只有 Workspace 正好覆盖仓库工作树根且不包含 ChatsRoot 时 `canChange:true`；子目录仍可读分支，mutation 返回 403 `workspace_not_repo_root`，包含聊天存储返回 `workspace_contains_chats`，bare/不可访问 worktree 返回 `worktree_unavailable`。这是用户直接项目操作，不借用 KBASE run 的 editingMode，也不扩大普通文件工具授权。
+
+操作在进程内按 canonical Git common-dir 串行，使用 Git 自有锁及未提交/未跟踪/被忽略文件保护，不 force、stash、clean，不自动猜测远端分支、不递归切换 submodule、不执行 checkout hooks。其他 worktree 占用目标分支时由 Git 拒绝，返回 409 `git_switch_rejected` 及截断后的原因。操作最长 30 秒；超时或执行后无法确认返回 503 `git_operation_uncertain`，客户端必须刷新确认后再决定是否重试，不承诺命令被中止后自动回滚。外部 Git 进程不参与 Platform 进程内锁；用户应避免同一工作树同时进行其他 Git 操作或运行文件写入任务。
 
 `/api/project/tree` 每次只枚举一个目录，默认 `limit=200`、最大 1000；目录优先并按名称稳定排序。游标绑定响应 `revision`，继续分页前目录发生变化会返回 HTTP 409，错误码为 `data.error.code=directory_changed`。目录 symlink 不允许展开；指向 Workspace 内普通文件的 symlink 可交给 `/api/file` 预览，逃逸、断链、目录目标或非普通文件保留 `kind:"symlink"` 但返回 `accessible:false`。Workspace 为文件系统根时仍屏蔽整个 ChatsRoot。
 
@@ -762,10 +789,14 @@ Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信�
 ```json
 {"frame":"request","type":"desktop.workpanel.getState","id":"dsa-123","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{}}
 {"frame":"request","type":"desktop.display","id":"dsa-124","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{"kind":"effect","effect":"fireworks","durationMs":8000}}
+{"frame":"request","type":"desktop.awcp.snapshot","id":"das-124","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{}}
+{"frame":"request","type":"desktop.awcp.invoke","id":"daw-125","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{"revision":"opaque-revision","action":"orders.select","args":{"ids":["order-1"]}}}
 {"frame":"request","type":"desktop.cdp.call","id":"dsc-123","payload":{"requestId":"dsc-123","method":"Runtime.evaluate","params":{"expression":"document.title"},"targetId":"target-1","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"}}}
 ```
 
-Desktop 模式由 Main Broker 按正式 Action 注册表处理 83 个具体 `desktop.*` request type；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Desktop-only 的 `desktop.workpanel.openLocalFile` 在 Standalone 由 Platform 直接返回 `desktop_action_unsupported_runtime`，不转发给 agent-webclient。Action 的 `id` 同时是工具请求标识，响应必须保持同 `id`、同 Action `type`；旧统一 envelope 不提供兼容入口。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
+Desktop 模式由 Main Broker 处理 87 个普通 `desktop.*` request type、AWCP 专用 wire action `desktop.awcp.snapshot` / `desktop.awcp.invoke` 和 `desktop.cdp.call`；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Desktop-only 的 `desktop.workpanel.openLocalFile` 在 Standalone 由 `desktop_action` 返回 `desktop_action_unsupported_runtime`；`desktop_cdp` 的普通 CDP 与 AWCP method 均返回 `desktop_cdp_unsupported_runtime`，不转发给 agent-webclient。普通 Action 的调用方可选 request ID 继续映射为帧 `id`；AWCP 的帧 `id` 只由 Platform 生成。响应必须保持同 `id`、同 request `type`；旧统一 envelope 不提供兼容入口。模型通过 `desktop_cdp` 的两个静态 AWCP method 分别映射到 snapshot/invoke wire；`AWCP.getSnapshot` 默认返回动作目录，传 `params.action` 时返回单项页面手册，选择器只用于 Platform 工具层投影，snapshot wire payload 仍为空。`AWCP.invoke` 的模型 params 与 wire payload 均只含 `{revision,action,args}`，revision 来自模型已读取的页面手册，运行核心不保存绑定或改写工具 Schema，目标和来源仅由可信 Run 决定；合法 AWCP `ok:false` 保持普通 response data 并让工具失败，宿主错误仍使用 error frame。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
+
+Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame，外层 `frame/type/id/code/msg/data` 不变。`type/msg` 承载原始错误类型和消息，`data` 只保存 `{action, details?}`，不再嵌套完整 Action result 或 `error`。Platform 从 `data.details` 提取有界的 `issues`（最多 16 项，每项 `path/code/expected/actual` 字符串最多 256 字节）与恢复提示；`actual` 只表示类型或缺失，不返回输入值。参数错误在模型工具结果中保留 `invalid_args`，其他 provider 错误保留既有分类。此边界由 Desktop/Platform 配套发布；不猜测历史嵌套格式，不改变 CDP/AWCP 各自的诊断协议。
 
 服务端响应帧：
 
@@ -1140,3 +1171,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 错误使用 HTTP 状态、`msg` 和可用时的 `data.code`：400 非法请求/来源，403 无读取权限，404 文件或副本缺失，409 版本变化或 requestId 冲突，413 超限，415 不支持/无效 Office，503 未配置或凭据不可读，502 上游失败/响应不合法/上传结果未知，504 请求等待超时。上传接口无幂等键，结果未知时不自动重试；并发等待者共享失败，用户重新发起新 requestId 后才再尝试。已有远端 ID 会在创建分享前落盘，分享失败可复用该副本重试。
 
 本地读取权限变化只阻止后续预览请求，不会实时撤销已签发的公开分享；链接仍受一天有效期约束。配置和副本回收规则见 [配置化说明](配置化说明.md#office-在线预览服务)。
+
+### CLI 独立准备
+
+`/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。

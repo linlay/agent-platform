@@ -220,6 +220,8 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"role: 测试代理",
 		"description: test agent",
 		"greetings:",
+		"  - 今天想试试什么？",
+		"introductions:",
 		"  - 我可以帮你演示平台工具、审批交互和运行时上下文。",
 		"  - 你可以把我当作一个用于验证 agent-platform 能力的测试智能体。",
 		"wonders:",

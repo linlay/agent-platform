@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -77,6 +78,7 @@ func TestResolutionPrecedence(t *testing.T) {
 func TestSystemModesAndErrors(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
+		config   Config
 		settings systemSettings
 		env      httpproxy.Config
 		readErr  error
@@ -85,13 +87,15 @@ func TestSystemModesAndErrors(t *testing.T) {
 	}{
 		{name: "unconfigured", want: "direct"},
 		{name: "socks", settings: systemSettings{SOCKS: proxyURL(t, "socks5://proxy.test:1080")}, want: "system"},
-		{name: "PAC only", settings: systemSettings{Auto: true}, fail: true},
+		{name: "PAC skipped by default", settings: systemSettings{Auto: true}, want: "system-auto-skipped-direct"},
+		{name: "unsupported PAC opt-in", config: Config{Mode: "pac_auto"}, settings: systemSettings{Auto: true}, fail: true},
+		{name: "PAC opt-in unconfigured", config: Config{Mode: "pac_auto"}, want: "direct"},
 		{name: "PAC with fixed", settings: systemSettings{Auto: true, HTTPS: proxyURL(t, "proxy.test:80")}, want: "system"},
 		{name: "read failed", readErr: errors.New("OS read failed"), fail: true},
 		{name: "invalid environment", env: httpproxy.Config{HTTPSProxy: "http://user:secret@%zz"}, fail: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			r, _ := newResolver(Config{}, tt.env, func(context.Context) (systemSettings, error) { return tt.settings, tt.readErr })
+			r, _ := newResolver(tt.config, tt.env, func(context.Context) (systemSettings, error) { return tt.settings, tt.readErr })
 			u, _ := url.Parse("https://example.org")
 			d, err := r.Resolve(context.Background(), u)
 			if (err != nil) != tt.fail {
@@ -168,13 +172,17 @@ func TestEnvironmentCasePrecedence(t *testing.T) {
 	}
 	u, _ := url.Parse("https://example.org")
 	d, err := r.Resolve(context.Background(), u)
-	if err != nil || d.Proxy.Host != "upper.test:80" {
+	if err != nil || d.Proxy == nil || d.Proxy.Host != "upper.test:80" {
 		t.Fatalf("%+v %v", d, err)
 	}
 	t.Setenv("HTTPS_PROXY", "")
+	if runtime.GOOS == "windows" {
+		// Windows aliases upper/lowercase names; clearing one clears both.
+		t.Setenv("https_proxy", "lower.test:80")
+	}
 	r, _ = NewResolver(Config{})
 	d, err = r.Resolve(context.Background(), u)
-	if err != nil || d.Proxy.Host != "lower.test:80" {
+	if err != nil || d.Proxy == nil || d.Proxy.Host != "lower.test:80" {
 		t.Fatalf("%+v %v", d, err)
 	}
 }
