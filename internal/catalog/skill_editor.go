@@ -247,35 +247,11 @@ func (r *FileRegistry) CreateEditableSkill(key string, skillMd string, files []E
 }
 
 func (r *FileRegistry) DeleteEditableSkill(key string) error {
-	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
-	if root == "" {
-		return fmt.Errorf("skills center directory is not configured")
-	}
-	if err := ValidateEditableSkillKey(key); err != nil {
-		return err
-	}
-	owners, err := readSkillPackageOwners(root)
+	mutation, err := r.BeginDeleteEditableSkill(key)
 	if err != nil {
 		return err
 	}
-	if owner := owners[strings.TrimSpace(key)]; owner != "" {
-		return fmt.Errorf("%w: skill %s belongs to package %s", ErrSkillPackageConflict, strings.TrimSpace(key), owner)
-	}
-	dir, err := editableSkillDir(root, key)
-	if err != nil {
-		return err
-	}
-	info, err := os.Lstat(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return ErrSkillNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return ErrSkillSymlink
-	}
-	return os.RemoveAll(dir)
+	return mutation.Commit()
 }
 
 func (r *FileRegistry) EditableSkillUsage(key string) ([]string, error) {
@@ -442,37 +418,11 @@ func (r *FileRegistry) WriteEditableSkillArchive(key string, destination io.Writ
 // into the shared skills center. The archive may either contain SKILL.md at
 // its root or wrap the complete skill in one top-level directory.
 func (r *FileRegistry) ImportEditableSkillArchive(key string, source io.ReaderAt, size int64) (AdminSkill, error) {
-	if r == nil {
-		return AdminSkill{}, fmt.Errorf("skill registry is not configured")
-	}
-	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
-	if root == "" {
-		return AdminSkill{}, fmt.Errorf("skills center directory is not configured")
-	}
-	key = strings.TrimSpace(key)
-	finalDir, err := importEditableSkillArchiveIntoRoot(root, key, source, size)
+	mutation, item, err := r.BeginImportEditableSkillArchive(key, source, size, false)
 	if err != nil {
 		return AdminSkill{}, err
 	}
-	usage := r.skillUsageByAgent()
-	item, err := buildAdminSkill(root, key, usage[key], true)
-	if err != nil {
-		_ = os.RemoveAll(finalDir)
-		return AdminSkill{}, err
-	}
-	if item.Status != AdminSkillStatusReady {
-		diagnostics := make([]SkillArchiveDiagnostic, 0, len(item.Diagnostics))
-		for _, diagnostic := range item.Diagnostics {
-			diagnostics = append(diagnostics, SkillArchiveDiagnostic{
-				Code:       diagnostic.Code,
-				Message:    diagnostic.Message,
-				SourcePath: archiveDiagnosticRelativePath(finalDir, diagnostic.SourcePath),
-			})
-		}
-		_ = os.RemoveAll(finalDir)
-		return AdminSkill{}, &SkillArchiveValidationError{Diagnostics: diagnostics}
-	}
-	return item, nil
+	return item, mutation.Commit()
 }
 
 // importEditableSkillArchiveIntoRoot contains the shared safe ZIP extraction

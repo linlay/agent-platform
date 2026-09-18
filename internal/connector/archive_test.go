@@ -116,3 +116,17 @@ func TestImportArchiveAcceptsSingleWrapperAndValidatesBeforePublish(t *testing.T
 		t.Fatal(err)
 	}
 }
+
+func TestImportArchiveStagesOutsideConnectorRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "connectors-center")
+	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": `{}`, "assets/nested/data.txt": "payload"})
+	_, err := ImportArchive(context.Background(), Sources{ExternalRoot: root}, bytes.NewReader(data), int64(len(data)), false, func(packages []Package) error {
+		if len(packages) != 1 || filepath.Dir(filepath.Dir(packages[0].Dir)) != filepath.Dir(root) {
+			t.Fatalf("candidate must be outside connector root: %+v", packages)
+		}
+		return nil
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}

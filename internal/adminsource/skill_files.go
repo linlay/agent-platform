@@ -16,6 +16,12 @@ type SkillFileEditor interface {
 	DeleteEditableSkillFile(key, path string, recursive bool, baseSHA256 string) error
 }
 
+// SkillMutationCoordinator protects filesystem edits from catalog scans and
+// directory watches. It is entered only after the source mutation lock.
+type SkillMutationCoordinator interface {
+	WithCatalogMutation(context.Context, func(context.Context) error) error
+}
+
 type SkillFileReloadError struct {
 	Cause       error
 	RollbackErr error
@@ -39,9 +45,22 @@ func (e *SkillFileReloadError) Unwrap() error { return e.Cause }
 // WriteSkillFile serializes text saves through publication. Failed reloads
 // restore the previous bytes (and therefore the editor's base hash), but only
 // while the file still matches this write, so external changes are preserved.
-func (s *Service) WriteSkillFile(ctx context.Context, editor SkillFileEditor, key, path, content, encoding, baseSHA256 string, reload func(context.Context) error) (catalog.EditableSkillFile, error) {
+func (s *Service) WriteSkillFile(ctx context.Context, editor SkillFileEditor, key, path, content, encoding, baseSHA256 string, reload func(context.Context) error, coordinators ...SkillMutationCoordinator) (catalog.EditableSkillFile, error) {
 	unlock := s.LockSourceMutation()
 	defer unlock()
+	if len(coordinators) > 0 && coordinators[0] != nil {
+		var written catalog.EditableSkillFile
+		err := coordinators[0].WithCatalogMutation(ctx, func(ctx context.Context) error {
+			var err error
+			written, err = s.writeSkillFileLocked(ctx, editor, key, path, content, encoding, baseSHA256, reload)
+			return err
+		})
+		return written, err
+	}
+	return s.writeSkillFileLocked(ctx, editor, key, path, content, encoding, baseSHA256, reload)
+}
+
+func (s *Service) writeSkillFileLocked(ctx context.Context, editor SkillFileEditor, key, path, content, encoding, baseSHA256 string, reload func(context.Context) error) (catalog.EditableSkillFile, error) {
 	before, err := editor.ReadEditableSkillFile(key, path)
 	existed := err == nil
 	if err != nil && !errors.Is(err, catalog.ErrSkillNotFound) {

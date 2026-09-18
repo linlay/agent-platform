@@ -103,11 +103,13 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 			s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
 			return
 		}
-		file, err := connector.SaveDefinition(sources.ExternalRoot, connector.File{ID: req.ID, File: req.File, Content: req.Content}, req.BaseSHA256, mcp.ValidateConnectorPackage, func() error {
-			if s.deps.CatalogReloader == nil {
-				return nil
-			}
-			return s.deps.CatalogReloader.Reload(context.WithoutCancel(r.Context()), "connectors")
+		file, err := withCatalogTransaction(r.Context(), s, func(ctx context.Context) (connector.File, error) {
+			return connector.SaveDefinition(sources.ExternalRoot, connector.File{ID: req.ID, File: req.File, Content: req.Content}, req.BaseSHA256, mcp.ValidateConnectorPackage, func() error {
+				if s.deps.CatalogReloader == nil {
+					return nil
+				}
+				return s.deps.CatalogReloader.Reload(context.WithoutCancel(ctx), "connectors")
+			})
 		})
 		if err != nil {
 			if errors.Is(err, connector.ErrBuiltinReadOnly) {
@@ -130,6 +132,11 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 				return s.deps.CatalogReloader.Reload(ctx, "connectors")
 			}
 			return nil
+		}, func(ctx context.Context, mutate func(context.Context) error) error {
+			_, err := withCatalogTransaction(ctx, s, func(ctx context.Context) (struct{}, error) {
+				return struct{}{}, mutate(ctx)
+			})
+			return err
 		})
 		if err != nil {
 			s.writeConnectorError(w, err)
