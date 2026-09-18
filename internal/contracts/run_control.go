@@ -538,6 +538,9 @@ func completeCompactControlState(state *compactControlState, response api.Compac
 }
 
 func (c *RunControl) EnqueueSteer(req api.SteerRequest) bool {
+	if strings.TrimSpace(req.Message) == "" && len(req.References) == 0 {
+		return false
+	}
 	if c == nil || c.interrupted.Load() || c.finished.Load() {
 		return false
 	}

@@ -1128,13 +1128,13 @@ Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinn
 
 steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 返回 `409 already_resolved`；approve 先被接受并创建 execution continuation 时，旧 Run 的 steer 返回 `accepted:false,status:"unmatched"`。后续指令应发往新 execution Run。新计划仍需重新确认。此行为适用于仍有 planning 执行者的活动 Run，跨进程 suspended 等待项仍通过 submit 恢复；完整时序见 [HITL协议](HITL协议.md)。
 
-### 含图 steer
+### 附件 steer
 
-`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 仍必填。`chatId` 缺省时从 Run 补齐，提供时必须匹配。首版仅接受当前 Chat 的图片资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；query 仍要求非空文字。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
 
-普通 native Agent 与 Team 协调器在原有安全点接收图片。当前模型不支持视觉、资源不可用或混入非图片时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 含图路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。图片在准入时读取并冻结，入队后同名文件修改不会替换模型输入。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
+普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
-公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带图记录要求 `messages`。前后端按后端先、前端后的顺序更新。
+公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带附件记录要求 `messages`。前后端按后端先、前端后的顺序更新。
 
 
 ## Office 在线预览 HTTP API

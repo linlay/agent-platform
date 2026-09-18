@@ -134,7 +134,7 @@ func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
 	}
 	steer := anyMap(line["steer"])
 	content := strings.TrimSpace(stringValue(steer["message"]))
-	if content == "" {
+	if content == "" && len(messageMapsFromAny(line["messages"])) != 1 {
 		return nil
 	}
 	role := strings.TrimSpace(stringValue(steer["role"]))
