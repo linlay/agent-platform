@@ -27,7 +27,7 @@ func appendDesktopCDPDiagnostics(out map[string]any, data json.RawMessage) {
 }
 
 func copyDesktopCDPDiagnosticFields(out, in map[string]any) {
-	for _, key := range []string{"method", "targetId", "surfaceId", "reason", "recovery"} {
+	for _, key := range []string{"method", "surfaceId", "reason", "recovery"} {
 		if value, ok := in[key].(string); ok && len(value) <= 2048 {
 			out[key] = value
 		}

@@ -73,7 +73,6 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 - `desktop.workpanel.closeWorkpanel`：无参数。Desktop 模式关闭当前 Chat 的整个 WorkPanel；Standalone 只隐藏右侧栏并保留已打开的 Web Preview。
 - `desktop.display({kind:"effect",effect,durationMs?})`：在 Desktop Main Window 或 Standalone 根页面显示 fireworks、snowfall、nationalDay。时长缺省 8000 ms，必须是 1000–30000 的整数；启动后立即返回 accepted，新请求替换当前效果。
 
-`openWeb` 与 `refreshWeb` 只接受显式 `http:` 或 `https:` URL，拒绝用户名和密码，但不排除宿主可达的本地 HTTP 服务；`file://` 仍不是 Web URL。`openLocalFile` 只允许普通 Agent 的 Desktop Platform Run，Standalone、Team、Desktop WebSocket、HTTP Action Bridge、调试入口、WebApp 与 Agent WebClient 均无此能力。WorkPanel 的 `tabId` 是条目 ID，不是 CDP `targetId`；不要把它传给 `desktop_cdp`。WorkPanel 也不进入普通 `desktop.web.listSurfaces` 或 `Target.getTargets`，因此高层 Tab/WebView 操作应使用上述动作；只有已经获得独立 CDP `targetId` 时才能进行页面级 CDP 调用，Desktop 仍会校验其 `ownerChatId` 与可信 `source.chatId` 一致。
 
 ## `desktop_cdp` 参数文件
 
@@ -82,12 +81,12 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 ```json
 {
   "method": "Runtime.evaluate",
-  "targetId": "实际 targetId",
+  "surfaceId": "实际 surfaceId",
   "paramsFile": "params.json"
 }
 ```
 
-`params.json` 只保存原来的 `params` 内容，不包含外层 `method`、`targetId` 等请求字段：
+`params.json` 只保存原来的 `params` 内容，不包含外层 `method`、`surfaceId` 等请求字段：
 
 ```json
 {
@@ -113,7 +112,7 @@ Agent 可看到静态 Desktop 工具 `desktop_action` 与 `desktop_cdp`。普通
 
 本地存在相邻 `zenmind-desktop` checkout 时，`go test ./internal/tools -run TestDesktopActionContractMatchesDesktopSource -count=1` 会直接核对上游定义。CI 或非相邻 checkout 可设置 `ZENMIND_DESKTOP_SOURCE` 为 Desktop 仓库路径；显式配置路径缺失会失败，未配置且无相邻仓库时跳过这项跨仓检查。更新 Desktop 后需同步 YAML 和契约测试；内嵌工具 Schema 的变更需要重新构建并重启 Platform。
 
-Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey/teamId`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,targetId,sessionId,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
+Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey/teamId`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
 
 AWCP 按网站操作手册渐进披露，`desktop_cdp` 的工具定义始终固定。模型先读取动作目录，再按任务读取某个动作的页面说明、参数约束及示例，最后使用通用 `AWCP.invoke`。页面描述是普通工具结果，不注册成工具，不注入 system prompt，也不改写下一轮模型请求的 Schema。网站新增动作无需修改 Platform 核心。
 
@@ -190,7 +189,7 @@ Desktop 拥有按方法的参数预检和目标授权；Platform 不复制 Chrom
 
 ## 整合点击能力
 
-已挂载 `desktop_cdp` 的 Agent 可通过 `method: "Input.click"` 使用整合点击能力，参数放在 `params` 中，目标使用顶层 `targetId`。该方法复用一次 `desktop.cdp.call` 反向请求、可信 Run 来源和现有页面/WorkPanel 授权，不增加网络入口。`Input.click` 由 Desktop 编排，不直接转发给 Chromium。
+已挂载 `desktop_cdp` 的 Agent 可通过 `method: "Input.click"` 使用整合点击能力，参数放在 `params` 中，目标使用顶层 `surfaceId`。该方法复用一次 `desktop.cdp.call` 反向请求、可信 Run 来源和现有页面/WorkPanel 授权，不增加网络入口。`Input.click` 由 Desktop 编排，不直接转发给 Chromium。
 
 Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；模型不构造按下/释放事件、不写参数文件。Desktop 执行唯一定位、滚动和命中检查、真实左键单击、可选的后置条件观察。`waitFor` 完全可省略，此时只证明输入完成。等待超时、取消、导航和输入结果不确定分别保留动作阶段，不自动重放点击。Windows/macOS 均使用 Chromium CSS 视口坐标，不做宿主 DPI 换算。
 
@@ -203,3 +202,9 @@ Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；�
 ## WebApp Action 路径别名
 
 Platform 对 WebApp init、validate、build 和 install 的指定路径字段复用 Session 路径解析，支持 `@chat` 与 `@workspace`。别名只来自当前 Run 的可信上下文，目标必须同时位于别名根和 Workspace 内；解析后转换为 Workspace 相对路径发送给 Desktop，不修改 source 根，不解析其他 Action 或嵌套业务字段。普通相对路径及 build 返回路径保持兼容。Desktop 继续在执行前检查真实路径、链接边界和文件权限；Platform 解析不是文件访问授权。无项目默认 Chat 内落盘，有项目默认项目内落盘；缺根、跨卷及越界明确拒绝，不自动选择替代目录。
+
+## 网页 Container / Surface 契约
+
+Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surface。`desktop_cdp` 以 Surface.list / Surface.getCurrent 发现网页，所有 CDP 页面操作只使用 surfaceId，不暴露另一个目标 ID 或 session selector。Surface.open/close/getState/goBack 是 Desktop 方法，其余受限 Chromium 方法仍由 Desktop 定位到精确 webContents 后执行。导航和刷新保留身份，关闭重开使旧身份失效。
+
+普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。

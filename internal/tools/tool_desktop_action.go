@@ -97,8 +97,6 @@ type desktopCDPRequest struct {
 	RequestID string           `json:"requestId,omitempty"`
 	Method    string           `json:"method"`
 	Params    map[string]any   `json:"params,omitempty"`
-	TargetID  string           `json:"targetId,omitempty"`
-	SessionID string           `json:"sessionId,omitempty"`
 	SurfaceID string           `json:"surfaceId,omitempty"`
 	Source    desktopCDPSource `json:"source,omitempty"`
 }
@@ -186,6 +184,11 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 }
 
 func (t *RuntimeToolExecutor) invokeRawDesktopCDP(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	for key := range args {
+		if key != "method" && key != "params" && key != "paramsFile" && key != "surfaceId" && key != "requestId" {
+			return desktopActionErrorResult("invalid_args", "unsupported desktop_cdp field; select a page using surfaceId", nil), nil
+		}
+	}
 	method := strings.TrimSpace(stringArg(args, "method"))
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
@@ -202,8 +205,6 @@ func (t *RuntimeToolExecutor) invokeRawDesktopCDP(ctx context.Context, args map[
 		RequestID: requestID,
 		Method:    method,
 		Params:    params,
-		TargetID:  strings.TrimSpace(stringArg(args, "targetId")),
-		SessionID: strings.TrimSpace(stringArg(args, "sessionId")),
 		SurfaceID: strings.TrimSpace(stringArg(args, "surfaceId")),
 		Source:    buildDesktopCDPSource(execCtx),
 	}
