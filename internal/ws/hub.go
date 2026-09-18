@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -118,6 +119,23 @@ func (h *Hub) unregister(conn *Conn) {
 
 func (h *Hub) Broadcast(eventType string, data map[string]any) {
 	if h == nil {
+		return
+	}
+	// Publication notices belong exclusively to the authenticated Main lane.
+	// Other connections (including unknown/future Explain lanes) never qualify.
+	if eventType == "artifact.published" {
+		h.mu.RLock()
+		conn := h.desktopMainConn
+		h.mu.RUnlock()
+		if conn == nil {
+			log.Printf("[artifact-published] skipped: no Main connection chatId=%v artifactId=%v", data["chatId"], data["artifactId"])
+			return
+		}
+		if _, ok := conn.authenticatedDesktopMainTarget(); !ok {
+			return
+		}
+		queued := conn.SendPush(eventType, data)
+		log.Printf("[artifact-published] enqueue sessionId=%s chatId=%v artifactId=%v queued=%t", conn.SessionID(), data["chatId"], data["artifactId"], queued)
 		return
 	}
 	conns := h.snapshotConnections()

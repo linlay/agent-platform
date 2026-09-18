@@ -11,7 +11,7 @@ func TestPushTimestampContract(t *testing.T) {
 		"connected", "heartbeat", "auth.expiring", "run.started", "run.finished",
 		"chat.created", "chat.updated", "chat.unread", "chat.read", "chat.read_all",
 		"chat.deleted", "chat.renamed", "chat.archived", "archive.restored", "archive.deleted",
-		"catalog.updated", "awaiting.asking", "awaiting.answered", "resource.pushed",
+		"catalog.updated", "awaiting.asking", "awaiting.answered", "resource.pushed", "artifact.published",
 	}
 	for _, eventType := range types {
 		t.Run(eventType, func(t *testing.T) {

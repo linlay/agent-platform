@@ -66,6 +66,7 @@
 - Platform 重启会从持久化 pending summary 恢复未超时/无限等待的 question 与永久 planning；approval/form 或已超时等待项会补齐 error answer、未执行 tool result 和 cancel completion，再清除 pending。活动 Run 的等待项由原执行流程收尾，会话读取不提前补写超时结果。
 - 工具执行中取消会先收尾工具结果，再保存 Run 终态；活动异步工具在整批共享 2 秒期限内保留真实返回，无法确认时明确记录副作用未知。旧的缺失结果历史不会自动重写，人工恢复流程见 [会话存储与回放](./docs/会话存储与回放.md)。
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，实际下载继续使用 `GET /api/resource?file=...`；新图片/产物结果的 `url` 是 `<chatId>/<relativePath>` 逻辑引用，由客户端转换成该 HTTP 请求，历史 `/api/resource?file=...` 保持只读兼容。`path` 只供智能体工具读取或继续发布，绝不进入 Markdown；`/ws` 只传文件引用与状态，不承载文件字节。
+- 产物发布成功后逐个发送 `artifact.published`，仅已认证 Desktop Main WS 接收，不依赖当前 Chat 或网关；BTW、Explain 及其他 WS 不接收，attach/回放不重发。`resource.pushed` 只表示实际上传网关成功。
 - `image_generate` 对 Agent 使用统一参数：无输入图时文生图，最多四张 Chat/本地输入图时图生图；生成和编辑端点及请求格式完全由模型 YAML 选择 Images JSON、Images Multipart 或 Chat Completions，不按模型名/provider 分支。可选 mask 支持 alpha、白区编辑和黑区编辑三种显式语义，仅在模型声明原生 `openai-alpha` 能力时执行局部重绘。
 - 文件工具与 Bash 共享 `AccessPolicy`；effective `default` 无条件包含冻结的 `@temp` 读写根（Unix/macOS 为启动时 `os.TempDir()` 与 canonical `/tmp`，Windows 为启动时 `os.TempDir()`）。所有 Agent 使用统一脚本入口策略：本 run 经 `file_write` 完整写入且字节未变化的脚本免 opaque 入口审批；已挂载连接器 CLI 直接执行（见连接器专题）；其他普通脚本/自定义程序在 `default` 下 HITL、`auto_approve` 下自动批准并审计、`full_access` 下通过。同批独立 Host Bash 在仅本次批准、本轮批准和自动批准后均可按现有并发规则同时执行，一次性授权按调用隔离。保留单条临时 Python/Node 例外，不泛化为 `/tmp` 程序免审；路径、readonly、hard block 和文件写前读约束独立生效。详见 [工具目录权限](docs/工具目录权限.md)。
 - `mustUseSkills` 为本次 run 选中的每个 Skill 目录追加 trusted read + readonly roots：完整目录免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，任何 `accessLevel`、hostAccess 或 approval 都不能写入这些选中目录。Container 仍只读挂载整个 `/skills-center`，mount 可见性不等同于 AccessPolicy 授权。
@@ -424,6 +425,6 @@ docker compose logs -f
 - [版本化打包方案](./docs/版本化打包方案.md)
 - [手工测试用例](./docs/手工测试用例.md)
 
-运行中的普通 native Agent / Team 协调器支持图片 steer：先通过 `/api/upload` 上传，再向 `/api/steer` 传文字和 `references`。图片冻结、回放和续聊契约见 [API与协议](docs/API与协议.md)；PROXY/CHANNEL 含图 steer 尚不支持。
+运行中的普通 native Agent / Team 协调器支持图片与普通文件 steer：先通过 `/api/upload` 上传，再向 `/api/steer` 传 `references`，文字可为空；普通文件（含 HTML/MD）作为工具读取引用，视觉模型直接接收图片，非视觉模型接收图片文件引用供已配置的识别工具读取。query 始终要求非空文字。附件、图片冻结、回放和续聊契约见 [API与协议](docs/API与协议.md)；PROXY/CHANNEL 附件 steer 尚不支持。
 
 活动 native CODER 在 planning 输出或确认等待时收到 steer，会使旧计划失效并按新要求重新规划；新计划仍需确认，旧批准请求不能启动执行。时序与 `planning.superseded` 事件见 [HITL协议](docs/HITL协议.md)。

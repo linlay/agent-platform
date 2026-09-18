@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 	runtimeproxy "agent-platform/internal/runtime/proxy"
+	"agent-platform/internal/runtime/runexec"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
@@ -305,7 +306,7 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 		steerID = time.Now().UTC().Format("20060102150405.000000000")
 	}
 	if len(req.References) > 0 {
-		return api.SteerResponse{Accepted: false, Status: "unsupported", RunID: req.RunID, SteerID: steerID, Detail: "image steer is not supported for remote runs"}, nil, true
+		return api.SteerResponse{Accepted: false, Status: "unsupported", RunID: req.RunID, SteerID: steerID, Detail: "attachment steer is not supported for remote runs"}, nil, true
 	}
 	if route.Transport == "sse" {
 		var response api.SteerResponse
@@ -798,7 +799,9 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 		r.stepWriter.OnEvent(event)
 	case "artifact.publish":
 		r.stepWriter.OnEvent(event)
-		r.broadcastResourcePushed(event)
+		if r.stepWriter.Err() == nil {
+			runexec.NotifyArtifactPublished(r.notifications, event)
+		}
 	case "tool.result",
 		"task.start", "task.complete", "task.cancel", "task.error",
 		"plan.create", "plan.update", "source.publish",
@@ -841,58 +844,6 @@ func (r *proxyEventRecorder) maybeResolvePendingAwaiting() {
 		Chats:         r.chatStore,
 		Notifications: r.notifications,
 	}, &r.awaiting)
-}
-
-func (r *proxyEventRecorder) broadcastResourcePushed(event stream.EventData) {
-	if r == nil || r.notifications == nil {
-		return
-	}
-	chatID := strings.TrimSpace(event.String("chatId"))
-	if chatID == "" {
-		chatID = r.req.ChatID
-	}
-	if chatID == "" {
-		return
-	}
-	timestamp := event.Timestamp
-	if err := timecontract.ValidateEpochMillis(timestamp, "timestamp", "proxy.resource.pushed"); err != nil {
-		log.Printf("[proxy][ws] refusing resource.pushed with invalid timestamp: %v", err)
-		return
-	}
-	for _, artifact := range proxyArtifactItems(event.Value("artifacts")) {
-		artifactID := strings.TrimSpace(contracts.AnyStringNode(artifact["artifactId"]))
-		name := strings.TrimSpace(contracts.AnyStringNode(artifact["name"]))
-		if artifactID == "" && name == "" {
-			continue
-		}
-		payload := map[string]any{
-			"chatId":     chatID,
-			"artifactId": artifactID,
-			"name":       name,
-			"mimeType":   strings.TrimSpace(contracts.AnyStringNode(artifact["mimeType"])),
-			"sha256":     strings.TrimSpace(contracts.AnyStringNode(artifact["sha256"])),
-			"sizeBytes":  contracts.AnyIntNode(artifact["sizeBytes"]),
-			"pushedAt":   timestamp,
-		}
-		r.notifications.Broadcast("resource.pushed", payload)
-	}
-}
-
-func proxyArtifactItems(value any) []map[string]any {
-	switch typed := value.(type) {
-	case []map[string]any:
-		return typed
-	case []any:
-		items := make([]map[string]any, 0, len(typed))
-		for _, raw := range typed {
-			if item := contracts.AnyMapNode(raw); len(item) > 0 {
-				items = append(items, item)
-			}
-		}
-		return items
-	default:
-		return nil
-	}
 }
 
 func (r *proxyEventRecorder) Finish() (bool, chat.RunCompletion) {

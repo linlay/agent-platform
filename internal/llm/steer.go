@@ -23,15 +23,17 @@ func (e *LLMAgentEngine) steerPreparer(session contracts.QuerySession, vision bo
 	}
 	chatID, runID := session.ChatID, session.RunID
 	return func(req api.SteerRequest) (api.SteerRequest, error) {
-		if !vision && chatresource.SteerHasImages(req.References) {
-			return req, fmt.Errorf("the current run model does not support image input")
-		}
 		if req.RunID != runID || (strings.TrimSpace(req.ChatID) != "" && req.ChatID != chatID) {
 			return req, fmt.Errorf("steer does not match the active run/chat")
 		}
-		refs, blocks, err := chatresource.PrepareSteerImages(chatID, chatDir, container, req.References)
+		refs, blocks, err := chatresource.PrepareSteerReferences(chatID, chatDir, container, req.References)
 		if err != nil {
 			return req, err
+		}
+		// Non-vision models can inspect images through their configured tools.
+		// Keep validated file references, but do not send unsupported image blocks.
+		if !vision {
+			blocks = nil
 		}
 		req.ChatID, req.References = chatID, refs
 		inputOptions := options

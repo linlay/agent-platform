@@ -866,9 +866,16 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 | `chats.order.changed` | `updatedAt`；列表展示偏好修改后刷新，时间不代表 Chat 内容变化 |
 | `awaiting.asking` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`createdAt`、可选 `timeout` / `viewportType` / `viewportKey` |
 | `awaiting.answered` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`answeredAt`、可选 `errorCode` / `submitId` / `durationMs` |
+| `artifact.published` | `chatId`、`runId`、`artifactId`、`name`、`type`、`mimeType`、`sizeBytes`、`sha256`、`url`、`publishedAt`；仅已认证 Desktop Main |
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`pushedAt` |
 
 上述全局 Push 广播排除 `desktop-btw` 和 `desktop-explain` 连接。旁聊 lane 只接收握手、heartbeat、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW RunChannel。
+
+`artifact.published` 是 Main 专属产物发布通知：本地成功发布并持久化 manifest 后，由实时 `artifact.publish` 生命周期触发；代理收到实时发布事件并写入本地记录后使用同一转换逻辑。每个产物一条 push，字段平铺在 `data` 中，不携带 `artifacts`、`artifactCount`、`toolId` 或 `taskId`。`url` 是相对于 `chatId` 的发布资源引用，`publishedAt` 是发布事件的 epoch 毫秒时间。它只投递给当前已认证注册的 `desktop-main`，所有 BTW、Explain、WebClient、Gateway 及其他 WS 均不接收；Main 离线不转投、不缓存通知。通知不依赖网关、当前选中 Chat 或 Run stream 订阅，attach/历史回放不重发；客户端以 `(chatId, runId, artifactId)` 幂等更新，断线后通过持久化产物清单对账。
+
+`resource.pushed` 仅表示文件已成功上传网关；没有网关配置/路由或上传失败不发送，代理不再把 `artifact.publish` 转换成它。`artifact.publish` 仍保留为原有批次 Run stream 事件。
+
+除 Main 专属 `artifact.published` 外，上述全局 Push 广播排除 `desktop-btw` 和 `desktop-explain` 连接。BTW lane 只接收握手、heartbeat、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW RunChannel。
 
 除 `heartbeat.timestamp` 外，platform 主动发送的 push payload 不使用 `timestamp`；它们用上表的业务语义时间字段。这是硬切换，不会双写旧字段，前端与服务端需要同版本发布。SSE 与 WebSocket `frame:"stream"` 的 `event.timestamp` 仍是每个业务流事件必填的 epoch milliseconds。`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
 
@@ -1136,13 +1143,13 @@ Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinn
 
 steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 返回 `409 already_resolved`；approve 先被接受并创建 execution continuation 时，旧 Run 的 steer 返回 `accepted:false,status:"unmatched"`。后续指令应发往新 execution Run。新计划仍需重新确认。此行为适用于仍有 planning 执行者的活动 Run，跨进程 suspended 等待项仍通过 submit 恢复；完整时序见 [HITL协议](HITL协议.md)。
 
-### 含图 steer
+### 附件 steer
 
-`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 仍必填。`chatId` 缺省时从 Run 补齐，提供时必须匹配。引用支持纯文本 `type:"selection",meta:{text:"选中文本"}` 与当前 Chat 的图片资源相对 URL；selection 的 `meta.text` 必须为非空字符串，只按文本使用，不授予客户端 path/URL 文件访问权；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；query 仍要求非空文字。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
 
-普通 native Agent 与 Team 协调器在原有安全点接收引用。纯文本 selection 不要求视觉模型；只有包含图片才要求视觉能力。图片资源不可用、selection 文本无效或混入其他引用类型时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 含图路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。selection 文本与图片在准入时读取并冻结，入队后同名文件修改不会替换模型输入。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
+普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
-公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带引用记录保存 `messages` 快照，回放及后续模型历史使用冻结内容。新客户端必须遵循上述 transport/lane 控制边界。
+公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带附件记录要求 `messages`。前后端按后端先、前端后的顺序更新。
 
 
 ## Office 在线预览 HTTP API
@@ -1184,3 +1191,5 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 ### CLI 独立准备
 
 `/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。
+
+纯文本选区 steer 使用 `references:[{type:"selection",meta:{text:"选中文本"}}]`；`meta.text` 必须为非空字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。

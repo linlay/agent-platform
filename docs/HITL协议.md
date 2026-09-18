@@ -116,6 +116,6 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 
 ## Steer selection 与控制归属
 
-native Agent/Team 协调器的 `/api/steer` 可传 `references:[{type:"selection",meta:{text:"选中文本"}}]`，`message` 仍必填。纯文本 selection 不要求视觉模型，混合图片则保留现有视觉与 Chat 资源校验。准入冻结输入，安全点消费后写入 steer JSONL 的 messages；回放、续聊使用同一快照。btw/explain 的记录留在隐藏分支，不改父 Chat。
+native Agent/Team 协调器的 `/api/steer` 可传 `references:[{type:"selection",meta:{text:"选中文本"}}]`，文字或有效引用至少一项。纯文本 selection 不要求视觉模型；图片与普通文件沿用当前 Chat 资源校验，非视觉模型保留图片工具读取引用。准入冻结输入，安全点消费后写入 steer JSONL 的 messages；回放、续聊使用同一快照。btw/explain 的记录留在隐藏分支，不改父 Chat。
 
 HTTP 创建的 Run 必须由 HTTP 控制，WS 创建的 Run 必须由同身份/设备/lane 的 WS 控制。submit 的等待项恢复以及 planning 创建的新执行 Run 继承原控制归属；旧 Run 缺少归属时返回 `run_control_identity_unavailable`，不由请求补写归属。详见 [API与协议](API与协议.md)。
