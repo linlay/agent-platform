@@ -140,7 +140,7 @@ func (s *Server) prepareQueryAdmissionRequest(
 	locale string,
 	resourceBaseURL string,
 ) (result queryAdmission, resultErr error) {
-	if requireMessage && strings.TrimSpace(req.Message) == "" {
+	if requireMessage && strings.TrimSpace(req.Message) == "" && !hasQueryReferenceContent(req.References) {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
 	}
 	if role, ok := normalizeQueryRole(req.Role); ok {
@@ -200,6 +200,26 @@ func (s *Server) prepareQueryAdmissionRequest(
 			// memory scope, or history is resolved. Do not ignore a malformed
 			// timestamp here and accidentally treat the chat as a fresh one.
 			return queryAdmission{}, summaryErr
+		}
+	}
+	if requireMessage && strings.TrimSpace(req.Message) == "" {
+		hasHistory := existingSummary != nil && strings.TrimSpace(existingSummary.LastRunID) != ""
+		if !hasHistory && existingSummary != nil {
+			// An accepted query can exist before its first run reaches a terminal state.
+			detail, err := s.deps.Chats.LoadChat(chatID)
+			if err != nil {
+				return queryAdmission{}, err
+			}
+			for _, event := range detail.Events {
+				if event.Type == "request.query" && event.Value("hidden") != true &&
+					(event.String("lane") == "" || event.String("lane") == "main") {
+					hasHistory = true
+					break
+				}
+			}
+		}
+		if !hasHistory {
+			return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "message is required for the first query"}
 		}
 	}
 	if gateErr := s.awaitingQueryGateError(chatID, existingSummary); gateErr != nil {
@@ -978,4 +998,22 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		mapper = s.deps.DeltaMappers.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, prepared.session.ResolvedBudget, s.toolLookup())
 	}
 	return assembler, mapper
+}
+
+// Reference-only follow-ups accept the same content kinds as the composer.
+// Resource existence and selection normalization remain in prepareQueryReferences.
+func hasQueryReferenceContent(references []api.Reference) bool {
+	for _, reference := range references {
+		switch strings.ToLower(strings.TrimSpace(reference.Type)) {
+		case "selection":
+			if _, err := api.NormalizeSelectionReference(reference); err == nil {
+				return true
+			}
+		case "", "file":
+			if strings.TrimSpace(reference.URL) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }

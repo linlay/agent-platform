@@ -372,7 +372,7 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 
 `references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。当前 Chat 文件在 Host 为 Chat 绝对路径，在 Container Hub 为 `/chat/...`；Workspace 文件在 Host 为 Workspace 绝对路径，在 Container Hub 为 `/workspace/...`。跨 Agent 文件会先物化到 Chat；PROXY/CHANNEL/ACP 等远程 adapter 使用带 ticket 的 resource URL，由接收端在 30 秒、50 MiB 安全上限内下载到自己的 Chat，再生成本地执行路径。历史 path-only `/workspace` Chat 引用不再作为新 run 输入接受。
 
-划词引用在 query/steer 中统一使用 `{ "id": "原始稳定ID", "type": "selection", "text": "引用原文", "annotation": "可选批注" }`。`text` 必须非空，批注可省略；只读取顶层 `text`，不支持 `meta.text`。规范化后仅保留原始 ID、type、text、annotation 与可选 annotationIndex，不再生成文件路径或保留文件元数据。query 的非空 message 要求保持不变，steer 仍允许仅发送有效引用。
+划词引用在 query/steer 中统一使用 `{ "id": "原始稳定ID", "type": "selection", "text": "引用原文", "annotation": "可选批注" }`。`text` 必须非空，批注可省略；只读取顶层 `text`，不支持 `meta.text`。规范化后仅保留原始 ID、type、text、annotation 与可选 annotationIndex，不再生成文件路径或保留文件元数据。首次 query 必须有非空 message；后续 query 和 steer 可只发送有效文件或选区引用。
 
 仅模型提示词中的划词 ID 按本条消息映射为 `r1/r2/...`，避开其他类型引用的 ID，并同步替换用户正文中的 `#{原始ID}`；请求、事件与持久化引用保留原始 ID。普通与 advanced-user-prompt 格式共用精简条目：
 
@@ -1159,7 +1159,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 ### 附件 steer
 
-`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；query 仍要求非空文字。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，完全空白仍拒绝。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
 
 普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
@@ -1215,3 +1215,5 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
 
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用与模型消息快照持久化，未提供编号时不生成编号字段。
+
+主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；run_query 工具入口仍要求文字。
