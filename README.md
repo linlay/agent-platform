@@ -424,6 +424,6 @@ docker compose logs -f
 - [版本化打包方案](./docs/版本化打包方案.md)
 - [手工测试用例](./docs/手工测试用例.md)
 
-运行中的普通 native Agent / Team 协调器支持图片 steer：先通过 `/api/upload` 上传，再向 `/api/steer` 传文字和 `references`。图片冻结、回放和续聊契约见 [API与协议](docs/API与协议.md)；PROXY/CHANNEL 含图 steer 尚不支持。
+运行中的普通 native Agent / Team 协调器支持图片与普通文件 steer：先通过 `/api/upload` 上传，再向 `/api/steer` 传 `references`，文字可为空；普通文件（含 HTML/MD）作为工具读取引用，视觉模型直接接收图片，非视觉模型接收图片文件引用供已配置的识别工具读取。query 始终要求非空文字。附件、图片冻结、回放和续聊契约见 [API与协议](docs/API与协议.md)；PROXY/CHANNEL 附件 steer 尚不支持。
 
 活动 native CODER 在 planning 输出或确认等待时收到 steer，会使旧计划失效并按新要求重新规划；新计划仍需确认，旧批准请求不能启动执行。时序与 `planning.superseded` 事件见 [HITL协议](docs/HITL协议.md)。

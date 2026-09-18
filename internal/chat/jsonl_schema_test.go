@@ -201,3 +201,18 @@ func assertJSONLSchemaViolation(t *testing.T, err error, location string) {
 		t.Fatalf("location=%q, want %q; error=%v", violation.Location, location, err)
 	}
 }
+
+func TestFileOnlySteerSchemaRequiresSnapshotAndContent(t *testing.T) {
+	valid := `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000003,"steer":{"chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"","role":"user","references":[{"type":"file","url":"notes.md"}]},"messages":[{"role":"user","content":"references: notes.md","ts":1700000000003}]}`
+	if err := ValidateJSONLContent(valid, "chat.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []string{
+		strings.Replace(valid, `"references":[{"type":"file","url":"notes.md"}]`, `"references":[]`, 1),
+		strings.Replace(valid, `,"messages":[{"role":"user","content":"references: notes.md","ts":1700000000003}]`, "", 1),
+	} {
+		if err := ValidateJSONLContent(invalid, "chat.jsonl"); err == nil {
+			t.Fatal("accepted empty steer or missing snapshot")
+		}
+	}
+}

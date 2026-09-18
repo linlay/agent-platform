@@ -219,11 +219,16 @@ func validateCurrentSteerSchema(line map[string]any) error {
 			return newJSONLSchemaViolation(line, "steer."+field, "steer payload known fields", jsonValueType(value), "unknown steer payload field")
 		}
 	}
-	for _, field := range []string{"chatId", "runId", "steerId", "message", "role"} {
+	for _, field := range []string{"chatId", "runId", "steerId", "role"} {
 		value, ok := steer[field].(string)
 		if !ok || strings.TrimSpace(value) == "" {
 			return newJSONLSchemaViolation(line, "steer."+field, "non-empty string", jsonValueType(steer[field]), "steer payload field is required")
 		}
+	}
+	message, messageOK := steer["message"].(string)
+	references, _ := steer["references"].([]any)
+	if !messageOK || (strings.TrimSpace(message) == "" && len(references) == 0) {
+		return newJSONLSchemaViolation(line, "steer.message", "string with text or references", jsonValueType(steer["message"]), "steer content is required")
 	}
 	if requestID, found := steer["requestId"]; found {
 		value, ok := requestID.(string)
@@ -245,7 +250,7 @@ func validateCurrentSteerSchema(line map[string]any) error {
 			}
 		}
 		if len(refs) > 0 && len(messageMapsFromAny(line["messages"])) == 0 {
-			return newJSONLSchemaViolation(line, "messages", "one user message snapshot", "missing", "image steer requires a frozen input snapshot")
+			return newJSONLSchemaViolation(line, "messages", "one user message snapshot", "missing", "attachment steer requires a frozen input snapshot")
 		}
 	}
 	if raw, found := line["messages"]; found {

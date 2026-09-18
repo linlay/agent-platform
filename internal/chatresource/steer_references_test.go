@@ -13,7 +13,7 @@ import (
 	"agent-platform/internal/multimodal"
 )
 
-func TestPrepareSteerImagesUsesCurrentChatAndFreezesBytes(t *testing.T) {
+func TestPrepareSteerReferencesUsesCurrentChatAndFreezesBytes(t *testing.T) {
 	root := t.TempDir()
 	chatDir := filepath.Join(root, "chat-a")
 	if err := os.Mkdir(chatDir, 0700); err != nil {
@@ -28,7 +28,7 @@ func TestPrepareSteerImagesUsesCurrentChatAndFreezesBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, container := range []bool{false, true} {
-		refs, blocks, err := PrepareSteerImages("chat-a", chatDir, container, []api.Reference{{URL: "test%20image.png", Path: "/untrusted/path", MimeType: "text/plain", Name: "fake.txt"}})
+		refs, blocks, err := PrepareSteerReferences("chat-a", chatDir, container, []api.Reference{{URL: "test%20image.png", Path: "/untrusted/path", MimeType: "text/plain", Name: "fake.txt"}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,13 +61,13 @@ func TestPrepareSteerImagesUsesCurrentChatAndFreezesBytes(t *testing.T) {
 	}
 	for _, url := range []string{"../other.png", "%2e%2e/other.png", "escape/other.png", "https://example.com/a.png", "/absolute.png", "test%20image.png?x=1", "text.png", "large.png", "missing.png"} {
 		t.Run(url, func(t *testing.T) {
-			refs, blocks, err := PrepareSteerImages("chat-a", chatDir, false, []api.Reference{{URL: "test%20image.png"}, {URL: url}})
+			refs, blocks, err := PrepareSteerReferences("chat-a", chatDir, false, []api.Reference{{URL: "test%20image.png"}, {URL: url}})
 			if err == nil || refs != nil || blocks != nil {
 				t.Fatalf("must reject the complete input: %v %#v", err, refs)
 			}
 		})
 	}
-	_, blocks, err := PrepareSteerImages("chat-a", chatDir, false, []api.Reference{{URL: "test%20image.png"}})
+	_, blocks, err := PrepareSteerReferences("chat-a", chatDir, false, []api.Reference{{URL: "test%20image.png"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,5 +77,36 @@ func TestPrepareSteerImagesUsesCurrentChatAndFreezesBytes(t *testing.T) {
 	}
 	if !strings.HasPrefix(before, "data:image/png;base64,") || blocks[0]["image_url"].(map[string]any)["url"] != before {
 		t.Fatal("queued image changed")
+	}
+}
+
+func TestPrepareSteerReferencesOrdinaryFiles(t *testing.T) {
+	chatDir := t.TempDir()
+	for _, name := range []string{"page.html", "notes.md", "empty.txt"} {
+		data := []byte("# example")
+		if name == "page.html" {
+			data = []byte("<!doctype html><html>hello</html>")
+		}
+		if name == "empty.txt" {
+			data = nil
+		}
+		if err := os.WriteFile(filepath.Join(chatDir, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, container := range []bool{false, true} {
+			refs, blocks, err := PrepareSteerReferences("chat-a", chatDir, container, []api.Reference{{Type: "file", URL: name, Path: "/fake", MimeType: "image/png"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(refs) != 1 || len(blocks) != 0 || refs[0].Name != name || *refs[0].SizeBytes != int64(len(data)) || strings.HasPrefix(refs[0].MimeType, "image/") {
+				t.Fatalf("refs=%#v blocks=%#v", refs, blocks)
+			}
+			if container && refs[0].Path != "/chat/"+name {
+				t.Fatal(refs[0].Path)
+			}
+		}
+	}
+	if _, _, err := PrepareSteerReferences("chat-a", chatDir, false, []api.Reference{{URL: "."}}); err == nil {
+		t.Fatal("accepted directory")
 	}
 }

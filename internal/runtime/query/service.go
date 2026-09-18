@@ -104,8 +104,8 @@ func (s *Service) Submit(ctx context.Context, command runtimetypes.SubmitCommand
 }
 
 func (s *Service) Steer(ctx context.Context, command runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
-	if strings.TrimSpace(command.RunID) == "" || strings.TrimSpace(command.Message) == "" {
-		return runtimetypes.SteerResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId and message are required")
+	if strings.TrimSpace(command.RunID) == "" || (strings.TrimSpace(command.Message) == "" && len(command.References) == 0) {
+		return runtimetypes.SteerResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId and either message or references are required")
 	}
 	if s == nil || s.deps.Steer == nil {
 		return runtimetypes.SteerResult{}, ErrNotConfigured
