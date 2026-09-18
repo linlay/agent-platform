@@ -59,7 +59,7 @@ func TestDesktopAwcpInvokeInvalidArgsAreStructuredOnce(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			invoker := &routingClientRequestInvoker{}
 			executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
-			params := map[string]any{"revision": "page-v2", "action": "orders.read"}
+			params := map[string]any{"revision": "page-v1", "action": "orders.read"}
 			if test.present {
 				params["args"] = test.value
 			}
@@ -95,7 +95,7 @@ func TestDesktopAwcpInvokeInvalidArgsAreStructuredOnce(t *testing.T) {
 
 	if err := validateDesktopAwcpCall(map[string]any{
 		"method": desktopAwcpInvokeMethod,
-		"params": map[string]any{"revision": "page-v2", "action": "orders.read", "args": map[string]any{}},
+		"params": map[string]any{"revision": "page-v1", "action": "orders.read", "args": map[string]any{}},
 	}); err != nil {
 		t.Fatalf("valid empty args object was rejected: %v", err)
 	}
@@ -133,14 +133,14 @@ func TestDesktopAwcpManualProgressiveDisclosure(t *testing.T) {
 			return map[string]any{"ok": true, "method": desktopAwcpGetManualMethod, "revision": request.Payload["revision"], "section": section,
 				"description": "Read orders", "inputSchema": map[string]any{"oneOf": []any{map[string]any{"type": "object"}}}}
 		}
-		return map[string]any{"ok": true, "method": desktopAwcpGetManualMethod, "revision": "page-v2",
+		return map[string]any{"ok": true, "method": desktopAwcpGetManualMethod, "revision": "page-v1",
 			"site": map[string]any{"name": "Orders", "description": "Order operations"}, "sections": []any{}}
 	}}
 	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
 	for _, selected := range []string{"", "orders.read"} {
 		args := map[string]any{"method": desktopAwcpGetManualMethod}
 		if selected != "" {
-			args["params"] = map[string]any{"section": selected, "revision": "page-v2"}
+			args["params"] = map[string]any{"section": selected, "revision": "page-v1"}
 		}
 		result, err := executor.invokeDesktopCDP(context.Background(), args, desktopActionTestExecutionContext())
 		if err != nil {
@@ -152,11 +152,41 @@ func TestDesktopAwcpManualProgressiveDisclosure(t *testing.T) {
 		expected := map[string]any{}
 		if selected != "" {
 			expected["section"] = selected
-			expected["revision"] = "page-v2"
+			expected["revision"] = "page-v1"
 		}
 		if !reflect.DeepEqual(invoker.request.Payload, expected) {
 			t.Fatalf("manual payload was rewritten: %#v", invoker.request)
 		}
+	}
+}
+
+func TestDesktopAwcpV1ContractExamples(t *testing.T) {
+	manualIndex := map[string]any{
+		"ok": true, "method": desktopAwcpGetManualMethod, "revision": "page-v1",
+		"site":     map[string]any{"name": "Orders", "description": "Order operations"},
+		"sections": []any{map[string]any{"section": "orders.read", "title": "Read orders"}},
+	}
+	if err := validateDesktopAwcpManualResponse(manualIndex, map[string]any{}); err != nil {
+		t.Fatalf("AWCP v1 directory rejected: %v", err)
+	}
+
+	manualRequest := map[string]any{"section": "orders.read", "revision": "page-v1"}
+	manualSection := map[string]any{
+		"ok": true, "method": desktopAwcpGetManualMethod, "revision": "page-v1",
+		"section": "orders.read", "description": "Read an order",
+		"inputSchema": map[string]any{"type": "object"}, "examples": []any{map[string]any{}},
+	}
+	if err := validateDesktopAwcpManualResponse(manualSection, manualRequest); err != nil {
+		t.Fatalf("AWCP v1 section rejected: %v", err)
+	}
+
+	invokeRequest := map[string]any{"revision": "page-v1", "action": "orders.read", "args": map[string]any{}}
+	successResponse := map[string]any{
+		"ok": true, "requestId": "request-v1", "action": "orders.read", "result": map[string]any{"id": "order-1"},
+	}
+	failed, err := validateDesktopAwcpResponse(successResponse, "request-v1", invokeRequest)
+	if err != nil || failed {
+		t.Fatalf("AWCP v1 success response rejected: failed=%v err=%v", failed, err)
 	}
 }
 

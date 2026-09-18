@@ -124,7 +124,7 @@ AWCP 按网站操作手册渐进披露，`desktop_cdp` 的工具定义始终固�
 ```
 
 - 目录读取：省略 params 或传 `{}`，返回当前 revision、`site.description` 页面操作说明和动作目录，不提前加载各 Action 的完整参数约束。
-- 单项手册读取：`params` 必须精确为 `{section,revision}`，返回网站原始 v2 章节 `{revision,section,description,inputSchema,examples?}`。Platform 不编译 Schema，不要求 examples 存在或非空，也不限制为模型提供商支持的 Schema 子集。
+- 单项手册读取：`params` 必须精确为 `{section,revision}`，返回网站原始 v1 章节 `{revision,section,description,inputSchema,examples?}`。Platform 不编译 Schema，不要求 examples 存在或非空，也不限制为模型提供商支持的 Schema 子集。
 - Platform 对 `{}` 或 `{section,revision}` 做原样转发；Desktop 和页面原生按目录/单章节获取，不在 Platform 投影完整合同，也不缓存页面状态。
 - 调用：params 精确为 `{revision,action,args}`，模型使用手册返回的 revision。Platform 校验固定外壳，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，在 handler 前验证业务输入，网站自己的 validator/handler 负责业务。原来的单 Action 键包装与运行核心注入 revision 已移除。
 
