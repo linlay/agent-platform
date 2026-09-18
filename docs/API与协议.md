@@ -1176,3 +1176,13 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 ### CLI 独立准备
 
 `/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。
+
+### Desktop 普通技能事务与并发保护
+
+`POST /api/admin/skills/transaction` 使用现有管理接口鉴权。请求字段为 `key`、`operation`（`snapshot` / `replace` / `delete`），变更必须提交 `expectedRevision`；`replace` 另携带 ZIP 的 `archiveBase64`。响应为 `{key, exists, revision}`，`snapshot` 在资源存在时额外返回完整 `archiveBase64`。不存在的版本为 `missing`；存在资源的版本是固定时间戳、排序目录与文件、保留权限的完整 ZIP SHA-256。
+
+Platform 在同一目录事务保护内取得快照、比较版本、替换或删除、重载并返回已提交版本。版本不匹配返回 409 `revision_conflict`，不改变资源。Desktop 只能用首次快照归档和本次成功提交的版本执行条件恢复；超时或丢失响应时不得自动反向操作。删除仍遵循 Agent 使用保护及技能包归属约束，包内子技能删除继续使用既有技能包 API。
+
+快照包含隐藏运行配置和元数据，不校验旧技能正文是否有效，不跟随符号链接或归档特殊文件。ZIP/单文件上限 32 MiB，展开总量上限 256 MiB，最多 4096 项；快照超限则阻止变更。快照是管理端敏感数据，不可广播或写入公共日志。归档恢复仍经过导入校验，旧无效内容可能无法自动恢复，此时调用方应保留恢复归档并报告失败。
+
+事务保护协调 Platform 内部管理写入与 watcher；不能锁住用户编辑器或其他外部进程。既有导入/删除接口保持兼容。
