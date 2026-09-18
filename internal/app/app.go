@@ -643,7 +643,7 @@ func runtimeQueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
 		references[index] = runtimetypes.Reference{
 			ID: reference.ID, Type: reference.Type, Name: reference.Name, Path: reference.Path,
 			MimeType: reference.MimeType, SizeBytes: reference.SizeBytes, URL: reference.URL,
-			SHA256: reference.SHA256, Meta: contracts.CloneMap(reference.Meta),
+			Text: reference.Text, Annotation: reference.Annotation, AnnotationIndex: reference.AnnotationIndex, SHA256: reference.SHA256, Meta: contracts.CloneMap(reference.Meta),
 		}
 	}
 	var scene *runtimetypes.Scene

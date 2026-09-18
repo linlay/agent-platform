@@ -26,13 +26,12 @@ func PrepareSteerReferences(chatID, chatDir string, container bool, references [
 	prepared := make([]api.Reference, 0, len(references))
 	blocks := make([]map[string]any, 0, len(references))
 	for _, ref := range references {
-		if ref.Type == "selection" {
-			text, ok := ref.Meta["text"].(string)
-			if !ok || strings.TrimSpace(text) == "" {
-				return nil, nil, fmt.Errorf("selection steer requires meta.text")
+		if strings.EqualFold(strings.TrimSpace(ref.Type), "selection") {
+			normalized, err := api.NormalizeSelectionReference(ref)
+			if err != nil {
+				return nil, nil, err
 			}
-			// A text selection cannot acquire file access through client paths.
-			prepared = append(prepared, api.Reference{ID: ref.ID, Type: "selection", Name: ref.Name, Meta: map[string]any{"text": text}})
+			prepared = append(prepared, normalized)
 			continue
 		}
 

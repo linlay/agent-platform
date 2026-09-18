@@ -110,3 +110,13 @@ func TestPrepareSteerReferencesOrdinaryFiles(t *testing.T) {
 		t.Fatal("accepted directory")
 	}
 }
+
+func TestSteerSelectionTopLevelAnnotation(t *testing.T) {
+	refs, blocks, err := PrepareSteerReferences("chat", t.TempDir(), false, []api.Reference{{ID: "uuid", Type: "selection", Text: "quote", Annotation: "comment", Path: "/fake", MimeType: "image/png"}})
+	if err != nil || len(blocks) != 0 || len(refs) != 1 {
+		t.Fatalf("%+v %+v %v", refs, blocks, err)
+	}
+	if refs[0].Text != "quote" || refs[0].Annotation != "comment" || refs[0].Path != "" || refs[0].MimeType != "" {
+		t.Fatalf("%+v", refs)
+	}
+}

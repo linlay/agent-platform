@@ -65,15 +65,18 @@ type Scene struct {
 }
 
 type Reference struct {
-	ID        string         `json:"id,omitempty"`
-	Type      string         `json:"type,omitempty"`
-	Name      string         `json:"name,omitempty"`
-	Path      string         `json:"path,omitempty"`
-	MimeType  string         `json:"mimeType,omitempty"`
-	SizeBytes *int64         `json:"sizeBytes,omitempty"`
-	URL       string         `json:"url,omitempty"`
-	SHA256    string         `json:"sha256,omitempty"`
-	Meta      map[string]any `json:"meta,omitempty"`
+	AnnotationIndex *int           `json:"annotationIndex,omitempty"`
+	ID              string         `json:"id,omitempty"`
+	Type            string         `json:"type,omitempty"`
+	Text            string         `json:"text,omitempty"`
+	Annotation      string         `json:"annotation,omitempty"`
+	Name            string         `json:"name,omitempty"`
+	Path            string         `json:"path,omitempty"`
+	MimeType        string         `json:"mimeType,omitempty"`
+	SizeBytes       *int64         `json:"sizeBytes,omitempty"`
+	URL             string         `json:"url,omitempty"`
+	SHA256          string         `json:"sha256,omitempty"`
+	Meta            map[string]any `json:"meta,omitempty"`
 }
 
 type QueryHooks struct {

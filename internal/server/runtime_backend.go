@@ -284,7 +284,7 @@ func runtimeReferencesFromAPI(references []api.Reference) []runtimetypes.Referen
 		converted[index] = runtimetypes.Reference{
 			ID: reference.ID, Type: reference.Type, Name: reference.Name, Path: reference.Path,
 			MimeType: reference.MimeType, SizeBytes: reference.SizeBytes, URL: reference.URL,
-			SHA256: reference.SHA256, Meta: contracts.CloneMap(reference.Meta),
+			Text: reference.Text, Annotation: reference.Annotation, AnnotationIndex: reference.AnnotationIndex, SHA256: reference.SHA256, Meta: contracts.CloneMap(reference.Meta),
 		}
 	}
 	return converted
@@ -296,7 +296,7 @@ func apiReferencesFromRuntime(references []runtimetypes.Reference) []api.Referen
 		converted[index] = api.Reference{
 			ID: reference.ID, Type: reference.Type, Name: reference.Name, Path: reference.Path,
 			MimeType: reference.MimeType, SizeBytes: reference.SizeBytes, URL: reference.URL,
-			SHA256: reference.SHA256, Meta: contracts.CloneMap(reference.Meta),
+			Text: reference.Text, Annotation: reference.Annotation, AnnotationIndex: reference.AnnotationIndex, SHA256: reference.SHA256, Meta: contracts.CloneMap(reference.Meta),
 		}
 	}
 	return converted

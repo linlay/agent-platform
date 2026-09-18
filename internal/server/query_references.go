@@ -34,6 +34,12 @@ func (s *Server) prepareQueryReferences(ctx context.Context, currentChatID strin
 	seen := map[string]struct{}{}
 	for _, reference := range references {
 		switch strings.ToLower(strings.TrimSpace(reference.Type)) {
+		case "selection":
+			normalized, err := api.NormalizeSelectionReference(reference)
+			if err != nil {
+				return nil, queryReferenceStatusError(http.StatusBadRequest, "invalid_reference", err.Error())
+			}
+			prepared = append(prepared, normalized)
 		case "chat":
 			normalized, err := s.prepareChatReference(ctx, currentChatID, reference)
 			if err != nil {

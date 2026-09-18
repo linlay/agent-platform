@@ -89,6 +89,15 @@ func renderDefinition(def Definition) []byte {
 			if strings.TrimSpace(ref.SHA256) != "" {
 				node["sha256"] = ref.SHA256
 			}
+			if ref.AnnotationIndex != nil {
+				node["annotationIndex"] = *ref.AnnotationIndex
+			}
+			if ref.Text != "" {
+				node["text"] = ref.Text
+			}
+			if ref.Annotation != "" {
+				node["annotation"] = ref.Annotation
+			}
 			if len(ref.Meta) > 0 {
 				node["meta"] = ref.Meta
 			}

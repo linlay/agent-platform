@@ -372,6 +372,19 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 
 `references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。当前 Chat 文件在 Host 为 Chat 绝对路径，在 Container Hub 为 `/chat/...`；Workspace 文件在 Host 为 Workspace 绝对路径，在 Container Hub 为 `/workspace/...`。跨 Agent 文件会先物化到 Chat；PROXY/CHANNEL/ACP 等远程 adapter 使用带 ticket 的 resource URL，由接收端在 30 秒、50 MiB 安全上限内下载到自己的 Chat，再生成本地执行路径。历史 path-only `/workspace` Chat 引用不再作为新 run 输入接受。
 
+划词引用在 query/steer 中统一使用 `{ "id": "原始稳定ID", "type": "selection", "text": "引用原文", "annotation": "可选批注" }`。`text` 必须非空，批注可省略；只读取顶层 `text`，不支持 `meta.text`。规范化后仅保留原始 ID、type、text、annotation 与可选 annotationIndex，不再生成文件路径或保留文件元数据。query 的非空 message 要求保持不变，steer 仍允许仅发送有效引用。
+
+仅模型提示词中的划词 ID 按本条消息映射为 `r1/r2/...`，避开其他类型引用的 ID，并同步替换用户正文中的 `#{原始ID}`；请求、事件与持久化引用保留原始 ID。普通与 advanced-user-prompt 格式共用精简条目：
+
+```yaml
+- id: r1
+  type: selection
+  text: 引用原文
+  annotation: 可选批注
+```
+
+没有批注时不输出 annotation，多行原文/批注使用块文本。原文是引用材料，annotation 是用户针对该材料的指令，与顶层 message 同属用户指令。
+
 Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 
 - Chat：`{ "type": "chat", "id": "chatId", "name": "会话名", "meta": { "agentKey": "...", "teamId": "...", "updatedAt": 0 } }`。服务端忽略客户端提供的上下文，按可信 chatId 重新读取 compact 摘要和最近 12 条用户/助手消息；拒绝当前 chat 自引用、失效 chat 和跨 query principal 访问。
@@ -1193,10 +1206,12 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 `/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。
 
-纯文本选区 steer 使用 `references:[{type:"selection",meta:{text:"选中文本"}}]`；`meta.text` 必须为非空字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
+纯文本选区 steer 使用 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；`text` 必须为非空字符串，`annotation` 为可选字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
 
 ## 网页 Container / Surface 契约
 
 Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surface。`desktop_cdp` 以 Surface.list / Surface.getCurrent 发现网页，所有 CDP 页面操作只使用 surfaceId，不暴露另一个目标 ID 或 session selector。Surface.open/close/getState/goBack 是 Desktop 方法，其余受限 Chromium 方法仍由 Desktop 定位到精确 webContents 后执行。导航和刷新保留身份，关闭重开使旧身份失效。
 
 普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
+
+划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用与模型消息快照持久化，未提供编号时不生成编号字段。
