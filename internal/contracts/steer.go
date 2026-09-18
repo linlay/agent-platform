@@ -82,7 +82,7 @@ func (c *RunControl) PrepareAndEnqueueSteer(req api.SteerRequest) (bool, error) 
 	req.PreparedMessages = nil
 	if len(req.References) > 0 {
 		if prepare == nil {
-			return false, fmt.Errorf("image steer is unavailable for this run")
+			return false, fmt.Errorf("attachment steer is unavailable for this run")
 		}
 		var err error
 		req, err = prepare(req)

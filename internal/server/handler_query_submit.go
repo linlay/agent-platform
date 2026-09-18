@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
@@ -33,8 +32,8 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 	var req api.SteerRequest
-	if err := decodeJSON(r, &req); err != nil || req.RunID == "" || strings.TrimSpace(req.Message) == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and message are required"))
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid steer payload"))
 		return
 	}
 	result, err := s.deps.Runtime.Steer(r.Context(), runtimeSteerCommand(req))

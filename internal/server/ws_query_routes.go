@@ -292,13 +292,13 @@ func (s *Server) wsSteer(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	}
 	req.Payload = payloadData
 	payload, err := ws.DecodePayload[api.SteerRequest](req)
-	if err != nil || strings.TrimSpace(payload.RunID) == "" || strings.TrimSpace(payload.Message) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "runId and message are required", nil)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid steer payload", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
 	if len(payload.References) > 0 && channelIDFromContext(conn.Context()) != "" {
-		conn.SendResponse(req.Type, req.ID, 0, "success", api.SteerResponse{Status: "unsupported", RunID: payload.RunID, SteerID: payload.SteerID, Detail: "image steer is not supported for channel runs"})
+		conn.SendResponse(req.Type, req.ID, 0, "success", api.SteerResponse{Status: "unsupported", RunID: payload.RunID, SteerID: payload.SteerID, Detail: "attachment steer is not supported for channel runs"})
 		conn.CompleteRequest(req.ID)
 		return
 	}

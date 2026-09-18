@@ -305,7 +305,7 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 		steerID = time.Now().UTC().Format("20060102150405.000000000")
 	}
 	if len(req.References) > 0 {
-		return api.SteerResponse{Accepted: false, Status: "unsupported", RunID: req.RunID, SteerID: steerID, Detail: "image steer is not supported for remote runs"}, nil, true
+		return api.SteerResponse{Accepted: false, Status: "unsupported", RunID: req.RunID, SteerID: steerID, Detail: "attachment steer is not supported for remote runs"}, nil, true
 	}
 	if route.Transport == "sse" {
 		var response api.SteerResponse
