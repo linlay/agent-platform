@@ -260,6 +260,9 @@ func ProviderSafeQueryMessage(role string, message string) (string, string) {
 }
 
 type QueryRequest struct {
+	// HTTP query routing only. WebSocket execution is selected by the authenticated connection.
+	Lane      string `json:"lane,omitempty"`
+	BTWID     string `json:"btwId,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
 	RunID     string `json:"runId,omitempty"`
 	ChatID    string `json:"chatId,omitempty"`

@@ -95,12 +95,13 @@ func (i *routingClientRequestInvoker) InvokeClientRequest(_ context.Context, tar
 	if request.Type == desktopAwcpInvokeAction {
 		response["requestId"] = request.ID
 		response["action"] = request.Payload["action"]
-	} else if request.Type == desktopAwcpSnapshotAction {
+	} else if request.Type == desktopAwcpManualAction {
 		response = map[string]any{
 			"ok":       true,
-			"method":   desktopAwcpGetSnapshotMethod,
-			"revision": "snapshot:1",
-			"actions":  []any{},
+			"method":   desktopAwcpGetManualMethod,
+			"revision": "manual:1",
+			"site":     map[string]any{"name": "Test", "description": "Test page"},
+			"sections": []any{},
 		}
 	} else if strings.HasPrefix(request.Type, "desktop.") && request.Type != desktopCDPRequestType {
 		response["action"] = request.Type
@@ -987,8 +988,6 @@ func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
 	result, err := newDesktopTestExecutor("", server.URL).invokeDesktopCDP(context.Background(), map[string]any{
 		"requestId": "req-cdp",
 		"method":    "Runtime.evaluate",
-		"targetId":  "target-1",
-		"sessionId": "session-1",
 		"surfaceId": "surface-1",
 		"params": map[string]any{
 			"expression": "6 * 7",
@@ -1008,7 +1007,7 @@ func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
 	if got.RequestID != "req-cdp" || got.Method != "Runtime.evaluate" {
 		t.Fatalf("unexpected cdp request: %#v", got)
 	}
-	if got.TargetID != "target-1" || got.SessionID != "session-1" || got.SurfaceID != "surface-1" {
+	if got.SurfaceID != "surface-1" {
 		t.Fatalf("unexpected target routing: %#v", got)
 	}
 	if got.Params["expression"] != "6 * 7" {
@@ -1508,8 +1507,8 @@ func TestDesktopAwcpInvokePreservesEnvelopeSourceAndBusinessFailure(t *testing.T
 			"requestId": request.ID,
 			"action":    "orders.select",
 			"error": map[string]any{
-				"code":    "stale_snapshot",
-				"message": "The AWCP snapshot is stale.",
+				"code":    "stale_revision",
+				"message": "The AWCP manual revision is stale.",
 			},
 		}
 		return response
@@ -1533,6 +1532,9 @@ func TestDesktopAwcpInvokePreservesEnvelopeSourceAndBusinessFailure(t *testing.T
 	}
 	if !reflect.DeepEqual(result.Structured["response"], response) {
 		t.Fatalf("AWCP structured failure was not preserved: %#v", result.Structured)
+	}
+	if _, exists := result.Structured["stage"]; exists {
+		t.Fatalf("page response received a fabricated execution stage: %#v", result.Structured)
 	}
 }
 
@@ -1612,19 +1614,19 @@ func TestDesktopCDPToolSchemaIsStaticAndDoesNotUseCombinators(t *testing.T) {
 	t.Fatal("desktop_cdp tool definition is unavailable")
 }
 
-func TestDesktopAwcpSnapshotUsesDedicatedWireAndRejectsExtraFields(t *testing.T) {
+func TestDesktopAwcpManualUsesDedicatedWireAndRejectsExtraFields(t *testing.T) {
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
-	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{"method": desktopAwcpGetSnapshotMethod}, desktopActionTestExecutionContext())
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{"method": desktopAwcpGetManualMethod}, desktopActionTestExecutionContext())
 	if err != nil || result.ExitCode != 0 || result.Error != "" {
-		t.Fatalf("AWCP snapshot result=%#v err=%v", result, err)
+		t.Fatalf("AWCP manual result=%#v err=%v", result, err)
 	}
 	_, requests := invoker.snapshots()
-	if len(requests) != 1 || requests[0].Type != desktopAwcpSnapshotAction || len(requests[0].Payload) != 0 || requests[0].Source == nil {
-		t.Fatalf("AWCP snapshot request=%#v", requests)
+	if len(requests) != 1 || requests[0].Type != desktopAwcpManualAction || len(requests[0].Payload) != 0 || requests[0].Source == nil {
+		t.Fatalf("AWCP manual request=%#v", requests)
 	}
 
-	for _, field := range []string{"paramsFile", "targetId", "sessionId", "surfaceId", "requestId"} {
+	for _, field := range []string{"paramsFile", "targetId", "sessionId", "requestId"} {
 		t.Run(field, func(t *testing.T) {
 			badInvoker := &routingClientRequestInvoker{}
 			badExecutor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: badInvoker, clientTargets: emptyRunClientTargetStore{}}
@@ -1632,7 +1634,7 @@ func TestDesktopAwcpSnapshotUsesDedicatedWireAndRejectsExtraFields(t *testing.T)
 			if field != "params" {
 				value = "forged"
 			}
-			badResult, badErr := badExecutor.invokeDesktopCDP(context.Background(), map[string]any{"method": desktopAwcpGetSnapshotMethod, field: value}, desktopActionTestExecutionContext())
+			badResult, badErr := badExecutor.invokeDesktopCDP(context.Background(), map[string]any{"method": desktopAwcpGetManualMethod, field: value}, desktopActionTestExecutionContext())
 			if badErr != nil || badResult.Error != "invalid_args" {
 				t.Fatalf("extra field %s result=%#v err=%v", field, badResult, badErr)
 			}
@@ -1644,28 +1646,24 @@ func TestDesktopAwcpSnapshotUsesDedicatedWireAndRejectsExtraFields(t *testing.T)
 	}
 }
 
-func TestDesktopAwcpSnapshotRejectsInvalidClientContract(t *testing.T) {
+func TestDesktopAwcpManualRejectsInvalidClientEnvelope(t *testing.T) {
 	invoker := &awcpClientRequestInvoker{response: func(ClientRequest) map[string]any {
 		return map[string]any{
 			"ok":       true,
-			"method":   desktopAwcpGetSnapshotMethod,
-			"revision": "revision-a",
-			"actions": []any{
-				map[string]any{"action": "orders.write", "description": "Write", "inputSchema": map[string]any{}},
-				map[string]any{"action": "orders.read", "description": "Read", "inputSchema": map[string]any{}},
-			},
+			"method":   desktopAwcpGetManualMethod,
+			"revision": "",
 		}
 	}}
 	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
-	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{"method": desktopAwcpGetSnapshotMethod}, desktopActionTestExecutionContext())
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{"method": desktopAwcpGetManualMethod}, desktopActionTestExecutionContext())
 	if err != nil || result.Error != "desktop_cdp_invalid_client_response" || result.ExitCode != -1 {
-		t.Fatalf("invalid AWCP snapshot result=%#v err=%v", result, err)
+		t.Fatalf("invalid AWCP manual result=%#v err=%v", result, err)
 	}
 }
 
 func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 	want := []string{
-		"AWCP.getSnapshot",
+		"AWCP.getManual",
 		"AWCP.invoke",
 		"DOM.getBoxModel",
 		"DOM.getDocument",
@@ -1684,9 +1682,12 @@ func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 		"Page.navigate",
 		"Page.reload",
 		"Runtime.evaluate",
-		"Target.getCurrentTarget",
-		"Target.getTargets",
-		"Target.closeTarget",
+		"Surface.getCurrent",
+		"Surface.list",
+		"Surface.close",
+		"Surface.getState",
+		"Surface.goBack",
+		"Surface.open",
 	}
 	sort.Strings(want)
 
@@ -1719,9 +1720,12 @@ func TestDesktopCDPRecommendedMethodsKeepRawBridgeRoute(t *testing.T) {
 		"Page.navigate",
 		"Page.reload",
 		"Runtime.evaluate",
-		"Target.closeTarget",
-		"Target.getCurrentTarget",
-		"Target.getTargets",
+		"Surface.close",
+		"Surface.getState",
+		"Surface.goBack",
+		"Surface.open",
+		"Surface.getCurrent",
+		"Surface.list",
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{

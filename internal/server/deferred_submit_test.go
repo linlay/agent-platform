@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
+	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
@@ -555,7 +556,7 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		},
 	})
 
-	seedDeferredAwaiting(t, fixture.chats, "chat-ws", "run-ws", "await-ws", "question", 0, time.Now().UnixMilli())
+	seedDeferredAwaiting(t, fixture.chats, "chat-ws", "run-ws", "await-ws", "question", 0, time.Now().UnixMilli(), controlscope.Scope{Transport: "ws", Lane: "main"})
 
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -1211,7 +1212,11 @@ func TestHydrationReconcilesRestartAwaitingModesAndStructuredConflicts(t *testin
 	assertAwaitingSubmitConflict(t, restarted, "chat-restarted-approval", "run-restarted-approval", "await-restarted-approval", http.StatusConflict, "awaiting_interrupted", "interrupted")
 	assertAwaitingSubmitConflict(t, restarted, "chat-expired-form", "run-expired-form", "await-expired-form", http.StatusConflict, "awaiting_expired", "expired")
 	assertAwaitingSubmitConflict(t, restarted, "chat-wrong-identity", "run-expired-question", "await-expired-question", http.StatusBadRequest, "unknown_awaiting", "unknown")
-	assertAwaitingSubmitConflict(t, restarted, "chat-unknown", "run-unknown", "await-unknown", http.StatusBadRequest, "unknown_awaiting", "unknown")
+	unknown := httptest.NewRecorder()
+	restarted.ServeHTTP(unknown, httptest.NewRequest(http.MethodPost, "/api/submit", strings.NewReader(`{"chatId":"chat-unknown","runId":"run-unknown","agentKey":"mock-agent","awaitingId":"await-unknown"}`)))
+	if unknown.Code != http.StatusConflict || !strings.Contains(unknown.Body.String(), "run_control_identity_unavailable") {
+		t.Fatalf("unknown run: %d %s", unknown.Code, unknown.Body.String())
+	}
 }
 
 func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) {
@@ -1409,21 +1414,21 @@ func TestHydrationRestoresAwaitingWithEmptyRunEnvironment(t *testing.T) {
 	}
 }
 
-func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64) {
+func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64, scopes ...controlscope.Scope) {
 	t.Helper()
 	seedDeferredAwaitingPayload(t, store, chatID, runID, awaitingID, mode, timeoutSec, createdAt, map[string]any{
 		"questions": []any{
 			map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
 		},
-	})
+	}, scopes...)
 }
 
-func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64, askPayload map[string]any) {
+func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64, askPayload map[string]any, scopes ...controlscope.Scope) {
 	t.Helper()
 	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	startServerFixtureRun(t, store, chatID, runID, createdAt)
+	startServerFixtureRun(t, store, chatID, runID, createdAt, scopes...)
 	ask := map[string]any{
 		"type":       "awaiting.ask",
 		"awaitingId": awaitingID,

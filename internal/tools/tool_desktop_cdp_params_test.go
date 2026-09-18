@@ -31,7 +31,7 @@ func TestDesktopCDPParamsFileSendsParamsThroughExistingRequest(t *testing.T) {
 			}
 			result, err := executor.Invoke(context.Background(), "desktop_cdp", map[string]any{
 				"method": "Runtime.evaluate", "paramsFile": input,
-				"requestId": "request-params", "targetId": "target-1", "sessionId": "session-1", "surfaceId": "surface-1",
+				"requestId": "request-params", "surfaceId": "surface-1",
 			}, execCtx)
 			if err != nil || result.ExitCode != 0 {
 				t.Fatalf("paramsFile failed: result=%#v err=%v", result, err)
@@ -48,7 +48,7 @@ func TestDesktopCDPParamsFileSendsParamsThroughExistingRequest(t *testing.T) {
 			if !reflect.DeepEqual(payload["params"], wantParams) {
 				t.Fatalf("params mismatch: %#v", payload["params"])
 			}
-			for key, want := range map[string]string{"method": "Runtime.evaluate", "targetId": "target-1", "sessionId": "session-1", "surfaceId": "surface-1"} {
+			for key, want := range map[string]string{"method": "Runtime.evaluate", "surfaceId": "surface-1"} {
 				if payload[key] != want {
 					t.Fatalf("%s = %#v, want %s", key, payload[key], want)
 				}

@@ -140,6 +140,7 @@ func runExecutor(params RunExecutorParams) runexec.Result {
 		},
 		Assembler: params.Assembler, Mapper: params.Mapper, Billing: params.Billing,
 		Models: params.Models, StepWriter: params.StepWriter, RunControl: params.RunControl,
+		Notifications:        params.Notifications,
 		ObserveEvent:         params.ObserveEvent,
 		OnCompactEvent:       func(data stream.EventData) { completeCompactControl(params.RunControl, data) },
 		OnPersistenceFailure: func(data stream.EventData) { handleCompactCheckpointPersistenceFailure(params, data) },

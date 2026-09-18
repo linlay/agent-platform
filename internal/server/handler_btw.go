@@ -11,10 +11,16 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/runtime/controlscope"
 )
 
 func (s *Server) handleBTW(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(controlscope.WithContext(r.Context(), httpControlScope(r.Context(), "btw")))
 	prepared, statusErr := s.prepareBTWQuery(r)
+	s.handlePreparedBTWQuery(w, r, prepared, statusErr)
+}
+
+func (s *Server) handlePreparedBTWQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery, statusErr *statusError) {
 	if statusErr != nil {
 		writeStatusError(w, statusErr)
 		return
@@ -29,6 +35,10 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 	if err := decodeJSON(r, &input); err != nil {
 		return preparedQuery{}, btwStatusError(http.StatusBadRequest, "invalid_btw_request", "invalid request body")
 	}
+	return s.prepareBTWInput(r, input)
+}
+
+func (s *Server) prepareBTWInput(r *http.Request, input api.BTWRequest) (preparedQuery, *statusError) {
 	input.ChatID = strings.TrimSpace(input.ChatID)
 	input.BTWID = strings.TrimSpace(input.BTWID)
 	input.Message = strings.TrimSpace(input.Message)

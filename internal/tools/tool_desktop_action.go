@@ -97,8 +97,6 @@ type desktopCDPRequest struct {
 	RequestID string           `json:"requestId,omitempty"`
 	Method    string           `json:"method"`
 	Params    map[string]any   `json:"params,omitempty"`
-	TargetID  string           `json:"targetId,omitempty"`
-	SessionID string           `json:"sessionId,omitempty"`
 	SurfaceID string           `json:"surfaceId,omitempty"`
 	Source    desktopCDPSource `json:"source,omitempty"`
 }
@@ -176,8 +174,8 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 		return desktopActionErrorResult("invalid_args", "method is required", nil), nil
 	}
 	switch method {
-	case desktopAwcpGetSnapshotMethod:
-		return t.invokeDesktopAwcpSnapshot(ctx, args, execCtx)
+	case desktopAwcpGetManualMethod:
+		return t.invokeDesktopAwcpManual(ctx, args, execCtx)
 	case desktopAwcpInvokeMethod:
 		return t.invokeDesktopAwcpFromCDP(ctx, args, execCtx)
 	default:
@@ -186,6 +184,11 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 }
 
 func (t *RuntimeToolExecutor) invokeRawDesktopCDP(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	for key := range args {
+		if key != "method" && key != "params" && key != "paramsFile" && key != "surfaceId" && key != "requestId" {
+			return desktopActionErrorResult("invalid_args", "unsupported desktop_cdp field; select a page using surfaceId", nil), nil
+		}
+	}
 	method := strings.TrimSpace(stringArg(args, "method"))
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
@@ -202,8 +205,6 @@ func (t *RuntimeToolExecutor) invokeRawDesktopCDP(ctx context.Context, args map[
 		RequestID: requestID,
 		Method:    method,
 		Params:    params,
-		TargetID:  strings.TrimSpace(stringArg(args, "targetId")),
-		SessionID: strings.TrimSpace(stringArg(args, "sessionId")),
 		SurfaceID: strings.TrimSpace(stringArg(args, "surfaceId")),
 		Source:    buildDesktopCDPSource(execCtx),
 	}
@@ -275,7 +276,7 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if toolName == "desktop_action" && frame.Type == "invalid_args" {
 			errorCode = "invalid_args"
 		}
-		if requestType == desktopAwcpSnapshotAction || requestType == desktopAwcpInvokeAction {
+		if requestType == desktopAwcpManualAction || requestType == desktopAwcpInvokeAction {
 			details = desktopAwcpRejectionDetails(requestType, *frame)
 		}
 		return desktopActionErrorResult(
@@ -300,8 +301,8 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if err != nil {
 			return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
 		}
-	} else if requestType == desktopAwcpSnapshotAction {
-		if err = validateDesktopAwcpSnapshotResponse(decoded); err != nil {
+	} else if requestType == desktopAwcpManualAction {
+		if err = validateDesktopAwcpManualResponse(decoded, payloadMap); err != nil {
 			return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
 		}
 	}
@@ -310,8 +311,6 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if failure, failed := desktopCDPEvaluationFailure(decoded, structured); failed {
 			return failure, nil
 		}
-	} else if requestType == desktopAwcpInvokeAction {
-		structured["stage"] = "page_execution"
 	}
 	result := structuredResultWithExit(structured, 0)
 	if awcpFailure || decoded["ok"] == false {

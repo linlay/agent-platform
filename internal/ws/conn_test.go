@@ -451,3 +451,26 @@ func mustReadQueuedMessage(t *testing.T, queue <-chan outboundMessage) outboundM
 		return outboundMessage{}
 	}
 }
+
+func TestConnRequiresDetachBeforeNextRunStream(t *testing.T) {
+	c := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 16, MaxObservesPerConn: 10}, AuthSession{})
+	if _, err := c.ReserveStream("first", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ReserveStream("second", "other"); err == nil {
+		t.Fatal("parallel admission allowed")
+	}
+	if err := c.BindStreamRun("first", "run-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.DetachRunStream("run-a"); !ok {
+		t.Fatal("detach failed")
+	}
+	if _, err := c.ReserveStream("second", "run-b"); err != nil {
+		t.Fatal(err)
+	}
+	c.ReleaseStream("second")
+	if _, err := c.ReserveStream("third", "run-c"); err != nil {
+		t.Fatal(err)
+	}
+}

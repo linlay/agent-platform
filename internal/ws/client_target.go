@@ -11,11 +11,28 @@ const (
 	webClientSurfaceIDMaxRunes = 128
 	desktopMainClientSource    = "desktop-main"
 	desktopBTWClientSource     = "desktop-btw"
+	desktopExplainClientSource = "desktop-explain"
 )
 
 func (c *Conn) IsDesktopBTW() bool {
 	_, ok := c.authenticatedDesktopLaneTarget(desktopBTWClientSource)
 	return ok
+}
+
+func (c *Conn) IsDesktopExplain() bool {
+	_, ok := c.authenticatedDesktopLaneTarget(desktopExplainClientSource)
+	return ok
+}
+
+// QueryLane confirms how /api/query is routed on this authenticated connection.
+func (c *Conn) QueryLane() string {
+	if c.IsDesktopBTW() {
+		return "btw"
+	}
+	if c.IsDesktopExplain() {
+		return "explain"
+	}
+	return "main"
 }
 
 func NormalizeWebClientDeviceID(deviceID string) string {
@@ -168,6 +185,25 @@ func (h *Hub) unregisterDesktopBTWLocked(conn *Conn) {
 	h.desktopBTWConn = nil
 }
 
+func (h *Hub) registerDesktopExplainLocked(conn *Conn) *Conn {
+	if h == nil || conn == nil || !conn.IsDesktopExplain() {
+		return nil
+	}
+	replaced := h.desktopExplainConn
+	h.desktopExplainConn = conn
+	if replaced == conn {
+		return nil
+	}
+	return replaced
+}
+
+func (h *Hub) unregisterDesktopExplainLocked(conn *Conn) {
+	if h == nil || conn == nil || h.desktopExplainConn != conn {
+		return
+	}
+	h.desktopExplainConn = nil
+}
+
 func (h *Hub) ResolveDesktopMainTarget() (contracts.ClientTarget, contracts.DesktopMainTargetState) {
 	if h == nil {
 		return contracts.ClientTarget{}, contracts.DesktopMainTargetMissing
@@ -202,16 +238,9 @@ func (c *Conn) authenticatedDesktopLaneTarget(expectedSource string) (contracts.
 		return contracts.ClientTarget{}, false
 	}
 	c.authMu.RLock()
-	authDeviceID := monitorNormalizeDeviceID(c.auth.DeviceID)
-	deviceIDVerified := c.auth.DeviceIDVerified
-	authDisabled := c.auth.AuthDisabled
-	authScope := strings.TrimSpace(c.auth.Scope)
+	auth := c.auth
 	c.authMu.RUnlock()
-	if authDisabled {
-		target := c.WebClientTarget()
-		return target, authDeviceID != "" && deviceID == authDeviceID && !target.IsZero()
-	}
-	if !deviceIDVerified || authScope != "app" || authDeviceID == "" || deviceID != authDeviceID {
+	if !desktopLaneDeviceAuthorized(auth, deviceID) {
 		return contracts.ClientTarget{}, false
 	}
 	target := c.WebClientTarget()

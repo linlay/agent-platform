@@ -118,6 +118,7 @@ func TestHTTPRunStreamDetachesObserverDuringRootContextShutdown(t *testing.T) {
 	fixture := newTestFixture(t)
 	runs := fixture.runs
 	runID := "run_http_shutdown"
+	bindTestRunControl(t, fixture.server, runID, "http", "")
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
 		ChatID:   "chat_http_shutdown",

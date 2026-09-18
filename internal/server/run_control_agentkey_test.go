@@ -16,8 +16,7 @@ func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs
-	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+	_, _, _ = registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
 		RunID:    "run-agent-check",
 		ChatID:   "chat-agent-check",
 		AgentKey: "mock-agent",
@@ -128,7 +127,7 @@ func TestAccessLevelHTTPUpdatesRunAccessLevel(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
 	runs := fixture.runs
-	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+	_, _, _ = registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
 		RunID:       "run-access-http",
 		ChatID:      "chat-access-http",
 		AgentKey:    "mock-agent",
@@ -153,8 +152,7 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs
-	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+	_, _, _ = registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
 		RunID:    "run-proxy-agent-check",
 		ChatID:   "chat-proxy-agent-check",
 		AgentKey: "proxy-agent",
@@ -214,7 +212,7 @@ func TestAccessLevelHTTPForwardsForProxyRun(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
 	runs := fixture.runs
-	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+	_, _, _ = registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
 		RunID:    "run-proxy-access-level",
 		ChatID:   "chat-proxy-access-level",
 		AgentKey: "proxy-agent",
@@ -255,8 +253,7 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs
-	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+	_, _, _ = registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
 		RunID:    "run-proxy-forward",
 		ChatID:   "chat-proxy-forward",
 		AgentKey: "proxy-agent",

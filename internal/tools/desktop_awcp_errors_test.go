@@ -14,8 +14,7 @@ import (
 func TestDesktopAwcpPreflightEvidenceIsScopedAndSanitized(t *testing.T) {
 	code := 400
 	data := map[string]any{
-		"stage": "desktop_preflight", "executionStarted": false, "reason": "input_schema_mismatch", "secret": "must-not-pass",
-		"violations": []any{map[string]any{"instancePath": "/nodes", "keyword": "type", "expectedType": "array", "actualType": "object", "message": "page instruction", "actualValue": "private"}},
+		"stage": "desktop_preflight", "executionStarted": false, "reason": "page_changed", "secret": "must-not-pass",
 	}
 	raw, _ := json.Marshal(data)
 	frame := contracts.ClientResponseFrame{Frame: "error", Type: "awcp_preflight_rejected", Code: &code, Data: raw}
@@ -23,9 +22,8 @@ func TestDesktopAwcpPreflightEvidenceIsScopedAndSanitized(t *testing.T) {
 	if details["executionStarted"] != false || details["stage"] != "desktop_preflight" || details["secret"] != nil {
 		t.Fatalf("wrong execution evidence: %#v", details)
 	}
-	expected := []map[string]any{{"instancePath": "/nodes", "keyword": "type", "expectedType": "array", "actualType": "object"}}
-	if !reflect.DeepEqual(details["violations"], expected) {
-		t.Fatalf("unsanitized violations: %#v", details)
+	if details["reason"] != "page_changed" {
+		t.Fatalf("preflight reason was not preserved: %#v", details)
 	}
 	if got := desktopAwcpRejectionDetails(desktopCDPRequestType, frame); !reflect.DeepEqual(got, desktopClientRejectionDetails(frame)) {
 		t.Fatalf("ordinary CDP projection changed: %#v", got)
@@ -41,7 +39,7 @@ func TestDesktopAwcpWirePreflightProofReachesToolResult(t *testing.T) {
 	// Desktop realtime-broker.test.mjs, not ordinary CDP's metadata wrapper.
 	code := 400
 	frame := contracts.ClientResponseFrame{Frame: "error", Type: "awcp_preflight_rejected", Code: &code,
-		Data: json.RawMessage(`{"stage":"desktop_preflight","executionStarted":false,"reason":"input_schema_mismatch","violations":[{"instancePath":"/conditions","keyword":"type","expectedType":"array","actualType":"object"}]}`)}
+		Data: json.RawMessage(`{"stage":"desktop_preflight","executionStarted":false,"reason":"manual_required"}`)}
 	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop},
 		clientRequest: &scriptedClientRequestInvoker{frames: []contracts.ClientResponseFrame{frame}}, clientTargets: emptyRunClientTargetStore{}}
 	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
@@ -52,12 +50,10 @@ func TestDesktopAwcpWirePreflightProofReachesToolResult(t *testing.T) {
 	}
 	details := result.Structured["details"].(map[string]any)
 	if details["clientErrorType"] != "awcp_preflight_rejected" || details["stage"] != "desktop_preflight" ||
-		details["executionStarted"] != false || details["reason"] != "input_schema_mismatch" {
+		details["executionStarted"] != false || details["reason"] != "manual_required" {
 		t.Fatalf("wire proof did not reach LLM-facing result: %#v", result)
 	}
-	for _, fact := range []string{`"instancePath":"/conditions"`, `"expectedType":"array"`, `"actualType":"object"`} {
-		if !strings.Contains(result.Output, fact) {
-			t.Fatalf("type evidence missing from model-visible error: %s", fact)
-		}
+	if !strings.Contains(result.Output, `"reason":"manual_required"`) {
+		t.Fatalf("preflight reason missing from model-visible error: %s", result.Output)
 	}
 }
