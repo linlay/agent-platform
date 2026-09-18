@@ -17,16 +17,16 @@ import (
 const desktopAwcpInvokeAction = "desktop.awcp.invoke"
 
 const (
-	desktopAwcpSnapshotAction    = "desktop.awcp.snapshot"
-	desktopAwcpGetSnapshotMethod = "AWCP.getSnapshot"
-	desktopAwcpInvokeMethod      = "AWCP.invoke"
+	desktopAwcpManualAction    = "desktop.awcp.manual"
+	desktopAwcpGetManualMethod = "AWCP.getManual"
+	desktopAwcpInvokeMethod    = "AWCP.invoke"
 )
 
 var desktopAwcpActionPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*$`)
 
-func (t *RuntimeToolExecutor) invokeDesktopAwcpSnapshot(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeDesktopAwcpManual(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if err := validateDesktopAwcpCall(args); err != nil {
-		return desktopActionErrorResult("invalid_args", err.Error(), map[string]any{"executionStarted": false, "stage": "platform_parse"}), nil
+		return desktopAwcpInvalidArgsResult(err), nil
 	}
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
@@ -35,41 +35,19 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpSnapshot(ctx context.Context, arg
 	if err != nil {
 		return desktopActionErrorResult("invalid_execution_context", err.Error(), nil), nil
 	}
-	requestID := newDesktopRequestID("das")
-	result, err := t.invokeDesktopClientRequest(ctx, requestID, desktopAwcpSnapshotAction, map[string]any{}, &source, "desktop_cdp", false, execCtx)
-	if err != nil || result.Error != "" || result.ExitCode != 0 {
-		return result, err
+	requestID := newDesktopRequestID("dam")
+	payload, _ := args["params"].(map[string]any)
+	if payload == nil {
+		payload = map[string]any{}
 	}
-	// The page is the documentation source. Reveal only the index until the
-	// model asks for one action; never install page schemas into model tools.
-	response := result.Structured["response"].(map[string]any)
-	params, _ := args["params"].(map[string]any)
-	selected, _ := params["action"].(string)
-	entries := make([]any, 0)
-	for _, raw := range response["actions"].([]any) {
-		descriptor := raw.(map[string]any)
-		if selected == "" {
-			entries = append(entries, map[string]any{"action": descriptor["action"], "description": descriptor["description"]})
-		} else if descriptor["action"] == selected {
-			entries = append(entries, descriptor)
-		}
-	}
-	if selected != "" && len(entries) == 0 {
-		return desktopActionErrorResult("awcp_action_not_found", "The requested action is absent from the current page manual; read the index again.", map[string]any{"executionStarted": false}), nil
-	}
-	return structuredResult(map[string]any{"transport": "reverse-websocket", "response": map[string]any{
-		"ok": true, "method": desktopAwcpGetSnapshotMethod, "revision": response["revision"], "actions": entries,
-	}}), nil
+	return t.invokeDesktopClientRequest(ctx, requestID, desktopAwcpManualAction, payload, &source, "desktop_cdp", false, execCtx)
 }
 
 func (t *RuntimeToolExecutor) invokeDesktopAwcpFromCDP(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if err := validateDesktopAwcpCall(args); err != nil {
-		return desktopActionErrorResult("invalid_args", err.Error(), map[string]any{"executionStarted": false, "stage": "platform_parse"}), nil
+		return desktopAwcpInvalidArgsResult(err), nil
 	}
 	params := args["params"].(map[string]any)
-	if failure, failed := validateDesktopAwcpArgs(params); failed {
-		return failure, nil
-	}
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
 	}
@@ -81,51 +59,126 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpFromCDP(ctx context.Context, args
 	return t.invokeDesktopClientRequest(ctx, requestID, desktopAwcpInvokeAction, params, &source, "desktop_cdp", false, execCtx)
 }
 
-func validateDesktopAwcpArgs(args map[string]any) (ToolExecutionResult, bool) {
-	if len(args) != 3 {
-		return desktopActionErrorResult("invalid_args", "AWCP.invoke params must contain exactly revision, action and args", nil), true
-	}
-	revision, revisionOK := args["revision"].(string)
-	action, actionOK := args["action"].(string)
-	innerArgs, argsOK := args["args"].(map[string]any)
-	if !revisionOK || revision == "" || utf16Length(revision) > 128 {
-		return desktopActionErrorResult("invalid_args", "revision must be a non-empty AWCP revision of at most 128 characters", map[string]any{"field": "revision"}), true
-	}
-	if !actionOK || utf16Length(action) > 128 || !desktopAwcpActionPattern.MatchString(action) {
-		return desktopActionErrorResult("invalid_args", "action is not a valid AWCP action name", map[string]any{"field": "action"}), true
-	}
-	if !argsOK || innerArgs == nil || !isDesktopJSONValue(innerArgs) {
-		return desktopActionErrorResult("invalid_args", "args must be a JSON object", map[string]any{"field": "args"}), true
-	}
-	return ToolExecutionResult{}, false
+type desktopAwcpValidationError struct {
+	message string
+	details map[string]any
 }
 
-func validateDesktopAwcpSnapshotResponse(response map[string]any) error {
-	if len(response) != 4 {
-		return errors.New("AWCP snapshot response fields are invalid")
+func (e *desktopAwcpValidationError) Error() string {
+	return e.message
+}
+
+func desktopAwcpInvalidArgsResult(err error) ToolExecutionResult {
+	details := map[string]any{"executionStarted": false, "stage": "platform_parse"}
+	var validationErr *desktopAwcpValidationError
+	if errors.As(err, &validationErr) {
+		for key, value := range validationErr.details {
+			details[key] = value
+		}
 	}
+	return desktopActionErrorResult("invalid_args", err.Error(), details)
+}
+
+func newDesktopAwcpValidationError(message string, path []string, expectedType string, actual any, present bool) error {
+	details := map[string]any{
+		"path":         path,
+		"expectedType": expectedType,
+		"actualType":   desktopAwcpJSONType(actual, present),
+	}
+	if len(path) > 0 {
+		details["field"] = path[len(path)-1]
+	}
+	return &desktopAwcpValidationError{message: message, details: details}
+}
+
+func desktopAwcpJSONType(value any, present bool) string {
+	if !present {
+		return "missing"
+	}
+	if value == nil {
+		return "null"
+	}
+	switch value.(type) {
+	case map[string]any:
+		return "object"
+	case []any:
+		return "array"
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64, json.Number:
+		return "number"
+	default:
+		return fmt.Sprintf("%T", value)
+	}
+}
+
+func validateDesktopAwcpArgs(args map[string]any) error {
+	revisionValue, revisionPresent := args["revision"]
+	revision, revisionOK := revisionValue.(string)
+	actionValue, actionPresent := args["action"]
+	action, actionOK := actionValue.(string)
+	innerArgsValue, argsPresent := args["args"]
+	innerArgs, argsOK := innerArgsValue.(map[string]any)
+	if !revisionOK || revision == "" || utf16Length(revision) > 128 {
+		return newDesktopAwcpValidationError(
+			"params.revision must be a non-empty AWCP revision of at most 128 characters.",
+			[]string{"params", "revision"}, "non-empty string", revisionValue, revisionPresent,
+		)
+	}
+	if !actionOK || utf16Length(action) > 128 || !desktopAwcpActionPattern.MatchString(action) {
+		return newDesktopAwcpValidationError(
+			"params.action must be a valid AWCP action name of at most 128 characters.",
+			[]string{"params", "action"}, "AWCP action name string", actionValue, actionPresent,
+		)
+	}
+	if !argsOK || innerArgs == nil {
+		return newDesktopAwcpValidationError(
+			fmt.Sprintf("params.args must be a JSON object; received %s.", desktopAwcpJSONType(innerArgsValue, argsPresent)),
+			[]string{"params", "args"}, "object", innerArgsValue, argsPresent,
+		)
+	}
+	if !isDesktopJSONValue(innerArgs) {
+		return newDesktopAwcpValidationError(
+			"params.args must contain only JSON values.",
+			[]string{"params", "args"}, "object containing JSON values", innerArgsValue, true,
+		)
+	}
+	if len(args) != 3 {
+		return newDesktopAwcpValidationError(
+			"AWCP.invoke params must contain exactly revision, action and args.",
+			[]string{"params"}, "object with exactly revision, action and args", args, true,
+		)
+	}
+	return nil
+}
+
+func validateDesktopAwcpManualResponse(response map[string]any, payload map[string]any) error {
 	ok, okIsBool := response["ok"].(bool)
 	method, methodIsString := response["method"].(string)
-	if !okIsBool || !ok || !methodIsString || method != desktopAwcpGetSnapshotMethod {
-		return errors.New("AWCP snapshot response is invalid")
+	if !okIsBool || !ok || !methodIsString || method != desktopAwcpGetManualMethod {
+		return errors.New("AWCP manual response is invalid")
 	}
 	revision, valid := response["revision"].(string)
-	actions, array := response["actions"].([]any)
 	encoded, err := json.Marshal(response)
-	if !valid || revision == "" || utf16Length(revision) > 128 || !array || len(actions) > 128 || err != nil || len(encoded) > 256*1024 {
-		return errors.New("AWCP snapshot exceeds its JSON boundary")
+	section, selected := payload["section"].(string)
+	maximum := 64 * 1024
+	if selected {
+		maximum = 256 * 1024
 	}
-	previous := ""
-	for _, raw := range actions {
-		descriptor, ok := raw.(map[string]any)
-		name, _ := descriptor["action"].(string)
-		description, _ := descriptor["description"].(string)
-		if !ok || !desktopAwcpActionPattern.MatchString(name) || utf16Length(name) > 128 || name <= previous || strings.TrimSpace(description) == "" || utf16Length(description) > 2048 {
-			return errors.New("AWCP snapshot action index is invalid")
+	if !valid || revision == "" || utf16Length(revision) > 128 || err != nil || len(encoded) > maximum {
+		return errors.New("AWCP manual response exceeds its JSON boundary")
+	}
+	if selected {
+		responseSection, sectionOK := response["section"].(string)
+		requestRevision, revisionOK := payload["revision"].(string)
+		if !sectionOK || !revisionOK || responseSection != section || revision != requestRevision {
+			return errors.New("AWCP manual section identity is invalid")
 		}
-		previous = name
 	}
-	// Business schemas, examples and manual content are page-owned data.
 	return nil
 }
 
@@ -203,32 +256,44 @@ func isDesktopJSONValueTree(value any) bool {
 func validateDesktopAwcpCall(args map[string]any) error {
 	for key := range args {
 		if key != "method" && key != "params" {
-			return fmt.Errorf("unsupported AWCP field %q; use method and params on the current authorized page", key)
+			return newDesktopAwcpValidationError(
+				fmt.Sprintf("unsupported AWCP field %q; use method and params on the current authorized page", key),
+				[]string{key}, "field omitted", args[key], true,
+			)
 		}
 	}
-	params, ok := args["params"].(map[string]any)
+	paramsValue, paramsPresent := args["params"]
+	params, ok := paramsValue.(map[string]any)
 	method, _ := args["method"].(string)
-	if strings.TrimSpace(method) == desktopAwcpGetSnapshotMethod {
-		if _, present := args["params"]; !present {
+	if strings.TrimSpace(method) == desktopAwcpGetManualMethod {
+		if !paramsPresent {
 			return nil
 		}
 		if !ok || params == nil {
-			return errors.New("AWCP.getSnapshot params must be an object")
+			return newDesktopAwcpValidationError(
+				fmt.Sprintf("AWCP.getManual params must be an object; received %s.", desktopAwcpJSONType(paramsValue, true)),
+				[]string{"params"}, "object", paramsValue, true,
+			)
 		}
 		if len(params) == 0 {
 			return nil
 		}
-		action, valid := params["action"].(string)
-		if len(params) != 1 || !valid || utf16Length(action) > 128 || !desktopAwcpActionPattern.MatchString(action) {
-			return errors.New("AWCP.getSnapshot accepts only an optional action name to read its manual")
+		section, sectionOK := params["section"].(string)
+		revision, revisionOK := params["revision"].(string)
+		if len(params) != 2 || !sectionOK || !revisionOK || revision == "" || utf16Length(revision) > 128 ||
+			utf16Length(section) > 128 || !desktopAwcpActionPattern.MatchString(section) {
+			return newDesktopAwcpValidationError(
+				"AWCP.getManual params must be empty or contain exactly section and revision.",
+				[]string{"params"}, "empty object or object with exactly section and revision", params, true,
+			)
 		}
 		return nil
 	}
 	if !ok || params == nil {
-		return errors.New("AWCP.invoke params must contain revision, action and args")
+		return newDesktopAwcpValidationError(
+			fmt.Sprintf("AWCP.invoke params must be an object containing revision, action and args; received %s.", desktopAwcpJSONType(paramsValue, paramsPresent)),
+			[]string{"params"}, "object with exactly revision, action and args", paramsValue, paramsPresent,
+		)
 	}
-	if failure, failed := validateDesktopAwcpArgs(params); failed {
-		return errors.New(failure.Output)
-	}
-	return nil
+	return validateDesktopAwcpArgs(params)
 }

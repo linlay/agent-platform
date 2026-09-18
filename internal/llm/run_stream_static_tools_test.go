@@ -40,14 +40,14 @@ func (p *staticToolsProtocol) ConsumeChunk(s *llmRunStream, event, chunk string)
 
 func TestPageToolsUseOrdinaryLoopAndStaticSchema(t *testing.T) {
 	for _, result := range []contracts.ToolExecutionResult{
-		{Output: `{"revision":"v1","actions":[{"action":"orders.read","inputSchema":{"type":"object"}}]}`},
-		{ExitCode: -1, Output: `{"error":{"code":"stale_snapshot"}}`},
+		{Output: `{"revision":"v2","site":{"name":"Orders","description":"Read orders"},"sections":[{"section":"orders.read","title":"Read orders"}]}`},
+		{ExitCode: -1, Output: `{"error":{"code":"stale_revision"}}`},
 		{ExitCode: -1, Error: "desktop_cdp_client_rejected", Output: "Read the manual and correct the input"},
 	} {
 		p := &staticToolsProtocol{retryProtocolStub: retryProtocolStub{outcomes: []retryProtocolOutcome{
-			{chunk: `{"method":"AWCP.getSnapshot"}`},
-			{chunk: `{"method":"AWCP.invoke","params":{"revision":"v1","action":"orders.read","args":{}}}`},
-			{chunk: `{"method":"AWCP.invoke","params":{"revision":"v1","action":"orders.read","args":{"id":"corrected"}}}`},
+			{chunk: `{"method":"AWCP.getManual"}`},
+			{chunk: `{"method":"AWCP.invoke","params":{"revision":"v2","action":"orders.read","args":{}}}`},
+			{chunk: `{"method":"AWCP.invoke","params":{"revision":"v2","action":"orders.read","args":{"id":"corrected"}}}`},
 			{chunk: "ok"},
 		}}}
 		s := newRetryTestStream(&p.retryProtocolStub, 0)
