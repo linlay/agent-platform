@@ -36,7 +36,7 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpSnapshot(ctx context.Context, arg
 		return desktopActionErrorResult("invalid_execution_context", err.Error(), nil), nil
 	}
 	requestID := newDesktopRequestID("das")
-	result, err := t.invokeDesktopClientRequest(ctx, requestID, desktopAwcpSnapshotAction, map[string]any{}, &source, "desktop_cdp", false, execCtx)
+	result, err := t.invokeDesktopClientRequest(ctx, requestID, desktopAwcpSnapshotAction, desktopAwcpSurfacePayload(args), &source, "desktop_cdp", false, execCtx)
 	if err != nil || result.Error != "" || result.ExitCode != 0 {
 		return result, err
 	}
@@ -78,7 +78,11 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpFromCDP(ctx context.Context, args
 		return desktopActionErrorResult("invalid_execution_context", err.Error(), nil), nil
 	}
 	requestID := newDesktopRequestID("daw")
-	return t.invokeDesktopClientRequest(ctx, requestID, desktopAwcpInvokeAction, params, &source, "desktop_cdp", false, execCtx)
+	payload := desktopAwcpSurfacePayload(args)
+	for key, value := range params {
+		payload[key] = value
+	}
+	return t.invokeDesktopClientRequest(ctx, requestID, desktopAwcpInvokeAction, payload, &source, "desktop_cdp", false, execCtx)
 }
 
 func validateDesktopAwcpArgs(args map[string]any) (ToolExecutionResult, bool) {
@@ -200,9 +204,23 @@ func isDesktopJSONValueTree(value any) bool {
 
 // Only the transport envelope is validated here. Reading the page manual and
 // deciding which action to invoke are the model's normal tool workflow.
+func desktopAwcpSurfacePayload(args map[string]any) map[string]any {
+	payload := map[string]any{}
+	if id := strings.TrimSpace(stringArg(args, "surfaceId")); id != "" {
+		payload["surfaceId"] = id
+	}
+	return payload
+}
+
 func validateDesktopAwcpCall(args map[string]any) error {
+	if raw, present := args["surfaceId"]; present {
+		id, ok := raw.(string)
+		if !ok || strings.TrimSpace(id) == "" {
+			return fmt.Errorf("surfaceId must be a non-empty string")
+		}
+	}
 	for key := range args {
-		if key != "method" && key != "params" {
+		if key != "method" && key != "params" && key != "surfaceId" {
 			return fmt.Errorf("unsupported AWCP field %q; use method and params on the current authorized page", key)
 		}
 	}

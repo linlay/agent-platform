@@ -1,23 +1,24 @@
 package ws
 
 import (
+	"log"
 	"sort"
 	"strings"
 	"sync"
 )
 
 type Hub struct {
-	mu                          sync.RWMutex
-	conns                       map[*Conn]struct{}
-	gatewayConns                map[string]*Conn
-	gatewayConnMeta             map[*Conn]gatewayConnectionState
-	gatewayConnSeq              int64
-	webClientConns              map[string]*Conn
-	webClientKeys               map[*Conn]string
-	desktopMainConn             *Conn
-	desktopMainSeen             bool
-	desktopBTWConn              *Conn
-	desktopSelectionExplainConn *Conn
+	mu                 sync.RWMutex
+	conns              map[*Conn]struct{}
+	gatewayConns       map[string]*Conn
+	gatewayConnMeta    map[*Conn]gatewayConnectionState
+	gatewayConnSeq     int64
+	webClientConns     map[string]*Conn
+	webClientKeys      map[*Conn]string
+	desktopMainConn    *Conn
+	desktopMainSeen    bool
+	desktopBTWConn     *Conn
+	desktopExplainConn *Conn
 
 	monitorMu          sync.RWMutex
 	monitorConns       map[string]*monitorConnectionState
@@ -65,7 +66,7 @@ func (h *Hub) register(conn *Conn) {
 	replacedWebClient := h.registerWebClientLocked(conn)
 	replacedDesktopMain := h.registerDesktopMainLocked(conn)
 	replacedDesktopBTW := h.registerDesktopBTWLocked(conn)
-	replacedDesktopSelectionExplain := h.registerDesktopSelectionExplainLocked(conn)
+	replacedDesktopExplain := h.registerDesktopExplainLocked(conn)
 	h.mu.Unlock()
 	h.monitorRegister(conn)
 	if replacedWebClient != nil {
@@ -77,8 +78,8 @@ func (h *Hub) register(conn *Conn) {
 	if replacedDesktopBTW != nil && replacedDesktopBTW != replacedWebClient {
 		replacedDesktopBTW.close(1000, "desktop btw replaced")
 	}
-	if replacedDesktopSelectionExplain != nil && replacedDesktopSelectionExplain != replacedWebClient {
-		replacedDesktopSelectionExplain.close(1000, "desktop selection explain replaced")
+	if replacedDesktopExplain != nil && replacedDesktopExplain != replacedWebClient {
+		replacedDesktopExplain.close(1000, "desktop selection explain replaced")
 	}
 }
 
@@ -111,7 +112,7 @@ func (h *Hub) unregister(conn *Conn) {
 	h.unregisterWebClientLocked(conn)
 	h.unregisterDesktopMainLocked(conn)
 	h.unregisterDesktopBTWLocked(conn)
-	h.unregisterDesktopSelectionExplainLocked(conn)
+	h.unregisterDesktopExplainLocked(conn)
 	h.mu.Unlock()
 	h.monitorClose(conn)
 }
@@ -120,9 +121,26 @@ func (h *Hub) Broadcast(eventType string, data map[string]any) {
 	if h == nil {
 		return
 	}
+	// Publication notices belong exclusively to the authenticated Main lane.
+	// Other connections (including unknown/future Explain lanes) never qualify.
+	if eventType == "artifact.published" {
+		h.mu.RLock()
+		conn := h.desktopMainConn
+		h.mu.RUnlock()
+		if conn == nil {
+			log.Printf("[artifact-published] skipped: no Main connection chatId=%v artifactId=%v", data["chatId"], data["artifactId"])
+			return
+		}
+		if _, ok := conn.authenticatedDesktopMainTarget(); !ok {
+			return
+		}
+		queued := conn.SendPush(eventType, data)
+		log.Printf("[artifact-published] enqueue sessionId=%s chatId=%v artifactId=%v queued=%t", conn.SessionID(), data["chatId"], data["artifactId"], queued)
+		return
+	}
 	conns := h.snapshotConnections()
 	for _, conn := range conns {
-		if conn.IsDesktopBTW() || conn.IsDesktopSelectionExplain() {
+		if conn.IsDesktopBTW() || conn.IsDesktopExplain() {
 			continue
 		}
 		conn.SendPush(eventType, data)

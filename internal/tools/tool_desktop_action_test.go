@@ -987,8 +987,6 @@ func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
 	result, err := newDesktopTestExecutor("", server.URL).invokeDesktopCDP(context.Background(), map[string]any{
 		"requestId": "req-cdp",
 		"method":    "Runtime.evaluate",
-		"targetId":  "target-1",
-		"sessionId": "session-1",
 		"surfaceId": "surface-1",
 		"params": map[string]any{
 			"expression": "6 * 7",
@@ -1008,7 +1006,7 @@ func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
 	if got.RequestID != "req-cdp" || got.Method != "Runtime.evaluate" {
 		t.Fatalf("unexpected cdp request: %#v", got)
 	}
-	if got.TargetID != "target-1" || got.SessionID != "session-1" || got.SurfaceID != "surface-1" {
+	if got.SurfaceID != "surface-1" {
 		t.Fatalf("unexpected target routing: %#v", got)
 	}
 	if got.Params["expression"] != "6 * 7" {
@@ -1624,7 +1622,7 @@ func TestDesktopAwcpSnapshotUsesDedicatedWireAndRejectsExtraFields(t *testing.T)
 		t.Fatalf("AWCP snapshot request=%#v", requests)
 	}
 
-	for _, field := range []string{"paramsFile", "targetId", "sessionId", "surfaceId", "requestId"} {
+	for _, field := range []string{"paramsFile", "targetId", "sessionId", "requestId"} {
 		t.Run(field, func(t *testing.T) {
 			badInvoker := &routingClientRequestInvoker{}
 			badExecutor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: badInvoker, clientTargets: emptyRunClientTargetStore{}}
@@ -1684,9 +1682,12 @@ func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 		"Page.navigate",
 		"Page.reload",
 		"Runtime.evaluate",
-		"Target.getCurrentTarget",
-		"Target.getTargets",
-		"Target.closeTarget",
+		"Surface.getCurrent",
+		"Surface.list",
+		"Surface.close",
+		"Surface.getState",
+		"Surface.goBack",
+		"Surface.open",
 	}
 	sort.Strings(want)
 
@@ -1719,9 +1720,12 @@ func TestDesktopCDPRecommendedMethodsKeepRawBridgeRoute(t *testing.T) {
 		"Page.navigate",
 		"Page.reload",
 		"Runtime.evaluate",
-		"Target.closeTarget",
-		"Target.getCurrentTarget",
-		"Target.getTargets",
+		"Surface.close",
+		"Surface.getState",
+		"Surface.goBack",
+		"Surface.open",
+		"Surface.getCurrent",
+		"Surface.list",
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{

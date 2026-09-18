@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
@@ -16,6 +15,10 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	var req api.SubmitRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid submit payload"))
+		return
+	}
+	req = s.normalizeActiveSubmitRun(req)
+	if !s.validateHTTPRunControl(w, r, req.RunID) {
 		return
 	}
 	req.Locale = requestLocale(r, responseLocale(w))
@@ -33,8 +36,11 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 	var req api.SteerRequest
-	if err := decodeJSON(r, &req); err != nil || req.RunID == "" || strings.TrimSpace(req.Message) == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and message are required"))
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid steer payload"))
+		return
+	}
+	if !s.validateHTTPRunControl(w, r, req.RunID) {
 		return
 	}
 	result, err := s.deps.Runtime.Steer(r.Context(), runtimeSteerCommand(req))
@@ -52,6 +58,9 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	var req api.InterruptRequest
 	if err := decodeJSON(r, &req); err != nil || req.RunID == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId is required"))
+		return
+	}
+	if !s.validateHTTPRunControl(w, r, req.RunID) {
 		return
 	}
 	result, err := s.deps.Runtime.Interrupt(r.Context(), runtimeInterruptCommand(req))

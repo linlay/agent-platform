@@ -76,13 +76,13 @@ func TestSelectionExplainDetachAttachAndInterruptKeepExistingRunSemantics(t *tes
 	server := newLoopbackServer(t, fixture.server)
 	defer server.Close()
 	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+
-		"/ws?source=desktop-selection-explain&surfaceId=desktop-selection-explain&deviceId=device-selection", nil)
+		"/ws?source=desktop-explain&surfaceId=desktop-explain&deviceId=device-selection", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
 	readConnectedPush(t, conn)
-	sendSelectionLaneRequest(t, conn, "explain", "/api/btw", map[string]any{"chatId": chatID, "message": "explain selection"})
+	sendSelectionLaneRequest(t, conn, "explain", "/api/query", map[string]any{"chatId": chatID, "message": "explain selection"})
 	var runID string
 	for runID == "" {
 		frame := readSelectionLaneFrame(t, conn)
@@ -160,11 +160,11 @@ func (selectionLaneUntrustedAuthenticator) VerifyToken(ctx context.Context, _ st
 func TestSelectionExplainWebSocketSourceCannotGrantAppPrivileges(t *testing.T) {
 	fixture := newTestFixture(t)
 	handler := platformws.NewHandler(fixture.cfg.WebSocket, platformws.NewHub(), selectionLaneUntrustedAuthenticator{})
-	handler.RegisterRoute("/api/btw", fixture.server.wsBTW)
+	handler.RegisterRoute("/api/query", fixture.server.wsQuery)
 	server := newLoopbackServer(t, handler)
 	defer server.Close()
 	conn, response, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+
-		"/ws?source=desktop-selection-explain&surfaceId=desktop-selection-explain&deviceId=device-selection", nil)
+		"/ws?source=desktop-explain&surfaceId=desktop-explain&deviceId=device-selection", nil)
 	if conn != nil {
 		_ = conn.Close()
 	}

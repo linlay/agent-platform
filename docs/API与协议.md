@@ -44,7 +44,7 @@ HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`fiel
 ```text
 普通 JSON API -> ApiResponse envelope
 POST /api/query -> SSE message events -> data: [DONE]
-POST /api/btw -> hidden read-only branch -> same SSE message events
+POST /api/query (lane=btw) -> hidden read-only branch -> same SSE message events
 GET /ws -> request / response / stream / push / error frames
 文件上传下载 -> HTTP 数据面
 ```
@@ -303,8 +303,8 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`mustUseSkills`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
-| POST | `/api/btw` | body: `chatId`、`message`、可选 `btwId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`accessLevel`、`model` | 创建或继续隐藏只读分支；复用 query SSE，`stream:false` 返回带 `btwId` 的 JSON |
+| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`btwId`（旁聊续问）、`message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`mustUseSkills`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/btw` | body: `chatId`、`message`、可选 `btwId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`accessLevel`、`model` | 旧客户端兼容入口；创建或继续隐藏只读分支，复用 query SSE，`stream:false` 返回带 `btwId` 的 JSON |
 | GET | `/api/attach` | query: `runId`、`agentKey` 或 `teamId`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: `agentKey` 或 `teamId`、`runId`、`awaitingId`、`params` | HITL submit ack |
 | POST | `/api/steer` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
@@ -338,11 +338,20 @@ WebSocket 使用现有错误 envelope 表达相同语义。Team 无效时不会�
 
 run 控制接口从 `agentKey/teamId` 推导互斥身份：Agent-owned run 必须传 `agentKey`；Team run 必须只传 `teamId`，漏传返回 400，错 Team 返回 403，同时传 `agentKey` 也返回 400。Team 的 `request.query` 与 `run.start` 携带 `teamId` 且 `agentKey` 为空；chat/run summary 同样使用这一身份对表达公开归属。虚拟协调器 key 不是公共 API 身份。
 
-`/api/btw` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索和 JSONL 都不会被 BTW 更新。
+HTTP `POST /api/query` 的 `lane:"btw"` 用于“顺便问”（旧 `/api/btw` 保留兼容）：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索和 JSONL 都不会被 BTW 更新。
 
 BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
 
-Desktop 的 BTW 实时入口是普通 WebSocket v2 上的 route `/api/btw`，只接受已认证的 `source=desktop-btw` 或 `source=desktop-selection-explain` 连接。前者承载主聊天 WorkPanel 的顺便问，后者为 Desktop 独立详细解释窗口保留单独物理连接；两个 lane 都固定拒绝普通 `/api/query`。一个 lane 可以并发创建、继续和 attach 多个 BTW Run，detach、submit、steer 与 interrupt 沿用现有 run owner 校验。独立解释 lane 不新增模型业务 API，不放宽 app 身份校验，也不为普通浏览器增加解释 WS 入口。HTTP `POST /api/btw` 保留为 Platform 公共接口，但 Desktop 不把它作为旧协议 fallback。
+Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane，连接 source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`。三者发起 Run 统一发送 route `/api/query`：Platform 根据已认证连接身份将 main 送入普通 query，将 btw/explain 送入隐藏只读分支，payload 不能覆盖 lane。旁聊沿用 BTW payload（含可选 `btwId`），同一连接可创建、续问和 attach 多个分支 Run。WS `/api/btw` 仅保留为旁聊 lane 的兼容入口；HTTP 统一使用 `POST /api/query`，body 的 `lane` 缺省或 `main` 执行主聊天、`btw` 执行隐藏分支；`explain` 返回 403 `explain_ws_required`，其他值返回 400 `invalid_lane`，均不创建 Chat。网页仍使用 SSE，也支持 `stream:false` JSON。旧 HTTP `/api/btw` 保留兼容；新版网页须配套新版 Platform，旧版可能忽略 lane 字段。attach、detach、submit、steer、interrupt、access-level 在既有 agent/team owner 校验之外，执行下述 Run 控制归属校验。
+
+Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，保存在 `.state/run-controls/<runId哈希>.json`；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/submit/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
+
+归属不绑定 sessionId 或 surfaceId，同 lane 重连/关窗重开可按 lastSeq attach。归属文件在 Run 结束后保留；planning 后续执行 Run 继承源 Run 归属，等待项跨进程恢复仍使用原记录。内部 Run 调度与控制走内部调用路径，不由客户端声明内部身份。
+
+每条 WS 连接最多一个 Run stream（终端类订阅独立）；query 在准备 Chat/启动 Run 前原子预留名额，attach 同样申请名额。已有 stream 时返回 409 `active_stream_exists`（同一 Run 重复观察仍为 `duplicate_observe`）。切换 Run 必须先 detach 或等待旧 stream 终态；detach 不终止后台 Run。main/btw/explain 三条连接可以同时各有一个 stream。
+
+发布配套要求：旧网页的“HTTP query + WS attach/interrupt”混用会被拒绝，必须改为 HTTP 全链路。旧 Desktop 在同一连接并发订阅多个 Run 会被拒绝，必须先 detach。这里只完成 Platform 协议与集成测试，真实三端联调尚待客户端配套验收。
+
 
 BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 chat 保持一致；只读说明放在本次 user message。平台内置查询工具可执行，写文件、Bash、memory mutation、plan mutation、agent invoke、artifact/image、desktop、frontend/action 等工具返回 `btw_tool_disabled` 且不会进入 HITL。MCP / agent-local / external 工具只有 `meta.readOnly:true` 时可执行；MCP `annotations.readOnlyHint:true` 会映射为该字段。proxy/channel/ACP coder 因工具执行不经过本地门禁，返回 `btw_backend_unsupported`。
 
@@ -760,11 +769,11 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 
 - 入口：`GET /ws`，HTTP upgrade 为 WebSocket。
 - 鉴权：复用 HTTP token 校验链路。
+- Desktop 旁聊连接必须验证 `connected.data.lane` 与预期 `btw`/`explain` 一致后，才发送 `/api/query`。缺少或不匹配时明确拒绝，不回退到主聊天或重发。普通连接返回 `main`，该字段不接受 payload 覆盖。
 - token 可通过 `Sec-WebSocket-Protocol: bearer.<token>` 或 query token 传递；服务端会在握手成功时回写匹配的 subprotocol。
-- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`。普通 source 转小写后只用于监控和日志展示，不参与权限或能力声明；Desktop 的 `desktop-main` / `desktop-btw` / `desktop-selection-explain` 是三个受限 lane 标识，但仍必须同时通过 app scope、JWT device claim 与握手 deviceId 校验，`source` 本身绝不构成授权。
-- WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。Desktop Broker 不按 Main Chat、Copilot 或普通 WebView surface 创建连接：同一设备登记一个 `desktop-main`，按需登记一个 WorkPanel `desktop-btw` 和一个独立解释 `desktop-selection-explain`。三个物理 lane 使用各自独立的 surfaceId；解释 lane 的 source 与 surfaceId 均为 `desktop-selection-explain`。
-- `desktop-main` 是唯一 Desktop Main 默认 target，接收全局 Push 和反向 Desktop Action/CDP；`desktop-btw` 与 `desktop-selection-explain` 不参与默认 target replacement，也不接收这些 Push/request。相同 Desktop lane 的新连接只替换本 lane 的旧连接，三个 lane 可以同时存活；任一辅助 lane 关闭或重连不关闭其他 lane，旧 generation 的迟到注销不移除新连接。
-- 这三个 source 及同名 surfaceId 都是保留身份，在 WebSocket upgrade 和通用 Surface map 登记前校验对应 app/device 授权；未授权或 source/surfaceId 不匹配返回 HTTP 403，即使尚无合法 lane 也不得预先占用。物理 lane 可省略 surfaceId，显式提供时必须与自身 source 同名。Main 未提供 surfaceId 时保持空值，不进入普通 Surface map，其反向 target 按服务端生成的 SessionId 精确解析。
+- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`。普通 source 转小写后只用于监控和日志展示，不参与权限或能力声明；Desktop 的 `desktop-main` / `desktop-btw` / `desktop-explain` 是三个受限 lane 标识，但仍必须同时通过 app scope、JWT device claim 与握手 deviceId 校验，`source` 本身绝不构成授权。
+- WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。Desktop Broker 不再按 Main Chat、Copilot 或 WebView surface 创建连接：同一设备只登记一个 `desktop-main`，并在首次使用对应能力时分别登记 `desktop-btw`、`desktop-explain`，随后跨 Chat/Run 复用。
+- `desktop-main` 是唯一 Desktop Main 默认 target，接收全局 Push 和反向 Desktop Action/CDP；`desktop-btw` / `desktop-explain` 不参与默认 target replacement，不接收这些 Push/request。第二条相同 Desktop lane 连接只替换该 lane 的旧连接，main、btw、explain 可以同时存活。
 - WebSocket 控制面常开；没有单独的关闭开关。
 
 普通 `/ws` 使用唯一的协议版本 2。Upgrade 成功后服务端必须先发送 `push.connected`；客户端校验该帧后才能把连接视为可用。版本缺失/不匹配、首帧不是 connected、字段缺失或存活参数越界都属于协议错误，应立即关闭而不是继续收发业务帧。握手等待上限为 10 秒。
@@ -791,10 +800,10 @@ Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信�
 {"frame":"request","type":"desktop.display","id":"dsa-124","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{"kind":"effect","effect":"fireworks","durationMs":8000}}
 {"frame":"request","type":"desktop.awcp.snapshot","id":"das-124","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{}}
 {"frame":"request","type":"desktop.awcp.invoke","id":"daw-125","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{"revision":"opaque-revision","action":"orders.select","args":{"ids":["order-1"]}}}
-{"frame":"request","type":"desktop.cdp.call","id":"dsc-123","payload":{"requestId":"dsc-123","method":"Runtime.evaluate","params":{"expression":"document.title"},"targetId":"target-1","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"}}}
+{"frame":"request","type":"desktop.cdp.call","id":"dsc-123","payload":{"requestId":"dsc-123","method":"Runtime.evaluate","params":{"expression":"document.title"},"surfaceId":"target-1","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"}}}
 ```
 
-Desktop 模式由 Main Broker 处理 87 个普通 `desktop.*` request type、AWCP 专用 wire action `desktop.awcp.snapshot` / `desktop.awcp.invoke` 和 `desktop.cdp.call`；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Desktop-only 的 `desktop.workpanel.openLocalFile` 在 Standalone 由 `desktop_action` 返回 `desktop_action_unsupported_runtime`；`desktop_cdp` 的普通 CDP 与 AWCP method 均返回 `desktop_cdp_unsupported_runtime`，不转发给 agent-webclient。普通 Action 的调用方可选 request ID 继续映射为帧 `id`；AWCP 的帧 `id` 只由 Platform 生成。响应必须保持同 `id`、同 request `type`；旧统一 envelope 不提供兼容入口。模型通过 `desktop_cdp` 的两个静态 AWCP method 分别映射到 snapshot/invoke wire；`AWCP.getSnapshot` 默认返回动作目录，传 `params.action` 时返回单项页面手册，选择器只用于 Platform 工具层投影，snapshot wire payload 仍为空。`AWCP.invoke` 的模型 params 与 wire payload 均只含 `{revision,action,args}`，revision 来自模型已读取的页面手册，运行核心不保存绑定或改写工具 Schema，目标和来源仅由可信 Run 决定；合法 AWCP `ok:false` 保持普通 response data 并让工具失败，宿主错误仍使用 error frame。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
+Desktop 模式由 Main Broker 处理 87 个普通 `desktop.*` request type、AWCP 专用 wire action `desktop.awcp.snapshot` / `desktop.awcp.invoke` 和 `desktop.cdp.call`；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Desktop-only 的 `desktop.workpanel.openLocalFile` 在 Standalone 由 `desktop_action` 返回 `desktop_action_unsupported_runtime`；`desktop_cdp` 的普通 CDP 与 AWCP method 均返回 `desktop_cdp_unsupported_runtime`，不转发给 agent-webclient。普通 Action 的调用方可选 request ID 继续映射为帧 `id`；AWCP 的帧 `id` 只由 Platform 生成。响应必须保持同 `id`、同 request `type`；旧统一 envelope 不提供兼容入口。模型通过 `desktop_cdp` 的两个静态 AWCP method 分别映射到 snapshot/invoke wire；`AWCP.getSnapshot` 默认返回动作目录，传 `params.action` 时返回单项页面手册，选择器只用于 Platform 工具层投影，snapshot wire payload 只携带可选 surfaceId。`AWCP.invoke` 的模型 params 只含 `{revision,action,args}`，wire payload 可另带 surfaceId，revision 来自模型已读取的页面手册，运行核心不保存绑定或改写工具 Schema，目标和来源仅由可信 Run 决定；合法 AWCP `ok:false` 保持普通 response data 并让工具失败，宿主错误仍使用 error frame。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
 
 Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame，外层 `frame/type/id/code/msg/data` 不变。`type/msg` 承载原始错误类型和消息，`data` 只保存 `{action, details?}`，不再嵌套完整 Action result 或 `error`。Platform 从 `data.details` 提取有界的 `issues`（最多 16 项，每项 `path/code/expected/actual` 字符串最多 256 字节）与恢复提示；`actual` 只表示类型或缺失，不返回输入值。参数错误在模型工具结果中保留 `invalid_args`，其他 provider 错误保留既有分类。此边界由 Desktop/Platform 配套发布；不猜测历史嵌套格式，不改变 CDP/AWCP 各自的诊断协议。
 
@@ -857,9 +866,16 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 | `chats.order.changed` | `updatedAt`；列表展示偏好修改后刷新，时间不代表 Chat 内容变化 |
 | `awaiting.asking` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`createdAt`、可选 `timeout` / `viewportType` / `viewportKey` |
 | `awaiting.answered` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`answeredAt`、可选 `errorCode` / `submitId` / `durationMs` |
+| `artifact.published` | `chatId`、`runId`、`artifactId`、`name`、`type`、`mimeType`、`sizeBytes`、`sha256`、`url`、`publishedAt`；仅已认证 Desktop Main |
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`pushedAt` |
 
-上述全局 Push 广播排除 `desktop-btw` 与 `desktop-selection-explain` 连接。两个辅助 lane 只接收握手、heartbeat、auth.expiring、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW 与解释 RunChannel。
+上述全局 Push 广播排除 `desktop-btw` 和 `desktop-explain` 连接。旁聊 lane 只接收握手、heartbeat、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW RunChannel。
+
+`artifact.published` 是 Main 专属产物发布通知：本地成功发布并持久化 manifest 后，由实时 `artifact.publish` 生命周期触发；代理收到实时发布事件并写入本地记录后使用同一转换逻辑。每个产物一条 push，字段平铺在 `data` 中，不携带 `artifacts`、`artifactCount`、`toolId` 或 `taskId`。`url` 是相对于 `chatId` 的发布资源引用，`publishedAt` 是发布事件的 epoch 毫秒时间。它只投递给当前已认证注册的 `desktop-main`，所有 BTW、Explain、WebClient、Gateway 及其他 WS 均不接收；Main 离线不转投、不缓存通知。通知不依赖网关、当前选中 Chat 或 Run stream 订阅，attach/历史回放不重发；客户端以 `(chatId, runId, artifactId)` 幂等更新，断线后通过持久化产物清单对账。
+
+`resource.pushed` 仅表示文件已成功上传网关；没有网关配置/路由或上传失败不发送，代理不再把 `artifact.publish` 转换成它。`artifact.publish` 仍保留为原有批次 Run stream 事件。
+
+除 Main 专属 `artifact.published` 外，上述全局 Push 广播排除 `desktop-btw` 和 `desktop-explain` 连接。BTW lane 只接收握手、heartbeat、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW RunChannel。
 
 除 `heartbeat.timestamp` 外，platform 主动发送的 push payload 不使用 `timestamp`；它们用上表的业务语义时间字段。这是硬切换，不会双写旧字段，前端与服务端需要同版本发布。SSE 与 WebSocket `frame:"stream"` 的 `event.timestamp` 仍是每个业务流事件必填的 epoch milliseconds。`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
 
@@ -883,7 +899,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `reason` | stream | stream 结束或中断原因 |
 | `lastSeq` | stream | 已发送事件序号，可用于 attach |
 
-当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 与后续 `GET /api/attach` 中发送 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。WebSocket query/attach 则直接使用发起请求的连接。普通连接每次成功且具有有效 target 的 attach 都把该连接或逻辑 surface 设为 run 的最新反向 Action target；`desktop-btw` 和 `desktop-selection-explain` 的 attach 只建立 observer，不改写已有反向 Action target。失败 attach 和不带 target headers 的普通 HTTP attach 不改变原绑定。统一 Desktop Action 与 CDP 都使用当前 run 的通用 `budget.tool.timeout`，没有独立 Desktop 超时配置。
+当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 与后续 `GET /api/attach` 中发送 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。WebSocket query/attach 则直接使用发起请求的连接。每次成功且具有有效 target 的 attach 都把该连接或逻辑 surface 设为 run 的最新反向 Action target；失败 attach 和不带 target headers 的普通 HTTP attach 不改变原绑定。统一 Desktop Action 与 CDP 都使用当前 run 的通用 `budget.tool.timeout`，没有独立 Desktop 超时配置。
 
 回放事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的公开 live stream 游标；replay 时会把它注入到对应事件 payload，供 attach cursor 使用。新的 Native / Team run 对外事件序号严格连续，`llm.request`、内部 snapshot、隐藏工具等不发布事件不占号；PROXY / CHANNEL 保持上游序号语义。
 
@@ -919,8 +935,8 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/automation/executions` | `id` 或 `automationId`、`limit`、`offset` | `response` |
 | `/api/automation/execution` | `executionId` 或 `id` | `response` |
 | `/api/chats/search` | `query`、`agentKey`、`teamId`、`limit` | `response` |
-| `/api/query` | `QueryRequest` | `stream` |
-| `/api/btw` | BTW query payload | `stream`；仅 `source=desktop-btw` 或 `source=desktop-selection-explain` 的已认证 Desktop lane |
+| `/api/query` | main: `QueryRequest`；btw/explain: BTW query payload | `stream`，执行语义由已认证连接 lane 决定 |
+| `/api/btw` | BTW query payload | 旁聊 lane 的兼容入口；新 Desktop 统一使用 `/api/query` |
 | `/api/attach` | `runId`、`agentKey` 或 `teamId`、`lastSeq` | `stream` |
 | `/api/detach` | `runId`、`agentKey` 或 `teamId`、`reason` | `response`；关闭当前 WS 连接上该 run 的 observer，不中断 run |
 | `/api/terminal/open` | `agentKey`、可选 `terminalKey`、`cols`、`rows` | `stream`；agent scope attach-or-create；兼容传入的 `chatId` 会被忽略 |
@@ -1127,13 +1143,13 @@ Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinn
 
 steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 返回 `409 already_resolved`；approve 先被接受并创建 execution continuation 时，旧 Run 的 steer 返回 `accepted:false,status:"unmatched"`。后续指令应发往新 execution Run。新计划仍需重新确认。此行为适用于仍有 planning 执行者的活动 Run，跨进程 suspended 等待项仍通过 submit 恢复；完整时序见 [HITL协议](HITL协议.md)。
 
-### 含图 steer
+### 附件 steer
 
-`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 仍必填。`chatId` 缺省时从 Run 补齐，提供时必须匹配。首版仅接受当前 Chat 的图片资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；query 仍要求非空文字。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
 
-普通 native Agent 与 Team 协调器在原有安全点接收图片。当前模型不支持视觉、资源不可用或混入非图片时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 含图路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。图片在准入时读取并冻结，入队后同名文件修改不会替换模型输入。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
+普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
-公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带图记录要求 `messages`。前后端按后端先、前端后的顺序更新。
+公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带附件记录要求 `messages`。前后端按后端先、前端后的顺序更新。
 
 
 ## Office 在线预览 HTTP API
@@ -1175,3 +1191,11 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 ### CLI 独立准备
 
 `/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。
+
+纯文本选区 steer 使用 `references:[{type:"selection",meta:{text:"选中文本"}}]`；`meta.text` 必须为非空字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
+
+## 网页 Container / Surface 契约
+
+Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surface。`desktop_cdp` 以 Surface.list / Surface.getCurrent 发现网页，所有 CDP 页面操作只使用 surfaceId，不暴露另一个目标 ID 或 session selector。Surface.open/close/getState/goBack 是 Desktop 方法，其余受限 Chromium 方法仍由 Desktop 定位到精确 webContents 后执行。导航和刷新保留身份，关闭重开使旧身份失效。
+
+普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。

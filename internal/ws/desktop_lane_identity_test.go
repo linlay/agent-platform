@@ -15,7 +15,7 @@ import (
 )
 
 func TestHubReservedDesktopSurfaceCannotBeClaimedBeforeOrAfterPhysicalLane(t *testing.T) {
-	sources := []string{desktopMainClientSource, desktopBTWClientSource, desktopSelectionExplainClientSource}
+	sources := []string{desktopMainClientSource, desktopBTWClientSource, desktopExplainClientSource}
 	for _, physicalFirst := range []bool{false, true} {
 		name := "untrusted-first"
 		if physicalFirst {
@@ -102,7 +102,7 @@ func TestMainWithoutSurfaceIDRemainsAnUnambiguousSessionTarget(t *testing.T) {
 
 func TestPhysicalLaneRejectsOtherOrArbitraryExplicitSurfaceIdentities(t *testing.T) {
 	for _, surfaceID := range []string{desktopMainClientSource, desktopBTWClientSource, "ordinary-surface"} {
-		if desktopLaneMetadataAuthorized(desktopSelectionExplainClientSource, "device-1", surfaceID, selectionExplainTestAuth()) {
+		if desktopLaneMetadataAuthorized(desktopExplainClientSource, "device-1", surfaceID, selectionExplainTestAuth()) {
 			t.Fatalf("explanation source accepted another surface identity %s", surfaceID)
 		}
 	}
@@ -127,7 +127,7 @@ func TestWebSocketHandshakeRejectsReservedIdentityWithoutDisturbingThreeLiveLane
 	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 8, PingInterval: 30}, hub, reservedLaneTestAuthenticator{})
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	sources := []string{desktopMainClientSource, desktopBTWClientSource, desktopSelectionExplainClientSource}
+	sources := []string{desktopMainClientSource, desktopBTWClientSource, desktopExplainClientSource}
 	for _, source := range sources {
 		query := url.Values{"source": {source}, "surfaceId": {source}, "deviceId": {"device-1"}, "token": {"app-test-token"}}
 		conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/?"+query.Encode(), nil)

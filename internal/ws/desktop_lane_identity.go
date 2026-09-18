@@ -4,7 +4,7 @@ import "strings"
 
 func isReservedDesktopLane(value string) bool {
 	switch value {
-	case desktopMainClientSource, desktopBTWClientSource, desktopSelectionExplainClientSource:
+	case desktopMainClientSource, desktopBTWClientSource, desktopExplainClientSource:
 		return true
 	default:
 		return false

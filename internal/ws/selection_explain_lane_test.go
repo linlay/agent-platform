@@ -22,19 +22,19 @@ func desktopLaneTestConn(hub *Hub, source string, auth AuthSession) *Conn {
 	return conn
 }
 
-func TestDesktopSelectionExplainRequiresAuthenticatedAppDevice(t *testing.T) {
+func TestDesktopExplainRequiresAuthenticatedAppDevice(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		source  string
 		change  func(*AuthSession)
 		allowed bool
 	}{
-		{name: "verified app", source: desktopSelectionExplainClientSource, allowed: true},
+		{name: "verified app", source: desktopExplainClientSource, allowed: true},
 		{name: "ordinary webclient", source: "webclient"},
-		{name: "wrong scope", source: desktopSelectionExplainClientSource, change: func(auth *AuthSession) { auth.Scope = "openid" }},
-		{name: "unverified device", source: desktopSelectionExplainClientSource, change: func(auth *AuthSession) { auth.DeviceIDVerified = false }},
-		{name: "wrong device", source: desktopSelectionExplainClientSource, change: func(auth *AuthSession) { auth.DeviceID = "another-device" }},
-		{name: "missing device", source: desktopSelectionExplainClientSource, change: func(auth *AuthSession) { auth.DeviceID = "" }},
+		{name: "wrong scope", source: desktopExplainClientSource, change: func(auth *AuthSession) { auth.Scope = "openid" }},
+		{name: "unverified device", source: desktopExplainClientSource, change: func(auth *AuthSession) { auth.DeviceIDVerified = false }},
+		{name: "wrong device", source: desktopExplainClientSource, change: func(auth *AuthSession) { auth.DeviceID = "another-device" }},
+		{name: "missing device", source: desktopExplainClientSource, change: func(auth *AuthSession) { auth.DeviceID = "" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			auth := selectionExplainTestAuth()
@@ -45,10 +45,10 @@ func TestDesktopSelectionExplainRequiresAuthenticatedAppDevice(t *testing.T) {
 			conn := desktopLaneTestConn(hub, test.source, auth)
 			defer conn.close(1000, "test complete")
 			hub.register(conn)
-			if got := conn.IsDesktopSelectionExplain(); got != test.allowed {
+			if got := conn.IsDesktopExplain(); got != test.allowed {
 				t.Fatalf("selection explanation lane authorization = %v, want %v", got, test.allowed)
 			}
-			if (hub.desktopSelectionExplainConn == conn) != test.allowed {
+			if (hub.desktopExplainConn == conn) != test.allowed {
 				t.Fatal("source metadata registered an unauthorized explanation lane")
 			}
 			if conn.IsDesktopBTW() {
@@ -61,16 +61,16 @@ func TestDesktopSelectionExplainRequiresAuthenticatedAppDevice(t *testing.T) {
 	}
 }
 
-func TestDesktopSelectionExplainPreservesExplicitAuthDisabledDevelopmentMode(t *testing.T) {
-	conn := desktopLaneTestConn(nil, desktopSelectionExplainClientSource, AuthSession{
+func TestDesktopExplainPreservesExplicitAuthDisabledDevelopmentMode(t *testing.T) {
+	conn := desktopLaneTestConn(nil, desktopExplainClientSource, AuthSession{
 		Context: context.Background(), DeviceID: "device-1", AuthDisabled: true,
 	})
 	defer conn.close(1000, "test complete")
-	if !conn.IsDesktopSelectionExplain() {
+	if !conn.IsDesktopExplain() {
 		t.Fatal("explicit auth-disabled development mode must preserve lane access")
 	}
-	conn.SetClientMetadata(desktopSelectionExplainClientSource, "another-device")
-	if conn.IsDesktopSelectionExplain() {
+	conn.SetClientMetadata(desktopExplainClientSource, "another-device")
+	if conn.IsDesktopExplain() {
 		t.Fatal("development mode must still match the connection device")
 	}
 }
@@ -78,7 +78,7 @@ func TestDesktopSelectionExplainPreservesExplicitAuthDisabledDevelopmentMode(t *
 func TestHubDesktopThreePhysicalLanesReplaceOnlyTheirOwnGeneration(t *testing.T) {
 	hub := NewHub()
 	defer hub.CloseAll(1000, "test complete")
-	sources := []string{desktopMainClientSource, desktopBTWClientSource, desktopSelectionExplainClientSource}
+	sources := []string{desktopMainClientSource, desktopBTWClientSource, desktopExplainClientSource}
 	current := make(map[string]*Conn)
 	for _, source := range sources {
 		current[source] = desktopLaneTestConn(hub, source, selectionExplainTestAuth())
@@ -104,7 +104,7 @@ func TestHubDesktopThreePhysicalLanesReplaceOnlyTheirOwnGeneration(t *testing.T)
 		}
 		if hub.desktopMainConn != current[desktopMainClientSource] ||
 			hub.desktopBTWConn != current[desktopBTWClientSource] ||
-			hub.desktopSelectionExplainConn != current[desktopSelectionExplainClientSource] {
+			hub.desktopExplainConn != current[desktopExplainClientSource] {
 			t.Fatal("lane registry changed another lane's generation")
 		}
 		if target, state := hub.ResolveDesktopMainTarget(); state != contracts.DesktopMainTargetReady ||
@@ -116,11 +116,11 @@ func TestHubDesktopThreePhysicalLanesReplaceOnlyTheirOwnGeneration(t *testing.T)
 	if len(current[desktopMainClientSource].writeQueue) != 1 {
 		t.Fatal("Main must still receive global Push")
 	}
-	if len(current[desktopBTWClientSource].writeQueue) != 0 || len(current[desktopSelectionExplainClientSource].writeQueue) != 0 {
+	if len(current[desktopBTWClientSource].writeQueue) != 0 || len(current[desktopExplainClientSource].writeQueue) != 0 {
 		t.Fatal("an auxiliary Desktop lane received global Push")
 	}
-	current[desktopSelectionExplainClientSource].close(1000, "explanation closed")
-	if hub.desktopSelectionExplainConn != nil || current[desktopMainClientSource].isClosed() || current[desktopBTWClientSource].isClosed() {
+	current[desktopExplainClientSource].close(1000, "explanation closed")
+	if hub.desktopExplainConn != nil || current[desktopMainClientSource].isClosed() || current[desktopBTWClientSource].isClosed() {
 		t.Fatal("closing the explanation lane affected Main Chat or WorkPanel BTW")
 	}
 }

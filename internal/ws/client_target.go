@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	webClientSurfaceIDMaxRunes          = 128
-	desktopMainClientSource             = "desktop-main"
-	desktopBTWClientSource              = "desktop-btw"
-	desktopSelectionExplainClientSource = "desktop-selection-explain"
+	webClientSurfaceIDMaxRunes = 128
+	desktopMainClientSource    = "desktop-main"
+	desktopBTWClientSource     = "desktop-btw"
+	desktopExplainClientSource = "desktop-explain"
 )
 
 func (c *Conn) IsDesktopBTW() bool {
@@ -19,9 +19,20 @@ func (c *Conn) IsDesktopBTW() bool {
 	return ok
 }
 
-func (c *Conn) IsDesktopSelectionExplain() bool {
-	_, ok := c.authenticatedDesktopLaneTarget(desktopSelectionExplainClientSource)
+func (c *Conn) IsDesktopExplain() bool {
+	_, ok := c.authenticatedDesktopLaneTarget(desktopExplainClientSource)
 	return ok
+}
+
+// QueryLane confirms how /api/query is routed on this authenticated connection.
+func (c *Conn) QueryLane() string {
+	if c.IsDesktopBTW() {
+		return "btw"
+	}
+	if c.IsDesktopExplain() {
+		return "explain"
+	}
+	return "main"
 }
 
 func NormalizeWebClientDeviceID(deviceID string) string {
@@ -174,23 +185,23 @@ func (h *Hub) unregisterDesktopBTWLocked(conn *Conn) {
 	h.desktopBTWConn = nil
 }
 
-func (h *Hub) registerDesktopSelectionExplainLocked(conn *Conn) *Conn {
-	if h == nil || conn == nil || !conn.IsDesktopSelectionExplain() {
+func (h *Hub) registerDesktopExplainLocked(conn *Conn) *Conn {
+	if h == nil || conn == nil || !conn.IsDesktopExplain() {
 		return nil
 	}
-	replaced := h.desktopSelectionExplainConn
-	h.desktopSelectionExplainConn = conn
+	replaced := h.desktopExplainConn
+	h.desktopExplainConn = conn
 	if replaced == conn {
 		return nil
 	}
 	return replaced
 }
 
-func (h *Hub) unregisterDesktopSelectionExplainLocked(conn *Conn) {
-	if h == nil || conn == nil || h.desktopSelectionExplainConn != conn {
+func (h *Hub) unregisterDesktopExplainLocked(conn *Conn) {
+	if h == nil || conn == nil || h.desktopExplainConn != conn {
 		return
 	}
-	h.desktopSelectionExplainConn = nil
+	h.desktopExplainConn = nil
 }
 
 func (h *Hub) ResolveDesktopMainTarget() (contracts.ClientTarget, contracts.DesktopMainTargetState) {

@@ -21,8 +21,7 @@ func TestRunControlWSRequiresAndValidatesAgentKey(t *testing.T) {
 	}, testFixtureOptions{
 		notifications: ws.NewHub(),
 	})
-	runs := fixture.runs
-	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+	_, _, _ = registerWSTestRun(t, fixture, context.Background(), contracts.QuerySession{
 		RunID:    "run-ws-agent-check",
 		ChatID:   "chat-ws-agent-check",
 		AgentKey: "mock-agent",
@@ -72,7 +71,7 @@ func TestRunControlWSRequiresAndValidatesAgentKey(t *testing.T) {
 			name:    "detach not found",
 			typ:     "/api/detach",
 			payload: map[string]any{"agentKey": "mock-agent", "runId": "run-ws-agent-missing"},
-			code:    http.StatusNotFound,
+			code:    http.StatusConflict,
 		},
 		{
 			name:    "submit missing agentKey",

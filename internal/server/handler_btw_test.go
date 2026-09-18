@@ -26,13 +26,23 @@ func TestBTWStreamsOverWebSocket(t *testing.T) {
 }
 
 func TestSelectionExplainStreamsOverWebSocket(t *testing.T) {
-	testBTWStreamsOverWebSocket(t, "desktop-selection-explain")
+	testBTWStreamsOverWebSocket(t, "desktop-explain")
 }
 
 func testBTWStreamsOverWebSocket(t *testing.T, source string) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-btw-websocket"
 	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
+	parentPath := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl")
+	parentBefore, err := os.ReadFile(parentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaryBefore, err := fixture.chats.Summary(chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	hub := platformws.NewHub()
 	fixture.server.wsHandler = fixture.server.newWSHandler(hub)
 	fixture.server.router.Handle("/ws", fixture.server.wsHandler)
@@ -47,63 +57,105 @@ func testBTWStreamsOverWebSocket(t *testing.T, source string) {
 		t.Fatalf("dial websocket: %v", err)
 	}
 	defer conn.Close()
-	readConnectedPush(t, conn)
-
-	if err := conn.WriteJSON(platformws.RequestFrame{
-		Frame: platformws.FrameRequest,
-		Type:  "/api/btw",
-		ID:    "btw-ws-1",
-		Payload: marshalPayload(map[string]any{
-			"chatId":  chatID,
-			"message": "side question",
-		}),
-	}); err != nil {
-		t.Fatalf("write websocket BTW request: %v", err)
+	var connected struct {
+		Type string `json:"type"`
+		Data struct {
+			QueryLane string `json:"lane"`
+		} `json:"data"`
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if err := conn.ReadJSON(&connected); err != nil {
+		t.Fatal(err)
+	}
+	if connected.Type != "connected" || connected.Data.QueryLane != strings.TrimPrefix(source, "desktop-") {
+		t.Fatalf("unexpected query lane handshake: %#v", connected)
 	}
 
-	var btwID string
-	var runID string
-	terminalReason := ""
-	for terminalReason == "" {
-		if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
-			t.Fatalf("set read deadline: %v", err)
+	var btwID, previousRunID string
+	for _, requestID := range []string{"btw-ws-1", "btw-ws-2"} {
+		previousBTWID := btwID
+		if err := conn.WriteJSON(platformws.RequestFrame{
+			Frame: platformws.FrameRequest,
+			Type:  "/api/query",
+			ID:    requestID,
+			Payload: marshalPayload(map[string]any{
+				"chatId":  chatID,
+				"btwId":   btwID,
+				"message": "side question",
+				"lane":    "main",
+			}),
+		}); err != nil {
+			t.Fatalf("write websocket BTW request: %v", err)
 		}
-		var frame platformws.StreamFrame
-		if err := conn.ReadJSON(&frame); err != nil {
-			t.Fatalf("read BTW stream: %v", err)
-		}
-		if frame.Frame != platformws.FrameStream || frame.ID != "btw-ws-1" {
-			t.Fatalf("unexpected BTW frame: %#v", frame)
-		}
-		if frame.Event != nil {
-			switch frame.Event.Type {
-			case "chat.start":
-				t.Fatal("BTW websocket stream must not emit chat.start")
-			case "request.query":
-				btwID, _ = frame.Event.Value("btwId").(string)
-				if kind, _ := frame.Event.Value("kind").(string); kind != "btw" {
-					t.Fatalf("unexpected request.query kind %q", kind)
-				}
-			case "run.start":
-				runID, _ = frame.Event.Value("runId").(string)
+
+		var runID string
+		terminalReason := ""
+		for terminalReason == "" {
+			if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+				t.Fatalf("set read deadline: %v", err)
 			}
+			var frame platformws.StreamFrame
+			if err := conn.ReadJSON(&frame); err != nil {
+				t.Fatalf("read BTW stream: %v", err)
+			}
+			if frame.Frame != platformws.FrameStream || frame.ID != requestID {
+				t.Fatalf("unexpected BTW frame: %#v", frame)
+			}
+			if frame.Event != nil {
+				switch frame.Event.Type {
+				case "chat.start":
+					t.Fatal("BTW websocket stream must not emit chat.start")
+				case "request.query":
+					btwID, _ = frame.Event.Value("btwId").(string)
+					if kind, _ := frame.Event.Value("kind").(string); kind != "btw" {
+						t.Fatalf("unexpected request.query kind %q", kind)
+					}
+				case "run.start":
+					runID, _ = frame.Event.Value("runId").(string)
+				}
+			}
+			terminalReason = frame.Reason
 		}
-		terminalReason = frame.Reason
+		if terminalReason != "done" || !chat.ValidBTWID(btwID) || runID == "" {
+			t.Fatalf("unexpected BTW websocket result: reason=%q btwId=%q runId=%q", terminalReason, btwID, runID)
+		}
+		if previousBTWID != "" && btwID != previousBTWID {
+			t.Fatal("continuation created a different branch")
+		}
+		if runID == previousRunID {
+			t.Fatal("continuation reused the previous Run")
+		}
+		previousRunID = runID
 	}
-	if terminalReason != "done" || !chat.ValidBTWID(btwID) || runID == "" {
-		t.Fatalf("unexpected BTW websocket result: reason=%q btwId=%q runId=%q", terminalReason, btwID, runID)
+	parentAfter, err := os.ReadFile(parentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaryAfter, err := fixture.chats.Summary(chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(parentBefore, parentAfter) || !reflect.DeepEqual(summaryBefore, summaryAfter) {
+		t.Fatal("side query changed the parent history or summary")
+	}
+	branchBytes, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.BTWRootDirName, btwID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(branchBytes, []byte("side question")) {
+		t.Fatal("side query was not persisted to its hidden branch")
 	}
 }
 
-func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
-	testBTWWebSocketLaneGuardsAndMultiplexing(t, "desktop-btw", "btw_lane_query_forbidden")
+func TestBTWWebSocketLaneGuardsAndSequentialStreams(t *testing.T) {
+	testBTWWebSocketLaneGuardsAndSequentialStreams(t, "desktop-btw", "invalid_chat_id")
 }
 
-func TestSelectionExplainWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
-	testBTWWebSocketLaneGuardsAndMultiplexing(t, "desktop-selection-explain", "selection_explain_lane_query_forbidden")
+func TestSelectionExplainWebSocketLaneGuardsAndSequentialStreams(t *testing.T) {
+	testBTWWebSocketLaneGuardsAndSequentialStreams(t, "desktop-explain", "invalid_chat_id")
 }
 
-func testBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T, source string, queryErrorType string) {
+func testBTWWebSocketLaneGuardsAndSequentialStreams(t *testing.T, source string, queryErrorType string) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-btw-websocket-multiplex"
 	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
@@ -148,7 +200,7 @@ func testBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T, source string, quer
 	}
 
 	var workPanelBTW *gws.Conn
-	if source == "desktop-selection-explain" {
+	if source == "desktop-explain" {
 		workPanelBTW = dial("desktop-btw")
 		defer workPanelBTW.Close()
 	}
@@ -172,42 +224,28 @@ func testBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T, source string, quer
 		t.Fatalf("BTW query error type = %q, want %s", laneError.Type, queryErrorType)
 	}
 
-	requestIDs := []string{"btw-multiplex-1", "btw-multiplex-2"}
-	for _, requestID := range requestIDs {
-		if err := btw.WriteJSON(platformws.RequestFrame{
-			Frame: platformws.FrameRequest,
-			Type:  "/api/btw",
-			ID:    requestID,
-			Payload: marshalPayload(map[string]any{
-				"chatId":  chatID,
-				"message": requestID,
-			}),
-		}); err != nil {
-			t.Fatalf("write multiplexed BTW request %s: %v", requestID, err)
-		}
-	}
-	completed := map[string]bool{}
+	requestIDs := []string{"btw-first", "btw-second"}
 	runIDs := map[string]string{}
-	for len(completed) < len(requestIDs) {
-		if err := btw.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
-			t.Fatalf("set multiplex read deadline: %v", err)
-		}
-		var frame platformws.StreamFrame
-		if err := btw.ReadJSON(&frame); err != nil {
-			t.Fatalf("read multiplexed BTW stream: %v", err)
-		}
-		if frame.Event != nil && frame.Event.Type == "run.start" {
-			runIDs[frame.ID], _ = frame.Event.Value("runId").(string)
-		}
-		if frame.Reason != "" {
-			if frame.Reason != "done" {
-				t.Fatalf("multiplexed BTW %s ended with %q", frame.ID, frame.Reason)
+	for _, requestID := range requestIDs {
+		sendSelectionLaneRequest(t, btw, requestID, "/api/query", map[string]any{"chatId": chatID, "message": requestID})
+		for {
+			frame := readSelectionLaneFrame(t, btw)
+			if frame.Frame == platformws.FrameError {
+				t.Fatalf("query failed: %#v", frame)
 			}
-			completed[frame.ID] = true
+			if frame.Event != nil && frame.Event.Type == "run.start" {
+				runIDs[requestID], _ = frame.Event.Value("runId").(string)
+			}
+			if frame.Reason != "" {
+				if frame.Reason != "done" {
+					t.Fatalf("terminal: %#v", frame)
+				}
+				break
+			}
 		}
 	}
 	if len(runIDs) != 2 || runIDs[requestIDs[0]] == "" || runIDs[requestIDs[0]] == runIDs[requestIDs[1]] {
-		t.Fatalf("multiplexed BTW runs are not independent: %#v", runIDs)
+		t.Fatalf("runs are not independent: %#v", runIDs)
 	}
 	if workPanelBTW != nil {
 		for _, request := range []struct {

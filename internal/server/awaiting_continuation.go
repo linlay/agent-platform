@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
@@ -302,7 +303,11 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 			}
 		}
 		var statusErr *statusError
-		registered, statusErr = s.registerQueryRun(context.Background(), prepared)
+		owner, ownerErr := s.runControlScopes().Load(sourceRunID)
+		if ownerErr != nil {
+			return false, ownerErr
+		}
+		registered, statusErr = s.registerQueryRun(controlscope.WithContext(context.Background(), owner), prepared)
 		if statusErr != nil {
 			return false, statusErr
 		}

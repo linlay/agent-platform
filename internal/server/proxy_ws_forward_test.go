@@ -13,6 +13,39 @@ import (
 	"agent-platform/internal/timecontract"
 )
 
+func TestProxyPublicationEmitsPublishedNotResourcePushed(t *testing.T) {
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := chats.EnsureChat("chat-1", "proxy-agent", "", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	notifications := &recordingNotificationSink{}
+	recorder := &proxyEventRecorder{
+		stepWriter: chat.NewStepWriter(chats, "chat-1", "run-1", ""), notifications: notifications,
+	}
+	seq := int64(0)
+	_, err = publishProxyLiveEvent(nil, recorder, api.QueryRequest{ChatID: "chat-1", RunID: "run-1"}, &seq, stream.EventData{
+		Type: "artifact.publish", Timestamp: testEpochMillis,
+		Payload: map[string]any{"chatId": "remote-chat", "runId": "remote-run", "artifacts": []any{
+			map[string]any{"artifactId": "a1", "name": "one.png", "type": "image", "url": "artifacts/run-1/one.png"},
+			map[string]any{"artifactId": "a2", "name": "two.txt", "type": "file", "url": "artifacts/run-1/two.txt"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(notifications.EventTypes(), []string{"artifact.published", "artifact.published"}) {
+		t.Fatalf("proxy must only emit publication notices: %v", notifications.EventTypes())
+	}
+	for _, data := range notifications.Payloads() {
+		if data["chatId"] != "chat-1" || data["runId"] != "run-1" || data["publishedAt"] != testEpochMillis {
+			t.Fatalf("unexpected normalized identity/time: %#v", data)
+		}
+	}
+}
+
 type proxyPlanningOrderSink struct {
 	t       *testing.T
 	bus     *stream.RunEventBus

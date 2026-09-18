@@ -16,7 +16,7 @@ func TestDesktopCDPReportsFullDesktopValidationThroughReverseBridge(t *testing.T
 	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{Frame: "error", Type: "invalid_args", ID: "bad-cdp", Code: &code, Msg: "3 invalid parameters", Data: data}}}
 	executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
 	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
-		"requestId": "bad-cdp", "method": "Input.dispatchMouseEvent", "targetId": "desktop-test",
+		"requestId": "bad-cdp", "method": "Input.dispatchMouseEvent", "surfaceId": "desktop-test",
 		"params": map[string]any{"type": "mousePressed", "x": "646", "y": "344", "button": "left", "clickCount": "1"},
 	}, desktopActionTestExecutionContext())
 	if err != nil || result.ExitCode != -1 || result.Error != "desktop_cdp_client_rejected" {
@@ -83,8 +83,8 @@ func TestDesktopCDPInvalidParamsObjectDoesNotSend(t *testing.T) {
 
 func TestDesktopCDPDiagnosticsBoundAndPreserveTimeout(t *testing.T) {
 	details := map[string]any{}
-	appendDesktopCDPDiagnostics(details, json.RawMessage(`{"method":"Runtime.evaluate","error":{"code":"target_timeout","details":{"targetId":"desktop-test","surfaceId":"site:test","timeoutMs":12000,"elapsedMs":12001,"url":"private-url","webContentsId":42}}}`))
-	if details["timeoutMs"] != float64(12000) || details["targetId"] != "desktop-test" {
+	appendDesktopCDPDiagnostics(details, json.RawMessage(`{"method":"Runtime.evaluate","error":{"code":"target_timeout","details":{"surfaceId":"desktop-test","containerId":"site:test","timeoutMs":12000,"elapsedMs":12001,"url":"private-url","webContentsId":42}}}`))
+	if details["timeoutMs"] != float64(12000) || details["surfaceId"] != "desktop-test" {
 		t.Fatalf("timeout missing: %#v", details)
 	}
 	if _, ok := details["executed"]; ok {

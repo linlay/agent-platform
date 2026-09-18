@@ -136,3 +136,25 @@ func TestSubscriptionCloseAllowsFreezeAndNextChatRun(t *testing.T) {
 		})
 	}
 }
+
+func TestSteerAllowsReferencesWithoutText(t *testing.T) {
+	calls := 0
+	service := NewService(Dependencies{Steer: func(_ context.Context, cmd runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
+		calls++
+		return runtimetypes.SteerResult{Accepted: true}, nil
+	}})
+	for _, cmd := range []runtimetypes.SteerCommand{
+		{RunRef: runtimetypes.RunRef{RunID: "run"}, Message: " "},
+		{References: []runtimetypes.Reference{{URL: "notes.md"}}},
+	} {
+		_, err := service.Steer(context.Background(), cmd)
+		assertApplicationCode(t, err, apperrors.CodeInvalidRequest)
+	}
+	if calls != 0 {
+		t.Fatal("invalid request reached adapter")
+	}
+	result, err := service.Steer(context.Background(), runtimetypes.SteerCommand{RunRef: runtimetypes.RunRef{RunID: "run"}, References: []runtimetypes.Reference{{URL: "notes.md"}}})
+	if err != nil || !result.Accepted || calls != 1 {
+		t.Fatalf("%#v %v", result, err)
+	}
+}

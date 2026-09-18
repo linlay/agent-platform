@@ -7,19 +7,19 @@ import (
 
 func TestDesktopCDPInputClickForwardsOneRequest(t *testing.T) {
 	for _, input := range []map[string]any{
-		{"targetId": "target-1", "x": 260.5, "y": 344.0},
-		{"targetId": "target-1", "selector": "#button"},
-		{"targetId": "target-1", "x": 260.5, "y": 344.0, "waitFor": map[string]any{"selector": "#dialog", "state": "visible"}},
-		{"targetId": "target-1", "selector": "#button", "waitFor": map[string]any{"selector": "#check", "state": "checked", "checked": false}},
+		{"surfaceId": "target-1", "x": 260.5, "y": 344.0},
+		{"surfaceId": "target-1", "selector": "#button"},
+		{"surfaceId": "target-1", "x": 260.5, "y": 344.0, "waitFor": map[string]any{"selector": "#dialog", "state": "visible"}},
+		{"surfaceId": "target-1", "selector": "#button", "waitFor": map[string]any{"selector": "#check", "state": "checked", "checked": false}},
 	} {
 		executor, execCtx, invoker := desktopCDPParamsTestRuntime(t.TempDir())
 		paramsInput := make(map[string]any)
 		for key, value := range input {
-			if key != "targetId" {
+			if key != "surfaceId" {
 				paramsInput[key] = value
 			}
 		}
-		result, err := executor.Invoke(context.Background(), "desktop_cdp", map[string]any{"method": "Input.click", "targetId": input["targetId"], "params": paramsInput}, execCtx)
+		result, err := executor.Invoke(context.Background(), "desktop_cdp", map[string]any{"method": "Input.click", "surfaceId": input["surfaceId"], "params": paramsInput}, execCtx)
 		if err != nil || result.ExitCode != 0 {
 			t.Fatalf("result=%#v err=%v", result, err)
 		}

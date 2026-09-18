@@ -364,6 +364,68 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 	}
 }
 
+func TestRunExecutorPublishesArtifactsWithoutObserverAndDoesNotNotifyOnReplay(t *testing.T) {
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
+	items := []map[string]any{
+		{"artifactId": "a1", "name": "one.png", "type": "image", "mimeType": "image/png", "sizeBytes": 12, "sha256": "abc", "url": "artifacts/run-1/one.png"},
+		{"artifactId": "a2", "name": "two.txt", "type": "file", "mimeType": "text/plain", "sizeBytes": 3, "sha256": "def", "url": "artifacts/run-1/two.txt"},
+	}
+	if err := chats.AppendArtifactManifest("chat-1", "run-1", testEpochMillis, items); err != nil {
+		t.Fatal(err)
+	}
+	notifications := &recordingNotificationSink{}
+	bus := stream.NewRunEventBus(32, 0, nil)
+	agent := &orchestratorAgentEngine{streams: []AgentStream{&stubOrchestratableStream{deltas: []AgentDelta{
+		DeltaArtifactPublish{ChatID: "chat-1", RunID: "run-1", ToolID: "tool-1", ArtifactCount: 2, Artifacts: items},
+	}}}}
+	result := runExecutor(RunExecutorParams{
+		RunCtx:          context.Background(),
+		Request:         api.QueryRequest{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a", Message: "hello"},
+		Session:         QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a"},
+		StartedAtMillis: testEpochMillis, Summary: chat.Summary{ChatID: "chat-1", AgentKey: "agent-a"},
+		Agent: agent, Assembler: stream.NewAssembler(stream.StreamRequest{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a"}),
+		Mapper: llm.NewDeltaMapper("run-1", "chat-1", Budget{}, nil, nil), EventBus: bus,
+		StepWriter: chat.NewStepWriter(chats, "chat-1", "run-1", ""), Chats: chats, Notifications: notifications,
+	})
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	var published []map[string]any
+	for i, kind := range notifications.EventTypes() {
+		if kind == "resource.pushed" {
+			t.Fatal("local publication without gateway must not emit resource.pushed")
+		}
+		if kind == "artifact.published" {
+			published = append(published, notifications.Payloads()[i])
+		}
+	}
+	if len(published) != 2 || published[0]["artifactId"] != "a1" || published[1]["artifactId"] != "a2" {
+		t.Fatalf("expected one push per artifact without stream observers: %#v", published)
+	}
+	before := notifications.EventTypes()
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for event := range observer.Events {
+		if event.Type == "artifact.publish" {
+			count++
+		}
+	}
+	observer.MarkDone()
+	if count != 1 || !reflect.DeepEqual(before, notifications.EventTypes()) {
+		t.Fatalf("replay must preserve one batch stream event without new pushes: count=%d, notifications=%v", count, notifications.EventTypes())
+	}
+}
+
 func TestCompactCheckpointPersistenceFailurePublishesFailureAndResolvesRequest(t *testing.T) {
 	control := NewRunControl(context.Background(), "run-compact-persist")
 	control.EnableContextCompact()

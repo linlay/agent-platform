@@ -10,22 +10,32 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/controlscope"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 )
 
 func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	if conn.IsDesktopBTW() {
-		conn.SendError(req.ID, "btw_lane_query_forbidden", http.StatusForbidden, "desktop-btw connections must use /api/btw", nil)
+	ctx = controlscope.WithContext(ctx, wsControlScope(conn))
+	// The authenticated connection selects execution semantics, never the payload.
+	if conn.QueryLane() != "main" {
+		s.wsBTW(ctx, conn, req)
+		return
+	}
+	if _, err := conn.ReserveStream(req.ID, ""); err != nil {
+		if e, ok := err.(*ws.ProtocolError); ok {
+			conn.SendProtocolError(req.ID, e)
+		}
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if conn.IsDesktopSelectionExplain() {
-		conn.SendError(req.ID, "selection_explain_lane_query_forbidden", http.StatusForbidden, "desktop-selection-explain connections must use /api/btw", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
+	forwarding := false
+	defer func() {
+		if !forwarding {
+			conn.ReleaseStream(req.ID)
+		}
+	}()
 	payload, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
 	if statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
@@ -59,7 +69,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if _, reserveErr := conn.ReserveStream(req.ID, handle.RunID); reserveErr != nil {
+	if reserveErr := conn.BindStreamRun(req.ID, handle.RunID); reserveErr != nil {
 		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, reserveErr.Error()))
 		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
 			conn.SendProtocolError(req.ID, protoErr)
@@ -78,6 +88,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		return
 	}
 	conn.AttachStreamCleanup(req.ID, subscription.Close)
+	forwarding = true
 	conn.StartEventForward(req.ID, subscription.Events, subscription.Close)
 }
 
@@ -101,12 +112,26 @@ func (s *Server) sendWSQueryStartError(conn *ws.Conn, requestID string, err erro
 }
 
 func (s *Server) wsBTW(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	if !conn.IsDesktopBTW() && !conn.IsDesktopSelectionExplain() {
-		conn.SendError(req.ID, "btw_ws_lane_required", http.StatusForbidden, "/api/btw requires a desktop-btw or desktop-selection-explain connection", nil)
+	ctx = controlscope.WithContext(ctx, wsControlScope(conn))
+	if !conn.IsDesktopBTW() && !conn.IsDesktopExplain() {
+		conn.SendError(req.ID, "btw_ws_lane_required", http.StatusForbidden, "side queries require a desktop-btw or desktop-explain connection", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/btw", bytes.NewReader(req.Payload))
+	if _, err := conn.ReserveStream(req.ID, ""); err != nil {
+		if e, ok := err.(*ws.ProtocolError); ok {
+			conn.SendProtocolError(req.ID, e)
+		}
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	forwarding := false
+	defer func() {
+		if !forwarding {
+			conn.ReleaseStream(req.ID)
+		}
+	}()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/query", bytes.NewReader(req.Payload))
 	if err != nil {
 		conn.SendError(req.ID, "internal_error", http.StatusInternalServerError, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
@@ -119,7 +144,8 @@ func (s *Server) wsBTW(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		return
 	}
 	prepared.resourceBaseURL = conn.RequestBaseURL()
-	if _, reserveErr := conn.ReserveStream(req.ID, prepared.req.RunID); reserveErr != nil {
+	if reserveErr := conn.BindStreamRun(req.ID, prepared.req.RunID); reserveErr != nil {
+		releaseQuery(prepared.release)
 		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
 			conn.SendProtocolError(req.ID, protoErr)
 		}
@@ -159,6 +185,7 @@ func (s *Server) wsBTW(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		principal = nil
 	}
 	s.startPreparedLocalRun(prepared, registered, eventBus, principal)
+	forwarding = true
 	conn.StartStreamForward(req.ID, observer)
 }
 
@@ -172,6 +199,9 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid attach payload", nil)
 		conn.CompleteRequest(req.ID)
+		return
+	}
+	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
 		return
 	}
 	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
@@ -201,7 +231,7 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(payload.RunID, observer.ID)
 	})
-	if !conn.IsDesktopBTW() && !conn.IsDesktopSelectionExplain() {
+	if !conn.IsDesktopBTW() && !conn.IsDesktopExplain() {
 		bindRunWebClientTarget(s.deps.Runs, payload.RunID, conn.WebClientTarget())
 	}
 	conn.StartStreamForward(req.ID, observer)
@@ -212,6 +242,9 @@ func (s *Server) wsDetach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid detach payload", nil)
 		conn.CompleteRequest(req.ID)
+		return
+	}
+	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
 		return
 	}
 	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
@@ -258,6 +291,9 @@ func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	}
 	payload.Locale = conn.Locale()
 	payload = s.normalizeActiveSubmitRun(payload)
+	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
+		return
+	}
 	if statusErr := s.validateSubmitOwner(payload); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)
@@ -297,13 +333,16 @@ func (s *Server) wsSteer(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	}
 	req.Payload = payloadData
 	payload, err := ws.DecodePayload[api.SteerRequest](req)
-	if err != nil || strings.TrimSpace(payload.RunID) == "" || strings.TrimSpace(payload.Message) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "runId and message are required", nil)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid steer payload", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
+		return
+	}
 	if len(payload.References) > 0 && channelIDFromContext(conn.Context()) != "" {
-		conn.SendResponse(req.Type, req.ID, 0, "success", api.SteerResponse{Status: "unsupported", RunID: payload.RunID, SteerID: payload.SteerID, Detail: "image steer is not supported for channel runs"})
+		conn.SendResponse(req.Type, req.ID, 0, "success", api.SteerResponse{Status: "unsupported", RunID: payload.RunID, SteerID: payload.SteerID, Detail: "attachment steer is not supported for channel runs"})
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -338,6 +377,9 @@ func (s *Server) wsInterrupt(_ context.Context, conn *ws.Conn, req ws.RequestFra
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
+		return
+	}
 	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)
@@ -368,6 +410,9 @@ func (s *Server) wsAccessLevel(_ context.Context, conn *ws.Conn, req ws.RequestF
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid access-level payload", nil)
 		conn.CompleteRequest(req.ID)
+		return
+	}
+	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
 		return
 	}
 	response, statusErr := s.updateAccessLevel(payload)
