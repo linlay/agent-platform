@@ -174,8 +174,8 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 		return desktopActionErrorResult("invalid_args", "method is required", nil), nil
 	}
 	switch method {
-	case desktopAwcpGetSnapshotMethod:
-		return t.invokeDesktopAwcpSnapshot(ctx, args, execCtx)
+	case desktopAwcpGetManualMethod:
+		return t.invokeDesktopAwcpManual(ctx, args, execCtx)
 	case desktopAwcpInvokeMethod:
 		return t.invokeDesktopAwcpFromCDP(ctx, args, execCtx)
 	default:
@@ -276,7 +276,7 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if toolName == "desktop_action" && frame.Type == "invalid_args" {
 			errorCode = "invalid_args"
 		}
-		if requestType == desktopAwcpSnapshotAction || requestType == desktopAwcpInvokeAction {
+		if requestType == desktopAwcpManualAction || requestType == desktopAwcpInvokeAction {
 			details = desktopAwcpRejectionDetails(requestType, *frame)
 		}
 		return desktopActionErrorResult(
@@ -301,8 +301,8 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if err != nil {
 			return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
 		}
-	} else if requestType == desktopAwcpSnapshotAction {
-		if err = validateDesktopAwcpSnapshotResponse(decoded); err != nil {
+	} else if requestType == desktopAwcpManualAction {
+		if err = validateDesktopAwcpManualResponse(decoded, payloadMap); err != nil {
 			return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
 		}
 	}
@@ -311,8 +311,6 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if failure, failed := desktopCDPEvaluationFailure(decoded, structured); failed {
 			return failure, nil
 		}
-	} else if requestType == desktopAwcpInvokeAction {
-		structured["stage"] = "page_execution"
 	}
 	result := structuredResultWithExit(structured, 0)
 	if awcpFailure || decoded["ok"] == false {

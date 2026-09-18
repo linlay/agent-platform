@@ -103,9 +103,9 @@ Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符�
 
 ## Desktop 反向 Provider
 
-Agent 可看到静态 Desktop 工具 `desktop_action` 与 `desktop_cdp`。普通 Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明；AWCP 动态页面 Action 不进入该白名单，而通过 `desktop_cdp` 的 `AWCP.getSnapshot` / `AWCP.invoke` 两个静态 method 使用。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
+Agent 可看到静态 Desktop 工具 `desktop_action` 与 `desktop_cdp`。普通 Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明；AWCP 动态页面 Action 不进入该白名单，而通过 `desktop_cdp` 的 `AWCP.getManual` / `AWCP.invoke` 两个静态 method 使用。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
 
-- Desktop 模式：97 个普通 `desktop.*` 由 `desktop_action` 直接以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`desktop_cdp` 的普通 CDP method 使用 `desktop.cdp.call`，两个 AWCP method 分别映射到 `desktop.awcp.snapshot` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
+- Desktop 模式：普通 `desktop.*` 由 `desktop_action` 直接以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`desktop_cdp` 的普通 CDP method 使用 `desktop.cdp.call`，两个 AWCP method 分别映射到 `desktop.awcp.manual` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
 - Standalone 模式：只有七个 `desktop.workpanel.*` 与 `desktop.display` 具体类型发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`，CDP 返回 `desktop_cdp_unsupported_runtime`。
 
 普通 Action 名称跟随 `zenmind-desktop/src/shared/desktop-actions.ts` 的 `DESKTOP_ACTION_DEFINITIONS`，排除 Desktop 明确限制为 WebApp page 调用的 11 个动作（`desktop.assistant.image/image.cancel`、`desktop.capabilities.list` 与八个 `desktop.native.*`）。当前 108 个定义中，97 个进入 Platform 白名单；参数校验、目标授权和确认仍由 Desktop 执行。两个旧 `desktop.webapp.manifest.*` 动作已删除，工程初始化使用 `desktop.webapp.package.init`。
@@ -114,18 +114,18 @@ Agent 可看到静态 Desktop 工具 `desktop_action` 与 `desktop_cdp`。普通
 
 Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey/teamId`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
 
-AWCP 按网站操作手册渐进披露，`desktop_cdp` 的工具定义始终固定。模型先读取动作目录，再按任务读取某个动作的页面说明、参数约束及示例，最后使用通用 `AWCP.invoke`。页面描述是普通工具结果，不注册成工具，不注入 system prompt，也不改写下一轮模型请求的 Schema。网站新增动作无需修改 Platform 核心。
+AWCP 按网站操作手册渐进披露，`desktop_cdp` 的工具定义始终固定。模型先读取 `site.description` 中整个页面的纯文本操作说明和动作目录；页面说明包含 Action 样例。模型再按任务读取某个动作的详细参数约束及示例，最后使用通用 `AWCP.invoke`。页面说明是普通工具结果，不注册成工具，不注入 system prompt，也不改写下一轮模型请求的 Schema。网站新增动作无需修改 Platform 核心。
 
 ```json
-{"method":"AWCP.getSnapshot"}
-{"method":"AWCP.getSnapshot","params":{"action":"orders.select"}}
-{"method":"AWCP.invoke","params":{"revision":"page-revision","action":"orders.select","args":{"ids":["order-1"]}}}
+{"method":"AWCP.getManual","surfaceId":"surface-1"}
+{"method":"AWCP.getManual","surfaceId":"surface-1","params":{"section":"orders.select","revision":"page-revision"}}
+{"method":"AWCP.invoke","surfaceId":"surface-1","params":{"revision":"page-revision","action":"orders.select","args":{"ids":["order-1"]}}}
 ```
 
-- 目录读取：省略 params 或传 `{}`，只返回当前 revision 和动作名称、描述，不提前加载全部参数说明到模型上下文。
-- 单项手册读取：`params.action` 选择一个动作，返回网站原始描述符（包含网站提供的 inputSchema、可选 example/outputSchema 和其他手册字段）。Platform 不编译这些 Schema，不要求 example，也不限制为模型提供商支持的 Schema 子集。若网站在描述中提供更详细的手册入口，模型按需通过已授权的读取工具阅读。
-- 当前 Desktop wire 仍返回完整 snapshot；上述目录/单项投影在 Platform 工具层完成，两种读取均发送空 `desktop.awcp.snapshot` payload，不缓存页面状态。网站/ Desktop 原生分章节手册拉取尚未实现，不宣称网络层已经按章节获取。
-- 调用：params 精确为 `{revision,action,args}`，模型使用手册返回的 revision。Platform 校验固定外壳，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，在 handler 前验证业务输入，网站自己的 validator/handler 负责业务。原来的单 Action 键包装与运行核心注入 revision 已移除。
+- 目录读取：省略 params 或传 `{}`，返回当前 revision、`site.description` 页面操作说明和动作目录，不提前加载各 Action 的完整参数约束。
+- 单项手册读取：`params` 必须精确为 `{section,revision}`，返回网站原始 v1 章节 `{revision,section,description,inputSchema,examples?}`。Platform 不编译 Schema，不要求 examples 存在或非空，也不限制为模型提供商支持的 Schema 子集。
+- 页面由工具顶层 `surfaceId` 选择，限定在可信 Run grant 内；container 是包含多个 surface 的容器，容器标识不能替代页面标识。Platform 对 `{}` 或 `{section,revision}` 做原样转发，并将可选 `surfaceId` 加入 wire payload；Desktop 和页面原生按目录/单章节获取，不在 Platform 投影完整合同，也不缓存页面状态。
+- 调用：params 精确为 `{revision,action,args}`，模型使用手册返回的 revision。Platform 校验固定外壳，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，网站自己的 validator/handler 负责业务参数校验和执行。原来的单 Action 键包装与运行核心注入 revision 已移除。
 
 运行核心不保存 AWCP revision、动作集合、模型请求绑定、失效 generation 或纠错预算；发现、调用和失败都走普通工具循环。错误原样按既有 response/error 分层返回，模型结合网站手册和执行状态决定修参、重新读取或向用户解释，Platform 不自动重放、不强制最终回答、不移除工具，也不因批次出现 AWCP 就改变通用排序和并发规则。有先后依赖的操作须逐步发起；不要在执行状态未知时盲目重复可能有副作用的操作。权限、审批、取消、通用 Run 限额和 Desktop 授权页面边界继续生效。
 
