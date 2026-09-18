@@ -105,7 +105,7 @@ func (s *Server) handleAdminSkillPackageSkillDelete(w http.ResponseWriter, r *ht
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) importAdminSkillPackage(ctx context.Context, key string, version string, source io.ReaderAt, size int64) (api.AdminSkillPackageResponse, error) {
+func (s *Server) importAdminSkillPackageLocked(ctx context.Context, key string, version string, source io.ReaderAt, size int64) (api.AdminSkillPackageResponse, error) {
 	registry, err := s.adminSkillRegistry()
 	if err != nil {
 		return api.AdminSkillPackageResponse{}, err
@@ -123,7 +123,7 @@ func (s *Server) importAdminSkillPackage(ctx context.Context, key string, versio
 	return adminSkillPackageResponse(record), nil
 }
 
-func (s *Server) deleteAdminSkillPackage(ctx context.Context, key string) (api.DeleteAdminSkillPackageResponse, error) {
+func (s *Server) deleteAdminSkillPackageLocked(ctx context.Context, key string) (api.DeleteAdminSkillPackageResponse, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return api.DeleteAdminSkillPackageResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "key is required")
@@ -147,7 +147,7 @@ func (s *Server) deleteAdminSkillPackage(ctx context.Context, key string) (api.D
 	}, nil
 }
 
-func (s *Server) deleteAdminSkillPackageSkill(ctx context.Context, packageID, skillID string) (api.DeleteAdminSkillPackageSkillResponse, error) {
+func (s *Server) deleteAdminSkillPackageSkillLocked(ctx context.Context, packageID, skillID string) (api.DeleteAdminSkillPackageSkillResponse, error) {
 	packageID = strings.TrimSpace(packageID)
 	skillID = strings.TrimSpace(skillID)
 	if packageID == "" || skillID == "" {
@@ -192,4 +192,22 @@ func adminSkillPackageResponse(record catalog.SkillPackageRecord) api.AdminSkill
 		ID:   record.ID, Version: record.Version, SHA256: record.SHA256,
 		Skills: skills, InstalledAt: record.InstalledAt,
 	}
+}
+
+func (s *Server) importAdminSkillPackage(ctx context.Context, key string, version string, source io.ReaderAt, size int64) (api.AdminSkillPackageResponse, error) {
+	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.AdminSkillPackageResponse, error) {
+		return s.importAdminSkillPackageLocked(ctx, key, version, source, size)
+	})
+}
+
+func (s *Server) deleteAdminSkillPackage(ctx context.Context, key string) (api.DeleteAdminSkillPackageResponse, error) {
+	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.DeleteAdminSkillPackageResponse, error) {
+		return s.deleteAdminSkillPackageLocked(ctx, key)
+	})
+}
+
+func (s *Server) deleteAdminSkillPackageSkill(ctx context.Context, packageID, skillID string) (api.DeleteAdminSkillPackageSkillResponse, error) {
+	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.DeleteAdminSkillPackageSkillResponse, error) {
+		return s.deleteAdminSkillPackageSkillLocked(ctx, packageID, skillID)
+	})
 }

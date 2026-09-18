@@ -291,3 +291,129 @@ func assertNoPackageArchives(t *testing.T, root string) {
 		t.Fatalf("scan package files: %v", err)
 	}
 }
+
+func TestSkillPackageRollbackLeavesFailedBackupOriginalIntact(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "skills-center")
+	backup := filepath.Join(base, ".skill-package-backup-test")
+	for _, path := range []string{filepath.Join(root, "first"), filepath.Join(root, "second"), filepath.Join(backup, "second")} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{filepath.Join(root, "first", "original"), filepath.Join(root, "second", "original"), filepath.Join(backup, "second", "blocker")} {
+		if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mutation := &EditableSkillPackageMutation{root: root, backupRoot: backup}
+	if err := mutation.backupSkill("first"); err != nil {
+		t.Fatal(err)
+	}
+	// A nonempty destination deterministically rejects the second rename on all
+	// supported OSes, modeling the failed Windows rename without permission hacks.
+	if err := mutation.backupSkill("second"); err == nil {
+		t.Fatal("expected backup rename failure")
+	}
+	if err := mutation.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"first", "second"} {
+		if got, err := os.ReadFile(filepath.Join(root, id, "original")); err != nil || string(got) != "old" {
+			t.Fatalf("original %s lost: content=%q err=%v", id, got, err)
+		}
+	}
+}
+
+func TestSkillPackageRollbackRemovesOnlySuccessfulPublications(t *testing.T) {
+	base := t.TempDir()
+	root, backup, staging := filepath.Join(base, "skills-center"), filepath.Join(base, "backup"), filepath.Join(base, "staging")
+	for _, path := range []string{root, backup, filepath.Join(staging, "first")} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mutation := &EditableSkillPackageMutation{root: root, backupRoot: backup, stagingRoot: staging}
+	if err := mutation.publishSkill("first", filepath.Join(staging, "first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mutation.publishSkill("second", filepath.Join(staging, "missing")); err == nil {
+		t.Fatal("expected publish failure")
+	}
+	if err := mutation.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "first")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("published skill remains: %v", err)
+	}
+}
+
+func TestSkillPackageFailedRollbackRetainsBackupAndRecord(t *testing.T) {
+	base := t.TempDir()
+	root, backup := filepath.Join(base, "skills-center"), filepath.Join(base, "backup")
+	if err := os.MkdirAll(filepath.Join(root, "skill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(backup, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "skill", "original"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mutation := &EditableSkillPackageMutation{root: root, backupRoot: backup, oldRecordExists: true, oldRecord: []byte("original record")}
+	if err := mutation.backupSkill("skill"); err != nil {
+		t.Fatal(err)
+	}
+	// Another writer has claimed the destination. Rollback must not delete it
+	// or delete the only copy of the original it cannot currently restore.
+	if err := os.MkdirAll(filepath.Join(root, "skill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := mutation.Rollback(); err == nil {
+		t.Fatal("expected rollback failure")
+	}
+	if got, err := os.ReadFile(filepath.Join(backup, "skill", "original")); err != nil || string(got) != "old" {
+		t.Fatalf("backup lost: %q %v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(backup, ".original-package-record.json")); err != nil || string(got) != "original record" {
+		t.Fatalf("recovery record lost: %q %v", got, err)
+	}
+}
+
+func TestSkillPackageTransactionsStayOutsideCatalogRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills-center")
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
+	archive := buildSkillPackageZIP(t, "test-pack", "1.0.0", []testSkillPackageEntry{{ID: "test-skill", Version: "1.0.0", Present: true}})
+	mutation, _, err := registry.BeginImportEditableSkillPackageArchive("test-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{mutation.stagingRoot, mutation.backupRoot} {
+		if filepath.Dir(path) != filepath.Dir(root) {
+			t.Fatalf("transaction path must be sibling of catalog root: %s", path)
+		}
+	}
+	if err := mutation.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	mutation, _, err = registry.BeginDeleteEditableSkillPackage("test-pack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(mutation.backupRoot) != filepath.Dir(root) {
+		t.Fatalf("delete backup is inside catalog: %s", mutation.backupRoot)
+	}
+	if err := mutation.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	mutation, _, _, err = registry.BeginDeleteEditableSkillPackageSkill("test-pack", "test-skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(mutation.backupRoot) != filepath.Dir(root) {
+		t.Fatalf("child delete backup is inside catalog: %s", mutation.backupRoot)
+	}
+	if err := mutation.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+}

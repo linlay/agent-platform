@@ -76,9 +76,29 @@ type EditableSkillPackageMutation struct {
 	oldRecordExists bool
 	backupRoot      string
 	stagingRoot     string
-	affectedIDs     []string
+	backedUpIDs     []string
+	publishedIDs    []string
+	recordChanged   bool
 	unlock          func()
 	done            bool
+}
+
+// These helpers journal a move only after it succeeds, including on Windows
+// where a watched or externally held directory can reject a rename.
+func (m *EditableSkillPackageMutation) backupSkill(id string) error {
+	if err := os.Rename(filepath.Join(m.root, id), filepath.Join(m.backupRoot, id)); err != nil {
+		return err
+	}
+	m.backedUpIDs = append(m.backedUpIDs, id)
+	return nil
+}
+
+func (m *EditableSkillPackageMutation) publishSkill(id, source string) error {
+	if err := os.Rename(source, filepath.Join(m.root, id)); err != nil {
+		return err
+	}
+	m.publishedIDs = append(m.publishedIDs, id)
+	return nil
 }
 
 func (m *EditableSkillPackageMutation) Rollback() error {
@@ -87,32 +107,44 @@ func (m *EditableSkillPackageMutation) Rollback() error {
 	}
 	defer m.release()
 	var rollbackErr error
-	for _, id := range m.affectedIDs {
-		if err := os.RemoveAll(filepath.Join(m.root, id)); err != nil && rollbackErr == nil {
-			rollbackErr = err
-		}
-		backupPath := filepath.Join(m.backupRoot, id)
-		if _, err := os.Lstat(backupPath); err == nil {
-			if err := os.Rename(backupPath, filepath.Join(m.root, id)); err != nil && rollbackErr == nil {
-				rollbackErr = err
-			}
-		} else if !errors.Is(err, os.ErrNotExist) && rollbackErr == nil {
-			rollbackErr = err
+	// Only undo completed moves. A failed backup rename leaves the original in
+	// place; removing every planned ID here would destroy that untouched skill.
+	for _, id := range m.publishedIDs {
+		if err := os.RemoveAll(filepath.Join(m.root, id)); err != nil {
+			rollbackErr = errors.Join(rollbackErr, err)
 		}
 	}
-	if m.oldRecordExists {
-		if err := writeSkillPackageRecordFile(m.recordPath, m.oldRecord); err != nil && rollbackErr == nil {
-			rollbackErr = err
+	for _, id := range m.backedUpIDs {
+		target := filepath.Join(m.root, id)
+		if _, err := os.Lstat(target); err == nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("restore skill %s: destination still exists", id))
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			rollbackErr = errors.Join(rollbackErr, err)
+			continue
 		}
-	} else if err := os.Remove(m.recordPath); err != nil && !errors.Is(err, os.ErrNotExist) && rollbackErr == nil {
-		rollbackErr = err
+		if err := os.Rename(filepath.Join(m.backupRoot, id), target); err != nil {
+			rollbackErr = errors.Join(rollbackErr, err)
+		}
 	}
-	if err := os.RemoveAll(m.backupRoot); err != nil && rollbackErr == nil {
-		rollbackErr = err
+	if m.recordChanged {
+		if m.oldRecordExists {
+			rollbackErr = errors.Join(rollbackErr, writeSkillPackageRecordFile(m.recordPath, m.oldRecord))
+		} else if err := os.Remove(m.recordPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			rollbackErr = errors.Join(rollbackErr, err)
+		}
 	}
-	if err := os.RemoveAll(m.stagingRoot); err != nil && rollbackErr == nil {
-		rollbackErr = err
+	// Failed restores must retain their backup, rather than deleting the only
+	// remaining copy of an old skill. Include the recovery path in the error.
+	if rollbackErr == nil {
+		rollbackErr = os.RemoveAll(m.backupRoot)
+	} else {
+		if m.oldRecordExists {
+			rollbackErr = errors.Join(rollbackErr, os.WriteFile(filepath.Join(m.backupRoot, ".original-package-record.json"), m.oldRecord, 0o600))
+		}
+		rollbackErr = fmt.Errorf("%w; recovery backup retained at %s", rollbackErr, m.backupRoot)
 	}
+	rollbackErr = errors.Join(rollbackErr, os.RemoveAll(m.stagingRoot))
 	m.done = true
 	return rollbackErr
 }
@@ -123,8 +155,8 @@ func (m *EditableSkillPackageMutation) Commit() error {
 	}
 	defer m.release()
 	// The new child directories and package record are already committed.
-	// Cleanup is best effort and stale hidden transaction directories are
-	// removed again during the next registry startup.
+	// Cleanup is best effort. Sibling transaction directories remain outside
+	// the catalog/watch root, including when Windows temporarily blocks cleanup.
 	_ = os.RemoveAll(m.backupRoot)
 	_ = os.RemoveAll(m.stagingRoot)
 	m.done = true
@@ -189,7 +221,7 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	stagingRoot, err := os.MkdirTemp(root, skillPackageImportStagingPrefix)
+	stagingRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageImportStagingPrefix)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
@@ -257,7 +289,7 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 		affectedIDs = append(affectedIDs, id)
 	}
 	sort.Strings(affectedIDs)
-	backupRoot, err := os.MkdirTemp(root, skillPackageBackupPrefix)
+	backupRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageBackupPrefix)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
@@ -268,7 +300,7 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 	}
 	mutation := &EditableSkillPackageMutation{
 		root: root, recordPath: recordPath, oldRecord: oldRecordBytes, oldRecordExists: oldRecordExists,
-		backupRoot: backupRoot, stagingRoot: stagingRoot, affectedIDs: affectedIDs,
+		backupRoot: backupRoot, stagingRoot: stagingRoot,
 		unlock: r.skillPackageMu.Unlock,
 	}
 	lockOwnedByMutation = true
@@ -281,7 +313,7 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 	for _, id := range affectedIDs {
 		target := filepath.Join(root, id)
 		if _, statErr := os.Lstat(target); statErr == nil {
-			if err := os.Rename(target, filepath.Join(backupRoot, id)); err != nil {
+			if err := mutation.backupSkill(id); err != nil {
 				return rollbackOnError(err)
 			}
 		} else if !errors.Is(statErr, os.ErrNotExist) {
@@ -289,7 +321,7 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 		}
 	}
 	for _, skill := range prepared {
-		if err := os.Rename(skill.Root, filepath.Join(root, skill.ID)); err != nil {
+		if err := mutation.publishSkill(skill.ID, skill.Root); err != nil {
 			return rollbackOnError(err)
 		}
 	}
@@ -317,6 +349,7 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 	if err := writeSkillPackageRecordFile(recordPath, encoded); err != nil {
 		return rollbackOnError(err)
 	}
+	mutation.recordChanged = true
 	cleanupStaging = false
 	return mutation, record, nil
 }
@@ -352,7 +385,7 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackage(packageID string) (*Edita
 			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is used by agents", ErrSkillPackageConflict, skill.ID)
 		}
 	}
-	backupRoot, err := os.MkdirTemp(root, skillPackageBackupPrefix)
+	backupRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageBackupPrefix)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
@@ -368,26 +401,24 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackage(packageID string) (*Edita
 	sort.Strings(affectedIDs)
 	mutation := &EditableSkillPackageMutation{
 		root: root, recordPath: recordPath, oldRecord: recordBytes, oldRecordExists: true,
-		backupRoot: backupRoot, affectedIDs: affectedIDs,
-		unlock: r.skillPackageMu.Unlock,
+		backupRoot: backupRoot,
+		unlock:     r.skillPackageMu.Unlock,
 	}
 	lockOwnedByMutation = true
 	for _, id := range affectedIDs {
 		target := filepath.Join(root, id)
 		if _, statErr := os.Lstat(target); statErr == nil {
-			if err := os.Rename(target, filepath.Join(backupRoot, id)); err != nil {
-				_ = mutation.Rollback()
-				return nil, SkillPackageRecord{}, err
+			if err := mutation.backupSkill(id); err != nil {
+				return nil, SkillPackageRecord{}, errors.Join(err, mutation.Rollback())
 			}
 		} else if !errors.Is(statErr, os.ErrNotExist) {
-			_ = mutation.Rollback()
-			return nil, SkillPackageRecord{}, statErr
+			return nil, SkillPackageRecord{}, errors.Join(statErr, mutation.Rollback())
 		}
 	}
 	if err := os.Remove(recordPath); err != nil {
-		_ = mutation.Rollback()
-		return nil, SkillPackageRecord{}, err
+		return nil, SkillPackageRecord{}, errors.Join(err, mutation.Rollback())
 	}
+	mutation.recordChanged = true
 	return mutation, record, nil
 }
 
@@ -436,7 +467,7 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackageSkill(packageID, skillID s
 	if usage := r.skillUsageByAgent()[skillID]; len(usage) > 0 {
 		return nil, SkillPackageRecord{}, false, fmt.Errorf("%w: skill %s is used by agents", ErrSkillPackageConflict, skillID)
 	}
-	backupRoot, err := os.MkdirTemp(root, skillPackageBackupPrefix)
+	backupRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageBackupPrefix)
 	if err != nil {
 		return nil, SkillPackageRecord{}, false, err
 	}
@@ -447,7 +478,7 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackageSkill(packageID, skillID s
 	}
 	mutation := &EditableSkillPackageMutation{
 		root: root, recordPath: recordPath, oldRecord: recordBytes, oldRecordExists: true,
-		backupRoot: backupRoot, affectedIDs: []string{skillID}, unlock: r.skillPackageMu.Unlock,
+		backupRoot: backupRoot, unlock: r.skillPackageMu.Unlock,
 	}
 	lockOwnedByMutation = true
 	rollbackOnError := func(cause error) (*EditableSkillPackageMutation, SkillPackageRecord, bool, error) {
@@ -458,7 +489,7 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackageSkill(packageID, skillID s
 	}
 	target := filepath.Join(root, skillID)
 	if _, statErr := os.Lstat(target); statErr == nil {
-		if err := os.Rename(target, filepath.Join(backupRoot, skillID)); err != nil {
+		if err := mutation.backupSkill(skillID); err != nil {
 			return rollbackOnError(err)
 		}
 	} else if !errors.Is(statErr, os.ErrNotExist) {
@@ -479,6 +510,7 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackageSkill(packageID, skillID s
 			return rollbackOnError(err)
 		}
 	}
+	mutation.recordChanged = true
 	return mutation, record, packageDeleted, nil
 }
 

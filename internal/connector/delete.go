@@ -49,7 +49,7 @@ func DeletePackage(ctx context.Context, sources Sources, id string, check func(s
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	stage, err := os.MkdirTemp(sources.ExternalRoot, ".connector-delete-")
+	stage, err := os.MkdirTemp(filepath.Dir(filepath.Clean(sources.ExternalRoot)), ".connector-delete-")
 	if err != nil {
 		return err
 	}

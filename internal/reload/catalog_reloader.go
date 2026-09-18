@@ -3,6 +3,7 @@ package reload
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,7 @@ type RuntimeCatalogReloader struct {
 	agentReconcilers []AgentCatalogReconciler
 	observers        []CatalogReloadObserver
 	reloadMu         sync.Mutex
+	watcher          *runtimewatch.Watcher
 	lastReloadNs     atomic.Int64
 }
 
@@ -77,6 +79,31 @@ func (r *RuntimeCatalogReloader) AddObserver(observer CatalogReloadObserver) {
 	r.observers = append(r.observers, observer)
 }
 
+type mutationContextKey struct{}
+
+// WithCatalogMutation excludes background reloads and releases directory watches
+// before a synchronous filesystem transaction. The callback must not retain ctx
+// or use it from another goroutine; its explicit Reload calls share this lock.
+func (r *RuntimeCatalogReloader) WithCatalogMutation(ctx context.Context, mutate func(context.Context) error) (err error) {
+	r.reloadMu.Lock()
+	defer r.reloadMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.watcher != nil {
+		resume, suspendErr := r.watcher.Suspend()
+		if suspendErr != nil {
+			return suspendErr
+		}
+		defer func() {
+			if resumeErr := resume(); resumeErr != nil {
+				err = errors.Join(err, fmt.Errorf("restore catalog watcher after resource transaction: %w", resumeErr))
+			}
+		}()
+	}
+	return mutate(context.WithValue(ctx, mutationContextKey{}, r))
+}
+
 // Reload dispatches reloads by reason. Reload spec:
 //
 //	agents          → reload agents and rebuild assembled runtime agents
@@ -91,8 +118,10 @@ func (r *RuntimeCatalogReloader) AddObserver(observer CatalogReloadObserver) {
 //	viewports       → broadcast update only (local viewports are read on-demand)
 //	default / config → full reload
 func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) error {
-	r.reloadMu.Lock()
-	defer r.reloadMu.Unlock()
+	if ctx.Value(mutationContextKey{}) != r {
+		r.reloadMu.Lock()
+		defer r.reloadMu.Unlock()
+	}
 	start := time.Now()
 
 	switch reason {
@@ -255,6 +284,7 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 
 	entries := backgroundWatchEntries(cfg)
 
+	var pendingMu sync.Mutex
 	var pendingReason string
 	var pendingPath string // last path printed in the current debounce window
 
@@ -270,14 +300,24 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 		})
 	}
 
-	_, err := runtimewatch.Start(ctx, runtimewatch.Spec{
+	watcher, err := runtimewatch.Start(ctx, runtimewatch.Spec{
 		LogPrefix: "[reload]",
 		Roots:     roots,
 		Debounce:  reloadDebounce,
 		Ignore: func(path string) bool {
 			return shouldIgnoreBackgroundWatchPath(path, cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsCenterDir())
 		},
+		OnResume: func() {
+			// All roots were temporarily unwatched. Reconcile edits to other
+			// resources too, including events lost while restoring handles.
+			pendingMu.Lock()
+			pendingReason = "config"
+			pendingPath = ""
+			pendingMu.Unlock()
+		},
 		OnEvent: func(event runtimewatch.Event) {
+			pendingMu.Lock()
+			defer pendingMu.Unlock()
 			reason := resolveChangeReason(event.Path, entries)
 			// Dedupe: editors often emit multiple write events per save.
 			// Only log once per (path, reason) within the debounce window.
@@ -288,9 +328,14 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 			pendingReason = mergePendingReloadReason(pendingReason, reason)
 		},
 		OnDebounce: func(ctx context.Context) error {
+			pendingMu.Lock()
 			reloadReason := pendingReason
 			pendingPath = ""
 			pendingReason = ""
+			pendingMu.Unlock()
+			if reloadReason == "" {
+				return nil
+			}
 			if err := reloader.Reload(ctx, reloadReason); err != nil {
 				return err
 			}
@@ -304,6 +349,11 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 		}
 		log.Printf("[reload] fsnotify init failed, file watching disabled: %v", err)
 		return
+	}
+	if owner, ok := reloader.(*RuntimeCatalogReloader); ok {
+		owner.reloadMu.Lock()
+		owner.watcher = watcher
+		owner.reloadMu.Unlock()
 	}
 }
 
