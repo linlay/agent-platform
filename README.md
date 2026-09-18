@@ -28,7 +28,7 @@
 - `GET /api/archive?chatId=...`
 - `POST /api/archives/search`
 - `POST /api/query`
-- `POST /api/btw`
+- `POST /api/btw`（兼容入口）
 - `POST /api/submit`
 - `POST /api/steer`
 - `POST /api/interrupt`
@@ -45,8 +45,8 @@
 返回格式约定：
 
 - `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，Native Host Bash 还能在退出前发送临时 `tool.output`；每个工具仍由唯一 `tool.result` 收口。请求体传 `stream:false` 时返回普通 JSON，默认 `data` 只包含 `content`，可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`，错拼字段 `steam` 不会被识别。
-- `POST /api/btw` 在已有 chat 下创建或继续隐藏只读分支，复用 `/api/query` 的 ReAct 与 SSE 协议，不更新父 chat JSONL、摘要、未读或后续上下文；扩展工具只有显式声明 `readOnly` 时才可执行。
-- Desktop 通过普通 `/ws` 同时登记 `desktop-main` 与按需建立的 `desktop-btw` lane：前者承载普通 Run、全局 Push 和默认 Desktop target，后者只承载 BTW 请求与 BTW Run；同 lane 的新连接只替换本 lane 旧连接。
+- `POST /api/query` 携带 `lane:"btw"` 在已有 chat 下创建或继续隐藏只读分支，复用 `/api/query` 的 ReAct 与 SSE 协议，不更新父 chat JSONL、摘要、未读或后续上下文；扩展工具只有显式声明 `readOnly` 时才可执行。
+- Desktop 通过普通 `/ws` 登记 main、btw、explain 三条 lane（source 为 `desktop-main`、`desktop-btw`、`desktop-explain`），统一用 `/api/query` 并按连接身份分流；握手 `connected.data.lane` 确认服务端识别结果。main 承载普通 Run、全局 Push 和默认 Desktop target，btw/explain 承载隐藏分支；同 lane 的新连接只替换本 lane 旧连接。HTTP 的 `lane` 默认 main、支持 btw，explain 仅限 Desktop WS。Run 的创建与控制必须使用相同 transport，WS 控制还必须匹配身份/设备/lane；每条连接最多一个 Run stream，切换前 detach。
 - 其余 JSON 接口统一返回：
 
 ```json

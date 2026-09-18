@@ -62,6 +62,7 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey, nil)
 	rec := httptest.NewRecorder()
 
+	bindTestRunControl(t, server, session.RunID, "http", "")
 	server.handleAttach(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -102,6 +103,7 @@ func TestHandleAttachBindsLatestWebClientTargetAfterSuccess(t *testing.T) {
 	req.Header.Set(webClientDeviceIDHeader, "device-2")
 	req.Header.Set(webClientSurfaceIDHeader, "surface-2")
 	rec := httptest.NewRecorder()
+	bindTestRunControl(t, server, session.RunID, "http", "")
 	server.handleAttach(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -132,6 +134,7 @@ func TestHandleAttachWithoutTargetOrWithInvalidOwnerDoesNotReplaceBinding(t *tes
 		Runs:   runs,
 	}}
 
+	bindTestRunControl(t, server, session.RunID, "http", "")
 	server.handleAttach(httptest.NewRecorder(), httptest.NewRequest(
 		http.MethodGet,
 		"/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey,
@@ -145,6 +148,7 @@ func TestHandleAttachWithoutTargetOrWithInvalidOwnerDoesNotReplaceBinding(t *tes
 	invalid.Header.Set(webClientDeviceIDHeader, "device-invalid")
 	invalid.Header.Set(webClientSurfaceIDHeader, "surface-invalid")
 	invalidRec := httptest.NewRecorder()
+	bindTestRunControl(t, server, session.RunID, "http", "")
 	server.handleAttach(invalidRec, invalid)
 
 	if invalidRec.Code != http.StatusForbidden {
@@ -206,6 +210,7 @@ func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t 
 
 	req := httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey+"&lastSeq=6", nil)
 	rec := httptest.NewRecorder()
+	bindTestRunControl(t, server, session.RunID, "http", "")
 	server.handleAttach(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -283,6 +288,7 @@ func TestHandleAttachInvalidCompletedReplayDoesNotCancelHistoricalRun(t *testing
 		},
 	}
 	rec := httptest.NewRecorder()
+	bindTestRunControl(t, server, session.RunID, "http", "")
 	server.handleAttach(rec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey+"&lastSeq=8", nil))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "data: [DONE]") {
 		t.Fatalf("expected local SSE error and done for completed replay, got %d %s", rec.Code, rec.Body.String())

@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/timecontract"
 )
 
@@ -157,6 +158,12 @@ func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (
 	defer s.cleanupUnregisteredRunEnvironment(prepared.session)
 	if s == nil || s.deps.Runs == nil {
 		return registeredQueryRun{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: "run manager is not configured"}
+	}
+	if err := s.runControlScopes().Bind(prepared.req.RunID, controlscope.FromContext(ctx)); err != nil {
+		if errors.Is(err, controlscope.ErrConflict) {
+			return registeredQueryRun{}, btwStatusError(http.StatusConflict, "run_control_identity_conflict", err.Error())
+		}
+		return registeredQueryRun{}, btwStatusError(http.StatusInternalServerError, "run_control_identity_unavailable", "cannot persist run control identity")
 	}
 	if registrar, ok := s.deps.Runs.(contracts.ExclusiveRunRegistrar); ok {
 		registration, err := registrar.RegisterExclusiveForChat(ctx, prepared.session)

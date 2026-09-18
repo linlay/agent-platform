@@ -23,7 +23,7 @@ func (e *LLMAgentEngine) steerPreparer(session contracts.QuerySession, vision bo
 	}
 	chatID, runID := session.ChatID, session.RunID
 	return func(req api.SteerRequest) (api.SteerRequest, error) {
-		if !vision {
+		if !vision && chatresource.SteerHasImages(req.References) {
 			return req, fmt.Errorf("the current run model does not support image input")
 		}
 		if req.RunID != runID || (strings.TrimSpace(req.ChatID) != "" && req.ChatID != chatID) {

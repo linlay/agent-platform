@@ -362,6 +362,7 @@ func (c *Conn) Run(dispatch RouteHandler) {
 		now := time.Now().UnixMilli()
 		if !c.SendPush("connected", map[string]any{
 			"protocolVersion": ProtocolVersion,
+			"lane":            c.QueryLane(),
 			"sessionId":       c.sessionID,
 			"serverTime":      now,
 			"liveness": map[string]any{
@@ -556,6 +557,9 @@ func (c *Conn) ReserveStream(requestID string, runID string) (string, error) {
 	if currentID, exists := c.observingRuns[runID]; exists {
 		return "", &ProtocolError{Code: 409, Type: "duplicate_observe", Msg: fmt.Sprintf("already observing run %s on this connection", runID), Data: map[string]any{"runId": runID, "requestId": currentID}}
 	}
+	if len(c.observingRuns) > 0 {
+		return "", &ProtocolError{Code: 409, Type: "active_stream_exists", Msg: "detach the current run stream before starting or attaching another"}
+	}
 	if c.cfg.MaxObservesPerConn > 0 && len(c.activeStreams) >= c.cfg.MaxObservesPerConn {
 		return "", &ProtocolError{Code: 429, Type: "too_many_streams", Msg: "too many active streams"}
 	}
@@ -563,6 +567,22 @@ func (c *Conn) ReserveStream(requestID string, runID string) (string, error) {
 	c.activeStreams[requestID] = &streamEntry{runID: runID, streamID: streamID}
 	c.observingRuns[runID] = requestID
 	return streamID, nil
+}
+
+// BindStreamRun completes a reservation made before query admission.
+func (c *Conn) BindStreamRun(requestID, runID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry := c.activeStreams[requestID]
+	if entry == nil {
+		return &ProtocolError{Code: 409, Type: "stream_cancelled", Msg: "stream reservation no longer exists"}
+	}
+	if c.observingRuns[entry.runID] == requestID {
+		delete(c.observingRuns, entry.runID)
+	}
+	entry.runID = runID
+	c.observingRuns[runID] = requestID
+	return nil
 }
 
 func (c *Conn) ReserveTerminalStream(requestID string, terminalID string) error {
@@ -686,7 +706,9 @@ func (c *Conn) releaseStream(requestID string, sendTerminal bool, reason string,
 	if entry != nil {
 		delete(c.activeStreams, requestID)
 		delete(c.cancelledStreams, requestID)
-		delete(c.observingRuns, entry.runID)
+		if c.observingRuns[entry.runID] == requestID {
+			delete(c.observingRuns, entry.runID)
+		}
 		if lastSeq > entry.lastSeq {
 			entry.lastSeq = lastSeq
 		}

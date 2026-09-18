@@ -845,6 +845,7 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 
 	runs := fixture.runs
 	runID := "run_ws_shutdown"
+	bindTestRunControl(t, fixture.server, runID, "ws", "")
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
 		ChatID:   "chat_ws_shutdown",
@@ -939,6 +940,7 @@ func TestWebSocketAttachLatestSuccessfulConnectionOwnsWebClientTarget(t *testing
 	}, testFixtureOptions{notifications: hub})
 	runs := fixture.runs
 	runID := "run_ws_latest_target"
+	bindTestRunControl(t, fixture.server, runID, "ws", "device:device-latest")
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
 		ChatID:   "chat_ws_latest_target",
@@ -1043,6 +1045,7 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 
 	runs := fixture.runs
 	runID := "run_ws_detach"
+	bindTestRunControl(t, fixture.server, runID, "ws", "")
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
 		ChatID:   "chat_ws_detach",
@@ -1737,18 +1740,7 @@ Plan should stream over websocket.
 
 	wantSubmitID := "submit-ws-plan-approve"
 	submitBody := `{"submitId":"` + wantSubmitID + `","agentKey":"coder-ws","runId":"` + runID + `","awaitingId":"` + awaitingID + `","params":[{"id":"confirm","decision":"approve"}]}`
-	submitRec, err := http.Post(server.URL+"/api/submit", "application/json", bytes.NewBufferString(submitBody))
-	if err != nil {
-		t.Fatalf("submit approval: %v", err)
-	}
-	defer submitRec.Body.Close()
-	submitBytes, readSubmitErr := io.ReadAll(submitRec.Body)
-	if readSubmitErr != nil {
-		t.Fatalf("read submit approval response: %v", readSubmitErr)
-	}
-	if submitRec.StatusCode != http.StatusOK {
-		t.Fatalf("submit expected 200, got %d: %s", submitRec.StatusCode, string(submitBytes))
-	}
+	submitBytes := wsTestControlResponse(t, server.URL, "/api/submit", json.RawMessage(submitBody))
 	var submitResponse api.ApiResponse[api.SubmitResponse]
 	if err := json.Unmarshal(submitBytes, &submitResponse); err != nil {
 		t.Fatalf("decode submit response: %v", err)

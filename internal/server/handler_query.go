@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/runtime/controlscope"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
@@ -21,6 +22,30 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	req, err := decodeQueryRequest(r)
 	if err != nil {
 		writeQueryStartError(w, err)
+		return
+	}
+	lane := strings.TrimSpace(req.Lane)
+	if lane == "" {
+		lane = "main"
+	}
+	r = r.WithContext(controlscope.WithContext(r.Context(), httpControlScope(r.Context(), lane)))
+	switch lane {
+	case "", "main":
+		// Ordinary HTTP queries retain their existing admission and execution path.
+	case "btw":
+		prepared, statusErr := s.prepareBTWInput(r, api.BTWRequest{
+			RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, BTWID: req.BTWID,
+			Message: req.Message, References: req.References, Params: req.Params, Scene: req.Scene,
+			Stream: req.Stream, IncludeUsage: req.IncludeUsage, IncludeFullText: req.IncludeFullText,
+			AccessLevel: req.AccessLevel, Model: req.Model,
+		})
+		s.handlePreparedBTWQuery(w, r, prepared, statusErr)
+		return
+	case "explain":
+		writeStatusError(w, btwStatusError(http.StatusForbidden, "explain_ws_required", "explain requires the Desktop explain WebSocket connection"))
+		return
+	default:
+		writeStatusError(w, btwStatusError(http.StatusBadRequest, "invalid_lane", "HTTP query lane must be main or btw"))
 		return
 	}
 	if !isSyncQueryContext(r.Context()) && !isNonStreamingQuery(req) {

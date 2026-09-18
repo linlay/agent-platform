@@ -12,7 +12,7 @@ import (
 	"agent-platform/internal/rootpaths"
 )
 
-// PrepareSteerImages resolves only uploaded/current-chat resources. The returned
+// PrepareSteerImages accepts text selections and uploaded/current-chat images. The returned
 // blocks own the image bytes so later file mutations cannot change queued input.
 func PrepareSteerImages(chatID, chatDir string, container bool, references []api.Reference) ([]api.Reference, []map[string]any, error) {
 	roots, err := rootpaths.New("", filepath.Dir(chatDir), chatDir)
@@ -22,6 +22,15 @@ func PrepareSteerImages(chatID, chatDir string, container bool, references []api
 	prepared := make([]api.Reference, 0, len(references))
 	blocks := make([]map[string]any, 0, len(references))
 	for _, ref := range references {
+		if ref.Type == "selection" {
+			text, ok := ref.Meta["text"].(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				return nil, nil, fmt.Errorf("selection steer requires meta.text")
+			}
+			// A text selection cannot acquire file access through client paths.
+			prepared = append(prepared, api.Reference{ID: ref.ID, Type: "selection", Name: ref.Name, Meta: map[string]any{"text": text}})
+			continue
+		}
 		if ref.Type != "" && ref.Type != "file" {
 			return nil, nil, fmt.Errorf("steer references must be uploaded images")
 		}
@@ -55,4 +64,14 @@ func PrepareSteerImages(chatID, chatDir string, container bool, references []api
 		blocks = append(blocks, multimodal.OpenAIImageBlock(image))
 	}
 	return prepared, blocks, nil
+}
+
+// SteerHasImages distinguishes text-only selections from image input.
+func SteerHasImages(refs []api.Reference) bool {
+	for _, ref := range refs {
+		if ref.Type != "selection" {
+			return true
+		}
+	}
+	return false
 }

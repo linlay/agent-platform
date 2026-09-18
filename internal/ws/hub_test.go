@@ -32,10 +32,10 @@ func TestHubBroadcast(t *testing.T) {
 
 func TestHubBroadcastSkipsDesktopBTW(t *testing.T) {
 	hub := NewHub()
-	primary := &Conn{
-		writeQueue: make(chan outboundMessage, 1),
-		closed:     make(chan struct{}),
-	}
+	primary := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
+		Context: context.Background(), Subject: "user-1", DeviceID: "device-1",
+		DeviceIDVerified: true, Scope: "app",
+	})
 	primary.SetClientMetadata("desktop-main", "device-1")
 	btw := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
 		Context:          context.Background(),

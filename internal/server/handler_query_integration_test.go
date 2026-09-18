@@ -3581,26 +3581,12 @@ func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write websocket attach: %v", err)
 	}
-	var wsRunError map[string]any
-	wsTerminalReason := ""
-	for wsTerminalReason == "" {
-		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-			t.Fatalf("set websocket deadline: %v", err)
-		}
-		var frame platformws.StreamFrame
-		if err := conn.ReadJSON(&frame); err != nil {
-			t.Fatalf("read websocket attach frame: %v", err)
-		}
-		if frame.Frame != platformws.FrameStream || frame.ID != "attach-tool-budget" {
-			continue
-		}
-		if frame.Event != nil && frame.Event.Type == "run.error" {
-			wsRunError, _ = frame.Event.Value("error").(map[string]any)
-		}
-		wsTerminalReason = frame.Reason
+	var refused platformws.ErrorFrame
+	if err := conn.ReadJSON(&refused); err != nil {
+		t.Fatal(err)
 	}
-	if wsTerminalReason != "error" || stringValue(wsRunError["code"]) != "tool_calls_exceeded" {
-		t.Fatalf("websocket attach lost terminal error: reason=%q error=%#v", wsTerminalReason, wsRunError)
+	if refused.Code != 403 || refused.Type != "run_transport_mismatch" {
+		t.Fatalf("mixed transport attach: %#v", refused)
 	}
 
 	chatRec := httptest.NewRecorder()

@@ -101,28 +101,7 @@ func TestImageSteerHTTPAndWSFreezePersistAndContinue(t *testing.T) {
 				u := result.Data.Upload
 				refs = append(refs, api.Reference{ID: u.ID, Type: u.Type, Name: u.Name, Path: u.Path, URL: u.URL, MimeType: u.MimeType})
 			}
-			response, err := http.Post(server.URL+"/api/query", "application/json", strings.NewReader(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"start"}`))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer response.Body.Close()
-			reader := bufio.NewReader(response.Body)
-			var runID string
-			for {
-				line, err := reader.ReadString('\n')
-				if err != nil {
-					t.Fatal(err)
-				}
-				if strings.HasPrefix(line, "data: {") {
-					event := decodeSSELine(t, line)
-					if id, ok := event["runId"].(string); ok {
-						runID = id
-					}
-					if event["delta"] == "draft" {
-						break
-					}
-				}
-			}
+			runID, readTail := startSteerTransportRun(t, server.URL, transport, chatID)
 			payload := api.SteerRequest{RunID: runID, ChatID: chatID, AgentKey: "mock-agent", SteerID: "image-1", Message: "use both images", References: refs}
 			var ack api.SteerResponse
 			if transport == "http" {
@@ -139,27 +118,14 @@ func TestImageSteerHTTPAndWSFreezePersistAndContinue(t *testing.T) {
 				}
 				ack = result.Data
 			} else {
-				conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
-				if err != nil {
+				raw := wsTestControlResponse(t, server.URL, "/api/steer", payload)
+				var response struct {
+					Data api.SteerResponse `json:"data"`
+				}
+				if err := json.Unmarshal(raw, &response); err != nil {
 					t.Fatal(err)
 				}
-				defer conn.Close()
-				_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-				if err := conn.WriteJSON(map[string]any{"frame": "request", "type": "/api/steer", "id": "steer-control", "payload": payload}); err != nil {
-					t.Fatal(err)
-				}
-				for {
-					var frame map[string]json.RawMessage
-					if err := conn.ReadJSON(&frame); err != nil {
-						t.Fatal(err)
-					}
-					if string(frame["id"]) == `"steer-control"` {
-						if err := json.Unmarshal(frame["data"], &ack); err != nil {
-							t.Fatal(err)
-						}
-						break
-					}
-				}
+				ack = response.Data
 			}
 			if !ack.Accepted {
 				t.Fatalf("steer rejected: %#v", ack)
@@ -171,7 +137,7 @@ func TestImageSteerHTTPAndWSFreezePersistAndContinue(t *testing.T) {
 				}
 			}
 			unblock()
-			tail, err := io.ReadAll(reader)
+			tail, err := readTail()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -215,5 +181,75 @@ func TestImageSteerHTTPAndWSFreezePersistAndContinue(t *testing.T) {
 			}
 			assertImages(<-requests)
 		})
+	}
+}
+
+// Starts and observes the Run on the same transport used for its controls.
+func startSteerTransportRun(t *testing.T, baseURL, transport, chatID string) (string, func() ([]byte, error)) {
+	t.Helper()
+	payload := map[string]any{"chatId": chatID, "agentKey": "mock-agent", "message": "start"}
+	var runID string
+	if transport == "http" {
+		body, _ := json.Marshal(payload)
+		response, err := http.Post(baseURL+"/api/query", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { response.Body.Close() })
+		reader := bufio.NewReader(response.Body)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(line, "data: {") {
+				event := decodeSSELine(t, line)
+				if id, ok := event["runId"].(string); ok {
+					runID = id
+				}
+				if event["delta"] == "draft" {
+					break
+				}
+			}
+		}
+		return runID, func() ([]byte, error) { return io.ReadAll(reader) }
+	}
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(baseURL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	readConnectedPush(t, conn)
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	sendSelectionLaneRequest(t, conn, "query", "/api/query", payload)
+	for {
+		var frame ws.StreamFrame
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatal(err)
+		}
+		if frame.Event != nil {
+			if id, ok := frame.Event.Value("runId").(string); ok {
+				runID = id
+			}
+			if frame.Event.Value("delta") == "draft" {
+				break
+			}
+		}
+	}
+	return runID, func() ([]byte, error) {
+		var data bytes.Buffer
+		for {
+			var frame ws.StreamFrame
+			if err := conn.ReadJSON(&frame); err != nil {
+				return nil, err
+			}
+			if frame.Event != nil {
+				raw, _ := json.Marshal(frame.Event)
+				data.Write(raw)
+			}
+			if frame.Reason != "" {
+				return data.Bytes(), nil
+			}
+		}
 	}
 }

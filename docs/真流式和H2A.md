@@ -33,16 +33,16 @@ HTTP query
 
 从 `/api/chat` 冷启动恢复 active run 时，客户端应使用 `activeRun.lastSeq` 作为 attach 游标。该值来自本次 chat detail 已返回历史 events 的 `liveSeq` 覆盖边界；对于新的 Native / Team run，`liveSeq` 记录对应 JSONL 行处理完成时最近一个已发布的公开序号，内部事件可以复用相同覆盖边界但不能推进它。历史 run 保留原有 `liveSeq`，不迁移。Platform 重启后可恢复的 question/planning 会以原 `runId` 注册 `WAITING_SUBMIT` suspended active run；客户端 replay `/api/chat` 后应立即 attach，即使当前没有新事件也保持 observer。用户后续提交时，Platform 会复用该 EventBus 发布连续 seq 的 submit/answer 和 continuation，不重播 `run.started`；客户端不需要、也不应在 submit 后再补 attach。
 
-WebSocket 客户端不再观察某个 active run 时，应发送 `/api/detach`，关闭当前连接上的 live stream observer；再次需要时按 `lastSeq` 调 `/api/attach`。detach 只释放 UI 订阅流，不中断后台 run，也不会暂停 HITL / awaiting timeout。不同 run 可以在同一连接上并发观察，不需要建立跨 run 的全局切换门禁。HTTP/SSE 不新增 detach endpoint，仍由客户端关闭 EventSource 或 fetch stream。
+WebSocket 客户端不再观察某个 active run 时，应发送 `/api/detach`，关闭当前连接上的 live stream observer；再次需要时按 `lastSeq` 调 `/api/attach`。detach 只释放 UI 订阅流，不中断后台 run，也不会暂停 HITL / awaiting timeout。每条 WS 连接最多观察一个 Run stream；切换前先 detach，未释放时新 query/attach 返回 409 `active_stream_exists`。main/btw/explain 三条连接仍可并行，detach 后原 Run 可继续后台执行。HTTP/SSE 不新增 detach endpoint，仍由客户端关闭 EventSource 或 fetch stream。Run 的创建和控制 transport 必须一致，HTTP Run 通过 HTTP attach/submit/steer/interrupt，WS Run 通过同身份、同设备边界、同 lane 的 WS；归属随 `.state/run-controls` 持久化，缺少归属的旧 Run 明确拒绝。
 
-Desktop 使用两条独立的普通 WebSocket v2 lane：`desktop-main` 复用所有普通 Run，`desktop-btw` 复用所有 BTW Run。WS `/api/btw` 仅在 BTW lane 创建或继续隐藏分支；其 stream、attach cursor、detach 和终态语义与本节相同。Primary 与 BTW 互不替换，BTW 不接收全局 Push 或 Desktop Action。
+Desktop 使用 `main`、`btw`、`explain` 三条独立 WebSocket v2 lane（source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`）。三者统一发送 WS `/api/query`，由连接身份选择普通或隐藏分支执行；stream、attach cursor、detach 和终态语义不变。三条 lane 互不替换，btw/explain 不接收全局 Push 或默认 Desktop Action。
 
 ## 配置与接口
 
-- `POST /api/query`：发起 run，默认返回 SSE；`stream:false` 返回 JSON。
+- `POST /api/query`：body `lane` 缺省或 `main` 发起普通 run，`btw` 创建/继续隐藏分支；`explain` 仅支持 Desktop WS，HTTP 返回 403。默认返回 SSE；`stream:false` 返回 JSON。旧 HTTP `/api/btw` 保留兼容。
 - `GET /api/attach`：按 `runId + (agentKey | teamId) + lastSeq` 续接 backlog。
 - WS `/api/detach`：按 `runId + (agentKey | teamId)` 关闭当前连接上的 run observer。
-- WS `/api/btw`：仅在已认证 `desktop-btw` lane 创建或继续 BTW Run，并返回同形状 stream。
+- WS `/api/query`：main 执行普通 query，已认证的 btw/explain lane 创建或继续隐藏分支；WS `/api/btw` 保留为旁聊兼容入口。
 - SSE heartbeat 固定为 30 秒。
 - H2A render 默认值在 `internal/stream/defaults.go`，默认不缓冲、heartbeat 透传。
 
