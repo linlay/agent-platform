@@ -29,6 +29,7 @@ type ExecuteOptions struct {
 	Billing              config.BillingConfig
 	Models               *models.ModelRegistry
 	StepWriter           *chat.StepWriter
+	Notifications        contracts.NotificationSink
 	RunControl           *contracts.RunControl
 	NewOrchestrator      func(context.Context, func(contracts.AgentDelta), func(...stream.StreamInput)) orchestration.DeltaHandler
 	PersistCompletion    func(string, chat.UsageData, string, bool) (bool, chat.RunCompletion)
@@ -144,6 +145,7 @@ func Execute(params ExecuteOptions) (result Result) {
 			if params.ObserveEvent != nil && emission.Normalized {
 				params.ObserveEvent(data)
 			}
+			NotifyArtifactPublished(params.Notifications, data)
 			params.OnEvent(data)
 			if emission.Visible && params.Publish != nil {
 				if err := params.Publish(data); err != nil {

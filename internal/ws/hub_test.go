@@ -30,6 +30,60 @@ func TestHubBroadcast(t *testing.T) {
 	}
 }
 
+func TestArtifactPublishedOnlyReachesAuthenticatedMain(t *testing.T) {
+	hub := NewHub()
+	auth := AuthSession{Context: context.Background(), Subject: "user-1", DeviceID: "device-1", DeviceIDVerified: true, Scope: "app"}
+	newConn := func(source string, session AuthSession) *Conn {
+		conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 8}, session)
+		conn.SetClientMetadata(source, "device-1")
+		hub.register(conn)
+		return conn
+	}
+	main := newConn("desktop-main", auth)
+	others := []*Conn{
+		newConn("desktop-btw", auth), newConn("btw", auth),
+		newConn("desktop-explain", auth), newConn("explain", auth),
+		newConn("webclient", auth), newConn("gateway", auth), newConn("", auth),
+		newConn("desktop-main", AuthSession{Context: context.Background(), Scope: "openid"}),
+	}
+	data := map[string]any{"chatId": "another-chat", "artifactId": "a1", "publishedAt": int64(1_700_000_000_000)}
+	hub.Broadcast("artifact.published", data)
+	if len(main.writeQueue) != 1 {
+		t.Fatalf("Main queue length = %d", len(main.writeQueue))
+	}
+	frame := (<-main.writeQueue).frame.(PushFrame)
+	if frame.Frame != FramePush || frame.Type != "artifact.published" {
+		t.Fatalf("unexpected frame: %#v", frame)
+	}
+	assertOthersEmpty := func() {
+		t.Helper()
+		for i, conn := range others {
+			if len(conn.writeQueue) != 0 {
+				t.Fatalf("non-Main connection %d received publication", i)
+			}
+		}
+	}
+	assertOthersEmpty()
+	hub.unregister(main)
+	hub.Broadcast("artifact.published", data)
+	assertOthersEmpty()
+	if len(main.writeQueue) != 0 {
+		t.Fatal("unregistered Main received publication")
+	}
+	replacement := newConn("desktop-main", auth)
+	hub.Broadcast("artifact.published", data)
+	if len(replacement.writeQueue) != 1 {
+		t.Fatal("replacement Main did not receive publication")
+	}
+	assertOthersEmpty()
+	<-replacement.writeQueue
+	replacement.UpdateAuth(AuthSession{Context: context.Background(), Scope: "openid"})
+	hub.Broadcast("artifact.published", data)
+	if len(replacement.writeQueue) != 0 {
+		t.Fatal("Main with invalidated authentication received publication")
+	}
+}
+
 func TestHubBroadcastSkipsDesktopBTW(t *testing.T) {
 	hub := NewHub()
 	primary := &Conn{

@@ -335,7 +335,7 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
 
-	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws?source=desktop-main&deviceId=device-artifact", nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
@@ -411,17 +411,17 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 		t.Fatalf("expected pending awaiting to be cleared, got %#v", summaries)
 	}
 
-	resourcePushed := pushFrameDataMap(t, waitForPushFrameType(t, conn, "resource.pushed"))
-	if resourcePushed["chatId"] != chatID || resourcePushed["artifactId"] != "artifact-channel" ||
-		resourcePushed["name"] != "report.md" || resourcePushed["mimeType"] != "text/markdown" ||
-		resourcePushed["sha256"] != "abc123" {
-		t.Fatalf("unexpected resource.pushed push %#v", resourcePushed)
+	artifactPublished := pushFrameDataMap(t, waitForPushFrameType(t, conn, "artifact.published"))
+	if artifactPublished["chatId"] != chatID || artifactPublished["runId"] != runID || artifactPublished["url"] != "report.md" || artifactPublished["artifactId"] != "artifact-channel" ||
+		artifactPublished["name"] != "report.md" || artifactPublished["mimeType"] != "text/markdown" ||
+		artifactPublished["sha256"] != "abc123" {
+		t.Fatalf("unexpected artifact.published push %#v", artifactPublished)
 	}
-	if sizeBytes, ok := resourcePushed["sizeBytes"].(float64); !ok || int(sizeBytes) != 123 {
-		t.Fatalf("unexpected resource.pushed size %#v", resourcePushed)
+	if sizeBytes, ok := artifactPublished["sizeBytes"].(float64); !ok || int(sizeBytes) != 123 {
+		t.Fatalf("unexpected artifact.published size %#v", artifactPublished)
 	}
-	if pushedAt, ok := resourcePushed["pushedAt"].(float64); !ok || pushedAt < 1_000_000_000_000 {
-		t.Fatalf("expected epoch-ms resource.pushed pushedAt, got %#v", resourcePushed)
+	if publishedAt, ok := artifactPublished["publishedAt"].(float64); !ok || publishedAt < 1_000_000_000_000 {
+		t.Fatalf("expected epoch-ms artifact.published publishedAt, got %#v", artifactPublished)
 	}
 
 	runFinished := pushFrameDataMap(t, waitForPushFrameType(t, conn, "run.finished"))
