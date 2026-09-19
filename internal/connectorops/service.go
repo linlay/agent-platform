@@ -5,17 +5,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"io"
+	"errors"
 	"os"
 	"os/exec"
-	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/mcp"
-	"github.com/google/jsonschema-go/jsonschema"
 )
 
 type Error struct {
@@ -27,104 +26,112 @@ func (e *Error) Error() string              { return e.Code }
 func failure(code string, status int) error { return &Error{code, status} }
 
 type Scope struct {
-	Subject string
-	AppID   string
-	// Allowed operations are frozen by a trusted grant issuer, not request JSON.
-	AllowWrite bool
-	Chats      map[string]bool
-	Operations map[string][]string
-	Check      func() error
+	Subject   string
+	AppID     string
+	Chats     map[string]bool
+	Execution []Permission
+	Check     func() error
 }
 type Request struct {
 	ConnectorID        string         `json:"connectorId"`
-	OperationID        string         `json:"operationId"`
-	Revision           string         `json:"revision"`
-	Arguments          map[string]any `json:"arguments"`
+	Adapter            string         `json:"adapter"`
+	Args               []string       `json:"args,omitempty"`
+	Component          string         `json:"component,omitempty"`
+	ToolName           string         `json:"toolName,omitempty"`
+	Arguments          map[string]any `json:"arguments,omitempty"`
 	CredentialRevision string         `json:"credentialRevision,omitempty"`
 	IdempotencyKey     string         `json:"idempotencyKey,omitempty"`
 }
 type Result struct {
-	CredentialRevision string         `json:"credentialRevision"`
-	InvocationID       string         `json:"invocationId"`
-	ConnectorID        string         `json:"connectorId"`
-	OperationID        string         `json:"operationId"`
-	Revision           string         `json:"revision"`
-	Status             string         `json:"status"`
-	Output             map[string]any `json:"output"`
+	CredentialRevision string          `json:"credentialRevision"`
+	InvocationID       string          `json:"invocationId"`
+	ConnectorID        string          `json:"connectorId"`
+	Adapter            string          `json:"adapter"`
+	ExitCode           int             `json:"exitCode"`
+	Stdout             string          `json:"stdout,omitempty"`
+	Stderr             string          `json:"stderr,omitempty"`
+	MCP                json.RawMessage `json:"mcp,omitempty"`
 }
 type Service struct {
 	Auth    *connectorauth.Manager
 	Sources connector.Sources
 }
 
-func (s Scope) permits(connectorID, operationID string) bool {
+func (s Scope) permits(id, adapter string) bool {
 	if s.Subject == "" || s.AppID == "" || s.Check == nil || s.Check() != nil {
 		return false
 	}
-	for _, id := range s.Operations[connectorID] {
-		if id == operationID {
+	for _, p := range s.Execution {
+		if p.ConnectorID == id && (adapter == "" || p.Adapter == adapter) {
 			return true
 		}
 	}
 	return false
 }
 func (s *Service) Describe(scope Scope, id string) (Catalog, error) {
-	allowed := scope.Operations[id]
-	if len(allowed) == 0 || !scope.permits(id, allowed[0]) {
-		return Catalog{}, failure("operation_not_allowed", 403)
+	if !scope.permits(id, "") {
+		return Catalog{}, failure("connector_execution_not_allowed", 403)
 	}
 	pkg, err := s.Sources.Load(id)
 	if err != nil {
 		return Catalog{}, failure("connector_unavailable", 503)
 	}
-	catalog, err := Load(pkg)
+	c, err := Load(pkg)
 	if err != nil {
-		return Catalog{}, failure("connector_unavailable", 503)
+		return c, failure("connector_unavailable", 503)
 	}
-	filtered := make([]Operation, 0, len(catalog.Operations))
-	for _, op := range catalog.Operations {
-		if scope.permits(id, op.ID) {
-			filtered = append(filtered, op)
+	allowed := []string{}
+	for _, a := range c.Adapters {
+		if scope.permits(id, a) {
+			allowed = append(allowed, a)
 		}
 	}
-	catalog.Operations = filtered
-	return catalog, nil
+	c.Adapters = allowed
+	if !scope.permits(id, "mcp") {
+		c.Components = []string{}
+	}
+	return c, nil
+}
+func validateRequest(req Request) error {
+	if !connector.ValidID(req.ConnectorID) || len(req.CredentialRevision) > 256 {
+		return failure("invalid_arguments", 400)
+	}
+	if req.IdempotencyKey != "" && !idempotencyKeyPattern.MatchString(req.IdempotencyKey) {
+		return failure("invalid_arguments", 400)
+	}
+	raw, err := json.Marshal(req)
+	if err != nil || len(raw) > MaxJSONBytes {
+		return failure("invalid_arguments", 400)
+	}
+	switch req.Adapter {
+	case "cli":
+		if req.Args == nil || len(req.Args) > 256 || req.Component != "" || req.ToolName != "" || req.Arguments != nil {
+			return failure("invalid_arguments", 400)
+		}
+		for _, arg := range req.Args {
+			if strings.ContainsRune(arg, 0) {
+				return failure("invalid_arguments", 400)
+			}
+		}
+	case "mcp":
+		if req.Args != nil || req.Component == "" || len(req.Component) > 256 || req.ToolName == "" || len(req.ToolName) > 256 || req.Arguments == nil {
+			return failure("invalid_arguments", 400)
+		}
+	default:
+		return failure("invalid_arguments", 400)
+	}
+	return nil
 }
 func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result Result, returnErr error) {
-	if !scope.permits(req.ConnectorID, req.OperationID) {
-		return result, failure("operation_not_allowed", 403)
+	if err := validateRequest(req); err != nil {
+		return result, err
+	}
+	if !scope.permits(req.ConnectorID, req.Adapter) {
+		return result, failure("connector_execution_not_allowed", 403)
 	}
 	catalog, err := s.Describe(scope, req.ConnectorID)
 	if err != nil {
 		return result, err
-	}
-	if req.Revision == "" || req.Revision != catalog.Revision {
-		return result, failure("operation_revision_mismatch", 409)
-	}
-	var selected *Operation
-	for i := range catalog.Operations {
-		if catalog.Operations[i].ID == req.OperationID {
-			selected = &catalog.Operations[i]
-			break
-		}
-	}
-	if selected == nil {
-		return result, failure("operation_not_allowed", 403)
-	}
-	if selected.Effect == "write" && !scope.AllowWrite {
-		return result, failure("write_permission_required", 403)
-	}
-	if req.Arguments == nil {
-		req.Arguments = map[string]any{}
-	}
-	encoded, err := json.Marshal(req.Arguments)
-	if err != nil || len(encoded) > MaxJSONBytes || validateValue(selected.input, encoded) != nil {
-		return result, failure("invalid_arguments", 400)
-	}
-	if selected.CLI != nil {
-		if _, err := cliArguments(*selected.CLI, encoded); err != nil {
-			return result, err
-		}
 	}
 	auth := s.Auth
 	if auth == nil {
@@ -137,8 +144,8 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	component := ""
-	if selected.MCP != nil {
-		component = selected.MCP.Component
+	if req.Adapter == "mcp" {
+		component = req.Component
 	}
 	status, err := auth.StatusComponent(ctx, req.ConnectorID, component)
 	if err != nil || status.Status == "setup_required" {
@@ -170,13 +177,13 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	// revision immediately before starting the actual business operation.
 	fresh, err := Load(pkg)
 	if err != nil || fresh.Revision != catalog.Revision {
-		return result, failure("operation_revision_mismatch", 409)
+		return result, failure("connector_changed", 409)
 	}
-	if !scope.permits(req.ConnectorID, req.OperationID) {
-		return result, failure("operation_not_allowed", 403)
+	if !scope.permits(req.ConnectorID, req.Adapter) {
+		return result, failure("connector_execution_not_allowed", 403)
 	}
 	var receiptFile string
-	if selected.Effect == "write" {
+	if req.IdempotencyKey != "" {
 		var previous *Result
 		receiptFile, previous, err = beginWrite(s.Sources.PersistentRoot(), scope, req)
 		if err != nil {
@@ -191,11 +198,10 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 			}
 		}()
 	}
-	var output map[string]any
-	if selected.CLI != nil {
-		output, err = callCLI(ctx, pkg, *selected.CLI, encoded)
+	if req.Adapter == "cli" {
+		result, err = callCLI(ctx, pkg, req.Args)
 	} else {
-		output, err = callMCP(ctx, pkg, *selected.MCP, req.Arguments)
+		result.MCP, err = callMCP(ctx, pkg, req.Component, req.ToolName, req.Arguments)
 	}
 	if ctx.Err() != nil {
 		return result, failure("invocation_timeout", 504)
@@ -207,14 +213,17 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil || after != revision {
 		return result, failure("connector_auth_expired", 401)
 	}
-	if !scope.permits(req.ConnectorID, req.OperationID) {
-		return result, failure("operation_not_allowed", 403)
+	if !scope.permits(req.ConnectorID, req.Adapter) {
+		return result, failure("connector_execution_not_allowed", 403)
 	}
-	outputJSON, _ := json.Marshal(output)
-	if validateValue(selected.output, outputJSON) != nil {
-		return result, failure("invalid_upstream_response", 502)
+	result.CredentialRevision = revision
+	result.InvocationID = rand.Text()
+	result.ConnectorID = req.ConnectorID
+	result.Adapter = req.Adapter
+	wire, encodeErr := json.Marshal(result)
+	if encodeErr != nil || len(wire) > MaxJSONBytes-1024 {
+		return Result{}, failure("invocation_output_limit", 502)
 	}
-	result = Result{CredentialRevision: revision, InvocationID: rand.Text(), ConnectorID: req.ConnectorID, OperationID: req.OperationID, Revision: req.Revision, Status: "succeeded", Output: output}
 	if receiptFile != "" {
 		if err := finishWrite(receiptFile, req, result); err != nil {
 			return Result{}, err
@@ -241,73 +250,57 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	b.b.Write(p)
 	return n, nil
 }
-func callCLI(ctx context.Context, pkg connector.Package, op CLI, args []byte) (map[string]any, error) {
-	entry, err := Entry(pkg, cliEntryForOS(op, runtime.GOOS))
-	if err != nil {
-		return nil, failure("connector_unavailable", 503)
-	}
-	argv, err := cliArguments(op, args)
-	if err != nil {
-		return nil, err
-	}
-	cmd := exec.CommandContext(ctx, entry, argv...)
-	configureProcess(cmd)
-	cmd.Dir = pkg.Dir
-	// Deliberate allowlist: never inherit AP_ACCESS_TOKEN, another connector's
-	// configEnv, cloud SDK credentials, or process-wide proxy passwords.
+func callCLI(ctx context.Context, pkg connector.Package, args []string) (Result, error) {
+	var result Result
+	env := []string{}
 	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"} {
 		if value, ok := os.LookupEnv(name); ok {
-			cmd.Env = append(cmd.Env, name+"="+value)
+			env = append(env, name+"="+value)
 		}
 	}
 	values, err := pkg.CLIConfigEnvironment()
 	if err != nil {
-		return nil, failure("connector_unavailable", 503)
+		return result, failure("connector_unavailable", 503)
 	}
-	for key, value := range values {
-		cmd.Env = append(cmd.Env, key+"="+value)
+	for k, v := range values {
+		env = append(env, k+"="+v)
 	}
 	binding, err := connectorauth.CLIEnvironment(pkg)
 	if err != nil {
-		return nil, failure("connector_auth_required", 401)
+		return result, failure("connector_auth_required", 401)
 	}
 	credentials, err := connectorauth.ResolveEnvironment(ctx, binding, "")
 	if err != nil {
-		return nil, failure("connector_auth_required", 401)
+		return result, failure("connector_auth_required", 401)
 	}
-	for key, value := range credentials {
-		cmd.Env = append(cmd.Env, key+"="+value)
+	for k, v := range credentials {
+		env = append(env, k+"="+v)
+	}
+	cmd, err := connectorauth.ExecutionCommand(ctx, pkg, args, env)
+	if err != nil {
+		return result, failure("connector_cli_unavailable", 503)
 	}
 	var out, diagnostic boundedBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = &diagnostic
 	cmd.WaitDelay = time.Second
-	if err = cmd.Run(); err != nil {
-		return nil, failure("connector_call_failed", 502)
+	err = cmd.Run()
+	if out.overflow || diagnostic.overflow {
+		return result, failure("invocation_output_limit", 502)
 	}
-	if out.overflow {
-		return nil, failure("invalid_upstream_response", 502)
-	}
-	output, err := decodeOutput(out.b.Bytes())
 	if err != nil {
-		return nil, err
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			return result, failure("connector_call_failed", 502)
+		}
+		result.ExitCode = exit.ExitCode()
 	}
-	return projectOutput(op, output)
+	result.Stdout = out.b.String()
+	result.Stderr = diagnostic.b.String()
+	return result, nil
 }
-func decodeOutput(data []byte) (map[string]any, error) {
-	if len(data) > MaxJSONBytes {
-		return nil, failure("invalid_upstream_response", 502)
-	}
-	d := json.NewDecoder(bytes.NewReader(data))
-	d.UseNumber()
-	var output map[string]any
-	if d.Decode(&output) != nil || output == nil || d.Decode(new(any)) != io.EOF {
-		return nil, failure("invalid_upstream_response", 502)
-	}
-	return output, nil
-}
-func callMCP(ctx context.Context, pkg connector.Package, op MCP, args map[string]any) (map[string]any, error) {
-	client, key, err := mcp.NewOperationClient(pkg, op.Component, op.Tool)
+func callMCP(ctx context.Context, pkg connector.Package, component, toolName string, args map[string]any) (json.RawMessage, error) {
+	client, key, err := mcp.NewOperationClient(pkg, component, toolName)
 	if err != nil {
 		return nil, failure("connector_unavailable", 503)
 	}
@@ -318,38 +311,20 @@ func callMCP(ctx context.Context, pkg connector.Package, op MCP, args map[string
 	}
 	found := false
 	for _, tool := range tools {
-		if name, _ := tool.Meta["mcpToolName"].(string); name == op.Tool || tool.Name == op.Tool {
+		if name, _ := tool.Meta["mcpToolName"].(string); name == toolName || tool.Name == toolName {
 			found = true
 		}
 	}
 	if !found {
-		return nil, failure("operation_not_allowed", 403)
+		return nil, failure("connector_execution_not_allowed", 403)
 	}
-	raw, err := client.CallTool(ctx, key, op.Tool, args, nil)
+	raw, err := client.CallTool(ctx, key, toolName, args, nil)
 	if err != nil {
 		return nil, failure("connector_call_failed", 502)
 	}
 	data, err := json.Marshal(raw)
 	if err != nil || len(data) > MaxJSONBytes {
-		return nil, failure("invalid_upstream_response", 502)
+		return nil, failure("invocation_output_limit", 502)
 	}
-	var result struct {
-		IsError    bool           `json:"isError"`
-		Structured map[string]any `json:"structuredContent"`
-	}
-	if json.Unmarshal(data, &result) != nil || result.IsError || result.Structured == nil {
-		return nil, failure("invalid_upstream_response", 502)
-	}
-	return result.Structured, nil
-}
-
-// The pinned validator treats json.Number as a string in its type checker.
-// Validate a standard JSON projection while preserving original numeric bytes
-// for argv. Provider identifiers must be declared as strings.
-func validateValue(schema *jsonschema.Resolved, data []byte) error {
-	var value any
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	return schema.Validate(value)
+	return data, nil
 }

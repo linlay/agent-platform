@@ -77,7 +77,7 @@ func TestWebappGrantRequiresPersonalDesktopAndCannotSelectOwner(t *testing.T) {
 	if w := call(principal, `{"appId":"calendar","subject":"bob","operations":{}}`); w.Code != 400 {
 		t.Fatal("owner accepted from payload")
 	}
-	if w := call(principal, `{"appId":"calendar","operations":{"wecom":["meetings.list"]}}`); w.Code != 200 {
+	if w := call(principal, `{"version":2,"appId":"calendar","execution":[{"connectorId":"wecom","adapter":"cli"}]}`); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
 }
