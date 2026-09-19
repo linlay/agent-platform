@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-func TestInvokeMCPWithPersonalCredentialsAndExplicitOperation(t *testing.T) {
+func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 	var calls atomic.Int32
 	upstream := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
 	upstream.AddTool(&sdk.Tool{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
@@ -46,8 +46,7 @@ func TestInvokeMCPWithPersonalCredentialsAndExplicitOperation(t *testing.T) {
 		}
 	}
 	manager := connectorauth.New(context.Background(), sources, nil)
-	alice, _ := manager.Personal("alice", "default")
-	if _, err := alice.SetToken(context.Background(), "demo", map[string]string{"KEY": "alice-key"}); err != nil {
+	if _, err := manager.SetToken(context.Background(), "demo", map[string]string{"KEY": "alice-key"}); err != nil {
 		t.Fatal(err)
 	}
 	service := Service{Auth: manager, Sources: sources}
@@ -71,13 +70,23 @@ func TestInvokeMCPWithPersonalCredentialsAndExplicitOperation(t *testing.T) {
 		t.Fatal("package mutation lock bypassed", busyErr)
 	}
 	scope.Subject = "bob"
-	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 1 {
-		t.Fatal("cross-owner invocation", err)
+	if _, err = service.Invoke(context.Background(), scope, req); err != nil || calls.Load() != 2 {
+		t.Fatal("application subject must not select connector credentials", err)
 	}
 	scope.Subject = "alice"
 	req.Arguments = map[string]any{"shell": "danger"}
-	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 1 {
+	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 2 {
 		t.Fatal("invalid input executed", err)
+	}
+	if err := manager.Logout(context.Background(), "demo"); err != nil {
+		t.Fatal(err)
+	}
+	req.Arguments = map[string]any{}
+	if _, err = service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_auth_required" || calls.Load() != 2 {
+		t.Fatal("logout not shared", err)
+	}
+	if _, err := os.Stat(filepath.Join(sources.StateRoot, "users")); !os.IsNotExist(err) {
+		t.Fatal("unexpected multi-user state", err)
 	}
 }
 

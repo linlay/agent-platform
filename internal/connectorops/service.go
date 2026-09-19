@@ -114,11 +114,11 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (Result,
 	if err != nil || len(encoded) > MaxJSONBytes || validateValue(selected.input, encoded) != nil {
 		return result, failure("invalid_arguments", 400)
 	}
-	auth, err := s.Auth.Personal(scope.Subject, "default")
-	if err != nil {
+	auth := s.Auth
+	if auth == nil {
 		return result, failure("connector_unavailable", 503)
 	}
-	pkg, err := auth.Package(req.ConnectorID)
+	pkg, err := s.Sources.Load(req.ConnectorID)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
@@ -143,7 +143,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (Result,
 		}
 		defer release()
 	}
-	pkg, err = auth.Package(req.ConnectorID)
+	pkg, err = s.Sources.Load(req.ConnectorID)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}

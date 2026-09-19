@@ -8,9 +8,9 @@ SDK 功能命名空间统一使用单数：`assistant`、`skill`、`connector`�
 | --- | --- | --- |
 | assistant | 调用 Agent、订阅运行事件 | 复用 query；尚无可信 appId Run 归属 |
 | skill | 查询可用技能、选择已获准技能 | 沿用 Agent catalog 与 mustUseSkills 校验 |
-| connector | 查询并执行明确声明的业务操作 | 本文新增的个人凭据、短期授权和只读 operation |
+| connector | 查询并执行明确声明的业务操作 | 复用现有连接器凭据、短期授权和只读 operation |
 | artifact | 获取已发布产物元数据和内容 | 仅显式授权 Chat 中的 manifest 产物 |
-| desktop | 原生界面、连接器登录交互 | 可信宿主调用个人授权入口 |
+| desktop | 原生界面、连接器登录交互 | 可信宿主调用现有认证管理器 |
 | automation | 应用后台调度 | 本阶段未实现专属归属及持久授权，不得透传全局 CRUD |
 | kanban | 看板业务查询 | 本阶段未实现 WebApp 专属入口 |
 
@@ -18,11 +18,11 @@ SDK 功能命名空间统一使用单数：`assistant`、`skill`、`connector`�
 
 ## 可信宿主与短期 grant
 
-`/api/desktop/*` 即使普通 API 允许匿名访问也强制 JWT。个人入口要求已验证的 `scope=app`、非空 deviceId 和 `desktop-user:<64位十六进制摘要>` subject；请求体不能选择账号。
+`/api/desktop/*` 即使普通 API 允许匿名访问也强制 JWT。宿主入口要求已验证的 `scope=app`、非空 deviceId 和 `desktop-user:<64位十六进制摘要>` subject；请求体不能选择账号。
 
 - `POST /api/desktop/webapp/grants`：`{appId,operations:{connectorId:[operationId]},chatIds?}`，返回 `{grantId,token,appId,expiresAt}`；expiresAt 为 epoch milliseconds。
 - `DELETE /api/desktop/webapp/grants?grantId=...`：同 subject 撤销。
-- `GET/POST/PUT/DELETE /api/desktop/connector/auth?id=...`：个人连接器状态、发起认证、提交受管凭据、退出；具体认证参数复用既有连接器接口。
+- `GET/POST/PUT/DELETE /api/desktop/connector/auth?id=...`：当前连接器状态、发起认证、提交受管凭据、退出；具体认证参数复用既有连接器接口。
 - `GET /api/desktop/connector/auth?id=...&sessionId=...`：只查询该次会话；不替换为新的登录会话。
 - `POST /api/desktop/connector/auth/cancel?id=...&sessionId=...`：取消指定会话。
 
@@ -30,11 +30,11 @@ grant 存活 15 分钟，仅保存在内存中；重启失效，撤销取消关�
 
 Platform 检查 Chat 存在及现有 principal 引用权限；应用与 Chat 的关联目前由可信 Desktop 提供，尚无服务端持久化应用所有权模型。不能以此 grant 推导全局历史、其他应用产物或后台 automation 权限。
 
-## 个人凭据
+## 连接器凭据
 
-新入口使用 `<persistentRoot>/users/<sha256(subject)>/bindings/default/<connectorId>`，其中 persistentRoot 通常为 `.state/connectors`。连接器安装、准备和资源包仍为部署级；个人凭据不回退到部署凭据，个人退出不删除部署凭据。
+连接器仅使用当前部署的一套凭据。Desktop 登录、WebApp 操作与既有 Agent/管理接口复用同一个认证管理器及 `<runtime>/.state/connectors/<connectorId>`；CLI 的 configEnv 继续指向其 `config` 子目录。退出登录对这些调用共同生效。
 
-CLI 包必须显式声明 `cli.json` 的 `platform.personalConfig: true`，并有唯一 configEnv 映射；启动器必须尊重注入的独立配置目录。旧包不自动获得个人调用能力。个人入口不接受依赖部署 identity-file 的 oneid-token。既有 Agent 调用和管理端授权保持原有部署级行为，此次不是全局凭据迁移。
+不按应用或用户 subject 创建额外凭据目录，不要求资源包新增个人配置支持声明。应用 grant 只限制可调用操作和 Chat，不选择连接器账号。现有连接器包的启动器及 configEnv 约定保持不变。
 
 ## 连接器 operation
 
@@ -55,7 +55,7 @@ CLI 包必须显式声明 `cli.json` 的 `platform.personalConfig: true`，并�
 }
 ```
 
-CLI 只接受包内 bin 原生可执行文件，固定参数后追加 `--json` 与单个 JSON 参数，不通过 Shell。环境变量使用显式基本变量白名单，再注入个人 configEnv 和认证映射，不继承进程级云凭据或 AP_ACCESS_TOKEN。MCP 映射为 `adapter:"mcp",mcp:{component,tool}`，每次创建独立会话，拒绝禁用组件/工具，只接受结构化对象结果。
+CLI 只接受包内 bin 原生可执行文件，固定参数后追加 `--json` 与单个 JSON 参数，不通过 Shell。环境变量使用显式基本变量白名单，再注入现有 configEnv 和认证映射，不继承进程级云凭据或 AP_ACCESS_TOKEN。MCP 映射为 `adapter:"mcp",mcp:{component,tool}`，每次创建独立会话，拒绝禁用组件/工具，只接受结构化对象结果。
 
 调用持有连接器跨进程操作锁，与资源包 mutation 串行。输入和输出均通过 Schema 校验，不加载远程 Schema；包及清单生成 revision，调用必须匹配。Schema 应明确约束字段及长度，并用字符串表示超出 JavaScript 安全整数范围的业务 ID。清单、输入、结果上限均为 1 MiB，单次调用期限 30 秒。写操作、任意命令、任意 MCP tool、模型路由和自动重试均未提供。
 
@@ -67,7 +67,7 @@ CLI 只接受包内 bin 原生可执行文件，固定参数后追加 `--json` �
 | `/api/webapp/connector/describe` | `{connectorId}` | `{connectorId,revision,operations}`，不暴露执行映射 |
 | `/api/webapp/connector/invoke` | `{connectorId,operationId,revision,arguments}` | `{invocationId,connectorId,operationId,revision,status:"succeeded",output}` |
 
-错误使用 `{code:<HTTP状态>,msg:<错误码>,data:{errorCode:<错误码>}}`。未授权为 `app_grant_required` / `operation_not_allowed`，缺少个人认证为 `connector_auth_required`（401），凭据变更为 `connector_auth_expired`（401），安装/状态不可用为 `connector_unavailable`（503），包正忙为 `connector_busy`（409），revision 变化为 `operation_revision_mismatch`（409），无效输入为 `invalid_arguments`（400），无效上游结果为 `invalid_upstream_response`（502）。故障不返回 stderr、凭据或宿主路径。
+错误使用 `{code:<HTTP状态>,msg:<错误码>,data:{errorCode:<错误码>}}`。未授权为 `app_grant_required` / `operation_not_allowed`，未完成连接器认证为 `connector_auth_required`（401），凭据变更为 `connector_auth_expired`（401），安装/状态不可用为 `connector_unavailable`（503），包正忙为 `connector_busy`（409），revision 变化为 `operation_revision_mismatch`（409），无效输入为 `invalid_arguments`（400），无效上游结果为 `invalid_upstream_response`（502）。故障不返回 stderr、凭据或宿主路径。
 
 ## 已发布产物
 
@@ -81,6 +81,6 @@ CLI 只接受包内 bin 原生可执行文件，固定参数后追加 `--json` �
 
 ## 验证与未完成项
 
-自动测试覆盖个人账号/绑定隔离、部署凭据不回退、grant 冻结与撤销、受限 MCP 调用、CLI 单 JSON 参数及环境隔离、输入输出校验、产物跨 Chat 与摘要校验。测试使用临时目录和本地 mock，不使用真实账号。
+自动测试覆盖复用既有连接器凭据与退出状态、grant 冻结与撤销、受限 MCP 调用、CLI 单 JSON 参数及环境隔离、输入输出校验、产物跨 Chat 与摘要校验。测试使用临时目录和本地 mock，不使用真实账号。
 
-WeCom 资源包适配在 env 仓库维护，需重新打包发布后才能获得新能力。真实 CLI 业务响应格式与登录联调尚未验证，不宣称已经完成真实日历/会议聚合。应用持久所有权、后台 grant、automation/kanban、写操作以及部署凭据向个人凭据迁移均未完成。
+本次不增加 WeCom 等业务连接器的操作声明，不改造现有资源包。通用 operation 入口只执行包中已有的显式声明，没有声明就不暴露直接业务操作；连接器认证不依赖该声明。真实连接器联调尚未验证。应用持久所有权、后台 grant、WebApp automation/kanban 专属 Platform 接口及写操作尚未完成。

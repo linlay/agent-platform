@@ -36,17 +36,15 @@ type login struct {
 }
 
 type Manager struct {
-	ctx              context.Context
-	sources          connector.Sources
-	reload           func(context.Context, string) error
-	client           *http.Client
-	identityFile     string
-	mu               sync.Mutex
-	preparations     map[string]*preparationJob
-	sessions         map[string]*login
-	loggingOut       map[string]bool
-	personal         map[string]*Manager
-	preparationOwner *Manager
+	ctx          context.Context
+	sources      connector.Sources
+	reload       func(context.Context, string) error
+	client       *http.Client
+	identityFile string
+	mu           sync.Mutex
+	preparations map[string]*preparationJob
+	sessions     map[string]*login
+	loggingOut   map[string]bool
 }
 
 func New(ctx context.Context, sources connector.Sources, reload func(context.Context, string) error) *Manager {
@@ -67,7 +65,7 @@ func (m *Manager) Start(id string) (Session, error) {
 }
 
 func (m *Manager) StartComponent(id, component string) (Session, error) {
-	pkg, err := m.Package(id)
+	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
 	}
@@ -105,7 +103,7 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 			m.mu.Unlock()
 			return Session{}, err
 		}
-		pkg, err = m.Package(id)
+		pkg, err = m.sources.Load(id)
 		if err == nil && !pkg.ManagedCLI() {
 			err = fmt.Errorf("connector does not support interactive login")
 		}
@@ -183,7 +181,7 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 }
 
 func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Session, error) {
-	pkg, err := m.Package(id)
+	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
 	}
@@ -220,7 +218,7 @@ func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Se
 			return result, nil
 		}
 		defer release()
-		pkg, err = m.Package(id)
+		pkg, err = m.sources.Load(id)
 		if err != nil {
 			return Session{}, err
 		}
@@ -302,7 +300,7 @@ func (m *Manager) CancelSession(id, sessionID string) error {
 }
 
 func (m *Manager) Logout(ctx context.Context, id string) error {
-	pkg, err := m.Package(id)
+	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return err
 	}

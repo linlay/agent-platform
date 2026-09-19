@@ -307,9 +307,6 @@ func (m *Manager) verifyPreparedEntry(pkg connector.Package, s Preparation) erro
 	return nil
 }
 func (m *Manager) requirePrepared(pkg connector.Package) error {
-	if m.preparationOwner != nil {
-		return m.preparationOwner.requirePrepared(pkg)
-	}
 	s, err := m.readPreparation(pkg.ID)
 	if err != nil {
 		return fmt.Errorf("CLI is not prepared; prepare the connector first")

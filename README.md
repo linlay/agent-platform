@@ -4,7 +4,7 @@
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
-WebApp 新增可信 Desktop 签发的短期能力 grant、个人连接器凭据隔离、显式只读 operation 和已授权 Chat 的产物读取；登录界面由 Desktop 承接，协议和阶段限制见 [WebApp 能力接入](docs/WebApp能力接入.md)。
+WebApp 新增可信 Desktop 签发的短期能力 grant、复用现有连接器认证、显式只读 operation 和已授权 Chat 的产物读取；登录界面由 Desktop 承接，协议和阶段限制见 [WebApp 能力接入](docs/WebApp能力接入.md)。
 
 网站 AWCP 操作采用手册渐进披露：按需读取动作目录和单项说明，再通过固定 `invoke` 调用；不向模型运行核心注入页面工具 Schema 或专属状态机。参见 [Desktop 反向 Provider](docs/MCP与工具交互.md#desktop-反向-provider)。
 

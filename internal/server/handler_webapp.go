@@ -76,17 +76,12 @@ func (s *Server) handleWebappGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, api.Success(grant))
 }
-func (s *Server) handlePersonalConnectorAuth(w http.ResponseWriter, r *http.Request) {
-	subject, err := desktopPersonalSubject(r)
-	if err != nil {
+func (s *Server) handleDesktopConnectorAuth(w http.ResponseWriter, r *http.Request) {
+	if _, err := desktopPersonalSubject(r); err != nil {
 		writeWebappError(w, err)
 		return
 	}
-	manager, err := s.connectorAuth.Personal(subject, "default")
-	if err != nil {
-		writeWebappError(w, err)
-		return
-	}
+	manager := s.connectorAuth
 	// Reuse the existing trusted-host auth transport, never expose it through a
 	// WebApp grant. Manager owns deduplication, credential fences and expiry.
 

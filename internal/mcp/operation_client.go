@@ -6,17 +6,17 @@ import (
 )
 
 // NewOperationClient creates a single-component, short-lived session using the
-// caller's isolated credential locator. It never borrows an Agent session.
+// existing connector credential locator. It never borrows an Agent session.
 func NewOperationClient(pkg connector.Package, component, toolName string) (*Client, string, error) {
 	if pkg.AuthMode == connector.AuthOneID || pkg.MCP[component] == nil {
-		return nil, "", fmt.Errorf("unsupported personal MCP component")
+		return nil, "", fmt.Errorf("unsupported operation MCP component")
 	}
 	server, err := connectorServer(pkg, component)
 	if err != nil {
 		return nil, "", err
 	}
 	if !server.Enabled() || server.AuthSource == AuthSourceIdentityFile {
-		return nil, "", fmt.Errorf("unsupported personal MCP authentication")
+		return nil, "", fmt.Errorf("unsupported operation MCP authentication")
 	}
 	for _, disabled := range server.DisabledTools {
 		if disabled == toolName {
