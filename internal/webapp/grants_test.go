@@ -1,6 +1,7 @@
 package webapp
 
 import (
+	"agent-platform/internal/connectorops"
 	"context"
 	"encoding/json"
 	"testing"
@@ -9,7 +10,7 @@ import (
 
 func TestGrantOwnerRevocationAndFrozenOperations(t *testing.T) {
 	g := NewGrants(context.Background())
-	ops := map[string][]string{"wecom": {"meetings.list"}}
+	ops := []connectorops.Permission{{ConnectorID: "wecom", Adapter: "cli"}}
 	issued, err := g.Issue("alice", "calendar", ops)
 	if err != nil {
 		t.Fatal(err)
@@ -21,14 +22,14 @@ func TestGrantOwnerRevocationAndFrozenOperations(t *testing.T) {
 	if err != nil || json.Unmarshal(encoded, &wire) != nil || wire.ExpiresAt <= time.Now().UnixMilli() {
 		t.Fatal("grant expiry must be future epoch milliseconds", string(encoded), err)
 	}
-	ops["wecom"][0] = "meetings.delete"
+	ops[0].Adapter = "mcp"
 	scope, ctx, err := g.Scope(issued.Token)
-	if err != nil || scope.Operations["wecom"][0] != "meetings.list" {
+	if err != nil || scope.Execution[0].Adapter != "cli" {
 		t.Fatal("mutable grant", err)
 	}
-	scope.Operations["wecom"][0] = "meetings.delete"
+	scope.Execution[0].Adapter = "mcp"
 	fresh, _, _ := g.Scope(issued.Token)
-	if fresh.Operations["wecom"][0] != "meetings.list" {
+	if fresh.Execution[0].Adapter != "cli" {
 		t.Fatal("caller mutated grant")
 	}
 	if g.Revoke("bob", issued.ID) == nil {

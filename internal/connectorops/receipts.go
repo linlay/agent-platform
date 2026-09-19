@@ -26,8 +26,14 @@ func beginWrite(root string, scope Scope, req Request) (string, *Result, error) 
 	if root == "" || !idempotencyKeyPattern.MatchString(req.IdempotencyKey) {
 		return "", nil, failure("idempotency_key_required", 400)
 	}
-	key := digest([]byte(scope.Subject + "\x00" + scope.AppID + "\x00" + req.ConnectorID + "\x00" + req.OperationID + "\x00" + req.IdempotencyKey))
-	args, _ := json.Marshal(req.Arguments)
+	key := digest([]byte(scope.Subject + "\x00" + scope.AppID + "\x00" + req.ConnectorID + "\x00" + "execution-v2" + "\x00" + req.IdempotencyKey))
+	args, _ := json.Marshal(struct {
+		Adapter   string
+		Args      []string
+		Component string
+		ToolName  string
+		Arguments map[string]any
+	}{req.Adapter, req.Args, req.Component, req.ToolName, req.Arguments})
 	fingerprint := digest(args)
 	dir := filepath.Join(root, req.ConnectorID, "invocations")
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -67,7 +73,13 @@ func beginWrite(root string, scope Scope, req Request) (string, *Result, error) 
 	return file, nil, nil
 }
 func finishWrite(file string, req Request, result Result) error {
-	args, _ := json.Marshal(req.Arguments)
+	args, _ := json.Marshal(struct {
+		Adapter   string
+		Args      []string
+		Component string
+		ToolName  string
+		Arguments map[string]any
+	}{req.Adapter, req.Args, req.Component, req.ToolName, req.Arguments})
 	data, err := json.Marshal(receipt{Digest: digest(args), Result: &result})
 	if err != nil || len(data) > MaxJSONBytes {
 		return failure("invocation_outcome_unknown", 409)

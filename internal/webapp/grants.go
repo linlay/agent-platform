@@ -19,16 +19,15 @@ import (
 var ErrDenied = errors.New("app_grant_required")
 
 type Grant struct {
-	ID         string `json:"grantId"`
-	Token      string `json:"token,omitempty"`
-	AppID      string `json:"appId"`
-	ExpiresAt  int64  `json:"expiresAt"`
-	allowWrite bool
-	subject    string
-	operations map[string][]string
-	chats      map[string]bool
-	context    context.Context
-	cancel     context.CancelFunc
+	ID        string `json:"grantId"`
+	Token     string `json:"token,omitempty"`
+	AppID     string `json:"appId"`
+	ExpiresAt int64  `json:"expiresAt"`
+	subject   string
+	execution []connectorops.Permission
+	chats     map[string]bool
+	context   context.Context
+	cancel    context.CancelFunc
 }
 type Grants struct {
 	mu      sync.Mutex
@@ -41,14 +40,14 @@ func tokenKey(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
-func (g *Grants) Issue(subject, app string, operations map[string][]string) (Grant, error) {
-	return g.IssueWithChats(subject, app, operations, nil)
+func (g *Grants) Issue(subject, app string, execution []connectorops.Permission) (Grant, error) {
+	return g.IssueWithChats(subject, app, execution, nil)
 }
 
-func (g *Grants) IssueWithChats(subject, app string, operations map[string][]string, chats []string) (Grant, error) {
-	return g.IssueWithPermissions(subject, app, operations, chats, false)
+func (g *Grants) IssueWithChats(subject, app string, execution []connectorops.Permission, chats []string) (Grant, error) {
+	return g.IssueWithPermissions(subject, app, execution, chats)
 }
-func (g *Grants) IssueWithPermissions(subject, app string, operations map[string][]string, chats []string, allowWrite bool) (Grant, error) {
+func (g *Grants) IssueWithPermissions(subject, app string, execution []connectorops.Permission, chats []string) (Grant, error) {
 	if len(chats) > 128 {
 		return Grant{}, ErrDenied
 	}
@@ -59,20 +58,16 @@ func (g *Grants) IssueWithPermissions(subject, app string, operations map[string
 		}
 		chatMap[id] = true
 	}
-	if subject == "" || !connector.ValidID(app) || len(app) > 128 || len(operations) > 64 {
+	if subject == "" || !connector.ValidID(app) || len(app) > 128 || len(execution) > 64 {
 		return Grant{}, ErrDenied
 	}
-	copied := map[string][]string{}
-	for id, ops := range operations {
-		if !connector.ValidID(id) || len(ops) == 0 || len(ops) > 128 {
+	copied := append([]connectorops.Permission{}, execution...)
+	seen := map[connectorops.Permission]bool{}
+	for _, p := range copied {
+		if !connector.ValidID(p.ConnectorID) || (p.Adapter != "cli" && p.Adapter != "mcp") || seen[p] {
 			return Grant{}, ErrDenied
 		}
-		for _, op := range ops {
-			if !connector.ValidID(op) || len(op) > 128 {
-				return Grant{}, ErrDenied
-			}
-		}
-		copied[id] = append([]string{}, ops...)
+		seen[p] = true
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -81,7 +76,7 @@ func (g *Grants) IssueWithPermissions(subject, app string, operations map[string
 		return Grant{}, ErrDenied
 	}
 	ctx, cancel := context.WithTimeout(g.root, 15*time.Minute)
-	grant := Grant{ID: rand.Text(), Token: "wap_" + rand.Text(), AppID: app, ExpiresAt: time.Now().Add(15 * time.Minute).UnixMilli(), allowWrite: allowWrite, subject: subject, operations: copied, chats: chatMap, context: ctx, cancel: cancel}
+	grant := Grant{ID: rand.Text(), Token: "wap_" + rand.Text(), AppID: app, ExpiresAt: time.Now().Add(15 * time.Minute).UnixMilli(), subject: subject, execution: copied, chats: chatMap, context: ctx, cancel: cancel}
 	stored := grant
 	stored.Token = ""
 	g.entries[tokenKey(grant.Token)] = &stored
@@ -104,10 +99,7 @@ func (g *Grants) Scope(token string) (connectorops.Scope, context.Context, error
 	if grant == nil {
 		return connectorops.Scope{}, nil, ErrDenied
 	}
-	copied := map[string][]string{}
-	for k, v := range grant.operations {
-		copied[k] = append([]string{}, v...)
-	}
+	copied := append([]connectorops.Permission{}, grant.execution...)
 	check := func() error {
 		g.mu.Lock()
 		defer g.mu.Unlock()
@@ -121,7 +113,7 @@ func (g *Grants) Scope(token string) (connectorops.Scope, context.Context, error
 	for id := range grant.chats {
 		chatMap[id] = true
 	}
-	return connectorops.Scope{AllowWrite: grant.allowWrite, Chats: chatMap, Subject: grant.subject, AppID: grant.AppID, Operations: copied, Check: check}, grant.context, nil
+	return connectorops.Scope{Chats: chatMap, Subject: grant.subject, AppID: grant.AppID, Execution: copied, Check: check}, grant.context, nil
 }
 func (g *Grants) Revoke(subject, id string) error {
 	g.mu.Lock()

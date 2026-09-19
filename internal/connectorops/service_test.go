@@ -22,6 +22,9 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 		calls.Add(1)
 		return &sdk.CallToolResult{StructuredContent: map[string]any{"items": []any{}}}, nil
 	})
+	upstream.AddTool(&sdk.Tool{Name: "text-error", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: "business rejected"}}}, nil
+	})
 	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return upstream }, &sdk.StreamableHTTPOptions{JSONResponse: true})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Key") != "alice-key" {
@@ -35,9 +38,8 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 	dir := filepath.Join(sources.ExternalRoot, "demo")
 	os.MkdirAll(dir, 0700)
 	files := map[string]any{
-		"connector.json":  map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "KEY", "type": "password", "required": true}}}},
-		"mcp.json":        map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": server.URL, "headers": map[string]any{"X-Key": "${KEY}"}}}},
-		"operations.json": map[string]any{"version": 1, "operations": []any{map[string]any{"operationId": "read", "description": "Read", "effect": "read", "adapter": "mcp", "mcp": map[string]any{"component": "main", "tool": "read"}, "inputSchema": map[string]any{"type": "object", "additionalProperties": false}, "outputSchema": map[string]any{"type": "object", "required": []string{"items"}, "properties": map[string]any{"items": map[string]any{"type": "array"}}, "additionalProperties": false}}}},
+		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "KEY", "type": "password", "required": true}}}},
+		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": server.URL, "headers": map[string]any{"X-Key": "${KEY}"}}}},
 	}
 	for name, value := range files {
 		data, _ := json.Marshal(value)
@@ -49,15 +51,21 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 	if _, err := manager.SetToken(context.Background(), "demo", map[string]string{"KEY": "alice-key"}); err != nil {
 		t.Fatal(err)
 	}
+	pkg, _ := sources.Load("demo")
+	native, err := callMCP(context.Background(), pkg, "main", "text-error", map[string]any{})
+	var original map[string]any
+	if err != nil || json.Unmarshal(native, &original) != nil || original["isError"] != true {
+		t.Fatal("native MCP result lost", string(native), err)
+	}
 	service := Service{Auth: manager, Sources: sources}
-	scope := Scope{Subject: "alice", AppID: "calendar", Operations: map[string][]string{"demo": {"read"}}, Check: func() error { return nil }}
-	catalog, err := service.Describe(scope, "demo")
+	scope := Scope{Subject: "alice", AppID: "calendar", Execution: []Permission{{"demo", "mcp"}}, Check: func() error { return nil }}
+	_, err = service.Describe(scope, "demo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := Request{ConnectorID: "demo", OperationID: "read", Revision: catalog.Revision, Arguments: map[string]any{}}
+	req := Request{ConnectorID: "demo", Adapter: "mcp", Component: "main", ToolName: "read", Arguments: map[string]any{}}
 	result, err := service.Invoke(context.Background(), scope, req)
-	if err != nil || result.Status != "succeeded" || calls.Load() != 1 {
+	if err != nil || len(result.MCP) == 0 || calls.Load() != 1 {
 		t.Fatal(result, err, calls.Load())
 	}
 	release, err := connector.AcquireOperation(sources.ExternalRoot, "demo")
@@ -74,14 +82,14 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 		t.Fatal("application subject must not select connector credentials", err)
 	}
 	scope.Subject = "alice"
-	req.Arguments = map[string]any{"shell": "danger"}
+	req.ToolName = "undeclared"
 	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 2 {
 		t.Fatal("invalid input executed", err)
 	}
 	if err := manager.Logout(context.Background(), "demo"); err != nil {
 		t.Fatal(err)
 	}
-	req.Arguments = map[string]any{}
+	req.ToolName = "read"
 	if _, err = service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_auth_required" || calls.Load() != 2 {
 		t.Fatal("logout not shared", err)
 	}
@@ -124,14 +132,16 @@ func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T)
 	if err = os.WriteFile(filepath.Join(dir, entry), data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	pkg := connector.Package{Manifest: connector.Manifest{ID: "demo"}, Dir: dir, StateRoot: t.TempDir(), CLI: map[string]any{"platform": map[string]any{"configEnv": "DEMO_CONFIG_DIR"}}}
+	pkg := connector.Package{Manifest: connector.Manifest{ID: "demo"}, Dir: dir, StateRoot: t.TempDir(), BinDir: bin, CLI: map[string]any{"platform": map[string]any{"configEnv": "DEMO_CONFIG_DIR", "command": "helper"}, "versionCheck": map[string]any{"command": map[string]any{"darwin": "helper --version", "linux": "helper --version", "win32": "helper.cmd --version"}, "minVersion": "1.0.0"}}}
 	malicious := `$(touch should-not-exist); " %PATH% & | < >`
 	args, _ := json.Marshal(map[string]any{"value": malicious})
-	output, err := callCLI(context.Background(), pkg, CLI{Entry: entry, Args: []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper"}, JSONFlag: "--json"}, args)
-	if err != nil || output["value"] != malicious {
+	output, err := callCLI(context.Background(), pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)})
+	var decoded map[string]any
+	json.Unmarshal([]byte(output.Stdout), &decoded)
+	if err != nil || decoded["value"] != malicious {
 		t.Fatal(output, err)
 	}
-	if output["config"] != filepath.Join(pkg.StateRoot, "demo", "config") {
+	if decoded["config"] != filepath.Join(pkg.StateRoot, "demo", "config") {
 		t.Fatal("wrong credential locator", output)
 	}
 	if _, err = os.Stat(filepath.Join(dir, "should-not-exist")); !os.IsNotExist(err) {

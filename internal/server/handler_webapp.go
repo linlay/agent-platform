@@ -51,12 +51,16 @@ func (s *Server) handleWebappGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		AllowWrite bool                `json:"allowWrite,omitempty"`
-		AppID      string              `json:"appId"`
-		Operations map[string][]string `json:"operations"`
-		ChatIDs    []string            `json:"chatIds,omitempty"`
+		Version   int                       `json:"version"`
+		AppID     string                    `json:"appId"`
+		Execution []connectorops.Permission `json:"execution"`
+		ChatIDs   []string                  `json:"chatIds,omitempty"`
 	}
 	if !decodeWebappRequest(w, r, &req) {
+		return
+	}
+	if req.Version != 2 {
+		writeWebappError(w, &connectorops.Error{Code: "connector_contract_upgrade_required", Status: 409})
 		return
 	}
 	for _, id := range req.ChatIDs {
@@ -70,7 +74,7 @@ func (s *Server) handleWebappGrant(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	grant, err := s.webappGrants.IssueWithPermissions(subject, req.AppID, req.Operations, req.ChatIDs, req.AllowWrite)
+	grant, err := s.webappGrants.IssueWithPermissions(subject, req.AppID, req.Execution, req.ChatIDs)
 	if err != nil {
 		writeWebappError(w, err)
 		return
@@ -138,9 +142,13 @@ func (s *Server) handleWebappConnector(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items := []map[string]any{}
-		ids := make([]string, 0, len(scope.Operations))
-		for id := range scope.Operations {
-			ids = append(ids, id)
+		ids := make([]string, 0, len(scope.Execution))
+		seen := map[string]bool{}
+		for _, p := range scope.Execution {
+			if !seen[p.ConnectorID] {
+				ids = append(ids, p.ConnectorID)
+				seen[p.ConnectorID] = true
+			}
 		}
 		sort.Strings(ids)
 		for _, id := range ids {
@@ -152,7 +160,7 @@ func (s *Server) handleWebappConnector(w http.ResponseWriter, r *http.Request) {
 			if e != nil {
 				continue
 			}
-			items = append(items, map[string]any{"connectorId": id, "name": pkg.Name, "packageVersion": pkg.Version, "operationCount": len(catalog.Operations)})
+			items = append(items, map[string]any{"connectorId": id, "name": pkg.Name, "packageVersion": pkg.Version, "adapters": catalog.Adapters})
 		}
 		writeJSON(w, 200, api.Success(map[string]any{"items": items}))
 	case "/api/webapp/connector/describe":
