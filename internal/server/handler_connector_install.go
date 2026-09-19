@@ -70,6 +70,10 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
+	s.handleConnectorAuthWithManager(w, r, s.connectorAuth)
+}
+
+func (s *Server) handleConnectorAuthWithManager(w http.ResponseWriter, r *http.Request, manager *connectorauth.Manager) {
 	w.Header().Set("Cache-Control", "no-store")
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	if !connector.ValidID(id) {
@@ -78,14 +82,14 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		result, err := s.connectorAuth.StatusComponent(r.Context(), id, r.URL.Query().Get("component"))
+		result, err := manager.StatusComponent(r.Context(), id, r.URL.Query().Get("component"))
 		if err != nil {
 			s.writeConnectorError(w, err)
 			return
 		}
 		s.writeAgentHTTPResponse(w, result, nil)
 	case http.MethodPost:
-		result, err := s.connectorAuth.StartComponent(id, r.URL.Query().Get("component"))
+		result, err := manager.StartComponent(id, r.URL.Query().Get("component"))
 		if err != nil {
 			s.writeConnectorError(w, err)
 			return
@@ -110,9 +114,9 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 				s.writeConnectorError(w, errors.New("choose credentials or oauthClient"))
 				return
 			}
-			result, err = s.connectorAuth.SetOAuthClient(r.Context(), id, r.URL.Query().Get("component"), *req.OAuthClient)
+			result, err = manager.SetOAuthClient(r.Context(), id, r.URL.Query().Get("component"), *req.OAuthClient)
 		} else {
-			result, err = s.connectorAuth.SetToken(r.Context(), id, req.Credentials)
+			result, err = manager.SetToken(r.Context(), id, req.Credentials)
 		}
 		if err != nil {
 			s.writeConnectorError(w, err)
@@ -124,7 +128,7 @@ func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
 			s.writeConnectorError(w, errors.New("logout clears the entire connector; omit component"))
 			return
 		}
-		if err := s.connectorAuth.Logout(r.Context(), id); err != nil {
+		if err := manager.Logout(r.Context(), id); err != nil {
 			s.writeConnectorError(w, err)
 			return
 		}

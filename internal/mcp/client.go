@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -393,7 +394,16 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 				env[key] = value
 			}
 		}
-		cmd.Env = connector.WithPath(builtins.EnsureBinInEnv(append(os.Environ(), envPairs(env)...)), []string{server.ConnectorBinDir})
+		baseEnv := os.Environ()
+		if server.IsolatedEnvironment {
+			baseEnv = nil
+			for _, key := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"} {
+				if value, ok := os.LookupEnv(key); ok {
+					baseEnv = append(baseEnv, key+"="+value)
+				}
+			}
+		}
+		cmd.Env = connector.WithPath(builtins.EnsureBinInEnv(append(baseEnv, envPairs(env)...)), []string{server.ConnectorBinDir})
 		if server.ConnectorOneID {
 			cmd.Env = agentconfig.WithIdentityEnvironment(cmd.Env, identity)
 		} else {
@@ -408,6 +418,9 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 			cmd.Err = nil
 		}
 		cmd.Stderr = os.Stderr
+		if server.IsolatedEnvironment {
+			cmd.Stderr = io.Discard
+		}
 		return &sdkmcp.CommandTransport{
 			Command:           cmd,
 			TerminateDuration: time.Second,

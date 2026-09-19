@@ -53,6 +53,8 @@ cmd/agent-platform/main.go
 
 核心模块边界：
 
+- `internal/webapp` 持有可信 Desktop 签发的短期能力 grant；`internal/connectorops` 校验包内 operations.json 并执行显式只读 CLI/MCP operation，个人授权由 `internal/connectorauth` 承接。WebApp 不接触凭据或登录流程；已发布产物经 `internal/chatresource` 在显式 Chat grant 内读取。当前无持久 appId Run 归属、后台授权或 WebApp automation/kanban 专属接口，见 [WebApp 能力接入](docs/WebApp能力接入.md)。
+
 - `internal/agent`：中立 mode 契约、公共 prompt 模板变量与 system-init spec；`internal/agent/builtin` 是 CODER/KBASE/TEAM 的静态分派点。
 - `internal/agent/coder`：CODER profile、prompt、planning、ACP/workspace 策略与创建默认策略。
 - `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init、创建默认值与严格工具/memory 边界。
@@ -68,7 +70,7 @@ cmd/agent-platform/main.go
 - `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
 - `internal/memory`：SQLite memory、FTS 文本检索、上下文召回与显式生命周期整理。
 - `internal/view`：VIEW 展示定义、声明资源、远端模板获取和 Chat 内容寻址快照；无 Tool 执行或 HITL 决策职责。VIEW 与 MCP/CLI 组件可组合，纯 VIEW 不授予 Bash/PATH。
-- `internal/connector`：中立连接器包/JSON/技能与 assets 图标结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取各 Agent 的 ru-agents/<agentKey>/connectors，MCP 按 Agent/连接器/组件建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级 token 保存/退出、null 模式显式受管 CLI 准备/扫码、普通 OAuth 授权码与 MCP OAuth 发现、PKCE、loopback 回调和持久化刷新；oneid-token 复用 Desktop identity-file，按调用环境注入 AP_ACCESS_TOKEN，HTTP MCP 按同一来源生成 Bearer Header，不复制 SSO 凭据到连接器状态目录。auth_bindings 声明包外凭证的 HTTP/Host CLI/stdio 消费映射；MCP 支持多资源 grant、客户端注册信息、元数据回退及追加授权。认证状态按秒驱动 MCP Registry 更新，不触碰包文件或重建 Agent。按用户凭据绑定与通用 runtime 安装尚未实现，见连接器专题。
+- `internal/connector`：中立连接器包/JSON/技能与 assets 图标结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取各 Agent 的 ru-agents/<agentKey>/connectors，MCP 按 Agent/连接器/组件建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级 token 保存/退出、null 模式显式受管 CLI 准备/扫码、普通 OAuth 授权码与 MCP OAuth 发现、PKCE、loopback 回调和持久化刷新；oneid-token 复用 Desktop identity-file，按调用环境注入 AP_ACCESS_TOKEN，HTTP MCP 按同一来源生成 Bearer Header，不复制 SSO 凭据到连接器状态目录。auth_bindings 声明包外凭证的 HTTP/Host CLI/stdio 消费映射；MCP 支持多资源 grant、客户端注册信息、元数据回退及追加授权。认证状态按秒驱动 MCP Registry 更新，不触碰包文件或重建 Agent。WebApp 专属入口已支持按 subject/default binding 隔离的个人凭据，既有 Agent/管理接口仍为部署级；通用 runtime 安装与全局凭据迁移尚未实现，见连接器专题。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析；Team 只接受目录式 orchestrated 定义，并以原子快照冻结成员、协调器配置和 prompt。
 - `internal/config`：环境变量、YAML、默认值。
 - `internal/httpclient`：Platform 出站 HTTP 客户端工厂、显式/环境/系统固定代理解析与缓存刷新；内部服务使用直连客户端，不修改标准库全局 Transport 或进程环境；默认 `auto` 在 Windows/macOS 上跳过 PAC/WPAD 并在无适用固定代理时直连；显式 `pac_auto` 启用 Windows WinHTTP PAC/WPAD（企业网络待目标系统验证），仅无显式 PAC 的 WPAD 发现返回 12180 时按无代理直连；解析失败标记 `proxy=unresolved`，DNS 与 Windows 网络错误提供脱敏分类。macOS PAC/WPAD 尚未实现，`pac_auto` 命中不支持的自动代理时报错。

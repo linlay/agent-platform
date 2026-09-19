@@ -42,7 +42,10 @@ func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Request {
-	if !s.deps.Config.Auth.Enabled || !strings.HasPrefix(r.URL.Path, "/api/") {
+	if strings.HasPrefix(r.URL.Path, "/api/webapp/") {
+		return r // Every application route validates its own restricted grant.
+	}
+	if (!s.deps.Config.Auth.Enabled && !strings.HasPrefix(r.URL.Path, "/api/desktop/")) || !strings.HasPrefix(r.URL.Path, "/api/") {
 		return r
 	}
 	if r.Method == http.MethodOptions {

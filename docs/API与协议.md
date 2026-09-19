@@ -2,6 +2,8 @@
 
 ## 当前状态
 
+WebApp 的 `/api/desktop/webapp/grants`、个人连接器认证，以及 `/api/webapp/connector/*`、`/api/webapp/artifact/*` 采用独立能力授权，详见 [WebApp 能力接入](WebApp能力接入.md)。这些入口不是全局管理 API 的透传。
+
 运行时提供 HTTP REST、SSE 与 WebSocket 三类协议入口。REST 承载 catalog、chat、automation、memory、resource 等请求；`POST /api/query` 使用 SSE 返回实时 run stream；`GET /ws` 是 WebSocket 控制面，复用一批 `/api/*` route，并用 `stream` frame 承载实时事件。
 
 所有非 SSE HTTP JSON 接口统一返回：

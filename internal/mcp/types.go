@@ -11,6 +11,7 @@ import (
 )
 
 type ServerDefinition struct {
+	IsolatedEnvironment    bool
 	AgentKey               string
 	SourceKey              string
 	RuntimeDigest          string

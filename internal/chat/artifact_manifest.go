@@ -136,3 +136,25 @@ func writeArtifactManifest(path string, manifest ArtifactManifest) error {
 	}
 	return atomicReplaceFile(tmpName, path)
 }
+
+// PublishedArtifacts reads the Chat-scoped source of truth without replaying
+// messages or dropping run identity. There is intentionally no global lookup.
+func (s *FileStore) PublishedArtifacts(chatID string) ([]ArtifactManifestItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !ValidChatID(chatID) {
+		return nil, os.ErrPermission
+	}
+	summary, err := s.loadSummary(chatID)
+	if err != nil {
+		return nil, err
+	}
+	if summary == nil {
+		return nil, ErrChatNotFound
+	}
+	manifest, _, err := loadArtifactManifest(s.ChatDir(chatID), chatID)
+	if err != nil {
+		return nil, err
+	}
+	return append([]ArtifactManifestItem{}, manifest.Items...), nil
+}

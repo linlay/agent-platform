@@ -33,6 +33,7 @@ import (
 	"agent-platform/internal/skills"
 	terminalpkg "agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
+	"agent-platform/internal/webapp"
 	"agent-platform/internal/ws"
 )
 
@@ -158,6 +159,7 @@ type Server struct {
 	backgroundCancel  context.CancelFunc
 	shutdownHookOnce  sync.Once
 	connectorAuth     *connectorauth.Manager
+	webappGrants      *webapp.Grants
 	skillOrder        *catalogorder.FileOrderStore
 	connectorOrder    *catalogorder.FileOrderStore
 }
@@ -259,6 +261,7 @@ func New(deps Dependencies) (*Server, error) {
 	}
 	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
 	s.connectorOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.EffectiveConnectorsCenterDir())
+	s.webappGrants = webapp.NewGrants(backgroundCtx)
 	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), nil).WithIdentityFile(s.deps.Config.IdentityFile)
 	if s.deps.Runtime == nil {
 		// Compatibility for direct package tests and small embedders. app.New
