@@ -1224,3 +1224,9 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 `/api/submit` 不要求创建与提交的 transport、device boundary 或 lane 相同，允许桌面创建、手机审批及 HTTP/WS 交叉提交。HTTP/WS 的既有认证、Agent/Team owner、等待项和提交参数校验及重复提交仲裁保持不变；其他 Run 控制入口仍执行原通道归属检查。
 
 `run_query` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 `runOrigin`；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
+
+## 通用智能体根目录与项目目录
+
+`runtimeConfig.workspaceRoot: "@root"` 显式表示通用根目录智能体。Catalog 保留该意图，同时把运行时 Workspace 解析为本机绝对根目录：macOS/Linux 为 `/`，Windows 为 Platform 当前驱动器根目录。工具相对路径、`@workspace`、运行上下文和目录权限使用解析后的真实路径；该值不增加跨盘权限，不绕过 readonly、审批、KBASE 根目录限制或根目录扫描禁令。
+
+公共 HTTP/WebSocket `/api/agents`（包括 includeTeam）与 Admin 摘要的 `workspaceDir` 只表达项目目录：`@root` 省略该字段，普通绝对目录（包括显式 `/`）继续返回解析后的目录，未配置时也省略。Admin 原始 definition 保存 `"@root"`，编辑、导入、重载不得把它改写为实际根路径。Desktop 据 `workspaceDir` 是否非空区分 Projects，不按 mode 或路径形状猜测通用身份。现有通用智能体的 `/` 配置需显式改为 `"@root"`；不自动迁移所有根路径，以免改变显式项目配置的语义。
