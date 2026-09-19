@@ -1,0 +1,545 @@
+{
+  "version": 1,
+  "operations": [
+    {
+      "operationId": "identity.whoami",
+      "description": "identity.whoami",
+      "effect": "read",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "identity",
+          "whoami"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ],
+        "textFields": [
+          {
+            "source": "extra_identity_context",
+            "pattern": "授权真人用户身份：\\s*名字：(?P<userName>[^\\r\\n]+)\\s*ID：(?P<userId>[^\\r\\n]+)"
+          }
+        ]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "userId",
+          "userName"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "userName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "errcode": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "operationId": "calendar.schedules.list",
+      "description": "calendar.schedules.list",
+      "effect": "read",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "calendar",
+          "schedules",
+          "list"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ],
+        "jsonFlag": "--json"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "begin_time": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+          },
+          "end_time": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+          }
+        },
+        "required": [
+          "begin_time",
+          "end_time"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "schedule_list": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "schedule_list_count": {
+            "type": "integer"
+          },
+          "errcode": {
+            "const": 0
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "schedule_list"
+            ]
+          },
+          {
+            "required": [
+              "schedule_list_count"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operationId": "meeting.list",
+      "description": "meeting.list",
+      "effect": "read",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "meeting",
+          "list"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ],
+        "jsonFlag": "--json"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "begin_time": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+          },
+          "end_time": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "begin_time",
+          "end_time"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "created_meetings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "attended_meetings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "errcode": {
+            "const": 0
+          }
+        },
+        "required": [
+          "has_more"
+        ]
+      }
+    },
+    {
+      "operationId": "smartsheet.sheets.list",
+      "description": "smartsheet.sheets.list",
+      "effect": "read",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "smartsheet",
+          "sheets",
+          "list"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ],
+        "jsonFlag": "--json"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "docid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "docid"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "sheets"
+        ],
+        "properties": {
+          "errcode": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "operationId": "smartsheet.fields.list",
+      "description": "smartsheet.fields.list",
+      "effect": "read",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "smartsheet",
+          "fields",
+          "list"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ],
+        "jsonFlag": "--json"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "docid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sheet_title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "docid",
+          "sheet_title"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "fields"
+        ],
+        "properties": {
+          "errcode": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "operationId": "smartsheet.views.list",
+      "description": "smartsheet.views.list",
+      "effect": "read",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "smartsheet",
+          "views",
+          "list"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ],
+        "jsonFlag": "--json"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "docid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sheet_title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "docid",
+          "sheet_title"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "views"
+        ],
+        "properties": {
+          "errcode": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "operationId": "smartsheet.records.query",
+      "description": "smartsheet.records.query",
+      "effect": "read",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "smartsheet",
+          "records",
+          "query"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ],
+        "parameters": [
+          {
+            "field": "docid",
+            "flag": "--docid"
+          },
+          {
+            "field": "sql",
+            "flag": "--sql",
+            "repeat": true,
+            "readSQL": true
+          }
+        ]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "docid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sql": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        "required": [
+          "docid",
+          "sql"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "values"
+        ],
+        "properties": {
+          "values": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "errcode": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "operationId": "message.sessions.list",
+      "description": "message.sessions.list",
+      "effect": "read",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "message",
+          "aibot",
+          "sessions",
+          "list"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "sessions_count": {
+            "type": "integer"
+          },
+          "errcode": {
+            "const": 0
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "sessions"
+            ]
+          },
+          {
+            "required": [
+              "sessions_count"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operationId": "message.send",
+      "description": "message.send",
+      "effect": "write",
+      "adapter": "cli",
+      "cli": {
+        "entry": "bin/libs/wecom-cli",
+        "entryWindows": "bin/libs/wecom-cli.exe",
+        "args": [
+          "message",
+          "aibot",
+          "send"
+        ],
+        "dropFields": [
+          "extra_identity_context"
+        ],
+        "jsonFlag": "--json"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "msg_type": {
+            "const": "markdown"
+          },
+          "markdown": {
+            "type": "object",
+            "properties": {
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              }
+            },
+            "required": [
+              "content"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "chat_id",
+          "msg_type",
+          "markdown"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "errcode": {
+            "const": 0
+          }
+        }
+      }
+    }
+  ]
+}

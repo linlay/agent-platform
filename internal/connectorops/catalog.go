@@ -6,6 +6,7 @@ package connectorops
 import (
 	"bytes"
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,11 +14,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"agent-platform/internal/connector"
 	"github.com/google/jsonschema-go/jsonschema"
 )
+
+//go:embed profiles/*.json
+var profiles embed.FS
 
 const MaxJSONBytes = 1 << 20
 
@@ -33,9 +38,13 @@ type Operation struct {
 	input, output *jsonschema.Resolved
 }
 type CLI struct {
-	Entry    string   `json:"entry"`
-	Args     []string `json:"args"`
-	JSONFlag string   `json:"jsonFlag"`
+	Entry        string         `json:"entry"`
+	Args         []string       `json:"args"`
+	JSONFlag     string         `json:"jsonFlag,omitempty"`
+	EntryWindows string         `json:"entryWindows,omitempty"`
+	Parameters   []CLIParameter `json:"parameters,omitempty"`
+	DropFields   []string       `json:"dropFields,omitempty"`
+	TextFields   []TextField    `json:"textFields,omitempty"`
 }
 type MCP struct {
 	Component string `json:"component"`
@@ -64,7 +73,13 @@ func Load(pkg connector.Package) (Catalog, error) {
 	p := filepath.Join(pkg.Dir, "operations.json")
 	info, err := os.Lstat(p)
 	if errors.Is(err, os.ErrNotExist) {
-		return result, nil
+		// Platform profiles provide reviewed mappings without changing installed
+		// connector packages. A package manifest takes precedence, never merges.
+		data, e := profiles.ReadFile("profiles/" + pkg.ID + ".json")
+		if e != nil {
+			return result, nil
+		}
+		return loadData(pkg, data)
 	}
 	if err != nil {
 		return result, err
@@ -81,6 +96,12 @@ func Load(pkg connector.Package) (Catalog, error) {
 	if err != nil || len(data) > MaxJSONBytes {
 		return result, fmt.Errorf("invalid operation manifest")
 	}
+	return loadData(pkg, data)
+}
+
+func loadData(pkg connector.Package, data []byte) (Catalog, error) {
+	result := Catalog{ConnectorID: pkg.ID, Operations: []Operation{}}
+	var err error
 	var raw struct {
 		Version    int           `json:"version"`
 		Operations []declaration `json:"operations"`
@@ -95,7 +116,7 @@ func Load(pkg connector.Package) (Catalog, error) {
 	}
 	seen := map[string]bool{}
 	for _, item := range raw.Operations {
-		if !connector.ValidID(item.ID) || len(item.ID) > 128 || seen[item.ID] || item.Effect != "read" {
+		if !connector.ValidID(item.ID) || len(item.ID) > 128 || seen[item.ID] || (item.Effect != "read" && item.Effect != "write") {
 			return result, fmt.Errorf("invalid or unsupported operation")
 		}
 		seen[item.ID] = true
@@ -110,10 +131,13 @@ func Load(pkg connector.Package) (Catalog, error) {
 		}
 		switch op.Adapter {
 		case "cli":
-			if op.CLI == nil || op.MCP != nil || pkg.CLI == nil || op.CLI.JSONFlag != "--json" || len(op.CLI.Args) > 16 {
+			if op.CLI == nil || op.MCP != nil || pkg.CLI == nil || len(op.CLI.Args) > 16 {
 				return result, fmt.Errorf("invalid CLI operation")
 			}
-			if _, err = Entry(pkg, op.CLI.Entry); err != nil {
+			if err = validateCLI(*op.CLI); err != nil {
+				return result, err
+			}
+			if _, err = Entry(pkg, cliEntryForOS(*op.CLI, runtime.GOOS)); err != nil {
 				return result, err
 			}
 			for _, arg := range op.CLI.Args {

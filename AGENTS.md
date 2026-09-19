@@ -53,7 +53,7 @@ cmd/agent-platform/main.go
 
 核心模块边界：
 
-- `internal/webapp` 持有可信 Desktop 签发的短期能力 grant；`internal/connectorops` 校验包内 operations.json 并执行显式只读 CLI/MCP operation，连接器授权复用 `internal/connectorauth` 的现有部署级凭据。WebApp 不接触凭据或登录流程；已发布产物经 `internal/chatresource` 在显式 Chat grant 内读取。当前无持久 appId Run 归属、后台授权或 WebApp automation/kanban 专属接口，见 [WebApp 能力接入](docs/WebApp能力接入.md)。
+- `internal/webapp` 持有可信 Desktop 签发的短期能力 grant；`internal/connectorops` 校验包内 operations.json 或随服务发布的已注册 profile，并执行显式 CLI/MCP operation；写操作要求独立 grant 与持久去重收据，连接器授权复用 `internal/connectorauth` 的现有部署级凭据。WebApp 不接触凭据或登录流程；已发布产物经 `internal/chatresource` 在显式 Chat grant 内读取。当前无持久 appId Run 归属、后台授权或 WebApp automation/kanban 专属接口，见 [WebApp 能力接入](docs/WebApp能力接入.md)。
 
 - `internal/agent`：中立 mode 契约、公共 prompt 模板变量与 system-init spec；`internal/agent/builtin` 是 CODER/KBASE/TEAM 的静态分派点。
 - `internal/agent/coder`：CODER profile、prompt、planning、ACP/workspace 策略与创建默认策略。

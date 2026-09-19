@@ -51,6 +51,7 @@ func (s *Server) handleWebappGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		AllowWrite bool                `json:"allowWrite,omitempty"`
 		AppID      string              `json:"appId"`
 		Operations map[string][]string `json:"operations"`
 		ChatIDs    []string            `json:"chatIds,omitempty"`
@@ -69,7 +70,7 @@ func (s *Server) handleWebappGrant(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	grant, err := s.webappGrants.IssueWithChats(subject, req.AppID, req.Operations, req.ChatIDs)
+	grant, err := s.webappGrants.IssueWithPermissions(subject, req.AppID, req.Operations, req.ChatIDs, req.AllowWrite)
 	if err != nil {
 		writeWebappError(w, err)
 		return
