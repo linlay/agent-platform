@@ -1214,7 +1214,7 @@ func TestHydrationReconcilesRestartAwaitingModesAndStructuredConflicts(t *testin
 	assertAwaitingSubmitConflict(t, restarted, "chat-wrong-identity", "run-expired-question", "await-expired-question", http.StatusBadRequest, "unknown_awaiting", "unknown")
 	unknown := httptest.NewRecorder()
 	restarted.ServeHTTP(unknown, httptest.NewRequest(http.MethodPost, "/api/submit", strings.NewReader(`{"chatId":"chat-unknown","runId":"run-unknown","agentKey":"mock-agent","awaitingId":"await-unknown"}`)))
-	if unknown.Code != http.StatusConflict || !strings.Contains(unknown.Body.String(), "run_control_identity_unavailable") {
+	if unknown.Code != http.StatusBadRequest || !strings.Contains(unknown.Body.String(), "unknown_awaiting") {
 		t.Fatalf("unknown run: %d %s", unknown.Code, unknown.Body.String())
 	}
 }

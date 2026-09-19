@@ -118,6 +118,6 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 
 native Agent/Team 协调器的 `/api/steer` 可传 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`，文字或有效引用至少一项。纯文本 selection 不要求视觉模型；图片与普通文件沿用当前 Chat 资源校验，非视觉模型保留图片工具读取引用。准入冻结输入，安全点消费后写入 steer JSONL 的 messages；回放、续聊使用同一快照。btw/explain 的记录留在隐藏分支，不改父 Chat。
 
-HTTP 创建的 Run 必须由 HTTP 控制，WS 创建的 Run 必须由同身份/设备/lane 的 WS 控制。submit 的等待项恢复以及 planning 创建的新执行 Run 继承原控制归属；旧 Run 缺少归属时返回 `run_control_identity_unavailable`，不由请求补写归属。详见 [API与协议](API与协议.md)。
+HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创建连接的 transport、device 或 lane；既有 Agent/Team owner、等待项、参数校验和重复提交仲裁保持不变。其他 Run 控制入口仍要求原连接归属；等待项恢复以及 planning 创建的新执行 Run 继承原控制归属，不由 Submit 请求改绑。详见 [API与协议](API与协议.md)。
 
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用与模型消息快照持久化，未提供编号时不生成编号字段。

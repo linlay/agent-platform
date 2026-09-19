@@ -342,9 +342,9 @@ HTTP `POST /api/query` 的 `lane:"btw"` 用于“顺便问”（旧 `/api/btw` �
 
 BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
 
-Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane，连接 source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`。三者发起 Run 统一发送 route `/api/query`：Platform 根据已认证连接身份将 main 送入普通 query，将 btw/explain 送入隐藏只读分支，payload 不能覆盖 lane。旁聊沿用 BTW payload（含可选 `btwId`），同一连接可创建、续问和 attach 多个分支 Run。WS `/api/btw` 仅保留为旁聊 lane 的兼容入口；HTTP 统一使用 `POST /api/query`，body 的 `lane` 缺省或 `main` 执行主聊天、`btw` 执行隐藏分支；`explain` 返回 403 `explain_ws_required`，其他值返回 400 `invalid_lane`，均不创建 Chat。网页仍使用 SSE，也支持 `stream:false` JSON。旧 HTTP `/api/btw` 保留兼容；新版网页须配套新版 Platform，旧版可能忽略 lane 字段。attach、detach、submit、steer、interrupt、access-level 在既有 agent/team owner 校验之外，执行下述 Run 控制归属校验。
+Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane，连接 source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`。三者发起 Run 统一发送 route `/api/query`：Platform 根据已认证连接身份将 main 送入普通 query，将 btw/explain 送入隐藏只读分支，payload 不能覆盖 lane。旁聊沿用 BTW payload（含可选 `btwId`），同一连接可创建、续问和 attach 多个分支 Run。WS `/api/btw` 仅保留为旁聊 lane 的兼容入口；HTTP 统一使用 `POST /api/query`，body 的 `lane` 缺省或 `main` 执行主聊天、`btw` 执行隐藏分支；`explain` 返回 403 `explain_ws_required`，其他值返回 400 `invalid_lane`，均不创建 Chat。网页仍使用 SSE，也支持 `stream:false` JSON。旧 HTTP `/api/btw` 保留兼容；新版网页须配套新版 Platform，旧版可能忽略 lane 字段。attach、detach、steer、interrupt、access-level 在既有 agent/team owner 校验之外，执行下述 Run 控制归属校验。
 
-Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，保存在 `.state/run-controls/<runId哈希>.json`；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/submit/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
+以下控制归属限制不适用于 HITL Submit。Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，保存在 `.state/run-controls/<runId哈希>.json`；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
 
 归属不绑定 sessionId 或 surfaceId，同 lane 重连/关窗重开可按 lastSeq attach。归属文件在 Run 结束后保留；planning 后续执行 Run 继承源 Run 归属，等待项跨进程恢复仍使用原记录。内部 Run 调度与控制走内部调用路径，不由客户端声明内部身份。
 
@@ -1217,3 +1217,10 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用与模型消息快照持久化，未提供编号时不生成编号字段。
 
 主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；run_query 工具入口仍要求文字。
+
+
+### HITL 提交与创建通道分离
+
+`/api/submit` 不要求创建与提交的 transport、device boundary 或 lane 相同，允许桌面创建、手机审批及 HTTP/WS 交叉提交。HTTP/WS 的既有认证、Agent/Team owner、等待项和提交参数校验及重复提交仲裁保持不变；其他 Run 控制入口仍执行原通道归属检查。
+
+`run_query` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 `runOrigin`；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。

@@ -29,7 +29,8 @@ func FromContext(ctx context.Context) Scope {
 	if s, ok := ctx.Value(contextKey{}).(Scope); ok {
 		return s
 	}
-	return Scope{Transport: "internal"}
+	// In-process creation has no network transport; origin belongs to RunOrigin.
+	return Scope{}
 }
 
 type Store struct{ Root string }
@@ -53,7 +54,8 @@ func (s Store) Load(runID string) (Scope, error) {
 	if err = json.Unmarshal(data, &scope); err != nil {
 		return scope, err
 	}
-	if scope.Transport != "http" && scope.Transport != "ws" && scope.Transport != "internal" {
+	// Read legacy internal records without rewriting existing Runs. New Runs use empty transport.
+	if scope.Transport != "" && scope.Transport != "http" && scope.Transport != "ws" && scope.Transport != "internal" {
 		return scope, fmt.Errorf("invalid stored control transport")
 	}
 	return scope, nil

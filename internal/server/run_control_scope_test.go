@@ -85,7 +85,7 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 			}
 		}
 	}
-	routes := []string{"/api/attach", "/api/detach", "/api/submit", "/api/steer", "/api/interrupt", "/api/access-level"}
+	routes := []string{"/api/attach", "/api/detach", "/api/steer", "/api/interrupt", "/api/access-level"}
 	for _, from := range lanes {
 		for _, to := range lanes {
 			if from == to {

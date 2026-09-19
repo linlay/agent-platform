@@ -18,9 +18,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req = s.normalizeActiveSubmitRun(req)
-	if !s.validateHTTPRunControl(w, r, req.RunID) {
-		return
-	}
+	// HITL may be answered from another authenticated device or transport.
 	req.Locale = requestLocale(r, responseLocale(w))
 	result, err := s.deps.Runtime.Submit(r.Context(), runtimeSubmitCommand(req))
 	if err != nil {
