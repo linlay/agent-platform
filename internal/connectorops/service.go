@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -29,23 +30,27 @@ type Scope struct {
 	Subject string
 	AppID   string
 	// Allowed operations are frozen by a trusted grant issuer, not request JSON.
+	AllowWrite bool
 	Chats      map[string]bool
 	Operations map[string][]string
 	Check      func() error
 }
 type Request struct {
-	ConnectorID string         `json:"connectorId"`
-	OperationID string         `json:"operationId"`
-	Revision    string         `json:"revision"`
-	Arguments   map[string]any `json:"arguments"`
+	ConnectorID        string         `json:"connectorId"`
+	OperationID        string         `json:"operationId"`
+	Revision           string         `json:"revision"`
+	Arguments          map[string]any `json:"arguments"`
+	CredentialRevision string         `json:"credentialRevision,omitempty"`
+	IdempotencyKey     string         `json:"idempotencyKey,omitempty"`
 }
 type Result struct {
-	InvocationID string         `json:"invocationId"`
-	ConnectorID  string         `json:"connectorId"`
-	OperationID  string         `json:"operationId"`
-	Revision     string         `json:"revision"`
-	Status       string         `json:"status"`
-	Output       map[string]any `json:"output"`
+	CredentialRevision string         `json:"credentialRevision"`
+	InvocationID       string         `json:"invocationId"`
+	ConnectorID        string         `json:"connectorId"`
+	OperationID        string         `json:"operationId"`
+	Revision           string         `json:"revision"`
+	Status             string         `json:"status"`
+	Output             map[string]any `json:"output"`
 }
 type Service struct {
 	Auth    *connectorauth.Manager
@@ -85,8 +90,7 @@ func (s *Service) Describe(scope Scope, id string) (Catalog, error) {
 	catalog.Operations = filtered
 	return catalog, nil
 }
-func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (Result, error) {
-	result := Result{}
+func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result Result, returnErr error) {
 	if !scope.permits(req.ConnectorID, req.OperationID) {
 		return result, failure("operation_not_allowed", 403)
 	}
@@ -107,12 +111,20 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (Result,
 	if selected == nil {
 		return result, failure("operation_not_allowed", 403)
 	}
+	if selected.Effect == "write" && !scope.AllowWrite {
+		return result, failure("write_permission_required", 403)
+	}
 	if req.Arguments == nil {
 		req.Arguments = map[string]any{}
 	}
 	encoded, err := json.Marshal(req.Arguments)
 	if err != nil || len(encoded) > MaxJSONBytes || validateValue(selected.input, encoded) != nil {
 		return result, failure("invalid_arguments", 400)
+	}
+	if selected.CLI != nil {
+		if _, err := cliArguments(*selected.CLI, encoded); err != nil {
+			return result, err
+		}
 	}
 	auth := s.Auth
 	if auth == nil {
@@ -151,6 +163,9 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (Result,
 	if err != nil {
 		return result, failure("connector_auth_required", 401)
 	}
+	if req.CredentialRevision != "" && req.CredentialRevision != revision {
+		return result, failure("connector_auth_expired", 401)
+	}
 	// Credential resolution and login checks can block; recheck grants and package
 	// revision immediately before starting the actual business operation.
 	fresh, err := Load(pkg)
@@ -159,6 +174,22 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (Result,
 	}
 	if !scope.permits(req.ConnectorID, req.OperationID) {
 		return result, failure("operation_not_allowed", 403)
+	}
+	var receiptFile string
+	if selected.Effect == "write" {
+		var previous *Result
+		receiptFile, previous, err = beginWrite(s.Sources.PersistentRoot(), scope, req)
+		if err != nil {
+			return result, err
+		}
+		if previous != nil {
+			return *previous, nil
+		}
+		defer func() {
+			if returnErr != nil {
+				returnErr = failure("invocation_outcome_unknown", 409)
+			}
+		}()
 	}
 	var output map[string]any
 	if selected.CLI != nil {
@@ -183,7 +214,13 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (Result,
 	if validateValue(selected.output, outputJSON) != nil {
 		return result, failure("invalid_upstream_response", 502)
 	}
-	return Result{InvocationID: rand.Text(), ConnectorID: req.ConnectorID, OperationID: req.OperationID, Revision: req.Revision, Status: "succeeded", Output: output}, nil
+	result = Result{CredentialRevision: revision, InvocationID: rand.Text(), ConnectorID: req.ConnectorID, OperationID: req.OperationID, Revision: req.Revision, Status: "succeeded", Output: output}
+	if receiptFile != "" {
+		if err := finishWrite(receiptFile, req, result); err != nil {
+			return Result{}, err
+		}
+	}
+	return result, nil
 }
 
 type boundedBuffer struct {
@@ -205,11 +242,14 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 func callCLI(ctx context.Context, pkg connector.Package, op CLI, args []byte) (map[string]any, error) {
-	entry, err := Entry(pkg, op.Entry)
+	entry, err := Entry(pkg, cliEntryForOS(op, runtime.GOOS))
 	if err != nil {
 		return nil, failure("connector_unavailable", 503)
 	}
-	argv := append(append([]string{}, op.Args...), op.JSONFlag, string(args))
+	argv, err := cliArguments(op, args)
+	if err != nil {
+		return nil, err
+	}
 	cmd := exec.CommandContext(ctx, entry, argv...)
 	configureProcess(cmd)
 	cmd.Dir = pkg.Dir
@@ -248,7 +288,11 @@ func callCLI(ctx context.Context, pkg connector.Package, op CLI, args []byte) (m
 	if out.overflow {
 		return nil, failure("invalid_upstream_response", 502)
 	}
-	return decodeOutput(out.b.Bytes())
+	output, err := decodeOutput(out.b.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	return projectOutput(op, output)
 }
 func decodeOutput(data []byte) (map[string]any, error) {
 	if len(data) > MaxJSONBytes {

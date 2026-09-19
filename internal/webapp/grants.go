@@ -23,6 +23,7 @@ type Grant struct {
 	Token      string `json:"token,omitempty"`
 	AppID      string `json:"appId"`
 	ExpiresAt  int64  `json:"expiresAt"`
+	allowWrite bool
 	subject    string
 	operations map[string][]string
 	chats      map[string]bool
@@ -45,6 +46,9 @@ func (g *Grants) Issue(subject, app string, operations map[string][]string) (Gra
 }
 
 func (g *Grants) IssueWithChats(subject, app string, operations map[string][]string, chats []string) (Grant, error) {
+	return g.IssueWithPermissions(subject, app, operations, chats, false)
+}
+func (g *Grants) IssueWithPermissions(subject, app string, operations map[string][]string, chats []string, allowWrite bool) (Grant, error) {
 	if len(chats) > 128 {
 		return Grant{}, ErrDenied
 	}
@@ -77,7 +81,7 @@ func (g *Grants) IssueWithChats(subject, app string, operations map[string][]str
 		return Grant{}, ErrDenied
 	}
 	ctx, cancel := context.WithTimeout(g.root, 15*time.Minute)
-	grant := Grant{ID: rand.Text(), Token: "wap_" + rand.Text(), AppID: app, ExpiresAt: time.Now().Add(15 * time.Minute).UnixMilli(), subject: subject, operations: copied, chats: chatMap, context: ctx, cancel: cancel}
+	grant := Grant{ID: rand.Text(), Token: "wap_" + rand.Text(), AppID: app, ExpiresAt: time.Now().Add(15 * time.Minute).UnixMilli(), allowWrite: allowWrite, subject: subject, operations: copied, chats: chatMap, context: ctx, cancel: cancel}
 	stored := grant
 	stored.Token = ""
 	g.entries[tokenKey(grant.Token)] = &stored
@@ -117,7 +121,7 @@ func (g *Grants) Scope(token string) (connectorops.Scope, context.Context, error
 	for id := range grant.chats {
 		chatMap[id] = true
 	}
-	return connectorops.Scope{Chats: chatMap, Subject: grant.subject, AppID: grant.AppID, Operations: copied, Check: check}, grant.context, nil
+	return connectorops.Scope{AllowWrite: grant.allowWrite, Chats: chatMap, Subject: grant.subject, AppID: grant.AppID, Operations: copied, Check: check}, grant.context, nil
 }
 func (g *Grants) Revoke(subject, id string) error {
 	g.mu.Lock()
