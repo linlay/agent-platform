@@ -222,6 +222,8 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/file", s.wsAgentFile)
 	handler.RegisterRoute("/api/viewport", s.wsViewport)
 	handler.RegisterRoute("/api/view", s.wsView)
+	handler.RegisterRoute("/api/project/git", s.wsProjectGit)
+	handler.RegisterRoute("/api/project/git/branches", s.wsProjectGitBranches)
 	handler.RegisterRoute("/api/resource", s.wsResource)
 	handler.RegisterRoute("/api/upload", s.wsDownload)
 }

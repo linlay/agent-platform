@@ -711,7 +711,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 
 Project 的 tree/changes/diff 三个端点是只读 HTTP 数据面，只接受服务端从 `agentKey` 解析出的精确 `mode: CODER|KBASE`，不接受 Team、其他 mode 或客户端 `workspaceRoot`。所有 `path` 都是 Workspace 相对 POSIX 路径：拒绝绝对路径、反斜杠、`..`、ChatsRoot、symlink 逃逸和 device file。KBASE 不要求 `editingMode:true`。
 
-`GET /api/project/git?agentKey=...` 是独立的只读 HTTP 查询，不扩展 `/api/agents`、`/api/agent`，不扫描工作区改动。仅按 catalog 中真实 `Workspace.Root` 解析 canonical 目录及 ChatsRoot 边界，不按 CODER/KBASE mode 限制；没有目录也不会退回 Agent 配置目录或当前进程目录。
+`GET /api/project/git?agentKey=...` 是独立的只读 HTTP/WS 查询，不扩展 `/api/agents`、`/api/agent`，不扫描工作区改动。仅按 catalog 中真实 `Workspace.Root` 解析 canonical 目录及 ChatsRoot 边界，不按 CODER/KBASE mode 限制；没有目录也不会退回 Agent 配置目录或当前进程目录。
 
 成功响应 `data` 为 `{agentKey,status,branch?,commit?,reason?,revision?}`：
 
@@ -1244,3 +1244,9 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 `runtimeConfig.workspaceRoot: "@root"` 显式表示通用根目录智能体。Catalog 保留该意图，同时把运行时 Workspace 解析为本机绝对根目录：macOS/Linux 为 `/`，Windows 为 Platform 当前驱动器根目录。工具相对路径、`@workspace`、运行上下文和目录权限使用解析后的真实路径；该值不增加跨盘权限，不绕过 readonly、审批、KBASE 根目录限制或根目录扫描禁令。
 
 公共 HTTP/WebSocket `/api/agents`（包括 includeTeam）与 Admin 摘要的 `workspaceDir` 只表达项目目录：`@root` 省略该字段，普通绝对目录（包括显式 `/`）继续返回解析后的目录，未配置时也省略。Admin 原始 definition 保存 `"@root"`，编辑、导入、重载不得把它改写为实际根路径。Desktop 据 `workspaceDir` 是否非空区分 Projects，不按 mode 或路径形状猜测通用身份。现有通用智能体的 `/` 配置需显式改为 `"@root"`；不自动迁移所有根路径，以免改变显式项目配置的语义。
+
+### Project Git WebSocket 控制面
+
+`/api/project/git` 的 WS payload 为 `{agentKey}`。`/api/project/git/branches` 读取 payload 为 `{agentKey}`；存在 `operation`、`branch` 或 `expectedRevision` 任一字段时按写请求处理，完整写 payload 与 HTTP POST 相同。两种传输复用 Project Service、目录边界、分支保护和 revision 冲突校验；错误保留 HTTP 状态码和领域 code。WS 写请求失败不自动重试或回退 HTTP。
+
+WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Workspace 首次按需探测，不要求 `expectedBranch`。快照采用短期内存缓存，分支列表按需加载，写入成功复用返回快照，写前仍由服务端实时校验。
