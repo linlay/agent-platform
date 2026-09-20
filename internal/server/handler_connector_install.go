@@ -47,8 +47,14 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	pkg, err := withCatalogTransaction(r.Context(), s, func(ctx context.Context) (connector.Package, error) {
-		return connector.ImportArchive(ctx, s.connectorSources(), f, files[0].Size, overwrite, mcp.ValidateConnectorPackages, func() error {
+	prepared, err := connector.PrepareArchive(r.Context(), s.connectorSources(), f, files[0].Size)
+	if err != nil {
+		s.writeConnectorError(w, err)
+		return
+	}
+	defer prepared.Close()
+	pkg, err := withCatalogDirectoryTransaction(r.Context(), s, "connectors", func(ctx context.Context) (connector.Package, error) {
+		return prepared.Publish(ctx, overwrite, mcp.ValidateConnectorPackages, func() error {
 			if s.deps.CatalogReloader != nil {
 				return s.deps.CatalogReloader.Reload(context.WithoutCancel(ctx), "connectors")
 			}

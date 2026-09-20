@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/reload"
@@ -30,6 +31,8 @@ func TestConnectorMutationsWithActiveWatcher(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reloader := f.catalogReloader.(*reload.RuntimeCatalogReloader)
+	counter := &catalogReloadCounter{}
+	reloader.AddObserver(counter)
 	reload.StartBackgroundReloaders(ctx, f.cfg, reloader)
 	upload := func(id string, overwrite bool) {
 		t.Helper()
@@ -90,6 +93,10 @@ func TestConnectorMutationsWithActiveWatcher(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, id)); !os.IsNotExist(err) {
 			t.Fatalf("deleted connector remains: %v", err)
 		}
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if got := counter.count.Load(); got != 5 {
+		t.Fatalf("five connector mutations caused %d reloads", got)
 	}
 	// Confirm suspension did not permanently disable resource monitoring.
 	probe := filepath.Join(f.cfg.Paths.SkillsCenterDir, "mock-skill")

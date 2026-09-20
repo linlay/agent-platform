@@ -30,7 +30,7 @@ func TestCatalogMutationFailureReloadsChangesMadeWhileWatcherSuspended(t *testin
 	reloader := fixture.catalogReloader.(*reload.RuntimeCatalogReloader)
 	reload.StartBackgroundReloaders(ctx, fixture.cfg, reloader)
 	injected := errors.New("injected mutation failure")
-	err := reloader.WithCatalogMutation(ctx, func(context.Context) error {
+	err := reloader.WithCatalogDirectoryMutation(ctx, "skills", func(context.Context) error {
 		// This event cannot be observed: the watcher has released its handles.
 		// A failed mutation must still reconcile unrelated changes on resume.
 		if err := os.WriteFile(filepath.Join(probeDir, "SKILL.md"), []byte("---\nname: suspended-probe\ndescription: Changed while suspended\n---\n\nProbe.\n"), 0o644); err != nil {

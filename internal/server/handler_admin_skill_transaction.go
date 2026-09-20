@@ -49,7 +49,23 @@ func (s *Server) handleAdminSkillTransaction(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) transactAdminSkill(ctx context.Context, req adminSkillTransactionRequest) (catalog.EditableSkillSnapshot, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (catalog.EditableSkillSnapshot, error) {
+	var prepared *catalog.PreparedEditableSkill
+	if req.Operation == "replace" {
+		if strings.TrimSpace(req.ExpectedRevision) == "" || len(req.Archive) == 0 {
+			return catalog.EditableSkillSnapshot{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "expectedRevision and archiveBase64 are required")
+		}
+		registry, err := s.adminSkillRegistry()
+		if err != nil {
+			return catalog.EditableSkillSnapshot{}, err
+		}
+		prepared, err = registry.PrepareEditableSkillArchive(req.Key, bytes.NewReader(req.Archive), int64(len(req.Archive)))
+		if err != nil {
+			return catalog.EditableSkillSnapshot{}, mapSkillEditError(err)
+		}
+		defer prepared.Close()
+	}
+
+	transact := func(ctx context.Context) (catalog.EditableSkillSnapshot, error) {
 		var empty catalog.EditableSkillSnapshot
 		if req.Operation != "snapshot" && req.Operation != "replace" && req.Operation != "delete" {
 			return empty, newAgentStatusError(http.StatusBadRequest, "invalid_request", "unknown skill transaction operation")
@@ -87,7 +103,7 @@ func (s *Server) transactAdminSkill(ctx context.Context, req adminSkillTransacti
 			if len(req.Archive) == 0 {
 				return empty, newAgentStatusError(http.StatusBadRequest, "invalid_request", "archiveBase64 is required")
 			}
-			m, _, beginErr := registry.BeginImportEditableSkillArchive(req.Key, bytes.NewReader(req.Archive), int64(len(req.Archive)), true)
+			m, _, beginErr := prepared.Begin(true)
 			if beginErr != nil {
 				return empty, mapSkillEditError(beginErr)
 			}
@@ -131,5 +147,9 @@ func (s *Server) transactAdminSkill(ctx context.Context, req adminSkillTransacti
 		}
 		result.Archive = nil
 		return result, nil
-	})
+	}
+	if req.Operation == "replace" || req.Operation == "delete" {
+		return withCatalogDirectoryTransaction(ctx, s, "skills", transact)
+	}
+	return withCatalogTransaction(ctx, s, transact)
 }

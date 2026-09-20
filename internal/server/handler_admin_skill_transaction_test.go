@@ -12,13 +12,21 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+type catalogReloadCounter struct{ count atomic.Int64 }
+
+func (c *catalogReloadCounter) CatalogReloaded(context.Context, string) { c.count.Add(1) }
 
 func TestAdminSkillTransactionCASAndFullSnapshot(t *testing.T) {
 	f := newTestFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	counter := &catalogReloadCounter{}
+	f.catalogReloader.(*reload.RuntimeCatalogReloader).AddObserver(counter)
 	reload.StartBackgroundReloaders(ctx, f.cfg, f.catalogReloader)
 	call := func(req adminSkillTransactionRequest, status int) catalog.EditableSkillSnapshot {
 		t.Helper()
@@ -40,6 +48,10 @@ func TestAdminSkillTransactionCASAndFullSnapshot(t *testing.T) {
 	missing := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "snapshot"}, 200)
 	if missing.Exists || missing.Revision != "missing" {
 		t.Fatalf("missing snapshot: %#v", missing)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if got := counter.count.Load(); got != 0 {
+		t.Fatalf("snapshot caused %d reloads", got)
 	}
 	a := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", ExpectedRevision: missing.Revision, Archive: archive("A")}, 200)
 	snapshot := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "snapshot"}, 200)
@@ -75,6 +87,10 @@ func TestAdminSkillTransactionCASAndFullSnapshot(t *testing.T) {
 	restored := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", ExpectedRevision: c.Revision, Archive: snapshot.Archive}, 200)
 	if restored.Revision != a.Revision {
 		t.Fatalf("round trip revision changed: %s != %s", restored.Revision, a.Revision)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if got := counter.count.Load(); got != 5 {
+		t.Fatalf("five successful mutations caused %d reloads", got)
 	}
 }
 

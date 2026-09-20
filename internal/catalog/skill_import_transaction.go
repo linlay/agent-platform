@@ -13,18 +13,75 @@ import (
 // succeeds. It shares the successful-move journal used by package transactions.
 type EditableSkillImportMutation struct{ *EditableSkillPackageMutation }
 
-func (r *FileRegistry) BeginImportEditableSkillArchive(key string, source io.ReaderAt, size int64, overwrite bool) (*EditableSkillImportMutation, AdminSkill, error) {
+// PreparedEditableSkill owns a validated, unpublished candidate. Close must be
+// called even when publication is rejected. It is not safe for concurrent use.
+type PreparedEditableSkill struct {
+	registry              *FileRegistry
+	key, stage, candidate string
+}
+
+func (p *PreparedEditableSkill) Close() { _ = os.RemoveAll(p.stage) }
+
+func (r *FileRegistry) PrepareEditableSkillArchive(key string, source io.ReaderAt, size int64) (*PreparedEditableSkill, error) {
 	if r == nil {
-		return nil, AdminSkill{}, fmt.Errorf("skill registry is not configured")
+		return nil, fmt.Errorf("skill registry is not configured")
 	}
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
-		return nil, AdminSkill{}, fmt.Errorf("skills center directory is not configured")
+		return nil, fmt.Errorf("skills center directory is not configured")
 	}
 	key = strings.TrimSpace(key)
 	if err := ValidateEditableSkillKey(key); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Clean(root)), 0o755); err != nil {
+		return nil, err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), editableSkillImportStagingPrefix)
+	if err != nil {
+		return nil, err
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			_ = os.RemoveAll(stage)
+		}
+	}()
+	candidate, err := importEditableSkillArchiveIntoRoot(stage, key, source, size)
+	if err != nil {
+		return nil, err
+	}
+	// Validate both the archive and its catalog interpretation before touching
+	// the installed directory, including skill.json and all runtime metadata.
+	item, err := buildAdminSkill(stage, key, nil, true)
+	if err != nil {
+		return nil, err
+	}
+	if item.Status != AdminSkillStatusReady {
+		diagnostics := make([]SkillArchiveDiagnostic, 0, len(item.Diagnostics))
+		for _, diagnostic := range item.Diagnostics {
+			diagnostics = append(diagnostics, SkillArchiveDiagnostic{Code: diagnostic.Code, Message: diagnostic.Message, SourcePath: archiveDiagnosticRelativePath(candidate, diagnostic.SourcePath)})
+		}
+		return nil, &SkillArchiveValidationError{Diagnostics: diagnostics}
+	}
+	keep = true
+	return &PreparedEditableSkill{registry: r, key: key, stage: stage, candidate: candidate}, nil
+}
+
+func (r *FileRegistry) BeginImportEditableSkillArchive(key string, source io.ReaderAt, size int64, overwrite bool) (*EditableSkillImportMutation, AdminSkill, error) {
+	prepared, err := r.PrepareEditableSkillArchive(key, source, size)
+	if err != nil {
 		return nil, AdminSkill{}, err
 	}
+	defer prepared.Close()
+	return prepared.Begin(overwrite)
+}
+
+// Begin rechecks the installed destination while the caller holds publication
+// coordination. All expensive extraction and static validation already finished.
+func (p *PreparedEditableSkill) Begin(overwrite bool) (*EditableSkillImportMutation, AdminSkill, error) {
+	r, key, stage, candidate := p.registry, p.key, p.stage, p.candidate
+	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	r.skillPackageMu.Lock()
 	owned := false
 	defer func() {
@@ -61,28 +118,6 @@ func (r *FileRegistry) BeginImportEditableSkillArchive(key string, source io.Rea
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, AdminSkill{}, err
 	}
-	stage, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), editableSkillImportStagingPrefix)
-	if err != nil {
-		return nil, AdminSkill{}, err
-	}
-	defer os.RemoveAll(stage)
-	candidate, err := importEditableSkillArchiveIntoRoot(stage, key, source, size)
-	if err != nil {
-		return nil, AdminSkill{}, err
-	}
-	// Validate both the archive and its catalog interpretation before touching
-	// the installed directory, including skill.json and all runtime metadata.
-	item, err := buildAdminSkill(stage, key, nil, true)
-	if err != nil {
-		return nil, AdminSkill{}, err
-	}
-	if item.Status != AdminSkillStatusReady {
-		diagnostics := make([]SkillArchiveDiagnostic, 0, len(item.Diagnostics))
-		for _, diagnostic := range item.Diagnostics {
-			diagnostics = append(diagnostics, SkillArchiveDiagnostic{Code: diagnostic.Code, Message: diagnostic.Message, SourcePath: archiveDiagnosticRelativePath(candidate, diagnostic.SourcePath)})
-		}
-		return nil, AdminSkill{}, &SkillArchiveValidationError{Diagnostics: diagnostics}
-	}
 	backup, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), ".skill-backup-")
 	if err != nil {
 		return nil, AdminSkill{}, err
@@ -100,7 +135,7 @@ func (r *FileRegistry) BeginImportEditableSkillArchive(key string, source io.Rea
 	if err := mutation.publishSkill(key, candidate); err != nil {
 		return fail(err)
 	}
-	item, err = buildAdminSkill(root, key, r.skillUsageByAgent()[key], true)
+	item, err := buildAdminSkill(root, key, r.skillUsageByAgent()[key], true)
 	if err != nil {
 		return fail(err)
 	}

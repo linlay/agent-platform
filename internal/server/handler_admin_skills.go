@@ -29,8 +29,8 @@ type adminSkillRegistry interface {
 	AdminSkill(key string) (catalog.AdminSkill, bool, error)
 	CreateEditableSkill(key string, skillMd string, files []catalog.EditableSkillInlineFile) (catalog.AdminSkill, error)
 	ImportEditableSkillArchive(key string, source io.ReaderAt, size int64) (catalog.AdminSkill, error)
-	BeginImportEditableSkillArchive(key string, source io.ReaderAt, size int64, overwrite bool) (*catalog.EditableSkillImportMutation, catalog.AdminSkill, error)
-	BeginImportEditableSkillPackageArchive(key string, version string, source io.ReaderAt, size int64) (*catalog.EditableSkillPackageMutation, catalog.SkillPackageRecord, error)
+	PrepareEditableSkillArchive(key string, source io.ReaderAt, size int64) (*catalog.PreparedEditableSkill, error)
+	PrepareEditableSkillPackageArchive(key string, version string, source io.ReaderAt, size int64) (*catalog.PreparedEditableSkillPackage, error)
 	BeginDeleteEditableSkillPackage(key string) (*catalog.EditableSkillPackageMutation, catalog.SkillPackageRecord, error)
 	BeginDeleteEditableSkillPackageSkill(packageID string, skillID string) (*catalog.EditableSkillPackageMutation, catalog.SkillPackageRecord, bool, error)
 	EditableSkillPackages() ([]catalog.SkillPackageRecord, error)
@@ -295,7 +295,7 @@ func (s *Server) handleAdminSkillValidate(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) createAdminSkill(ctx context.Context, req api.CreateAdminSkillRequest) (catalog.AdminSkill, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (catalog.AdminSkill, error) {
+	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (catalog.AdminSkill, error) {
 		registry, err := s.adminSkillRegistry()
 		if err != nil {
 			return catalog.AdminSkill{}, err
@@ -319,12 +319,17 @@ func (s *Server) createAdminSkill(ctx context.Context, req api.CreateAdminSkillR
 }
 
 func (s *Server) importAdminSkill(ctx context.Context, key string, source io.ReaderAt, size int64, replace ...bool) (catalog.AdminSkill, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (catalog.AdminSkill, error) {
-		registry, err := s.adminSkillRegistry()
-		if err != nil {
-			return catalog.AdminSkill{}, err
-		}
-		mutation, item, err := registry.BeginImportEditableSkillArchive(key, source, size, len(replace) > 0 && replace[0])
+	registry, err := s.adminSkillRegistry()
+	if err != nil {
+		return catalog.AdminSkill{}, err
+	}
+	prepared, err := registry.PrepareEditableSkillArchive(key, source, size)
+	if err != nil {
+		return catalog.AdminSkill{}, mapSkillEditError(err)
+	}
+	defer prepared.Close()
+	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (catalog.AdminSkill, error) {
+		mutation, item, err := prepared.Begin(len(replace) > 0 && replace[0])
 		if err != nil {
 			return catalog.AdminSkill{}, mapSkillEditError(err)
 		}
@@ -347,7 +352,7 @@ func (s *Server) importAdminSkill(ctx context.Context, key string, source io.Rea
 }
 
 func (s *Server) deleteAdminSkill(ctx context.Context, key string) (api.DeleteAdminSkillResponse, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.DeleteAdminSkillResponse, error) {
+	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.DeleteAdminSkillResponse, error) {
 		registry, err := s.adminSkillRegistry()
 		if err != nil {
 			return api.DeleteAdminSkillResponse{}, err
@@ -573,7 +578,7 @@ func (s *Server) mkdirAdminSkillFile(ctx context.Context, req api.MkdirAdminSkil
 }
 
 func (s *Server) renameAdminSkillFile(ctx context.Context, req api.RenameAdminSkillFileRequest) (api.AdminSkillMutationResponse, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.AdminSkillMutationResponse, error) {
+	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.AdminSkillMutationResponse, error) {
 		registry, err := s.adminSkillRegistry()
 		if err != nil {
 			return api.AdminSkillMutationResponse{}, err
@@ -594,7 +599,7 @@ func (s *Server) renameAdminSkillFile(ctx context.Context, req api.RenameAdminSk
 }
 
 func (s *Server) deleteAdminSkillFile(ctx context.Context, req api.DeleteAdminSkillFileRequest) (api.AdminSkillMutationResponse, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.AdminSkillMutationResponse, error) {
+	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.AdminSkillMutationResponse, error) {
 		registry, err := s.adminSkillRegistry()
 		if err != nil {
 			return api.AdminSkillMutationResponse{}, err

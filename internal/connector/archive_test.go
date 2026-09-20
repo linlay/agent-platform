@@ -130,3 +130,30 @@ func TestImportArchiveStagesOutsideConnectorRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPreparedConnectorRechecksLateConflictAndOperationLock(t *testing.T) {
+	sources := Sources{ExternalRoot: filepath.Join(t.TempDir(), "connectors-center")}
+	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": `{}`})
+	prepared, err := PrepareArchive(context.Background(), sources, bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	if _, err := os.Stat(filepath.Join(sources.ExternalRoot, "demo")); !os.IsNotExist(err) {
+		t.Fatal("preparation published package")
+	}
+	if _, err := ImportArchive(context.Background(), sources, bytes.NewReader(data), int64(len(data)), false, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepared.Publish(context.Background(), false, nil, nil); !errors.Is(err, ErrPackageExists) {
+		t.Fatalf("missed publication conflict: %v", err)
+	}
+	release, err := AcquireOperation(sources.ExternalRoot, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if _, err := prepared.Publish(context.Background(), true, nil, nil); !errors.Is(err, ErrBusy) {
+		t.Fatalf("preparation lock bypassed: %v", err)
+	}
+}

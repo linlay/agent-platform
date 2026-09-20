@@ -105,12 +105,8 @@ func (s *Server) handleAdminSkillPackageSkillDelete(w http.ResponseWriter, r *ht
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) importAdminSkillPackageLocked(ctx context.Context, key string, version string, source io.ReaderAt, size int64) (api.AdminSkillPackageResponse, error) {
-	registry, err := s.adminSkillRegistry()
-	if err != nil {
-		return api.AdminSkillPackageResponse{}, err
-	}
-	mutation, record, err := registry.BeginImportEditableSkillPackageArchive(key, version, source, size)
+func (s *Server) importAdminSkillPackageLocked(ctx context.Context, prepared *catalog.PreparedEditableSkillPackage) (api.AdminSkillPackageResponse, error) {
+	mutation, record, err := prepared.Begin()
 	if err != nil {
 		return api.AdminSkillPackageResponse{}, mapSkillEditError(err)
 	}
@@ -195,19 +191,28 @@ func adminSkillPackageResponse(record catalog.SkillPackageRecord) api.AdminSkill
 }
 
 func (s *Server) importAdminSkillPackage(ctx context.Context, key string, version string, source io.ReaderAt, size int64) (api.AdminSkillPackageResponse, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.AdminSkillPackageResponse, error) {
-		return s.importAdminSkillPackageLocked(ctx, key, version, source, size)
+	registry, err := s.adminSkillRegistry()
+	if err != nil {
+		return api.AdminSkillPackageResponse{}, err
+	}
+	prepared, err := registry.PrepareEditableSkillPackageArchive(key, version, source, size)
+	if err != nil {
+		return api.AdminSkillPackageResponse{}, mapSkillEditError(err)
+	}
+	defer prepared.Close()
+	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.AdminSkillPackageResponse, error) {
+		return s.importAdminSkillPackageLocked(ctx, prepared)
 	})
 }
 
 func (s *Server) deleteAdminSkillPackage(ctx context.Context, key string) (api.DeleteAdminSkillPackageResponse, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.DeleteAdminSkillPackageResponse, error) {
+	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.DeleteAdminSkillPackageResponse, error) {
 		return s.deleteAdminSkillPackageLocked(ctx, key)
 	})
 }
 
 func (s *Server) deleteAdminSkillPackageSkill(ctx context.Context, packageID, skillID string) (api.DeleteAdminSkillPackageSkillResponse, error) {
-	return withCatalogTransaction(ctx, s, func(ctx context.Context) (api.DeleteAdminSkillPackageSkillResponse, error) {
+	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.DeleteAdminSkillPackageSkillResponse, error) {
 		return s.deleteAdminSkillPackageSkillLocked(ctx, packageID, skillID)
 	})
 }

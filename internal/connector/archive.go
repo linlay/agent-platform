@@ -18,31 +18,53 @@ const maxArchiveBytes int64 = 256 << 20
 var ErrArchiveTooLarge = errors.New("connector ZIP exceeds size or file count limits")
 var ErrPackageExists = errors.New("connector already installed; overwrite is required")
 
+// PreparedArchive owns a validated unpublished connector tree. Publication
+// rechecks current installed packages under the connector operation lock.
+type PreparedArchive struct {
+	sources                Sources
+	root, stage, candidate string
+	pkg                    Package
+	keepStage              bool
+}
+
+func (p *PreparedArchive) Close() {
+	if !p.keepStage {
+		_ = os.RemoveAll(p.stage)
+	}
+}
+
 // ImportArchive publishes a fully validated package while sharing the same
 // mutation boundary as definition edits. Network availability is not validation.
 func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, size int64, overwrite bool, validate func([]Package) error, reload func() error) (Package, error) {
+	prepared, err := PrepareArchive(ctx, sources, source, size)
+	if err != nil {
+		return Package{}, err
+	}
+	defer prepared.Close()
+	return prepared.Publish(ctx, overwrite, validate, reload)
+}
+
+func PrepareArchive(ctx context.Context, sources Sources, source io.ReaderAt, size int64) (*PreparedArchive, error) {
 	if size <= 0 || size > MaxArchiveUploadBytes {
-		return Package{}, ErrArchiveTooLarge
+		return nil, ErrArchiveTooLarge
 	}
 	zr, err := zip.NewReader(source, size)
 	if err != nil {
-		return Package{}, fmt.Errorf("invalid connector ZIP: %w", err)
+		return nil, fmt.Errorf("invalid connector ZIP: %w", err)
 	}
 	if len(zr.File) > 8192 {
-		return Package{}, ErrArchiveTooLarge
+		return nil, ErrArchiveTooLarge
 	}
 	root, err := filepath.Abs(sources.ExternalRoot)
 	if err != nil || strings.TrimSpace(sources.ExternalRoot) == "" {
-		return Package{}, fmt.Errorf("connector root is required")
+		return nil, fmt.Errorf("connector root is required")
 	}
-	mutationMu.Lock()
-	defer mutationMu.Unlock()
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return Package{}, err
+	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+		return nil, err
 	}
 	stage, err := os.MkdirTemp(filepath.Dir(root), ".connector-import-")
 	if err != nil {
-		return Package{}, err
+		return nil, err
 	}
 	keepStage := false
 	defer func() {
@@ -58,29 +80,29 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 	for _, f := range zr.File {
 		n := strings.TrimSuffix(f.Name, "/")
 		if !safeArchivePath(n) {
-			return Package{}, fmt.Errorf("unsafe ZIP path %q", f.Name)
+			return nil, fmt.Errorf("unsafe ZIP path %q", f.Name)
 		}
 		if strings.HasPrefix(n, "__MACOSX/") || n == "__MACOSX" || path.Base(n) == ".DS_Store" {
 			continue
 		}
 		if f.Mode()&os.ModeSymlink != 0 || (!f.FileInfo().IsDir() && !f.Mode().IsRegular()) {
-			return Package{}, fmt.Errorf("unsupported ZIP entry %q", n)
+			return nil, fmt.Errorf("unsupported ZIP entry %q", n)
 		}
 		fold := strings.ToLower(n)
 		if _, ok := files[fold]; ok {
-			return Package{}, fmt.Errorf("duplicate ZIP path %q", n)
+			return nil, fmt.Errorf("duplicate ZIP path %q", n)
 		}
 		files[fold] = f
 		for p := n; p != "."; p = path.Dir(p) {
 			key := strings.ToLower(p)
 			if prior, exists := spellings[key]; exists && prior != p {
-				return Package{}, fmt.Errorf("case-conflicting ZIP paths %q and %q", prior, p)
+				return nil, fmt.Errorf("case-conflicting ZIP paths %q and %q", prior, p)
 			}
 			spellings[key] = p
 		}
 		if !f.FileInfo().IsDir() {
 			if f.UncompressedSize64 > 128<<20 || f.UncompressedSize64 > uint64(maxArchiveBytes)-total {
-				return Package{}, ErrArchiveTooLarge
+				return nil, ErrArchiveTooLarge
 			}
 			total += f.UncompressedSize64
 		}
@@ -90,80 +112,75 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 		}
 	}
 	if manifestCount != 1 || strings.Count(strings.TrimSuffix(prefix, "/"), "/") > 0 {
-		return Package{}, fmt.Errorf("ZIP requires one connector.json at root or inside one top-level directory")
+		return nil, fmt.Errorf("ZIP requires one connector.json at root or inside one top-level directory")
 	}
 	manifestFile := files[strings.ToLower(prefix+"connector.json")]
 	reader, err := manifestFile.Open()
 	if err != nil {
-		return Package{}, err
+		return nil, err
 	}
 	data, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
 	reader.Close()
 	if err != nil {
-		return Package{}, err
+		return nil, err
 	}
 	if len(data) > 1<<20 {
-		return Package{}, ErrArchiveTooLarge
+		return nil, ErrArchiveTooLarge
 	}
 	var manifest Manifest
 	if err := DecodeJSON(data, &manifest); err != nil {
-		return Package{}, err
+		return nil, err
 	}
 	if err := validateManifest(manifest.ID, manifest); err != nil {
-		return Package{}, err
+		return nil, err
 	}
 	if IsBuiltin(manifest.ID) {
-		return Package{}, ErrBuiltinReadOnly
+		return nil, ErrBuiltinReadOnly
 	}
 	if prefix != "" && strings.TrimSuffix(prefix, "/") != manifest.ID {
-		return Package{}, fmt.Errorf("ZIP directory must match connector id")
+		return nil, fmt.Errorf("ZIP directory must match connector id")
 	}
-	release, err := AcquireOperation(root, manifest.ID)
-	if err != nil {
-		return Package{}, err
-	}
-	defer release()
 	candidate := filepath.Join(stage, manifest.ID)
 	if err := os.Mkdir(candidate, 0o755); err != nil {
-		return Package{}, err
+		return nil, err
 	}
 	for _, f := range files {
 		if err := ctx.Err(); err != nil {
-			return Package{}, err
+			return nil, err
 		}
 		n := strings.TrimSuffix(f.Name, "/")
 		if prefix != "" && n == strings.TrimSuffix(prefix, "/") && f.FileInfo().IsDir() {
 			continue
 		}
 		if !strings.HasPrefix(n, prefix) {
-			return Package{}, fmt.Errorf("ZIP contains files outside connector directory")
+			return nil, fmt.Errorf("ZIP contains files outside connector directory")
 		}
 		rel := strings.TrimPrefix(n, prefix)
 		if !safeArchivePath(rel) {
-			return Package{}, fmt.Errorf("invalid ZIP layout")
+			return nil, fmt.Errorf("invalid ZIP layout")
 		}
 		if strings.HasPrefix(strings.Split(rel, "/")[0], ".") {
-			return Package{}, fmt.Errorf("hidden package root entries are reserved")
+			return nil, fmt.Errorf("hidden package root entries are reserved")
 		}
 		// Reject file/directory and case-insensitive ancestor collisions on all OSes.
 		for parent := path.Dir(n); parent != "."; parent = path.Dir(parent) {
 			if p := files[strings.ToLower(parent)]; p != nil && (!p.FileInfo().IsDir() || strings.TrimSuffix(p.Name, "/") != parent) {
-				return Package{}, fmt.Errorf("conflicting ZIP parent %q", parent)
+				return nil, fmt.Errorf("conflicting ZIP parent %q", parent)
 			}
 		}
 		target := filepath.Join(candidate, filepath.FromSlash(rel))
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(target, 0o755); err != nil {
-				return Package{}, err
+				return nil, err
 			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return Package{}, err
+			return nil, err
 		}
 		in, err := f.Open()
 		if err != nil {
-			return Package{}, err
+			return nil, err
 		}
 		mode := os.FileMode(0o644)
 		if f.Mode().Perm()&0o111 != 0 {
@@ -172,23 +189,39 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 		if err != nil {
 			in.Close()
-			return Package{}, err
+			return nil, err
 		}
 		count, copyErr := io.Copy(out, io.LimitReader(in, int64(f.UncompressedSize64)+1))
 		closeErr := out.Close()
 		in.Close()
 		if copyErr != nil {
-			return Package{}, copyErr
+			return nil, copyErr
 		}
 		if closeErr != nil {
-			return Package{}, closeErr
+			return nil, closeErr
 		}
 		if count != int64(f.UncompressedSize64) {
-			return Package{}, fmt.Errorf("ZIP entry size mismatch")
+			return nil, fmt.Errorf("ZIP entry size mismatch")
 		}
 	}
 	pkg, err := Load(stage, manifest.ID)
 	if err != nil {
+		return nil, err
+	}
+	keepStage = true
+	return &PreparedArchive{sources: sources, root: root, stage: stage, candidate: candidate, pkg: pkg}, nil
+}
+
+func (p *PreparedArchive) Publish(ctx context.Context, overwrite bool, validate func([]Package) error, reload func() error) (Package, error) {
+	sources, root, stage, candidate, pkg := p.sources, p.root, p.stage, p.candidate, p.pkg
+	mutationMu.Lock()
+	defer mutationMu.Unlock()
+	release, err := AcquireOperation(root, pkg.ID)
+	if err != nil {
+		return Package{}, err
+	}
+	defer release()
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return Package{}, err
 	}
 	installed, err := sources.loadAllExcept(pkg.ID)
@@ -232,7 +265,7 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 	if err := renameArchiveDirectory(ctx, "publish", candidate, target); err != nil {
 		if hadPrevious {
 			if restoreErr := renameArchiveDirectory(context.WithoutCancel(ctx), "restore_previous", backup, target); restoreErr != nil {
-				keepStage = true
+				p.keepStage = true
 				return Package{}, fmt.Errorf("install: %w; backup retained at %s: %w", err, backup, restoreErr)
 			}
 		}
@@ -243,12 +276,12 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 	}
 	if err != nil {
 		if restoreErr := renameArchiveDirectory(context.WithoutCancel(ctx), "rollback_publication", target, candidate); restoreErr != nil {
-			keepStage = true
+			p.keepStage = true
 			return Package{}, fmt.Errorf("reload: %v; cannot move failed package: %w", err, restoreErr)
 		}
 		if hadPrevious {
 			if restoreErr := renameArchiveDirectory(context.WithoutCancel(ctx), "restore_previous", backup, target); restoreErr != nil {
-				keepStage = true
+				p.keepStage = true
 				return Package{}, fmt.Errorf("reload: %v; cannot restore backup %s: %w", err, backup, restoreErr)
 			}
 		}

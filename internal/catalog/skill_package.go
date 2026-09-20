@@ -170,25 +170,90 @@ func (m *EditableSkillPackageMutation) release() {
 	}
 }
 
-func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version string, source io.ReaderAt, size int64) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
+// PreparedEditableSkillPackage separates immutable ZIP validation from the
+// installed-state checks and publication transaction.
+type PreparedEditableSkillPackage struct {
+	registry                                       *FileRegistry
+	packageID, version, stagingRoot, archiveSHA256 string
+	manifest                                       skillPackageManifest
+	skills                                         []preparedPackageSkill
+}
+
+func (p *PreparedEditableSkillPackage) Close() { _ = os.RemoveAll(p.stagingRoot) }
+
+func (r *FileRegistry) PrepareEditableSkillPackageArchive(packageID, version string, source io.ReaderAt, size int64) (*PreparedEditableSkillPackage, error) {
 	if r == nil {
-		return nil, SkillPackageRecord{}, fmt.Errorf("skill registry is not configured")
+		return nil, fmt.Errorf("skill registry is not configured")
 	}
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
-		return nil, SkillPackageRecord{}, fmt.Errorf("skills center directory is not configured")
+		return nil, fmt.Errorf("skills center directory is not configured")
 	}
 	packageID = strings.TrimSpace(packageID)
 	version = strings.TrimSpace(version)
 	if err := ValidateEditableSkillKey(packageID); err != nil {
-		return nil, SkillPackageRecord{}, err
+		return nil, err
 	}
 	if version == "" || source == nil || size <= 0 {
-		return nil, SkillPackageRecord{}, ErrSkillArchiveInvalid
+		return nil, ErrSkillArchiveInvalid
 	}
 	if size > EditableSkillPackageMaxUploadBytes {
-		return nil, SkillPackageRecord{}, ErrSkillArchiveUploadTooLarge
+		return nil, ErrSkillArchiveUploadTooLarge
 	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Clean(root)), 0o755); err != nil {
+		return nil, err
+	}
+	archiveSHA256, err := skillPackageArchiveSHA256(source, size)
+	if err != nil {
+		return nil, ErrSkillArchiveInvalid
+	}
+	reader, err := zip.NewReader(source, size)
+	if err != nil {
+		return nil, ErrSkillArchiveInvalid
+	}
+	entries, err := planEditableSkillPackageArchive(reader.File)
+	if err != nil {
+		return nil, err
+	}
+	stagingRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageImportStagingPrefix)
+	if err != nil {
+		return nil, err
+	}
+	cleanupStaging := true
+	defer func() {
+		if cleanupStaging {
+			_ = os.RemoveAll(stagingRoot)
+		}
+	}()
+	var extractedBytes int64
+	for _, entry := range entries {
+		written, extractErr := extractSafeArchiveEntry(stagingRoot, entry, EditableSkillPackageMaxArchiveBytes-extractedBytes, editableSkillPackageArchivePolicy())
+		if extractErr != nil {
+			return nil, extractErr
+		}
+		extractedBytes += written
+	}
+	manifest, prepared, err := validatePreparedSkillPackage(stagingRoot, packageID, version)
+	if err != nil {
+		return nil, err
+	}
+	cleanupStaging = false
+	return &PreparedEditableSkillPackage{registry: r, packageID: packageID, version: version, stagingRoot: stagingRoot, archiveSHA256: archiveSHA256, manifest: manifest, skills: prepared}, nil
+}
+
+func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version string, source io.ReaderAt, size int64) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
+	prepared, err := r.PrepareEditableSkillPackageArchive(packageID, version, source, size)
+	if err != nil {
+		return nil, SkillPackageRecord{}, err
+	}
+	defer prepared.Close()
+	return prepared.Begin()
+}
+
+func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, SkillPackageRecord, error) {
+	r, packageID, version := p.registry, p.packageID, p.version
+	stagingRoot, archiveSHA256, manifest, prepared := p.stagingRoot, p.archiveSHA256, p.manifest, p.skills
+	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	r.skillPackageMu.Lock()
 	lockOwnedByMutation := false
 	defer func() {
@@ -208,40 +273,6 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 	}
 	if !rootInfo.IsDir() {
 		return nil, SkillPackageRecord{}, fmt.Errorf("%w: skills center is not a directory", ErrInvalidSkillPath)
-	}
-	archiveSHA256, err := skillPackageArchiveSHA256(source, size)
-	if err != nil {
-		return nil, SkillPackageRecord{}, ErrSkillArchiveInvalid
-	}
-	reader, err := zip.NewReader(source, size)
-	if err != nil {
-		return nil, SkillPackageRecord{}, ErrSkillArchiveInvalid
-	}
-	entries, err := planEditableSkillPackageArchive(reader.File)
-	if err != nil {
-		return nil, SkillPackageRecord{}, err
-	}
-	stagingRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageImportStagingPrefix)
-	if err != nil {
-		return nil, SkillPackageRecord{}, err
-	}
-	cleanupStaging := true
-	defer func() {
-		if cleanupStaging {
-			_ = os.RemoveAll(stagingRoot)
-		}
-	}()
-	var extractedBytes int64
-	for _, entry := range entries {
-		written, extractErr := extractSafeArchiveEntry(stagingRoot, entry, EditableSkillPackageMaxArchiveBytes-extractedBytes, editableSkillPackageArchivePolicy())
-		if extractErr != nil {
-			return nil, SkillPackageRecord{}, extractErr
-		}
-		extractedBytes += written
-	}
-	manifest, prepared, err := validatePreparedSkillPackage(stagingRoot, packageID, version)
-	if err != nil {
-		return nil, SkillPackageRecord{}, err
 	}
 	oldRecord, oldRecordBytes, oldRecordExists, err := readSkillPackageRecord(root, packageID)
 	if err != nil {
@@ -350,7 +381,6 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 		return rollbackOnError(err)
 	}
 	mutation.recordChanged = true
-	cleanupStaging = false
 	return mutation, record, nil
 }
 

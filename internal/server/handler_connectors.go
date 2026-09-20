@@ -133,7 +133,7 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 			}
 			return nil
 		}, func(ctx context.Context, mutate func(context.Context) error) error {
-			_, err := withCatalogTransaction(ctx, s, func(ctx context.Context) (struct{}, error) {
+			_, err := withCatalogDirectoryTransaction(ctx, s, "connectors", func(ctx context.Context) (struct{}, error) {
 				return struct{}{}, mutate(ctx)
 			})
 			return err

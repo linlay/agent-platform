@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
@@ -261,7 +262,8 @@ func (s *Server) writeAdminSkillTextSource(ctx context.Context, target api.Admin
 	if err != nil {
 		return api.AdminSourceResponse{}, err
 	}
-	if _, err := s.adminSources.WriteSkillFile(ctx, registry, target.Key, target.Path, content, "utf-8", baseSHA256, s.reloadAdminSkills); err != nil {
+	coordinator, _ := s.deps.CatalogReloader.(adminsource.SkillMutationCoordinator)
+	if _, err := s.adminSources.WriteSkillFile(ctx, registry, target.Key, target.Path, content, "utf-8", baseSHA256, s.reloadAdminSkills, coordinator); err != nil {
 		return api.AdminSourceResponse{}, mapSkillEditError(err)
 	}
 	return s.readAdminSkillTextSource(target)

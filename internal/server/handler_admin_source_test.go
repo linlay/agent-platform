@@ -1,7 +1,9 @@
 package server
 
 import (
+	"agent-platform/internal/reload"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 )
@@ -217,4 +220,61 @@ func putAdminSourceForTest(t *testing.T, server *Server, target api.AdminSourceT
 		t.Fatalf("decode saved admin source response: %v", err)
 	}
 	return response.Data
+}
+
+// This adapter makes entry into the coordinator observable without timing the
+// HTTP goroutine. The source endpoint must join the same boundary as replace.
+type sourceMutationProbe struct {
+	*reload.RuntimeCatalogReloader
+	entered chan struct{}
+}
+
+func (p *sourceMutationProbe) WithCatalogMutation(ctx context.Context, fn func(context.Context) error) error {
+	close(p.entered)
+	return p.RuntimeCatalogReloader.WithCatalogMutation(ctx, fn)
+}
+
+func TestAdminSourceSkillSaveSharesTransactionBoundary(t *testing.T) {
+	f := newTestFixture(t)
+	target := api.AdminSourceTarget{Type: "skill", Key: "mock-skill", Path: "SKILL.md"}
+	old := getAdminSourceForTest(t, f.server, target)
+	r := f.catalogReloader.(*reload.RuntimeCatalogReloader)
+	p := &sourceMutationProbe{RuntimeCatalogReloader: r, entered: make(chan struct{})}
+	f.server.deps.CatalogReloader = p
+	payload, err := json.Marshal(api.UpdateAdminSourceRequest{Target: target, Content: old.Content + "\nNew text.\n", BaseSHA256: old.SHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := httptest.NewRecorder()
+	done := make(chan struct{})
+	err = r.WithCatalogMutation(context.Background(), func(context.Context) error {
+		go func() {
+			f.server.ServeHTTP(result, httptest.NewRequest(http.MethodPut, "/api/admin/source", bytes.NewReader(payload)))
+			close(done)
+		}()
+		select {
+		case <-p.entered:
+		case <-time.After(3 * time.Second):
+			t.Fatal("source save bypassed catalog coordinator")
+		}
+		data, err := os.ReadFile(filepath.Join(f.cfg.Paths.SkillsCenterDir, "mock-skill", "SKILL.md"))
+		if err != nil {
+			return err
+		}
+		if string(data) != old.Content {
+			t.Fatal("source changed inside another catalog transaction")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("save deadlocked")
+	}
+	if result.Code != http.StatusOK {
+		t.Fatalf("save: %d %s", result.Code, result.Body.String())
+	}
 }

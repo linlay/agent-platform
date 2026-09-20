@@ -2,8 +2,6 @@ package reload
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
@@ -16,7 +14,6 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
-	runtimewatch "agent-platform/internal/watch"
 )
 
 const reloadDebounce = 500 * time.Millisecond
@@ -56,7 +53,7 @@ type RuntimeCatalogReloader struct {
 	agentReconcilers []AgentCatalogReconciler
 	observers        []CatalogReloadObserver
 	reloadMu         sync.Mutex
-	watcher          *runtimewatch.Watcher
+	background       *catalogWatchCoordinator
 	lastReloadNs     atomic.Int64
 }
 
@@ -79,31 +76,6 @@ func (r *RuntimeCatalogReloader) AddObserver(observer CatalogReloadObserver) {
 	r.observers = append(r.observers, observer)
 }
 
-type mutationContextKey struct{}
-
-// WithCatalogMutation excludes background reloads and releases directory watches
-// before a synchronous filesystem transaction. The callback must not retain ctx
-// or use it from another goroutine; its explicit Reload calls share this lock.
-func (r *RuntimeCatalogReloader) WithCatalogMutation(ctx context.Context, mutate func(context.Context) error) (err error) {
-	r.reloadMu.Lock()
-	defer r.reloadMu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if r.watcher != nil {
-		resume, suspendErr := r.watcher.Suspend()
-		if suspendErr != nil {
-			return suspendErr
-		}
-		defer func() {
-			if resumeErr := resume(); resumeErr != nil {
-				err = errors.Join(err, fmt.Errorf("restore catalog watcher after resource transaction: %w", resumeErr))
-			}
-		}()
-	}
-	return mutate(context.WithValue(ctx, mutationContextKey{}, r))
-}
-
 // Reload dispatches reloads by reason. Reload spec:
 //
 //	agents          → reload agents and rebuild assembled runtime agents
@@ -122,6 +94,21 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		r.reloadMu.Lock()
 		defer r.reloadMu.Unlock()
 	}
+	return r.reloadLocked(ctx, reason)
+}
+
+func (r *RuntimeCatalogReloader) reloadLocked(ctx context.Context, reason string) error {
+	before := r.captureWatchState(ctx, reason)
+	// A failed or externally modified load must never acknowledge new content.
+	r.invalidateWatchState(reason)
+	if err := r.load(ctx, reason); err != nil {
+		return err
+	}
+	r.acknowledgeWatchState(ctx, before)
+	return nil
+}
+
+func (r *RuntimeCatalogReloader) load(ctx context.Context, reason string) error {
 	start := time.Now()
 
 	switch reason {
@@ -275,100 +262,6 @@ type watchEntry struct {
 	reason string
 }
 
-// StartBackgroundReloaders watches runtime directories for changes and
-// triggers a reload when files are created, modified, or deleted.
-func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader contracts.CatalogReloader) {
-	if reloader == nil {
-		return
-	}
-
-	entries := backgroundWatchEntries(cfg)
-
-	var pendingMu sync.Mutex
-	var pendingReason string
-	var pendingPath string // last path printed in the current debounce window
-
-	roots := make([]runtimewatch.Root, 0, len(entries))
-	for _, entry := range entries {
-		roots = append(roots, runtimewatch.Root{
-			Path:      entry.path,
-			Label:     entry.reason,
-			Recursive: true,
-			ShouldTraverse: func(path string) bool {
-				return catalog.ShouldWatchRuntimeDir(filepath.Base(path))
-			},
-		})
-	}
-
-	watcher, err := runtimewatch.Start(ctx, runtimewatch.Spec{
-		LogPrefix: "[reload]",
-		Roots:     roots,
-		Debounce:  reloadDebounce,
-		Ignore: func(path string) bool {
-			return shouldIgnoreBackgroundWatchPath(path, cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsCenterDir())
-		},
-		OnResume: func() {
-			// All roots were temporarily unwatched. Reconcile edits to other
-			// resources too, including events lost while restoring handles.
-			pendingMu.Lock()
-			pendingReason = "config"
-			pendingPath = ""
-			pendingMu.Unlock()
-		},
-		OnEvent: func(event runtimewatch.Event) {
-			pendingMu.Lock()
-			defer pendingMu.Unlock()
-			reason := resolveChangeReason(event.Path, entries)
-			// Dedupe: editors often emit multiple write events per save.
-			// Only log once per (path, reason) within the debounce window.
-			if pendingPath != event.Path || pendingReason != reason {
-				log.Printf("[reload] change detected: %s (%s)", filepath.Base(event.Path), reason)
-				pendingPath = event.Path
-			}
-			pendingReason = mergePendingReloadReason(pendingReason, reason)
-		},
-		OnDebounce: func(ctx context.Context) error {
-			pendingMu.Lock()
-			reloadReason := pendingReason
-			pendingPath = ""
-			pendingReason = ""
-			pendingMu.Unlock()
-			if reloadReason == "" {
-				return nil
-			}
-			if err := reloader.Reload(ctx, reloadReason); err != nil {
-				return err
-			}
-			return nil
-		},
-	})
-	if err != nil {
-		if errors.Is(err, runtimewatch.ErrNoWatchedRoots) {
-			log.Printf("[reload] no directories to watch, file watching disabled")
-			return
-		}
-		log.Printf("[reload] fsnotify init failed, file watching disabled: %v", err)
-		return
-	}
-	if owner, ok := reloader.(*RuntimeCatalogReloader); ok {
-		owner.reloadMu.Lock()
-		owner.watcher = watcher
-		owner.reloadMu.Unlock()
-	}
-}
-
-func mergePendingReloadReason(pending string, next string) string {
-	pending = strings.TrimSpace(pending)
-	next = strings.TrimSpace(next)
-	if pending == "" {
-		return next
-	}
-	if next == "" || pending == next {
-		return pending
-	}
-	return "config"
-}
-
 func backgroundWatchEntries(cfg config.Config) []watchEntry {
 	return []watchEntry{
 		{cfg.Paths.AgentsDir, "agents"},
@@ -385,7 +278,7 @@ func backgroundWatchEntries(cfg config.Config) []watchEntry {
 
 func resolveChangeReason(changedPath string, dirs []watchEntry) string {
 	for _, entry := range dirs {
-		if strings.HasPrefix(changedPath, entry.path) {
+		if pathWithin(entry.path, changedPath) {
 			return entry.reason
 		}
 	}
