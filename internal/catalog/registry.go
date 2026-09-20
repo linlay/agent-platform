@@ -98,6 +98,16 @@ type AgentDefinition struct {
 
 type AgentWorkspaceConfig struct {
 	Root string
+	// HostRoot retains the @root intent after Root becomes a native absolute path.
+	HostRoot bool
+}
+
+// ProjectDir is the public project identity, not the tool execution root.
+func (workspace AgentWorkspaceConfig) ProjectDir() string {
+	if workspace.HostRoot {
+		return ""
+	}
+	return workspace.Root
 }
 
 type AgentHostAccessConfig struct {
@@ -540,7 +550,7 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			Name:           def.Name,
 			Icon:           def.Icon,
 			Mode:           apiMode,
-			WorkspaceDir:   def.Workspace.Root,
+			WorkspaceDir:   def.Workspace.ProjectDir(),
 			AgentConfigDir: def.AgentDir,
 			Description:    def.Description,
 			Role:           def.Role,

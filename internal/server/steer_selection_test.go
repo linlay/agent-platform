@@ -43,7 +43,8 @@ func TestSelectionSteerNonVisionPersistsAndReplays(t *testing.T) {
 			defer unblock()
 			const chatID = "selection-steer-chat"
 			runID, readTail := startSteerTransportRun(t, server.URL, transport, chatID)
-			payload := api.SteerRequest{RunID: runID, ChatID: chatID, AgentKey: "mock-agent", SteerID: "selection-1", Message: "explain this", References: []api.Reference{{Type: "selection", Meta: map[string]any{"text": "UNIQUE_SELECTED_TEXT"}}}}
+			annotationIndex := 7
+			payload := api.SteerRequest{RunID: runID, ChatID: chatID, AgentKey: "mock-agent", SteerID: "selection-1", Message: "explain this", References: []api.Reference{{ID: "selection-long-stable-id", Type: "selection", Text: "UNIQUE_SELECTED_TEXT", Annotation: "UNIQUE_ANNOTATION", AnnotationIndex: &annotationIndex}}}
 			var raw []byte
 			if transport == "ws" {
 				raw = wsTestControlResponse(t, server.URL, "/api/steer", payload)
@@ -74,7 +75,7 @@ func TestSelectionSteerNonVisionPersistsAndReplays(t *testing.T) {
 			assertSelection := func(payload map[string]any) {
 				t.Helper()
 				data, _ := json.Marshal(payload)
-				if bytes.Count(data, []byte("UNIQUE_SELECTED_TEXT")) != 1 {
+				if !bytes.Contains(data, []byte("annotationIndex: 7")) || bytes.Count(data, []byte("UNIQUE_SELECTED_TEXT")) != 1 || bytes.Count(data, []byte("UNIQUE_ANNOTATION")) != 1 {
 					t.Fatalf("model input: %s", data)
 				}
 			}
@@ -91,7 +92,7 @@ func TestSelectionSteerNonVisionPersistsAndReplays(t *testing.T) {
 				t.Fatal(err)
 			}
 			replayJSON, _ := json.Marshal(replay)
-			if !bytes.Contains(replayJSON, []byte("UNIQUE_SELECTED_TEXT")) {
+			if !bytes.Contains(replayJSON, []byte("UNIQUE_SELECTED_TEXT")) || !bytes.Contains(replayJSON, []byte("UNIQUE_ANNOTATION")) || !bytes.Contains(replayJSON, []byte("selection-long-stable-id")) {
 				t.Fatalf("selection missing in replay: %s", replayJSON)
 			}
 			next, err := http.Post(server.URL+"/api/query", "application/json", strings.NewReader(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"continue"}`))

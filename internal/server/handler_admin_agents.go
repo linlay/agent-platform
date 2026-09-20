@@ -128,7 +128,7 @@ func buildAdminAgentSummary(item catalog.AdminAgent) api.AdminAgentSummary {
 		Name:         firstNonBlank(item.Name, item.Key),
 		Icon:         item.Icon,
 		Mode:         item.Mode,
-		WorkspaceDir: item.Workspace.Root,
+		WorkspaceDir: item.Workspace.ProjectDir(),
 		Role:         item.Role,
 		Status:       firstNonBlank(item.Status, catalog.AdminAgentStatusInvalid),
 		Diagnostics:  adminAgentDiagnostics(item.Diagnostics),

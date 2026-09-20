@@ -291,9 +291,7 @@ func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	}
 	payload.Locale = conn.Locale()
 	payload = s.normalizeActiveSubmitRun(payload)
-	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
-		return
-	}
+	// HITL does not require the creation connection; retain owner/item validation.
 	if statusErr := s.validateSubmitOwner(payload); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)

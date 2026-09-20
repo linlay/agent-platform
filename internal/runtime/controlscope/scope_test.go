@@ -1,6 +1,7 @@
 package controlscope
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -69,5 +70,20 @@ func TestControlScopeMatrix(t *testing.T) {
 				t.Fatal("device bypass")
 			}
 		}
+	}
+}
+
+func TestInProcessCreationHasNoNetworkTransport(t *testing.T) {
+	scope := FromContext(context.Background())
+	if scope.Transport != "" || scope.Lane != "" {
+		t.Fatalf("unexpected network origin: %#v", scope)
+	}
+	store := Store{Root: t.TempDir()}
+	if err := store.Bind("in-process", scope); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Load("in-process")
+	if err != nil || got != scope {
+		t.Fatalf("round trip: %#v %v", got, err)
 	}
 }

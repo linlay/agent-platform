@@ -26,6 +26,7 @@ func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
 
+	bindTestRunControl(t, fixture.server, "parent-run", "ws", "desktop")
 	agentTargetRun, err := fixture.server.StartRun(cancelled, contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "detached agent",
@@ -178,6 +179,7 @@ func TestStartRunIgnoresCatalogVisibility(t *testing.T) {
 		},
 	})
 
+	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "run by exact key",
@@ -197,6 +199,7 @@ func TestRunSelfTargetChatRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure parent chat: %v", err)
 	}
+	bindTestRunControl(t, fixture.server, "self-parent-run", "ws", "desktop")
 	_, parentControl, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "self-parent-run",
 		ChatID:   "self-parent-chat",
@@ -279,6 +282,7 @@ func TestGetRunStatusReportsQuestionAwaiting(t *testing.T) {
 		)
 	})
 
+	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "ask first",
@@ -380,6 +384,7 @@ func TestInterruptRunsDetachedSSEProxy(t *testing.T) {
 		},
 	})
 
+	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "proxy work",

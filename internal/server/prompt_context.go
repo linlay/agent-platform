@@ -156,7 +156,7 @@ func (s *Server) referencePathForAgent(
 	localPaths contracts.LocalPaths,
 ) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(reference.Type)) {
-	case "chat", "site":
+	case "chat", "site", "selection":
 		return "", nil
 	}
 	if resourceFileParamForChat(chatID, reference.URL) == "" {

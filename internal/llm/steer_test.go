@@ -70,14 +70,13 @@ func TestSelectionSteerFreezesNonVisionInput(t *testing.T) {
 	session := contracts.QuerySession{ChatID: "chat-a", RunID: "run-a", ChatRoot: t.TempDir()}
 	control := contracts.NewRunControl(context.Background(), session.RunID)
 	control.SetSteerPreparer(e.steerPreparer(session, false))
-	meta := map[string]any{"text": "selected original"}
-	req := api.SteerRequest{RunID: session.RunID, ChatID: session.ChatID, Message: "explain", References: []api.Reference{{Type: "selection", Meta: meta, Path: "/untrusted/path"}}}
+	req := api.SteerRequest{RunID: session.RunID, ChatID: session.ChatID, Message: "explain", References: []api.Reference{{Type: "selection", Text: "selected original", Path: "/untrusted/path"}}}
 	if ok, err := control.PrepareAndEnqueueSteer(req); !ok || err != nil {
 		t.Fatalf("enqueue: %v %v", ok, err)
 	}
-	meta["text"] = "mutated"
+	req.References[0].Text = "mutated"
 	got := control.DrainSteers()
-	if len(got) != 1 || got[0].References[0].Meta["text"] != "selected original" || got[0].References[0].Path != "" {
+	if len(got) != 1 || got[0].References[0].Text != "selected original" || got[0].References[0].Path != "" {
 		t.Fatalf("snapshot: %#v", got)
 	}
 	content, ok := got[0].PreparedMessages[0]["content"].(string)
@@ -87,7 +86,7 @@ func TestSelectionSteerFreezesNonVisionInput(t *testing.T) {
 	if len(control.DrainSteers()) != 0 {
 		t.Fatal("steer consumed twice")
 	}
-	req.References[0].Meta = map[string]any{"text": " "}
+	req.References[0].Text = " "
 	if _, err := e.steerPreparer(session, false)(req); err == nil {
 		t.Fatal("empty selection accepted")
 	}

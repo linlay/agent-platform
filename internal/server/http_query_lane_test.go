@@ -57,7 +57,7 @@ func TestHTTPQueryBTWLanePreservesHiddenBranch(t *testing.T) {
 			var btwID, previousRunID string
 			for _, message := range []string{"first side question", "continued side question"} {
 				payload := map[string]any{"lane": "btw", "chatId": chatID, "btwId": btwID, "message": message, "stream": streaming,
-					"references": []any{map[string]any{"type": "selection", "meta": map[string]any{"text": "selected source"}}}}
+					"references": []any{map[string]any{"type": "selection", "text": "selected source"}}}
 				rec := httptest.NewRecorder()
 				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(marshalPayload(payload))))
 				if rec.Code != http.StatusOK {

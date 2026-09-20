@@ -2,6 +2,8 @@
 
 ## 当前状态
 
+WebApp 的 `/api/desktop/webapp/grants`、Desktop 委托的连接器认证，以及 `/api/webapp/connector/*`、`/api/webapp/artifact/*` 采用独立能力授权，详见 [WebApp 能力接入](WebApp能力接入.md)。这些入口不是全局管理 API 的透传。
+
 运行时提供 HTTP REST、SSE 与 WebSocket 三类协议入口。REST 承载 catalog、chat、automation、memory、resource 等请求；`POST /api/query` 使用 SSE 返回实时 run stream；`GET /ws` 是 WebSocket 控制面，复用一批 `/api/*` route，并用 `stream` frame 承载实时事件。
 
 所有非 SSE HTTP JSON 接口统一返回：
@@ -344,9 +346,9 @@ HTTP `POST /api/query` 的 `lane:"btw"` 用于“顺便问”（旧 `/api/btw` �
 
 BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
 
-Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane，连接 source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`。三者发起 Run 统一发送 route `/api/query`：Platform 根据已认证连接身份将 main 送入普通 query，将 btw/explain 送入隐藏只读分支，payload 不能覆盖 lane。旁聊沿用 BTW payload（含可选 `btwId`），同一连接可创建、续问和 attach 多个分支 Run。WS `/api/btw` 仅保留为旁聊 lane 的兼容入口；HTTP 统一使用 `POST /api/query`，body 的 `lane` 缺省或 `main` 执行主聊天、`btw` 执行隐藏分支；`explain` 返回 403 `explain_ws_required`，其他值返回 400 `invalid_lane`，均不创建 Chat。网页仍使用 SSE，也支持 `stream:false` JSON。旧 HTTP `/api/btw` 保留兼容；新版网页须配套新版 Platform，旧版可能忽略 lane 字段。attach、detach、submit、steer、interrupt、access-level 在既有 agent/team owner 校验之外，执行下述 Run 控制归属校验。
+Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane，连接 source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`。三者发起 Run 统一发送 route `/api/query`：Platform 根据已认证连接身份将 main 送入普通 query，将 btw/explain 送入隐藏只读分支，payload 不能覆盖 lane。旁聊沿用 BTW payload（含可选 `btwId`），同一连接可创建、续问和 attach 多个分支 Run。WS `/api/btw` 仅保留为旁聊 lane 的兼容入口；HTTP 统一使用 `POST /api/query`，body 的 `lane` 缺省或 `main` 执行主聊天、`btw` 执行隐藏分支；`explain` 返回 403 `explain_ws_required`，其他值返回 400 `invalid_lane`，均不创建 Chat。网页仍使用 SSE，也支持 `stream:false` JSON。旧 HTTP `/api/btw` 保留兼容；新版网页须配套新版 Platform，旧版可能忽略 lane 字段。attach、detach、steer、interrupt、access-level 在既有 agent/team owner 校验之外，执行下述 Run 控制归属校验。
 
-Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，保存在 `.state/run-controls/<runId哈希>.json`；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/submit/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
+以下控制归属限制不适用于 HITL Submit。Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，保存在 `.state/run-controls/<runId哈希>.json`；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
 
 归属不绑定 sessionId 或 surfaceId，同 lane 重连/关窗重开可按 lastSeq attach。归属文件在 Run 结束后保留；planning 后续执行 Run 继承源 Run 归属，等待项跨进程恢复仍使用原记录。内部 Run 调度与控制走内部调用路径，不由客户端声明内部身份。
 
@@ -373,6 +375,19 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 ```
 
 `references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。当前 Chat 文件在 Host 为 Chat 绝对路径，在 Container Hub 为 `/chat/...`；Workspace 文件在 Host 为 Workspace 绝对路径，在 Container Hub 为 `/workspace/...`。跨 Agent 文件会先物化到 Chat；PROXY/CHANNEL/ACP 等远程 adapter 使用带 ticket 的 resource URL，由接收端在 30 秒、50 MiB 安全上限内下载到自己的 Chat，再生成本地执行路径。历史 path-only `/workspace` Chat 引用不再作为新 run 输入接受。
+
+划词引用在 query/steer 中统一使用 `{ "id": "原始稳定ID", "type": "selection", "text": "引用原文", "annotation": "可选批注" }`。`text` 必须非空，批注可省略；只读取顶层 `text`，不支持 `meta.text`。规范化后仅保留原始 ID、type、text、annotation 与可选 annotationIndex，不再生成文件路径或保留文件元数据。首次 query 必须有非空 message；后续 query 和 steer 可只发送有效文件或选区引用。
+
+仅模型提示词中的划词 ID 按本条消息映射为 `r1/r2/...`，避开其他类型引用的 ID，并同步替换用户正文中的 `#{原始ID}`；请求、事件与持久化引用保留原始 ID。普通与 advanced-user-prompt 格式共用精简条目：
+
+```yaml
+- id: r1
+  type: selection
+  text: 引用原文
+  annotation: 可选批注
+```
+
+没有批注时不输出 annotation，多行原文/批注使用块文本。原文是引用材料，annotation 是用户针对该材料的指令，与顶层 message 同属用户指令。
 
 Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 
@@ -1148,7 +1163,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 ### 附件 steer
 
-`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；query 仍要求非空文字。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，完全空白仍拒绝。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
 
 普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
@@ -1205,10 +1220,27 @@ Platform 在同一目录事务保护内取得快照、比较版本、替换或�
 
 事务保护协调 Platform 内部管理写入与 watcher；不能锁住用户编辑器或其他外部进程。既有导入/删除接口保持兼容。
 
-纯文本选区 steer 使用 `references:[{type:"selection",meta:{text:"选中文本"}}]`；`meta.text` 必须为非空字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
+纯文本选区 steer 使用 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；`text` 必须为非空字符串，`annotation` 为可选字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
 
 ## 网页 Container / Surface 契约
 
 Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surface。`desktop_cdp` 以 Surface.list / Surface.getCurrent 发现网页，所有 CDP 页面操作只使用 surfaceId，不暴露另一个目标 ID 或 session selector。Surface.open/close/getState/goBack 是 Desktop 方法，其余受限 Chromium 方法仍由 Desktop 定位到精确 webContents 后执行。导航和刷新保留身份，关闭重开使旧身份失效。
 
 普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
+
+划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用与模型消息快照持久化，未提供编号时不生成编号字段。
+
+主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；run_query 工具入口仍要求文字。
+
+
+### HITL 提交与创建通道分离
+
+`/api/submit` 不要求创建与提交的 transport、device boundary 或 lane 相同，允许桌面创建、手机审批及 HTTP/WS 交叉提交。HTTP/WS 的既有认证、Agent/Team owner、等待项和提交参数校验及重复提交仲裁保持不变；其他 Run 控制入口仍执行原通道归属检查。
+
+`run_query` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 `runOrigin`；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
+
+## 通用智能体根目录与项目目录
+
+`runtimeConfig.workspaceRoot: "@root"` 显式表示通用根目录智能体。Catalog 保留该意图，同时把运行时 Workspace 解析为本机绝对根目录：macOS/Linux 为 `/`，Windows 为 Platform 当前驱动器根目录。工具相对路径、`@workspace`、运行上下文和目录权限使用解析后的真实路径；该值不增加跨盘权限，不绕过 readonly、审批、KBASE 根目录限制或根目录扫描禁令。
+
+公共 HTTP/WebSocket `/api/agents`（包括 includeTeam）与 Admin 摘要的 `workspaceDir` 只表达项目目录：`@root` 省略该字段，普通绝对目录（包括显式 `/`）继续返回解析后的目录，未配置时也省略。Admin 原始 definition 保存 `"@root"`，编辑、导入、重载不得把它改写为实际根路径。Desktop 据 `workspaceDir` 是否非空区分 Projects，不按 mode 或路径形状猜测通用身份。现有通用智能体的 `/` 配置需显式改为 `"@root"`；不自动迁移所有根路径，以免改变显式项目配置的语义。

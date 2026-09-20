@@ -2252,18 +2252,18 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 	}
 }
 
-func TestSubmitRejectsUnknownRunControlIdentity(t *testing.T) {
+func TestSubmitRejectsUnknownAwaiting(t *testing.T) {
 	fixture := newTestFixture(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"missing-run","awaitingId":"missing-awaiting","params":[{"id":"q1","answer":"ok"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "run_control_identity_unavailable") {
-		t.Fatalf("expected run_control_identity_unavailable error, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "unknown_awaiting") {
+		t.Fatalf("expected unknown_awaiting error, got %s", rec.Body.String())
 	}
 }
 

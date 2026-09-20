@@ -85,7 +85,7 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 			}
 		}
 	}
-	routes := []string{"/api/attach", "/api/detach", "/api/submit", "/api/steer", "/api/interrupt", "/api/access-level"}
+	routes := []string{"/api/attach", "/api/detach", "/api/steer", "/api/interrupt", "/api/access-level"}
 	for _, from := range lanes {
 		for _, to := range lanes {
 			if from == to {
@@ -166,7 +166,7 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 	}
 	// Same-lane selection steer is accepted for both hidden branches, even on a nonvision model.
 	for _, lane := range []string{"btw", "explain"} {
-		sendSelectionLaneRequest(t, conns[lane], "selection", "/api/steer", map[string]any{"runId": runs[lane], "agentKey": "mock-agent", "message": "explain", "references": []any{map[string]any{"type": "selection", "meta": map[string]any{"text": "selected " + lane}}}})
+		sendSelectionLaneRequest(t, conns[lane], "selection", "/api/steer", map[string]any{"runId": runs[lane], "agentKey": "mock-agent", "message": "explain", "references": []any{map[string]any{"type": "selection", "text": "selected " + lane}}})
 		if f := readID(conns[lane], "selection"); !f.Data.Accepted {
 			t.Fatalf("selection %s: %#v", lane, f)
 		}

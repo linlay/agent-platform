@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	agentcontract "agent-platform/internal/agent"
@@ -80,6 +81,13 @@ func parseAgentWorkspaceRoot(value any) AgentWorkspaceConfig {
 	root := strings.TrimSpace(stringNode(value))
 	if root == "" {
 		return AgentWorkspaceConfig{}
+	}
+	if root == "@root" {
+		// Windows resolves the current volume root; Unix/macOS use the filesystem root.
+		if runtime.GOOS == "windows" {
+			return AgentWorkspaceConfig{Root: cleanWorkspaceRoot(`\`), HostRoot: true}
+		}
+		return AgentWorkspaceConfig{Root: cleanWorkspaceRoot("/"), HostRoot: true}
 	}
 	return AgentWorkspaceConfig{Root: cleanWorkspaceRoot(root)}
 }

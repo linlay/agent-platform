@@ -469,16 +469,30 @@ func parseReferences(value any) ([]api.Reference, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid query.references.sizeBytes")
 		}
-		references = append(references, api.Reference{
-			ID:        stringNode(node["id"]),
-			Type:      stringNode(node["type"]),
-			Name:      stringNode(node["name"]),
-			Path:      stringNode(node["path"]),
-			MimeType:  stringNode(node["mimeType"]),
-			SizeBytes: sizeBytes,
-			URL:       stringNode(node["url"]),
-			SHA256:    stringNode(node["sha256"]),
-			Meta:      meta,
+		indexValue, err := int64PtrNode(node["annotationIndex"])
+		if err != nil {
+			return nil, fmt.Errorf("invalid query.references.annotationIndex")
+		}
+		var annotationIndex *int
+		if indexValue != nil {
+			if *indexValue <= 0 || *indexValue > 9007199254740991 {
+				return nil, fmt.Errorf("invalid query.references.annotationIndex")
+			}
+			value := int(*indexValue)
+			annotationIndex = &value
+		}
+		references = append(references, api.Reference{AnnotationIndex: annotationIndex,
+			ID:         stringNode(node["id"]),
+			Type:       stringNode(node["type"]),
+			Name:       stringNode(node["name"]),
+			Path:       stringNode(node["path"]),
+			MimeType:   stringNode(node["mimeType"]),
+			SizeBytes:  sizeBytes,
+			URL:        stringNode(node["url"]),
+			Text:       stringNode(node["text"]),
+			Annotation: stringNode(node["annotation"]),
+			SHA256:     stringNode(node["sha256"]),
+			Meta:       meta,
 		})
 	}
 	return references, nil

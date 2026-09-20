@@ -239,3 +239,15 @@ func TestResolveImageHostPathClassifiesChatBeforeContainingWorkspace(t *testing.
 		t.Fatalf("absolute current-chat path = %q, %t, want %q", path, ok, wantChatImage)
 	}
 }
+
+func TestAdvancedSelectionShortIDAndAnnotation(t *testing.T) {
+	got := FormatAdvancedUserPrompt("修改 #{selection-uuid}", []api.Reference{{ID: "selection-uuid", Type: "selection", Text: "原文", Annotation: "批注"}}, BuildOptions{})
+	for _, want := range []string{"- id: r1\n  type: selection\n  text: 原文\n  annotation: 批注", "修改 #{r1}"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "selection-uuid") {
+		t.Fatal(got)
+	}
+}

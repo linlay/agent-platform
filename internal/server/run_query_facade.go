@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 )
@@ -49,6 +50,17 @@ func (s *Server) StartRun(_ context.Context, request contracts.RunStartRequest) 
 		ChatSource: api.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
 	}
 	ctx := s.backgroundCtx
+	// Detach execution lifetime, but retain the trusted parent's connection scope.
+	// RunOrigin describes derivation separately from transport/lane.
+	parentRunID := strings.TrimSpace(request.Origin.RunID)
+	if parentRunID == "" {
+		return contracts.RunSnapshot{}, runToolError("run_context_required", "run_query requires a parent runId")
+	}
+	scope, err := s.runControlScopes().Load(parentRunID)
+	if err != nil || (scope.Transport != "http" && scope.Transport != "ws") {
+		return contracts.RunSnapshot{}, runToolError("run_control_identity_unavailable", "cannot inherit parent run transport")
+	}
+	ctx = controlscope.WithContext(ctx, scope)
 	ctx = withChatSourceContext(ctx, req.ChatSource)
 	if subject := strings.TrimSpace(request.Origin.Subject); subject != "" {
 		ctx = WithPrincipal(ctx, &Principal{Subject: subject})
