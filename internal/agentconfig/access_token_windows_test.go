@@ -39,6 +39,10 @@ func TestIdentityReadAllowsAtomicRefreshAndRevocationWindows(t *testing.T) {
 	if err := os.Remove(file); err != nil {
 		t.Fatalf("revocation blocked by reader: %v", err)
 	}
+	remaining, err := io.ReadAll(current)
+	if err != nil || string(remaining) != "fixture-new" {
+		t.Fatal("revocation interrupted the in-flight identity read")
+	}
 	// Windows retains a delete-pending file while a handle is open. Close the
 	// in-flight read before asserting the next invocation sees no identity.
 	if err := current.Close(); err != nil {
