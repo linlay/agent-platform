@@ -508,13 +508,30 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	return nil
 }
 
+// agentYAMLKeyOrder is shared by every structured Agent save. Missing keys are
+// never synthesized; unknown keys follow the known keys in lexical order.
+// Paths scope nested rules so unrelated objects and list items stay independent.
+var agentYAMLKeyOrder = map[string][]string{
+	"": {
+		"key", "name", "mode", "role", "description", "icon",
+		"modelConfig", "budget", "interactionConfig",
+		"runtimeConfig", "projectConfig", "proxyConfig", "channelConfig",
+		"toolConfig", "skillConfig", "connectorConfig", "contextConfig",
+		"kbaseConfig", "memoryConfig", "promptFile", "runtimePrompts", "stageSettings",
+		"visibility", "controls", "greetings", "introductions", "wonders",
+	},
+	"modelConfig":           {"modelKey", "serviceTier", "reasoning", "sampling"},
+	"modelConfig.reasoning": {"enabled", "effort"},
+	"contextConfig":         {"tags", "agents"},
+}
+
 func renderYAMLMap(node map[string]any) []byte {
 	var b strings.Builder
-	writeYAMLMap(&b, 0, node)
+	writeYAMLMap(&b, 0, "", node)
 	return []byte(b.String())
 }
 
-func writeYAMLKeyValue(b *strings.Builder, indent int, key string, value any) {
+func writeYAMLKeyValue(b *strings.Builder, indent int, path string, key string, value any) {
 	switch typed := value.(type) {
 	case map[string]any:
 		if len(typed) == 0 {
@@ -522,42 +539,44 @@ func writeYAMLKeyValue(b *strings.Builder, indent int, key string, value any) {
 			return
 		}
 		writeYAMLLine(b, indent, key+":")
-		writeYAMLMap(b, indent+2, typed)
+		writeYAMLMap(b, indent+2, path, typed)
 	case []any:
 		if len(typed) == 0 {
 			writeYAMLLine(b, indent, key+": []")
 			return
 		}
 		writeYAMLLine(b, indent, key+":")
-		writeYAMLList(b, indent+2, typed)
+		writeYAMLList(b, indent+2, path, typed)
 	case []string:
 		items := make([]any, 0, len(typed))
 		for _, item := range typed {
 			items = append(items, item)
 		}
-		writeYAMLKeyValue(b, indent, key, items)
+		writeYAMLKeyValue(b, indent, path, key, items)
 	case []map[string]any:
 		items := make([]any, 0, len(typed))
 		for _, item := range typed {
 			items = append(items, item)
 		}
-		writeYAMLKeyValue(b, indent, key, items)
+		writeYAMLKeyValue(b, indent, path, key, items)
 	default:
 		writeYAMLLine(b, indent, key+": "+formatYAMLScalar(typed, indent))
 	}
 }
 
-func writeYAMLMap(b *strings.Builder, indent int, node map[string]any) {
+func writeYAMLMap(b *strings.Builder, indent int, path string, node map[string]any) {
 	keys := make([]string, 0, len(node))
 	for key := range node {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	if indent == 0 {
-		keys = prioritizeYAMLKeys(keys, []string{"key", "name", "mode"})
-	}
+	keys = prioritizeYAMLKeys(keys, agentYAMLKeyOrder[path])
 	for _, key := range keys {
-		writeYAMLKeyValue(b, indent, key, node[key])
+		childPath := key
+		if path != "" {
+			childPath = path + "." + key
+		}
+		writeYAMLKeyValue(b, indent, childPath, key, node[key])
 	}
 }
 
@@ -582,7 +601,8 @@ func prioritizeYAMLKeys(keys []string, priority []string) []string {
 	return out
 }
 
-func writeYAMLList(b *strings.Builder, indent int, items []any) {
+func writeYAMLList(b *strings.Builder, indent int, path string, items []any) {
+	path += "[]"
 	for _, item := range items {
 		switch typed := item.(type) {
 		case map[string]any:
@@ -591,14 +611,14 @@ func writeYAMLList(b *strings.Builder, indent int, items []any) {
 				continue
 			}
 			writeYAMLLine(b, indent, "-")
-			writeYAMLMap(b, indent+2, typed)
+			writeYAMLMap(b, indent+2, path, typed)
 		case []any:
 			if len(typed) == 0 {
 				writeYAMLLine(b, indent, "- []")
 				continue
 			}
 			writeYAMLLine(b, indent, "-")
-			writeYAMLList(b, indent+2, typed)
+			writeYAMLList(b, indent+2, path, typed)
 		default:
 			writeYAMLLine(b, indent, "- "+formatYAMLScalar(typed, indent))
 		}
