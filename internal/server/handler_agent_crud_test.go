@@ -1363,10 +1363,11 @@ func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 	postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "react-model-errors",
 		"definition": map[string]any{
-			"key":         "react-model-errors",
-			"name":        "react-model-errors",
-			"mode":        "REACT",
-			"modelConfig": map[string]any{"modelKey": "mock-model"},
+			"key":               "react-model-errors",
+			"name":              "react-model-errors",
+			"mode":              "REACT",
+			"interactionConfig": map[string]any{"model": false},
+			"modelConfig":       map[string]any{"modelKey": "mock-model"},
 		},
 	})
 
@@ -1376,7 +1377,7 @@ func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 		status int
 	}{
 		{name: "missing agent", body: map[string]any{"agentKey": "missing-agent", "modelKey": "mock-model", "reasoningEffort": "HIGH"}, status: http.StatusNotFound},
-		{name: "non coder", body: map[string]any{"agentKey": "react-model-errors", "modelKey": "mock-model", "reasoningEffort": "HIGH"}, status: http.StatusBadRequest},
+		{name: "model selection disabled", body: map[string]any{"agentKey": "react-model-errors", "modelKey": "mock-model", "reasoningEffort": "HIGH"}, status: http.StatusBadRequest},
 		{name: "unknown model", body: map[string]any{"agentKey": createdCoder.Key, "modelKey": "missing-model", "reasoningEffort": "HIGH"}, status: http.StatusBadRequest},
 		{name: "bad reasoning", body: map[string]any{"agentKey": createdCoder.Key, "modelKey": "mock-model", "reasoningEffort": "FAST"}, status: http.StatusBadRequest},
 		{name: "service tier on non acp coder", body: map[string]any{"agentKey": createdCoder.Key, "modelKey": "mock-model", "reasoningEffort": "HIGH", "serviceTier": "FAST"}, status: http.StatusBadRequest},

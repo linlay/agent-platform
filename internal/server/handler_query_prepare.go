@@ -269,6 +269,11 @@ func (s *Server) prepareQueryAdmissionRequest(
 	if statusErr := s.applyProxyRoutingConfig(&agentDef); statusErr != nil {
 		return queryAdmission{}, statusErr
 	}
+	if !orchestratedTeam && !isProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
+		if err := validateInteractionInput(agentDef.Interaction(), req); err != nil {
+			return queryAdmission{}, err
+		}
+	}
 	if err := s.validateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
 	}
@@ -974,6 +979,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		IncludeUsage:       prepared.req.IncludeUsage,
 		IncludeFullText:    prepared.req.IncludeFullText,
 		AccessLevel:        prepared.session.AccessLevel,
+		InteractionConfig:  prepared.session.InteractionConfig,
 		Created:            prepared.created,
 		ContinueRun:        prepared.continueRun,
 		InitialSeq:         prepared.initialSeq,

@@ -20,7 +20,7 @@ func TestModelOptionsFilterModeKeepsACPScopedToCoder(t *testing.T) {
 		{name: "native coder", agentKey: "coder", mode: "CODER", want: "native-only"},
 		{name: "acp coder", agentKey: "coder", mode: "CODER", acpBridgeID: "codex", want: "acp-only"},
 		{name: "ordinary proxy", agentKey: "proxy", mode: "PROXY", acpBridgeID: "codex", want: ""},
-		{name: "react", agentKey: "react", mode: "REACT", want: ""},
+		{name: "react", agentKey: "react", mode: "REACT", want: "native-only"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

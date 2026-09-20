@@ -3,31 +3,34 @@ package stream
 import (
 	"reflect"
 	"sync/atomic"
+
+	"agent-platform/internal/interaction"
 )
 
 type StreamRequest struct {
-	RequestID       string
-	RunID           string
-	ChatID          string
-	ChatName        string
-	AgentKey        string
-	TeamID          string
-	Message         string
-	Role            string
-	Hidden          *bool
-	Scene           *SceneRef
-	References      any
-	Params          map[string]any
-	Model           any
-	PlanningMode    bool
-	EditingMode     bool
-	MustUseSkills   []string
-	IncludeUsage    bool
-	IncludeFullText bool
-	AccessLevel     string
-	Created         bool
-	ContinueRun     bool
-	InitialSeq      int64
+	InteractionConfig *interaction.Config
+	RequestID         string
+	RunID             string
+	ChatID            string
+	ChatName          string
+	AgentKey          string
+	TeamID            string
+	Message           string
+	Role              string
+	Hidden            *bool
+	Scene             *SceneRef
+	References        any
+	Params            map[string]any
+	Model             any
+	PlanningMode      bool
+	EditingMode       bool
+	MustUseSkills     []string
+	IncludeUsage      bool
+	IncludeFullText   bool
+	AccessLevel       string
+	Created           bool
+	ContinueRun       bool
+	InitialSeq        int64
 	// StartedAtMillis is the authoritative lifecycle clock captured by the run
 	// manager. It is intentionally distinct from the timestamps of bootstrap
 	// request/chat events: only run.start must describe that exact registration
@@ -121,6 +124,9 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 	}
 	if a.request.Hidden != nil {
 		queryPayload["hidden"] = *a.request.Hidden
+	}
+	if a.request.InteractionConfig != nil {
+		queryPayload["interactionConfig"] = *a.request.InteractionConfig
 	}
 	if a.request.AccessLevel != "" {
 		queryPayload["accessLevel"] = a.request.AccessLevel

@@ -15,6 +15,8 @@ import (
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/models"
 	"agent-platform/internal/rootpaths"
+
+	"agent-platform/internal/interaction"
 )
 
 func resolveDirectoryAgentConfig(dirPath string) string {
@@ -648,6 +650,11 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.Mode = mode
+	interactionConfig, err := interaction.Parse(mode, root["interactionConfig"])
+	if err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	def.InteractionConfig = &interactionConfig
 	if err := validateCoderPlanningConfig(def.Mode, root); err != nil {
 		return AgentDefinition{}, nil, err
 	}

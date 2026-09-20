@@ -35,6 +35,12 @@ func (s *Server) handleAdminAgentConnectors(w http.ResponseWriter, r *http.Reque
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey is required"))
 		return
 	}
+	if r.Method == http.MethodPut {
+		if def, found := s.deps.Registry.AgentDefinition(key); found && !def.Interaction().Connectors {
+			s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "interaction_disabled", "interactionConfig.connectors is disabled"))
+			return
+		}
+	}
 	var ids []string
 	var err error
 	if r.Method == http.MethodGet {

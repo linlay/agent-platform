@@ -475,8 +475,8 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if !ok {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
 	}
-	if !agentbuiltin.IsCoderMode(def.Mode) {
-		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent model config can only be updated for CODER agents")
+	if !def.Interaction().Model || isProxyAgentMode(def.Mode) || catalog.AgentIsChannelMode(def.Mode) {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "interaction_disabled", "interactionConfig.model is disabled")
 	}
 	isACPCoder := catalog.AgentUsesACPCoderBackend(def)
 	if serviceTier != "" && !isACPCoder {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/interaction"
 	runtimeproxy "agent-platform/internal/runtime/proxy"
 )
 
@@ -313,5 +314,27 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 				t.Fatalf("timed out waiting for proxy forward")
 			}
 		})
+	}
+}
+
+func TestAccessLevelDisabledBeforeACPForward(t *testing.T) {
+	fixture := newTestFixture(t)
+	config := interaction.Defaults("CODER")
+	config.AccessLevel = false
+	registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
+		RunID: "acp-interaction", ChatID: "acp-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", ""), InteractionConfig: &config,
+	})
+	route := runtimeproxy.NewRoute("acp-interaction", "acp-chat", "mock-agent")
+	fixture.server.registerProxyRun(route)
+	defer fixture.server.unregisterProxyRun(route.RunID, route)
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/access-level", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"acp-interaction","accessLevel":"full_access"}`)))
+	if rec.Code != 200 || !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"interaction_disabled"`)) {
+		t.Fatalf("response: %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case msg := <-route.SendQueue:
+		t.Fatalf("forbidden change forwarded: %#v", msg)
+	default:
 	}
 }

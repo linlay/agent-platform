@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/interaction"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
@@ -44,6 +45,14 @@ func (s *Server) updateAccessLevel(req api.AccessLevelRequest) (api.AccessLevelR
 	req.AccessLevel = accessLevel
 	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
 		return api.AccessLevelResponse{}, statusErr
+	}
+	// Validate before forwarding: ACP must never receive a disallowed change.
+	if reader, ok := s.deps.Runs.(interface {
+		RunInteractionConfig(string) (interaction.Config, bool)
+	}); ok {
+		if config, found := reader.RunInteractionConfig(req.RunID); found && !config.AccessLevel {
+			return api.AccessLevelResponse{RunID: req.RunID, Status: "interaction_disabled", Detail: "interactionConfig.accessLevel is disabled"}, nil
+		}
 	}
 	if response, statusErr, ok := s.forwardProxyAccessLevel(req); ok {
 		return response, statusErr

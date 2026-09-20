@@ -12,6 +12,8 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/stream"
+
+	"agent-platform/internal/interaction"
 )
 
 const (
@@ -23,6 +25,7 @@ const (
 )
 
 type managedRun struct {
+	interactionConfig   *interaction.Config
 	run                 contracts.ActiveRun
 	control             *contracts.RunControl
 	eventBus            *stream.RunEventBus
@@ -152,6 +155,10 @@ func (m *Manager) releaseChatQueryLocked(chatID string, requestID string) {
 }
 
 func (m *Manager) registerLocked(session contracts.QuerySession) (context.Context, *contracts.RunControl, contracts.ActiveRun) {
+	if session.InteractionConfig != nil {
+		c := *session.InteractionConfig
+		session.InteractionConfig = &c
+	}
 	control := contracts.NewRunControl(context.Background(), session.RunID)
 	control.SetInitialAccessLevel(session.AccessLevel)
 	if session.SupportsContextCompaction {
@@ -179,14 +186,15 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 	})
 	control.SetObserverCount(0)
 	m.runs[session.RunID] = &managedRun{
-		run:             run,
-		control:         control,
-		eventBus:        eventBus,
-		webClientTarget: session.WebClientTarget,
-		runOrigin:       cloneRunOrigin(session.RunOrigin),
-		runEnvironment:  session.RunEnvironment,
-		startedAt:       startedAt,
-		activeSince:     startedAt,
+		interactionConfig: session.InteractionConfig,
+		run:               run,
+		control:           control,
+		eventBus:          eventBus,
+		webClientTarget:   session.WebClientTarget,
+		runOrigin:         cloneRunOrigin(session.RunOrigin),
+		runEnvironment:    session.RunEnvironment,
+		startedAt:         startedAt,
+		activeSince:       startedAt,
 	}
 	return contracts.WithRunControl(control.Context(), control), control, run
 }
@@ -358,6 +366,20 @@ func (m *Manager) Steer(req api.SteerRequest) contracts.SteerAck {
 	if !ok {
 		return contracts.SteerAck{Accepted: false, Status: "unmatched", SteerID: steerID, Detail: "No active run found"}
 	}
+	m.mu.Lock()
+	state := m.runs[req.RunID]
+	var config *interaction.Config
+	if state != nil {
+		config = state.interactionConfig
+	}
+	m.mu.Unlock()
+	if config != nil {
+		for _, ref := range req.References {
+			if err := config.ValidateReference(ref.Type); err != nil {
+				return contracts.SteerAck{Status: "interaction_disabled", SteerID: steerID, Detail: err.Error()}
+			}
+		}
+	}
 	req.SteerID = steerID
 	accepted, err := control.PrepareAndEnqueueSteer(req)
 	if err != nil {
@@ -399,6 +421,9 @@ func (m *Manager) UpdateAccessLevel(req api.AccessLevelRequest) contracts.Access
 	}
 	if state.control == nil || state.control.Interrupted() || state.control.Finished() || completed {
 		return contracts.AccessLevelAck{Accepted: false, Status: "unmatched", Detail: "Run is no longer active"}
+	}
+	if state.interactionConfig != nil && !state.interactionConfig.AccessLevel {
+		return contracts.AccessLevelAck{Status: "interaction_disabled", Detail: "interactionConfig.accessLevel is disabled"}
 	}
 	previous, current, version, changed := state.control.UpdateAccessLevel(req.AccessLevel)
 	status := "updated"
@@ -805,3 +830,14 @@ var (
 	_ contracts.ActiveRunCompactService     = (*Manager)(nil)
 	_ contracts.ChatCompactCoordinator      = (*Manager)(nil)
 )
+
+// RunInteractionConfig returns a value copy of the immutable admission snapshot.
+func (m *Manager) RunInteractionConfig(runID string) (interaction.Config, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.runs[runID]
+	if state == nil || state.interactionConfig == nil {
+		return interaction.Config{}, false
+	}
+	return *state.interactionConfig, true
+}

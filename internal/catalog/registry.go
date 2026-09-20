@@ -14,6 +14,8 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
+
+	"agent-platform/internal/interaction"
 )
 
 var ErrInvalidAgentSummaryScope = errors.New("invalid agent summary scope")
@@ -39,6 +41,7 @@ type TeamResolver interface {
 }
 
 type AgentDefinition struct {
+	InteractionConfig    *interaction.Config
 	Key                  string
 	Name                 string
 	Icon                 any
@@ -814,6 +817,10 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 		dst.Controls = nil
 	}
 	dst.Runtime = cloneAgentSnapshotMap(src.Runtime)
+	if src.InteractionConfig != nil {
+		c := *src.InteractionConfig
+		dst.InteractionConfig = &c
+	}
 	dst.HostAccess.ReadRoots = append([]string(nil), src.HostAccess.ReadRoots...)
 	dst.HostAccess.WriteRoots = append([]string(nil), src.HostAccess.WriteRoots...)
 	dst.Project.PromptFiles = append([]AgentProjectPromptFile(nil), src.Project.PromptFiles...)
@@ -996,4 +1003,12 @@ func skillDisplayName(name string, description string, fallback string) string {
 		return strings.TrimSpace(description)
 	}
 	return fallback
+}
+
+// Interaction returns resolved defaults for programmatically constructed definitions too.
+func (d AgentDefinition) Interaction() interaction.Config {
+	if d.InteractionConfig != nil {
+		return *d.InteractionConfig
+	}
+	return interaction.Defaults(d.Mode)
 }

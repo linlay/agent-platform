@@ -57,7 +57,7 @@ func ModelOptionsFilterMode(agentKey string, mode string, acpBridgeID string) st
 	if IsACPBackend(mode, acpBridgeID) {
 		return "acp-only"
 	}
-	if IsMode(mode) {
+	if IsMode(mode) || strings.EqualFold(mode, "REACT") || strings.EqualFold(mode, "KBASE") {
 		return "native-only"
 	}
 	return ""

@@ -20,6 +20,8 @@ import (
 	"agent-platform/internal/querymessages"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/temppaths"
+
+	"agent-platform/internal/interaction"
 )
 
 type querySessionBuildOptions struct {
@@ -289,6 +291,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		WorkspaceRoot:                 resolvedWorkspaceRoot,
 		ChatRoot:                      strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
 		AccessLevel:                   normalizedAccessLevel(req.AccessLevel),
+		InteractionConfig:             func() *interaction.Config { c := agentDef.Interaction(); return &c }(),
 		SkillHookDirs:                 skillHookDirs,
 		StaticRuntimeEnv:              runtimeEnvOverrides,
 	}

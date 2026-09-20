@@ -751,11 +751,14 @@ func assertBodyContainsOrderedEvent(t *testing.T, body string, marker string, pa
 		t.Fatalf("expected marker %q in body %s", marker, body)
 	}
 	start := strings.LastIndex(body[:index], "{")
-	end := strings.Index(body[index:], "}")
-	if start < 0 || end < 0 {
+	if start < 0 {
 		t.Fatalf("expected json object around marker %q in body %s", marker, body)
 	}
-	assertOrderedSubstrings(t, body[start:index+end+1], parts)
+	var object json.RawMessage
+	if err := json.NewDecoder(strings.NewReader(body[start:])).Decode(&object); err != nil {
+		t.Fatalf("decode event around %q: %v", marker, err)
+	}
+	assertOrderedSubstrings(t, string(object), parts)
 }
 
 func assertOrderedSubstrings(t *testing.T, body string, parts []string) {

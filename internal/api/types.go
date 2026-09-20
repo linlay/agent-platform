@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"agent-platform/internal/stream"
+
+	"agent-platform/internal/interaction"
 )
 
 type ApiResponse[T any] struct {
@@ -728,26 +730,27 @@ type AdminAgentSummary struct {
 }
 
 type AgentDetailResponse struct {
-	Key           string                     `json:"key"`
-	Name          string                     `json:"name"`
-	Icon          any                        `json:"icon,omitempty"`
-	Description   string                     `json:"description,omitempty"`
-	Role          string                     `json:"role,omitempty"`
-	Greetings     []string                   `json:"greetings,omitempty"`
-	Introductions []string                   `json:"introductions,omitempty"`
-	Wonders       []string                   `json:"wonders,omitempty"`
-	Model         string                     `json:"model,omitempty"`
-	Mode          string                     `json:"mode"`
-	Tools         []string                   `json:"tools"`
-	Skills        []string                   `json:"skills"`
-	Controls      []map[string]any           `json:"controls"`
-	Meta          map[string]any             `json:"meta"`
-	ModelConfig   map[string]any             `json:"modelConfig,omitempty"`
-	ModelOptions  *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
-	Definition    map[string]any             `json:"definition,omitempty"`
-	SoulPrompt    string                     `json:"soulPrompt,omitempty"`
-	AgentsPrompt  string                     `json:"agentsPrompt,omitempty"`
-	Source        *AgentSource               `json:"source,omitempty"`
+	InteractionConfig interaction.Config         `json:"interactionConfig"`
+	Key               string                     `json:"key"`
+	Name              string                     `json:"name"`
+	Icon              any                        `json:"icon,omitempty"`
+	Description       string                     `json:"description,omitempty"`
+	Role              string                     `json:"role,omitempty"`
+	Greetings         []string                   `json:"greetings,omitempty"`
+	Introductions     []string                   `json:"introductions,omitempty"`
+	Wonders           []string                   `json:"wonders,omitempty"`
+	Model             string                     `json:"model,omitempty"`
+	Mode              string                     `json:"mode"`
+	Tools             []string                   `json:"tools"`
+	Skills            []string                   `json:"skills"`
+	Controls          []map[string]any           `json:"controls"`
+	Meta              map[string]any             `json:"meta"`
+	ModelConfig       map[string]any             `json:"modelConfig,omitempty"`
+	ModelOptions      *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
+	Definition        map[string]any             `json:"definition,omitempty"`
+	SoulPrompt        string                     `json:"soulPrompt,omitempty"`
+	AgentsPrompt      string                     `json:"agentsPrompt,omitempty"`
+	Source            *AgentSource               `json:"source,omitempty"`
 }
 
 type AgentSource struct {

@@ -13,6 +13,8 @@ import (
 	"agent-platform/internal/skillsexec"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/view"
+
+	"agent-platform/internal/interaction"
 )
 
 const (
@@ -299,6 +301,7 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
+	InteractionConfig *interaction.Config
 	// ResolveView freezes a mounted presentation in this Chat before publication.
 	// It is installed by the session producer, never supplied by query clients.
 	ResolveView   func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
