@@ -35,8 +35,7 @@ func writeOneIDFixture(t *testing.T, root string, component map[string]any) conn
 	if err != nil {
 		t.Fatal(err)
 	}
-	yes := true
-	if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+	if _, err := pkg.SetConfigured(true); err != nil {
 		t.Fatal(err)
 	}
 	return pkg

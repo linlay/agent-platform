@@ -8,24 +8,18 @@ import (
 	"testing"
 )
 
-func TestConnectorConnectionIsSharedAcrossPrincipals(t *testing.T) {
-	fixture := setupAdminRegistriesFixture(t)
-	writeMCPConnectorForTest(t, fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir(), "demo")
+func TestConnectorConfigurationIsSharedAcrossPrincipals(t *testing.T) {
+	f := setupAdminRegistriesFixture(t)
+	writeMCPConnectorForTest(t, f.server.deps.Config.Paths.EffectiveConnectorsCenterDir(), "demo")
 	call := func(owner, method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: owner}))
-		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, req)
-		return rec
-	}
-	if r := call("alice", "PUT", "/api/connectors/connection", `{"connectorId":"demo","enabled":true}`); r.Code != 409 {
-		t.Fatal(r.Code, r.Body.String())
-	}
-	if r := call("alice", "POST", "/api/connectors/connect?id=demo", ""); r.Code != 200 {
-		t.Fatal(r.Code, r.Body.String())
+		r := httptest.NewRecorder()
+		f.server.ServeHTTP(r, req)
+		return r
 	}
 	read := func(owner string) connectorauth.Connection {
-		r := call(owner, "GET", "/api/connectors/connection?id=demo&userKey=alice", "")
+		r := call(owner, "GET", "/api/connectors/connection?id=demo", "")
 		if r.Code != 200 {
 			t.Fatal(r.Code, r.Body.String())
 		}
@@ -35,49 +29,38 @@ func TestConnectorConnectionIsSharedAcrossPrincipals(t *testing.T) {
 		if err := json.Unmarshal(r.Body.Bytes(), &v); err != nil {
 			t.Fatal(err)
 		}
+		if strings.Contains(r.Body.String(), `"enabled"`) || strings.Contains(r.Body.String(), `"bound"`) {
+			t.Fatal("legacy switch in response", r.Body.String())
+		}
 		return v.Data
 	}
-	a, b := read("alice"), read("bob")
-	if !a.Bound || a.Enabled || !b.Bound || b.Enabled {
-		t.Fatal(a, b)
+	if read("alice").Configured {
+		t.Fatal("missing configuration defaults ready")
 	}
-	if r := call("alice", "PUT", "/api/connectors/connection", `{"connectorId":"demo","enabled":true,"userKey":"bob"}`); r.Code != 400 {
-		t.Fatal("accepted unsupported user field", r.Code, r.Body.String())
-	}
-	if r := call("alice", "PUT", "/api/connectors/connection", `{"connectorId":"demo","enabled":true}`); r.Code != 200 {
+	if r := call("alice", "POST", "/api/connectors/connect?id=demo", ""); r.Code != 200 {
 		t.Fatal(r.Code, r.Body.String())
 	}
-	if shared := read("bob"); !shared.Bound || !shared.Enabled {
-		t.Fatal("instance connection changed with request identity", shared)
+	if s := read("bob"); !s.Configured || s.Readiness != "ready" {
+		t.Fatal(s)
+	}
+	if r := call("alice", "PUT", "/api/connectors/connection", `{"connectorId":"demo","enabled":true}`); r.Code != 405 {
+		t.Fatal("enable API retained", r.Code)
+	}
+	if r := call("alice", "POST", "/api/connectors/check?id=demo", ""); r.Code != 200 {
+		t.Fatal(r.Code, r.Body.String())
 	}
 	if r := call("alice", "POST", "/api/connectors/disconnect?id=demo", ""); r.Code != 200 {
 		t.Fatal(r.Code, r.Body.String())
 	}
-	if a := read("bob"); a.Bound || a.Enabled {
-		t.Fatal(a)
+	if read("bob").Configured {
+		t.Fatal("disconnect retained configuration")
+	}
+	for _, path := range []string{"/api/connectors/connect?id=demo", "/api/connectors/disconnect?id=demo", "/api/connectors/check?id=demo"} {
+		if r := call("alice", "GET", path, ""); r.Code != 405 {
+			t.Fatal(r.Code)
+		}
 	}
 	if r := call("alice", "GET", "/api/connectors/connection", ""); r.Code != 200 || !strings.Contains(r.Body.String(), `"connections"`) {
 		t.Fatal(r.Code, r.Body.String())
-	}
-}
-
-func TestConnectorConnectionRejectsMalformedMutations(t *testing.T) {
-	fixture := setupAdminRegistriesFixture(t)
-	for _, body := range []string{`{}`, `{"connectorId":"demo"}`, `{"connectorId":"../demo","enabled":true}`, `{"connectorId":"demo","enabled":true,"enabled":false}`, `{"connectorId":"demo","enabled":true} {}`} {
-		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest("PUT", "/api/connectors/connection", strings.NewReader(body)))
-		if rec.Code != 400 {
-			t.Fatalf("invalid mutation accepted: %d %s", rec.Code, rec.Body.String())
-		}
-		if rec.Header().Get("Cache-Control") != "no-store" {
-			t.Fatal("connection response is cacheable")
-		}
-	}
-	for _, path := range []string{"/api/connectors/connect?id=demo", "/api/connectors/disconnect?id=demo"} {
-		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
-		if rec.Code != 405 {
-			t.Fatalf("mutation accepted GET: %d %s", rec.Code, rec.Body.String())
-		}
 	}
 }

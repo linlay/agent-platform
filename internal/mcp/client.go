@@ -53,6 +53,10 @@ type sessionSlot struct {
 }
 
 type managedSession struct {
+	mu             sync.Mutex
+	active         int
+	retired        bool
+	retiredClosed  bool
 	fingerprint    string
 	identityDigest string
 	transport      string
@@ -85,11 +89,12 @@ func (c *Client) Initialize(ctx context.Context, serverKey string) error {
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", contracts.ErrMCPCallFailed, serverKey)
 	}
-	_, err := c.ensureSessionWithRetry(ctx, server)
+	managed, err := c.ensureSessionWithRetry(ctx, server)
 	if err != nil {
 		c.markFailure(server.Key)
 		return err
 	}
+	managed.release()
 	c.markSuccess(server.Key)
 	return nil
 }
@@ -107,6 +112,7 @@ func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string
 		c.markFailure(server.Key)
 		return nil, err
 	}
+	defer managed.release()
 	callCtx, cancel := operationContext(ctx, server.ReadTimeout)
 	defer cancel()
 	observability.Log("mcp.request", map[string]any{"serverKey": server.Key, "method": "tools/call"})
@@ -138,6 +144,7 @@ func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinit
 		c.markFailure(server.Key)
 		return nil, err
 	}
+	defer managed.release()
 	listCtx, cancel := operationContext(ctx, server.ReadTimeout)
 	defer cancel()
 	observability.Log("mcp.request", map[string]any{"serverKey": server.Key, "method": "tools/list"})
@@ -185,7 +192,7 @@ func (c *Client) Reconcile() {
 		}
 		slot.mu.Unlock()
 		if current != nil && (active[key] == "" || active[key] != current.fingerprint) {
-			_ = current.session.Close()
+			current.retire()
 		}
 	}
 }
@@ -252,7 +259,7 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	fingerprint := serverFingerprint(server)
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	if err := connector.RequireEnabled(server.ConnectorAuthRoot, server.ConnectorID); err != nil {
+	if err := connector.RequireConfigured(server.ConnectorAuthRoot, server.ConnectorID); err != nil {
 		return nil, err
 	}
 	identity, identityErr := c.stdioIdentity(server)
@@ -264,7 +271,7 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	}
 	if identityErr != nil {
 		if slot.current != nil {
-			_ = closeManagedSession(slot.current)
+			slot.current.retire()
 			slot.current = nil
 		}
 		return nil, identityErr
@@ -276,10 +283,11 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 		identityDigest = hex.EncodeToString(digest[:])
 	}
 	if slot.current != nil && slot.current.fingerprint == fingerprint && slot.current.identityDigest == identityDigest {
+		slot.current.retain()
 		return slot.current, nil
 	}
 	if slot.current != nil {
-		_ = slot.current.session.Close()
+		slot.current.retire()
 		slot.current = nil
 	}
 	connectCtx, cancel := operationContext(ctx, server.StartupTimeout)
@@ -305,9 +313,38 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	// The SDK validates its supported versions and applies the negotiated
 	// version to the transport before sending notifications/initialized.
 	managed := &managedSession{fingerprint: fingerprint, identityDigest: identityDigest, transport: server.Transport, session: session}
+	managed.retain()
 	slot.current = managed
 	observability.Log("mcp.response", map[string]any{"serverKey": server.Key, "method": "initialize", "protocolVersion": session.InitializeResult().ProtocolVersion})
 	return managed, nil
+}
+
+// Retired sessions drain existing operations while new calls use the current
+// configuration. Credential reload/logout must not cancel an accepted tool call.
+func (m *managedSession) retain() { m.mu.Lock(); m.active++; m.mu.Unlock() }
+func (m *managedSession) release() {
+	m.mu.Lock()
+	m.active--
+	closeNow := m.retired && m.active == 0 && !m.retiredClosed
+	if closeNow {
+		m.retiredClosed = true
+	}
+	m.mu.Unlock()
+	if closeNow {
+		_ = closeManagedSession(m)
+	}
+}
+func (m *managedSession) retire() {
+	m.mu.Lock()
+	m.retired = true
+	closeNow := m.active == 0 && !m.retiredClosed
+	if closeNow {
+		m.retiredClosed = true
+	}
+	m.mu.Unlock()
+	if closeNow {
+		_ = closeManagedSession(m)
+	}
 }
 
 func closeManagedSession(managed *managedSession) error {
@@ -452,7 +489,7 @@ func (c *Client) invalidate(serverKey string, target *managedSession) {
 	}
 	slot.mu.Unlock()
 	if target != nil {
-		_ = target.session.Close()
+		target.retire()
 	}
 }
 
@@ -698,35 +735,4 @@ func envPairs(values map[string]string) []string {
 		out = append(out, key+"="+values[key])
 	}
 	return out
-}
-
-// DisconnectConnector closes all Agent sessions using this instance credential.
-// Callers first persist disabled/unbound, so no concurrent initialization can
-// recreate a session after its slot has been closed here.
-func (c *Client) DisconnectConnector(ctx context.Context, id string) error {
-	if c == nil || c.registry == nil {
-		return nil
-	}
-	var failures []error
-	for _, server := range c.registry.Servers() {
-		if server.ConnectorID != id {
-			continue
-		}
-		c.mu.Lock()
-		slot := c.slots[normalizeKey(server.Key)]
-		c.mu.Unlock()
-		if slot == nil {
-			continue
-		}
-		slot.mu.Lock()
-		current := slot.current
-		slot.current = nil
-		slot.mu.Unlock()
-		if current != nil {
-			if err := closeManagedSession(current); err != nil {
-				failures = append(failures, err)
-			}
-		}
-	}
-	return errors.Join(failures...)
 }

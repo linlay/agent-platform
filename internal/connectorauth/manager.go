@@ -17,14 +17,15 @@ import (
 )
 
 type Session struct {
-	ID          string    `json:"sessionId"`
-	ConnectorID string    `json:"connectorId"`
-	ComponentID string    `json:"componentId,omitempty"`
-	Status      string    `json:"status"`
-	URL         string    `json:"authorizationUrl,omitempty"`
-	AuthBrowser string    `json:"authBrowser"`
-	Message     string    `json:"message,omitempty"`
-	ExpiresAt   time.Time `json:"expiresAt"`
+	ID                  string    `json:"sessionId"`
+	ConnectorID         string    `json:"connectorId"`
+	ComponentID         string    `json:"componentId,omitempty"`
+	Status              string    `json:"status"`
+	PendingVerification bool      `json:"pendingVerification,omitempty"`
+	URL                 string    `json:"authorizationUrl,omitempty"`
+	AuthBrowser         string    `json:"authBrowser"`
+	Message             string    `json:"message,omitempty"`
+	ExpiresAt           time.Time `json:"expiresAt"`
 }
 
 type login struct {
@@ -46,11 +47,8 @@ type Manager struct {
 	mu                  sync.Mutex
 	preparations        map[string]*preparationJob
 	sessions            map[string]*login
-	loggingOut          map[string]bool
 	epochs              map[string]uint64
 	disconnecting       map[string]bool
-	business            map[string]map[*businessInvocation]struct{}
-	disconnectHandler   func(context.Context, string) error
 }
 
 func New(ctx context.Context, sources connector.Sources, reload func(context.Context, string) error) *Manager {
@@ -58,7 +56,7 @@ func New(ctx context.Context, sources connector.Sources, reload func(context.Con
 		ctx = context.Background()
 	}
 	go hostenv.WithNPM(os.Environ())
-	return &Manager{ctx: ctx, sources: sources, reload: reload, client: httpclient.NewClient(30 * time.Second), preparations: map[string]*preparationJob{}, sessions: map[string]*login{}, loggingOut: map[string]bool{}}
+	return &Manager{ctx: ctx, sources: sources, reload: reload, client: httpclient.NewClient(30 * time.Second), preparations: map[string]*preparationJob{}, sessions: map[string]*login{}}
 }
 
 func (m *Manager) WithIdentityFile(path string) *Manager {
@@ -93,17 +91,44 @@ func (m *Manager) retire(id string) {
 	}
 	m.epochs[id]++
 }
-func (m *Manager) markBoundAt(pkg connector.Package, epoch uint64) error {
+func (m *Manager) markConfiguredAt(pkg connector.Package, epoch uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.epochs[pkg.ID] != epoch {
 		return fmt.Errorf("connector operation superseded")
 	}
-	return m.markBound(pkg)
+	return m.markConfigured(pkg)
 }
-func (m *Manager) markBound(pkg connector.Package) error {
-	value := true
-	_, err := pkg.UpdateConnection(&value, nil)
+func (m *Manager) markConfigured(pkg connector.Package) error {
+	_, err := pkg.SetConfigured(true)
+	return err
+}
+
+// Publish completion and cached CLI status under the same durable logout fence.
+func (m *Manager) completeLogin(ctx context.Context, pkg connector.Package, epoch uint64, generation string) error {
+	unlock, err := lockCredentials(ctx, pkg.PersistentRoot(), pkg.ID)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	state, err := readAuthState(pkg.PersistentRoot(), pkg.ID)
+	if err == nil && (ctx.Err() != nil || m.epochs[pkg.ID] != epoch || m.disconnecting[pkg.ID] || state.Generation != generation) {
+		err = fmt.Errorf("connector login superseded")
+	}
+	if err == nil {
+		err = m.markConfigured(pkg)
+	}
+	if err == nil {
+		err = changeAuthState(pkg.PersistentRoot(), pkg.ID, false)
+	}
+	if err == nil && pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
+		err = saveVerification(pkg, nil, "authorized")
+	}
+	m.mu.Unlock()
+	unlock()
+	if err == nil && m.reload != nil {
+		err = m.reload(ctx, pkg.ID)
+	}
 	return err
 }
 
@@ -117,9 +142,6 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	if pkg.Builtin {
-		return Session{}, connector.ErrBuiltinReadOnly
-	}
 	if pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP {
 		pkg, err = OAuthComponent(pkg, component)
 		if err != nil {
@@ -130,7 +152,7 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 		return Session{}, fmt.Errorf("connector does not support interactive login")
 	}
 	m.mu.Lock()
-	if m.loggingOut[id] || m.disconnecting[id] {
+	if m.disconnecting[id] {
 		m.mu.Unlock()
 		return Session{}, fmt.Errorf("connector logout is in progress")
 	}
@@ -195,10 +217,7 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 		release()
 		released = true
 		if err == nil && ctx.Err() == nil {
-			err = m.markBoundAt(pkg, generation)
-		}
-		if err == nil && ctx.Err() == nil {
-			err = m.changed(ctx, id)
+			err = m.completeLogin(ctx, pkg, generation, *s.generation)
 		}
 		terminalState, _ := readAuthState(m.sources.PersistentRoot(), id)
 		m.mu.Lock()
@@ -262,23 +281,8 @@ func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Se
 		return result, nil
 	}
 	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
-		release, lockErr := connector.AcquireOperation(m.sources.ExternalRoot, id)
-		if lockErr != nil {
-			result.Status = "setup_required"
-			result.Message = lockErr.Error()
-			return result, nil
-		}
-		defer release()
-		pkg, err = m.sources.Load(id)
-		if err != nil {
-			return Session{}, err
-		}
-		ok, err := m.cliStatus(ctx, pkg)
-		if err != nil {
-			result.Status = "setup_required"
-			result.Message = err.Error()
-		} else if ok {
-			result.Status = "authorized"
+		if status := cachedVerification(pkg, nil); status != "" {
+			result.Status = status
 		}
 		return result, nil
 	}
@@ -348,60 +352,12 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if pkg.Builtin {
-		return connector.ErrBuiltinReadOnly
-	}
 	if pkg.AuthMode == connector.AuthOneID || pkg.AuthMode == connector.AuthDelegated && !pkg.ManagedCLI() {
 		return fmt.Errorf("authentication is managed by the identity provider or connector CLI")
 	}
-	m.mu.Lock()
-	if m.loggingOut[id] {
-		m.mu.Unlock()
-		return fmt.Errorf("connector logout is in progress")
+	result, err := m.Disconnect(ctx, id)
+	if err == nil && len(result.Warnings) > 0 {
+		return fmt.Errorf("%s", result.Warnings[0])
 	}
-	m.loggingOut[id] = true
-	m.mu.Unlock()
-	defer func() { m.mu.Lock(); delete(m.loggingOut, id); m.mu.Unlock() }()
-	if err := m.cancelTokenValidation(ctx, id); err != nil {
-		return err
-	}
-	if err := m.Cancel(id); err != nil {
-		return err
-	}
-	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
-		release, lockErr := connector.AcquireOperation(m.sources.ExternalRoot, id)
-		if lockErr != nil {
-			return lockErr
-		}
-		err = m.logoutCLI(ctx, pkg)
-		release()
-	} else {
-		unlock, lockErr := lockCredentials(ctx, m.sources.PersistentRoot(), id)
-		if lockErr != nil {
-			return lockErr
-		}
-		var p string
-		if pkg.AuthMode == connector.AuthToken {
-			p, err = connector.CredentialsPath(m.sources.PersistentRoot(), id)
-		} else {
-			p, err = credentialPath(m.sources.PersistentRoot(), id)
-		}
-		if err == nil {
-			err = changeAuthState(m.sources.PersistentRoot(), id, true)
-		}
-		if err == nil {
-			err = os.Remove(p)
-			if os.IsNotExist(err) {
-				err = nil
-			}
-		}
-		unlock()
-	}
-	if err != nil {
-		return err
-	}
-	m.mu.Lock()
-	delete(m.sessions, id)
-	m.mu.Unlock()
-	return m.changed(ctx, id)
+	return err
 }

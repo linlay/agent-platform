@@ -3,8 +3,10 @@ package connectorauth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"agent-platform/internal/connector"
 )
@@ -27,81 +29,129 @@ func TokenValues(pkg connector.Package) (map[string]string, bool, error) {
 	return values, true, nil
 }
 
+// SetToken keeps failed candidates out of the active credential file.
 func (m *Manager) SetToken(ctx context.Context, id string, values map[string]string) (Session, error) {
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
 	}
-	if pkg.Builtin {
-		return Session{}, connector.ErrBuiltinReadOnly
-	}
 	if pkg.AuthMode != connector.AuthToken {
 		return Session{}, fmt.Errorf("only token connectors accept manual credentials")
 	}
-	if err := connector.ValidateTokenValues(pkg.Manifest, values); err != nil {
+	if err = connector.ValidateTokenValues(pkg.Manifest, values); err != nil {
 		return Session{}, err
 	}
-	// Never retain the caller's mutable map across a network probe.
-	candidateValues := make(map[string]string, len(values))
-	for key, value := range values {
-		candidateValues[key] = value
+	candidate := make(map[string]string, len(values))
+	for k, v := range values {
+		candidate[k] = v
 	}
-	ctx, generation, finish, err := m.beginTokenValidation(ctx, id)
+	return m.tokenOperation(ctx, pkg, candidate, false)
+}
+func (m *Manager) checkToken(ctx context.Context, pkg connector.Package) (Session, error) {
+	return m.tokenOperation(ctx, pkg, nil, true)
+}
+func (m *Manager) tokenOperation(ctx context.Context, pkg connector.Package, values map[string]string, check bool) (Session, error) {
+	requestCtx := ctx
+	ctx, generation, finish, err := m.beginTokenValidation(ctx, pkg.ID)
 	if err != nil {
 		return Session{}, err
 	}
 	defer finish()
-	unlock, err := lockCredentials(ctx, m.sources.PersistentRoot(), id)
+	unlock, err := lockCredentials(ctx, pkg.PersistentRoot(), pkg.ID)
 	if err != nil {
 		return Session{}, err
 	}
 	defer unlock()
-	status, err := m.validateTokenCredentials(ctx, pkg, candidateValues)
-	if err != nil {
-		return Session{}, err
-	}
-	// Disconnect invalidates the generation under the same lock as this commit.
-	// The credential file rename atomically replaces the complete validated set.
-	m.mu.Lock()
-	if ctx.Err() != nil || m.epochs[id] != generation || m.disconnecting[id] || m.loggingOut[id] {
-		m.mu.Unlock()
-		return Session{}, fmt.Errorf("connector credential operation superseded")
-	}
-	path, err := connector.CredentialsPath(m.sources.PersistentRoot(), id)
-	var previous []byte
-	if err == nil {
-		previous, err = os.ReadFile(path)
-		if os.IsNotExist(err) {
-			err = nil
-		}
-	}
-	if err == nil {
-		err = savePrivateJSON(path, candidateValues)
-	}
-	if err == nil {
-		err = m.markBound(pkg)
+	pending := false
+	if check {
+		values, pending, err = pendingTokenValues(pkg)
 		if err != nil {
-			// A failed preference commit must not discard an existing valid key.
-			if previous == nil {
-				_ = os.Remove(path)
-			} else {
-				_ = savePrivateJSON(path, json.RawMessage(previous))
+			return Session{}, err
+		}
+		if !pending {
+			var ready bool
+			values, ready, err = TokenValues(pkg)
+			if err != nil {
+				return Session{}, err
+			}
+			if !ready {
+				return Session{ConnectorID: pkg.ID, Status: "unauthorized", AuthBrowser: pkg.AuthorizationBrowser()}, nil
 			}
 		}
 	}
-	if err == nil {
-		err = changeAuthState(m.sources.PersistentRoot(), id, false)
+	status, probeErr := m.validateTokenCredentials(ctx, pkg, values)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if requestCtx.Err() != nil || errors.Is(ctx.Err(), context.Canceled) || m.epochs[pkg.ID] != generation || m.disconnecting[pkg.ID] {
+		return Session{}, fmt.Errorf("connector credential operation superseded")
 	}
-	m.mu.Unlock()
+	result := Session{ConnectorID: pkg.ID, Status: status, AuthBrowser: pkg.AuthorizationBrowser()}
+	dir, err := pkg.ConnectorStateDir()
 	if err != nil {
+		return Session{}, err
+	}
+	if probeErr != nil {
+		if errors.Is(probeErr, ErrTokenRejected) {
+			if check && !pending {
+				if err = saveVerification(pkg, values, "unauthorized"); err != nil {
+					return Session{}, err
+				}
+			}
+			return Session{}, ErrTokenRejected
+		}
+		if check && !pending {
+			return Session{ConnectorID: pkg.ID, Status: "failed", AuthBrowser: pkg.AuthorizationBrowser(), Message: "Credential check unavailable; saved credentials were preserved"}, nil
+		}
+		if err = savePrivateJSON(filepath.Join(dir, "pending-credentials.json"), values); err != nil {
+			return Session{}, fmt.Errorf("save pending credentials failed")
+		}
+		if _, err = pkg.SetConfigured(true); err != nil {
+			return Session{}, err
+		}
+		result.Status = "pending_verification"
+		result.PendingVerification = true
+		result.Message = "Credentials saved for later verification; active credentials were preserved"
+		return result, nil
+	}
+	path, err := connector.CredentialsPath(pkg.PersistentRoot(), pkg.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	var previous json.RawMessage
+	if data, readErr := os.ReadFile(path); readErr == nil {
+		previous = data
+	} else if !os.IsNotExist(readErr) {
+		return Session{}, fmt.Errorf("credential store unavailable")
+	}
+	if err = savePrivateJSON(path, values); err != nil {
 		return Session{}, fmt.Errorf("save connector credentials failed")
 	}
+	if err = m.markConfigured(pkg); err != nil {
+		if previous == nil {
+			_ = os.Remove(path)
+		} else {
+			_ = savePrivateJSON(path, previous)
+		}
+		return Session{}, err
+	}
+	if err = changeAuthState(pkg.PersistentRoot(), pkg.ID, false); err != nil {
+		return Session{}, err
+	}
+	if err = saveVerification(pkg, values, status); err != nil {
+		return Session{}, err
+	}
+	if err = os.Remove(filepath.Join(dir, "pending-credentials.json")); err != nil && !os.IsNotExist(err) {
+		return Session{}, fmt.Errorf("clear pending credentials failed")
+	}
+	// Callbacks run after releasing the manager lock, as they may inspect current state.
 	if m.reload != nil {
-		if err := m.reload(ctx, id); err != nil {
+		m.mu.Unlock()
+		err = m.reload(requestCtx, pkg.ID)
+		m.mu.Lock()
+		if err != nil {
 			return Session{}, fmt.Errorf("credentials saved; connector runtime refresh failed")
 		}
 	}
-	result := Session{ConnectorID: id, Status: status, AuthBrowser: pkg.AuthorizationBrowser()}
 	if status == "configured" {
 		result.Message = "Credentials configured; this connector has no independent verification command"
 	}

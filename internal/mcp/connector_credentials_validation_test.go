@@ -51,8 +51,7 @@ func TestTokenValidationChecksAllMCPComponentsAndPreservesLiveCredentials(t *tes
 		t.Fatal(err)
 	}
 	pkg, _ := sources.Load("demo")
-	yes := true
-	pkg.UpdateConnection(nil, &yes)
+	pkg.SetConfigured(true)
 	before := calls.Load()
 	if _, err := manager.SetToken(t.Context(), "demo", map[string]string{"KEY": "wrong-secret"}); !errors.Is(err, connectorauth.ErrTokenRejected) {
 		t.Fatalf("wrong token accepted: %v", err)
@@ -69,7 +68,7 @@ func TestTokenValidationChecksAllMCPComponentsAndPreservesLiveCredentials(t *tes
 		t.Fatal("invalid update changed live credentials", err)
 	}
 	state, err := pkg.ReadConnection()
-	if err != nil || !state.Bound || !state.Enabled {
+	if err != nil || !state.Configured {
 		t.Fatal("invalid update changed preferences", state, err)
 	}
 	if len(probe.slots) != 0 {

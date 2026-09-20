@@ -322,7 +322,7 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 
 `editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。专用 KBASE 在 true/false 两种状态下都以最终 `runtimeConfig.workspaceRoot` 作为 Workspace，并提供相同的五个文件工具；`false` 或省略只表示 Workspace mutation 未授权，Workspace 仍可读，当前 Chat 目录仍可读写。`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
 
-`mustUseSkills` 是单次 run 的强制 Skill 数组。服务端对各项 trim、忽略空值、按大小写不敏感去重并保留首次出现顺序，不设置额外数量上限。当前 Agent 已挂载的连接器 Skill 优先从本 Agent 运行包解析，指令路径保持 `@connectors/<id>/skills/<name>/SKILL.md`；挂载或技能无效时拒绝，不回退同名普通技能，也不授予普通技能脚本执行豁免。已经配置在目标 Agent 的普通 Skill 从 `ru-agents/<agentKey>/skills/<key>` 解析，模型看到的指令路径为 `@skills/<key>/SKILL.md`；未配置的额外 Skill 必须存在于当前有效 skills-center catalog，并从共享技能中心解析为 `@skills-center/<key>/SKILL.md`。任一项缺失、无合法 `SKILL.md` 或当前无法解析时，整个请求在 run 启动前以 HTTP 400、`msg=must_use_skill_unavailable` 失败，不会部分执行或静默降级。
+`mustUseSkills` 是单次 run 的强制 Skill 数组。服务端对各项 trim、忽略空值、按大小写不敏感去重并保留首次出现顺序，不设置额外数量上限。已经配置在目标 Agent 的 Skill 从 `ru-agents/<agentKey>/skills/<key>` 解析，模型看到的指令路径为 `@skills/<key>/SKILL.md`；未配置的额外 Skill 必须存在于当前有效 skills-center catalog，并从共享技能中心解析为 `@skills-center/<key>/SKILL.md`。任一项缺失、无合法 `SKILL.md` 或当前无法解析时，整个请求在 run 启动前以 HTTP 400、`msg=must_use_skill_unavailable` 失败，不会部分执行或静默降级。
 
 每个 must-use Skill（包括已配置 Skill）都会解析为最终 canonical 目录，并在当前 run 建立 trusted read + readonly roots：选中目录内的 `SKILL.md`、scripts、references 与 assets 免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，symlink 逃逸按最终目标重新判权；run readonly 不能被 writeRoots、hostAccess、`full_access` 或 exact/rule approval 放宽。存在额外 Skill 时，Container session 仍只追加一次整个 skills-center 的只读挂载 `/skills-center`，已有显式 `platform: skills-center` 挂载会去重并按只读使用；整个 mount 只表示容器可见性。系统 Prompt 会列出每个 Skill 的精确 `path`，并要求全部读取和遵循。额外 Skill 不参与 Agent `.config`、`.runtime-env.json` 或 `.bash-hooks` 合并，不增加 Tool、MCP、Agent hostAccess、其他 mount 或 `accessLevel`；平台也不生成内容快照，continuation 会按当前 catalog 和磁盘内容重新验证。
 
@@ -1250,3 +1250,7 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 `/api/project/git` 的 WS payload 为 `{agentKey}`。`/api/project/git/branches` 读取 payload 为 `{agentKey}`；存在 `operation`、`branch` 或 `expectedRevision` 任一字段时按写请求处理，完整写 payload 与 HTTP POST 相同。两种传输复用 Project Service、目录边界、分支保护和 revision 冲突校验；错误保留 HTTP 状态码和领域 code。WS 写请求失败不自动重试或回退 HTTP。
 
 WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Workspace 首次按需探测，不要求 `expectedBranch`。快照采用短期内存缓存，分支列表按需加载，写入成功复用返回快照，写前仍由服务端实时校验。
+
+### 连接器配置状态接口
+
+连接器配置使用 `configured`，不提供独立启用开关。HTTP `GET /api/connectors/connection[?id=...]` 读取本地快照；`POST /api/connectors/connect?id=...[&component=...]` 开始既有认证流程；Token 通过既有管理端 credentials 提交；`POST /api/connectors/check?id=...[&component=...]` 显式验证；`POST /api/connectors/disconnect?id=...` 清理本地授权并保留私有设置/数据。不新增 WS 对应路由。详情见 [连接器](连接器.md#配置完成与本地授权) 与 [连接器安装与授权](连接器安装与授权.md#token-保存验证与状态读取)。

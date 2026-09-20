@@ -30,10 +30,6 @@ func TestAgentConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 	def := catalog.AgentDefinition{RuntimeDir: filepath.Join(root, "ru-agents", "demo"), Connectors: []string{"builtin.dbx"}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "builtin.dbx", Name: "builtin-dbx", RuntimeDir: skill}}, ConnectorMounts: []catalog.ConnectorMount{{ID: "builtin.dbx", Dir: pkg}}}
 	prompt := buildSkillCatalogPrompt(def, "", contracts.DefaultPromptAppendConfig())
 	alias := "@connectors/builtin.dbx/skills/builtin-dbx/SKILL.md"
-	selected, err := resolveMustUseSkills(def, "", nil, []string{"BUILTIN-DBX"})
-	if err != nil || len(selected.Skills) != 1 || selected.Skills[0].InstructionsPath != alias || selected.HasExtraSkills {
-		t.Fatalf("mounted reserved skill = %#v, %v", selected, err)
-	}
 	if !strings.Contains(prompt, "skillId: builtin-dbx\n") || !strings.Contains(prompt, "path: "+alias) || strings.Contains(prompt, "@skills/"+key) || strings.Contains(prompt, "connector-11-") {
 		t.Fatal(prompt)
 	}
@@ -131,9 +127,8 @@ func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 					t.Fatal("mounted connector skill is selectable through its center namesake")
 				}
 			}
-			selected, err := resolveMustUseSkills(def, fixture.server.deps.Config.Paths.SkillsCenterDir, fixture.server.deps.Registry, []string{strings.ToUpper(key)})
-			if err != nil || len(selected.Skills) != 1 || selected.Skills[0].InstructionsPath != alias || selected.HasExtraSkills || selected.Skills[0].Extra {
-				t.Fatalf("mounted connector selection = %#v, %v", selected, err)
+			if _, err := resolveMustUseSkills(def, fixture.server.deps.Config.Paths.SkillsCenterDir, fixture.server.deps.Registry, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
+				t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
 			}
 		})
 	}

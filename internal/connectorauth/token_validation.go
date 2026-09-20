@@ -32,7 +32,7 @@ func (m *Manager) WithCredentialValidator(validate func(context.Context, connect
 func (m *Manager) beginTokenValidation(ctx context.Context, id string) (context.Context, uint64, func(), error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.disconnecting[id] || m.loggingOut[id] || m.tokenValidations[id] != nil {
+	if m.disconnecting[id] || m.tokenValidations[id] != nil {
 		return nil, 0, nil, fmt.Errorf("connector credential operation is in progress")
 	}
 	validationCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -82,8 +82,7 @@ func (m *Manager) validateTokenCredentials(ctx context.Context, pkg connector.Pa
 	if err = savePrivateJSON(path, values); err != nil {
 		return "", fmt.Errorf("cannot stage connector credentials")
 	}
-	yes := true
-	if _, err := candidate.UpdateConnection(&yes, &yes); err != nil {
+	if _, err := candidate.SetConfigured(true); err != nil {
 		return "", ErrCredentialCheckFailed
 	}
 	if hasCLIStatus {
@@ -115,31 +114,27 @@ func (m *Manager) validateTokenCredentials(ctx context.Context, pkg connector.Pa
 	return "authorized", nil
 }
 
+// tokenStatus is a local snapshot, never a network probe.
 func (m *Manager) tokenStatus(ctx context.Context, pkg connector.Package) (Session, error) {
 	result := Session{ConnectorID: pkg.ID, AuthBrowser: pkg.AuthorizationBrowser(), Status: "unauthorized"}
-	values, ready, err := TokenValues(pkg)
-	if err != nil || !ready {
+	_, pending, err := pendingTokenValues(pkg)
+	if err != nil {
 		return result, err
 	}
-	statusCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	status, err := m.validateTokenCredentials(statusCtx, pkg, values)
+	result.PendingVerification = pending
+	values, ready, err := TokenValues(pkg)
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrTokenRejected):
-			result.Message = "Connector credentials were not accepted"
-		case errors.Is(err, ErrCredentialValidatorUnavailable):
-			result.Status = "setup_required"
-			result.Message = "Connector credential validation is unavailable"
-		default:
-			result.Status = "failed"
-			result.Message = "Connector credential check failed; saved credentials were preserved"
+		return result, err
+	}
+	if !ready {
+		if pending {
+			result.Status = "pending_verification"
 		}
 		return result, nil
 	}
-	result.Status = status
-	if status == "configured" {
-		result.Message = "Credentials configured; this connector has no independent verification command"
+	result.Status = cachedVerification(pkg, values)
+	if result.Status == "" {
+		result.Status = "configured"
 	}
 	return result, nil
 }

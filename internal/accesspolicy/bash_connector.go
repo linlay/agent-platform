@@ -15,43 +15,43 @@ import (
 // connectorExecution checks the actual target, including interpreter script
 // operands, against entries frozen at catalog publication. PATH membership alone
 // is never an execution grant. Container identity comes only from its resolver.
-func connectorExecution(session QuerySession, x BashExecution, vars map[string]string, env *BashEnvironment) string {
+func connectorExecution(session QuerySession, x BashExecution, vars map[string]string, env *BashEnvironment) bool {
 	if len(session.ConnectorCLIEntries) == 0 || x.Uncertain || x.BlockReason != "" || len(x.Argv) == 0 {
-		return ""
+		return false
 	}
 	target := x.Program
 	if x.TrustedInterpreter {
 		target = x.Script
 		if target == "" {
-			return ""
+			return false
 		}
 	} else if target == "" {
 		if shellBuiltins[commandFamily(x.Argv[0])] {
-			return ""
+			return false
 		}
 		if session.AgentHasRuntimeSandbox {
 			if env == nil || env.Resolve == nil {
-				return ""
+				return false
 			}
 			var err error
 			target, err = env.Resolve(x.Argv[0], x.Cwd, vars)
 			if err != nil {
-				return ""
+				return false
 			}
 		} else {
 			target = resolvedProgram(x.Argv[0], x.Cwd, vars)
 		}
 	}
 	if target == "" {
-		return ""
+		return false
 	}
 	if session.AgentHasRuntimeSandbox {
 		if env == nil || env.Canonical == nil || env.Inspect == nil {
-			return ""
+			return false
 		}
 		canonical, err := env.Canonical(target, x.Cwd)
 		if err != nil {
-			return ""
+			return false
 		}
 		for _, entry := range session.ConnectorCLIEntries {
 			if session.ConnectorDirs[entry.ConnectorID] == "" {
@@ -62,16 +62,13 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 				continue
 			}
 			_, hash, err := env.Inspect(canonical)
-			if err == nil && hash == entry.SHA256 {
-				return entry.ConnectorID
-			}
-			return ""
+			return err == nil && hash == entry.SHA256
 		}
-		return ""
+		return false
 	}
 	canonical, err := NormalizePath(resolveAgainstCwd(target, x.Cwd))
 	if err != nil {
-		return ""
+		return false
 	}
 	for _, entry := range session.ConnectorCLIEntries {
 		root := session.ConnectorDirs[entry.ConnectorID]
@@ -84,12 +81,9 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 			continue
 		}
 		hash, err := connector.CLIFileHash(canonical)
-		if err == nil && hash == entry.SHA256 {
-			return entry.ConnectorID
-		}
-		return ""
+		return err == nil && hash == entry.SHA256
 	}
-	return ""
+	return false
 }
 
 // connectorReviewCommand removes only verified CLI words from analysis. The

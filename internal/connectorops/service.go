@@ -141,11 +141,9 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
-	ctx, releaseBusiness, err := auth.BeginBusiness(ctx, req.ConnectorID)
-	if err != nil {
-		return result, failure("connector_disabled", 409)
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err != nil {
+		return result, failure("connector_configuration_required", 409)
 	}
-	defer releaseBusiness()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	component := ""
@@ -156,7 +154,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil || status.Status == "setup_required" {
 		return result, failure("connector_unavailable", 503)
 	}
-	if status.Status != "authorized" {
+	if status.Status != "authorized" && status.Status != "configured" && status.Status != "delegated" {
 		return result, failure("connector_auth_required", 401)
 	}
 	// Keep the package stable through dispatch, including cross-process imports.
@@ -214,10 +212,8 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil {
 		return result, err
 	}
-	after, err := auth.Revision(req.ConnectorID)
-	if err != nil || after != revision {
-		return result, failure("connector_auth_expired", 401)
-	}
+	// Authentication was checked before dispatch. Local sign-out must not discard
+	// a completed result (or its durable write receipt); the grant itself is still checked.
 	if !scope.permits(req.ConnectorID, req.Adapter) {
 		return result, failure("connector_execution_not_allowed", 403)
 	}

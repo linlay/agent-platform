@@ -9,11 +9,10 @@ import (
 	"time"
 )
 
-// ConnectionState is this instance's preference, independent of expiring credentials.
+// ConnectionState is this instance's configuration completion, independent of expiring credentials.
 type ConnectionState struct {
 	ConnectorID string `json:"connectorId"`
-	Bound       bool   `json:"bound"`
-	Enabled     bool   `json:"enabled"`
+	Configured  bool   `json:"configured"`
 	UpdatedAt   int64  `json:"updatedAt,omitempty"`
 }
 
@@ -21,11 +20,6 @@ var connectionStateMu sync.Mutex
 
 func (p Package) ReadConnection() (ConnectionState, error) {
 	state := ConnectionState{ConnectorID: p.ID}
-	if p.Builtin {
-		state.Bound = true
-		state.Enabled = true
-		return state, nil
-	}
 	dir, err := p.ConnectorStateDir()
 	if err != nil {
 		return state, err
@@ -37,33 +31,19 @@ func (p Package) ReadConnection() (ConnectionState, error) {
 	if err != nil {
 		return state, fmt.Errorf("connection state unavailable")
 	}
-	if state.ConnectorID != p.ID || state.Enabled && !state.Bound {
+	if state.ConnectorID != p.ID {
 		return state, fmt.Errorf("invalid connection state")
 	}
 	return state, nil
 }
-func (p Package) UpdateConnection(bound *bool, enabled *bool) (ConnectionState, error) {
+func (p Package) SetConfigured(configured bool) (ConnectionState, error) {
 	connectionStateMu.Lock()
 	defer connectionStateMu.Unlock()
 	s, err := p.ReadConnection()
 	if err != nil {
 		return s, err
 	}
-	if p.Builtin {
-		return s, ErrBuiltinReadOnly
-	}
-	if bound != nil {
-		s.Bound = *bound
-		if !s.Bound {
-			s.Enabled = false
-		}
-	}
-	if enabled != nil {
-		s.Enabled = *enabled
-	}
-	if s.Enabled && !s.Bound {
-		return s, fmt.Errorf("connection_required")
-	}
+	s.Configured = configured
 	s.UpdatedAt = time.Now().UnixMilli()
 	dir, err := p.ConnectorStateDir()
 	if err != nil {
@@ -99,9 +79,9 @@ func (p Package) UpdateConnection(bound *bool, enabled *bool) (ConnectionState, 
 func (p Package) ConnectorStateDir() (string, error) { return StateDir(p.PersistentRoot(), p.ID) }
 func (p Package) CredentialRoot() string             { return p.PersistentRoot() }
 
-// RequireEnabled resolves preferences at dispatch time, including for frozen Runs.
-func RequireEnabled(root, id string) error {
-	if id == "" || IsBuiltin(id) {
+// RequireConfigured resolves configuration at dispatch time, including for frozen Runs.
+func RequireConfigured(root, id string) error {
+	if id == "" {
 		return nil
 	}
 	p := Package{Manifest: Manifest{ID: id}, StateRoot: root}
@@ -109,8 +89,8 @@ func RequireEnabled(root, id string) error {
 	if err != nil {
 		return err
 	}
-	if !state.Bound || !state.Enabled {
-		return fmt.Errorf("connector_disabled")
+	if !state.Configured {
+		return fmt.Errorf("connector_configuration_required")
 	}
 	return nil
 }

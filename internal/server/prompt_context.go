@@ -537,16 +537,7 @@ func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 		Keys:   make([]string, 0, len(normalizedRequested)),
 	}
 	for _, requestedKey := range normalizedRequested {
-		if def.IsConnectorSkill(requestedKey) {
-			skill, err := resolveMustUseConnectorSkill(def, requestedKey)
-			if err != nil {
-				return mustUseSkillResolution{}, err
-			}
-			result.Skills = append(result.Skills, skill)
-			result.Keys = append(result.Keys, skill.Key)
-			continue
-		}
-		if connector.IsReservedSkill(requestedKey) {
+		if def.IsConnectorSkill(requestedKey) || connector.IsReservedSkill(requestedKey) {
 			return mustUseSkillResolution{}, fmt.Errorf("connector skill %q cannot be selected by mustUseSkills", requestedKey)
 		}
 		normalized := strings.ToLower(requestedKey)
@@ -598,51 +589,6 @@ func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 		result.HasExtraSkills = true
 	}
 	return result, nil
-}
-
-// Resolve only from the selected Agent's existing connector mount. A broken
-// mount must never fall back to a same-named ordinary or center skill.
-func resolveMustUseConnectorSkill(def catalog.AgentDefinition, key string) (resolvedMustUseSkill, error) {
-	for _, skill := range def.ConnectorSkills {
-		if !strings.EqualFold(skill.Key, key) {
-			continue
-		}
-		for _, mount := range def.ConnectorMounts {
-			if mount.ID != skill.ConnectorID || !containsString(def.Connectors, mount.ID) {
-				continue
-			}
-			if strings.TrimSpace(mount.Dir) == "" || strings.TrimSpace(skill.RuntimeDir) == "" {
-				break
-			}
-			rel, err := filepath.Rel(mount.Dir, skill.RuntimeDir)
-			if err != nil {
-				return resolvedMustUseSkill{}, fmt.Errorf("resolve must-use connector skill %q: %w", key, err)
-			}
-			if rel != "skills" && !strings.HasPrefix(rel, "skills"+string(filepath.Separator)) {
-				return resolvedMustUseSkill{}, fmt.Errorf("must-use connector skill %q is outside the mounted skills directory", key)
-			}
-			root, err := resolveMustUseSkillRoot(mount.Dir, rel)
-			if err != nil {
-				return resolvedMustUseSkill{}, fmt.Errorf("resolve must-use connector skill %q root: %w", key, err)
-			}
-			// SKILL.md itself can be a symlink; validate its target before reading.
-			canonicalRoot, err := pathutil.Canonicalize(root)
-			if err != nil {
-				return resolvedMustUseSkill{}, err
-			}
-			instructions, err := pathutil.Canonicalize(filepath.Join(root, "SKILL.md"))
-			if err != nil || !pathutil.WithinRoot(instructions, canonicalRoot) {
-				return resolvedMustUseSkill{}, fmt.Errorf("must-use connector skill %q instructions escape their root", key)
-			}
-			definition, found, err := def.ResolveSkillDefinition(skill.Key)
-			if err != nil || !found {
-				return resolvedMustUseSkill{}, fmt.Errorf("must-use connector skill %q could not be resolved from agent mount: %v", key, err)
-			}
-			return resolvedMustUseSkill{Key: skill.Key, InstructionsPath: def.SkillInstructionsPath(skill.Key), RootPath: root, Definition: definition}, nil
-		}
-		return resolvedMustUseSkill{}, fmt.Errorf("must-use connector skill %q has no valid agent mount", key)
-	}
-	return resolvedMustUseSkill{}, fmt.Errorf("must-use connector skill %q is not mounted", key)
 }
 
 func resolveMustUseSkillRoot(parentDir string, skillKey string) (string, error) {

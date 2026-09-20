@@ -37,9 +37,6 @@ func (m *Manager) SetOAuthClient(ctx context.Context, id, component string, info
 	if err != nil {
 		return Session{}, err
 	}
-	if pkg.Builtin {
-		return Session{}, connector.ErrBuiltinReadOnly
-	}
 	if pkg.AuthMode != connector.AuthMCP && pkg.AuthMode != connector.AuthOAuth {
 		return Session{}, fmt.Errorf("OAuth client configuration requires oauth or mcp mode")
 	}

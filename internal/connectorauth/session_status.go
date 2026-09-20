@@ -12,8 +12,7 @@ func (m *Manager) Revision(id string) (string, error) {
 	return s.Generation + ":" + s.Revision, err
 }
 
-// SessionStatus addresses one exact attempt. Unlike StatusComponent, it does not
-// invoke CLI status or silently return a replacement session.
+// SessionStatus addresses one exact attempt without returning a replacement session.
 func (m *Manager) SessionStatus(id, sessionID string) (Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

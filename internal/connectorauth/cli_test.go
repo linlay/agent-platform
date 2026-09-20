@@ -21,9 +21,9 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	dir := filepath.Join(root, id)
 	os.MkdirAll(dir, 0o755)
 	manifest := connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "cli", AuthMode: connector.AuthDelegated, AuthBrowser: "embedded"}
-	settings := cliSettings{NPMPackage: "demo-cli", NPMVersion: "1.2.0", Entry: "cli.js", Command: "demo", ConfigEnv: "DEMO_CLI_CONFIG_DIR", LogoutMode: "delete-config"}
+	settings := cliSettings{NPMPackage: "demo-cli", NPMVersion: "1.2.0", Entry: "cli.js", Command: "demo", ConfigEnv: "DEMO_CLI_CONFIG_DIR"}
 	cli := map[string]any{"platform": settings, "versionCheck": map[string]any{"minVersion": "1.2.0", "command": osCommands("demo --version")}, "statusMatch": `(?m)^authorized\s*$`, "authUrlDomain": "example.test"}
-	for key, cmd := range map[string]string{"auth": "demo login", "status": "demo status", "unAuth": ""} {
+	for key, cmd := range map[string]string{"auth": "demo login", "status": "demo status", "unAuth": "demo logout"} {
 		cli[key] = map[string]string{"darwin": cmd, "linux": cmd, "win32": cmd}
 	}
 	for name, value := range map[string]any{"connector.json": manifest, "cli.json": cli} {
@@ -34,7 +34,7 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	npm := filepath.Join(state, "npm", "node_modules", "demo-cli")
 	os.MkdirAll(npm, 0o755)
 	os.WriteFile(filepath.Join(npm, "package.json"), []byte(`{"name":"demo-cli","version":"1.2.0"}`), 0o644)
-	script := `const fs=require('fs'),path=require('path');const dir=process.env.DEMO_CLI_CONFIG_DIR;const args=process.argv.slice(2);if(args[0]==='--version'){console.log('v1.2.0');process.exit(0)}if(args[0]==='status'){console.log(fs.existsSync(path.join(dir,'login'))?'authorized':'unauthorized');process.exit(0)}console.log('https://evil-example.test/login');console.log('https://example.test/authorize?state=test');setTimeout(()=>{fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'login'),'private');},500);`
+	script := `const fs=require('fs'),path=require('path');const dir=process.env.DEMO_CLI_CONFIG_DIR;const args=process.argv.slice(2);if(args[0]==='--version'){console.log('v1.2.0');process.exit(0)}if(args[0]==='logout'){fs.rmSync(path.join(dir,'login'),{force:true});process.exit(0)}if(args[0]==='status'){console.log(fs.existsSync(path.join(dir,'login'))?'authorized':'unauthorized');process.exit(0)}console.log('https://evil-example.test/login');console.log('https://example.test/authorize?state=test');setTimeout(()=>{fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'login'),'private');},500);`
 	os.WriteFile(filepath.Join(npm, "cli.js"), []byte(script), 0o644)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -65,7 +65,7 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	if err := m.Logout(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(state, "config")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(state, "config", "login")); !os.IsNotExist(err) {
 		t.Fatal("logout retained credentials")
 	}
 	if _, err := os.Stat(npm); err != nil {
@@ -86,6 +86,13 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 	if _, err := os.Stat(filepath.Join(state, "config", "login")); !os.IsNotExist(err) {
 		t.Fatal("canceled process resurrected login")
+	}
+	checked, err := m.Check(ctx, id, "")
+	if err != nil || checked.Status != "unauthorized" {
+		t.Fatal("explicit check failed", checked, err)
+	}
+	if status, err := m.Status(ctx, id); err != nil || status.Status != checked.Status {
+		t.Fatal("old canceled login masked the latest check", status, err)
 	}
 }
 

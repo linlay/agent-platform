@@ -10,8 +10,8 @@ import (
 // StateDir resolves one connector's private directory below the connector
 // namespace (<state-dir>/connectors). It never creates or reads credentials.
 func StateDir(root, id string) (string, error) {
-	if !ValidID(id) || IsBuiltin(id) || strings.TrimSpace(root) == "" {
-		return "", fmt.Errorf("invalid external connector state root or id")
+	if !ValidID(id) || strings.TrimSpace(root) == "" {
+		return "", fmt.Errorf("invalid connector state root or id")
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {

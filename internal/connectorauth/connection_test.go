@@ -1,10 +1,12 @@
 package connectorauth
 
 import (
-	"agent-platform/internal/connector"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
-	"time"
+
+	"agent-platform/internal/connector"
 )
 
 func connectionFixture(t *testing.T) (*Manager, connector.Package) {
@@ -18,89 +20,64 @@ func connectionFixture(t *testing.T) (*Manager, connector.Package) {
 	}
 	return m, pkg
 }
-
-func TestConnectionPreferenceLifecycleAndFrozenRun(t *testing.T) {
-	ctx := context.Background()
+func TestConnectionConfigurationLifecycle(t *testing.T) {
 	m, pkg := connectionFixture(t)
-	if _, err := m.SetEnabled(ctx, "demo", true); err == nil {
-		t.Fatal("enabled an unbound connector")
+	ctx := t.Context()
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err == nil {
+		t.Fatal("unconfigured connector admitted")
 	}
-	if _, err := m.Connect("demo"); err != nil {
+	if _, err := m.Connect(pkg.ID); err != nil {
 		t.Fatal(err)
 	}
-	state, err := m.Connection(ctx, "demo")
-	if err != nil || !state.Bound || state.Enabled {
+	state, err := New(ctx, m.sources, nil).Connection(ctx, pkg.ID)
+	if err != nil || !state.Configured || state.Readiness != "ready" {
 		t.Fatal(state, err)
 	}
-	reopened := New(ctx, m.sources, nil)
-	state, err = reopened.Connection(ctx, "demo")
-	if err != nil || !state.Bound || state.Enabled {
-		t.Fatal("preference not durable", state, err)
-	}
-	locator := []connector.CredentialEnvironment{{Root: pkg.PersistentRoot(), ID: pkg.ID, Mode: pkg.AuthMode}}
-	if _, err := ResolveEnvironments(ctx, locator, ""); err == nil {
-		t.Fatal("disabled frozen Run permitted")
-	}
-	if _, err := m.SetEnabled(ctx, "demo", true); err != nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveEnvironments(ctx, locator, ""); err != nil {
-		t.Fatal(err)
+	generation := m.epoch(pkg.ID)
+	dir, _ := pkg.ConnectorStateDir()
+	for _, name := range []string{"config/settings", "data/keep", "home/profile", "cache/item"} {
+		p := filepath.Join(dir, name)
+		os.MkdirAll(filepath.Dir(p), 0700)
+		os.WriteFile(p, []byte("keep"), 0600)
 	}
-	if _, err := m.SetEnabled(ctx, "demo", false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ResolveEnvironments(ctx, locator, ""); err == nil {
-		t.Fatal("old Run bypassed disable")
-	}
-	generation := m.epoch("demo")
-	result, err := m.Disconnect(ctx, "demo")
-	if err != nil || result.Bound || result.Enabled {
+	result, err := m.Disconnect(ctx, pkg.ID)
+	if err != nil || result.Configured {
 		t.Fatal(result, err)
 	}
-	if err := m.markBoundAt(pkg, generation); err == nil {
-		t.Fatal("retired authorization restored binding")
+	if err := m.markConfiguredAt(pkg, generation); err == nil {
+		t.Fatal("late login restored configuration")
 	}
-	if _, err := ResolveEnvironments(ctx, locator, ""); err == nil {
-		t.Fatal("old Run bypassed disconnect")
+	for _, name := range []string{"config/settings", "data/keep", "home/profile", "cache/item"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatal("disconnect erased private settings", err)
+		}
+	}
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err == nil {
+		t.Fatal("disconnected connector admitted")
 	}
 }
-
-func TestDisconnectCancelsAndWaitsForBusiness(t *testing.T) {
-	ctx := context.Background()
-	m, _ := connectionFixture(t)
-	if _, err := m.Connect("demo"); err != nil {
+func TestBuiltinConfigurationIsNotForced(t *testing.T) {
+	pkg := connector.Package{Manifest: connector.Manifest{ID: "builtin.example"}, Builtin: true, StateRoot: t.TempDir()}
+	state, err := pkg.ReadConnection()
+	if err != nil || state.Configured {
+		t.Fatal(state, err)
+	}
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err == nil {
+		t.Fatal("builtin bypassed completion check")
+	}
+	if _, err := pkg.SetConfigured(true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.SetEnabled(ctx, "demo", true); err != nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err != nil {
 		t.Fatal(err)
 	}
-	child, release, err := m.BeginBusiness(ctx, "demo")
-	if err != nil {
+	if _, err := pkg.SetConfigured(false); err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan error, 1)
-	go func() { _, err := m.Disconnect(ctx, "demo"); done <- err }()
-	select {
-	case <-child.Done():
-	case <-time.After(time.Second):
-		t.Fatal("operation not canceled")
-	}
-	select {
-	case err := <-done:
-		t.Fatal("cleanup raced operation", err)
-	default:
-	}
-	release()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("disconnect did not finish")
-	}
-	if _, _, err := m.BeginBusiness(ctx, "demo"); err == nil {
-		t.Fatal("operation admitted after disconnect")
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err == nil {
+		t.Fatal("builtin remained configured")
 	}
 }

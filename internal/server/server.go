@@ -271,13 +271,6 @@ func New(deps Dependencies) (*Server, error) {
 			return connectorauth.ErrCredentialValidatorUnavailable
 		}
 		return validator.ValidateConnectorCredentials(ctx, pkg, values)
-	}).WithDisconnectHandler(func(ctx context.Context, id string) error {
-		if closer, ok := s.deps.MCP.(interface {
-			DisconnectConnector(context.Context, string) error
-		}); ok {
-			return closer.DisconnectConnector(ctx, id)
-		}
-		return nil
 	})
 	if s.deps.Runtime == nil {
 		// Compatibility for direct package tests and small embedders. app.New

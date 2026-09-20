@@ -38,8 +38,7 @@ func TestAgentMCPInstancesUseOwnBinariesSessionsAndToolRoutes(t *testing.T) {
 		}
 	}
 	pkg, _ := sources.Load("demo")
-	yes := true
-	if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+	if _, err := pkg.SetConfigured(true); err != nil {
 		t.Fatal(err)
 	}
 	registry, err := NewAgentRegistry(sources)

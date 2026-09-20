@@ -1,17 +1,18 @@
 package connectorauth
 
 import (
-	"agent-platform/internal/connector"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"agent-platform/internal/connector"
 )
 
 type Capabilities struct {
 	CanConnect    bool               `json:"canConnect"`
 	CanDisconnect bool               `json:"canDisconnect"`
-	CanEnable     bool               `json:"canEnable"`
+	CanCheck      bool               `json:"canCheck"`
 	AuthMode      connector.AuthMode `json:"authMode"`
 	AuthBrowser   string             `json:"authBrowser"`
 	HasCLI        bool               `json:"hasCli"`
@@ -25,6 +26,7 @@ type Connection struct {
 	Preparation    *Preparation `json:"preparation,omitempty"`
 }
 
+// Connection is a local snapshot. Reading a list must not launch a CLI or contact an upstream.
 func (m *Manager) Connection(ctx context.Context, id string) (Connection, error) {
 	pkg, err := m.sources.Load(id)
 	if err != nil {
@@ -34,7 +36,7 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 	if err != nil {
 		return Connection{}, err
 	}
-	c := Connection{ConnectionState: state, Readiness: "not_connected", Capabilities: Capabilities{CanConnect: !pkg.Builtin, CanDisconnect: !pkg.Builtin, CanEnable: !pkg.Builtin, AuthMode: pkg.AuthMode, AuthBrowser: pkg.AuthorizationBrowser(), HasCLI: pkg.CLI != nil, HasMCP: len(pkg.MCP) > 0}}
+	c := Connection{ConnectionState: state, Readiness: "configuration_required", Capabilities: Capabilities{CanConnect: pkg.AuthMode != connector.AuthToken, CanDisconnect: true, CanCheck: true, AuthMode: pkg.AuthMode, AuthBrowser: pkg.AuthorizationBrowser(), HasCLI: pkg.CLI != nil, HasMCP: len(pkg.MCP) > 0}}
 	if pkg.CLI != nil && !pkg.Builtin {
 		prep, err := m.PreparationStatus(id)
 		if err != nil {
@@ -48,27 +50,14 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 			return c, nil
 		}
 	}
-	if pkg.Builtin {
-		c.Authentication = Session{ConnectorID: id, Status: "delegated", AuthBrowser: pkg.AuthorizationBrowser()}
-		c.Readiness = "ready"
-		return c, nil
-	}
 	auth, err := m.Status(ctx, id)
 	if err != nil {
-		c.Authentication = Session{ConnectorID: id, Status: "failed", Message: "Authorization status unavailable"}
 		c.Readiness = "unavailable"
+		c.Authentication = Session{ConnectorID: id, Status: "failed", Message: "Authorization status unavailable"}
 		return c, nil
 	}
 	c.Authentication = auth
-	if !state.Bound {
-		return c, nil
-	}
-	if auth.Status == "unauthorized" {
-		c.Readiness = "authorization_required"
-		return c, nil
-	}
-	if !state.Enabled {
-		c.Readiness = "disabled"
+	if !state.Configured {
 		return c, nil
 	}
 	switch auth.Status {
@@ -76,6 +65,8 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 		c.Readiness = "ready"
 	case "preparing", "pending":
 		c.Readiness = "preparing"
+	case "pending_verification":
+		c.Readiness = "pending_verification"
 	case "unauthorized":
 		c.Readiness = "authorization_required"
 	default:
@@ -83,103 +74,72 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 	}
 	return c, nil
 }
-func (m *Manager) SetEnabled(ctx context.Context, id string, enabled bool) (Connection, error) {
-	pkg, err := m.sources.Load(id)
-	if err != nil {
-		return Connection{}, err
-	}
-	m.mu.Lock()
-	if m.disconnecting[id] {
-		m.mu.Unlock()
-		return Connection{}, fmt.Errorf("connector disconnect is in progress")
-	}
-	_, err = pkg.UpdateConnection(nil, &enabled)
-	m.mu.Unlock()
-	if err != nil {
-		return Connection{}, err
-	}
-	if !enabled {
-		if err := m.cancelBusiness(id); err != nil {
-			return Connection{}, err
-		}
-	}
-	if m.reload != nil {
-		if err := m.reload(ctx, id); err != nil {
-			return Connection{}, err
-		}
-	}
-	return m.Connection(ctx, id)
-}
 
 type DisconnectResult struct {
-	ConnectorID      string   `json:"connectorId"`
-	Bound            bool     `json:"bound"`
-	Enabled          bool     `json:"enabled"`
-	RemoteRevocation string   `json:"remote_revocation"`
-	Warnings         []string `json:"warnings,omitempty"`
+	ConnectorID string   `json:"connectorId"`
+	Configured  bool     `json:"configured"`
+	Warnings    []string `json:"warnings,omitempty"`
 }
 
+// Disconnect clears local authorization. Already-dispatched business calls may finish.
+// It never resets a CLI's private HOME/config/data, removes a package, or logs out Desktop SSO.
 func (m *Manager) Disconnect(ctx context.Context, id string) (DisconnectResult, error) {
-	result := DisconnectResult{ConnectorID: id, RemoteRevocation: "unsupported"}
+	result := DisconnectResult{ConnectorID: id}
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return result, err
-	}
-	if pkg.Builtin {
-		return result, connector.ErrBuiltinReadOnly
 	}
 	if err = m.beginDisconnect(id); err != nil {
 		return result, err
 	}
 	defer m.endDisconnect(id)
 	m.retire(id)
-	no := false
-	if _, err = pkg.UpdateConnection(&no, &no); err != nil {
+	if _, err = pkg.SetConfigured(false); err != nil {
 		return result, err
 	}
-	if err = m.cancelBusiness(id); err != nil {
+	if err = m.cancelTokenValidation(ctx, id); err != nil {
 		return result, err
 	}
-	if m.disconnectHandler != nil {
-		if err = m.disconnectHandler(context.WithoutCancel(ctx), id); err != nil {
-			return result, err
-		}
-	}
-	// Prevent new calls before canceling. Cancel waits for the connector's callback,
-	// so it cannot persist credentials or restore a binding after disconnect.
 	if err = m.Cancel(id); err != nil {
 		return result, err
 	}
-	if pkg.AuthMode != connector.AuthOneID && !(pkg.AuthMode == connector.AuthDelegated && !pkg.ManagedCLI()) {
-		if err = m.Logout(ctx, id); err != nil {
-			result.Warnings = append(result.Warnings, "Third-party sign-out failed; local credentials were cleared")
+	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
+		release, lockErr := connector.AcquireOperation(m.sources.ExternalRoot, id)
+		if lockErr != nil {
+			return result, lockErr
+		}
+		err = m.logoutCLI(ctx, pkg)
+		release()
+		if err != nil {
+			result.Warnings = append(result.Warnings, "CLI sign-out did not complete; private settings were preserved")
 		}
 	}
-	// Fence all credential writers, including a refresh already in progress.
-	unlock, lockErr := lockCredentials(context.WithoutCancel(ctx), pkg.PersistentRoot(), id)
-	if lockErr != nil {
-		return result, lockErr
+	unlock, err := lockCredentials(ctx, pkg.PersistentRoot(), id)
+	if err != nil {
+		return result, err
 	}
 	defer unlock()
 	if err = changeAuthState(pkg.PersistentRoot(), id, true); err != nil {
 		return result, err
 	}
-
 	dir, err := pkg.ConnectorStateDir()
 	if err != nil {
 		return result, err
 	}
-	// Keep preference history and shared installations; clear only private login environment.
-	for _, name := range []string{"home", "config", "cache", "data", "state", "tmp", "credentials.json", "oauth.json", "oauth-resources"} {
+	for _, name := range []string{"credentials.json", "pending-credentials.json", "verification.json", "oauth.json", "oauth-resources"} {
 		if err = os.RemoveAll(filepath.Join(dir, name)); err != nil {
-			return result, fmt.Errorf("connector private login cleanup failed")
+			return result, fmt.Errorf("connector authorization cleanup failed")
 		}
 	}
-	_, err = pkg.UpdateConnection(&no, &no)
+	m.mu.Lock()
+	delete(m.sessions, id)
+	m.mu.Unlock()
+	_, err = pkg.SetConfigured(false)
 	return result, err
 }
 
-func (m *Manager) Connect(id string) (Session, error) {
+func (m *Manager) Connect(id string) (Session, error) { return m.ConnectComponent(id, "") }
+func (m *Manager) ConnectComponent(id, component string) (Session, error) {
 	generation := m.epoch(id)
 	if m.changing(id) {
 		return Session{}, fmt.Errorf("connector disconnect is in progress")
@@ -188,8 +148,8 @@ func (m *Manager) Connect(id string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	if pkg.Builtin {
-		return Session{}, connector.ErrBuiltinReadOnly
+	if pkg.AuthMode == connector.AuthToken {
+		return Session{}, fmt.Errorf("configure token credentials using the token endpoint")
 	}
 	if pkg.AuthMode == connector.AuthDelegated && !pkg.ManagedCLI() || pkg.AuthMode == connector.AuthOneID {
 		status, err := m.Status(m.ctx, id)
@@ -197,9 +157,9 @@ func (m *Manager) Connect(id string) (Session, error) {
 			return status, err
 		}
 		if status.Status == "authorized" || status.Status == "delegated" {
-			err = m.markBoundAt(pkg, generation)
+			err = m.markConfiguredAt(pkg, generation)
 		}
 		return status, err
 	}
-	return m.Start(id)
+	return m.StartComponent(id, component)
 }

@@ -44,8 +44,7 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 		}
 	}
 	pkg, _ := (connector.Sources{ExternalRoot: root}).Load("demo")
-	yes := true
-	if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+	if _, err := pkg.SetConfigured(true); err != nil {
 		t.Fatal(err)
 	}
 	registry, err := NewRegistry(root)

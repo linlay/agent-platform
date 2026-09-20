@@ -40,9 +40,6 @@ func TestWriteReceiptsSurviveServiceRestartAndUnknownOutcome(t *testing.T) {
 	if _, err := manager.SetToken(context.Background(), "demo", map[string]string{"KEY": "test"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.SetEnabled(context.Background(), "demo", true); err != nil {
-		t.Fatal(err)
-	}
 	service := Service{Auth: manager, Sources: sources}
 	scope := Scope{Subject: "user", AppID: "workbench", Execution: []Permission{}, Check: func() error { return nil }}
 

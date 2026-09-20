@@ -25,7 +25,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 `agents/` 和 `skills-center/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>`。普通技能的共享目录 run-scoped 例外是 query 的 `mustUseSkills` 选中了 Agent 未配置的技能中心 Skill：该 run 只读访问该选中 Skill 的 canonical 目录，不修改稳定 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
 
-连接器通过 `connectorConfig.connectors` 挂载后，自动导入技能元数据；完整包复制到 `ru-agents/<agentKey>/connectors/<id>`，技能正文、资源、runtime env 和 hooks 读取该包的 skills，不再重复复制到同级 skills 目录。`skillId` 保留包内原始技能名，不加前缀；同一 Agent 下与已配置技能或其他连接器技能重名时返回冲突诊断。逻辑指令路径为 `@connectors/<id>/skills/<name>/SKILL.md`；`.config` 默认值仍按 Agent 独立合并。连接器 bin 从当前 Agent 的运行包加入 PATH，Container 只读挂载所选包。已挂载连接器技能可作为 mustUseSkills，保持 @connectors 来源与既有 CLI 权限，详见 [连接器](连接器.md)。
+连接器通过 `connectorConfig.connectors` 挂载后，自动导入技能元数据；完整包复制到 `ru-agents/<agentKey>/connectors/<id>`，技能正文、资源、runtime env 和 hooks 读取该包的 skills，不再重复复制到同级 skills 目录。`skillId` 保留包内原始技能名，不加前缀；同一 Agent 下与已配置技能或其他连接器技能重名时返回冲突诊断。逻辑指令路径为 `@connectors/<id>/skills/<name>/SKILL.md`；`.config` 默认值仍按 Agent 独立合并。连接器 bin 从当前 Agent 的运行包加入 PATH，Container 只读挂载所选包。连接器技能不能作为 mustUseSkills，详见 [连接器](连接器.md)。
 
 Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每个子技能平铺到 `skills-center/<skill-id>/`，只在 `skills-center/.package/<package-id>.json` 保存包版本、归档摘要和子技能归属，用于整包更新、卸载与回滚。隐藏 `.package`、安装 staging 和 backup 都不进入 Skill Catalog；技能包 ZIP 仅作为临时请求输入，不在 `skills-center` 持久化。
 
@@ -58,8 +58,7 @@ Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每
 `POST /api/query` 可以用 `mustUseSkills: []` 强制本次 run 使用一个或多个 Skill。这不会修改 Agent YAML，也不会改变 `ru-agents/<agentKey>`：
 
 - 已在 `skillConfig.skills` 中配置的 key 从稳定运行目录解析，指令路径是 `@skills/<key>/SKILL.md`。
-- 当前 Agent 已挂载的连接器技能优先从挂载包解析为 `@connectors/<id>/skills/<name>/SKILL.md`；挂载无效时拒绝，不回退同名普通技能，也不授予普通技能脚本执行豁免。
-- 未配置且不属于已挂载连接器的 key 必须属于当前有效 skills-center catalog，并在 run 启动和 continuation 时重新验证真实 `SKILL.md`；指令路径是 `@skills-center/<key>/SKILL.md`。
+- 未配置的 key 必须属于当前有效 skills-center catalog，并在 run 启动和 continuation 时重新验证真实 `SKILL.md`；指令路径是 `@skills-center/<key>/SKILL.md`。
 - 只要有一个 key 不可用，整个 run 以 `must_use_skill_unavailable` 失败，不执行其余部分。
 - Prompt 按请求顺序列出全部精确路径，并把“读取且遵循全部指令”作为强制约束。
 - 每个选中的已配置或额外 Skill 都解析为最终 canonical 目录，并进入本 run 的 trusted read + readonly roots；整个选中目录免读路径 HITL，未选中的 skills-center 兄弟目录不继承，symlink 逃逸按最终目标重新判权。
@@ -67,7 +66,7 @@ Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每
 
 额外技能中心 Skill 的目录内容、scripts、references 和 assets 仍按只读访问。run readonly 先于 writeRoots、hostAccess、`full_access` 和 HITL，不能通过 exact/rule approval 写入选中目录。本次动态选择不合并它的 `.config`、`.runtime-env.json` 或 `.bash-hooks`，也不注入 Tool、MCP、其他 mount、Agent hostAccess 或更高 `accessLevel`。这些运行时扩展只有写入 Agent `skillConfig.skills` 并完成常规 `ru-agents` 组装后才生效。
 
-Agent YAML 已配置的普通 Skill，以及本次 `mustUseSkills` 选中的普通 Skill，其 `scripts/**` 入口在 Run 准入时建立独立的内存执行凭据（canonical 路径、内容 SHA-256、Agent/Run/执行环境）。匹配通用脚本入口且执行前复验通过时免入口 HITL；不改变读取策略，不授权未配置、未选中技能，也不扩大外围 Shell、写入或工具权限。凭据不落盘、不跨 Run 继承；同 Run 压缩保留，跨进程恢复不重建。详见 [工具目录权限](工具目录权限.md#技能脚本入口执行凭据)。
+Agent YAML 已配置的普通 Skill，以及本次 `mustUseSkills` 选中的 Skill，其 `scripts/**` 入口在 Run 准入时建立独立的内存执行凭据（canonical 路径、内容 SHA-256、Agent/Run/执行环境）。匹配通用脚本入口且执行前复验通过时免入口 HITL；不改变读取策略，不授权未配置、未选中技能，也不扩大外围 Shell、写入或工具权限。凭据不落盘、不跨 Run 继承；同 Run 压缩保留，跨进程恢复不重建。详见 [工具目录权限](工具目录权限.md#技能脚本入口执行凭据)。
 
 ## `.config` 合并
 

@@ -71,9 +71,6 @@ func ResolveEnvironment(ctx context.Context, d connector.CredentialEnvironment, 
 func ResolveEnvironments(ctx context.Context, bindings []connector.CredentialEnvironment, identityFile string) (map[string]string, error) {
 	result := map[string]string{}
 	for _, binding := range bindings {
-		if err := connector.RequireEnabled(binding.Root, binding.ID); err != nil {
-			return nil, err
-		}
 		env, err := ResolveEnvironment(ctx, binding, identityFile)
 		if err != nil {
 			return nil, err

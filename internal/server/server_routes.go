@@ -384,6 +384,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/webapp/connector/invoke", s.handleWebappConnector)
 	s.router.HandleFunc("/api/connectors", s.method(http.MethodGet, s.handleConnectors))
 	s.router.HandleFunc("/api/connectors/connection", s.handleConnectorConnection)
+	s.router.HandleFunc("/api/connectors/check", s.method(http.MethodPost, s.handleConnectorCheck))
 	s.router.HandleFunc("/api/connectors/connect", s.method(http.MethodPost, s.handleConnectorConnect))
 	s.router.HandleFunc("/api/connectors/disconnect", s.method(http.MethodPost, s.handleConnectorDisconnect))
 	s.router.HandleFunc("/api/connectors/icon", s.method(http.MethodGet, s.handleConnectorIcon))

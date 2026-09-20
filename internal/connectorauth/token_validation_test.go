@@ -54,8 +54,7 @@ func TestTokenCLIValidatesCandidateEnvironmentBeforeCommit(t *testing.T) {
 	if err != nil || session.Status != "authorized" {
 		t.Fatal(session, err)
 	}
-	yes := true
-	if _, err = pkg.UpdateConnection(nil, &yes); err != nil {
+	if _, err = pkg.SetConfigured(true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = m.SetToken(t.Context(), pkg.ID, map[string]string{"API_KEY": "wrong-secret"}); !errors.Is(err, ErrTokenRejected) {
@@ -66,7 +65,7 @@ func TestTokenCLIValidatesCandidateEnvironmentBeforeCommit(t *testing.T) {
 		t.Fatal("failed validation replaced old token", values, err)
 	}
 	state, err := pkg.ReadConnection()
-	if err != nil || !state.Bound || !state.Enabled {
+	if err != nil || !state.Configured {
 		t.Fatal("failed validation changed preferences", state, err)
 	}
 	private, _ := pkg.ConnectorStateDir()
@@ -79,14 +78,14 @@ func TestTokenCLIValidatesCandidateEnvironmentBeforeCommit(t *testing.T) {
 	}
 }
 
-func TestTokenCLIWithoutStatusIsConfiguredAndMayBeEnabled(t *testing.T) {
+func TestTokenCLIWithoutStatusCompletesConfiguration(t *testing.T) {
 	m, pkg := tokenCLIFixture(t, false)
 	session, err := m.SetToken(t.Context(), pkg.ID, map[string]string{"API_KEY": "unverified-secret"})
 	if err != nil || session.Status != "configured" {
 		t.Fatal(session, err)
 	}
-	connection, err := m.SetEnabled(t.Context(), pkg.ID, true)
-	if err != nil || !connection.Enabled || connection.Readiness != "ready" || connection.Authentication.Status != "configured" {
+	connection, err := m.Connection(t.Context(), pkg.ID)
+	if err != nil || !connection.Configured || connection.Readiness != "ready" || connection.Authentication.Status != "configured" {
 		t.Fatal(connection, err)
 	}
 }
@@ -133,7 +132,7 @@ func TestDisconnectCancelsTokenValidationWithoutLateCommit(t *testing.T) {
 		t.Fatal("late credentials committed", err)
 	}
 	state, err := pkg.ReadConnection()
-	if err != nil || state.Bound || state.Enabled {
+	if err != nil || state.Configured {
 		t.Fatal("late binding", state, err)
 	}
 }

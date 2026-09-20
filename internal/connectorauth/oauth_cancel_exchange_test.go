@@ -89,7 +89,7 @@ func TestOAuthCancellationDuringTokenExchangeCannotRestoreConnection(t *testing.
 				t.Fatal("canceled exchange persisted credentials")
 			}
 			state, err := pkg.ReadConnection()
-			if err != nil || state.Bound || state.Enabled {
+			if err != nil || state.Configured {
 				t.Fatal("canceled exchange restored connection", state, err)
 			}
 		})

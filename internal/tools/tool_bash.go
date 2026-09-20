@@ -96,7 +96,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.WaitDelay = bashOutputPipeWaitDelay
 	cmd.Dir = workingDir
-	commandEnv, err := mergeBashCommandEnvContext(runCtx, connectorExecutionContext(execCtx, rawAccessReview.ConnectorIDs), t.cfg.IdentityFile)
+	commandEnv, err := mergeBashCommandEnvContext(runCtx, execCtx, t.cfg.IdentityFile)
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
 	}
@@ -510,26 +510,4 @@ func int64Arg(args map[string]any, key string) int64 {
 	default:
 		return 0
 	}
-}
-
-// Resolve secrets only for connector entries verified in this exact command.
-// Frozen bindings for other mounted connectors must neither block ordinary
-// shell work nor leak their credentials into unrelated child processes.
-func connectorExecutionContext(execCtx *ExecutionContext, ids []string) *ExecutionContext {
-	if execCtx == nil {
-		return nil
-	}
-	scoped := *execCtx
-	scoped.Session = execCtx.Session
-	scoped.Session.ConnectorCredentials = nil
-	selected := map[string]bool{}
-	for _, id := range ids {
-		selected[id] = true
-	}
-	for _, binding := range execCtx.Session.ConnectorCredentials {
-		if selected[binding.ID] {
-			scoped.Session.ConnectorCredentials = append(scoped.Session.ConnectorCredentials, binding)
-		}
-	}
-	return &scoped
 }

@@ -637,12 +637,7 @@ func (m *Manager) logoutCLI(ctx context.Context, pkg connector.Package) error {
 		return err
 	}
 	if s.LogoutMode == "delete-config" {
-		dir, err := StateDir(m.sources.PersistentRoot(), pkg.ID)
-		if err != nil {
-			return err
-		}
-		// Only Platform's own per-connector credential subtree is removable.
-		return os.RemoveAll(filepath.Join(dir, "config"))
+		return fmt.Errorf("CLI sign-out requires an explicit unAuth command; reset configuration separately")
 	}
 	if err := m.requireNativeCLI(pkg, s); err != nil {
 		return err

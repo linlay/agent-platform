@@ -52,9 +52,6 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 	if _, err := manager.SetToken(context.Background(), "demo", map[string]string{"KEY": "alice-key"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.SetEnabled(context.Background(), "demo", true); err != nil {
-		t.Fatal(err)
-	}
 	pkg, _ := sources.Load("demo")
 	native, err := callMCP(context.Background(), pkg, "main", "text-error", map[string]any{})
 	var original map[string]any
@@ -85,15 +82,6 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 	if _, err = service.Invoke(context.Background(), scope, req); err != nil || calls.Load() != 2 {
 		t.Fatal("application subject must not select connector credentials", err)
 	}
-	if _, err := manager.SetEnabled(context.Background(), "demo", false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_disabled" || calls.Load() != 2 {
-		t.Fatal("WebApp bypassed disabled connection", err)
-	}
-	if _, err := manager.SetEnabled(context.Background(), "demo", true); err != nil {
-		t.Fatal(err)
-	}
 	scope.Subject = "alice"
 	req.ToolName = "undeclared"
 	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 2 {
@@ -103,13 +91,13 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.ToolName = "read"
-	if _, err = service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_auth_required" || calls.Load() != 2 {
+	if _, err = service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 2 {
 		t.Fatal("logout not shared", err)
 	}
 	if _, err := manager.Disconnect(context.Background(), "demo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_disabled" || calls.Load() != 2 {
+	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 2 {
 		t.Fatal("WebApp bypassed disconnected connection", err)
 	}
 	if _, err := os.Stat(filepath.Join(sources.StateRoot, "users")); !os.IsNotExist(err) {

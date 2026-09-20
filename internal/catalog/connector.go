@@ -104,8 +104,6 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 				}
 				credentialNames[name] = true
 			}
-		}
-		if len(credential.Env) > 0 || pkg.CLI != nil || pkg.BinDir != "" {
 			def.ConnectorCredentials = append(def.ConnectorCredentials, credential)
 		}
 		for key, value := range values {
