@@ -106,10 +106,10 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 	}
 }
 
-func TestMustUseRejectsMountedConnectorSkillEvenIfAlsoInConfiguredList(t *testing.T) {
+func TestMustUseRejectsConnectorSkillWithoutMountEvenIfAlsoInConfiguredList(t *testing.T) {
 	key := "wecomcli-shared"
 	def := catalog.AgentDefinition{Skills: []string{key}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "wecom", Name: key}}}
-	if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{strings.ToUpper(key)}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
+	if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{strings.ToUpper(key)}); err == nil || !strings.Contains(err.Error(), "no valid agent mount") {
 		t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
 	}
 }
@@ -178,5 +178,85 @@ func TestMustUseRejectsLegacyBuiltinSkillNames(t *testing.T) {
 		if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
 			t.Fatalf("legacy builtin skill accepted: %s %v", key, err)
 		}
+	}
+}
+
+func TestMustUseMountedConnectorSkillPrecedesOrdinaryAndCenter(t *testing.T) {
+	const key = "wecomcli-sheet"
+	runtimeDir, center := t.TempDir(), t.TempDir()
+	pkg := filepath.Join(runtimeDir, "connectors", "wecom")
+	script := writeSkillScript(t, filepath.Join(pkg, "skills"), key)
+	writeTestSkill(t, filepath.Join(runtimeDir, "skills"), key)
+	writeTestSkill(t, center, key)
+	def := catalog.AgentDefinition{RuntimeDir: runtimeDir, Skills: []string{key}, Connectors: []string{"wecom"}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "wecom", RuntimeDir: filepath.Join(pkg, "skills", key)}}, ConnectorMounts: []catalog.ConnectorMount{{ID: "wecom", Dir: pkg}}}
+	got, err := resolveMustUseSkills(def, center, testSkillCenter{key: {Key: key}}, []string{strings.ToUpper(key), key})
+	if err != nil || len(got.Skills) != 1 || got.Keys[0] != key || got.HasExtraSkills || got.Skills[0].Extra {
+		t.Fatalf("resolution = %#v, %v", got, err)
+	}
+	root, err := pathutil.Canonicalize(filepath.Join(pkg, "skills", key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Skills[0].RootPath != root.Host || got.Skills[0].InstructionsPath != "@connectors/wecom/skills/"+key+"/SKILL.md" {
+		t.Fatalf("connector source lost: %#v", got.Skills[0])
+	}
+	access, err := mustUseSkillRunAccess(got.Skills)
+	if err != nil || len(access.ReadRoots) != 1 || access.ReadRoots[0] != root.Host || len(access.ReadonlyRoots) != 1 || access.ReadonlyRoots[0] != root.Host {
+		t.Fatalf("readonly roots = %#v, %v", access, err)
+	}
+	session := contracts.QuerySession{AgentKey: "a", RunID: "r"}
+	scope := buildSkillScriptScope(session, def, got.Skills)
+	ctx := contracts.ExecutionContext{Session: session}
+	if len(scope.Roots()) != 0 || scope.Matches(ctx.ScriptOwner(), script, "", false) {
+		t.Fatal("connector gained ordinary skill script execution privileges")
+	}
+}
+
+func TestMustUseConnectorRejectsInvalidMountWithoutCenterFallback(t *testing.T) {
+	for _, scenario := range []string{"undeclared", "unmounted", "empty-mount", "empty-skill", "missing", "missing-instructions", "outside", "mount-root", "symlink-root", "symlink-instructions"} {
+		t.Run(scenario, func(t *testing.T) {
+			const key = "wecomcli-sheet"
+			pkg, center := t.TempDir(), t.TempDir()
+			writeTestSkill(t, filepath.Join(pkg, "skills"), key)
+			writeTestSkill(t, center, key)
+			def := catalog.AgentDefinition{Connectors: []string{"wecom"}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "wecom", RuntimeDir: filepath.Join(pkg, "skills", key)}}, ConnectorMounts: []catalog.ConnectorMount{{ID: "wecom", Dir: pkg}}}
+			switch scenario {
+			case "undeclared":
+				def.Connectors = nil
+			case "unmounted":
+				def.ConnectorMounts = nil
+			case "empty-mount":
+				def.ConnectorMounts[0].Dir = ""
+			case "empty-skill":
+				def.ConnectorSkills[0].RuntimeDir = ""
+			case "missing":
+				def.ConnectorSkills[0].RuntimeDir = filepath.Join(pkg, "skills", "missing")
+			case "missing-instructions":
+				if err := os.Remove(filepath.Join(def.ConnectorSkills[0].RuntimeDir, "SKILL.md")); err != nil {
+					t.Fatal(err)
+				}
+			case "outside":
+				def.ConnectorSkills[0].RuntimeDir = filepath.Join(center, key)
+			case "mount-root":
+				def.ConnectorSkills[0].RuntimeDir = pkg
+			case "symlink-root":
+				link := filepath.Join(pkg, "skills", "escape")
+				if err := os.Symlink(filepath.Join(center, key), link); err != nil {
+					t.Skip(err)
+				}
+				def.ConnectorSkills[0].RuntimeDir = link
+			case "symlink-instructions":
+				file := filepath.Join(def.ConnectorSkills[0].RuntimeDir, "SKILL.md")
+				if err := os.Remove(file); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(center, key, "SKILL.md"), file); err != nil {
+					t.Skip(err)
+				}
+			}
+			if got, err := resolveMustUseSkills(def, center, testSkillCenter{key: {Key: key}}, []string{key}); err == nil {
+				t.Fatalf("invalid connector fell back to center: %#v", got)
+			}
+		})
 	}
 }

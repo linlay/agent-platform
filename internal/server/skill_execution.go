@@ -31,6 +31,9 @@ func buildSkillScriptScope(session contracts.QuerySession, def catalog.AgentDefi
 		roots = append(roots, skillsexec.Root{Host: root, Guest: guest})
 	}
 	for _, skill := range selected {
+		if def.IsConnectorSkill(skill.Key) {
+			continue
+		}
 		guest := ""
 		if session.AgentHasRuntimeSandbox {
 			base := session.RuntimeContext.SandboxPaths.SkillsDir

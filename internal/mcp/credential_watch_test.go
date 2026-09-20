@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -48,7 +49,7 @@ func TestHTTPBindingAndCredentialWatcherKeepPackageUntouched(t *testing.T) {
 	manifestInfo, _ := os.Stat(filepath.Join(dir, "connector.json"))
 	reloader := NewRegistryReloader(registry, nil)
 	reloader.WatchCredentials(t.Context())
-	manager := connectorauth.New(t.Context(), sources, nil)
+	manager := connectorauth.New(t.Context(), sources, nil).WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error { return nil })
 	if _, err := manager.SetToken(t.Context(), "docx", map[string]string{"API_KEY": "configured-token"}); err != nil {
 		t.Fatal(err)
 	}

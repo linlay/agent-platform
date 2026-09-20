@@ -232,6 +232,7 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		}
 	}
 	server.ConnectorID = pkg.ID
+	server.ConnectorAuthRoot = pkg.PersistentRoot()
 	server.ConnectorAuthMode = pkg.AuthMode
 	server.ConnectorCredentialEnv = map[string]string{}
 	if env, ok := component["env"].(map[string]any); ok {

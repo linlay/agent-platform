@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/mcp"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -35,8 +36,11 @@ func TestWriteReceiptsSurviveServiceRestartAndUnknownOutcome(t *testing.T) {
 		raw, _ := json.Marshal(v)
 		os.WriteFile(filepath.Join(dir, name), raw, 0600)
 	}
-	manager := connectorauth.New(context.Background(), sources, nil)
+	manager := connectorauth.New(context.Background(), sources, nil).WithCredentialValidator(mcp.NewClientWithGate(nil, nil, nil).ValidateConnectorCredentials)
 	if _, err := manager.SetToken(context.Background(), "demo", map[string]string{"KEY": "test"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetEnabled(context.Background(), "demo", true); err != nil {
 		t.Fatal(err)
 	}
 	service := Service{Auth: manager, Sources: sources}

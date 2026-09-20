@@ -36,15 +36,21 @@ type login struct {
 }
 
 type Manager struct {
-	ctx          context.Context
-	sources      connector.Sources
-	reload       func(context.Context, string) error
-	client       *http.Client
-	identityFile string
-	mu           sync.Mutex
-	preparations map[string]*preparationJob
-	sessions     map[string]*login
-	loggingOut   map[string]bool
+	credentialValidator func(context.Context, connector.Package, map[string]string) error
+	tokenValidations    map[string]*tokenValidation
+	ctx                 context.Context
+	sources             connector.Sources
+	reload              func(context.Context, string) error
+	client              *http.Client
+	identityFile        string
+	mu                  sync.Mutex
+	preparations        map[string]*preparationJob
+	sessions            map[string]*login
+	loggingOut          map[string]bool
+	epochs              map[string]uint64
+	disconnecting       map[string]bool
+	business            map[string]map[*businessInvocation]struct{}
+	disconnectHandler   func(context.Context, string) error
 }
 
 func New(ctx context.Context, sources connector.Sources, reload func(context.Context, string) error) *Manager {
@@ -60,11 +66,53 @@ func (m *Manager) WithIdentityFile(path string) *Manager {
 	return m
 }
 
+func (m *Manager) epoch(id string) uint64 { m.mu.Lock(); defer m.mu.Unlock(); return m.epochs[id] }
+func (m *Manager) beginDisconnect(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.disconnecting[id] {
+		return fmt.Errorf("connector disconnect is in progress")
+	}
+	if m.disconnecting == nil {
+		m.disconnecting = map[string]bool{}
+	}
+	m.disconnecting[id] = true
+	return nil
+}
+func (m *Manager) endDisconnect(id string) { m.mu.Lock(); delete(m.disconnecting, id); m.mu.Unlock() }
+func (m *Manager) changing(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.disconnecting[id]
+}
+func (m *Manager) retire(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.epochs == nil {
+		m.epochs = map[string]uint64{}
+	}
+	m.epochs[id]++
+}
+func (m *Manager) markBoundAt(pkg connector.Package, epoch uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.epochs[pkg.ID] != epoch {
+		return fmt.Errorf("connector operation superseded")
+	}
+	return m.markBound(pkg)
+}
+func (m *Manager) markBound(pkg connector.Package) error {
+	value := true
+	_, err := pkg.UpdateConnection(&value, nil)
+	return err
+}
+
 func (m *Manager) Start(id string) (Session, error) {
 	return m.StartComponent(id, "")
 }
 
 func (m *Manager) StartComponent(id, component string) (Session, error) {
+	generation := m.epoch(id)
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
@@ -82,7 +130,7 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 		return Session{}, fmt.Errorf("connector does not support interactive login")
 	}
 	m.mu.Lock()
-	if m.loggingOut[id] {
+	if m.loggingOut[id] || m.disconnecting[id] {
 		m.mu.Unlock()
 		return Session{}, fmt.Errorf("connector logout is in progress")
 	}
@@ -146,6 +194,9 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 		}
 		release()
 		released = true
+		if err == nil && ctx.Err() == nil {
+			err = m.markBoundAt(pkg, generation)
+		}
 		if err == nil && ctx.Err() == nil {
 			err = m.changed(ctx, id)
 		}
@@ -232,14 +283,7 @@ func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Se
 		return result, nil
 	}
 	if pkg.AuthMode == connector.AuthToken {
-		_, ready, err := TokenValues(pkg)
-		if err != nil {
-			return result, err
-		}
-		if ready {
-			result.Status = "authorized"
-		}
-		return result, nil
+		return m.tokenStatus(ctx, pkg)
 	}
 	if len(pkg.MCP) > 1 && component == "" {
 		result.Status = "authorized"
@@ -318,6 +362,9 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 	m.loggingOut[id] = true
 	m.mu.Unlock()
 	defer func() { m.mu.Lock(); delete(m.loggingOut, id); m.mu.Unlock() }()
+	if err := m.cancelTokenValidation(ctx, id); err != nil {
+		return err
+	}
 	if err := m.Cancel(id); err != nil {
 		return err
 	}

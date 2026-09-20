@@ -252,6 +252,9 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	fingerprint := serverFingerprint(server)
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
+	if err := connector.RequireEnabled(server.ConnectorAuthRoot, server.ConnectorID); err != nil {
+		return nil, err
+	}
 	identity, identityErr := c.stdioIdentity(server)
 	if identityErr == nil && server.Transport == TransportStdio && server.ConnectorAuthMode != connector.AuthOneID && server.ConnectorAuthMode != connector.AuthDelegated {
 		identity, identityErr = connectorauth.ResolveEnvironment(ctx, connector.CredentialEnvironment{
@@ -695,4 +698,35 @@ func envPairs(values map[string]string) []string {
 		out = append(out, key+"="+values[key])
 	}
 	return out
+}
+
+// DisconnectConnector closes all Agent sessions using this instance credential.
+// Callers first persist disabled/unbound, so no concurrent initialization can
+// recreate a session after its slot has been closed here.
+func (c *Client) DisconnectConnector(ctx context.Context, id string) error {
+	if c == nil || c.registry == nil {
+		return nil
+	}
+	var failures []error
+	for _, server := range c.registry.Servers() {
+		if server.ConnectorID != id {
+			continue
+		}
+		c.mu.Lock()
+		slot := c.slots[normalizeKey(server.Key)]
+		c.mu.Unlock()
+		if slot == nil {
+			continue
+		}
+		slot.mu.Lock()
+		current := slot.current
+		slot.current = nil
+		slot.mu.Unlock()
+		if current != nil {
+			if err := closeManagedSession(current); err != nil {
+				failures = append(failures, err)
+			}
+		}
+	}
+	return errors.Join(failures...)
 }

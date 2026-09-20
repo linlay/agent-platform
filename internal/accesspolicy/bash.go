@@ -18,6 +18,7 @@ type BashPlan struct {
 	ReviewCommand string
 	HasConnector  bool
 	ConnectorOnly bool
+	ConnectorIDs  []string
 	// Requirements are leaf decisions; a rule approval never approves sibling requirements.
 	Requirements []BashPlan
 	Decision     Decision

@@ -35,6 +35,10 @@ func writeOneIDFixture(t *testing.T, root string, component map[string]any) conn
 	if err != nil {
 		t.Fatal(err)
 	}
+	yes := true
+	if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+		t.Fatal(err)
+	}
 	return pkg
 }
 
@@ -84,8 +88,10 @@ func TestOneIDHTTPUsesCurrentEnvironmentAndBoundDestination(t *testing.T) {
 	if strings.Contains(string(data), "private-token") {
 		t.Fatal("SSO token entered definition")
 	}
-	if _, err := os.Stat(filepath.Join(pkg.PersistentRoot(), pkg.ID)); !os.IsNotExist(err) {
-		t.Fatal("SSO copied to connector state")
+	for _, name := range []string{"credentials.json", "oauth.json"} {
+		if _, err := os.Stat(filepath.Join(pkg.PersistentRoot(), pkg.ID, name)); !os.IsNotExist(err) {
+			t.Fatal("SSO copied to connector credentials")
+		}
 	}
 }
 
@@ -164,8 +170,10 @@ func TestOneIDStdioInjectionRotationAndLogout(t *testing.T) {
 	if os.Getenv(agentconfig.EnvAccessToken) != "inherited-spoof" {
 		t.Fatal("changed Platform process environment")
 	}
-	if _, err := os.Stat(filepath.Join(pkg.PersistentRoot(), pkg.ID)); !os.IsNotExist(err) {
-		t.Fatal("stdio SSO persisted to connector state")
+	for _, name := range []string{"credentials.json", "oauth.json"} {
+		if _, err := os.Stat(filepath.Join(pkg.PersistentRoot(), pkg.ID, name)); !os.IsNotExist(err) {
+			t.Fatal("stdio SSO persisted credentials")
+		}
 	}
 }
 
