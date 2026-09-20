@@ -19,7 +19,7 @@ func TestManualTokenPersistenceValidationAndLogout(t *testing.T) {
 		"token_schema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "type": "password", "required": true}}},
 	}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp", "headers": map[string]any{"X-API-Key": "${API_KEY}"}})
 	reloads := 0
-	m := New(ctx, sources, func(context.Context, string) error { reloads++; return nil })
+	m := New(ctx, sources, func(context.Context, string) error { reloads++; return nil }).WithCredentialValidator(acceptTokenForPersistenceTest)
 	status, err := m.Status(ctx, "demo")
 	if err != nil || status.Status != "unauthorized" {
 		t.Fatal(status, err)
@@ -53,7 +53,7 @@ func TestManualTokenPersistenceValidationAndLogout(t *testing.T) {
 	if err != nil || !ready || values["API_KEY"] != "private-value-$()" {
 		t.Fatal("credential storage failed", err)
 	}
-	status, err = New(ctx, sources, nil).Status(ctx, "demo")
+	status, err = New(ctx, sources, nil).WithCredentialValidator(acceptTokenForPersistenceTest).Status(ctx, "demo")
 	if err != nil || status.Status != "authorized" {
 		t.Fatal("restart lost credentials", err)
 	}
@@ -88,4 +88,8 @@ func TestManualTokenPersistenceValidationAndLogout(t *testing.T) {
 	if _, err = os.Stat(p); !os.IsNotExist(err) {
 		t.Fatal("credential file retained")
 	}
+}
+
+func acceptTokenForPersistenceTest(context.Context, connector.Package, map[string]string) error {
+	return nil
 }

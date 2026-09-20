@@ -78,6 +78,7 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 		return combineBashPlans(command, accessLevel, plans)
 	}
 	var connectorWords []bashast.WordSpan
+	var connectorIDs []string
 	onlyConnectors := len(parsed.Commands) > 0
 	if len(parsed.Commands) == 0 {
 		pathReview(ReadAccess, workingDir)
@@ -91,6 +92,9 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 				add(bashPlan(command, accessLevel, DecisionBlock, x.BlockReason, "bash-access:temp-escape", cmd.Text))
 			}
 			allConnector = allConnector && x.Connector
+			if x.ConnectorID != "" {
+				connectorIDs = append(connectorIDs, x.ConnectorID)
+			}
 			if !x.Connector {
 				pathReview(ReadAccess, candidateCwd)
 				pathReview(ReadAccess, x.Cwd)
@@ -182,6 +186,7 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 		}
 	}
 	result := combineBashPlans(command, accessLevel, plans)
+	result.ConnectorIDs = connectorIDs
 	if len(connectorWords) > 0 {
 		result.HasConnector = true
 		result.ConnectorOnly = onlyConnectors
@@ -323,6 +328,7 @@ func PendingBashPlan(ctx *ExecutionContext, p BashPlan) BashPlan {
 	}
 	result := combineBashPlans(p.CommandText, p.AccessLevel, leaves)
 	result.HasConnector, result.ReviewCommand, result.ConnectorOnly = p.HasConnector, p.ReviewCommand, p.ConnectorOnly
+	result.ConnectorIDs = append([]string(nil), p.ConnectorIDs...)
 	return result
 }
 

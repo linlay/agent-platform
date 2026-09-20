@@ -56,6 +56,9 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	}
 	// Terminal never receives SSO, including aliases of AP_ACCESS_TOKEN.
 	for _, binding := range def.ConnectorCredentials {
+		if err := connector.RequireEnabled(binding.Root, binding.ID); err != nil {
+			return terminalpkg.OpenResult{}, &statusError{status: http.StatusConflict, message: "connector_disabled: enable mounted connectors before opening a terminal"}
+		}
 		if binding.Mode == connector.AuthOneID {
 			continue
 		}

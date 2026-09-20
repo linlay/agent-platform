@@ -22,7 +22,7 @@ runtime/connectors-center/<id>/{connector.json,mcp.json} + Platform builtin
   -> ToolRouter tools/call
 ```
 
-Agent 使用 `connectorConfig.connectors: [remote-search]` 挂载。挂载同时导入该包技能并添加 bin PATH；连接器技能禁止通过 mustUseSkills 选择。JSON 示例、组件边界、builtin 包布局和迁移命令见 [连接器](连接器.md)。旧 `registries/mcp-servers` 目录直接忽略，不影响启动；`toolConfig.mcp-servers` 与对应 Registry 管理入口已移除，运行时只加载新连接器定义。
+Agent 使用 `connectorConfig.connectors: [remote-search]` 挂载。挂载同时导入该包技能并添加 bin PATH；已挂载连接器技能可通过 mustUseSkills 选择，按 @connectors 路径读取。JSON 示例、组件边界、builtin 包布局和迁移命令见 [连接器](连接器.md)。旧 `registries/mcp-servers` 目录直接忽略，不影响启动；`toolConfig.mcp-servers` 与对应 Registry 管理入口已移除，运行时只加载新连接器定义。
 
 连接器目录变化先校验本地来源，再发布空闲 Agent 的运行包并绑定 MCP 实例；活动 Agent 在使用者结束后更新。实例按 Agent、连接器和组件隔离，工具路由使用稳定实例标识，并在远端调用时恢复原始工具名。未挂载组件不建立连接，认证仍共享 `.state/connectors/<id>`。`PUT /api/admin/connectors/detail` 校验完整候选包并立即 reload；失败恢复原文件。远端初始化、工具发现与重连由后台协调器串行、合并执行；删除、禁用或连接配置变化会清除对应旧工具快照，只有匹配当前 Registry version 的结果可以发布。远端暂时不可用时保留合法配置，标记 unavailable 并重试；同步状态或工具集合变化发送 `catalog.updated(reason=connectors)`。
 

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/connector"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,8 @@ import (
 
 func TestConnectorManualTokenHTTPRedactionAndValidation(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
+	// This transport test substitutes the component validator; integration tests use real MCP probes.
+	fixture.server.connectorAuth.WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error { return nil })
 	root := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	writeMCPConnectorForTest(t, root, "demo")
 	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"token","token_schema":{"fields":[{"key":"API_KEY","required":true,"type":"password"}]}}`

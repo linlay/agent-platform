@@ -59,6 +59,14 @@ func writeConnectorFixture(path string, data []byte, mode os.FileMode) error {
 			return err
 		}
 	}
+	pkg, err := (connector.Sources{ExternalRoot: root}).Load(manifest.ID)
+	if err != nil {
+		return err
+	}
+	yes := true
+	if _, err = pkg.UpdateConnection(&yes, &yes); err != nil {
+		return err
+	}
 	return os.WriteFile(filepath.Join(root, ".fixture-"+filepath.Base(path)), []byte(manifest.ID), 0o600)
 }
 

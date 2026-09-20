@@ -936,3 +936,31 @@ func terminalReadyInput() string {
 	}
 	return "printf ws-terminal-ready\\n\nexit\n"
 }
+
+func TestOpenTerminalRejectsDisabledMountedConnector(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{setupRuntime: func(root string, cfg *config.Config) {
+		workspace := filepath.Join(root, "terminal-workspace")
+		if err := os.MkdirAll(workspace, 0755); err != nil {
+			t.Fatal(err)
+		}
+		pkg := filepath.Join(cfg.Paths.EffectiveConnectorsCenterDir(), "terminal-demo")
+		if err := os.MkdirAll(pkg, 0755); err != nil {
+			t.Fatal(err)
+		}
+		for name, content := range map[string]string{
+			"connector.json": `{"id":"terminal-demo","name":"Terminal demo","version":"1.0.0","type":"cli","auth_mode":"none"}`,
+			"cli.json":       `{}`,
+		} {
+			if err := os.WriteFile(filepath.Join(pkg, name), []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writeTerminalTestAgentFile(t, cfg, "terminal-disabled", "key: terminal-disabled\nname: Disabled connector\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(workspace)+"\nconnectorConfig:\n  connectors:\n    - terminal-demo\n")
+	}})
+	_, statusErr := fixture.server.openTerminalSession(terminalOpenPayload{AgentKey: "terminal-disabled", TerminalKey: "disabled", Cols: 80, Rows: 24}, "owner")
+	if statusErr == nil || statusErr.status != http.StatusConflict || !strings.Contains(statusErr.message, "connector_disabled") {
+		t.Fatalf("disabled connector terminal = %#v", statusErr)
+	}
+}

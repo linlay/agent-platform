@@ -37,6 +37,11 @@ func TestAgentMCPInstancesUseOwnBinariesSessionsAndToolRoutes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	pkg, _ := sources.Load("demo")
+	yes := true
+	if _, err := pkg.UpdateConnection(&yes, &yes); err != nil {
+		t.Fatal(err)
+	}
 	registry, err := NewAgentRegistry(sources)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +74,7 @@ func TestAgentMCPInstancesUseOwnBinariesSessionsAndToolRoutes(t *testing.T) {
 	for _, mount := range provider.mounts {
 		key := connector.AgentServerKey(mount.AgentKey, connector.ServerKey("demo", "server"))
 		server, ok := registry.Server(key)
-		if !ok || server.Command != filepath.Join(mount.Dir, "bin", binaryName) || server.ConnectorAuthRoot != "" {
+		if !ok || server.Command != filepath.Join(mount.Dir, "bin", binaryName) || server.ConnectorAuthRoot != sources.PersistentRoot() {
 			t.Fatalf("wrong instance: %#v", server)
 		}
 		if names := syncer.ToolNamesForServers([]string{key}); len(names) != 1 {

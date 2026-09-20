@@ -19,6 +19,7 @@ import (
 // BashExecution is analysis only: the original command is never rewritten.
 type BashExecution struct {
 	Connector          bool
+	ConnectorID        string
 	Argv               []string
 	Cwd                string
 	Program            string
@@ -158,7 +159,7 @@ func analyzeBashExecution(session QuerySession, cmd bashast.SimpleCommand, cwd s
 	for _, assignment := range cmd.EnvVars {
 		vars[assignment.Name] = assignment.Value
 	}
-	defer func() { x.Connector = connectorExecution(session, x, vars, env) }()
+	defer func() { x.ConnectorID = connectorExecution(session, x, vars, env); x.Connector = x.ConnectorID != "" }()
 	for depth := 0; depth < 8 && len(x.Argv) > 0; depth++ {
 		name := x.Argv[0]
 		base := commandFamily(name)

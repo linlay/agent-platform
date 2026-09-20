@@ -238,6 +238,43 @@ func (m *Manager) cliCommand(ctx context.Context, pkg connector.Package, s cliSe
 	if err != nil {
 		return nil, err
 	}
+	if pkg.AuthMode == connector.AuthToken && pkg.PersistentRoot() != m.sources.PersistentRoot() {
+		binding, err := CLIEnvironment(pkg)
+		if err != nil {
+			return nil, err
+		}
+		values, err := ResolveEnvironment(ctx, binding, "")
+		if err != nil {
+			return nil, err
+		}
+		// Keep only executable lookup and OS essentials before adding candidate values.
+		clean := []string{}
+		for _, entry := range env {
+			key, _, _ := strings.Cut(entry, "=")
+			switch key {
+			case "PATH", "SystemRoot", "WINDIR", "LANG", "LC_ALL":
+				clean = append(clean, entry)
+			}
+		}
+		env = clean
+		config, err := pkg.CLIConfigEnvironment()
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range config {
+			env = hostenv.Set(env, key, value)
+		}
+		for key, value := range values {
+			env = hostenv.Set(env, key, value)
+		}
+		dir, err := pkg.ConnectorStateDir()
+		if err != nil {
+			return nil, err
+		}
+		for key, name := range map[string]string{"HOME": "home", "USERPROFILE": "home", "XDG_CONFIG_HOME": "config", "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data", "XDG_STATE_HOME": "state", "TMPDIR": "tmp", "TMP": "tmp", "TEMP": "tmp"} {
+			env = hostenv.Set(env, key, filepath.Join(dir, name))
+		}
+	}
 	lookup := env
 	if pkg.BinDir != "" {
 		lookup = hostenv.Set(env, "PATH", pkg.BinDir)

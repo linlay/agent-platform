@@ -141,6 +141,11 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
+	ctx, releaseBusiness, err := auth.BeginBusiness(ctx, req.ConnectorID)
+	if err != nil {
+		return result, failure("connector_disabled", 409)
+	}
+	defer releaseBusiness()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	component := ""

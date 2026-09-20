@@ -29,7 +29,7 @@ func TestDesktopConnectorAuthReusesExistingState(t *testing.T) {
 		}
 	}
 	state := t.TempDir()
-	manager := connectorauth.New(context.Background(), connector.Sources{ExternalRoot: root, StateRoot: state}, nil)
+	manager := connectorauth.New(context.Background(), connector.Sources{ExternalRoot: root, StateRoot: state}, nil).WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error { return nil })
 	if _, err := manager.SetToken(context.Background(), "demo", map[string]string{"KEY": "fixture"}); err != nil {
 		t.Fatal(err)
 	}
