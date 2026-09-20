@@ -138,7 +138,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/admin/skills` | 无 | skills-center skill 列表，包含状态、图标 URL、可选 `version`、摘要诊断、更新时间、大小与引用 agent |
 | GET | `/api/admin/skills/detail` | query: `key`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
 | POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
-| POST | `/api/admin/skills/import` | multipart: `key`、`file` | 原子校验并导入完整 ZIP，返回创建后的 skill 详情 |
+| POST | `/api/admin/skills/import` | multipart: `key`、`file`；可选 `overwrite` | 原子校验并导入完整 ZIP，返回 skill 详情 |
 | POST | `/api/admin/skills/delete` | body: `key` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
 | GET | `/api/admin/skill-packages` | 无 | 返回 Platform 已安装技能包及其子技能 ID、版本和包摘要 |
 | POST | `/api/admin/skill-packages/import` | query: `key`、`version`；raw ZIP body | 原子校验并安装或更新技能包，返回包状态与实际安装的子技能 |
@@ -172,7 +172,9 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。文本保存（`PUT /api/admin/source` 的 Skill target 与兼容 `PUT /api/admin/skills/file`）通过 `adminsource` 串行执行写入和 catalog reload；reload 失败时按本次写入内容的哈希校验后恢复原文件与 SHA-256，前端可保留草稿并使用原 `baseSha256` 重试。回滚后的 catalog 恢复不受客户端断连影响；若文件已被其他操作修改，则保留新内容并报告恢复失败。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。skill 摘要从 `SKILL.md` frontmatter 提取可选 `version`：顶层 `version` 优先，缺失或空白时回退 `metadata.version`；两者皆无或空白时省略字段。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
 
-`POST /api/admin/skills/import` 是 WebClient 统一 ZIP 导入入口：multipart `file` 必填，`key` 可选，上传上限 512 MiB。Platform 读取安全 ZIP 的根 `manifest.json`；`type: skill-package` 时按 manifest 的 `id/version` 调用同一包安装/更新事务，忽略单技能 key 提示，并返回 `{kind:"skill-package", package:{id,name?,version,sha256,skills,installedAt}}`。声明技能包却无效时返回诊断，不回退单技能。其他 ZIP 沿用单技能导入，缺省 key 从 SKILL.md 的 frontmatter.key 或 name 读取，返回 `{kind:"skill", ...AdminSkillDetailResponse}`，旧客户端仍可读取顶层 skill/capabilities/fileManifest/openedFile。单技能 ZIP 仍限 32 MiB，Skill Key 必须尚不存在。multipart 大文件落进程临时目录，所有返回路径清理临时文件；ZIP 文件字节不在浏览器解压或经 WS 传输。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，所有失败都不保留目标目录。成功后沿用 `skills` reload 和 Agent 重组；reload 失败会删除刚导入的目录并恢复旧 catalog。
+`POST /api/admin/skills/import` 是 WebClient 统一 ZIP 导入入口：multipart `file` 必填，`key` 可选，上传上限 512 MiB。Platform 读取安全 ZIP 的根 `manifest.json`；`type: skill-package` 时按 manifest 的 `id/version` 调用同一包安装/更新事务，忽略单技能 key 提示，并返回 `{kind:"skill-package", package:{id,name?,version,sha256,skills,installedAt}}`。声明技能包却无效时返回诊断，不回退单技能。其他 ZIP 沿用单技能导入，缺省 key 从 SKILL.md 的 frontmatter.key 或 name 读取，返回 `{kind:"skill", ...AdminSkillDetailResponse}`，旧客户端仍可读取顶层 skill/capabilities/fileManifest/openedFile。单技能 ZIP 仍限 32 MiB；默认重名返回 409。可通过 query 或 multipart `overwrite=true` 显式整目录替换，旧目录保留到 reload 成功；完整校验失败不触碰旧目录，reload 失败恢复旧目录及原有 `skill.json` 等文件。更新包内单技能时保留 `.package` 包归属记录与包版本，独立技能版本由包内文件维护。multipart 大文件落进程临时目录，所有返回路径清理临时文件；ZIP 文件字节不在浏览器解压或经 WS 传输。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，首次导入失败不保留目标目录；覆盖失败恢复旧目录，恢复受阻时保留备份并报告位置。成功后沿用 `skills` reload 和 Agent 重组；事务全程位于 Catalog mutation 保护内，暂存与备份在技能根的同级目录。
+
+普通技能删除先移入技能根同级备份，再执行 skills reload；reload 失败恢复整目录及 metadata，成功后清理备份。包内子技能仍使用技能包专用删除接口，普通删除不会绕过包归属保护。
 
 `GET /api/admin/skill-packages` 是 `.package` 状态的只读投影，供 Desktop 将包内子技能识别为已安装并使用 manifest 版本比较；它不返回本地路径或 ZIP。`POST /api/admin/skill-packages/import` 是 Desktop Market 的技能包交付入口，不接受文件系统路径或 multipart。调用方以 `application/zip` 原样传入动态包，Platform 将请求体写入进程临时文件，完成 ZIP 安全检查、`manifest.json` 包身份与版本校验、必选子技能存在性以及每个子技能的标准 Skill 校验后，才在同一事务中替换 `skills-center/<skill-id>/`。同名独立 Skill 或其他包已占用的 Key 返回 409，不自动接管；安装目标名称大小写冲突同样拒绝。只有归属于当前包的成员可被同包更新替换。包名称随 `.package` 记录保存并在列表与导入响应中返回，历史记录缺少名称时客户端以 ID 回退显示。更新会同时移除新版本不再包含的旧子技能；删除仍被 Agent 使用的子技能或通过普通 Skill 接口绕过包状态同样返回 409。包内子技能可以通过专用删除接口单独卸载，该操作会同步移除子技能目录和包记录中的成员；删除最后一个子技能时一并删除包状态。任一校验、文件切换或 Catalog 重载失败时，子技能目录和包状态全部恢复。成功后只保留子技能目录与 `skills-center/.package/<package-id>.json`，请求临时 ZIP、staging 和 backup 均删除；`.package` 不进入 Skill Catalog。整包卸载端点使用同一事务删除该包记录与剩余子技能，Catalog 重载失败同样回滚。
 
@@ -1207,6 +1209,16 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 ### CLI 独立准备
 
 `/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。
+
+### Desktop 普通技能事务与并发保护
+
+`POST /api/admin/skills/transaction` 使用现有管理接口鉴权。请求字段为 `key`、`operation`（`snapshot` / `replace` / `delete`），变更必须提交 `expectedRevision`；`replace` 另携带 ZIP 的 `archiveBase64`。响应为 `{key, exists, revision}`，`snapshot` 在资源存在时额外返回完整 `archiveBase64`。不存在的版本为 `missing`；存在资源的版本是固定时间戳、排序目录与文件、保留权限的完整 ZIP SHA-256。
+
+Platform 在同一目录事务保护内取得快照、比较版本、替换或删除、重载并返回已提交版本。版本不匹配返回 409 `revision_conflict`，不改变资源。Desktop 只能用首次快照归档和本次成功提交的版本执行条件恢复；超时或丢失响应时不得自动反向操作。删除仍遵循 Agent 使用保护及技能包归属约束，包内子技能删除继续使用既有技能包 API。
+
+快照包含隐藏运行配置和元数据，不校验旧技能正文是否有效，不跟随符号链接或归档特殊文件。ZIP/单文件上限 32 MiB，展开总量上限 256 MiB，最多 4096 项；快照超限则阻止变更。快照是管理端敏感数据，不可广播或写入公共日志。归档恢复仍经过导入校验，旧无效内容可能无法自动恢复，此时调用方应保留恢复归档并报告失败。
+
+事务保护协调 Platform 内部管理写入与 watcher；不能锁住用户编辑器或其他外部进程。既有导入/删除接口保持兼容。
 
 纯文本选区 steer 使用 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；`text` 必须为非空字符串，`annotation` 为可选字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
 

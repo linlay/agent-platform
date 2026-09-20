@@ -399,6 +399,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/admin/skills", s.method(http.MethodGet, s.handleSkills))
 	s.router.HandleFunc("/api/admin/skills/detail", s.method(http.MethodGet, s.handleAdminSkillDetail))
 	s.router.HandleFunc("/api/admin/skills/create", s.method(http.MethodPost, s.handleAdminSkillCreate))
+	s.router.HandleFunc("/api/admin/skills/transaction", s.method(http.MethodPost, s.handleAdminSkillTransaction))
 	s.router.HandleFunc("/api/admin/skills/import", s.method(http.MethodPost, s.handleAdminSkillImport))
 	s.router.HandleFunc("/api/admin/skills/delete", s.method(http.MethodPost, s.handleAdminSkillDelete))
 	s.router.HandleFunc("/api/admin/skill-packages", s.method(http.MethodGet, s.handleAdminSkillPackages))

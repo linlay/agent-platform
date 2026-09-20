@@ -43,7 +43,7 @@ func ReadAccessTokenFile(filePath string) (string, error) {
 	if filePath == "" {
 		return "", nil
 	}
-	file, err := os.Open(filePath)
+	file, err := openIdentityFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil

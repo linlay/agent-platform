@@ -85,3 +85,26 @@ func TestDeletePackageRejectsUnsafeTargetsAndCanceledRequests(t *testing.T) {
 		t.Fatal("symlink deletion touched external data")
 	}
 }
+
+func TestDeletePackageBackupOutsideConnectorRoot(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "connectors-center")
+	target := filepath.Join(root, "demo", "assets", "nested")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := DeletePackage(context.Background(), Sources{ExternalRoot: root}, "demo", nil, func() error {
+		matches, err := filepath.Glob(filepath.Join(base, ".connector-delete-*", "demo", "assets", "nested"))
+		if err != nil || len(matches) != 1 {
+			t.Fatalf("missing sibling backup: %v %v", matches, err)
+		}
+		inside, err := filepath.Glob(filepath.Join(root, ".connector-delete-*"))
+		if err != nil || len(inside) != 0 {
+			t.Fatalf("backup inside watched root: %v %v", inside, err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

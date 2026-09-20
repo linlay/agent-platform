@@ -40,7 +40,7 @@ func ImportArchive(ctx context.Context, sources Sources, source io.ReaderAt, siz
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return Package{}, err
 	}
-	stage, err := os.MkdirTemp(root, ".connector-import-")
+	stage, err := os.MkdirTemp(filepath.Dir(root), ".connector-import-")
 	if err != nil {
 		return Package{}, err
 	}

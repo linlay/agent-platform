@@ -47,11 +47,13 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	pkg, err := connector.ImportArchive(r.Context(), s.connectorSources(), f, files[0].Size, overwrite, mcp.ValidateConnectorPackages, func() error {
-		if s.deps.CatalogReloader != nil {
-			return s.deps.CatalogReloader.Reload(context.WithoutCancel(r.Context()), "connectors")
-		}
-		return nil
+	pkg, err := withCatalogTransaction(r.Context(), s, func(ctx context.Context) (connector.Package, error) {
+		return connector.ImportArchive(ctx, s.connectorSources(), f, files[0].Size, overwrite, mcp.ValidateConnectorPackages, func() error {
+			if s.deps.CatalogReloader != nil {
+				return s.deps.CatalogReloader.Reload(context.WithoutCancel(ctx), "connectors")
+			}
+			return nil
+		})
 	})
 	if err != nil {
 		s.writeConnectorError(w, err)

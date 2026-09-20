@@ -19,18 +19,11 @@ func ShouldLoadRuntimeName(rawName string) bool {
 // ShouldIgnoreRuntimeWatchPath returns true for filesystem noise and
 // API-managed files that must not trigger a second runtime reload.
 func ShouldIgnoreRuntimeWatchPath(path string) bool {
-	// Ignore the entire unpublished tree, including queued child events.
-	// Windows watcher handles can prevent the importer's atomic directory rename;
-	// macOS also must not reload a partially extracted package.
-	for current := filepath.Clean(strings.TrimSpace(path)); ; {
-		if strings.HasPrefix(strings.ToLower(filepath.Base(current)), connectorImportStagingPrefix) {
+	// Inspect every component, including Windows paths in cross-platform tests.
+	for _, component := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if isRuntimeTransactionName(component) {
 			return true
 		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
-		}
-		current = parent
 	}
 	name := filepath.Base(filepath.Clean(strings.TrimSpace(path)))
 	return name == ".DS_Store" ||
@@ -44,7 +37,7 @@ func ShouldIgnoreRuntimeWatchPath(path string) bool {
 // post-init leftovers (e.g. "bootstrap.deleted"). Keeping this close to
 // ShouldLoadRuntimeName ensures watch and load filtering stay consistent.
 func ShouldWatchRuntimeDir(name string) bool {
-	if !ShouldLoadRuntimeName(name) {
+	if !ShouldLoadRuntimeName(name) || isRuntimeTransactionName(name) {
 		return false
 	}
 	lower := strings.ToLower(name)
@@ -106,4 +99,18 @@ func isMarkedRuntimeName(rawName string, marker string) bool {
 		return false
 	}
 	return strings.HasSuffix(strings.TrimSuffix(name, ext), marker)
+}
+
+// Transaction content and package metadata are never live catalog inputs.
+func isRuntimeTransactionName(name string) bool {
+	name = strings.ToLower(name)
+	return name == skillPackageStateDirName ||
+		strings.HasPrefix(name, ".skill-package-") ||
+		strings.HasPrefix(name, ".skill-backup-") ||
+		strings.HasPrefix(name, editableSkillImportStagingPrefix) ||
+		strings.HasPrefix(name, editableAgentImportStagingPrefix) ||
+		strings.HasPrefix(name, ".connector-import-") ||
+		strings.HasPrefix(name, ".connector-delete-") ||
+		strings.HasPrefix(name, ".connector-backup-") ||
+		strings.HasPrefix(name, ".backup-") || strings.Contains(name, ".backup-")
 }
