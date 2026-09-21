@@ -327,6 +327,9 @@ func (t *RuntimeToolExecutor) completeImageGenerate(ctx context.Context, model m
 			"n":               n,
 		}
 		body = mergeVisionRequestCompat(body, provider, model)
+		if model.Image.Generation.OmitResponseFormat {
+			delete(body, "response_format")
+		}
 		payload, err := json.Marshal(body)
 		if err != nil {
 			return imageGenerateResponse{}, err
@@ -368,6 +371,9 @@ func (t *RuntimeToolExecutor) completeImageGenerateMultipartEdit(ctx context.Con
 		"response_format": responseFormat,
 		"n":               strconv.Itoa(n),
 	} {
+		if key == "response_format" && model.Image.Edit.OmitResponseFormat {
+			continue
+		}
 		if err := writer.WriteField(key, value); err != nil {
 			return imageGenerateResponse{}, err
 		}

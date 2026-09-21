@@ -113,7 +113,7 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 		"profile":        profileName,
 		"modelKey":       model.Key,
 		"size":           size,
-		"responseFormat": responseFormat,
+		"responseFormat": actualImageGenerateResponseFormat(decoded.Data),
 		"images":         images,
 		"durationMs":     time.Since(start).Milliseconds(),
 	}
@@ -139,6 +139,22 @@ type imageGenerateResponse struct {
 	Data    []imageGenerateData       `json:"data"`
 	Usage   map[string]any            `json:"usage"`
 	Error   *imageGenerateErrorDetail `json:"error"`
+}
+
+// Follow materialization's URL-first precedence when reporting the received format.
+func actualImageGenerateResponseFormat(items []imageGenerateData) string {
+	format := ""
+	for _, item := range items {
+		current := "b64_json"
+		if strings.TrimSpace(item.URL) != "" {
+			current = "url"
+		}
+		if format != "" && format != current {
+			return "mixed"
+		}
+		format = current
+	}
+	return format
 }
 
 type imageGenerateData struct {

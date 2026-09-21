@@ -46,6 +46,8 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 模型请求协议完全由模型 YAML 的 `image.generation` 与 `image.edit` 决定。GPT Image 可分别使用 Images JSON/Multipart；Gemini Image 可让文生图和图生图都使用 Chat Completions。runtime 不按 model key、modelId 或 provider 硬编码路由，profile 也不能覆盖 endpoint。
 
+Images 接口可分别通过 `image.generation.omitResponseFormat` / `image.edit.omitResponseFormat` 省略上游不接受的 `response_format`；默认 `false` 保留旧请求行为。开启后显式工具参数和 JSON compat 均不能恢复该字段。成功结果的 `responseFormat` 表示实际返回的 `b64_json`、`url` 或混合批次的 `mixed`，不保证与请求偏好相同。详见 [配置化说明](配置化说明.md)。
+
 Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明区重绘，`white_edit` 表示白色区重绘，`black_edit` 表示黑色区重绘；灰度边缘转换为软 Alpha。模型 YAML 未声明 `maskProtocol: openai-alpha` 时返回 `image_generate_mask_unsupported`，不跨 profile 回退。成功结果的 `operation` 为 `generation`、`edit` 或 `inpainting`。
 
 `image_generate` 和 `artifact_publish` 的工具说明共同约束模型输出：`path` 只用于工具间传递，可以是经授权的当前 Workspace/Chat 内 Host 绝对路径，禁止展示、写进 Markdown 或转换成 `file://`；用户可见内容只能逐字复制工具返回的 `url`，禁止手工拼接或编码资源地址。图片生成后使用 `images[n].url`；再次发布后改用 `publishedArtifacts[n].url`，因为后者指向 `artifacts/<runId>/` 发布副本。缺少有效 `url` 时必须报告资源物化或发布失败，不得伪造 Markdown。

@@ -79,7 +79,7 @@ inputSchema:
       description: Optional. Image size to send to the provider, overriding the selected profile.
     response_format:
       type: string
-      description: Optional. Provider response format, overriding the selected profile.
+      description: Optional. Preferred provider response format, overriding the selected profile. Sent only when the configured model endpoint supports this parameter; the actual returned format may differ.
       enum:
         - b64_json
         - url

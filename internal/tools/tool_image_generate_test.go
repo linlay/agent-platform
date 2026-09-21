@@ -357,6 +357,9 @@ func TestImageGenerateMultipartEditWithNormalizedMask(t *testing.T) {
 		if got := r.FormValue("prompt"); got != "move the robot" {
 			t.Fatalf("prompt=%q", got)
 		}
+		if got := r.FormValue("response_format"); got != "b64_json" {
+			t.Fatalf("default response_format=%q", got)
+		}
 		if got := len(r.MultipartForm.File["image[]"]); got != 2 {
 			t.Fatalf("image[] count=%d", got)
 		}

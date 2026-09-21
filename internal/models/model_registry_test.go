@@ -722,3 +722,38 @@ func TestLoadModelRegistryRejectsRetiredMemory(t *testing.T) {
 		})
 	}
 }
+
+func TestModelImageOmitResponseFormatDefaultsAndOperationScope(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		generation     string
+		edit           string
+		wantGeneration bool
+		wantEdit       bool
+	}{
+		{name: "default"},
+		{name: "explicit false", generation: "    omitResponseFormat: false", edit: "    omitResponseFormat: false"},
+		{name: "generation only", generation: "    omitResponseFormat: true", wantGeneration: true},
+		{name: "edit only", edit: "    omitResponseFormat: true", wantEdit: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestProviderAndModel(t, root, "apiKey: plain-text", strings.Join([]string{
+				"type: image-generation", "image:",
+				"  generation:", "    endpointPath: /generate", "    requestFormat: openai-images-json", tc.generation,
+				"  edit:", "    endpointPath: /edit", "    requestFormat: openai-images-multipart", tc.edit,
+			}, "\n"))
+			registry, err := LoadModelRegistry(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			model, _, err := registry.GetImageGeneration("mock-model")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if model.Image.Generation.OmitResponseFormat != tc.wantGeneration || model.Image.Edit.OmitResponseFormat != tc.wantEdit {
+				t.Fatalf("unexpected policy: %#v", model.Image)
+			}
+		})
+	}
+}

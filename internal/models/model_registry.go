@@ -83,15 +83,17 @@ type ModelImageConfig struct {
 }
 
 type ModelImageGenerationConfig struct {
-	EndpointPath  string
-	RequestFormat string
+	EndpointPath       string
+	RequestFormat      string
+	OmitResponseFormat bool
 }
 
 type ModelImageEditConfig struct {
-	EndpointPath  string
-	RequestFormat string
-	MaskProtocol  string
-	Configured    bool
+	EndpointPath       string
+	RequestFormat      string
+	OmitResponseFormat bool
+	MaskProtocol       string
+	Configured         bool
 }
 
 const (
@@ -736,8 +738,9 @@ func loadModelImageGeneration(raw any) ModelImageGenerationConfig {
 	}
 	values := contracts.AnyMapNode(raw)
 	return ModelImageGenerationConfig{
-		EndpointPath:  strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
-		RequestFormat: strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(values["requestFormat"], values["request-format"]))),
+		EndpointPath:       strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
+		RequestFormat:      strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(values["requestFormat"], values["request-format"]))),
+		OmitResponseFormat: parseTruthyDefault(values["omitResponseFormat"], false),
 	}
 }
 
@@ -751,10 +754,11 @@ func loadModelImageEdit(raw any) ModelImageEditConfig {
 		maskProtocol = ImageMaskProtocolNone
 	}
 	return ModelImageEditConfig{
-		EndpointPath:  strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
-		RequestFormat: strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(values["requestFormat"], values["request-format"]))),
-		MaskProtocol:  maskProtocol,
-		Configured:    true,
+		EndpointPath:       strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
+		RequestFormat:      strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(values["requestFormat"], values["request-format"]))),
+		OmitResponseFormat: parseTruthyDefault(values["omitResponseFormat"], false),
+		MaskProtocol:       maskProtocol,
+		Configured:         true,
 	}
 }
 
