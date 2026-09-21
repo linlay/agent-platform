@@ -30,19 +30,19 @@ inputSchema:
         - count
       default: files_with_matches
       description: Output mode. Use content for matching lines, files_with_matches for matching paths, or count for per-file counts.
-    "-i":
+    -i:
       type: boolean
       description: Case-insensitive search.
-    "-n":
+    -n:
       type: boolean
       description: Show line numbers in content mode. Defaults to true for content mode.
-    "-A":
+    -A:
       type: integer
       description: Number of lines to include after each match.
-    "-B":
+    -B:
       type: integer
       description: Number of lines to include before each match.
-    "-C":
+    -C:
       type: integer
       description: Number of context lines to include around each match.
     multiline:

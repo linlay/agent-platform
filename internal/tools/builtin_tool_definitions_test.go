@@ -58,6 +58,29 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	}
 }
 
+func TestEmbeddedFileGrepFlagNamesMatchExecutor(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, def := range defs {
+		if def.Name != "file_grep" {
+			continue
+		}
+		properties := contracts.AnyMapNode(def.Parameters["properties"])
+		for _, flag := range []string{"-i", "-n", "-A", "-B", "-C"} {
+			if _, ok := properties[flag]; !ok {
+				t.Errorf("missing executor flag %q in file_grep schema", flag)
+			}
+			if _, ok := properties[fmt.Sprintf("%q", flag)]; ok {
+				t.Errorf("file_grep schema contains literal quotes around %q", flag)
+			}
+		}
+		return
+	}
+	t.Fatal("file_grep definition not found")
+}
+
 func TestEmbeddedToolDefinitionsHaveNoLegacyClassificationMetadata(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
