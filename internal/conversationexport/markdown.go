@@ -9,20 +9,20 @@ func RenderMarkdown(snapshot SnapshotV1) ([]byte, error) {
 	}, 0, len(snapshot.Turns))
 	totalBytes := 0
 	for _, turn := range snapshot.Turns {
-		if turn.Outcome != OutcomeCompleted || len(turn.Items) == 0 || turn.Items[0].Kind != ItemUser {
+		if turn.Outcome != OutcomeCompleted || len(turn.Nodes) == 0 || turn.Nodes[0].Kind != "message" || turn.Nodes[0].Role != "user" {
 			continue
 		}
 		answer := ""
-		for index := len(turn.Items) - 1; index > 0; index-- {
-			if turn.Items[index].Kind == ItemAssistant {
-				answer = turn.Items[index].Text
+		for index := len(turn.Nodes) - 1; index > 0; index-- {
+			if turn.Nodes[index].Kind == "content" && turn.Nodes[index].Role == "assistant" {
+				answer = turn.Nodes[index].Text
 				break
 			}
 		}
 		if strings.TrimSpace(answer) == "" {
 			continue
 		}
-		question := turn.Items[0].Text
+		question := turn.Nodes[0].Text
 		selected = append(selected, struct {
 			question string
 			answer   string

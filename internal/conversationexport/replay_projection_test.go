@@ -11,7 +11,7 @@ import (
 
 // Input is the complete pre-refactor history detail, not a reduced export model.
 // Keeping both projections fixed makes their deliberately different filters visible.
-func TestHistoricalDetailExportCompatibility(t *testing.T) {
+func TestHistoricalDetailExportProjection(t *testing.T) {
 	for _, owner := range []string{"agent", "team"} {
 		t.Run(owner, func(t *testing.T) {
 			prefix := "../chat/testdata/replay/" + owner
@@ -23,7 +23,7 @@ func TestHistoricalDetailExportCompatibility(t *testing.T) {
 			if err := json.Unmarshal(raw, &detail); err != nil {
 				t.Fatal(err)
 			}
-			document, err := BuildSnapshotDocument(&chat.Summary{ChatID: detail.ChatID, ChatName: detail.ChatName, CreatedAt: testEpoch}, detail.Events, testEpoch+1000)
+			document, err := BuildSnapshotDocument(&chat.Summary{ChatID: detail.ChatID, ChatName: detail.ChatName, CreatedAt: testEpoch}, detail.Events, testEpoch+1000, "zh-CN", nil)
 			if err != nil {
 				t.Fatal(err)
 			}

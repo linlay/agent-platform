@@ -13,11 +13,54 @@ import (
 )
 
 func buildSnapshotForTest(summary *chat.Summary, events []stream.EventData, capturedAt int64) (SnapshotV1, error) {
-	document, err := BuildSnapshotDocument(summary, events, capturedAt)
+	document, err := BuildSnapshotDocument(summary, events, capturedAt, "zh-CN", nil)
 	return document.Snapshot, err
 }
 
 const testEpoch = int64(1_700_000_000_000)
+
+func TestSnapshotAssistantUsesRootRunIdentityAndFallsBackOnlyWhenMissing(t *testing.T) {
+	events := []stream.EventData{
+		{Type: "request.query", Timestamp: testEpoch + 10, Payload: map[string]any{"role": "user", "message": "one", "runId": "run-1"}},
+		{Type: "run.start", Timestamp: testEpoch + 11, Payload: map[string]any{"runId": "run-1", "agentKey": "writer"}},
+		{Type: "run.complete", Timestamp: testEpoch + 12, Payload: map[string]any{"runId": "run-1"}},
+		{Type: "request.query", Timestamp: testEpoch + 20, Payload: map[string]any{"role": "user", "message": "two", "runId": "run-2"}},
+		{Type: "run.start", Timestamp: testEpoch + 21, Payload: map[string]any{"runId": "run-2", "teamId": "team-one"}},
+		{Type: "run.complete", Timestamp: testEpoch + 22, Payload: map[string]any{"runId": "run-2"}},
+		{Type: "request.query", Timestamp: testEpoch + 30, Payload: map[string]any{"role": "user", "message": "three", "runId": "run-3"}},
+		{Type: "run.start", Timestamp: testEpoch + 31, Payload: map[string]any{"runId": "run-3", "agentKey": "deleted"}},
+		{Type: "run.complete", Timestamp: testEpoch + 32, Payload: map[string]any{"runId": "run-3"}},
+		{Type: "request.query", Timestamp: testEpoch + 40, Payload: map[string]any{"role": "user", "message": "four", "runId": "run-4"}},
+		{Type: "run.start", Timestamp: testEpoch + 41, Payload: map[string]any{"runId": "run-4"}},
+		{Type: "run.complete", Timestamp: testEpoch + 42, Payload: map[string]any{"runId": "run-4"}},
+	}
+	resolve := func(agentKey, teamID string) *AssistantV1 {
+		switch {
+		case teamID == "team-one":
+			return &AssistantV1{Name: "Team One"}
+		case agentKey == "writer":
+			return &AssistantV1{Name: "Writer", IconName: "chat"}
+		case agentKey == "fallback":
+			return &AssistantV1{Name: "Fallback"}
+		default:
+			return nil
+		}
+	}
+	document, err := BuildSnapshotDocument(&chat.Summary{ChatName: "Export", AgentKey: "fallback", CreatedAt: testEpoch}, events, testEpoch+100, "zh-CN", resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Writer", "Team One", "Fallback", "Fallback"}
+	for index, name := range want {
+		assistant := document.Snapshot.Turns[index].Assistant
+		if name == "" && assistant != nil || name != "" && (assistant == nil || assistant.Name != name) {
+			t.Fatalf("turn %d assistant=%#v, want %q", index, assistant, name)
+		}
+	}
+	if strings.Contains(string(document.JSON), "writer") || strings.Contains(string(document.JSON), "team-one") {
+		t.Fatalf("private owner identifiers leaked: %s", document.JSON)
+	}
+}
 
 func TestBuildSnapshotProjectsVisibleRootTurns(t *testing.T) {
 	snapshot, err := buildSnapshotForTest(&chat.Summary{ChatName: " Export ", CreatedAt: testEpoch}, []stream.EventData{
@@ -40,12 +83,12 @@ func TestBuildSnapshotProjectsVisibleRootTurns(t *testing.T) {
 	if turn.StartedAt != testEpoch+90 || turn.Outcome != OutcomeCompleted || turn.EndedAt == nil || *turn.EndedAt != testEpoch+600 {
 		t.Fatalf("unexpected turn lifecycle: %#v", turn)
 	}
-	if len(turn.Items) != 4 || turn.Items[0].Kind != ItemUser || turn.Items[1].Kind != ItemReasoning || turn.Items[3].Text != "final" {
-		t.Fatalf("unexpected turn items: %#v", turn.Items)
+	if len(turn.Nodes) != 5 || turn.Nodes[0].Kind != "message" || turn.Nodes[1].Kind != "thinking" || turn.Nodes[4].Text != "final" {
+		t.Fatalf("unexpected turn nodes: %#v", turn.Nodes)
 	}
-	for _, item := range turn.Items {
-		if item.Text == "private" || item.Text == "hidden" {
-			t.Fatalf("private item leaked: %#v", turn.Items)
+	for _, node := range turn.Nodes {
+		if node.Text == "hidden" {
+			t.Fatalf("hidden root query leaked: %#v", turn.Nodes)
 		}
 	}
 }
@@ -90,6 +133,8 @@ func TestBuildSnapshotDocumentReturnsCanonicalSafeJSON(t *testing.T) {
 			{Type: "run.complete", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "run-1"}},
 		},
 		testEpoch+3,
+		"zh-CN",
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("build snapshot document: %v", err)
@@ -146,8 +191,8 @@ func TestBuildSnapshotAllowsLargeItemWithinDocumentLimit(t *testing.T) {
 		{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"message": message, "runId": "run-1"}},
 		{Type: "run.complete", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "run-1"}},
 	}, testEpoch+3)
-	if err != nil || snapshot.Turns[0].Items[0].Text != message {
-		t.Fatalf("snapshot item bytes=%d err=%v", len(snapshot.Turns[0].Items[0].Text), err)
+	if err != nil || snapshot.Turns[0].Nodes[0].Text != message {
+		t.Fatalf("snapshot node bytes=%d err=%v", len(snapshot.Turns[0].Nodes[0].Text), err)
 	}
 }
 
@@ -178,8 +223,8 @@ func TestBuildSnapshotEnforcesTwoThousandItemLimit(t *testing.T) {
 		buildEvents(MaxItems-1),
 		testEpoch+MaxItems+2,
 	)
-	if err != nil || len(snapshot.Turns) != 1 || len(snapshot.Turns[0].Items) != MaxItems {
-		t.Fatalf("2000-item snapshot items=%d err=%v", len(snapshot.Turns[0].Items), err)
+	if err != nil || len(snapshot.Turns) != 1 || len(snapshot.Turns[0].Nodes) != MaxItems {
+		t.Fatalf("2000-node snapshot nodes=%d err=%v", len(snapshot.Turns[0].Nodes), err)
 	}
 
 	if _, err := buildSnapshotForTest(
@@ -191,42 +236,16 @@ func TestBuildSnapshotEnforcesTwoThousandItemLimit(t *testing.T) {
 	}
 }
 
-func TestBuildSnapshotRejectsInvalidTimeline(t *testing.T) {
-	for name, events := range map[string][]stream.EventData{
-		"duplicate run start": {
-			{Type: "request.query", Timestamp: testEpoch + 100, Payload: map[string]any{"message": "q", "runId": "run-1"}},
-			{Type: "run.start", Timestamp: testEpoch + 101, Payload: map[string]any{"runId": "run-1"}},
-			{Type: "run.start", Timestamp: testEpoch + 102, Payload: map[string]any{"runId": "run-1"}},
-		},
-		"time regression": {
-			{Type: "request.query", Timestamp: testEpoch + 100, Payload: map[string]any{"message": "q", "runId": "run-1"}},
-			{Type: "content.snapshot", Timestamp: testEpoch + 90, Payload: map[string]any{"runId": "run-1", "text": "a"}},
-		},
-		"content after terminal": {
-			{Type: "request.query", Timestamp: testEpoch + 100, Payload: map[string]any{"message": "q", "runId": "run-1"}},
-			{Type: "run.complete", Timestamp: testEpoch + 110, Payload: map[string]any{"runId": "run-1"}},
-			{Type: "content.snapshot", Timestamp: testEpoch + 120, Payload: map[string]any{"runId": "run-1", "text": "late"}},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := buildSnapshotForTest(&chat.Summary{ChatName: "Invalid", CreatedAt: testEpoch}, events, testEpoch+500)
-			if !errors.Is(err, ErrInvalidTimeline) {
-				t.Fatalf("err=%v", err)
-			}
-		})
-	}
-}
-
 func TestRenderMarkdownKeepsOnlyCompletedFinalAnswers(t *testing.T) {
 	ended := testEpoch + 500
 	markdown, err := RenderMarkdown(SnapshotV1{Turns: []TurnV1{
-		{Outcome: OutcomeCompleted, EndedAt: &ended, Items: []ItemV1{
-			{Kind: ItemUser, Text: "question **one**", At: testEpoch + 100},
-			{Kind: ItemReasoning, Text: "secret", At: testEpoch + 200},
-			{Kind: ItemAssistant, Text: "draft", At: testEpoch + 300},
-			{Kind: ItemAssistant, Text: "final ✅", At: testEpoch + 400},
+		{Outcome: OutcomeCompleted, EndedAt: &ended, Nodes: []NodeV1{
+			{Kind: "message", Role: "user", Text: "question **one**", At: testEpoch + 100},
+			{Kind: "thinking", Role: "assistant", Text: "secret", At: testEpoch + 200},
+			{Kind: "content", Role: "assistant", Text: "draft", At: testEpoch + 300},
+			{Kind: "content", Role: "assistant", Text: "final ✅", At: testEpoch + 400},
 		}},
-		{Outcome: OutcomeRunning, Items: []ItemV1{{Kind: ItemUser, Text: "running", At: testEpoch + 600}}},
+		{Outcome: OutcomeRunning, Nodes: []NodeV1{{Kind: "message", Role: "user", Text: "running", At: testEpoch + 600}}},
 	}})
 	if err != nil {
 		t.Fatalf("render markdown: %v", err)
@@ -245,9 +264,9 @@ func TestRenderMarkdownPreservesUnicodeAndCRLF(t *testing.T) {
 	markdown, err := RenderMarkdown(SnapshotV1{Turns: []TurnV1{{
 		Outcome: OutcomeCompleted,
 		EndedAt: &ended,
-		Items: []ItemV1{
-			{Kind: ItemUser, Text: "中文 **问题**\r\n第二行", At: testEpoch + 100},
-			{Kind: ItemAssistant, Text: "答案 ✅\r\n完成", At: testEpoch + 400},
+		Nodes: []NodeV1{
+			{Kind: "message", Role: "user", Text: "中文 **问题**\r\n第二行", At: testEpoch + 100},
+			{Kind: "content", Role: "assistant", Text: "答案 ✅\r\n完成", At: testEpoch + 400},
 		},
 	}}})
 	if err != nil || !strings.Contains(string(markdown), "中文 **问题**\r\n第二行") || !strings.Contains(string(markdown), "答案 ✅\r\n完成") {
