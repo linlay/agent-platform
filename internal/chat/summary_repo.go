@@ -365,6 +365,15 @@ func (s *FileStore) ListChatsWithOptions(options ListOptions) ([]Summary, error)
 }
 
 func (s *FileStore) listChatsLocked(options ListOptions, applyOrder bool) ([]Summary, error) {
+	order := defaultOrderState()
+	if applyOrder {
+		order = s.readChatOrderForListLocked()
+	}
+	return s.listChatsWithPresentationLocked(options, applyOrder, s.readChatPinnedForListLocked(), order)
+}
+
+// The caller holds mu so membership, ordering and persisted summaries share one snapshot.
+func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOrder bool, pins PinnedState, orderState OrderState) ([]Summary, error) {
 	lastRunID, agentKey, agentModes, limit := options.LastRunID, options.AgentKey, options.AgentModes, options.Limit
 
 	query := "SELECT " + summarySelectColumns + " FROM CHATS WHERE 1=1"
@@ -399,7 +408,6 @@ func (s *FileStore) listChatsLocked(options ListOptions, applyOrder bool) ([]Sum
 	}
 	defer rows.Close()
 
-	pins := s.readChatPinnedForListLocked()
 	var items []Summary
 	for rows.Next() {
 		var sum Summary
@@ -438,7 +446,6 @@ func (s *FileStore) listChatsLocked(options ListOptions, applyOrder bool) ([]Sum
 		return nil, err
 	}
 	if applyOrder {
-		orderState := s.readChatOrderForListLocked()
 		if orderState.SortMode == SortModeManual {
 			items = orderSummaries(items, orderState.Order)
 		}

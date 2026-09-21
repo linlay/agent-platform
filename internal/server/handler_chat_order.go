@@ -44,16 +44,25 @@ func (s *Server) handleChatOrder(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) readChatOrder() (api.ChatOrderResponse, error) {
-	store, err := s.chatOrderStore()
-	if err != nil {
-		return api.ChatOrderResponse{}, err
+func (s *Server) readChatOrder() (api.ChatOrderSnapshotResponse, error) {
+	store, ok := s.deps.Chats.(chat.OrderSnapshotStore)
+	if !ok {
+		return api.ChatOrderSnapshotResponse{}, newAgentStatusError(http.StatusNotImplemented, "not_supported", "chat order snapshot is not supported")
 	}
-	state, err := store.ChatOrder()
+	snapshot, err := store.ChatOrderSnapshot()
 	if err != nil {
-		return api.ChatOrderResponse{}, err
+		return api.ChatOrderSnapshotResponse{}, err
 	}
-	return s.chatOrderResponseWithPins(state)
+	chats, err := s.mapChatSummariesWithActiveRuns(snapshot.Chats, true)
+	if err != nil {
+		return api.ChatOrderSnapshotResponse{}, err
+	}
+	order := chatOrderResponse(snapshot.Order)
+	order.PinnedOrder = snapshot.Pins.Order
+	if snapshot.Pins.UpdatedAt > snapshot.Order.UpdatedAt {
+		order.UpdatedAt = &snapshot.Pins.UpdatedAt
+	}
+	return api.ChatOrderSnapshotResponse{ChatOrderResponse: order, PinnedChats: chats}, nil
 }
 
 func (s *Server) updateChatOrder(request api.UpdateChatOrderRequest) (api.ChatOrderResponse, error) {

@@ -1397,6 +1397,12 @@ type ChatOrderResponse struct {
 	UpdatedAt   *int64   `json:"updatedAt,omitempty"`
 }
 
+// ChatOrderSnapshotResponse is the read contract. Mutations retain the lightweight acknowledgement.
+type ChatOrderSnapshotResponse struct {
+	ChatOrderResponse
+	PinnedChats []ChatSummaryResponse `json:"pinnedChats"`
+}
+
 type UpdateChatOrderRequest struct {
 	Pinned       *bool  `json:"pinned,omitempty"`
 	Operation    string `json:"operation"`
