@@ -34,21 +34,29 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid chatId"))
 		return
 	}
-	document, err := s.loadConversationSnapshot(chatID, time.Now().UnixMilli())
-	if err != nil {
-		writeConversationExportError(w, err)
-		return
-	}
-
 	var body []byte
 	var contentType string
 	var extension string
+	var title string
+	locale := "zh-CN"
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
+		locale = "en-US"
+	}
 	if format == chatSnapshotExportFormat {
-		body = document.JSON
+		var document conversationexport.SnapshotDocument
+		document, err = s.loadConversationSnapshot(chatID, time.Now().UnixMilli(), locale)
+		if err == nil {
+			body, title = document.JSON, document.Snapshot.Title
+		}
 		contentType = "application/json; charset=utf-8"
 		extension = ".snapshot.json"
 	} else {
-		body, err = conversationexport.RenderMarkdown(document.Snapshot)
+		var document conversationexport.SnapshotDocument
+		document, err = s.loadConversationSnapshot(chatID, time.Now().UnixMilli(), locale)
+		if err == nil {
+			body, err = conversationexport.RenderMarkdown(document.Snapshot)
+			title = document.Snapshot.Title
+		}
 		contentType = "text/markdown; charset=utf-8"
 		extension = ".md"
 	}
@@ -57,7 +65,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := safeExportFilenameWithExtension(document.Snapshot.Title, chatID, extension)
+	filename := safeExportFilenameWithExtension(title, chatID, extension)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
@@ -77,7 +85,7 @@ func parseConversationExportFormat(r *http.Request) (string, error) {
 	}
 }
 
-func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64) (conversationexport.SnapshotDocument, error) {
+func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
 	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
 		return conversationexport.SnapshotDocument{}, err
@@ -89,7 +97,53 @@ func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64) (conv
 	if err != nil {
 		return conversationexport.SnapshotDocument{}, err
 	}
-	return conversationexport.BuildSnapshotDocument(summary, detail.Events, capturedAt)
+	return conversationexport.BuildSnapshotDocument(summary, detail.Events, capturedAt, locale, s.resolveExportAssistant)
+}
+
+func (s *Server) resolveExportAssistant(agentKey, teamID string) *conversationexport.AssistantV1 {
+	if s.deps.Registry == nil {
+		return nil
+	}
+	var name string
+	var icon any
+	if teamID != "" {
+		definition, ok := s.deps.Registry.TeamDefinition(teamID)
+		if !ok {
+			return nil
+		}
+		name, icon = definition.Name, definition.Icon
+	} else if agentKey != "" {
+		definition, ok := s.deps.Registry.AgentDefinition(agentKey)
+		if !ok {
+			return nil
+		}
+		name, icon = definition.Name, definition.Icon
+	} else {
+		return nil
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > conversationexport.MaxTitleBytes {
+		return nil
+	}
+	assistant := &conversationexport.AssistantV1{Name: name}
+	if descriptor, ok := icon.(map[string]any); ok {
+		if iconName, ok := descriptor["name"].(string); ok && validExportIconName(iconName) {
+			assistant.IconName = iconName
+		}
+	}
+	return assistant
+}
+
+func validExportIconName(value string) bool {
+	if len(value) == 0 || len(value) > 40 {
+		return false
+	}
+	for _, char := range value {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func writeConversationExportError(w http.ResponseWriter, err error) {

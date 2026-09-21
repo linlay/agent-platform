@@ -9,9 +9,42 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/stream"
 )
+
+func TestResolveExportAssistantUsesPublicIdentityAndSafeIcon(t *testing.T) {
+	fixture := newTestFixture(t)
+	fixture.server.deps.Registry = channelTestCatalogRegistry{
+		defs: map[string]catalog.AgentDefinition{
+			"writer": {Name: "Writer", Icon: map[string]any{"name": "chat"}},
+			"custom": {Name: "Custom", Icon: "https://example.com/photo.png"},
+		},
+		teams: map[string]catalog.TeamDefinition{
+			"team-one": {Name: "Research Team", Icon: map[string]any{"name": "../bad"}},
+		},
+	}
+	for _, tc := range []struct {
+		agentKey, teamID, name, iconName string
+	}{
+		{"writer", "", "Writer", "chat"},
+		{"custom", "", "Custom", ""},
+		{"writer", "team-one", "Research Team", ""},
+		{"deleted", "", "", ""},
+	} {
+		assistant := fixture.server.resolveExportAssistant(tc.agentKey, tc.teamID)
+		if tc.name == "" {
+			if assistant != nil {
+				t.Fatalf("deleted owner returned %#v", assistant)
+			}
+			continue
+		}
+		if assistant == nil || assistant.Name != tc.name || assistant.IconName != tc.iconName {
+			t.Fatalf("owner %q/%q returned %#v", tc.agentKey, tc.teamID, assistant)
+		}
+	}
+}
 
 func TestHandleChatExportSnapshotReturnsJSONDocument(t *testing.T) {
 	fixture := newTestFixture(t)
@@ -33,7 +66,7 @@ func TestHandleChatExportSnapshotReturnsJSONDocument(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
 		t.Fatalf("decode snapshot: %v", err)
 	}
-	if snapshot.Version != conversationexport.SnapshotVersion || snapshot.Title != "rollback plan" || len(snapshot.Turns) != 1 || snapshot.Turns[0].Items[len(snapshot.Turns[0].Items)-1].Text != "rollback completed" {
+	if snapshot.Version != conversationexport.SnapshotVersion || snapshot.Title != "rollback plan" || len(snapshot.Turns) != 1 || snapshot.Turns[0].Nodes[len(snapshot.Turns[0].Nodes)-1].Text != "rollback completed" {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
 }
