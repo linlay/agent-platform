@@ -22,7 +22,7 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{Provider: "document-hub", APIBaseURL: "http://127.0.0.1:8090", PublicBaseURL: "http://127.0.0.1:8090", AuthMode: "none", OpenMode: "iframe", MaxFileBytes: 50 << 20, RequestTimeout: 120 * time.Second}
+	return Config{Provider: "document-hub", AuthMode: "none", OpenMode: "iframe", MaxFileBytes: 50 << 20, RequestTimeout: 120 * time.Second}
 }
 
 func (c Config) Validate() error {
@@ -48,6 +48,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("document-preview request-timeout must be between 0 and 10m")
 	}
 	for _, raw := range []string{c.APIBaseURL, c.PublicBaseURL} {
+		if raw == "" && !c.Enabled {
+			continue
+		}
 		u, err := url.Parse(raw)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 			return fmt.Errorf("document-preview URLs must be HTTP(S) origins without credentials, paths or queries")

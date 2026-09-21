@@ -19,6 +19,8 @@ PROGRAM_PORT=""
 IDENTITY_FILE=""
 RUNTIME_MODE="standalone"
 BACKEND_ARGS=()
+DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL=""
+DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL=""
 DEPLOY_AP_RUNTIME_DIR=""
 DEPLOY_CONTAINER_HUB_BASE_URL=""
 DEPLOY_AI_VISION_GENERAL_MODEL_KEY=""
@@ -131,6 +133,16 @@ program_apply_deploy_flags() {
         [[ $# -ge 2 ]] || program_die "missing value for --output-dir"
         program_require_arg_value "--output-dir" "$2"
         CONFIG_ROOT="$2"
+        shift 2
+        ;;
+      --document-preview-api-base-url|--document-preview-public-base-url)
+        [[ $# -ge 2 ]] || program_die "missing value for $1"
+        program_validate_preview_origin "$2"
+        if [[ "$1" == "--document-preview-api-base-url" ]]; then
+          DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL="$2"
+        else
+          DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL="$2"
+        fi
         shift 2
         ;;
       --ap-runtime-dir)
@@ -253,6 +265,10 @@ program_apply_deploy_flags() {
   done
 
   program_refresh_paths
+  if [[ -f "$BUNDLE_ROOT/configs/runtime.example.yml" ]] && { [[ "$DEPLOY_DESKTOP_CONFIG_RESET" == "1" ]] || [[ ! -f "$CONFIG_ROOT/configs/runtime.yml" ]]; }; then
+    program_require_arg_value "--document-preview-api-base-url" "$DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL"
+    program_require_arg_value "--document-preview-public-base-url" "$DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL"
+  fi
   program_require_arg_value "--ap-runtime-dir" "$DEPLOY_AP_RUNTIME_DIR"
   program_require_arg_value "--container-hub-base-url" "$DEPLOY_CONTAINER_HUB_BASE_URL"
   program_require_arg_value "--public-key-source-file" "$DEPLOY_PUBLIC_KEY_SOURCE_FILE"
@@ -558,6 +574,21 @@ program_install_local_public_key() {
   cp "$DEPLOY_PUBLIC_KEY_SOURCE_FILE" "$target"
 }
 
+# Origins only: reject YAML metacharacters, credentials, paths and whitespace.
+program_validate_preview_origin() {
+  local pattern='^https?://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])(:[0-9]+)?/?$'
+  [[ "$1" =~ $pattern ]] || program_die "document-preview URL must be an HTTP(S) origin"
+}
+
+program_render_runtime_file() {
+  local source="$1" target="$2"
+  program_require_arg_value "--document-preview-api-base-url" "$DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL"
+  program_require_arg_value "--document-preview-public-base-url" "$DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL"
+  cp "$source" "$target"
+  program_set_yaml_section_value "$target" "document-preview" "api-base-url" "\"$DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL\""
+  program_set_yaml_section_value "$target" "document-preview" "public-base-url" "\"$DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL\""
+}
+
 program_initialize_deploy_config() {
   mkdir -p "$CONFIG_DIR"
   if [[ ! -f "$ENV_FILE" ]]; then
@@ -578,6 +609,9 @@ program_initialize_deploy_config() {
         continue
       fi
       case "$name" in
+        runtime)
+          program_render_runtime_file "$example" "$target"
+          ;;
         ai-tools)
           program_render_ai_tools_file "$example" "$target"
           ;;

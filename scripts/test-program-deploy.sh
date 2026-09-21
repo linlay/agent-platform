@@ -220,3 +220,31 @@ rm -f "$PID_FILE"
 unset AGENT_PLATFORM_TEST_CAPTURE_ARGS AGENT_PLATFORM_TEST_STAY_ALIVE
 
 echo "[program-deploy-test] passed"
+
+# Preview initialization must render distinct origins and preserve existing config.
+cp "$REPO_ROOT/configs/runtime.example.yml" "$bundle_root/configs/runtime.example.yml"
+preview_output="$tmp_dir/preview"
+if run_deploy "$preview_output" >"$tmp_dir/missing-preview.log" 2>&1; then
+  echo 'missing preview URLs unexpectedly accepted' >&2; exit 1
+fi
+[[ ! -f "$preview_output/configs/runtime.yml" ]]
+run_deploy "$preview_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test
+preview_file="$preview_output/configs/runtime.yml"
+grep -Fq 'api-base-url: "http://hub:8090"' "$preview_file"
+grep -Fq 'public-base-url: "https://docs.example.test"' "$preview_file"
+cp "$preview_file" "$tmp_dir/preview-before.yml"
+run_deploy "$preview_output" --document-preview-api-base-url https://ignored.test --document-preview-public-base-url https://ignored.test
+cmp "$preview_file" "$tmp_dir/preview-before.yml"
+for bad_origin in 'https://user:secret@docs.test' 'https://docs.test/path' 'https://docs.test?query=1' 'https://docs.test/#fragment' 'https://docs.test"'; do
+  if run_deploy "$preview_output" --document-preview-api-base-url "$bad_origin" >"$tmp_dir/invalid-preview.log" 2>&1; then
+    echo 'invalid preview origin accepted' >&2; exit 1
+  fi
+done
+if run_deploy "$preview_output" --desktop-config-reset --desktop-config-backup-dir "$tmp_dir/preview-backup" --desktop-version-from 1 --desktop-version-to 2 >"$tmp_dir/reset-preview.log" 2>&1; then
+  echo 'reset without preview URLs accepted' >&2; exit 1
+fi
+cmp "$preview_file" "$tmp_dir/preview-before.yml"
+run_deploy "$preview_output" --desktop-config-reset --desktop-config-backup-dir "$tmp_dir/preview-backup" --desktop-version-from 1 --desktop-version-to 2 --document-preview-api-base-url https://new-api.test --document-preview-public-base-url https://new-public.test
+grep -Fq 'api-base-url: "https://new-api.test"' "$preview_file"
+grep -Fq 'public-base-url: "https://new-public.test"' "$preview_file"
+echo '[program-deploy-test] preview initialization and reset passed'

@@ -18,6 +18,8 @@ $Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform.stderr.log'
 $Script:ProgramPort = ''
 $Script:IdentityFile = ''
 $Script:RuntimeMode = 'standalone'
+$Script:DeployDocumentPreviewAPIBaseUrl = ''
+$Script:DeployDocumentPreviewPublicBaseUrl = ''
 $Script:DeployAPRuntimeDir = ''
 $Script:DeployContainerHubBaseUrl = ''
 $Script:DeployAIVisionGeneralModelKey = ''
@@ -107,6 +109,14 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
       Assert-ProgramArgValue '--output-dir' $Value
       $Script:ConfigRoot = $Value
     }
+    '--document-preview-api-base-url' {
+      Assert-ProgramPreviewOrigin $Value
+      $Script:DeployDocumentPreviewAPIBaseUrl = $Value
+    }
+    '--document-preview-public-base-url' {
+      Assert-ProgramPreviewOrigin $Value
+      $Script:DeployDocumentPreviewPublicBaseUrl = $Value
+    }
     '--ap-runtime-dir' { $Script:DeployAPRuntimeDir = $Value }
     '--container-hub-base-url' { $Script:DeployContainerHubBaseUrl = $Value }
     '--ai-vision-general-model-key' { $Script:DeployAIVisionGeneralModelKey = $Value }
@@ -156,6 +166,8 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
     }
     if (@(
       '--output-dir',
+      '--document-preview-api-base-url',
+      '--document-preview-public-base-url',
       '--ap-runtime-dir',
       '--container-hub-base-url',
       '--ai-vision-general-model-key',
@@ -185,6 +197,11 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
     Set-ProgramDeployOption $name $Arguments[$i]
   }
 
+  if ((Test-Path -LiteralPath (Join-Path $Script:BundleRoot 'configs/runtime.example.yml')) -and
+      ($Script:DeployDesktopConfigReset -or -not (Test-Path -LiteralPath (Join-Path $Script:ConfigRoot 'configs/runtime.yml')))) {
+    Assert-ProgramArgValue '--document-preview-api-base-url' $Script:DeployDocumentPreviewAPIBaseUrl
+    Assert-ProgramArgValue '--document-preview-public-base-url' $Script:DeployDocumentPreviewPublicBaseUrl
+  }
   Assert-ProgramArgValue '--ap-runtime-dir' $Script:DeployAPRuntimeDir
   Assert-ProgramArgValue '--container-hub-base-url' $Script:DeployContainerHubBaseUrl
   Assert-ProgramArgValue '--public-key-source-file' $Script:DeployPublicKeySourceFile
@@ -463,6 +480,20 @@ function Install-ProgramDeployLocalPublicKey {
   Copy-Item -LiteralPath $Script:DeployPublicKeySourceFile -Destination $target -Force
 }
 
+function Assert-ProgramPreviewOrigin([string]$Value) {
+  if ($Value -cnotmatch '^https?://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])(:[0-9]+)?/?$') {
+    Fail-Program 'document-preview URL must be an HTTP(S) origin'
+  }
+}
+
+function New-ProgramDeployRuntimeFile([string]$Source, [string]$Target) {
+  Assert-ProgramArgValue '--document-preview-api-base-url' $Script:DeployDocumentPreviewAPIBaseUrl
+  Assert-ProgramArgValue '--document-preview-public-base-url' $Script:DeployDocumentPreviewPublicBaseUrl
+  Copy-Item -LiteralPath $Source -Destination $Target
+  Set-ProgramYamlSectionValue $Target 'document-preview' 'api-base-url' ('"' + $Script:DeployDocumentPreviewAPIBaseUrl + '"')
+  Set-ProgramYamlSectionValue $Target 'document-preview' 'public-base-url' ('"' + $Script:DeployDocumentPreviewPublicBaseUrl + '"')
+}
+
 function Initialize-ProgramDeployConfig {
   New-Item -ItemType Directory -Force -Path $Script:ConfigDir | Out-Null
   if (-not (Test-Path -LiteralPath $Script:EnvFile -PathType Leaf)) {
@@ -484,6 +515,7 @@ function Initialize-ProgramDeployConfig {
         continue
       }
       switch ($name) {
+        'runtime' { New-ProgramDeployRuntimeFile $example.FullName $target }
         'ai-tools' { New-ProgramDeployAIToolsFile $example.FullName $target }
         'coder-settings' { New-ProgramDeployCoderSettingsFile $example.FullName $target }
         'kbase-settings' { New-ProgramDeployKBaseSettingsFile $example.FullName $target }

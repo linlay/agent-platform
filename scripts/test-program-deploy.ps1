@@ -85,6 +85,30 @@ try {
   Import-ProgramEnv
   Assert-Test ($env:AP_RUNTIME_DIR -ceq $ExpectedRuntimeRoot) 'UTF-8 .env path was not preserved'
 
+  Copy-Item (Join-Path $RepoRoot 'configs/runtime.example.yml') (Join-Path $BundleConfigs 'runtime.example.yml')
+  $PreviewOutput = Join-Path $TempRoot 'preview'
+  $Rejected = $false
+  try { Invoke-TestDeploy $PreviewOutput @() } catch { $Rejected = $true }
+  Assert-Test $Rejected 'missing preview URLs accepted'
+  Invoke-TestDeploy $PreviewOutput @('--document-preview-api-base-url', 'http://hub:8090', '--document-preview-public-base-url', 'https://docs.test')
+  $PreviewFile = Join-Path $PreviewOutput 'configs/runtime.yml'
+  $PreviewBefore = [IO.File]::ReadAllText($PreviewFile)
+  Assert-Test ($PreviewBefore.Contains('api-base-url: "http://hub:8090"')) 'API origin not rendered'
+  Assert-Test ($PreviewBefore.Contains('public-base-url: "https://docs.test"')) 'public origin not rendered'
+  Invoke-TestDeploy $PreviewOutput @('--document-preview-api-base-url', 'https://ignored.test', '--document-preview-public-base-url', 'https://ignored.test')
+  Assert-Test ([IO.File]::ReadAllText($PreviewFile) -ceq $PreviewBefore) 'existing runtime config overwritten'
+  foreach ($Bad in @('https://user:secret@docs.test', 'https://docs.test/path', 'https://docs.test?x=1', 'https://docs.test"')) {
+    $Rejected = $false
+    try { Invoke-TestDeploy $PreviewOutput @('--document-preview-api-base-url', $Bad) } catch { $Rejected = $true }
+    Assert-Test $Rejected 'invalid preview origin accepted'
+  }
+  $ResetArgs = @('--desktop-config-reset', '--desktop-config-backup-dir', (Join-Path $TempRoot 'preview-backup'), '--desktop-version-from', '1', '--desktop-version-to', '2')
+  $Rejected = $false
+  try { Invoke-TestDeploy $PreviewOutput $ResetArgs } catch { $Rejected = $true }
+  Assert-Test $Rejected 'reset without preview URLs accepted'
+  Assert-Test ([IO.File]::ReadAllText($PreviewFile) -ceq $PreviewBefore) 'failed reset changed config'
+  Invoke-TestDeploy $PreviewOutput ($ResetArgs + @('--document-preview-api-base-url', 'https://new-api.test', '--document-preview-public-base-url', 'https://new-public.test'))
+  Assert-Test ([IO.File]::ReadAllText($PreviewFile).Contains('public-base-url: "https://new-public.test"')) 'reset did not render preview origin'
   Write-Host '[program-deploy-test] passed'
 } finally {
   Remove-Item Env:AP_RUNTIME_DIR -ErrorAction SilentlyContinue

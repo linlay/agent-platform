@@ -102,10 +102,10 @@ billing:
 # Office readonly preview: local / intranet / internet document-hub.
 # Changes take effect after restarting Platform.
 document-preview:
-  enabled: false
+  enabled: true
   provider: document-hub
-  api-base-url: http://127.0.0.1:8090
-  public-base-url: http://127.0.0.1:8090
+  api-base-url: "" # Filled by deploy; required when enabled.
+  public-base-url: "" # Filled by deploy; required when enabled.
   auth:
     mode: none # none / bearer-token-file
     # token-file: /absolute/path/to/document-hub-token

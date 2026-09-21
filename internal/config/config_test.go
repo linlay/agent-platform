@@ -1773,7 +1773,7 @@ func TestLoadContainerHubAndBashConfigFromFiles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read tools example: %v", err)
 		}
-		runtimeContent := string(runtimeExample)
+		runtimeContent := strings.ReplaceAll(string(runtimeExample), `base-url: ""`, `base-url: "https://docs.test"`)
 		toolsContent := string(toolsExample)
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeContent, func() {
 			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &toolsContent, func() {
