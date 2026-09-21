@@ -7,6 +7,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -58,5 +60,51 @@ func TestConnectorZIPImportHTTPConflictAndAuthContract(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/connectors/auth?id=import-demo", nil))
 	if rec.Code != 400 {
 		t.Fatal("started login for auth none")
+	}
+}
+
+func TestOneIDConnectorZIPLegacyAuthorizationCompatibility(t *testing.T) {
+	for _, template := range []string{"Bearer ${ONEID_TOKEN}", "Bearer ${AP_ACCESS_TOKEN}", ""} {
+		t.Run(template, func(t *testing.T) {
+			fixture := setupAdminRegistriesFixture(t)
+			component := map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"}
+			if template != "" {
+				component["headers"] = map[string]string{"Authorization": template}
+			}
+			data, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"main": component}})
+			var archive bytes.Buffer
+			z := zip.NewWriter(&archive)
+			for name, content := range map[string]string{"connector.json": `{"id":"legacy-oneid","name":"Legacy OneID","version":"1.0.0","type":"mcp","auth_mode":"oneid-token"}`, "mcp.json": string(data)} {
+				entry, err := z.Create(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = entry.Write([]byte(content)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := z.Close(); err != nil {
+				t.Fatal(err)
+			}
+			var body bytes.Buffer
+			form := multipart.NewWriter(&body)
+			entry, err := form.CreateFormFile("file", "oneid.zip")
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry.Write(archive.Bytes())
+			form.Close()
+			req := httptest.NewRequest(http.MethodPost, "/api/admin/connectors/import", &body)
+			req.Header.Set("Content-Type", form.FormDataContentType())
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("import failed: %d %s", rec.Code, rec.Body.String())
+			}
+			source, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "legacy-oneid", "mcp.json"))
+			if err != nil || !bytes.Equal(source, data) {
+				t.Fatalf("source package rewritten: %v", err)
+			}
+		})
 	}
 }
