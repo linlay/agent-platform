@@ -179,6 +179,12 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 					return ServerDefinition{}, fmt.Errorf("%s values must be strings", field)
 				}
 				if pkg.AuthMode == connector.AuthOneID {
+					// Older market packages named this managed header ONEID_TOKEN.
+					// Normalize only its exact HTTP Authorization template in memory;
+					// runtime identity and destination checks remain unchanged.
+					if field == "headers" && strings.EqualFold(key, "Authorization") && value == "Bearer ${ONEID_TOKEN}" {
+						value = "Bearer ${AP_ACCESS_TOKEN}"
+					}
 					if (field == "staticHeaders" || field == "staticEnv") && strings.Contains(value, "${") {
 						return ServerDefinition{}, fmt.Errorf("oneid-token templates belong in headers/env, not static fields")
 					}
