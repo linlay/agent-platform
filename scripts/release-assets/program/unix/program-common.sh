@@ -499,7 +499,8 @@ program_render_ai_tools_file() {
     program_set_ai_tools_model_key "$target" "web-fetch" "general" "$DEPLOY_AI_WEB_FETCH_MODEL_KEY"
   fi
   if [[ -n "$DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY" ]]; then
-    program_set_ai_tools_model_key "$target" "image-generate" "general" "$DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY"
+    program_set_ai_tools_model_key "$target" "image-generate" "$DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY" "$DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY"
+    program_set_yaml_section_value "$target" "image-generate" "default-profile" "$DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY"
     program_set_yaml_section_value "$target" "image-generate" "enabled" "true"
   fi
 }

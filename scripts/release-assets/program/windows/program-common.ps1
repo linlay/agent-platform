@@ -426,7 +426,8 @@ function New-ProgramDeployAIToolsFile([string]$Source, [string]$Target) {
     Set-ProgramAIToolsModelKey $Target 'web-fetch' 'general' $Script:DeployAIWebFetchModelKey
   }
   if (-not [string]::IsNullOrWhiteSpace($Script:DeployAIImageGenerateModelKey)) {
-    Set-ProgramAIToolsModelKey $Target 'image-generate' 'general' $Script:DeployAIImageGenerateModelKey
+    Set-ProgramAIToolsModelKey $Target 'image-generate' $Script:DeployAIImageGenerateModelKey $Script:DeployAIImageGenerateModelKey
+    Set-ProgramYamlSectionValue $Target 'image-generate' 'default-profile' $Script:DeployAIImageGenerateModelKey
     Set-ProgramYamlSectionValue $Target 'image-generate' 'enabled' 'true'
   }
 }

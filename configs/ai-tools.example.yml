@@ -41,10 +41,10 @@ web-fetch:
 
 image-generate:
   enabled: true
-  default-profile: general
+  default-profile:
   profiles:
-    general:
-      model-key: babelark-gpt-image-2
+    th-gemini-3_1-flash-lite-image:
+      model-key: th-gemini-3_1-flash-lite-image
       size: 1024x1024
       response-format: b64_json
       output-mime-type: image/png
@@ -53,8 +53,8 @@ image-generate:
       max-image-bytes: 20971520
       persist-artifact: true
 
-    babelark-gpt-image-2:
-      model-key: babelark-gpt-image-2
+    th-gpt-image-2_5-flare:
+      model-key: th-gpt-image-2_5-flare
       size: 1024x1024
       response-format: b64_json
       output-mime-type: image/png
@@ -63,18 +63,8 @@ image-generate:
       max-image-bytes: 20971520
       persist-artifact: true
 
-    babelark-gemini-3_1-flash-image:
-      model-key: babelark-gemini-3_1-flash-image
-      size: 1024x1024
-      response-format: b64_json
-      output-mime-type: image/png
-      max-prompt-chars: 4000
-      max-images: 4
-      max-image-bytes: 20971520
-      persist-artifact: true
-
-    babelark-gemini-3_1-flash-lite-image:
-      model-key: babelark-gemini-3_1-flash-lite-image
+    th-gpt-image-2_5-sunburst:
+      model-key: th-gpt-image-2_5-sunburst
       size: 1024x1024
       response-format: b64_json
       output-mime-type: image/png

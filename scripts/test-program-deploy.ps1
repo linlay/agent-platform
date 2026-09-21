@@ -39,7 +39,7 @@ try {
   }
 
   $ConfiguredOutput = Join-Path $TempRoot 'configured'
-  Invoke-TestDeploy $ConfiguredOutput @('--ai-image-generate-model-key', 'image-model-key')
+  Invoke-TestDeploy $ConfiguredOutput @('--ai-image-generate-model-key', 'th-gpt-image-2_5-sunburst')
   $ConfiguredFile = Join-Path (Join-Path $ConfiguredOutput 'configs') 'ai-tools.yml'
   $ConfiguredContent = [System.IO.File]::ReadAllText($ConfiguredFile).Replace("`r`n", "`n")
   $ImageStart = $ConfiguredContent.IndexOf("image-generate:`n")
@@ -47,7 +47,9 @@ try {
   Assert-Test ($ImageStart -ge 0 -and $ImageEnd -gt $ImageStart) 'image-generate section was not rendered'
   $ImageBlock = $ConfiguredContent.Substring($ImageStart, $ImageEnd - $ImageStart)
   Assert-Test ($ImageBlock.Contains("  enabled: true`n")) 'image-generate was not enabled'
-  Assert-Test ($ImageBlock.Contains("      model-key: image-model-key`n")) 'image-generate model key was not rendered'
+  Assert-Test ($ImageBlock.Contains("      model-key: th-gpt-image-2_5-sunburst`n")) 'image-generate model key was not rendered'
+  Assert-Test ($ImageBlock.Contains("  default-profile: th-gpt-image-2_5-sunburst`n")) 'image default profile was not selected'
+  Assert-Test (-not $ImageBlock.Contains("    general:")) 'image general profile must not exist'
   $BlankModelKeys = ([regex]::Matches($ConfiguredContent, '(?m)^      model-key:$')).Count
   Assert-Test ($BlankModelKeys -eq 3) 'an unrelated AI tool model key changed'
 

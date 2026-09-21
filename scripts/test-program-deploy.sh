@@ -37,7 +37,7 @@ run_deploy() {
 }
 
 configured_output="$tmp_dir/configured"
-run_deploy "$configured_output" --ai-image-generate-model-key image-model-key
+run_deploy "$configured_output" --ai-image-generate-model-key th-gpt-image-2_5-sunburst
 configured_file="$configured_output/configs/ai-tools.yml"
 image_generate_block="$(
   awk '
@@ -50,8 +50,12 @@ image_generate_block="$(
   echo "[program-deploy-test] image-generate was not enabled" >&2
   exit 1
 }
-[[ "$image_generate_block" == *$'      model-key: image-model-key'* ]] || {
+[[ "$image_generate_block" == *$'      model-key: th-gpt-image-2_5-sunburst'* ]] || {
   echo "[program-deploy-test] image-generate model key was not rendered" >&2
+  exit 1
+}
+[[ "$image_generate_block" == *$'  default-profile: th-gpt-image-2_5-sunburst'* && "$image_generate_block" != *$'    general:'* ]] || {
+  echo "[program-deploy-test] image default must select a concrete profile without general" >&2
   exit 1
 }
 [[ "$(grep -Fxc '      model-key:' "$configured_file")" -eq 3 ]] || {
@@ -99,7 +103,7 @@ AGENT_PLATFORM_TEST_CAPTURE_RESOURCE_ARGS="$resource_args" run_deploy "$reset_ou
   --desktop-config-backup-dir "$reset_backup" \
   --desktop-version-from v0.3.26 \
   --desktop-version-to v0.3.27 \
-  --ai-image-generate-model-key th-gpt-image-2 \
+  --ai-image-generate-model-key th-gpt-image-2_5-flare \
   --runtime-resource-source "$resource_source" \
   --runtime-resource-previous-source "$resource_previous_source" \
   --desktop-device-id desktop-device-123 \
