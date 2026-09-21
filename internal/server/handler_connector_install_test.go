@@ -63,7 +63,7 @@ func TestConnectorZIPImportHTTPConflictAndAuthContract(t *testing.T) {
 	}
 }
 
-func TestOneIDConnectorZIPLegacyAuthorizationCompatibility(t *testing.T) {
+func TestOneIDConnectorZIPAuthorizationTemplateVariants(t *testing.T) {
 	for _, template := range []string{"Bearer ${ONEID_TOKEN}", "Bearer ${AP_ACCESS_TOKEN}", ""} {
 		t.Run(template, func(t *testing.T) {
 			fixture := setupAdminRegistriesFixture(t)
@@ -74,7 +74,7 @@ func TestOneIDConnectorZIPLegacyAuthorizationCompatibility(t *testing.T) {
 			data, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"main": component}})
 			var archive bytes.Buffer
 			z := zip.NewWriter(&archive)
-			for name, content := range map[string]string{"connector.json": `{"id":"legacy-oneid","name":"Legacy OneID","version":"1.0.0","type":"mcp","auth_mode":"oneid-token"}`, "mcp.json": string(data)} {
+			for name, content := range map[string]string{"connector.json": `{"id":"oneid-templates","name":"OneID Templates","version":"1.0.0","type":"mcp","auth_mode":"oneid-token"}`, "mcp.json": string(data)} {
 				entry, err := z.Create(name)
 				if err != nil {
 					t.Fatal(err)
@@ -101,7 +101,7 @@ func TestOneIDConnectorZIPLegacyAuthorizationCompatibility(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("import failed: %d %s", rec.Code, rec.Body.String())
 			}
-			source, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "legacy-oneid", "mcp.json"))
+			source, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "oneid-templates", "mcp.json"))
 			if err != nil || !bytes.Equal(source, data) {
 				t.Fatalf("source package rewritten: %v", err)
 			}

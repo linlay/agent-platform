@@ -179,8 +179,8 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 					return ServerDefinition{}, fmt.Errorf("%s values must be strings", field)
 				}
 				if pkg.AuthMode == connector.AuthOneID {
-					// Older market packages named this managed header ONEID_TOKEN.
-					// Normalize only its exact HTTP Authorization template in memory;
+					// ONEID_TOKEN and AP_ACCESS_TOKEN are both supported Authorization templates.
+					// Normalize the exact ONEID_TOKEN template to the shared in-memory form;
 					// runtime identity and destination checks remain unchanged.
 					if field == "headers" && strings.EqualFold(key, "Authorization") && value == "Bearer ${ONEID_TOKEN}" {
 						value = "Bearer ${AP_ACCESS_TOKEN}"
