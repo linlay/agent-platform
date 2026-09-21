@@ -14,6 +14,10 @@ func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T)
 	read := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "runtime.status", "params": map[string]any{}}}
 	write := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "DOCUMENT_ID", "value": "value"}}}
 	unknown := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "future.operation"}}
+	pin := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "chat.set_pinned", "params": map[string]any{"pinned": true}}}
+	if stream.isConcurrentToolInvocation(pin) || !stream.readOnlyToolDenied("platform_control", pin.args) {
+		t.Fatal("Chat pin mutation must be a scheduling barrier and forbidden during planning")
+	}
 
 	if !stream.isConcurrentToolInvocation(read) {
 		t.Fatal("read-only platform_control operation must remain concurrency eligible")

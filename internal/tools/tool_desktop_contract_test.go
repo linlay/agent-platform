@@ -93,7 +93,7 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 			t.Fatalf("obsolete page-only exclusion: %s", action)
 		}
 	}
-	policy, err := os.ReadFile(filepath.Join(root, "src", "main", "modules", "desktop-actions", "runtime.part-1.ts"))
+	policy, err := os.ReadFile(filepath.Join(root, "src", "main", "modules", "desktop-actions", "webapp-native-actions.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}

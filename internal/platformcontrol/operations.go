@@ -25,6 +25,7 @@ var descriptors = map[string]Descriptor{
 	"capabilities.list":    operation("capabilities.list", "low", true, false, nil, "all"),
 	"catalog.defaults.get": operation("catalog.defaults.get", "low", true, false, nil, "all"),
 	"catalog.validate":     operation("catalog.validate", "low", true, false, nil, "all"),
+	"chat.set_pinned":      operation("chat.set_pinned", "low", false, true, nil, "main"),
 	"run.env.set":          operation("run.env.set", "high", false, true, []string{"params.idempotencyKey"}, "main"),
 	"run.env.unset":        operation("run.env.unset", "high", false, true, []string{"params.idempotencyKey"}, "main"),
 	"runtime.status":       operation("runtime.status", "low", true, false, nil, "all"),

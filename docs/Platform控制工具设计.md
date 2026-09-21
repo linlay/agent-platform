@@ -15,12 +15,35 @@ Agent 配置不再声明动态 key。遗留 `runtimeConfig.runEnv` 会被静默�
 - `capabilities.list`
 - `catalog.defaults.get`
 - `catalog.validate`：resourceType 为 agent/team/skill/connector；connector 只校验 connector.json，旧 mcp-server 类型已退役。
+- `chat.set_pinned`：持久化当前或指定 Chat 的实例级置顶状态。
 - `run.env.set`
 - `run.env.unset`
 - `runtime.status`
 - `security.explain`
 
 旧 `run.env.bind/get/list/bulk` 未注册，调用统一返回 `platform_control_invalid_operation`。
+
+### `chat.set_pinned`
+
+```json
+{"operation":"chat.set_pinned","params":{"pinned":true}}
+```
+
+`pinned` 必须显式给出 boolean，`false` 取消置顶。可选 `chatId` 必须是有效非空 ID；省略时从可信 `ExecutionContext.Session.ChatID` 取当前 Chat，不从模型参数、请求 body 或界面选中项推断。可以显式操作同一实例的其他 Chat，不按标题匹配，不新增 Chat 列表工具。置顶是实例级共享展示偏好，不按调用者或 Agent 分开。
+
+仅允许显式挂载 `platform_control` 的普通 native Agent root Run；子任务、Team、ACP、Proxy、Channel 不开放。操作为 mutation barrier，planning/read-only 阶段拒绝；`capabilities.list` 与 `security.explain` 使用同一调用者判定。工具挂载和服务端控制面启用要求保持不变。
+
+成功结果：
+
+```json
+{"operation":"chat.set_pinned","status":"ok","scope":"instance","data":{"chatId":"chat-1","pinned":true,"changed":true}}
+```
+
+该操作成功和错误 envelope 均使用 `scope: instance`，不包含 Run env `revision`；其他 operation 的既有 envelope 不变。首次置顶插入首位，重复设置相同状态返回 `changed:false`，不重排、不写盘、不广播；取消不存在 Chat 的置顶为幂等清理。不存在或仅上传形成的未命名占位 Chat 不能置顶。
+
+HTTP、WS 和工具通过 `internal/conversation.Service.SetChatPinned` 共用存储与通知，持久化成功且有变化后发送 `chats.order.changed`（`updatedAt` 为置顶状态毫秒时间戳）。广播在持久化后立即发送，不依赖调用方随后读取列表成功。Desktop 现有导航订阅触发刷新，不打开 Chat、不切换当前对话。历史 JSONL 不修改，工具不直接写 `chat-pinned.json`。
+
+错误码：`platform_control_invalid_params`（缺少 boolean、非法/空 chatId 或未知参数）、`platform_control_stage_forbidden`、`platform_control_disabled`、`chat_pin_forbidden`（调用者不符合 root/native/挂载边界）、`chat_context_unavailable`（省略 ID 且无可信当前 Chat）、`chat_not_found`、`chat_pin_invalid_target`（占位 Chat）、`chat_pin_unavailable`（服务未装配或存储不支持）、`chat_pin_failed`（持久化失败）。失败不得声称已置顶。
 
 ### `run.env.set`
 

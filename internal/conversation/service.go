@@ -14,10 +14,11 @@ import (
 var ErrNotConfigured = errors.New("conversation service is not configured")
 
 type Service struct {
-	Chats    chat.Store
-	Archives *chat.ArchiveStore
-	Archiver *chat.Archiver
-	Runs     contracts.RunManager
+	Chats         chat.Store
+	Archives      *chat.ArchiveStore
+	Archiver      *chat.Archiver
+	Runs          contracts.RunManager
+	Notifications contracts.NotificationSink
 }
 
 func NewService(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Archiver, runs contracts.RunManager) *Service {

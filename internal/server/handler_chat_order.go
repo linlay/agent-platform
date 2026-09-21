@@ -8,6 +8,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/conversation"
 	"agent-platform/internal/ws"
 )
 
@@ -88,11 +89,12 @@ func (s *Server) updateChatOrder(request api.UpdateChatOrderRequest) (api.ChatOr
 		if request.Pinned == nil || strings.TrimSpace(request.ChatID) == "" || request.SortMode != "" || request.BeforeChatID != "" || request.AfterChatID != "" {
 			return api.ChatOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "set_pinned requires chatId and boolean pinned only")
 		}
-		pinStore, ok := s.deps.Chats.(chat.PinnedStore)
-		if !ok {
+		_, err = s.conversationService().SetChatPinned(request.ChatID, *request.Pinned)
+		if errors.Is(err, conversation.ErrPinningNotSupported) {
 			return api.ChatOrderResponse{}, newAgentStatusError(http.StatusNotImplemented, "not_supported", "chat pinning is not supported")
 		}
-		_, changed, err = pinStore.SetChatPinned(request.ChatID, *request.Pinned)
+		// The shared service already published any persisted pin change.
+		changed = false
 		if err == nil {
 			state, err = store.ChatOrder()
 		}

@@ -716,7 +716,7 @@ func TestPlatformControlSchemaIsFixedAndSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform_control operation schema = %#v", properties["operation"])
 	}
-	if got, want := operation["enum"], []any{"capabilities.list", "catalog.defaults.get", "catalog.validate", "run.env.set", "run.env.unset", "runtime.status", "security.explain"}; !reflect.DeepEqual(got, want) {
+	if got, want := operation["enum"], []any{"capabilities.list", "catalog.defaults.get", "catalog.validate", "chat.set_pinned", "run.env.set", "run.env.unset", "runtime.status", "security.explain"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("platform_control operation enum = %#v, want %#v", got, want)
 	}
 	if got, want := platformControl.Parameters["required"], []any{"operation"}; !reflect.DeepEqual(got, want) {

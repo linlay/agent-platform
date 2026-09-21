@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/conversation"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/runenv"
@@ -27,10 +28,15 @@ const (
 type ToolHandler struct {
 	cfg      config.Config
 	registry catalog.Registry
+	chats    ChatPinService
 }
 
-func NewToolHandler(cfg config.Config, registry catalog.Registry) *ToolHandler {
-	return &ToolHandler{cfg: cfg, registry: registry}
+type ChatPinService interface {
+	SetChatPinned(string, bool) (conversation.PinResult, error)
+}
+
+func NewToolHandler(cfg config.Config, registry catalog.Registry, chats ChatPinService) *ToolHandler {
+	return &ToolHandler{cfg: cfg, registry: registry, chats: chats}
 }
 
 func (h *ToolHandler) ToolNames() []string {
@@ -76,6 +82,8 @@ func invokeRegisteredOperation(h *ToolHandler, operationName string, params map[
 		return h.get(strings.TrimSpace(stringValue(params, "path")))
 	case "catalog.validate":
 		return h.validate(strings.ToLower(strings.TrimSpace(stringValue(params, "resourceType"))), strings.TrimSpace(stringValue(params, "resourceKey")), stringValue(params, "content"))
+	case "chat.set_pinned":
+		return h.setChatPinned(params, execCtx)
 	case "run.env.set", "run.env.unset":
 		return h.mutateEnvironment(operationName, params, execCtx)
 	case "runtime.status":
@@ -103,6 +111,8 @@ func validateOperationParams(operationName string, params map[string]any) error 
 			return err
 		}
 		return requireStringFields(params, "resourceType", "resourceKey", "content")
+	case "chat.set_pinned":
+		return validateChatPinParams(params)
 	case "run.env.set":
 		if err := requireFields(params, []string{"key", "value"}, []string{"expectedRevision", "idempotencyKey"}); err != nil {
 			return err
@@ -397,11 +407,14 @@ func operationAvailable(execCtx *contracts.ExecutionContext, descriptor Descript
 	if !descriptor.AllowsExecutionPolicy(execCtx.ToolExecutionPolicy) {
 		return false, "operation is not permitted in the current stage"
 	}
+	if descriptor.Name == "chat.set_pinned" && !chatPinCallerAllowed(execCtx) {
+		return false, "chat pinning requires an ordinary native root Agent run with platform_control"
+	}
 	if strings.HasPrefix(descriptor.Name, "run.env.") && execCtx.RunEnvironment == nil {
 		return false, "run environment unavailable"
 	}
 	if !descriptor.ReadOnly && (strings.TrimSpace(execCtx.Session.SubTaskID) != "" || strings.TrimSpace(execCtx.Session.TeamID) != "") {
-		return false, "run environment mutation is limited to ordinary root runs"
+		return false, "mutation is limited to ordinary root runs"
 	}
 	return true, ""
 }
@@ -602,6 +615,10 @@ func normalizeEnvelope(operation string, result contracts.ToolExecutionResult, e
 		data = map[string]any{}
 	}
 	envelope := map[string]any{"operation": operation, "status": "ok", "scope": "run", "revision": revision, "data": data}
+	if operation == "chat.set_pinned" {
+		envelope["scope"] = "instance"
+		delete(envelope, "revision")
+	}
 	if result.Error != "" {
 		envelope["status"] = "error"
 	}

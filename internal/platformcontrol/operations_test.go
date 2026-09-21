@@ -36,7 +36,7 @@ func TestSanitizeArgumentsKeepsUnknownOperationValueFailClosed(t *testing.T) {
 }
 
 func TestOperationRegistryOnlyExposesSetAndUnsetForRunEnvironment(t *testing.T) {
-	want := []string{"capabilities.list", "catalog.defaults.get", "catalog.validate", "run.env.set", "run.env.unset", "runtime.status", "security.explain"}
+	want := []string{"capabilities.list", "catalog.defaults.get", "catalog.validate", "chat.set_pinned", "run.env.set", "run.env.unset", "runtime.status", "security.explain"}
 	if got := OperationNames(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("operations = %#v, want %#v", got, want)
 	}

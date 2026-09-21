@@ -35,7 +35,7 @@ func TestGetCoderCreationDefaultsMatchesModeCreateDefaults(t *testing.T) {
 		ContainerHub:   config.ContainerHubConfig{AuthToken: "container-hub-secret"},
 		Gateways:       []config.GatewayEntry{{ID: "private-gateway", JwtToken: "gateway-jwt-secret"}},
 	}
-	handler := NewToolHandler(cfg, nil)
+	handler := NewToolHandler(cfg, nil, nil)
 	result, err := invokeTestOperation(handler, "catalog.defaults.get", map[string]any{"path": CoderCreationPath})
 	if err != nil || result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("get coder defaults failed: result=%#v err=%v", result, err)
@@ -57,7 +57,7 @@ func TestGetCoderCreationDefaultsMatchesModeCreateDefaults(t *testing.T) {
 }
 
 func TestGetCoderCreationDefaultsReportsMissingModel(t *testing.T) {
-	result, _ := invokeTestOperation(NewToolHandler(config.Config{}, nil), "catalog.defaults.get", map[string]any{"path": CoderCreationPath})
+	result, _ := invokeTestOperation(NewToolHandler(config.Config{}, nil, nil), "catalog.defaults.get", map[string]any{"path": CoderCreationPath})
 	if result.Structured["ready"] != false {
 		t.Fatalf("ready = %#v, want false", result.Structured["ready"])
 	}
@@ -72,7 +72,7 @@ func TestGetKBaseCreationDefaultsAndMissingFields(t *testing.T) {
 			DefaultAgent: config.KBaseDefaultAgentConfig{ModelKey: "answer-model", ReasoningEffort: "MEDIUM"},
 			Embedding:    config.KBaseEmbeddingConfig{ModelKey: "embedding-model"},
 		}}
-		result, _ := invokeTestOperation(NewToolHandler(cfg, nil), "catalog.defaults.get", map[string]any{"path": KBaseCreationPath})
+		result, _ := invokeTestOperation(NewToolHandler(cfg, nil, nil), "catalog.defaults.get", map[string]any{"path": KBaseCreationPath})
 		want := agentkbase.ApplyCreateDefaults(map[string]any{"mode": agentkbase.Mode}, agentkbase.CreateDefaults{
 			ModelKey: "answer-model", ReasoningEffort: "MEDIUM", EmbeddingModelKey: "embedding-model",
 		})
@@ -82,7 +82,7 @@ func TestGetKBaseCreationDefaultsAndMissingFields(t *testing.T) {
 	})
 
 	t.Run("missing", func(t *testing.T) {
-		result, _ := invokeTestOperation(NewToolHandler(config.Config{}, nil), "catalog.defaults.get", map[string]any{"path": KBaseCreationPath})
+		result, _ := invokeTestOperation(NewToolHandler(config.Config{}, nil, nil), "catalog.defaults.get", map[string]any{"path": KBaseCreationPath})
 		if result.Structured["ready"] != false {
 			t.Fatalf("ready = %#v, want false", result.Structured["ready"])
 		}
@@ -95,7 +95,7 @@ func TestGetKBaseCreationDefaultsAndMissingFields(t *testing.T) {
 }
 
 func TestGetRejectsEveryNonAllowlistedPath(t *testing.T) {
-	handler := NewToolHandler(config.Config{}, nil)
+	handler := NewToolHandler(config.Config{}, nil, nil)
 	for _, path := range []string{"agents.creation", "agents.creation.coder.modelConfig.modelKey", "paths.agentsDir", "*", ""} {
 		result, _ := invokeTestOperation(handler, "catalog.defaults.get", map[string]any{"path": path})
 		if result.Error != "unsupported_config_path" {
@@ -105,7 +105,7 @@ func TestGetRejectsEveryNonAllowlistedPath(t *testing.T) {
 }
 
 func TestValidateRequiresConditionalArgumentsAtRuntime(t *testing.T) {
-	handler := NewToolHandler(config.Config{}, nil)
+	handler := NewToolHandler(config.Config{}, nil, nil)
 	tests := []struct {
 		name string
 		args map[string]any
@@ -141,7 +141,7 @@ func TestValidateRequiresConditionalArgumentsAtRuntime(t *testing.T) {
 }
 
 func TestInvokeStrictlyValidatesFixedEnvelope(t *testing.T) {
-	handler := NewToolHandler(config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}, nil)
+	handler := NewToolHandler(config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}, nil, nil)
 	for _, tc := range []struct {
 		name string
 		args map[string]any
@@ -167,7 +167,7 @@ func TestValidateCandidateResources(t *testing.T) {
 	registry := stubRegistry{agents: map[string]catalog.AgentDefinition{
 		"member": {Key: "member", Mode: "REACT", ModelKey: "chat-model"},
 	}}
-	handler := NewToolHandler(config.Config{Skills: config.SkillCatalogConfig{MaxPromptChars: 8000}}, registry)
+	handler := NewToolHandler(config.Config{Skills: config.SkillCatalogConfig{MaxPromptChars: 8000}}, registry, nil)
 
 	tests := []struct {
 		name         string
@@ -273,7 +273,7 @@ func TestValidateCandidateResources(t *testing.T) {
 func TestValidateDoesNotEchoCandidateSecrets(t *testing.T) {
 	const secret = "mcp-secret-value-that-must-not-leak"
 	content := `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"none","description":"` + secret + `"}`
-	result, err := invokeTestOperation(NewToolHandler(config.Config{}, nil), "catalog.validate", map[string]any{
+	result, err := invokeTestOperation(NewToolHandler(config.Config{}, nil, nil), "catalog.validate", map[string]any{
 		"resourceType": "connector",
 		"resourceKey":  "remote",
 		"content":      content,
@@ -288,7 +288,7 @@ func TestValidateDoesNotEchoCandidateSecrets(t *testing.T) {
 
 func TestExplicitToolGrantDoesNotDependOnAgentOrSkills(t *testing.T) {
 	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
-	handler := NewToolHandler(cfg, nil)
+	handler := NewToolHandler(cfg, nil, nil)
 	online := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "online-office", SkillKeys: []string{"platform-admin"}, MustUseSkills: []string{"platform-admin"}}}
 	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "runtime.status"}, online)
 	if result.Error != "" {
@@ -330,7 +330,7 @@ func TestRunEnvironmentSetUnsetAreValueBlindAndRootScoped(t *testing.T) {
 	scope := runenv.NewScope(runenv.Limits{})
 	defer scope.Destroy()
 	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
-	handler := NewToolHandler(cfg, nil)
+	handler := NewToolHandler(cfg, nil, nil)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "run-1", AgentKey: "office"}, RunEnvironment: scope, CurrentToolID: "tool-set"}
 	capabilities, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list", "params": map[string]any{}}, execCtx)
 	if capabilities.Error != "" {
@@ -375,7 +375,7 @@ func TestRunEnvironmentSetUnsetAreValueBlindAndRootScoped(t *testing.T) {
 
 func TestRemovedRunEnvironmentOperationsAreInvalid(t *testing.T) {
 	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
-	handler := NewToolHandler(cfg, nil)
+	handler := NewToolHandler(cfg, nil, nil)
 	for _, operation := range []string{"run.env.bind", "run.env.get", "run.env.list", "run.env.bulk"} {
 		result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": operation, "params": map[string]any{}}, &contracts.ExecutionContext{})
 		if result.Error != "platform_control_invalid_operation" {
@@ -387,7 +387,7 @@ func TestRemovedRunEnvironmentOperationsAreInvalid(t *testing.T) {
 func TestSecurityExplainIncludesReadAndWritePathDecision(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.Config{AccessPolicy: config.AccessPolicyConfig{}, PlatformControl: config.PlatformControlConfig{Enabled: true}}
-	handler := NewToolHandler(cfg, nil)
+	handler := NewToolHandler(cfg, nil, nil)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "admin", WorkspaceRoot: workspace}}
 	result, err := handler.Invoke(context.Background(), ToolName, map[string]any{
 		"operation": "security.explain",
@@ -445,7 +445,7 @@ func (s stubRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
 func (s stubRegistry) Reload(context.Context, string) error { return nil }
 
 func TestValidateRecoversFromRedactedHistory(t *testing.T) {
-	handler := NewToolHandler(config.Config{}, nil)
+	handler := NewToolHandler(config.Config{}, nil, nil)
 	for _, name := range []string{"AI建设文档", "冒烟文档"} {
 		t.Run(name, func(t *testing.T) {
 			// Use an isolated source directory; never create agents in a live catalog.

@@ -219,6 +219,8 @@ WebClient 与 Desktop 导航只通过一次 `/api/chats/order` 读取排序配�
 
 PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 `pinnedChats`，避免保存成功后摘要读取失败造成写入结果歧义。成功后两端通过统一读取接口刷新，普通未置顶预览按需补位。
 
+智能体可通过 `platform_control` 的 `chat.set_pinned` 调用同一置顶业务入口，沿用 `chats.order.changed` 通知；工具契约与执行边界见 [Platform 控制工具设计](Platform控制工具设计.md#chatset_pinned)。
+
 `PUT /api/chats/order` 接受三种互斥 operation：
 
 - `{"operation":"set_mode","sortMode":"recent"}`：`sortMode` 只接受 `recent | manual`。切回 recent 保留 manual 顺序，之后切回 manual 可恢复；置顶组顺序不变。

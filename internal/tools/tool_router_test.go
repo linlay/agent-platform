@@ -119,6 +119,9 @@ func TestPlatformControlReadOnlyPolicyUsesOperationDescriptor(t *testing.T) {
 	if allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "run.env.set"}) {
 		t.Fatal("mutating platform_control operation was allowed by the final router")
 	}
+	if allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "chat.set_pinned"}) {
+		t.Fatal("Chat pin mutation was allowed by the read-only router")
+	}
 	if allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "future.operation"}) {
 		t.Fatal("unknown platform_control operation was allowed by the final router")
 	}

@@ -26,5 +26,6 @@ func (s *Server) conversationService() *conversation.Service {
 	if s.deps.Runs != nil {
 		service.Runs = s.deps.Runs
 	}
+	service.Notifications = s.deps.Notifications
 	return &service
 }

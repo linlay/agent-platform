@@ -11,9 +11,64 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
+	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/ws"
 	gws "github.com/gorilla/websocket"
 )
+
+func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{notifications: ws.NewHub()})
+	seedAgentModeChat(t, fixture.chats.(*chat.FileStore), "tool-pin", "loyw3v00", "mock-agent", "", "REACT", 1000)
+	httpServer := httptest.NewServer(fixture.server)
+	defer httpServer.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(httpServer.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+	handler := platformcontrol.NewToolHandler(config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}, nil, fixture.server.conversationService())
+	caller := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RunID: "run-pin", ChatID: "tool-pin", AgentKey: "mock-agent", Mode: "REACT",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""), ToolNames: []string{"platform_control"},
+	}}
+	invoke := func() {
+		t.Helper()
+		result, err := handler.Invoke(t.Context(), "platform_control", map[string]any{
+			"operation": "chat.set_pinned", "params": map[string]any{"pinned": true},
+		}, caller)
+		if err != nil || result.Error != "" {
+			t.Fatalf("pin tool: %+v %v", result, err)
+		}
+	}
+	invoke()
+	var push ws.PushFrame
+	if err := conn.ReadJSON(&push); err != nil {
+		t.Fatal(err)
+	}
+	if push.Type != "chats.order.changed" {
+		t.Fatalf("tool push: %+v", push)
+	}
+	assertChatsLimitHTTP(t, fixture.server, "/api/chats?pinned=true", []string{"tool-pin"})
+	invoke() // No-op must not enqueue another push before the response below.
+	yes, no := true, false
+	updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{Operation: "set_pinned", ChatID: "tool-pin", Pinned: &yes}, 200)
+	writeChatOrderWSRequest(t, conn, "noop-check", map[string]any{})
+	assertChatOrderWSResponse(t, conn, "noop-check", "recent")
+	updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{Operation: "set_pinned", ChatID: "tool-pin", Pinned: &no}, 200)
+	if err := conn.ReadJSON(&push); err != nil {
+		t.Fatal(err)
+	}
+	if push.Type != "chats.order.changed" {
+		t.Fatalf("HTTP push: %+v", push)
+	}
+	writeChatOrderWSRequest(t, conn, "single-push-check", map[string]any{})
+	assertChatOrderWSResponse(t, conn, "single-push-check", "recent")
+}
 
 func TestChatPinnedHTTPAndWSFilterBeforeLimits(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) { writeProviderSSE(t, w, `[DONE]`) }, testFixtureOptions{notifications: ws.NewHub()})

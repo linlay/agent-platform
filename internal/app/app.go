@@ -283,9 +283,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		len(registry.Skills("")),
 		len(toolExecutor.Definitions()),
 	)
-	if err := toolExecutor.RegisterHandler(platformcontrol.NewToolHandler(cfg, registry)); err != nil {
-		return nil, fmt.Errorf("register platform_control tool: %w", err)
-	}
 	if err := toolExecutor.RegisterHandler(kbase.NewToolHandler(kbaseManager)); err != nil {
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
 	}
@@ -397,6 +394,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
+	conversationService.Notifications = notifications
+	if err := toolExecutor.RegisterHandler(platformcontrol.NewToolHandler(cfg, registry, conversationService)); err != nil {
+		return nil, fmt.Errorf("register platform_control tool: %w", err)
+	}
 	deferredAwaitings := runstate.NewDeferredAwaitingStore()
 	var projectHistory contracts.ProjectFileHistoryReader = toolExecutor
 	projectService := &projectpkg.Service{
