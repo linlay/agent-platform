@@ -69,7 +69,7 @@ func TestSetAndUnsetStagesComeFromDescriptor(t *testing.T) {
 }
 
 func TestSanitizeCandidateArgumentsIsIdempotentAndPreservesRequestShape(t *testing.T) {
-	raw := `{"operation":"catalog.validate","params":{"resourceType":"agent","resourceKey":"demo","content":"key: demo\nname: 中文文档\n"}}`
+	raw := `{"operation":"catalog.validate","params":{"resourceType":"unknown","resourceKey":"demo","content":"key: demo\nname: 中文文档\n"}}`
 	once := SanitizeArguments(raw)
 	for i := 0; i < 3; i++ {
 		if got := SanitizeArguments(once); got != once {
@@ -89,5 +89,49 @@ func TestSanitizeCandidateArgumentsIsIdempotentAndPreservesRequestShape(t *testi
 	}
 	if strings.Contains(once, "中文") {
 		t.Fatal("candidate leaked")
+	}
+}
+
+func TestSanitizeCatalogCandidateByResourceType(t *testing.T) {
+	const content = "key: demo\nname: 中文文档\nmodelConfig:\n  modelKey: example-model\n"
+	for _, tc := range []struct {
+		name         string
+		operation    string
+		resourceType any
+		visible      bool
+	}{
+		{"agent", "catalog.validate", "agent", true},
+		{"normalized-agent", " CATALOG.VALIDATE ", " Agent ", true},
+		{"team", "catalog.validate", "team", true},
+		{"skill", "catalog.validate", "skill", true},
+		{"connector", "catalog.validate", "connector", true},
+		{"unknown-type", "catalog.validate", "unknown", false},
+		{"missing-type", "catalog.validate", nil, false},
+		{"invalid-type", "catalog.validate", 123, false},
+		{"unknown-operation", "unknown", "agent", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			params := map[string]any{"resourceKey": "demo", "content": content, "idempotencyKey": "private-key"}
+			if tc.resourceType != nil {
+				params["resourceType"] = tc.resourceType
+			}
+			raw, _ := json.Marshal(map[string]any{"operation": tc.operation, "params": params})
+			once := SanitizeArguments(string(raw))
+			if SanitizeArguments(once) != once {
+				t.Fatal("sanitization is not idempotent")
+			}
+			var got map[string]any
+			if err := json.Unmarshal([]byte(once), &got); err != nil {
+				t.Fatal(err)
+			}
+			actual := got["params"].(map[string]any)
+			want := "[REDACTED]"
+			if tc.visible {
+				want = content
+			}
+			if actual["content"] != want || actual["idempotencyKey"] != "[REDACTED]" || len(actual) != len(params) {
+				t.Fatalf("unexpected sanitized params: %#v", actual)
+			}
+		})
 	}
 }

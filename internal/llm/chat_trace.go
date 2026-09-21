@@ -12,21 +12,23 @@ import (
 	"time"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/credentialview"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/platformcontrol"
 )
 
 type llmChatTrace struct {
-	mu            sync.Mutex
-	enabled       bool
-	maskSensitive bool
-	path          string
-	relativeFile  string
-	runSeq        int
-	payload       map[string]any
-	startedAt     time.Time
-	status        string
-	completed     bool
+	mu               sync.Mutex
+	enabled          bool
+	maskSensitive    bool
+	credentialPolicy credentialview.Policy
+	path             string
+	relativeFile     string
+	runSeq           int
+	payload          map[string]any
+	startedAt        time.Time
+	status           string
+	completed        bool
 }
 
 func (s *llmRunStream) newChatTrace(runSeq int, prepared preparedProviderRequest, effectiveToolChoice string) *llmChatTrace {
@@ -57,12 +59,13 @@ func (s *llmRunStream) newChatTrace(runSeq int, prepared preparedProviderRequest
 	}
 	relativeFile := traceRelativeFile(s.session.ChatID, s.session.RunID, runSeq)
 	return &llmChatTrace{
-		enabled:       true,
-		maskSensitive: cfg.MaskSensitive,
-		path:          filepath.Join(cfg.RecordDir, filepath.FromSlash(relativeFile)),
-		relativeFile:  relativeFile,
-		runSeq:        runSeq,
-		payload:       payload,
+		enabled:          true,
+		maskSensitive:    cfg.MaskSensitive,
+		credentialPolicy: credentialview.FromConfig(s.engine.cfg),
+		path:             filepath.Join(cfg.RecordDir, filepath.FromSlash(relativeFile)),
+		relativeFile:     relativeFile,
+		runSeq:           runSeq,
+		payload:          payload,
 	}
 }
 
@@ -205,6 +208,7 @@ func (t *llmChatTrace) appendToolCalls(toolCalls []openAIToolCall) {
 		if strings.EqualFold(strings.TrimSpace(call.Function.Name), platformcontrol.ToolName) {
 			arguments = platformcontrol.SanitizeArguments(arguments)
 		}
+		arguments = t.credentialPolicy.Arguments(call.Function.Name, arguments)
 		items = append(items, map[string]any{
 			"toolId":       strings.TrimSpace(call.ID),
 			"toolName":     strings.TrimSpace(call.Function.Name),

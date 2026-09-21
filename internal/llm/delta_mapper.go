@@ -7,12 +7,15 @@ import (
 	"strings"
 
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/credentialview"
 	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
 
 type DeltaMapper struct {
+	credentialPolicy     credentialview.Policy
+	toolPathSessions     map[string]*QuerySession
 	runID                string
 	chatID               string
 	budget               Budget
@@ -36,6 +39,7 @@ type DeltaMapper struct {
 
 func NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry ToolDefinitionLookup, interactions *toolinteraction.Registry) *DeltaMapper {
 	return &DeltaMapper{
+		toolPathSessions:     map[string]*QuerySession{},
 		runID:                runID,
 		chatID:               chatID,
 		budget:               budget,
@@ -57,15 +61,20 @@ func (m *DeltaMapper) CloneIsolated(runID string, chatID string) StreamDeltaMapp
 	if m == nil {
 		return nil
 	}
-	return NewDeltaMapper(runID, chatID, m.budget, m.toolRegistry, m.interactions)
+	cloned := NewDeltaMapper(runID, chatID, m.budget, m.toolRegistry, m.interactions)
+	cloned.credentialPolicy = m.credentialPolicy
+	return cloned
 }
 
 type DeltaMapperFactory struct {
-	Interactions *toolinteraction.Registry
+	CredentialPolicy credentialview.Policy
+	Interactions     *toolinteraction.Registry
 }
 
 func (f DeltaMapperFactory) NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry ToolDefinitionLookup) StreamDeltaMapper {
-	return NewDeltaMapper(runID, chatID, budget, toolRegistry, f.Interactions)
+	mapper := NewDeltaMapper(runID, chatID, budget, toolRegistry, f.Interactions)
+	mapper.credentialPolicy = f.CredentialPolicy
+	return mapper
 }
 
 func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
@@ -110,13 +119,16 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		if toolID == "" {
 			return nil
 		}
+		if value.PathSession != nil {
+			m.toolPathSessions[toolID] = value.PathSession
+		}
 		toolName := strings.TrimSpace(value.Name)
 		if toolName != "" {
 			m.toolNames[toolID] = toolName
 		} else {
 			toolName = m.toolNames[toolID]
 		}
-		if strings.EqualFold(toolName, platformcontrol.ToolName) {
+		if strings.EqualFold(toolName, platformcontrol.ToolName) || credentialview.IsFileMutation(toolName) {
 			buffer := m.sensitiveToolArgs[toolID]
 			if buffer == nil {
 				buffer = &strings.Builder{}
@@ -159,9 +171,10 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			if buffer := m.sensitiveToolArgs[toolID]; buffer != nil {
 				toolName := m.toolNames[toolID]
 				toolLabel, toolDescription := m.resolveToolMetadata(toolName)
-				inputs = append(inputs, stream.ToolArgs{ToolID: toolID, Delta: platformcontrol.SanitizeArguments(buffer.String()), ToolName: toolName, ToolLabel: toolLabel, ToolDescription: toolDescription, ChunkIndex: 0})
+				inputs = append(inputs, stream.ToolArgs{ToolID: toolID, Delta: m.sanitizeToolArgumentsForCall(toolID, toolName, buffer.String()), ToolName: toolName, ToolLabel: toolLabel, ToolDescription: toolDescription, ChunkIndex: 0})
 				delete(m.sensitiveToolArgs, toolID)
 			}
+			delete(m.toolPathSessions, toolID)
 			delete(m.toolArgBuffers, toolID)
 			inputs = append(inputs, stream.ToolEnd{
 				ToolID:     toolID,
@@ -504,6 +517,7 @@ func (m *DeltaMapper) resetModelTurnState(discard bool) {
 	m.toolArgBuffers = map[string]*strings.Builder{}
 	m.toolNames = map[string]string{}
 	m.sensitiveToolArgs = map[string]*strings.Builder{}
+	m.toolPathSessions = map[string]*QuerySession{}
 	m.pendingToolAwaitAsks = map[string]*stream.AwaitAsk{}
 	m.attemptReasoningIDs = map[string]bool{}
 	m.attemptContentIDs = map[string]bool{}
@@ -558,6 +572,7 @@ func (m *DeltaMapper) buildInteractionAwaitAsk(toolID string, toolName string, a
 			return nil, false
 		}
 		if err := handler.ValidateArgs(args); err != nil {
+			delete(m.toolPathSessions, toolID)
 			delete(m.toolArgBuffers, toolID)
 			return nil, false
 		}
@@ -602,4 +617,18 @@ func (m *DeltaMapper) resolveToolMetadata(toolName string) (string, string) {
 		return "", ""
 	}
 	return tool.Label, tool.Description
+}
+
+func (m *DeltaMapper) sanitizeToolArguments(toolName, raw string) string {
+	if strings.EqualFold(toolName, platformcontrol.ToolName) {
+		return platformcontrol.SanitizeArguments(raw)
+	}
+	return m.credentialPolicy.Arguments(toolName, raw)
+}
+
+func (m *DeltaMapper) sanitizeToolArgumentsForCall(toolID, toolName, raw string) string {
+	if session := m.toolPathSessions[toolID]; session != nil && credentialview.IsFileMutation(toolName) {
+		return m.credentialPolicy.Arguments(toolName, raw, *session)
+	}
+	return m.sanitizeToolArguments(toolName, raw)
 }

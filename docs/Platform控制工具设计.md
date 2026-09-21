@@ -68,11 +68,13 @@ set/unset 成功数据统一为：
 }
 ```
 
-成功结果不重复返回 value，但 `run.env.set.params.value` 是普通可观测 Tool 参数：它会原样进入 SSE、JSONL、raw messages、provider history、trace、archive、export 和 search，不得用于传递凭据或其他 Secret。`idempotencyKey` 和 `catalog.validate.params.content` 仍在这些边界前脱敏；未知 operation 的通用 `params.value` 仍 fail-closed。
+成功结果不重复返回 value，但 `run.env.set.params.value` 是普通可观测 Tool 参数：它会原样进入 SSE、JSONL、raw messages、provider history、trace、archive、export 和 search，不得用于传递凭据或其他 Secret。`idempotencyKey` 仍在这些边界前脱敏；`catalog.validate.params.content` 按资源类型区分：`agent/team/skill/connector` 候选内容原样保留，未知或缺失资源类型继续整体脱敏；未知 operation 的通用 `params.value` 仍 fail-closed。
 
 ## Catalog 校验回执与历史
 
 候选校验与配置写入保持分离。校验结果中的 `candidate` 回执基于实际收到的完整 UTF-8 内容计算 SHA-256 和字节数，用于核对后续写入的是同一份候选；回执不是写入授权，也不代表资源已加载或知识库检索可用。候选变更后必须重新校验。
+
+已支持的 Catalog 候选内容在 SSE、模型历史、trace 和持久化历史中保持完整内容，便于核对和复用；已有历史的脱敏占位符不恢复。未知或缺失资源类型仍整体隐藏候选内容。
 
 参数脱敏必须幂等，并保持请求字段结构，不向 `params` 注入字节数等展示元数据。SSE、模型历史和持久化历史中的占位符只表示内容已隐藏，不能据此否定成功回执或推断原始请求。旧历史中的 `contentBytes` 不能复制到新请求；显式提交占位符时返回可恢复的错误，要求重新读取候选内容。
 
@@ -86,7 +88,7 @@ set/unset 成功数据统一为：
 - optimistic `expectedRevision`；
 - 当前 Scope 内的幂等请求记录；
 - operation-aware scheduling barrier；
-- `idempotencyKey` 与 Catalog candidate content 脱敏；run-env value 不脱敏。
+- `idempotencyKey` 与未知资源类型的 Catalog candidate content 脱敏；已支持的 Catalog 候选内容和 run-env value 不脱敏。
 
 主要错误码：
 

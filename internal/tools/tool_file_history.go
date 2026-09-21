@@ -13,6 +13,7 @@ import (
 
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/credentialview"
 )
 
 const (
@@ -50,6 +51,9 @@ func (t *RuntimeToolExecutor) recordFileHistory(execCtx *ExecutionContext, fileP
 		return nil
 	}
 
+	policy := credentialview.FromConfig(t.cfg)
+	original = []byte(policy.Text(filePath, string(original), false))
+	current = []byte(policy.Text(filePath, string(current), false))
 	runDir := t.fileHistoryRunDir(chatID, runID)
 	manifestPath := filepath.Join(runDir, fileHistoryManifestName)
 	now := time.Now().UnixMilli()

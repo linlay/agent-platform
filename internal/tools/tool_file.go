@@ -17,6 +17,7 @@ import (
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/credentialview"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/multimodal"
 	"agent-platform/internal/textcodec"
@@ -85,7 +86,7 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 			}), nil
 		}
 	}
-	if image, handled, result := readImageFile(resolved.Path, info); handled {
+	if image, handled, result := readImageFile(resolved.Path, info); handled && credentialview.FromConfig(t.cfg).Source(resolved.Path) == credentialview.Ordinary {
 		if result.ExitCode != 0 || result.Error != "" {
 			return result, nil
 		}
@@ -149,7 +150,8 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	if decoded, ok, decodeErr := textcodec.DecodeFileText(data, requestedEncoding, t.runtimeInfo()); decodeErr != nil {
 		return fileToolError("file_read_invalid_encoding", decodeErr.Error()), nil
 	} else if ok {
-		content := decoded.Content
+		content := credentialview.FromConfig(t.cfg).Text(resolved.Path, decoded.Content, partial || truncated)
+		redacted := content != decoded.Content
 		payload["encoding"] = decoded.Encoding
 		payload["kind"] = "text"
 		if lineNumbered {
@@ -157,10 +159,17 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 			payload["lineNumbered"] = true
 		}
 		payload["content"] = content
+		if redacted {
+			payload["redacted"] = true
+		}
 	} else {
 		payload["encoding"] = "base64"
 		payload["kind"] = "binary"
 		payload["contentBase64"] = base64.StdEncoding.EncodeToString(data)
+		if credentialview.FromConfig(t.cfg).Source(resolved.Path) != credentialview.Ordinary {
+			payload["contentBase64"] = credentialview.Hidden
+			payload["redacted"] = true
+		}
 	}
 	if execCtx != nil {
 		snap := recordReadSnapshot(execCtx, resolved.Path, info, sha, snapshotOffset, snapshotLimit, "read", lineNumbered, partial, truncated)

@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/credentialview"
 	"agent-platform/internal/platformcontrol"
 )
 
@@ -26,6 +27,10 @@ func (s *llmRunStream) Next() (AgentDelta, error) {
 		return nil, io.EOF
 	}
 	event := s.pending[0]
+	if call, ok := event.(DeltaToolCall); ok {
+		call.PathSession = &s.session
+		event = call
+	}
 	s.pending = s.pending[1:]
 	return event, nil
 }
@@ -518,8 +523,8 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			s.messages = append(s.messages, msg)
 		}
 		if turn.trace != nil {
-			turn.trace.appendToolCalls(sanitizedToolCalls(toolCalls))
-			turn.trace.completeOK(content, turn.reasoning.String(), sanitizedToolCalls(toolCalls), strings.TrimSpace(turn.finishReason), turn.usage)
+			turn.trace.appendToolCalls(s.sanitizedToolCalls(toolCalls))
+			turn.trace.completeOK(content, turn.reasoning.String(), s.sanitizedToolCalls(toolCalls), strings.TrimSpace(turn.finishReason), turn.usage)
 		}
 		s.emitPendingUsageDelta()
 		s.emitDebugLLMChatDelta(turn.trace)
@@ -544,8 +549,8 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.messages = append(s.messages, msg)
 	}
 	if turn.trace != nil {
-		turn.trace.appendToolCalls(sanitizedToolCalls(toolCalls))
-		turn.trace.completeOK(content, turn.reasoning.String(), sanitizedToolCalls(toolCalls), strings.TrimSpace(turn.finishReason), turn.usage)
+		turn.trace.appendToolCalls(s.sanitizedToolCalls(toolCalls))
+		turn.trace.completeOK(content, turn.reasoning.String(), s.sanitizedToolCalls(toolCalls), strings.TrimSpace(turn.finishReason), turn.usage)
 	}
 
 	s.emitPendingUsageDelta()
@@ -699,7 +704,7 @@ func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content
 		msg.Content = content
 	}
 	if len(toolCalls) > 0 {
-		msg.ToolCalls = sanitizedToolCalls(toolCalls)
+		msg.ToolCalls = s.sanitizedToolCalls(toolCalls)
 	}
 	if turn != nil && preserveReasoningContent(s.protocolConfig, s.stageSettings) {
 		msg.ReasoningContent = turn.reasoning.String()
@@ -707,7 +712,11 @@ func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content
 	return msg
 }
 
-func sanitizedToolCalls(toolCalls []openAIToolCall) []openAIToolCall {
+func sanitizedToolCalls(toolCalls []openAIToolCall, policies ...credentialview.Policy) []openAIToolCall {
+	policy := credentialview.Policy{}
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
 	if len(toolCalls) == 0 {
 		return nil
 	}
@@ -715,6 +724,8 @@ func sanitizedToolCalls(toolCalls []openAIToolCall) []openAIToolCall {
 	for index := range out {
 		if strings.EqualFold(strings.TrimSpace(out[index].Function.Name), platformcontrol.ToolName) {
 			out[index].Function.Arguments = platformcontrol.SanitizeArguments(out[index].Function.Arguments)
+		} else {
+			out[index].Function.Arguments = policy.Arguments(out[index].Function.Name, out[index].Function.Arguments)
 		}
 	}
 	return out
@@ -965,4 +976,22 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 	}
 	s.currentTurn = nil
 	return cancelErr
+}
+
+func (s *llmRunStream) credentialViewPolicy() credentialview.Policy {
+	if s == nil || s.engine == nil {
+		return credentialview.Policy{}
+	}
+	return credentialview.FromConfig(s.engine.cfg)
+}
+
+func (s *llmRunStream) sanitizedToolCalls(calls []openAIToolCall) []openAIToolCall {
+	policy := s.credentialViewPolicy()
+	out := sanitizedToolCalls(calls, policy)
+	for i := range out {
+		if credentialview.IsFileMutation(out[i].Function.Name) {
+			out[i].Function.Arguments = policy.Arguments(out[i].Function.Name, calls[i].Function.Arguments, s.session)
+		}
+	}
+	return out
 }

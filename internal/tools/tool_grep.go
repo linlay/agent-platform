@@ -16,6 +16,7 @@ import (
 
 	"agent-platform/internal/accesspolicy"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/credentialview"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/textcodec"
 )
@@ -179,6 +180,9 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		), nil
 	}
 
+	if mode == "content" {
+		out = credentialview.FromConfig(t.cfg).Grep(resolved.Path, out)
+	}
 	lines := splitOutputLines(out)
 	if mode == "files_with_matches" {
 		sortGrepFiles(lines)

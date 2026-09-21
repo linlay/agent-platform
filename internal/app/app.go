@@ -23,6 +23,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
+	"agent-platform/internal/credentialview"
 	"agent-platform/internal/gateway"
 	"agent-platform/internal/hostshell"
 	"agent-platform/internal/httpclient"
@@ -429,7 +430,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		SkillCandidates:        skillCandidateStore,
 		Channels:               channelReg,
 		AutomationOrchestrator: automationOrchestrator,
-		DeltaMappers:           llm.DeltaMapperFactory{Interactions: interactionRegistry},
+		DeltaMappers:           llm.DeltaMapperFactory{Interactions: interactionRegistry, CredentialPolicy: credentialview.FromConfig(cfg)},
 		SystemInits: llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
 			PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
 			PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,

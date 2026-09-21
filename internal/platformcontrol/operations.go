@@ -24,7 +24,7 @@ type Descriptor struct {
 var descriptors = map[string]Descriptor{
 	"capabilities.list":    operation("capabilities.list", "low", true, false, nil, "all"),
 	"catalog.defaults.get": operation("catalog.defaults.get", "low", true, false, nil, "all"),
-	"catalog.validate":     operation("catalog.validate", "low", true, false, []string{"params.content"}, "all"),
+	"catalog.validate":     operation("catalog.validate", "low", true, false, nil, "all"),
 	"run.env.set":          operation("run.env.set", "high", false, true, []string{"params.idempotencyKey"}, "main"),
 	"run.env.unset":        operation("run.env.unset", "high", false, true, []string{"params.idempotencyKey"}, "main"),
 	"runtime.status":       operation("runtime.status", "low", true, false, nil, "all"),
@@ -104,7 +104,20 @@ func SanitizeArguments(raw string) string {
 		// remain ordinary observable tool arguments.
 		paths = append(paths, "params.value")
 	}
+	params, _ := args["params"].(map[string]any)
+	// Catalog definitions are ordinary observable tool input. Match the execution
+	// handler's resource-type normalization; unknown candidates remain redacted.
+	visibleCatalogCandidate := false
+	if known && descriptor.Name == "catalog.validate" {
+		switch strings.ToLower(strings.TrimSpace(stringArg(params, "resourceType"))) {
+		case "agent", "team", "skill", "connector":
+			visibleCatalogCandidate = true
+		}
+	}
 	for _, path := range paths {
+		if path == "params.content" && visibleCatalogCandidate {
+			continue
+		}
 		redactSensitivePath(args, strings.Split(path, "."))
 	}
 	rawSanitized, err := json.Marshal(args)
