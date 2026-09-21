@@ -42,55 +42,68 @@ func writeOneIDFixture(t *testing.T, root string, component map[string]any) conn
 }
 
 func TestOneIDHTTPUsesCurrentEnvironmentAndBoundDestination(t *testing.T) {
-	root := t.TempDir()
-	pkg := writeOneIDFixture(t, root, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp/", "headers": map[string]any{"Authorization": "Bearer ${AP_ACCESS_TOKEN}", "X-SSO": "${AP_ACCESS_TOKEN}"}})
-	definition, err := connectorServer(pkg, "main")
-	if err != nil || definition.SetupError != "" || definition.AuthSource != AuthSourceIdentityFile || !definition.ConnectorOneID {
-		t.Fatal("oneid registry", err)
-	}
-	file := filepath.Join(t.TempDir(), "sso-access-token.txt")
-	expected := "private-token-a"
-	calls := 0
-	base := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		calls++
-		if req.Header.Get("Authorization") != "Bearer "+expected || req.Header.Get("X-SSO") != expected {
-			t.Error("wrong SSO environment")
-		}
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}"))}, nil
-	})
-	client := (&Client{httpClient: &http.Client{Transport: base}}).WithIdentityFile(file).httpClientForServer(definition)
-	for _, value := range []string{"private-token-a", "private-token-b"} {
-		expected = value
-		if err := os.WriteFile(file, []byte(value), 0600); err != nil {
-			t.Fatal(err)
-		}
-		req, _ := http.NewRequest(http.MethodPost, definition.ResolvedURL(), nil)
-		response, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response.Body.Close()
-		if req.Header.Get("Authorization") != "" {
-			t.Fatal("SSO escaped into caller request")
-		}
-	}
-	for _, bad := range []string{"https://example.test/other", "https://other.test/mcp/", "https://example.test/mcp/?x=1", "http://example.test/mcp/"} {
-		if _, err := client.Get(bad); err == nil {
-			t.Fatal("SSO escaped destination")
-		}
-	}
-	os.Remove(file)
-	if _, err := client.Get(definition.ResolvedURL()); err == nil || calls != 2 {
-		t.Fatal("Desktop logout left HTTP authorization active")
-	}
-	data, _ := json.Marshal(definition)
-	if strings.Contains(string(data), "private-token") {
-		t.Fatal("SSO token entered definition")
-	}
-	for _, name := range []string{"credentials.json", "oauth.json"} {
-		if _, err := os.Stat(filepath.Join(pkg.PersistentRoot(), pkg.ID, name)); !os.IsNotExist(err) {
-			t.Fatal("SSO copied to connector credentials")
-		}
+	for _, template := range []string{"Bearer ${AP_ACCESS_TOKEN}", "Bearer ${ONEID_TOKEN}", ""} {
+		t.Run(template, func(t *testing.T) {
+			root := t.TempDir()
+			pkg := writeOneIDFixture(t, root, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp/", "headers": map[string]any{"X-SSO": "${AP_ACCESS_TOKEN}"}})
+			if template != "" {
+				pkg.MCP["main"]["headers"].(map[string]any)["Authorization"] = template
+			}
+			original, _ := json.Marshal(pkg.MCP["main"])
+			definition, err := connectorServer(pkg, "main")
+			if err != nil || definition.SetupError != "" || definition.AuthSource != AuthSourceIdentityFile || !definition.ConnectorOneID {
+				t.Fatal("oneid registry", err)
+			}
+			unchanged, _ := json.Marshal(pkg.MCP["main"])
+			if string(original) != string(unchanged) {
+				t.Fatal("rewrote package component")
+			}
+			file := filepath.Join(t.TempDir(), "sso-access-token.txt")
+			expected := "private-token-a"
+			calls := 0
+			base := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				if req.Header.Get("Authorization") != "Bearer "+expected || req.Header.Get("X-SSO") != expected {
+					t.Error("wrong SSO environment")
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+			})
+			client := (&Client{httpClient: &http.Client{Transport: base}}).WithIdentityFile(file).httpClientForServer(definition)
+			for _, value := range []string{"private-token-a", "private-token-b"} {
+				expected = value
+				if err := os.WriteFile(file, []byte(value), 0600); err != nil {
+					t.Fatal(err)
+				}
+				req, _ := http.NewRequest(http.MethodPost, definition.ResolvedURL(), nil)
+				response, err := client.Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response.Body.Close()
+				if req.Header.Get("Authorization") != "" {
+					t.Fatal("SSO escaped into caller request")
+				}
+			}
+			for _, bad := range []string{"https://example.test/other", "https://other.test/mcp/", "https://example.test/mcp/?x=1", "http://example.test/mcp/"} {
+				if _, err := client.Get(bad); err == nil {
+					t.Fatal("SSO escaped destination")
+				}
+			}
+			os.Remove(file)
+			if _, err := client.Get(definition.ResolvedURL()); err == nil || calls != 2 {
+				t.Fatal("Desktop logout left HTTP authorization active")
+			}
+			data, _ := json.Marshal(definition)
+			if strings.Contains(string(data), "private-token") {
+				t.Fatal("SSO token entered definition")
+			}
+			for _, name := range []string{"credentials.json", "oauth.json"} {
+				if _, err := os.Stat(filepath.Join(pkg.PersistentRoot(), pkg.ID, name)); !os.IsNotExist(err) {
+					t.Fatal("SSO copied to connector credentials")
+				}
+			}
+
+		})
 	}
 }
 
@@ -201,6 +214,10 @@ func TestOneIDLocalValidationAndLegacyClassification(t *testing.T) {
 		{"type": "streamableHttp", "url": "https://example.test/mcp", "headers": map[string]any{"Authorization": "Bearer fixed"}},
 		{"type": "streamableHttp", "url": "https://example.test/mcp", "headers": map[string]any{"X-Key": "${OTHER_TOKEN}"}},
 		{"type": "stdio", "command": os.Args[0], "env": map[string]any{"AP_ACCESS_TOKEN": "fixed"}},
+		{"type": "stdio", "command": os.Args[0], "env": map[string]any{"TOKEN": "${ONEID_TOKEN}"}},
+		{"type": "streamableHttp", "url": "https://example.test/mcp", "headers": map[string]any{"X-Key": "${ONEID_TOKEN}"}},
+		{"type": "streamableHttp", "url": "https://example.test/mcp", "headers": map[string]any{"Authorization": "Bearer ${ONEID_TOKEN} suffix"}},
+		{"type": "streamableHttp", "url": "https://example.test/mcp", "staticHeaders": map[string]any{"Authorization": "Bearer ${ONEID_TOKEN}"}},
 	} {
 		pkg := writeOneIDFixture(t, t.TempDir(), component)
 		if _, err := connectorServer(pkg, "main"); err == nil {
