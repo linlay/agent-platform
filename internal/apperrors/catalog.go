@@ -75,6 +75,7 @@ var definitions = []Definition{
 	def(CodeProviderUnavailable, CategoryModel, ScopeModel, http.StatusServiceUnavailable, true),
 	def(CodeProviderStreamFailed, CategoryModel, ScopeModel, http.StatusBadGateway, true),
 	def(CodeProviderStreamInvalid, CategoryModel, ScopeModel, http.StatusBadGateway, true),
+	def(CodeModelOutputRepetition, CategoryModel, ScopeModel, http.StatusBadGateway, false),
 	def(CodeMissingToolCallID, CategoryModel, ScopeModel, http.StatusInternalServerError, false),
 
 	def(CodeProxyRequestFailed, CategoryProxy, ScopeProxy, http.StatusBadGateway, true),

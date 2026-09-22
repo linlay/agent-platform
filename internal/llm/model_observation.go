@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/modelclient"
 	"agent-platform/internal/observability"
 )
@@ -124,6 +125,9 @@ func (s *llmRunStream) observeModelAttempt(turn *providerTurnStream, trace *llmC
 		d["errorCode"] = payload["code"]
 		// Error bodies may contain request data; retain only the HTTP status.
 		if details, ok := payload["diagnostics"].(map[string]any); ok {
+			if payload["code"] == string(apperrors.CodeModelOutputRepetition) {
+				d["outputRepetition"] = details // Locally generated counts only; no model text.
+			}
 			if status, ok := details["upstreamStatus"]; ok {
 				d["httpStatus"] = status
 			}

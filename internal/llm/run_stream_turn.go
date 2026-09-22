@@ -427,6 +427,9 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		return false, fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
 	done, consumeErr := s.protocol.ConsumeChunk(s, eventName, rawChunk)
+	if s.currentTurn != nil && s.currentTurn.outputGuardErr != nil {
+		consumeErr = s.currentTurn.outputGuardErr
+	}
 	if consumeErr != nil && s.currentTurn != nil && s.currentTurn.trace != nil {
 		s.currentTurn.trace.completeError(consumeErr)
 	}
@@ -440,6 +443,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	turn := s.currentTurn
 	if turn == nil {
 		return nil
+	}
+	if turn.outputGuardErr != nil {
+		return turn.outputGuardErr
 	}
 	runSeq := s.runLLMChatCompletionCount
 	attempt := 1

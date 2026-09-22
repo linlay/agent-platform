@@ -226,6 +226,9 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 		}
 		s.appendCompatReasoningFromOpenAI(reasoningContent, choice.Delta.ReasoningDetails)
 		s.appendCompatContent(choice.Delta.Content)
+		if s.currentTurn.outputGuardErr != nil {
+			return false, s.currentTurn.outputGuardErr
+		}
 		if len(choice.Delta.ToolCalls) > 0 {
 			s.currentTurn.hasMeaningful = true
 			for _, toolDelta := range choice.Delta.ToolCalls {

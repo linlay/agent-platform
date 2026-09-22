@@ -223,7 +223,14 @@ func (s *llmRunStream) handleModelAttemptError(err error) error {
 		return nil
 	}
 	if s.currentTurn != nil {
+		if s.currentTurn.outputGuardErr != nil {
+			s.recordCurrentTurnTiming(time.Now())
+			s.emitPendingUsageDelta()
+		}
 		s.observeModelAttempt(s.currentTurn, s.currentTurn.trace, err)
+		if s.currentTurn.outputGuardErr != nil {
+			s.emitDebugLLMChatDelta(s.currentTurn.trace)
+		}
 	}
 	var appErr *apperrors.Error
 	if errors.As(err, &appErr) && appErr.Code() == apperrors.CodeProviderContextLengthExceeded &&

@@ -42,13 +42,16 @@ func (s *llmRunStream) appendCompatContent(text string) {
 }
 
 func (s *llmRunStream) appendContentDelta(text string) {
-	if text == "" {
+	if text == "" || s.currentTurn.outputGuardErr != nil {
 		return
 	}
 	s.markFirstVisibleDelta()
 	s.currentTurn.hasMeaningful = true
 	s.currentTurn.content.WriteString(text)
 	s.engine.logParsedDelta(s.session.RunID, "content", text)
+	if s.detectOutputRepetition(text, "content", &s.currentTurn.contentRepeat) {
+		return
+	}
 	if s.teamRouteRequired() {
 		// Initial coordinator text is not a valid route and must never flash in
 		// the client before we know whether the turn contains a Team tool call.
@@ -58,13 +61,16 @@ func (s *llmRunStream) appendContentDelta(text string) {
 }
 
 func (s *llmRunStream) appendReasoningDelta(text string, label string) {
-	if text == "" {
+	if text == "" || s.currentTurn.outputGuardErr != nil {
 		return
 	}
 	s.markFirstVisibleDelta()
 	s.currentTurn.hasMeaningful = true
 	s.currentTurn.reasoning.WriteString(text)
 	s.engine.logParsedDelta(s.session.RunID, label, text)
+	if s.detectOutputRepetition(text, "reasoning", &s.currentTurn.reasoningRepeat) {
+		return
+	}
 	s.pending = append(s.pending, DeltaReasoning{Text: text, ReasoningLabel: label})
 }
 
