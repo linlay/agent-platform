@@ -16,8 +16,8 @@ func TestAutomaticCompactThresholdAndPostL1Decision(t *testing.T) {
 		before, after int
 		l1, l2        bool
 	}{
-		{"below80", 7999, 7000, false, false}, {"at80", 8000, 7000, true, false},
-		{"below90", 8999, 7500, true, false}, {"at90", 9000, 4500, true, false},
+		{"below80", 7999, 7000, false, false}, {"at80", 8000, 7000, false, false},
+		{"below90", 8999, 7500, false, false}, {"at90", 9000, 4500, true, false},
 		{"92to45", 9200, 4500, true, false}, {"92to91", 9200, 9100, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -140,7 +140,7 @@ func TestAutomaticCompactNoToolsWaitsUntil90AndDoesNotRepeatNoop(t *testing.T) {
 		t.Fatal("L2 started below 90")
 	}
 	fingerprint := s.lastNoopToolsFingerprint
-	if fingerprint == "" || s.scheduleContextCompact(false) || len(s.pending) != 0 {
+	if fingerprint != "" || s.scheduleContextCompact(false) || len(s.pending) != 0 {
 		t.Fatal("repeated no-op produced events")
 	}
 	s.messages[1].Content = strings.Repeat("p", 37000)

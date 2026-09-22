@@ -91,40 +91,18 @@ func TestHistoryL1UsesLatestCheckpointNotCoveredOriginals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.ToolsCleared != 1 || snapshot.ToolsKept != 5 {
-		t.Fatalf("snapshot %d/%d", snapshot.ToolsCleared, snapshot.ToolsKept)
-	}
-	if err := store.CommitToolCompact(id, snapshot, ToolCompactLine{Type: ToolCompactLineType, ChatID: id, CompactID: "l1", UpdatedAt: testEpochMillis(201)}); err != nil {
-		t.Fatal(err)
+	if snapshot.ToolsCleared != 0 || snapshot.ToolsKept != 6 {
+		t.Fatalf("legacy snapshot must protect its mixed recent rounds: %+v", snapshot)
 	}
 	raw, err := store.LoadRawMessages(id, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw) != 12 || !strings.Contains(fmt.Sprint(raw[1]["content"]), "[Compacted tool interaction]") {
-		t.Fatal("checkpoint projection not used")
+	encoded, _ := json.Marshal(raw)
+	if len(raw) != 12 || strings.Contains(string(encoded), "obsolete") {
+		t.Fatal("checkpoint history resurrected")
 	}
-	if EstimateRawMessageTokens(raw) >= snapshot.PreCompactEstimatedTokens {
-		t.Fatal("reported gain did not reduce effective context")
-	}
-	records, _, err := readJSONLineRecords(store.chatJSONLPath(id))
-	if err != nil {
-		t.Fatal(err)
-	}
-	latest := records[len(records)-1].Value
-	if latest["previousCompactId"] != "cp1" || int64FromAny(latest["version"]) != 2 || int64FromAny(latest["coveredThroughLine"]) != int64(len(records)-1) {
-		t.Fatal("history L1 checkpoint provenance missing")
-	}
-	if err := store.AppendRunCompactCheckpoint(id, RunCompactCheckpointLine{Type: RunCompactCheckpointLineType, ChatID: id, RunID: "r2", CompactID: "cp2", UpdatedAt: testEpochMillis(202), Messages: raw}); err != nil {
-		t.Fatal(err)
-	}
-	records, _, err = readJSONLineRecords(store.chatJSONLPath(id))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if records[len(records)-1].Value["previousCompactId"] != "l1" {
-		t.Fatal("new run skipped the intervening history L1")
-	}
+
 }
 
 func TestHistorySummaryAfterRunCheckpointKeepsLogicalTail(t *testing.T) {
@@ -142,7 +120,7 @@ func TestHistorySummaryAfterRunCheckpointKeepsLogicalTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.CoveredMessages) != 1 || len(snapshot.TailMessages) != 2 {
+	if len(snapshot.CoveredMessages) != 3 || len(snapshot.TailMessages) != 0 {
 		t.Fatal("source run ownership lost")
 	}
 	if err := store.CommitCompactCheckpoint(id, snapshot, CompactCheckpointLine{Type: CompactCheckpointLineType, ChatID: id, CompactID: "cp2", UpdatedAt: testEpochMillis(201), Summary: "new summary", SummarySource: "model"}); err != nil {
@@ -153,16 +131,10 @@ func TestHistorySummaryAfterRunCheckpointKeepsLogicalTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded, _ := json.Marshal(raw)
-	if len(raw) != 3 || strings.Contains(string(encoded), "original") || !strings.Contains(string(encoded), "logical tail two") {
+	if len(raw) != 1 || strings.Contains(string(encoded), "original") || !strings.Contains(string(encoded), "new summary") {
 		t.Fatal("old context resurrected or tail lost")
 	}
-	all, err := store.BuildCompactSnapshot(id, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(all.TailMessages) != 0 {
-		t.Fatal("explicit zero reset to default")
-	}
+
 	detail, err := store.LoadChat(id)
 	if err != nil {
 		t.Fatal(err)

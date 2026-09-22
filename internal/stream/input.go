@@ -435,6 +435,10 @@ type InputContextCompact struct {
 	ReleasedRatio              float64
 	TokensFreed                int
 	ToolsCleared               int
+	ReasoningCleared           int
+	CompactCoveredMessages     []map[string]any
+	L1KeepRecent               int
+	L1PreserveReasoning        bool
 	ToolsKept                  int
 	CompactionUsage            map[string]any
 	Detail                     string

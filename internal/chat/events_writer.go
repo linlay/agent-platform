@@ -2,8 +2,6 @@ package chat
 
 import (
 	"encoding/json"
-	"errors"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -44,42 +42,28 @@ func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
 func (s *FileStore) AppendRunCompactCheckpoint(chatID string, line RunCompactCheckpointLine) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path := s.chatJSONLPath(chatID)
-	records, _, err := readJSONLineRecords(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
+	if !ValidChatID(chatID) {
+		return os.ErrPermission
 	}
-	line.Version = 2
-	line.CoveredThroughLine = len(records)
-	line.PreviousCompactID = previousEffectiveCompactID(records)
-	raw, err := validateJSONLLinePayload(line, "chat.jsonl.runCompact.write")
+	records, data, err := readJSONLineRecords(s.chatJSONLPath(chatID))
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	if line.Level == "" || (line.Level == "summary" && len(line.CompactCoveredMessages) == 0) {
+		line.Version = 2
+		line.CoveredThroughLine = len(records)
+		line.PreviousCompactID = previousEffectiveCompactID(records)
+		return s.appendJSONLineLocked(s.chatJSONLPath(chatID), line)
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
+	if line.Level == "l1_tools" {
+		policies, _ := buildL1Policies(records, max(5, line.L1KeepRecent), line.L1PreserveReasoning)
+		if len(policies) == 0 {
+			return nil
+		}
+		return s.commitL1Policies(chatID, line.CompactID, records, data, policies)
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return err
-	}
-	raw = append(raw, '\n')
-	n, err := file.Write(raw)
-	if err == nil && n != len(raw) {
-		err = io.ErrShortWrite
-	}
-	if err == nil {
-		err = file.Sync()
-	}
-	if err != nil {
-		return errors.Join(err, file.Truncate(info.Size()), file.Sync())
-	}
-	return nil
+	return s.commitRunSummary(chatID, line, records, data)
+
 }
 
 // chatJSONLPath returns the flat-file path for the chat's JSONL stream.

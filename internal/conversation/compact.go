@@ -12,17 +12,18 @@ import (
 
 // CompactHistory owns snapshot selection and the atomic history transaction;
 // the caller holds the chat maintenance lease for this entire operation.
-func CompactHistory(store CompactStore, baseResp api.CompactResponse, window, overhead int, compactID string, generate func(string, int) (string, map[string]any, error)) (api.CompactResponse, error) {
+func CompactHistory(store CompactStore, baseResp api.CompactResponse, window, overhead int, compactID string, generate func(string, int) (string, map[string]any, error), options ...chat.L1Options) (api.CompactResponse, error) {
 	chatID, requestID, trigger, level := baseResp.ChatID, baseResp.RequestID, baseResp.Trigger, baseResp.Level
 	baseResp.CompactID = compactID
 	historyTargetTokens := max(1, compaction.Target(window)-overhead)
 	keptRunCount := chat.DefaultCompactKeptRunCount
 	if level == "l1_tools" {
-		target := 0
-		if trigger == "auto" {
-			target = historyTargetTokens
+		option := chat.L1Options{}
+		if len(options) > 0 {
+			option = options[0]
 		}
-		return compactHistoryTools(baseResp, store, chatID, requestID, trigger, target, compactID)
+		option.KeepRecent = compaction.KeepRecentRounds(window, option.KeepRecent)
+		return compactHistoryTools(baseResp, store, chatID, requestID, trigger, 0, compactID, option)
 	}
 	snapshot, err := store.BuildCompactSnapshot(chatID, keptRunCount)
 	if err != nil {
@@ -86,7 +87,7 @@ func CompactHistory(store CompactStore, baseResp api.CompactResponse, window, ov
 	summarySource := "model"
 
 	postTokens := chat.EstimateCompactPostTokens(summaryText, snapshot.TailMessages)
-	if postTokens >= snapshot.PreCompactEstimatedTokens || (historyTargetTokens > 0 && postTokens > historyTargetTokens) {
+	if postTokens >= snapshot.PreCompactEstimatedTokens || (window > 0 && postTokens+overhead+64 >= window) {
 		baseResp.CompactID = compactID
 		baseResp.Status = "failed"
 		baseResp.Detail = "context_window_uncompactable"
@@ -153,8 +154,8 @@ func CompactHistory(store CompactStore, baseResp api.CompactResponse, window, ov
 	}, nil
 }
 
-func compactHistoryTools(baseResp api.CompactResponse, store CompactStore, chatID string, requestID string, trigger string, targetTokens int, compactID string) (api.CompactResponse, error) {
-	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, chat.DefaultToolCompactKeepRecent, targetTokens)
+func compactHistoryTools(baseResp api.CompactResponse, store CompactStore, chatID string, requestID string, trigger string, targetTokens int, compactID string, option chat.L1Options) (api.CompactResponse, error) {
+	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, option.KeepRecent, 0, option)
 	if err != nil {
 		if errors.Is(err, chat.ErrNoCompactableHistory) {
 			baseResp.Detail = "no_compactable_tools"
@@ -163,7 +164,7 @@ func compactHistoryTools(baseResp api.CompactResponse, store CompactStore, chatI
 		return api.CompactResponse{}, err
 	}
 	baseResp.ToolsKept = snapshot.ToolsKept
-	if snapshot.ToolsCleared == 0 {
+	if snapshot.ToolsCleared == 0 && snapshot.ReasoningCleared == 0 {
 		baseResp.Detail = "no_compactable_tools"
 		return baseResp, nil
 	}
@@ -176,6 +177,7 @@ func compactHistoryTools(baseResp api.CompactResponse, store CompactStore, chatI
 		Trigger:                    trigger,
 		Level:                      "l1_tools",
 		ToolsCleared:               snapshot.ToolsCleared,
+		ReasoningCleared:           snapshot.ReasoningCleared,
 		ToolsKept:                  snapshot.ToolsKept,
 		TokensFreed:                snapshot.TokensFreed,
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
@@ -218,6 +220,7 @@ func compactHistoryTools(baseResp api.CompactResponse, store CompactStore, chatI
 		RemainingRatio:             snapshot.CompressionRatio * 100,
 		ReleasedRatio:              100 - snapshot.CompressionRatio*100,
 		ToolsCleared:               snapshot.ToolsCleared,
+		ReasoningCleared:           snapshot.ReasoningCleared,
 		ToolsKept:                  snapshot.ToolsKept,
 		TokensFreed:                snapshot.TokensFreed,
 		Detail:                     "completed",
@@ -227,7 +230,7 @@ func compactHistoryTools(baseResp api.CompactResponse, store CompactStore, chatI
 type CompactStore interface {
 	BuildCompactSnapshot(chatID string, keptRunCount int) (chat.CompactSnapshot, error)
 	CommitCompactCheckpoint(chatID string, snapshot chat.CompactSnapshot, checkpoint chat.CompactCheckpointLine) error
-	BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int) (chat.ToolCompactSnapshot, error)
+	BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int, options ...chat.L1Options) (chat.ToolCompactSnapshot, error)
 	CommitToolCompact(chatID string, snapshot chat.ToolCompactSnapshot, line chat.ToolCompactLine) error
 }
 

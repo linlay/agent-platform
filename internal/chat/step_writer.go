@@ -356,7 +356,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "planning.superseded", "context.compact.start", "context.compact.failed":
 		w.flushCurrentStep()
 		w.flushAllTaskSteps()
-		w.appendTypedEventLine(event, "event")
+		if event.String("level") != "l1_tools" {
+			w.appendTypedEventLine(event, "event")
+		}
 
 	case "context.compact.complete":
 		w.flushCurrentStep()
@@ -379,6 +381,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			CycleID:                    event.String("cycleId"),
 			CycleComplete:              compactCycleComplete(event.Value("cycleComplete")),
 			Type:                       RunCompactCheckpointLineType,
+			CompactCoveredMessages:     messagesFromEventValue(event.Value("compactCoveredMessages")),
+			L1KeepRecent:               toIntFromKeys(event.Payload, "l1KeepRecent"),
+			L1PreserveReasoning:        event.Value("l1PreserveReasoning") == true,
 			ChatID:                     w.chatID,
 			RunID:                      w.runID,
 			RequestID:                  event.String("requestId"),
@@ -396,6 +401,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			ReleasedRatio:              float64FromJSONValue(event.Value("releasedRatio")),
 			TokensFreed:                toIntFromKeys(event.Payload, "tokensFreed"),
 			ToolsCleared:               toIntFromKeys(event.Payload, "toolsCleared"),
+			ReasoningCleared:           toIntFromKeys(event.Payload, "reasoningCleared"),
 			ToolsKept:                  toIntFromKeys(event.Payload, "toolsKept"),
 			CompactionUsage:            cloneStringAnyMap(compactionUsage),
 			Messages:                   checkpointMessages,

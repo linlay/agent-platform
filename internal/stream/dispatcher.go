@@ -326,6 +326,16 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if value.TokensFreed > 0 {
 			payload["tokensFreed"] = value.TokensFreed
 		}
+		if len(value.CompactCoveredMessages) > 0 {
+			payload["compactCoveredMessages"] = value.CompactCoveredMessages
+		}
+		if value.Level == "l1_tools" {
+			payload["l1KeepRecent"] = value.L1KeepRecent
+			payload["l1PreserveReasoning"] = value.L1PreserveReasoning
+		}
+		if value.ReasoningCleared > 0 {
+			payload["reasoningCleared"] = value.ReasoningCleared
+		}
 		if value.ToolsCleared > 0 {
 			payload["toolsCleared"] = value.ToolsCleared
 		}
@@ -350,7 +360,11 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if value.AwaitingID != "" {
 			payload["awaitingId"] = value.AwaitingID
 		}
-		return []StreamEvent{NewEvent("context.compact."+status, payload)}
+		var events []StreamEvent
+		if status == "start" {
+			events = d.closeOpenBlocks()
+		}
+		return append(events, NewEvent("context.compact."+status, payload))
 	case InputRunComplete:
 		d.state.runFinishReason = value.FinishReason
 		return nil

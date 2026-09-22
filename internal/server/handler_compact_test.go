@@ -24,8 +24,14 @@ import (
 )
 
 func TestActiveRunManualCompactWaitsForCurrentTurnAndPersistsBeforeCompletion(t *testing.T) {
+	testActiveRunManualCompactPersistence(t, false)
+}
+func TestActiveRunSummaryCoversSplitReasoningAndContent(t *testing.T) {
+	testActiveRunManualCompactPersistence(t, true)
+}
+func testActiveRunManualCompactPersistence(t *testing.T, withReasoning bool) {
 	const chatID = "chat-active-blocking-compact"
-	draft := strings.Repeat("draft before compact ", 2048)
+	draft := compactTestDistinctText("draft before compact", 2048)
 	var calls atomic.Int32
 	releaseFirst := make(chan struct{})
 	var releaseOnce sync.Once
@@ -35,6 +41,9 @@ func TestActiveRunManualCompactWaitsForCurrentTurnAndPersistsBeforeCompletion(t 
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		switch calls.Add(1) {
 		case 1:
+			if withReasoning {
+				writeProviderSSE(t, w, `{"choices":[{"delta":{"reasoning_content":"reasoning before answer"}}]}`)
+			}
 			writeProviderSSE(t, w, fmt.Sprintf(`{"choices":[{"delta":{"content":%q}}]}`, draft))
 			close(firstStarted)
 			<-releaseFirst
@@ -315,7 +324,7 @@ func TestHandleCompactLevelL1ToolsClearsToolResultsWithoutModel(t *testing.T) {
 			toolContent[stringValue(msg["tool_call_id"])] = stringValue(msg["content"])
 		}
 	}
-	if !strings.HasPrefix(toolContent["tool-1"], "[Compacted tool interaction]") || !strings.HasPrefix(toolContent["tool-2"], "[Compacted tool interaction]") {
+	if toolContent["tool-1"] != "" || toolContent["tool-2"] != "" {
 		t.Fatalf("old tool results were not structurally compacted: %#v", toolContent)
 	}
 	if !strings.Contains(toolContent["tool-7"], "file result 7") {

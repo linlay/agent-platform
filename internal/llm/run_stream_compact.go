@@ -17,17 +17,18 @@ import (
 const runCompactTargetPercent = 60
 
 type contextCompactWork struct {
-	request       CompactControlRequest
-	previousState RunLoopState
-	finishAfter   bool
-	preTokens     int
-	plan          contextCompactPlan
-	toolMessages  []openAIMessage
-	toolsCleared  int
-	toolsKept     int
-	awaitingID    string
-	cycleID       string
-	forceSummary  bool
+	request          CompactControlRequest
+	previousState    RunLoopState
+	finishAfter      bool
+	preTokens        int
+	plan             contextCompactPlan
+	toolMessages     []openAIMessage
+	reasoningCleared int
+	toolsCleared     int
+	toolsKept        int
+	awaitingID       string
+	cycleID          string
+	forceSummary     bool
 }
 
 type contextCompactPlan struct {
@@ -51,9 +52,6 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 		request, manual = s.runControl.ClaimCompact()
 	}
 	preTokens := s.estimatedNextCallSize()
-	if raw := estimateModelContext(s.messages, s.toolSpecs); raw > 0 && preTokens > raw {
-		s.compactEstimateScale = max(s.compactEstimateScale, float64(preTokens)/float64(raw))
-	}
 	if !manual {
 		threshold := compactTriggerThreshold(s.effectiveContextWindow())
 		triggerTokens := s.estimatedNextCallSize()
@@ -76,23 +74,17 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 	plan := contextCompactPlan{}
 	toolMessages := []openAIMessage(nil)
 	toolsCleared, toolsKept := 0, 0
+	reasoningCleared := 0
 	if request.Level == "l1_tools" {
 		fingerprint := s.compactToolsFingerprint()
 		if manual || fingerprint != s.lastNoopToolsFingerprint {
-			toolMessages, toolsCleared, toolsKept = s.compactRunToolMessages(
-				chat.DefaultToolCompactKeepRecent,
-				func() int {
-					if manual {
-						return 0
-					}
-					return compaction.Target(s.effectiveContextWindow())
-				}(),
-			)
-			if toolsCleared == 0 && !manual {
+			toolMessages, toolsCleared, toolsKept, reasoningCleared = s.compactRunCategories(compaction.KeepRecentRounds(s.effectiveContextWindow(), s.model.L1KeepRecentRounds))
+
+			if toolsCleared == 0 && reasoningCleared == 0 && !manual {
 				s.lastNoopToolsFingerprint = fingerprint
 			}
 		}
-		if toolsCleared == 0 && !manual {
+		if toolsCleared == 0 && reasoningCleared == 0 && !manual {
 			if !s.forceContextCompact && !compaction.Reached(preTokens, s.effectiveContextWindow(), compaction.SummaryPercent) {
 				return false
 			}
@@ -102,7 +94,7 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 	if request.Level == "summary" {
 		plan = s.buildContextCompactPlan(manual)
 	}
-	if (request.Level == "l1_tools" && toolsCleared == 0) || (request.Level == "summary" && len(plan.candidates) == 0) {
+	if (request.Level == "l1_tools" && toolsCleared == 0 && reasoningCleared == 0) || (request.Level == "summary" && len(plan.candidates) == 0) {
 		if manual && s.runControl != nil {
 			detail := "no_compactable_history"
 			if request.Level == "l1_tools" {
@@ -151,16 +143,17 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 		s.execCtx.RunLoopState = RunLoopStateCompacting
 	}
 	s.compactWork = &contextCompactWork{
-		request:       request,
-		previousState: previousState,
-		finishAfter:   finishAfter,
-		preTokens:     preTokens,
-		plan:          plan,
-		toolMessages:  toolMessages,
-		toolsCleared:  toolsCleared,
-		toolsKept:     toolsKept,
-		awaitingID:    awaitingID,
-		forceSummary:  s.forceContextCompact,
+		request:          request,
+		previousState:    previousState,
+		finishAfter:      finishAfter,
+		preTokens:        preTokens,
+		plan:             plan,
+		toolMessages:     toolMessages,
+		toolsCleared:     toolsCleared,
+		reasoningCleared: reasoningCleared,
+		toolsKept:        toolsKept,
+		awaitingID:       awaitingID,
+		forceSummary:     s.forceContextCompact,
 	}
 	if !manual {
 		s.compactWork.cycleID = request.CompactID
@@ -216,7 +209,7 @@ func (s *llmRunStream) buildContextCompactPlan(force bool) contextCompactPlan {
 	progress := cloneModelMessages(s.messages[pinnedEnd:])
 	groups := compactMessageGroups(progress)
 	target := s.effectiveContextWindow() * runCompactTargetPercent / 100
-	mandatory := estimateModelContext(plan.system, s.toolSpecs) + estimateModelContext(plan.pinned, nil)
+	mandatory := s.estimateCompactContext(append(cloneModelMessages(plan.system), plan.pinned...))
 	summaryAllowance := s.effectiveContextWindow() / 10
 	if summaryAllowance > 4096 {
 		summaryAllowance = 4096
@@ -229,10 +222,10 @@ func (s *llmRunStream) buildContextCompactPlan(force bool) contextCompactPlan {
 	keptTokens := 0
 	for i := len(groups) - 1; i >= 0 && !compactMessageGroupComplete(groups[i]); i-- {
 		keepFrom = i
-		keptTokens += estimateModelContext(groups[i], nil)
+		keptTokens += int(float64(estimateModelContext(groups[i], nil)) * max(1.0, s.compactEstimateScale))
 	}
 	for i := keepFrom - 1; i >= 0; i-- {
-		groupTokens := estimateModelContext(groups[i], nil)
+		groupTokens := int(float64(estimateModelContext(groups[i], nil)) * max(1.0, s.compactEstimateScale))
 		if keptTokens+groupTokens > remaining {
 			break
 		}
@@ -348,7 +341,7 @@ func (s *llmRunStream) executeContextCompact() error {
 	if summary == "" || summary == "Model returned no assistant content." {
 		return s.failContextCompact(work, "summary_empty", true)
 	}
-	targetTokens := s.effectiveContextWindow() * runCompactTargetPercent / 100
+	targetTokens := s.effectiveContextWindow() - 64
 
 	summaryMessage := openAIMessage{Role: "user", Content: chat.CompactCheckpointSummaryMessage(summary)}
 	newMessages := make([]openAIMessage, 0, len(work.plan.system)+1+len(work.plan.pinned)+len(work.plan.retained))
@@ -385,6 +378,7 @@ func (s *llmRunStream) executeContextCompact() error {
 		Level:                      work.request.Level,
 		Scope:                      "run",
 		SummarySource:              summarySource,
+		CompactCoveredMessages:     modelMessagesToMaps(work.plan.candidates),
 		PreCompactEstimatedTokens:  work.preTokens,
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
@@ -416,14 +410,27 @@ func (s *llmRunStream) executeContextCompact() error {
 }
 
 func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error {
-	if work == nil || work.toolsCleared == 0 || len(work.toolMessages) == 0 {
+	if work == nil || (work.toolsCleared == 0 && work.reasoningCleared == 0) || len(work.toolMessages) == 0 {
 		return s.failContextCompact(work, "no_compactable_tools", false)
 	}
 	postTokens := s.estimateCompactContext(work.toolMessages)
 	if postTokens >= work.preTokens {
 		return s.failContextCompact(work, "no_compactable_tools", false)
 	}
-	needsSummary := work.request.Trigger == "auto" && (work.forceSummary || compaction.Reached(postTokens, s.effectiveContextWindow(), compaction.SummaryPercent))
+	needsSummary := work.request.Trigger == "auto" && (compaction.Reached(postTokens, s.effectiveContextWindow(), compaction.SummaryPercent))
+	projection := chat.ProjectL1(modelMessagesToMaps(s.messages), compaction.KeepRecentRounds(s.effectiveContextWindow(), s.model.L1KeepRecentRounds), s.pinnedMessageStart, s.pinnedMessageEnd, preserveReasoningContent(s.protocolConfig, s.stageSettings))
+	start, end := 0, 0
+	for i, m := range projection.Messages {
+		if m != nil {
+			if i < s.pinnedMessageStart {
+				start++
+			}
+			if i < s.pinnedMessageEnd {
+				end++
+			}
+		}
+	}
+	s.pinnedMessageStart, s.pinnedMessageEnd = start, end
 	s.messages = cloneModelMessages(work.toolMessages)
 	s.forceContextCompact = false
 	s.resetContextEstimateAfterCompact()
@@ -455,6 +462,9 @@ func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error
 		ReleasedRatio:              releasedRatio,
 		TokensFreed:                max(work.preTokens-postTokens, 0),
 		ToolsCleared:               work.toolsCleared,
+		ReasoningCleared:           work.reasoningCleared,
+		L1KeepRecent:               compaction.KeepRecentRounds(s.effectiveContextWindow(), s.model.L1KeepRecentRounds),
+		L1PreserveReasoning:        preserveReasoningContent(s.protocolConfig, s.stageSettings),
 		ToolsKept:                  work.toolsKept,
 		Detail:                     "completed",
 		CheckpointMessages:         checkpointMessages,
@@ -467,8 +477,9 @@ func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error
 	s.compactWork = nil
 	if needsSummary {
 		request := s.nextAutomaticCompactRequest("summary")
-		plan := s.buildContextCompactPlan(false)
+		plan := s.buildContextCompactPlan(true)
 		if len(plan.candidates) == 0 {
+			s.pending = append(s.pending, DeltaContextCompact{CycleID: work.cycleID, CycleComplete: true, Status: "failed", RequestID: request.RequestID, CompactID: request.CompactID, ChatID: request.ChatID, RunID: s.session.RunID, Trigger: "auto", Level: "summary", Scope: "run", Detail: "no_compactable_history"})
 			s.pending = append(s.pending, DeltaError{Error: map[string]any{"code": "context_window_uncompactable", "message": "Context cannot be reduced below the model window"}})
 			s.closeSteersAndFinish()
 			return nil
@@ -496,40 +507,7 @@ func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error
 }
 
 func (s *llmRunStream) compactRunToolMessages(keepRecent, targetTokens int) ([]openAIMessage, int, int) {
-	if s == nil {
-		return nil, 0, 0
-	}
-	raw := modelMessagesToMaps(s.messages)
-	if targetTokens > 0 {
-		targetTokens = max(1, targetTokens-estimateModelContext(nil, s.toolSpecs))
-	}
-	projected, cleared, kept := chat.CompactToolMessages(raw, keepRecent, targetTokens, s.pinnedMessageStart, s.pinnedMessageEnd)
-	// Keep all ordinary content and protocol fields byte-for-byte in the model
-	// representation; only copy the two fields L1 is allowed to change.
-	out := cloneModelMessages(s.messages)
-	for i := range out {
-		if out[i].Role == "tool" {
-			if fmt.Sprint(projected[i]["content"]) != fmt.Sprint(raw[i]["content"]) {
-				parts, _ := projected[i]["content"].([]any)
-				if len(parts) == 1 {
-					part, _ := parts[0].(map[string]any)
-					if text, ok := part["text"].(string); ok {
-						out[i].Content = text
-					}
-				}
-			}
-		}
-		if out[i].Role == "assistant" {
-			calls, _ := projected[i]["tool_calls"].([]any)
-			for j, call := range calls {
-				mapped, _ := call.(map[string]any)
-				fn, _ := mapped["function"].(map[string]any)
-				if args, ok := fn["arguments"].(string); ok {
-					out[i].ToolCalls[j].Function.Arguments = args
-				}
-			}
-		}
-	}
+	out, cleared, kept, _ := s.compactRunCategories(keepRecent)
 	return out, cleared, kept
 }
 
@@ -594,7 +572,7 @@ func (s *llmRunStream) failContextCompact(work *contextCompactWork, detail strin
 func (s *llmRunStream) compactToolsFingerprint() string {
 	var tools []openAIMessage
 	for _, message := range s.messages {
-		if len(message.ToolCalls) > 0 || message.ToolCallID != "" {
+		if message.Role == "assistant" || message.ToolCallID != "" {
 			tools = append(tools, message)
 		}
 	}
@@ -655,6 +633,10 @@ func (s *llmRunStream) generateContextCompactSummaryWithBudget(request CompactCo
 				"promptCacheHitTokens":  value.LLMReturnPromptCacheHitTokens,
 				"promptCacheMissTokens": value.LLMReturnPromptCacheMissTokens,
 			}
+		case DeltaFinishReason:
+			if value.Reason != "stop" && value.Reason != "end_turn" {
+				return strings.TrimSpace(output.String()), usage, fmt.Errorf("incomplete compact summary: %s", value.Reason)
+			}
 		case DeltaError:
 			return strings.TrimSpace(output.String()), usage, fmt.Errorf("compact summary model error: %v", value.Error)
 		}
@@ -706,6 +688,12 @@ func modelMessagesToMaps(messages []openAIMessage) []map[string]any {
 		}
 		var mapped map[string]any
 		if json.Unmarshal(raw, &mapped) == nil && len(mapped) > 0 {
+			if message.CompactSource != "" {
+				mapped["_compactSource"] = message.CompactSource
+			}
+			if message.CompactRound != "" {
+				mapped["_compactRound"] = message.CompactRound
+			}
 			if message.OriginRunID != "" {
 				mapped["runId"] = message.OriginRunID
 			}

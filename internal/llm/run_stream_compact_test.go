@@ -101,18 +101,21 @@ func TestActiveRunL1CompactsCompletedToolGroupWithoutModel(t *testing.T) {
 	if stream.messages[1].Content != "assistant prose unchanged" {
 		t.Fatalf("ordinary messages changed: %#v", stream.messages)
 	}
-	pinnedContent, _ := stream.messages[3].Content.([]any)
+	pinnedContent, _ := stream.messages[stream.pinnedMessageStart].Content.([]any)
 	pinnedImage, _ := pinnedContent[1].(map[string]any)
 	pinnedImageURL, _ := pinnedImage["image_url"].(map[string]any)
 	if pinnedImageURL["url"] != compactTestOnePixelPNGDataURL {
 		t.Fatalf("pinned image changed: %#v", stream.messages[3].Content)
 	}
-	if !strings.HasPrefix(fmt.Sprint(stream.messages[2].Content), "[Compacted tool interaction]") {
-		t.Fatalf("tool result was not compacted: %#v", stream.messages[2].Content)
+	if len(stream.messages[1].ToolCalls) != 0 {
+		t.Fatal("old tool call retained")
 	}
-	if got := stream.messages[1].ToolCalls[0].Function.Arguments; len(got) >= len(arguments) || !strings.Contains(got, `"_compacted":true`) {
-		t.Fatalf("tool arguments were not compacted: %s", got)
+	for _, m := range stream.messages {
+		if m.ToolCallID == "tool-1" {
+			t.Fatal("orphan old result retained")
+		}
 	}
+
 	foundComplete := false
 	for _, delta := range stream.pending {
 		compact, ok := delta.(contracts.DeltaContextCompact)

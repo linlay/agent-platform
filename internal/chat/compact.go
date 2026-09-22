@@ -21,7 +21,6 @@ var ErrCompactHistoryChanged = errors.New("compact history changed")
 var ErrCompactSummaryInputTooLarge = errors.New("compact summary input too large")
 
 type CompactSnapshot struct {
-	LogicalSnapshot            bool
 	ChatID                     string
 	FileHash                   string
 	InsertAfterIndex           int
@@ -211,9 +210,7 @@ func (s *FileStore) CommitCompactCheckpoint(chatID string, snapshot CompactSnaps
 	checkpoint.Version = 2
 	checkpoint.CoveredThroughLine = snapshot.InsertAfterIndex + 1
 	checkpoint.PreviousCompactID = previousEffectiveCompactID(records)
-	if snapshot.LogicalSnapshot {
-		checkpoint.Messages = append([]map[string]any{{"role": "user", "content": CompactCheckpointSummaryMessage(checkpoint.Summary)}}, snapshot.TailMessages...)
-	}
+	checkpoint.Messages = nil
 	checkpointBytes, err := validateJSONLLinePayload(checkpoint, "chat.jsonl.compact.write")
 	if err != nil {
 		return err
@@ -224,7 +221,7 @@ func (s *FileStore) CommitCompactCheckpoint(chatID string, snapshot CompactSnaps
 		lineBytes := record.Raw
 		if i <= snapshot.InsertAfterIndex && !lineIsCompacted(record.Value) {
 			marked := cloneJSONLineMap(record.Value)
-			marked["_compact"] = compactID
+			marked["_compact"] = compactMarker("L2", compactID, nil)
 			lineBytes, err = json.Marshal(marked)
 			if err != nil {
 				return err
@@ -340,7 +337,7 @@ func lineIsCompacted(line map[string]any) bool {
 		return false
 	}
 	_, ok := line["_compact"]
-	return ok
+	return ok && len(compactKeep(line)) == 0
 }
 
 func hasActiveCompactCheckpoint(lines []map[string]any) bool {
@@ -434,6 +431,7 @@ func BuildCompactPromptWithinBudget(messages []map[string]any, maxInputTokens in
 
 func normalizeCompactSummaryMessages(messages []map[string]any) []map[string]any {
 	projected, _, _ := CompactToolMessages(messages, 0, 0, -1, -1)
+	projected, _ = CompactReasoningMessages(projected, 1, -1, -1)
 	return projected
 }
 
@@ -506,7 +504,7 @@ func EstimateRawMessageTokens(messages []map[string]any) int {
 	}
 	projected, mediaTokens := projectCompactMediaMessages(messages, false)
 	for _, message := range projected {
-		for _, key := range []string{"runId", "agentKey", "taskSubAgentKey", "msgId", "ts", "_compactPinned"} {
+		for _, key := range []string{"runId", "agentKey", "taskSubAgentKey", "msgId", "ts", "_compactPinned", "_compactSource", "_compactRound"} {
 			delete(message, key)
 		}
 	}

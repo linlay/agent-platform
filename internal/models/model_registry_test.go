@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -753,6 +754,29 @@ func TestModelImageOmitResponseFormatDefaultsAndOperationScope(t *testing.T) {
 			}
 			if model.Image.Generation.OmitResponseFormat != tc.wantGeneration || model.Image.Edit.OmitResponseFormat != tc.wantEdit {
 				t.Fatalf("unexpected policy: %#v", model.Image)
+			}
+		})
+	}
+}
+
+func TestLoadModelL1ProtectionOverride(t *testing.T) {
+	for _, value := range []int{4, 5, 7, 10, 11} {
+		t.Run(fmt.Sprint(value), func(t *testing.T) {
+			root := t.TempDir()
+			writeTestProviderAndModel(t, root, "apiKey: plain-text", fmt.Sprintf("l1KeepRecentRounds: %d", value))
+			registry, err := LoadModelRegistry(root)
+			if value < 5 || value > 10 {
+				if err == nil {
+					t.Fatal("invalid protection window accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			model, _, err := registry.Get("mock-model")
+			if err != nil || model.L1KeepRecentRounds != value {
+				t.Fatalf("override %d: %v", value, err)
 			}
 		})
 	}

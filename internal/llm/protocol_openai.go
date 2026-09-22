@@ -301,6 +301,8 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 		contentValue = raw["content"]
 	}
 	msg := openAIMessage{Role: role, Content: contentValue}
+	msg.CompactSource, _ = raw["_compactSource"].(string)
+	msg.CompactRound, _ = raw["_compactRound"].(string)
 	msg.OriginRunID, _ = raw["runId"].(string)
 	msg.OriginActor, _ = raw["agentKey"].(string)
 	if role == "assistant" {

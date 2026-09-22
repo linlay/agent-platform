@@ -105,6 +105,9 @@ func (r *historyReplay) replayRunCompact(line map[string]any) error {
 	if count := int64FromAny(line["toolsCleared"]); count > 0 {
 		payload["toolsCleared"] = count
 	}
+	if count := int64FromAny(line["reasoningCleared"]); count > 0 {
+		payload["reasoningCleared"] = count
+	}
 	if count := int64FromAny(line["toolsKept"]); count > 0 {
 		payload["toolsKept"] = count
 	}
@@ -138,7 +141,7 @@ func (r *historyReplay) replayToolCompact(line map[string]any) error {
 	if eventRunID != "" {
 		payload["runId"] = eventRunID
 	}
-	for _, key := range []string{"preCompactEstimatedTokens", "postCompactEstimatedTokens", "tokensFreed", "toolsCleared", "toolsKept"} {
+	for _, key := range []string{"preCompactEstimatedTokens", "postCompactEstimatedTokens", "tokensFreed", "toolsCleared", "toolsKept", "reasoningCleared"} {
 		if value := int64FromAny(line[key]); value > 0 {
 			payload[key] = value
 		}

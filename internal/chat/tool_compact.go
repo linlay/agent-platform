@@ -1,13 +1,11 @@
 package chat
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -35,15 +33,18 @@ type ToolCompactSnapshot struct {
 	ChatID                     string
 	FileHash                   string
 	ToolsCleared               int
+	ReasoningCleared           int
 	ToolsKept                  int
 	TokensFreed                int
 	PreCompactEstimatedTokens  int
 	PostCompactEstimatedTokens int
 	CompressionRatio           float64
 	replacements               []toolCompactReplacement
+	policies                   map[int]map[string]bool
 }
 
 type toolCompactReplacement struct {
+	ClearReasoning        bool
 	LineIndex             int
 	MessageIndex          int
 	Content               any
@@ -245,11 +246,9 @@ func compactToolExcerpt(text string, maxRunes int) string {
 	return strings.TrimSpace(string(runes[:head])) + " … " + strings.TrimSpace(string(runes[len(runes)-tail:]))
 }
 
-// BuildToolCompactSnapshotToTarget normally protects the most recent complete
-// tool groups, then progressively releases that protection only while the
-// projected history remains above targetTokens. A non-positive target keeps
-// the legacy/manual behavior of allowing even a single large group.
-func (s *FileStore) BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int) (ToolCompactSnapshot, error) {
+// BuildToolCompactSnapshotToTarget keeps the legacy method name for callers;
+// targetTokens no longer controls L1. Only whole-model-round protection does.
+func (s *FileStore) BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int, options ...L1Options) (ToolCompactSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -276,73 +275,26 @@ func (s *FileStore) BuildToolCompactSnapshotToTarget(chatID string, keepRecent, 
 		return ToolCompactSnapshot{}, ErrNoCompactableHistory
 	}
 
-	candidates := collectToolCompactCandidates(records)
-	if len(candidates) == 0 {
-		return ToolCompactSnapshot{
-			ChatID:   chatID,
-			FileHash: jsonlContentHash(data),
-		}, nil
+	preserve := false
+	if len(options) > 0 {
+		preserve = options[0].PreserveReasoning
 	}
-
-	protected := protectedToolBatches(candidates, keepRecent)
-	preTokens := EstimateRawMessageTokens(rawMessagesFromJSONLLines(recordValues(records)))
-	replacements := make([]toolCompactReplacement, 0, len(candidates))
-	tokensFreed := 0
-	for _, candidate := range candidates {
-		if targetTokens > 0 && preTokens-tokensFreed <= targetTokens {
-			break
-		}
-		if protected[toolBatchKey(candidate)] || !ToolCompactable(candidate.ToolName) {
-			continue
-		}
-		replacement, freed, ok := toolReplacement(candidate)
-		if !ok {
-			continue
-		}
-		replacements = append(replacements, replacement)
-		tokensFreed += freed
+	policies, projection := buildL1Policies(records, keepRecent, preserve)
+	pre := EstimateRawMessageTokens(rawMessagesFromJSONLLines(recordValues(records)))
+	projected := recordValues(records)
+	for i, keep := range policies {
+		projected[i] = cloneJSONLineMap(projected[i])
+		projected[i]["_compact"] = compactMarker("L1", "preview", keep)
 	}
-
-	projectedRecords := append([]jsonLineRecord(nil), records...)
-	for _, replacement := range replacements {
-		indices := []int{replacement.LineIndex}
-		if replacement.AssistantLineIndex != replacement.LineIndex {
-			indices = append(indices, replacement.AssistantLineIndex)
-		}
-		for _, index := range indices {
-			raw, err := applyToolCompactReplacements(projectedRecords[index].Value, index, []toolCompactReplacement{replacement})
-			if err != nil {
-				return ToolCompactSnapshot{}, err
-			}
-			var value map[string]any
-			if err := json.Unmarshal(raw, &value); err != nil {
-				return ToolCompactSnapshot{}, err
-			}
-			projectedRecords[index] = jsonLineRecord{Raw: raw, Value: value}
-		}
-	}
-	postTokens := EstimateRawMessageTokens(rawMessagesFromJSONLLines(recordValues(projectedRecords)))
-	if postTokens >= preTokens {
-		replacements = nil
-		postTokens = preTokens
-	}
-	tokensFreed = max(0, preTokens-postTokens)
+	post := EstimateRawMessageTokens(rawMessagesFromJSONLLines(projected))
 	ratio := 0.0
-	if preTokens > 0 {
-		ratio = float64(postTokens) / float64(preTokens)
+	if pre > 0 {
+		ratio = float64(post) / float64(pre)
 	}
+	return ToolCompactSnapshot{ChatID: chatID, FileHash: jsonlContentHash(data), policies: policies,
+		ToolsCleared: projection.ToolsCleared, ReasoningCleared: projection.ReasoningCleared, ToolsKept: projection.ToolsKept,
+		PreCompactEstimatedTokens: pre, PostCompactEstimatedTokens: post, TokensFreed: max(0, pre-post), CompressionRatio: ratio}, nil
 
-	return ToolCompactSnapshot{
-		ChatID:                     chatID,
-		FileHash:                   jsonlContentHash(data),
-		ToolsCleared:               len(replacements),
-		ToolsKept:                  len(candidates) - len(replacements),
-		TokensFreed:                tokensFreed,
-		PreCompactEstimatedTokens:  preTokens,
-		PostCompactEstimatedTokens: postTokens,
-		CompressionRatio:           ratio,
-		replacements:               replacements,
-	}, nil
 }
 
 func (s *FileStore) CommitToolCompact(chatID string, snapshot ToolCompactSnapshot, line ToolCompactLine) error {
@@ -356,23 +308,13 @@ func (s *FileStore) CommitToolCompact(chatID string, snapshot ToolCompactSnapsho
 	if chatID != strings.TrimSpace(snapshot.ChatID) {
 		return ErrCompactHistoryChanged
 	}
-	if len(snapshot.replacements) == 0 {
+	if len(snapshot.policies) == 0 {
 		return ErrNoCompactableHistory
 	}
 	compactID := strings.TrimSpace(line.CompactID)
 	if compactID == "" {
 		return ErrNoCompactableHistory
 	}
-	if line.Type == "" {
-		line.Type = ToolCompactLineType
-	}
-	if line.ChatID == "" {
-		line.ChatID = chatID
-	}
-	if line.Level == "" {
-		line.Level = "l1_tools"
-	}
-
 	path := s.chatJSONLPath(chatID)
 	records, data, err := readJSONLineRecords(path)
 	if err != nil {
@@ -381,56 +323,8 @@ func (s *FileStore) CommitToolCompact(chatID string, snapshot ToolCompactSnapsho
 	if jsonlContentHash(data) != snapshot.FileHash {
 		return ErrCompactHistoryChanged
 	}
-	line.Version = 2
-	line.CoveredThroughLine = len(records)
-	line.PreviousCompactID = previousEffectiveCompactID(records)
+	return s.commitL1Policies(chatID, compactID, records, data, snapshot.policies)
 
-	replacementsByLine := map[int][]toolCompactReplacement{}
-	for _, replacement := range snapshot.replacements {
-		replacementsByLine[replacement.LineIndex] = append(replacementsByLine[replacement.LineIndex], replacement)
-		if replacement.AssistantLineIndex != replacement.LineIndex {
-			replacementsByLine[replacement.AssistantLineIndex] = append(replacementsByLine[replacement.AssistantLineIndex], replacement)
-		}
-	}
-
-	backupDir := filepath.Join(s.ChatDir(chatID), ".compact-backups")
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(backupDir, compactID+".jsonl"), data, 0o644); err != nil {
-		return err
-	}
-
-	lineBytes, err := validateJSONLLinePayload(line, "chat.jsonl.toolCompact.write")
-	if err != nil {
-		return err
-	}
-
-	var out bytes.Buffer
-	for i, record := range records {
-		raw := record.Raw
-		if replacements := replacementsByLine[i]; len(replacements) > 0 {
-			updated, err := applyToolCompactReplacements(record.Value, i, replacements)
-			if err != nil {
-				return err
-			}
-			raw = updated
-		}
-		out.Write(bytes.TrimSpace(raw))
-		out.WriteByte('\n')
-	}
-	out.Write(lineBytes)
-	out.WriteByte('\n')
-
-	tmpPath := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+"."+compactID+".tmp")
-	if err := os.WriteFile(tmpPath, out.Bytes(), 0o644); err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmpPath) }()
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	return nil
 }
 
 // collectToolCompactCandidates reads the effective checkpoint and subsequent
@@ -634,7 +528,11 @@ func applyToolCompactReplacements(line map[string]any, lineIndex int, replacemen
 			continue
 		}
 		cloned := cloneJSONLineMap(message)
-		cloned["content"] = replacement.Content
+		if replacement.ClearReasoning {
+			delete(cloned, "reasoning_content")
+		} else {
+			cloned["content"] = replacement.Content
+		}
 		messages[replacement.MessageIndex] = cloned
 	}
 	for _, replacement := range replacements {

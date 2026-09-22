@@ -11,6 +11,10 @@ import (
 // replayChatHistory is shared by active and archived chats. It projects stored
 // records into Detail; export applies its own document filters to Detail.Events.
 func replayChatHistory(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64, runFinishReasons map[string]string) (Detail, error) {
+	for _, m := range rawMessages {
+		delete(m, "_compactSource")
+		delete(m, "_compactRound")
+	}
 	r := &historyReplay{
 		summary: summary, chatDir: chatDir,
 		runs: map[string]*chatRunData{}, taskQueries: collectReplayedTaskQueries(lines),

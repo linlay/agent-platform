@@ -85,6 +85,7 @@ func completeCompactControl(runControl *contracts.RunControl, data stream.EventD
 		ReleasedRatio:              compactFloat64(data.Value("releasedRatio")),
 		TokensFreed:                contracts.AnyIntNode(data.Value("tokensFreed")),
 		ToolsCleared:               contracts.AnyIntNode(data.Value("toolsCleared")),
+		ReasoningCleared:           contracts.AnyIntNode(data.Value("reasoningCleared")),
 		ToolsKept:                  contracts.AnyIntNode(data.Value("toolsKept")),
 		CompactionUsage:            contracts.CloneMap(compactionUsage),
 		Detail:                     data.String("detail"),
@@ -117,7 +118,7 @@ func clientVisibleEventData(data stream.EventData) stream.EventData {
 	}
 	payload := make(map[string]any, len(data.Payload))
 	for key, value := range data.Payload {
-		if key == "messages" || key == "system" || key == "checkpointMessages" || key == "previousRunState" || key == "awaitingId" {
+		if key == "messages" || key == "system" || key == "checkpointMessages" || key == "compactCoveredMessages" || key == "l1KeepRecent" || key == "l1PreserveReasoning" || key == "previousRunState" || key == "awaitingId" {
 			continue
 		}
 		payload[key] = value

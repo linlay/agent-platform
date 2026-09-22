@@ -142,6 +142,9 @@ type CompactCheckpointLine struct {
 }
 
 type RunCompactCheckpointLine struct {
+	CompactCoveredMessages     []map[string]any `json:"-"`
+	L1KeepRecent               int              `json:"-"`
+	L1PreserveReasoning        bool             `json:"-"`
 	Version                    int              `json:"version,omitempty"`
 	PreviousCompactID          string           `json:"previousCompactId,omitempty"`
 	CoveredThroughLine         int              `json:"coveredThroughLine,omitempty"`
@@ -165,6 +168,7 @@ type RunCompactCheckpointLine struct {
 	ReleasedRatio              float64          `json:"releasedRatio,omitempty"`
 	TokensFreed                int              `json:"tokensFreed,omitempty"`
 	ToolsCleared               int              `json:"toolsCleared,omitempty"`
+	ReasoningCleared           int              `json:"reasoningCleared,omitempty"`
 	ToolsKept                  int              `json:"toolsKept,omitempty"`
 	CompactionUsage            map[string]any   `json:"compactionUsage,omitempty"`
 	Messages                   []map[string]any `json:"messages"`
@@ -183,6 +187,7 @@ type ToolCompactLine struct {
 	Trigger                    string  `json:"trigger,omitempty"`
 	Level                      string  `json:"level,omitempty"`
 	ToolsCleared               int     `json:"toolsCleared,omitempty"`
+	ReasoningCleared           int     `json:"reasoningCleared,omitempty"`
 	ToolsKept                  int     `json:"toolsKept,omitempty"`
 	TokensFreed                int     `json:"tokensFreed,omitempty"`
 	PreCompactEstimatedTokens  int     `json:"preCompactEstimatedTokens,omitempty"`

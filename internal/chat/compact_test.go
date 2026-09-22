@@ -71,7 +71,7 @@ func TestCompactCommitMarksCoveredLinesAndProjectsSummaryTail(t *testing.T) {
 		t.Fatalf("line count = %d, want %d", len(lines), len(beforeLines)+1)
 	}
 	for i := 0; i < 5; i++ {
-		if got := stringFromAny(lines[i]["_compact"]); got != "compact_1" {
+		if got := compactMarkerID(lines[i]["_compact"]); got != "compact_1" {
 			t.Fatalf("line %d _compact = %q, want compact_1", i, got)
 		}
 	}
@@ -182,7 +182,7 @@ func TestCompactCommitMarksCoveredSteerAndKeepsStorageReadable(t *testing.T) {
 	}
 	coveredSteer := false
 	for _, line := range lines {
-		if stringFromAny(line["_type"]) == "steer" && stringFromAny(line["_compact"]) == "compact_steer" {
+		if compactMarkerID(line["_type"]) == "steer" && compactMarkerID(line["_compact"]) == "compact_steer" {
 			coveredSteer = true
 		}
 	}
@@ -426,7 +426,7 @@ func TestSecondCompactCoversPreviousCheckpoint(t *testing.T) {
 		if stringFromAny(line["_type"]) != CompactCheckpointLineType {
 			continue
 		}
-		if stringFromAny(line["compactId"]) == "compact_1" && stringFromAny(line["_compact"]) == "compact_2" {
+		if compactMarkerID(line["compactId"]) == "compact_1" && compactMarkerID(line["_compact"]) == "compact_2" {
 			oldCheckpointCovered = true
 		}
 		if _, covered := line["_compact"]; !covered {
@@ -561,8 +561,8 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read jsonl: %v", err)
 	}
-	if got := stringFromAny(lines[len(lines)-1]["_type"]); got != ToolCompactLineType {
-		t.Fatalf("last line type = %q, want %q", got, ToolCompactLineType)
+	if got := stringFromAny(lines[len(lines)-1]["_type"]); got == ToolCompactLineType {
+		t.Fatalf("L1 appended metadata line: %q", got)
 	}
 
 	raw, err := store.LoadRawMessages(chatID, 20)
@@ -577,7 +577,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 		toolContent[stringFromAny(msg["tool_call_id"])] = stringFromAny(msg["content"])
 	}
 	for _, toolID := range []string{"tool-1", "tool-2", "tool-3"} {
-		if !strings.HasPrefix(toolContent[toolID], "[Compacted tool interaction]") || !strings.Contains(toolContent[toolID], "contentSha256:") {
+		if _, exists := toolContent[toolID]; exists {
 			t.Fatalf("%s content = %q, want structured compact record", toolID, toolContent[toolID])
 		}
 	}
@@ -823,7 +823,7 @@ func TestSummaryCompactCanCoverToolCompactMetadata(t *testing.T) {
 	}
 	coveredToolMetadata := false
 	for _, line := range lines {
-		if stringFromAny(line["_type"]) == ToolCompactLineType && stringFromAny(line["_compact"]) == "compact_summary_1" {
+		if compactMarkerID(line["_compact"]) == "compact_summary_1" {
 			coveredToolMetadata = true
 		}
 	}

@@ -48,6 +48,7 @@ type ModelDefinition struct {
 	IsReasoner             bool
 	IsVision               bool
 	ContextWindow          int
+	L1KeepRecentRounds     int
 	Timeout                int
 	Pricing                ModelPricing
 	Headers                map[string]string
@@ -667,7 +668,12 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 				return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
 			}
 		}
+		keepRecent := contracts.AnyIntNode(values["l1KeepRecentRounds"])
+		if raw, exists := values["l1KeepRecentRounds"]; exists && (keepRecent < 5 || keepRecent > 10 || fmt.Sprint(raw) != fmt.Sprint(keepRecent)) {
+			return nil, fmt.Errorf("model %s: l1KeepRecentRounds must be an integer from 5 to 10", key)
+		}
 		model := ModelDefinition{
+			L1KeepRecentRounds:     keepRecent,
 			Key:                    key,
 			Name:                   strings.TrimSpace(stringNode(values["name"])),
 			Icon:                   strings.TrimSpace(stringNode(values["icon"])),

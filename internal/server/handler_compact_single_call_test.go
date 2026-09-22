@@ -38,7 +38,7 @@ func TestSummaryCompactSingleCallBudgetAndFailure(t *testing.T) {
 					text = ""
 				}
 				if name == "oversized-output" {
-					text = strings.Repeat("model summary must not be truncated ", 1000)
+					text = compactTestDistinctText("model summary must not be truncated", 1000)
 				}
 				quoted, _ := json.Marshal(text)
 				writeProviderSSE(t, w, `{"choices":[{"delta":{"content":`+string(quoted)+`},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110}}`, "[DONE]")

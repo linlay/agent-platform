@@ -1,6 +1,8 @@
 package contracts
 
 type ModelMessage struct {
+	CompactSource    string          `json:"-"`
+	CompactRound     string          `json:"-"`
 	OriginRunID      string          `json:"-"`
 	OriginActor      string          `json:"-"`
 	Role             string          `json:"role"`

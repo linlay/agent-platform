@@ -556,6 +556,7 @@ type CompactResponse struct {
 	ReleasedRatio              float64        `json:"releasedRatio,omitempty"`
 	CompactionUsage            map[string]any `json:"compactionUsage,omitempty"`
 	ToolsCleared               int            `json:"toolsCleared,omitempty"`
+	ReasoningCleared           int            `json:"reasoningCleared,omitempty"`
 	ToolsKept                  int            `json:"toolsKept,omitempty"`
 	TokensFreed                int            `json:"tokensFreed,omitempty"`
 	Detail                     string         `json:"detail,omitempty"`

@@ -17,6 +17,9 @@ func (s *llmRunStream) currentContextSize() int {
 
 func (s *llmRunStream) estimatedNextCallSize() int {
 	if s.lastCallPromptTokens > 0 {
+		if s.lastCallUseProjectedContext {
+			return s.fallbackContextEstimate()
+		}
 		return max(s.fallbackContextEstimate(), s.lastCallPromptTokens+s.lastCallCompletionTokens+s.estimatedTokensAfterLastAssistant())
 	}
 	return s.fallbackContextEstimate()
@@ -268,6 +271,9 @@ func (s *llmRunStream) commitPendingTurnUsage() {
 func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 	normalized := normalizeOpenAIUsage(usage, s.protocolConfig)
 	s.lastCallPromptTokens = usage.PromptTokens
+	if s.lastRequestRawTokens > 0 && usage.PromptTokens > 0 {
+		s.compactEstimateScale = max(1.0, float64(usage.PromptTokens)/float64(s.lastRequestRawTokens))
+	}
 	s.lastCallCompletionTokens = usage.CompletionTokens
 	s.lastCallTotalTokens = usage.TotalTokens
 	s.lastCallCachedTokens = normalized.CacheHitTokens

@@ -189,9 +189,39 @@ func validateCurrentCompactMarkerSchema(line map[string]any) error {
 	if !found {
 		return nil
 	}
+	if marker, ok := rawCompactID.(map[string]any); ok {
+		invalid := func() error {
+			return newJSONLSchemaViolation(line, "_compact", "{level:L0|L1|L2,id:string,keep?:[content|reasoning|tool]}", "object", "invalid compact policy")
+		}
+		level, _ := marker["level"].(string)
+		id, _ := marker["id"].(string)
+		if (level != "L0" && level != "L1" && level != "L2") || id == "" || id != strings.TrimSpace(id) {
+			return invalid()
+		}
+		for key := range marker {
+			if key != "level" && key != "id" && key != "keep" {
+				return invalid()
+			}
+		}
+		if raw, exists := marker["keep"]; exists {
+			values, ok := raw.([]any)
+			if !ok {
+				return invalid()
+			}
+			seen := map[string]bool{}
+			for _, value := range values {
+				key, ok := value.(string)
+				if !ok || (key != "content" && key != "reasoning" && key != "tool") || seen[key] {
+					return invalid()
+				}
+				seen[key] = true
+			}
+		}
+		return nil
+	}
 	compactID, ok := rawCompactID.(string)
 	if !ok || compactID == "" || compactID != strings.TrimSpace(compactID) {
-		return newJSONLSchemaViolation(line, "_compact", "exact non-empty string", jsonValueType(rawCompactID), "_compact must be an exact non-empty string")
+		return newJSONLSchemaViolation(line, "_compact", "non-empty string or compact policy object", jsonValueType(rawCompactID), "invalid compact marker")
 	}
 	return nil
 }

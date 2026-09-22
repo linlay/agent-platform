@@ -35,6 +35,10 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	}
 
 	rawMessages := rawMessagesFromJSONLLines(lines)
+	for _, m := range rawMessages {
+		delete(m, "_compactSource")
+		delete(m, "_compactRound")
+	}
 
 	detail, err := replayChatHistory(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons)
 	if err != nil {

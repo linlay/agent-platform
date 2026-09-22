@@ -204,6 +204,8 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if s.protocol == nil {
 		return fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
+	s.lastRequestRawTokens = estimateModelContext(s.messages, s.toolSpecs)
+	s.lastCallUseProjectedContext = false
 	preparedRequest, err := s.protocol.PrepareRequest(protocolStreamParams{
 		runID:          s.session.RunID,
 		provider:       s.provider,
@@ -544,6 +546,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.closeSteersAndFinish()
 		return nil
 	}
+	// Billing completion tokens may include reasoning that is not sent back.
+	s.lastCallUseProjectedContext = (content == "" && len(toolCalls) == 0) ||
+		(turn.reasoning.Len() > 0 && !preserveReasoningContent(s.protocolConfig, s.stageSettings))
 	if content != "" || len(toolCalls) > 0 {
 		msg := s.newAssistantTurnMessage(turn, content, toolCalls)
 		s.messages = append(s.messages, msg)

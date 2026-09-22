@@ -34,6 +34,8 @@ type llmRunStream struct {
 	pinnedMessageEnd            int
 	summaryCall                 bool
 	compactEstimateScale        float64
+	lastRequestRawTokens        int
+	lastCallUseProjectedContext bool
 	lastNoopToolsFingerprint    string
 	compactFinishPending        bool
 	compactDisabled             bool

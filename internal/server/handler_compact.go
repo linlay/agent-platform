@@ -18,7 +18,7 @@ import (
 type compactChatStore interface {
 	BuildCompactSnapshot(chatID string, keptRunCount int) (chat.CompactSnapshot, error)
 	CommitCompactCheckpoint(chatID string, snapshot chat.CompactSnapshot, checkpoint chat.CompactCheckpointLine) error
-	BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int) (chat.ToolCompactSnapshot, error)
+	BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int, options ...chat.L1Options) (chat.ToolCompactSnapshot, error)
 	CommitToolCompact(chatID string, snapshot chat.ToolCompactSnapshot, line chat.ToolCompactLine) error
 }
 
@@ -136,9 +136,12 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	}
 
 	window := 128000
+	l1Options := chat.L1Options{}
 	if agentOK && s.deps.Models != nil {
 		if model, err := s.deps.Models.GetModel(agentDef.ModelKey); err == nil && model.ContextWindow > 0 {
 			window = model.ContextWindow
+			l1Options.KeepRecent = model.L1KeepRecentRounds
+			l1Options.PreserveReasoning = contracts.AnyBoolNode(contracts.AnyMapNode(model.Compat["messages"])["preserveReasoningContent"])
 		}
 	}
 	compactID := "compact_" + newRunID()
@@ -163,7 +166,7 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 			return "", nil, fmt.Errorf("summary agent unavailable")
 		}
 		return s.generateCompactSummary(ctx, resolvedReq, resolvedSummary, agentDef, compactID, prompt, output)
-	})
+	}, l1Options)
 }
 
 func (s *Server) compactCoordinated(ctx context.Context, coordinator contracts.ChatCompactCoordinator, base api.CompactResponse) (api.CompactResponse, bool, bool, error) {
@@ -335,6 +338,10 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 			usage = compactUsageFromUsageSnapshot(d)
 		case contracts.DeltaDebugLLMChat:
 			usage = compactUsageFromDebugLLMChat(d)
+		case contracts.DeltaFinishReason:
+			if d.Reason != "stop" && d.Reason != "end_turn" {
+				return strings.TrimSpace(b.String()), usage, fmt.Errorf("incomplete compact summary: %s", d.Reason)
+			}
 		case contracts.DeltaError:
 			return strings.TrimSpace(b.String()), usage, fmt.Errorf("compact summary model error: %v", d.Error)
 		}

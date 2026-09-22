@@ -117,11 +117,15 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 		if lineIsCompacted(line) {
 			continue
 		}
+		line = projectCompactLine(line)
 		lineType, _ := line["_type"].(string)
 		runID, _ := line["runId"].(string)
 
 		switch lineType {
 		case "steer":
+			if _, marked := line["_compact"]; marked && !compactKeep(line)["content"] {
+				continue
+			}
 			if message := llmRequestSteerMessageFromLine(line); len(message) > 0 {
 				messages = append(messages, message)
 			}
@@ -129,7 +133,9 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 			if snapshot := anyMessageSlice(line["messages"]); len(snapshot) > 0 {
 				messages = nil
 				for _, raw := range snapshot {
-					messages = append(messages, cloneMessageMap(raw))
+					msg := cloneMessageMap(raw)
+					msg["_compactSource"] = compactLineSource(line)
+					messages = append(messages, msg)
 				}
 				continue
 			}
@@ -150,6 +156,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 			messages = make([]map[string]any, 0, len(checkpoint))
 			for _, raw := range checkpoint {
 				msg := cloneMessageMap(raw)
+				msg["_compactSource"] = compactLineSource(line)
 				if stringFromAny(msg["runId"]) == "" {
 					msg["runId"] = runID
 				}
@@ -194,6 +201,8 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				for k, v := range m {
 					msg[k] = v
 				}
+				msg["_compactSource"] = compactLineSource(line)
+				msg["_compactRound"] = compactLineSource(line)
 				delete(msg, "view")
 				delete(msg, "viewError")
 				// Flatten content parts to plain text for LLM context
@@ -224,6 +233,7 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 		if lineIsCompacted(line) {
 			continue
 		}
+		line = projectCompactLine(line)
 		lineType, _ := line["_type"].(string)
 		runID, _ := line["runId"].(string)
 		switch lineType {
@@ -243,6 +253,7 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 			}
 			for _, raw := range anyMessageSlice(line["messages"]) {
 				msg := cloneMessageMap(raw)
+				msg["_compactSource"] = compactLineSource(line)
 				msg["runId"] = runID
 				messages = append(messages, msg)
 			}
@@ -266,6 +277,7 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 		if lineIsCompacted(line) {
 			continue
 		}
+		line = projectCompactLine(line)
 		lineType, _ := line["_type"].(string)
 		runID, _ := line["runId"].(string)
 		switch lineType {
@@ -273,7 +285,9 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 			if snapshot := anyMessageSlice(line["messages"]); len(snapshot) > 0 {
 				messages = nil
 				for _, raw := range snapshot {
-					messages = append(messages, cloneMessageMap(raw))
+					msg := cloneMessageMap(raw)
+					msg["_compactSource"] = compactLineSource(line)
+					messages = append(messages, msg)
 				}
 				continue
 			}
@@ -289,6 +303,7 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 			messages = make([]map[string]any, 0, len(checkpoint))
 			for _, raw := range checkpoint {
 				msg := cloneMessageMap(raw)
+				msg["_compactSource"] = compactLineSource(line)
 				if stringFromAny(msg["runId"]) == "" {
 					msg["runId"] = runID
 				}
@@ -300,6 +315,7 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 			}
 			for _, raw := range anyMessageSlice(line["messages"]) {
 				msg := cloneMessageMap(raw)
+				msg["_compactSource"] = compactLineSource(line)
 				msg["runId"] = runID
 				messages = append(messages, msg)
 			}
@@ -396,6 +412,8 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 	var out []map[string]any
 	for _, raw := range anyMessageSlice(line["messages"]) {
 		msg := cloneMessageMap(raw)
+		msg["_compactSource"] = compactLineSource(line)
+		msg["_compactRound"] = compactLineSource(line)
 		delete(msg, "view")
 		delete(msg, "viewError")
 		msg["runId"] = runID
@@ -423,6 +441,7 @@ func finalAssistantMessageFromStep(line map[string]any, runID string, actorAgent
 			continue
 		}
 		msg := cloneMessageMap(raw)
+		msg["_compactSource"] = compactLineSource(line)
 		if parts, ok := msg["content"].([]any); ok {
 			msg["content"] = extractTextFromContent(parts)
 		}
