@@ -17,17 +17,21 @@ func agentSkillIconURL(agentKey string, skill catalog.SkillDefinition) string {
 	if skill.IconPath == "" {
 		return ""
 	}
-	return "/api/skills/icon?" + url.Values{"agentKey": {agentKey}, "key": {skill.Key}}.Encode()
+	params := url.Values{"key": {skill.Key}}
+	if agentKey != "" {
+		params.Set("agentKey", agentKey)
+	}
+	return "/api/skills/icon?" + params.Encode()
 }
 
 func (s *Server) handleAgentSkillIcon(w http.ResponseWriter, r *http.Request) {
 	key, agentKey := strings.TrimSpace(r.URL.Query().Get("key")), strings.TrimSpace(r.URL.Query().Get("agentKey"))
-	if agentKey == "" || catalog.ValidateEditableSkillKey(key) != nil {
-		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey and a valid skill key are required"))
+	if catalog.ValidateEditableSkillKey(key) != nil {
+		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "a valid skill key is required"))
 		return
 	}
 	def, found := s.deps.Registry.AgentDefinition(agentKey)
-	if !found {
+	if agentKey != "" && !found {
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusNotFound, "agent_not_found", "agent not found"))
 		return
 	}

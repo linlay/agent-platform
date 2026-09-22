@@ -145,8 +145,8 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 
 主要接口分组：
 
-- 用户目录置顶：`/api/skills/order` 与 `/api/connectors/order` 支持 HTTP GET/PUT 和 WebSocket；共用 `internal/catalogorder` 用户隔离与原子落盘，分别保存到 `skills-center/order.json`、`connectors-center/order.json`。同一用户全部 Agent 共用各自有序置顶列表，更新单个 `{key,pinned}`，不触发 catalog/runtime 重载，不修改连接器配置或授权状态。
-- Catalog：`/api/agents`、HTTP-only `/api/agents/order`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/skill-packages/*`、`/api/admin/tools`、`/api/connectors`、`/api/admin/connectors`、`/api/admin/connectors/detail`；`/api/skills` 同时支持 HTTP 与 WebSocket，按 `agentKey` 返回有效技能中心 Skill 和该 Agent 已配置 Skill 的并集，并用 `agentHasSkill` 标识 Agent 当前是否已有。
+- 用户目录置顶：`/api/skills` 与 `/api/connectors/order` 支持 HTTP GET/PUT 和 WebSocket；共用 `internal/catalogorder` 用户隔离与原子落盘，分别保存到 `skills-center/order.json`、`connectors-center/order.json`。同一用户全部 Agent 共用各自有序置顶列表，更新单个 `{key,pinned}`，不触发 catalog/runtime 重载，不修改连接器配置或授权状态。
+- Catalog：`/api/agents`、HTTP-only `/api/agents/order`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/skill-packages/*`、`/api/admin/tools`、`/api/connectors`、`/api/admin/connectors`、`/api/admin/connectors/detail`；`/api/skills` 同时支持 HTTP 与 WebSocket，返回全局有效技能中心目录和用户级 `pinned`；可选 `agentKey` 仅用于计算 `configured`，不筛选目录，不传时均为 false。
 - 外部连接器删除：`DELETE /api/admin/connectors/detail?id=<id>` 与 Agent mutation 及连接器导入/编辑串行，检查当前源码引用和保留的运行挂载；占用返回 409 和 `data.agentKeys`，内置包 403。删除以隐藏 staging 支持重载失败回滚；授权与 CLI 状态保留在 `.state/connectors/<id>`。
 - Chat：`/api/chats`、`/api/chats/order`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。Chat order 支持 HTTP/WS `set_mode/move/set_pinned`，同实例跨 mode 共用置顶组；列表 `pinned` 与 catalog 附带 Chat 的 `chatsPinned` 在 limit/includeChats 之前筛选，归档/删除清理置顶，恢复不继承。
 - Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。

@@ -16,7 +16,7 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-func TestAgentSkillsReturnsConfiguredAndCenterUnion(t *testing.T) {
+func TestAgentSkillsReturnsGlobalCatalogWithConfiguredFlags(t *testing.T) {
 	fixture := newAgentSkillsTestFixture(t, false)
 
 	recorder := httptest.NewRecorder()
@@ -32,7 +32,7 @@ func TestAgentSkillsReturnsConfiguredAndCenterUnion(t *testing.T) {
 	assertAgentSkillsResponse(t, envelope.Data)
 
 	body := recorder.Body.String()
-	for _, forbidden := range []string{`"items"`, `"meta"`, `"mustUseSource"`} {
+	for _, forbidden := range []string{`"items"`, `"meta"`, `"mustUseSource"`, `"agentHasSkill"`} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("response must not contain %s: %s", forbidden, body)
 		}
@@ -47,7 +47,6 @@ func TestAgentSkillsValidatesAgentKey(t *testing.T) {
 		wantStatus int
 		wantCode   string
 	}{
-		{path: "/api/skills", wantStatus: http.StatusBadRequest, wantCode: "agent_key_required"},
 		{path: "/api/skills?agentKey=missing-agent", wantStatus: http.StatusNotFound, wantCode: "agent_not_found"},
 	} {
 		recorder := httptest.NewRecorder()
@@ -94,14 +93,16 @@ func TestAgentSkillsWebSocketReturnsSameData(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write invalid websocket request: %v", err)
 	}
-	var errorFrame ws.ErrorFrame
-	if err := conn.ReadJSON(&errorFrame); err != nil {
-		t.Fatalf("read websocket error: %v", err)
+	global := waitForWebSocketResponseData[api.AgentSkillsResponse](t, conn, "agent_skills_missing_key")
+	if global.AgentKey != "" || global.Skills == nil || global.Pinned == nil {
+		t.Fatalf("global: %#v", global)
 	}
-	if errorFrame.Frame != ws.FrameError || errorFrame.ID != "agent_skills_missing_key" ||
-		errorFrame.Type != "agent_key_required" || errorFrame.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected websocket error: %#v", errorFrame)
+	for _, skill := range global.Skills {
+		if skill.Configured {
+			t.Fatal("global skill must not be configured")
+		}
 	}
+
 }
 
 func newAgentSkillsTestFixture(t *testing.T, withWebSocket bool) testFixture {
@@ -113,7 +114,7 @@ func newAgentSkillsTestFixture(t *testing.T, withWebSocket bool) testFixture {
 			if err != nil {
 				t.Fatalf("read agent config: %v", err)
 			}
-			updated := strings.Replace(string(content), "    - mock-skill", "    - mock-skill\n    - private-skill", 1)
+			updated := strings.Replace(string(content), "    - mock-skill", "    - mock-skill\n    - private-skill\n    - private-only", 1)
 			if updated == string(content) {
 				t.Fatal("expected mock-skill declaration in agent config")
 			}
@@ -121,6 +122,7 @@ func newAgentSkillsTestFixture(t *testing.T, withWebSocket bool) testFixture {
 				t.Fatalf("write agent config: %v", err)
 			}
 			writeTestSkill(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "skills"), "private-skill")
+			writeTestSkill(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "skills"), "private-only")
 			writeTestSkill(t, cfg.Paths.SkillsCenterDir, "center-extra")
 			writeTestSkill(t, cfg.Paths.SkillsCenterDir, "private-skill")
 			writeAgentSkillIconPNG(t, cfg.Paths.SkillsCenterDir, "mock-skill", 30)
@@ -142,6 +144,9 @@ func assertAgentSkillsResponse(t *testing.T, response api.AgentSkillsResponse) {
 	if response.AgentKey != "mock-agent" {
 		t.Fatalf("agentKey = %q", response.AgentKey)
 	}
+	if response.Pinned == nil {
+		t.Fatal("pinned must be a non-null array")
+	}
 	if response.Skills == nil {
 		t.Fatal("skills must be a non-null array")
 	}
@@ -149,18 +154,36 @@ func assertAgentSkillsResponse(t *testing.T, response api.AgentSkillsResponse) {
 		t.Fatalf("expected 3 skills, got %#v", response.Skills)
 	}
 
-	wantKeys := []string{"mock-skill", "private-skill", "center-extra"}
-	wantConfigured := []bool{true, true, false}
+	wantKeys := []string{"center-extra", "mock-skill", "private-skill"}
+	wantConfigured := []bool{false, true, true}
 	for index := range wantKeys {
 		got := response.Skills[index]
-		if got.Key != wantKeys[index] || got.AgentHasSkill != wantConfigured[index] {
-			t.Fatalf("skills[%d] = %#v, want key=%q agentHasSkill=%t", index, got, wantKeys[index], wantConfigured[index])
+		if got.Key != wantKeys[index] || got.Configured != wantConfigured[index] {
+			t.Fatalf("skills[%d] = %#v, want key=%q configured=%t", index, got, wantKeys[index], wantConfigured[index])
 		}
-		if !strings.HasPrefix(got.Icon, "/api/skills/icon?agentKey=mock-agent&key=") {
+		if !strings.HasPrefix(got.Icon, "/api/skills/icon?key=") {
 			t.Fatalf("skills[%d] missing icon: %#v", index, got)
 		}
 		if strings.TrimSpace(got.Name) == "" {
 			t.Fatalf("skills[%d] must include name: %#v", index, got)
+		}
+	}
+}
+
+func TestAgentSkillsOptionalContextDoesNotFilterCatalog(t *testing.T) {
+	f := newAgentSkillsTestFixture(t, false)
+	global := getAPIData[api.AgentSkillsResponse](t, f.server, "GET", "/api/skills", nil)
+	scoped := getAPIData[api.AgentSkillsResponse](t, f.server, "GET", "/api/skills?agentKey=mock-agent", nil)
+	if global.AgentKey != "" || len(global.Skills) != len(scoped.Skills) || global.Pinned == nil {
+		t.Fatalf("global: %#v", global)
+	}
+	for i, skill := range global.Skills {
+		if skill.Configured {
+			t.Fatal("unscoped skill configured")
+		}
+		scoped.Skills[i].Configured = false
+		if skill != scoped.Skills[i] {
+			t.Fatalf("catalog differs: %#v %#v", skill, scoped.Skills[i])
 		}
 	}
 }

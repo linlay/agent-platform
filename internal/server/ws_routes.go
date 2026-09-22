@@ -172,7 +172,6 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/model-options", s.wsModelOptions)
 	handler.RegisterRoute("/api/teams", s.wsTeams)
 	handler.RegisterRoute("/api/skills", s.wsAgentSkills)
-	handler.RegisterRoute("/api/skills/order", s.wsSkillOrder)
 	handler.RegisterRoute("/api/connectors/order", s.wsConnectorOrder)
 	handler.RegisterRoute("/api/chats", s.wsChats)
 	handler.RegisterRoute("/api/chats/order", s.wsChatOrder)

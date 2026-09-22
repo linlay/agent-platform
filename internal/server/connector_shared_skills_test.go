@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,13 +119,13 @@ func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(def.RuntimeDir, "skills", key)); !os.IsNotExist(err) {
 				t.Fatalf("connector skill must stay in its Agent connector runtime: %v", err)
 			}
-			result, err := fixture.server.listSkillsForAgent("mock-agent")
+			result, err := fixture.server.listSkillsForAgent(context.Background(), "mock-agent")
 			if err != nil {
 				t.Fatal(err)
 			}
 			for _, skill := range result.Skills {
-				if skill.Key == key {
-					t.Fatal("mounted connector skill is selectable through its center namesake")
+				if skill.Key == key && skill.Configured {
+					t.Fatal("center namesake must not be marked as a configured ordinary skill")
 				}
 			}
 			if _, err := resolveMustUseSkills(def, fixture.server.deps.Config.Paths.SkillsCenterDir, fixture.server.deps.Registry, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {

@@ -2,103 +2,154 @@ package server
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"net/http"
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
+	"agent-platform/internal/catalogorder"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/ws"
 )
 
 func (s *Server) handleAgentSkills(w http.ResponseWriter, r *http.Request) {
-	response, err := s.listSkillsForAgent(r.URL.Query().Get("agentKey"))
-	s.writeAgentHTTPResponse(w, response, err)
+	w.Header().Set("Cache-Control", "no-store")
+	switch r.Method {
+	case http.MethodGet:
+		response, err := s.listSkillsForAgent(r.Context(), r.URL.Query().Get("agentKey"))
+		s.writeAgentHTTPResponse(w, response, err)
+	case http.MethodPut:
+		var request api.UpdateAgentSkillPinRequest
+		if err := decodeJSON(r, &request); err != nil {
+			s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
+			return
+		}
+		response, err := s.updateAgentSkillPin(r.Context(), request)
+		s.writeAgentHTTPResponse(w, response, err)
+	default:
+		w.Header().Set("Allow", "GET, PUT")
+		writeJSON(w, http.StatusMethodNotAllowed, api.Failure(http.StatusMethodNotAllowed, "method not allowed"))
+	}
 }
 
-func (s *Server) wsAgentSkills(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+func (s *Server) wsAgentSkills(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
-		AgentKey string `json:"agentKey"`
+		AgentKey string          `json:"agentKey"`
+		Key      json.RawMessage `json:"key"`
+		Pinned   json.RawMessage `json:"pinned"`
 	}](req)
 	if err != nil {
 		s.sendAgentWSError(conn, req, agentSkillsStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
 		return
 	}
-	response, listErr := s.listSkillsForAgent(payload.AgentKey)
-	s.sendAgentWSResponse(conn, req, response, listErr)
+	// Any mutation field denotes a write; incomplete writes must fail validation.
+	if payload.Key != nil || payload.Pinned != nil {
+		request, err := ws.DecodePayload[api.UpdateAgentSkillPinRequest](req)
+		if err != nil {
+			s.sendAgentWSError(conn, req, agentSkillsStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
+			return
+		}
+		response, err := s.updateAgentSkillPin(ctx, request)
+		s.sendAgentWSResponse(conn, req, response, err)
+		return
+	}
+	response, err := s.listSkillsForAgent(ctx, payload.AgentKey)
+	s.sendAgentWSResponse(conn, req, response, err)
 }
 
-func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, error) {
-	agentKey = strings.TrimSpace(agentKey)
-	if agentKey == "" {
-		return api.AgentSkillsResponse{}, agentSkillsStatusError(http.StatusBadRequest, "agent_key_required", "agentKey is required")
+func (s *Server) listSkillsForAgent(ctx context.Context, agentKey string) (api.AgentSkillsResponse, error) {
+	user, err := s.catalogOrderUser(ctx)
+	if err != nil {
+		return api.AgentSkillsResponse{}, err
 	}
-	if s == nil || s.deps.Registry == nil {
+	state, err := s.skillOrder.Read(user)
+	if err != nil {
+		return api.AgentSkillsResponse{}, err
+	}
+	response := skillPinsResponse(state)
+	agentKey = strings.TrimSpace(agentKey)
+	if s.deps.Registry == nil {
 		return api.AgentSkillsResponse{}, agentSkillsStatusError(http.StatusServiceUnavailable, "skill_catalog_unavailable", "skill catalog is not configured")
 	}
-	definition, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		return api.AgentSkillsResponse{}, agentSkillsStatusError(http.StatusNotFound, "agent_not_found", "agent not found")
+	configured := map[string]bool{}
+	if agentKey != "" {
+		definition, ok := s.deps.Registry.AgentDefinition(agentKey)
+		if !ok {
+			return api.AgentSkillsResponse{}, agentSkillsStatusError(http.StatusNotFound, "agent_not_found", "agent not found")
+		}
+		response.AgentKey = definition.Key
+		for _, key := range definition.Skills {
+			if !definition.IsConnectorSkill(key) && !connector.IsReservedSkill(key) {
+				configured[strings.ToLower(strings.TrimSpace(key))] = true
+			}
+		}
 	}
-
-	centerSkills := s.deps.Registry.Skills("")
-	response := api.AgentSkillsResponse{
-		AgentKey: definition.Key,
-		Skills:   make([]api.AgentSkillResponse, 0, len(centerSkills)+len(definition.Skills)),
-	}
-	seen := make(map[string]struct{}, len(centerSkills)+len(definition.Skills))
-	for _, configuredKey := range definition.Skills {
-		configuredKey = strings.TrimSpace(configuredKey)
-		normalized := strings.ToLower(configuredKey)
-		if normalized == "" || connector.IsReservedSkill(configuredKey) || definition.IsConnectorSkill(configuredKey) {
+	seen := map[string]bool{}
+	for _, skill := range s.deps.Registry.Skills("") {
+		key := strings.ToLower(strings.TrimSpace(skill.Key))
+		if key == "" || seen[key] || connector.IsReservedSkill(skill.Key) {
 			continue
 		}
-		if _, duplicate := seen[normalized]; duplicate {
-			continue
-		}
-		runtimeSkill, found, err := catalog.ResolveRuntimeSkillDefinition(definition.RuntimeDir, configuredKey)
-		if err != nil {
-			return api.AgentSkillsResponse{}, agentSkillsStatusError(
-				http.StatusServiceUnavailable,
-				"skill_catalog_unavailable",
-				fmt.Sprintf("resolve configured skill %q: %v", configuredKey, err),
-			)
-		}
-		if !found {
-			return api.AgentSkillsResponse{}, agentSkillsStatusError(
-				http.StatusServiceUnavailable,
-				"skill_catalog_unavailable",
-				fmt.Sprintf("configured skill %q is unavailable in agent runtime", configuredKey),
-			)
-		}
-		seen[normalized] = struct{}{}
+		seen[key] = true
+		definition, _ := s.deps.Registry.SkillDefinition(skill.Key)
 		response.Skills = append(response.Skills, api.AgentSkillResponse{
-			Key:           runtimeSkill.Key,
-			Name:          runtimeSkill.Name,
-			Icon:          agentSkillIconURL(definition.Key, runtimeSkill),
-			Description:   runtimeSkill.Description,
-			AgentHasSkill: true,
-		})
-	}
-	for _, centerSkill := range centerSkills {
-		normalized := strings.ToLower(strings.TrimSpace(centerSkill.Key))
-		if normalized == "" || connector.IsReservedSkill(centerSkill.Key) || definition.IsConnectorSkill(centerSkill.Key) {
-			continue
-		}
-		if _, duplicate := seen[normalized]; duplicate {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		centerDefinition, _ := s.deps.Registry.SkillDefinition(centerSkill.Key)
-		response.Skills = append(response.Skills, api.AgentSkillResponse{
-			Icon:        agentSkillIconURL(definition.Key, centerDefinition),
-			Key:         centerSkill.Key,
-			Name:        centerSkill.Name,
-			Description: centerSkill.Description,
+			Key: skill.Key, Name: skill.Name, Description: skill.Description,
+			Icon: agentSkillIconURL("", definition), Configured: configured[key],
 		})
 	}
 	return response, nil
+}
+
+func (s *Server) updateAgentSkillPin(ctx context.Context, request api.UpdateAgentSkillPinRequest) (api.AgentSkillsResponse, error) {
+	user, err := s.catalogOrderUser(ctx)
+	if err != nil {
+		return api.AgentSkillsResponse{}, err
+	}
+	key := strings.ToLower(strings.TrimSpace(request.Key))
+	if key == "" || len(key) > 256 || strings.ContainsAny(key, "/\\\x00\r\n") || request.Pinned == nil {
+		return api.AgentSkillsResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "key and pinned are required")
+	}
+	if *request.Pinned && !s.knownPinnableSkill(key) {
+		return api.AgentSkillsResponse{}, newAgentStatusError(http.StatusNotFound, "skill_not_found", "skill is not available")
+	}
+	state, err := s.skillOrder.SetPinned(user, key, *request.Pinned)
+	return skillPinsResponse(state), err
+}
+
+func (s *Server) knownPinnableSkill(key string) bool {
+	if s.deps.Registry == nil || connector.IsReservedSkill(key) {
+		return false
+	}
+	if registry, err := s.adminSkillRegistry(); err == nil {
+		if _, found, err := registry.AdminSkill(key); err == nil && found {
+			return true
+		}
+	}
+	for _, skill := range s.deps.Registry.Skills("") {
+		if strings.EqualFold(strings.TrimSpace(skill.Key), key) {
+			return true
+		}
+	}
+	for _, agent := range s.deps.Registry.Agents("all") {
+		definition, ok := s.deps.Registry.AgentDefinition(agent.Key)
+		if !ok || definition.IsConnectorSkill(key) {
+			continue
+		}
+		for _, configured := range definition.Skills {
+			if strings.EqualFold(strings.TrimSpace(configured), key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func skillPinsResponse(state catalogorder.OrderState) api.AgentSkillsResponse {
+	pinned := state.Order
+	if pinned == nil {
+		pinned = []string{}
+	}
+	return api.AgentSkillsResponse{Skills: []api.AgentSkillResponse{}, Pinned: pinned}
 }
 
 func agentSkillsStatusError(status int, code string, message string) error {

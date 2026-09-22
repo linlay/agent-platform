@@ -43,9 +43,6 @@ func TestAgentSkillIconUsesRuntimeOrCenterWithoutMixingPrivateSkills(t *testing.
 			t.Fatalf("icon %s: %d %s", skill.Key, rec.Code, rec.Body.String())
 		}
 		root := f.cfg.Paths.SkillsCenterDir
-		if skill.AgentHasSkill {
-			root = filepath.Join(def.RuntimeDir, "skills")
-		}
 		expected, err := os.ReadFile(filepath.Join(root, skill.Key, "assets", skill.Key+".png"))
 		if err != nil {
 			t.Fatal(err)
@@ -89,15 +86,15 @@ func TestAgentSkillIconMissingAndInvalidInputs(t *testing.T) {
 	}
 	response := getAPIData[api.AgentSkillsResponse](t, f.server, http.MethodGet, "/api/skills?agentKey=mock-agent", nil)
 	for _, skill := range response.Skills {
-		if skill.Icon != "" {
-			t.Fatalf("unexpected icon: %s", skill.Icon)
+		if skill.Icon != "/api/skills/icon?key="+skill.Key {
+			t.Fatalf("expected global icon despite missing runtime icon: %s", skill.Icon)
 		}
 	}
 	for _, item := range []struct {
 		query  string
 		status int
 	}{
-		{"key=mock-skill", 400}, {"agentKey=mock-agent&key=../secret", 400},
+		{"key=mock-skill", 404}, {"agentKey=mock-agent&key=../secret", 400},
 		{"agentKey=missing&key=mock-skill", 404}, {"agentKey=mock-agent&key=missing", 404},
 		{"agentKey=mock-agent&key=mock-skill", 404},
 	} {

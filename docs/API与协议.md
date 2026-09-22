@@ -66,8 +66,9 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/agents` | query: `includeChats`、`chatsPinned`、`includeTeam`、`scope`、`mode` | agent 列表；可选混入 Team 与最近 chat 摘要 |
 | GET/PUT | `/api/agents/order` | PUT body: `order` | 全部有效 runtime Agent 的 catalog 顺序 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
-| GET | `/api/skills` | query: `agentKey` | 有效技能中心 Skill 与该 Agent 已配置 Skill 的并集 |
-| GET | `/api/skills/icon` | query: `agentKey`, `key` | 读取对应 Agent 技能候选的 PNG 图标，沿用接口鉴权 |
+| GET | `/api/skills` | query: 可选 `agentKey` | 全局有效技能目录、configured 与用户 pinned |
+| PUT | `/api/skills` | body: `key`, `pinned` | 更新单条用户置顶，返回最新 pinned |
+| GET | `/api/skills/icon` | query: `key`，可选 `agentKey` | 无 Agent 时读取全局中心 PNG；兼容旧 Agent 图标，沿用接口鉴权 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
 | POST | `/api/agent/open-directory` | body: `agentKey`、`directoryType` | 打开 Agent 工作目录或配置目录 |
 | GET | `/api/teams` | 无 | 目录式 Team 列表 |
@@ -80,7 +81,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `GET /api/agents/order` 返回所有有效 runtime Agent 的完整 catalog 顺序，不接受 `scope` 或 `mode` 过滤，也不暴露 invalid Agent。`PUT` 接受 `{ "order": ["agent-b", "agent-a"] }`：key 会裁剪空白并校验为空、重复、数量上限和当前有效 catalog 成员；请求未携带的当前有效 Agent 按现有 catalog 顺序追加。Platform 再把这份有效顺序替换进完整 admin 序列的有效 Agent 槽位，invalid Agent 的位置和相对顺序保持不变，并原子写入既有 `agent-order.json`、reload catalog、发布一次 `catalog.updated`。该接口仅提供 HTTP；`/api/admin/agents/order` 继续面向管理台，允许完整 admin catalog 与 invalid Agent，两者共享同一顺序文件且不迁移已有数据。
 
-`GET /api/skills` 是 WebClient slash 技能选择器的只读接口，要求精确的 `agentKey`。响应 `data` 固定为 `{ "agentKey": "...", "skills": [...] }`，每个 Skill 包含 `key`、`name`、可选 `description`、可选 `icon` 与布尔值 `agentHasSkill`；不使用 `items`，也不返回 `meta` 或运行时选择来源。Agent 已配置 Skill 先按 Agent 配置顺序返回并标记为 `true`，其中包括只存在于 Agent 本地 `skills/` 的 Skill；随后按当前有效 skills-center catalog 的稳定顺序追加其余 Skill并标记为 `false`。两组按 key 大小写不敏感去重，`skills` 无结果时仍返回空数组。缺少 `agentKey` 返回 400 `agent_key_required`，Agent 不存在返回 404 `agent_not_found`，已配置 Skill 无法从稳定 Agent runtime 解析时返回 503 `skill_catalog_unavailable`。
+`GET /api/skills` 返回全局有效技能中心目录，响应为 `{agentKey,skills,pinned}`。每项包含 `key/name/configured` 与可选 `description/icon`；不返回 `items/meta`。可选 `agentKey` 仅计算当前智能体是否已配置该技能，不筛选或重排目录；不存在的 Agent 返回 404 `agent_not_found`。不传时 `agentKey:""`、所有 `configured:false`，仍返回完整目录。技能按中心稳定顺序返回，不追加 Agent 私有技能；`skills` 和 `pinned` 均不为 null。`configured` 表示已配置，并不表示本次必须使用。
 
 普通 Agent 摘要中的 `workspaceDir` 表示该 Agent 的运行工作区，`agentConfigDir` 表示 catalog 已解析的 Agent 配置目录；两者互不替代。`agentConfigDir` 原样返回运行时 `AgentDefinition.AgentDir`，为空时省略。`/api/agent` 继续通过现有的 `source.agentDir` 返回编辑来源目录，不新增顶层字段。
 
@@ -935,7 +936,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 |---|---|---|
 | `/api/agents` | `includeChats`、`chatsPinned`、`includeTeam`、`scope`、`mode` | `response` |
 | `/api/agent` | `agentKey` | `response` |
-| `/api/skills` | `agentKey` | `response`；data 与 HTTP `/api/skills` 完全一致 |
+| `/api/skills` | 可选 `agentKey` 读取；`key/pinned` 写入 | `response`；data 与 HTTP `/api/skills` 完全一致 |
 | `/api/agent/model-config` | `agentKey`/`key`、`modelKey`、`reasoningEffort` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |
@@ -1127,14 +1128,14 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 
 HTTP GET 和 WS `/api/view` 接受 `chatId/connectorId/key/hash?/usage?`，返回带快照引用的 HTML/QLC 文档和声明资源。工具结果与表单事件新增 `view/viewError`，业务结果与提交协议不变。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
 
-技能候选的 `icon` 使用 `/api/skills/icon?agentKey=...&key=...`，按现有 `assets/<skill-id>.png` 约定提供。已配置技能读取 Agent 运行副本，其余读取技能中心；私有同名技能缺图时不回退到中心同名图标。缺图省略 `icon`，客户端显示默认图标。HTTP 与 WebSocket 技能列表共享该字段；图片接口校验来源与图片类型，拒绝越界和符号链接，返回私有缓存及 ETag。Composer 的加号技能菜单和 slash 技能候选共用此接口。
+技能候选的 `icon` 使用 `/api/skills/icon?key=...`，读取技能中心图标，不因 Agent 改变。缺图省略 `icon`；HTTP/WS 共享字段，图片校验与 ETag 缓存保留。旧带 `agentKey` 的图标请求仍按 Agent 运行副本解析，不影响新全局目录。
 
 
 ## 用户技能置顶
 
-`GET /api/skills/order` 返回当前用户的 `{version:1,order:["skill-key"],updatedAt?}`，`order` 仅包含已置顶的技能 key，最近一次新置顶在前。`PUT /api/skills/order` 接收 `{key:"skill-key",pinned:true|false}`，显式设置单个技能，重复请求幂等；空 key、非法 key、缺少 boolean pinned 拒绝，置顶未知技能返回 404，取消置顶允许清理已删除的技能。更新在锁内读取、合并并原子写入，避免不同客户端整表覆盖。
+`GET /api/skills` 在技能列表旁返回当前用户的 `pinned:["skill-key"]`，仅包含已置顶 key，新置顶在前。`PUT /api/skills` 接收 `{key:"skill-key",pinned:true|false}`，返回 `{agentKey:"",skills:[],pinned:[...]}`；不暴露存储的 version/updatedAt。写入不需要 agentKey。重复请求幂等；非法 key 或缺少 boolean pinned 返回 400，置顶未知技能返回 404，取消置顶允许清理已删除技能。锁内单条合并并原子保存，存储格式不变。旧 `/api/skills/order` HTTP/WS 路由已删除。
 
-Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinned}` 对应 PUT，复用相同存储及错误语义。HTTP 不缓存用户置顶响应。用户身份只取已验证 Principal 的 subject，忽略客户端指定的 userKey；认证开启但没有用户身份时拒绝。认证关闭的本地部署使用独立 `local` 记录。
+Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应 GET，`{key,pinned}` 对应 PUT，出现 key 或 pinned 即按写入校验，不完整写入返回 400；复用相同存储及错误语义。HTTP 不缓存用户置顶响应。用户身份只取已验证 Principal 的 subject，忽略客户端指定的 userKey；认证开启但没有用户身份时拒绝。认证关闭的本地部署使用独立 `local` 记录。
 
 唯一持久化位置是 `<runtime>/skills-center/order.json`，具体根目录复用 `Config.Paths.SkillsCenterDir`。文件格式：
 
@@ -1158,7 +1159,7 @@ Platform WebSocket 注册同一路径：空 payload `{}` 对应 GET，`{key,pinn
 
 偏好原子保存到 `runtime/connectors-center/order.json`，文件结构与技能中心一致，按 `users` 隔离，同一用户所有 Agent 共享。新置顶排在最前，重复请求幂等，取消后保留其他项的顺序；未安装的连接器不能新增置顶，已移除的连接器仍可取消置顶。内置只读连接器同样可以置顶，偏好不修改包内容、挂载、配置或登录凭证。两个中心的顺序彼此独立，根目录下的偏好及临时文件不会触发 Agent 热重载。连接器目录扫描跳过外部中心根目录下的普通 `order.json` 偏好文件与隐藏临时文件，写入置顶后列表、导入校验和运行时装配仍读取真实连接器包；同名目录、符号链接及其他异常包条目继续按包规则校验。
 
-技能中心列表也使用 `/api/skills/order`，与 Composer 共用用户置顶顺序；已安装但无效或禁用的技能可在管理列表置顶，置顶不会改变其可运行状态或令其进入 Composer 可用候选。
+技能中心列表也读取 `/api/skills` 的 `pinned`，与 Composer 共用用户置顶顺序；已安装但无效或禁用的技能可在管理列表置顶，置顶不会改变其可运行状态或令其进入 Composer 可用候选。
 
 
 ### planning 期间的 steer

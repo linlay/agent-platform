@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -84,7 +85,7 @@ func TestConnectorSkillsExcludedFromMustUseCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}})
-	result, err := fixture.server.listSkillsForAgent("mock-agent")
+	result, err := fixture.server.listSkillsForAgent(context.Background(), "mock-agent")
 	if err != nil {
 		t.Fatal(err)
 	}

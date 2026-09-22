@@ -1003,13 +1003,7 @@ type UpdateAgentNameRequest struct {
 	Name     string `json:"name"`
 }
 
-type SkillOrderResponse struct {
-	Version   int      `json:"version"`
-	Order     []string `json:"order"`
-	UpdatedAt *int64   `json:"updatedAt,omitempty"`
-}
-
-type UpdateSkillOrderRequest struct {
+type UpdateAgentSkillPinRequest struct {
 	Key    string `json:"key"`
 	Pinned *bool  `json:"pinned"`
 }
@@ -1132,14 +1126,15 @@ type SkillSummary struct {
 }
 
 type AgentSkillResponse struct {
-	Icon          string `json:"icon,omitempty"`
-	Key           string `json:"key"`
-	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
-	AgentHasSkill bool   `json:"agentHasSkill"`
+	Icon        string `json:"icon,omitempty"`
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Configured  bool   `json:"configured"`
 }
 
 type AgentSkillsResponse struct {
+	Pinned   []string             `json:"pinned"`
 	AgentKey string               `json:"agentKey"`
 	Skills   []AgentSkillResponse `json:"skills"`
 }

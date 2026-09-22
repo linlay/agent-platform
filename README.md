@@ -15,7 +15,8 @@ WebApp 新增可信 Desktop 签发的短期能力 grant、复用现有连接器�
 - `GET /api/agents`
 - `GET/PUT /api/agents/order`
 - `GET /api/agent?agentKey=...`
-- `GET /api/skills?agentKey=...`
+- `GET /api/skills?agentKey=...`：全局技能目录、当前 Agent 的 `configured` 标记和用户 `pinned`；agentKey 可选
+- `PUT /api/skills`：单条 `{key,pinned}` 更新置顶
 - `GET /api/teams`
 - `GET /api/admin/skills`
 - `POST /api/admin/skill-packages/import`
