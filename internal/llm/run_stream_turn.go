@@ -466,7 +466,13 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		completedAt = turn.finishSeenAt
 	}
 	s.recordCurrentTurnTiming(completedAt)
-	toolCalls, err := turn.materializeToolCalls()
+	// Output-limit termination may leave incomplete tool JSON. Never execute it
+	// or misclassify the known truncation as malformed tool arguments.
+	var toolCalls []openAIToolCall
+	var err error
+	if !modelOutputLimited(turn) {
+		toolCalls, err = turn.materializeToolCalls()
+	}
 	s.observeModelAttempt(turn, turn.trace, err)
 	s.modelCall = nil
 	if err != nil {
@@ -496,6 +502,26 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		return nil
 	}
 	content := turn.content.String()
+	if payload := modelResponseFailure(turn); payload != nil {
+		if turn.trace != nil {
+			if strings.TrimSpace(content) != "" {
+				turn.trace.complete("error", payload["message"].(string), content, turn.reasoning.String(), nil, strings.TrimSpace(turn.finishReason), turn.usage, nil)
+			} else {
+				turn.trace.completeOK(content, turn.reasoning.String(), nil, strings.TrimSpace(turn.finishReason), turn.usage)
+			}
+		}
+		s.emitPendingUsageDelta()
+		s.emitDebugLLMChatDelta(turn.trace)
+		// Never persist a dangling tool call into continuation history.
+		if len(turn.toolCalls) > 0 {
+			s.pending = append(s.pending, DeltaModelTurnDiscard{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, Reason: payload["code"].(string)})
+		} else {
+			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+		}
+		s.currentTurn = nil
+		s.enqueueTerminalRunError(payload)
+		return nil
+	}
 	if s.teamRouteRequired() && len(toolCalls) == 0 {
 		if turn.trace != nil {
 			turn.trace.completeOK(content, turn.reasoning.String(), nil, strings.TrimSpace(turn.finishReason), turn.usage)
@@ -587,13 +613,6 @@ func (s *llmRunStream) finishCurrentTurn() error {
 				}
 				s.modelTerminalError = transitionErr
 				return nil
-			}
-		}
-		if strings.TrimSpace(content) == "" {
-			if s.runLimitFinalAnswerActive() {
-				s.enqueueFallback(s.finalAnswerToolCallFallback())
-			} else {
-				s.enqueueFallback("Model returned no assistant content.")
 			}
 		}
 		if strings.TrimSpace(content) == "" {

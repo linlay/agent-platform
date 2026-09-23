@@ -638,6 +638,10 @@ func (s *llmRunStream) generateContextCompactSummaryWithBudget(request CompactCo
 				return strings.TrimSpace(output.String()), usage, fmt.Errorf("incomplete compact summary: %s", value.Reason)
 			}
 		case DeltaError:
+			if value.Error["code"] == "model_empty_response" {
+				// The compact caller maps an empty result to summary_empty.
+				return "", usage, nil
+			}
 			return strings.TrimSpace(output.String()), usage, fmt.Errorf("compact summary model error: %v", value.Error)
 		}
 	}

@@ -107,6 +107,8 @@ const (
 	CodeProviderUnavailable           Code = "provider_unavailable"
 	CodeProviderStreamFailed          Code = "provider_stream_failed"
 	CodeProviderStreamInvalid         Code = "provider_stream_invalid"
+	CodeModelOutputLimit              Code = "model_output_limit"
+	CodeModelEmptyResponse            Code = "model_empty_response"
 	CodeModelOutputRepetition         Code = "model_output_repetition"
 	CodeMissingToolCallID             Code = "missing_tool_call_id"
 

@@ -343,6 +343,10 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 				return strings.TrimSpace(b.String()), usage, fmt.Errorf("incomplete compact summary: %s", d.Reason)
 			}
 		case contracts.DeltaError:
+			if d.Error["code"] == "model_empty_response" {
+				// Preserve the compact API's existing summary_empty result.
+				return "", usage, nil
+			}
 			return strings.TrimSpace(b.String()), usage, fmt.Errorf("compact summary model error: %v", d.Error)
 		}
 	}

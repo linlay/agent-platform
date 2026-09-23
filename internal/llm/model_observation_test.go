@@ -55,6 +55,7 @@ func TestModelObservationClassifiesProviderResponses(t *testing.T) {
 			var terminalErr error
 			var content strings.Builder
 			var debugStatus string
+			var responseFailure map[string]any
 			logs := captureStandardLog(t, func() {
 				stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
 				if err != nil {
@@ -71,6 +72,8 @@ func TestModelObservationClassifiesProviderResponses(t *testing.T) {
 						break
 					}
 					switch value := delta.(type) {
+					case contracts.DeltaError:
+						responseFailure = value.Error
 					case contracts.DeltaContent:
 						content.WriteString(value.Text)
 					case contracts.DeltaDebugLLMChat:
@@ -89,7 +92,7 @@ func TestModelObservationClassifiesProviderResponses(t *testing.T) {
 				if d["reason"] != test.reason || d["emptyResponse"] != true {
 					t.Fatalf("unexpected empty response diagnostics: %#v", d)
 				}
-				if content.String() != "Model returned no assistant content." || debugStatus != wantStatus {
+				if content.String() != "" || debugStatus != wantStatus || responseFailure == nil {
 					t.Fatalf("content=%q debugStatus=%q", content.String(), debugStatus)
 				}
 				if strings.Count(logs, `"category":"llm_empty_response"`) != 1 {
