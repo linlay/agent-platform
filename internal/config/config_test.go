@@ -21,6 +21,22 @@ func assertKBaseLanceDefaults(t *testing.T, cfg KBaseConfig) {
 	}
 }
 
+func TestDefaultReadonlyRootsMatchToolsExample(t *testing.T) {
+	want := []string{"@agent", "@skills"}
+	cfg := Config{AccessPolicy: defaultAccessPolicyConfig()}
+	if got := cfg.AccessPolicy.Levels["default"].ReadonlyRoots; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected default readonly roots: %v", got)
+	}
+	tree, err := LoadYAMLTree(filepath.Join("..", "..", "configs", "tools.example.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.applyAccessPolicyValues(tree.(map[string]any)["access-policy"].(map[string]any))
+	if got := cfg.AccessPolicy.Levels["default"].ReadonlyRoots; !reflect.DeepEqual(got, want) {
+		t.Fatalf("example readonly roots differ from defaults: %v", got)
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		runtimeConfig := ""

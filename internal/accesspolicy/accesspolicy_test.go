@@ -238,6 +238,44 @@ func TestTempRootReadonlyAndSymlinkEscapeRemainBlocked(t *testing.T) {
 	}
 }
 
+func TestDefaultPolicyAllowsSkillCreationButProtectsSelectedSkill(t *testing.T) {
+	workspace := t.TempDir()
+	center := filepath.Join(workspace, "skills-center")
+	selected := filepath.Join(center, "selected")
+	if err := os.MkdirAll(selected, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []string{contracts.AccessLevelDefault, contracts.AccessLevelAutoApprove} {
+		t.Run(level, func(t *testing.T) {
+			session := contracts.QuerySession{
+				AccessLevel:   level,
+				WorkspaceRoot: workspace,
+				RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
+					WorkspaceDir:    workspace,
+					SkillsCenterDir: center,
+				}},
+				RunAccessRoots: contracts.RunAccessRoots{ReadonlyRoots: []string{selected}},
+			}
+			cfg := config.AccessPolicyConfig{}
+			created, err := BuildPathPlan(cfg, session, WriteAccess, "@skills-center/new-skill/SKILL.md")
+			if err != nil || !created.Allowed() {
+				t.Fatalf("new skill inside workspace should be writable: plan=%#v err=%v", created, err)
+			}
+			protected, err := BuildPathPlan(cfg, session, WriteAccess, "@skills-center/selected/SKILL.md")
+			if err != nil || !protected.Blocked() {
+				t.Fatalf("selected skill must remain readonly: plan=%#v err=%v", protected, err)
+			}
+			cfg.Levels = map[string]config.AccessPolicyLevelConfig{
+				contracts.AccessLevelDefault: {ReadonlyRoots: []string{"@skills-center"}},
+			}
+			explicit, err := BuildPathPlan(cfg, session, WriteAccess, "@skills-center/new-skill/SKILL.md")
+			if err != nil || !explicit.Blocked() {
+				t.Fatalf("explicit center readonly must still block writes: plan=%#v err=%v", explicit, err)
+			}
+		})
+	}
+}
+
 func TestReadonlyRootsBlockWritesBeforeOutsideApprovalOrHostAccess(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")

@@ -285,7 +285,7 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 			"default": {
 				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills", "@temp"},
 				WriteRoots:    []string{"@workspace", "@chat", "@temp"},
-				ReadonlyRoots: []string{"@agent", "@skills", "@skills-center"},
+				ReadonlyRoots: []string{"@agent", "@skills"},
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "hitl",
 					WriteOutsideRoots:     "hitl",

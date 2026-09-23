@@ -420,7 +420,7 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 		return config.AccessPolicyLevelConfig{
 			ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills", "@temp"},
 			WriteRoots:    []string{"@workspace", "@chat", "@temp"},
-			ReadonlyRoots: []string{"@agent", "@skills", "@skills-center"},
+			ReadonlyRoots: []string{"@agent", "@skills"},
 			Approvals: config.AccessPolicyApprovalConfig{
 				ReadOutsideRoots:      "hitl",
 				WriteOutsideRoots:     "hitl",
