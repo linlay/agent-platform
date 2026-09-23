@@ -13,7 +13,7 @@ import (
 )
 
 func buildSnapshotForTest(summary *chat.Summary, events []stream.EventData, capturedAt int64) (SnapshotV1, error) {
-	document, err := BuildSnapshotDocument(summary, events, capturedAt, "zh-CN", nil)
+	document, err := BuildSnapshotDocument(summary, events, nil, capturedAt, "zh-CN", nil)
 	return document.Snapshot, err
 }
 
@@ -46,7 +46,7 @@ func TestSnapshotAssistantUsesRootRunIdentityAndFallsBackOnlyWhenMissing(t *test
 			return nil
 		}
 	}
-	document, err := BuildSnapshotDocument(&chat.Summary{ChatName: "Export", AgentKey: "fallback", CreatedAt: testEpoch}, events, testEpoch+100, "zh-CN", resolve)
+	document, err := BuildSnapshotDocument(&chat.Summary{ChatName: "Export", AgentKey: "fallback", CreatedAt: testEpoch}, events, nil, testEpoch+100, "zh-CN", resolve)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +132,7 @@ func TestBuildSnapshotDocumentReturnsCanonicalSafeJSON(t *testing.T) {
 			{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"message": "<question>", "runId": "run-1"}},
 			{Type: "run.complete", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "run-1"}},
 		},
+		nil,
 		testEpoch+3,
 		"zh-CN",
 		nil,

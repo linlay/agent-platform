@@ -10,7 +10,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -104,9 +103,9 @@ func (p *Pusher) pushOne(chatID string, artifact map[string]any) {
 		fileName = "artifact.bin"
 	}
 
-	relative := extractResourceFileParam(artifactURL, chatID)
+	relative := canonicalArtifactResourceKey(artifactURL, chatID)
 	if relative == "" {
-		log.Printf("[artifact-pusher] skip: cannot extract file param chatId=%s artifactId=%s url=%s", chatID, artifactID, artifactURL)
+		log.Printf("[artifact-pusher] skip: invalid artifact reference chatId=%s artifactId=%s ref=%s", chatID, artifactID, artifactURL)
 		return
 	}
 	resourceChatID, _, parseErr := chat.ParseResourceKey(relative)
@@ -241,31 +240,26 @@ func (p *Pusher) resolveLocalPath(relative string) string {
 	return abs
 }
 
-// extractResourceFileParam accepts both the new logical resource reference
-// and the legacy /api/resource?file= transport URL.
-func extractResourceFileParam(rawURL string, chatID string) string {
-	raw := strings.TrimSpace(rawURL)
-	if raw == "" {
+// canonicalArtifactResourceKey accepts only the logical reference emitted by
+// artifact_publish. Transport URLs are deliberately not a compatibility input.
+func canonicalArtifactResourceKey(rawRef string, chatID string) string {
+	ref := strings.TrimSpace(rawRef)
+	if ref == "" {
 		return ""
 	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
+	resourceChatID, relativePath, err := chat.ParseResourceKey(chatID + "/" + ref)
+	if err != nil || resourceChatID != chatID {
 		return ""
 	}
-	if parsed.Path == "/api/resource" || strings.HasSuffix(parsed.Path, "/api/resource") {
-		raw = parsed.Query().Get("file")
-	} else {
-		resourceChatID, relativePath, parseErr := chat.ParseResourceKey(chatID + "/" + raw)
-		if parseErr != nil || resourceChatID != chatID {
-			return ""
-		}
-		return filepath.ToSlash(filepath.Join(resourceChatID, relativePath))
-	}
-	chatID, relativePath, err := chat.ParseResourceKey(raw)
-	if err != nil {
+	segments := strings.Split(relativePath, "/")
+	if len(segments) != 3 || segments[0] != "artifacts" || segments[1] == "" || segments[2] == "" {
 		return ""
 	}
-	return filepath.ToSlash(filepath.Join(chatID, relativePath))
+	canonical, err := chat.BuildChatScopeRef(relativePath)
+	if err != nil || canonical != ref {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Join(resourceChatID, relativePath))
 }
 
 func truncate(s string, max int) string {

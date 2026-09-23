@@ -84,6 +84,7 @@ type Store interface {
 	RecentChatsByTeam(teamID string, limit int) ([]Summary, error)
 	ListRuns(chatID string) ([]RunSummary, error)
 	LoadChat(chatID string) (Detail, error)
+	LoadConversationHistory(chatID string) (Detail, error)
 	LoadRunTrace(chatID string, runID string) (RunTrace, error)
 	SearchSession(chatID string, query string, limit int) ([]SearchHit, error)
 	SearchGlobal(query string, agentKey string, teamID string, limit int) ([]GlobalSearchHit, error)
@@ -94,6 +95,7 @@ type Store interface {
 	AgentChatStats() (map[string]AgentChatStats, error)
 	TeamChatStats() (map[string]AgentChatStats, error)
 	ResolveResource(file string) (string, error)
+	PublishedArtifacts(chatID string) ([]ArtifactManifestItem, error)
 	ChatDir(chatID string) string
 }
 

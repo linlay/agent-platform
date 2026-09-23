@@ -23,7 +23,7 @@ func TestHistoricalDetailExportProjection(t *testing.T) {
 			if err := json.Unmarshal(raw, &detail); err != nil {
 				t.Fatal(err)
 			}
-			document, err := BuildSnapshotDocument(&chat.Summary{ChatID: detail.ChatID, ChatName: detail.ChatName, CreatedAt: testEpoch}, detail.Events, testEpoch+1000, "zh-CN", nil)
+			document, err := BuildSnapshotDocument(&chat.Summary{ChatID: detail.ChatID, ChatName: detail.ChatName, CreatedAt: testEpoch}, detail.Events, nil, testEpoch+1000, "zh-CN", nil)
 			if err != nil {
 				t.Fatal(err)
 			}

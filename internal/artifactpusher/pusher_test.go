@@ -39,7 +39,7 @@ func TestPushOneSendsResourcePushedAfterUploadSuccess(t *testing.T) {
 	defer server.Close()
 
 	chatsDir := t.TempDir()
-	writeArtifactFile(t, chatsDir, "chat-1/report.txt", []byte("hello"))
+	writeArtifactFile(t, chatsDir, "chat-1/artifacts/run-1/report.txt", []byte("hello"))
 
 	notifications := &recordingNotifications{}
 	pusher := &Pusher{
@@ -55,7 +55,7 @@ func TestPushOneSendsResourcePushedAfterUploadSuccess(t *testing.T) {
 		"name":       "report.txt",
 		"mimeType":   "text/plain",
 		"type":       "file",
-		"url":        "report.txt",
+		"url":        "artifacts/run-1/report.txt",
 	})
 
 	if !uploadCalled {
@@ -89,7 +89,7 @@ func TestPushOneDoesNotSendResourcePushedAfterUploadFailure(t *testing.T) {
 	defer server.Close()
 
 	chatsDir := t.TempDir()
-	writeArtifactFile(t, chatsDir, "chat-1/report.txt", []byte("hello"))
+	writeArtifactFile(t, chatsDir, "chat-1/artifacts/run-1/report.txt", []byte("hello"))
 
 	notifications := &recordingNotifications{}
 	pusher := &Pusher{
@@ -105,7 +105,7 @@ func TestPushOneDoesNotSendResourcePushedAfterUploadFailure(t *testing.T) {
 		"name":       "report.txt",
 		"mimeType":   "text/plain",
 		"type":       "file",
-		"url":        "/api/resource?file=chat-1/report.txt",
+		"url":        "artifacts/run-1/report.txt",
 	})
 
 	if notifications.eventType != "" || notifications.data != nil {
@@ -113,13 +113,19 @@ func TestPushOneDoesNotSendResourcePushedAfterUploadFailure(t *testing.T) {
 	}
 }
 
-func TestExtractResourceFileParamSupportsLogicalAndLegacyURLs(t *testing.T) {
-	for input, want := range map[string]string{
-		"artifacts/run-1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5.png": "chat-1/artifacts/run-1/夏日 海报.png",
-		"/api/resource?file=chat-1%2Fartifacts%2Frun-1%2Freport.png":  "chat-1/artifacts/run-1/report.png",
+func TestCanonicalArtifactResourceKeyRejectsLegacyAndNonCanonicalReferences(t *testing.T) {
+	const canonical = "artifacts/run-1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5.png"
+	if got := canonicalArtifactResourceKey(canonical, "chat-1"); got != "chat-1/artifacts/run-1/夏日 海报.png" {
+		t.Fatalf("canonicalArtifactResourceKey(%q)=%q", canonical, got)
+	}
+	for _, input := range []string{
+		"/api/resource?file=chat-1%2Fartifacts%2Frun-1%2Freport.png",
+		"report.png",
+		"artifacts/run-1/nested/report.png",
+		"artifacts/run-1/%2e%2e",
 	} {
-		if got := extractResourceFileParam(input, "chat-1"); got != want {
-			t.Fatalf("extractResourceFileParam(%q)=%q want=%q", input, got, want)
+		if got := canonicalArtifactResourceKey(input, "chat-1"); got != "" {
+			t.Fatalf("non-canonical reference %q resolved to %q", input, got)
 		}
 	}
 }

@@ -192,6 +192,7 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 	}
 	if hasTool("bash") {
 		lines = append(lines, `- Every bash call must pass an explicit cwd. Use cwd: "@chat" for Chat files or cwd: "@temp" for temporary work.`)
+		lines = append(lines, `- Write generated intermediates and build files under @temp. Only artifact_publish creates canonical @chat/artifacts/<runId>/<file> outputs.`)
 	}
 	if hasTool("file_glob", "file_grep") {
 		lines = append(lines, `- file_glob and file_grep must pass an explicit path, normally "@chat" or "@temp".`)
@@ -376,7 +377,7 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 		panDirDesc = "用户网盘目录"
 	}
 	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "相对路径根 / 权限工作根")
-	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "当前会话文件目录，可存放产物、临时代码和临时文件")
+	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "当前会话文件目录；正式产物仅由 artifact_publish 写入 artifacts，生成中间文件请使用 @temp")
 	appendContextDir(lines, "root_dir", paths.RootDir, rootDirDesc)
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 运行目录")
@@ -398,7 +399,7 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 
 func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "相对路径根 / 权限工作根")
-	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "当前会话文件目录，可存放产物、临时代码和临时文件")
+	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "当前会话文件目录；正式产物仅由 artifact_publish 写入 artifacts，生成中间文件请使用 @temp")
 	appendContextDir(lines, "root_dir", paths.RootDir, "root 目录")
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 运行目录")

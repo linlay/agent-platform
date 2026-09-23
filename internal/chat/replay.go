@@ -10,6 +10,17 @@ import (
 )
 
 func (s *FileStore) LoadChat(chatID string) (Detail, error) {
+	return s.loadChat(chatID, true)
+}
+
+// LoadConversationHistory replays the authoritative conversation events
+// without consulting the artifact manifest. Export services use this boundary
+// so Markdown remains independent from artifact state.
+func (s *FileStore) LoadConversationHistory(chatID string) (Detail, error) {
+	return s.loadChat(chatID, false)
+}
+
+func (s *FileStore) loadChat(chatID string, includeArtifacts bool) (Detail, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -44,9 +55,11 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	detail.Artifact, err = loadArtifactStateFromManifest(s.ChatDir(chatID), chatID)
-	if err != nil {
-		return Detail{}, err
+	if includeArtifacts {
+		detail.Artifact, err = loadArtifactStateFromManifest(s.ChatDir(chatID), chatID)
+		if err != nil {
+			return Detail{}, err
+		}
 	}
 	return detail, nil
 }

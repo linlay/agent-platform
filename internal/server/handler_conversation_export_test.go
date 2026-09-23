@@ -5,11 +5,14 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/stream"
 )
@@ -128,6 +131,52 @@ func TestHandleChatExportSnapshotValidation(t *testing.T) {
 		fixture.server.ServeHTTP(rec, req)
 		if rec.Code != tc.code {
 			t.Fatalf("path=%s status=%d want=%d body=%s", tc.path, rec.Code, tc.code, rec.Body.String())
+		}
+	}
+}
+
+func TestHandleChatExportMarkdownIgnoresBrokenArtifactManifest(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID = "chat-markdown-broken-artifacts"
+	seedCompletedConversationExport(t, fixture, chatID)
+	manifest := filepath.Join(fixture.chats.ChatDir(chatID), chat.ToolRootDirName, chat.ArtifactManifestFileName)
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	markdown := httptest.NewRecorder()
+	fixture.server.ServeHTTP(markdown, httptest.NewRequest(http.MethodGet,
+		"/api/chat/export?chatId="+chatID+"&format=markdown", nil))
+	if markdown.Code != http.StatusOK || !strings.Contains(markdown.Body.String(), "rollback completed") {
+		t.Fatalf("markdown status=%d body=%s", markdown.Code, markdown.Body.String())
+	}
+	snapshot := httptest.NewRecorder()
+	fixture.server.ServeHTTP(snapshot, httptest.NewRequest(http.MethodGet,
+		"/api/chat/export?chatId="+chatID+"&format=snapshot", nil))
+	if snapshot.Code != http.StatusInternalServerError {
+		t.Fatalf("snapshot status=%d body=%s", snapshot.Code, snapshot.Body.String())
+	}
+}
+
+func TestConversationExportProductionSourcesExcludeDownstreamModels(t *testing.T) {
+	paths := []string{
+		"handler_conversation_export.go",
+		filepath.Join("..", "conversationexport", "attachments.go"),
+		filepath.Join("..", "conversationexport", "service.go"),
+		filepath.Join("..", "conversationexport", "snapshot.go"),
+	}
+	for _, filename := range paths {
+		body, err := os.ReadFile(filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lower := strings.ToLower(string(body))
+		for _, forbidden := range []string{"tunnel", "shareid", "multipart", "public page", "used by sharing"} {
+			if strings.Contains(lower, forbidden) {
+				t.Fatalf("%s contains downstream model %q", filename, forbidden)
+			}
 		}
 	}
 }
