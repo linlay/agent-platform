@@ -1,16 +1,18 @@
 package contracts
 
 type ModelMessage struct {
-	CompactSource    string          `json:"-"`
-	CompactRound     string          `json:"-"`
-	OriginRunID      string          `json:"-"`
-	OriginActor      string          `json:"-"`
-	Role             string          `json:"role"`
-	Content          any             `json:"content,omitempty"`
-	Name             string          `json:"name,omitempty"`
-	ToolCallID       string          `json:"tool_call_id,omitempty"`
-	ToolCalls        []ModelToolCall `json:"tool_calls,omitempty"`
-	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	EncryptedReasoning []ReasoningPart `json:"-"`
+	OriginModelKey     string          `json:"-"`
+	CompactSource      string          `json:"-"`
+	CompactRound       string          `json:"-"`
+	OriginRunID        string          `json:"-"`
+	OriginActor        string          `json:"-"`
+	Role               string          `json:"role"`
+	Content            any             `json:"content,omitempty"`
+	Name               string          `json:"name,omitempty"`
+	ToolCallID         string          `json:"tool_call_id,omitempty"`
+	ToolCalls          []ModelToolCall `json:"tool_calls,omitempty"`
+	ReasoningContent   string          `json:"reasoning_content,omitempty"`
 }
 
 type ModelToolCall struct {

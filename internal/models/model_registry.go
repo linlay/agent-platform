@@ -603,6 +603,11 @@ func defaultEndpointPath(protocol string, baseURL string) string {
 			return "/messages"
 		}
 		return "/v1/messages"
+	case "OPENAI_RESPONSES":
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/responses"
+		}
+		return "/v1/responses"
 	case "", "OPENAI":
 		if normalizedBasePath(baseURL) == "/v1" {
 			return "/chat/completions"

@@ -304,6 +304,8 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 		contentValue = raw["content"]
 	}
 	msg := openAIMessage{Role: role, Content: contentValue}
+	msg.EncryptedReasoning = contracts.EncryptedReasoningParts(raw["reasoning_content"])
+	msg.OriginModelKey, _ = raw["_modelKey"].(string)
 	msg.CompactSource, _ = raw["_compactSource"].(string)
 	msg.CompactRound, _ = raw["_compactRound"].(string)
 	msg.OriginRunID, _ = raw["runId"].(string)
@@ -345,7 +347,7 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 		if s, ok := msg.Content.(string); ok && strings.TrimSpace(s) != "" {
 			hasContent = true
 		}
-		if !hasContent && len(msg.ToolCalls) == 0 {
+		if !hasContent && len(msg.ToolCalls) == 0 && len(msg.EncryptedReasoning) == 0 {
 			return openAIMessage{} // Role="" → filtered by caller
 		}
 	}
@@ -375,13 +377,16 @@ func rawReasoningContentText(value any) string {
 }
 
 func applyOpenAIMessageCompat(messages []openAIMessage, preserveReasoning bool) []openAIMessage {
-	if preserveReasoning {
-		return messages
-	}
-	out := make([]openAIMessage, len(messages))
-	copy(out, messages)
-	for i := range out {
-		out[i].ReasoningContent = ""
+	out := make([]openAIMessage, 0, len(messages))
+	for _, m := range messages {
+		// A Responses-only reasoning item is not an empty Chat Completions turn.
+		if m.Role == "assistant" && len(m.EncryptedReasoning) > 0 && len(m.ToolCalls) == 0 && !hasModelMessageContent(m.Content) {
+			continue
+		}
+		if !preserveReasoning {
+			m.ReasoningContent = ""
+		}
+		out = append(out, m)
 	}
 	return out
 }
@@ -456,13 +461,9 @@ func mergeRawMessagesByMsgID(raw []map[string]any) []map[string]any {
 			}
 		}
 
-		// Merge reasoning_content (string concatenation)
-		if newRC, _ := entry["reasoning_content"].(string); newRC != "" {
-			if oldRC, _ := existing["reasoning_content"].(string); oldRC != "" {
-				existing["reasoning_content"] = oldRC + newRC
-			} else {
-				existing["reasoning_content"] = newRC
-			}
+		if entry["reasoning_content"] != nil {
+			parts := append(contracts.EncryptedReasoningParts(existing["reasoning_content"]), contracts.EncryptedReasoningParts(entry["reasoning_content"])...)
+			existing["reasoning_content"] = contracts.ReasoningPartsValue(rawReasoningContentText(existing["reasoning_content"])+rawReasoningContentText(entry["reasoning_content"]), parts)
 		}
 
 		// Merge tool_calls (append to array)
@@ -482,7 +483,7 @@ func mergeRawMessagesByMsgID(raw []map[string]any) []map[string]any {
 		if role == "assistant" {
 			content, _ := entry["content"].(string)
 			_, hasToolCalls := entry["tool_calls"].([]any)
-			if strings.TrimSpace(content) == "" && !hasToolCalls {
+			if strings.TrimSpace(content) == "" && !hasToolCalls && len(contracts.EncryptedReasoningParts(entry["reasoning_content"])) == 0 {
 				continue // drop empty assistant message
 			}
 		}

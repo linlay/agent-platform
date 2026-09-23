@@ -1,5 +1,7 @@
 # agent-platform
 
+原生模型新增独立 `OPENAI_RESPONSES` 协议；本地 JSONL 保存每次模型调用的可选 `responseId` 与 `reasoning_content` 加密条目，续聊不依赖服务端 response ID。配置、格式及兼容边界见 [Responses 协议](docs/Responses协议.md)。
+
 本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、`platform_control` system control plane、JWT 鉴权、resource ticket、chat 文件落盘、可选手工 Memory、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。

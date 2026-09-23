@@ -55,7 +55,7 @@ func projectCompactMessage(message map[string]any, keep map[string]bool) map[str
 	if !keep["tool"] {
 		delete(out, "tool_calls")
 	}
-	if !hasCompactContent(out["content"]) && anyCompactText(out["reasoning_content"]) == "" && len(anyMessageSlice(out["tool_calls"])) == 0 {
+	if !hasCompactContent(out["content"]) && !hasReasoning(out["reasoning_content"]) && len(anyMessageSlice(out["tool_calls"])) == 0 {
 		return nil
 	}
 	return out

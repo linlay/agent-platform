@@ -41,6 +41,8 @@ type protocolStreamParams struct {
 
 func resolveProtocol(engine *LLMAgentEngine, model ModelDefinition) providerProtocol {
 	switch strings.ToUpper(strings.TrimSpace(model.Protocol)) {
+	case "OPENAI_RESPONSES":
+		return &responsesProtocol{engine: engine}
 	case "ANTHROPIC":
 		return &anthropicProtocol{engine: engine}
 	case "", "OPENAI":

@@ -18,7 +18,11 @@ func (s *llmRunStream) prepareSummaryRequest(prepared *preparedProviderRequest) 
 		delete(body, key)
 	}
 	_, legacyLimit := body["max_tokens"]
-	if strings.EqualFold(s.model.Protocol, "ANTHROPIC") || legacyLimit {
+	if strings.EqualFold(s.model.Protocol, "OPENAI_RESPONSES") {
+		body["max_output_tokens"] = s.stageSettings.MaxOutputTokens
+		delete(body, "max_tokens")
+		delete(body, "max_completion_tokens")
+	} else if strings.EqualFold(s.model.Protocol, "ANTHROPIC") || legacyLimit {
 		body["max_tokens"] = s.stageSettings.MaxOutputTokens
 		delete(body, "max_completion_tokens")
 	} else {

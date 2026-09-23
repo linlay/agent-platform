@@ -112,11 +112,15 @@ func ProjectL1(messages []map[string]any, keepRecent, pinnedStart, pinnedEnd int
 			result.ToolsKept += len(r.calls)
 		}
 		for _, i := range r.indices {
-			if !removeTools && (preserveReasoning || !categoryPresent(messages[i], "reasoning")) {
+			keepReasoning := preserveReasoning
+			if hasEncryptedReasoning(messages[i]["reasoning_content"]) {
+				keepReasoning = len(r.calls) > 0 && !removeTools
+			}
+			if !removeTools && (keepReasoning || !categoryPresent(messages[i], "reasoning")) {
 				continue
 			}
-			keep := map[string]bool{"content": true, "tool": !removeTools, "reasoning": preserveReasoning}
-			if !preserveReasoning && anyCompactText(messages[i]["reasoning_content"]) != "" {
+			keep := map[string]bool{"content": true, "tool": !removeTools, "reasoning": keepReasoning}
+			if !keepReasoning && hasReasoning(messages[i]["reasoning_content"]) {
 				result.ReasoningCleared++
 			}
 			result.Messages[i] = projectCompactMessage(messages[i], keep)
@@ -142,7 +146,7 @@ func categoryPresent(message map[string]any, category string) bool {
 	case "content":
 		return stringFromAny(message["role"]) != "tool" && hasCompactContent(message["content"])
 	case "reasoning":
-		return anyCompactText(message["reasoning_content"]) != ""
+		return hasReasoning(message["reasoning_content"])
 	}
 	return false
 }

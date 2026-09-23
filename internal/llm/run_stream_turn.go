@@ -420,6 +420,9 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		return false, nil
 	}
 	if rawChunk == "[DONE]" {
+		if strings.EqualFold(s.model.Protocol, "OPENAI_RESPONSES") {
+			return false, responsesInvalid("responses stream ended without terminal response")
+		}
 		s.currentTurn.observation.CompletionTrigger = "done_marker"
 		return true, s.finishCurrentTurn()
 	}
@@ -516,7 +519,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		if len(turn.toolCalls) > 0 {
 			s.pending = append(s.pending, DeltaModelTurnDiscard{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, Reason: payload["code"].(string)})
 		} else {
-			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 		}
 		s.currentTurn = nil
 		s.enqueueTerminalRunError(payload)
@@ -573,7 +576,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		} else {
 			s.enqueueFallback(s.finalAnswerToolCallFallback())
 		}
-		s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+		s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 		s.markRunLimitFinalAnswerCompleted()
 		s.closeSteersAndFinish()
 		return nil
@@ -597,11 +600,11 @@ func (s *llmRunStream) finishCurrentTurn() error {
 
 	if len(toolCalls) == 0 {
 		if strings.TrimSpace(content) != "" {
-			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 		}
 		if s.appendTailSteersBeforeFinish() {
 			if strings.TrimSpace(content) == "" {
-				s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+				s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 			}
 			return nil
 		}
@@ -616,7 +619,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			}
 		}
 		if strings.TrimSpace(content) == "" {
-			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 		}
 		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 		if finishReason := strings.TrimSpace(turn.finishReason); finishReason != "" && !strings.EqualFold(finishReason, "tool_calls") {
@@ -687,7 +690,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		fileChanges = nil
 	}
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})
-	s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+	s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 	s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 	for _, prepared := range preparedCalls {
 		toolCall := prepared.toolCall
@@ -729,7 +732,10 @@ func (s *llmRunStream) teamRouteRequired() bool {
 }
 
 func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content string, toolCalls []openAIToolCall) openAIMessage {
-	msg := openAIMessage{Role: "assistant"}
+	msg := openAIMessage{Role: "assistant", OriginModelKey: s.model.Key}
+	if turn != nil {
+		msg.EncryptedReasoning = append([]ReasoningPart(nil), turn.encryptedReasoning...)
+	}
 	if content != "" {
 		msg.Content = content
 	}

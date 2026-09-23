@@ -169,6 +169,12 @@ func visionImageSourcePolicy() toolImageSourcePolicy {
 
 func (t *RuntimeToolExecutor) completeVisionRecognition(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.VisionRecognizeProfileConfig, outputFormat string, prompt string, images []multimodal.ImagePayload) (string, map[string]any, error) {
 	switch strings.ToUpper(strings.TrimSpace(model.Protocol)) {
+	case "OPENAI_RESPONSES":
+		content := []map[string]any{{"type": "text", "text": visionUserPrompt(prompt, outputFormat)}}
+		for _, image := range images {
+			content = append(content, multimodal.OpenAIImageBlock(image))
+		}
+		return t.completeResponsesModel(ctx, model, provider, []ModelMessage{{Role: "system", Content: visionSystemPrompt(profile, outputFormat)}, {Role: "user", Content: content}}, 0)
 	case "ANTHROPIC":
 		return t.completeVisionAnthropic(ctx, model, provider, profile, outputFormat, prompt, images)
 	default:
@@ -278,6 +284,11 @@ func visionProviderEndpoint(provider models.ProviderDefinition, model models.Mod
 
 func defaultVisionEndpointPath(protocol string, baseURL string) string {
 	switch strings.ToUpper(strings.TrimSpace(protocol)) {
+	case "OPENAI_RESPONSES":
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/responses"
+		}
+		return "/v1/responses"
 	case "ANTHROPIC":
 		if normalizedBasePath(baseURL) == "/v1" {
 			return "/messages"

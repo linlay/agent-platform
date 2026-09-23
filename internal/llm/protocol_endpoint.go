@@ -7,6 +7,11 @@ import (
 
 func defaultEndpointPath(protocol string, baseURL string) string {
 	switch strings.ToUpper(strings.TrimSpace(protocol)) {
+	case "OPENAI_RESPONSES":
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/responses"
+		}
+		return "/v1/responses"
 	case "ANTHROPIC":
 		if normalizedBasePath(baseURL) == "/v1" {
 			return "/messages"

@@ -1,6 +1,7 @@
 package stream
 
 import "agent-platform/internal/view"
+import "agent-platform/internal/modelcontent"
 
 type StreamInput interface {
 	streamInputTag()
@@ -85,8 +86,10 @@ func (StageMarker) streamInputTag() {}
 // controls. Commit has no SSE representation. Discard is converted into a
 // run.activity recovery event after the dispatcher clears the listed blocks.
 type ModelTurnCommit struct {
-	TaskID string
-	RunSeq int
+	ResponseID         string
+	EncryptedReasoning []modelcontent.ReasoningPart
+	TaskID             string
+	RunSeq             int
 }
 
 func (ModelTurnCommit) streamInputTag() {}

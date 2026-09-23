@@ -32,7 +32,7 @@ func projectCompactMediaMessages(messages []map[string]any, includeDigest bool) 
 	}
 	projected = make([]map[string]any, len(messages))
 	for index, message := range messages {
-		cloned := cloneCompactMap(message)
+		cloned := readableReasoningMessage(cloneCompactMap(message))
 		if content, exists := message["content"]; exists {
 			cloned["content"], mediaTokens = projectCompactMediaContent(content, includeDigest, mediaTokens)
 		}

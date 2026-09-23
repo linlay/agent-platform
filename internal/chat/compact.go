@@ -441,7 +441,7 @@ func renderMessagesForCompact(messages []map[string]any, maxChars int) string {
 	}
 	var b strings.Builder
 	for i, msg := range messages {
-		encoded, err := json.Marshal(msg)
+		encoded, err := json.Marshal(readableReasoningMessage(msg))
 		if err != nil {
 			continue
 		}
@@ -467,7 +467,7 @@ func compactMessageSnippet(msg map[string]any, maxChars int) string {
 		text = strings.TrimSpace(anyCompactText(msg["reasoning_content"]))
 	}
 	if text == "" {
-		encoded, err := json.Marshal(msg)
+		encoded, err := json.Marshal(readableReasoningMessage(msg))
 		if err == nil {
 			text = string(encoded)
 		}

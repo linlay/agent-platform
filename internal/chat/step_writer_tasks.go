@@ -30,6 +30,8 @@ type taskStepBuffer struct {
 	modelTurnCommitRequired bool
 	modelTurnCommitted      bool
 	modelTurnRunSeq         int
+	responseID              string
+	encryptedReasoning      []ContentPart
 }
 
 func (w *StepWriter) ensureTaskBuffer(taskID string) *taskStepBuffer {
@@ -64,18 +66,19 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	if !ok || buffer == nil {
 		return
 	}
-	if buffer.modelTurnCommitRequired && !buffer.modelTurnCommitted && storedMessagesContainAssistant(buffer.messages) {
+	if buffer.modelTurnCommitRequired && !buffer.modelTurnCommitted && (storedMessagesContainAssistant(buffer.messages) || buffer.responseID != "") {
 		buffer.clearModelTurn()
 		return
 	}
 	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskSubAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
-	if len(buffer.messages) == 0 && !allowEmptySubAgentStep &&
+	if len(buffer.messages) == 0 && buffer.responseID == "" && !allowEmptySubAgentStep &&
 		(buffer.sources == nil || len(buffer.sources.Items) == 0) &&
 		(buffer.artifacts == nil || len(buffer.artifacts.Items) == 0) {
 		return
 	}
 
 	line := StepLine{
+		ResponseID:      buffer.responseID,
 		ChatID:          w.chatID,
 		RunID:           w.runID,
 		UpdatedAt:       buffer.lastTimestamp,
@@ -85,7 +88,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		TaskSubAgentKey: buffer.taskSubAgentKey,
 		TeamID:          buffer.teamID,
 		Presentation:    buffer.presentation,
-		Messages:        canonicalizeStoredToolResultOrder(append([]StoredMessage(nil), buffer.messages...)),
+		Messages:        canonicalizeStoredToolResultOrder(attachResponseReasoning(buffer.messages, buffer.encryptedReasoning, buffer.responseID, buffer.lastTimestamp)),
 	}
 	if buffer.pendingUsage != nil {
 		line.Usage = buffer.pendingUsage
@@ -138,6 +141,8 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer.modelTurnCommitRequired = false
 	buffer.modelTurnCommitted = false
 	buffer.modelTurnRunSeq = 0
+	buffer.responseID = ""
+	buffer.encryptedReasoning = nil
 }
 
 func (buffer *taskStepBuffer) clearModelTurn() {
@@ -160,6 +165,8 @@ func (buffer *taskStepBuffer) clearModelTurn() {
 	buffer.modelTurnCommitRequired = false
 	buffer.modelTurnCommitted = false
 	buffer.modelTurnRunSeq = 0
+	buffer.responseID = ""
+	buffer.encryptedReasoning = nil
 }
 
 func (w *StepWriter) flushAllTaskSteps() {

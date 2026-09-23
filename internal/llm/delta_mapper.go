@@ -221,6 +221,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaModelTurnCommit:
 		m.resetModelTurnState(false)
 		return []stream.StreamInput{stream.ModelTurnCommit{
+			ResponseID: value.ResponseID, EncryptedReasoning: value.EncryptedReasoning,
 			TaskID: value.TaskID,
 			RunSeq: value.RunSeq,
 		}}

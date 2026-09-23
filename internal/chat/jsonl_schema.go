@@ -140,6 +140,9 @@ func withJSONLSchemaLocation(err error, location string) error {
 }
 
 func validateCurrentJSONLLine(line map[string]any) error {
+	if err := validateResponseState(line); err != nil {
+		return err
+	}
 	rawType, found := line["_type"]
 	if !found {
 		return newJSONLSchemaViolation(line, "_type", chatStorageSchemaExpectedLineTypes, "missing", "_type is required")
