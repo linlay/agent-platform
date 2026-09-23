@@ -34,7 +34,7 @@ func TestDesktopConnectorAuthReusesExistingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Server{connectorAuth: manager}
-	principal := &Principal{Subject: "desktop-user:" + strings.Repeat("a", 64), Claims: map[string]any{"scope": "app", "device_id": "device"}}
+	principal := &Principal{Subject: "desktop-app", Claims: map[string]any{"scope": "app", "device_id": "device"}}
 	call := func(method string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "/api/desktop/connector/auth?id=demo", nil)
 		r = r.WithContext(WithPrincipal(r.Context(), principal))
@@ -57,7 +57,7 @@ func TestDesktopConnectorAuthReusesExistingState(t *testing.T) {
 	}
 }
 
-func TestWebappGrantRequiresPersonalDesktopAndCannotSelectOwner(t *testing.T) {
+func TestWebappGrantRequiresLocalDesktopAndCannotSelectOwner(t *testing.T) {
 	server := &Server{webappGrants: webapp.NewGrants(context.Background())}
 	call := func(p *Principal, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/desktop/webapp/grants", strings.NewReader(body))
@@ -68,12 +68,12 @@ func TestWebappGrantRequiresPersonalDesktopAndCannotSelectOwner(t *testing.T) {
 		server.handleWebappGrant(w, r)
 		return w
 	}
-	for _, p := range []*Principal{nil, {Subject: "service", Claims: map[string]any{"scope": "app", "device_id": "device"}}, {Subject: "desktop-user:" + strings.Repeat("a", 64), Claims: map[string]any{"scope": "user", "device_id": "device"}}} {
+	for _, p := range []*Principal{nil, {Subject: "", Claims: map[string]any{"scope": "app", "device_id": "device"}}, {Subject: "desktop-app", Claims: map[string]any{"scope": "app"}}, {Subject: "desktop-app", Claims: map[string]any{"scope": "user", "device_id": "device"}}} {
 		if w := call(p, `{"appId":"calendar","operations":{}}`); w.Code != 403 {
-			t.Fatal("accepted non-personal host", w.Body.String())
+			t.Fatal("accepted unauthenticated or non-app host", w.Body.String())
 		}
 	}
-	principal := &Principal{Subject: "desktop-user:" + strings.Repeat("a", 64), Claims: map[string]any{"scope": "app", "device_id": "device"}}
+	principal := &Principal{Subject: "desktop-app", Claims: map[string]any{"scope": "app", "device_id": "device"}}
 	if w := call(principal, `{"appId":"calendar","subject":"bob","operations":{}}`); w.Code != 400 {
 		t.Fatal("owner accepted from payload")
 	}

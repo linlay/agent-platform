@@ -18,7 +18,7 @@ SDK 功能命名空间统一使用单数：`assistant`、`skill`、`connector`�
 
 ## 可信宿主与短期 grant
 
-`/api/desktop/*` 即使普通 API 允许匿名访问也强制 JWT。宿主入口要求已验证的 `scope=app`、非空 deviceId 和 `desktop-user:<64位十六进制摘要>` subject；请求体不能选择账号。
+`/api/desktop/*` 即使普通 API 允许匿名访问也强制 JWT。宿主入口要求已验证的本地应用 JWT、`scope=app`、非空 deviceId 和 subject；subject 来自本地身份服务，不从官网登录账号派生，请求体不能选择主体。未登录官网也可使用本地 WebApp、连接器管理和产物授权。
 
 - `POST /api/desktop/webapp/grants`：`{version:2,appId,execution:[{connectorId,adapter}],chatIds?}`，返回 `{grantId,token,appId,expiresAt}`；expiresAt 为 epoch milliseconds。
 - `DELETE /api/desktop/webapp/grants?grantId=...`：同 subject 撤销。
@@ -26,7 +26,7 @@ SDK 功能命名空间统一使用单数：`assistant`、`skill`、`connector`�
 - `GET /api/desktop/connector/auth?id=...&sessionId=...`：只查询该次会话；不替换为新的登录会话。
 - `POST /api/desktop/connector/auth/cancel?id=...&sessionId=...`：取消指定会话。
 
-grant 存活 15 分钟，仅保存在内存中；重启失效，撤销取消关联操作。Desktop 持有 token 并代理请求，页面不得获取 token。主体、应用、连接器执行集合、Chat 集合创建后冻结。最多 1024 个活动 grant，每个最多 64 个连接器/adapter 组合、128 个 Chat，不支持通配符。
+grant 存活 15 分钟，仅保存在内存中；重启失效，撤销取消关联操作。Desktop 持有 token 并代理请求，页面不得获取 token。本地应用主体、应用、连接器执行集合、Chat 集合创建后冻结。最多 1024 个活动 grant，每个最多 64 个连接器/adapter 组合、128 个 Chat，不支持通配符。
 
 Platform 检查 Chat 存在及现有 principal 引用权限；应用与 Chat 的关联目前由可信 Desktop 提供，尚无服务端持久化应用所有权模型。不能以此 grant 推导全局历史、其他应用产物或后台 automation 权限。
 
@@ -53,13 +53,13 @@ MCP 仅使用包内已配置组件，按原生工具名调用，拒绝禁用工�
 | `/api/webapp/connector/invoke` CLI | `{connectorId,adapter:"cli",args:string[],idempotencyKey?,credentialRevision?}` | `{invocationId,connectorId,adapter,credentialRevision,exitCode,stdout?,stderr?}` |
 | 同上 MCP | `{connectorId,adapter:"mcp",component,toolName,arguments,idempotencyKey?,credentialRevision?}` | 相同身份字段及 `mcp` 原生结果 |
 
-输入采用严格字段检查，adapter 参数不混用；CLI argv 最多 256 项，拒绝 NUL，保留中文、JSON、引号、换行和元字符原值。包锁、执行前指纹复核与授权复核继续生效；请求和结果有 1 MiB 上限，调用期限 30 秒。CLI 非零退出码、MCP isError 都是业务方必须检查的结果，不自动重试。返回前检查账号版本及授权；调用中账号变化或撤销后不交付结果。
+输入采用严格字段检查，adapter 参数不混用；CLI argv 最多 256 项，拒绝 NUL，保留中文、JSON、引号、换行和元字符原值。包锁、执行前指纹复核与授权复核继续生效；请求和结果有 1 MiB 上限，调用期限 30 秒。CLI 非零退出码、MCP isError 都是业务方必须检查的结果，不自动重试。返回前检查本地调用身份及授权；调用中账号变化或撤销后不交付结果。
 
 ## 执行授权和回执
 
 Desktop 原生确认按应用、连接器和 adapter 记录，明确可读取数据、发送消息和修改数据，不推断通用命令的读写性。登录许可不授予执行，旧读取许可不升级。Desktop 仅允许页面使用此执行能力，后端 token 和 handler 双重拒绝。Platform 只接受可信宿主冻结的 execution 集合，不接受客户端在 invoke 中提权。
 
-有副作用调用由应用提供稳定 idempotencyKey。Platform 在共享连接器状态根持久化 claim，按 subject/app/connector/新执行契约/key 摘要定位，并比较 adapter/args/component/toolName/arguments 的摘要。先独占落盘，再派发；已完成同请求返回结果（包括非零退出与 MCP 业务错误），不同参数冲突，未完成 claim 结果未知、不再派发。执行错误、超时、账号改变或收据保存失败均保持 claim。这不是外部 exactly-once。无 key 请求没有去重保证；SDK 和 Platform 均不自动重试。
+有副作用调用由应用提供稳定 idempotencyKey。Platform 在共享连接器状态根持久化 claim，按 subject/app/connector/新执行契约/key 摘要定位，并比较 adapter/args/component/toolName/arguments 的摘要。先独占落盘，再派发；已完成同请求返回结果（包括非零退出与 MCP 业务错误），不同参数冲突，未完成 claim 结果未知、不再派发。执行错误、超时、本地调用身份改变或收据保存失败均保持 claim。这不是外部 exactly-once。无 key 请求没有去重保证；SDK 和 Platform 均不自动重试。
 
 旧 operation 收据保留不删除，不自动解释为新 argv 请求；升级沿用工作台每日发送的本地标记，不能换键自动重发。credentialRevision 为非凭据账号状态版本，可在一次业务流程的后续调用传回，防止查询人与群发送跨账号切换。
 
@@ -78,3 +78,9 @@ Desktop 原生确认按应用、连接器和 adapter 记录，明确可读取数
 ## 验证与限制
 
 测试覆盖原生 argv、环境隔离、Windows/Unix 启动路径、MCP 文本及业务错误保留、授权冻结/撤销和回执去重。真实 WeCom 只读联调覆盖身份、文档与会议；群发送仅模拟验证。Windows 交叉编译和启动路径单元测试不等同于真实 Windows GUI 联调。应用持久所有权、后台执行 grant 与专属 automation 仍不在本期范围。
+
+## 本地运行身份
+
+Platform 不接收或监听官网的登录状态。Chat、Run、WebApp 和连接器管理使用稳定的本地调用身份；JWT 校验、设备边界、Run 控制所有权和应用 grant 范围保持不变。官网登录/退出不重建连接、不撤销本地 WebApp grant。模型 API Key 属于 Provider 配置，显式 oneid-token 连接器读取外部凭据属于连接器能力，不决定 Platform 调用方身份。
+
+Desktop 与 Platform 的此项变更应一起发布：旧 Platform 仍要求个人前缀，会拒绝新的本地 WebApp 主体。已有主体相关的 Run 控制记录不因本变更被改写或绕过；本地部署身份真正变化属于独立升级/恢复操作，不归官网登录流程处理。

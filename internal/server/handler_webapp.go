@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,24 +14,18 @@ import (
 	"agent-platform/internal/webapp"
 )
 
-// These endpoints require a verified Desktop personal app principal even when
-// the deployment permits anonymous ordinary APIs. Payload cannot choose owner.
-func desktopPersonalSubject(r *http.Request) (string, error) {
+// Desktop endpoints authenticate the local host application, independently of
+// website accounts. The verified token supplies the subject; payload cannot.
+func desktopAppSubject(r *http.Request) (string, error) {
 	p := PrincipalFromContext(r.Context())
-	if p == nil || !strings.HasPrefix(p.Subject, "desktop-user:") || stringClaim(p.Claims, "scope") != "app" || firstStringClaim(p.Claims, "deviceId", "device_id") == "" {
-		return "", webapp.ErrDenied
-	}
-	if len(p.Subject) != 77 {
-		return "", webapp.ErrDenied
-	}
-	if _, err := hex.DecodeString(strings.TrimPrefix(p.Subject, "desktop-user:")); err != nil {
+	if p == nil || strings.TrimSpace(p.Subject) == "" || stringClaim(p.Claims, "scope") != "app" || firstStringClaim(p.Claims, "deviceId", "device_id") == "" {
 		return "", webapp.ErrDenied
 	}
 	return p.Subject, nil
 }
 func (s *Server) handleWebappGrant(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	subject, err := desktopPersonalSubject(r)
+	subject, err := desktopAppSubject(r)
 	if err != nil {
 		writeWebappError(w, err)
 		return
@@ -82,7 +75,7 @@ func (s *Server) handleWebappGrant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, api.Success(grant))
 }
 func (s *Server) handleDesktopConnectorAuth(w http.ResponseWriter, r *http.Request) {
-	if _, err := desktopPersonalSubject(r); err != nil {
+	if _, err := desktopAppSubject(r); err != nil {
 		writeWebappError(w, err)
 		return
 	}
