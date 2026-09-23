@@ -214,7 +214,9 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 
 `/api/chats` 的可选 `pinned` 与其他筛选按 AND 组合：`true` 只取置顶组，`false` 只取未置顶组，省略则取全部且置顶组在前。HTTP 只接受单个 `true` / `false`，WebSocket 只接受 JSON boolean；非法值返回 400。筛选和各组排序均在 `limit` 截断之前完成。例如 `mode=REACT&pinned=false&limit=8` 返回最多 8 条未置顶的匹配记录，不会让置顶项占用这 8 个位置。获取完整跨 mode 置顶组使用 `/api/chats?pinned=true`，不传 `mode` 或 `limit`。
 
-`/api/chats/order` 管理同一 Platform 实例的展示偏好，不按用户、Agent 或 mode 分开。`pinnedOrder` 是独立的有序 active Chat ID 数组，缺省为空；`sortMode` 只控制未置顶组。`recent` 按 `updatedAt DESC, chatId DESC`；`manual` 先把尚未进入保存序列的新建或恢复 Chat 按 recent 放在未置顶组前面，再接保存的 active Chat 顺序，已归档、删除或不存在的 ID 自动忽略。`updatedAt` 是两份展示偏好的较新修改时间，未发生修改时省略。
+`/api/chats/order` 管理同一 Platform 实例的展示偏好，不按用户、Agent 或 mode 分开。`pinnedOrder` 是独立的有序 active Chat ID 数组，缺省为空；`sortMode` 只控制未置顶组。`recent` 按 `updatedAt DESC, chatId DESC`；`manual` 先把尚未进入保存序列的新建或恢复 Chat 按 `createdAt DESC, chatId DESC` 放在未置顶组前面，再接保存的 active Chat 顺序，已归档、删除或不存在的 ID 自动忽略。`updatedAt` 是两份展示偏好的较新修改时间，未发生修改时省略。
+
+手动顺序首次初始化按 Chat 创建时间倒序，后续内容更新不改变位置；模式切换保留已有手动顺序，新建或恢复且未保存的 Chat 按创建时间倒序补到前面。recent 下直接拖动以当时全量 recent 顺序为基线应用移动并原子保存为 manual；已有手动顺序不因升级重置。
 
 WebClient 与 Desktop 导航只通过一次 `/api/chats/order` 读取排序配置和完整跨 mode、跨 owner 的置顶摘要，不再探测能力或追加 `/api/chats?pinned=true`。读取响应的 `pinnedChats` 固定为数组（空列表为 `[]`），每项复用 `/api/chats` 摘要结构和活动 Run 投影，数组顺序即展示顺序；`pinnedOrder` 仅是同一列表的兼容 ID 投影。存储层在同一锁内读取偏好、置顶和持久化摘要；活动 Run 随后按既有规则补充，仍需实时 Push 校准。`updatedAt` 仅表示展示偏好修改时间，不能作为摘要整体的缓存版本。读取失败不得被客户端解释为空置顶列表。
 

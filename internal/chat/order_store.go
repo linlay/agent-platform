@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -74,13 +75,13 @@ func (s *FileStore) SetChatSortMode(mode SortMode) (OrderState, error) {
 		log.Printf("chat order: rebuilding invalid state before set_mode: %v", err)
 		state = defaultOrderState()
 	}
-	recent, err := s.listAllChatIDsRecentLocked()
+	created, err := s.listAllChatIDsCreatedLocked()
 	if err != nil {
 		return OrderState{}, err
 	}
 	state.Version = 1
 	state.SortMode = mode
-	state.Order = orderChatIDs(recent, state.Order)
+	state.Order = orderChatIDs(created, state.Order)
 	state.UpdatedAt = time.Now().UnixMilli()
 	if err := s.writeChatOrderLocked(state); err != nil {
 		return OrderState{}, err
@@ -139,7 +140,11 @@ func (s *FileStore) MoveChat(chatID string, beforeChatID string, afterChatID str
 
 	baseline := append([]string(nil), recent...)
 	if state.SortMode == SortModeManual {
-		baseline = orderChatIDs(recent, state.Order)
+		created, err := s.listAllChatIDsCreatedLocked()
+		if err != nil {
+			return OrderState{}, err
+		}
+		baseline = orderChatIDs(created, state.Order)
 	}
 	if !containsChatID(baseline, chatID) {
 		return OrderState{}, &OrderValidationError{Message: fmt.Sprintf("unknown active chat: %s", chatID)}
@@ -245,7 +250,15 @@ func (s *FileStore) writeChatOrderLocked(state OrderState) error {
 }
 
 func (s *FileStore) listAllChatIDsRecentLocked() ([]string, error) {
-	rows, err := s.db.Query("SELECT CHAT_ID_ FROM CHATS ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC")
+	return s.listAllChatIDsLocked("SELECT CHAT_ID_ FROM CHATS ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC")
+}
+
+func (s *FileStore) listAllChatIDsCreatedLocked() ([]string, error) {
+	return s.listAllChatIDsLocked("SELECT CHAT_ID_ FROM CHATS ORDER BY CREATED_AT_ DESC, CHAT_ID_ DESC")
+}
+
+func (s *FileStore) listAllChatIDsLocked(query string) ([]string, error) {
+	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -293,6 +306,14 @@ func orderChatIDs(recent []string, saved []string) []string {
 }
 
 func orderSummaries(items []Summary, saved []string) []Summary {
+	// Unranked chats use immutable creation time, never content activity.
+	items = append([]Summary(nil), items...)
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt != items[j].CreatedAt {
+			return items[i].CreatedAt > items[j].CreatedAt
+		}
+		return items[i].ChatID > items[j].ChatID
+	})
 	byID := make(map[string]Summary, len(items))
 	recent := make([]string, 0, len(items))
 	for _, item := range items {
