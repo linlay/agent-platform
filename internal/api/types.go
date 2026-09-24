@@ -730,28 +730,33 @@ type AdminAgentSummary struct {
 	Meta                   map[string]any         `json:"meta,omitempty"`
 }
 
+type AgentDetailSkill struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+}
+
 type AgentDetailResponse struct {
-	InteractionConfig interaction.Config         `json:"interactionConfig"`
-	Key               string                     `json:"key"`
-	Name              string                     `json:"name"`
-	Icon              any                        `json:"icon,omitempty"`
-	Description       string                     `json:"description,omitempty"`
-	Role              string                     `json:"role,omitempty"`
-	Greetings         []string                   `json:"greetings,omitempty"`
-	Introductions     []string                   `json:"introductions,omitempty"`
-	Wonders           []string                   `json:"wonders,omitempty"`
-	Model             string                     `json:"model,omitempty"`
-	Mode              string                     `json:"mode"`
-	Tools             []string                   `json:"tools"`
-	Skills            []string                   `json:"skills"`
-	Controls          []map[string]any           `json:"controls"`
-	Meta              map[string]any             `json:"meta"`
-	ModelConfig       map[string]any             `json:"modelConfig,omitempty"`
-	ModelOptions      *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
-	Definition        map[string]any             `json:"definition,omitempty"`
-	SoulPrompt        string                     `json:"soulPrompt,omitempty"`
-	AgentsPrompt      string                     `json:"agentsPrompt,omitempty"`
-	Source            *AgentSource               `json:"source,omitempty"`
+	ModelKey          string             `json:"modelKey,omitempty"`
+	ServiceTier       string             `json:"serviceTier,omitempty"`
+	ReasoningEffort   string             `json:"reasoningEffort,omitempty"`
+	InteractionConfig interaction.Config `json:"interactionConfig"`
+	Key               string             `json:"key"`
+	Name              string             `json:"name"`
+	Icon              any                `json:"icon,omitempty"`
+	Description       string             `json:"description,omitempty"`
+	Role              string             `json:"role,omitempty"`
+	Greetings         []string           `json:"greetings,omitempty"`
+	Introductions     []string           `json:"introductions,omitempty"`
+	Wonders           []string           `json:"wonders,omitempty"`
+	Mode              string             `json:"mode"`
+	Tools             []string           `json:"tools"`
+	Skills            []AgentDetailSkill `json:"skills"`
+	Controls          []map[string]any   `json:"controls"`
+	Meta              map[string]any     `json:"meta"`
+	Definition        map[string]any     `json:"definition,omitempty"`
+	SoulPrompt        string             `json:"soulPrompt,omitempty"`
+	AgentsPrompt      string             `json:"agentsPrompt,omitempty"`
+	Source            *AgentSource       `json:"source,omitempty"`
 }
 
 type AgentSource struct {
@@ -981,16 +986,38 @@ type UpdateAgentRequest struct {
 }
 
 type UpdateAgentModelConfigRequest struct {
-	Key             string `json:"key,omitempty"`
-	AgentKey        string `json:"agentKey,omitempty"`
-	ModelKey        string `json:"modelKey"`
-	ReasoningEffort string `json:"reasoningEffort,omitempty"`
-	ServiceTier     string `json:"serviceTier,omitempty"`
+	AgentKey        string          `json:"agentKey"`
+	ModelKey        *string         `json:"modelKey,omitempty"`
+	ReasoningEffort *string         `json:"reasoningEffort,omitempty"`
+	ServiceTier     json.RawMessage `json:"serviceTier,omitempty"`
+}
+
+func (r *UpdateAgentModelConfigRequest) UnmarshalJSON(data []byte) error {
+	type plain UpdateAgentModelConfigRequest
+	var decoded plain
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, key := range []string{"modelKey", "reasoningEffort"} {
+		if raw, exists := fields[key]; exists && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("%s must not be null", key)
+		}
+	}
+	*r = UpdateAgentModelConfigRequest(decoded)
+	return nil
 }
 
 type AgentModelConfigResponse struct {
-	Key         string         `json:"key"`
-	ModelConfig map[string]any `json:"modelConfig"`
+	AgentKey        string `json:"agentKey"`
+	ModelKey        string `json:"modelKey"`
+	ReasoningEffort string `json:"reasoningEffort"`
+	ServiceTier     string `json:"serviceTier,omitempty"`
 }
 
 type DeleteAgentRequest struct {
@@ -1077,12 +1104,9 @@ type AgentEditorChannelConfigSchema struct {
 }
 
 type CoderModelOptionsResponse struct {
-	Models                 []CoderModelOption      `json:"models"`
-	ReasoningEfforts       []ReasoningEffortOption `json:"reasoningEfforts"`
-	ServiceTiers           []ServiceTierOption     `json:"serviceTiers,omitempty"`
-	DefaultModelKey        string                  `json:"defaultModelKey,omitempty"`
-	DefaultReasoningEffort string                  `json:"defaultReasoningEffort"`
-	DefaultServiceTier     string                  `json:"defaultServiceTier,omitempty"`
+	Models           []CoderModelOption      `json:"models"`
+	ReasoningEfforts []ReasoningEffortOption `json:"reasoningEfforts"`
+	ServiceTiers     []ServiceTierOption     `json:"serviceTiers,omitempty"`
 }
 
 type CoderModelOption struct {

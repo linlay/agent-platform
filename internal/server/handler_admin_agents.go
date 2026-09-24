@@ -144,10 +144,10 @@ func adminAgentDetailFromAgentDetail(detail api.AgentDetailResponse, item catalo
 		Icon:         detail.Icon,
 		Description:  detail.Description,
 		Role:         detail.Role,
-		Model:        detail.Model,
+		Model:        detail.ModelKey,
 		Mode:         detail.Mode,
 		Tools:        append([]string{}, detail.Tools...),
-		Skills:       append([]string{}, detail.Skills...),
+		Skills:       agentDetailSkillKeys(detail.Skills),
 		Controls:     cloneListMaps(detail.Controls),
 		Meta:         cloneMeta(detail.Meta),
 		Definition:   cloneMeta(detail.Definition),
@@ -359,4 +359,12 @@ func writeAgentOrderFile(agentsDir string, file catalog.AgentOrderFile) error {
 		return err
 	}
 	return os.Rename(tmpPath, filepath.Join(agentsDir, catalog.AgentOrderFileName))
+}
+
+func agentDetailSkillKeys(skills []api.AgentDetailSkill) []string {
+	keys := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		keys = append(keys, skill.Key)
+	}
+	return keys
 }

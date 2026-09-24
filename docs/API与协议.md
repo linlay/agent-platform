@@ -69,7 +69,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/skills` | query: 可选 `agentKey` | 全局有效技能目录、configured 与用户 pinned |
 | PUT | `/api/skills` | body: `key`, `pinned` | 更新单条用户置顶，返回最新 pinned |
 | GET | `/api/skills/icon` | query: `key`，可选 `agentKey` | 无 Agent 时读取全局中心 PNG；兼容旧 Agent 图标，沿用接口鉴权 |
-| POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
+| POST | `/api/agent/model-config` | body: `agentKey`、可选 `modelKey/reasoningEffort/serviceTier`（至少一项） | 更新 Agent 模型配置，省略保持，等级 null 清除 |
 | POST | `/api/agent/open-directory` | body: `agentKey`、`directoryType` | 打开 Agent 工作目录或配置目录 |
 | GET | `/api/teams` | 无 | 目录式 Team 列表 |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
@@ -268,6 +268,13 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 `/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`（包括 `includeTeam=true`）附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。KBASE editing run 的摘要带可选 `editingMode:true`，方便客户端重连后恢复 badge；false 时省略。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
+
+`/api/agent` 返回顶层 `modelKey`、`reasoningEffort`、可选 `serviceTier`。模型 key 原样反映配置，ACP 详情不访问上游模型列表、不自动回退到其他模型。思考读取 Agent 顶层 `modelConfig.reasoning`：显式 `enabled:false` 返回 `NONE`，否则返回规范化 `effort`，未配置回退 `MEDIUM`；不代表 stageSettings 或单次 query 的覆盖结果。未设置服务等级时省略 `serviceTier`。不返回 `model`、`selected*`、`modelConfig`、`modelOptions`，meta 不重复返回 modelKey/modelKeys/providerKey/protocol。
+
+`skills` 为 `{key,name}[]`，按 Agent 技能顺序返回，name 优先取已挂载技能（包含 Agent 私有覆盖）的名称，缺失时回退 key；空列表为 `[]`，`meta.perAgentSkills` 已删除。内部 Agent YAML 仍使用技能 key 数组。
+
+`POST /api/agent/model-config`（HTTP/WS 相同）仅接受 `agentKey` 必填，`modelKey`、`reasoningEffort`、`serviceTier` 至少一项。省略字段保持原值；modelKey 不允许空值；reasoningEffort 为 NONE/LOW/MEDIUM/HIGH/XHIGH/MAX，不接受空值/null；serviceTier 为非空字符串或 null，null 清除等级，STANDARD 也按清除处理，非标准等级仅限 ACP。未知字段（包括旧 key 别名）拒绝。更新会校验最终模型与 ACP 能力；响应为 `{agentKey,modelKey,reasoningEffort,serviceTier?}`。YAML 的 modelConfig.reasoning.enabled/effort 结构保持不变，API 通过 NONE 表达关闭。
+
 
 `/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；新增的 `introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
@@ -592,8 +599,9 @@ Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `C
 
 - `models`: 当前 model registry 中可展示的聊天模型，字段为 `key/name/icon/provider/modelId/protocol/isReasoner/isVision/contextWindow/reasoningEfforts`。native reasoner model 的 `reasoningEfforts` 固定为五个启用档位 `LOW/MEDIUM/HIGH/XHIGH/MAX`；ACP 透传模型继续使用 bridge 声明。`icon` 是可选的模型图标标识；ACP 透传模型仅在上游 `/api/models` 返回该字段时携带。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding`、`type: image-generation` 与 `type: vl` 均不会出现在聊天模型选项中。
 - `reasoningEfforts`: native model options 固定为 `NONE`、`LOW`、`MEDIUM`、`HIGH`、`XHIGH`、`MAX`，其中 `NONE` 表示关闭思考深度；ACP CODER 仍按 bridge 的模型发现结果生成
-- `defaultModelKey`: 可展示模型中的默认模型；优先普通可调用模型，没有时可回退到 ACP 透传模型，无默认模型时为空
-- `defaultReasoningEffort`: 固定为 `MEDIUM`
+- `serviceTiers`: 可选服务等级（ACP 按 bridge 能力解析，包含恢复标准等级的 STANDARD 选项）
+
+该接口仅表达可选能力，不返回 `defaultModelKey/defaultReasoningEffort/defaultServiceTier`。当前选择由 `/api/agent` 顶层 `modelKey/reasoningEffort/serviceTier` 提供，刷新选项不改变 Agent 的选择；无可配置服务等级时省略 serviceTiers。
 
 `GET /api/admin/agents/editor-options` 的 `models` 仅返回 `type: chat` 的模型（未声明 `type` 时按 `chat` 兼容），供 Agent 创建与编辑选择；`embedding`、`image-generation`、`vl` 不进入选项，支持看图的 `chat` 模型仍保留。该接口无需类型过滤参数。reasoner model 同样返回 `reasoningEfforts: [LOW, MEDIUM, HIGH, XHIGH, MAX]`。这里及聊天、usage、回放中记录的均为用户选择的逻辑档位；provider 实际映射值不会作为额外字段回显。
 
@@ -939,7 +947,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/agents` | `includeChats`、`chatsPinned`、`includeTeam`、`scope`、`mode` | `response` |
 | `/api/agent` | `agentKey` | `response` |
 | `/api/skills` | 可选 `agentKey` 读取；`key/pinned` 写入 | `response`；data 与 HTTP `/api/skills` 完全一致 |
-| `/api/agent/model-config` | `agentKey`/`key`、`modelKey`、`reasoningEffort` | `response` |
+| `/api/agent/model-config` | `agentKey`、可选 `modelKey/reasoningEffort/serviceTier` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |
 | `/api/chats` | `lastRunId`、`agentKey`、`mode`、`pinned`、`limit` | `response` |

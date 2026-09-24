@@ -22,32 +22,16 @@ func (s *Server) handleModelOptions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOptionsResponse {
 	modelOptions := s.listModelOptionsForAgent(agentKey)
-	defaultModelKey := s.defaultModelOptionKeyForAgent(modelOptions, agentKey)
 	reasoningEfforts := s.reasoningEffortOptionsForAgent(agentKey, modelOptions)
 	serviceTiers := s.serviceTierOptionsForAgent(agentKey, modelOptions)
-	defaultServiceTier := s.defaultServiceTierForAgent(agentKey, serviceTiers)
-	if defaultServiceTier == "" {
-		defaultServiceTier = "STANDARD"
+	if len(serviceTiers) == 1 && serviceTiers[0].Key == "STANDARD" {
+		serviceTiers = nil
 	}
 	return api.CoderModelOptionsResponse{
-		Models:                 modelOptions,
-		ReasoningEfforts:       reasoningEfforts,
-		ServiceTiers:           serviceTiers,
-		DefaultModelKey:        defaultModelKey,
-		DefaultReasoningEffort: "MEDIUM",
-		DefaultServiceTier:     defaultServiceTier,
+		Models:           modelOptions,
+		ReasoningEfforts: reasoningEfforts,
+		ServiceTiers:     serviceTiers,
 	}
-}
-
-func coderModelConfigFromOptions(options api.CoderModelOptionsResponse) map[string]any {
-	return agentbuiltin.CoderModelConfigFromOptions(options)
-}
-
-func modelConfigString(modelConfig map[string]any, key string) string {
-	if len(modelConfig) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(stringValue(modelConfig[key]))
 }
 
 func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOption {
@@ -139,37 +123,6 @@ func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
 		return false
 	}
 	return strings.TrimSpace(provider.APIKey) != ""
-}
-
-func (s *Server) defaultModelOptionKeyForAgent(options []api.CoderModelOption, agentKey string) string {
-	if len(options) == 0 {
-		return ""
-	}
-	preferredKey := ""
-	if s.deps.Registry != nil {
-		if def, ok := s.deps.Registry.AgentDefinition(strings.TrimSpace(agentKey)); ok {
-			preferredKey = strings.TrimSpace(def.ModelKey)
-		}
-	}
-	defaultKey := ""
-	if s.deps.Models != nil {
-		if model, _, err := s.deps.Models.Default(); err == nil {
-			defaultKey = strings.TrimSpace(model.Key)
-		}
-	}
-	return agentbuiltin.CoderDefaultModelOptionKey(options, preferredKey, defaultKey)
-}
-
-func (s *Server) defaultServiceTierForAgent(agentKey string, options []api.ServiceTierOption) string {
-	agentKey = strings.TrimSpace(agentKey)
-	if agentKey == "" || s.deps.Registry == nil {
-		return ""
-	}
-	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		return ""
-	}
-	return agentbuiltin.CoderDefaultServiceTier(catalog.AgentUsesACPCoderBackend(def), def.ServiceTier, options)
 }
 
 func (s *Server) serviceTierOptionsForAgent(agentKey string, modelOptions []api.CoderModelOption) []api.ServiceTierOption {

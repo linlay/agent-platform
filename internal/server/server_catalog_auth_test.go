@@ -36,7 +36,7 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if response.Data.Key != "mock-agent" {
 		t.Fatalf("expected mock-agent key, got %#v", response.Data)
 	}
-	if response.Data.Model != "mock-model-id" {
+	if response.Data.ModelKey != "mock-model" {
 		t.Fatalf("expected resolved model id, got %#v", response.Data)
 	}
 	if response.Data.Mode != "REACT" {
@@ -68,28 +68,19 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 		response.Data.Tools[5] != "memory_search" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
-	if len(response.Data.Skills) != 1 || response.Data.Skills[0] != "mock-skill" {
+	if len(response.Data.Skills) != 1 || response.Data.Skills[0].Key != "mock-skill" || response.Data.Skills[0].Name == "" {
 		t.Fatalf("expected skills in detail response, got %#v", response.Data.Skills)
 	}
 	if len(response.Data.Controls) != 1 || response.Data.Controls[0]["key"] != "tone" {
 		t.Fatalf("expected controls in detail response, got %#v", response.Data.Controls)
 	}
-	if response.Data.Meta["modelKey"] != "mock-model" {
-		t.Fatalf("expected modelKey meta, got %#v", response.Data.Meta)
+	for _, key := range []string{"modelKey", "modelKeys", "providerKey", "protocol"} {
+		if _, exists := response.Data.Meta[key]; exists {
+			t.Fatalf("redundant model metadata: %s", key)
+		}
 	}
-	if response.Data.Meta["providerKey"] != "mock" {
-		t.Fatalf("expected providerKey meta, got %#v", response.Data.Meta)
-	}
-	if response.Data.Meta["protocol"] != "OPENAI" {
-		t.Fatalf("expected protocol meta, got %#v", response.Data.Meta)
-	}
-	modelKeys, ok := response.Data.Meta["modelKeys"].([]any)
-	if !ok || len(modelKeys) != 1 || modelKeys[0] != "mock-model" {
-		t.Fatalf("expected modelKeys meta, got %#v", response.Data.Meta["modelKeys"])
-	}
-	perAgentSkills, ok := response.Data.Meta["perAgentSkills"].([]any)
-	if !ok || len(perAgentSkills) != 1 || perAgentSkills[0] != "mock-skill" {
-		t.Fatalf("expected perAgentSkills meta, got %#v", response.Data.Meta["perAgentSkills"])
+	if _, exists := response.Data.Meta["perAgentSkills"]; exists {
+		t.Fatalf("skills must only be returned at the top level, got %#v", response.Data.Meta)
 	}
 	sandbox, ok := response.Data.Meta["sandbox"].(map[string]any)
 	if !ok {
@@ -610,5 +601,91 @@ func TestExecuteInternalQueryBypassesHTTPAuth(t *testing.T) {
 	}
 	if !strings.Contains(body, `"type":"content.delta"`) {
 		t.Fatalf("expected streaming response, got %s", body)
+	}
+}
+
+func TestAgentDetailReasoningEffortPersists(t *testing.T) {
+	for _, mode := range []string{"REACT", "CODER"} {
+		t.Run(mode, func(t *testing.T) {
+			fixture := newTestFixture(t)
+			key := "selected-effort-" + strings.ToLower(mode)
+			created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+				"key": key, "definition": map[string]any{
+					"key": key, "name": key, "mode": mode,
+					"modelConfig":   map[string]any{"modelKey": "mock-model"},
+					"toolConfig":    map[string]any{"tools": []any{"datetime"}},
+					"runtimeConfig": map[string]any{"workspaceRoot": setupCoderTestWorkspace(t, &fixture.cfg, "selection-workspace")},
+				},
+			})
+			key = created.Key
+			for _, effort := range []string{"", "HIGH", "NONE", "MAX"} {
+				if effort != "" {
+					postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{
+						"agentKey": key, "modelKey": "mock-model", "reasoningEffort": effort,
+					})
+				}
+				rec := httptest.NewRecorder()
+				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey="+key, nil))
+				if rec.Code != http.StatusOK {
+					t.Fatalf("get detail: %d %s", rec.Code, rec.Body.String())
+				}
+				var response api.ApiResponse[map[string]any]
+				if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+					t.Fatal(err)
+				}
+				if response.Data["modelKey"] != "mock-model" || response.Data["serviceTier"] != nil {
+					t.Fatalf("unexpected selected model/service tier: %#v", response.Data)
+				}
+				want := effort
+				if want == "" {
+					want = "MEDIUM"
+				}
+				if got := response.Data["reasoningEffort"]; got != want {
+					t.Fatalf("selectedReasoningEffort = %v, want %s", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestAgentModelConfigPartialUpdateAndStrictFields(t *testing.T) {
+	fixture := newTestFixture(t)
+	saved := postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{"agentKey": "mock-agent", "reasoningEffort": "HIGH"})
+	if saved.ModelKey != "mock-model" || saved.ReasoningEffort != "HIGH" {
+		t.Fatalf("partial reasoning: %#v", saved)
+	}
+	saved = postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{"agentKey": "mock-agent", "modelKey": "mock-model"})
+	if saved.ReasoningEffort != "HIGH" {
+		t.Fatalf("omission must preserve reasoning: %#v", saved)
+	}
+	for _, body := range []string{
+		`{"key":"mock-agent","reasoningEffort":"LOW"}`,
+		`{"agentKey":"mock-agent","key":"mock-agent","reasoningEffort":"LOW"}`,
+		`{"agentKey":"mock-agent"}`,
+		`{"agentKey":"mock-agent","modelKey":null,"reasoningEffort":"LOW"}`,
+		`{"agentKey":"mock-agent","reasoningEffort":""}`,
+		`{"agentKey":"mock-agent","serviceTier":""}`,
+	} {
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/agent/model-config", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("invalid patch %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestAgentDetailSkillsUseMountedNames(t *testing.T) {
+	fixture := newTestFixture(t)
+	runtimeDir := t.TempDir()
+	path := filepath.Join(runtimeDir, "skills", "mock-skill")
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("---\nname: 私有技能\ndescription: test\n---\nSkill body"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	detail := fixture.server.buildAgentDetailResponse(catalog.AgentDefinition{Key: "test", Mode: "REACT", Skills: []string{"mock-skill"}, RuntimeDir: runtimeDir})
+	if len(detail.Skills) != 1 || detail.Skills[0].Key != "mock-skill" || detail.Skills[0].Name != "私有技能" {
+		t.Fatalf("mounted skills: %#v", detail.Skills)
 	}
 }

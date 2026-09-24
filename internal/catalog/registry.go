@@ -51,6 +51,7 @@ type AgentDefinition struct {
 	Introductions        []string
 	Wonders              []string
 	ModelKey             string
+	ModelReasoningEffort string // Persisted top-level selection; empty means unspecified.
 	ServiceTier          string
 	Mode                 string
 	ACPBridgeID          string

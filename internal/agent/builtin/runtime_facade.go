@@ -65,9 +65,6 @@ func CoderSubmitPlanningDecision(params api.SubmitParams) string {
 func CoderStartsNewExecutionRun(mode string, answer map[string]any, agentMode, acpBridgeID string) bool {
 	return coder.StartsNewExecutionRun(mode, answer, agentMode, acpBridgeID)
 }
-func CoderModelConfigFromOptions(options api.CoderModelOptionsResponse) map[string]any {
-	return coder.ModelConfigFromOptions(options)
-}
 func CoderModelOptionsFilterMode(agentKey, mode, acpBridgeID string) string {
 	return coder.ModelOptionsFilterMode(agentKey, mode, acpBridgeID)
 }

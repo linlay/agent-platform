@@ -79,7 +79,7 @@ func TestAgentInteractionDetailAndQueryHTTP(t *testing.T) {
 func TestReactModelConfigCanBeSelected(t *testing.T) {
 	fixture := newTestFixture(t)
 	result := postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{"agentKey": "mock-agent", "modelKey": "mock-model", "reasoningEffort": "HIGH"})
-	if result.ModelConfig["modelKey"] != "mock-model" {
+	if result.ModelKey != "mock-model" {
 		t.Fatalf("model config: %+v", result)
 	}
 }

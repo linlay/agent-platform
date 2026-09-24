@@ -130,12 +130,14 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
 	}
+	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
+		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
+			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
+		}
+	}
 	var response api.ApiResponse[api.CoderModelOptionsResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode options response: %v", err)
-	}
-	if response.Data.DefaultModelKey != "mock-model" || response.Data.DefaultReasoningEffort != "MEDIUM" {
-		t.Fatalf("unexpected defaults %#v", response.Data)
 	}
 	if len(response.Data.ReasoningEfforts) != 6 ||
 		response.Data.ReasoningEfforts[0].Key != "NONE" ||
@@ -204,12 +206,14 @@ func TestCoderModelOptionsFiltersEmptyAPIKeyAndHidesACPPassthroughFromPublicOpti
 	if rec.Code != http.StatusOK {
 		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
 	}
+	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
+		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
+			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
+		}
+	}
 	var response api.ApiResponse[api.CoderModelOptionsResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode options response: %v", err)
-	}
-	if response.Data.DefaultModelKey != "" {
-		t.Fatalf("expected no public default when only hidden models remain, got %#v", response.Data)
 	}
 	for _, model := range response.Data.Models {
 		if model.Key == "mock-model" {
@@ -288,15 +292,14 @@ func TestCoderModelOptionsForACPCoderAgentOnlyShowsACPPassthrough(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
 	}
+	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
+		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
+			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
+		}
+	}
 	var response api.ApiResponse[api.CoderModelOptionsResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode options response: %v", err)
-	}
-	if response.Data.DefaultModelKey != "gpt-5.5" {
-		t.Fatalf("expected acp default, got %#v", response.Data)
-	}
-	if response.Data.DefaultServiceTier != "STANDARD" {
-		t.Fatalf("expected acp default service tier STANDARD, got %#v", response.Data)
 	}
 	if got := strings.Join(serviceTierKeys(response.Data.ServiceTiers), ","); got != "STANDARD,FAST" {
 		t.Fatalf("service tier options = %#v", response.Data.ServiceTiers)
@@ -386,15 +389,17 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
 	}
+	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
+		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
+			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
+		}
+	}
 	var response api.ApiResponse[api.CoderModelOptionsResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode options response: %v", err)
 	}
 	if len(response.Data.Models) != 1 {
 		t.Fatalf("models = %#v", response.Data.Models)
-	}
-	if response.Data.DefaultServiceTier != "STANDARD" {
-		t.Fatalf("expected acp default service tier STANDARD, got %#v", response.Data)
 	}
 	if got := strings.Join(serviceTierKeys(response.Data.ServiceTiers), ","); got != "STANDARD,FAST" {
 		t.Fatalf("service tier options = %#v", response.Data.ServiceTiers)
@@ -403,9 +408,6 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 		t.Fatalf("reasoning effort options = %#v", response.Data.ReasoningEfforts)
 	}
 	model := response.Data.Models[0]
-	if response.Data.DefaultModelKey != "MiniMax-M2.7" {
-		t.Fatalf("default model should come from ACP /api/models, got %#v", response.Data)
-	}
 	if model.Key != "MiniMax-M2.7" || model.Name != "MiniMax-M2.7" || model.Icon != "" || model.ModelID != "MiniMax-M2.7" || model.ContextWindow != 200000 || model.Protocol != "ACP_PASSTHROUGH" {
 		t.Fatalf("unexpected proxy model %#v", model)
 	}
@@ -417,7 +419,7 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 	}
 }
 
-func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
+func TestAgentDetailDoesNotFetchOrEmbedModelOptions(t *testing.T) {
 	var modelRequestCount atomic.Int32
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/models" {
@@ -465,6 +467,9 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 					"mode: CODER",
 					"modelConfig:",
 					"  modelKey: claude-opus-4-6",
+					"  reasoning:",
+					"    enabled: true",
+					"    effort: HIGH",
 					"runtimeConfig:",
 					"  acpBridgeId: codex",
 					"  workspaceRoot: " + filepath.ToSlash(workspace),
@@ -499,20 +504,19 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &acpResponse); err != nil {
 		t.Fatalf("decode acp agent detail: %v", err)
 	}
-	if acpResponse.Data.ModelOptions == nil || acpResponse.Data.ModelOptions.DefaultModelKey != "MiniMax-M2.7" {
-		t.Fatalf("expected ACP detail model options, got %#v", acpResponse.Data.ModelOptions)
+	if acpResponse.Data.ReasoningEffort != "HIGH" {
+		t.Fatalf("expected saved ACP effort HIGH, got %q", acpResponse.Data.ReasoningEffort)
 	}
-	if len(acpResponse.Data.ModelOptions.Models) != 1 || acpResponse.Data.ModelOptions.Models[0].Protocol != "ACP_PASSTHROUGH" || acpResponse.Data.ModelOptions.Models[0].Icon != "MiniMax" {
-		t.Fatalf("expected ACP passthrough model options, got %#v", acpResponse.Data.ModelOptions.Models)
+	if acpResponse.Data.ModelKey != "claude-opus-4-6" {
+		t.Fatalf("must retain configured model: %#v", acpResponse.Data)
 	}
-	if acpResponse.Data.Model != "MiniMax-M2.7" || modelConfigString(acpResponse.Data.ModelConfig, "modelKey") != "MiniMax-M2.7" {
-		t.Fatalf("expected ACP detail model config from /api/models, got model=%q config=%#v", acpResponse.Data.Model, acpResponse.Data.ModelConfig)
+	for _, field := range []string{"modelOptions", "modelConfig", "selectedModelKey"} {
+		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
+			t.Fatalf("unexpected field %s", field)
+		}
 	}
-	if acpResponse.Data.Meta["modelKey"] != "MiniMax-M2.7" {
-		t.Fatalf("expected ACP detail meta modelKey from /api/models, got %#v", acpResponse.Data.Meta)
-	}
-	if got := modelRequestCount.Load(); got != 1 {
-		t.Fatalf("agent detail should fetch ACP models once, got %d requests", got)
+	if got := modelRequestCount.Load(); got != 0 {
+		t.Fatalf("agent detail must not fetch model options: %d", got)
 	}
 
 	rec = httptest.NewRecorder()
@@ -523,9 +527,6 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	var nativeResponse api.ApiResponse[api.AgentDetailResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &nativeResponse); err != nil {
 		t.Fatalf("decode native agent detail: %v", err)
-	}
-	if nativeResponse.Data.ModelOptions != nil {
-		t.Fatalf("native agent detail should not include model options, got %#v", nativeResponse.Data.ModelOptions)
 	}
 	if strings.Contains(rec.Body.String(), `"modelOptions"`) {
 		t.Fatalf("native agent detail should omit modelOptions, got %s", rec.Body.String())
@@ -553,7 +554,7 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	if acpSummary == nil || nativeSummary == nil {
 		t.Fatalf("expected acp and native summaries, got %#v", summaries.Data)
 	}
-	if got := modelRequestCount.Load(); got != 1 {
+	if got := modelRequestCount.Load(); got != 0 {
 		t.Fatalf("/api/agents should not fetch ACP models, got %d total requests", got)
 	}
 	if acpSummary.ModelOptions != nil || acpSummary.ModelConfig != nil {
@@ -637,12 +638,14 @@ func TestCoderModelOptionsForNativeCoderAgentHidesACPPassthrough(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
 	}
+	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
+		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
+			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
+		}
+	}
 	var response api.ApiResponse[api.CoderModelOptionsResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode options response: %v", err)
-	}
-	if response.Data.DefaultModelKey != "ready-model" {
-		t.Fatalf("expected native default, got %#v", response.Data)
 	}
 	foundReady := false
 	for _, model := range response.Data.Models {
@@ -696,12 +699,14 @@ func TestCoderModelOptionsDefaultSkipsHiddenProviderModel(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
 	}
+	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
+		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
+			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
+		}
+	}
 	var response api.ApiResponse[api.CoderModelOptionsResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode options response: %v", err)
-	}
-	if response.Data.DefaultModelKey != "ready-model" {
-		t.Fatalf("expected ready-model default, got %#v", response.Data)
 	}
 	for _, model := range response.Data.Models {
 		if model.Key == "mock-model" {
@@ -748,7 +753,7 @@ func TestCoderModelOptionsWS(t *testing.T) {
 		t.Fatalf("decode options data: %v", err)
 	}
 	if optionsFrame.Frame != ws.FrameResponse || optionsFrame.ID != "coder-options" ||
-		options.DefaultModelKey != "mock-model" || options.DefaultReasoningEffort != "MEDIUM" || len(options.ReasoningEfforts) != 6 {
+		len(options.ReasoningEfforts) != 6 {
 		t.Fatalf("unexpected options frame %#v data=%#v", optionsFrame, options)
 	}
 	foundIcon := false

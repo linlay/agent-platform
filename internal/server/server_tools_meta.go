@@ -186,7 +186,10 @@ func defaultRole(role string) string {
 }
 
 func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.AgentDetailResponse {
-	modelName, meta := s.buildAgentDetailMeta(def)
+	_, meta := s.buildAgentDetailMeta(def)
+	for _, key := range []string{"modelKey", "modelKeys", "providerKey", "protocol"} {
+		delete(meta, key)
+	}
 	response := api.AgentDetailResponse{
 		InteractionConfig: def.Interaction(),
 		Key:               def.Key,
@@ -197,37 +200,35 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Greetings:         append([]string(nil), def.Greetings...),
 		Introductions:     append([]string(nil), def.Introductions...),
 		Wonders:           append([]string(nil), def.Wonders...),
-		Model:             modelName,
 		Mode:              catalog.AgentModeForAPI(def.Mode),
 		Tools:             effectiveAgentTools(def),
-		Skills:            append([]string{}, def.Skills...),
+		Skills:            s.agentDetailSkills(def),
 		Controls:          cloneListMaps(def.Controls),
 		Meta:              meta,
 	}
+	response.ModelKey = def.ModelKey
+	response.ReasoningEffort = firstNonBlank(def.ModelReasoningEffort, "MEDIUM")
 	if catalog.AgentUsesACPCoderBackend(def) {
-		modelOptions := s.buildModelOptionsForAgent(def.Key)
-		response.ModelOptions = &modelOptions
-		response.ModelConfig = coderModelConfigFromOptions(modelOptions)
-		applyACPCoderModelMeta(&response, response.ModelConfig)
+		response.ServiceTier, _ = normalizeQueryModelServiceTier(def.ServiceTier)
 	}
 	return response
 }
 
-func applyACPCoderModelMeta(response *api.AgentDetailResponse, modelConfig map[string]any) {
-	if response == nil {
-		return
+func (s *Server) agentDetailSkills(def catalog.AgentDefinition) []api.AgentDetailSkill {
+	out := make([]api.AgentDetailSkill, 0, len(def.Skills))
+	for _, key := range def.Skills {
+		name := key
+		skill, found, err := def.ResolveSkillDefinition(key)
+		if err == nil && found {
+			name = firstNonBlank(skill.Name, key)
+		} else if s.deps.Registry != nil {
+			if skill, found := s.deps.Registry.SkillDefinition(key); found {
+				name = firstNonBlank(skill.Name, key)
+			}
+		}
+		out = append(out, api.AgentDetailSkill{Key: key, Name: name})
 	}
-	modelKey := strings.TrimSpace(modelConfigString(modelConfig, "modelKey"))
-	if modelKey == "" {
-		return
-	}
-	response.Model = modelKey
-	if response.Meta == nil {
-		response.Meta = map[string]any{}
-	}
-	response.Meta["model"] = modelKey
-	response.Meta["modelKey"] = modelKey
-	response.Meta["modelKeys"] = []string{modelKey}
+	return out
 }
 
 func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[string]any) {
@@ -257,9 +258,6 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	}
 	if modelName == "" {
 		modelName = def.ModelKey
-	}
-	if len(def.Skills) > 0 {
-		meta["perAgentSkills"] = append([]string(nil), def.Skills...)
 	}
 	if strings.TrimSpace(def.ACPBridgeID) != "" {
 		meta["acpBridgeId"] = strings.TrimSpace(def.ACPBridgeID)

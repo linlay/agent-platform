@@ -24,32 +24,6 @@ func DefaultReasoningEffortOptions() []api.ReasoningEffortOption {
 	return options
 }
 
-func ModelConfigFromOptions(options api.CoderModelOptionsResponse) map[string]any {
-	modelKey := strings.TrimSpace(options.DefaultModelKey)
-	if modelKey == "" && len(options.Models) > 0 {
-		modelKey = strings.TrimSpace(options.Models[0].Key)
-	}
-	if modelKey == "" {
-		return nil
-	}
-	modelConfig := map[string]any{"modelKey": modelKey}
-	reasoningEffort := strings.TrimSpace(options.DefaultReasoningEffort)
-	if reasoningEffort != "" {
-		reasoning := map[string]any{}
-		if strings.EqualFold(reasoningEffort, "NONE") {
-			reasoning["enabled"] = false
-		} else {
-			reasoning["enabled"] = true
-			reasoning["effort"] = reasoningEffort
-		}
-		modelConfig["reasoning"] = reasoning
-	}
-	if serviceTier := strings.TrimSpace(options.DefaultServiceTier); serviceTier != "" {
-		modelConfig["serviceTier"] = serviceTier
-	}
-	return modelConfig
-}
-
 func ModelOptionsFilterMode(agentKey string, mode string, acpBridgeID string) string {
 	if strings.TrimSpace(agentKey) == "" {
 		return "native-only"

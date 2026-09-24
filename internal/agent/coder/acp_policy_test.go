@@ -51,39 +51,6 @@ func TestDefaultModelOptionKeyPrefersVisibleNormalFallback(t *testing.T) {
 	}
 }
 
-func TestModelConfigFromOptionsAndReasoningEffort(t *testing.T) {
-	cfg := ModelConfigFromOptions(api.CoderModelOptionsResponse{
-		Models:                 []api.CoderModelOption{{Key: "fallback-model"}},
-		DefaultModelKey:        " coder-model ",
-		DefaultReasoningEffort: "NONE",
-		DefaultServiceTier:     "FAST",
-	})
-	if cfg["modelKey"] != "coder-model" || cfg["serviceTier"] != "FAST" {
-		t.Fatalf("unexpected model config: %#v", cfg)
-	}
-	reasoning, _ := cfg["reasoning"].(map[string]any)
-	if enabled, ok := reasoning["enabled"].(bool); !ok || enabled {
-		t.Fatalf("expected NONE reasoning to disable reasoning, got %#v", cfg)
-	}
-	if got := ModelConfigReasoningEffort(cfg); got != "NONE" {
-		t.Fatalf("ModelConfigReasoningEffort()=%q want NONE", got)
-	}
-
-	fallback := ModelConfigFromOptions(api.CoderModelOptionsResponse{
-		Models:                 []api.CoderModelOption{{Key: "fallback-model"}},
-		DefaultReasoningEffort: "HIGH",
-	})
-	if fallback["modelKey"] != "fallback-model" {
-		t.Fatalf("expected first model fallback, got %#v", fallback)
-	}
-	if got := ModelConfigReasoningEffort(fallback); got != "HIGH" {
-		t.Fatalf("ModelConfigReasoningEffort()=%q want HIGH", got)
-	}
-	if got := ModelConfigFromOptions(api.CoderModelOptionsResponse{}); got != nil {
-		t.Fatalf("expected nil config without a model key, got %#v", got)
-	}
-}
-
 func TestReasoningEffortOptionsAndACPModelAllowance(t *testing.T) {
 	modelOptions := []api.CoderModelOption{
 		{Key: "alpha", ReasoningEfforts: []string{"HIGH", "extra_high", "bad"}},

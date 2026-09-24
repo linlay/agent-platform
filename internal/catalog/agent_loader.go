@@ -666,6 +666,11 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.ModelKey = stringNode(modelConfig["modelKey"])
+	reasoning := mapNode(modelConfig["reasoning"])
+	def.ModelReasoningEffort = stringNode(reasoning["effort"])
+	if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {
+		def.ModelReasoningEffort = models.ReasoningEffortNone
+	}
 	def.ServiceTier = stringNode(modelConfig["serviceTier"])
 	toolConfig := mapNode(root["toolConfig"])
 	if err := validateAgentToolConfig(toolConfig); err != nil {

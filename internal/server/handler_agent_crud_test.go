@@ -498,7 +498,7 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	if reasoning["effort"] != "MEDIUM" {
 		t.Fatalf("expected kbase default reasoning effort, got %#v", modelConfig)
 	}
-	if created.Meta["modelKey"] != "mock-model" {
+	if created.ModelKey != "mock-model" {
 		t.Fatalf("expected created kbase model key mock-model, got %#v", created.Meta)
 	}
 	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
@@ -916,7 +916,7 @@ func TestAgentCreateCoderAppliesDefaultModelConfig(t *testing.T) {
 	if modelConfig["modelKey"] != "mock-model" || reasoning["effort"] != "MEDIUM" {
 		t.Fatalf("expected coder default model config, got %#v", modelConfig)
 	}
-	if created.Meta["modelKey"] != "mock-model" {
+	if created.ModelKey != "mock-model" {
 		t.Fatalf("expected created coder model key mock-model, got %#v", created.Meta)
 	}
 	if _, ok := created.Definition["budget"]; ok {
@@ -1100,21 +1100,14 @@ func TestAgentModelConfigUpdatePersistsCoderDefaults(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &rawResponse); err != nil {
 		t.Fatalf("decode raw response: %v", err)
 	}
-	if len(rawResponse.Data) != 2 {
+	if len(rawResponse.Data) != 3 {
 		t.Fatalf("expected compact model config response, got %#v", rawResponse.Data)
 	}
-	if rawResponse.Data["key"] != created.Key {
+	if rawResponse.Data["agentKey"] != created.Key {
 		t.Fatalf("expected response key, got %#v", rawResponse.Data)
 	}
-	rawModelConfig, _ := rawResponse.Data["modelConfig"].(map[string]any)
-	rawReasoning, _ := rawModelConfig["reasoning"].(map[string]any)
-	if rawModelConfig["modelKey"] != "mock-model" || rawReasoning["enabled"] != true || rawReasoning["effort"] != "XHIGH" {
-		t.Fatalf("expected compact persisted model config, got %#v", rawModelConfig)
-	}
-	modelConfig := rawModelConfig
-	reasoning, _ := modelConfig["reasoning"].(map[string]any)
-	if modelConfig["modelKey"] != "mock-model" || reasoning["enabled"] != true || reasoning["effort"] != "XHIGH" {
-		t.Fatalf("expected persisted model config, got %#v", modelConfig)
+	if rawResponse.Data["modelKey"] != "mock-model" || rawResponse.Data["reasoningEffort"] != "XHIGH" {
+		t.Fatalf("unexpected flat settings: %#v", rawResponse.Data)
 	}
 	data, err := os.ReadFile(created.Source.Path)
 	if err != nil {
@@ -1130,9 +1123,8 @@ func TestAgentModelConfigUpdatePersistsCoderDefaults(t *testing.T) {
 		"modelKey":        "mock-model",
 		"reasoningEffort": "MAX",
 	})
-	updatedReasoning, _ := updated.ModelConfig["reasoning"].(map[string]any)
-	if updatedReasoning["effort"] != "MAX" {
-		t.Fatalf("expected MAX model config, got %#v", updated.ModelConfig)
+	if updated.ReasoningEffort != "MAX" {
+		t.Fatalf("expected MAX model config, got %#v", updated)
 	}
 }
 
@@ -1155,17 +1147,12 @@ func TestAgentModelConfigUpdatePersistsNoneReasoning(t *testing.T) {
 	})
 
 	updated := postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{
-		"key":             created.Key,
+		"agentKey":        created.Key,
 		"modelKey":        "mock-model",
 		"reasoningEffort": "NONE",
 	})
-	modelConfig := updated.ModelConfig
-	reasoning, _ := modelConfig["reasoning"].(map[string]any)
-	if modelConfig["modelKey"] != "mock-model" || reasoning["enabled"] != false {
-		t.Fatalf("expected NONE reasoning config, got %#v", modelConfig)
-	}
-	if _, ok := reasoning["effort"]; ok {
-		t.Fatalf("NONE reasoning should omit effort, got %#v", reasoning)
+	if updated.ModelKey != "mock-model" || updated.ReasoningEffort != "NONE" {
+		t.Fatalf("unexpected NONE response: %#v", updated)
 	}
 	data, err := os.ReadFile(created.Source.Path)
 	if err != nil {
@@ -1249,8 +1236,8 @@ func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.
 		"reasoningEffort": "LOW",
 		"serviceTier":     "FAST",
 	})
-	if updated.ModelConfig["modelKey"] != "gpt-5.5" || updated.ModelConfig["serviceTier"] != "FAST" {
-		t.Fatalf("expected ACP model config with service tier, got %#v", updated.ModelConfig)
+	if updated.ModelKey != "gpt-5.5" || updated.ServiceTier != "FAST" {
+		t.Fatalf("expected ACP model config with service tier, got %#v", updated)
 	}
 	data, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.AgentsDir, "codex-agent", "agent.yml"))
 	if err != nil {
@@ -1261,17 +1248,31 @@ func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.
 		t.Fatalf("agent.yml did not persist ACP service tier:\n%s", text)
 	}
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=codex-agent", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=codex-agent", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("model options returned %d: %s", rec.Code, rec.Body.String())
 	}
-	var response api.ApiResponse[api.CoderModelOptionsResponse]
+	var response api.ApiResponse[api.AgentDetailResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode model options response: %v", err)
 	}
-	if response.Data.DefaultServiceTier != "FAST" {
-		t.Fatalf("expected ACP default service tier FAST, got %#v", response.Data)
+	if response.Data.ServiceTier != "FAST" || response.Data.ModelKey != "gpt-5.5" || response.Data.ReasoningEffort != "LOW" {
+		t.Fatalf("expected persisted ACP selection, got %#v", response.Data)
 	}
+	kept := postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{"agentKey": "codex-agent", "reasoningEffort": "NONE"})
+	if kept.ServiceTier != "FAST" || kept.ModelKey != "gpt-5.5" {
+		t.Fatalf("omitted fields were changed: %#v", kept)
+	}
+	cleared := postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{"agentKey": "codex-agent", "serviceTier": nil})
+	if cleared.ServiceTier != "" || cleared.ReasoningEffort != "NONE" {
+		t.Fatalf("clear service tier: %#v", cleared)
+	}
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=codex-agent", nil))
+	if strings.Contains(rec.Body.String(), `"serviceTier"`) {
+		t.Fatalf("unset serviceTier must be omitted: %s", rec.Body.String())
+	}
+
 }
 
 func TestAgentModelConfigUpdateRejectsUnsupportedACPServiceTier(t *testing.T) {
@@ -1890,11 +1891,10 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 		t.Fatalf("write model config request: %v", err)
 	}
 	modelUpdated := waitForWebSocketResponseData[api.AgentModelConfigResponse](t, conn, "update-coder-model")
-	modelConfig := modelUpdated.ModelConfig
-	reasoning, _ := modelConfig["reasoning"].(map[string]any)
-	if modelConfig["modelKey"] != "mock-model" || reasoning["enabled"] != false {
-		t.Fatalf("unexpected model config data %#v", modelUpdated)
+	if modelUpdated.ModelKey != "mock-model" || modelUpdated.ReasoningEffort != "NONE" {
+		t.Fatalf("unexpected model response: %#v", modelUpdated)
 	}
+
 }
 
 func TestAgentUpdateNameEndpoint(t *testing.T) {
