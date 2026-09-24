@@ -355,7 +355,7 @@ func sessionRoots(session QuerySession) (rootpaths.Roots, error) {
 
 func splitRootQualifiedPath(rawPath string) (string, string, bool) {
 	normalized := filepath.ToSlash(strings.TrimSpace(rawPath))
-	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-center", "@connectors", "@owner", "@temp"} {
+	for _, alias := range []string{"@root", "@workspace", "@chat", "@agent", "@skills", "@skills-center", "@connectors", "@owner", "@temp"} {
 		if strings.EqualFold(normalized, alias) {
 			return alias, "", true
 		}
@@ -405,8 +405,8 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 		}
 	case AccessLevelFullAccess:
 		return config.AccessPolicyLevelConfig{
-			ReadRoots:     []string{"/"},
-			WriteRoots:    []string{"/"},
+			ReadRoots:     []string{"@root"},
+			WriteRoots:    []string{"@root"},
 			ReadonlyRoots: []string{},
 			Approvals: config.AccessPolicyApprovalConfig{
 				ReadOutsideRoots:      "allow",
@@ -570,6 +570,13 @@ func firstAllowedRoot(session QuerySession, workspaceRoot string, roots []string
 
 func expandRootAlias(root string, session QuerySession) string {
 	switch strings.ToLower(strings.TrimSpace(root)) {
+	case "@root":
+		// Abs resolves the current volume root on Windows and / on Unix.
+		resolved, err := filepath.Abs(string(filepath.Separator))
+		if err != nil {
+			return ""
+		}
+		return resolved
 	case "@workspace":
 		return SessionWorkspaceRoot(session)
 	case "@chat":

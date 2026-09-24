@@ -5,6 +5,7 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -180,14 +181,7 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		AccessPolicy: defaultAccessPolicyConfig(),
 		Bash: BashConfig{
-			AllowedCommands: []string{
-				"ls", "pwd", "cat", "head", "tail", "top", "free", "df", "git", "rg", "find",
-				"echo", "printf", "sed", "awk", "grep", "wc", "sort", "uniq", "tr", "cut", "xargs",
-				"cd", "stat", "file", "du", "test", "which", "mkdir", "touch", "cp", "mv", "rm", "ln", "chmod",
-				"env", "date", "bash", "sh",
-				"make", "go", "npm", "yarn", "pnpm", "node", "python", "python3", "pip",
-				"curl", "wget",
-			},
+			AllowedCommands:      defaultBashAllowedCommands(runtime.GOOS),
 			ShellFeaturesEnabled: true,
 			ShellExecutable:      "",
 			ShellArgs:            nil,
@@ -305,8 +299,8 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 				},
 			},
 			"full_access": {
-				ReadRoots:     []string{"/"},
-				WriteRoots:    []string{"/"},
+				ReadRoots:     []string{"@root"},
+				WriteRoots:    []string{"@root"},
 				ReadonlyRoots: nil,
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "allow",
@@ -902,4 +896,18 @@ func sourcePrefix(ch string) string {
 		return ch[:idx]
 	}
 	return ch
+}
+
+func defaultBashAllowedCommands(goos string) []string {
+	if goos == "windows" {
+		return []string{"*"}
+	}
+	return []string{
+		"ls", "pwd", "cat", "head", "tail", "top", "free", "df", "git", "rg", "dbx", "httpx", "pdftotext", "find",
+		"echo", "printf", "sed", "awk", "grep", "wc", "sort", "uniq", "tr", "cut", "xargs",
+		"cd", "stat", "file", "du", "test", "which", "mkdir", "touch", "cp", "mv", "rm", "ln", "chmod",
+		"env", "date", "bash", "sh",
+		"make", "go", "npm", "yarn", "pnpm", "node", "python", "python3", "pip",
+		"curl", "wget",
+	}
 }
