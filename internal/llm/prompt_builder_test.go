@@ -494,7 +494,7 @@ func TestBuildRuntimeContextPromptIgnoresDesktopParams(t *testing.T) {
 				"snapshotAt":      "2026-05-16T12:00:00Z",
 				"pageContext": map[string]any{
 					"title": "Bing",
-					"url":   "https://www.bing.com/",
+					"url":   "https://www.example.test/",
 				},
 			},
 		},
@@ -513,7 +513,7 @@ func TestBuildRuntimeContextPromptIgnoresDesktopParams(t *testing.T) {
 		"pageKind: native",
 		"snapshotVersion: 3",
 		"currentPageTitle: Bing",
-		"currentPageUrl: https://www.bing.com/",
+		"currentPageUrl: https://www.example.test/",
 	} {
 		if strings.Contains(prompt, unexpected) {
 			t.Fatalf("did not expect desktop context %q in prompt, got %q", unexpected, prompt)

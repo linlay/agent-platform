@@ -50,8 +50,8 @@ try {
 $processTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-platform process arg test {0}" -f [Guid]::NewGuid().ToString('N'))
 $fakeBackend = Join-Path $processTestRoot 'fake-agent-platform.exe'
 $capturedArgsFile = Join-Path $processTestRoot 'captured-args.txt'
-$configRoot = Join-Path $processTestRoot 'CuteJ Data\.cutej\.desktop\config\services\agent-platform'
-$identityFile = Join-Path $processTestRoot 'CuteJ Data\.cutej\.desktop\state\desktop\sso-access-token.txt'
+$configRoot = Join-Path $processTestRoot 'Application Data\.agent-platform\.desktop\config\services\agent-platform'
+$identityFile = Join-Path $processTestRoot 'Application Data\.agent-platform\.desktop\state\desktop\sso-access-token.txt'
 $runDir = Join-Path $processTestRoot 'run'
 $logDir = Join-Path $processTestRoot 'logs'
 $previousCapturePath = $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS

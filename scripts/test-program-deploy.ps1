@@ -76,7 +76,7 @@ try {
   }
   Assert-Test $MissingValueFailed 'missing image-generate model key unexpectedly succeeded'
 
-  $ExpectedRuntimeRoot = 'D:\测试数据目录\.cutej'
+  $ExpectedRuntimeRoot = 'D:\测试数据目录\.agent-platform'
   $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
   [System.IO.File]::WriteAllText(
     (Join-Path $BundleRoot '.env'),

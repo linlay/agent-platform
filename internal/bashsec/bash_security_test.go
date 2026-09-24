@@ -94,9 +94,9 @@ func TestReviewBashSecurityAllowsASTSimpleSafeCommand(t *testing.T) {
 
 func TestReviewBashSecurityAllowsQuotedMetacharactersInASTArguments(t *testing.T) {
 	tests := []string{
-		`curl -s -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "https://finance.eastmoney.com/a/202606103766446879.html" | head -c 50000`,
+		`curl -s -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "https://finance.example.test/a/202606103766446879.html" | head -c 50000`,
 		`node -e "const value = 'a;b&c'; const count = 1; console.log(value, count)"`,
-		`curl -s --max-time 15 "http://push2.eastmoney.com/api/qt/stock/get?secid=1.688256&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f171" 2>&1`,
+		`curl -s --max-time 15 "http://api.example.test/api/qt/stock/get?secid=1.688256&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f171" 2>&1`,
 	}
 	for _, command := range tests {
 		t.Run(command, func(t *testing.T) {

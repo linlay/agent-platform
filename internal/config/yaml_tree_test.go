@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func TestLoadYAMLTreeStripsUTF8BOM(t *testing.T) {
-	content := append([]byte{0xEF, 0xBB, 0xBF}, []byte("key: minimax\nbaseUrl: https://api.minimax.io\n")...)
+	content := append([]byte{0xEF, 0xBB, 0xBF}, []byte("key: sample-provider\nbaseUrl: https://api.example.test\n")...)
 
 	tree, err := LoadYAMLTreeBytes(content)
 	if err != nil {
@@ -11,8 +11,8 @@ func TestLoadYAMLTreeStripsUTF8BOM(t *testing.T) {
 	}
 
 	root := tree.(map[string]any)
-	if got := root["key"]; got != "minimax" {
-		t.Fatalf("expected key minimax, got %#v", got)
+	if got := root["key"]; got != "sample-provider" {
+		t.Fatalf("expected key sample-provider, got %#v", got)
 	}
 	if _, ok := root["\ufeffkey"]; ok {
 		t.Fatalf("did not expect BOM-prefixed key, got %#v", root)

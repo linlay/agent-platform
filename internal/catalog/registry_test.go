@@ -69,12 +69,12 @@ func TestShouldWatchRuntimeDir(t *testing.T) {
 		want bool
 	}{
 		// Normal agent directories — should be watched
-		{name: "cutej", want: true},
+		{name: "sample-agent", want: true},
 		{name: "dailyOfficeProAssistant", want: true},
 		{name: "myAgent", want: true},
 
 		// Staging directories — should NOT be watched
-		{name: "cutej.bootstrap", want: false},
+		{name: "sample-agent.bootstrap", want: false},
 		{name: "dailyOfficeProAssistant.bootstrap", want: false},
 		{name: "Agent.Bootstrap", want: false},
 		{name: ".connector-import-123", want: false},
@@ -84,7 +84,7 @@ func TestShouldWatchRuntimeDir(t *testing.T) {
 		{name: ".agent-import-backup-abcd1234", want: false},
 
 		// Backup directories — should NOT be watched
-		{name: "cutej.bak.20260612-142448", want: false},
+		{name: "sample-agent.bak.20260612-142448", want: false},
 		{name: "bootstrap.deleted.bak.20260612", want: false},
 
 		// Post-init leftovers — should NOT be watched
