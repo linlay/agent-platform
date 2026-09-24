@@ -6,110 +6,11 @@ inputSchema:
   properties:
     action:
       type: string
-      description: Required. Allowlisted desktop.* action name.
-      enum:
-        - desktop.navigate.toRoute
-        - desktop.assistant.chat
-        - desktop.general.deviceName
-        - desktop.runtime.info
-        - desktop.runtime.diagnostics
-        - desktop.theme.get
-        - desktop.theme.set
-        - desktop.skin.get
-        - desktop.skin.list
-        - desktop.skin.import
-        - desktop.skin.set
-        - desktop.skin.remove
-        - desktop.locale.get
-        - desktop.locale.set
-        - desktop.display
-        - desktop.copilot.getPagePreferences
-        - desktop.copilot.setPagePreference
-        - desktop.web.listSurfaces
-        - desktop.web.getSurfaceState
-        - desktop.web.interactElement
-        - desktop.web.executeScript
-        - desktop.web.exportArtifact
-        - desktop.web.activateSurface
-        - desktop.web.navigate
-        - desktop.web.reload
-        - desktop.web.refreshSurface
-        - desktop.web.goBack
-        - desktop.web.openTab
-        - desktop.web.closeTab
-        - desktop.web.switchTab
-        - desktop.workpanel.getState
-        - desktop.workpanel.openTab
-        - desktop.workpanel.openWeb
-        - desktop.workpanel.openLocalFile
-        - desktop.workpanel.refreshWeb
-        - desktop.workpanel.activateTab
-        - desktop.workpanel.closeTab
-        - desktop.workpanel.closeWorkpanel
-        - desktop.site.list
-        - desktop.website.list
-        - desktop.website.add
-        - desktop.website.update
-        - desktop.website.remove
-        - desktop.website.open
-        - desktop.webapp.getStatus
-        - desktop.webapp.checkRuntime
-        - desktop.webapp.start
-        - desktop.webapp.stop
-        - desktop.webapp.restart
-        - desktop.webapp.open
-        - desktop.webapp.updatePreferences
-        - desktop.webapp.package.init
-        - desktop.webapp.package.validate
-        - desktop.webapp.package.build
-        - desktop.webapp.install
-        - desktop.webapp.uninstall
-        - desktop.webapp.getPublishStatus
-        - desktop.webapp.publish
-        - desktop.webapp.unpublish
-        - desktop.controlCenter.listServices
-        - desktop.controlCenter.openService
-        - desktop.controlCenter.getServiceStatus
-        - desktop.controlCenter.getServiceDetail
-        - desktop.controlCenter.getServiceLogsMeta
-        - desktop.controlCenter.readServiceLog
-        - desktop.controlCenter.openLogViewer
-        - desktop.controlCenter.installService
-        - desktop.controlCenter.initializeService
-        - desktop.controlCenter.startService
-        - desktop.controlCenter.stopService
-        - desktop.controlCenter.restartService
-        - desktop.market.getSettings
-        - desktop.market.validateSettings
-        - desktop.market.previewSettingsPatch
-        - desktop.market.applySettingsPatch
-        - desktop.market.listItems
-        - desktop.market.refresh
-        - desktop.market.getItemDetail
-        - desktop.market.installItem
-        - desktop.market.updateItem
-        - desktop.market.uninstallItem
-        - desktop.market.openItem
-        - desktop.market.importSkill
-        - desktop.market.importSandboxImage
-        - desktop.market.exportSandboxImage
-        - desktop.market.deleteSandboxImage
-        - desktop.help.openTopic
-        - desktop.agent.open
-        - desktop.agent.update
-        - desktop.skill.open
-        - desktop.skill.update
-        - desktop.kanban.listIssues
-        - desktop.kanban.getIssue
-        - desktop.kanban.createIssue
-        - desktop.kanban.updateIssue
-        - desktop.kanban.deleteIssue
-        - desktop.kanban.moveIssue
-        - desktop.pet.state
-        - desktop.pet.show
-        - desktop.pet.hide
-        - desktop.pet.list
-        - desktop.pet.set
+      description: |
+        Required exact desktop.* action name, never a wildcard.
+        Scope: desktop.navigate.*, desktop.assistant.*, desktop.general.*, desktop.runtime.*, desktop.theme.*, desktop.skin.*, desktop.locale.*, desktop.display, desktop.copilot.*, desktop.web.*, desktop.workpanel.*, desktop.site.*, desktop.website.*, desktop.webapp.*, desktop.controlCenter.*, desktop.market.*, desktop.help.*, desktop.agent.*, desktop.skill.*, desktop.kanban.*, desktop.pet.*.
+        Read the desktop-action skill catalog and the relevant domain reference for exact action names and arguments.
+        Domain prefixes describe scope only; Platform enforces a separate exact runtime allowlist.
     args:
       type: object
       description: JSON arguments for the selected action, as documented by its relevant skill and action contract. Accepted fields, path formats, and result semantics are action-specific. Platform supplies trusted execution context; callers must not override reserved source, ownership, transport, or confirmation fields.
