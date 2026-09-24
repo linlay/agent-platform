@@ -261,10 +261,6 @@ func (m *EditableSkillPackageMutation) BackupPath() string {
 }
 
 func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, SkillPackageRecord, error) {
-	return p.BeginWithAdoptions(nil)
-}
-
-func (p *PreparedEditableSkillPackage) BeginWithAdoptions(approval *SkillPackageAdoptionApproval) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
 	r, packageID, version := p.registry, p.packageID, p.version
 	stagingRoot, archiveSHA256, manifest, prepared := p.stagingRoot, p.archiveSHA256, p.manifest, p.skills
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
@@ -302,46 +298,20 @@ func (p *PreparedEditableSkillPackage) BeginWithAdoptions(approval *SkillPackage
 	}
 	existingKeys := make(map[string]string, len(existingEntries))
 	for _, entry := range existingEntries {
-		existingKeys[strings.ToLower(entry.Name())] = entry.Name()
+		key := strings.ToLower(entry.Name())
+		if previous := existingKeys[key]; previous != "" {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill names %s and %s collide", ErrSkillPackageConflict, previous, entry.Name())
+		}
+		existingKeys[key] = entry.Name()
 	}
 	newIDs := make(map[string]struct{}, len(prepared))
-	identical := map[string]bool{}
-	adopted := map[string]string{}
-	conflicts := &SkillPackageAdoptionConflict{ArchiveSHA256: archiveSHA256}
-	if approval != nil && approval.ArchiveSHA256 != archiveSHA256 {
-		return nil, SkillPackageRecord{}, fmt.Errorf("%w: incoming package changed; confirm again", ErrSkillPackageConflict)
-	}
 	for _, skill := range prepared {
 		newIDs[skill.ID] = struct{}{}
 		if owner := owners[skill.ID]; owner != "" && owner != packageID {
 			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is owned by package %s", ErrSkillPackageConflict, skill.ID, owner)
 		}
-		if existing := existingKeys[strings.ToLower(skill.ID)]; existing != "" && (existing != skill.ID || owners[existing] != packageID) {
-			if existing != skill.ID || owners[existing] != "" {
-				return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is already occupied", ErrSkillPackageConflict, existing)
-			}
-			revision, changed, err := compareAdoptedSkill(filepath.Join(root, existing), skill.Root, skill.ID)
-			if err != nil {
-				return nil, SkillPackageRecord{}, err
-			}
-			if len(changed) == 0 {
-				identical[skill.ID] = true
-				continue
-			}
-			adopted[skill.ID] = revision
-			if approval == nil || approval.ExpectedRevisions[skill.ID] != revision {
-				conflicts.Skills = append(conflicts.Skills, SkillPackageAdoptionSkill{ID: skill.ID, Revision: revision, ChangedPaths: changed})
-			}
-		}
-	}
-	if len(conflicts.Skills) > 0 {
-		return nil, SkillPackageRecord{}, conflicts
-	}
-	if approval != nil {
-		for id, revision := range approval.ExpectedRevisions {
-			if adopted[id] != revision {
-				return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s changed; confirm again", ErrSkillPackageConflict, id)
-			}
+		if existing := existingKeys[strings.ToLower(skill.ID)]; existing != "" && existing != skill.ID {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is already occupied", ErrSkillPackageConflict, existing)
 		}
 	}
 	for _, skill := range oldRecord.Skills {
@@ -375,7 +345,7 @@ func (p *PreparedEditableSkillPackage) BeginWithAdoptions(approval *SkillPackage
 	}
 	mutation := &EditableSkillPackageMutation{
 		root: root, recordPath: recordPath, oldRecord: oldRecordBytes, oldRecordExists: oldRecordExists,
-		backupRoot: backupRoot, stagingRoot: stagingRoot, retainBackup: len(adopted) > 0,
+		backupRoot: backupRoot, stagingRoot: stagingRoot,
 		unlock: r.skillPackageMu.Unlock,
 	}
 	lockOwnedByMutation = true
@@ -386,11 +356,11 @@ func (p *PreparedEditableSkillPackage) BeginWithAdoptions(approval *SkillPackage
 		return nil, SkillPackageRecord{}, cause
 	}
 	for _, id := range affectedIDs {
-		if identical[id] {
-			continue
-		}
 		target := filepath.Join(root, id)
 		if _, statErr := os.Lstat(target); statErr == nil {
+			if err := validateSkillPackageReplacement(target); err != nil {
+				return rollbackOnError(err)
+			}
 			if err := mutation.backupSkill(id); err != nil {
 				return rollbackOnError(err)
 			}
@@ -398,10 +368,13 @@ func (p *PreparedEditableSkillPackage) BeginWithAdoptions(approval *SkillPackage
 			return rollbackOnError(statErr)
 		}
 	}
-	for _, skill := range prepared {
-		if identical[skill.ID] {
-			continue
+	mutation.retainBackup = len(mutation.backedUpIDs) > 0
+	if mutation.retainBackup && oldRecordExists {
+		if err := os.WriteFile(filepath.Join(backupRoot, ".original-package-record.json"), oldRecordBytes, 0o600); err != nil {
+			return rollbackOnError(err)
 		}
+	}
+	for _, skill := range prepared {
 		if err := mutation.publishSkill(skill.ID, skill.Root); err != nil {
 			return rollbackOnError(err)
 		}
@@ -842,4 +815,25 @@ func skillPackageArchiveSHA256(source io.ReaderAt, size int64) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// Existing skills are moved whole into the backup; never follow links or adopt
+// special files while transferring their ownership to a package.
+func validateSkillPackageReplacement(root string) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return ErrSkillSymlink
+		}
+		if (path == root && !info.IsDir()) || (!info.IsDir() && !info.Mode().IsRegular()) {
+			return ErrInvalidSkillPath
+		}
+		return nil
+	})
 }

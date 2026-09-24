@@ -43,90 +43,84 @@ func prepareAdoptionTest(t *testing.T) (*FileRegistry, *PreparedEditableSkillPac
 	}
 	return r, p, dst
 }
-func TestSkillPackageAdoptsIdenticalStandaloneAndPreservesMetadata(t *testing.T) {
+
+func TestSkillPackageReplacesStandaloneAndRetainsBackup(t *testing.T) {
+	for _, body := range []string{"", "---\nname: test-skill\ndescription: newer standalone\nmetadata:\n  version: 99.0.0\n---\nnewer local instructions\n"} {
+		t.Run(body, func(t *testing.T) {
+			_, p, dst := prepareAdoptionTest(t)
+			if body != "" {
+				if err := os.WriteFile(filepath.Join(dst, "SKILL.md"), []byte(body), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			old, err := os.ReadFile(filepath.Join(dst, "SKILL.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dst, "skill.json"), []byte(`{"custom":true,"version":"99.0.0"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dst, ".local-script"), []byte("custom executable"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			m, _, err := p.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			backup := m.BackupPath()
+			if backup == "" {
+				t.Fatal("no backup")
+			}
+			if err := m.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(filepath.Join(backup, "test-skill", "SKILL.md"))
+			if err != nil || !bytes.Equal(old, got) {
+				t.Fatalf("backup %q %v", got, err)
+			}
+			if _, err := os.Stat(filepath.Join(backup, "test-skill", "skill.json")); err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(filepath.Join(backup, "test-skill", ".local-script"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if runtime.GOOS != "windows" && info.Mode().Perm() != 0755 {
+				t.Fatalf("executable mode lost: %v", info.Mode())
+			}
+			if data, err := os.ReadFile(filepath.Join(backup, "test-skill", ".local-script")); err != nil || string(data) != "custom executable" {
+				t.Fatal("hidden file lost")
+			}
+			if _, err := os.Stat(filepath.Join(dst, "skill.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("old metadata still present")
+			}
+			got, err = os.ReadFile(filepath.Join(dst, "SKILL.md"))
+			if err != nil || !bytes.Contains(got, []byte("name: test-skill")) {
+				t.Fatalf("incoming not published %s %v", got, err)
+			}
+			owners, err := readSkillPackageOwners(filepath.Dir(dst))
+			if err != nil || owners["test-skill"] != "pack" {
+				t.Fatalf("owners %v %v", owners, err)
+			}
+		})
+	}
+}
+func TestSkillPackageReplacementRollbackRestoresStandalone(t *testing.T) {
 	_, p, dst := prepareAdoptionTest(t)
-	metadata := []byte(`{"id":"test-skill","name":"Display","version":"1.0.0","description":"desc","tags":[]}`)
-	if err := os.WriteFile(filepath.Join(dst, "skill.json"), metadata, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dst, "custom"), []byte("preserve"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	m, _, err := p.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = m.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(filepath.Join(dst, "skill.json"))
-	if err != nil || !bytes.Equal(got, metadata) {
-		t.Fatalf("metadata lost: %s %v", got, err)
-	}
-	owners, err := readSkillPackageOwners(filepath.Dir(dst))
-	if err != nil || owners["test-skill"] != "pack" {
-		t.Fatalf("owners %v %v", owners, err)
-	}
-}
-func TestSkillPackageAdoptionProtectsChangesAndBacksUp(t *testing.T) {
-	_, p, dst := prepareAdoptionTest(t)
-	old := []byte("local instructions")
-	if err := os.WriteFile(filepath.Join(dst, "local.txt"), old, 0600); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err := p.Begin()
-	var conflict *SkillPackageAdoptionConflict
-	if !errors.As(err, &conflict) || !errors.Is(err, ErrSkillPackageConflict) || len(conflict.Skills) != 1 || conflict.Skills[0].ChangedPaths[0] != "local.txt" {
-		t.Fatalf("conflict %v", err)
-	}
-	approval := &SkillPackageAdoptionApproval{ArchiveSHA256: conflict.ArchiveSHA256, ExpectedRevisions: map[string]string{"test-skill": conflict.Skills[0].Revision}}
-	wrong := *approval
-	wrong.ArchiveSHA256 = "changed"
-	if _, _, err = p.BeginWithAdoptions(&wrong); err == nil {
-		t.Fatal("accepted new ZIP")
-	}
-	if err := os.WriteFile(filepath.Join(dst, "local.txt"), []byte("concurrent edit"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err = p.BeginWithAdoptions(approval); !errors.As(err, &conflict) {
-		t.Fatalf("accepted stale revision %v", err)
-	}
-	approval.ExpectedRevisions["test-skill"] = conflict.Skills[0].Revision
-	m, _, err := p.BeginWithAdoptions(approval)
-	if err != nil {
-		t.Fatal(err)
-	}
-	backup := m.BackupPath()
-	if backup == "" {
-		t.Fatal("no backup")
-	}
-	if err = m.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(backup, "test-skill", "local.txt"))
-	if err != nil || string(data) != "concurrent edit" {
-		t.Fatalf("backup %q %v", data, err)
-	}
-	if _, err = os.Stat(filepath.Join(dst, "local.txt")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("replacement not published")
-	}
-}
-func TestSkillPackageAdoptionRollbackRestoresStandalone(t *testing.T) {
-	_, p, dst := prepareAdoptionTest(t)
-	os.WriteFile(filepath.Join(dst, "custom"), []byte("preserve"), 0600)
-	_, _, err := p.Begin()
-	var c *SkillPackageAdoptionConflict
-	if !errors.As(err, &c) {
-		t.Fatal(err)
-	}
-	m, _, err := p.BeginWithAdoptions(&SkillPackageAdoptionApproval{ArchiveSHA256: c.ArchiveSHA256, ExpectedRevisions: map[string]string{"test-skill": c.Skills[0].Revision}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = m.Rollback(); err != nil {
+	if err := m.Rollback(); err != nil {
 		t.Fatal(err)
 	}
 	if data, err := os.ReadFile(filepath.Join(dst, "custom")); err != nil || string(data) != "preserve" {
 		t.Fatalf("rollback %s %v", data, err)
 	}
-	if _, err = os.Stat(filepath.Join(filepath.Dir(dst), "extra-skill")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dst), "extra-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("new skill residue")
 	}
 	owners, err := readSkillPackageOwners(filepath.Dir(dst))
@@ -134,34 +128,73 @@ func TestSkillPackageAdoptionRollbackRestoresStandalone(t *testing.T) {
 		t.Fatal("ownership not restored")
 	}
 }
-func TestSkillPackageAdoptionRejectsSymlinkAndCustomMetadata(t *testing.T) {
-	for _, kind := range []string{"symlink", "metadata", "executable"} {
+func TestSkillPackageReplacementRejectsSymlinkAndCaseCollision(t *testing.T) {
+	for _, kind := range []string{"root-link", "nested-link", "case"} {
 		t.Run(kind, func(t *testing.T) {
 			_, p, dst := prepareAdoptionTest(t)
 			switch kind {
-			case "symlink":
+			case "root-link":
+				if err := os.RemoveAll(dst); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(t.TempDir(), dst); err != nil {
+					t.Skip(err)
+				}
+			case "nested-link":
 				if err := os.Symlink(t.TempDir(), filepath.Join(dst, "linked")); err != nil {
 					t.Skip(err)
 				}
-			case "metadata":
-				os.WriteFile(filepath.Join(dst, "skill.json"), []byte(`{"custom":true}`), 0600)
-			case "executable":
-				if runtime.GOOS == "windows" {
-					t.Skip("Windows does not represent POSIX executable mode")
+			case "case":
+				if err := os.Rename(dst, filepath.Join(filepath.Dir(dst), "Test-Skill")); err != nil {
+					t.Fatal(err)
 				}
-				os.Chmod(filepath.Join(dst, "SKILL.md"), 0755)
 			}
-			_, _, err := p.Begin()
+			m, _, err := p.Begin()
 			if err == nil {
-				t.Fatal("unconfirmed mutation")
+				m.Rollback()
+				t.Fatal("unsafe target accepted")
 			}
-			if kind == "symlink" && !errors.Is(err, ErrSkillSymlink) {
+			if kind != "case" && !errors.Is(err, ErrSkillSymlink) {
+				t.Fatal(err)
+			}
+			if kind == "case" && !errors.Is(err, ErrSkillPackageConflict) {
 				t.Fatal(err)
 			}
 		})
 	}
 }
-
+func TestSkillPackageUpdateRetainsOldMembersAndRecord(t *testing.T) {
+	r, p, dst := prepareAdoptionTest(t)
+	m, _, err := p.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	archive := buildSkillPackageZIP(t, "pack", "2.0.0", []testSkillPackageEntry{{ID: "test-skill", Version: "2.0.0", Present: true}})
+	next, err := r.PrepareEditableSkillPackageArchive("pack", "2.0.0", bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	m, _, err = next.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup := m.BackupPath()
+	if err := m.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"test-skill/SKILL.md", "extra-skill/SKILL.md", ".original-package-record.json"} {
+		if _, err := os.Stat(filepath.Join(backup, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dst), "extra-skill")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("removed member retained")
+	}
+}
 func TestSkillPackageAdoptionCannotTakeAnotherPackagesSkill(t *testing.T) {
 	r, p, dst := prepareAdoptionTest(t)
 	other := SkillPackageRecord{SchemaVersion: 1, ID: "other", Version: "1.0.0", SHA256: "test-hash", InstalledAt: 1, Skills: []SkillPackageRecordSkill{{ID: "test-skill", Version: "1.0.0"}}}
@@ -183,21 +216,5 @@ func TestSkillPackageAdoptionCannotTakeAnotherPackagesSkill(t *testing.T) {
 	packages, err := r.EditableSkillPackages()
 	if err != nil || len(packages) != 1 || packages[0].ID != "other" {
 		t.Fatalf("ownership changed %v %v", packages, err)
-	}
-}
-
-func TestSkillPackageAdoptionMetadataEditInvalidatesConfirmation(t *testing.T) {
-	_, p, dst := prepareAdoptionTest(t)
-	os.WriteFile(filepath.Join(dst, "local"), []byte("custom"), 0600)
-	os.WriteFile(filepath.Join(dst, "skill.json"), []byte(`{"id":"test-skill","name":"Old","version":"1","description":"","tags":[]}`), 0600)
-	_, _, err := p.Begin()
-	var conflict *SkillPackageAdoptionConflict
-	if !errors.As(err, &conflict) {
-		t.Fatal(err)
-	}
-	approval := &SkillPackageAdoptionApproval{ArchiveSHA256: conflict.ArchiveSHA256, ExpectedRevisions: map[string]string{"test-skill": conflict.Skills[0].Revision}}
-	os.WriteFile(filepath.Join(dst, "skill.json"), []byte(`{"id":"test-skill","name":"New","version":"1","description":"","tags":[]}`), 0600)
-	if _, _, err = p.BeginWithAdoptions(approval); !errors.As(err, &conflict) {
-		t.Fatalf("metadata changes lost %v", err)
 	}
 }

@@ -146,12 +146,7 @@ func (s *Server) handleAdminSkillImport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if isPackage {
-		approval, err := parseSkillPackageAdoption(r)
-		if err != nil {
-			s.writeAgentHTTPResponse(w, nil, err)
-			return
-		}
-		installed, err := s.importAdminSkillPackage(r.Context(), packageID, version, file, header.Size, approval)
+		installed, err := s.importAdminSkillPackage(r.Context(), packageID, version, file, header.Size)
 		if err != nil {
 			s.writeAgentHTTPResponse(w, nil, err)
 			return
@@ -1087,10 +1082,6 @@ func adminSkillDiagnostics(items []catalog.AdminSkillDiagnostic) []api.AdminAgen
 func mapSkillEditError(err error) error {
 	if err == nil {
 		return nil
-	}
-	var adoption *catalog.SkillPackageAdoptionConflict
-	if errors.As(err, &adoption) {
-		return newAgentStatusErrorWithData(http.StatusConflict, "skill_package_adoption_required", adoption.Error(), map[string]any{"adoption": adoption})
 	}
 	var reloadFailure *adminsource.SkillFileReloadError
 	if errors.As(err, &reloadFailure) {

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -82,12 +81,7 @@ func (s *Server) handleAdminSkillPackageImport(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	approval, err := parseSkillPackageAdoption(r)
-	if err != nil {
-		s.writeAgentHTTPResponse(w, nil, err)
-		return
-	}
-	response, err := s.importAdminSkillPackage(r.Context(), key, version, archive, size, approval)
+	response, err := s.importAdminSkillPackage(r.Context(), key, version, archive, size)
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
@@ -111,8 +105,8 @@ func (s *Server) handleAdminSkillPackageSkillDelete(w http.ResponseWriter, r *ht
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) importAdminSkillPackageLocked(ctx context.Context, prepared *catalog.PreparedEditableSkillPackage, approval *catalog.SkillPackageAdoptionApproval) (api.AdminSkillPackageResponse, error) {
-	mutation, record, err := prepared.BeginWithAdoptions(approval)
+func (s *Server) importAdminSkillPackageLocked(ctx context.Context, prepared *catalog.PreparedEditableSkillPackage) (api.AdminSkillPackageResponse, error) {
+	mutation, record, err := prepared.Begin()
 	if err != nil {
 		return api.AdminSkillPackageResponse{}, mapSkillEditError(err)
 	}
@@ -198,7 +192,7 @@ func adminSkillPackageResponse(record catalog.SkillPackageRecord) api.AdminSkill
 	}
 }
 
-func (s *Server) importAdminSkillPackage(ctx context.Context, key string, version string, source io.ReaderAt, size int64, approvals ...*catalog.SkillPackageAdoptionApproval) (api.AdminSkillPackageResponse, error) {
+func (s *Server) importAdminSkillPackage(ctx context.Context, key string, version string, source io.ReaderAt, size int64) (api.AdminSkillPackageResponse, error) {
 	registry, err := s.adminSkillRegistry()
 	if err != nil {
 		return api.AdminSkillPackageResponse{}, err
@@ -209,11 +203,7 @@ func (s *Server) importAdminSkillPackage(ctx context.Context, key string, versio
 	}
 	defer prepared.Close()
 	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.AdminSkillPackageResponse, error) {
-		var approval *catalog.SkillPackageAdoptionApproval
-		if len(approvals) > 0 {
-			approval = approvals[0]
-		}
-		return s.importAdminSkillPackageLocked(ctx, prepared, approval)
+		return s.importAdminSkillPackageLocked(ctx, prepared)
 	})
 }
 
@@ -227,26 +217,4 @@ func (s *Server) deleteAdminSkillPackageSkill(ctx context.Context, packageID, sk
 	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.DeleteAdminSkillPackageSkillResponse, error) {
 		return s.deleteAdminSkillPackageSkillLocked(ctx, packageID, skillID)
 	})
-}
-
-func parseSkillPackageAdoption(r *http.Request) (*catalog.SkillPackageAdoptionApproval, error) {
-	raw := r.URL.Query().Get("adopt")
-	if raw == "" {
-		return nil, nil
-	}
-	var approval catalog.SkillPackageAdoptionApproval
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if len(raw) > 65536 || decoder.Decode(&approval) != nil || len(approval.ArchiveSHA256) != 64 || len(approval.ExpectedRevisions) == 0 {
-		return nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid skill package adoption confirmation")
-	}
-	if decoder.Decode(new(any)) != io.EOF {
-		return nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid skill package adoption confirmation")
-	}
-	for id, revision := range approval.ExpectedRevisions {
-		if catalog.ValidateEditableSkillKey(id) != nil || len(revision) != 64 {
-			return nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid skill revision")
-		}
-	}
-	return &approval, nil
 }

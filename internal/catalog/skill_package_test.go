@@ -110,7 +110,7 @@ func TestEditableSkillPackageInstallUpdateDeleteAndRollback(t *testing.T) {
 	}
 }
 
-func TestEditableSkillPackageRejectsStandaloneSkillWithoutChangingIt(t *testing.T) {
+func TestEditableSkillPackageRollbackRestoresReplacedStandaloneSkill(t *testing.T) {
 	root := t.TempDir()
 	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	standaloneRoot := filepath.Join(root, "word-helper")
@@ -127,9 +127,12 @@ func TestEditableSkillPackageRejectsStandaloneSkillWithoutChangingIt(t *testing.
 		{ID: "word-helper", Version: "1.0.0", Present: true},
 		{ID: "excel-helper", Version: "1.0.0", Present: true},
 	})
-	_, _, err := registry.BeginImportEditableSkillPackageArchive("office-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
-	if !errors.Is(err, ErrSkillPackageConflict) {
-		t.Fatalf("expected standalone ownership conflict, got %v", err)
+	mutation, _, err := registry.BeginImportEditableSkillPackageArchive("office-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mutation.Rollback(); err != nil {
+		t.Fatal(err)
 	}
 	restoredContent, err := os.ReadFile(standalonePath)
 	if err != nil {
