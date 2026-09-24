@@ -1,10 +1,12 @@
 package server
 
 import (
+	"agent-platform/internal/catalog"
 	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,6 +94,40 @@ func TestAdminSkillPackageImportRejectsExistingStandaloneSkill(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, ".package", "office-pack.json")); !os.IsNotExist(err) {
 		t.Fatalf("conflict left package state: %v", err)
+	}
+	var conflict struct {
+		Data struct {
+			Error struct {
+				Code     string                               `json:"code"`
+				Adoption catalog.SkillPackageAdoptionConflict `json:"adoption"`
+			} `json:"error"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &conflict); err != nil {
+		t.Fatal(err)
+	}
+	if conflict.Data.Error.Code != "skill_package_adoption_required" || len(conflict.Data.Error.Adoption.Skills) != 1 {
+		t.Fatalf("missing structured conflict: %s", recorder.Body)
+	}
+	adoption := conflict.Data.Error.Adoption
+	approval, _ := json.Marshal(catalog.SkillPackageAdoptionApproval{ArchiveSHA256: adoption.ArchiveSHA256, ExpectedRevisions: map[string]string{"word-helper": adoption.Skills[0].Revision}})
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=office-pack&version=1.0.0&adopt="+url.QueryEscape(string(approval)), bytes.NewReader(archive))
+	request.Header.Set("Content-Type", "application/zip")
+	recorder = httptest.NewRecorder()
+	fixture.server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("confirmed import: %d %s", recorder.Code, recorder.Body)
+	}
+	var imported api.ApiResponse[api.AdminSkillPackageResponse]
+	if err := json.Unmarshal(recorder.Body.Bytes(), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if imported.Data.BackupPath == "" {
+		t.Fatal("no retained backup")
+	}
+	backup, err := os.ReadFile(filepath.Join(imported.Data.BackupPath, "word-helper", "SKILL.md"))
+	if err != nil || !bytes.Contains(backup, []byte("Standalone content.")) {
+		t.Fatalf("backup missing %v", err)
 	}
 }
 

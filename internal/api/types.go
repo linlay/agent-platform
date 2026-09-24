@@ -1200,6 +1200,7 @@ type AdminSkillImportResponse struct {
 }
 
 type AdminSkillPackageResponse struct {
+	BackupPath  string                   `json:"backupPath,omitempty"`
 	Name        string                   `json:"name,omitempty"`
 	ID          string                   `json:"id"`
 	Version     string                   `json:"version"`
