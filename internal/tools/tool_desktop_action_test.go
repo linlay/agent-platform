@@ -1241,6 +1241,11 @@ func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
 		"desktop.general.deviceName",
 		"desktop.theme.get",
 		"desktop.theme.set",
+		"desktop.skin.get",
+		"desktop.skin.list",
+		"desktop.skin.import",
+		"desktop.skin.set",
+		"desktop.skin.remove",
 		"desktop.locale.get",
 		"desktop.locale.set",
 		"desktop.copilot.getPagePreferences",
@@ -1391,6 +1396,11 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.skill.update",
 		"desktop.theme.get",
 		"desktop.theme.set",
+		"desktop.skin.get",
+		"desktop.skin.list",
+		"desktop.skin.import",
+		"desktop.skin.set",
+		"desktop.skin.remove",
 		"desktop.web.activateSurface",
 		"desktop.web.closeTab",
 		"desktop.web.executeScript",
@@ -1448,8 +1458,8 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 97 {
-		t.Fatalf("desktop action count = %d, want 97", len(actions))
+	if len(actions) != 102 {
+		t.Fatalf("desktop action count = %d, want 102", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{

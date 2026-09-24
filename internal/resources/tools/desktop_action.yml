@@ -15,6 +15,11 @@ inputSchema:
         - desktop.runtime.diagnostics
         - desktop.theme.get
         - desktop.theme.set
+        - desktop.skin.get
+        - desktop.skin.list
+        - desktop.skin.import
+        - desktop.skin.set
+        - desktop.skin.remove
         - desktop.locale.get
         - desktop.locale.set
         - desktop.display
