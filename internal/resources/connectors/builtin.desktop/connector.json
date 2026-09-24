@@ -1,0 +1,8 @@
+{
+  "id": "builtin.desktop",
+  "name": "Desktop",
+  "version": "1.0.0",
+  "type": "native",
+  "auth_mode": null,
+  "description": "Desktop actions and authorized webpage operations"
+}

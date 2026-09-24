@@ -82,7 +82,7 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("health: %d %s", recorder.Code, recorder.Body.String())
 	}
-	for _, path := range []string{"connectors-center/demo/connector.json", "ru-agents/demo/connectors/demo/connector.json", ".state/connectors/demo/credentials.json"} {
+	for _, path := range []string{"connectors-center/demo/connector.json", "ru-agents/demo/connectors/demo.json", ".state/connectors/demo/credentials.json"} {
 		if _, err := os.Stat(filepath.Join(root, "runtime", path)); err != nil {
 			t.Fatalf("startup did not prepare %s: %v", path, err)
 		}
@@ -90,7 +90,7 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	if _, err := os.Stat(oldPackage); !os.IsNotExist(err) {
 		t.Fatal("startup retained old package location")
 	}
-	if _, err := os.Stat(oldRuntime); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(oldRuntime, "retained.txt")); !os.IsNotExist(err) {
 		t.Fatal("old shared runtime remains")
 	}
 	backups, err := filepath.Glob(filepath.Join(root, "runtime", ".connector-layout-backup-*", "ru-connectors", "retained.txt"))

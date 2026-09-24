@@ -187,12 +187,13 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		})
 		requiredPaths = append(requiredPaths, launcher, runtimeRoot)
 	}
+	manifest, err := builtins.PromoteConnectors(root, builtins.Manifest{SchemaVersion: 1, Platform: builtins.ManifestPlatform{OS: goos, Arch: goarch}, Components: components, GitBashExcluded: goos == "windows"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requiredPaths = append(requiredPaths, "connectors/builtin.desktop")
 	writeProgramManifest(t, root, goos, goarch, requiredPaths)
-	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), builtins.Manifest{
-		SchemaVersion: 1,
-		Platform:      builtins.ManifestPlatform{OS: goos, Arch: goarch},
-		Components:    components,
-	}, 0o644)
+	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0644)
 	for _, relativePath := range []string{
 		"licenses/kbase-lance-engine/LICENSE-APACHE-2.0",
 		"licenses/kbase-lance-engine/NOTICE",

@@ -45,6 +45,15 @@ func TestBuiltinConnectorManifestVersionComparison(t *testing.T) {
 					Path: relative, Tree: outputs, SHA256: digest,
 				}},
 			}
+			if err := connector.WriteBuiltin(filepath.Join(bundle, "connectors", "builtin.desktop"), "desktop", "", runtime.GOOS); err != nil {
+				t.Fatal(err)
+			}
+			desktopTree := []TreeOutput{{Path: "connectors/builtin.desktop", Type: "dir"}}
+			desktopHash, err := TreeDigest(bundle, desktopTree)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest.Components = append(manifest.Components, ManifestComponent{Name: "desktop", Version: "1.0.0", Path: "connectors/builtin.desktop", Tree: desktopTree, SHA256: desktopHash})
 			writeCacheManifest(t, filepath.Join(bundle, "builtins.manifest.json"), manifest)
 			setProcessBinDirForTest(t, filepath.Join(bundle, "bin"))
 			root, err := ProcessConnectorsRoot()

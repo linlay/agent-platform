@@ -48,6 +48,26 @@ func PromoteConnectors(root string, manifest Manifest) (Manifest, error) {
 		}
 		manifest.Components[i] = component
 	}
+	relative := "connectors/builtin.desktop"
+	if err := connector.WriteBuiltin(filepath.Join(root, filepath.FromSlash(relative)), "desktop", "", manifest.Platform.OS); err != nil {
+		return Manifest{}, err
+	}
+	pkg, err := connector.Load(filepath.Join(root, "connectors"), "builtin.desktop")
+	if err != nil {
+		return Manifest{}, err
+	}
+	component := ManifestComponent{Name: "desktop", Version: pkg.Version, Path: relative, Tree: []TreeOutput{{Path: relative, Type: "dir"}}}
+	component.SHA256, err = TreeDigest(root, component.Tree)
+	if err != nil {
+		return Manifest{}, err
+	}
+	filtered := manifest.Components[:0]
+	for _, old := range manifest.Components {
+		if old.Name != "desktop" {
+			filtered = append(filtered, old)
+		}
+	}
+	manifest.Components = append(filtered, component)
 	return manifest, nil
 }
 
@@ -72,11 +92,13 @@ func ProcessConnectorsRoot() (string, error) {
 		return "", err
 	}
 	found := false
+	verifiedPackages := map[string]bool{}
 	for _, component := range manifest.Components {
-		if component.Name != "dbx" && component.Name != "httpx" {
+		if component.Name != "dbx" && component.Name != "httpx" && component.Name != "desktop" {
 			continue
 		}
 		id := "builtin." + component.Name
+		verifiedPackages[id] = true
 		relative := "connectors/" + id
 		if component.Path != relative || len(component.Tree) != 1 || component.Tree[0] != (TreeOutput{Path: relative, Type: "dir"}) {
 			return "", fmt.Errorf("builtin %s needs a connector package; prepare the cache with sync-local-builtins", component.Name)
@@ -95,5 +117,28 @@ func ProcessConnectorsRoot() (string, error) {
 	if !found {
 		return "", nil
 	}
+	entries, err := os.ReadDir(filepath.Join(source, "connectors"))
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if !verifiedPackages[entry.Name()] {
+			return "", fmt.Errorf("unverified builtin connector payload: %s", entry.Name())
+		}
+	}
+	if !verifiedPackages["builtin.desktop"] {
+		return "", fmt.Errorf("builtin Desktop package missing; refresh the builtin cache")
+	}
 	return filepath.Join(source, "connectors"), nil
+}
+
+// RequireDesktopConnector rejects releases that omitted the native capability
+// package even when every listed checksum is otherwise valid.
+func RequireDesktopConnector(manifest Manifest) error {
+	for _, component := range manifest.Components {
+		if component.Name == "desktop" && component.Path == "connectors/builtin.desktop" && len(component.Tree) == 1 && component.Tree[0] == (TreeOutput{Path: "connectors/builtin.desktop", Type: "dir"}) {
+			return nil
+		}
+	}
+	return fmt.Errorf("release requires the builtin.desktop package")
 }

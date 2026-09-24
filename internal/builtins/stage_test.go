@@ -91,8 +91,8 @@ func TestStageBuiltins(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outputDir, "licenses", "ripgrep", "LICENSE-MIT")); err != nil {
 		t.Fatalf("staged license: %v", err)
 	}
-	if len(result.Manifest.Components) != 3 {
-		t.Fatalf("manifest components = %d, want 3", len(result.Manifest.Components))
+	if len(result.Manifest.Components) != 4 {
+		t.Fatalf("manifest components = %d, want 4", len(result.Manifest.Components))
 	}
 	if _, err := os.Stat(result.ManifestPath); err != nil {
 		t.Fatalf("manifest path: %v", err)

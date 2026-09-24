@@ -44,6 +44,7 @@ type Package struct {
 	Skills     []Skill
 	MCP        map[string]map[string]any
 	CLI        map[string]any
+	Native     []string
 	Views      map[string]view.Definition
 	iconSHA256 string
 }
@@ -65,7 +66,19 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 	if !ValidID(id) {
 		return Package{}, fmt.Errorf("invalid connector id %q", id)
 	}
-	dir, err := filepath.Abs(filepath.Join(root, id))
+	return loadDirectory(filepath.Join(root, id), id, file, content)
+}
+
+// LoadDirectory validates a versioned package independently of its directory name.
+func LoadDirectory(dir, id string) (Package, error) {
+	return loadDirectory(dir, id, "", nil)
+}
+
+func loadDirectory(directory, id, file string, content []byte) (Package, error) {
+	if !ValidID(id) {
+		return Package{}, fmt.Errorf("invalid connector id %q", id)
+	}
+	dir, err := filepath.Abs(directory)
 	if err != nil {
 		return Package{}, err
 	}
@@ -143,6 +156,23 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 	} else if pkg.Type == "view" || !os.IsNotExist(err) {
 		return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 	}
+	if pkg.Type == "native" {
+		if id != "builtin.desktop" || pkg.AuthMode != AuthDelegated || len(pkg.AuthBindings) != 0 || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
+			return Package{}, fmt.Errorf("native connectors require a registered builtin capability package without executable components")
+		}
+		var config struct {
+			Capabilities []string `json:"capabilities"`
+		}
+		if err := read("native.json", &config); err != nil {
+			return Package{}, err
+		}
+		if len(config.Capabilities) != 2 || config.Capabilities[0] != "desktop.action" || config.Capabilities[1] != "desktop.cdp" {
+			return Package{}, fmt.Errorf("invalid builtin.desktop capabilities")
+		}
+		pkg.Native = config.Capabilities
+	} else if _, err := os.Lstat(filepath.Join(dir, "native.json")); !os.IsNotExist(err) {
+		return Package{}, fmt.Errorf("native.json requires a registered native builtin")
+	}
 	pkg.Skills, err = loadSkills(filepath.Join(dir, "skills"))
 	if err != nil {
 		return Package{}, fmt.Errorf("connector %s skills: %w", id, err)
@@ -167,8 +197,11 @@ func validateManifest(id string, pkg Manifest) error {
 	if !ValidID(id) || pkg.ID != id || strings.TrimSpace(pkg.Name) == "" || !validVersion(pkg.Version) {
 		return fmt.Errorf("connector %s requires matching id, name and SemVer version", id)
 	}
-	if pkg.Type != "mcp" && pkg.Type != "cli" && pkg.Type != "view" {
-		return fmt.Errorf("connector %s type must be mcp, cli or view", id)
+	if pkg.Type != "mcp" && pkg.Type != "cli" && pkg.Type != "view" && pkg.Type != "native" {
+		return fmt.Errorf("connector %s type must be mcp, cli, view or native", id)
+	}
+	if pkg.Type == "native" && id != "builtin.desktop" {
+		return fmt.Errorf("native type is reserved for registered platform builtins")
 	}
 	if pkg.Icon != "" && !validIconPath(pkg.Icon) {
 		return fmt.Errorf("connector %s icon must be a package-relative SVG or PNG path under assets/", id)

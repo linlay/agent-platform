@@ -148,6 +148,10 @@ func (m *Manager) ConnectComponent(id, component string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
+	if pkg.Type == "native" {
+		err := m.markConfiguredAt(pkg, generation)
+		return Session{ConnectorID: id, Status: "configured"}, err
+	}
 	if pkg.AuthMode == connector.AuthToken {
 		return Session{}, fmt.Errorf("configure token credentials using the token endpoint")
 	}

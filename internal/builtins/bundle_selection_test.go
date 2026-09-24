@@ -35,7 +35,7 @@ func TestBundleGitBashDoesNotChangeMacCache(t *testing.T) {
 		if result.Manifest.GitBashExcluded {
 			t.Fatal("Windows selection leaked into macOS manifest")
 		}
-		if len(result.Manifest.Components) != 1 {
+		if len(result.Manifest.Components) != 2 {
 			t.Fatal("macOS component selection changed")
 		}
 	}
@@ -59,7 +59,7 @@ func TestBundleGitBashExcludedCacheRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Manifest.GitBashExcluded || len(result.Manifest.Components) != 1 {
+	if !result.Manifest.GitBashExcluded || len(result.Manifest.Components) != 2 {
 		t.Fatal("exclusion missing")
 	}
 	if err := VerifyPlatformSelection(out, result.Manifest); err != nil {

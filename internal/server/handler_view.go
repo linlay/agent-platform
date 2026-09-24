@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"sync"
 
 	"agent-platform/internal/api"
@@ -36,7 +35,7 @@ func (s *Server) viewService() *view.Service {
 func mountedViews(def catalog.AgentDefinition) ([]view.Mount, error) {
 	var mounts []view.Mount
 	for _, mount := range def.ConnectorMounts {
-		pkg, err := connector.Load(filepath.Dir(mount.Dir), mount.ID)
+		pkg, err := connector.LoadDirectory(mount.Dir, mount.ID)
 		if err != nil {
 			return nil, err
 		}

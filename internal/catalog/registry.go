@@ -63,6 +63,7 @@ type AgentDefinition struct {
 	ConnectorBinDirs     []string
 	ConnectorEnv         map[string]string
 	ConnectorCredentials []connector.CredentialEnvironment
+	ConnectorNativeTools []string
 	ConnectorMounts      []ConnectorMount
 	ConnectorSkills      []ConnectorSkill
 	Skills               []string
@@ -288,13 +289,16 @@ type SkillDefinition struct {
 }
 
 type FileRegistry struct {
-	executionMu    sync.Mutex
-	runtimeUsers   map[string]int
-	runtimePending map[string]bool
-	onRuntimeIdle  func()
-	cfg            config.Config
-	tools          []api.ToolDetailResponse
-	assembler      *runtimeAgentAssembler
+	executionMu         sync.Mutex
+	runtimeUsers        map[string]int
+	liveConnectorMounts map[string]connector.AgentRuntime
+	liveConnectorUsers  map[string]int
+	sharedPins          map[string]func()
+	runtimePending      map[string]bool
+	onRuntimeIdle       func()
+	cfg                 config.Config
+	tools               []api.ToolDetailResponse
+	assembler           *runtimeAgentAssembler
 
 	mu             sync.RWMutex
 	privateSkillMu sync.Mutex
@@ -362,11 +366,42 @@ func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason strin
 			return err
 		}
 	}
+	var releaseAssembly func()
+	if r.assembler != nil {
+		// A corrupt durable pin must not silently drop a suspended Run's routes.
+		if _, err := r.assembler.connectors.PinnedRuntimes(); err != nil {
+			return err
+		}
+		var err error
+		releaseAssembly, err = r.assembler.connectors.AssemblyLease()
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if releaseAssembly != nil {
+				releaseAssembly()
+			}
+		}()
+	}
 	if err := r.reloadLocked(reason); err != nil {
 		return err
 	}
+	// Retain the published packages before binding: a binding failure must not
+	// leave the current catalog vulnerable to another process's collection.
+	if r.assembler != nil {
+		if err := r.reconcileSharedPins(); err != nil {
+			return err
+		}
+	}
 	if bind != nil {
-		return bind()
+		if err := bind(); err != nil {
+			return err
+		}
+	}
+	if r.assembler != nil {
+		releaseAssembly()
+		releaseAssembly = nil
+		_ = r.assembler.connectors.CollectShared()
 	}
 	return nil
 }
@@ -807,6 +842,7 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 		dst.ConnectorEnv[k] = v
 	}
 	dst.ConnectorCLIEntries = append([]connector.CLIEntry(nil), src.ConnectorCLIEntries...)
+	dst.ConnectorNativeTools = append([]string(nil), src.ConnectorNativeTools...)
 	dst.ConnectorMounts = append([]ConnectorMount(nil), src.ConnectorMounts...)
 	dst.ConnectorSkills = append([]ConnectorSkill(nil), src.ConnectorSkills...)
 	if len(src.Controls) > 0 {

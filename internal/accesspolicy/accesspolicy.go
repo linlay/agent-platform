@@ -79,6 +79,28 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if err != nil {
 		return PathPlan{}, err
 	}
+	if session.SharedConnectorsRoot != "" {
+		shared, err := pathutil.Canonicalize(session.SharedConnectorsRoot)
+		if err != nil {
+			return PathPlan{}, err
+		}
+		if pathutil.WithinRoot(realCandidate, shared) {
+			if mode == WriteAccess {
+				return buildPathPlan(mode, rawPath, realCandidate, shared, accessLevel, DecisionBlock, "connector packages are read-only"), nil
+			}
+			mounted := false
+			for _, dir := range session.ConnectorDirs {
+				root, err := pathutil.Canonicalize(dir)
+				if err == nil && pathutil.WithinRoot(realCandidate, root) {
+					mounted = true
+					break
+				}
+			}
+			if !mounted {
+				return buildPathPlan(mode, rawPath, realCandidate, shared, accessLevel, DecisionBlock, "connector package is not mounted in this run"), nil
+			}
+		}
+	}
 	tempState, _, tempRoot, tempErr := sessionTempResolver(session).Classify(candidate)
 	if tempErr != nil {
 		return PathPlan{}, tempErr

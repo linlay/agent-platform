@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -77,7 +78,7 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 	if len(connectorsDirs) > 2 {
 		assembler.connectors.StateRoot = connectorsDirs[2]
 	}
-	for _, other := range []string{assembler.centerDir, assembler.connectors.ExternalRoot, assembler.connectors.BuiltinRoot, assembler.connectors.StateRoot} {
+	for _, other := range []string{assembler.centerDir, assembler.connectors.ExternalRoot, assembler.connectors.BuiltinRoot, assembler.connectors.StateRoot, assembler.connectors.SharedRoot()} {
 		if connector.RootsOverlap(assembler.root, other) {
 			return nil, fmt.Errorf("ru-agents directory overlaps a skill or connector root: %s", other)
 		}
@@ -142,8 +143,17 @@ func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDe
 	if err := os.MkdirAll(filepath.Join(candidate, ".config"), 0o700); err != nil {
 		return "", fmt.Errorf("create runtime config directory: %w", err)
 	}
-	if _, err := a.connectors.Materialize(filepath.Join(candidate, "connectors"), def.Connectors); err != nil {
+	if err := os.MkdirAll(filepath.Join(candidate, "connectors"), 0700); err != nil {
 		return "", err
+	}
+	for _, mount := range def.ConnectorMounts {
+		data, err := json.Marshal(connector.MountReference{ID: mount.ID, Dir: mount.Dir, Digest: mount.Digest})
+		if err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(filepath.Join(candidate, "connectors", mount.ID+".json"), data, 0600); err != nil {
+			return "", err
+		}
 	}
 	// Merge defaults from the same verified package copy that will execute.
 	// Copy slice storage before rebinding this local definition.
@@ -168,6 +178,16 @@ func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDe
 	stable := filepath.Join(a.root, key)
 	if !insideDir(a.root, stable) {
 		return "", fmt.Errorf("runtime agent target escapes ru-agents: %s", stable)
+	}
+	if _, active := a.frozenAgents[key]; active {
+		same, err := sameAgentContent(candidate, stable)
+		if err != nil {
+			return "", err
+		}
+		if !same {
+			return "", errAgentRuntimeBusy
+		}
+		return stable, nil
 	}
 	if err := publishAgentCandidate(candidate, stable, len(def.Connectors) > 0); err != nil {
 		return "", fmt.Errorf("publish runtime agent %s: %w", key, err)
@@ -849,4 +869,49 @@ func atomicCopyRuntimeFile(source, target string, mode os.FileMode) error {
 		}
 	}
 	return os.Chmod(target, privateFileMode(mode))
+}
+
+var errAgentRuntimeBusy = errors.New("Agent content update deferred until active users release")
+
+// Connector references may change while Agent files and merged configuration stay frozen.
+func sameAgentContent(a, b string) (bool, error) {
+	collect := func(root string) (map[string]string, error) {
+		result := map[string]string{}
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			rel, _ := filepath.Rel(root, path)
+			if rel == "connectors" {
+				return filepath.SkipDir
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			result[rel] = string(data)
+			return nil
+		})
+		return result, err
+	}
+	left, err := collect(a)
+	if err != nil {
+		return false, err
+	}
+	right, err := collect(b)
+	if err != nil {
+		return false, err
+	}
+	if len(left) != len(right) {
+		return false, nil
+	}
+	for key, value := range left {
+		if other, ok := right[key]; !ok || other != value {
+			return false, nil
+		}
+	}
+	return true, nil
 }

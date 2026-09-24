@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/memory"
@@ -179,6 +180,7 @@ func (t *RuntimeToolExecutor) SupportsToolOutput(toolName string, execCtx *Execu
 }
 
 func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	toolName = strings.TrimSpace(toolName)
 	execCtx.EnsureAuthoredScripts()
 	if execCtx != nil && execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
@@ -189,6 +191,14 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 			Error:    "kbase_editing_tool_unsupported",
 			ExitCode: -1,
 		}, nil
+	}
+	if toolName == "desktop_action" || toolName == "desktop_cdp" {
+		if execCtx == nil || execCtx.Session.NativeConnectorTools[toolName] != "builtin.desktop" || execCtx.Session.ConnectorDirs["builtin.desktop"] == "" {
+			return ToolExecutionResult{Error: "connector_not_mounted", Output: "Desktop tool requires the builtin.desktop connector", ExitCode: -1}, nil
+		}
+		if err := connector.RequireConfigured(t.cfg.Paths.EffectiveConnectorStateDir(), "builtin.desktop"); err != nil {
+			return ToolExecutionResult{Error: "connector_not_configured", Output: err.Error(), ExitCode: -1}, nil
+		}
 	}
 	switch strings.TrimSpace(toolName) {
 	case "agent_delegate":

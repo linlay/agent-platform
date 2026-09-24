@@ -54,7 +54,11 @@ func TestAgentMCPInstancesUseOwnBinariesSessionsAndToolRoutes(t *testing.T) {
 		if _, err := sources.Materialize(target, []string{"demo"}); err != nil {
 			t.Fatal(err)
 		}
-		provider.mounts = append(provider.mounts, connector.AgentRuntime{AgentKey: agent, ID: "demo", Dir: filepath.Join(target, "demo")})
+		mount, err := connector.ReadMount(target, "demo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		provider.mounts = append(provider.mounts, connector.AgentRuntime{AgentKey: agent, ID: "demo", Dir: mount.Dir})
 	}
 	if err := registry.BindAgents(provider); err != nil {
 		t.Fatal(err)
@@ -147,15 +151,19 @@ func TestAgentMCPReadsSharedTokenWithoutWritingItIntoRuntime(t *testing.T) {
 		if _, err := sources.Materialize(target, []string{"demo"}); err != nil {
 			t.Fatal(err)
 		}
-		provider.mounts = append(provider.mounts, connector.AgentRuntime{AgentKey: agent, ID: "demo", Dir: filepath.Join(target, "demo")})
-		data, err := os.ReadFile(filepath.Join(target, "demo", "mcp.json"))
+		mount, err := connector.ReadMount(target, "demo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		provider.mounts = append(provider.mounts, connector.AgentRuntime{AgentKey: agent, ID: "demo", Dir: mount.Dir})
+		data, err := os.ReadFile(filepath.Join(mount.Dir, "mcp.json"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(data), "private-test-token") || !strings.Contains(string(data), "${TOKEN}") {
 			t.Fatal("runtime template contains a credential")
 		}
-		if _, err := os.Stat(filepath.Join(target, "demo", "credentials.json")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(mount.Dir, "credentials.json")); !os.IsNotExist(err) {
 			t.Fatal("credential copied into runtime")
 		}
 	}

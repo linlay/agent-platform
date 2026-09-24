@@ -275,6 +275,17 @@ func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Se
 		}
 		return result, nil
 	}
+	if pkg.Type == "native" {
+		state, err := pkg.ReadConnection()
+		if err != nil {
+			return result, err
+		}
+		if state.Configured {
+			result.Status = "configured"
+		}
+		result.Message = "Desktop availability and action approval are checked for each invocation"
+		return result, nil
+	}
 	if pkg.AuthMode == connector.AuthDelegated && !pkg.ManagedCLI() {
 		result.Status = "delegated"
 		result.Message = "Authentication is handled by the connector skill or CLI"

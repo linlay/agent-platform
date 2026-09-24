@@ -27,7 +27,7 @@ func validateConnectorPaths(p PathsConfig) error {
 	}
 	// Connector sources and persistent state must stay outside generated Agents
 	// and unrelated runtime data.
-	for name, root := range map[string]string{"connectors-center-dir": p.EffectiveConnectorsCenterDir(), "state-dir": p.EffectiveStateDir()} {
+	for name, root := range map[string]string{"connectors-center-dir": p.EffectiveConnectorsCenterDir(), "state-dir": p.EffectiveStateDir(), "ru-connectors": p.ConnectorSources().SharedRoot()} {
 		for _, other := range []string{p.AgentsDir, p.EffectiveRUAgentsDir(), p.SkillsCenterDir, p.TeamsDir, p.ChatsDir, p.MemoryDir, p.KBaseDir, p.RegistriesDir, p.ToolsDir, p.OwnerDir, p.RootDir, p.AutomationsDir, p.PanDir} {
 			if other == "" {
 				continue

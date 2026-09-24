@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -78,9 +79,6 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 		return nil
 	}
 	fallbackKey := adminAgentFallbackKey(source)
-	if _, frozen := assembler.frozenAgents[fallbackKey]; frozen {
-		return nil
-	}
 	definition, err := readAdminAgentDefinitionMap(source.Path)
 	if err != nil {
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
@@ -93,9 +91,6 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
 		return err
-	}
-	if _, frozen := assembler.frozenAgents[def.Key]; frozen {
-		return nil
 	}
 	if source.Kind == "directory" && def.Key != name {
 		err := fmt.Errorf("key mismatch (file key=%q, directory=%q)", def.Key, name)
@@ -127,6 +122,9 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 		return err
 	}
 	runtimeDir, err := assembler.assemble(source, def)
+	if errors.Is(err, errAgentRuntimeBusy) {
+		return nil
+	}
 	if err != nil {
 		code := runtimeAgentAssemblyDiagnosticCode(err)
 		log.Printf("[catalog][agents] skip %s %s: runtime assembly failed: %v", source.Kind, name, err)

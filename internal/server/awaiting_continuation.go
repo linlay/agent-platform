@@ -230,6 +230,11 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	if frozen != nil {
 		agentDef.InteractionConfig = frozen
 	}
+	if !newExecutionRun {
+		if err := s.restoreRunConnectors(sourceRunID, &agentDef); err != nil {
+			return false, err
+		}
+	}
 	session, err := s.BuildQuerySession(context.Background(), req, summary, agentDef, querySessionBuildOptions{
 		DisableSkillScriptGrants: !newExecutionRun,
 		Created:                  false,
@@ -364,6 +369,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
 		},
 		OnComplete: func(completion chat.RunCompletion) {
+			s.finishRunConnectorPins(completion.RunID, chatID)
 			releaseQuery(releaseRuntime)
 			s.deps.Runs.Finish(completion.RunID)
 			s.broadcast("run.finished", runFinishedPushPayload(

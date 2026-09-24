@@ -7,7 +7,7 @@ inputSchema:
     action:
       type: string
       description: |
-        Required exact desktop.* action name, never a wildcard.
+        Required. Exact desktop.* action name, never a wildcard.
         Scope: desktop.navigate.*, desktop.assistant.*, desktop.general.*, desktop.runtime.*, desktop.theme.*, desktop.skin.*, desktop.locale.*, desktop.display, desktop.copilot.*, desktop.web.*, desktop.workpanel.*, desktop.site.*, desktop.website.*, desktop.webapp.*, desktop.controlCenter.*, desktop.market.*, desktop.help.*, desktop.agent.*, desktop.skill.*, desktop.kanban.*, desktop.pet.*.
         Read the desktop-action skill catalog and the relevant domain reference for exact action names and arguments.
         Domain prefixes describe scope only; Platform enforces a separate exact runtime allowlist.

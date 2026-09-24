@@ -16,3 +16,11 @@ func tryOperationLock(f *os.File) (bool, error) {
 	}
 	return err == nil, err
 }
+
+func trySharedLock(f *os.File) (bool, error) {
+	err := unix.Flock(int(f.Fd()), unix.LOCK_SH|unix.LOCK_NB)
+	if errors.Is(err, unix.EWOULDBLOCK) {
+		return false, nil
+	}
+	return err == nil, err
+}

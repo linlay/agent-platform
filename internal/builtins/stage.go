@@ -335,6 +335,15 @@ func Stage(options StageOptions) (StageResult, error) {
 		}
 	}
 
+	for _, component := range manifest.Components {
+		if component.Name == "dbx" || component.Name == "httpx" {
+			manifest, err = PromoteConnectors(outputDir, manifest)
+			if err != nil {
+				return StageResult{}, err
+			}
+			break
+		}
+	}
 	manifestPath := filepath.Join(outputDir, "builtins.manifest.json")
 	if err := writeJSONAtomic(manifestPath, manifest); err != nil {
 		return StageResult{}, err

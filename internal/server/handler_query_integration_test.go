@@ -231,6 +231,7 @@ func TestReactExplicitToolAllowlistExposesOnlyConfiguredTool(t *testing.T) {
 }
 
 func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
+	toolMeta := map[string]any{"sourceType": "mcp"}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -245,11 +246,20 @@ func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
 		)
 	}, testFixtureOptions{
 		mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{
-			{Key: "flow_start", Name: "flow_start", Meta: map[string]any{"sourceType": "mcp", "serverKey": connector.AgentServerKey("mock-agent", "flowcenter")}},
+			{Key: "flow_start", Name: "flow_start", Meta: toolMeta},
 			{Key: "other_search", Name: "other_search", Meta: map[string]any{"sourceType": "mcp", "serverKey": "other"}},
 		}},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			writeMCPConnectorForTest(t, cfg.Paths.EffectiveConnectorsCenterDir(), "flowcenter")
+			pkg, err := cfg.Paths.ConnectorSources().Load("flowcenter")
+			if err != nil {
+				t.Fatal(err)
+			}
+			mounted, err := cfg.Paths.ConnectorSources().InstallShared(pkg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			toolMeta["serverKey"] = connector.AgentVersionServerKey("mock-agent", "flowcenter", filepath.Base(mounted.Dir))
 			definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\nconnectorConfig:\n  connectors:\n    - flowcenter\n"
 			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
 				t.Fatalf("write REACT agent: %v", err)

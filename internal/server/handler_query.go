@@ -332,6 +332,7 @@ func (s *Server) localRunExecutorParams(
 		OnUnreadChanged:   onUnreadChanged,
 		OnContinuation:    onContinuation,
 		OnComplete: func(completion chat.RunCompletion) {
+			s.finishRunConnectorPins(completion.RunID, prepared.req.ChatID)
 			releaseQuery(prepared.release)
 			s.finishRegisteredQueryRun(prepared, registered)
 			if !execution.HiddenRun {

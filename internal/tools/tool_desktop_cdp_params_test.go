@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 )
@@ -129,6 +130,13 @@ func TestDesktopCDPParamsFileReadLimitAndWorkspaceRequired(t *testing.T) {
 		t.Fatalf("invalid file sent a request: %#v", requests)
 	}
 	execCtx.Session.WorkspaceRoot = root
+	execCtx.Session.NativeConnectorTools = map[string]string{"desktop_action": "builtin.desktop", "desktop_cdp": "builtin.desktop"}
+	execCtx.Session.ConnectorDirs = map[string]string{"builtin.desktop": root}
+	executor.cfg.Paths.StateDir = filepath.Join(root, ".state")
+	pkg := connector.Package{Manifest: connector.Manifest{ID: "builtin.desktop"}, StateRoot: executor.cfg.Paths.EffectiveConnectorStateDir()}
+	if _, err := pkg.SetConfigured(true); err != nil {
+		panic(err)
+	}
 	executor.cfg.FileTools.MaxReadBytes = 3
 	result, err = executor.invokeDesktopCDP(context.Background(), args, execCtx)
 	if err != nil || result.ExitCode != 0 {
@@ -216,5 +224,12 @@ func desktopCDPParamsTestRuntime(root string) (*RuntimeToolExecutor, *ExecutionC
 	}
 	execCtx := desktopActionTestExecutionContext()
 	execCtx.Session.WorkspaceRoot = root
+	execCtx.Session.NativeConnectorTools = map[string]string{"desktop_action": "builtin.desktop", "desktop_cdp": "builtin.desktop"}
+	execCtx.Session.ConnectorDirs = map[string]string{"builtin.desktop": root}
+	executor.cfg.Paths.StateDir = filepath.Join(root, ".state")
+	pkg := connector.Package{Manifest: connector.Manifest{ID: "builtin.desktop"}, StateRoot: executor.cfg.Paths.EffectiveConnectorStateDir()}
+	if _, err := pkg.SetConfigured(true); err != nil {
+		panic(err)
+	}
 	return executor, execCtx, invoker
 }

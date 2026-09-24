@@ -1241,5 +1241,5 @@ func agentConnectorPath(agentDir string) string {
 	if strings.TrimSpace(agentDir) == "" {
 		return ""
 	}
-	return filepath.Join(agentDir, "connectors")
+	return "@connectors"
 }

@@ -44,3 +44,11 @@ func runtimeConnectorDirs(def catalog.AgentDefinition) map[string]string {
 	}
 	return dirs
 }
+
+func runtimeNativeConnectorTools(def catalog.AgentDefinition) map[string]string {
+	result := map[string]string{}
+	for _, name := range def.ConnectorNativeTools {
+		result[name] = "builtin.desktop"
+	}
+	return result
+}

@@ -31,5 +31,5 @@ func TestPureViewMountDoesNotGrantExecution(t *testing.T) {
 	if len(def.ConnectorBinDirs) != 0 || containsString(def.Tools, "bash") {
 		t.Fatalf("pure view granted execution: %#v", def)
 	}
-	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, "connectors", "forms", "views", "card.html"), "<p>card</p>")
+	assertRuntimeAssemblerContent(t, filepath.Join(def.ConnectorMounts[0].Dir, "views", "card.html"), "<p>card</p>")
 }

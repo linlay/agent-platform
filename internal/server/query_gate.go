@@ -288,6 +288,10 @@ func (s *Server) registeredQueryRun(observerCtx context.Context, runCtx context.
 		}
 		notifyInternalQueryRunStarted(observerCtx, start)
 	}
+	if err := s.freezeRunConnectors(prepared); err != nil {
+		s.deps.Runs.Finish(runID)
+		return registeredQueryRun{}, btwStatusError(http.StatusInternalServerError, "run_connector_snapshot_unavailable", err.Error())
+	}
 	return registeredQueryRun{RunCtx: runCtx, Control: control, Managed: true, StartedAtMillis: status.StartedAt}, nil
 }
 

@@ -39,7 +39,7 @@ func RootsOverlap(a, b string) bool {
 }
 
 func (s Sources) ValidateRoots() error {
-	roots := []string{s.ExternalRoot, s.BuiltinRoot, s.StateRoot}
+	roots := []string{s.ExternalRoot, s.BuiltinRoot, s.StateRoot, s.SharedRoot()}
 	for i, root := range roots {
 		if root == "" {
 			continue
@@ -65,7 +65,7 @@ func (s Sources) ValidateRoots() error {
 	return nil
 }
 
-// Materialize copies only the selected packages into a fresh Agent candidate.
+// Materialize installs shared packages and writes only mount references into an Agent candidate.
 // The caller publishes the whole Agent after its skills and configuration pass
 // validation. Credentials are never loaded or copied by this operation.
 func (s Sources) Materialize(target string, ids []string) ([]Package, error) {
@@ -102,30 +102,17 @@ func (s Sources) Materialize(target string, ids []string) ([]Package, error) {
 				return nil, fmt.Errorf("connector %s contains reserved persistent state entry %s", id, name)
 			}
 		}
-		before, err := packageDigest(pkg.Dir)
+		mounted, err := s.InstallShared(pkg)
 		if err != nil {
 			return nil, err
 		}
-		dest := filepath.Join(target, id)
-		if err := copyPackage(pkg.Dir, dest); err != nil {
-			return nil, err
-		}
-		after, err := packageDigest(dest)
+		data, err := json.Marshal(MountReference{ID: id, Dir: mounted.Dir, Digest: filepath.Base(mounted.Dir)})
 		if err != nil {
 			return nil, err
 		}
-		if before != after {
-			return nil, fmt.Errorf("connector %s changed during assembly", id)
-		}
-		if err := prepareRuntimeState(pkg, dest); err != nil {
+		if err := os.WriteFile(filepath.Join(target, id+".json"), data, 0600); err != nil {
 			return nil, err
 		}
-		mounted, err := Load(target, id)
-		if err != nil {
-			return nil, err
-		}
-		mounted.Builtin = pkg.Builtin
-		mounted.StateRoot = s.PersistentRoot()
 		result = append(result, mounted)
 	}
 	return result, nil

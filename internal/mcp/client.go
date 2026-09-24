@@ -57,6 +57,7 @@ type managedSession struct {
 	active         int
 	retired        bool
 	retiredClosed  bool
+	releasePackage func()
 	fingerprint    string
 	identityDigest string
 	transport      string
@@ -290,6 +291,20 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 		slot.current.retire()
 		slot.current = nil
 	}
+	releasePackage := func() {}
+	if server.RuntimePackageDir != "" {
+		var err error
+		releasePackage, err = connector.RetainShared(server.RuntimePackageDir)
+		if err != nil {
+			return nil, err
+		}
+	}
+	packageTransferred := false
+	defer func() {
+		if !packageTransferred {
+			releasePackage()
+		}
+	}()
 	connectCtx, cancel := operationContext(ctx, server.StartupTimeout)
 	defer cancel()
 	transport, err := c.transportWithIdentity(server, identity)
@@ -312,7 +327,8 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	}
 	// The SDK validates its supported versions and applies the negotiated
 	// version to the transport before sending notifications/initialized.
-	managed := &managedSession{fingerprint: fingerprint, identityDigest: identityDigest, transport: server.Transport, session: session}
+	packageTransferred = true
+	managed := &managedSession{releasePackage: releasePackage, fingerprint: fingerprint, identityDigest: identityDigest, transport: server.Transport, session: session}
 	managed.retain()
 	slot.current = managed
 	observability.Log("mcp.response", map[string]any{"serverKey": server.Key, "method": "initialize", "protocolVersion": session.InitializeResult().ProtocolVersion})
@@ -352,6 +368,9 @@ func closeManagedSession(managed *managedSession) error {
 		return nil
 	}
 	err := managed.session.Close()
+	if managed.releasePackage != nil {
+		managed.releasePackage()
+	}
 	if managed.transport == TransportStdio {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {

@@ -252,6 +252,8 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
 		ConnectorDirs:                 runtimeConnectorDirs(agentDef),
+		SharedConnectorsRoot:          s.deps.Config.Paths.ConnectorSources().SharedRoot(),
+		NativeConnectorTools:          runtimeNativeConnectorTools(agentDef),
 		ConnectorCLIEntries:           append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
 		SkillKeys:                     append([]string(nil), agentDef.EffectiveSkills()...),
 		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
