@@ -165,6 +165,11 @@ func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (
 		}
 		return registeredQueryRun{}, btwStatusError(http.StatusInternalServerError, "run_control_identity_unavailable", "cannot persist run control identity")
 	}
+	if prepared.session.InteractionConfig != nil {
+		if err := s.runInteractionPolicies().Bind(prepared.req.RunID, *prepared.session.InteractionConfig); err != nil {
+			return registeredQueryRun{}, btwStatusError(http.StatusInternalServerError, "run_interaction_policy_unavailable", "cannot persist run interaction policy")
+		}
+	}
 	if registrar, ok := s.deps.Runs.(contracts.ExclusiveRunRegistrar); ok {
 		registration, err := registrar.RegisterExclusiveForChat(ctx, prepared.session)
 		if err != nil {

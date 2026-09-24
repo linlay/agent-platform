@@ -2,6 +2,7 @@ package server
 
 import (
 	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/interaction"
 	"bytes"
 	"encoding/json"
@@ -81,5 +82,27 @@ func TestReactModelConfigCanBeSelected(t *testing.T) {
 	result := postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{"agentKey": "mock-agent", "modelKey": "mock-model", "reasoningEffort": "HIGH"})
 	if result.ModelKey != "mock-model" {
 		t.Fatalf("model config: %+v", result)
+	}
+}
+
+func TestRestoredInteractionPolicy(t *testing.T) {
+	s := newTestFixture(t).server
+	frozen := interaction.Defaults("CODER")
+	frozen.AccessLevel = false
+	if err := s.runInteractionPolicies().Bind("frozen", frozen); err != nil {
+		t.Fatal(err)
+	}
+	legacy := &chat.QueryLine{Query: map[string]any{"interactionConfig": map[string]any{"model": false}}}
+	restored, err := s.restoredInteractionPolicy("frozen", "REACT", legacy)
+	if err != nil || restored == nil || *restored != frozen {
+		t.Fatalf("private snapshot: %+v %v", restored, err)
+	}
+	restored, err = s.restoredInteractionPolicy("legacy", "REACT", legacy)
+	if err != nil || restored == nil || restored.Model || !restored.AccessLevel {
+		t.Fatalf("legacy snapshot: %+v %v", restored, err)
+	}
+	restored, err = s.restoredInteractionPolicy("missing", "REACT", nil)
+	if err != nil || restored != nil {
+		t.Fatalf("missing snapshot: %+v %v", restored, err)
 	}
 }

@@ -979,7 +979,6 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		IncludeUsage:       prepared.req.IncludeUsage,
 		IncludeFullText:    prepared.req.IncludeFullText,
 		AccessLevel:        prepared.session.AccessLevel,
-		InteractionConfig:  prepared.session.InteractionConfig,
 		Created:            prepared.created,
 		ContinueRun:        prepared.continueRun,
 		InitialSeq:         prepared.initialSeq,

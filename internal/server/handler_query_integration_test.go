@@ -47,6 +47,9 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 		t.Fatalf("expected sse content type, got %q", got)
 	}
 	bodyText := rec.Body.String()
+	if strings.Contains(bodyText, `"interactionConfig"`) {
+		t.Fatal("interaction policy leaked into live events")
+	}
 	if !strings.Contains(bodyText, `"type":"request.query"`) {
 		t.Fatalf("expected request.query event, got %s", bodyText)
 	}
@@ -85,6 +88,9 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load jsonl: %v", err)
 	}
+	if strings.Contains(jsonl, `"interactionConfig"`) {
+		t.Fatal("interaction policy leaked into Chat JSONL")
+	}
 	decoder := json.NewDecoder(strings.NewReader(jsonl))
 	for {
 		var line map[string]any
@@ -93,6 +99,11 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 				break
 			}
 			t.Fatalf("decode jsonl: %v", err)
+		}
+		if _, ok := line["query"]; ok {
+			if policy, err := server.runInteractionPolicies().Load(stringValue(line["runId"])); err != nil || !policy.Model {
+				t.Fatalf("missing private Run policy: %+v %v", policy, err)
+			}
 		}
 		liveSeq := int64(contracts.AnyIntNode(line["liveSeq"]))
 		if liveSeq > 0 && !publicSeqs[liveSeq] {

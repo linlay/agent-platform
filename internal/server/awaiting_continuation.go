@@ -13,7 +13,6 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/interaction"
 	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
@@ -223,15 +222,13 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	// agent after admission.
 	req.TeamID = teamID
 	req.AgentKey = agentKey
-	// Restore the original run's immutable interaction policy, even after catalog reload.
-	if originalQuery != nil {
-		if raw, exists := originalQuery.Query["interactionConfig"]; exists {
-			frozen, parseErr := interaction.Parse(agentDef.Mode, raw)
-			if parseErr != nil {
-				return false, parseErr
-			}
-			agentDef.InteractionConfig = &frozen
-		}
+	// Prefer private state; older Runs may still have a query snapshot.
+	frozen, restoreErr := s.restoredInteractionPolicy(sourceRunID, agentDef.Mode, originalQuery)
+	if restoreErr != nil {
+		return false, restoreErr
+	}
+	if frozen != nil {
+		agentDef.InteractionConfig = frozen
 	}
 	session, err := s.BuildQuerySession(context.Background(), req, summary, agentDef, querySessionBuildOptions{
 		DisableSkillScriptGrants: !newExecutionRun,
