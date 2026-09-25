@@ -50,6 +50,11 @@ func validateCandidate(root string) error {
 		},
 		Skills: config.SkillCatalogConfig{MaxPromptChars: 1 << 20},
 	}
+	release, err := cfg.Paths.PrepareNativeConnectors()
+	if err != nil {
+		return fmt.Errorf("validate embedded Desktop connector: %w", err)
+	}
+	defer release()
 	if _, err := catalog.NewFileRegistry(cfg, toolDefinitions); err != nil {
 		return fmt.Errorf("validate Agent/Team/Skill resources: %w", err)
 	}

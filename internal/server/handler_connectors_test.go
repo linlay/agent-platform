@@ -1,6 +1,7 @@
 package server
 
 import (
+	"agent-platform/internal/connectortest"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -72,7 +73,7 @@ func TestConnectorDefinitionSaveConflictAndRollback(t *testing.T) {
 func TestConnectorSkillsExcludedFromMustUseCatalog(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
 		cfg.Paths.BuiltinConnectorsDir = t.TempDir()
-		if err := connector.WriteBuiltin(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
+		if err := connectortest.WriteCLI(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
 			t.Fatal(err)
 		}
 		path := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
@@ -100,7 +101,7 @@ func TestBuiltinConnectorAPIListsReadsAndRejectsMutation(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	root := t.TempDir()
 	fixture.server.deps.Config.Paths.BuiltinConnectorsDir = root
-	if err := connector.WriteBuiltin(filepath.Join(root, "builtin.httpx"), "httpx", "0.1.8", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(root, "builtin.httpx"), "httpx", "0.1.8", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	external := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()

@@ -23,10 +23,10 @@ func TestStageBuiltins(t *testing.T) {
 	mustWrite(t, rgPath, []byte("rg-binary"))
 	mustWrite(t, filepath.Join(collectionRoot, "ripgrep", "15.1.0", "LICENSE-MIT"), []byte("license"))
 
-	dbxArchive := filepath.Join(collectionRoot, "dbx", "dist", "v0.1.0", "dbx.tar.gz")
-	mustWriteTarGzip(t, dbxArchive, "./dbx", []byte("dbx-binary"))
-	httpxArchive := filepath.Join(collectionRoot, "httpx", "dist", "v0.1.1", "httpx.zip")
-	mustWriteZip(t, httpxArchive, "httpx", []byte("httpx-binary"))
+	sampledbArchive := filepath.Join(collectionRoot, "sampledb", "dist", "v0.1.0", "sampledb.tar.gz")
+	mustWriteTarGzip(t, sampledbArchive, "./sampledb", []byte("sampledb-binary"))
+	samplehttpArchive := filepath.Join(collectionRoot, "samplehttp", "dist", "v0.1.1", "samplehttp.zip")
+	mustWriteZip(t, samplehttpArchive, "samplehttp", []byte("samplehttp-binary"))
 
 	lock := Lock{
 		SchemaVersion: lockSchemaVersion,
@@ -41,15 +41,15 @@ func TestStageBuiltins(t *testing.T) {
 				},
 			},
 			{
-				Name: "dbx", Version: "v0.1.0", Repository: "dbx", Kind: "archive", Required: true,
+				Name: "sampledb", Version: "v0.1.0", Repository: "sampledb", Kind: "archive", Required: true,
 				Targets: map[string]Target{
-					"darwin-arm64": {Path: "dist/v0.1.0/dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: fileSHA256(t, dbxArchive)},
+					"darwin-arm64": {Path: "dist/v0.1.0/sampledb.tar.gz", Format: "tar.gz", Entry: "sampledb", Output: "sampledb", SHA256: fileSHA256(t, sampledbArchive)},
 				},
 			},
 			{
-				Name: "httpx", Version: "v0.1.1", Repository: "httpx", Kind: "archive", Required: true,
+				Name: "samplehttp", Version: "v0.1.1", Repository: "samplehttp", Kind: "archive", Required: true,
 				Targets: map[string]Target{
-					"darwin-arm64": {Path: "dist/v0.1.1/httpx.zip", Format: "zip", Entry: "httpx", Output: "httpx", SHA256: fileSHA256(t, httpxArchive)},
+					"darwin-arm64": {Path: "dist/v0.1.1/samplehttp.zip", Format: "zip", Entry: "samplehttp", Output: "samplehttp", SHA256: fileSHA256(t, samplehttpArchive)},
 				},
 			},
 		},
@@ -72,14 +72,11 @@ func TestStageBuiltins(t *testing.T) {
 		t.Fatalf("builtins root = %s, want %s", result.BuiltinsRoot, collectionRoot)
 	}
 	for name, expected := range map[string]string{
-		"rg":    "rg-binary",
-		"dbx":   "dbx-binary",
-		"httpx": "httpx-binary",
+		"rg":         "rg-binary",
+		"sampledb":   "sampledb-binary",
+		"samplehttp": "samplehttp-binary",
 	} {
 		dir := filepath.Join(outputDir, "bin")
-		if name == "dbx" || name == "httpx" {
-			dir = filepath.Join(outputDir, "connectors", "builtin."+name, "bin")
-		}
 		payload, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatalf("read staged %s: %v", name, err)
@@ -91,8 +88,8 @@ func TestStageBuiltins(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outputDir, "licenses", "ripgrep", "LICENSE-MIT")); err != nil {
 		t.Fatalf("staged license: %v", err)
 	}
-	if len(result.Manifest.Components) != 4 {
-		t.Fatalf("manifest components = %d, want 4", len(result.Manifest.Components))
+	if len(result.Manifest.Components) != 3 {
+		t.Fatalf("manifest components = %d, want 3", len(result.Manifest.Components))
 	}
 	if _, err := os.Stat(result.ManifestPath); err != nil {
 		t.Fatalf("manifest path: %v", err)
@@ -287,8 +284,8 @@ func TestLoadLockHydratesSchemaV1TargetRelease(t *testing.T) {
 		SchemaVersion: legacyLockSchemaVersion,
 		DefaultRoot:   "../agent-platform-builtins",
 		Components: []Component{{
-			Name: "dbx", Version: "v1.0.0", Source: "https://example.invalid/dbx.git", Commit: strings.Repeat("a", 40), Repository: "dbx", Kind: "archive", Required: true,
-			Targets: map[string]Target{"darwin-arm64": {Path: "dist/v1.0.0/dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: strings.Repeat("b", 64)}},
+			Name: "sampledb", Version: "v1.0.0", Source: "https://example.invalid/sampledb.git", Commit: strings.Repeat("a", 40), Repository: "sampledb", Kind: "archive", Required: true,
+			Targets: map[string]Target{"darwin-arm64": {Path: "dist/v1.0.0/sampledb.tar.gz", Format: "tar.gz", Entry: "sampledb", Output: "sampledb", SHA256: strings.Repeat("b", 64)}},
 		}},
 	})
 	loaded, err := LoadLock(lockPath)
@@ -296,7 +293,7 @@ func TestLoadLockHydratesSchemaV1TargetRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := loaded.Components[0].Targets["darwin-arm64"]
-	if target.Version != "v1.0.0" || target.Source != "https://example.invalid/dbx.git" || target.Commit != strings.Repeat("a", 40) {
+	if target.Version != "v1.0.0" || target.Source != "https://example.invalid/sampledb.git" || target.Commit != strings.Repeat("a", 40) {
 		t.Fatalf("hydrated target release = %#v", target)
 	}
 }
@@ -305,17 +302,17 @@ func TestStageSchemaV2UsesTargetRelease(t *testing.T) {
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "agent-platform")
 	collectionRoot := filepath.Join(base, "agent-platform-builtins")
-	archive := filepath.Join(collectionRoot, "dbx", "dist", "v1.0.0", "dbx.tar.gz")
-	mustWriteTarGzip(t, archive, "dbx", []byte("dbx"))
+	archive := filepath.Join(collectionRoot, "sampledb", "dist", "v1.0.0", "sampledb.tar.gz")
+	mustWriteTarGzip(t, archive, "sampledb", []byte("sampledb"))
 	lockPath := filepath.Join(repoRoot, "builtins.lock.json")
 	writeLock(t, lockPath, Lock{
 		SchemaVersion: lockSchemaVersion,
 		DefaultRoot:   "../agent-platform-builtins",
 		Components: []Component{{
-			Name: "dbx", Version: "v2.0.0", Source: "https://example.invalid/dbx.git", Commit: strings.Repeat("c", 40), Repository: "dbx", Kind: "archive", Required: true,
+			Name: "sampledb", Version: "v2.0.0", Source: "https://example.invalid/sampledb.git", Commit: strings.Repeat("c", 40), Repository: "sampledb", Kind: "archive", Required: true,
 			Targets: map[string]Target{"darwin-arm64": {
-				Version: "v1.0.0", Source: "https://example.invalid/dbx.git", Commit: strings.Repeat("a", 40),
-				Path: "dist/v1.0.0/dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: fileSHA256(t, archive),
+				Version: "v1.0.0", Source: "https://example.invalid/sampledb.git", Commit: strings.Repeat("a", 40),
+				Path: "dist/v1.0.0/sampledb.tar.gz", Format: "tar.gz", Entry: "sampledb", Output: "sampledb", SHA256: fileSHA256(t, archive),
 			}},
 		}},
 	})
@@ -326,8 +323,8 @@ func TestStageSchemaV2UsesTargetRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded.Components[0].Targets["darwin-arm64"] = Target{
-		Version: "v1.0.0", Source: "https://example.invalid/dbx.git", Commit: strings.Repeat("a", 40),
-		Path: "dist/v1.0.0/dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: fileSHA256(t, archive),
+		Version: "v1.0.0", Source: "https://example.invalid/sampledb.git", Commit: strings.Repeat("a", 40),
+		Path: "dist/v1.0.0/sampledb.tar.gz", Format: "tar.gz", Entry: "sampledb", Output: "sampledb", SHA256: fileSHA256(t, archive),
 	}
 	payload, err := json.Marshal(loaded)
 	if err != nil {
@@ -350,8 +347,8 @@ func TestLoadLockRejectsSchemaV2TargetWithoutRelease(t *testing.T) {
 		SchemaVersion: lockSchemaVersion,
 		DefaultRoot:   "../agent-platform-builtins",
 		Components: []Component{{
-			Name: "dbx", Version: "v1.0.0", Repository: "dbx", Kind: "archive", Required: true,
-			Targets: map[string]Target{"darwin-arm64": {Path: "dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: strings.Repeat("b", 64)}},
+			Name: "sampledb", Version: "v1.0.0", Repository: "sampledb", Kind: "archive", Required: true,
+			Targets: map[string]Target{"darwin-arm64": {Path: "sampledb.tar.gz", Format: "tar.gz", Entry: "sampledb", Output: "sampledb", SHA256: strings.Repeat("b", 64)}},
 		}},
 	}
 	payload, err := json.Marshal(lock)

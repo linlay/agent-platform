@@ -16,6 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_ROOT="$REPO_ROOT/build/builtins"
 BUILTINS_ROOT="${BUILTINS_ROOT:-}"
+CONNECTORS_ROOT="${CONNECTORS_ROOT:-$REPO_ROOT/../agent-platform-connectors}"
 BUNDLE_GIT_BASH="$(printf '%s' "${BUNDLE_GIT_BASH:-true}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 case "$BUNDLE_GIT_BASH" in true|false) ;; *) echo 'BUNDLE_GIT_BASH must be true or false' >&2; exit 1 ;; esac
 export BUNDLE_GIT_BASH
@@ -29,7 +30,7 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: scripts/sync-local-builtins.sh [--all | --target <os>/<arch>] [--builtins-root <absolute-path>]
+Usage: scripts/sync-local-builtins.sh [--all | --target <os>/<arch>] [--builtins-root <absolute-path>] [--connectors-root <absolute-path>]
 
 Builds the sibling builtin projects in an isolated work directory, verifies
 their locally generated archives, and atomically updates
@@ -86,6 +87,11 @@ while [[ $# -gt 0 ]]; do
       TARGETS+=("$target")
       shift 2
       ;;
+    --connectors-root)
+      CONNECTORS_ROOT="${2:-}"
+      [[ -n "$CONNECTORS_ROOT" && "$CONNECTORS_ROOT" = /* ]] || die "--connectors-root must be absolute"
+      shift 2
+      ;;
     --builtins-root)
       BUILTINS_ROOT="${2:-}"
       [[ -n "$BUILTINS_ROOT" && "$BUILTINS_ROOT" = /* ]] || die "--builtins-root must be absolute"
@@ -132,16 +138,23 @@ if [[ -z "$BUILTINS_ROOT" ]]; then
 fi
 [[ "$BUILTINS_ROOT" = /* ]] || die "builtins root must be absolute"
 BUILTINS_ROOT="$(cd "$BUILTINS_ROOT" && pwd)"
-for component in ripgrep dbx httpx kbase-lance-engine poppler-pdftotext; do
+for component in ripgrep kbase-lance-engine poppler-pdftotext; do
   [[ -d "$BUILTINS_ROOT/$component" ]] || die "missing sibling builtin project: $BUILTINS_ROOT/$component"
 done
 
+[[ "$CONNECTORS_ROOT" = /* ]] || die "connectors root must be absolute"
+CONNECTORS_ROOT="$(cd "$CONNECTORS_ROOT" && pwd)"
+for component in dbx httpx; do
+  [[ -d "$CONNECTORS_ROOT/$component/connector" ]] || die "missing connector project: $CONNECTORS_ROOT/$component"
+done
 collection_root="$work_dir/collection"
 copy_project() {
   local name="$1"
+  local source_root="$BUILTINS_ROOT"
+  if [[ "$name" == dbx || "$name" == httpx ]]; then source_root="$CONNECTORS_ROOT"; fi
   mkdir -p "$collection_root/$name"
   # Anchor build-output exclusions so nested runtime payload directories survive.
-  rsync -a --exclude '/dist/' --exclude '/target/' "$BUILTINS_ROOT/$name/" "$collection_root/$name/"
+  rsync -a --exclude '/dist/' --exclude '/target/' "$source_root/$name/" "$collection_root/$name/"
 }
 
 copy_project ripgrep
@@ -214,6 +227,11 @@ done
   go run "${prepare_lock_args[@]}"
 )
 
+local_connectors_lock="$work_dir/connectors.local.lock.json"
+connector_lock_args=(./cmd/prepare-local-builtins-lock --input "$REPO_ROOT/scripts/release-assets/connectors.lock.json" --output "$local_connectors_lock" --builtins-root "$collection_root")
+for target in "${TARGETS[@]}"; do connector_lock_args+=(--target "$target"); done
+(cd "$REPO_ROOT" && go run "${connector_lock_args[@]}")
+
 for target in "${TARGETS[@]}"; do
   target_os="${target%%/*}"
   target_arch="${target#*/}"
@@ -221,7 +239,7 @@ for target in "${TARGETS[@]}"; do
   mkdir -p "$stage_dir"
   (
     cd "$REPO_ROOT"
-    go run ./cmd/stage-builtins --repo-root "$REPO_ROOT" --lock "$local_lock" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$collection_root"
+    go run ./cmd/stage-builtins --repo-root "$REPO_ROOT" --lock "$local_lock" --connectors-lock "$local_connectors_lock" --connectors-root "$collection_root" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$collection_root"
     go run ./cmd/stage-kbase-lance-engine --repo-root "$REPO_ROOT" --lock "$local_lock" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$collection_root"
   )
 done
@@ -278,6 +296,10 @@ if [[ "$host_was_built" == true ]]; then
       --durable-builtins-root "$BUILTINS_ROOT" \
       --host-target "$host_target" \
       --offer-canonical-update
+  )
+  (
+    cd "$REPO_ROOT"
+    go run ./cmd/prepare-local-builtins-lock --input "$REPO_ROOT/scripts/release-assets/connectors.lock.json" --builtins-root "$collection_root" --durable-builtins-root "$CONNECTORS_ROOT" --host-target "$host_target" --offer-canonical-update
   )
 else
   echo "[builtins-sync] canonical lock update skipped: exact host target $host_target was not built"

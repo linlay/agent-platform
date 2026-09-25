@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"agent-platform/internal/connectortest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,7 @@ func runtimeFixture(t *testing.T) Sources {
 	t.Helper()
 	root := t.TempDir()
 	s := Sources{ExternalRoot: filepath.Join(root, "connectors-center"), BuiltinRoot: filepath.Join(root, "platform", "connectors"), StateRoot: filepath.Join(root, ".state", "connectors")}
-	if err := WriteBuiltin(filepath.Join(s.BuiltinRoot, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(s.BuiltinRoot, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	return s

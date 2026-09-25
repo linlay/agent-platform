@@ -134,9 +134,6 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 	if err := builtins.VerifyManifest(root, builtinManifest); err != nil {
 		return err
 	}
-	if err := builtins.RequireDesktopConnector(builtinManifest); err != nil {
-		return err
-	}
 	if err := builtins.VerifyPlatformSelection(root, builtinManifest); err != nil {
 		return err
 	}

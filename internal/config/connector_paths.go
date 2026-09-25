@@ -15,14 +15,14 @@ func (p PathsConfig) EffectiveConnectorStateDir() string {
 }
 
 func (p PathsConfig) ConnectorSources() connector.Sources {
-	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, StateRoot: p.EffectiveConnectorStateDir(), LegacyStateRoot: p.LegacyConnectorStateDir}
+	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeDesktopDir: p.NativeDesktopDir, StateRoot: p.EffectiveConnectorStateDir(), LegacyStateRoot: p.LegacyConnectorStateDir}
 }
 
 func validateConnectorPaths(p PathsConfig) error {
 	if err := p.ConnectorSources().ValidateRoots(); err != nil {
 		return err
 	}
-	if err := (connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, StateRoot: p.EffectiveStateDir()}).ValidateRoots(); err != nil {
+	if err := (connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeDesktopDir: p.NativeDesktopDir, StateRoot: p.EffectiveStateDir()}).ValidateRoots(); err != nil {
 		return fmt.Errorf("AP_RUNTIME_STATE_DIR: %w", err)
 	}
 	// Connector sources and persistent state must stay outside generated Agents
@@ -38,4 +38,15 @@ func validateConnectorPaths(p PathsConfig) error {
 		}
 	}
 	return nil
+}
+
+// PrepareNativeConnectors publishes the binary's embedded resources and retains
+// their shared version for the caller's lifetime, even with no Agent mounts.
+func (p *PathsConfig) PrepareNativeConnectors() (func(), error) {
+	pkg, release, err := p.ConnectorSources().InstallEmbeddedDesktop()
+	if err != nil {
+		return nil, err
+	}
+	p.NativeDesktopDir = pkg.Dir
+	return release, nil
 }

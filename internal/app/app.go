@@ -58,17 +58,18 @@ import (
 )
 
 type App struct {
-	Config               config.Config
-	RuntimeEnv           runtimeenv.Info
-	Router               *server.Server
-	backgroundCancel     context.CancelFunc
-	automation           automationStopper
-	gateways             *gateway.Registry
-	wsHub                *ws.Hub
-	automationExecutions *automation.ExecutionHistoryService
-	lspManager           *lsp.Manager
-	mcpClient            *mcp.Client
-	kbaseManager         *kbase.Manager
+	nativeConnectorRelease func()
+	Config                 config.Config
+	RuntimeEnv             runtimeenv.Info
+	Router                 *server.Server
+	backgroundCancel       context.CancelFunc
+	automation             automationStopper
+	gateways               *gateway.Registry
+	wsHub                  *ws.Hub
+	automationExecutions   *automation.ExecutionHistoryService
+	lspManager             *lsp.Manager
+	mcpClient              *mcp.Client
+	kbaseManager           *kbase.Manager
 }
 
 type automationStopper interface {
@@ -203,6 +204,16 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err := cfg.Paths.ConnectorSources().MigrateLegacy(cfg.Paths.LegacyConnectorsDir); err != nil {
 		return nil, fmt.Errorf("migrate connector layout: %w", err)
 	}
+	nativeRelease, err := cfg.Paths.PrepareNativeConnectors()
+	if err != nil {
+		return nil, fmt.Errorf("load embedded Desktop connector: %w", err)
+	}
+	cleanupNative := true
+	defer func() {
+		if cleanupNative {
+			nativeRelease()
+		}
+	}()
 	mcpRegistry, err := mcp.NewAgentRegistry(cfg.Paths.ConnectorSources())
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)
@@ -514,25 +525,30 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
 	cleanupBackground = false
 	cleanupMCP = false
+	cleanupNative = false
 
 	return &App{
-		Config:               cfg,
-		RuntimeEnv:           hostEnv,
-		Router:               srv,
-		backgroundCancel:     backgroundCancel,
-		automation:           automationOrchestrator,
-		gateways:             gwRegistry,
-		wsHub:                wsHub,
-		automationExecutions: automationExecutionHistory,
-		lspManager:           lspManager,
-		mcpClient:            mcpClient,
-		kbaseManager:         kbaseManager,
+		nativeConnectorRelease: nativeRelease,
+		Config:                 cfg,
+		RuntimeEnv:             hostEnv,
+		Router:                 srv,
+		backgroundCancel:       backgroundCancel,
+		automation:             automationOrchestrator,
+		gateways:               gwRegistry,
+		wsHub:                  wsHub,
+		automationExecutions:   automationExecutionHistory,
+		lspManager:             lspManager,
+		mcpClient:              mcpClient,
+		kbaseManager:           kbaseManager,
 	}, nil
 }
 
 func (a *App) Close() error {
 	if a == nil {
 		return nil
+	}
+	if a.nativeConnectorRelease != nil {
+		defer a.nativeConnectorRelease()
 	}
 	// Cancel startup/reconcile/watcher work before waiting for KBASE refreshes
 	// and stopping its sidecar. This prevents an in-flight refresh from

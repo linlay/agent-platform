@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"agent-platform/internal/connectortest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,7 +12,7 @@ import (
 func TestBuiltinPackageIncludesBinAndSkills(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "builtin.dbx")
-	if err := WriteBuiltin(dir, "dbx", "v1.2.3", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(dir, "dbx", "v1.2.3", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	pkg, err := Load(root, "builtin.dbx")
@@ -35,7 +36,7 @@ func TestPackageRejectsDuplicateJSONAndEscapes(t *testing.T) {
 	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "builtin.dbx")
-	if err := WriteBuiltin(dir, "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(dir, "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(t.TempDir(), filepath.Join(dir, "bin", "outside")); err != nil {
@@ -48,7 +49,7 @@ func TestPackageRejectsDuplicateJSONAndEscapes(t *testing.T) {
 
 func TestInvalidDefinitionIsNeverPublished(t *testing.T) {
 	root := t.TempDir()
-	if err := WriteBuiltin(filepath.Join(root, "demo"), "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(root, "demo"), "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(root, "demo", "connector.json")

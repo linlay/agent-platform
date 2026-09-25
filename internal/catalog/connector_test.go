@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"agent-platform/internal/connectortest"
 	"context"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	root := t.TempDir()
 	agents := filepath.Join(root, "agents")
 	connectorRoot := filepath.Join(root, "platform", "connectors")
-	if err := connector.WriteBuiltin(filepath.Join(connectorRoot, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(connectorRoot, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(agents, "demo"), 0o755); err != nil {

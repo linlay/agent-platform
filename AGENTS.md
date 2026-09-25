@@ -18,7 +18,7 @@
 - 模型空响应与传输/解析失败分别输出常开结构化诊断；可选 LLM trace 保存结束方式、响应元数据与正文/思考计数，空响应标记 `empty_response`；输出受限、过滤/拒答与其他空响应分别返回明确中文提示和非重试错误终态，保留已生成内容，输出受限不执行本轮工具，见 [模型空响应排查](docs/配置化说明.md#模型空响应排查)。
 - Native 模型流式正文与推理各自达到 4,000 Unicode 字符后启用精确尾部复读检测；命中取消当前请求，以 `model_output_repetition` 非重试错误收口并丢弃未提交轮次，已执行工具不回滚。阈值与范围见 [配置化说明](docs/配置化说明.md#流式复读取消)。
 - 统一工具生命周期支持 live-only `tool.output`（每次调用 `0..N` 条，最终仍由唯一 `tool.result` 收口）；当前仅 Native Host Bash 通过普通 pipe 接收 stdout/stderr，以 tee 临时文件作为最终事实源并按 50ms 周期发送原始控制流，Container Hub Bash、Chat JSONL 与冷回放不保存过程输出。活动异步工具的取消先在整批共享 2 秒期限内收集真实返回；超时或仅返回取消错误时显式记录副作用未知，只有确定未启动的调用才标记 `executed:false`，工具结果持久化先于 Run 终态。
-- 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 已成为 `builtin.dbx/builtin.httpx`，清单与完整技能源码位于 `internal/resources/connectors/`，完整包（清单、bin/libs、skills）随 Platform 分发，按 Agent 挂载组装到 ru-connectors/<id>/<contentDigest>，不可修改或删除；`runtime/connectors-center` 只提供外部原包，遗留 builtin 副本忽略，Agent 挂载后增加本 Agent 运行包 PATH 并导入技能元数据，skillId 保留原始技能名、不加连接器前缀，同一 Agent 内重名报冲突，技能正文随完整包复制，不重复放入 Agent 的普通 skills 目录；通用持久化运行状态根为 `.state/`，连接器授权与受管 CLI 状态归入 `.state/connectors/<id>`，连接器技能禁止 mustUseSkills，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
+- 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 已成为 `builtin.dbx/builtin.httpx`，dbx/httpx 清单与完整技能源码位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`，完整包（清单、bin/libs、skills）随 Platform 分发，按 Agent 挂载组装到 ru-connectors/<id>/<contentDigest>，不可修改或删除；`runtime/connectors-center` 只提供外部原包，遗留 builtin 副本忽略，Agent 挂载后增加本 Agent 运行包 PATH 并导入技能元数据，skillId 保留原始技能名、不加连接器前缀，同一 Agent 内重名报冲突，技能正文随完整包复制，不重复放入 Agent 的普通 skills 目录；通用持久化运行状态根为 `.state/`，连接器授权与受管 CLI 状态归入 `.state/connectors/<id>`，连接器技能禁止 mustUseSkills，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - steer 支持 `selection.text` 纯文本选区（不要求视觉模型），以及通过 `/api/upload` 上传后以 `references` 注入当前 native Agent/Team 协调器的图片与普通文件（含 HTML/MD），允许纯附件及混合附件；视觉模型准入冻结图片输入，非视觉模型的图片和普通文件为经校验的工具读取引用，公开事件仅带引用，JSONL 保存消息快照并进入续聊/压缩。同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，完全空白仍拒绝；steer 要求文字或有效附件至少一项，远端附件路径尚不支持。
 - 活动 native CODER planning 的阶段切换保留 steer；生成候选计划或等待确认期间的新指令使旧计划失效，并在同一 Run 中重新规划。旧确认与 steer 原子仲裁，已失效计划不能被迟到的 approve 执行；失效事件和工具结果进入回放，跨进程 suspended 等待仍通过 submit 恢复。见 [HITL协议](docs/HITL协议.md)。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账；活动 Run 保留收尾权，恢复 claim 失败不退回补写，无执行者的补写按等待项串行并重新读取持久化状态。Host Bash builtin 审批准备与启动分离，单次/本轮人工批准后均可恢复符合条件的并发；一次性授权绑定 toolID，不随执行上下文复制给兄弟调用，写入与控制操作屏障仍保持顺序。
@@ -198,7 +198,7 @@ make run
 make test
 ```
 
-首次本地运行、更新相邻 builtin 项目或执行 `make release` 前，先执行 `./scripts/sync-local-builtins.sh`；它每次在隔离工作目录中重新构建本机 `dbx`、`httpx`、Rust sidecar 和 `poppler-pdftotext` launcher/archive，并原子更新 `build/builtins/<host>/`。Poppler native runtime 是校验后重新打包的预编译 payload，不在 platform 中编译；`rg` 是唯一只校验复制的 vendor artifact。同步按各本地项目的 `VERSION` 生成临时 lock；Shell 与 PowerShell 在 cache 激活后使用同一正式 lock 状态机。schema v2 的组件 `version/commit/source` 是全平台目标 release，target 同名字段与 `path/sha256` 是该平台实际 release。精确 native host 上严格更高的干净版本经一次精确 `yes` 可抢占为新目标；其他平台的本地 VERSION/Git HEAD 匹配目标并验证成功后自动更新自己的 target。交叉构建只更新 cache，任何 runner 都不得写其他平台 SHA；同版本不同 commit/SHA、dirty、降级、checkout 不匹配或非交互 leader 均不回写。正式写 lock 前必须先将验证 archive 原子固化到相邻项目的稳定 `dist/<version>/`，同路径不同 SHA 必须拒绝；并发 lock 变化同样放弃写入。`--all` 仅为 canonical lock 声明的 Poppler 目标构建，当前为 darwin-arm64 与 windows-amd64，且正式 lock 仍只允许精确 host target 跟随。同步脚本不写 `release-local/`；`make run` / `make build-local` / `make release` 不得重新引入 builtin 或 Rust 构建步骤；运行和 release 从本机 build cache 使用 builtin 二进制；release 合并当前 Platform 的 `internal/resources/connectors` 清单与完整技能，重新计算连接器树哈希，并校验所有 payload。
+首次本地运行、更新相邻 builtin 项目或执行 `make release` 前，先执行 `./scripts/sync-local-builtins.sh`；它每次在隔离工作目录中重新构建本机 `dbx`、`httpx`、Rust sidecar 和 `poppler-pdftotext` launcher/archive，并原子更新 `build/builtins/<host>/`。Poppler native runtime 是校验后重新打包的预编译 payload，不在 platform 中编译；`rg` 是唯一只校验复制的 vendor artifact。同步按各本地项目的 `VERSION` 生成临时 lock；Shell 与 PowerShell 在 cache 激活后使用同一正式 lock 状态机。schema v2 的组件 `version/commit/source` 是全平台目标 release，target 同名字段与 `path/sha256` 是该平台实际 release。精确 native host 上严格更高的干净版本经一次精确 `yes` 可抢占为新目标；其他平台的本地 VERSION/Git HEAD 匹配目标并验证成功后自动更新自己的 target。交叉构建只更新 cache，任何 runner 都不得写其他平台 SHA；同版本不同 commit/SHA、dirty、降级、checkout 不匹配或非交互 leader 均不回写。正式写 lock 前必须先将验证 archive 原子固化到相邻项目的稳定 `dist/<version>/`，同路径不同 SHA 必须拒绝；并发 lock 变化同样放弃写入。`--all` 仅为 canonical lock 声明的 Poppler 目标构建，当前为 darwin-arm64 与 windows-amd64，且正式 lock 仍只允许精确 host target 跟随。同步脚本不写 `release-local/`；`make run` / `make build-local` / `make release` 不得重新引入 builtin 或 Rust 构建步骤；运行和 release 从本机 build cache 使用 builtin 二进制；release 原样复制已校验的完整连接器包，保持资源及树哈希不变，不从 Platform 源码补写清单或技能。
 
 涉及文档、配置或目录规范调整时，同步检查 `README.md`、`AGENTS.md`、`docs/` 与 `.gitignore`。
 
@@ -252,3 +252,10 @@ make test
 - [手工测试用例](docs/手工测试用例.md)：curl 回归用例。
 
 - `builtin.desktop` 是受信任内置 native 连接器，自动挂载 desktop_action/desktop_cdp 与对应技能，不自动授予 Bash；配置状态与客户端在线状态分离。共享包、运行快照及显式离线迁移见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md)。
+
+
+### Desktop 内嵌连接器来源
+
+`builtin.desktop` 的工具 handler、清单、native 定义和两份完整技能均随 Platform Go 程序编译分发。启动从内嵌资源校验并原子发布到 `ru-connectors/builtin.desktop/<contentDigest>/`，已有相同内容的运行包直接校验复用；临时装配目录随即清理。进程持有共享包租约，确保未挂载 Agent 时管理接口仍可读取。各 Agent 仅持挂载引用，不复制包。
+
+Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。此调整不改变连接器配置状态、Agent 挂载、工具权限或历史 Chat。

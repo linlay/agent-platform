@@ -12,7 +12,7 @@ runtime/
     └── run-connectors/<runIdHash>.json      # 私有不可变运行挂载快照
 ```
 
-内置来源为 Platform verified bundle 的 connectors 目录；源码清单与技能位于 `internal/resources/connectors/`。共享包包含清单、技能及其资源、适用的 bin/libs；运行引用和快照不保存凭据。模型通过 `@connectors/<id>/...` 访问当前 Agent 已挂载的包；Container 只读映射对应 `/connectors/<id>`。
+CLI 内置来源为 Platform verified bundle 的 connectors 目录，其源码清单与技能位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`；native `builtin.desktop` 的清单与技能保留在 `internal/resources/connectors/builtin.desktop/`，随程序内嵌。共享包包含清单、技能及其资源、适用的 bin/libs；运行引用和快照不保存凭据。模型通过 `@connectors/<id>/...` 访问当前 Agent 已挂载的包；Container 只读映射对应 `/connectors/<id>`。
 
 ## 安装、升级和回收
 

@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,9 +10,14 @@ import (
 func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
-	if err := connector.WriteBuiltin(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.desktop"), "desktop", "", "darwin"); err != nil {
+	// No external builtin cache is required for the embedded native package.
+	cfg.Paths.BuiltinConnectorsDir = ""
+	release, err := cfg.Paths.PrepareNativeConnectors()
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer release()
+
 	for _, key := range []string{"one", "two"} {
 		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Desktop\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop\n")
 	}

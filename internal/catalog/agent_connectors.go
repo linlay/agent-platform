@@ -80,9 +80,10 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 	// Validate package availability and skill collisions before saving, including
 	// when runtime publication will be deferred by an active Agent lease.
 	assembler := runtimeAgentAssembler{connectors: connector.Sources{
-		ExternalRoot: r.cfg.Paths.EffectiveConnectorsCenterDir(),
-		BuiltinRoot:  r.cfg.Paths.BuiltinConnectorsDir,
-		StateRoot:    r.cfg.Paths.EffectiveConnectorStateDir(),
+		ExternalRoot:     r.cfg.Paths.EffectiveConnectorsCenterDir(),
+		BuiltinRoot:      r.cfg.Paths.BuiltinConnectorsDir,
+		NativeDesktopDir: r.cfg.Paths.NativeDesktopDir,
+		StateRoot:        r.cfg.Paths.EffectiveConnectorStateDir(),
 	}}
 	if err := assembler.resolveConnectors(&def); err != nil {
 		return AgentConnectorCandidate{}, err

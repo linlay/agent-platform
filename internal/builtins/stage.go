@@ -17,8 +17,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"agent-platform/internal/connector"
 )
 
 const (
@@ -85,13 +83,15 @@ type TargetMetadata struct {
 }
 
 type StageOptions struct {
-	ExcludeGitBash bool
-	RepoRoot       string
-	LockPath       string
-	BuiltinsRoot   string
-	OutputDir      string
-	GOOS           string
-	GOARCH         string
+	ConnectorsLockPath string
+	ConnectorsRoot     string
+	ExcludeGitBash     bool
+	RepoRoot           string
+	LockPath           string
+	BuiltinsRoot       string
+	OutputDir          string
+	GOOS               string
+	GOARCH             string
 }
 
 type Manifest struct {
@@ -191,6 +191,25 @@ func ResolveRoot(repoRoot string, override string, lock Lock) (string, error) {
 	return filepath.Clean(filepath.Join(repoRoot, lock.DefaultRoot)), nil
 }
 
+// ResolveConnectorsRoot keeps connector build inputs independent of BUILTINS_ROOT.
+func ResolveConnectorsRoot(repoRoot, override string, lock Lock) (string, error) {
+	root := strings.TrimSpace(override)
+	if root == "" {
+		root = strings.TrimSpace(os.Getenv("CONNECTORS_ROOT"))
+	}
+	if root == "" {
+		absolute, err := filepath.Abs(repoRoot)
+		if err != nil {
+			return "", err
+		}
+		root = filepath.Join(absolute, lock.DefaultRoot)
+	}
+	if !filepath.IsAbs(root) {
+		return "", errors.New("CONNECTORS_ROOT must be an absolute path")
+	}
+	return filepath.Clean(root), nil
+}
+
 func FindComponent(lock Lock, name string) (Component, error) {
 	for _, component := range lock.Components {
 		if component.Name == name {
@@ -217,6 +236,34 @@ func Stage(options StageOptions) (StageResult, error) {
 	builtinsRoot, err := ResolveRoot(repoRoot, options.BuiltinsRoot, lock)
 	if err != nil {
 		return StageResult{}, err
+	}
+	roots := make(map[string]string)
+	for _, c := range lock.Components {
+		roots[c.Name] = builtinsRoot
+	}
+	if options.ConnectorsLockPath != "" {
+		connectorLockPath := options.ConnectorsLockPath
+		if !filepath.IsAbs(connectorLockPath) {
+			connectorLockPath = filepath.Join(repoRoot, connectorLockPath)
+		}
+		connectorLock, err := LoadLock(connectorLockPath)
+		if err != nil {
+			return StageResult{}, err
+		}
+		connectorRoot, err := ResolveConnectorsRoot(repoRoot, options.ConnectorsRoot, connectorLock)
+		if err != nil {
+			return StageResult{}, err
+		}
+		for _, c := range connectorLock.Components {
+			if _, exists := roots[c.Name]; exists {
+				return StageResult{}, fmt.Errorf("duplicate component across locks: %s", c.Name)
+			}
+			if c.Name != "dbx" && c.Name != "httpx" {
+				return StageResult{}, fmt.Errorf("unsupported bundled connector %s", c.Name)
+			}
+			roots[c.Name] = connectorRoot
+			lock.Components = append(lock.Components, c)
+		}
 	}
 	outputDir := options.OutputDir
 	if !filepath.IsAbs(outputDir) {
@@ -254,7 +301,7 @@ func Stage(options StageOptions) (StageResult, error) {
 			}
 			continue
 		}
-		repositoryRoot, err := joinWithin(builtinsRoot, component.Repository)
+		repositoryRoot, err := joinWithin(roots[component.Name], component.Repository)
 		if err != nil {
 			return StageResult{}, err
 		}
@@ -292,9 +339,6 @@ func Stage(options StageOptions) (StageResult, error) {
 				return StageResult{}, fmt.Errorf("%s payload: %w", component.Name, err)
 			}
 			destinationRoot := filepath.Join(outputDir, "bin")
-			if component.Name == "dbx" || component.Name == "httpx" {
-				destinationRoot = filepath.Join(outputDir, "connectors", "builtin."+component.Name, "bin")
-			}
 			destination, err := joinWithin(destinationRoot, target.Output)
 			if err != nil {
 				return StageResult{}, err
@@ -317,33 +361,17 @@ func Stage(options StageOptions) (StageResult, error) {
 				staged.Distribution = "checksum-verified-artifact"
 			}
 		}
-		if component.Name == "dbx" || component.Name == "httpx" {
-			relative := filepath.ToSlash(filepath.Join("connectors", "builtin."+component.Name))
-			if err := connector.WriteBuiltin(filepath.Join(outputDir, filepath.FromSlash(relative)), component.Name, target.Version, options.GOOS); err != nil {
-				return StageResult{}, err
-			}
-			staged.Path = relative
-			staged.Tree = []TreeOutput{{Path: relative, Type: "dir"}}
-			staged.SHA256, err = TreeDigest(outputDir, staged.Tree)
-			if err != nil {
-				return StageResult{}, err
-			}
-		}
 		manifest.Components = append(manifest.Components, staged)
 		if err := stageLicenses(repositoryRoot, outputDir, component); err != nil {
 			return StageResult{}, err
 		}
 	}
 
-	for _, component := range manifest.Components {
-		if component.Name == "dbx" || component.Name == "httpx" {
-			manifest, err = PromoteConnectors(outputDir, manifest)
-			if err != nil {
-				return StageResult{}, err
-			}
-			break
-		}
+	manifest, err = PromoteConnectors(outputDir, manifest)
+	if err != nil {
+		return StageResult{}, err
 	}
+
 	manifestPath := filepath.Join(outputDir, "builtins.manifest.json")
 	if err := writeJSONAtomic(manifestPath, manifest); err != nil {
 		return StageResult{}, err

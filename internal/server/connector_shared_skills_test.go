@@ -1,6 +1,7 @@
 package server
 
 import (
+	"agent-platform/internal/connectortest"
 	"context"
 	"os"
 	"path/filepath"
@@ -10,14 +11,13 @@ import (
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 )
 
 func TestAgentConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 	root := t.TempDir()
 	pkg := filepath.Join(root, "ru-agents", "demo", "connectors", "builtin.dbx")
-	if err := connector.WriteBuiltin(pkg, "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(pkg, "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	skill := filepath.Join(pkg, "skills", "builtin-dbx")

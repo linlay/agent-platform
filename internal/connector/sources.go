@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -15,7 +16,9 @@ import (
 type Sources struct {
 	ExternalRoot string
 	BuiltinRoot  string
-	StateRoot    string
+	// NativeDesktopDir is a verified, leased shared package from the running binary.
+	NativeDesktopDir string
+	StateRoot        string
 	// LegacyStateRoot is only read by the startup/offline layout migration.
 	LegacyStateRoot string
 }
@@ -35,6 +38,11 @@ func (s Sources) Load(id string) (Package, error) {
 	if !ValidID(id) {
 		return Package{}, fmt.Errorf("invalid connector id %q", id)
 	}
+	if id == "builtin.desktop" && s.NativeDesktopDir != "" {
+		pkg, err := LoadDirectory(s.NativeDesktopDir, id)
+		pkg.Builtin, pkg.StateRoot = true, s.PersistentRoot()
+		return pkg, err
+	}
 	root := s.Root(id)
 	if strings.TrimSpace(root) == "" {
 		return Package{}, fmt.Errorf("connector %s: %w", id, os.ErrNotExist)
@@ -51,6 +59,13 @@ func (s Sources) LoadAll() ([]Package, error) {
 
 func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 	packages := []Package{}
+	if s.NativeDesktopDir != "" && exclude != "builtin.desktop" {
+		pkg, err := s.Load("builtin.desktop")
+		if err != nil {
+			return nil, err
+		}
+		packages = append(packages, pkg)
+	}
 	for _, source := range []struct {
 		root    string
 		builtin bool
@@ -67,7 +82,7 @@ func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 		}
 		for _, entry := range entries {
 			id := entry.Name()
-			if id == exclude {
+			if id == exclude || (id == "builtin.desktop" && s.NativeDesktopDir != "") {
 				continue
 			}
 			if strings.HasPrefix(id, ".") {
@@ -99,8 +114,16 @@ func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 }
 
 func (s Sources) ReadFile(id, file string) (File, error) {
-	if _, err := s.Load(id); err != nil {
+	if !ValidID(id) || !definitionFile(file) {
+		return File{}, fmt.Errorf("invalid connector definition target")
+	}
+	pkg, err := s.Load(id)
+	if err != nil {
 		return File{}, err
 	}
-	return ReadFile(s.Root(id), id, file)
+	data, err := os.ReadFile(filepath.Join(pkg.Dir, file))
+	if err != nil {
+		return File{}, err
+	}
+	return File{ID: id, File: file, Content: string(data), SHA256: digest(data)}, nil
 }

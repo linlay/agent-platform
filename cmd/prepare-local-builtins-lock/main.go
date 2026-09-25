@@ -108,7 +108,7 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 	}
 	lock.SchemaVersion = 2
 	for _, requested := range requestedTargets {
-		if bundleGitBash && requested == "windows/amd64" {
+		if bundleGitBash && requested == "windows/amd64" && !isConnectorLock(lock) {
 			if _, err := builtins.FindComponent(lock, builtins.GitBashComponent); err != nil {
 				lock.Components = append(lock.Components, gitBashSeed())
 			}
@@ -284,6 +284,11 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 			Path: fmt.Sprintf("dist/%s/git-bash_%s_windows_amd64.zip", version, version), Format: "zip",
 			Tree: &builtins.TreeLayout{Root: "runtime", Outputs: []builtins.TreeOutput{{Path: builtins.GitBashRelativeRoot, Type: "dir"}}}}, nil
 	}
+	if (component.Name == "dbx" || component.Name == "httpx") && component.Kind == "archive-tree" {
+		return builtins.Target{Version: component.Version, Source: component.Source, Commit: component.Commit,
+			Path: fmt.Sprintf("dist/%s/builtin.%s_%s_%s_%s.zip", version, component.Name, version, goos, goarch), Format: "zip",
+			Tree: &builtins.TreeLayout{Root: "runtime", Outputs: []builtins.TreeOutput{{Path: "connectors/builtin." + component.Name, Type: "dir"}}}}, nil
+	}
 	if exists {
 		target.Path = fmt.Sprintf("dist/%s/%s_%s_%s_%s.%s", version, component.Name, version, goos, goarch, target.Format)
 		return target, nil
@@ -402,4 +407,13 @@ func writeFileAtomic(path string, payload []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+func isConnectorLock(lock builtins.Lock) bool {
+	for _, c := range lock.Components {
+		if (c.Name != "dbx" && c.Name != "httpx") || c.Kind != "archive-tree" {
+			return false
+		}
+	}
+	return len(lock.Components) > 0
 }

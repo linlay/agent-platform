@@ -159,7 +159,7 @@ func prepareRolloutCandidate(lockPath, collectionRoot, durableRoot, hostTarget s
 		return rolloutCandidate{}, err
 	}
 	components := append([]builtins.Component(nil), candidate.Lock.Components...)
-	if bundleGitBash && targetKey == "windows-amd64" {
+	if bundleGitBash && targetKey == "windows-amd64" && !isConnectorLock(lock) {
 		if _, err := builtins.FindComponent(lock, builtins.GitBashComponent); err != nil {
 			components = append(components, gitBashSeed())
 		}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"agent-platform/internal/connectortest"
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
@@ -187,11 +188,34 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		})
 		requiredPaths = append(requiredPaths, launcher, runtimeRoot)
 	}
+	for i, c := range components {
+		if c.Name != "dbx" && c.Name != "httpx" {
+			continue
+		}
+		rel := "connectors/builtin." + c.Name
+		dir := filepath.Join(root, filepath.FromSlash(rel))
+		if err := connectortest.WriteCLI(dir, c.Name, c.Version, goos); err != nil {
+			t.Fatal(err)
+		}
+		entry := c.Name
+		if goos == "windows" {
+			entry += ".exe"
+		}
+		if err := os.Rename(filepath.Join(root, filepath.FromSlash(c.Path)), filepath.Join(dir, "bin", entry)); err != nil {
+			t.Fatal(err)
+		}
+		c.Path = rel
+		c.Tree = []builtins.TreeOutput{{Path: rel, Type: "dir"}}
+		c.SHA256, err = builtins.TreeDigest(root, c.Tree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		components[i] = c
+	}
 	manifest, err := builtins.PromoteConnectors(root, builtins.Manifest{SchemaVersion: 1, Platform: builtins.ManifestPlatform{OS: goos, Arch: goarch}, Components: components, GitBashExcluded: goos == "windows"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	requiredPaths = append(requiredPaths, "connectors/builtin.desktop")
 	writeProgramManifest(t, root, goos, goarch, requiredPaths)
 	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0644)
 	for _, relativePath := range []string{

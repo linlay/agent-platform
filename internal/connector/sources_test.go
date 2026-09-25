@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"agent-platform/internal/connectortest"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 
 func TestSourcesReserveBuiltinsAndIgnoreLegacyRuntimeCopies(t *testing.T) {
 	builtin, external := t.TempDir(), t.TempDir()
-	if err := WriteBuiltin(filepath.Join(builtin, "builtin.dbx"), "dbx", "1.2.3", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(builtin, "builtin.dbx"), "dbx", "1.2.3", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	// A malformed legacy copy cannot override or prevent loading the bundle.
@@ -63,7 +64,7 @@ func TestBuiltinDefinitionRejectsMutationBeforeFilesystemOrReload(t *testing.T) 
 
 func TestSourcesIgnoreUserOrderMetadata(t *testing.T) {
 	builtin, external := t.TempDir(), t.TempDir()
-	if err := WriteBuiltin(filepath.Join(builtin, "builtin.dbx"), "dbx", "1.2.3", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(builtin, "builtin.dbx"), "dbx", "1.2.3", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	sources := Sources{BuiltinRoot: builtin, ExternalRoot: external}

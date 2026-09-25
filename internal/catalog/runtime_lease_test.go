@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"agent-platform/internal/connectortest"
 	"context"
 	"errors"
 	"os"
@@ -10,13 +11,12 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
 )
 
 func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "platform", "connectors"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams"), StateDir: filepath.Join(root, ".state")}}
-	if err := connector.WriteBuiltin(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	for _, key := range []string{"first", "second"} {

@@ -12,12 +12,12 @@ import (
 	"agent-platform/internal/resources"
 )
 
-// WriteBuiltin stages the complete bundled resources beside a verified native
-// executable. Callers publish and checksum the resulting package atomically.
+// WriteBuiltin extracts the Platform-owned native Desktop resources. CLI
+// connector packages are built and versioned by their independent projects.
 func WriteBuiltin(dir, name, version, goos string) error {
 	id := "builtin." + name
 	source := path.Join("connectors", id)
-	if name != "dbx" && name != "httpx" && name != "desktop" {
+	if name != "desktop" {
 		return fmt.Errorf("unknown builtin connector %q", name)
 	}
 	// Remove obsolete bundled skills when refreshing an older verified cache.
@@ -61,10 +61,7 @@ func WriteBuiltin(dir, name, version, goos string) error {
 	}); err != nil {
 		return err
 	}
-	if name == "desktop" {
-		return nil
-	}
-	return os.MkdirAll(filepath.Join(dir, "bin", "libs"), 0o755)
+	return nil
 }
 
 // BuiltinSkillConnector identifies the retired standalone copies of bundled
