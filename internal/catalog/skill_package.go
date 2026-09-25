@@ -78,6 +78,7 @@ type EditableSkillPackageMutation struct {
 	stagingRoot     string
 	backedUpIDs     []string
 	publishedIDs    []string
+	retainBackup    bool
 	recordChanged   bool
 	unlock          func()
 	done            bool
@@ -157,7 +158,9 @@ func (m *EditableSkillPackageMutation) Commit() error {
 	// The new child directories and package record are already committed.
 	// Cleanup is best effort. Sibling transaction directories remain outside
 	// the catalog/watch root, including when Windows temporarily blocks cleanup.
-	_ = os.RemoveAll(m.backupRoot)
+	if !m.retainBackup {
+		_ = os.RemoveAll(m.backupRoot)
+	}
 	_ = os.RemoveAll(m.stagingRoot)
 	m.done = true
 	return nil
@@ -250,6 +253,13 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 	return prepared.Begin()
 }
 
+func (m *EditableSkillPackageMutation) BackupPath() string {
+	if m != nil && m.retainBackup {
+		return m.backupRoot
+	}
+	return ""
+}
+
 func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, SkillPackageRecord, error) {
 	r, packageID, version := p.registry, p.packageID, p.version
 	stagingRoot, archiveSHA256, manifest, prepared := p.stagingRoot, p.archiveSHA256, p.manifest, p.skills
@@ -288,7 +298,11 @@ func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, S
 	}
 	existingKeys := make(map[string]string, len(existingEntries))
 	for _, entry := range existingEntries {
-		existingKeys[strings.ToLower(entry.Name())] = entry.Name()
+		key := strings.ToLower(entry.Name())
+		if previous := existingKeys[key]; previous != "" {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill names %s and %s collide", ErrSkillPackageConflict, previous, entry.Name())
+		}
+		existingKeys[key] = entry.Name()
 	}
 	newIDs := make(map[string]struct{}, len(prepared))
 	for _, skill := range prepared {
@@ -296,8 +310,8 @@ func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, S
 		if owner := owners[skill.ID]; owner != "" && owner != packageID {
 			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is owned by package %s", ErrSkillPackageConflict, skill.ID, owner)
 		}
-		if existing := existingKeys[strings.ToLower(skill.ID)]; existing != "" && (existing != skill.ID || owners[existing] != packageID) {
-			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s already exists outside package %s", ErrSkillPackageConflict, existing, packageID)
+		if existing := existingKeys[strings.ToLower(skill.ID)]; existing != "" && existing != skill.ID {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is already occupied", ErrSkillPackageConflict, existing)
 		}
 	}
 	for _, skill := range oldRecord.Skills {
@@ -344,11 +358,20 @@ func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, S
 	for _, id := range affectedIDs {
 		target := filepath.Join(root, id)
 		if _, statErr := os.Lstat(target); statErr == nil {
+			if err := validateSkillPackageReplacement(target); err != nil {
+				return rollbackOnError(err)
+			}
 			if err := mutation.backupSkill(id); err != nil {
 				return rollbackOnError(err)
 			}
 		} else if !errors.Is(statErr, os.ErrNotExist) {
 			return rollbackOnError(statErr)
+		}
+	}
+	mutation.retainBackup = len(mutation.backedUpIDs) > 0
+	if mutation.retainBackup && oldRecordExists {
+		if err := os.WriteFile(filepath.Join(backupRoot, ".original-package-record.json"), oldRecordBytes, 0o600); err != nil {
+			return rollbackOnError(err)
 		}
 	}
 	for _, skill := range prepared {
@@ -792,4 +815,25 @@ func skillPackageArchiveSHA256(source io.ReaderAt, size int64) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// Existing skills are moved whole into the backup; never follow links or adopt
+// special files while transferring their ownership to a package.
+func validateSkillPackageReplacement(root string) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return ErrSkillSymlink
+		}
+		if (path == root && !info.IsDir()) || (!info.IsDir() && !info.Mode().IsRegular()) {
+			return ErrInvalidSkillPath
+		}
+		return nil
+	})
 }

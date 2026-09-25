@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -65,7 +66,7 @@ func TestAdminSkillPackageImportAndDelete(t *testing.T) {
 	}
 }
 
-func TestAdminSkillPackageImportRejectsExistingStandaloneSkill(t *testing.T) {
+func TestAdminSkillPackageImportReplacesExistingStandaloneSkill(t *testing.T) {
 	fixture := newTestFixture(t)
 	standaloneRoot := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "word-helper")
 	if err := os.MkdirAll(standaloneRoot, 0o755); err != nil {
@@ -83,15 +84,23 @@ func TestAdminSkillPackageImportRejectsExistingStandaloneSkill(t *testing.T) {
 	request.Header.Set("Content-Type", "application/zip")
 	recorder := httptest.NewRecorder()
 	fixture.server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusConflict {
-		t.Fatalf("expected standalone ownership conflict, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("import: %d %s", recorder.Code, recorder.Body)
 	}
 	content, err := os.ReadFile(filepath.Join(standaloneRoot, "SKILL.md"))
-	if err != nil || !bytes.Contains(content, []byte("Standalone content.")) {
-		t.Fatalf("standalone skill changed: %q err=%v", content, err)
+	if err != nil || !bytes.Contains(content, []byte("Package content.")) {
+		t.Fatalf("replacement missing: %s %v", content, err)
 	}
-	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, ".package", "office-pack.json")); !os.IsNotExist(err) {
-		t.Fatalf("conflict left package state: %v", err)
+	var imported api.ApiResponse[api.AdminSkillPackageResponse]
+	if err := json.Unmarshal(recorder.Body.Bytes(), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if imported.Data.BackupPath == "" {
+		t.Fatal("no retained backup")
+	}
+	backup, err := os.ReadFile(filepath.Join(imported.Data.BackupPath, "word-helper", "SKILL.md"))
+	if err != nil || !bytes.Contains(backup, []byte("Standalone content.")) {
+		t.Fatalf("backup missing %v", err)
 	}
 }
 
@@ -116,5 +125,33 @@ func TestAdminSkillPackageImportRollsBackWhenCatalogReloadFails(t *testing.T) {
 		if _, err := os.Stat(target); !os.IsNotExist(err) {
 			t.Fatalf("rollback left %s: %v", target, err)
 		}
+	}
+}
+
+func TestAdminSkillPackageReplacementRestoresStandaloneAfterReloadFailure(t *testing.T) {
+	fixture := newTestFixture(t)
+	fixture.server.deps.CatalogReloader = failingSkillImportReloader{}
+	root := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "word-helper")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	old := []byte("---\nname: word-helper\ndescription: old\n---\nold content")
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), old, 0644); err != nil {
+		t.Fatal(err)
+	}
+	archive := serverSkillImportZIP(t, map[string]string{
+		"manifest.json":               `{"schemaVersion":1,"type":"skill-package","id":"office-pack","version":"1.0.0","skills":[{"id":"word-helper","version":"1.0.0","path":"skills/word-helper/"}]}`,
+		"skills/word-helper/SKILL.md": "---\nname: word-helper\ndescription: new\n---\nnew content",
+	})
+	_, err := fixture.server.importAdminSkillPackage(context.Background(), "office-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
+	if err == nil {
+		t.Fatal("reload failure ignored")
+	}
+	got, err := os.ReadFile(filepath.Join(root, "SKILL.md"))
+	if err != nil || !bytes.Equal(got, old) {
+		t.Fatalf("old skill lost: %s %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, ".package", "office-pack.json")); !os.IsNotExist(err) {
+		t.Fatalf("package residue: %v", err)
 	}
 }

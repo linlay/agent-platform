@@ -87,6 +87,13 @@ func TestPreparedSkillPackageRechecksOwnershipAtPublication(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("independent skill"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	recordPath, err := skillPackageRecordPath(root, "other-pack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSkillPackageRecordFile(recordPath, []byte(`{"schemaVersion":1,"id":"other-pack","version":"1.0.0","sha256":"test","installedAt":1,"skills":[{"id":"test-skill","version":"1.0.0"}]}`)); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := prepared.Begin(); !errors.Is(err, ErrSkillPackageConflict) {
 		t.Fatalf("missed late owner conflict: %v", err)
 	}

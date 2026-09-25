@@ -116,7 +116,9 @@ func (s *Server) importAdminSkillPackageLocked(ctx context.Context, prepared *ca
 	if err := mutation.Commit(); err != nil {
 		return api.AdminSkillPackageResponse{}, fmt.Errorf("commit skill package: %w", err)
 	}
-	return adminSkillPackageResponse(record), nil
+	response := adminSkillPackageResponse(record)
+	response.BackupPath = mutation.BackupPath()
+	return response, nil
 }
 
 func (s *Server) deleteAdminSkillPackageLocked(ctx context.Context, key string) (api.DeleteAdminSkillPackageResponse, error) {
