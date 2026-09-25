@@ -286,7 +286,7 @@ func (s Sources) ensureSharedLayout() error {
 	if s.ExternalRoot == "" {
 		return fmt.Errorf("connector runtime root is required")
 	}
-	release, err := acquireSharedOperation(filepath.Dir(root), "shared-connector-layout")
+	release, err := acquireSharedLayout(filepath.Dir(root))
 	if err != nil {
 		return err
 	}
@@ -326,6 +326,31 @@ func acquireSharedOperation(root, id string) (func(), error) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		release, err := AcquireOperation(root, id)
+		if !errors.Is(err, ErrBusy) || time.Now().After(deadline) {
+			return release, err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// The layout lock lives outside ru-connectors because the protected operation
+// can rename that entire tree. Upgrade requires stopping old Platform processes;
+// there is intentionally no fallback to the former runtime-root lock path.
+func acquireSharedLayout(runtimeRoot string) (func(), error) {
+	lockDir := filepath.Join(runtimeRoot, ".lock")
+	if err := os.MkdirAll(lockDir, 0700); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(lockDir)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("runtime lock directory must be a real directory: %s", lockDir)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		release, err := acquireOperationFile(filepath.Join(lockDir, "shared-connector-layout.lock"))
 		if !errors.Is(err, ErrBusy) || time.Now().After(deadline) {
 			return release, err
 		}

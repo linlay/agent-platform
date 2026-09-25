@@ -47,3 +47,10 @@ go run ./cmd/migrate-desktop --rollback /path/to/runtime/.desktop-migration-xxx 
 应用前备份 Agent 文件，将旧 Desktop 技能目录移入备份，并校验预览与实际内容一致；回滚也检查后续修改，避免覆盖新编辑。`--configure` 可额外标记 Desktop 配置完成，默认不修改该状态。自定义状态根需要为命令注入与部署相同的 `AP_RUNTIME_STATE_DIR`。本次代码变更不自动迁移任何运行中的部署。
 
 验证覆盖共享复用、版本保留、恢复快照、挂载和配置门禁、发布完整性及迁移回滚。Windows 使用交叉编译验证；Windows 实机、真实 Desktop 反向调用及 Container Hub 联调仍需目标环境验证。
+
+
+## Runtime 布局锁目录
+
+共享连接器布局锁固定为 `<AP_RUNTIME_DIR>/.lock/shared-connector-layout.lock`，保护 `ru-connectors` 的初始化和目录迁移。`.lock` 必须是真实目录；锁文件由操作系统提供跨进程互斥，释放后保留，存在不代表正在占用。不得在进程运行时删除锁目录或锁文件。macOS/Linux 使用 flock，Windows 使用 LockFileEx；Windows 不因点前缀自动设置隐藏属性。
+
+这是一次性路径切换，不兼容旧锁路径。升级前停止所有使用同一 runtime 的旧 Platform/管理进程，再移除根目录旧 `.cli-shared-connector-layout.lock`，启动新版后自动创建新目录。不要同时运行使用不同锁路径的新旧版本。Git 忽略 `/.lock/`。本次仅迁移 runtime 根布局锁，包操作锁、装配锁和版本租约锁继续留在其既有作用域，不改变生命周期。
