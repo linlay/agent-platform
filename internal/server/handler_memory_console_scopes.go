@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -48,20 +49,8 @@ func (s *Server) handleMemoryScope(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "memory system is disabled"))
 		return
 	}
-	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
-	scopeType := strings.TrimSpace(r.URL.Query().Get("scopeType"))
-	if agentKey == "" || scopeType == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agentKey and scopeType are required"))
-		return
-	}
-	view, err := memory.BuildScopeView(
-		s.deps.Memory,
-		agentKey,
-		scopeType,
-		strings.TrimSpace(r.URL.Query().Get("scopeKey")),
-		scopeUserKey(r),
-		strings.TrimSpace(r.URL.Query().Get("teamId")),
-	)
+	view, err := s.memoryScopeView(r.URL.Query().Get("agentKey"), r.URL.Query().Get("scopeType"),
+		r.URL.Query().Get("scopeKey"), r.URL.Query().Get("teamId"), scopeUserKey(r))
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)
@@ -70,23 +59,7 @@ func (s *Server) handleMemoryScope(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	response := api.MemoryScopeDetailResponse{
-		AgentKey:  view.AgentKey,
-		ScopeType: view.ScopeType,
-		ScopeKey:  view.ScopeKey,
-		Label:     view.Label,
-		FileName:  view.FileName,
-		Markdown:  view.Markdown,
-		Records:   make([]api.MemoryScopeRecord, 0, len(view.Records)),
-		Meta: api.MemoryScopeDetailMeta{
-			Editable:           true,
-			RecordCount:        len(view.Records),
-			GeneratedFromStore: true,
-		},
-	}
-	for _, item := range view.Records {
-		response.Records = append(response.Records, toMemoryScopeRecord(item))
-	}
+	response := memoryScopeDetailResponse(view)
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
@@ -100,28 +73,7 @@ func (s *Server) handleMemoryScopeSave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
 		return
 	}
-	input := memory.ScopeSaveInput{
-		AgentKey:       strings.TrimSpace(req.AgentKey),
-		ScopeType:      strings.TrimSpace(req.ScopeType),
-		ScopeKey:       strings.TrimSpace(req.ScopeKey),
-		UserKey:        scopeUserKey(r),
-		TeamID:         strings.TrimSpace(r.URL.Query().Get("teamId")),
-		Mode:           strings.TrimSpace(req.Mode),
-		Markdown:       req.Markdown,
-		ArchiveMissing: req.ArchiveMissing,
-		Records:        make([]memory.ScopeRecordInput, 0, len(req.Records)),
-	}
-	for _, record := range req.Records {
-		input.Records = append(input.Records, memory.ScopeRecordInput{
-			ID:         record.ID,
-			Title:      record.Title,
-			Summary:    record.Summary,
-			Category:   record.Category,
-			Importance: record.Importance,
-			Confidence: record.Confidence,
-			Tags:       record.Tags,
-		})
-	}
+	input := memoryScopeSaveInput(req, r.URL.Query().Get("teamId"), scopeUserKey(r))
 	result, err := memory.SaveScope(s.deps.Memory, input)
 	if err != nil {
 		if isTimeContractViolation(err) {
@@ -131,39 +83,7 @@ func (s *Server) handleMemoryScopeSave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	view, err := memory.BuildScopeView(s.deps.Memory, input.AgentKey, input.ScopeType, input.ScopeKey, input.UserKey, input.TeamID)
-	if err != nil {
-		if isTimeContractViolation(err) {
-			writeTimeContractViolation(w, err)
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	response := api.MemoryScopeSaveResponse{
-		Saved:     true,
-		AgentKey:  input.AgentKey,
-		ScopeType: view.ScopeType,
-		ScopeKey:  view.ScopeKey,
-		Summary: api.MemoryScopeSaveSummary{
-			Created:   result.Summary.Created,
-			Updated:   result.Summary.Updated,
-			Archived:  result.Summary.Archived,
-			Unchanged: result.Summary.Unchanged,
-		},
-		Records:  make([]api.MemoryScopeSaveRecord, 0, len(result.Records)),
-		Markdown: result.Markdown,
-	}
-	for _, item := range result.Records {
-		response.Records = append(response.Records, api.MemoryScopeSaveRecord{
-			ID:        item.ID,
-			Title:     item.Title,
-			Status:    item.Status,
-			ScopeType: item.ScopeType,
-			ScopeKey:  item.ScopeKey,
-			UpdatedAt: item.UpdatedAt,
-		})
-	}
+	response := memoryScopeSaveResponse(result)
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
@@ -268,20 +188,7 @@ func (s *Server) wsMemoryScopeGet(ctx context.Context, conn *ws.Conn, req ws.Req
 		sendMemoryWSError(conn, req, http.StatusServiceUnavailable, "unavailable", "memory system is disabled")
 		return
 	}
-	agentKey = strings.TrimSpace(agentKey)
-	scopeType = strings.TrimSpace(scopeType)
-	if agentKey == "" || scopeType == "" {
-		sendMemoryWSError(conn, req, http.StatusBadRequest, "invalid_request", "agentKey and scopeType are required")
-		return
-	}
-	view, err := memory.BuildScopeView(
-		s.deps.Memory,
-		agentKey,
-		scopeType,
-		strings.TrimSpace(scopeKey),
-		scopeUserKeyFromContext(ctx, userKey),
-		strings.TrimSpace(teamID),
-	)
+	view, err := s.memoryScopeView(agentKey, scopeType, scopeKey, teamID, scopeUserKeyFromContext(ctx, userKey))
 	if err != nil {
 		if isTimeContractViolation(err) {
 			sendTimeContractViolation(conn, req.ID, err)
@@ -291,23 +198,7 @@ func (s *Server) wsMemoryScopeGet(ctx context.Context, conn *ws.Conn, req ws.Req
 		sendMemoryWSError(conn, req, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	response := api.MemoryScopeDetailResponse{
-		AgentKey:  view.AgentKey,
-		ScopeType: view.ScopeType,
-		ScopeKey:  view.ScopeKey,
-		Label:     view.Label,
-		FileName:  view.FileName,
-		Markdown:  view.Markdown,
-		Records:   make([]api.MemoryScopeRecord, 0, len(view.Records)),
-		Meta: api.MemoryScopeDetailMeta{
-			Editable:           true,
-			RecordCount:        len(view.Records),
-			GeneratedFromStore: true,
-		},
-	}
-	for _, item := range view.Records {
-		response.Records = append(response.Records, toMemoryScopeRecord(item))
-	}
+	response := memoryScopeDetailResponse(view)
 	sendMemoryWSResponse(conn, req, response)
 }
 
@@ -316,28 +207,7 @@ func (s *Server) wsMemoryScopeSave(ctx context.Context, conn *ws.Conn, req ws.Re
 		sendMemoryWSError(conn, req, http.StatusServiceUnavailable, "unavailable", "memory system is disabled")
 		return
 	}
-	input := memory.ScopeSaveInput{
-		AgentKey:       strings.TrimSpace(payload.AgentKey),
-		ScopeType:      strings.TrimSpace(payload.ScopeType),
-		ScopeKey:       strings.TrimSpace(payload.ScopeKey),
-		UserKey:        scopeUserKeyFromContext(ctx, userKey),
-		TeamID:         strings.TrimSpace(teamID),
-		Mode:           strings.TrimSpace(payload.Mode),
-		Markdown:       payload.Markdown,
-		ArchiveMissing: payload.ArchiveMissing,
-		Records:        make([]memory.ScopeRecordInput, 0, len(payload.Records)),
-	}
-	for _, record := range payload.Records {
-		input.Records = append(input.Records, memory.ScopeRecordInput{
-			ID:         record.ID,
-			Title:      record.Title,
-			Summary:    record.Summary,
-			Category:   record.Category,
-			Importance: record.Importance,
-			Confidence: record.Confidence,
-			Tags:       record.Tags,
-		})
-	}
+	input := memoryScopeSaveInput(payload, teamID, scopeUserKeyFromContext(ctx, userKey))
 	result, err := memory.SaveScope(s.deps.Memory, input)
 	if err != nil {
 		if isTimeContractViolation(err) {
@@ -348,40 +218,7 @@ func (s *Server) wsMemoryScopeSave(ctx context.Context, conn *ws.Conn, req ws.Re
 		sendMemoryWSError(conn, req, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	view, err := memory.BuildScopeView(s.deps.Memory, input.AgentKey, input.ScopeType, input.ScopeKey, input.UserKey, input.TeamID)
-	if err != nil {
-		if isTimeContractViolation(err) {
-			sendTimeContractViolation(conn, req.ID, err)
-			conn.CompleteRequest(req.ID)
-			return
-		}
-		sendMemoryWSError(conn, req, http.StatusInternalServerError, "internal_error", err.Error())
-		return
-	}
-	response := api.MemoryScopeSaveResponse{
-		Saved:     true,
-		AgentKey:  input.AgentKey,
-		ScopeType: view.ScopeType,
-		ScopeKey:  view.ScopeKey,
-		Summary: api.MemoryScopeSaveSummary{
-			Created:   result.Summary.Created,
-			Updated:   result.Summary.Updated,
-			Archived:  result.Summary.Archived,
-			Unchanged: result.Summary.Unchanged,
-		},
-		Records:  make([]api.MemoryScopeSaveRecord, 0, len(result.Records)),
-		Markdown: result.Markdown,
-	}
-	for _, item := range result.Records {
-		response.Records = append(response.Records, api.MemoryScopeSaveRecord{
-			ID:        item.ID,
-			Title:     item.Title,
-			Status:    item.Status,
-			ScopeType: item.ScopeType,
-			ScopeKey:  item.ScopeKey,
-			UpdatedAt: item.UpdatedAt,
-		})
-	}
+	response := memoryScopeSaveResponse(result)
 	sendMemoryWSResponse(conn, req, response)
 }
 
@@ -452,4 +289,87 @@ func firstQueryValue(r *http.Request, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func (s *Server) memoryScopeView(agentKey, scopeType, scopeKey, teamID, userKey string) (memory.ScopeView, error) {
+	agentKey, scopeType = strings.TrimSpace(agentKey), strings.TrimSpace(scopeType)
+	if agentKey == "" || scopeType == "" {
+		return memory.ScopeView{}, fmt.Errorf("agentKey and scopeType are required")
+	}
+	return memory.BuildScopeView(s.deps.Memory, agentKey, scopeType, strings.TrimSpace(scopeKey), userKey, strings.TrimSpace(teamID))
+}
+
+func memoryScopeDetailResponse(view memory.ScopeView) api.MemoryScopeDetailResponse {
+	response := api.MemoryScopeDetailResponse{
+		AgentKey:  view.AgentKey,
+		ScopeType: view.ScopeType,
+		ScopeKey:  view.ScopeKey,
+		Label:     view.Label,
+		FileName:  view.FileName,
+		Markdown:  view.Markdown,
+		Records:   make([]api.MemoryScopeRecord, 0, len(view.Records)),
+		Meta: api.MemoryScopeDetailMeta{
+			Editable:           true,
+			RecordCount:        len(view.Records),
+			GeneratedFromStore: true,
+		},
+	}
+	for _, item := range view.Records {
+		response.Records = append(response.Records, toMemoryScopeRecord(item))
+	}
+	return response
+}
+
+func memoryScopeSaveInput(req api.MemoryScopeSaveRequest, teamID, userKey string) memory.ScopeSaveInput {
+	input := memory.ScopeSaveInput{
+		AgentKey:       strings.TrimSpace(req.AgentKey),
+		ScopeType:      strings.TrimSpace(req.ScopeType),
+		ScopeKey:       strings.TrimSpace(req.ScopeKey),
+		UserKey:        userKey,
+		TeamID:         strings.TrimSpace(teamID),
+		Mode:           strings.TrimSpace(req.Mode),
+		Markdown:       req.Markdown,
+		ArchiveMissing: req.ArchiveMissing,
+		Records:        make([]memory.ScopeRecordInput, 0, len(req.Records)),
+	}
+	for _, record := range req.Records {
+		input.Records = append(input.Records, memory.ScopeRecordInput{
+			ID:         record.ID,
+			Title:      record.Title,
+			Summary:    record.Summary,
+			Category:   record.Category,
+			Importance: record.Importance,
+			Confidence: record.Confidence,
+			Tags:       record.Tags,
+		})
+	}
+	return input
+}
+
+func memoryScopeSaveResponse(result memory.ScopeSaveResult) api.MemoryScopeSaveResponse {
+	response := api.MemoryScopeSaveResponse{
+		Saved:     true,
+		AgentKey:  result.View.AgentKey,
+		ScopeType: result.View.ScopeType,
+		ScopeKey:  result.View.ScopeKey,
+		Summary: api.MemoryScopeSaveSummary{
+			Created:   result.Summary.Created,
+			Updated:   result.Summary.Updated,
+			Archived:  result.Summary.Archived,
+			Unchanged: result.Summary.Unchanged,
+		},
+		Records:  make([]api.MemoryScopeSaveRecord, 0, len(result.View.Records)),
+		Markdown: result.View.Markdown,
+	}
+	for _, item := range result.View.Records {
+		response.Records = append(response.Records, api.MemoryScopeSaveRecord{
+			ID:        item.ID,
+			Title:     item.Title,
+			Status:    item.Status,
+			ScopeType: item.ScopeType,
+			ScopeKey:  item.ScopeKey,
+			UpdatedAt: item.UpdatedAt,
+		})
+	}
+	return response
 }

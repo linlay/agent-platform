@@ -64,9 +64,8 @@ type ScopeSaveSummary struct {
 }
 
 type ScopeSaveResult struct {
-	Summary  ScopeSaveSummary
-	Records  []api.StoredMemoryResponse
-	Markdown string
+	Summary ScopeSaveSummary
+	View    ScopeView
 }
 
 type ScopeValidationIssue struct {
@@ -242,9 +241,8 @@ func SaveScope(store Store, input ScopeSaveInput) (ScopeSaveResult, error) {
 		return ScopeSaveResult{}, err
 	}
 	return ScopeSaveResult{
-		Summary:  summary,
-		Records:  view.Records,
-		Markdown: view.Markdown,
+		Summary: summary,
+		View:    view,
 	}, nil
 }
 
@@ -318,7 +316,7 @@ func (s *SQLiteStore) ReadConsoleDetail(agentKey string, id string) (ConsoleReco
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	record, err := s.readProjectionByIDLocked(strings.TrimSpace(id))
+	record, err := s.readStoredMemoryByIDLocked(strings.TrimSpace(id), "memory.sqlite.projection")
 	if err != nil {
 		return ConsoleRecordDetail{}, err
 	}

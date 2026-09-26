@@ -169,6 +169,9 @@ func TestHandleMemoryScopeSaveUpdatesAndCreatesFacts(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
 	server := fixture.server
 
+	store := &scopeCountingStore{SQLiteStore: fixture.memories.(*memory.SQLiteStore)}
+	server.deps.Memory = store
+
 	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
 		ID:         "mem_user_1",
 		AgentKey:   "mock-agent",
@@ -202,6 +205,10 @@ func TestHandleMemoryScopeSaveUpdatesAndCreatesFacts(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+	if reads := store.lists.Load(); reads != 2 {
+		t.Fatalf("expected only before/after scope reads, got %d", reads)
+	}
+
 	var resp api.ApiResponse[api.MemoryScopeSaveResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)

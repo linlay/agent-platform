@@ -40,7 +40,7 @@ func mergeNearDuplicateFactMemory(existing api.StoredMemoryResponse, incoming ap
 	merged.Summary = mergeNearDuplicateFactText(existing.Summary, incoming.Summary)
 	merged.Importance = max(existing.Importance, incoming.Importance)
 	merged.Confidence = maxFloat(existing.Confidence, incoming.Confidence)
-	merged.Tags = normalizeTags(append(existing.Tags, incoming.Tags...))
+	merged.Tags = NormalizeTags(append(existing.Tags, incoming.Tags...))
 	merged.UpdatedAt = now
 	merged.AccessCount++
 	merged.LastAccessedAt = &now

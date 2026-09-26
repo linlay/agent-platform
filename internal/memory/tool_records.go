@@ -150,12 +150,10 @@ func normalizeSourceType(sourceType string) string {
 	return strings.ToLower(strings.TrimSpace(sourceType))
 }
 
-func normalizeImportance(importance int) int {
+// NormalizeImportance defaults non-positive values to 5 and caps values at 10.
+func NormalizeImportance(importance int) int {
 	if importance <= 0 {
 		importance = 5
-	}
-	if importance < 1 {
-		return 1
 	}
 	if importance > 10 {
 		return 10
@@ -163,7 +161,8 @@ func normalizeImportance(importance int) int {
 	return importance
 }
 
-func normalizeSubjectKey(subjectKey string, chatID string, agentKey string) string {
+// NormalizeSubjectKey prefers an explicit key, then chat, agent, and global scope.
+func NormalizeSubjectKey(subjectKey string, chatID string, agentKey string) string {
 	if strings.TrimSpace(subjectKey) != "" {
 		return strings.TrimSpace(subjectKey)
 	}
@@ -176,7 +175,8 @@ func normalizeSubjectKey(subjectKey string, chatID string, agentKey string) stri
 	return "_global"
 }
 
-func normalizeTags(tags []string) []string {
+// NormalizeTags trims and lowercases tags, retaining their first occurrence order.
+func NormalizeTags(tags []string) []string {
 	if len(tags) == 0 {
 		return []string{}
 	}

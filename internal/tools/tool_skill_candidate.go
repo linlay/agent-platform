@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/memory"
 	"agent-platform/internal/skills"
 )
 
@@ -22,7 +23,7 @@ func (t *RuntimeToolExecutor) invokeSkillCandidateWrite(args map[string]any, exe
 		Procedure:  procedure,
 		Category:   strings.TrimSpace(stringArg(args, "category")),
 		Confidence: floatArg(args, "confidence"),
-		Tags:       normalizeMemoryTags(stringListArg(args, "tags")),
+		Tags:       memory.NormalizeTags(stringListArg(args, "tags")),
 	}
 	if execCtx != nil {
 		input.AgentKey = strings.TrimSpace(execCtx.Session.AgentKey)
