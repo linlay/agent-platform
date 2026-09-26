@@ -11,6 +11,7 @@ import (
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/adapter"
 	"agent-platform/internal/stream"
 )
 
@@ -78,7 +79,7 @@ func replaceTeamRuntimeSnapshot(o *frameOrchestrator, keys []string, maxParallel
 			ModelKey: "mock-model", MaxParallel: maxParallel,
 		},
 	}, defs)
-	o.teamSnapshot = &snapshot
+	o.TeamSnapshot = &snapshot
 }
 
 func TestTeamDelegationRunsEveryMemberThroughBoundedPool(t *testing.T) {
@@ -105,7 +106,7 @@ func TestTeamDelegationRunsEveryMemberThroughBoundedPool(t *testing.T) {
 	var routed []stream.StreamInput
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, children, defs, &routed, &emitted)
-	o.agent = engine
+	o.Agent = adapter.Engine{AgentEngine: engine}
 	replaceTeamRuntimeSnapshot(o, keys, 2, defs)
 
 	type runResult struct {
@@ -175,7 +176,7 @@ func TestTeamDelegationPartialFailureDoesNotCancelOtherMembers(t *testing.T) {
 	engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, children, defs, nil, &emitted)
-	o.agent = engine
+	o.Agent = adapter.Engine{AgentEngine: engine}
 	replaceTeamRuntimeSnapshot(o, keys, 2, defs)
 
 	failed, interrupted, err := o.Run(main)
@@ -265,7 +266,7 @@ func TestTeamRuntimeRejectsNestedTeamAndAgentInvokeMembers(t *testing.T) {
 		}}}
 		engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 		o := newTeamFrameOrchestrator(t, main, children, defs, nil, nil)
-		o.agent = engine
+		o.Agent = adapter.Engine{AgentEngine: engine}
 		replaceTeamRuntimeSnapshot(o, []string{"nested"}, 1, defs)
 
 		failed, interrupted, err := o.Run(main)
@@ -296,7 +297,7 @@ func TestTeamRuntimeRejectsNestedTeamAndAgentInvokeMembers(t *testing.T) {
 		}}}
 		engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 		o := newTeamFrameOrchestrator(t, main, children, defs, nil, nil)
-		o.agent = engine
+		o.Agent = adapter.Engine{AgentEngine: engine}
 		replaceTeamRuntimeSnapshot(o, []string{"writer"}, 1, defs)
 
 		failed, interrupted, err := o.Run(main)

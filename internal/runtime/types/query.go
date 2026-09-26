@@ -2,6 +2,8 @@ package types
 
 import (
 	"agent-platform/internal/chat"
+	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 // Caller is the authenticated runtime identity supplied by a transport or an
@@ -23,6 +25,9 @@ type ClientTarget struct {
 // HTTP and WebSocket adapters are responsible for decoding external DTOs into
 // this value before invoking application behavior.
 type QueryCommand struct {
+	SideQuery                  bool
+	SideQueryID                string
+	TrustedGateway             bool
 	RequestID                  string
 	RunID                      string
 	ChatID                     string
@@ -45,6 +50,7 @@ type QueryCommand struct {
 	Model                      *QueryModelOptions
 	SyntheticQueryBootstrapped bool
 	TrustedQueryMetadata       map[string]any
+	Identity                   *contracts.AuthIdentity
 	Caller                     Caller
 	Locale                     string
 	ClientTarget               ClientTarget
@@ -52,38 +58,23 @@ type QueryCommand struct {
 	ResourceBaseURL            string
 }
 
-type QueryModelOptions struct {
-	Key             string `json:"key,omitempty"`
-	ModelID         string `json:"modelId,omitempty"`
-	ReasoningEffort string `json:"reasoningEffort,omitempty"`
-	ServiceTier     string `json:"serviceTier,omitempty"`
-}
+type QueryModelOptions = queryinput.QueryModelOptions
 
-type Scene struct {
-	URL   string `json:"url,omitempty"`
-	Title string `json:"title,omitempty"`
-}
+type Scene = queryinput.Scene
 
-type Reference struct {
-	AnnotationIndex *int           `json:"annotationIndex,omitempty"`
-	ID              string         `json:"id,omitempty"`
-	Type            string         `json:"type,omitempty"`
-	Text            string         `json:"text,omitempty"`
-	Annotation      string         `json:"annotation,omitempty"`
-	Name            string         `json:"name,omitempty"`
-	Path            string         `json:"path,omitempty"`
-	MimeType        string         `json:"mimeType,omitempty"`
-	SizeBytes       *int64         `json:"sizeBytes,omitempty"`
-	URL             string         `json:"url,omitempty"`
-	SHA256          string         `json:"sha256,omitempty"`
-	Meta            map[string]any `json:"meta,omitempty"`
-}
+type Reference = queryinput.Reference
 
 type QueryHooks struct {
 	OnRunStarted func(chat.RunStart)
 }
 
 type QueryResult struct {
+	Usage        chat.UsageData
+	FinishReason string
+	SideQueryID  string
+	ChatID       string
+	RunID        string
+	ErrorPayload map[string]any
 	Completion   *chat.RunCompletion
 	Content      string
 	FullText     string

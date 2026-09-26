@@ -83,7 +83,7 @@ func newStrictArchiveContractServer(t *testing.T) (*Server, *chat.FileStore, *ch
 	if err != nil {
 		t.Fatalf("new archive store: %v", err)
 	}
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:        config.Config{},
 		Chats:         active,
 		Archives:      archives,

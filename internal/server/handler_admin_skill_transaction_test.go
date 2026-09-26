@@ -1,9 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
-	"agent-platform/internal/reload"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -15,6 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
+	"agent-platform/internal/reload"
 )
 
 type catalogReloadCounter struct{ count atomic.Int64 }

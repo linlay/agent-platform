@@ -67,11 +67,11 @@ func TestResolveQueryTeamOrchestratedNeverSelectsDefaultMember(t *testing.T) {
 	}
 
 	_, _, _, statusErr = resolveQueryTeam(registry, "research", "writer", nil)
-	if statusErr == nil || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "must be omitted") {
+	if statusErr == nil || statusErr.Status != http.StatusBadRequest || !strings.Contains(statusErr.Message, "must be omitted") {
 		t.Fatalf("expected agentKey bypass rejection, got %#v", statusErr)
 	}
 	_, _, _, statusErr = resolveQueryTeam(registry, "", "", &chat.Summary{TeamID: "research", AgentKey: "former-member"})
-	if statusErr == nil || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "historical Team chat") {
+	if statusErr == nil || statusErr.Status != http.StatusBadRequest || !strings.Contains(statusErr.Message, "historical Team chat") {
 		t.Fatalf("historical Team chat must not resume, got %#v", statusErr)
 	}
 }
@@ -99,7 +99,7 @@ func TestResolveQueryTeamRejectsUnrunnableMemberBeforeStartingRun(t *testing.T) 
 	member.Mode = "UNSUPPORTED"
 	registry.agents["reviewer"] = member
 	_, _, _, statusErr := resolveQueryTeam(registry, "research", "", nil)
-	if statusErr == nil || statusErr.status != http.StatusServiceUnavailable || !strings.Contains(statusErr.message, "reviewer") {
+	if statusErr == nil || statusErr.Status != http.StatusServiceUnavailable || !strings.Contains(statusErr.Message, "reviewer") {
 		t.Fatalf("expected unrunnable member rejection, got %#v", statusErr)
 	}
 }
@@ -113,16 +113,16 @@ func TestPrepareQueryAdmissionSynthesizesHiddenTeamCoordinator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryAdmissionRequest: %v", err)
 	}
-	if !admission.orchestratedTeam || admission.req.AgentKey != "" || admission.agentDef.Mode != agentteam.Mode {
+	if !admission.OrchestratedTeam || admission.Req.AgentKey != "" || admission.AgentDef.Mode != agentteam.Mode {
 		t.Fatalf("unexpected Team admission %#v", admission)
 	}
-	if admission.agentDef.Key != hiddenTeamAgentKey("research") || admission.agentDef.ModelKey != "mock-model" {
-		t.Fatalf("unexpected coordinator definition %#v", admission.agentDef)
+	if admission.AgentDef.Key != hiddenTeamAgentKey("research") || admission.AgentDef.ModelKey != "mock-model" {
+		t.Fatalf("unexpected coordinator definition %#v", admission.AgentDef)
 	}
-	if strings.Join(admission.agentDef.Tools, ",") != strings.Join(agentteam.DefaultToolNames(), ",") {
-		t.Fatalf("unexpected coordinator default tools %#v", admission.agentDef.Tools)
+	if strings.Join(admission.AgentDef.Tools, ",") != strings.Join(agentteam.DefaultToolNames(), ",") {
+		t.Fatalf("unexpected coordinator default tools %#v", admission.AgentDef.Tools)
 	}
-	if _, visible := registry.AgentDefinition(admission.agentDef.Key); visible {
+	if _, visible := registry.AgentDefinition(admission.AgentDef.Key); visible {
 		t.Fatal("synthetic coordinator leaked into Agent registry")
 	}
 }

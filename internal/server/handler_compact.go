@@ -36,7 +36,7 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 		}
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
-			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			writeJSON(w, statusErr.Status, api.Failure(statusErr.Status, statusErr.Message))
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
@@ -48,7 +48,7 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (result api.CompactResponse, resultErr error) {
 	chatID := strings.TrimSpace(req.ChatID)
 	if chatID == "" {
-		return api.CompactResponse{}, &statusError{status: http.StatusBadRequest, message: "chatId is required"}
+		return api.CompactResponse{}, &statusError{Status: http.StatusBadRequest, Message: "chatId is required"}
 	}
 	requestID := strings.TrimSpace(req.RequestID)
 	if requestID == "" {
@@ -60,7 +60,7 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	}
 	level, err := normalizeCompactLevel(req.Level)
 	if err != nil {
-		return api.CompactResponse{}, &statusError{status: http.StatusBadRequest, message: err.Error()}
+		return api.CompactResponse{}, &statusError{Status: http.StatusBadRequest, Message: err.Error()}
 	}
 	baseResp := api.CompactResponse{
 		RequestID: requestID,
@@ -72,7 +72,7 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 		Detail:    "skipped",
 	}
 	if s.deps.Chats == nil {
-		return api.CompactResponse{}, &statusError{status: http.StatusServiceUnavailable, message: "chat store is not configured"}
+		return api.CompactResponse{}, &statusError{Status: http.StatusServiceUnavailable, Message: "chat store is not configured"}
 	}
 	store, ok := s.deps.Chats.(compactChatStore)
 	if !ok {
@@ -84,7 +84,7 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 		return api.CompactResponse{}, err
 	}
 	if chatSummary == nil {
-		return api.CompactResponse{}, &statusError{status: http.StatusNotFound, message: "chat not found"}
+		return api.CompactResponse{}, &statusError{Status: http.StatusNotFound, Message: "chat not found"}
 	}
 	if coordinator, ok := s.deps.Runs.(contracts.ChatCompactCoordinator); ok {
 		response, routed, historyOwner, routeErr := s.compactCoordinated(ctx, coordinator, baseResp)
@@ -132,7 +132,7 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 		}
 	}
 	if explicitAgentKey && !agentOK {
-		return api.CompactResponse{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+		return api.CompactResponse{}, &statusError{Status: http.StatusBadRequest, Message: "agent not found"}
 	}
 
 	window := 128000
@@ -152,7 +152,7 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	overhead := 0
 	if estimator, ok := s.deps.Agent.(contracts.ContextEstimator); ok && agentOK {
 		budgetReq := api.QueryRequest{RequestID: requestID, RunID: compactID, ChatID: chatID, AgentKey: agentKey, TeamID: teamID}
-		budgetSession, err := s.BuildQuerySession(ctx, budgetReq, resolvedSummary, agentDef, querySessionBuildOptions{IncludeMemory: false, IncludeHistory: false})
+		budgetSession, err := s.buildCompactSession(ctx, budgetReq, resolvedSummary, agentDef, querySessionBuildOptions{IncludeMemory: false, IncludeHistory: false})
 		if err != nil {
 			return baseResp, err
 		}
@@ -205,7 +205,7 @@ func (s *Server) compactCoordinated(ctx context.Context, coordinator contracts.C
 		base.Retryable = true
 		return base, true, false, nil
 	case "invalid":
-		return api.CompactResponse{}, true, false, &statusError{status: http.StatusBadRequest, message: "invalid compact request"}
+		return api.CompactResponse{}, true, false, &statusError{Status: http.StatusBadRequest, Message: "invalid compact request"}
 	default:
 		return api.CompactResponse{}, true, false, fmt.Errorf("unsupported compact routing status %q", ack.Status)
 	}
@@ -248,7 +248,7 @@ func (s *Server) compactActiveRun(ctx context.Context, base api.CompactResponse)
 		base.Retryable = true
 		return base, true, nil
 	case "invalid":
-		return api.CompactResponse{}, true, &statusError{status: http.StatusBadRequest, message: "invalid compact request"}
+		return api.CompactResponse{}, true, &statusError{Status: http.StatusBadRequest, Message: "invalid compact request"}
 	case "queued", "joined", "completed":
 		select {
 		case <-ack.Handle.Done():
@@ -290,7 +290,7 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 	if summaryReq.RequestID == "" {
 		summaryReq.RequestID = compactID
 	}
-	session, err := s.BuildQuerySession(ctx, summaryReq, chatSummary, agentDef, querySessionBuildOptions{
+	session, err := s.buildCompactSession(ctx, summaryReq, chatSummary, agentDef, querySessionBuildOptions{
 		Created:           false,
 		IncludeHistory:    false,
 		IncludeMemory:     false,

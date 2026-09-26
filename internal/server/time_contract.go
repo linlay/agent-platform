@@ -1,16 +1,14 @@
 package server
 
 import (
-	"errors"
 	"net/http"
-	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/runexec"
 	"agent-platform/internal/stream"
-	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
 )
 
@@ -43,82 +41,16 @@ func sendTimeContractViolation(conn *ws.Conn, requestID string, err error) {
 	conn.SendError(requestID, string(apperrors.CodeTimeContractViolation), http.StatusUnprocessableEntity, timeContractViolationMessage, timeContractErrorData(err))
 }
 
-func timeContractErrorData(err error) map[string]any {
-	if chat.IsJSONLSchemaViolation(err) {
-		return chatStorageSchemaErrorData(err)
-	}
-	data := timecontract.ErrorData(err)
-	data["category"] = string(apperrors.CategoryRequest)
-	data["scope"] = string(apperrors.ScopeRequest)
-	data["status"] = http.StatusUnprocessableEntity
-	data["retryable"] = false
-	data["userSafeMessageKey"] = string(apperrors.CodeTimeContractViolation)
-	data["message"] = timeContractViolationMessage
-	return data
-}
-
-func chatStorageSchemaErrorData(err error) map[string]any {
-	data := chat.JSONLSchemaErrorData(err)
-	data["category"] = string(apperrors.CategoryChatRun)
-	data["scope"] = string(apperrors.ScopeChat)
-	data["status"] = http.StatusUnprocessableEntity
-	data["retryable"] = false
-	data["userSafeMessageKey"] = string(apperrors.CodeChatStorageSchemaViolation)
-	data["message"] = chatStorageSchemaViolationMessage
-	return data
-}
-
-func contractViolationMessage(err error) string {
-	if chat.IsJSONLSchemaViolation(err) {
-		return chatStorageSchemaViolationMessage
-	}
-	return timeContractViolationMessage
-}
-
 // localTimeContractRunErrorEvent replaces an invalid upstream event after a
 // stream has started. Its timestamp belongs to the platform error itself, not
 // to the rejected event, so using the local wall clock here does not repair or
 // reinterpret producer data. Keep contract details both flat and under
 // `error` for existing stream consumers.
-func localTimeContractRunErrorEvent(seq int64, runID, chatID string, err error) stream.EventData {
-	if seq <= 0 {
-		seq = 1
-	}
-	contractData := timeContractErrorData(err)
-	contractData["status"] = http.StatusUnprocessableEntity
-	message := contractViolationMessage(err)
-	contractData["message"] = message
-	payload := map[string]any{
-		"runId":   runID,
-		"chatId":  chatID,
-		"message": message,
-		"error":   contractData,
-	}
-	for _, key := range []string{"code", "field", "location", "expected"} {
-		payload[key] = contractData[key]
-	}
-	return stream.EventData{
-		Seq:       seq,
-		Type:      "run.error",
-		Timestamp: time.Now().UnixMilli(),
-		Payload:   payload,
-	}
-}
 
 // nextLocalTimeContractErrorSeq allocates a terminal event sequence without
 // reusing a sequence already delivered to this observer. The rejected source
 // event is deliberately not repaired or forwarded; when it already had a
 // usable sequence, the platform-owned error occupies that sequence instead.
-func nextLocalTimeContractErrorSeq(lastSeq int64, rejected stream.EventData) int64 {
-	seq := rejected.Seq
-	if seq <= lastSeq {
-		seq = lastSeq + 1
-	}
-	if seq <= 0 {
-		seq = 1
-	}
-	return seq
-}
 
 // terminateSSEForTimeContractViolation is the final SSE observer boundary.
 // The invalid event has already been rejected by Writer.WriteJSON, so write
@@ -166,10 +98,6 @@ func (s *Server) terminateSSEForTimeContractViolation(
 	}
 }
 
-func isTimeContractViolation(err error) bool {
-	return errors.Is(err, errTimeContractViolation) || timecontract.IsViolation(err) || chat.IsJSONLSchemaViolation(err)
-}
-
 func timeContractStatusError(err error) *statusError {
 	if !isTimeContractViolation(err) {
 		return nil
@@ -181,14 +109,21 @@ func timeContractStatusError(err error) *statusError {
 		message = chatStorageSchemaViolationMessage
 	}
 	return &statusError{
-		status:  http.StatusUnprocessableEntity,
-		code:    code,
-		message: message,
-		data:    timeContractErrorData(err),
+		Status:  http.StatusUnprocessableEntity,
+		Code:    code,
+		Message: message,
+		Data:    timeContractErrorData(err),
 	}
 }
 
 // errTimeContractViolation lets handler paths which already parsed a detailed
 // invalid JSON record return the same public error without manufacturing a
 // current timestamp or a generic storage error.
-var errTimeContractViolation = errors.New("time contract violation")
+
+var errTimeContractViolation = runexec.ErrTimeContractViolation
+var timeContractErrorData = runexec.TimeContractErrorData
+var chatStorageSchemaErrorData = runexec.ChatStorageSchemaErrorData
+var isTimeContractViolation = runexec.IsTimeContractViolation
+var contractViolationMessage = runexec.ContractViolationMessage
+var localTimeContractRunErrorEvent = runexec.LocalTimeContractRunErrorEvent
+var nextLocalTimeContractErrorSeq = runexec.NextLocalTimeContractErrorSeq

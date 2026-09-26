@@ -65,7 +65,7 @@ func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.Agent
 
 func newServerFromFixture(t *testing.T, fixture testFixture) *Server {
 	t.Helper()
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -385,7 +385,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	sandbox := sandboxClient
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandbox)
 	viewport := testutil.NewNoopViewportClient()
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:           cfg,
 		Chats:            chats,
 		Memory:           memories,

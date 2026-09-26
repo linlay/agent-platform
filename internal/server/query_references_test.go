@@ -124,7 +124,7 @@ func TestPrepareSiteReferenceRejectsUnscopedEntryKey(t *testing.T) {
 		Meta: map[string]any{"kind": "website"},
 	})
 	statusErr, ok := err.(*statusError)
-	if !ok || statusErr.code != "site_reference_unavailable" {
+	if !ok || statusErr.Code != "site_reference_unavailable" {
 		t.Fatalf("expected site_reference_unavailable, got %#v", err)
 	}
 }
@@ -176,7 +176,7 @@ func TestPrepareChatReferenceRejectsSelfReference(t *testing.T) {
 		api.Reference{Type: "chat", ID: "chat-current"},
 	)
 	statusErr, ok := err.(*statusError)
-	if !ok || statusErr.code != "chat_reference_self" {
+	if !ok || statusErr.Code != "chat_reference_self" {
 		t.Fatalf("expected chat_reference_self, got %#v", err)
 	}
 }
@@ -261,7 +261,7 @@ func TestPrepareChatReferenceRejectsAnotherQueryPrincipal(t *testing.T) {
 		ID:   "chat-source",
 	})
 	statusErr, ok := err.(*statusError)
-	if !ok || statusErr.code != "chat_reference_forbidden" {
+	if !ok || statusErr.Code != "chat_reference_forbidden" {
 		t.Fatalf("expected chat_reference_forbidden, got %#v", err)
 	}
 }

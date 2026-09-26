@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 )
 
@@ -26,10 +25,11 @@ type InternalQueryResult struct {
 type internalQueryCaptureKey struct{}
 
 type internalQueryCapture struct {
-	mu           sync.Mutex
-	hooks        InternalQueryHooks
-	completion   *chat.RunCompletion
-	errorMessage string
+	mu             sync.Mutex
+	hooks          InternalQueryHooks
+	completion     *chat.RunCompletion
+	errorMessage   string
+	responseResult *queryRunResult
 }
 
 func withInternalQueryCapture(ctx context.Context, capture *internalQueryCapture) context.Context {
@@ -98,13 +98,6 @@ func (c *internalQueryCapture) result(statusCode int, body string) InternalQuery
 
 // prepareBlockingQuery shares admission/session construction with StartQuery;
 // no HTTP request is manufactured for Native in-process execution.
-func (s *Server) prepareBlockingQuery(ctx context.Context, req api.QueryRequest, locale, baseURL string) (preparedQuery, error) {
-	admission, err := s.prepareQueryAdmissionRequest(ctx, req, true, locale, baseURL)
-	if err != nil {
-		return preparedQuery{}, err
-	}
-	return s.completeQueryPreparation(ctx, admission, nil)
-}
 
 // queryResponseBuffer is only a legacy response encoder. Runtime Native callers
 // obtain the executor result directly and do not parse or capture HTTP/SSE.
@@ -126,7 +119,7 @@ func (w *queryResponseBuffer) Flush()                         {}
 // contract. This request carries transport metadata only; admission is done.
 func (s *Server) executePreparedProxyCompatibility(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
 	req, _ := http.NewRequestWithContext(withSyncQueryContext(ctx), http.MethodPost, "/api/query", nil)
-	if proxyUpstreamTransport(prepared.agentDef.ProxyConfig) == "ws" {
+	if proxyUpstreamTransport(prepared.AgentDef.ProxyConfig) == "ws" {
 		s.handleProxyWebSocketQuery(w, req, prepared)
 	} else {
 		s.handleProxyQuery(w, req, prepared)

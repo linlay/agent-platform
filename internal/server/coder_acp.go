@@ -11,10 +11,6 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func isProxyRoutedAgent(def catalog.AgentDefinition) bool {
-	return isProxyAgentMode(def.Mode) || catalog.AgentIsChannelMode(def.Mode) || agentbuiltin.IsCoderACPBackend(def.Mode, def.ACPBridgeID)
-}
-
 func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusError {
 	if def == nil {
 		return nil
@@ -35,7 +31,7 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 		}, ok
 	})
 	if err != nil {
-		return &statusError{status: http.StatusServiceUnavailable, message: err.Error()}
+		return &statusError{Status: http.StatusServiceUnavailable, Message: err.Error()}
 	}
 	def.ProxyConfig = &catalog.ProxyConfig{
 		BaseURL:   routing.BaseURL,
@@ -52,24 +48,24 @@ func (s *Server) applyChannelImportRoutingConfig(def *catalog.AgentDefinition) *
 	remoteAgentKey := strings.TrimSpace(def.ChannelConfig.RemoteAgentKey)
 	if channelID == "" || remoteAgentKey == "" {
 		return &statusError{
-			status:  http.StatusServiceUnavailable,
-			message: "mode CHANNEL requires channelConfig.channelId and channelConfig.remoteAgentKey",
+			Status:  http.StatusServiceUnavailable,
+			Message: "mode CHANNEL requires channelConfig.channelId and channelConfig.remoteAgentKey",
 		}
 	}
 	if s.deps.Channels == nil {
-		return &statusError{status: http.StatusServiceUnavailable, message: "channel registry is not configured"}
+		return &statusError{Status: http.StatusServiceUnavailable, Message: "channel registry is not configured"}
 	}
 	channelDef, ok := s.deps.Channels.Lookup(channelID)
 	if !ok {
-		return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is not configured"}
+		return &statusError{Status: http.StatusServiceUnavailable, Message: "channel " + channelID + " is not configured"}
 	}
 	if channelDef.Mode == config.ChannelModeServer {
 		provider, ok := s.deps.Notifications.(ChannelConnectionProvider)
 		if !ok || provider == nil {
-			return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is not connected"}
+			return &statusError{Status: http.StatusServiceUnavailable, Message: "channel " + channelID + " is not connected"}
 		}
 		if _, ok := provider.GatewayConnection(channelID); !ok {
-			return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is not connected"}
+			return &statusError{Status: http.StatusServiceUnavailable, Message: "channel " + channelID + " is not connected"}
 		}
 		def.ProxyConfig = &catalog.ProxyConfig{
 			Transport: "ws",
@@ -81,11 +77,11 @@ func (s *Server) applyChannelImportRoutingConfig(def *catalog.AgentDefinition) *
 		return nil
 	}
 	if channelDef.Mode != config.ChannelModeClient {
-		return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is not client mode"}
+		return &statusError{Status: http.StatusServiceUnavailable, Message: "channel " + channelID + " is not client mode"}
 	}
 	upstreamURL := strings.TrimSpace(channelDef.Endpoint.URL)
 	if upstreamURL == "" {
-		return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is missing endpoint.url"}
+		return &statusError{Status: http.StatusServiceUnavailable, Message: "channel " + channelID + " is missing endpoint.url"}
 	}
 	def.ProxyConfig = &catalog.ProxyConfig{
 		BaseURL:      strings.TrimRight(upstreamURL, "/"),

@@ -101,7 +101,7 @@ func TestRegisteredRunPersistsAuthoritativeStartAndActiveDetailOmitsCompletion(t
 	}
 	defer fixture.server.finishRegisteredQueryRun(prepared, registered)
 
-	detail, err := fixture.server.loadChatDetail(context.Background(), prepared.req.ChatID, false)
+	detail, err := fixture.server.loadChatDetail(context.Background(), prepared.Req.ChatID, false)
 	if err != nil {
 		t.Fatalf("load active detail: %v", err)
 	}
@@ -111,22 +111,22 @@ func TestRegisteredRunPersistsAuthoritativeStartAndActiveDetailOmitsCompletion(t
 	if len(detail.Runs) != 0 {
 		t.Fatalf("unfinished row must not appear in public runs: %#v", detail.Runs)
 	}
-	runs, err := fixture.chats.ListRuns(prepared.req.ChatID)
+	runs, err := fixture.chats.ListRuns(prepared.Req.ChatID)
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("unfinished persisted row must be excluded: runs=%#v err=%v", runs, err)
 	}
 	if err := fixture.chats.OnRunCompleted(chat.RunCompletion{
-		ChatID:          prepared.req.ChatID,
-		RunID:           prepared.req.RunID,
-		AgentKey:        prepared.req.AgentKey,
-		InitialMessage:  prepared.req.Message,
+		ChatID:          prepared.Req.ChatID,
+		RunID:           prepared.Req.RunID,
+		AgentKey:        prepared.Req.AgentKey,
+		InitialMessage:  prepared.Req.Message,
 		AssistantText:   "done",
 		StartedAtMillis: registered.StartedAtMillis,
 		UpdatedAtMillis: registered.StartedAtMillis + 1,
 	}); err != nil {
 		t.Fatalf("complete persisted run: %v", err)
 	}
-	runs, err = fixture.chats.ListRuns(prepared.req.ChatID)
+	runs, err = fixture.chats.ListRuns(prepared.Req.ChatID)
 	if err != nil || len(runs) != 1 || runs[0].StartedAt != registered.StartedAtMillis {
 		t.Fatalf("completed run must retain registered start: runs=%#v err=%v", runs, err)
 	}

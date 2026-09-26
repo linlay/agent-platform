@@ -38,6 +38,7 @@ func TestLiveDocumentPreviewSurface(t *testing.T) {
 	}
 	f.server.documentPreview = service
 	f.server.deps.Config.DocumentPreview = cfg
+	bindTestRuntime(f.server)
 	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/"):

@@ -1,14 +1,15 @@
 package server
 
 import (
-	"agent-platform/internal/api"
-	"agent-platform/internal/chatresource"
 	"context"
 	"errors"
 	"mime"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/chatresource"
 )
 
 func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {

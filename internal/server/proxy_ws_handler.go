@@ -26,11 +26,11 @@ import (
 type proxyRunRoute = runtimeproxy.Route
 
 func newDetachedProxyRunRoute(prepared preparedQuery) *proxyRunRoute {
-	proxy := prepared.agentDef.ProxyConfig
-	route := runtimeproxy.NewRoute(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey)
+	proxy := prepared.AgentDef.ProxyConfig
+	route := runtimeproxy.NewRoute(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey)
 	route.Protocol = proxyProtocol(proxy)
 	if proxy != nil {
-		route.UpstreamAgentKey = proxyAgentKey(proxy, prepared.req.AgentKey)
+		route.UpstreamAgentKey = proxyAgentKey(proxy, prepared.Req.AgentKey)
 		route.Transport = proxyUpstreamTransport(proxy)
 		route.BaseURL = strings.TrimRight(strings.TrimSpace(proxy.BaseURL), "/")
 		route.Token = proxy.Token
@@ -63,15 +63,15 @@ func (s *Server) lookupProxyRun(runID string) (*proxyRunRoute, bool) {
 func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
 	registered, statusErr := s.registerQueryRun(r.Context(), prepared)
 	if statusErr != nil {
-		releaseQuery(prepared.release)
+		releaseQuery(prepared.Release)
 		writeStatusError(w, statusErr)
 		return
 	}
 	runCtx, control := registered.RunCtx, registered.Control
-	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
+	eventBus, ok := s.deps.Runs.EventBus(prepared.Req.RunID)
 	if !ok {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		releaseQuery(prepared.Release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.Req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
 		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
@@ -83,8 +83,8 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
 	})
 	if err != nil {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonStreamWriterFailed, err.Error()))
+		releaseQuery(prepared.Release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.Req, contracts.InterruptReasonStreamWriterFailed, err.Error()))
 		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
@@ -92,31 +92,31 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 	defer sseWriter.Close()
 	sseWriter.StartHeartbeat()
 
-	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
+	observer, attachErr := s.deps.Runs.AttachObserver(prepared.Req.RunID, 0)
 	if attachErr != nil {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
+		releaseQuery(prepared.Release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.Req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
 		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, attachErr.Error()))
 		return
 	}
-	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+	defer s.deps.Runs.DetachObserver(prepared.Req.RunID, observer.ID)
 	defer observer.MarkDone()
 
-	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
+	s.broadcast("run.started", runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis))
 
-	route := runtimeproxy.NewRoute(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey)
-	route.Protocol = proxyProtocol(prepared.agentDef.ProxyConfig)
+	route := runtimeproxy.NewRoute(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey)
+	route.Protocol = proxyProtocol(prepared.AgentDef.ProxyConfig)
 	s.registerProxyRun(route)
 
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
-	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.Req.ChatID, prepared.Req.RunID, prepared.AgentDef.Mode)
+	stepWriter.SetPendingSystemInit(prepared.SystemInitLine)
+	stepWriter.SetPendingQueryMessages(prepared.Session.CurrentMessages)
 	var chatUsage chat.UsageData
-	if prepared.summary.Usage != nil {
-		chatUsage = *prepared.summary.Usage
+	if prepared.Summary.Usage != nil {
+		chatUsage = *prepared.Summary.Usage
 	}
-	recorder := newProxyEventRecorder(prepared.req, registered.StartedAtMillis, prepared.agentDef, s.deps.Chats, stepWriter, control, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
+	recorder := newProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, s.deps.Chats, stepWriter, control, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 
 	lastSeq := int64(0)
@@ -136,11 +136,11 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 						lastSeq,
 						event,
 						api.InterruptRequest{
-							RequestID: prepared.req.RequestID,
-							RunID:     prepared.req.RunID,
-							ChatID:    prepared.req.ChatID,
-							AgentKey:  prepared.req.AgentKey,
-							TeamID:    prepared.req.TeamID,
+							RequestID: prepared.Req.RequestID,
+							RunID:     prepared.Req.RunID,
+							ChatID:    prepared.Req.ChatID,
+							AgentKey:  prepared.Req.AgentKey,
+							TeamID:    prepared.Req.TeamID,
 						},
 						err,
 					)
@@ -155,55 +155,55 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
 	registered, statusErr := s.registerQueryRun(r.Context(), prepared)
 	if statusErr != nil {
-		releaseQuery(prepared.release)
+		releaseQuery(prepared.Release)
 		writeStatusError(w, statusErr)
 		return
 	}
 	runCtx, control := registered.RunCtx, registered.Control
-	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
+	eventBus, ok := s.deps.Runs.EventBus(prepared.Req.RunID)
 	if !ok {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		releaseQuery(prepared.Release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.Req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
 		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
 	}
-	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
+	observer, attachErr := s.deps.Runs.AttachObserver(prepared.Req.RunID, 0)
 	if attachErr != nil {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
+		releaseQuery(prepared.Release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.Req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
 		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, attachErr.Error()))
 		return
 	}
-	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+	defer s.deps.Runs.DetachObserver(prepared.Req.RunID, observer.ID)
 	defer observer.MarkDone()
 
-	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
+	s.broadcast("run.started", runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis))
 
-	upstreamTransport := proxyUpstreamTransport(prepared.agentDef.ProxyConfig)
+	upstreamTransport := proxyUpstreamTransport(prepared.AgentDef.ProxyConfig)
 	var route *proxyRunRoute
 	if upstreamTransport == "ws" {
-		route = runtimeproxy.NewRoute(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey)
-		route.Protocol = proxyProtocol(prepared.agentDef.ProxyConfig)
+		route = runtimeproxy.NewRoute(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey)
+		route.Protocol = proxyProtocol(prepared.AgentDef.ProxyConfig)
 		s.registerProxyRun(route)
 	}
 
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
-	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.Req.ChatID, prepared.Req.RunID, prepared.AgentDef.Mode)
+	stepWriter.SetPendingSystemInit(prepared.SystemInitLine)
+	stepWriter.SetPendingQueryMessages(prepared.Session.CurrentMessages)
 	var proxyControl *contracts.RunControl
 	if upstreamTransport == "ws" {
 		proxyControl = control
 	}
 	var chatUsage chat.UsageData
-	if prepared.summary.Usage != nil {
-		chatUsage = *prepared.summary.Usage
+	if prepared.Summary.Usage != nil {
+		chatUsage = *prepared.Summary.Usage
 	}
-	recorder := newProxyEventRecorder(prepared.req, registered.StartedAtMillis, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
+	recorder := newProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, s.deps.Chats, stepWriter, proxyControl, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 
-	collector := newQueryEventCollector(prepared.req.IncludeFullText)
+	collector := newQueryEventCollector(prepared.Req.IncludeFullText)
 	for {
 		select {
 		case <-r.Context().Done():
@@ -211,7 +211,10 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 		case event, ok := <-observer.Events:
 			if !ok {
 				result := collector.Result()
-				if prepared.req.IncludeFullText {
+				if capture := internalQueryCaptureFromContext(r.Context()); capture != nil {
+					capture.responseResult = &result
+				}
+				if prepared.Req.IncludeFullText {
 					result.FullText = collector.FullText(result.AssistantText)
 				}
 				if queryRunFailed(result) {
@@ -222,7 +225,7 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 					writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, queryRunErrorMessage(result)))
 					return
 				}
-				writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, result)))
+				writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.Req, result)))
 				return
 			}
 			collector.Consume(event)
@@ -250,7 +253,7 @@ func (s *Server) runProxyWebSocketWithStartup(
 ) {
 	defer func() {
 		if route != nil {
-			s.unregisterProxyRun(prepared.req.RunID, route)
+			s.unregisterProxyRun(prepared.Req.RunID, route)
 			close(route.Done)
 		}
 		// Capture one platform completion clock before persistence/observer
@@ -274,9 +277,9 @@ func (s *Server) runProxyWebSocketWithStartup(
 		if eventBus != nil {
 			eventBus.FreezeAndWait()
 		}
-		releaseQuery(prepared.release)
-		s.deps.Runs.Finish(prepared.req.RunID)
-		s.broadcast("run.finished", runFinishedPushPayload(prepared.req.RunID, prepared.req.ChatID, finishReason, completedAtMillis))
+		releaseQuery(prepared.Release)
+		s.deps.Runs.Finish(prepared.Req.RunID)
+		s.broadcast("run.finished", runFinishedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, finishReason, completedAtMillis))
 		if persisted {
 			s.broadcastRunCompletionNotifications(completion)
 		}
@@ -285,7 +288,7 @@ func (s *Server) runProxyWebSocketWithStartup(
 		}
 	}()
 
-	if proxyUpstreamTransport(prepared.agentDef.ProxyConfig) == "sse" {
+	if proxyUpstreamTransport(prepared.AgentDef.ProxyConfig) == "sse" {
 		s.runProxySSE(runCtx, prepared, eventBus, recorder, startup)
 		return
 	}
@@ -293,20 +296,20 @@ func (s *Server) runProxyWebSocketWithStartup(
 		startup <- nil
 	}
 
-	if strings.TrimSpace(prepared.agentDef.ProxyConfig.ChannelID) != "" {
+	if strings.TrimSpace(prepared.AgentDef.ProxyConfig.ChannelID) != "" {
 		s.runProxyInboundChannel(runCtx, prepared, route, eventBus, recorder)
 		return
 	}
 
-	upstreamURL, header, err := proxyWebSocketTarget(prepared.agentDef.ProxyConfig)
+	upstreamURL, header, err := proxyWebSocketTarget(prepared.AgentDef.ProxyConfig)
 	if err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 
 	upstream, _, err := gws.DefaultDialer.DialContext(runCtx, upstreamURL, header)
 	if err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy websocket dial failed: %w", err))
+		s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("proxy websocket dial failed: %w", err))
 		return
 	}
 	defer upstream.Close()
@@ -331,19 +334,19 @@ func (s *Server) runProxyWebSocketWithStartup(
 	}()
 
 	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
-		ChatID:          prepared.req.ChatID,
-		RunID:           prepared.req.RunID,
-		Subject:         prepared.session.Subject,
-		ResourceBaseURL: prepared.resourceBaseURL,
-		WorkspaceRoot:   prepared.session.WorkspaceRoot,
-		References:      prepared.req.References,
+		ChatID:          prepared.Req.ChatID,
+		RunID:           prepared.Req.RunID,
+		Subject:         prepared.Session.Subject,
+		ResourceBaseURL: prepared.ResourceBaseURL,
+		WorkspaceRoot:   prepared.Session.WorkspaceRoot,
+		References:      prepared.Req.References,
 	})
 	if err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
-	if err := upstream.WriteJSON(proxyQueryPayloadWithWorkspace(prepared.req, prepared.agentDef.ProxyConfig, proxyReferences, prepared.session.WorkspaceRoot)); err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy websocket write failed: %w", err))
+	if err := upstream.WriteJSON(proxyQueryPayloadWithWorkspace(prepared.Req, prepared.AgentDef.ProxyConfig, proxyReferences, prepared.Session.WorkspaceRoot)); err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("proxy websocket write failed: %w", err))
 		return
 	}
 
@@ -353,7 +356,7 @@ func (s *Server) runProxyWebSocketWithStartup(
 		select {
 		case err := <-writeDone:
 			if err != nil && !terminalSeen {
-				s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy websocket write loop failed: %w", err))
+				s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("proxy websocket write loop failed: %w", err))
 			}
 			return
 		default:
@@ -362,22 +365,22 @@ func (s *Server) runProxyWebSocketWithStartup(
 		_, data, err := upstream.ReadMessage()
 		if err != nil {
 			if !terminalSeen {
-				s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy websocket read failed: %w", err))
+				s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("proxy websocket read failed: %w", err))
 			}
 			return
 		}
 		frame, ok, decodeErr := decodeProxyFrameAt(data, "proxy.websocket.event")
 		if decodeErr != nil {
 			terminalSeen = true
-			s.publishProxyError(eventBus, recorder, prepared.req, decodeErr)
+			s.publishProxyError(eventBus, recorder, prepared.Req, decodeErr)
 			return
 		}
-		if !ok || !proxyFrameMatchesRequest(frame, prepared.req.RequestID) {
+		if !ok || !proxyFrameMatchesRequest(frame, prepared.Req.RequestID) {
 			continue
 		}
 		if err := proxyFrameError(frame); err != nil {
 			terminalSeen = true
-			s.publishProxyError(eventBus, recorder, prepared.req, err)
+			s.publishProxyError(eventBus, recorder, prepared.Req, err)
 			return
 		}
 		if !frame.HasEvent {
@@ -387,10 +390,10 @@ func (s *Server) runProxyWebSocketWithStartup(
 			}
 			continue
 		}
-		event, publishErr := publishProxyLiveEvent(eventBus, recorder, prepared.req, &seq, frame.Event)
+		event, publishErr := publishProxyLiveEvent(eventBus, recorder, prepared.Req, &seq, frame.Event)
 		if publishErr != nil {
 			terminalSeen = true
-			s.publishProxyError(eventBus, recorder, prepared.req, publishErr)
+			s.publishProxyError(eventBus, recorder, prepared.Req, publishErr)
 			return
 		}
 		switch event.Type {
@@ -408,49 +411,49 @@ func (s *Server) runProxyInboundChannel(
 	eventBus *stream.RunEventBus,
 	recorder *proxyEventRecorder,
 ) {
-	proxy := prepared.agentDef.ProxyConfig
+	proxy := prepared.AgentDef.ProxyConfig
 	if proxy == nil || strings.TrimSpace(proxy.ChannelID) == "" {
-		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("CHANNEL agent missing channelConfig.channelId"))
+		s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("CHANNEL agent missing channelConfig.channelId"))
 		return
 	}
 	hub, ok := s.deps.Notifications.(ChannelConnectionProvider)
 	if !ok || hub == nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel %s connection provider is not configured", proxy.ChannelID))
+		s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("channel %s connection provider is not configured", proxy.ChannelID))
 		return
 	}
 	upstream, ok := hub.GatewayConnection(proxy.ChannelID)
 	if !ok || upstream == nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel %s is not connected", proxy.ChannelID))
+		s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("channel %s is not connected", proxy.ChannelID))
 		return
 	}
 
 	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
-		ChatID:          prepared.req.ChatID,
-		RunID:           prepared.req.RunID,
-		Subject:         prepared.session.Subject,
-		ResourceBaseURL: prepared.resourceBaseURL,
-		WorkspaceRoot:   prepared.session.WorkspaceRoot,
-		References:      prepared.req.References,
+		ChatID:          prepared.Req.ChatID,
+		RunID:           prepared.Req.RunID,
+		Subject:         prepared.Session.Subject,
+		ResourceBaseURL: prepared.ResourceBaseURL,
+		WorkspaceRoot:   prepared.Session.WorkspaceRoot,
+		References:      prepared.Req.References,
 	})
 	if err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 
-	initial := proxyQueryPayloadWithWorkspace(prepared.req, proxy, proxyReferences, prepared.session.WorkspaceRoot)
+	initial := proxyQueryPayloadWithWorkspace(prepared.Req, proxy, proxyReferences, prepared.Session.WorkspaceRoot)
 	raw, err := json.Marshal(initial)
 	if err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 	var reqFrame platformws.RequestFrame
 	if err := json.Unmarshal(raw, &reqFrame); err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 	frames, cleanup, err := upstream.OpenOutboundRequest(reqFrame)
 	if err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel %s request failed: %w", proxy.ChannelID, err))
+		s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("channel %s request failed: %w", proxy.ChannelID, err))
 		return
 	}
 	defer cleanup()
@@ -480,33 +483,33 @@ func (s *Server) runProxyInboundChannel(
 		select {
 		case err := <-writeDone:
 			if err != nil && !terminalSeen {
-				s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel websocket write loop failed: %w", err))
+				s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("channel websocket write loop failed: %w", err))
 			}
 			return
 		case <-runCtx.Done():
 			if !terminalSeen {
-				s.publishProxyError(eventBus, recorder, prepared.req, runCtx.Err())
+				s.publishProxyError(eventBus, recorder, prepared.Req, runCtx.Err())
 			}
 			return
 		case data, ok := <-frames:
 			if !ok {
 				if !terminalSeen {
-					s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel %s disconnected", proxy.ChannelID))
+					s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("channel %s disconnected", proxy.ChannelID))
 				}
 				return
 			}
 			frame, ok, decodeErr := decodeProxyFrameAt(data, "proxy.channel.event")
 			if decodeErr != nil {
 				terminalSeen = true
-				s.publishProxyError(eventBus, recorder, prepared.req, decodeErr)
+				s.publishProxyError(eventBus, recorder, prepared.Req, decodeErr)
 				return
 			}
-			if !ok || !proxyFrameMatchesRequest(frame, prepared.req.RequestID) {
+			if !ok || !proxyFrameMatchesRequest(frame, prepared.Req.RequestID) {
 				continue
 			}
 			if err := proxyFrameError(frame); err != nil {
 				terminalSeen = true
-				s.publishProxyError(eventBus, recorder, prepared.req, err)
+				s.publishProxyError(eventBus, recorder, prepared.Req, err)
 				return
 			}
 			if !frame.HasEvent {
@@ -516,10 +519,10 @@ func (s *Server) runProxyInboundChannel(
 				}
 				continue
 			}
-			event, publishErr := publishProxyLiveEvent(eventBus, recorder, prepared.req, &seq, frame.Event)
+			event, publishErr := publishProxyLiveEvent(eventBus, recorder, prepared.Req, &seq, frame.Event)
 			if publishErr != nil {
 				terminalSeen = true
-				s.publishProxyError(eventBus, recorder, prepared.req, publishErr)
+				s.publishProxyError(eventBus, recorder, prepared.Req, publishErr)
 				return
 			}
 			switch event.Type {
@@ -548,56 +551,56 @@ func (s *Server) runProxySSE(
 		startup <- err
 	}
 	defer resolveStartup(nil)
-	proxy := prepared.agentDef.ProxyConfig
+	proxy := prepared.AgentDef.ProxyConfig
 	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" {
 		err := fmt.Errorf("PROXY agent missing proxyConfig.baseUrl")
 		resolveStartup(err)
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 
 	baseURL := strings.TrimRight(proxy.BaseURL, "/")
 	targetURL := baseURL + "/api/query"
 	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
-		ChatID:          prepared.req.ChatID,
-		RunID:           prepared.req.RunID,
-		Subject:         prepared.session.Subject,
-		ResourceBaseURL: prepared.resourceBaseURL,
-		WorkspaceRoot:   prepared.session.WorkspaceRoot,
-		References:      prepared.req.References,
+		ChatID:          prepared.Req.ChatID,
+		RunID:           prepared.Req.RunID,
+		Subject:         prepared.Session.Subject,
+		ResourceBaseURL: prepared.ResourceBaseURL,
+		WorkspaceRoot:   prepared.Session.WorkspaceRoot,
+		References:      prepared.Req.References,
 	})
 	if err != nil {
 		resolveStartup(err)
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 	bodyPayload := map[string]any{
-		"requestId":   prepared.req.RequestID,
-		"runId":       prepared.req.RunID,
-		"chatId":      prepared.req.ChatID,
-		"agentKey":    proxyAgentKey(proxy, prepared.req.AgentKey),
-		"role":        prepared.req.Role,
-		"message":     prepared.req.Message,
-		"accessLevel": prepared.req.AccessLevel,
+		"requestId":   prepared.Req.RequestID,
+		"runId":       prepared.Req.RunID,
+		"chatId":      prepared.Req.ChatID,
+		"agentKey":    proxyAgentKey(proxy, prepared.Req.AgentKey),
+		"role":        prepared.Req.Role,
+		"message":     prepared.Req.Message,
+		"accessLevel": prepared.Req.AccessLevel,
 		"references":  proxyReferences,
-		"params":      proxyForwardParams(prepared.req, prepared.session.WorkspaceRoot),
-		"model":       prepared.req.Model,
-		"scene":       prepared.req.Scene,
+		"params":      proxyForwardParams(prepared.Req, prepared.Session.WorkspaceRoot),
+		"model":       prepared.Req.Model,
+		"scene":       prepared.Req.Scene,
 		"stream":      true,
 	}
-	if prepared.req.Hidden != nil {
-		bodyPayload["hidden"] = *prepared.req.Hidden
+	if prepared.Req.Hidden != nil {
+		bodyPayload["hidden"] = *prepared.Req.Hidden
 	}
-	if prepared.req.PlanningMode != nil {
-		bodyPayload["planningMode"] = *prepared.req.PlanningMode
+	if prepared.Req.PlanningMode != nil {
+		bodyPayload["planningMode"] = *prepared.Req.PlanningMode
 	}
-	if len(prepared.req.MustUseSkills) > 0 {
-		bodyPayload["mustUseSkills"] = append([]string(nil), prepared.req.MustUseSkills...)
+	if len(prepared.Req.MustUseSkills) > 0 {
+		bodyPayload["mustUseSkills"] = append([]string(nil), prepared.Req.MustUseSkills...)
 	}
 	body, err := json.Marshal(bodyPayload)
 	if err != nil {
 		resolveStartup(err)
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 
@@ -606,7 +609,7 @@ func (s *Server) runProxySSE(
 	if err != nil {
 		err = fmt.Errorf("failed to create proxy sse request: %w", err)
 		resolveStartup(err)
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 	proxyReq.Header.Set("Content-Type", "application/json")
@@ -615,12 +618,12 @@ func (s *Server) runProxySSE(
 		proxyReq.Header.Set("Authorization", "Bearer "+proxy.Token)
 	}
 
-	log.Printf("[proxy][ws] bridging websocket client to upstream sse %s (agent=%s, chatId=%s)", targetURL, prepared.agentDef.Key, prepared.req.ChatID)
+	log.Printf("[proxy][ws] bridging websocket client to upstream sse %s (agent=%s, chatId=%s)", targetURL, prepared.AgentDef.Key, prepared.Req.ChatID)
 	resp, err := client.Do(proxyReq)
 	if err != nil {
 		err = fmt.Errorf("proxy sse request failed: %w", err)
 		resolveStartup(err)
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -629,7 +632,7 @@ func (s *Server) runProxySSE(
 		data, _ := io.ReadAll(resp.Body)
 		err = fmt.Errorf("proxy sse upstream returned %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 		resolveStartup(err)
-		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
 		return
 	}
 
@@ -650,7 +653,7 @@ func (s *Server) runProxySSE(
 		if decodeErr != nil {
 			terminalSeen = true
 			resolveStartup(decodeErr)
-			s.publishProxyErrorAfter(eventBus, recorder, prepared.req, decodeErr, seq)
+			s.publishProxyErrorAfter(eventBus, recorder, prepared.Req, decodeErr, seq)
 			return
 		}
 		if !ok {
@@ -661,11 +664,11 @@ func (s *Server) runProxySSE(
 			startupObserverReady = true
 			waitForProxyStartupObserver(runCtx, eventBus)
 		}
-		event, err = publishProxyLiveEvent(eventBus, recorder, prepared.req, &seq, event)
+		event, err = publishProxyLiveEvent(eventBus, recorder, prepared.Req, &seq, event)
 		if err != nil {
 			terminalSeen = true
 			resolveStartup(err)
-			s.publishProxyErrorAfter(eventBus, recorder, prepared.req, err, seq)
+			s.publishProxyErrorAfter(eventBus, recorder, prepared.Req, err, seq)
 			return
 		}
 		switch event.Type {
@@ -677,7 +680,7 @@ func (s *Server) runProxySSE(
 	if err := scanner.Err(); err != nil && !terminalSeen {
 		err = fmt.Errorf("proxy sse read failed: %w", err)
 		resolveStartup(err)
-		s.publishProxyErrorAfter(eventBus, recorder, prepared.req, err, seq)
+		s.publishProxyErrorAfter(eventBus, recorder, prepared.Req, err, seq)
 	}
 }
 

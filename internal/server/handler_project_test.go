@@ -287,6 +287,7 @@ func TestProjectChangesAndDiffUseRunFileHistory(t *testing.T) {
 	}
 
 	fixture.server.deps.Config.FileTools.MaxReadBytes = 4
+	bindTestRuntime(fixture.server)
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, projectDiffURL("coder-file", chatID, runID, "generated.txt"), nil))
 	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), "diff exceeds") {

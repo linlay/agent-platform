@@ -23,6 +23,7 @@ import (
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/connectorops"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/documentpreview"
 	"agent-platform/internal/kbase"
@@ -31,6 +32,7 @@ import (
 	projectpkg "agent-platform/internal/project"
 	runtimeproxy "agent-platform/internal/runtime/proxy"
 	"agent-platform/internal/runtime/runstate"
+	"agent-platform/internal/runtime/session"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/skills"
 	terminalpkg "agent-platform/internal/terminal"
@@ -55,6 +57,16 @@ type MCPToolSyncStatusProvider interface {
 // QueryRuntime is the narrow application boundary used by the transport
 // adapters. Server has no access to runtime assembly or executor internals.
 type QueryRuntime interface {
+	ValidateRunOwner(runID, agentKey, teamID string) *runtimetypes.RequestError
+	PendingAwaitingInfo(chatID string, pending *chat.PendingAwaiting) (*queryinput.ChatErrorInfo, error)
+	RegisterPreparedQuery(ctx context.Context, prepared runtimetypes.PreparedQuery) (runtimetypes.RegisteredRun, *runtimetypes.RequestError)
+	FinishRegisteredQuery(prepared runtimetypes.PreparedQuery, registered runtimetypes.RegisteredRun)
+
+	ExecuteQuery(context.Context, runtimetypes.QueryCommand, runtimetypes.EventSink) (runtimetypes.QueryResult, error)
+	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
+	GetRunStatus(string) (contracts.RunSnapshot, error)
+
+	ExecuteQueryWithHooks(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
 	StartQuery(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
 	AttachRun(context.Context, runtimetypes.RunRef, int64) (*runtimetypes.Subscription, error)
 	Submit(context.Context, runtimetypes.SubmitCommand) (runtimetypes.SubmitResult, error)
@@ -64,6 +76,7 @@ type QueryRuntime interface {
 }
 
 type Dependencies struct {
+	Sessions               *session.Builder
 	BackgroundContext      context.Context
 	Config                 config.Config
 	Chats                  chat.Store
@@ -273,13 +286,9 @@ func New(deps Dependencies) (*Server, error) {
 		return validator.ValidateConnectorCredentials(ctx, pkg, values)
 	})
 	if s.deps.Runtime == nil {
-		// Compatibility for direct package tests and small embedders. app.New
-		// always supplies the assembled Runtime service.
-		s.deps.Runtime = &runtimeCompatibilityAdapter{server: s}
+		return nil, fmt.Errorf("query runtime is not configured")
 	}
-	if err := s.hydrateDeferredAwaitings(); err != nil {
-		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
-	}
+
 	if hub, ok := deps.Notifications.(*ws.Hub); ok {
 		s.wsHandler = s.newWSHandler(hub)
 	}

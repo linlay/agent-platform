@@ -131,6 +131,7 @@ func TestAgentFileEndpointKeepsUnsafeMarkdownReadOnly(t *testing.T) {
 func TestAgentFileEndpointKeepsUTF8SplitAtReadLimitAsMarkdown(t *testing.T) {
 	fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
 	fixture.server.deps.Config.FileTools.MaxReadBytes = 512
+	bindTestRuntime(fixture.server)
 	body := append(bytes.Repeat([]byte("a"), 510), []byte("工作正文")...)
 	path := filepath.Join(coderWorkspace, "docs", "boundary.md")
 	if err := os.WriteFile(path, body, 0o644); err != nil {

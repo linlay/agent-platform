@@ -419,10 +419,10 @@ func chatHistoryIncompleteStatusError(chatID string, err error) *statusError {
 		apperrors.WithDiagnostic("chatId", strings.TrimSpace(chatID)),
 	)
 	return &statusError{
-		status:  http.StatusConflict,
-		code:    string(apperrors.CodeChatHistoryIncomplete),
-		message: message,
-		data:    map[string]any{"error": payload},
+		Status:  http.StatusConflict,
+		Code:    string(apperrors.CodeChatHistoryIncomplete),
+		Message: message,
+		Data:    map[string]any{"error": payload},
 	}
 }
 

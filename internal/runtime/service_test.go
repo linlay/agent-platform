@@ -12,6 +12,7 @@ import (
 )
 
 type fakeBackend struct {
+	Backend
 	started runtimetypes.QueryCommand
 	events  []stream.EventData
 }

@@ -437,7 +437,7 @@ func TestServerRejectsInvalidLocalJWTConfigAtStartup(t *testing.T) {
 		LocalPublicKeyFile: filepath.Join(fixture.cfg.Paths.ChatsDir, "missing.pem"),
 	}
 
-	_, err := New(Dependencies{
+	_, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -469,7 +469,7 @@ func TestQueryAcceptsValidLocalJWT(t *testing.T) {
 		LocalPublicKeyFile: publicKeyPath,
 		Issuer:             "agent-platform-local",
 	}
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -516,7 +516,7 @@ func TestQueryRejectsInvalidLocalJWT(t *testing.T) {
 		LocalPublicKeyFile: publicKeyPath,
 		Issuer:             "agent-platform-local",
 	}
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,

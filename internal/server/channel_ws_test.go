@@ -59,6 +59,7 @@ func TestWebSocketChannelsRouteRemovedAndAgentsIgnoreChannelFilter(t *testing.T)
 			"customer-service": {Key: "customer-service", Name: "Customer Service", ModelKey: "mock-model"},
 		},
 	}
+	bindTestRuntime(fixture.server)
 	fixture.server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{
 		{
 			ID:       "wecom",

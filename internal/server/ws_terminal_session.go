@@ -20,18 +20,18 @@ import (
 
 func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey string) (terminalpkg.OpenResult, *statusError) {
 	if s == nil || s.terminals == nil {
-		return terminalpkg.OpenResult{}, &statusError{status: http.StatusServiceUnavailable, message: "terminal manager is not configured"}
+		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: "terminal manager is not configured"}
 	}
 	ownerKey = strings.TrimSpace(ownerKey)
 	if ownerKey == "" {
-		return terminalpkg.OpenResult{}, &statusError{status: http.StatusForbidden, message: "terminal owner is required"}
+		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusForbidden, Message: "terminal owner is required"}
 	}
 	agentKey := strings.TrimSpace(payload.AgentKey)
 	if agentKey == "" {
-		return terminalpkg.OpenResult{}, &statusError{status: http.StatusBadRequest, message: "agentKey is required"}
+		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusBadRequest, Message: "agentKey is required"}
 	}
 	if s.deps.Registry == nil {
-		return terminalpkg.OpenResult{}, &statusError{status: http.StatusServiceUnavailable, message: "agent registry is not configured"}
+		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: "agent registry is not configured"}
 	}
 	def, release, ok := acquireAgentRuntime(s.deps.Registry, agentKey)
 	transferred := false
@@ -41,7 +41,7 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		}
 	}()
 	if !ok {
-		return terminalpkg.OpenResult{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusBadRequest, Message: "agent not found"}
 	}
 	cwd, err := s.resolveTerminalWorkspace(def)
 	if err != nil {
@@ -52,7 +52,7 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		Env: append(os.Environ(), terminalEnvironment(def, cwd)...), TempDir: hostshell.TempDir(nil),
 	})
 	if shellErr != nil {
-		return terminalpkg.OpenResult{}, &statusError{status: http.StatusServiceUnavailable, message: shellErr.Error()}
+		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: shellErr.Error()}
 	}
 	// Terminal never receives SSO, including aliases of AP_ACCESS_TOKEN.
 	for _, binding := range def.ConnectorCredentials {
@@ -61,7 +61,7 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		}
 		values, err := connectorauth.ResolveEnvironment(s.backgroundCtx, binding, "")
 		if err != nil {
-			return terminalpkg.OpenResult{}, &statusError{status: http.StatusServiceUnavailable, message: err.Error()}
+			return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: err.Error()}
 		}
 		for key, value := range values {
 			launch.Env = hostenv.Set(launch.Env, key, value)
@@ -91,18 +91,18 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	})
 	if openErr != nil {
 		if errors.Is(openErr, terminalpkg.ErrUnsupported) {
-			return terminalpkg.OpenResult{}, &statusError{status: http.StatusNotImplemented, message: "terminal is unsupported on this platform"}
+			return terminalpkg.OpenResult{}, &statusError{Status: http.StatusNotImplemented, Message: "terminal is unsupported on this platform"}
 		}
 		if errors.Is(openErr, terminalpkg.ErrSessionConflict) {
-			return terminalpkg.OpenResult{}, &statusError{status: http.StatusConflict, message: openErr.Error()}
+			return terminalpkg.OpenResult{}, &statusError{Status: http.StatusConflict, Message: openErr.Error()}
 		}
 		if errors.Is(openErr, terminalpkg.ErrInvalidKey) {
-			return terminalpkg.OpenResult{}, &statusError{status: http.StatusBadRequest, message: openErr.Error()}
+			return terminalpkg.OpenResult{}, &statusError{Status: http.StatusBadRequest, Message: openErr.Error()}
 		}
 		if errors.Is(openErr, terminalpkg.ErrSessionLimit) {
-			return terminalpkg.OpenResult{}, &statusError{status: http.StatusTooManyRequests, message: openErr.Error()}
+			return terminalpkg.OpenResult{}, &statusError{Status: http.StatusTooManyRequests, Message: openErr.Error()}
 		}
-		return terminalpkg.OpenResult{}, &statusError{status: http.StatusInternalServerError, message: openErr.Error()}
+		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusInternalServerError, Message: openErr.Error()}
 	}
 	transferred = !result.Reused
 	return result, nil
@@ -145,14 +145,14 @@ func terminalEnvironment(def catalog.AgentDefinition, workspaceDir string) []str
 func (s *Server) resolveTerminalWorkspace(def catalog.AgentDefinition) (string, *statusError) {
 	root := effectiveLocalWorkspaceRoot(def)
 	if root == "" {
-		return "", &statusError{status: http.StatusBadRequest, message: "workspace_unavailable: terminal requires a workspace"}
+		return "", &statusError{Status: http.StatusBadRequest, Message: "workspace_unavailable: terminal requires a workspace"}
 	}
 	resolved, err := resolveHostWorkspaceRoot(root)
 	if err != nil {
-		return "", &statusError{status: http.StatusBadRequest, message: err.Error()}
+		return "", &statusError{Status: http.StatusBadRequest, Message: err.Error()}
 	}
 	if err := validateWorkspaceChatsSeparation(resolved, s.deps.Config.Paths.ChatsDir); err != nil {
-		return "", &statusError{status: http.StatusBadRequest, message: err.Error()}
+		return "", &statusError{Status: http.StatusBadRequest, Message: err.Error()}
 	}
 	return resolved, nil
 }

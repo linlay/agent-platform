@@ -1,7 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/connectortest"
 	"context"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connectortest"
 	"agent-platform/internal/contracts"
 )
 

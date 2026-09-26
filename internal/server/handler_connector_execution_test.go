@@ -1,10 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
-	"agent-platform/internal/connectorauth"
-	"agent-platform/internal/connectorops"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/connectorops"
 )
 
 func TestTrustedConnectorAuthReusesExistingState(t *testing.T) {

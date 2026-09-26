@@ -1,0 +1,22 @@
+package server
+
+import "agent-platform/internal/runtime/runexec"
+
+var completeCompactControl = runexec.CompleteCompactControl
+var compactFloat64 = runexec.CompactFloat64
+var clientVisibleEventData = runexec.ClientVisibleEventData
+var publishLocalTimeContractRunError = runexec.PublishLocalTimeContractRunError
+var publishLocalRunProcessingError = runexec.PublishLocalRunProcessingError
+var compactCheckpointPersistenceFailedEvent = runexec.CompactCheckpointPersistenceFailedEvent
+var compactCycleFlag = runexec.CompactCycleFlag
+var handleCompactCheckpointPersistenceFailure = runexec.HandleCompactCheckpointPersistenceFailure
+var shouldStartRunContinuation = runexec.ShouldStartRunContinuation
+var decorateNotificationRunOwner = runexec.DecorateNotificationRunOwner
+var awaitingEventItemCount = runexec.AwaitingEventItemCount
+var awaitingEventQuestions = runexec.AwaitingEventQuestions
+var awaitingPayloadItemCount = runexec.AwaitingPayloadItemCount
+var awaitingAnswerErrorCode = runexec.AwaitingAnswerErrorCode
+var persistRunCompletionWithReason = runexec.PersistRunCompletionWithReason
+
+var StartRunExecutor = runexec.StartNative
+var runExecutor = runexec.ExecuteNative

@@ -727,7 +727,7 @@ func TestQueryRejectsPlanningModeForNonCoderAgent(t *testing.T) {
 
 	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.message != "planningMode is only supported for CODER agents" {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Message != "planningMode is only supported for CODER agents" {
 		t.Fatalf("expected non-CODER planningMode rejection, got %#v", err)
 	}
 }
@@ -739,7 +739,7 @@ func TestQueryRejectsEditingModeForNonKBaseAgent(t *testing.T) {
 
 	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.code != "editing_mode_unsupported" {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Code != "editing_mode_unsupported" {
 		t.Fatalf("expected non-KBASE editingMode rejection, got %#v", err)
 	}
 }
@@ -792,15 +792,15 @@ func TestQueryRoleValidation(t *testing.T) {
 		if want == "" {
 			want = api.QueryRoleUser
 		}
-		if admission.req.Role != want {
-			t.Fatalf("role %q normalized to %q, want %q", role, admission.req.Role, want)
+		if admission.Req.Role != want {
+			t.Fatalf("role %q normalized to %q, want %q", role, admission.Req.Role, want)
 		}
 	}
 
 	req := api.QueryRequest{Message: "hello", Role: "scheduler"}
 	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "role must be") {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || !strings.Contains(statusErr.Message, "role must be") {
 		t.Fatalf("expected invalid role 400, got %#v", err)
 	}
 }
@@ -973,7 +973,7 @@ func TestQueryRejectsMustUseSkillsForTeam(t *testing.T) {
 	req := api.QueryRequest{Message: "team", TeamID: "default", MustUseSkills: []string{"mock-skill"}}
 	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.code != "must_use_skills_unsupported" {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Code != "must_use_skills_unsupported" {
 		t.Fatalf("expected Team mustUseSkills rejection, got %#v", err)
 	}
 }
@@ -1000,25 +1000,25 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete preparation: %v", err)
 	}
-	if strings.Join(prepared.session.MustUseSkills, ",") != "mock-skill,center-extra" {
-		t.Fatalf("mustUseSkills = %#v", prepared.session.MustUseSkills)
+	if strings.Join(prepared.Session.MustUseSkills, ",") != "mock-skill,center-extra" {
+		t.Fatalf("mustUseSkills = %#v", prepared.Session.MustUseSkills)
 	}
 	wantRunRoots := []string{
-		absTestPath(t, filepath.Join(prepared.agentDef.RuntimeDir, "skills", "mock-skill")),
+		absTestPath(t, filepath.Join(prepared.AgentDef.RuntimeDir, "skills", "mock-skill")),
 		absTestPath(t, filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "center-extra")),
 	}
-	if !reflect.DeepEqual(prepared.session.RunAccessRoots.ReadRoots, wantRunRoots) ||
-		!reflect.DeepEqual(prepared.session.RunAccessRoots.ReadonlyRoots, wantRunRoots) {
-		t.Fatalf("must-use run access roots = %#v, want %#v", prepared.session.RunAccessRoots, wantRunRoots)
+	if !reflect.DeepEqual(prepared.Session.RunAccessRoots.ReadRoots, wantRunRoots) ||
+		!reflect.DeepEqual(prepared.Session.RunAccessRoots.ReadonlyRoots, wantRunRoots) {
+		t.Fatalf("must-use run access roots = %#v, want %#v", prepared.Session.RunAccessRoots, wantRunRoots)
 	}
-	if prepared.session.RuntimeContext.LocalPaths.SkillsCenterDir != fixture.cfg.Paths.SkillsCenterDir {
-		t.Fatalf("local skills-center = %q", prepared.session.RuntimeContext.LocalPaths.SkillsCenterDir)
+	if prepared.Session.RuntimeContext.LocalPaths.SkillsCenterDir != fixture.cfg.Paths.SkillsCenterDir {
+		t.Fatalf("local skills-center = %q", prepared.Session.RuntimeContext.LocalPaths.SkillsCenterDir)
 	}
-	if prepared.session.RuntimeContext.SandboxPaths.SkillsCenterDir != "/skills-center" {
-		t.Fatalf("sandbox skills-center = %q", prepared.session.RuntimeContext.SandboxPaths.SkillsCenterDir)
+	if prepared.Session.RuntimeContext.SandboxPaths.SkillsCenterDir != "/skills-center" {
+		t.Fatalf("sandbox skills-center = %q", prepared.Session.RuntimeContext.SandboxPaths.SkillsCenterDir)
 	}
 	centerMounts := 0
-	for _, mount := range prepared.session.RuntimeExtraMounts {
+	for _, mount := range prepared.Session.RuntimeExtraMounts {
 		if strings.EqualFold(mount.Platform, "skills-center") {
 			centerMounts++
 			if mount.Mode != "ro" {
@@ -1027,14 +1027,14 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 		}
 	}
 	if centerMounts != 1 {
-		t.Fatalf("expected one center mount, got %#v", prepared.session.RuntimeExtraMounts)
+		t.Fatalf("expected one center mount, got %#v", prepared.Session.RuntimeExtraMounts)
 	}
-	if _, exists := prepared.session.StaticRuntimeEnv["CENTER_EXTRA"]; exists {
-		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.session.StaticRuntimeEnv)
+	if _, exists := prepared.Session.StaticRuntimeEnv["CENTER_EXTRA"]; exists {
+		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.Session.StaticRuntimeEnv)
 	}
-	for _, hookDir := range prepared.session.SkillHookDirs {
+	for _, hookDir := range prepared.Session.SkillHookDirs {
 		if strings.Contains(hookDir, "center-extra") {
-			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.session.SkillHookDirs)
+			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.Session.SkillHookDirs)
 		}
 	}
 	for _, expected := range []string{
@@ -1042,8 +1042,8 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 		"path: @skills-center/center-extra/SKILL.md",
 		"None may be skipped",
 	} {
-		if !strings.Contains(prepared.session.SkillCatalogPrompt, expected) {
-			t.Fatalf("expected %q in prompt: %s", expected, prepared.session.SkillCatalogPrompt)
+		if !strings.Contains(prepared.Session.SkillCatalogPrompt, expected) {
+			t.Fatalf("expected %q in prompt: %s", expected, prepared.Session.SkillCatalogPrompt)
 		}
 	}
 }

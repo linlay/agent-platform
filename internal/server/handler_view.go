@@ -4,13 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"sync"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
-	"agent-platform/internal/connector"
-	"agent-platform/internal/contracts"
 	"agent-platform/internal/view"
 	"agent-platform/internal/ws"
 )
@@ -23,61 +19,6 @@ type ViewRequest struct {
 	Key         string `json:"key"`
 	Hash        string `json:"hash,omitempty"`
 	Usage       string `json:"usage,omitempty"`
-}
-
-func (s *Server) viewService() *view.Service {
-	stateRoot := s.deps.Config.Paths.EffectiveConnectorStateDir()
-	return &view.Service{ResolveHeaders: func(id string, headers map[string]string) (map[string]string, error) {
-		return connector.ResolveViewHeaders(stateRoot, id, headers)
-	}}
-}
-
-func mountedViews(def catalog.AgentDefinition) ([]view.Mount, error) {
-	var mounts []view.Mount
-	for _, mount := range def.ConnectorMounts {
-		pkg, err := connector.LoadDirectory(mount.Dir, mount.ID)
-		if err != nil {
-			return nil, err
-		}
-		if len(pkg.Views) > 0 {
-			mounts = append(mounts, pkg.ViewMount())
-		}
-	}
-	return mounts, nil
-}
-
-func (s *Server) configureSessionViews(session *contracts.QuerySession, def catalog.AgentDefinition) error {
-	mounts, err := mountedViews(def)
-	if err != nil {
-		return err
-	}
-	service := s.viewService()
-	chatDir := session.ChatRoot
-	if s.deps.Chats != nil {
-		chatDir = s.deps.Chats.ChatDir(session.ChatID)
-	}
-	// The closure is created separately for each member session and uses its
-	// frozen mounts, even when its public owner is a Team.
-	var mu sync.Mutex
-	cache := map[string]view.Reference{}
-	session.ResolveView = func(ctx context.Context, ref view.Reference, usage string) (view.Reference, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		key := ref.ConnectorID + "\x00" + ref.Key + "\x00" + usage
-		if existing, ok := cache[key]; ok {
-			return existing, nil
-		}
-		doc, err := service.Resolve(ctx, mounts, ref, usage)
-		if err != nil {
-			return view.Reference{}, err
-		}
-		resolved, err := view.SaveSnapshot(chatDir, doc)
-		if err == nil {
-			cache[key] = resolved
-		}
-		return resolved, err
-	}
-	return nil
 }
 
 func (s *Server) getView(ctx context.Context, req ViewRequest) (view.Document, error) {

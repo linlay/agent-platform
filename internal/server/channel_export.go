@@ -46,22 +46,22 @@ func (s *Server) rewriteChannelAgentPayload(channelID string, payload json.RawMe
 	body := map[string]any{}
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, &body); err != nil {
-			return nil, &statusError{status: http.StatusBadRequest, message: "invalid channel request payload"}
+			return nil, &statusError{Status: http.StatusBadRequest, Message: "invalid channel request payload"}
 		}
 	}
 	externalKey := firstNonBlank(stringValue(body["externalAgentKey"]), stringValue(body["agentKey"]))
 	localKey, export, ok := s.lookupChannelExport(channelID, externalKey)
 	if !ok {
-		return nil, &statusError{status: http.StatusForbidden, message: "agent is not exported on channel"}
+		return nil, &statusError{Status: http.StatusForbidden, Message: "agent is not exported on channel"}
 	}
 	if !channelExportAllows(export.Allow, operation) {
-		return nil, &statusError{status: http.StatusForbidden, message: "operation is not allowed on channel export"}
+		return nil, &statusError{Status: http.StatusForbidden, Message: "operation is not allowed on channel export"}
 	}
 	body["agentKey"] = localKey
 	delete(body, "externalAgentKey")
 	rewritten, err := json.Marshal(body)
 	if err != nil {
-		return nil, &statusError{status: http.StatusInternalServerError, message: err.Error()}
+		return nil, &statusError{Status: http.StatusInternalServerError, Message: err.Error()}
 	}
 	return rewritten, nil
 }
@@ -71,7 +71,7 @@ func (s *Server) validateChannelFileTransferPayload(channelID string, payload js
 	body := map[string]any{}
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, &body); err != nil {
-			return &statusError{status: http.StatusBadRequest, message: "invalid channel file payload"}
+			return &statusError{Status: http.StatusBadRequest, Message: "invalid channel file payload"}
 		}
 	}
 	if operation == "upload" {
@@ -80,7 +80,7 @@ func (s *Server) validateChannelFileTransferPayload(channelID string, payload js
 		chatID = resourceChatID(stringValue(body["file"]))
 	}
 	if chatID == "" || s.deps.Chats == nil {
-		return &statusError{status: http.StatusForbidden, message: "file transfer requires an exported chat"}
+		return &statusError{Status: http.StatusForbidden, Message: "file transfer requires an exported chat"}
 	}
 	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
@@ -88,15 +88,15 @@ func (s *Server) validateChannelFileTransferPayload(channelID string, payload js
 			return timeContractStatusError(err)
 		}
 		if errors.Is(err, chat.ErrChatNotFound) {
-			return &statusError{status: http.StatusForbidden, message: "file transfer requires an existing exported chat"}
+			return &statusError{Status: http.StatusForbidden, Message: "file transfer requires an existing exported chat"}
 		}
-		return &statusError{status: http.StatusInternalServerError, message: err.Error()}
+		return &statusError{Status: http.StatusInternalServerError, Message: err.Error()}
 	}
 	if summary == nil {
-		return &statusError{status: http.StatusForbidden, message: "file transfer requires an existing exported chat"}
+		return &statusError{Status: http.StatusForbidden, Message: "file transfer requires an existing exported chat"}
 	}
 	if !s.localAgentExportAllows(channelID, summary.AgentKey, "fileTransfer") {
-		return &statusError{status: http.StatusForbidden, message: "file transfer is not allowed on channel export"}
+		return &statusError{Status: http.StatusForbidden, Message: "file transfer is not allowed on channel export"}
 	}
 	return nil
 }

@@ -1,16 +1,18 @@
 package server
 
 import (
-	"agent-platform/internal/config"
-	"agent-platform/internal/ws"
 	"encoding/json"
-	gws "github.com/gorilla/websocket"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/config"
+	"agent-platform/internal/ws"
+
+	gws "github.com/gorilla/websocket"
 )
 
 func TestRootAgentWorkspaceOmittedOverHTTPAndWebSocket(t *testing.T) {

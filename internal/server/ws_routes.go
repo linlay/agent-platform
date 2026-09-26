@@ -831,7 +831,7 @@ func (s *Server) wsCompact(ctx context.Context, conn *ws.Conn, req ws.RequestFra
 		}
 		var statusErr *statusError
 		if errors.As(compactErr, &statusErr) {
-			conn.SendError(req.ID, compactWSErrorType(statusErr.status), statusErr.status, statusErr.message, nil)
+			conn.SendError(req.ID, compactWSErrorType(statusErr.Status), statusErr.Status, statusErr.Message, nil)
 			conn.CompleteRequest(req.ID)
 			return
 		}

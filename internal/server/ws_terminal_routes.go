@@ -258,7 +258,7 @@ func (s *Server) sendTerminalStatusError(conn *ws.Conn, requestID string, err *s
 		return
 	}
 	frameType := "invalid_request"
-	switch err.status {
+	switch err.Status {
 	case http.StatusForbidden:
 		frameType = "forbidden"
 	case http.StatusNotFound:
@@ -272,7 +272,7 @@ func (s *Server) sendTerminalStatusError(conn *ws.Conn, requestID string, err *s
 	case http.StatusInternalServerError, http.StatusServiceUnavailable:
 		frameType = "internal_error"
 	}
-	conn.SendError(requestID, frameType, err.status, err.message, nil)
+	conn.SendError(requestID, frameType, err.Status, err.Message, nil)
 }
 
 func (s *Server) sendTerminalError(conn *ws.Conn, requestID string, err error) {

@@ -40,9 +40,9 @@ func proxyRequestTimeout(proxy *catalog.ProxyConfig) time.Duration {
 }
 
 func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
-	defer releaseQuery(prepared.release)
-	req := prepared.req
-	agentDef := prepared.agentDef
+	defer releaseQuery(prepared.Release)
+	req := prepared.Req
+	agentDef := prepared.AgentDef
 	proxy := agentDef.ProxyConfig
 	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" {
 		writeJSON(w, http.StatusBadGateway, api.Failure(http.StatusBadGateway, "PROXY agent missing proxyConfig.baseUrl"))
@@ -54,9 +54,9 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
 		ChatID:          req.ChatID,
 		RunID:           req.RunID,
-		Subject:         prepared.session.Subject,
-		ResourceBaseURL: prepared.resourceBaseURL,
-		WorkspaceRoot:   prepared.session.WorkspaceRoot,
+		Subject:         prepared.Session.Subject,
+		ResourceBaseURL: prepared.ResourceBaseURL,
+		WorkspaceRoot:   prepared.Session.WorkspaceRoot,
 		References:      req.References,
 	})
 	if err != nil {
@@ -73,7 +73,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		"message":     req.Message,
 		"accessLevel": req.AccessLevel,
 		"references":  proxyReferences,
-		"params":      proxyForwardParams(req, prepared.session.WorkspaceRoot),
+		"params":      proxyForwardParams(req, prepared.Session.WorkspaceRoot),
 		"model":       req.Model,
 		"scene":       req.Scene,
 	}
@@ -168,8 +168,8 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	var assistantText strings.Builder
 	if chatStore != nil {
 		stepWriter = chat.NewStepWriter(chatStore, req.ChatID, req.RunID, agentDef.Mode)
-		stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-		stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
+		stepWriter.SetPendingSystemInit(prepared.SystemInitLine)
+		stepWriter.SetPendingQueryMessages(prepared.Session.CurrentMessages)
 		queryPayload := map[string]any{
 			"requestId": req.RequestID,
 			"runId":     req.RunID,
@@ -215,8 +215,8 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	finishReason := "complete"
 	var runUsage chat.UsageData
 	var chatUsage chat.UsageData
-	if prepared.summary.Usage != nil {
-		chatUsage = *prepared.summary.Usage
+	if prepared.Summary.Usage != nil {
+		chatUsage = *prepared.Summary.Usage
 	}
 	usageTracker := newProxyUsageTracker(chatUsage, &runUsage, s.deps.Models, s.deps.Config.Billing)
 

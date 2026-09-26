@@ -18,14 +18,15 @@ type RunRef struct {
 }
 
 type RunHandle struct {
-	RunID     string
-	ChatID    string
-	AgentKey  string
-	TeamID    string
-	StartedAt int64
-	LastSeq   int64
-	Status    string
-	Detached  bool
+	SideQueryID string
+	RunID       string
+	ChatID      string
+	AgentKey    string
+	TeamID      string
+	StartedAt   int64
+	LastSeq     int64
+	Status      string
+	Detached    bool
 }
 
 type Subscription struct {

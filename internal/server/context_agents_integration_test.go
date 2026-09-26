@@ -123,8 +123,8 @@ func TestQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 				// agent_invoke must not obtain execution rights from a context reference.
 				engine := &orchestratorAgentEngine{}
 				orchestrator := newTestFrameOrchestrator(engine, nil, nil, nil)
-				orchestrator.registry = fixture.registry
-				orchestrator.session.AgentKey = "mock-agent"
+				orchestrator.Registry = fixture.registry
+				orchestrator.Session.AgentKey = "mock-agent"
 				main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: key, TaskText: "must reject"})}}
 				failed, interrupted, err := orchestrator.Run(main)
 				if err != nil || failed || interrupted || len(main.injected) != 1 || !main.injected[0].isError || main.injected[0].text != "sub-agent not found: "+key || len(engine.sessions) != 0 {
@@ -169,7 +169,7 @@ func TestWebSocketQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 func TestUnavailableContextAgentDoesNotHideRequiredWorkspaceFailure(t *testing.T) {
 	cfg := testPromptContextConfig(t)
 	server := &Server{deps: Dependencies{Config: cfg, Registry: testCatalogRegistry{}}}
-	_, err := server.buildRuntimeRequestContext(runtimeRequestContextInput{agentKey: "coder", chatID: "chat", definition: catalog.AgentDefinition{Key: "coder", Mode: "CODER", ContextTags: []string{"agents"}, ContextAgents: []string{"missing"}}})
+	_, err := server.buildRuntimeRequestContext(runtimeRequestContextInput{AgentKey: "coder", ChatID: "chat", Definition: catalog.AgentDefinition{Key: "coder", Mode: "CODER", ContextTags: []string{"agents"}, ContextAgents: []string{"missing"}}})
 	if err == nil || !strings.Contains(err.Error(), "workspace_unavailable") {
 		t.Fatalf("required workspace failure was lost: %v", err)
 	}

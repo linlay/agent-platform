@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/skillmeta"
 	"agent-platform/internal/stream"
 
@@ -208,41 +209,20 @@ func cloneAnyMap(input map[string]any) map[string]any {
 }
 
 const (
-	QueryRoleUser       = "user"
-	QueryRoleAssistant  = "assistant"
-	QueryRoleAutomation = "automation"
-	QueryRoleSystem     = "system"
-
-	QueryRoleValidationMessage = "role must be user, assistant, automation, or system"
-
-	ChatSourceQuery            = "query"
-	ChatSourceQueryPrefix      = "query:"
-	ChatSourceAutomationPrefix = "automation:"
-	ChatSourceRunQueryPrefix   = "run-query:"
+	QueryRoleUser              = queryinput.QueryRoleUser
+	QueryRoleAssistant         = queryinput.QueryRoleAssistant
+	QueryRoleAutomation        = queryinput.QueryRoleAutomation
+	QueryRoleSystem            = queryinput.QueryRoleSystem
+	QueryRoleValidationMessage = queryinput.QueryRoleValidationMessage
+	ChatSourceQuery            = queryinput.ChatSourceQuery
+	ChatSourceQueryPrefix      = queryinput.ChatSourceQueryPrefix
+	ChatSourceAutomationPrefix = queryinput.ChatSourceAutomationPrefix
+	ChatSourceRunQueryPrefix   = queryinput.ChatSourceRunQueryPrefix
 )
 
-func NormalizeQueryRole(role string) (string, bool) {
-	switch strings.TrimSpace(role) {
-	case "", QueryRoleUser:
-		return QueryRoleUser, true
-	case QueryRoleAssistant:
-		return QueryRoleAssistant, true
-	case QueryRoleAutomation:
-		return QueryRoleAutomation, true
-	case QueryRoleSystem:
-		return QueryRoleSystem, true
-	default:
-		return "", false
-	}
-}
+func NormalizeQueryRole(role string) (string, bool) { return queryinput.NormalizeQueryRole(role) }
 
-func QueryRoleVisible(role string) bool {
-	normalized, ok := NormalizeQueryRole(role)
-	if !ok {
-		return true
-	}
-	return normalized != QueryRoleAutomation && normalized != QueryRoleSystem
-}
+func QueryRoleVisible(role string) bool { return queryinput.QueryRoleVisible(role) }
 
 func ProviderSafeQueryMessage(role string, message string) (string, string) {
 	normalized, ok := NormalizeQueryRole(role)
@@ -354,180 +334,37 @@ type BTWResponse struct {
 	Usage        *ChatUsageData `json:"usage,omitempty"`
 }
 
-type QueryModelOptions struct {
-	Key             string `json:"key,omitempty"`
-	ModelID         string `json:"modelId,omitempty"`
-	ReasoningEffort string `json:"reasoningEffort,omitempty"`
-	ServiceTier     string `json:"serviceTier,omitempty"`
-}
+type QueryModelOptions = queryinput.QueryModelOptions
 
-type Scene struct {
-	URL   string `json:"url,omitempty"`
-	Title string `json:"title,omitempty"`
-}
+type Scene = queryinput.Scene
 
-type Reference struct {
-	AnnotationIndex *int           `json:"annotationIndex,omitempty"`
-	ID              string         `json:"id,omitempty"`
-	Type            string         `json:"type,omitempty"`
-	Text            string         `json:"text,omitempty"`
-	Annotation      string         `json:"annotation,omitempty"`
-	Name            string         `json:"name,omitempty"`
-	Path            string         `json:"path,omitempty"`
-	MimeType        string         `json:"mimeType,omitempty"`
-	SizeBytes       *int64         `json:"sizeBytes,omitempty"`
-	URL             string         `json:"url,omitempty"`
-	SHA256          string         `json:"sha256,omitempty"`
-	Meta            map[string]any `json:"meta,omitempty"`
-}
+type Reference = queryinput.Reference
 
-const ReferenceSandboxPathRemovedMessage = "reference sandboxPath has been removed; use path"
+const ReferenceSandboxPathRemovedMessage = queryinput.ReferenceSandboxPathRemovedMessage
 
-func (r *Reference) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	if _, ok := raw["sandboxPath"]; ok {
-		return fmt.Errorf(ReferenceSandboxPathRemovedMessage)
-	}
-	type referenceAlias Reference
-	var decoded referenceAlias
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	*r = Reference(decoded)
-	return nil
-}
+type SubmitRequest = queryinput.SubmitRequest
 
-type SubmitRequest struct {
-	ChatID            string       `json:"chatId,omitempty"`
-	RunID             string       `json:"runId"`
-	AgentKey          string       `json:"agentKey,omitempty"`
-	TeamID            string       `json:"teamId,omitempty"`
-	AwaitingID        string       `json:"awaitingId"`
-	SubmitID          string       `json:"submitId,omitempty"`
-	Locale            string       `json:"locale,omitempty"`
-	Params            SubmitParams `json:"params"`
-	ContinuationRunID string       `json:"-"`
-	ContinuationState any          `json:"-"`
-}
-
-type SubmitParams []json.RawMessage
-
-func (p *SubmitParams) UnmarshalJSON(data []byte) error {
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) == 0 {
-		return fmt.Errorf("params must be an array")
-	}
-	if bytes.Equal(trimmed, []byte("null")) {
-		return fmt.Errorf("params must be an array")
-	}
-	var raw []json.RawMessage
-	if err := json.Unmarshal(trimmed, &raw); err != nil {
-		return fmt.Errorf("params must be an array")
-	}
-	*p = SubmitParams(raw)
-	return nil
-}
-
-func (p SubmitParams) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]json.RawMessage(p))
-}
-
-func (p SubmitParams) Empty() bool {
-	return len(p) == 0
-}
+type SubmitParams = queryinput.SubmitParams
 
 func DecodeSubmitParam(raw json.RawMessage) (map[string]any, error) {
-	var item map[string]any
-	if err := json.Unmarshal(raw, &item); err != nil {
-		return nil, fmt.Errorf("submit items must be objects")
-	}
-	if len(item) == 0 {
-		return nil, fmt.Errorf("submit items must be objects")
-	}
-	return item, nil
+	return queryinput.DecodeSubmitParam(raw)
 }
 
 func DecodeSubmitParams(params SubmitParams) ([]map[string]any, error) {
-	if len(params) == 0 {
-		return nil, nil
-	}
-	items := make([]map[string]any, 0, len(params))
-	for _, raw := range params {
-		item, err := DecodeSubmitParam(raw)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, nil
+	return queryinput.DecodeSubmitParams(params)
 }
 
-func EncodeSubmitParams(value any) (SubmitParams, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	var params SubmitParams
-	if err := json.Unmarshal(data, &params); err != nil {
-		return nil, err
-	}
-	return params, nil
-}
+func EncodeSubmitParams(value any) (SubmitParams, error) { return queryinput.EncodeSubmitParams(value) }
 
-type SubmitResponse struct {
-	Accepted   bool   `json:"accepted"`
-	Status     string `json:"status"`
-	ChatID     string `json:"chatId,omitempty"`
-	RunID      string `json:"runId"`
-	AwaitingID string `json:"awaitingId"`
-	SubmitID   string `json:"submitId,omitempty"`
-	Continued  bool   `json:"continued,omitempty"`
-	ErrorCode  string `json:"errorCode,omitempty"`
-	Detail     string `json:"detail"`
-}
+type SubmitResponse = queryinput.SubmitResponse
 
-type SteerRequest struct {
-	RequestID  string      `json:"requestId,omitempty"`
-	ChatID     string      `json:"chatId,omitempty"`
-	RunID      string      `json:"runId"`
-	SteerID    string      `json:"steerId,omitempty"`
-	AgentKey   string      `json:"agentKey,omitempty"`
-	TeamID     string      `json:"teamId,omitempty"`
-	Message    string      `json:"message"`
-	References []Reference `json:"references,omitempty"`
-	// PreparedMessages is an immutable, server-prepared input; never accepted from the wire.
-	PreparedMessages []map[string]any `json:"-"`
-}
+type SteerRequest = queryinput.SteerRequest
 
-type SteerResponse struct {
-	Accepted bool   `json:"accepted"`
-	Status   string `json:"status"`
-	RunID    string `json:"runId"`
-	SteerID  string `json:"steerId"`
-	Detail   string `json:"detail"`
-}
+type SteerResponse = queryinput.SteerResponse
 
-type InterruptRequest struct {
-	RequestID       string `json:"requestId,omitempty"`
-	ChatID          string `json:"chatId,omitempty"`
-	RunID           string `json:"runId"`
-	AgentKey        string `json:"agentKey,omitempty"`
-	TeamID          string `json:"teamId,omitempty"`
-	Message         string `json:"message,omitempty"`
-	InterruptSource string `json:"source,omitempty"`
-	InterruptReason string `json:"reason,omitempty"`
-	InterruptDetail string `json:"detail,omitempty"`
-}
+type InterruptRequest = queryinput.InterruptRequest
 
-type InterruptResponse struct {
-	Accepted bool   `json:"accepted"`
-	Status   string `json:"status"`
-	RunID    string `json:"runId"`
-	Detail   string `json:"detail"`
-}
+type InterruptResponse = queryinput.InterruptResponse
 
 type CompactRequest struct {
 	RequestID string `json:"requestId,omitempty"`
@@ -537,32 +374,7 @@ type CompactRequest struct {
 	Level     string `json:"level,omitempty"`
 }
 
-type CompactResponse struct {
-	CycleID                    string         `json:"cycleId,omitempty"`
-	CycleComplete              *bool          `json:"cycleComplete,omitempty"`
-	Accepted                   bool           `json:"accepted"`
-	Status                     string         `json:"status"`
-	RequestID                  string         `json:"requestId,omitempty"`
-	ChatID                     string         `json:"chatId,omitempty"`
-	RunID                      string         `json:"runId,omitempty"`
-	CompactID                  string         `json:"compactId,omitempty"`
-	Trigger                    string         `json:"trigger,omitempty"`
-	Scope                      string         `json:"scope,omitempty"`
-	Level                      string         `json:"level,omitempty"`
-	SummarySource              string         `json:"summarySource,omitempty"`
-	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
-	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
-	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
-	RemainingRatio             float64        `json:"remainingRatio,omitempty"`
-	ReleasedRatio              float64        `json:"releasedRatio,omitempty"`
-	CompactionUsage            map[string]any `json:"compactionUsage,omitempty"`
-	ToolsCleared               int            `json:"toolsCleared,omitempty"`
-	ReasoningCleared           int            `json:"reasoningCleared,omitempty"`
-	ToolsKept                  int            `json:"toolsKept,omitempty"`
-	TokensFreed                int            `json:"tokensFreed,omitempty"`
-	Detail                     string         `json:"detail,omitempty"`
-	Retryable                  bool           `json:"retryable,omitempty"`
-}
+type CompactResponse = queryinput.CompactResponse
 
 type DetachRequest struct {
 	RunID    string `json:"runId"`
@@ -581,24 +393,9 @@ type DetachResponse struct {
 	Detail          string `json:"detail"`
 }
 
-type AccessLevelRequest struct {
-	RequestID   string `json:"requestId,omitempty"`
-	RunID       string `json:"runId"`
-	AgentKey    string `json:"agentKey,omitempty"`
-	TeamID      string `json:"teamId,omitempty"`
-	AccessLevel string `json:"accessLevel"`
-	Reason      string `json:"reason,omitempty"`
-}
+type AccessLevelRequest = queryinput.AccessLevelRequest
 
-type AccessLevelResponse struct {
-	Accepted            bool   `json:"accepted"`
-	Status              string `json:"status"`
-	RunID               string `json:"runId"`
-	PreviousAccessLevel string `json:"previousAccessLevel,omitempty"`
-	AccessLevel         string `json:"accessLevel"`
-	Version             int64  `json:"version"`
-	Detail              string `json:"detail"`
-}
+type AccessLevelResponse = queryinput.AccessLevelResponse
 
 type StoredMemoryResponse struct {
 	ID             string   `json:"id"`
@@ -624,14 +421,7 @@ type StoredMemoryResponse struct {
 	LastAccessedAt *int64   `json:"lastAccessedAt,omitempty"`
 }
 
-type MemoryUsageItem struct {
-	ID        string `json:"id,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	ScopeType string `json:"scopeType,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Summary   string `json:"summary,omitempty"`
-	Category  string `json:"category,omitempty"`
-}
+type MemoryUsageItem = queryinput.MemoryUsageItem
 
 type MemoryHitItem struct {
 	ID        string `json:"id,omitempty"`
@@ -643,24 +433,7 @@ type MemoryHitItem struct {
 	Category  string `json:"category,omitempty"`
 }
 
-type MemoryUsageSummary struct {
-	HasStaticMemory  bool              `json:"hasStaticMemory"`
-	StableCount      int               `json:"stableCount"`
-	SessionCount     int               `json:"sessionCount"`
-	ObservationCount int               `json:"observationCount"`
-	StableItems      []MemoryUsageItem `json:"stableItems,omitempty"`
-	SessionItems     []MemoryUsageItem `json:"sessionItems,omitempty"`
-	ObservationItems []MemoryUsageItem `json:"observationItems,omitempty"`
-	UserHint         string            `json:"userHint,omitempty"`
-	StableChars      int               `json:"stableChars"`
-	SessionChars     int               `json:"sessionChars"`
-	ObservationChars int               `json:"observationChars"`
-	DisclosedLayers  []string          `json:"disclosedLayers,omitempty"`
-	SnapshotID       string            `json:"snapshotId,omitempty"`
-	StopReason       string            `json:"stopReason,omitempty"`
-	CandidateCounts  map[string]int    `json:"candidateCounts,omitempty"`
-	SelectedCounts   map[string]int    `json:"selectedCounts,omitempty"`
-}
+type MemoryUsageSummary = queryinput.MemoryUsageSummary
 
 type AgentSummary struct {
 	Key                    string                     `json:"key"`
@@ -1113,20 +886,7 @@ type CoderModelOptionsResponse struct {
 	ServiceTiers     []ServiceTierOption     `json:"serviceTiers,omitempty"`
 }
 
-type CoderModelOption struct {
-	Key              string   `json:"key"`
-	Name             string   `json:"name,omitempty"`
-	Icon             string   `json:"icon,omitempty"`
-	Provider         string   `json:"provider,omitempty"`
-	ModelID          string   `json:"modelId,omitempty"`
-	Protocol         string   `json:"protocol,omitempty"`
-	IsReasoner       bool     `json:"isReasoner"`
-	IsVision         bool     `json:"isVision"`
-	ContextWindow    int      `json:"contextWindow,omitempty"`
-	Timeout          int      `json:"timeout,omitempty"`
-	ReasoningEfforts []string `json:"reasoningEfforts,omitempty"`
-	ServiceTiers     []string `json:"serviceTiers,omitempty"`
-}
+type CoderModelOption = queryinput.CoderModelOption
 
 type ReasoningEffortOption struct {
 	Key   string `json:"key"`
@@ -1388,16 +1148,7 @@ type ToolSummary struct {
 	MCPToolName    string `json:"mcpToolName,omitempty"`
 }
 
-type ToolDetailResponse struct {
-	Key           string         `json:"key"`
-	Name          string         `json:"name"`
-	Label         string         `json:"label,omitempty"`
-	Description   string         `json:"description,omitempty"`
-	AfterCallHint string         `json:"afterCallHint,omitempty"`
-	Parameters    map[string]any `json:"parameters,omitempty"`
-	OutputSchema  map[string]any `json:"outputSchema,omitempty"`
-	Meta          map[string]any `json:"meta,omitempty"`
-}
+type ToolDetailResponse = queryinput.ToolDefinition
 
 type ChatSummaryResponse struct {
 	Pinned         bool           `json:"pinned"`
@@ -1439,13 +1190,7 @@ type UpdateChatOrderRequest struct {
 	AfterChatID  string `json:"afterChatId,omitempty"`
 }
 
-type ChatErrorInfo struct {
-	Code     string    `json:"code"`
-	Message  string    `json:"message"`
-	ChatID   string    `json:"chatId,omitempty"`
-	RunIDs   []string  `json:"runIds,omitempty"`
-	Awaiting *Awaiting `json:"awaiting,omitempty"`
-}
+type ChatErrorInfo = queryinput.ChatErrorInfo
 
 type ChatReadState struct {
 	IsRead    bool   `json:"isRead"`
@@ -1453,13 +1198,7 @@ type ChatReadState struct {
 	ReadRunID string `json:"readRunId,omitempty"`
 }
 
-type Awaiting struct {
-	AwaitingID string `json:"awaitingId"`
-	RunID      string `json:"runId"`
-	Mode       string `json:"mode"`
-	Status     string `json:"status"`
-	CreatedAt  int64  `json:"createdAt"`
-}
+type Awaiting = queryinput.Awaiting
 
 type ChatUsageData struct {
 	ModelKey                string                  `json:"modelKey,omitempty"`

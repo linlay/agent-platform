@@ -1,11 +1,12 @@
 package server
 
 import (
-	"agent-platform/internal/connectorauth"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/connectorauth"
 )
 
 func TestConnectorConfigurationIsSharedAcrossPrincipals(t *testing.T) {

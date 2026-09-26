@@ -9,112 +9,8 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/i18n"
-	"agent-platform/internal/runtime/controlscope"
-	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 )
-
-func (s *Server) StartRun(_ context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
-	agentKey := strings.TrimSpace(request.AgentKey)
-	teamID := strings.TrimSpace(request.TeamID)
-	message := strings.TrimSpace(request.Message)
-	if message == "" || (agentKey == "") == (teamID == "") {
-		return contracts.RunSnapshot{}, runToolError("invalid_request", "message and exactly one of agentKey or teamId are required")
-	}
-	if agentKey != "" {
-		if _, ok := s.deps.Registry.AgentDefinition(agentKey); !ok {
-			return contracts.RunSnapshot{}, runToolError("agent_not_found", "agent not found")
-		}
-	} else if _, ok := resolveCatalogTeam(s.deps.Registry, teamID); !ok {
-		return contracts.RunSnapshot{}, runToolError("team_not_found", "team not found")
-	}
-
-	chatID := strings.TrimSpace(request.ChatID)
-	if chatID != "" {
-		summary, err := s.deps.Chats.Summary(chatID)
-		if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
-			return contracts.RunSnapshot{}, err
-		}
-		if summary != nil && !runOwnerMatchesChat(summary, agentKey, teamID) {
-			return contracts.RunSnapshot{}, runToolError("target_owner_mismatch", "target identity does not match chat owner")
-		}
-	}
-
-	req := api.QueryRequest{
-		ChatID:     chatID,
-		AgentKey:   agentKey,
-		TeamID:     teamID,
-		Role:       api.QueryRoleUser,
-		Message:    message,
-		ChatSource: api.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
-	}
-	ctx := s.backgroundCtx
-	// Detach execution lifetime, but retain the trusted parent's connection scope.
-	// RunOrigin describes derivation separately from transport/lane.
-	parentRunID := strings.TrimSpace(request.Origin.RunID)
-	if parentRunID == "" {
-		return contracts.RunSnapshot{}, runToolError("run_context_required", "run_query requires a parent runId")
-	}
-	scope, err := s.runControlScopes().Load(parentRunID)
-	if err != nil || (scope.Transport != "http" && scope.Transport != "ws") {
-		return contracts.RunSnapshot{}, runToolError("run_control_identity_unavailable", "cannot inherit parent run transport")
-	}
-	ctx = controlscope.WithContext(ctx, scope)
-	ctx = withChatSourceContext(ctx, req.ChatSource)
-	if subject := strings.TrimSpace(request.Origin.Subject); subject != "" {
-		ctx = WithPrincipal(ctx, &Principal{Subject: subject})
-	}
-	admission, err := s.prepareQueryAdmissionRequest(ctx, req, true, i18n.DefaultLocale, "")
-	if err != nil {
-		return contracts.RunSnapshot{}, mapRunAdmissionError(err, agentKey, teamID)
-	}
-	admission.strictOwner = true
-	prepared, err := s.completeQueryPreparation(ctx, admission, nil)
-	if err != nil {
-		return contracts.RunSnapshot{}, mapRunAdmissionError(err, agentKey, teamID)
-	}
-	origin := request.Origin
-	prepared.session.RunOrigin = &origin
-	auditMetadata := map[string]any{
-		"runOrigin": map[string]any{
-			"agentKey": strings.TrimSpace(origin.AgentKey),
-			"chatId":   strings.TrimSpace(origin.ChatID),
-			"runId":    strings.TrimSpace(origin.RunID),
-			"toolId":   strings.TrimSpace(origin.ToolID),
-		},
-	}
-	prepared.req.TrustedQueryMetadata = contracts.CloneMap(auditMetadata)
-	prepared.execution = &queryExecutionOptions{
-		StepLineStore:   s.deps.Chats,
-		CompletionStore: s.deps.Chats,
-		QueryMetadata:   auditMetadata,
-	}
-
-	registered, statusErr := s.registerQueryRun(ctx, prepared)
-	if statusErr != nil {
-		releaseQuery(prepared.release)
-		return contracts.RunSnapshot{}, mapRunStatusError(statusErr)
-	}
-	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
-	if !ok {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
-		s.finishRegisteredQueryRun(prepared, registered)
-		return contracts.RunSnapshot{}, runToolError("internal_error", "run event bus unavailable")
-	}
-
-	if isProxyRoutedAgent(prepared.agentDef) {
-		s.startPreparedProxyRun(prepared, registered, eventBus)
-	} else {
-		s.startPreparedLocalRun(prepared, registered, eventBus)
-	}
-	return s.GetRunStatus(prepared.req.RunID)
-}
-
-func (s *Server) GetRunStatus(runID string) (contracts.RunSnapshot, error) {
-	return runstate.Snapshot(s.deps.Runs, s.deps.Chats, runID)
-}
 
 func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, error) {
 	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
@@ -149,18 +45,18 @@ func (s *Server) startPreparedProxyRunAndWait(prepared preparedQuery, registered
 }
 
 func (s *Server) launchPreparedProxyRun(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus, started chan<- error) {
-	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
+	s.broadcast("run.started", runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis))
 	route := newDetachedProxyRunRoute(prepared)
 	s.registerProxyRun(route)
 
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
-	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.Req.ChatID, prepared.Req.RunID, prepared.AgentDef.Mode)
+	stepWriter.SetPendingSystemInit(prepared.SystemInitLine)
+	stepWriter.SetPendingQueryMessages(prepared.Session.CurrentMessages)
 	var chatUsage chat.UsageData
-	if prepared.summary.Usage != nil {
-		chatUsage = *prepared.summary.Usage
+	if prepared.Summary.Usage != nil {
+		chatUsage = *prepared.Summary.Usage
 	}
-	recorder := newProxyEventRecorder(prepared.req, registered.StartedAtMillis, prepared.agentDef, s.deps.Chats, stepWriter, registered.Control, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
+	recorder := newProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, s.deps.Chats, stepWriter, registered.Control, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
 	proxyCtx, cancelProxy := context.WithCancel(registered.RunCtx)
 	stopLifecycle := context.AfterFunc(s.backgroundCtx, cancelProxy)
 	go func() {
@@ -185,11 +81,11 @@ func mapRunAdmissionError(err error, agentKey string, teamID string) error {
 	if !errors.As(err, &statusErr) {
 		return err
 	}
-	if strings.Contains(strings.ToLower(statusErr.message), "agent not found") && agentKey != "" {
-		return runToolError("agent_not_found", statusErr.message)
+	if strings.Contains(strings.ToLower(statusErr.Message), "agent not found") && agentKey != "" {
+		return runToolError("agent_not_found", statusErr.Message)
 	}
-	if strings.Contains(strings.ToLower(statusErr.message), "team") && strings.Contains(strings.ToLower(statusErr.message), "not found") && teamID != "" {
-		return runToolError("team_not_found", statusErr.message)
+	if strings.Contains(strings.ToLower(statusErr.Message), "team") && strings.Contains(strings.ToLower(statusErr.Message), "not found") && teamID != "" {
+		return runToolError("team_not_found", statusErr.Message)
 	}
 	return mapRunStatusError(statusErr)
 }
@@ -198,9 +94,9 @@ func mapRunStatusError(err *statusError) error {
 	if err == nil {
 		return nil
 	}
-	code := strings.TrimSpace(err.code)
+	code := strings.TrimSpace(err.Code)
 	if code == "" {
-		switch err.status {
+		switch err.Status {
 		case http.StatusNotFound:
 			code = "run_not_found"
 		case http.StatusForbidden:
@@ -209,7 +105,7 @@ func mapRunStatusError(err *statusError) error {
 			code = "invalid_request"
 		}
 	}
-	return runToolError(code, err.message)
+	return runToolError(code, err.Message)
 }
 
 func runToolError(code string, message string) error {

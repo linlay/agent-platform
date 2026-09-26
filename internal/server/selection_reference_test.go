@@ -1,11 +1,12 @@
 package server
 
 import (
+	"context"
+	"testing"
+
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
-	"context"
-	"testing"
 )
 
 func TestQuerySelectionDoesNotAcquireFilePath(t *testing.T) {

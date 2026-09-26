@@ -52,6 +52,7 @@ func TestQueryDisconnectAndBlockingCallerPolicies(t *testing.T) {
 			fixture := newTestFixture(t)
 			engine := &gatedQueryEngine{entered: make(chan struct{}), release: make(chan struct{})}
 			fixture.server.deps.Agent = engine
+			bindTestRuntime(fixture.server)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			finished := make(chan struct{})

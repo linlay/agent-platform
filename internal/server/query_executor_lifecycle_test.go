@@ -45,6 +45,7 @@ func TestSharedExecutorFailureAndContinuationLifecycle(t *testing.T) {
 			}
 			engine := &orchestratorAgentEngine{streams: []contracts.AgentStream{&stubOrchestratableStream{deltas: deltas}}}
 			fixture.server.deps.Agent = engine
+			bindTestRuntime(fixture.server)
 			bus, _ := fixture.server.deps.Runs.EventBus(req.RunID)
 			params := fixture.server.localRunExecutorParams(prepared, registered, bus)
 			if terminal == "persistence-error" {

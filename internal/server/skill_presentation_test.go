@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/ws"
+
 	gws "github.com/gorilla/websocket"
 )
 

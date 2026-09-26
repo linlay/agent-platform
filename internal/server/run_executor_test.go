@@ -6,10 +6,11 @@ import (
 	"sync"
 	"testing"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
+	"agent-platform/internal/runtime/adapter"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
 
@@ -57,7 +58,7 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 	var seen chat.RunCompletion
 	called := false
 	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
-		Request: api.QueryRequest{
+		Request: runtimetypes.QueryCommand{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
 			Message:  "hello",
@@ -104,7 +105,7 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 
 	called := false
 	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
-		Request: api.QueryRequest{
+		Request: runtimetypes.QueryCommand{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
 			Message:  "hello",
@@ -146,7 +147,7 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
 
 	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
-		Request: api.QueryRequest{
+		Request: runtimetypes.QueryCommand{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
 			Message:  "hello",
@@ -326,11 +327,11 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 	}
 	runExecutor(RunExecutorParams{
 		RunCtx:          context.Background(),
-		Request:         api.QueryRequest{ChatID: "chat-1", RunID: "run-1", Message: "hello", AgentKey: "agent-a", TeamID: "team-1"},
+		Request:         runtimetypes.QueryCommand{ChatID: "chat-1", RunID: "run-1", Message: "hello", AgentKey: "agent-a", TeamID: "team-1"},
 		Session:         QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a", TeamID: "team-1"},
 		StartedAtMillis: testEpochMillis,
 		Summary:         chat.Summary{ChatID: "chat-1", AgentKey: "agent-a"},
-		Agent:           agent,
+		Agent:           adapter.Engine{AgentEngine: agent},
 		Assembler: stream.NewAssembler(stream.StreamRequest{
 			RunID:    "run-1",
 			ChatID:   "chat-1",
@@ -387,10 +388,10 @@ func TestRunExecutorPublishesArtifactsWithoutObserverAndDoesNotNotifyOnReplay(t 
 	}}}}
 	result := runExecutor(RunExecutorParams{
 		RunCtx:          context.Background(),
-		Request:         api.QueryRequest{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a", Message: "hello"},
+		Request:         runtimetypes.QueryCommand{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a", Message: "hello"},
 		Session:         QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a"},
 		StartedAtMillis: testEpochMillis, Summary: chat.Summary{ChatID: "chat-1", AgentKey: "agent-a"},
-		Agent: agent, Assembler: stream.NewAssembler(stream.StreamRequest{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a"}),
+		Agent: adapter.Engine{AgentEngine: agent}, Assembler: stream.NewAssembler(stream.StreamRequest{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a"}),
 		Mapper: llm.NewDeltaMapper("run-1", "chat-1", Budget{}, nil, nil), EventBus: bus,
 		StepWriter: chat.NewStepWriter(chats, "chat-1", "run-1", ""), Chats: chats, Notifications: notifications,
 	})

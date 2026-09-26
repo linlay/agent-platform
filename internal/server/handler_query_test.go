@@ -167,11 +167,11 @@ func TestPrepareQueryPromotesUploadCreatedChatNameAndUpdatesAgentKey(t *testing.
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
-	if prepared.summary.AgentKey != "agent-a" {
-		t.Fatalf("expected prepared summary agent-a, got %q", prepared.summary.AgentKey)
+	if prepared.Summary.AgentKey != "agent-a" {
+		t.Fatalf("expected prepared summary agent-a, got %q", prepared.Summary.AgentKey)
 	}
-	if prepared.summary.ChatName != "use uploaded image" {
-		t.Fatalf("expected prepared chat name from first query, got %q", prepared.summary.ChatName)
+	if prepared.Summary.ChatName != "use uploaded image" {
+		t.Fatalf("expected prepared chat name from first query, got %q", prepared.Summary.ChatName)
 	}
 
 	summary, err := chats.Summary("chat-agent-drift")
@@ -220,18 +220,18 @@ func TestPrepareQueryNonSandboxAgentCreatesChatDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
-	if prepared.session.AgentHasRuntimeSandbox {
+	if prepared.Session.AgentHasRuntimeSandbox {
 		t.Fatal("expected non-sandbox session")
 	}
 	if stat, err := os.Stat(chats.ChatDir("chat-no-dir")); err != nil || !stat.IsDir() {
 		t.Fatalf("expected chat directory to be created, stat=%#v err=%v", stat, err)
 	}
 	wantChatDir := absTestPath(t, chats.ChatDir("chat-no-dir"))
-	if prepared.session.RuntimeContext.LocalPaths.ChatDir != wantChatDir {
-		t.Fatalf("chat dir = %q, want %q", prepared.session.RuntimeContext.LocalPaths.ChatDir, wantChatDir)
+	if prepared.Session.RuntimeContext.LocalPaths.ChatDir != wantChatDir {
+		t.Fatalf("chat dir = %q, want %q", prepared.Session.RuntimeContext.LocalPaths.ChatDir, wantChatDir)
 	}
-	if prepared.session.RuntimeContext.LocalPaths.WorkspaceDir != "" {
-		t.Fatalf("workspace dir = %q, want empty", prepared.session.RuntimeContext.LocalPaths.WorkspaceDir)
+	if prepared.Session.RuntimeContext.LocalPaths.WorkspaceDir != "" {
+		t.Fatalf("workspace dir = %q, want empty", prepared.Session.RuntimeContext.LocalPaths.WorkspaceDir)
 	}
 }
 
@@ -309,22 +309,22 @@ func TestPrepareQuerySkipsMemoryInjectionWhenTemporarilyDisabled(t *testing.T) {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
-	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
+	if prepared.Session.StableMemoryContext != "" || prepared.Session.SessionMemoryContext != "" || prepared.Session.ObservationContext != "" {
 		t.Fatalf("expected no memory contexts while injection disabled, got stable=%q session=%q obs=%q",
-			prepared.session.StableMemoryContext, prepared.session.SessionMemoryContext, prepared.session.ObservationContext)
+			prepared.Session.StableMemoryContext, prepared.Session.SessionMemoryContext, prepared.Session.ObservationContext)
 	}
-	if prepared.session.MemoryContext != "" || prepared.session.StaticMemoryPrompt != "" {
+	if prepared.Session.MemoryContext != "" || prepared.Session.StaticMemoryPrompt != "" {
 		t.Fatalf("expected no aggregate/static memory prompt while injection disabled, got aggregate=%q static=%q",
-			prepared.session.MemoryContext, prepared.session.StaticMemoryPrompt)
+			prepared.Session.MemoryContext, prepared.Session.StaticMemoryPrompt)
 	}
-	if prepared.session.Subject != "" {
-		t.Fatalf("expected anonymous subject to stay empty, got %q", prepared.session.Subject)
+	if prepared.Session.Subject != "" {
+		t.Fatalf("expected anonymous subject to stay empty, got %q", prepared.Session.Subject)
 	}
-	if prepared.memoryUsageSummary != nil || prepared.session.MemoryUsageSummary != nil {
+	if prepared.MemoryUsageSummary != nil || prepared.Session.MemoryUsageSummary != nil {
 		t.Fatalf("expected no memory usage summary while injection disabled, got %#v %#v",
-			prepared.memoryUsageSummary, prepared.session.MemoryUsageSummary)
+			prepared.MemoryUsageSummary, prepared.Session.MemoryUsageSummary)
 	}
-	if !prepared.session.AgentHasMemoryConfig {
+	if !prepared.Session.AgentHasMemoryConfig {
 		t.Fatalf("expected memory config marker to remain available")
 	}
 }
@@ -459,12 +459,12 @@ func TestPrepareQueryDoesNotInjectStableFactsWhenMemoryTemporarilyDisabled(t *te
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
-	if prepared.session.StableMemoryContext != "" {
-		t.Fatalf("expected stable memory to stay out of query session, got %q", prepared.session.StableMemoryContext)
+	if prepared.Session.StableMemoryContext != "" {
+		t.Fatalf("expected stable memory to stay out of query session, got %q", prepared.Session.StableMemoryContext)
 	}
-	if prepared.memoryUsageSummary != nil || prepared.session.MemoryUsageSummary != nil {
+	if prepared.MemoryUsageSummary != nil || prepared.Session.MemoryUsageSummary != nil {
 		t.Fatalf("expected no memory usage summary while injection disabled, got %#v %#v",
-			prepared.memoryUsageSummary, prepared.session.MemoryUsageSummary)
+			prepared.MemoryUsageSummary, prepared.Session.MemoryUsageSummary)
 	}
 }
 
@@ -544,13 +544,13 @@ func TestPrepareQueryDoesNotInjectSessionMemoryWhenMemoryTemporarilyDisabled(t *
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
-	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
+	if prepared.Session.StableMemoryContext != "" || prepared.Session.SessionMemoryContext != "" || prepared.Session.ObservationContext != "" {
 		t.Fatalf("expected memory to stay out of query session, got stable=%q session=%q obs=%q",
-			prepared.session.StableMemoryContext, prepared.session.SessionMemoryContext, prepared.session.ObservationContext)
+			prepared.Session.StableMemoryContext, prepared.Session.SessionMemoryContext, prepared.Session.ObservationContext)
 	}
-	if prepared.memoryUsageSummary != nil || prepared.session.MemoryUsageSummary != nil {
+	if prepared.MemoryUsageSummary != nil || prepared.Session.MemoryUsageSummary != nil {
 		t.Fatalf("expected no memory usage summary while injection disabled, got %#v %#v",
-			prepared.memoryUsageSummary, prepared.session.MemoryUsageSummary)
+			prepared.MemoryUsageSummary, prepared.Session.MemoryUsageSummary)
 	}
 }
 
@@ -606,11 +606,11 @@ func TestPrepareQuerySkipsMemoryContextWhenMemorySystemDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
-	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
-		t.Fatalf("expected no memory context when memory system disabled, got stable=%q session=%q obs=%q", prepared.session.StableMemoryContext, prepared.session.SessionMemoryContext, prepared.session.ObservationContext)
+	if prepared.Session.StableMemoryContext != "" || prepared.Session.SessionMemoryContext != "" || prepared.Session.ObservationContext != "" {
+		t.Fatalf("expected no memory context when memory system disabled, got stable=%q session=%q obs=%q", prepared.Session.StableMemoryContext, prepared.Session.SessionMemoryContext, prepared.Session.ObservationContext)
 	}
-	if prepared.memoryUsageSummary != nil || prepared.session.MemoryUsageSummary != nil {
-		t.Fatalf("expected no memory usage summary when memory system disabled, got %#v %#v", prepared.memoryUsageSummary, prepared.session.MemoryUsageSummary)
+	if prepared.MemoryUsageSummary != nil || prepared.Session.MemoryUsageSummary != nil {
+		t.Fatalf("expected no memory usage summary when memory system disabled, got %#v %#v", prepared.MemoryUsageSummary, prepared.Session.MemoryUsageSummary)
 	}
 }
 
@@ -679,14 +679,14 @@ func TestPrepareQueryAllowsRuntimeEnvWithoutContainerHub(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
-	if prepared.session.AgentHasRuntimeSandbox {
+	if prepared.Session.AgentHasRuntimeSandbox {
 		t.Fatal("expected env-only runtime config to avoid sandbox routing")
 	}
-	if got := prepared.session.StaticRuntimeEnv["HTTP_PROXY"]; got != "http://127.0.0.1:8001" {
+	if got := prepared.Session.StaticRuntimeEnv["HTTP_PROXY"]; got != "http://127.0.0.1:8001" {
 		t.Fatalf("StaticRuntimeEnv[HTTP_PROXY] = %q", got)
 	}
-	if !containsString(prepared.session.ToolNames, "bash") {
-		t.Fatalf("expected bash tool for runtime env overrides, got %#v", prepared.session.ToolNames)
+	if !containsString(prepared.Session.ToolNames, "bash") {
+		t.Fatalf("expected bash tool for runtime env overrides, got %#v", prepared.Session.ToolNames)
 	}
 }
 
@@ -724,18 +724,18 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
-	if containsString(prepared.session.ToolNames, "desktop_action") || containsString(prepared.session.ToolNames, "desktop_cdp") {
-		t.Fatalf("did not expect desktop tools from params.desktop, got %#v", prepared.session.ToolNames)
+	if containsString(prepared.Session.ToolNames, "desktop_action") || containsString(prepared.Session.ToolNames, "desktop_cdp") {
+		t.Fatalf("did not expect desktop tools from params.desktop, got %#v", prepared.Session.ToolNames)
 	}
-	if !reflect.DeepEqual(prepared.session.ToolNames, []string{"datetime", "bash"}) {
-		t.Fatalf("unexpected tool names: %#v", prepared.session.ToolNames)
+	if !reflect.DeepEqual(prepared.Session.ToolNames, []string{"datetime", "bash"}) {
+		t.Fatalf("unexpected tool names: %#v", prepared.Session.ToolNames)
 	}
 	expectedRuntimeEnv := map[string]string{
 		"CDP_HOST": "127.0.0.1",
 		"CDP_PORT": "11789",
 	}
-	if !reflect.DeepEqual(prepared.session.StaticRuntimeEnv, expectedRuntimeEnv) {
-		t.Fatalf("unexpected static runtime env: %#v", prepared.session.StaticRuntimeEnv)
+	if !reflect.DeepEqual(prepared.Session.StaticRuntimeEnv, expectedRuntimeEnv) {
+		t.Fatalf("unexpected static runtime env: %#v", prepared.Session.StaticRuntimeEnv)
 	}
 }
 
@@ -756,10 +756,10 @@ func TestPrepareQueryCapsDesktopImageStudioZenmiRunToOneToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
-	if prepared.session.RunLimits.MaxToolCalls != 1 || prepared.session.RunLimits.MaxToolRounds != 1 {
-		t.Fatalf("unexpected Image Studio run limits: %#v", prepared.session.RunLimits)
+	if prepared.Session.RunLimits.MaxToolCalls != 1 || prepared.Session.RunLimits.MaxToolRounds != 1 {
+		t.Fatalf("unexpected Image Studio run limits: %#v", prepared.Session.RunLimits)
 	}
-	if strings.TrimSpace(prepared.session.RunLimits.FinalAnswerPrompt) == "" {
+	if strings.TrimSpace(prepared.Session.RunLimits.FinalAnswerPrompt) == "" {
 		t.Fatal("expected a final-answer-only prompt after the single tool round")
 	}
 
@@ -768,7 +768,7 @@ func TestPrepareQueryCapsDesktopImageStudioZenmiRunToOneToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare normal query: %v", err)
 	}
-	if normal.session.RunLimits.MaxToolCalls != 0 || normal.session.RunLimits.MaxToolRounds != 0 {
-		t.Fatalf("normal Zenmi run must keep its configured budget: %#v", normal.session.RunLimits)
+	if normal.Session.RunLimits.MaxToolCalls != 0 || normal.Session.RunLimits.MaxToolRounds != 0 {
+		t.Fatalf("normal Zenmi run must keep its configured budget: %#v", normal.Session.RunLimits)
 	}
 }

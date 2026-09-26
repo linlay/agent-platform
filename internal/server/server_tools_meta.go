@@ -310,49 +310,6 @@ func agentChannelConfigResponse(cfg catalog.AgentChannelConfig, localAgentKey st
 	return meta
 }
 
-func normalizedAgentTools(def catalog.AgentDefinition) []string {
-	tools := make([]string, 0, len(def.Tools)+1)
-	seen := map[string]struct{}{}
-	for _, tool := range def.Tools {
-		name := strings.TrimSpace(tool)
-		if name == "" {
-			continue
-		}
-		key := strings.ToLower(name)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		tools = append(tools, name)
-	}
-	if len(def.Skills) > 0 || hasRuntimeSandbox(def.Runtime) || hasStaticRuntimeEnv(def.Runtime) {
-		if _, ok := seen["bash"]; !ok {
-			tools = append(tools, "bash")
-			seen["bash"] = struct{}{}
-		}
-	}
-	return tools
-}
-
-func effectiveAgentTools(def catalog.AgentDefinition) []string {
-	return normalizedAgentTools(def)
-}
-
-func hasRuntimeSandbox(runtime map[string]any) bool {
-	if len(runtime) == 0 {
-		return false
-	}
-	return strings.TrimSpace(stringValue(runtime["environmentId"])) != ""
-}
-
-func hasStaticRuntimeEnv(runtime map[string]any) bool {
-	if len(runtime) == 0 {
-		return false
-	}
-	env, ok := runtime["env"].(map[string]string)
-	return ok && len(env) > 0
-}
-
 func normalizedRuntimeMeta(runtime map[string]any) map[string]any {
 	if runtime == nil {
 		return nil
@@ -388,74 +345,6 @@ func normalizedProjectMeta(project catalog.AgentProjectConfig) map[string]any {
 	return out
 }
 
-func normalizeRuntimeMounts(value any) []map[string]any {
-	switch mounts := value.(type) {
-	case []map[string]any:
-		out := make([]map[string]any, 0, len(mounts))
-		for _, mount := range mounts {
-			out = append(out, normalizeRuntimeMount(mount))
-		}
-		return out
-	case []any:
-		out := make([]map[string]any, 0, len(mounts))
-		for _, raw := range mounts {
-			mount, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			out = append(out, normalizeRuntimeMount(mount))
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
-func normalizeRuntimeMount(mount map[string]any) map[string]any {
-	return map[string]any{
-		"platform":    stringValue(mount["platform"]),
-		"source":      nullableStringValue(mount["source"]),
-		"destination": nullableStringValue(mount["destination"]),
-		"mode":        stringValue(mount["mode"]),
-	}
-}
-
-func runtimeExtraMounts(value any) []contracts.SandboxExtraMount {
-	mounts := normalizeRuntimeMounts(value)
-	if len(mounts) == 0 {
-		return nil
-	}
-	out := make([]contracts.SandboxExtraMount, 0, len(mounts))
-	for _, mount := range mounts {
-		out = append(out, contracts.SandboxExtraMount{
-			Platform:    stringValue(mount["platform"]),
-			Source:      stringValue(mount["source"]),
-			Destination: stringValue(mount["destination"]),
-			Mode:        stringValue(mount["mode"]),
-		})
-	}
-	return out
-}
-
-func runtimeExtraMountsForMustUseSkills(value any, includeSkillsCenter bool) []contracts.SandboxExtraMount {
-	mounts := runtimeExtraMounts(value)
-	if !includeSkillsCenter {
-		return mounts
-	}
-	for index := range mounts {
-		if strings.EqualFold(strings.TrimSpace(mounts[index].Platform), "skills-center") {
-			mounts[index].Mode = "ro"
-			return mounts
-		}
-	}
-	return append(mounts, contracts.SandboxExtraMount{Platform: "skills-center", Mode: "ro"})
-}
-
-func stringValue(value any) string {
-	text, _ := value.(string)
-	return strings.TrimSpace(text)
-}
-
 func anyStringValue(value any) string {
 	switch v := value.(type) {
 	case string:
@@ -463,22 +352,6 @@ func anyStringValue(value any) string {
 	default:
 		return ""
 	}
-}
-
-func nullableStringValue(value any) any {
-	text := stringValue(value)
-	if text == "" {
-		return nil
-	}
-	return text
-}
-
-func extractRuntimeField(runtime map[string]any, key string) string {
-	if runtime == nil {
-		return ""
-	}
-	v, _ := runtime[key].(string)
-	return strings.TrimSpace(v)
 }
 
 func cloneListMaps(src []map[string]any) []map[string]any {

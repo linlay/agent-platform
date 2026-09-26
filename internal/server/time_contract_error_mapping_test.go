@@ -112,11 +112,13 @@ func TestHTTPTimeContractViolationsAreNotDowngradedTo500(t *testing.T) {
 	violation := testTimeContractViolation("updatedAt")
 
 	fixture.server.deps.Chats = timeContractRecentChatsStore{Store: fixture.chats, err: violation}
+	bindTestRuntime(fixture.server)
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?includeChats=1", nil))
 	assertHTTPTimeContractViolation(t, rec, "updatedAt")
 
 	fixture.server.deps.Chats = timeContractFeedbackStore{Store: fixture.chats, err: violation}
+	bindTestRuntime(fixture.server)
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/feedback", strings.NewReader(`{"chatId":"chat-1","runId":"run-1","type":"thumbs_down"}`)))
 	assertHTTPTimeContractViolation(t, rec, "updatedAt")
@@ -125,6 +127,7 @@ func TestHTTPTimeContractViolationsAreNotDowngradedTo500(t *testing.T) {
 func TestUploadTimeContractViolationReturns422(t *testing.T) {
 	fixture := newTestFixture(t)
 	fixture.server.deps.Chats = timeContractEnsureChatStore{Store: fixture.chats, err: testTimeContractViolation("createdAt")}
+	bindTestRuntime(fixture.server)
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -145,7 +148,9 @@ func TestWebSocketTimeContractViolationsAreNotDowngradedTo500(t *testing.T) {
 	fixture := newTestFixture(t)
 	hub := ws.NewHub()
 	fixture.server.deps.Config.WebSocket.WriteQueueSize = 4
+	bindTestRuntime(fixture.server)
 	fixture.server.deps.Config.WebSocket.PingInterval = 30000
+	bindTestRuntime(fixture.server)
 	fixture.server.wsHandler = fixture.server.newWSHandler(hub)
 	fixture.server.router.Handle("/ws", fixture.server.wsHandler)
 	fixture.server.wsHandler.RegisterRoute("/api/test/time-agent", func(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
@@ -162,14 +167,17 @@ func TestWebSocketTimeContractViolationsAreNotDowngradedTo500(t *testing.T) {
 	readConnectedPush(t, conn)
 
 	fixture.server.deps.Chats = timeContractRecentChatsStore{Store: fixture.chats, err: testTimeContractViolation("updatedAt")}
+	bindTestRuntime(fixture.server)
 	writeTimeContractWSRequest(t, conn, "/api/agents", "agents_time", map[string]any{"includeChats": 1})
 	assertWSTimeContractViolation(t, conn, "agents_time", "updatedAt")
 
 	fixture.server.deps.Chats = timeContractListChatsStore{Store: fixture.chats, err: testTimeContractViolation("createdAt")}
+	bindTestRuntime(fixture.server)
 	writeTimeContractWSRequest(t, conn, "/api/chats", "chats_time", map[string]any{})
 	assertWSTimeContractViolation(t, conn, "chats_time", "createdAt")
 
 	fixture.server.deps.Chats = timeContractFeedbackStore{Store: fixture.chats, err: testTimeContractViolation("updatedAt")}
+	bindTestRuntime(fixture.server)
 	writeTimeContractWSRequest(t, conn, "/api/feedback", "feedback_time", map[string]any{"chatId": "chat-1", "runId": "run-1", "type": "thumbs_down"})
 	assertWSTimeContractViolation(t, conn, "feedback_time", "updatedAt")
 

@@ -1,5 +1,3 @@
-// Package query coordinates query admission, session preparation,
-// continuation, and run-control entry points without depending on transport.
 package query
 
 import (
@@ -8,70 +6,85 @@ import (
 	"strings"
 
 	"agent-platform/internal/apperrors"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
+	"agent-platform/internal/models"
+	"agent-platform/internal/runtime/proxy"
+	"agent-platform/internal/runtime/reference"
 	"agent-platform/internal/runtime/runstate"
+	sessionbuild "agent-platform/internal/runtime/session"
 	runtimetypes "agent-platform/internal/runtime/types"
+	"agent-platform/internal/stream"
+	"agent-platform/internal/toolinteraction"
 )
 
 var ErrNotConfigured = errors.New("query runtime is not configured")
 
-type ExecuteFunc func(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
-type StartQueryFunc func(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
-type StartFunc func(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
-type SubmitFunc func(context.Context, runtimetypes.SubmitCommand) (runtimetypes.SubmitResult, error)
-type SteerFunc func(context.Context, runtimetypes.SteerCommand) (runtimetypes.SteerResult, error)
-type InterruptFunc func(context.Context, runtimetypes.InterruptCommand) (runtimetypes.InterruptResult, error)
-type AccessLevelFunc func(context.Context, runtimetypes.AccessLevelCommand) (runtimetypes.AccessLevelResult, error)
-
-type Dependencies struct {
-	Runs       contracts.RunManager
-	Chats      chat.Store
-	Execute    ExecuteFunc
-	StartQuery StartQueryFunc
-	Start      StartFunc
-	Submit     SubmitFunc
-	Steer      SteerFunc
-	Interrupt  InterruptFunc
-	Access     AccessLevelFunc
+type statusError = runtimetypes.RequestError
+type DeferredAwaitingStore interface {
+	Register(runtimetypes.DeferredAwaiting)
+	Lookup(string) (runtimetypes.DeferredAwaiting, bool)
+	Remove(string)
+	LockResolution(string, string, string) func()
 }
 
+// ProxyPort owns only non-native protocol routing and forwarding. Native runs
+// never delegate admission, recovery or execution back to the transport.
+type ProxyPort interface {
+	Configure(*catalog.AgentDefinition) *runtimetypes.RequestError
+	Models(string) ([]queryinput.CoderModelOption, error, bool)
+	Start(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun, *stream.RunEventBus, bool) error
+	Execute(context.Context, runtimetypes.PreparedQuery, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
+	Submit(queryinput.SubmitRequest) (queryinput.SubmitResponse, *runtimetypes.RequestError, bool)
+	Steer(queryinput.SteerRequest) (queryinput.SteerResponse, *runtimetypes.RequestError, bool)
+	Interrupt(queryinput.InterruptRequest) (queryinput.InterruptResponse, *runtimetypes.RequestError, bool)
+	AccessLevel(queryinput.AccessLevelRequest) (queryinput.AccessLevelResponse, *runtimetypes.RequestError, bool)
+}
+type Dependencies struct {
+	BackgroundContext context.Context
+	Config            config.Config
+	Runs              contracts.RunManager
+	Chats             chat.Store
+	Registry          catalog.Registry
+	Models            *models.ModelRegistry
+	Tools             contracts.ToolExecutor
+	Agent             runtimetypes.Engine
+	Profiles          sessionbuild.ProfileBuilder
+	Sessions          *sessionbuild.Builder
+	References        *reference.Service
+	Notifications     contracts.NotificationSink
+	ToolInteractions  *toolinteraction.Registry
+	DeltaMappers      contracts.StreamDeltaMapperFactory
+	DeferredAwaitings DeferredAwaitingStore
+	Proxy             ProxyPort
+	ResourceTickets   proxy.TicketIssuer
+}
 type Service struct {
-	deps Dependencies
+	deps              Dependencies
+	backgroundCtx     context.Context
+	deferredAwaitings DeferredAwaitingStore
+	ticketService     proxy.TicketIssuer
 }
 
 func NewService(deps Dependencies) *Service {
-	return &Service{deps: deps}
-}
-
-func (s *Service) StartQuery(ctx context.Context, command runtimetypes.QueryCommand) (runtimetypes.RunHandle, error) {
-	if s == nil || s.deps.StartQuery == nil {
-		return runtimetypes.RunHandle{}, ErrNotConfigured
+	if deps.Proxy == nil {
+		deps.Proxy = unavailableProxy{}
 	}
-	return s.deps.StartQuery(ctx, command)
-}
-
-func (s *Service) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryCommand, hooks runtimetypes.QueryHooks) (runtimetypes.QueryResult, error) {
-	if s == nil || s.deps.Execute == nil {
-		return runtimetypes.QueryResult{}, ErrNotConfigured
+	if deps.BackgroundContext == nil {
+		deps.BackgroundContext = context.Background()
 	}
-	return s.deps.Execute(ctx, cmd, hooks)
-}
-
-func (s *Service) StartRun(ctx context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
-	if s == nil || s.deps.Start == nil {
-		return contracts.RunSnapshot{}, ErrNotConfigured
+	if deps.DeferredAwaitings == nil {
+		deps.DeferredAwaitings = runstate.NewDeferredAwaitingStore()
 	}
-	return s.deps.Start(ctx, request)
-}
-
-func (s *Service) RunStatus(runID string) (contracts.RunSnapshot, error) {
-	if s == nil || s.deps.Runs == nil {
-		return contracts.RunSnapshot{}, ErrNotConfigured
+	if deps.References == nil {
+		deps.References = reference.New(deps.Chats)
 	}
-	return runstate.Snapshot(s.deps.Runs, s.deps.Chats, runID)
+	return &Service{deps: deps, backgroundCtx: deps.BackgroundContext, deferredAwaitings: deps.DeferredAwaitings, ticketService: deps.ResourceTickets}
 }
-
+func (s *Service) Reconcile() error { return s.hydrateDeferredAwaitings() }
 func (s *Service) AttachRun(_ context.Context, ref runtimetypes.RunRef, afterSeq int64) (*runtimetypes.Subscription, error) {
 	if s == nil || s.deps.Runs == nil {
 		return nil, ErrNotConfigured
@@ -92,43 +105,9 @@ func (s *Service) AttachRun(_ context.Context, ref runtimetypes.RunRef, afterSeq
 		observer.MarkDone()
 	}), nil
 }
-
-func (s *Service) Submit(ctx context.Context, command runtimetypes.SubmitCommand) (runtimetypes.SubmitResult, error) {
-	if strings.TrimSpace(command.RunID) == "" || strings.TrimSpace(command.AwaitingID) == "" {
-		return runtimetypes.SubmitResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId and awaitingId are required")
+func (s *Service) RunStatus(runID string) (contracts.RunSnapshot, error) {
+	if s == nil || s.deps.Runs == nil {
+		return contracts.RunSnapshot{}, ErrNotConfigured
 	}
-	if s == nil || s.deps.Submit == nil {
-		return runtimetypes.SubmitResult{}, ErrNotConfigured
-	}
-	return s.deps.Submit(ctx, command)
-}
-
-func (s *Service) Steer(ctx context.Context, command runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
-	if strings.TrimSpace(command.RunID) == "" || (strings.TrimSpace(command.Message) == "" && len(command.References) == 0) {
-		return runtimetypes.SteerResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId and either message or references are required")
-	}
-	if s == nil || s.deps.Steer == nil {
-		return runtimetypes.SteerResult{}, ErrNotConfigured
-	}
-	return s.deps.Steer(ctx, command)
-}
-
-func (s *Service) Interrupt(ctx context.Context, command runtimetypes.InterruptCommand) (runtimetypes.InterruptResult, error) {
-	if strings.TrimSpace(command.RunID) == "" {
-		return runtimetypes.InterruptResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId is required")
-	}
-	if s == nil || s.deps.Interrupt == nil {
-		return runtimetypes.InterruptResult{}, ErrNotConfigured
-	}
-	return s.deps.Interrupt(ctx, command)
-}
-
-func (s *Service) SetAccessLevel(ctx context.Context, command runtimetypes.AccessLevelCommand) (runtimetypes.AccessLevelResult, error) {
-	if strings.TrimSpace(command.RunID) == "" {
-		return runtimetypes.AccessLevelResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId is required")
-	}
-	if s == nil || s.deps.Access == nil {
-		return runtimetypes.AccessLevelResult{}, ErrNotConfigured
-	}
-	return s.deps.Access(ctx, command)
+	return runstate.Snapshot(s.deps.Runs, s.deps.Chats, runID)
 }

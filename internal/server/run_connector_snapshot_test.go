@@ -1,14 +1,15 @@
 package server
 
 import (
-	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
-	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 )
 
 func TestRunConnectorSnapshotRetainsVersionAcrossRestart(t *testing.T) {
@@ -31,7 +32,8 @@ func TestRunConnectorSnapshotRetainsVersionAcrossRestart(t *testing.T) {
 	}
 	s := &Server{}
 	s.deps.Config = cfg
-	if err := s.freezeRunConnectors(preparedQuery{req: api.QueryRequest{RunID: "frozen"}, agentDef: old}); err != nil {
+	bindTestRuntime(s)
+	if err := s.freezeRunConnectors(preparedQuery{Req: api.QueryRequest{RunID: "frozen"}, AgentDef: old}); err != nil {
 		t.Fatal(err)
 	}
 	changed := filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.desktop", "skills", "desktop-action", "references", "version.md")

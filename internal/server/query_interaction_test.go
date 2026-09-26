@@ -1,15 +1,16 @@
 package server
 
 import (
-	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
-	"agent-platform/internal/interaction"
 	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
+	"agent-platform/internal/interaction"
 )
 
 func TestInteractionAdmission(t *testing.T) {

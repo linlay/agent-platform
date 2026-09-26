@@ -1,7 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/connectortest"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,6 +13,7 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectortest"
 )
 
 func writeMCPConnectorForTest(t *testing.T, root, id string) {
@@ -101,6 +101,7 @@ func TestBuiltinConnectorAPIListsReadsAndRejectsMutation(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	root := t.TempDir()
 	fixture.server.deps.Config.Paths.BuiltinConnectorsDir = root
+	bindTestRuntime(fixture.server)
 	if err := connectortest.WriteCLI(filepath.Join(root, "builtin.httpx"), "httpx", "0.1.8"); err != nil {
 		t.Fatal(err)
 	}

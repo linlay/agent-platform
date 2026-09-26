@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -17,12 +16,14 @@ import (
 )
 
 func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	ctx = controlscope.WithContext(ctx, wsControlScope(conn))
-	// The authenticated connection selects execution semantics, never the payload.
 	if conn.QueryLane() != "main" {
 		s.wsBTW(ctx, conn, req)
 		return
 	}
+	s.wsQueryForLane(ctx, conn, req, false)
+}
+func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.RequestFrame, side bool) {
+	ctx = controlscope.WithContext(ctx, wsControlScope(conn))
 	if _, err := conn.ReserveStream(req.ID, ""); err != nil {
 		if e, ok := err.(*ws.ProtocolError); ok {
 			conn.SendProtocolError(req.ID, e)
@@ -55,7 +56,9 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	command := queryCommandFromAPI(queryRequest)
+	command := trustedQueryCommand(ctx, queryRequest)
+	command.SideQuery = side
+	command.SideQueryID = queryRequest.BTWID
 	command.Locale = conn.Locale()
 	command.ResourceBaseURL = conn.RequestBaseURL()
 	command.ChatSource = chatSourceFromContext(ctx)
@@ -112,77 +115,12 @@ func (s *Server) sendWSQueryStartError(conn *ws.Conn, requestID string, err erro
 }
 
 func (s *Server) wsBTW(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	ctx = controlscope.WithContext(ctx, wsControlScope(conn))
 	if !conn.IsDesktopBTW() && !conn.IsDesktopExplain() {
 		conn.SendError(req.ID, "btw_ws_lane_required", http.StatusForbidden, "side queries require a desktop-btw or desktop-explain connection", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if _, err := conn.ReserveStream(req.ID, ""); err != nil {
-		if e, ok := err.(*ws.ProtocolError); ok {
-			conn.SendProtocolError(req.ID, e)
-		}
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	forwarding := false
-	defer func() {
-		if !forwarding {
-			conn.ReleaseStream(req.ID)
-		}
-	}()
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/query", bytes.NewReader(req.Payload))
-	if err != nil {
-		conn.SendError(req.ID, "internal_error", http.StatusInternalServerError, err.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	prepared, statusErr := s.prepareBTWQuery(httpReq)
-	if statusErr != nil {
-		s.sendWSStatusError(conn, req.ID, statusErr)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	prepared.resourceBaseURL = conn.RequestBaseURL()
-	if reserveErr := conn.BindStreamRun(req.ID, prepared.req.RunID); reserveErr != nil {
-		releaseQuery(prepared.release)
-		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
-			conn.SendProtocolError(req.ID, protoErr)
-		}
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	registered, statusErr := s.registerQueryRun(ctx, prepared)
-	if statusErr != nil {
-		releaseQuery(prepared.release)
-		conn.ReleaseStream(req.ID)
-		s.sendWSStatusError(conn, req.ID, statusErr)
-		return
-	}
-	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
-	if !ok {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
-		s.finishRegisteredQueryRun(prepared, registered)
-		conn.ReleaseStream(req.ID)
-		conn.SendError(req.ID, "internal_error", http.StatusInternalServerError, "run event bus unavailable", nil)
-		return
-	}
-	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
-	if attachErr != nil {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
-		s.finishRegisteredQueryRun(prepared, registered)
-		conn.ReleaseStream(req.ID)
-		s.sendWSAttachError(conn, req.ID, prepared.req.RunID, prepared.req.ChatID, attachErr)
-		return
-	}
-	conn.AttachObserver(req.ID, observer.ID, func() {
-		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
-	})
-	s.startPreparedLocalRun(prepared, registered, eventBus)
-	forwarding = true
-	conn.StartStreamForward(req.ID, observer)
+	s.wsQueryForLane(ctx, conn, req, true)
 }
 
 func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
@@ -286,35 +224,12 @@ func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		return
 	}
 	payload.Locale = conn.Locale()
-	payload = s.normalizeActiveSubmitRun(payload)
-	// HITL does not require the creation connection; retain owner/item validation.
-	if statusErr := s.validateSubmitOwner(payload); statusErr != nil {
-		s.sendWSStatusError(conn, req.ID, statusErr)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	if response, statusErr, ok := s.forwardProxySubmit(payload); ok {
-		if statusErr != nil {
-			s.sendWSStatusError(conn, req.ID, statusErr)
-			conn.CompleteRequest(req.ID)
-			return
-		}
-		conn.SendResponse(req.Type, req.ID, 0, "success", response)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	response, code, msg, err := s.resolveSubmit(payload)
+	result, err := s.deps.Runtime.Submit(conn.Context(), runtimeSubmitCommand(payload))
 	if err != nil {
-		if statusErr, ok := err.(*statusError); ok {
-			s.sendWSStatusError(conn, req.ID, statusErr)
-			conn.CompleteRequest(req.ID)
-			return
-		}
-		conn.SendError(req.ID, "invalid_request", 400, err.Error(), nil)
-		conn.CompleteRequest(req.ID)
+		s.sendWSRuntimeError(conn, req.ID, err)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, code, msg, response)
+	conn.SendResponse(req.Type, req.ID, 0, "success", api.SubmitResponse{Accepted: result.Accepted, Status: result.Status, ChatID: result.ChatID, RunID: result.RunID, AwaitingID: result.AwaitingID, SubmitID: result.SubmitID, Continued: result.Continued, ErrorCode: result.ErrorCode, Detail: result.Detail})
 	conn.CompleteRequest(req.ID)
 }
 
@@ -374,28 +289,12 @@ func (s *Server) wsInterrupt(_ context.Context, conn *ws.Conn, req ws.RequestFra
 	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
 		return
 	}
-	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
-		s.sendWSStatusError(conn, req.ID, statusErr)
-		conn.CompleteRequest(req.ID)
+	result, err := s.deps.Runtime.Interrupt(conn.Context(), runtimeInterruptCommand(wsAPIUserInterruptRequest(payload)))
+	if err != nil {
+		s.sendWSRuntimeError(conn, req.ID, err)
 		return
 	}
-	if response, statusErr, ok := s.forwardProxyInterrupt(payload); ok {
-		if statusErr != nil {
-			s.sendWSStatusError(conn, req.ID, statusErr)
-			conn.CompleteRequest(req.ID)
-			return
-		}
-		conn.SendResponse(req.Type, req.ID, 0, "success", response)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	ack := s.deps.Runs.Interrupt(wsAPIUserInterruptRequest(payload))
-	conn.SendResponse(req.Type, req.ID, 0, "success", api.InterruptResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    payload.RunID,
-		Detail:   ack.Detail,
-	})
+	conn.SendResponse(req.Type, req.ID, 0, "success", api.InterruptResponse{Accepted: result.Accepted, Status: result.Status, RunID: result.RunID, Detail: result.Detail})
 	conn.CompleteRequest(req.ID)
 }
 
@@ -409,24 +308,32 @@ func (s *Server) wsAccessLevel(_ context.Context, conn *ws.Conn, req ws.RequestF
 	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
 		return
 	}
-	response, statusErr := s.updateAccessLevel(payload)
-	if statusErr != nil {
-		s.sendWSStatusError(conn, req.ID, statusErr)
-		conn.CompleteRequest(req.ID)
+	result, err := s.deps.Runtime.SetAccessLevel(conn.Context(), runtimetypes.AccessLevelCommand{RunRef: runtimetypes.RunRef{RunID: payload.RunID, AgentKey: payload.AgentKey, TeamID: payload.TeamID}, RequestID: payload.RequestID, AccessLevel: payload.AccessLevel, Reason: payload.Reason})
+	if err != nil {
+		s.sendWSRuntimeError(conn, req.ID, err)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", response)
+	conn.SendResponse(req.Type, req.ID, 0, "success", api.AccessLevelResponse{Accepted: result.Accepted, Status: result.Status, RunID: result.RunID, PreviousAccessLevel: result.PreviousAccessLevel, AccessLevel: result.AccessLevel, Version: result.Version, Detail: result.Detail})
 	conn.CompleteRequest(req.ID)
+}
+func (s *Server) sendWSRuntimeError(conn *ws.Conn, id string, err error) {
+	var statusErr *statusError
+	if errors.As(err, &statusErr) {
+		s.sendWSStatusError(conn, id, statusErr)
+	} else {
+		conn.SendError(id, "invalid_request", 400, err.Error(), nil)
+	}
+	conn.CompleteRequest(id)
 }
 
 func (s *Server) sendWSStatusError(conn *ws.Conn, requestID string, err *statusError) {
 	if err == nil {
 		return
 	}
-	code := strings.TrimSpace(err.code)
+	code := strings.TrimSpace(err.Code)
 	if code == "" {
 		code = "invalid_request"
-		switch err.status {
+		switch err.Status {
 		case http.StatusForbidden:
 			code = "forbidden"
 		case http.StatusNotFound:
@@ -435,7 +342,7 @@ func (s *Server) sendWSStatusError(conn *ws.Conn, requestID string, err *statusE
 			code = "internal_error"
 		}
 	}
-	conn.SendError(requestID, code, err.status, err.message, err.data)
+	conn.SendError(requestID, code, err.Status, err.Message, err.Data)
 }
 
 func (s *Server) sendWSAttachError(conn *ws.Conn, requestID string, runID string, chatID string, err error) {

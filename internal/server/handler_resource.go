@@ -20,7 +20,6 @@ import (
 	"unicode/utf8"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/rootpaths"
 	"agent-platform/internal/temppaths"
@@ -461,13 +460,6 @@ func (s *Server) agentUsesContainerHubForKey(agentKey string) bool {
 		return s.agentUsesContainerHub(def)
 	}
 	return false
-}
-
-func (s *Server) agentUsesContainerHub(def catalog.AgentDefinition) bool {
-	if s == nil || s.deps.Config.IsLocalMode() {
-		return false
-	}
-	return s.deps.Config.ContainerHub.Enabled && hasRuntimeSandbox(def.Runtime)
 }
 
 func pickUploadFile(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {

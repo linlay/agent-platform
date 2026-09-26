@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
@@ -18,6 +19,11 @@ var ErrBackendUnavailable = errors.New("runtime backend is not configured")
 // Backend is the migration seam implemented by the query runtime. It is
 // deliberately declared here so runtime never imports the server transport.
 type Backend interface {
+	ValidateRunOwner(string, string, string) *runtimetypes.RequestError
+	PendingAwaitingInfo(string, *chat.PendingAwaiting) (*queryinput.ChatErrorInfo, error)
+	RegisterPreparedQuery(context.Context, runtimetypes.PreparedQuery) (runtimetypes.RegisteredRun, *runtimetypes.RequestError)
+	FinishRegisteredQuery(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun)
+
 	StartQuery(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
 	ExecuteQuery(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
 	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)

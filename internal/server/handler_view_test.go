@@ -80,6 +80,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 	// The frozen reference is sufficient for history, with no current catalog.
 	registry := fixture.server.deps.Registry
 	fixture.server.deps.Registry = nil
+	bindTestRuntime(fixture.server)
 	if rec := get(path + "&hash=" + response.Data.View.Hash); rec.Code != 200 {
 		t.Fatalf("history after unmount %d %s", rec.Code, rec.Body.String())
 	}
@@ -103,6 +104,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 	}
 
 	fixture.server.deps.Registry = registry
+	bindTestRuntime(fixture.server)
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
 	conn := dialTestWebSocket(t, server.URL)
@@ -127,7 +129,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 
 func TestTeamMergedFormPreservesMemberViewReference(t *testing.T) {
 	ref := &view.Reference{ConnectorID: "member-forms", Key: "edit", Hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Renderer: "html"}
-	forms, _, _ := teamMergedAwaitingDefinition([]*teamChildAwaiting{{PublicID: "task:wait", RawID: "wait", Task: preparedSubTask{taskID: "task"}, Ask: stream.AwaitAsk{Mode: "form", View: ref, Forms: []any{map[string]any{"id": "form-1", "form": map[string]any{"name": "original"}}}}}})
+	forms, _, _ := teamMergedAwaitingDefinition([]*teamChildAwaiting{{PublicID: "task:wait", RawID: "wait", Task: preparedSubTask{TaskID: "task"}, Ask: stream.AwaitAsk{Mode: "form", View: ref, Forms: []any{map[string]any{"id": "form-1", "form": map[string]any{"name": "original"}}}}}})
 	inner := forms[0].(map[string]any)["form"].(map[string]any)
 	if inner["view"].(map[string]any)["hash"] != ref.Hash {
 		t.Fatalf("lost member view: %#v", forms)

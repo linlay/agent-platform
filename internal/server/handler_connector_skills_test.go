@@ -1,13 +1,14 @@
 package server
 
 import (
-	"agent-platform/internal/catalog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/catalog"
 )
 
 func TestAdminConnectorSkillListAndDetail(t *testing.T) {

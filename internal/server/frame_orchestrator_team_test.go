@@ -13,6 +13,8 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/adapter"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
 
@@ -29,13 +31,13 @@ func newTeamFrameOrchestrator(t *testing.T, main *stubOrchestratableStream, chil
 	}
 	snapshot := catalog.NewTeamSnapshot(teamDef, defs)
 	o := newTestFrameOrchestrator(&orchestratorAgentEngine{streamsByAgentKey: children}, defs, emitted, routed)
-	o.request = api.QueryRequest{RequestID: "req-team", RunID: "run_1", ChatID: "chat_1", TeamID: "research", Role: api.QueryRoleUser, Message: "original request"}
-	o.session = contracts.QuerySession{
+	o.Request = runtimetypes.QueryCommand{RequestID: "req-team", RunID: "run_1", ChatID: "chat_1", TeamID: "research", Role: api.QueryRoleUser, Message: "original request"}
+	o.Session = contracts.QuerySession{
 		RequestID: "req-team", RunID: "run_1", ChatID: "chat_1", TeamID: "research", Mode: agentteam.Mode,
 		ModeCapabilities: agentcontract.ModeCapabilities{InvokeChildren: true},
 	}
-	o.teamSnapshot = &snapshot
-	o.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+	o.TeamSnapshot = &snapshot
+	o.BuildQuerySession = func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 		if !options.IncludeHistory || options.IncludeMemory || options.AllowInvokeAgents {
 			t.Fatalf("unexpected Team member options: %#v", options)
 		}
@@ -171,7 +173,7 @@ func TestFrameOrchestratorTeamDelegationRejectsSelfTarget(t *testing.T) {
 	var routed []stream.StreamInput
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, children, defs, &routed, &emitted)
-	o.session.AgentKey = "writer"
+	o.Session.AgentKey = "writer"
 
 	failed, interrupted, err := o.Run(main)
 	if err != nil || failed || interrupted {
@@ -198,14 +200,14 @@ func TestFrameOrchestratorTeamCustomTaskUsesSameDelegationPath(t *testing.T) {
 	var routed []stream.StreamInput
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, map[string]contracts.AgentStream{"writer": child}, defs, &routed, &emitted)
-	o.request.Role = api.QueryRoleAutomation
-	o.request.Scene = &api.Scene{URL: "https://example.test", Title: "Example"}
-	o.request.References = []api.Reference{{ID: "original-reference", Name: "source.md"}}
-	o.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+	o.Request.Role = api.QueryRoleAutomation
+	o.Request.Scene = &api.Scene{URL: "https://example.test", Title: "Example"}
+	o.Request.References = []api.Reference{{ID: "original-reference", Name: "source.md"}}
+	o.BuildQuerySession = func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 		if req.Message != "draft" || !options.IncludeHistory || options.AllowInvokeAgents || options.TeamHistoryAgentKey != "writer" {
 			t.Fatalf("unexpected delegation request/options: %#v %#v", req, options)
 		}
-		if req.Role != api.QueryRoleAutomation || req.Scene != o.request.Scene || len(req.References) != 1 || req.References[0].ID != "original-reference" {
+		if req.Role != api.QueryRoleAutomation || req.Scene != o.Request.Scene || len(req.References) != 1 || req.References[0].ID != "original-reference" {
 			t.Fatalf("original role, scene, and references were not inherited: %#v", req)
 		}
 		return contracts.QuerySession{RunID: req.RunID, ChatID: req.ChatID, AgentKey: def.Key, Mode: def.Mode}, nil
@@ -241,11 +243,11 @@ func TestFrameOrchestratorTeamDelegationMergesFilesWithOriginalReferences(t *tes
 	if err := os.WriteFile(filepath.Join(store.ChatDir("chat_1"), "draft.md"), []byte("draft"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	o.chats = store
-	o.request.References = []api.Reference{{ID: "original", Type: "file", Name: "source.md"}}
+	o.Chats = store
+	o.Request.References = []api.Reference{{ID: "original", Type: "file", Name: "source.md"}}
 	var childRequest api.QueryRequest
-	o.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
-		childRequest = req
+	o.BuildQuerySession = func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+		childRequest = adapter.QueryRequest(req)
 		return contracts.QuerySession{RunID: req.RunID, ChatID: req.ChatID, AgentKey: def.Key, Mode: def.Mode}, nil
 	}
 
@@ -278,17 +280,17 @@ func TestFrameOrchestratorMaterializesInheritedWorkspaceReferenceIntoChat(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	o.chats = store
-	o.session.WorkspaceRoot = parentWorkspace
-	o.request.References = []api.Reference{{
+	o.Chats = store
+	o.Session.WorkspaceRoot = parentWorkspace
+	o.Request.References = []api.Reference{{
 		ID:   "workspace-source",
 		Type: "file",
 		Name: "shared.md",
 		Path: "@workspace/shared.md",
 	}}
 	var childRequest api.QueryRequest
-	o.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, _ querySessionBuildOptions) (contracts.QuerySession, error) {
-		childRequest = req
+	o.BuildQuerySession = func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, def catalog.AgentDefinition, _ querySessionBuildOptions) (contracts.QuerySession, error) {
+		childRequest = adapter.QueryRequest(req)
 		return contracts.QuerySession{RunID: req.RunID, ChatID: req.ChatID, AgentKey: def.Key, Mode: def.Mode}, nil
 	}
 
@@ -351,8 +353,8 @@ func TestRouteChildStreamInputAttributesModelAndUsageEventsToTask(t *testing.T) 
 }
 
 func TestRouteTeamChildLLMRequestCarriesHiddenPersistenceActor(t *testing.T) {
-	task := preparedSubTask{spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, taskID: "task-1"}
-	input := routeChildStreamInput("run-1", task.taskID, stream.InputLLMRequest{ModelKey: "member-model"})
+	task := preparedSubTask{Spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, TaskID: "task-1"}
+	input := routeChildStreamInput("run-1", task.TaskID, stream.InputLLMRequest{ModelKey: "member-model"})
 	routed, ok := routeTeamChildStreamInput("run-1", "research", task, input, childRunOptions{Presentation: "task"}).(stream.InputLLMRequest)
 	if !ok || routed.TaskID != "task-1" || routed.ActorType != "agent" || routed.TeamID != "research" || routed.AgentKey != "writer" || routed.Presentation != "task" {
 		t.Fatalf("routed Team llm.request=%#v", routed)
@@ -360,7 +362,7 @@ func TestRouteTeamChildLLMRequestCarriesHiddenPersistenceActor(t *testing.T) {
 }
 
 func TestRouteTeamChildArtifactPublicationKeepsToolAndTaskTogether(t *testing.T) {
-	task := preparedSubTask{spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, taskID: "task-1"}
+	task := preparedSubTask{Spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, TaskID: "task-1"}
 	args, ok := routeTeamChildStreamInput("run-1", "research", task, stream.ToolArgs{ToolID: "call-artifact", ToolName: "artifact_publish"}, childRunOptions{}).(stream.ToolArgs)
 	if !ok || args.TaskID != "task-1" || args.ToolID != "task-1:call-artifact" {
 		t.Fatalf("routed Team tool args=%#v", args)

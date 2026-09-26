@@ -84,6 +84,7 @@ func TestQueryExecutionEntryPointParity(t *testing.T) {
 					expectedTokens = 18
 				}
 				fixture.server.deps.Agent = engine
+				bindTestRuntime(fixture.server)
 				var completion *chat.RunCompletion
 				switch entry {
 				case "runtime":

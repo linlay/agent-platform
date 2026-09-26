@@ -701,11 +701,11 @@ func TestOpenTerminalSessionRequiresConfiguredWorkspace(t *testing.T) {
 	for _, tt := range successes {
 		t.Run(tt.name, func(t *testing.T) {
 			result, statusErr := fixture.server.openTerminalSession(tt.payload, "test-owner")
-			if runtime.GOOS == "windows" && statusErr != nil && statusErr.status == http.StatusNotImplemented {
+			if runtime.GOOS == "windows" && statusErr != nil && statusErr.Status == http.StatusNotImplemented {
 				t.Skip("Windows ConPTY is unsupported on this host")
 			}
 			if statusErr != nil {
-				t.Fatalf("expected terminal session, got %d %s", statusErr.status, statusErr.message)
+				t.Fatalf("expected terminal session, got %d %s", statusErr.Status, statusErr.Message)
 			}
 			if result.Session == nil {
 				t.Fatalf("expected terminal session")
@@ -747,11 +747,11 @@ func TestOpenTerminalSessionRequiresConfiguredWorkspace(t *testing.T) {
 			if statusErr == nil {
 				t.Fatalf("expected status error")
 			}
-			if statusErr.status != tt.wantStatus {
-				t.Fatalf("status = %d, want %d (%s)", statusErr.status, tt.wantStatus, statusErr.message)
+			if statusErr.Status != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (%s)", statusErr.Status, tt.wantStatus, statusErr.Message)
 			}
-			if !strings.Contains(statusErr.message, tt.wantText) {
-				t.Fatalf("message = %q, want contains %q", statusErr.message, tt.wantText)
+			if !strings.Contains(statusErr.Message, tt.wantText) {
+				t.Fatalf("message = %q, want contains %q", statusErr.Message, tt.wantText)
 			}
 		})
 	}

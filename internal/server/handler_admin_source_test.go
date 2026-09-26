@@ -1,7 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/reload"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/reload"
 )
 
 func TestAdminSourceSkillTextReadWriteAndBinaryGuard(t *testing.T) {

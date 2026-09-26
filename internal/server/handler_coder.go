@@ -213,7 +213,7 @@ func fetchACPCoderModelOptions(bridge config.CoderACPBridgeConfig) ([]api.CoderM
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, &statusError{status: resp.StatusCode, message: "proxy model discovery returned " + resp.Status}
+		return nil, &statusError{Status: resp.StatusCode, Message: "proxy model discovery returned " + resp.Status}
 	}
 	var decoded acpModelCatalogResponse
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
