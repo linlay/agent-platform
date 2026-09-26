@@ -48,8 +48,8 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 			agentDir := filepath.Join(fixture.cfg.Paths.AgentsDir, "mock-agent")
 			switch state {
 			case "invalid":
-				// The legacy Desktop configuration is a real catalog failure.
-				if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: mock-agent\nname: Broken\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - desktop_action\n"), 0o644); err != nil {
+				// A missing declared connector remains a real catalog failure.
+				if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: mock-agent\nname: Broken\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nconnectorConfig:\n  connectors:\n    - missing.connector\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			case "deleted":
