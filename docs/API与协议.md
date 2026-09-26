@@ -18,6 +18,8 @@
 
 管理接口通过统一 Agent HTTP 错误出口返回失败时，外层保留数字 `code` 与 `msg`，`data.error` 同时保留业务错误码、原因、状态及领域诊断。HTTP 状态码不能代替业务错误码；前端依业务错误码提供处理建议，领域诊断用于解释具体阻塞对象。
 
+普通 Agent query 准入失败时，已存在但配置无效的 Agent 返回 `422 agent_configuration_invalid`，不存在或不可用且无 invalid 管理记录的 Agent 返回 `404 agent_not_found`，均不可重试。HTTP（包括 SSE 启动前）与 WebSocket 在 `data.error` 保留应用错误码、`status`、`retryable` 和可选 `diagnostics`，按请求/连接语言返回提示。`contextConfig.agents` 中不可用的候选引用继续跳过并警告，不因此阻断主 Agent；已有 Chat 历史仍可读取。
+
 ## 统一时间契约
 
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。

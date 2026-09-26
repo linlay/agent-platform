@@ -8,11 +8,44 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
+
+func TestConnPreservesApplicationErrorPayload(t *testing.T) {
+	for _, nested := range []bool{false, true} {
+		conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
+		conn.SetLocale(i18n.LocaleZhCN)
+		payload := apperrors.Payload(apperrors.CodeAgentConfigurationInvalid, "Invalid configuration",
+			apperrors.WithRetryable(true), apperrors.WithDiagnostic("field", "modelConfig"))
+		data := payload
+		if nested {
+			data = map[string]any{"error": payload, "context": "preserve-me"}
+		}
+		conn.SendError("req", string(apperrors.CodeAgentConfigurationInvalid), http.StatusUnprocessableEntity, "Invalid configuration", data)
+		frame := mustReadQueuedMessage(t, conn.writeQueue).frame.(ErrorFrame)
+		out := frame.Data.(map[string]any)
+		errPayload := out["error"].(map[string]any)
+		if errPayload["code"] != string(apperrors.CodeAgentConfigurationInvalid) || errPayload["retryable"] != true || errPayload["diagnostics"].(map[string]any)["field"] != "modelConfig" {
+			t.Fatalf("nested=%v: lost authoritative error: %#v", nested, out)
+		}
+		if frame.Msg != "智能体配置无效，请在智能体管理中修复配置后再发送。" || errPayload["message"] != frame.Msg {
+			t.Fatalf("inconsistent localized error: %#v", frame)
+		}
+		if nested && out["context"] != "preserve-me" {
+			t.Fatalf("lost surrounding data: %#v", out)
+		}
+		if !nested && (out["code"] != payload["code"] || out["diagnostics"].(map[string]any)["field"] != "modelConfig") {
+			t.Fatalf("lost legacy top-level error fields: %#v", out)
+		}
+		if payload["message"] != "Invalid configuration" {
+			t.Fatalf("mutated original payload: %#v", payload)
+		}
+	}
+}
 
 func TestConnRejectsDuplicateRequestID(t *testing.T) {
 	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})

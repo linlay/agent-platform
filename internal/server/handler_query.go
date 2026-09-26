@@ -93,7 +93,8 @@ func writeQueryStartError(w http.ResponseWriter, err error) {
 	var appErr *apperrors.Error
 	if errors.As(err, &appErr) {
 		status := apperrorsStatus(appErr, http.StatusInternalServerError)
-		writeJSON(w, status, api.Failure(status, err.Error()))
+		message := i18n.Translate(responseLocale(w), string(appErr.Code()), err.Error())
+		writeJSON(w, status, api.Failure(status, message, appErr.Payload()))
 		return
 	}
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))

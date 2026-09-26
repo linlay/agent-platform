@@ -37,6 +37,7 @@ var definitions = []Definition{
 	def(CodeLegacySEQExpired, CategoryProtocol, ScopeStream, http.StatusConflict, false),
 
 	def(CodeAgentNotFound, CategoryCatalog, ScopeRequest, http.StatusNotFound, false),
+	def(CodeAgentConfigurationInvalid, CategoryCatalog, ScopeRequest, http.StatusUnprocessableEntity, false),
 	def(CodeModelNotFound, CategoryCatalog, ScopeModel, http.StatusNotFound, false),
 	def(CodeProviderNotConfigured, CategoryCatalog, ScopeModel, http.StatusBadGateway, false),
 	def(CodeModelRegistryUnavailable, CategoryCatalog, ScopeModel, http.StatusServiceUnavailable, true),

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
@@ -28,6 +30,22 @@ import (
 
 	gws "github.com/gorilla/websocket"
 )
+
+func TestQueryStartErrorPreservesApplicationDetails(t *testing.T) {
+	err := fmt.Errorf("query admission: %w", apperrors.New(apperrors.CodeAgentConfigurationInvalid, "invalid configuration",
+		apperrors.WithRetryable(true), apperrors.WithDiagnostic("field", "modelConfig")))
+	rec := httptest.NewRecorder()
+	writeQueryStartError(rec, err)
+	var response api.ApiResponse[map[string]any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := response.Data["error"].(map[string]any)
+	diagnostics, _ := payload["diagnostics"].(map[string]any)
+	if rec.Code != http.StatusUnprocessableEntity || payload["code"] != string(apperrors.CodeAgentConfigurationInvalid) || payload["retryable"] != true || diagnostics["field"] != "modelConfig" {
+		t.Fatalf("lost application error details: %d %s", rec.Code, rec.Body.String())
+	}
+}
 
 func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	fixture := newTestFixture(t)

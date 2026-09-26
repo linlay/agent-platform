@@ -973,7 +973,13 @@ func attachStructuredError(frameType string, status int, msg string, data any) a
 			out[key] = value
 		}
 		if _, exists := out["error"]; !exists {
-			out["error"] = errorPayload
+			// Preserve both the authoritative application error and the existing
+			// top-level data fields consumed by older clients.
+			if typed["code"] != nil && typed["category"] != nil {
+				out["error"] = typed
+			} else {
+				out["error"] = errorPayload
+			}
 		}
 		return out
 	}

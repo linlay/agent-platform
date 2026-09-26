@@ -12,9 +12,11 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/i18n"
 )
 
 // Catalog membership is execution metadata, not the authority for persisted
@@ -75,10 +77,32 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 				}
 			}
 			if state != "valid" {
-				rec := httptest.NewRecorder()
-				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"historical-chat","agentKey":"mock-agent","message":"continue"}`)))
-				if rec.Code < 400 {
-					t.Fatalf("unavailable Agent must reject continuation: %d %s", rec.Code, rec.Body.String())
+				code, status := apperrors.CodeAgentNotFound, http.StatusNotFound
+				if state == "invalid" {
+					code, status = apperrors.CodeAgentConfigurationInvalid, http.StatusUnprocessableEntity
+				}
+				for _, locale := range []string{i18n.LocaleEN, i18n.LocaleZhCN} {
+					for _, stream := range []bool{true, false} {
+						body, err := json.Marshal(map[string]any{"chatId": chatID, "agentKey": "mock-agent", "message": "continue", "stream": stream})
+						if err != nil {
+							t.Fatal(err)
+						}
+						req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body))
+						req.Header.Set("X-Locale", locale)
+						rec := httptest.NewRecorder()
+						fixture.server.ServeHTTP(rec, req)
+						var response api.ApiResponse[map[string]any]
+						if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+							t.Fatal(err)
+						}
+						payload, _ := response.Data["error"].(map[string]any)
+						if rec.Code != status || response.Code != status || payload["code"] != string(code) || payload["status"] != float64(status) || payload["retryable"] != false {
+							t.Fatalf("locale=%s stream=%v: unexpected error: %d %s", locale, stream, rec.Code, rec.Body.String())
+						}
+						if message, _ := payload["message"].(string); message == "" || response.Msg != message || i18n.Translate(locale, string(code), message) != message {
+							t.Fatalf("locale=%s: inconsistent localized message: %s", locale, rec.Body.String())
+						}
+					}
 				}
 			}
 			after := read("/api/chat?chatId=" + chatID + "&includeRawMessages=true")

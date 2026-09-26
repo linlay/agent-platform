@@ -257,7 +257,14 @@ func (s *Server) prepareQueryAdmissionRequest(
 		agentDef, release, found = acquireAgentRuntime(s.deps.Registry, agentKey)
 		admissionRelease = combineQueryReleases(admissionRelease, release)
 		if !found {
-			return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+			if registry, ok := s.deps.Registry.(interface {
+				AdminAgent(string) (catalog.AdminAgent, bool)
+			}); ok {
+				if agent, exists := registry.AdminAgent(agentKey); exists && agent.Status == catalog.AdminAgentStatusInvalid {
+					return queryAdmission{}, apperrors.New(apperrors.CodeAgentConfigurationInvalid, "The agent configuration is invalid. Fix it in agent management before sending again.")
+				}
+			}
+			return queryAdmission{}, apperrors.New(apperrors.CodeAgentNotFound, "The agent is unavailable. Select an available agent.")
 		}
 	}
 	if isProxyRoutedAgent(agentDef) && proxyRequestHasReservedCWD(req.Params) {
