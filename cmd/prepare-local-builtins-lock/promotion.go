@@ -71,7 +71,7 @@ func offerUpdate(lockPath, collectionRoot, durableRoot, hostTarget string, input
 		if !interactive {
 			fmt.Fprintln(output, "[builtins-sync] non-interactive input; newer leader versions were not accepted")
 		} else {
-			fmt.Fprint(output, "Update scripts/release-assets/builtins.lock.json? Type yes to confirm: ")
+			fmt.Fprintf(output, "Update %s? Type yes to confirm: ", candidate.LockPath)
 			answer, readErr := bufio.NewReader(input).ReadString('\n')
 			if readErr != nil && !errors.Is(readErr, io.EOF) {
 				return fmt.Errorf("read canonical lock confirmation: %w", readErr)
@@ -171,6 +171,10 @@ func prepareRolloutCandidate(lockPath, collectionRoot, durableRoot, hostTarget s
 		if !isLocallyVersionedComponent(canonical.Name) {
 			continue
 		}
+		currentTarget, targetExists := canonical.Targets[targetKey]
+		if !targetExists && !canonical.Required && !(canonical.Name == builtins.GitBashComponent && targetKey == "windows-amd64") {
+			continue
+		}
 		repositoryRoot, err := joinWithin(collectionRoot, canonical.Repository)
 		if err != nil {
 			return rolloutCandidate{}, fmt.Errorf("%s repository: %w", canonical.Name, err)
@@ -205,10 +209,6 @@ func prepareRolloutCandidate(lockPath, collectionRoot, durableRoot, hostTarget s
 			}
 		}
 
-		currentTarget, targetExists := canonical.Targets[targetKey]
-		if !targetExists && !canonical.Required && !(canonical.Name == builtins.GitBashComponent && targetKey == "windows-amd64") {
-			continue
-		}
 		mode := "follower"
 		promoted := cloneComponent(canonical)
 		if versionComparison > 0 {

@@ -198,6 +198,13 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 }
 
 func localComponentCommit(repositoryRoot string) (string, bool, error) {
+	// Vendored components without their own Git metadata must not inherit the enclosing Platform checkout.
+	if _, err := os.Stat(filepath.Join(repositoryRoot, ".git")); errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	} else if err != nil {
+		return "", false, err
+	}
+
 	command := exec.Command("git", "-c", "safe.directory="+filepath.ToSlash(repositoryRoot), "-C", repositoryRoot, "rev-parse", "--verify", "--quiet", "HEAD")
 	payload, err := command.Output()
 	if err != nil {

@@ -4,18 +4,20 @@
   "components": [
     {
       "name": "dbx",
-      "version": "v0.1.3",
+      "version": "v0.1.4",
       "repository": "dbx",
       "source": "https://github.com/linlay/cli-dbx.git",
+      "commit": "f4f6a523a410e8e0a9e976775f6edb589e64d493",
       "kind": "archive-tree",
       "required": true,
       "targets": {
         "darwin-arm64": {
-          "version": "v0.1.3",
+          "version": "v0.1.4",
           "source": "https://github.com/linlay/cli-dbx.git",
-          "path": "dist/v0.1.3/builtin.dbx_v0.1.3_darwin_arm64.zip",
+          "commit": "f4f6a523a410e8e0a9e976775f6edb589e64d493",
+          "path": "dist/v0.1.4/builtin.dbx_v0.1.4_darwin_arm64.zip",
           "format": "zip",
-          "sha256": "19fdafbfd57b75adb2b8835bf2e42bdaab1368774b7c0cc3a40fecc170936143",
+          "sha256": "c676aadafb570046a97421b2afc0796fecb8a23926a302aa3d802d35ea03b9cc",
           "tree": {
             "root": "runtime",
             "outputs": [
@@ -30,18 +32,20 @@
     },
     {
       "name": "httpx",
-      "version": "v0.1.10",
+      "version": "v0.1.11",
       "repository": "httpx",
       "source": "https://github.com/linlay/cli-httpx.git",
+      "commit": "cb69a0104738f9c2d0d5b7ef598f0bdb89aa2cd8",
       "kind": "archive-tree",
       "required": true,
       "targets": {
         "darwin-arm64": {
-          "version": "v0.1.10",
+          "version": "v0.1.11",
           "source": "https://github.com/linlay/cli-httpx.git",
-          "path": "dist/v0.1.10/builtin.httpx_v0.1.10_darwin_arm64.zip",
+          "commit": "cb69a0104738f9c2d0d5b7ef598f0bdb89aa2cd8",
+          "path": "dist/v0.1.11/builtin.httpx_v0.1.11_darwin_arm64.zip",
           "format": "zip",
-          "sha256": "8166da0b3c3c67e778152dd09deb7a6471f69224c81f2819af5941af8ac222c4",
+          "sha256": "10db988207d5fcc66eeced1c920eca9f2012fea91eca5d1e759412bbe9f7f641",
           "tree": {
             "root": "runtime",
             "outputs": [
