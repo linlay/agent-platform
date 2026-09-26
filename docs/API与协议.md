@@ -81,7 +81,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `GET /api/agents/order` 返回所有有效 runtime Agent 的完整 catalog 顺序，不接受 `scope` 或 `mode` 过滤，也不暴露 invalid Agent。`PUT` 接受 `{ "order": ["agent-b", "agent-a"] }`：key 会裁剪空白并校验为空、重复、数量上限和当前有效 catalog 成员；请求未携带的当前有效 Agent 按现有 catalog 顺序追加。Platform 再把这份有效顺序替换进完整 admin 序列的有效 Agent 槽位，invalid Agent 的位置和相对顺序保持不变，并原子写入既有 `agent-order.json`、reload catalog、发布一次 `catalog.updated`。该接口仅提供 HTTP；`/api/admin/agents/order` 继续面向管理台，允许完整 admin catalog 与 invalid Agent，两者共享同一顺序文件且不迁移已有数据。
 
-`GET /api/skills` 返回全局有效技能中心目录，响应为 `{agentKey,skills,pinned}`。每项包含 `key/name/configured` 与可选 `description/icon`；不返回 `items/meta`。可选 `agentKey` 仅计算当前智能体是否已配置该技能，不筛选或重排目录；不存在的 Agent 返回 404 `agent_not_found`。不传时 `agentKey:""`、所有 `configured:false`，仍返回完整目录。技能按中心稳定顺序返回，不追加 Agent 私有技能；`skills` 和 `pinned` 均不为 null。`configured` 表示已配置，并不表示本次必须使用。
+`GET /api/skills` 返回全局有效技能中心目录，响应为 `{agentKey,skills,pinned}`。每项包含 `key/displayName/configured` 与可选 `description/icon/version/revision`；不返回 `name`，未配置显示名称时由服务端回退到 SKILL.md 的 `name`；不返回 `items/meta`。可选 `agentKey` 仅计算当前智能体是否已配置该技能，不筛选或重排目录；不存在的 Agent 返回 404 `agent_not_found`。不传时 `agentKey:""`、所有 `configured:false`，仍返回完整目录。技能按中心稳定顺序返回，不追加 Agent 私有技能；`skills` 和 `pinned` 均不为 null。`configured` 表示已配置，并不表示本次必须使用。
 
 普通 Agent 摘要中的 `workspaceDir` 表示该 Agent 的运行工作区，`agentConfigDir` 表示 catalog 已解析的 Agent 配置目录；两者互不替代。`agentConfigDir` 原样返回运行时 `AgentDefinition.AgentDir`，为空时省略。`/api/agent` 继续通过现有的 `source.agentDir` 返回编辑来源目录，不新增顶层字段。
 
@@ -1275,3 +1275,8 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 ### L1 推理清理统计
 
 层级标识继续使用 `l1_tools`。完成响应和实时 `context.compact.complete` 可附带 `reasoningCleared`，表示排除推理的 assistant 消息数；`toolsCleared/toolsKept` 统计工具，`tokensFreed` 统计合计收益。自动 L1 统一由完整输入达到 90% 触发，不再设置独立 reasoning 阈值。
+
+
+## 技能展示字段与语言
+
+技能对象新增 `displayName/version/revision`；名称和描述按 HTTP 请求语言或 WebSocket 连接语言解析，API 不返回 i18n 表。技能对象只返回 `key/displayName`，不返回 `name`；缺少显示名称时用 SKILL.md 的 name 回退，语言切换后客户端须重新请求。字段、版本兼容规则及完整示例见 [技能展示元数据](技能展示元数据.md)。

@@ -1,6 +1,9 @@
 package catalog
 
-import "agent-platform/internal/contracts"
+import (
+	"agent-platform/internal/contracts"
+	"agent-platform/internal/skillmeta"
+)
 
 const (
 	AdminAgentStatusReady   = "ready"
@@ -40,6 +43,7 @@ type AdminAgent struct {
 // Agent source.  It deliberately carries no filesystem path: the admin API
 // exposes the logical skill identity only.
 type AdminAgentPrivateSkill struct {
+	Presentation    skillmeta.Presentation
 	Key             string
 	Name            string
 	Description     string

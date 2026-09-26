@@ -93,7 +93,8 @@ func (s *Server) listSkillsForAgent(ctx context.Context, agentKey string) (api.A
 		seen[key] = true
 		definition, _ := s.deps.Registry.SkillDefinition(skill.Key)
 		response.Skills = append(response.Skills, api.AgentSkillResponse{
-			Key: skill.Key, Name: skill.Name, Description: skill.Description,
+			Presentation: skill.Presentation,
+			Key:          skill.Key, Name: skill.Name, Description: skill.Description,
 			Icon: agentSkillIconURL("", definition), Configured: configured[key],
 		})
 	}

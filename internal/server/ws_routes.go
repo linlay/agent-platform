@@ -315,7 +315,7 @@ func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response := s.buildAgentDetailResponse(def)
+	response := localizeSkillResponse(conn.Locale(), s.buildAgentDetailResponse(def))
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }

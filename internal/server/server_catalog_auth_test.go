@@ -68,7 +68,7 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 		response.Data.Tools[5] != "memory_search" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
-	if len(response.Data.Skills) != 1 || response.Data.Skills[0].Key != "mock-skill" || response.Data.Skills[0].Name == "" {
+	if len(response.Data.Skills) != 1 || response.Data.Skills[0].Key != "mock-skill" || response.Data.Skills[0].DisplayName == "" {
 		t.Fatalf("expected skills in detail response, got %#v", response.Data.Skills)
 	}
 	if len(response.Data.Controls) != 1 || response.Data.Controls[0]["key"] != "tone" {

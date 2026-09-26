@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-platform/internal/skillmeta"
 	"agent-platform/internal/stream"
 
 	"agent-platform/internal/interaction"
@@ -731,8 +732,10 @@ type AdminAgentSummary struct {
 }
 
 type AgentDetailSkill struct {
-	Key  string `json:"key"`
-	Name string `json:"name"`
+	skillmeta.Presentation
+	Key         string `json:"key"`
+	Name        string `json:"-"` // Internal fallback; public name is displayName.
+	Description string `json:"description,omitempty"`
 }
 
 type AgentDetailResponse struct {
@@ -824,8 +827,9 @@ type AdminAgentDetailResponse struct {
 }
 
 type AdminAgentPrivateSkill struct {
+	skillmeta.Presentation
 	Key             string                 `json:"key"`
-	Name            string                 `json:"name"`
+	Name            string                 `json:"-"` // Internal fallback; public name is displayName.
 	Description     string                 `json:"description,omitempty"`
 	Status          string                 `json:"status"`
 	Diagnostics     []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
@@ -1144,16 +1148,18 @@ type TeamSummary struct {
 }
 
 type SkillSummary struct {
+	skillmeta.Presentation
 	Key         string         `json:"key"`
-	Name        string         `json:"name"`
+	Name        string         `json:"-"` // Internal fallback; public name is displayName.
 	Description string         `json:"description,omitempty"`
 	Meta        map[string]any `json:"meta,omitempty"`
 }
 
 type AgentSkillResponse struct {
+	skillmeta.Presentation
 	Icon        string `json:"icon,omitempty"`
 	Key         string `json:"key"`
-	Name        string `json:"name"`
+	Name        string `json:"-"` // Internal fallback; public name is displayName.
 	Description string `json:"description,omitempty"`
 	Configured  bool   `json:"configured"`
 }
@@ -1165,12 +1171,12 @@ type AgentSkillsResponse struct {
 }
 
 type AdminSkillSummary struct {
+	skillmeta.Presentation
 	Key             string                       `json:"key"`
-	Name            string                       `json:"name"`
+	Name            string                       `json:"-"` // Internal fallback; public name is displayName.
 	Description     string                       `json:"description,omitempty"`
 	Icon            string                       `json:"icon,omitempty"`
 	Meta            map[string]any               `json:"meta,omitempty"`
-	Version         string                       `json:"version,omitempty"`
 	Status          string                       `json:"status"`
 	Diagnostic      *AdminRegistryListDiagnostic `json:"diagnostic,omitempty"`
 	DiagnosticCount int                          `json:"diagnosticCount,omitempty"`
@@ -1211,8 +1217,9 @@ type DeleteAdminSkillResponse struct {
 }
 
 type AdminSkillPackageSkill struct {
-	ID      string `json:"id"`
-	Version string `json:"version,omitempty"`
+	Diagnostics []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
+	ID          string                 `json:"id"`
+	Version     string                 `json:"version,omitempty"`
 }
 
 // AdminSkillImportResponse keeps single-skill detail fields at the top level

@@ -92,6 +92,7 @@ func (r *FileRegistry) listEditableAgentPrivateSkills(files EditableAgentFiles) 
 			diagnostics = append(diagnostics, diagnostic)
 		}
 		items = append(items, AdminAgentPrivateSkill{
+			Presentation:    item.Presentation,
 			Key:             item.Key,
 			Name:            item.Name,
 			Description:     item.Description,

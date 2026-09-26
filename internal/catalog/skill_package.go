@@ -33,8 +33,9 @@ var (
 )
 
 type SkillPackageRecordSkill struct {
-	ID      string `json:"id"`
-	Version string `json:"version,omitempty"`
+	Diagnostics []AdminSkillDiagnostic `json:"-"`
+	ID          string                 `json:"id"`
+	Version     string                 `json:"version,omitempty"`
 }
 
 type SkillPackageRecord struct {
@@ -381,7 +382,7 @@ func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, S
 		return rollbackOnError(err)
 	}
 	mutation.recordChanged = true
-	return mutation, record, nil
+	return mutation, skillPackageVersionDiagnostics(root, record), nil
 }
 
 func (r *FileRegistry) BeginDeleteEditableSkillPackage(packageID string) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
@@ -573,7 +574,7 @@ func (r *FileRegistry) EditableSkillPackages() ([]SkillPackageRecord, error) {
 			return nil, err
 		}
 		if exists {
-			records = append(records, record)
+			records = append(records, skillPackageVersionDiagnostics(root, record))
 		}
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
@@ -792,4 +793,28 @@ func skillPackageArchiveSHA256(source io.ReaderAt, size int64) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// Compare installed content with the package snapshot without changing either.
+func skillPackageVersionDiagnostics(root string, record SkillPackageRecord) SkillPackageRecord {
+	record.Skills = append([]SkillPackageRecordSkill(nil), record.Skills...)
+	for i := range record.Skills {
+		entry := &record.Skills[i]
+		entry.Diagnostics = nil
+		content, err := os.ReadFile(filepath.Join(root, entry.ID, "SKILL.md"))
+		if err != nil {
+			continue
+		}
+		_, _, _, _, version := parseSkillPromptMetadata(string(content))
+		code, message := "", ""
+		if version == "" {
+			code, message = "missing_skill_version", "SKILL.md does not declare a version; package version is not used as a fallback"
+		} else if version != entry.Version {
+			code, message = "skill_package_version_mismatch", "SKILL.md version differs from the package child version"
+		}
+		if code != "" {
+			entry.Diagnostics = []AdminSkillDiagnostic{skillDiagnostic("warning", code, message, "skills/"+entry.ID+"/SKILL.md")}
+		}
+	}
+	return record
 }

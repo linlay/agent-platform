@@ -29,6 +29,8 @@
 - 已具备 automation、`agent_invoke` 子智能体调度、`run_query` / `run_status` / `run_interrupt` 独立 Agent/Team 根 run 启动与控制、带隐藏协调器的 orchestrated Team、基于官方 Go SDK v1.6.1 的 MCP streamable HTTP/stdio session client 与后台 tool sync、WebSocket 控制面，以及 client/server channel 上按 Session 执行的 Agent 接出注册 v1（`agent.list/register/unregister`）；MCP 本地 Registry 同步校验，远端初始化/发现/重试不进入启动、保存或 watcher 关键路径，优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`。Channel 注册当前不升级 Query Stream、Run TTL、`registrationId` 路由、HITL Schema 或控制协议。
 尚未完全对齐 Java 版的部分能力包括 MCP 全量生产验证、automation 深度编排、热重载细节和更完整的客户端协议适配。未落地能力必须在专题文档中明确标注，不能写成已完成能力。
 
+技能展示元数据已支持顶层 `displayName`（非空时优先）及 `metadata.displayName/i18n/version/revision`，API 名称字段仅返回 `key/displayName`，按请求语言解析显示名称与描述，无显示名称时回退 SKILL.md 的 name，不返回 name 或翻译表；key/name 不一致只告警不阻断；版本保留顶层优先兼容规则，名称与版本诊断不改写技能，客户端刷新接入见 [技能展示元数据](docs/技能展示元数据.md)。
+
 ## 2. 技术栈
 
 - 语言：Go

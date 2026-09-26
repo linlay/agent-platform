@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/skillmeta"
 	"agent-platform/internal/stream"
 )
 
@@ -217,16 +218,11 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 func (s *Server) agentDetailSkills(def catalog.AgentDefinition) []api.AgentDetailSkill {
 	out := make([]api.AgentDetailSkill, 0, len(def.Skills))
 	for _, key := range def.Skills {
-		name := key
 		skill, found, err := def.ResolveSkillDefinition(key)
-		if err == nil && found {
-			name = firstNonBlank(skill.Name, key)
-		} else if s.deps.Registry != nil {
-			if skill, found := s.deps.Registry.SkillDefinition(key); found {
-				name = firstNonBlank(skill.Name, key)
-			}
+		if (err != nil || !found) && s.deps.Registry != nil {
+			skill, found = s.deps.Registry.SkillDefinition(key)
 		}
-		out = append(out, api.AgentDetailSkill{Key: key, Name: name})
+		out = append(out, api.AgentDetailSkill{Key: key, Name: firstNonBlank(skill.Name, key), Description: skill.Description, Presentation: skillmeta.Parse(skill.Metadata, skill.Version)})
 	}
 	return out
 }

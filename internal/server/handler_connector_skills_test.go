@@ -30,7 +30,7 @@ func TestAdminConnectorSkillListAndDetail(t *testing.T) {
 		t.Fatalf("list=%+v", list)
 	}
 	skill := list.Skills[0]
-	if skill.Name != "guide" || skill.Description != "A multi-line connector guide." || skill.Version != "2.1.0" || len(skill.Triggers) != 2 {
+	if skill.Key != "guide" || skill.DisplayName != "guide" || skill.Description != "A multi-line connector guide." || skill.Version != "2.1.0" || len(skill.Triggers) != 2 {
 		t.Fatalf("metadata=%+v", skill)
 	}
 	detail := getAPIData[catalog.ConnectorSkillDetail](t, fixture.server, http.MethodGet, "/api/admin/connectors/skills/detail?id=demo&name=guide", nil)

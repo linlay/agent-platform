@@ -110,6 +110,7 @@ func (s *Server) withAdminAgentPrivateSkills(detail api.AdminAgentDetailResponse
 	detail.PrivateSkills = make([]api.AdminAgentPrivateSkill, 0, len(items))
 	for _, item := range items {
 		detail.PrivateSkills = append(detail.PrivateSkills, api.AdminAgentPrivateSkill{
+			Presentation:    item.Presentation,
 			Key:             item.Key,
 			Name:            item.Name,
 			Description:     item.Description,

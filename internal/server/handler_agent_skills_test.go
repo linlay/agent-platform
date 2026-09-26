@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -164,7 +165,7 @@ func assertAgentSkillsResponse(t *testing.T, response api.AgentSkillsResponse) {
 		if !strings.HasPrefix(got.Icon, "/api/skills/icon?key=") {
 			t.Fatalf("skills[%d] missing icon: %#v", index, got)
 		}
-		if strings.TrimSpace(got.Name) == "" {
+		if strings.TrimSpace(got.DisplayName) == "" {
 			t.Fatalf("skills[%d] must include name: %#v", index, got)
 		}
 	}
@@ -182,7 +183,7 @@ func TestAgentSkillsOptionalContextDoesNotFilterCatalog(t *testing.T) {
 			t.Fatal("unscoped skill configured")
 		}
 		scoped.Skills[i].Configured = false
-		if skill != scoped.Skills[i] {
+		if !reflect.DeepEqual(skill, scoped.Skills[i]) {
 			t.Fatalf("catalog differs: %#v %#v", skill, scoped.Skills[i])
 		}
 	}

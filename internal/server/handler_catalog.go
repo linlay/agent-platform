@@ -150,7 +150,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := s.buildAgentDetailResponse(def)
-	writeJSON(w, http.StatusOK, api.Success(response))
+	writeJSON(w, http.StatusOK, api.Success(localizeSkillResponse(responseLocale(w), response)))
 }
 
 func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
@@ -820,7 +820,7 @@ func decodeStrictJSON(r *http.Request, target any) error {
 
 func (s *Server) writeAgentHTTPResponse(w http.ResponseWriter, response any, err error) {
 	if err == nil {
-		writeJSON(w, http.StatusOK, api.Success(response))
+		writeJSON(w, http.StatusOK, api.Success(localizeSkillResponse(responseLocale(w), response)))
 		return
 	}
 	if isTimeContractViolation(err) {
@@ -857,7 +857,7 @@ func (s *Server) sendAgentWSResponse(conn *ws.Conn, req ws.RequestFrame, respons
 		s.sendAgentWSError(conn, req, err)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", response)
+	conn.SendResponse(req.Type, req.ID, 0, "success", localizeSkillResponse(conn.Locale(), response))
 	conn.CompleteRequest(req.ID)
 }
 

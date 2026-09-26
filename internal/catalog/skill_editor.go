@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"agent-platform/internal/connector"
+	"agent-platform/internal/skillmeta"
 )
 
 const (
@@ -83,6 +84,7 @@ type AdminSkillDiagnostic struct {
 }
 
 type AdminSkill struct {
+	Presentation skillmeta.Presentation
 	Key          string
 	Name         string
 	Description  string
@@ -1160,6 +1162,10 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 		item.Name = def.Name
 		item.Description = def.Description
 		item.Version = version
+		item.Presentation = skillmeta.Parse(metadata, version)
+		for _, diagnostic := range skillMetadataDiagnostics(key, prompt) {
+			item.Diagnostics = append(item.Diagnostics, skillDiagnostic(diagnostic.Severity, diagnostic.Code, diagnostic.Message, skillPath))
+		}
 		item.Meta = skillSummaryMeta(def)
 	}
 	if item.Meta == nil {
