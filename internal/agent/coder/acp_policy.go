@@ -37,55 +37,6 @@ func ModelOptionsFilterMode(agentKey string, mode string, acpBridgeID string) st
 	return ""
 }
 
-func DefaultModelOptionKey(options []api.CoderModelOption, preferredKey string, defaultKey string) string {
-	if len(options) == 0 {
-		return ""
-	}
-	visible := make(map[string]bool, len(options))
-	normalFallback := ""
-	acpFallback := ""
-	for _, option := range options {
-		key := strings.TrimSpace(option.Key)
-		if key == "" {
-			continue
-		}
-		visible[key] = true
-		if models.IsACPPassthroughProtocol(option.Protocol) {
-			if acpFallback == "" {
-				acpFallback = key
-			}
-			continue
-		}
-		if normalFallback == "" {
-			normalFallback = key
-		}
-	}
-	if key := strings.TrimSpace(preferredKey); visible[key] {
-		return key
-	}
-	if key := strings.TrimSpace(defaultKey); visible[key] {
-		return key
-	}
-	if normalFallback != "" {
-		return normalFallback
-	}
-	return acpFallback
-}
-
-func DefaultServiceTier(isACPBackend bool, configuredServiceTier string, options []api.ServiceTierOption) string {
-	if !isACPBackend {
-		return ""
-	}
-	serviceTier, ok := NormalizeServiceTier(configuredServiceTier)
-	if !ok || serviceTier == "" {
-		return ""
-	}
-	if !ServiceTierInOptions(serviceTier, options) {
-		return ""
-	}
-	return serviceTier
-}
-
 func ServiceTierOptions(isACPBackend bool, modelOptions []api.CoderModelOption) []api.ServiceTierOption {
 	options := []api.ServiceTierOption{{Key: "STANDARD", Label: "Standard"}}
 	if !isACPBackend {
@@ -143,19 +94,6 @@ func ReasoningEffortOptions(isACPBackend bool, modelOptions []api.CoderModelOpti
 		options = append(options, api.ReasoningEffortOption{Key: effort, Label: effort})
 	}
 	return options
-}
-
-func ServiceTierInOptions(serviceTier string, options []api.ServiceTierOption) bool {
-	serviceTier = strings.TrimSpace(serviceTier)
-	if serviceTier == "" {
-		return true
-	}
-	for _, option := range options {
-		if strings.EqualFold(strings.TrimSpace(option.Key), serviceTier) {
-			return true
-		}
-	}
-	return false
 }
 
 func ServiceTierLabel(serviceTier string) string {

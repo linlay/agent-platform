@@ -15,7 +15,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestDisconnectLetsDispatchedWebAppCallFinish(t *testing.T) {
+func TestDisconnectLetsDispatchedConnectorCallFinish(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	upstream := sdk.NewServer(&sdk.Implementation{Name: "inflight", Version: "1"}, nil)
 	upstream.AddTool(&sdk.Tool{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(ctx context.Context, _ *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
@@ -43,7 +43,7 @@ func TestDisconnectLetsDispatchedWebAppCallFinish(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := Service{Auth: m, Sources: sources}
-	scope := Scope{Subject: "owner", AppID: "app", Execution: []Permission{{ConnectorID: "demo", Adapter: "mcp"}}, Check: func() error { return nil }}
+	scope := Scope{Subject: "owner", IdempotencyNamespace: "app", Execution: []Permission{{ConnectorID: "demo", Adapter: "mcp"}}, Check: func() error { return nil }}
 	req := Request{ConnectorID: "demo", Adapter: "mcp", Component: "main", ToolName: "read", Arguments: map[string]any{}}
 	done := make(chan error, 1)
 	go func() { _, err := s.Invoke(t.Context(), scope, req); done <- err }()
@@ -88,7 +88,7 @@ func TestConfiguredTokenCLIReachesExecution(t *testing.T) {
 		t.Fatal(auth, err)
 	}
 	s := Service{Auth: m, Sources: sources}
-	scope := Scope{Subject: "owner", AppID: "app", Execution: []Permission{{ConnectorID: "demo", Adapter: "cli"}}, Check: func() error { return nil }}
+	scope := Scope{Subject: "owner", IdempotencyNamespace: "app", Execution: []Permission{{ConnectorID: "demo", Adapter: "cli"}}, Check: func() error { return nil }}
 	_, err = s.Invoke(t.Context(), scope, Request{ConnectorID: "demo", Adapter: "cli", Args: []string{"read"}})
 	// This intentionally has no executable: it must pass auth and fail CLI setup.
 	if err == nil || err.Error() == "connector_auth_required" || err.Error() == "connector_configuration_required" {

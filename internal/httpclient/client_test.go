@@ -194,7 +194,7 @@ func TestHTTPProxyAndRefreshDuringStream(t *testing.T) {
 		t.Fatalf("%q %v", line, err)
 	}
 	selected.Store(&systemSettings{HTTP: proxyURL(t, second.URL)})
-	f.Refresh()
+	r.Refresh()
 	if got := getBody(t, c, "http://model.example.test/next"); got != "second proxy" {
 		t.Fatal(got)
 	}

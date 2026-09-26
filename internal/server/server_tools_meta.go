@@ -220,7 +220,7 @@ func (s *Server) agentDetailSkills(def catalog.AgentDefinition) []api.AgentDetai
 	for _, key := range def.Skills {
 		skill, found, err := def.ResolveSkillDefinition(key)
 		if (err != nil || !found) && s.deps.Registry != nil {
-			skill, found = s.deps.Registry.SkillDefinition(key)
+			skill, _ = s.deps.Registry.SkillDefinition(key)
 		}
 		out = append(out, api.AgentDetailSkill{Key: key, Name: firstNonBlank(skill.Name, key), Description: skill.Description, Presentation: skillmeta.Parse(skill.Metadata, skill.Version)})
 	}

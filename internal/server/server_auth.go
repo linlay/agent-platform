@@ -42,10 +42,14 @@ func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Request {
-	if strings.HasPrefix(r.URL.Path, "/api/webapp/") {
-		return r // Every application route validates its own restricted grant.
+	if isRetiredApplicationTransport(r.URL.Path) {
+		return r // Only returns an upgrade error; no operation or resource access.
 	}
-	if (!s.deps.Config.Auth.Enabled && !strings.HasPrefix(r.URL.Path, "/api/desktop/")) || !strings.HasPrefix(r.URL.Path, "/api/") {
+	if isConnectorExecutionRoute(r.URL.Path) {
+		return r // Each exact execution route validates a restricted capability token.
+	}
+	forceAuth := r.URL.Path == "/api/connectors/execution/grants" || r.URL.Path == "/api/connectors/auth" || r.URL.Path == "/api/connectors/auth/cancel" || strings.HasPrefix(r.URL.Path, "/api/chat/artifacts/") || strings.HasPrefix(r.URL.Path, "/api/desktop/")
+	if (!s.deps.Config.Auth.Enabled && !forceAuth) || !strings.HasPrefix(r.URL.Path, "/api/") {
 		return r
 	}
 	if r.Method == http.MethodOptions {
@@ -118,4 +122,21 @@ func originAllowed(origin string, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+func isConnectorExecutionRoute(path string) bool {
+	switch path {
+	case "/api/connectors/execution/list", "/api/connectors/execution/describe", "/api/connectors/execution/invoke":
+		return true
+	}
+	return false
+}
+
+// Compatibility is limited to rejecting retired transports at the HTTP boundary.
+func isRetiredApplicationTransport(path string) bool {
+	return strings.HasPrefix(path, "/api/webapp/") || path == "/api/desktop/webapp/grants" || path == "/api/desktop/connector/auth" || path == "/api/desktop/connector/auth/cancel"
+}
+func retiredApplicationTransport(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeRequestError(w, &requestError{Code: "connector_contract_upgrade_required", Status: http.StatusGone})
 }

@@ -61,7 +61,7 @@ localhost、loopback 地址始终直连；专用内部通信客户端也始终�
 | Windows | 无 CGO 调用 `WinHttpGetIEProxyConfigForCurrentUser` 读取当前进程用户的代理设置，仅 `pac_auto` 通过 `WinHttpGetProxyForUrl` 执行 PAC 或 DHCP/DNS WPAD，并释放 API 返回的内存 |
 | Linux / 容器及其他系统 | 显式配置与环境变量；没有额外的系统设置读取器 |
 
-macOS 命令不经过 Shell，读取期限为 2 秒。系统快照在缓存到期后的首个请求中刷新，并发请求共用同一读取结果，不会每个请求都执行系统命令。工厂还提供 `Refresh()` 主动使缓存失效；目前没有新增 HTTP 管理接口。
+macOS 命令不经过 Shell，读取期限为 2 秒。系统快照在缓存到期后的首个请求中刷新，并发请求共用同一读取结果，不会每个请求都执行系统命令。缓存刷新由 resolver 管理；Factory 不额外提供主动刷新包装，目前没有新增 HTTP 管理接口。
 
 系统绕过支持精确主机/IP、通配符、CIDR（包括 macOS 常见的 `169.254/16`）、可选协议与端口，以及 Windows `<local>` / macOS 简单主机名排除。匹配不会额外解析 DNS，CIDR 针对 URL 中的 IP 地址生效。macOS 的接口级 `__SCOPED__` 和补充配置暂不解析。
 

@@ -12,10 +12,6 @@ func (a *StreamEventAssembler) Consume(input StreamInput) []StreamEvent {
 	return visibleEmissionEvents(a.ConsumeEmissions(input))
 }
 
-func (a *StreamEventAssembler) Complete() []StreamEvent {
-	return visibleEmissionEvents(a.CompleteEmissions())
-}
-
 func (a *StreamEventAssembler) Fail(err error) []StreamEvent {
 	return visibleEmissionEvents(a.FailEmissions(err))
 }

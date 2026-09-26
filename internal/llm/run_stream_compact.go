@@ -506,11 +506,6 @@ func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error
 	return nil
 }
 
-func (s *llmRunStream) compactRunToolMessages(keepRecent, targetTokens int) ([]openAIMessage, int, int) {
-	out, cleared, kept, _ := s.compactRunCategories(keepRecent)
-	return out, cleared, kept
-}
-
 func compactPercentages(ratio float64) (float64, float64) {
 	if ratio < 0 {
 		ratio = 0

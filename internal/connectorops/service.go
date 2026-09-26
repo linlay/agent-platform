@@ -26,11 +26,10 @@ func (e *Error) Error() string              { return e.Code }
 func failure(code string, status int) error { return &Error{code, status} }
 
 type Scope struct {
-	Subject   string
-	AppID     string
-	Chats     map[string]bool
-	Execution []Permission
-	Check     func() error
+	Subject              string
+	IdempotencyNamespace string
+	Execution            []Permission
+	Check                func() error
 }
 type Request struct {
 	ConnectorID        string         `json:"connectorId"`
@@ -58,7 +57,7 @@ type Service struct {
 }
 
 func (s Scope) permits(id, adapter string) bool {
-	if s.Subject == "" || s.AppID == "" || s.Check == nil || s.Check() != nil {
+	if s.Subject == "" || s.Check == nil || s.Check() != nil {
 		return false
 	}
 	for _, p := range s.Execution {

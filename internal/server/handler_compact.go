@@ -18,7 +18,7 @@ import (
 type compactChatStore interface {
 	BuildCompactSnapshot(chatID string, keptRunCount int) (chat.CompactSnapshot, error)
 	CommitCompactCheckpoint(chatID string, snapshot chat.CompactSnapshot, checkpoint chat.CompactCheckpointLine) error
-	BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int, options ...chat.L1Options) (chat.ToolCompactSnapshot, error)
+	BuildL1CompactSnapshot(chatID string, option chat.L1Options) (chat.ToolCompactSnapshot, error)
 	CommitToolCompact(chatID string, snapshot chat.ToolCompactSnapshot, line chat.ToolCompactLine) error
 }
 

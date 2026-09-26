@@ -41,7 +41,7 @@ func TestWriteReceiptsSurviveServiceRestartAndUnknownOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := Service{Auth: manager, Sources: sources}
-	scope := Scope{Subject: "user", AppID: "workbench", Execution: []Permission{}, Check: func() error { return nil }}
+	scope := Scope{Subject: "user", IdempotencyNamespace: "workbench", Execution: []Permission{}, Check: func() error { return nil }}
 
 	req := Request{ConnectorID: "demo", Adapter: "mcp", Component: "main", ToolName: "send", Arguments: map[string]any{"text": "hello"}, IdempotencyKey: "daily-key-123"}
 	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_execution_not_allowed" || calls.Load() != 0 {

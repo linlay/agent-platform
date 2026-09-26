@@ -23,10 +23,12 @@ func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeT
 // including after a process crash or lost response. No remote exactly-once
 // guarantee is assumed. Completed receipts can be returned to the same caller.
 func beginWrite(root string, scope Scope, req Request) (string, *Result, error) {
-	if root == "" || !idempotencyKeyPattern.MatchString(req.IdempotencyKey) {
+	if root == "" || scope.IdempotencyNamespace == "" || !idempotencyKeyPattern.MatchString(req.IdempotencyKey) {
 		return "", nil, failure("idempotency_key_required", 400)
 	}
-	key := digest([]byte(scope.Subject + "\x00" + scope.AppID + "\x00" + req.ConnectorID + "\x00" + "execution-v2" + "\x00" + req.IdempotencyKey))
+	// Keep the v2 storage salt and namespace bytes so existing claims cannot replay
+	// when clients migrate transport contracts. This is not an application identity.
+	key := digest([]byte(scope.Subject + "\x00" + scope.IdempotencyNamespace + "\x00" + req.ConnectorID + "\x00" + "execution-v2" + "\x00" + req.IdempotencyKey))
 	args, _ := json.Marshal(struct {
 		Adapter   string
 		Args      []string

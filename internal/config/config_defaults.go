@@ -230,10 +230,6 @@ func ResolveIdentityFile(stateDir, configured string) (string, error) {
 	return filepath.Join(stateDir, "identity", "access-token"), nil
 }
 
-func expandRuntimeRootHome(runtimeRoot string) (string, error) {
-	return expandPathHome(runtimeRoot, "AP_RUNTIME_DIR")
-}
-
 func expandPathHome(runtimeRoot, envKey string) (string, error) {
 	if runtimeRoot != "~" && !strings.HasPrefix(runtimeRoot, "~/") && !strings.HasPrefix(runtimeRoot, `~\`) {
 		return runtimeRoot, nil

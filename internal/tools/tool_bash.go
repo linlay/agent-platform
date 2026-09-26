@@ -462,10 +462,6 @@ func mergeEnvironmentList(base []string, overrides map[string]string) []string {
 	return result
 }
 
-func mergeBashCommandEnv(execCtx *ExecutionContext, identityFile string) ([]string, error) {
-	return mergeBashCommandEnvContext(context.Background(), execCtx, identityFile)
-}
-
 func mergeBashCommandEnvContext(ctx context.Context, execCtx *ExecutionContext, identityFile string) ([]string, error) {
 	commandEnv, err := mergeCommandEnv(execCtx)
 	if err != nil {

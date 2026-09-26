@@ -15,10 +15,6 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]api.ChatSummaryResponse, error) {
-	return s.listChatSummariesWithPinned(lastRunID, agentKey, agentModes, limit, nil)
-}
-
 func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool) ([]api.ChatSummaryResponse, error) {
 	items, err := s.conversationService().ListSummariesWithPinned(lastRunID, agentKey, agentModes, limit, pinned)
 	if err != nil {

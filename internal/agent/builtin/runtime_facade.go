@@ -68,12 +68,6 @@ func CoderStartsNewExecutionRun(mode string, answer map[string]any, agentMode, a
 func CoderModelOptionsFilterMode(agentKey, mode, acpBridgeID string) string {
 	return coder.ModelOptionsFilterMode(agentKey, mode, acpBridgeID)
 }
-func CoderDefaultModelOptionKey(options []api.CoderModelOption, preferredKey, defaultKey string) string {
-	return coder.DefaultModelOptionKey(options, preferredKey, defaultKey)
-}
-func CoderDefaultServiceTier(acp bool, configured string, options []api.ServiceTierOption) string {
-	return coder.DefaultServiceTier(acp, configured, options)
-}
 func CoderServiceTierOptions(acp bool, options []api.CoderModelOption) []api.ServiceTierOption {
 	return coder.ServiceTierOptions(acp, options)
 }

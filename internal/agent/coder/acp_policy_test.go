@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/models"
 )
 
 func TestModelOptionsFilterModeKeepsACPScopedToCoder(t *testing.T) {
@@ -28,26 +27,6 @@ func TestModelOptionsFilterModeKeepsACPScopedToCoder(t *testing.T) {
 				t.Fatalf("ModelOptionsFilterMode()=%q want %q", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestDefaultModelOptionKeyPrefersVisibleNormalFallback(t *testing.T) {
-	options := []api.CoderModelOption{
-		{Key: "acp", Protocol: models.ProtocolACPPassthrough},
-		{Key: "native-a"},
-		{Key: "native-b"},
-	}
-	if got := DefaultModelOptionKey(options, "native-b", "native-a"); got != "native-b" {
-		t.Fatalf("expected preferred visible key, got %q", got)
-	}
-	if got := DefaultModelOptionKey(options, "missing", "native-a"); got != "native-a" {
-		t.Fatalf("expected visible configured default key, got %q", got)
-	}
-	if got := DefaultModelOptionKey(options, "missing", "also-missing"); got != "native-a" {
-		t.Fatalf("expected first native fallback, got %q", got)
-	}
-	if got := DefaultModelOptionKey([]api.CoderModelOption{{Key: "acp", Protocol: models.ProtocolACPPassthrough}}, "", ""); got != "acp" {
-		t.Fatalf("expected ACP fallback when only ACP model is visible, got %q", got)
 	}
 }
 
@@ -114,15 +93,6 @@ func TestServiceTierOptionsAndACPModelAllowance(t *testing.T) {
 	}
 	if got := ServiceTierOptions(false, modelOptions); !reflect.DeepEqual(got, []api.ServiceTierOption{{Key: "STANDARD", Label: "Standard"}}) {
 		t.Fatalf("non-ACP service tiers should use standard only, got %#v", got)
-	}
-	if got := DefaultServiceTier(true, "fast", want); got != "FAST" {
-		t.Fatalf("DefaultServiceTier()=%q want FAST", got)
-	}
-	if got := DefaultServiceTier(true, "auto", want); got != "" {
-		t.Fatalf("auto/default service tier should normalize to empty, got %q", got)
-	}
-	if got := DefaultServiceTier(true, "turbo", want); got != "" {
-		t.Fatalf("unknown configured service tier should be ignored, got %q", got)
 	}
 	if !ServiceTierAllowedForACPModel("FAST", "alpha", modelOptions) {
 		t.Fatalf("expected FAST to be allowed for alpha")

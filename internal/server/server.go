@@ -21,6 +21,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/connectorops"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/documentpreview"
@@ -34,7 +35,6 @@ import (
 	"agent-platform/internal/skills"
 	terminalpkg "agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
-	"agent-platform/internal/webapp"
 	"agent-platform/internal/ws"
 )
 
@@ -160,7 +160,7 @@ type Server struct {
 	backgroundCancel  context.CancelFunc
 	shutdownHookOnce  sync.Once
 	connectorAuth     *connectorauth.Manager
-	webappGrants      *webapp.Grants
+	connectorGrants   *connectorops.Grants
 	skillOrder        *catalogorder.FileOrderStore
 	connectorOrder    *catalogorder.FileOrderStore
 }
@@ -262,7 +262,7 @@ func New(deps Dependencies) (*Server, error) {
 	}
 	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
 	s.connectorOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.EffectiveConnectorsCenterDir())
-	s.webappGrants = webapp.NewGrants(backgroundCtx)
+	s.connectorGrants = connectorops.NewGrants(backgroundCtx)
 	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), nil).WithIdentityFile(s.deps.Config.IdentityFile).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {
 		validator, ok := s.deps.MCP.(interface {
 			ValidateConnectorCredentials(context.Context, connector.Package, map[string]string) error

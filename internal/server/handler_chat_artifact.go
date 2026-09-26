@@ -3,8 +3,6 @@ package server
 import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chatresource"
-	"agent-platform/internal/connectorops"
-	"agent-platform/internal/webapp"
 	"context"
 	"errors"
 	"mime"
@@ -13,20 +11,15 @@ import (
 	"strings"
 )
 
-func (s *Server) handleWebappArtifact(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodPost {
-		writeWebappError(w, &connectorops.Error{Code: "method_not_allowed", Status: 405})
+		writeRequestError(w, &requestError{Code: "method_not_allowed", Status: 405})
 		return
 	}
-	authorization := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authorization, "Bearer wap_") {
-		writeWebappError(w, webapp.ErrDenied)
-		return
-	}
-	scope, grantCtx, err := s.webappGrants.Scope(strings.TrimPrefix(authorization, "Bearer "))
-	if err != nil {
-		writeWebappError(w, err)
+	p := PrincipalFromContext(r.Context())
+	if p == nil || strings.TrimSpace(p.Subject) == "" {
+		writeAuthError(w)
 		return
 	}
 	var req struct {
@@ -36,11 +29,16 @@ func (s *Server) handleWebappArtifact(w http.ResponseWriter, r *http.Request) {
 		Cursor     string `json:"cursor,omitempty"`
 		Limit      int    `json:"limit,omitempty"`
 	}
-	if !decodeWebappRequest(w, r, &req) {
+	if !decodeBoundedRequest(w, r, &req) {
 		return
 	}
-	if !scope.Chats[req.ChatID] || scope.Check() != nil {
-		writeWebappError(w, webapp.ErrDenied)
+	if s.deps.Chats == nil {
+		writeRequestError(w, &requestError{Code: "chat_access_denied", Status: http.StatusForbidden})
+		return
+	}
+	summary, err := s.deps.Chats.Summary(req.ChatID)
+	if err != nil || summary == nil || !queryPrincipalCanReferenceChat(r.Context(), *summary) {
+		writeRequestError(w, &requestError{Code: "chat_access_denied", Status: http.StatusForbidden})
 		return
 	}
 	fail := func(err error) {
@@ -51,16 +49,16 @@ func (s *Server) handleWebappArtifact(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, chatresource.ErrArtifactChanged) {
 			code, status = "artifact_changed", 409
 		}
-		writeWebappError(w, &connectorops.Error{Code: code, Status: status})
+		writeRequestError(w, &requestError{Code: code, Status: status})
 	}
 	switch r.URL.Path {
-	case "/api/webapp/artifact/list":
+	case "/api/chat/artifacts/list":
 		offset := 0
 		if req.Cursor != "" {
 			offset, err = strconv.Atoi(req.Cursor)
 		}
 		if err != nil || offset < 0 {
-			writeWebappError(w, &connectorops.Error{Code: "invalid_arguments", Status: 400})
+			writeRequestError(w, &requestError{Code: "invalid_arguments", Status: 400})
 			return
 		}
 		if req.Limit == 0 {
@@ -76,28 +74,22 @@ func (s *Server) handleWebappArtifact(w http.ResponseWriter, r *http.Request) {
 			result["nextCursor"] = strconv.Itoa(offset + len(items))
 		}
 		writeJSON(w, 200, api.Success(result))
-	case "/api/webapp/artifact/get":
+	case "/api/chat/artifacts/get":
 		item, e := s.chatResources.GetArtifact(req.ChatID, req.ArtifactID, req.RunID)
 		if e != nil {
 			fail(e)
 			return
 		}
 		writeJSON(w, 200, api.Success(item))
-	case "/api/webapp/artifact/read":
+	case "/api/chat/artifacts/read":
 		f, item, e := s.chatResources.OpenArtifact(req.ChatID, req.ArtifactID, req.RunID)
 		if e != nil {
 			fail(e)
 			return
 		}
 		defer f.Close()
-		stopGrant := context.AfterFunc(grantCtx, func() { f.Close() })
-		defer stopGrant()
 		stopRequest := context.AfterFunc(r.Context(), func() { f.Close() })
 		defer stopRequest()
-		if scope.Check() != nil {
-			writeWebappError(w, webapp.ErrDenied)
-			return
-		}
 		info, e := f.Stat()
 		if e != nil {
 			fail(e)

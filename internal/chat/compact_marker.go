@@ -86,13 +86,6 @@ func messagesToAny(messages []map[string]any) []any {
 	return out
 }
 
-func compactMarkerID(value any) string {
-	if marker, ok := value.(map[string]any); ok {
-		return stringFromAny(marker["id"])
-	}
-	return stringFromAny(value)
-}
-
 func hasCompactContent(value any) bool {
 	switch v := value.(type) {
 	case nil:

@@ -78,7 +78,7 @@ func TestReasoningHistoryOnlyCompactionBackupAndReplay(t *testing.T) {
 		appendCompactTestRun(t, store, id, fmt.Sprint("recent-", i), "question", "recent answer")
 	}
 	original, _ := os.ReadFile(store.chatJSONLPath(id))
-	snapshot, err := store.BuildToolCompactSnapshotToTarget(id, 5, 0)
+	snapshot, err := store.BuildL1CompactSnapshot(id, L1Options{KeepRecent: 5})
 	if err != nil {
 		t.Fatal(err)
 	}

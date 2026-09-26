@@ -276,15 +276,6 @@ func backgroundWatchEntries(cfg config.Config) []watchEntry {
 	}
 }
 
-func resolveChangeReason(changedPath string, dirs []watchEntry) string {
-	for _, entry := range dirs {
-		if pathWithin(entry.path, changedPath) {
-			return entry.reason
-		}
-	}
-	return "config"
-}
-
 // Pin preferences never change catalog contents or assembled Agent runtimes.
 func shouldIgnoreBackgroundWatchPath(path string, centerDirs ...string) bool {
 	if catalog.ShouldIgnoreRuntimeWatchPath(path) {

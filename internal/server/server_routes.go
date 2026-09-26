@@ -373,15 +373,19 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/monitor/ws/connections", s.method(http.MethodGet, s.handleMonitorWSConnections))
 	s.router.HandleFunc("/api/monitor/ws/messages", s.method(http.MethodGet, s.handleMonitorWSMessages))
 	s.router.HandleFunc("/api/teams", s.method(http.MethodGet, s.handleTeams))
-	s.router.HandleFunc("/api/desktop/webapp/grants", s.handleWebappGrant)
-	s.router.HandleFunc("/api/desktop/connector/auth", s.handleDesktopConnectorAuth)
-	s.router.HandleFunc("/api/desktop/connector/auth/cancel", s.handleDesktopConnectorAuth)
-	s.router.HandleFunc("/api/webapp/artifact/list", s.handleWebappArtifact)
-	s.router.HandleFunc("/api/webapp/artifact/get", s.handleWebappArtifact)
-	s.router.HandleFunc("/api/webapp/artifact/read", s.handleWebappArtifact)
-	s.router.HandleFunc("/api/webapp/connector/list", s.handleWebappConnector)
-	s.router.HandleFunc("/api/webapp/connector/describe", s.handleWebappConnector)
-	s.router.HandleFunc("/api/webapp/connector/invoke", s.handleWebappConnector)
+	s.router.HandleFunc("/api/connectors/execution/grants", s.handleConnectorExecutionGrant)
+	s.router.HandleFunc("/api/connectors/auth", s.handleTrustedConnectorAuth)
+	s.router.HandleFunc("/api/connectors/auth/cancel", s.handleTrustedConnectorAuth)
+	for _, action := range []string{"list", "describe", "invoke"} {
+		s.router.HandleFunc("/api/connectors/execution/"+action, s.handleConnectorExecution)
+	}
+	for _, action := range []string{"list", "get", "read"} {
+		s.router.HandleFunc("/api/chat/artifacts/"+action, s.handleChatArtifact)
+	}
+	// Retired transports fail closed. Never translate old grants or retry calls.
+	for _, path := range []string{"/api/desktop/webapp/grants", "/api/desktop/connector/auth", "/api/desktop/connector/auth/cancel", "/api/webapp/"} {
+		s.router.HandleFunc(path, retiredApplicationTransport)
+	}
 	s.router.HandleFunc("/api/connectors", s.method(http.MethodGet, s.handleConnectors))
 	s.router.HandleFunc("/api/connectors/connection", s.handleConnectorConnection)
 	s.router.HandleFunc("/api/connectors/check", s.method(http.MethodPost, s.handleConnectorCheck))

@@ -1,7 +1,6 @@
-package webapp
+package connectorops
 
 import (
-	"agent-platform/internal/connectorops"
 	"context"
 	"encoding/json"
 	"testing"
@@ -10,7 +9,7 @@ import (
 
 func TestGrantOwnerRevocationAndFrozenOperations(t *testing.T) {
 	g := NewGrants(context.Background())
-	ops := []connectorops.Permission{{ConnectorID: "wecom", Adapter: "cli"}}
+	ops := []Permission{{ConnectorID: "wecom", Adapter: "cli"}}
 	issued, err := g.Issue("alice", "calendar", ops)
 	if err != nil {
 		t.Fatal(err)
@@ -52,5 +51,31 @@ func TestGrantExpiresWithHost(t *testing.T) {
 	cancel()
 	if _, _, err := g.Scope(v.Token); err == nil {
 		t.Fatal("host shutdown retained grant")
+	}
+}
+
+func TestGrantExpiryAndAdapterBoundaries(t *testing.T) {
+	g := NewGrants(context.Background())
+	grant, err := g.Issue("authority", "stable", []Permission{{ConnectorID: "demo", Adapter: "cli"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, ctx, err := g.Scope(grant.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scope.permits("demo", "cli") || scope.permits("demo", "mcp") || scope.permits("other", "cli") {
+		t.Fatal("permission escaped connector/adapter")
+	}
+	// Receipt namespaces never grant access.
+	scope.IdempotencyNamespace = "other"
+	if scope.permits("other", "cli") {
+		t.Fatal("receipt namespace became an authorization")
+	}
+	g.mu.Lock()
+	g.entries[tokenKey(grant.Token)].ExpiresAt = time.Now().Add(-time.Second).UnixMilli()
+	g.mu.Unlock()
+	if _, _, err = g.Scope(grant.Token); err == nil || ctx.Err() == nil || scope.Check() == nil {
+		t.Fatal("expired capability remained usable")
 	}
 }

@@ -59,7 +59,7 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 		t.Fatal("native MCP result lost", string(native), err)
 	}
 	service := Service{Auth: manager, Sources: sources}
-	scope := Scope{Subject: "alice", AppID: "calendar", Execution: []Permission{{"demo", "mcp"}}, Check: func() error { return nil }}
+	scope := Scope{Subject: "alice", IdempotencyNamespace: "calendar", Execution: []Permission{{"demo", "mcp"}}, Check: func() error { return nil }}
 	_, err = service.Describe(scope, "demo")
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 2 {
-		t.Fatal("WebApp bypassed disconnected connection", err)
+		t.Fatal("Connector bypassed disconnected connection", err)
 	}
 	if _, err := os.Stat(filepath.Join(sources.StateRoot, "users")); !os.IsNotExist(err) {
 		t.Fatal("unexpected multi-user state", err)

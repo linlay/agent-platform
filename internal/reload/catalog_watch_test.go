@@ -203,7 +203,7 @@ func TestCatalogWatchGroupsMergeOverlappingRoots(t *testing.T) {
 			t.Fatal("lost overlapping category")
 		}
 	}
-	if resolveChangeReason(root+"-sibling/test", []watchEntry{{root, "agents"}}) != "config" {
+	if pathWithin(root, root+"-sibling/test") {
 		t.Fatal("prefix sibling matched root")
 	}
 }

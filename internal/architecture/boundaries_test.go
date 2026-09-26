@@ -125,3 +125,16 @@ func repositoryRoot(t *testing.T) string {
 func errorsIsNotExist(err error) bool {
 	return err != nil && os.IsNotExist(err)
 }
+
+func TestConnectorExecutionDoesNotOwnApplicationsOrChats(t *testing.T) {
+	assertNoImports(t, repositoryRoot(t), []string{"internal/connectorops"}, map[string]bool{
+		"agent-platform/internal/webapp":       true,
+		"agent-platform/internal/server":       true,
+		"agent-platform/internal/chat":         true,
+		"agent-platform/internal/chatresource": true,
+		"agent-platform/internal/api":          true,
+	})
+	assertNoImports(t, repositoryRoot(t), []string{"internal/chatresource"}, map[string]bool{
+		"agent-platform/internal/connectorops": true,
+	})
+}

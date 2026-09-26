@@ -67,7 +67,8 @@ func reasoningReplacements(records []jsonLineRecord, limit int) []toolCompactRep
 	return selected
 }
 
-// CompactReasoningMessages drops reasoning only; the original maps and all
+// CompactReasoningMessages normalizes L2 summary input by dropping reasoning;
+// it does not implement L1 category protection. The original maps and all
 // content/tool protocol fields remain unchanged. The count is messages cleared.
 func CompactReasoningMessages(messages []map[string]any, limit, pinnedStart, pinnedEnd int) ([]map[string]any, int) {
 	out := make([]map[string]any, len(messages))

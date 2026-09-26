@@ -202,7 +202,6 @@ func SaveScope(store Store, input ScopeSaveInput) (ScopeSaveResult, error) {
 	currentScopeRecords := activeFactsForScope(allItems, scopeType, scopeKey)
 
 	summary := ScopeSaveSummary{}
-	saved := make([]api.StoredMemoryResponse, 0, len(desired))
 	desiredCurrentIDs := map[string]struct{}{}
 	for _, record := range desired {
 		normalized, result, err := saveScopeRecord(store, reader, mutator, agentKey, scopeType, scopeKey, record)
@@ -220,7 +219,6 @@ func SaveScope(store Store, input ScopeSaveInput) (ScopeSaveResult, error) {
 		if strings.TrimSpace(normalized.ID) != "" {
 			desiredCurrentIDs[strings.TrimSpace(normalized.ID)] = struct{}{}
 		}
-		saved = append(saved, normalized)
 	}
 
 	if input.ArchiveMissing {

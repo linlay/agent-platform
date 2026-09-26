@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-WebApp 的 `/api/desktop/webapp/grants`、Desktop 委托的连接器认证，以及 `/api/webapp/connector/*`、`/api/webapp/artifact/*` 采用独立能力授权，详见 [WebApp 能力接入](WebApp能力接入.md)。这些入口不是全局管理 API 的透传。
+标准连接器执行使用 `/api/connectors/execution/*`，凭据管理使用 `/api/connectors/auth`，详见 [连接器执行协议](连接器执行协议.md)。已发布产物使用独立 `/api/chat/artifacts/*`，不接受连接器执行 token。
 
 运行时提供 HTTP REST、SSE 与 WebSocket 三类协议入口。REST 承载 catalog、chat、automation、memory、resource 等请求；`POST /api/query` 使用 SSE 返回实时 run stream；`GET /ws` 是 WebSocket 控制面，复用一批 `/api/*` route，并用 `stream` frame 承载实时事件。
 
@@ -1280,3 +1280,18 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 ## 技能展示字段与语言
 
 技能对象新增 `displayName/version/revision`；名称和描述按 HTTP 请求语言或 WebSocket 连接语言解析，API 不返回 i18n 表。技能对象只返回 `key/displayName`，不返回 `name`；缺少显示名称时用 SKILL.md 的 name 回退，语言切换后客户端须重新请求。字段、版本兼容规则及完整示例见 [技能展示元数据](技能展示元数据.md)。
+
+
+## 已发布产物读取
+
+这些接口属于 Chat 资源能力，不属于连接器。均为 POST，即使 `auth.enabled=false` 也要求有效 JWT 和非空 subject；每次请求读取当前 Chat 摘要并复用 principal 的 Chat 引用权限。`query:<subject>` Chat 限该主体访问，旧无 owner 或非 query 来源沿用现有引用规则。调用方负责其内部资源授权，Platform 不建立应用/页面与 Chat 的关联。
+
+| 路径 | 请求 | 返回 |
+| --- | --- | --- |
+| `/api/chat/artifacts/list` | `{chatId,runId?,cursor?,limit?}` | `{items,nextCursor?}`，默认 50、最多 100 |
+| `/api/chat/artifacts/get` | `{chatId,artifactId,runId?}` | 产物元数据 |
+| `/api/chat/artifacts/read` | `{chatId,artifactId,runId?}` | 文件字节，失败为 JSON 错误 |
+
+元数据包含 `chatId/runId/artifactId/publishedAt/name/mimeType/sizeBytes/sha256`，不包含内部路径。仅查询 active Chat 的发布 manifest，无全局 artifactId 查询和任意路径读取；歧义返回 `artifact_ambiguous`，内容或摘要变化返回 `artifact_changed`，请求取消关闭读取文件。输入严格拒绝未知字段。
+
+旧 `/api/webapp/artifact/*` 返回 HTTP 410 `connector_contract_upgrade_required`，不转换或透传。客户端切换到上述接口，使用自身可信 JWT，继续在客户端校验其内部访问范围并通过请求取消终止读取；不得把 JWT 暴露给不可信调用方。迁移需与连接器旧传输退役同批发布。
