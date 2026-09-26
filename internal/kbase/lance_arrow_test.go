@@ -25,7 +25,7 @@ func TestEncodeLanceChunksIPCUsesFixedFloat32Schema(t *testing.T) {
 	if !reader.Next() {
 		t.Fatalf("Arrow stream has no record: %v", reader.Err())
 	}
-	record := reader.Record()
+	record := reader.RecordBatch()
 	if got, want := record.NumCols(), int64(21); got != want {
 		t.Fatalf("columns = %d, want %d", got, want)
 	}

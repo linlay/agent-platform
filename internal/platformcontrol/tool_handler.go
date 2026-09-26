@@ -87,9 +87,9 @@ func invokeRegisteredOperation(h *ToolHandler, operationName string, params map[
 	case "run.env.set", "run.env.unset":
 		return h.mutateEnvironment(operationName, params, execCtx)
 	case "runtime.status":
-		return h.runtimeStatus(operationName, params, execCtx)
+		return h.runtimeStatus(params, execCtx)
 	case "security.explain":
-		return h.securityExplain(operationName, params, execCtx)
+		return h.securityExplain(params, execCtx)
 	}
 	return errorResult("platform_control_invalid_operation", "operation is not executable")
 }
@@ -470,7 +470,7 @@ func (h *ToolHandler) mutateEnvironment(operationName string, params map[string]
 	return successResult(map[string]any{"key": result.Key, "changed": result.Changed, "idempotent": result.Idempotent, "revision": result.Revision})
 }
 
-func (h *ToolHandler) runtimeStatus(operationName string, params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
+func (h *ToolHandler) runtimeStatus(params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
 	if err := requireFields(params, nil, nil); err != nil {
 		return errorResult("platform_control_invalid_params", err.Error())
 	}
@@ -486,7 +486,7 @@ func (h *ToolHandler) runtimeStatus(operationName string, params map[string]any,
 	})
 }
 
-func (h *ToolHandler) securityExplain(operationName string, params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
+func (h *ToolHandler) securityExplain(params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
 	if err := requireFields(params, []string{"operation"}, []string{"key", "path", "access"}); err != nil {
 		return errorResult("platform_control_invalid_params", err.Error())
 	}

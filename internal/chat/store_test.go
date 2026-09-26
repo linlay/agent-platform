@@ -1277,7 +1277,7 @@ func TestStoredMessageToEventsAddsReasoningLabel(t *testing.T) {
 		"_reasoningId":      runID + "_r_2",
 		"reasoning_content": []any{map[string]any{"type": "text", "text": "thinking"}},
 		"ts":                testEpochMillis(1),
-	}, runID, "task_1", "plan", 0, func() int64 { return 1 }, replayMessageOptions{})
+	}, runID, "task_1", 0, func() int64 { return 1 }, replayMessageOptions{})
 	if err != nil {
 		t.Fatalf("stored message to events: %v", err)
 	}
@@ -1356,7 +1356,7 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			events, err := storedMessageToEventsWithOptions(tc.msg, "run_1", "task_1", "execute", 0, func() int64 { return 1 }, replayMessageOptions{})
+			events, err := storedMessageToEventsWithOptions(tc.msg, "run_1", "task_1", 0, func() int64 { return 1 }, replayMessageOptions{})
 			if err != nil {
 				t.Fatalf("stored message to events: %v", err)
 			}
@@ -1413,7 +1413,7 @@ func TestStoredMessageToEventsDoesNotReplayLegacyActionsAsTools(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			events, err := storedMessageToEventsWithOptions(tc.msg, "run_1", "task_1", "execute", 0, func() int64 { return 1 }, replayMessageOptions{})
+			events, err := storedMessageToEventsWithOptions(tc.msg, "run_1", "task_1", 0, func() int64 { return 1 }, replayMessageOptions{})
 			if err != nil {
 				t.Fatalf("stored message to events: %v", err)
 			}
@@ -2391,7 +2391,7 @@ func TestStepWriterPersistsInternalToolResultWithoutChatReplay(t *testing.T) {
 	}
 	message["ts"] = testEpochMillis(1002)
 
-	events, err := storedMessageToEventsWithOptions(message, "run-internal-tool-result", "", "react", 0, func() int64 { return 1 }, replayMessageOptions{})
+	events, err := storedMessageToEventsWithOptions(message, "run-internal-tool-result", "", 0, func() int64 { return 1 }, replayMessageOptions{})
 	if err != nil {
 		t.Fatalf("replay internal tool result: %v", err)
 	}

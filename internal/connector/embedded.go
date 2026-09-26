@@ -28,7 +28,7 @@ func (s Sources) InstallEmbeddedDesktop() (Package, func(), error) {
 	}
 	defer os.RemoveAll(stage)
 	dir := filepath.Join(stage, "builtin.desktop")
-	if err := WriteBuiltin(dir, "desktop", "", ""); err != nil {
+	if err := WriteBuiltin(dir, "desktop", ""); err != nil {
 		return Package{}, nil, fmt.Errorf("extract embedded Desktop: %w", err)
 	}
 	pkg, err := LoadDirectory(dir, "builtin.desktop")

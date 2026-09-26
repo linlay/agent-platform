@@ -11,7 +11,7 @@ import (
 	"agent-platform/internal/ws"
 )
 
-func (s *Server) handleMemoryMeta(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMemoryMeta(w http.ResponseWriter, _ *http.Request) {
 	response := api.MemoryMetaResponse{
 		Categories:  memory.StandardCategories(),
 		Types:       memory.StandardTypes(),

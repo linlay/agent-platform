@@ -250,7 +250,8 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 	return m.StatusComponent(ctx, id, "")
 }
 
-func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Session, error) {
+// StatusComponent reads local authorization snapshots; probes run through Check.
+func (m *Manager) StatusComponent(_ context.Context, id, component string) (Session, error) {
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
@@ -298,7 +299,7 @@ func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Se
 		return result, nil
 	}
 	if pkg.AuthMode == connector.AuthToken {
-		return m.tokenStatus(ctx, pkg)
+		return m.tokenStatus(pkg)
 	}
 	if len(pkg.MCP) > 1 && component == "" {
 		result.Status = "authorized"

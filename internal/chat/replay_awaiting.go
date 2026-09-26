@@ -13,7 +13,7 @@ type stepAwaitingReplay struct {
 	consumed                map[int]bool
 }
 
-func newStepAwaitingReplay(rawAwaiting any, chatID string, runID string, chatDir string, liveSeq int64) (*stepAwaitingReplay, error) {
+func newStepAwaitingReplay(rawAwaiting any, chatID string, runID string, liveSeq int64) (*stepAwaitingReplay, error) {
 	awaitingList := toMapSlice(rawAwaiting)
 	replay := &stepAwaitingReplay{
 		items:                   make([]stream.EventData, 0, len(awaitingList)),
@@ -39,7 +39,7 @@ func newStepAwaitingReplay(rawAwaiting any, chatID string, runID string, chatDir
 
 		idx := len(replay.items)
 		replay.items = append(replay.items, event)
-		if _, event := planningSnapshotFromAwaitingItem(normalized, chatID, runID, chatDir); event != nil {
+		if _, event := planningSnapshotFromAwaitingItem(normalized, chatID, runID); event != nil {
 			replay.planningSnapshotByIndex[idx] = event
 		}
 

@@ -194,7 +194,7 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		}
 		rel := "connectors/builtin." + c.Name
 		dir := filepath.Join(root, filepath.FromSlash(rel))
-		if err := connectortest.WriteCLI(dir, c.Name, c.Version, goos); err != nil {
+		if err := connectortest.WriteCLI(dir, c.Name, c.Version); err != nil {
 			t.Fatal(err)
 		}
 		entry := c.Name

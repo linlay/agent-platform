@@ -30,7 +30,7 @@ func (s *Server) adminAgentRegistry() (adminAgentRegistry, error) {
 	return registry, nil
 }
 
-func (s *Server) handleAdminAgents(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAdminAgents(w http.ResponseWriter, _ *http.Request) {
 	registry, err := s.adminAgentRegistry()
 	if err != nil {
 		s.writeAgentHTTPResponse(w, nil, err)

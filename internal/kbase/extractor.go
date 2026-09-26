@@ -104,7 +104,7 @@ func extractionMaxFileBytes(cfg ExtractionConfig) int64 {
 	return cfg.MaxFileBytes
 }
 
-func extractDocument(ctx context.Context, fullPath string, rel string, ext string, data []byte, cfg ExtractionConfig) (extractedDocument, error) {
+func extractDocument(ctx context.Context, fullPath string, ext string, data []byte, cfg ExtractionConfig) (extractedDocument, error) {
 	cfg = effectiveExtractionConfig(cfg)
 	switch ext {
 	case ".pdf":
@@ -119,7 +119,7 @@ func extractDocument(ctx context.Context, fullPath string, rel string, ext strin
 		if _, ok := supportedTextExtensions[ext]; !ok {
 			return extractedDocument{}, extractionSkip("unsupported_extension")
 		}
-		return extractPlainText(rel, ext, data)
+		return extractPlainText(ext, data)
 	}
 }
 
@@ -168,7 +168,7 @@ func mimeForExtension(ext string) string {
 	}
 }
 
-func extractPlainText(rel string, ext string, data []byte) (extractedDocument, error) {
+func extractPlainText(ext string, data []byte) (extractedDocument, error) {
 	text := string(data)
 	lineCount := countLines(text)
 	return extractedDocument{

@@ -61,7 +61,7 @@ func (s *FileStore) RestoreArchivedChat(archived ArchivedChat) (Summary, error) 
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		chatID, archived.Summary.ChatName, derivedArchivedAgentKey(archived.Summary.AgentKey, archived.Summary.TeamID), normalizeStoredAgentMode(archived.Summary.AgentMode, archived.Summary.AgentKey, archived.Summary.TeamID), nilIfEmpty(archived.Summary.TeamID), archived.Summary.Source, archived.Summary.SourceChannel,
+		chatID, archived.Summary.ChatName, derivedArchivedAgentKey(archived.Summary.AgentKey, archived.Summary.TeamID), normalizeStoredAgentMode(archived.Summary.AgentMode), nilIfEmpty(archived.Summary.TeamID), archived.Summary.Source, archived.Summary.SourceChannel,
 		archived.Summary.CreatedAt, archived.Summary.UpdatedAt, archived.Summary.LastRunAt, archived.Summary.LastRunID, archived.Summary.LastRunContent, readRunID, readAt,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
@@ -83,7 +83,7 @@ func (s *FileStore) RestoreArchivedChat(archived ArchivedChat) (Summary, error) 
 				USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 				FEEDBACK_TYPE_, FEEDBACK_COMMENT_, FEEDBACK_AT_
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			run.RunID, run.ChatID, derivedArchivedAgentKey(run.AgentKey, run.TeamID), normalizeStoredAgentMode(run.AgentMode, run.AgentKey, run.TeamID), nilIfEmpty(run.TeamID), run.InitialMessage, run.AssistantText, run.FinishReason,
+			run.RunID, run.ChatID, derivedArchivedAgentKey(run.AgentKey, run.TeamID), normalizeStoredAgentMode(run.AgentMode), nilIfEmpty(run.TeamID), run.InitialMessage, run.AssistantText, run.FinishReason,
 			run.StartedAt, run.CompletedAt,
 			run.Usage.PromptTokens, run.Usage.CompletionTokens, run.Usage.TotalTokens, run.Usage.CachedTokens, run.Usage.ReasoningTokens,
 			run.Usage.PromptCacheHitTokens, run.Usage.PromptCacheMissTokens,

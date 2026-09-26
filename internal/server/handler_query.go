@@ -196,7 +196,6 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		writeStatusError(w, statusErr)
 		return
 	}
-	principal := PrincipalFromContext(r.Context())
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		releaseQuery(prepared.release)
@@ -231,7 +230,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	defer observer.MarkDone()
 
-	s.startPreparedLocalRun(prepared, registered, eventBus, principal)
+	s.startPreparedLocalRun(prepared, registered, eventBus)
 
 	lastSeq := int64(0)
 	for {
@@ -272,15 +271,14 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	}
 }
 
-func (s *Server) startPreparedLocalRun(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus, principal *Principal) {
-	StartRunExecutor(s.localRunExecutorParams(prepared, registered, eventBus, principal))
+func (s *Server) startPreparedLocalRun(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus) {
+	StartRunExecutor(s.localRunExecutorParams(prepared, registered, eventBus))
 }
 
 func (s *Server) localRunExecutorParams(
 	prepared preparedQuery,
 	registered registeredQueryRun,
 	eventBus *stream.RunEventBus,
-	principal *Principal,
 ) RunExecutorParams {
 	execution := s.resolvedQueryExecution(prepared)
 	if !execution.HiddenRun {
@@ -370,7 +368,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	sseWriter.StartHeartbeat()
 
 	lastSeq := int64(0)
-	result, runErr := s.executePreparedLocalQuery(ctx, prepared, registered, func(data stream.EventData) error {
+	result, runErr := s.executePreparedLocalQuery(prepared, registered, func(data stream.EventData) error {
 		if err := sseWriter.WriteJSON("message", localizeStreamEventData(locale, data)); err != nil {
 			return err
 		}
@@ -408,7 +406,7 @@ func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context
 		fullText = newQueryFullTextBuilder()
 		observe = fullText.Observe
 	}
-	result, err := s.executePreparedLocalQuery(ctx, prepared, registered, nil, observe)
+	result, err := s.executePreparedLocalQuery(prepared, registered, nil, observe)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)
@@ -937,7 +935,7 @@ func cloneQueryErrorPayload(input map[string]any) map[string]any {
 // executePreparedLocalQuery waits on the same executor used by detached runs.
 // A blocking caller remains an observer for its whole execution, preserving the
 // existing run-control policy independently of HTTP request cancellation.
-func (s *Server) executePreparedLocalQuery(ctx context.Context, prepared preparedQuery, registered registeredQueryRun, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
+func (s *Server) executePreparedLocalQuery(prepared preparedQuery, registered registeredQueryRun, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
 	if registered.Control == nil {
 		releaseQuery(prepared.release)
 		s.finishRegisteredQueryRun(prepared, registered)
@@ -952,11 +950,7 @@ func (s *Server) executePreparedLocalQuery(ctx context.Context, prepared prepare
 	if registered.Managed {
 		eventBus, _ = s.deps.Runs.EventBus(prepared.req.RunID)
 	}
-	principal := PrincipalFromContext(ctx)
-	if principal == nil && strings.TrimSpace(prepared.session.Subject) != "" {
-		principal = &Principal{Subject: prepared.session.Subject}
-	}
-	params := s.localRunExecutorParams(prepared, registered, eventBus, principal)
+	params := s.localRunExecutorParams(prepared, registered, eventBus)
 	params.EmitVisible, params.ObserveEvent = emitVisible, observeEvent
 	result := runExecutor(params)
 	completion := result.Completion

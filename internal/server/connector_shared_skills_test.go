@@ -17,7 +17,7 @@ import (
 func TestAgentConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 	root := t.TempDir()
 	pkg := filepath.Join(root, "ru-agents", "demo", "connectors", "builtin.dbx")
-	if err := connectortest.WriteCLI(pkg, "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(pkg, "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	skill := filepath.Join(pkg, "skills", "builtin-dbx")

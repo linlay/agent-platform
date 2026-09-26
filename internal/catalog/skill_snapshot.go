@@ -100,7 +100,7 @@ func snapshotEditableSkill(root, key string) (EditableSkillSnapshot, error) {
 			return ErrInvalidSkillPath
 		}
 		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
-		header.SetModTime(time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC))
+		header.Modified = time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)
 		header.SetMode(info.Mode())
 		if info.IsDir() {
 			header.Name += "/"

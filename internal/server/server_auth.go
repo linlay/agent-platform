@@ -136,7 +136,7 @@ func isConnectorExecutionRoute(path string) bool {
 func isRetiredApplicationTransport(path string) bool {
 	return strings.HasPrefix(path, "/api/webapp/") || path == "/api/desktop/webapp/grants" || path == "/api/desktop/connector/auth" || path == "/api/desktop/connector/auth/cancel"
 }
-func retiredApplicationTransport(w http.ResponseWriter, r *http.Request) {
+func retiredApplicationTransport(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeRequestError(w, &requestError{Code: "connector_contract_upgrade_required", Status: http.StatusGone})
 }

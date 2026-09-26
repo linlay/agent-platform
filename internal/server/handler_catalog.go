@@ -235,20 +235,20 @@ func (s *Server) handleAgentOpenDirectory(w http.ResponseWriter, r *http.Request
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) handleAgentEditorOptions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentEditorOptions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.buildAgentEditorOptions()))
 }
 
-func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTeams(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Teams()))
 }
 
-func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSkills(w http.ResponseWriter, _ *http.Request) {
 	response, err := s.listAdminSkills()
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTools(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.listTools()))
 }
 

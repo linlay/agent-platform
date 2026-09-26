@@ -411,7 +411,7 @@ func (r *FileRegistry) reloadLocked(reason string) error {
 	r.freezeActiveRuntimes()
 	switch reason {
 	case "agents":
-		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsCenterDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
+		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
 		if err != nil {
 			return err
 		}
@@ -442,7 +442,7 @@ func (r *FileRegistry) reloadLocked(reason string) error {
 	}
 
 	// Full reload (startup, config, or unknown reason)
-	agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsCenterDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
+	agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
 	if err != nil {
 		return err
 	}

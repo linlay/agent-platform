@@ -10,7 +10,7 @@ import (
 func TestNativeConfiguredLifecycleDoesNotRequireClientOrCredentials(t *testing.T) {
 	root := t.TempDir()
 	sources := connector.Sources{ExternalRoot: filepath.Join(root, "connectors-center"), BuiltinRoot: filepath.Join(root, "builtins"), StateRoot: filepath.Join(root, "state")}
-	if err := connector.WriteBuiltin(filepath.Join(sources.BuiltinRoot, "builtin.desktop"), "desktop", "", "darwin"); err != nil {
+	if err := connector.WriteBuiltin(filepath.Join(sources.BuiltinRoot, "builtin.desktop"), "desktop", ""); err != nil {
 		t.Fatal(err)
 	}
 	m := New(context.Background(), sources, nil)

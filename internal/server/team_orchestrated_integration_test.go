@@ -232,14 +232,15 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 func setupOrchestratedTeamRuntime(t *testing.T) func(string, *config.Config) {
 	t.Helper()
 	return func(_ string, cfg *config.Config) {
-		for _, key := range []string{"writer", "reviewer"} {
+		for _, member := range []struct{ key, name string }{{"writer", "Writer"}, {"reviewer", "Reviewer"}} {
+			key := member.key
 			dir := filepath.Join(cfg.Paths.AgentsDir, key)
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
 			content := strings.Join([]string{
 				"key: " + key,
-				"name: " + strings.Title(key),
+				"name: " + member.name,
 				"mode: REACT",
 				"visibility:",
 				"  scopes:",

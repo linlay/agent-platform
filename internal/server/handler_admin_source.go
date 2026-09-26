@@ -68,7 +68,7 @@ func (s *Server) handleAdminSource(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) deleteAdminSource(ctx context.Context, target api.AdminSourceTarget, baseSHA256 string) (api.DeleteAdminSourceResponse, error) {
+func (s *Server) deleteAdminSource(_ context.Context, _ api.AdminSourceTarget, _ string) (api.DeleteAdminSourceResponse, error) {
 	return api.DeleteAdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "source deletion is no longer supported; manage connector packages separately")
 }
 
@@ -145,7 +145,7 @@ func (s *Server) writeAdminSource(ctx context.Context, target api.AdminSourceTar
 	case "automation":
 		return s.writeAdminAutomationTextSource(target, content, baseSHA256)
 	case "registry":
-		return s.writeAdminRegistryTextSource(ctx, target, content, baseSHA256)
+		return s.writeAdminRegistryTextSource(target, content, baseSHA256)
 	default:
 		return api.AdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "unsupported source type")
 	}
@@ -357,7 +357,7 @@ func (s *Server) readAdminRegistryTextSource(target api.AdminSourceTarget) (api.
 	}, nil
 }
 
-func (s *Server) writeAdminRegistryTextSource(ctx context.Context, target api.AdminSourceTarget, content string, baseSHA256 string) (api.AdminSourceResponse, error) {
+func (s *Server) writeAdminRegistryTextSource(target api.AdminSourceTarget, content string, baseSHA256 string) (api.AdminSourceResponse, error) {
 	path, err := s.adminRegistryFilePath(target.Category, target.File)
 	if err != nil {
 		return api.AdminSourceResponse{}, err

@@ -14,7 +14,7 @@ import (
 
 // WriteBuiltin extracts the Platform-owned native Desktop resources. CLI
 // connector packages are built and versioned by their independent projects.
-func WriteBuiltin(dir, name, version, goos string) error {
+func WriteBuiltin(dir, name, version string) error {
 	id := "builtin." + name
 	source := path.Join("connectors", id)
 	if name != "desktop" {

@@ -825,7 +825,7 @@ func writeEditableSkillArchiveFile(archive *zip.Writer, root *os.Root, candidate
 	}
 
 	header := &zip.FileHeader{Name: filepath.ToSlash(cleanPath), Method: zip.Deflate}
-	header.SetModTime(info.ModTime())
+	header.Modified = info.ModTime().UTC()
 	header.SetMode(info.Mode())
 	output, err := archive.CreateHeader(header)
 	if err != nil {

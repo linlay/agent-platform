@@ -18,11 +18,11 @@ const (
 	adminChannelStatusUnavailable  = "unavailable"
 )
 
-func (s *Server) handleAdminChannels(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAdminChannels(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.listAdminChannels()))
 }
 
-func (s *Server) handleMonitorChannels(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMonitorChannels(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.listAdminChannels()))
 }
 

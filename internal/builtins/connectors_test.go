@@ -29,7 +29,7 @@ func TestBuiltinConnectorManifestVersionComparison(t *testing.T) {
 			bundle := t.TempDir()
 			relative := "connectors/builtin." + tc.component
 			dir := filepath.Join(bundle, filepath.FromSlash(relative))
-			if err := connectortest.WriteCLI(dir, tc.component, tc.connectorVersion, runtime.GOOS); err != nil {
+			if err := connectortest.WriteCLI(dir, tc.component, tc.connectorVersion); err != nil {
 				t.Fatal(err)
 			}
 			outputs := []TreeOutput{{Path: relative, Type: "dir"}}
@@ -69,7 +69,7 @@ func TestBuiltinConnectorBundleLoadsWithoutRuntimeInstall(t *testing.T) {
 		entry += ".exe"
 	}
 	dir := filepath.Join(cache, "connectors", "builtin.dbx")
-	if err := connectortest.WriteCLI(dir, "dbx", "1.0.0", runtime.GOOS); err != nil {
+	if err := connectortest.WriteCLI(dir, "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	mustWrite(t, filepath.Join(dir, "bin", entry), []byte("locked-executable-v1"))
@@ -127,7 +127,7 @@ func TestStageCachePreservesCompletePackageAndDigest(t *testing.T) {
 	cache := t.TempDir()
 	relative := "connectors/builtin.httpx"
 	dir := filepath.Join(cache, filepath.FromSlash(relative))
-	if err := connectortest.WriteCLI(dir, "httpx", "0.1.8", runtime.GOOS); err != nil {
+	if err := connectortest.WriteCLI(dir, "httpx", "0.1.8"); err != nil {
 		t.Fatal(err)
 	}
 	entry := "httpx"
@@ -171,10 +171,10 @@ func TestStageCachePreservesCompletePackageAndDigest(t *testing.T) {
 
 func TestLegacyDesktopCacheVerifiedButExcludedFromRelease(t *testing.T) {
 	cache := t.TempDir()
-	if err := connectortest.WriteCLI(filepath.Join(cache, "connectors", "builtin.dbx"), "dbx", "1.0.0", runtime.GOOS); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(cache, "connectors", "builtin.dbx"), "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := connector.WriteBuiltin(filepath.Join(cache, "connectors", "builtin.desktop"), "desktop", "", runtime.GOOS); err != nil {
+	if err := connector.WriteBuiltin(filepath.Join(cache, "connectors", "builtin.desktop"), "desktop", ""); err != nil {
 		t.Fatal(err)
 	}
 	manifest := Manifest{SchemaVersion: manifestSchemaVersion, Platform: ManifestPlatform{OS: runtime.GOOS, Arch: runtime.GOARCH}}
@@ -227,7 +227,7 @@ func TestStageIndependentConnectorLock(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	packageDir := filepath.Join(source, "connectors", "builtin.dbx")
-	if err := connectortest.WriteCLI(packageDir, "dbx", "1.2.3", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(packageDir, "dbx", "1.2.3"); err != nil {
 		t.Fatal(err)
 	}
 	mustWrite(t, filepath.Join(packageDir, "bin", "dbx"), []byte("versioned CLI"))

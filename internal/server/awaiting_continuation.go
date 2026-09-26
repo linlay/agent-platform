@@ -274,7 +274,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 			log.Printf("[server][awaiting] prepare continuation system init failed chatId=%s runId=%s err=%v", chatID, runID, err)
 		}
 	}
-	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, sourceRunID, submitReq.AwaitingID, mode, answer)
+	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, sourceRunID, submitReq.AwaitingID, answer)
 
 	initialSeq := s.continuationInitialSeq(chatID, sourceRunID, runID)
 	if recovered != nil && strings.TrimSpace(runID) == sourceRunID {
@@ -560,7 +560,7 @@ func (s *Server) persistedRunLiveSeq(chatID string, runID string) int64 {
 	return persistedLiveSeqCursor(detail.Events, runID)
 }
 
-func awaitingContinuationHistory(history []map[string]any, runID string, awaitingID string, mode string, answer map[string]any) []map[string]any {
+func awaitingContinuationHistory(history []map[string]any, runID string, awaitingID string, answer map[string]any) []map[string]any {
 	out := make([]map[string]any, 0, len(history)+1)
 	for _, item := range history {
 		out = append(out, contracts.CloneMap(item))

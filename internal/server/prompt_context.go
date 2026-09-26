@@ -904,7 +904,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		WorkspaceDir: localPaths.WorkspaceDir,
 		ChatDir:      localPaths.ChatDir,
 		RootDir:      absOrEmpty(cfg.Paths.RootDir),
-		SkillsDir:    resolveLocalSkillsDir(hasSkillsDir, level, def.RuntimeDir, cfg.Paths.SkillsCenterDir),
+		SkillsDir:    resolveLocalSkillsDir(hasSkillsDir, level, def.RuntimeDir),
 		PanDir:       absOrEmpty(cfg.Paths.PanDir),
 		AgentDir:     absOrEmpty(def.RuntimeDir),
 		OwnerDir:     absOrEmpty(cfg.Paths.OwnerDir),
@@ -1191,7 +1191,7 @@ func absOrEmpty(path string) string {
 	return absolute
 }
 
-func resolveLocalSkillsDir(hasSkillsDir bool, level string, agentDir string, skillsCenterDir string) string {
+func resolveLocalSkillsDir(hasSkillsDir bool, level string, agentDir string) string {
 	if !hasSkillsDir {
 		return ""
 	}

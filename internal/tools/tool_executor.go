@@ -266,11 +266,11 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 	case "memory_consolidate":
 		return t.invokeMemoryConsolidate(toolName, args, execCtx)
 	case "_session_search_", "session_search":
-		return t.invokeSessionSearch(toolName, args, execCtx)
+		return t.invokeSessionSearch(args, execCtx)
 	case "_skill_candidate_write_", "skill_candidate_write":
-		return t.invokeSkillCandidateWrite(toolName, args, execCtx)
+		return t.invokeSkillCandidateWrite(args, execCtx)
 	case "_skill_candidate_list_", "skill_candidate_list":
-		return t.invokeSkillCandidateList(toolName, args, execCtx)
+		return t.invokeSkillCandidateList(args, execCtx)
 	default:
 		return ToolExecutionResult{
 			Output:   "tool not registered: " + toolName,

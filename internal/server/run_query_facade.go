@@ -107,7 +107,7 @@ func (s *Server) StartRun(_ context.Context, request contracts.RunStartRequest) 
 	if isProxyRoutedAgent(prepared.agentDef) {
 		s.startPreparedProxyRun(prepared, registered, eventBus)
 	} else {
-		s.startPreparedLocalRun(prepared, registered, eventBus, PrincipalFromContext(ctx))
+		s.startPreparedLocalRun(prepared, registered, eventBus)
 	}
 	return s.GetRunStatus(prepared.req.RunID)
 }

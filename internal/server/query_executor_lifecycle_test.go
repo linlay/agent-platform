@@ -46,7 +46,7 @@ func TestSharedExecutorFailureAndContinuationLifecycle(t *testing.T) {
 			engine := &orchestratorAgentEngine{streams: []contracts.AgentStream{&stubOrchestratableStream{deltas: deltas}}}
 			fixture.server.deps.Agent = engine
 			bus, _ := fixture.server.deps.Runs.EventBus(req.RunID)
-			params := fixture.server.localRunExecutorParams(prepared, registered, bus, nil)
+			params := fixture.server.localRunExecutorParams(prepared, registered, bus)
 			if terminal == "persistence-error" {
 				params.StepWriter = chat.NewStepWriter(failedQueryStepStore{fixture.chats}, req.ChatID, req.RunID, "REACT")
 			}

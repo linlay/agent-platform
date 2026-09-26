@@ -60,9 +60,9 @@ func (s *FileStore) OnRunStarted(start RunStart) error {
 	} else if agentKey == "" {
 		agentKey = strings.TrimSpace(summary.AgentKey)
 	}
-	agentMode := normalizeStoredAgentMode(start.AgentMode, agentKey, teamID)
+	agentMode := normalizeStoredAgentMode(start.AgentMode)
 	if agentMode == "" {
-		agentMode = normalizeStoredAgentMode(summary.AgentMode, agentKey, teamID)
+		agentMode = normalizeStoredAgentMode(summary.AgentMode)
 	}
 
 	_, err = s.db.Exec(`INSERT INTO RUNS (
@@ -170,12 +170,12 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	} else if agentKey == "" {
 		agentKey = strings.TrimSpace(chatAgentKey)
 	}
-	agentMode := normalizeStoredAgentMode(completion.AgentMode, agentKey, teamID)
+	agentMode := normalizeStoredAgentMode(completion.AgentMode)
 	if agentMode == "" {
-		agentMode = normalizeStoredAgentMode(capturedAgentMode, agentKey, teamID)
+		agentMode = normalizeStoredAgentMode(capturedAgentMode)
 	}
 	if agentMode == "" {
-		agentMode = normalizeStoredAgentMode(chatAgentMode, agentKey, teamID)
+		agentMode = normalizeStoredAgentMode(chatAgentMode)
 	}
 
 	_, err = s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, LAST_RUN_AT_=?, AGENT_MODE_=?, UPDATED_AT_=?,

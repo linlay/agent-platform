@@ -123,7 +123,7 @@ func (s *Server) hydrateDeferredAwaitings() error {
 		recoveryItem := item
 		recoveryItem.RunID = firstNonBlank(item.RunID, ask.RunID)
 		recoveryItem.Mode = effectiveMode
-		recovered, err := s.registerRecoveredAwaitingRun(recoveryItem, step)
+		recovered, err := s.registerRecoveredAwaitingRun(recoveryItem)
 		if err != nil {
 			return fmt.Errorf("register recovered awaiting run chatId=%s runId=%s awaitingId=%s: %w", recoveryItem.ChatID, recoveryItem.RunID, recoveryItem.AwaitingID, err)
 		}

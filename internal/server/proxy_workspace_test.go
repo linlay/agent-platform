@@ -1109,7 +1109,7 @@ func TestResolveProxyFileSourceSupportsWorkspaceAndChatAliases(t *testing.T) {
 		}
 	}
 
-	workspacePath, err := resolveProxyFileSource(nil, "chat-1", chatDir, workspace, "@workspace/src/main.go")
+	workspacePath, err := resolveProxyFileSource(nil, chatDir, workspace, "@workspace/src/main.go")
 	wantWorkspacePath, canonicalErr := pathutil.Canonicalize(filepath.Join(workspace, "src", "main.go"))
 	if canonicalErr != nil {
 		t.Fatal(canonicalErr)
@@ -1118,7 +1118,7 @@ func TestResolveProxyFileSourceSupportsWorkspaceAndChatAliases(t *testing.T) {
 		t.Fatalf("resolve @workspace: path=%q err=%v", workspacePath, err)
 	}
 
-	chatPath, err := resolveProxyFileSource(nil, "chat-1", chatDir, workspace, "@chat/input.txt")
+	chatPath, err := resolveProxyFileSource(nil, chatDir, workspace, "@chat/input.txt")
 	wantChatPath, canonicalErr := pathutil.Canonicalize(filepath.Join(chatDir, "input.txt"))
 	if canonicalErr != nil {
 		t.Fatal(canonicalErr)
@@ -1144,7 +1144,7 @@ func TestResolveProxyFileSourceExcludesChatsFromFilesystemRootWorkspace(t *testi
 	if canonicalErr != nil {
 		t.Fatal(canonicalErr)
 	}
-	if got, err := resolveProxyFileSource(nil, "chat-1", chatDir, root, "@chat/input.txt"); err != nil || got != wantCurrentChatPath.Host {
+	if got, err := resolveProxyFileSource(nil, chatDir, root, "@chat/input.txt"); err != nil || got != wantCurrentChatPath.Host {
 		t.Fatalf("resolve current chat: path=%q err=%v", got, err)
 	}
 	for _, rawPath := range []string{
@@ -1152,7 +1152,7 @@ func TestResolveProxyFileSourceExcludesChatsFromFilesystemRootWorkspace(t *testi
 		"@workspace/chats/chat-1/input.txt",
 		filepath.Join(otherChatDir, "input.txt"),
 	} {
-		if _, err := resolveProxyFileSource(nil, "chat-1", chatDir, root, rawPath); err == nil {
+		if _, err := resolveProxyFileSource(nil, chatDir, root, rawPath); err == nil {
 			t.Fatalf("expected chat path %q to be rejected as workspace input", rawPath)
 		}
 	}

@@ -7,7 +7,7 @@ import (
 	"agent-platform/internal/skills"
 )
 
-func (t *RuntimeToolExecutor) invokeSkillCandidateWrite(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeSkillCandidateWrite(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if t.skillCandidates == nil {
 		return ToolExecutionResult{Output: "skill candidate store not configured", Error: "skill_candidate_store_not_configured", ExitCode: -1}, nil
 	}
@@ -36,7 +36,7 @@ func (t *RuntimeToolExecutor) invokeSkillCandidateWrite(toolName string, args ma
 	return structuredResult(map[string]any{"candidate": candidate}), nil
 }
 
-func (t *RuntimeToolExecutor) invokeSkillCandidateList(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeSkillCandidateList(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if t.skillCandidates == nil {
 		return ToolExecutionResult{Output: "skill candidate store not configured", Error: "skill_candidate_store_not_configured", ExitCode: -1}, nil
 	}

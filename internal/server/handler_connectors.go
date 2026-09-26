@@ -13,7 +13,7 @@ import (
 	"agent-platform/internal/mcp"
 )
 
-func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleConnectors(w http.ResponseWriter, _ *http.Request) {
 	sources := s.connectorSources()
 	items, err := sources.Summaries()
 	if err != nil {

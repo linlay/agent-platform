@@ -127,7 +127,7 @@ func (s *llmRunStream) appendInterruptedWaitingResults() {
 		if item.beforeApproval {
 			output = runInterruptedApprovalOutput
 		}
-		s.appendOriginalToolResult(invocation, interruptedBeforeExecutionToolResult(invocation, awaitingID, output))
+		s.appendOriginalToolResult(invocation, interruptedBeforeExecutionToolResult(awaitingID, output))
 	}
 
 	s.hitlPendingBatch = nil
@@ -145,7 +145,7 @@ func (s *llmRunStream) isWaitingInteractionInvocation(invocation *preparedToolIn
 	return s != nil && invocation != nil && s.engine != nil && s.isInteractionTool(invocation.toolName)
 }
 
-func interruptedBeforeExecutionToolResult(invocation *preparedToolInvocation, awaitingID string, output string) ToolExecutionResult {
+func interruptedBeforeExecutionToolResult(awaitingID string, output string) ToolExecutionResult {
 	payload := map[string]any{
 		"error":    string(apperrors.CodeRunInterrupted),
 		"exitCode": -1,

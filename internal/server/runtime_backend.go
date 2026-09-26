@@ -61,7 +61,7 @@ func (s *Server) StartQueryRuntime(ctx context.Context, command runtimetypes.Que
 			s.startPreparedProxyRun(prepared, registered, eventBus)
 		}
 	} else {
-		s.startPreparedLocalRun(prepared, registered, eventBus, PrincipalFromContext(ctx))
+		s.startPreparedLocalRun(prepared, registered, eventBus)
 	}
 	owner := contracts.ResolveRunOwner(prepared.session.RunOwner)
 	return runtimetypes.RunHandle{
@@ -118,7 +118,7 @@ func (s *Server) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryCommand
 		fullText = newQueryFullTextBuilder()
 		observe = fullText.Observe
 	}
-	result, runErr := s.executePreparedLocalQuery(ctx, prepared, registered, nil, observe)
+	result, runErr := s.executePreparedLocalQuery(prepared, registered, nil, observe)
 	output := runtimetypes.QueryResult{Completion: result.Completion, Content: result.AssistantText, ErrorMessage: result.ErrorMessage}
 	if fullText != nil {
 		output.FullText = fullText.Text(result.AssistantText)

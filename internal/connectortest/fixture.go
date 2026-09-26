@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func WriteCLI(dir, name, version, goos string) error {
+func WriteCLI(dir, name, version string) error {
 	version = strings.TrimPrefix(version, "v")
 	files := map[string]string{
 		"connector.json":                       fmt.Sprintf("{\n  \"id\": \"builtin.%s\",\n  \"name\": \"%s\",\n  \"version\": \"%s\",\n  \"type\": \"cli\",\n  \"auth_mode\": null\n}\n", name, name, version),

@@ -47,6 +47,9 @@ func TestSkillSnapshotIncludesHiddenFilesAndIgnoresTimestamps(t *testing.T) {
 		t.Fatalf("archive incomplete: %d", len(reader.File))
 	}
 	for _, file := range reader.File {
+		if !file.Modified.Equal(time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)) {
+			t.Fatalf("snapshot time for %s: %v", file.Name, file.Modified)
+		}
 		if file.FileInfo().IsDir() {
 			continue
 		}

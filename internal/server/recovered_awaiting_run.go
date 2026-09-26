@@ -14,7 +14,7 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func (s *Server) registerRecoveredAwaitingRun(item chat.PendingAwaitingWithChat, step *chat.PersistedAwaitingStep) (contracts.RecoveredAwaitingRun, error) {
+func (s *Server) registerRecoveredAwaitingRun(item chat.PendingAwaitingWithChat) (contracts.RecoveredAwaitingRun, error) {
 	runs, ok := s.deps.Runs.(contracts.RecoveredAwaitingRunService)
 	if !ok {
 		return contracts.RecoveredAwaitingRun{}, fmt.Errorf("run manager does not support recovered awaiting runs")

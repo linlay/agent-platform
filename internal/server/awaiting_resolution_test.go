@@ -292,7 +292,7 @@ func TestRecoveredAwaitingClaimBlocksConcurrentTimeoutReadAndSubmit(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	recovered, err := fixture.server.registerRecoveredAwaitingRun(item, step)
+	recovered, err := fixture.server.registerRecoveredAwaitingRun(item)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestRecoveredAwaitingSubmitWinsConcurrentExpiredRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.server.registerRecoveredAwaitingRun(item, step); err != nil {
+	if _, err := fixture.server.registerRecoveredAwaitingRun(item); err != nil {
 		t.Fatal(err)
 	}
 	fixture.server.deferredAwaitings.Register(DeferredAwaiting{ChatID: chatID, RunID: runID, AwaitingID: awaitingID, Mode: "question", CreatedAt: createdAt, Ask: step.Ask})

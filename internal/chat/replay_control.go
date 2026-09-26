@@ -230,7 +230,7 @@ func (r *historyReplay) replayEvent(line map[string]any) error {
 			}
 		}
 		if !seen {
-			if plan := planningStateFromRef(planningID, parsed.String("planningFile"), "", r.chatDir); plan != nil {
+			if plan := planningStateFromRef(planningID, parsed.String("planningFile"), ""); plan != nil {
 				rd.events = append(rd.events, stream.EventData{
 					Type: "planning.snapshot", Timestamp: parsed.Timestamp,
 					Payload: map[string]any{"planningId": plan.PlanningID, "planningFile": plan.PlanningFile, "text": plan.Markdown, "runId": runID},

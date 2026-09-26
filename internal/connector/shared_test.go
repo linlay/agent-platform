@@ -83,7 +83,7 @@ func TestSharedAssemblyPreventsCollectionAndStartupReuses(t *testing.T) {
 
 func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 	s := runtimeFixture(t)
-	if err := WriteBuiltin(filepath.Join(s.BuiltinRoot, "builtin.desktop"), "desktop", "", "darwin"); err != nil {
+	if err := WriteBuiltin(filepath.Join(s.BuiltinRoot, "builtin.desktop"), "desktop", ""); err != nil {
 		t.Fatal(err)
 	}
 	pkg, err := s.Load("builtin.desktop")

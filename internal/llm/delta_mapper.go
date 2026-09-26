@@ -115,7 +115,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Delta:          value.Text,
 		}}
 	case DeltaToolCall:
-		toolID := m.resolveToolID(value.Index, value.ID, value.Name)
+		toolID := m.resolveToolID(value.Index, value.ID)
 		if toolID == "" {
 			return nil
 		}
@@ -219,7 +219,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		m.lastKind = ""
 		return []stream.StreamInput{stream.StageMarker{Stage: value.Stage}}
 	case DeltaModelTurnCommit:
-		m.resetModelTurnState(false)
+		m.resetModelTurnState()
 		return []stream.StreamInput{stream.ModelTurnCommit{
 			ResponseID: value.ResponseID, EncryptedReasoning: value.EncryptedReasoning,
 			TaskID: value.TaskID,
@@ -239,7 +239,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ContentIDs:     sortedStringSet(m.attemptContentIDs),
 			ToolIDs:        sortedStringSet(m.attemptToolIDs),
 		}
-		m.resetModelTurnState(true)
+		m.resetModelTurnState()
 		return []stream.StreamInput{input}
 	case DeltaSyntheticQuery:
 		m.lastKind = ""
@@ -510,7 +510,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	}
 }
 
-func (m *DeltaMapper) resetModelTurnState(discard bool) {
+func (m *DeltaMapper) resetModelTurnState() {
 	if m == nil {
 		return
 	}
@@ -602,7 +602,7 @@ func (m *DeltaMapper) buildInteractionAwaitAsk(toolID string, toolName string, a
 	return nil, false
 }
 
-func (m *DeltaMapper) resolveToolID(index int, candidate string, toolName string) string {
+func (m *DeltaMapper) resolveToolID(index int, candidate string) string {
 	if strings.TrimSpace(candidate) != "" {
 		m.indexedToolIDs[index] = candidate
 		return candidate

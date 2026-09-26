@@ -82,7 +82,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	if session.AdvancedUserPrompt {
 		appendSection("advanced-user-prompt-protocol", "Advanced User Prompt Protocol", "query.advanced_user_prompt", querymessages.AdvancedUserPromptSystemPrompt)
 	}
-	appendRuntimeSystemPromptSections(&sections, session, req)
+	appendRuntimeSystemPromptSections(&sections, session)
 	appendSection("runtime-path-policy", "Runtime Context: Path Policy", "runtime.path_policy", buildRuntimePathPolicySection(session, options.ToolDefinitions))
 	appendSection("runtime-plan-tasks", "Runtime Context: Current Plan Tasks", "runtime.plan_tasks", buildPlanTaskContextSection(session, toolNames, options.Stage))
 	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
@@ -93,7 +93,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	return sections
 }
 
-func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session QuerySession, req api.QueryRequest) {
+func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session QuerySession) {
 	appendSection := func(id, title, category, content string) {
 		content = strings.TrimSpace(content)
 		if content == "" {
@@ -112,7 +112,7 @@ func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session 
 		case "system":
 			appendSection("runtime-system", "Runtime Context: System Environment", "runtime.system", buildSystemEnvironmentSection(session))
 		case "session":
-			appendSection("runtime-session", "Runtime Context: Session", "runtime.session", buildSessionSection(session, req))
+			appendSection("runtime-session", "Runtime Context: Session", "runtime.session", buildSessionSection(session))
 		case "owner":
 			appendSection("runtime-owner", "Runtime Context: Owner", "runtime.owner", buildOwnerSection(session.RuntimeContext.LocalPaths))
 		case "agents":
@@ -123,11 +123,11 @@ func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session 
 		appendSection("runtime-sandbox", "Runtime Context: Sandbox", "runtime.sandbox", buildSandboxSection(session.RuntimeContext.SandboxContext))
 	}
 	if session.AgentHasMemoryConfig {
-		appendRuntimeMemorySystemPromptSections(sections, session, req)
+		appendRuntimeMemorySystemPromptSections(sections, session)
 	}
 }
 
-func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, session QuerySession, req api.QueryRequest) {
+func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, session QuerySession) {
 	before := len(*sections)
 	appendSection := func(id, title, category, content string) {
 		content = strings.TrimSpace(content)
@@ -146,7 +146,7 @@ func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, se
 	appendSection("memory-observation", "Runtime Context: Relevant Observations", "memory.observation", strings.TrimSpace(session.ObservationContext))
 	appendSection("memory-workflow", "Runtime Context: Workflow Memory", "memory.workflow", strings.TrimSpace(session.WorkflowContext))
 	if len(*sections) == before {
-		appendSection("memory-agent", "Runtime Context: Agent Memory", "memory.agent", buildMemorySection(session, req))
+		appendSection("memory-agent", "Runtime Context: Agent Memory", "memory.agent", buildMemorySection(session))
 	}
 }
 
@@ -340,7 +340,7 @@ func buildSystemEnvironmentSection(session QuerySession) string {
 	return strings.Join(lines, "\n")
 }
 
-func buildSessionSection(session QuerySession, req api.QueryRequest) string {
+func buildSessionSection(session QuerySession) string {
 	lines := []string{"Runtime Context: Session"}
 	appendKeyValue(&lines, "chatId", session.ChatID)
 	appendKeyValue(&lines, "teamId", session.RuntimeContext.TeamID)
@@ -557,7 +557,7 @@ func formatAgentDigest(digest AgentDigest) string {
 	return strings.Join(lines, "\n")
 }
 
-func buildMemorySection(session QuerySession, req api.QueryRequest) string {
+func buildMemorySection(session QuerySession) string {
 	sections := make([]string, 0, 3)
 	if strings.TrimSpace(session.StableMemoryContext) != "" {
 		sections = append(sections, strings.TrimSpace(session.StableMemoryContext))

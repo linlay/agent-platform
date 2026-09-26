@@ -87,7 +87,7 @@ func encodeLanceChunksIPC(chunks []lanceChunkWire) ([]byte, error) {
 		floatBuilder.AppendValues(chunk.Vector, nil)
 		builder.Field(20).(*array.Int64Builder).Append(chunk.UpdatedAt)
 	}
-	record := builder.NewRecord()
+	record := builder.NewRecordBatch()
 	defer record.Release()
 	var output bytes.Buffer
 	writer := ipc.NewWriter(&output, ipc.WithSchema(schema))

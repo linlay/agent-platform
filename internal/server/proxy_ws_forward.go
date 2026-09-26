@@ -620,7 +620,7 @@ func (r *proxyEventRecorder) syntheticPlanningSnapshotBeforeAwaiting(event strea
 		planning["planningFile"] = planningFile
 		event.Payload["planning"] = planning
 	}
-	state, snapshot := chat.PlanningSnapshotFromAwaitingItem(eventPayloadWithType(event), r.req.ChatID, r.req.RunID, chatDir)
+	state, snapshot := chat.PlanningSnapshotFromAwaitingItem(eventPayloadWithType(event), r.req.ChatID, r.req.RunID)
 	if state == nil || snapshot == nil || strings.TrimSpace(state.Markdown) == "" || r.hasPlanningSnapshot(state.PlanningID) {
 		return stream.EventData{}, false
 	}

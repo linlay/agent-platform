@@ -84,7 +84,7 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 		return api.Reference{}, fmt.Errorf("resolve proxy chat directory: %w", err)
 	}
 	chatDir = canonicalChatDir.Host
-	sourcePath, err := resolveProxyFileSource(store, chatID, chatDir, workspaceRoot, rawPath)
+	sourcePath, err := resolveProxyFileSource(store, chatDir, workspaceRoot, rawPath)
 	if err != nil {
 		return api.Reference{}, err
 	}
@@ -133,7 +133,7 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 	}, nil
 }
 
-func resolveProxyFileSource(store chat.Store, chatID string, chatDir string, workspaceRoot string, rawPath string) (string, error) {
+func resolveProxyFileSource(store chat.Store, chatDir string, workspaceRoot string, rawPath string) (string, error) {
 	if fileParam := resourceFileParam(rawPath); fileParam != "" {
 		if store == nil {
 			return "", fmt.Errorf("resource store unavailable")

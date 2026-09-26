@@ -180,11 +180,7 @@ func (s *Server) wsBTW(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	})
-	principal := &Principal{Subject: prepared.session.Subject}
-	if strings.TrimSpace(principal.Subject) == "" {
-		principal = nil
-	}
-	s.startPreparedLocalRun(prepared, registered, eventBus, principal)
+	s.startPreparedLocalRun(prepared, registered, eventBus)
 	forwarding = true
 	conn.StartStreamForward(req.ID, observer)
 }

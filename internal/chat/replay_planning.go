@@ -10,11 +10,11 @@ import (
 
 // PlanningSnapshotFromAwaitingItem builds planning state and a replay/live snapshot
 // from a persisted or proxied planning awaiting event.
-func PlanningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string) (*PlanningState, *stream.EventData) {
-	return planningSnapshotFromAwaitingItem(item, chatID, runID, chatDir)
+func PlanningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string) (*PlanningState, *stream.EventData) {
+	return planningSnapshotFromAwaitingItem(item, chatID, runID)
 }
 
-func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string) (*PlanningState, *stream.EventData) {
+func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string) (*PlanningState, *stream.EventData) {
 	if strings.TrimSpace(stringFromAny(item["type"])) != "awaiting.ask" ||
 		!strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "planning") {
 		return nil, nil
@@ -23,7 +23,7 @@ func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID 
 	if len(planning) == 0 {
 		return nil, nil
 	}
-	state := planningStateFromPlanning(planning, chatDir)
+	state := planningStateFromPlanning(planning)
 	if state == nil {
 		return nil, nil
 	}
@@ -64,7 +64,7 @@ func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID 
 	}
 }
 
-func planningStateFromAwaitingPlanning(rawAwaiting any, chatDir string) *PlanningState {
+func planningStateFromAwaitingPlanning(rawAwaiting any) *PlanningState {
 	var latest *PlanningState
 	for _, item := range toMapSlice(rawAwaiting) {
 		if strings.TrimSpace(stringFromAny(item["type"])) != "awaiting.ask" ||
@@ -75,7 +75,7 @@ func planningStateFromAwaitingPlanning(rawAwaiting any, chatDir string) *Plannin
 		if len(planning) == 0 {
 			continue
 		}
-		state := planningStateFromPlanning(planning, chatDir)
+		state := planningStateFromPlanning(planning)
 		if state != nil {
 			latest = state
 		}
@@ -83,7 +83,7 @@ func planningStateFromAwaitingPlanning(rawAwaiting any, chatDir string) *Plannin
 	return latest
 }
 
-func planningStateFromPlanning(planning map[string]any, chatDir string) *PlanningState {
+func planningStateFromPlanning(planning map[string]any) *PlanningState {
 	if len(planning) == 0 {
 		return nil
 	}
@@ -92,11 +92,10 @@ func planningStateFromPlanning(planning map[string]any, chatDir string) *Plannin
 		planningID,
 		strings.TrimSpace(stringFromAny(planning["planningFile"])),
 		stringFromAny(planning["text"]),
-		chatDir,
 	)
 }
 
-func planningStateFromRef(planningID string, planningFile string, markdown string, chatDir string) *PlanningState {
+func planningStateFromRef(planningID string, planningFile string, markdown string) *PlanningState {
 	planningID = strings.TrimSpace(planningID)
 	planningFile = strings.TrimSpace(planningFile)
 	if planningID == "" || planningFile == "" {
