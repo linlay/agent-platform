@@ -459,7 +459,7 @@ func TestBuildRuntimeContextSkipsAgentDigestsWithoutAgentsTag(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeContextRejectsUnknownContextAgent(t *testing.T) {
+func TestBuildRuntimeContextSkipsUnknownContextAgent(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
@@ -470,7 +470,7 @@ func TestBuildRuntimeContextRejectsUnknownContextAgent(t *testing.T) {
 		},
 	}
 
-	_, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
 		agentKey: "router",
 		chatID:   "chat-router",
 		definition: catalog.AgentDefinition{
@@ -481,8 +481,11 @@ func TestBuildRuntimeContextRejectsUnknownContextAgent(t *testing.T) {
 			ContextAgents: []string{"missing-agent"},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), `contextConfig.agents contains unknown agent key "missing-agent"`) {
-		t.Fatalf("expected unknown context agent error, got %v", err)
+	if err != nil {
+		t.Fatalf("unavailable prompt candidate blocked query context: %v", err)
+	}
+	if len(context.AgentDigests) != 0 {
+		t.Fatalf("unavailable candidate included: %#v", context.AgentDigests)
 	}
 }
 

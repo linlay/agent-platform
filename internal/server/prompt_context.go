@@ -109,9 +109,9 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		LocalPaths:   localPaths,
 		SandboxPaths: sandboxPaths,
 	}
-	agentDigests, err := buildContextAgentDigests(s.deps.Registry, input.definition, input.agentKey)
-	if err != nil {
-		return contracts.RuntimeRequestContext{}, err
+	agentDigests, diagnostic := buildContextAgentDigests(s.deps.Registry, input.definition, input.agentKey)
+	if diagnostic != nil {
+		log.Printf("[server][context-agents][warn] code=%s agent=%q %s", diagnostic.Code, fmt.Sprintf("%.128s", input.agentKey), diagnostic.Message)
 	}
 	context.AgentDigests = agentDigests
 	if input.principal != nil {
@@ -983,48 +983,26 @@ func buildAgentDigests(registry catalog.Registry) []contracts.AgentDigest {
 	return digests
 }
 
-func buildContextAgentDigests(registry catalog.Registry, def catalog.AgentDefinition, currentAgentKey string) ([]contracts.AgentDigest, error) {
+func buildContextAgentDigests(registry catalog.Registry, def catalog.AgentDefinition, currentAgentKey string) ([]contracts.AgentDigest, *catalog.AdminAgentDiagnostic) {
 	if !agentHasContextTag(def, "agents") {
 		return nil, nil
 	}
 	digests := buildAgentDigests(registry)
-	currentAgentKey = strings.TrimSpace(currentAgentKey)
-	if currentAgentKey == "" {
-		currentAgentKey = strings.TrimSpace(def.Key)
-	}
-	if len(def.ContextAgents) == 0 {
-		filtered := make([]contracts.AgentDigest, 0, len(digests))
-		for _, digest := range digests {
-			if strings.TrimSpace(digest.Key) == currentAgentKey {
-				continue
-			}
-			filtered = append(filtered, digest)
-		}
-		return filtered, nil
-	}
+	keys := make([]string, 0, len(digests))
 	byKey := make(map[string]contracts.AgentDigest, len(digests))
 	for _, digest := range digests {
 		key := strings.TrimSpace(digest.Key)
 		if key != "" {
+			keys = append(keys, key)
 			byKey[key] = digest
 		}
 	}
-	filtered := make([]contracts.AgentDigest, 0, len(def.ContextAgents))
-	for _, agentKey := range def.ContextAgents {
-		agentKey = strings.TrimSpace(agentKey)
-		if agentKey == "" {
-			continue
-		}
-		if agentKey == currentAgentKey {
-			continue
-		}
-		digest, ok := byKey[agentKey]
-		if !ok {
-			return nil, fmt.Errorf("contextConfig.agents contains unknown agent key %q", agentKey)
-		}
-		filtered = append(filtered, digest)
+	selected, diagnostic := catalog.ResolveContextAgentKeys(def, currentAgentKey, keys)
+	filtered := make([]contracts.AgentDigest, 0, len(selected))
+	for _, key := range selected {
+		filtered = append(filtered, byKey[key])
 	}
-	return filtered, nil
+	return filtered, diagnostic
 }
 
 func agentHasContextTag(def catalog.AgentDefinition, tag string) bool {

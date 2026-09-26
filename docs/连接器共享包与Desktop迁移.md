@@ -28,6 +28,10 @@ Run 的挂载快照保存在私有状态目录，持久引用位于共享根 `.r
 
 Agent 使用 `connectorConfig.connectors` 挂载 `builtin.desktop`。它的 native 声明仅接受平台注册的 `desktop.action`、`desktop.cdp`，自动接入 `desktop_action`、`desktop_cdp` 和 `desktop-action`、`desktop-cdp` 技能，并提供读取技能所需的 file_read；不会自动增加 Bash。
 
+Agent 加载不再根据 `toolConfig.tools` 中出现 `desktop_action` / `desktop_cdp` 就强制要求声明特定连接器 ID。工具声明与连接器挂载各自解析，工具存在性沿用通用工具目录、模型工具过滤与调用路由；未注册工具调用返回 `tool_not_registered`，不通过工具名反推连接器配置。这里没有新增对全部工具的 catalog 硬校验，也不把远端 MCP 发现加入加载关键路径。
+
+移除的是配置加载阶段的特殊绑定阻断，不会根据工具名自动挂载包、导入 Skill 或生成执行授权。当前 Desktop native handler 的受信任挂载、configured、客户端归属和审批检查仍保留；只有工具声明但缺少运行授权时，Agent 可装载和聊天，实际 Desktop 调用仍返回工具错误。旧普通 Skill 引用的解析与保留名称规则不在此次调整范围内，不能据此保证所有旧配置都会变为 ready。
+
 包声明和技能共享，实际工具仍由 Platform 经现有协议路由到 Desktop 客户端。已有参数 Schema、客户端归属、审批与 mode 限制继续生效；KBASE、ACP 不开放此能力。外部包不能伪造 builtin 命名空间或任意 native handler。
 
 配置状态使用 `.state/connectors/builtin.desktop/connection.json` 的 configured。Connect 标记配置完成，Disconnect 清除本地配置状态，Check 读取本地状态，不保存 Token；客户端离线不清除 configured。每次调用仍要求当前 Agent 挂载且已配置，并由原有执行链检查实际客户端能力和审批。

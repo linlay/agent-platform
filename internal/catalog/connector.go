@@ -86,9 +86,6 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 	def.ConnectorCLIEntries = nil
 	def.ConnectorMounts = nil
 	def.ConnectorMCPServers = nil
-	if (containsString(def.Tools, "desktop_action") || containsString(def.Tools, "desktop_cdp")) && !containsString(def.Connectors, "builtin.desktop") {
-		return fmt.Errorf("Desktop tools require connectorConfig.connectors: [builtin.desktop]; migrate legacy tool configuration")
-	}
 	skillSources := make(map[string]string, len(def.Skills))
 	for _, key := range def.Skills {
 		if connector.IsReservedSkill(key) {

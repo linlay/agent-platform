@@ -32,6 +32,8 @@
 
 技能展示元数据已支持顶层 `displayName`（非空时优先）及 `metadata.displayName/i18n/version/revision`，API 名称字段仅返回 `key/displayName`，按请求语言解析显示名称与描述，无显示名称时回退 SKILL.md 的 name，不返回 name 或翻译表；key/name 不一致只告警不阻断；版本保留顶层优先兼容规则，名称与版本诊断不改写技能，客户端刷新接入见 [技能展示元数据](docs/技能展示元数据.md)。
 
+`contextConfig.agents` 为非授权的候选摘要引用：不可用项跳过，正常主 Agent 保持可用，管理接口与运行日志提供有界 `context_agents_unavailable` 警告，实际调用与必要执行依赖仍严格校验，见 [智能体配置说明](docs/智能体配置说明.md#context-tags)。Agent 加载不再由 Desktop 工具名强制推导 `builtin.desktop` 声明；执行时的受信任挂载与权限检查保留，见 [Desktop 连接器](docs/连接器共享包与Desktop迁移.md#builtindesktop)。
+
 ## 2. 技术栈
 
 - 语言：Go

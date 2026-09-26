@@ -548,7 +548,7 @@ func (r *FileRegistry) AdminAgents() []AdminAgent {
 	keys := r.orderedAdminAgentKeysLocked()
 	items := make([]AdminAgent, 0, len(keys))
 	for _, key := range keys {
-		items = append(items, cloneAdminAgent(r.adminAgents[key]))
+		items = append(items, r.adminAgentWithContextDiagnosticsLocked(r.adminAgents[key]))
 	}
 	return items
 }
@@ -560,7 +560,7 @@ func (r *FileRegistry) AdminAgent(key string) (AdminAgent, bool) {
 	if !ok {
 		return AdminAgent{}, false
 	}
-	return cloneAdminAgent(def), true
+	return r.adminAgentWithContextDiagnosticsLocked(def), true
 }
 
 func (r *FileRegistry) AdminAgentKeys() []string {

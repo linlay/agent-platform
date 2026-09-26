@@ -37,8 +37,12 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	if containsString(one.Tools, "bash") || !containsString(one.Tools, "file_read") || len(one.ConnectorNativeTools) != 2 || len(one.ConnectorSkills) != 2 {
 		t.Fatalf("wrong native tools: %#v", one)
 	}
-	if _, ok := r.AgentDefinition("legacy"); ok {
-		t.Fatal("legacy tool config bypassed mount")
+	legacy, ok := r.AgentDefinition("legacy")
+	if !ok {
+		t.Fatal("tool declaration must not require a named connector")
+	}
+	if len(legacy.ConnectorMounts) != 0 || len(legacy.ConnectorNativeTools) != 0 {
+		t.Fatal("tool declaration must not synthesize connector execution grants")
 	}
 	if one.SkillInstructionsPath("desktop-cdp") != "@connectors/builtin.desktop/skills/desktop-cdp/SKILL.md" {
 		t.Fatal("unstable skill path")
