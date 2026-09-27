@@ -83,9 +83,19 @@ L1 保护最近轮次及未完成交互；保留的工具组保留其加密推�
 
 ## 终态与 usage
 
-SSE 按 output_index 累积，完整终态快照补足尾部并核对已收到的文本/参数，避免重复拼接。只有 `response.completed` 或受支持的 `response.incomplete` 才能收口；单独 EOF、`[DONE]`、failed/error 或不一致快照均不能当成功。完整终态校验后，函数调用进入现有权限/HITL/执行链。多工具 ID 必须唯一，arguments 必须是 JSON 对象。
+SSE 按 output_index 累积，完整终态快照补足尾部并核对已收到的文本/参数，避免重复拼接。兼容端点若在 `response.completed` 返回空/缺省 `output`，仅当已观察的全部输出项都有 `response.output_item.done`、索引从 0 连续且 item 状态未声明未完成时，按索引恢复完整输出，再统一校验身份、正文/摘要/参数和工具 ID；不从未完成项或仅 delta 猜测结果。非空但缺项的终态不补齐，`response.incomplete` 不走此恢复。恢复数量记录在 trace 的 `diagnostics.stream.responsesRecoveredItems`。可读推理摘要在不同 item 或 summary_index 之间保留段落边界。
+
+只有 `response.completed` 或受支持的 `response.incomplete` 才能收口；单独 EOF、`[DONE]`、failed/error 或不一致快照均不能当成功。完整输出校验后，函数调用进入现有权限/HITL/执行链。多工具 ID 必须唯一，arguments 必须是 JSON 对象。
 
 usage 映射：input_tokens → promptTokens，output_tokens → completionTokens，input_tokens_details.cached_tokens → promptCacheHitTokens，output_tokens_details.reasoning_tokens → reasoningTokens。缓存命中率可按 cached_tokens / input_tokens 计算（input_tokens > 0）；上游未提供细分时不能据此证明命中。`store:false`、response ID、Prompt Cache 是三件独立的事，发送全量有效上下文仍可能命中上游缓存。
+
+## 流错误诊断
+
+HTTP 200 的 SSE 也可能携带上游错误。标准 `error` / `response.failed`，以及网关发送的 `{"error":{"code":"…","message":"…"}}` 或 `{"error":"…"}` 会返回 `provider_stream_failed`，保留有界、凭据脱敏后的上游错误码与说明；不再将这类错误误报为 `responses event missing type`。没有明确错误字段且缺少 JSON `type` 和 SSE `event` 时，仍按 `provider_stream_invalid` 拒绝。上游错误码不会被猜测成 HTTP 状态：公开错误的 `status:502` 是平台分类，`diagnostics.upstreamStatus` 是实际收到的状态，可能是 200。
+
+格式/流失败的 `diagnostics` 增加事件类型、帧序号/字节数、尝试次数、已知顶层字段名及上游请求 ID（若提供）。格式失败还保留 `validationError`，避免界面翻译通用 message 后丢失具体校验原因。终态校验失败还包含 response ID/status、终态输出项数、已观察项数及 done 项数；缺项时包含 `outputIndex`、`observedItemType`、`observedItemDone`，并保留上游 `incompleteReason`。这些信息用于区分完整结束、输出受限和快照不一致。
+
+结构信息同时进入常开日志及可选 trace 的 `diagnostics.stream.responsesFailure`，不保存原始 SSE、正文、推理、密文或工具参数；上游错误说明保留在公开错误与 trace 的 `error` 中，不加入常开诊断日志。重试提示按原因区分“超时”和一般“失败”。
 
 ## 验证
 

@@ -15,21 +15,23 @@ import (
 // Keep counters rather than raw frames: diagnostics must remain bounded and
 // must not add prompts, reasoning text, tool arguments or credentials to logs.
 type providerStreamObservation struct {
-	Response               modelclient.ResponseMetadata `json:"response"`
-	Frames                 int                          `json:"frames"`
-	DataBytes              int                          `json:"dataBytes"`
-	DoneSeen               bool                         `json:"doneSeen"`
-	ReadOutcome            string                       `json:"readOutcome,omitempty"`
-	CompletionTrigger      string                       `json:"completionTrigger,omitempty"`
-	DecodeErrors           int                          `json:"decodeErrors"`
-	RawContentBytes        int                          `json:"rawContentBytes"`
-	RawReasoningBytes      int                          `json:"rawReasoningBytes"`
-	RawToolDeltas          int                          `json:"rawToolDeltas"`
-	InvalidToolArguments   int                          `json:"invalidToolArguments,omitempty"`
-	PostFinishToolDeltas   int                          `json:"postFinishToolDeltas,omitempty"`
-	RefusalBytes           int                          `json:"refusalBytes"`
-	NonStreamingMessages   int                          `json:"nonStreamingMessages"`
-	IgnoredAnthropicEvents int                          `json:"ignoredAnthropicEvents"`
+	Response                modelclient.ResponseMetadata `json:"response"`
+	Frames                  int                          `json:"frames"`
+	DataBytes               int                          `json:"dataBytes"`
+	DoneSeen                bool                         `json:"doneSeen"`
+	ReadOutcome             string                       `json:"readOutcome,omitempty"`
+	CompletionTrigger       string                       `json:"completionTrigger,omitempty"`
+	DecodeErrors            int                          `json:"decodeErrors"`
+	RawContentBytes         int                          `json:"rawContentBytes"`
+	RawReasoningBytes       int                          `json:"rawReasoningBytes"`
+	RawToolDeltas           int                          `json:"rawToolDeltas"`
+	InvalidToolArguments    int                          `json:"invalidToolArguments,omitempty"`
+	PostFinishToolDeltas    int                          `json:"postFinishToolDeltas,omitempty"`
+	RefusalBytes            int                          `json:"refusalBytes"`
+	NonStreamingMessages    int                          `json:"nonStreamingMessages"`
+	IgnoredAnthropicEvents  int                          `json:"ignoredAnthropicEvents"`
+	ResponsesFailure        map[string]any               `json:"responsesFailure,omitempty"`
+	ResponsesRecoveredItems int                          `json:"responsesRecoveredItems,omitempty"`
 }
 
 func (o *providerStreamObservation) recordRead(raw string, err error) {

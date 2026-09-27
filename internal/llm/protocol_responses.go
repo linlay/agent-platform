@@ -7,17 +7,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 )
 
 type responsesProtocol struct{ engine *LLMAgentEngine }
 type responsesTurnState struct {
-	items     map[int]modelresponses.Item
-	text      map[int]string
-	summaries map[int]string
-	args      map[int]string
+	items       map[int]modelresponses.Item
+	text        map[int]string
+	summaries   map[int]string
+	args        map[int]string
+	done        map[int]bool
+	summaryPart map[int]int
 }
 
 func (p *responsesProtocol) PrepareRequest(params protocolStreamParams) (preparedProviderRequest, error) {
@@ -104,32 +105,31 @@ func (p *responsesProtocol) OpenStream(ctx context.Context, params protocolStrea
 	}
 	return p.engine.executeProviderRequest(req, params.modelTimeout)
 }
-func responsesInvalid(message string) error {
-	return apperrors.New(apperrors.CodeProviderStreamInvalid, message)
+func responsesInvalid(message string, opts ...apperrors.Option) error {
+	return apperrors.New(apperrors.CodeProviderStreamInvalid, message, opts...)
 }
-func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string) (bool, error) {
-	var e struct {
-		Type        string                  `json:"type"`
-		OutputIndex int                     `json:"output_index"`
-		Delta       string                  `json:"delta"`
-		Item        modelresponses.Item     `json:"item"`
-		Response    modelresponses.Response `json:"response"`
-		Code        string                  `json:"code"`
-		Message     string                  `json:"message"`
-	}
+func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string) (done bool, consumeErr error) {
+	var e responsesStreamEvent
+	turn := s.currentTurn
+	defer func() {
+		consumeErr = annotateResponsesError(consumeErr, s.modelCall, turn, e, eventName, raw)
+	}()
 	if err := json.Unmarshal([]byte(raw), &e); err != nil {
 		s.currentTurn.observation.DecodeErrors++
-		return false, responsesInvalid("decode responses event")
+		return false, responsesDecodeError(err)
 	}
 	if e.Type == "" {
 		e.Type = eventName
+	}
+	if err := responsesEnvelopeError(e.Error); err != nil {
+		return false, err
 	}
 	if e.Type == "" {
 		return false, responsesInvalid("responses event missing type")
 	}
 	t := s.currentTurn
 	if t.responses == nil {
-		t.responses = &responsesTurnState{items: map[int]modelresponses.Item{}, text: map[int]string{}, summaries: map[int]string{}, args: map[int]string{}}
+		t.responses = &responsesTurnState{items: map[int]modelresponses.Item{}, text: map[int]string{}, summaries: map[int]string{}, args: map[int]string{}, done: map[int]bool{}, summaryPart: map[int]int{}}
 	}
 	state := t.responses
 	if e.Response.ID != "" {
@@ -141,12 +141,27 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 	switch e.Type {
 	case "response.output_item.added":
 		state.items[e.OutputIndex] = e.Item
+		delete(state.done, e.OutputIndex)
 	case "response.output_text.delta":
 		state.text[e.OutputIndex] += e.Delta
 		t.hasMeaningful = true
 		t.observation.RawContentBytes += len(e.Delta)
 		s.appendCompatContent(e.Delta)
 	case "response.reasoning_summary_text.delta":
+		if e.Delta == "" {
+			break
+		}
+		if state.summaryPart == nil {
+			state.summaryPart = map[int]int{}
+		}
+		previousPart, seenPart := state.summaryPart[e.OutputIndex]
+		if seenPart && previousPart != e.SummaryIndex {
+			state.summaries[e.OutputIndex] += "\n\n"
+			s.appendReasoningDelta("\n\n", "reasoning_content")
+		} else if !seenPart && t.reasoning.Len() > 0 {
+			s.appendReasoningDelta("\n\n", "reasoning_content")
+		}
+		state.summaryPart[e.OutputIndex] = e.SummaryIndex
 		state.summaries[e.OutputIndex] += e.Delta
 		t.observation.RawReasoningBytes += len(e.Delta)
 		s.appendReasoningDelta(e.Delta, "reasoning_content")
@@ -155,15 +170,24 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 	case "response.function_call_arguments.delta":
 		state.args[e.OutputIndex] += e.Delta
 	case "response.output_item.done":
-		state.items[e.OutputIndex] = e.Item
-	case "error":
-		return false, apperrors.New(apperrors.CodeProviderStreamFailed, fmt.Sprintf("responses error %s: %s", e.Code, e.Message))
-	case "response.failed":
-		message := "responses request failed"
-		if e.Response.Error != nil {
-			message = fmt.Sprintf("responses failed %s: %s", e.Response.Error.Code, e.Response.Error.Message)
+		if previous, ok := state.items[e.OutputIndex]; ok && (previous.Type != e.Item.Type || (previous.ID != "" && previous.ID != e.Item.ID)) {
+			return false, responsesInvalid("responses output item identity changed", apperrors.WithDiagnostics(map[string]any{
+				"outputIndex": e.OutputIndex, "observedItemType": diagnosticLabel(previous.Type), "finalItemType": diagnosticLabel(e.Item.Type),
+				"itemIDChanged": previous.ID != "" && previous.ID != e.Item.ID,
+			}))
 		}
-		return false, apperrors.New(apperrors.CodeProviderStreamFailed, message)
+		state.items[e.OutputIndex] = e.Item
+		if state.done == nil {
+			state.done = map[int]bool{}
+		}
+		state.done[e.OutputIndex] = true
+	case "error":
+		return false, responsesReportedError(e.Code, e.Message, "")
+	case "response.failed":
+		if e.Response.Error != nil {
+			return false, responsesReportedError(e.Response.Error.Code, e.Response.Error.Message, "")
+		}
+		return false, responsesReportedError("", "", "")
 	case "response.completed", "response.incomplete":
 		if e.Type == "response.completed" && e.Response.Status != "completed" {
 			return false, responsesInvalid("responses completed event has invalid status")
@@ -172,10 +196,14 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 			return false, responsesInvalid("responses incomplete event has invalid status")
 		}
 		if e.Response.Error != nil {
-			return false, apperrors.New(apperrors.CodeProviderStreamFailed, e.Response.Error.Message)
+			return false, responsesReportedError(e.Response.Error.Code, e.Response.Error.Message, "")
 		}
-		if err := validateResponsesFinal(e.Response, state); err != nil {
+		response, recovered := responsesOutputFromDone(e.Response, state)
+		if err := validateResponsesFinal(response, state); err != nil {
 			return false, err
+		}
+		if recovered {
+			t.observation.ResponsesRecoveredItems = len(response.Output)
 		}
 		if e.Response.Usage != nil {
 			u := e.Response.Usage
@@ -192,7 +220,7 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 				return false, apperrors.New(apperrors.CodeProviderStreamFailed, "responses incomplete: "+e.Response.IncompleteDetails.Reason)
 			}
 		}
-		for index, item := range e.Response.Output {
+		for index, item := range response.Output {
 			switch item.Type {
 			case "message":
 				var text strings.Builder
@@ -217,21 +245,16 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 				if item.EncryptedContent != "" {
 					t.encryptedReasoning = append(t.encryptedReasoning, item.Reasoning())
 				}
-				var parts []struct {
-					Text string `json:"text"`
-				}
-				_ = json.Unmarshal(item.Summary, &parts)
-				var b strings.Builder
-				for _, part := range parts {
-					b.WriteString(part.Text)
-				}
-				summary := b.String()
+				summary := responsesSummaryText(item)
 				seen := state.summaries[index]
 				if !strings.HasPrefix(summary, seen) {
 					return false, responsesInvalid("responses final summary disagrees with deltas")
 				}
 				if strings.HasPrefix(summary, seen) {
 					if suffix := strings.TrimPrefix(summary, seen); suffix != "" {
+						if seen == "" && t.reasoning.Len() > 0 {
+							s.appendReasoningDelta("\n\n", "reasoning_content")
+						}
 						s.appendReasoningDelta(suffix, "reasoning_content")
 						t.observation.RawReasoningBytes += len(suffix)
 					}
@@ -269,25 +292,30 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 	return false, nil
 }
 
-// Validate the complete snapshot before publishing any tool calls. Deltas alone
-// cannot authorize execution, and an omitted item must never silently commit.
+// Validate the terminal output (or the complete set of done items) before
+// publishing any tool calls. Deltas alone cannot authorize execution.
 func validateResponsesFinal(r modelresponses.Response, state *responsesTurnState) error {
 	if r.ID == "" {
 		return responsesInvalid("responses terminal event missing ID")
 	}
 	for index, observed := range state.items {
 		if index < 0 || index >= len(r.Output) {
-			return responsesInvalid("responses terminal snapshot omitted output item")
+			return responsesInvalid("responses terminal snapshot omitted output item", apperrors.WithDiagnostics(map[string]any{
+				"outputIndex": index, "observedItemType": diagnosticLabel(observed.Type), "observedItemDone": state.done[index],
+			}))
 		}
 		final := r.Output[index]
 		if observed.Type != final.Type || (observed.ID != "" && observed.ID != final.ID) {
-			return responsesInvalid("responses terminal item identity changed")
+			return responsesInvalid("responses terminal item identity changed", apperrors.WithDiagnostics(map[string]any{
+				"outputIndex": index, "observedItemType": diagnosticLabel(observed.Type), "finalItemType": diagnosticLabel(final.Type),
+				"itemIDChanged": observed.ID != "" && observed.ID != final.ID,
+			}))
 		}
 	}
 	for _, entries := range []map[int]string{state.text, state.summaries, state.args} {
 		for index := range entries {
 			if index < 0 || index >= len(r.Output) {
-				return responsesInvalid("responses terminal snapshot omitted deltas")
+				return responsesInvalid("responses terminal snapshot omitted deltas", apperrors.WithDiagnostic("outputIndex", index))
 			}
 		}
 	}
@@ -295,6 +323,17 @@ func validateResponsesFinal(r modelresponses.Response, state *responsesTurnState
 	for index, item := range r.Output {
 		if state.text[index] != "" && item.Type != "message" || state.summaries[index] != "" && item.Type != "reasoning" || state.args[index] != "" && item.Type != "function_call" {
 			return responsesInvalid("responses delta item type mismatch")
+		}
+		// Validate every item's deltas before any tool is published, including
+		// when the final output was reconstructed from output_item.done events.
+		if item.Type == "message" && !strings.HasPrefix((modelresponses.Response{Output: []modelresponses.Item{item}}).Text(), state.text[index]) {
+			return responsesInvalid("responses final text disagrees with deltas", apperrors.WithDiagnostic("outputIndex", index))
+		}
+		if item.Type == "reasoning" && !strings.HasPrefix(responsesSummaryText(item), state.summaries[index]) {
+			return responsesInvalid("responses final summary disagrees with deltas", apperrors.WithDiagnostic("outputIndex", index))
+		}
+		if item.Type == "function_call" && r.Status == "completed" && !strings.HasPrefix(item.Arguments, state.args[index]) {
+			return responsesInvalid("responses final arguments disagree with deltas", apperrors.WithDiagnostic("outputIndex", index))
 		}
 		switch item.Type {
 		case "reasoning":
