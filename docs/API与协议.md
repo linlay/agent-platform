@@ -1299,3 +1299,8 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 元数据包含 `chatId/runId/artifactId/publishedAt/name/mimeType/sizeBytes/sha256`，不包含内部路径。仅查询 active Chat 的发布 manifest，无全局 artifactId 查询和任意路径读取；歧义返回 `artifact_ambiguous`，内容或摘要变化返回 `artifact_changed`，请求取消关闭读取文件。输入严格拒绝未知字段。
 
 旧 `/api/webapp/artifact/*` 返回 HTTP 410 `connector_contract_upgrade_required`，不转换或透传。客户端切换到上述接口，使用自身可信 JWT，继续在客户端校验其内部访问范围并通过请求取消终止读取；不得把 JWT 暴露给不可信调用方。迁移需与连接器旧传输退役同批发布。
+
+
+### 无认证连接器
+
+连接器 `auth_mode="no_auth"` 无需登录或配置完成标记。connection 接口返回 `configurationRequired=false`、`configured=false`、`authentication.status="no_auth"` 和 `canConnect/canDisconnect/canCheck=false`；无需准备或准备完成时 readiness 为 no_auth，并不代表客户端在线。客户端显示“无需配置”，隐藏认证操作。connect/disconnect/check 返回 HTTP 409 和 `connector_auth_not_required`。Desktop 已使用此模式；Agent 挂载、执行授权与客户端能力检查仍有效。完整约束见 [连接器安装与授权](连接器安装与授权.md#no_auth-状态与客户端接入)。

@@ -142,6 +142,9 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
+	if pkg.AuthMode == connector.AuthNoAuth {
+		return Session{}, ErrAuthNotRequired
+	}
 	if pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP {
 		pkg, err = OAuthComponent(pkg, component)
 		if err != nil {
@@ -256,6 +259,9 @@ func (m *Manager) StatusComponent(_ context.Context, id, component string) (Sess
 	if err != nil {
 		return Session{}, err
 	}
+	if pkg.AuthMode == connector.AuthNoAuth {
+		return Session{ConnectorID: id, Status: "no_auth", Message: "No authentication required; availability and permissions are checked on invocation"}, nil
+	}
 	m.mu.Lock()
 	if s := m.sessions[id]; s != nil && s.Status != "authorized" {
 		state, stateErr := readAuthState(m.sources.PersistentRoot(), id)
@@ -274,17 +280,6 @@ func (m *Manager) StatusComponent(_ context.Context, id, component string) (Sess
 		} else {
 			result.Message = "Desktop SSO is unavailable; sign in through Desktop"
 		}
-		return result, nil
-	}
-	if pkg.Type == "native" {
-		state, err := pkg.ReadConnection()
-		if err != nil {
-			return result, err
-		}
-		if state.Configured {
-			result.Status = "configured"
-		}
-		result.Message = "Desktop availability and action approval are checked for each invocation"
 		return result, nil
 	}
 	if pkg.AuthMode == connector.AuthDelegated && !pkg.ManagedCLI() {

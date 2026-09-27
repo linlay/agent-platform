@@ -11,6 +11,7 @@ import (
 type AuthMode string
 
 const (
+	AuthNoAuth    AuthMode = "no_auth"
 	AuthDelegated AuthMode = ""
 	AuthToken     AuthMode = "token"
 	AuthOneID     AuthMode = "oneid-token"
@@ -35,12 +36,12 @@ func (m *AuthMode) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("auth_mode must be a string or null")
 	}
 	switch AuthMode(value) {
-	case AuthToken, AuthOneID, AuthOAuth, AuthMCP:
+	case AuthNoAuth, AuthToken, AuthOneID, AuthOAuth, AuthMCP:
 		*m = AuthMode(value)
 	case "none", "cli": // Read older installed packages without changing their source.
 		*m = AuthDelegated
 	default:
-		return fmt.Errorf("auth_mode must be token, oneid-token, oauth, mcp or null")
+		return fmt.Errorf("auth_mode must be no_auth, token, oneid-token, oauth, mcp or null")
 	}
 	return nil
 }

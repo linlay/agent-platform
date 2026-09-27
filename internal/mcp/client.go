@@ -260,7 +260,7 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 	fingerprint := serverFingerprint(server)
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	if err := connector.RequireConfigured(server.ConnectorAuthRoot, server.ConnectorID); err != nil {
+	if err := connector.RequireConfigured(server.ConnectorAuthRoot, server.ConnectorID, server.ConnectorAuthMode); err != nil {
 		return nil, err
 	}
 	identity, identityErr := c.stdioIdentity(server)

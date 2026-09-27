@@ -13,7 +13,6 @@ func main() {
 	apply := flag.Bool("apply", false, "apply the previewed migration while Platform is stopped")
 	offline := flag.Bool("offline", false, "confirm Platform and editors are stopped")
 	expand := flag.Bool("allow-expansion", false, "accept explicitly reported additional Desktop tool entry points")
-	configure := flag.Bool("configure", false, "mark migrated Desktop configuration complete")
 	rollback := flag.String("rollback", "", "restore a migration backup while Platform is stopped")
 	flag.Parse()
 	if (*apply || *rollback != "") && !*offline {
@@ -33,7 +32,7 @@ func main() {
 		fail(err)
 	}
 	if *apply {
-		plan, err = connectormigrate.ApplyDesktop(plan, *expand, *configure)
+		plan, err = connectormigrate.ApplyDesktop(plan, *expand)
 		if err != nil {
 			fail(err)
 		}

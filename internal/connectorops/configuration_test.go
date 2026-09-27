@@ -95,3 +95,42 @@ func TestConfiguredTokenCLIReachesExecution(t *testing.T) {
 		t.Fatal("configured status rejected by auth", err)
 	}
 }
+
+func TestNoAuthMCPExecutionWithoutConfiguration(t *testing.T) {
+	upstream := sdk.NewServer(&sdk.Implementation{Name: "no-auth", Version: "1"}, nil)
+	upstream.AddTool(&sdk.Tool{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{StructuredContent: map[string]any{"ok": true}}, nil
+	})
+	endpoint := httptest.NewServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return upstream }, &sdk.StreamableHTTPOptions{JSONResponse: true}))
+	defer endpoint.Close()
+	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: filepath.Join(t.TempDir(), "state")}
+	dir := filepath.Join(sources.ExternalRoot, "demo")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]any{
+		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "no_auth"},
+		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": endpoint.URL}}},
+	} {
+		raw, _ := json.Marshal(value)
+		if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := connectorauth.New(t.Context(), sources, nil)
+	s := Service{Auth: m, Sources: sources}
+	scope := Scope{Subject: "owner", IdempotencyNamespace: "app", Execution: []Permission{{ConnectorID: "demo", Adapter: "mcp"}}, Check: func() error { return nil }}
+	req := Request{ConnectorID: "demo", Adapter: "mcp", Component: "main", ToolName: "read", Arguments: map[string]any{}}
+	for i := 0; i < 2; i++ {
+		if _, err := s.Invoke(t.Context(), scope, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope.Execution = nil
+	if _, err := s.Invoke(t.Context(), scope, req); err == nil || err.Error() != "connector_execution_not_allowed" {
+		t.Fatal("no_auth bypassed execution grant", err)
+	}
+	if _, err := os.Stat(filepath.Join(sources.StateRoot, "connectors", "demo", "connection.json")); !os.IsNotExist(err) {
+		t.Fatal("created configuration", err)
+	}
+}

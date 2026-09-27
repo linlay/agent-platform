@@ -80,8 +80,8 @@ func (p Package) ConnectorStateDir() (string, error) { return StateDir(p.Persist
 func (p Package) CredentialRoot() string             { return p.PersistentRoot() }
 
 // RequireConfigured resolves configuration at dispatch time, including for frozen Runs.
-func RequireConfigured(root, id string) error {
-	if id == "" {
+func RequireConfigured(root, id string, mode AuthMode) error {
+	if id == "" || mode == AuthNoAuth {
 		return nil
 	}
 	p := Package{Manifest: Manifest{ID: id}, StateRoot: root}

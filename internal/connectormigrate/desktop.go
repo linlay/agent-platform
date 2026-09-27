@@ -4,7 +4,6 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -182,16 +181,12 @@ func PreviewDesktop(runtimeRoot string) (DesktopPlan, error) {
 }
 
 type desktopJournal struct {
-	Plan         DesktopPlan       `json:"plan"`
-	SkillHashes  map[string]string `json:"skillHashes"`
-	StatePath    string            `json:"statePath,omitempty"`
-	StateBefore  []byte            `json:"stateBefore,omitempty"`
-	StateExisted bool              `json:"stateExisted"`
-	StateAfter   string            `json:"stateAfter,omitempty"`
+	Plan        DesktopPlan       `json:"plan"`
+	SkillHashes map[string]string `json:"skillHashes"`
 }
 
 // ApplyDesktop is an explicitly offline transaction; no server calls are made.
-func ApplyDesktop(plan DesktopPlan, allowExpansion, configure bool) (DesktopPlan, error) {
+func ApplyDesktop(plan DesktopPlan, allowExpansion bool) (DesktopPlan, error) {
 	for _, change := range plan.Changes {
 		if len(change.AddedTools) > 0 && !allowExpansion {
 			return plan, fmt.Errorf("migration adds tools for %s; review addedTools and use --allow-expansion", change.Path)
@@ -233,25 +228,6 @@ func ApplyDesktop(plan DesktopPlan, allowExpansion, configure bool) (DesktopPlan
 		}
 		journal.SkillHashes[path] = hash
 	}
-	if configure && len(plan.Changes) > 0 {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return plan, err
-		}
-		state, err := config.ResolveStateDir(cwd, plan.Root)
-		if err != nil {
-			return plan, err
-		}
-		journal.StatePath = filepath.Join(state, "connectors", "builtin.desktop", "connection.json")
-		before, err := os.ReadFile(journal.StatePath)
-		if err != nil && !os.IsNotExist(err) {
-			return plan, err
-		}
-		journal.StateBefore = before
-		journal.StateExisted = err == nil
-		next, _ := json.Marshal(connector.ConnectionState{ConnectorID: "builtin.desktop", Configured: true})
-		journal.StateAfter = sum(next)
-	}
 	if err := writeJSON(filepath.Join(backup, "journal.json"), journal, 0600); err != nil {
 		return plan, err
 	}
@@ -268,12 +244,6 @@ func ApplyDesktop(plan DesktopPlan, allowExpansion, configure bool) (DesktopPlan
 	}
 	for i, path := range plan.RetireSkills {
 		if err := os.Rename(path, filepath.Join(backup, fmt.Sprintf("skill-%d", i))); err != nil {
-			return rollback(err)
-		}
-	}
-	if journal.StatePath != "" {
-		data, _ := json.Marshal(connector.ConnectionState{ConnectorID: "builtin.desktop", Configured: true})
-		if err := desktopAtomicWrite(journal.StatePath, data); err != nil {
 			return rollback(err)
 		}
 	}
@@ -332,15 +302,6 @@ func RollbackDesktop(backup string) error {
 			return fmt.Errorf("skill backup changed: %s", path)
 		}
 	}
-	if journal.StatePath != "" {
-		data, err := os.ReadFile(journal.StatePath)
-		if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		if err == nil && sum(data) != journal.StateAfter && sum(data) != sum(journal.StateBefore) {
-			return fmt.Errorf("connection state changed since migration")
-		}
-	}
 	for i, change := range journal.Plan.Changes {
 		data, err := os.ReadFile(filepath.Join(backup, fmt.Sprintf("agent-%d", i)))
 		if err != nil || sum(data) != change.Before {
@@ -356,14 +317,6 @@ func RollbackDesktop(backup string) error {
 			if err := os.Rename(stored, path); err != nil {
 				return err
 			}
-		}
-	}
-	if journal.StatePath != "" {
-		if journal.StateExisted {
-			return desktopAtomicWrite(journal.StatePath, journal.StateBefore)
-		}
-		if err := os.Remove(journal.StatePath); err != nil && !os.IsNotExist(err) {
-			return err
 		}
 	}
 	return nil

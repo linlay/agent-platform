@@ -157,7 +157,7 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 	}
 	if pkg.Type == "native" {
-		if id != "builtin.desktop" || pkg.AuthMode != AuthDelegated || len(pkg.AuthBindings) != 0 || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
+		if id != "builtin.desktop" || pkg.AuthMode != AuthNoAuth || len(pkg.AuthBindings) != 0 || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
 			return Package{}, fmt.Errorf("native connectors require a registered builtin capability package without executable components")
 		}
 		var config struct {
@@ -200,8 +200,8 @@ func validateManifest(id string, pkg Manifest) error {
 	if pkg.Type != "mcp" && pkg.Type != "cli" && pkg.Type != "view" && pkg.Type != "native" {
 		return fmt.Errorf("connector %s type must be mcp, cli, view or native", id)
 	}
-	if pkg.Type == "native" && id != "builtin.desktop" {
-		return fmt.Errorf("native type is reserved for registered platform builtins")
+	if pkg.Type == "native" && (id != "builtin.desktop" || pkg.AuthMode != AuthNoAuth) {
+		return fmt.Errorf("native type requires a registered platform builtin with no_auth")
 	}
 	if pkg.Icon != "" && !validIconPath(pkg.Icon) {
 		return fmt.Errorf("connector %s icon must be a package-relative SVG or PNG path under assets/", id)
@@ -210,6 +210,10 @@ func validateManifest(id string, pkg Manifest) error {
 		return fmt.Errorf("connector %s auth_browser must be system or embedded", id)
 	}
 	switch pkg.AuthMode {
+	case AuthNoAuth:
+		if pkg.AuthBrowser != "" || len(pkg.AuthBindings) != 0 {
+			return fmt.Errorf("no_auth does not accept authentication settings")
+		}
 	case AuthDelegated, AuthOneID, AuthMCP:
 	case "token":
 		if _, err := TokenFields(pkg); err != nil {
@@ -452,6 +456,9 @@ func checkValue(d *json.Decoder) error {
 
 // AuthorizationBrowser is presentation policy, independent of authentication mode.
 func (m Manifest) AuthorizationBrowser() string {
+	if m.AuthMode == AuthNoAuth {
+		return ""
+	}
 	if m.AuthBrowser == "embedded" {
 		return "embedded"
 	}
@@ -460,6 +467,9 @@ func (m Manifest) AuthorizationBrowser() string {
 
 // AuthorizationBrowser prefers the manifest and preserves legacy CLI presentation hints.
 func (p Package) AuthorizationBrowser() string {
+	if p.AuthMode == AuthNoAuth {
+		return ""
+	}
 	if p.AuthBrowser != "" {
 		return p.Manifest.AuthorizationBrowser()
 	}

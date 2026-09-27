@@ -4,6 +4,6 @@
   "icon": "assets/icon.svg",
   "version": "1.0.0",
   "type": "native",
-  "auth_mode": null,
+  "auth_mode": "no_auth",
   "description": "Desktop actions and authorized webpage operations"
 }

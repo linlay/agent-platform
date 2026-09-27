@@ -30,11 +30,11 @@ Agent 使用 `connectorConfig.connectors` 挂载 `builtin.desktop`。它的 nati
 
 Agent 加载不再根据 `toolConfig.tools` 中出现 `desktop_action` / `desktop_cdp` 就强制要求声明特定连接器 ID。工具声明与连接器挂载各自解析，工具存在性沿用通用工具目录、模型工具过滤与调用路由；未注册工具调用返回 `tool_not_registered`，不通过工具名反推连接器配置。这里没有新增对全部工具的 catalog 硬校验，也不把远端 MCP 发现加入加载关键路径。
 
-移除的是配置加载阶段的特殊绑定阻断，不会根据工具名自动挂载包、导入 Skill 或生成执行授权。当前 Desktop native handler 的受信任挂载、configured、客户端归属和审批检查仍保留；只有工具声明但缺少运行授权时，Agent 可装载和聊天，实际 Desktop 调用仍返回工具错误。旧普通 Skill 引用的解析与保留名称规则不在此次调整范围内，不能据此保证所有旧配置都会变为 ready。
+移除的是配置加载阶段的特殊绑定阻断，不会根据工具名自动挂载包、导入 Skill 或生成执行授权。当前 Desktop native handler 的受信任挂载、客户端归属和审批检查仍保留；只有工具声明但缺少运行授权时，Agent 可装载和聊天，实际 Desktop 调用仍返回工具错误。旧普通 Skill 引用的解析与保留名称规则不在此次调整范围内，不能据此保证所有旧配置都会变为 ready。
 
 包声明和技能共享，实际工具仍由 Platform 经现有协议路由到 Desktop 客户端。已有参数 Schema、客户端归属、审批与 mode 限制继续生效；KBASE、ACP 不开放此能力。外部包不能伪造 builtin 命名空间或任意 native handler。
 
-配置状态使用 `.state/connectors/builtin.desktop/connection.json` 的 configured。Connect 标记配置完成，Disconnect 清除本地配置状态，Check 读取本地状态，不保存 Token；客户端离线不清除 configured。每次调用仍要求当前 Agent 挂载且已配置，并由原有执行链检查实际客户端能力和审批。
+Desktop 明确声明 `auth_mode: "no_auth"`：挂载即具备调用资格，无需连接配置，不读写 connection.json。管理接口返回无需配置及不可执行认证操作的能力字段；实际客户端可用性、归属和审批在调用时检查。
 
 ## 显式离线迁移
 
@@ -48,7 +48,7 @@ go run ./cmd/migrate-desktop --runtime-dir /path/to/runtime --apply --offline --
 go run ./cmd/migrate-desktop --rollback /path/to/runtime/.desktop-migration-xxx --offline
 ```
 
-应用前备份 Agent 文件，将旧 Desktop 技能目录移入备份，并校验预览与实际内容一致；回滚也检查后续修改，避免覆盖新编辑。`--configure` 可额外标记 Desktop 配置完成，默认不修改该状态。自定义状态根需要为命令注入与部署相同的 `AP_RUNTIME_STATE_DIR`。本次代码变更不自动迁移任何运行中的部署。
+应用前备份 Agent 文件，将旧 Desktop 技能目录移入备份，并校验预览与实际内容一致；回滚也检查后续修改，避免覆盖新编辑。迁移命令不提供 `--configure`，不处理 Desktop 连接配置状态。本次代码变更不自动迁移任何运行中的部署。
 
 验证覆盖共享复用、版本保留、恢复快照、挂载和配置门禁、发布完整性及迁移回滚。Windows 使用交叉编译验证；Windows 实机、真实 Desktop 反向调用及 Container Hub 联调仍需目标环境验证。
 

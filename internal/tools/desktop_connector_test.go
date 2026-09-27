@@ -1,30 +1,35 @@
 package tools
 
 import (
-	"agent-platform/internal/connector"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-func TestDesktopNativeDispatchRequiresMountAndConfigured(t *testing.T) {
+func TestDesktopNativeDispatchRequiresMountWithoutConfiguration(t *testing.T) {
 	executor, ctx, invoker := desktopCDPParamsTestRuntime(t.TempDir())
+	executor.cfg.Paths.StateDir = filepath.Join(t.TempDir(), "missing")
 	args := map[string]any{"method": "Surface.list"}
 	ctx.Session.NativeConnectorTools = nil
 	result, err := executor.Invoke(context.Background(), "desktop_cdp", args, ctx)
 	if err != nil || result.Error != "connector_not_mounted" {
 		t.Fatalf("unmounted: %#v %v", result, err)
 	}
-	ctx.Session.NativeConnectorTools = map[string]string{"desktop_cdp": "builtin.desktop"}
-	pkg := connector.Package{Manifest: connector.Manifest{ID: "builtin.desktop"}, StateRoot: executor.cfg.Paths.EffectiveConnectorStateDir()}
-	if _, err := pkg.SetConfigured(false); err != nil {
-		t.Fatal(err)
-	}
-	result, err = executor.Invoke(context.Background(), " desktop_cdp ", args, ctx)
-	if err != nil || result.Error != "connector_not_configured" {
-		t.Fatalf("disconnected: %#v %v", result, err)
-	}
 	_, requests := invoker.snapshots()
 	if len(requests) != 0 {
-		t.Fatal("blocked invocation reached Desktop")
+		t.Fatal("unmounted invocation reached Desktop")
+	}
+	ctx.Session.NativeConnectorTools = map[string]string{"desktop_cdp": "builtin.desktop"}
+	result, err = executor.Invoke(context.Background(), " desktop_cdp ", args, ctx)
+	if err != nil || result.Error != "" {
+		t.Fatalf("mounted: %#v %v", result, err)
+	}
+	_, requests = invoker.snapshots()
+	if len(requests) != 1 {
+		t.Fatalf("expected Desktop dispatch: %#v", requests)
+	}
+	if _, err := os.Stat(executor.cfg.Paths.StateDir); !os.IsNotExist(err) {
+		t.Fatal("dispatch created configuration state", err)
 	}
 }

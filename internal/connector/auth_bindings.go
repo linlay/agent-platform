@@ -48,6 +48,16 @@ func ResolveAuthTemplate(template string, values map[string]string) (string, err
 func (p Package) ValidateAuthBindings() error {
 	allowed := map[string]string{}
 	switch p.AuthMode {
+	case AuthNoAuth:
+		if len(p.AuthBindings) != 0 || p.ManagedCLI() {
+			return fmt.Errorf("no_auth does not accept auth_bindings or CLI auth")
+		}
+		for _, component := range p.MCP {
+			platform, _ := component["platform"].(map[string]any)
+			if source, _ := platform["authSource"].(string); source != "" {
+				return fmt.Errorf("no_auth does not accept MCP authSource")
+			}
+		}
 	case AuthToken:
 		fields, err := TokenFields(p.Manifest)
 		if err != nil {

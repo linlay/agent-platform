@@ -23,10 +23,10 @@ func TestDesktopMigrationPreviewApplyRollback(t *testing.T) {
 	if len(plan.Changes[0].AddedTools) != 1 || plan.Changes[0].AddedTools[0] != "desktop_cdp" {
 		t.Fatal("missing expansion report")
 	}
-	if _, err := ApplyDesktop(plan, false, false); err == nil {
+	if _, err := ApplyDesktop(plan, false); err == nil {
 		t.Fatal("unacknowledged expansion applied")
 	}
-	applied, err := ApplyDesktop(plan, true, false)
+	applied, err := ApplyDesktop(plan, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestDesktopMigrationRejectsConcurrentChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.WriteFile(path, []byte("key: changed\n"), 0600)
-	if _, err := ApplyDesktop(plan, true, false); err == nil {
+	if _, err := ApplyDesktop(plan, true); err == nil {
 		t.Fatal("concurrent edit overwritten")
 	}
 }

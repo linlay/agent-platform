@@ -66,6 +66,9 @@ func (m *Manager) Check(ctx context.Context, id, component string) (Session, err
 	if err != nil {
 		return Session{}, err
 	}
+	if pkg.AuthMode == connector.AuthNoAuth {
+		return Session{}, ErrAuthNotRequired
+	}
 	if pkg.AuthMode == connector.AuthToken {
 		return m.checkToken(ctx, pkg)
 	}

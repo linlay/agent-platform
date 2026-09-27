@@ -14,7 +14,7 @@
 - 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、技能中心 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外技能中心 Skill，并为每个选中 Skill 目录建立 trusted read + readonly roots；Container 仍只读挂载整个技能中心，但 AccessPolicy 只免审读取选中目录，不复制、不生成 run-runtime。Admin Agent 支持安全校验完整 ZIP、以隐藏 staging/backup 原子导入或整目录覆盖；硬重载失败恢复旧来源，catalog 可发布但单个 Agent 无效时保留导入结果并返回诊断。Market 技能包由 Platform 原子安装为平铺子技能，包状态只保存在 `skills-center/.package`，临时 ZIP 不持久化。
 - 已具备独立 `OPENAI_RESPONSES` 原生模型协议，使用本地有效历史与 `store:false`；每次接受的模型调用在 react 行保存可选 `responseId`，加密推理保存在 assistant `reasoning_content`，react-tool 不重复 ID。工具/HITL、压缩、文本与视觉辅助调用复用原链路，未接入上游托管工具，见 [Responses协议](docs/Responses协议.md)。
 - 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools；`image_generate` 以统一参数支持文生图、最多四张本地/Chat 参考图的图生图，以及模型 YAML 显式声明的原生 mask/inpainting，生成和编辑请求分别由模型 YAML 的 `image.generation`、`image.edit` 协议块适配。两个协议块可独立配置 `omitResponseFormat`（默认 false）以省略 Images 请求的 `response_format`，成功结果报告实际返回格式。
-- 连接器配置完成状态保存在 `.state/connectors/<id>/connection.json` 的 `configured`，没有独立启用开关，缺文件默认未配置；内置仅表示随包分发，不免配置检查。配置列表读取本地授权快照，Token 提交与显式 `/api/connectors/check` 执行验证；暂时无法验证的 Token 保存到私有待验证文件，保留已有凭据，检查成功后替换。退出只清理本地授权，保留 CLI 私有设置/数据，取消登录和凭据检查，已开始业务调用允许结束；Host Bash 原有 Agent 范围凭据注入、Terminal 和连接器技能禁止 mustUseSkills 保持不变。详见 [连接器安装与授权](docs/连接器安装与授权.md)。
+- 连接器配置完成状态保存在 `.state/connectors/<id>/connection.json` 的 `configured`，没有独立启用开关，缺文件默认未配置；内置仅表示随包分发；显式声明 `auth_mode: "no_auth"` 的连接器无需配置，不读取或写入 connection.json，Agent 挂载后即可调用。配置列表读取本地授权快照，Token 提交与显式 `/api/connectors/check` 执行验证；暂时无法验证的 Token 保存到私有待验证文件，保留已有凭据，检查成功后替换。退出只清理本地授权，保留 CLI 私有设置/数据，取消登录和凭据检查，已开始业务调用允许结束；Host Bash 原有 Agent 范围凭据注入、Terminal 和连接器技能禁止 mustUseSkills 保持不变。详见 [连接器安装与授权](docs/连接器安装与授权.md)。
 - CLI 连接器导入后独立异步准备：包有 bin 时跳过 init 并只校验包内入口；无 bin 时原样执行对应 OS 的 init，再检查 versionCheck。Host 自动补充 npm 全局命令 PATH，不改 npm prefix 或安装版本；准备状态在 `.state/connectors/<id>/preparation.json`，登录不再隐式安装，configEnv 继续为挂载 Agent/Terminal 注入独立凭据目录。准备与来源 mutation 使用跨进程锁互斥；旧启动器包需覆盖升级，Container npm 自动探测未实现。见 [连接器安装与授权](docs/连接器安装与授权.md)。
 - 模型空响应与传输/解析失败分别输出常开结构化诊断；可选 LLM trace 保存结束方式、响应元数据与正文/思考计数，空响应标记 `empty_response`；输出受限、过滤/拒答与其他空响应分别返回明确中文提示和非重试错误终态，保留已生成内容，输出受限不执行本轮工具，见 [模型空响应排查](docs/配置化说明.md#模型空响应排查)。
 - Native 模型流式正文与推理各自达到 4,000 Unicode 字符后启用精确尾部复读检测；命中取消当前请求，以 `model_output_repetition` 非重试错误收口并丢弃未提交轮次，已执行工具不回滚。阈值与范围见 [配置化说明](docs/配置化说明.md#流式复读取消)。
@@ -257,7 +257,7 @@ make test
 - [版本化打包方案](docs/版本化打包方案.md)：README 索引的交付专题文档。
 - [手工测试用例](docs/手工测试用例.md)：curl 回归用例。
 
-- `builtin.desktop` 是受信任内置 native 连接器，自动挂载 desktop_action/desktop_cdp 与对应技能，不自动授予 Bash；配置状态与客户端在线状态分离。共享包、运行快照及显式离线迁移见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md)。
+- `builtin.desktop` 是受信任内置 native 连接器，自动挂载 desktop_action/desktop_cdp 与对应技能，不自动授予 Bash；声明 `auth_mode: "no_auth"`，无需连接配置；挂载授权与客户端在线状态分离。共享包、运行快照及显式离线迁移见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md)。
 
 
 ### Desktop 内嵌连接器来源

@@ -3,40 +3,31 @@ package connectorauth
 import (
 	"agent-platform/internal/connector"
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestNativeConfiguredLifecycleDoesNotRequireClientOrCredentials(t *testing.T) {
-	root := t.TempDir()
-	sources := connector.Sources{ExternalRoot: filepath.Join(root, "connectors-center"), BuiltinRoot: filepath.Join(root, "builtins"), StateRoot: filepath.Join(root, "state")}
+func TestNativeNoAuthNeedsNeitherConfigurationNorClient(t *testing.T) {
+	sources := connector.Sources{ExternalRoot: t.TempDir(), BuiltinRoot: t.TempDir(), StateRoot: filepath.Join(t.TempDir(), "state")}
 	if err := connector.WriteBuiltin(filepath.Join(sources.BuiltinRoot, "builtin.desktop"), "desktop", ""); err != nil {
 		t.Fatal(err)
 	}
 	m := New(context.Background(), sources, nil)
-	initial, err := m.Connection(context.Background(), "builtin.desktop")
-	if err != nil || initial.Configured {
-		t.Fatalf("initial: %#v %v", initial, err)
+	c, err := m.Connection(t.Context(), "builtin.desktop")
+	if err != nil || c.ConfigurationRequired || c.Configured || c.Readiness != "no_auth" || c.Authentication.Status != "no_auth" || c.Capabilities.CanConnect || c.Capabilities.CanDisconnect || c.Capabilities.CanCheck {
+		t.Fatalf("%#v %v", c, err)
 	}
-	if _, err := m.Check(context.Background(), "builtin.desktop", ""); err != nil {
-		t.Fatal(err)
+	for _, action := range []func() error{
+		func() error { _, e := m.Connect("builtin.desktop"); return e },
+		func() error { _, e := m.Disconnect(t.Context(), "builtin.desktop"); return e },
+		func() error { _, e := m.Check(t.Context(), "builtin.desktop", ""); return e },
+	} {
+		if err := action(); err == nil || err.Error() != "connector_auth_not_required" {
+			t.Fatal(err)
+		}
 	}
-	unchanged, _ := m.Connection(context.Background(), "builtin.desktop")
-	if unchanged.Configured {
-		t.Fatal("check configured a new installation")
-	}
-	if _, err := m.Connect("builtin.desktop"); err != nil {
-		t.Fatal(err)
-	}
-	configured, err := m.Connection(context.Background(), "builtin.desktop")
-	if err != nil || !configured.Configured || configured.Readiness != "ready" {
-		t.Fatalf("configured: %#v %v", configured, err)
-	}
-	if _, err := m.Disconnect(context.Background(), "builtin.desktop"); err != nil {
-		t.Fatal(err)
-	}
-	final, _ := m.Connection(context.Background(), "builtin.desktop")
-	if final.Configured {
-		t.Fatal("disconnect failed")
+	if _, err := os.Stat(sources.StateRoot); !os.IsNotExist(err) {
+		t.Fatalf("no_auth created state: %v", err)
 	}
 }
