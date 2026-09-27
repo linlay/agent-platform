@@ -493,6 +493,9 @@ func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int,
 	}
 	out["toolCallCount"] = toolCallCount
 	addDetailedUsage(out, reasoningTokens, promptCacheHitTokens, promptCacheMissTokens)
+	// Match runexec.UsageDataMapForSnapshot: keep normalized zero reasoning
+	// explicit so clients can split completion tokens for current and run alike.
+	out["completionTokensDetails"] = map[string]any{"reasoningTokens": reasoningTokens}
 	if includeLLMChatCompletionCount {
 		addCumulativeTimingUsage(out, firstTokenLatencyTotalMs, firstTokenLatencyCount, generationDurationMs)
 	} else {
