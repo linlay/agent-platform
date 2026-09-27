@@ -1,6 +1,7 @@
 {
   "id": "builtin.desktop",
-  "name": "Desktop",
+  "name": "desktop",
+  "icon": "assets/icon.svg",
   "version": "1.0.0",
   "type": "native",
   "auth_mode": null,

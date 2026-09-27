@@ -93,6 +93,16 @@ func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 	if len(pkg.NativeTools()) != 2 || len(pkg.Skills) != 2 || pkg.BinDir != "" || !pkg.Builtin {
 		t.Fatalf("native contract: %#v", pkg)
 	}
+	icon, err := pkg.ReadIcon()
+	if err != nil || icon.MediaType != "image/svg+xml" {
+		t.Fatalf("desktop connector SVG icon: %q, %v", icon.MediaType, err)
+	}
+	for _, skill := range pkg.Skills {
+		data, err := os.ReadFile(filepath.Join(skill.Dir, "assets", "icon.svg"))
+		if err != nil || ValidateIconSVG(data) != nil {
+			t.Fatalf("desktop skill SVG icon %s: %v", skill.Name, err)
+		}
+	}
 	for _, name := range []string{"desktop-action", "desktop-cdp"} {
 		if !IsReservedSkill(name) {
 			t.Fatal("native skill selectable as ordinary skill")

@@ -55,14 +55,15 @@ func (s *Server) handleAgentSkillIcon(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusNotFound, "skill_not_found", "skill not found"))
 		return
 	}
-	data, err := catalog.ReadSkillIcon(skill)
+	data, mediaType, err := catalog.ReadSkillIcon(skill)
 	if err != nil {
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusNotFound, "skill_icon_unavailable", "skill icon is unavailable"))
 		return
 	}
-	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Type", mediaType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	w.Header().Set("ETag", fmt.Sprintf(`"%x"`, sha256.Sum256(data)))
-	http.ServeContent(w, r, "icon.png", time.Time{}, bytes.NewReader(data))
+	http.ServeContent(w, r, "icon", time.Time{}, bytes.NewReader(data))
 }

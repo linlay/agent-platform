@@ -1200,22 +1200,24 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 }
 
 func resolveAdminSkillIcon(skillDir string, key string) (string, error) {
-	relPath := path.Join("assets", strings.TrimSpace(key)+".png")
-	pathOnDisk, cleanPath, err := resolveEditableSkillPath(skillDir, relPath)
-	if err != nil {
-		return "", err
+	for _, name := range []string{"icon.svg", "icon.png", strings.TrimSpace(key) + ".svg", strings.TrimSpace(key) + ".png"} {
+		relPath := path.Join("assets", name)
+		pathOnDisk, cleanPath, err := resolveEditableSkillPath(skillDir, relPath)
+		if err != nil {
+			return "", err
+		}
+		info, err := os.Lstat(pathOnDisk)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() {
+			return filepath.ToSlash(cleanPath), nil
+		}
 	}
-	info, err := os.Lstat(pathOnDisk)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return "", nil
-	}
-	return filepath.ToSlash(cleanPath), nil
+	return "", nil
 }
 
 func validateEditableSkillRuntimeFiles(skillDir string) ([]AdminSkillDiagnostic, error) {

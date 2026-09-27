@@ -552,6 +552,22 @@ func TestAdminSkillIconRequiresRegularFile(t *testing.T) {
 	}
 }
 
+func TestAdminSkillIconNamePriority(t *testing.T) {
+	skillDir := filepath.Join(t.TempDir(), "demo-skill")
+	if err := os.MkdirAll(filepath.Join(skillDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"demo-skill.png", "demo-skill.svg", "icon.png", "icon.svg"} {
+		if err := os.WriteFile(filepath.Join(skillDir, "assets", name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		icon, err := resolveAdminSkillIcon(skillDir, "demo-skill")
+		if err != nil || icon != "assets/"+name {
+			t.Fatalf("icon = %q, err = %v; want %s", icon, err, name)
+		}
+	}
+}
+
 func hasCatalogDiagnostic(items []AdminSkillDiagnostic, code string) bool {
 	for _, item := range items {
 		if item.Code == code {
