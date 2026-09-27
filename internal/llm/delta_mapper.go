@@ -227,6 +227,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaModelTurnDiscard:
 		input := stream.ModelTurnDiscard{
+			Error:          CloneMap(value.Error),
 			TaskID:         value.TaskID,
 			RunSeq:         value.RunSeq,
 			Attempt:        value.Attempt,

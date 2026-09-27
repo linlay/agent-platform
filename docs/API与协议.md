@@ -505,31 +505,30 @@ orchestrated Team 的总控 reasoning 和 `agent_delegate` 工具事件会被过
 
 native LLM loop 以平台内部的 model turn commit 作为唯一接受边界。provider 合法终止、流式块完整收尾、tool call 完成 materialize 且通过平台接纳检查后才 commit；该控制信号不进入 SSE / WebSocket。`usage`、`contextWindow`、provider `finish_reason` 和 tool result 都不是完成标记，其中 `usage` / `contextWindow` 是可选元数据，缺失不会阻止正常 turn 提交。
 
-commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider stream 错误，且尚未开始工具执行时，平台丢弃整个 attempt 并按模型 retry budget 重试。客户端会收到：
+commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider stream 错误，且尚未开始工具执行时，平台丢弃整个 attempt 并按模型 retry budget 重试。客户端先收到本次未提交输出段的失败结束事件：
 
 ```json
 {
-  "type": "run.activity",
-  "phase": "model_call",
-  "status": "retrying",
-  "retry": {
-    "attempt": 2,
-    "maxAttempts": 3,
-    "reason": "provider stream ended unexpectedly",
-    "timeoutSeconds": 60,
-    "elapsedMs": 60123
-  },
-  "recovery": {
-    "action": "discard_incomplete_model_turn",
-    "runSeq": 1,
-    "reasoningIds": ["reasoning_1"],
-    "contentIds": ["content_1"],
-    "toolIds": ["call_1"]
+  "type": "reasoning.end",
+  "reasoningId": "reasoning_1",
+  "status": "failed",
+  "error": {
+    "code": "provider_stream_failed",
+    "message": "模型响应流中断",
+    "category": "model",
+    "scope": "model",
+    "status": 502,
+    "retryable": true,
+    "userSafeMessageKey": "provider_stream_failed"
   }
 }
 ```
 
-客户端收到该 recovery 后应按给出的 id 移除已经展示的半截 reasoning、content 或 tool。重试耗尽时平台发送 `run.error`，未提交 attempt 不进入 JSONL 或 run summary。model turn 与后续 tool batch 是两个独立事务边界：turn commit 后，完整 tool call 会保留；工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，平台不会通过回滚 turn 自动重试，避免重复执行。
+`reasoning.end`、`content.end`、`tool.end` 统一约定：正常结束保持原结构，不发送 `status` 或 `error`；异常增加 `status:"failed"` 与同源公共错误对象。失败段停止计时并保留内容，重试使用新 ID。一个未提交 attempt 内已经正常关闭的段也可能收到失败结束修正，因为段结束不等于 model turn commit；重复失败通知幂等，后到 snapshot/delta 不得覆盖失败状态。已提交轮次和已执行工具不受影响，`tool.end` 只表示参数流结束，不替代执行结果 `tool.result`。
+
+失败结束事件另外携带原始 `startedAt`（epoch ms）、`runId/taskId`、节点展示元数据以及 `text` 或 `arguments`，作为独立 JSONL event 展示记录，实时与历史回放一致；不产生 assistant/tool messages，不进入模型上下文或成功回答摘要。`run.activity` 仍可携带 `retry` 显示重试进度，但不再发送 `recovery.action:discard_incomplete_model_turn` 或控制节点删除。重试耗尽时在输出段结束之后发送 `run.error`。
+
+model turn 与后续 tool batch 是两个独立事务边界：turn commit 后完整 tool call 保留，工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，不通过回滚 turn 自动重试。异常诊断复用常开的 `llm_model_attempt_error`，不改变 Trace 文件结构。
 
 旧会话历史如果存在无法安全判定工具是否执行过的末尾调用，HTTP 与 WebSocket `/api/chat` 以及后续 query 都返回 `409 chat_history_incomplete`，不会把有歧义的历史发给 provider。仅当 run 以 cancel 结束、末尾调用保留未关闭 awaiting、没有 submit/answer/result 冲突，且每个缺失调用都能映射到该 awaiting 时，读取逻辑视图才会在内存中补出 `run_interrupted` answer/result；原始 JSONL 与数据库不回写。已经开始执行而结果未知的调用不会标记为 `executed:false`。
 

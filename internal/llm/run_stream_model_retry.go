@@ -291,6 +291,7 @@ func (s *llmRunStream) modelTurnDiscardDelta(call *pendingModelCall, err error, 
 	}
 	payload := modelErrorPayload(err)
 	discard := DeltaModelTurnDiscard{
+		Error:       payload,
 		TaskID:      s.modelActivityTaskID(),
 		RunSeq:      call.runSeq,
 		Attempt:     attempt,

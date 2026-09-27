@@ -369,7 +369,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		d.state.runFinishReason = value.FinishReason
 		return nil
 	case InputRunError:
-		events := d.closeOpenBlocks()
+		events := d.failOpenBlocks(value.Error)
 		payload := map[string]any{
 			"runId": d.request.RunID,
 			"error": normalizeErrorMap(value.Error, "run_error", "run", "runtime"),

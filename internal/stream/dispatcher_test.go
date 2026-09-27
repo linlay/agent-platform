@@ -253,7 +253,7 @@ func TestDispatcherRejectsInvalidToolOutput(t *testing.T) {
 	}
 }
 
-func TestDispatcherDiscardsIncompleteModelTurnWithoutClosingPartialBlocks(t *testing.T) {
+func TestDispatcherFailsIncompleteModelTurnBlocksBeforeRetry(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
 	_ = dispatcher.Dispatch(ReasoningDelta{ReasoningID: "reasoning_1", Delta: "partial thought"})
 	_ = dispatcher.Dispatch(ContentDelta{ContentID: "content_1", Delta: "partial answer"})
@@ -271,19 +271,18 @@ func TestDispatcherDiscardsIncompleteModelTurnWithoutClosingPartialBlocks(t *tes
 		ContentIDs:     []string{"content_1"},
 		ToolIDs:        []string{"tool_1"},
 	})
-	assertEventTypes(t, events, "run.activity")
-	data := events[0].ToData()
+	assertEventTypes(t, events, "reasoning.end", "content.end", "tool.end", "run.activity")
+	for _, event := range events[:3] {
+		if event.ToData()["status"] != "failed" || event.ToData()["error"] == nil {
+			t.Fatalf("missing failed end: %#v", event)
+		}
+	}
+	data := events[3].ToData()
 	if data["status"] != "retrying" {
 		t.Fatalf("unexpected discard activity: %#v", data)
 	}
-	recovery, _ := data["recovery"].(map[string]any)
-	if recovery["action"] != "discard_incomplete_model_turn" || recovery["runSeq"] != 1 {
-		t.Fatalf("unexpected recovery payload: %#v", recovery)
-	}
-	if !reflect.DeepEqual(recovery["reasoningIds"], []string{"reasoning_1"}) ||
-		!reflect.DeepEqual(recovery["contentIds"], []string{"content_1"}) ||
-		!reflect.DeepEqual(recovery["toolIds"], []string{"tool_1"}) {
-		t.Fatalf("unexpected recovery IDs: %#v", recovery)
+	if data["recovery"] != nil {
+		t.Fatal("activity must not control blocks")
 	}
 	retry, _ := data["retry"].(map[string]any)
 	if retry["timeoutSeconds"] != int64(60) || retry["elapsedMs"] != int64(1250) {
@@ -1253,7 +1252,7 @@ func TestDispatcherFailClosesOpenBlocksAndEmitsRunError(t *testing.T) {
 
 	_ = dispatcher.Dispatch(ContentDelta{ContentID: "run_1_c_1", Delta: "partial"})
 	events := dispatcher.Fail(errors.New("boom"))
-	assertEventTypes(t, events, "content.end", "content.snapshot", "run.error")
+	assertEventTypes(t, events, "content.end", "run.error")
 
 	last := events[len(events)-1].ToData()
 	errPayload, _ := last["error"].(map[string]any)
@@ -1868,5 +1867,56 @@ func assertDurationMsPresent(t *testing.T, event StreamEvent) {
 	}
 	if duration < 0 {
 		t.Fatalf("expected non-negative durationMs on %s, got %d", event.Type, duration)
+	}
+}
+
+func TestFailedReasoningPreservesLongOutputAndOtherTask(t *testing.T) {
+	d := NewDispatcher(StreamRequest{RunID: "run", ChatID: "chat"})
+	text := strings.Repeat("长思考", 25000)
+	d.Dispatch(ReasoningDelta{ReasoningID: "r1", TaskID: "t1", Delta: text})
+	d.Dispatch(ReasoningDelta{ReasoningID: "other", TaskID: "t2", Delta: "untouched"})
+	cause := map[string]any{"code": "provider_stream_failed", "message": "broken stream", "status": 502, "retryable": true, "scope": "model", "category": "model", "userSafeMessageKey": "provider_stream_failed"}
+	input := ModelTurnDiscard{TaskID: "t1", ReasoningIDs: []string{"r1"}, Error: cause, Retrying: true}
+	events := d.Dispatch(input)
+	assertEventTypes(t, events, "reasoning.end", "run.activity")
+	end := events[0].ToData()
+	if end["status"] != "failed" || end["text"] != text || !reflect.DeepEqual(end["error"], cause) {
+		t.Fatalf("invalid failed end: %v", end["status"])
+	}
+	if end["startedAt"] == nil {
+		t.Fatal("missing replay start time")
+	}
+	assertEventTypes(t, d.Dispatch(input), "run.activity")
+	assertEventTypes(t, d.Dispatch(ReasoningDelta{ReasoningID: "r2", TaskID: "t1", Delta: "retry"}), "reasoning.start", "reasoning.delta")
+	for _, event := range d.Complete() {
+		if event.Type == "reasoning.end" && event.Data().String("reasoningId") == "r1" {
+			t.Fatal("failed block reopened")
+		}
+		if event.Type == "reasoning.end" && event.Data().String("reasoningId") == "other" && event.Data().Value("status") != nil {
+			t.Fatal("other task failed")
+		}
+	}
+}
+
+func TestTerminalFailureClosesRootAndActiveChildScopes(t *testing.T) {
+	d := NewDispatcher(StreamRequest{RunID: "run", ChatID: "chat"})
+	d.Dispatch(ReasoningDelta{ReasoningID: "root", Delta: "root thought"})
+	d.Dispatch(TaskStart{TaskID: "child"})
+	d.Dispatch(ReasoningDelta{ReasoningID: "child-r", TaskID: "child", Delta: "child thought"})
+	events := d.Fail(errors.New("transport failed"))
+	seen := map[string]bool{}
+	for _, event := range events {
+		if event.Type == "reasoning.end" {
+			seen[event.Payload["reasoningId"].(string)] = true
+			if event.Payload["status"] != "failed" {
+				t.Fatal("expected failed end")
+			}
+		}
+	}
+	if !seen["root"] || !seen["child-r"] {
+		t.Fatalf("missing failed scope: %#v", seen)
+	}
+	if len(d.state.activeReasonings) != 0 {
+		t.Fatal("active reasoning leaked")
 	}
 }

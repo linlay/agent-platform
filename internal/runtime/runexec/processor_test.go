@@ -40,3 +40,19 @@ func TestProcessorRecordsTerminalErrorAndClaimsFailure(t *testing.T) {
 		t.Fatalf("terminal error code = %q", got)
 	}
 }
+
+func TestFullTextFailedEndDropsOnlyFailedAttempt(t *testing.T) {
+	b := NewFullTextBuilder()
+	b.Observe(stream.NewEvent("reasoning.delta", map[string]any{"reasoningId": "r1", "delta": "failed thought"}).Data())
+	b.Observe(stream.NewEvent("reasoning.end", map[string]any{"reasoningId": "r1"}).Data())
+	b.Observe(stream.NewEvent("run.activity", map[string]any{"recovery": map[string]any{"action": "discard_incomplete_model_turn", "reasoningIds": []string{"r1"}}}).Data())
+	if !strings.Contains(b.Text(""), "failed thought") {
+		t.Fatal("activity controlled output")
+	}
+	b.Observe(stream.NewEvent("reasoning.end", map[string]any{"reasoningId": "r1", "status": "failed"}).Data())
+	b.Observe(stream.NewEvent("reasoning.delta", map[string]any{"reasoningId": "r2", "delta": "accepted thought"}).Data())
+	b.Observe(stream.NewEvent("reasoning.end", map[string]any{"reasoningId": "r2"}).Data())
+	if got := b.Text(""); strings.Contains(got, "failed thought") || !strings.Contains(got, "accepted thought") {
+		t.Fatalf("incorrect final text: %s", got)
+	}
+}

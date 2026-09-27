@@ -10,8 +10,8 @@ import (
 )
 
 func (b *FullTextBuilder) Observe(event stream.EventData) {
-	if event.Type == "run.activity" && IsDiscardIncompleteModelTurnRecovery(event.Value("recovery")) {
-		b.DiscardModelTurn(event.Value("recovery"))
+	if event.String("status") == "failed" && (event.Type == "reasoning.end" || event.Type == "content.end" || event.Type == "tool.end") {
+		b.DiscardModelTurn(map[string]any{"reasoningIds": []string{event.String("reasoningId")}, "toolIds": []string{event.String("toolId")}})
 		return
 	}
 	b.Consume(event)

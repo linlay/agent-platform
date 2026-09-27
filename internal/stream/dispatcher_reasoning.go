@@ -18,6 +18,11 @@ func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []Str
 			"reasoningLabel": reasoningLabel,
 		}))
 	}
+	for _, event := range events {
+		if event.Type == "reasoning.start" {
+			d.state.blockStarts["reasoning:"+input.ReasoningID] = event
+		}
+	}
 	d.state.reasoningBuffer[input.ReasoningID] += input.Delta
 	d.state.reasoningSeen = true
 	d.state.lastReasoningID = input.ReasoningID

@@ -267,3 +267,5 @@ make test
 Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。此调整不改变连接器配置状态、Agent 挂载、工具权限或历史 Chat。
 
 - Runtime 根级共享连接器布局锁统一为 `.lock/shared-connector-layout.lock`，不再生成旧 `.cli-shared-connector-layout.lock`。路径切换必须停掉同一 runtime 的旧进程；锁文件释放后保留，不在运行中删除。包级操作及版本租约锁仍在既有作用域。
+
+- Native 未提交模型尝试失败时以 `reasoning.end/content.end/tool.end` 的 `status:"failed"` 与公共 error 收尾，正常 end 不增加状态字段；失败输出作为独立展示 event 保存，不进入模型上下文，`run.activity` 仅作辅助提示。详见 [API与协议](docs/API与协议.md)。

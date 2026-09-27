@@ -139,6 +139,11 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			w.currentStage = "oneshot"
 		}
 
+	case "reasoning.end", "content.end", "tool.end":
+		if event.String("status") == "failed" {
+			w.appendTypedEventLine(event, "event")
+		}
+
 	case "reasoning.snapshot":
 		w.ensureStep()
 		w.ensureMsgID()
