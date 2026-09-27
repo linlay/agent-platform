@@ -520,6 +520,7 @@
   "Artifact": {
     "items": [
       {
+        "publishedAt": 1700000000490,
         "artifactId": "artifact-1",
         "type": "file",
         "name": "result.txt",

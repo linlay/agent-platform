@@ -46,13 +46,14 @@ type SourceState struct {
 }
 
 type ArtifactItemState struct {
-	ArtifactID string `json:"artifactId"`
-	Type       string `json:"type"`
-	Name       string `json:"name"`
-	MimeType   string `json:"mimeType,omitempty"`
-	SizeBytes  int64  `json:"sizeBytes,omitempty"`
-	URL        string `json:"url,omitempty"`
-	SHA256     string `json:"sha256,omitempty"`
+	PublishedAt int64  `json:"publishedAt"`
+	ArtifactID  string `json:"artifactId"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	MimeType    string `json:"mimeType,omitempty"`
+	SizeBytes   int64  `json:"sizeBytes,omitempty"`
+	URL         string `json:"url,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
 }
 
 type PlanningState struct {
