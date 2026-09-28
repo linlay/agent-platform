@@ -19,6 +19,10 @@ const (
 	chatSnapshotExportFormat = "snapshot"
 )
 
+type publishedArtifactReader interface {
+	PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
+}
+
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	format, err := parseConversationExportFormat(r)
 	if err != nil {
@@ -42,23 +46,35 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
 		locale = "en-US"
 	}
+	var attachments []conversationexport.AttachmentV1
 	if format == chatSnapshotExportFormat {
-		var document conversationexport.SnapshotDocument
-		document, err = s.loadConversationSnapshotWithAttachments(chatID, time.Now().UnixMilli(), locale)
-		if err == nil {
-			body, title = document.JSON, document.Snapshot.Title
+		reader, ok := s.deps.Chats.(publishedArtifactReader)
+		if !ok {
+			err = fmt.Errorf("chat store does not expose published artifacts")
+		} else {
+			var items []chat.ArtifactManifestItem
+			items, err = reader.PublishedArtifacts(chatID)
+			if err == nil {
+				attachments, err = conversationexport.BuildSnapshotAttachments(chatID, items)
+			}
 		}
 		contentType = "application/json; charset=utf-8"
 		extension = ".snapshot.json"
 	} else {
-		var document conversationexport.SnapshotDocument
-		document, err = s.loadConversationSnapshot(chatID, time.Now().UnixMilli(), locale)
-		if err == nil {
-			body, err = conversationexport.RenderMarkdown(document.Snapshot)
-			title = document.Snapshot.Title
-		}
 		contentType = "text/markdown; charset=utf-8"
 		extension = ".md"
+	}
+	var document conversationexport.SnapshotDocument
+	if err == nil {
+		document, err = s.loadConversationSnapshot(chatID, attachments, time.Now().UnixMilli(), locale)
+	}
+	if err == nil {
+		title = document.Snapshot.Title
+		if format == chatSnapshotExportFormat {
+			body = document.JSON
+		} else {
+			body, err = conversationexport.RenderMarkdown(document.Snapshot)
+		}
 	}
 	if err != nil {
 		writeConversationExportError(w, err)
@@ -73,7 +89,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
+func (s *Server) loadConversationSnapshot(chatID string, attachments []conversationexport.AttachmentV1, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
 	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
 		return conversationexport.SnapshotDocument{}, err
@@ -85,30 +101,7 @@ func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64, local
 	if err != nil {
 		return conversationexport.SnapshotDocument{}, err
 	}
-	return conversationexport.BuildSnapshotDocument(summary, detail.Events, capturedAt, locale, s.resolveExportAssistant)
-}
-
-func (s *Server) loadConversationSnapshotWithAttachments(chatID string, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
-	summary, err := s.deps.Chats.Summary(chatID)
-	if err != nil {
-		return conversationexport.SnapshotDocument{}, err
-	}
-	if summary == nil {
-		return conversationexport.SnapshotDocument{}, chat.ErrChatNotFound
-	}
-	detail, err := s.deps.Chats.LoadChat(chatID)
-	if err != nil {
-		return conversationexport.SnapshotDocument{}, err
-	}
-	items, err := s.deps.Chats.PublishedArtifacts(chatID)
-	if err != nil {
-		return conversationexport.SnapshotDocument{}, err
-	}
-	attachments, err := conversationexport.BuildSnapshotAttachments(chatID, items, s.deps.Chats.ChatDir(chatID))
-	if err != nil {
-		return conversationexport.SnapshotDocument{}, err
-	}
-	return conversationexport.BuildSnapshotDocumentWithAttachments(summary, detail.Events, attachments, capturedAt, locale, s.resolveExportAssistant)
+	return conversationexport.BuildSnapshotDocument(summary, detail.Events, attachments, capturedAt, locale, s.resolveExportAssistant)
 }
 
 func parseConversationExportFormat(r *http.Request) (string, error) {

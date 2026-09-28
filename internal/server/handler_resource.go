@@ -21,7 +21,6 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
-	"agent-platform/internal/config"
 	"agent-platform/internal/rootpaths"
 	"agent-platform/internal/temppaths"
 )
@@ -86,10 +85,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	desktopAppRead := r.Method == http.MethodGet &&
-		s.deps.Config.RuntimeMode == config.RuntimeModeDesktop &&
-		isDesktopAppPrincipal(principal)
-	if principal != nil && !desktopAppRead && !s.principalCanAccessResourceChat(principal, chatID) {
+	if principal != nil && !s.principalCanAccessResourceChat(principal, chatID) {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}

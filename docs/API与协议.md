@@ -1287,15 +1287,15 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 ## 已发布产物读取
 
-这些接口属于 Chat 资源能力，不属于连接器。均为 POST，即使 `auth.enabled=false` 也要求有效 JWT 和非空 subject；每次请求读取当前 Chat 摘要并复用 principal 的 Chat 引用权限。`query:<subject>` Chat 限该主体访问，旧无 owner 或非 query 来源沿用现有引用规则。调用方负责其内部资源授权，Platform 不建立应用/页面与 Chat 的关联。
+这些接口属于 Chat 资源能力，不属于连接器。均为 POST，即使 `auth.enabled=false` 也要求有效 JWT 和非空 subject；每次请求读取当前 Chat 摘要并复用 principal 的 Chat 引用权限。`query:<subject>` Chat 限该主体访问，旧无 owner 或非 query 来源沿用现有引用规则。唯一例外是 Desktop 运行形态下的受信 app principal（非空 subject、`scope=app` 和 device claim），可跨 owner 调用严格路由 `/api/chat/artifacts/read` 并且只能使用 `sourceRef`。该例外不扩展到 list/get、`artifactId` read、Standalone 或通用 `/api/resource`。
 
 | 路径 | 请求 | 返回 |
 | --- | --- | --- |
 | `/api/chat/artifacts/list` | `{chatId,runId?,cursor?,limit?}` | `{items,nextCursor?}`，默认 50、最多 100 |
 | `/api/chat/artifacts/get` | `{chatId,artifactId,runId?}` | 产物元数据 |
-| `/api/chat/artifacts/read` | `{chatId,artifactId,runId?}` | 文件字节，失败为 JSON 错误 |
+| `/api/chat/artifacts/read` | `{chatId,artifactId,runId?}` 或 `{chatId,sourceRef}`，定位参数二选一 | 文件字节，失败为 JSON 错误 |
 
-元数据包含 `chatId/runId/artifactId/publishedAt/name/mimeType/sizeBytes/sha256`，不包含内部路径。仅查询 active Chat 的发布 manifest，无全局 artifactId 查询和任意路径读取；歧义返回 `artifact_ambiguous`，内容或摘要变化返回 `artifact_changed`，请求取消关闭读取文件。输入严格拒绝未知字段。
+元数据包含 `chatId/runId/artifactId/publishedAt/name/mimeType/sizeBytes/sha256`，不包含内部路径。`sourceRef` 只接受规范的 `artifacts/<runId>/<file>`，必须精确命中当前 Chat 的发布 manifest；同一 `sourceRef` 多次发布时以 manifest 中最后一条为准。仅查询 active Chat 的发布 manifest，无全局 artifactId 查询和任意路径读取；歧义返回 `artifact_ambiguous`，内容或摘要变化返回 `artifact_changed`，请求取消关闭读取文件。输入严格拒绝未知字段。
 
 旧 `/api/webapp/artifact/*` 返回 HTTP 410 `connector_contract_upgrade_required`，不转换或透传。客户端切换到上述接口，使用自身可信 JWT，继续在客户端校验其内部访问范围并通过请求取消终止读取；不得把 JWT 暴露给不可信调用方。迁移需与连接器旧传输退役同批发布。
 

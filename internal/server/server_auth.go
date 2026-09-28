@@ -104,13 +104,6 @@ func writeAuthError(w http.ResponseWriter) {
 	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 }
 
-func isDesktopAppPrincipal(principal *Principal) bool {
-	return principal != nil &&
-		strings.TrimSpace(principal.Subject) != "" &&
-		stringClaim(principal.Claims, "scope") == "app" &&
-		firstStringClaim(principal.Claims, "deviceId", "device_id") != ""
-}
-
 func (s *Server) logRequest(r *http.Request, status int, cost time.Duration) {
 	if !s.deps.Config.Logging.Request.Enabled {
 		return

@@ -8,8 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/stream"
 )
@@ -69,6 +71,79 @@ func TestHandleChatExportSnapshotReturnsJSONDocument(t *testing.T) {
 	}
 	if snapshot.Version != conversationexport.SnapshotVersion || snapshot.Title != "rollback plan" || len(snapshot.Turns) != 1 || snapshot.Turns[0].Nodes[len(snapshot.Turns[0].Nodes)-1].Text != "rollback completed" {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
+	}
+}
+
+func TestHandleChatExportMapsManifestWithoutReadingArtifactFile(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID = "chat-snapshot-manifest"
+	seedCompletedConversationExport(t, fixture, chatID)
+	writer, ok := fixture.chats.(chat.ArtifactManifestWriter)
+	if !ok {
+		t.Fatal("chat store does not support artifact manifests")
+	}
+	if err := writer.AppendArtifactManifest(chatID, "run-1", testEpochMillis+3_000, []map[string]any{{
+		"artifactId": "artifact-pdf", "type": "file", "name": "report.pdf",
+		"mimeType": "application/pdf", "sizeBytes": 123,
+		"sha256": strings.Repeat("a", 64), "url": "artifacts/run-1/report.pdf",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?chatId="+chatID+"&format=snapshot", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var snapshot conversationexport.SnapshotV1
+	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Attachments) != 1 || snapshot.Attachments[0].Name != "report.pdf" ||
+		snapshot.Attachments[0].Size != 123 || snapshot.Attachments[0].SHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("attachments=%#v", snapshot.Attachments)
+	}
+	document, err := fixture.server.loadConversationSnapshot(chatID, nil, time.Now().UnixMilli(), "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Snapshot.Attachments) != 0 {
+		t.Fatalf("markdown snapshot attachments=%#v", document.Snapshot.Attachments)
+	}
+}
+
+func TestHandleChatExportSnapshotRetainsJSONSizeLimit(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID = "chat-snapshot-too-large"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "large"); err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Now().UnixMilli()
+	startServerFixtureRun(t, fixture.chats, chatID, "run-large", startedAt)
+	if err := fixture.chats.AppendQueryLine(chatID, chat.QueryLine{
+		ChatID: chatID, RunID: "run-large", UpdatedAt: startedAt,
+		Query: map[string]any{"role": "user", "message": "large"}, Type: "query",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.chats.AppendEvent(chatID, stream.EventData{
+		Type: "content.snapshot", Timestamp: startedAt,
+		Payload: map[string]any{"runId": "run-large", "contentId": "large", "text": strings.Repeat("x", conversationexport.MaxSnapshotBytes)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.chats.OnRunCompleted(chat.RunCompletion{
+		ChatID: chatID, RunID: "run-large", AgentKey: "mock-agent",
+		AssistantText:  "complete",
+		InitialMessage: "large", FinishReason: "complete",
+		StartedAtMillis: startedAt, UpdatedAtMillis: startedAt + 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?chatId="+chatID+"&format=snapshot", nil))
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -94,7 +94,6 @@ type Store interface {
 	AgentChatStats() (map[string]AgentChatStats, error)
 	TeamChatStats() (map[string]AgentChatStats, error)
 	ResolveResource(file string) (string, error)
-	PublishedArtifacts(chatID string) ([]ArtifactManifestItem, error)
 	ChatDir(chatID string) string
 }
 
