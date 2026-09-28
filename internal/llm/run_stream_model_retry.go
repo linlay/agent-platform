@@ -15,7 +15,7 @@ func (s *llmRunStream) modelMaxAttempts() int {
 		return 1
 	}
 	budget := NormalizeBudget(s.execCtx.Budget)
-	maxAttempts := budget.Model.RetryCount + 1
+	maxAttempts := min(budget.Model.RetryCount, 5) + 1
 	if maxAttempts < 1 {
 		return 1
 	}
@@ -264,6 +264,8 @@ func (s *llmRunStream) handleModelAttemptError(err error) error {
 	if s.canRetryModelAttempt(err) {
 		call := s.modelCall
 		nextAttempt := call.attempt + 1
+		call.retryDelay = modelRetryDelay(nextAttempt)
+		call.retryNotBefore = time.Now().Add(call.retryDelay)
 		s.pending = append(s.pending, s.modelTurnDiscardDelta(call, err, true, nextAttempt))
 		s.closeCurrentProviderTurn()
 		s.modelCall.attempt = nextAttempt
@@ -301,8 +303,50 @@ func (s *llmRunStream) modelTurnDiscardDelta(call *pendingModelCall, err error, 
 		Retrying:    retrying,
 	}
 	if retrying {
+		discard.RetryDelayMs = call.retryDelay.Milliseconds()
+		if !call.retryNotBefore.IsZero() {
+			discard.RetryAt = call.retryNotBefore.UnixMilli()
+		}
 		discard.TimeoutSeconds = s.modelActivityTimeoutSeconds(payload)
 		discard.ElapsedMs = modelActivityElapsedMs(call.attemptStartedAt)
 	}
 	return discard
+}
+
+// The initial request is immediate; at most five ordinary retries follow.
+func modelRetryDelay(attempt int) time.Duration {
+	delays := [...]time.Duration{500 * time.Millisecond, 2 * time.Second, 8 * time.Second, 32 * time.Second, 128 * time.Second}
+	if attempt < 2 {
+		return 0
+	}
+	return delays[min(attempt-2, len(delays)-1)]
+}
+
+func (s *llmRunStream) waitModelRetry() error {
+	call := s.modelCall
+	if call == nil || call.retryNotBefore.IsZero() {
+		return nil
+	}
+	wait := time.Until(call.retryNotBefore)
+	if wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		var contextDone, controlDone <-chan struct{}
+		if s.ctx != nil {
+			contextDone = s.ctx.Done()
+		}
+		if s.runControl != nil {
+			controlDone = s.runControl.Context().Done()
+		}
+		select {
+		case <-timer.C:
+		case <-contextDone:
+			return s.handleInterruptIfNeeded()
+		case <-controlDone:
+			return s.handleInterruptIfNeeded()
+		}
+	}
+	call.retryNotBefore = time.Time{}
+	call.retryDelay = 0
+	return s.handleInterruptIfNeeded()
 }

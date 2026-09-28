@@ -520,13 +520,16 @@ func (s *llmRunStream) drainUsageChunk() {
 			s.engine.logRawChunk(s.session.RunID, formatRawSSEFrame(eventName, rawChunk))
 		}
 		if rawChunk == "" || rawChunk == "[DONE]" {
+			s.currentTurn.trace.markStreamEvent("ignored")
 			break
 		}
 		var decoded openAIStreamResponse
 		if json.Unmarshal([]byte(rawChunk), &decoded) != nil {
+			s.currentTurn.trace.markStreamEvent("failed")
 			s.currentTurn.observation.DecodeErrors++
 			continue
 		}
+		s.currentTurn.trace.markStreamEvent("handled")
 		s.currentTurn.observation.recordOpenAIChunk(decoded)
 		for _, choice := range decoded.Choices {
 			s.currentTurn.observation.PostFinishToolDeltas += len(choice.Delta.ToolCalls)

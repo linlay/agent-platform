@@ -112,6 +112,7 @@ func responsesInvalid(message string, opts ...apperrors.Option) error {
 func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string) (done bool, consumeErr error) {
 	var e responsesStreamEvent
 	turn := s.currentTurn
+	turn.trace.markStreamEvent("handled")
 	defer func() {
 		consumeErr = annotateResponsesError(consumeErr, s.modelCall, turn, e, eventName, raw)
 	}()
@@ -140,6 +141,8 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 		t.responseID = e.Response.ID
 	}
 	switch e.Type {
+	case "response.created", "response.in_progress", "response.queued":
+		t.trace.markStreamEvent("observed")
 	case "response.output_item.added":
 		state.items[e.OutputIndex] = e.Item
 		delete(state.done, e.OutputIndex)
@@ -286,6 +289,8 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 		}
 		t.observation.CompletionTrigger = e.Type
 		return true, s.finishCurrentTurn()
+	default:
+		t.trace.markStreamEvent("ignored")
 	}
 	if t.outputGuardErr != nil {
 		return false, t.outputGuardErr

@@ -250,6 +250,9 @@ func (s *llmRunStream) openPendingModelCall() error {
 	if call == nil {
 		return nil
 	}
+	if err := s.waitModelRetry(); err != nil || len(s.pending) > 0 {
+		return err
+	}
 	requestSentAt := time.Now()
 	call.attemptStartedAt = requestSentAt
 	trace := s.newChatTrace(call.runSeq, call.prepared, call.effectiveToolChoice)
@@ -375,7 +378,13 @@ func (s *llmRunStream) prepareFinalAnswerTurn() {
 	})
 }
 
-func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
+func (s *llmRunStream) consumeCurrentTurn() (done bool, consumeError error) {
+	turn := s.currentTurn
+	defer func() {
+		if turn != nil && consumeError != nil {
+			turn.trace.markStreamEvent("failed")
+		}
+	}()
 	eventName, rawChunk, err := s.readCurrentSSEFrame()
 	if err != nil {
 		if s.isInterrupted() {
@@ -420,9 +429,11 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		s.engine.logRawChunk(s.session.RunID, formatRawSSEFrame(eventName, rawChunk))
 	}
 	if rawChunk == "" {
+		s.currentTurn.trace.markStreamEvent("ignored")
 		return false, nil
 	}
 	if rawChunk == "[DONE]" {
+		s.currentTurn.trace.markStreamEvent("handled")
 		if strings.EqualFold(s.model.Protocol, "OPENAI_RESPONSES") {
 			return false, responsesInvalid("responses stream ended without terminal response")
 		}

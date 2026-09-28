@@ -180,7 +180,7 @@ func TestLLMChatTraceWritesToolLoopFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read llm records dir: %v", err)
 	}
-	if len(entries) != 2 || entries[0].Name() != "run_trace_001.json" || entries[1].Name() != "run_trace_002.json" {
+	if len(entries) != 4 || entries[0].Name() != "run_trace.attempt-001_001.json" || entries[1].Name() != "run_trace.attempt-001_002.json" || entries[2].Name() != "run_trace_001.json" || entries[3].Name() != "run_trace_002.json" {
 		t.Fatalf("unexpected trace file ordering: %#v", entries)
 	}
 	second := readTraceFile(t, recordDir, 2)

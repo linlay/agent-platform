@@ -234,6 +234,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			MaxAttempts:    value.MaxAttempts,
 			Reason:         value.Reason,
 			Retrying:       value.Retrying,
+			RetryDelayMs:   value.RetryDelayMs,
+			RetryAt:        value.RetryAt,
 			TimeoutSeconds: value.TimeoutSeconds,
 			ElapsedMs:      value.ElapsedMs,
 			ReasoningIDs:   sortedStringSet(m.attemptReasoningIDs),

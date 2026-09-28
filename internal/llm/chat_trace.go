@@ -23,6 +23,8 @@ type llmChatTrace struct {
 	maskSensitive    bool
 	credentialPolicy credentialview.Policy
 	path             string
+	attemptPath      string
+	streamEvents     traceStreamEvents
 	relativeFile     string
 	runSeq           int
 	payload          map[string]any
@@ -58,11 +60,20 @@ func (s *llmRunStream) newChatTrace(runSeq int, prepared preparedProviderRequest
 		payload["protocol"] = "OPENAI"
 	}
 	relativeFile := traceRelativeFile(s.session.ChatID, s.session.RunID, runSeq)
+	attempt, maxAttempts := 1, 1
+	if call := s.modelCall; call != nil {
+		attempt, maxAttempts = max(1, call.attempt), max(1, call.maxAttempts)
+	}
+	attemptFile := traceRelativeFile(s.session.ChatID, fmt.Sprintf("%s.attempt-%03d", safeTraceRunID(s.session.RunID), attempt), runSeq)
+	payload["attempt"], payload["maxAttempts"] = attempt, maxAttempts
+	payload["attemptFile"] = attemptFile
+
 	return &llmChatTrace{
 		enabled:          true,
 		maskSensitive:    cfg.MaskSensitive,
 		credentialPolicy: credentialview.FromConfig(s.engine.cfg),
 		path:             filepath.Join(cfg.RecordDir, filepath.FromSlash(relativeFile)),
+		attemptPath:      filepath.Join(cfg.RecordDir, filepath.FromSlash(attemptFile)),
 		relativeFile:     relativeFile,
 		runSeq:           runSeq,
 		payload:          payload,
@@ -363,6 +374,7 @@ func traceResponseToolCalls(toolCalls []openAIToolCall) []any {
 }
 
 func (t *llmChatTrace) writeLocked() {
+	t.payload["streamEvents"] = t.streamEvents.snapshot()
 	dataPayload := t.payload
 	if t.maskSensitive {
 		dataPayload = maskTracePayload(dataPayload)
@@ -378,6 +390,11 @@ func (t *llmChatTrace) writeLocked() {
 	if err := os.MkdirAll(filepath.Dir(t.path), 0o755); err != nil {
 		log.Printf("[llm][trace][warning] mkdir failed path=%s err=%v", t.path, err)
 		return
+	}
+	if t.attemptPath != "" {
+		if err := os.WriteFile(t.attemptPath, append(data, '\n'), 0o644); err != nil {
+			log.Printf("[llm][trace][warning] write attempt failed path=%s err=%v", t.attemptPath, err)
+		}
 	}
 	if err := os.WriteFile(t.path, append(data, '\n'), 0o644); err != nil {
 		log.Printf("[llm][trace][warning] write failed path=%s err=%v", t.path, err)

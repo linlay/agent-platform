@@ -39,6 +39,7 @@ func (s *llmRunStream) readCurrentSSEFrame() (string, string, error) {
 	}
 	event, raw, err := readSSEFrameWithIdleTimeout(s.currentTurn.reader, s.currentTurn.body, s.currentSSEIdleTimeout())
 	s.currentTurn.observation.recordRead(raw, err)
+	s.currentTurn.trace.recordStreamRead(event, raw, err)
 	return event, raw, err
 }
 

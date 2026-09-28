@@ -1,6 +1,9 @@
 package stream
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) []StreamEvent {
 	if d == nil || d.state == nil {
@@ -60,11 +63,15 @@ func (d *StreamEventDispatcher) discardModelTurn(input ModelTurnDiscard, taskID 
 	if input.Retrying {
 		status = "retrying"
 		message = "模型响应不完整，已丢弃并正在重试"
+		if input.RetryDelayMs > 0 {
+			message = fmt.Sprintf("正在重试（第 %d/%d 次），等待 %g 秒后发起请求", input.Attempt-1, input.MaxAttempts-1, float64(input.RetryDelayMs)/1000)
+		}
 	}
 	payload := map[string]any{
 		"runId":   d.request.RunID,
 		"chatId":  d.request.ChatID,
 		"phase":   "model_call",
+		"runSeq":  input.RunSeq,
 		"status":  status,
 		"message": message,
 	}
@@ -75,6 +82,10 @@ func (d *StreamEventDispatcher) discardModelTurn(input ModelTurnDiscard, taskID 
 		retry := map[string]any{
 			"attempt":     input.Attempt,
 			"maxAttempts": input.MaxAttempts,
+		}
+		if input.RetryDelayMs > 0 {
+			retry["delayMs"] = input.RetryDelayMs
+			retry["retryAt"] = input.RetryAt
 		}
 		if reason := strings.TrimSpace(input.Reason); reason != "" {
 			retry["reason"] = reason

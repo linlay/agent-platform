@@ -714,3 +714,15 @@ func TestHandleChatExportDefaultRemainsMarkdown(t *testing.T) {
 		t.Fatalf("content-type=%q", got)
 	}
 }
+
+func TestHandleChatLLMTraceReadsAttemptArchive(t *testing.T) {
+	fixture := newChatExportWSTestFixture(t)
+	fileParam := "chat-trace/.llm-records/run_trace.attempt-006_049.json"
+	want := strictCompletedTraceContent("run_trace")
+	seedLLMTraceFile(t, fixture, fileParam, want)
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/llm-trace?file="+fileParam, nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != want {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}

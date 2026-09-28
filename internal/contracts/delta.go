@@ -95,6 +95,8 @@ type DeltaModelTurnDiscard struct {
 	MaxAttempts    int
 	Reason         string
 	Retrying       bool
+	RetryDelayMs   int64
+	RetryAt        int64
 	TimeoutSeconds int64
 	ElapsedMs      int64
 }

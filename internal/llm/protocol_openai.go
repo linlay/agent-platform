@@ -193,6 +193,7 @@ func (p *openAIProtocol) OpenStream(ctx context.Context, params protocolStreamPa
 }
 
 func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string) (bool, error) {
+	s.currentTurn.trace.markStreamEvent("handled")
 	var decoded openAIStreamResponse
 	if err := json.Unmarshal([]byte(rawChunk), &decoded); err != nil {
 		s.currentTurn.observation.DecodeErrors++

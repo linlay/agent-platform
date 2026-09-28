@@ -155,6 +155,8 @@ type pendingModelCall struct {
 	maxAttempts           int
 	logicalTurnCounted    bool
 	attemptStartedAt      time.Time
+	retryNotBefore        time.Time
+	retryDelay            time.Duration
 }
 
 type thinkTagParserState struct {

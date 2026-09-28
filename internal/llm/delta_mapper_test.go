@@ -326,11 +326,14 @@ func TestDeltaMapper_ModelTurnDiscardTracksUnifiedToolID(t *testing.T) {
 		Name:      "desktop_action",
 		ArgsDelta: `{}`,
 	})
-	discardInputs := mapper.Map(contracts.DeltaModelTurnDiscard{RunSeq: 1, Retrying: true})
+	discardInputs := mapper.Map(contracts.DeltaModelTurnDiscard{RunSeq: 1, Retrying: true, RetryDelayMs: 500, RetryAt: 1500})
 	if len(discardInputs) != 1 {
 		t.Fatalf("expected one discard input, got %#v", discardInputs)
 	}
 	discard, ok := discardInputs[0].(stream.ModelTurnDiscard)
+	if discard.RetryDelayMs != 500 || discard.RetryAt != 1500 {
+		t.Fatalf("missing backoff metadata: %#v", discard)
+	}
 	if !ok || len(discard.ToolIDs) != 1 || discard.ToolIDs[0] != "action_1" {
 		t.Fatalf("discard did not report tool id: %#v", discardInputs[0])
 	}

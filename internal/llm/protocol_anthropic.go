@@ -74,6 +74,7 @@ func (p *anthropicProtocol) OpenStream(ctx context.Context, params protocolStrea
 }
 
 func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawChunk string) (bool, error) {
+	s.currentTurn.trace.markStreamEvent("handled")
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(rawChunk), &payload); err != nil {
 		s.currentTurn.observation.DecodeErrors++
@@ -91,6 +92,7 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 	}
 	switch strings.TrimSpace(eventName) {
 	case "", "ping":
+		s.currentTurn.trace.markStreamEvent("ignored")
 		return false, nil
 	case "content_block_start":
 		block := AnyMapNode(payload["content_block"])
@@ -139,7 +141,10 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 			}
 			s.appendToolCallDeltas(deltas)
 		case "signature_delta":
+			s.currentTurn.trace.markStreamEvent("ignored")
 			return false, nil
+		default:
+			s.currentTurn.trace.markStreamEvent("ignored")
 		}
 	case "message_delta":
 		delta := AnyMapNode(payload["delta"])
@@ -163,6 +168,7 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 		return true, s.finishCurrentTurn()
 	default:
 		s.currentTurn.observation.IgnoredAnthropicEvents++
+		s.currentTurn.trace.markStreamEvent("ignored")
 	}
 
 	return false, nil

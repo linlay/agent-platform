@@ -1920,3 +1920,17 @@ func TestTerminalFailureClosesRootAndActiveChildScopes(t *testing.T) {
 		t.Fatal("active reasoning leaked")
 	}
 }
+
+func TestModelRetryActivityCarriesBackoff(t *testing.T) {
+	d := NewDispatcher(StreamRequest{RunID: "retry-test", ChatID: "c"})
+	events := d.Dispatch(ModelTurnDiscard{RunSeq: 3, Attempt: 2, MaxAttempts: 6, Retrying: true, RetryDelayMs: 500, RetryAt: 1500})
+	assertEventTypes(t, events, "run.activity")
+	payload := events[0].Payload
+	retry := payload["retry"].(map[string]any)
+	if retry["delayMs"] != int64(500) || retry["retryAt"] != int64(1500) || payload["runSeq"] != 3 {
+		t.Fatalf("%#v", payload)
+	}
+	if !strings.Contains(payload["message"].(string), "等待 0.5 秒") || !strings.Contains(payload["message"].(string), "1/5") {
+		t.Fatal(payload["message"])
+	}
+}
