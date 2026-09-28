@@ -12,6 +12,7 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/models"
@@ -688,6 +689,9 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	}
 	def.Connectors, err = parseConnectorIDs(mapNode(root["connectorConfig"])["connectors"])
 	if err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	if err := connector.ValidateDesktopSelection(def.Connectors); err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])

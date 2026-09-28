@@ -2,7 +2,7 @@
 name: desktop-action
 description: "Use this skill when the user wants to read or operate Desktop through the desktop_action function tool, or use Desktop WS action.call: transient display effects, chat-bound WorkPanel tabs, WebViews, local HTTP services, and workspace files, Desktop shell navigation, runtime info/diagnostics, assistant chat, Agent/Skill editing, device/theme/locale/Copilot settings, Desktop skin ZIP import/list/apply/remove, web surface and tab management including per-page refresh, website entries, website apps, control-center services and logs, market items and sandbox images, Help routes, Kanban issues, Desktop pet state/visibility/appearance, or Desktop WS public action names."
 metadata:
-  version: 0.3.3
+  version: 0.3.4
 ---
 
 # desktop-action
@@ -16,7 +16,7 @@ Prefer `desktop-cdp` for webpage content, DOM inspection, screenshots, arbitrary
 - Start here for the overall map and safety rules.
 - Read only the reference file for the relevant business area.
 - Read `references/catalog.md` when choosing an action name, checking action kind/category, or handling `unknown_action`.
-- Treat Desktop `src/shared/desktop-actions.ts` as the action-name source and Platform internal runtime allowlist as the callable subset. The tool schema describes domain scope only and intentionally omits the full action enum; always send an exact action name, never a wildcard. The catalog excludes WebApp-page-only actions. Do not switch transport to work around a stale Platform whitelist.
+- Treat Desktop `src/shared/desktop-actions.ts` as the action-name source and Platform internal runtime allowlist as the callable subset. The tool schema intentionally omits the action catalog; always send an exact action name, never a wildcard. The catalog excludes WebApp-page-only actions. Do not switch transport to work around a stale Platform whitelist.
 - Prefer `desktop-cdp` for page content. Desktop also exposes `desktop.web.interactElement` and `desktop.web.executeScript`; read `references/web-surfaces.md` for their exact current-page inputs. AWCP page actions still use `desktop_cdp`. Website CRUD uses `desktop.website.*`, WebApp lifecycle uses `desktop.webapp.*`, and the combined catalog uses `desktop.site.list`.
 - Use `desktop.display` for the supported transient visual effects in either Desktop runtime or standalone WebClient. Read `references/display.md` before calling it.
 

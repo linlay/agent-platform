@@ -13,18 +13,19 @@ import (
 
 type Summary struct {
 	Manifest
-	Builtin     bool          `json:"builtin"`
-	ReadOnly    bool          `json:"readOnly"`
-	CanDelete   bool          `json:"canDelete"`
-	HasMCP      bool          `json:"hasMcp"`
-	HasNative   bool          `json:"hasNative"`
-	NativeTools []string      `json:"nativeTools,omitempty"`
-	HasCLI      bool          `json:"hasCli"`
-	HasView     bool          `json:"hasView"`
-	Views       []ViewSummary `json:"views,omitempty"`
-	HasBin      bool          `json:"hasBin"`
-	IconSHA256  string        `json:"iconSha256,omitempty"`
-	Skills      []string      `json:"skills"`
+	MutuallyExclusiveWith []string      `json:"mutuallyExclusiveWith,omitempty"`
+	Builtin               bool          `json:"builtin"`
+	ReadOnly              bool          `json:"readOnly"`
+	CanDelete             bool          `json:"canDelete"`
+	HasMCP                bool          `json:"hasMcp"`
+	HasNative             bool          `json:"hasNative"`
+	NativeTools           []string      `json:"nativeTools,omitempty"`
+	HasCLI                bool          `json:"hasCli"`
+	HasView               bool          `json:"hasView"`
+	Views                 []ViewSummary `json:"views,omitempty"`
+	HasBin                bool          `json:"hasBin"`
+	IconSHA256            string        `json:"iconSha256,omitempty"`
+	Skills                []string      `json:"skills"`
 }
 
 type ViewSummary struct {
@@ -43,6 +44,7 @@ func (s Sources) Summaries() ([]Summary, error) {
 	result := make([]Summary, 0, len(packages))
 	for _, pkg := range packages {
 		summary := Summary{Manifest: pkg.Manifest, Builtin: pkg.Builtin, ReadOnly: pkg.Builtin, CanDelete: !pkg.Builtin, HasMCP: len(pkg.MCP) > 0, HasCLI: pkg.CLI != nil, HasBin: pkg.BinDir != "", Skills: []string{}}
+		summary.MutuallyExclusiveWith = pkg.MutuallyExclusiveWith()
 		summary.HasNative = len(pkg.Native) > 0
 		summary.NativeTools = pkg.NativeTools()
 		for _, skill := range pkg.Skills {

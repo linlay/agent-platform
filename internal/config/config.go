@@ -89,8 +89,9 @@ type PathsConfig struct {
 	// BuiltinConnectorsDir is set by app assembly from the verified Platform
 	// bundle. It is not a user-configurable runtime path.
 	BuiltinConnectorsDir string
-	// NativeDesktopDir is the embedded Desktop package installed during assembly.
+	// Native Desktop package paths are set only by embedded resource assembly.
 	NativeDesktopDir        string
+	NativeDesktopWebDir     string
 	ConnectorsCenterDir     string
 	StateDir                string
 	LegacyConnectorStateDir string

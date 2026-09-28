@@ -77,6 +77,9 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 }
 
 func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector.Package, error)) error {
+	if err := connector.ValidateDesktopSelection(def.Connectors); err != nil {
+		return err
+	}
 	def.ConnectorNativeTools = nil
 	def.ConnectorSkills = nil
 	def.ConnectorBinDirs = nil

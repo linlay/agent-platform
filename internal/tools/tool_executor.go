@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/memory"
@@ -192,8 +193,12 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 		}, nil
 	}
 	if toolName == "desktop_action" || toolName == "desktop_cdp" {
-		if execCtx == nil || execCtx.Session.NativeConnectorTools[toolName] != "builtin.desktop" || execCtx.Session.ConnectorDirs["builtin.desktop"] == "" {
-			return ToolExecutionResult{Error: "connector_not_mounted", Output: "Desktop tool requires the builtin.desktop connector", ExitCode: -1}, nil
+		id := ""
+		if execCtx != nil {
+			id = execCtx.Session.NativeConnectorTools[toolName]
+		}
+		if !connector.IsDesktop(id) || execCtx.Session.ConnectorDirs[id] == "" {
+			return ToolExecutionResult{Error: "connector_not_mounted", Output: "Desktop tool requires a mounted Desktop connector", ExitCode: -1}, nil
 		}
 	}
 	switch strings.TrimSpace(toolName) {

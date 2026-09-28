@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 )
 
@@ -47,8 +48,15 @@ func RuntimeConnectorDirs(def catalog.AgentDefinition) map[string]string {
 
 func RuntimeNativeConnectorTools(def catalog.AgentDefinition) map[string]string {
 	result := map[string]string{}
-	for _, name := range def.ConnectorNativeTools {
-		result[name] = "builtin.desktop"
+	for _, mount := range def.ConnectorMounts {
+		if !connector.IsDesktop(mount.ID) {
+			continue
+		}
+		for _, name := range def.ConnectorNativeTools {
+			if name == "desktop_action" || name == "desktop_cdp" {
+				result[name] = mount.ID
+			}
+		}
 	}
 	return result
 }

@@ -65,7 +65,7 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		s.writeConnectorError(w, err)
 		return
 	}
-	response := map[string]any{"id": pkg.ID, "name": pkg.Name, "version": pkg.Version, "installed": true, "authMode": pkg.AuthMode}
+	response := map[string]any{"id": pkg.ID, "name": pkg.Manifest.Localized(responseLocale(w)).Name, "version": pkg.Version, "installed": true, "authMode": pkg.AuthMode}
 	if pkg.CLI != nil {
 		prepared, err := s.connectorAuth.StartPreparation(pkg.ID)
 		if err != nil {

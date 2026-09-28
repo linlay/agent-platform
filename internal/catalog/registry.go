@@ -328,6 +328,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 		return nil, err
 	}
 	assembler.connectors.NativeDesktopDir = cfg.Paths.NativeDesktopDir
+	assembler.connectors.NativeDesktopWebDir = cfg.Paths.NativeDesktopWebDir
 	registry := &FileRegistry{
 		cfg:                  cfg,
 		tools:                dedupeToolDefinitions(append([]api.ToolDetailResponse(nil), toolDefs...)),

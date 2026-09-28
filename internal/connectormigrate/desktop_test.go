@@ -66,3 +66,22 @@ func TestDesktopMigrationRejectsConcurrentChanges(t *testing.T) {
 		t.Fatal("concurrent edit overwritten")
 	}
 }
+
+func TestDesktopMigrationPreservesSelectedWebVariant(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agents", "demo", "agent.yml")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("key: demo\nmode: REACT\ntoolConfig:\n  tools:\n    - desktop_action\nconnectorConfig:\n  connectors:\n    - builtin.desktop-web\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PreviewDesktop(root)
+	if err != nil || len(plan.Changes) != 1 {
+		t.Fatalf("preview: %+v %v", plan, err)
+	}
+	change := plan.Changes[0]
+	if len(change.AddedTools) != 0 || !strings.Contains(string(change.Data), "builtin.desktop-web") || strings.Contains(string(change.Data), "builtin.desktop\n") {
+		t.Fatalf("changed variant: %s", change.Data)
+	}
+}

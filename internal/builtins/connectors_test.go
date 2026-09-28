@@ -174,7 +174,7 @@ func TestLegacyDesktopCacheVerifiedButExcludedFromRelease(t *testing.T) {
 	if err := connectortest.WriteCLI(filepath.Join(cache, "connectors", "builtin.dbx"), "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := connector.WriteBuiltin(filepath.Join(cache, "connectors", "builtin.desktop"), "desktop", ""); err != nil {
+	if err := connector.WriteBuiltin(filepath.Join(cache, "connectors", "builtin.desktop"), "desktop", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	manifest := Manifest{SchemaVersion: manifestSchemaVersion, Platform: ManifestPlatform{OS: runtime.GOOS, Arch: runtime.GOARCH}}

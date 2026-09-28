@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestDesktopActionSchemaDescribesDomainsWithoutActionEnum(t *testing.T) {
+func TestDesktopActionSchemaDelegatesDiscoveryToMountedSkill(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
 		t.Fatal(err)
@@ -39,8 +39,8 @@ func TestDesktopActionSchemaDescribesDomainsWithoutActionEnum(t *testing.T) {
 			if len(parts) > 2 {
 				scope = strings.Join(parts[:2], ".") + ".*"
 			}
-			if !strings.Contains(description, scope) {
-				t.Errorf("missing scope %s", scope)
+			if strings.Contains(description, scope) {
+				t.Errorf("action domain leaked into shared schema: %s", scope)
 			}
 			if len(parts) > 2 && strings.Contains(description, name) {
 				t.Errorf("exact action leaked back into schema: %s", name)

@@ -11,6 +11,14 @@ import (
 // persistent copy. The returned lease protects this source while the caller
 // serves catalog/management requests, including when no Agent has mounted it.
 func (s Sources) InstallEmbeddedDesktop() (Package, func(), error) {
+	return s.installEmbeddedDesktop("desktop")
+}
+
+func (s Sources) InstallEmbeddedDesktopWeb() (Package, func(), error) {
+	return s.installEmbeddedDesktop("desktop-web")
+}
+
+func (s Sources) installEmbeddedDesktop(name string) (Package, func(), error) {
 	if err := s.ValidateRoots(); err != nil {
 		return Package{}, nil, err
 	}
@@ -27,11 +35,12 @@ func (s Sources) InstallEmbeddedDesktop() (Package, func(), error) {
 		return Package{}, nil, err
 	}
 	defer os.RemoveAll(stage)
-	dir := filepath.Join(stage, "builtin.desktop")
-	if err := WriteBuiltin(dir, "desktop", ""); err != nil {
+	id := "builtin." + name
+	dir := filepath.Join(stage, id)
+	if err := WriteBuiltin(dir, name, ""); err != nil {
 		return Package{}, nil, fmt.Errorf("extract embedded Desktop: %w", err)
 	}
-	pkg, err := LoadDirectory(dir, "builtin.desktop")
+	pkg, err := LoadDirectory(dir, id)
 	if err != nil {
 		return Package{}, nil, fmt.Errorf("validate embedded Desktop: %w", err)
 	}

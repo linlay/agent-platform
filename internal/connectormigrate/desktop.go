@@ -131,11 +131,14 @@ func PreviewDesktop(runtimeRoot string) (DesktopPlan, error) {
 		if strings.EqualFold(fmt.Sprint(node["mode"]), "KBASE") || runtime["acpBridgeId"] != nil {
 			return fmt.Errorf("%s cannot mount Desktop in its current mode", path)
 		}
+		if err := connector.ValidateDesktopSelection(mounts); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		mounted := false
 		unique := []string{}
 		seen := map[string]bool{}
 		for _, id := range mounts {
-			if id == "builtin.desktop" {
+			if connector.IsDesktop(id) {
 				mounted = true
 			}
 			if !seen[id] {

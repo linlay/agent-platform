@@ -16,14 +16,32 @@ import (
 // connector packages are built and versioned by their independent projects.
 func WriteBuiltin(dir, name, version string) error {
 	id := "builtin." + name
-	source := path.Join("connectors", id)
-	if name != "desktop" {
+	if !IsDesktop(id) {
 		return fmt.Errorf("unknown builtin connector %q", name)
 	}
 	// Remove obsolete bundled skills when refreshing an older verified cache.
 	if err := os.RemoveAll(filepath.Join(dir, "skills")); err != nil {
 		return err
 	}
+	if id == DesktopWebConnectorID {
+		// Select common files before writing: the web package never contains the
+		// full action catalog, even transiently. Its entrypoints are overlaid below.
+		if err := writeBuiltinResources(dir, id, path.Join("connectors", DesktopConnectorID), version, desktopWebSharedResource); err != nil {
+			return err
+		}
+	}
+	return writeBuiltinResources(dir, id, path.Join("connectors", id), version, nil)
+}
+
+func desktopWebSharedResource(relative string) bool {
+	return relative == "native.json" || strings.HasPrefix(relative, "assets/") ||
+		strings.HasPrefix(relative, "skills/desktop-cdp/") ||
+		strings.HasPrefix(relative, "skills/desktop-action/assets/") ||
+		relative == "skills/desktop-action/references/workpanel.md" ||
+		relative == "skills/desktop-action/references/web-surfaces.md"
+}
+
+func writeBuiltinResources(dir, id, source, version string, include func(string) bool) error {
 	if err := fs.WalkDir(resources.ConnectorFS, source, func(file string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -32,9 +50,15 @@ func WriteBuiltin(dir, name, version string) error {
 			return nil
 		}
 		relative := strings.TrimPrefix(strings.TrimPrefix(file, source), "/")
-		dest := filepath.Join(dir, filepath.FromSlash(relative))
 		if entry.IsDir() {
-			return os.MkdirAll(dest, 0o755)
+			return nil
+		}
+		if include != nil && !include(relative) {
+			return nil
+		}
+		dest := filepath.Join(dir, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
 		}
 		data, err := resources.ConnectorFS.ReadFile(file)
 		if err != nil {

@@ -1,6 +1,6 @@
 # Public `desktop_action` Catalog
 
-For `desktop.*`, the runtime `/actions` endpoint and Desktop source `src/shared/desktop-actions.ts` are authoritative. Platform maintains a separate exact runtime allowlist; the model-facing tool schema describes domains without enumerating actions. Always pass a concrete action name from this catalog, never a wildcard. The 11 WebApp-page-only actions (`desktop.assistant.image`, `desktop.assistant.image.cancel`, `desktop.capabilities.list`, and eight `desktop.native.*` actions) are excluded. A public Desktop name alone does not imply Agent eligibility.
+For `desktop.*`, the runtime `/actions` endpoint and Desktop source `src/shared/desktop-actions.ts` are authoritative. Platform maintains a separate exact runtime allowlist; the model-facing tool schema delegates action discovery to the mounted skill. Always pass a concrete action name from this catalog, never a wildcard. The 11 WebApp-page-only actions (`desktop.assistant.image`, `desktop.assistant.image.cancel`, `desktop.capabilities.list`, and eight `desktop.native.*` actions) are excluded. A public Desktop name alone does not imply Agent eligibility.
 
 Do not call implementation-only bridge branches or WebClient actions that are not listed here.
 

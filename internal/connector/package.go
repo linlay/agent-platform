@@ -29,6 +29,7 @@ type Manifest struct {
 	AuthBrowser  string                 `json:"auth_browser,omitempty"`
 	Description  string                 `json:"description,omitempty"`
 	Icon         string                 `json:"icon,omitempty"`
+	I18N         map[string]Translation `json:"i18n,omitempty"`
 	TokenSchema  json.RawMessage        `json:"token_schema,omitempty"`
 	OAuth        json.RawMessage        `json:"oauth,omitempty"`
 	AuthBindings map[string]AuthBinding `json:"auth_bindings,omitempty"`
@@ -157,7 +158,7 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 	}
 	if pkg.Type == "native" {
-		if id != "builtin.desktop" || pkg.AuthMode != AuthNoAuth || len(pkg.AuthBindings) != 0 || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
+		if !IsDesktop(id) || pkg.AuthMode != AuthNoAuth || len(pkg.AuthBindings) != 0 || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
 			return Package{}, fmt.Errorf("native connectors require a registered builtin capability package without executable components")
 		}
 		var config struct {
@@ -167,7 +168,7 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 			return Package{}, err
 		}
 		if len(config.Capabilities) != 2 || config.Capabilities[0] != "desktop.action" || config.Capabilities[1] != "desktop.cdp" {
-			return Package{}, fmt.Errorf("invalid builtin.desktop capabilities")
+			return Package{}, fmt.Errorf("invalid %s capabilities", id)
 		}
 		pkg.Native = config.Capabilities
 	} else if _, err := os.Lstat(filepath.Join(dir, "native.json")); !os.IsNotExist(err) {
@@ -200,7 +201,7 @@ func validateManifest(id string, pkg Manifest) error {
 	if pkg.Type != "mcp" && pkg.Type != "cli" && pkg.Type != "view" && pkg.Type != "native" {
 		return fmt.Errorf("connector %s type must be mcp, cli, view or native", id)
 	}
-	if pkg.Type == "native" && (id != "builtin.desktop" || pkg.AuthMode != AuthNoAuth) {
+	if pkg.Type == "native" && (!IsDesktop(id) || pkg.AuthMode != AuthNoAuth) {
 		return fmt.Errorf("native type requires a registered platform builtin with no_auth")
 	}
 	if pkg.Icon != "" && !validIconPath(pkg.Icon) {

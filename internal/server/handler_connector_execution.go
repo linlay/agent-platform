@@ -139,7 +139,7 @@ func (s *Server) handleConnectorExecution(w http.ResponseWriter, r *http.Request
 			if e != nil {
 				continue
 			}
-			items = append(items, map[string]any{"connectorId": id, "name": pkg.Name, "packageVersion": pkg.Version, "adapters": catalog.Adapters})
+			items = append(items, map[string]any{"connectorId": id, "name": pkg.Manifest.Localized(responseLocale(w)).Name, "packageVersion": pkg.Version, "adapters": catalog.Adapters})
 		}
 		writeJSON(w, 200, api.Success(map[string]any{"items": items}))
 	case "/api/connectors/execution/describe":

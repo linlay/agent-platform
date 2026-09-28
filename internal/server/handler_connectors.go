@@ -39,6 +39,7 @@ func (s *Server) handleConnectors(w http.ResponseWriter, _ *http.Request) {
 	result := make([]entry, 0, len(items))
 	for _, item := range items {
 		value := entry{Summary: item}
+		value.Manifest = item.Manifest.Localized(responseLocale(w))
 		if item.HasCLI && !item.Builtin {
 			prepared, err := s.connectorAuth.PreparationStatus(item.ID)
 			if err != nil {

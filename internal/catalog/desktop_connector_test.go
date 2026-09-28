@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,5 +51,73 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(one.RuntimeDir, "connectors", "builtin.desktop", "connector.json")); !os.IsNotExist(err) {
 		t.Fatal("Agent has duplicate package")
+	}
+}
+
+func TestDesktopWebMountAndVariantConflict(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	release, err := cfg.Paths.PrepareNativeConnectors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	source := "key: web\nname: Web\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop-web\n"
+	path := filepath.Join(cfg.Paths.AgentsDir, "web", "agent.yml")
+	writeRuntimeAssemblerFile(t, path, source)
+	r, err := NewFileRegistry(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, ok := r.AgentDefinition("web")
+	if !ok || len(def.ConnectorNativeTools) != 2 || len(def.ConnectorSkills) != 2 || containsString(def.Tools, "bash") || !containsString(def.Tools, "file_read") {
+		t.Fatalf("web mount: %+v", def)
+	}
+	if def.SkillInstructionsPath("desktop-action") != "@connectors/builtin.desktop-web/skills/desktop-action/SKILL.md" {
+		t.Fatal("wrong web skill path")
+	}
+	if _, err := r.PrepareAgentConnector("web", "builtin.desktop", true); !errors.Is(err, connector.ErrDesktopVariantConflict) {
+		t.Fatalf("mutation conflict: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != source {
+		t.Fatalf("rejected mutation changed source: %v", err)
+	}
+	if _, _, err := parseAgentTree(path, map[string]any{"key": "web", "name": "Web", "mode": "REACT", "connectorConfig": map[string]any{"connectors": []any{"builtin.desktop", "builtin.desktop-web"}}}); !errors.Is(err, connector.ErrDesktopVariantConflict) {
+		t.Fatalf("YAML conflict: %v", err)
+	}
+	// Restoring or resolving definitions bypassing YAML still validates before loading skills.
+	conflicting := AgentDefinition{Connectors: []string{"builtin.desktop-web", "builtin.desktop"}}
+	if err := resolveConnectorPackages(&conflicting, func(string) (connector.Package, error) {
+		t.Fatal("loaded package before checking conflict")
+		return connector.Package{}, nil
+	}); !errors.Is(err, connector.ErrDesktopVariantConflict) {
+		t.Fatalf("runtime conflict: %v", err)
+	}
+}
+
+func TestDesktopSelectionCanRepairConflictingSource(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills"), TeamsDir: filepath.Join(root, "teams")}}
+	release, err := cfg.Paths.PrepareNativeConnectors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	source := "key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop\n    - builtin.desktop-web\n"
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "demo", "agent.yml"), source)
+	r, err := NewFileRegistry(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.AgentDefinition("demo"); ok {
+		t.Fatal("conflicting Agent became ready")
+	}
+	ids, err := r.ReadAgentConnectors("demo")
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("cannot display invalid selection: %v %v", ids, err)
+	}
+	candidate, err := r.PrepareAgentConnector("demo", "builtin.desktop", false)
+	if err != nil || len(candidate.ConnectorIDs) != 1 || candidate.ConnectorIDs[0] != "builtin.desktop-web" {
+		t.Fatalf("cannot repair: %+v %v", candidate, err)
 	}
 }
