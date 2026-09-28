@@ -13,17 +13,51 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 )
 
 func postDocumentCommit(t *testing.T, server *Server, payload any) *httptest.ResponseRecorder {
+	return postDocumentCommitWithPrincipal(t, server, payload, nil)
+}
+
+func postDocumentCommitWithPrincipal(t *testing.T, server *Server, payload any, principal *Principal) *httptest.ResponseRecorder {
 	t.Helper()
 	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
+	req := httptest.NewRequest(http.MethodPost, "/api/document/commit", bytes.NewReader(body))
+	if principal != nil {
+		req = req.WithContext(WithPrincipal(req.Context(), principal))
+	}
 	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/document/commit", bytes.NewReader(body)))
+	server.ServeHTTP(recorder, req)
 	return recorder
+}
+
+func TestDocumentCommitDoesNotGrantDesktopAppCrossOwnerWrite(t *testing.T) {
+	fixture := newTestFixture(t)
+	fixture.server.deps.Config.RuntimeMode = config.RuntimeModeDesktop
+	chatID := "chat-document-desktop-app-owner"
+	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "", "owned", api.ChatSourceQueryPrefix+"alice"); err != nil {
+		t.Fatal(err)
+	}
+	relativePath, revision := seedServerMarkdownArtifact(t, fixture, chatID)
+	payload := map[string]any{
+		"operation": "document.commit",
+		"source": map[string]any{
+			"kind": "artifact", "agentKey": "mock-agent", "chatId": chatID,
+			"resourceId": "artifact-doc", "relativePath": relativePath,
+		},
+		"mode": "new-artifact", "expectedRevision": revision,
+		"payload": map[string]any{
+			"kind": "document-markdown", "mimeType": "text/markdown", "encoding": "utf-8", "text": "# Edited\n",
+		},
+	}
+	principal := &Principal{Subject: "app", Claims: map[string]any{"scope": "app", "device_id": "desktop-device"}}
+	if denied := postDocumentCommitWithPrincipal(t, fixture.server, payload, principal); denied.Code != http.StatusForbidden {
+		t.Fatalf("desktop app cross-owner write status=%d body=%s", denied.Code, denied.Body.String())
+	}
 }
 
 func TestDocumentCommitEndpointOverwritesWorkspaceWithRevision(t *testing.T) {

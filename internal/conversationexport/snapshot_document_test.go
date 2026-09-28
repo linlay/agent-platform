@@ -8,7 +8,7 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func TestSnapshotV1PreservesTimelineAndDeclaredAttachments(t *testing.T) {
+func TestSnapshotV1PreservesTimelineAndPublishedHTML(t *testing.T) {
 	const base int64 = 1_790_000_000_000
 	events := []stream.EventData{
 		{Type: "request.query", Timestamp: base + 1, Payload: map[string]any{"runId": "run-1", "message": "Report"}},
@@ -18,15 +18,11 @@ func TestSnapshotV1PreservesTimelineAndDeclaredAttachments(t *testing.T) {
 		{Type: "tool.args", Timestamp: base + 26, Payload: map[string]any{"runId": "run-1", "toolId": "tool-1", "delta": `{"command":"date"}`}},
 		{Type: "tool.snapshot", Timestamp: base + 30, Payload: map[string]any{"runId": "run-1", "toolId": "tool-1", "toolName": "bash", "arguments": `{"command":"date"}`}},
 		{Type: "tool.result", Timestamp: base + 40, Payload: map[string]any{"toolId": "tool-1", "result": "done"}},
-		{Type: "artifact.publish", Timestamp: base + 50, Payload: map[string]any{"runId": "run-1", "artifacts": []any{map[string]any{"name": "legacy.html", "url": "artifacts/run-1/legacy.html", "mimeType": "text/html"}}}},
+		{Type: "artifact.publish", Timestamp: base + 50, Payload: map[string]any{"runId": "run-1", "artifacts": []any{map[string]any{"name": "报告.html", "url": "artifacts/run-1/%E6%8A%A5%E5%91%8A.html", "mimeType": "text/html", "sizeBytes": int64(12), "sha256": "abcdef"}}}},
 		{Type: "content.snapshot", Timestamp: base + 60, Payload: map[string]any{"runId": "run-1", "contentId": "final", "text": "[报告](artifacts/run-1/%E6%8A%A5%E5%91%8A.html)"}},
 		{Type: "run.complete", Timestamp: base + 456000, Payload: map[string]any{"runId": "run-1"}},
 	}
-	attachments := []AttachmentV1{{
-		ID: "0123456789abcdef01234567", Name: "报告.html", MIMEType: "text/html",
-		Size: 12, SHA256: "abcdef", SourceRef: "artifacts/run-1/%E6%8A%A5%E5%91%8A.html",
-	}}
-	document, err := BuildSnapshotDocument(&chat.Summary{ChatID: "chat-1", ChatName: "Report", CreatedAt: base}, events, attachments, base+456001, "zh-CN", nil)
+	document, err := BuildSnapshotDocument(&chat.Summary{ChatID: "chat-1", ChatName: "Report", CreatedAt: base}, events, base+456001, "zh-CN", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +43,26 @@ func TestSnapshotV1PreservesTimelineAndDeclaredAttachments(t *testing.T) {
 	}
 }
 
+func TestSnapshotV1UsesDeclaredAttachmentsWithoutEventFallback(t *testing.T) {
+	const base int64 = 1_790_000_000_000
+	events := []stream.EventData{
+		{Type: "request.query", Timestamp: base + 1, Payload: map[string]any{"runId": "run-1", "message": "Report"}},
+		{Type: "artifact.publish", Timestamp: base + 2, Payload: map[string]any{"runId": "run-1", "artifacts": []any{map[string]any{"name": "legacy.html", "url": "artifacts/run-1/legacy.html"}}}},
+		{Type: "run.complete", Timestamp: base + 3, Payload: map[string]any{"runId": "run-1"}},
+	}
+	attachments := []AttachmentV1{{
+		ID: "0123456789abcdef01234567", Name: "report.pdf", MIMEType: "application/pdf",
+		Size: 12, SHA256: "abcdef", SourceRef: "artifacts/run-1/report.pdf",
+	}}
+	document, err := BuildSnapshotDocumentWithAttachments(&chat.Summary{ChatID: "chat-1", CreatedAt: base}, events, attachments, base+4, "zh-CN", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Snapshot.Attachments) != 1 || document.Snapshot.Attachments[0].SourceRef != "artifacts/run-1/report.pdf" {
+		t.Fatalf("attachments=%#v", document.Snapshot.Attachments)
+	}
+}
+
 func TestSnapshotV1IncludesResultWithoutToolStart(t *testing.T) {
 	const base int64 = 1_790_000_000_000
 	events := []stream.EventData{
@@ -54,7 +70,7 @@ func TestSnapshotV1IncludesResultWithoutToolStart(t *testing.T) {
 		{Type: "tool.result", Timestamp: base + 2, Payload: map[string]any{"runId": "run-1", "toolId": "tool-1", "toolName": "bash", "result": map[string]any{"ok": true}}},
 		{Type: "run.complete", Timestamp: base + 3, Payload: map[string]any{"runId": "run-1"}},
 	}
-	document, err := BuildSnapshotDocument(&chat.Summary{ChatID: "chat-1", CreatedAt: base}, events, nil, base+4, "zh-CN", nil)
+	document, err := BuildSnapshotDocument(&chat.Summary{ChatID: "chat-1", CreatedAt: base}, events, base+4, "zh-CN", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

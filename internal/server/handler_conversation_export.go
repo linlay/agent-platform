@@ -42,17 +42,21 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
 		locale = "en-US"
 	}
-	exporter := conversationexport.Service{Chats: s.deps.Chats, ResolveAssistant: s.resolveExportAssistant}
 	if format == chatSnapshotExportFormat {
 		var document conversationexport.SnapshotDocument
-		document, err = exporter.Snapshot(chatID, time.Now().UnixMilli(), locale)
+		document, err = s.loadConversationSnapshotWithAttachments(chatID, time.Now().UnixMilli(), locale)
 		if err == nil {
 			body, title = document.JSON, document.Snapshot.Title
 		}
 		contentType = "application/json; charset=utf-8"
 		extension = ".snapshot.json"
 	} else {
-		body, title, err = exporter.Markdown(chatID, time.Now().UnixMilli(), locale)
+		var document conversationexport.SnapshotDocument
+		document, err = s.loadConversationSnapshot(chatID, time.Now().UnixMilli(), locale)
+		if err == nil {
+			body, err = conversationexport.RenderMarkdown(document.Snapshot)
+			title = document.Snapshot.Title
+		}
 		contentType = "text/markdown; charset=utf-8"
 		extension = ".md"
 	}
@@ -67,6 +71,44 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
+	summary, err := s.deps.Chats.Summary(chatID)
+	if err != nil {
+		return conversationexport.SnapshotDocument{}, err
+	}
+	if summary == nil {
+		return conversationexport.SnapshotDocument{}, chat.ErrChatNotFound
+	}
+	detail, err := s.deps.Chats.LoadChat(chatID)
+	if err != nil {
+		return conversationexport.SnapshotDocument{}, err
+	}
+	return conversationexport.BuildSnapshotDocument(summary, detail.Events, capturedAt, locale, s.resolveExportAssistant)
+}
+
+func (s *Server) loadConversationSnapshotWithAttachments(chatID string, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
+	summary, err := s.deps.Chats.Summary(chatID)
+	if err != nil {
+		return conversationexport.SnapshotDocument{}, err
+	}
+	if summary == nil {
+		return conversationexport.SnapshotDocument{}, chat.ErrChatNotFound
+	}
+	detail, err := s.deps.Chats.LoadChat(chatID)
+	if err != nil {
+		return conversationexport.SnapshotDocument{}, err
+	}
+	items, err := s.deps.Chats.PublishedArtifacts(chatID)
+	if err != nil {
+		return conversationexport.SnapshotDocument{}, err
+	}
+	attachments, err := conversationexport.BuildSnapshotAttachments(chatID, items, s.deps.Chats.ChatDir(chatID))
+	if err != nil {
+		return conversationexport.SnapshotDocument{}, err
+	}
+	return conversationexport.BuildSnapshotDocumentWithAttachments(summary, detail.Events, attachments, capturedAt, locale, s.resolveExportAssistant)
 }
 
 func parseConversationExportFormat(r *http.Request) (string, error) {

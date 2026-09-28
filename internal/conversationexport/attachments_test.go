@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,29 @@ func TestBuildSnapshotAttachmentsLastManifestEntryWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(attachments) != 1 || attachments[0].SourceRef != "artifacts/run-1/image.png" {
+		t.Fatalf("attachments=%#v", attachments)
+	}
+}
+
+func TestBuildSnapshotAttachmentsNormalizesLegacyResourceURL(t *testing.T) {
+	const chatID = "36af17d7-c7df-443b-85a1-7ad4c3b78c31"
+	const ref = "artifacts/run-1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5%20%231%25.png"
+	root := t.TempDir()
+	file := filepath.Join(root, "artifacts", "run-1", "夏日 海报 #1%.png")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyURL := "/api/resource?file=" + url.QueryEscape(chatID+"/"+ref)
+	attachments, err := BuildSnapshotAttachments(chatID, []chat.ArtifactManifestItem{{
+		ArtifactItemState: chat.ArtifactItemState{Type: "file", URL: legacyURL}, RunID: "run-1",
+	}}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attachments) != 1 || attachments[0].SourceRef != ref || attachments[0].Name != "夏日 海报 #1%.png" {
 		t.Fatalf("attachments=%#v", attachments)
 	}
 }

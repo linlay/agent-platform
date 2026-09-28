@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 )
 
 func seedServerImageArtifact(t *testing.T, fixture testFixture, chatID string) (string, string) {
@@ -51,14 +53,42 @@ func seedServerImageArtifact(t *testing.T, fixture testFixture, chatID string) (
 }
 
 func postResourceImageCommit(t *testing.T, server *Server, payload map[string]any) *httptest.ResponseRecorder {
+	return postResourceImageCommitWithPrincipal(t, server, payload, nil)
+}
+
+func postResourceImageCommitWithPrincipal(t *testing.T, server *Server, payload map[string]any, principal *Principal) *httptest.ResponseRecorder {
 	t.Helper()
 	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
+	req := httptest.NewRequest(http.MethodPost, "/api/resource/image/commit", bytes.NewReader(body))
+	if principal != nil {
+		req = req.WithContext(WithPrincipal(req.Context(), principal))
+	}
 	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/resource/image/commit", bytes.NewReader(body)))
+	server.ServeHTTP(recorder, req)
 	return recorder
+}
+
+func TestResourceImageCommitDoesNotGrantDesktopAppCrossOwnerWrite(t *testing.T) {
+	fixture := newTestFixture(t)
+	fixture.server.deps.Config.RuntimeMode = config.RuntimeModeDesktop
+	chatID := "chat-image-desktop-app-owner"
+	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "", "owned", api.ChatSourceQueryPrefix+"alice"); err != nil {
+		t.Fatal(err)
+	}
+	relativePath, revision := seedServerImageArtifact(t, fixture, chatID)
+	payload := map[string]any{
+		"operation": "resource.image.commit", "profile": "artifact", "agentKey": "mock-agent",
+		"chatId": chatID, "resourceId": "artifact-1", "relativePath": relativePath,
+		"mode": "new-artifact", "expectedRevision": revision, "mimeType": "image/png",
+		"dataBase64": base64.StdEncoding.EncodeToString([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 2}),
+	}
+	principal := &Principal{Subject: "app", Claims: map[string]any{"scope": "app", "device_id": "desktop-device"}}
+	if denied := postResourceImageCommitWithPrincipal(t, fixture.server, payload, principal); denied.Code != http.StatusForbidden {
+		t.Fatalf("desktop app cross-owner write status=%d body=%s", denied.Code, denied.Body.String())
+	}
 }
 
 func TestResourceImageCommitEndpointCreatesArtifactAndValidatesOwner(t *testing.T) {

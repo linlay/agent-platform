@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -82,7 +83,27 @@ func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem, 
 }
 
 func canonicalArtifactRef(chatID string, raw string) (string, string, error) {
-	parsedChatID, relativePath, err := chat.ParseResourceKey(chatID + "/" + strings.TrimSpace(raw))
+	ref := strings.TrimSpace(raw)
+	if strings.HasPrefix(ref, "/api/resource?") {
+		parsed, err := url.Parse(ref)
+		if err != nil || parsed == nil {
+			return "", "", fmt.Errorf("invalid legacy published artifact path %q", raw)
+		}
+		query, queryErr := url.ParseQuery(parsed.RawQuery)
+		if parsed.Scheme != "" || parsed.Host != "" || parsed.Path != "/api/resource" ||
+			parsed.Fragment != "" || queryErr != nil || len(query) != 1 || len(query["file"]) != 1 {
+			return "", "", fmt.Errorf("invalid legacy published artifact path %q", raw)
+		}
+		parsedChatID, relativePath, err := chat.ParseResourceKey(query.Get("file"))
+		if err != nil || parsedChatID != chatID {
+			return "", "", fmt.Errorf("invalid legacy published artifact path %q", raw)
+		}
+		ref, err = chat.BuildChatScopeRef(relativePath)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid legacy published artifact path %q", raw)
+		}
+	}
+	parsedChatID, relativePath, err := chat.ParseResourceKey(chatID + "/" + ref)
 	if err != nil || parsedChatID != chatID {
 		return "", "", fmt.Errorf("invalid published artifact path %q", raw)
 	}
@@ -90,11 +111,11 @@ func canonicalArtifactRef(chatID string, raw string) (string, string, error) {
 	if len(segments) != 3 || segments[0] != "artifacts" || segments[1] == "" || segments[2] == "" {
 		return "", "", fmt.Errorf("published artifact must use artifacts/<runId>/<file>: %q", raw)
 	}
-	ref, err := chat.BuildChatScopeRef(relativePath)
-	if err != nil || ref != strings.TrimSpace(raw) {
+	canonicalRef, err := chat.BuildChatScopeRef(relativePath)
+	if err != nil || canonicalRef != ref {
 		return "", "", fmt.Errorf("published artifact path is not canonical: %q", raw)
 	}
-	return ref, relativePath, nil
+	return canonicalRef, relativePath, nil
 }
 
 func regularArtifactPath(chatDir, relativePath string) (string, os.FileInfo, error) {
