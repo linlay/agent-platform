@@ -1923,10 +1923,13 @@ func TestTerminalFailureClosesRootAndActiveChildScopes(t *testing.T) {
 
 func TestModelRetryActivityCarriesBackoff(t *testing.T) {
 	d := NewDispatcher(StreamRequest{RunID: "retry-test", ChatID: "c"})
-	events := d.Dispatch(ModelTurnDiscard{RunSeq: 3, Attempt: 2, MaxAttempts: 6, Retrying: true, RetryDelayMs: 500, RetryAt: 1500})
+	events := d.Dispatch(ModelTurnDiscard{RunSeq: 3, Attempt: 2, MaxAttempts: 6, Retrying: true, RetryDelayMs: 500, RetryAt: 1500, Error: map[string]any{"code": "provider_rate_limited", "diagnostics": map[string]any{"upstreamCode": "rate_limit_exceeded"}}})
 	assertEventTypes(t, events, "run.activity")
 	payload := events[0].Payload
 	retry := payload["retry"].(map[string]any)
+	if retry["error"].(map[string]any)["code"] != "provider_rate_limited" {
+		t.Fatal("retry lost original error", retry)
+	}
 	if retry["delayMs"] != int64(500) || retry["retryAt"] != int64(1500) || payload["runSeq"] != 3 {
 		t.Fatalf("%#v", payload)
 	}

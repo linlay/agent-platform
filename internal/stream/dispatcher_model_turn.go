@@ -82,6 +82,7 @@ func (d *StreamEventDispatcher) discardModelTurn(input ModelTurnDiscard, taskID 
 		retry := map[string]any{
 			"attempt":     input.Attempt,
 			"maxAttempts": input.MaxAttempts,
+			"error":       normalizeErrorMap(input.Error, input.Reason, "model", "model"),
 		}
 		if input.RetryDelayMs > 0 {
 			retry["delayMs"] = input.RetryDelayMs
