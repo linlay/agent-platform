@@ -29,6 +29,7 @@ type preparedProviderRequest struct {
 
 type protocolStreamParams struct {
 	runID          string
+	chatID         string
 	provider       ProviderDefinition
 	model          ModelDefinition
 	protocolConfig protocolRuntimeConfig

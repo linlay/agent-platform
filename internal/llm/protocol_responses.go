@@ -77,6 +77,7 @@ func (p *responsesProtocol) PrepareRequest(params protocolStreamParams) (prepare
 	body["stream"] = true
 	body["input"] = input
 	body["model"] = params.model.ModelID
+	modelresponses.ApplyPromptCacheKey(body, params.chatID)
 	for _, key := range []string{"previous_response_id", "conversation", "background", "messages", "stream_options", "max_tokens", "max_completion_tokens", "reasoning_effort"} {
 		delete(body, key)
 	}

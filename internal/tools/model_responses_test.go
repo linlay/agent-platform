@@ -26,6 +26,9 @@ func TestResponsesAuxiliaryTextAndImage(t *testing.T) {
 			t.Errorf("bad body %v", body)
 		}
 		input := body["input"].([]any)
+		if _, ok := body["prompt_cache_key"]; ok {
+			t.Error("independent auxiliary call inherited a static cache key")
+		}
 		if calls == 2 {
 			content := input[0].(map[string]any)["content"].([]any)
 			if content[1].(map[string]any)["type"] != "input_image" {
@@ -38,6 +41,7 @@ func TestResponsesAuxiliaryTextAndImage(t *testing.T) {
 	defer server.Close()
 	ex := &RuntimeToolExecutor{httpClient: server.Client()}
 	model := models.ModelDefinition{Key: "test", Protocol: "OPENAI_RESPONSES", ModelID: "model"}
+	model.Compat = map[string]any{"request": map[string]any{"always": map[string]any{"prompt_cache_key": "global-static-key"}}}
 	provider := models.ProviderDefinition{BaseURL: server.URL}
 	answer, _, err := ex.completeTextModel(context.Background(), model, provider, textModelRequest{SystemPrompt: "rules", UserPrompt: "question", MaxOutputTokens: 100})
 	if err != nil || answer != "answer" {

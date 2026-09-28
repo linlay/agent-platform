@@ -208,6 +208,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.lastCallUseProjectedContext = false
 	preparedRequest, err := s.protocol.PrepareRequest(protocolStreamParams{
 		runID:          s.session.RunID,
+		chatID:         s.session.ChatID,
 		provider:       s.provider,
 		model:          s.model,
 		protocolConfig: s.protocolConfig,
@@ -257,6 +258,7 @@ func (s *llmRunStream) openPendingModelCall() error {
 	}
 	turn, err := s.protocol.OpenStream(s.ctx, protocolStreamParams{
 		runID:          s.session.RunID,
+		chatID:         s.session.ChatID,
 		provider:       s.provider,
 		model:          s.model,
 		protocolConfig: s.protocolConfig,
