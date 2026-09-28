@@ -99,6 +99,8 @@ usage 映射：input_tokens → promptTokens，output_tokens → completionToken
 
 HTTP 200 的 SSE 也可能携带上游错误。标准 `error` / `response.failed`，以及网关错误 envelope 均提取结构化 code/type，复用 `internal/modelclient` 的分类：先完整匹配已知 code，再匹配 type，最后按失败 HTTP 状态兜底。限流返回 `provider_rate_limited`，额度、鉴权、权限、模型不存在、上下文超限、内容过滤和服务不可用使用对应平台错误码；不解析英文 message 的关键词，未知流内错误返回 `provider_stream_failed`。OpenAI Chat 与 Anthropic 流内错误使用相同分类。上游消息保留有界、凭据脱敏后的诊断原文。公开 `status` 是平台分类状态（限流为 429），`diagnostics.upstreamStatus` 始终保留实际 HTTP 状态（可能为 200）；不改变已经建立的 SSE 连接状态。缺少错误与事件类型的帧仍按 `provider_stream_invalid` 拒绝。
 
+模型尝试失败在重试收尾前统一补充 protocol、attempt/maxAttempts、实际上游状态、请求/响应 ID 与流读取计数，保留已有错误诊断及状态/重试属性。直接 EOF 分别以 `diagnostics.reason: stream_ended_before_output`（尚无有效输出）和 `stream_ended_before_completion`（已有输出但未完成）说明，不能据此推断限流或网关内部原因。
+
 格式/流失败的 `diagnostics` 增加事件类型、帧序号/字节数、尝试次数、已知顶层字段名及上游请求 ID（若提供）。格式失败还保留 `validationError`，避免界面翻译通用 message 后丢失具体校验原因。终态校验失败还包含 response ID/status、终态输出项数、已观察项数及 done 项数；缺项时包含 `outputIndex`、`observedItemType`、`observedItemDone`，并保留上游 `incompleteReason`。这些信息用于区分完整结束、输出受限和快照不一致。
 
 结构信息同时进入常开日志及可选 trace 的 `diagnostics.stream.responsesFailure`，不保存原始 SSE、正文、推理、密文或工具参数；上游错误说明保留在公开错误与 trace 的 `error` 中，不加入常开诊断日志。重试提示按原因区分“超时”和一般“失败”。

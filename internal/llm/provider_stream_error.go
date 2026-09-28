@@ -62,15 +62,40 @@ func (s *llmRunStream) annotateProviderError(err error) error {
 		return err
 	}
 	details := map[string]any{}
+	if protocol := diagnosticLabel(s.model.Protocol); protocol != "" {
+		details["protocol"] = protocol
+	}
 	if s.modelCall != nil {
 		details["attempt"], details["maxAttempts"] = s.modelCall.attempt, s.modelCall.maxAttempts
 	}
-	if s.currentTurn != nil && s.currentTurn.observation.Response.StatusCode != 0 {
-		details["upstreamStatus"] = s.currentTurn.observation.Response.StatusCode
+	if turn := s.currentTurn; turn != nil {
+		observation := turn.observation
+		if observation.Response.StatusCode != 0 {
+			details["upstreamStatus"] = observation.Response.StatusCode
+		}
+		if observation.Response.RequestID != "" {
+			details["upstreamRequestId"] = diagnosticLabel(observation.Response.RequestID)
+		}
+		if turn.responseID != "" {
+			details["responseId"] = diagnosticLabel(turn.responseID)
+		}
+		details["frameCount"] = observation.Frames
+		details["receivedDataBytes"] = observation.DataBytes
+		details["doneSeen"] = observation.DoneSeen
+		if observation.ReadOutcome != "" {
+			details["readOutcome"] = observation.ReadOutcome
+		}
 	}
+
 	upstream, _ := appErr.Payload()["diagnostics"].(map[string]any)
 	for key, value := range upstream {
 		details[key] = value
 	}
-	return apperrors.Wrap(appErr.Code(), err, apperrors.WithDiagnostics(details))
+	payload := appErr.Payload()
+	return apperrors.Wrap(appErr.Code(), err,
+		apperrors.WithStatus(payload["status"].(int)),
+		apperrors.WithCategory(apperrors.Category(payload["category"].(string))),
+		apperrors.WithScope(apperrors.Scope(payload["scope"].(string))),
+		apperrors.WithRetryable(payload["retryable"].(bool)),
+		apperrors.WithDiagnostics(details))
 }

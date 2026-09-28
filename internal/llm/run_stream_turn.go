@@ -386,6 +386,7 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 				streamErr := apperrors.Wrap(
 					apperrors.CodeProviderStreamFailed,
 					fmt.Errorf("provider stream ended before first valid event"),
+					apperrors.WithDiagnostic("reason", "stream_ended_before_output"),
 				)
 				if s.currentTurn.trace != nil {
 					s.currentTurn.trace.completeError(streamErr)
@@ -393,7 +394,7 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 				return false, streamErr
 			}
 			if s.currentTurn.finishReason == "" {
-				streamErr := apperrors.Wrap(apperrors.CodeProviderStreamFailed, io.ErrUnexpectedEOF)
+				streamErr := apperrors.Wrap(apperrors.CodeProviderStreamFailed, io.ErrUnexpectedEOF, apperrors.WithDiagnostic("reason", "stream_ended_before_completion"))
 				if s.currentTurn.trace != nil {
 					s.currentTurn.trace.completeError(streamErr)
 				}

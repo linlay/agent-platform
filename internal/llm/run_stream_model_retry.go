@@ -225,6 +225,7 @@ func (s *llmRunStream) handleModelAttemptError(err error) error {
 	if err == nil {
 		return nil
 	}
+	err = s.annotateProviderError(err)
 	if s.currentTurn != nil {
 		if s.currentTurn.outputGuardErr != nil {
 			s.recordCurrentTurnTiming(time.Now())
