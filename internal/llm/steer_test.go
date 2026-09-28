@@ -2,6 +2,7 @@ package llm
 
 import (
 	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"bytes"
 	"context"
@@ -89,5 +90,64 @@ func TestSelectionSteerFreezesNonVisionInput(t *testing.T) {
 	req.References[0].Text = " "
 	if _, err := e.steerPreparer(session, false)(req); err == nil {
 		t.Fatal("empty selection accepted")
+	}
+}
+
+func TestHistorySteerReloadsImagesAndHandlesUnavailableReferences(t *testing.T) {
+	e := &LLMAgentEngine{}
+	session := contracts.QuerySession{ChatID: "chat-a", RunID: "next-run", ChatRoot: t.TempDir()}
+	path := filepath.Join(session.ChatRoot, "a.png")
+	writeImage := func(size int) {
+		t.Helper()
+		var data bytes.Buffer
+		if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, size, size))); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw := map[string]any{"role": "user", "content": "fallback", "_steerKey": "old/steer", chat.SteerHistoryInputKey: map[string]any{
+		"chatId": "chat-a", "runId": "old", "message": "look", "references": []api.Reference{
+			{Type: "file", URL: "a.png", Path: "/untrusted/path"},
+			{Type: "selection", Text: "selected", Annotation: "explain"},
+		},
+	}}
+	encode := func(vision bool) string {
+		t.Helper()
+		got := e.materializeHistorySteer(raw, session, vision)
+		if got["_steerKey"] != "old/steer" {
+			t.Fatal("lost compaction identity")
+		}
+		data, _ := json.Marshal(got)
+		if strings.Contains(string(data), "/untrusted/path") || got[chat.SteerHistoryInputKey] != nil {
+			t.Fatalf("unresolved metadata: %s", data)
+		}
+		return string(data)
+	}
+	writeImage(1)
+	first := encode(true)
+	if !strings.Contains(first, "data:image/png;base64,") {
+		t.Fatal(first)
+	}
+	writeImage(2)
+	if next := encode(true); next == first || !strings.Contains(next, "data:image/png;base64,") {
+		t.Fatal("image was not reloaded")
+	}
+	if nonvision := encode(false); strings.Contains(nonvision, "image_url") || !strings.Contains(nonvision, "a.png") {
+		t.Fatal(nonvision)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	missing := encode(true)
+	for _, want := range []string{"附件已不可用", "a.png", "selected", "explain", "look"} {
+		if !strings.Contains(missing, want) {
+			t.Fatalf("missing %s: %s", want, missing)
+		}
+	}
+	legacy := map[string]any{"role": "user", "content": "legacy snapshot"}
+	if got := e.materializeHistorySteer(legacy, session, true); got["content"] != "legacy snapshot" {
+		t.Fatal(got)
 	}
 }

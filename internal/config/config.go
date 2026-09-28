@@ -508,6 +508,7 @@ type FileToolsConfig struct {
 	RequireWriteApproval   bool
 	RequireReadBeforeWrite bool
 	ReadBeforeWriteScope   string
+	ReadBeforeWriteMaxAge  time.Duration
 	Hooks                  FileToolsHooksConfig
 }
 

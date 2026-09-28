@@ -208,6 +208,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.lastCallUseProjectedContext = false
 	preparedRequest, err := s.protocol.PrepareRequest(protocolStreamParams{
 		runID:          s.session.RunID,
+		chatID:         s.session.ChatID,
 		provider:       s.provider,
 		model:          s.model,
 		protocolConfig: s.protocolConfig,
@@ -257,6 +258,7 @@ func (s *llmRunStream) openPendingModelCall() error {
 	}
 	turn, err := s.protocol.OpenStream(s.ctx, protocolStreamParams{
 		runID:          s.session.RunID,
+		chatID:         s.session.ChatID,
 		provider:       s.provider,
 		model:          s.model,
 		protocolConfig: s.protocolConfig,
@@ -384,6 +386,7 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 				streamErr := apperrors.Wrap(
 					apperrors.CodeProviderStreamFailed,
 					fmt.Errorf("provider stream ended before first valid event"),
+					apperrors.WithDiagnostic("reason", "stream_ended_before_output"),
 				)
 				if s.currentTurn.trace != nil {
 					s.currentTurn.trace.completeError(streamErr)
@@ -391,7 +394,7 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 				return false, streamErr
 			}
 			if s.currentTurn.finishReason == "" {
-				streamErr := apperrors.Wrap(apperrors.CodeProviderStreamFailed, io.ErrUnexpectedEOF)
+				streamErr := apperrors.Wrap(apperrors.CodeProviderStreamFailed, io.ErrUnexpectedEOF, apperrors.WithDiagnostic("reason", "stream_ended_before_completion"))
 				if s.currentTurn.trace != nil {
 					s.currentTurn.trace.completeError(streamErr)
 				}
@@ -924,9 +927,13 @@ func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 			steer.PreparedMessages = []map[string]any{{"role": "user", "content": steer.Message}}
 		}
 		s.pending = append(s.pending, NewSteerDelta(steer))
+		steerKey := ""
+		if len(steer.References) > 0 {
+			steerKey = steer.RunID + "/" + steer.SteerID
+		}
 		for _, message := range steer.PreparedMessages {
 			s.pendingSteerInputs = append(s.pendingSteerInputs, message)
-			s.messages = append(s.messages, openAIMessage{Role: "user", Content: message["content"]})
+			s.messages = append(s.messages, openAIMessage{Role: "user", Content: message["content"], OriginSteerKey: steerKey})
 		}
 	}
 }

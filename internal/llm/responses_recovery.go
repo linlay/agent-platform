@@ -49,7 +49,7 @@ func (s *llmRunStream) recoverResponsesState(err error) bool {
 	if !changed {
 		return false
 	}
-	request, prepareErr := s.protocol.PrepareRequest(protocolStreamParams{runID: s.session.RunID, provider: s.provider, model: s.model, protocolConfig: s.protocolConfig, stageSettings: s.stageSettings, messages: messages, toolSpecs: s.toolSpecs, toolChoice: s.toolChoice})
+	request, prepareErr := s.protocol.PrepareRequest(protocolStreamParams{runID: s.session.RunID, chatID: s.session.ChatID, provider: s.provider, model: s.model, protocolConfig: s.protocolConfig, stageSettings: s.stageSettings, messages: messages, toolSpecs: s.toolSpecs, toolChoice: s.toolChoice})
 	if prepareErr != nil {
 		return false
 	}

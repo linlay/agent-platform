@@ -814,3 +814,64 @@ func mustJSONMarshalForTest(t *testing.T, value any) []byte {
 	}
 	return data
 }
+
+func TestFailedStreamEndIsDisplayOnlyHistory(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	const chatID, runID = "failed-display", "run-display"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureRunStartedForTest(store, chatID, runID, testEpochMillis(20)); err != nil {
+		t.Fatal(err)
+	}
+	writer := NewStepWriter(store, chatID, runID, "REACT")
+	writer.OnEvent(stream.NewEvent("llm.request", map[string]any{"runId": runID, "chatId": chatID}).Data())
+	writer.OnEvent(stream.NewEvent("content.snapshot", map[string]any{"contentId": "c1", "text": "failed partial"}).Data())
+	writer.DiscardModelTurn("", 1, true)
+	for _, kind := range []string{"reasoning", "content", "tool"} {
+		writer.OnEvent(stream.NewEvent(kind+".end", map[string]any{kind + "Id": kind + "1", "runId": runID, "status": "failed", "text": "failed partial", "arguments": "{", "error": map[string]any{"code": "provider_stream_failed"}}).Data())
+	}
+	writer.Flush()
+	if writer.Err() != nil {
+		t.Fatal(writer.Err())
+	}
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("expected three display events, got %d", len(lines))
+	}
+	for _, line := range lines {
+		if line["_type"] != "event" || line["messages"] != nil {
+			t.Fatalf("not display-only: %#v", line)
+		}
+	}
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failures := 0
+	for _, event := range detail.Events {
+		if event.String("status") == "failed" {
+			failures++
+			if event.String("text") != "failed partial" || event.Value("error") == nil {
+				t.Fatalf("lost failure replay: %#v", event)
+			}
+		}
+	}
+	if failures != 3 {
+		t.Fatalf("expected three failed replay events, got %d", failures)
+	}
+	messages, err := store.LoadRawMessages(chatID, DefaultHistoryRunWindow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(mustJSONMarshalForTest(t, messages)), "failed partial") {
+		t.Fatal("failed attempt entered model history")
+	}
+}

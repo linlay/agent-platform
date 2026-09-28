@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/referenceprompt"
 )
 
 type LLMChatBuildOptions struct {
@@ -128,13 +131,20 @@ func llmRequestMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 	return rawMessagesFromJSONLLines(lines)
 }
 
+// SteerHistoryInputKey carries source input through history projection for runtime
+// resource materialization. It is not a provider message field or a new JSONL field.
+const SteerHistoryInputKey = "_steerInput"
+
 func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
 	if strings.TrimSpace(stringValue(line["_type"])) != "steer" {
 		return nil
 	}
 	steer := anyMap(line["steer"])
 	content := strings.TrimSpace(stringValue(steer["message"]))
-	if content == "" && len(messageMapsFromAny(line["messages"])) != 1 {
+	var refs []api.Reference
+	encoded, _ := json.Marshal(steer["references"])
+	_ = json.Unmarshal(encoded, &refs)
+	if content == "" && len(refs) == 0 && len(messageMapsFromAny(line["messages"])) != 1 {
 		return nil
 	}
 	role := strings.TrimSpace(stringValue(steer["role"]))
@@ -152,9 +162,15 @@ func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
 	if snapshot := messageMapsFromAny(line["messages"]); len(snapshot) == 1 {
 		msg = cloneMessageMap(snapshot[0])
 		msg["ts"] = line["updatedAt"]
+	} else if len(refs) > 0 {
+		msg["content"] = referenceprompt.FormatUserMessage(content, refs)
+		msg[SteerHistoryInputKey] = cloneMapDeep(steer)
 	}
 	if runID := strings.TrimSpace(stringValue(line["runId"])); runID != "" {
 		msg["runId"] = runID
+		if id := strings.TrimSpace(stringValue(steer["steerId"])); id != "" && msg[SteerHistoryInputKey] != nil {
+			msg["_steerKey"] = runID + "/" + id
+		}
 	}
 	return msg
 }

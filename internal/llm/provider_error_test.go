@@ -30,7 +30,7 @@ func TestClassifyProviderResponseError(t *testing.T) {
 		{
 			name:   "quota exhausted",
 			status: 429,
-			body:   `{"error":"api key quota exhausted"}`,
+			body:   `{"error":{"code":"insufficient_quota","message":"api key quota exhausted"}}`,
 			want:   apperrors.CodeProviderQuotaExhausted,
 		},
 		{
@@ -81,7 +81,7 @@ func TestClassifyProviderResponseError(t *testing.T) {
 }
 
 func TestProviderResponseErrorCarriesStructuredPayload(t *testing.T) {
-	err := modelclient.ResponseError(429, []byte(`{"error":"api key quota exhausted"}`))
+	err := modelclient.ResponseError(429, []byte(`{"error":{"code":"insufficient_quota","message":"api key quota exhausted"}}`))
 	var appErr *apperrors.Error
 	if !errors.As(err, &appErr) {
 		t.Fatalf("expected app error, got %T", err)

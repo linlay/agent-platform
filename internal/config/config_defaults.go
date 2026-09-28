@@ -193,7 +193,8 @@ func defaultConfig(options LoadOptions) Config {
 			MaxBatchOps:            20,
 			RequireWriteApproval:   true,
 			RequireReadBeforeWrite: true,
-			ReadBeforeWriteScope:   "run",
+			ReadBeforeWriteScope:   "chat",
+			ReadBeforeWriteMaxAge:  time.Hour,
 			Hooks: FileToolsHooksConfig{
 				AfterFileChange: FileAfterChangeHooksConfig{
 					LSPDiagnostics: defaultLSPDiagnosticsHookConfig(),

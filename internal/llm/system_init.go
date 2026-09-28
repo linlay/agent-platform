@@ -146,6 +146,7 @@ func (b SystemInitProfileBuilder) applyRequestProfile(profile *contracts.SystemI
 	toolChoice := "auto"
 	prepared, err := protocol.PrepareRequest(protocolStreamParams{
 		runID:          req.RunID,
+		chatID:         session.ChatID,
 		provider:       provider,
 		model:          model,
 		protocolConfig: protocolConfig,

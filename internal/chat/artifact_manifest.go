@@ -99,6 +99,7 @@ func loadArtifactStateFromManifest(chatDir string, chatID string) (*ArtifactStat
 	}
 	state := &ArtifactState{Items: make([]ArtifactItemState, 0, len(manifest.Items))}
 	for _, item := range manifest.Items {
+		item.ArtifactItemState.PublishedAt = item.PublishedAt
 		state.Items = append(state.Items, item.ArtifactItemState)
 	}
 	return state, nil

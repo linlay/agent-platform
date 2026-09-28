@@ -437,6 +437,13 @@ func (c *Config) applyFileToolsValues(path string, values map[string]any) error 
 			return fmt.Errorf("%s: invalid file-tools.read-before-write-scope %q; expected run or chat", path, scope)
 		}
 	}
+	if raw, ok := values["read-before-write-max-age"]; ok {
+		age, err := time.ParseDuration(strings.TrimSpace(stringValue(raw, "")))
+		if err != nil || age < time.Millisecond {
+			return fmt.Errorf("%s: invalid file-tools.read-before-write-max-age %v; expected a duration of at least 1ms", path, raw)
+		}
+		c.FileTools.ReadBeforeWriteMaxAge = age
+	}
 	c.FileTools.Hooks = parseFileToolsHooksConfig(values["hooks"], c.FileTools.Hooks)
 	return nil
 }

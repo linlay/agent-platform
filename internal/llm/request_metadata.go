@@ -63,7 +63,9 @@ func requestOptionsFromPreparedBody(body map[string]any) map[string]any {
 	out := make(map[string]any, len(body))
 	for key, value := range body {
 		switch key {
-		case "messages", "input", "instructions", "tools", "tool_choice", "model", "system":
+		// The affinity key is derived from Chat ID on send, not persisted as
+		// part of the system profile or per-turn JSONL request options.
+		case "messages", "input", "instructions", "tools", "tool_choice", "model", "system", "prompt_cache_key":
 			continue
 		default:
 			out[key] = value

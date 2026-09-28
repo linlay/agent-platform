@@ -112,6 +112,13 @@ func TestModelObservationClassifiesProviderResponses(t *testing.T) {
 			} else if terminalErr != nil {
 				t.Fatal(terminalErr)
 			}
+			if test.name == "early_eof" {
+				payload := modelErrorPayload(terminalErr)
+				details, _ := payload["diagnostics"].(map[string]any)
+				if details["reason"] != "stream_ended_before_output" || details["upstreamStatus"] != 200 || details["upstreamRequestId"] != "upstream-123" || details["attempt"] != 1 || details["maxAttempts"] != 1 || details["readOutcome"] != "eof" {
+					t.Fatalf("EOF terminal lost diagnostics: %#v", payload)
+				}
+			}
 			if trace["status"] != wantStatus {
 				t.Fatalf("trace status=%v want %s", trace["status"], wantStatus)
 			}

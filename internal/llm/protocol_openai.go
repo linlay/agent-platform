@@ -40,6 +40,7 @@ type openAIToolDefinition struct {
 }
 
 type openAIStreamResponse struct {
+	Error   json.RawMessage `json:"error"`
 	Choices []struct {
 		Message json.RawMessage `json:"message"`
 		Delta   struct {
@@ -197,6 +198,9 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 		s.currentTurn.observation.DecodeErrors++
 		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
 	}
+	if err := providerEnvelopeError(decoded.Error); err != nil {
+		return false, s.annotateProviderError(err)
+	}
 	s.currentTurn.observation.recordOpenAIChunk(decoded)
 	if s.awaitingOpenAITerminalMetadata() {
 		for _, choice := range decoded.Choices {
@@ -306,6 +310,7 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 	msg := openAIMessage{Role: role, Content: contentValue}
 	msg.EncryptedReasoning = contracts.EncryptedReasoningParts(raw["reasoning_content"])
 	msg.OriginModelKey, _ = raw["_modelKey"].(string)
+	msg.OriginSteerKey, _ = raw["_steerKey"].(string)
 	msg.CompactSource, _ = raw["_compactSource"].(string)
 	msg.CompactRound, _ = raw["_compactRound"].(string)
 	msg.OriginRunID, _ = raw["runId"].(string)

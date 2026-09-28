@@ -86,8 +86,9 @@ func (DeltaModelTurnCommit) agentDeltaTag() {}
 
 // DeltaModelTurnDiscard rolls back the current, uncommitted provider attempt.
 // The mapper enriches it with the live block IDs created by that attempt so
-// the dispatcher can ask clients to remove already-rendered partial output.
+// the dispatcher can end partial output with a display-only failure.
 type DeltaModelTurnDiscard struct {
+	Error          map[string]any
 	TaskID         string
 	RunSeq         int
 	Attempt        int
@@ -284,7 +285,6 @@ type DeltaRequestSteer struct {
 	SteerID    string
 	Message    string
 	References []api.Reference
-	Messages   []map[string]any
 }
 
 func (DeltaRequestSteer) agentDeltaTag() {}

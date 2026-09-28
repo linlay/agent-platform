@@ -185,6 +185,5 @@ func NewSteerDelta(req api.SteerRequest) DeltaRequestSteer {
 		SteerID:    req.SteerID,
 		Message:    req.Message,
 		References: req.References,
-		Messages:   req.PreparedMessages,
 	}
 }

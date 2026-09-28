@@ -37,7 +37,7 @@ JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 Num
 
 Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.run.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
 
-`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 保存 `requestId/chatId/runId/steerId/message/role` 与可选 `references` 业务字段；顶层可选 `messages` 保存实际注入模型的 user message 快照，且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
+`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 保存 `requestId/chatId/runId/steerId/message/role` 与可选 `references` 业务字段；新记录不写顶层 `messages`（旧快照兼容读取），且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
 
 HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`field`、`location`、`expected`、可选 `actual`、`status:422`、`retryable:false`。`location` 使用 1-based 物理行号；响应不会携带完整 JSONL 行或 system prompt。时间字段不合法仍使用 `time_contract_violation`。
 
@@ -505,31 +505,30 @@ orchestrated Team 的总控 reasoning 和 `agent_delegate` 工具事件会被过
 
 native LLM loop 以平台内部的 model turn commit 作为唯一接受边界。provider 合法终止、流式块完整收尾、tool call 完成 materialize 且通过平台接纳检查后才 commit；该控制信号不进入 SSE / WebSocket。`usage`、`contextWindow`、provider `finish_reason` 和 tool result 都不是完成标记，其中 `usage` / `contextWindow` 是可选元数据，缺失不会阻止正常 turn 提交。
 
-commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider stream 错误，且尚未开始工具执行时，平台丢弃整个 attempt 并按模型 retry budget 重试。客户端会收到：
+commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider stream 错误，且尚未开始工具执行时，平台丢弃整个 attempt 并按模型 retry budget 重试。客户端先收到本次未提交输出段的失败结束事件：
 
 ```json
 {
-  "type": "run.activity",
-  "phase": "model_call",
-  "status": "retrying",
-  "retry": {
-    "attempt": 2,
-    "maxAttempts": 3,
-    "reason": "provider stream ended unexpectedly",
-    "timeoutSeconds": 60,
-    "elapsedMs": 60123
-  },
-  "recovery": {
-    "action": "discard_incomplete_model_turn",
-    "runSeq": 1,
-    "reasoningIds": ["reasoning_1"],
-    "contentIds": ["content_1"],
-    "toolIds": ["call_1"]
+  "type": "reasoning.end",
+  "reasoningId": "reasoning_1",
+  "status": "failed",
+  "error": {
+    "code": "provider_stream_failed",
+    "message": "模型响应流中断",
+    "category": "model",
+    "scope": "model",
+    "status": 502,
+    "retryable": true,
+    "userSafeMessageKey": "provider_stream_failed"
   }
 }
 ```
 
-客户端收到该 recovery 后应按给出的 id 移除已经展示的半截 reasoning、content 或 tool。重试耗尽时平台发送 `run.error`，未提交 attempt 不进入 JSONL 或 run summary。model turn 与后续 tool batch 是两个独立事务边界：turn commit 后，完整 tool call 会保留；工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，平台不会通过回滚 turn 自动重试，避免重复执行。
+`reasoning.end`、`content.end`、`tool.end` 统一约定：正常结束保持原结构，不发送 `status` 或 `error`；异常增加 `status:"failed"` 与同源公共错误对象。失败段停止计时并保留内容，重试使用新 ID。一个未提交 attempt 内已经正常关闭的段也可能收到失败结束修正，因为段结束不等于 model turn commit；重复失败通知幂等，后到 snapshot/delta 不得覆盖失败状态。已提交轮次和已执行工具不受影响，`tool.end` 只表示参数流结束，不替代执行结果 `tool.result`。
+
+失败结束事件另外携带原始 `startedAt`（epoch ms）、`runId/taskId`、节点展示元数据以及 `text` 或 `arguments`，作为独立 JSONL event 展示记录，实时与历史回放一致；不产生 assistant/tool messages，不进入模型上下文或成功回答摘要。`run.activity` 仍可携带 `retry` 显示重试进度，但不再发送 `recovery.action:discard_incomplete_model_turn` 或控制节点删除。重试耗尽时在输出段结束之后发送 `run.error`。
+
+model turn 与后续 tool batch 是两个独立事务边界：turn commit 后完整 tool call 保留，工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，不通过回滚 turn 自动重试。异常诊断复用常开的 `llm_model_attempt_error`，不改变 Trace 文件结构。
 
 旧会话历史如果存在无法安全判定工具是否执行过的末尾调用，HTTP 与 WebSocket `/api/chat` 以及后续 query 都返回 `409 chat_history_incomplete`，不会把有歧义的历史发给 provider。仅当 run 以 cancel 结束、末尾调用保留未关闭 awaiting、没有 submit/answer/result 冲突，且每个缺失调用都能映射到该 awaiting 时，读取逻辑视图才会在内存中补出 `run_interrupted` answer/result；原始 JSONL 与数据库不回写。已经开始执行而结果未知的调用不会标记为 `executed:false`。
 
@@ -619,7 +618,7 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 
 启用 KBASE capability 的 Agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按检索来源聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
 
-`artifact_publish` 仅在整个批次文件物化且 `<chatId>/.tools/artifacts.json` 原子写入成功后发布 `artifact.publish`。事件包含合法 epoch-millisecond `timestamp`、`chatId`、`runId`、`toolId`、`artifactCount`、`artifacts`，子任务有明确归属时额外包含 `taskId`；每个 `artifacts[]` 项至少包含 `artifactId/name/mimeType/sizeBytes/sha256/url`。发布器从物化后的真实文件计算 SHA、大小和统一文档 MIME；manifest 未声明或旧逻辑会声明为 `application/octet-stream` 的安全 UTF-8 文本，在新产物写入时即规范化，不批量迁移历史 manifest。JSONL 的对应 `react-tool.artifacts.items[]` 只是该次调用的审计记录；`GET /api/chat` 的 `data.artifact = { items: [...] }` 只从 manifest 恢复。
+`artifact_publish` 仅在整个批次文件物化且 `<chatId>/.tools/artifacts.json` 原子写入成功后发布 `artifact.publish`。事件包含合法 epoch-millisecond `timestamp`、`chatId`、`runId`、`toolId`、`artifactCount`、`artifacts`，子任务有明确归属时额外包含 `taskId`；每个 `artifacts[]` 项至少包含 `artifactId/name/mimeType/sizeBytes/sha256/url`。发布器从物化后的真实文件计算 SHA、大小和统一文档 MIME；manifest 未声明或旧逻辑会声明为 `application/octet-stream` 的安全 UTF-8 文本，在新产物写入时即规范化，不批量迁移历史 manifest。JSONL 的对应 `react-tool.artifacts.items[]` 只是该次调用的审计记录；`GET /api/chat` 的 `data.artifact = { items: [...] }` 只从 manifest 恢复，每个 item 返回 `publishedAt`（Unix epoch 毫秒），表示该条产物记录的发布时间；已有 manifest 中的时间直接返回，无需迁移。
 
 `image_generate.images[].path` 与 `artifact_publish.artifacts[].path` 是工具间传递的内部文件系统字段，可以是当前 Host 的绝对路径，但不得进入 Markdown 或用户可见正文。`image_generate.images[].url` 指向 Chat 根目录中的生成文件；发布时复制到 `artifacts/<runId>/<filename>`，成功后的 `publishedArtifacts[].url` 必须指向该发布副本，并优先于生成源 URL。工具若没有返回合法 `url`，模型必须明确报告物化/发布失败，不能伪造图片或下载链接。
 
@@ -1188,7 +1187,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
-公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带附件记录要求 `messages`。前后端按后端先、前端后的顺序更新。
+公开 `request.steer` 携带 `references`，不携带图片 Base64。新 steer JSONL 仅保存 message/references，不产生内部 `request.steer.snapshot`，不写 `messages`，不重复进入后续 step 的 `inputMessages`。续聊按当前模型能力从 Chat 资源重建附件输入；图片不保留历史版本，失效附件提示不可用，不阻断续聊。旧纯文本与已有 messages 快照继续读取。公开协议保持不变。
 
 
 ## Office 在线预览 HTTP API
@@ -1241,7 +1240,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 事务保护协调 Platform 内部管理写入与 watcher；不能锁住用户编辑器或其他外部进程。既有导入/删除接口保持兼容。
 
-纯文本选区 steer 使用 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；`text` 必须为非空字符串，`annotation` 为可选字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
+纯文本选区 steer 使用 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；`text` 必须为非空字符串，`annotation` 为可选字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的原始 message/references 进入 steer JSONL，用于回放和续聊重建；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
 
 ## 网页 Container / Surface 契约
 
@@ -1249,7 +1248,7 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 
 普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
 
-划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用与模型消息快照持久化，未提供编号时不生成编号字段。
+划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 
 主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；run_query 工具入口仍要求文字。
 

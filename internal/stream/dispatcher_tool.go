@@ -29,6 +29,11 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 			}
 		}
 	}
+	for _, event := range events {
+		if event.Type == "tool.start" {
+			d.state.blockStarts["tool:"+input.ToolID] = event
+		}
+	}
 	d.state.toolArgsBuffer[input.ToolID] += input.Delta
 	events = append(events, NewEvent("tool.args", map[string]any{
 		"toolId":     input.ToolID,

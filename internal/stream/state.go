@@ -1,6 +1,7 @@
 package stream
 
 type StreamEventStateData struct {
+	blockStarts       map[string]StreamEvent
 	activeReasonings  map[string]activeReasoningState
 	activeContents    map[string]activeContentState
 	planID            string
@@ -73,6 +74,7 @@ type toolBlockState struct {
 
 func NewStateData() *StreamEventStateData {
 	return &StreamEventStateData{
+		blockStarts:       map[string]StreamEvent{},
 		activeReasonings:  map[string]activeReasoningState{},
 		activeContents:    map[string]activeContentState{},
 		openTools:         map[string]toolBlockState{},

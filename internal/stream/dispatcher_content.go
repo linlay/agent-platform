@@ -26,6 +26,11 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 		appendContentActorPayload(payload, input.ActorType, input.TeamID, input.AgentKey, input.Presentation)
 		events = append(events, NewEvent("content.start", payload))
 	}
+	for _, event := range events {
+		if event.Type == "content.start" {
+			d.state.blockStarts["content:"+input.ContentID] = event
+		}
+	}
 	guard := d.state.contentGuards[input.ContentID]
 	if guard == nil {
 		guard = newMarkdownDestinationGuard(d.request.ChatID)

@@ -1,6 +1,7 @@
 package contracts
 
 type ModelMessage struct {
+	OriginSteerKey     string          `json:"-"`
 	EncryptedReasoning []ReasoningPart `json:"-"`
 	OriginModelKey     string          `json:"-"`
 	CompactSource      string          `json:"-"`

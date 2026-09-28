@@ -224,6 +224,9 @@ func assertSteerPersistedWithoutInputMessage(t *testing.T, jsonlContent string, 
 		}
 		if entry["_type"] == "steer" {
 			foundSteer = true
+			if _, exists := entry["messages"]; exists {
+				t.Fatalf("steer must not persist messages: %s", line)
+			}
 			if _, ok := entry["event"]; ok {
 				t.Fatalf("did not expect event wrapper on steer line: %s", line)
 			}

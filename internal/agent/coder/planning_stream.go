@@ -229,6 +229,9 @@ func rawMessageFromModelMessage(message contracts.ModelMessage) map[string]any {
 		return nil
 	}
 	raw := map[string]any{"role": role}
+	if message.OriginSteerKey != "" {
+		raw["_steerKey"] = message.OriginSteerKey
+	}
 	if content, ok := message.Content.(string); ok && strings.TrimSpace(content) != "" {
 		raw["content"] = content
 	} else if message.Content != nil {

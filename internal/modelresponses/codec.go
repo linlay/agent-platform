@@ -14,6 +14,7 @@ const Protocol = "OPENAI_RESPONSES"
 type Item struct {
 	Type             string          `json:"type"`
 	ID               string          `json:"id,omitempty"`
+	Status           string          `json:"status,omitempty"`
 	CallID           string          `json:"call_id,omitempty"`
 	Name             string          `json:"name,omitempty"`
 	Arguments        string          `json:"arguments,omitempty"`
@@ -43,6 +44,7 @@ type Response struct {
 	Usage  *Usage `json:"usage"`
 	Error  *struct {
 		Code    string `json:"code"`
+		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error"`
 	IncompleteDetails struct {

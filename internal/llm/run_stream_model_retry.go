@@ -158,7 +158,10 @@ func modelActivityMessage(status string, reason string) string {
 	case "waiting":
 		return "正在等待模型响应"
 	case "retrying":
-		return "模型响应超时，正在重试"
+		if reason == string(apperrors.CodeProviderTimeout) || reason == "model_stream_idle_timeout" {
+			return "模型响应超时，正在重试"
+		}
+		return "模型响应失败，正在重试"
 	case "running":
 		return "模型正在响应"
 	case "completed":
@@ -222,6 +225,7 @@ func (s *llmRunStream) handleModelAttemptError(err error) error {
 	if err == nil {
 		return nil
 	}
+	err = s.annotateProviderError(err)
 	if s.currentTurn != nil {
 		if s.currentTurn.outputGuardErr != nil {
 			s.recordCurrentTurnTiming(time.Now())
@@ -288,6 +292,7 @@ func (s *llmRunStream) modelTurnDiscardDelta(call *pendingModelCall, err error, 
 	}
 	payload := modelErrorPayload(err)
 	discard := DeltaModelTurnDiscard{
+		Error:       payload,
 		TaskID:      s.modelActivityTaskID(),
 		RunSeq:      call.runSeq,
 		Attempt:     attempt,

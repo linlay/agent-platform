@@ -116,9 +116,6 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return []StreamEvent{event}
 	case RequestSteer:
 		events := d.closeOpenBlocks()
-		if len(value.Messages) > 0 {
-			events = append(events, NewEvent("request.steer.snapshot", map[string]any{"steerId": value.SteerID, "messages": cloneMessagePayloads(value.Messages)}))
-		}
 		payload := map[string]any{
 			"requestId": value.RequestID, "chatId": value.ChatID, "runId": value.RunID,
 			"steerId": value.SteerID, "message": value.Message, "role": "user",
@@ -369,7 +366,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		d.state.runFinishReason = value.FinishReason
 		return nil
 	case InputRunError:
-		events := d.closeOpenBlocks()
+		events := d.failOpenBlocks(value.Error)
 		payload := map[string]any{
 			"runId": d.request.RunID,
 			"error": normalizeErrorMap(value.Error, "run_error", "run", "runtime"),

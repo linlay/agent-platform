@@ -286,16 +286,12 @@ func (w *StepWriter) appendSteerLine(event stream.EventData) {
 	if references := event.Value("references"); references != nil {
 		steer["references"] = references
 	}
-	messages := w.pendingSteerMessages[event.String("steerId")]
-	delete(w.pendingSteerMessages, event.String("steerId"))
-	stampQueryMessages(messages, event.Timestamp)
 	if err := w.store.AppendSteerLine(w.chatID, SteerLine{
 		ChatID:    w.chatID,
 		RunID:     w.runID,
 		UpdatedAt: event.Timestamp,
 		LiveSeq:   event.Seq,
 		Steer:     steer,
-		Messages:  messages,
 		Type:      "steer",
 	}); err != nil {
 		w.recordPersistenceError(err)

@@ -21,6 +21,12 @@ Provider 复用现有 `baseUrl`、`apiKey`。默认端点为 `/v1/responses`；b
 
 主模型调用固定 `stream:true`、`store:false`，将本地有效上下文转换为 `input`，请求 `include:["reasoning.encrypted_content"]`。不发送 `previous_response_id` 或 `conversation`，也不会通过 response ID 拉取历史。兼容配置不能覆盖本地上下文这一策略。
 
+有 Chat 上下文的 Responses 请求自动发送 `prompt_cache_key`，值为 `apc_` 加 `SHA256(chatId)` 的前 48 位小写十六进制字符（共 52 字符）。直接对实际 Chat ID 的 UTF-8 字节计算，不要求 UUID，不截断原始 ID 后再哈希。生成只依赖 Chat ID，同一 Chat 的模型轮次、工具续接、重试、跨 Run 续聊、HITL 恢复与 L2 摘要保持一致；不同 Chat 使用各自的 key。该规则是稳定的会话亲和约定，不能随版本、Run ID、模型档位或进程启动时间变化。
+
+`prompt_cache_key` 是请求体参数，不是 HTTP Header。它由已有 Chat ID 即时计算，不新增数据库、`.state` 或 JSONL 字段，也从 `system-init/react` 的 `requestOptions` 排除；旧 Chat 无需迁移。可选 `.llm-records` 原始请求 trace 仍记录实际发送的字段。无 Chat 上下文时省略；文本提取和视觉识别的独立一次性辅助调用也不生成。Provider/模型 compat 中的静态 `prompt_cache_key` 不覆盖此规则，避免所有会话共用一个值。
+
+该字段不是 Responses 协议的必填项；平台默认发送是为了兼容依赖会话亲和的上游。2026-09-28 BabelArk `gpt-6-luna`（用户配置为 Azure 来源）的合成对照中，无 key 第 2 轮报 `invalid_encrypted_content`，固定 key 连续 12 轮通过；这支持当前接入策略，不证明服务商的具体路由机制，也不能保证已有失效密文恢复有效。
+
 开启思考时发送 `reasoning:{effort:"…",summary:"auto"}`；档位优先使用模型 `reasoningEffortMapping`，未配置映射时使用所选档位的小写值，未指定时使用 medium。模型实际支持的档位由上游决定；关闭平台思考开关时不自动请求摘要或设置 effort，上游自身的默认推理行为仍由模型/compat 决定。输出预算映射为 `max_output_tokens`，只在显式配置时传 temperature/top_p，不继承 Chat Completions 的默认 temperature、seed、penalty 参数。
 
 `internal/modelresponses` 负责协议 DTO 和转换；`internal/llm/protocol_responses.go` 负责请求与 SSE；`internal/modelclient` 继续负责 HTTP；原有 tool loop、HITL、权限和并发控制继续执行 Platform 的函数工具。文本辅助调用和视觉识别工具也支持 Responses 非流式请求（视觉模型仍须声明 isVision）。L2 摘要使用相同协议并移除工具。
@@ -83,9 +89,21 @@ L1 保护最近轮次及未完成交互；保留的工具组保留其加密推�
 
 ## 终态与 usage
 
-SSE 按 output_index 累积，完整终态快照补足尾部并核对已收到的文本/参数，避免重复拼接。只有 `response.completed` 或受支持的 `response.incomplete` 才能收口；单独 EOF、`[DONE]`、failed/error 或不一致快照均不能当成功。完整终态校验后，函数调用进入现有权限/HITL/执行链。多工具 ID 必须唯一，arguments 必须是 JSON 对象。
+SSE 按 output_index 累积，完整终态快照补足尾部并核对已收到的文本/参数，避免重复拼接。兼容端点若在 `response.completed` 返回空/缺省 `output`，仅当已观察的全部输出项都有 `response.output_item.done`、索引从 0 连续且 item 状态未声明未完成时，按索引恢复完整输出，再统一校验身份、正文/摘要/参数和工具 ID；不从未完成项或仅 delta 猜测结果。非空但缺项的终态不补齐，`response.incomplete` 不走此恢复。恢复数量记录在 trace 的 `diagnostics.stream.responsesRecoveredItems`。可读推理摘要在不同 item 或 summary_index 之间保留段落边界。
+
+只有 `response.completed` 或受支持的 `response.incomplete` 才能收口；单独 EOF、`[DONE]`、failed/error 或不一致快照均不能当成功。完整输出校验后，函数调用进入现有权限/HITL/执行链。多工具 ID 必须唯一，arguments 必须是 JSON 对象。
 
 usage 映射：input_tokens → promptTokens，output_tokens → completionTokens，input_tokens_details.cached_tokens → promptCacheHitTokens，output_tokens_details.reasoning_tokens → reasoningTokens。缓存命中率可按 cached_tokens / input_tokens 计算（input_tokens > 0）；上游未提供细分时不能据此证明命中。`store:false`、response ID、Prompt Cache 是三件独立的事，发送全量有效上下文仍可能命中上游缓存。
+
+## 流错误诊断
+
+HTTP 200 的 SSE 也可能携带上游错误。标准 `error` / `response.failed`，以及网关错误 envelope 均提取结构化 code/type，复用 `internal/modelclient` 的分类：先完整匹配已知 code，再匹配 type，最后按失败 HTTP 状态兜底。限流返回 `provider_rate_limited`，额度、鉴权、权限、模型不存在、上下文超限、内容过滤和服务不可用使用对应平台错误码；不解析英文 message 的关键词，未知流内错误返回 `provider_stream_failed`。OpenAI Chat 与 Anthropic 流内错误使用相同分类。上游消息保留有界、凭据脱敏后的诊断原文。公开 `status` 是平台分类状态（限流为 429），`diagnostics.upstreamStatus` 始终保留实际 HTTP 状态（可能为 200）；不改变已经建立的 SSE 连接状态。缺少错误与事件类型的帧仍按 `provider_stream_invalid` 拒绝。
+
+模型尝试失败在重试收尾前统一补充 protocol、attempt/maxAttempts、实际上游状态、请求/响应 ID 与流读取计数，保留已有错误诊断及状态/重试属性。直接 EOF 分别以 `diagnostics.reason: stream_ended_before_output`（尚无有效输出）和 `stream_ended_before_completion`（已有输出但未完成）说明，不能据此推断限流或网关内部原因。
+
+格式/流失败的 `diagnostics` 增加事件类型、帧序号/字节数、尝试次数、已知顶层字段名及上游请求 ID（若提供）。格式失败还保留 `validationError`，避免界面翻译通用 message 后丢失具体校验原因。终态校验失败还包含 response ID/status、终态输出项数、已观察项数及 done 项数；缺项时包含 `outputIndex`、`observedItemType`、`observedItemDone`，并保留上游 `incompleteReason`。这些信息用于区分完整结束、输出受限和快照不一致。
+
+结构信息同时进入常开日志及可选 trace 的 `diagnostics.stream.responsesFailure`，不保存原始 SSE、正文、推理、密文或工具参数；上游错误说明保留在公开错误与 trace 的 `error` 中，不加入常开诊断日志。重试提示按原因区分“超时”和一般“失败”。
 
 ## 验证
 

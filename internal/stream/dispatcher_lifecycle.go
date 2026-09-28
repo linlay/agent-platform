@@ -45,7 +45,7 @@ func (d *StreamEventDispatcher) Fail(err error) []StreamEvent {
 		apperrors.WithScope(apperrors.ScopeRun),
 		apperrors.WithCategory(apperrors.CategoryChatRun),
 	)
-	events := d.closeOpenBlocks()
+	events := d.failOpenBlocks(d.state.runError)
 	payload := map[string]any{
 		"runId": d.request.RunID,
 		"error": normalizeErrorMap(d.state.runError, string(apperrors.CodeStreamFailed), string(apperrors.ScopeRun), string(apperrors.CategoryChatRun)),

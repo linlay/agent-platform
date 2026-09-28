@@ -23,6 +23,9 @@ func (t *RuntimeToolExecutor) completeResponsesModel(ctx context.Context, model 
 	body["input"] = input
 	body["store"] = false
 	body["stream"] = false
+	// Auxiliary text/vision calls are independent one-shot requests without a
+	// conversation history; do not inherit a global key from provider config.
+	modelresponses.ApplyPromptCacheKey(body, "")
 	for _, k := range []string{"previous_response_id", "conversation", "background", "messages", "max_tokens", "max_completion_tokens", "stream_options"} {
 		delete(body, k)
 	}

@@ -2,13 +2,14 @@ package stream
 
 import "strings"
 
-const discardIncompleteModelTurnAction = "discard_incomplete_model_turn"
-
 func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) []StreamEvent {
 	if d == nil || d.state == nil {
 		return nil
 	}
-	taskID := d.resolveTaskID(input.TaskID)
+	return d.discardModelTurn(input, d.resolveTaskID(input.TaskID))
+}
+
+func (d *StreamEventDispatcher) discardModelTurn(input ModelTurnDiscard, taskID string) []StreamEvent {
 	scope := taskScope(taskID)
 
 	reasoningIDs := compactIDs(input.ReasoningIDs)
@@ -30,6 +31,17 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 		toolIDs = appendIDIfMissing(toolIDs, toolID)
 		delete(d.state.openTools, toolID)
 	}
+	var events []StreamEvent
+	for _, group := range []struct {
+		kind string
+		ids  []string
+	}{{"reasoning", reasoningIDs}, {"content", contentIDs}, {"tool", toolIDs}} {
+		for _, id := range group.ids {
+			if event, ok := d.failModelBlock(group.kind, id, taskID, input.Error, input.Reason); ok {
+				events = append(events, event)
+			}
+		}
+	}
 	for _, id := range reasoningIDs {
 		delete(d.state.reasoningBuffer, id)
 	}
@@ -42,19 +54,6 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 		delete(d.state.toolEndAtByID, id)
 		delete(d.state.emittedAwaitings, id)
 	}
-	recovery := map[string]any{
-		"action": discardIncompleteModelTurnAction,
-		"runSeq": input.RunSeq,
-	}
-	if len(reasoningIDs) > 0 {
-		recovery["reasoningIds"] = reasoningIDs
-	}
-	if len(contentIDs) > 0 {
-		recovery["contentIds"] = contentIDs
-	}
-	if len(toolIDs) > 0 {
-		recovery["toolIds"] = toolIDs
-	}
 
 	status := "discarded"
 	message := "已丢弃未完成的模型响应"
@@ -63,12 +62,11 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 		message = "模型响应不完整，已丢弃并正在重试"
 	}
 	payload := map[string]any{
-		"runId":    d.request.RunID,
-		"chatId":   d.request.ChatID,
-		"phase":    "model_call",
-		"status":   status,
-		"message":  message,
-		"recovery": recovery,
+		"runId":   d.request.RunID,
+		"chatId":  d.request.ChatID,
+		"phase":   "model_call",
+		"status":  status,
+		"message": message,
 	}
 	if taskID != "" {
 		payload["taskId"] = taskID
@@ -89,7 +87,7 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 		}
 		payload["retry"] = retry
 	}
-	return []StreamEvent{NewEvent("run.activity", payload)}
+	return append(events, NewEvent("run.activity", payload))
 }
 
 func compactIDs(values []string) []string {
@@ -114,4 +112,60 @@ func appendIDIfMissing(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
+}
+
+// Failed attempt output is a display-only terminal event, never a model message.
+// A normal end before commit closes a segment, not the attempt: failure may
+// subsequently mark that segment failed, preserving its text for cold replay.
+func (d *StreamEventDispatcher) failModelBlock(kind, id, taskID string, cause map[string]any, reason string) (StreamEvent, bool) {
+	key := kind + ":" + id
+	start, ok := d.state.blockStarts[key]
+	if !ok {
+		return StreamEvent{}, false
+	}
+	delete(d.state.blockStarts, key)
+	payload := clonePayload(start.Payload)
+	payload["startedAt"] = start.Timestamp
+	payload["status"] = "failed"
+	if reason == "" {
+		reason = "provider_stream_failed"
+	}
+	payload["error"] = normalizeErrorMap(cause, reason, "model", "model")
+	if taskID != "" {
+		payload["taskId"] = taskID
+	}
+	switch kind {
+	case "reasoning":
+		payload["text"] = d.state.reasoningBuffer[id]
+	case "content":
+		payload["text"] = d.state.contentBuffer[id]
+	case "tool":
+		payload["arguments"] = d.state.toolArgsBuffer[id]
+		delete(d.state.endedTools, id)
+	}
+	return NewEvent(kind+".end", payload), true
+}
+
+// Fail only open segments for terminal errors; committed/executed tools are not
+// open parameter streams and must retain their actual tool.result.
+func (d *StreamEventDispatcher) failOpenBlocks(cause map[string]any) []StreamEvent {
+	scopes := map[string]bool{}
+	for scope := range d.state.activeReasonings {
+		scopes[scope] = true
+	}
+	for scope := range d.state.activeContents {
+		scopes[scope] = true
+	}
+	for _, block := range d.state.openTools {
+		scopes[taskScope(block.TaskID)] = true
+	}
+	var events []StreamEvent
+	for scope := range scopes {
+		for _, event := range d.discardModelTurn(ModelTurnDiscard{TaskID: scope, Error: cause}, scope) {
+			if event.Type != "run.activity" {
+				events = append(events, event)
+			}
+		}
+	}
+	return events
 }

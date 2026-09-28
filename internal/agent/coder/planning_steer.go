@@ -35,10 +35,13 @@ func (s *coderPlanningStream) prepareSteeredPlanning(steers []api.SteerRequest) 
 		s.pending = append(s.pending, contracts.DeltaRequestSteer{
 			RequestID: steer.RequestID, ChatID: steer.ChatID, RunID: steer.RunID,
 			SteerID: steer.SteerID, Message: steer.Message, References: steer.References,
-			Messages: steer.PreparedMessages,
 		})
+		steerKey := ""
+		if len(steer.References) > 0 {
+			steerKey = steer.RunID + "/" + steer.SteerID
+		}
 		for _, message := range steer.PreparedMessages {
-			s.executeMessages = append(s.executeMessages, contracts.ModelMessage{Role: "user", Content: message["content"]})
+			s.executeMessages = append(s.executeMessages, contracts.ModelMessage{Role: "user", Content: message["content"], OriginSteerKey: steerKey})
 		}
 	}
 }
