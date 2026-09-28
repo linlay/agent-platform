@@ -77,7 +77,8 @@ file-tools:
   max-batch-ops: 20
   require-write-approval: true
   require-read-before-write: true
-  read-before-write-scope: run
+  read-before-write-scope: chat
+  read-before-write-max-age: 60m
   hooks:
     after-file-change:
       lsp-diagnostics:

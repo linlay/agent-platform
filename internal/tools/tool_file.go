@@ -74,7 +74,9 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 			snap.Source == "read" &&
 			!snap.Partial &&
 			!snap.Truncated &&
-			snap.LineNumbered == lineNumbered {
+			snap.LineNumbered == lineNumbered &&
+			!fileSnapshotExpired(snap, time.Now().UnixMilli(), t.fileReadMaxAge()) &&
+			snap.SHA256 != "" && fileSHA256(resolved.Path) == snap.SHA256 {
 			return structuredResult(map[string]any{
 				"filePath": resolved.Path,
 				"kind":     "unchanged",
@@ -678,50 +680,59 @@ func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCt
 		}
 		return fileToolError(errorPrefix+"_failed", err.Error()), true
 	}
-	if execCtx == nil || execCtx.ReadFileState == nil {
-		if snap, ok := t.loadChatFileVersionSnapshot(execCtx, path); ok {
-			if result, rejected := validateFileSnapshot(path, info, snap, modifiedCode, partialCode, execCtx, true); rejected {
-				return result, true
-			}
-			return ToolExecutionResult{}, false
-		}
-		return fileToolError(notReadCode, "file exists but was not fully read in this run; call file_read without offset/limit and ensure truncated=false before retrying"), true
+	var snap ReadFileSnapshot
+	var ok bool
+	if execCtx != nil {
+		snap, ok = execCtx.ReadFileState[path]
 	}
-	snap, ok := execCtx.ReadFileState[path]
 	if !ok {
-		if chatSnap, chatOK := t.loadChatFileVersionSnapshot(execCtx, path); chatOK {
-			if result, rejected := validateFileSnapshot(path, info, chatSnap, modifiedCode, partialCode, execCtx, true); rejected {
-				return result, true
-			}
-			return ToolExecutionResult{}, false
-		}
-		return fileToolError(notReadCode, "file exists but was not fully read in this run; call file_read without offset/limit and ensure truncated=false before retrying"), true
+		snap, ok = t.loadChatFileVersionSnapshot(execCtx, path)
 	}
-	return validateFileSnapshot(path, info, snap, modifiedCode, partialCode, nil, false)
-}
-
-func validateFileSnapshot(path string, info os.FileInfo, snap ReadFileSnapshot, modifiedCode string, partialCode string, restoreCtx *ExecutionContext, forceSHA bool) (ToolExecutionResult, bool) {
-	statChanged := info.ModTime().UnixMilli() != snap.ModifiedUnixMs || info.Size() != snap.SizeBytes
-	if forceSHA || statChanged {
-		currentSha := fileSHA256(path)
-		if currentSha != snap.SHA256 {
-			return fileToolError(modifiedCode, "file has been modified since last read; re-read before writing"), true
-		}
+	if !ok {
+		return fileToolError(notReadCode, "file exists but was not fully read in the configured scope; call file_read without offset/limit and ensure truncated=false before retrying"), true
 	}
 	if snapshotBlocksMutation(snap) {
 		return fileToolError(partialCode, "file was not fully read; call file_read without offset/limit and ensure truncated=false before retrying"), true
 	}
-	if statChanged {
-		snap.ModifiedUnixMs = info.ModTime().UnixMilli()
-		snap.SizeBytes = info.Size()
-	}
-	if restoreCtx != nil {
-		if restoreCtx.ReadFileState == nil {
-			restoreCtx.ReadFileState = map[string]ReadFileSnapshot{}
+	now := time.Now().UnixMilli()
+	maxAge := t.fileReadMaxAge()
+	if fileSnapshotExpired(snap, now, maxAge) {
+		age := int64(0)
+		message := "文件缓存过期：观察时间缺失或异常，请重新调用 file_read 完整读取文件。"
+		if snap.ReadAtUnixMs > 0 && snap.ReadAtUnixMs <= now {
+			age = now - snap.ReadAtUnixMs
+			message = fmt.Sprintf("文件缓存过期：距上次有效观察已过 %.1f 分钟，有效期为 %.1f 分钟，请重新调用 file_read 完整读取文件。", float64(age)/60000, maxAge.Minutes())
 		}
-		restoreCtx.ReadFileState[path] = snap
+		return fileToolErrorWithFields(errorPrefix+"_cache_expired", message, map[string]any{
+			"observedAtUnixMs": snap.ReadAtUnixMs,
+			"ageMs":            age,
+			"maxAgeMs":         maxAge.Milliseconds(),
+		}), true
+	}
+	currentSHA := fileSHA256(path)
+	if currentSHA == "" || currentSHA != snap.SHA256 {
+		return fileToolError(modifiedCode, "file has been modified since last read; re-read before writing"), true
+	}
+	snap.ModifiedUnixMs = info.ModTime().UnixMilli()
+	snap.SizeBytes = info.Size()
+	if execCtx != nil {
+		if execCtx.ReadFileState == nil {
+			execCtx.ReadFileState = map[string]ReadFileSnapshot{}
+		}
+		execCtx.ReadFileState[path] = snap
 	}
 	return ToolExecutionResult{}, false
+}
+
+func (t *RuntimeToolExecutor) fileReadMaxAge() time.Duration {
+	if t.cfg.FileTools.ReadBeforeWriteMaxAge > 0 {
+		return t.cfg.FileTools.ReadBeforeWriteMaxAge
+	}
+	return time.Hour
+}
+
+func fileSnapshotExpired(snap ReadFileSnapshot, now int64, maxAge time.Duration) bool {
+	return snap.ReadAtUnixMs <= 0 || snap.ReadAtUnixMs > now || now-snap.ReadAtUnixMs > maxAge.Milliseconds()
 }
 
 func snapshotBlocksMutation(snap ReadFileSnapshot) bool {
