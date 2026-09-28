@@ -72,9 +72,6 @@ func TestSharedAssemblyPreventsCollectionAndStartupReuses(t *testing.T) {
 		t.Fatal("assembly candidate collected")
 	}
 	release()
-	if err := s.RetireSharedRuntime(filepath.Dir(s.ExternalRoot)); err != nil {
-		t.Fatal(err)
-	}
 	next, err := s.InstallShared(pkg)
 	if err != nil || next.Dir != mounted.Dir {
 		t.Fatalf("startup failed to reuse: %v", err)

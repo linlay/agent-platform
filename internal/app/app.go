@@ -261,9 +261,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("bind Agent MCP instances: %w", err)
 	}
 	mcpToolSync.ReconcileRegistry()
-	if err := cfg.Paths.ConnectorSources().RetireSharedRuntime(filepath.Dir(cfg.Paths.EffectiveRUAgentsDir())); err != nil {
-		return nil, fmt.Errorf("retire shared connector runtime: %w", err)
-	}
 	kbaseSource := kbaseCatalogSource{registry: registry}
 	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseSource, modelRegistry).WithSupportPackages(supportPackages)
 	if lspManager != nil {

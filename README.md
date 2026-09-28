@@ -197,6 +197,8 @@ Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 
 
 外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-connectors/<id>/<contentDigest>`，持久化授权状态保存在通用 `.state` 根下的 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下直接执行、无需 HITL 或自动审批审计；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`，由各项目与二进制一起打包，Platform 锁定并校验完整包；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。外部包支持通过 `DELETE /api/admin/connectors/detail?id=<id>` 删除；需先解除 Agent 引用并等待旧运行挂载释放，授权和 CLI 状态保留，重载失败恢复原包。ZIP 导入后异步 CLI 准备（有 bin 跳过 init）、独立准备状态与登录凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
+连接器锁统一存放于 `<AP_RUNTIME_DIR>/.lock/`，按布局初始化、装配、安装、来源操作和版本租约分开管理；`ru-connectors` 保留共享运行包与 `.shared-v1` 标记，不执行旧布局迁移。目录结构与锁路径切换要求见 [Runtime 锁目录](docs/连接器共享包与Desktop迁移.md#runtime-锁目录)。
+
 连接器资源包通过清单声明组件、图标、认证方式与授权页面展示。包内程序、安装脚本和远程服务定义的分发边界见 [连接器打包与分发](./docs/连接器打包与分发.md)。
 
 五种认证模式（token / oneid-token / oauth / mcp / null）统一使用包外凭证来源；认证操作不触碰连接器定义文件。`auth_bindings` 声明 HTTP Header 或 Host CLI/stdio 环境模板，HTTP 发送前、进程启动前读取票据；自管 CLI 继续通过 `configEnv` 使用独立目录。MCP 支持多资源授权、客户端注册信息落盘、元数据发现回退、PKCE、刷新及追加权限提示，详见 [凭证消费映射与多组件授权](./docs/连接器安装与授权.md#凭证消费映射与多组件授权)。

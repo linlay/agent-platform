@@ -16,7 +16,7 @@ CLI 内置来源为 Platform verified bundle 的 connectors 目录，其源码�
 
 ## 安装、升级和回收
 
-安装先复制到隐藏临时目录并校验内容，再以内容摘要原子发布。重复挂载校验并复用已有包。启动重建普通 ru-agents，但保留经过校验的共享包；旧平铺 ru-connectors 在首次转换时备份到 `.connector-layout-backup-*`。
+安装先复制到隐藏临时目录并校验内容，再以内容摘要原子发布。重复挂载校验并复用已有包。启动重建普通 ru-agents，但保留经过校验的共享包；共享目录直接初始化，不提供旧布局迁移。
 
 Catalog 发布期间持有装配锁；当前挂载、活动 Run/Terminal 和 MCP session 保留包租约。连接器内容更新可以发布新的挂载快照，旧调用继续使用旧包。普通 Agent 文件的变更仍遵守活动运行目录租约。MCP 路由按 Agent、连接器组件及包版本隔离，共享文件不意味着共享 MCP 会话。
 
@@ -53,8 +53,22 @@ go run ./cmd/migrate-desktop --rollback /path/to/runtime/.desktop-migration-xxx 
 验证覆盖共享复用、版本保留、恢复快照、挂载和配置门禁、发布完整性及迁移回滚。Windows 使用交叉编译验证；Windows 实机、真实 Desktop 反向调用及 Container Hub 联调仍需目标环境验证。
 
 
-## Runtime 布局锁目录
+## Runtime 锁目录
 
-共享连接器布局锁固定为 `<AP_RUNTIME_DIR>/.lock/shared-connector-layout.lock`，保护 `ru-connectors` 的初始化和目录迁移。`.lock` 必须是真实目录；锁文件由操作系统提供跨进程互斥，释放后保留，存在不代表正在占用。不得在进程运行时删除锁目录或锁文件。macOS/Linux 使用 flock，Windows 使用 LockFileEx；Windows 不因点前缀自动设置隐藏属性。
+连接器锁统一位于 `<AP_RUNTIME_DIR>/.lock`，各用途使用独立路径：
 
-这是一次性路径切换，不兼容旧锁路径。升级前停止所有使用同一 runtime 的旧 Platform/管理进程，再移除根目录旧 `.cli-shared-connector-layout.lock`，启动新版后自动创建新目录。不要同时运行使用不同锁路径的新旧版本。Git 忽略 `/.lock/`。本次仅迁移 runtime 根布局锁，包操作锁、装配锁和版本租约锁继续留在其既有作用域，不改变生命周期。
+```text
+.lock/
+├── shared-connector-layout.lock          # ru-connectors 初始化互斥
+└── connectors/
+    ├── assembly.lock                    # 装配共享锁 / 回收排他锁
+    ├── install/<connectorId>.lock        # 共享运行包安装互斥
+    ├── operations/<connectorId>.lock     # 来源修改、准备与授权操作互斥
+    └── leases/<connectorId>/<digest>.lock # 版本使用共享锁 / 回收排他锁
+```
+
+锁目录及其子目录必须是真实目录，锁文件必须是普通文件。锁由操作系统管理，释放后保留文件，存在不代表正在占用；不得在进程运行时删除。macOS/Linux 使用 flock，Windows 使用 LockFileEx；Windows 不因点前缀自动设置隐藏属性。Git 忽略 `/.lock/`。
+
+`ru-connectors/.shared-v1` 保留为当前布局标记。初始化只创建目录和标记，不根据标记缺失推断旧布局，也不备份、重命名或迁移现有目录；没有旧版 ru-connectors 兼容流程。
+
+锁路径直接切换，不双锁、不回退旧路径。更新前停止同一 runtime 的全部 Platform 和管理进程，再启动统一使用新路径的版本。原位置已有的锁文件不自动删除，停机后可清理；运行包和 `.shared-v1` 保留。

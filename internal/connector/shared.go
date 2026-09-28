@@ -54,19 +54,7 @@ func (s Sources) InstallShared(pkg Package) (Package, error) {
 		return Package{}, err
 	}
 	defer release()
-	if err := os.WriteFile(filepath.Join(root, ".shared-v1"), []byte("1\n"), 0600); err != nil {
-		return Package{}, err
-	}
 	parent := filepath.Join(root, pkg.ID)
-	if _, err := os.Stat(filepath.Join(parent, "connector.json")); err == nil {
-		backup, err := os.MkdirTemp(filepath.Dir(root), ".connector-layout-backup-")
-		if err != nil {
-			return Package{}, err
-		}
-		if err := os.Rename(parent, filepath.Join(backup, pkg.ID)); err != nil {
-			return Package{}, err
-		}
-	}
 	if info, err := os.Lstat(parent); err == nil && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
 		return Package{}, fmt.Errorf("invalid shared connector package root")
 	}
@@ -165,7 +153,7 @@ func RetainShared(dir string) (func(), error) {
 	if !validDigest(filepath.Base(dir)) {
 		return func() {}, nil
 	} // Legacy/test mounts.
-	f, err := os.OpenFile(filepath.Join(filepath.Dir(dir), ".lease-"+filepath.Base(dir)), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := openVersionLease(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +189,7 @@ func (s Sources) AssemblyLease() (func(), error) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(root, ".assembly.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := openRuntimeLock(filepath.Dir(root), "connectors", "assembly.lock")
 	if err != nil {
 		return nil, err
 	}
@@ -217,10 +205,10 @@ func (s Sources) AssemblyLease() (func(), error) {
 }
 
 // CollectShared removes only validated, unleased versions. Unknown files and
-// legacy layouts are preserved. Crashes release OS leases without stale counters.
+// unknown directories are preserved. Crashes release OS leases without stale counters.
 func (s Sources) CollectShared() error {
 	root := s.SharedRoot()
-	f, err := os.OpenFile(filepath.Join(root, ".assembly.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := openRuntimeLock(filepath.Dir(root), "connectors", "assembly.lock")
 	if err != nil {
 		return err
 	}
@@ -260,7 +248,7 @@ func (s Sources) CollectShared() error {
 			if pinned[dir] {
 				continue
 			}
-			lock, err := os.OpenFile(filepath.Join(filepath.Dir(dir), ".lease-"+version.Name()), os.O_CREATE|os.O_RDWR, 0600)
+			lock, err := openVersionLease(dir)
 			if err != nil {
 				return err
 			}
@@ -280,7 +268,7 @@ func (s Sources) CollectShared() error {
 	return nil
 }
 
-// A legacy flat ru-connectors tree is backed up before the first shared install.
+// Initialize the shared package root without migrating or renaming existing data.
 func (s Sources) ensureSharedLayout() error {
 	root := s.SharedRoot()
 	if s.ExternalRoot == "" {
@@ -300,19 +288,6 @@ func (s Sources) ensureSharedLayout() error {
 		} else if !os.IsNotExist(err) {
 			return err
 		}
-		entries, err := os.ReadDir(root)
-		if err != nil {
-			return err
-		}
-		if len(entries) > 0 {
-			backup, err := os.MkdirTemp(filepath.Dir(root), ".connector-layout-backup-")
-			if err != nil {
-				return err
-			}
-			if err := os.Rename(root, filepath.Join(backup, "ru-connectors")); err != nil {
-				return err
-			}
-		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -323,9 +298,16 @@ func (s Sources) ensureSharedLayout() error {
 }
 
 func acquireSharedOperation(root, id string) (func(), error) {
+	if root == "" || !ValidID(id) {
+		return nil, fmt.Errorf("invalid shared connector operation")
+	}
+	p, err := runtimeLockPath(filepath.Dir(root), "connectors", "install", id+".lock")
+	if err != nil {
+		return nil, err
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		release, err := AcquireOperation(root, id)
+		release, err := acquireOperationFile(p)
 		if !errors.Is(err, ErrBusy) || time.Now().After(deadline) {
 			return release, err
 		}
@@ -333,24 +315,15 @@ func acquireSharedOperation(root, id string) (func(), error) {
 	}
 }
 
-// The layout lock lives outside ru-connectors because the protected operation
-// can rename that entire tree. Upgrade requires stopping old Platform processes;
-// there is intentionally no fallback to the former runtime-root lock path.
+// The layout lock serializes initialization of the shared package root.
 func acquireSharedLayout(runtimeRoot string) (func(), error) {
-	lockDir := filepath.Join(runtimeRoot, ".lock")
-	if err := os.MkdirAll(lockDir, 0700); err != nil {
-		return nil, err
-	}
-	info, err := os.Lstat(lockDir)
+	p, err := runtimeLockPath(runtimeRoot, "shared-connector-layout.lock")
 	if err != nil {
 		return nil, err
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("runtime lock directory must be a real directory: %s", lockDir)
-	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		release, err := acquireOperationFile(filepath.Join(lockDir, "shared-connector-layout.lock"))
+		release, err := acquireOperationFile(p)
 		if !errors.Is(err, ErrBusy) || time.Now().After(deadline) {
 			return release, err
 		}
