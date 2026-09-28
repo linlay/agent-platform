@@ -87,6 +87,49 @@ func (s *Service) findArtifact(chatID, id, runID string) (chat.ArtifactManifestI
 	}
 	return found, nil
 }
+
+func (s *Service) findArtifactByRef(chatID, sourceRef string) (chat.ArtifactManifestItem, error) {
+	canonicalRef, err := canonicalArtifactRef(chatID, sourceRef)
+	if err != nil {
+		return chat.ArtifactManifestItem{}, ErrArtifactNotFound
+	}
+	entries, err := s.artifactManifest(chatID)
+	if err != nil {
+		return chat.ArtifactManifestItem{}, err
+	}
+	var found chat.ArtifactManifestItem
+	matched := false
+	for _, entry := range entries {
+		if entry.URL == canonicalRef {
+			found = entry
+			matched = true
+		}
+	}
+	if !matched {
+		return chat.ArtifactManifestItem{}, ErrArtifactNotFound
+	}
+	return found, nil
+}
+
+func canonicalArtifactRef(chatID, sourceRef string) (string, error) {
+	if !chat.ValidChatID(chatID) || sourceRef == "" || sourceRef != strings.TrimSpace(sourceRef) ||
+		strings.ContainsAny(sourceRef, `\?#`) {
+		return "", ErrArtifactNotFound
+	}
+	owner, relative, err := chat.ParseResourceKey(chatID + "/" + sourceRef)
+	if err != nil || owner != chatID {
+		return "", ErrArtifactNotFound
+	}
+	segments := strings.Split(relative, "/")
+	if len(segments) != 3 || segments[0] != "artifacts" || segments[1] == "" || segments[2] == "" {
+		return "", ErrArtifactNotFound
+	}
+	canonical, err := chat.BuildChatScopeRef(relative)
+	if err != nil || canonical != sourceRef {
+		return "", ErrArtifactNotFound
+	}
+	return canonical, nil
+}
 func (s *Service) GetArtifact(chatID, id, runID string) (Artifact, error) {
 	entry, err := s.findArtifact(chatID, id, runID)
 	return projectArtifact(chatID, entry), err
@@ -96,6 +139,18 @@ func (s *Service) OpenArtifact(chatID, id, runID string) (*os.File, Artifact, er
 	if err != nil {
 		return nil, Artifact{}, err
 	}
+	return s.openArtifact(chatID, entry)
+}
+
+func (s *Service) OpenArtifactByRef(chatID, sourceRef string) (*os.File, Artifact, error) {
+	entry, err := s.findArtifactByRef(chatID, sourceRef)
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	return s.openArtifact(chatID, entry)
+}
+
+func (s *Service) openArtifact(chatID string, entry chat.ArtifactManifestItem) (*os.File, Artifact, error) {
 	// Only published ChatScope references, never a caller-supplied file or URL.
 	if !strings.HasPrefix(entry.URL, "artifacts/") {
 		return nil, Artifact{}, ErrArtifactNotFound

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chatresource"
+	"agent-platform/internal/config"
 )
 
 func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +29,7 @@ func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
 		ChatID     string `json:"chatId"`
 		RunID      string `json:"runId,omitempty"`
 		ArtifactID string `json:"artifactId,omitempty"`
+		SourceRef  string `json:"sourceRef,omitempty"`
 		Cursor     string `json:"cursor,omitempty"`
 		Limit      int    `json:"limit,omitempty"`
 	}
@@ -37,8 +40,31 @@ func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
 		writeRequestError(w, &requestError{Code: "chat_access_denied", Status: http.StatusForbidden})
 		return
 	}
+	switch r.URL.Path {
+	case "/api/chat/artifacts/list":
+		if req.SourceRef != "" {
+			writeRequestError(w, &requestError{Code: "invalid_arguments", Status: http.StatusBadRequest})
+			return
+		}
+	case "/api/chat/artifacts/get":
+		if req.SourceRef != "" {
+			writeRequestError(w, &requestError{Code: "invalid_arguments", Status: http.StatusBadRequest})
+			return
+		}
+	case "/api/chat/artifacts/read":
+		if (req.ArtifactID == "") == (req.SourceRef == "") || (req.SourceRef != "" && req.RunID != "") {
+			writeRequestError(w, &requestError{Code: "invalid_arguments", Status: http.StatusBadRequest})
+			return
+		}
+	default:
+		writeRequestError(w, &requestError{Code: "artifact_not_found", Status: http.StatusNotFound})
+		return
+	}
+	desktopSourceRefRead := r.URL.Path == "/api/chat/artifacts/read" && req.SourceRef != "" && req.ArtifactID == "" &&
+		s.deps.Config.RuntimeMode == config.RuntimeModeDesktop && p != nil && strings.TrimSpace(p.Subject) != "" &&
+		stringClaim(p.Claims, "scope") == "app" && firstStringClaim(p.Claims, "deviceId", "device_id") != ""
 	summary, err := s.deps.Chats.Summary(req.ChatID)
-	if err != nil || summary == nil || !queryPrincipalCanReferenceChat(r.Context(), *summary) {
+	if err != nil || summary == nil || (!desktopSourceRefRead && !queryPrincipalCanReferenceChat(r.Context(), *summary)) {
 		writeRequestError(w, &requestError{Code: "chat_access_denied", Status: http.StatusForbidden})
 		return
 	}
@@ -83,7 +109,14 @@ func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, api.Success(item))
 	case "/api/chat/artifacts/read":
-		f, item, e := s.chatResources.OpenArtifact(req.ChatID, req.ArtifactID, req.RunID)
+		var f *os.File
+		var item chatresource.Artifact
+		var e error
+		if req.SourceRef != "" {
+			f, item, e = s.chatResources.OpenArtifactByRef(req.ChatID, req.SourceRef)
+		} else {
+			f, item, e = s.chatResources.OpenArtifact(req.ChatID, req.ArtifactID, req.RunID)
+		}
 		if e != nil {
 			fail(e)
 			return
@@ -100,7 +133,5 @@ func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": item.Name}))
 		http.ServeContent(w, r, item.Name, info.ModTime(), f)
-	default:
-		fail(chatresource.ErrArtifactNotFound)
 	}
 }
