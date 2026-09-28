@@ -693,6 +693,9 @@ func modelMessagesToMaps(messages []openAIMessage) []map[string]any {
 			if message.OriginModelKey != "" {
 				mapped["_modelKey"] = message.OriginModelKey
 			}
+			if message.OriginSteerKey != "" {
+				mapped["_steerKey"] = message.OriginSteerKey
+			}
 			if message.CompactSource != "" {
 				mapped["_compactSource"] = message.CompactSource
 			}

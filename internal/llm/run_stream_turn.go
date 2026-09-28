@@ -924,9 +924,13 @@ func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 			steer.PreparedMessages = []map[string]any{{"role": "user", "content": steer.Message}}
 		}
 		s.pending = append(s.pending, NewSteerDelta(steer))
+		steerKey := ""
+		if len(steer.References) > 0 {
+			steerKey = steer.RunID + "/" + steer.SteerID
+		}
 		for _, message := range steer.PreparedMessages {
 			s.pendingSteerInputs = append(s.pendingSteerInputs, message)
-			s.messages = append(s.messages, openAIMessage{Role: "user", Content: message["content"]})
+			s.messages = append(s.messages, openAIMessage{Role: "user", Content: message["content"], OriginSteerKey: steerKey})
 		}
 	}
 }

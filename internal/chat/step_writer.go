@@ -57,7 +57,6 @@ type StepWriter struct {
 	pendingModelKey         string
 	pendingReasoningEffort  string
 	pendingInputMessages    []map[string]any
-	pendingSteerMessages    map[string][]map[string]any
 	pendingSystemRef        map[string]any
 	pendingSystemInit       *QueryLineSystem
 	modelTurnCommitRequired bool
@@ -246,12 +245,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "awaiting.answer":
 		w.writeSubmitLine(event)
-
-	case "request.steer.snapshot":
-		if w.pendingSteerMessages == nil {
-			w.pendingSteerMessages = map[string][]map[string]any{}
-		}
-		w.pendingSteerMessages[event.String("steerId")] = cloneMessageMaps(messageMapsFromAny(event.Value("messages")))
 
 	case "request.steer":
 		w.flushCurrentStep()

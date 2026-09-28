@@ -180,6 +180,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		}
 		preserveReasoning := preserveReasoningContent(protocolConfig, stageSettings)
 		for _, raw := range mergeRawMessagesByMsgID(session.HistoryMessages) {
+			raw = e.materializeHistorySteer(raw, session, model.IsVision)
 			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {
 				messages = append(messages, msg)

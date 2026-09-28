@@ -306,6 +306,7 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 	msg := openAIMessage{Role: role, Content: contentValue}
 	msg.EncryptedReasoning = contracts.EncryptedReasoningParts(raw["reasoning_content"])
 	msg.OriginModelKey, _ = raw["_modelKey"].(string)
+	msg.OriginSteerKey, _ = raw["_steerKey"].(string)
 	msg.CompactSource, _ = raw["_compactSource"].(string)
 	msg.CompactRound, _ = raw["_compactRound"].(string)
 	msg.OriginRunID, _ = raw["runId"].(string)

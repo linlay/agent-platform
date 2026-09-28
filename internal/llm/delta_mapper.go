@@ -366,7 +366,6 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			SteerID:    value.SteerID,
 			Message:    value.Message,
 			References: value.References,
-			Messages:   value.Messages,
 		}}
 	case DeltaLLMRequest:
 		m.lastKind = ""

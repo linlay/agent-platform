@@ -68,8 +68,13 @@ func TestCoderPlanningSteerReplacesProposal(t *testing.T) {
 					if !strings.Contains(body, contracts.PlanningSuperseded) {
 						t.Error("obsolete tool result absent from model history")
 					}
-					if scenario.image && !strings.Contains(body, frozenImageURL) {
-						t.Error("frozen image absent from next model input")
+					if scenario.image {
+						if call <= lastRevision && !strings.Contains(body, frozenImageURL) {
+							t.Error("frozen image absent from active planning input")
+						}
+						if call > lastRevision && (strings.Contains(body, frozenImageURL) || !strings.Contains(body, "附件已不可用")) {
+							t.Error("resumed execution must rebuild the replaced image reference")
+						}
 					}
 					if scenario.repeat && call > targetRevision+1 && !strings.Contains(body, "STEER_REQUIREMENT_C") {
 						t.Error("later steer absent from revised model input")
@@ -293,8 +298,11 @@ func TestCoderPlanningSteerReplacesProposal(t *testing.T) {
 				t.Fatalf("replay lost steer/invalidation: %d/%d", replayedSteers, replayedInvalidations)
 			}
 			assertBalancedPlanningMessages(t, detail.RawMessages)
-			if scenario.image && !strings.Contains(string(mustJSONMarshal(t, detail.RawMessages)), frozenImageURL) {
-				t.Fatal("image steer snapshot missing from raw history")
+			if scenario.image {
+				raw := string(mustJSONMarshal(t, detail.RawMessages))
+				if !strings.Contains(raw, "steer.png") || strings.Contains(raw, frozenImageURL) {
+					t.Fatal("raw history must retain image reference without a frozen image")
+				}
 			}
 			pending, err := fixture.chats.LoadAllPendingAwaitings()
 			if err != nil || len(pending) != 0 {

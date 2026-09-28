@@ -45,7 +45,11 @@ func compactMessageAtoms(m map[string]any) []compactAtom {
 		add("tool", map[string]any{"id": compactToolResultID(m), "content": strings.TrimSpace(anyCompactText(m["content"]))})
 		return atoms
 	}
-	if hasCompactContent(m["content"]) {
+	if key := stringFromAny(m["_steerKey"]); role == "user" && key != "" {
+		// Reference-only steer content may be materialized from changed resources.
+		// Match its persisted identity, not the transient provider representation.
+		add("content", map[string]any{"steer": key})
+	} else if hasCompactContent(m["content"]) {
 		content := compactIdentityContent(m["content"])
 		add("content", map[string]any{"role": role, "content": content})
 	}

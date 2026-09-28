@@ -162,7 +162,7 @@ func TestImageSteerHTTPAndWSFreezePersistAndContinue(t *testing.T) {
 					t.Fatalf("unexpected public stream: %s", tail)
 				}
 				<-requests // Initial query.
-				assertImages := func(payload map[string]any) {
+				assertImages := func(payload map[string]any, history bool) {
 					t.Helper()
 					encoded, _ := json.Marshal(payload)
 					if scenario == "images-tools" && bytes.Contains(encoded, []byte("image_url")) {
@@ -173,19 +173,33 @@ func TestImageSteerHTTPAndWSFreezePersistAndContinue(t *testing.T) {
 							t.Fatalf("missing file reference %s: %s", name, encoded)
 						}
 					}
+					if history && len(expectedURLs) > 0 {
+						if bytes.Contains(encoded, []byte("image_url")) || !bytes.Contains(encoded, []byte("附件已不可用")) {
+							t.Fatalf("history must reload replaced images and report unavailable: %s", encoded)
+						}
+						return
+					}
 					for _, url := range expectedURLs {
 						if bytes.Count(encoded, []byte(url)) != 1 {
 							t.Fatalf("expected each frozen image exactly once: %s", encoded)
 						}
 					}
 				}
-				assertImages(<-requests)
+				assertImages(<-requests, false)
 				jsonl, err := fixture.chats.LoadJSONLContent(chatID)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if strings.Count(jsonl, `"_type":"steer"`) != 1 {
 					t.Fatalf("image input must persist once: %s", jsonl)
+				}
+				for _, line := range strings.Split(jsonl, "\n") {
+					var record map[string]any
+					if json.Unmarshal([]byte(line), &record) == nil && record["_type"] == "steer" {
+						if _, exists := record["messages"]; exists || strings.Contains(line, "data:image/") {
+							t.Fatalf("steer must persist only source input: %s", line)
+						}
+					}
 				}
 				detail, err := fixture.chats.LoadChat(chatID)
 				if err != nil {
@@ -204,7 +218,7 @@ func TestImageSteerHTTPAndWSFreezePersistAndContinue(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				assertImages(<-requests)
+				assertImages(<-requests, true)
 			})
 		}
 	}

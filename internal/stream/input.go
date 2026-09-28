@@ -303,7 +303,6 @@ type RequestSteer struct {
 	SteerID    string
 	Message    string
 	References any
-	Messages   []map[string]any
 }
 
 func (RequestSteer) streamInputTag() {}

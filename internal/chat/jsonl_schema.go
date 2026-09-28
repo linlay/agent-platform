@@ -282,9 +282,6 @@ func validateCurrentSteerSchema(line map[string]any) error {
 				return newJSONLSchemaViolation(line, "steer.references", "array of objects", jsonValueType(ref), "invalid reference")
 			}
 		}
-		if len(refs) > 0 && len(messageMapsFromAny(line["messages"])) == 0 {
-			return newJSONLSchemaViolation(line, "messages", "one user message snapshot", "missing", "attachment steer requires a frozen input snapshot")
-		}
 	}
 	if raw, found := line["messages"]; found {
 		items, ok := raw.([]any)

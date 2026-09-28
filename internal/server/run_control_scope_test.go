@@ -202,7 +202,11 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		raw, _ := json.Marshal(history)
+		var contents []any
+		for _, message := range history {
+			contents = append(contents, message["content"])
+		}
+		raw, _ := json.Marshal(contents)
 		for _, lane := range []string{"btw", "explain"} {
 			if bytes.Count(raw, []byte("selected "+lane)) == 1 {
 				found[lane] = true

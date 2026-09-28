@@ -282,6 +282,14 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 		lineType, _ := line["_type"].(string)
 		runID, _ := line["runId"].(string)
 		switch lineType {
+		case "steer":
+			if _, marked := line["_compact"]; marked && !compactKeep(line)["content"] {
+				continue
+			}
+			if message := llmRequestSteerMessageFromLine(line); len(message) > 0 {
+				messages = append(messages, message)
+			}
+
 		case CompactCheckpointLineType:
 			if snapshot := anyMessageSlice(line["messages"]); len(snapshot) > 0 {
 				messages = nil

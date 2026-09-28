@@ -37,7 +37,7 @@ JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 Num
 
 Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.run.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
 
-`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 保存 `requestId/chatId/runId/steerId/message/role` 与可选 `references` 业务字段；顶层可选 `messages` 保存实际注入模型的 user message 快照，且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
+`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 保存 `requestId/chatId/runId/steerId/message/role` 与可选 `references` 业务字段；新记录不写顶层 `messages`（旧快照兼容读取），且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
 
 HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`field`、`location`、`expected`、可选 `actual`、`status:422`、`retryable:false`。`location` 使用 1-based 物理行号；响应不会携带完整 JSONL 行或 system prompt。时间字段不合法仍使用 `time_contract_violation`。
 
@@ -1187,7 +1187,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
-公开 `request.steer` 增加 `references`，不携带图片 Base64。内部 `request.steer.snapshot` 不发布、不占公开 cursor，只供同一条 steer JSONL 写入 `messages`。实际输入只保存一次，不重复进入后续 step 的 `inputMessages`。旧纯文本 steer 继续读取；带附件记录要求 `messages`。前后端按后端先、前端后的顺序更新。
+公开 `request.steer` 携带 `references`，不携带图片 Base64。新 steer JSONL 仅保存 message/references，不产生内部 `request.steer.snapshot`，不写 `messages`，不重复进入后续 step 的 `inputMessages`。续聊按当前模型能力从 Chat 资源重建附件输入；图片不保留历史版本，失效附件提示不可用，不阻断续聊。旧纯文本与已有 messages 快照继续读取。公开协议保持不变。
 
 
 ## Office 在线预览 HTTP API
@@ -1240,7 +1240,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 事务保护协调 Platform 内部管理写入与 watcher；不能锁住用户编辑器或其他外部进程。既有导入/删除接口保持兼容。
 
-纯文本选区 steer 使用 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；`text` 必须为非空字符串，`annotation` 为可选字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的消息快照进入 steer JSONL、回放和续聊；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
+纯文本选区 steer 使用 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；`text` 必须为非空字符串，`annotation` 为可选字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的原始 message/references 进入 steer JSONL，用于回放和续聊重建；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
 
 ## 网页 Container / Surface 契约
 
@@ -1248,7 +1248,7 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 
 普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
 
-划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用与模型消息快照持久化，未提供编号时不生成编号字段。
+划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 
 主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；run_query 工具入口仍要求文字。
 

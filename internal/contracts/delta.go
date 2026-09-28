@@ -285,7 +285,6 @@ type DeltaRequestSteer struct {
 	SteerID    string
 	Message    string
 	References []api.Reference
-	Messages   []map[string]any
 }
 
 func (DeltaRequestSteer) agentDeltaTag() {}
