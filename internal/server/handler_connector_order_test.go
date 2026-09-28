@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/ws"
+
 	gws "github.com/gorilla/websocket"
 )
 
@@ -19,6 +20,7 @@ func TestConnectorOrderHTTPUserIsolationAndValidation(t *testing.T) {
 	fixture := newAgentSkillsTestFixture(t, false)
 	writeMCPConnectorForTest(t, fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "demo")
 	fixture.server.deps.Config.Paths.BuiltinConnectorsDir = t.TempDir()
+	bindTestRuntime(fixture.server)
 	writeMCPConnectorForTest(t, fixture.server.deps.Config.Paths.BuiltinConnectorsDir, "builtin.demo")
 	request := func(user, method, body string, status int) api.ConnectorOrderResponse {
 		t.Helper()
@@ -70,6 +72,7 @@ func TestConnectorOrderWebSocketUsesSameStore(t *testing.T) {
 	fixture := newAgentSkillsTestFixture(t, true)
 	writeMCPConnectorForTest(t, fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "demo")
 	fixture.server.deps.Config.Paths.BuiltinConnectorsDir = t.TempDir()
+	bindTestRuntime(fixture.server)
 	writeMCPConnectorForTest(t, fixture.server.deps.Config.Paths.BuiltinConnectorsDir, "builtin.demo")
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
@@ -107,6 +110,7 @@ func TestConnectorOrderWebSocketUsesSameStore(t *testing.T) {
 func TestConnectorOrderRequiresServerIdentity(t *testing.T) {
 	fixture := newAgentSkillsTestFixture(t, false)
 	fixture.server.deps.Config.Auth.Enabled = true
+	bindTestRuntime(fixture.server)
 	if _, err := fixture.server.readConnectorOrder(context.Background()); err == nil {
 		t.Fatal("accepted missing identity")
 	}

@@ -91,8 +91,8 @@ func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
-	if prepared.req.AgentKey != "global-default" {
-		t.Fatalf("expected global default agent, got %q", prepared.req.AgentKey)
+	if prepared.Req.AgentKey != "global-default" {
+		t.Fatalf("expected global default agent, got %q", prepared.Req.AgentKey)
 	}
 
 	if _, _, err := chats.EnsureChat("wecom#existing#u1", "assistant", "", "seed"); err != nil {
@@ -103,8 +103,8 @@ func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryForTest existing chat: %v", err)
 	}
-	if prepared.req.AgentKey != "assistant" {
-		t.Fatalf("expected existing chat agent to win, got %q", prepared.req.AgentKey)
+	if prepared.Req.AgentKey != "assistant" {
+		t.Fatalf("expected existing chat agent to win, got %q", prepared.Req.AgentKey)
 	}
 
 	teamReq := api.QueryRequest{ChatID: "wecom#team#u1", TeamID: "team-a", Message: "team route"}
@@ -112,7 +112,7 @@ func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryAdmission Team: %v", err)
 	}
-	if admission.req.AgentKey != "" || admission.req.TeamID != "team-a" || !admission.orchestratedTeam {
+	if admission.Req.AgentKey != "" || admission.Req.TeamID != "team-a" || !admission.OrchestratedTeam {
 		t.Fatalf("expected orchestrated Team owner, got %#v", admission)
 	}
 
@@ -121,8 +121,8 @@ func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareQueryForTest explicit agent: %v", err)
 	}
-	if prepared.req.AgentKey != "assistant" {
-		t.Fatalf("expected explicit agent to win, got %q", prepared.req.AgentKey)
+	if prepared.Req.AgentKey != "assistant" {
+		t.Fatalf("expected explicit agent to win, got %q", prepared.Req.AgentKey)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestPrepareQueryDoesNotApplyChannelAgentAllowlist(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"feishu#p2p#u1","agentKey":"customer-service","message":"hello"}`))
 	prepared, err := prepareQueryForTest(server, req)
-	if err != nil || prepared.req.AgentKey != "customer-service" {
+	if err != nil || prepared.Req.AgentKey != "customer-service" {
 		t.Fatalf("explicit agent must not be channel-filtered: prepared=%#v err=%v", prepared, err)
 	}
 }
@@ -261,6 +261,7 @@ func TestRewriteChannelRequestPayloadMapsExportedAgentAndChecksAllow(t *testing.
 			},
 		},
 	}
+	bindTestRuntime(server)
 	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
 
 	rewritten, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/query", json.RawMessage(`{"externalAgentKey":"assistant-ext","message":"hello"}`))
@@ -279,7 +280,7 @@ func TestRewriteChannelRequestPayloadMapsExportedAgentAndChecksAllow(t *testing.
 	}
 
 	_, statusErr = server.rewriteChannelRequestPayload(ctx, "/api/submit", json.RawMessage(`{"agentKey":"assistant-ext","runId":"run-1"}`))
-	if statusErr == nil || statusErr.status != http.StatusForbidden {
+	if statusErr == nil || statusErr.Status != http.StatusForbidden {
 		t.Fatalf("expected submit to be forbidden, got %#v", statusErr)
 	}
 }
@@ -299,10 +300,11 @@ func TestRewriteChannelRequestPayloadRejectsMissingExport(t *testing.T) {
 			},
 		},
 	}
+	bindTestRuntime(server)
 	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
 
 	_, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/query", json.RawMessage(`{"externalAgentKey":"assistant","message":"hello"}`))
-	if statusErr == nil || statusErr.status != http.StatusForbidden || statusErr.message != "agent is not exported on channel" {
+	if statusErr == nil || statusErr.Status != http.StatusForbidden || statusErr.Message != "agent is not exported on channel" {
 		t.Fatalf("expected missing export to be forbidden, got %#v", statusErr)
 	}
 }
@@ -331,9 +333,10 @@ func TestRewriteChannelFileTransferRequiresExportAllow(t *testing.T) {
 			},
 		},
 	}
+	bindTestRuntime(server)
 	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
 	_, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/upload", json.RawMessage(`{"chatId":"chat-export"}`))
-	if statusErr == nil || statusErr.status != http.StatusForbidden {
+	if statusErr == nil || statusErr.Status != http.StatusForbidden {
 		t.Fatalf("expected upload without fileTransfer allow to be forbidden, got %#v", statusErr)
 	}
 
@@ -359,6 +362,7 @@ func TestRewriteChannelFileTransferRequiresExportAllow(t *testing.T) {
 			},
 		},
 	}
+	bindTestRuntime(server)
 	_, statusErr = server.rewriteChannelRequestPayload(ctx, "/api/upload", json.RawMessage(`{"chatId":"chat-export"}`))
 	if statusErr != nil {
 		t.Fatalf("expected upload with fileTransfer allow to pass, got %#v", statusErr)
@@ -386,6 +390,7 @@ func TestRewriteChannelRequestPayloadOmittedAliasMatchesLocalKey(t *testing.T) {
 			},
 		},
 	}
+	bindTestRuntime(server)
 	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
 
 	// Match via externalAgentKey with local agent key
@@ -426,6 +431,7 @@ func TestRewriteChannelRequestPayloadFallbackAgentKeyMatches(t *testing.T) {
 			},
 		},
 	}
+	bindTestRuntime(server)
 	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
 
 	// Match via agentKey (fallback) without externalAgentKey
@@ -463,10 +469,11 @@ func TestRewriteChannelRequestPayloadNonMatchingExternalKeyForbidden(t *testing.
 			},
 		},
 	}
+	bindTestRuntime(server)
 	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
 
 	_, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/query", json.RawMessage(`{"externalAgentKey":"nonexistent","message":"hello"}`))
-	if statusErr == nil || statusErr.status != http.StatusForbidden {
+	if statusErr == nil || statusErr.Status != http.StatusForbidden {
 		t.Fatalf("expected 403 for non-matching external key, got %#v", statusErr)
 	}
 }
@@ -526,7 +533,7 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 			req := tt.request
 			_, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 			var statusErr *statusError
-			if !errors.As(err, &statusErr) || statusErr.status != tt.wantStatus {
+			if !errors.As(err, &statusErr) || statusErr.Status != tt.wantStatus {
 				t.Fatalf("error = %#v, want status %d", err, tt.wantStatus)
 			}
 		})
@@ -538,7 +545,7 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 	req := api.QueryRequest{ChatID: "plain-chat", TeamID: "team-a", Message: "hello"}
 	_, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusConflict {
 		t.Fatalf("empty-team chat adoption error = %#v, want 409", err)
 	}
 
@@ -547,13 +554,13 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 	}
 	req = api.QueryRequest{ChatID: "team-chat", TeamID: "team-b", Message: "hello"}
 	_, err = server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusConflict {
 		t.Fatalf("team replacement error = %#v, want 409", err)
 	}
 
 	req = api.QueryRequest{ChatID: "team-chat", AgentKey: "assistant", Message: "switch"}
 	_, err = server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest {
 		t.Fatalf("team member override must fail: %#v", err)
 	}
 }
@@ -569,7 +576,7 @@ func TestPrepareQueryTeamAdmissionReturnsUnavailableForInvalidTeamAndRejectsHist
 	req := api.QueryRequest{ChatID: "invalid-default-chat", TeamID: "invalid-default", Message: "hello"}
 	_, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusServiceUnavailable {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusServiceUnavailable {
 		t.Fatalf("invalid default error = %#v, want 503", err)
 	}
 
@@ -578,7 +585,7 @@ func TestPrepareQueryTeamAdmissionReturnsUnavailableForInvalidTeamAndRejectsHist
 	}
 	req = api.QueryRequest{ChatID: "drifted-chat", Message: "hello"}
 	_, err = server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "historical Team chat") {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || !strings.Contains(statusErr.Message, "historical Team chat") {
 		t.Fatalf("historical Team pair error = %#v, want 400", err)
 	}
 }
@@ -596,18 +603,19 @@ func TestPrepareQueryTeamAdmissionUsesFrozenMemberDefinition(t *testing.T) {
 		channelTestCatalogRegistry: registry,
 		snapshots:                  map[string]catalog.TeamSnapshot{"team-a": snapshot},
 	}
+	bindTestRuntime(server)
 
 	req := api.QueryRequest{ChatID: "snapshot-chat", TeamID: "team-a", Message: "hello"}
 	admission, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if err != nil {
 		t.Fatalf("prepare admission from frozen snapshot: %v", err)
 	}
-	member, ok := admission.teamSnapshot.AgentDefinition("team-agent")
+	member, ok := admission.TeamSnapshot.AgentDefinition("team-agent")
 	if !ok || member.Name != "Frozen Team Agent" || member.Mode != "REACT" {
-		t.Fatalf("admission did not use frozen Team member definition: %#v", admission.teamSnapshot)
+		t.Fatalf("admission did not use frozen Team member definition: %#v", admission.TeamSnapshot)
 	}
-	if admission.agentDef.Mode != "TEAM" {
-		t.Fatalf("Team admission must synthesize a coordinator, got %#v", admission.agentDef)
+	if admission.AgentDef.Mode != "TEAM" {
+		t.Fatalf("Team admission must synthesize a coordinator, got %#v", admission.AgentDef)
 	}
 }
 
@@ -623,7 +631,7 @@ func TestCompleteQueryPreparationRechecksFixedTeamAfterConcurrentChatCreation(t 
 	}
 	_, err = server.completeQueryPreparation(t.Context(), admission, nil)
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusConflict {
 		t.Fatalf("complete error = %#v, want 409", err)
 	}
 }

@@ -148,7 +148,7 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 		return api.SubmitResponse{}, nil, false
 	}
 	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.AgentKey) {
-		return api.SubmitResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
+		return api.SubmitResponse{}, &statusError{Status: http.StatusForbidden, Message: "agentKey does not match run"}, true
 	}
 	if route.Transport == "sse" {
 		var response api.SubmitResponse
@@ -203,7 +203,7 @@ func (s *Server) forwardProxyAccessLevel(req api.AccessLevelRequest) (api.Access
 		return api.AccessLevelResponse{}, nil, false
 	}
 	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.AgentKey) {
-		return api.AccessLevelResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
+		return api.AccessLevelResponse{}, &statusError{Status: http.StatusForbidden, Message: "agentKey does not match run"}, true
 	}
 	payload := map[string]any{
 		"requestId":   req.RequestID,
@@ -245,7 +245,7 @@ func (s *Server) forwardProxyInterrupt(req api.InterruptRequest) (api.InterruptR
 		return api.InterruptResponse{}, nil, false
 	}
 	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.AgentKey) {
-		return api.InterruptResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
+		return api.InterruptResponse{}, &statusError{Status: http.StatusForbidden, Message: "agentKey does not match run"}, true
 	}
 	forwarded := proxyWSInterruptRequest(req)
 	if route.Transport == "sse" {
@@ -299,7 +299,7 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 		return api.SteerResponse{}, nil, false
 	}
 	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.AgentKey) {
-		return api.SteerResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
+		return api.SteerResponse{}, &statusError{Status: http.StatusForbidden, Message: "agentKey does not match run"}, true
 	}
 	steerID := strings.TrimSpace(req.SteerID)
 	if steerID == "" {
@@ -353,23 +353,23 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 
 func postProxyRunControl(route *proxyRunRoute, path string, payload map[string]any, target any) *statusError {
 	if route == nil {
-		return &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: "proxy control endpoint is unavailable"}
+		return &statusError{Status: http.StatusBadGateway, Code: "proxy_unavailable", Message: "proxy control endpoint is unavailable"}
 	}
 	err := route.PostControl(path, payload, target)
 	if err == nil {
 		return nil
 	}
-	statusErr := &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: err.Error()}
+	statusErr := &statusError{Status: http.StatusBadGateway, Code: "proxy_unavailable", Message: err.Error()}
 	var appErr *apperrors.Error
 	if errors.As(err, &appErr) {
 		switch appErr.Code() {
 		case apperrors.CodeInternalError:
-			statusErr.status = http.StatusInternalServerError
-			statusErr.code = "internal_error"
+			statusErr.Status = http.StatusInternalServerError
+			statusErr.Code = "internal_error"
 		case apperrors.CodeProxyBadResponse:
-			statusErr.code = "proxy_invalid_response"
+			statusErr.Code = "proxy_invalid_response"
 		case apperrors.CodeProxyUpstreamError:
-			statusErr.code = "proxy_control_failed"
+			statusErr.Code = "proxy_control_failed"
 		}
 	}
 	return statusErr
@@ -620,7 +620,7 @@ func (r *proxyEventRecorder) syntheticPlanningSnapshotBeforeAwaiting(event strea
 		planning["planningFile"] = planningFile
 		event.Payload["planning"] = planning
 	}
-	state, snapshot := chat.PlanningSnapshotFromAwaitingItem(eventPayloadWithType(event), r.req.ChatID, r.req.RunID, chatDir)
+	state, snapshot := chat.PlanningSnapshotFromAwaitingItem(eventPayloadWithType(event), r.req.ChatID, r.req.RunID)
 	if state == nil || snapshot == nil || strings.TrimSpace(state.Markdown) == "" || r.hasPlanningSnapshot(state.PlanningID) {
 		return stream.EventData{}, false
 	}

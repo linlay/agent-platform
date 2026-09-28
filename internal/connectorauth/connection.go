@@ -2,12 +2,15 @@ package connectorauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"agent-platform/internal/connector"
 )
+
+var ErrAuthNotRequired = errors.New("connector_auth_not_required")
 
 type Capabilities struct {
 	CanConnect    bool               `json:"canConnect"`
@@ -20,10 +23,11 @@ type Capabilities struct {
 }
 type Connection struct {
 	connector.ConnectionState
-	Readiness      string       `json:"readiness"`
-	Authentication Session      `json:"authentication"`
-	Capabilities   Capabilities `json:"capabilities"`
-	Preparation    *Preparation `json:"preparation,omitempty"`
+	ConfigurationRequired bool         `json:"configurationRequired"`
+	Readiness             string       `json:"readiness"`
+	Authentication        Session      `json:"authentication"`
+	Capabilities          Capabilities `json:"capabilities"`
+	Preparation           *Preparation `json:"preparation,omitempty"`
 }
 
 // Connection is a local snapshot. Reading a list must not launch a CLI or contact an upstream.
@@ -32,11 +36,20 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 	if err != nil {
 		return Connection{}, err
 	}
-	state, err := pkg.ReadConnection()
+	state := connector.ConnectionState{ConnectorID: id}
+	if pkg.AuthMode != connector.AuthNoAuth {
+		state, err = pkg.ReadConnection()
+	}
 	if err != nil {
 		return Connection{}, err
 	}
-	c := Connection{ConnectionState: state, Readiness: "configuration_required", Capabilities: Capabilities{CanConnect: pkg.AuthMode != connector.AuthToken, CanDisconnect: true, CanCheck: true, AuthMode: pkg.AuthMode, AuthBrowser: pkg.AuthorizationBrowser(), HasCLI: pkg.CLI != nil, HasMCP: len(pkg.MCP) > 0}}
+	c := Connection{ConnectionState: state, ConfigurationRequired: pkg.AuthMode != connector.AuthNoAuth, Readiness: "configuration_required", Capabilities: Capabilities{CanConnect: pkg.AuthMode != connector.AuthToken, CanDisconnect: true, CanCheck: true, AuthMode: pkg.AuthMode, AuthBrowser: pkg.AuthorizationBrowser(), HasCLI: pkg.CLI != nil, HasMCP: len(pkg.MCP) > 0}}
+	if pkg.AuthMode == connector.AuthNoAuth {
+		c.Readiness = "no_auth"
+		c.Capabilities.CanConnect = false
+		c.Capabilities.CanDisconnect = false
+		c.Capabilities.CanCheck = false
+	}
 	if pkg.CLI != nil && !pkg.Builtin {
 		prep, err := m.PreparationStatus(id)
 		if err != nil {
@@ -88,6 +101,9 @@ func (m *Manager) Disconnect(ctx context.Context, id string) (DisconnectResult, 
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return result, err
+	}
+	if pkg.AuthMode == connector.AuthNoAuth {
+		return result, ErrAuthNotRequired
 	}
 	if err = m.beginDisconnect(id); err != nil {
 		return result, err
@@ -147,6 +163,9 @@ func (m *Manager) ConnectComponent(id, component string) (Session, error) {
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
+	}
+	if pkg.AuthMode == connector.AuthNoAuth {
+		return Session{}, ErrAuthNotRequired
 	}
 	if pkg.AuthMode == connector.AuthToken {
 		return Session{}, fmt.Errorf("configure token credentials using the token endpoint")

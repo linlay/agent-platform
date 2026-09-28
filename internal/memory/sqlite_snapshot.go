@@ -180,10 +180,7 @@ func decodeStringList(raw string) []string {
 
 func (s *SQLiteStore) listProjectionItemsLocked(agentKey string) ([]api.StoredMemoryResponse, error) {
 	rows, err := s.db.Query(
-		`SELECT ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
-			KIND_, REF_ID_, SCOPE_TYPE_, SCOPE_KEY_, TITLE_,
-			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, CONFIDENCE_, STATUS_, TAGS_,
-			UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_
+		`SELECT `+storedMemoryColumns("")+`
 		FROM MEMORIES
 		WHERE (? = '' OR AGENT_KEY_ = ? OR AGENT_KEY_ = '')
 		ORDER BY UPDATED_AT_ DESC, IMPORTANCE_ DESC`,
@@ -196,7 +193,7 @@ func (s *SQLiteStore) listProjectionItemsLocked(agentKey string) ([]api.StoredMe
 
 	items := make([]api.StoredMemoryResponse, 0)
 	for rows.Next() {
-		item, err := scanMemoryRow(rows)
+		item, err := scanStoredMemory(rows, "memory.sqlite.row")
 		if err != nil {
 			return nil, err
 		}

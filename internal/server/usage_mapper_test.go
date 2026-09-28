@@ -1,14 +1,9 @@
 package server
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"agent-platform/internal/chat"
-	"agent-platform/internal/config"
-	"agent-platform/internal/models"
 	"agent-platform/internal/stream"
 )
 
@@ -141,7 +136,6 @@ func TestChatUsageBreakdownPrefersLatestRunAndHistoricalChatUsage(t *testing.T) 
 			LastRun:   chat.UsageData{PromptTokens: 11, CompletionTokens: 5, TotalTokens: 16, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 111, CompletionTokens: 22, TotalTokens: 133, LlmChatCompletionCount: 2},
 		},
-		nil, nil, config.BillingConfig{},
 	)
 	if breakdown == nil || breakdown.LastRun == nil || breakdown.Chat == nil {
 		t.Fatalf("expected usage breakdown, got %#v", breakdown)
@@ -169,7 +163,6 @@ func TestChatUsageBreakdownUsesSummaryChatUsageWithoutHistoricalRunFallback(t *t
 		&chat.UsageData{PromptTokens: 30, CompletionTokens: 7, TotalTokens: 37, LlmChatCompletionCount: 2},
 		nil,
 		chat.ReplayUsage{},
-		nil, nil, config.BillingConfig{},
 	)
 	if breakdown == nil || breakdown.Chat == nil {
 		t.Fatalf("expected fallback usage breakdown, got %#v", breakdown)
@@ -191,7 +184,6 @@ func TestChatUsageBreakdownUsesReplayWhenRunHasNoSummary(t *testing.T) {
 			LastRun:   chat.UsageData{PromptTokens: 2822, CompletionTokens: 100, TotalTokens: 2922, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 2822, CompletionTokens: 100, TotalTokens: 2922, LlmChatCompletionCount: 1},
 		},
-		nil, nil, config.BillingConfig{},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil || breakdown.Chat == nil {
@@ -230,7 +222,6 @@ func TestChatUsageBreakdownPrefersCompletedRunSummaryOverReplayForSameRun(t *tes
 			LastRun:   chat.UsageData{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, LlmChatCompletionCount: 1},
 		},
-		nil, nil, config.BillingConfig{},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil {
@@ -273,7 +264,6 @@ func TestChatUsageBreakdownUsesReplayChatWhenSummaryLags(t *testing.T) {
 			LastRun:   chat.UsageData{PromptTokens: 11, CompletionTokens: 4, TotalTokens: 15, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 18, CompletionTokens: 7, TotalTokens: 25, LlmChatCompletionCount: 2},
 		},
-		nil, nil, config.BillingConfig{},
 	)
 
 	if breakdown == nil || breakdown.Chat == nil {
@@ -303,7 +293,6 @@ func TestChatUsageBreakdownSupplementsCostFromReplayWhenSummaryLacksCost(t *test
 			LastRun:   chat.UsageData{PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, LlmChatCompletionCount: 1, EstimatedCostCurrency: "CNY", EstimatedCostTotal: 0.06},
 			Chat:      chat.UsageData{PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, LlmChatCompletionCount: 1, EstimatedCostCurrency: "CNY", EstimatedCostTotal: 0.06},
 		},
-		nil, nil, config.BillingConfig{},
 	)
 
 	if breakdown == nil || breakdown.Chat == nil {
@@ -352,7 +341,6 @@ func TestChatUsageBreakdownPrefersRunSummaryCostOverReplay(t *testing.T) {
 			LastRun:   chat.UsageData{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, LlmChatCompletionCount: 1, EstimatedCostCurrency: "CNY", EstimatedCostTotal: 0.12},
 			Chat:      chat.UsageData{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, LlmChatCompletionCount: 1, EstimatedCostCurrency: "CNY", EstimatedCostTotal: 0.06},
 		},
-		nil, nil, config.BillingConfig{},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil {
@@ -386,7 +374,6 @@ func TestChatUsageBreakdownSupplementsRunCostFromReplayWhenRunSummaryLacksCost(t
 			LastRun:   chat.UsageData{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, LlmChatCompletionCount: 1, EstimatedCostCurrency: "USD", EstimatedCostTotal: 0.035},
 			Chat:      chat.UsageData{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, LlmChatCompletionCount: 1},
 		},
-		nil, nil, config.BillingConfig{},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil {
@@ -418,7 +405,6 @@ func TestChatUsageBreakdownReplayOnlyAwaitingRunReturnsCost(t *testing.T) {
 			LastRun:   chat.UsageData{PromptTokens: 500, CompletionTokens: 100, TotalTokens: 600, LlmChatCompletionCount: 1, EstimatedCostCurrency: "CNY", EstimatedCostTotal: 0.25},
 			Chat:      chat.UsageData{PromptTokens: 500, CompletionTokens: 100, TotalTokens: 600, LlmChatCompletionCount: 1, EstimatedCostCurrency: "CNY", EstimatedCostTotal: 0.25},
 		},
-		nil, nil, config.BillingConfig{},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil {
@@ -440,7 +426,6 @@ func TestChatUsageBreakdownReplayOnlyAwaitingRunReturnsCost(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestChatUsageBreakdownDoesNotEstimateLastRunWithoutPersistedCost(t *testing.T) {
-	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		nil,
 		[]chat.RunSummary{
@@ -460,9 +445,6 @@ func TestChatUsageBreakdownDoesNotEstimateLastRunWithoutPersistedCost(t *testing
 			LastRun:   chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 		},
-		map[string]any{"modelKey": "mock-model"},
-		registry,
-		config.BillingConfig{Currency: "CNY"},
 	)
 	if breakdown == nil || breakdown.LastRun == nil {
 		t.Fatalf("expected usage breakdown, got %#v", breakdown)
@@ -473,7 +455,6 @@ func TestChatUsageBreakdownDoesNotEstimateLastRunWithoutPersistedCost(t *testing
 }
 
 func TestChatUsageBreakdownDoesNotEstimateChatWhenTokenSameAsLastRun(t *testing.T) {
-	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		&chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 		[]chat.RunSummary{
@@ -493,9 +474,6 @@ func TestChatUsageBreakdownDoesNotEstimateChatWhenTokenSameAsLastRun(t *testing.
 			LastRun:   chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 		},
-		map[string]any{"modelKey": "mock-model"},
-		registry,
-		config.BillingConfig{Currency: "CNY"},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil || breakdown.Chat == nil {
@@ -510,7 +488,6 @@ func TestChatUsageBreakdownDoesNotEstimateChatWhenTokenSameAsLastRun(t *testing.
 }
 
 func TestChatUsageBreakdownDoesNotEstimateMultiRunChat(t *testing.T) {
-	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		&chat.UsageData{PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300, LlmChatCompletionCount: 2},
 		[]chat.RunSummary{
@@ -526,9 +503,6 @@ func TestChatUsageBreakdownDoesNotEstimateMultiRunChat(t *testing.T) {
 			},
 		},
 		chat.ReplayUsage{},
-		map[string]any{"modelKey": "mock-model"},
-		registry,
-		config.BillingConfig{Currency: "CNY"},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil || breakdown.Chat == nil {
@@ -543,7 +517,6 @@ func TestChatUsageBreakdownDoesNotEstimateMultiRunChat(t *testing.T) {
 }
 
 func TestChatUsageBreakdownSkipsFallbackWhenModelNotFound(t *testing.T) {
-	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		nil,
 		[]chat.RunSummary{
@@ -563,9 +536,6 @@ func TestChatUsageBreakdownSkipsFallbackWhenModelNotFound(t *testing.T) {
 			LastRun:   chat.UsageData{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500, LlmChatCompletionCount: 1},
 		},
-		map[string]any{"modelKey": "nonexistent-model"},
-		registry,
-		config.BillingConfig{Currency: "CNY"},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil {
@@ -577,7 +547,6 @@ func TestChatUsageBreakdownSkipsFallbackWhenModelNotFound(t *testing.T) {
 }
 
 func TestChatUsageBreakdownSkipsFallbackWhenPricingMissing(t *testing.T) {
-	registry := writeTestModelRegistryNoPricing(t)
 	breakdown := chatUsageBreakdown(
 		nil,
 		[]chat.RunSummary{
@@ -597,9 +566,6 @@ func TestChatUsageBreakdownSkipsFallbackWhenPricingMissing(t *testing.T) {
 			LastRun:   chat.UsageData{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500, LlmChatCompletionCount: 1},
 		},
-		map[string]any{"modelKey": "no-pricing-model"},
-		registry,
-		config.BillingConfig{Currency: "CNY"},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil {
@@ -611,7 +577,6 @@ func TestChatUsageBreakdownSkipsFallbackWhenPricingMissing(t *testing.T) {
 }
 
 func TestChatUsageBreakdownDoesNotFallbackToCompletedRunModel(t *testing.T) {
-	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		&chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 		[]chat.RunSummary{
@@ -631,9 +596,6 @@ func TestChatUsageBreakdownDoesNotFallbackToCompletedRunModel(t *testing.T) {
 			LastRun:   chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 		},
-		map[string]any{"modelKey": "new-model"},
-		registry,
-		config.BillingConfig{Currency: "CNY"},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil {
@@ -651,7 +613,6 @@ func TestChatUsageBreakdownDoesNotFallbackToCompletedRunModel(t *testing.T) {
 }
 
 func TestChatUsageBreakdownDoesNotFallbackToContextWindowForReplayOnlyModel(t *testing.T) {
-	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		nil,
 		nil,
@@ -660,9 +621,6 @@ func TestChatUsageBreakdownDoesNotFallbackToContextWindowForReplayOnlyModel(t *t
 			LastRun:   chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 			Chat:      chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
 		},
-		map[string]any{"modelKey": "th-deepseek-v4-pro"},
-		registry,
-		config.BillingConfig{Currency: "CNY"},
 	)
 
 	if breakdown == nil || breakdown.LastRun == nil {
@@ -677,117 +635,4 @@ func TestChatUsageBreakdownDoesNotFallbackToContextWindowForReplayOnlyModel(t *t
 	if breakdown.Chat.EstimatedCost != nil {
 		t.Fatalf("did not expect chat context-window read-time fallback cost, got %#v", breakdown.Chat.EstimatedCost)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: write model registries for tests
-// ---------------------------------------------------------------------------
-
-func writeTestModelRegistry(t *testing.T) *models.ModelRegistry {
-	t.Helper()
-	root := t.TempDir()
-	for _, dir := range []string{filepath.Join(root, "providers"), filepath.Join(root, "models")} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("mkdir registry dir: %v", err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(root, "providers", "mock.yml"), []byte(strings.Join([]string{
-		"key: mock",
-		"baseUrl: https://example.com",
-		"apiKey: test",
-		"defaultModel: mock-model",
-	}, "\n")), 0o644); err != nil {
-		t.Fatalf("write provider: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "models", "mock.yml"), []byte(strings.Join([]string{
-		"key: mock-model",
-		"provider: mock",
-		"protocol: OPENAI",
-		"modelId: mock-model-id",
-		"pricing:",
-		"  currency: CNY",
-		"  unit: per_1m_tokens",
-		"  inputCacheHit: 0.025",
-		"  inputCacheMiss: 3.00",
-		"  output: 6.00",
-	}, "\n")), 0o644); err != nil {
-		t.Fatalf("write model: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "models", "old.yml"), []byte(strings.Join([]string{
-		"key: old-model",
-		"provider: mock",
-		"protocol: OPENAI",
-		"modelId: old-model-id",
-		"pricing:",
-		"  currency: CNY",
-		"  unit: per_1m_tokens",
-		"  inputCacheHit: 0.00",
-		"  inputCacheMiss: 1.00",
-		"  output: 2.00",
-	}, "\n")), 0o644); err != nil {
-		t.Fatalf("write old model: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "models", "new.yml"), []byte(strings.Join([]string{
-		"key: new-model",
-		"provider: mock",
-		"protocol: OPENAI",
-		"modelId: new-model-id",
-		"pricing:",
-		"  currency: CNY",
-		"  unit: per_1m_tokens",
-		"  inputCacheHit: 0.00",
-		"  inputCacheMiss: 10.00",
-		"  output: 20.00",
-	}, "\n")), 0o644); err != nil {
-		t.Fatalf("write new model: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "models", "th-deepseek-v4-pro.yml"), []byte(strings.Join([]string{
-		"key: th-deepseek-v4-pro",
-		"provider: mock",
-		"protocol: OPENAI",
-		"modelId: th-deepseek-v4-pro",
-		"pricing:",
-		"  currency: CNY",
-		"  unit: per_1m_tokens",
-		"  inputCacheHit: 0.00",
-		"  inputCacheMiss: 5.00",
-		"  output: 8.00",
-	}, "\n")), 0o644); err != nil {
-		t.Fatalf("write th deepseek model: %v", err)
-	}
-	registry, err := models.LoadModelRegistry(root)
-	if err != nil {
-		t.Fatalf("load registry: %v", err)
-	}
-	return registry
-}
-
-func writeTestModelRegistryNoPricing(t *testing.T) *models.ModelRegistry {
-	t.Helper()
-	root := t.TempDir()
-	for _, dir := range []string{filepath.Join(root, "providers"), filepath.Join(root, "models")} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("mkdir registry dir: %v", err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(root, "providers", "mock.yml"), []byte(strings.Join([]string{
-		"key: mock",
-		"baseUrl: https://example.com",
-		"apiKey: test",
-	}, "\n")), 0o644); err != nil {
-		t.Fatalf("write provider: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "models", "no-pricing.yml"), []byte(strings.Join([]string{
-		"key: no-pricing-model",
-		"provider: mock",
-		"protocol: OPENAI",
-		"modelId: no-pricing-model-id",
-	}, "\n")), 0o644); err != nil {
-		t.Fatalf("write model: %v", err)
-	}
-	registry, err := models.LoadModelRegistry(root)
-	if err != nil {
-		t.Fatalf("load registry: %v", err)
-	}
-	return registry
 }

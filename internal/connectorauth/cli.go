@@ -467,7 +467,7 @@ func (m *Manager) cliStatus(ctx context.Context, pkg connector.Package) (bool, e
 	}
 	// Status must not start an installer's implicit binary download. Only the
 	// explicit preparation/version-check phase may run an unprepared wrapper.
-	if err := m.requireNativeCLI(pkg, s); err != nil {
+	if err := m.requireNativeCLI(pkg); err != nil {
 		return false, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -639,7 +639,7 @@ func (m *Manager) logoutCLI(ctx context.Context, pkg connector.Package) error {
 	if s.LogoutMode == "delete-config" {
 		return fmt.Errorf("CLI sign-out requires an explicit unAuth command; reset configuration separately")
 	}
-	if err := m.requireNativeCLI(pkg, s); err != nil {
+	if err := m.requireNativeCLI(pkg); err != nil {
 		return err
 	}
 	args, err := cliArgs(pkg, "unAuth", s.Command)
@@ -658,6 +658,6 @@ func (m *Manager) logoutCLI(ctx context.Context, pkg connector.Package) error {
 	return nil
 }
 
-func (m *Manager) requireNativeCLI(pkg connector.Package, s cliSettings) error {
+func (m *Manager) requireNativeCLI(pkg connector.Package) error {
 	return m.requirePrepared(pkg)
 }

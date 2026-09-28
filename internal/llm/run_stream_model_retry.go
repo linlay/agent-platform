@@ -254,6 +254,9 @@ func (s *llmRunStream) handleModelAttemptError(err error) error {
 		)
 		return nil
 	}
+	if s.recoverResponsesState(err) {
+		return nil
+	}
 	if s.canRetryModelAttempt(err) {
 		call := s.modelCall
 		nextAttempt := call.attempt + 1

@@ -73,7 +73,6 @@ func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 	}
 	agents, admin, err := loadAgentsWithAdminAssembler(
 		agentsDir,
-		centerDir,
 		filepath.Join(root, "chats"),
 		true,
 		assembler,
@@ -163,7 +162,7 @@ func TestRuntimeAgentAssemblerRejectsSkillConfigConflictsButAllowsIdenticalFiles
 	if err != nil {
 		t.Fatal(err)
 	}
-	agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, centerDir, filepath.Join(root, "chats"), true, assembler)
+	agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, filepath.Join(root, "chats"), true, assembler)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +206,7 @@ func TestRuntimeAgentAssemblerRejectsCaseFoldAndStructuralConflicts(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, centerDir, filepath.Join(root, "chats"), true, assembler)
+			agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, filepath.Join(root, "chats"), true, assembler)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -236,7 +235,7 @@ func TestRuntimeAgentAssemblerDoesNotFallbackWhenLocalSkillIsInvalid(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, centerDir, filepath.Join(root, "chats"), true, assembler)
+	agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, filepath.Join(root, "chats"), true, assembler)
 	if err != nil {
 		t.Fatal(err)
 	}

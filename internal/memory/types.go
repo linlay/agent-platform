@@ -121,14 +121,14 @@ func normalizeStoredItem(item api.StoredMemoryResponse) api.StoredMemoryResponse
 	item.Kind = normalizeMemoryKind(item.Kind)
 	item.SourceType = normalizeSourceType(item.SourceType)
 	item.Category = normalizeCategory(item.Category)
-	item.Importance = normalizeImportance(item.Importance)
+	item.Importance = NormalizeImportance(item.Importance)
 	item.ScopeType = normalizeScopeType(item.ScopeType)
 	item.ScopeKey = normalizeScopeKey(item.ScopeType, item.ScopeKey, item.AgentKey, "", item.ChatID, "")
 	item.Title = normalizeMemoryTitle(item.Title, item.Summary)
 	item.Status = normalizeMemoryStatus(item.Status, item.Kind)
 	item.Confidence = normalizeMemoryConfidence(item.Confidence, item.Kind)
-	item.Tags = normalizeTags(item.Tags)
-	item.SubjectKey = normalizeSubjectKey(item.SubjectKey, item.ChatID, item.AgentKey)
+	item.Tags = NormalizeTags(item.Tags)
+	item.SubjectKey = NormalizeSubjectKey(item.SubjectKey, item.ChatID, item.AgentKey)
 	if strings.TrimSpace(item.RefID) == "" {
 		item.RefID = item.ID
 	}

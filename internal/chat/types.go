@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"agent-platform/internal/modelcontent"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
 )
@@ -205,6 +206,7 @@ type ToolCompactLine struct {
 // line number. Continuation lines such as HITL-split tool results may reuse the
 // same seq as the assistant tool-call step that caused them.
 type StepLine struct {
+	ResponseID      string                    `json:"responseId,omitempty"`
 	ChatID          string                    `json:"chatId"`
 	RunID           string                    `json:"runId"`
 	UpdatedAt       int64                     `json:"updatedAt"`
@@ -302,10 +304,7 @@ type StoredMessage struct {
 	InternalOnly     bool             `json:"_internalOnly,omitempty"`
 }
 
-type ContentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
+type ContentPart = modelcontent.ReasoningPart
 
 type StoredToolCall struct {
 	ID       string         `json:"id"`

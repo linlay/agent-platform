@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-WebApp 的 `/api/desktop/webapp/grants`、Desktop 委托的连接器认证，以及 `/api/webapp/connector/*`、`/api/webapp/artifact/*` 采用独立能力授权，详见 [WebApp 能力接入](WebApp能力接入.md)。这些入口不是全局管理 API 的透传。
+标准连接器执行使用 `/api/connectors/execution/*`，凭据管理使用 `/api/connectors/auth`，详见 [连接器执行协议](连接器执行协议.md)。已发布产物使用独立 `/api/chat/artifacts/*`，不接受连接器执行 token。
 
 运行时提供 HTTP REST、SSE 与 WebSocket 三类协议入口。REST 承载 catalog、chat、automation、memory、resource 等请求；`POST /api/query` 使用 SSE 返回实时 run stream；`GET /ws` 是 WebSocket 控制面，复用一批 `/api/*` route，并用 `stream` frame 承载实时事件。
 
@@ -17,6 +17,8 @@ WebApp 的 `/api/desktop/webapp/grants`、Desktop 委托的连接器认证，以
 ```
 
 管理接口通过统一 Agent HTTP 错误出口返回失败时，外层保留数字 `code` 与 `msg`，`data.error` 同时保留业务错误码、原因、状态及领域诊断。HTTP 状态码不能代替业务错误码；前端依业务错误码提供处理建议，领域诊断用于解释具体阻塞对象。
+
+普通 Agent query 准入失败时，已存在但配置无效的 Agent 返回 `422 agent_configuration_invalid`，不存在或不可用且无 invalid 管理记录的 Agent 返回 `404 agent_not_found`，均不可重试。HTTP（包括 SSE 启动前）与 WebSocket 在 `data.error` 保留应用错误码、`status`、`retryable` 和可选 `diagnostics`，按请求/连接语言返回提示。`contextConfig.agents` 中不可用的候选引用继续跳过并警告，不因此阻断主 Agent；已有 Chat 历史仍可读取。
 
 ## 统一时间契约
 
@@ -68,8 +70,8 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | GET | `/api/skills` | query: 可选 `agentKey` | 全局有效技能目录、configured 与用户 pinned |
 | PUT | `/api/skills` | body: `key`, `pinned` | 更新单条用户置顶，返回最新 pinned |
-| GET | `/api/skills/icon` | query: `key`，可选 `agentKey` | 无 Agent 时读取全局中心 PNG；兼容旧 Agent 图标，沿用接口鉴权 |
-| POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
+| GET | `/api/skills/icon` | query: `key`，可选 `agentKey` | 无 Agent 时读取全局中心 SVG/PNG；兼容旧 Agent 图标，沿用接口鉴权 |
+| POST | `/api/agent/model-config` | body: `agentKey`、可选 `modelKey/reasoningEffort/serviceTier`（至少一项） | 更新 Agent 模型配置，省略保持，等级 null 清除 |
 | POST | `/api/agent/open-directory` | body: `agentKey`、`directoryType` | 打开 Agent 工作目录或配置目录 |
 | GET | `/api/teams` | 无 | 目录式 Team 列表 |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
@@ -81,7 +83,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `GET /api/agents/order` 返回所有有效 runtime Agent 的完整 catalog 顺序，不接受 `scope` 或 `mode` 过滤，也不暴露 invalid Agent。`PUT` 接受 `{ "order": ["agent-b", "agent-a"] }`：key 会裁剪空白并校验为空、重复、数量上限和当前有效 catalog 成员；请求未携带的当前有效 Agent 按现有 catalog 顺序追加。Platform 再把这份有效顺序替换进完整 admin 序列的有效 Agent 槽位，invalid Agent 的位置和相对顺序保持不变，并原子写入既有 `agent-order.json`、reload catalog、发布一次 `catalog.updated`。该接口仅提供 HTTP；`/api/admin/agents/order` 继续面向管理台，允许完整 admin catalog 与 invalid Agent，两者共享同一顺序文件且不迁移已有数据。
 
-`GET /api/skills` 返回全局有效技能中心目录，响应为 `{agentKey,skills,pinned}`。每项包含 `key/name/configured` 与可选 `description/icon`；不返回 `items/meta`。可选 `agentKey` 仅计算当前智能体是否已配置该技能，不筛选或重排目录；不存在的 Agent 返回 404 `agent_not_found`。不传时 `agentKey:""`、所有 `configured:false`，仍返回完整目录。技能按中心稳定顺序返回，不追加 Agent 私有技能；`skills` 和 `pinned` 均不为 null。`configured` 表示已配置，并不表示本次必须使用。
+`GET /api/skills` 返回全局有效技能中心目录，响应为 `{agentKey,skills,pinned}`。每项包含 `key/displayName/configured` 与可选 `description/icon/version/revision`；不返回 `name`，未配置显示名称时由服务端回退到 SKILL.md 的 `name`；不返回 `items/meta`。可选 `agentKey` 仅计算当前智能体是否已配置该技能，不筛选或重排目录；不存在的 Agent 返回 404 `agent_not_found`。不传时 `agentKey:""`、所有 `configured:false`，仍返回完整目录。技能按中心稳定顺序返回，不追加 Agent 私有技能；`skills` 和 `pinned` 均不为 null。`configured` 表示已配置，并不表示本次必须使用。
 
 普通 Agent 摘要中的 `workspaceDir` 表示该 Agent 的运行工作区，`agentConfigDir` 表示 catalog 已解析的 Agent 配置目录；两者互不替代。`agentConfigDir` 原样返回运行时 `AgentDefinition.AgentDir`，为空时省略。`/api/agent` 继续通过现有的 `source.agentDir` 返回编辑来源目录，不新增顶层字段。
 
@@ -171,7 +173,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `POST /api/admin/agents/skills/import` 只面向目录型普通 Agent。它沿用共享 Skill ZIP 的校验和限额，但将内容写入 `<agents>/<agentKey>/skills/<key>/`，并原子地把 key 加入该 Agent 的 `skillConfig.skills` 后 reload agents；导入失败或 reload 失败都会恢复 Agent YAML 并清理本地目录。未传 `key` 时，服务端从 ZIP 的 `SKILL.md` frontmatter 读取 `key`，否则读取 `name` 作为 Skill Key；旧调用方仍可显式传 Key。专属 Skill 不会出现在 `/api/admin/skills`，也不能由共享 Skill 删除接口删除。导入准入不查询 skills-center；若两者 Key 相同，该专属版本只对当前 Agent 优先，其他 Agent 仍可使用技能中心版本。Admin Agent Detail 的 `privateSkills[]` 返回本地摘要、是否启用及 `overridesCenter`，不返回本地路径或文件内容。专属删除同样只在 Agent 路由执行，并同时删目录和配置引用。
 
-`/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。文本保存（`PUT /api/admin/source` 的 Skill target 与兼容 `PUT /api/admin/skills/file`）通过 `adminsource` 串行执行写入和 catalog reload；reload 失败时按本次写入内容的哈希校验后恢复原文件与 SHA-256，前端可保留草稿并使用原 `baseSha256` 重试。回滚后的 catalog 恢复不受客户端断连影响；若文件已被其他操作修改，则保留新内容并报告恢复失败。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。skill 摘要从 `SKILL.md` frontmatter 提取可选 `version`：顶层 `version` 优先，缺失或空白时回退 `metadata.version`；两者皆无或空白时省略字段。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
+`/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。文本保存（`PUT /api/admin/source` 的 Skill target 与兼容 `PUT /api/admin/skills/file`）通过 `adminsource` 串行执行写入和 catalog reload；reload 失败时按本次写入内容的哈希校验后恢复原文件与 SHA-256，前端可保留草稿并使用原 `baseSha256` 重试。回滚后的 catalog 恢复不受客户端断连影响；若文件已被其他操作修改，则保留新内容并报告恢复失败。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会按 `assets/icon.svg`、`assets/icon.png`、`assets/<skill-id>.svg`、`assets/<skill-id>.png` 的顺序查找 regular、非 symlink 的图标，找到后返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。`/api/skills/icon` 对 SVG 使用与连接器图标相同的静态内容校验及响应安全头。skill 摘要从 `SKILL.md` frontmatter 提取可选 `version`：顶层 `version` 优先，缺失或空白时回退 `metadata.version`；两者皆无或空白时省略字段。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
 
 `POST /api/admin/skills/import` 是 WebClient 统一 ZIP 导入入口：multipart `file` 必填，`key` 可选，上传上限 512 MiB。Platform 读取安全 ZIP 的根 `manifest.json`；`type: skill-package` 时按 manifest 的 `id/version` 调用同一包安装/更新事务，忽略单技能 key 提示，并返回 `{kind:"skill-package", package:{id,name?,version,sha256,skills,installedAt}}`。声明技能包却无效时返回诊断，不回退单技能。其他 ZIP 沿用单技能导入，缺省 key 从 SKILL.md 的 frontmatter.key 或 name 读取，返回 `{kind:"skill", ...AdminSkillDetailResponse}`，旧客户端仍可读取顶层 skill/capabilities/fileManifest/openedFile。单技能 ZIP 仍限 32 MiB；默认重名返回 409。可通过 query 或 multipart `overwrite=true` 显式整目录替换，旧目录保留到 reload 成功；完整校验失败不触碰旧目录，reload 失败恢复旧目录及原有 `skill.json` 等文件。更新包内单技能时保留 `.package` 包归属记录与包版本，独立技能版本由包内文件维护。multipart 大文件落进程临时目录，所有返回路径清理临时文件；ZIP 文件字节不在浏览器解压或经 WS 传输。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，首次导入失败不保留目标目录；覆盖失败恢复旧目录，恢复受阻时保留备份并报告位置。成功后沿用 `skills` reload 和 Agent 重组；解压与静态校验在 Catalog mutation 保护外，当前状态检查、目录发布及 reload 位于保护内；暂存与备份在技能根的同级目录。
 
@@ -210,11 +212,15 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
+`/api/chats` 和 `/api/chat` 的历史发现、owner 和回放不要求当前 Agent 配置有效；Agent 详情的 404 不代表 Chat 不存在。客户端应独立加载历史与当前执行配置，保留 Chat 自身的认证、缺失及损坏错误，不能通过历史读取恢复无效 Agent 的 query 能力。详见 [历史读取与当前 Agent 可用性](会话存储与回放.md#历史读取与当前-agent-可用性)。
+
 `/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。旧别名、`TEAM` 和未知值均返回 400。它筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受合法 `mode` 影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
 
 `/api/chats` 的可选 `pinned` 与其他筛选按 AND 组合：`true` 只取置顶组，`false` 只取未置顶组，省略则取全部且置顶组在前。HTTP 只接受单个 `true` / `false`，WebSocket 只接受 JSON boolean；非法值返回 400。筛选和各组排序均在 `limit` 截断之前完成。例如 `mode=REACT&pinned=false&limit=8` 返回最多 8 条未置顶的匹配记录，不会让置顶项占用这 8 个位置。获取完整跨 mode 置顶组使用 `/api/chats?pinned=true`，不传 `mode` 或 `limit`。
 
-`/api/chats/order` 管理同一 Platform 实例的展示偏好，不按用户、Agent 或 mode 分开。`pinnedOrder` 是独立的有序 active Chat ID 数组，缺省为空；`sortMode` 只控制未置顶组。`recent` 按 `updatedAt DESC, chatId DESC`；`manual` 先把尚未进入保存序列的新建或恢复 Chat 按 recent 放在未置顶组前面，再接保存的 active Chat 顺序，已归档、删除或不存在的 ID 自动忽略。`updatedAt` 是两份展示偏好的较新修改时间，未发生修改时省略。
+`/api/chats/order` 管理同一 Platform 实例的展示偏好，不按用户、Agent 或 mode 分开。`pinnedOrder` 是独立的有序 active Chat ID 数组，缺省为空；`sortMode` 只控制未置顶组。`recent` 按 `updatedAt DESC, chatId DESC`；`manual` 先把尚未进入保存序列的新建或恢复 Chat 按 `createdAt DESC, chatId DESC` 放在未置顶组前面，再接保存的 active Chat 顺序，已归档、删除或不存在的 ID 自动忽略。`updatedAt` 是两份展示偏好的较新修改时间，未发生修改时省略。
+
+手动顺序首次初始化按 Chat 创建时间倒序，后续内容更新不改变位置；模式切换保留已有手动顺序，新建或恢复且未保存的 Chat 按创建时间倒序补到前面。recent 下直接拖动以当时全量 recent 顺序为基线应用移动并原子保存为 manual；已有手动顺序不因升级重置。
 
 WebClient 与 Desktop 导航只通过一次 `/api/chats/order` 读取排序配置和完整跨 mode、跨 owner 的置顶摘要，不再探测能力或追加 `/api/chats?pinned=true`。读取响应的 `pinnedChats` 固定为数组（空列表为 `[]`），每项复用 `/api/chats` 摘要结构和活动 Run 投影，数组顺序即展示顺序；`pinnedOrder` 仅是同一列表的兼容 ID 投影。存储层在同一锁内读取偏好、置顶和持久化摘要；活动 Run 随后按既有规则补充，仍需实时 Push 校准。`updatedAt` 仅表示展示偏好修改时间，不能作为摘要整体的缓存版本。读取失败不得被客户端解释为空置顶列表。
 
@@ -266,6 +272,13 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 `/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`（包括 `includeTeam=true`）附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。KBASE editing run 的摘要带可选 `editingMode:true`，方便客户端重连后恢复 badge；false 时省略。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
+
+`/api/agent` 返回顶层 `modelKey`、`reasoningEffort`、可选 `serviceTier`。模型 key 原样反映配置，ACP 详情不访问上游模型列表、不自动回退到其他模型。思考读取 Agent 顶层 `modelConfig.reasoning`：显式 `enabled:false` 返回 `NONE`，否则返回规范化 `effort`，未配置回退 `MEDIUM`；不代表 stageSettings 或单次 query 的覆盖结果。未设置服务等级时省略 `serviceTier`。不返回 `model`、`selected*`、`modelConfig`、`modelOptions`，meta 不重复返回 modelKey/modelKeys/providerKey/protocol。
+
+`skills` 为 `{key,name}[]`，按 Agent 技能顺序返回，name 优先取已挂载技能（包含 Agent 私有覆盖）的名称，缺失时回退 key；空列表为 `[]`，`meta.perAgentSkills` 已删除。内部 Agent YAML 仍使用技能 key 数组。
+
+`POST /api/agent/model-config`（HTTP/WS 相同）仅接受 `agentKey` 必填，`modelKey`、`reasoningEffort`、`serviceTier` 至少一项。省略字段保持原值；modelKey 不允许空值；reasoningEffort 为 NONE/LOW/MEDIUM/HIGH/XHIGH/MAX，不接受空值/null；serviceTier 为非空字符串或 null，null 清除等级，STANDARD 也按清除处理，非标准等级仅限 ACP。未知字段（包括旧 key 别名）拒绝。更新会校验最终模型与 ACP 能力；响应为 `{agentKey,modelKey,reasoningEffort,serviceTier?}`。YAML 的 modelConfig.reasoning.enabled/effort 结构保持不变，API 通过 NONE 表达关闭。
+
 
 `/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；新增的 `introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
@@ -590,8 +603,9 @@ Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `C
 
 - `models`: 当前 model registry 中可展示的聊天模型，字段为 `key/name/icon/provider/modelId/protocol/isReasoner/isVision/contextWindow/reasoningEfforts`。native reasoner model 的 `reasoningEfforts` 固定为五个启用档位 `LOW/MEDIUM/HIGH/XHIGH/MAX`；ACP 透传模型继续使用 bridge 声明。`icon` 是可选的模型图标标识；ACP 透传模型仅在上游 `/api/models` 返回该字段时携带。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding`、`type: image-generation` 与 `type: vl` 均不会出现在聊天模型选项中。
 - `reasoningEfforts`: native model options 固定为 `NONE`、`LOW`、`MEDIUM`、`HIGH`、`XHIGH`、`MAX`，其中 `NONE` 表示关闭思考深度；ACP CODER 仍按 bridge 的模型发现结果生成
-- `defaultModelKey`: 可展示模型中的默认模型；优先普通可调用模型，没有时可回退到 ACP 透传模型，无默认模型时为空
-- `defaultReasoningEffort`: 固定为 `MEDIUM`
+- `serviceTiers`: 可选服务等级（ACP 按 bridge 能力解析，包含恢复标准等级的 STANDARD 选项）
+
+该接口仅表达可选能力，不返回 `defaultModelKey/defaultReasoningEffort/defaultServiceTier`。当前选择由 `/api/agent` 顶层 `modelKey/reasoningEffort/serviceTier` 提供，刷新选项不改变 Agent 的选择；无可配置服务等级时省略 serviceTiers。
 
 `GET /api/admin/agents/editor-options` 的 `models` 仅返回 `type: chat` 的模型（未声明 `type` 时按 `chat` 兼容），供 Agent 创建与编辑选择；`embedding`、`image-generation`、`vl` 不进入选项，支持看图的 `chat` 模型仍保留。该接口无需类型过滤参数。reasoner model 同样返回 `reasoningEfforts: [LOW, MEDIUM, HIGH, XHIGH, MAX]`。这里及聊天、usage、回放中记录的均为用户选择的逻辑档位；provider 实际映射值不会作为额外字段回显。
 
@@ -937,7 +951,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/agents` | `includeChats`、`chatsPinned`、`includeTeam`、`scope`、`mode` | `response` |
 | `/api/agent` | `agentKey` | `response` |
 | `/api/skills` | 可选 `agentKey` 读取；`key/pinned` 写入 | `response`；data 与 HTTP `/api/skills` 完全一致 |
-| `/api/agent/model-config` | `agentKey`/`key`、`modelKey`、`reasoningEffort` | `response` |
+| `/api/agent/model-config` | `agentKey`、可选 `modelKey/reasoningEffort/serviceTier` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |
 | `/api/chats` | `lastRunId`、`agentKey`、`mode`、`pinned`、`limit` | `response` |
@@ -1265,3 +1279,28 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 ### L1 推理清理统计
 
 层级标识继续使用 `l1_tools`。完成响应和实时 `context.compact.complete` 可附带 `reasoningCleared`，表示排除推理的 assistant 消息数；`toolsCleared/toolsKept` 统计工具，`tokensFreed` 统计合计收益。自动 L1 统一由完整输入达到 90% 触发，不再设置独立 reasoning 阈值。
+
+
+## 技能展示字段与语言
+
+技能对象新增 `displayName/version/revision`；名称和描述按 HTTP 请求语言或 WebSocket 连接语言解析，API 不返回 i18n 表。技能对象只返回 `key/displayName`，不返回 `name`；缺少显示名称时用 SKILL.md 的 name 回退，语言切换后客户端须重新请求。字段、版本兼容规则及完整示例见 [技能展示元数据](技能展示元数据.md)。
+
+
+## 已发布产物读取
+
+这些接口属于 Chat 资源能力，不属于连接器。均为 POST，即使 `auth.enabled=false` 也要求有效 JWT 和非空 subject；每次请求读取当前 Chat 摘要并复用 principal 的 Chat 引用权限。`query:<subject>` Chat 限该主体访问，旧无 owner 或非 query 来源沿用现有引用规则。调用方负责其内部资源授权，Platform 不建立应用/页面与 Chat 的关联。
+
+| 路径 | 请求 | 返回 |
+| --- | --- | --- |
+| `/api/chat/artifacts/list` | `{chatId,runId?,cursor?,limit?}` | `{items,nextCursor?}`，默认 50、最多 100 |
+| `/api/chat/artifacts/get` | `{chatId,artifactId,runId?}` | 产物元数据 |
+| `/api/chat/artifacts/read` | `{chatId,artifactId,runId?}` | 文件字节，失败为 JSON 错误 |
+
+元数据包含 `chatId/runId/artifactId/publishedAt/name/mimeType/sizeBytes/sha256`，不包含内部路径。仅查询 active Chat 的发布 manifest，无全局 artifactId 查询和任意路径读取；歧义返回 `artifact_ambiguous`，内容或摘要变化返回 `artifact_changed`，请求取消关闭读取文件。输入严格拒绝未知字段。
+
+旧 `/api/webapp/artifact/*` 返回 HTTP 410 `connector_contract_upgrade_required`，不转换或透传。客户端切换到上述接口，使用自身可信 JWT，继续在客户端校验其内部访问范围并通过请求取消终止读取；不得把 JWT 暴露给不可信调用方。迁移需与连接器旧传输退役同批发布。
+
+
+### 无认证连接器
+
+连接器 `auth_mode="no_auth"` 无需登录或配置完成标记。connection 接口返回 `configurationRequired=false`、`configured=false`、`authentication.status="no_auth"` 和 `canConnect/canDisconnect/canCheck=false`；无需准备或准备完成时 readiness 为 no_auth，并不代表客户端在线。客户端显示“无需配置”，隐藏认证操作。connect/disconnect/check 返回 HTTP 409 和 `connector_auth_not_required`。Desktop 已使用此模式；Agent 挂载、执行授权与客户端能力检查仍有效。完整约束见 [连接器安装与授权](连接器安装与授权.md#no_auth-状态与客户端接入)。

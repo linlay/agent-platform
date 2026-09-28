@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/skillmeta"
 )
 
 func (r *FileRegistry) Teams() []api.TeamSummary {
@@ -66,10 +67,11 @@ func (r *FileRegistry) Skills(tag string) []api.SkillSummary {
 			continue
 		}
 		items = append(items, api.SkillSummary{
-			Key:         skill.Key,
-			Name:        skill.Name,
-			Description: skill.Description,
-			Meta:        skillSummaryMeta(skill),
+			Presentation: skillmeta.Parse(skill.Metadata, skill.Version),
+			Key:          skill.Key,
+			Name:         skill.Name,
+			Description:  skill.Description,
+			Meta:         skillSummaryMeta(skill),
 		})
 	}
 	return items
@@ -154,7 +156,14 @@ func skillSummaryMeta(skill SkillDefinition) map[string]any {
 		copy(triggers, skill.Triggers)
 		meta["triggers"] = triggers
 	}
-	if safeMetadata := safeSkillSummaryMetadata(skill.Metadata); len(safeMetadata) > 0 {
+	safeMetadata := safeSkillSummaryMetadata(skill.Metadata)
+	if skill.Version != "" {
+		if safeMetadata == nil {
+			safeMetadata = map[string]any{}
+		}
+		safeMetadata["version"] = skill.Version
+	}
+	if len(safeMetadata) > 0 {
 		meta["metadata"] = safeMetadata
 	}
 	return meta

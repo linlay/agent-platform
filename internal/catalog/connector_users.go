@@ -18,6 +18,11 @@ func (r *FileRegistry) ConnectorUsers(id string) ([]string, error) {
 		}
 	}
 	r.mu.RUnlock()
+	for _, mount := range r.ConnectorRuntimes() {
+		if mount.ID == id {
+			users[mount.AgentKey] = true
+		}
+	}
 	var sourceErr error
 	err := visitRuntimeEntries(r.cfg.Paths.AgentsDir, nil, func(name string, _ os.DirEntry) bool {
 		return !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)

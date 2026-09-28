@@ -85,7 +85,7 @@ macOS 原本不打包 Git Bash，保持现有流程且不增加排除标记。�
 ```powershell
 $env:BUNDLE_GIT_BASH = "false"
 # 已有完整 cache 时，可直接执行 Desktop 构建入口：
-& C:\Project\zenmind\zenmind-desktop\scripts\build-builtin-services.ps1
+& C:\Project\desktop\scripts\build-builtin-services.ps1
 # 或在 Platform 仓库仅生成 Platform 包：
 make release ARCH=amd64
 ```

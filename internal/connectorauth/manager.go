@@ -142,6 +142,9 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
+	if pkg.AuthMode == connector.AuthNoAuth {
+		return Session{}, ErrAuthNotRequired
+	}
 	if pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP {
 		pkg, err = OAuthComponent(pkg, component)
 		if err != nil {
@@ -250,10 +253,14 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 	return m.StatusComponent(ctx, id, "")
 }
 
-func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Session, error) {
+// StatusComponent reads local authorization snapshots; probes run through Check.
+func (m *Manager) StatusComponent(_ context.Context, id, component string) (Session, error) {
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
+	}
+	if pkg.AuthMode == connector.AuthNoAuth {
+		return Session{ConnectorID: id, Status: "no_auth", Message: "No authentication required; availability and permissions are checked on invocation"}, nil
 	}
 	m.mu.Lock()
 	if s := m.sessions[id]; s != nil && s.Status != "authorized" {
@@ -287,7 +294,7 @@ func (m *Manager) StatusComponent(ctx context.Context, id, component string) (Se
 		return result, nil
 	}
 	if pkg.AuthMode == connector.AuthToken {
-		return m.tokenStatus(ctx, pkg)
+		return m.tokenStatus(pkg)
 	}
 	if len(pkg.MCP) > 1 && component == "" {
 		result.Status = "authorized"

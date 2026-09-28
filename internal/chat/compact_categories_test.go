@@ -245,7 +245,7 @@ func TestL1ExcludingLegacySnapshotDoesNotResurrectOriginals(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		appendCompactTestRun(t, store, id, fmt.Sprint("new-", i), "recent user", "recent answer")
 	}
-	snapshot, err := store.BuildToolCompactSnapshotToTarget(id, 5, 0)
+	snapshot, err := store.BuildL1CompactSnapshot(id, L1Options{KeepRecent: 5})
 	if err != nil {
 		t.Fatal(err)
 	}

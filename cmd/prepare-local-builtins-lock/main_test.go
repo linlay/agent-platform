@@ -408,3 +408,51 @@ func hashBytes(payload []byte) string {
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }
+
+func TestConnectorLockDerivesNewPlatformWithoutGitBash(t *testing.T) {
+	root := t.TempDir()
+	collection := filepath.Join(root, "projects")
+	repository := filepath.Join(collection, "dbx")
+	if err := os.MkdirAll(repository, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "VERSION"), []byte("v1.2.3\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(repository, "dist", "v1.2.3", "builtin.dbx_v1.2.3_windows_amd64.zip")
+	if err := os.MkdirAll(filepath.Dir(artifact), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifact, []byte("complete package"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	lock := builtins.Lock{SchemaVersion: 2, DefaultRoot: "../agent-platform-connectors", Components: []builtins.Component{{Name: "dbx", Version: "v1.2.3", Repository: "dbx", Kind: "archive-tree", Required: true, Targets: map[string]builtins.Target{"darwin-arm64": {Version: "v1.2.3", Path: "dist/v1.2.3/builtin.dbx_v1.2.3_darwin_arm64.zip", Format: "zip", SHA256: strings.Repeat("a", 64), Tree: &builtins.TreeLayout{Root: "runtime", Outputs: []builtins.TreeOutput{{Path: "connectors/builtin.dbx", Type: "dir"}}}}}}}}
+	input := filepath.Join(root, "connectors.lock.json")
+	data, err := json.Marshal(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "local.json")
+	t.Setenv("BUNDLE_GIT_BASH", "true")
+	if err := run(input, output, collection, []string{"windows/amd64"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := builtins.LoadLock(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Components) != 1 {
+		t.Fatalf("connector lock gained unrelated components: %+v", got)
+	}
+	target := got.Components[0].Targets["windows-amd64"]
+	if target.Path != "dist/v1.2.3/builtin.dbx_v1.2.3_windows_amd64.zip" || target.Tree == nil {
+		t.Fatalf("wrong connector target: %+v", target)
+	}
+	after, err := os.ReadFile(input)
+	if err != nil || string(after) != string(data) {
+		t.Fatal("canonical lock changed")
+	}
+}

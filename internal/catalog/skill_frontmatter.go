@@ -8,6 +8,14 @@ func parseSkillPromptMetadata(prompt string) (string, string, []string, map[stri
 	description := frontMatterString(frontMatter["description"])
 	triggers := frontMatterStringSlice(frontMatter["triggers"])
 	metadata := frontMatterMap(frontMatter["metadata"])
+	// Normalize display metadata once for every catalog/API consumer. The raw
+	// SKILL.md remains untouched; diagnostics inspect the original frontmatter.
+	if displayName := frontMatterString(frontMatter["displayName"]); displayName != "" {
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		metadata["displayName"] = displayName
+	}
 
 	version := strings.TrimSpace(frontMatterString(frontMatter["version"]))
 	if version == "" {

@@ -96,6 +96,11 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 
 	prompt := strings.TrimSpace(string(content))
 	name, description, triggers, metadata, version := parseSkillPromptMetadata(prompt)
+	for _, diagnostic := range skillMetadataDiagnostics(skillID, prompt) {
+		if diagnostic.Code == "skill_name_key_mismatch" {
+			log.Printf("[catalog][skills] warning code=%s skill=%q message=%s", diagnostic.Code, skillID, diagnostic.Message)
+		}
+	}
 	truncated := maxPromptChars > 0 && len(prompt) > maxPromptChars
 
 	bashHooksDir, err := resolveSkillBashHooksDir(skillDir)

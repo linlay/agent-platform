@@ -67,5 +67,5 @@ func ValidateSkillCandidate(resourceKey string, content []byte, maxPromptChars i
 			Message:  fmt.Sprintf("SKILL.md exceeds the configured prompt limit of %d characters", maxPromptChars),
 		})
 	}
-	return diagnostics
+	return append(diagnostics, skillMetadataDiagnostics(resourceKey, normalized)...)
 }

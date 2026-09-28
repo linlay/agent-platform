@@ -87,7 +87,7 @@ func TestHistoryL1UsesLatestCheckpointNotCoveredOriginals(t *testing.T) {
 	if err := store.AppendRunCompactCheckpoint(id, RunCompactCheckpointLine{Type: RunCompactCheckpointLineType, ChatID: id, RunID: "r1", CompactID: "cp1", UpdatedAt: testEpochMillis(200), Messages: messages}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := store.BuildToolCompactSnapshotToTarget(id, 5, 0)
+	snapshot, err := store.BuildL1CompactSnapshot(id, L1Options{KeepRecent: 5})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,7 @@ import (
 	"agent-platform/internal/documentpreview"
 )
 
-func (s *Server) handleDocumentPreviewCapabilities(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDocumentPreviewCapabilities(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	cfg := s.deps.Config.DocumentPreview
 	if cfg.Provider == "" {

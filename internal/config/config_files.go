@@ -64,7 +64,7 @@ func (c *Config) applyResourceValues(values map[string]any) {
 	c.ResourceTicket.TTLSeconds = int64Value(anyValue(values["ticket-ttl-seconds"], c.ResourceTicket.TTLSeconds), c.ResourceTicket.TTLSeconds)
 }
 
-func (c *Config) applyContainerHubValues(path string, values map[string]any) error {
+func (c *Config) applyContainerHubValues(values map[string]any) error {
 	c.ContainerHub.BaseURL = stringValue(anyValue(values["base-url"], c.ContainerHub.BaseURL), c.ContainerHub.BaseURL)
 	c.ContainerHub.AuthToken = stringValue(anyValue(values["auth-token"], c.ContainerHub.AuthToken), c.ContainerHub.AuthToken)
 	c.ContainerHub.DefaultEnvironmentID = stringValue(anyValue(values["default-environment-id"], c.ContainerHub.DefaultEnvironmentID), c.ContainerHub.DefaultEnvironmentID)
@@ -189,7 +189,7 @@ func (c *Config) applyRuntimeFile(path string) error {
 		c.applyResourceValues(resource)
 	}
 	if containerHub, ok := values["container-hub"].(map[string]any); ok && len(containerHub) > 0 {
-		if err := c.applyContainerHubValues(path, containerHub); err != nil {
+		if err := c.applyContainerHubValues(containerHub); err != nil {
 			return err
 		}
 	}

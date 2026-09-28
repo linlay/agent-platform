@@ -49,10 +49,10 @@ func (r *Registry) loadAgentServers() (map[string]ServerDefinition, error) {
 		return servers, nil
 	}
 	for _, mount := range agents.ConnectorRuntimes() {
-		if mount.AgentKey == "" || filepath.Base(mount.Dir) != mount.ID {
+		if mount.AgentKey == "" || !connector.ValidID(mount.ID) {
 			return nil, fmt.Errorf("invalid Agent connector mount")
 		}
-		pkg, err := connector.Load(filepath.Dir(mount.Dir), mount.ID)
+		pkg, err := connector.LoadDirectory(mount.Dir, mount.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -75,7 +75,8 @@ func (r *Registry) loadAgentServers() (map[string]ServerDefinition, error) {
 			server.SourceKey = server.Key
 			server.AgentKey = mount.AgentKey
 			server.RuntimeDigest = digest
-			server.Key = connector.AgentServerKey(mount.AgentKey, server.SourceKey)
+			server.RuntimePackageDir = pkg.Dir
+			server.Key = connector.AgentVersionServerKey(mount.AgentKey, server.SourceKey, mount.Digest)
 			if server.Transport == TransportStdio {
 				// Explicit paths into the original package must also use the Agent
 				// copy. Truly external commands retained by migration stay explicit.
@@ -83,7 +84,7 @@ func (r *Registry) loadAgentServers() (map[string]ServerDefinition, error) {
 				server.WorkingDir = rebasePackagePath(server.WorkingDir, sourceDirs[pkg.ID], pkg.Dir)
 			}
 			if _, exists := servers[server.Key]; exists {
-				return nil, fmt.Errorf("duplicate Agent MCP instance")
+				continue
 			}
 			servers[server.Key] = server
 		}

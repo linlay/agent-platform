@@ -15,10 +15,6 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]api.ChatSummaryResponse, error) {
-	return s.listChatSummariesWithPinned(lastRunID, agentKey, agentModes, limit, nil)
-}
-
 func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool) ([]api.ChatSummaryResponse, error) {
 	items, err := s.conversationService().ListSummariesWithPinned(lastRunID, agentKey, agentModes, limit, pinned)
 	if err != nil {
@@ -213,9 +209,9 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 		response.Artifact = detail.Artifact
 	}
 	if summary != nil {
-		response.Usage = chatUsageBreakdown(summary.Usage, runs, detail.ReplayUsage, detail.ContextWindow, s.deps.Models, s.deps.Config.Billing)
+		response.Usage = chatUsageBreakdown(summary.Usage, runs, detail.ReplayUsage)
 	} else {
-		response.Usage = chatUsageBreakdown(nil, runs, detail.ReplayUsage, detail.ContextWindow, s.deps.Models, s.deps.Config.Billing)
+		response.Usage = chatUsageBreakdown(nil, runs, detail.ReplayUsage)
 	}
 	if s.deps.Runs != nil {
 		activeRun, ok, activeErr := s.deps.Runs.ActiveRunForChat(chatID)
@@ -423,10 +419,10 @@ func chatHistoryIncompleteStatusError(chatID string, err error) *statusError {
 		apperrors.WithDiagnostic("chatId", strings.TrimSpace(chatID)),
 	)
 	return &statusError{
-		status:  http.StatusConflict,
-		code:    string(apperrors.CodeChatHistoryIncomplete),
-		message: message,
-		data:    map[string]any{"error": payload},
+		Status:  http.StatusConflict,
+		Code:    string(apperrors.CodeChatHistoryIncomplete),
+		Message: message,
+		Data:    map[string]any{"error": payload},
 	}
 }
 

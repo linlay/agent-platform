@@ -428,7 +428,7 @@ func indexOneFile(ctx context.Context, store workspaceIndexStore, cfg resolvedCo
 		rec.SkipReason = "binary_or_non_utf8"
 		return commitSkippedFile(store, rec, existing, run)
 	}
-	doc, err := extractDocument(ctx, fullPath, rel, ext, data, cfg.Extraction)
+	doc, err := extractDocument(ctx, fullPath, ext, data, cfg.Extraction)
 	if err != nil {
 		var exErr extractionError
 		if errors.As(err, &exErr) && exErr.skipped {

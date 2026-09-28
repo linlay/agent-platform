@@ -22,6 +22,8 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
+	"agent-platform/internal/runtime/adapter"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
@@ -184,18 +186,18 @@ func testInvocableAgentRegistry(registry map[string]catalog.AgentDefinition) map
 
 func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts.AgentEngine, registry map[string]catalog.AgentDefinition, emitted *[]contracts.AgentDelta, routed *[]stream.StreamInput) *frameOrchestrator {
 	return &frameOrchestrator{
-		runCtx:  runCtx,
-		request: api.QueryRequest{RunID: "run_1", ChatID: "chat_1", TeamID: "team_1"},
-		session: contracts.QuerySession{
+		RunCtx:  runCtx,
+		Request: runtimetypes.QueryCommand{RunID: "run_1", ChatID: "chat_1", TeamID: "team_1"},
+		Session: contracts.QuerySession{
 			RunID: "run_1", ChatID: "chat_1", Mode: "REACT",
 			ModeCapabilities: agentcontract.ModeCapabilities{InvokeChildren: true, RunAsChild: true},
 		},
-		summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
-		agent:   agent,
-		registry: orchestratorRegistry{
+		Summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
+		Agent:   adapter.Engine{AgentEngine: agent},
+		Registry: orchestratorRegistry{
 			agents: testInvocableAgentRegistry(registry),
 		},
-		buildQuerySession: func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+		BuildQuerySession: func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 			if options.IncludeHistory || options.IncludeMemory || options.AllowInvokeAgents {
 				t := "unexpected sub-agent session build options"
 				panic(t)
@@ -208,13 +210,13 @@ func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts
 				WorkspaceRoot: agentDef.Workspace.Root,
 			}, nil
 		},
-		mapper: llm.NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, nil, toolinteraction.NewDefaultRegistry()),
-		emitDelta: func(delta contracts.AgentDelta) {
+		Mapper: llm.NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, nil, toolinteraction.NewDefaultRegistry()),
+		EmitDelta: func(delta contracts.AgentDelta) {
 			if emitted != nil {
 				*emitted = append(*emitted, delta)
 			}
 		},
-		emitInputs: func(inputs ...stream.StreamInput) {
+		EmitInputs: func(inputs ...stream.StreamInput) {
 			if routed != nil {
 				*routed = append(*routed, inputs...)
 			}
@@ -261,7 +263,7 @@ func TestFrameOrchestratorRejectsSelfInvocationBeforeCatalogLookup(t *testing.T)
 	engine := &orchestratorAgentEngine{}
 	var emitted []contracts.AgentDelta
 	orchestrator := newTestFrameOrchestrator(engine, nil, &emitted, nil)
-	orchestrator.session.AgentKey = "parent-agent"
+	orchestrator.Session.AgentKey = "parent-agent"
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
 	if err != nil || streamFailed || streamInterrupted {
@@ -285,7 +287,7 @@ func TestFrameOrchestratorSelfInvocationComparisonIsCaseSensitive(t *testing.T) 
 		},
 	}
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, nil, nil, nil)
-	orchestrator.session.AgentKey = "parent-agent"
+	orchestrator.Session.AgentKey = "parent-agent"
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
 	if err != nil || streamFailed || streamInterrupted {
@@ -314,7 +316,7 @@ func TestFrameOrchestratorRejectsEntireBatchContainingSelfInvocation(t *testing.
 	orchestrator := newTestFrameOrchestrator(engine, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Mode: "REACT"},
 	}, &emitted, &routed)
-	orchestrator.session.AgentKey = "parent-agent"
+	orchestrator.Session.AgentKey = "parent-agent"
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
 	if err != nil || streamFailed || streamInterrupted {
@@ -433,7 +435,7 @@ func TestFrameOrchestratorInheritsWebClientTargetIntoChildSession(t *testing.T) 
 		BoundaryKey: "subject:user-1\x00device:device-1",
 		SurfaceID:   "surface-1",
 	}
-	orchestrator.session.WebClientTarget = target
+	orchestrator.Session.WebClientTarget = target
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
 	if err != nil || streamFailed || streamInterrupted {
@@ -577,10 +579,10 @@ func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
 			},
 		},
 	}, &emitted, &routed)
-	orchestrator.chats = store
-	orchestrator.resourceBaseURL = "https://platform.example"
-	orchestrator.resourceTickets = NewResourceTicketService(config.ResourceTicketConfig{Secret: "ticket-secret", TTLSeconds: 300})
-	orchestrator.session.Subject = "student-1"
+	orchestrator.Chats = store
+	orchestrator.ResourceBaseURL = "https://platform.example"
+	orchestrator.ResourceTickets = NewResourceTicketService(config.ResourceTicketConfig{Secret: "ticket-secret", TTLSeconds: 300})
+	orchestrator.Session.Subject = "student-1"
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
 	if err != nil || streamFailed || streamInterrupted {
@@ -739,10 +741,10 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
 		"reviewer": {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
 	}, &emitted, &routed)
-	orchestrator.session.RequestID = "req_ABC"
-	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+	orchestrator.Session.RequestID = "req_ABC"
+	orchestrator.BuildQuerySession = func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 		mu.Lock()
-		subRequests = append(subRequests, req)
+		subRequests = append(subRequests, adapter.QueryRequest(req))
 		subTaskIDs = append(subTaskIDs, options.SubTaskID)
 		mu.Unlock()
 		return contracts.QuerySession{
@@ -928,9 +930,9 @@ func TestFrameOrchestratorSubAgentRequestIDsFallbackWhenParentMissing(t *testing
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
 		"reviewer": {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
 	}, &emitted, &routed)
-	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+	orchestrator.BuildQuerySession = func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 		mu.Lock()
-		subRequests = append(subRequests, req)
+		subRequests = append(subRequests, adapter.QueryRequest(req))
 		subTaskIDs = append(subTaskIDs, options.SubTaskID)
 		mu.Unlock()
 		return contracts.QuerySession{
@@ -986,7 +988,7 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 	)
 	streamFlag := true
 	planningFlag := true
-	orchestrator.request = api.QueryRequest{
+	orchestrator.Request = runtimetypes.QueryCommand{
 		RequestID:                  "parent-request",
 		RunID:                      "parent-run",
 		ChatID:                     "parent-chat",
@@ -1006,22 +1008,22 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 		SyntheticQueryBootstrapped: true,
 		ChatSource:                 "parent-source",
 	}
-	orchestrator.session.RequestID = "parent-request"
-	orchestrator.session.RunID = "fixed-run"
-	orchestrator.session.ChatID = "fixed-chat"
-	orchestrator.session.TeamID = "fixed-team"
-	orchestrator.session.AccessLevel = contracts.AccessLevelFullAccess
+	orchestrator.Session.RequestID = "parent-request"
+	orchestrator.Session.RunID = "fixed-run"
+	orchestrator.Session.ChatID = "fixed-chat"
+	orchestrator.Session.TeamID = "fixed-team"
+	orchestrator.Session.AccessLevel = contracts.AccessLevelFullAccess
 	teamSnapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
 		TeamID:    "fixed-team",
 		AgentKeys: []string{"writer"},
 	}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
 	})
-	orchestrator.teamSnapshot = &teamSnapshot
+	orchestrator.TeamSnapshot = &teamSnapshot
 	var childRequest api.QueryRequest
 	var childDefinition catalog.AgentDefinition
-	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
-		childRequest = req
+	orchestrator.BuildQuerySession = func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+		childRequest = adapter.QueryRequest(req)
 		childDefinition = def
 		return contracts.QuerySession{RunID: req.RunID, ChatID: req.ChatID, AgentKey: def.Key, Mode: def.Mode}, nil
 	}
@@ -1054,14 +1056,14 @@ func TestFrameOrchestratorRejectsChildOutsideFixedTeamSnapshot(t *testing.T) {
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
 		"reviewer": {Key: "reviewer", Mode: "REACT"},
 	}, nil, nil)
-	orchestrator.session.TeamID = "team-a"
+	orchestrator.Session.TeamID = "team-a"
 	teamSnapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
 		TeamID:    "team-a",
 		AgentKeys: []string{"writer"},
 	}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
 	})
-	orchestrator.teamSnapshot = &teamSnapshot
+	orchestrator.TeamSnapshot = &teamSnapshot
 
 	failed, interrupted, err := orchestrator.Run(mainStream)
 	if err != nil || failed || interrupted {
@@ -1121,10 +1123,10 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	}, nil, nil)
 	assembler := stream.NewAssembler(stream.StreamRequest{RunID: "run_1", ChatID: "chat_1"})
 	writer := chat.NewStepWriter(store, "chat_1", "run_1", "react")
-	orchestrator.chats = store
-	orchestrator.currentLiveSeq = assembler.CurrentSeq
-	orchestrator.emitDelta = func(delta contracts.AgentDelta) {
-		for _, input := range orchestrator.mapper.Map(delta) {
+	orchestrator.Chats = store
+	orchestrator.CurrentLiveSeq = assembler.CurrentSeq
+	orchestrator.EmitDelta = func(delta contracts.AgentDelta) {
+		for _, input := range orchestrator.Mapper.Map(delta) {
 			for _, emission := range assembler.ConsumeEmissions(input) {
 				event := emission.Event
 				event.Seq = emission.Cursor
@@ -1132,7 +1134,7 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 			}
 		}
 	}
-	orchestrator.emitInputs = func(inputs ...stream.StreamInput) {
+	orchestrator.EmitInputs = func(inputs ...stream.StreamInput) {
 		for _, input := range inputs {
 			for _, emission := range assembler.ConsumeEmissions(input) {
 				event := emission.Event
@@ -1141,7 +1143,7 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 			}
 		}
 	}
-	orchestrator.prepareSystemInit = func(req api.QueryRequest, session *contracts.QuerySession, _ bool) (*chat.QueryLineSystem, error) {
+	orchestrator.PrepareSystemInit = func(req runtimetypes.QueryCommand, session *contracts.QuerySession, _ bool) (*chat.QueryLineSystem, error) {
 		return &chat.QueryLineSystem{
 			AgentKey:    "writer",
 			CacheKey:    "react:writer",
@@ -1228,9 +1230,9 @@ func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streams: []contracts.AgentStream{child}}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Name: "Writer", Mode: "REACT"},
 	}, nil, nil)
-	orchestrator.chats = store
-	orchestrator.mapper = mapper
-	orchestrator.emitDelta = func(delta contracts.AgentDelta) {
+	orchestrator.Chats = store
+	orchestrator.Mapper = mapper
+	orchestrator.EmitDelta = func(delta contracts.AgentDelta) {
 		for _, input := range mapper.Map(delta) {
 			for _, emission := range assembler.ConsumeEmissions(input) {
 				event := emission.Event
@@ -1239,7 +1241,7 @@ func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
 			}
 		}
 	}
-	orchestrator.emitInputs = func(inputs ...stream.StreamInput) {
+	orchestrator.EmitInputs = func(inputs ...stream.StreamInput) {
 		for _, input := range inputs {
 			for _, emission := range assembler.ConsumeEmissions(input) {
 				event := emission.Event

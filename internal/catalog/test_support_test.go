@@ -11,7 +11,7 @@ func loadAgentsWithAdmin(root, centerDir, chatsDir string, globalMemoryEnabled b
 	if err != nil {
 		return nil, nil, err
 	}
-	return loadAgentsWithAdminAssembler(root, centerDir, chatsDir, globalMemoryEnabled, assembler)
+	return loadAgentsWithAdminAssembler(root, chatsDir, globalMemoryEnabled, assembler)
 }
 
 func runtimeSandboxSummaryMeta(runtime map[string]any) map[string]any {

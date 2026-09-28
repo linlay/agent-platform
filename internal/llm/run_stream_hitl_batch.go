@@ -330,7 +330,7 @@ func (s *llmRunStream) tryResolvePendingAccessLevelBatch(batch *pendingHITLAppro
 	}
 	s.pending = append(s.pending, DeltaAwaitingAnswer{
 		AwaitingID: batch.awaitingID,
-		Answer:     accessLevelAutoApprovalBatchAnswer(batch, entries),
+		Answer:     accessLevelAutoApprovalBatchAnswer(entries),
 	})
 	for index, invocation := range batch.invocations {
 		s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, "auto_approved", "accessLevel="+s.currentAccessLevel(), true)

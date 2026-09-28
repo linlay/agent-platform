@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/models"
@@ -22,6 +23,8 @@ type textModelRequest struct {
 
 func (t *RuntimeToolExecutor) completeTextModel(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, request textModelRequest) (string, map[string]any, error) {
 	switch strings.ToUpper(strings.TrimSpace(model.Protocol)) {
+	case "OPENAI_RESPONSES":
+		return t.completeResponsesModel(ctx, model, provider, []contracts.ModelMessage{{Role: "system", Content: strings.TrimSpace(request.SystemPrompt)}, {Role: "user", Content: strings.TrimSpace(request.UserPrompt)}}, request.MaxOutputTokens)
 	case "ANTHROPIC":
 		return t.completeTextModelAnthropic(ctx, model, provider, request)
 	default:

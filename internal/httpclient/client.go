@@ -45,7 +45,6 @@ func (f *Factory) NewClient(timeout time.Duration) *http.Client {
 	return &http.Client{Transport: f.transport, Timeout: timeout}
 }
 
-func (f *Factory) Refresh()              { f.resolver.Refresh() }
 func (f *Factory) CloseIdleConnections() { f.transport.CloseIdleConnections() }
 
 var processFactory atomic.Pointer[Factory]

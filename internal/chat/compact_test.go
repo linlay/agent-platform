@@ -530,9 +530,9 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 	}
 	appendCompactTestToolResult(t, store, chatID, "r8", "tool-noncompact", "memory_search", "memory result should stay")
 
-	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
+	snapshot, err := store.BuildL1CompactSnapshot(chatID, L1Options{KeepRecent: DefaultToolCompactKeepRecent})
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
+		t.Fatalf("BuildL1CompactSnapshot: %v", err)
 	}
 	if snapshot.ToolsCleared != 3 || snapshot.ToolsKept != 5 || snapshot.TokensFreed <= 0 {
 		t.Fatalf("unexpected tool compact snapshot: %#v", snapshot)
@@ -591,9 +591,9 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 		t.Fatalf("non compactable tool changed: %q", toolContent["tool-noncompact"])
 	}
 
-	second, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
+	second, err := store.BuildL1CompactSnapshot(chatID, L1Options{KeepRecent: DefaultToolCompactKeepRecent})
 	if err != nil {
-		t.Fatalf("second BuildToolCompactSnapshotToTarget: %v", err)
+		t.Fatalf("second BuildL1CompactSnapshot: %v", err)
 	}
 	if second.ToolsCleared != 0 {
 		t.Fatalf("second tool compact should be idempotent, got %#v", second)
@@ -606,16 +606,16 @@ func TestToolCompactHardProtectsSingleCompletedLargeToolGroup(t *testing.T) {
 	ensureCompactTestChat(t, store, chatID)
 	appendCompactTestToolResult(t, store, chatID, "r1", "tool-1", "file_read", "anchor "+strings.Repeat("large-result ", 1200))
 
-	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
+	snapshot, err := store.BuildL1CompactSnapshot(chatID, L1Options{KeepRecent: DefaultToolCompactKeepRecent})
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
+		t.Fatalf("BuildL1CompactSnapshot: %v", err)
 	}
 	if snapshot.ToolsCleared != 0 || snapshot.ToolsKept != 1 || snapshot.TokensFreed != 0 {
 		t.Fatalf("single tool compact snapshot = %#v", snapshot)
 	}
 }
 
-func TestToolCompactTargetNeverReleasesRecentGroups(t *testing.T) {
+func TestL1CompactProtectsRecentModelRounds(t *testing.T) {
 	store := newCompactTestStore(t)
 	chatID := "chat-tool-compact-target"
 	ensureCompactTestChat(t, store, chatID)
@@ -623,24 +623,12 @@ func TestToolCompactTargetNeverReleasesRecentGroups(t *testing.T) {
 		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_read", strings.Repeat("large-result ", 800))
 	}
 
-	baseline, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
+	snapshot, err := store.BuildL1CompactSnapshot(chatID, L1Options{KeepRecent: DefaultToolCompactKeepRecent})
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
+		t.Fatal(err)
 	}
-	protected, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, baseline.PreCompactEstimatedTokens)
-	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshotToTarget protected: %v", err)
-	}
-	if protected.ToolsCleared != 0 || protected.ToolsKept != DefaultToolCompactKeepRecent {
-		t.Fatalf("recent groups should remain protected at target: %#v", protected)
-	}
-
-	released, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 1)
-	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshotToTarget released: %v", err)
-	}
-	if released.ToolsCleared != 0 || released.ToolsKept != DefaultToolCompactKeepRecent || released.TokensFreed != 0 {
-		t.Fatalf("recent protection must remain above target: %#v", released)
+	if snapshot.ToolsCleared != 0 || snapshot.ToolsKept != DefaultToolCompactKeepRecent || snapshot.TokensFreed != 0 {
+		t.Fatalf("recent model rounds must remain protected: %#v", snapshot)
 	}
 }
 
@@ -743,9 +731,9 @@ func TestToolCompactCommitDetectsHistoryChanged(t *testing.T) {
 		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "bash", fmt.Sprintf("bash result %d %s", i, strings.Repeat("x", 2000)))
 	}
 
-	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
+	snapshot, err := store.BuildL1CompactSnapshot(chatID, L1Options{KeepRecent: DefaultToolCompactKeepRecent})
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
+		t.Fatalf("BuildL1CompactSnapshot: %v", err)
 	}
 	appendCompactTestRun(t, store, chatID, "r8", "user r8", "assistant r8")
 	err = store.CommitToolCompact(chatID, snapshot, ToolCompactLine{
@@ -786,9 +774,9 @@ func TestSummaryCompactCanCoverToolCompactMetadata(t *testing.T) {
 	for i := 1; i <= 7; i++ {
 		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_grep", fmt.Sprintf("grep result %d %s", i, strings.Repeat("x", 2000)))
 	}
-	toolSnapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
+	toolSnapshot, err := store.BuildL1CompactSnapshot(chatID, L1Options{KeepRecent: DefaultToolCompactKeepRecent})
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
+		t.Fatalf("BuildL1CompactSnapshot: %v", err)
 	}
 	if err := store.CommitToolCompact(chatID, toolSnapshot, ToolCompactLine{
 		Type:      ToolCompactLineType,
@@ -939,4 +927,11 @@ func compactReplayContains(events []stream.EventData, eventType string, needle s
 		}
 	}
 	return false
+}
+
+func compactMarkerID(value any) string {
+	if marker, ok := value.(map[string]any); ok {
+		return stringFromAny(marker["id"])
+	}
+	return stringFromAny(value)
 }

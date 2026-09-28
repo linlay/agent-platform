@@ -1,10 +1,12 @@
 # agent-platform
 
+原生模型新增独立 `OPENAI_RESPONSES` 协议；本地 JSONL 保存每次模型调用的可选 `responseId` 与 `reasoning_content` 加密条目，续聊不依赖服务端 response ID。配置、格式及兼容边界见 [Responses 协议](docs/Responses协议.md)。
+
 本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、`platform_control` system control plane、JWT 鉴权、resource ticket、chat 文件落盘、可选手工 Memory、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
-WebApp 新增可信 Desktop 签发的短期能力 grant、复用现有连接器认证、显式只读 operation 和已授权 Chat 的产物读取；登录界面由 Desktop 承接，协议和阶段限制见 [WebApp 能力接入](docs/WebApp能力接入.md)。
+Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据管理和短期执行授权，不持有应用或页面模型，见 [连接器执行协议](docs/连接器执行协议.md)。已发布产物通过独立 Chat API 按现有会话访问权限读取。
 
 网站 AWCP 操作采用手册渐进披露：按需读取动作目录和单项说明，再通过固定 `invoke` 调用；不向模型运行核心注入页面工具 Schema 或专属状态机。参见 [Desktop 反向 Provider](docs/MCP与工具交互.md#desktop-反向-provider)。
 
@@ -15,7 +17,7 @@ WebApp 新增可信 Desktop 签发的短期能力 grant、复用现有连接器�
 - `GET /api/agents`
 - `GET/PUT /api/agents/order`
 - `GET /api/agent?agentKey=...`
-- `GET /api/skills?agentKey=...`：全局技能目录、当前 Agent 的 `configured` 标记和用户 `pinned`；agentKey 可选
+- `GET /api/skills?agentKey=...`：全局技能目录、当前 Agent 的 `configured` 标记和用户 `pinned`；agentKey 可选；技能显示名称、请求语言与版本规则见 [技能展示元数据](docs/技能展示元数据.md)
 - `PUT /api/skills`：单条 `{key,pinned}` 更新置顶
 - `GET /api/teams`
 - `GET /api/admin/skills`
@@ -88,7 +90,7 @@ Native 模型流式正文与推理各自达到 4,000 Unicode 字符后检测持�
 - Go 1.22 或更新版本
 - Docker / Docker Compose（如需容器运行）
 - 可用的 provider / model 注册文件（放在 `runtime/registries/`）
-- 相邻的 `../agent-platform-builtins/{ripgrep,dbx,httpx,kbase-lance-engine,poppler-pdftotext}` 本地产物仓库集合；可用绝对路径环境变量 `BUILTINS_ROOT` 覆盖
+- 相邻的 `../agent-platform-builtins/{ripgrep,kbase-lance-engine,poppler-pdftotext}` 与 `../agent-platform-connectors/{dbx,httpx}` 本地产物仓库集合；分别用绝对路径环境变量 `BUILTINS_ROOT`、`CONNECTORS_ROOT` 覆盖
 
 ### 本地启动
 
@@ -193,7 +195,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` / `desktop_cdp` 优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
-外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-agents/<agentKey>/connectors/<id>`，持久化授权状态保存在通用 `.state` 根下的 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下直接执行、无需 HITL 或自动审批审计；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。外部包支持通过 `DELETE /api/admin/connectors/detail?id=<id>` 删除；需先解除 Agent 引用并等待旧运行挂载释放，授权和 CLI 状态保留，重载失败恢复原包。ZIP 导入后异步 CLI 准备（有 bin 跳过 init）、独立准备状态与登录凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
+外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-connectors/<id>/<contentDigest>`，持久化授权状态保存在通用 `.state` 根下的 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下直接执行、无需 HITL 或自动审批审计；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`，由各项目与二进制一起打包，Platform 锁定并校验完整包；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。外部包支持通过 `DELETE /api/admin/connectors/detail?id=<id>` 删除；需先解除 Agent 引用并等待旧运行挂载释放，授权和 CLI 状态保留，重载失败恢复原包。ZIP 导入后异步 CLI 准备（有 bin 跳过 init）、独立准备状态与登录凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
 连接器资源包通过清单声明组件、图标、认证方式与授权页面展示。包内程序、安装脚本和远程服务定义的分发边界见 [连接器打包与分发](./docs/连接器打包与分发.md)。
 
@@ -368,7 +370,7 @@ powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target
 make release ARCH=amd64
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,kbase-lance-engine,pdftotext}`、`connectors/builtin.{dbx,httpx}/`（清单、bin/libs 与技能）、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。program manifest 声明 `desktop.runtimeResources: "v1"`；`deploy.sh` / `deploy.ps1` 将 Desktop 传入的 env.zip 与稳定设备标识交给统一的 `agent-platform runtime-resource-sync` 子命令，由 Platform 迁移已有 runtime 的 Agent、Skill、Tool、Team、Connector 与 Registry。包内五类一级资源及同路径 Registry 是发行方权威版本，同名目标会覆盖；新版包声明 `provider-register.json` 时，还会重新生成并注入 Provider API key。`release-program` 复验并复制 `build/builtins/<os>-<arch>/` 中的二进制，再合并当前 Platform 版本的内置连接器清单和完整技能，重新计算包哈希，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,kbase-lance-engine,pdftotext}`、`connectors/builtin.{dbx,httpx}/`（清单、bin/libs 与技能）、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。program manifest 声明 `desktop.runtimeResources: "v1"`；`deploy.sh` / `deploy.ps1` 将 Desktop 传入的 env.zip 与稳定设备标识交给统一的 `agent-platform runtime-resource-sync` 子命令，由 Platform 迁移已有 runtime 的 Agent、Skill、Tool、Team、Connector 与 Registry。包内五类一级资源及同路径 Registry 是发行方权威版本，同名目标会覆盖；新版包声明 `provider-register.json` 时，还会重新生成并注入 Provider API key。`release-program` 复验并复制 `build/builtins/<os>-<arch>/` 中的二进制与完整连接器包，不重写清单、技能或包哈希，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets
@@ -433,3 +435,12 @@ docker compose logs -f
 运行中的普通 native Agent / Team 协调器支持图片与普通文件 steer：先通过 `/api/upload` 上传，再向 `/api/steer` 传 `references`，文字可为空；普通文件（含 HTML/MD）作为工具读取引用，视觉模型直接接收图片，非视觉模型接收图片文件引用供已配置的识别工具读取。query 始终要求非空文字。附件、图片冻结、回放和续聊契约见 [API与协议](docs/API与协议.md)；PROXY/CHANNEL 附件 steer 尚不支持。
 
 活动 native CODER 在 planning 输出或确认等待时收到 steer，会使旧计划失效并按新要求重新规划；新计划仍需确认，旧批准请求不能启动执行。时序与 `planning.superseded` 事件见 [HITL协议](docs/HITL协议.md)。
+
+连接器共享目录、Desktop 原生挂载及离线迁移见 [连接器共享包与 Desktop 迁移](docs/连接器共享包与Desktop迁移.md)。
+
+
+### Desktop 内嵌连接器来源
+
+`builtin.desktop` 的工具 handler、清单、native 定义和两份完整技能均随 Platform Go 程序编译分发。启动从内嵌资源校验并原子发布到 `ru-connectors/builtin.desktop/<contentDigest>/`，已有相同内容的运行包直接校验复用；临时装配目录随即清理。进程持有共享包租约，确保未挂载 Agent 时管理接口仍可读取。各 Agent 仅持挂载引用，不复制包。
+
+Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。此调整不改变连接器配置状态、Agent 挂载、工具权限或历史 Chat。

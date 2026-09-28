@@ -506,11 +506,6 @@ func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error
 	return nil
 }
 
-func (s *llmRunStream) compactRunToolMessages(keepRecent, targetTokens int) ([]openAIMessage, int, int) {
-	out, cleared, kept, _ := s.compactRunCategories(keepRecent)
-	return out, cleared, kept
-}
-
 func compactPercentages(ratio float64) (float64, float64) {
 	if ratio < 0 {
 		ratio = 0
@@ -692,6 +687,12 @@ func modelMessagesToMaps(messages []openAIMessage) []map[string]any {
 		}
 		var mapped map[string]any
 		if json.Unmarshal(raw, &mapped) == nil && len(mapped) > 0 {
+			if len(message.EncryptedReasoning) > 0 {
+				mapped["reasoning_content"] = ReasoningPartsValue(message.ReasoningContent, message.EncryptedReasoning)
+			}
+			if message.OriginModelKey != "" {
+				mapped["_modelKey"] = message.OriginModelKey
+			}
 			if message.CompactSource != "" {
 				mapped["_compactSource"] = message.CompactSource
 			}

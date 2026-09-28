@@ -13,7 +13,7 @@ import (
 	"agent-platform/internal/mcp"
 )
 
-func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleConnectors(w http.ResponseWriter, _ *http.Request) {
 	sources := s.connectorSources()
 	items, err := sources.Summaries()
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				mounted = true
-				key := connector.AgentServerKey(mount.AgentKey, sourceKey)
+				key := connector.AgentVersionServerKey(mount.AgentKey, sourceKey, mount.Digest)
 				status := api.MCPServerToolSyncStatus{Status: "pending"}
 				if s.deps.MCPToolSyncStatus != nil {
 					if current, ok := s.deps.MCPToolSyncStatus.ServerStatus(key); ok {

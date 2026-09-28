@@ -203,6 +203,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				}
 				msg["_compactSource"] = compactLineSource(line)
 				msg["_compactRound"] = compactLineSource(line)
+				msg["_modelKey"] = line["modelKey"]
 				delete(msg, "view")
 				delete(msg, "viewError")
 				// Flatten content parts to plain text for LLM context
@@ -211,7 +212,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 						msg["content"] = extractTextFromContent(parts)
 					}
 					if parts, ok := m["reasoning_content"].([]any); ok {
-						msg["reasoning_content"] = extractTextFromContent(parts)
+						msg["reasoning_content"] = normalizeReasoningContent(parts)
 					}
 				}
 				if role == "tool" {
@@ -414,6 +415,7 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 		msg := cloneMessageMap(raw)
 		msg["_compactSource"] = compactLineSource(line)
 		msg["_compactRound"] = compactLineSource(line)
+		msg["_modelKey"] = line["modelKey"]
 		delete(msg, "view")
 		delete(msg, "viewError")
 		msg["runId"] = runID
@@ -425,7 +427,7 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 		}
 		if role == "user" || role == "assistant" {
 			if parts, ok := msg["reasoning_content"].([]any); ok {
-				msg["reasoning_content"] = extractTextFromContent(parts)
+				msg["reasoning_content"] = normalizeReasoningContent(parts)
 			}
 		}
 		out = append(out, msg)

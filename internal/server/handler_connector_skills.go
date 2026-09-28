@@ -20,7 +20,7 @@ func (s *Server) handleConnectorSkills(w http.ResponseWriter, r *http.Request) {
 		s.writeConnectorSkillError(w, err)
 		return
 	}
-	s.writeAgentHTTPResponse(w, map[string]any{"connectorId": id, "skills": skills}, nil)
+	s.writeAgentHTTPResponse(w, map[string]any{"connectorId": id, "skills": localizeSkillResponse(responseLocale(w), skills)}, nil)
 }
 
 func (s *Server) handleConnectorSkillDetail(w http.ResponseWriter, r *http.Request) {

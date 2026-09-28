@@ -1,7 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/connector"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/connector"
 )
 
 func TestConnectorManualTokenHTTPRedactionAndValidation(t *testing.T) {

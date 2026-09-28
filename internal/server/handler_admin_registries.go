@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,7 +24,7 @@ const (
 
 var adminRegistryCategories = []string{"providers", "models", "viewport-servers"}
 
-func (s *Server) handleAdminRegistries(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAdminRegistries(w http.ResponseWriter, _ *http.Request) {
 	response, err := s.listAdminRegistries()
 	s.writeAgentHTTPResponse(w, response, err)
 }
@@ -41,7 +40,7 @@ func (s *Server) handleAdminRegistryDetail(w http.ResponseWriter, r *http.Reques
 			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
 			return
 		}
-		response, err := s.saveAdminRegistryDetail(r.Context(), req)
+		response, err := s.saveAdminRegistryDetail(req)
 		s.writeAgentHTTPResponse(w, response, err)
 	default:
 		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPut)
@@ -156,7 +155,7 @@ func (s *Server) readAdminRegistryDetail(category string, file string) (api.Admi
 	}, nil
 }
 
-func (s *Server) saveAdminRegistryDetail(ctx context.Context, req api.AdminRegistryDetailRequest) (api.AdminRegistryDetailResponse, error) {
+func (s *Server) saveAdminRegistryDetail(req api.AdminRegistryDetailRequest) (api.AdminRegistryDetailResponse, error) {
 	path, err := s.adminRegistryFilePath(req.Category, req.File)
 	if err != nil {
 		return api.AdminRegistryDetailResponse{}, err

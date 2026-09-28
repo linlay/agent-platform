@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
@@ -28,6 +30,22 @@ import (
 
 	gws "github.com/gorilla/websocket"
 )
+
+func TestQueryStartErrorPreservesApplicationDetails(t *testing.T) {
+	err := fmt.Errorf("query admission: %w", apperrors.New(apperrors.CodeAgentConfigurationInvalid, "invalid configuration",
+		apperrors.WithRetryable(true), apperrors.WithDiagnostic("field", "modelConfig")))
+	rec := httptest.NewRecorder()
+	writeQueryStartError(rec, err)
+	var response api.ApiResponse[map[string]any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := response.Data["error"].(map[string]any)
+	diagnostics, _ := payload["diagnostics"].(map[string]any)
+	if rec.Code != http.StatusUnprocessableEntity || payload["code"] != string(apperrors.CodeAgentConfigurationInvalid) || payload["retryable"] != true || diagnostics["field"] != "modelConfig" {
+		t.Fatalf("lost application error details: %d %s", rec.Code, rec.Body.String())
+	}
+}
 
 func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	fixture := newTestFixture(t)
@@ -47,6 +65,9 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 		t.Fatalf("expected sse content type, got %q", got)
 	}
 	bodyText := rec.Body.String()
+	if strings.Contains(bodyText, `"interactionConfig"`) {
+		t.Fatal("interaction policy leaked into live events")
+	}
 	if !strings.Contains(bodyText, `"type":"request.query"`) {
 		t.Fatalf("expected request.query event, got %s", bodyText)
 	}
@@ -85,6 +106,9 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load jsonl: %v", err)
 	}
+	if strings.Contains(jsonl, `"interactionConfig"`) {
+		t.Fatal("interaction policy leaked into Chat JSONL")
+	}
 	decoder := json.NewDecoder(strings.NewReader(jsonl))
 	for {
 		var line map[string]any
@@ -93,6 +117,11 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 				break
 			}
 			t.Fatalf("decode jsonl: %v", err)
+		}
+		if _, ok := line["query"]; ok {
+			if policy, err := server.runInteractionPolicies().Load(stringValue(line["runId"])); err != nil || !policy.Model {
+				t.Fatalf("missing private Run policy: %+v %v", policy, err)
+			}
 		}
 		liveSeq := int64(contracts.AnyIntNode(line["liveSeq"]))
 		if liveSeq > 0 && !publicSeqs[liveSeq] {
@@ -220,6 +249,7 @@ func TestReactExplicitToolAllowlistExposesOnlyConfiguredTool(t *testing.T) {
 }
 
 func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
+	toolMeta := map[string]any{"sourceType": "mcp"}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -234,11 +264,20 @@ func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
 		)
 	}, testFixtureOptions{
 		mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{
-			{Key: "flow_start", Name: "flow_start", Meta: map[string]any{"sourceType": "mcp", "serverKey": connector.AgentServerKey("mock-agent", "flowcenter")}},
+			{Key: "flow_start", Name: "flow_start", Meta: toolMeta},
 			{Key: "other_search", Name: "other_search", Meta: map[string]any{"sourceType": "mcp", "serverKey": "other"}},
 		}},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			writeMCPConnectorForTest(t, cfg.Paths.EffectiveConnectorsCenterDir(), "flowcenter")
+			pkg, err := cfg.Paths.ConnectorSources().Load("flowcenter")
+			if err != nil {
+				t.Fatal(err)
+			}
+			mounted, err := cfg.Paths.ConnectorSources().InstallShared(pkg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			toolMeta["serverKey"] = connector.AgentVersionServerKey("mock-agent", "flowcenter", filepath.Base(mounted.Dir))
 			definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\nconnectorConfig:\n  connectors:\n    - flowcenter\n"
 			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
 				t.Fatalf("write REACT agent: %v", err)
@@ -688,7 +727,7 @@ func TestQueryRejectsPlanningModeForNonCoderAgent(t *testing.T) {
 
 	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.message != "planningMode is only supported for CODER agents" {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Message != "planningMode is only supported for CODER agents" {
 		t.Fatalf("expected non-CODER planningMode rejection, got %#v", err)
 	}
 }
@@ -700,7 +739,7 @@ func TestQueryRejectsEditingModeForNonKBaseAgent(t *testing.T) {
 
 	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.code != "editing_mode_unsupported" {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Code != "editing_mode_unsupported" {
 		t.Fatalf("expected non-KBASE editingMode rejection, got %#v", err)
 	}
 }
@@ -753,15 +792,15 @@ func TestQueryRoleValidation(t *testing.T) {
 		if want == "" {
 			want = api.QueryRoleUser
 		}
-		if admission.req.Role != want {
-			t.Fatalf("role %q normalized to %q, want %q", role, admission.req.Role, want)
+		if admission.Req.Role != want {
+			t.Fatalf("role %q normalized to %q, want %q", role, admission.Req.Role, want)
 		}
 	}
 
 	req := api.QueryRequest{Message: "hello", Role: "scheduler"}
 	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "role must be") {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || !strings.Contains(statusErr.Message, "role must be") {
 		t.Fatalf("expected invalid role 400, got %#v", err)
 	}
 }
@@ -934,7 +973,7 @@ func TestQueryRejectsMustUseSkillsForTeam(t *testing.T) {
 	req := api.QueryRequest{Message: "team", TeamID: "default", MustUseSkills: []string{"mock-skill"}}
 	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.code != "must_use_skills_unsupported" {
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Code != "must_use_skills_unsupported" {
 		t.Fatalf("expected Team mustUseSkills rejection, got %#v", err)
 	}
 }
@@ -961,25 +1000,25 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete preparation: %v", err)
 	}
-	if strings.Join(prepared.session.MustUseSkills, ",") != "mock-skill,center-extra" {
-		t.Fatalf("mustUseSkills = %#v", prepared.session.MustUseSkills)
+	if strings.Join(prepared.Session.MustUseSkills, ",") != "mock-skill,center-extra" {
+		t.Fatalf("mustUseSkills = %#v", prepared.Session.MustUseSkills)
 	}
 	wantRunRoots := []string{
-		absTestPath(t, filepath.Join(prepared.agentDef.RuntimeDir, "skills", "mock-skill")),
+		absTestPath(t, filepath.Join(prepared.AgentDef.RuntimeDir, "skills", "mock-skill")),
 		absTestPath(t, filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "center-extra")),
 	}
-	if !reflect.DeepEqual(prepared.session.RunAccessRoots.ReadRoots, wantRunRoots) ||
-		!reflect.DeepEqual(prepared.session.RunAccessRoots.ReadonlyRoots, wantRunRoots) {
-		t.Fatalf("must-use run access roots = %#v, want %#v", prepared.session.RunAccessRoots, wantRunRoots)
+	if !reflect.DeepEqual(prepared.Session.RunAccessRoots.ReadRoots, wantRunRoots) ||
+		!reflect.DeepEqual(prepared.Session.RunAccessRoots.ReadonlyRoots, wantRunRoots) {
+		t.Fatalf("must-use run access roots = %#v, want %#v", prepared.Session.RunAccessRoots, wantRunRoots)
 	}
-	if prepared.session.RuntimeContext.LocalPaths.SkillsCenterDir != fixture.cfg.Paths.SkillsCenterDir {
-		t.Fatalf("local skills-center = %q", prepared.session.RuntimeContext.LocalPaths.SkillsCenterDir)
+	if prepared.Session.RuntimeContext.LocalPaths.SkillsCenterDir != fixture.cfg.Paths.SkillsCenterDir {
+		t.Fatalf("local skills-center = %q", prepared.Session.RuntimeContext.LocalPaths.SkillsCenterDir)
 	}
-	if prepared.session.RuntimeContext.SandboxPaths.SkillsCenterDir != "/skills-center" {
-		t.Fatalf("sandbox skills-center = %q", prepared.session.RuntimeContext.SandboxPaths.SkillsCenterDir)
+	if prepared.Session.RuntimeContext.SandboxPaths.SkillsCenterDir != "/skills-center" {
+		t.Fatalf("sandbox skills-center = %q", prepared.Session.RuntimeContext.SandboxPaths.SkillsCenterDir)
 	}
 	centerMounts := 0
-	for _, mount := range prepared.session.RuntimeExtraMounts {
+	for _, mount := range prepared.Session.RuntimeExtraMounts {
 		if strings.EqualFold(mount.Platform, "skills-center") {
 			centerMounts++
 			if mount.Mode != "ro" {
@@ -988,14 +1027,14 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 		}
 	}
 	if centerMounts != 1 {
-		t.Fatalf("expected one center mount, got %#v", prepared.session.RuntimeExtraMounts)
+		t.Fatalf("expected one center mount, got %#v", prepared.Session.RuntimeExtraMounts)
 	}
-	if _, exists := prepared.session.StaticRuntimeEnv["CENTER_EXTRA"]; exists {
-		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.session.StaticRuntimeEnv)
+	if _, exists := prepared.Session.StaticRuntimeEnv["CENTER_EXTRA"]; exists {
+		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.Session.StaticRuntimeEnv)
 	}
-	for _, hookDir := range prepared.session.SkillHookDirs {
+	for _, hookDir := range prepared.Session.SkillHookDirs {
 		if strings.Contains(hookDir, "center-extra") {
-			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.session.SkillHookDirs)
+			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.Session.SkillHookDirs)
 		}
 	}
 	for _, expected := range []string{
@@ -1003,8 +1042,8 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 		"path: @skills-center/center-extra/SKILL.md",
 		"None may be skipped",
 	} {
-		if !strings.Contains(prepared.session.SkillCatalogPrompt, expected) {
-			t.Fatalf("expected %q in prompt: %s", expected, prepared.session.SkillCatalogPrompt)
+		if !strings.Contains(prepared.Session.SkillCatalogPrompt, expected) {
+			t.Fatalf("expected %q in prompt: %s", expected, prepared.Session.SkillCatalogPrompt)
 		}
 	}
 }

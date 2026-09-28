@@ -25,10 +25,10 @@ func TestAutomaticCompactThresholdAndPostL1Decision(t *testing.T) {
 			s.messages = append(s.messages, openAIMessage{Role: "assistant", Content: ""}, openAIMessage{Role: "assistant", ToolCalls: []contracts.ModelToolCall{{ID: "old", Type: "function", Function: contracts.ModelFunctionCall{Name: "bash", Arguments: "{}"}}}}, openAIMessage{Role: "tool", ToolCallID: "old", Content: strings.Repeat("x", 4000)})
 			appendRecentCompactTestTools(s, 5)
 			// Construct exact estimated sizes instead of relying on incidental JSON overhead.
-			projected, _, _ := s.compactRunToolMessages(5, 0)
+			projected, _, _, _ := s.compactRunCategories(5)
 			retainedOverhead := estimateModelContext(projected, nil)
 			s.messages[1].Content = strings.Repeat("p", max(0, (tc.after-retainedOverhead)*4))
-			projected, _, _ = s.compactRunToolMessages(5, 0)
+			projected, _, _, _ = s.compactRunCategories(5)
 			if post := estimateModelContext(projected, nil); post != tc.after {
 				t.Fatalf("fixture post=%d", post)
 			}
@@ -113,7 +113,7 @@ func TestSummaryMayCoverL1ProtectedCompletedToolButNeverCrossRunPairs(t *testing
 		{Role: "assistant", OriginRunID: "r", OriginActor: "agent", ToolCalls: []contracts.ModelToolCall{{ID: "same", Function: contracts.ModelFunctionCall{Name: "file_read", Arguments: "{}"}}}},
 		{Role: "tool", OriginRunID: "r", OriginActor: "agent", ToolCallID: "same", Content: strings.Repeat("large tool output ", 1000)},
 	}}
-	if _, cleared, _ := s.compactRunToolMessages(5, 0); cleared != 0 {
+	if _, cleared, _, _ := s.compactRunCategories(5); cleared != 0 {
 		t.Fatal("L1 released the protected tool")
 	}
 	plan := s.buildContextCompactPlan(true)

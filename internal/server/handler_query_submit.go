@@ -17,7 +17,6 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid submit payload"))
 		return
 	}
-	req = s.normalizeActiveSubmitRun(req)
 	// HITL may be answered from another authenticated device or transport.
 	req.Locale = requestLocale(r, responseLocale(w))
 	result, err := s.deps.Runtime.Submit(r.Context(), runtimeSubmitCommand(req))

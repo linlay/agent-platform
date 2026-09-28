@@ -1,14 +1,16 @@
 package server
 
 import (
-	"agent-platform/internal/contracts"
-	"agent-platform/internal/runtime/controlscope"
 	"context"
 	"encoding/json"
-	gws "github.com/gorilla/websocket"
 	"strings"
 	"testing"
 	"time"
+
+	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/controlscope"
+
+	gws "github.com/gorilla/websocket"
 )
 
 // Synthetic fixtures bypass query admission, so explicitly seed its durable identity.
@@ -16,6 +18,7 @@ func bindTestRunControl(t testing.TB, s *Server, runID, transport, boundary stri
 	t.Helper()
 	if s.deps.Config.Paths.StateDir == "" && s.deps.Config.Paths.ChatsDir == "" {
 		s.deps.Config.Paths.StateDir = t.TempDir()
+		bindTestRuntime(s)
 	}
 	if err := s.runControlScopes().Bind(runID, controlscope.Scope{Transport: transport, Lane: "main", Boundary: boundary}); err != nil {
 		t.Fatal(err)

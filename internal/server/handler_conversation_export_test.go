@@ -28,6 +28,7 @@ func TestResolveExportAssistantUsesPublicIdentityAndSafeIcon(t *testing.T) {
 			"team-one": {Name: "Research Team", Icon: map[string]any{"name": "../bad"}},
 		},
 	}
+	bindTestRuntime(fixture.server)
 	for _, tc := range []struct {
 		agentKey, teamID, name, iconName string
 	}{

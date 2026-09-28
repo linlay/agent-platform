@@ -182,3 +182,69 @@ func summaryIDs(items []Summary) []string {
 	}
 	return ids
 }
+
+func TestChatOrderManualUsesCreationTimeAcrossActivityAndRestart(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	add := func(id string, created, updated int64) {
+		t.Helper()
+		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent-a", "", id, "", "REACT"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.db.Exec("UPDATE CHATS SET CREATED_AT_=?, UPDATED_AT_=? WHERE CHAT_ID_=?", created, updated, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(want ...string) {
+		t.Helper()
+		items, err := store.ListChatsWithAgentModesAndLimit("", "", nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := summaryIDs(items); !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	const base int64 = 1_780_000_000_000
+	add("a", base, base+100)
+	add("b", base+1, base+50)
+	add("c", base+1, base+10)
+	check("a", "b", "c")
+	if _, err := store.SetChatSortMode(SortModeManual); err != nil {
+		t.Fatal(err)
+	}
+	check("c", "b", "a")
+	// Multiple unranked chats must stay stable even when an older one is active.
+	add("d", base+2, base+500)
+	add("e", base+3, base+20)
+	check("e", "d", "c", "b", "a")
+	if _, err := store.db.Exec("UPDATE CHATS SET UPDATED_AT_=? WHERE CHAT_ID_ IN ('a','d')", base+1000); err != nil {
+		t.Fatal(err)
+	}
+	check("e", "d", "c", "b", "a")
+	if _, err := store.MoveChat("a", "b", ""); err != nil {
+		t.Fatal(err)
+	}
+	check("e", "d", "c", "a", "b")
+	if _, err := store.SetChatSortMode(SortModeRecent); err != nil {
+		t.Fatal(err)
+	}
+	check("d", "a", "b", "e", "c")
+	add("f", base+4, base+5)
+	if _, err := store.SetChatSortMode(SortModeManual); err != nil {
+		t.Fatal(err)
+	}
+	check("f", "e", "d", "c", "a", "b")
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("f", "e", "d", "c", "a", "b")
+}

@@ -79,6 +79,28 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if err != nil {
 		return PathPlan{}, err
 	}
+	if session.SharedConnectorsRoot != "" {
+		shared, err := pathutil.Canonicalize(session.SharedConnectorsRoot)
+		if err != nil {
+			return PathPlan{}, err
+		}
+		if pathutil.WithinRoot(realCandidate, shared) {
+			if mode == WriteAccess {
+				return buildPathPlan(mode, rawPath, realCandidate, shared, accessLevel, DecisionBlock, "connector packages are read-only"), nil
+			}
+			mounted := false
+			for _, dir := range session.ConnectorDirs {
+				root, err := pathutil.Canonicalize(dir)
+				if err == nil && pathutil.WithinRoot(realCandidate, root) {
+					mounted = true
+					break
+				}
+			}
+			if !mounted {
+				return buildPathPlan(mode, rawPath, realCandidate, shared, accessLevel, DecisionBlock, "connector package is not mounted in this run"), nil
+			}
+		}
+	}
 	tempState, _, tempRoot, tempErr := sessionTempResolver(session).Classify(candidate)
 	if tempErr != nil {
 		return PathPlan{}, tempErr
@@ -355,7 +377,7 @@ func sessionRoots(session QuerySession) (rootpaths.Roots, error) {
 
 func splitRootQualifiedPath(rawPath string) (string, string, bool) {
 	normalized := filepath.ToSlash(strings.TrimSpace(rawPath))
-	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-center", "@connectors", "@owner", "@temp"} {
+	for _, alias := range []string{"@root", "@workspace", "@chat", "@agent", "@skills", "@skills-center", "@connectors", "@owner", "@temp"} {
 		if strings.EqualFold(normalized, alias) {
 			return alias, "", true
 		}
@@ -405,8 +427,8 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 		}
 	case AccessLevelFullAccess:
 		return config.AccessPolicyLevelConfig{
-			ReadRoots:     []string{"/"},
-			WriteRoots:    []string{"/"},
+			ReadRoots:     []string{"@root"},
+			WriteRoots:    []string{"@root"},
 			ReadonlyRoots: []string{},
 			Approvals: config.AccessPolicyApprovalConfig{
 				ReadOutsideRoots:      "allow",
@@ -570,6 +592,13 @@ func firstAllowedRoot(session QuerySession, workspaceRoot string, roots []string
 
 func expandRootAlias(root string, session QuerySession) string {
 	switch strings.ToLower(strings.TrimSpace(root)) {
+	case "@root":
+		// Abs resolves the current volume root on Windows and / on Unix.
+		resolved, err := filepath.Abs(string(filepath.Separator))
+		if err != nil {
+			return ""
+		}
+		return resolved
 	case "@workspace":
 		return SessionWorkspaceRoot(session)
 	case "@chat":

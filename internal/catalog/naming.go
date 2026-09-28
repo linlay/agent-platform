@@ -33,7 +33,7 @@ func ShouldIgnoreRuntimeWatchPath(path string) bool {
 
 // ShouldWatchRuntimeDir returns true if a directory should be recursively
 // watched by the file watcher. Returns false for staging directories
-// (e.g. "cutej.bootstrap"), backup snapshots (containing ".bak."), and
+// (e.g. "sample-agent.bootstrap"), backup snapshots (containing ".bak."), and
 // post-init leftovers (e.g. "bootstrap.deleted"). Keeping this close to
 // ShouldLoadRuntimeName ensures watch and load filtering stay consistent.
 func ShouldWatchRuntimeDir(name string) bool {

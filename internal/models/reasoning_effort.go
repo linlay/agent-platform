@@ -75,7 +75,7 @@ func ParseReasoningEffortMapping(raw any, modelType string, protocol string) (ma
 	if normalizedProtocol == "" {
 		normalizedProtocol = "OPENAI"
 	}
-	if normalizedProtocol != "OPENAI" {
+	if normalizedProtocol != "OPENAI" && normalizedProtocol != "OPENAI_RESPONSES" {
 		return nil, fmt.Errorf("reasoningEffortMapping is only supported for native OPENAI chat models")
 	}
 

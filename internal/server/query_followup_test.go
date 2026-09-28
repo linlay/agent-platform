@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/ws"
+
 	gws "github.com/gorilla/websocket"
 )
 
@@ -24,7 +25,7 @@ func TestReferenceOnlyQueryRequiresMainHistory(t *testing.T) {
 	selection := []api.Reference{{Type: "selection", Text: "selected passage"}}
 	admit := func(refs []api.Reference) error {
 		prepared, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), api.QueryRequest{ChatID: chatID, AgentKey: "mock-agent", References: refs}, true, i18n.DefaultLocale, "http://example.com")
-		releaseQuery(prepared.release)
+		releaseQuery(prepared.Release)
 		return err
 	}
 	for _, existing := range []bool{false, true} {
@@ -35,7 +36,7 @@ func TestReferenceOnlyQueryRequiresMainHistory(t *testing.T) {
 		}
 		err := admit(selection)
 		var statusErr *statusError
-		if !errors.As(err, &statusErr) || statusErr.status != 400 || !strings.Contains(statusErr.message, "first query") {
+		if !errors.As(err, &statusErr) || statusErr.Status != 400 || !strings.Contains(statusErr.Message, "first query") {
 			t.Fatalf("first query (existing=%v): %v", existing, err)
 		}
 	}

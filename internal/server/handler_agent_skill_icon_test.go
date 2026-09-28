@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 )
 
 func writeAgentSkillIconPNG(t *testing.T, root, key string, shade uint8) {
@@ -106,5 +107,38 @@ func TestAgentSkillIconMissingAndInvalidInputs(t *testing.T) {
 		if strings.Contains(rec.Body.String(), f.cfg.Paths.AgentsDir) {
 			t.Fatal("filesystem path leaked")
 		}
+	}
+}
+
+func TestAgentSkillIconSVGContentAndSafety(t *testing.T) {
+	icon := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#1677cf"/></svg>`
+	f := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
+		path := filepath.Join(cfg.Paths.SkillsCenterDir, "mock-skill", "assets", "icon.svg")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(icon), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}})
+	url := "/api/skills/icon?key=mock-skill"
+	rec := httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/svg+xml" || rec.Body.String() != icon {
+		t.Fatalf("SVG response: %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+	if rec.Header().Get("Content-Security-Policy") == "" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("SVG safety headers missing")
+	}
+	path := filepath.Join(f.cfg.Paths.SkillsCenterDir, "mock-skill", "assets", "icon.svg")
+	if err := os.WriteFile(path, []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unsafe SVG response: %d", rec.Code)
 	}
 }

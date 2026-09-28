@@ -76,33 +76,33 @@ func (s *Server) deriveChat(req api.DeriveChatRequest) (api.DeriveChatResponse, 
 	sourceRunID := strings.TrimSpace(req.SourceRunID)
 	targetChatID := strings.TrimSpace(req.ChatID)
 	if !chat.ValidChatID(sourceChatID) {
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusBadRequest, code: "invalid_request", message: "sourceChatId is required"}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "sourceChatId is required"}
 	}
 	if targetChatID == "" {
 		targetChatID = newChatID()
 	} else if !chat.ValidChatID(targetChatID) {
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusBadRequest, code: "invalid_request", message: "invalid chatId"}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "invalid chatId"}
 	}
 	if s.deps.Runs != nil {
 		activeRun, ok, err := s.deps.Runs.ActiveRunForChat(sourceChatID)
 		var conflictErr *contracts.ActiveRunConflictError
 		if errors.As(err, &conflictErr) {
 			return api.DeriveChatResponse{}, &statusError{
-				status:  http.StatusConflict,
-				code:    activeRunConflictCode,
-				message: activeRunConflictMessage,
-				data:    activeRunConflictInfo(conflictErr),
+				Status:  http.StatusConflict,
+				Code:    activeRunConflictCode,
+				Message: activeRunConflictMessage,
+				Data:    activeRunConflictInfo(conflictErr),
 			}
 		}
 		if err != nil {
-			return api.DeriveChatResponse{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: err.Error()}
+			return api.DeriveChatResponse{}, &statusError{Status: http.StatusInternalServerError, Code: "internal_error", Message: err.Error()}
 		}
 		if ok {
 			return api.DeriveChatResponse{}, &statusError{
-				status:  http.StatusConflict,
-				code:    activeRunConflictCode,
-				message: activeRunFoundMessage,
-				data:    activeRunFoundInfo(sourceChatID, []string{activeRun.RunID}),
+				Status:  http.StatusConflict,
+				Code:    activeRunConflictCode,
+				Message: activeRunFoundMessage,
+				Data:    activeRunFoundInfo(sourceChatID, []string{activeRun.RunID}),
 			}
 		}
 	}
@@ -115,21 +115,21 @@ func (s *Server) deriveChat(req api.DeriveChatRequest) (api.DeriveChatResponse, 
 	switch {
 	case err == nil:
 	case isTimeContractViolation(err):
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusUnprocessableEntity, code: "time_contract_violation", message: timeContractViolationMessage, data: timeContractErrorData(err)}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusUnprocessableEntity, Code: "time_contract_violation", Message: timeContractViolationMessage, Data: timeContractErrorData(err)}
 	case errors.Is(err, os.ErrPermission):
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusBadRequest, code: "invalid_request", message: "invalid chatId"}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "invalid chatId"}
 	case errors.Is(err, chat.ErrChatNotFound):
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusNotFound, code: "not_found", message: "source chat not found"}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusNotFound, Code: "not_found", Message: "source chat not found"}
 	case errors.Is(err, chat.ErrRunNotFound):
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusNotFound, code: "not_found", message: "source run not found"}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusNotFound, Code: "not_found", Message: "source run not found"}
 	case errors.Is(err, chat.ErrChatAlreadyActive):
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusConflict, code: "chat_exists", message: "target chat already exists"}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusConflict, Code: "chat_exists", Message: "target chat already exists"}
 	case errors.Is(err, chat.ErrChatPendingAwaiting):
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusConflict, code: awaitingPendingCode, message: awaitingPendingMessage}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusConflict, Code: awaitingPendingCode, Message: awaitingPendingMessage}
 	case errors.Is(err, chat.ErrRunIncomplete):
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusConflict, code: "run_incomplete", message: "source run is not complete"}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusConflict, Code: "run_incomplete", Message: "source run is not complete"}
 	default:
-		return api.DeriveChatResponse{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: err.Error()}
+		return api.DeriveChatResponse{}, &statusError{Status: http.StatusInternalServerError, Code: "internal_error", Message: err.Error()}
 	}
 	response := mapDeriveChatResponse(result)
 	s.broadcast("chat.created", chatCreatedPayload(response.ChatID, response.ChatName, response.AgentKey, response.CreatedAt, response.Source))

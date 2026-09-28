@@ -115,7 +115,7 @@ func (m *Manager) validateTokenCredentials(ctx context.Context, pkg connector.Pa
 }
 
 // tokenStatus is a local snapshot, never a network probe.
-func (m *Manager) tokenStatus(ctx context.Context, pkg connector.Package) (Session, error) {
+func (m *Manager) tokenStatus(pkg connector.Package) (Session, error) {
 	result := Session{ConnectorID: pkg.ID, AuthBrowser: pkg.AuthorizationBrowser(), Status: "unauthorized"}
 	_, pending, err := pendingTokenValues(pkg)
 	if err != nil {

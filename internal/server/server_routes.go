@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/observability"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 )
@@ -119,76 +120,15 @@ func (s *Server) WSHandler() *ws.Handler {
 	return s.wsHandler
 }
 
-func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest) (int, string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if req.ChatSource != "" {
-		ctx = withChatSourceContext(ctx, req.ChatSource)
-	}
-	prepared, err := s.prepareBlockingQuery(ctx, req, i18n.DefaultLocale, "")
-	response := newQueryResponseBuffer()
-	if err != nil {
-		writeQueryStartError(response, err)
-	} else if isProxyRoutedAgent(prepared.agentDef) {
-		s.executePreparedProxyCompatibility(response, ctx, prepared)
-	} else {
-		s.handleQuerySync(response, ctx, prepared)
-	}
-	return response.status, strings.TrimSpace(response.body.String()), nil
-}
-
 // ExecuteInternalQueryResult preserves the public query pipeline while also
 // returning the exact lifecycle records produced by that pipeline. Hooks are
 // observational: their failure or panic is isolated and never changes Query.
-func (s *Server) ExecuteInternalQueryResult(ctx context.Context, req api.QueryRequest, hooks InternalQueryHooks) (InternalQueryResult, error) {
-	capture := &internalQueryCapture{hooks: hooks}
-	status, body, err := s.ExecuteInternalQuery(withInternalQueryCapture(ctx, capture), req)
-	if err != nil {
-		return capture.result(status, body), err
-	}
-	return capture.result(status, body), nil
-}
 
 // ExecuteInternalQueryStream reuses the normal query pipeline for in-process
 // callers that need to react to each SSE event as it is emitted (e.g. the
 // gateway bridge). onEvent receives the raw JSON payload of each `data:` line
 // except the `[DONE]` sentinel. Returning an error from onEvent aborts further
 // streaming but does not cancel the underlying run.
-
-func (s *Server) ExecuteInternalQueryStream(
-	ctx context.Context,
-	req api.QueryRequest,
-	onEvent func(eventJSON []byte) error,
-) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if req.ChatSource != "" {
-		ctx = withChatSourceContext(ctx, req.ChatSource)
-	}
-	command := queryCommandFromAPI(req)
-	command.Locale = i18n.DefaultLocale
-	command.ChatSource = chatSourceFromContext(ctx)
-	if principal := PrincipalFromContext(ctx); principal != nil {
-		command.Caller.Subject = principal.Subject
-	}
-	rw := newSSEInterceptor(onEvent)
-	if isNonStreamingQuery(req) {
-		prepared, err := s.prepareBlockingQuery(ctx, req, command.Locale, "")
-		if err != nil {
-			writeQueryStartError(rw, err)
-		} else if isProxyRoutedAgent(prepared.agentDef) {
-			request, _ := http.NewRequestWithContext(ctx, http.MethodPost, "/api/query", nil)
-			s.handleProxyQueryNonStream(rw, request, prepared)
-		} else {
-			s.handleQueryNonStream(rw, ctx, prepared)
-		}
-	} else {
-		s.writeRuntimeQueryStream(rw, ctx, command)
-	}
-	return rw.err
-}
 
 // ExecuteInternalSubmit reuses /api/submit for in-process callers (gateway
 // bridge HITL submit). Returns the full JSON response body so callers can
@@ -330,7 +270,7 @@ func withChatSourceContext(ctx context.Context, source string) context.Context {
 	if source == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, chatSourceContextKey{}, source)
+	return context.WithValue(runtimetypes.WithChatSource(ctx, source), chatSourceContextKey{}, source)
 }
 
 func chatSourceFromContext(ctx context.Context) string {
@@ -373,15 +313,19 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/monitor/ws/connections", s.method(http.MethodGet, s.handleMonitorWSConnections))
 	s.router.HandleFunc("/api/monitor/ws/messages", s.method(http.MethodGet, s.handleMonitorWSMessages))
 	s.router.HandleFunc("/api/teams", s.method(http.MethodGet, s.handleTeams))
-	s.router.HandleFunc("/api/desktop/webapp/grants", s.handleWebappGrant)
-	s.router.HandleFunc("/api/desktop/connector/auth", s.handleDesktopConnectorAuth)
-	s.router.HandleFunc("/api/desktop/connector/auth/cancel", s.handleDesktopConnectorAuth)
-	s.router.HandleFunc("/api/webapp/artifact/list", s.handleWebappArtifact)
-	s.router.HandleFunc("/api/webapp/artifact/get", s.handleWebappArtifact)
-	s.router.HandleFunc("/api/webapp/artifact/read", s.handleWebappArtifact)
-	s.router.HandleFunc("/api/webapp/connector/list", s.handleWebappConnector)
-	s.router.HandleFunc("/api/webapp/connector/describe", s.handleWebappConnector)
-	s.router.HandleFunc("/api/webapp/connector/invoke", s.handleWebappConnector)
+	s.router.HandleFunc("/api/connectors/execution/grants", s.handleConnectorExecutionGrant)
+	s.router.HandleFunc("/api/connectors/auth", s.handleTrustedConnectorAuth)
+	s.router.HandleFunc("/api/connectors/auth/cancel", s.handleTrustedConnectorAuth)
+	for _, action := range []string{"list", "describe", "invoke"} {
+		s.router.HandleFunc("/api/connectors/execution/"+action, s.handleConnectorExecution)
+	}
+	for _, action := range []string{"list", "get", "read"} {
+		s.router.HandleFunc("/api/chat/artifacts/"+action, s.handleChatArtifact)
+	}
+	// Retired transports fail closed. Never translate old grants or retry calls.
+	for _, path := range []string{"/api/desktop/webapp/grants", "/api/desktop/connector/auth", "/api/desktop/connector/auth/cancel", "/api/webapp/"} {
+		s.router.HandleFunc(path, retiredApplicationTransport)
+	}
 	s.router.HandleFunc("/api/connectors", s.method(http.MethodGet, s.handleConnectors))
 	s.router.HandleFunc("/api/connectors/connection", s.handleConnectorConnection)
 	s.router.HandleFunc("/api/connectors/check", s.method(http.MethodPost, s.handleConnectorCheck))

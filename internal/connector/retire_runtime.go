@@ -15,6 +15,9 @@ func (s Sources) RetireSharedRuntime(runtimeHome string) error {
 		return nil
 	}
 	old := filepath.Join(runtimeHome, "ru-connectors")
+	if _, err := os.Stat(filepath.Join(old, ".shared-v1")); err == nil {
+		return nil
+	}
 	info, err := os.Lstat(old)
 	if os.IsNotExist(err) {
 		return nil

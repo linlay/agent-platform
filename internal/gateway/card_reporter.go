@@ -420,7 +420,7 @@ func (r *AgentCardReporter) reconcile(ctx context.Context, session *agentCardCon
 		}
 	}
 	sort.Strings(unregisterKeys)
-	r.runConcurrent(ctx, session, unregisterKeys, r.maxConcurrent(connected), func(agentKey string) {
+	r.runConcurrent(ctx, unregisterKeys, r.maxConcurrent(connected), func(agentKey string) {
 		outcome := r.unregisterAgent(ctx, session, agentKey)
 		if outcome.reason != "" && !outcome.canceled {
 			log.Printf("[agent-registration] unregister failed: channel=%s agent=%s err=%s", session.channelID, sanitizeCardReason(agentKey), sanitizeCardReason(outcome.reason))
@@ -437,7 +437,7 @@ func (r *AgentCardReporter) reconcile(ctx context.Context, session *agentCardCon
 			registerItems = append(registerItems, item)
 		}
 	}
-	r.runConcurrentRegistrations(ctx, session, registerItems, r.maxConcurrent(connected), func(item builtAgentRegistration) {
+	r.runConcurrentRegistrations(ctx, registerItems, r.maxConcurrent(connected), func(item builtAgentRegistration) {
 		outcome, result := r.registerAgent(ctx, session, item, func(outcome gatewayRequestOutcome) {
 			r.setOutcomeStatus(session, generation, item.agentKey, outcome, "agent.register retrying")
 		})
@@ -482,7 +482,7 @@ func (r *AgentCardReporter) maxConcurrent(connected api.GatewayAgentConnectedDat
 	return r.options.MaxConcurrent
 }
 
-func (r *AgentCardReporter) runConcurrent(ctx context.Context, session *agentCardConnection, keys []string, limit int, fn func(string)) {
+func (r *AgentCardReporter) runConcurrent(ctx context.Context, keys []string, limit int, fn func(string)) {
 	if limit <= 0 {
 		limit = 1
 	}
@@ -505,7 +505,7 @@ func (r *AgentCardReporter) runConcurrent(ctx context.Context, session *agentCar
 	wg.Wait()
 }
 
-func (r *AgentCardReporter) runConcurrentRegistrations(ctx context.Context, session *agentCardConnection, items []builtAgentRegistration, limit int, fn func(builtAgentRegistration)) {
+func (r *AgentCardReporter) runConcurrentRegistrations(ctx context.Context, items []builtAgentRegistration, limit int, fn func(builtAgentRegistration)) {
 	if limit <= 0 {
 		limit = 1
 	}

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 )
@@ -128,6 +129,11 @@ func TestWriteEditableSkillArchiveIncludesSafeFilesOnly(t *testing.T) {
 		}
 	}
 
+	modified := time.Date(2024, 6, 7, 8, 9, 11, 123456789, time.FixedZone("UTC+8", 8*60*60))
+	if err := os.Chtimes(filepath.Join(skillDir, "SKILL.md"), modified, modified); err != nil {
+		t.Fatal(err)
+	}
+
 	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	var output bytes.Buffer
 	if err := registry.WriteEditableSkillArchive("demo-skill", &output); err != nil {
@@ -151,6 +157,11 @@ func TestWriteEditableSkillArchiveIncludesSafeFilesOnly(t *testing.T) {
 	}
 	if entries["scripts/run.sh"].Mode()&0o111 == 0 {
 		t.Fatalf("archive did not preserve executable script mode: %v", entries["scripts/run.sh"].Mode())
+	}
+	archivedTime := entries["SKILL.md"].Modified
+	_, offset := archivedTime.Zone()
+	if !archivedTime.Equal(modified.Truncate(time.Second)) || offset != 0 {
+		t.Fatalf("archive time = %v, want UTC seconds %v", archivedTime, modified.UTC().Truncate(time.Second))
 	}
 	content, err := entries["SKILL.md"].Open()
 	if err != nil {
@@ -538,6 +549,22 @@ func TestAdminSkillIconRequiresRegularFile(t *testing.T) {
 	item, found, err = registry.AdminSkill("demo-skill")
 	if err != nil || !found || item.IconPath != "assets/demo-skill.png" {
 		t.Fatalf("regular icon = %#v, found=%v, err=%v", item, found, err)
+	}
+}
+
+func TestAdminSkillIconNamePriority(t *testing.T) {
+	skillDir := filepath.Join(t.TempDir(), "demo-skill")
+	if err := os.MkdirAll(filepath.Join(skillDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"demo-skill.png", "demo-skill.svg", "icon.png", "icon.svg"} {
+		if err := os.WriteFile(filepath.Join(skillDir, "assets", name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		icon, err := resolveAdminSkillIcon(skillDir, "demo-skill")
+		if err != nil || icon != "assets/"+name {
+			t.Fatalf("icon = %q, err = %v; want %s", icon, err, name)
+		}
 	}
 }
 

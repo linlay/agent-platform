@@ -1,11 +1,15 @@
 package catalog
 
-import "agent-platform/internal/connector"
+import (
+	"agent-platform/internal/connector"
+	"agent-platform/internal/skillmeta"
+)
 
 type ConnectorSkillSummary struct {
-	Name        string   `json:"name"`
+	skillmeta.Presentation
+	Key         string   `json:"key"`
+	Name        string   `json:"-"`
 	Description string   `json:"description"`
-	Version     string   `json:"version,omitempty"`
 	Triggers    []string `json:"triggers,omitempty"`
 	Path        string   `json:"path"`
 	Size        int64    `json:"size"`
@@ -40,6 +44,6 @@ func ReadConnectorSkill(sources connector.Sources, id, name string) (ConnectorSk
 }
 
 func connectorSkillSummary(document connector.SkillDocument) ConnectorSkillSummary {
-	_, description, triggers, _, version := parseSkillPromptMetadata(document.Content)
-	return ConnectorSkillSummary{Name: document.Name, Description: description, Version: version, Triggers: triggers, Path: document.Path, Size: document.Size, UpdatedAt: document.UpdatedAt}
+	name, description, triggers, metadata, version := parseSkillPromptMetadata(document.Content)
+	return ConnectorSkillSummary{Key: document.Name, Name: skillDisplayName(name, description, document.Name), Description: description, Presentation: skillmeta.Parse(metadata, version), Triggers: triggers, Path: document.Path, Size: document.Size, UpdatedAt: document.UpdatedAt}
 }

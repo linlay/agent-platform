@@ -32,7 +32,7 @@ func TestMemoryWriteSupportsExtendedMetadata(t *testing.T) {
 		"title":      "Verification policy",
 		"confidence": 0.82,
 		"importance": 8,
-		"tags":       []any{"tests", "merge"},
+		"tags":       []any{" Tests ", "merge", "TESTS", ""},
 	}, &ExecutionContext{
 		Session: QuerySession{
 			AgentKey:  "agent-a",
@@ -57,6 +57,10 @@ func TestMemoryWriteSupportsExtendedMetadata(t *testing.T) {
 		t.Fatalf("expected one stored item, got %#v", items)
 	}
 	item := items[0]
+	if item.Importance != 8 || item.SubjectKey != "chat:chat-1" || strings.Join(item.Tags, ",") != "tests,merge" {
+		t.Fatalf("unexpected normalized metadata: %#v", item)
+	}
+
 	if item.ScopeType != memory.ScopeTeam || item.ScopeKey != "team:team-9" {
 		t.Fatalf("unexpected scope: %#v", item)
 	}

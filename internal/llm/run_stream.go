@@ -122,35 +122,39 @@ type llmRunStream struct {
 }
 
 type providerTurnStream struct {
-	observation     providerStreamObservation
-	body            io.ReadCloser
-	cancel          context.CancelFunc
-	reader          *bufio.Reader
-	trace           *llmChatTrace
-	content         strings.Builder
-	reasoning       strings.Builder
-	contentRepeat   outputRepetitionDetector
-	reasoningRepeat outputRepetitionDetector
-	outputGuardErr  error
-	thinkTag        thinkTagParserState
-	toolCalls       map[int]*toolCallAccumulator
-	finishReason    string
-	finishSeenAt    time.Time
-	hasMeaningful   bool
-	usage           *openAIUsage
-	usageCommitted  bool
-	requestSentAt   time.Time
-	firstVisibleAt  time.Time
+	responseID         string
+	responses          *responsesTurnState
+	encryptedReasoning []ReasoningPart
+	observation        providerStreamObservation
+	body               io.ReadCloser
+	cancel             context.CancelFunc
+	reader             *bufio.Reader
+	trace              *llmChatTrace
+	content            strings.Builder
+	reasoning          strings.Builder
+	contentRepeat      outputRepetitionDetector
+	reasoningRepeat    outputRepetitionDetector
+	outputGuardErr     error
+	thinkTag           thinkTagParserState
+	toolCalls          map[int]*toolCallAccumulator
+	finishReason       string
+	finishSeenAt       time.Time
+	hasMeaningful      bool
+	usage              *openAIUsage
+	usageCommitted     bool
+	requestSentAt      time.Time
+	firstVisibleAt     time.Time
 }
 
 type pendingModelCall struct {
-	prepared            preparedProviderRequest
-	effectiveToolChoice string
-	runSeq              int
-	attempt             int
-	maxAttempts         int
-	logicalTurnCounted  bool
-	attemptStartedAt    time.Time
+	responsesRecoveryUsed bool
+	prepared              preparedProviderRequest
+	effectiveToolChoice   string
+	runSeq                int
+	attempt               int
+	maxAttempts           int
+	logicalTurnCounted    bool
+	attemptStartedAt      time.Time
 }
 
 type thinkTagParserState struct {

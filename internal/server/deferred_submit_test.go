@@ -131,7 +131,7 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 	seedCoderPlanningAwaitingForDeferredSubmit(t, fixture.chats, chatID, runID, awaitingID, fixture.cfg.Paths.ChatsDir)
 
 	restartedRuns := runstate.NewManager()
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -242,7 +242,7 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		t.Fatalf("persisted run start = %d, %v; want %d", got, err, persistedStartedAt)
 	}
 
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -385,7 +385,7 @@ func TestDeferredQuestionSubmitRejectsInvalidAnswerAndAllowsRetry(t *testing.T) 
 		}},
 	})
 
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -558,7 +558,7 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 
 	seedDeferredAwaiting(t, fixture.chats, "chat-ws", "run-ws", "await-ws", "question", 0, time.Now().UnixMilli(), controlscope.Scope{Transport: "ws", Lane: "main"})
 
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -677,7 +677,7 @@ func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
 
 	seedDeferredAwaiting(t, fixture.chats, "chat-idempotent", "run-idempotent", "await-idempotent", "question", 0, time.Now().UnixMilli())
 
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -850,7 +850,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 		seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, tc.awaitingID, tc.mode, 600, nowMs, tc.ask)
 	}
 
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -963,7 +963,7 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 
 	seedDeferredAwaiting(t, fixture.chats, "chat-expired", "run-expired", "await-expired", "question", 1, time.Now().UnixMilli()-2000)
 
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -1018,7 +1018,7 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 	seedDeferredAwaiting(t, fixture.chats, "chat-stale", "run-stale", "await-stale", "question", 1, nowMs-5000)
 	seedDeferredAwaiting(t, fixture.chats, "chat-fresh", "run-fresh", "await-fresh", "question", 60, nowMs-1000)
 
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -1074,7 +1074,7 @@ func TestRecoveredAwaitingSupervisorTerminalizesTimeoutOnAttachedRun(t *testing.
 
 	createdAt := time.Now().UnixMilli() - 1200
 	seedDeferredAwaiting(t, fixture.chats, "chat-runtime-timeout", "run-runtime-timeout", "await-runtime-timeout", "question", 2, createdAt)
-	restarted, err := New(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, notifications))
+	restarted, err := newRuntimeServer(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, notifications))
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
@@ -1128,7 +1128,7 @@ func TestRecoveredAwaitingSupervisorTerminalizesInterrupt(t *testing.T) {
 	}, testFixtureOptions{notifications: notifications})
 
 	seedDeferredAwaiting(t, fixture.chats, "chat-runtime-interrupt", "run-runtime-interrupt", "await-runtime-interrupt", "question", 0, time.Now().UnixMilli())
-	restarted, err := New(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, notifications))
+	restarted, err := newRuntimeServer(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, notifications))
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
@@ -1190,7 +1190,7 @@ func TestHydrationReconcilesRestartAwaitingModesAndStructuredConflicts(t *testin
 	})
 	seedDeferredAwaiting(t, fixture.chats, "chat-old-question-no-timeout", "run-old-question-no-timeout", "await-old-question-no-timeout", "question", 0, nowMs-7*24*60*60*1000)
 
-	restarted, err := New(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, nil))
+	restarted, err := newRuntimeServer(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, nil))
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
@@ -1231,7 +1231,7 @@ func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) 
 			seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 1, time.Now().UnixMilli()-5_000)
 
 			failing := &awaitingReconcileFailureStore{Store: fixture.chats, stage: stage}
-			if _, err := New(deferredRestartDependencies(fixture, runstate.NewManager(), failing, nil)); err == nil || !strings.Contains(err.Error(), "reconcile persisted awaitings") {
+			if _, err := newRuntimeServer(deferredRestartDependencies(fixture, runstate.NewManager(), failing, nil)); err == nil || !strings.Contains(err.Error(), "reconcile persisted awaitings") {
 				t.Fatalf("expected startup reconciliation failure at %s, got %v", stage, err)
 			}
 			summary, err := fixture.chats.Summary(chatID)
@@ -1242,7 +1242,7 @@ func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) 
 				t.Fatalf("pending awaiting was cleared before %s completed: %#v", stage, summary)
 			}
 
-			if _, err := New(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil)); err != nil {
+			if _, err := newRuntimeServer(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil)); err != nil {
 				t.Fatalf("resume reconciliation after %s failure: %v", stage, err)
 			}
 			assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "timeout")
@@ -1255,7 +1255,7 @@ func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) 
 			}); err != nil {
 				t.Fatalf("restore stale pending marker: %v", err)
 			}
-			if _, err := New(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil)); err != nil {
+			if _, err := newRuntimeServer(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil)); err != nil {
 				t.Fatalf("repeat reconciliation after %s: %v", stage, err)
 			}
 			assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "timeout")
@@ -1301,7 +1301,7 @@ func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
 		t.Fatalf("append answered line: %v", err)
 	}
 
-	_, err := New(Dependencies{
+	_, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -1344,7 +1344,7 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 
 	seedDeferredAwaiting(t, fixture.chats, "chat-within", "run-within", "await-within", "question", 60, time.Now().UnixMilli()-1000)
 
-	restarted, err := New(Dependencies{
+	restarted, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -1401,7 +1401,7 @@ func TestHydrationRestoresAwaitingWithEmptyRunEnvironment(t *testing.T) {
 	seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 60, time.Now().UnixMilli()-1000)
 
 	deps := deferredRestartDependencies(fixture, restartedRuns, fixture.chats, contracts.NewNoopNotificationSink())
-	if _, err := New(deps); err != nil {
+	if _, err := newRuntimeServer(deps); err != nil {
 		t.Fatalf("restart hydration failed: %v", err)
 	}
 	scope, ok := lookupRunEnvironment(deps.Runs, runID)

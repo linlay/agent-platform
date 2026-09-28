@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -29,7 +30,7 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 	return ""
 }
 
-func loadAgentsWithAdminAssembler(root, centerDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler) (map[string]AgentDefinition, map[string]AdminAgent, error) {
+func loadAgentsWithAdminAssembler(root, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
 	expectedRuntimeAgents := map[string]struct{}{}
@@ -60,7 +61,7 @@ func loadAgentsWithAdminAssembler(root, centerDir, chatsDir string, globalMemory
 			// records diagnostics and preserves an invalid AdminAgent entry when
 			// parsing or validation fails, while valid Agents remain available.
 			// Root traversal failures are still returned by visitRuntimeEntries.
-			_ = loadAgentSourceIntoMaps(root, name, entry, centerDir, chatsDir, globalMemoryEnabled, assembler, items, adminItems)
+			_ = loadAgentSourceIntoMaps(root, name, entry, chatsDir, globalMemoryEnabled, assembler, items, adminItems)
 		},
 	)
 	if err != nil {
@@ -72,15 +73,12 @@ func loadAgentsWithAdminAssembler(root, centerDir, chatsDir string, globalMemory
 	return items, adminItems, nil
 }
 
-func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, centerDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
+func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
 	source, ok := runtimeAgentSource(root, name, entry)
 	if !ok {
 		return nil
 	}
 	fallbackKey := adminAgentFallbackKey(source)
-	if _, frozen := assembler.frozenAgents[fallbackKey]; frozen {
-		return nil
-	}
 	definition, err := readAdminAgentDefinitionMap(source.Path)
 	if err != nil {
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
@@ -93,9 +91,6 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
 		return err
-	}
-	if _, frozen := assembler.frozenAgents[def.Key]; frozen {
-		return nil
 	}
 	if source.Kind == "directory" && def.Key != name {
 		err := fmt.Errorf("key mismatch (file key=%q, directory=%q)", def.Key, name)
@@ -127,6 +122,9 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, center
 		return err
 	}
 	runtimeDir, err := assembler.assemble(source, def)
+	if errors.Is(err, errAgentRuntimeBusy) {
+		return nil
+	}
 	if err != nil {
 		code := runtimeAgentAssemblyDiagnosticCode(err)
 		log.Printf("[catalog][agents] skip %s %s: runtime assembly failed: %v", source.Kind, name, err)
@@ -666,6 +664,11 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.ModelKey = stringNode(modelConfig["modelKey"])
+	reasoning := mapNode(modelConfig["reasoning"])
+	def.ModelReasoningEffort = stringNode(reasoning["effort"])
+	if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {
+		def.ModelReasoningEffort = models.ReasoningEffortNone
+	}
 	def.ServiceTier = stringNode(modelConfig["serviceTier"])
 	toolConfig := mapNode(root["toolConfig"])
 	if err := validateAgentToolConfig(toolConfig); err != nil {

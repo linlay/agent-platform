@@ -845,7 +845,7 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 	}
 }
 
-func TestDispatcherUsageSnapshotIncludesZeroToolCallCounts(t *testing.T) {
+func TestDispatcherUsageSnapshotIncludesZeroToolCallCountsAndReasoning(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -871,6 +871,15 @@ func TestDispatcherUsageSnapshotIncludesZeroToolCallCounts(t *testing.T) {
 	run, _ := usage["run"].(map[string]any)
 	if current["toolCallCount"] != 0 || run["toolCallCount"] != 0 {
 		t.Fatalf("expected zero tool call counts in usage.snapshot, got %#v", usage)
+	}
+	for name, stats := range map[string]map[string]any{"current": current, "run": run} {
+		details, _ := stats["completionTokensDetails"].(map[string]any)
+		if details["reasoningTokens"] != 0 {
+			t.Fatalf("expected explicit zero reasoning tokens in %s so clients can split completion usage, got %#v", name, stats)
+		}
+		if stats["completionTokens"] != 25 {
+			t.Fatalf("expected completion tokens to remain available in %s, got %#v", name, stats)
+		}
 	}
 }
 

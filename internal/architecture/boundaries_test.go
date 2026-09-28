@@ -1,6 +1,7 @@
 package architecture
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -38,6 +39,7 @@ func TestCoreRuntimePackagesAreTransportNeutral(t *testing.T) {
 		"internal/runtime/query",
 		"internal/runtime/runexec",
 		"internal/runtime/orchestration",
+		"internal/runtime/session",
 	}, map[string]bool{
 		"net/http":                   true,
 		"agent-platform/internal/ws": true,
@@ -61,6 +63,8 @@ func TestRuntimeCommandsDoNotDependOnExternalDTOs(t *testing.T) {
 	root := repositoryRoot(t)
 	assertNoImports(t, root, []string{
 		"internal/runtime/types",
+		"internal/runtime/session",
+		"internal/runtime/reference",
 		"internal/runtime/query",
 		"internal/runtime/runexec",
 		"internal/runtime/orchestration",
@@ -124,4 +128,71 @@ func repositoryRoot(t *testing.T) string {
 
 func errorsIsNotExist(err error) bool {
 	return err != nil && os.IsNotExist(err)
+}
+
+func TestConnectorExecutionDoesNotOwnApplicationsOrChats(t *testing.T) {
+	assertNoImports(t, repositoryRoot(t), []string{"internal/connectorops"}, map[string]bool{
+		"agent-platform/internal/webapp":       true,
+		"agent-platform/internal/server":       true,
+		"agent-platform/internal/chat":         true,
+		"agent-platform/internal/chatresource": true,
+		"agent-platform/internal/api":          true,
+	})
+	assertNoImports(t, repositoryRoot(t), []string{"internal/chatresource"}, map[string]bool{
+		"agent-platform/internal/connectorops": true,
+	})
+}
+
+// Migration guards cover ownership, not just import direction: wrapping a
+// Server method in an injected function must not recreate the old runtime seam.
+func TestServerDoesNotOwnNativeQueryBusiness(t *testing.T) {
+	root := repositoryRoot(t)
+	forbidden := map[string]bool{
+		"prepareQueryAdmissionRequest": true, "completeQueryPreparation": true,
+		"BuildQuerySession": true, "startPreparedLocalRun": true,
+		"localRunExecutorParams": true, "executePreparedLocalQuery": true,
+		"startAwaitingContinuation": true, "startAwaitingContinuationWithAdmission": true,
+		"startRunContinuation": true, "registerRecoveredAwaitingRun": true,
+		"resolveSubmit": true, "resolveDeferredSubmit": true, "hydrateDeferredAwaitings": true,
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "internal/server"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(root, "internal/server", entry.Name())
+		tree, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range tree.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && forbidden[fn.Name.Name] {
+				t.Errorf("Server still owns native query business: %s in %s", fn.Name.Name, path)
+			}
+		}
+	}
+	tree, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, "internal/runtime/query/service.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.Inspect(tree, func(node ast.Node) bool {
+		spec, ok := node.(*ast.TypeSpec)
+		if !ok || spec.Name.Name != "Dependencies" {
+			return true
+		}
+		fields, ok := spec.Type.(*ast.StructType)
+		if !ok {
+			t.Fatal("query.Dependencies must be a struct")
+		}
+		for _, field := range fields.Fields.List {
+			if _, ok := field.Type.(*ast.FuncType); ok {
+				t.Errorf("query dependencies must inject components, not Server callback functions: %v", field.Names)
+			}
+		}
+		return false
+	})
 }

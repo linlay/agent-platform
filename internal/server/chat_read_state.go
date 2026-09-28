@@ -37,10 +37,6 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 	}
 }
 
-func (s *Server) listAgentSummariesWithModes(includeChats int, scope string, modes []string) ([]api.AgentSummary, error) {
-	return s.listAgentSummariesWithPinned(includeChats, scope, modes, nil)
-}
-
 func (s *Server) listAgentSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool) ([]api.AgentSummary, error) {
 	items := s.filteredAgentSummaries(scope, modes)
 	if s.deps.Chats == nil {
@@ -108,13 +104,6 @@ func agentCatalogSummary(agent api.AgentSummary) api.AgentCatalogSummary {
 		Stats:                  agent.Stats,
 		Chats:                  agent.Chats,
 	}
-}
-
-// listAgentCatalogSummariesWithModes builds the opt-in mixed Team/Agent
-// navigation catalog. Scope and mode are intentionally only applied before
-// this point, while enumerating ordinary agents.
-func (s *Server) listAgentCatalogSummariesWithModes(includeChats int, scope string, modes []string) ([]api.AgentCatalogSummary, error) {
-	return s.listAgentCatalogSummariesWithPinned(includeChats, scope, modes, nil)
 }
 
 func (s *Server) listAgentCatalogSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool) ([]api.AgentCatalogSummary, error) {

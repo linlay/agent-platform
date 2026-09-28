@@ -2,7 +2,8 @@
 param(
     [switch]$All,
     [string[]]$Target,
-    [string]$BuiltinsRoot
+    [string]$BuiltinsRoot,
+    [string]$ConnectorsRoot
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,7 +48,9 @@ function Invoke-Native {
 
 function Copy-IsolatedProject {
     param([string]$Name, [string]$CollectionRoot)
-    $source = Join-Path $BuiltinsRoot $Name
+    $sourceRoot = $BuiltinsRoot
+    if ($Name -in @("dbx", "httpx")) { $sourceRoot = $ConnectorsRoot }
+    $source = Join-Path $sourceRoot $Name
     $destination = Join-Path $CollectionRoot $Name
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
     # Exclude only project build outputs; payloads may contain runtime dist/target directories.
@@ -97,6 +100,14 @@ if (-not (Test-Path -LiteralPath $CanonicalLock -PathType Leaf)) {
     throw "Canonical builtin lock not found: $CanonicalLock"
 }
 
+if (-not $ConnectorsRoot) { $ConnectorsRoot = $env:CONNECTORS_ROOT }
+if (-not $ConnectorsRoot) { $ConnectorsRoot = Join-Path (Split-Path -Parent $RepoRoot) "agent-platform-connectors" }
+if (-not [IO.Path]::IsPathRooted($ConnectorsRoot)) { throw "-ConnectorsRoot must be absolute" }
+$ConnectorsRoot = (Resolve-Path -LiteralPath $ConnectorsRoot).Path
+foreach ($component in @("dbx", "httpx")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $ConnectorsRoot "$component/connector") -PathType Container)) { throw "Missing connector project: $component" }
+}
+$ConnectorLock = Join-Path $ScriptDir "release-assets/connectors.lock.json"
 if (-not $BuiltinsRoot) {
     $BuiltinsRoot = Join-Path (Split-Path -Parent $RepoRoot) "agent-platform-builtins"
 }
@@ -104,7 +115,7 @@ if (-not [IO.Path]::IsPathRooted($BuiltinsRoot)) {
     throw "-BuiltinsRoot must be an absolute path"
 }
 $BuiltinsRoot = (Resolve-Path -LiteralPath $BuiltinsRoot).Path
-foreach ($component in @("ripgrep", "dbx", "httpx", "kbase-lance-engine", "poppler-pdftotext")) {
+foreach ($component in @("ripgrep", "kbase-lance-engine", "poppler-pdftotext")) {
     $componentRoot = Join-Path $BuiltinsRoot $component
     if (-not (Test-Path -LiteralPath $componentRoot -PathType Container)) {
         throw "Missing sibling builtin project: $componentRoot"
@@ -186,12 +197,18 @@ try {
     foreach ($item in $Targets) { $lockArgs += @("--target", $item) }
     Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments $lockArgs
 
+    $LocalConnectorsLock = Join-Path $WorkDir "connectors.local.lock.json"
+    $connectorArgs = @("run", "./cmd/prepare-local-builtins-lock", "--input", $ConnectorLock, "--output", $LocalConnectorsLock, "--builtins-root", $CollectionRoot)
+    foreach ($item in $Targets) { $connectorArgs += @("--target", $item) }
+    Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments $connectorArgs
+
     foreach ($item in $Targets) {
         $parts = $item.Split('/')
         $stageDir = Join-Path $WorkDir "$($parts[0])-$($parts[1])"
         New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
         Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments @(
             "run", "./cmd/stage-builtins", "--repo-root", $RepoRoot, "--lock", $LocalLock,
+            "--connectors-lock", $LocalConnectorsLock, "--connectors-root", $CollectionRoot,
             "--output", $stageDir, "--os", $parts[0], "--arch", $parts[1], "--builtins-root", $CollectionRoot
         )
         Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments @(
@@ -241,6 +258,11 @@ try {
     Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments @(
         "run", "./cmd/prepare-local-builtins-lock", "--input", $CanonicalLock,
         "--builtins-root", $CollectionRoot, "--durable-builtins-root", $BuiltinsRoot,
+        "--host-target", "windows/amd64", "--offer-canonical-update"
+    )
+    Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments @(
+        "run", "./cmd/prepare-local-builtins-lock", "--input", $ConnectorLock,
+        "--builtins-root", $CollectionRoot, "--durable-builtins-root", $ConnectorsRoot,
         "--host-target", "windows/amd64", "--offer-canonical-update"
     )
 } finally {

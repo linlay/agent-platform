@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"agent-platform/internal/connectortest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,7 @@ func runtimeFixture(t *testing.T) Sources {
 	t.Helper()
 	root := t.TempDir()
 	s := Sources{ExternalRoot: filepath.Join(root, "connectors-center"), BuiltinRoot: filepath.Join(root, "platform", "connectors"), StateRoot: filepath.Join(root, ".state", "connectors")}
-	if err := WriteBuiltin(filepath.Join(s.BuiltinRoot, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(s.BuiltinRoot, "builtin.dbx"), "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -40,23 +41,26 @@ func TestAgentMaterializationCopiesOnlyMountsAndKeepsState(t *testing.T) {
 		if err != nil || len(pkgs) != 1 {
 			t.Fatalf("materialize: %#v %v", pkgs, err)
 		}
-		if pkgs[0].Dir != filepath.Join(target, "builtin.dbx") || pkgs[0].PersistentRoot() != s.StateRoot {
+		if filepath.Dir(pkgs[0].Dir) != filepath.Join(s.SharedRoot(), "builtin.dbx") || pkgs[0].PersistentRoot() != s.StateRoot {
 			t.Fatal("wrong mounted metadata")
 		}
 		if _, err := os.Stat(filepath.Join(target, "search")); !os.IsNotExist(err) {
 			t.Fatal("unmounted package copied")
 		}
 	}
-	rel := filepath.Join("builtin.dbx", "skills", "builtin-dbx", "SKILL.md")
-	one, _ := os.Stat(filepath.Join(a, rel))
-	two, _ := os.Stat(filepath.Join(b, rel))
-	if os.SameFile(one, two) {
-		t.Fatal("Agents share mutable file identity")
+	one, err := ReadMount(a, "builtin.dbx")
+	if err != nil {
+		t.Fatal(err)
 	}
-	original, _ := os.ReadFile(filepath.Join(b, rel))
-	putRuntimeFile(t, filepath.Join(a, rel), "changed")
-	if data, _ := os.ReadFile(filepath.Join(b, rel)); string(data) != string(original) {
-		t.Fatal("one Agent changed another")
+	two, err := ReadMount(b, "builtin.dbx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.Dir != two.Dir {
+		t.Fatal("same version was copied per Agent")
+	}
+	if _, err := os.Stat(filepath.Join(a, "builtin.dbx")); !os.IsNotExist(err) {
+		t.Fatal("Agent contains a full package")
 	}
 	if err := os.RemoveAll(a); err != nil {
 		t.Fatal(err)
@@ -138,7 +142,11 @@ func TestManagedLauncherUsesPersistentStateFromAgentRuntime(t *testing.T) {
 	if _, err := s.Materialize(runtimeRoot, []string{"demo"}); err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(runtimeRoot, "demo", "bin", "launcher.cjs")
+	mount, err := ReadMount(runtimeRoot, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(mount.Dir, "bin", "launcher.cjs")
 	if data, _ := os.ReadFile(filepath.Join(dir, "bin", "launcher.cjs")); string(data) != launcher {
 		t.Fatal("runtime adapter changed source")
 	}

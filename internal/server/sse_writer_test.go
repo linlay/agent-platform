@@ -4,9 +4,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/stream"
-	"time"
 )
 
 func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {

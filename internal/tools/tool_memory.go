@@ -121,14 +121,14 @@ func (t *RuntimeToolExecutor) invokeMemoryWrite(toolName string, args map[string
 		ScopeType:  scopeType,
 		ScopeKey:   scopeKey,
 		Title:      title,
-		SubjectKey: normalizeMemorySubjectKey("", chatID, agentKey),
+		SubjectKey: memory.NormalizeSubjectKey("", chatID, agentKey),
 		Summary:    content,
 		SourceType: normalizeMemorySourceType("tool-write"),
 		Category:   normalizeMemoryCategory(stringArg(args, "category")),
-		Importance: normalizeMemoryImportance(int(int64Arg(args, "importance"))),
+		Importance: memory.NormalizeImportance(int(int64Arg(args, "importance"))),
 		Confidence: normalizeMemoryConfidenceArg(confidence, memory.KindFact),
 		Status:     memory.StatusActive,
-		Tags:       normalizeMemoryTags(stringListArg(args, "tags")),
+		Tags:       memory.NormalizeTags(stringListArg(args, "tags")),
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
@@ -213,7 +213,7 @@ func (t *RuntimeToolExecutor) invokeMemoryUpdate(toolName string, args map[strin
 		input.Confidence = &value
 	}
 	if _, ok := args["tags"]; ok {
-		input.Tags = normalizeMemoryTags(stringListArg(args, "tags"))
+		input.Tags = memory.NormalizeTags(stringListArg(args, "tags"))
 		input.ReplaceTags = true
 	}
 	record, err := mutator.Update(agentKey, input)
@@ -326,7 +326,7 @@ func (t *RuntimeToolExecutor) invokeMemoryPromote(toolName string, args map[stri
 		ScopeKey:      firstNonBlank(stringArg(args, "scopeKey"), defaultScopeKeyForTool(scopeType, execCtx)),
 		Importance:    int(int64Arg(args, "importance")),
 		Confidence:    floatArg(args, "confidence"),
-		Tags:          normalizeMemoryTags(stringListArg(args, "tags")),
+		Tags:          memory.NormalizeTags(stringListArg(args, "tags")),
 		ArchiveSource: boolArg(args, "archiveSource"),
 	})
 	if err != nil {

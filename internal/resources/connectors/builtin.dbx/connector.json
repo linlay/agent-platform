@@ -1,8 +1,0 @@
-{
-  "id": "builtin.dbx",
-  "name": "dbx",
-  "version": "0.1.2",
-  "type": "cli",
-  "auth_mode": null,
-  "description": "Platform bundled dbx CLI"
-}

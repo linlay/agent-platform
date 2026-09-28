@@ -5,7 +5,6 @@ import (
 	"log"
 	"strings"
 
-	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 	. "agent-platform/internal/models"
 	"agent-platform/internal/observability"
@@ -128,8 +127,8 @@ func (e *LLMAgentEngine) formatLogText(text string) string {
 	return normalized
 }
 
-func (e *LLMAgentEngine) logPromptMemory(runID string, stage string, req api.QueryRequest, session QuerySession) {
-	memorySection := strings.TrimSpace(buildMemorySection(session, req))
+func (e *LLMAgentEngine) logPromptMemory(runID string, stage string, session QuerySession) {
+	memorySection := strings.TrimSpace(buildMemorySection(session))
 	if memorySection == "" {
 		return
 	}

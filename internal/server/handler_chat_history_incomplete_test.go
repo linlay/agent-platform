@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	gws "github.com/gorilla/websocket"
-
 	"agent-platform/internal/chat"
 	"agent-platform/internal/ws"
+
+	gws "github.com/gorilla/websocket"
 )
 
 func TestHTTPChatMapsIncompleteHistoryToConflict(t *testing.T) {

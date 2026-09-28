@@ -15,6 +15,7 @@ type ServerDefinition struct {
 	AgentKey               string
 	SourceKey              string
 	RuntimeDigest          string
+	RuntimePackageDir      string
 	ConnectorID            string
 	ConnectorAuthMode      connector.AuthMode
 	ConnectorCredentialEnv map[string]string

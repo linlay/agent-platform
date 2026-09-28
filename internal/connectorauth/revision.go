@@ -1,7 +1,6 @@
 package connectorauth
 
 import (
-	"context"
 	"crypto/rand"
 	"os"
 	"path/filepath"
@@ -42,17 +41,4 @@ func changeAuthState(root, id string, logout bool) error {
 		return err
 	}
 	return savePrivateJSON(filepath.Join(dir, "auth-state.json"), s)
-}
-
-func (m *Manager) changed(ctx context.Context, id string) error {
-	unlock, err := lockCredentials(ctx, m.sources.PersistentRoot(), id)
-	if err != nil {
-		return err
-	}
-	err = changeAuthState(m.sources.PersistentRoot(), id, false)
-	unlock()
-	if err == nil && m.reload != nil {
-		err = m.reload(ctx, id)
-	}
-	return err
 }

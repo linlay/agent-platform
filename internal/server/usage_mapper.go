@@ -5,9 +5,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
-	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/models"
 	"agent-platform/internal/stream"
 )
 
@@ -86,7 +84,7 @@ func latestUsageFromEvents(events []stream.EventData, key string) *api.ChatUsage
 	return latest
 }
 
-func chatUsageBreakdown(summaryUsage *chat.UsageData, runs []chat.RunSummary, replayUsage chat.ReplayUsage, contextWindow map[string]any, models *models.ModelRegistry, billing config.BillingConfig) *api.ChatUsageBreakdown {
+func chatUsageBreakdown(summaryUsage *chat.UsageData, runs []chat.RunSummary, replayUsage chat.ReplayUsage) *api.ChatUsageBreakdown {
 	lastRun, _ := latestRunUsageWithModelFromSummaries(runs)
 	if replayRunID := strings.TrimSpace(replayUsage.LastRunID); replayRunID != "" {
 		if completedRun, _, foundCompletedRun := runUsageWithModelForID(runs, replayRunID); foundCompletedRun {

@@ -1,11 +1,14 @@
 package server
 
 import (
-	"agent-platform/internal/connectorauth"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/connectorauth"
 )
 
 func TestConnectorConfigurationIsSharedAcrossPrincipals(t *testing.T) {
@@ -62,5 +65,53 @@ func TestConnectorConfigurationIsSharedAcrossPrincipals(t *testing.T) {
 	}
 	if r := call("alice", "GET", "/api/connectors/connection", ""); r.Code != 200 || !strings.Contains(r.Body.String(), `"connections"`) {
 		t.Fatal(r.Code, r.Body.String())
+	}
+}
+
+func TestNoAuthConnectionHTTP(t *testing.T) {
+	f := setupAdminRegistriesFixture(t)
+	root := f.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
+	writeMCPConnectorForTest(t, root, "demo")
+	path := filepath.Join(root, "demo", "connector.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err = json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest["auth_mode"] = "no_auth"
+	data, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	call := func(method, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, nil)
+		req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: "owner"}))
+		response := httptest.NewRecorder()
+		f.server.ServeHTTP(response, req)
+		return response
+	}
+	response := call("GET", "/api/connectors/connection?id=demo")
+	if response.Code != 200 {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	var envelope struct{ Data connectorauth.Connection }
+	if err = json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	c := envelope.Data
+	if c.ConfigurationRequired || c.Capabilities.CanConnect || c.Capabilities.CanDisconnect || c.Capabilities.CanCheck || c.Readiness != "no_auth" || c.Authentication.Status != "no_auth" {
+		t.Fatalf("%#v", c)
+	}
+	for _, action := range []string{"connect", "disconnect", "check"} {
+		response = call("POST", "/api/connectors/"+action+"?id=demo")
+		if response.Code != 409 || !strings.Contains(response.Body.String(), "connector_auth_not_required") {
+			t.Fatal(action, response.Code, response.Body.String())
+		}
 	}
 }

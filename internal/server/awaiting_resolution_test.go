@@ -125,6 +125,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 		<-release
 	}}
 	fixture.server.deps.Chats = wrapped
+	bindTestRuntime(fixture.server)
 	rec := httptest.NewRecorder()
 	go func() {
 		defer close(done)
@@ -158,7 +159,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gate := fixture.server.awaitingQueryGateError(chatID, summary); gate == nil || gate.code != awaitingPendingCode {
+	if gate := fixture.server.awaitingQueryGateError(chatID, summary); gate == nil || gate.Code != awaitingPendingCode {
 		t.Fatalf("expected awaiting gate, got %#v", gate)
 	}
 	queryRec := httptest.NewRecorder()
@@ -292,7 +293,7 @@ func TestRecoveredAwaitingClaimBlocksConcurrentTimeoutReadAndSubmit(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	recovered, err := fixture.server.registerRecoveredAwaitingRun(item, step)
+	recovered, err := fixture.server.registerRecoveredAwaitingRun(item)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,6 +307,7 @@ func TestRecoveredAwaitingClaimBlocksConcurrentTimeoutReadAndSubmit(t *testing.T
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
 	fixture.server.deps.Chats = &awaitingBarrierStore{awaitingReconcileFailureStore: &awaitingReconcileFailureStore{Store: fixture.chats}, beforeAnswer: func() { close(ready); <-release }}
+	bindTestRuntime(fixture.server)
 	var finishErr error
 	go func() {
 		defer close(done)
@@ -373,7 +375,7 @@ func TestRecoveredAwaitingSubmitWinsConcurrentExpiredRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.server.registerRecoveredAwaitingRun(item, step); err != nil {
+	if _, err := fixture.server.registerRecoveredAwaitingRun(item); err != nil {
 		t.Fatal(err)
 	}
 	fixture.server.deferredAwaitings.Register(DeferredAwaiting{ChatID: chatID, RunID: runID, AwaitingID: awaitingID, Mode: "question", CreatedAt: createdAt, Ask: step.Ask})
@@ -387,6 +389,7 @@ func TestRecoveredAwaitingSubmitWinsConcurrentExpiredRead(t *testing.T) {
 			<-release
 		}
 	}}
+	bindTestRuntime(fixture.server)
 	rec := httptest.NewRecorder()
 	go func() {
 		defer close(done)
@@ -440,6 +443,7 @@ func TestUnownedAwaitingRetryAfterPartialWrite(t *testing.T) {
 			seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 1, createdAt)
 			failing := &awaitingReconcileFailureStore{Store: fixture.chats, stage: stage}
 			fixture.server.deps.Chats = failing
+			bindTestRuntime(fixture.server)
 			item := chat.PendingAwaitingWithChat{ChatID: chatID, RunID: runID, AwaitingID: awaitingID, Mode: "question", CreatedAt: createdAt}
 			answer := contracts.AwaitingTimeoutAnswer("question", 1, 2)
 			if _, err := fixture.server.finishTerminalAwaiting(item, answer, time.Now().UnixMilli()); err == nil {

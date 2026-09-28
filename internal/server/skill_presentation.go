@@ -1,0 +1,76 @@
+package server
+
+import (
+	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
+)
+
+// Resolve presentation on response copies, keeping the shared catalog and raw
+// SKILL.md content independent of each HTTP request / WebSocket connection.
+func localizeSkillResponse(locale string, value any) any {
+	switch v := value.(type) {
+	case api.AdminAgentDetailResponse:
+		v.PrivateSkills = append([]api.AdminAgentPrivateSkill{}, v.PrivateSkills...)
+		for i := range v.PrivateSkills {
+			s := &v.PrivateSkills[i]
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+		}
+		return v
+	case api.AgentSkillsResponse:
+		v.Skills = append([]api.AgentSkillResponse{}, v.Skills...)
+		for i := range v.Skills {
+			s := &v.Skills[i]
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+		}
+		return v
+	case api.AgentDetailResponse:
+		v.Skills = append([]api.AgentDetailSkill{}, v.Skills...)
+		for i := range v.Skills {
+			s := &v.Skills[i]
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+		}
+		return v
+	case api.AdminSkillSummary:
+		v.Presentation, v.Description = v.Presentation.Resolve(locale, v.Name, v.Key, v.Description)
+		return v
+	case []api.AdminSkillSummary:
+		out := make([]api.AdminSkillSummary, len(v))
+		for i := range v {
+			out[i] = localizeSkillResponse(locale, v[i]).(api.AdminSkillSummary)
+		}
+		return out
+	case []api.SkillSummary:
+		out := append([]api.SkillSummary{}, v...)
+		for i := range out {
+			s := &out[i]
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+		}
+		return out
+	case api.AdminSkillDetailResponse:
+		v.Skill = localizeSkillResponse(locale, v.Skill).(api.AdminSkillSummary)
+		return v
+	case api.AdminSkillImportResponse:
+		if v.AdminSkillDetailResponse != nil {
+			detail := localizeSkillResponse(locale, *v.AdminSkillDetailResponse).(api.AdminSkillDetailResponse)
+			v.AdminSkillDetailResponse = &detail
+		}
+		return v
+	case api.AdminSkillMutationResponse:
+		if v.Skill != nil {
+			skill := localizeSkillResponse(locale, *v.Skill).(api.AdminSkillSummary)
+			v.Skill = &skill
+		}
+		return v
+	case []catalog.ConnectorSkillSummary:
+		out := append([]catalog.ConnectorSkillSummary{}, v...)
+		for i := range out {
+			s := &out[i]
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+		}
+		return out
+	case catalog.ConnectorSkillDetail:
+		v.Skill.Presentation, v.Skill.Description = v.Skill.Presentation.Resolve(locale, v.Skill.Name, v.Skill.Key, v.Skill.Description)
+		return v
+	}
+	return value
+}

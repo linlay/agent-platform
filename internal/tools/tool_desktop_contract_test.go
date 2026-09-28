@@ -51,15 +51,15 @@ func TestDesktopActionRejectsWebappPageOnlyActions(t *testing.T) {
 // Local multi-repo development checks Desktop directly. CI can opt in with an
 // explicit checkout; a missing explicitly configured checkout must fail.
 func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
-	root := os.Getenv("ZENMIND_DESKTOP_SOURCE")
+	root := os.Getenv("DESKTOP_SOURCE")
 	explicit := root != ""
 	if !explicit {
-		root = filepath.Join("..", "..", "..", "zenmind-desktop")
+		root = filepath.Join("..", "..", "..", "desktop")
 	}
 	path := filepath.Join(root, "src", "shared", "desktop-actions.ts")
 	source, err := os.ReadFile(path)
 	if !explicit && os.IsNotExist(err) {
-		t.Skip("Desktop checkout absent; set ZENMIND_DESKTOP_SOURCE to require the cross-repository contract check")
+		t.Skip("Desktop checkout absent; set DESKTOP_SOURCE to require the cross-repository contract check")
 	}
 	if err != nil {
 		t.Fatal(err)

@@ -55,44 +55,6 @@ func getDesktopActionAllowlist() (map[string]bool, error) {
 	return desktopActionAllowlist, desktopActionAllowlistErr
 }
 
-func loadDesktopActionAllowlist() (map[string]bool, error) {
-	defs, err := LoadEmbeddedToolDefinitions()
-	if err != nil {
-		return nil, err
-	}
-	for _, def := range defs {
-		if def.Name != "desktop_action" {
-			continue
-		}
-		properties, ok := def.Parameters["properties"].(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("desktop_action schema missing properties")
-		}
-		actionProperty, ok := properties["action"].(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("desktop_action schema missing action property")
-		}
-		enum, ok := actionProperty["enum"].([]any)
-		if !ok || len(enum) == 0 {
-			return nil, fmt.Errorf("desktop_action action enum is required")
-		}
-		allowlist := make(map[string]bool, len(enum))
-		for _, item := range enum {
-			action, ok := item.(string)
-			if !ok || strings.TrimSpace(action) == "" {
-				return nil, fmt.Errorf("desktop_action action enum contains an invalid value")
-			}
-			action = strings.TrimSpace(action)
-			if allowlist[action] {
-				return nil, fmt.Errorf("desktop_action action enum contains duplicate value %q", action)
-			}
-			allowlist[action] = true
-		}
-		return allowlist, nil
-	}
-	return nil, fmt.Errorf("desktop_action tool definition not found")
-}
-
 type desktopCDPRequest struct {
 	RequestID string           `json:"requestId,omitempty"`
 	Method    string           `json:"method"`

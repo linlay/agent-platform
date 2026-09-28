@@ -65,6 +65,7 @@ var zhCNMessages = map[string]string{
 var zhCNCodes = map[string]string{
 	"active_run_conflict":                     "当前会话存在活跃运行冲突",
 	"agent_forbidden":                         "当前渠道不允许使用该智能体",
+	"agent_configuration_invalid":             "智能体配置无效，请在智能体管理中修复配置后再发送。",
 	"agent_not_found":                         "智能体不存在",
 	"agent_registry_unavailable":              "智能体注册表不可用",
 	"archive_not_found":                       "归档不存在",

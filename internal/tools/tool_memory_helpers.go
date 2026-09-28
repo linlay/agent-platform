@@ -54,52 +54,6 @@ func normalizeMemorySourceType(sourceType string) string {
 	return strings.ToLower(strings.TrimSpace(sourceType))
 }
 
-func normalizeMemoryImportance(importance int) int {
-	if importance <= 0 {
-		importance = 5
-	}
-	if importance < 1 {
-		return 1
-	}
-	if importance > 10 {
-		return 10
-	}
-	return importance
-}
-
-func normalizeMemorySubjectKey(subjectKey string, chatID string, agentKey string) string {
-	if strings.TrimSpace(subjectKey) != "" {
-		return strings.TrimSpace(subjectKey)
-	}
-	if strings.TrimSpace(chatID) != "" {
-		return "chat:" + strings.TrimSpace(chatID)
-	}
-	if strings.TrimSpace(agentKey) != "" {
-		return "agent:" + strings.TrimSpace(agentKey)
-	}
-	return "_global"
-}
-
-func normalizeMemoryTags(tags []string) []string {
-	if len(tags) == 0 {
-		return []string{}
-	}
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		normalized := strings.ToLower(strings.TrimSpace(tag))
-		if normalized == "" {
-			continue
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		out = append(out, normalized)
-	}
-	return out
-}
-
 func stringListArg(args map[string]any, key string) []string {
 	raw, ok := args[key]
 	if !ok || raw == nil {

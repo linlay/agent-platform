@@ -1422,7 +1422,7 @@ func mustMergeCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext) []st
 
 func mustMergeBashCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext, identityFile string) []string {
 	t.Helper()
-	env, err := mergeBashCommandEnv(execCtx, identityFile)
+	env, err := mergeBashCommandEnvContext(context.Background(), execCtx, identityFile)
 	if err != nil {
 		t.Fatal(err)
 	}

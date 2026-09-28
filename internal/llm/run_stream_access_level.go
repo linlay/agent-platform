@@ -97,7 +97,7 @@ func accessLevelApprovalCommand(s *llmRunStream, invocation *preparedToolInvocat
 	return ""
 }
 
-func accessLevelAutoApprovalBatchAnswer(batch *pendingHITLApprovalBatch, entries []map[string]any) map[string]any {
+func accessLevelAutoApprovalBatchAnswer(entries []map[string]any) map[string]any {
 	return map[string]any{
 		"mode":      "approval",
 		"status":    "answered",

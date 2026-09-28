@@ -14,6 +14,8 @@ import (
 func main() {
 	repoRoot := flag.String("repo-root", ".", "agent-platform repository root")
 	lockPath := flag.String("lock", "scripts/release-assets/builtins.lock.json", "builtins lock path")
+	connectorsLock := flag.String("connectors-lock", "scripts/release-assets/connectors.lock.json", "complete connector package lock (source staging only)")
+	connectorsRoot := flag.String("connectors-root", "", "absolute connector project collection root")
 	builtinsRoot := flag.String("builtins-root", "", "absolute builtins collection root")
 	cacheDir := flag.String("cache-dir", "", "absolute or repository-relative local builtins cache directory")
 	outputDir := flag.String("output", "", "service bundle output directory")
@@ -38,11 +40,26 @@ func main() {
 		if strings.TrimSpace(*cacheDir) != "" {
 			log.Fatal("--resolve-component cannot be combined with --cache-dir")
 		}
+		connectorComponent := *resolveComponent == "dbx" || *resolveComponent == "httpx"
+		if connectorComponent {
+			resolvedLockPath = *connectorsLock
+			if resolvedLockPath == "" {
+				log.Fatal("--connectors-lock is required to resolve a connector")
+			}
+			if !filepath.IsAbs(resolvedLockPath) {
+				resolvedLockPath = filepath.Join(root, resolvedLockPath)
+			}
+		}
 		lock, err := builtins.LoadLock(resolvedLockPath)
 		if err != nil {
 			log.Fatal(err)
 		}
-		collectionRoot, err := builtins.ResolveRoot(root, *builtinsRoot, lock)
+		var collectionRoot string
+		if connectorComponent {
+			collectionRoot, err = builtins.ResolveConnectorsRoot(root, *connectorsRoot, lock)
+		} else {
+			collectionRoot, err = builtins.ResolveRoot(root, *builtinsRoot, lock)
+		}
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -79,13 +96,15 @@ func main() {
 		return
 	}
 	result, err := builtins.Stage(builtins.StageOptions{
-		ExcludeGitBash: !bundleGitBash,
-		RepoRoot:       root,
-		LockPath:       resolvedLockPath,
-		BuiltinsRoot:   *builtinsRoot,
-		OutputDir:      *outputDir,
-		GOOS:           *targetOS,
-		GOARCH:         *targetArch,
+		ConnectorsLockPath: *connectorsLock,
+		ConnectorsRoot:     *connectorsRoot,
+		ExcludeGitBash:     !bundleGitBash,
+		RepoRoot:           root,
+		LockPath:           resolvedLockPath,
+		BuiltinsRoot:       *builtinsRoot,
+		OutputDir:          *outputDir,
+		GOOS:               *targetOS,
+		GOARCH:             *targetArch,
 	})
 	if err != nil {
 		log.Fatal(err)

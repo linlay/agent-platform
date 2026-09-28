@@ -13,6 +13,7 @@ import (
 func replayChatHistory(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64, runFinishReasons map[string]string) (Detail, error) {
 	for _, m := range rawMessages {
 		delete(m, "_compactSource")
+		delete(m, "_modelKey")
 		delete(m, "_compactRound")
 	}
 	r := &historyReplay{

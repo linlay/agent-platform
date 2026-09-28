@@ -176,6 +176,7 @@ func TestBroadcastChatUnreadRechecksPersistedReadState(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
 	notifications := &recordingNotificationSink{}
 	server.deps.Notifications = notifications
+	bindTestRuntime(server)
 	if _, _, err := chats.EnsureChat("chat-read-race", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
@@ -283,6 +284,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	server, chats, _ := newServerForHelperTests(t)
 	runs := runstate.NewManager()
 	server.deps.Runs = runs
+	bindTestRuntime(server)
 
 	if _, _, err := chats.EnsureChat("chat-live", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
@@ -540,6 +542,7 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.
 	server, chats, _ := newServerForHelperTests(t)
 	runs := runstate.NewManager()
 	server.deps.Runs = runs
+	bindTestRuntime(server)
 
 	chatID := "chat-live-plan-approved"
 	runID := "run-live-plan-approved"
@@ -619,6 +622,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 	server, chats, _ := newServerForHelperTests(t)
 	runs := runstate.NewManager()
 	server.deps.Runs = runs
+	bindTestRuntime(server)
 
 	if _, _, err := chats.EnsureChat("chat-live-cursor", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
@@ -749,8 +753,8 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	handlerQuery := mustReadFile(t, filepath.Join(root, "handler_query.go"))
-	handlerQueryPrepare := mustReadFile(t, filepath.Join(root, "handler_query_prepare.go"))
+	handlerQuery := mustReadFile(t, filepath.Join(root, "..", "runtime", "query", "execute.go"))
+	handlerQueryPrepare := mustReadFile(t, filepath.Join(root, "..", "runtime", "query", "admission.go"))
 	handlerChat := mustReadFile(t, filepath.Join(root, "handler_chat.go"))
 	wsRoutes := mustReadFile(t, filepath.Join(root, "ws_routes.go"))
 	wsQueryRoutes := mustReadFile(t, filepath.Join(root, "ws_query_routes.go"))
@@ -773,7 +777,7 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/push"`)
 	assertContains(t, wsQueryRoutes, `s.deps.Runtime.StartQuery(`)
 	assertContains(t, wsQueryRoutes, `s.deps.Runtime.AttachRun(`)
-	assertContains(t, handlerQuery, `func (s *Server) startPreparedLocalRun(`)
+	assertContains(t, handlerQuery, `func (s *Service) startPreparedLocalRun(`)
 	assertContains(t, wsRoutes, `s.broadcastChatReadState("chat.read"`)
 	assertContains(t, handlerQuery, `s.broadcastChatReadState("chat.unread"`)
 }
@@ -804,12 +808,14 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
 	runs := runstate.NewManager()
 	server.deps.Runs = runs
+	bindTestRuntime(server)
 	server.deps.Registry = wsRegressionCatalogRegistry{
 		items: []api.AgentSummary{
 			{Key: "agent-a", Name: "Agent A"},
 			{Key: "agent-b", Name: "Agent B"},
 		},
 	}
+	bindTestRuntime(server)
 
 	if _, _, err := chats.EnsureChat("chat-a1", "agent-a", "", "hello"); err != nil {
 		t.Fatalf("ensure chat-a1: %v", err)

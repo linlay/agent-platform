@@ -124,9 +124,9 @@ func renderScopeMarkdown(scopeType string, records []api.StoredMemoryResponse) s
 		}
 		lines = append(lines, "- ["+identifier+"] "+strings.TrimSpace(item.Title))
 		lines = append(lines, "  category: "+normalizeCategory(item.Category))
-		lines = append(lines, "  importance: "+strconv.Itoa(normalizeImportance(item.Importance)))
+		lines = append(lines, "  importance: "+strconv.Itoa(NormalizeImportance(item.Importance)))
 		lines = append(lines, "  confidence: "+trimFloat(normalizeMemoryConfidence(item.Confidence, item.Kind)))
-		lines = append(lines, "  tags: "+strings.Join(normalizeTags(item.Tags), ","))
+		lines = append(lines, "  tags: "+strings.Join(NormalizeTags(item.Tags), ","))
 		lines = append(lines, "  content: "+strings.TrimSpace(item.Summary))
 	}
 	return strings.Join(lines, "\n")
@@ -274,7 +274,7 @@ func (e *markdownEntry) applyField(line string) error {
 		if value == "" {
 			e.Tags = []string{}
 		} else {
-			e.Tags = normalizeTags(strings.Split(value, ","))
+			e.Tags = NormalizeTags(strings.Split(value, ","))
 		}
 	case "content":
 		e.Summary = value
@@ -318,9 +318,9 @@ func normalizeScopeRecord(record ScopeRecordInput) ScopeRecordInput {
 	record.Title = strings.TrimSpace(record.Title)
 	record.Summary = strings.TrimSpace(record.Summary)
 	record.Category = normalizeCategory(record.Category)
-	record.Importance = normalizeImportance(record.Importance)
+	record.Importance = NormalizeImportance(record.Importance)
 	record.Confidence = normalizeMemoryConfidence(record.Confidence, KindFact)
-	record.Tags = normalizeTags(record.Tags)
+	record.Tags = NormalizeTags(record.Tags)
 	return record
 }
 
@@ -404,12 +404,12 @@ func isScopeRecordUnchanged(existing api.StoredMemoryResponse, desired ScopeReco
 	return strings.TrimSpace(existing.Title) == strings.TrimSpace(desired.Title) &&
 		strings.TrimSpace(existing.Summary) == strings.TrimSpace(desired.Summary) &&
 		normalizeCategory(existing.Category) == normalizeCategory(desired.Category) &&
-		normalizeImportance(existing.Importance) == normalizeImportance(desired.Importance) &&
+		NormalizeImportance(existing.Importance) == NormalizeImportance(desired.Importance) &&
 		normalizeMemoryConfidence(existing.Confidence, KindFact) == normalizeMemoryConfidence(desired.Confidence, KindFact) &&
 		normalizeScopeType(existing.ScopeType) == normalizeScopeType(scopeType) &&
 		strings.TrimSpace(existing.ScopeKey) == strings.TrimSpace(scopeKey) &&
 		normalizeMemoryStatus(existing.Status, existing.Kind) == StatusActive &&
-		stringSlicesEqual(normalizeTags(existing.Tags), normalizeTags(desired.Tags))
+		stringSlicesEqual(NormalizeTags(existing.Tags), NormalizeTags(desired.Tags))
 }
 
 func stringSlicesEqual(left []string, right []string) bool {

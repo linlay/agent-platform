@@ -169,9 +169,9 @@ set -e
 
 # The start wrapper must preserve a Desktop identity path containing spaces.
 . "$bundle_root/scripts/program-common.sh"
-identity_file="$tmp_dir/CuteJ Data/.cutej/.desktop/state/desktop/sso-access-token.txt"
+identity_file="$tmp_dir/Application Data/.agent-platform/.desktop/state/desktop/sso-access-token.txt"
 program_apply_layout_flags \
-  --config-dir "$tmp_dir/CuteJ Data/config" \
+  --config-dir "$tmp_dir/Application Data/config" \
   --state-dir "$tmp_dir/run" \
   --log-dir "$tmp_dir/logs" \
   --port 17078 \

@@ -30,7 +30,7 @@ func (s *Server) adminAgentRegistry() (adminAgentRegistry, error) {
 	return registry, nil
 }
 
-func (s *Server) handleAdminAgents(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAdminAgents(w http.ResponseWriter, _ *http.Request) {
 	registry, err := s.adminAgentRegistry()
 	if err != nil {
 		s.writeAgentHTTPResponse(w, nil, err)
@@ -110,6 +110,7 @@ func (s *Server) withAdminAgentPrivateSkills(detail api.AdminAgentDetailResponse
 	detail.PrivateSkills = make([]api.AdminAgentPrivateSkill, 0, len(items))
 	for _, item := range items {
 		detail.PrivateSkills = append(detail.PrivateSkills, api.AdminAgentPrivateSkill{
+			Presentation:    item.Presentation,
 			Key:             item.Key,
 			Name:            item.Name,
 			Description:     item.Description,
@@ -144,10 +145,10 @@ func adminAgentDetailFromAgentDetail(detail api.AgentDetailResponse, item catalo
 		Icon:         detail.Icon,
 		Description:  detail.Description,
 		Role:         detail.Role,
-		Model:        detail.Model,
+		Model:        detail.ModelKey,
 		Mode:         detail.Mode,
 		Tools:        append([]string{}, detail.Tools...),
-		Skills:       append([]string{}, detail.Skills...),
+		Skills:       agentDetailSkillKeys(detail.Skills),
 		Controls:     cloneListMaps(detail.Controls),
 		Meta:         cloneMeta(detail.Meta),
 		Definition:   cloneMeta(detail.Definition),
@@ -359,4 +360,12 @@ func writeAgentOrderFile(agentsDir string, file catalog.AgentOrderFile) error {
 		return err
 	}
 	return os.Rename(tmpPath, filepath.Join(agentsDir, catalog.AgentOrderFileName))
+}
+
+func agentDetailSkillKeys(skills []api.AgentDetailSkill) []string {
+	keys := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		keys = append(keys, skill.Key)
+	}
+	return keys
 }

@@ -9,9 +9,9 @@ import (
 	"agent-platform/internal/kbase"
 )
 
-func runtimeSystemPromptForTest(session QuerySession, req api.QueryRequest) string {
+func runtimeSystemPromptForTest(session QuerySession) string {
 	sections := []systemPromptSection{}
-	appendRuntimeSystemPromptSections(&sections, session, req)
+	appendRuntimeSystemPromptSections(&sections, session)
 	contents := make([]string, 0, len(sections))
 	for _, section := range sections {
 		contents = append(contents, section.Content)
@@ -429,7 +429,7 @@ func TestBuildMemorySectionAvoidsDuplicatingLayeredHeaders(t *testing.T) {
 		StableMemoryContext: "Runtime Context: Stable Memory\n- stable-fact",
 		ObservationContext:  "Runtime Context: Relevant Observations\n- recent-observation",
 		WorkflowContext:     "Runtime Context: Related Workflows\nworkflow: deploy automation",
-	}, api.QueryRequest{})
+	})
 
 	if strings.Count(section, "Runtime Context: Stable Memory") != 1 {
 		t.Fatalf("expected one stable memory header, got %q", section)
@@ -449,7 +449,7 @@ func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
 				EnvironmentPrompt: "Use the browser sandbox carefully.",
 			},
 		},
-	}, api.QueryRequest{})
+	})
 
 	if !strings.Contains(prompt, "Runtime Context: Sandbox") {
 		t.Fatalf("expected sandbox section in prompt, got %q", prompt)
@@ -463,7 +463,7 @@ func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
 	prompt := runtimeSystemPromptForTest(QuerySession{
 		AgentHasMemoryConfig: true,
 		StableMemoryContext:  "Runtime Context: Stable Memory\n- stable-fact",
-	}, api.QueryRequest{})
+	})
 
 	if !strings.Contains(prompt, "Runtime Context: Stable Memory") {
 		t.Fatalf("expected memory section in prompt, got %q", prompt)
@@ -471,11 +471,11 @@ func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
 }
 
 func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *testing.T) {
-	prompt := runtimeSystemPromptForTest(QuerySession{}, api.QueryRequest{
+	prompt := buildSystemPrompt(QuerySession{}, api.QueryRequest{
 		Params: map[string]any{
 			"memoryContext": "param-memory",
 		},
-	})
+	}, "", PromptBuildOptions{})
 
 	if strings.Contains(prompt, "Runtime Context: Agent Memory") {
 		t.Fatalf("expected memory fallback to stay gated by memory config, got %q", prompt)
@@ -483,7 +483,7 @@ func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *test
 }
 
 func TestBuildRuntimeContextPromptIgnoresDesktopParams(t *testing.T) {
-	prompt := runtimeSystemPromptForTest(QuerySession{}, api.QueryRequest{
+	prompt := buildSystemPrompt(QuerySession{}, api.QueryRequest{
 		Params: map[string]any{
 			"desktop": map[string]any{
 				"source":          "copilot",
@@ -494,11 +494,11 @@ func TestBuildRuntimeContextPromptIgnoresDesktopParams(t *testing.T) {
 				"snapshotAt":      "2026-05-16T12:00:00Z",
 				"pageContext": map[string]any{
 					"title": "Bing",
-					"url":   "https://www.bing.com/",
+					"url":   "https://www.example.test/",
 				},
 			},
 		},
-	})
+	}, "", PromptBuildOptions{})
 
 	for _, unexpected := range []string{
 		"Runtime Context: Desktop",
@@ -513,7 +513,7 @@ func TestBuildRuntimeContextPromptIgnoresDesktopParams(t *testing.T) {
 		"pageKind: native",
 		"snapshotVersion: 3",
 		"currentPageTitle: Bing",
-		"currentPageUrl: https://www.bing.com/",
+		"currentPageUrl: https://www.example.test/",
 	} {
 		if strings.Contains(prompt, unexpected) {
 			t.Fatalf("did not expect desktop context %q in prompt, got %q", unexpected, prompt)
@@ -559,7 +559,7 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 				SkillsDir:    "/skills",
 			},
 		},
-	}, api.QueryRequest{})
+	})
 
 	if !strings.Contains(section, "Runtime Context: Session") {
 		t.Fatalf("expected session header, got %q", section)

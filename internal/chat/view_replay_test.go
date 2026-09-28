@@ -17,7 +17,7 @@ func TestViewMetadataPersistsForReplayButNotModelContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg["ts"] = int64(1700000000000)
-	events, err := storedMessageToEventsWithOptions(msg, "run", "", "", 0, func() int64 { return 1 }, replayMessageOptions{})
+	events, err := storedMessageToEventsWithOptions(msg, "run", "", 0, func() int64 { return 1 }, replayMessageOptions{})
 	if err != nil || len(events) != 1 {
 		t.Fatalf("events=%#v error=%v", events, err)
 	}

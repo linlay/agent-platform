@@ -19,10 +19,10 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(toolName string, args map[stri
 		return ToolExecutionResult{Output: "失败: 缺少执行上下文", Error: "planning_context_unavailable", ExitCode: -1}, nil
 	}
 	if !execCtx.Session.PlanningMode {
-		return ToolExecutionResult{Output: "失败: " + toolName + " 只能在 planningMode 阶段使用", Error: planningToolErrorCode(toolName, "not_allowed"), ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: " + toolName + " 只能在 planningMode 阶段使用", Error: planningToolErrorCode("not_allowed"), ExitCode: -1}, nil
 	}
 	if execCtx.PlanningState != nil && strings.TrimSpace(execCtx.PlanningState.Markdown) != "" {
-		return ToolExecutionResult{Output: "失败: " + toolName + " 已经写入过规划", Error: planningToolErrorCode(toolName, "already_exists"), ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: " + toolName + " 已经写入过规划", Error: planningToolErrorCode("already_exists"), ExitCode: -1}, nil
 	}
 	chatsDir := strings.TrimSpace(t.cfg.Paths.ChatsDir)
 	if chatsDir == "" {
@@ -46,10 +46,10 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(toolName string, args map[stri
 		return ToolExecutionResult{Output: "失败: 当前 Chat 目录不可用", Error: "chat_dir_unavailable", ExitCode: -1}, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
-		return ToolExecutionResult{Output: "失败: 创建 planning 目录失败: " + err.Error(), Error: planningToolErrorCode(toolName, "failed"), ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: 创建 planning 目录失败: " + err.Error(), Error: planningToolErrorCode("failed"), ExitCode: -1}, nil
 	}
 	if err := os.WriteFile(planningFile, []byte(markdown), 0o644); err != nil {
-		return ToolExecutionResult{Output: "失败: 写入 planning markdown 失败: " + err.Error(), Error: planningToolErrorCode(toolName, "failed"), ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: 写入 planning markdown 失败: " + err.Error(), Error: planningToolErrorCode("failed"), ExitCode: -1}, nil
 	}
 
 	execCtx.PlanningState = &PlanningRuntimeState{
@@ -68,7 +68,7 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(toolName string, args map[stri
 	return result, nil
 }
 
-func planningToolErrorCode(toolName string, suffix string) string {
+func planningToolErrorCode(suffix string) string {
 	return FinalizePlanningToolName + "_" + strings.TrimSpace(suffix)
 }
 

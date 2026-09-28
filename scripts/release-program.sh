@@ -24,7 +24,6 @@ require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/deploy.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/start.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/stop.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/program-common.ps1"
-require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml"
 require_file "$SCRIPT_DIR/stage-builtins.sh"
 require_file "$REPO_ROOT/.env.example"
 require_dir "$REPO_ROOT/configs"
@@ -102,9 +101,6 @@ build_program_bundle() {
   cp "$REPO_ROOT/.env.example" "$bundle_root/.env.example"
   write_program_manifest "$bundle_root/manifest.json" "$target_os" "$target_arch" "$backend_entry" "$(basename "$bundle_archive")"
   copy_config_templates "$bundle_root"
-  if [[ "$target_os" == "windows" ]]; then
-    cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml" "$bundle_root/configs/tools.example.yml"
-  fi
   stage_release_builtins "$bundle_root" "$target_os" "$target_arch"
 
   if [[ "$target_os" == "windows" ]]; then

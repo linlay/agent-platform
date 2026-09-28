@@ -407,6 +407,10 @@ func (s *Server) handleAdminSkillFileDownload(w http.ResponseWriter, r *http.Req
 	if metadata.MimeType != "" {
 		w.Header().Set("Content-Type", metadata.MimeType)
 	}
+	if strings.HasPrefix(metadata.MimeType, "image/svg+xml") {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	}
 	http.ServeContent(w, r, metadata.Name, info.ModTime(), file)
 }
 
@@ -699,7 +703,7 @@ func buildAdminSkillSummary(item catalog.AdminSkill) api.AdminSkillSummary {
 		Name:         firstNonBlank(item.Name, item.Key),
 		Description:  item.Description,
 		Meta:         cloneMeta(item.Meta),
-		Version:      item.Version,
+		Presentation: item.Presentation,
 		Status:       firstNonBlank(item.Status, catalog.AdminSkillStatusInvalid),
 		UpdatedAt:    item.UpdatedAt,
 		Size:         item.Size,

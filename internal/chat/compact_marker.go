@@ -55,7 +55,7 @@ func projectCompactMessage(message map[string]any, keep map[string]bool) map[str
 	if !keep["tool"] {
 		delete(out, "tool_calls")
 	}
-	if !hasCompactContent(out["content"]) && anyCompactText(out["reasoning_content"]) == "" && len(anyMessageSlice(out["tool_calls"])) == 0 {
+	if !hasCompactContent(out["content"]) && !hasReasoning(out["reasoning_content"]) && len(anyMessageSlice(out["tool_calls"])) == 0 {
 		return nil
 	}
 	return out
@@ -84,13 +84,6 @@ func messagesToAny(messages []map[string]any) []any {
 		out[i] = m
 	}
 	return out
-}
-
-func compactMarkerID(value any) string {
-	if marker, ok := value.(map[string]any); ok {
-		return stringFromAny(marker["id"])
-	}
-	return stringFromAny(value)
 }
 
 func hasCompactContent(value any) bool {

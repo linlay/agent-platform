@@ -1,11 +1,11 @@
 package server
 
 import (
-	"agent-platform/internal/runtime/controlscope"
 	"path/filepath"
 	"testing"
 
 	"agent-platform/internal/chat"
+	"agent-platform/internal/runtime/controlscope"
 )
 
 // startServerFixtureRun records the same explicit lifecycle start that the

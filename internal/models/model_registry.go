@@ -492,7 +492,7 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 		if key == "" {
 			continue
 		}
-		baseURL := resolveProviderBaseURL(key, values)
+		baseURL := resolveProviderBaseURL(values)
 		apiKey := strings.TrimSpace(stringNode(values["apiKey"]))
 		protocols, err := loadProviderProtocols(values, baseURL)
 		if err != nil {
@@ -527,7 +527,7 @@ func loadProviderEmbedding(values map[string]any) ProviderEmbeddingConfig {
 	}
 }
 
-func resolveProviderBaseURL(key string, values map[string]any) string {
+func resolveProviderBaseURL(values map[string]any) string {
 	return strings.TrimSpace(stringNode(values["baseUrl"]))
 }
 
@@ -536,13 +536,13 @@ func resolveProviderEndpointPath(values map[string]any, baseURL string, protocol
 	if normalizedProtocol != "" {
 		if protocolNode := nestedMap(values, "protocols", normalizedProtocol); protocolNode != nil {
 			if value := strings.TrimSpace(stringNode(protocolNode["endpointPath"])); value != "" {
-				return normalizeEndpointPath(value, baseURL, normalizedProtocol)
+				return normalizeEndpointPath(value, baseURL)
 			}
 		}
 	}
 	if normalizedProtocol == "" || normalizedProtocol == "OPENAI" {
 		if value := strings.TrimSpace(stringNode(values["endpointPath"])); value != "" {
-			return normalizeEndpointPath(value, baseURL, normalizedProtocol)
+			return normalizeEndpointPath(value, baseURL)
 		}
 	}
 	return defaultEndpointPath(normalizedProtocol, baseURL)
@@ -588,7 +588,7 @@ func loadProviderProtocols(values map[string]any, baseURL string) (map[string]Pr
 	return result, nil
 }
 
-func normalizeEndpointPath(value string, baseURL string, protocol string) string {
+func normalizeEndpointPath(value string, baseURL string) string {
 	path := "/" + strings.TrimLeft(strings.TrimSpace(value), "/")
 	if basePath := normalizedBasePath(baseURL); basePath != "" && basePath != "/" && strings.HasPrefix(path, basePath+"/") {
 		path = strings.TrimPrefix(path, basePath)
@@ -603,6 +603,11 @@ func defaultEndpointPath(protocol string, baseURL string) string {
 			return "/messages"
 		}
 		return "/v1/messages"
+	case "OPENAI_RESPONSES":
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/responses"
+		}
+		return "/v1/responses"
 	case "", "OPENAI":
 		if normalizedBasePath(baseURL) == "/v1" {
 			return "/chat/completions"

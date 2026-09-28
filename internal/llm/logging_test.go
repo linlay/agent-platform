@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/models"
@@ -158,7 +157,7 @@ func TestLogPromptMemoryWritesDedicatedMemoryLog(t *testing.T) {
 			},
 		},
 	}
-	engine.logPromptMemory("run-1", "react", api.QueryRequest{}, QuerySession{
+	engine.logPromptMemory("run-1", "react", QuerySession{
 		RequestID:            "req-1",
 		ChatID:               "chat-1",
 		AgentKey:             "agent-a",

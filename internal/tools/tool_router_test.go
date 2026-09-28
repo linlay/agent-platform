@@ -130,9 +130,11 @@ func TestPlatformControlReadOnlyPolicyUsesOperationDescriptor(t *testing.T) {
 func TestToolRouterRejectsUnregisteredToolWithoutCallingBackend(t *testing.T) {
 	backend := &recordingPolicyBackend{}
 	router := mustNewToolRouter(t, backend, nil, nil, nil)
-	result, err := router.Invoke(context.Background(), "missing_tool", nil, &ExecutionContext{})
-	if err != nil || result.Error != "tool_not_registered" || result.ExitCode != -1 {
-		t.Fatalf("unexpected unregistered result=%#v err=%v", result, err)
+	for _, name := range []string{"missing_tool", "desktop_action", "desktop_cdp"} {
+		result, err := router.Invoke(context.Background(), name, nil, &ExecutionContext{})
+		if err != nil || result.Error != "tool_not_registered" || result.ExitCode != -1 {
+			t.Fatalf("unregistered tool %s: result=%#v err=%v", name, result, err)
+		}
 	}
 	if len(backend.calls) != 0 {
 		t.Fatalf("unregistered tool reached backend: %#v", backend.calls)

@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/ws"
+
 	gws "github.com/gorilla/websocket"
 )
 
@@ -139,6 +140,7 @@ func TestAgentSkillPinsMethodsValidationAndGlobalScope(t *testing.T) {
 		}
 	}
 	f.server.deps.Config.Auth.Enabled = true
+	bindTestRuntime(f.server)
 	for _, method := range []string{"GET", "PUT"} {
 		rec := httptest.NewRecorder()
 		f.server.handleAgentSkills(rec, httptest.NewRequest(method, "/api/skills", strings.NewReader(`{"key":"mock-skill","pinned":true}`)))

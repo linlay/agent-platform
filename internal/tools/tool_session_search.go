@@ -6,7 +6,7 @@ import (
 	. "agent-platform/internal/contracts"
 )
 
-func (t *RuntimeToolExecutor) invokeSessionSearch(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeSessionSearch(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if t.chats == nil {
 		return ToolExecutionResult{Output: "chat store not configured", Error: "chat_store_not_configured", ExitCode: -1}, nil
 	}

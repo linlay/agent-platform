@@ -76,6 +76,11 @@ func (p Package) ReadIcon() (IconAsset, error) {
 	return IconAsset{Data: data, MediaType: mediaType, SHA256: digest(data)}, nil
 }
 
+// ValidateIconSVG accepts static vector icons and rejects active or external content.
+func ValidateIconSVG(data []byte) error {
+	return validateIconSVG(data)
+}
+
 // Brand icons need only static vector shapes. Reject scripting, embedded pages,
 // animations and remote resources instead of serving arbitrary SVG documents.
 func validateIconSVG(data []byte) error {

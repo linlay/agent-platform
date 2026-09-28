@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"agent-platform/internal/connectortest"
 	"context"
 	"errors"
 	"os"
@@ -10,13 +11,12 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
 )
 
 func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "platform", "connectors"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams"), StateDir: filepath.Join(root, ".state")}}
-	if err := connector.WriteBuiltin(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	for _, key := range []string{"first", "second"} {
@@ -35,7 +35,7 @@ func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testi
 		t.Fatal("lease unavailable")
 	}
 	defer release()
-	firstSkill := filepath.Join(first.RuntimeDir, "connectors", "builtin.dbx", "skills", "builtin-dbx", "SKILL.md")
+	firstSkill := filepath.Join(first.ConnectorMounts[0].Dir, "skills", "builtin-dbx", "SKILL.md")
 	if linked {
 		info, err := os.Lstat(filepath.Join(filepath.Dir(firstSkill), "commands-link.md"))
 		if err != nil || info.Mode()&os.ModeSymlink == 0 {
@@ -53,7 +53,7 @@ func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testi
 	}
 	assertRuntimeAssemblerContent(t, firstSkill, strings.TrimSpace(string(before)))
 	second, _ := r.AgentDefinition("second")
-	assertRuntimeAssemblerContent(t, filepath.Join(second.RuntimeDir, "connectors", "builtin.dbx", "skills", "builtin-dbx", "SKILL.md"), strings.TrimSpace(string(before)+"\nUpdated\n"))
+	assertRuntimeAssemblerContent(t, filepath.Join(second.ConnectorMounts[0].Dir, "skills", "builtin-dbx", "SKILL.md"), strings.TrimSpace(string(before)+"\nUpdated\n"))
 	called := 0
 	r.SetRuntimeReload(func() { called++ })
 	release()
@@ -64,6 +64,14 @@ func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testi
 	if err := r.Reload(context.Background(), "agents"); err != nil {
 		t.Fatal(err)
 	}
+	latest, _ := r.AgentDefinition("first")
+	if latest.ConnectorMounts[0].Dir == first.ConnectorMounts[0].Dir {
+		t.Fatal("new Run did not receive new version")
+	}
+	if _, err := os.Stat(first.ConnectorMounts[0].Dir); !os.IsNotExist(err) {
+		t.Fatal("released old version was not collected")
+	}
+	firstSkill = filepath.Join(latest.ConnectorMounts[0].Dir, "skills", "builtin-dbx", "SKILL.md")
 	assertRuntimeAssemblerContent(t, firstSkill, strings.TrimSpace(string(before)+"\nUpdated\n"))
 	_, holdDeleted, ok := r.AcquireAgentRuntime("first")
 	if !ok {

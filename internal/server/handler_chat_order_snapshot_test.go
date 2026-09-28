@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/ws"
+
 	gws "github.com/gorilla/websocket"
 )
 

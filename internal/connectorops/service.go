@@ -26,11 +26,10 @@ func (e *Error) Error() string              { return e.Code }
 func failure(code string, status int) error { return &Error{code, status} }
 
 type Scope struct {
-	Subject   string
-	AppID     string
-	Chats     map[string]bool
-	Execution []Permission
-	Check     func() error
+	Subject              string
+	IdempotencyNamespace string
+	Execution            []Permission
+	Check                func() error
 }
 type Request struct {
 	ConnectorID        string         `json:"connectorId"`
@@ -58,7 +57,7 @@ type Service struct {
 }
 
 func (s Scope) permits(id, adapter string) bool {
-	if s.Subject == "" || s.AppID == "" || s.Check == nil || s.Check() != nil {
+	if s.Subject == "" || s.Check == nil || s.Check() != nil {
 		return false
 	}
 	for _, p := range s.Execution {
@@ -141,7 +140,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
-	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err != nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err != nil {
 		return result, failure("connector_configuration_required", 409)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -154,7 +153,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil || status.Status == "setup_required" {
 		return result, failure("connector_unavailable", 503)
 	}
-	if status.Status != "authorized" && status.Status != "configured" && status.Status != "delegated" {
+	if status.Status != "authorized" && status.Status != "configured" && status.Status != "delegated" && status.Status != "no_auth" {
 		return result, failure("connector_auth_required", 401)
 	}
 	// Keep the package stable through dispatch, including cross-process imports.

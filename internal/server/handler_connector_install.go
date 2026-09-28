@@ -168,6 +168,8 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, connectorauth.ErrAuthNotRequired):
+		status, code = http.StatusConflict, "connector_auth_not_required"
 	case errors.Is(err, connector.ErrPackageNotFound):
 		status, code = http.StatusNotFound, "connector_not_found"
 	case errors.Is(err, connector.ErrDeleteReload):

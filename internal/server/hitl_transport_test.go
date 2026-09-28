@@ -131,7 +131,7 @@ func TestHITLSubmitStillRequiresAuthentication(t *testing.T) {
 	deps := fixture.server.deps
 	deps.Config = fixture.cfg
 	deps.Notifications = ws.NewHub()
-	server, err := New(deps)
+	server, err := newRuntimeServer(deps)
 	if err != nil {
 		t.Fatal(err)
 	}

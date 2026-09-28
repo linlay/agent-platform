@@ -228,9 +228,9 @@ func TestBuildRuntimeContextLeavesHostWorkspaceUnavailable(t *testing.T) {
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "demo-agent",
-		chatID:   "chat-default",
-		definition: catalog.AgentDefinition{
+		AgentKey: "demo-agent",
+		ChatID:   "chat-default",
+		Definition: catalog.AgentDefinition{
 			Key:        "demo-agent",
 			Mode:       "REACT",
 			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
@@ -265,9 +265,9 @@ func TestBuildRuntimeContextKeepsExplicitWorkspaceAndChatDir(t *testing.T) {
 		t.Fatalf("create workspace: %v", err)
 	}
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "admin-agent",
-		chatID:   "chat-admin",
-		definition: catalog.AgentDefinition{
+		AgentKey: "admin-agent",
+		ChatID:   "chat-admin",
+		Definition: catalog.AgentDefinition{
 			Key:        "admin-agent",
 			Mode:       "REACT",
 			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "admin-agent"),
@@ -311,13 +311,13 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "demo-agent",
-		teamID:   "team-1",
-		role:     "assistant",
-		chatID:   "chat-1",
-		chatName: "Chat 1",
-		scene:    &api.Scene{URL: "https://example.com"},
-		definition: catalog.AgentDefinition{
+		AgentKey: "demo-agent",
+		TeamID:   "team-1",
+		Role:     "assistant",
+		ChatID:   "chat-1",
+		ChatName: "Chat 1",
+		Scene:    &api.Scene{URL: "https://example.com"},
+		Definition: catalog.AgentDefinition{
 			Key:        "demo-agent",
 			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
 			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),
@@ -352,9 +352,9 @@ func TestBuildRuntimeContextFiltersAgentDigestsByContextAgents(t *testing.T) {
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "router",
-		chatID:   "chat-router",
-		definition: catalog.AgentDefinition{
+		AgentKey: "router",
+		ChatID:   "chat-router",
+		Definition: catalog.AgentDefinition{
 			Key:           "router",
 			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
 			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
@@ -382,9 +382,9 @@ func TestBuildRuntimeContextIncludesAllAgentDigestsWhenAgentsTagHasNoSelector(t 
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "router",
-		chatID:   "chat-router",
-		definition: catalog.AgentDefinition{
+		AgentKey: "router",
+		ChatID:   "chat-router",
+		Definition: catalog.AgentDefinition{
 			Key:         "router",
 			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "router"),
 			RuntimeDir:  filepath.Join(cfg.Paths.RUAgentsDir, "router"),
@@ -411,9 +411,9 @@ func TestBuildRuntimeContextOmitsCandidatesWhenSelectorOnlyContainsCurrentAgent(
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "router",
-		chatID:   "chat-router",
-		definition: catalog.AgentDefinition{
+		AgentKey: "router",
+		ChatID:   "chat-router",
+		Definition: catalog.AgentDefinition{
 			Key:           "router",
 			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
 			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
@@ -441,9 +441,9 @@ func TestBuildRuntimeContextSkipsAgentDigestsWithoutAgentsTag(t *testing.T) {
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "router",
-		chatID:   "chat-router",
-		definition: catalog.AgentDefinition{
+		AgentKey: "router",
+		ChatID:   "chat-router",
+		Definition: catalog.AgentDefinition{
 			Key:           "router",
 			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
 			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
@@ -459,7 +459,7 @@ func TestBuildRuntimeContextSkipsAgentDigestsWithoutAgentsTag(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeContextRejectsUnknownContextAgent(t *testing.T) {
+func TestBuildRuntimeContextSkipsUnknownContextAgent(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
@@ -470,10 +470,10 @@ func TestBuildRuntimeContextRejectsUnknownContextAgent(t *testing.T) {
 		},
 	}
 
-	_, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "router",
-		chatID:   "chat-router",
-		definition: catalog.AgentDefinition{
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		AgentKey: "router",
+		ChatID:   "chat-router",
+		Definition: catalog.AgentDefinition{
 			Key:           "router",
 			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
 			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
@@ -481,8 +481,11 @@ func TestBuildRuntimeContextRejectsUnknownContextAgent(t *testing.T) {
 			ContextAgents: []string{"missing-agent"},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), `contextConfig.agents contains unknown agent key "missing-agent"`) {
-		t.Fatalf("expected unknown context agent error, got %v", err)
+	if err != nil {
+		t.Fatalf("unavailable prompt candidate blocked query context: %v", err)
+	}
+	if len(context.AgentDigests) != 0 {
+		t.Fatalf("unavailable candidate included: %#v", context.AgentDigests)
 	}
 }
 
@@ -499,12 +502,12 @@ func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testi
 	}
 
 	_, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "demo-agent",
-		teamID:   "team-1",
-		role:     "assistant",
-		chatID:   "chat-1",
-		chatName: "Chat 1",
-		definition: catalog.AgentDefinition{
+		AgentKey: "demo-agent",
+		TeamID:   "team-1",
+		Role:     "assistant",
+		ChatID:   "chat-1",
+		ChatName: "Chat 1",
+		Definition: catalog.AgentDefinition{
 			Key:        "demo-agent",
 			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
 			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),
@@ -540,12 +543,12 @@ func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t
 
 	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo-agent")
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "demo-agent",
-		teamID:   "team-1",
-		role:     "assistant",
-		chatID:   "chat-1",
-		chatName: "Chat 1",
-		definition: catalog.AgentDefinition{
+		AgentKey: "demo-agent",
+		TeamID:   "team-1",
+		Role:     "assistant",
+		ChatID:   "chat-1",
+		ChatName: "Chat 1",
+		Definition: catalog.AgentDefinition{
 			Key:        "demo-agent",
 			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
 			RuntimeDir: agentDir,
@@ -588,12 +591,12 @@ func TestBuildRuntimeContextIncludesSkillsCenterOnlyWithExplicitMount(t *testing
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "demo-agent",
-		teamID:   "team-1",
-		role:     "assistant",
-		chatID:   "chat-1",
-		chatName: "Chat 1",
-		definition: catalog.AgentDefinition{
+		AgentKey: "demo-agent",
+		TeamID:   "team-1",
+		Role:     "assistant",
+		ChatID:   "chat-1",
+		ChatName: "Chat 1",
+		Definition: catalog.AgentDefinition{
 			Key:        "demo-agent",
 			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
 			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),
@@ -631,11 +634,11 @@ func TestBuildRuntimeContextExposesDynamicSkillsCenterInHostMode(t *testing.T) {
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey:           "demo-agent",
-		chatID:             "chat-1",
-		role:               "user",
-		definition:         catalog.AgentDefinition{Key: "demo-agent"},
-		exposeSkillsCenter: true,
+		AgentKey:           "demo-agent",
+		ChatID:             "chat-1",
+		Role:               "user",
+		Definition:         catalog.AgentDefinition{Key: "demo-agent"},
+		ExposeSkillsCenter: true,
 	})
 	if err != nil {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
@@ -671,14 +674,14 @@ func TestBuildRuntimeContextUsesChatPathsForContainerResources(t *testing.T) {
 	}
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "demo-agent",
-		teamID:   "team-1",
-		chatID:   "chat-1",
-		references: []api.Reference{
+		AgentKey: "demo-agent",
+		TeamID:   "team-1",
+		ChatID:   "chat-1",
+		References: []api.Reference{
 			{ID: "ref-name", Name: "report.docx"},
 			{ID: "ref-url", URL: "/api/resource?file=chat-1%2Ffrom-url.docx"},
 		},
-		definition: catalog.AgentDefinition{
+		Definition: catalog.AgentDefinition{
 			Key:        "demo-agent",
 			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
 			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),

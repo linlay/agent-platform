@@ -76,8 +76,10 @@ func (DeltaStageMarker) agentDeltaTag() {}
 // and the platform has accepted the assistant turn. It is never exposed as a
 // public stream event.
 type DeltaModelTurnCommit struct {
-	TaskID string
-	RunSeq int
+	ResponseID         string
+	EncryptedReasoning []ReasoningPart
+	TaskID             string
+	RunSeq             int
 }
 
 func (DeltaModelTurnCommit) agentDeltaTag() {}

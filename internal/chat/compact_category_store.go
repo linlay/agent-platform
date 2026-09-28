@@ -49,8 +49,12 @@ func compactMessageAtoms(m map[string]any) []compactAtom {
 		content := compactIdentityContent(m["content"])
 		add("content", map[string]any{"role": role, "content": content})
 	}
-	if text := strings.TrimSpace(anyCompactText(m["reasoning_content"])); text != "" {
-		add("reasoning", text)
+	if hasReasoning(m["reasoning_content"]) {
+		if hasEncryptedReasoning(m["reasoning_content"]) {
+			add("reasoning", m["reasoning_content"])
+		} else {
+			add("reasoning", strings.TrimSpace(anyCompactText(m["reasoning_content"])))
+		}
 	}
 	for _, call := range anyMessageSlice(m["tool_calls"]) {
 		add("tool", call)

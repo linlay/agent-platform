@@ -179,7 +179,7 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		targetChatID, chatName, targetAgentKey, normalizeStoredAgentMode(targetSourceRun.AgentMode, targetAgentKey, targetSourceRun.TeamID), nilIfEmpty(targetSourceRun.TeamID), "", now, now, now, targetRunID, targetSourceRun.AssistantText, readRunID, now,
+		targetChatID, chatName, targetAgentKey, normalizeStoredAgentMode(targetSourceRun.AgentMode), nilIfEmpty(targetSourceRun.TeamID), "", now, now, now, targetRunID, targetSourceRun.AssistantText, readRunID, now,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
 		usage.EstimatedCostCurrency, usage.EstimatedCostInputHit, usage.EstimatedCostInputMiss, usage.EstimatedCostOutput, usage.EstimatedCostTotal,
@@ -200,7 +200,7 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 				USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 				USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			mappedRunID, targetChatID, derivedRunAgentKey(sourceRun), normalizeStoredAgentMode(sourceRun.AgentMode, derivedRunAgentKey(sourceRun), sourceRun.TeamID), nilIfEmpty(sourceRun.TeamID), sourceRun.InitialMessage, sourceRun.AssistantText, sourceRun.FinishReason,
+			mappedRunID, targetChatID, derivedRunAgentKey(sourceRun), normalizeStoredAgentMode(sourceRun.AgentMode), nilIfEmpty(sourceRun.TeamID), sourceRun.InitialMessage, sourceRun.AssistantText, sourceRun.FinishReason,
 			now, now,
 			sourceRun.Usage.PromptTokens, sourceRun.Usage.CompletionTokens, sourceRun.Usage.TotalTokens, sourceRun.Usage.CachedTokens, sourceRun.Usage.ReasoningTokens,
 			sourceRun.Usage.PromptCacheHitTokens, sourceRun.Usage.PromptCacheMissTokens,
@@ -417,7 +417,7 @@ func rewriteDerivedString(value string, key string, ctx deriveRewriteContext) st
 		}
 	}
 	if shouldRewriteDerivedResourceURL(trimmedKey) {
-		value = rewriteDerivedResourceURL(value, ctx.sourceChatID, ctx.targetChatID)
+		value = rewriteDerivedResourceURL(value, ctx.sourceChatID)
 	}
 	if shouldRewriteDerivedPath(trimmedKey) {
 		value = rewriteDerivedAbsolutePath(value, ctx.sourceDir, ctx.targetDir)
@@ -443,7 +443,7 @@ func shouldRewriteDerivedPath(key string) bool {
 	}
 }
 
-func rewriteDerivedResourceURL(value string, sourceChatID string, targetChatID string) string {
+func rewriteDerivedResourceURL(value string, sourceChatID string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return value
@@ -678,7 +678,7 @@ func rewriteDerivedArtifactManifest(chatDir string, ctx deriveRewriteContext) er
 			continue
 		}
 		item.RunID = mappedRunID
-		item.URL = rewriteDerivedResourceURL(item.URL, ctx.sourceChatID, ctx.targetChatID)
+		item.URL = rewriteDerivedResourceURL(item.URL, ctx.sourceChatID)
 		items = append(items, item)
 	}
 	path := artifactManifestPath(chatDir)

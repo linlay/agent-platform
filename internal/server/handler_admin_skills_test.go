@@ -55,7 +55,7 @@ func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 		},
 	})
 	created := getAPIData[api.AdminSkillDetailResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/create", createBody)
-	if created.Skill.Key != "helper-skill" || created.Skill.Name != "Helper Skill" || created.Skill.Icon != "" {
+	if created.Skill.Key != "helper-skill" || created.Skill.DisplayName != "Helper Skill" || created.Skill.Icon != "" {
 		t.Fatalf("unexpected create response: %#v", created)
 	}
 	guideEntry := findAdminSkillEntryForTest(created.FileManifest.Entries, "references/guide.md")
@@ -222,7 +222,7 @@ func TestAdminSkillImportCreatesSkillAndMapsFailures(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode import response: %v", err)
 	}
-	if response.Data.Skill.Key != "imported-skill" || response.Data.Skill.Name != "Imported Skill" || response.Data.OpenedFile == nil {
+	if response.Data.Skill.Key != "imported-skill" || response.Data.Skill.DisplayName != "Imported Skill" || response.Data.OpenedFile == nil {
 		t.Fatalf("unexpected import response: %#v", response.Data)
 	}
 	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "imported-skill", "references", "guide.md")); err != nil {

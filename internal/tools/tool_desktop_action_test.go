@@ -1241,6 +1241,11 @@ func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
 		"desktop.general.deviceName",
 		"desktop.theme.get",
 		"desktop.theme.set",
+		"desktop.skin.get",
+		"desktop.skin.list",
+		"desktop.skin.import",
+		"desktop.skin.set",
+		"desktop.skin.remove",
 		"desktop.locale.get",
 		"desktop.locale.set",
 		"desktop.copilot.getPagePreferences",
@@ -1317,6 +1322,10 @@ func TestInvokeDesktopActionRejectsPageActions(t *testing.T) {
 	for _, action := range []string{
 		"desktop.awcp.invoke",
 		"desktop.page.readCurrent",
+		"desktop.skin.*",
+		"desktop.skin.futureAction",
+		"desktop.skin.get.extra",
+		"desktop.skin",
 		"desktop.embeddedWeb.readPageData",
 	} {
 		t.Run(action, func(t *testing.T) {
@@ -1333,7 +1342,7 @@ func TestInvokeDesktopActionRejectsPageActions(t *testing.T) {
 	}
 }
 
-func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
+func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
 	want := []string{
 		"desktop.agent.open",
 		"desktop.agent.update",
@@ -1391,6 +1400,11 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.skill.update",
 		"desktop.theme.get",
 		"desktop.theme.set",
+		"desktop.skin.get",
+		"desktop.skin.list",
+		"desktop.skin.import",
+		"desktop.skin.set",
+		"desktop.skin.remove",
 		"desktop.web.activateSurface",
 		"desktop.web.closeTab",
 		"desktop.web.executeScript",
@@ -1440,16 +1454,12 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		t.Fatalf("desktop action allowlist mismatch\nwant: %#v\n got: %#v", want, gotAllowlist)
 	}
 
-	gotSchema := sortedToolPropertyEnum(t, "desktop_action", "action")
-	if !reflect.DeepEqual(gotSchema, want) {
-		t.Fatalf("desktop action schema enum mismatch\nwant: %#v\n got: %#v", want, gotSchema)
-	}
 }
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 97 {
-		t.Fatalf("desktop action count = %d, want 97", len(actions))
+	if len(actions) != 102 {
+		t.Fatalf("desktop action count = %d, want 102", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{

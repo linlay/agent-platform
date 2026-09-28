@@ -6,7 +6,6 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 	runID, _ := line["runId"].(string)
 	rd := ensureRun(r.runs, &r.runOrder, runID)
 
-	stage, _ := line["stage"].(string)
 	taskID, _ := line["taskId"].(string)
 	taskName, _ := line["taskName"].(string)
 	taskDescription, _ := line["taskDescription"].(string)
@@ -64,11 +63,11 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 			options.HideTeamCoordinatorInternals = true
 		}
 	}
-	if err := r.replayStepMessages(rd, line, taskID, stage, options); err != nil {
+	if err := r.replayStepMessages(rd, line, taskID, options); err != nil {
 		return err
 	}
 	r.accumulateStepUsage(rd, stepUsage)
-	if events := finishReplayedSubTaskIfTerminal(rd, runID, taskID, taskStatus, ts, r.nextSeq); len(events) > 0 {
+	if events := finishReplayedSubTaskIfTerminal(rd, taskID, taskStatus, ts, r.nextSeq); len(events) > 0 {
 		if r.orchestratedTeam {
 			events = decorateReplayedTeamTaskEvents(events, firstNonEmptyReplayString(teamID, r.summary.TeamID), taskSubAgentKey, presentation)
 		}
@@ -79,16 +78,16 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 
 // replayStepMessages keeps waiting prompts beside their tool calls and sources
 // beside their results; unmatched items are appended at the end of the step.
-func (r *historyReplay) replayStepMessages(rd *chatRunData, line map[string]any, taskID, stage string, options replayMessageOptions) error {
+func (r *historyReplay) replayStepMessages(rd *chatRunData, line map[string]any, taskID string, options replayMessageOptions) error {
 	chatID, _ := line["chatId"].(string)
 	runID, _ := line["runId"].(string)
 	lineLiveSeq := int64FromAny(line["liveSeq"])
 	msgs, _ := line["messages"].([]any)
-	awaitingReplay, err := newStepAwaitingReplay(line["awaiting"], chatID, runID, r.chatDir, lineLiveSeq)
+	awaitingReplay, err := newStepAwaitingReplay(line["awaiting"], chatID, runID, lineLiveSeq)
 	if err != nil {
 		return err
 	}
-	if state := planningStateFromAwaitingPlanning(line["awaiting"], r.chatDir); state != nil {
+	if state := planningStateFromAwaitingPlanning(line["awaiting"]); state != nil {
 		r.planning = state
 	}
 	sourceReplay := newStepSourceReplay(line["sources"], runID, taskID, lineLiveSeq, r.nextSeq)
@@ -97,7 +96,7 @@ func (r *historyReplay) replayStepMessages(rd *chatRunData, line map[string]any,
 		if msgMap == nil {
 			continue
 		}
-		messageEvents, err := storedMessageToEventsWithOptions(msgMap, runID, taskID, stage, lineLiveSeq, r.nextSeq, options)
+		messageEvents, err := storedMessageToEventsWithOptions(msgMap, runID, taskID, lineLiveSeq, r.nextSeq, options)
 		if err != nil {
 			return err
 		}

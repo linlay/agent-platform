@@ -23,7 +23,7 @@ func CompactHistory(store CompactStore, baseResp api.CompactResponse, window, ov
 			option = options[0]
 		}
 		option.KeepRecent = compaction.KeepRecentRounds(window, option.KeepRecent)
-		return compactHistoryTools(baseResp, store, chatID, requestID, trigger, 0, compactID, option)
+		return compactHistoryL1(baseResp, store, chatID, requestID, trigger, compactID, option)
 	}
 	snapshot, err := store.BuildCompactSnapshot(chatID, keptRunCount)
 	if err != nil {
@@ -154,8 +154,8 @@ func CompactHistory(store CompactStore, baseResp api.CompactResponse, window, ov
 	}, nil
 }
 
-func compactHistoryTools(baseResp api.CompactResponse, store CompactStore, chatID string, requestID string, trigger string, targetTokens int, compactID string, option chat.L1Options) (api.CompactResponse, error) {
-	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, option.KeepRecent, 0, option)
+func compactHistoryL1(baseResp api.CompactResponse, store CompactStore, chatID string, requestID string, trigger string, compactID string, option chat.L1Options) (api.CompactResponse, error) {
+	snapshot, err := store.BuildL1CompactSnapshot(chatID, option)
 	if err != nil {
 		if errors.Is(err, chat.ErrNoCompactableHistory) {
 			baseResp.Detail = "no_compactable_tools"
@@ -230,7 +230,7 @@ func compactHistoryTools(baseResp api.CompactResponse, store CompactStore, chatI
 type CompactStore interface {
 	BuildCompactSnapshot(chatID string, keptRunCount int) (chat.CompactSnapshot, error)
 	CommitCompactCheckpoint(chatID string, snapshot chat.CompactSnapshot, checkpoint chat.CompactCheckpointLine) error
-	BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int, options ...chat.L1Options) (chat.ToolCompactSnapshot, error)
+	BuildL1CompactSnapshot(chatID string, option chat.L1Options) (chat.ToolCompactSnapshot, error)
 	CommitToolCompact(chatID string, snapshot chat.ToolCompactSnapshot, line chat.ToolCompactLine) error
 }
 

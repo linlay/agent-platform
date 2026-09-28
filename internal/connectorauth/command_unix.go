@@ -4,4 +4,4 @@ package connectorauth
 
 import "os/exec"
 
-func configureCommandLine(cmd *exec.Cmd) {}
+func configureCommandLine(_ *exec.Cmd) {}

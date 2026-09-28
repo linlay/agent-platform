@@ -211,9 +211,6 @@ function Build-ProgramBundle {
         Write-ProgramManifest -Dest $manifestPath -TargetOs $TargetOs -TargetArch $TargetArch -BackendEntry $backendEntry -AssetFileName (Split-Path $bundleArchive -Leaf)
 
         Copy-ConfigTemplates -BundleRoot $bundleRoot
-        if ($TargetOs -eq "windows") {
-            Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml" (Join-Path (Join-Path $bundleRoot "configs") "tools.example.yml") -Force
-        }
         $builtinsCache = Join-Path (Join-Path (Join-Path $REPO_ROOT "build") "builtins") "$TargetOs-$TargetArch"
         & "$SCRIPT_DIR/stage-builtins.ps1" -OutputDir $bundleRoot -TargetOS $TargetOs -TargetArch $TargetArch -CacheDir $builtinsCache
         if ($LASTEXITCODE -ne 0) {

@@ -94,6 +94,7 @@ func TestAdminChannelsReportsServerConnectionsAndAgentRelations(t *testing.T) {
 			LastSeenAt:  1_700_000_001_000,
 		}},
 	}
+	bindTestRuntime(server)
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{
 		ID:        "public-entry",
 		Name:      "Public Entry",
@@ -136,6 +137,7 @@ func TestAdminChannelsReportsServerConnectionsAndAgentRelations(t *testing.T) {
 			"plain-agent": {Key: "plain-agent", Name: "Plain Agent", Mode: "REACT"},
 		},
 	}
+	bindTestRuntime(server)
 
 	rec := httptest.NewRecorder()
 	server.handleMonitorChannels(rec, httptest.NewRequest(http.MethodGet, "/api/monitor/channels", nil))
@@ -159,6 +161,7 @@ func TestAdminChannelsReportsServerConnectionsAndAgentRelations(t *testing.T) {
 func TestAdminChannelsReturnsEffectiveExternalAgentKeyForOmittedAlias(t *testing.T) {
 	server, _ := newServerForChannelTests(t)
 	server.deps.Notifications = channelConnectionSnapshotStub{}
+	bindTestRuntime(server)
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{
 		ID:        "public-entry",
 		Name:      "Public Entry",
@@ -185,6 +188,7 @@ func TestAdminChannelsReturnsEffectiveExternalAgentKeyForOmittedAlias(t *testing
 			},
 		},
 	}
+	bindTestRuntime(server)
 
 	rec := httptest.NewRecorder()
 	server.handleMonitorChannels(rec, httptest.NewRequest(http.MethodGet, "/api/monitor/channels", nil))
@@ -217,6 +221,7 @@ func TestAdminChannelsIncludesAgentCardReportStatus(t *testing.T) {
 			"support": exportedChannelTestAgent("support", "peer-a", "support-agent"),
 		},
 	}
+	bindTestRuntime(server)
 	server.deps.AgentCardStatus = agentCardStatusStub{
 		"peer-a/support-agent": {Status: "rejected", RequestID: "card_1", Reason: "invalid card"},
 	}

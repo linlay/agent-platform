@@ -11,6 +11,8 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/adapter"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
 
@@ -115,11 +117,11 @@ func TestFrameOrchestratorTeamDelegationMergesParallelHITLAndDistributesSubmit(t
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, nil, defs, &routed, &emitted)
 	parentControl := contracts.NewRunControl(context.Background(), "run_1")
-	o.runCtx = contracts.WithRunControl(parentControl.Context(), parentControl)
-	o.session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
-	o.agent = engine
+	o.RunCtx = contracts.WithRunControl(parentControl.Context(), parentControl)
+	o.Session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
+	o.Agent = adapter.Engine{AgentEngine: engine}
 	mergedAskCount := 0
-	o.emitInputs = func(inputs ...stream.StreamInput) {
+	o.EmitInputs = func(inputs ...stream.StreamInput) {
 		routed = append(routed, inputs...)
 		for _, input := range inputs {
 			ask, ok := input.(stream.AwaitAsk)
@@ -210,10 +212,10 @@ func TestFrameOrchestratorTeamDelegationInterruptCancelsAllMergedHITLChildren(t 
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, nil, defs, &routed, &emitted)
 	parentControl := contracts.NewRunControl(context.Background(), "run_1")
-	o.runCtx = contracts.WithRunControl(parentControl.Context(), parentControl)
-	o.session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
-	o.agent = engine
-	o.emitInputs = func(inputs ...stream.StreamInput) {
+	o.RunCtx = contracts.WithRunControl(parentControl.Context(), parentControl)
+	o.Session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
+	o.Agent = adapter.Engine{AgentEngine: engine}
+	o.EmitInputs = func(inputs ...stream.StreamInput) {
 		routed = append(routed, inputs...)
 		for _, input := range inputs {
 			if _, ok := input.(stream.AwaitAsk); ok {
@@ -263,17 +265,17 @@ func TestFrameOrchestratorTeamCustomTaskDelegationMergesParallelHITL(t *testing.
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, nil, defs, &routed, &emitted)
 	parentControl := contracts.NewRunControl(context.Background(), "run_1")
-	o.runCtx = contracts.WithRunControl(parentControl.Context(), parentControl)
-	o.session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
-	o.agent = engine
-	o.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+	o.RunCtx = contracts.WithRunControl(parentControl.Context(), parentControl)
+	o.Session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
+	o.Agent = adapter.Engine{AgentEngine: engine}
+	o.BuildQuerySession = func(_ context.Context, req runtimetypes.QueryCommand, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 		if !options.IncludeHistory || options.AllowInvokeAgents || options.TeamHistoryAgentKey != def.Key {
 			t.Fatalf("unexpected Team delegation options: %#v", options)
 		}
 		return contracts.QuerySession{RunID: req.RunID, ChatID: req.ChatID, AgentKey: def.Key, Mode: def.Mode}, nil
 	}
 	mergedAskCount := 0
-	o.emitInputs = func(inputs ...stream.StreamInput) {
+	o.EmitInputs = func(inputs ...stream.StreamInput) {
 		routed = append(routed, inputs...)
 		for _, input := range inputs {
 			ask, ok := input.(stream.AwaitAsk)
@@ -322,13 +324,13 @@ func TestFrameOrchestratorTeamDelegationMergesHITLInBoundedWaves(t *testing.T) {
 		AgentKeys:    []string{"writer", "reviewer", "analyst"},
 		Orchestrator: catalog.TeamOrchestratorConfig{ModelKey: "mock-model", MaxParallel: 2},
 	}, defs)
-	o.teamSnapshot = &snapshot
+	o.TeamSnapshot = &snapshot
 	parentControl := contracts.NewRunControl(context.Background(), "run_1")
-	o.runCtx = contracts.WithRunControl(parentControl.Context(), parentControl)
-	o.session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
-	o.agent = engine
+	o.RunCtx = contracts.WithRunControl(parentControl.Context(), parentControl)
+	o.Session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
+	o.Agent = adapter.Engine{AgentEngine: engine}
 	mergedAskCount := 0
-	o.emitInputs = func(inputs ...stream.StreamInput) {
+	o.EmitInputs = func(inputs ...stream.StreamInput) {
 		routed = append(routed, inputs...)
 		for _, input := range inputs {
 			ask, ok := input.(stream.AwaitAsk)

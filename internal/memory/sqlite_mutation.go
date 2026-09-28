@@ -80,7 +80,7 @@ func (s *SQLiteStore) Update(agentKey string, input MutationInput) (*ToolRecord,
 
 func (s *SQLiteStore) updateLocked(agentKey string, input MutationInput) (*ToolRecord, error) {
 
-	current, err := s.readProjectionByIDLocked(strings.TrimSpace(input.ID))
+	current, err := s.readStoredMemoryByIDLocked(strings.TrimSpace(input.ID), "memory.sqlite.projection")
 	if err != nil || current == nil {
 		return nil, err
 	}
@@ -107,13 +107,13 @@ func (s *SQLiteStore) updateLocked(agentKey string, input MutationInput) (*ToolR
 		current.Status = normalizeMemoryStatus(*input.Status, current.Kind)
 	}
 	if input.Importance != nil {
-		current.Importance = normalizeImportance(*input.Importance)
+		current.Importance = NormalizeImportance(*input.Importance)
 	}
 	if input.Confidence != nil {
 		current.Confidence = normalizeMemoryConfidence(*input.Confidence, current.Kind)
 	}
 	if input.ReplaceTags {
-		current.Tags = normalizeTags(input.Tags)
+		current.Tags = NormalizeTags(input.Tags)
 	}
 	current.UpdatedAt = time.Now().UnixMilli()
 	if err := s.writeLocked(*current); err != nil {
@@ -148,7 +148,7 @@ func (s *SQLiteStore) Timeline(agentKey string, id string, limit int) ([]Timelin
 	defer s.mu.Unlock()
 
 	limit = normalizeLimit(limit, 10)
-	item, err := s.readProjectionByIDLocked(id)
+	item, err := s.readStoredMemoryByIDLocked(id, "memory.sqlite.projection")
 	if err != nil || item == nil {
 		return nil, err
 	}
@@ -162,10 +162,7 @@ func (s *SQLiteStore) Timeline(agentKey string, id string, limit int) ([]Timelin
 		Direction:    "self",
 	}}
 	rows, err := s.db.Query(
-		`SELECT l.FROM_ID_, l.TO_ID_, l.RELATION_TYPE_,
-			m.ID_, m.AGENT_KEY_, m.SUBJECT_KEY_, m.KIND_, m.REF_ID_, m.SCOPE_TYPE_, m.SCOPE_KEY_, m.TITLE_, m.SUMMARY_, m.SOURCE_TYPE_,
-			m.CATEGORY_, m.IMPORTANCE_, m.CONFIDENCE_, m.STATUS_, m.TAGS_, m.EMBEDDING_MODEL_, m.TS_, m.UPDATED_AT_, m.ACCESS_COUNT_, m.LAST_ACCESSED_AT_,
-			CASE WHEN m.EMBEDDING_ IS NULL THEN 0 ELSE 1 END
+		`SELECT l.FROM_ID_, l.TO_ID_, l.RELATION_TYPE_, `+toolMemoryColumns("m")+`
 		FROM MEMORY_LINKS l
 		JOIN MEMORIES m ON m.ID_ = CASE WHEN l.FROM_ID_ = ? THEN l.TO_ID_ ELSE l.FROM_ID_ END
 		WHERE l.FROM_ID_ = ? OR l.TO_ID_ = ?
@@ -214,7 +211,7 @@ func (s *SQLiteStore) Promote(agentKey string, input PromoteInput) (*ToolRecord,
 
 func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput) (*ToolRecord, error) {
 
-	source, err := s.readProjectionByIDLocked(strings.TrimSpace(input.SourceID))
+	source, err := s.readStoredMemoryByIDLocked(strings.TrimSpace(input.SourceID), "memory.sqlite.projection")
 	if err != nil || source == nil {
 		return nil, err
 	}
@@ -230,7 +227,7 @@ func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput) (*ToolR
 		RequestID:  source.RequestID,
 		ChatID:     source.ChatID,
 		AgentKey:   source.AgentKey,
-		SubjectKey: normalizeSubjectKey("", source.ChatID, source.AgentKey),
+		SubjectKey: NormalizeSubjectKey("", source.ChatID, source.AgentKey),
 		Kind:       KindFact,
 		RefID:      source.ID,
 		ScopeType:  normalizeScopeType(input.ScopeType),
@@ -239,10 +236,10 @@ func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput) (*ToolR
 		Summary:    firstNonBlank(input.Summary, source.Summary),
 		SourceType: "promote",
 		Category:   normalizeCategory(firstNonBlank(input.Category, source.Category)),
-		Importance: normalizeImportance(firstPositive(input.Importance, source.Importance)),
+		Importance: NormalizeImportance(firstPositive(input.Importance, source.Importance)),
 		Confidence: normalizeMemoryConfidence(firstPositiveFloat(input.Confidence, source.Confidence), KindFact),
 		Status:     StatusActive,
-		Tags:       normalizeTags(append([]string{"promoted"}, chooseTags(input.Tags, source.Tags)...)),
+		Tags:       NormalizeTags(append([]string{"promoted"}, chooseTags(input.Tags, source.Tags)...)),
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
@@ -301,7 +298,7 @@ func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse) error {
 	if strings.TrimSpace(item.ScopeKey) == "" {
 		item.ScopeKey = normalizeScopeKey(item.ScopeType, "", item.AgentKey, "", item.ChatID, "")
 	}
-	before, err := s.readProjectionByIDLocked(strings.TrimSpace(item.ID))
+	before, err := s.readStoredMemoryByIDLocked(strings.TrimSpace(item.ID), "memory.sqlite.projection")
 	if err != nil {
 		return err
 	}
@@ -351,10 +348,7 @@ func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse) error {
 
 func (s *SQLiteStore) findExactDuplicateLocked(item api.StoredMemoryResponse) (*api.StoredMemoryResponse, error) {
 	rows, err := s.db.Query(
-		`SELECT ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
-			KIND_, REF_ID_, SCOPE_TYPE_, SCOPE_KEY_, TITLE_,
-			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, CONFIDENCE_, STATUS_, TAGS_,
-			UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_
+		`SELECT `+storedMemoryColumns("")+`
 		FROM MEMORIES
 		WHERE ID_ != ?
 			AND AGENT_KEY_ = ?
@@ -386,7 +380,7 @@ func (s *SQLiteStore) findExactDuplicateLocked(item api.StoredMemoryResponse) (*
 	if !rows.Next() {
 		return nil, rows.Err()
 	}
-	existing, err := scanMemoryRow(rows)
+	existing, err := scanStoredMemory(rows, "memory.sqlite.row")
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +391,7 @@ func (s *SQLiteStore) bumpDuplicateMemoryLocked(existing api.StoredMemoryRespons
 	before := existing
 	existing.Importance = max(existing.Importance, incoming.Importance)
 	existing.Confidence = maxFloat(existing.Confidence, incoming.Confidence)
-	existing.Tags = normalizeTags(append(existing.Tags, incoming.Tags...))
+	existing.Tags = NormalizeTags(append(existing.Tags, incoming.Tags...))
 	existing.UpdatedAt = now
 	existing.AccessCount++
 	existing.LastAccessedAt = &now
@@ -440,10 +434,7 @@ func (s *SQLiteStore) findNearDuplicateFactLocked(item api.StoredMemoryResponse)
 		return nil, nil
 	}
 	rows, err := s.db.Query(
-		`SELECT ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
-			KIND_, REF_ID_, SCOPE_TYPE_, SCOPE_KEY_, TITLE_,
-			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, CONFIDENCE_, STATUS_, TAGS_,
-			UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_
+		`SELECT `+storedMemoryColumns("")+`
 		FROM MEMORIES
 		WHERE ID_ != ?
 			AND AGENT_KEY_ = ?
@@ -466,7 +457,7 @@ func (s *SQLiteStore) findNearDuplicateFactLocked(item api.StoredMemoryResponse)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		existing, err := scanMemoryRow(rows)
+		existing, err := scanStoredMemory(rows, "memory.sqlite.row")
 		if err != nil {
 			return nil, err
 		}
@@ -543,7 +534,7 @@ func (s *SQLiteStore) supersedeMatchingFactsLocked(item api.StoredMemoryResponse
 	}
 	for _, priorID := range priorIDs {
 		now := time.Now().UnixMilli()
-		before, _ := s.readProjectionByIDLocked(priorID)
+		before, _ := s.readStoredMemoryByIDLocked(priorID, "memory.sqlite.projection")
 		if _, err := s.db.Exec(
 			`UPDATE MEMORY_FACTS SET STATUS_ = ?, UPDATED_AT_ = ? WHERE ID_ = ?`,
 			StatusSuperseded, now, priorID,
@@ -559,7 +550,7 @@ func (s *SQLiteStore) supersedeMatchingFactsLocked(item api.StoredMemoryResponse
 		if err := s.insertMemoryLinkLocked(item.ID, priorID, "supersedes", 1.0); err != nil {
 			return err
 		}
-		after, _ := s.readProjectionByIDLocked(priorID)
+		after, _ := s.readStoredMemoryByIDLocked(priorID, "memory.sqlite.projection")
 		if after != nil {
 			event := historyEventFromMemory(*after, "consolidate.supersede", "write")
 			if before != nil {

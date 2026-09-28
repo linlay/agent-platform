@@ -536,7 +536,7 @@ func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation)
 			var result ToolExecutionResult
 			var err error
 			if ctx.Err() != nil {
-				result = interruptedBeforeExecutionToolResult(invocation, "", runInterruptedExecutionOutput)
+				result = interruptedBeforeExecutionToolResult("", runInterruptedExecutionOutput)
 			} else {
 				result, err = executor.Invoke(ctx, invocation.toolName, invocation.args, execCtx)
 			}
@@ -727,7 +727,7 @@ func (s *llmRunStream) startActiveToolExecution(invocation *preparedToolInvocati
 		var result ToolExecutionResult
 		var err error
 		if ctx.Err() != nil {
-			result = interruptedBeforeExecutionToolResult(invocation, "", runInterruptedExecutionOutput)
+			result = interruptedBeforeExecutionToolResult("", runInterruptedExecutionOutput)
 		} else {
 			result, err = executor.Invoke(ctx, invocation.toolName, invocation.args, execCtx)
 		}

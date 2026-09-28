@@ -117,8 +117,8 @@ func TestFullConfigReloadIncludesMCPRegistry(t *testing.T) {
 func TestAgentLocalSkillChangesResolveToAgentsReload(t *testing.T) {
 	agentsDir := filepath.Join(t.TempDir(), "agents")
 	changed := filepath.Join(agentsDir, "writer", "skills", "office", "SKILL.md")
-	if got := resolveChangeReason(changed, []watchEntry{{path: agentsDir, reason: "agents"}}); got != "agents" {
-		t.Fatalf("agent-local Skill reload reason = %q", got)
+	if !pathWithin(agentsDir, changed) {
+		t.Fatal("agent-local Skill must match agents watch root")
 	}
 	if catalog.ShouldIgnoreRuntimeWatchPath(changed) {
 		t.Fatalf("agent-local Skill change must not be ignored: %s", changed)

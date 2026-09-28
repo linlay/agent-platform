@@ -11,6 +11,7 @@ func TestAuthModeCanonicalAndLegacyManifests(t *testing.T) {
 		auth string
 		want AuthMode
 	}{
+		{`,"auth_mode":"no_auth"`, AuthNoAuth},
 		{``, AuthDelegated}, {`,"auth_mode":null`, AuthDelegated},
 		{`,"auth_mode":"none"`, AuthDelegated}, {`,"auth_mode":"cli"`, AuthDelegated},
 		{`,"auth_mode":"oneid-token"`, AuthOneID}, {`,"auth_mode":"mcp"`, AuthMCP},

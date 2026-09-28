@@ -1,0 +1,21 @@
+package server
+
+import orchestration "agent-platform/internal/runtime/orchestration"
+
+var newTeamMergedHITLBatch = orchestration.NewTeamMergedHITLBatch
+var teamMergedAwaitingDefinition = orchestration.TeamMergedAwaitingDefinition
+var teamAwaitingItemCount = orchestration.TeamAwaitingItemCount
+var teamDistributeMergedSubmit = orchestration.TeamDistributeMergedSubmit
+var teamChildSubmitParams = orchestration.TeamChildSubmitParams
+var teamRejectedChildParams = orchestration.TeamRejectedChildParams
+var teamMergedAwaitingAnswer = orchestration.TeamMergedAwaitingAnswer
+var currentMessagesFromSession = orchestration.CurrentMessagesFromSession
+var containsInvokeAgentsTool = orchestration.ContainsInvokeAgentsTool
+var sameAgentKey = orchestration.SameAgentKey
+var routeChildStreamInput = orchestration.RouteChildStreamInput
+var routeTeamChildStreamInput = orchestration.RouteTeamChildStreamInput
+var namespaceChildID = orchestration.NamespaceChildID
+var namespaceChildIDs = orchestration.NamespaceChildIDs
+var deduplicateTeamReferences = orchestration.DeduplicateTeamReferences
+var errorMessage = orchestration.ErrorMessage
+var firstPayloadString = orchestration.FirstPayloadString

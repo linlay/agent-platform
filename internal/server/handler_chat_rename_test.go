@@ -63,7 +63,7 @@ func newChatRenameTestServer(t *testing.T) (*chat.FileStore, *Server) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	server, err := New(Dependencies{Config: config.Config{}, Chats: store})
+	server, err := newRuntimeServer(Dependencies{Config: config.Config{}, Chats: store})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}

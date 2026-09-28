@@ -51,6 +51,7 @@ type AgentDefinition struct {
 	Introductions        []string
 	Wonders              []string
 	ModelKey             string
+	ModelReasoningEffort string // Persisted top-level selection; empty means unspecified.
 	ServiceTier          string
 	Mode                 string
 	ACPBridgeID          string
@@ -62,6 +63,7 @@ type AgentDefinition struct {
 	ConnectorBinDirs     []string
 	ConnectorEnv         map[string]string
 	ConnectorCredentials []connector.CredentialEnvironment
+	ConnectorNativeTools []string
 	ConnectorMounts      []ConnectorMount
 	ConnectorSkills      []ConnectorSkill
 	Skills               []string
@@ -287,13 +289,16 @@ type SkillDefinition struct {
 }
 
 type FileRegistry struct {
-	executionMu    sync.Mutex
-	runtimeUsers   map[string]int
-	runtimePending map[string]bool
-	onRuntimeIdle  func()
-	cfg            config.Config
-	tools          []api.ToolDetailResponse
-	assembler      *runtimeAgentAssembler
+	executionMu         sync.Mutex
+	runtimeUsers        map[string]int
+	liveConnectorMounts map[string]connector.AgentRuntime
+	liveConnectorUsers  map[string]int
+	sharedPins          map[string]func()
+	runtimePending      map[string]bool
+	onRuntimeIdle       func()
+	cfg                 config.Config
+	tools               []api.ToolDetailResponse
+	assembler           *runtimeAgentAssembler
 
 	mu             sync.RWMutex
 	privateSkillMu sync.Mutex
@@ -322,6 +327,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	if err != nil {
 		return nil, err
 	}
+	assembler.connectors.NativeDesktopDir = cfg.Paths.NativeDesktopDir
 	registry := &FileRegistry{
 		cfg:                  cfg,
 		tools:                dedupeToolDefinitions(append([]api.ToolDetailResponse(nil), toolDefs...)),
@@ -361,11 +367,42 @@ func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason strin
 			return err
 		}
 	}
+	var releaseAssembly func()
+	if r.assembler != nil {
+		// A corrupt durable pin must not silently drop a suspended Run's routes.
+		if _, err := r.assembler.connectors.PinnedRuntimes(); err != nil {
+			return err
+		}
+		var err error
+		releaseAssembly, err = r.assembler.connectors.AssemblyLease()
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if releaseAssembly != nil {
+				releaseAssembly()
+			}
+		}()
+	}
 	if err := r.reloadLocked(reason); err != nil {
 		return err
 	}
+	// Retain the published packages before binding: a binding failure must not
+	// leave the current catalog vulnerable to another process's collection.
+	if r.assembler != nil {
+		if err := r.reconcileSharedPins(); err != nil {
+			return err
+		}
+	}
 	if bind != nil {
-		return bind()
+		if err := bind(); err != nil {
+			return err
+		}
+	}
+	if r.assembler != nil {
+		releaseAssembly()
+		releaseAssembly = nil
+		_ = r.assembler.connectors.CollectShared()
 	}
 	return nil
 }
@@ -374,7 +411,7 @@ func (r *FileRegistry) reloadLocked(reason string) error {
 	r.freezeActiveRuntimes()
 	switch reason {
 	case "agents":
-		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsCenterDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
+		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
 		if err != nil {
 			return err
 		}
@@ -405,7 +442,7 @@ func (r *FileRegistry) reloadLocked(reason string) error {
 	}
 
 	// Full reload (startup, config, or unknown reason)
-	agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsCenterDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
+	agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
 	if err != nil {
 		return err
 	}
@@ -511,7 +548,7 @@ func (r *FileRegistry) AdminAgents() []AdminAgent {
 	keys := r.orderedAdminAgentKeysLocked()
 	items := make([]AdminAgent, 0, len(keys))
 	for _, key := range keys {
-		items = append(items, cloneAdminAgent(r.adminAgents[key]))
+		items = append(items, r.adminAgentWithContextDiagnosticsLocked(r.adminAgents[key]))
 	}
 	return items
 }
@@ -523,7 +560,7 @@ func (r *FileRegistry) AdminAgent(key string) (AdminAgent, bool) {
 	if !ok {
 		return AdminAgent{}, false
 	}
-	return cloneAdminAgent(def), true
+	return r.adminAgentWithContextDiagnosticsLocked(def), true
 }
 
 func (r *FileRegistry) AdminAgentKeys() []string {
@@ -806,6 +843,7 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 		dst.ConnectorEnv[k] = v
 	}
 	dst.ConnectorCLIEntries = append([]connector.CLIEntry(nil), src.ConnectorCLIEntries...)
+	dst.ConnectorNativeTools = append([]string(nil), src.ConnectorNativeTools...)
 	dst.ConnectorMounts = append([]ConnectorMount(nil), src.ConnectorMounts...)
 	dst.ConnectorSkills = append([]ConnectorSkill(nil), src.ConnectorSkills...)
 	if len(src.Controls) > 0 {

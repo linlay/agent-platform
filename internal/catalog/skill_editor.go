@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"agent-platform/internal/connector"
+	"agent-platform/internal/skillmeta"
 )
 
 const (
@@ -83,6 +84,7 @@ type AdminSkillDiagnostic struct {
 }
 
 type AdminSkill struct {
+	Presentation skillmeta.Presentation
 	Key          string
 	Name         string
 	Description  string
@@ -823,7 +825,7 @@ func writeEditableSkillArchiveFile(archive *zip.Writer, root *os.Root, candidate
 	}
 
 	header := &zip.FileHeader{Name: filepath.ToSlash(cleanPath), Method: zip.Deflate}
-	header.SetModTime(info.ModTime())
+	header.Modified = info.ModTime().UTC()
 	header.SetMode(info.Mode())
 	output, err := archive.CreateHeader(header)
 	if err != nil {
@@ -1160,6 +1162,10 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 		item.Name = def.Name
 		item.Description = def.Description
 		item.Version = version
+		item.Presentation = skillmeta.Parse(metadata, version)
+		for _, diagnostic := range skillMetadataDiagnostics(key, prompt) {
+			item.Diagnostics = append(item.Diagnostics, skillDiagnostic(diagnostic.Severity, diagnostic.Code, diagnostic.Message, skillPath))
+		}
 		item.Meta = skillSummaryMeta(def)
 	}
 	if item.Meta == nil {
@@ -1194,22 +1200,24 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 }
 
 func resolveAdminSkillIcon(skillDir string, key string) (string, error) {
-	relPath := path.Join("assets", strings.TrimSpace(key)+".png")
-	pathOnDisk, cleanPath, err := resolveEditableSkillPath(skillDir, relPath)
-	if err != nil {
-		return "", err
+	for _, name := range []string{"icon.svg", "icon.png", strings.TrimSpace(key) + ".svg", strings.TrimSpace(key) + ".png"} {
+		relPath := path.Join("assets", name)
+		pathOnDisk, cleanPath, err := resolveEditableSkillPath(skillDir, relPath)
+		if err != nil {
+			return "", err
+		}
+		info, err := os.Lstat(pathOnDisk)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() {
+			return filepath.ToSlash(cleanPath), nil
+		}
 	}
-	info, err := os.Lstat(pathOnDisk)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return "", nil
-	}
-	return filepath.ToSlash(cleanPath), nil
+	return "", nil
 }
 
 func validateEditableSkillRuntimeFiles(skillDir string) ([]AdminSkillDiagnostic, error) {

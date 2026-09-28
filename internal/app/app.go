@@ -39,9 +39,11 @@ import (
 	"agent-platform/internal/reload"
 	"agent-platform/internal/runops"
 	agentruntime "agent-platform/internal/runtime"
+	runtimeadapter "agent-platform/internal/runtime/adapter"
 	runtimeproxy "agent-platform/internal/runtime/proxy"
 	runtimequery "agent-platform/internal/runtime/query"
 	"agent-platform/internal/runtime/runstate"
+	runtimesession "agent-platform/internal/runtime/session"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/sandbox"
@@ -58,17 +60,18 @@ import (
 )
 
 type App struct {
-	Config               config.Config
-	RuntimeEnv           runtimeenv.Info
-	Router               *server.Server
-	backgroundCancel     context.CancelFunc
-	automation           automationStopper
-	gateways             *gateway.Registry
-	wsHub                *ws.Hub
-	automationExecutions *automation.ExecutionHistoryService
-	lspManager           *lsp.Manager
-	mcpClient            *mcp.Client
-	kbaseManager         *kbase.Manager
+	nativeConnectorRelease func()
+	Config                 config.Config
+	RuntimeEnv             runtimeenv.Info
+	Router                 *server.Server
+	backgroundCancel       context.CancelFunc
+	automation             automationStopper
+	gateways               *gateway.Registry
+	wsHub                  *ws.Hub
+	automationExecutions   *automation.ExecutionHistoryService
+	lspManager             *lsp.Manager
+	mcpClient              *mcp.Client
+	kbaseManager           *kbase.Manager
 }
 
 type automationStopper interface {
@@ -203,6 +206,16 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err := cfg.Paths.ConnectorSources().MigrateLegacy(cfg.Paths.LegacyConnectorsDir); err != nil {
 		return nil, fmt.Errorf("migrate connector layout: %w", err)
 	}
+	nativeRelease, err := cfg.Paths.PrepareNativeConnectors()
+	if err != nil {
+		return nil, fmt.Errorf("load embedded Desktop connector: %w", err)
+	}
+	cleanupNative := true
+	defer func() {
+		if cleanupNative {
+			nativeRelease()
+		}
+	}()
 	mcpRegistry, err := mcp.NewAgentRegistry(cfg.Paths.ConnectorSources())
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)
@@ -404,6 +417,14 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Registry: registry, Chats: chatStore, History: projectHistory,
 		ChatsRoot: cfg.Paths.ChatsDir, MaxReadBytes: cfg.FileTools.MaxReadBytes,
 	}
+	systemInits := llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
+		PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
+		PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,
+		CoderPlanningMaxSteps:    cfg.Defaults.CoderPlanning.MaxSteps,
+		Prompts:                  cfg.Prompts,
+	})
+	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
+	sessions := runtimesession.New(runtimesession.Dependencies{Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
 	srv, err = server.New(server.Dependencies{
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
@@ -432,26 +453,22 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Channels:               channelReg,
 		AutomationOrchestrator: automationOrchestrator,
 		DeltaMappers:           llm.DeltaMapperFactory{Interactions: interactionRegistry, CredentialPolicy: credentialview.FromConfig(cfg)},
-		SystemInits: llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
-			PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
-			PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,
-			CoderPlanningMaxSteps:    cfg.Defaults.CoderPlanning.MaxSteps,
-			Prompts:                  cfg.Prompts,
-		}),
-		AutomationRegistry:   automationRegistry,
-		AutomationExecutions: automationExecutionHistory,
-		AdminSources:         adminSourceService,
-		ChatResources:        chatResourceService,
-		Terminals:            terminalManager,
-		Runtime:              runtimeService,
-		ProxyRuntime:         proxyRuntime,
-		Conversation:         conversationService,
-		Project:              projectService,
-		DeferredAwaitings:    deferredAwaitings,
-		GatewayResolver:      gatewayResolver,
-		AgentCardStatus:      cardReporter,
-		AgentCardRefresh:     cardReporter,
-		ChannelSessions:      cardReporter,
+		SystemInits:            systemInits,
+		Sessions:               sessions,
+		AutomationRegistry:     automationRegistry,
+		AutomationExecutions:   automationExecutionHistory,
+		AdminSources:           adminSourceService,
+		ChatResources:          chatResourceService,
+		Terminals:              terminalManager,
+		Runtime:                runtimeService,
+		ProxyRuntime:           proxyRuntime,
+		Conversation:           conversationService,
+		Project:                projectService,
+		DeferredAwaitings:      deferredAwaitings,
+		GatewayResolver:        gatewayResolver,
+		AgentCardStatus:        cardReporter,
+		AgentCardRefresh:       cardReporter,
+		ChannelSessions:        cardReporter,
 	})
 	if err != nil {
 		if automationExecutionHistory != nil {
@@ -459,17 +476,18 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 		return nil, fmt.Errorf("init server: %w", err)
 	}
-	runtimeService.Bind(runtimequery.NewService(runtimequery.Dependencies{
-		Runs:       runManager,
-		Chats:      chatStore,
-		Execute:    srv.ExecuteQuery,
-		StartQuery: srv.StartQueryRuntime,
-		Start:      srv.StartRun,
-		Submit:     srv.SubmitRuntime,
-		Steer:      srv.SteerRuntime,
-		Interrupt:  srv.InterruptRuntime,
-		Access:     srv.SetAccessLevelRuntime,
-	}))
+
+	queryService := runtimequery.NewService(runtimequery.Dependencies{
+		BackgroundContext: backgroundCtx, Config: cfg, Runs: runManager, Chats: chatStore, Registry: registry, Models: modelRegistry, Tools: toolExecutor,
+		Agent: runtimeadapter.Engine{AgentEngine: agentEngine}, Profiles: profiles, Sessions: sessions,
+		Notifications: notifications, ToolInteractions: interactionRegistry, DeltaMappers: llm.DeltaMapperFactory{Interactions: interactionRegistry, CredentialPolicy: credentialview.FromConfig(cfg)},
+		DeferredAwaitings: deferredAwaitings, Proxy: server.RuntimeProxyPort{Server: srv}, ResourceTickets: srv.RuntimeResourceTickets(),
+	})
+	runtimeService.Bind(queryService)
+	if err := queryService.Reconcile(); err != nil {
+		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
+	}
+
 	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager)); err != nil {
 		return nil, fmt.Errorf("register run tools: %w", err)
 	}
@@ -514,25 +532,30 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
 	cleanupBackground = false
 	cleanupMCP = false
+	cleanupNative = false
 
 	return &App{
-		Config:               cfg,
-		RuntimeEnv:           hostEnv,
-		Router:               srv,
-		backgroundCancel:     backgroundCancel,
-		automation:           automationOrchestrator,
-		gateways:             gwRegistry,
-		wsHub:                wsHub,
-		automationExecutions: automationExecutionHistory,
-		lspManager:           lspManager,
-		mcpClient:            mcpClient,
-		kbaseManager:         kbaseManager,
+		nativeConnectorRelease: nativeRelease,
+		Config:                 cfg,
+		RuntimeEnv:             hostEnv,
+		Router:                 srv,
+		backgroundCancel:       backgroundCancel,
+		automation:             automationOrchestrator,
+		gateways:               gwRegistry,
+		wsHub:                  wsHub,
+		automationExecutions:   automationExecutionHistory,
+		lspManager:             lspManager,
+		mcpClient:              mcpClient,
+		kbaseManager:           kbaseManager,
 	}, nil
 }
 
 func (a *App) Close() error {
 	if a == nil {
 		return nil
+	}
+	if a.nativeConnectorRelease != nil {
+		defer a.nativeConnectorRelease()
 	}
 	// Cancel startup/reconcile/watcher work before waiting for KBASE refreshes
 	// and stopping its sidecar. This prevents an in-flight refresh from

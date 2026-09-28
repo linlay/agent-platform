@@ -93,7 +93,7 @@ func newAutomationTestServer(t *testing.T, websocket bool) automationTestServer 
 	if hub != nil {
 		deps.Notifications = hub
 	}
-	server, err := New(deps)
+	server, err := newRuntimeServer(deps)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestAutomationHTTPTriggerDoesNotDependOnExecutionHistory(t *testing.T) {
 		t.Fatalf("start orchestrator: %v", err)
 	}
 	defer func() { <-orchestrator.Stop().Done() }()
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:                 config.Config{Auth: config.AuthConfig{Enabled: false}},
 		AutomationRegistry:     registry,
 		AutomationOrchestrator: orchestrator,
@@ -351,7 +351,7 @@ func TestAutomationHTTPTriggerRejectsMalformedAndUnavailableRequests(t *testing.
 	dispatcher := automation.NewDispatcher(func(context.Context, api.QueryRequest, automation.QueryRunHooks) (automation.QueryRunResult, error) {
 		return automation.QueryRunResult{}, nil
 	}, nil, nil)
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:                 config.Config{Auth: config.AuthConfig{Enabled: false}},
 		AutomationRegistry:     registry,
 		AutomationOrchestrator: automation.NewOrchestrator(registry, dispatcher, config.AutomationConfig{PoolSize: 1}),
@@ -382,7 +382,7 @@ func TestAutomationHistoryUnavailableDoesNotBreakConfigurationAPI(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("persist automation: %v", err)
 	}
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:             config.Config{Auth: config.AuthConfig{Enabled: false}, Automation: config.AutomationConfig{DefaultZoneID: "UTC"}},
 		AutomationRegistry: registry,
 	})

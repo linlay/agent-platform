@@ -179,6 +179,7 @@ func (t *RuntimeToolExecutor) SupportsToolOutput(toolName string, execCtx *Execu
 }
 
 func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	toolName = strings.TrimSpace(toolName)
 	execCtx.EnsureAuthoredScripts()
 	if execCtx != nil && execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
@@ -189,6 +190,11 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 			Error:    "kbase_editing_tool_unsupported",
 			ExitCode: -1,
 		}, nil
+	}
+	if toolName == "desktop_action" || toolName == "desktop_cdp" {
+		if execCtx == nil || execCtx.Session.NativeConnectorTools[toolName] != "builtin.desktop" || execCtx.Session.ConnectorDirs["builtin.desktop"] == "" {
+			return ToolExecutionResult{Error: "connector_not_mounted", Output: "Desktop tool requires the builtin.desktop connector", ExitCode: -1}, nil
+		}
 	}
 	switch strings.TrimSpace(toolName) {
 	case "agent_delegate":
@@ -256,11 +262,11 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 	case "memory_consolidate":
 		return t.invokeMemoryConsolidate(toolName, args, execCtx)
 	case "_session_search_", "session_search":
-		return t.invokeSessionSearch(toolName, args, execCtx)
+		return t.invokeSessionSearch(args, execCtx)
 	case "_skill_candidate_write_", "skill_candidate_write":
-		return t.invokeSkillCandidateWrite(toolName, args, execCtx)
+		return t.invokeSkillCandidateWrite(args, execCtx)
 	case "_skill_candidate_list_", "skill_candidate_list":
-		return t.invokeSkillCandidateList(toolName, args, execCtx)
+		return t.invokeSkillCandidateList(args, execCtx)
 	default:
 		return ToolExecutionResult{
 			Output:   "tool not registered: " + toolName,

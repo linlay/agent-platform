@@ -56,7 +56,7 @@ func (s *FileStore) EnsureChatWithSourceAndMode(chatID string, agentKey string, 
 	if isTeamOwner(agentKey, teamID) {
 		agentKey = ""
 	}
-	agentMode = normalizeStoredAgentMode(agentMode, agentKey, teamID)
+	agentMode = normalizeStoredAgentMode(agentMode)
 	summary := Summary{
 		ChatID:    chatID,
 		ChatName:  defaultChatName(firstMessage),
@@ -182,7 +182,7 @@ func (s *FileStore) UpdateAgentIdentity(chatID string, agentKey string, agentMod
 	if strings.TrimSpace(agentMode) == "" {
 		agentMode = summary.AgentMode
 	}
-	agentMode = normalizeStoredAgentMode(agentMode, agentKey, summary.TeamID)
+	agentMode = normalizeStoredAgentMode(agentMode)
 	_, err = s.db.Exec("UPDATE CHATS SET AGENT_KEY_=?, AGENT_MODE_=?, UPDATED_AT_=? WHERE CHAT_ID_=?", agentKey, agentMode, time.Now().UnixMilli(), chatID)
 	return err
 }
@@ -276,7 +276,7 @@ func isTeamOwner(agentKey string, teamID string) bool {
 	return contracts.IsTeamRunOwner(agentKey, teamID)
 }
 
-func normalizeStoredAgentMode(agentMode string, agentKey string, teamID string) string {
+func normalizeStoredAgentMode(agentMode string) string {
 	// Stored history is immutable evidence. Current Team runs already provide
 	// TEAM explicitly; retired or historical values must not be rewritten.
 	return strings.TrimSpace(agentMode)

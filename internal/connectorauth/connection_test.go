@@ -23,7 +23,7 @@ func connectionFixture(t *testing.T) (*Manager, connector.Package) {
 func TestConnectionConfigurationLifecycle(t *testing.T) {
 	m, pkg := connectionFixture(t)
 	ctx := t.Context()
-	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err == nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err == nil {
 		t.Fatal("unconfigured connector admitted")
 	}
 	if _, err := m.Connect(pkg.ID); err != nil {
@@ -33,7 +33,7 @@ func TestConnectionConfigurationLifecycle(t *testing.T) {
 	if err != nil || !state.Configured || state.Readiness != "ready" {
 		t.Fatal(state, err)
 	}
-	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err != nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err != nil {
 		t.Fatal(err)
 	}
 	generation := m.epoch(pkg.ID)
@@ -55,7 +55,7 @@ func TestConnectionConfigurationLifecycle(t *testing.T) {
 			t.Fatal("disconnect erased private settings", err)
 		}
 	}
-	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err == nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err == nil {
 		t.Fatal("disconnected connector admitted")
 	}
 }
@@ -65,19 +65,19 @@ func TestBuiltinConfigurationIsNotForced(t *testing.T) {
 	if err != nil || state.Configured {
 		t.Fatal(state, err)
 	}
-	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err == nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err == nil {
 		t.Fatal("builtin bypassed completion check")
 	}
 	if _, err := pkg.SetConfigured(true); err != nil {
 		t.Fatal(err)
 	}
-	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err != nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pkg.SetConfigured(false); err != nil {
 		t.Fatal(err)
 	}
-	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID); err == nil {
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err == nil {
 		t.Fatal("builtin remained configured")
 	}
 }

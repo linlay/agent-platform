@@ -71,3 +71,6 @@ logs/
 /identity/
 # Retired connector state layout (migration source).
 /connector-state/
+
+# Runtime process coordination locks.
+/.lock/

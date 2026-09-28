@@ -223,7 +223,7 @@ func newArchiveHandlerTestServerWithNotifications(t *testing.T, runs contracts.R
 	if err != nil {
 		t.Fatalf("new archive store: %v", err)
 	}
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:        config.Config{},
 		Chats:         active,
 		Archives:      archiveStore,

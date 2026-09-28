@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"agent-platform/internal/connectortest"
 	"context"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	root := t.TempDir()
 	agents := filepath.Join(root, "agents")
 	connectorRoot := filepath.Join(root, "platform", "connectors")
-	if err := connector.WriteBuiltin(filepath.Join(connectorRoot, "builtin.dbx"), "dbx", "1.0.0", "darwin"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(connectorRoot, "builtin.dbx"), "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(agents, "demo"), 0o755); err != nil {
@@ -52,7 +53,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	if !ok {
 		t.Fatalf("agent unavailable: %#v", registry.adminAgents)
 	}
-	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 1 || len(def.ConnectorMounts) != 1 || def.ConnectorMounts[0].Dir != filepath.Join(def.RuntimeDir, "connectors", "builtin.dbx") {
+	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 1 || len(def.ConnectorMounts) != 1 || filepath.Base(filepath.Dir(def.ConnectorMounts[0].Dir)) != "builtin.dbx" {
 		t.Fatalf("bad mounted definition %#v", def)
 	}
 	key := def.EffectiveSkills()[0]
@@ -60,8 +61,8 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 		t.Fatalf("connector skill ID must retain its original name: %q", key)
 	}
 	other, ok := registry.AgentDefinition("other")
-	if !ok || other.ConnectorSkills[0].RuntimeDir == def.ConnectorSkills[0].RuntimeDir {
-		t.Fatal("Agents unexpectedly share the same skill directory")
+	if !ok || other.ConnectorSkills[0].RuntimeDir != def.ConnectorSkills[0].RuntimeDir {
+		t.Fatal("Agents did not share the same immutable skill directory")
 	}
 	if _, err := os.Stat(filepath.Join(def.RuntimeDir, "skills", key)); !os.IsNotExist(err) {
 		t.Fatal("connector skill copied into Agent runtime")

@@ -157,7 +157,7 @@ func beginReplayedSubTask(rd *chatRunData, runID string, taskID string, taskName
 	return events
 }
 
-func finishReplayedSubTaskIfTerminal(rd *chatRunData, runID string, taskID string, taskStatus string, ts int64, nextSeq func() int64) []stream.EventData {
+func finishReplayedSubTaskIfTerminal(rd *chatRunData, taskID string, taskStatus string, ts int64, nextSeq func() int64) []stream.EventData {
 	if rd == nil || strings.TrimSpace(taskID) == "" {
 		return nil
 	}
@@ -170,7 +170,7 @@ func finishReplayedSubTaskIfTerminal(rd *chatRunData, runID string, taskID strin
 	}
 	active.LastTimestamp = ts
 	if isTerminalSubTaskStatus(active.Status) {
-		events := synthesizeReplayedSubTaskTerminal(runID, active, nextSeq)
+		events := synthesizeReplayedSubTaskTerminal(active, nextSeq)
 		delete(rd.activeSubTasks, taskID)
 		return events
 	}
@@ -188,13 +188,13 @@ func flushReplayedSubTask(rd *chatRunData, nextSeq func() int64) []stream.EventD
 	sort.Strings(taskIDs)
 	events := make([]stream.EventData, 0, len(taskIDs))
 	for _, taskID := range taskIDs {
-		events = append(events, synthesizeReplayedSubTaskTerminal(rd.runID, rd.activeSubTasks[taskID], nextSeq)...)
+		events = append(events, synthesizeReplayedSubTaskTerminal(rd.activeSubTasks[taskID], nextSeq)...)
 		delete(rd.activeSubTasks, taskID)
 	}
 	return events
 }
 
-func synthesizeReplayedSubTaskTerminal(runID string, task *replayedSubTask, nextSeq func() int64) []stream.EventData {
+func synthesizeReplayedSubTaskTerminal(task *replayedSubTask, nextSeq func() int64) []stream.EventData {
 	if task == nil {
 		return nil
 	}

@@ -150,7 +150,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := s.buildAgentDetailResponse(def)
-	writeJSON(w, http.StatusOK, api.Success(response))
+	writeJSON(w, http.StatusOK, api.Success(localizeSkillResponse(responseLocale(w), response)))
 }
 
 func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
@@ -205,12 +205,6 @@ func (s *Server) handleAgentModelConfig(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
 		return
 	}
-	key, err := queryOrBodyIDAny(r, []string{"agentKey", "key"}, req.AgentKey, req.Key)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
-		return
-	}
-	req.Key = key
 	response, err := s.updateAgentModelConfig(r.Context(), req)
 	s.writeAgentHTTPResponse(w, response, err)
 }
@@ -241,20 +235,20 @@ func (s *Server) handleAgentOpenDirectory(w http.ResponseWriter, r *http.Request
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) handleAgentEditorOptions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentEditorOptions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.buildAgentEditorOptions()))
 }
 
-func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTeams(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Teams()))
 }
 
-func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSkills(w http.ResponseWriter, _ *http.Request) {
 	response, err := s.listAdminSkills()
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTools(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.listTools()))
 }
 
@@ -444,22 +438,12 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if err != nil {
 		return api.AgentModelConfigResponse{}, err
 	}
-	key := firstNonBlank(req.Key, req.AgentKey)
-	key = strings.TrimSpace(key)
+	key := strings.TrimSpace(req.AgentKey)
 	if key == "" {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey is required")
 	}
-	modelKey := strings.TrimSpace(req.ModelKey)
-	if modelKey == "" {
-		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "modelKey is required")
-	}
-	reasoningEffort, ok := normalizeCoderReasoningEffort(req.ReasoningEffort)
-	if !ok {
-		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "reasoningEffort must be NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX")
-	}
-	serviceTier, ok := normalizeQueryModelServiceTier(req.ServiceTier)
-	if !ok {
-		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier must be a non-empty string")
+	if req.ModelKey == nil && req.ReasoningEffort == nil && len(req.ServiceTier) == 0 {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "at least one model setting is required")
 	}
 	files, found, err := editor.EditableAgent(key)
 	if err != nil {
@@ -478,6 +462,32 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if !def.Interaction().Model || isProxyAgentMode(def.Mode) || catalog.AgentIsChannelMode(def.Mode) {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "interaction_disabled", "interactionConfig.model is disabled")
 	}
+	modelKey := def.ModelKey
+	if req.ModelKey != nil {
+		modelKey = strings.TrimSpace(*req.ModelKey)
+		if modelKey == "" {
+			return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "modelKey must not be empty")
+		}
+	}
+	reasoningEffort := firstNonBlank(def.ModelReasoningEffort, "MEDIUM")
+	if req.ReasoningEffort != nil {
+		var valid bool
+		reasoningEffort, valid = normalizeCoderReasoningEffort(*req.ReasoningEffort)
+		if !valid || reasoningEffort == "" {
+			return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "reasoningEffort must be NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX")
+		}
+	}
+	serviceTier, _ := normalizeQueryModelServiceTier(def.ServiceTier)
+	if len(req.ServiceTier) > 0 {
+		serviceTier = ""
+		if strings.TrimSpace(string(req.ServiceTier)) != "null" {
+			var raw string
+			if err := json.Unmarshal(req.ServiceTier, &raw); err != nil || strings.TrimSpace(raw) == "" {
+				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier must be a non-empty string or null")
+			}
+			serviceTier, _ = normalizeQueryModelServiceTier(raw)
+		}
+	}
 	isACPCoder := catalog.AgentUsesACPCoderBackend(def)
 	if serviceTier != "" && !isACPCoder {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier is only supported for ACP CODER")
@@ -490,6 +500,9 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 			}
 			if !agentbuiltin.CoderModelKeyInOptions(modelKey, options) {
 				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "model "+modelKey+" is not available for ACP CODER")
+			}
+			if !agentbuiltin.CoderReasoningEffortAllowedForACPModel(reasoningEffort, modelKey, options) {
+				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "reasoningEffort is not available for selected model")
 			}
 			if serviceTier != "" && !serviceTierAllowedForACPModel(serviceTier, modelKey, options) {
 				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier "+serviceTier+" is not available for ACP CODER model "+modelKey)
@@ -521,10 +534,10 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if reasoning == nil {
 		reasoning = map[string]any{}
 	}
-	if reasoningEffort == "NONE" {
+	if req.ReasoningEffort != nil && reasoningEffort == "NONE" {
 		reasoning["enabled"] = false
 		delete(reasoning, "effort")
-	} else if reasoningEffort != "" {
+	} else if req.ReasoningEffort != nil {
 		reasoning["enabled"] = true
 		reasoning["effort"] = reasoningEffort
 	}
@@ -545,8 +558,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 		return api.AgentModelConfigResponse{}, err
 	}
 	return api.AgentModelConfigResponse{
-		Key:         key,
-		ModelConfig: modelConfig,
+		AgentKey: key, ModelKey: modelKey, ReasoningEffort: reasoningEffort, ServiceTier: serviceTier,
 	}, nil
 }
 
@@ -808,7 +820,7 @@ func decodeStrictJSON(r *http.Request, target any) error {
 
 func (s *Server) writeAgentHTTPResponse(w http.ResponseWriter, response any, err error) {
 	if err == nil {
-		writeJSON(w, http.StatusOK, api.Success(response))
+		writeJSON(w, http.StatusOK, api.Success(localizeSkillResponse(responseLocale(w), response)))
 		return
 	}
 	if isTimeContractViolation(err) {
@@ -836,7 +848,6 @@ func (s *Server) wsAgentModelConfig(ctx context.Context, conn *ws.Conn, req ws.R
 		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
 		return
 	}
-	payload.Key = firstNonBlank(payload.AgentKey, payload.Key)
 	response, updateErr := s.updateAgentModelConfig(ctx, payload)
 	s.sendAgentWSResponse(conn, req, response, updateErr)
 }
@@ -846,7 +857,7 @@ func (s *Server) sendAgentWSResponse(conn *ws.Conn, req ws.RequestFrame, respons
 		s.sendAgentWSError(conn, req, err)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", response)
+	conn.SendResponse(req.Type, req.ID, 0, "success", localizeSkillResponse(conn.Locale(), response))
 	conn.CompleteRequest(req.ID)
 }
 

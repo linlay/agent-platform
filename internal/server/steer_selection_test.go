@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/api"
-	"agent-platform/internal/ws"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -11,6 +9,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/ws"
 )
 
 func TestSelectionSteerNonVisionPersistsAndReplays(t *testing.T) {

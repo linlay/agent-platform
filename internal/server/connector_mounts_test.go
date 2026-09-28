@@ -53,3 +53,29 @@ func TestConnectorMountsGrantOnlySelectedReadonlyRoots(t *testing.T) {
 		t.Fatalf("mounts: %#v", mounts)
 	}
 }
+
+func TestSharedPackagesCannotBypassMountOrReadonlyWithAbsolutePaths(t *testing.T) {
+	root := t.TempDir()
+	shared := filepath.Join(root, "ru-connectors")
+	selected := filepath.Join(shared, "selected", "version")
+	other := filepath.Join(shared, "other", "version")
+	for _, dir := range []string{selected, other} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "doc"), []byte("doc"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := contracts.QuerySession{SharedConnectorsRoot: shared, ConnectorDirs: map[string]string{"selected": selected}, AccessLevel: contracts.AccessLevelFullAccess}
+	for _, tc := range []struct {
+		path    string
+		mode    accesspolicy.AccessMode
+		blocked bool
+	}{{filepath.Join(selected, "doc"), accesspolicy.ReadAccess, false}, {filepath.Join(selected, "doc"), accesspolicy.WriteAccess, true}, {filepath.Join(other, "doc"), accesspolicy.ReadAccess, true}, {shared, accesspolicy.ReadAccess, true}} {
+		plan, err := accesspolicy.BuildPathPlan(config.AccessPolicyConfig{}, session, tc.mode, tc.path)
+		if err != nil || plan.Blocked() != tc.blocked {
+			t.Fatalf("%s %s: %#v %v", tc.mode, tc.path, plan, err)
+		}
+	}
+}

@@ -260,6 +260,7 @@ func (p *Processor) ApplyModelTurnControl(input stream.StreamInput) {
 	case stream.ModelTurnCommit:
 		p.CommitModelTurn(value.TaskID)
 		if p.stepWriter != nil {
+			p.stepWriter.SetModelResponse(value.TaskID, value.ResponseID, value.EncryptedReasoning)
 			p.stepWriter.CommitModelTurn(value.TaskID, value.RunSeq)
 		}
 	case stream.ModelTurnDiscard:

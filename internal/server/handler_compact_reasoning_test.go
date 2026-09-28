@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
@@ -11,6 +9,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
 )
 
 func TestHandleL1ReasoningOnlyWithoutModel(t *testing.T) {

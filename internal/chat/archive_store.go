@@ -235,7 +235,7 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 			JSONL_CONTENT_, EVENTS_CONTENT_, RAW_MESSAGES_CONTENT_, HAS_ATTACHMENTS_
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		chat.Summary.ChatID, chat.Summary.ChatName, chat.Summary.AgentKey, normalizeStoredAgentMode(chat.Summary.AgentMode, chat.Summary.AgentKey, chat.Summary.TeamID), nilIfEmpty(chat.Summary.TeamID), chat.Summary.Source, chat.Summary.SourceChannel,
+		chat.Summary.ChatID, chat.Summary.ChatName, chat.Summary.AgentKey, normalizeStoredAgentMode(chat.Summary.AgentMode), nilIfEmpty(chat.Summary.TeamID), chat.Summary.Source, chat.Summary.SourceChannel,
 		chat.Summary.CreatedAt, chat.Summary.UpdatedAt, chat.Summary.LastRunAt, chat.Summary.ArchivedAt,
 		chat.Summary.LastRunID, chat.Summary.LastRunContent, readRunID, readAt, 1,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
@@ -264,7 +264,7 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 				USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 				FEEDBACK_TYPE_, FEEDBACK_COMMENT_, FEEDBACK_AT_
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			run.RunID, run.ChatID, run.AgentKey, normalizeStoredAgentMode(run.AgentMode, run.AgentKey, run.TeamID), nilIfEmpty(run.TeamID), run.InitialMessage, run.AssistantText, run.FinishReason,
+			run.RunID, run.ChatID, run.AgentKey, normalizeStoredAgentMode(run.AgentMode), nilIfEmpty(run.TeamID), run.InitialMessage, run.AssistantText, run.FinishReason,
 			run.StartedAt, run.CompletedAt,
 			run.Usage.PromptTokens, run.Usage.CompletionTokens, run.Usage.TotalTokens, run.Usage.CachedTokens, run.Usage.ReasoningTokens,
 			run.Usage.PromptCacheHitTokens, run.Usage.PromptCacheMissTokens,

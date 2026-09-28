@@ -315,7 +315,7 @@ func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response := s.buildAgentDetailResponse(def)
+	response := localizeSkillResponse(conn.Locale(), s.buildAgentDetailResponse(def))
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
@@ -831,7 +831,7 @@ func (s *Server) wsCompact(ctx context.Context, conn *ws.Conn, req ws.RequestFra
 		}
 		var statusErr *statusError
 		if errors.As(compactErr, &statusErr) {
-			conn.SendError(req.ID, compactWSErrorType(statusErr.status), statusErr.status, statusErr.message, nil)
+			conn.SendError(req.ID, compactWSErrorType(statusErr.Status), statusErr.Status, statusErr.Message, nil)
 			conn.CompleteRequest(req.ID)
 			return
 		}

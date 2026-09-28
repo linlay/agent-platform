@@ -1,6 +1,10 @@
 package catalog
 
-import "sync"
+import (
+	"sync"
+
+	"agent-platform/internal/connector"
+)
 
 // RuntimeLeaser freezes Agent files together with their catalog definition.
 // The caller releases the lease after a Run, child invocation, or Terminal ends.
@@ -36,6 +40,21 @@ func (r *FileRegistry) retainRuntimeLocked(keys []string) func() {
 	for _, key := range keys {
 		r.runtimeUsers[key]++
 	}
+	r.mu.Lock()
+	if r.liveConnectorMounts == nil {
+		r.liveConnectorMounts = map[string]connector.AgentRuntime{}
+		r.liveConnectorUsers = map[string]int{}
+	}
+	var mountKeys []string
+	for _, key := range keys {
+		for _, mount := range r.agents[key].ConnectorMounts {
+			identity := key + "\x00" + mount.Dir
+			r.liveConnectorMounts[identity] = connector.AgentRuntime{AgentKey: key, ID: mount.ID, Dir: mount.Dir, Digest: mount.Digest}
+			r.liveConnectorUsers[identity]++
+			mountKeys = append(mountKeys, identity)
+		}
+	}
+	r.mu.Unlock()
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -51,6 +70,16 @@ func (r *FileRegistry) retainRuntimeLocked(keys []string) func() {
 					}
 				}
 			}
+			r.mu.Lock()
+			for _, identity := range mountKeys {
+				r.liveConnectorUsers[identity]--
+				if r.liveConnectorUsers[identity] == 0 {
+					delete(r.liveConnectorUsers, identity)
+					delete(r.liveConnectorMounts, identity)
+					refresh = true
+				}
+			}
+			r.mu.Unlock()
 			callback := r.onRuntimeIdle
 			r.executionMu.Unlock()
 			if refresh && callback != nil {

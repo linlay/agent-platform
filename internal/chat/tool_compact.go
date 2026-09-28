@@ -39,7 +39,6 @@ type ToolCompactSnapshot struct {
 	PreCompactEstimatedTokens  int
 	PostCompactEstimatedTokens int
 	CompressionRatio           float64
-	replacements               []toolCompactReplacement
 	policies                   map[int]map[string]bool
 }
 
@@ -246,9 +245,9 @@ func compactToolExcerpt(text string, maxRunes int) string {
 	return strings.TrimSpace(string(runes[:head])) + " … " + strings.TrimSpace(string(runes[len(runes)-tail:]))
 }
 
-// BuildToolCompactSnapshotToTarget keeps the legacy method name for callers;
-// targetTokens no longer controls L1. Only whole-model-round protection does.
-func (s *FileStore) BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int, options ...L1Options) (ToolCompactSnapshot, error) {
+// BuildL1CompactSnapshot projects L1 using complete model rounds and pending
+// interaction protection. L1 has no target token budget.
+func (s *FileStore) BuildL1CompactSnapshot(chatID string, option L1Options) (ToolCompactSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -263,6 +262,7 @@ func (s *FileStore) BuildToolCompactSnapshotToTarget(chatID string, keepRecent, 
 	if sum == nil {
 		return ToolCompactSnapshot{}, ErrChatNotFound
 	}
+	keepRecent := option.KeepRecent
 	if keepRecent <= 0 {
 		keepRecent = DefaultToolCompactKeepRecent
 	}
@@ -275,11 +275,7 @@ func (s *FileStore) BuildToolCompactSnapshotToTarget(chatID string, keepRecent, 
 		return ToolCompactSnapshot{}, ErrNoCompactableHistory
 	}
 
-	preserve := false
-	if len(options) > 0 {
-		preserve = options[0].PreserveReasoning
-	}
-	policies, projection := buildL1Policies(records, keepRecent, preserve)
+	policies, projection := buildL1Policies(records, keepRecent, option.PreserveReasoning)
 	pre := EstimateRawMessageTokens(rawMessagesFromJSONLLines(recordValues(records)))
 	projected := recordValues(records)
 	for i, keep := range policies {
@@ -444,9 +440,9 @@ func toolReplacement(candidate toolCompactCandidate) (toolCompactReplacement, in
 	}, freed, true
 }
 
-// CompactToolMessages is the shared, non-mutating L1 projection used by active
-// runs and summary input normalization. A zero keepRecent is allowed for L2's
-// in-memory projection; public L1 always passes KeepRecentTools.
+// CompactToolMessages normalizes tool content for L2 summary input without
+// mutating history. A zero keepRecent lets L2 select all complete tool groups.
+// L1 uses category policies with whole-model-round protection instead.
 func CompactToolMessages(messages []map[string]any, keepRecent, targetTokens, pinnedStart, pinnedEnd int) ([]map[string]any, int, int) {
 	cloned := make([]map[string]any, len(messages))
 	for i, message := range messages {

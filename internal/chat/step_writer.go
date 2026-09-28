@@ -63,6 +63,8 @@ type StepWriter struct {
 	modelTurnCommitRequired bool
 	modelTurnCommitted      bool
 	modelTurnRunSeq         int
+	responseID              string
+	encryptedReasoning      []ContentPart
 	// lastTimestamp is carried from the most recent source event. It is used
 	// only to finish an aggregation which already contains that event; it is
 	// never replaced with the wall clock.
@@ -676,7 +678,7 @@ func (w *StepWriter) flushAssistantStepBeforeToolResult(event stream.EventData) 
 		}
 		return
 	}
-	if storedMessagesContainAssistant(w.messages) {
+	if storedMessagesContainAssistant(w.messages) || w.responseID != "" {
 		w.flushCurrentStep()
 	}
 }
@@ -860,11 +862,11 @@ func (w *StepWriter) flushCurrentStep() {
 }
 
 func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
-	if w.modelTurnCommitRequired && !w.modelTurnCommitted && storedMessagesContainAssistant(w.messages) {
+	if w.modelTurnCommitRequired && !w.modelTurnCommitted && (storedMessagesContainAssistant(w.messages) || w.responseID != "") {
 		w.clearCurrentStep()
 		return
 	}
-	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 && (w.pendingSources == nil || len(w.pendingSources.Items) == 0) {
+	if len(w.messages) == 0 && w.responseID == "" && len(w.pendingAwaiting) == 0 && (w.pendingSources == nil || len(w.pendingSources.Items) == 0) {
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
 		w.pendingContextCurrent = 0
@@ -883,7 +885,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.clearCurrentStep()
 		return
 	}
-	messages := append([]StoredMessage(nil), w.messages...)
+	messages := attachResponseReasoning(w.messages, w.encryptedReasoning, w.responseID, updatedAt)
 	if w.pendingApproval != nil && approvalMatchesToolMessages(w.pendingApproval, messages) {
 		if approvalMessage, ok := approvalAuditMessage(w.pendingApproval, updatedAt); ok {
 			messages = append(messages, approvalMessage)
@@ -894,11 +896,12 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	messages = canonicalizeStoredToolResultOrderForToolIDs(messages, w.lastToolOrder)
 
 	line := StepLine{
-		ChatID:    w.chatID,
-		RunID:     w.runID,
-		UpdatedAt: updatedAt,
-		LiveSeq:   w.stepLiveSeq,
-		Messages:  messages,
+		ResponseID: w.responseID,
+		ChatID:     w.chatID,
+		RunID:      w.runID,
+		UpdatedAt:  updatedAt,
+		LiveSeq:    w.stepLiveSeq,
+		Messages:   messages,
 	}
 	if len(w.pendingAwaiting) > 0 {
 		line.Awaiting = w.pendingAwaiting
@@ -969,6 +972,8 @@ func (w *StepWriter) clearCurrentStep() {
 	w.modelTurnCommitRequired = false
 	w.modelTurnCommitted = false
 	w.modelTurnRunSeq = 0
+	w.responseID = ""
+	w.encryptedReasoning = nil
 }
 
 func (w *StepWriter) assignReactSeq(line *StepLine) {

@@ -15,7 +15,7 @@ func TestServerDeferredAwaitingStoreConstruction(t *testing.T) {
 		{name: "injected", store: runstate.NewDeferredAwaitingStore()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			server, err := New(Dependencies{BackgroundContext: t.Context(), DeferredAwaitings: tc.store})
+			server, err := newRuntimeServer(Dependencies{BackgroundContext: t.Context(), DeferredAwaitings: tc.store})
 			if err != nil {
 				t.Fatal(err)
 			}

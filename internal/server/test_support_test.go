@@ -56,16 +56,16 @@ func newTestMemoryStore(root string) (*memory.SQLiteStore, error) {
 }
 
 func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
-	return s.listChatSummariesWithAgentModesAndLimit(lastRunID, agentKey, nil, 0)
+	return s.listChatSummariesWithPinned(lastRunID, agentKey, nil, 0, nil)
 }
 
 func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.AgentSummary, error) {
-	return s.listAgentSummariesWithModes(includeChats, scope, nil)
+	return s.listAgentSummariesWithPinned(includeChats, scope, nil, nil)
 }
 
 func newServerFromFixture(t *testing.T, fixture testFixture) *Server {
 	t.Helper()
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
@@ -385,7 +385,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	sandbox := sandboxClient
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandbox)
 	viewport := testutil.NewNoopViewportClient()
-	server, err := New(Dependencies{
+	server, err := newRuntimeServer(Dependencies{
 		Config:           cfg,
 		Chats:            chats,
 		Memory:           memories,

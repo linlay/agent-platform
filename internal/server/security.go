@@ -21,6 +21,7 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/httpclient"
+	runtimetypes "agent-platform/internal/runtime/types"
 )
 
 type principalContextKey struct{}
@@ -81,7 +82,7 @@ func NewResourceTicketService(cfg config.ResourceTicketConfig) *ResourceTicketSe
 }
 
 func WithPrincipal(ctx context.Context, principal *Principal) context.Context {
-	return context.WithValue(ctx, principalContextKey{}, principal)
+	return context.WithValue(runtimetypes.WithIdentity(ctx, buildAuthIdentity(principal)), principalContextKey{}, principal)
 }
 
 func PrincipalFromContext(ctx context.Context) *Principal {
@@ -393,3 +394,5 @@ func maxInt64(value int64, fallback int64) int64 {
 	}
 	return value
 }
+
+func (s *ResourceTicketService) Enabled() bool { return s != nil && s.cfg.Enabled() }

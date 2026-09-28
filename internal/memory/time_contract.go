@@ -28,15 +28,6 @@ func validateStoredMemoryTimeContract(item api.StoredMemoryResponse, location st
 	return nil
 }
 
-func validateToolRecordTimeContract(record ToolRecord, location string) error {
-	return validateStoredMemoryTimeContract(api.StoredMemoryResponse{
-		ID:             record.ID,
-		CreatedAt:      record.CreatedAt,
-		UpdatedAt:      record.UpdatedAt,
-		LastAccessedAt: record.LastAccessedAt,
-	}, location)
-}
-
 func validateHistoryTimeContract(event HistoryEvent, location string) error {
 	location = strings.TrimSpace(location)
 	if location == "" {

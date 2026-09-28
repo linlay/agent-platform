@@ -14,6 +14,7 @@ func (s *llmRunStream) compactRunCategories(keepRecent int) ([]openAIMessage, in
 		value := cloneModelMessages(s.messages[i : i+1])[0]
 		if _, ok := message["reasoning_content"]; !ok {
 			value.ReasoningContent = ""
+			value.EncryptedReasoning = nil
 		}
 		if _, ok := message["tool_calls"]; !ok {
 			value.ToolCalls = nil
