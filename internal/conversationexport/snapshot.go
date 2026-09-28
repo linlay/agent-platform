@@ -1,12 +1,9 @@
 package conversationexport
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"path"
 	"strings"
 
@@ -149,8 +146,8 @@ type AttachmentV1 struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	MIMEType  string `json:"mimeType"`
-	Size      int64  `json:"size,omitempty"`
-	SHA256    string `json:"sha256,omitempty"`
+	Size      int64  `json:"size"`
+	SHA256    string `json:"sha256"`
 	SourceRef string `json:"sourceRef"`
 }
 
@@ -259,7 +256,7 @@ func toolResultFailed(value any) bool {
 	return false
 }
 
-func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, capturedAt int64, locale string, resolveAssistant ResolveAssistant) (SnapshotDocument, error) {
+func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, attachments []AttachmentV1, capturedAt int64, locale string, resolveAssistant ResolveAssistant) (SnapshotDocument, error) {
 	if summary == nil {
 		return SnapshotDocument{}, ErrInvalidTimeline
 	}
@@ -282,69 +279,13 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, cap
 	if locale != "en-US" {
 		locale = "zh-CN"
 	}
-	snapshot := SnapshotV1{Version: SnapshotVersion, Title: title, Locale: locale, CreatedAt: summary.CreatedAt, CapturedAt: capturedAt, Turns: []TurnV1{}, Attachments: []AttachmentV1{}}
+	snapshot := SnapshotV1{Version: SnapshotVersion, Title: title, Locale: locale, CreatedAt: summary.CreatedAt, CapturedAt: capturedAt, Turns: []TurnV1{}, Attachments: append([]AttachmentV1{}, attachments...)}
 	turnByRun := map[string]int{}
 	toolPosition := map[string]struct{ turn, node int }{}
 	toolByID := map[string]struct{ turn, node int }{}
 	nodePosition := map[string]struct{ turn, node int }{}
 	taskStartedAt := map[string]int64{}
-	attachmentSeen := map[string]bool{}
 	pendingTurn := -1
-	addPublishedAttachments := func(event stream.EventData) {
-		items := objectSlice(event.Value("artifacts"))
-		for _, raw := range items {
-			item, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			rawURL, _ := item["url"].(string)
-			ref := rawURL
-			if strings.HasPrefix(rawURL, "/api/resource?") {
-				parsed, err := url.Parse(rawURL)
-				if err != nil {
-					continue
-				}
-				key := parsed.Query().Get("file")
-				chatID, relativePath, err := chat.ParseResourceKey(key)
-				if err != nil || chatID != summary.ChatID {
-					continue
-				}
-				ref, err = chat.BuildChatScopeRef(relativePath)
-				if err != nil {
-					continue
-				}
-			}
-			chatID, relativePath, err := chat.ParseResourceKey(summary.ChatID + "/" + ref)
-			if err != nil || chatID != summary.ChatID ||
-				!strings.HasPrefix(relativePath, "artifacts/") ||
-				(strings.ToLower(path.Ext(relativePath)) != ".html" && strings.ToLower(path.Ext(relativePath)) != ".htm") ||
-				attachmentSeen[ref] {
-				continue
-			}
-			attachmentSeen[ref] = true
-			digest := sha256.Sum256([]byte(ref))
-			name, _ := item["name"].(string)
-			if strings.TrimSpace(name) == "" {
-				name = path.Base(relativePath)
-			}
-			var size int64
-			switch value := item["sizeBytes"].(type) {
-			case int:
-				size = int64(value)
-			case int64:
-				size = value
-			case float64:
-				if value >= 0 && value == float64(int64(value)) {
-					size = int64(value)
-				}
-			}
-			fileHash, _ := item["sha256"].(string)
-			snapshot.Attachments = append(snapshot.Attachments, AttachmentV1{
-				ID: hex.EncodeToString(digest[:12]), Name: name,
-				MIMEType: "text/html", Size: size, SHA256: strings.ToLower(strings.TrimSpace(fileHash)), SourceRef: ref,
-			})
-		}
-	}
 	for ordinal, event := range events {
 		if err := timecontract.ValidateEpochMillis(event.Timestamp, "timestamp", "conversation.snapshot.events"); err != nil {
 			return SnapshotDocument{}, err
@@ -567,8 +508,6 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, cap
 			turn.Nodes = append(turn.Nodes, NodeV1{ID: id, Kind: "source", Role: "assistant", At: event.Timestamp, RunID: runID, TaskID: taskID,
 				SourcePublishID: event.String("publishId"), SourceQuery: event.String("query"),
 				SourceCount: len(sources), ChunkCount: chunks, Sources: sources})
-		case "artifact.publish":
-			addPublishedAttachments(event)
 		}
 		if len(turn.Nodes) > MaxItems {
 			return SnapshotDocument{}, ErrTooLarge

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,5 +64,94 @@ func TestArtifactsRequireChatResolveAmbiguityAndVerifyContent(t *testing.T) {
 	items, more, err = service.ListArtifacts("chat-a", "run-b", 0, 10)
 	if err != nil || more || len(items) != 1 || items[0].RunID != "run-b" {
 		t.Fatal(items, more, err)
+	}
+}
+
+func TestOpenArtifactByRefUsesPublishedManifestAndLatestEntry(t *testing.T) {
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, chatID := range []string{"chat-ref-a", "chat-ref-b"} {
+		if _, _, err = store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const sourceRef = "artifacts/run-1/report.pdf"
+	path := filepath.Join(store.ChatDir("chat-ref-a"), filepath.FromSlash(sourceRef))
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	publish := func(artifactID string, publishedAt int64, data []byte) {
+		t.Helper()
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(data)
+		if err := store.AppendArtifactManifest("chat-ref-a", "run-1", publishedAt, []map[string]any{{
+			"artifactId": artifactID, "type": "file", "url": sourceRef, "name": "report.pdf",
+			"mimeType": "application/pdf", "sizeBytes": len(data), "sha256": hex.EncodeToString(digest[:]),
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish("old", 1, []byte("old"))
+	publish("latest", 2, []byte("latest"))
+
+	service := NewService(store)
+	f, artifact, err := service.OpenArtifactByRef("chat-ref-a", sourceRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if artifact.ArtifactID != "latest" || artifact.RunID != "run-1" {
+		t.Fatalf("artifact=%#v", artifact)
+	}
+	data, err := io.ReadAll(f)
+	if err != nil || string(data) != "latest" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+	if _, _, err = service.OpenArtifactByRef("chat-ref-a", "artifacts/run-1/missing.pdf"); !errors.Is(err, ErrArtifactNotFound) {
+		t.Fatalf("unpublished sourceRef error=%v", err)
+	}
+	if _, _, err = service.OpenArtifactByRef("chat-ref-b", sourceRef); !errors.Is(err, ErrArtifactNotFound) {
+		t.Fatalf("cross-chat sourceRef error=%v", err)
+	}
+	if err = os.WriteFile(path, []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.OpenArtifactByRef("chat-ref-a", sourceRef); !errors.Is(err, ErrArtifactChanged) {
+		t.Fatalf("changed sourceRef error=%v", err)
+	}
+}
+
+func TestOpenArtifactByRefRejectsNonCanonicalReferences(t *testing.T) {
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, _, err = store.EnsureChat("chat-ref-invalid", "agent", "", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store)
+	for _, sourceRef := range []string{
+		"/artifacts/run-1/report.pdf",
+		`artifacts\run-1\report.pdf`,
+		"artifacts/run-1/report.pdf?download=1",
+		"artifacts/run-1/report.pdf#page=1",
+		"artifacts//report.pdf",
+		"artifacts/run-1/nested/report.pdf",
+		"artifacts/run-1/../report.pdf",
+		"artifacts/run-1/%2e%2e",
+		"artifacts/run-1/%252e%252e",
+		" artifacts/run-1/report.pdf",
+	} {
+		t.Run(sourceRef, func(t *testing.T) {
+			if _, _, err := service.OpenArtifactByRef("chat-ref-invalid", sourceRef); !errors.Is(err, ErrArtifactNotFound) {
+				t.Fatalf("sourceRef=%q error=%v", sourceRef, err)
+			}
+		})
 	}
 }
