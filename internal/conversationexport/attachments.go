@@ -100,11 +100,9 @@ func validateSnapshotAttachmentName(name string) error {
 }
 
 func validateSnapshotAttachmentMIME(value string) (string, error) {
-	if value == "" || value != strings.TrimSpace(value) || value != strings.ToLower(value) {
-		return "", fmt.Errorf("MIME type is not canonical")
-	}
-	mediaType, parameters, err := mime.ParseMediaType(value)
-	if err != nil || len(parameters) != 0 || mediaType != value || !strings.Contains(mediaType, "/") {
+	mediaType, _, err := mime.ParseMediaType(value)
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	if err != nil || !strings.Contains(mediaType, "/") {
 		return "", fmt.Errorf("MIME type does not satisfy Snapshot V1")
 	}
 	return mediaType, nil

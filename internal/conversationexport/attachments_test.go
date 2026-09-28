@@ -22,10 +22,11 @@ func manifestAttachment(runID, name, mimeType, sourceRef string, size int64, has
 
 func TestBuildSnapshotAttachmentsMapsManifestResources(t *testing.T) {
 	resources := []chat.ArtifactManifestItem{
-		manifestAttachment("run-1", "page.html", "text/html", "artifacts/run-1/page.html", 12, strings.Repeat("a", 64)),
+		manifestAttachment("run-1", "page.html", "Text/HTML; Charset=UTF-8", "artifacts/run-1/page.html", 12, strings.Repeat("a", 64)),
 		manifestAttachment("run-1", "image.png", "image/png", "artifacts/run-1/image.png", 24, strings.Repeat("b", 64)),
 		manifestAttachment("run-1", "report.pdf", "application/pdf", "artifacts/run-1/report.pdf", 48, strings.Repeat("c", 64)),
 	}
+	wantMIMEs := []string{"text/html", "image/png", "application/pdf"}
 	attachments, err := BuildSnapshotAttachments(attachmentTestChatID, resources)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +39,7 @@ func TestBuildSnapshotAttachmentsMapsManifestResources(t *testing.T) {
 		resource := resources[index]
 		digest := sha256.Sum256([]byte(resource.URL))
 		wantID := hex.EncodeToString(digest[:12])
-		if attachment.ID != wantID || attachment.Name != resource.Name || attachment.MIMEType != resource.MimeType ||
+		if attachment.ID != wantID || attachment.Name != resource.Name || attachment.MIMEType != wantMIMEs[index] ||
 			attachment.Size != resource.SizeBytes || attachment.SHA256 != resource.SHA256 || attachment.SourceRef != resource.URL || seen[attachment.ID] {
 			t.Fatalf("attachment[%d]=%#v", index, attachment)
 		}
@@ -79,11 +80,8 @@ func TestBuildSnapshotAttachmentsRejectsInvalidManifestFields(t *testing.T) {
 		"name path":  func(item *chat.ArtifactManifestItem) { item.Name = "nested/report.pdf" },
 		"name long":  func(item *chat.ArtifactManifestItem) { item.Name = strings.Repeat("中", 86) },
 		"MIME empty": func(item *chat.ArtifactManifestItem) { item.MimeType = "" },
-		"MIME params": func(item *chat.ArtifactManifestItem) {
-			item.MimeType = "application/pdf; charset=utf-8"
-		},
-		"size": func(item *chat.ArtifactManifestItem) { item.SizeBytes = -1 },
-		"hash": func(item *chat.ArtifactManifestItem) { item.SHA256 = strings.Repeat("G", 64) },
+		"size":       func(item *chat.ArtifactManifestItem) { item.SizeBytes = -1 },
+		"hash":       func(item *chat.ArtifactManifestItem) { item.SHA256 = strings.Repeat("G", 64) },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
