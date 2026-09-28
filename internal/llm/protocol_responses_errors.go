@@ -4,12 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
-	"strings"
-	"unicode/utf8"
 
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/modelresponses"
-	"agent-platform/internal/observability"
 )
 
 type responsesStreamEvent struct {
@@ -22,64 +19,6 @@ type responsesStreamEvent struct {
 	Code         string                  `json:"code"`
 	Message      string                  `json:"message"`
 	Error        json.RawMessage         `json:"error"`
-}
-
-// Some gateways send their ordinary error envelope inside HTTP 200 SSE. Retain
-// its explicit error fields instead of mistaking it for an untyped data event.
-// The HTTP status remains the observed transport status; do not invent a 503.
-func responsesEnvelopeError(raw json.RawMessage) error {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	var message string
-	if json.Unmarshal(raw, &message) == nil && strings.TrimSpace(message) != "" {
-		return responsesReportedError("", message, "")
-	}
-	var envelope struct {
-		Code    json.RawMessage `json:"code"`
-		Message string          `json:"message"`
-		Type    string          `json:"type"`
-	}
-	if json.Unmarshal(raw, &envelope) != nil {
-		return nil
-	}
-	var code string
-	if json.Unmarshal(envelope.Code, &code) != nil {
-		var number json.Number
-		if json.Unmarshal(envelope.Code, &number) == nil {
-			code = number.String()
-		}
-	}
-	if code == "" && strings.TrimSpace(envelope.Message) == "" && strings.TrimSpace(envelope.Type) == "" {
-		return nil
-	}
-	return responsesReportedError(code, envelope.Message, envelope.Type)
-}
-
-func responsesReportedError(code, message, errorType string) error {
-	code, errorType = diagnosticLabel(code), diagnosticLabel(errorType)
-	message = observability.SanitizeLog(strings.TrimSpace(message))
-	if len(message) > 1024 {
-		message = message[:1024]
-		for !utf8.ValidString(message) {
-			message = message[:len(message)-1]
-		}
-		message += "…"
-	}
-	details := map[string]any{}
-	text := "responses upstream error"
-	if code != "" {
-		text += " " + code
-		details["upstreamCode"] = code
-	}
-	if errorType != "" {
-		details["upstreamType"] = errorType
-	}
-	if message != "" {
-		text += ": " + message
-		details["upstreamMessage"] = message
-	}
-	return apperrors.New(apperrors.CodeProviderStreamFailed, text, apperrors.WithDiagnostics(details))
 }
 
 func responsesDecodeError(err error) error {
@@ -97,7 +36,7 @@ func responsesDecodeError(err error) error {
 
 func annotateResponsesError(err error, call *pendingModelCall, turn *providerTurnStream, event responsesStreamEvent, eventName, raw string) error {
 	var appErr *apperrors.Error
-	if !errors.As(err, &appErr) || (appErr.Code() != apperrors.CodeProviderStreamInvalid && appErr.Code() != apperrors.CodeProviderStreamFailed) {
+	if !errors.As(err, &appErr) {
 		return err
 	}
 	// This context is safe for always-on logs: structure/counts only, never raw

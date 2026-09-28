@@ -122,7 +122,7 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 	if e.Type == "" {
 		e.Type = eventName
 	}
-	if err := responsesEnvelopeError(e.Error); err != nil {
+	if err := providerEnvelopeError(e.Error); err != nil {
 		return false, err
 	}
 	if e.Type == "" {
@@ -183,12 +183,12 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 		}
 		state.done[e.OutputIndex] = true
 	case "error":
-		return false, responsesReportedError(e.Code, e.Message, "")
+		return false, providerReportedError(e.Code, e.Message, "")
 	case "response.failed":
 		if e.Response.Error != nil {
-			return false, responsesReportedError(e.Response.Error.Code, e.Response.Error.Message, "")
+			return false, providerReportedError(e.Response.Error.Code, e.Response.Error.Message, e.Response.Error.Type)
 		}
-		return false, responsesReportedError("", "", "")
+		return false, providerReportedError("", "", "")
 	case "response.completed", "response.incomplete":
 		if e.Type == "response.completed" && e.Response.Status != "completed" {
 			return false, responsesInvalid("responses completed event has invalid status")
@@ -197,7 +197,7 @@ func (p *responsesProtocol) ConsumeChunk(s *llmRunStream, eventName, raw string)
 			return false, responsesInvalid("responses incomplete event has invalid status")
 		}
 		if e.Response.Error != nil {
-			return false, responsesReportedError(e.Response.Error.Code, e.Response.Error.Message, "")
+			return false, providerReportedError(e.Response.Error.Code, e.Response.Error.Message, e.Response.Error.Type)
 		}
 		response, recovered := responsesOutputFromDone(e.Response, state)
 		if err := validateResponsesFinal(response, state); err != nil {

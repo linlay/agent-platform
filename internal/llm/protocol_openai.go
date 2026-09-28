@@ -40,6 +40,7 @@ type openAIToolDefinition struct {
 }
 
 type openAIStreamResponse struct {
+	Error   json.RawMessage `json:"error"`
 	Choices []struct {
 		Message json.RawMessage `json:"message"`
 		Delta   struct {
@@ -196,6 +197,9 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 	if err := json.Unmarshal([]byte(rawChunk), &decoded); err != nil {
 		s.currentTurn.observation.DecodeErrors++
 		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
+	}
+	if err := providerEnvelopeError(decoded.Error); err != nil {
+		return false, s.annotateProviderError(err)
 	}
 	s.currentTurn.observation.recordOpenAIChunk(decoded)
 	if s.awaitingOpenAITerminalMetadata() {

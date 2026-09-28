@@ -44,6 +44,7 @@ type Response struct {
 	Usage  *Usage `json:"usage"`
 	Error  *struct {
 		Code    string `json:"code"`
+		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error"`
 	IncompleteDetails struct {

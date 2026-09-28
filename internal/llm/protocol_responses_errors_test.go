@@ -29,7 +29,11 @@ func TestResponsesUpstreamErrorEnvelopes(t *testing.T) {
 			s.currentTurn.observation.Response = modelclient.ResponseMetadata{StatusCode: 200, RequestID: "req-upstream"}
 			_, err := p.ConsumeChunk(s, test.event, test.raw)
 			payload := modelErrorPayload(err)
-			if payload["code"] != "provider_stream_failed" || payload["status"] != 502 || payload["retryable"] != true || !strings.Contains(err.Error(), test.message) {
+			wantCode, wantStatus := "provider_stream_failed", 502
+			if test.code == "server_error" {
+				wantCode, wantStatus = "provider_unavailable", 503
+			}
+			if payload["code"] != wantCode || payload["status"] != wantStatus || payload["retryable"] != true || !strings.Contains(err.Error(), test.message) {
 				t.Fatalf("unexpected error: %#v", payload)
 			}
 			details := payload["diagnostics"].(map[string]any)
@@ -168,7 +172,7 @@ func TestResponsesErrorDiagnosticsPersistWithoutRawContent(t *testing.T) {
 }
 
 func TestResponsesReportedErrorIsBounded(t *testing.T) {
-	err := responsesReportedError("server_error", strings.Repeat("上游错误", 1000), "server_error")
+	err := providerReportedError("server_error", strings.Repeat("上游错误", 1000), "server_error")
 	message := modelErrorPayload(err)["diagnostics"].(map[string]any)["upstreamMessage"].(string)
 	if len(message) > 1027 || !utf8.ValidString(message) {
 		t.Fatal("unbounded or invalid UTF-8 error message")
@@ -184,5 +188,60 @@ func TestModelRetryMessageDistinguishesTimeout(t *testing.T) {
 		if got := modelActivityMessage("retrying", reason); got != want {
 			t.Fatalf("reason=%s message=%s want=%s", reason, got, want)
 		}
+	}
+}
+
+func TestResponsesStructuredProviderFailures(t *testing.T) {
+	for _, tc := range []struct {
+		code      string
+		status    int
+		retryable bool
+	}{
+		{"rate_limit_exceeded", 429, true}, {"insufficient_quota", 429, false}, {"invalid_api_key", 502, false},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			p, s := responseTestStream()
+			s.currentTurn.observation.Response.StatusCode = 200
+			s.modelCall.attempt, s.modelCall.maxAttempts = 6, 6
+			_, err := p.ConsumeChunk(s, "error", `{"type":"error","error":{"code":"`+tc.code+`","type":"too_many_requests","message":"upstream detail"},"sequence_number":2}`)
+			payload := modelErrorPayload(err)
+			if payload["status"] != tc.status || payload["retryable"] != tc.retryable || payload["code"] == "provider_stream_failed" {
+				t.Fatalf("%#v", payload)
+			}
+			d := payload["diagnostics"].(map[string]any)
+			if d["upstreamStatus"] != 200 || d["attempt"] != 6 || d["maxAttempts"] != 6 || d["upstreamCode"] != tc.code || d["frameBytes"] == nil {
+				t.Fatalf("lost diagnostics: %#v", d)
+			}
+			if s.canRetryModelAttempt(err) {
+				t.Fatal("exhausted attempt retried")
+			}
+			s.modelCall.attempt = 1
+			if s.canRetryModelAttempt(err) != tc.retryable {
+				t.Fatal("wrong retry classification")
+			}
+		})
+	}
+}
+
+func TestOtherProtocolsStructuredStreamErrors(t *testing.T) {
+	for _, protocol := range []string{"openai", "anthropic"} {
+		t.Run(protocol, func(t *testing.T) {
+			_, s := responseTestStream()
+			s.currentTurn.observation.Response.StatusCode = 200
+			raw := `{"type":"error","error":{"type":"rate_limit_error","message":"opaque detail"}}`
+			var err error
+			if protocol == "openai" {
+				_, err = (&openAIProtocol{}).ConsumeChunk(s, "", raw)
+			} else {
+				_, err = (&anthropicProtocol{}).ConsumeChunk(s, "error", raw)
+			}
+			payload := modelErrorPayload(err)
+			if payload["code"] != "provider_rate_limited" || payload["status"] != 429 {
+				t.Fatalf("%#v", payload)
+			}
+			if payload["diagnostics"].(map[string]any)["upstreamStatus"] != 200 {
+				t.Fatal("lost transport status")
+			}
+		})
 	}
 }

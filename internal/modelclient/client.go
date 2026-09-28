@@ -4,7 +4,6 @@ package modelclient
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -153,7 +152,8 @@ func TransportError(err error) error {
 
 func ResponseError(status int, body []byte) error {
 	bodyText := strings.TrimSpace(string(body))
-	code, upstreamCode := ClassifyResponseError(status, bodyText)
+	fields := ParseErrorFields(body)
+	code := ClassifyError(status, fields.Code, fields.Type, apperrors.CodeProviderRequestFailed)
 	message := fmt.Sprintf("model request failed with status %d", status)
 	if bodyText != "" {
 		message += ": " + bodyText
@@ -162,106 +162,19 @@ func ResponseError(status int, body []byte) error {
 	if bodyText != "" {
 		diagnostics["upstreamBody"] = bodyText
 	}
-	if upstreamCode != "" {
-		diagnostics["upstreamCode"] = upstreamCode
+	if fields.Code != "" {
+		diagnostics["upstreamCode"] = fields.Code
 	}
-	exposedStatus := status
-	if code == apperrors.CodeProviderAuthFailed {
-		exposedStatus = http.StatusBadGateway
+	if fields.Type != "" {
+		diagnostics["upstreamType"] = fields.Type
 	}
-	return apperrors.New(code, message, apperrors.WithStatus(exposedStatus), apperrors.WithDiagnostics(diagnostics))
+	if fields.Message != "" {
+		diagnostics["upstreamMessage"] = fields.Message
+	}
+	return apperrors.New(code, message, apperrors.WithDiagnostics(diagnostics))
 }
 
 func ClassifyResponseError(status int, body string) (apperrors.Code, string) {
-	signals := providerErrorSignals(body)
-	combined := strings.ToLower(strings.Join(append([]string{body}, signals...), " "))
-	upstreamCode := firstProviderSignal(signals)
-	switch {
-	case containsAny(combined, "context_length_exceeded", "context length", "maximum context", "token limit", "too many tokens"):
-		return apperrors.CodeProviderContextLengthExceeded, upstreamCode
-	case containsAny(combined, "content_filter", "content filter", "safety", "moderation", "blocked content"):
-		return apperrors.CodeProviderContentFilter, upstreamCode
-	case status == http.StatusUnauthorized:
-		return apperrors.CodeProviderAuthFailed, upstreamCode
-	case status == http.StatusForbidden:
-		if containsQuotaSignal(combined) {
-			return apperrors.CodeProviderQuotaExhausted, upstreamCode
-		}
-		return apperrors.CodeProviderPermissionDenied, upstreamCode
-	case status == http.StatusNotFound:
-		return apperrors.CodeProviderModelNotFound, upstreamCode
-	case status == http.StatusRequestTimeout || status == http.StatusGatewayTimeout:
-		return apperrors.CodeProviderTimeout, upstreamCode
-	case status == http.StatusTooManyRequests:
-		if containsQuotaSignal(combined) {
-			return apperrors.CodeProviderQuotaExhausted, upstreamCode
-		}
-		return apperrors.CodeProviderRateLimited, upstreamCode
-	case status == http.StatusRequestEntityTooLarge:
-		return apperrors.CodeProviderContextLengthExceeded, upstreamCode
-	case status >= 500:
-		return apperrors.CodeProviderUnavailable, upstreamCode
-	case status >= 400:
-		return apperrors.CodeProviderBadRequest, upstreamCode
-	default:
-		return apperrors.CodeProviderRequestFailed, upstreamCode
-	}
-}
-
-func providerErrorSignals(body string) []string {
-	if strings.TrimSpace(body) == "" {
-		return nil
-	}
-	var decoded any
-	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
-		return nil
-	}
-	var out []string
-	collectProviderErrorSignals(decoded, &out)
-	return out
-}
-
-func collectProviderErrorSignals(value any, out *[]string) {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if lowerKey == "code" || lowerKey == "type" || lowerKey == "error" || lowerKey == "message" || lowerKey == "detail" {
-				if text, ok := child.(string); ok && strings.TrimSpace(text) != "" {
-					*out = append(*out, strings.TrimSpace(text))
-				}
-			}
-			collectProviderErrorSignals(child, out)
-		}
-	case []any:
-		for _, child := range typed {
-			collectProviderErrorSignals(child, out)
-		}
-	}
-}
-
-func firstProviderSignal(signals []string) string {
-	for _, signal := range signals {
-		signal = strings.TrimSpace(signal)
-		if signal != "" && !strings.Contains(signal, " ") {
-			return signal
-		}
-	}
-	if len(signals) > 0 {
-		return strings.TrimSpace(signals[0])
-	}
-	return ""
-}
-
-func containsQuotaSignal(text string) bool {
-	return containsAny(text, "quota", "insufficient_quota", "exhausted", "billing", "credit", "balance", "recharge", "api key quota")
-}
-
-func containsAny(text string, needles ...string) bool {
-	for _, needle := range needles {
-		if strings.Contains(text, needle) {
-			return true
-		}
-	}
-	return false
+	fields := ParseErrorFields([]byte(body))
+	return ClassifyError(status, fields.Code, fields.Type, apperrors.CodeProviderRequestFailed), fields.Code
 }

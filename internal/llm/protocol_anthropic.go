@@ -80,6 +80,15 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
 	}
 
+	if payload["error"] != nil {
+		raw, _ := json.Marshal(payload["error"])
+		if err := providerEnvelopeError(raw); err != nil {
+			return false, s.annotateProviderError(err)
+		}
+	}
+	if eventName == "error" || AnyStringNode(payload["type"]) == "error" {
+		return false, s.annotateProviderError(providerReportedError("", "", ""))
+	}
 	switch strings.TrimSpace(eventName) {
 	case "", "ping":
 		return false, nil

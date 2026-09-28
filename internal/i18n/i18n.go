@@ -128,7 +128,7 @@ var zhCNCodes = map[string]string{
 	"provider_network_error":                  "连接模型服务失败",
 	"provider_permission_denied":              "模型服务权限不足",
 	"provider_quota_exhausted":                "模型服务额度已用尽",
-	"provider_rate_limited":                   "模型服务请求过于频繁",
+	"provider_rate_limited":                   "模型服务触发限流",
 	"provider_request_failed":                 "模型服务请求失败",
 	"provider_stream_failed":                  "模型服务流式响应失败",
 	"provider_stream_invalid":                 "模型服务流式响应无效",
