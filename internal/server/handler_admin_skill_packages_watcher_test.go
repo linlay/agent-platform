@@ -16,8 +16,25 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/reload"
 )
+
+func startTestBackgroundReloaders(t *testing.T, cfg config.Config, reloader contracts.CatalogReloader) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := reload.StartBackgroundReloaders(ctx, cfg, reloader)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("background catalog watchers and reload did not stop")
+		}
+	})
+	return ctx
+}
 
 func TestCatalogMutationFailureReloadsChangesMadeWhileWatcherSuspended(t *testing.T) {
 	fixture := newTestFixture(t)
@@ -25,10 +42,8 @@ func TestCatalogMutationFailureReloadsChangesMadeWhileWatcherSuspended(t *testin
 	if err := os.MkdirAll(probeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	reloader := fixture.catalogReloader.(*reload.RuntimeCatalogReloader)
-	reload.StartBackgroundReloaders(ctx, fixture.cfg, reloader)
+	ctx := startTestBackgroundReloaders(t, fixture.cfg, reloader)
 	injected := errors.New("injected mutation failure")
 	err := reloader.WithCatalogDirectoryMutation(ctx, "skills", func(context.Context) error {
 		// This event cannot be observed: the watcher has released its handles.
@@ -61,9 +76,7 @@ func TestAdminSkillPackageWatcherRestoresAfterPublicationRollback(t *testing.T) 
 	registry := &failingOnceWatchedRegistry{Registry: fixture.registry}
 	reloader := reload.NewRuntimeCatalogReloader(registry, fixture.modelRegistry, nil, nil, "", nil)
 	fixture.server.deps.CatalogReloader = reloader
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	reload.StartBackgroundReloaders(ctx, fixture.cfg, reloader)
+	startTestBackgroundReloaders(t, fixture.cfg, reloader)
 	importVersion := func(version string) *httptest.ResponseRecorder {
 		t.Helper()
 		archive := serverSkillImportZIP(t, map[string]string{
@@ -126,9 +139,7 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 	if err := os.MkdirAll(probeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	reload.StartBackgroundReloaders(ctx, fixture.cfg, fixture.catalogReloader)
+	startTestBackgroundReloaders(t, fixture.cfg, fixture.catalogReloader)
 
 	// A changed catalog value proves the live watcher actually ran; a mere
 	// notification could instead have come from an earlier explicit reload.

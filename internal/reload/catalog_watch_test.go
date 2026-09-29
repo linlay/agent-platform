@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,15 +46,13 @@ func newCatalogWatchTest(t *testing.T) (context.Context, *RuntimeCatalogReloader
 	r := NewRuntimeCatalogReloader(registry, nil, nil, nil, "", nil)
 	reasons := make(chan string, 32)
 	r.AddObserver(watchTestObserver{reasons: reasons})
-	StartBackgroundReloaders(ctx, cfg, r)
+	done := StartBackgroundReloaders(ctx, cfg, r)
 	t.Cleanup(func() {
 		cancel()
-		for _, group := range r.background.groups {
-			select {
-			case <-group.watcher.Done():
-			case <-time.After(3 * time.Second):
-				t.Error("watcher did not stop")
-			}
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("catalog watchers and reload did not stop")
 		}
 	})
 	return ctx, r, cfg, reasons, registry
@@ -63,6 +62,57 @@ func writeWatchTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBackgroundReloadersCompletionWaitsForReloadAndWatchers(t *testing.T) {
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	registry := &watchTestRegistry{onReload: func(reason string) error {
+		if reason == "skills" {
+			close(entered)
+			<-release
+		}
+		return nil
+	}}
+	r := NewRuntimeCatalogReloader(registry, nil, nil, nil, "", nil)
+	done := StartBackgroundReloaders(ctx, config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}, r)
+	t.Cleanup(func() {
+		cancel()
+		unblock()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("catalog watchers and reload did not stop")
+		}
+	})
+	writeWatchTestFile(t, filepath.Join(root, "SKILL.md"), "trigger background reload")
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("background reload did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+		t.Fatal("completion signaled before in-flight reload returned")
+	case <-time.After(50 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("completion not signaled after reload returned")
+	}
+	for _, group := range r.background.groups {
+		select {
+		case <-group.watcher.Done():
+		default:
+			t.Fatalf("completion signaled before watcher stopped: %s", group.root)
+		}
 	}
 }
 
