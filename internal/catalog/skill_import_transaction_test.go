@@ -20,13 +20,13 @@ func TestOverwritePackageChildPreservesOwnershipRecord(t *testing.T) {
 	if err := pkg.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, ".package", "test-pack.json")
+	path := filepath.Join(root, "test-pack", "package.json")
 	previous, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	archive = buildSkillImportZIP(t, []skillImportZIPEntry{{name: "SKILL.md", content: []byte("---\nname: test-skill\ndescription: Child updated\n---\n\nUpdated.\n")}, {name: "skill.json", content: []byte(`{"version":"2.0.0"}`)}})
-	mutation, _, err := registry.BeginImportEditableSkillArchive("test-skill", bytes.NewReader(archive), int64(len(archive)), true)
+	mutation, _, err := registry.BeginImportEditableSkillArchive("test-pack/test-skill", bytes.NewReader(archive), int64(len(archive)), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestOverwritePackageChildPreservesOwnershipRecord(t *testing.T) {
 	if err != nil || !bytes.Equal(previous, current) {
 		t.Fatalf("package record changed: %s %v", current, err)
 	}
-	if owners, err := readSkillPackageOwners(root); err != nil || owners["test-skill"] != "test-pack" {
+	if owners, err := readSkillPackageOwners(root); err != nil || owners["test-pack/test-skill"] != "test-pack" {
 		t.Fatalf("ownership changed: %v %v", owners, err)
 	}
 }
@@ -71,7 +71,7 @@ func TestPreparedSkillRechecksDestinationAtPublication(t *testing.T) {
 	}
 }
 
-func TestPreparedSkillPackageRechecksOwnershipAtPublication(t *testing.T) {
+func TestPreparedSkillPackagePreservesLateStandaloneAtPublication(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "skills-center")
 	r := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	archive := buildSkillPackageZIP(t, "test-pack", "1.0.0", []testSkillPackageEntry{{ID: "test-skill", Version: "1.0.0", Present: true}})
@@ -87,8 +87,12 @@ func TestPreparedSkillPackageRechecksOwnershipAtPublication(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("independent skill"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := prepared.Begin(); !errors.Is(err, ErrSkillPackageConflict) {
-		t.Fatalf("missed late owner conflict: %v", err)
+	mutation, _, err := prepared.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mutation.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := os.Stat(sentinel); err != nil {
 		t.Fatal("removed independent skill")

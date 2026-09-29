@@ -73,11 +73,11 @@ func TestAdminSkillAutoImportDetectsPackageAndUpdatesMembers(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Data.Kind != "skill-package" || result.Data.Package == nil || result.Data.Package.ID != "wecomcli-suite" || result.Data.Package.Name != "企业微信办公全家桶" || len(result.Data.Package.Skills) != 14 || result.Data.AdminSkillDetailResponse != nil {
+	if result.Data.Kind != "skill-package" || result.Data.Package == nil || result.Data.Package.ID != "wecomcli-suite" || result.Data.Package.DisplayName != "企业微信办公全家桶" || len(result.Data.Package.Skills) != 14 || result.Data.AdminSkillDetailResponse != nil {
 		t.Fatalf("unexpected package result: %s", response.Body.String())
 	}
 	for _, suffix := range ids {
-		if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "wecomcli-"+suffix, "SKILL.md")); err != nil {
+		if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "wecomcli-suite", "wecomcli-"+suffix, "SKILL.md")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -89,11 +89,11 @@ func TestAdminSkillAutoImportDetectsPackageAndUpdatesMembers(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("update expected 200, got %d: %s", response.Code, response.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "wecomcli-todo")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "wecomcli-suite", "wecomcli-todo")); !os.IsNotExist(err) {
 		t.Fatalf("removed member remains: %v", err)
 	}
 	packages := getAPIData[[]api.AdminSkillPackageResponse](t, fixture.server, http.MethodGet, "/api/admin/skill-packages", nil)
-	if len(packages) != 1 || packages[0].Version != "1.2.0" || packages[0].Name != "企业微信办公全家桶" || len(packages[0].Skills) != 1 {
+	if len(packages) != 1 || packages[0].Version != "1.2.0" || packages[0].DisplayName != "企业微信办公全家桶" || len(packages[0].Skills) != 1 {
 		t.Fatalf("unexpected updated package state: %#v", packages)
 	}
 }
@@ -131,7 +131,7 @@ func TestAdminSkillAutoImportPackageReloadFailureRollsBack(t *testing.T) {
 	if response.Code == http.StatusOK {
 		t.Fatal("expected reload failure")
 	}
-	for _, target := range []string{"word-helper", ".package/office-pack.json"} {
+	for _, target := range []string{"word-helper", "office-pack"} {
 		if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, target)); !os.IsNotExist(err) {
 			t.Fatalf("rollback left %s: %v", target, err)
 		}

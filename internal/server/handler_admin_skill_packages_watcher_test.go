@@ -16,8 +16,25 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/reload"
 )
+
+func startTestBackgroundReloaders(t *testing.T, cfg config.Config, reloader contracts.CatalogReloader) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := reload.StartBackgroundReloaders(ctx, cfg, reloader)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("background catalog watchers and reload did not stop")
+		}
+	})
+	return ctx
+}
 
 func TestCatalogMutationFailureReloadsChangesMadeWhileWatcherSuspended(t *testing.T) {
 	fixture := newTestFixture(t)
@@ -25,10 +42,8 @@ func TestCatalogMutationFailureReloadsChangesMadeWhileWatcherSuspended(t *testin
 	if err := os.MkdirAll(probeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	reloader := fixture.catalogReloader.(*reload.RuntimeCatalogReloader)
-	reload.StartBackgroundReloaders(ctx, fixture.cfg, reloader)
+	ctx := startTestBackgroundReloaders(t, fixture.cfg, reloader)
 	injected := errors.New("injected mutation failure")
 	err := reloader.WithCatalogDirectoryMutation(ctx, "skills", func(context.Context) error {
 		// This event cannot be observed: the watcher has released its handles.
@@ -61,9 +76,7 @@ func TestAdminSkillPackageWatcherRestoresAfterPublicationRollback(t *testing.T) 
 	registry := &failingOnceWatchedRegistry{Registry: fixture.registry}
 	reloader := reload.NewRuntimeCatalogReloader(registry, fixture.modelRegistry, nil, nil, "", nil)
 	fixture.server.deps.CatalogReloader = reloader
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	reload.StartBackgroundReloaders(ctx, fixture.cfg, reloader)
+	startTestBackgroundReloaders(t, fixture.cfg, reloader)
 	importVersion := func(version string) *httptest.ResponseRecorder {
 		t.Helper()
 		archive := serverSkillImportZIP(t, map[string]string{
@@ -87,7 +100,7 @@ func TestAdminSkillPackageWatcherRestoresAfterPublicationRollback(t *testing.T) 
 	if len(packages) != 1 || packages[0].Version != "1.0.0" {
 		t.Fatalf("rollback did not restore package record: %#v", packages)
 	}
-	path := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "rollback-child", "SKILL.md")
+	path := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "rollback-watch-pack", "rollback-child", "SKILL.md")
 	content, err := os.ReadFile(path)
 	if err != nil || !bytes.Contains(content, []byte("Version 1.0.0")) {
 		t.Fatalf("rollback did not restore content: %q, %v", content, err)
@@ -96,7 +109,7 @@ func TestAdminSkillPackageWatcherRestoresAfterPublicationRollback(t *testing.T) 
 	if err := os.WriteFile(path, bytes.ReplaceAll(content, []byte("Version 1.0.0"), []byte("Edited after rollback")), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	awaitWatchedSkillDescription(t, fixture.registry, "rollback-child", "Edited after rollback")
+	awaitWatchedSkillDescription(t, fixture.registry, "rollback-watch-pack/rollback-child", "Edited after rollback")
 }
 
 func awaitWatchedSkillDescription(t *testing.T, registry catalog.Registry, key, description string) {
@@ -126,9 +139,7 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 	if err := os.MkdirAll(probeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	reload.StartBackgroundReloaders(ctx, fixture.cfg, fixture.catalogReloader)
+	startTestBackgroundReloaders(t, fixture.cfg, fixture.catalogReloader)
 
 	// A changed catalog value proves the live watcher actually ran; a mere
 	// notification could instead have come from an earlier explicit reload.
@@ -173,7 +184,7 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 		if len(packages) != 1 || packages[0].Version != version || len(packages[0].Skills) != 1 {
 			t.Fatalf("unexpected package state: %#v", packages)
 		}
-		content, err := os.ReadFile(filepath.Join(root, "watch-child", "SKILL.md"))
+		content, err := os.ReadFile(filepath.Join(root, "watch-pack", "watch-child", "SKILL.md"))
 		if err != nil || !bytes.Contains(content, []byte("Package "+version+".")) {
 			t.Fatalf("installed child does not match version %s: %q, %v", version, content, err)
 		}
@@ -185,12 +196,12 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 	importPackage("2.0.0")
 	assertWatcherWorks("after-upgrade")
 
-	childBody, _ := json.Marshal(api.DeleteAdminSkillPackageSkillRequest{PackageID: "watch-pack", SkillID: "watch-child"})
+	childBody, _ := json.Marshal(api.DeleteAdminSkillPackageSkillRequest{PackageID: "watch-pack", SkillID: "watch-pack/watch-child"})
 	child := getAPIData[api.DeleteAdminSkillPackageSkillResponse](t, fixture.server, http.MethodPost, "/api/admin/skill-packages/skills/delete", childBody)
-	if !child.Deleted || !child.PackageDeleted {
-		t.Fatalf("last child deletion should remove the package: %#v", child)
+	if !child.Deleted || child.PackageDeleted {
+		t.Fatalf("last child deletion should preserve the empty package: %#v", child)
 	}
-	if _, err := os.Stat(filepath.Join(root, "watch-child")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "watch-pack", "watch-child")); !os.IsNotExist(err) {
 		t.Fatalf("child remains after deletion: %v", err)
 	}
 	assertWatcherWorks("after-child-delete")
@@ -202,7 +213,7 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 	if !deleted.Deleted || len(deleted.Skills) != 1 {
 		t.Fatalf("unexpected package deletion: %#v", deleted)
 	}
-	for _, path := range []string{filepath.Join(root, "watch-child"), filepath.Join(root, ".package", "watch-pack.json")} {
+	for _, path := range []string{filepath.Join(root, "watch-pack", "watch-child"), filepath.Join(root, "watch-pack")} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("package deletion left %s: %v", path, err)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -338,6 +339,15 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 		runtimeInvalidAgents: map[string]AdminAgentDiagnostic{},
 		teams:                map[string]TeamDefinition{},
 		skills:               map[string]SkillDefinition{},
+	}
+	if strings.TrimSpace(cfg.Paths.SkillsCenterDir) != "" {
+		backups, err := registry.MigrateLegacySkillPackages()
+		for _, backup := range backups {
+			log.Printf("[catalog][skills] migrated legacy skill package; recovery backup=%s", backup)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("migrate legacy skill packages (completed recovery backups: %v): %w", backups, err)
+		}
 	}
 	if err := registry.Reload(context.Background(), "startup"); err != nil {
 		return nil, err

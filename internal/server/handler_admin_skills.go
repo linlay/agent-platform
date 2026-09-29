@@ -64,9 +64,15 @@ func (s *Server) listAdminSkills() ([]api.AdminSkillSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	owners, err := skillPackageOwners(registry)
+	if err != nil {
+		return nil, err
+	}
 	response := make([]api.AdminSkillSummary, 0, len(items))
 	for _, item := range items {
-		response = append(response, buildAdminSkillSummary(item))
+		summary := buildAdminSkillSummary(item)
+		summary.PackageID = owners[item.Key]
+		response = append(response, summary)
 	}
 	return response, nil
 }
@@ -448,7 +454,7 @@ func (s *Server) handleAdminSkillDownload(w http.ResponseWriter, r *http.Request
 		s.writeAgentHTTPResponse(w, nil, err)
 		return
 	}
-	filename := key + ".zip"
+	filename := strings.ReplaceAll(key, "/", "-") + ".zip"
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	http.ServeContent(w, r, filename, info.ModTime(), archive)
@@ -467,6 +473,11 @@ func (s *Server) adminSkillDetail(key string, openPath string) (api.AdminSkillDe
 		return api.AdminSkillDetailResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "skill not found")
 	}
 	response := buildAdminSkillDetail(item)
+	owners, err := skillPackageOwners(registry)
+	if err != nil {
+		return api.AdminSkillDetailResponse{}, err
+	}
+	response.Skill.PackageID = owners[item.Key]
 	openPath = strings.TrimSpace(openPath)
 	if openPath == "" {
 		return response, nil

@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/catalogorder"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/ws"
 )
 
@@ -35,12 +37,31 @@ func (s *Server) handleAgentSkills(w http.ResponseWriter, r *http.Request) {
 func (s *Server) wsAgentSkills(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		AgentKey string          `json:"agentKey"`
+		Locale   string          `json:"locale"`
 		Key      json.RawMessage `json:"key"`
 		Pinned   json.RawMessage `json:"pinned"`
 	}](req)
 	if err != nil {
 		s.sendAgentWSError(conn, req, agentSkillsStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
 		return
+	}
+	locale := conn.Locale()
+	if requested := strings.TrimSpace(payload.Locale); requested != "" {
+		normalized, ok := i18n.NormalizeLocale(requested)
+		if !ok {
+			s.sendAgentWSError(conn, req, agentSkillsStatusError(http.StatusBadRequest, "invalid_locale", "invalid locale"))
+			return
+		}
+		locale = normalized
+	}
+	// Desktop surfaces share a physical WS connection; locale is request-scoped.
+	respond := func(response api.AgentSkillsResponse, err error) {
+		if err != nil {
+			s.sendAgentWSError(conn, req, err)
+			return
+		}
+		conn.SendResponse(req.Type, req.ID, 0, "success", localizeSkillResponse(locale, response))
+		conn.CompleteRequest(req.ID)
 	}
 	// Any mutation field denotes a write; incomplete writes must fail validation.
 	if payload.Key != nil || payload.Pinned != nil {
@@ -50,11 +71,11 @@ func (s *Server) wsAgentSkills(ctx context.Context, conn *ws.Conn, req ws.Reques
 			return
 		}
 		response, err := s.updateAgentSkillPin(ctx, request)
-		s.sendAgentWSResponse(conn, req, response, err)
+		respond(response, err)
 		return
 	}
 	response, err := s.listSkillsForAgent(ctx, payload.AgentKey)
-	s.sendAgentWSResponse(conn, req, response, err)
+	respond(response, err)
 }
 
 func (s *Server) listSkillsForAgent(ctx context.Context, agentKey string) (api.AgentSkillsResponse, error) {
@@ -98,7 +119,8 @@ func (s *Server) listSkillsForAgent(ctx context.Context, agentKey string) (api.A
 			Icon: agentSkillIconURL("", definition), Configured: configured[key],
 		})
 	}
-	return response, nil
+	response.Packages, err = s.listAgentSkillPackages()
+	return response, err
 }
 
 func (s *Server) updateAgentSkillPin(ctx context.Context, request api.UpdateAgentSkillPinRequest) (api.AgentSkillsResponse, error) {
@@ -107,14 +129,19 @@ func (s *Server) updateAgentSkillPin(ctx context.Context, request api.UpdateAgen
 		return api.AgentSkillsResponse{}, err
 	}
 	key := strings.ToLower(strings.TrimSpace(request.Key))
-	if key == "" || len(key) > 256 || strings.ContainsAny(key, "/\\\x00\r\n") || request.Pinned == nil {
+	if key == "" || len(key) > 256 || catalog.ValidateEditableSkillKey(key) != nil || request.Pinned == nil {
 		return api.AgentSkillsResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "key and pinned are required")
 	}
 	if *request.Pinned && !s.knownPinnableSkill(key) {
 		return api.AgentSkillsResponse{}, newAgentStatusError(http.StatusNotFound, "skill_not_found", "skill is not available")
 	}
 	state, err := s.skillOrder.SetPinned(user, key, *request.Pinned)
-	return skillPinsResponse(state), err
+	if err != nil {
+		return api.AgentSkillsResponse{}, err
+	}
+	response := skillPinsResponse(state)
+	response.Packages, err = s.listAgentSkillPackages()
+	return response, err
 }
 
 func (s *Server) knownPinnableSkill(key string) bool {
@@ -124,6 +151,15 @@ func (s *Server) knownPinnableSkill(key string) bool {
 	if registry, err := s.adminSkillRegistry(); err == nil {
 		if _, found, err := registry.AdminSkill(key); err == nil && found {
 			return true
+		}
+		// Package IDs are presentation pins, never executable SkillDefinitions.
+		// Reuse the live package scan so missing or invalid packages cannot be pinned.
+		if packages, err := registry.EditableSkillPackages(); err == nil {
+			for _, pkg := range packages {
+				if strings.EqualFold(pkg.ID, key) {
+					return true
+				}
+			}
 		}
 	}
 	for _, skill := range s.deps.Registry.Skills("") {

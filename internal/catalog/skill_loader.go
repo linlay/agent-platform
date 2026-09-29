@@ -10,12 +10,14 @@ import (
 	"strings"
 
 	"agent-platform/internal/agentconfig"
-	"agent-platform/internal/connector"
 )
 
 // ResolveSkillDefinition loads a declared skill from real host paths.
 // Agent-local skills win; the skills center is used as a fallback.
 func ResolveSkillDefinition(agentDir, centerDir, skillID string) (SkillDefinition, bool, error) {
+	if !validSkillPathKey(skillID) {
+		return SkillDefinition{}, false, ErrInvalidSkillKey
+	}
 	for _, skillDir := range candidateSkillDirs(agentDir, centerDir, skillID) {
 		def, ok, err := loadSkillDefinitionFromDir(skillDir, skillID, 0)
 		if err != nil {
@@ -32,51 +34,96 @@ func ResolveSkillDefinition(agentDir, centerDir, skillID string) (SkillDefinitio
 // runtime Agent. Runtime execution must never fall back to source agents or the
 // shared skills center.
 func ResolveRuntimeSkillDefinition(runtimeDir, skillID string) (SkillDefinition, bool, error) {
-	return loadSkillDefinitionFromDir(filepath.Join(runtimeDir, "skills", skillID), skillID, 0)
+	if !validSkillPathKey(skillID) {
+		return SkillDefinition{}, false, ErrInvalidSkillKey
+	}
+	return loadSkillDefinitionFromDir(filepath.Join(runtimeDir, "skills", filepath.FromSlash(skillID)), skillID, 0)
 }
 
 func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, error) {
 	items := map[string]SkillDefinition{}
-	var loadErr error
-	err := visitRuntimeEntries(
-		root,
-		nil,
-		func(name string, entry os.DirEntry) bool {
-			return entry.IsDir() && !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name) && !connector.IsReservedSkill(name)
-		},
-		func(name string, _ os.DirEntry) {
-			if loadErr != nil {
-				return
-			}
-			skillDir := filepath.Join(root, name)
-			definition, ok, err := loadSkillDefinitionFromDir(skillDir, name, maxPromptChars)
-			if err != nil {
-				loadErr = err
-				return
-			}
-			if !ok {
-				log.Printf("[catalog][skills] skip directory %s: no SKILL.md found", name)
-				return
-			}
-			items[name] = definition
-		},
-	)
+	keys, err := skillDirectoryKeys(root)
 	if err != nil {
 		return nil, err
 	}
-	if loadErr != nil {
-		return nil, loadErr
+	for _, key := range keys {
+		definition, ok, err := loadSkillDefinitionFromDir(filepath.Join(root, filepath.FromSlash(key)), key, maxPromptChars)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			log.Printf("[catalog][skills] skip directory %s: no SKILL.md found", key)
+			continue
+		}
+		items[key] = definition
 	}
 	return items, nil
 }
 
+// skillDirectoryKeys scans only a center root and the immediate members of
+// declared packages. Ordinary skill subdirectories (including sub-skills) are
+// resources, never implicit catalog entries.
+func skillDirectoryKeys(root string) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	keys := []string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !isSkillCenterDirectory(entry) {
+			continue
+		}
+		dir := filepath.Join(root, name)
+		if _, err := os.Lstat(filepath.Join(dir, "SKILL.md")); err == nil {
+			keys = append(keys, name)
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "package.json")); errors.Is(err, os.ErrNotExist) {
+			keys = append(keys, name) // preserve invalid standalone diagnostics
+			continue
+		} else if err != nil {
+			logInvalidSkillPackage(root, name, err)
+			continue
+		}
+		manifest, err := ReadSkillPackageManifest(dir)
+		if err != nil {
+			logInvalidSkillPackage(root, name, err)
+			continue
+		}
+		if manifest.Name != name {
+			logInvalidSkillPackage(root, name, fmt.Errorf("%w: package name differs from directory", ErrInvalidSkillPath))
+			continue
+		}
+		members, err := os.ReadDir(dir)
+		if err != nil {
+			logInvalidSkillPackage(root, name, err)
+			continue
+		}
+		for _, member := range members {
+			if !isSkillCenterDirectory(member) {
+				continue
+			}
+			if info, err := os.Lstat(filepath.Join(dir, member.Name(), "SKILL.md")); err == nil && info.Mode().IsRegular() {
+				keys = append(keys, name+"/"+member.Name())
+			}
+		}
+	}
+	return keys, nil
+}
+
 func candidateSkillDirs(agentDir, centerDir, skillID string) []string {
 	dirs := make([]string, 0, 2)
-	if strings.TrimSpace(agentDir) != "" {
+	if strings.TrimSpace(agentDir) != "" && !strings.Contains(skillID, "/") {
 		dirs = append(dirs, filepath.Join(agentDir, "skills", skillID))
 	}
 	if strings.TrimSpace(centerDir) != "" {
-		dirs = append(dirs, filepath.Join(centerDir, skillID))
+		if dir, err := editableSkillDir(centerDir, skillID); err == nil {
+			dirs = append(dirs, dir)
+		}
 	}
 	return dirs
 }

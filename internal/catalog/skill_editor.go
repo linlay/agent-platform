@@ -139,19 +139,12 @@ func (r *FileRegistry) AdminSkills() ([]AdminSkill, error) {
 	}
 	usage := r.skillUsageByAgent()
 	items := []AdminSkill{}
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return items, nil
-	}
+	keys, err := skillDirectoryKeys(root)
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range entries {
-		name := strings.TrimSpace(entry.Name())
-		if !entry.IsDir() || strings.HasPrefix(name, ".") || !ShouldLoadRuntimeName(name) || connector.IsReservedSkill(name) {
-			continue
-		}
-		item, err := buildAdminSkill(root, name, usage[name], false)
+	for _, key := range keys {
+		item, err := buildAdminSkill(root, key, usage[key], false)
 		if err != nil {
 			return nil, err
 		}
@@ -559,7 +552,7 @@ func DetectEditableSkillArchiveKey(source io.ReaderAt, size int64) (string, erro
 	if key == "" {
 		return "", skillArchiveValidationError("missing_skill_name", "SKILL.md frontmatter.name is required to derive the skill key", "SKILL.md")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillKey(key); err != nil || strings.Contains(key, "/") {
 		return "", skillArchiveValidationError("invalid_skill_key", "SKILL.md frontmatter.name or key must be a valid skill key", "SKILL.md")
 	}
 	return key, nil
@@ -1092,25 +1085,33 @@ func (r *FileRegistry) UploadEditableSkillFile(key string, relPath string, src i
 	return editableSkillFileMetadata(target, cleanRel)
 }
 
+// validSkillPathKey accepts a standalone ID or one package/member pair.
+// It is also used for runtime connector skill keys, where reserved names remain valid.
+func validSkillPathKey(key string) bool {
+	if strings.TrimSpace(key) != key {
+		return false
+	}
+	parts := strings.Split(key, "/")
+	if len(parts) < 1 || len(parts) > 2 {
+		return false
+	}
+	for _, part := range parts {
+		if !validRuntimeComponent(part) || strings.HasPrefix(part, ".") || !ShouldLoadRuntimeName(part) {
+			return false
+		}
+	}
+	return true
+}
+
 func ValidateEditableSkillKey(key string) error {
 	key = strings.TrimSpace(key)
-	if connector.IsReservedSkill(key) {
-		return fmt.Errorf("%w: connector skills belong to their connector package", ErrInvalidSkillKey)
-	}
-	if key == "" {
-		return fmt.Errorf("%w: skill key is required", ErrInvalidSkillKey)
-	}
-	if key == "." || key == ".." || strings.HasPrefix(key, ".") {
+	if !validSkillPathKey(key) {
 		return ErrInvalidSkillKey
 	}
-	if !ShouldLoadRuntimeName(key) {
-		return ErrInvalidSkillKey
-	}
-	if filepath.IsAbs(key) || strings.ContainsAny(key, `/\`) || strings.Contains(key, "\x00") {
-		return ErrInvalidSkillKey
-	}
-	if filepath.Clean(key) != key {
-		return ErrInvalidSkillKey
+	for _, part := range strings.Split(key, "/") {
+		if connector.IsReservedSkill(part) {
+			return fmt.Errorf("%w: connector skills belong to their connector package", ErrInvalidSkillKey)
+		}
 	}
 	return nil
 }
@@ -1200,6 +1201,7 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 }
 
 func resolveAdminSkillIcon(skillDir string, key string) (string, error) {
+	key = path.Base(key)
 	for _, name := range []string{"icon.svg", "icon.png", strings.TrimSpace(key) + ".svg", strings.TrimSpace(key) + ".png"} {
 		relPath := path.Join("assets", name)
 		pathOnDisk, cleanPath, err := resolveEditableSkillPath(skillDir, relPath)
@@ -1466,7 +1468,31 @@ func editableSkillDir(root string, key string) (string, error) {
 	if err := ValidateEditableSkillKey(key); err != nil {
 		return "", err
 	}
-	dir := filepath.Join(root, strings.TrimSpace(key))
+	key = strings.TrimSpace(key)
+	dir := filepath.Join(root, filepath.FromSlash(key))
+	if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", ErrSkillSymlink
+	}
+	if err := ensureNoSymlinkAlongExistingPath(root, dir); err != nil {
+		return "", err
+	}
+	if strings.Contains(key, "/") {
+		parent := filepath.Dir(dir)
+		if _, err := os.Lstat(filepath.Join(parent, "SKILL.md")); err == nil {
+			return "", ErrInvalidSkillPath
+		}
+		manifest, err := ReadSkillPackageManifest(parent)
+		if err != nil {
+			return "", fmt.Errorf("%w: invalid parent package: %v", ErrInvalidSkillPath, err)
+		}
+		if manifest.Name != strings.SplitN(key, "/", 2)[0] {
+			return "", fmt.Errorf("%w: package name differs from directory", ErrInvalidSkillPath)
+		}
+	} else if _, err := os.Lstat(filepath.Join(dir, "SKILL.md")); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Lstat(filepath.Join(dir, "package.json")); err == nil {
+			return "", fmt.Errorf("%w: use the skill package endpoint", ErrInvalidSkillPath)
+		}
+	}
 	if !insideDir(root, dir) {
 		return "", ErrInvalidSkillPath
 	}
@@ -1584,7 +1610,7 @@ func (r *FileRegistry) skillUsageByAgent() map[string][]string {
 }
 
 func agentLocalSkillExists(source EditableAgentSource, key string) bool {
-	if source.Kind != "directory" || strings.TrimSpace(source.AgentDir) == "" {
+	if source.Kind != "directory" || strings.TrimSpace(source.AgentDir) == "" || strings.Contains(key, "/") {
 		return false
 	}
 	root := filepath.Join(source.AgentDir, "skills")

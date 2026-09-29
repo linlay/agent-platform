@@ -269,6 +269,28 @@ func (a *runtimeAgentAssembler) materializeSkills(source EditableAgentSource, ca
 	if err != nil {
 		return err
 	}
+	// Validate every destination before copying: an Agent-local standalone skill
+	// can have the same name as a shared package and otherwise absorb its members.
+	// Use the same case folding on all platforms so a portable Agent cannot mix
+	// skill contents on a case-insensitive Windows or macOS filesystem.
+	destinations := make(map[string]string, len(ordered))
+	for _, skillID := range ordered {
+		if !def.IsConnectorSkill(skillID) {
+			destinations[strings.ToLower(skillID)] = skillID
+		}
+	}
+	for _, skillID := range ordered {
+		if def.IsConnectorSkill(skillID) {
+			continue // Connector skills execute from their separate shared package.
+		}
+		parent, _, nested := strings.Cut(strings.ToLower(skillID), "/")
+		if parentID, exists := destinations[parent]; nested && exists {
+			return &runtimeAgentAssemblyError{
+				code: "runtime_skill_path_conflict",
+				err:  fmt.Errorf("skill keys %q and %q have overlapping runtime directories; remove or rename the standalone skill before selecting this package member", parentID, skillID),
+			}
+		}
+	}
 	configEntries := map[string]runtimeConfigEntry{}
 	for _, skillID := range ordered {
 		skillSource, err := a.resolveEffectiveSkillSource(source, def, skillID)
@@ -289,7 +311,7 @@ func (a *runtimeAgentAssembler) materializeSkills(source EditableAgentSource, ca
 }
 
 func (a *runtimeAgentAssembler) resolveSkillSource(source EditableAgentSource, skillID string) (string, error) {
-	if source.Kind == "directory" {
+	if source.Kind == "directory" && !strings.Contains(skillID, "/") {
 		local := filepath.Join(source.AgentDir, "skills", skillID)
 		info, err := os.Lstat(local)
 		switch {
@@ -308,7 +330,10 @@ func (a *runtimeAgentAssembler) resolveSkillSource(source EditableAgentSource, s
 	if strings.TrimSpace(a.centerDir) == "" {
 		return "", fmt.Errorf("skill %q is not available: skills-center is not configured", skillID)
 	}
-	center := filepath.Join(a.centerDir, skillID)
+	center, err := editableSkillDir(a.centerDir, skillID)
+	if err != nil {
+		return "", err
+	}
 	if !insideDir(a.centerDir, center) {
 		return "", fmt.Errorf("skill %q resolves outside skills-center", skillID)
 	}
@@ -344,7 +369,7 @@ func orderedSkillIDs(declared []string) ([]string, error) {
 	seen := map[string]struct{}{}
 	for _, raw := range declared {
 		id := strings.TrimSpace(raw)
-		if !validRuntimeComponent(id) {
+		if !validSkillPathKey(id) {
 			return nil, fmt.Errorf("skill id %q is not a safe runtime directory name", raw)
 		}
 		folded := strings.ToLower(id)

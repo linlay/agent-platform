@@ -594,7 +594,7 @@ func ResolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 func ResolveMustUseSkillRoot(parentDir string, skillKey string) (string, error) {
 	parentDir = strings.TrimSpace(parentDir)
 	skillKey = strings.TrimSpace(skillKey)
-	if parentDir == "" || skillKey == "" {
+	if parentDir == "" || catalog.ValidateEditableSkillKey(skillKey) != nil {
 		return "", fmt.Errorf("skill root is unavailable")
 	}
 	parent, err := pathutil.Canonicalize(parentDir)

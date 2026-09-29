@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"agent-platform/internal/skillmeta"
 	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,7 +14,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 const (
@@ -35,11 +35,22 @@ var (
 type SkillPackageRecordSkill struct {
 	Diagnostics []AdminSkillDiagnostic `json:"-"`
 	ID          string                 `json:"id"`
+	Name        string                 `json:"name,omitempty"`
+	Path        string                 `json:"path,omitempty"`
+	DisplayName string                 `json:"displayName,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Triggers    []string               `json:"triggers,omitempty"`
+	Metadata    map[string]any         `json:"metadata,omitempty"`
 	Version     string                 `json:"version,omitempty"`
 }
 
 type SkillPackageRecord struct {
+	Presentation  skillmeta.Presentation    `json:"-"`
 	Name          string                    `json:"name,omitempty"`
+	DisplayName   string                    `json:"displayName,omitempty"`
+	Description   string                    `json:"description,omitempty"`
+	Triggers      []string                  `json:"triggers,omitempty"`
+	Metadata      map[string]any            `json:"metadata,omitempty"`
 	SchemaVersion int                       `json:"schemaVersion"`
 	ID            string                    `json:"id"`
 	Version       string                    `json:"version"`
@@ -82,11 +93,15 @@ type EditableSkillPackageMutation struct {
 	recordChanged   bool
 	unlock          func()
 	done            bool
+	keepBackup      bool
 }
 
 // These helpers journal a move only after it succeeds, including on Windows
 // where a watched or externally held directory can reject a rename.
 func (m *EditableSkillPackageMutation) backupSkill(id string) error {
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(m.backupRoot, id)), 0o755); err != nil {
+		return err
+	}
 	if err := os.Rename(filepath.Join(m.root, id), filepath.Join(m.backupRoot, id)); err != nil {
 		return err
 	}
@@ -95,6 +110,9 @@ func (m *EditableSkillPackageMutation) backupSkill(id string) error {
 }
 
 func (m *EditableSkillPackageMutation) publishSkill(id, source string) error {
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(m.root, id)), 0o755); err != nil {
+		return err
+	}
 	if err := os.Rename(source, filepath.Join(m.root, id)); err != nil {
 		return err
 	}
@@ -158,7 +176,9 @@ func (m *EditableSkillPackageMutation) Commit() error {
 	// The new child directories and package record are already committed.
 	// Cleanup is best effort. Sibling transaction directories remain outside
 	// the catalog/watch root, including when Windows temporarily blocks cleanup.
-	_ = os.RemoveAll(m.backupRoot)
+	if !m.keepBackup {
+		_ = os.RemoveAll(m.backupRoot)
+	}
 	_ = os.RemoveAll(m.stagingRoot)
 	m.done = true
 	return nil
@@ -176,7 +196,8 @@ func (m *EditableSkillPackageMutation) release() {
 type PreparedEditableSkillPackage struct {
 	registry                                       *FileRegistry
 	packageID, version, stagingRoot, archiveSHA256 string
-	manifest                                       skillPackageManifest
+	manifest                                       SkillPackageMetadata
+	candidate                                      string
 	skills                                         []preparedPackageSkill
 }
 
@@ -192,10 +213,10 @@ func (r *FileRegistry) PrepareEditableSkillPackageArchive(packageID, version str
 	}
 	packageID = strings.TrimSpace(packageID)
 	version = strings.TrimSpace(version)
-	if err := ValidateEditableSkillKey(packageID); err != nil {
+	if err := ValidateSkillPackageID(packageID); err != nil {
 		return nil, err
 	}
-	if version == "" || source == nil || size <= 0 {
+	if source == nil || size <= 0 {
 		return nil, ErrSkillArchiveInvalid
 	}
 	if size > EditableSkillPackageMaxUploadBytes {
@@ -234,12 +255,12 @@ func (r *FileRegistry) PrepareEditableSkillPackageArchive(packageID, version str
 		}
 		extractedBytes += written
 	}
-	manifest, prepared, err := validatePreparedSkillPackage(stagingRoot, packageID, version)
+	manifest, prepared, candidate, err := prepareNestedSkillPackage(stagingRoot, packageID, version)
 	if err != nil {
 		return nil, err
 	}
 	cleanupStaging = false
-	return &PreparedEditableSkillPackage{registry: r, packageID: packageID, version: version, stagingRoot: stagingRoot, archiveSHA256: archiveSHA256, manifest: manifest, skills: prepared}, nil
+	return &PreparedEditableSkillPackage{registry: r, packageID: packageID, version: version, stagingRoot: stagingRoot, archiveSHA256: archiveSHA256, manifest: manifest, skills: prepared, candidate: candidate}, nil
 }
 
 func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version string, source io.ReaderAt, size int64) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
@@ -252,297 +273,163 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 }
 
 func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, SkillPackageRecord, error) {
-	r, packageID, version := p.registry, p.packageID, p.version
-	stagingRoot, archiveSHA256, manifest, prepared := p.stagingRoot, p.archiveSHA256, p.manifest, p.skills
+	r := p.registry
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	r.skillPackageMu.Lock()
-	lockOwnedByMutation := false
+	owned := false
 	defer func() {
-		if !lockOwnedByMutation {
+		if !owned {
 			r.skillPackageMu.Unlock()
 		}
 	}()
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := ensureSkillPackageRoot(root); err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	rootInfo, err := os.Lstat(root)
+	old, _, exists, err := readSkillPackageRecord(root, p.packageID)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	if rootInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, SkillPackageRecord{}, ErrSkillSymlink
+	target := filepath.Join(root, p.packageID)
+	if _, err := os.Lstat(target); err == nil && !exists {
+		return nil, SkillPackageRecord{}, fmt.Errorf("%w: destination %s is not a skill package", ErrSkillPackageConflict, p.packageID)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, SkillPackageRecord{}, err
 	}
-	if !rootInfo.IsDir() {
-		return nil, SkillPackageRecord{}, fmt.Errorf("%w: skills center is not a directory", ErrInvalidSkillPath)
-	}
-	oldRecord, oldRecordBytes, oldRecordExists, err := readSkillPackageRecord(root, packageID)
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	owners, err := readSkillPackageOwners(root)
+	for _, entry := range entries {
+		if strings.EqualFold(entry.Name(), p.packageID) && entry.Name() != p.packageID {
+			return nil, SkillPackageRecord{}, ErrSkillPackageConflict
+		}
+	}
+	next, err := scanPackageAt(p.candidate, p.packageID)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	existingEntries, err := os.ReadDir(root)
+	keep := map[string]bool{}
+	for _, child := range next.Skills {
+		keep[child.ID] = true
+	}
+	for _, child := range old.Skills {
+		if !keep[child.ID] && len(r.skillUsageByAgent()[child.ID]) > 0 {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: removed skill %s is used by agents", ErrSkillPackageConflict, child.ID)
+		}
+	}
+	backup, err := os.MkdirTemp(filepath.Dir(root), skillPackageBackupPrefix)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	existingKeys := make(map[string]string, len(existingEntries))
-	for _, entry := range existingEntries {
-		existingKeys[strings.ToLower(entry.Name())] = entry.Name()
+	m := &EditableSkillPackageMutation{root: root, backupRoot: backup, stagingRoot: p.stagingRoot, unlock: r.skillPackageMu.Unlock}
+	owned = true
+	fail := func(err error) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
+		return nil, SkillPackageRecord{}, errors.Join(err, m.Rollback())
 	}
-	newIDs := make(map[string]struct{}, len(prepared))
-	for _, skill := range prepared {
-		newIDs[skill.ID] = struct{}{}
-		if owner := owners[skill.ID]; owner != "" && owner != packageID {
-			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is owned by package %s", ErrSkillPackageConflict, skill.ID, owner)
-		}
-		if existing := existingKeys[strings.ToLower(skill.ID)]; existing != "" && (existing != skill.ID || owners[existing] != packageID) {
-			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s already exists outside package %s", ErrSkillPackageConflict, existing, packageID)
+	if exists {
+		if err := m.backupSkill(p.packageID); err != nil {
+			return fail(err)
 		}
 	}
-	for _, skill := range oldRecord.Skills {
-		if _, retained := newIDs[skill.ID]; retained {
-			continue
-		}
-		if usage := r.skillUsageByAgent()[skill.ID]; len(usage) > 0 {
-			return nil, SkillPackageRecord{}, fmt.Errorf("%w: removed skill %s is used by agents", ErrSkillPackageConflict, skill.ID)
-		}
+	if err := m.publishSkill(p.packageID, p.candidate); err != nil {
+		return fail(err)
 	}
-	affectedSet := make(map[string]struct{}, len(oldRecord.Skills)+len(prepared))
-	for _, skill := range oldRecord.Skills {
-		affectedSet[skill.ID] = struct{}{}
-	}
-	for _, skill := range prepared {
-		affectedSet[skill.ID] = struct{}{}
-	}
-	affectedIDs := make([]string, 0, len(affectedSet))
-	for id := range affectedSet {
-		affectedIDs = append(affectedIDs, id)
-	}
-	sort.Strings(affectedIDs)
-	backupRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageBackupPrefix)
-	if err != nil {
-		return nil, SkillPackageRecord{}, err
-	}
-	recordPath, err := skillPackageRecordPath(root, packageID)
-	if err != nil {
-		_ = os.RemoveAll(backupRoot)
-		return nil, SkillPackageRecord{}, err
-	}
-	mutation := &EditableSkillPackageMutation{
-		root: root, recordPath: recordPath, oldRecord: oldRecordBytes, oldRecordExists: oldRecordExists,
-		backupRoot: backupRoot, stagingRoot: stagingRoot,
-		unlock: r.skillPackageMu.Unlock,
-	}
-	lockOwnedByMutation = true
-	rollbackOnError := func(cause error) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
-		if rollbackErr := mutation.Rollback(); rollbackErr != nil {
-			return nil, SkillPackageRecord{}, fmt.Errorf("%w; rollback failed: %v", cause, rollbackErr)
-		}
-		return nil, SkillPackageRecord{}, cause
-	}
-	for _, id := range affectedIDs {
-		target := filepath.Join(root, id)
-		if _, statErr := os.Lstat(target); statErr == nil {
-			if err := mutation.backupSkill(id); err != nil {
-				return rollbackOnError(err)
-			}
-		} else if !errors.Is(statErr, os.ErrNotExist) {
-			return rollbackOnError(statErr)
-		}
-	}
-	for _, skill := range prepared {
-		if err := mutation.publishSkill(skill.ID, skill.Root); err != nil {
-			return rollbackOnError(err)
-		}
-	}
-	record := SkillPackageRecord{
-		Name:          strings.TrimSpace(manifest.Name),
-		SchemaVersion: 1,
-		ID:            packageID,
-		Version:       version,
-		SHA256:        archiveSHA256,
-		Skills:        make([]SkillPackageRecordSkill, 0, len(prepared)),
-		InstalledAt:   time.Now().UnixMilli(),
-	}
-	for _, skill := range prepared {
-		record.Skills = append(record.Skills, SkillPackageRecordSkill{ID: skill.ID, Version: skill.Version})
-	}
-	sort.Slice(record.Skills, func(i, j int) bool { return record.Skills[i].ID < record.Skills[j].ID })
-	if manifest.Version != version {
-		return rollbackOnError(ErrSkillArchiveInvalid)
-	}
-	encoded, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return rollbackOnError(err)
-	}
-	encoded = append(encoded, '\n')
-	if err := writeSkillPackageRecordFile(recordPath, encoded); err != nil {
-		return rollbackOnError(err)
-	}
-	mutation.recordChanged = true
-	return mutation, skillPackageVersionDiagnostics(root, record), nil
+	next.SHA256 = p.archiveSHA256
+	return m, next, nil
 }
 
 func (r *FileRegistry) BeginDeleteEditableSkillPackage(packageID string) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
 	if r == nil {
-		return nil, SkillPackageRecord{}, fmt.Errorf("skill registry is not configured")
+		return nil, SkillPackageRecord{}, ErrSkillPackageNotFound
 	}
-	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
-	if root == "" {
-		return nil, SkillPackageRecord{}, fmt.Errorf("skills center directory is not configured")
-	}
-	packageID = strings.TrimSpace(packageID)
-	if err := ValidateEditableSkillKey(packageID); err != nil {
+	if err := ValidateSkillPackageID(packageID); err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
+	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	r.skillPackageMu.Lock()
-	lockOwnedByMutation := false
+	owned := false
 	defer func() {
-		if !lockOwnedByMutation {
+		if !owned {
 			r.skillPackageMu.Unlock()
 		}
 	}()
-	record, recordBytes, exists, err := readSkillPackageRecord(root, packageID)
+	record, _, exists, err := readSkillPackageRecord(root, packageID)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
 	if !exists {
 		return nil, SkillPackageRecord{}, ErrSkillPackageNotFound
 	}
-	for _, skill := range record.Skills {
-		if usage := r.skillUsageByAgent()[skill.ID]; len(usage) > 0 {
-			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is used by agents", ErrSkillPackageConflict, skill.ID)
+	for _, child := range record.Skills {
+		if len(r.skillUsageByAgent()[child.ID]) > 0 {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is used by agents", ErrSkillPackageConflict, child.ID)
 		}
 	}
-	backupRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageBackupPrefix)
+	backup, err := os.MkdirTemp(filepath.Dir(root), skillPackageBackupPrefix)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	recordPath, err := skillPackageRecordPath(root, packageID)
-	if err != nil {
-		_ = os.RemoveAll(backupRoot)
-		return nil, SkillPackageRecord{}, err
+	m := &EditableSkillPackageMutation{root: root, backupRoot: backup, unlock: r.skillPackageMu.Unlock}
+	owned = true
+	if err := m.backupSkill(packageID); err != nil {
+		return nil, SkillPackageRecord{}, errors.Join(err, m.Rollback())
 	}
-	affectedIDs := make([]string, 0, len(record.Skills))
-	for _, skill := range record.Skills {
-		affectedIDs = append(affectedIDs, skill.ID)
-	}
-	sort.Strings(affectedIDs)
-	mutation := &EditableSkillPackageMutation{
-		root: root, recordPath: recordPath, oldRecord: recordBytes, oldRecordExists: true,
-		backupRoot: backupRoot,
-		unlock:     r.skillPackageMu.Unlock,
-	}
-	lockOwnedByMutation = true
-	for _, id := range affectedIDs {
-		target := filepath.Join(root, id)
-		if _, statErr := os.Lstat(target); statErr == nil {
-			if err := mutation.backupSkill(id); err != nil {
-				return nil, SkillPackageRecord{}, errors.Join(err, mutation.Rollback())
-			}
-		} else if !errors.Is(statErr, os.ErrNotExist) {
-			return nil, SkillPackageRecord{}, errors.Join(statErr, mutation.Rollback())
-		}
-	}
-	if err := os.Remove(recordPath); err != nil {
-		return nil, SkillPackageRecord{}, errors.Join(err, mutation.Rollback())
-	}
-	mutation.recordChanged = true
-	return mutation, record, nil
+	return m, record, nil
 }
 
 func (r *FileRegistry) BeginDeleteEditableSkillPackageSkill(packageID, skillID string) (*EditableSkillPackageMutation, SkillPackageRecord, bool, error) {
 	if r == nil {
-		return nil, SkillPackageRecord{}, false, fmt.Errorf("skill registry is not configured")
+		return nil, SkillPackageRecord{}, false, ErrSkillPackageNotFound
 	}
+	if err := ValidateSkillPackageID(packageID); err != nil {
+		return nil, SkillPackageRecord{}, false, err
+	}
+	name := strings.TrimPrefix(skillID, packageID+"/")
+	if err := ValidateSkillPackageID(name); err != nil {
+		return nil, SkillPackageRecord{}, false, err
+	}
+	key := packageID + "/" + name
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
-	if root == "" {
-		return nil, SkillPackageRecord{}, false, fmt.Errorf("skills center directory is not configured")
-	}
-	packageID = strings.TrimSpace(packageID)
-	skillID = strings.TrimSpace(skillID)
-	if err := ValidateEditableSkillKey(packageID); err != nil {
-		return nil, SkillPackageRecord{}, false, err
-	}
-	if err := ValidateEditableSkillKey(skillID); err != nil {
-		return nil, SkillPackageRecord{}, false, err
-	}
 	r.skillPackageMu.Lock()
-	lockOwnedByMutation := false
+	owned := false
 	defer func() {
-		if !lockOwnedByMutation {
+		if !owned {
 			r.skillPackageMu.Unlock()
 		}
 	}()
-	record, recordBytes, exists, err := readSkillPackageRecord(root, packageID)
+	record, _, exists, err := readSkillPackageRecord(root, packageID)
 	if err != nil {
 		return nil, SkillPackageRecord{}, false, err
 	}
 	if !exists {
 		return nil, SkillPackageRecord{}, false, ErrSkillPackageNotFound
 	}
-	remaining := make([]SkillPackageRecordSkill, 0, len(record.Skills)-1)
 	found := false
-	for _, skill := range record.Skills {
-		if skill.ID == skillID {
+	remaining := make([]SkillPackageRecordSkill, 0, len(record.Skills))
+	for _, child := range record.Skills {
+		if child.ID == key {
 			found = true
-			continue
+		} else {
+			remaining = append(remaining, child)
 		}
-		remaining = append(remaining, skill)
 	}
 	if !found {
 		return nil, SkillPackageRecord{}, false, ErrSkillPackageSkillNotFound
 	}
-	if usage := r.skillUsageByAgent()[skillID]; len(usage) > 0 {
-		return nil, SkillPackageRecord{}, false, fmt.Errorf("%w: skill %s is used by agents", ErrSkillPackageConflict, skillID)
+	if len(r.skillUsageByAgent()[key]) > 0 {
+		return nil, SkillPackageRecord{}, false, fmt.Errorf("%w: skill %s is used by agents", ErrSkillPackageConflict, key)
 	}
-	backupRoot, err := os.MkdirTemp(filepath.Dir(filepath.Clean(root)), skillPackageBackupPrefix)
+	backup, err := os.MkdirTemp(filepath.Dir(root), skillPackageBackupPrefix)
 	if err != nil {
 		return nil, SkillPackageRecord{}, false, err
 	}
-	recordPath, err := skillPackageRecordPath(root, packageID)
-	if err != nil {
-		_ = os.RemoveAll(backupRoot)
-		return nil, SkillPackageRecord{}, false, err
-	}
-	mutation := &EditableSkillPackageMutation{
-		root: root, recordPath: recordPath, oldRecord: recordBytes, oldRecordExists: true,
-		backupRoot: backupRoot, unlock: r.skillPackageMu.Unlock,
-	}
-	lockOwnedByMutation = true
-	rollbackOnError := func(cause error) (*EditableSkillPackageMutation, SkillPackageRecord, bool, error) {
-		if rollbackErr := mutation.Rollback(); rollbackErr != nil {
-			return nil, SkillPackageRecord{}, false, fmt.Errorf("%w; rollback failed: %v", cause, rollbackErr)
-		}
-		return nil, SkillPackageRecord{}, false, cause
-	}
-	target := filepath.Join(root, skillID)
-	if _, statErr := os.Lstat(target); statErr == nil {
-		if err := mutation.backupSkill(skillID); err != nil {
-			return rollbackOnError(err)
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return rollbackOnError(statErr)
+	m := &EditableSkillPackageMutation{root: root, backupRoot: backup, unlock: r.skillPackageMu.Unlock}
+	owned = true
+	if err := m.backupSkill(key); err != nil {
+		return nil, SkillPackageRecord{}, false, errors.Join(err, m.Rollback())
 	}
 	record.Skills = remaining
-	packageDeleted := len(remaining) == 0
-	if packageDeleted {
-		if err := os.Remove(recordPath); err != nil {
-			return rollbackOnError(err)
-		}
-	} else {
-		encoded, err := json.MarshalIndent(record, "", "  ")
-		if err != nil {
-			return rollbackOnError(err)
-		}
-		if err := writeSkillPackageRecordFile(recordPath, append(encoded, '\n')); err != nil {
-			return rollbackOnError(err)
-		}
-	}
-	mutation.recordChanged = true
-	return mutation, record, packageDeleted, nil
+	return m, record, false, nil
 }
 
 func (r *FileRegistry) EditableSkillPackages() ([]SkillPackageRecord, error) {
@@ -555,26 +442,25 @@ func (r *FileRegistry) EditableSkillPackages() ([]SkillPackageRecord, error) {
 	}
 	r.skillPackageMu.Lock()
 	defer r.skillPackageMu.Unlock()
-	dir := filepath.Join(root, skillPackageStateDirName)
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return []SkillPackageRecord{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	records := make([]SkillPackageRecord, 0, len(entries))
+	records := []SkillPackageRecord{}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if !isSkillCenterDirectory(entry) {
 			continue
 		}
-		packageID := strings.TrimSuffix(entry.Name(), ".json")
-		record, _, exists, err := readSkillPackageRecord(root, packageID)
+		record, _, exists, err := readSkillPackageRecord(root, entry.Name())
 		if err != nil {
-			return nil, err
+			logInvalidSkillPackage(root, entry.Name(), err)
+			continue
 		}
 		if exists {
-			records = append(records, skillPackageVersionDiagnostics(root, record))
+			records = append(records, record)
 		}
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
@@ -587,7 +473,34 @@ func planEditableSkillPackageArchive(files []*zip.File) ([]safeArchiveEntry, err
 	if err != nil {
 		return nil, err
 	}
-	return finalizeSafeArchiveEntries(candidates, "", policy)
+	prefix := ""
+	rootMarker := false
+	for _, c := range candidates {
+		if !c.dir && (c.path == "package.json" || c.path == "manifest.json" || c.path == "SKILL.md") {
+			rootMarker = true
+		}
+	}
+	if !rootMarker {
+		first := ""
+		same := true
+		for _, c := range candidates {
+			parts := strings.Split(c.path, "/")
+			if len(parts) < 2 && !c.dir {
+				same = false
+				break
+			}
+			if first == "" {
+				first = parts[0]
+			} else if first != parts[0] {
+				same = false
+				break
+			}
+		}
+		if same && first != "" {
+			prefix = first + "/"
+		}
+	}
+	return finalizeSafeArchiveEntries(candidates, prefix, policy)
 }
 
 func editableSkillPackageArchivePolicy() safeArchivePolicy {
@@ -625,7 +538,7 @@ func validatePreparedSkillPackage(stagingRoot, expectedID, expectedVersion strin
 		entry.ID = strings.TrimSpace(entry.ID)
 		entry.Version = strings.TrimSpace(entry.Version)
 		entry.Path = strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(entry.Path)), "/")
-		if err := ValidateEditableSkillKey(entry.ID); err != nil || entry.Version == "" || entry.Path != "skills/"+entry.ID {
+		if err := ValidateSkillPackageID(entry.ID); err != nil || entry.Version == "" || entry.Path != "skills/"+entry.ID {
 			return skillPackageManifest{}, nil, skillArchiveValidationError("invalid_package_skill", "skill package entry is invalid", entry.Path)
 		}
 		if _, duplicate := seen[strings.ToLower(entry.ID)]; duplicate {
@@ -675,7 +588,7 @@ func resolvePreparedPackageSkillRoot(root string) (string, error) {
 }
 
 func skillPackageRecordPath(root, packageID string) (string, error) {
-	if err := ValidateEditableSkillKey(strings.TrimSpace(packageID)); err != nil {
+	if err := ValidateSkillPackageID(packageID); err != nil {
 		return "", err
 	}
 	dir := filepath.Join(root, skillPackageStateDirName)
@@ -695,10 +608,23 @@ func skillPackageRecordPath(root, packageID string) (string, error) {
 	return filepath.Join(dir, strings.TrimSpace(packageID)+".json"), nil
 }
 
-func readSkillPackageRecord(root, packageID string) (SkillPackageRecord, []byte, bool, error) {
+func readLegacySkillPackageRecord(root, packageID string) (SkillPackageRecord, []byte, bool, error) {
 	path, err := skillPackageRecordPath(root, packageID)
 	if err != nil {
 		return SkillPackageRecord{}, nil, false, err
+	}
+	info, statErr := os.Lstat(path)
+	if errors.Is(statErr, os.ErrNotExist) {
+		return SkillPackageRecord{}, nil, false, nil
+	}
+	if statErr != nil {
+		return SkillPackageRecord{}, nil, false, statErr
+	}
+	if !info.Mode().IsRegular() {
+		return SkillPackageRecord{}, nil, false, ErrSkillSymlink
+	}
+	if info.Size() > EditableSkillMaxTextBytes {
+		return SkillPackageRecord{}, nil, false, ErrSkillFileTooLarge
 	}
 	content, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -719,7 +645,7 @@ func readSkillPackageRecord(root, packageID string) (SkillPackageRecord, []byte,
 	}
 	seen := make(map[string]struct{}, len(record.Skills))
 	for _, skill := range record.Skills {
-		if err := ValidateEditableSkillKey(skill.ID); err != nil || strings.TrimSpace(skill.Version) == "" {
+		if err := ValidateSkillPackageID(skill.ID); err != nil || strings.TrimSpace(skill.Version) == "" {
 			return SkillPackageRecord{}, nil, false, fmt.Errorf("invalid skill package record %s", path)
 		}
 		key := strings.ToLower(strings.TrimSpace(skill.ID))
@@ -732,32 +658,27 @@ func readSkillPackageRecord(root, packageID string) (SkillPackageRecord, []byte,
 }
 
 func readSkillPackageOwners(root string) (map[string]string, error) {
-	dir := filepath.Join(root, skillPackageStateDirName)
-	entries, err := os.ReadDir(dir)
+	owners := map[string]string{}
+	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]string{}, nil
+		return owners, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	owners := map[string]string{}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+	for _, e := range entries {
+		if !isSkillCenterDirectory(e) {
 			continue
 		}
-		packageID := strings.TrimSuffix(entry.Name(), ".json")
-		record, _, exists, err := readSkillPackageRecord(root, packageID)
+		record, _, exists, err := readSkillPackageRecord(root, e.Name())
 		if err != nil {
-			return nil, err
-		}
-		if !exists {
+			logInvalidSkillPackage(root, e.Name(), err)
 			continue
 		}
-		for _, skill := range record.Skills {
-			if previous := owners[skill.ID]; previous != "" && previous != record.ID {
-				return nil, fmt.Errorf("%w: skill %s has multiple package owners", ErrSkillPackageConflict, skill.ID)
+		if exists {
+			for _, child := range record.Skills {
+				owners[child.ID] = record.ID
 			}
-			owners[skill.ID] = record.ID
 		}
 	}
 	return owners, nil

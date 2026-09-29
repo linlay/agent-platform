@@ -116,6 +116,9 @@ func (r *FileRegistry) BeginImportEditableAgentPrivateSkillArchive(agentKey, key
 	if err := ValidateEditableSkillKey(key); err != nil {
 		return nil, err
 	}
+	if strings.Contains(key, "/") {
+		return nil, ErrInvalidSkillKey
+	}
 	key = strings.TrimSpace(key)
 	r.privateSkillMu.Lock()
 	handedOff := false
@@ -170,6 +173,9 @@ func (r *FileRegistry) BeginDeleteEditableAgentPrivateSkill(agentKey, key string
 	}
 	if err := ValidateEditableSkillKey(key); err != nil {
 		return nil, err
+	}
+	if strings.Contains(key, "/") {
+		return nil, ErrInvalidSkillKey
 	}
 	key = strings.TrimSpace(key)
 	r.privateSkillMu.Lock()

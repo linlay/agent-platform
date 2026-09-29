@@ -40,6 +40,7 @@ type catalogWatchCoordinator struct {
 	mu      sync.Mutex
 	pending map[string]struct{}
 	wake    chan struct{}
+	done    chan struct{}
 }
 
 func (c *catalogWatchCoordinator) enqueue(reason string) {
@@ -119,20 +120,24 @@ func groupWatchEntries(entries []watchEntry) []*catalogWatchGroup {
 
 // StartBackgroundReloaders keeps directory events separate from publication.
 // API reloads and all watcher groups share one serialized execution boundary.
-func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader contracts.CatalogReloader) {
+// The returned channel closes after cancellation stops every watcher and any
+// in-flight background reload, so callers can safely release source directories.
+func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader contracts.CatalogReloader) <-chan struct{} {
 	if reloader == nil {
-		return
+		done := make(chan struct{})
+		close(done)
+		return done
 	}
 	c := &catalogWatchCoordinator{
 		entries: backgroundWatchEntries(cfg), centers: []string{cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsCenterDir()},
-		loaded: make(map[string]string), pending: make(map[string]struct{}), wake: make(chan struct{}, 1),
+		loaded: make(map[string]string), pending: make(map[string]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}),
 	}
 	owner, managed := reloader.(*RuntimeCatalogReloader)
 	if managed {
 		owner.reloadMu.Lock()
 		defer owner.reloadMu.Unlock()
 		if owner.background != nil {
-			return
+			return owner.background.done
 		}
 		owner.background = c
 	}
@@ -172,5 +177,12 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 	if managed {
 		reconcile = owner.reconcileWatch
 	}
-	go c.run(ctx, reconcile)
+	go func() {
+		defer close(c.done)
+		c.run(ctx, reconcile)
+		for _, group := range c.groups {
+			<-group.watcher.Done()
+		}
+	}()
+	return c.done
 }

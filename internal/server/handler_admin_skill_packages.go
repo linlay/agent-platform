@@ -16,19 +16,10 @@ import (
 const skillPackageRequestOverheadBytes int64 = 1 << 20
 
 func (s *Server) handleAdminSkillPackages(w http.ResponseWriter, _ *http.Request) {
-	registry, err := s.adminSkillRegistry()
+	response, err := s.listSkillPackageSummaries()
 	if err != nil {
 		s.writeAgentHTTPResponse(w, nil, err)
 		return
-	}
-	records, err := registry.EditableSkillPackages()
-	if err != nil {
-		s.writeAgentHTTPResponse(w, nil, mapSkillEditError(err))
-		return
-	}
-	response := make([]api.AdminSkillPackageResponse, 0, len(records))
-	for _, record := range records {
-		response = append(response, adminSkillPackageResponse(record))
 	}
 	s.writeAgentHTTPResponse(w, response, nil)
 }
@@ -36,8 +27,8 @@ func (s *Server) handleAdminSkillPackages(w http.ResponseWriter, _ *http.Request
 func (s *Server) handleAdminSkillPackageImport(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimSpace(r.URL.Query().Get("key"))
 	version := strings.TrimSpace(r.URL.Query().Get("version"))
-	if key == "" || version == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "key and version are required"))
+	if key == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "key is required"))
 		return
 	}
 	contentType := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
@@ -184,8 +175,9 @@ func adminSkillPackageResponse(record catalog.SkillPackageRecord) api.AdminSkill
 		skills = append(skills, api.AdminSkillPackageSkill{ID: skill.ID, Version: skill.Version, Diagnostics: adminSkillDiagnostics(skill.Diagnostics)})
 	}
 	return api.AdminSkillPackageResponse{
-		Name: record.Name,
-		ID:   record.ID, Version: record.Version, SHA256: record.SHA256,
+		Name: record.Name, Presentation: record.Presentation, Description: record.Description, Triggers: record.Triggers,
+		Status: "ready", MissingSkillIDs: []string{},
+		ID: record.ID, SHA256: record.SHA256,
 		Skills: skills, InstalledAt: record.InstalledAt,
 	}
 }

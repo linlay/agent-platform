@@ -924,14 +924,28 @@ type AgentSkillResponse struct {
 	Configured  bool   `json:"configured"`
 }
 
+// AgentSkillPackageResponse groups selectable shared skills without changing their IDs.
+type AgentSkillPackageResponse struct {
+	skillmeta.Presentation
+	Description     string                   `json:"description,omitempty"`
+	Triggers        []string                 `json:"triggers,omitempty"`
+	ID              string                   `json:"id"`
+	Name            string                   `json:"name"`
+	Skills          []AdminSkillPackageSkill `json:"skills"`
+	MissingSkillIDs []string                 `json:"missingSkillIds"`
+	Status          string                   `json:"status"`
+}
+
 type AgentSkillsResponse struct {
-	Pinned   []string             `json:"pinned"`
-	AgentKey string               `json:"agentKey"`
-	Skills   []AgentSkillResponse `json:"skills"`
+	Packages []AgentSkillPackageResponse `json:"packages,omitempty"`
+	Pinned   []string                    `json:"pinned"`
+	AgentKey string                      `json:"agentKey"`
+	Skills   []AgentSkillResponse        `json:"skills"`
 }
 
 type AdminSkillSummary struct {
 	skillmeta.Presentation
+	PackageID       string                       `json:"packageId,omitempty"`
 	Key             string                       `json:"key"`
 	Name            string                       `json:"-"` // Internal fallback; public name is displayName.
 	Description     string                       `json:"description,omitempty"`
@@ -991,12 +1005,16 @@ type AdminSkillImportResponse struct {
 }
 
 type AdminSkillPackageResponse struct {
-	Name        string                   `json:"name,omitempty"`
-	ID          string                   `json:"id"`
-	Version     string                   `json:"version"`
-	SHA256      string                   `json:"sha256"`
-	Skills      []AdminSkillPackageSkill `json:"skills"`
-	InstalledAt int64                    `json:"installedAt"`
+	skillmeta.Presentation
+	Description     string                   `json:"description,omitempty"`
+	Triggers        []string                 `json:"triggers,omitempty"`
+	Status          string                   `json:"status,omitempty"`
+	MissingSkillIDs []string                 `json:"missingSkillIds"`
+	Name            string                   `json:"name,omitempty"`
+	ID              string                   `json:"id"`
+	SHA256          string                   `json:"sha256"`
+	Skills          []AdminSkillPackageSkill `json:"skills"`
+	InstalledAt     int64                    `json:"installedAt"`
 }
 
 type DeleteAdminSkillPackageRequest struct {
