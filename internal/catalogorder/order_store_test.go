@@ -82,3 +82,25 @@ func TestCatalogOrderRejectsCorruptFileWithoutOverwriting(t *testing.T) {
 		}
 	}
 }
+
+func TestPackageMemberPinsRemainIndependent(t *testing.T) {
+	store := NewFileOrderStore(t.TempDir())
+	for _, key := range []string{"demo", "suite/demo"} {
+		if _, err := store.SetPinned("user", key, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := store.Read("user")
+	if err != nil || len(state.Order) != 2 {
+		t.Fatalf("state=%+v err=%v", state, err)
+	}
+	state, err = store.SetPinned("user", "demo", false)
+	if err != nil || len(state.Order) != 1 || state.Order[0] != "suite/demo" {
+		t.Fatalf("state=%+v err=%v", state, err)
+	}
+	for _, key := range []string{"../demo", "suite/../demo", "suite//demo", "suite/demo/child", "suite\\demo"} {
+		if _, err := store.SetPinned("user", key, true); err == nil {
+			t.Errorf("accepted %q", key)
+		}
+	}
+}

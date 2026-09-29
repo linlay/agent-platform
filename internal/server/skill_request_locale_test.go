@@ -1,0 +1,73 @@
+package server
+
+import (
+	"context"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/ws"
+	gws "github.com/gorilla/websocket"
+)
+
+func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
+	f := newAgentSkillsTestFixture(t, true)
+	writeProjectionPackage(t, f, "center-extra")
+	content := `{"name":"office","metadata":{"i18n":{"zh-CN":{"displayName":"办公包"},"en":{"displayName":"Office Suite"}}}}`
+	if err := os.WriteFile(filepath.Join(f.cfg.Paths.SkillsCenterDir, "office", "package.json"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.server.reloadAdminSkills(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(f.server)
+	defer server.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/locale", ID: "base", Payload: marshalPayload(map[string]any{"locale": "en-US"})}); err != nil {
+		t.Fatal(err)
+	}
+	waitForWebSocketResponseData[map[string]any](t, conn, "base")
+	for _, tc := range []struct {
+		id      string
+		payload map[string]any
+		want    string
+	}{
+		{"zh-list", map[string]any{"locale": "zh-CN"}, "办公包"},
+		{"en-list", map[string]any{"locale": "en-US"}, "Office Suite"},
+		{"zh-pin", map[string]any{"locale": "zh-CN", "key": "office/center-extra", "pinned": true}, "办公包"},
+		{"unchanged", map[string]any{}, "Office Suite"},
+	} {
+		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: tc.id, Payload: marshalPayload(tc.payload)}); err != nil {
+			t.Fatal(err)
+		}
+		r := waitForWebSocketResponseData[api.AgentSkillsResponse](t, conn, tc.id)
+		if len(r.Packages) != 1 || r.Packages[0].DisplayName != tc.want {
+			t.Fatalf("%s: %+v", tc.id, r.Packages)
+		}
+	}
+	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: "bad-locale", Payload: marshalPayload(map[string]any{"locale": "invalid-locale"})}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		var frame map[string]any
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatal(err)
+		}
+		if frame["id"] != "bad-locale" {
+			continue
+		}
+		data, _ := frame["data"].(map[string]any)
+		if frame["code"] != float64(400) && data["status"] != float64(400) {
+			t.Fatalf("invalid locale not rejected: %+v", frame)
+		}
+		break
+	}
+}

@@ -87,7 +87,7 @@ func TestAdminSkillPackageWatcherRestoresAfterPublicationRollback(t *testing.T) 
 	if len(packages) != 1 || packages[0].Version != "1.0.0" {
 		t.Fatalf("rollback did not restore package record: %#v", packages)
 	}
-	path := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "rollback-child", "SKILL.md")
+	path := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "rollback-watch-pack", "rollback-child", "SKILL.md")
 	content, err := os.ReadFile(path)
 	if err != nil || !bytes.Contains(content, []byte("Version 1.0.0")) {
 		t.Fatalf("rollback did not restore content: %q, %v", content, err)
@@ -96,7 +96,7 @@ func TestAdminSkillPackageWatcherRestoresAfterPublicationRollback(t *testing.T) 
 	if err := os.WriteFile(path, bytes.ReplaceAll(content, []byte("Version 1.0.0"), []byte("Edited after rollback")), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	awaitWatchedSkillDescription(t, fixture.registry, "rollback-child", "Edited after rollback")
+	awaitWatchedSkillDescription(t, fixture.registry, "rollback-watch-pack/rollback-child", "Edited after rollback")
 }
 
 func awaitWatchedSkillDescription(t *testing.T, registry catalog.Registry, key, description string) {
@@ -173,7 +173,7 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 		if len(packages) != 1 || packages[0].Version != version || len(packages[0].Skills) != 1 {
 			t.Fatalf("unexpected package state: %#v", packages)
 		}
-		content, err := os.ReadFile(filepath.Join(root, "watch-child", "SKILL.md"))
+		content, err := os.ReadFile(filepath.Join(root, "watch-pack", "watch-child", "SKILL.md"))
 		if err != nil || !bytes.Contains(content, []byte("Package "+version+".")) {
 			t.Fatalf("installed child does not match version %s: %q, %v", version, content, err)
 		}
@@ -185,12 +185,12 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 	importPackage("2.0.0")
 	assertWatcherWorks("after-upgrade")
 
-	childBody, _ := json.Marshal(api.DeleteAdminSkillPackageSkillRequest{PackageID: "watch-pack", SkillID: "watch-child"})
+	childBody, _ := json.Marshal(api.DeleteAdminSkillPackageSkillRequest{PackageID: "watch-pack", SkillID: "watch-pack/watch-child"})
 	child := getAPIData[api.DeleteAdminSkillPackageSkillResponse](t, fixture.server, http.MethodPost, "/api/admin/skill-packages/skills/delete", childBody)
-	if !child.Deleted || !child.PackageDeleted {
-		t.Fatalf("last child deletion should remove the package: %#v", child)
+	if !child.Deleted || child.PackageDeleted {
+		t.Fatalf("last child deletion should preserve the empty package: %#v", child)
 	}
-	if _, err := os.Stat(filepath.Join(root, "watch-child")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "watch-pack", "watch-child")); !os.IsNotExist(err) {
 		t.Fatalf("child remains after deletion: %v", err)
 	}
 	assertWatcherWorks("after-child-delete")
@@ -202,7 +202,7 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 	if !deleted.Deleted || len(deleted.Skills) != 1 {
 		t.Fatalf("unexpected package deletion: %#v", deleted)
 	}
-	for _, path := range []string{filepath.Join(root, "watch-child"), filepath.Join(root, ".package", "watch-pack.json")} {
+	for _, path := range []string{filepath.Join(root, "watch-pack", "watch-child"), filepath.Join(root, "watch-pack")} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("package deletion left %s: %v", path, err)
 		}

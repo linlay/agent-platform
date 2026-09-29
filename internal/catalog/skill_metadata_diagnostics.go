@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -16,7 +17,7 @@ func skillMetadataDiagnostics(key, prompt string) []SkillCandidateDiagnostic {
 	warn := func(code, message string) {
 		out = append(out, SkillCandidateDiagnostic{Severity: "warning", Code: code, Message: message})
 	}
-	if name := skillmeta.String(front["name"]); name != "" && name != strings.TrimSpace(key) {
+	if name := skillmeta.String(front["name"]); name != "" && name != path.Base(strings.TrimSpace(key)) {
 		warn("skill_name_key_mismatch", fmt.Sprintf("SKILL.md name %q differs from skill key %q; the directory key remains the identifier", name, key))
 	}
 	if value, exists := front["displayName"]; exists {

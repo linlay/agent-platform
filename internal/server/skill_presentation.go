@@ -17,6 +17,11 @@ func localizeSkillResponse(locale string, value any) any {
 		}
 		return v
 	case api.AgentSkillsResponse:
+		v.Packages = append([]api.AgentSkillPackageResponse{}, v.Packages...)
+		for i := range v.Packages {
+			p := &v.Packages[i]
+			p.Presentation, p.Description = p.Presentation.Resolve(locale, p.Name, p.ID, p.Description)
+		}
 		v.Skills = append([]api.AgentSkillResponse{}, v.Skills...)
 		for i := range v.Skills {
 			s := &v.Skills[i]
@@ -49,7 +54,20 @@ func localizeSkillResponse(locale string, value any) any {
 	case api.AdminSkillDetailResponse:
 		v.Skill = localizeSkillResponse(locale, v.Skill).(api.AdminSkillSummary)
 		return v
+	case api.AdminSkillPackageResponse:
+		v.Presentation, v.Description = v.Presentation.Resolve(locale, v.Name, v.ID, v.Description)
+		return v
+	case []api.AdminSkillPackageResponse:
+		out := append([]api.AdminSkillPackageResponse{}, v...)
+		for i := range out {
+			out[i] = localizeSkillResponse(locale, out[i]).(api.AdminSkillPackageResponse)
+		}
+		return out
 	case api.AdminSkillImportResponse:
+		if v.Package != nil {
+			p := localizeSkillResponse(locale, *v.Package).(api.AdminSkillPackageResponse)
+			v.Package = &p
+		}
 		if v.AdminSkillDetailResponse != nil {
 			detail := localizeSkillResponse(locale, *v.AdminSkillDetailResponse).(api.AdminSkillDetailResponse)
 			v.AdminSkillDetailResponse = &detail

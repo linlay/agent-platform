@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/config"
@@ -38,20 +39,17 @@ func TestEditableSkillPackageInstallUpdateDeleteAndRollback(t *testing.T) {
 		t.Fatalf("unexpected package record: %#v", record)
 	}
 	for _, id := range []string{"word-helper", "excel-helper"} {
-		if _, err := os.Stat(filepath.Join(root, id, "SKILL.md")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "office-pack", id, "SKILL.md")); err != nil {
 			t.Fatalf("installed child %s: %v", id, err)
 		}
 	}
-	recordPath := filepath.Join(root, ".package", "office-pack.json")
+	recordPath := filepath.Join(root, "office-pack", "package.json")
 	assertSkillPackageRecord(t, recordPath, "office-pack", "1.0.0", []string{"excel-helper", "word-helper"})
 	packages, err := registry.EditableSkillPackages()
 	if err != nil || len(packages) != 1 || packages[0].ID != "office-pack" {
 		t.Fatalf("unexpected package list: %#v err=%v", packages, err)
 	}
 	assertNoPackageArchives(t, root)
-	if err := registry.DeleteEditableSkill("word-helper"); !errors.Is(err, ErrSkillPackageConflict) {
-		t.Fatalf("expected package ownership conflict, got %v", err)
-	}
 
 	updated := buildSkillPackageZIP(t, "office-pack", "2.0.0", []testSkillPackageEntry{
 		{ID: "word-helper", Version: "2.0.0", Present: true},
@@ -65,23 +63,23 @@ func TestEditableSkillPackageInstallUpdateDeleteAndRollback(t *testing.T) {
 		t.Fatalf("rollback package update: %v", err)
 	}
 	assertSkillPackageRecord(t, recordPath, "office-pack", "1.0.0", []string{"excel-helper", "word-helper"})
-	if _, err := os.Stat(filepath.Join(root, "excel-helper", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "office-pack", "excel-helper", "SKILL.md")); err != nil {
 		t.Fatalf("rollback did not restore old child: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "slides-helper")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, "office-pack", "slides-helper")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("rollback left new child: %v", err)
 	}
 	childMutation, childRecord, packageDeleted, err := registry.BeginDeleteEditableSkillPackageSkill("office-pack", "word-helper")
 	if err != nil {
 		t.Fatalf("begin package child delete: %v", err)
 	}
-	if packageDeleted || len(childRecord.Skills) != 1 || childRecord.Skills[0].ID != "excel-helper" {
+	if packageDeleted || len(childRecord.Skills) != 1 || childRecord.Skills[0].ID != "office-pack/excel-helper" {
 		t.Fatalf("unexpected package child delete state: deleted=%v record=%#v", packageDeleted, childRecord)
 	}
 	if err := childMutation.Commit(); err != nil {
 		t.Fatalf("commit package child delete: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "word-helper")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, "office-pack", "word-helper")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("deleted package child remains: %v", err)
 	}
 	assertSkillPackageRecord(t, recordPath, "office-pack", "1.0.0", []string{"excel-helper"})
@@ -100,7 +98,7 @@ func TestEditableSkillPackageInstallUpdateDeleteAndRollback(t *testing.T) {
 		t.Fatalf("package record remains after delete: %v", err)
 	}
 	for _, id := range []string{"excel-helper"} {
-		if _, err := os.Stat(filepath.Join(root, id)); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(root, "office-pack", id)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("package child %s remains after delete: %v", id, err)
 		}
 	}
@@ -110,7 +108,7 @@ func TestEditableSkillPackageInstallUpdateDeleteAndRollback(t *testing.T) {
 	}
 }
 
-func TestEditableSkillPackageRejectsStandaloneSkillWithoutChangingIt(t *testing.T) {
+func TestEditableSkillPackageCoexistsWithStandaloneSkillWithoutChangingIt(t *testing.T) {
 	root := t.TempDir()
 	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	standaloneRoot := filepath.Join(root, "word-helper")
@@ -127,9 +125,12 @@ func TestEditableSkillPackageRejectsStandaloneSkillWithoutChangingIt(t *testing.
 		{ID: "word-helper", Version: "1.0.0", Present: true},
 		{ID: "excel-helper", Version: "1.0.0", Present: true},
 	})
-	_, _, err := registry.BeginImportEditableSkillPackageArchive("office-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
-	if !errors.Is(err, ErrSkillPackageConflict) {
-		t.Fatalf("expected standalone ownership conflict, got %v", err)
+	mutation, _, err := registry.BeginImportEditableSkillPackageArchive("office-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mutation.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	restoredContent, err := os.ReadFile(standalonePath)
 	if err != nil {
@@ -166,7 +167,7 @@ func TestEditableSkillPackageRejectsMissingRequiredSkillWithoutResidue(t *testin
 	}
 }
 
-func TestEditableSkillPackageDeletingLastChildRemovesPackageState(t *testing.T) {
+func TestEditableSkillPackageDeletingLastChildKeepsPackage(t *testing.T) {
 	root := t.TempDir()
 	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	archive := buildSkillPackageZIP(t, "single-pack", "1.0.0", []testSkillPackageEntry{
@@ -183,14 +184,14 @@ func TestEditableSkillPackageDeletingLastChildRemovesPackageState(t *testing.T) 
 	if err != nil {
 		t.Fatalf("begin last child delete: %v", err)
 	}
-	if !packageDeleted || len(record.Skills) != 0 {
+	if packageDeleted || len(record.Skills) != 0 {
 		t.Fatalf("expected empty deleted package, got deleted=%v record=%#v", packageDeleted, record)
 	}
 	if err := deleteMutation.Commit(); err != nil {
 		t.Fatalf("commit last child delete: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".package", "single-pack.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("package state remains after last child delete: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "single-pack", "package.json")); err != nil {
+		t.Fatalf("empty package lost: %v", err)
 	}
 }
 
@@ -251,20 +252,16 @@ func buildSkillPackageZIP(t *testing.T, packageID string, version string, entrie
 
 func assertSkillPackageRecord(t *testing.T, path string, packageID string, version string, skillIDs []string) {
 	t.Helper()
-	content, err := os.ReadFile(path)
+	record, err := scanPackageAt(filepath.Dir(path), packageID)
 	if err != nil {
-		t.Fatalf("read package record: %v", err)
-	}
-	var record SkillPackageRecord
-	if err := json.Unmarshal(content, &record); err != nil {
-		t.Fatalf("decode package record: %v", err)
+		t.Fatal(err)
 	}
 	if record.ID != packageID || record.Version != version {
 		t.Fatalf("unexpected package identity: %#v", record)
 	}
 	actual := make([]string, 0, len(record.Skills))
 	for _, skill := range record.Skills {
-		actual = append(actual, skill.ID)
+		actual = append(actual, strings.TrimPrefix(skill.ID, packageID+"/"))
 	}
 	if len(actual) != len(skillIDs) {
 		t.Fatalf("unexpected package children: %#v", actual)

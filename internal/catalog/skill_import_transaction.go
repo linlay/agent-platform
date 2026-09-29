@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +48,24 @@ func (r *FileRegistry) PrepareEditableSkillArchive(key string, source io.ReaderA
 			_ = os.RemoveAll(stage)
 		}
 	}()
+	if strings.Contains(key, "/") {
+		// Candidate validation uses the same package boundary as live editing.
+		packageID := strings.SplitN(key, "/", 2)[0]
+		manifest, err := ReadSkillPackageManifest(filepath.Join(root, packageID))
+		if err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(filepath.Join(stage, packageID), 0700); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(stage, packageID, "package.json"), data, 0600); err != nil {
+			return nil, err
+		}
+	}
 	candidate, err := importEditableSkillArchiveIntoRoot(stage, key, source, size)
 	if err != nil {
 		return nil, err
@@ -102,7 +121,10 @@ func (p *PreparedEditableSkill) Begin(overwrite bool) (*EditableSkillImportMutat
 	if !info.IsDir() {
 		return nil, AdminSkill{}, ErrInvalidSkillPath
 	}
-	target := filepath.Join(root, key)
+	target, err := editableSkillDir(root, key)
+	if err != nil {
+		return nil, AdminSkill{}, err
+	}
 	hadPrevious := false
 	if info, err := os.Lstat(target); err == nil {
 		if !overwrite {
@@ -176,13 +198,6 @@ func (r *FileRegistry) BeginDeleteEditableSkill(key string) (*EditableSkillDelet
 	}
 	if !rootInfo.IsDir() {
 		return nil, ErrInvalidSkillPath
-	}
-	owners, err := readSkillPackageOwners(root)
-	if err != nil {
-		return nil, err
-	}
-	if owner := owners[key]; owner != "" {
-		return nil, fmt.Errorf("%w: skill %s belongs to package %s", ErrSkillPackageConflict, key, owner)
 	}
 	dir, err := editableSkillDir(root, key)
 	if err != nil {

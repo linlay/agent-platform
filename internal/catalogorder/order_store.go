@@ -51,7 +51,7 @@ func (s *FileOrderStore) Read(user string) (OrderState, error) {
 // lock, so concurrent clients do not replace each other's complete pin lists.
 func (s *FileOrderStore) SetPinned(user, key string, pinned bool) (OrderState, error) {
 	key = strings.ToLower(strings.TrimSpace(key))
-	if key == "" || len(key) > 256 || strings.ContainsAny(key, "/\\\x00\r\n") {
+	if !validCatalogKey(key) {
 		return OrderState{}, fmt.Errorf("invalid catalog key")
 	}
 	s.mu.Lock()
@@ -122,7 +122,7 @@ func (s *FileOrderStore) readLocked() (orderFile, error) {
 		}
 		seen := map[string]bool{}
 		for _, key := range state.Order {
-			if key == "" || len(key) > 256 || key != strings.ToLower(strings.TrimSpace(key)) || strings.ContainsAny(key, "/\\\x00\r\n") || seen[key] {
+			if !validCatalogKey(key) || key != strings.ToLower(strings.TrimSpace(key)) || seen[key] {
 				return file, fmt.Errorf("invalid pinned catalog key")
 			}
 			seen[key] = true
@@ -156,4 +156,22 @@ func (s *FileOrderStore) writeLocked(file orderFile) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), s.path)
+}
+
+// Skill packages use package/member keys; pins never turn these values into
+// filesystem paths. Still reject traversal and more than one nesting level.
+func validCatalogKey(key string) bool {
+	if key == "" || len(key) > 256 || strings.ContainsAny(key, "\\\x00\r\n") {
+		return false
+	}
+	parts := strings.Split(key, "/")
+	if len(parts) > 2 {
+		return false
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) != part || part == "" || strings.HasPrefix(part, ".") {
+			return false
+		}
+	}
+	return true
 }

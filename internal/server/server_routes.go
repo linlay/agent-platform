@@ -350,6 +350,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/admin/skills/import", s.method(http.MethodPost, s.handleAdminSkillImport))
 	s.router.HandleFunc("/api/admin/skills/delete", s.method(http.MethodPost, s.handleAdminSkillDelete))
 	s.router.HandleFunc("/api/admin/skill-packages", s.method(http.MethodGet, s.handleAdminSkillPackages))
+	s.router.HandleFunc("/api/admin/skill-packages/manifest", s.handleAdminSkillPackageManifest)
 	s.router.HandleFunc("/api/admin/skill-packages/import", s.method(http.MethodPost, s.handleAdminSkillPackageImport))
 	s.router.HandleFunc("/api/admin/skill-packages/delete", s.method(http.MethodPost, s.handleAdminSkillPackageDelete))
 	s.router.HandleFunc("/api/admin/skill-packages/skills/delete", s.method(http.MethodPost, s.handleAdminSkillPackageSkillDelete))

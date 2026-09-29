@@ -26,14 +26,38 @@ func DetectSkillPackageArchive(source io.ReaderAt, size int64) (packageID, versi
 		return "", "", false, err
 	}
 	var manifestFile *zip.File
+	var packageFile *zip.File
 	hasRootSkill := false
 	for _, entry := range entries {
+		if !entry.dir && entry.path == "package.json" {
+			packageFile = entry.file
+		}
 		if !entry.dir && entry.path == "manifest.json" {
 			manifestFile = entry.file
 		}
 		if !entry.dir && entry.path == "SKILL.md" {
 			hasRootSkill = true
 		}
+	}
+	if packageFile != nil && !hasRootSkill {
+		input, e := packageFile.Open()
+		if e != nil {
+			return "", "", false, ErrSkillArchiveInvalid
+		}
+		defer input.Close()
+		content, e := io.ReadAll(io.LimitReader(input, (1<<20)+1))
+		if e != nil {
+			return "", "", false, e
+		}
+		m, e := parseSkillPackageMetadata(content)
+		if e != nil {
+			return "", "", false, e
+		}
+		version = m.Version
+		if version == "" {
+			version = frontMatterString(m.Metadata["version"])
+		}
+		return m.Name, version, true, nil
 	}
 	if manifestFile == nil {
 		return "", "", false, nil
@@ -58,7 +82,7 @@ func DetectSkillPackageArchive(source io.ReaderAt, size int64) (packageID, versi
 		return "", "", false, skillArchiveValidationError("invalid_package_manifest", "manifest.json type must be skill-package", "manifest.json")
 	}
 	packageID, version = strings.TrimSpace(manifest.ID), strings.TrimSpace(manifest.Version)
-	if manifest.SchemaVersion != 1 || ValidateEditableSkillKey(packageID) != nil || version == "" || len(manifest.Skills) == 0 {
+	if manifest.SchemaVersion != 1 || ValidateSkillPackageID(packageID) != nil || version == "" || len(manifest.Skills) == 0 {
 		return "", "", false, skillArchiveValidationError("invalid_package_manifest", "manifest.json must declare schemaVersion 1, a valid id, a version and skills", "manifest.json")
 	}
 	return packageID, version, true, nil
