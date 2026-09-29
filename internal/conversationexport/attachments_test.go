@@ -27,9 +27,9 @@ func TestBuildSnapshotAttachmentsMapsManifestResources(t *testing.T) {
 		manifestAttachment("run-1", "report.pdf", "application/pdf", "artifacts/run-1/report.pdf", 48, strings.Repeat("c", 64)),
 	}
 	wantMIMEs := []string{"text/html", "image/png", "application/pdf"}
-	attachments, err := BuildSnapshotAttachments(attachmentTestChatID, resources)
-	if err != nil {
-		t.Fatal(err)
+	attachments, skipped := BuildSnapshotAttachments(attachmentTestChatID, resources)
+	if skipped != 0 {
+		t.Fatalf("skipped=%d", skipped)
 	}
 	if len(attachments) != len(resources) {
 		t.Fatalf("attachments=%#v", attachments)
@@ -45,10 +45,7 @@ func TestBuildSnapshotAttachmentsMapsManifestResources(t *testing.T) {
 		}
 		seen[attachment.ID] = true
 	}
-	again, err := BuildSnapshotAttachments(attachmentTestChatID, resources)
-	if err != nil {
-		t.Fatal(err)
-	}
+	again, _ := BuildSnapshotAttachments(attachmentTestChatID, resources)
 	for index := range attachments {
 		if attachments[index].ID != again[index].ID {
 			t.Fatalf("unstable IDs: first=%#v second=%#v", attachments, again)
@@ -62,16 +59,20 @@ func TestBuildSnapshotAttachmentsLastSourceRefWins(t *testing.T) {
 		manifestAttachment("wrong-run", "stale.pdf", "Application/PDF", sourceRef, -1, "stale"),
 		manifestAttachment("run-1", "report.pdf", "application/pdf", sourceRef, 10, strings.Repeat("d", 64)),
 	}
-	attachments, err := BuildSnapshotAttachments(attachmentTestChatID, items)
-	if err != nil {
-		t.Fatal(err)
+	attachments, skipped := BuildSnapshotAttachments(attachmentTestChatID, items)
+	if skipped != 0 {
+		t.Fatalf("historical record counted as skipped: %d", skipped)
 	}
 	if len(attachments) != 1 || attachments[0].Name != "report.pdf" || attachments[0].Size != 10 {
 		t.Fatalf("attachments=%#v", attachments)
 	}
+	items[1].SHA256 = "invalid"
+	if attachments, skipped := BuildSnapshotAttachments(attachmentTestChatID, items); len(attachments) != 0 || skipped != 1 {
+		t.Fatalf("fell back to stale artifact: %#v", attachments)
+	}
 }
 
-func TestBuildSnapshotAttachmentsRejectsInvalidManifestFields(t *testing.T) {
+func TestBuildSnapshotAttachmentsSkipsInvalidManifestFields(t *testing.T) {
 	valid := manifestAttachment("run-1", "report.pdf", "application/pdf", "artifacts/run-1/report.pdf", 1, strings.Repeat("e", 64))
 	tests := map[string]func(*chat.ArtifactManifestItem){
 		"type":       func(item *chat.ArtifactManifestItem) { item.Type = "url" },
@@ -87,14 +88,15 @@ func TestBuildSnapshotAttachmentsRejectsInvalidManifestFields(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			item := valid
 			mutate(&item)
-			if _, err := BuildSnapshotAttachments(attachmentTestChatID, []chat.ArtifactManifestItem{item}); err == nil {
-				t.Fatalf("accepted invalid item %#v", item)
+			other := manifestAttachment("run-1", "good.pdf", "application/pdf", "artifacts/run-1/good.pdf", 1, strings.Repeat("a", 64))
+			if attachments, skipped := BuildSnapshotAttachments(attachmentTestChatID, []chat.ArtifactManifestItem{other, item}); len(attachments) != 1 || attachments[0].Name != other.Name || skipped != 1 {
+				t.Fatalf("unexpected attachments %#v", attachments)
 			}
 		})
 	}
 }
 
-func TestBuildSnapshotAttachmentsRejectsNonCanonicalPaths(t *testing.T) {
+func TestBuildSnapshotAttachmentsSkipsNonCanonicalPaths(t *testing.T) {
 	for _, sourceRef := range []string{
 		"/artifacts/run-1/report.pdf",
 		`artifacts\run-1\report.pdf`,
@@ -108,7 +110,7 @@ func TestBuildSnapshotAttachmentsRejectsNonCanonicalPaths(t *testing.T) {
 	} {
 		t.Run(sourceRef, func(t *testing.T) {
 			item := manifestAttachment("run-1", "report.pdf", "application/pdf", sourceRef, 1, strings.Repeat("f", 64))
-			if _, err := BuildSnapshotAttachments(attachmentTestChatID, []chat.ArtifactManifestItem{item}); err == nil {
+			if attachments, skipped := BuildSnapshotAttachments(attachmentTestChatID, []chat.ArtifactManifestItem{item}); len(attachments) != 0 || skipped != 1 {
 				t.Fatalf("accepted sourceRef %q", sourceRef)
 			}
 		})

@@ -413,16 +413,17 @@ type PersistedAwaitingToolCall struct {
 }
 
 type Detail struct {
-	ChatID        string
-	ChatName      string
-	RawMessages   []map[string]any
-	Events        []stream.EventData
-	ContextWindow map[string]any
-	ReplayUsage   ReplayUsage
-	References    []map[string]any
-	Plan          *PlanState
-	Planning      *PlanningState
-	Artifact      *ArtifactState
+	ChatID                      string
+	ChatName                    string
+	RawMessages                 []map[string]any
+	Events                      []stream.EventData
+	ContextWindow               map[string]any
+	ReplayUsage                 ReplayUsage
+	References                  []map[string]any
+	Plan                        *PlanState
+	Planning                    *PlanningState
+	Artifact                    *ArtifactState
+	ArtifactManifestUnavailable bool `json:"ArtifactManifestUnavailable,omitempty"`
 }
 
 type ReplayUsage struct {

@@ -15,6 +15,32 @@ import (
 
 // These fixtures capture the pre-refactor output, including raw messages and
 // synthetic events. Archive must replay the same bytes, not an export document.
+func TestLoadChatKeepsBodyWhenArtifactManifestIsUnreadable(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	const chatID = "chat-damaged-artifacts"
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ArtifactManifestFileName)
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte("{bad-json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !detail.ArtifactManifestUnavailable || detail.Artifact != nil || detail.ChatName != "hello" || len(detail.Events) == 0 {
+		t.Fatalf("body or warning missing: %#v", detail)
+	}
+}
+
 func TestHistoryReplayActiveArchiveCompatibility(t *testing.T) {
 	for _, owner := range []string{"agent", "team"} {
 		t.Run(owner, func(t *testing.T) {
