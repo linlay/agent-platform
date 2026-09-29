@@ -209,14 +209,15 @@ func (s *Server) loadArchiveDetail(ctx context.Context, chatID string, includeRa
 	}
 	s.enrichToolMetadata(archived.Detail.Events, archived.Summary.AgentKey)
 	response := api.ArchivedChatDetailResponse{
-		ChatID:     archived.Detail.ChatID,
-		ChatName:   archived.Detail.ChatName,
-		CreatedAt:  archived.Summary.CreatedAt,
-		LastRunAt:  archived.Summary.LastRunAt,
-		ArchivedAt: archived.Summary.ArchivedAt,
-		Events:     archived.Detail.Events,
-		References: nil,
-		Runs:       make([]api.RunSummary, 0, len(archived.Runs)),
+		ChatID:                      archived.Detail.ChatID,
+		ChatName:                    archived.Detail.ChatName,
+		CreatedAt:                   archived.Summary.CreatedAt,
+		LastRunAt:                   archived.Summary.LastRunAt,
+		ArchivedAt:                  archived.Summary.ArchivedAt,
+		Events:                      archived.Detail.Events,
+		ArtifactManifestUnavailable: archived.Detail.ArtifactManifestUnavailable,
+		References:                  nil,
+		Runs:                        make([]api.RunSummary, 0, len(archived.Runs)),
 	}
 	for _, run := range archived.Runs {
 		response.Runs = append(response.Runs, mapRunSummary(run))

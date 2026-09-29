@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"log"
 	"strings"
 
 	"agent-platform/internal/apperrors"
@@ -44,9 +45,11 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
+	// Artifact projection is optional; resource reads still validate the manifest.
 	detail.Artifact, err = loadArtifactStateFromManifest(s.ChatDir(chatID), chatID)
 	if err != nil {
-		return Detail{}, err
+		log.Printf("[chat] artifact manifest unavailable chatId=%s: %v", chatID, err)
+		detail.ArtifactManifestUnavailable = true
 	}
 	return detail, nil
 }

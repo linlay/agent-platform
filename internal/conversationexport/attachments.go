@@ -15,53 +15,56 @@ import (
 // BuildSnapshotAttachments maps the published manifest into the public
 // Snapshot V1 contract. Artifact bytes remain owned by chatresource and are
 // deliberately not opened while exporting the timeline.
-func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem) ([]AttachmentV1, error) {
+func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem) ([]AttachmentV1, int) {
 	if !chat.ValidChatID(chatID) {
-		return nil, fmt.Errorf("invalid conversation artifact context")
+		return nil, 0
 	}
 	latest := make(map[string]int, len(items))
-	refs := make([]string, len(items))
-	runIDs := make([]string, len(items))
 	for index, item := range items {
-		ref, runID, err := canonicalSnapshotArtifactRef(chatID, item.URL)
-		if err != nil {
-			return nil, err
-		}
-		refs[index], runIDs[index] = ref, runID
-		latest[ref] = index
+		latest[item.URL] = index
 	}
 
 	attachments := make([]AttachmentV1, 0, len(latest))
 	ids := make(map[string]string, len(latest))
+	skipped := 0
 	for index, item := range items {
-		ref := refs[index]
-		if latest[ref] != index {
+		if latest[item.URL] != index {
 			continue
 		}
-		if item.Type != "file" || strings.TrimSpace(item.RunID) == "" || runIDs[index] != item.RunID {
-			return nil, fmt.Errorf("published artifact manifest identity mismatch: %q", item.URL)
+		ref, runID, err := canonicalSnapshotArtifactRef(chatID, item.URL)
+		if err != nil || item.Type != "file" || runID != item.RunID {
+			skipped++
+			continue
 		}
-		if err := validateSnapshotAttachmentName(item.Name); err != nil {
-			return nil, fmt.Errorf("invalid published artifact name for %q: %w", ref, err)
+		if item.Name == "" || !utf8.ValidString(item.Name) || len(item.Name) > 255 ||
+			strings.ContainsAny(item.Name, `/\`) || strings.ContainsFunc(item.Name, unicode.IsControl) {
+			skipped++
+			continue
 		}
-		mimeType, err := validateSnapshotAttachmentMIME(item.MimeType)
-		if err != nil {
-			return nil, fmt.Errorf("invalid published artifact MIME for %q: %w", ref, err)
+		mimeType, _, err := mime.ParseMediaType(item.MimeType)
+		mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+		if err != nil || !strings.Contains(mimeType, "/") {
+			skipped++
+			continue
 		}
 		if item.SizeBytes < 0 {
-			return nil, fmt.Errorf("invalid published artifact size for %q", ref)
+			skipped++
+			continue
 		}
 		fileHash := strings.TrimSpace(item.SHA256)
 		if item.SHA256 != fileHash || fileHash != strings.ToLower(fileHash) || len(fileHash) != sha256.Size*2 {
-			return nil, fmt.Errorf("invalid published artifact hash for %q", ref)
+			skipped++
+			continue
 		}
 		if _, err := hex.DecodeString(fileHash); err != nil {
-			return nil, fmt.Errorf("invalid published artifact hash for %q", ref)
+			skipped++
+			continue
 		}
 		digest := sha256.Sum256([]byte(ref))
 		id := hex.EncodeToString(digest[:12])
 		if previous, exists := ids[id]; exists && previous != ref {
-			return nil, fmt.Errorf("published artifact id collision")
+			skipped++
+			continue
 		}
 		ids[id] = ref
 		attachments = append(attachments, AttachmentV1{
@@ -69,7 +72,7 @@ func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem) 
 			Size: item.SizeBytes, SHA256: fileHash, SourceRef: ref,
 		})
 	}
-	return attachments, nil
+	return attachments, skipped
 }
 
 func canonicalSnapshotArtifactRef(chatID, raw string) (string, string, error) {
@@ -89,21 +92,4 @@ func canonicalSnapshotArtifactRef(chatID, raw string) (string, string, error) {
 		return "", "", fmt.Errorf("published artifact path is not canonical: %q", raw)
 	}
 	return canonicalRef, segments[1], nil
-}
-
-func validateSnapshotAttachmentName(name string) error {
-	if name == "" || !utf8.ValidString(name) || len([]byte(name)) > 255 ||
-		strings.ContainsAny(name, `/\`) || strings.ContainsFunc(name, unicode.IsControl) {
-		return fmt.Errorf("name does not satisfy Snapshot V1")
-	}
-	return nil
-}
-
-func validateSnapshotAttachmentMIME(value string) (string, error) {
-	mediaType, _, err := mime.ParseMediaType(value)
-	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
-	if err != nil || !strings.Contains(mediaType, "/") {
-		return "", fmt.Errorf("MIME type does not satisfy Snapshot V1")
-	}
-	return mediaType, nil
 }

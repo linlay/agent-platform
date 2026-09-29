@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -82,6 +83,37 @@ func TestHandleChatArchiveArchivesChatAndBroadcasts(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), `"agentMode"`) {
 		t.Fatalf("archive detail must not expose agentMode: %s", rec.Body.String())
+	}
+}
+
+func TestArchiveDetailKeepsBodyWhenArtifactManifestIsUnreadable(t *testing.T) {
+	server, active, archiveStore := newArchiveHandlerTestServer(t, nil)
+	const chatID = "chat-corrupt-artifacts"
+	seedArchiveHandlerChat(t, active, chatID)
+	archive := httptest.NewRecorder()
+	server.ServeHTTP(archive, httptest.NewRequest(http.MethodPost, "/api/chat/archive", bytes.NewBufferString(`{"chatIds":["`+chatID+`"]}`)))
+	if archive.Code != http.StatusOK {
+		t.Fatalf("archive status=%d body=%s", archive.Code, archive.Body.String())
+	}
+	manifestPath := filepath.Join(archiveStore.ChatDir(chatID), chat.ToolRootDirName, chat.ArtifactManifestFileName)
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte("{bad-json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/archive?chatId="+chatID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var detail api.ApiResponse[api.ArchivedChatDetailResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if !detail.Data.ArtifactManifestUnavailable || detail.Data.Artifact != nil || len(detail.Data.Events) == 0 {
+		t.Fatalf("body or warning missing: %#v", detail.Data)
 	}
 }
 

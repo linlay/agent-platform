@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -399,7 +400,8 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 	}
 	archived.Detail.Artifact, err = loadArtifactStateFromManifest(s.ChatDir(chatID), chatID)
 	if err != nil {
-		return nil, err
+		log.Printf("[chat] archived artifact manifest unavailable chatId=%s: %v", chatID, err)
+		archived.Detail.ArtifactManifestUnavailable = true
 	}
 	return archived, nil
 }
