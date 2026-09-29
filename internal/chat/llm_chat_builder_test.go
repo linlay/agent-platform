@@ -238,96 +238,64 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 	}
 }
 
-func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
+func TestBuildLLMChatFromJSONLIgnoresInputMessagesAfterFailedRun(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("new file store: %v", err)
+		t.Fatal(err)
 	}
 	chatID := "chat-llm-input"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "original"); err != nil {
+		t.Fatal(err)
 	}
-	executeSystem := QueryLineSystem{
-		AgentKey:      "agent",
-		CacheKey:      "plan-execute:execute",
-		Fingerprint:   "sha256:execute",
-		SystemMessage: map[string]any{"role": "system", "content": "execute system"},
-		Tools:         []any{},
-		Model: map[string]any{
-			"key":             "execute-model",
-			"id":              "execute-model-id",
-			"providerKey":     "provider",
-			"protocol":        "OPENAI",
-			"reasoningEffort": "HIGH",
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type: "query", ChatID: chatID, RunID: "run-1", UpdatedAt: testEpochMillis(1),
+		Query:    map[string]any{"role": "user", "message": "original"},
+		Messages: []map[string]any{{"role": "user", "content": "original", "ts": testEpochMillis(1)}},
+		System: &QueryLineSystem{
+			AgentKey: "agent", CacheKey: "react:main", Fingerprint: "sha256:system",
+			SystemMessage: map[string]any{"role": "system", "content": "system"},
+			Model:         map[string]any{"key": "model"},
 		},
-		ToolChoice:     "auto",
-		RequestOptions: map[string]any{"stream": true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.appendJSONLine(store.chatJSONLPath(chatID), map[string]any{
+		"_type": "event", "chatId": chatID, "runId": "run-1", "updatedAt": testEpochMillis(2),
+		"event": map[string]any{"type": "run.error", "timestamp": testEpochMillis(2),
+			"error": map[string]any{"code": "provider_rate_limited"}},
+	}); err != nil {
+		t.Fatal(err)
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
-		Type:      "query",
-		ChatID:    chatID,
-		RunID:     "run-1",
-		UpdatedAt: testEpochMillis(1),
-		Query:     map[string]any{"role": "user", "message": "original"},
-		Messages:  []map[string]any{{"role": "user", "content": "original", "ts": testEpochMillis(1)}},
+		Type: "query", ChatID: chatID, RunID: "run-2", UpdatedAt: testEpochMillis(3),
+		Query:    map[string]any{"role": "user", "message": "continue"},
+		Messages: []map[string]any{{"role": "user", "content": "continue", "ts": testEpochMillis(3)}},
 	}); err != nil {
-		t.Fatalf("append query: %v", err)
+		t.Fatal(err)
 	}
-	if err := store.AppendStepLine(chatID, StepLine{
-		Type:      StepLineTypeReact,
-		ChatID:    chatID,
-		RunID:     "run-1",
-		UpdatedAt: testEpochMillis(2),
-		Seq:       1,
-		Messages: []StoredMessage{{
-			Ts:      int64Ptr(testEpochMillis(1)),
-			Role:    "assistant",
-			Content: []ContentPart{{Type: "text", Text: "first answer"}},
-		}},
+	// Old inputMessages is ignored, including inputs absent from query history.
+	if err := store.appendJSONLine(store.chatJSONLPath(chatID), map[string]any{
+		"_type": "react", "chatId": chatID, "runId": "run-2", "updatedAt": testEpochMillis(4), "seq": 1,
+		"systemRef": map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:system"},
+		"inputMessages": []map[string]any{
+			{"role": "user", "content": "original"},
+			{"role": "user", "content": "continue"},
+			{"role": "user", "content": "obsolete input"},
+		},
+		"messages": []map[string]any{{"role": "assistant", "content": "answer", "ts": testEpochMillis(4)}},
 	}); err != nil {
-		t.Fatalf("append first step: %v", err)
+		t.Fatal(err)
 	}
-	if err := store.AppendQueryLine(chatID, QueryLine{
-		Type:      "query",
-		ChatID:    chatID,
-		RunID:     "run-1",
-		UpdatedAt: testEpochMillis(3),
-		Query:     map[string]any{"role": "system", "kind": "system-init", "hidden": true, "stage": "execute"},
-		System:    &executeSystem,
-	}); err != nil {
-		t.Fatalf("append execute system registration: %v", err)
-	}
-	if err := store.AppendStepLine(chatID, StepLine{
-		Type:          StepLineTypeReact,
-		ChatID:        chatID,
-		RunID:         "run-1",
-		UpdatedAt:     testEpochMillis(3),
-		Stage:         "execute",
-		Seq:           2,
-		InputMessages: []map[string]any{{"role": "user", "content": "execute task", "ts": testEpochMillis(1)}},
-		SystemRef:     map[string]any{"agentKey": "agent", "cacheKey": "plan-execute:execute", "fingerprint": "sha256:execute"},
-		Messages: []StoredMessage{{
-			Ts:      int64Ptr(testEpochMillis(1)),
-			Role:    "assistant",
-			Content: []ContentPart{{Type: "text", Text: "execute answer"}},
-		}},
-	}); err != nil {
-		t.Fatalf("append execute step: %v", err)
-	}
-
-	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Stage: "execute", Seq: 2})
+	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-2", Seq: 1})
 	if err != nil {
-		t.Fatalf("build llm chat: %v", err)
+		t.Fatal(err)
 	}
-	if got := chat.Messages[0]["content"]; got != "execute system" {
-		t.Fatalf("expected execute system, got %#v", chat.Messages)
+	if len(chat.Messages) != 3 {
+		t.Fatalf("expected system and two query inputs, got %#v", chat.Messages)
 	}
-	if got := chat.Messages[len(chat.Messages)-1]["content"]; got != "execute task" {
-		t.Fatalf("expected input message appended, got %#v", chat.Messages)
-	}
-	for _, msg := range chat.Messages {
-		if msg["content"] == "execute answer" {
-			t.Fatalf("target assistant response must not be part of request messages: %#v", chat.Messages)
+	for i, want := range []string{"system", "original", "continue"} {
+		if chat.Messages[i]["content"] != want {
+			t.Fatalf("message %d: want %q, got %#v", i, want, chat.Messages[i])
 		}
 	}
 }
@@ -734,9 +702,8 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 	if _, ok := step["system"]; ok {
 		t.Fatalf("did not expect step system, got %#v", step)
 	}
-	inputMessages, _ := step["inputMessages"].([]any)
-	if len(inputMessages) != 1 {
-		t.Fatalf("expected input messages, got %#v", step)
+	if _, ok := step["inputMessages"]; ok {
+		t.Fatalf("inputMessages must not be persisted, got %#v", step)
 	}
 }
 

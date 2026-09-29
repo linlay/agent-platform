@@ -11,8 +11,6 @@ import (
 
 func (s *llmRunStream) buildLLMRequestDelta(prepared preparedProviderRequest, effectiveToolChoice string) DeltaLLMRequest {
 	systemRef := s.currentSystemRefForCall(prepared, effectiveToolChoice)
-	inputMessages := s.currentInputMessagesForJSONL()
-	s.pendingSteerInputs = nil
 	return DeltaLLMRequest{
 		TaskID:          strings.TrimSpace(s.session.SubTaskID),
 		ChatID:          strings.TrimSpace(s.session.ChatID),
@@ -22,7 +20,6 @@ func (s *llmRunStream) buildLLMRequestDelta(prepared preparedProviderRequest, ef
 		SystemRef:       systemRef,
 		ToolChoice:      strings.TrimSpace(effectiveToolChoice),
 		RequestOptions:  requestOptionsFromPreparedBody(prepared.RequestBody),
-		InputMessages:   inputMessages,
 	}
 }
 
@@ -148,146 +145,6 @@ func rawMessageFromOpenAIMessage(message openAIMessage) map[string]any {
 		raw["reasoning_content"] = message.ReasoningContent
 	}
 	return raw
-}
-
-func (s *llmRunStream) currentInputMessagesForJSONL() []map[string]any {
-	raw := trailingUserMessages(s.messages)
-	if len(raw) == 0 {
-		return nil
-	}
-	raw = filterSystemAuditInputMessages(raw)
-	if len(raw) == 0 {
-		return nil
-	}
-	raw = dropPendingSteerInputMessages(raw, s.pendingSteerInputs)
-	if len(raw) == 0 {
-		return nil
-	}
-	if messageSlicesEqual(raw, s.session.CurrentMessages) {
-		return nil
-	}
-	return raw
-}
-
-func dropPendingSteerInputMessages(messages []map[string]any, pendingSteers []map[string]any) []map[string]any {
-	if len(messages) == 0 || len(pendingSteers) == 0 {
-		return messages
-	}
-	out := make([]map[string]any, 0, len(messages))
-	steerIndex := 0
-	for _, message := range messages {
-		if steerIndex < len(pendingSteers) && messageMapsEqual(message, pendingSteers[steerIndex]) {
-			steerIndex++
-			continue
-		}
-		out = append(out, message)
-	}
-	if len(out) == len(messages) {
-		return messages
-	}
-	return out
-}
-
-func trailingUserMessages(messages []openAIMessage) []map[string]any {
-	if len(messages) == 0 {
-		return nil
-	}
-	start := len(messages)
-	for start > 0 {
-		role := strings.TrimSpace(messages[start-1].Role)
-		if role != "user" {
-			break
-		}
-		start--
-	}
-	if start == len(messages) {
-		return nil
-	}
-	out := make([]map[string]any, 0, len(messages)-start)
-	for _, message := range messages[start:] {
-		raw := rawMessageFromOpenAIMessage(message)
-		if len(raw) > 0 {
-			out = append(out, cloneAnyMapViaJSON(raw))
-		}
-	}
-	return out
-}
-
-func filterSystemAuditInputMessages(messages []map[string]any) []map[string]any {
-	if len(messages) == 0 {
-		return nil
-	}
-	out := make([]map[string]any, 0, len(messages))
-	for _, message := range messages {
-		if isSystemAuditInputMessage(message) {
-			continue
-		}
-		out = append(out, message)
-	}
-	if len(out) == len(messages) {
-		return messages
-	}
-	return out
-}
-
-func isSystemAuditInputMessage(message map[string]any) bool {
-	if len(message) == 0 {
-		return false
-	}
-	role, _ := message["role"].(string)
-	if !strings.EqualFold(strings.TrimSpace(role), "user") {
-		return false
-	}
-	content := strings.TrimSpace(inputMessageContentText(message["content"]))
-	for _, prefix := range []string{
-		"[System audit — HITL approval batch]",
-		"[System audit — auto approval]",
-		"[System audit — approval batch]",
-	} {
-		if strings.HasPrefix(content, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func inputMessageContentText(value any) string {
-	switch typed := value.(type) {
-	case string:
-		return typed
-	case []any:
-		var builder strings.Builder
-		for _, item := range typed {
-			part, _ := item.(map[string]any)
-			if text, _ := part["text"].(string); text != "" {
-				builder.WriteString(text)
-			}
-		}
-		return builder.String()
-	default:
-		return ""
-	}
-}
-
-func messageSlicesEqual(left []map[string]any, right []map[string]any) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if !messageMapsEqual(left[i], right[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func messageMapsEqual(left map[string]any, right map[string]any) bool {
-	leftData, leftErr := json.Marshal(left)
-	rightData, rightErr := json.Marshal(right)
-	if leftErr != nil || rightErr != nil {
-		return false
-	}
-	return string(leftData) == string(rightData)
 }
 
 func cloneAnyMapViaJSON(values map[string]any) map[string]any {

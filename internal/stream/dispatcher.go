@@ -178,9 +178,6 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if len(value.RequestOptions) > 0 {
 			payload["requestOptions"] = clonePayload(value.RequestOptions)
 		}
-		if len(value.InputMessages) > 0 {
-			payload["inputMessages"] = cloneMessagePayloads(value.InputMessages)
-		}
 		return []StreamEvent{NewEvent("llm.request", payload)}
 	case InputDebugLLMChat:
 		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 || value.RunFirstTokenLatencyCount > 0 || value.RunGenerationDurationMs > 0 {

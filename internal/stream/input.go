@@ -366,7 +366,6 @@ type InputLLMRequest struct {
 	SystemRef       map[string]any
 	ToolChoice      string
 	RequestOptions  map[string]any
-	InputMessages   []map[string]any
 }
 
 func (InputLLMRequest) streamInputTag() {}

@@ -2457,13 +2457,8 @@ func TestStepWriterSplitsEachLLMRequestIntoReactStep(t *testing.T) {
 	if lines[0]["_type"] != StepLineTypeReact || toIntValue(lines[0]["seq"]) != 1 || lines[0]["stage"] != "execute" {
 		t.Fatalf("expected first llm chat react seq=1 stage=execute, got %#v", lines[0])
 	}
-	firstInput, _ := lines[0]["inputMessages"].([]any)
-	if len(firstInput) != 1 {
-		t.Fatalf("expected first inputMessages on first react, got %#v", lines[0])
-	}
-	firstInputMessage, _ := firstInput[0].(map[string]any)
-	if stringValue(firstInputMessage["content"]) != "call one" {
-		t.Fatalf("expected first inputMessages on first react, got %#v", lines[0])
+	if _, ok := lines[0]["inputMessages"]; ok {
+		t.Fatalf("inputMessages must not be persisted, got %#v", lines[0])
 	}
 	if lines[1]["_type"] != StepLineTypeReactTool || toIntValue(lines[1]["seq"]) != 1 {
 		t.Fatalf("expected tool result to reuse seq=1, got %#v", lines[1])
@@ -2471,13 +2466,8 @@ func TestStepWriterSplitsEachLLMRequestIntoReactStep(t *testing.T) {
 	if lines[2]["_type"] != StepLineTypeReact || toIntValue(lines[2]["seq"]) != 2 || lines[2]["stage"] != "execute" {
 		t.Fatalf("expected second llm chat react seq=2 stage=execute, got %#v", lines[2])
 	}
-	secondInput, _ := lines[2]["inputMessages"].([]any)
-	if len(secondInput) != 1 {
-		t.Fatalf("expected second inputMessages on second react, got %#v", lines[2])
-	}
-	secondInputMessage, _ := secondInput[0].(map[string]any)
-	if stringValue(secondInputMessage["content"]) != "call two" {
-		t.Fatalf("expected second inputMessages on second react, got %#v", lines[2])
+	if _, ok := lines[2]["inputMessages"]; ok {
+		t.Fatalf("inputMessages must not be persisted, got %#v", lines[2])
 	}
 }
 

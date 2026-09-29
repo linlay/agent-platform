@@ -91,7 +91,6 @@ type llmRunStream struct {
 	accessLevelVersion   int64
 	systemInitCacheKey   string
 	systemInitCacheUsed  bool
-	pendingSteerInputs   []map[string]any
 
 	lastCallPromptTokens           int
 	lastCallCompletionTokens       int

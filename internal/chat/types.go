@@ -221,7 +221,6 @@ type StepLine struct {
 	Presentation    string                    `json:"presentation,omitempty"`
 	SystemRef       map[string]any            `json:"systemRef,omitempty"`
 	Debug           map[string]any            `json:"debug,omitempty"`
-	InputMessages   []map[string]any          `json:"inputMessages,omitempty"`
 	Messages        []StoredMessage           `json:"messages"`
 	Awaiting        []map[string]any          `json:"awaiting,omitempty"`
 	Usage           map[string]any            `json:"usage,omitempty"`

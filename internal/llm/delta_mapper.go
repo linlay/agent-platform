@@ -381,7 +381,6 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			SystemRef:       CloneMap(value.SystemRef),
 			ToolChoice:      value.ToolChoice,
 			RequestOptions:  CloneMap(value.RequestOptions),
-			InputMessages:   cloneRawMessageMaps(value.InputMessages),
 		}}
 	case DeltaDebugLLMChat:
 		m.lastKind = ""

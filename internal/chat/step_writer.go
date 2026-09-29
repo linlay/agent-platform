@@ -56,7 +56,6 @@ type StepWriter struct {
 	pendingEstimated        int
 	pendingModelKey         string
 	pendingReasoningEffort  string
-	pendingInputMessages    []map[string]any
 	pendingSystemRef        map[string]any
 	pendingSystemInit       *QueryLineSystem
 	modelTurnCommitRequired bool
@@ -752,9 +751,6 @@ func (w *StepWriter) captureRootLLMRequestData(event stream.EventData) {
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
 		w.pendingSystemRef = completeSystemRef(systemRef)
 	}
-	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
-		w.pendingInputMessages = filterSystemAuditInputMessages(inputMessages)
-	}
 }
 
 func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, inner map[string]any) {
@@ -798,9 +794,6 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 	}
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
 		buffer.pendingSystemRef = completeSystemRef(systemRef)
-	}
-	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
-		buffer.pendingInputMessages = filterSystemAuditInputMessages(inputMessages)
 	}
 }
 
@@ -871,7 +864,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingEstimated = 0
 		w.pendingModelKey = ""
 		w.pendingReasoningEffort = ""
-		w.pendingInputMessages = nil
 		w.pendingSystemRef = nil
 		w.pendingSources = nil
 		return
@@ -910,9 +902,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	}
 	if systemRef := completeSystemRef(w.pendingSystemRef); len(systemRef) > 0 {
 		line.SystemRef = systemRef
-	}
-	if len(w.pendingInputMessages) > 0 {
-		line.InputMessages = cloneMessageMaps(w.pendingInputMessages)
 	}
 	if w.pendingUsage != nil || w.pendingContextWindowMax > 0 || w.pendingContextCurrent > 0 || w.pendingEstimated > 0 {
 		if cw := buildContextWindow(w.pendingContextWindowMax, w.pendingContextCurrent, w.pendingEstimated); len(cw) > 0 {
@@ -963,7 +952,6 @@ func (w *StepWriter) clearCurrentStep() {
 	w.pendingEstimated = 0
 	w.pendingModelKey = ""
 	w.pendingReasoningEffort = ""
-	w.pendingInputMessages = nil
 	w.pendingSystemRef = nil
 	w.pendingArtifacts = nil
 	w.pendingSources = nil

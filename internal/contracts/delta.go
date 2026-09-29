@@ -344,7 +344,6 @@ type DeltaLLMRequest struct {
 	SystemRef       map[string]any
 	ToolChoice      string
 	RequestOptions  map[string]any
-	InputMessages   []map[string]any
 }
 
 func (DeltaLLMRequest) agentDeltaTag() {}

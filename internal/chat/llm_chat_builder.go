@@ -62,9 +62,6 @@ func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOpt
 	}
 
 	messages := llmRequestMessagesFromJSONLLines(prefix)
-	if inputMessages := messageMapsFromAny(target["inputMessages"]); len(inputMessages) > 0 {
-		messages = append(messages, inputMessages...)
-	}
 
 	systemMessage, tools, systemRef, profile, err := resolveLLMChatSystem(target, systemCache)
 	if err != nil {

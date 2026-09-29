@@ -26,7 +26,6 @@ type taskStepBuffer struct {
 	pendingEstimated        int
 	pendingModelKey         string
 	pendingReasoningEffort  string
-	pendingInputMessages    []map[string]any
 	modelTurnCommitRequired bool
 	modelTurnCommitted      bool
 	modelTurnRunSeq         int
@@ -96,9 +95,6 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	if systemRef := completeSystemRef(buffer.pendingSystemRef); len(systemRef) > 0 {
 		line.SystemRef = systemRef
 	}
-	if len(buffer.pendingInputMessages) > 0 {
-		line.InputMessages = cloneMessageMaps(buffer.pendingInputMessages)
-	}
 	if buffer.pendingUsage != nil || buffer.pendingContextWindowMax > 0 || buffer.pendingContextCurrent > 0 || buffer.pendingEstimated > 0 {
 		if cw := buildContextWindow(buffer.pendingContextWindowMax, buffer.pendingContextCurrent, buffer.pendingEstimated); len(cw) > 0 {
 			line.ContextWindow = cw
@@ -136,7 +132,6 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer.pendingEstimated = 0
 	buffer.pendingModelKey = ""
 	buffer.pendingReasoningEffort = ""
-	buffer.pendingInputMessages = nil
 	buffer.pendingSystemRef = nil
 	buffer.modelTurnCommitRequired = false
 	buffer.modelTurnCommitted = false
@@ -160,7 +155,6 @@ func (buffer *taskStepBuffer) clearModelTurn() {
 	buffer.pendingEstimated = 0
 	buffer.pendingModelKey = ""
 	buffer.pendingReasoningEffort = ""
-	buffer.pendingInputMessages = nil
 	buffer.pendingSystemRef = nil
 	buffer.modelTurnCommitRequired = false
 	buffer.modelTurnCommitted = false
