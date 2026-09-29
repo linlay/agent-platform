@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"log"
 	"mime"
 	"net/http"
 	"strconv"
@@ -49,13 +50,15 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	var attachments []conversationexport.AttachmentV1
 	if format == chatSnapshotExportFormat {
 		reader, ok := s.deps.Chats.(publishedArtifactReader)
-		if !ok {
-			err = fmt.Errorf("chat store does not expose published artifacts")
-		} else {
-			var items []chat.ArtifactManifestItem
-			items, err = reader.PublishedArtifacts(chatID)
-			if err == nil {
-				attachments, err = conversationexport.BuildSnapshotAttachments(chatID, items)
+		if ok {
+			if items, readErr := reader.PublishedArtifacts(chatID); readErr == nil {
+				var skipped int
+				attachments, skipped = conversationexport.BuildSnapshotAttachments(chatID, items)
+				if skipped > 0 {
+					log.Printf("[chat] snapshot omitted %d invalid artifacts chatId=%s", skipped, chatID)
+				}
+			} else {
+				log.Printf("[chat] snapshot artifact manifest unavailable chatId=%s: %v", chatID, readErr)
 			}
 		}
 		contentType = "application/json; charset=utf-8"

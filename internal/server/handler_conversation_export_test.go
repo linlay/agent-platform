@@ -5,6 +5,8 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -109,6 +111,31 @@ func TestHandleChatExportMapsManifestWithoutReadingArtifactFile(t *testing.T) {
 	}
 	if len(document.Snapshot.Attachments) != 0 {
 		t.Fatalf("markdown snapshot attachments=%#v", document.Snapshot.Attachments)
+	}
+}
+
+func TestHandleChatExportKeepsBodyWhenManifestIsUnreadable(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID = "chat-snapshot-bad-manifest"
+	seedCompletedConversationExport(t, fixture, chatID)
+	path := filepath.Join(fixture.chats.ChatDir(chatID), chat.ToolRootDirName, chat.ArtifactManifestFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?chatId="+chatID+"&format=snapshot", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var snapshot conversationexport.SnapshotV1
+	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Title != "rollback plan" || len(snapshot.Turns) != 1 || len(snapshot.Attachments) != 0 {
+		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
 }
 
