@@ -101,6 +101,7 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 			UpdatedAt:      item.UpdatedAt,
 			LastRunID:      item.LastRunID,
 			LastRunContent: item.LastRunContent,
+			CanContinue:    item.CanContinue,
 			Read:           toAPIReadState(item.Read),
 		}
 		resp.Awaiting = toAPIAwaiting(item.PendingAwaiting)
@@ -178,6 +179,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 		UpdatedAt:      summary.UpdatedAt,
 		LastRunID:      summary.LastRunID,
 		LastRunContent: summary.LastRunContent,
+		CanContinue:    summary.CanContinue,
 		Read:           toAPIReadState(summary.Read),
 		Source:         summary.Source,
 		Awaiting:       toAPIAwaiting(summary.PendingAwaiting),
@@ -220,6 +222,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 		}
 		if ok {
 			response.ActiveRun = toAPIActiveRunInfo(activeRun)
+			response.CanContinue = false
 			if query, queryErr := s.deps.Chats.LoadRunQuery(chatID, activeRun.RunID); queryErr == nil {
 				response.ActiveRun.PlanningMode = activeRunInPlanningStage(activeRun.RunID, query, response.Events, summary)
 			}

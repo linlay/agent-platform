@@ -436,6 +436,11 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if gateErr := s.AwaitingQueryGateError(chatID, existingSummary); gateErr != nil {
 		return queryAdmission{}, gateErr
 	}
+	if requireMessage && strings.TrimSpace(req.Message) == "" && len(req.References) == 0 &&
+		(existingSummary == nil || !existingSummary.CanContinue) {
+		return queryAdmission{}, &statusError{Status: 400, Code: "empty_query_not_allowed", Message: "empty query requires the last run to have failed or been canceled"}
+	}
+
 	teamID, agentKey, teamSnapshot, teamErr := ResolveQueryTeam(
 		s.deps.Registry,
 		req.TeamID,

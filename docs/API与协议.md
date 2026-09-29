@@ -1205,7 +1205,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 ### 附件 steer
 
-`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，也允许完全空白表示继续；空 query 的 message 保持为空，仅模型输入补充英文继续指令，steer 仍禁止完全空白。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，仅最后一次主 Run 明确异常结束或取消后允许完全空白表示继续；空 query 的 message 保持为空，仅模型输入补充英文继续指令，steer 仍禁止完全空白。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
 
 普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
@@ -1273,6 +1273,8 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 
 主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；run_query 工具入口仍要求文字。
+
+完全空 query 额外要求服务端 `canContinue:true`。`/api/chat` 与 `/api/chats` 返回该布尔值，由最后一次持久化主 Run 计算：只允许已结束的 `error/cancel`，兼容 `cancelled/canceled/interrupted`；正常完成、未知终态、新 Run 已启动但尚未结束、等待人工交互以及无历史均为 false。不能回退到更早一次失败或取消，也不因浏览器断线推断异常中断。已有历史但不满足该条件时返回 HTTP 400、`empty_query_not_allowed`。原始 message 保持为空，模型输入补充 `Continue based on the current conversation context.`，纯附件 query 不受该额外限制。
 
 
 ### HITL 提交与创建通道分离

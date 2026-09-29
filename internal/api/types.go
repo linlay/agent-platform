@@ -1169,6 +1169,7 @@ type ToolSummary struct {
 type ToolDetailResponse = queryinput.ToolDefinition
 
 type ChatSummaryResponse struct {
+	CanContinue    bool           `json:"canContinue"`
 	Pinned         bool           `json:"pinned"`
 	ChatID         string         `json:"chatId"`
 	ChatName       string         `json:"chatName"`
@@ -1284,6 +1285,7 @@ type MarkChatReadResponse struct {
 }
 
 type ChatDetailResponse struct {
+	CanContinue    bool                `json:"canContinue"`
 	Pinned         bool                `json:"pinned"`
 	ChatID         string              `json:"chatId"`
 	ChatName       string              `json:"chatName"`

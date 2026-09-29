@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/querymessages"
 	"agent-platform/internal/ws"
@@ -65,6 +66,13 @@ func TestReferenceOnlyQueryRequiresMainHistory(t *testing.T) {
 		if err := admit(refs); err == nil {
 			t.Fatalf("empty/unsupported references accepted: %#v", refs)
 		}
+	}
+
+	if err := admit(nil); err == nil {
+		t.Fatal("empty query accepted after normal completion")
+	}
+	if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{ChatID: chatID, RunID: "failed-run", AgentKey: "mock-agent", FinishReason: "error", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
 	}
 	if err := admit(nil); err != nil {
 		t.Fatalf("empty follow-up rejected: %v", err)
@@ -131,6 +139,12 @@ func TestReferenceOnlyFollowupQueryWebSocket(t *testing.T) {
 		{"chatId": "ws-followup", "agentKey": "mock-agent"},
 		{"chatId": "ws-followup", "agentKey": "mock-agent", "message": "", "references": []api.Reference{{Type: "selection", Text: "quote"}}},
 	} {
+
+		if i == 1 {
+			if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{ChatID: "ws-followup", RunID: "canceled-run", AgentKey: "mock-agent", FinishReason: "cancel", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+				t.Fatal(err)
+			}
+		}
 		sendSelectionLaneRequest(t, conn, "query", "/api/query", payload)
 		complete := false
 		for {
@@ -148,5 +162,47 @@ func TestReferenceOnlyFollowupQueryWebSocket(t *testing.T) {
 		if !complete {
 			t.Fatalf("query %d did not complete", i)
 		}
+	}
+}
+
+func TestEmptyQueryRequiresFailedOrCanceledLastRun(t *testing.T) {
+	for _, reason := range []string{"complete", "error", "cancel", "cancelled", "canceled", "interrupted", "unknown"} {
+		t.Run(reason, func(t *testing.T) {
+			fixture := newTestFixture(t)
+			const chatID = "terminal-query"
+			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "start"); err != nil {
+				t.Fatal(err)
+			}
+			if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{ChatID: chatID, RunID: "run-last", AgentKey: "mock-agent", FinishReason: reason, UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+				t.Fatal(err)
+			}
+			want := reason != "complete" && reason != "unknown"
+			for _, path := range []string{"/api/chats", "/api/chat?chatId=" + chatID} {
+				rec := httptest.NewRecorder()
+				fixture.server.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+				if rec.Code != 200 || !strings.Contains(rec.Body.String(), fmt.Sprintf(`"canContinue":%t`, want)) {
+					t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
+				}
+			}
+
+			if !want {
+				rec := httptest.NewRecorder()
+				fixture.server.ServeHTTP(rec, httptest.NewRequest("POST", "/api/query", strings.NewReader(`{"chatId":"terminal-query","agentKey":"mock-agent"}`)))
+				if rec.Code != 400 {
+					t.Fatalf("empty HTTP query status=%d: %s", rec.Code, rec.Body.String())
+				}
+			}
+			prepared, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), api.QueryRequest{ChatID: chatID, AgentKey: "mock-agent"}, true, i18n.DefaultLocale, "http://example.com")
+			releaseQuery(prepared.Release)
+			if want && err != nil {
+				t.Fatal(err)
+			}
+			if !want {
+				var statusErr *statusError
+				if !errors.As(err, &statusErr) || statusErr.Status != 400 || statusErr.Code != "empty_query_not_allowed" {
+					t.Fatalf("unexpected rejection: %v", err)
+				}
+			}
+		})
 	}
 }

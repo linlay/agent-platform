@@ -228,6 +228,7 @@ func (s *Server) mapChatSummariesWithActiveRuns(items []chat.Summary, includeUsa
 		}
 		if ok {
 			response[i].ActiveRun = toAPIActiveRunInfo(activeRun)
+			response[i].CanContinue = false
 		}
 	}
 	return response, nil

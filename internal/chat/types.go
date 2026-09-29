@@ -322,6 +322,8 @@ type StoredFunction struct {
 // ---------------------------------------------------------------------------
 
 type Summary struct {
+	// CanContinue permits an empty query only after the latest persisted root run failed or was canceled.
+	CanContinue   bool   `json:"canContinue"`
 	Pinned        bool   `json:"pinned"`
 	ChatID        string `json:"chatId"`
 	ChatName      string `json:"chatName"`
