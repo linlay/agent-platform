@@ -14,6 +14,8 @@ import (
 	"agent-platform/internal/rootpaths"
 )
 
+const EmptyQueryContinuation = "Continue based on the current conversation context."
+
 const advancedUserPromptSchema = "agent_platform.user_prompt.v1"
 const advancedUserPromptOpenTag = `<advanced_user_prompt schema="` + advancedUserPromptSchema + `">`
 
@@ -34,6 +36,9 @@ type BuildOptions struct {
 }
 
 func BuildMessagesWithOptions(chatsDir string, chatID string, role string, text string, references []api.Reference, isVision bool, logMedia bool, options BuildOptions) []map[string]any {
+	if strings.TrimSpace(text) == "" && len(references) == 0 {
+		text = EmptyQueryContinuation
+	}
 	providerRole, providerText := api.ProviderSafeQueryMessage(role, text)
 	options.Role = providerRole
 	options.AdvancedUserPrompt = options.AdvancedUserPrompt && providerRole == api.QueryRoleUser

@@ -251,3 +251,17 @@ func TestAdvancedSelectionShortIDAndAnnotation(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestEmptyQueryContinuation(t *testing.T) {
+	for _, advanced := range []bool{false, true} {
+		messages := BuildMessagesWithOptions("", "chat", "user", " \n", nil, false, false, BuildOptions{AdvancedUserPrompt: advanced})
+		if messages[0]["role"] != "user" || !strings.Contains(messages[0]["content"].(string), EmptyQueryContinuation) {
+			t.Fatalf("empty continuation: %#v", messages)
+		}
+		refs := []api.Reference{{Type: "selection", Text: "quote"}}
+		messages = BuildMessagesWithOptions("", "chat", "user", "", refs, false, false, BuildOptions{AdvancedUserPrompt: advanced})
+		if strings.Contains(messages[0]["content"].(string), EmptyQueryContinuation) {
+			t.Fatalf("reference-only query must not imply continuation: %#v", messages)
+		}
+	}
+}

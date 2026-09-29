@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/querymessages"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -33,6 +35,9 @@ func TestReferenceOnlyQueryRequiresMainHistory(t *testing.T) {
 			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", ""); err != nil {
 				t.Fatal(err)
 			}
+		}
+		if err := admit(nil); err == nil {
+			t.Fatal("empty first query accepted")
 		}
 		err := admit(selection)
 		var statusErr *statusError
@@ -56,11 +61,33 @@ func TestReferenceOnlyQueryRequiresMainHistory(t *testing.T) {
 	if err := admit(selection); err != nil {
 		t.Fatalf("follow-up rejected: %v", err)
 	}
-	for _, refs := range [][]api.Reference{nil, {{Type: "file"}}, {{Type: "selection", Text: " "}}, {{Type: "site", URL: "https://example.com"}}} {
+	for _, refs := range [][]api.Reference{{{Type: "file"}}, {{Type: "selection", Text: " "}}, {{Type: "site", URL: "https://example.com"}}} {
 		if err := admit(refs); err == nil {
 			t.Fatalf("empty/unsupported references accepted: %#v", refs)
 		}
 	}
+	if err := admit(nil); err != nil {
+		t.Fatalf("empty follow-up rejected: %v", err)
+	}
+
+	emptyBody := post(api.QueryRequest{ChatID: chatID, AgentKey: "mock-agent"})
+	if strings.Contains(emptyBody, querymessages.EmptyQueryContinuation) {
+		t.Fatal("synthetic instruction leaked into query events")
+	}
+	raw, err := fixture.chats.LoadRawMessages(chatID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundContinuation := false
+	for _, message := range raw {
+		if message["role"] == "user" && strings.Contains(fmt.Sprint(message["content"]), querymessages.EmptyQueryContinuation) {
+			foundContinuation = true
+		}
+	}
+	if !foundContinuation {
+		t.Fatalf("continuation missing from model history: %#v", raw)
+	}
+
 	body := post(api.QueryRequest{ChatID: chatID, AgentKey: "mock-agent", References: selection})
 	if !strings.Contains(body, "selected passage") {
 		t.Fatalf("missing reference: %s", body)
@@ -101,6 +128,7 @@ func TestReferenceOnlyFollowupQueryWebSocket(t *testing.T) {
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	for i, payload := range []map[string]any{
 		{"chatId": "ws-followup", "agentKey": "mock-agent", "message": "start"},
+		{"chatId": "ws-followup", "agentKey": "mock-agent"},
 		{"chatId": "ws-followup", "agentKey": "mock-agent", "message": "", "references": []api.Reference{{Type: "selection", Text: "quote"}}},
 	} {
 		sendSelectionLaneRequest(t, conn, "query", "/api/query", payload)

@@ -351,7 +351,7 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	locale string,
 	resourceBaseURL string,
 ) (result queryAdmission, resultErr error) {
-	if requireMessage && strings.TrimSpace(req.Message) == "" && !hasQueryReferenceContent(req.References) {
+	if requireMessage && strings.TrimSpace(req.Message) == "" && len(req.References) > 0 && !hasQueryReferenceContent(req.References) {
 		return queryAdmission{}, &statusError{Status: 400, Message: "message is required"}
 	}
 	if role, ok := normalizeQueryRole(req.Role); ok {
