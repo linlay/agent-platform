@@ -210,7 +210,9 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 	if err != nil {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
-			return desktopActionErrorResult(toolName+"_client_timeout", "client request timed out", nil), nil
+			return desktopActionErrorResult(toolName+"_client_timeout", "tool call timed out while waiting for the client; execution outcome is unknown", map[string]any{"category": "timeout", "stage": "transport", "executionState": "unknown"}), nil
+		case errors.Is(err, context.Canceled):
+			return desktopActionErrorResult(toolName+"_client_cancelled", "client request was cancelled; execution outcome is unknown", map[string]any{"executionState": "unknown"}), nil
 		case errors.Is(err, ErrClientTargetUnavailable):
 			if unavailableReason == "" {
 				unavailableReason = "target_connection_unavailable"

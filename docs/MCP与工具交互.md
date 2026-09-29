@@ -210,3 +210,7 @@ Platform 对 WebApp init、validate、build 和 install 的指定路径字段复
 Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surface。`desktop_cdp` 以 Surface.list / Surface.getCurrent 发现网页，所有 CDP 页面操作只使用 surfaceId，不暴露另一个目标 ID 或 session selector。Surface.open/close/getState/goBack 是 Desktop 方法，其余受限 Chromium 方法仍由 Desktop 定位到精确 webContents 后执行。导航和刷新保留身份，关闭重开使旧身份失效。
 
 普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
+
+### Desktop 确认期限与取消
+
+反向 request 的可选顶层 `deadlineAt` 是 Platform 从实际工具 context 截止时间生成的 epoch milliseconds，不接受模型参数声明。Desktop 确认队列从入队开始计时，包括尚未展示的请求；确认期限不能超过工具剩余期限，并为执行与返回预留时间。Platform 到期或取消仍发送 `desktop.bridge.cancel`，Desktop 必须终止尚未执行的确认并关闭对应弹窗，不能在迟到确认后继续执行。已经执行的副作用不因取消而被视为回滚。Desktop 确认超时、用户取消、窗口不可用的错误原因通过既有诊断位置透传；Platform 自身工具超时和取消保持独立错误。

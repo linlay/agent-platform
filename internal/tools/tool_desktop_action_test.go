@@ -1879,3 +1879,47 @@ func newDesktopTestExecutor(actionURL string, cdpURL string) *RuntimeToolExecuto
 		clientTargets: emptyRunClientTargetStore{},
 	}
 }
+
+func TestDesktopConfirmationErrorsRemainDistinct(t *testing.T) {
+	for _, tc := range []struct {
+		kind     string
+		status   int
+		category string
+	}{
+		{"confirmation_timeout", 504, "timeout"},
+		{"user_cancelled", 403, "authorization"},
+		{"confirmation_unavailable", 503, "unavailable"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			data, _ := json.Marshal(map[string]any{"action": "desktop.theme.set", "details": map[string]any{"category": tc.category, "stage": "confirmation", "executionState": "not_started"}})
+			invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{Frame: "error", Type: tc.kind, ID: "confirmation-test", Code: &tc.status, Msg: tc.kind, Data: data}}}
+			executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
+			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{"requestId": "confirmation-test", "action": "desktop.theme.set", "args": map[string]any{"themeMode": "dark"}}, desktopActionTestExecutionContext())
+			if err != nil || result.Error != "desktop_action_client_rejected" {
+				t.Fatalf("unexpected result: %#v %v", result, err)
+			}
+			var output map[string]any
+			if err := json.Unmarshal([]byte(result.Output), &output); err != nil {
+				t.Fatal(err)
+			}
+			details := output["details"].(map[string]any)
+			if details["clientErrorType"] != tc.kind || details["category"] != tc.category || details["executionState"] != "not_started" {
+				t.Fatalf("lost confirmation diagnostics: %#v", details)
+			}
+		})
+	}
+}
+
+func TestDesktopTransportTimeoutAndCancellationRemainDistinct(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+	}{{context.DeadlineExceeded, "desktop_action_client_timeout"}, {context.Canceled, "desktop_action_client_cancelled"}} {
+		invoker := &scriptedClientRequestInvoker{err: tc.err}
+		executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
+		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{"action": "desktop.theme.set", "args": map[string]any{"themeMode": "dark"}}, desktopActionTestExecutionContext())
+		if err != nil || result.Error != tc.code {
+			t.Fatalf("expected %s, got %#v %v", tc.code, result, err)
+		}
+	}
+}

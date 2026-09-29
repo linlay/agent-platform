@@ -18,11 +18,12 @@ const (
 )
 
 type RequestFrame struct {
-	Frame   string                         `json:"frame"`
-	Type    string                         `json:"type"`
-	ID      string                         `json:"id"`
-	Source  *contracts.ClientRequestSource `json:"source,omitempty"`
-	Payload json.RawMessage                `json:"payload,omitempty"`
+	DeadlineAt int64                          `json:"deadlineAt,omitempty"`
+	Frame      string                         `json:"frame"`
+	Type       string                         `json:"type"`
+	ID         string                         `json:"id"`
+	Source     *contracts.ClientRequestSource `json:"source,omitempty"`
+	Payload    json.RawMessage                `json:"payload,omitempty"`
 }
 
 type ResponseFrame struct {

@@ -87,6 +87,10 @@ func TestHubInvokeClientRequestTimeoutCancelsOnceAndDiscardsLateFrame(t *testing
 	if err := client.ReadJSON(&request); err != nil {
 		t.Fatalf("read reverse request: %v", err)
 	}
+	deadline, _ := ctx.Deadline()
+	if request.DeadlineAt != deadline.UnixMilli() {
+		t.Fatalf("expected trusted context deadline %d, got %d", deadline.UnixMilli(), request.DeadlineAt)
+	}
 	var cancelFrame PushFrame
 	if err := client.ReadJSON(&cancelFrame); err != nil {
 		t.Fatalf("read cancellation push: %v", err)

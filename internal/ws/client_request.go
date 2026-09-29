@@ -26,12 +26,18 @@ func (h *Hub) InvokeClientRequest(
 	if err != nil {
 		return err
 	}
+	// Propagate the actual tool/Run deadline, never a model-supplied payload value.
+	var deadlineAt int64
+	if deadline, ok := ctx.Deadline(); ok {
+		deadlineAt = deadline.UnixMilli()
+	}
 	frames, cleanup, err := conn.OpenOutboundRequest(RequestFrame{
-		Frame:   FrameRequest,
-		Type:    request.Type,
-		ID:      request.ID,
-		Source:  request.Source,
-		Payload: payload,
+		DeadlineAt: deadlineAt,
+		Frame:      FrameRequest,
+		Type:       request.Type,
+		ID:         request.ID,
+		Source:     request.Source,
+		Payload:    payload,
 	})
 	if err != nil {
 		if conn.isClosed() {
