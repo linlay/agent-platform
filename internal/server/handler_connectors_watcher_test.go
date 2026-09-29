@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -28,12 +27,10 @@ func TestConnectorMutationsWithActiveWatcher(t *testing.T) {
 	if err := os.WriteFile(nested, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	reloader := f.catalogReloader.(*reload.RuntimeCatalogReloader)
 	counter := &catalogReloadCounter{}
 	reloader.AddObserver(counter)
-	reload.StartBackgroundReloaders(ctx, f.cfg, reloader)
+	startTestBackgroundReloaders(t, f.cfg, reloader)
 	upload := func(id string, overwrite bool) {
 		t.Helper()
 		archive := serverSkillImportZIP(t, map[string]string{
