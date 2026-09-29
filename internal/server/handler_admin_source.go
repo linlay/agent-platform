@@ -95,7 +95,7 @@ func normalizeAdminSourceTarget(target api.AdminSourceTarget) (api.AdminSourceTa
 	target.File = strings.TrimSpace(target.File)
 
 	switch target.Type {
-	case "agent", "automation":
+	case "agent", "automation", "skill-package":
 		if target.Key == "" {
 			return api.AdminSourceTarget{}, fmt.Errorf("key is required for %s source", target.Type)
 		}
@@ -128,6 +128,8 @@ func (s *Server) readAdminSource(target api.AdminSourceTarget) (api.AdminSourceR
 		return s.readAdminAgentTextSource(target)
 	case "skill":
 		return s.readAdminSkillTextSource(target)
+	case "skill-package":
+		return s.readAdminSkillPackageTextSource(target)
 	case "automation":
 		return s.readAdminAutomationTextSource(target)
 	case "registry":
@@ -143,6 +145,8 @@ func (s *Server) writeAdminSource(ctx context.Context, target api.AdminSourceTar
 		return s.writeAdminAgentTextSource(ctx, target, content, baseSHA256)
 	case "skill":
 		return s.writeAdminSkillTextSource(ctx, target, content, baseSHA256)
+	case "skill-package":
+		return s.writeAdminSkillPackageTextSource(ctx, target, content, baseSHA256)
 	case "automation":
 		return s.writeAdminAutomationTextSource(target, content, baseSHA256)
 	case "registry":

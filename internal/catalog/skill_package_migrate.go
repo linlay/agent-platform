@@ -100,6 +100,7 @@ func (r *FileRegistry) BeginMigrateLegacySkillPackage(id string) (*EditableSkill
 	if err := os.Mkdir(candidate, 0o755); err != nil {
 		return nil, err
 	}
+	members := []SkillPackageMember{}
 	for _, child := range record.Skills {
 		if err := ValidateSkillPackageID(child.ID); err != nil {
 			return nil, err
@@ -110,11 +111,12 @@ func (r *FileRegistry) BeginMigrateLegacySkillPackage(id string) (*EditableSkill
 		} else if err != nil {
 			return nil, err
 		}
+		members = append(members, SkillPackageMember{Key: child.ID})
 		if err := copyRuntimePath(source, filepath.Join(candidate, child.ID)); err != nil {
 			return nil, err
 		}
 	}
-	manifest := SkillPackageMetadata{Name: id, DisplayName: record.Name, Version: record.Version}
+	manifest := SkillPackageMetadata{Name: id, DisplayName: record.Name, Version: record.Version, Skills: members}
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return nil, err

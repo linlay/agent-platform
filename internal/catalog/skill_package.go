@@ -397,7 +397,7 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackageSkill(packageID, skillID s
 			r.skillPackageMu.Unlock()
 		}
 	}()
-	record, _, exists, err := readSkillPackageRecord(root, packageID)
+	record, original, exists, err := readSkillPackageRecord(root, packageID)
 	if err != nil {
 		return nil, SkillPackageRecord{}, false, err
 	}
@@ -423,11 +423,31 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackageSkill(packageID, skillID s
 	if err != nil {
 		return nil, SkillPackageRecord{}, false, err
 	}
-	m := &EditableSkillPackageMutation{root: root, backupRoot: backup, unlock: r.skillPackageMu.Unlock}
+	m := &EditableSkillPackageMutation{root: root, backupRoot: backup, unlock: r.skillPackageMu.Unlock,
+		recordPath: filepath.Join(root, packageID, "package.json"), oldRecord: original, oldRecordExists: true}
 	owned = true
-	if err := m.backupSkill(key); err != nil {
+	if err := m.backupSkill(key); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, SkillPackageRecord{}, false, errors.Join(err, m.Rollback())
 	}
+	manifest, err := parseSkillPackageMetadata(original)
+	if err != nil {
+		return nil, SkillPackageRecord{}, false, errors.Join(err, m.Rollback())
+	}
+	members := make([]SkillPackageMember, 0, len(manifest.Skills))
+	for _, member := range manifest.Skills {
+		if member.Key != name {
+			members = append(members, member)
+		}
+	}
+	manifest.Skills = members
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err == nil {
+		err = writeSkillPackageRecordFile(m.recordPath, append(data, '\n'))
+	}
+	if err != nil {
+		return nil, SkillPackageRecord{}, false, errors.Join(err, m.Rollback())
+	}
+	m.recordChanged = true
 	record.Skills = remaining
 	return m, record, false, nil
 }

@@ -30,12 +30,12 @@ func nestedPackageZIP(t *testing.T, files map[string]string) []byte {
 	}
 	return b.Bytes()
 }
-func TestNestedPackageMinimalManifestAndScannedMembers(t *testing.T) {
+func TestNestedPackageMinimalManifestAndDeclaredMembers(t *testing.T) {
 	for _, prefix := range []string{"", "wrapper/"} {
 		t.Run(prefix, func(t *testing.T) {
 			root := t.TempDir()
 			r := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
-			data := nestedPackageZIP(t, map[string]string{prefix + "package.json": `{"name":"suite","skills":[{"name":"nonexistent"}]}`, prefix + "calendar/SKILL.md": "---\nname: calendar\ndisplayName: Calendar\n---\nCalendar instructions", prefix + "docs/readme.md": "support file", prefix + "docs/subskill/SKILL.md": "Not a direct child"})
+			data := nestedPackageZIP(t, map[string]string{prefix + "package.json": `{"name":"suite","skills":[{"key":"calendar"}]}`, prefix + "calendar/SKILL.md": "---\nname: calendar\ndisplayName: Calendar\n---\nCalendar instructions", prefix + "docs/readme.md": "support file", prefix + "docs/subskill/SKILL.md": "Not a direct child"})
 			id, version, isPackage, e := DetectSkillPackageArchive(bytes.NewReader(data), int64(len(data)))
 			if e != nil || !isPackage || id != "suite" || version != "" {
 				t.Fatalf("detect %s %s %v %v", id, version, isPackage, e)
@@ -58,10 +58,10 @@ func TestNestedPackageMinimalManifestAndScannedMembers(t *testing.T) {
 			if e := json.Unmarshal(raw, &m); e != nil {
 				t.Fatal(e)
 			}
-			if _, ok := m["skills"]; ok {
-				t.Fatal("persisted member list")
+			if got := m["skills"].([]any); len(got) != 1 || got[0].(map[string]any)["key"] != "calendar" {
+				t.Fatalf("members=%v", got)
 			}
-			if len(m) != 1 {
+			if len(m) != 2 {
 				t.Fatalf("manufactured metadata %s", raw)
 			}
 		})
@@ -79,7 +79,7 @@ func TestNestedPackageUpdateIsolationAndRollback(t *testing.T) {
 	}
 	install := func(content string) *EditableSkillPackageMutation {
 		t.Helper()
-		data := nestedPackageZIP(t, map[string]string{"package.json": `{"name":"suite"}`, "same/SKILL.md": "---\nname: same\n---\n" + content})
+		data := nestedPackageZIP(t, map[string]string{"package.json": `{"name":"suite","skills":[{"key":"same"}]}`, "same/SKILL.md": "---\nname: same\n---\n" + content})
 		m, _, e := r.BeginImportEditableSkillPackageArchive("suite", "", bytes.NewReader(data), int64(len(data)))
 		if e != nil {
 			t.Fatal(e)
@@ -121,17 +121,17 @@ func TestNestedPackageManifestEditingCASAndRollback(t *testing.T) {
 	if e := os.Mkdir(filepath.Join(root, "suite"), 0o755); e != nil {
 		t.Fatal(e)
 	}
-	if e := os.WriteFile(filepath.Join(root, "suite", "package.json"), []byte(`{"name":"suite"}`), 0o644); e != nil {
+	if e := os.WriteFile(filepath.Join(root, "suite", "package.json"), []byte(`{"name":"suite","skills":[]}`), 0o644); e != nil {
 		t.Fatal(e)
 	}
 	old, e := r.ReadEditableSkillPackageManifest("suite")
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, _, e := r.BeginUpdateEditableSkillPackageManifest("suite", `{"name":"suite"}`, "stale"); !errors.Is(e, ErrSkillConflict) {
+	if _, _, e := r.BeginUpdateEditableSkillPackageManifest("suite", `{"name":"suite","skills":[]}`, "stale"); !errors.Is(e, ErrSkillConflict) {
 		t.Fatalf("stale accepted %v", e)
 	}
-	m, record, e := r.BeginUpdateEditableSkillPackageManifest("suite", `{"name":"suite","displayName":"Suite","metadata":{"revision":"r1"}}`, old.SHA256)
+	m, record, e := r.BeginUpdateEditableSkillPackageManifest("suite", `{"name":"suite","skills":[],"displayName":"Suite","metadata":{"revision":"r1"}}`, old.SHA256)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -203,7 +203,7 @@ func TestNestedPackageRejectsInvalidIdentityAndSymlinks(t *testing.T) {
 	}
 	root := t.TempDir()
 	outside := t.TempDir()
-	if e := os.WriteFile(filepath.Join(outside, "package.json"), []byte(`{"name":"suite"}`), 0o644); e != nil {
+	if e := os.WriteFile(filepath.Join(outside, "package.json"), []byte(`{"name":"suite","skills":[]}`), 0o644); e != nil {
 		t.Fatal(e)
 	}
 	if e := os.Symlink(outside, filepath.Join(root, "suite")); e != nil {

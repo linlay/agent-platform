@@ -179,6 +179,13 @@ func (r *FileRegistry) BeginDeleteEditableSkill(key string) (*EditableSkillDelet
 	if err := ValidateEditableSkillKey(key); err != nil {
 		return nil, err
 	}
+	if packageID, _, nested := strings.Cut(key, "/"); nested {
+		mutation, _, _, err := r.BeginDeleteEditableSkillPackageSkill(packageID, key)
+		if err != nil {
+			return nil, err
+		}
+		return &EditableSkillDeleteMutation{mutation}, nil
+	}
 	r.skillPackageMu.Lock()
 	owned := false
 	defer func() {

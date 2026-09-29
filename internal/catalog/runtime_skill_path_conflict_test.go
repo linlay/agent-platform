@@ -23,7 +23,7 @@ func TestRuntimeSkillPathConflictPreservesPublishedAgent(t *testing.T) {
 				writeRuntimeAssemblerSkill(t, private, "Private suite")
 				writeRuntimeAssemblerSkill(t, filepath.Join(private, "demo"), "Private nested resource")
 				writeRuntimeAssemblerFile(t, filepath.Join(private, "demo", "README.md"), "private resource")
-				writeRuntimeAssemblerFile(t, filepath.Join(center, "suite", "package.json"), `{"name":"suite"}`)
+				writeRuntimeAssemblerFile(t, filepath.Join(center, "suite", "package.json"), `{"name":"suite","skills":[{"key":"demo"},{"key":"other"}]}`)
 				writeRuntimeAssemblerSkill(t, filepath.Join(center, "suite", "demo"), "Shared demo")
 				writeRuntimeAssemblerFile(t, filepath.Join(center, "suite", "demo", "README.md"), "shared resource")
 				writeRuntimeAssemblerAgent(t, agentsDir, "writer", []string{standalone})
@@ -74,7 +74,7 @@ func TestRuntimeSkillPathsAllowStandaloneAndPackageMembers(t *testing.T) {
 		t.Run(strings.Join(keys, ","), func(t *testing.T) {
 			root := t.TempDir()
 			agentsDir, center := filepath.Join(root, "agents"), filepath.Join(root, "skills-center")
-			writeRuntimeAssemblerFile(t, filepath.Join(center, "suite", "package.json"), `{"name":"suite"}`)
+			writeRuntimeAssemblerFile(t, filepath.Join(center, "suite", "package.json"), `{"name":"suite","skills":[{"key":"demo"},{"key":"other"}]}`)
 			for _, key := range keys {
 				writeRuntimeAssemblerSkill(t, filepath.Join(center, filepath.FromSlash(key)), key)
 			}

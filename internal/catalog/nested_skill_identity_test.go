@@ -15,7 +15,7 @@ import (
 func nestedSkillFixture(t *testing.T) (*FileRegistry, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "skills-center")
-	writeRuntimeAssemblerFile(t, filepath.Join(root, "suite", "package.json"), `{"name":"suite"}`)
+	writeRuntimeAssemblerFile(t, filepath.Join(root, "suite", "package.json"), `{"name":"suite","skills":[{"key":"demo"},{"key":"other"}]}`)
 	for key, body := range map[string]string{"demo": "Standalone", "suite/demo": "Packaged", "suite/other": "Other"} {
 		writeRuntimeAssemblerFile(t, filepath.Join(root, filepath.FromSlash(key), "SKILL.md"), "---\nname: "+filepath.Base(key)+"\ndescription: "+body+"\nversion: 1.0.0\n---\n"+body+"\n")
 	}

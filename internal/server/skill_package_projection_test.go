@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -21,7 +22,12 @@ func writeProjectionPackage(t *testing.T, fixture testFixture, ids ...string) {
 	if err := os.MkdirAll(root, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"office","displayName":"Office 工具"}`), 0644); err != nil {
+	members := make([]map[string]string, 0, len(ids))
+	for _, id := range ids {
+		members = append(members, map[string]string{"key": id})
+	}
+	manifest, _ := json.Marshal(map[string]any{"name": "office", "displayName": "Office 工具", "skills": members})
+	if err := os.WriteFile(filepath.Join(root, "package.json"), manifest, 0644); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range ids {
@@ -63,15 +69,15 @@ func TestSkillPackageProjectionTracksDiskAndPreservesOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	admin = getAPIData[[]api.AdminSkillPackageResponse](t, f.server, "GET", "/api/admin/skill-packages", nil)
-	if admin[0].Status != "ready" || len(admin[0].Skills) != 1 || len(admin[0].MissingSkillIDs) != 0 {
-		t.Fatalf("directory scan must remove absent members: %+v", admin)
+	if admin[0].Status != "incomplete" || len(admin[0].Skills) != 2 || !reflect.DeepEqual(admin[0].MissingSkillIDs, []string{"office/center-extra"}) {
+		t.Fatalf("declared missing members must remain diagnosable: %+v", admin)
 	}
 	chat = getAPIData[api.AgentSkillsResponse](t, f.server, "GET", "/api/skills", nil)
 	if len(chat.Packages[0].Skills) != 1 {
 		t.Fatalf("chat=%+v", chat)
 	}
 	data, err := os.ReadFile(filepath.Join(f.cfg.Paths.SkillsCenterDir, "office", "package.json"))
-	if err != nil || bytes.Contains(data, []byte(`"skills"`)) {
+	if err != nil || !bytes.Contains(data, []byte(`"skills"`)) {
 		t.Fatalf("listing wrote member metadata: %s %v", data, err)
 	}
 

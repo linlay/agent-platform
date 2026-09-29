@@ -60,9 +60,9 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 	return items, nil
 }
 
-// skillDirectoryKeys scans only a center root and the immediate members of
-// declared packages. Ordinary skill subdirectories (including sub-skills) are
-// resources, never implicit catalog entries.
+// skillDirectoryKeys scans the center root and follows declared package members.
+// Ordinary skill subdirectories (including sub-skills) are resources, never
+// implicit catalog entries.
 func skillDirectoryKeys(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -98,17 +98,14 @@ func skillDirectoryKeys(root string) ([]string, error) {
 			logInvalidSkillPackage(root, name, fmt.Errorf("%w: package name differs from directory", ErrInvalidSkillPath))
 			continue
 		}
-		members, err := os.ReadDir(dir)
-		if err != nil {
-			logInvalidSkillPackage(root, name, err)
-			continue
-		}
-		for _, member := range members {
-			if !isSkillCenterDirectory(member) {
+		for _, member := range manifest.Skills {
+			memberPath := filepath.Join(dir, member.Key, "SKILL.md")
+			if err := ensureNoSymlinkAlongExistingPath(root, memberPath); err != nil {
+				log.Printf("[catalog][skills] skip package member %s/%s: %v", name, member.Key, err)
 				continue
 			}
-			if info, err := os.Lstat(filepath.Join(dir, member.Name(), "SKILL.md")); err == nil && info.Mode().IsRegular() {
-				keys = append(keys, name+"/"+member.Name())
+			if info, err := os.Lstat(memberPath); err == nil && info.Mode().IsRegular() {
+				keys = append(keys, name+"/"+member.Key)
 			}
 		}
 	}

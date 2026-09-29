@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -48,6 +49,9 @@ func snapshotEditableSkill(root, key string) (EditableSkillSnapshot, error) {
 		return result, ErrInvalidSkillPath
 	}
 	dir, err := editableSkillDir(root, key)
+	if errors.Is(err, ErrSkillNotFound) {
+		return result, nil
+	}
 	if err != nil {
 		return result, err
 	}

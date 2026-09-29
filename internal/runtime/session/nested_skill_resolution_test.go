@@ -35,7 +35,7 @@ func TestMustUsePackageMembersKeepExactKeysAndIndependentRoots(t *testing.T) {
 		}
 		center[key] = catalog.SkillDefinition{Key: key}
 	}
-	if err := os.WriteFile(filepath.Join(root, "suite", "package.json"), []byte(`{"name":"suite"}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "suite", "package.json"), []byte(`{"name":"suite","skills":[{"key":"demo"}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	result, err := ResolveMustUseSkills(catalog.AgentDefinition{}, root, center, []string{"demo", "suite/demo", "suite/demo"})

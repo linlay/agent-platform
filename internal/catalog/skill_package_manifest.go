@@ -7,20 +7,26 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"agent-platform/internal/skillmeta"
 )
 
-// SkillPackageMetadata describes only the package. Members are discovered from
-// direct child directories, never from a second, potentially stale manifest list.
+// SkillPackageMember identifies one direct child; presentation stays in SKILL.md.
+type SkillPackageMember struct {
+	Key string `json:"key"`
+}
+
+// SkillPackageMetadata owns the ordered package membership list.
 type SkillPackageMetadata struct {
-	Name        string         `json:"name"`
-	DisplayName string         `json:"displayName,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Version     string         `json:"version,omitempty"`
-	Triggers    []string       `json:"triggers,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	Name        string               `json:"name"`
+	Skills      []SkillPackageMember `json:"skills"`
+	DisplayName string               `json:"displayName,omitempty"`
+	Description string               `json:"description,omitempty"`
+	Version     string               `json:"version,omitempty"`
+	Triggers    []string             `json:"triggers,omitempty"`
+	Metadata    map[string]any       `json:"metadata,omitempty"`
 }
 
 // Shared directory eligibility for package lists, skill lists and ownership.
@@ -45,7 +51,27 @@ func parseSkillPackageMetadata(content []byte) (SkillPackageMetadata, error) {
 	if len(content) > 1<<20 || json.Unmarshal(content, &m) != nil || ValidateSkillPackageID(m.Name) != nil {
 		return m, skillArchiveValidationError("invalid_package_manifest", "package.json requires a valid name and valid JSON", "package.json")
 	}
+	if m.Skills == nil {
+		return m, skillArchiveValidationError("invalid_package_manifest", "package.json requires a skills object array (use [] for an empty package)", "package.json")
+	}
+	seen := map[string]bool{}
+	for _, member := range m.Skills {
+		folded := strings.ToLower(member.Key)
+		if ValidateSkillPackageID(member.Key) != nil || seen[folded] {
+			return m, skillArchiveValidationError("invalid_package_manifest", "skills must contain unique, safe package-relative keys", "package.json")
+		}
+		seen[folded] = true
+	}
 	return m, nil
+}
+
+func (m SkillPackageMetadata) hasMember(key string) bool {
+	for _, member := range m.Skills {
+		if member.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func ReadSkillPackageManifest(root string) (SkillPackageMetadata, error) {
@@ -125,24 +151,16 @@ func scanPackageAt(dir, id string) (SkillPackageRecord, error) {
 		version = skillmeta.String(metadata["version"])
 	}
 	record := SkillPackageRecord{ID: id, Name: m.Name, DisplayName: m.DisplayName, Description: m.Description, Version: version, Triggers: m.Triggers, Metadata: metadata, Presentation: skillmeta.Parse(metadata, version), Skills: []SkillPackageRecordSkill{}, SchemaVersion: 1}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return record, err
-	}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return record, ErrSkillSymlink
-		}
-		if !entry.IsDir() {
-			continue
-		}
-		child := filepath.Join(dir, entry.Name())
+	for _, member := range m.Skills {
+		child := filepath.Join(dir, member.Key)
 		path := filepath.Join(child, "SKILL.md")
+		if err := ensureNoSymlinkAlongExistingPath(dir, path); err != nil {
+			return record, err
+		}
 		info, err := os.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) {
+			record.Skills = append(record.Skills, SkillPackageRecordSkill{ID: id + "/" + member.Key, Path: "./" + member.Key,
+				Diagnostics: []AdminSkillDiagnostic{{Severity: "error", Code: "missing_package_skill", Message: "declared member has no SKILL.md"}}})
 			continue
 		}
 		if err != nil {
@@ -154,7 +172,7 @@ func scanPackageAt(dir, id string) (SkillPackageRecord, error) {
 		if info.Size() > EditableSkillMaxTextBytes {
 			return record, ErrSkillFileTooLarge
 		}
-		if err := ValidateSkillPackageID(entry.Name()); err != nil {
+		if err := ValidateSkillPackageID(member.Key); err != nil {
 			return record, err
 		}
 		data, err := os.ReadFile(path)
@@ -163,9 +181,9 @@ func scanPackageAt(dir, id string) (SkillPackageRecord, error) {
 		}
 		name, description, triggers, meta, version := parseSkillPromptMetadata(string(data))
 		if name == "" {
-			name = entry.Name()
+			name = member.Key
 		}
-		record.Skills = append(record.Skills, SkillPackageRecordSkill{ID: id + "/" + entry.Name(), Name: name, Path: "./" + entry.Name(), DisplayName: skillmeta.String(meta["displayName"]), Description: description, Version: version, Triggers: triggers, Metadata: meta})
+		record.Skills = append(record.Skills, SkillPackageRecordSkill{ID: id + "/" + member.Key, Name: name, Path: "./" + member.Key, DisplayName: skillmeta.String(meta["displayName"]), Description: description, Version: version, Triggers: triggers, Metadata: meta})
 	}
 	return record, nil
 }
@@ -203,12 +221,14 @@ func prepareNestedSkillPackage(stage, id, version string) (SkillPackageMetadata,
 		if err := os.Mkdir(candidate, 0o755); err != nil {
 			return m, nil, "", err
 		}
-		m = SkillPackageMetadata{Name: id, DisplayName: legacy.Name, Version: legacy.Version}
+		m = SkillPackageMetadata{Name: id, DisplayName: legacy.Name, Version: legacy.Version, Skills: []SkillPackageMember{}}
 		for _, child := range children {
+			m.Skills = append(m.Skills, SkillPackageMember{Key: child.ID})
 			if err := os.Rename(child.Root, filepath.Join(candidate, child.ID)); err != nil {
 				return m, nil, "", err
 			}
 		}
+		sort.Slice(m.Skills, func(i, j int) bool { return m.Skills[i].Key < m.Skills[j].Key })
 	} else if err != nil {
 		return m, nil, "", err
 	}
@@ -288,6 +308,16 @@ func (r *FileRegistry) BeginUpdateEditableSkillPackageManifest(key, content, bas
 	}
 	if baseSHA256 == "" || baseSHA256 != current.SHA256 {
 		return nil, SkillPackageRecord{}, ErrSkillConflict
+	}
+	previous, err := parseSkillPackageMetadata([]byte(current.Content))
+	if err != nil {
+		return nil, SkillPackageRecord{}, err
+	}
+	usage := r.skillUsageByAgent()
+	for _, member := range previous.Skills {
+		if !m.hasMember(member.Key) && len(usage[key+"/"+member.Key]) > 0 {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s/%s is used by agents", ErrSkillPackageConflict, key, member.Key)
+		}
 	}
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	backup, err := os.MkdirTemp(filepath.Dir(root), skillPackageBackupPrefix)

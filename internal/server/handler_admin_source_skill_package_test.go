@@ -12,10 +12,10 @@ import (
 	"agent-platform/internal/api"
 )
 
-func TestSkillPackageManifestNameOnlyAndConditionalEdit(t *testing.T) {
+func TestSkillPackageSourceMembersAndConditionalEdit(t *testing.T) {
 	f := newTestFixture(t)
 	archive := serverSkillImportZIP(t, map[string]string{
-		"package.json":  `{"name":"sample-suite"}`,
+		"package.json":  `{"skills":[{"key":"same"}],"name":"sample-suite"}`,
 		"same/SKILL.md": "---\nname: same\ndescription: member\n---\nMember body.\n",
 	})
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=sample-suite", bytes.NewReader(archive))
@@ -29,9 +29,9 @@ func TestSkillPackageManifestNameOnlyAndConditionalEdit(t *testing.T) {
 	if len(packages) != 1 || packages[0].DisplayName != "sample-suite" || packages[0].Version != "" || len(packages[0].Skills) != 1 || packages[0].Skills[0].ID != "sample-suite/same" {
 		t.Fatalf("packages=%+v", packages)
 	}
-	file := getAPIData[skillPackageManifestResponse](t, f.server, "GET", "/api/admin/skill-packages/manifest?key=sample-suite", nil)
-	body, _ := json.Marshal(map[string]string{"key": "sample-suite", "content": `{"name":"sample-suite","displayName":"测试技能包"}`, "baseSha256": file.SHA256})
-	saved := getAPIData[skillPackageManifestResponse](t, f.server, "PUT", "/api/admin/skill-packages/manifest", body)
+	file := getAPIData[api.AdminSourceResponse](t, f.server, "GET", "/api/admin/source?type=skill-package&key=sample-suite", nil)
+	body, _ := json.Marshal(map[string]any{"target": api.AdminSourceTarget{Type: "skill-package", Key: "sample-suite"}, "content": `{"skills":[{"key":"same"}],"name":"sample-suite","displayName":"测试技能包"}`, "baseSha256": file.SHA256})
+	saved := getAPIData[api.AdminSourceResponse](t, f.server, "PUT", "/api/admin/source", body)
 	if saved.SHA256 == file.SHA256 {
 		t.Fatal("edit did not update revision")
 	}
@@ -39,32 +39,32 @@ func TestSkillPackageManifestNameOnlyAndConditionalEdit(t *testing.T) {
 	if packages[0].DisplayName != "测试技能包" {
 		t.Fatalf("displayName not updated: %+v", packages)
 	}
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/skill-packages/manifest", bytes.NewReader(body))
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/source", bytes.NewReader(body))
 	response = httptest.NewRecorder()
 	f.server.ServeHTTP(response, request)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("stale edit expected 409: %d %s", response.Code, response.Body.String())
 	}
 	disk, err := os.ReadFile(filepath.Join(f.cfg.Paths.SkillsCenterDir, "sample-suite", "package.json"))
-	if err != nil || bytes.Contains(disk, []byte(`"skills"`)) {
-		t.Fatalf("member list must not be persisted: %s %v", disk, err)
+	if err != nil || !bytes.Contains(disk, []byte(`"key": "same"`)) {
+		t.Fatalf("member keys must be persisted: %s %v", disk, err)
 	}
 }
 
 func TestSkillPackageManifestEditReloadFailureRestoresOriginal(t *testing.T) {
 	f := newAgentSkillsTestFixture(t, false)
 	writeProjectionPackage(t, f, "center-extra")
-	original := getAPIData[skillPackageManifestResponse](t, f.server, "GET", "/api/admin/skill-packages/manifest?key=office", nil)
+	original := getAPIData[api.AdminSourceResponse](t, f.server, "GET", "/api/admin/source?type=skill-package&key=office", nil)
 	f.server.deps.CatalogReloader = failingSkillImportReloader{}
-	body, _ := json.Marshal(map[string]string{"key": "office", "content": `{"name":"office","displayName":"must rollback"}`, "baseSha256": original.SHA256})
-	request := httptest.NewRequest(http.MethodPut, "/api/admin/skill-packages/manifest", bytes.NewReader(body))
+	body, _ := json.Marshal(map[string]any{"target": api.AdminSourceTarget{Type: "skill-package", Key: "office"}, "content": `{"skills":[{"key":"center-extra"}],"name":"office","displayName":"must rollback"}`, "baseSha256": original.SHA256})
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/source", bytes.NewReader(body))
 	response := httptest.NewRecorder()
 	f.server.ServeHTTP(response, request)
 	if response.Code == http.StatusOK {
 		t.Fatal("expected reload failure")
 	}
-	after := getAPIData[skillPackageManifestResponse](t, f.server, "GET", "/api/admin/skill-packages/manifest?key=office", nil)
-	if after != original {
+	after := getAPIData[api.AdminSourceResponse](t, f.server, "GET", "/api/admin/source?type=skill-package&key=office", nil)
+	if after.Content != original.Content || after.SHA256 != original.SHA256 {
 		t.Fatalf("manifest not rolled back: %+v", after)
 	}
 }
@@ -80,7 +80,7 @@ func TestSkillPackageAndStandaloneUpdatesAreIndependent(t *testing.T) {
 	importPackage := func(version string) {
 		t.Helper()
 		content := "---\nname: shared-name\ndescription: Package " + version + "\n---\nPackage body " + version
-		archive := serverSkillImportZIP(t, map[string]string{"package.json": `{"name":"independent-suite","version":"` + version + `"}`, "shared-name/SKILL.md": content})
+		archive := serverSkillImportZIP(t, map[string]string{"package.json": `{"skills":[{"key":"shared-name"}],"name":"independent-suite","version":"` + version + `"}`, "shared-name/SKILL.md": content})
 		req := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=independent-suite", bytes.NewReader(archive))
 		req.Header.Set("Content-Type", "application/zip")
 		rec := httptest.NewRecorder()
@@ -145,7 +145,7 @@ func TestStandaloneSkillUninstallLeavesPackageMemberAndUpdateIndependent(t *test
 		t.Fatalf("package changed: %+v", packages)
 	}
 	archive := serverSkillImportZIP(t, map[string]string{
-		"package.json":          `{"name":"office","version":"2"}`,
+		"package.json":          `{"skills":[{"key":"center-extra"}],"name":"office","version":"2"}`,
 		"center-extra/SKILL.md": "---\nname: center-extra\ndescription: Updated package member\n---\nUpdated package content",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=office", bytes.NewReader(archive))
@@ -161,5 +161,38 @@ func TestStandaloneSkillUninstallLeavesPackageMemberAndUpdateIndependent(t *test
 	after, err = os.ReadFile(memberPath)
 	if err != nil || !bytes.Contains(after, []byte("Updated package content")) {
 		t.Fatalf("package member not updated: %v", err)
+	}
+}
+
+func TestSkillPackageSourceUsesUnifiedContract(t *testing.T) {
+	f := newAgentSkillsTestFixture(t, false)
+	writeProjectionPackage(t, f, "center-extra")
+	original := getAPIData[api.AdminSourceResponse](t, f.server, "GET", "/api/admin/source?type=skill-package&key=office", nil)
+	if original.Target.Type != "skill-package" || original.Source.Path != filepath.Join(f.cfg.Paths.SkillsCenterDir, "office", "package.json") || original.Encoding != "utf-8" || original.Size == 0 {
+		t.Fatalf("source=%+v", original)
+	}
+	for _, tc := range []struct {
+		url    string
+		status int
+	}{
+		{"/api/admin/source?type=skill-package&key=office&path=other.json", http.StatusBadRequest},
+		{"/api/admin/source?type=skill-package&key=office%2Fcenter-extra", http.StatusBadRequest},
+		{"/api/admin/skill-packages/manifest?key=office", http.StatusNotFound},
+	} {
+		rec := httptest.NewRecorder()
+		f.server.ServeHTTP(rec, httptest.NewRequest("GET", tc.url, nil))
+		if rec.Code != tc.status {
+			t.Errorf("%s: %d %s", tc.url, rec.Code, rec.Body.String())
+		}
+	}
+	body, _ := json.Marshal(api.UpdateAdminSourceRequest{Target: original.Target, Content: `{"name":"office","skills":[]}`, BaseSHA256: original.SHA256})
+	getAPIData[api.AdminSourceResponse](t, f.server, "PUT", "/api/admin/source", body)
+	packages := getAPIData[[]api.AdminSkillPackageResponse](t, f.server, "GET", "/api/admin/skill-packages", nil)
+	if len(packages) != 1 || len(packages[0].Skills) != 0 {
+		t.Fatalf("empty package=%+v", packages)
+	}
+	// Removing membership does not implicitly delete content.
+	if _, err := os.Stat(filepath.Join(f.cfg.Paths.SkillsCenterDir, "office", "center-extra", "SKILL.md")); err != nil {
+		t.Fatal(err)
 	}
 }

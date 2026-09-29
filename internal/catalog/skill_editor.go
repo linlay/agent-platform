@@ -1485,6 +1485,9 @@ func editableSkillDir(root string, key string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%w: invalid parent package: %v", ErrInvalidSkillPath, err)
 		}
+		if !manifest.hasMember(filepath.Base(dir)) {
+			return "", ErrSkillNotFound
+		}
 		if manifest.Name != strings.SplitN(key, "/", 2)[0] {
 			return "", fmt.Errorf("%w: package name differs from directory", ErrInvalidSkillPath)
 		}

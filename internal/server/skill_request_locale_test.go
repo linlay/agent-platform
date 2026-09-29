@@ -16,7 +16,7 @@ import (
 func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
 	f := newAgentSkillsTestFixture(t, true)
 	writeProjectionPackage(t, f, "center-extra")
-	content := `{"name":"office","metadata":{"i18n":{"zh-CN":{"displayName":"办公包"},"en":{"displayName":"Office Suite"}}}}`
+	content := `{"name":"office","skills":[{"key":"center-extra"}],"metadata":{"i18n":{"zh-CN":{"displayName":"办公包"},"en":{"displayName":"Office Suite"}}}}`
 	if err := os.WriteFile(filepath.Join(f.cfg.Paths.SkillsCenterDir, "office", "package.json"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
