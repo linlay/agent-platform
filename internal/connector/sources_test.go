@@ -80,6 +80,11 @@ func TestSourcesIgnoreUserOrderMetadata(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(external, ".catalog-order-pending.json"), []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{"README.md", "notes.txt", "broken-package"} {
+		if err := os.WriteFile(filepath.Join(external, name), []byte("not a package"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	after, err := sources.Summaries()
 	if err != nil || len(after) != len(before) || after[0].ID != "builtin.dbx" {
 		t.Fatalf("catalog after pin: %#v %v", after, err)
@@ -91,7 +96,7 @@ func TestSourcesIgnoreUserOrderMetadata(t *testing.T) {
 }
 
 func TestSourcesStillValidatePackageRootsBesideOrderMetadata(t *testing.T) {
-	for _, kind := range []string{"order-directory", "order-symlink", "other-file"} {
+	for _, kind := range []string{"order-directory", "order-symlink", "invalid-package-directory"} {
 		t.Run(kind, func(t *testing.T) {
 			root := t.TempDir()
 			order := filepath.Join(root, catalogorder.OrderFileName)
@@ -104,8 +109,8 @@ func TestSourcesStillValidatePackageRootsBesideOrderMetadata(t *testing.T) {
 				if err := os.Symlink(t.TempDir(), order); err != nil {
 					t.Skipf("symlinks unavailable: %v", err)
 				}
-			case "other-file":
-				if err := os.WriteFile(filepath.Join(root, "broken-package"), []byte("broken"), 0o600); err != nil {
+			case "invalid-package-directory":
+				if err := os.Mkdir(filepath.Join(root, "broken-package"), 0o755); err != nil {
 					t.Fatal(err)
 				}
 			}

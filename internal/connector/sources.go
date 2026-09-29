@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"agent-platform/internal/catalogorder"
 )
 
 // Sources resolves platform-owned packages and external installations through
@@ -92,10 +90,10 @@ func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 			if strings.HasPrefix(id, ".") {
 				continue
 			}
-			// The external center also owns user pin preferences, not a package.
-			// Only skip the regular metadata file; directories and symlinks
+			// External packages are directories; root-level regular files
+			// (README, user pin preferences, etc.) are not packages. Directories and symlinks
 			// still go through normal package validation.
-			if !source.builtin && id == catalogorder.OrderFileName && entry.Type().IsRegular() {
+			if !source.builtin && entry.Type().IsRegular() {
 				continue
 			}
 			// Legacy runtime copies never override or become fallback builtins.
