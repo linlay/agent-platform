@@ -77,7 +77,15 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 }
 
 func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector.Package, error)) error {
-	if err := connector.ValidateDesktopSelection(def.Connectors); err != nil {
+	packages := make([]connector.Package, 0, len(def.Connectors))
+	for _, id := range def.Connectors {
+		pkg, err := load(id)
+		if err != nil {
+			return err
+		}
+		packages = append(packages, pkg)
+	}
+	if err := connector.ValidateSelection(packages); err != nil {
 		return err
 	}
 	def.ConnectorNativeTools = nil
@@ -96,11 +104,8 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 		}
 		skillSources[strings.ToLower(strings.TrimSpace(key))] = "skillConfig.skills"
 	}
-	for _, id := range def.Connectors {
-		pkg, err := load(id)
-		if err != nil {
-			return err
-		}
+	for _, pkg := range packages {
+		id := pkg.ID
 		if pkg.Type == "native" {
 			if !pkg.Builtin {
 				return fmt.Errorf("native capabilities require a trusted builtin source")

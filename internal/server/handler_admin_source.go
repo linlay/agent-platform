@@ -15,7 +15,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
-	"agent-platform/internal/connector"
 )
 
 const adminSourceMaxTextBytes int64 = 1 << 20
@@ -231,8 +230,6 @@ func adminSourceFromAgentFile(target api.AdminSourceTarget, file catalog.Editabl
 
 func mapAdminSourceAgentError(err error) error {
 	switch {
-	case errors.Is(err, connector.ErrDesktopVariantConflict):
-		return newAgentStatusError(http.StatusBadRequest, "connector_variant_conflict", connector.ErrDesktopVariantConflict.Error())
 	case errors.Is(err, catalog.ErrAgentSourceNotFound):
 		return newAgentStatusError(http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, catalog.ErrAgentSourceConflict):

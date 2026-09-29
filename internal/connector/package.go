@@ -21,18 +21,19 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
 
 type Manifest struct {
-	ID           string                 `json:"id"`
-	Name         string                 `json:"name"`
-	Version      string                 `json:"version"`
-	Type         string                 `json:"type"`
-	AuthMode     AuthMode               `json:"auth_mode"`
-	AuthBrowser  string                 `json:"auth_browser,omitempty"`
-	Description  string                 `json:"description,omitempty"`
-	Icon         string                 `json:"icon,omitempty"`
-	I18N         map[string]Translation `json:"i18n,omitempty"`
-	TokenSchema  json.RawMessage        `json:"token_schema,omitempty"`
-	OAuth        json.RawMessage        `json:"oauth,omitempty"`
-	AuthBindings map[string]AuthBinding `json:"auth_bindings,omitempty"`
+	MutuallyExclusiveWith []string               `json:"mutuallyExclusiveWith,omitempty"`
+	ID                    string                 `json:"id"`
+	Name                  string                 `json:"name"`
+	Version               string                 `json:"version"`
+	Type                  string                 `json:"type"`
+	AuthMode              AuthMode               `json:"auth_mode"`
+	AuthBrowser           string                 `json:"auth_browser,omitempty"`
+	Description           string                 `json:"description,omitempty"`
+	Icon                  string                 `json:"icon,omitempty"`
+	I18N                  map[string]Translation `json:"i18n,omitempty"`
+	TokenSchema           json.RawMessage        `json:"token_schema,omitempty"`
+	OAuth                 json.RawMessage        `json:"oauth,omitempty"`
+	AuthBindings          map[string]AuthBinding `json:"auth_bindings,omitempty"`
 }
 
 // Package is an immutable, secret-free description of an installed package.
@@ -197,6 +198,13 @@ func ValidateManifest(id string, content []byte) error {
 func validateManifest(id string, pkg Manifest) error {
 	if !ValidID(id) || pkg.ID != id || strings.TrimSpace(pkg.Name) == "" || !validVersion(pkg.Version) {
 		return fmt.Errorf("connector %s requires matching id, name and SemVer version", id)
+	}
+	seenExclusive := map[string]bool{}
+	for _, other := range pkg.MutuallyExclusiveWith {
+		if !ValidID(other) || other == id || seenExclusive[other] {
+			return fmt.Errorf("connector %s mutuallyExclusiveWith must contain unique, valid IDs other than itself", id)
+		}
+		seenExclusive[other] = true
 	}
 	if pkg.Type != "mcp" && pkg.Type != "cli" && pkg.Type != "view" && pkg.Type != "native" {
 		return fmt.Errorf("connector %s type must be mcp, cli, view or native", id)

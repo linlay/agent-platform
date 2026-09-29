@@ -37,7 +37,7 @@ Agent 使用 `connectorConfig.connectors` 在两个内置连接器中选择一�
 
 两者均声明相同的 `desktop.action`、`desktop.cdp`，自动接入 `desktop_action`、`desktop_cdp` 和技能读取所需的 `file_read`，不会自动增加 Bash。Platform/Desktop handler、动作白名单、审批、客户端归属与 mode 限制共用一套。网页版的差异是提供给模型的操作资料，不是额外权限隔离；知道其他有效动作名称的调用仍走现有执行规则。共享工具 Schema 不枚举业务域，要求读取当前挂载技能。
 
-同一 Agent 不能同时挂载两版。YAML 加载、源码编辑、连接器选择保存和冻结定义恢复均校验，选择接口失败时不保存冲突配置。连接器目录返回 `mutuallyExclusiveWith`，分别指向另一个 ID，供客户端在选择时禁用冲突项或提示先解除原挂载；`PUT /api/admin/agents/connectors` 返回 `400`、`connector_variant_conflict` 和按请求语言解析的消息。本仓库已提供服务端约束与目录字段，客户端提前提示需要在 Desktop/WebClient 仓库接入，不能视为已实现。
+同一 Agent 不能同时挂载两版，关系只由各自 `connector.json.mutuallyExclusiveWith` 声明，不在源码按 Desktop ID 判定。通用校验支持内置和外部包、单向声明；YAML 装载后的包解析、源码编辑、连接器选择保存和冻结定义恢复均适用。选择接口失败时不保存冲突配置，返回 HTTP 400、`data.error.code=connector_selection_conflict`、`connectorId`、`conflictingConnectorIds` 和本地化消息。目录透传声明，WebClient 点击冲突项会显示冲突名称、提示先取消原选择，并在列表顶部保留错误；服务端兜底失败也可见，不自动替换已选项。该交互已由 WebClient 组件测试验证，真实 Desktop 环境仍需联调。
 
 现有 `builtin.desktop` 配置继续使用全部技能，无需迁移。切换只影响新发布定义；活动 Run 和可恢复等待继续使用冻结包与连接器 ID。
 

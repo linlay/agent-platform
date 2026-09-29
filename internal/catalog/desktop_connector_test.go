@@ -76,21 +76,22 @@ func TestDesktopWebMountAndVariantConflict(t *testing.T) {
 	if def.SkillInstructionsPath("desktop-action") != "@connectors/builtin.desktop-web/skills/desktop-action/SKILL.md" {
 		t.Fatal("wrong web skill path")
 	}
-	if _, err := r.PrepareAgentConnector("web", "builtin.desktop", true); !errors.Is(err, connector.ErrDesktopVariantConflict) {
+	if _, err := r.PrepareAgentConnector("web", "builtin.desktop", true); !errors.Is(err, connector.ErrSelectionConflict) {
 		t.Fatalf("mutation conflict: %v", err)
+	}
+	current, err := r.ReadEditableAgentSource("web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.WriteEditableAgentSource("web", source+"    - builtin.desktop\n", current.SHA256); !errors.Is(err, connector.ErrSelectionConflict) {
+		t.Fatalf("source conflict: %v", err)
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != source {
 		t.Fatalf("rejected mutation changed source: %v", err)
 	}
-	if _, _, err := parseAgentTree(path, map[string]any{"key": "web", "name": "Web", "mode": "REACT", "connectorConfig": map[string]any{"connectors": []any{"builtin.desktop", "builtin.desktop-web"}}}); !errors.Is(err, connector.ErrDesktopVariantConflict) {
-		t.Fatalf("YAML conflict: %v", err)
-	}
-	// Restoring or resolving definitions bypassing YAML still validates before loading skills.
+	// Generic validation reads declarations before importing potentially colliding skills.
 	conflicting := AgentDefinition{Connectors: []string{"builtin.desktop-web", "builtin.desktop"}}
-	if err := resolveConnectorPackages(&conflicting, func(string) (connector.Package, error) {
-		t.Fatal("loaded package before checking conflict")
-		return connector.Package{}, nil
-	}); !errors.Is(err, connector.ErrDesktopVariantConflict) {
+	if err := resolveConnectorPackages(&conflicting, cfg.Paths.ConnectorSources().Load); !errors.Is(err, connector.ErrSelectionConflict) {
 		t.Fatalf("runtime conflict: %v", err)
 	}
 }

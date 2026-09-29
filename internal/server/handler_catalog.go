@@ -18,6 +18,7 @@ import (
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/models"
@@ -756,6 +757,13 @@ func editableDefinitionForAPI(definition map[string]any) map[string]any {
 func mapAgentEditError(err error) error {
 	if err == nil {
 		return nil
+	}
+	var conflict *connector.SelectionConflictError
+	if errors.As(err, &conflict) {
+		return newAgentStatusErrorWithData(http.StatusBadRequest, "connector_selection_conflict", connector.ErrSelectionConflict.Error(), map[string]any{
+			"connectorId":             conflict.ConnectorID,
+			"conflictingConnectorIds": conflict.ConflictingConnectorIDs,
+		})
 	}
 	message := err.Error()
 	switch {

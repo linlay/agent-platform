@@ -263,7 +263,7 @@ make test
 
 ### Desktop 内嵌连接器来源
 
-`builtin.desktop`（桌面端）与 `builtin.desktop-web`（桌面端（网页））随 Platform Go 程序编译分发，共用 native handler 和工具，按完整功能/WorkPanel 与网页功能装配技能；公共 CDP 与网页参考资料只维护一份。同一 Agent 二选一，旧 `builtin.desktop` 保持完整功能。目录名称和描述按请求语言解析，并提供互斥 ID 供客户端接入选择提示。启动原子发布到各自 `ru-connectors/<id>/<contentDigest>/`，已有相同内容的运行包校验复用；进程持有两版共享包租约，各 Agent 仅持挂载引用。网页版是技能引导范围，不新增执行权限层，详见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md#builtindesktop)。
+`builtin.desktop`（桌面端）与 `builtin.desktop-web`（桌面端（网页））随 Platform Go 程序编译分发，共用 native handler 和工具，按完整功能/WorkPanel 与网页功能装配技能；公共 CDP 与网页参考资料只维护一份。同一 Agent 二选一，旧 `builtin.desktop` 保持完整功能。目录名称和描述按请求语言解析，互斥关系由包清单 `mutuallyExclusiveWith` 声明，服务端通用校验，WebClient 显示具体冲突并保留原选择。启动原子发布到各自 `ru-connectors/<id>/<contentDigest>/`，已有相同内容的运行包校验复用；进程持有两版共享包租约，各 Agent 仅持挂载引用。网页版是技能引导范围，不新增执行权限层，详见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md#builtindesktop)。
 
 Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。此调整不改变连接器配置状态、Agent 挂载、工具权限或历史 Chat。
 

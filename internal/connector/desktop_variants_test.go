@@ -150,12 +150,6 @@ func TestDesktopPresentationAndSelection(t *testing.T) {
 			t.Fatal("localization mutated source")
 		}
 	}
-	if ValidateDesktopSelection([]string{DesktopConnectorID, DesktopWebConnectorID}) != ErrDesktopVariantConflict {
-		t.Fatal("accepted both variants")
-	}
-	if err := ValidateDesktopSelection([]string{"other", DesktopWebConnectorID}); err != nil {
-		t.Fatal(err)
-	}
 	if err := ValidateManifest("builtin.impostor", []byte(`{"id":"builtin.impostor","name":"impostor","version":"1.0.0","type":"native","auth_mode":"no_auth"}`)); err == nil {
 		t.Fatal("accepted unregistered native package")
 	}

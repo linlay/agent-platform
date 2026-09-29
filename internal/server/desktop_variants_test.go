@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -69,7 +72,7 @@ func TestDesktopVariantConflictHTTPPreservesSelection(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/admin/agents/connectors?locale=zh-CN", strings.NewReader(`{"agentKey":"mock-agent","connectorId":"builtin.desktop","enabled":true}`))
 	rec := httptest.NewRecorder()
 	f.server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "同一智能体只能选择") {
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "所选连接器互斥") {
 		t.Fatalf("conflict: %d %s", rec.Code, rec.Body.String())
 	}
 	after := agentConnectorResponse(t, agentConnectorRequest(f.server, "GET", "mock-agent", nil))
@@ -78,4 +81,53 @@ func TestDesktopVariantConflictHTTPPreservesSelection(t *testing.T) {
 			t.Fatal("conflicting choice saved")
 		}
 	}
+}
+
+func TestExternalConnectorSelectionConflictUsesManifest(t *testing.T) {
+	f := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
+		for _, id := range []string{"custom-first", "custom-second"} {
+			writeMCPConnectorForTest(t, cfg.Paths.EffectiveConnectorsCenterDir(), id)
+		}
+		file := filepath.Join(cfg.Paths.EffectiveConnectorsCenterDir(), "custom-first", "connector.json")
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest connector.Manifest
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		manifest.MutuallyExclusiveWith = []string{"custom-second"}
+		data, err = json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}})
+	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "custom-first", "enabled": true}))
+	rec := agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "custom-second", "enabled": true})
+	var body struct {
+		Data struct {
+			Error struct {
+				Code        string   `json:"code"`
+				ConnectorID string   `json:"connectorId"`
+				Conflicts   []string `json:"conflictingConnectorIds"`
+			} `json:"error"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != 400 || body.Data.Error.Code != "connector_selection_conflict" || body.Data.Error.ConnectorID != "custom-second" || !reflect.DeepEqual(body.Data.Error.Conflicts, []string{"custom-first"}) {
+		t.Fatalf("conflict: %d %s", rec.Code, rec.Body.String())
+	}
+	after := agentConnectorResponse(t, agentConnectorRequest(f.server, "GET", "mock-agent", nil))
+	if !reflect.DeepEqual(after.ConnectorIDs, []string{"custom-first"}) {
+		t.Fatalf("selection changed: %v", after.ConnectorIDs)
+	}
+	// Removing the existing choice remains possible; the other variant can then be selected.
+	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "custom-first", "enabled": false}))
+	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "custom-second", "enabled": true}))
 }

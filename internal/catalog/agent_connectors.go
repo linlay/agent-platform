@@ -1,7 +1,9 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"slices"
 
 	"agent-platform/internal/config"
@@ -92,4 +94,25 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 	candidate.Content = string(renderYAMLMap(root))
 	candidate.ConnectorIDs = ids
 	return candidate, nil
+}
+
+// Source editors may keep draft references to packages that are not installed.
+// Validate declarations of available packages; execution still requires every package.
+func (r *FileRegistry) validateEditableConnectorSelection(definition map[string]any) error {
+	ids, err := parseConnectorIDs(mapNode(definition["connectorConfig"])["connectors"])
+	if err != nil || len(ids) < 2 {
+		return err
+	}
+	packages := make([]connector.Package, 0, len(ids))
+	for _, id := range ids {
+		pkg, err := r.cfg.Paths.ConnectorSources().Load(id)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		packages = append(packages, pkg)
+	}
+	return connector.ValidateSelection(packages)
 }

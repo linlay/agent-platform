@@ -95,6 +95,13 @@ func (r *FileRegistry) WriteEditableAgentSource(key string, content string, base
 	if err := ValidateAgentCandidate(key, data); err != nil {
 		return EditableAgentSourceFile{}, err
 	}
+	tree, err := configpkg.LoadYAMLTreeBytes(data)
+	if err != nil {
+		return EditableAgentSourceFile{}, err
+	}
+	if err := r.validateEditableConnectorSelection(tree.(map[string]any)); err != nil {
+		return EditableAgentSourceFile{}, err
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -178,6 +185,10 @@ func (r *FileRegistry) CreateEditableAgent(key string, definition map[string]any
 	if err := validateEditableDefinition(key, definition); err != nil {
 		return EditableAgentFiles{}, err
 	}
+	if err := r.validateEditableConnectorSelection(definition); err != nil {
+		return EditableAgentFiles{}, err
+	}
+
 	definition = normalizeEditableDefinition(definition)
 	agentDir := filepath.Join(r.cfg.Paths.AgentsDir, key)
 	source := EditableAgentSource{
@@ -205,6 +216,10 @@ func (r *FileRegistry) UpdateEditableAgent(key string, definition map[string]any
 	if err := validateEditableDefinition(key, definition); err != nil {
 		return EditableAgentFiles{}, err
 	}
+	if err := r.validateEditableConnectorSelection(definition); err != nil {
+		return EditableAgentFiles{}, err
+	}
+
 	definition = normalizeEditableDefinition(definition)
 	if soulPrompt == nil {
 		soulPrompt = &existing.SoulPrompt

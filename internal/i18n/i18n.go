@@ -6,8 +6,8 @@ import (
 )
 
 var zhCNMessages = map[string]string{
-	"choose either Desktop or Desktop (Web) for one Agent":      "同一智能体只能选择「桌面端」或「桌面端（网页）」中的一个",
-	"accessLevel must be default, auto_approve, or full_access": "accessLevel 必须是 default、auto_approve 或 full_access",
+	"selected connectors are mutually exclusive; deselect the conflicting connector first": "所选连接器互斥，请先取消已选择的冲突连接器",
+	"accessLevel must be default, auto_approve, or full_access":                            "accessLevel 必须是 default、auto_approve 或 full_access",
 	"agent not found":                                     "智能体不存在",
 	"agentKey is required":                                "agentKey 不能为空",
 	"archive not found":                                   "归档不存在",
