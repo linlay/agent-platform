@@ -1156,7 +1156,9 @@ HTTP GET 和 WS `/api/view` 接受 `chatId/connectorId/key/hash?/usage?`，返�
 
 ## 用户技能置顶
 
-`GET /api/skills` 在技能列表旁返回当前用户的 `pinned:["skill-key"]`，仅包含已置顶 key，新置顶在前。`PUT /api/skills` 接收 `{key:"skill-key",pinned:true|false}`，返回 `{agentKey:"",skills:[],pinned:[...]}`；不暴露存储的 version/updatedAt。写入不需要 agentKey。重复请求幂等；非法 key 或缺少 boolean pinned 返回 400，置顶未知技能返回 404，取消置顶允许清理已删除技能。锁内单条合并并原子保存，存储格式不变。旧 `/api/skills/order` HTTP/WS 路由已删除。
+`GET /api/skills` 在技能列表旁返回当前用户的 `pinned:string[]`，技能包、独立技能与包成员共用这一有序数组：包使用包 ID，独立技能使用自身 key，包成员使用 `<package>/<skill>`。例如 `["office","pdf","office/export"]` 中三个置顶项互相独立；置顶或取消整个包只更新 `office`，不会展开、新增或移除成员的置顶，也不能从成员全部置顶推断包已置顶。新置顶在前，重复设置保持原位置。
+
+`PUT /api/skills` 接收 `{key:"office",pinned:true|false}`，返回 `{agentKey:"",skills:[],pinned:[...],packages?}`；沿用列表的包展示投影与请求语言，不暴露存储的 version/updatedAt。写入不需要 agentKey。非法 key 或缺少 boolean pinned 返回 400；包必须是当前目录扫描识别且元数据有效的已安装技能包，不存在或包元数据损坏时置顶返回 404。普通技能仍沿用已安装技能的准入规则，取消置顶允许清理已删除或损坏条目的旧偏好。锁内单条合并并原子保存，存储格式不变。旧 `/api/skills/order` HTTP/WS 路由已删除。
 
 Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应 GET，`{key,pinned}` 对应 PUT，出现 key 或 pinned 即按写入校验，不完整写入返回 400；复用相同存储及错误语义。HTTP 不缓存用户置顶响应。用户身份只取已验证 Principal 的 subject，忽略客户端指定的 userKey；认证开启但没有用户身份时拒绝。认证关闭的本地部署使用独立 `local` 记录。
 
@@ -1167,14 +1169,14 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
   "version": 1,
   "users": {
     "user:<subject>": {
-      "order": ["online-docx", "pdf"],
+      "order": ["office", "pdf", "office/export"],
       "updatedAt": 1788912000000
     }
   }
 }
 ```
 
-同一用户的全部 Agent 共用一份 order，不存在 agentKey 维度；不同用户的记录互相隔离，接口只返回当前用户的记录。未写入前 GET 返回空列表，不创建文件；重启后读取原文件，损坏或未知版本不自动覆写。技能中心只加载技能目录，order.json 与原子写临时文件均不触发技能/Agent 重载。置顶不改变 Agent 技能配置、Query mustUseSkills 或技能权限；候选排序时只对全局有效技能候选应用置顶顺序。
+同一用户的全部 Agent 共用一份 order，不存在 agentKey 维度；不同用户的记录互相隔离，接口只返回当前用户的记录。旧 version 1 文件及现存技能、成员 key 原样保留，不迁移为包 ID，也不从成员偏好合成包置顶；包 ID 直接加入同一字符串数组。未写入前 GET 返回空列表，不创建文件；重启后读取原文件，损坏或未知版本不自动覆写。技能中心只加载技能目录，order.json 与原子写临时文件均不触发技能/Agent 重载。置顶只影响可见条目的展示顺序，不改变 Agent 技能配置、Query mustUseSkills 或技能权限；包 ID 不进入 SkillDefinition，也不能作为 mustUseSkills 执行，选择包执行时仍须展开为有效成员的完整 key。
 
 ### 连接器中心置顶顺序
 

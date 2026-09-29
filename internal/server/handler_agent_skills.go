@@ -152,6 +152,15 @@ func (s *Server) knownPinnableSkill(key string) bool {
 		if _, found, err := registry.AdminSkill(key); err == nil && found {
 			return true
 		}
+		// Package IDs are presentation pins, never executable SkillDefinitions.
+		// Reuse the live package scan so missing or invalid packages cannot be pinned.
+		if packages, err := registry.EditableSkillPackages(); err == nil {
+			for _, pkg := range packages {
+				if strings.EqualFold(pkg.ID, key) {
+					return true
+				}
+			}
+		}
 	}
 	for _, skill := range s.deps.Registry.Skills("") {
 		if strings.EqualFold(strings.TrimSpace(skill.Key), key) {

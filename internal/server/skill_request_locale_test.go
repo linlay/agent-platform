@@ -23,6 +23,10 @@ func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
 	if err := f.server.reloadAdminSkills(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	httpPin := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills?locale=zh-CN", []byte(`{"key":"office","pinned":true}`))
+	if len(httpPin.Pinned) != 1 || httpPin.Pinned[0] != "office" || len(httpPin.Packages) != 1 || httpPin.Packages[0].DisplayName != "办公包" {
+		t.Fatalf("HTTP package pin locale: %+v", httpPin)
+	}
 	server := httptest.NewServer(f.server)
 	defer server.Close()
 	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
@@ -42,14 +46,14 @@ func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
 	}{
 		{"zh-list", map[string]any{"locale": "zh-CN"}, "办公包"},
 		{"en-list", map[string]any{"locale": "en-US"}, "Office Suite"},
-		{"zh-pin", map[string]any{"locale": "zh-CN", "key": "office/center-extra", "pinned": true}, "办公包"},
+		{"zh-pin", map[string]any{"locale": "zh-CN", "key": "office", "pinned": true}, "办公包"},
 		{"unchanged", map[string]any{}, "Office Suite"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: tc.id, Payload: marshalPayload(tc.payload)}); err != nil {
 			t.Fatal(err)
 		}
 		r := waitForWebSocketResponseData[api.AgentSkillsResponse](t, conn, tc.id)
-		if len(r.Packages) != 1 || r.Packages[0].DisplayName != tc.want {
+		if len(r.Pinned) != 1 || r.Pinned[0] != "office" || len(r.Packages) != 1 || r.Packages[0].DisplayName != tc.want {
 			t.Fatalf("%s: %+v", tc.id, r.Packages)
 		}
 	}
