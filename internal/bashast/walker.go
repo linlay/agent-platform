@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -579,7 +580,14 @@ func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope, insideDoub
 		return node.Value, nil
 	case *syntax.SglQuoted:
 		if node.Dollar {
-			return "", tooComplex("syntax.SglQuoted", "unsupported ANSI-C quoted string")
+			value, err := expand.Literal(&expand.Config{}, &syntax.Word{Parts: []syntax.WordPart{node}})
+			if err != nil {
+				return "", tooComplex("syntax.SglQuoted", "invalid ANSI-C quoted string")
+			}
+			if strings.IndexByte(value, 0) >= 0 {
+				return "", tooComplex("syntax.SglQuoted", "NUL in quoted string")
+			}
+			return value, nil
 		}
 		return node.Value, nil
 	case *syntax.DblQuoted:

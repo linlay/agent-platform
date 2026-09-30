@@ -1955,6 +1955,17 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
+			if toolName != "bash" {
+				agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+				data, err := os.ReadFile(agentPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				content := strings.Replace(string(data), "  tools:\n", "  tools:\n    - "+toolName+"\n", 1)
+				if err := os.WriteFile(agentPath, []byte(content), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			root := filepath.Join(cfg.Paths.SkillsCenterDir, "mock-skill", ".bash-hooks")
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				t.Fatalf("mkdir skill bash-hooks dir: %v", err)

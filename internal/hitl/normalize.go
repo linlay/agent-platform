@@ -60,6 +60,19 @@ func NormalizeApproval(args map[string]any, params any) (map[string]any, error) 
 		default:
 			return nil, fmt.Errorf("items[%d]: unsupported approval decision %q", index, decision)
 		}
+		if decision == "approve_rule_run" {
+			if raw, exists := definition["options"]; exists {
+				allowed := false
+				for _, option := range cloneAnySlice(raw) {
+					if contracts.AnyStringNode(contracts.AnyMapNode(option)["decision"]) == decision {
+						allowed = true
+					}
+				}
+				if !allowed {
+					return nil, fmt.Errorf("items[%d]: run approval is not offered for this requirement", index)
+				}
+			}
+		}
 		entry := map[string]any{
 			"id":       definitionID,
 			"command":  contracts.AnyStringNode(definition["command"]),

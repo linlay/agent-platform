@@ -56,6 +56,10 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 		return nil
 	}
 	command := strings.TrimSpace(mapStringArg(invocation.args, "command"))
+	if match := s.checkBashHITL(invocation); match.Conflict != "" {
+		s.queueHostBashAuthorizationError(invocation, "hitl_hook_conflict", match.Conflict)
+		return nil
+	}
 	access := s.rawBashAccessReview(invocation)
 	security := access.SecurityReview(command, s.knownRuntimeVariables())
 	if security.Decision == bashsec.ReviewBlock {
@@ -210,7 +214,7 @@ func moveOneShotApproval(source, target map[string]int, fingerprint string) {
 }
 
 func reserveBashAccessApprovals(ctx *ExecutionContext, plan accesspolicy.BashPlan, target map[string]int) {
-	if !plan.RequiresApproval() || ctx.AccessPolicyRuleApprovals[plan.RuleKey] || target[plan.Fingerprint] > 0 {
+	if !plan.RequiresApproval() || accesspolicy.RuleReusable(plan.RuleKey) && ctx.AccessPolicyRuleApprovals[plan.RuleKey] || target[plan.Fingerprint] > 0 {
 		return
 	}
 	if ctx.AccessPolicyApprovals[plan.Fingerprint] > 0 {

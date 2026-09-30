@@ -967,9 +967,9 @@ func fileToolExecutor(root string, requireApproval bool) *RuntimeToolExecutor {
 				},
 			},
 			FileTools: config.FileToolsConfig{
-				MaxReadBytes:           1024,
-				MaxWriteBytes:          1024,
-				MaxBatchOps:            20,
+				MaxReadBytes:  1024,
+				MaxWriteBytes: 1024,
+
 				RequireWriteApproval:   requireApproval,
 				RequireReadBeforeWrite: true,
 			},

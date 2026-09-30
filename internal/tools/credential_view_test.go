@@ -3,14 +3,13 @@ package tools
 import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/credentialview"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestCredentialFileReadViews(t *testing.T) {
+func TestCredentialFileReadsAreBlocked(t *testing.T) {
 	root := t.TempDir()
 	executor := fileToolExecutor(root, true)
 	executor.cfg.Providers.ExternalDir = filepath.Join(root, "registries", "providers")
@@ -28,17 +27,11 @@ func TestCredentialFileReadViews(t *testing.T) {
 	}
 	for _, file := range []string{provider, executor.cfg.IdentityFile} {
 		result, err := executor.invokeRead(map[string]any{"file_path": file, "add_line_numbers": false}, fileToolExecutionContext(root))
-		if err != nil || result.Error != "" {
+		if err != nil || result.Error != "file_read_path_blocked" {
 			t.Fatal(err, result)
 		}
 		if strings.Contains(result.Output, "private-api-key") || strings.Contains(result.Output, "opaque-identity-token") {
 			t.Fatal("credential leaked", result.Output)
-		}
-		if !strings.Contains(result.Output, credentialview.Hidden) {
-			t.Fatal(result.Output)
-		}
-		if file == provider && !strings.Contains(result.Output, "https://example.test") {
-			t.Fatal("public fields missing", result.Output)
 		}
 	}
 	result, err := executor.invokeRead(map[string]any{"file_path": provider, "offset": 2, "limit": 1, "add_line_numbers": false}, fileToolExecutionContext(root))

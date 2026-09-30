@@ -3211,7 +3211,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 	}
 }
 
-func TestBashSecuritySoftBlockAutoApprovesByHITLLevel(t *testing.T) {
+func TestBashSecuritySoftBlockAutoApprovesByAccessLevel(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
 	command := "printf ok > owner.md"
 	stream := &llmRunStream{
@@ -3220,9 +3220,9 @@ func TestBashSecuritySoftBlockAutoApprovesByHITLLevel(t *testing.T) {
 			tools:        executor,
 			interactions: toolinteraction.NewDefaultRegistry(),
 		},
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", AccessLevel: contracts.AccessLevelAutoApprove},
 		execCtx: &contracts.ExecutionContext{
-			HITLLevel: bashsec.LevelRedirections,
+			Session: contracts.QuerySession{AccessLevel: contracts.AccessLevelAutoApprove}, AccessLevel: contracts.AccessLevelAutoApprove,
 		},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
@@ -3367,7 +3367,7 @@ func TestSandboxBashSecurityOverrideDoesNotBypassHardBlock(t *testing.T) {
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
 			toolName: "bash",
-			args:     map[string]any{"command": "cat < /tmp/secret", "description": "读取 secret"},
+			args:     map[string]any{"command": "cat /proc/self/environ", "description": "读取 secret"},
 		},
 	}
 
@@ -3431,9 +3431,9 @@ func TestWriteToolEmitsApprovalBeforeExecuting(t *testing.T) {
 			cfg: config.Config{
 				AccessPolicy: accessPolicyAllowingRoot(root),
 				FileTools: config.FileToolsConfig{
-					MaxReadBytes:         1024,
-					MaxWriteBytes:        1024,
-					MaxBatchOps:          20,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
+
 					RequireWriteApproval: true,
 				},
 			},
@@ -3493,9 +3493,9 @@ func TestWriteToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					MaxReadBytes:         1024,
-					MaxWriteBytes:        1024,
-					MaxBatchOps:          20,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
+
 					RequireWriteApproval: true,
 				},
 			},
@@ -3547,9 +3547,9 @@ func TestWriteToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					MaxReadBytes:         1024,
-					MaxWriteBytes:        1024,
-					MaxBatchOps:          20,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
+
 					RequireWriteApproval: true,
 				},
 			},
@@ -3598,9 +3598,9 @@ func TestEditToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					MaxReadBytes:         1024,
-					MaxWriteBytes:        1024,
-					MaxBatchOps:          20,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
+
 					RequireWriteApproval: true,
 				},
 			},
@@ -3653,9 +3653,9 @@ func TestEditToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					MaxReadBytes:         1024,
-					MaxWriteBytes:        1024,
-					MaxBatchOps:          20,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
+
 					RequireWriteApproval: true,
 				},
 			},
@@ -3697,9 +3697,9 @@ func TestWriteToolApprovalUsesToolLabelInCommand(t *testing.T) {
 			cfg: config.Config{
 				AccessPolicy: accessPolicyAllowingRoot(root),
 				FileTools: config.FileToolsConfig{
-					MaxReadBytes:         1024,
-					MaxWriteBytes:        1024,
-					MaxBatchOps:          20,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
+
 					RequireWriteApproval: true,
 				},
 			},
@@ -3737,9 +3737,9 @@ func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 	cfg := config.Config{
 		AccessPolicy: accessPolicyAllowingRoot(root),
 		FileTools: config.FileToolsConfig{
-			MaxReadBytes:         1024,
-			MaxWriteBytes:        1024,
-			MaxBatchOps:          20,
+			MaxReadBytes:  1024,
+			MaxWriteBytes: 1024,
+
 			RequireWriteApproval: true,
 		},
 	}
@@ -4385,9 +4385,9 @@ func TestRunAuthoredChatAndTempScriptsAvoidUnexpectedAwaiting(t *testing.T) {
 		expectApprovals int
 	}{
 		{name: "host chat python", filePath: "@chat/task.py", cwd: "@chat", command: "python3 task.py", accessLevel: contracts.AccessLevelAutoApprove, expectApprovals: 1},
-		{name: "host temp node", filePath: "@temp/task.js", cwd: "@temp", command: "node task.js", accessLevel: contracts.AccessLevelDefault},
+		{name: "host temp node", filePath: "@temp/task.js", cwd: "@temp", command: "node task.js", accessLevel: contracts.AccessLevelAutoApprove, expectApprovals: 1},
 		{name: "sandbox chat python", sandbox: true, filePath: "@chat/task.py", cwd: "@chat", command: "python3 task.py", sandboxCwd: "/chat", accessLevel: contracts.AccessLevelAutoApprove, expectApprovals: 1},
-		{name: "sandbox temp node", sandbox: true, filePath: "@temp/task.js", cwd: "/tmp", command: "node task.js", sandboxCwd: "/tmp", accessLevel: contracts.AccessLevelDefault},
+		{name: "sandbox temp node", sandbox: true, filePath: "@temp/task.js", cwd: "/tmp", command: "node task.js", sandboxCwd: "/tmp", accessLevel: contracts.AccessLevelAutoApprove, expectApprovals: 1},
 	}
 
 	for _, test := range tests {
@@ -4490,7 +4490,7 @@ func TestRunAuthoredChatAndTempScriptsAvoidUnexpectedAwaiting(t *testing.T) {
 				}
 				decision := approvals[0].Decisions[0]
 				if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||
-					!strings.HasPrefix(decision.RuleKey, "bash-access:opaque:") {
+					!strings.HasPrefix(decision.RuleKey, "bash-access:execution:") {
 					t.Fatalf("unexpected script auto-approval decision: %#v", decision)
 				}
 			}
@@ -4559,12 +4559,12 @@ func TestChatAndTempScriptExecutionWorksInConcurrentBatch(t *testing.T) {
 	if len(executor.invocations) != 2 {
 		t.Fatalf("expected both script calls to execute, got %#v", executor.invocations)
 	}
-	if len(approvals) != 1 || len(approvals[0].Decisions) != 1 {
-		t.Fatalf("expected one chat-command auto-approval audit, got %#v", approvals)
+	if len(approvals) != 1 || len(approvals[0].Decisions) != 2 {
+		t.Fatalf("expected audit for both script calls, got %#v", approvals)
 	}
 	for _, decision := range approvals[0].Decisions {
 		if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||
-			!strings.HasPrefix(decision.RuleKey, "bash-access:opaque:") {
+			!strings.HasPrefix(decision.RuleKey, "bash-access:execution:") {
 			t.Fatalf("unexpected batch auto-approval decision: %#v", decision)
 		}
 	}
@@ -4668,7 +4668,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 	}
 	decision := recordedApproval.Decisions[0]
 	if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||
-		!strings.HasPrefix(decision.RuleKey, "bash-access:opaque:") {
+		!strings.HasPrefix(decision.RuleKey, "bash-access:execution:") {
 		t.Fatalf("unexpected dynamic auto-approval decision: %#v", decision)
 	}
 }
@@ -4687,7 +4687,7 @@ func TestOpaqueScriptAutoApprovalDoesNotBypassBashSecurityBlock(t *testing.T) {
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_node",
 			toolName: "bash",
-			args:     map[string]any{"command": `node -e 'require("child_process")'`, "cwd": "@temp"},
+			args:     map[string]any{"command": `node -e 'console.log(1)'; cat /proc/self/environ`, "cwd": "@temp"},
 		},
 	}
 
@@ -7249,8 +7249,8 @@ func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) 
 			result: hitl.InterceptResult{
 				Intercepted: true,
 				Rule: hitl.FlatRule{
-					Match:        "push",
-					Level:        2,
+					Match: "push",
+					Level: 2, AutoApprove: []string{contracts.AccessLevelDefault},
 					ViewportType: "builtin",
 					ViewportKey:  "confirm_dialog",
 				},
@@ -7262,8 +7262,7 @@ func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) 
 			RunID:     "run_1",
 		},
 		execCtx: &contracts.ExecutionContext{
-			Budget:            contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
-			AutoApproveLevels: map[int]bool{2: true},
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
 		},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
@@ -7323,8 +7322,7 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 		},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
 		execCtx: &contracts.ExecutionContext{
-			Budget:            contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
-			AutoApproveLevels: map[int]bool{2: true},
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
 		},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",

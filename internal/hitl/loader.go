@@ -57,7 +57,7 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 			passFlags := normalizePassThroughFlags(block.PassThroughFlags)
 			for _, sub := range block.Subcommands {
 				match := strings.TrimSpace(sub.Match)
-				key := command + "\x00" + strings.ToLower(match)
+				key := path + "\x00" + command + "\x00" + strings.ToLower(match)
 				if seen[key] {
 					continue
 				}
@@ -96,6 +96,7 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 					ViewportType:     viewportType,
 					ViewportKey:      viewportKey,
 					Timeout:          sub.Timeout,
+					AutoApprove:      append([]string(nil), sub.AutoApprove...),
 				})
 				order++
 			}
@@ -157,6 +158,7 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 				ViewportType: strings.TrimSpace(stringValue(rawSub["viewportType"])),
 				ViewportKey:  strings.TrimSpace(stringValue(rawSub["viewportKey"])),
 				Timeout:      intValue(rawSub["timeout"]),
+				AutoApprove:  stringList(rawSub["autoApprove"]),
 			})
 		}
 		file.Commands = append(file.Commands, block)
@@ -165,6 +167,11 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 }
 
 func validateSubcommandRule(command string, sub SubcommandRule, matchTokens []string) error {
+	for _, level := range sub.AutoApprove {
+		if level != "default" && level != "auto_approve" && level != "full_access" {
+			return fmt.Errorf("invalid autoApprove access level %q", level)
+		}
+	}
 	if strings.TrimSpace(command) == "" {
 		return fmt.Errorf("command is required")
 	}

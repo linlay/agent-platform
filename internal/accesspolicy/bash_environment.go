@@ -48,5 +48,9 @@ func executionFingerprint(p BashPlan, x BashExecution, variables map[string]stri
 	}
 	sum := sha256.Sum256([]byte(strings.Join([]string{p.Fingerprint, p.RuleKey, p.AccessLevel, x.Cwd, x.Identity, target, content, string(data)}, "\x00")))
 	p.Fingerprint = hex.EncodeToString(sum[:])
+	// Run reuse is limited to this exact invocation/environment/content version,
+	// never all programs sharing an interpreter and working directory.
+	p.RuleKey = "bash-access:execution:" + p.Fingerprint
+	p.Scope, p.ScopeKind, p.ContentSHA256 = target, "invocation_version", content
 	return p
 }

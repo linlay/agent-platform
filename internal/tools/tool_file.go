@@ -24,7 +24,7 @@ import (
 )
 
 func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	accessSession := accessPolicySession(execCtx)
+	accessSession := t.policySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return filePathResolutionError("file_read_invalid_path", err), nil
@@ -183,7 +183,7 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 
 func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
-	accessSession := accessPolicySession(execCtx)
+	accessSession := t.policySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return filePathResolutionError("file_write_invalid_plan", err), nil
@@ -315,7 +315,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 
 func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
-	accessSession := accessPolicySession(execCtx)
+	accessSession := t.policySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return filePathResolutionError("file_edit_invalid_plan", err), nil

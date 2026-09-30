@@ -124,6 +124,10 @@ func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
 					"options":       buildApprovalOptions(),
 					"allowFreeText": true,
 					"ruleKey":       request.result.Rule.RuleKey,
+					"policy":        accesspolicy.BashPlanMetadata(*request.bashAccessReview),
+				}
+				if request.bashSecurityReview != nil {
+					want["requirements"] = []any{map[string]any{"ruleKey": request.bashSecurityReview.RuleKey, "reason": request.bashSecurityReview.Reason}}
 				}
 				if item := stream.buildApprovalAskItem(invocation); !reflect.DeepEqual(item, want) {
 					t.Fatalf("approval item changed command/description or added policy notes: got %#v, want %#v", item, want)

@@ -1,6 +1,7 @@
 package pathutil
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,18 +20,18 @@ type Canonical struct {
 var caseInsensitive = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 
 func Canonicalize(path string) (Canonical, error) {
-	host := filepath.Clean(ExpandHome(strings.TrimSpace(path)))
+	host := ExpandHome(strings.TrimSpace(path))
 	if host == "" || host == "." {
 		return Canonical{}, fmt.Errorf("resolve path: empty path")
 	}
 	if !filepath.IsAbs(host) {
-		abs, err := filepath.Abs(host)
+		cwd, err := os.Getwd()
 		if err != nil {
 			return Canonical{}, fmt.Errorf("resolve path: %w", err)
 		}
-		host = abs
+		host = JoinUnclean(cwd, host)
 	}
-	resolved, err := resolveExistingOrFuturePath(filepath.Clean(host))
+	resolved, err := resolveExistingOrFuturePath(host)
 	if err != nil {
 		return Canonical{}, fmt.Errorf("resolve path: %w", err)
 	}
@@ -105,40 +106,69 @@ func ExpandHome(path string) string {
 			if path == "~" {
 				return home
 			}
-			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+			return JoinUnclean(home, strings.TrimPrefix(path, "~/"))
 		}
 	}
 	return path
 }
 
 func resolveExistingOrFuturePath(path string) (string, error) {
-	if evaluated, err := filepath.EvalSymlinks(path); err == nil {
-		return filepath.Clean(evaluated), nil
+	return resolvePhysicalPath(path, 0)
+}
+
+// JoinUnclean preserves parent components until after symlink resolution.
+// filepath.Join/Clean before resolution changes link/../file semantics.
+func JoinUnclean(base, relative string) string {
+	return strings.TrimRight(base, string(filepath.Separator)) + string(filepath.Separator) + relative
+}
+
+func resolvePhysicalPath(path string, links int) (string, error) {
+	if links > 40 {
+		return "", fmt.Errorf("too many symbolic links")
 	}
-	existing := path
-	missing := []string{}
-	for {
-		if existing == "" || existing == "." {
-			break
+	path = filepath.FromSlash(path)
+	volume := filepath.VolumeName(path)
+	current := volume + string(filepath.Separator)
+	parts := strings.Split(strings.TrimPrefix(path, volume), string(filepath.Separator))
+	missing := false
+	for i, part := range parts {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if missing {
+				return "", fmt.Errorf("parent traversal through nonexistent directory")
+			}
+			current = filepath.Dir(current)
+			continue
 		}
-		if _, err := os.Lstat(existing); err == nil {
-			break
+		current = filepath.Join(current, part)
+		if missing {
+			continue
 		}
-		parent := filepath.Dir(existing)
-		if parent == existing {
-			break
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			missing = true
+			continue
 		}
-		missing = append([]string{filepath.Base(existing)}, missing...)
-		existing = parent
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(current)
+			if err != nil {
+				return "", err
+			}
+			if !filepath.IsAbs(target) {
+				target = JoinUnclean(filepath.Dir(current), target)
+			}
+			return resolvePhysicalPath(JoinUnclean(target, strings.Join(parts[i+1:], string(filepath.Separator))), links+1)
+		}
+		if !info.IsDir() && i < len(parts)-1 && strings.Join(parts[i+1:], "") != "" {
+			return "", fmt.Errorf("path component is not a directory: %s", current)
+		}
 	}
-	evaluatedParent, err := filepath.EvalSymlinks(existing)
-	if err != nil {
-		if abs, absErr := filepath.Abs(path); absErr == nil {
-			return filepath.Clean(abs), nil
-		}
-		return "", err
-	}
-	return filepath.Clean(filepath.Join(append([]string{evaluatedParent}, missing...)...)), nil
+	return current, nil
 }
 
 func keyForPosix(posix string) string {

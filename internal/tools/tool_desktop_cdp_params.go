@@ -35,7 +35,7 @@ func (t *RuntimeToolExecutor) resolveDesktopCDPParams(args map[string]any, execC
 		return nil, desktopActionErrorResult("invalid_args", "paramsFile must be a non-empty path string", nil), true
 	}
 
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySession(execCtx), filetools.ReadAccess, path)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, t.policySession(execCtx), filetools.ReadAccess, path)
 	if err != nil {
 		return nil, filePathResolutionError("desktop_cdp_params_file_invalid_path", err), true
 	}

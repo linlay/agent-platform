@@ -91,7 +91,7 @@ commands:
 	}
 }
 
-func TestLoadRulesDeduplicatesFirstMatch(t *testing.T) {
+func TestLoadRulesPreservesDistinctSources(t *testing.T) {
 	root := t.TempDir()
 	first := `
 commands:
@@ -122,8 +122,8 @@ commands:
 	if err != nil {
 		t.Fatalf("load rules: %v", err)
 	}
-	if len(rules) != 1 {
-		t.Fatalf("expected deduplicated rules, got %#v", rules)
+	if len(rules) != 2 {
+		t.Fatalf("expected rules from both sources, got %#v", rules)
 	}
 	if rules[0].Level != 2 {
 		t.Fatalf("expected first rule to win, got %#v", rules[0])

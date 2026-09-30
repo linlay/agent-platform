@@ -131,7 +131,7 @@ func (r Resolver) Classify(raw string) (Classification, pathutil.Canonical, path
 		return Outside, pathutil.Canonical{}, pathutil.Canonical{}, nil
 	}
 	claimedRoot, claimed := r.lexicallyClaimedRoot(clean)
-	candidate, err := pathutil.Canonicalize(clean)
+	candidate, err := pathutil.Canonicalize(pathutil.ExpandHome(raw))
 	if err != nil {
 		return Outside, pathutil.Canonical{}, pathutil.Canonical{}, err
 	}
@@ -150,7 +150,7 @@ func (r Resolver) ResolveAtPrimary(suffix string) (Classification, pathutil.Cano
 		return Outside, pathutil.Canonical{}, pathutil.Canonical{}, fmt.Errorf("temporary root is unavailable")
 	}
 	suffix = strings.TrimLeft(filepath.ToSlash(strings.TrimSpace(suffix)), "/")
-	joined := filepath.Clean(filepath.Join(primary.Host, filepath.FromSlash(suffix)))
+	joined := pathutil.JoinUnclean(primary.Host, filepath.FromSlash(suffix))
 	rel, err := filepath.Rel(primary.Host, joined)
 	if err != nil {
 		return Outside, pathutil.Canonical{}, pathutil.Canonical{}, err

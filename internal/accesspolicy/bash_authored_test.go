@@ -44,10 +44,10 @@ func TestAuthoredExecutionFormsAndLevels(t *testing.T) {
 					}
 					got := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, form, "", nil, ctx)
 					want := DecisionAllow
-					if !authored && level == AccessLevelDefault {
+					if level == AccessLevelDefault {
 						want = DecisionRequiresApproval
 					}
-					if !authored && level == AccessLevelAutoApprove {
+					if level == AccessLevelAutoApprove {
 						want = DecisionAutoApproved
 					}
 					if got.Decision != want {
@@ -73,13 +73,13 @@ func TestAuthoredDoesNotAuthorizeOtherRequirements(t *testing.T) {
 		}
 	}
 	own := ReviewBashCommand(cfg, ctx.Session, "sh './task with space.sh'", "", nil, ctx)
-	if len(ApprovalRules(own)) != 0 || HasApproval(ctx, ReviewBashCommand(cfg, ctx.Session, "sh other.sh", "", nil, ctx)) {
-		t.Fatal("authored exemption granted interpreter rule")
+	if len(ApprovalRules(own)) == 0 || HasApproval(ctx, ReviewBashCommand(cfg, ctx.Session, "sh other.sh", "", nil, ctx)) {
+		t.Fatal("self-authored scripts must require a scoped approval")
 	}
 	old := ReviewBashCommand(cfg, ctx.Session, "sh other.sh", "", nil, ctx)
 	RegisterRuleApproval(ctx, old.RuleKey)
-	if !HasApproval(ctx, ReviewBashCommand(cfg, ctx.Session, "sh third.sh", "", nil, ctx)) {
-		t.Fatal("interpreter cwd rule reuse lost")
+	if HasApproval(ctx, ReviewBashCommand(cfg, ctx.Session, "sh third.sh", "", nil, ctx)) {
+		t.Fatal("run grant leaked to a different script")
 	}
 	if err := os.WriteFile(p, []byte("#!/bin/sh\nprintf changed\n"), 0700); err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestExecutionWrappersAndLookalikes(t *testing.T) {
 	ctx, p := authoredFixture(t)
 	cfg := config.AccessPolicyConfig{}
 	for _, command := range []string{"env sh './task with space.sh'", "command sh './task with space.sh'", "env -C '" + filepath.Dir(p) + "' sh './task with space.sh'"} {
-		if got := ReviewBashCommand(cfg, ctx.Session, command, "", nil, ctx); !got.Allowed() {
+		if got := ReviewBashCommand(cfg, ctx.Session, command, "", nil, ctx); !got.RequiresApproval() {
 			t.Fatalf("%s: %+v", command, got)
 		}
 	}
@@ -180,10 +180,10 @@ func TestSandboxScriptIdentityUsesExecutionEnvironment(t *testing.T) {
 	review := func(command string) BashPlan {
 		return ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, ctx.Session, command, "/workspace", nil, env, ctx)
 	}
-	if got := review("sh './task with space.sh'"); !got.Allowed() {
+	if got := review("sh './task with space.sh'"); !got.RequiresApproval() {
 		t.Fatalf("mapped own script: %+v", got)
 	}
-	if got := review("'./task with space.sh'"); !got.Allowed() {
+	if got := review("'./task with space.sh'"); !got.RequiresApproval() {
 		t.Fatalf("mapped direct own script: %+v", got)
 	}
 	hash = strings.Repeat("0", 64)
@@ -338,7 +338,7 @@ func TestAuthoredExtensionlessAndForeignBinary(t *testing.T) {
 	}
 	ctx.AuthoredScripts.Record(ctx.ScriptOwner(), p, data, "", true)
 	for _, command := range []string{"sh task", "./task", "'" + p + "'"} {
-		if got := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, command, "", nil, ctx); !got.Allowed() {
+		if got := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, command, "", nil, ctx); !got.RequiresApproval() {
 			t.Fatalf("extensionless %s: %+v", command, got)
 		}
 	}

@@ -21,7 +21,6 @@ func reviewLegacyCompatibleWithAST(command string, result bashast.ParseResult) R
 	extracted := extractQuotedContent(legacyCommand)
 	fullyUnquotedPreStrip := extracted.fullyUnquoted
 	fullyUnquotedContent := stripSafeRedirections(extracted.fullyUnquoted)
-	unquotedKeepQuoteChars := extracted.unquotedKeepQuoteChars
 
 	validators := []struct {
 		name string
@@ -30,15 +29,11 @@ func reviewLegacyCompatibleWithAST(command string, result bashast.ParseResult) R
 		{"incomplete_commands", func() (bool, string) {
 			return validateIncompleteCommands(legacyCommand)
 		}},
-		{"obfuscated_flags", func() (bool, string) {
-			return validateObfuscatedFlags(legacyCommand, baseCommand, fullyUnquotedContent)
-		}},
+
 		{"shell_metacharacters", func() (bool, string) {
 			return validateShellMetacharactersFromAST(result)
 		}},
-		{"comment_quote_desync", func() (bool, string) {
-			return validateCommentQuoteDesync(legacyCommand)
-		}},
+
 		{"quoted_newline", func() (bool, string) {
 			return validateQuotedNewline(legacyCommand)
 		}},
@@ -54,12 +49,7 @@ func reviewLegacyCompatibleWithAST(command string, result bashast.ParseResult) R
 		{"backslash_escaped_whitespace", func() (bool, string) {
 			return validateBackslashEscapedWhitespace(legacyCommand)
 		}},
-		{"unicode_whitespace", func() (bool, string) {
-			return validateUnicodeWhitespace(legacyCommand)
-		}},
-		{"mid_word_hash", func() (bool, string) {
-			return validateMidWordHash(unquotedKeepQuoteChars)
-		}},
+
 		{"brace_expansion", func() (bool, string) {
 			return validateBraceExpansion(fullyUnquotedPreStrip, legacyCommand)
 		}},

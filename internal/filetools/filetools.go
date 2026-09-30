@@ -234,6 +234,9 @@ func ConsumeReadApproval(execCtx *ExecutionContext, plan AccessPlan) bool {
 	if execCtx.FileReadRuleApprovals != nil && execCtx.FileReadRuleApprovals[plan.RuleKey] {
 		return true
 	}
+	if consumeApproval(execCtx.FileReadApprovals, toolReadApprovalKey(execCtx.CurrentToolID, plan.Fingerprint)) {
+		return true
+	}
 	return consumeApproval(execCtx.FileReadApprovals, plan.Fingerprint)
 }
 
@@ -264,7 +267,7 @@ func HasReadApproval(execCtx *ExecutionContext, plan AccessPlan) bool {
 	if execCtx.FileReadRuleApprovals != nil && execCtx.FileReadRuleApprovals[plan.RuleKey] {
 		return true
 	}
-	return execCtx.FileReadApprovals != nil && execCtx.FileReadApprovals[plan.Fingerprint] > 0
+	return execCtx.FileReadApprovals != nil && (execCtx.FileReadApprovals[plan.Fingerprint] > 0 || execCtx.FileReadApprovals[toolReadApprovalKey(execCtx.CurrentToolID, plan.Fingerprint)] > 0)
 }
 
 func ConsumeAccessApproval(execCtx *ExecutionContext, plan AccessPlan) bool {
@@ -373,4 +376,32 @@ func maxPositive(value int, fallback int) int {
 		return value
 	}
 	return fallback
+}
+
+// RegisterToolReadApproval binds a read occurrence to the exact invocation. A
+// repeated image or a mask using the same path receives its own occurrence.
+func RegisterToolReadApproval(ctx *ExecutionContext, toolID, fingerprint string) {
+	if ctx == nil || toolID == "" || fingerprint == "" {
+		return
+	}
+	if ctx.FileReadApprovals == nil {
+		ctx.FileReadApprovals = map[string]int{}
+	}
+	ctx.FileReadApprovals[toolReadApprovalKey(toolID, fingerprint)]++
+}
+
+func ClearToolReadApprovals(ctx *ExecutionContext, toolID string) {
+	if ctx == nil || toolID == "" {
+		return
+	}
+	prefix := toolReadApprovalKey(toolID, "")
+	for key := range ctx.FileReadApprovals {
+		if strings.HasPrefix(key, prefix) {
+			delete(ctx.FileReadApprovals, key)
+		}
+	}
+}
+
+func toolReadApprovalKey(toolID, fingerprint string) string {
+	return "tool-read:" + toolID + "\x00" + fingerprint
 }

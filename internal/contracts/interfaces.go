@@ -351,6 +351,7 @@ type QuerySession struct {
 	Locale                        string
 	ModelKey                      string
 	ToolNames                     []string
+	ToolSetFrozen                 bool `json:"-"`
 	Mode                          string
 	ModeCapabilities              agentcontract.ModeCapabilities
 	SupportsContextCompaction     bool `json:"-"`
@@ -409,6 +410,9 @@ type QuerySession struct {
 	// Platform. It is runtime-only so protocol callers cannot forge additional
 	// access. ReadonlyRoots are hard mutation blocks for the lifetime of the run.
 	RunAccessRoots RunAccessRoots `json:"-"`
+	// ProtectedPaths is the trusted platform state/credential boundary. Ordinary
+	// approvals and full_access cannot override it.
+	ProtectedPaths []string `json:"-"`
 	// SkillScripts is an admission-built, memory-only grant for this run.
 	SkillScripts           *skillsexec.Scope `json:"-"`
 	AgentHasRuntimeSandbox bool
@@ -496,15 +500,14 @@ type ToolOutputSink interface {
 
 type ExecutionContext struct {
 	// AuthoredScripts is shared only by tool invocations of this run; never serialized.
-	AuthoredScripts       *scriptstate.Scope `json:"-"`
-	Request               api.QueryRequest
-	Session               QuerySession
-	RunControl            *RunControl
-	CurrentToolID         string
-	CurrentToolName       string
-	ToolOutputSink        ToolOutputSink
-	HITLLevel             int
-	AutoApproveLevels     map[int]bool
+	AuthoredScripts *scriptstate.Scope `json:"-"`
+	Request         api.QueryRequest
+	Session         QuerySession
+	RunControl      *RunControl
+	CurrentToolID   string
+	CurrentToolName string
+	ToolOutputSink  ToolOutputSink
+
 	SandboxSession        *SandboxSession
 	Budget                Budget
 	PlanExecuteSettings   PlanExecuteSettings

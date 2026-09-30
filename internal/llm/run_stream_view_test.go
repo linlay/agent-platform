@@ -13,7 +13,7 @@ import (
 func TestViewFormDoesNotJoinBuiltinApprovalOrAutoApprove(t *testing.T) {
 	rule := hitl.FlatRule{Mode: "form", View: &view.Reference{ConnectorID: "forms", Key: "edit"}, Level: 1}
 	match := hitl.InterceptResult{Intercepted: true, Rule: rule}
-	s := &llmRunStream{session: contracts.QuerySession{RunID: "run"}, execCtx: &contracts.ExecutionContext{AutoApproveLevels: map[int]bool{1: true}}}
+	s := &llmRunStream{session: contracts.QuerySession{RunID: "run"}, execCtx: &contracts.ExecutionContext{}}
 	if rule.IsBuiltinApproval() || approvalRequestCanJoinBatch(approvalRequest{result: match}) || s.shouldAutoApproveHITL(match) {
 		t.Fatal("connector form treated as builtin approval")
 	}

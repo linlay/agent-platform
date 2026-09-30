@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/documentmeta"
@@ -35,6 +36,16 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 			execCtx.Session.RunID,
 			execCtx.Session.WorkspaceRoot,
 			artifacts,
+			func(path string) error {
+				p, err := accesspolicy.BuildPathPlan(t.cfg.AccessPolicy, t.policySession(execCtx), accesspolicy.ReadAccess, path)
+				if err != nil {
+					return err
+				}
+				if p.Blocked() || p.Decision == accesspolicy.DecisionRequiresApproval {
+					return fmt.Errorf("artifact source access denied: %s", p.Reason)
+				}
+				return nil
+			},
 		)
 		if result.Status == "published" {
 			publishedAt := time.Now().UnixMilli()
@@ -142,7 +153,7 @@ func coerceArtifactList(raw any) []any {
 	return nil
 }
 
-func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRoot string, raw any) artifactPublishResult {
+func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRoot string, raw any, checks ...func(string) error) artifactPublishResult {
 	result := artifactPublishResult{
 		Status:             "error",
 		Artifacts:          raw,
@@ -188,6 +199,17 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 		if err != nil || info.IsDir() {
 			log.Printf("[artifact-publish] skip: file not found sourcePath=%s err=%v", sourcePath, err)
 			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "file_not_found", "artifact path does not exist or is not a regular file"))
+			continue
+		}
+		denied := false
+		for _, check := range checks {
+			if err := check(sourcePath); err != nil {
+				result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "artifact_source_blocked", err.Error()))
+				denied = true
+				break
+			}
+		}
+		if denied {
 			continue
 		}
 

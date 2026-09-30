@@ -503,9 +503,9 @@ type GitBashConfig struct {
 }
 
 type FileToolsConfig struct {
-	MaxReadBytes           int
-	MaxWriteBytes          int
-	MaxBatchOps            int
+	MaxReadBytes  int
+	MaxWriteBytes int
+
 	RequireWriteApproval   bool
 	RequireReadBeforeWrite bool
 	ReadBeforeWriteScope   string

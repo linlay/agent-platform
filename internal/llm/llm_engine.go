@@ -104,6 +104,17 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	allowedTools := resolveAllowedToolNames(session, options.Stage, options.ToolNames)
 	allToolDefs := mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions)
 	effectiveDefs := effectiveToolDefinitions(allToolDefs, allowedTools, session)
+	if session.ToolSetFrozen {
+		// Freeze the trusted, stage-specific definitions actually offered to the
+		// model, including their catalog aliases; stale cached prompts grant none.
+		session.ToolNames = nil
+		for _, def := range effectiveDefs {
+			session.ToolNames = append(session.ToolNames, def.Name)
+			if def.Key != "" {
+				session.ToolNames = append(session.ToolNames, def.Key)
+			}
+		}
+	}
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
 	execCtx := options.ExecCtx
 	if execCtx == nil {

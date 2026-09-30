@@ -4,11 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
 	"strings"
 
 	"agent-platform/internal/bashast"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/shellanalysis"
 )
 
 func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, contexts ...*ExecutionContext) BashPlan {
@@ -107,25 +109,9 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 					if decisionForAction(level.Approvals.BashOpaqueCommand) == DecisionBlock {
 						add(opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd))
 					}
-					if x.Script != "" && execCtx != nil && execCtx.AuthoredScripts != nil {
-						if host, ok := executableHostPath(session, resolveAgainstCwd(x.Script, x.Cwd)); ok && authoredExecutionMatches(session, execCtx, host, resolveAgainstCwd(x.Script, x.Cwd), environment) {
-							add(bashPlan(command, accessLevel, DecisionAllow, "script matches this run's complete write", "bash-access:authored-script", host))
-							exempt = true
-						}
-					}
-					if !exempt && x.Script != "" && execCtx != nil && skillExecutionMatches(session, execCtx, resolveAgainstCwd(x.Script, x.Cwd), environment) {
+					if x.Script != "" && execCtx != nil && skillExecutionMatches(session, execCtx, resolveAgainstCwd(x.Script, x.Cwd), environment) {
 						add(bashPlan(command, accessLevel, DecisionAllow, "script matches this run's selected skill", "bash-access:skill-script", x.Script))
 						exempt = true
-					}
-					if !exempt && x.TrustedInterpreter && !x.Wrapped && len(parsed.Commands) == 1 && len(cmd.Redirects) == 0 {
-						tempArgv := append([]string(nil), x.Argv...)
-						if len(tempArgv) > 1 && x.Script != "" && !strings.HasPrefix(tempArgv[1], "-") {
-							tempArgv[1] = x.Script
-						}
-						if p, handled := directTempScriptExecutionPlan(cfg, session, command, accessLevel, commandFamily(x.Argv[0]), tempArgv, x.Cwd); handled && x.Program == "" {
-							add(p)
-							exempt = true
-						}
 					}
 					if !exempt {
 						add(executionFingerprint(opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd), x, variables, environment))
@@ -148,21 +134,48 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 				// The invoking shell opens redirects before a wrapper changes cwd.
 				pathReview(mode, resolveAgainstCwd(redirect.Target, candidateCwd))
 			}
-			if !x.Connector && len(x.Argv) > 0 {
-				mode := commandPathMode(commandFamily(x.Argv[0]))
-				if x.Opaque || x.Uncertain {
-					mode = ReadAccess
-				}
-				for i, arg := range x.Argv[1:] {
-					pathOperand := mode == WriteAccess && !strings.HasPrefix(arg, "-")
-					if commandFamily(x.Argv[0]) == "chmod" && i == 0 {
-						pathOperand = false
+			if !x.Connector && len(x.Argv) > 0 && !x.Opaque && !x.Uncertain {
+				effects := shellanalysis.Operands(commandFamily(x.Argv[0]), x.Argv[1:])
+				for _, file := range effects.Files {
+					mode := ReadAccess
+					if file.Write {
+						mode = WriteAccess
 					}
-					if isPathArg(arg) || pathOperand {
-						if strings.HasPrefix(arg, "-") {
-							_, arg, _ = strings.Cut(arg, "=")
+					raw := resolveAgainstCwd(file.Path, x.Cwd)
+					if session.AgentHasRuntimeSandbox && strings.ContainsAny(raw, "*?[") {
+						add(bashPlan(command, accessLevel, DecisionBlock, "container globs require explicit paths until guest expansion is available", "bash-access:glob", raw))
+						continue
+					}
+					paths, err := expandOperandPaths(raw)
+					if err != nil {
+						add(bashPlan(command, accessLevel, DecisionBlock, err.Error(), "bash-access:glob", raw))
+						continue
+					}
+					for _, p := range paths {
+						pathReview(mode, p)
+						if file.Recursive {
+							subtree := BuildSubtreePlan(cfg, session, mode, p)
+							if subtree.Blocked() {
+								add(bashPlan(command, accessLevel, DecisionBlock, subtree.Reason, "bash-access:subtree", p))
+							}
 						}
-						pathReview(mode, resolveAgainstCwd(arg, x.Cwd))
+					}
+				}
+				if effects.ExecutesCode || effects.Unknown {
+					add(executionFingerprint(opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd), x, variables, environment))
+				}
+				if effects.RemoteMutation && accessLevel != AccessLevelFullAccess {
+					add(bashPlan(command, accessLevel, DecisionRequiresApproval, "command modifies a remote resource", "bash-access:remote", command))
+				}
+			}
+			if !x.Connector && x.Opaque && !x.Uncertain {
+				// Opaque code is separately approved, but visible arguments still
+				// cannot silently acquire outside write access in auto_approve.
+				for _, arg := range opaquePathArguments(x) {
+					target := resolveAgainstCwd(arg, x.Cwd)
+					pathReview(WriteAccess, target)
+					if p := BuildSubtreePlan(cfg, session, WriteAccess, target); p.Blocked() {
+						add(bashPlan(command, accessLevel, DecisionBlock, p.Reason, "bash-access:subtree", target))
 					}
 				}
 			}
@@ -194,6 +207,44 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 	return result
 }
 
+func opaquePathArguments(x BashExecution) []string {
+	var paths []string
+	rawScript := ""
+	if x.TrustedInterpreter && len(x.Argv) > 1 {
+		rawScript = interpreterScript(commandFamily(x.Argv[0]), x.Argv[1:])
+	}
+	skipNext := false
+	for _, arg := range x.Argv[1:] {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if arg == "-c" || arg == "-e" || arg == "--eval" || arg == "-m" {
+			skipNext = true
+			continue
+		}
+		if arg == x.Script || arg == rawScript || arg == "-" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			_, value, ok := strings.Cut(arg, "=")
+			if !ok {
+				continue
+			}
+			arg = value
+		}
+		if strings.Contains(arg, "://") || arg == "" {
+			continue
+		}
+		if strings.ContainsAny(arg, "/\\") || strings.HasPrefix(arg, "~") {
+			paths = append(paths, arg)
+		} else if _, err := os.Lstat(resolveAgainstCwd(arg, x.Cwd)); err == nil {
+			paths = append(paths, arg)
+		}
+	}
+	return paths
+}
+
 func skillExecutionMatches(session QuerySession, ctx *ExecutionContext, target string, env *BashEnvironment) bool {
 	if session.SkillScripts == nil {
 		return false
@@ -215,20 +266,6 @@ func skillExecutionMatches(session QuerySession, ctx *ExecutionContext, target s
 	}
 	_, hash, err := env.Inspect(canonical)
 	return err == nil && session.SkillScripts.Matches(ctx.ScriptOwner(), host, hash, true)
-}
-
-func authoredExecutionMatches(session QuerySession, ctx *ExecutionContext, host, target string, env *BashEnvironment) bool {
-	if !ctx.AuthoredScripts.Matches(ctx.ScriptOwner(), host) {
-		return false
-	}
-	if !session.AgentHasRuntimeSandbox {
-		return true
-	}
-	if env == nil || env.Inspect == nil {
-		return false
-	}
-	_, hash, err := env.Inspect(target)
-	return err == nil && ctx.AuthoredScripts.MatchesHash(ctx.ScriptOwner(), host, hash)
 }
 
 func decisionPriority(d Decision) int {
@@ -328,10 +365,16 @@ func PendingBashPlan(ctx *ExecutionContext, p BashPlan) BashPlan {
 
 func BashPlanMetadata(p BashPlan) map[string]any {
 	out := map[string]any{"decision": string(p.Decision), "accessLevel": p.AccessLevel, "reason": p.Reason, "ruleKey": p.RuleKey}
+	if p.ScopeKind != "" {
+		out["scopeKind"], out["scope"] = p.ScopeKind, p.Scope
+	}
+	if p.ContentSHA256 != "" {
+		out["contentSHA256"] = p.ContentSHA256
+	}
 	if len(p.Requirements) > 0 {
 		items := []any{}
 		for _, leaf := range p.Requirements {
-			items = append(items, map[string]any{"decision": string(leaf.Decision), "reason": leaf.Reason, "ruleKey": leaf.RuleKey})
+			items = append(items, BashPlanMetadata(leaf))
 		}
 		out["requirements"] = items
 	}

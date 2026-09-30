@@ -88,7 +88,7 @@ func environment(configHome string, workspaceDir string, chatDir string) map[str
 // IsReserved reports whether a key is owned by Agent Platform. The comparison
 // is case-insensitive so definitions remain portable to Windows environments.
 func IsReserved(key string) bool {
-	if shellenv.Reserved(key) {
+	if shellenv.UnsafeOverride(key) {
 		return true
 	}
 	switch {

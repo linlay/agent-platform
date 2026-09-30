@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"agent-platform/internal/accesspolicy"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -106,9 +107,10 @@ func TestSandboxExecutorVerifiesMappedContentBeforeAuthoredAllow(t *testing.T) {
 		t.Fatal(err)
 	}
 	preflight := router.ReviewBashAccess(context.Background(), args, ctx, config.AccessPolicyConfig{})
-	if !preflight.Allowed() {
+	if !preflight.RequiresApproval() {
 		t.Fatalf("preflight: %+v", preflight)
 	}
+	accesspolicy.RegisterExactApproval(ctx, preflight.Fingerprint)
 	result, err := executor.invokeSandboxBash(context.Background(), args, ctx)
 	if err != nil || result.Error != "" || result.Output != "container-ok\n" || client.executions != 1 || client.probes == 0 {
 		t.Fatalf("execute: %+v %v", result, err)

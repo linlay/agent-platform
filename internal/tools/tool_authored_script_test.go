@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 )
 
@@ -30,20 +31,30 @@ func TestFileToolsAuthoredScriptExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, command := range []string{"bash task.sh", "sh task.sh", "./task.sh", "'" + path + "'"} {
-		result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": command}, ctx)
+		args := map[string]any{"command": command}
+		result, err := executor.invokeHostBash(context.Background(), args, ctx)
+		if err != nil || result.Error != "bash_access_approval_required" {
+			t.Fatalf("self-write bypassed approval: %+v %v", result, err)
+		}
+		plan := executor.ReviewBashAccess(context.Background(), args, ctx, executor.cfg.AccessPolicy)
+		accesspolicy.RegisterExactApproval(ctx, plan.Fingerprint)
+		result, err = executor.invokeHostBash(context.Background(), args, ctx)
 		if err != nil || result.ExitCode != 7 || result.Structured["stdout"] != "authored\n" {
 			t.Fatalf("%s: %+v %v", command, result, err)
 		}
-		metadata, _ := result.Structured["accessPolicy"].(map[string]any)
-		if metadata["decision"] != "allow" || metadata["ruleKey"] != "bash-access:authored-script" {
-			t.Fatalf("wrong provenance audit: %#v", metadata)
-		}
+
 	}
 	edited, err := executor.invokeEdit(context.Background(), map[string]any{"file_path": path, "old_string": "authored", "new_string": "edited"}, ctx)
 	if err != nil || edited.Error != "" {
 		t.Fatalf("edit: %+v %v", edited, err)
 	}
 	result, _ := executor.invokeHostBash(context.Background(), map[string]any{"command": "sh task.sh"}, ctx)
+	if result.Error != "bash_access_approval_required" {
+		t.Fatalf("edited content inherited approval: %+v", result)
+	}
+	plan := executor.ReviewBashAccess(context.Background(), map[string]any{"command": "sh task.sh"}, ctx, executor.cfg.AccessPolicy)
+	accesspolicy.RegisterExactApproval(ctx, plan.Fingerprint)
+	result, _ = executor.invokeHostBash(context.Background(), map[string]any{"command": "sh task.sh"}, ctx)
 	if result.Structured["stdout"] != "edited\n" || result.ExitCode != 7 {
 		t.Fatalf("authored edit: %+v", result)
 	}

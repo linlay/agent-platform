@@ -22,6 +22,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hostenv"
 	"agent-platform/internal/runtimeenv"
+	"agent-platform/internal/shellenv"
 	"agent-platform/internal/textcodec"
 )
 
@@ -46,7 +47,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(t.cfg.Bash.AllowedCommands) == 0 && !rawAccessReview.ConnectorOnly {
 		return ToolExecutionResult{Output: "Bash command whitelist is empty", Error: "command_whitelist_empty", ExitCode: -1}, nil
 	}
-	session := accessPolicySession(execCtx)
+	session := t.policySession(execCtx)
 	rawCwd := strings.TrimSpace(stringArg(args, "cwd"))
 	if rawCwd == "" {
 		if strings.TrimSpace(accesspolicy.SessionWorkspaceRoot(session)) == "" {
@@ -100,14 +101,22 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
 	}
-	var configEnv map[string]string
-	if execCtx != nil {
-		configEnv = execCtx.Session.ConnectorEnv
+	direct := accesspolicy.DirectConnectorInvocation(session, command, workingDir, bashEnvironmentVariables(commandEnv))
+	if direct == nil && rawAccessReview.HasConnector && execCtx != nil && (len(session.ConnectorCredentials) > 0 || len(session.ConnectorEnv) > 0) {
+		return ToolExecutionResult{Output: "Credentialed connector commands must be invoked as a single direct command; split shell pipelines, wrappers and redirects into separate tool calls.", Error: "connector_requires_direct_invocation", ExitCode: -1}, nil
 	}
-	bound := hostenv.BindShellEnvironment(shellExecutable, command, commandEnv, configEnv)
+	bound := hostenv.BindShellEnvironment(shellExecutable, command, commandEnv, nil)
 	_, boundArgs := resolveHostShellInvocation(t.cfg.Bash, bound, runtimeInfo.GOOS)
 	cmd.Args = append([]string{shellExecutable}, boundArgs...)
 	cmd.Env = commandEnv
+	if direct != nil {
+		cmd = exec.CommandContext(runCtx, direct.Program, direct.Args...)
+		cmd.WaitDelay, cmd.Dir = bashOutputPipeWaitDelay, workingDir
+		cmd.Env, err = t.connectorCommandEnvironment(runCtx, execCtx, direct.ID, commandEnv)
+		if err != nil {
+			return ToolExecutionResult{Output: err.Error(), Error: "connector_credentials_unavailable", ExitCode: -1}, nil
+		}
+	}
 
 	stdoutFile, err := os.CreateTemp("", "agent-platform-bash-stdout-*.log")
 	if err != nil {
@@ -130,8 +139,14 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 
 	// Revalidate immediately before launch against the environment actually passed
 	// to the child. Only this final check consumes a one-shot approval.
-	rawFinalReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, accessPolicySession(execCtx), command, workingDir, bashEnvironmentVariables(cmd.Env), execCtx)
-	securityReview = rawFinalReview.SecurityReview(command, bashEnvironmentVariables(cmd.Env))
+	rawFinalReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, t.policySession(execCtx), command, workingDir, bashEnvironmentVariables(commandEnv), execCtx)
+	securityReview = rawFinalReview.SecurityReview(command, bashEnvironmentVariables(commandEnv))
+	if direct != nil {
+		fresh := accesspolicy.DirectConnectorInvocation(session, command, workingDir, bashEnvironmentVariables(commandEnv))
+		if fresh == nil || fresh.ID != direct.ID || fresh.Program != direct.Program {
+			return ToolExecutionResult{Output: "Connector entry changed before launch", Error: "connector_entry_changed", ExitCode: -1}, nil
+		}
+	}
 	if securityReview.Decision == bashsec.ReviewBlock {
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
@@ -143,7 +158,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if accessReview.RequiresApproval() && !accesspolicy.ConsumeApproval(execCtx, accessReview) {
 		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
 	}
-	if securityReview.Decision == bashsec.ReviewRequiresApproval && !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
+	if securityReview.Decision == bashsec.ReviewRequiresApproval && !securityReview.AutoApprovedAtLevel(session.AccessLevel) && !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_approval_required", ExitCode: -1}, nil
 	}
 	err = cmd.Run()
@@ -297,15 +312,15 @@ func defaultHostShellArgs(shellExecutable string, goos string) []string {
 		case "cmd":
 			return []string{"/d", "/s", "/c", hostShellCommandPlaceholder}
 		case "bash", "sh":
-			return []string{"-lc", hostShellCommandPlaceholder}
+			return []string{"-c", hostShellCommandPlaceholder}
 		default:
 			return []string{hostShellCommandPlaceholder}
 		}
 	}
 	if base == "bash" {
-		return []string{"-o", "pipefail", "-lc", hostShellCommandPlaceholder}
+		return []string{"--noprofile", "--norc", "-o", "pipefail", "-c", hostShellCommandPlaceholder}
 	}
-	return []string{"-lc", hostShellCommandPlaceholder}
+	return []string{"-c", hostShellCommandPlaceholder}
 }
 
 func normalizedShellBase(shellExecutable string) string {
@@ -408,7 +423,7 @@ func connectorBins(execCtx *ExecutionContext) []string {
 }
 
 func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
-	env := append([]string(nil), os.Environ()...)
+	env := shellenv.InheritedEnvironment(os.Environ())
 	var agentDir string
 	var workspaceDir string
 	var chatDir string
@@ -426,12 +441,16 @@ func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
 		}
 		runtimeEnv = agentconfig.Merge(runtimeEnv, dynamic)
 	}
-	var connectorEnv map[string]string
-	if execCtx != nil {
-		connectorEnv = execCtx.Session.ConnectorEnv
+	// Runtime maps come from validated definitions, but strip reserved names
+	// again at execution to protect restored or internal call contexts.
+	cleanRuntime := map[string]string{}
+	for key, value := range runtimeEnv {
+		if !agentconfig.IsReserved(key) {
+			cleanRuntime[key] = value
+		}
 	}
 	overrides := agentconfig.Merge(
-		runtimeEnv, connectorEnv,
+		cleanRuntime,
 		agentconfig.HostEnvironment(agentDir, workspaceDir, chatDir),
 	)
 	if len(overrides) == 0 {
@@ -463,21 +482,41 @@ func mergeEnvironmentList(base []string, overrides map[string]string) []string {
 }
 
 func mergeBashCommandEnvContext(ctx context.Context, execCtx *ExecutionContext, identityFile string) ([]string, error) {
-	commandEnv, err := mergeCommandEnv(execCtx)
-	if err != nil {
-		return nil, err
+	return mergeCommandEnv(execCtx)
+}
+
+func (t *RuntimeToolExecutor) connectorCommandEnvironment(ctx context.Context, execCtx *ExecutionContext, id string, base []string) ([]string, error) {
+	env := append([]string(nil), base...)
+	if execCtx == nil {
+		return env, nil
 	}
-	identity, _ := agentconfig.ReadIdentityEnvironment(identityFile)
-	if execCtx != nil && len(execCtx.Session.ConnectorCredentials) > 0 {
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		values, err := connectorauth.ResolveEnvironments(ctx, execCtx.Session.ConnectorCredentials, identityFile)
+	configEnv := map[string]string{}
+	for key, value := range execCtx.Session.ConnectorEnv {
+		if filepath.Base(value) == "config" && filepath.Base(filepath.Dir(value)) == id {
+			configEnv[key] = value
+		}
+	}
+	env = mergeEnvironmentList(env, configEnv)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for _, binding := range execCtx.Session.ConnectorCredentials {
+		if binding.ID != id {
+			continue
+		}
+		values, err := connectorauth.ResolveEnvironment(ctx, binding, t.cfg.IdentityFile)
 		if err != nil {
 			return nil, err
 		}
-		commandEnv = mergeEnvironmentList(commandEnv, values)
+		if binding.Mode == connector.AuthOneID {
+			identity, err := agentconfig.ReadIdentityEnvironment(t.cfg.IdentityFile)
+			if err != nil {
+				return nil, err
+			}
+			values = agentconfig.Merge(values, identity)
+		}
+		env = mergeEnvironmentList(env, values)
 	}
-	return agentconfig.WithIdentityEnvironment(commandEnv, identity), nil
+	return env, nil
 }
 
 func containsString(values []string, needle string) bool {

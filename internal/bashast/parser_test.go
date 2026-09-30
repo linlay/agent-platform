@@ -184,7 +184,6 @@ func TestParseForSecurityTooComplex(t *testing.T) {
 		`echo $((1 + 2))`,
 		`echo {a,b}`,
 		`echo \ hello`,
-		`echo $'evil'`,
 		"echo `date`",
 	}
 	for _, command := range tests {

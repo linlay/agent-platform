@@ -31,7 +31,7 @@ func (s *llmRunStream) shouldAutoApproveBashSecurity(review bashsec.ReviewResult
 	if s == nil || s.execCtx == nil || review.Level <= 0 {
 		return false
 	}
-	return s.execCtx.HITLLevel >= review.Level
+	return review.AutoApprovedAtLevel(s.execCtx.Session.AccessLevel)
 }
 
 const sandboxBashSecurityOverrideReason = "sandbox-bash.security.bashsec-overrides"

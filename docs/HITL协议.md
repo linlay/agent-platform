@@ -1,5 +1,17 @@
 # HITL协议
 
+`vision_recognize` 和 `image_generate` 的多个参考图及 mask 共用图片读取审批项，卡片列出每个越界来源的精确路径。一次批准只供当前 toolID 消费，重复来源按次数分配；等待期间目标变化会拒绝执行并要求新的调用。硬拒绝不提供普通审批解除。
+
+## 技能业务 Hook 的权限语义
+
+Hook 是技能 `.bash-hooks/*.yml` 声明的执行前业务规则；`&&` 只是 Shell 的条件连接符。匹配覆盖已挂载连接器，解析已知包装命令、Windows `.exe` 名称和 Git 全局参数，并收集全部匹配来源，不能只保留最高级的一条。
+
+每条规则可声明 `autoApprove: [auto_approve, full_access]`，仅在所列 access level 自动批准内置 confirmation；省略即三档均须确认，form 始终人工提交。旧内部 `HITLLevel/AutoApproveLevels` 已移除。Bash security 的软要求按当前 access level 判定，hard block 不可自动批准。
+
+同一命令的多个 builtin confirmation 合成一个包含全部 `requirements` 的冻结请求；本轮复用绑定该命令和要求集合。多个匹配项中含可重写命令的 form 时，当前返回 `hitl_hook_conflict`，不丢弃其他规则也不直接执行；需拆分操作或调整互斥的 form 匹配。这不是多表单顺序编排的完成实现。
+
+审批项可增加 `policy`（路径/脚本执行范围）和 `requirements`（业务/安全原因）；`description` 是模型提供的补充说明。复杂 Shell 或远端 mutation 不下发 `approve_rule_run`，服务端也拒绝提交未展示的本轮批准选项。Question/planning 的恢复和 approval/form 不恢复的既有状态机保持不变。
+
 ## 当前状态
 
 HITL 使用统一 awaiting 协议，保留 `mode` 字段，不引入 `kind`。当前等待模式为 `question`、`approval`、`form`、`planning`。

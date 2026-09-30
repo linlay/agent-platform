@@ -64,6 +64,9 @@ func (s *llmRunStream) invocationNeedsAccessPolicyApproval(invocation *preparedT
 			return true
 		}
 	}
+	if _, pending := s.imageAccessApprovalRequest(invocation); pending {
+		return true
+	}
 	if accessPlan := s.lookupFileAccessPlan(invocation); accessPlan != nil && s.fileAccessPlanNeedsApproval(*accessPlan) {
 		return true
 	}

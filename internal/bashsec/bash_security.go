@@ -22,6 +22,10 @@ type ReviewResult struct {
 	Level       int
 }
 
+func (r ReviewResult) AutoApprovedAtLevel(level string) bool {
+	return r.Decision == ReviewRequiresApproval && (level == "auto_approve" || level == "full_access")
+}
+
 const (
 	RuleKeyRedirections               = "bashsec:redirections"
 	RuleKeyQuotedNewline              = "bashsec:quoted_newline"

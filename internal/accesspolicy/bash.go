@@ -19,13 +19,16 @@ type BashPlan struct {
 	HasConnector  bool
 	ConnectorOnly bool
 	// Requirements are leaf decisions; a rule approval never approves sibling requirements.
-	Requirements []BashPlan
-	Decision     Decision
-	Reason       string
-	RuleKey      string
-	Fingerprint  string
-	CommandText  string
-	AccessLevel  string
+	Requirements  []BashPlan
+	Decision      Decision
+	Reason        string
+	RuleKey       string
+	Fingerprint   string
+	CommandText   string
+	AccessLevel   string
+	Scope         string
+	ScopeKind     string
+	ContentSHA256 string
 }
 
 type redirectAccessKind int
@@ -142,7 +145,7 @@ func RegisterExactApproval(execCtx *ExecutionContext, fingerprint string) {
 }
 
 func RegisterRuleApproval(execCtx *ExecutionContext, ruleKey string) {
-	if execCtx == nil || strings.TrimSpace(ruleKey) == "" {
+	if execCtx == nil || !RuleReusable(ruleKey) {
 		return
 	}
 	if execCtx.AccessPolicyRuleApprovals == nil {
@@ -169,7 +172,7 @@ func ConsumeApproval(execCtx *ExecutionContext, plan BashPlan) bool {
 	if execCtx == nil {
 		return false
 	}
-	if execCtx.AccessPolicyRuleApprovals != nil && execCtx.AccessPolicyRuleApprovals[plan.RuleKey] {
+	if RuleReusable(plan.RuleKey) && execCtx.AccessPolicyRuleApprovals != nil && execCtx.AccessPolicyRuleApprovals[plan.RuleKey] {
 		return true
 	}
 	if len(execCtx.AccessPolicyApprovals) == 0 || strings.TrimSpace(plan.Fingerprint) == "" {
@@ -202,7 +205,7 @@ func HasApproval(execCtx *ExecutionContext, plan BashPlan) bool {
 	if execCtx == nil {
 		return false
 	}
-	if execCtx.AccessPolicyRuleApprovals != nil && execCtx.AccessPolicyRuleApprovals[plan.RuleKey] {
+	if RuleReusable(plan.RuleKey) && execCtx.AccessPolicyRuleApprovals != nil && execCtx.AccessPolicyRuleApprovals[plan.RuleKey] {
 		return true
 	}
 	return execCtx.AccessPolicyApprovals != nil && execCtx.AccessPolicyApprovals[plan.Fingerprint] > 0
@@ -220,6 +223,8 @@ func bashPlanFromPath(command string, pathPlan PathPlan, reason string) BashPlan
 		Fingerprint: hex.EncodeToString(sum[:]),
 		CommandText: command,
 		AccessLevel: pathPlan.AccessLevel,
+		Scope:       pathPlan.Path,
+		ScopeKind:   "exact_target",
 	}
 }
 
@@ -239,7 +244,7 @@ func bashPlanForAction(command string, accessLevel string, action string, reason
 
 func opaqueBashPlan(command string, accessLevel string, action string, base string, cwd string) BashPlan {
 	hash := sha256.Sum256([]byte(base + "\x00" + cwd))
-	return bashPlan(command, accessLevel, decisionForAction(action), fmt.Sprintf("bash command %q may access files internally; run approval scope: entry + cwd %q", base, cwd), "bash-access:opaque:"+hex.EncodeToString(hash[:8]), command)
+	return bashPlan(command, accessLevel, decisionForAction(action), fmt.Sprintf("bash command %q may access files internally; approval covers this invocation, content version and cwd %q", base, cwd), "bash-access:opaque:"+hex.EncodeToString(hash[:8]), command)
 }
 
 func bashPlan(command string, accessLevel string, decision Decision, reason string, ruleKey string, fingerprintInput string) BashPlan {
@@ -273,72 +278,6 @@ func isOpaqueCommand(base string) bool {
 	}
 }
 
-func directTempScriptExecutionPlan(cfg config.AccessPolicyConfig, session QuerySession, command string, accessLevel string, base string, argv []string, cwd string) (BashPlan, bool) {
-	scriptPath, ok := directScriptPath(base, argv)
-	if !ok {
-		return BashPlan{}, false
-	}
-	pathPlan, err := BuildPathPlan(cfg, session, ReadAccess, resolveAgainstCwd(scriptPath, cwd))
-	if err != nil {
-		return BashPlan{}, false
-	}
-	if pathPlan.Blocked() {
-		return bashPlanFromPath(command, pathPlan, "temporary script path is blocked"), true
-	}
-	if !PathInSessionTemp(session, pathPlan.Path) {
-		return BashPlan{}, false
-	}
-	return bashPlan(command, accessLevel, DecisionAllow, "", "bash-access:temp-script", command), true
-}
-
-func directScriptPath(base string, argv []string) (string, bool) {
-	if len(argv) < 2 {
-		return "", false
-	}
-	scriptPath := strings.TrimSpace(argv[1])
-	if scriptPath == "" || strings.HasPrefix(scriptPath, "-") {
-		return "", false
-	}
-	extension := strings.ToLower(filepath.Ext(scriptPath))
-	switch base {
-	case "python", "python3":
-		return scriptPath, extension == ".py"
-	case "node":
-		return scriptPath, extension == ".js" || extension == ".mjs" || extension == ".cjs"
-	default:
-		return "", false
-	}
-}
-
-func commandPathMode(base string) AccessMode {
-	switch base {
-	case "mkdir", "touch", "cp", "mv", "rm", "ln", "chmod", "tee":
-		return WriteAccess
-	default:
-		return ReadAccess
-	}
-}
-
-func isPathArg(arg string) bool {
-	arg = strings.TrimSpace(arg)
-	if arg == "" || strings.Contains(arg, "://") || strings.HasPrefix(arg, "git@") {
-		return false
-	}
-	if strings.HasPrefix(arg, "-") {
-		if _, value, ok := strings.Cut(arg, "="); ok {
-			arg = strings.TrimSpace(value)
-		} else {
-			return false
-		}
-	}
-	return strings.HasPrefix(arg, "~") ||
-		filepath.IsAbs(arg) ||
-		strings.HasPrefix(arg, "../") ||
-		arg == ".." ||
-		strings.HasPrefix(arg, "./") ||
-		strings.Contains(arg, string(filepath.Separator))
-}
-
 func resolveAgainstCwd(raw string, cwd string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || filepath.IsAbs(raw) || strings.HasPrefix(raw, "~") {
@@ -347,7 +286,7 @@ func resolveAgainstCwd(raw string, cwd string) string {
 	if strings.TrimSpace(cwd) == "" {
 		return raw
 	}
-	return filepath.Join(cwd, raw)
+	return pathutil.JoinUnclean(cwd, raw)
 }
 
 func containsUnresolvedPlaceholder(value string) bool {

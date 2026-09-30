@@ -2046,7 +2046,7 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 			"file-tools:\n" +
 			"  max-read-bytes: 1234\n" +
 			"  max-write-bytes: 5678\n" +
-			"  max-batch-ops: 9\n" +
+
 			"  require-write-approval: false\n" +
 			"  require-read-before-write: false\n" +
 			"  read-before-write-scope: chat\n"
@@ -2055,7 +2055,7 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			if cfg.FileTools.MaxReadBytes != 1234 || cfg.FileTools.MaxWriteBytes != 5678 || cfg.FileTools.MaxBatchOps != 9 {
+			if cfg.FileTools.MaxReadBytes != 1234 || cfg.FileTools.MaxWriteBytes != 5678 {
 				t.Fatalf("unexpected file limits: %#v", cfg.FileTools)
 			}
 			if cfg.FileTools.RequireWriteApproval {
@@ -2069,6 +2069,13 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestRemovedFileBatchLimitFailsExplicitly(t *testing.T) {
+	var cfg Config
+	if err := cfg.applyFileToolsValues("tools.yml", map[string]any{"max-batch-ops": 20}); err == nil || !strings.Contains(err.Error(), "max-batch-ops was removed") {
+		t.Fatalf("obsolete limit accepted: %v", err)
+	}
 }
 
 func TestFileToolsConfigRejectsInvalidReadBeforeWriteScope(t *testing.T) {
@@ -2210,7 +2217,7 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 			"file-tools:\n" +
 			"  max-read-bytes: 1234\n" +
 			"  max-write-bytes: 5678\n" +
-			"  max-batch-ops: 9\n" +
+
 			"  require-write-approval: false\n" +
 			"  require-read-before-write: false\n" +
 			"  read-before-write-scope: chat\n"
@@ -2235,7 +2242,7 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 						if strings.Join(cfg.Bash.AllowedCommands, ",") != "pwd,echo" {
 							t.Fatalf("unexpected allowed commands: %#v", cfg.Bash.AllowedCommands)
 						}
-						if cfg.FileTools.MaxReadBytes != 1234 || cfg.FileTools.MaxWriteBytes != 5678 || cfg.FileTools.MaxBatchOps != 9 {
+						if cfg.FileTools.MaxReadBytes != 1234 || cfg.FileTools.MaxWriteBytes != 5678 {
 							t.Fatalf("unexpected file limits: %#v", cfg.FileTools)
 						}
 						if cfg.FileTools.RequireWriteApproval || cfg.FileTools.RequireReadBeforeWrite {

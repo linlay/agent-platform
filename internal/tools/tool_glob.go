@@ -25,7 +25,7 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 		return fileToolError("glob_invalid_pattern", err.Error()), nil
 	}
 	rawPath := strings.TrimSpace(stringArg(args, "path"))
-	accessSession := accessPolicySession(execCtx)
+	accessSession := t.policySession(execCtx)
 	if rawPath == "" {
 		if strings.TrimSpace(accesspolicy.SessionWorkspaceRoot(accessSession)) == "" {
 			return fileToolError("workspace_unavailable", "workspace_unavailable: no Workspace; pass path explicitly, usually @chat"), nil
@@ -77,8 +77,15 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 		"--glob", "!.jj",
 		"--glob", "!.sl",
 	}
-	rgArgs = append(rgArgs, "--glob", pattern, resolved.Path)
+	rgArgs = append(rgArgs, "--glob", pattern)
+	exclusions, err := protectedSearchGlobs(accessSession, resolved.Path)
+	if err != nil {
+		return fileToolError("glob_path_blocked", err.Error()), nil
+	}
+	rgArgs = append(rgArgs, exclusions...)
+	rgArgs = append(rgArgs, resolved.Path)
 	cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
+	cmd.Dir = resolved.Path
 	commandEnv, err := mergeCommandEnv(execCtx)
 	if err != nil {
 		return fileToolError("run_env_snapshot_failed", err.Error()), nil

@@ -1,7 +1,6 @@
 package bashsec
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -32,15 +31,12 @@ func TestReviewBashSecurityRequiresApprovalForQuotedNewlineWithOutputRedirection
 	}
 }
 
-func TestReviewBashSecurityRequiresApprovalForPythonInlineTripleQuotes(t *testing.T) {
+func TestReviewBashSecurityLeavesInlineTripleQuotesToExecutionPolicy(t *testing.T) {
 	command := `python3 -c "content = '''# Owner Profile'''; open('/tmp/OWNER.md', 'w').write(content)"`
 
 	result := ReviewBashSecurity(command)
-	if result.Decision != ReviewRequiresApproval {
-		t.Fatalf("expected requires_approval, got %#v", result)
-	}
-	if result.RuleKey != RuleKeyObfuscatedFlagsTripleQuote || result.Level != LevelObfuscatedFlagsTripleQuote {
-		t.Fatalf("expected triple quote rule metadata, got %#v", result)
+	if result.Decision != ReviewAllow {
+		t.Fatalf("inline code belongs to opaque execution review: %+v", result)
 	}
 }
 
@@ -61,7 +57,6 @@ python3 /tmp/three_sum.py`
 
 func TestReviewBashSecurityStillBlocksHardFailures(t *testing.T) {
 	tests := []string{
-		`cat < /tmp/secret`,
 		`echo $IFS`,
 		`cat /proc/self/environ`,
 	}
@@ -114,7 +109,6 @@ func TestReviewBashSecurityASTArgumentMetacharacterBoundaries(t *testing.T) {
 		`find . -path 'a&b'`,
 		`find . -iname 'a|b'`,
 		`curl $(eval evil)`,
-		`node -e 'require("child_process")'`,
 	}
 	for _, command := range block {
 		t.Run(command, func(t *testing.T) {
@@ -132,11 +126,8 @@ func TestReviewBashSecurityASTArgumentMetacharacterBoundaries(t *testing.T) {
 
 	dangerousNode := `node -e "const https = require('https'); https.get('https://example.com/?a=1&b=2', res => console.log(res.statusCode));"`
 	result = ReviewBashSecurity(dangerousNode)
-	if result.Decision != ReviewBlock {
-		t.Fatalf("expected dangerous node script to block, got %#v", result)
-	}
-	if result.Reason == shellMetacharactersReason || !strings.Contains(result.Reason, "dangerous embedded javascript") {
-		t.Fatalf("expected embedded javascript reason instead of metacharacter reason, got %#v", result)
+	if result.Decision != ReviewAllow {
+		t.Fatalf("inline code belongs to opaque execution review: %+v", result)
 	}
 }
 
@@ -154,10 +145,10 @@ func TestReviewBashSecurityRequiresApprovalForTooComplexEvenWhenLegacyClean(t *t
 	}
 }
 
-func TestReviewBashSecurityBlocksDangerousEmbeddedScriptFromAST(t *testing.T) {
+func TestReviewBashSecurityDefersEmbeddedCodeToExecutionPolicy(t *testing.T) {
 	result := ReviewBashSecurity(`python3 -c 'import os; os.system("evil")'`)
-	if result.Decision != ReviewBlock {
-		t.Fatalf("expected block, got %#v", result)
+	if result.Decision != ReviewAllow {
+		t.Fatalf("expected inline code to be reviewed by access policy, got %#v", result)
 	}
 }
 
@@ -233,8 +224,8 @@ func TestReviewBashSecurityRedirectsFromAST(t *testing.T) {
 	}
 
 	result := ReviewBashSecurity(`cat < /etc/passwd`)
-	if result.Decision != ReviewBlock {
-		t.Fatalf("expected input redirection block, got %#v", result)
+	if result.Decision != ReviewAllow {
+		t.Fatalf("expected input redirection to use path policy, got %#v", result)
 	}
 }
 
@@ -256,7 +247,6 @@ func TestReviewBashSecurityHardBlocksPrecheckFailures(t *testing.T) {
 
 func TestReviewBashSecurityWrapperCommands(t *testing.T) {
 	block := []string{
-		`env python3 -c 'import os; os.system("evil")'`,
 		`nohup eval evil`,
 		`xargs eval`,
 	}

@@ -38,7 +38,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		}
 	}
 	rawPath := strings.TrimSpace(stringArg(args, "path"))
-	accessSession := accessPolicySession(execCtx)
+	accessSession := t.policySession(execCtx)
 	if rawPath == "" {
 		if strings.TrimSpace(accesspolicy.SessionWorkspaceRoot(accessSession)) == "" {
 			return fileToolError("workspace_unavailable", "workspace_unavailable: no Workspace; pass path explicitly, usually @chat"), nil
@@ -82,6 +82,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		"--no-config",
 		"--color", "never",
 		"--hidden",
+		"--sort", "path",
 		"--max-columns", "500",
 		"--glob", "!.git",
 		"--glob", "!.svn",
@@ -117,6 +118,11 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if typ := strings.TrimSpace(stringArg(args, "type")); typ != "" {
 		rgArgs = append(rgArgs, "--type", typ)
 	}
+	exclusions, err := protectedSearchGlobs(accessSession, resolved.Path)
+	if err != nil {
+		return fileToolError("grep_path_blocked", err.Error()), nil
+	}
+	rgArgs = append(rgArgs, exclusions...)
 	if strings.HasPrefix(pattern, "-") {
 		rgArgs = append(rgArgs, "-e", pattern)
 	} else {
@@ -125,6 +131,9 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	rgArgs = append(rgArgs, resolved.Path)
 
 	cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
+	if info, err := os.Stat(resolved.Path); err == nil && info.IsDir() {
+		cmd.Dir = resolved.Path
+	}
 	commandEnv, err := mergeCommandEnv(execCtx)
 	if err != nil {
 		return fileToolError("run_env_snapshot_failed", err.Error()), nil

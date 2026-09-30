@@ -217,7 +217,7 @@ func TestInvokeGrepContentCountTypeAndPagination(t *testing.T) {
 		t.Fatalf("expected truncated content, got %#v", content.Structured)
 	}
 	contentResults := stringSliceResult(t, content.Structured["results"])
-	if len(contentResults) != 1 || !strings.Contains(contentResults[0], "a.go:2:// needle one") {
+	if len(contentResults) != 1 || !strings.Contains(contentResults[0], "a.go:3:// needle two") {
 		t.Fatalf("unexpected content results: %#v", contentResults)
 	}
 

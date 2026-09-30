@@ -351,7 +351,48 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 	if result.Intercepted {
 		if ruleKey := strings.TrimSpace(result.Rule.RuleKey); ruleKey != "" {
 			item["ruleKey"] = ruleKey
+			if !accesspolicy.RuleReusable(ruleKey) {
+				item["options"] = []any{map[string]any{"decision": "approve"}}
+			}
 		}
+	}
+	if invocation.shownApproval != nil {
+		request := invocation.shownApproval
+		var requirements []any
+		if request.kind == approvalKindHITL {
+			requirements = append(requirements, hitl.RequirementMetadata(request.result)...)
+		}
+		if request.bashHITLReview != nil {
+			requirements = append(requirements, hitl.RequirementMetadata(*request.bashHITLReview)...)
+		}
+		if request.bashSecurityReview != nil {
+			requirements = append(requirements, map[string]any{"ruleKey": request.bashSecurityReview.RuleKey, "reason": request.bashSecurityReview.Reason})
+		}
+		if len(requirements) > 0 {
+			item["requirements"] = requirements
+		}
+		if request.bashAccessReview != nil {
+			item["policy"] = accesspolicy.BashPlanMetadata(*request.bashAccessReview)
+			for _, rule := range accesspolicy.ApprovalRules(*request.bashAccessReview) {
+				if !accesspolicy.RuleReusable(rule) {
+					item["options"] = []any{map[string]any{"decision": "approve"}}
+					break
+				}
+			}
+		}
+	}
+	if plan := s.lookupFileAccessPlan(invocation); plan != nil {
+		item["policy"] = map[string]any{"reason": plan.Reason, "path": plan.Path, "scope": plan.Root, "scopeKind": "exact_target"}
+	}
+	if request := invocation.shownApproval; request != nil && request.kind == approvalKindImageAccess {
+		requirements := make([]any, 0, len(request.imageAccessPlans))
+		for _, plan := range request.imageAccessPlans {
+			requirements = append(requirements, map[string]any{"ruleKey": plan.RuleKey, "reason": plan.Reason, "path": plan.Path, "scope": plan.Root, "scopeKind": "exact_target", "access": "read"})
+		}
+		item["command"] = request.result.OriginalCommand
+		item["description"] = "读取超出允许目录的图片输入"
+		item["requirements"] = requirements
+		item["options"] = buildFileAccessApprovalOptions()
 	}
 	return item
 }

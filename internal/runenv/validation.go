@@ -32,7 +32,7 @@ func ValidateName(name string, extraDenied []string) error {
 		return fmt.Errorf("environment variable name must match %s", portableNamePattern.String())
 	}
 	upper := strings.ToUpper(name)
-	if shellenv.Reserved(upper) || upper == "HOME" || upper == "TMPDIR" || upper == "TMP" || upper == "TEMP" {
+	if shellenv.UnsafeOverride(upper) {
 		return fmt.Errorf("environment variable %s is reserved by the host shell", name)
 	}
 	if _, denied := hardDeniedNames[upper]; denied {

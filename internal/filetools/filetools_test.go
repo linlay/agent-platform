@@ -33,7 +33,7 @@ func TestBuildAccessPlanFromPolicyAllowedByWhitelist(t *testing.T) {
 	}
 }
 
-func TestBuildAccessPlanFromPolicyDeniedInfersNearestExistingAncestor(t *testing.T) {
+func TestBuildAccessPlanFromPolicyDeniedKeepsExactTarget(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	nested := filepath.Join(outside, "missing", "new.txt")
@@ -42,8 +42,8 @@ func TestBuildAccessPlanFromPolicyDeniedInfersNearestExistingAncestor(t *testing
 	if plan.AllowedByWhitelist {
 		t.Fatalf("expected denied path, got %#v", plan)
 	}
-	if plan.Root != realPathForTest(t, outside) {
-		t.Fatalf("expected nearest existing ancestor root, got %#v", plan)
+	if plan.Root != plan.Path {
+		t.Fatalf("approval scope must remain the exact target, got %#v", plan)
 	}
 	if !strings.HasPrefix(plan.RuleKey, "file-write::") || plan.Fingerprint == "" {
 		t.Fatalf("unexpected access metadata: %#v", plan)

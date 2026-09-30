@@ -24,7 +24,7 @@ func NewSkillChecker(skillHookDirs []string) (*SkillChecker, error) {
 	deduped := make([]FlatRule, 0, len(combined))
 	byKey := make(map[string]int, len(combined))
 	for _, rule := range combined {
-		key := rule.Command + "\x00" + strings.ToLower(strings.TrimSpace(rule.Match))
+		key := rule.SourcePath + "\x00" + rule.RuleKey
 		if idx, ok := byKey[key]; ok {
 			if rule.Level > deduped[idx].Level {
 				deduped[idx] = rule
@@ -46,6 +46,22 @@ func (c *SkillChecker) Check(command string, chatLevel int) InterceptResult {
 		return InterceptResult{}
 	}
 	return checkRules(c.byCmd, command, chatLevel)
+}
+
+// CheckAll preserves every matching business requirement. Check remains the
+// compatibility API for callers that need a single representative match.
+func (c *SkillChecker) CheckAll(command string) []InterceptResult {
+	if c == nil {
+		return nil
+	}
+	var results []InterceptResult
+	for _, rule := range c.rules {
+		result := checkRules(map[string][]FlatRule{rule.Command: {rule}}, command, 0)
+		if result.Intercepted {
+			results = append(results, result)
+		}
+	}
+	return results
 }
 
 func buildIndexes(rules []FlatRule) map[string][]FlatRule {

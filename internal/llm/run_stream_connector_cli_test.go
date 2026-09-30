@@ -50,22 +50,22 @@ func TestMountedConnectorLLMReviewKeepsResidualHITLAndOriginalCommand(t *testing
 		if got := s.lookupBashAccessReview(call); !got.ConnectorOnly || got.AutoApproved() || !got.Allowed() {
 			t.Fatalf("%s access: %+v", level, got)
 		}
-		if got := s.checkBashHITL(call); got.Intercepted {
+		if got := s.checkBashHITL(call); !got.Intercepted {
 			t.Fatalf("%s HITL: %+v", level, got)
 		}
 	}
-	if checker.calls != 0 {
-		t.Fatal("CLI consulted the HITL checker")
+	if checker.calls != 3 {
+		t.Fatal("CLI skipped the HITL checker")
 	}
 	call.args["command"] = command + " && python3 -c 'print(1)'"
 	got := s.checkBashHITL(call)
-	if !got.Intercepted || got.OriginalCommand != call.args["command"] || got.MatchedWhole || checker.calls != 1 {
+	if !got.Intercepted || got.OriginalCommand != call.args["command"] || got.MatchedWhole || checker.calls != 4 {
 		t.Fatalf("residual HITL lost source: %+v", got)
 	}
 }
 
-func TestMountedConnectorHostBatchNeedsNoHITLOrAutoAudit(t *testing.T) {
-	s, e, _ := newApprovedBashStream(t, 2)
+func TestMountedConnectorHostBatchRequiresBusinessApproval(t *testing.T) {
+	s, _, _ := newApprovedBashStream(t, 2)
 	root := t.TempDir()
 	bin := filepath.Join(root, "bin")
 	if err := os.Mkdir(bin, 0700); err != nil {
@@ -90,20 +90,7 @@ func TestMountedConnectorHostBatchNeedsNoHITLOrAutoAudit(t *testing.T) {
 	if err := s.invokeQueuedToolCallsAndPostHook(); err != nil {
 		t.Fatal(err)
 	}
-	starts := awaitApprovedBashStarts(t, e, 2)
-	if s.hitlPendingBatch != nil || checker.calls != 0 {
-		t.Fatalf("mounted CLI reached HITL: batch=%+v calls=%d", s.hitlPendingBatch, checker.calls)
-	}
-	for _, start := range starts {
-		if len(start.access) != 0 || len(start.security) != 0 {
-			t.Fatalf("CLI manufactured approval grants: %+v", start)
-		}
-		close(e.release[start.id])
-	}
-	drainApprovedBashBatch(t, s)
-	for _, delta := range s.pending {
-		if _, ok := delta.(DeltaAwaitingAnswer); ok {
-			t.Fatal("CLI emitted approval audit")
-		}
+	if s.hitlPendingBatch == nil || checker.calls == 0 {
+		t.Fatalf("mounted CLI skipped business confirmation: %+v", s.hitlPendingBatch)
 	}
 }

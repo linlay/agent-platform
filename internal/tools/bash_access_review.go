@@ -28,7 +28,7 @@ func (r *ToolRouter) ReviewBashAccess(ctx context.Context, args map[string]any, 
 // ReviewBashAccess is shared by preflight and both executors. Container probes
 // only resolve/read targets; they never execute the requested program.
 func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) accesspolicy.BashPlan {
-	session := accessPolicySession(execCtx)
+	session := t.policySession(execCtx)
 	vars := bashSecurityKnownVariables(execCtx)
 	var environment *accesspolicy.BashEnvironment
 	if !session.AgentHasRuntimeSandbox {

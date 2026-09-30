@@ -188,9 +188,9 @@ func defaultConfig(options LoadOptions) Config {
 			MaxCommandChars:      16000,
 		},
 		FileTools: FileToolsConfig{
-			MaxReadBytes:           1 << 20,
-			MaxWriteBytes:          1 << 20,
-			MaxBatchOps:            20,
+			MaxReadBytes:  1 << 20,
+			MaxWriteBytes: 1 << 20,
+
 			RequireWriteApproval:   true,
 			RequireReadBeforeWrite: true,
 			ReadBeforeWriteScope:   "chat",
@@ -391,9 +391,6 @@ func (c *Config) normalize(configRoot string) error {
 	}
 	if c.FileTools.MaxWriteBytes <= 0 {
 		c.FileTools.MaxWriteBytes = 1 << 20
-	}
-	if c.FileTools.MaxBatchOps <= 0 {
-		c.FileTools.MaxBatchOps = 20
 	}
 	c.FileTools.Hooks.AfterFileChange.LSPDiagnostics = normalizeLSPDiagnosticsHookConfig(c.FileTools.Hooks.AfterFileChange.LSPDiagnostics)
 

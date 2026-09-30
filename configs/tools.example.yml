@@ -74,7 +74,6 @@ sandbox-bash:
 file-tools:
   max-read-bytes: 1048576
   max-write-bytes: 1048576
-  max-batch-ops: 20
   require-write-approval: true
   require-read-before-write: true
   read-before-write-scope: chat

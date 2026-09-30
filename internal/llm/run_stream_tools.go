@@ -50,6 +50,11 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, result, result.Output)
 		return nil, deltas, message
 	}
+	if !s.session.AllowsTool(toolCall.Function.Name) {
+		result := ToolNotMountedResult(toolCall.Function.Name)
+		deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, result, result.Output)
+		return nil, deltas, message
+	}
 
 	if validationErr := s.validateInteractionToolArgs(toolCall.Function.Name, args); validationErr != nil {
 		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
@@ -1058,6 +1063,9 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 }
 
 func (s *llmRunStream) handleFileApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
+	if request, ok := s.imageAccessApprovalRequest(invocation); ok {
+		return s.handleBuiltInApprovalRequest(request)
+	}
 	if accessPlan := s.lookupFileAccessPlan(invocation); accessPlan != nil {
 		if accessPlan.Blocked {
 			return false, nil
@@ -1108,6 +1116,10 @@ type hitlApprovalOptions struct {
 }
 
 func (s *llmRunStream) handleHITLApproval(invocation *preparedToolInvocation, result hitl.InterceptResult, options hitlApprovalOptions) error {
+	if result.Conflict != "" {
+		s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: result.Conflict, Error: "hitl_hook_conflict", ExitCode: -1})
+		return nil
+	}
 	if options.skipPostToolHookImmediately {
 		s.skipPostToolHook = true
 	}
@@ -1563,6 +1575,15 @@ func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolIn
 func (s *llmRunStream) recordAccessPolicyAutoApproval(invocation *preparedToolInvocation) {
 	if invocation == nil || invocation.hitlDecision != nil {
 		return
+	}
+	if plans, err := s.reviewImageAccess(invocation); err == nil {
+		for _, plan := range plans {
+			if plan.AutoApproved {
+				match := imageAccessInterceptResult(invocation, plans)
+				invocation.hitlDecision = &hitlDecisionState{Decision: "auto_approved", Reason: "accessLevel=auto_approve", RuleKey: match.Rule.RuleKey, Executed: true, Mode: "approval"}
+				return
+			}
+		}
 	}
 	if plan := s.lookupFileAccessPlan(invocation); plan != nil && plan.AutoApproved {
 		invocation.hitlDecision = &hitlDecisionState{

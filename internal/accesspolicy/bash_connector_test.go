@@ -80,7 +80,7 @@ func TestMountedConnectorLeavesSurroundingShellUnderReview(t *testing.T) {
 			t.Fatalf("CLI remained in projection: %s", p.ReviewCommand)
 		}
 	}
-	for _, command := range []string{"wecom-cli send; eval 'echo unsafe'", "wecom-cli send < /outside/file", "wecom-cli send \"$(eval 'echo unsafe')\""} {
+	for _, command := range []string{"wecom-cli send; eval 'echo unsafe'", "wecom-cli send \"$(eval 'echo unsafe')\""} {
 		p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "", vars)
 		if s := p.SecurityReview(command, vars); s.Decision != bashsec.ReviewBlock {
 			t.Fatalf("lost shell block for %s: %+v", command, s)

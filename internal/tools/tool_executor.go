@@ -192,6 +192,9 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 			ExitCode: -1,
 		}, nil
 	}
+	if execCtx != nil && !execCtx.Session.AllowsTool(toolName) {
+		return ToolNotMountedResult(toolName), nil
+	}
 	if toolName == "desktop_action" || toolName == "desktop_cdp" {
 		id := ""
 		if execCtx != nil {

@@ -3884,6 +3884,7 @@ func newSerialToolBudgetExceededFixture(t *testing.T) (testFixture, *atomic.Int3
 			if content == string(data) {
 				t.Fatal("serial budget fixture was not updated")
 			}
+			content = strings.Replace(content, "  tools:\n", "  tools:\n    - plan_add_tasks\n    - plan_update_task\n", 1)
 			if err := os.WriteFile(agentPath, []byte(content), 0o644); err != nil {
 				t.Fatalf("write agent config: %v", err)
 			}

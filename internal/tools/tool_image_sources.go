@@ -37,16 +37,18 @@ func isPlainFileName(name string) bool {
 	return !strings.ContainsAny(name, "/\\")
 }
 
-func (t *RuntimeToolExecutor) resolveToolImageSource(raw any, execCtx *ExecutionContext, policy toolImageSourcePolicy) (resolvedToolImageSource, ToolExecutionResult, bool) {
+func (t *RuntimeToolExecutor) planToolImageSource(raw any, execCtx *ExecutionContext, policy toolImageSourcePolicy) (resolvedToolImageSource, filetools.AccessPlan, ToolExecutionResult, bool) {
 	item := AnyMapNode(raw)
 	referenceName := strings.TrimSpace(FirstNonEmptyString(item["reference_name"], item["referenceName"]))
 	filePath := strings.TrimSpace(FirstNonEmptyString(item["file_path"], item["filePath"]))
+	mimeHint := ""
+	session := t.policySession(execCtx)
 	if (referenceName == "" && filePath == "") || (referenceName != "" && filePath != "") {
-		return resolvedToolImageSource{}, policy.Error(policy.SourceInvalidCode, "each image must provide exactly one of reference_name or file_path", nil), true
+		return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.SourceInvalidCode, "each image must provide exactly one of reference_name or file_path", nil), true
 	}
 	if referenceName != "" {
 		if !isPlainFileName(referenceName) {
-			return resolvedToolImageSource{}, policy.Error(policy.ReferenceNameInvalidCode, "reference_name must be a file name without path separators", map[string]any{"referenceName": referenceName}), true
+			return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.ReferenceNameInvalidCode, "reference_name must be a file name without path separators", map[string]any{"referenceName": referenceName}), true
 		}
 		chatID := ""
 		if execCtx != nil {
@@ -56,9 +58,8 @@ func (t *RuntimeToolExecutor) resolveToolImageSource(raw any, execCtx *Execution
 			}
 		}
 		if chatID == "" || strings.TrimSpace(t.cfg.Paths.ChatsDir) == "" {
-			return resolvedToolImageSource{}, policy.Error(policy.ChatUnavailableCode, "chat context is required to load reference_name images", nil), true
+			return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.ChatUnavailableCode, "chat context is required to load reference_name images", nil), true
 		}
-		mimeHint := ""
 		if execCtx != nil {
 			for _, ref := range execCtx.Request.References {
 				if strings.EqualFold(strings.TrimSpace(ref.Name), referenceName) {
@@ -67,29 +68,40 @@ func (t *RuntimeToolExecutor) resolveToolImageSource(raw any, execCtx *Execution
 				}
 			}
 		}
-		return resolvedToolImageSource{
-			Name:     referenceName,
-			Path:     filepath.Join(t.cfg.Paths.ChatsDir, chatID, referenceName),
-			MimeHint: mimeHint,
-		}, ToolExecutionResult{}, false
+		filePath = filepath.Join(t.cfg.Paths.ChatsDir, chatID, referenceName)
+		// The resource root is derived from trusted runtime configuration and the
+		// current Chat identity, including internal callers without local paths.
+		session.ChatRoot = filepath.Join(t.cfg.Paths.ChatsDir, chatID)
 	}
 
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySession(execCtx), filetools.ReadAccess, filePath)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, session, filetools.ReadAccess, filePath)
 	if err != nil {
 		code := policy.FilePathInvalidCode
 		if strings.Contains(err.Error(), "workspace_unavailable") {
 			code = "workspace_unavailable"
 		}
-		return resolvedToolImageSource{}, policy.Error(code, err.Error(), nil), true
+		return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(code, err.Error(), nil), true
 	}
 	if access.Blocked {
-		return resolvedToolImageSource{}, policy.Error(policy.FilePathBlockedCode, access.Reason, map[string]any{"filePath": access.Path}), true
+		return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.FilePathBlockedCode, access.Reason, map[string]any{"filePath": access.Path}), true
 	}
 	if filetools.IsBlockedDeviceFile(access.Path) {
-		return resolvedToolImageSource{}, policy.Error(policy.DeviceBlockedCode, "device file is blocked", map[string]any{"filePath": access.Path}), true
+		return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.DeviceBlockedCode, "device file is blocked", map[string]any{"filePath": access.Path}), true
+	}
+	name := referenceName
+	if name == "" {
+		name = filepath.Base(access.Path)
+	}
+	return resolvedToolImageSource{Name: name, Path: access.Path, MimeHint: mimeHint}, access, ToolExecutionResult{}, false
+}
+
+func (t *RuntimeToolExecutor) resolveToolImageSource(raw any, execCtx *ExecutionContext, policy toolImageSourcePolicy) (resolvedToolImageSource, ToolExecutionResult, bool) {
+	source, access, result, handled := t.planToolImageSource(raw, execCtx, policy)
+	if handled {
+		return source, result, true
 	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
 		return resolvedToolImageSource{}, fileAccessApprovalRequired(policy.ApprovalRequiredCode, policy.ApprovalMessage, access), true
 	}
-	return resolvedToolImageSource{Name: filepath.Base(access.Path), Path: access.Path}, ToolExecutionResult{}, false
+	return source, ToolExecutionResult{}, false
 }

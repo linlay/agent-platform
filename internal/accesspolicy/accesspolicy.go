@@ -79,6 +79,15 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if err != nil {
 		return PathPlan{}, err
 	}
+	for _, rawRoot := range session.ProtectedPaths {
+		root, err := pathutil.Canonicalize(rawRoot)
+		if err != nil {
+			return PathPlan{}, err
+		}
+		if pathutil.WithinRoot(realCandidate, root) {
+			return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionBlock, "platform state or credentials require dedicated sensitive access"), nil
+		}
+	}
 	if session.SharedConnectorsRoot != "" {
 		shared, err := pathutil.Canonicalize(session.SharedConnectorsRoot)
 		if err != nil {
@@ -128,16 +137,15 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 		roots = append(roots, session.RunAccessRoots.ReadRoots...)
 	}
 	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
+	if mode == WriteAccess && accessLevel != AccessLevelFullAccess && strings.Contains("/"+realCandidate.Posix+"/", "/.git/") && (ok || decisionForAction(action) != DecisionBlock) {
+		return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionRequiresApproval, "Git metadata can change executable behavior"), nil
+	}
 	if ok {
 		return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionAllow, ""), nil
 	}
-	root, err = pathutil.NearestExistingAncestor(realCandidate.Host)
-	if err != nil || root.Host == "" {
-		root, err = pathutil.Canonicalize(filepath.Dir(realCandidate.Host))
-		if err != nil {
-			return PathPlan{}, err
-		}
-	}
+	// An implicit grant never expands to a parent merely because a target does
+	// not exist. Directory grants require that exact directory to be displayed.
+	root = realCandidate
 	return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, decisionForAction(action), outsideRootsReason(mode)), nil
 }
 
@@ -276,7 +284,7 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 			}
 			return resolved, nil
 		}
-		resolved := filepath.Clean(filepath.Join(root, filepath.FromSlash(suffix)))
+		resolved := pathutil.JoinUnclean(root, filepath.FromSlash(suffix))
 		rel, err := filepath.Rel(root, resolved)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return "", fmt.Errorf("path escapes %s", alias)
@@ -298,13 +306,13 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 		return translated, err
 	}
 	if filepath.IsAbs(candidate) {
-		return filepath.Clean(candidate), nil
+		return candidate, nil
 	}
 	workspaceRoot := SessionWorkspaceRoot(session)
 	if workspaceRoot == "" {
 		return "", fmt.Errorf("workspace_unavailable: relative paths require a workspace; use an explicit root such as @chat")
 	}
-	return requireSessionWorkspacePath(session, filepath.Clean(filepath.Join(workspaceRoot, candidate)))
+	return requireSessionWorkspacePath(session, pathutil.JoinUnclean(workspaceRoot, candidate))
 }
 
 func translateExecutionPath(session QuerySession, rawPath string) (string, bool, error) {

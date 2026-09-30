@@ -13,6 +13,7 @@ import (
 type approvalKind string
 
 const (
+	approvalKindImageAccess  approvalKind = "image_access"
 	approvalKindFileAccess   approvalKind = "file_access"
 	approvalKindFileWrite    approvalKind = "file_write"
 	approvalKindBashSecurity approvalKind = "bash_security"
@@ -35,6 +36,7 @@ type approvalRequest struct {
 	invocation         *preparedToolInvocation
 	result             hitl.InterceptResult
 	ruleTimeout        int
+	imageAccessPlans   []filetools.AccessPlan
 	fileAccessPlan     *filetools.AccessPlan
 	fileWritePlan      *filetools.WritePlan
 	bashSecurityReview *bashsec.ReviewResult
@@ -50,6 +52,9 @@ func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvo
 	}
 	if isBashTool(invocation.toolName) && (s.lookupBashSecurityReview(invocation).Decision == bashsec.ReviewBlock || s.lookupBashAccessReview(invocation).Blocked()) {
 		return approvalRequest{}, false
+	}
+	if request, ok := s.imageAccessApprovalRequest(invocation); ok {
+		return request, true
 	}
 	if accessPlan, writePlan, ok := s.combinedFileWriteApprovalPlans(invocation); ok {
 		return approvalRequest{
@@ -169,6 +174,8 @@ func (s *llmRunStream) executeApprovedApprovalRequest(request approvalRequest) e
 		s.grantDisplayedBashAccess(request.invocation.approvalDecision, *request.bashAccessReview)
 	}
 	switch request.kind {
+	case approvalKindImageAccess:
+		return s.executeApprovedImageAccess(request)
 	case approvalKindFileAccess:
 		if request.fileAccessPlan != nil {
 			return s.executeApprovedFileAccessInvocation(request.invocation, *request.fileAccessPlan)

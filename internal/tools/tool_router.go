@@ -237,6 +237,9 @@ func (r *ToolRouter) ListFileHistory(chatID string, runID string) ([]FileHistory
 
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	def, ok := r.lookup(toolName)
+	if execCtx != nil && (!execCtx.Session.AllowsTool(toolName) || (ok && !execCtx.Session.AllowsTool(def.Name))) {
+		return ToolNotMountedResult(toolName), nil
+	}
 	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !allowsReadOnlyInvocation(def, ok, toolName, args) {
 		return toolpolicy.DisabledResult(toolName), nil
 	}

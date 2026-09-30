@@ -25,7 +25,7 @@ func runPrechecks(command string) (bool, string) {
 	switch {
 	case controlCharRe.MatchString(command):
 		return false, controlCharacterReason
-	case unicodeWhitespaceRe.MatchString(command):
+	case unicodeWhitespaceRe.MatchString(unquotedText(command)):
 		return false, unicodeWhitespaceReason
 	case hasBackslashEscapedWhitespace(command):
 		return false, backslashWhitespaceMsg
@@ -38,6 +38,34 @@ func runPrechecks(command string) (bool, string) {
 	default:
 		return true, ""
 	}
+}
+
+func unquotedText(command string) string {
+	var b strings.Builder
+	var quote rune
+	escaped := false
+	for _, r := range command {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' && quote != '\'' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func hasBackslashEscapedWhitespace(command string) bool {

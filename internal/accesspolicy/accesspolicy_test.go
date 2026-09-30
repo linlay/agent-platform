@@ -65,8 +65,8 @@ func TestTempRootIsEffectiveForFileAndSimpleBashPaths(t *testing.T) {
 	}
 	script := filepath.Join(primary.Host, "agent-platform-access-policy", "task.py")
 	opaque := ReviewBashCommand(cfg, session, "python3 "+script, workspace, nil)
-	if !opaque.Allowed() || opaque.RequiresApproval() || opaque.AutoApproved() || opaque.RuleKey != "bash-access:temp-script" {
-		t.Fatalf("direct temporary script execution must be allowed without approval: %#v", opaque)
+	if !opaque.RequiresApproval() {
+		t.Fatalf("temporary scripts must require approval: %#v", opaque)
 	}
 }
 
@@ -126,24 +126,16 @@ func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
 				}}
 			}
 			defaultPlan := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, defaultSession, test.command, test.cwd, nil, environment, nil)
-			if test.temp {
-				if !defaultPlan.Allowed() || defaultPlan.RequiresApproval() || defaultPlan.AutoApproved() || defaultPlan.RuleKey != "bash-access:temp-script" {
-					t.Fatalf("default temporary script execution must be allowed: %#v", defaultPlan)
-				}
-			} else if !defaultPlan.RequiresApproval() || !strings.HasPrefix(defaultPlan.RuleKey, "bash-access:opaque:") {
-				t.Fatalf("default chat script execution must require opaque approval: %#v", defaultPlan)
+			if !defaultPlan.RequiresApproval() || !strings.HasPrefix(defaultPlan.RuleKey, "bash-access:execution:") {
+				t.Fatalf("script must require scoped approval: %#v", defaultPlan)
 			}
 
 			autoSession := baseSession
 			autoSession.AccessLevel = contracts.AccessLevelAutoApprove
 			autoSession.AgentHasRuntimeSandbox = test.sandbox
 			autoPlan := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, autoSession, test.command, test.cwd, nil, environment, nil)
-			if test.temp {
-				if !autoPlan.Allowed() || autoPlan.RequiresApproval() || autoPlan.AutoApproved() || autoPlan.RuleKey != "bash-access:temp-script" {
-					t.Fatalf("auto_approve temporary script execution must be allowed without an approval decision: %#v", autoPlan)
-				}
-			} else if !autoPlan.AutoApproved() || !strings.HasPrefix(autoPlan.RuleKey, "bash-access:opaque:") {
-				t.Fatalf("auto_approve chat script execution must be auto-approved: %#v", autoPlan)
+			if !autoPlan.AutoApproved() {
+				t.Fatalf("auto script must be audited: %#v", autoPlan)
 			}
 			if autoPlan.AccessLevel != contracts.AccessLevelAutoApprove {
 				t.Fatalf("access level = %q, want auto_approve", autoPlan.AccessLevel)
@@ -891,11 +883,11 @@ func TestBashAccessPolicyComplexAndOpaqueLevels(t *testing.T) {
 		t.Fatalf("expected opaque bash approval, got %#v", opaque)
 	}
 	npxOpaque := ReviewBashCommand(cfg, defaultSession, "npx tsc --noEmit", workspace, nil)
-	if !npxOpaque.RequiresApproval() || !strings.Contains(npxOpaque.RuleKey, "bash-access:opaque") {
+	if !npxOpaque.RequiresApproval() || !strings.Contains(npxOpaque.RuleKey, "bash-access:execution") {
 		t.Fatalf("expected npx opaque bash approval, got %#v", npxOpaque)
 	}
 	npxWithExitCode := ReviewBashCommand(cfg, defaultSession, `npx tsc --noEmit 2>&1; echo "Exit code: $?"`, workspace, nil)
-	if !npxWithExitCode.RequiresApproval() || !strings.Contains(npxWithExitCode.RuleKey, "bash-access:opaque") || npxWithExitCode.RuleKey == "bash-access:complex" {
+	if !npxWithExitCode.RequiresApproval() || !strings.Contains(npxWithExitCode.RuleKey, "bash-access:execution") || npxWithExitCode.RuleKey == "bash-access:complex" {
 		t.Fatalf("expected npx command with exit code to use opaque approval, got %#v", npxWithExitCode)
 	}
 

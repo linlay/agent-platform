@@ -15,6 +15,7 @@ type SubcommandRule struct {
 	ViewportType string          `yaml:"viewportType"`
 	ViewportKey  string          `yaml:"viewportKey"`
 	Timeout      int             `yaml:"timeout"`
+	AutoApprove  []string        `yaml:"autoApprove"`
 }
 
 type CommandBlock struct {
@@ -45,6 +46,7 @@ type FlatRule struct {
 	ViewportType     string
 	ViewportKey      string
 	Timeout          int
+	AutoApprove      []string
 }
 
 // Legacy YAML infers form from html only at the compatibility boundary.
@@ -69,6 +71,8 @@ type CommandComponents struct {
 }
 
 type InterceptResult struct {
+	Requirements    []InterceptResult
+	Conflict        string
 	Intercepted     bool
 	Rule            FlatRule
 	ParsedCommand   CommandComponents

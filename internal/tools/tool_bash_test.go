@@ -107,7 +107,7 @@ func TestResolveHostShellInvocationDefaultsToBashOnUnix(t *testing.T) {
 	if executable != "bash" {
 		t.Fatalf("expected bash, got %q", executable)
 	}
-	wantArgs := []string{"-o", "pipefail", "-lc", "pwd"}
+	wantArgs := []string{"--noprofile", "--norc", "-o", "pipefail", "-c", "pwd"}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
 	}
@@ -121,7 +121,7 @@ func TestResolveHostShellInvocationLeavesNonBashUnixDefaultsUnchanged(t *testing
 	if executable != "sh" {
 		t.Fatalf("expected sh, got %q", executable)
 	}
-	wantArgs := []string{"-lc", "pwd"}
+	wantArgs := []string{"-c", "pwd"}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
 	}
@@ -896,7 +896,7 @@ func TestMergeCommandEnvInjectsReservedAgentAndChatContextAfterRuntimeOverrides(
 	}
 }
 
-func TestMergeBashCommandEnvReadsCurrentIdentityTokenAndRejectsOverrides(t *testing.T) {
+func TestMergeBashCommandEnvNeverInheritsIdentityToken(t *testing.T) {
 	identityFile := filepath.Join(t.TempDir(), "desktop state", "sso-access-token.txt")
 	if err := os.MkdirAll(filepath.Dir(identityFile), 0o700); err != nil {
 		t.Fatal(err)
@@ -923,14 +923,14 @@ func TestMergeBashCommandEnvReadsCurrentIdentityTokenAndRejectsOverrides(t *test
 	if err := os.WriteFile(identityFile, []byte("token-a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "token-a" {
-		t.Fatalf("AP_ACCESS_TOKEN = %q, want token-a", got)
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "" {
+		t.Fatalf("AP_ACCESS_TOKEN = %q, want no token", got)
 	}
 	if err := os.WriteFile(identityFile, []byte("token-b\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "token-b" {
-		t.Fatalf("AP_ACCESS_TOKEN = %q, want token-b", got)
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "" {
+		t.Fatalf("AP_ACCESS_TOKEN = %q, want no token", got)
 	}
 	if err := os.Remove(identityFile); err != nil {
 		t.Fatal(err)
@@ -940,7 +940,7 @@ func TestMergeBashCommandEnvReadsCurrentIdentityTokenAndRejectsOverrides(t *test
 	}
 }
 
-func TestInvokeHostBashInjectsCurrentDefaultIdentityToken(t *testing.T) {
+func TestInvokeHostBashDoesNotExposeDefaultIdentityToken(t *testing.T) {
 	t.Setenv("AP_RUNTIME_STATE_DIR", "")
 	root := t.TempDir()
 	runtimeRoot := filepath.Join(root, "runtime")
@@ -976,8 +976,8 @@ func TestInvokeHostBashInjectsCurrentDefaultIdentityToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
-	if result.ExitCode != 0 || result.Output != "current-token\n" {
-		t.Fatalf("Host Bash did not receive current identity token: %#v", result)
+	if result.ExitCode != 1 || strings.Contains(result.Output, "current-token") {
+		t.Fatalf("Host Bash exposed identity token: %#v", result)
 	}
 }
 
@@ -1207,13 +1207,19 @@ func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 			if err != nil {
 				t.Fatalf("invokeHostBash returned error: %v", err)
 			}
+			if test.accessLevel == contracts.AccessLevelDefault {
+				if result.Error != "bash_access_approval_required" {
+					t.Fatalf("default temporary script bypass: %+v", result)
+				}
+				return
+			}
 			if result.Error != "" || result.ExitCode != 0 || result.Output != "ran:"+test.script+"\n" {
 				t.Fatalf("unexpected script result: %#v", result)
 			}
 			meta, hasAudit := result.Structured["accessPolicy"].(map[string]any)
 			if test.expectAudit {
 				if !hasAudit || meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove ||
-					!strings.HasPrefix(fmt.Sprint(meta["ruleKey"]), "bash-access:opaque:") {
+					!strings.HasPrefix(fmt.Sprint(meta["ruleKey"]), "bash-access:execution:") {
 					t.Fatalf("expected opaque auto approval metadata, got %#v", result.Structured["accessPolicy"])
 				}
 			} else if hasAudit && meta["decision"] != "allow" {

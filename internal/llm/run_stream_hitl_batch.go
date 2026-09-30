@@ -30,13 +30,27 @@ func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInv
 }
 
 func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
-	if s.execCtx == nil || !result.Rule.IsBuiltinApproval() {
+	if s.execCtx == nil || !result.Rule.IsBuiltinApproval() || result.Conflict != "" {
 		return false
 	}
-	if len(s.execCtx.AutoApproveLevels) == 0 {
-		return false
+	if len(result.Requirements) > 0 {
+		for _, match := range result.Requirements {
+			if !s.shouldAutoApproveHITL(match) {
+				return false
+			}
+		}
+		return true
 	}
-	return s.execCtx.AutoApproveLevels[result.Rule.Level]
+	level := s.execCtx.Session.AccessLevel
+	if level == "" {
+		level = AccessLevelDefault
+	}
+	for _, allowed := range result.Rule.AutoApprove {
+		if allowed == level {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
@@ -175,9 +189,6 @@ func (s *llmRunStream) queuedGenericHITLApprovalCandidate(invocation *preparedTo
 func (s *llmRunStream) lookupPrecheckedHITL(invocation *preparedToolInvocation) hitl.InterceptResult {
 	if invocation == nil || s.checker == nil {
 		return hitl.InterceptResult{}
-	}
-	if invocation.precheckedHITL != nil && (s.execCtx == nil || len(s.execCtx.Session.ConnectorCLIEntries) == 0) {
-		return *invocation.precheckedHITL
 	}
 	result := s.checkBashHITL(invocation)
 	if result.Intercepted {
@@ -640,7 +651,7 @@ func hitlDecisionMode(result hitl.InterceptResult) string {
 }
 
 func (s *llmRunStream) isRuleWhitelisted(ruleKey string) bool {
-	if strings.TrimSpace(ruleKey) == "" || len(s.hitlRuleWhitelist) == 0 {
+	if !accesspolicy.RuleReusable(ruleKey) || len(s.hitlRuleWhitelist) == 0 {
 		return false
 	}
 	_, ok := s.hitlRuleWhitelist[strings.TrimSpace(ruleKey)]
@@ -648,6 +659,9 @@ func (s *llmRunStream) isRuleWhitelisted(ruleKey string) bool {
 }
 
 func (s *llmRunStream) registerRuleWhitelist(ruleKey string) {
+	if !accesspolicy.RuleReusable(ruleKey) {
+		return
+	}
 	ruleKey = strings.TrimSpace(ruleKey)
 	if ruleKey == "" {
 		return

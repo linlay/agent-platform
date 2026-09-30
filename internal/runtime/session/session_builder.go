@@ -1,6 +1,7 @@
 package session
 
 import (
+	"agent-platform/internal/accesspolicy"
 	"context"
 	"fmt"
 	"log"
@@ -195,6 +196,8 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		Locale:                        options.Locale,
 		ModelKey:                      agentDef.ModelKey,
 		ToolNames:                     toolNames,
+		ToolSetFrozen:                 true,
+		ProtectedPaths:                accesspolicy.PlatformProtectedPaths(s.deps.Config),
 		Mode:                          agentDef.Mode,
 		ModeCapabilities:              ResolvedModeCapabilities(agentDef),
 		SupportsContextCompaction:     !IsProxyRoutedAgent(agentDef),

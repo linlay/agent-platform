@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"agent-platform/internal/bashast"
+	"agent-platform/internal/shellanalysis"
 )
 
 func ParseCommandComponents(command string) CommandComponents {
@@ -33,6 +34,8 @@ func ParseCommandComponentsFromAST(cmds []bashast.SimpleCommand) []CommandCompon
 			tokens = append(tokens, token)
 		}
 		components = append(components, CommandComponents{BaseCommand: base, Tokens: tokens})
+		name, args := shellanalysis.HookCommand(cmd.Argv)
+		components[len(components)-1] = CommandComponents{BaseCommand: name, Tokens: args}
 	}
 	return components
 }
@@ -95,10 +98,8 @@ func parseCommandTokens(tokens []string) CommandComponents {
 		args = append(args, token)
 	}
 
-	return CommandComponents{
-		BaseCommand: base,
-		Tokens:      args,
-	}
+	name, unwrapped := shellanalysis.HookCommand(append([]string{base}, args...))
+	return CommandComponents{BaseCommand: name, Tokens: unwrapped}
 }
 
 func splitShellLikeFirstSegment(command string) []string {

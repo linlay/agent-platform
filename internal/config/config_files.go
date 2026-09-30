@@ -421,9 +421,12 @@ func (c *Config) applySandboxBashValues(values map[string]any) {
 }
 
 func (c *Config) applyFileToolsValues(path string, values map[string]any) error {
+	if _, exists := values["max-batch-ops"]; exists {
+		return fmt.Errorf("%s: file-tools.max-batch-ops was removed because it never enforced a limit; use budget.tool.maxCalls for the run tool budget", path)
+	}
 	c.FileTools.MaxReadBytes = intValue(anyValue(values["max-read-bytes"], c.FileTools.MaxReadBytes), c.FileTools.MaxReadBytes)
 	c.FileTools.MaxWriteBytes = intValue(anyValue(values["max-write-bytes"], c.FileTools.MaxWriteBytes), c.FileTools.MaxWriteBytes)
-	c.FileTools.MaxBatchOps = intValue(anyValue(values["max-batch-ops"], c.FileTools.MaxBatchOps), c.FileTools.MaxBatchOps)
+
 	c.FileTools.RequireWriteApproval = boolValue(anyValue(values["require-write-approval"], c.FileTools.RequireWriteApproval), c.FileTools.RequireWriteApproval)
 	c.FileTools.RequireReadBeforeWrite = boolValue(anyValue(values["require-read-before-write"], c.FileTools.RequireReadBeforeWrite), c.FileTools.RequireReadBeforeWrite)
 	if raw, ok := values["read-before-write-scope"]; ok {

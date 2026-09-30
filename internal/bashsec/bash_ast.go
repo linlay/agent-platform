@@ -20,11 +20,6 @@ func reviewFromAST(command string, result bashast.ParseResult, embeddedScripts [
 			legacy = review
 		}
 	}
-	for _, script := range embeddedScripts {
-		if bashast.IsDangerousEmbeddedScript(script) {
-			return blockReview(fmt.Sprintf("Command contains dangerous embedded %s code", script.Language))
-		}
-	}
 	return legacy
 }
 
@@ -80,7 +75,8 @@ func reviewASTRedirect(command string, redir bashast.Redirect) ReviewResult {
 	}
 	switch op {
 	case "<", "<&", "<>", "<<<":
-		return blockReview("Command contains input redirection (<) which could read sensitive files")
+		// AccessPolicy owns read/write checks for the resolved redirect target.
+		return ReviewResult{Decision: ReviewAllow}
 	case ">", ">>", ">|", ">&", "&>", "&>>":
 		return approvalReview(command, outputRedirectionReason, RuleKeyRedirections, LevelRedirections)
 	default:
