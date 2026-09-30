@@ -28,6 +28,9 @@ const (
 )
 
 type approvalRequest struct {
+	bashHITLReview     *hitl.InterceptResult
+	bashArguments      string
+	bashFingerprint    string
 	kind               approvalKind
 	invocation         *preparedToolInvocation
 	result             hitl.InterceptResult

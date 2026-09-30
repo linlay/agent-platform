@@ -40,6 +40,8 @@ steer 准入与 planning submit 使用同一临界区：steer 先被接受，旧
 
 Host Bash 的 builtin 审批准备与命令启动分离：`approve`（仅本次批准）、`approve_rule_run`（本轮批准）和自动批准在完成授权校验后均可进入现有并发调度。同批符合并发条件的独立命令可以同时启动；本轮规则复用也不会因曾经需要审批而被强制串行。一次性授权绑定对应 `toolID`，不复制给兄弟调用；同规则的兄弟调用获批也不能覆盖显式拒绝。写文件与 Bash 同批、`run.env` 等控制操作屏障仍按原顺序执行；Container Bash、表单与 planning 保持原调度规则。
 
+Host Bash 同一命令同时命中 access/security 和 builtin 技能 hook 时，首次确认冻结全部待批准要求，主规则和 timeout 保持原检查优先级，不将 hook 提升为主规则。多个 access 要求时展示首个待批准规则。`approve` 只授予当前 toolID 一次性许可；`approve_rule_run` 也只有公开 `ruleKey` 对应的主规则可在本 Run 复用，其余要求仍为一次性许可。后续调用再次命中 secondary hook 时仍需确认。当前已批准调用重新比较完整工具参数及 access 指纹，即使已有本轮许可，命令/cwd/脚本内容变化也不能覆盖原快照；新增未授权 hook 同样返回未执行的审批变化错误，不重排已回答的 batch。硬禁止优先，表单不参与合并。审批摘要增加可选 `reviewedRuleKeys`（本次检查的规则）和 `runRuleKeys`（实际登记的本轮规则，最多一个），拒绝不产生本轮规则。现场案例见 [Bash审批卡住排查](Bash审批卡住排查.md)。
+
 并发调用的 `tool.output` 按各自 `toolID` 和递增 `chunkIndex` 发送，`tool.result` 按实际完成时间实时发布；模型消息和审批摘要仍按原始调用顺序整理，每个调用只有一个最终结果。提交审批和模型一次生成多个调用都不能单独证明命令已并发启动，应以实际过程输出和执行时序验证。
 
 整批取消统一提交 `params: []`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。
