@@ -47,6 +47,7 @@ type streamEntry struct {
 	lastSeq    int64
 	detach     func()
 	detachOnce sync.Once
+	reservedAt int64
 }
 
 type DetachedStream struct {
@@ -554,17 +555,36 @@ func (c *Conn) CompleteRequest(id string) {
 func (c *Conn) ReserveStream(requestID string, runID string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if currentID, exists := c.observingRuns[runID]; exists {
+	if currentID, exists := c.observingRuns[runID]; runID != "" && exists {
 		return "", &ProtocolError{Code: 409, Type: "duplicate_observe", Msg: fmt.Sprintf("already observing run %s on this connection", runID), Data: map[string]any{"runId": runID, "requestId": currentID}}
 	}
-	if len(c.observingRuns) > 0 {
-		return "", &ProtocolError{Code: 409, Type: "active_stream_exists", Msg: "detach the current run stream before starting or attaching another"}
+	for occupiedRunID, occupiedRequestID := range c.observingRuns {
+		entry := c.activeStreams[occupiedRequestID]
+		state := "attached"
+		if occupiedRunID == "" {
+			state = "reserving"
+		}
+		active := map[string]any{"runId": occupiedRunID, "requestId": occupiedRequestID, "state": state}
+		if entry != nil {
+			active["streamId"] = entry.streamID
+			active["since"] = entry.reservedAt
+		}
+		const message = "detach the current run stream before starting or attaching another"
+		diagnostics := map[string]any{"lane": c.QueryLane(), "connectionId": c.sessionID,
+			"activeStream": active, "requested": map[string]any{"requestId": requestID, "runId": runID}}
+		return "", &ProtocolError{Code: 409, Type: "active_stream_exists", Msg: message,
+			Data: map[string]any{"error": apperrors.Payload(apperrors.Code("active_stream_exists"), message,
+				apperrors.WithStatus(409), apperrors.WithRetryable(false),
+				apperrors.WithDiagnostic("lane", diagnostics["lane"]),
+				apperrors.WithDiagnostic("connectionId", diagnostics["connectionId"]),
+				apperrors.WithDiagnostic("activeStream", active),
+				apperrors.WithDiagnostic("requested", diagnostics["requested"]))}}
 	}
 	if c.cfg.MaxObservesPerConn > 0 && len(c.activeStreams) >= c.cfg.MaxObservesPerConn {
 		return "", &ProtocolError{Code: 429, Type: "too_many_streams", Msg: "too many active streams"}
 	}
 	streamID := fmt.Sprintf("s_%d", c.nextStreamID.Add(1))
-	c.activeStreams[requestID] = &streamEntry{runID: runID, streamID: streamID}
+	c.activeStreams[requestID] = &streamEntry{runID: runID, streamID: streamID, reservedAt: time.Now().UnixMilli()}
 	c.observingRuns[runID] = requestID
 	return streamID, nil
 }

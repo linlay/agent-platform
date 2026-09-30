@@ -507,3 +507,45 @@ func TestConnRequiresDetachBeforeNextRunStream(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRunStreamConflictIdentifiesReservationAndBoundRun(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
+	streamID, err := conn.ReserveStream("first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, runID := range []string{"", "run-first"} {
+		if runID != "" {
+			if err := conn.BindStreamRun("first", runID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, err := conn.ReserveStream("second", "")
+		conflict, ok := err.(*ProtocolError)
+		if !ok || conflict.Type != "active_stream_exists" {
+			t.Fatalf("unexpected conflict: %v", err)
+		}
+		conn.SendProtocolError("second", conflict)
+		frame := mustReadQueuedMessage(t, conn.writeQueue).frame.(ErrorFrame)
+		payload := frame.Data.(map[string]any)["error"].(map[string]any)
+		diagnostics := payload["diagnostics"].(map[string]any)
+		active := diagnostics["activeStream"].(map[string]any)
+		if active["requestId"] != "first" || active["runId"] != runID || active["streamId"] != streamID || active["since"].(int64) <= 0 {
+			t.Fatalf("missing occupant identity: %#v", active)
+		}
+		if diagnostics["connectionId"] != conn.sessionID || diagnostics["lane"] != "main" || payload["retryable"] != false {
+			t.Fatalf("bad diagnostics: %#v", payload)
+		}
+		expectedState := "reserving"
+		if runID != "" {
+			expectedState = "attached"
+		}
+		if active["state"] != expectedState {
+			t.Fatalf("bad reservation state: %#v", active)
+		}
+	}
+	conn.DetachRunStream("run-first")
+	if _, err := conn.ReserveStream("third", "run-third"); err != nil {
+		t.Fatal(err)
+	}
+}
