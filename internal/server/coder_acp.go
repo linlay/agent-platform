@@ -34,6 +34,7 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 		return &statusError{Status: http.StatusServiceUnavailable, Message: err.Error()}
 	}
 	def.ProxyConfig = &catalog.ProxyConfig{
+		LocalACP:  true,
 		BaseURL:   routing.BaseURL,
 		Transport: routing.Transport,
 		Token:     routing.Token,

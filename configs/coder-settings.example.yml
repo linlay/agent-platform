@@ -13,7 +13,10 @@ default-agent:
       maxCalls: 200
 
 acp-bridges:
-  # ACP CODER bridge entries. Codex CLI settings stay in codex-acp-bridge.
+  # Trusted ACP bridges must share the configured Workspace filesystem.
+  # Existing endpoint configuration is preserved; no loopback-only restriction.
+  # Platform supplies canonical workspaceRoot as params.cwd; clients cannot override it.
+  # CLI settings stay in the respective bridge.
   # codex:
   #   base-url: http://127.0.0.1:17071
   #   timeout-ms: 300000

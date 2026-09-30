@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/timecontract"
+	platformws "agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -51,6 +52,7 @@ func TestProxyQueryDoesNotForwardHostWorkspaceAsCWD(t *testing.T) {
 				"runtimeConfig:",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
 				"proxyConfig:",
+				"  localACP: true",
 				"  baseUrl: " + upstream.URL,
 				"  transport: sse",
 				"  timeout: 30",
@@ -679,6 +681,8 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 				"key: mock-agent",
 				"name: Mock Channel Agent",
 				"mode: CHANNEL",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 				"channelConfig:",
 				"  channelId: peer-a",
 				"  remoteAgentKey: coder",
@@ -709,6 +713,10 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 	if inner["agentKey"] != "coder" {
 		t.Fatalf("expected remote agent key coder, got %#v", inner["agentKey"])
 	}
+	params, _ := inner["params"].(map[string]any)
+	if _, exists := params["cwd"]; exists {
+		t.Fatalf("CHANNEL leaked host cwd: %#v", params)
+	}
 	skills, ok := inner["mustUseSkills"].([]any)
 	if !ok || len(skills) != 1 || skills[0] != "remote-only" {
 		t.Fatalf("expected normalized remote mustUseSkills, got %#v", inner["mustUseSkills"])
@@ -716,110 +724,139 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 }
 
 func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) {
-	workspace := t.TempDir()
-	writeTestGitHead(t, workspace, "main")
-	captured := make(chan map[string]any, 1)
-	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/models":
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(map[string]any{
-				"code": 0,
-				"msg":  "success",
-				"data": map[string]any{
-					"models": []map[string]any{{
-						"key":     "gpt-5-codex",
-						"name":    "GPT-5 Codex",
-						"modelId": "gpt-5-codex",
-					}},
-				},
-			}); err != nil {
-				t.Fatalf("encode model list: %v", err)
-			}
-			return
-		case "/ws":
-			conn, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				t.Fatalf("upgrade upstream websocket: %v", err)
-			}
-			defer conn.Close()
-			var frame map[string]any
-			if err := conn.ReadJSON(&frame); err != nil {
-				t.Fatalf("read upstream websocket frame: %v", err)
-			}
-			captured <- frame
-			if err := conn.WriteJSON(map[string]any{
-				"event": map[string]any{
-					"type":  "run.complete",
-					"runId": "upstream-run",
-				},
-			}); err != nil {
-				t.Fatalf("write upstream websocket completion: %v", err)
-			}
-		default:
-			t.Fatalf("expected /api/models or /ws, got %s", r.URL.Path)
-		}
-	}))
-	defer upstream.Close()
+	for _, bridgeID := range []string{"codex", "claude"} {
+		for _, transport := range []string{"http", "ws"} {
+			t.Run(bridgeID+"/"+transport, func(t *testing.T) {
+				workspace := t.TempDir()
+				workspaceLink := filepath.Join(t.TempDir(), "project-link")
+				if err := os.Symlink(workspace, workspaceLink); err != nil {
+					t.Fatal(err)
+				}
+				writeTestGitHead(t, workspace, "main")
+				captured := make(chan map[string]any, 1)
+				upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+				upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/api/models":
+						w.Header().Set("Content-Type", "application/json")
+						if err := json.NewEncoder(w).Encode(map[string]any{
+							"code": 0,
+							"msg":  "success",
+							"data": map[string]any{
+								"models": []map[string]any{{
+									"key":     "gpt-5-codex",
+									"name":    "GPT-5 Codex",
+									"modelId": "gpt-5-codex",
+								}},
+							},
+						}); err != nil {
+							t.Fatalf("encode model list: %v", err)
+						}
+						return
+					case "/ws":
+						conn, err := upgrader.Upgrade(w, r, nil)
+						if err != nil {
+							t.Fatalf("upgrade upstream websocket: %v", err)
+						}
+						defer conn.Close()
+						var frame map[string]any
+						if err := conn.ReadJSON(&frame); err != nil {
+							t.Fatalf("read upstream websocket frame: %v", err)
+						}
+						captured <- frame
+						// Both real bridges echo the upstream query, including params.cwd.
+						if err := conn.WriteJSON(map[string]any{"event": map[string]any{
+							"type": "request.query", "timestamp": int64(1_700_000_000_000),
+							"params": frame["payload"].(map[string]any)["params"],
+						}}); err != nil {
+							t.Fatal(err)
+						}
 
-	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-		writeProviderSSE(t, w, `[DONE]`)
-	}, testFixtureOptions{
-		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
-				"codex": {BaseURL: upstream.URL, AuthToken: "coder-token", TimeoutMS: 420000},
-			}
-		},
-		setupRuntime: func(_ string, cfg *config.Config) {
-			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
-				"key: mock-agent",
-				"name: Mock ACP Coder",
-				"role: 测试代理",
-				"description: acp coder test agent",
-				"mode: CODER",
-				"modelConfig:",
-				"  modelKey: mock-model",
-				"runtimeConfig:",
-				"  acpBridgeId: codex",
-				"  workspaceRoot: " + filepath.ToSlash(workspace),
-				"projectConfig:",
-				"  git:",
-				"    expectedBranch: main",
+						if err := conn.WriteJSON(map[string]any{
+							"event": map[string]any{
+								"type":      "run.complete",
+								"runId":     "upstream-run",
+								"timestamp": int64(1_700_000_000_000),
+							},
+						}); err != nil {
+							t.Fatalf("write upstream websocket completion: %v", err)
+						}
+					default:
+						t.Fatalf("expected /api/models or /ws, got %s", r.URL.Path)
+					}
+				}))
+				defer upstream.Close()
+
+				fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+					writeProviderSSE(t, w, `[DONE]`)
+				}, testFixtureOptions{
+					notifications: platformws.NewHub(),
+					configure: func(cfg *config.Config) {
+						cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+							bridgeID: {BaseURL: upstream.URL, AuthToken: "coder-token", TimeoutMS: 420000},
+						}
+					},
+					setupRuntime: func(_ string, cfg *config.Config) {
+						writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+							"key: mock-agent",
+							"name: Mock ACP Coder",
+							"role: 测试代理",
+							"description: acp coder test agent",
+							"mode: CODER",
+							"modelConfig:",
+							"  modelKey: mock-model",
+							"runtimeConfig:",
+							"  acpBridgeId: " + bridgeID,
+							"  workspaceRoot: " + filepath.ToSlash(workspaceLink),
+							"projectConfig:",
+							"  git:",
+							"    expectedBranch: main",
+						})
+					},
+				})
+
+				submitACPWorkspaceQuery(t, fixture.server, transport, map[string]any{
+					"agentKey": "mock-agent", "message": "proxy me", "params": map[string]any{"channel": "desktop"},
+				}, http.StatusOK)
+
+				var frame map[string]any
+				select {
+				case frame = <-captured:
+				default:
+					t.Fatalf("expected upstream websocket frame")
+				}
+				inner, ok := frame["payload"].(map[string]any)
+				if !ok {
+					t.Fatalf("expected payload object, got %#v", frame["payload"])
+				}
+				if inner["agentKey"] != "mock-agent" {
+					t.Fatalf("expected platform agent key, got %#v", inner["agentKey"])
+				}
+				params, ok := inner["params"].(map[string]any)
+				if !ok || params["channel"] != "desktop" {
+					t.Fatalf("unexpected upstream params %#v", inner["params"])
+				}
+				canonical, err := pathutil.Canonicalize(workspace)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if params["cwd"] != canonical.Host {
+					t.Fatalf("ACP cwd = %#v, want canonical workspace %q", params["cwd"], canonical.Host)
+				}
+				raw, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.ChatsDir, inner["chatId"].(string)+".jsonl"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Contains(raw, []byte(`"_type":"query"`)) || bytes.Contains(raw, []byte(`"cwd":`)) {
+					t.Fatalf("unexpected persisted query: %s", raw)
+				}
+				model, ok := inner["model"].(map[string]any)
+				if !ok || model["key"] != "mock-model" || model["modelId"] != "mock-model-id" {
+					t.Fatalf("unexpected upstream model %#v", inner["model"])
+				}
+
 			})
-		},
-	})
-
-	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","params":{"channel":"desktop"}}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var frame map[string]any
-	select {
-	case frame = <-captured:
-	default:
-		t.Fatalf("expected upstream websocket frame")
-	}
-	inner, ok := frame["payload"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected payload object, got %#v", frame["payload"])
-	}
-	if inner["agentKey"] != "mock-agent" {
-		t.Fatalf("expected platform agent key, got %#v", inner["agentKey"])
-	}
-	params, ok := inner["params"].(map[string]any)
-	if !ok || params["channel"] != "desktop" {
-		t.Fatalf("unexpected upstream params %#v", inner["params"])
-	}
-	if _, ok := params["cwd"]; ok {
-		t.Fatalf("host cwd must not cross the ACP adapter boundary: %#v", params)
-	}
-	model, ok := inner["model"].(map[string]any)
-	if !ok || model["key"] != "mock-model" || model["modelId"] != "mock-model-id" {
-		t.Fatalf("unexpected upstream model %#v", inner["model"])
+		}
 	}
 }
 
@@ -941,6 +978,7 @@ func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
+		notifications: platformws.NewHub(),
 		configure: func(cfg *config.Config) {
 			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL},
@@ -957,12 +995,14 @@ func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 		},
 	})
 
-	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","params":{"cwd":"/tmp/other"}}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	for _, transport := range []string{"http", "ws"} {
+		for _, cwd := range []any{"/tmp/other", "", nil} {
+			submitACPWorkspaceQuery(t, fixture.server, transport, map[string]any{
+				"agentKey": "mock-agent", "message": "proxy me", "params": map[string]any{"cwd": cwd},
+			}, http.StatusBadRequest)
+		}
 	}
+
 	if upstreamHit.Load() {
 		t.Fatalf("did not expect upstream request when params.cwd is rejected")
 	}
@@ -1218,11 +1258,104 @@ func writeTestGitHead(t *testing.T, workspace string, branch string) {
 }
 
 func TestProxyForwardParamsWithoutWorkspaceKeepsLegacyParams(t *testing.T) {
-	params := proxyForwardParams(api.QueryRequest{Params: map[string]any{"channel": "desktop"}}, "")
+	params := proxyForwardParams(api.QueryRequest{Params: map[string]any{"channel": "desktop"}}, nil, "")
 	if params["channel"] != "desktop" {
 		t.Fatalf("expected existing param to be preserved, got %#v", params)
 	}
 	if _, ok := params["cwd"]; ok {
 		t.Fatalf("did not expect cwd without runtime workspace root, got %#v", params)
+	}
+}
+
+// Exercise both public query transports and ensure the private bridge parameter
+// never gets added to Platform's public response/event stream.
+func submitACPWorkspaceQuery(t *testing.T, handler http.Handler, transport string, payload map[string]any, wantStatus int) {
+	t.Helper()
+	if transport == "http" {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(marshalPayload(payload))))
+		if rec.Code != wantStatus {
+			t.Fatalf("query status = %d, want %d: %s", rec.Code, wantStatus, rec.Body.String())
+		}
+		if wantStatus == http.StatusOK && (strings.Contains(rec.Body.String(), `"cwd":`) || strings.Contains(rec.Body.String(), `"type":"run.error"`)) {
+			t.Fatalf("unexpected public query output: %s", rec.Body.String())
+		}
+		return
+	}
+	server := newLoopbackServer(t, handler)
+	defer server.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	readConnectedPush(t, conn)
+	if err := conn.WriteJSON(platformws.RequestFrame{Frame: platformws.FrameRequest, Type: "/api/query", ID: "workspace-query", Payload: marshalPayload(payload)}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var frame struct {
+			Frame  string
+			Code   int
+			Reason string
+		}
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatal(err)
+		}
+		if wantStatus != http.StatusOK {
+			if frame.Frame == platformws.FramePush {
+				continue
+			}
+			if frame.Frame != platformws.FrameError || frame.Code != wantStatus {
+				t.Fatalf("unexpected query rejection: %s", raw)
+			}
+			return
+		}
+		if frame.Frame == platformws.FrameError || strings.Contains(string(raw), `"cwd":`) || strings.Contains(string(raw), `"type":"run.error"`) {
+			t.Fatalf("unexpected public query output: %s", raw)
+		}
+		if frame.Frame == platformws.FrameStream && frame.Reason != "" {
+			if frame.Reason != "done" {
+				t.Fatalf("query failed: %s", raw)
+			}
+			return
+		}
+	}
+}
+
+func TestACPCoderRejectsUnavailableWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	var upstreamHit atomic.Bool
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamHit.Store(true)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) { writeProviderSSE(t, w, `[DONE]`) }, testFixtureOptions{
+		notifications: platformws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{"codex": {BaseURL: upstream.URL}}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent", "mode: CODER", "runtimeConfig:", "  acpBridgeId: codex", "  workspaceRoot: " + filepath.ToSlash(workspace),
+			})
+		},
+	})
+	if err := os.RemoveAll(workspace); err != nil {
+		t.Fatal(err)
+	}
+	for _, transport := range []string{"http", "ws"} {
+		submitACPWorkspaceQuery(t, fixture.server, transport, map[string]any{"agentKey": "mock-agent", "message": "proxy me"}, http.StatusInternalServerError)
+	}
+	if upstreamHit.Load() {
+		t.Fatal("invalid ACP query reached bridge")
 	}
 }

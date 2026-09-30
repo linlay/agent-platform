@@ -583,7 +583,7 @@ func (s *Server) runProxySSE(
 		"message":     prepared.Req.Message,
 		"accessLevel": prepared.Req.AccessLevel,
 		"references":  proxyReferences,
-		"params":      proxyForwardParams(prepared.Req, prepared.Session.WorkspaceRoot),
+		"params":      proxyForwardParams(prepared.Req, proxy, prepared.Session.WorkspaceRoot),
 		"model":       prepared.Req.Model,
 		"scene":       prepared.Req.Scene,
 		"stream":      true,

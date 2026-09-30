@@ -34,6 +34,15 @@ func TestResolveACPBridgePreservesConfigurationErrors(t *testing.T) {
 	}
 }
 
+func TestResolveACPBridgePreservesEndpointCompatibility(t *testing.T) {
+	for _, baseURL := range []string{"http://127.0.0.1:17071", "http://localhost:17071", "https://bridge.example:17071", "http://192.168.1.2:17071", "ws://bridge:17071"} {
+		routing, err := ResolveACPBridge("configured", func(string) (ACPBridgeConfig, bool) { return ACPBridgeConfig{BaseURL: baseURL}, true })
+		if err != nil || routing.BaseURL != baseURL {
+			t.Errorf("endpoint %s: routing=%#v, err=%v", baseURL, routing, err)
+		}
+	}
+}
+
 func TestResolveACPModelOptionsUsesRequestOverrideAndRuntimeModelID(t *testing.T) {
 	got := ResolveACPModelOptions(Mode, "session-model", &api.QueryModelOptions{
 		Key:             "request-model",

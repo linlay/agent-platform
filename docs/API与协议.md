@@ -603,6 +603,8 @@ Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `C
 }
 ```
 
+PROXY/CHANNEL/ACP CODER 的 query 不接受用户 `params.cwd`（出现即返回 400，包括空值/null）。仅受信任本机 ACP bridge 的上游 query 由 Platform 注入 canonical `runtimeConfig.workspaceRoot` 为 `params.cwd`；此字段不加入原始公共 query，普通远端 PROXY/CHANNEL 不注入。路由配置与边界见 [ACP 工作目录契约](智能体配置说明.md#本机-acp-工作目录契约)。
+
 对于 native agent，`model.key` 必须存在于 model registry；`model.modelId` 由后端转发给 ACP CODER 上游时补齐，优先来自 model registry 的 `modelId`，为空时回退到 key；`model.reasoningEffort` 统一接受 `NONE`、`LOW`、`MEDIUM`、`HIGH`、`XHIGH`、`MAX`，其中 `NONE` 用于关闭本次 run 的 reasoning。输入兼容别名 `EXTRA_HIGH` 会归一为 `XHIGH`，不会通过 API 返回或持久化。PROXY agent 会把 `model` 对象原样透传给上游，platform 不做本地 model registry 校验，也不写入本地 session/stage settings。该配置只影响当前 run，不写回 agent 配置。
 
 `accessLevel` 在 `/api/query` 中作为 run 初始值；运行中可通过 `/api/access-level` 调整：

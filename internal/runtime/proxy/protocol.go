@@ -66,7 +66,7 @@ func QueryPayload(req runtimetypes.QueryCommand, proxy *catalog.ProxyConfig, ref
 	payload := map[string]any{
 		"requestId": req.RequestID, "runId": req.RunID, "chatId": req.ChatID,
 		"agentKey": AgentKey(proxy, req.AgentKey), "role": req.Role, "message": req.Message,
-		"accessLevel": req.AccessLevel, "references": references, "params": ForwardParams(req, ""),
+		"accessLevel": req.AccessLevel, "references": references, "params": ForwardParams(req, proxy, ""),
 		"model": req.Model, "scene": req.Scene, "stream": true,
 	}
 	if req.Hidden != nil {
@@ -98,13 +98,25 @@ func Protocol(proxy *catalog.ProxyConfig) string {
 func QueryPayloadWithWorkspace(req runtimetypes.QueryCommand, proxy *catalog.ProxyConfig, references []runtimetypes.Reference, workspaceRoot string) map[string]any {
 	payload := QueryPayload(req, proxy, references)
 	if inner, ok := payload["payload"].(map[string]any); ok {
-		inner["params"] = ForwardParams(req, workspaceRoot)
+		inner["params"] = ForwardParams(req, proxy, workspaceRoot)
 	}
 	return payload
 }
 
-func ForwardParams(req runtimetypes.QueryCommand, _ string) map[string]any {
-	return contracts.CloneMap(req.Params)
+// ForwardParams injects the frozen canonical Session workspace only for a
+// trusted local ACP route. Public query admission rejects cwd, and removing it
+// here also keeps internal callers from overriding or leaking a host directory.
+// The request itself remains unchanged for persistence and public events.
+func ForwardParams(req runtimetypes.QueryCommand, proxy *catalog.ProxyConfig, workspaceRoot string) map[string]any {
+	params := contracts.CloneMap(req.Params)
+	delete(params, "cwd")
+	if proxy != nil && proxy.LocalACP && workspaceRoot != "" {
+		if params == nil {
+			params = make(map[string]any)
+		}
+		params["cwd"] = workspaceRoot
+	}
+	return params
 }
 
 func RequestHasReservedCWD(params map[string]any) bool {
@@ -221,6 +233,15 @@ func NormalizeEventIdentity(event stream.EventData, req runtimetypes.QueryComman
 	for key, value := range map[string]string{"requestId": req.RequestID, "chatId": req.ChatID, "runId": req.RunID, "agentKey": req.AgentKey} {
 		if strings.TrimSpace(value) != "" {
 			event.Payload[key] = value
+		}
+	}
+	if event.Type == "request.query" {
+		// Local bridges echo their execution params. The injected cwd belongs
+		// only to the outbound execution request, not public events or replay.
+		if params := contracts.AnyMapNode(event.Payload["params"]); RequestHasReservedCWD(params) {
+			cloned := contracts.CloneMap(params)
+			delete(cloned, "cwd")
+			event.Payload["params"] = cloned
 		}
 	}
 	if event.Type == "artifact.publish" {

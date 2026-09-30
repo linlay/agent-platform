@@ -35,6 +35,8 @@
 
 `contextConfig.agents` 为非授权的候选摘要引用：不可用项跳过，正常主 Agent 保持可用，管理接口与运行日志提供有界 `context_agents_unavailable` 警告，实际调用与必要执行依赖仍严格校验，见 [智能体配置说明](docs/智能体配置说明.md#context-tags)。Agent 加载不再由 Desktop 工具名强制推导 `builtin.desktop` 声明；执行时的受信任挂载与权限检查保留，见 [Desktop 连接器](docs/连接器共享包与Desktop迁移.md#builtindesktop)。
 
+ACP CODER 仅向 `acp-bridges` 显式注册且共享 Workspace 的 bridge 转发冻结的 canonical Workspace 为 `params.cwd`；该能力由私有路由标记控制，用户 cwd 仍拒绝，普通 PROXY/CHANNEL 不注入宿主路径。详见 [ACP 工作目录契约](docs/智能体配置说明.md#本机-acp-工作目录契约)。
+
 ## 2. 技术栈
 
 - 语言：Go
