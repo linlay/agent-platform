@@ -129,7 +129,8 @@ func TestSkillPackageMemberSymlinkDoesNotLoadOrBlockOtherSkills(t *testing.T) {
 	if len(defs) != 2 {
 		t.Fatalf("unrelated skills lost: %v", defs)
 	}
-	if _, err := ScanSkillPackageRecord(root, "suite"); !errors.Is(err, ErrSkillSymlink) {
-		t.Fatalf("package scan accepted symlink: %v", err)
+	record, err := ScanSkillPackageRecord(root, "suite")
+	if err != nil || len(record.Skills) != 2 || len(record.Skills[0].Diagnostics) == 0 {
+		t.Fatalf("package lost unsafe-member diagnostics: %+v %v", record, err)
 	}
 }

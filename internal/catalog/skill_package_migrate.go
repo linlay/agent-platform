@@ -22,10 +22,14 @@ func (r *FileRegistry) MigrateLegacySkillPackages() ([]string, error) {
 	if root == "" {
 		return nil, ErrInvalidSkillPath
 	}
+	backups, err := r.MigrateImplicitSkillPackages()
+	if err != nil {
+		return backups, err
+	}
 	dir := filepath.Join(root, skillPackageStateDirName)
 	info, err := os.Lstat(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return backups, nil
 	}
 	if err != nil {
 		return nil, err
@@ -37,7 +41,6 @@ func (r *FileRegistry) MigrateLegacySkillPackages() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	backups := []string{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -105,13 +108,13 @@ func (r *FileRegistry) BeginMigrateLegacySkillPackage(id string) (*EditableSkill
 		if err := ValidateSkillPackageID(child.ID); err != nil {
 			return nil, err
 		}
+		members = append(members, SkillPackageMember{Key: child.ID})
 		source := filepath.Join(root, child.ID)
 		if _, err := os.Lstat(filepath.Join(source, "SKILL.md")); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
 			return nil, err
 		}
-		members = append(members, SkillPackageMember{Key: child.ID})
 		if err := copyRuntimePath(source, filepath.Join(candidate, child.ID)); err != nil {
 			return nil, err
 		}
@@ -140,4 +143,102 @@ func (r *FileRegistry) BeginMigrateLegacySkillPackage(id string) (*EditableSkill
 		return nil, errors.Join(err, mutation.Rollback())
 	}
 	return mutation, nil
+}
+
+// MigrateImplicitSkillPackages upgrades installed pre-membership manifests once.
+// Strict readers and archive imports never invoke this compatibility path.
+func (r *FileRegistry) MigrateImplicitSkillPackages() ([]string, error) {
+	if r == nil {
+		return nil, ErrSkillPackageNotFound
+	}
+	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
+	if root == "" {
+		return nil, ErrInvalidSkillPath
+	}
+	r.skillPackageMu.Lock()
+	defer r.skillPackageMu.Unlock()
+	if info, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		return nil, ErrSkillSymlink
+	}
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	backups := []string{}
+	for _, entry := range entries {
+		if !isSkillCenterDirectory(entry) {
+			continue
+		}
+		dir := filepath.Join(root, entry.Name())
+		if _, err := os.Lstat(filepath.Join(dir, "SKILL.md")); err == nil {
+			continue
+		}
+		path := filepath.Join(dir, "package.json")
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return backups, err
+		}
+		if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return backups, err
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(data, &fields) != nil || fields == nil {
+			continue
+		}
+		if _, present := fields["skills"]; present {
+			continue
+		}
+		var name string
+		if json.Unmarshal(fields["name"], &name) != nil || name != entry.Name() || ValidateSkillPackageID(name) != nil {
+			continue
+		}
+		children, err := os.ReadDir(dir)
+		if err != nil {
+			return backups, err
+		}
+		members := []SkillPackageMember{}
+		for _, child := range children {
+			if !isSkillCenterDirectory(child) {
+				continue
+			}
+			if _, err := readDeclaredSkillMember(filepath.Join(dir, child.Name())); err == nil {
+				members = append(members, SkillPackageMember{Key: child.Name()})
+			}
+		}
+		fields["skills"], _ = json.Marshal(members)
+		upgraded, err := json.MarshalIndent(fields, "", "  ")
+		if err != nil {
+			return backups, err
+		}
+		if _, err := parseSkillPackageMetadata(upgraded); err != nil {
+			logInvalidSkillPackage(root, name, err)
+			continue
+		}
+		backup, err := os.MkdirTemp(filepath.Dir(root), skillPackageBackupPrefix)
+		if err != nil {
+			return backups, err
+		}
+		if err := os.WriteFile(filepath.Join(backup, name+".package.json"), data, 0o600); err != nil {
+			return backups, err
+		}
+		backups = append(backups, backup)
+		if err := writeSkillPackageRecordFile(path, append(upgraded, '\n')); err != nil {
+			return backups, err
+		}
+	}
+	return backups, nil
 }
