@@ -73,7 +73,7 @@ func (s *Server) listAgentSkillPackages() ([]api.AgentSkillPackageResponse, erro
 	result := make([]api.AgentSkillPackageResponse, 0, len(packages))
 	for _, item := range packages {
 		p := api.AgentSkillPackageResponse{
-			ID: item.ID, Name: firstNonBlank(item.Name, item.ID), Presentation: item.Presentation, Description: item.Description, Triggers: item.Triggers,
+			Icon: item.Icon, ID: item.ID, Name: firstNonBlank(item.Name, item.ID), Presentation: item.Presentation, Description: item.Description, Triggers: item.Triggers,
 			Status: item.Status, Skills: []api.AdminSkillPackageSkill{}, MissingSkillIDs: []string{},
 		}
 		missing := make(map[string]bool, len(item.MissingSkillIDs))

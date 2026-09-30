@@ -213,3 +213,25 @@ func TestNestedPackageRejectsInvalidIdentityAndSymlinks(t *testing.T) {
 		t.Fatalf("symlink accepted: %v", e)
 	}
 }
+
+func TestNestedPackageImportPreservesRootIcon(t *testing.T) {
+	root := t.TempDir()
+	r := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
+	svg := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg>`
+	data := nestedPackageZIP(t, map[string]string{"package.json": `{"name":"suite","skills":[]}`, "icon.svg": svg})
+	mutation, record, err := r.BeginImportEditableSkillPackageArchive("suite", "", bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mutation.Rollback()
+	if err := mutation.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if !record.HasIcon {
+		t.Fatal("import response is missing icon")
+	}
+	icon, mediaType, err := r.ReadSkillPackageIcon("suite")
+	if err != nil || mediaType != "image/svg+xml" || string(icon) != svg {
+		t.Fatalf("imported icon %q %q %v", icon, mediaType, err)
+	}
+}

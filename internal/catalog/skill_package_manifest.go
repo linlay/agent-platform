@@ -213,7 +213,7 @@ func scanPackageAt(dir, id string) (SkillPackageRecord, error) {
 	if version == "" {
 		version = skillmeta.String(metadata["version"])
 	}
-	record := SkillPackageRecord{ID: id, Name: m.Name, DisplayName: m.DisplayName, Description: m.Description, Version: version, Triggers: m.Triggers, Metadata: metadata, Presentation: skillmeta.Parse(metadata, version), Skills: []SkillPackageRecordSkill{}, SchemaVersion: 1}
+	record := SkillPackageRecord{HasIcon: skillPackageIconName(dir) != "", ID: id, Name: m.Name, DisplayName: m.DisplayName, Description: m.Description, Version: version, Triggers: m.Triggers, Metadata: metadata, Presentation: skillmeta.Parse(metadata, version), Skills: []SkillPackageRecordSkill{}, SchemaVersion: 1}
 	for _, member := range m.Skills {
 		child := SkillPackageRecordSkill{ID: id + "/" + member.Key, Name: member.Key, Path: "./" + member.Key}
 		childRoot := filepath.Join(dir, member.Key)

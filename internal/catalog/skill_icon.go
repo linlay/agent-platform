@@ -29,11 +29,15 @@ func ReadSkillIcon(skill SkillDefinition) ([]byte, string, error) {
 	if skill.IconPath == "" {
 		return nil, "", os.ErrNotExist
 	}
-	root := filepath.Dir(filepath.Dir(skill.IconPath))
-	if err := ensureNoSymlinkAlongExistingPath(root, skill.IconPath); err != nil {
+	return readSkillIconFile(filepath.Dir(filepath.Dir(skill.IconPath)), filepath.Join("assets", filepath.Base(skill.IconPath)))
+}
+
+func readSkillIconFile(root, relative string) ([]byte, string, error) {
+	iconPath := filepath.Join(root, relative)
+	if err := ensureNoSymlinkAlongExistingPath(root, iconPath); err != nil {
 		return nil, "", err
 	}
-	file, err := os.OpenInRoot(root, filepath.Join("assets", filepath.Base(skill.IconPath)))
+	file, err := os.OpenInRoot(root, relative)
 	if err != nil {
 		return nil, "", err
 	}
@@ -42,7 +46,7 @@ func ReadSkillIcon(skill SkillDefinition) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	isSVG := strings.EqualFold(filepath.Ext(skill.IconPath), ".svg")
+	isSVG := strings.EqualFold(filepath.Ext(iconPath), ".svg")
 	limit := int64(EditableSkillMaxUploadBytes)
 	if isSVG {
 		limit = connector.MaxIconBytes
@@ -67,4 +71,43 @@ func ReadSkillIcon(skill SkillDefinition) ([]byte, string, error) {
 		return nil, "", os.ErrNotExist
 	}
 	return data, "image/png", nil
+}
+
+// Package icons belong to the package root, not a member's assets directory.
+func skillPackageIconName(root string) string {
+	for _, name := range []string{"icon.svg", "icon.png"} {
+		full := filepath.Join(root, name)
+		if ensureNoSymlinkAlongExistingPath(root, full) != nil {
+			continue
+		}
+		if info, err := os.Lstat(full); err == nil && info.Mode().IsRegular() {
+			return name
+		}
+	}
+	return ""
+}
+
+func (r *FileRegistry) ReadSkillPackageIcon(key string) ([]byte, string, error) {
+	if err := ValidateSkillPackageID(key); err != nil {
+		return nil, "", err
+	}
+	r.skillPackageMu.Lock()
+	defer r.skillPackageMu.Unlock()
+	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
+	if root == "" {
+		return nil, "", os.ErrNotExist
+	}
+	_, _, exists, err := readSkillPackageRecord(root, key)
+	if err != nil {
+		return nil, "", err
+	}
+	if !exists {
+		return nil, "", os.ErrNotExist
+	}
+	dir := filepath.Join(root, key)
+	name := skillPackageIconName(dir)
+	if name == "" {
+		return nil, "", os.ErrNotExist
+	}
+	return readSkillIconFile(dir, name)
 }

@@ -342,6 +342,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/admin/connectors/auth/cancel", s.method(http.MethodPost, s.handleConnectorAuthCancel))
 	s.router.HandleFunc("/api/connectors/order", s.handleConnectorOrder)
 	s.router.HandleFunc("/api/skills", s.handleAgentSkills)
+	s.router.HandleFunc("/api/skill-packages/icon", s.method(http.MethodGet, s.handleSkillPackageIcon))
 	s.router.HandleFunc("/api/skills/icon", s.method(http.MethodGet, s.handleAgentSkillIcon))
 	s.router.HandleFunc("/api/admin/skills", s.method(http.MethodGet, s.handleSkills))
 	s.router.HandleFunc("/api/admin/skills/detail", s.method(http.MethodGet, s.handleAdminSkillDetail))

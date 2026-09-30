@@ -926,6 +926,7 @@ type AgentSkillResponse struct {
 
 // AgentSkillPackageResponse groups selectable shared skills without changing their IDs.
 type AgentSkillPackageResponse struct {
+	Icon string `json:"icon,omitempty"`
 	skillmeta.Presentation
 	Description     string                   `json:"description,omitempty"`
 	Triggers        []string                 `json:"triggers,omitempty"`
@@ -1005,6 +1006,7 @@ type AdminSkillImportResponse struct {
 }
 
 type AdminSkillPackageResponse struct {
+	Icon string `json:"icon,omitempty"`
 	skillmeta.Presentation
 	Description     string                   `json:"description,omitempty"`
 	Triggers        []string                 `json:"triggers,omitempty"`

@@ -60,10 +60,33 @@ func (s *Server) handleAgentSkillIcon(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusNotFound, "skill_icon_unavailable", "skill icon is unavailable"))
 		return
 	}
+	serveSkillIcon(w, r, data, mediaType)
+}
+
+func serveSkillIcon(w http.ResponseWriter, r *http.Request, data []byte, mediaType string) {
 	w.Header().Set("Content-Type", mediaType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	w.Header().Set("ETag", fmt.Sprintf(`"%x"`, sha256.Sum256(data)))
 	http.ServeContent(w, r, "icon", time.Time{}, bytes.NewReader(data))
+}
+
+func (s *Server) handleSkillPackageIcon(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("key")
+	if catalog.ValidateSkillPackageID(key) != nil {
+		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "a valid package key is required"))
+		return
+	}
+	registry, ok := s.deps.Registry.(interface {
+		ReadSkillPackageIcon(string) ([]byte, string, error)
+	})
+	if ok {
+		data, mediaType, err := registry.ReadSkillPackageIcon(key)
+		if err == nil {
+			serveSkillIcon(w, r, data, mediaType)
+			return
+		}
+	}
+	s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusNotFound, "skill_icon_unavailable", "skill package icon is unavailable"))
 }

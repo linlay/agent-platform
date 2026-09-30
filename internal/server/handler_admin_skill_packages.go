@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -174,7 +175,12 @@ func adminSkillPackageResponse(record catalog.SkillPackageRecord) api.AdminSkill
 	for _, skill := range record.Skills {
 		skills = append(skills, api.AdminSkillPackageSkill{ID: skill.ID, Version: skill.Version, Diagnostics: adminSkillDiagnostics(skill.Diagnostics)})
 	}
+	icon := ""
+	if record.HasIcon {
+		icon = "/api/skill-packages/icon?key=" + url.QueryEscape(record.ID)
+	}
 	return api.AdminSkillPackageResponse{
+		Icon: icon,
 		Name: record.Name, Presentation: record.Presentation, Description: record.Description, Triggers: record.Triggers,
 		Status: "ready", MissingSkillIDs: []string{},
 		ID: record.ID, SHA256: record.SHA256,

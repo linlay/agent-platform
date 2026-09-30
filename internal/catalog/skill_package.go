@@ -45,6 +45,7 @@ type SkillPackageRecordSkill struct {
 }
 
 type SkillPackageRecord struct {
+	HasIcon       bool                      `json:"-"`
 	Presentation  skillmeta.Presentation    `json:"-"`
 	Name          string                    `json:"name,omitempty"`
 	DisplayName   string                    `json:"displayName,omitempty"`
