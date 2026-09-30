@@ -201,25 +201,29 @@ type pendingHITLApprovalBatch struct {
 }
 
 type hitlDecisionState struct {
-	AwaitingID  string
-	Decision    string
-	Reason      string
-	RuleKey     string
-	Scope       string
-	Executed    bool
-	Mode        string
-	FormPayload map[string]any
+	ReviewedRuleKeys []string
+	RunRuleKeys      []string
+	AwaitingID       string
+	Decision         string
+	Reason           string
+	RuleKey          string
+	Scope            string
+	Executed         bool
+	Mode             string
+	FormPayload      map[string]any
 }
 
 type hitlNoticeEntry struct {
-	toolID      string
-	toolName    string
-	command     string
-	decision    string
-	ruleKey     string
-	reason      string
-	mode        string
-	formPayload map[string]any
+	reviewedRuleKeys []string
+	runRuleKeys      []string
+	toolID           string
+	toolName         string
+	command          string
+	decision         string
+	ruleKey          string
+	reason           string
+	mode             string
+	formPayload      map[string]any
 }
 
 const defaultContextWindow = 128000

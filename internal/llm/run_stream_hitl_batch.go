@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
@@ -367,14 +368,16 @@ func (s *llmRunStream) buildHITLNoticeEntry(invocation *preparedToolInvocation) 
 		command = mapStringArg(invocation.args, "command")
 	}
 	return hitlNoticeEntry{
-		toolID:      invocation.toolID,
-		toolName:    invocation.toolName,
-		command:     command,
-		decision:    invocation.hitlDecision.Decision,
-		ruleKey:     invocation.hitlDecision.RuleKey,
-		reason:      invocation.hitlDecision.Reason,
-		mode:        mode,
-		formPayload: invocation.hitlDecision.FormPayload,
+		reviewedRuleKeys: invocation.hitlDecision.ReviewedRuleKeys,
+		runRuleKeys:      invocation.hitlDecision.RunRuleKeys,
+		toolID:           invocation.toolID,
+		toolName:         invocation.toolName,
+		command:          command,
+		decision:         invocation.hitlDecision.Decision,
+		ruleKey:          invocation.hitlDecision.RuleKey,
+		reason:           invocation.hitlDecision.Reason,
+		mode:             mode,
+		formPayload:      invocation.hitlDecision.FormPayload,
 	}, true
 }
 
@@ -562,13 +565,15 @@ func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.
 	}
 	for _, entry := range entries {
 		approval.Decisions = append(approval.Decisions, chat.StepApprovalDecision{
-			ToolID:   entry.toolID,
-			Command:  entry.command,
-			Decision: entry.decision,
-			RuleKey:  strings.TrimSpace(entry.ruleKey),
-			Reason:   entry.reason,
-			Mode:     entry.mode,
-			Payload:  entry.formPayload,
+			ReviewedRuleKeys: append([]string(nil), entry.reviewedRuleKeys...),
+			RunRuleKeys:      append([]string(nil), entry.runRuleKeys...),
+			ToolID:           entry.toolID,
+			Command:          entry.command,
+			Decision:         entry.decision,
+			RuleKey:          strings.TrimSpace(entry.ruleKey),
+			Reason:           entry.reason,
+			Mode:             entry.mode,
+			Payload:          entry.formPayload,
 		})
 	}
 	return llmNotice, approval
@@ -591,6 +596,28 @@ func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, res
 		Scope:      hitlDecisionScope(normalizedDecision),
 		Executed:   executed,
 		Mode:       hitlDecisionMode(result),
+	}
+	if request := invocation.shownApproval; request != nil && request.bashArguments != "" {
+		rules := []string{request.result.Rule.RuleKey}
+		if request.bashAccessReview != nil {
+			rules = append(rules, accesspolicy.ApprovalRules(*request.bashAccessReview)...)
+		}
+		if request.bashSecurityReview != nil {
+			rules = append(rules, request.bashSecurityReview.RuleKey)
+		}
+		if request.bashHITLReview != nil {
+			rules = append(rules, request.bashHITLReview.Rule.RuleKey)
+		}
+		seen := map[string]bool{}
+		for _, rule := range rules {
+			if rule != "" && !seen[rule] {
+				invocation.hitlDecision.ReviewedRuleKeys = append(invocation.hitlDecision.ReviewedRuleKeys, rule)
+				seen[rule] = true
+			}
+		}
+		if normalizedDecision == "approve_rule_run" {
+			invocation.hitlDecision.RunRuleKeys = []string{result.Rule.RuleKey}
+		}
 	}
 	if normalizedDecision == "approve_rule_run" {
 		s.registerRuleWhitelist(result.Rule.RuleKey)

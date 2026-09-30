@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -12,6 +13,8 @@ import (
 // A grant belongs to one tool invocation, not to a cloneable run-wide counter.
 // Only the execution context for this tool receives its one-shot approvals.
 type hostBashAuthorization struct {
+	arguments   string
+	fingerprint string
 	toolID      string
 	access      map[string]int
 	security    map[string]int
@@ -52,32 +55,6 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 		invocation.queuedResult = &result
 		return nil
 	}
-	if invocation.approvalDecision != "" && invocation.shownApproval != nil {
-		request := invocation.shownApproval
-		decision := strings.ToLower(strings.TrimSpace(invocation.approvalDecision))
-		if decision == "approve" || decision == "approve_rule_run" {
-			if review := request.bashAccessReview; review != nil && review.RequiresApproval() {
-				if decision == "approve_rule_run" {
-					s.grantDisplayedBashAccess(decision, *review)
-				} else {
-					a.access[review.Fingerprint] = 1
-				}
-			}
-			if review := request.bashSecurityReview; review != nil {
-				a.security[review.Fingerprint] = 1
-				if decision == "approve_rule_run" {
-					s.registerRuleWhitelist(review.RuleKey)
-				}
-			}
-			if request.kind == approvalKindHITL {
-				a.hitlCommand = request.result.OriginalCommand
-				a.hitlRule = request.result.Rule.RuleKey
-			}
-		}
-		invocation.approvalDecision = ""
-		invocation.shownApproval = nil
-	}
-
 	command := strings.TrimSpace(mapStringArg(invocation.args, "command"))
 	access := s.rawBashAccessReview(invocation)
 	security := access.SecurityReview(command, s.knownRuntimeVariables())
@@ -88,6 +65,49 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 	}
 	if access.Blocked() {
 		s.queueHostBashAuthorizationError(invocation, "bash_access_blocked", access.Reason)
+		return nil
+	}
+
+	if a.arguments != "" && a.arguments != hostBashArguments(invocation) {
+		s.queueHostBashAuthorizationError(invocation, "bash_access_approval_required", "Bash arguments changed after approval; retry for a new review.")
+		return nil
+	}
+	if invocation.approvalDecision != "" && invocation.shownApproval != nil {
+		request := invocation.shownApproval
+		decision := strings.ToLower(strings.TrimSpace(invocation.approvalDecision))
+		if decision == "approve" || decision == "approve_rule_run" {
+			if request.bashArguments != "" && request.bashArguments != hostBashArguments(invocation) {
+				s.queueHostBashAuthorizationError(invocation, "bash_access_approval_required", "Bash arguments changed after approval; retry for a new review.")
+				return nil
+			}
+			a.arguments, a.fingerprint = request.bashArguments, request.bashFingerprint
+			if review := request.bashAccessReview; review != nil && review.RequiresApproval() {
+				a.access[review.Fingerprint] = 1
+				if decision == "approve_rule_run" && request.kind == approvalKindBashAccess {
+					accesspolicy.RegisterRuleApproval(s.execCtx, request.result.Rule.RuleKey)
+				}
+			}
+			if review := request.bashSecurityReview; review != nil {
+				a.security[review.Fingerprint] = 1
+				if decision == "approve_rule_run" && request.kind == approvalKindBashSecurity {
+					s.registerRuleWhitelist(request.result.Rule.RuleKey)
+				}
+			}
+			if request.bashHITLReview != nil {
+				a.hitlCommand = request.bashHITLReview.OriginalCommand
+				a.hitlRule = request.bashHITLReview.Rule.RuleKey
+			}
+			if request.kind == approvalKindHITL {
+				a.hitlCommand = request.result.OriginalCommand
+				a.hitlRule = request.result.Rule.RuleKey
+			}
+		}
+		invocation.approvalDecision = ""
+		invocation.shownApproval = nil
+	}
+
+	if a.fingerprint != "" && a.fingerprint != access.Fingerprint {
+		s.queueHostBashAuthorizationError(invocation, "bash_access_approval_required", "Bash requirements changed after approval; retry for a new review.")
 		return nil
 	}
 
@@ -131,7 +151,7 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 			} else {
 				request := hitlApprovalRequest(invocation, match)
 				request.bashAccessReview = &access
-				return &request
+				return s.hostBashApprovalNeeded(invocation, request, "bash_access_approval_required", "Bash HITL rule requires approval.")
 			}
 		}
 	}
@@ -143,6 +163,21 @@ func (s *llmRunStream) hostBashApprovalNeeded(invocation *preparedToolInvocation
 	if invocation.hitlDecision != nil && invocation.hitlDecision.AwaitingID != "" {
 		s.queueHostBashAuthorizationError(invocation, code, "Bash requirements changed after approval; retry for a new review. "+reason)
 		return nil
+	}
+	// Keep the displayed primary rule; secondary gates receive tool-local grants
+	// only. A run decision must never whitelist undisclosed secondary rules.
+	request.bashArguments = hostBashArguments(invocation)
+	request.bashFingerprint = s.rawBashAccessReview(invocation).Fingerprint
+	if request.kind == approvalKindBashAccess && request.bashAccessReview != nil {
+		if rules := accesspolicy.ApprovalRules(*request.bashAccessReview); len(rules) > 0 {
+			request.result.Rule.RuleKey = rules[0]
+		}
+	}
+	if request.kind != approvalKindHITL {
+		match := s.checkBashHITL(invocation)
+		if match.Intercepted && match.Rule.IsBuiltinApproval() && !s.isRuleWhitelisted(match.Rule.RuleKey) && !s.shouldAutoApproveHITL(match) {
+			request.bashHITLReview = &match
+		}
 	}
 	return &request
 }
@@ -220,4 +255,13 @@ func (s *llmRunStream) invokeAuthorizedHostBash(invocation *preparedToolInvocati
 		return nil
 	}
 	return s.invokeToolAndPublishResult(invocation)
+}
+
+// Tool arguments originate from JSON; map key order is stable when marshaled.
+func hostBashArguments(invocation *preparedToolInvocation) string {
+	encoded, err := json.Marshal(invocation.args)
+	if err != nil {
+		return "invalid:" + err.Error()
+	}
+	return string(encoded)
 }
