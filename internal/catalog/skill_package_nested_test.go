@@ -187,8 +187,8 @@ func TestNestedPackageMigrationPreservesIndependentCopyAndRecovery(t *testing.T)
 		}
 	}
 	record, e := ScanSkillPackageRecord(root, "suite")
-	if e != nil || len(record.Skills) != 1 {
-		t.Fatalf("invented member %#v %v", record, e)
+	if e != nil || len(record.Skills) != 2 || len(record.Skills[1].Diagnostics) == 0 {
+		t.Fatalf("missing declared member placeholder %#v %v", record, e)
 	}
 	again, e := r.MigrateLegacySkillPackages()
 	if e != nil || len(again) != 0 {

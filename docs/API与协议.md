@@ -182,7 +182,9 @@ GET /ws -> request / response / stream / push / error frames
 
 普通技能删除先移入技能根同级备份，再执行 skills reload；reload 失败恢复整目录及 metadata，成功后清理备份。包内子技能可使用技能包专用删除接口；普通 Skill 删除与事务删除也复用包成员删除事务，同步更新成员清单，不能绕过引用检查。
 
-技能中心采用以下目录结构：顶层 `skills-center/<skill>/SKILL.md` 是独立技能；`skills-center/<package>/package.json` 标识技能包，成员位于包内一层 `<skill>/SKILL.md`。`package.json` 为 JSON，要求非空合法 `name` 与 `skills` 对象数组，例如 `{"name":"office","skills":[{"key":"pdf"},{"key":"docx"},{"key":"xlsx"}]}`。每个成员只保存包内单段 key，不复制 name、版本或展示元数据；key 不允许重复（含大小写冲突）、目录穿越或多层路径。`displayName/description/version/triggers/metadata` 及多语言字段可选。成员清单决定加载范围和包内顺序，展示信息来自各自 SKILL.md；未声明目录不自动成为技能。空包使用 `skills:[]`，删除最后成员保留包信息。
+技能中心采用以下目录结构：顶层 `skills-center/<skill>/SKILL.md` 是独立技能；`skills-center/<package>/package.json` 标识技能包，成员位于包内一层 `<skill>/SKILL.md`。`package.json` 为 JSON，要求非空合法 `name` 与 `skills` 对象数组，例如 `{"name":"office","skills":[{"key":"pdf"},{"key":"docx"},{"key":"xlsx"}]}`。每个成员至少保存包内单段 key，可携带扩展属性；扩展属性在导入、编辑和删除其他成员时保留，但成员 name、版本和展示元数据仍读取自身 SKILL.md；key 不允许重复（含大小写冲突）、目录穿越或多层路径。`displayName/description/version/triggers/metadata` 及多语言字段可选。成员清单决定加载范围和包内顺序，展示信息来自各自 SKILL.md；未声明目录不自动成为技能。空包使用 `skills:[]`，删除最后成员保留包信息。 声明成员的目录或 SKILL.md 缺失、符号链接或不可读取时，包记录保留该成员与 diagnostics，其他成员仍可用。新 ZIP 导入要求声明成员完整；编辑可先声明缺失成员再创建，已有成员路径仍须通过安全校验。
+
+启动 Catalog 前对已安装且缺少 `skills` 的历史 package.json 执行一次成员补齐，原文件在技能根外保留备份；已有 `skills` 的清单不进入此兼容迁移，严格读取和新 ZIP 导入不隐式推断成员。旧 `.package` 迁移保留缺失成员声明与诊断。
 
 `GET /api/admin/skills` 列表与详情的 `packageId` 仅用于分组。独立技能 key 为 `<skill>`，包内 key 为 `<package>/<skill>`，不能以短名替代包内 key；同名技能可同时存在并独立选择、编辑和更新。`GET /api/admin/skill-packages` 按清单顺序返回声明成员与实际版本；缺少版本保持空值，不借用包版本。包展示文案复用请求语言解析规则，缺少展示名回退 name。列表读取不改写文件，也不维护 SQL 或第二份成员清单。声明成员文件缺失时保留成员条目并标记 incomplete/missingSkillIds，聊天选择列表只提供有效成员。新格式清单缺少 skills 或使用字符串数组视为无效；旧市场 ZIP 与旧 .package 迁移自动生成对象数组。
 
