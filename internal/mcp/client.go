@@ -26,6 +26,7 @@ import (
 	"agent-platform/internal/hostenv"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/subprocess"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -436,6 +437,7 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 	case TransportStdio:
 		cmd := exec.Command(server.Command, server.Args...)
 		cmd.Dir = server.WorkingDir
+		subprocess.ConfigureBackground(cmd)
 		env := server.Env
 		if server.ConnectorOneID {
 			env = map[string]string{}

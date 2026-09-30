@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agent-platform/internal/subprocess"
 )
 
 var npmCache = struct {
@@ -105,6 +107,7 @@ func npmBin(env []string) string {
 	}
 	cmd := exec.CommandContext(ctx, npm, args...)
 	cmd.Env = env
+	subprocess.ConfigureBackground(cmd)
 	cmd.WaitDelay = time.Second
 	data, err := cmd.Output()
 	if err != nil {
