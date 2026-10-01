@@ -375,7 +375,7 @@ func (r *FileRegistry) Reload(ctx context.Context, reason string) error {
 // ReloadWithRuntimeBindings keeps new runtime leases out until local component
 // routes have been rebound to the published Agent files. Neither callback may
 // perform remote discovery or acquire another runtime lease.
-func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason string, validate, bind func() error) error {
+func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason string, validate, bind func() error) (resultErr error) {
 	r.executionMu.Lock()
 	defer r.executionMu.Unlock()
 	if validate != nil {
@@ -399,6 +399,9 @@ func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason strin
 				releaseAssembly()
 			}
 		}()
+	}
+	if reason != "teams" && reason != "skills" {
+		defer func() { r.reconcileRuntimePending(resultErr == nil) }()
 	}
 	if err := r.reloadLocked(reason); err != nil {
 		return err

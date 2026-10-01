@@ -45,9 +45,13 @@ func runtimeAgentAssemblyDiagnosticCode(err error) string {
 type runtimeAgentAssembler struct {
 	frozenAgents map[string]AgentDefinition
 	frozenAdmin  map[string]AdminAgent
-	root         string
-	centerDir    string
-	connectors   connector.Sources
+	// refreshedAgents contains only sources fully validated and published (or
+	// verified unchanged) by the latest Agent load. Missing frozen keys still
+	// need reconciliation after their active users leave.
+	refreshedAgents map[string]bool
+	root            string
+	centerDir       string
+	connectors      connector.Sources
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex

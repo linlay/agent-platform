@@ -31,6 +31,7 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 }
 
 func loadAgentsWithAdminAssembler(root, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler) (map[string]AgentDefinition, map[string]AdminAgent, error) {
+	assembler.refreshedAgents = map[string]bool{}
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
 	expectedRuntimeAgents := map[string]struct{}{}
@@ -147,6 +148,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
 	items[def.Key] = def
 	adminItems[def.Key] = readyAdminAgent(def, source, definition)
+	assembler.refreshedAgents[def.Key] = true
 	return nil
 }
 

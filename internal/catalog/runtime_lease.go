@@ -101,16 +101,49 @@ func (r *FileRegistry) freezeActiveRuntimes() {
 	}
 	r.assembler.frozenAgents = map[string]AgentDefinition{}
 	r.assembler.frozenAdmin = map[string]AdminAgent{}
-	if r.runtimePending == nil {
-		r.runtimePending = map[string]bool{}
-	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for key, count := range r.runtimeUsers {
 		if def, ok := r.agents[key]; ok && count > 0 {
 			r.assembler.frozenAgents[key] = def
 			r.assembler.frozenAdmin[key] = r.adminAgents[key]
+		}
+	}
+}
+
+// reconcileRuntimePending runs under executionMu after an Agent reload cascade.
+// Freezing protects active files; pending records actual work left for release.
+func (r *FileRegistry) reconcileRuntimePending(succeeded bool) {
+	if r.assembler == nil {
+		return
+	}
+	if r.runtimePending == nil {
+		r.runtimePending = map[string]bool{}
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for key := range r.assembler.frozenAgents {
+		if !succeeded || !r.assembler.refreshedAgents[key] {
+			// Includes deferred content, missing/deleted sources and validation
+			// failures. A failed cascade must not clear earlier pending work.
 			r.runtimePending[key] = true
+		} else {
+			delete(r.runtimePending, key)
+		}
+	}
+	// Connector-only updates may publish immediately while old Runs retain
+	// their original versions. They still need route/pin reconciliation and
+	// collection after release, even when ordinary Agent files are unchanged.
+	for _, live := range r.liveConnectorMounts {
+		current := false
+		for _, mount := range r.agents[live.AgentKey].ConnectorMounts {
+			if mount.ID == live.ID && mount.Dir == live.Dir && mount.Digest == live.Digest {
+				current = true
+				break
+			}
+		}
+		if !current {
+			r.runtimePending[live.AgentKey] = true
 		}
 	}
 }
