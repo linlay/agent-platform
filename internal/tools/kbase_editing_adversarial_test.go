@@ -429,8 +429,9 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if plan.Blocked || plan.AllowedByWhitelist || plan.AutoApproved {
-			t.Fatalf("expected source AccessPolicy approval plan, got %#v", plan)
+		// editing=false blocks outright; registered approvals cannot widen it.
+		if !plan.Blocked || plan.AllowedByWhitelist || plan.AutoApproved {
+			t.Fatalf("expected the editing gate to block the source write, got %#v", plan)
 		}
 		filetools.RegisterExactAccessApproval(execCtx, plan.Fingerprint)
 		filetools.RegisterRuleAccessApproval(execCtx, plan.RuleKey)

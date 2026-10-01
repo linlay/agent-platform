@@ -32,7 +32,7 @@ func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[str
 	vars := bashSecurityKnownVariables(execCtx)
 	var environment *accesspolicy.BashEnvironment
 	if !session.AgentHasRuntimeSandbox {
-		actual, err := mergeCommandEnv(execCtx)
+		actual, err := t.commandEnv(execCtx)
 		if err != nil {
 			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}

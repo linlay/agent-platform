@@ -154,7 +154,7 @@ func resolvePhysicalPath(path string, links int) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
+		if isLinkLike(current, info) {
 			target, err := os.Readlink(current)
 			if err != nil {
 				return "", err
@@ -180,4 +180,18 @@ func keyForPosix(posix string) string {
 		key = norm.NFC.String(key)
 	}
 	return key
+}
+
+// isLinkLike reports symlinks and, on Windows, junctions and other mount-point
+// reparse points. Since Go 1.23 os.Lstat reports those as ModeIrregular rather
+// than ModeSymlink, but os.Readlink still resolves their target.
+func isLinkLike(path string, info os.FileInfo) bool {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return true
+	}
+	if runtime.GOOS != "windows" || info.Mode()&os.ModeIrregular == 0 {
+		return false
+	}
+	_, err := os.Readlink(path)
+	return err == nil
 }

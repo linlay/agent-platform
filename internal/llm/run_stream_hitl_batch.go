@@ -74,6 +74,7 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 		return false
 	}
 
+	s.approvalAsked += len(invocations)
 	awaitingID := buildHITLBatchAwaitingID(s.session.RunID, s.step)
 	args := map[string]any{
 		"mode":      "approval",
@@ -597,6 +598,9 @@ func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, res
 	normalizedDecision := strings.ToLower(strings.TrimSpace(decision))
 	if normalizedDecision == "" {
 		normalizedDecision = "reject"
+	}
+	if normalizedDecision == "auto_approved" {
+		s.approvalAuto++
 	}
 	invocation.approvalDecision = normalizedDecision
 	invocation.hitlDecision = &hitlDecisionState{

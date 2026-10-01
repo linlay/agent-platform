@@ -50,14 +50,14 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	session := t.policySession(execCtx)
 	rawCwd := strings.TrimSpace(stringArg(args, "cwd"))
 	if rawCwd == "" {
-		if strings.TrimSpace(accesspolicy.SessionWorkspaceRoot(session)) == "" {
+		if strings.TrimSpace(accesspolicy.SessionWorkspaceRoot(session)) == "" && accesspolicy.DefaultBashCwd(session) == "@workspace" {
 			return ToolExecutionResult{
 				Output:   "workspace_unavailable: no Workspace; pass cwd explicitly, usually @chat",
 				Error:    "workspace_unavailable",
 				ExitCode: -1,
 			}, nil
 		}
-		rawCwd = "@workspace"
+		rawCwd = accesspolicy.DefaultBashCwd(session)
 	}
 	workingDir, err := accesspolicy.ResolveSessionPath(session, rawCwd)
 	if err != nil {
@@ -97,7 +97,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.WaitDelay = bashOutputPipeWaitDelay
 	cmd.Dir = workingDir
-	commandEnv, err := mergeBashCommandEnvContext(runCtx, execCtx, t.cfg.IdentityFile)
+	commandEnv, err := t.commandEnv(execCtx)
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
 	}
@@ -160,6 +160,12 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	}
 	if securityReview.Decision == bashsec.ReviewRequiresApproval && !securityReview.AutoApprovedAtLevel(session.AccessLevel) && !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_approval_required", ExitCode: -1}, nil
+	}
+	if rawFinalReview.UsesSSHAgent && direct == nil {
+		// The SSH agent is a credential: only reviewed Git network operations get it.
+		if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+			cmd.Env = append(cmd.Env, "SSH_AUTH_SOCK="+sock)
+		}
 	}
 	err = cmd.Run()
 	stdoutCapture.Close()
@@ -422,8 +428,18 @@ func connectorBins(execCtx *ExecutionContext) []string {
 	return execCtx.Session.ConnectorBinDirs
 }
 
+// mergeCommandEnv builds the host tool environment with the shipped inherit list.
 func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
-	env := shellenv.InheritedEnvironment(os.Environ())
+	return mergeCommandEnvWith(execCtx, nil)
+}
+
+// commandEnv is the single environment used for both access review and launch.
+func (t *RuntimeToolExecutor) commandEnv(execCtx *ExecutionContext) ([]string, error) {
+	return mergeCommandEnvWith(execCtx, t.cfg.Bash.InheritEnv)
+}
+
+func mergeCommandEnvWith(execCtx *ExecutionContext, inherit []string) ([]string, error) {
+	env := hostenv.WithSystemPaths(shellenv.InheritedEnvironment(os.Environ(), inherit...))
 	var agentDir string
 	var workspaceDir string
 	var chatDir string
@@ -453,11 +469,15 @@ func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
 		cleanRuntime,
 		agentconfig.HostEnvironment(agentDir, workspaceDir, chatDir),
 	)
-	if len(overrides) == 0 {
-		return connector.WithPath(builtins.EnsureBinInEnv(env), connectorBins(execCtx)), nil
+	if len(overrides) > 0 {
+		env = mergeEnvironmentList(env, overrides)
 	}
-	env = mergeEnvironmentList(env, overrides)
-	return connector.WithPath(builtins.EnsureBinInEnv(env), connectorBins(execCtx)), nil
+	env = connector.WithPath(builtins.EnsureBinInEnv(env), connectorBins(execCtx))
+	if execCtx != nil {
+		// Skill PATH entries extend the search path; they never shadow system tools.
+		env = hostenv.AppendPath(env, execCtx.Session.PathAppend...)
+	}
+	return env, nil
 }
 
 func mergeEnvironmentList(base []string, overrides map[string]string) []string {
@@ -479,10 +499,6 @@ func mergeEnvironmentList(base []string, overrides map[string]string) []string {
 		result = append(result, key+"="+value)
 	}
 	return result
-}
-
-func mergeBashCommandEnvContext(ctx context.Context, execCtx *ExecutionContext, identityFile string) ([]string, error) {
-	return mergeCommandEnv(execCtx)
 }
 
 func (t *RuntimeToolExecutor) connectorCommandEnvironment(ctx context.Context, execCtx *ExecutionContext, id string, base []string) ([]string, error) {

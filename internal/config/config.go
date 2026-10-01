@@ -43,7 +43,6 @@ type Config struct {
 	ContainerHub    ContainerHubConfig
 	AccessPolicy    AccessPolicyConfig
 	Bash            BashConfig
-	SandboxBash     SandboxBashConfig
 	FileTools       FileToolsConfig
 	PlatformControl PlatformControlConfig
 	WebSocket       WebSocketConfig
@@ -487,8 +486,14 @@ type ContainerHubConfig struct {
 }
 
 type BashConfig struct {
-	GitBash              GitBashConfig
-	AllowedCommands      []string
+	GitBash         GitBashConfig
+	AllowedCommands []string
+	// InheritEnv lists host environment names (NAME or PREFIX*) passed to
+	// tool processes. Loader/interpreter injection names are never inherited.
+	InheritEnv []string
+	// PathAppendRoots lists administrator-approved directories that skill
+	// .runtime-env.json PATH entries may append besides the skill's own tree.
+	PathAppendRoots      []string
 	ShellFeaturesEnabled bool
 	ShellExecutable      string
 	ShellArgs            []string
@@ -531,20 +536,13 @@ type AccessPolicyApprovalConfig struct {
 	BashComplexFilesystem string
 	BashOpaqueCommand     string
 	BashWriteInWriteRoots string
-}
-
-type SandboxBashConfig struct {
-	Security SandboxBashSecurityConfig
-}
-
-type SandboxBashSecurityConfig struct {
-	BashsecOverrides   SandboxBashBashsecOverridesConfig
-	AuditAutoApprovals bool
-}
-
-type SandboxBashBashsecOverridesConfig struct {
-	OutputRedirection        string
-	HeredocOutputRedirection string
+	// Destructive covers recursive deletion and discarding uncommitted work.
+	Destructive string
+	// ExecutableConfig covers writes to configuration that later tool calls
+	// execute implicitly (.git/hooks, .git/config).
+	ExecutableConfig string
+	// RemoteMutation covers pushes, uploads and other remote modifications.
+	RemoteMutation string
 }
 
 type FileToolsHooksConfig struct {

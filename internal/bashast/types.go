@@ -44,12 +44,6 @@ type ParseResult struct {
 	NodeType string
 }
 
-type EmbeddedScript struct {
-	Language string
-	Code     string
-	ArgIndex int
-}
-
 const (
 	CommandSubstitutionPlaceholder = "__CMDSUB_OUTPUT__"
 	TrackedVariablePlaceholder     = "__TRACKED_VAR__"

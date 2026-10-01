@@ -151,7 +151,7 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 	if err != nil {
 		return SkillDefinition{}, false, fmt.Errorf("skill %s .bash-hooks: %w", skillID, err)
 	}
-	runtimeEnv, err := loadSkillRuntimeEnv(skillDir)
+	runtimeEnv, pathAppend, err := loadSkillRuntimeEnv(skillDir)
 	if err != nil {
 		return SkillDefinition{}, false, fmt.Errorf("skill %s .runtime-env.json: %w", skillID, err)
 	}
@@ -168,6 +168,8 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 		PromptTruncated: truncated,
 		BashHooksDir:    bashHooksDir,
 		RuntimeEnv:      runtimeEnv,
+		Dir:             skillDir,
+		PathAppend:      pathAppend,
 	}, true, nil
 }
 
@@ -186,23 +188,43 @@ func resolveSkillBashHooksDir(skillDir string) (string, error) {
 	return filepath.Abs(path)
 }
 
-func loadSkillRuntimeEnv(skillDir string) (map[string]string, error) {
+// loadSkillRuntimeEnv reads .runtime-env.json. PATH is not an override: its
+// entries are extra directories (relative ones resolve against the skill) that
+// the session validates and appends after the system and managed tool paths.
+func loadSkillRuntimeEnv(skillDir string) (map[string]string, []string, error) {
 	path := filepath.Join(skillDir, ".runtime-env.json")
 	content, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var env map[string]string
 	if err := json.Unmarshal(content, &env); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	var pathAppend []string
+	for key, value := range env {
+		if !strings.EqualFold(key, "PATH") {
+			continue
+		}
+		delete(env, key)
+		for _, dir := range filepath.SplitList(value) {
+			dir = strings.TrimSpace(dir)
+			if dir == "" {
+				continue
+			}
+			if !filepath.IsAbs(dir) {
+				dir = filepath.Join(skillDir, dir)
+			}
+			pathAppend = append(pathAppend, filepath.Clean(dir))
+		}
 	}
 	if err := agentconfig.ValidateUserEnvironment(env); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return env, nil
+	return env, pathAppend, nil
 }
 
 func insideDir(parent, child string) bool {

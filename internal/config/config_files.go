@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -387,6 +388,9 @@ func parseAccessPolicyApprovals(raw any, fallback AccessPolicyApprovalConfig) Ac
 	fallback.BashComplexFilesystem = stringValue(anyValue(values["bash-complex-filesystem"], fallback.BashComplexFilesystem), fallback.BashComplexFilesystem)
 	fallback.BashOpaqueCommand = stringValue(anyValue(values["bash-opaque-command"], fallback.BashOpaqueCommand), fallback.BashOpaqueCommand)
 	fallback.BashWriteInWriteRoots = stringValue(anyValue(values["bash-write-in-write-roots"], fallback.BashWriteInWriteRoots), fallback.BashWriteInWriteRoots)
+	fallback.Destructive = stringValue(anyValue(values["destructive"], fallback.Destructive), fallback.Destructive)
+	fallback.ExecutableConfig = stringValue(anyValue(values["executable-config"], fallback.ExecutableConfig), fallback.ExecutableConfig)
+	fallback.RemoteMutation = stringValue(anyValue(values["remote-mutation"], fallback.RemoteMutation), fallback.RemoteMutation)
 	return fallback
 }
 
@@ -395,29 +399,12 @@ func (c *Config) applyBashValues(values map[string]any) {
 		c.Bash.GitBash.Enabled = boolValue(gitBash["enabled"], c.Bash.GitBash.Enabled)
 	}
 	c.Bash.AllowedCommands = csvOrList(anyValue(values["allowed-commands"], c.Bash.AllowedCommands), c.Bash.AllowedCommands)
+	c.Bash.InheritEnv = csvOrList(anyValue(values["inherit-env"], c.Bash.InheritEnv), c.Bash.InheritEnv)
+	c.Bash.PathAppendRoots = csvOrList(anyValue(values["path-append-roots"], c.Bash.PathAppendRoots), c.Bash.PathAppendRoots)
 	c.Bash.ShellFeaturesEnabled = boolValue(anyValue(values["shell-features-enabled"], c.Bash.ShellFeaturesEnabled), c.Bash.ShellFeaturesEnabled)
 	c.Bash.ShellExecutable = stringValue(anyValue(values["shell-executable"], c.Bash.ShellExecutable), c.Bash.ShellExecutable)
 	c.Bash.ShellArgs = csvOrList(anyValue(values["shell-args"], c.Bash.ShellArgs), c.Bash.ShellArgs)
 	c.Bash.MaxCommandChars = intValue(anyValue(values["max-command-chars"], c.Bash.MaxCommandChars), c.Bash.MaxCommandChars)
-}
-
-func (c *Config) applySandboxBashValues(values map[string]any) {
-	security, _ := values["security"].(map[string]any)
-	if len(security) == 0 {
-		return
-	}
-	overrides, _ := security["bashsec-overrides"].(map[string]any)
-	if len(overrides) > 0 {
-		c.SandboxBash.Security.BashsecOverrides.OutputRedirection = normalizeAccessPolicyApprovalAction(
-			stringValue(anyValue(overrides["output-redirection"], c.SandboxBash.Security.BashsecOverrides.OutputRedirection), c.SandboxBash.Security.BashsecOverrides.OutputRedirection),
-			c.SandboxBash.Security.BashsecOverrides.OutputRedirection,
-		)
-		c.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection = normalizeAccessPolicyApprovalAction(
-			stringValue(anyValue(overrides["heredoc-output-redirection"], c.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection), c.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection),
-			c.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection,
-		)
-	}
-	c.SandboxBash.Security.AuditAutoApprovals = boolValue(anyValue(security["audit-auto-approvals"], c.SandboxBash.Security.AuditAutoApprovals), c.SandboxBash.Security.AuditAutoApprovals)
 }
 
 func (c *Config) applyFileToolsValues(path string, values map[string]any) error {
@@ -477,8 +464,10 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 		}
 		c.applyBashValues(bash)
 	}
-	if sandboxBash, ok := values["sandbox-bash"].(map[string]any); ok && len(sandboxBash) > 0 {
-		c.applySandboxBashValues(sandboxBash)
+	if _, ok := values["sandbox-bash"]; ok {
+		// Output redirection is reviewed as a file effect by the access policy in
+		// every runtime, so the former bashsec redirection overrides have no effect.
+		log.Printf("[config][warn] %s: sandbox-bash is ignored; redirect targets follow access-policy write rules", path)
 	}
 	if fileTools, ok := values["file-tools"].(map[string]any); ok && len(fileTools) > 0 {
 		if err := rejectRemovedWorkingDirectoryKeyUnlessAudit(path, "file-tools", fileTools, ignoreRemovedWorkingDirectory); err != nil {

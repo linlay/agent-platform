@@ -182,6 +182,7 @@ func defaultConfig(options LoadOptions) Config {
 		AccessPolicy: defaultAccessPolicyConfig(),
 		Bash: BashConfig{
 			AllowedCommands:      defaultBashAllowedCommands(runtime.GOOS),
+			InheritEnv:           DefaultBashInheritEnv(),
 			ShellFeaturesEnabled: true,
 			ShellExecutable:      "",
 			ShellArgs:            nil,
@@ -270,12 +271,19 @@ func defaultLSPDiagnosticsHookConfig() LSPDiagnosticsHookConfig {
 	}
 }
 
+// DefaultAccessPolicyConfig is the single source of shipped level defaults.
+// Workspace writes are governed by the session's editing capability, not by
+// write-roots, so @workspace is intentionally absent from write-roots.
+func DefaultAccessPolicyConfig() AccessPolicyConfig {
+	return defaultAccessPolicyConfig()
+}
+
 func defaultAccessPolicyConfig() AccessPolicyConfig {
 	return AccessPolicyConfig{
 		Levels: map[string]AccessPolicyLevelConfig{
 			"default": {
 				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills", "@temp"},
-				WriteRoots:    []string{"@workspace", "@chat", "@temp"},
+				WriteRoots:    []string{"@chat", "@temp"},
 				ReadonlyRoots: []string{"@agent", "@skills"},
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "hitl",
@@ -283,6 +291,9 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 					BashComplexFilesystem: "hitl",
 					BashOpaqueCommand:     "hitl",
 					BashWriteInWriteRoots: "allow",
+					Destructive:           "hitl",
+					ExecutableConfig:      "hitl",
+					RemoteMutation:        "hitl",
 				},
 			},
 			"auto_approve": {
@@ -293,6 +304,9 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 					BashComplexFilesystem: "auto",
 					BashOpaqueCommand:     "auto",
 					BashWriteInWriteRoots: "allow",
+					Destructive:           "hitl",
+					ExecutableConfig:      "hitl",
+					RemoteMutation:        "hitl",
 				},
 			},
 			"full_access": {
@@ -305,9 +319,31 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 					BashComplexFilesystem: "allow",
 					BashOpaqueCommand:     "allow",
 					BashWriteInWriteRoots: "allow",
+					Destructive:           "allow",
+					ExecutableConfig:      "allow",
+					RemoteMutation:        "allow",
 				},
 			},
 		},
+	}
+}
+
+// DefaultBashInheritEnv is the portable, non-secret host environment passed to
+// tool processes: toolchains, proxies and certificate stores. Administrators may
+// replace it with bash.inherit-env; injection variables are always excluded.
+func DefaultBashInheritEnv() []string {
+	return []string{
+		"PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "OS",
+		"HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "TMPDIR", "TMP", "TEMP",
+		"USER", "USERNAME", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "LC_*", "TZ", "TERM", "COLORTERM", "XDG_*",
+		"APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "PROGRAMDATA",
+		"COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "ALLUSERSPROFILE", "PUBLIC", "PSMODULEPATH",
+		"PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "NUMBER_OF_PROCESSORS",
+		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+		"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+		"JAVA_HOME", "GOPATH", "GOROOT", "GOBIN", "GOPROXY", "GOPRIVATE", "GONOSUMDB", "GONOPROXY", "GOCACHE", "GOMODCACHE",
+		"CARGO_HOME", "RUSTUP_HOME", "NVM_DIR", "PYENV_ROOT", "CONDA_PREFIX", "VIRTUAL_ENV", "PNPM_HOME", "VOLTA_HOME",
+		"BUN_INSTALL", "DOTNET_ROOT", "ANDROID_HOME", "ANDROID_SDK_ROOT",
 	}
 }
 
@@ -617,6 +653,7 @@ func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
 		level.ReadRoots = normalizeAccessPolicyRoots(level.ReadRoots)
 		level.WriteRoots = normalizeAccessPolicyRoots(level.WriteRoots)
 		level.ReadonlyRoots = normalizeAccessPolicyRoots(level.ReadonlyRoots)
+		level.Approvals = normalizeNewApprovalKeys(level, defaults.Levels[normalizedName])
 		level.Approvals = normalizeAccessPolicyApprovals(level.Approvals)
 		normalizedLevels[normalizedName] = level
 	}
@@ -667,7 +704,47 @@ func normalizeAccessPolicyApprovals(approvals AccessPolicyApprovalConfig) Access
 	approvals.BashComplexFilesystem = normalizeAccessPolicyApprovalAction(approvals.BashComplexFilesystem, "hitl")
 	approvals.BashOpaqueCommand = normalizeAccessPolicyApprovalAction(approvals.BashOpaqueCommand, "hitl")
 	approvals.BashWriteInWriteRoots = normalizeAccessPolicyApprovalAction(approvals.BashWriteInWriteRoots, "allow")
+	// Empty new keys stay empty so an inheriting level resolves them from its parent.
+	approvals.Destructive = normalizeOptionalApprovalAction(approvals.Destructive)
+	approvals.ExecutableConfig = normalizeOptionalApprovalAction(approvals.ExecutableConfig)
+	approvals.RemoteMutation = normalizeOptionalApprovalAction(approvals.RemoteMutation)
 	return approvals
+}
+
+func normalizeOptionalApprovalAction(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return normalizeAccessPolicyApprovalAction(value, "hitl")
+}
+
+// normalizeNewApprovalKeys fills keys introduced after a deployment's tools.yml
+// was written from the shipped default of the same level, unless the level
+// inherits (the parent then supplies them).
+func normalizeNewApprovalKeys(level AccessPolicyLevelConfig, shipped AccessPolicyLevelConfig) AccessPolicyApprovalConfig {
+	approvals := level.Approvals
+	if level.Inherit != "" {
+		return approvals
+	}
+	if approvals.Destructive == "" {
+		approvals.Destructive = firstNonEmptyApproval(shipped.Approvals.Destructive, "hitl")
+	}
+	if approvals.ExecutableConfig == "" {
+		approvals.ExecutableConfig = firstNonEmptyApproval(shipped.Approvals.ExecutableConfig, "hitl")
+	}
+	if approvals.RemoteMutation == "" {
+		approvals.RemoteMutation = firstNonEmptyApproval(shipped.Approvals.RemoteMutation, "hitl")
+	}
+	return approvals
+}
+
+func firstNonEmptyApproval(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func normalizeAccessPolicyApprovalAction(value string, fallback string) string {

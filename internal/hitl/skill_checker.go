@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/bashast"
+	"agent-platform/internal/shellanalysis"
 )
 
 type SkillChecker struct {
@@ -108,6 +109,7 @@ func checkRulesFromAST(byCmd map[string][]FlatRule, command string, chatLevel in
 	if astResult.Kind != bashast.Simple {
 		return InterceptResult{}, false
 	}
+	astResult.Commands = withShellScripts(astResult.Commands, 0)
 	components := ParseCommandComponentsFromAST(astResult.Commands)
 	if len(components) == 0 {
 		return InterceptResult{}, true
@@ -195,4 +197,30 @@ func betterInterceptResult(current InterceptResult, candidate InterceptResult) (
 		return candidate, true
 	}
 	return current, false
+}
+
+// withShellScripts appends the commands of literal `bash -c` scripts so a
+// business rule cannot be bypassed by wrapping the command in a shell.
+func withShellScripts(cmds []bashast.SimpleCommand, depth int) []bashast.SimpleCommand {
+	if depth >= 3 {
+		return cmds
+	}
+	out := append([]bashast.SimpleCommand(nil), cmds...)
+	for _, cmd := range cmds {
+		if len(cmd.Argv) == 0 {
+			continue
+		}
+		// Unwrap env/timeout/... first so `env bash -c ...` is recognized.
+		name, args := shellanalysis.HookCommand(cmd.Argv)
+		script, ok := shellanalysis.ShellScript(append([]string{name}, args...))
+		if !ok {
+			continue
+		}
+		inner := bashast.ParseForSecurity(script)
+		if inner.Kind != bashast.Simple {
+			continue
+		}
+		out = append(out, withShellScripts(inner.Commands, depth+1)...)
+	}
+	return out
 }

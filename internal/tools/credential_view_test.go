@@ -25,14 +25,15 @@ func TestCredentialFileReadsAreBlocked(t *testing.T) {
 	if err := os.WriteFile(executor.cfg.IdentityFile, []byte("opaque-identity-token"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{provider, executor.cfg.IdentityFile} {
-		result, err := executor.invokeRead(map[string]any{"file_path": file, "add_line_numbers": false}, fileToolExecutionContext(root))
-		if err != nil || result.Error != "file_read_path_blocked" {
-			t.Fatal(err, result)
-		}
-		if strings.Contains(result.Output, "private-api-key") || strings.Contains(result.Output, "opaque-identity-token") {
-			t.Fatal("credential leaked", result.Output)
-		}
+	// The identity file is platform state and is blocked; provider definitions
+	// are ordinary configuration whose secret fields are redacted when read.
+	identity, err := executor.invokeRead(map[string]any{"file_path": executor.cfg.IdentityFile, "add_line_numbers": false}, fileToolExecutionContext(root))
+	if err != nil || identity.Error != "file_read_path_blocked" || strings.Contains(identity.Output, "opaque-identity-token") {
+		t.Fatal(err, identity)
+	}
+	providerRead, err := executor.invokeRead(map[string]any{"file_path": provider, "add_line_numbers": false}, fileToolExecutionContext(root))
+	if err != nil || providerRead.Error != "" || strings.Contains(providerRead.Output, "private-api-key") || !strings.Contains(providerRead.Output, "REDACTED") {
+		t.Fatal("provider read must succeed with redaction", err, providerRead.Output)
 	}
 	result, err := executor.invokeRead(map[string]any{"file_path": provider, "offset": 2, "limit": 1, "add_line_numbers": false}, fileToolExecutionContext(root))
 	if err != nil || strings.Contains(result.Output, "private-api-key") {

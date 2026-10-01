@@ -2962,7 +2962,7 @@ func TestPrepareToolCallBlocksBashSecurityHardBlockBeforeApproval(t *testing.T) 
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
 	}
-	command := "echo one\necho two"
+	command := "eval bad"
 
 	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
 		ID:   "tool_1",
@@ -3008,7 +3008,7 @@ func TestBashSecuritySoftBlockEmitsApprovalWithoutChecker(t *testing.T) {
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
 		execCtx:    &contracts.ExecutionContext{},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"}},
+			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "xargs echo", "description": "创建 owner"}},
 		},
 	}
 
@@ -3026,7 +3026,7 @@ func TestBashSecuritySoftBlockEmitsApprovalWithoutChecker(t *testing.T) {
 		t.Fatalf("expected one approval item, got %#v", ask)
 	}
 	approval, _ := ask.Approvals[0].(map[string]any)
-	if approval["ruleKey"] != bashsec.RuleKeyRedirections {
+	if approval["ruleKey"] != bashsec.RuleKeyRuntimeWrapperXargs {
 		t.Fatalf("expected stable bash security rule key, got %#v", approval)
 	}
 	options, _ := approval["options"].([]any)
@@ -3069,7 +3069,7 @@ func TestBashSecurityHardBlockQueuedInvocationSkipsApprovalAndExecutor(t *testin
 			{
 				toolID:   "tool_1",
 				toolName: "bash",
-				args:     map[string]any{"command": "echo one\necho two", "description": "多行命令"},
+				args:     map[string]any{"command": "eval bad", "description": "多行命令"},
 			},
 		},
 	}
@@ -3122,7 +3122,7 @@ func TestBashSecuritySoftBlockApproveExecutesOriginalCommand(t *testing.T) {
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
 			toolName: "bash",
-			args:     map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"},
+			args:     map[string]any{"command": "xargs echo", "description": "创建 owner"},
 		},
 	}
 
@@ -3146,7 +3146,7 @@ func TestBashSecuritySoftBlockApproveExecutesOriginalCommand(t *testing.T) {
 	if len(executor.invocations) != 1 {
 		t.Fatalf("expected approved command to execute, got %#v", executor.invocations)
 	}
-	if executor.invocations[0].args["command"] != "printf ok > owner.md" {
+	if executor.invocations[0].args["command"] != "xargs echo" {
 		t.Fatalf("expected original command execution, got %#v", executor.invocations[0])
 	}
 	if len(stream.hitlRuleWhitelist) != 0 {
@@ -3173,7 +3173,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
 			toolName: "bash",
-			args:     map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"},
+			args:     map[string]any{"command": "xargs echo", "description": "创建 owner"},
 		},
 	}
 
@@ -3191,7 +3191,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
 		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
 	}
-	if !stream.isRuleWhitelisted(bashsec.RuleKeyRedirections) {
+	if !stream.isRuleWhitelisted(bashsec.RuleKeyRuntimeWrapperXargs) {
 		t.Fatalf("expected bash security rule whitelist, got %#v", stream.hitlRuleWhitelist)
 	}
 
@@ -3213,7 +3213,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 
 func TestBashSecuritySoftBlockAutoApprovesByAccessLevel(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
-	command := "printf ok > owner.md"
+	command := "xargs echo"
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
@@ -3245,150 +3245,9 @@ func TestBashSecuritySoftBlockAutoApprovesByAccessLevel(t *testing.T) {
 	}
 }
 
-func TestSandboxBashSecurityRedirectionOverrideAutoApprovesAndAudits(t *testing.T) {
-	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
-	command := "cat << 'EOF' > /downloads/a.txt\nhello\nEOF"
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			cfg: config.Config{
-				SandboxBash: config.SandboxBashConfig{
-					Security: config.SandboxBashSecurityConfig{
-						BashsecOverrides: config.SandboxBashBashsecOverridesConfig{
-							OutputRedirection:        "auto",
-							HeredocOutputRedirection: "auto",
-						},
-						AuditAutoApprovals: true,
-					},
-				},
-			},
-			tools:        executor,
-			interactions: toolinteraction.NewDefaultRegistry(),
-		},
-		session: contracts.QuerySession{RunID: "run_1", AgentHasRuntimeSandbox: true},
-		execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{
-			AgentHasRuntimeSandbox: true,
-		}},
-		activeToolCall: &preparedToolInvocation{
-			toolID:   "tool_1",
-			toolName: "bash",
-			args:     map[string]any{"command": command, "description": "写入下载目录"},
-		},
-	}
-	var recordedApproval *chat.StepApproval
-	stream.onApprovalSummary = func(approval chat.StepApproval) {
-		copied := approval
-		copied.Decisions = append([]chat.StepApprovalDecision(nil), approval.Decisions...)
-		recordedApproval = &copied
-	}
-
-	if err := stream.invokeActiveToolCall(); err != nil {
-		t.Fatalf("invokeActiveToolCall returned error: %v", err)
-	}
-	if len(executor.invocations) != 1 {
-		t.Fatalf("expected sandbox bash command to execute without approval UI, got %#v", executor.invocations)
-	}
-	if stream.hitlPendingCall != nil {
-		t.Fatalf("did not expect pending HITL approval, got %#v", stream.hitlPendingCall)
-	}
-	if recordedApproval == nil {
-		t.Fatal("expected sandbox auto approval to record approval summary")
-	}
-	if len(recordedApproval.Decisions) != 1 || recordedApproval.Decisions[0].Decision != "auto_approved" {
-		t.Fatalf("expected auto-approved sandbox bash decision, got %#v", recordedApproval)
-	}
-	if recordedApproval.Decisions[0].Reason != sandboxBashSecurityOverrideReason ||
-		!strings.Contains(recordedApproval.Notice, "configured automatic approval policy") ||
-		strings.Contains(recordedApproval.Notice, "because accessLevel=auto_approve") {
-		t.Fatalf("unexpected sandbox auto approval notice: %#v", recordedApproval)
-	}
-}
-
-func TestHostBashIgnoresSandboxBashSecurityOverride(t *testing.T) {
-	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			cfg: config.Config{
-				SandboxBash: config.SandboxBashConfig{
-					Security: config.SandboxBashSecurityConfig{
-						BashsecOverrides: config.SandboxBashBashsecOverridesConfig{
-							OutputRedirection: "auto",
-						},
-						AuditAutoApprovals: true,
-					},
-				},
-			},
-			tools:        executor,
-			interactions: toolinteraction.NewDefaultRegistry(),
-		},
-		session: contracts.QuerySession{RunID: "run_1"},
-		execCtx: &contracts.ExecutionContext{},
-		activeToolCall: &preparedToolInvocation{
-			toolID:   "tool_1",
-			toolName: "bash",
-			args:     map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"},
-		},
-	}
-
-	if err := stream.invokeActiveToolCall(); err != nil {
-		t.Fatalf("invokeActiveToolCall returned error: %v", err)
-	}
-	if len(executor.invocations) != 0 {
-		t.Fatalf("did not expect host bash command to execute before approval, got %#v", executor.invocations)
-	}
-	if stream.hitlPendingCall == nil || len(stream.pending) != 1 {
-		t.Fatalf("expected host bash security approval, pending=%#v hitlPending=%#v", stream.pending, stream.hitlPendingCall)
-	}
-}
-
-func TestSandboxBashSecurityOverrideDoesNotBypassHardBlock(t *testing.T) {
-	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			cfg: config.Config{
-				SandboxBash: config.SandboxBashConfig{
-					Security: config.SandboxBashSecurityConfig{
-						BashsecOverrides: config.SandboxBashBashsecOverridesConfig{
-							OutputRedirection: "auto",
-						},
-						AuditAutoApprovals: true,
-					},
-				},
-			},
-			tools:        executor,
-			interactions: toolinteraction.NewDefaultRegistry(),
-		},
-		session: contracts.QuerySession{RunID: "run_1", AgentHasRuntimeSandbox: true},
-		execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{
-			AgentHasRuntimeSandbox: true,
-		}},
-		activeToolCall: &preparedToolInvocation{
-			toolID:   "tool_1",
-			toolName: "bash",
-			args:     map[string]any{"command": "cat /proc/self/environ", "description": "读取 secret"},
-		},
-	}
-
-	if err := stream.invokeActiveToolCall(); err != nil {
-		t.Fatalf("invokeActiveToolCall returned error: %v", err)
-	}
-	if len(executor.invocations) != 0 {
-		t.Fatalf("did not expect hard-blocked command to execute, got %#v", executor.invocations)
-	}
-	if len(stream.pending) != 1 {
-		t.Fatalf("expected one blocked tool result, got %#v", stream.pending)
-	}
-	result, ok := stream.pending[0].(contracts.DeltaToolResult)
-	if !ok || result.Result.Error != "bash_security_blocked" {
-		t.Fatalf("expected bash security blocked tool result, got %#v", stream.pending[0])
-	}
-}
-
 func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
-	command := "printf ok > owner.md"
+	command := "xargs echo"
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
@@ -5107,8 +4966,10 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 		},
 	}
 	plan, ok := stream.buildFileAccessPlan(invocation)
-	if !ok || plan == nil || plan.Blocked || plan.AllowedByWhitelist || plan.AutoApproved {
-		t.Fatalf("expected AccessPolicy HITL plan before the source gate, got %#v", plan)
+	// editing=false is a resolved capability: the plan is a hard block, never an
+	// approval that could be answered without widening the run.
+	if !ok || plan == nil || !plan.Blocked || plan.AllowedByWhitelist || plan.AutoApproved {
+		t.Fatalf("expected the editing gate to block the source mutation, got %#v", plan)
 	}
 	if stream.fileAccessPlanNeedsApproval(*plan) {
 		t.Fatalf("read-only source mutation must not produce an unusable HITL approval: %#v", plan)
@@ -5507,7 +5368,7 @@ func TestBashSecuritySoftBlockRejectDoesNotExecute(t *testing.T) {
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
 			toolName: "bash",
-			args:     map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"},
+			args:     map[string]any{"command": "xargs echo", "description": "创建 owner"},
 		},
 	}
 
@@ -6237,11 +6098,11 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 
 func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	review := bashsec.ReviewBashSecurity("cat <<EOF > out.txt\nhello\nEOF")
+	review := bashsec.ReviewBashSecurity("xargs echo")
 	invocation := &preparedToolInvocation{
 		toolID:             "tool_1",
 		toolName:           "bash",
-		args:               map[string]any{"command": "cat <<EOF > out.txt\nhello\nEOF", "description": "write heredoc output"},
+		args:               map[string]any{"command": "xargs echo", "description": "runtime wrapper"},
 		bashSecurityReview: &review,
 	}
 	stream := &llmRunStream{

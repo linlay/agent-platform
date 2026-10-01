@@ -1576,6 +1576,11 @@ func (s *llmRunStream) recordAccessPolicyAutoApproval(invocation *preparedToolIn
 	if invocation == nil || invocation.hitlDecision != nil {
 		return
 	}
+	defer func() {
+		if invocation.hitlDecision != nil && invocation.hitlDecision.Decision == "auto_approved" {
+			s.approvalAuto++
+		}
+	}()
 	if plans, err := s.reviewImageAccess(invocation); err == nil {
 		for _, plan := range plans {
 			if plan.AutoApproved {

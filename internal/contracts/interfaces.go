@@ -410,6 +410,12 @@ type QuerySession struct {
 	// Platform. It is runtime-only so protocol callers cannot forge additional
 	// access. ReadonlyRoots are hard mutation blocks for the lifetime of the run.
 	RunAccessRoots RunAccessRoots `json:"-"`
+	// WorkspaceReadOnly is the resolved editing=false capability. When set, no
+	// approval or access level may mutate the Workspace, and programs whose
+	// effects cannot be analyzed may not run inside it.
+	WorkspaceReadOnly bool `json:"-"`
+	// PathAppend lists validated skill directories appended to the tool PATH.
+	PathAppend []string `json:"-"`
 	// ProtectedPaths is the trusted platform state/credential boundary. Ordinary
 	// approvals and full_access cannot override it.
 	ProtectedPaths []string `json:"-"`

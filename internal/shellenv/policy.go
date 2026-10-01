@@ -24,25 +24,51 @@ func UnsafeOverride(name string) bool {
 	return false
 }
 
-// InheritedEnvironment deliberately inherits a small portable set. Secrets and
-// interpreter/shell startup knobs in the Platform process do not reach tools.
-func InheritedEnvironment(env []string) []string {
+// defaultInherit is used when no configured list is supplied (internal callers).
+var defaultInherit = []string{"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+	"TMPDIR", "TMP", "TEMP", "USER", "USERNAME", "LOGNAME", "LANG", "LANGUAGE", "LC_*", "TZ", "TERM", "COLORTERM",
+	"APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA"}
+
+// alwaysInheritable are platform/shell basics that UnsafeOverride forbids
+// definitions from replacing but that must still flow from the host.
+var alwaysInheritable = map[string]bool{"PATH": true, "PATHEXT": true, "COMSPEC": true, "SYSTEMROOT": true, "WINDIR": true, "HOME": true, "TMPDIR": true, "TMP": true, "TEMP": true}
+
+// InheritedEnvironment passes only listed host variables (NAME or PREFIX*) to
+// tool processes. Loader, interpreter-preload and Git execution variables are
+// never inherited even when listed; secrets in the Platform process stay out.
+func InheritedEnvironment(env []string, names ...string) []string {
+	if len(names) == 0 {
+		names = defaultInherit
+	}
+	exact := map[string]bool{}
+	var prefixes []string
+	for _, name := range names {
+		n := strings.ToUpper(strings.TrimSpace(name))
+		if n == "" {
+			continue
+		}
+		if prefix, ok := strings.CutSuffix(n, "*"); ok {
+			prefixes = append(prefixes, prefix)
+			continue
+		}
+		exact[n] = true
+	}
 	var result []string
 	for _, item := range env {
 		key, _, ok := strings.Cut(item, "=")
-		if !ok {
+		if !ok || key == "" {
 			continue
 		}
 		n := strings.ToUpper(key)
-		switch n {
-		case "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
-			"TMPDIR", "TMP", "TEMP", "USER", "USERNAME", "LOGNAME", "LANG", "LANGUAGE", "TZ", "TERM", "COLORTERM",
-			"APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA":
+		if UnsafeOverride(n) && !alwaysInheritable[n] {
+			continue
+		}
+		listed := exact[n]
+		for _, prefix := range prefixes {
+			listed = listed || strings.HasPrefix(n, prefix)
+		}
+		if listed {
 			result = append(result, item)
-		default:
-			if strings.HasPrefix(n, "LC_") {
-				result = append(result, item)
-			}
 		}
 	}
 	return result

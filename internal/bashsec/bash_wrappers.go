@@ -2,17 +2,15 @@ package bashsec
 
 import (
 	"fmt"
-	"path/filepath"
-	"runtime"
 	"strings"
+
+	"agent-platform/internal/shellanalysis"
 )
 
+// normalizedCommandBase shares command-name normalization with the access
+// policy and hook matching so a ".exe" suffix means the same thing everywhere.
 func normalizedCommandBase(command string) string {
-	base := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
-	if runtime.GOOS == "windows" {
-		base = strings.TrimSuffix(base, ".exe")
-	}
-	return base
+	return shellanalysis.CommandName(command)
 }
 
 func deterministicCommandChain(argv []string) [][]string {
@@ -63,39 +61,11 @@ func unwrapCommandBuiltin(args []string) ([]string, bool) {
 }
 
 func unwrapEnv(args []string) ([]string, bool) {
-	idx := 0
-	for idx < len(args) {
-		arg := args[idx]
-		if arg == "--" {
-			idx++
-			break
-		}
-		if isVarAssignment(arg) {
-			idx++
-			continue
-		}
-		if arg == "-u" || arg == "--unset" || arg == "-C" || arg == "--chdir" {
-			idx += 2
-			continue
-		}
-		if strings.HasPrefix(arg, "-u") && len(arg) > 2 {
-			idx++
-			continue
-		}
-		if strings.HasPrefix(arg, "--unset=") || strings.HasPrefix(arg, "--chdir=") {
-			idx++
-			continue
-		}
-		if strings.HasPrefix(arg, "-") {
-			idx++
-			continue
-		}
-		break
-	}
-	if idx >= len(args) {
+	_, command, _, _, ok := shellanalysis.UnwrapEnv(args)
+	if !ok || len(command) == 0 {
 		return nil, false
 	}
-	return args[idx:], true
+	return command, true
 }
 
 func unwrapNice(args []string) ([]string, bool) {

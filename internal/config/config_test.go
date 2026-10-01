@@ -1971,43 +1971,6 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 	})
 }
 
-func TestSandboxBashConfigYAMLOverrides(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"access-policy:\n" +
-			"  levels:\n" +
-			"    auto_approve:\n" +
-			"      inherit: default\n" +
-			"      approvals:\n" +
-			"        bash-write-in-write-roots: allow\n" +
-			"sandbox-bash:\n" +
-			"  security:\n" +
-			"    bashsec-overrides:\n" +
-			"      output-redirection: auto\n" +
-			"      heredoc-output-redirection: nope\n" +
-			"    audit-auto-approvals: true\n"
-		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.SandboxBash.Security.BashsecOverrides.OutputRedirection != "auto" {
-				t.Fatalf("unexpected output redirection override: %#v", cfg.SandboxBash)
-			}
-			if cfg.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection != "" {
-				t.Fatalf("expected invalid heredoc override to fall back to empty, got %#v", cfg.SandboxBash)
-			}
-			if !cfg.SandboxBash.Security.AuditAutoApprovals {
-				t.Fatalf("expected sandbox bash auto approvals to be audited")
-			}
-			autoLevel := cfg.AccessPolicy.Levels["auto_approve"]
-			if autoLevel.Approvals.BashWriteInWriteRoots != "allow" {
-				t.Fatalf("expected explicit auto_approve bash write action, got %#v", autoLevel.Approvals)
-			}
-		})
-	})
-}
-
 func TestAccessPolicyNormalizePreservesRootInheritanceIntent(t *testing.T) {
 	cfg := normalizeAccessPolicyConfig(AccessPolicyConfig{
 		Levels: map[string]AccessPolicyLevelConfig{
@@ -2885,5 +2848,27 @@ func TestLoadIgnoresRetiredMemoryHybridWeights(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+func TestNewApprovalKeysUseLevelDefaultsAndInheritance(t *testing.T) {
+	cfg := normalizeAccessPolicyConfig(AccessPolicyConfig{Levels: map[string]AccessPolicyLevelConfig{
+		"default":      {Approvals: AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"}},
+		"full_access":  {ReadRoots: []string{"@root"}, WriteRoots: []string{"@root"}},
+		"auto_approve": {Inherit: "default"},
+	}})
+	if got := cfg.Levels["default"].Approvals; got.Destructive != "hitl" || got.ExecutableConfig != "hitl" || got.RemoteMutation != "hitl" {
+		t.Fatalf("default level: %#v", got)
+	}
+	if got := cfg.Levels["full_access"].Approvals; got.Destructive != "allow" || got.RemoteMutation != "allow" || got.ExecutableConfig != "allow" {
+		t.Fatalf("an older full_access block keeps full semantics: %#v", got)
+	}
+	if got := cfg.Levels["auto_approve"].Approvals; got.Destructive != "" {
+		t.Fatalf("inheriting levels resolve new keys from their parent: %#v", got)
+	}
+	for _, root := range DefaultAccessPolicyConfig().Levels["default"].WriteRoots {
+		if root == "@workspace" {
+			t.Fatal("workspace writes are governed by editing, not write-roots")
+		}
 	}
 }

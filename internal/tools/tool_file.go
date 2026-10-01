@@ -188,11 +188,16 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if err != nil {
 		return filePathResolutionError("file_write_invalid_plan", err), nil
 	}
-	if access.Blocked {
+	// Administrator blocks come first; an editing-gate block reports the
+	// dedicated KBASE/editing error code from the scoped policy when present.
+	if access.Blocked && !filetools.EditingGateBlocked(access) {
 		return fileToolError("file_write_path_blocked", access.Reason), nil
 	}
 	if err := filetools.ValidateScopedWrite(accessSession, access.Path); err != nil {
 		return scopedFileToolError(err), nil
+	}
+	if access.Blocked {
+		return fileToolError("file_write_path_blocked", access.Reason), nil
 	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeAccessApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_write_path_approval_required", "write超出允许目录", access), nil
@@ -321,11 +326,16 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		return filePathResolutionError("file_edit_invalid_plan", err), nil
 	}
 	access.CommandText = "file_edit " + access.Path
-	if access.Blocked {
+	// Administrator blocks come first; an editing-gate block reports the
+	// dedicated KBASE/editing error code from the scoped policy when present.
+	if access.Blocked && !filetools.EditingGateBlocked(access) {
 		return fileToolError("file_edit_path_blocked", access.Reason), nil
 	}
 	if err := filetools.ValidateScopedWrite(accessSession, access.Path); err != nil {
 		return scopedFileToolError(err), nil
+	}
+	if access.Blocked {
+		return fileToolError("file_edit_path_blocked", access.Reason), nil
 	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeAccessApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_edit_path_approval_required", "edit超出允许目录", access), nil

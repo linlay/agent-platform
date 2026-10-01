@@ -41,3 +41,13 @@ func TestSingleUseApprovalRejectsForgedRunScope(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBusinessHooksMatchInsideLiteralShellScripts(t *testing.T) {
+	rules := []FlatRule{{Command: "git", Match: "push", MatchTokens: []string{"push"}, RuleKey: "publish", Level: 1}}
+	checker := &SkillChecker{rules: rules, byCmd: buildIndexes(rules)}
+	for _, cmd := range []string{"bash -c 'git push'", "sh -ec \"cd repo && git push\"", "env -S 'git push origin'", "env bash -c 'bash -c \"git -C x push\"'"} {
+		if matches := checker.CheckAll(cmd); len(matches) != 1 {
+			t.Fatalf("%s: wrapper hid the business hook: %+v", cmd, matches)
+		}
+	}
+}

@@ -44,7 +44,7 @@ func TestSkillExecutionFormsAndLevels(t *testing.T) {
 }
 func TestSkillDoesNotGrantOtherRequirements(t *testing.T) {
 	ctx, file := skillFixture(t)
-	for _, command := range []string{"sh selected/scripts/task.sh; sh foreign.sh", "sh selected/scripts/task.sh > /outside-review/result", "sh selected/scripts/task.sh; touch /outside-review/result", "sh -c 'echo inline'"} {
+	for _, command := range []string{"sh selected/scripts/task.sh; sh foreign.sh", "sh selected/scripts/task.sh > /outside-review/result", "sh selected/scripts/task.sh; touch /outside-review/result", "sh -c 'sh foreign.sh'"} {
 		if p := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, command, "", nil, ctx); !p.RequiresApproval() {
 			t.Fatalf("lost requirement %s: %+v", command, p)
 		}

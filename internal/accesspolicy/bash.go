@@ -29,6 +29,9 @@ type BashPlan struct {
 	Scope         string
 	ScopeKind     string
 	ContentSHA256 string
+	// UsesSSHAgent marks Git network operations that may authenticate with the
+	// user's SSH agent; only then is SSH_AUTH_SOCK passed to the process.
+	UsesSSHAgent bool
 }
 
 type redirectAccessKind int

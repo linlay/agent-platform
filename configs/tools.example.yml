@@ -1,6 +1,9 @@
 # Tool runtime config. Copy to configs/tools.yml to customize locally.
 
 access-policy:
+  # Workspace mutation is decided by the run's editing capability (CODER and
+  # GENERAL default to editing=true, KBASE to false), not by write-roots: no
+  # approval or access level can mutate a read-only Workspace.
   levels:
     default:
       read-roots:
@@ -10,7 +13,6 @@ access-policy:
         - "@skills"
         - "@temp"
       write-roots:
-        - "@workspace"
         - "@chat"
         - "@temp"
       readonly-roots:
@@ -22,6 +24,12 @@ access-policy:
         bash-complex-filesystem: hitl
         bash-opaque-command: hitl
         bash-write-in-write-roots: allow
+        # Recursive deletion and discarding uncommitted work (rm -r, git reset --hard).
+        destructive: hitl
+        # .git/hooks and .git/config, which later Git commands execute.
+        executable-config: hitl
+        # git push, uploads, POST/PUT/DELETE requests.
+        remote-mutation: hitl
 
     auto_approve:
       inherit: default
@@ -31,6 +39,9 @@ access-policy:
         bash-complex-filesystem: auto
         bash-opaque-command: auto
         bash-write-in-write-roots: allow
+        destructive: hitl
+        executable-config: hitl
+        remote-mutation: hitl
 
     full_access:
       read-roots:
@@ -44,6 +55,10 @@ access-policy:
         bash-complex-filesystem: allow
         bash-opaque-command: allow
         bash-write-in-write-roots: allow
+        # Set to hitl to keep confirming these under full_access.
+        destructive: allow
+        executable-config: allow
+        remote-mutation: allow
 
 bash:
   # allowed-commands defaults: Windows "*"; Unix/macOS use the built-in command list.
@@ -51,25 +66,35 @@ bash:
   shell-features-enabled: true
   max-command-chars: 16000
 
+  # Host environment passed to tools (NAME or PREFIX*). Omit to use the shipped
+  # list of toolchain, proxy and certificate variables. Loader and interpreter
+  # injection variables (LD_*, DYLD_*, NODE_OPTIONS, PYTHONPATH, GIT_CONFIG_*...)
+  # are never inherited. SSH_AUTH_SOCK is passed only to Git network commands.
+  # inherit-env:
+  #   - PATH
+  #   - HOME
+  #   - HTTPS_PROXY
+  #   - LC_*
+
+  # Directories that skill .runtime-env.json PATH entries may append besides
+  # the skill's own directory. Entries are appended after the system PATH.
+  # path-append-roots:
+  #   - /opt/company-tools/bin
+
   # Command-open preset: only opens the command allowlist.
   # allowed-commands: '*'
   # max-command-chars: 32000
 
-  # Unix/macOS shell override example. Default Bash args already enable pipefail.
-  # Explicit shell-args replace the defaults; keep -o pipefail unless legacy behavior is required.
+  # Unix/macOS shell override example. Default Bash args already enable pipefail
+  # and skip login/profile files (--noprofile --norc).
   # shell-executable: bash
   # shell-args:
+  #   - --noprofile
+  #   - --norc
   #   - -o
   #   - pipefail
-  #   - -lc
+  #   - -c
   #   - "{{command}}"
-
-sandbox-bash:
-  security:
-    bashsec-overrides:
-      output-redirection: auto
-      heredoc-output-redirection: auto
-    audit-auto-approvals: true
 
 file-tools:
   max-read-bytes: 1048576

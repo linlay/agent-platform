@@ -28,7 +28,7 @@ const (
 	Identity
 )
 
-type Policy struct{ Providers, Connectors, LegacyConnectors, IdentityFile string }
+type Policy struct{ Providers, Connectors, IdentityFile string }
 
 func FromConfig(cfg config.Config) Policy {
 	providers := cfg.Providers.ExternalDir
@@ -39,7 +39,7 @@ func FromConfig(cfg config.Config) Policy {
 	if identity == "" && cfg.Paths.EffectiveStateDir() != "" {
 		identity, _ = config.ResolveIdentityFile(cfg.Paths.EffectiveStateDir(), "")
 	}
-	return Policy{providers, cfg.Paths.EffectiveConnectorStateDir(), cfg.Paths.LegacyConnectorStateDir, identity}
+	return Policy{providers, cfg.Paths.EffectiveConnectorStateDir(), identity}
 }
 
 // Windows uses case-insensitive drive/UNC paths. Native paths additionally
@@ -76,7 +76,7 @@ func (p Policy) Source(file string) Source {
 	if inside(key, pathKey(p.Providers)) {
 		return Provider
 	}
-	if inside(key, pathKey(p.Connectors)) || inside(key, pathKey(p.LegacyConnectors)) {
+	if inside(key, pathKey(p.Connectors)) {
 		return ConnectorState
 	}
 	return Ordinary

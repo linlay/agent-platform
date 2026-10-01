@@ -5,28 +5,38 @@ import (
 	"strings"
 
 	"agent-platform/internal/bashast"
+	"agent-platform/internal/shellanalysis"
 )
 
-func reviewFromAST(command string, result bashast.ParseResult, embeddedScripts []bashast.EmbeddedScript) ReviewResult {
-	legacy := reviewLegacyCompatibleWithAST(command, result)
-	if legacy.Decision == ReviewBlock {
-		return legacy
+func reviewFromAST(original, command string, result bashast.ParseResult, variables map[string]string, depth int) ReviewResult {
+	review := ReviewResult{Decision: ReviewAllow}
+	if blocked := reviewText(command, result); blocked.Decision == ReviewBlock {
+		return blocked
 	}
-
 	for _, cmd := range result.Commands {
-		if review := reviewASTCommand(command, cmd); review.Decision == ReviewBlock {
-			return review
-		} else if review.Decision == ReviewRequiresApproval && legacy.Decision == ReviewAllow {
-			legacy = review
+		next := reviewASTCommand(original, cmd)
+		if next.Decision == ReviewBlock {
+			return next
+		}
+		if next.Decision == ReviewRequiresApproval && review.Decision == ReviewAllow {
+			review = next
+		}
+		if script, ok := shellanalysis.ShellScript(cmd.Argv); ok && depth < maxScriptDepth {
+			inner := reviewScript(original, script, variables, depth+1)
+			if inner.Decision == ReviewBlock {
+				return inner
+			}
+			if inner.Decision == ReviewRequiresApproval && review.Decision == ReviewAllow {
+				review = inner
+			}
 		}
 	}
-	return legacy
+	return review
 }
 
 func reviewASTCommand(command string, cmd bashast.SimpleCommand) ReviewResult {
 	result := ReviewResult{Decision: ReviewAllow}
-	commandChain := deterministicCommandChain(cmd.Argv)
-	for _, argv := range commandChain {
+	for _, argv := range deterministicCommandChain(cmd.Argv) {
 		if len(argv) == 0 {
 			continue
 		}
@@ -34,86 +44,37 @@ func reviewASTCommand(command string, cmd bashast.SimpleCommand) ReviewResult {
 		if isDangerousASTCommand(base) {
 			return blockReview(fmt.Sprintf("Command uses unsupported shell builtin: %s", base))
 		}
+		if base == "fc" && hasFlagLetter(argv[1:], 'e') {
+			return blockReview("Command uses 'fc -e' which can execute arbitrary commands via editor")
+		}
 		if review := reviewRuntimeWrapperCommand(command, argv); review.Decision == ReviewBlock {
 			return review
 		} else if review.Decision == ReviewRequiresApproval {
 			result = review
 		}
 	}
-	if bashast.HasDangerousJQFileFlag(cmd) {
-		return blockReview("Command uses jq file loading which could read sensitive files")
-	}
 	for _, arg := range cmd.Argv {
-		if strings.Contains(arg, "/proc/") && strings.Contains(arg, "/environ") {
-			return blockReview("Command accesses /proc/*/environ which could expose sensitive environment variables")
+		if isProcEnviron(arg) {
+			return blockReview(procEnvironReason)
 		}
 	}
 	for _, redir := range cmd.Redirects {
-		if review := reviewASTRedirect(command, redir); review.Decision == ReviewBlock {
-			return review
-		} else if review.Decision == ReviewRequiresApproval {
-			result = review
+		if !redir.IsHeredoc && isProcEnviron(redir.Target) {
+			return blockReview(procEnvironReason)
 		}
 	}
 	return result
 }
 
-func reviewASTRedirect(command string, redir bashast.Redirect) ReviewResult {
-	if redir.IsHeredoc {
-		return ReviewResult{Decision: ReviewAllow}
-	}
-	op := strings.TrimSpace(redir.Op)
-	target := strings.TrimSpace(redir.Target)
-	if containsASTPlaceholder(target) {
-		return approvalReview(command, "Command contains redirection target that cannot be resolved statically", RuleKeyRedirections, LevelRedirections)
-	}
-	if strings.Contains(target, "/proc/") && strings.Contains(target, "/environ") {
-		return blockReview("Command accesses /proc/*/environ which could expose sensitive environment variables")
-	}
-	if isSafeASTRedirect(redir) {
-		return ReviewResult{Decision: ReviewAllow}
-	}
-	switch op {
-	case "<", "<&", "<>", "<<<":
-		// AccessPolicy owns read/write checks for the resolved redirect target.
-		return ReviewResult{Decision: ReviewAllow}
-	case ">", ">>", ">|", ">&", "&>", "&>>":
-		return approvalReview(command, outputRedirectionReason, RuleKeyRedirections, LevelRedirections)
-	default:
-		if strings.Contains(op, "<") {
-			return blockReview("Command contains input redirection (<) which could read sensitive files")
-		}
-		if strings.Contains(op, ">") {
-			return approvalReview(command, outputRedirectionReason, RuleKeyRedirections, LevelRedirections)
+func hasFlagLetter(args []string, letter byte) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.IndexByte(arg[1:], letter) >= 0 {
+			return true
 		}
 	}
-	return ReviewResult{Decision: ReviewAllow}
-}
-
-func containsASTPlaceholder(value string) bool {
-	return strings.Contains(value, bashast.CommandSubstitutionPlaceholder) ||
-		strings.Contains(value, bashast.TrackedVariablePlaceholder)
-}
-
-func isSafeASTRedirect(redir bashast.Redirect) bool {
-	target := strings.TrimSpace(redir.Target)
-	switch strings.TrimSpace(redir.Op) {
-	case ">&":
-		return redir.Fd == 2 && target == "1"
-	case ">":
-		return target == "/dev/null"
-	case "<":
-		return target == "/dev/null"
-	case "&>":
-		return target == "/dev/null"
-	default:
-		return false
-	}
+	return false
 }
 
 func isDangerousASTCommand(base string) bool {
-	if astDangerousCommands[base] {
-		return true
-	}
-	return zshDangerousCommands[base]
+	return astDangerousCommands[base] || zshDangerousCommands[base]
 }

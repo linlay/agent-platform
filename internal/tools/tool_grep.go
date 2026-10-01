@@ -134,7 +134,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if info, err := os.Stat(resolved.Path); err == nil && info.IsDir() {
 		cmd.Dir = resolved.Path
 	}
-	commandEnv, err := mergeCommandEnv(execCtx)
+	commandEnv, err := t.commandEnv(execCtx)
 	if err != nil {
 		return fileToolError("run_env_snapshot_failed", err.Error()), nil
 	}

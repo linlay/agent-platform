@@ -198,6 +198,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		ToolNames:                     toolNames,
 		ToolSetFrozen:                 true,
 		ProtectedPaths:                accesspolicy.PlatformProtectedPaths(s.deps.Config),
+		PathAppend:                    ResolveSkillPathAppend(agentDef, agentDef.EffectiveSkills(), s.deps.Config.Bash.PathAppendRoots),
 		Mode:                          agentDef.Mode,
 		ModeCapabilities:              ResolvedModeCapabilities(agentDef),
 		SupportsContextCompaction:     !IsProxyRoutedAgent(agentDef),

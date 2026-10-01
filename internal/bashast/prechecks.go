@@ -14,11 +14,10 @@ var (
 )
 
 const (
-	controlCharacterReason       = "Command contains non-printable control characters that could bypass security checks"
-	unicodeWhitespaceReason      = "Command contains Unicode whitespace characters that could cause parsing inconsistencies"
-	zshTildeBracketReason        = "Command contains Zsh-style parameter expansion"
-	zshEqualsExpansionReason     = "Command contains Zsh equals expansion"
-	braceExpansionPrecheckReason = "Command contains brace expansion that could alter command parsing"
+	controlCharacterReason   = "Command contains non-printable control characters that could bypass security checks"
+	unicodeWhitespaceReason  = "Command contains Unicode whitespace characters that could cause parsing inconsistencies"
+	zshTildeBracketReason    = "Command contains Zsh-style parameter expansion"
+	zshEqualsExpansionReason = "Command contains Zsh equals expansion"
 )
 
 func runPrechecks(command string) (bool, string) {
@@ -33,8 +32,6 @@ func runPrechecks(command string) (bool, string) {
 		return false, zshTildeBracketReason
 	case zshEqualsExpansionRe.MatchString(command):
 		return false, zshEqualsExpansionReason
-	case hasUnquotedBraceExpansion(command):
-		return false, braceExpansionPrecheckReason
 	default:
 		return true, ""
 	}
@@ -93,58 +90,15 @@ func hasBackslashEscapedWhitespace(command string) bool {
 	return false
 }
 
-func hasUnquotedBraceExpansion(command string) bool {
-	inSingleQuote := false
-	inDoubleQuote := false
-	escaped := false
-	runes := []rune(command)
-	for idx := 0; idx < len(runes); idx++ {
-		r := runes[idx]
-		switch {
-		case escaped:
-			escaped = false
-		case r == '\\' && !inSingleQuote:
-			escaped = true
-		case r == '\'' && !inDoubleQuote:
-			inSingleQuote = !inSingleQuote
-		case r == '"' && !inSingleQuote:
-			inDoubleQuote = !inDoubleQuote
-		case r == '{' && !inSingleQuote && !inDoubleQuote:
-			if braceContainsExpansionOperator(runes[idx+1:]) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func braceContainsExpansionOperator(rest []rune) bool {
-	for idx := 0; idx < len(rest); idx++ {
-		switch rest[idx] {
-		case '}':
-			return false
-		case ',':
-			return true
-		case '.':
-			if idx+1 < len(rest) && rest[idx+1] == '.' {
-				return true
-			}
-		case '{':
-			return false
-		}
-	}
-	return false
-}
-
 func IsHardBlockReason(reason string) bool {
 	reason = strings.TrimSpace(reason)
 	switch reason {
 	case controlCharacterReason,
 		unicodeWhitespaceReason,
-		backslashWhitespaceMsg,
 		zshTildeBracketReason,
-		zshEqualsExpansionReason,
-		braceExpansionPrecheckReason:
+		zshEqualsExpansionReason:
+		// Backslash-escaped whitespace remains unparsed by the reviewer and is
+		// approval-only; brace expansion is expanded by the walker.
 		return true
 	default:
 		return false

@@ -981,20 +981,31 @@ func TestInvokeHostBashDoesNotExposeDefaultIdentityToken(t *testing.T) {
 	}
 }
 
+func TestInvokeHostBashRedirectIntoWorkspaceNeedsNoShellApproval(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{AllowedCommands: []string{"printf"}, ShellFeaturesEnabled: true, ShellExecutable: "bash", MaxCommandChars: 16000}}}
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf ok > owner.md"}, bashExecutionContext(root))
+	if err != nil || result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("a redirect into the editable Workspace is an ordinary write: %#v %v", result, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "owner.md")); err != nil || string(data) != "ok" {
+		t.Fatalf("expected written content, got %q %v", string(data), err)
+	}
+}
+
+// softSecurityExecutor allows access-policy requirements so the runtime-wrapper
+// shell approval is the only remaining requirement.
+func softSecurityExecutor() *RuntimeToolExecutor {
+	allow := config.AccessPolicyApprovalConfig{ReadOutsideRoots: "allow", WriteOutsideRoots: "allow", BashComplexFilesystem: "allow", BashOpaqueCommand: "allow", BashWriteInWriteRoots: "allow"}
+	return &RuntimeToolExecutor{cfg: config.Config{
+		AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{contracts.AccessLevelDefault: {Approvals: allow}}},
+		Bash:         config.BashConfig{AllowedCommands: []string{"printf", "xargs"}, ShellFeaturesEnabled: true, ShellExecutable: "bash", MaxCommandChars: 16000},
+	}}
+}
+
 func TestInvokeHostBashSoftSecurityRequiresApproval(t *testing.T) {
 	root := t.TempDir()
-	executor := &RuntimeToolExecutor{
-		cfg: config.Config{
-			Bash: config.BashConfig{
-				AllowedCommands:      []string{"printf"},
-				ShellFeaturesEnabled: true,
-				ShellExecutable:      "bash",
-				MaxCommandChars:      16000,
-			},
-		},
-	}
-
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf ok > owner.md"}, bashExecutionContext(root))
+	result, err := softSecurityExecutor().invokeHostBash(context.Background(), map[string]any{"command": "printf ok | xargs printf"}, bashExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -1005,25 +1016,10 @@ func TestInvokeHostBashSoftSecurityRequiresApproval(t *testing.T) {
 
 func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	root := t.TempDir()
-	command := "printf ok > owner.md"
-	executor := &RuntimeToolExecutor{
-		cfg: config.Config{
-			Bash: config.BashConfig{
-				AllowedCommands:      []string{"printf"},
-				ShellFeaturesEnabled: true,
-				ShellExecutable:      "bash",
-				MaxCommandChars:      16000,
-			},
-		},
-	}
-	execCtx := &contracts.ExecutionContext{
-		Session: contracts.QuerySession{WorkspaceRoot: root},
-		BashSecurityApprovals: map[string]int{
-			bashsec.ApprovalFingerprint(command): 1,
-		},
-	}
-
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": command}, execCtx)
+	command := "printf ok | xargs printf"
+	execCtx := bashExecutionContext(root)
+	execCtx.BashSecurityApprovals = map[string]int{bashsec.ApprovalFingerprint(command): 1}
+	result, err := softSecurityExecutor().invokeHostBash(context.Background(), map[string]any{"command": command}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -1033,35 +1029,13 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	if _, ok := execCtx.BashSecurityApprovals[bashsec.ApprovalFingerprint(command)]; ok {
 		t.Fatalf("expected approval to be consumed, got %#v", execCtx.BashSecurityApprovals)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "owner.md"))
-	if err != nil {
-		t.Fatalf("read owner.md: %v", err)
-	}
-	if string(data) != "ok" {
-		t.Fatalf("expected written content, got %q", string(data))
-	}
 }
 
 func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
 	root := t.TempDir()
-	executor := &RuntimeToolExecutor{
-		cfg: config.Config{
-			Bash: config.BashConfig{
-				AllowedCommands:      []string{"printf"},
-				ShellFeaturesEnabled: true,
-				ShellExecutable:      "bash",
-				MaxCommandChars:      16000,
-			},
-		},
-	}
-	execCtx := &contracts.ExecutionContext{
-		Session: contracts.QuerySession{WorkspaceRoot: root},
-		BashSecurityApprovals: map[string]int{
-			bashsec.ApprovalFingerprint("printf ok > other.md"): 1,
-		},
-	}
-
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf ok > owner.md"}, execCtx)
+	execCtx := bashExecutionContext(root)
+	execCtx.BashSecurityApprovals = map[string]int{bashsec.ApprovalFingerprint("printf no | xargs printf"): 1}
+	result, err := softSecurityExecutor().invokeHostBash(context.Background(), map[string]any{"command": "printf ok | xargs printf"}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -1428,7 +1402,8 @@ func mustMergeCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext) []st
 
 func mustMergeBashCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext, identityFile string) []string {
 	t.Helper()
-	env, err := mergeBashCommandEnvContext(context.Background(), execCtx, identityFile)
+	_ = identityFile // ordinary Host Bash never receives the identity token
+	env, err := mergeCommandEnv(execCtx)
 	if err != nil {
 		t.Fatal(err)
 	}

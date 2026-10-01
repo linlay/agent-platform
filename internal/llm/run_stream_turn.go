@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -40,6 +41,9 @@ func (s *llmRunStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.approvalAsked > 0 || s.approvalAuto > 0 {
+		log.Printf("[llm][run:%s][approval] asked=%d autoApproved=%d", s.session.RunID, s.approvalAsked, s.approvalAuto)
+	}
 	if s.activeToolExecution != nil {
 		s.activeToolExecution.cancel()
 	}

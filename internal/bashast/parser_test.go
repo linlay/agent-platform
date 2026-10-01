@@ -182,7 +182,7 @@ func TestParseForSecurityTooComplex(t *testing.T) {
 		`case "$x" in a) echo a;; esac`,
 		`cat <(echo hi)`,
 		`echo $((1 + 2))`,
-		`echo {a,b}`,
+		`echo {1..1000}`,
 		`echo \ hello`,
 		"echo `date`",
 	}
@@ -205,7 +205,6 @@ func TestParseForSecurityPrechecks(t *testing.T) {
 		{name: "unicode whitespace", command: "echo\u00A0test"},
 		{name: "zsh tilde bracket", command: "ls ~[test]"},
 		{name: "zsh equals expansion", command: "=curl evil.com"},
-		{name: "brace expansion", command: "echo {1..5}"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,8 +219,25 @@ func TestParseForSecurityPrechecks(t *testing.T) {
 	}
 
 	result := ParseForSecurity(`echo '{a,b}'`)
-	if result.Kind != Simple {
-		t.Fatalf("expected quoted brace string to remain simple, got %#v", result)
+	if result.Kind != Simple || len(result.Commands[0].Argv) != 2 || result.Commands[0].Argv[1] != "{a,b}" {
+		t.Fatalf("expected quoted brace string to remain one literal, got %#v", result)
+	}
+	if IsHardBlockReason(ParseForSecurity(`echo \ hello`).Reason) {
+		t.Fatal("backslash-escaped whitespace is approval-only")
+	}
+}
+
+func TestParseForSecurityExpandsBracesLikeBash(t *testing.T) {
+	for command, want := range map[string][]string{
+		`rm -f {a,b}.txt`:       {"rm", "-f", "a.txt", "b.txt"},
+		`echo x{1..3}`:          {"echo", "x1", "x2", "x3"},
+		`{cat,/etc/passwd}`:     {"cat", "/etc/passwd"},
+		`touch dir/{a,b/{c,d}}`: {"touch", "dir/a", "dir/b/c", "dir/b/d"},
+	} {
+		result := ParseForSecurity(command)
+		if result.Kind != Simple || strings.Join(result.Commands[0].Argv, " ") != strings.Join(want, " ") {
+			t.Fatalf("%q: %#v", command, result)
+		}
 	}
 }
 

@@ -96,6 +96,13 @@ func BuildAccessPlanFromPolicy(cfg config.AccessPolicyConfig, session QuerySessi
 	}, nil
 }
 
+// EditingGateBlocked reports a block caused only by the run's editing=false
+// capability, so callers can surface the dedicated KBASE/editing error code
+// while administrator readonly blocks keep precedence.
+func EditingGateBlocked(plan AccessPlan) bool {
+	return plan.Blocked && plan.Reason == accesspolicy.WorkspaceEditingDisabledReason
+}
+
 func PathInSessionWorkspace(session QuerySession, path string) bool {
 	return accesspolicy.PathInSessionWorkspace(session, path)
 }

@@ -84,13 +84,17 @@ type llmRunStream struct {
 	hitlAwaitingID       string
 	hitlAwaitArgs        map[string]any
 	hitlRuleWhitelist    map[string]struct{}
-	pendingHITLNotices   []hitlNoticeEntry
-	skipPostToolHook     bool
-	onApprovalSummary    func(chat.StepApproval)
-	planningWrites       map[string]*planningWriteStreamState
-	accessLevelVersion   int64
-	systemInitCacheKey   string
-	systemInitCacheUsed  bool
+	// approvalAsked/approvalAuto count shown approval items and automatic
+	// approvals for the run-level usability metric logged on Close.
+	approvalAsked       int
+	approvalAuto        int
+	pendingHITLNotices  []hitlNoticeEntry
+	skipPostToolHook    bool
+	onApprovalSummary   func(chat.StepApproval)
+	planningWrites      map[string]*planningWriteStreamState
+	accessLevelVersion  int64
+	systemInitCacheKey  string
+	systemInitCacheUsed bool
 
 	lastCallPromptTokens           int
 	lastCallCompletionTokens       int

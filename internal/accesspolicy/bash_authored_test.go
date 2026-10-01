@@ -121,8 +121,13 @@ func TestExecutionWrappersAndLookalikes(t *testing.T) {
 	if commandFamily(`C:\tools\PYTHON3.EXE`) != "python3" {
 		t.Fatal("Windows family normalization")
 	}
-	if got := ReviewBashCommand(cfg, ctx.Session, "env -S 'sh task'", "", nil, ctx); !strings.Contains(got.RuleKey, "complex") {
-		t.Fatalf("uncertain wrapper: %+v", got)
+	// env -S with plain words is unwrapped; the inner foreign script still needs approval.
+	if got := ReviewBashCommand(cfg, ctx.Session, "env -S 'sh task'", "", nil, ctx); !got.RequiresApproval() || !strings.Contains(got.RuleKey, "bash-access:execution") {
+		t.Fatalf("env -S target: %+v", got)
+	}
+	// Escapes and variables inside -S cannot be interpreted statically.
+	if got := ReviewBashCommand(cfg, ctx.Session, `env -S 'sh "$X"'`, "", nil, ctx); !strings.Contains(got.RuleKey, "complex") {
+		t.Fatalf("uncertain env -S: %+v", got)
 	}
 }
 

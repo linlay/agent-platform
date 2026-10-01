@@ -287,6 +287,10 @@ type SkillDefinition struct {
 	PromptTruncated bool
 	BashHooksDir    string
 	RuntimeEnv      map[string]string
+	// Dir is the loaded skill directory; PathAppend holds absolute directories
+	// from .runtime-env.json PATH, appended to (never replacing) the tool PATH.
+	Dir        string
+	PathAppend []string
 }
 
 type FileRegistry struct {

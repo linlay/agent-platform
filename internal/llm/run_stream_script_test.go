@@ -108,7 +108,9 @@ func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
 					t.Fatalf("missing internal script requirement: %#v", request.bashAccessReview)
 				}
 				if strings.Contains(command, ">") {
-					if request.bashSecurityReview == nil || request.bashSecurityReview.Reason == "" || !strings.Contains(request.bashAccessReview.Reason, "outside-review") {
+					// The redirect target is an access-policy write requirement; it is
+					// not a separate shell-security approval any more.
+					if !strings.Contains(request.bashAccessReview.Reason, "outside-review") {
 						t.Fatalf("missing aggregate requirements: %#v", request)
 					}
 				}

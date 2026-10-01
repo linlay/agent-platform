@@ -146,7 +146,8 @@ func TestHostBashApprovalConcurrent(t *testing.T) {
 			s, e, _ := newApprovedBashStream(t, 2)
 			if mode == "security_and_access" {
 				for _, call := range s.queuedToolCalls {
-					call.args["command"] = mapStringArg(call.args, "command") + " > " + filepath.Join(s.session.WorkspaceRoot, call.toolID+".txt")
+					// xargs needs a shell-level (bashsec) approval in addition to access.
+					call.args["command"] = "printf x | xargs " + mapStringArg(call.args, "command")
 				}
 			}
 			if mode == "builtin_hitl" {

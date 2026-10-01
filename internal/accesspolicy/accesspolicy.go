@@ -59,6 +59,10 @@ func (p PathPlan) AutoApproved() bool {
 	return p.Decision == DecisionAutoApproved
 }
 
+func (p PathPlan) RequiresApproval() bool {
+	return p.Decision == DecisionRequiresApproval
+}
+
 func (p PathPlan) Blocked() bool {
 	return p.Decision == DecisionBlock
 }
@@ -136,10 +140,28 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if mode == ReadAccess {
 		roots = append(roots, session.RunAccessRoots.ReadRoots...)
 	}
-	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
-	if mode == WriteAccess && accessLevel != AccessLevelFullAccess && strings.Contains("/"+realCandidate.Posix+"/", "/.git/") && (ok || decisionForAction(action) != DecisionBlock) {
-		return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionRequiresApproval, "Git metadata can change executable behavior"), nil
+	if mode == WriteAccess && IsExecutableConfigPath(realCandidate) {
+		decision := decisionForAction(level.Approvals.ExecutableConfig)
+		if decision == DecisionAllow && sessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
+			decision = DecisionBlock
+		}
+		if decision != DecisionAllow {
+			return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, decision, "Git hooks and configuration are executed by later Git commands"), nil
+		}
 	}
+	if mode == WriteAccess && PathInSessionWorkspace(session, realCandidate.Host) {
+		// Workspace mutation is a resolved session capability (editing), not an
+		// access-level root: approvals and full_access cannot enable it.
+		if sessionWorkspaceEditingDisabled(session) {
+			return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionBlock, WorkspaceEditingDisabledReason), nil
+		}
+		workspace, err := pathutil.Canonicalize(workspaceRoot)
+		if err != nil {
+			return PathPlan{}, err
+		}
+		return buildPathPlan(mode, rawPath, realCandidate, workspace, accessLevel, DecisionAllow, ""), nil
+	}
+	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
 	if ok {
 		return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionAllow, ""), nil
 	}
@@ -421,45 +443,11 @@ func resolveLevelConfig(cfg config.AccessPolicyConfig, name string, seen map[str
 }
 
 func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
-	switch name {
-	case AccessLevelAutoApprove:
-		return config.AccessPolicyLevelConfig{
-			Inherit: AccessLevelDefault,
-			Approvals: config.AccessPolicyApprovalConfig{
-				ReadOutsideRoots:      "auto",
-				WriteOutsideRoots:     "hitl",
-				BashComplexFilesystem: "auto",
-				BashOpaqueCommand:     "auto",
-				BashWriteInWriteRoots: "allow",
-			},
-		}
-	case AccessLevelFullAccess:
-		return config.AccessPolicyLevelConfig{
-			ReadRoots:     []string{"@root"},
-			WriteRoots:    []string{"@root"},
-			ReadonlyRoots: []string{},
-			Approvals: config.AccessPolicyApprovalConfig{
-				ReadOutsideRoots:      "allow",
-				WriteOutsideRoots:     "allow",
-				BashComplexFilesystem: "allow",
-				BashOpaqueCommand:     "allow",
-				BashWriteInWriteRoots: "allow",
-			},
-		}
-	default:
-		return config.AccessPolicyLevelConfig{
-			ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills", "@temp"},
-			WriteRoots:    []string{"@workspace", "@chat", "@temp"},
-			ReadonlyRoots: []string{"@agent", "@skills"},
-			Approvals: config.AccessPolicyApprovalConfig{
-				ReadOutsideRoots:      "hitl",
-				WriteOutsideRoots:     "hitl",
-				BashComplexFilesystem: "hitl",
-				BashOpaqueCommand:     "hitl",
-				BashWriteInWriteRoots: "allow",
-			},
-		}
+	levels := config.DefaultAccessPolicyConfig().Levels
+	if level, ok := levels[name]; ok {
+		return level
 	}
+	return levels[AccessLevelDefault]
 }
 
 func mergeLevelConfig(parent config.AccessPolicyLevelConfig, child config.AccessPolicyLevelConfig) config.AccessPolicyLevelConfig {
@@ -496,6 +484,15 @@ func mergeApprovals(parent config.AccessPolicyApprovalConfig, child config.Acces
 	}
 	if strings.TrimSpace(child.BashWriteInWriteRoots) != "" {
 		out.BashWriteInWriteRoots = strings.TrimSpace(child.BashWriteInWriteRoots)
+	}
+	if strings.TrimSpace(child.Destructive) != "" {
+		out.Destructive = strings.TrimSpace(child.Destructive)
+	}
+	if strings.TrimSpace(child.ExecutableConfig) != "" {
+		out.ExecutableConfig = strings.TrimSpace(child.ExecutableConfig)
+	}
+	if strings.TrimSpace(child.RemoteMutation) != "" {
+		out.RemoteMutation = strings.TrimSpace(child.RemoteMutation)
 	}
 	return out
 }
@@ -660,6 +657,48 @@ func cleanAbs(path string) string {
 		return ""
 	}
 	return path
+}
+
+// WorkspaceEditingDisabledReason keeps the KBASE editingMode wording that
+// clients and tests already recognize while applying to every mode.
+const WorkspaceEditingDisabledReason = "workspace editing is disabled for this run (KBASE workspace mutation requires editingMode=true)"
+
+// WorkspaceEditingDisabled reports the resolved editing capability. KBASE's
+// ScopedFilePolicy is one source; any mode may set WorkspaceReadOnly.
+func WorkspaceEditingDisabled(session QuerySession) bool {
+	return sessionWorkspaceEditingDisabled(session)
+}
+
+func sessionWorkspaceEditingDisabled(session QuerySession) bool {
+	if session.WorkspaceReadOnly {
+		return true
+	}
+	return session.ScopedFilePolicy != nil && !session.ScopedFilePolicy.WorkspaceMutationEnabled
+}
+
+// IsExecutableConfigPath matches Git metadata that later Git commands execute
+// or that redirects execution: the .git entry itself (gitfile), hooks and
+// config files. Comparison uses the case-folded canonical key.
+func IsExecutableConfigPath(path pathutil.Canonical) bool {
+	parts := strings.Split(strings.Trim(path.Key, "/"), "/")
+	for i, part := range parts {
+		if part != ".git" {
+			continue
+		}
+		rest := parts[i+1:]
+		if len(rest) == 0 {
+			return true
+		}
+		for j, item := range rest {
+			if item == "hooks" {
+				return true
+			}
+			if j == len(rest)-1 && (item == "config" || item == "config.worktree") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func sessionAccessLevel(session QuerySession) string {

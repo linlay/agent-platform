@@ -27,57 +27,49 @@ func (r ReviewResult) AutoApprovedAtLevel(level string) bool {
 }
 
 const (
-	RuleKeyRedirections               = "bashsec:redirections"
-	RuleKeyQuotedNewline              = "bashsec:quoted_newline"
-	RuleKeyObfuscatedFlagsTripleQuote = "bashsec:obfuscated_flags:triple_quote"
-	RuleKeyTooComplex                 = "bashast:too_complex"
-	RuleKeyRuntimeWrapperXargs        = "bashsec:runtime_wrapper:xargs"
-	RuleKeyRuntimeWrapperFindExec     = "bashsec:runtime_wrapper:find_exec"
+	// RuleKeyRedirections is retained for sandbox override configuration; output
+	// redirection targets are reviewed by the access policy, not by bashsec.
+	RuleKeyRedirections           = "bashsec:redirections"
+	RuleKeyTooComplex             = "bashast:too_complex"
+	RuleKeyRuntimeWrapperXargs    = "bashsec:runtime_wrapper:xargs"
+	RuleKeyRuntimeWrapperFindExec = "bashsec:runtime_wrapper:find_exec"
 
-	LevelRedirections               = 2
-	LevelQuotedNewline              = 2
-	LevelObfuscatedFlagsTripleQuote = 3
-	LevelTooComplex                 = 4
-	LevelRuntimeWrapper             = 3
+	LevelTooComplex     = 4
+	LevelRuntimeWrapper = 3
 )
+
+// maxScriptDepth bounds recursive review of literal `bash -c` scripts.
+const maxScriptDepth = 3
 
 func ReviewBashSecurity(command string) ReviewResult {
 	return ReviewBashSecurityWithKnownVariables(command, nil)
 }
 
+// ReviewBashSecurityWithKnownVariables reports shell constructs the reviewer
+// cannot represent faithfully (hard block) or cannot analyze (approval). File,
+// program and network effects belong to the access policy.
 func ReviewBashSecurityWithKnownVariables(command string, variables map[string]string) ReviewResult {
-	astResult, embeddedScripts := bashast.ParseWithEmbeddedDetectionAndKnownVariables(command, variables)
-	switch astResult.Kind {
+	return reviewScript(command, command, variables, 0)
+}
+
+func reviewScript(original, command string, variables map[string]string, depth int) ReviewResult {
+	result := bashast.ParseForSecurityWithKnownVariables(command, variables)
+	switch result.Kind {
 	case bashast.Simple:
-		return reviewFromAST(command, astResult, embeddedScripts)
+		return reviewFromAST(original, command, result, variables, depth)
 	case bashast.TooComplex:
-		if bashast.IsHardBlockReason(astResult.Reason) {
-			return blockReview(astResult.Reason)
+		if bashast.IsHardBlockReason(result.Reason) {
+			return blockReview(result.Reason)
 		}
-		legacy := reviewBashSecurityLegacy(command)
-		if legacy.Decision != ReviewAllow {
-			return legacy
+		if blocked := reviewText(command, bashast.ParseResult{}); blocked.Decision == ReviewBlock {
+			return blocked
 		}
-		reason := strings.TrimSpace(astResult.Reason)
+		reason := strings.TrimSpace(result.Reason)
 		if reason == "" {
 			reason = "Command is too complex for static AST security analysis"
 		}
-		return ReviewResult{
-			Decision:    ReviewRequiresApproval,
-			Reason:      reason,
-			Fingerprint: ApprovalFingerprint(command),
-			RuleKey:     RuleKeyTooComplex,
-			Level:       LevelTooComplex,
-		}
-	case bashast.ParseUnavailable:
-		return reviewBashSecurityLegacy(command)
+		return approvalReview(original, reason, RuleKeyTooComplex, LevelTooComplex)
 	default:
-		return ReviewResult{
-			Decision:    ReviewRequiresApproval,
-			Reason:      "Command could not be classified by AST security analysis",
-			Fingerprint: ApprovalFingerprint(command),
-			RuleKey:     RuleKeyTooComplex,
-			Level:       LevelTooComplex,
-		}
+		return approvalReview(original, "Command could not be classified by AST security analysis", RuleKeyTooComplex, LevelTooComplex)
 	}
 }

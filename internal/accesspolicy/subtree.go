@@ -1,6 +1,8 @@
 package accesspolicy
 
 import (
+	"strings"
+
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
@@ -23,11 +25,15 @@ func BuildSubtreePlan(cfg config.AccessPolicyConfig, session QuerySession, mode 
 	if mode == WriteAccess {
 		level := EffectiveLevel(cfg, session.AccessLevel)
 		for _, root := range append(level.ReadonlyRoots, session.RunAccessRoots.ReadonlyRoots...) {
-			if resolved := expandRootAlias(root, session); resolved != "" {
-				roots = append(roots, resolved)
-			} else {
-				roots = append(roots, resolveAgainstCwd(root, SessionWorkspaceRoot(session)))
+			if strings.HasPrefix(strings.TrimSpace(root), "@") {
+				// An unconfigured alias protects nothing; it never falls back to a
+				// Workspace-relative directory literally named "@agent".
+				if resolved := expandRootAlias(root, session); resolved != "" {
+					roots = append(roots, resolved)
+				}
+				continue
 			}
+			roots = append(roots, resolveAgainstCwd(root, SessionWorkspaceRoot(session)))
 		}
 		roots = append(roots, session.SharedConnectorsRoot)
 	}
@@ -47,6 +53,9 @@ func BuildSubtreePlan(cfg config.AccessPolicyConfig, session QuerySession, mode 
 		if pathutil.WithinRoot(root, target) {
 			p.Decision = DecisionBlock
 			p.Reason = "recursive operation contains a protected subtree: " + root.Host
+			if mode == ReadAccess {
+				p.Reason += "; use file_grep or file_glob, which skip protected directories"
+			}
 			return p
 		}
 	}

@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/builtins"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/shellanalysis"
 )
 
 // BashExecution is analysis only: the original command is never rewritten.
@@ -31,7 +32,9 @@ type BashExecution struct {
 	BlockReason        string
 }
 
-var ordinaryCommands = strings.Fields("ls cat head tail top free df git rg dbx httpx pdftotext find echo printf sed awk grep wc sort uniq tr cut cd stat file du test which mkdir touch cp mv rm ln chmod date curl wget pwd true false sleep uname whoami id basename dirname readlink realpath tee printenv Get-ChildItem Get-Content Remove-Item")
+// ordinaryCommands are recognized system programs whose effects shellanalysis
+// models from their arguments; anything else is opaque execution.
+var ordinaryCommands = strings.Fields("ls cat head tail top free df git rg dbx httpx pdftotext find echo printf sed awk gawk grep wc sort uniq tr cut cd stat file du test which mkdir rmdir touch cp mv rm ln chmod date curl wget pwd true false sleep uname whoami id basename dirname readlink realpath tee printenv jq tar diff Get-ChildItem Get-Content Remove-Item")
 var shellBuiltins = wordSet("echo printf pwd cd test true false type read export unset declare local typeset set shift break continue return :")
 var wrapperNames = wordSet("env command builtin nohup nice timeout stdbuf")
 var systemExecutables = captureSystemExecutables()
@@ -441,6 +444,22 @@ func interpreterScript(base string, args []string) string {
 }
 
 func unwrapExecution(base string, args []string, cwd string, vars map[string]string) ([]string, string, bool) {
+	if base == "env" {
+		assignments, command, chdir, ignore, ok := shellanalysis.UnwrapEnv(args)
+		if !ok || len(command) == 0 {
+			return nil, cwd, false
+		}
+		if ignore {
+			vars["PATH"] = ""
+		}
+		for name, value := range assignments {
+			vars[name] = value
+		}
+		if chdir != "" {
+			cwd = resolveAgainstCwd(chdir, cwd)
+		}
+		return command, cwd, true
+	}
 	i := 0
 	for i < len(args) {
 		a := args[i]

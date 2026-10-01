@@ -18,13 +18,17 @@ func TestHostBashCombinedBuiltinApproval(t *testing.T) {
 			t.Run(commandKind+"/"+decision, func(t *testing.T) {
 				s, e, _ := newApprovedBashStream(t, 1)
 				call := s.queuedToolCalls[0]
-				command := "rmdir '" + filepath.ToSlash(filepath.Join(s.session.WorkspaceRoot, "empty")) + "'"
+				// mytool is an unmodeled program (opaque access approval); xargs adds a
+				// shell-level runtime-wrapper approval on top of it.
+				command := "mytool '" + filepath.ToSlash(filepath.Join(s.session.WorkspaceRoot, "empty")) + "'"
+				hookCommand := "mytool"
 				if commandKind == "security" {
-					command += " > '" + filepath.ToSlash(filepath.Join(s.session.WorkspaceRoot, "output")) + "'"
+					command = "printf x | xargs " + command
+					hookCommand = "xargs"
 				}
 				call.args["command"] = command
 				hooks := t.TempDir()
-				if err := os.WriteFile(filepath.Join(hooks, "dangerous.yml"), []byte("key: dangerous-commands\ncommands:\n  - command: rmdir\n    subcommands:\n      - match: \"\"\n        level: 1\n        timeout: 37\n"), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(hooks, "dangerous.yml"), []byte("key: dangerous-commands\ncommands:\n  - command: "+hookCommand+"\n    subcommands:\n      - match: \"\"\n        level: 1\n        timeout: 37\n"), 0600); err != nil {
 					t.Fatal(err)
 				}
 				checker, err := hitl.NewSkillChecker([]string{hooks})
@@ -94,14 +98,14 @@ func TestHostBashCombinedBuiltinApproval(t *testing.T) {
 						// Different deletion operands share the opaque scope, but the
 						// real dangerous-command checker still demands confirmation.
 						later := &preparedToolInvocation{toolID: "later", toolName: "bash", args: map[string]any{
-							"command": "rmdir another-target", "cwd": s.session.WorkspaceRoot,
+							"command": "mytool another-target", "cwd": s.session.WorkspaceRoot,
 						}}
 						request := s.prepareHostBashAuthorization(later)
 						if request == nil || (request.result.Rule.RuleKey != match.Rule.RuleKey && (request.bashHITLReview == nil || request.bashHITLReview.Rule.RuleKey != match.Rule.RuleKey)) {
 							t.Fatalf("different target must retain secondary hook: request=%#v result=%#v", request, later.queuedResult)
 						}
 						later = &preparedToolInvocation{toolID: "different-cwd", toolName: "bash", args: map[string]any{
-							"command": "rmdir another-target", "cwd": t.TempDir(),
+							"command": "mytool another-target", "cwd": t.TempDir(),
 						}}
 						request = s.prepareHostBashAuthorization(later)
 						if request == nil || request.kind != approvalKindBashAccess || request.result.Rule.RuleKey == shown.result.Rule.RuleKey {

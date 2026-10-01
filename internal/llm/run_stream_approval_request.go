@@ -134,6 +134,7 @@ func hitlApprovalRequest(invocation *preparedToolInvocation, result hitl.Interce
 func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error {
 	invocation := request.invocation
 	invocation.shownApproval = &request
+	s.approvalAsked++
 	result := request.result
 	s.hitlPendingCall = invocation
 	s.hitlMatch = &result
@@ -232,21 +233,6 @@ func (s *llmRunStream) tryResolveApprovalFastPath(request approvalRequest, mode 
 }
 
 func (s *llmRunStream) tryResolveBashSecurityApprovalFastPath(request approvalRequest, review bashsec.ReviewResult, mode approvalFastPathMode) (bool, error) {
-	if mode == approvalFastPathExecuteNow {
-		if handled, err := s.executeSandboxBashSecurityOverride(request.invocation, review); handled {
-			return true, err
-		}
-	} else {
-		switch s.sandboxBashSecurityOverrideAction(request.invocation, review) {
-		case "allow", "block":
-			return true, nil
-		case "auto":
-			if s.engine != nil && s.engine.cfg.SandboxBash.Security.AuditAutoApprovals {
-				s.applyHITLDecision(request.invocation, request.result, "", "auto_approved", sandboxBashSecurityOverrideReason, true)
-			}
-			return true, nil
-		}
-	}
 	if s.isRuleWhitelisted(review.RuleKey) {
 		s.applyHITLDecision(request.invocation, request.result, "", "approve_rule_run", "", true)
 		if mode == approvalFastPathExecuteNow {
