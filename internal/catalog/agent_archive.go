@@ -430,7 +430,7 @@ func validateImportedAgentDefinitionStructure(key string, definition map[string]
 	if err := validateEditableAgentKey(key); err != nil {
 		return err
 	}
-	if _, err := ParsePublicAgentMode(stringNode(definition["mode"])); err != nil {
+	if _, _, err := ParseAgentModeAndEngine(stringNode(definition["mode"]), stringNode(definition["engine"])); err != nil {
 		return err
 	}
 	toolConfig := mapNode(definition["toolConfig"])

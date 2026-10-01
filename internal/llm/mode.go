@@ -28,7 +28,7 @@ func resolveAgentMode(mode string) AgentMode {
 		return coderMode{}
 	case agentteam.Mode:
 		return teamMode{}
-	case "REACT":
+	case "GENERAL", "REACT":
 		return reactMode{}
 	default:
 		if descriptor, ok := agentbuiltin.Lookup(normalized); ok {

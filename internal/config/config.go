@@ -24,6 +24,7 @@ type Config struct {
 	CoderPrompts    CoderPromptsConfig
 	KBasePrompts    KBasePromptsConfig
 	CoderSettings   CoderSettingsConfig
+	GeneralSettings GeneralSettingsConfig
 	KBase           KBaseConfig
 	VisionRecognize VisionRecognizeConfig
 	WebFetch        WebFetchConfig
@@ -203,6 +204,13 @@ type CoderSettingsConfig struct {
 	WorkspaceAgents CoderWorkspaceAgentsConfig
 	DefaultAgent    CoderDefaultAgentConfig
 	ACPBridges      map[string]CoderACPBridgeConfig
+}
+
+// GeneralSettingsConfig mirrors the CODER settings shape for the general
+// agent type. Reading the project rules file is off by default.
+type GeneralSettingsConfig struct {
+	WorkspaceAgents CoderWorkspaceAgentsConfig
+	DefaultAgent    CoderDefaultAgentConfig
 }
 
 type CoderWorkspaceAgentsConfig struct {

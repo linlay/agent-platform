@@ -1353,7 +1353,7 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if len(navItems) != 1 || navItems[0].Key != "assistant" {
 		t.Fatalf("nav agents = %#v", navItems)
 	}
-	if navItems[0].Mode != "REACT" || navItems[0].WorkspaceDir != workspace || navItems[0].AgentConfigDir != agentConfigDir {
+	if navItems[0].Mode != "GENERAL" || navItems[0].WorkspaceDir != workspace || navItems[0].AgentConfigDir != agentConfigDir {
 		t.Fatalf("summary mode/workspace/agent config dir = %#v", navItems[0])
 	}
 	data, err := json.Marshal(navItems[0])

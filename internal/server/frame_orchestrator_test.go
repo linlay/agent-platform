@@ -246,7 +246,7 @@ func TestFrameOrchestratorRejectsInvalidSubAgentMode(t *testing.T) {
 	if len(emitted) != 0 {
 		t.Fatalf("expected no task lifecycle deltas on invalid mode reject, got %#v", emitted)
 	}
-	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || mainStream.injected[0].text != "sub-agent must be REACT/ONESHOT/CODER/KBASE/PROXY" {
+	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || mainStream.injected[0].text != "sub-agent must be GENERAL/ONESHOT/CODER/KBASE/PROXY" {
 		t.Fatalf("expected error tool result injected into main stream, got %#v", mainStream.injected)
 	}
 }

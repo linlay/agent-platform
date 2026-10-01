@@ -302,7 +302,7 @@ func mapRunSummary(run chat.RunSummary) api.RunSummary {
 		RunID:           run.RunID,
 		ChatID:          run.ChatID,
 		AgentKey:        run.AgentKey,
-		Mode:            run.AgentMode,
+		Mode:            chat.PublicAgentMode(run.AgentMode),
 		TeamID:          run.TeamID,
 		InitialMessage:  run.InitialMessage,
 		AssistantText:   run.AssistantText,

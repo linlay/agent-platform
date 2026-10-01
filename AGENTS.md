@@ -7,7 +7,8 @@
 当前仓库定位是“最小可运行闭环 + 特色能力持续补齐”：
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
-- Agent `interactionConfig` 统一控制模型、权限级别、必用技能、连接器、本地文件和聊天记录输入；REACT 默认全开，CODER（含 ACP）默认关闭聊天记录，KBASE 默认关闭模型/权限级别/连接器/聊天记录。仅 `/api/agent` 返回解析值，Run 恢复快照私存于 `.state/run-interactions`，不进入公开 query；普通 Agent query 与活动 Run 控制执行准入校验，详见 [智能体配置说明](docs/智能体配置说明.md#对话输入能力-interactionconfig)。
+- Agent 类型由 `mode` 与顶层 `engine` 共同表达：`GENERAL`（通用，历史写法 `REACT` 继续接受且含义相同）、`CODER`、`KBASE` 由内置引擎执行；`engine: acp` 配合 `runtimeConfig.acpBridgeId` 交给外部 ACP bridge，可以不写 mode。`engine` 缺省为 `native`，不由 `acpBridgeId` 推断。接口统一返回 `GENERAL` 和 `engine`；历史 Chat 的 `REACT` 不改写，筛选与响应按别名处理。`configs/general-settings.yml` 提供 GENERAL 创建默认值，并可选让项目型 GENERAL 读取 Workspace 下的 AGENTS.md（默认关闭），见 [智能体配置说明](docs/智能体配置说明.md#类型与执行引擎)。
+- Agent `interactionConfig` 统一控制模型、权限级别、必用技能、连接器、本地文件和聊天记录输入；GENERAL 默认全开，CODER（含 ACP）默认关闭聊天记录，KBASE 默认关闭模型/权限级别/连接器/聊天记录。仅 `/api/agent` 返回解析值，Run 恢复快照私存于 `.state/run-interactions`，不进入公开 query；普通 Agent query 与活动 Run 控制执行准入校验，详见 [智能体配置说明](docs/智能体配置说明.md#对话输入能力-interactionconfig)。
 - 产物发布的 `artifact.published` push 按单个产物发送，只投递给已认证 Desktop Main；BTW、Explain 与其他 WS 不接收，attach/回放不重发。普通本地与代理实时发布统一转换，独立于网关与当前 Chat；`resource.pushed` 仅在实际上传网关成功后发送。
 - 已有 Chat 的发现与回放按持久化记录读取，不以当前 Agent 有效为前提；无效或删除 Agent 仍不能续聊。`/api/agents?includeChats=...` 仅为有效目录预览，完整历史使用 `/api/chats`，WebClient 独立加载和 composer 禁用的配套边界见 [会话存储与回放](docs/会话存储与回放.md#历史读取与当前-agent-可用性)。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索；自动上下文压缩在完整输入估算达到 90% 时执行不调用模型的 L1 `l1_tools`，统一处理 reasoning 与完整工具组，按模型窗口保护最近 5/7/10 轮完整模型调用（模型 YAML `l1KeepRecentRounds` 可覆盖为 5～10），未完成交互额外保护；L1 仅给原 JSON 行增加 `_compact:{level,id,keep?}`，keep 只允许 content/reasoning/tool，无 keep 整行退出上下文，不复制原文或新增 L1 行。L1 后仍达到 90% 才执行单次 LLM L2 `summary`，独立摘要插入保留记录之前，标记与插入原子提交。旧字符串标记与旧 checkpoint 兼容读取；L1 不使用 60% 目标，L2 的 60% 只是选材目标而非成功硬门槛。
@@ -66,6 +67,7 @@ cmd/agent-platform/main.go
 - `internal/connectorops` 提供调用方中立的 CLI/MCP 执行、连接器/adapter 短期授权和可选持久幂等收据；不持有 WebApp、appId、Chat 或页面生命周期模型，不注册业务 operation/profile，复用 `internal/connectorauth` 的部署级凭据。可信本地身份签发执行授权，HTTP 接入见 [连接器执行协议](docs/连接器执行协议.md)。`internal/chatresource` 通过独立 Chat API 读取发布产物，按已有 principal/Chat 权限校验，不借用连接器授权。
 
 - `internal/agent`：中立 mode 契约、公共 prompt 模板变量与 system-init spec；`internal/agent/builtin` 是 CODER/KBASE/TEAM 的静态分派点。
+- `internal/agent/general`：GENERAL 类型的创建默认值与项目规则文件读取策略；没有固定工具集、prompt 或 stage，不进入 builtin descriptor。
 - `internal/agent/coder`：CODER profile、prompt、planning、ACP/workspace 策略与创建默认策略。
 - `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init、创建默认值与严格工具/memory 边界。
 - `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。

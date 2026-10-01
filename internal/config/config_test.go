@@ -893,6 +893,45 @@ func TestLoadCoderSettingsConfigFromFile(t *testing.T) {
 	})
 }
 
+func TestLoadGeneralSettings(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "general-settings.yml"), nil, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.GeneralSettings.WorkspaceAgents.Enabled || cfg.GeneralSettings.WorkspaceAgents.File != "AGENTS.md" {
+				t.Fatalf("general agents must not read the project rules file by default: %#v", cfg.GeneralSettings.WorkspaceAgents)
+			}
+			if cfg.GeneralSettings.DefaultAgent.ModelKey != "" {
+				t.Fatalf("unexpected default model: %#v", cfg.GeneralSettings.DefaultAgent)
+			}
+		})
+		content := "" +
+			"default-agent:\n" +
+			"  modelKey: general-model\n" +
+			"  reasoningEffort: HIGH\n" +
+			"  budget:\n" +
+			"    maxSteps: 200\n" +
+			"workspace-agents:\n" +
+			"  enabled: true\n" +
+			"  file: RULES.md\n"
+		withProjectFileContents(t, filepath.Join("configs", "general-settings.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			settings := cfg.GeneralSettings
+			if settings.DefaultAgent.ModelKey != "general-model" || settings.DefaultAgent.ReasoningEffort != "HIGH" || intValue(settings.DefaultAgent.Budget["maxSteps"], 0) != 200 {
+				t.Fatalf("unexpected general default agent: %#v", settings.DefaultAgent)
+			}
+			if !settings.WorkspaceAgents.Enabled || settings.WorkspaceAgents.File != "RULES.md" {
+				t.Fatalf("unexpected general workspace agents: %#v", settings.WorkspaceAgents)
+			}
+		})
+	})
+}
+
 func TestLoadCoderSettingsRejectsACPBridgeWithoutBaseURL(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +

@@ -133,6 +133,19 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	if err != nil {
 		return contracts.QuerySession{}, err
 	}
+	if workspaceAgentsPrompt == "" && agentDef.Workspace.ProjectDir() != "" {
+		// Only project-type general agents have a project rules file; chat-type
+		// agents (no Workspace or @root) never read one.
+		workspaceAgentsPrompt, err = agentbuiltin.GeneralLoadWorkspacePrompt(agentbuiltin.GeneralWorkspacePromptPolicy{
+			Mode:                    agentDef.Mode,
+			WorkspaceRoot:           resolvedWorkspaceRoot,
+			WorkspaceAgentsEnabled:  s.deps.Config.GeneralSettings.WorkspaceAgents.Enabled,
+			WorkspaceAgentsFileName: s.deps.Config.GeneralSettings.WorkspaceAgents.File,
+		})
+		if err != nil {
+			return contracts.QuerySession{}, err
+		}
+	}
 	skillHookDirs, runtimeEnvOverrides, err := ResolveSkillRuntimeSettings(
 		RuntimeAgentEnv(agentDef.Runtime["env"]),
 		agentDef.RuntimeDir,
@@ -400,7 +413,7 @@ func ResolvedModeCapabilities(def catalog.AgentDefinition) agentcontract.ModeCap
 		return capabilities
 	}
 	switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
-	case "REACT", "ONESHOT", catalog.AgentModeProxy:
+	case catalog.AgentModeGeneral, "REACT", "ONESHOT", catalog.AgentModeProxy:
 		return agentcontract.ModeCapabilities{InvokeChildren: true, RunAsChild: true}
 	default:
 		return agentcontract.ModeCapabilities{}

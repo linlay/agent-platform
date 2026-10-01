@@ -56,6 +56,13 @@
       "required": false
     },
     {
+      "key": "general-settings",
+      "label": "configs/general-settings.yml",
+      "relativePath": "configs/general-settings.yml",
+      "templateRelativePath": "configs/general-settings.example.yml",
+      "required": false
+    },
+    {
       "key": "coder-settings",
       "label": "configs/coder-settings.yml",
       "relativePath": "configs/coder-settings.yml",

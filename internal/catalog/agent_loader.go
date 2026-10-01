@@ -237,6 +237,8 @@ func adminAgentFromDefinition(source EditableAgentSource, key string, definition
 	mode := ""
 	if rawMode := stringNode(definition["mode"]); rawMode != "" {
 		mode = AgentModeForAPI(rawMode)
+	} else if strings.EqualFold(stringNode(definition["engine"]), AgentEngineACP) {
+		mode = AgentModeCoder
 	}
 	soulPrompt := ""
 	agentsPrompt := ""
@@ -643,11 +645,12 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		Wonders:          normalizeWonderStrings(root["wonders"]),
 		VisibilityScopes: parseAgentVisibilityScopes(root["visibility"]),
 	}
-	mode, err := ParsePublicAgentMode(stringNode(root["mode"]))
+	mode, engine, err := ParseAgentModeAndEngine(stringNode(root["mode"]), stringNode(root["engine"]))
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	def.Mode = mode
+	def.Engine = engine
 	interactionConfig, err := interaction.Parse(mode, root["interactionConfig"])
 	if err != nil {
 		return AgentDefinition{}, nil, err
@@ -1031,13 +1034,13 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 		}
 		if def.KBaseConfig.Enabled {
 			switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
-			case "REACT", "PLAN_EXECUTE":
+			case AgentModeGeneral, "PLAN_EXECUTE":
 			case AgentModeCoder:
 				if AgentUsesACPCoderBackend(*def) {
 					return fmt.Errorf("kbaseConfig.enabled is not supported for ACP CODER agents")
 				}
 			default:
-				return fmt.Errorf("kbaseConfig.enabled is only supported for REACT, PLAN-EXECUTE, native CODER, or KBASE agents")
+				return fmt.Errorf("kbaseConfig.enabled is only supported for GENERAL, PLAN-EXECUTE, native CODER, or KBASE agents")
 			}
 		}
 	}

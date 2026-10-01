@@ -78,10 +78,10 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	for _, item := range response.Data {
 		byKey[item.Key] = item
 	}
-	if byKey["mock-agent"].Mode != "REACT" || byKey["plan-agent"].Mode != "PLAN-EXECUTE" {
+	if byKey["mock-agent"].Mode != "GENERAL" || byKey["plan-agent"].Mode != "PLAN-EXECUTE" {
 		t.Fatalf("unexpected mode-filtered agents: %#v", response.Data)
 	}
-	if len(byKey["mock-agent"].Chats) != 1 || byKey["mock-agent"].Chats[0].Mode != "REACT" {
+	if len(byKey["mock-agent"].Chats) != 1 || byKey["mock-agent"].Chats[0].Mode != "GENERAL" {
 		t.Fatalf("includeChats should remain keyed by agent and expose chat mode, got %#v", byKey["mock-agent"].Chats)
 	}
 	if strings.Contains(rec.Body.String(), `"agentMode"`) {

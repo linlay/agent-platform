@@ -94,6 +94,7 @@ func agentCatalogSummary(agent api.AgentSummary) api.AgentCatalogSummary {
 		Name:                   agent.Name,
 		Icon:                   agent.Icon,
 		Mode:                   agent.Mode,
+		Engine:                 agent.Engine,
 		WorkspaceDir:           agent.WorkspaceDir,
 		AgentConfigDir:         agent.AgentConfigDir,
 		DefaultModelKey:        agent.DefaultModelKey,

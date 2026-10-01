@@ -55,6 +55,7 @@ type AgentDefinition struct {
 	ModelReasoningEffort string // Persisted top-level selection; empty means unspecified.
 	ServiceTier          string
 	Mode                 string
+	Engine               string // AgentEngineNative or AgentEngineACP; never empty after parsing.
 	ACPBridgeID          string
 	VisibilityScopes     []string
 	Tools                []string
@@ -605,6 +606,7 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			Name:           def.Name,
 			Icon:           def.Icon,
 			Mode:           apiMode,
+			Engine:         AgentEngineForAPI(def),
 			WorkspaceDir:   def.Workspace.ProjectDir(),
 			AgentConfigDir: def.AgentDir,
 			Description:    def.Description,

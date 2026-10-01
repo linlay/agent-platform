@@ -383,7 +383,7 @@ func validateEditableDefinition(key string, definition map[string]any) error {
 	if strings.TrimSpace(stringNode(definition["key"])) != strings.TrimSpace(key) {
 		return fmt.Errorf("definition.key must match key")
 	}
-	if _, err := ParsePublicAgentMode(stringNode(definition["mode"])); err != nil {
+	if _, _, err := ParseAgentModeAndEngine(stringNode(definition["mode"]), stringNode(definition["engine"])); err != nil {
 		return err
 	}
 	normalized := normalizeEditableDefinition(definition)
@@ -421,8 +421,21 @@ func normalizeEditableDefinition(definition map[string]any) map[string]any {
 		return nil
 	}
 	normalized := contracts.CloneMap(definition)
-	mode := NormalizeAgentModeForRuntime(stringNode(normalized["mode"]))
-	normalized["mode"] = AgentModeForAPI(mode)
+	mode := DefinitionRuntimeMode(normalized)
+	engine, err := ParseAgentEngine(stringNode(normalized["engine"]))
+	if err == nil && engine == AgentEngineACP {
+		// engine: acp has no mode of its own; keep an omitted mode omitted.
+		normalized["engine"] = engine
+		if stringNode(normalized["mode"]) != "" {
+			normalized["mode"] = AgentModeForAPI(mode)
+		}
+	} else {
+		normalized["mode"] = AgentModeForAPI(mode)
+		if err == nil {
+			// native is the default and is never synthesized into the file.
+			delete(normalized, "engine")
+		}
+	}
 	if mode == AgentModeCoder {
 		normalized = agentcoder.ApplyCreateDefaults(normalized, agentcoder.CreateDefaults{})
 		delete(normalized, "workspace")
@@ -528,7 +541,7 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 // Paths scope nested rules so unrelated objects and list items stay independent.
 var agentYAMLKeyOrder = map[string][]string{
 	"": {
-		"key", "name", "mode", "role", "description", "icon",
+		"key", "name", "mode", "engine", "role", "description", "icon",
 		"modelConfig", "budget", "interactionConfig",
 		"runtimeConfig", "projectConfig", "proxyConfig", "channelConfig",
 		"toolConfig", "skillConfig", "connectorConfig", "contextConfig",

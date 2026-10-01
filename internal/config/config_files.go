@@ -28,6 +28,9 @@ func (c *Config) applyStructuredConfig(configRoot string, ignoreRemovedWorkingDi
 	if err := c.applyCoderSettingsFile(configFile(configRoot, "configs/coder-settings.yml")); err != nil {
 		return err
 	}
+	if err := c.applyGeneralSettingsFile(configFile(configRoot, "configs/general-settings.yml")); err != nil {
+		return err
+	}
 	if err := c.applyAIToolsFile(configFile(configRoot, "configs/ai-tools.yml")); err != nil {
 		return err
 	}
@@ -754,6 +757,29 @@ func (c *Config) applyCoderSettingsFile(path string) error {
 	}
 	c.CoderSettings.WorkspaceAgents.Enabled = boolValue(anyValue(workspaceAgents["enabled"], c.CoderSettings.WorkspaceAgents.Enabled), c.CoderSettings.WorkspaceAgents.Enabled)
 	c.CoderSettings.WorkspaceAgents.File = stringValue(anyValue(workspaceAgents["file"], c.CoderSettings.WorkspaceAgents.File), c.CoderSettings.WorkspaceAgents.File)
+	return nil
+}
+
+func (c *Config) applyGeneralSettingsFile(path string) error {
+	values, err := loadYAMLMap(path)
+	if err != nil {
+		return err
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	settings := &c.GeneralSettings
+	if defaultAgent, _ := values["default-agent"].(map[string]any); len(defaultAgent) > 0 {
+		settings.DefaultAgent.ModelKey = stringValue(anyValue(defaultAgent["modelKey"], settings.DefaultAgent.ModelKey), settings.DefaultAgent.ModelKey)
+		settings.DefaultAgent.ReasoningEffort = stringValue(anyValue(defaultAgent["reasoningEffort"], settings.DefaultAgent.ReasoningEffort), settings.DefaultAgent.ReasoningEffort)
+		if budget, ok := defaultAgent["budget"].(map[string]any); ok {
+			settings.DefaultAgent.Budget = cloneConfigMap(budget)
+		}
+	}
+	if workspaceAgents, _ := values["workspace-agents"].(map[string]any); len(workspaceAgents) > 0 {
+		settings.WorkspaceAgents.Enabled = boolValue(anyValue(workspaceAgents["enabled"], settings.WorkspaceAgents.Enabled), settings.WorkspaceAgents.Enabled)
+		settings.WorkspaceAgents.File = stringValue(anyValue(workspaceAgents["file"], settings.WorkspaceAgents.File), settings.WorkspaceAgents.File)
+	}
 	return nil
 }
 

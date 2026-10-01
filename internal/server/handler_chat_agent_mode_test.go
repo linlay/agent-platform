@@ -48,7 +48,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if got := apiChatIDs(response.Data); strings.Join(got, ",") != "chat-team,chat-plan,chat-react" {
 		t.Fatalf("unexpected HTTP order: %v", got)
 	}
-	if response.Data[0].Mode != "TEAM" || response.Data[1].Mode != "PLAN-EXECUTE" || response.Data[2].Mode != "REACT" {
+	if response.Data[0].Mode != "TEAM" || response.Data[1].Mode != "PLAN-EXECUTE" || response.Data[2].Mode != "GENERAL" {
 		t.Fatalf("expected normalized summary modes, got %#v", response.Data)
 	}
 	if strings.Contains(rec.Body.String(), `"agentMode"`) {
@@ -133,7 +133,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode websocket summaries: %v", err)
 	}
-	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-team,chat-plan,chat-react" || data[0].Mode != "TEAM" || data[1].Mode != "PLAN-EXECUTE" || data[2].Mode != "REACT" {
+	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-team,chat-plan,chat-react" || data[0].Mode != "TEAM" || data[1].Mode != "PLAN-EXECUTE" || data[2].Mode != "GENERAL" {
 		t.Fatalf("unexpected websocket mode filter result: %#v", data)
 	}
 	if err := conn.WriteJSON(ws.RequestFrame{

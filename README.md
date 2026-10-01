@@ -222,7 +222,7 @@ Memory 深度调优使用 `configs/runtime.yml` 中的 `memory.*`。
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 
-ACP CODER bridge 在 `configs/coder-settings.yml` 的 `acp-bridges` 中定义；agent 以 `runtimeConfig.acpBridgeId` 引用条目，`timeout-ms` 默认 `300000`。配置变更需重启 runtime。
+ACP CODER bridge 在 `configs/coder-settings.yml` 的 `acp-bridges` 中定义；agent 以顶层 `engine: acp` 加 `runtimeConfig.acpBridgeId` 引用条目，`timeout-ms` 默认 `300000`。配置变更需重启 runtime。
 
 Provider `apiKey` 按明文字符串读取：
 
@@ -237,6 +237,7 @@ Provider `apiKey` 按明文字符串读取：
 - `configs/channels.example.yml`
 - `configs/coder-prompts.example.yml`
 - `configs/coder-settings.example.yml`
+- `configs/general-settings.example.yml`
 - `configs/kbase-prompts.example.yml`
 - `configs/kbase-settings.example.yml`
 - `configs/local-public-key.example.pem`
@@ -250,6 +251,7 @@ Provider `apiKey` 按明文字符串读取：
 - `configs/channels.yml`
 - `configs/coder-prompts.yml`
 - `configs/coder-settings.yml`
+- `configs/general-settings.yml`
 - `configs/kbase-prompts.yml`
 - `configs/kbase-settings.yml`
 - `configs/local-public-key.pem`
@@ -380,7 +382,7 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用、严格工具边界的专用预设，`REACT`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。所有 enabled KBASE 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；旧 `kbaseConfig.source` 会硬失败。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
+KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用、严格工具边界的专用预设，`GENERAL`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。所有 enabled KBASE 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；旧 `kbaseConfig.source` 会硬失败。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
 
 KBASE 固定使用 LanceDB generation 检索；SQLite `control.db` 只保存 generation、文件状态、refresh run 和恢复日志，不保存检索数据。SQLite runtime store 仅支持当前 schema：启动时仅会认领标记为 `application_id=0,user_version=0` 且完整结构匹配的库，其余库不会被迁移或改写。专用 `mode: KBASE` 的存储不匹配会隔离该 Agent；普通 Agent 的附加知识库会保留 Agent 可运行并把能力标为 degraded。详见 [KBASE LanceDB 检索与控制面](./docs/KBASE-LanceDB检索与控制面.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
 

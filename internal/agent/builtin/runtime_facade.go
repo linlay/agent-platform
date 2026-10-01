@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"agent-platform/internal/agent/coder"
+	"agent-platform/internal/agent/general"
 	"agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
@@ -22,6 +23,8 @@ const (
 type CoderContinuationRequestInput = coder.ContinuationRequestInput
 type CoderCreateDefaults = coder.CreateDefaults
 type KBaseCreateDefaults = kbase.CreateDefaults
+type GeneralCreateDefaults = general.CreateDefaults
+type GeneralWorkspacePromptPolicy = general.WorkspacePromptPolicy
 type TeamMemberSpec = agentteam.MemberSpec
 type TeamPromptConfig = agentteam.PromptConfig
 type CoderACPBridgeConfig = coder.ACPBridgeConfig
@@ -30,8 +33,9 @@ type CoderProjectPromptFile = coder.ProjectPromptFile
 type CoderWorkspacePromptPolicy = coder.WorkspacePromptPolicy
 type CoderWorkspaceGitPolicy = coder.WorkspaceGitPolicy
 
-func IsCoderMode(mode string) bool { return coder.IsMode(mode) }
-func IsKBaseMode(mode string) bool { return kbase.IsMode(mode) }
+func IsCoderMode(mode string) bool   { return coder.IsMode(mode) }
+func IsKBaseMode(mode string) bool   { return kbase.IsMode(mode) }
+func IsGeneralMode(mode string) bool { return general.IsMode(mode) }
 func IsCoderACPBackend(mode, acpBridgeID string) bool {
 	return coder.IsACPBackend(mode, acpBridgeID)
 }
@@ -91,6 +95,12 @@ func CoderReasoningEffortAllowedForACPModel(value, key string, options []api.Cod
 }
 func ApplyCoderCreateDefaults(definition map[string]any, defaults CoderCreateDefaults) map[string]any {
 	return coder.ApplyCreateDefaults(definition, defaults)
+}
+func ApplyGeneralCreateDefaults(definition map[string]any, defaults GeneralCreateDefaults) map[string]any {
+	return general.ApplyCreateDefaults(definition, defaults)
+}
+func GeneralLoadWorkspacePrompt(policy GeneralWorkspacePromptPolicy) (string, error) {
+	return general.LoadWorkspacePrompt(policy)
 }
 func ApplyKBaseCreateDefaults(definition map[string]any, defaults KBaseCreateDefaults) map[string]any {
 	return kbase.ApplyCreateDefaults(definition, defaults)

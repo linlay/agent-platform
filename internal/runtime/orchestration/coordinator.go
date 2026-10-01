@@ -143,7 +143,7 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 		return nil
 	}
 	if !o.Session.ModeCapabilities.InvokeChildren {
-		o.InjectMainToolError(main, invoke.MainToolID, "sub-agent orchestration is only supported for REACT/ONESHOT/CODER main agents")
+		o.InjectMainToolError(main, invoke.MainToolID, "sub-agent orchestration is only supported for GENERAL/ONESHOT/CODER main agents")
 		return nil
 	}
 	if len(invoke.Tasks) < 1 || len(invoke.Tasks) > contracts.MaxInvokeAgentTasks {
@@ -201,7 +201,7 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 			}
 		}
 		if !catalog.AgentUsesACPCoderBackend(agentDef) && !session.ResolvedModeCapabilities(agentDef).RunAsChild {
-			o.InjectMainToolError(main, invoke.MainToolID, "sub-agent must be REACT/ONESHOT/CODER/KBASE/PROXY")
+			o.InjectMainToolError(main, invoke.MainToolID, "sub-agent must be GENERAL/ONESHOT/CODER/KBASE/PROXY")
 			return nil
 		}
 		if !catalog.AgentInvocable(agentDef) {

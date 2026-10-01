@@ -440,6 +440,7 @@ type AgentSummary struct {
 	Name                   string                     `json:"name"`
 	Icon                   any                        `json:"icon,omitempty"`
 	Mode                   string                     `json:"mode,omitempty"`
+	Engine                 string                     `json:"engine,omitempty"`
 	WorkspaceDir           string                     `json:"workspaceDir,omitempty"`
 	AgentConfigDir         string                     `json:"agentConfigDir,omitempty"`
 	DefaultModelKey        string                     `json:"defaultModelKey,omitempty"`
@@ -462,6 +463,7 @@ type AgentCatalogSummary struct {
 	Name                   string                     `json:"name"`
 	Icon                   any                        `json:"icon,omitempty"`
 	Mode                   string                     `json:"mode,omitempty"`
+	Engine                 string                     `json:"engine,omitempty"`
 	WorkspaceDir           string                     `json:"workspaceDir,omitempty"`
 	AgentConfigDir         string                     `json:"agentConfigDir,omitempty"`
 	DefaultModelKey        string                     `json:"defaultModelKey,omitempty"`
@@ -525,6 +527,7 @@ type AgentDetailResponse struct {
 	Introductions     []string           `json:"introductions,omitempty"`
 	Wonders           []string           `json:"wonders,omitempty"`
 	Mode              string             `json:"mode"`
+	Engine            string             `json:"engine,omitempty"`
 	Tools             []string           `json:"tools"`
 	Skills            []AgentDetailSkill `json:"skills"`
 	Controls          []map[string]any   `json:"controls"`

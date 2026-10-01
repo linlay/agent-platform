@@ -532,8 +532,8 @@ func PersistedRunMode(mode string) string {
 	switch strings.TrimSpace(mode) {
 	case "PLAN_EXECUTE":
 		return "PLAN-EXECUTE"
-	case "ONESHOT":
-		return "REACT"
+	case "ONESHOT", "REACT":
+		return "GENERAL"
 	default:
 		return strings.TrimSpace(mode)
 	}

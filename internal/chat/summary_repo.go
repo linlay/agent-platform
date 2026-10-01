@@ -288,23 +288,46 @@ func normalizeStoredAgentMode(agentMode string) string {
 	return strings.TrimSpace(agentMode)
 }
 
+const (
+	agentModeGeneral     = "GENERAL"
+	agentModeLegacyReact = "REACT"
+)
+
 // NormalizeAgentModes accepts only public, canonical mode filters. Historical
-// rows keep their raw stored values and are not reinterpreted here.
+// rows keep their raw stored values; the only alias is GENERAL, whose rows
+// written before the rename are stored as REACT, so either spelling selects
+// both.
 func NormalizeAgentModes(agentModes []string) []string {
 	seen := make(map[string]struct{}, len(agentModes))
 	result := make([]string, 0, len(agentModes))
+	add := func(mode string) {
+		if _, ok := seen[mode]; ok {
+			return
+		}
+		seen[mode] = struct{}{}
+		result = append(result, mode)
+	}
 	for _, agentMode := range agentModes {
 		normalized := strings.TrimSpace(agentMode)
-		if normalized == "" {
-			continue
+		switch normalized {
+		case "":
+		case agentModeGeneral, agentModeLegacyReact:
+			add(agentModeGeneral)
+			add(agentModeLegacyReact)
+		default:
+			add(normalized)
 		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		result = append(result, normalized)
 	}
 	return result
+}
+
+// PublicAgentMode maps a stored mode to its current public spelling without
+// touching the stored row. Every other historical value is returned as is.
+func PublicAgentMode(stored string) string {
+	if strings.TrimSpace(stored) == agentModeLegacyReact {
+		return agentModeGeneral
+	}
+	return stored
 }
 
 func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {

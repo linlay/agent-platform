@@ -612,8 +612,8 @@ func TestParseAgentFileDefaultsModeAndVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.Mode != "REACT" {
-		t.Fatalf("mode = %q, want REACT", def.Mode)
+	if def.Mode != "GENERAL" {
+		t.Fatalf("mode = %q, want GENERAL", def.Mode)
 	}
 	if !reflect.DeepEqual(def.VisibilityScopes, []string{"nav"}) {
 		t.Fatalf("visibility scopes = %#v", def.VisibilityScopes)
@@ -929,6 +929,7 @@ func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"engine: acp\n" +
 		"toolConfig:\n" +
 		"  tools: []\n" +
 		"runtimeConfig:\n" +
@@ -969,6 +970,7 @@ func TestParseAgentFileRejectsACPCoderPromptFiles(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"engine: acp\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
@@ -992,6 +994,7 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"engine: acp\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
@@ -1013,6 +1016,7 @@ func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"engine: acp\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
@@ -1023,7 +1027,7 @@ func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
 	}
 
 	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "toolConfig.tools is not supported for ACP CODER") {
+	if err == nil || !strings.Contains(err.Error(), "toolConfig.tools is not supported for engine: acp") {
 		t.Fatalf("expected ACP CODER tools rejection, got %v", err)
 	}
 }
@@ -1034,6 +1038,7 @@ func TestParseAgentFileRejectsACPCoderMCPServers(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"engine: acp\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
@@ -1046,7 +1051,7 @@ func TestParseAgentFileRejectsACPCoderMCPServers(t *testing.T) {
 	}
 
 	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "connectorConfig.connectors is not supported for ACP CODER") {
+	if err == nil || !strings.Contains(err.Error(), "connectorConfig.connectors is not supported for engine: acp") {
 		t.Fatalf("expected ACP CODER MCP server rejection, got %v", err)
 	}
 }
@@ -1061,6 +1066,7 @@ func TestParseAgentFileUsesACPBackendFromBridgeID(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"engine: acp\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
@@ -1687,9 +1693,9 @@ func TestOrdinaryAgentKBaseEnablementIsExplicitAndModeLimited(t *testing.T) {
 	}{
 		{name: "missing enabled", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  tags:\n    - docs\n", want: "enabled must be explicitly configured"},
 		{name: "enabled missing workspace", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  enabled: true\n", want: "workspaceRoot is required"},
-		{name: "ACP coder", content: "key: coder\nmode: CODER\n" + base + "runtimeConfig:\n  acpBridgeId: bridge\n  workspaceRoot: " + workspaceRoot + "\n" + "kbaseConfig:\n  enabled: true\n", want: "not supported for ACP CODER"},
-		{name: "proxy", content: "key: proxy\nmode: PROXY\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for REACT"},
-		{name: "channel", content: "key: channel\nmode: CHANNEL\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for REACT"},
+		{name: "ACP coder", content: "key: coder\nmode: CODER\nengine: acp\n" + base + "runtimeConfig:\n  acpBridgeId: bridge\n  workspaceRoot: " + workspaceRoot + "\n" + "kbaseConfig:\n  enabled: true\n", want: "not supported for ACP CODER"},
+		{name: "proxy", content: "key: proxy\nmode: PROXY\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for GENERAL"},
+		{name: "channel", content: "key: channel\nmode: CHANNEL\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for GENERAL"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

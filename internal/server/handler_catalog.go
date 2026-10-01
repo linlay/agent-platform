@@ -284,7 +284,7 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 }
 
 func validateCreateAgentDefinition(definition map[string]any) error {
-	mode, err := catalog.ParsePublicAgentMode(stringValue(definition["mode"]))
+	mode, engine, err := catalog.ParseAgentModeAndEngine(stringValue(definition["mode"]), stringValue(definition["engine"]))
 	if err != nil {
 		return err
 	}
@@ -295,13 +295,16 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 	if _, exists := runtimeConfig["acpProxyId"]; exists {
 		return fmt.Errorf("runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId")
 	}
-	if acpBridgeID := strings.TrimSpace(contracts.AnyStringNode(runtimeConfig["acpBridgeId"])); acpBridgeID != "" {
-		if mode != catalog.AgentModeCoder {
-			return fmt.Errorf("runtimeConfig.acpBridgeId is only supported for mode: CODER")
+	acpBridgeID := strings.TrimSpace(contracts.AnyStringNode(runtimeConfig["acpBridgeId"]))
+	if engine == catalog.AgentEngineACP {
+		if acpBridgeID == "" {
+			return fmt.Errorf("runtimeConfig.acpBridgeId is required for engine: acp")
 		}
 		if len(contracts.AnyMapNode(definition["proxyConfig"])) > 0 {
-			return fmt.Errorf("proxyConfig is not supported for ACP CODER; configure configs/coder-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
+			return fmt.Errorf("proxyConfig is not supported for engine: acp; configure configs/coder-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
 		}
+	} else if acpBridgeID != "" {
+		return fmt.Errorf("runtimeConfig.acpBridgeId requires engine: acp")
 	}
 	if mode != catalog.AgentModeKBase {
 		return nil
@@ -331,16 +334,30 @@ func agentDefinitionToolNames(definition map[string]any) []string {
 }
 
 func (s *Server) applyCreateDefaultAgentConfig(definition map[string]any) map[string]any {
+	definition = s.applyGeneralDefaultAgentConfig(definition)
 	definition = s.applyCoderDefaultAgentConfig(definition)
 	definition = s.applyKBaseDefaultAgentConfig(definition)
 	return definition
+}
+
+func (s *Server) applyGeneralDefaultAgentConfig(definition map[string]any) map[string]any {
+	if definition == nil {
+		return nil
+	}
+	if !agentbuiltin.IsGeneralMode(catalog.DefinitionRuntimeMode(definition)) {
+		return definition
+	}
+	defaults := s.deps.Config.GeneralSettings.DefaultAgent
+	return agentbuiltin.ApplyGeneralCreateDefaults(definition, agentbuiltin.GeneralCreateDefaults{
+		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
+	})
 }
 
 func (s *Server) applyCoderDefaultAgentConfig(definition map[string]any) map[string]any {
 	if definition == nil {
 		return nil
 	}
-	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
+	mode := catalog.DefinitionRuntimeMode(definition)
 	if mode != catalog.AgentModeCoder {
 		return definition
 	}
@@ -354,7 +371,7 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	if definition == nil {
 		return nil
 	}
-	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
+	mode := catalog.DefinitionRuntimeMode(definition)
 	if mode != catalog.AgentModeKBase {
 		return definition
 	}
@@ -369,7 +386,7 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 	if definition == nil {
 		return key, definition
 	}
-	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
+	mode := catalog.DefinitionRuntimeMode(definition)
 	descriptor, ok := agentbuiltin.Lookup(mode)
 	if !ok || strings.TrimSpace(descriptor.CreatePrefix) == "" {
 		return key, definition
@@ -655,7 +672,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 			{Key: "internal", Label: "internal"},
 		},
 		Modes: []api.AgentEditorOption{
-			{Key: "REACT", Label: "REACT"},
+			{Key: "GENERAL", Label: "GENERAL"},
 			{Key: "PLAN-EXECUTE", Label: "PLAN-EXECUTE"},
 			{Key: "CODER", Label: "CODER"},
 			{Key: "CHANNEL", Label: "CHANNEL"},

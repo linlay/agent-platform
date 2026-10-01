@@ -20,7 +20,7 @@ type StepWriter struct {
 	store  StepLineStore
 	chatID string
 	runID  string
-	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
+	mode   string // "GENERAL" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
 
 	queryWritten bool
 	seqCounter   int

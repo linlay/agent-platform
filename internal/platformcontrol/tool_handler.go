@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	agentcoder "agent-platform/internal/agent/coder"
+	agentgeneral "agent-platform/internal/agent/general"
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
@@ -20,9 +21,10 @@ import (
 )
 
 const (
-	CoderCreationPath = "agents.creation.coder"
-	KBaseCreationPath = "agents.creation.kbase"
-	maxCandidateBytes = 1 << 20
+	GeneralCreationPath = "agents.creation.general"
+	CoderCreationPath   = "agents.creation.coder"
+	KBaseCreationPath   = "agents.creation.kbase"
+	maxCandidateBytes   = 1 << 20
 )
 
 type ToolHandler struct {
@@ -142,6 +144,18 @@ func validateOperationParams(operationName string, params map[string]any) error 
 
 func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
 	switch path {
+	case GeneralCreationPath:
+		defaults := h.cfg.GeneralSettings.DefaultAgent
+		definition := agentgeneral.ApplyCreateDefaults(map[string]any{"mode": agentgeneral.Mode}, agentgeneral.CreateDefaults{
+			ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
+		})
+		missing := missingDefinitionFields(definition, "modelConfig.modelKey")
+		return successResult(map[string]any{
+			"path":               path,
+			"definitionDefaults": definition,
+			"ready":              len(missing) == 0,
+			"missingFields":      missing,
+		})
 	case CoderCreationPath:
 		defaults := h.cfg.CoderSettings.DefaultAgent
 		definition := agentcoder.ApplyCreateDefaults(map[string]any{"mode": agentcoder.Mode}, agentcoder.CreateDefaults{
@@ -169,7 +183,7 @@ func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
 			"missingFields":      missing,
 		})
 	default:
-		return errorResult("unsupported_config_path", "path must be agents.creation.coder or agents.creation.kbase")
+		return errorResult("unsupported_config_path", "path must be agents.creation.general, agents.creation.coder or agents.creation.kbase")
 	}
 }
 

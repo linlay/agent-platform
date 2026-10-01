@@ -24,10 +24,19 @@ const removedChatWorkspaceRoot = "@chat"
 
 var defaultAgentVisibilityScopes = []string{"nav"}
 
+// AgentModeGeneral is the canonical spelling of the general-purpose native
+// agent type. agentModeLegacyReact is its historical spelling and stays
+// accepted on every read boundary (YAML, API and stored chat rows).
+const AgentModeGeneral = "GENERAL"
+const agentModeLegacyReact = "REACT"
+
+const AgentEngineNative = "native"
+const AgentEngineACP = "acp"
+
 func NormalizeAgentModeForRuntime(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "":
-		return "REACT"
+	case "", agentModeLegacyReact:
+		return AgentModeGeneral
 	case "PLAN-EXECUTE":
 		return "PLAN_EXECUTE"
 	default:
@@ -39,9 +48,21 @@ func AgentModeForAPI(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "PLAN_EXECUTE":
 		return "PLAN-EXECUTE"
+	case agentModeLegacyReact:
+		return AgentModeGeneral
 	default:
 		return strings.ToUpper(strings.TrimSpace(value))
 	}
+}
+
+// AgentModeAliases returns every stored spelling that carries the same
+// meaning as the given public mode. Stored chat rows are never rewritten, so
+// filters must match the historical spelling as well.
+func AgentModeAliases(mode string) []string {
+	if strings.EqualFold(strings.TrimSpace(mode), AgentModeGeneral) || strings.EqualFold(strings.TrimSpace(mode), agentModeLegacyReact) {
+		return []string{AgentModeGeneral, agentModeLegacyReact}
+	}
+	return []string{strings.TrimSpace(mode)}
 }
 
 // ParsePublicAgentMode accepts only the stable YAML/API spellings. Runtime-only
@@ -49,10 +70,12 @@ func AgentModeForAPI(value string) string {
 func ParsePublicAgentMode(value string) (string, error) {
 	raw := strings.TrimSpace(value)
 	if raw == "" {
-		return "REACT", nil
+		return AgentModeGeneral, nil
 	}
 	switch strings.ToUpper(raw) {
-	case "REACT", AgentModeCoder, AgentModeKBase, AgentModeProxy, AgentModeChannel:
+	case AgentModeGeneral, agentModeLegacyReact:
+		return AgentModeGeneral, nil
+	case AgentModeCoder, AgentModeKBase, AgentModeProxy, AgentModeChannel:
 		return strings.ToUpper(raw), nil
 	case "PLAN-EXECUTE":
 		return "PLAN_EXECUTE", nil
@@ -61,12 +84,58 @@ func ParsePublicAgentMode(value string) (string, error) {
 	case "PLAN_EXECUTE":
 		return "", deprecation.New("mode %q was removed; use PLAN-EXECUTE", raw)
 	case "ONESHOT":
-		return "", deprecation.New("mode ONESHOT is internal-only and cannot be configured; use REACT")
+		return "", deprecation.New("mode ONESHOT is internal-only and cannot be configured; use GENERAL")
 	case "TEAM":
 		return "", fmt.Errorf("mode TEAM is internal and can only be configured through a Team directory")
 	default:
-		return "", fmt.Errorf("mode must be REACT, CODER, KBASE, PLAN-EXECUTE, PROXY, or CHANNEL")
+		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, PLAN-EXECUTE, PROXY, or CHANNEL")
 	}
+}
+
+// ParseAgentEngine accepts the top-level engine field. An absent field means
+// the native engine; it is never inferred from runtimeConfig.acpBridgeId.
+func ParseAgentEngine(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", AgentEngineNative:
+		return AgentEngineNative, nil
+	case AgentEngineACP:
+		return AgentEngineACP, nil
+	default:
+		return "", fmt.Errorf("engine must be native or acp")
+	}
+}
+
+// ParseAgentModeAndEngine resolves the two top-level type fields together.
+// engine: acp has no mode of its own and always runs as CODER, so mode may be
+// omitted there; any other explicit mode is a contradiction.
+func ParseAgentModeAndEngine(rawMode string, rawEngine string) (string, string, error) {
+	engine, err := ParseAgentEngine(rawEngine)
+	if err != nil {
+		return "", "", err
+	}
+	if engine == AgentEngineACP && strings.TrimSpace(rawMode) == "" {
+		return AgentModeCoder, engine, nil
+	}
+	mode, err := ParsePublicAgentMode(rawMode)
+	if err != nil {
+		return "", "", err
+	}
+	if engine == AgentEngineACP && mode != AgentModeCoder {
+		return "", "", fmt.Errorf("engine: acp does not take a mode; remove mode or use CODER")
+	}
+	return mode, engine, nil
+}
+
+// DefinitionRuntimeMode resolves the runtime mode of a raw definition map
+// without validating it. It only adds the engine: acp default to
+// NormalizeAgentModeForRuntime so callers that branch before validation agree
+// with ParseAgentModeAndEngine.
+func DefinitionRuntimeMode(definition map[string]any) string {
+	rawMode := stringNode(definition["mode"])
+	if rawMode == "" && strings.EqualFold(stringNode(definition["engine"]), AgentEngineACP) {
+		return AgentModeCoder
+	}
+	return NormalizeAgentModeForRuntime(rawMode)
 }
 
 func AgentIsProxyMode(mode string) bool {
@@ -258,26 +327,26 @@ func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, kba
 
 func ValidateAgentCoderBackend(def AgentDefinition) error {
 	acpBridgeID := strings.TrimSpace(def.ACPBridgeID)
-	if acpBridgeID != "" {
-		if !agentcoder.IsMode(def.Mode) {
-			return fmt.Errorf("runtimeConfig.acpBridgeId is only supported for mode: CODER")
-		}
-		if acpBridgeID == "" {
-			return fmt.Errorf("runtimeConfig.acpBridgeId is required for ACP CODER")
-		}
-		if def.ProxyConfig != nil {
-			return fmt.Errorf("proxyConfig is not supported for ACP CODER; configure configs/coder-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
-		}
-		if len(def.Project.PromptFiles) > 0 {
-			return fmt.Errorf("projectConfig.promptFiles is not supported for ACP CODER")
-		}
-		if len(def.Tools) > 0 {
-			return fmt.Errorf("toolConfig.tools is not supported for ACP CODER; ACP bridges do not execute platform tools")
-		}
-		if len(def.Connectors) > 0 {
-			return fmt.Errorf("connectorConfig.connectors is not supported for ACP CODER; ACP bridges do not execute platform tools")
+	if def.Engine != AgentEngineACP {
+		if acpBridgeID != "" {
+			return fmt.Errorf("runtimeConfig.acpBridgeId requires engine: acp")
 		}
 		return nil
+	}
+	if acpBridgeID == "" {
+		return fmt.Errorf("runtimeConfig.acpBridgeId is required for engine: acp")
+	}
+	if def.ProxyConfig != nil {
+		return fmt.Errorf("proxyConfig is not supported for engine: acp; configure configs/coder-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
+	}
+	if len(def.Project.PromptFiles) > 0 {
+		return fmt.Errorf("projectConfig.promptFiles is not supported for engine: acp")
+	}
+	if len(def.Tools) > 0 {
+		return fmt.Errorf("toolConfig.tools is not supported for engine: acp; ACP bridges do not execute platform tools")
+	}
+	if len(def.Connectors) > 0 {
+		return fmt.Errorf("connectorConfig.connectors is not supported for engine: acp; ACP bridges do not execute platform tools")
 	}
 	return nil
 }
@@ -355,6 +424,18 @@ func EffectiveChannelExportExternalKey(localAgentKey string, export AgentChannel
 		return ext
 	}
 	return strings.TrimSpace(localAgentKey)
+}
+
+// AgentEngineForAPI reports the engine of agents that Platform executes
+// itself. PROXY and CHANNEL agents forward the run and have no engine.
+func AgentEngineForAPI(def AgentDefinition) string {
+	if AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
+		return ""
+	}
+	if def.Engine == AgentEngineACP {
+		return AgentEngineACP
+	}
+	return AgentEngineNative
 }
 
 func AgentUsesACPCoderBackend(def AgentDefinition) bool {

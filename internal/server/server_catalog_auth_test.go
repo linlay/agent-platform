@@ -39,8 +39,8 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if response.Data.ModelKey != "mock-model" {
 		t.Fatalf("expected resolved model id, got %#v", response.Data)
 	}
-	if response.Data.Mode != "REACT" {
-		t.Fatalf("expected REACT mode, got %#v", response.Data)
+	if response.Data.Mode != "GENERAL" {
+		t.Fatalf("expected GENERAL mode, got %#v", response.Data)
 	}
 	if !reflect.DeepEqual(response.Data.Greetings, []string{"今天想试试什么？"}) {
 		t.Fatalf("expected heading greetings, got %#v", response.Data.Greetings)

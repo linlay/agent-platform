@@ -778,6 +778,7 @@ func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) 
 				"role: 测试代理",
 				"description: acp coder test agent",
 				"mode: CODER",
+				"engine: acp",
 				"modelConfig:",
 				"  modelKey: mock-model",
 				"runtimeConfig:",
@@ -894,6 +895,7 @@ func TestACPCoderForwardsProviderlessModel(t *testing.T) {
 				"role: 测试代理",
 				"description: acp coder test agent",
 				"mode: CODER",
+				"engine: acp",
 				"modelConfig:",
 				"  modelKey: gpt-5-codex",
 				"runtimeConfig:",
@@ -950,6 +952,7 @@ func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
 				"key: mock-agent",
 				"mode: CODER",
+				"engine: acp",
 				"runtimeConfig:",
 				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
@@ -1028,6 +1031,7 @@ func TestACPCoderForwardsPlanningMode(t *testing.T) {
 			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
 				"key: mock-agent",
 				"mode: CODER",
+				"engine: acp",
 				"modelConfig:",
 				"  modelKey: gpt-5-codex",
 				"runtimeConfig:",
@@ -1075,6 +1079,7 @@ func TestACPCoderRejectsUnknownProxyID(t *testing.T) {
 			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
 				"key: mock-agent",
 				"mode: CODER",
+				"engine: acp",
 				"runtimeConfig:",
 				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),

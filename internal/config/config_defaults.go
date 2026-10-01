@@ -63,6 +63,9 @@ func defaultConfig(options LoadOptions) Config {
 		CoderSettings: CoderSettingsConfig{
 			ACPBridges: map[string]CoderACPBridgeConfig{},
 		},
+		GeneralSettings: GeneralSettingsConfig{
+			WorkspaceAgents: CoderWorkspaceAgentsConfig{File: "AGENTS.md"},
+		},
 		KBase: KBaseConfig{
 			Index: KBaseIndexConfig{
 				FTS: KBaseFTSIndexConfig{

@@ -1,0 +1,17 @@
+# GENERAL-specific runtime settings.
+
+default-agent:
+  # Optional default modelKey for new GENERAL agents; leave empty to require explicit configuration.
+  modelKey:
+  # Optional default reasoning effort for new GENERAL agents; leave empty to require explicit configuration.
+  reasoningEffort:
+  # Optional default budget written when creating a new GENERAL agent without an explicit budget.
+  # budget:
+  #   maxSteps: 200
+
+workspace-agents:
+  # When enabled, project-type GENERAL sessions (agents with a specific
+  # runtimeConfig.workspaceRoot) read <workspaceRoot>/<file> and inject it into
+  # the system prompt. Chat-type agents (no workspaceRoot or @root) never read it.
+  enabled: false
+  file: AGENTS.md

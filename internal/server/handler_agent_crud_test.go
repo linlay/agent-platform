@@ -120,8 +120,9 @@ func TestAgentCRUDRejectsLegacyACPProxyID(t *testing.T) {
 	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "bridge-agent",
 		"definition": map[string]any{
-			"key":  "bridge-agent",
-			"mode": "CODER",
+			"key":    "bridge-agent",
+			"mode":   "CODER",
+			"engine": "acp",
 			"runtimeConfig": map[string]any{
 				"acpBridgeId":   "codex",
 				"workspaceRoot": t.TempDir(),
@@ -255,13 +256,14 @@ func TestAgentCreateRejectsInvalidACPBridgeDefinition(t *testing.T) {
 					"acpBridgeId": "codex",
 				},
 			},
-			want: "runtimeConfig.acpBridgeId is only supported for mode: CODER",
+			want: "runtimeConfig.acpBridgeId requires engine: acp",
 		},
 		{
 			name: "proxy config conflict",
 			definition: map[string]any{
-				"key":  "bridge-conflict-agent",
-				"mode": "CODER",
+				"key":    "bridge-conflict-agent",
+				"mode":   "CODER",
+				"engine": "acp",
 				"runtimeConfig": map[string]any{
 					"acpBridgeId": "codex",
 				},
@@ -269,7 +271,7 @@ func TestAgentCreateRejectsInvalidACPBridgeDefinition(t *testing.T) {
 					"baseUrl": "http://127.0.0.1:3211",
 				},
 			},
-			want: "proxyConfig is not supported for ACP CODER",
+			want: "proxyConfig is not supported for engine: acp",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1221,6 +1223,7 @@ func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.
 				"key: codex-agent",
 				"name: Codex Agent",
 				"mode: CODER",
+				"engine: acp",
 				"runtimeConfig:",
 				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
@@ -1319,6 +1322,7 @@ func TestAgentModelConfigUpdateRejectsUnsupportedACPServiceTier(t *testing.T) {
 				"key: codex-agent",
 				"name: Codex Agent",
 				"mode: CODER",
+				"engine: acp",
 				"runtimeConfig:",
 				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
@@ -1626,7 +1630,7 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 		t.Fatalf("non-reasoner model should return an empty reasoning effort list, got %#v", response.Data.Models[0].ReasoningEfforts)
 	}
 	if got := response.Data.Modes; len(got) != 5 ||
-		got[0].Key != "REACT" || got[0].Label != "REACT" ||
+		got[0].Key != "GENERAL" || got[0].Label != "GENERAL" ||
 		got[1].Key != "PLAN-EXECUTE" || got[1].Label != "PLAN-EXECUTE" ||
 		got[2].Key != "CODER" || got[2].Label != "CODER" ||
 		got[3].Key != "CHANNEL" || got[3].Label != "CHANNEL" ||
@@ -1938,8 +1942,8 @@ func TestAgentUpdateNameEndpoint(t *testing.T) {
 	if updated.Description != "editable test agent" {
 		t.Fatalf("expected description to remain unchanged, got %q", updated.Description)
 	}
-	if updated.Mode != "REACT" || updated.Definition["mode"] != "REACT" {
-		t.Fatalf("expected mode to remain REACT, got %#v", updated.Definition["mode"])
+	if updated.Mode != "GENERAL" || updated.Definition["mode"] != "GENERAL" {
+		t.Fatalf("expected legacy REACT to be saved as GENERAL, got %#v", updated.Definition["mode"])
 	}
 	modelConfig, _ := updated.Definition["modelConfig"].(map[string]any)
 	if modelConfig["modelKey"] != "mock-model" {
@@ -2070,4 +2074,41 @@ func marshalAgentResponseData[T any](value any) (T, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+func TestAgentCreateGeneralAppliesDefaultsAndReportsEngine(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.GeneralSettings.DefaultAgent = config.CoderDefaultAgentConfig{
+				ModelKey: "mock-model",
+				Budget:   map[string]any{"maxSteps": 200},
+			}
+		},
+	})
+
+	// The legacy spelling is still accepted on input and saved as GENERAL.
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"key": "general-defaults",
+		"definition": map[string]any{
+			"key":  "general-defaults",
+			"name": "General Defaults",
+			"mode": "REACT",
+		},
+	})
+	if created.Mode != "GENERAL" || created.Definition["mode"] != "GENERAL" || created.Engine != "native" {
+		t.Fatalf("unexpected mode/engine: mode=%q definition=%#v engine=%q", created.Mode, created.Definition["mode"], created.Engine)
+	}
+	if _, exists := created.Definition["engine"]; exists {
+		t.Fatalf("default native engine must not be written to agent.yml: %#v", created.Definition)
+	}
+	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
+	budget, _ := created.Definition["budget"].(map[string]any)
+	if modelConfig["modelKey"] != "mock-model" || budget["maxSteps"] != float64(200) {
+		t.Fatalf("general creation defaults not applied: modelConfig=%#v budget=%#v", modelConfig, budget)
+	}
 }

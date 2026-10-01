@@ -498,3 +498,23 @@ func TestValidateRecoversFromRedactedHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestGetGeneralCreationDefaults(t *testing.T) {
+	cfg := config.Config{GeneralSettings: config.GeneralSettingsConfig{
+		DefaultAgent: config.CoderDefaultAgentConfig{ModelKey: "general-model", ReasoningEffort: "HIGH"},
+	}}
+	result, err := invokeTestOperation(NewToolHandler(cfg, nil, nil), "catalog.defaults.get", map[string]any{"path": GeneralCreationPath})
+	if err != nil || result.Error != "" || result.Structured["ready"] != true {
+		t.Fatalf("get general defaults failed: result=%#v err=%v", result, err)
+	}
+	definition, _ := result.Structured["definitionDefaults"].(map[string]any)
+	modelConfig, _ := definition["modelConfig"].(map[string]any)
+	if definition["mode"] != "GENERAL" || modelConfig["modelKey"] != "general-model" {
+		t.Fatalf("definitionDefaults = %#v", definition)
+	}
+
+	missing, _ := invokeTestOperation(NewToolHandler(config.Config{}, nil, nil), "catalog.defaults.get", map[string]any{"path": GeneralCreationPath})
+	if missing.Structured["ready"] != false || !reflect.DeepEqual(missing.Structured["missingFields"], []string{"modelConfig.modelKey"}) {
+		t.Fatalf("missing model must be reported, got %#v", missing.Structured)
+	}
+}
