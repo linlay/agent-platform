@@ -18,7 +18,7 @@ func defaultChatName(message string) string {
 	if message == "" {
 		return PendingChatName
 	}
-	return truncateRunes(message, 24)
+	return truncateRunes(message, 40)
 }
 
 func isPendingChatName(chatName string) bool {
