@@ -98,3 +98,23 @@ func (c *RunControl) PrepareAndEnqueueSteer(req api.SteerRequest) (bool, error) 
 	}
 	return c.EnqueueSteer(req), nil
 }
+
+// SteerAvailable observes queued input without consuming it. Every waiter wakes;
+// the model loop remains the sole consumer. Queue inspection and subscription
+// share the enqueue lock so input arriving before sleep cannot be missed.
+func (c *RunControl) SteerAvailable() <-chan struct{} {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.steerQueue) > 0 {
+		ready := make(chan struct{})
+		close(ready)
+		return ready
+	}
+	if c.steerAvailable == nil {
+		c.steerAvailable = make(chan struct{})
+	}
+	return c.steerAvailable
+}

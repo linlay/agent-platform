@@ -477,6 +477,8 @@ Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行
 
 实时 SSE / WS stream 中所有工具统一使用 `tool.start → tool.args × N → tool.end → tool.snapshot → tool.output × 0..N → tool.result` 生命周期，不再存在 `action.*` 事件。`tool.end` / `tool.snapshot` 只表示调用参数已经完整；只有唯一的 `tool.result` 收口执行结果。`tool.output` 是可选过程输出，当前只有 Native Host `bash` 发送，Container Hub `bash` 与 `bash_sandbox` 仍只返回最终结果；工具输入 Schema、模型参数和配置均未增加开关。
 
+原生 `sleep` 在实际开始等待时额外发送一次 `tool.wait`，携带 `startedAt/deadlineAt/durationMs` 供客户端倒计时；仍由唯一 `tool.result` 收口。steer 唤醒和客户端接入规则见 [原生等待工具](原生等待工具.md)。
+
 `tool.output` 的公开结构如下；`taskId` 只在 Team / Plan task 范围内携带：
 
 ```json

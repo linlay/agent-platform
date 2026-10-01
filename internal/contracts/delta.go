@@ -54,6 +54,14 @@ type DeltaToolOutput struct {
 
 func (DeltaToolOutput) agentDeltaTag() {}
 
+type DeltaToolWait struct {
+	ToolID   string
+	ToolName string
+	ToolWait
+}
+
+func (DeltaToolWait) agentDeltaTag() {}
+
 type DeltaToolResult struct {
 	View         *view.Reference
 	ViewError    string

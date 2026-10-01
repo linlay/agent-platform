@@ -59,6 +59,17 @@ type ToolOutput struct {
 
 func (ToolOutput) streamInputTag() {}
 
+type ToolWait struct {
+	ToolID     string
+	ToolName   string
+	TaskID     string
+	StartedAt  int64
+	DeadlineAt int64
+	DurationMs int64
+}
+
+func (ToolWait) streamInputTag() {}
+
 type ToolResult struct {
 	View            *view.Reference
 	ViewError       string

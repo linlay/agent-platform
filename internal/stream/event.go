@@ -410,6 +410,8 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"toolId", "fileChange"}
 	case "tool.snapshot":
 		return []string{"toolId", "runId", "toolName", "taskId", "toolLabel", "toolDescription", "arguments", "fileChange"}
+	case "tool.wait":
+		return []string{"runId", "taskId", "toolId", "toolName", "startedAt", "deadlineAt", "durationMs"}
 	case "tool.output":
 		return []string{"runId", "taskId", "toolId", "toolName", "stream", "delta", "chunkIndex"}
 	case "tool.result":

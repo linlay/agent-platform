@@ -1,0 +1,13 @@
+name: sleep
+label: 等待
+description: Wait in the current Run without running a shell command. Use this instead of bash sleep. New user instructions (steer) wake the wait early so you can handle them in the same Run. Run cancellation stops the wait. This is an in-process wait, not a durable scheduler.
+inputSchema:
+  type: object
+  properties:
+    duration_ms:
+      type: integer
+      minimum: 1
+      maximum: 86400000
+      description: Duration to wait in milliseconds, from 1 ms to 24 hours.
+  required: [duration_ms]
+  additionalProperties: false

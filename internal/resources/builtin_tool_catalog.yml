@@ -8,6 +8,7 @@ visibleBuiltinTools:
   - bash
   - bash_sandbox
   - datetime
+  - sleep
   - desktop_action
   - desktop_cdp
   - file_edit

@@ -396,6 +396,7 @@ type batchToolCallResult struct {
 
 type toolExecutionEvent struct {
 	output *DeltaToolOutput
+	wait   *DeltaToolWait
 	result *batchToolCallResult
 }
 
@@ -426,6 +427,21 @@ type runToolOutputSink struct {
 	eventCh    chan<- toolExecutionEvent
 	mu         sync.Mutex
 	nextIndex  int
+}
+
+func (s *runToolOutputSink) EmitToolWait(ctx context.Context, wait ToolWait) error {
+	if s == nil || s.invocation == nil || s.eventCh == nil {
+		return nil
+	}
+	event := toolExecutionEvent{wait: &DeltaToolWait{ToolID: s.invocation.toolID, ToolName: s.invocation.toolName, ToolWait: wait}}
+	select {
+	case s.eventCh <- event:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
 }
 
 func (s *runToolOutputSink) EmitToolOutput(ctx context.Context, output ToolOutput) error {
@@ -586,6 +602,10 @@ func (s *llmRunStream) consumeActiveToolBatch() error {
 		return err
 	}
 	if event == nil {
+		return nil
+	}
+	if event.wait != nil {
+		s.pending = append(s.pending, *event.wait)
 		return nil
 	}
 	if event.output != nil {
@@ -780,6 +800,10 @@ func (s *llmRunStream) consumeActiveToolExecution() error {
 		return err
 	}
 	if event == nil {
+		return nil
+	}
+	if event.wait != nil {
+		s.pending = append(s.pending, *event.wait)
 		return nil
 	}
 	if event.output != nil {

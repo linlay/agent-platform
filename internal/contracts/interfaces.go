@@ -185,7 +185,7 @@ type ToolExecutor interface {
 }
 
 // ToolOutputStreamingExecutor advertises invocations that may use the
-// ToolOutputSink while Invoke is in progress. The LLM loop uses this optional
+// ToolOutputSink (including its optional ToolWaitSink capability) while Invoke is in progress. The LLM loop uses this optional
 // capability to select its non-blocking execution runner without changing the
 // public tool input schema.
 type ToolOutputStreamingExecutor interface {
@@ -502,6 +502,17 @@ type ToolOutput struct {
 // progress without knowing about public event sequencing or the EventBus.
 type ToolOutputSink interface {
 	EmitToolOutput(ctx context.Context, output ToolOutput) error
+}
+
+// ToolWait describes a native timed wait. It is emitted once; clients tick locally.
+type ToolWait struct {
+	StartedAt  int64
+	DeadlineAt int64
+	DurationMs int64
+}
+
+type ToolWaitSink interface {
+	EmitToolWait(context.Context, ToolWait) error
 }
 
 type ExecutionContext struct {

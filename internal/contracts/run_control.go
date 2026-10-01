@@ -196,6 +196,7 @@ type RunControl struct {
 
 	mu              sync.Mutex
 	steerQueue      []api.SteerRequest
+	steerAvailable  chan struct{}
 	steerClosed     bool
 	steerPreparer   func(api.SteerRequest) (api.SteerRequest, error)
 	submitWaiters   map[string]*submitWaiter
@@ -553,6 +554,10 @@ func (c *RunControl) EnqueueSteer(req api.SteerRequest) bool {
 		return false
 	}
 	c.steerQueue = append(c.steerQueue, cloneSteerInput(req))
+	if c.steerAvailable != nil {
+		close(c.steerAvailable)
+		c.steerAvailable = nil
+	}
 	for _, awaiting := range c.awaitingSubmits {
 		if awaiting.SteerReplan {
 			c.supersedePlanningLocked(awaiting)

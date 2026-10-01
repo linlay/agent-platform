@@ -19,6 +19,7 @@ var requiredBuiltinToolNames = []string{
 	"artifact_publish",
 	"bash",
 	"datetime",
+	"sleep",
 	"desktop_action",
 	"desktop_cdp",
 	"file_edit",

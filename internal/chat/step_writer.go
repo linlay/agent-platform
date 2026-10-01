@@ -231,7 +231,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 		w.needNewMsgID = true
 
-	case "tool.output":
+	case "tool.output", "tool.wait":
 		// Transient execution output is retained only by the live RunEventBus.
 		// Cold replay is intentionally reconstructed from snapshot + result.
 
