@@ -22,7 +22,7 @@ import (
 
 func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 	fixture := newTestFixture(t)
-	items := getAPIData[[]api.AdminSkillSummary](t, fixture.server, http.MethodGet, "/api/admin/skills", nil)
+	items := getAPIData[api.AdminSkillsResponse](t, fixture.server, http.MethodGet, "/api/admin/skills", nil).Skills
 	mock := findAdminSkillSummary(items, "mock-skill")
 	if mock == nil || mock.Icon == "" || !strings.Contains(mock.Icon, "assets%2Fmock-skill.png") {
 		t.Fatalf("expected mock-skill icon URL, got %#v", mock)
@@ -179,7 +179,7 @@ func TestAdminSkillVersionField(t *testing.T) {
 	createSkill("version-both", "---\nname: Both Version\nversion: 9.9.9\nmetadata:\n  version: 1.0.0\n---\n\nBody\n")
 	createSkill("version-none", "---\nname: No Version\n---\n\nBody\n")
 
-	items := getAPIData[[]api.AdminSkillSummary](t, fixture.server, http.MethodGet, "/api/admin/skills", nil)
+	items := getAPIData[api.AdminSkillsResponse](t, fixture.server, http.MethodGet, "/api/admin/skills", nil).Skills
 	want := map[string]string{
 		"version-top":  "0.0.0",
 		"version-meta": "1.2.3",

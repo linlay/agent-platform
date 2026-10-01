@@ -19,8 +19,8 @@ import (
 func TestCatalogQueryParametersAreIgnored(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	skills := getAPIData[[]api.SkillSummary](t, fixture.server, http.MethodGet, "/api/admin/skills", nil)
-	skillsWithTag := getAPIData[[]api.SkillSummary](t, fixture.server, http.MethodGet, "/api/admin/skills?tag=does-not-filter", nil)
+	skills := getAPIData[api.AdminSkillsResponse](t, fixture.server, http.MethodGet, "/api/admin/skills", nil).Skills
+	skillsWithTag := getAPIData[api.AdminSkillsResponse](t, fixture.server, http.MethodGet, "/api/admin/skills?tag=does-not-filter", nil).Skills
 	if len(skills) != len(skillsWithTag) {
 		t.Fatalf("expected skills tag parameter to be ignored: all=%d tagged=%d", len(skills), len(skillsWithTag))
 	}

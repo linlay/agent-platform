@@ -274,3 +274,5 @@ Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`�
 - 连接器锁统一放入 runtime `.lock/`：`shared-connector-layout.lock` 保护共享目录初始化，`connectors/assembly.lock` 协调装配与回收，`connectors/install/<id>.lock`、`connectors/operations/<id>.lock`、`connectors/leases/<id>/<digest>.lock` 分别保护共享包安装、来源/准备/授权操作与版本租约。路径直接切换，不兼容旧锁路径；更新前停掉同一 runtime 的旧进程。锁释放后保留，不在运行中删除。`ru-connectors/.shared-v1` 仅作布局标记，不再执行旧 ru-connectors 的备份、退役或兼容迁移。
 
 - Native 未提交模型尝试失败时以 `reasoning.end/content.end/tool.end` 的 `status:"failed"` 与公共 error 收尾，正常 end 不增加状态字段；失败输出作为独立展示 event 保存，不进入模型上下文，`run.activity` 仅作辅助提示。详见 [API与协议](docs/API与协议.md)。
+
+技能管理 HTTP：`GET /api/admin/skills` 返回 `{skills,packages,pinned}`，`PUT /api/admin/skills/pin {id,pinned}` 返回 `{pinned}`，复用用户级 skillOrder 存储但不注册 WS。旧包列表 GET 保留供 Desktop；管理页不再消费使用端 `/api/skills`。新列表对象结构需与 WebClient 同批发布，详见 API与协议。

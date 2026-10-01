@@ -50,7 +50,7 @@ func TestSkillPackageProjectionTracksDiskAndPreservesOwnership(t *testing.T) {
 	if len(chat.Packages) != 1 || len(chat.Packages[0].Skills) != 2 || chat.Packages[0].DisplayName != "Office 工具" {
 		t.Fatalf("chat=%+v", chat)
 	}
-	summaries := getAPIData[[]api.AdminSkillSummary](t, f.server, "GET", "/api/admin/skills", nil)
+	summaries := getAPIData[api.AdminSkillsResponse](t, f.server, "GET", "/api/admin/skills", nil).Skills
 	for _, item := range summaries {
 		want := ""
 		if item.ID == "office/mock-skill" || item.ID == "office/center-extra" {

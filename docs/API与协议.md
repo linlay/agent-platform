@@ -142,12 +142,13 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
 | GET | `/api/admin/agents/creation-options` | 无 | 新建项目的类型、能力组、默认模型与 ACP 引擎，见 [创建模板](智能体配置说明.md#创建模板) |
 | GET | `/api/admin/host/directories` | `path`、`showHidden` | 列出 Platform 宿主目录的子目录，只返回目录名 |
-| GET | `/api/admin/skills` | 无 | skills-center skill 列表，包含状态、图标 URL、可选 `version`、摘要诊断、更新时间、大小与引用 agent |
+| GET | `/api/admin/skills` | 无 | 管理目录 `{skills,packages,pinned}`；技能保留状态、图标 URL、版本、诊断、更新时间、大小与引用 agent，包保留有序成员与完整性，pinned 为当前用户偏好 |
+| PUT | `/api/admin/skills/pin` | body: `id`、`pinned` | HTTP-only，更新当前用户单项置顶，返回 `{pinned}` |
 | GET | `/api/admin/skills/detail` | query: `id`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
 | POST | `/api/admin/skills/create` | body: `id`、`skillMd`、`files[]` | 创建后的 skill 详情 |
 | POST | `/api/admin/skills/import` | multipart: `id`、`file`；可选 `overwrite` | 原子校验并导入完整 ZIP，返回 skill 详情 |
 | POST | `/api/admin/skills/delete` | body: `id` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
-| GET | `/api/admin/skill-packages` | 无 | 返回 Platform 已安装技能包及其子技能 ID、版本和包摘要 |
+| GET | `/api/admin/skill-packages` | 无 | 保留供 Desktop 技能市场使用；WebClient 管理页改用聚合 `/api/admin/skills` |
 | POST | `/api/admin/skill-packages/import` | query: `id`、可选 `version`；raw ZIP body | 原子校验并安装或更新技能包，返回包状态与实际安装的子技能 |
 | GET/PUT | `/api/admin/source`（`type: skill-package`） | GET query `type/id`；PUT body `target/content/baseSha256` | 统一读取或条件保存包自身 `package.json` |
 | POST | `/api/admin/skill-packages/delete` | body: `id` | 原子卸载技能包及其子技能，返回删除的子技能列表 |
@@ -1340,3 +1341,11 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 ### Skill ID 字段统一
 
 技能列表、Agent 技能、私有技能、连接器技能摘要和技能管理/文件/transaction 请求响应统一使用 `id`；query 与 multipart 参数同样为 `id`。`PUT /api/skills` 使用 `{id,pinned}`，图标参数为 `id`。`/api/admin/source` 的 skill/skill-package target 使用 `id`，agent/automation 仍使用 `key`。技能包导入与删除使用包 `id`；成员删除继续使用 `{packageId,skillId}`。连接器技能详情使用 `?id=<connectorId>&skillId=<skillId>`。旧包清单与 ZIP 身份的读取兼容见 [技能展示元数据](技能展示元数据.md#技能标识命名)。
+
+### 技能管理目录与置顶 HTTP 契约
+
+`GET /api/admin/skills` 的 `data` 为 `{skills:[],packages:[],pinned:[]}`，三个字段必返且不为 null。技能与包由同批目录记录投影，在现有 catalog mutation coordinator 内读取；置顶是独立的用户偏好快照，不声明跨存储事务。目录或偏好读取失败整体返回错误，无部分成功。管理列表与置顶接口设置 `Cache-Control: no-store`，按请求语言投影技能和包展示字段。
+
+`PUT /api/admin/skills/pin {id,pinned}` 仅支持 HTTP，与 `/api/skills` 共用同一个用户级 `skillOrder` store 和 `skills-center/order.json`。身份来自认证上下文，关闭认证时沿用 local 用户。新增置顶只接受管理目录里的独立技能或技能包；取消置顶允许清理合法但已失效的 ID（包括旧成员键）。pinned 必须显式提供，重复置顶幂等且不移动位置，取消后再置顶才移到最前。写入成功直接返回 `{pinned}`，不再读取目录，不触发 catalog reload。
+
+使用端 `/api/skills` 的 HTTP/WS 目录、配置标记与置顶契约不变。管理页不得借用此接口或建立业务 WS。旧 `GET /api/admin/skill-packages` 保留供 Desktop，包 import/delete/skills/delete 和 source 编辑接口保留。此次管理列表从数组切换为对象，与配套 WebClient 绑定发布、刷新已有客户端并成对回滚；不支持旧前端单独连接新列表协议。

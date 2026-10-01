@@ -38,6 +38,11 @@ func (s *Server) listSkillPackageSummaries() ([]api.AdminSkillPackageResponse, e
 	if err != nil {
 		return nil, mapSkillEditError(err)
 	}
+	return projectSkillPackageSummaries(records, installed), nil
+}
+
+func projectSkillPackageSummaries(records []catalog.SkillPackageRecord, installed []catalog.AdminSkill) []api.AdminSkillPackageResponse {
+	response := make([]api.AdminSkillPackageResponse, 0, len(records))
 	ready := make(map[string]bool, len(installed))
 	for _, skill := range installed {
 		ready[skill.ID] = skill.Status == catalog.AdminSkillStatusReady
@@ -52,7 +57,7 @@ func (s *Server) listSkillPackageSummaries() ([]api.AdminSkillPackageResponse, e
 		}
 		response = append(response, summary)
 	}
-	return response, nil
+	return response
 }
 
 func (s *Server) listAgentSkillPackages() ([]api.AgentSkillPackageResponse, error) {

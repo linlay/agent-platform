@@ -244,8 +244,9 @@ func (s *Server) handleTeams(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Teams()))
 }
 
-func (s *Server) handleSkills(w http.ResponseWriter, _ *http.Request) {
-	response, err := s.listAdminSkills()
+func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	response, err := s.adminSkillsCatalog(r.Context())
 	s.writeAgentHTTPResponse(w, response, err)
 }
 

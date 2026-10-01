@@ -1016,6 +1016,16 @@ type AgentSkillsResponse struct {
 	Skills   []AgentSkillResponse        `json:"skills"`
 }
 
+// AdminSkillsResponse is the HTTP management catalog and current user's pins.
+type AdminSkillsResponse struct {
+	Skills   []AdminSkillSummary         `json:"skills"`
+	Packages []AdminSkillPackageResponse `json:"packages"`
+	Pinned   []string                    `json:"pinned"`
+}
+type AdminSkillPinResponse struct {
+	Pinned []string `json:"pinned"`
+}
+
 type AdminSkillSummary struct {
 	skillmeta.Presentation
 	PackageID       string                       `json:"packageId,omitempty"`

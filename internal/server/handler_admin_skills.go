@@ -55,28 +55,6 @@ func (s *Server) adminSkillRegistry() (adminSkillRegistry, error) {
 	return registry, nil
 }
 
-func (s *Server) listAdminSkills() ([]api.AdminSkillSummary, error) {
-	registry, err := s.adminSkillRegistry()
-	if err != nil {
-		return nil, err
-	}
-	items, err := registry.AdminSkills()
-	if err != nil {
-		return nil, err
-	}
-	owners, err := skillPackageOwners(registry)
-	if err != nil {
-		return nil, err
-	}
-	response := make([]api.AdminSkillSummary, 0, len(items))
-	for _, item := range items {
-		summary := buildAdminSkillSummary(item)
-		summary.PackageID = owners[item.ID]
-		response = append(response, summary)
-	}
-	return response, nil
-}
-
 func (s *Server) handleAdminSkillDetail(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimSpace(r.URL.Query().Get("id"))
 	if strings.TrimSpace(key) == "" {

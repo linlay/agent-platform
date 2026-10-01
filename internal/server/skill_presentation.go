@@ -9,6 +9,10 @@ import (
 // SKILL.md content independent of each HTTP request / WebSocket connection.
 func localizeSkillResponse(locale string, value any) any {
 	switch v := value.(type) {
+	case api.AdminSkillsResponse:
+		v.Skills = localizeSkillResponse(locale, v.Skills).([]api.AdminSkillSummary)
+		v.Packages = localizeSkillResponse(locale, v.Packages).([]api.AdminSkillPackageResponse)
+		return v
 	case api.AdminAgentDetailResponse:
 		v.PrivateSkills = append([]api.AdminAgentPrivateSkill{}, v.PrivateSkills...)
 		for i := range v.PrivateSkills {
