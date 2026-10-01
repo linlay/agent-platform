@@ -287,7 +287,7 @@ func (a *runtimeAgentAssembler) materializeSkills(source EditableAgentSource, ca
 		if parentID, exists := destinations[parent]; nested && exists {
 			return &runtimeAgentAssemblyError{
 				code: "runtime_skill_path_conflict",
-				err:  fmt.Errorf("skill keys %q and %q have overlapping runtime directories; remove or rename the standalone skill before selecting this package member", parentID, skillID),
+				err:  fmt.Errorf("skill IDs %q and %q have overlapping runtime directories; remove or rename the standalone skill before selecting this package member", parentID, skillID),
 			}
 		}
 	}
@@ -369,7 +369,7 @@ func orderedSkillIDs(declared []string) ([]string, error) {
 	seen := map[string]struct{}{}
 	for _, raw := range declared {
 		id := strings.TrimSpace(raw)
-		if !validSkillPathKey(id) {
+		if !validSkillPathID(id) {
 			return nil, fmt.Errorf("skill id %q is not a safe runtime directory name", raw)
 		}
 		folded := strings.ToLower(id)
@@ -682,7 +682,7 @@ func validateRuntimeAgentCandidate(candidate string, expected AgentDefinition) e
 	for _, skillID := range ordered {
 		dir := filepath.Join(candidate, "skills", skillID)
 		for _, skill := range expected.ConnectorSkills {
-			if skill.Key == skillID {
+			if skill.ID == skillID {
 				dir = skill.RuntimeDir
 			}
 		}

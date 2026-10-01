@@ -13,9 +13,9 @@ import (
 	"agent-platform/internal/api"
 )
 
-func autoImportSkillZIP(t *testing.T, server http.Handler, key string, files map[string]string) *httptest.ResponseRecorder {
+func autoImportSkillZIP(t *testing.T, server http.Handler, id string, files map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	body, contentType := skillImportBody(t, key, "download.zip", serverSkillImportZIP(t, files))
+	body, contentType := skillImportBody(t, id, "download.zip", serverSkillImportZIP(t, files))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/skills/import", body)
 	request.Header.Set("Content-Type", contentType)
 	recorder := httptest.NewRecorder()
@@ -38,7 +38,7 @@ func TestAdminSkillAutoImportDetectsSingleSkill(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 				t.Fatal(err)
 			}
-			if result.Data.Kind != "skill" || result.Data.AdminSkillDetailResponse == nil || result.Data.Skill.Key != "detected-skill" || result.Data.Package != nil {
+			if result.Data.Kind != "skill" || result.Data.AdminSkillDetailResponse == nil || result.Data.Skill.ID != "detected-skill" || result.Data.Package != nil {
 				t.Fatalf("wrong detected skill: %#v", result.Data)
 			}
 			if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "detected-skill", "assets", "info.txt")); err != nil {

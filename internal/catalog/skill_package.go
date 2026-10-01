@@ -436,7 +436,7 @@ func (r *FileRegistry) BeginDeleteEditableSkillPackageSkill(packageID, skillID s
 	}
 	members := make([]SkillPackageMember, 0, len(manifest.Skills))
 	for _, member := range manifest.Skills {
-		if member.Key != name {
+		if member.ID != name {
 			members = append(members, member)
 		}
 	}

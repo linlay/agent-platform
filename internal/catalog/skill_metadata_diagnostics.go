@@ -10,15 +10,15 @@ import (
 	"golang.org/x/text/language"
 )
 
-func skillMetadataDiagnostics(key, prompt string) []SkillCandidateDiagnostic {
+func skillMetadataDiagnostics(id, prompt string) []SkillCandidateDiagnostic {
 	front, _ := parseSkillFrontMatter(prompt)
 	metadata := frontMatterMap(front["metadata"])
 	var out []SkillCandidateDiagnostic
 	warn := func(code, message string) {
 		out = append(out, SkillCandidateDiagnostic{Severity: "warning", Code: code, Message: message})
 	}
-	if name := skillmeta.String(front["name"]); name != "" && name != path.Base(strings.TrimSpace(key)) {
-		warn("skill_name_key_mismatch", fmt.Sprintf("SKILL.md name %q differs from skill key %q; the directory key remains the identifier", name, key))
+	if name := skillmeta.String(front["name"]); name != "" && name != path.Base(strings.TrimSpace(id)) {
+		warn("skill_name_id_mismatch", fmt.Sprintf("SKILL.md name %q differs from skill ID %q; the directory ID remains the identifier", name, id))
 	}
 	if value, exists := front["displayName"]; exists {
 		if _, valid := value.(string); !valid {

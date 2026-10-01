@@ -7,7 +7,7 @@ import (
 
 type ConnectorSkillSummary struct {
 	skillmeta.Presentation
-	Key         string   `json:"key"`
+	ID          string   `json:"id"`
 	Name        string   `json:"-"`
 	Description string   `json:"description"`
 	Triggers    []string `json:"triggers,omitempty"`
@@ -45,5 +45,5 @@ func ReadConnectorSkill(sources connector.Sources, id, name string) (ConnectorSk
 
 func connectorSkillSummary(document connector.SkillDocument) ConnectorSkillSummary {
 	name, description, triggers, metadata, version := parseSkillPromptMetadata(document.Content)
-	return ConnectorSkillSummary{Key: document.Name, Name: skillDisplayName(name, description, document.Name), Description: description, Presentation: skillmeta.Parse(metadata, version), Triggers: triggers, Path: document.Path, Size: document.Size, UpdatedAt: document.UpdatedAt}
+	return ConnectorSkillSummary{ID: document.Name, Name: skillDisplayName(name, description, document.Name), Description: description, Presentation: skillmeta.Parse(metadata, version), Triggers: triggers, Path: document.Path, Size: document.Size, UpdatedAt: document.UpdatedAt}
 }

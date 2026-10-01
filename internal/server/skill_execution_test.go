@@ -14,10 +14,10 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func writeSkillScript(t *testing.T, parent, key string) string {
+func writeSkillScript(t *testing.T, parent, id string) string {
 	t.Helper()
-	writeTestSkill(t, parent, key)
-	scripts := filepath.Join(parent, key, "scripts")
+	writeTestSkill(t, parent, id)
+	scripts := filepath.Join(parent, id, "scripts")
 	if err := os.MkdirAll(scripts, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestSkillExecutionConfiguredAndSelectedOnly(t *testing.T) {
 	unconfigured := writeSkillScript(t, filepath.Join(runtimeDir, "skills"), "unconfigured")
 	def := catalog.AgentDefinition{Key: "a", RuntimeDir: runtimeDir, Skills: []string{"configured"}}
 	session := contracts.QuerySession{AgentKey: "a", RunID: "r"}
-	selected := []resolvedMustUseSkill{{Key: "extra", RootPath: filepath.Dir(filepath.Dir(extra)), Extra: true}, {Key: "configured", RootPath: filepath.Dir(filepath.Dir(configured))}}
+	selected := []resolvedMustUseSkill{{ID: "extra", RootPath: filepath.Dir(filepath.Dir(extra)), Extra: true}, {ID: "configured", RootPath: filepath.Dir(filepath.Dir(configured))}}
 	session.SkillScripts = buildSkillScriptScope(session, def, selected)
 	ctx := contracts.ExecutionContext{Session: session}
 	for _, p := range []string{configured, extra} {

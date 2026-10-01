@@ -68,7 +68,7 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 		response.Data.Tools[5] != "memory_search" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
-	if len(response.Data.Skills) != 1 || response.Data.Skills[0].Key != "mock-skill" || response.Data.Skills[0].DisplayName == "" {
+	if len(response.Data.Skills) != 1 || response.Data.Skills[0].ID != "mock-skill" || response.Data.Skills[0].DisplayName == "" {
 		t.Fatalf("expected skills in detail response, got %#v", response.Data.Skills)
 	}
 	if len(response.Data.Controls) != 1 || response.Data.Controls[0]["key"] != "tone" {
@@ -685,7 +685,7 @@ func TestAgentDetailSkillsUseMountedNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	detail := fixture.server.buildAgentDetailResponse(catalog.AgentDefinition{Key: "test", Mode: "REACT", Skills: []string{"mock-skill"}, RuntimeDir: runtimeDir})
-	if len(detail.Skills) != 1 || detail.Skills[0].Key != "mock-skill" || detail.Skills[0].Name != "私有技能" {
+	if len(detail.Skills) != 1 || detail.Skills[0].ID != "mock-skill" || detail.Skills[0].Name != "私有技能" {
 		t.Fatalf("mounted skills: %#v", detail.Skills)
 	}
 }

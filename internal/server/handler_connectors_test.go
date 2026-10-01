@@ -91,7 +91,7 @@ func TestConnectorSkillsExcludedFromMustUseCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range result.Skills {
-		if skill.Key == "builtin-dbx" || strings.HasPrefix(skill.Key, "connector-") {
+		if skill.ID == "builtin-dbx" || strings.HasPrefix(skill.ID, "connector-") {
 			t.Fatal("connector skill is selectable")
 		}
 	}

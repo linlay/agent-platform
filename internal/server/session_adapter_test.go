@@ -62,13 +62,13 @@ type legacySkillCatalog interface {
 
 type skillCatalogAdapter struct{ legacySkillCatalog }
 
-func (c skillCatalogAdapter) SkillKeys() []string {
+func (c skillCatalogAdapter) SkillIDs() []string {
 	if c.legacySkillCatalog == nil {
 		return nil
 	}
 	var keys []string
 	for _, s := range c.Skills("") {
-		keys = append(keys, s.Key)
+		keys = append(keys, s.ID)
 	}
 	return keys
 }

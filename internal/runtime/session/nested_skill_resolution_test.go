@@ -10,15 +10,15 @@ import (
 
 type nestedSkillCatalog map[string]catalog.SkillDefinition
 
-func (c nestedSkillCatalog) SkillKeys() []string {
+func (c nestedSkillCatalog) SkillIDs() []string {
 	keys := []string{}
 	for key := range c {
 		keys = append(keys, key)
 	}
 	return keys
 }
-func (c nestedSkillCatalog) SkillDefinition(key string) (catalog.SkillDefinition, bool) {
-	def, ok := c[key]
+func (c nestedSkillCatalog) SkillDefinition(id string) (catalog.SkillDefinition, bool) {
+	def, ok := c[id]
 	return def, ok
 }
 
@@ -33,7 +33,7 @@ func TestMustUsePackageMembersKeepExactKeysAndIndependentRoots(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: demo\ndescription: "+key+"\n---\nUse "+key), 0600); err != nil {
 			t.Fatal(err)
 		}
-		center[key] = catalog.SkillDefinition{Key: key}
+		center[key] = catalog.SkillDefinition{ID: key}
 	}
 	if err := os.WriteFile(filepath.Join(root, "suite", "package.json"), []byte(`{"name":"suite","skills":[{"key":"demo"}]}`), 0600); err != nil {
 		t.Fatal(err)

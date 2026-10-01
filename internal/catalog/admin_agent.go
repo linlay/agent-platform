@@ -44,7 +44,7 @@ type AdminAgent struct {
 // exposes the logical skill identity only.
 type AdminAgentPrivateSkill struct {
 	Presentation    skillmeta.Presentation
-	Key             string
+	ID              string
 	Name            string
 	Description     string
 	Status          string

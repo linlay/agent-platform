@@ -108,7 +108,7 @@ func (r *FileRegistry) BeginMigrateLegacySkillPackage(id string) (*EditableSkill
 		if err := ValidateSkillPackageID(child.ID); err != nil {
 			return nil, err
 		}
-		members = append(members, SkillPackageMember{Key: child.ID})
+		members = append(members, SkillPackageMember{ID: child.ID})
 		source := filepath.Join(root, child.ID)
 		if _, err := os.Lstat(filepath.Join(source, "SKILL.md")); errors.Is(err, os.ErrNotExist) {
 			continue
@@ -216,7 +216,7 @@ func (r *FileRegistry) MigrateImplicitSkillPackages() ([]string, error) {
 				continue
 			}
 			if _, err := readDeclaredSkillMember(filepath.Join(dir, child.Name())); err == nil {
-				members = append(members, SkillPackageMember{Key: child.Name()})
+				members = append(members, SkillPackageMember{ID: child.Name()})
 			}
 		}
 		fields["skills"], _ = json.Marshal(members)

@@ -7,11 +7,11 @@ import (
 
 type Catalog struct{ catalog.Registry }
 
-func (c Catalog) SkillKeys() []string {
+func (c Catalog) SkillIDs() []string {
 	var keys []string
 	if c.Registry != nil {
 		for _, s := range c.Skills("") {
-			keys = append(keys, s.Key)
+			keys = append(keys, s.ID)
 		}
 	}
 	return keys

@@ -20,36 +20,36 @@ func RuntimeAgentEnv(value any) map[string]string {
 	}
 }
 
-func ResolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, centerDir string, skillKeys []string, agents ...catalog.AgentDefinition) ([]string, map[string]string, error) {
+func ResolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, centerDir string, skillIDs []string, agents ...catalog.AgentDefinition) ([]string, map[string]string, error) {
 	_ = centerDir
 	runtimeEnv := contracts.CloneStringMap(agentEnv)
 	if err := agentconfig.ValidateUserEnvironment(runtimeEnv); err != nil {
 		return nil, nil, err
 	}
-	if len(skillKeys) == 0 {
+	if len(skillIDs) == 0 {
 		return nil, runtimeEnv, nil
 	}
 	seen := map[string]struct{}{}
 	var hookDirs []string
-	for _, raw := range skillKeys {
-		skillKey := strings.ToLower(strings.TrimSpace(raw))
-		if skillKey == "" {
+	for _, raw := range skillIDs {
+		skillID := strings.ToLower(strings.TrimSpace(raw))
+		if skillID == "" {
 			continue
 		}
-		if _, ok := seen[skillKey]; ok {
+		if _, ok := seen[skillID]; ok {
 			continue
 		}
-		seen[skillKey] = struct{}{}
+		seen[skillID] = struct{}{}
 		agent := catalog.AgentDefinition{RuntimeDir: agentDir}
 		if len(agents) > 0 {
 			agent = agents[0]
 		}
-		def, ok, err := agent.ResolveSkillDefinition(skillKey)
+		def, ok, err := agent.ResolveSkillDefinition(skillID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("resolve skill runtime %q: %w", skillKey, err)
+			return nil, nil, fmt.Errorf("resolve skill runtime %q: %w", skillID, err)
 		}
 		if !ok {
-			log.Printf("[server][skill-runtime][warn] skill definition not found key=%s", skillKey)
+			log.Printf("[server][skill-runtime][warn] skill definition not found id=%s", skillID)
 			continue
 		}
 		if strings.TrimSpace(def.BashHooksDir) != "" {

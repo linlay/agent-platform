@@ -15,12 +15,12 @@ import (
 // directory must lie inside the skill's own canonical tree or under an
 // administrator-approved root; entries already on the host PATH are dropped
 // because the merged PATH keeps them in their original position.
-func ResolveSkillPathAppend(def catalog.AgentDefinition, skillKeys []string, adminRoots []string) []string {
+func ResolveSkillPathAppend(def catalog.AgentDefinition, skillIDs []string, adminRoots []string) []string {
 	hostPath := filepath.SplitList(os.Getenv("PATH"))
 	seen := map[string]bool{}
 	seenSkill := map[string]bool{}
 	var out []string
-	for _, raw := range skillKeys {
+	for _, raw := range skillIDs {
 		key := strings.ToLower(strings.TrimSpace(raw))
 		if key == "" || seenSkill[key] || def.IsConnectorSkill(key) {
 			continue

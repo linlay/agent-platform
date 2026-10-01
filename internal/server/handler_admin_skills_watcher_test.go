@@ -20,16 +20,16 @@ func TestAdminSkillMutationsWithBackgroundWatcher(t *testing.T) {
 	s := fixture.server
 	const key = "ordinary-watched"
 	markdown := "---\nname: ordinary-watched\ndescription: Ordinary watched skill\n---\n\nContent.\n"
-	if _, err := s.createAdminSkill(ctx, api.CreateAdminSkillRequest{Key: key, SkillMd: markdown}); err != nil {
+	if _, err := s.createAdminSkill(ctx, api.CreateAdminSkillRequest{ID: key, SkillMd: markdown}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.mkdirAdminSkillFile(ctx, api.MkdirAdminSkillFileRequest{Key: key, Path: "references"}); err != nil {
+	if _, err := s.mkdirAdminSkillFile(ctx, api.MkdirAdminSkillFileRequest{ID: key, Path: "references"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.createAdminSkillFile(ctx, api.CreateAdminSkillFileRequest{Key: key, Path: "references/example.md", Content: "original"}); err != nil {
+	if _, err := s.createAdminSkillFile(ctx, api.CreateAdminSkillFileRequest{ID: key, Path: "references/example.md", Content: "original"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.writeAdminSkillFile(ctx, api.WriteAdminSkillFileRequest{Key: key, Path: "references/example.md", Content: "saved"}); err != nil {
+	if _, err := s.writeAdminSkillFile(ctx, api.WriteAdminSkillFileRequest{ID: key, Path: "references/example.md", Content: "saved"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.uploadAdminSkillFile(ctx, key, "references/upload.md", strings.NewReader("uploaded"), false); err != nil {
@@ -37,7 +37,7 @@ func TestAdminSkillMutationsWithBackgroundWatcher(t *testing.T) {
 	}
 	// The references directory has been watched since the previous transaction
 	// resumed; this rename exercises the Windows directory-handle conflict.
-	if _, err := s.renameAdminSkillFile(ctx, api.RenameAdminSkillFileRequest{Key: key, FromPath: "references", ToPath: "renamed"}); err != nil {
+	if _, err := s.renameAdminSkillFile(ctx, api.RenameAdminSkillFileRequest{ID: key, FromPath: "references", ToPath: "renamed"}); err != nil {
 		t.Fatal(err)
 	}
 	for name, expected := range map[string]string{"example.md": "saved", "upload.md": "uploaded"} {
@@ -46,7 +46,7 @@ func TestAdminSkillMutationsWithBackgroundWatcher(t *testing.T) {
 			t.Fatalf("renamed content %s: %q, %v", name, content, err)
 		}
 	}
-	if _, err := s.deleteAdminSkillFile(ctx, api.DeleteAdminSkillFileRequest{Key: key, Path: "renamed", Recursive: true}); err != nil {
+	if _, err := s.deleteAdminSkillFile(ctx, api.DeleteAdminSkillFileRequest{ID: key, Path: "renamed", Recursive: true}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, key, "SKILL.md")

@@ -141,7 +141,7 @@ func TestConnectorSkillNameConflictsRejectAgent(t *testing.T) {
 				t.Fatalf("effective skill IDs = %q", got)
 			}
 			definition, found, err := def.ResolveSkillDefinition("shared")
-			if err != nil || !found || definition.Key != "shared" || definition.Name != "shared" {
+			if err != nil || !found || definition.ID != "shared" || definition.Name != "shared" {
 				t.Fatalf("original skill name did not resolve: %#v %v %v", definition, found, err)
 			}
 		})

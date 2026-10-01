@@ -83,7 +83,7 @@ func TestAdminSkillPackageWatcherRestoresAfterPublicationRollback(t *testing.T) 
 			"manifest.json":                  fmt.Sprintf(`{"schemaVersion":1,"type":"skill-package","id":"rollback-watch-pack","version":%q,"skills":[{"id":"rollback-child","version":%q,"path":"skills/rollback-child/"}]}`, version, version),
 			"skills/rollback-child/SKILL.md": fmt.Sprintf("---\nname: rollback-child\ndescription: Version %s\n---\n\nContent.\n", version),
 		})
-		request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=rollback-watch-pack&version="+version, bytes.NewReader(archive))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?id=rollback-watch-pack&version="+version, bytes.NewReader(archive))
 		request.Header.Set("Content-Type", "application/zip")
 		recorder := httptest.NewRecorder()
 		fixture.server.ServeHTTP(recorder, request)
@@ -112,19 +112,19 @@ func TestAdminSkillPackageWatcherRestoresAfterPublicationRollback(t *testing.T) 
 	awaitWatchedSkillDescription(t, fixture.registry, "rollback-watch-pack/rollback-child", "Edited after rollback")
 }
 
-func awaitWatchedSkillDescription(t *testing.T, registry catalog.Registry, key, description string) {
+func awaitWatchedSkillDescription(t *testing.T, registry catalog.Registry, id, description string) {
 	t.Helper()
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if skill, ok := registry.SkillDefinition(key); ok && skill.Description == description {
+		if skill, ok := registry.SkillDefinition(id); ok && skill.Description == description {
 			return
 		}
 		select {
 		case <-deadline.C:
-			t.Fatalf("background watcher did not publish %s description %q", key, description)
+			t.Fatalf("background watcher did not publish %s description %q", id, description)
 		case <-tick.C:
 		}
 	}
@@ -173,7 +173,7 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 			"skills/watch-child/SKILL.md":                    fmt.Sprintf("---\nname: watch-child\ndescription: Watched child\nmetadata:\n  version: %s\n---\n\nPackage %s.\n", version, version),
 			"skills/watch-child/references/nested/readme.md": "Nested directories must also release their watches before rename.\n",
 		})
-		request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=watch-pack&version="+version, bytes.NewReader(archive))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?id=watch-pack&version="+version, bytes.NewReader(archive))
 		request.Header.Set("Content-Type", "application/zip")
 		recorder := httptest.NewRecorder()
 		fixture.server.ServeHTTP(recorder, request)
@@ -208,7 +208,7 @@ func TestAdminSkillPackageLifecycleWithBackgroundWatcher(t *testing.T) {
 	importPackage("2.0.0")
 	assertWatcherWorks("after-reimport")
 
-	deleteBody, _ := json.Marshal(api.DeleteAdminSkillPackageRequest{Key: "watch-pack"})
+	deleteBody, _ := json.Marshal(api.DeleteAdminSkillPackageRequest{ID: "watch-pack"})
 	deleted := getAPIData[api.DeleteAdminSkillPackageResponse](t, fixture.server, http.MethodPost, "/api/admin/skill-packages/delete", deleteBody)
 	if !deleted.Deleted || len(deleted.Skills) != 1 {
 		t.Fatalf("unexpected package deletion: %#v", deleted)

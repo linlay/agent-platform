@@ -22,7 +22,7 @@ var (
 type EditableAgentPrivateSkillMutation struct {
 	action    string
 	agentKey  string
-	skillKey  string
+	skillID   string
 	previous  EditableAgentFiles
 	finalDir  string
 	stagedDir string
@@ -93,33 +93,33 @@ func (r *FileRegistry) listEditableAgentPrivateSkills(files EditableAgentFiles) 
 		}
 		items = append(items, AdminAgentPrivateSkill{
 			Presentation:    item.Presentation,
-			Key:             item.Key,
+			ID:              item.ID,
 			Name:            item.Name,
 			Description:     item.Description,
 			Status:          item.Status,
 			Diagnostics:     diagnostics,
-			Enabled:         enabled[strings.ToLower(item.Key)],
-			OverridesCenter: r.centerSkillExists(item.Key),
+			Enabled:         enabled[strings.ToLower(item.ID)],
+			OverridesCenter: r.centerSkillExists(item.ID),
 		})
 	}
-	sort.SliceStable(items, func(i, j int) bool { return items[i].Key < items[j].Key })
+	sort.SliceStable(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
 }
 
 // BeginImportEditableAgentPrivateSkillArchive installs a validated archive and
 // adds its key to the Agent definition. The caller must rollback it when the
 // following catalog reload fails.
-func (r *FileRegistry) BeginImportEditableAgentPrivateSkillArchive(agentKey, key string, source io.ReaderAt, size int64) (*EditableAgentPrivateSkillMutation, error) {
+func (r *FileRegistry) BeginImportEditableAgentPrivateSkillArchive(agentKey, id string, source io.ReaderAt, size int64) (*EditableAgentPrivateSkillMutation, error) {
 	if r == nil {
 		return nil, fmt.Errorf("agent registry is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return nil, err
 	}
-	if strings.Contains(key, "/") {
-		return nil, ErrInvalidSkillKey
+	if strings.Contains(id, "/") {
+		return nil, ErrInvalidSkillID
 	}
-	key = strings.TrimSpace(key)
+	id = strings.TrimSpace(id)
 	r.privateSkillMu.Lock()
 	handedOff := false
 	finalDir := ""
@@ -144,18 +144,18 @@ func (r *FileRegistry) BeginImportEditableAgentPrivateSkillArchive(agentKey, key
 	if err != nil {
 		return nil, err
 	}
-	finalDir, err = importEditableSkillArchiveIntoRoot(root, key, source, size)
+	finalDir, err = importEditableSkillArchiveIntoRoot(root, id, source, size)
 	if err != nil {
 		return nil, err
 	}
-	definition := editableDefinitionWithSkill(files.Definition, key, true)
+	definition := editableDefinitionWithSkill(files.Definition, id, true)
 	if _, err := r.UpdateEditableAgent(files.Key, definition, &files.SoulPrompt, &files.AgentsPrompt); err != nil {
 		return nil, err
 	}
 	mutation := &EditableAgentPrivateSkillMutation{
 		action:   "import",
 		agentKey: files.Key,
-		skillKey: key,
+		skillID:  id,
 		previous: files,
 		finalDir: finalDir,
 		lockHeld: true,
@@ -167,17 +167,17 @@ func (r *FileRegistry) BeginImportEditableAgentPrivateSkillArchive(agentKey, key
 // BeginDeleteEditableAgentPrivateSkill stages a local skill for deletion and
 // removes its declaration. The original directory remains recoverable until
 // CommitEditableAgentPrivateSkillMutation is called.
-func (r *FileRegistry) BeginDeleteEditableAgentPrivateSkill(agentKey, key string) (*EditableAgentPrivateSkillMutation, error) {
+func (r *FileRegistry) BeginDeleteEditableAgentPrivateSkill(agentKey, id string) (*EditableAgentPrivateSkillMutation, error) {
 	if r == nil {
 		return nil, fmt.Errorf("agent registry is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return nil, err
 	}
-	if strings.Contains(key, "/") {
-		return nil, ErrInvalidSkillKey
+	if strings.Contains(id, "/") {
+		return nil, ErrInvalidSkillID
 	}
-	key = strings.TrimSpace(key)
+	id = strings.TrimSpace(id)
 	r.privateSkillMu.Lock()
 	handedOff := false
 	finalDir := ""
@@ -203,7 +203,7 @@ func (r *FileRegistry) BeginDeleteEditableAgentPrivateSkill(agentKey, key string
 	if err != nil {
 		return nil, err
 	}
-	finalDir, err = editableSkillDir(root, key)
+	finalDir, err = editableSkillDir(root, id)
 	if err != nil {
 		return nil, err
 	}
@@ -220,14 +220,14 @@ func (r *FileRegistry) BeginDeleteEditableAgentPrivateSkill(agentKey, key string
 	if err := os.Rename(finalDir, stagedDir); err != nil {
 		return nil, err
 	}
-	definition := editableDefinitionWithSkill(files.Definition, key, false)
+	definition := editableDefinitionWithSkill(files.Definition, id, false)
 	if _, err := r.UpdateEditableAgent(files.Key, definition, &files.SoulPrompt, &files.AgentsPrompt); err != nil {
 		return nil, err
 	}
 	mutation := &EditableAgentPrivateSkillMutation{
 		action:    "delete",
 		agentKey:  files.Key,
-		skillKey:  key,
+		skillID:   id,
 		previous:  files,
 		finalDir:  finalDir,
 		stagedDir: stagedDir,
@@ -329,7 +329,7 @@ func editableDefinitionSkills(definition map[string]any) []string {
 	return items
 }
 
-func editableDefinitionWithSkill(definition map[string]any, key string, include bool) map[string]any {
+func editableDefinitionWithSkill(definition map[string]any, id string, include bool) map[string]any {
 	out := contracts.CloneMap(definition)
 	if out == nil {
 		out = map[string]any{}
@@ -342,18 +342,18 @@ func editableDefinitionWithSkill(definition map[string]any, key string, include 
 	next := make([]string, 0, len(current)+1)
 	found := false
 	for _, value := range current {
-		if strings.EqualFold(value, key) {
+		if strings.EqualFold(value, id) {
 			found = true
 			if !include {
 				continue
 			}
-			next = append(next, key)
+			next = append(next, id)
 			continue
 		}
 		next = append(next, value)
 	}
 	if include && !found {
-		next = append(next, key)
+		next = append(next, id)
 	}
 	if len(next) == 0 {
 		delete(config, "skills")
@@ -369,12 +369,12 @@ func editableDefinitionWithSkill(definition map[string]any, key string, include 
 	return out
 }
 
-func (r *FileRegistry) centerSkillExists(key string) bool {
+func (r *FileRegistry) centerSkillExists(id string) bool {
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
 		return false
 	}
-	dir, err := editableSkillDir(root, key)
+	dir, err := editableSkillDir(root, id)
 	if err != nil {
 		return false
 	}

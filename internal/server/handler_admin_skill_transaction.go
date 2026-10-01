@@ -15,7 +15,7 @@ import (
 )
 
 type adminSkillTransactionRequest struct {
-	Key              string `json:"key"`
+	ID               string `json:"id"`
 	Operation        string `json:"operation"`
 	ExpectedRevision string `json:"expectedRevision"`
 	Archive          []byte `json:"archiveBase64"`
@@ -58,7 +58,7 @@ func (s *Server) transactAdminSkill(ctx context.Context, req adminSkillTransacti
 		if err != nil {
 			return catalog.EditableSkillSnapshot{}, err
 		}
-		prepared, err = registry.PrepareEditableSkillArchive(req.Key, bytes.NewReader(req.Archive), int64(len(req.Archive)))
+		prepared, err = registry.PrepareEditableSkillArchive(req.ID, bytes.NewReader(req.Archive), int64(len(req.Archive)))
 		if err != nil {
 			return catalog.EditableSkillSnapshot{}, mapSkillEditError(err)
 		}
@@ -80,7 +80,7 @@ func (s *Server) transactAdminSkill(ctx context.Context, req adminSkillTransacti
 		if !ok {
 			return empty, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "skill transactions unavailable")
 		}
-		current, err := snapshots.SnapshotEditableSkill(req.Key)
+		current, err := snapshots.SnapshotEditableSkill(req.ID)
 		if err != nil {
 			return empty, mapSkillEditError(err)
 		}
@@ -113,14 +113,14 @@ func (s *Server) transactAdminSkill(ctx context.Context, req adminSkillTransacti
 				current.Archive = nil
 				return current, nil
 			}
-			usage, usageErr := registry.EditableSkillUsage(req.Key)
+			usage, usageErr := registry.EditableSkillUsage(req.ID)
 			if usageErr != nil {
 				return empty, mapSkillEditError(usageErr)
 			}
 			if len(usage) > 0 {
 				return empty, newAgentStatusErrorWithData(http.StatusConflict, "conflict", "skill is used by agents", map[string]any{"usedByAgents": usage})
 			}
-			m, beginErr := registry.BeginDeleteEditableSkill(req.Key)
+			m, beginErr := registry.BeginDeleteEditableSkill(req.ID)
 			if beginErr != nil {
 				return empty, mapSkillEditError(beginErr)
 			}
@@ -138,7 +138,7 @@ func (s *Server) transactAdminSkill(ctx context.Context, req adminSkillTransacti
 		if err := s.reloadAdminSkills(ctx); err != nil {
 			return rollback(err)
 		}
-		result, err := mutation.SnapshotSkill(req.Key)
+		result, err := mutation.SnapshotSkill(req.ID)
 		if err != nil {
 			return rollback(err)
 		}

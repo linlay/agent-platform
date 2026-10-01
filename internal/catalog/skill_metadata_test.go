@@ -21,7 +21,7 @@ func TestSkillMetadataVersionAndDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if skill.Key != "stable-id" || skill.Name != "stable-id" || skill.Version != "2.0" || skill.Prompt != prompt {
+	if skill.ID != "stable-id" || skill.Name != "stable-id" || skill.Version != "2.0" || skill.Prompt != prompt {
 		t.Fatal(skill)
 	}
 	meta := skillSummaryMeta(skill)["metadata"].(map[string]any)
@@ -35,7 +35,7 @@ func TestSkillMetadataVersionAndDiagnostics(t *testing.T) {
 	if item.Status != AdminSkillStatusReady || len(item.Diagnostics) != 2 {
 		t.Fatalf("%#v", item)
 	}
-	p, _ := item.Presentation.Resolve("en-US", item.Name, item.Key, item.Description)
+	p, _ := item.Presentation.Resolve("en-US", item.Name, item.ID, item.Description)
 	if p.DisplayName != "Workflow" || p.Revision != "r18" {
 		t.Fatal(p)
 	}
@@ -82,7 +82,7 @@ func TestSkillNameKeyMismatchIsOnlyWarning(t *testing.T) {
 				t.Fatal(err)
 			}
 			def, found, err := loadSkillDefinitionFromDir(dir, "stable-id", 0)
-			if err != nil || !found || def.Key != "stable-id" || def.Name != name {
+			if err != nil || !found || def.ID != "stable-id" || def.Name != name {
 				t.Fatalf("load: %#v %v", def, err)
 			}
 			item, err := buildAdminSkill(root, "stable-id", nil, false)
@@ -97,7 +97,7 @@ func TestSkillNameKeyMismatchIsOnlyWarning(t *testing.T) {
 			if len(diagnostics) != want || len(item.Diagnostics) != want {
 				t.Fatalf("diagnostics: %#v %#v", diagnostics, item.Diagnostics)
 			}
-			if want == 1 && (diagnostics[0].Severity != "warning" || diagnostics[0].Code != "skill_name_key_mismatch" || item.Diagnostics[0].Code != diagnostics[0].Code) {
+			if want == 1 && (diagnostics[0].Severity != "warning" || diagnostics[0].Code != "skill_name_id_mismatch" || item.Diagnostics[0].Code != diagnostics[0].Code) {
 				t.Fatal(diagnostics)
 			}
 		})
@@ -154,11 +154,11 @@ func TestSkillFormatExample(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("load example: %v", err)
 	}
-	if def.Key != "skill-format-example" || def.Name != def.Key || def.Version != "1.0.0" || len(def.Triggers) != 3 {
+	if def.ID != "skill-format-example" || def.Name != def.ID || def.Version != "1.0.0" || len(def.Triggers) != 3 {
 		t.Fatalf("example: %#v", def)
 	}
 	for locale, want := range map[string]string{"zh-CN": "技能格式示例", "en-US": "Skill Format Example", "fr": "技能格式示例"} {
-		p, description := skillmeta.Parse(def.Metadata, def.Version).Resolve(locale, def.Name, def.Key, def.Description)
+		p, description := skillmeta.Parse(def.Metadata, def.Version).Resolve(locale, def.Name, def.ID, def.Description)
 		if p.DisplayName != want || p.Revision != "2026-09-26-r1" || description == "" {
 			t.Fatalf("%s: %#v", locale, p)
 		}

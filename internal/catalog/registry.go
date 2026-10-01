@@ -278,7 +278,7 @@ func (s TeamSnapshot) AgentDefinition(agentKey string) (AgentDefinition, bool) {
 
 type SkillDefinition struct {
 	IconPath        string `json:"-"`
-	Key             string
+	ID              string
 	Name            string
 	Description     string
 	Triggers        []string
@@ -709,10 +709,10 @@ func normalizeProxyTransport(value string) string {
 	}
 }
 
-func (r *FileRegistry) SkillDefinition(key string) (SkillDefinition, bool) {
+func (r *FileRegistry) SkillDefinition(id string) (SkillDefinition, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	def, ok := r.skills[key]
+	def, ok := r.skills[id]
 	return def, ok
 }
 

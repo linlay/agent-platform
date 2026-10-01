@@ -159,10 +159,10 @@ func assertAgentSkillsResponse(t *testing.T, response api.AgentSkillsResponse) {
 	wantConfigured := []bool{false, true, true}
 	for index := range wantKeys {
 		got := response.Skills[index]
-		if got.Key != wantKeys[index] || got.Configured != wantConfigured[index] {
+		if got.ID != wantKeys[index] || got.Configured != wantConfigured[index] {
 			t.Fatalf("skills[%d] = %#v, want key=%q configured=%t", index, got, wantKeys[index], wantConfigured[index])
 		}
-		if !strings.HasPrefix(got.Icon, "/api/skills/icon?key=") {
+		if !strings.HasPrefix(got.Icon, "/api/skills/icon?id=") {
 			t.Fatalf("skills[%d] missing icon: %#v", index, got)
 		}
 		if strings.TrimSpace(got.DisplayName) == "" {

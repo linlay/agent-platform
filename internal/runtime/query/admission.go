@@ -532,7 +532,7 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if err != nil {
 		return queryAdmission{}, sessionbuild.MustUseSkillUnavailableStatus(err)
 	}
-	req.MustUseSkills = mustUseSkills.Keys
+	req.MustUseSkills = mustUseSkills.IDs
 	preparedReferences, err := s.deps.References.Prepare(ctx, chatID, req.References)
 	if err != nil {
 		return queryAdmission{}, err

@@ -15,22 +15,22 @@ import (
 )
 
 type EditableSkillSnapshot struct {
-	Key      string `json:"key"`
+	ID       string `json:"id"`
 	Exists   bool   `json:"exists"`
 	Revision string `json:"revision"`
 	Archive  []byte `json:"archiveBase64,omitempty"`
 }
 
-func (r *FileRegistry) SnapshotEditableSkill(key string) (EditableSkillSnapshot, error) {
+func (r *FileRegistry) SnapshotEditableSkill(id string) (EditableSkillSnapshot, error) {
 	r.skillPackageMu.Lock()
 	defer r.skillPackageMu.Unlock()
-	return snapshotEditableSkill(r.cfg.Paths.SkillsCenterDir, key)
+	return snapshotEditableSkill(r.cfg.Paths.SkillsCenterDir, id)
 }
 
 // SnapshotSkill is only used while this mutation owns skillPackageMu, before
 // Commit/Rollback. Acquiring it again would deadlock publication.
-func (m *EditableSkillPackageMutation) SnapshotSkill(key string) (EditableSkillSnapshot, error) {
-	return snapshotEditableSkill(m.root, key)
+func (m *EditableSkillPackageMutation) SnapshotSkill(id string) (EditableSkillSnapshot, error) {
+	return snapshotEditableSkill(m.root, id)
 }
 
 type boundedSkillZIP struct{ bytes.Buffer }
@@ -42,13 +42,13 @@ func (b *boundedSkillZIP) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 
-func snapshotEditableSkill(root, key string) (EditableSkillSnapshot, error) {
-	key = strings.TrimSpace(key)
-	result := EditableSkillSnapshot{Key: key, Revision: "missing"}
+func snapshotEditableSkill(root, id string) (EditableSkillSnapshot, error) {
+	id = strings.TrimSpace(id)
+	result := EditableSkillSnapshot{ID: id, Revision: "missing"}
 	if strings.TrimSpace(root) == "" {
 		return result, ErrInvalidSkillPath
 	}
-	dir, err := editableSkillDir(root, key)
+	dir, err := editableSkillDir(root, id)
 	if errors.Is(err, ErrSkillNotFound) {
 		return result, nil
 	}

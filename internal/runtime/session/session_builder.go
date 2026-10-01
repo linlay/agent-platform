@@ -50,7 +50,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	if err := AddConnectorAccessRoots(&runAccessRoots, agentDef); err != nil {
 		return contracts.QuerySession{}, err
 	}
-	req.MustUseSkills = mustUseSkills.Keys
+	req.MustUseSkills = mustUseSkills.IDs
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentbuiltin.TeamMode) {
 		if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
 			return contracts.QuerySession{}, err
@@ -226,7 +226,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		SharedConnectorsRoot:          s.deps.Config.Paths.ConnectorSources().SharedRoot(),
 		NativeConnectorTools:          RuntimeNativeConnectorTools(agentDef),
 		ConnectorCLIEntries:           append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
-		SkillKeys:                     append([]string(nil), agentDef.EffectiveSkills()...),
+		SkillIDs:                      append([]string(nil), agentDef.EffectiveSkills()...),
 		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
 		ConnectorBinDirs:              append([]string(nil), agentDef.ConnectorBinDirs...),
 		ConnectorEnv:                  agentconfig.Merge(agentDef.ConnectorEnv),

@@ -13,7 +13,7 @@ func localizeSkillResponse(locale string, value any) any {
 		v.PrivateSkills = append([]api.AdminAgentPrivateSkill{}, v.PrivateSkills...)
 		for i := range v.PrivateSkills {
 			s := &v.PrivateSkills[i]
-			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.ID, s.Description)
 		}
 		return v
 	case api.AgentSkillsResponse:
@@ -25,18 +25,18 @@ func localizeSkillResponse(locale string, value any) any {
 		v.Skills = append([]api.AgentSkillResponse{}, v.Skills...)
 		for i := range v.Skills {
 			s := &v.Skills[i]
-			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.ID, s.Description)
 		}
 		return v
 	case api.AgentDetailResponse:
 		v.Skills = append([]api.AgentDetailSkill{}, v.Skills...)
 		for i := range v.Skills {
 			s := &v.Skills[i]
-			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.ID, s.Description)
 		}
 		return v
 	case api.AdminSkillSummary:
-		v.Presentation, v.Description = v.Presentation.Resolve(locale, v.Name, v.Key, v.Description)
+		v.Presentation, v.Description = v.Presentation.Resolve(locale, v.Name, v.ID, v.Description)
 		return v
 	case []api.AdminSkillSummary:
 		out := make([]api.AdminSkillSummary, len(v))
@@ -48,7 +48,7 @@ func localizeSkillResponse(locale string, value any) any {
 		out := append([]api.SkillSummary{}, v...)
 		for i := range out {
 			s := &out[i]
-			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.ID, s.Description)
 		}
 		return out
 	case api.AdminSkillDetailResponse:
@@ -83,11 +83,11 @@ func localizeSkillResponse(locale string, value any) any {
 		out := append([]catalog.ConnectorSkillSummary{}, v...)
 		for i := range out {
 			s := &out[i]
-			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.Key, s.Description)
+			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.ID, s.Description)
 		}
 		return out
 	case catalog.ConnectorSkillDetail:
-		v.Skill.Presentation, v.Skill.Description = v.Skill.Presentation.Resolve(locale, v.Skill.Name, v.Skill.Key, v.Skill.Description)
+		v.Skill.Presentation, v.Skill.Description = v.Skill.Presentation.Resolve(locale, v.Skill.Name, v.Skill.ID, v.Skill.Description)
 		return v
 	}
 	return value

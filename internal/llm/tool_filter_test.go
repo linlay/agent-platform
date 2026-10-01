@@ -53,8 +53,8 @@ func TestPlatformControlSchemaIsByteIdenticalAcrossAgents(t *testing.T) {
 	}
 	var onlineSchema []byte
 	for _, session := range []contracts.QuerySession{
-		{AgentKey: "online-office", SkillKeys: []string{"online-docx"}},
-		{AgentKey: "sample-agent", SkillKeys: []string{"platform-admin"}},
+		{AgentKey: "online-office", SkillIDs: []string{"online-docx"}},
+		{AgentKey: "sample-agent", SkillIDs: []string{"platform-admin"}},
 	} {
 		effective := effectiveToolDefinitions(defs, []string{"platform_control"}, session)
 		if len(effective) != 1 || effective[0].Name != "platform_control" {

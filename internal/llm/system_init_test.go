@@ -609,7 +609,7 @@ func fingerprintTestSession() contracts.QuerySession {
 		ModelKey:         "mock-model",
 		ToolNames:        []string{"datetime", "bash"},
 		Mode:             "REACT",
-		SkillKeys:        []string{"skill-a"},
+		SkillIDs:         []string{"skill-a"},
 		ContextTags:      []string{"system", "session"},
 		PromptAppend:     contracts.DefaultPromptAppendConfig(),
 		SoulPrompt:       "soul",

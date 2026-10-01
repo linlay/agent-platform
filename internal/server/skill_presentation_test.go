@@ -31,7 +31,7 @@ func TestSkillPresentationHTTPAndWSLocaleSwitch(t *testing.T) {
 		if locale == "en-US" {
 			want = "Workflow"
 		}
-		for _, path := range []string{"/api/skills", "/api/admin/skills", "/api/admin/skills/detail?key=mock-skill", "/api/agent?agentKey=mock-agent"} {
+		for _, path := range []string{"/api/skills", "/api/admin/skills", "/api/admin/skills/detail?id=mock-skill", "/api/agent?agentKey=mock-agent"} {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.Header.Set("X-Locale", locale)
 			rec := httptest.NewRecorder()
@@ -60,7 +60,7 @@ func TestSkillPresentationHTTPAndWSLocaleSwitch(t *testing.T) {
 		response := waitForWebSocketResponseData[api.AgentSkillsResponse](t, conn, "skills-"+locale)
 		found := false
 		for _, skill := range response.Skills {
-			if skill.Key == "mock-skill" {
+			if skill.ID == "mock-skill" {
 				found = true
 				want := "流程助手"
 				if locale == "en-US" {
@@ -83,14 +83,14 @@ func TestSkillPresentationHTTPAndWSLocaleSwitch(t *testing.T) {
 
 func TestSkillPublicIdentityUsesDisplayNameOnly(t *testing.T) {
 	for _, value := range []any{
-		api.AgentSkillsResponse{Skills: []api.AgentSkillResponse{{Key: "stable-id", Name: "Friendly Name"}}},
-		api.AgentDetailResponse{Skills: []api.AgentDetailSkill{{Key: "stable-id", Name: "Friendly Name"}}},
-		[]api.SkillSummary{{Key: "stable-id", Name: "Friendly Name"}},
-		[]api.AdminSkillSummary{{Key: "stable-id", Name: "Friendly Name"}},
-		api.AdminSkillDetailResponse{Skill: api.AdminSkillSummary{Key: "stable-id", Name: "Friendly Name"}},
-		api.AdminAgentDetailResponse{PrivateSkills: []api.AdminAgentPrivateSkill{{Key: "stable-id", Name: "Friendly Name"}}},
-		[]catalog.ConnectorSkillSummary{{Key: "stable-id", Name: "Friendly Name"}},
-		catalog.ConnectorSkillDetail{Skill: catalog.ConnectorSkillSummary{Key: "stable-id", Name: "Friendly Name"}},
+		api.AgentSkillsResponse{Skills: []api.AgentSkillResponse{{ID: "stable-id", Name: "Friendly Name"}}},
+		api.AgentDetailResponse{Skills: []api.AgentDetailSkill{{ID: "stable-id", Name: "Friendly Name"}}},
+		[]api.SkillSummary{{ID: "stable-id", Name: "Friendly Name"}},
+		[]api.AdminSkillSummary{{ID: "stable-id", Name: "Friendly Name"}},
+		api.AdminSkillDetailResponse{Skill: api.AdminSkillSummary{ID: "stable-id", Name: "Friendly Name"}},
+		api.AdminAgentDetailResponse{PrivateSkills: []api.AdminAgentPrivateSkill{{ID: "stable-id", Name: "Friendly Name"}}},
+		[]catalog.ConnectorSkillSummary{{ID: "stable-id", Name: "Friendly Name"}},
+		catalog.ConnectorSkillDetail{Skill: catalog.ConnectorSkillSummary{ID: "stable-id", Name: "Friendly Name"}},
 	} {
 		encoded, err := json.Marshal(localizeSkillResponse("en-US", value))
 		if err != nil {
@@ -105,7 +105,7 @@ func TestSkillPublicIdentityUsesDisplayNameOnly(t *testing.T) {
 		check = func(node any) {
 			switch node := node.(type) {
 			case map[string]any:
-				if node["key"] == "stable-id" {
+				if node["id"] == "stable-id" {
 					found = true
 					if _, exists := node["name"]; exists {
 						t.Fatalf("raw name leaked: %s", encoded)

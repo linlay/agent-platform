@@ -363,7 +363,7 @@ type QuerySession struct {
 	TeamID                        string
 	Created                       bool
 	Subject                       string
-	SkillKeys                     []string
+	SkillIDs                      []string
 	MustUseSkills                 []string
 	ConnectorCLIEntries           []connector.CLIEntry `json:"-"`
 	ConnectorBinDirs              []string

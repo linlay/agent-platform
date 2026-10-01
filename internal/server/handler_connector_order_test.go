@@ -39,7 +39,7 @@ func TestConnectorOrderHTTPUserIsolationAndValidation(t *testing.T) {
 		}
 		return response.Data
 	}
-	request("alice", "PUT", `{"key":"demo","pinned":true}`, 200)
+	request("alice", "PUT", `{"id":"demo","pinned":true}`, 200)
 	state := request("alice", "GET", "", 200)
 	if !reflect.DeepEqual(state.Order, []string{"demo"}) || state.UpdatedAt == nil {
 		t.Fatalf("order: %#v", state)
@@ -47,11 +47,11 @@ func TestConnectorOrderHTTPUserIsolationAndValidation(t *testing.T) {
 	if other := request("bob", "GET", "", 200); len(other.Order) != 0 {
 		t.Fatalf("cross-user leak: %#v", other)
 	}
-	for _, body := range []string{`{}`, `{"key":"demo"}`, `{"key":"../escape","pinned":true}`, `{"key":"demo","pinned":"yes"}`} {
+	for _, body := range []string{`{}`, `{"id":"demo"}`, `{"id":"../escape","pinned":true}`, `{"id":"demo","pinned":"yes"}`} {
 		request("alice", "PUT", body, 400)
 	}
-	request("alice", "PUT", `{"key":"missing","pinned":true}`, 404)
-	request("alice", "PUT", `{"key":"builtin.demo","pinned":true}`, 200)
+	request("alice", "PUT", `{"id":"missing","pinned":true}`, 404)
+	request("alice", "PUT", `{"id":"builtin.demo","pinned":true}`, 200)
 	// Preference writes never change a read-only built-in package or the skill order.
 	if skills, err := fixture.server.skillOrder.Read("user:alice"); err != nil || len(skills.Order) != 0 {
 		t.Fatalf("skill order changed: %#v %v", skills, err)
@@ -59,7 +59,7 @@ func TestConnectorOrderHTTPUserIsolationAndValidation(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "demo")); err != nil {
 		t.Fatal(err)
 	}
-	request("alice", "PUT", `{"key":"demo","pinned":false}`, 200)
+	request("alice", "PUT", `{"id":"demo","pinned":false}`, 200)
 	if got := request("alice", "GET", "", 200); !reflect.DeepEqual(got.Order, []string{"builtin.demo"}) {
 		t.Fatalf("unpin: %#v", got)
 	}
@@ -82,7 +82,7 @@ func TestConnectorOrderWebSocketUsesSameStore(t *testing.T) {
 	}
 	defer conn.Close()
 	readConnectedPush(t, conn)
-	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/connectors/order", ID: "pin", Payload: marshalPayload(map[string]any{"key": "demo", "pinned": true})}); err != nil {
+	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/connectors/order", ID: "pin", Payload: marshalPayload(map[string]any{"id": "demo", "pinned": true})}); err != nil {
 		t.Fatal(err)
 	}
 	response := waitForWebSocketResponseData[api.ConnectorOrderResponse](t, conn, "pin")
@@ -115,7 +115,7 @@ func TestConnectorOrderRequiresServerIdentity(t *testing.T) {
 		t.Fatal("accepted missing identity")
 	}
 	pinned := true
-	if _, err := fixture.server.updateConnectorOrder(context.Background(), api.UpdateConnectorOrderRequest{Key: "demo", Pinned: &pinned}); err == nil {
+	if _, err := fixture.server.updateConnectorOrder(context.Background(), api.UpdateConnectorOrderRequest{ID: "demo", Pinned: &pinned}); err == nil {
 		t.Fatal("accepted missing identity")
 	}
 	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "order.json")); !os.IsNotExist(err) {
@@ -139,7 +139,7 @@ func TestConnectorCatalogRemainsReadableAfterPinning(t *testing.T) {
 	before := catalog()
 	for _, pinned := range []string{"true", "false"} {
 		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest("PUT", "/api/connectors/order", strings.NewReader(`{"key":"demo","pinned":`+pinned+`}`)))
+		fixture.server.ServeHTTP(rec, httptest.NewRequest("PUT", "/api/connectors/order", strings.NewReader(`{"id":"demo","pinned":`+pinned+`}`)))
 		if rec.Code != 200 {
 			t.Fatalf("pin update: %d %s", rec.Code, rec.Body.String())
 		}

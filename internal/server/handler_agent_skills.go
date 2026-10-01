@@ -38,7 +38,7 @@ func (s *Server) wsAgentSkills(ctx context.Context, conn *ws.Conn, req ws.Reques
 	payload, err := ws.DecodePayload[struct {
 		AgentKey string          `json:"agentKey"`
 		Locale   string          `json:"locale"`
-		Key      json.RawMessage `json:"key"`
+		ID       json.RawMessage `json:"id"`
 		Pinned   json.RawMessage `json:"pinned"`
 	}](req)
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *Server) wsAgentSkills(ctx context.Context, conn *ws.Conn, req ws.Reques
 		conn.CompleteRequest(req.ID)
 	}
 	// Any mutation field denotes a write; incomplete writes must fail validation.
-	if payload.Key != nil || payload.Pinned != nil {
+	if payload.ID != nil || payload.Pinned != nil {
 		request, err := ws.DecodePayload[api.UpdateAgentSkillPinRequest](req)
 		if err != nil {
 			s.sendAgentWSError(conn, req, agentSkillsStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
@@ -107,15 +107,15 @@ func (s *Server) listSkillsForAgent(ctx context.Context, agentKey string) (api.A
 	}
 	seen := map[string]bool{}
 	for _, skill := range s.deps.Registry.Skills("") {
-		key := strings.ToLower(strings.TrimSpace(skill.Key))
-		if key == "" || seen[key] || connector.IsReservedSkill(skill.Key) {
+		key := strings.ToLower(strings.TrimSpace(skill.ID))
+		if key == "" || seen[key] || connector.IsReservedSkill(skill.ID) {
 			continue
 		}
 		seen[key] = true
-		definition, _ := s.deps.Registry.SkillDefinition(skill.Key)
+		definition, _ := s.deps.Registry.SkillDefinition(skill.ID)
 		response.Skills = append(response.Skills, api.AgentSkillResponse{
 			Presentation: skill.Presentation,
-			Key:          skill.Key, Name: skill.Name, Description: skill.Description,
+			ID:           skill.ID, Name: skill.Name, Description: skill.Description,
 			Icon: agentSkillIconURL("", definition), Configured: configured[key],
 		})
 	}
@@ -128,9 +128,9 @@ func (s *Server) updateAgentSkillPin(ctx context.Context, request api.UpdateAgen
 	if err != nil {
 		return api.AgentSkillsResponse{}, err
 	}
-	key := strings.ToLower(strings.TrimSpace(request.Key))
-	if key == "" || len(key) > 256 || catalog.ValidateEditableSkillKey(key) != nil || request.Pinned == nil {
-		return api.AgentSkillsResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "key and pinned are required")
+	key := strings.ToLower(strings.TrimSpace(request.ID))
+	if key == "" || len(key) > 256 || catalog.ValidateEditableSkillID(key) != nil || request.Pinned == nil {
+		return api.AgentSkillsResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "id and pinned are required")
 	}
 	if *request.Pinned && !s.knownPinnableSkill(key) {
 		return api.AgentSkillsResponse{}, newAgentStatusError(http.StatusNotFound, "skill_not_found", "skill is not available")
@@ -144,36 +144,36 @@ func (s *Server) updateAgentSkillPin(ctx context.Context, request api.UpdateAgen
 	return response, err
 }
 
-func (s *Server) knownPinnableSkill(key string) bool {
-	if s.deps.Registry == nil || connector.IsReservedSkill(key) {
+func (s *Server) knownPinnableSkill(id string) bool {
+	if s.deps.Registry == nil || connector.IsReservedSkill(id) {
 		return false
 	}
 	if registry, err := s.adminSkillRegistry(); err == nil {
-		if _, found, err := registry.AdminSkill(key); err == nil && found {
+		if _, found, err := registry.AdminSkill(id); err == nil && found {
 			return true
 		}
 		// Package IDs are presentation pins, never executable SkillDefinitions.
 		// Reuse the live package scan so missing or invalid packages cannot be pinned.
 		if packages, err := registry.EditableSkillPackages(); err == nil {
 			for _, pkg := range packages {
-				if strings.EqualFold(pkg.ID, key) {
+				if strings.EqualFold(pkg.ID, id) {
 					return true
 				}
 			}
 		}
 	}
 	for _, skill := range s.deps.Registry.Skills("") {
-		if strings.EqualFold(strings.TrimSpace(skill.Key), key) {
+		if strings.EqualFold(strings.TrimSpace(skill.ID), id) {
 			return true
 		}
 	}
 	for _, agent := range s.deps.Registry.Agents("all") {
 		definition, ok := s.deps.Registry.AgentDefinition(agent.Key)
-		if !ok || definition.IsConnectorSkill(key) {
+		if !ok || definition.IsConnectorSkill(id) {
 			continue
 		}
 		for _, configured := range definition.Skills {
-			if strings.EqualFold(strings.TrimSpace(configured), key) {
+			if strings.EqualFold(strings.TrimSpace(configured), id) {
 				return true
 			}
 		}

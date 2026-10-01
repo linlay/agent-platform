@@ -17,13 +17,13 @@ type EditableSkillImportMutation struct{ *EditableSkillPackageMutation }
 // PreparedEditableSkill owns a validated, unpublished candidate. Close must be
 // called even when publication is rejected. It is not safe for concurrent use.
 type PreparedEditableSkill struct {
-	registry              *FileRegistry
-	key, stage, candidate string
+	registry             *FileRegistry
+	id, stage, candidate string
 }
 
 func (p *PreparedEditableSkill) Close() { _ = os.RemoveAll(p.stage) }
 
-func (r *FileRegistry) PrepareEditableSkillArchive(key string, source io.ReaderAt, size int64) (*PreparedEditableSkill, error) {
+func (r *FileRegistry) PrepareEditableSkillArchive(id string, source io.ReaderAt, size int64) (*PreparedEditableSkill, error) {
 	if r == nil {
 		return nil, fmt.Errorf("skill registry is not configured")
 	}
@@ -31,8 +31,8 @@ func (r *FileRegistry) PrepareEditableSkillArchive(key string, source io.ReaderA
 	if root == "" {
 		return nil, fmt.Errorf("skills center directory is not configured")
 	}
-	key = strings.TrimSpace(key)
-	if err := ValidateEditableSkillKey(key); err != nil {
+	id = strings.TrimSpace(id)
+	if err := ValidateEditableSkillID(id); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(filepath.Clean(root)), 0o755); err != nil {
@@ -48,9 +48,9 @@ func (r *FileRegistry) PrepareEditableSkillArchive(key string, source io.ReaderA
 			_ = os.RemoveAll(stage)
 		}
 	}()
-	if strings.Contains(key, "/") {
+	if strings.Contains(id, "/") {
 		// Candidate validation uses the same package boundary as live editing.
-		packageID := strings.SplitN(key, "/", 2)[0]
+		packageID := strings.SplitN(id, "/", 2)[0]
 		manifest, err := ReadSkillPackageManifest(filepath.Join(root, packageID))
 		if err != nil {
 			return nil, err
@@ -66,13 +66,13 @@ func (r *FileRegistry) PrepareEditableSkillArchive(key string, source io.ReaderA
 			return nil, err
 		}
 	}
-	candidate, err := importEditableSkillArchiveIntoRoot(stage, key, source, size)
+	candidate, err := importEditableSkillArchiveIntoRoot(stage, id, source, size)
 	if err != nil {
 		return nil, err
 	}
 	// Validate both the archive and its catalog interpretation before touching
 	// the installed directory, including skill.json and all runtime metadata.
-	item, err := buildAdminSkill(stage, key, nil, true)
+	item, err := buildAdminSkill(stage, id, nil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -84,11 +84,11 @@ func (r *FileRegistry) PrepareEditableSkillArchive(key string, source io.ReaderA
 		return nil, &SkillArchiveValidationError{Diagnostics: diagnostics}
 	}
 	keep = true
-	return &PreparedEditableSkill{registry: r, key: key, stage: stage, candidate: candidate}, nil
+	return &PreparedEditableSkill{registry: r, id: id, stage: stage, candidate: candidate}, nil
 }
 
-func (r *FileRegistry) BeginImportEditableSkillArchive(key string, source io.ReaderAt, size int64, overwrite bool) (*EditableSkillImportMutation, AdminSkill, error) {
-	prepared, err := r.PrepareEditableSkillArchive(key, source, size)
+func (r *FileRegistry) BeginImportEditableSkillArchive(id string, source io.ReaderAt, size int64, overwrite bool) (*EditableSkillImportMutation, AdminSkill, error) {
+	prepared, err := r.PrepareEditableSkillArchive(id, source, size)
 	if err != nil {
 		return nil, AdminSkill{}, err
 	}
@@ -99,7 +99,7 @@ func (r *FileRegistry) BeginImportEditableSkillArchive(key string, source io.Rea
 // Begin rechecks the installed destination while the caller holds publication
 // coordination. All expensive extraction and static validation already finished.
 func (p *PreparedEditableSkill) Begin(overwrite bool) (*EditableSkillImportMutation, AdminSkill, error) {
-	r, key, stage, candidate := p.registry, p.key, p.stage, p.candidate
+	r, key, stage, candidate := p.registry, p.id, p.stage, p.candidate
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	r.skillPackageMu.Lock()
 	owned := false
@@ -167,7 +167,7 @@ func (p *PreparedEditableSkill) Begin(overwrite bool) (*EditableSkillImportMutat
 // EditableSkillDeleteMutation keeps the removed source until reload succeeds.
 type EditableSkillDeleteMutation struct{ *EditableSkillPackageMutation }
 
-func (r *FileRegistry) BeginDeleteEditableSkill(key string) (*EditableSkillDeleteMutation, error) {
+func (r *FileRegistry) BeginDeleteEditableSkill(id string) (*EditableSkillDeleteMutation, error) {
 	if r == nil {
 		return nil, fmt.Errorf("skill registry is not configured")
 	}
@@ -175,12 +175,12 @@ func (r *FileRegistry) BeginDeleteEditableSkill(key string) (*EditableSkillDelet
 	if root == "" {
 		return nil, fmt.Errorf("skills center directory is not configured")
 	}
-	key = strings.TrimSpace(key)
-	if err := ValidateEditableSkillKey(key); err != nil {
+	id = strings.TrimSpace(id)
+	if err := ValidateEditableSkillID(id); err != nil {
 		return nil, err
 	}
-	if packageID, _, nested := strings.Cut(key, "/"); nested {
-		mutation, _, _, err := r.BeginDeleteEditableSkillPackageSkill(packageID, key)
+	if packageID, _, nested := strings.Cut(id, "/"); nested {
+		mutation, _, _, err := r.BeginDeleteEditableSkillPackageSkill(packageID, id)
 		if err != nil {
 			return nil, err
 		}
@@ -206,7 +206,7 @@ func (r *FileRegistry) BeginDeleteEditableSkill(key string) (*EditableSkillDelet
 	if !rootInfo.IsDir() {
 		return nil, ErrInvalidSkillPath
 	}
-	dir, err := editableSkillDir(root, key)
+	dir, err := editableSkillDir(root, id)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +232,7 @@ func (r *FileRegistry) BeginDeleteEditableSkill(key string) (*EditableSkillDelet
 	}
 	mutation := &EditableSkillDeleteMutation{&EditableSkillPackageMutation{root: root, backupRoot: backup, unlock: r.skillPackageMu.Unlock}}
 	owned = true
-	if err := mutation.backupSkill(key); err != nil {
+	if err := mutation.backupSkill(id); err != nil {
 		return nil, errors.Join(err, mutation.Rollback())
 	}
 	return mutation, nil

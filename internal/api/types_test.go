@@ -40,7 +40,7 @@ func TestQueryRequestUsesMustUseSkills(t *testing.T) {
 	}
 }
 
-func TestQueryRequestRejectsRemovedRequiredSkillKeys(t *testing.T) {
+func TestQueryRequestRejectsRemovedRequiredSkillIDs(t *testing.T) {
 	var request QueryRequest
 	err := json.Unmarshal([]byte(`{"message":"hi","requiredSkillKeys":[]}`), &request)
 	if !errors.Is(err, ErrRequiredSkillKeysRemoved) {

@@ -1112,7 +1112,7 @@ func TestSkillsSummaryIncludesSafeMetadataAndTagMatchesTriggers(t *testing.T) {
 	registry := &FileRegistry{
 		skills: map[string]SkillDefinition{
 			"minimax-docx": {
-				Key:             "minimax-docx",
+				ID:              "minimax-docx",
 				Name:            "minimax-docx",
 				Description:     "DOCX processor",
 				Triggers:        []string{"报告", "docx"},

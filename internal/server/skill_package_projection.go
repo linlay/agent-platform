@@ -40,7 +40,7 @@ func (s *Server) listSkillPackageSummaries() ([]api.AdminSkillPackageResponse, e
 	}
 	ready := make(map[string]bool, len(installed))
 	for _, skill := range installed {
-		ready[skill.Key] = skill.Status == catalog.AdminSkillStatusReady
+		ready[skill.ID] = skill.Status == catalog.AdminSkillStatusReady
 	}
 	for _, record := range records {
 		summary := adminSkillPackageResponse(record)
@@ -66,8 +66,8 @@ func (s *Server) listAgentSkillPackages() ([]api.AgentSkillPackageResponse, erro
 	}
 	available := make(map[string]bool)
 	for _, skill := range s.deps.Registry.Skills("") {
-		if !connector.IsReservedSkill(skill.Key) {
-			available[skill.Key] = true
+		if !connector.IsReservedSkill(skill.ID) {
+			available[skill.ID] = true
 		}
 	}
 	result := make([]api.AgentSkillPackageResponse, 0, len(packages))

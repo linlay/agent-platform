@@ -45,22 +45,22 @@ func (s *Server) updateConnectorOrder(ctx context.Context, request api.UpdateCon
 	if err != nil {
 		return api.ConnectorOrderResponse{}, err
 	}
-	key := strings.ToLower(strings.TrimSpace(request.Key))
-	if !connector.ValidID(key) || len(key) > 256 || request.Pinned == nil {
-		return api.ConnectorOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "key and pinned are required")
+	id := strings.ToLower(strings.TrimSpace(request.ID))
+	if !connector.ValidID(id) || len(id) > 256 || request.Pinned == nil {
+		return api.ConnectorOrderResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "id and pinned are required")
 	}
-	if *request.Pinned && !s.knownPinnableConnector(key) {
+	if *request.Pinned && !s.knownPinnableConnector(id) {
 		return api.ConnectorOrderResponse{}, newAgentStatusError(http.StatusNotFound, "connector_not_found", "connector is not available")
 	}
-	state, err := s.connectorOrder.SetPinned(user, key, *request.Pinned)
+	state, err := s.connectorOrder.SetPinned(user, id, *request.Pinned)
 	return connectorOrderResponse(state), err
 }
 
-func (s *Server) knownPinnableConnector(key string) bool {
-	if !connector.ValidID(key) {
+func (s *Server) knownPinnableConnector(id string) bool {
+	if !connector.ValidID(id) {
 		return false
 	}
-	_, err := s.connectorSources().Load(key)
+	_, err := s.connectorSources().Load(id)
 	return err == nil
 }
 
@@ -75,15 +75,15 @@ func connectorOrderResponse(state catalogorder.OrderState) api.ConnectorOrderRes
 	return response
 }
 
-// Empty payload reads; key+pinned sets the explicit state. Identity always
-// comes from the authenticated connection, never a client-supplied user key.
+// Empty payload reads; id+pinned sets the explicit state. Identity always
+// comes from the authenticated connection, never a client-supplied user id.
 func (s *Server) wsConnectorOrder(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	request, err := ws.DecodePayload[api.UpdateConnectorOrderRequest](req)
 	if err != nil {
 		s.sendAgentWSResponse(conn, req, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
 		return
 	}
-	if request.Key == "" && request.Pinned == nil {
+	if request.ID == "" && request.Pinned == nil {
 		response, readErr := s.readConnectorOrder(ctx)
 		s.sendAgentWSResponse(conn, req, response, readErr)
 		return

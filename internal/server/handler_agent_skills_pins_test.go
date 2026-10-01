@@ -35,7 +35,7 @@ func TestAgentSkillPinsHTTPUserIsolationAndValidation(t *testing.T) {
 		}
 		return response.Data
 	}
-	request("alice", "PUT", `{"key":"center-extra","pinned":true}`, 200)
+	request("alice", "PUT", `{"id":"center-extra","pinned":true}`, 200)
 	state := request("alice", "GET", "", 200)
 	if !reflect.DeepEqual(state.Pinned, []string{"center-extra"}) {
 		t.Fatalf("order: %#v", state)
@@ -43,12 +43,12 @@ func TestAgentSkillPinsHTTPUserIsolationAndValidation(t *testing.T) {
 	if other := request("bob", "GET", "", 200); len(other.Pinned) != 0 {
 		t.Fatalf("cross-user leak: %#v", other)
 	}
-	for _, body := range []string{`{}`, `{"key":"mock-skill"}`, `{"key":"../escape","pinned":true}`, `{"key":"mock-skill","pinned":"yes"}`} {
+	for _, body := range []string{`{}`, `{"id":"mock-skill"}`, `{"id":"../escape","pinned":true}`, `{"id":"mock-skill","pinned":"yes"}`} {
 		request("alice", "PUT", body, 400)
 	}
-	request("alice", "PUT", `{"key":"missing","pinned":true}`, 404)
-	request("alice", "PUT", `{"key":"private-skill","pinned":true}`, 200)
-	request("alice", "PUT", `{"key":"center-extra","pinned":false}`, 200)
+	request("alice", "PUT", `{"id":"missing","pinned":true}`, 404)
+	request("alice", "PUT", `{"id":"private-skill","pinned":true}`, 200)
+	request("alice", "PUT", `{"id":"center-extra","pinned":false}`, 200)
 	if got := request("alice", "GET", "", 200); !reflect.DeepEqual(got.Pinned, []string{"private-skill"}) {
 		t.Fatalf("unpin: %#v", got)
 	}
@@ -67,7 +67,7 @@ func TestAgentSkillPinsWebSocketUsesSameStore(t *testing.T) {
 	}
 	defer conn.Close()
 	readConnectedPush(t, conn)
-	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: "pin", Payload: marshalPayload(map[string]any{"key": "center-extra", "pinned": true})}); err != nil {
+	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: "pin", Payload: marshalPayload(map[string]any{"id": "center-extra", "pinned": true})}); err != nil {
 		t.Fatal(err)
 	}
 	response := waitForWebSocketResponseData[api.AgentSkillsResponse](t, conn, "pin")
@@ -102,7 +102,7 @@ func TestAgentSkillPinsAllowsInvalidInstalledCenterSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest("PUT", "/api/skills", strings.NewReader(`{"key":"broken-skill","pinned":true}`)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest("PUT", "/api/skills", strings.NewReader(`{"id":"broken-skill","pinned":true}`)))
 	if rec.Code != 200 {
 		t.Fatalf("pin installed invalid skill: %d %s", rec.Code, rec.Body.String())
 	}
@@ -116,13 +116,13 @@ func TestAgentSkillPinsMethodsValidationAndGlobalScope(t *testing.T) {
 	}{
 		{"POST", "/api/skills", "", 405},
 		{"GET", "/api/skills/order", "", 404},
-		{"PUT", "/api/skills", `{"key":"","pinned":true}`, 400},
-		{"PUT", "/api/skills", `{"key":"mock-skill","pinned":null}`, 400},
+		{"PUT", "/api/skills", `{"id":"","pinned":true}`, 400},
+		{"PUT", "/api/skills", `{"id":"mock-skill","pinned":null}`, 400},
 		{"PUT", "/api/skills", `{`, 400},
-		{"PUT", "/api/skills", `{"key":"missing","pinned":false}`, 200},
-		{"PUT", "/api/skills?agentKey=missing", `{"key":"center-extra","pinned":true,"agentKey":"missing"}`, 200},
-		{"PUT", "/api/skills", `{"key":"mock-skill","pinned":true}`, 200},
-		{"PUT", "/api/skills", `{"key":"center-extra","pinned":true}`, 200},
+		{"PUT", "/api/skills", `{"id":"missing","pinned":false}`, 200},
+		{"PUT", "/api/skills?agentKey=missing", `{"id":"center-extra","pinned":true,"agentKey":"missing"}`, 200},
+		{"PUT", "/api/skills", `{"id":"mock-skill","pinned":true}`, 200},
+		{"PUT", "/api/skills", `{"id":"center-extra","pinned":true}`, 200},
 	} {
 		rec := httptest.NewRecorder()
 		f.server.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body)))
@@ -143,7 +143,7 @@ func TestAgentSkillPinsMethodsValidationAndGlobalScope(t *testing.T) {
 	bindTestRuntime(f.server)
 	for _, method := range []string{"GET", "PUT"} {
 		rec := httptest.NewRecorder()
-		f.server.handleAgentSkills(rec, httptest.NewRequest(method, "/api/skills", strings.NewReader(`{"key":"mock-skill","pinned":true}`)))
+		f.server.handleAgentSkills(rec, httptest.NewRequest(method, "/api/skills", strings.NewReader(`{"id":"mock-skill","pinned":true}`)))
 		if rec.Code != 401 {
 			t.Fatalf("auth %s: %d", method, rec.Code)
 		}
@@ -160,7 +160,7 @@ func TestAgentSkillPinsWebSocketRejectsIncompleteWritesAndRemovedRoute(t *testin
 	}
 	defer conn.Close()
 	readConnectedPush(t, conn)
-	for _, body := range []string{`{"key":null}`, `{"key":"mock-skill"}`, `{"pinned":true}`, `{"key":"","pinned":false}`, `{"key":"mock-skill","pinned":null}`, `{"pinned":"yes"}`} {
+	for _, body := range []string{`{"id":null}`, `{"id":"mock-skill"}`, `{"pinned":true}`, `{"id":"","pinned":false}`, `{"id":"mock-skill","pinned":null}`, `{"pinned":"yes"}`} {
 		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: "invalid", Payload: json.RawMessage(body)}); err != nil {
 			t.Fatal(err)
 		}

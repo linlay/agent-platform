@@ -16,9 +16,9 @@ import (
 	"agent-platform/internal/config"
 )
 
-func writeAgentSkillIconPNG(t *testing.T, root, key string, shade uint8) {
+func writeAgentSkillIconPNG(t *testing.T, root, id string, shade uint8) {
 	t.Helper()
-	dir := filepath.Join(root, key, "assets")
+	dir := filepath.Join(root, id, "assets")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func writeAgentSkillIconPNG(t *testing.T, root, key string, shade uint8) {
 	if err := png.Encode(&data, img); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, key+".png"), data.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, id+".png"), data.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -41,15 +41,15 @@ func TestAgentSkillIconUsesRuntimeOrCenterWithoutMixingPrivateSkills(t *testing.
 		rec := httptest.NewRecorder()
 		f.server.ServeHTTP(rec, httptest.NewRequest("GET", skill.Icon, nil))
 		if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/png" {
-			t.Fatalf("icon %s: %d %s", skill.Key, rec.Code, rec.Body.String())
+			t.Fatalf("icon %s: %d %s", skill.ID, rec.Code, rec.Body.String())
 		}
 		root := f.cfg.Paths.SkillsCenterDir
-		expected, err := os.ReadFile(filepath.Join(root, skill.Key, "assets", skill.Key+".png"))
+		expected, err := os.ReadFile(filepath.Join(root, skill.ID, "assets", skill.ID+".png"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(rec.Body.Bytes(), expected) {
-			t.Fatalf("wrong source for %s", skill.Key)
+			t.Fatalf("wrong source for %s", skill.ID)
 		}
 		request := httptest.NewRequest("GET", skill.Icon, nil)
 		request.Header.Set("If-None-Match", rec.Header().Get("ETag"))
@@ -65,14 +65,14 @@ func TestAgentSkillIconUsesRuntimeOrCenterWithoutMixingPrivateSkills(t *testing.
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	f.server.ServeHTTP(rec, httptest.NewRequest("GET", "/api/skills/icon?agentKey=mock-agent&key=private-skill", nil))
+	f.server.ServeHTTP(rec, httptest.NewRequest("GET", "/api/skills/icon?agentKey=mock-agent&id=private-skill", nil))
 	if rec.Code != 404 {
 		t.Fatalf("private icon fallback status %d", rec.Code)
 	}
 	outside := filepath.Join(f.cfg.Paths.SkillsCenterDir, "private-skill", "assets", "private-skill.png")
 	if err := os.Symlink(outside, privateIcon); err == nil {
 		rec = httptest.NewRecorder()
-		f.server.ServeHTTP(rec, httptest.NewRequest("GET", "/api/skills/icon?agentKey=mock-agent&key=private-skill", nil))
+		f.server.ServeHTTP(rec, httptest.NewRequest("GET", "/api/skills/icon?agentKey=mock-agent&id=private-skill", nil))
 		if rec.Code != 404 {
 			t.Fatalf("symlink icon status %d", rec.Code)
 		}
@@ -87,7 +87,7 @@ func TestAgentSkillIconMissingAndInvalidInputs(t *testing.T) {
 	}
 	response := getAPIData[api.AgentSkillsResponse](t, f.server, http.MethodGet, "/api/skills?agentKey=mock-agent", nil)
 	for _, skill := range response.Skills {
-		if skill.Icon != "/api/skills/icon?key="+skill.Key {
+		if skill.Icon != "/api/skills/icon?id="+skill.ID {
 			t.Fatalf("expected global icon despite missing runtime icon: %s", skill.Icon)
 		}
 	}
@@ -95,9 +95,9 @@ func TestAgentSkillIconMissingAndInvalidInputs(t *testing.T) {
 		query  string
 		status int
 	}{
-		{"key=mock-skill", 404}, {"agentKey=mock-agent&key=../secret", 400},
-		{"agentKey=missing&key=mock-skill", 404}, {"agentKey=mock-agent&key=missing", 404},
-		{"agentKey=mock-agent&key=mock-skill", 404},
+		{"id=mock-skill", 404}, {"agentKey=mock-agent&id=../secret", 400},
+		{"agentKey=missing&id=mock-skill", 404}, {"agentKey=mock-agent&id=missing", 404},
+		{"agentKey=mock-agent&id=mock-skill", 404},
 	} {
 		rec := httptest.NewRecorder()
 		f.server.ServeHTTP(rec, httptest.NewRequest("GET", "/api/skills/icon?"+item.query, nil))
@@ -123,7 +123,7 @@ func TestAgentSkillIconSVGContentAndSafety(t *testing.T) {
 			t.Fatal(err)
 		}
 	}})
-	url := "/api/skills/icon?key=mock-skill"
+	url := "/api/skills/icon?id=mock-skill"
 	rec := httptest.NewRecorder()
 	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/svg+xml" || rec.Body.String() != icon {

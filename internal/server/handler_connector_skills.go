@@ -24,7 +24,7 @@ func (s *Server) handleConnectorSkills(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnectorSkillDetail(w http.ResponseWriter, r *http.Request) {
-	detail, err := catalog.ReadConnectorSkill(s.connectorSources(), r.URL.Query().Get("id"), r.URL.Query().Get("name"))
+	detail, err := catalog.ReadConnectorSkill(s.connectorSources(), r.URL.Query().Get("id"), r.URL.Query().Get("skillId"))
 	if err != nil {
 		s.writeConnectorSkillError(w, err)
 		return

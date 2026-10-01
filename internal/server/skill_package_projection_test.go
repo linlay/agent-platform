@@ -24,7 +24,7 @@ func writeProjectionPackage(t *testing.T, fixture testFixture, ids ...string) {
 	}
 	members := make([]map[string]string, 0, len(ids))
 	for _, id := range ids {
-		members = append(members, map[string]string{"key": id})
+		members = append(members, map[string]string{"id": id})
 	}
 	manifest, _ := json.Marshal(map[string]any{"name": "office", "displayName": "Office 工具", "skills": members})
 	if err := os.WriteFile(filepath.Join(root, "package.json"), manifest, 0644); err != nil {
@@ -53,14 +53,14 @@ func TestSkillPackageProjectionTracksDiskAndPreservesOwnership(t *testing.T) {
 	summaries := getAPIData[[]api.AdminSkillSummary](t, f.server, "GET", "/api/admin/skills", nil)
 	for _, item := range summaries {
 		want := ""
-		if item.Key == "office/mock-skill" || item.Key == "office/center-extra" {
+		if item.ID == "office/mock-skill" || item.ID == "office/center-extra" {
 			want = "office"
 		}
 		if item.PackageID != want {
 			t.Fatalf("summary=%+v", item)
 		}
 	}
-	detail := getAPIData[api.AdminSkillDetailResponse](t, f.server, "GET", "/api/admin/skills/detail?key=office%2Fcenter-extra", nil)
+	detail := getAPIData[api.AdminSkillDetailResponse](t, f.server, "GET", "/api/admin/skills/detail?id=office%2Fcenter-extra", nil)
 	if detail.Skill.PackageID != "office" {
 		t.Fatalf("detail=%+v", detail.Skill)
 	}
@@ -100,7 +100,7 @@ func TestSkillPackageProjectionHTTPWebSocketPinParity(t *testing.T) {
 	f := newAgentSkillsTestFixture(t, true)
 	writeProjectionPackage(t, f, "center-extra")
 	expected := getAPIData[api.AgentSkillsResponse](t, f.server, "GET", "/api/skills", nil)
-	pinned := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"key":"office/center-extra","pinned":true}`))
+	pinned := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"id":"office/center-extra","pinned":true}`))
 	if !reflect.DeepEqual(pinned.Packages, expected.Packages) {
 		t.Fatalf("HTTP pin loses packages: %+v", pinned)
 	}
@@ -117,7 +117,7 @@ func TestSkillPackageProjectionHTTPWebSocketPinParity(t *testing.T) {
 		payload map[string]any
 	}{
 		{"list", map[string]any{}},
-		{"pin", map[string]any{"key": "office/center-extra", "pinned": false}},
+		{"pin", map[string]any{"id": "office/center-extra", "pinned": false}},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: tc.id, Payload: marshalPayload(tc.payload)}); err != nil {
 			t.Fatal(err)

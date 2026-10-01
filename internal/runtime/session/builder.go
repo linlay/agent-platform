@@ -15,7 +15,7 @@ import (
 type Catalog interface {
 	AgentDefinition(string) (catalog.AgentDefinition, bool)
 	AgentDigests() []contracts.AgentDigest
-	SkillKeys() []string
+	SkillIDs() []string
 	SkillDefinition(string) (catalog.SkillDefinition, bool)
 }
 

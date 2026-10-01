@@ -11,8 +11,8 @@ import (
 )
 
 // Prefer assets/icon.svg or icon.png, while accepting legacy key-based names.
-func skillIconPath(skillDir, key string) string {
-	rel, err := resolveAdminSkillIcon(skillDir, key)
+func skillIconPath(skillDir, id string) string {
+	rel, err := resolveAdminSkillIcon(skillDir, id)
 	if err != nil || rel == "" {
 		return ""
 	}
@@ -87,8 +87,8 @@ func skillPackageIconName(root string) string {
 	return ""
 }
 
-func (r *FileRegistry) ReadSkillPackageIcon(key string) ([]byte, string, error) {
-	if err := ValidateSkillPackageID(key); err != nil {
+func (r *FileRegistry) ReadSkillPackageIcon(id string) ([]byte, string, error) {
+	if err := ValidateSkillPackageID(id); err != nil {
 		return nil, "", err
 	}
 	r.skillPackageMu.Lock()
@@ -97,14 +97,14 @@ func (r *FileRegistry) ReadSkillPackageIcon(key string) ([]byte, string, error) 
 	if root == "" {
 		return nil, "", os.ErrNotExist
 	}
-	_, _, exists, err := readSkillPackageRecord(root, key)
+	_, _, exists, err := readSkillPackageRecord(root, id)
 	if err != nil {
 		return nil, "", err
 	}
 	if !exists {
 		return nil, "", os.ErrNotExist
 	}
-	dir := filepath.Join(root, key)
+	dir := filepath.Join(root, id)
 	name := skillPackageIconName(dir)
 	if name == "" {
 		return nil, "", os.ErrNotExist

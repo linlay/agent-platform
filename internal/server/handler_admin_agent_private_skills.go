@@ -57,9 +57,9 @@ func (s *Server) handleAdminAgentPrivateSkillImport(w http.ResponseWriter, r *ht
 		s.writeAgentHTTPResponse(w, nil, mapPrivateSkillEditError(catalog.ErrSkillArchiveUploadTooLarge))
 		return
 	}
-	key := strings.TrimSpace(r.FormValue("key"))
+	key := strings.TrimSpace(r.FormValue("id"))
 	if key == "" {
-		key, err = catalog.DetectEditableSkillArchiveKey(file, header.Size)
+		key, err = catalog.DetectEditableSkillArchiveID(file, header.Size)
 		if err != nil {
 			s.writeAgentHTTPResponse(w, nil, mapPrivateSkillEditError(err))
 			return
@@ -75,18 +75,18 @@ func (s *Server) handleAdminAgentPrivateSkillDelete(w http.ResponseWriter, r *ht
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
 		return
 	}
-	response, err := s.deleteAdminAgentPrivateSkill(r.Context(), req.AgentKey, req.Key)
+	response, err := s.deleteAdminAgentPrivateSkill(r.Context(), req.AgentKey, req.ID)
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) importAdminAgentPrivateSkill(ctx context.Context, agentKey, key string, source io.ReaderAt, size int64) (api.AdminAgentDetailResponse, error) {
+func (s *Server) importAdminAgentPrivateSkill(ctx context.Context, agentKey, id string, source io.ReaderAt, size int64) (api.AdminAgentDetailResponse, error) {
 	unlock := s.adminSources.LockAgentMutation()
 	defer unlock()
 	editor, err := s.adminAgentPrivateSkillEditor()
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, err
 	}
-	mutation, err := editor.BeginImportEditableAgentPrivateSkillArchive(agentKey, key, source, size)
+	mutation, err := editor.BeginImportEditableAgentPrivateSkillArchive(agentKey, id, source, size)
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, mapPrivateSkillEditError(err)
 	}
@@ -120,14 +120,14 @@ func (s *Server) importAdminAgentPrivateSkill(ctx context.Context, agentKey, key
 	return s.adminAgentDetail(strings.TrimSpace(agentKey))
 }
 
-func (s *Server) deleteAdminAgentPrivateSkill(ctx context.Context, agentKey, key string) (api.AdminAgentDetailResponse, error) {
+func (s *Server) deleteAdminAgentPrivateSkill(ctx context.Context, agentKey, id string) (api.AdminAgentDetailResponse, error) {
 	unlock := s.adminSources.LockAgentMutation()
 	defer unlock()
 	editor, err := s.adminAgentPrivateSkillEditor()
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, err
 	}
-	mutation, err := editor.BeginDeleteEditableAgentPrivateSkill(agentKey, key)
+	mutation, err := editor.BeginDeleteEditableAgentPrivateSkill(agentKey, id)
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, mapPrivateSkillEditError(err)
 	}

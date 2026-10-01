@@ -58,7 +58,7 @@ func TestNestedPackageMinimalManifestAndDeclaredMembers(t *testing.T) {
 			if e := json.Unmarshal(raw, &m); e != nil {
 				t.Fatal(e)
 			}
-			if got := m["skills"].([]any); len(got) != 1 || got[0].(map[string]any)["key"] != "calendar" {
+			if got := m["skills"].([]any); len(got) != 1 || got[0].(map[string]any)["id"] != "calendar" {
 				t.Fatalf("members=%v", got)
 			}
 			if len(m) != 2 {

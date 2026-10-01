@@ -15,7 +15,7 @@ func TestSkillPackageRootIcon(t *testing.T) {
 	f := newAgentSkillsTestFixture(t, false)
 	writeProjectionPackage(t, f, "doc")
 	root := filepath.Join(f.cfg.Paths.SkillsCenterDir, "office")
-	url := "/api/skill-packages/icon?key=office"
+	url := "/api/skill-packages/icon?id=office"
 	request := func(status int, mediaType string) *httptest.ResponseRecorder {
 		t.Helper()
 		rec := httptest.NewRecorder()
@@ -82,9 +82,9 @@ func TestSkillPackageRootIcon(t *testing.T) {
 	}
 	request(404, "")
 	for _, key := range []string{"..%2Foffice", "office%2Fdoc"} {
-		url = "/api/skill-packages/icon?key=" + key
+		url = "/api/skill-packages/icon?id=" + key
 		request(400, "")
 	}
-	url = "/api/skill-packages/icon?key=missing"
+	url = "/api/skill-packages/icon?id=missing"
 	request(404, "")
 }

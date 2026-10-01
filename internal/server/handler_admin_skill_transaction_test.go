@@ -46,7 +46,7 @@ func TestAdminSkillTransactionCASAndFullSnapshot(t *testing.T) {
 	archive := func(description string) []byte {
 		return serverSkillImportZIP(t, map[string]string{"SKILL.md": "---\nname: cas-skill\ndescription: " + description + "\n---\n\nText.\n", "skill.json": "{}", ".runtime-env.json": "{}", "refs/data.txt": "data"})
 	}
-	missing := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "snapshot"}, 200)
+	missing := call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "snapshot"}, 200)
 	if missing.Exists || missing.Revision != "missing" {
 		t.Fatalf("missing snapshot: %#v", missing)
 	}
@@ -54,8 +54,8 @@ func TestAdminSkillTransactionCASAndFullSnapshot(t *testing.T) {
 	if got := counter.count.Load(); got != 0 {
 		t.Fatalf("snapshot caused %d reloads", got)
 	}
-	a := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", ExpectedRevision: missing.Revision, Archive: archive("A")}, 200)
-	snapshot := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "snapshot"}, 200)
+	a := call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "replace", ExpectedRevision: missing.Revision, Archive: archive("A")}, 200)
+	snapshot := call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "snapshot"}, 200)
 	if snapshot.Revision != a.Revision || len(snapshot.Archive) == 0 {
 		t.Fatalf("snapshot mismatch: %#v", snapshot)
 	}
@@ -72,20 +72,20 @@ func TestAdminSkillTransactionCASAndFullSnapshot(t *testing.T) {
 			t.Fatalf("snapshot omitted %s", name)
 		}
 	}
-	b := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", ExpectedRevision: a.Revision, Archive: archive("B")}, 200)
-	call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", ExpectedRevision: a.Revision, Archive: snapshot.Archive}, 409)
-	call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "delete", ExpectedRevision: a.Revision}, 409)
-	call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", Archive: archive("C")}, 400)
-	deleted := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "delete", ExpectedRevision: b.Revision}, 200)
+	b := call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "replace", ExpectedRevision: a.Revision, Archive: archive("B")}, 200)
+	call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "replace", ExpectedRevision: a.Revision, Archive: snapshot.Archive}, 409)
+	call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "delete", ExpectedRevision: a.Revision}, 409)
+	call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "replace", Archive: archive("C")}, 400)
+	deleted := call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "delete", ExpectedRevision: b.Revision}, 200)
 	if deleted.Exists || deleted.Revision != "missing" {
 		t.Fatalf("delete: %#v", deleted)
 	}
-	c := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", ExpectedRevision: "missing", Archive: archive("C")}, 200)
-	call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "delete", ExpectedRevision: "missing"}, 409)
-	call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", ExpectedRevision: "missing", Archive: archive("A")}, 409)
-	call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "delete", ExpectedRevision: b.Revision}, 409)
+	c := call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "replace", ExpectedRevision: "missing", Archive: archive("C")}, 200)
+	call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "delete", ExpectedRevision: "missing"}, 409)
+	call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "replace", ExpectedRevision: "missing", Archive: archive("A")}, 409)
+	call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "delete", ExpectedRevision: b.Revision}, 409)
 	// A complete prior ZIP can be restored only against the actual committed revision.
-	restored := call(adminSkillTransactionRequest{Key: "cas-skill", Operation: "replace", ExpectedRevision: c.Revision, Archive: snapshot.Archive}, 200)
+	restored := call(adminSkillTransactionRequest{ID: "cas-skill", Operation: "replace", ExpectedRevision: c.Revision, Archive: snapshot.Archive}, 200)
 	if restored.Revision != a.Revision {
 		t.Fatalf("round trip revision changed: %s != %s", restored.Revision, a.Revision)
 	}
@@ -98,8 +98,8 @@ func TestAdminSkillTransactionCASAndFullSnapshot(t *testing.T) {
 func TestAdminSkillTransactionRejectsTrailingJSON(t *testing.T) {
 	f := newTestFixture(t)
 	for _, body := range []string{
-		`{"key":"demo","operation":"snapshot"} {"key":"other"}`,
-		`{"key":"demo","operation":"replace","expectedRevision":"missing","archiveBase64":"!!!"}`,
+		`{"id":"demo","operation":"snapshot"} {"id":"other"}`,
+		`{"id":"demo","operation":"replace","expectedRevision":"missing","archiveBase64":"!!!"}`,
 	} {
 		rec := httptest.NewRecorder()
 		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/skills/transaction", bytes.NewBufferString(body)))
@@ -115,17 +115,17 @@ func TestAdminSkillTransactionReloadFailureRollsBack(t *testing.T) {
 	archive := func(description string) []byte {
 		return serverSkillImportZIP(t, map[string]string{"SKILL.md": "---\nname: cas-failure\ndescription: " + description + "\n---\n"})
 	}
-	first, err := f.server.transactAdminSkill(ctx, adminSkillTransactionRequest{Key: "cas-failure", Operation: "replace", ExpectedRevision: "missing", Archive: archive("old")})
+	first, err := f.server.transactAdminSkill(ctx, adminSkillTransactionRequest{ID: "cas-failure", Operation: "replace", ExpectedRevision: "missing", Archive: archive("old")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := &failingOnceWatchedRegistry{Registry: f.registry}
 	reg.fail.Store(true)
 	f.server.deps.CatalogReloader = reload.NewRuntimeCatalogReloader(reg, f.modelRegistry, nil, nil, "", nil)
-	if _, err := f.server.transactAdminSkill(ctx, adminSkillTransactionRequest{Key: "cas-failure", Operation: "replace", ExpectedRevision: first.Revision, Archive: archive("new")}); err == nil {
+	if _, err := f.server.transactAdminSkill(ctx, adminSkillTransactionRequest{ID: "cas-failure", Operation: "replace", ExpectedRevision: first.Revision, Archive: archive("new")}); err == nil {
 		t.Fatal("expected reload error")
 	}
-	after, err := f.server.transactAdminSkill(ctx, adminSkillTransactionRequest{Key: "cas-failure", Operation: "snapshot"})
+	after, err := f.server.transactAdminSkill(ctx, adminSkillTransactionRequest{ID: "cas-failure", Operation: "snapshot"})
 	if err != nil || after.Revision != first.Revision {
 		t.Fatalf("rollback mismatch: %#v %v", after, err)
 	}

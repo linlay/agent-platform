@@ -77,6 +77,7 @@ func adminSourceTargetFromQuery(r *http.Request) (api.AdminSourceTarget, error) 
 	return normalizeAdminSourceTarget(api.AdminSourceTarget{
 		Type:     query.Get("type"),
 		Key:      query.Get("key"),
+		ID:       query.Get("id"),
 		Path:     query.Get("path"),
 		Category: query.Get("category"),
 		File:     query.Get("file"),
@@ -89,30 +90,38 @@ func normalizeAdminSourceTarget(target api.AdminSourceTarget) (api.AdminSourceTa
 	}
 	target.Type = strings.ToLower(strings.TrimSpace(target.Type))
 	target.Key = strings.TrimSpace(target.Key)
+	target.ID = strings.TrimSpace(target.ID)
 	target.Path = strings.TrimSpace(target.Path)
 	target.Category = strings.TrimSpace(target.Category)
 	target.File = strings.TrimSpace(target.File)
 
 	switch target.Type {
-	case "agent", "automation", "skill-package":
+	case "agent", "automation":
 		if target.Key == "" {
 			return api.AdminSourceTarget{}, fmt.Errorf("key is required for %s source", target.Type)
 		}
-		if target.Path != "" || target.Category != "" || target.File != "" {
+		if target.ID != "" || target.Path != "" || target.Category != "" || target.File != "" {
 			return api.AdminSourceTarget{}, fmt.Errorf("unexpected target fields for %s source", target.Type)
 		}
-	case "skill":
-		if target.Key == "" || target.Path == "" {
-			return api.AdminSourceTarget{}, fmt.Errorf("key and path are required for skill source")
+	case "skill-package":
+		if target.ID == "" {
+			return api.AdminSourceTarget{}, fmt.Errorf("id is required for skill-package source")
 		}
-		if target.Category != "" || target.File != "" {
+		if target.Key != "" || target.Path != "" || target.Category != "" || target.File != "" {
+			return api.AdminSourceTarget{}, fmt.Errorf("unexpected target fields for skill-package source")
+		}
+	case "skill":
+		if target.ID == "" || target.Path == "" {
+			return api.AdminSourceTarget{}, fmt.Errorf("id and path are required for skill source")
+		}
+		if target.Key != "" || target.Category != "" || target.File != "" {
 			return api.AdminSourceTarget{}, fmt.Errorf("unexpected target fields for skill source")
 		}
 	case "registry":
 		if target.Category == "" || target.File == "" {
 			return api.AdminSourceTarget{}, fmt.Errorf("category and file are required for registry source")
 		}
-		if target.Key != "" || target.Path != "" {
+		if target.ID != "" || target.Key != "" || target.Path != "" {
 			return api.AdminSourceTarget{}, fmt.Errorf("unexpected target fields for registry source")
 		}
 	default:
@@ -250,11 +259,11 @@ func (s *Server) readAdminSkillTextSource(target api.AdminSourceTarget) (api.Adm
 	if err != nil {
 		return api.AdminSourceResponse{}, err
 	}
-	file, err := registry.ReadEditableSkillFile(target.Key, target.Path)
+	file, err := registry.ReadEditableSkillFile(target.ID, target.Path)
 	if err != nil {
 		return api.AdminSourceResponse{}, mapSkillEditError(err)
 	}
-	pathOnDisk, _, err := registry.ResolveEditableSkillFile(target.Key, target.Path)
+	pathOnDisk, _, err := registry.ResolveEditableSkillFile(target.ID, target.Path)
 	if err != nil {
 		return api.AdminSourceResponse{}, mapSkillEditError(err)
 	}
@@ -267,7 +276,7 @@ func (s *Server) writeAdminSkillTextSource(ctx context.Context, target api.Admin
 		return api.AdminSourceResponse{}, err
 	}
 	coordinator, _ := s.deps.CatalogReloader.(adminsource.SkillMutationCoordinator)
-	if _, err := s.adminSources.WriteSkillFile(ctx, registry, target.Key, target.Path, content, "utf-8", baseSHA256, s.reloadAdminSkills, coordinator); err != nil {
+	if _, err := s.adminSources.WriteSkillFile(ctx, registry, target.ID, target.Path, content, "utf-8", baseSHA256, s.reloadAdminSkills, coordinator); err != nil {
 		return api.AdminSourceResponse{}, mapSkillEditError(err)
 	}
 	return s.readAdminSkillTextSource(target)

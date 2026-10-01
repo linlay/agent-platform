@@ -508,7 +508,7 @@ type AdminAgentSummary struct {
 
 type AgentDetailSkill struct {
 	skillmeta.Presentation
-	Key         string `json:"key"`
+	ID          string `json:"id"`
 	Name        string `json:"-"` // Internal fallback; public name is displayName.
 	Description string `json:"description,omitempty"`
 }
@@ -548,6 +548,7 @@ type AgentSource struct {
 // deliberately an identifier-based contract: callers never submit filesystem
 // paths, and each source type resolves its own controlled root.
 type AdminSourceTarget struct {
+	ID       string `json:"id,omitempty"`
 	Type     string `json:"type"`
 	Key      string `json:"key,omitempty"`
 	Path     string `json:"path,omitempty"`
@@ -604,7 +605,7 @@ type AdminAgentDetailResponse struct {
 
 type AdminAgentPrivateSkill struct {
 	skillmeta.Presentation
-	Key             string                 `json:"key"`
+	ID              string                 `json:"id"`
 	Name            string                 `json:"-"` // Internal fallback; public name is displayName.
 	Description     string                 `json:"description,omitempty"`
 	Status          string                 `json:"status"`
@@ -615,7 +616,7 @@ type AdminAgentPrivateSkill struct {
 
 type DeleteAdminAgentPrivateSkillRequest struct {
 	AgentKey string `json:"agentKey"`
-	Key      string `json:"key"`
+	ID       string `json:"id"`
 }
 
 type AdminRegistrySummary struct {
@@ -812,7 +813,7 @@ type UpdateAgentNameRequest struct {
 }
 
 type UpdateAgentSkillPinRequest struct {
-	Key    string `json:"key"`
+	ID     string `json:"id"`
 	Pinned *bool  `json:"pinned"`
 }
 
@@ -912,7 +913,7 @@ type TeamSummary struct {
 
 type SkillSummary struct {
 	skillmeta.Presentation
-	Key         string         `json:"key"`
+	ID          string         `json:"id"`
 	Name        string         `json:"-"` // Internal fallback; public name is displayName.
 	Description string         `json:"description,omitempty"`
 	Meta        map[string]any `json:"meta,omitempty"`
@@ -921,7 +922,7 @@ type SkillSummary struct {
 type AgentSkillResponse struct {
 	skillmeta.Presentation
 	Icon        string `json:"icon,omitempty"`
-	Key         string `json:"key"`
+	ID          string `json:"id"`
 	Name        string `json:"-"` // Internal fallback; public name is displayName.
 	Description string `json:"description,omitempty"`
 	Configured  bool   `json:"configured"`
@@ -950,7 +951,7 @@ type AgentSkillsResponse struct {
 type AdminSkillSummary struct {
 	skillmeta.Presentation
 	PackageID       string                       `json:"packageId,omitempty"`
-	Key             string                       `json:"key"`
+	ID              string                       `json:"id"`
 	Name            string                       `json:"-"` // Internal fallback; public name is displayName.
 	Description     string                       `json:"description,omitempty"`
 	Icon            string                       `json:"icon,omitempty"`
@@ -979,17 +980,17 @@ type AdminSkillInlineFile struct {
 }
 
 type CreateAdminSkillRequest struct {
-	Key     string                 `json:"key"`
+	ID      string                 `json:"id"`
 	SkillMd string                 `json:"skillMd"`
 	Files   []AdminSkillInlineFile `json:"files,omitempty"`
 }
 
 type DeleteAdminSkillRequest struct {
-	Key string `json:"key"`
+	ID string `json:"id"`
 }
 
 type DeleteAdminSkillResponse struct {
-	Key          string   `json:"key"`
+	ID           string   `json:"id"`
 	Deleted      bool     `json:"deleted"`
 	UsedByAgents []string `json:"usedByAgents,omitempty"`
 }
@@ -1023,11 +1024,11 @@ type AdminSkillPackageResponse struct {
 }
 
 type DeleteAdminSkillPackageRequest struct {
-	Key string `json:"key"`
+	ID string `json:"id"`
 }
 
 type DeleteAdminSkillPackageResponse struct {
-	Key     string                   `json:"key"`
+	ID      string                   `json:"id"`
 	Deleted bool                     `json:"deleted"`
 	Skills  []AdminSkillPackageSkill `json:"skills"`
 }
@@ -1046,7 +1047,7 @@ type DeleteAdminSkillPackageSkillResponse struct {
 }
 
 type WriteAdminSkillFileRequest struct {
-	Key        string `json:"key"`
+	ID         string `json:"id"`
 	Path       string `json:"path"`
 	Content    string `json:"content"`
 	Encoding   string `json:"encoding,omitempty"`
@@ -1054,19 +1055,19 @@ type WriteAdminSkillFileRequest struct {
 }
 
 type DeleteAdminSkillFileRequest struct {
-	Key        string `json:"key"`
+	ID         string `json:"id"`
 	Path       string `json:"path"`
 	Recursive  bool   `json:"recursive,omitempty"`
 	BaseSHA256 string `json:"baseSha256,omitempty"`
 }
 
 type MkdirAdminSkillFileRequest struct {
-	Key  string `json:"key"`
+	ID   string `json:"id"`
 	Path string `json:"path"`
 }
 
 type RenameAdminSkillFileRequest struct {
-	Key       string `json:"key"`
+	ID        string `json:"id"`
 	FromPath  string `json:"fromPath"`
 	ToPath    string `json:"toPath"`
 	Overwrite bool   `json:"overwrite,omitempty"`
@@ -1119,7 +1120,7 @@ type AdminSkillFileEntry struct {
 }
 
 type AdminSkillTextFile struct {
-	Key       string `json:"key"`
+	ID        string `json:"id"`
 	Path      string `json:"path"`
 	Content   string `json:"content"`
 	Encoding  string `json:"encoding"`
@@ -1130,14 +1131,14 @@ type AdminSkillTextFile struct {
 }
 
 type CreateAdminSkillFileRequest struct {
-	Key      string `json:"key"`
+	ID       string `json:"id"`
 	Path     string `json:"path"`
 	Content  string `json:"content,omitempty"`
 	Encoding string `json:"encoding,omitempty"`
 }
 
 type AdminSkillMutationResponse struct {
-	Key          string                  `json:"key"`
+	ID           string                  `json:"id"`
 	Action       string                  `json:"action"`
 	SelectedPath string                  `json:"selectedPath,omitempty"`
 	Entry        *AdminSkillFileEntry    `json:"entry,omitempty"`
@@ -1149,11 +1150,11 @@ type AdminSkillMutationResponse struct {
 }
 
 type ValidateAdminSkillRequest struct {
-	Key string `json:"key"`
+	ID string `json:"id"`
 }
 
 type AdminSkillValidateResponse struct {
-	Key         string                 `json:"key"`
+	ID          string                 `json:"id"`
 	Status      string                 `json:"status"`
 	Diagnostics []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
 	UpdatedAt   int64                  `json:"updatedAt,omitempty"`
@@ -1445,6 +1446,6 @@ type ConnectorOrderResponse struct {
 }
 
 type UpdateConnectorOrderRequest struct {
-	Key    string `json:"key"`
+	ID     string `json:"id"`
 	Pinned *bool  `json:"pinned"`
 }

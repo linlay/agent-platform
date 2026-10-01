@@ -932,7 +932,7 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsRemovedRequiredSkillKeysWithExplicitCode(t *testing.T) {
+func TestQueryRejectsRemovedRequiredSkillIDsWithExplicitCode(t *testing.T) {
 	fixture := newTestFixture(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
 		"message":"old field",

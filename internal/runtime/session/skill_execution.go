@@ -36,7 +36,7 @@ func BuildSkillScriptScope(session contracts.QuerySession, def catalog.AgentDefi
 				base = session.RuntimeContext.SandboxPaths.SkillsCenterDir
 			}
 			if base != "" {
-				guest = path.Join(base, skill.Key)
+				guest = path.Join(base, skill.ID)
 			}
 		}
 		roots = append(roots, skillsexec.Root{Host: skill.RootPath, Guest: guest})

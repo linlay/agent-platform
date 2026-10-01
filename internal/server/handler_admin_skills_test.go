@@ -28,9 +28,9 @@ func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 		t.Fatalf("expected mock-skill icon URL, got %#v", mock)
 	}
 
-	detailPath := "/api/admin/skills/detail?key=" + url.QueryEscape("mock-skill") + "&openPath=" + url.QueryEscape("SKILL.md")
+	detailPath := "/api/admin/skills/detail?id=" + url.QueryEscape("mock-skill") + "&openPath=" + url.QueryEscape("SKILL.md")
 	detail := getAPIData[api.AdminSkillDetailResponse](t, fixture.server, http.MethodGet, detailPath, nil)
-	if detail.Skill.Key != "mock-skill" || detail.Skill.Icon == "" || detail.FileManifest.Revision == "" {
+	if detail.Skill.ID != "mock-skill" || detail.Skill.Icon == "" || detail.FileManifest.Revision == "" {
 		t.Fatalf("unexpected detail: %#v", detail)
 	}
 	if detail.FileManifest.DefaultOpenPath != "SKILL.md" || detail.OpenedFile == nil || !strings.Contains(detail.OpenedFile.Content, "# Mock Skill") {
@@ -41,21 +41,21 @@ func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 		t.Fatalf("unexpected SKILL.md entry: %#v", skillEntry)
 	}
 
-	binaryDetailPath := "/api/admin/skills/detail?key=" + url.QueryEscape("mock-skill") + "&openPath=" + url.QueryEscape("assets/logo.bin")
+	binaryDetailPath := "/api/admin/skills/detail?id=" + url.QueryEscape("mock-skill") + "&openPath=" + url.QueryEscape("assets/logo.bin")
 	binaryDetail := getAPIData[api.AdminSkillDetailResponse](t, fixture.server, http.MethodGet, binaryDetailPath, nil)
 	if binaryDetail.OpenedFile != nil {
 		t.Fatalf("binary or missing openPath should not inline content: %#v", binaryDetail.OpenedFile)
 	}
 
 	createBody := mustSkillJSON(t, api.CreateAdminSkillRequest{
-		Key:     "helper-skill",
+		ID:      "helper-skill",
 		SkillMd: "---\nname: Helper Skill\ndescription: Helps tests\n---\n\nUse carefully.\n",
 		Files: []api.AdminSkillInlineFile{
 			{Path: "references/guide.md", Content: "first version\n"},
 		},
 	})
 	created := getAPIData[api.AdminSkillDetailResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/create", createBody)
-	if created.Skill.Key != "helper-skill" || created.Skill.DisplayName != "Helper Skill" || created.Skill.Icon != "" {
+	if created.Skill.ID != "helper-skill" || created.Skill.DisplayName != "Helper Skill" || created.Skill.Icon != "" {
 		t.Fatalf("unexpected create response: %#v", created)
 	}
 	guideEntry := findAdminSkillEntryForTest(created.FileManifest.Entries, "references/guide.md")
@@ -63,14 +63,14 @@ func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 		t.Fatalf("unexpected guide entry: %#v", guideEntry)
 	}
 
-	readPath := "/api/admin/skills/file?key=helper-skill&path=" + url.QueryEscape("references/guide.md")
+	readPath := "/api/admin/skills/file?id=helper-skill&path=" + url.QueryEscape("references/guide.md")
 	read := getAPIData[api.AdminSkillTextFile](t, fixture.server, http.MethodGet, readPath, nil)
 	if read.Content != "first version\n" || read.SHA256 == "" || !read.Editable {
 		t.Fatalf("unexpected file read: %#v", read)
 	}
 
 	writeBody := mustSkillJSON(t, api.WriteAdminSkillFileRequest{
-		Key:        "helper-skill",
+		ID:         "helper-skill",
 		Path:       "references/guide.md",
 		Content:    "second version\n",
 		BaseSHA256: read.SHA256,
@@ -87,7 +87,7 @@ func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 	}
 
 	fileCreateBody := mustSkillJSON(t, api.CreateAdminSkillFileRequest{
-		Key:     "helper-skill",
+		ID:      "helper-skill",
 		Path:    "scripts/helper.py",
 		Content: "print('ok')\n",
 	})
@@ -96,19 +96,19 @@ func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 		t.Fatalf("unexpected file create response: %#v", fileCreated)
 	}
 
-	mkdirBody := mustSkillJSON(t, api.MkdirAdminSkillFileRequest{Key: "helper-skill", Path: "assets"})
+	mkdirBody := mustSkillJSON(t, api.MkdirAdminSkillFileRequest{ID: "helper-skill", Path: "assets"})
 	mkdir := getAPIData[api.AdminSkillMutationResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/file/mkdir", mkdirBody)
 	if mkdir.Action != "mkdir" || mkdir.FileManifest == nil || mkdir.SelectedPath != "assets" {
 		t.Fatalf("unexpected mkdir response: %#v", mkdir)
 	}
 
-	renameBody := mustSkillJSON(t, api.RenameAdminSkillFileRequest{Key: "helper-skill", FromPath: "references/guide.md", ToPath: "references/renamed.md"})
+	renameBody := mustSkillJSON(t, api.RenameAdminSkillFileRequest{ID: "helper-skill", FromPath: "references/guide.md", ToPath: "references/renamed.md"})
 	renamed := getAPIData[api.AdminSkillMutationResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/file/rename", renameBody)
 	if renamed.Action != "rename" || renamed.FileManifest == nil || renamed.SelectedPath != "references/renamed.md" {
 		t.Fatalf("unexpected rename response: %#v", renamed)
 	}
 
-	deleteBody := mustSkillJSON(t, api.DeleteAdminSkillFileRequest{Key: "helper-skill", Path: "scripts/helper.py"})
+	deleteBody := mustSkillJSON(t, api.DeleteAdminSkillFileRequest{ID: "helper-skill", Path: "scripts/helper.py"})
 	deleted := getAPIData[api.AdminSkillMutationResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/file/delete", deleteBody)
 	if deleted.Action != "delete" || deleted.FileManifest == nil || deleted.SelectedPath != "SKILL.md" {
 		t.Fatalf("unexpected delete response: %#v", deleted)
@@ -138,15 +138,15 @@ func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 		t.Fatalf("unexpected icon download status=%d content-type=%q", downloadRec.Code, downloadRec.Header().Get("Content-Type"))
 	}
 
-	deleteIconBody := mustSkillJSON(t, api.DeleteAdminSkillFileRequest{Key: "helper-skill", Path: "assets/helper-skill.png"})
+	deleteIconBody := mustSkillJSON(t, api.DeleteAdminSkillFileRequest{ID: "helper-skill", Path: "assets/helper-skill.png"})
 	deletedIcon := getAPIData[api.AdminSkillMutationResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/file/delete", deleteIconBody)
 	if deletedIcon.Skill == nil || deletedIcon.Skill.Icon != "" {
 		t.Fatalf("expected icon to be omitted after deletion, got %#v", deletedIcon.Skill)
 	}
 
-	validateBody := mustSkillJSON(t, api.ValidateAdminSkillRequest{Key: "helper-skill"})
+	validateBody := mustSkillJSON(t, api.ValidateAdminSkillRequest{ID: "helper-skill"})
 	validated := getAPIData[api.AdminSkillValidateResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/validate", validateBody)
-	if validated.Key != "helper-skill" || validated.Status == "" {
+	if validated.ID != "helper-skill" || validated.Status == "" {
 		t.Fatalf("unexpected validate response: %#v", validated)
 	}
 }
@@ -154,7 +154,7 @@ func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
 func TestDeleteAdminSkillInUseReturnsConflict(t *testing.T) {
 	fixture := newTestFixture(t)
 	rec := httptest.NewRecorder()
-	body := mustSkillJSON(t, api.DeleteAdminSkillRequest{Key: "mock-skill"})
+	body := mustSkillJSON(t, api.DeleteAdminSkillRequest{ID: "mock-skill"})
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/skills/delete", bytes.NewReader(body)))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
@@ -168,9 +168,9 @@ func TestAdminSkillVersionField(t *testing.T) {
 	fixture := newTestFixture(t)
 	createSkill := func(key string, skillMd string) {
 		t.Helper()
-		body := mustSkillJSON(t, api.CreateAdminSkillRequest{Key: key, SkillMd: skillMd})
+		body := mustSkillJSON(t, api.CreateAdminSkillRequest{ID: key, SkillMd: skillMd})
 		created := getAPIData[api.AdminSkillDetailResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/create", body)
-		if created.Skill.Key != key {
+		if created.Skill.ID != key {
 			t.Fatalf("unexpected create response: %#v", created)
 		}
 	}
@@ -188,13 +188,13 @@ func TestAdminSkillVersionField(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, item := range items {
-		expected, ok := want[item.Key]
+		expected, ok := want[item.ID]
 		if !ok {
 			continue
 		}
-		seen[item.Key] = true
+		seen[item.ID] = true
 		if item.Version != expected {
-			t.Fatalf("skill %s Version = %q, want %q", item.Key, item.Version, expected)
+			t.Fatalf("skill %s Version = %q, want %q", item.ID, item.Version, expected)
 		}
 	}
 	for key := range want {
@@ -222,7 +222,7 @@ func TestAdminSkillImportCreatesSkillAndMapsFailures(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode import response: %v", err)
 	}
-	if response.Data.Skill.Key != "imported-skill" || response.Data.Skill.DisplayName != "Imported Skill" || response.Data.OpenedFile == nil {
+	if response.Data.Skill.ID != "imported-skill" || response.Data.Skill.DisplayName != "Imported Skill" || response.Data.OpenedFile == nil {
 		t.Fatalf("unexpected import response: %#v", response.Data)
 	}
 	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "imported-skill", "references", "guide.md")); err != nil {
@@ -299,7 +299,7 @@ func TestAdminSkillImportRollsBackWhenCatalogReloadFails(t *testing.T) {
 func TestAdminSkillDownloadReturnsZipArchive(t *testing.T) {
 	fixture := newTestFixture(t)
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?key=mock-skill", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?id=mock-skill", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected ZIP download 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -328,7 +328,7 @@ func TestAdminSkillDownloadReturnsZipArchive(t *testing.T) {
 	}
 
 	missingSkill := httptest.NewRecorder()
-	fixture.server.ServeHTTP(missingSkill, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?key=missing-skill", nil))
+	fixture.server.ServeHTTP(missingSkill, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?id=missing-skill", nil))
 	if missingSkill.Code != http.StatusNotFound {
 		t.Fatalf("expected missing skill 404, got %d: %s", missingSkill.Code, missingSkill.Body.String())
 	}
@@ -345,7 +345,7 @@ func TestAdminSkillDownloadRejectsOversizedArchive(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?key=mock-skill", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?id=mock-skill", nil))
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("expected ZIP download 413, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -358,16 +358,16 @@ func TestAdminSkillDownloadRejectsOversizedArchive(t *testing.T) {
 	}
 }
 
-func TestAdminSkillDetailRequiresCanonicalKey(t *testing.T) {
+func TestAdminSkillDetailRequiresCanonicalID(t *testing.T) {
 	fixture := newTestFixture(t)
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/detail?skillKey=mock-skill", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/detail?skillID=mock-skill", nil))
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected missing canonical key 400, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected missing canonical id 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "key is required") {
-		t.Fatalf("expected canonical key error, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "id is required") {
+		t.Fatalf("expected canonical id error, got %s", rec.Body.String())
 	}
 
 	rec = httptest.NewRecorder()
@@ -375,14 +375,14 @@ func TestAdminSkillDetailRequiresCanonicalKey(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected missing key 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "key is required") {
+	if !strings.Contains(rec.Body.String(), "id is required") {
 		t.Fatalf("expected missing key error, got %s", rec.Body.String())
 	}
 }
 
-func findAdminSkillSummary(items []api.AdminSkillSummary, key string) *api.AdminSkillSummary {
+func findAdminSkillSummary(items []api.AdminSkillSummary, id string) *api.AdminSkillSummary {
 	for i := range items {
-		if items[i].Key == key {
+		if items[i].ID == id {
 			return &items[i]
 		}
 	}
@@ -407,11 +407,11 @@ func mustSkillJSON(t *testing.T, value any) []byte {
 	return data
 }
 
-func skillUploadBody(t *testing.T, key string, path string, data []byte) (io.Reader, string) {
+func skillUploadBody(t *testing.T, id string, path string, data []byte) (io.Reader, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("key", key); err != nil {
+	if err := writer.WriteField("id", id); err != nil {
 		t.Fatalf("write key field: %v", err)
 	}
 	if err := writer.WriteField("path", path); err != nil {
@@ -455,15 +455,15 @@ func serverSkillImportZIP(t *testing.T, files map[string]string) []byte {
 	return output.Bytes()
 }
 
-func skillImportBody(t *testing.T, key string, filename string, data []byte) (io.Reader, string) {
-	return skillImportBodyWithFileFields(t, key, filename, data, "file")
+func skillImportBody(t *testing.T, id string, filename string, data []byte) (io.Reader, string) {
+	return skillImportBodyWithFileFields(t, id, filename, data, "file")
 }
 
-func skillImportBodyWithFileFields(t *testing.T, key string, filename string, data []byte, fieldNames ...string) (io.Reader, string) {
+func skillImportBodyWithFileFields(t *testing.T, id string, filename string, data []byte, fieldNames ...string) (io.Reader, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("key", key); err != nil {
+	if err := writer.WriteField("id", id); err != nil {
 		t.Fatalf("write import key: %v", err)
 	}
 	for _, fieldName := range fieldNames {

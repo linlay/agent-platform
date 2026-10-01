@@ -38,9 +38,9 @@ func TestNestedSkillsCatalogAndEditorIsolation(t *testing.T) {
 	}
 	keys := []string{}
 	for _, item := range items {
-		keys = append(keys, item.Key)
+		keys = append(keys, item.ID)
 		for _, d := range item.Diagnostics {
-			if d.Code == "skill_name_key_mismatch" {
+			if d.Code == "skill_name_id_mismatch" {
 				t.Fatalf("nested basename misdiagnosed: %+v", d)
 			}
 		}
@@ -73,8 +73,8 @@ func TestNestedSkillImportAndDeleteDoNotAffectStandalone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item.Key != "suite/demo" {
-		t.Fatal(item.Key)
+	if item.ID != "suite/demo" {
+		t.Fatal(item.ID)
 	}
 	if err := mutation.Commit(); err != nil {
 		t.Fatal(err)

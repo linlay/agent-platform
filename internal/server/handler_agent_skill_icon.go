@@ -17,7 +17,7 @@ func agentSkillIconURL(agentKey string, skill catalog.SkillDefinition) string {
 	if skill.IconPath == "" {
 		return ""
 	}
-	params := url.Values{"key": {skill.Key}}
+	params := url.Values{"id": {skill.ID}}
 	if agentKey != "" {
 		params.Set("agentKey", agentKey)
 	}
@@ -25,9 +25,9 @@ func agentSkillIconURL(agentKey string, skill catalog.SkillDefinition) string {
 }
 
 func (s *Server) handleAgentSkillIcon(w http.ResponseWriter, r *http.Request) {
-	key, agentKey := strings.TrimSpace(r.URL.Query().Get("key")), strings.TrimSpace(r.URL.Query().Get("agentKey"))
-	if catalog.ValidateEditableSkillKey(key) != nil {
-		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "a valid skill key is required"))
+	key, agentKey := strings.TrimSpace(r.URL.Query().Get("id")), strings.TrimSpace(r.URL.Query().Get("agentKey"))
+	if catalog.ValidateEditableSkillID(key) != nil {
+		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "a valid skill ID is required"))
 		return
 	}
 	def, found := s.deps.Registry.AgentDefinition(agentKey)
@@ -73,9 +73,9 @@ func serveSkillIcon(w http.ResponseWriter, r *http.Request, data []byte, mediaTy
 }
 
 func (s *Server) handleSkillPackageIcon(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("key")
+	key := r.URL.Query().Get("id")
 	if catalog.ValidateSkillPackageID(key) != nil {
-		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "a valid package key is required"))
+		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "a valid package id is required"))
 		return
 	}
 	registry, ok := s.deps.Registry.(interface {

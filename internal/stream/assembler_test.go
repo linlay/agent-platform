@@ -396,7 +396,7 @@ func TestAssemblerBootstrapIncludesMustUseSkills(t *testing.T) {
 	}
 	keys, ok := payload["mustUseSkills"].([]string)
 	if !ok || len(keys) != 1 || keys[0] != "product-design" {
-		t.Fatalf("required skill keys missing from request.query: %#v", payload)
+		t.Fatalf("required skill IDs missing from request.query: %#v", payload)
 	}
 }
 

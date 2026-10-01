@@ -64,7 +64,7 @@ func TestAdminAgentPrivateSkillImportAndDelete(t *testing.T) {
 		t.Fatalf("private import must not create a center skill: %v", err)
 	}
 
-	deleteBody, err := json.Marshal(api.DeleteAdminAgentPrivateSkillRequest{AgentKey: "mock-agent", Key: "personal-helper"})
+	deleteBody, err := json.Marshal(api.DeleteAdminAgentPrivateSkillRequest{AgentKey: "mock-agent", ID: "personal-helper"})
 	if err != nil {
 		t.Fatalf("marshal delete: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestAdminAgentPrivateSkillOverrideDoesNotRequireCenterConfirmationOrBlockCe
 		t.Fatalf("runtime should prefer Agent-private skill, got:\n%s", runtimeSkill)
 	}
 
-	deleteCenterBody := mustSkillJSON(t, api.DeleteAdminSkillRequest{Key: "mock-skill"})
+	deleteCenterBody := mustSkillJSON(t, api.DeleteAdminSkillRequest{ID: "mock-skill"})
 	centerDelete := httptest.NewRecorder()
 	fixture.server.ServeHTTP(centerDelete, httptest.NewRequest(http.MethodPost, "/api/admin/skills/delete", bytes.NewReader(deleteCenterBody)))
 	if centerDelete.Code != http.StatusOK {
@@ -166,7 +166,7 @@ func TestAdminAgentPrivateSkillDeleteRollsBackOnReloadFailure(t *testing.T) {
 
 	fixture.catalogReloader = failingSkillImportReloader{}
 	fixture.server = newServerFromFixture(t, fixture)
-	deleteBody := mustSkillJSON(t, api.DeleteAdminAgentPrivateSkillRequest{AgentKey: "mock-agent", Key: "rollback-delete"})
+	deleteBody := mustSkillJSON(t, api.DeleteAdminAgentPrivateSkillRequest{AgentKey: "mock-agent", ID: "rollback-delete"})
 	deleted := httptest.NewRecorder()
 	fixture.server.ServeHTTP(deleted, httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/delete", bytes.NewReader(deleteBody)))
 	if deleted.Code != http.StatusInternalServerError {
@@ -247,7 +247,7 @@ func TestAdminAgentPrivateSkillDetailUsesRelativeDiagnosticPaths(t *testing.T) {
 		t.Fatalf("decode admin detail: %v", err)
 	}
 	for _, skill := range detail.Data.PrivateSkills {
-		if skill.Key != "broken-private" {
+		if skill.ID != "broken-private" {
 			continue
 		}
 		if len(skill.Diagnostics) == 0 {
@@ -261,11 +261,11 @@ func TestAdminAgentPrivateSkillDetailUsesRelativeDiagnosticPaths(t *testing.T) {
 	t.Fatal("invalid private skill is missing from admin detail")
 }
 
-func agentPrivateSkillImportBody(t *testing.T, agentKey, key, filename string, data []byte) (io.Reader, string) {
+func agentPrivateSkillImportBody(t *testing.T, agentKey, id, filename string, data []byte) (io.Reader, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	for name, value := range map[string]string{"agentKey": agentKey, "key": key} {
+	for name, value := range map[string]string{"agentKey": agentKey, "id": id} {
 		if err := writer.WriteField(name, value); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
@@ -283,9 +283,9 @@ func agentPrivateSkillImportBody(t *testing.T, agentKey, key, filename string, d
 	return &body, writer.FormDataContentType()
 }
 
-func containsAdminPrivateSkill(items []api.AdminAgentPrivateSkill, key string) bool {
+func containsAdminPrivateSkill(items []api.AdminAgentPrivateSkill, id string) bool {
 	for _, item := range items {
-		if item.Key == key {
+		if item.ID == id {
 			return true
 		}
 	}

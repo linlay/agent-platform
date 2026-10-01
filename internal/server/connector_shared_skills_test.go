@@ -28,7 +28,7 @@ func TestAgentConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := "builtin-dbx"
-	def := catalog.AgentDefinition{RuntimeDir: filepath.Join(root, "ru-agents", "demo"), Connectors: []string{"builtin.dbx"}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "builtin.dbx", Name: "builtin-dbx", RuntimeDir: skill}}, ConnectorMounts: []catalog.ConnectorMount{{ID: "builtin.dbx", Dir: pkg}}}
+	def := catalog.AgentDefinition{RuntimeDir: filepath.Join(root, "ru-agents", "demo"), Connectors: []string{"builtin.dbx"}, ConnectorSkills: []catalog.ConnectorSkill{{ID: key, ConnectorID: "builtin.dbx", Name: "builtin-dbx", RuntimeDir: skill}}, ConnectorMounts: []catalog.ConnectorMount{{ID: "builtin.dbx", Dir: pkg}}}
 	prompt := buildSkillCatalogPrompt(def, "", contracts.DefaultPromptAppendConfig())
 	alias := "@connectors/builtin.dbx/skills/builtin-dbx/SKILL.md"
 	if !strings.Contains(prompt, "skillId: builtin-dbx\n") || !strings.Contains(prompt, "path: "+alias) || strings.Contains(prompt, "@skills/"+key) || strings.Contains(prompt, "connector-11-") {
@@ -104,7 +104,7 @@ func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 				}
 			}})
 			def, ok := fixture.server.deps.Registry.AgentDefinition("mock-agent")
-			if !ok || len(def.ConnectorSkills) != 1 || def.ConnectorSkills[0].Key != key {
+			if !ok || len(def.ConnectorSkills) != 1 || def.ConnectorSkills[0].ID != key {
 				t.Fatalf("connector skill ID = %#v", def.ConnectorSkills)
 			}
 			alias := "@connectors/wecom/skills/"
@@ -124,7 +124,7 @@ func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, skill := range result.Skills {
-				if skill.Key == key && skill.Configured {
+				if skill.ID == key && skill.Configured {
 					t.Fatal("center namesake must not be marked as a configured ordinary skill")
 				}
 			}

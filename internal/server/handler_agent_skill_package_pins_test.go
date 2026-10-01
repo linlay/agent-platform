@@ -28,7 +28,7 @@ func TestAgentSkillPackagePinsHTTPPreserveSharedOrderAndExecutionBoundary(t *tes
 	}
 	before := getAPIData[api.AgentSkillsResponse](t, f.server, "GET", "/api/skills", nil)
 	want := []string{"office", "office/center-extra", "center-extra"}
-	pinned := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"key":" OFFICE ","pinned":true}`))
+	pinned := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"id":" OFFICE ","pinned":true}`))
 	if !reflect.DeepEqual(pinned.Pinned, want) || pinned.Skills == nil || len(pinned.Skills) != 0 || !reflect.DeepEqual(pinned.Packages, before.Packages) {
 		t.Fatalf("package pin changed members or response contract: %+v", pinned)
 	}
@@ -38,7 +38,7 @@ func TestAgentSkillPackagePinsHTTPPreserveSharedOrderAndExecutionBoundary(t *tes
 			t.Fatalf("shared pins at %s: %+v", path, response.Pinned)
 		}
 		for _, skill := range response.Skills {
-			if skill.Key == "office" {
+			if skill.ID == "office" {
 				t.Fatal("package pin became an executable catalog entry")
 			}
 		}
@@ -50,7 +50,7 @@ func TestAgentSkillPackagePinsHTTPPreserveSharedOrderAndExecutionBoundary(t *tes
 	if _, err := resolveMustUseSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office"}); err == nil {
 		t.Fatal("pinned package ID accepted by mustUseSkills")
 	}
-	if resolved, err := resolveMustUseSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office/center-extra", "center-extra"}); err != nil || !reflect.DeepEqual(resolved.Keys, []string{"office/center-extra", "center-extra"}) {
+	if resolved, err := resolveMustUseSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office/center-extra", "center-extra"}); err != nil || !reflect.DeepEqual(resolved.IDs, []string{"office/center-extra", "center-extra"}) {
 		t.Fatalf("concrete skill identities changed: %+v %v", resolved, err)
 	}
 	// A fresh store reads the same mixed order without migration or changing other users.
@@ -65,11 +65,11 @@ func TestAgentSkillPackagePinsHTTPPreserveSharedOrderAndExecutionBoundary(t *tes
 		body string
 		want []string
 	}{
-		{`{"key":"office/center-extra","pinned":true}`, want},
-		{`{"key":"office","pinned":true}`, want},
-		{`{"key":"office/center-extra","pinned":false}`, []string{"office", "center-extra"}},
-		{`{"key":"office/center-extra","pinned":true}`, []string{"office/center-extra", "office", "center-extra"}},
-		{`{"key":"office","pinned":false}`, []string{"office/center-extra", "center-extra"}},
+		{`{"id":"office/center-extra","pinned":true}`, want},
+		{`{"id":"office","pinned":true}`, want},
+		{`{"id":"office/center-extra","pinned":false}`, []string{"office", "center-extra"}},
+		{`{"id":"office/center-extra","pinned":true}`, []string{"office/center-extra", "office", "center-extra"}},
+		{`{"id":"office","pinned":false}`, []string{"office/center-extra", "center-extra"}},
 	} {
 		response := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(tc.body))
 		if !reflect.DeepEqual(response.Pinned, tc.want) {
@@ -95,7 +95,7 @@ func TestAgentSkillPackagePinsRejectMissingOrInvalidPackagesAndAllowCleanup(t *t
 		t.Run(tc.name, func(t *testing.T) {
 			f := newAgentSkillsTestFixture(t, false)
 			writeProjectionPackage(t, f, "center-extra")
-			getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"key":"office","pinned":true}`))
+			getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"id":"office","pinned":true}`))
 			root := filepath.Join(f.cfg.Paths.SkillsCenterDir, "office")
 			var err error
 			if tc.remove {
@@ -108,11 +108,11 @@ func TestAgentSkillPackagePinsRejectMissingOrInvalidPackagesAndAllowCleanup(t *t
 			}
 			// Validate current disk metadata, even without a catalog reload.
 			recorder := httptest.NewRecorder()
-			f.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/skills", strings.NewReader(`{"key":"office","pinned":true}`)))
+			f.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/skills", strings.NewReader(`{"id":"office","pinned":true}`)))
 			if recorder.Code != http.StatusNotFound {
 				t.Fatalf("invalid package pin: %d %s", recorder.Code, recorder.Body.String())
 			}
-			response := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"key":"office","pinned":false}`))
+			response := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"id":"office","pinned":false}`))
 			if response.Pinned == nil || len(response.Pinned) != 0 {
 				t.Fatalf("stale package pin was not removed: %+v", response.Pinned)
 			}
@@ -123,7 +123,7 @@ func TestAgentSkillPackagePinsRejectMissingOrInvalidPackagesAndAllowCleanup(t *t
 func TestAgentSkillPackagePinsWebSocketShareHTTPOrderAndValidatePackages(t *testing.T) {
 	f := newAgentSkillsTestFixture(t, true)
 	writeProjectionPackage(t, f, "center-extra")
-	getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"key":"center-extra","pinned":true}`))
+	getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills", []byte(`{"id":"center-extra","pinned":true}`))
 	server := httptest.NewServer(f.server)
 	defer server.Close()
 	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
@@ -137,9 +137,9 @@ func TestAgentSkillPackagePinsWebSocketShareHTTPOrderAndValidatePackages(t *test
 		payload map[string]any
 		want    []string
 	}{
-		{"pin-package", map[string]any{"key": "office", "pinned": true}, []string{"office", "center-extra"}},
-		{"pin-member", map[string]any{"key": "office/center-extra", "pinned": true}, []string{"office/center-extra", "office", "center-extra"}},
-		{"unpin-package", map[string]any{"key": "office", "pinned": false}, []string{"office/center-extra", "center-extra"}},
+		{"pin-package", map[string]any{"id": "office", "pinned": true}, []string{"office", "center-extra"}},
+		{"pin-member", map[string]any{"id": "office/center-extra", "pinned": true}, []string{"office/center-extra", "office", "center-extra"}},
+		{"unpin-package", map[string]any{"id": "office", "pinned": false}, []string{"office/center-extra", "center-extra"}},
 		{"read", map[string]any{}, []string{"office/center-extra", "center-extra"}},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: tc.id, Payload: marshalPayload(tc.payload)}); err != nil {
@@ -155,7 +155,7 @@ func TestAgentSkillPackagePinsWebSocketShareHTTPOrderAndValidatePackages(t *test
 		t.Fatal(err)
 	}
 	for _, key := range []string{"office", "missing-package"} {
-		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: key, Payload: marshalPayload(map[string]any{"key": key, "pinned": true})}); err != nil {
+		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: key, Payload: marshalPayload(map[string]any{"id": key, "pinned": true})}); err != nil {
 			t.Fatal(err)
 		}
 		var frame ws.ErrorFrame

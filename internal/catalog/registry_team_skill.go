@@ -68,7 +68,7 @@ func (r *FileRegistry) Skills(tag string) []api.SkillSummary {
 		}
 		items = append(items, api.SkillSummary{
 			Presentation: skillmeta.Parse(skill.Metadata, skill.Version),
-			Key:          skill.Key,
+			ID:           skill.ID,
 			Name:         skill.Name,
 			Description:  skill.Description,
 			Meta:         skillSummaryMeta(skill),
@@ -141,7 +141,7 @@ func matchesSkillTag(skill SkillDefinition, needle string) bool {
 			return true
 		}
 	}
-	return strings.Contains(strings.ToLower(skill.Key), needle) ||
+	return strings.Contains(strings.ToLower(skill.ID), needle) ||
 		strings.Contains(strings.ToLower(skill.Name), needle) ||
 		strings.Contains(strings.ToLower(skill.Description), needle) ||
 		strings.Contains(strings.ToLower(skill.Prompt), needle)

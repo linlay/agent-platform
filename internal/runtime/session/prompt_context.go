@@ -391,12 +391,12 @@ func ResourceFileName(rawURL string) string {
 }
 
 type SkillCenterCatalog interface {
-	SkillKeys() []string
+	SkillIDs() []string
 	SkillDefinition(key string) (catalog.SkillDefinition, bool)
 }
 
 type MustUseSkill struct {
-	Key              string
+	ID               string
 	InstructionsPath string
 	RootPath         string
 	Extra            bool
@@ -405,7 +405,7 @@ type MustUseSkill struct {
 
 type SkillResolution struct {
 	Skills         []MustUseSkill
-	Keys           []string
+	IDs            []string
 	HasExtraSkills bool
 }
 
@@ -449,10 +449,10 @@ func BuildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 		if !ok {
 			continue
 		}
-		blocks = append(blocks, SkillCatalogBlock(definition, def.SkillInstructionsPath(definition.Key)))
+		blocks = append(blocks, SkillCatalogBlock(definition, def.SkillInstructionsPath(definition.ID)))
 	}
 	for _, skill := range mustUseSkills {
-		normalized := strings.ToLower(strings.TrimSpace(skill.Key))
+		normalized := strings.ToLower(strings.TrimSpace(skill.ID))
 		if normalized == "" {
 			continue
 		}
@@ -487,7 +487,7 @@ func BuildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 
 func SkillCatalogBlock(definition catalog.SkillDefinition, skillPath string) string {
 	lines := []string{
-		"skillId: " + definition.Key,
+		"skillId: " + definition.ID,
 		"path: " + strings.TrimSpace(skillPath),
 	}
 	if strings.TrimSpace(definition.Name) != "" {
@@ -534,7 +534,7 @@ func ResolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 	}
 	result := SkillResolution{
 		Skills: make([]MustUseSkill, 0, len(normalizedRequested)),
-		Keys:   make([]string, 0, len(normalizedRequested)),
+		IDs:    make([]string, 0, len(normalizedRequested)),
 	}
 	for _, requestedKey := range normalizedRequested {
 		if def.IsConnectorSkill(requestedKey) || connector.IsReservedSkill(requestedKey) {
@@ -554,16 +554,16 @@ func ResolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 				return SkillResolution{}, fmt.Errorf("must-use skill %q could not be resolved from agent runtime", configuredKey)
 			}
 			result.Skills = append(result.Skills, MustUseSkill{
-				Key:              definition.Key,
-				InstructionsPath: "@skills/" + definition.Key + "/SKILL.md",
+				ID:               definition.ID,
+				InstructionsPath: "@skills/" + definition.ID + "/SKILL.md",
 				RootPath:         rootPath,
 				Definition:       definition,
 			})
-			result.Keys = append(result.Keys, definition.Key)
+			result.IDs = append(result.IDs, definition.ID)
 			continue
 		}
 
-		centerKey, ok := ResolveCenterSkillKey(center, requestedKey)
+		centerKey, ok := ResolveCenterSkillID(center, requestedKey)
 		if !ok {
 			return SkillResolution{}, fmt.Errorf("must-use skill %q is unavailable in the active skills center", requestedKey)
 		}
@@ -579,29 +579,29 @@ func ResolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 			return SkillResolution{}, fmt.Errorf("must-use skill %q could not be resolved from the skills center", centerKey)
 		}
 		result.Skills = append(result.Skills, MustUseSkill{
-			Key:              definition.Key,
-			InstructionsPath: "@skills-center/" + definition.Key + "/SKILL.md",
+			ID:               definition.ID,
+			InstructionsPath: "@skills-center/" + definition.ID + "/SKILL.md",
 			RootPath:         rootPath,
 			Extra:            true,
 			Definition:       definition,
 		})
-		result.Keys = append(result.Keys, definition.Key)
+		result.IDs = append(result.IDs, definition.ID)
 		result.HasExtraSkills = true
 	}
 	return result, nil
 }
 
-func ResolveMustUseSkillRoot(parentDir string, skillKey string) (string, error) {
+func ResolveMustUseSkillRoot(parentDir string, skillID string) (string, error) {
 	parentDir = strings.TrimSpace(parentDir)
-	skillKey = strings.TrimSpace(skillKey)
-	if parentDir == "" || catalog.ValidateEditableSkillKey(skillKey) != nil {
+	skillID = strings.TrimSpace(skillID)
+	if parentDir == "" || catalog.ValidateEditableSkillID(skillID) != nil {
 		return "", fmt.Errorf("skill root is unavailable")
 	}
 	parent, err := pathutil.Canonicalize(parentDir)
 	if err != nil {
 		return "", err
 	}
-	root, err := pathutil.Canonicalize(filepath.Join(parent.Host, skillKey))
+	root, err := pathutil.Canonicalize(filepath.Join(parent.Host, skillID))
 	if err != nil {
 		return "", err
 	}
@@ -627,14 +627,14 @@ func MustUseSkillRunAccess(skills []MustUseSkill) (contracts.RunAccessRoots, err
 	for _, skill := range skills {
 		root, err := pathutil.Canonicalize(strings.TrimSpace(skill.RootPath))
 		if err != nil {
-			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: %w", skill.Key, err)
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: %w", skill.ID, err)
 		}
 		info, err := os.Stat(root.Host)
 		if err != nil {
-			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: %w", skill.Key, err)
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: %w", skill.ID, err)
 		}
 		if !info.IsDir() {
-			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: not a directory", skill.Key)
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: not a directory", skill.ID)
 		}
 		if _, duplicate := seen[root.Key]; duplicate {
 			continue
@@ -651,25 +651,25 @@ func MustUseSkillRunAccess(skills []MustUseSkill) (contracts.RunAccessRoots, err
 func (s *Builder) ResolveSkills(def catalog.AgentDefinition, requested []string) (SkillResolution, error) {
 	normalized := NormalizeMustUseSkills(requested)
 	if IsProxyRoutedAgent(def) {
-		return SkillResolution{Keys: normalized}, nil
+		return SkillResolution{IDs: normalized}, nil
 	}
 	return ResolveMustUseSkills(def, s.deps.Config.Paths.SkillsCenterDir, s.deps.Registry, normalized)
 }
 
-func ResolveCenterSkillKey(center SkillCenterCatalog, requested string) (string, bool) {
+func ResolveCenterSkillID(center SkillCenterCatalog, requested string) (string, bool) {
 	if center == nil {
 		return "", false
 	}
 	requested = strings.TrimSpace(requested)
-	for _, key := range center.SkillKeys() {
+	for _, key := range center.SkillIDs() {
 		if !strings.EqualFold(strings.TrimSpace(key), requested) {
 			continue
 		}
 		definition, ok := center.SkillDefinition(key)
-		if !ok || strings.TrimSpace(definition.Key) == "" {
+		if !ok || strings.TrimSpace(definition.ID) == "" {
 			return "", false
 		}
-		return definition.Key, true
+		return definition.ID, true
 	}
 	return "", false
 }
@@ -682,7 +682,7 @@ func BuildMustUseSkillConstraint(skills []MustUseSkill) string {
 		"Must-use skills for this run:",
 	}
 	for _, skill := range skills {
-		if key := strings.TrimSpace(skill.Key); key != "" {
+		if key := strings.TrimSpace(skill.ID); key != "" {
 			lines = append(lines, "- skillId: "+key+"\n  path: "+strings.TrimSpace(skill.InstructionsPath))
 		}
 	}

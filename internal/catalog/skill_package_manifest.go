@@ -15,7 +15,7 @@ import (
 
 // SkillPackageMember identifies one direct child; presentation stays in SKILL.md.
 type SkillPackageMember struct {
-	Key   string `json:"key"`
+	ID    string `json:"id"`
 	extra map[string]json.RawMessage
 }
 
@@ -43,7 +43,20 @@ func (m *SkillPackageMember) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &extra); err != nil {
 		return err
 	}
+	// Installed packages may still use the former member key. Always write id.
+	if legacy, ok := extra["key"]; ok {
+		var id string
+		if err := json.Unmarshal(legacy, &id); err != nil {
+			return err
+		}
+		if _, present := extra["id"]; !present {
+			value.ID = id
+		} else if value.ID != id {
+			return fmt.Errorf("skill member id and legacy key disagree")
+		}
+	}
 	delete(extra, "key")
+	delete(extra, "id")
 	*m = SkillPackageMember(value)
 	if len(extra) > 0 {
 		m.extra = extra
@@ -106,7 +119,7 @@ func ValidateSkillPackageID(id string) error {
 	if id != strings.TrimSpace(id) || strings.ContainsAny(id, "/\\") {
 		return ErrInvalidSkillPath
 	}
-	return ValidateEditableSkillKey(id)
+	return ValidateEditableSkillID(id)
 }
 
 func parseSkillPackageMetadata(content []byte) (SkillPackageMetadata, error) {
@@ -119,9 +132,9 @@ func parseSkillPackageMetadata(content []byte) (SkillPackageMetadata, error) {
 	}
 	seen := map[string]bool{}
 	for _, member := range m.Skills {
-		folded := strings.ToLower(member.Key)
-		if ValidateSkillPackageID(member.Key) != nil || seen[folded] {
-			return m, skillArchiveValidationError("invalid_package_manifest", "skills must contain unique, safe package-relative keys", "package.json")
+		folded := strings.ToLower(member.ID)
+		if ValidateSkillPackageID(member.ID) != nil || seen[folded] {
+			return m, skillArchiveValidationError("invalid_package_manifest", "skills must contain unique, safe package-relative IDs", "package.json")
 		}
 		seen[folded] = true
 	}
@@ -130,7 +143,7 @@ func parseSkillPackageMetadata(content []byte) (SkillPackageMetadata, error) {
 
 func (m SkillPackageMetadata) hasMember(key string) bool {
 	for _, member := range m.Skills {
-		if member.Key == key {
+		if member.ID == key {
 			return true
 		}
 	}
@@ -215,15 +228,15 @@ func scanPackageAt(dir, id string) (SkillPackageRecord, error) {
 	}
 	record := SkillPackageRecord{HasIcon: skillPackageIconName(dir) != "", ID: id, Name: m.Name, DisplayName: m.DisplayName, Description: m.Description, Version: version, Triggers: m.Triggers, Metadata: metadata, Presentation: skillmeta.Parse(metadata, version), Skills: []SkillPackageRecordSkill{}, SchemaVersion: 1}
 	for _, member := range m.Skills {
-		child := SkillPackageRecordSkill{ID: id + "/" + member.Key, Name: member.Key, Path: "./" + member.Key}
-		childRoot := filepath.Join(dir, member.Key)
+		child := SkillPackageRecordSkill{ID: id + "/" + member.ID, Name: member.ID, Path: "./" + member.ID}
+		childRoot := filepath.Join(dir, member.ID)
 		data, err := readDeclaredSkillMember(childRoot)
 		if err != nil {
 			code := "invalid_package_member"
 			if errors.Is(err, os.ErrNotExist) {
 				code = "missing_package_skill"
 			}
-			child.Diagnostics = []AdminSkillDiagnostic{skillDiagnostic("error", code, err.Error(), member.Key+"/SKILL.md")}
+			child.Diagnostics = []AdminSkillDiagnostic{skillDiagnostic("error", code, err.Error(), member.ID+"/SKILL.md")}
 			record.Skills = append(record.Skills, child)
 			continue
 		}
@@ -269,12 +282,12 @@ func readDeclaredSkillMember(root string) ([]byte, error) {
 
 func validateDeclaredSkillMembers(root string, m SkillPackageMetadata, allowMissing bool) error {
 	for _, member := range m.Skills {
-		child := filepath.Join(root, member.Key)
+		child := filepath.Join(root, member.ID)
 		if _, err := readDeclaredSkillMember(child); err != nil {
 			if allowMissing && errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return skillArchiveValidationError("invalid_package_member", err.Error(), member.Key+"/SKILL.md")
+			return skillArchiveValidationError("invalid_package_member", err.Error(), member.ID+"/SKILL.md")
 		}
 		if err := validateImportedEditableSkill(child); err != nil {
 			return err
@@ -319,12 +332,12 @@ func prepareNestedSkillPackage(stage, id, version string) (SkillPackageMetadata,
 		}
 		m = SkillPackageMetadata{Name: id, DisplayName: legacy.Name, Version: legacy.Version, Skills: []SkillPackageMember{}}
 		for _, child := range children {
-			m.Skills = append(m.Skills, SkillPackageMember{Key: child.ID})
+			m.Skills = append(m.Skills, SkillPackageMember{ID: child.ID})
 			if err := os.Rename(child.Root, filepath.Join(candidate, child.ID)); err != nil {
 				return m, nil, "", err
 			}
 		}
-		sort.Slice(m.Skills, func(i, j int) bool { return m.Skills[i].Key < m.Skills[j].Key })
+		sort.Slice(m.Skills, func(i, j int) bool { return m.Skills[i].ID < m.Skills[j].ID })
 	} else if err != nil {
 		return m, nil, "", err
 	}
@@ -365,25 +378,25 @@ func prepareNestedSkillPackage(stage, id, version string) (SkillPackageMetadata,
 	return m, prepared, candidate, nil
 }
 
-func (r *FileRegistry) ReadEditableSkillPackageManifest(key string) (EditableSkillFileContent, error) {
+func (r *FileRegistry) ReadEditableSkillPackageManifest(id string) (EditableSkillFileContent, error) {
 	if r == nil {
 		return EditableSkillFileContent{}, ErrSkillPackageNotFound
 	}
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
-	_, data, exists, err := readSkillPackageRecord(root, key)
+	_, data, exists, err := readSkillPackageRecord(root, id)
 	if err != nil {
 		return EditableSkillFileContent{}, err
 	}
 	if !exists {
 		return EditableSkillFileContent{}, ErrSkillPackageNotFound
 	}
-	info, err := os.Stat(filepath.Join(root, key, "package.json"))
+	info, err := os.Stat(filepath.Join(root, id, "package.json"))
 	if err != nil {
 		return EditableSkillFileContent{}, err
 	}
-	return EditableSkillFileContent{Key: key, Path: "package.json", Content: string(data), Encoding: "utf-8", SHA256: sha256Hex(data), Size: int64(len(data)), UpdatedAt: info.ModTime().UnixMilli()}, nil
+	return EditableSkillFileContent{ID: id, Path: "package.json", Content: string(data), Encoding: "utf-8", SHA256: sha256Hex(data), Size: int64(len(data)), UpdatedAt: info.ModTime().UnixMilli()}, nil
 }
-func (r *FileRegistry) BeginUpdateEditableSkillPackageManifest(key, content, baseSHA256 string) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
+func (r *FileRegistry) BeginUpdateEditableSkillPackageManifest(id, content, baseSHA256 string) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
 	if r == nil {
 		return nil, SkillPackageRecord{}, ErrSkillPackageNotFound
 	}
@@ -391,7 +404,7 @@ func (r *FileRegistry) BeginUpdateEditableSkillPackageManifest(key, content, bas
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	if m.Name != key {
+	if m.Name != id {
 		return nil, SkillPackageRecord{}, fmt.Errorf("%w: package name cannot be changed", ErrSkillPackageConflict)
 	}
 	r.skillPackageMu.Lock()
@@ -401,7 +414,7 @@ func (r *FileRegistry) BeginUpdateEditableSkillPackageManifest(key, content, bas
 			r.skillPackageMu.Unlock()
 		}
 	}()
-	current, err := r.ReadEditableSkillPackageManifest(key)
+	current, err := r.ReadEditableSkillPackageManifest(id)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
@@ -414,19 +427,19 @@ func (r *FileRegistry) BeginUpdateEditableSkillPackageManifest(key, content, bas
 	}
 	usage := r.skillUsageByAgent()
 	for _, member := range previous.Skills {
-		if !m.hasMember(member.Key) && len(usage[key+"/"+member.Key]) > 0 {
-			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s/%s is used by agents", ErrSkillPackageConflict, key, member.Key)
+		if !m.hasMember(member.ID) && len(usage[id+"/"+member.ID]) > 0 {
+			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s/%s is used by agents", ErrSkillPackageConflict, id, member.ID)
 		}
 	}
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
-	if err := validateDeclaredSkillMembers(filepath.Join(root, key), m, true); err != nil {
+	if err := validateDeclaredSkillMembers(filepath.Join(root, id), m, true); err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
 	backup, err := os.MkdirTemp(filepath.Dir(root), skillPackageBackupPrefix)
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	mutation := &EditableSkillPackageMutation{root: root, recordPath: filepath.Join(root, key, "package.json"), oldRecord: []byte(current.Content), oldRecordExists: true, backupRoot: backup, unlock: r.skillPackageMu.Unlock}
+	mutation := &EditableSkillPackageMutation{root: root, recordPath: filepath.Join(root, id, "package.json"), oldRecord: []byte(current.Content), oldRecordExists: true, backupRoot: backup, unlock: r.skillPackageMu.Unlock}
 	owned = true
 	encoded, err := json.MarshalIndent(m, "", "  ")
 	if err == nil {
@@ -436,7 +449,7 @@ func (r *FileRegistry) BeginUpdateEditableSkillPackageManifest(key, content, bas
 		return nil, SkillPackageRecord{}, errors.Join(err, mutation.Rollback())
 	}
 	mutation.recordChanged = true
-	record, err := ScanSkillPackageRecord(root, key)
+	record, err := ScanSkillPackageRecord(root, id)
 	if err != nil {
 		return nil, SkillPackageRecord{}, errors.Join(err, mutation.Rollback())
 	}

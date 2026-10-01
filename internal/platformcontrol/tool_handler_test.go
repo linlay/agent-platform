@@ -289,7 +289,7 @@ func TestValidateDoesNotEchoCandidateSecrets(t *testing.T) {
 func TestExplicitToolGrantDoesNotDependOnAgentOrSkills(t *testing.T) {
 	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil, nil)
-	online := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "online-office", SkillKeys: []string{"platform-admin"}, MustUseSkills: []string{"platform-admin"}}}
+	online := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "online-office", SkillIDs: []string{"platform-admin"}, MustUseSkills: []string{"platform-admin"}}}
 	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "runtime.status"}, online)
 	if result.Error != "" {
 		t.Fatalf("mounted operation denied: %#v", result)

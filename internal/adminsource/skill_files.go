@@ -45,23 +45,23 @@ func (e *SkillFileReloadError) Unwrap() error { return e.Cause }
 // WriteSkillFile serializes text saves through publication. Failed reloads
 // restore the previous bytes (and therefore the editor's base hash), but only
 // while the file still matches this write, so external changes are preserved.
-func (s *Service) WriteSkillFile(ctx context.Context, editor SkillFileEditor, key, path, content, encoding, baseSHA256 string, reload func(context.Context) error, coordinators ...SkillMutationCoordinator) (catalog.EditableSkillFile, error) {
+func (s *Service) WriteSkillFile(ctx context.Context, editor SkillFileEditor, id, path, content, encoding, baseSHA256 string, reload func(context.Context) error, coordinators ...SkillMutationCoordinator) (catalog.EditableSkillFile, error) {
 	unlock := s.LockSourceMutation()
 	defer unlock()
 	if len(coordinators) > 0 && coordinators[0] != nil {
 		var written catalog.EditableSkillFile
 		err := coordinators[0].WithCatalogMutation(ctx, func(ctx context.Context) error {
 			var err error
-			written, err = s.writeSkillFileLocked(ctx, editor, key, path, content, encoding, baseSHA256, reload)
+			written, err = s.writeSkillFileLocked(ctx, editor, id, path, content, encoding, baseSHA256, reload)
 			return err
 		})
 		return written, err
 	}
-	return s.writeSkillFileLocked(ctx, editor, key, path, content, encoding, baseSHA256, reload)
+	return s.writeSkillFileLocked(ctx, editor, id, path, content, encoding, baseSHA256, reload)
 }
 
-func (s *Service) writeSkillFileLocked(ctx context.Context, editor SkillFileEditor, key, path, content, encoding, baseSHA256 string, reload func(context.Context) error) (catalog.EditableSkillFile, error) {
-	before, err := editor.ReadEditableSkillFile(key, path)
+func (s *Service) writeSkillFileLocked(ctx context.Context, editor SkillFileEditor, id, path, content, encoding, baseSHA256 string, reload func(context.Context) error) (catalog.EditableSkillFile, error) {
+	before, err := editor.ReadEditableSkillFile(id, path)
 	existed := err == nil
 	if err != nil && !errors.Is(err, catalog.ErrSkillNotFound) {
 		return catalog.EditableSkillFile{}, err
@@ -71,7 +71,7 @@ func (s *Service) writeSkillFileLocked(ctx context.Context, editor SkillFileEdit
 		// between taking the rollback snapshot and replacing the file.
 		baseSHA256 = before.SHA256
 	}
-	written, err := editor.WriteEditableSkillFile(key, path, content, encoding, baseSHA256)
+	written, err := editor.WriteEditableSkillFile(id, path, content, encoding, baseSHA256)
 	if err != nil {
 		return catalog.EditableSkillFile{}, err
 	}
@@ -82,9 +82,9 @@ func (s *Service) writeSkillFileLocked(ctx context.Context, editor SkillFileEdit
 		// Compare with our exact bytes, not metadata another writer could change.
 		writtenHash := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
 		if existed {
-			_, failure.RollbackErr = editor.WriteEditableSkillFile(key, path, before.Content, before.Encoding, writtenHash)
+			_, failure.RollbackErr = editor.WriteEditableSkillFile(id, path, before.Content, before.Encoding, writtenHash)
 		} else {
-			failure.RollbackErr = editor.DeleteEditableSkillFile(key, path, false, writtenHash)
+			failure.RollbackErr = editor.DeleteEditableSkillFile(id, path, false, writtenHash)
 		}
 		if failure.RollbackErr == nil {
 			failure.ReloadErr = reload(ctx)

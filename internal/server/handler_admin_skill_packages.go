@@ -26,10 +26,10 @@ func (s *Server) handleAdminSkillPackages(w http.ResponseWriter, _ *http.Request
 }
 
 func (s *Server) handleAdminSkillPackageImport(w http.ResponseWriter, r *http.Request) {
-	key := strings.TrimSpace(r.URL.Query().Get("key"))
+	key := strings.TrimSpace(r.URL.Query().Get("id"))
 	version := strings.TrimSpace(r.URL.Query().Get("version"))
 	if key == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "key is required"))
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "id is required"))
 		return
 	}
 	contentType := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
@@ -83,7 +83,7 @@ func (s *Server) handleAdminSkillPackageDelete(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
 		return
 	}
-	response, err := s.deleteAdminSkillPackage(r.Context(), req.Key)
+	response, err := s.deleteAdminSkillPackage(r.Context(), req.ID)
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
@@ -111,16 +111,16 @@ func (s *Server) importAdminSkillPackageLocked(ctx context.Context, prepared *ca
 	return adminSkillPackageResponse(record), nil
 }
 
-func (s *Server) deleteAdminSkillPackageLocked(ctx context.Context, key string) (api.DeleteAdminSkillPackageResponse, error) {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return api.DeleteAdminSkillPackageResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "key is required")
+func (s *Server) deleteAdminSkillPackageLocked(ctx context.Context, id string) (api.DeleteAdminSkillPackageResponse, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return api.DeleteAdminSkillPackageResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "id is required")
 	}
 	registry, err := s.adminSkillRegistry()
 	if err != nil {
 		return api.DeleteAdminSkillPackageResponse{}, err
 	}
-	mutation, record, err := registry.BeginDeleteEditableSkillPackage(key)
+	mutation, record, err := registry.BeginDeleteEditableSkillPackage(id)
 	if err != nil {
 		return api.DeleteAdminSkillPackageResponse{}, mapSkillEditError(err)
 	}
@@ -131,7 +131,7 @@ func (s *Server) deleteAdminSkillPackageLocked(ctx context.Context, key string) 
 		return api.DeleteAdminSkillPackageResponse{}, fmt.Errorf("commit skill package deletion: %w", err)
 	}
 	return api.DeleteAdminSkillPackageResponse{
-		Key: key, Deleted: true, Skills: adminSkillPackageResponse(record).Skills,
+		ID: id, Deleted: true, Skills: adminSkillPackageResponse(record).Skills,
 	}, nil
 }
 
@@ -177,7 +177,7 @@ func adminSkillPackageResponse(record catalog.SkillPackageRecord) api.AdminSkill
 	}
 	icon := ""
 	if record.HasIcon {
-		icon = "/api/skill-packages/icon?key=" + url.QueryEscape(record.ID)
+		icon = "/api/skill-packages/icon?id=" + url.QueryEscape(record.ID)
 	}
 	return api.AdminSkillPackageResponse{
 		Icon: icon,
@@ -188,12 +188,12 @@ func adminSkillPackageResponse(record catalog.SkillPackageRecord) api.AdminSkill
 	}
 }
 
-func (s *Server) importAdminSkillPackage(ctx context.Context, key string, version string, source io.ReaderAt, size int64) (api.AdminSkillPackageResponse, error) {
+func (s *Server) importAdminSkillPackage(ctx context.Context, id string, version string, source io.ReaderAt, size int64) (api.AdminSkillPackageResponse, error) {
 	registry, err := s.adminSkillRegistry()
 	if err != nil {
 		return api.AdminSkillPackageResponse{}, err
 	}
-	prepared, err := registry.PrepareEditableSkillPackageArchive(key, version, source, size)
+	prepared, err := registry.PrepareEditableSkillPackageArchive(id, version, source, size)
 	if err != nil {
 		return api.AdminSkillPackageResponse{}, mapSkillEditError(err)
 	}
@@ -203,9 +203,9 @@ func (s *Server) importAdminSkillPackage(ctx context.Context, key string, versio
 	})
 }
 
-func (s *Server) deleteAdminSkillPackage(ctx context.Context, key string) (api.DeleteAdminSkillPackageResponse, error) {
+func (s *Server) deleteAdminSkillPackage(ctx context.Context, id string) (api.DeleteAdminSkillPackageResponse, error) {
 	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.DeleteAdminSkillPackageResponse, error) {
-		return s.deleteAdminSkillPackageLocked(ctx, key)
+		return s.deleteAdminSkillPackageLocked(ctx, id)
 	})
 }
 

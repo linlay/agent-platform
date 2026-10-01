@@ -29,7 +29,7 @@ func TestImplicitPackageMigrationIsExplicitAndBackedUp(t *testing.T) {
 		t.Fatal("backup mismatch", err)
 	}
 	manifest, err := ReadSkillPackageManifest(filepath.Join(root, "suite"))
-	if err != nil || len(manifest.Skills) != 1 || manifest.Skills[0].Key != "member" {
+	if err != nil || len(manifest.Skills) != 1 || manifest.Skills[0].ID != "member" {
 		t.Fatal(manifest, err)
 	}
 	upgraded, err := os.ReadFile(filepath.Join(root, "suite", "package.json"))

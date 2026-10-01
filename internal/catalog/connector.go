@@ -13,7 +13,7 @@ import (
 
 type ConnectorSkill struct {
 	// Key is the original skill name; ConnectorID records its source separately.
-	Key         string
+	ID          string
 	ConnectorID string
 	Name        string
 	RuntimeDir  string
@@ -29,14 +29,14 @@ type ConnectorMount struct {
 func (d AgentDefinition) EffectiveSkills() []string {
 	keys := append([]string(nil), d.Skills...)
 	for _, skill := range d.ConnectorSkills {
-		keys = append(keys, skill.Key)
+		keys = append(keys, skill.ID)
 	}
 	return keys
 }
 
-func (d AgentDefinition) IsConnectorSkill(key string) bool {
+func (d AgentDefinition) IsConnectorSkill(id string) bool {
 	for _, skill := range d.ConnectorSkills {
-		if strings.EqualFold(skill.Key, key) {
+		if strings.EqualFold(skill.ID, id) {
 			return true
 		}
 	}
@@ -162,19 +162,19 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 				return fmt.Errorf("skill %q from connector %q conflicts with %s; skill names must be unique within an Agent", key, id, source)
 			}
 			skillSources[key] = fmt.Sprintf("connector %q", id)
-			def.ConnectorSkills = append(def.ConnectorSkills, ConnectorSkill{Key: key, ConnectorID: id, Name: skill.Name, RuntimeDir: skill.Dir})
+			def.ConnectorSkills = append(def.ConnectorSkills, ConnectorSkill{ID: key, ConnectorID: id, Name: skill.Name, RuntimeDir: skill.Dir})
 		}
 	}
 	return nil
 }
 
-func (a *runtimeAgentAssembler) resolveEffectiveSkillSource(source EditableAgentSource, def AgentDefinition, key string) (string, error) {
+func (a *runtimeAgentAssembler) resolveEffectiveSkillSource(source EditableAgentSource, def AgentDefinition, id string) (string, error) {
 	for _, skill := range def.ConnectorSkills {
-		if skill.Key == key {
+		if skill.ID == id {
 			return skill.RuntimeDir, nil
 		}
 	}
-	return a.resolveSkillSource(source, key)
+	return a.resolveSkillSource(source, id)
 }
 
 func (d AgentDefinition) ConnectorRuntimeSkillDirs() []string {
@@ -187,18 +187,18 @@ func (d AgentDefinition) ConnectorRuntimeSkillDirs() []string {
 
 // ResolveSkillDefinition resolves connector skills from this Agent's mounted
 // runtime package and ordinary skills from this Agent's generated directory.
-func (d AgentDefinition) ResolveSkillDefinition(key string) (SkillDefinition, bool, error) {
+func (d AgentDefinition) ResolveSkillDefinition(id string) (SkillDefinition, bool, error) {
 	for _, skill := range d.ConnectorSkills {
-		if skill.Key == key {
-			return loadSkillDefinitionFromDir(skill.RuntimeDir, key, 0)
+		if skill.ID == id {
+			return loadSkillDefinitionFromDir(skill.RuntimeDir, id, 0)
 		}
 	}
-	return ResolveRuntimeSkillDefinition(d.RuntimeDir, key)
+	return ResolveRuntimeSkillDefinition(d.RuntimeDir, id)
 }
 
-func (d AgentDefinition) SkillInstructionsPath(key string) string {
+func (d AgentDefinition) SkillInstructionsPath(id string) string {
 	for _, skill := range d.ConnectorSkills {
-		if skill.Key != key {
+		if skill.ID != id {
 			continue
 		}
 		for _, mount := range d.ConnectorMounts {
@@ -210,7 +210,7 @@ func (d AgentDefinition) SkillInstructionsPath(key string) string {
 			}
 		}
 	}
-	return "@skills/" + key + "/SKILL.md"
+	return "@skills/" + id + "/SKILL.md"
 }
 
 // bindConnectorRuntime converts source metadata to stable Agent-local paths.

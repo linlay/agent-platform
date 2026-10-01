@@ -24,23 +24,23 @@ func (m testSkillCenter) Skills(_ string) []api.SkillSummary {
 	sort.Strings(keys)
 	items := make([]api.SkillSummary, 0, len(keys))
 	for _, key := range keys {
-		items = append(items, api.SkillSummary{Key: key})
+		items = append(items, api.SkillSummary{ID: key})
 	}
 	return items
 }
 
-func (m testSkillCenter) SkillDefinition(key string) (catalog.SkillDefinition, bool) {
-	definition, ok := m[key]
+func (m testSkillCenter) SkillDefinition(id string) (catalog.SkillDefinition, bool) {
+	definition, ok := m[id]
 	return definition, ok
 }
 
-func writeTestSkill(t *testing.T, root string, key string) {
+func writeTestSkill(t *testing.T, root string, id string) {
 	t.Helper()
-	skillDir := filepath.Join(root, key)
+	skillDir := filepath.Join(root, id)
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+key+"\n\nFollow the workflow."), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+id+"\n\nFollow the workflow."), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
 }
@@ -56,15 +56,15 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 		Skills:     []string{"design"},
 	}
 	center := testSkillCenter{
-		"pdf": {Key: "pdf", Name: "PDF"},
+		"pdf": {ID: "pdf", Name: "PDF"},
 	}
 
 	got, err := resolveMustUseSkills(def, centerDir, center, []string{" design ", "DESIGN", " PDF ", "pdf", ""})
 	if err != nil {
 		t.Fatalf("resolve must-use skills: %v", err)
 	}
-	if strings.Join(got.Keys, ",") != "design,pdf" {
-		t.Fatalf("unexpected must-use skills %#v", got.Keys)
+	if strings.Join(got.IDs, ",") != "design,pdf" {
+		t.Fatalf("unexpected must-use skills %#v", got.IDs)
 	}
 	if !got.HasExtraSkills || len(got.Skills) != 2 {
 		t.Fatalf("unexpected resolution %#v", got)
@@ -108,7 +108,7 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 
 func TestMustUseRejectsMountedConnectorSkillEvenIfAlsoInConfiguredList(t *testing.T) {
 	key := "wecomcli-shared"
-	def := catalog.AgentDefinition{Skills: []string{key}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "wecom", Name: key}}}
+	def := catalog.AgentDefinition{Skills: []string{key}, ConnectorSkills: []catalog.ConnectorSkill{{ID: key, ConnectorID: "wecom", Name: key}}}
 	if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{strings.ToUpper(key)}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
 		t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestMustUseRejectsMountedConnectorSkillEvenIfAlsoInConfiguredList(t *testin
 
 func TestResolveMustUseSkillsRevalidatesCenterContent(t *testing.T) {
 	centerDir := t.TempDir()
-	center := testSkillCenter{"pdf": {Key: "pdf"}}
+	center := testSkillCenter{"pdf": {ID: "pdf"}}
 	if _, err := resolveMustUseSkills(catalog.AgentDefinition{Key: "coder"}, centerDir, center, []string{"pdf"}); err == nil {
 		t.Fatal("expected catalog entry without current SKILL.md to fail")
 	}
@@ -132,7 +132,7 @@ func TestResolveMustUseSkillsRejectsSkillRootSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(filepath.Join(outside, "pdf"), filepath.Join(centerDir, "pdf")); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	center := testSkillCenter{"pdf": {Key: "pdf"}}
+	center := testSkillCenter{"pdf": {ID: "pdf"}}
 	if _, err := resolveMustUseSkills(catalog.AgentDefinition{Key: "coder"}, centerDir, center, []string{"pdf"}); err == nil || !strings.Contains(err.Error(), "escapes") {
 		t.Fatalf("expected escaped center skill root rejection, got %v", err)
 	}
@@ -140,7 +140,7 @@ func TestResolveMustUseSkillsRejectsSkillRootSymlinkEscape(t *testing.T) {
 
 func TestBuildMustUseSkillConstraintIsMandatory(t *testing.T) {
 	got := buildMustUseSkillConstraint([]resolvedMustUseSkill{{
-		Key:              "design",
+		ID:               "design",
 		InstructionsPath: "@skills/design/SKILL.md",
 	}})
 	for _, expected := range []string{

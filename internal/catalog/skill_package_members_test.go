@@ -63,7 +63,7 @@ func TestSkillPackageMemberDeletionRollsBackListAndDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, err := ReadSkillPackageManifest(filepath.Join(root, "suite"))
-	if err != nil || !reflect.DeepEqual(m.Skills, []SkillPackageMember{{Key: "other"}}) {
+	if err != nil || !reflect.DeepEqual(m.Skills, []SkillPackageMember{{ID: "other"}}) {
 		t.Fatalf("manifest=%+v err=%v", m, err)
 	}
 	snapshot, err := mutation.SnapshotSkill("suite/demo")

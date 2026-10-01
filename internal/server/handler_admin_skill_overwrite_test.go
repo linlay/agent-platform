@@ -100,7 +100,7 @@ func TestAdminSkillDeleteWithWatcherRestoresAfterReloadFailure(t *testing.T) {
 			t.Fatalf("lost %s: %q %v", path, got, err)
 		}
 	}
-	if result, err := f.server.deleteAdminSkill(ctx, key); err != nil || result.Key != key || !result.Deleted {
+	if result, err := f.server.deleteAdminSkill(ctx, key); err != nil || result.ID != key || !result.Deleted {
 		t.Fatalf("delete: %+v %v", result, err)
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {

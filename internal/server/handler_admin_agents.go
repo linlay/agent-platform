@@ -111,7 +111,7 @@ func (s *Server) withAdminAgentPrivateSkills(detail api.AdminAgentDetailResponse
 	for _, item := range items {
 		detail.PrivateSkills = append(detail.PrivateSkills, api.AdminAgentPrivateSkill{
 			Presentation:    item.Presentation,
-			Key:             item.Key,
+			ID:              item.ID,
 			Name:            item.Name,
 			Description:     item.Description,
 			Status:          item.Status,
@@ -148,7 +148,7 @@ func adminAgentDetailFromAgentDetail(detail api.AgentDetailResponse, item catalo
 		Model:        detail.ModelKey,
 		Mode:         detail.Mode,
 		Tools:        append([]string{}, detail.Tools...),
-		Skills:       agentDetailSkillKeys(detail.Skills),
+		Skills:       agentDetailSkillIDs(detail.Skills),
 		Controls:     cloneListMaps(detail.Controls),
 		Meta:         cloneMeta(detail.Meta),
 		Definition:   cloneMeta(detail.Definition),
@@ -362,10 +362,10 @@ func writeAgentOrderFile(agentsDir string, file catalog.AgentOrderFile) error {
 	return os.Rename(tmpPath, filepath.Join(agentsDir, catalog.AgentOrderFileName))
 }
 
-func agentDetailSkillKeys(skills []api.AgentDetailSkill) []string {
+func agentDetailSkillIDs(skills []api.AgentDetailSkill) []string {
 	keys := make([]string, 0, len(skills))
 	for _, skill := range skills {
-		keys = append(keys, skill.Key)
+		keys = append(keys, skill.ID)
 	}
 	return keys
 }

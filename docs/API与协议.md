@@ -69,8 +69,8 @@ GET /ws -> request / response / stream / push / error frames
 | GET/PUT | `/api/agents/order` | PUT body: `order` | 全部有效 runtime Agent 的 catalog 顺序 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | GET | `/api/skills` | query: 可选 `agentKey` | 全局有效技能目录、configured 与用户 pinned |
-| PUT | `/api/skills` | body: `key`, `pinned` | 更新单条用户置顶，返回最新 pinned |
-| GET | `/api/skills/icon` | query: `key`，可选 `agentKey` | 无 Agent 时读取全局中心 SVG/PNG；兼容旧 Agent 图标，沿用接口鉴权 |
+| PUT | `/api/skills` | body: `id`, `pinned` | 更新单条用户置顶，返回最新 pinned |
+| GET | `/api/skills/icon` | query: `id`，可选 `agentKey` | 无 Agent 时读取全局中心 SVG/PNG；兼容旧 Agent 图标，沿用接口鉴权 |
 | POST | `/api/agent/model-config` | body: `agentKey`、可选 `modelKey/reasoningEffort/serviceTier`（至少一项） | 更新 Agent 模型配置，省略保持，等级 null 清除 |
 | POST | `/api/agent/open-directory` | body: `agentKey`、`directoryType` | 打开 Agent 工作目录或配置目录 |
 | GET | `/api/teams` | 无 | 目录式 Team 列表 |
@@ -83,9 +83,9 @@ GET /ws -> request / response / stream / push / error frames
 
 `GET /api/agents/order` 返回所有有效 runtime Agent 的完整 catalog 顺序，不接受 `scope` 或 `mode` 过滤，也不暴露 invalid Agent。`PUT` 接受 `{ "order": ["agent-b", "agent-a"] }`：key 会裁剪空白并校验为空、重复、数量上限和当前有效 catalog 成员；请求未携带的当前有效 Agent 按现有 catalog 顺序追加。Platform 再把这份有效顺序替换进完整 admin 序列的有效 Agent 槽位，invalid Agent 的位置和相对顺序保持不变，并原子写入既有 `agent-order.json`、reload catalog、发布一次 `catalog.updated`。该接口仅提供 HTTP；`/api/admin/agents/order` 继续面向管理台，允许完整 admin catalog 与 invalid Agent，两者共享同一顺序文件且不迁移已有数据。
 
-`GET /api/skills` 返回全局有效技能中心目录，响应为 `{agentKey,skills,pinned,packages?}`。每项包含 `key/displayName/configured` 与可选 `description/icon/version/revision`；不返回 `name`，未配置显示名称时由服务端回退到 SKILL.md 的 `name`；不返回 `items/meta`。可选 `agentKey` 仅计算当前智能体是否已配置该技能，不筛选或重排目录；不存在的 Agent 返回 404 `agent_not_found`。不传时 `agentKey:""`、所有 `configured:false`，仍返回完整目录。技能按中心稳定顺序返回，不追加 Agent 私有技能；`skills` 和 `pinned` 均不为 null。`configured` 表示已配置，并不表示本次必须使用。
+`GET /api/skills` 返回全局有效技能中心目录，响应为 `{agentKey,skills,pinned,packages?}`。每项包含 `id/displayName/configured` 与可选 `description/icon/version/revision`；不返回 `name`，未配置显示名称时由服务端回退到 SKILL.md 的 `name`；不返回 `items/meta`。可选 `agentKey` 仅计算当前智能体是否已配置该技能，不筛选或重排目录；不存在的 Agent 返回 404 `agent_not_found`。不传时 `agentKey:""`、所有 `configured:false`，仍返回完整目录。技能按中心稳定顺序返回，不追加 Agent 私有技能；`skills` 和 `pinned` 均不为 null。`configured` 表示已配置，并不表示本次必须使用。
 
-`packages` 是技能包声明成员与当前文件状态的展示投影，每项为 `{id,name,displayName,description?,version?,skills:[{id,version?}],missingSkillIds,status}`。包信息读 package.json，成员信息读自身 SKILL.md；name 与 skills 成员列表必填，缺少展示名时回退 name。成员 key 为 `<package>/<skill>`，只包含当前有效的共享包成员，连接器与 Agent 私有技能不能由同短名混入。HTTP/WS 列表与置顶写响应提供相同投影；置顶写保留原有空 skills 响应语义。客户端将包选择展开为具体完整 key 并去重，query mustUseSkills 不接受包 ID。不增加 SQL 存储或单独的包执行链路。
+`packages` 是技能包声明成员与当前文件状态的展示投影，每项为 `{id,name,displayName,description?,version?,skills:[{id,version?}],missingSkillIds,status}`。包信息读 package.json，成员信息读自身 SKILL.md；name 与 skills 成员列表必填，缺少展示名时回退 name。成员 ID 为 `<package>/<skill>`，只包含当前有效的共享包成员，连接器与 Agent 私有技能不能由同短名混入。HTTP/WS 列表与置顶写响应提供相同投影；置顶写保留原有空 skills 响应语义。客户端将包选择展开为具体完整 ID 并去重，query mustUseSkills 不接受包 ID。不增加 SQL 存储或单独的包执行链路。
 
 普通 Agent 摘要中的 `workspaceDir` 表示该 Agent 的运行工作区，`agentConfigDir` 表示 catalog 已解析的 Agent 配置目录；两者互不替代。`agentConfigDir` 原样返回运行时 `AgentDefinition.AgentDir`，为空时省略。`/api/agent` 继续通过现有的 `source.agentDir` 返回编辑来源目录，不新增顶层字段。
 
@@ -130,35 +130,35 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
 | GET/POST/DELETE | `/api/admin/connectors/auth?id=<id>` | 连接器 id | 查询状态、发起登录、退出登录 |
 | POST | `/api/admin/connectors/auth/cancel?id=<id>` | 连接器 id | 取消当前登录会话 |
-| GET/PUT/DELETE | `/api/admin/source` | GET query: `type`、`key`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256`；DELETE body: `target`、`baseSha256` | 读取或保存受控的 Agent、Skill、Skill Package、Automation、Registry 文本 source；旧 MCP source 删除入口已退役；mutation 使用哈希防止覆盖并发修改（技能包必填） |
+| GET/PUT/DELETE | `/api/admin/source` | GET query: `type`、`key`/`id`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256`；DELETE body: `target`、`baseSha256` | 读取或保存受控的 Agent、Skill、Skill Package、Automation、Registry 文本 source；旧 MCP source 删除入口已退役；mutation 使用哈希防止覆盖并发修改（技能包必填） |
 | GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
 | POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
 | POST | `/api/admin/agents/import` | multipart: `file`、可选 `overwrite` | 导入完整 Agent ZIP，返回包含 `status` 与 `diagnostics` 的 admin agent 详情 |
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/update-name` | body: `key`/`agentKey`、`name` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
-| POST | `/api/admin/agents/skills/import` | multipart: `agentKey`、`file`；兼容可选 `key` | 为一个目录型 Agent 导入并启用专属 ZIP Skill，返回更新后的 admin agent detail |
-| POST | `/api/admin/agents/skills/delete` | body: `agentKey`、`key` | 删除该 Agent 的专属 Skill 与其配置引用，返回更新后的 admin agent detail |
+| POST | `/api/admin/agents/skills/import` | multipart: `agentKey`、`file`；兼容可选 `id` | 为一个目录型 Agent 导入并启用专属 ZIP Skill，返回更新后的 admin agent detail |
+| POST | `/api/admin/agents/skills/delete` | body: `agentKey`、`id` | 删除该 Agent 的专属 Skill 与其配置引用，返回更新后的 admin agent detail |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
 | GET | `/api/admin/skills` | 无 | skills-center skill 列表，包含状态、图标 URL、可选 `version`、摘要诊断、更新时间、大小与引用 agent |
-| GET | `/api/admin/skills/detail` | query: `key`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
-| POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
-| POST | `/api/admin/skills/import` | multipart: `key`、`file`；可选 `overwrite` | 原子校验并导入完整 ZIP，返回 skill 详情 |
-| POST | `/api/admin/skills/delete` | body: `key` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
+| GET | `/api/admin/skills/detail` | query: `id`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
+| POST | `/api/admin/skills/create` | body: `id`、`skillMd`、`files[]` | 创建后的 skill 详情 |
+| POST | `/api/admin/skills/import` | multipart: `id`、`file`；可选 `overwrite` | 原子校验并导入完整 ZIP，返回 skill 详情 |
+| POST | `/api/admin/skills/delete` | body: `id` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
 | GET | `/api/admin/skill-packages` | 无 | 返回 Platform 已安装技能包及其子技能 ID、版本和包摘要 |
-| POST | `/api/admin/skill-packages/import` | query: `key`、可选 `version`；raw ZIP body | 原子校验并安装或更新技能包，返回包状态与实际安装的子技能 |
-| GET/PUT | `/api/admin/source`（`type: skill-package`） | GET query `type/key`；PUT body `target/content/baseSha256` | 统一读取或条件保存包自身 `package.json` |
-| POST | `/api/admin/skill-packages/delete` | body: `key` | 原子卸载技能包及其子技能，返回删除的子技能列表 |
+| POST | `/api/admin/skill-packages/import` | query: `id`、可选 `version`；raw ZIP body | 原子校验并安装或更新技能包，返回包状态与实际安装的子技能 |
+| GET/PUT | `/api/admin/source`（`type: skill-package`） | GET query `type/id`；PUT body `target/content/baseSha256` | 统一读取或条件保存包自身 `package.json` |
+| POST | `/api/admin/skill-packages/delete` | body: `id` | 原子卸载技能包及其子技能，返回删除的子技能列表 |
 | POST | `/api/admin/skill-packages/skills/delete` | body: `packageId`、`skillId` | 原子删除包内单个子技能并更新包状态 |
-| GET/PUT | `/api/admin/skills/file` | query/body: `key`、`path`、`content`、`baseSha256` | 读取或保存 UTF-8 文本文件 |
-| POST | `/api/admin/skills/file/create` | body: `key`、`path`、`content` | 创建文本文件 |
-| POST | `/api/admin/skills/file/delete` | body: `key`、`path`、`recursive`、`baseSha256` | 删除 skill 内文件或目录 |
-| POST | `/api/admin/skills/file/mkdir` | body: `key`、`path` | 创建 skill 内目录 |
-| POST | `/api/admin/skills/file/rename` | body: `key`、`fromPath`、`toPath`、`overwrite` | 重命名 skill 内文件或目录 |
-| POST | `/api/admin/skills/file/upload` | multipart: `key`、`path`、`overwrite`、`file` | 上传 skill 内二进制或大文件 |
-| GET | `/api/admin/skills/file/download` | query: `key`、`path` | 下载 skill 内非目录文件 |
-| GET | `/api/admin/skills/download` | query: `key` | 下载 skill 的安全分发 ZIP 包 |
-| POST | `/api/admin/skills/validate` | body/query: `key` | 重新加载并返回该 skill 当前校验结果 |
+| GET/PUT | `/api/admin/skills/file` | query/body: `id`、`path`、`content`、`baseSha256` | 读取或保存 UTF-8 文本文件 |
+| POST | `/api/admin/skills/file/create` | body: `id`、`path`、`content` | 创建文本文件 |
+| POST | `/api/admin/skills/file/delete` | body: `id`、`path`、`recursive`、`baseSha256` | 删除 skill 内文件或目录 |
+| POST | `/api/admin/skills/file/mkdir` | body: `id`、`path` | 创建 skill 内目录 |
+| POST | `/api/admin/skills/file/rename` | body: `id`、`fromPath`、`toPath`、`overwrite` | 重命名 skill 内文件或目录 |
+| POST | `/api/admin/skills/file/upload` | multipart: `id`、`path`、`overwrite`、`file` | 上传 skill 内二进制或大文件 |
+| GET | `/api/admin/skills/file/download` | query: `id`、`path` | 下载 skill 内非目录文件 |
+| GET | `/api/admin/skills/download` | query: `id` | 下载 skill 的安全分发 ZIP 包 |
+| POST | `/api/admin/skills/validate` | body/query: `id` | 重新加载并返回该 skill 当前校验结果 |
 | GET | `/api/admin/tools` | 无 | tool 列表，含扁平化工具来源字段 |
 | GET | `/api/admin/registries` | 无 | registry 文件列表摘要，含状态、脱敏 summary、首条诊断摘要与诊断数量 |
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
@@ -168,39 +168,39 @@ GET /ws -> request / response / stream / push / error frames
 
 同 Key 已存在且 `overwrite` 省略或为 `false` 时返回 409，`data.error` 包含 `code`、`agentKey`、`existingName` 与 `overwriteRequired:true`。确认后以同一 ZIP 和 `overwrite=true` 重试会整目录替换旧来源；目录型 Agent 原位替换，平铺 YAML Agent 转换为规范目录来源，不合并或保留旧 `.config`、专属 Skills 或资源。导入使用隐藏 staging/backup 完成原子切换；catalog 硬重载失败时恢复旧来源，回滚失败返回明确的 500 诊断。ZIP 布局、YAML、Key 或公共 mode 等结构性错误返回 422 和文件级 diagnostics，非 ZIP 返回 415，超限返回 413。若 catalog 可以重载、但该 Agent 因本机模型、工具、Workspace、KBASE 或 Skill 缺失而为 `invalid`，导入结果仍保留并以 200 返回无效状态与 diagnostics。
 
-`/api/admin/source` 的 target 是逻辑标识而不是文件系统路径：`agent`、`automation` 与 `skill-package` 使用 `key`（技能包固定定位 package.json，不接受 path），`skill` 使用 `key` 与相对 `path`，`registry` 使用 `category` 与 `file`。GET 响应固定返回 target、实际受控来源、原始 `content`、`encoding`、`sha256`、`size` 和 `updatedAt`；文本必须为 UTF-8 且不超过 1 MiB。Agent 保存只允许该 agent 的 `agent.yml`，并 reload agent catalog；Skill 与 Automation 保存分别 reload 对应 catalog / orchestrator。MCP 配置编辑改走连接器接口，旧 category=mcp-servers 的 GET/PUT/DELETE 均拒绝。旧的 Skill 文件结构、二进制上传下载接口，以及 Registry detail 接口仍保留兼容。
+`/api/admin/source` 的 target 是逻辑标识而不是文件系统路径：`agent`、`automation` 使用 `key`；`skill-package` 使用 `id`（固定定位 package.json，不接受 path），`skill` 使用 `id` 与相对 `path`，`registry` 使用 `category` 与 `file`。GET 响应固定返回 target、实际受控来源、原始 `content`、`encoding`、`sha256`、`size` 和 `updatedAt`；文本必须为 UTF-8 且不超过 1 MiB。Agent 保存只允许该 agent 的 `agent.yml`，并 reload agent catalog；Skill 与 Automation 保存分别 reload 对应 catalog / orchestrator。MCP 配置编辑改走连接器接口，旧 category=mcp-servers 的 GET/PUT/DELETE 均拒绝。旧的 Skill 文件结构、二进制上传下载接口，以及 Registry detail 接口仍保留兼容。
 
 `/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`），`sourceType` 表示定义来源类型（如 `local`、`agent-local`、`mcp`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 可用于 `<AP_RUNTIME_DIR>/tools` 下普通 frontend/action/agent-local YAML 的来源分类，`mcp` 为 MCP registry 同步工具。`external` 不再表示子进程调用协议。MCP 工具额外返回 `serverKey`。列表响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 tool definition `meta`；接口不接收 query 过滤参数。
 
 `/api/admin/skills` 只编辑 `<AP_RUNTIME_DIR>/skills-center` 下的共享 skill 目录，不直接编辑 agent 本地 `skills/` 同步副本。文件路径必须是相对路径，服务端拒绝目录逃逸和 symlink 跟随；JSON 文本读写限制为 UTF-8 且不超过 1 MiB，二进制或大文件通过 upload/download 接口处理。保存、上传、删除或重命名 skill 文件后会触发 `skills` reload 并级联 reload `agents`，使声明该 skill 的 agent 本地副本重新同步。
 
-`POST /api/admin/agents/skills/import` 只面向目录型普通 Agent。它沿用共享 Skill ZIP 的校验和限额，但将内容写入 `<agents>/<agentKey>/skills/<key>/`，并原子地把 key 加入该 Agent 的 `skillConfig.skills` 后 reload agents；导入失败或 reload 失败都会恢复 Agent YAML 并清理本地目录。未传 `key` 时，服务端从 ZIP 的 `SKILL.md` frontmatter 读取 `key`，否则读取 `name` 作为 Skill Key；旧调用方仍可显式传 Key。专属 Skill 不会出现在 `/api/admin/skills`，也不能由共享 Skill 删除接口删除。导入准入不查询 skills-center；若两者 Key 相同，该专属版本只对当前 Agent 优先，其他 Agent 仍可使用技能中心版本。Admin Agent Detail 的 `privateSkills[]` 返回本地摘要、是否启用及 `overridesCenter`，不返回本地路径或文件内容。专属删除同样只在 Agent 路由执行，并同时删目录和配置引用。
+`POST /api/admin/agents/skills/import` 只面向目录型普通 Agent。它沿用共享 Skill ZIP 的校验和限额，但将内容写入 `<agents>/<agentKey>/skills/<id>/`，并原子地把 id 加入该 Agent 的 `skillConfig.skills` 后 reload agents；导入失败或 reload 失败都会恢复 Agent YAML 并清理本地目录。未传 `id` 时，服务端从 ZIP 的 `SKILL.md` frontmatter 优先读取 `id`，兼容旧 `key`，都没有则读取 `name` 作为 Skill ID；调用方可显式传 `id`。专属 Skill 不会出现在 `/api/admin/skills`，也不能由共享 Skill 删除接口删除。导入准入不查询 skills-center；若两者 ID 相同，该专属版本只对当前 Agent 优先，其他 Agent 仍可使用技能中心版本。Admin Agent Detail 的 `privateSkills[]` 返回本地摘要、是否启用及 `overridesCenter`，不返回本地路径或文件内容。专属删除同样只在 Agent 路由执行，并同时删目录和配置引用。
 
 `/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。文本保存（`PUT /api/admin/source` 的 Skill target 与兼容 `PUT /api/admin/skills/file`）通过 `adminsource` 串行执行写入和 catalog reload；reload 失败时按本次写入内容的哈希校验后恢复原文件与 SHA-256，前端可保留草稿并使用原 `baseSha256` 重试。回滚后的 catalog 恢复不受客户端断连影响；若文件已被其他操作修改，则保留新内容并报告恢复失败。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会按 `assets/icon.svg`、`assets/icon.png`、`assets/<skill-id>.svg`、`assets/<skill-id>.png` 的顺序查找 regular、非 symlink 的图标，找到后返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。`/api/skills/icon` 对 SVG 使用与连接器图标相同的静态内容校验及响应安全头。skill 摘要从 `SKILL.md` frontmatter 提取可选 `version`：顶层 `version` 优先，缺失或空白时回退 `metadata.version`；两者皆无或空白时省略字段。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
 
-`POST /api/admin/skills/import` 是 WebClient 统一 ZIP 导入入口：multipart `file` 必填，`key` 可选，上传上限 512 MiB。Platform 识别安全 ZIP 的 `package.json`，或旧根 `manifest.json` 的 `type: skill-package`，调用同一包安装/更新事务，忽略单技能 key 提示，并返回 `{kind:"skill-package", package:{id,name?,version,sha256,skills,installedAt}}`。声明技能包却无效时返回诊断，不回退单技能。其他 ZIP 沿用单技能导入，缺省 key 从 SKILL.md 的 frontmatter.key 或 name 读取，返回 `{kind:"skill", ...AdminSkillDetailResponse}`，旧客户端仍可读取顶层 skill/capabilities/fileManifest/openedFile。单技能 ZIP 仍限 32 MiB；默认重名返回 409。可通过 query 或 multipart `overwrite=true` 显式整目录替换，旧目录保留到 reload 成功；完整校验失败不触碰旧目录，reload 失败恢复旧目录及原有 `skill.json` 等文件。成员文件可在编辑器中编辑，元信息仍保留在自身 SKILL.md；市场独立技能更新只写顶层技能，不更新同名包成员。multipart 大文件落进程临时目录，所有返回路径清理临时文件；ZIP 文件字节不在浏览器解压或经 WS 传输。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，首次导入失败不保留目标目录；覆盖失败恢复旧目录，恢复受阻时保留备份并报告位置。成功后沿用 `skills` reload 和 Agent 重组；解压与静态校验在 Catalog mutation 保护外，当前状态检查、目录发布及 reload 位于保护内；暂存与备份在技能根的同级目录。
+`POST /api/admin/skills/import` 是 WebClient 统一 ZIP 导入入口：multipart `file` 必填，`id` 可选，上传上限 512 MiB。Platform 识别安全 ZIP 的 `package.json`，或旧根 `manifest.json` 的 `type: skill-package`，调用同一包安装/更新事务，忽略单技能 ID 提示，并返回 `{kind:"skill-package", package:{id,name?,version,sha256,skills,installedAt}}`。声明技能包却无效时返回诊断，不回退单技能。其他 ZIP 沿用单技能导入，缺省 id 从 SKILL.md 的 frontmatter.id 或 name 读取，返回 `{kind:"skill", ...AdminSkillDetailResponse}`，旧客户端仍可读取顶层 skill/capabilities/fileManifest/openedFile。单技能 ZIP 仍限 32 MiB；默认重名返回 409。可通过 query 或 multipart `overwrite=true` 显式整目录替换，旧目录保留到 reload 成功；完整校验失败不触碰旧目录，reload 失败恢复旧目录及原有 `skill.json` 等文件。成员文件可在编辑器中编辑，元信息仍保留在自身 SKILL.md；市场独立技能更新只写顶层技能，不更新同名包成员。multipart 大文件落进程临时目录，所有返回路径清理临时文件；ZIP 文件字节不在浏览器解压或经 WS 传输。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，首次导入失败不保留目标目录；覆盖失败恢复旧目录，恢复受阻时保留备份并报告位置。成功后沿用 `skills` reload 和 Agent 重组；解压与静态校验在 Catalog mutation 保护外，当前状态检查、目录发布及 reload 位于保护内；暂存与备份在技能根的同级目录。
 
 普通技能删除先移入技能根同级备份，再执行 skills reload；reload 失败恢复整目录及 metadata，成功后清理备份。包内子技能可使用技能包专用删除接口；普通 Skill 删除与事务删除也复用包成员删除事务，同步更新成员清单，不能绕过引用检查。
 
-技能中心采用以下目录结构：顶层 `skills-center/<skill>/SKILL.md` 是独立技能；`skills-center/<package>/package.json` 标识技能包，成员位于包内一层 `<skill>/SKILL.md`。`package.json` 为 JSON，要求非空合法 `name` 与 `skills` 对象数组，例如 `{"name":"office","skills":[{"key":"pdf"},{"key":"docx"},{"key":"xlsx"}]}`。每个成员至少保存包内单段 key，可携带扩展属性；扩展属性在导入、编辑和删除其他成员时保留，但成员 name、版本和展示元数据仍读取自身 SKILL.md；key 不允许重复（含大小写冲突）、目录穿越或多层路径。`displayName/description/version/triggers/metadata` 及多语言字段可选。成员清单决定加载范围和包内顺序，展示信息来自各自 SKILL.md；未声明目录不自动成为技能。空包使用 `skills:[]`，删除最后成员保留包信息。 声明成员的目录或 SKILL.md 缺失、符号链接或不可读取时，包记录保留该成员与 diagnostics，其他成员仍可用。新 ZIP 导入要求声明成员完整；编辑可先声明缺失成员再创建，已有成员路径仍须通过安全校验。
+技能中心采用以下目录结构：顶层 `skills-center/<skill>/SKILL.md` 是独立技能；`skills-center/<package>/package.json` 标识技能包，成员位于包内一层 `<skill>/SKILL.md`。`package.json` 为 JSON，要求非空合法 `name` 与 `skills` 对象数组，例如 `{"name":"office","skills":[{"id":"pdf"},{"id":"docx"},{"id":"xlsx"}]}`。每个成员至少保存包内单段 id，可携带扩展属性；扩展属性在导入、编辑和删除其他成员时保留，但成员 name、版本和展示元数据仍读取自身 SKILL.md；id 不允许重复（含大小写冲突）、目录穿越或多层路径。`displayName/description/version/triggers/metadata` 及多语言字段可选。成员清单决定加载范围和包内顺序，展示信息来自各自 SKILL.md；未声明目录不自动成为技能。空包使用 `skills:[]`，删除最后成员保留包信息。 声明成员的目录或 SKILL.md 缺失、符号链接或不可读取时，包记录保留该成员与 diagnostics，其他成员仍可用。新 ZIP 导入要求声明成员完整；编辑可先声明缺失成员再创建，已有成员路径仍须通过安全校验。
 
 启动 Catalog 前对已安装且缺少 `skills` 的历史 package.json 执行一次成员补齐，原文件在技能根外保留备份；已有 `skills` 的清单不进入此兼容迁移，严格读取和新 ZIP 导入不隐式推断成员。旧 `.package` 迁移保留缺失成员声明与诊断。
 
-`GET /api/admin/skills` 列表与详情的 `packageId` 仅用于分组。独立技能 key 为 `<skill>`，包内 key 为 `<package>/<skill>`，不能以短名替代包内 key；同名技能可同时存在并独立选择、编辑和更新。`GET /api/admin/skill-packages` 按清单顺序返回声明成员与实际版本；缺少版本保持空值，不借用包版本。包展示文案复用请求语言解析规则，缺少展示名回退 name。列表读取不改写文件，也不维护 SQL 或第二份成员清单。声明成员文件缺失时保留成员条目并标记 incomplete/missingSkillIds，聊天选择列表只提供有效成员。新格式清单缺少 skills 或使用字符串数组视为无效；旧市场 ZIP 与旧 .package 迁移自动生成对象数组。
+`GET /api/admin/skills` 列表与详情的 `packageId` 仅用于分组。独立技能 ID 为 `<skill>`，包内 ID 为 `<package>/<skill>`，不能以短名替代包内 ID；同名技能可同时存在并独立选择、编辑和更新。`GET /api/admin/skill-packages` 按清单顺序返回声明成员与实际版本；缺少版本保持空值，不借用包版本。包展示文案复用请求语言解析规则，缺少展示名回退 name。列表读取不改写文件，也不维护 SQL 或第二份成员清单。声明成员文件缺失时保留成员条目并标记 incomplete/missingSkillIds，聊天选择列表只提供有效成员。新格式清单缺少 skills 或使用字符串数组视为无效；旧市场 ZIP 与旧 .package 迁移自动生成对象数组。
 
 `POST /api/admin/skill-packages/import` 接收原始 ZIP，不接受文件系统路径。新 ZIP 为 package.json 和成员目录，可带一层包目录；历史市场 manifest.json ZIP 仅作导入兼容，由 Platform 转换为新布局。校验在隐藏 staging 完成，发布时只替换 `skills-center/<package>`；包外同名技能不参与冲突、覆盖或删除。普通技能安装只替换顶层对应技能，不能覆盖技能包根目录。新包移除的成员随本包更新一起移除。整个目录切换与 Catalog 重载失败会恢复旧包，临时 ZIP/staging/backup 成功后清理。
 
-技能包信息编辑统一使用 `GET/PUT /api/admin/source`，GET 参数 `type=skill-package&key=office`，PUT 结构如下；原 `/api/admin/skill-packages/manifest` 路由已移除。
+技能包信息编辑统一使用 `GET/PUT /api/admin/source`，GET 参数 `type=skill-package&id=office`，PUT 结构如下；原 `/api/admin/skill-packages/manifest` 路由已移除。
 
 ```json
 {
-  "target": {"type": "skill-package", "key": "office"},
-  "content": "{\"name\":\"office\",\"skills\":[{\"key\":\"pdf\"}]}",
+  "target": {"type": "skill-package", "id": "office"},
+  "content": "{\"name\":\"office\",\"skills\":[{\"id\":\"pdf\"}]}",
   "baseSha256": "读取响应中的 sha256"
 }
 ```
 
-返回统一 `target/source/content/encoding/sha256/size/updatedAt`。PUT 需要读取时的 `baseSha256`，并发修改返回 409；禁止修改 name 更换包身份、移除正在被 Agent 引用的成员。保存复用 Catalog 事务，重载失败恢复原文件。修改成员列表只修改归属，不隐式删除文件；新增成员可先声明 key，再通过既有 Skill 创建/导入接口填充成员内容，或整包导入。成员删除接口在同一事务内删除目录并更新 skills，失败同时回滚；整包卸载仍检查 Agent 使用情况。包内文件编辑继续使用 `type:skill` 和完整成员 key。
+返回统一 `target/source/content/encoding/sha256/size/updatedAt`。PUT 需要读取时的 `baseSha256`，并发修改返回 409；禁止修改 name 更换包身份、移除正在被 Agent 引用的成员。保存复用 Catalog 事务，重载失败恢复原文件。修改成员列表只修改归属，不隐式删除文件；新增成员可先声明 id，再通过既有 Skill 创建/导入接口填充成员内容，或整包导入。成员删除接口在同一事务内删除目录并更新 skills，失败同时回滚；整包卸载仍检查 Agent 使用情况。包内文件编辑继续使用 `type:skill` 和完整成员 ID。
 
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
@@ -297,7 +297,7 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 
 `/api/agent` 返回顶层 `modelKey`、`reasoningEffort`、可选 `serviceTier`。模型 key 原样反映配置，ACP 详情不访问上游模型列表、不自动回退到其他模型。思考读取 Agent 顶层 `modelConfig.reasoning`：显式 `enabled:false` 返回 `NONE`，否则返回规范化 `effort`，未配置回退 `MEDIUM`；不代表 stageSettings 或单次 query 的覆盖结果。未设置服务等级时省略 `serviceTier`。不返回 `model`、`selected*`、`modelConfig`、`modelOptions`，meta 不重复返回 modelKey/modelKeys/providerKey/protocol。
 
-`skills` 为 `{key,name}[]`，按 Agent 技能顺序返回，name 优先取已挂载技能（包含 Agent 私有覆盖）的名称，缺失时回退 key；空列表为 `[]`，`meta.perAgentSkills` 已删除。内部 Agent YAML 仍使用技能 key 数组。
+`skills` 为 `{id,displayName}[]`，按 Agent 技能顺序返回，name 优先取已挂载技能（包含 Agent 私有覆盖）的名称，缺失时回退 key；空列表为 `[]`，`meta.perAgentSkills` 已删除。内部 Agent YAML 仍使用技能 ID 数组。
 
 `POST /api/agent/model-config`（HTTP/WS 相同）仅接受 `agentKey` 必填，`modelKey`、`reasoningEffort`、`serviceTier` 至少一项。省略字段保持原值；modelKey 不允许空值；reasoningEffort 为 NONE/LOW/MEDIUM/HIGH/XHIGH/MAX，不接受空值/null；serviceTier 为非空字符串或 null，null 清除等级，STANDARD 也按清除处理，非标准等级仅限 ACP。未知字段（包括旧 key 别名）拒绝。更新会校验最终模型与 ACP 能力；响应为 `{agentKey,modelKey,reasoningEffort,serviceTier?}`。YAML 的 modelConfig.reasoning.enabled/effort 结构保持不变，API 通过 NONE 表达关闭。
 
@@ -971,7 +971,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 |---|---|---|
 | `/api/agents` | `includeChats`、`chatsPinned`、`includeTeam`、`scope`、`mode` | `response` |
 | `/api/agent` | `agentKey` | `response` |
-| `/api/skills` | 可选 `agentKey` 读取；`key/pinned` 写入 | `response`；data 与 HTTP `/api/skills` 完全一致 |
+| `/api/skills` | 可选 `agentKey` 读取；`id/pinned` 写入 | `response`；data 与 HTTP `/api/skills` 完全一致 |
 | `/api/agent/model-config` | `agentKey`、可选 `modelKey/reasoningEffort/serviceTier` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |
@@ -1163,16 +1163,16 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 
 HTTP GET 和 WS `/api/view` 接受 `chatId/connectorId/key/hash?/usage?`，返回带快照引用的 HTML/QLC 文档和声明资源。工具结果与表单事件新增 `view/viewError`，业务结果与提交协议不变。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
 
-技能候选的 `icon` 使用 `/api/skills/icon?key=...`，读取技能中心图标，不因 Agent 改变。缺图省略 `icon`；HTTP/WS 共享字段，图片校验与 ETag 缓存保留。旧带 `agentKey` 的图标请求仍按 Agent 运行副本解析，不影响新全局目录。
+技能候选的 `icon` 使用 `/api/skills/icon?id=...`，读取技能中心图标，不因 Agent 改变。缺图省略 `icon`；HTTP/WS 共享字段，图片校验与 ETag 缓存保留。旧带 `agentKey` 的图标请求仍按 Agent 运行副本解析，不影响新全局目录。
 
 
 ## 用户技能置顶
 
-`GET /api/skills` 在技能列表旁返回当前用户的 `pinned:string[]`，技能包、独立技能与包成员共用这一有序数组：包使用包 ID，独立技能使用自身 key，包成员使用 `<package>/<skill>`。例如 `["office","pdf","office/export"]` 中三个置顶项互相独立；置顶或取消整个包只更新 `office`，不会展开、新增或移除成员的置顶，也不能从成员全部置顶推断包已置顶。新置顶在前，重复设置保持原位置。
+`GET /api/skills` 在技能列表旁返回当前用户的 `pinned:string[]`，技能包、独立技能与包成员共用这一有序数组：包使用包 ID，独立技能使用自身 id，包成员使用 `<package>/<skill>`。例如 `["office","pdf","office/export"]` 中三个置顶项互相独立；置顶或取消整个包只更新 `office`，不会展开、新增或移除成员的置顶，也不能从成员全部置顶推断包已置顶。新置顶在前，重复设置保持原位置。
 
-`PUT /api/skills` 接收 `{key:"office",pinned:true|false}`，返回 `{agentKey:"",skills:[],pinned:[...],packages?}`；沿用列表的包展示投影与请求语言，不暴露存储的 version/updatedAt。写入不需要 agentKey。非法 key 或缺少 boolean pinned 返回 400；包必须是当前目录扫描识别且元数据有效的已安装技能包，不存在或包元数据损坏时置顶返回 404。普通技能仍沿用已安装技能的准入规则，取消置顶允许清理已删除或损坏条目的旧偏好。锁内单条合并并原子保存，存储格式不变。旧 `/api/skills/order` HTTP/WS 路由已删除。
+`PUT /api/skills` 接收 `{id:"office",pinned:true|false}`，返回 `{agentKey:"",skills:[],pinned:[...],packages?}`；沿用列表的包展示投影与请求语言，不暴露存储的 version/updatedAt。写入不需要 agentKey。非法 id 或缺少 boolean pinned 返回 400；包必须是当前目录扫描识别且元数据有效的已安装技能包，不存在或包元数据损坏时置顶返回 404。普通技能仍沿用已安装技能的准入规则，取消置顶允许清理已删除或损坏条目的旧偏好。锁内单条合并并原子保存，存储格式不变。旧 `/api/skills/order` HTTP/WS 路由已删除。
 
-Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应 GET，`{key,pinned}` 对应 PUT，出现 key 或 pinned 即按写入校验，不完整写入返回 400；复用相同存储及错误语义。HTTP 不缓存用户置顶响应。用户身份只取已验证 Principal 的 subject，忽略客户端指定的 userKey；认证开启但没有用户身份时拒绝。认证关闭的本地部署使用独立 `local` 记录。
+Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应 GET，`{id,pinned}` 对应 PUT，出现 id 或 pinned 即按写入校验，不完整写入返回 400；复用相同存储及错误语义。HTTP 不缓存用户置顶响应。用户身份只取已验证 Principal 的 subject，忽略客户端指定的 userKey；认证开启但没有用户身份时拒绝。认证关闭的本地部署使用独立 `local` 记录。
 
 唯一持久化位置是 `<runtime>/skills-center/order.json`，具体根目录复用 `Config.Paths.SkillsCenterDir`。文件格式：
 
@@ -1188,11 +1188,11 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
 }
 ```
 
-同一用户的全部 Agent 共用一份 order，不存在 agentKey 维度；不同用户的记录互相隔离，接口只返回当前用户的记录。旧 version 1 文件及现存技能、成员 key 原样保留，不迁移为包 ID，也不从成员偏好合成包置顶；包 ID 直接加入同一字符串数组。未写入前 GET 返回空列表，不创建文件；重启后读取原文件，损坏或未知版本不自动覆写。技能中心只加载技能目录，order.json 与原子写临时文件均不触发技能/Agent 重载。置顶只影响可见条目的展示顺序，不改变 Agent 技能配置、Query mustUseSkills 或技能权限；包 ID 不进入 SkillDefinition，也不能作为 mustUseSkills 执行，选择包执行时仍须展开为有效成员的完整 key。
+同一用户的全部 Agent 共用一份 order，不存在 agentKey 维度；不同用户的记录互相隔离，接口只返回当前用户的记录。旧 version 1 文件及现存技能、成员 id 原样保留，不迁移为包 ID，也不从成员偏好合成包置顶；包 ID 直接加入同一字符串数组。未写入前 GET 返回空列表，不创建文件；重启后读取原文件，损坏或未知版本不自动覆写。技能中心只加载技能目录，order.json 与原子写临时文件均不触发技能/Agent 重载。置顶只影响可见条目的展示顺序，不改变 Agent 技能配置、Query mustUseSkills 或技能权限；包 ID 不进入 SkillDefinition，也不能作为 mustUseSkills 执行，选择包执行时仍须展开为有效成员的完整 id。
 
 ### 连接器中心置顶顺序
 
-`GET /api/connectors/order` 返回当前用户的 `{version:1,order:[connectorId],updatedAt?}`。`PUT /api/connectors/order` 接收 `{key:connectorId,pinned:boolean}`；WebSocket 同路径的空 payload 读取、非空 `{key,pinned}` 更新。HTTP 和 WebSocket 共用服务端认证主体，忽略客户端用户与 Agent 路由提示，未启用鉴权时使用本地用户。
+`GET /api/connectors/order` 返回当前用户的 `{version:1,order:[connectorId],updatedAt?}`。`PUT /api/connectors/order` 接收 `{id:connectorId,pinned:boolean}`；WebSocket 同路径的空 payload 读取、非空 `{id,pinned}` 更新。HTTP 和 WebSocket 共用服务端认证主体，忽略客户端用户与 Agent 路由提示，未启用鉴权时使用本地用户。
 
 偏好原子保存到 `runtime/connectors-center/order.json`，文件结构与技能中心一致，按 `users` 隔离，同一用户所有 Agent 共享。新置顶排在最前，重复请求幂等，取消后保留其他项的顺序；未安装的连接器不能新增置顶，已移除的连接器仍可取消置顶。内置只读连接器同样可以置顶，偏好不修改包内容、挂载、配置或登录凭证。两个中心的顺序彼此独立，根目录下的偏好及临时文件不会触发 Agent 热重载。连接器目录扫描跳过外部中心根目录下的普通 `order.json` 偏好文件与隐藏临时文件，写入置顶后列表、导入校验和运行时装配仍读取真实连接器包；同名目录、符号链接及其他异常包条目继续按包规则校验。
 
@@ -1308,7 +1308,7 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 ## 技能展示字段与语言
 
-技能对象新增 `displayName/version/revision`；名称和描述按 HTTP 请求语言或 WebSocket 连接语言解析，API 不返回 i18n 表。技能对象只返回 `key/displayName`，不返回 `name`；缺少显示名称时用 SKILL.md 的 name 回退，语言切换后客户端须重新请求。字段、版本兼容规则及完整示例见 [技能展示元数据](技能展示元数据.md)。
+技能对象新增 `displayName/version/revision`；名称和描述按 HTTP 请求语言或 WebSocket 连接语言解析，API 不返回 i18n 表。技能对象只返回 `id/displayName`，不返回 `name`；缺少显示名称时用 SKILL.md 的 name 回退，语言切换后客户端须重新请求。字段、版本兼容规则及完整示例见 [技能展示元数据](技能展示元数据.md)。
 
 
 ## 已发布产物读取
@@ -1332,4 +1332,9 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 技能目录 WebSocket `/api/skills` 支持 payload 可选 `locale`，同时适用于列表和置顶写响应。它仅决定本次响应的展示语言，不改变连接语言，避免 Desktop 多页面共用连接时相互干扰。省略或空值沿用连接语言，不支持的语言返回 400 `invalid_locale`。
 
-技能包图标：包根目录可放 `icon.svg` 或 `icon.png`，SVG 优先，不读取包根 `assets/`，不向子技能继承。管理包列表及 `/api/skills` 的 `packages` 返回可选 `icon` URL：`GET /api/skill-packages/icon?key=<package>`。图标接口沿用 API 鉴权、私有 ETag 缓存与图片校验，非法 key 返回 400，包或图标不可用返回 404；SVG 拒绝脚本及外部资源，符号链接图标不提供。独立技能和包成员仍从各自 `assets/` 读取图标。
+技能包图标：包根目录可放 `icon.svg` 或 `icon.png`，SVG 优先，不读取包根 `assets/`，不向子技能继承。管理包列表及 `/api/skills` 的 `packages` 返回可选 `icon` URL：`GET /api/skill-packages/icon?id=<package>`。图标接口沿用 API 鉴权、私有 ETag 缓存与图片校验，非法 id 返回 400，包或图标不可用返回 404；SVG 拒绝脚本及外部资源，符号链接图标不提供。独立技能和包成员仍从各自 `assets/` 读取图标。
+
+
+### Skill ID 字段统一
+
+技能列表、Agent 技能、私有技能、连接器技能摘要和技能管理/文件/transaction 请求响应统一使用 `id`；query 与 multipart 参数同样为 `id`。`PUT /api/skills` 使用 `{id,pinned}`，图标参数为 `id`。`/api/admin/source` 的 skill/skill-package target 使用 `id`，agent/automation 仍使用 `key`。技能包导入与删除使用包 `id`；成员删除继续使用 `{packageId,skillId}`。连接器技能详情使用 `?id=<connectorId>&skillId=<skillId>`。旧包清单与 ZIP 身份的读取兼容见 [技能展示元数据](技能展示元数据.md#技能标识命名)。

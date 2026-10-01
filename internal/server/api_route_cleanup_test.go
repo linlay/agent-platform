@@ -94,7 +94,7 @@ func TestRemovedHTTPAPIRoutesReturnNotFound(t *testing.T) {
 		{method: http.MethodGet, path: "/api/chat-" + "export?chatId=chat-route-search"},
 		{method: http.MethodGet, path: "/api/archive-resource?chatId=chat-route-search&file=report.md"},
 		{method: http.MethodGet, path: "/api/admin/skills/v2"},
-		{method: http.MethodGet, path: "/api/admin/skills/v2/detail?key=mock-skill"},
+		{method: http.MethodGet, path: "/api/admin/skills/v2/detail?id=mock-skill"},
 		{method: http.MethodPost, path: "/api/admin/skills/v2/create", body: `{}`},
 		{method: http.MethodGet, path: "/api/tools"},
 		{method: http.MethodGet, path: "/api/tool?toolName=bash"},

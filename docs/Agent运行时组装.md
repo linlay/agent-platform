@@ -28,7 +28,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 连接器通过 `connectorConfig.connectors` 挂载后，自动导入技能元数据；完整包按内容摘要共享安装到 `ru-connectors/<id>/<contentDigest>`，技能正文、资源、runtime env 和 hooks 读取该包的 skills，不再重复复制到同级 skills 目录。`skillId` 保留包内原始技能名，不加前缀；同一 Agent 下与已配置技能或其他连接器技能重名时返回冲突诊断。逻辑指令路径为 `@connectors/<id>/skills/<name>/SKILL.md`；`.config` 默认值仍按 Agent 独立合并。连接器 bin 从当前 Agent 的运行包加入 PATH，Container 只读挂载所选包。连接器技能不能作为 mustUseSkills，详见 [连接器](连接器.md)。
 
-技能包保存在 `skills-center/<package-id>/`，包根 `package.json` 必须包含 `name` 与 `skills:[{"key":"pdf"}]` 成员清单。成员 key 为包内单段目录名，至少保存 key，其他扩展属性原样保留；名称、描述和版本读取成员 SKILL.md。Platform 按清单加载包下一层成员，生成精确技能 key `<package-id>/<skill-id>`，不递归发现技能，不加载未声明目录；声明但缺失、不可读取或不安全的成员保留管理诊断，不使整包消失。顶层 `<skill-id>` 与包内同名技能可共存，安装、更新、编辑和卸载分别作用于精确 key；包更新只替换该包目录，不接管或覆盖顶层同名技能。普通技能内的 `sub-skills` 暂不扫描。技能包目录本身不可执行，也不能通过单技能接口覆盖；隐藏 staging 和 backup 不进入 Skill Catalog，临时 ZIP 不持久化。Platform 在首次启动 Catalog、开始监听目录前迁移旧 `.package` 记录：复制成员到新包目录，保留原顶层技能以兼容旧 Agent 短 key 引用，旧清单移入可恢复备份并记录路径。迁移完成后幂等；目标同名冲突保留原记录和已有目录，记录 skill_package_migration_conflict 并跳过该项，继续迁移其他包，不阻断服务启动。其他迁移错误仍保留备份并报告，不覆盖已有目录。普通查询和热重载不触发迁移。已安装 package.json 缺少 skills 时，启动阶段补齐一次显式声明，并在技能根外保留原文件备份；已有 skills 的无效清单不自动修复。旧 .package 的缺失成员声明同样保留为诊断占位。
+技能包保存在 `skills-center/<package-id>/`，包根 `package.json` 必须包含 `name` 与 `skills:[{"id":"pdf"}]` 成员清单。成员 id 为包内单段目录名，至少保存 id，其他扩展属性原样保留；名称、描述和版本读取成员 SKILL.md。Platform 按清单加载包下一层成员，生成精确技能 ID `<package-id>/<skill-id>`，不递归发现技能，不加载未声明目录；声明但缺失、不可读取或不安全的成员保留管理诊断，不使整包消失。顶层 `<skill-id>` 与包内同名技能可共存，安装、更新、编辑和卸载分别作用于精确 id；包更新只替换该包目录，不接管或覆盖顶层同名技能。普通技能内的 `sub-skills` 暂不扫描。技能包目录本身不可执行，也不能通过单技能接口覆盖；隐藏 staging 和 backup 不进入 Skill Catalog，临时 ZIP 不持久化。Platform 在首次启动 Catalog、开始监听目录前迁移旧 `.package` 记录：复制成员到新包目录，保留原顶层技能以兼容旧 Agent 短 id 引用，旧清单移入可恢复备份并记录路径。迁移完成后幂等；目标同名冲突保留原记录和已有目录，记录 skill_package_migration_conflict 并跳过该项，继续迁移其他包，不阻断服务启动。其他迁移错误仍保留备份并报告，不覆盖已有目录。普通查询和热重载不触发迁移。已安装 package.json 缺少 skills 时，启动阶段补齐一次显式声明，并在技能根外保留原文件备份；已有 skills 的无效清单不自动修复。旧 .package 的缺失成员声明同样保留为诊断占位。
 
 `ru-agents` 不是来源追踪系统：不生成版本目录、Skill lock、provenance 或来源 API，也不进入 release bundle、环境资源打包产物或环境 overlay。服务启动或 Catalog 热重载时可从事实源完整重建。
 
@@ -42,28 +42,28 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 ## Skill 来源选择
 
-`skillConfig.skills` 声明精确 Skill key，不增加 `source`。独立技能使用单段 ID；包成员使用 `<package-id>/<skill-id>`，不支持按成员短名回退或多层路径：
+`skillConfig.skills` 声明精确 Skill ID，不增加 `source`。独立技能使用单段 ID；包成员使用 `<package-id>/<skill-id>`，不支持按成员短名回退或多层路径：
 
-1. 单段 ID 对应的 `<agentsDir>/<agentKey>/skills/<id>` 存在时，必须是带合法 `SKILL.md` 的 Agent 自有 Skill。两段包成员 key 只从技能中心包目录读取，Agent 自有目录不遮蔽包成员。
+1. 单段 ID 对应的 `<agentsDir>/<agentKey>/skills/<id>` 存在时，必须是带合法 `SKILL.md` 的 Agent 自有 Skill。两段包成员 id 只从技能中心包目录读取，Agent 自有目录不遮蔽包成员。
 2. 本地目录存在但不合法时，Agent 无效，不回退技能中心。
 3. 本地不存在时，从 `<skills-center>/<id>` 读取。
 4. 两处都不存在或技能中心 Skill 非法时，Agent 无效。
 5. 重复 ID 保留第一次。
 
-普通技能开始复制前，组装器按大小写折叠后的完整 key 检查目录边界：同一 Agent 不能同时选择独立技能 `suite` 与包成员 `suite/demo`，因为两者会写入父子运行目录并混合资源。冲突与声明顺序无关，返回包含两个 key 的 `runtime_skill_path_conflict` 诊断；热重载失败时保留已发布运行文件。`demo` 与 `suite/demo`、同一包的多个成员仍可同时选择。连接器技能在独立共享包中执行，不参与普通技能运行目录的前缀冲突检查。
+普通技能开始复制前，组装器按大小写折叠后的完整 id 检查目录边界：同一 Agent 不能同时选择独立技能 `suite` 与包成员 `suite/demo`，因为两者会写入父子运行目录并混合资源。冲突与声明顺序无关，返回包含两个 id 的 `runtime_skill_path_conflict` 诊断；热重载失败时保留已发布运行文件。`demo` 与 `suite/demo`、同一包的多个成员仍可同时选择。连接器技能在独立共享包中执行，不参与普通技能运行目录的前缀冲突检查。
 
-普通 Agent 自有或技能中心的选中 Skill 会完整复制到 `ru-agents/<agentKey>/skills/<key>`（包成员保留 `<package-id>/<skill-id>` 两段目录，避免同名覆盖），包括 `SKILL.md`、`.bash-hooks`、`.runtime-env.json`、scripts、references 和 assets。Standalone YAML Agent 会在运行目录生成规范的 `agent.yml`，只能使用技能中心 Skill。
+普通 Agent 自有或技能中心的选中 Skill 会完整复制到 `ru-agents/<agentKey>/skills/<id>`（包成员保留 `<package-id>/<skill-id>` 两段目录，避免同名覆盖），包括 `SKILL.md`、`.bash-hooks`、`.runtime-env.json`、scripts、references 和 assets。Standalone YAML Agent 会在运行目录生成规范的 `agent.yml`，只能使用技能中心 Skill。
 
-目录型 Agent 的专属 Skill 可由 Admin Agent 页面导入。导入时 Key 自动取 ZIP 内 `SKILL.md` frontmatter 的 `key`，没有 `key` 则取 `name`；ZIP 只写入 `<agentsDir>/<agentKey>/skills/<id>`，并自动将 ID 加到 `skillConfig.skills`，它永远不复制到 `skills-center`。若与技能中心 Skill 同名，该 Agent 使用专属版本，其他 Agent 继续使用技能中心版本。专属 Skill 的删除仅能在该 Agent 的管理入口完成；技能中心不会展示、编辑或删除它。
+目录型 Agent 的专属 Skill 可由 Admin Agent 页面导入。导入时 ID 自动取 ZIP 内 `SKILL.md` frontmatter 的 `id`，兼容旧 `key`，都没有则取 `name`；ZIP 只写入 `<agentsDir>/<agentKey>/skills/<id>`，并自动将 ID 加到 `skillConfig.skills`，它永远不复制到 `skills-center`。若与技能中心 Skill 同名，该 Agent 使用专属版本，其他 Agent 继续使用技能中心版本。专属 Skill 的删除仅能在该 Agent 的管理入口完成；技能中心不会展示、编辑或删除它。
 
 ## 单次 run 的 `mustUseSkills`
 
 `POST /api/query` 可以用 `mustUseSkills: []` 强制本次 run 使用一个或多个 Skill。这不会修改 Agent YAML，也不会改变 `ru-agents/<agentKey>`：
 
-- 已在 `skillConfig.skills` 中配置的 key 从稳定运行目录解析，指令路径是 `@skills/<key>/SKILL.md`。
-- 未配置的 key 必须属于当前有效 skills-center catalog，并在 run 启动和 continuation 时重新验证真实 `SKILL.md`；指令路径是 `@skills-center/<key>/SKILL.md`。
-- 只要有一个 key 不可用，整个 run 以 `must_use_skill_unavailable` 失败，不执行其余部分。
-- 技能的 `name` 仍为子目录短名，元数据诊断按 key 的最后一段比较；运行引用和权限目录始终使用完整 key。
+- 已在 `skillConfig.skills` 中配置的 id 从稳定运行目录解析，指令路径是 `@skills/<id>/SKILL.md`。
+- 未配置的 id 必须属于当前有效 skills-center catalog，并在 run 启动和 continuation 时重新验证真实 `SKILL.md`；指令路径是 `@skills-center/<id>/SKILL.md`。
+- 只要有一个 id 不可用，整个 run 以 `must_use_skill_unavailable` 失败，不执行其余部分。
+- 技能的 `name` 仍为子目录短名，元数据诊断按 id 的最后一段比较；运行引用和权限目录始终使用完整 id。
 - Prompt 按请求顺序列出全部精确路径，并把“读取且遵循全部指令”作为强制约束。
 - 每个选中的已配置或额外 Skill 都解析为最终 canonical 目录，并进入本 run 的 trusted read + readonly roots；整个选中目录免读路径 HITL，未选中的 skills-center 兄弟目录不继承，symlink 逃逸按最终目标重新判权。
 - 不复制 Skill、不生成文件快照、不创建 `run-runtime/`；运行中读取技能中心当前内容。脚本执行另有本 Run 内存凭据，内容变化后不继续享有入口豁免。

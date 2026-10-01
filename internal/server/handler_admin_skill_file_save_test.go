@@ -14,14 +14,14 @@ func TestAdminSkillTextSaveRollsBackWhenReloadFails(t *testing.T) {
 	for _, endpoint := range []string{"/api/admin/source", "/api/admin/skills/file"} {
 		t.Run(endpoint, func(t *testing.T) {
 			fixture := newTestFixture(t)
-			target := api.AdminSourceTarget{Type: "skill", Key: "mock-skill", Path: "SKILL.md"}
+			target := api.AdminSourceTarget{Type: "skill", ID: "mock-skill", Path: "SKILL.md"}
 			before := getAdminSourceForTest(t, fixture.server, target)
 			content := before.Content + "\nSaved change.\n"
 			save := func(content, base string) *httptest.ResponseRecorder {
 				t.Helper()
 				var body any = api.UpdateAdminSourceRequest{Target: target, Content: content, BaseSHA256: base}
 				if endpoint == "/api/admin/skills/file" {
-					body = api.WriteAdminSkillFileRequest{Key: target.Key, Path: target.Path, Content: content, BaseSHA256: base}
+					body = api.WriteAdminSkillFileRequest{ID: target.ID, Path: target.Path, Content: content, BaseSHA256: base}
 				}
 				payload, err := json.Marshal(body)
 				if err != nil {

@@ -21,11 +21,11 @@ func (s *Server) readAdminSkillPackageTextSource(target api.AdminSourceTarget) (
 	if !ok {
 		return api.AdminSourceResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "skill package editor is not configured")
 	}
-	file, err := registry.ReadEditableSkillPackageManifest(target.Key)
+	file, err := registry.ReadEditableSkillPackageManifest(target.ID)
 	if err != nil {
 		return api.AdminSourceResponse{}, mapSkillEditError(err)
 	}
-	return adminSourceFromSkillFile(target, filepath.Join(s.deps.Config.Paths.SkillsCenterDir, target.Key, "package.json"), file), nil
+	return adminSourceFromSkillFile(target, filepath.Join(s.deps.Config.Paths.SkillsCenterDir, target.ID, "package.json"), file), nil
 }
 
 func (s *Server) writeAdminSkillPackageTextSource(ctx context.Context, target api.AdminSourceTarget, content, baseSHA256 string) (api.AdminSourceResponse, error) {
@@ -37,7 +37,7 @@ func (s *Server) writeAdminSkillPackageTextSource(ctx context.Context, target ap
 		return api.AdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "baseSha256 is required")
 	}
 	return withCatalogDirectoryTransaction(ctx, s, "skills", func(ctx context.Context) (api.AdminSourceResponse, error) {
-		mutation, _, err := registry.BeginUpdateEditableSkillPackageManifest(target.Key, content, baseSHA256)
+		mutation, _, err := registry.BeginUpdateEditableSkillPackageManifest(target.ID, content, baseSHA256)
 		if err != nil {
 			return api.AdminSourceResponse{}, mapSkillEditError(err)
 		}

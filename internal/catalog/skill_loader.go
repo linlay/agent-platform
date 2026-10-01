@@ -15,8 +15,8 @@ import (
 // ResolveSkillDefinition loads a declared skill from real host paths.
 // Agent-local skills win; the skills center is used as a fallback.
 func ResolveSkillDefinition(agentDir, centerDir, skillID string) (SkillDefinition, bool, error) {
-	if !validSkillPathKey(skillID) {
-		return SkillDefinition{}, false, ErrInvalidSkillKey
+	if !validSkillPathID(skillID) {
+		return SkillDefinition{}, false, ErrInvalidSkillID
 	}
 	for _, skillDir := range candidateSkillDirs(agentDir, centerDir, skillID) {
 		def, ok, err := loadSkillDefinitionFromDir(skillDir, skillID, 0)
@@ -34,15 +34,15 @@ func ResolveSkillDefinition(agentDir, centerDir, skillID string) (SkillDefinitio
 // runtime Agent. Runtime execution must never fall back to source agents or the
 // shared skills center.
 func ResolveRuntimeSkillDefinition(runtimeDir, skillID string) (SkillDefinition, bool, error) {
-	if !validSkillPathKey(skillID) {
-		return SkillDefinition{}, false, ErrInvalidSkillKey
+	if !validSkillPathID(skillID) {
+		return SkillDefinition{}, false, ErrInvalidSkillID
 	}
 	return loadSkillDefinitionFromDir(filepath.Join(runtimeDir, "skills", filepath.FromSlash(skillID)), skillID, 0)
 }
 
 func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, error) {
 	items := map[string]SkillDefinition{}
-	keys, err := skillDirectoryKeys(root)
+	keys, err := skillDirectoryIDs(root)
 	if err != nil {
 		return nil, err
 	}
@@ -60,10 +60,10 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 	return items, nil
 }
 
-// skillDirectoryKeys scans the center root and follows declared package members.
+// skillDirectoryIDs scans the center root and follows declared package members.
 // Ordinary skill subdirectories (including sub-skills) are resources, never
 // implicit catalog entries.
-func skillDirectoryKeys(root string) ([]string, error) {
+func skillDirectoryIDs(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -99,13 +99,13 @@ func skillDirectoryKeys(root string) ([]string, error) {
 			continue
 		}
 		for _, member := range manifest.Skills {
-			memberPath := filepath.Join(dir, member.Key, "SKILL.md")
+			memberPath := filepath.Join(dir, member.ID, "SKILL.md")
 			if err := ensureNoSymlinkAlongExistingPath(root, memberPath); err != nil {
-				log.Printf("[catalog][skills] skip package member %s/%s: %v", name, member.Key, err)
+				log.Printf("[catalog][skills] skip package member %s/%s: %v", name, member.ID, err)
 				continue
 			}
 			if info, err := os.Lstat(memberPath); err == nil && info.Mode().IsRegular() {
-				keys = append(keys, name+"/"+member.Key)
+				keys = append(keys, name+"/"+member.ID)
 			}
 		}
 	}
@@ -141,7 +141,7 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 	prompt := strings.TrimSpace(string(content))
 	name, description, triggers, metadata, version := parseSkillPromptMetadata(prompt)
 	for _, diagnostic := range skillMetadataDiagnostics(skillID, prompt) {
-		if diagnostic.Code == "skill_name_key_mismatch" {
+		if diagnostic.Code == "skill_name_id_mismatch" {
 			log.Printf("[catalog][skills] warning code=%s skill=%q message=%s", diagnostic.Code, skillID, diagnostic.Message)
 		}
 	}
@@ -157,7 +157,7 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 	}
 
 	return SkillDefinition{
-		Key:             skillID,
+		ID:              skillID,
 		IconPath:        skillIconPath(skillDir, skillID),
 		Name:            skillDisplayName(name, description, skillID),
 		Description:     description,

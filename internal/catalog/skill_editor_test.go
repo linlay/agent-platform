@@ -73,10 +73,10 @@ func TestEditableSkillAdminScansInvalidRuntimeEnvUsageAndSymlink(t *testing.T) {
 func TestEditableSkillPathGuardsAndBinaryRead(t *testing.T) {
 	root := t.TempDir()
 	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
-	if _, err := registry.CreateEditableSkill("../bad", "# Bad\n", nil); !errors.Is(err, ErrInvalidSkillKey) {
+	if _, err := registry.CreateEditableSkill("../bad", "# Bad\n", nil); !errors.Is(err, ErrInvalidSkillID) {
 		t.Fatalf("expected invalid key, got %v", err)
 	}
-	if _, err := registry.CreateEditableSkill("hidden.example", "# Hidden\n", nil); !errors.Is(err, ErrInvalidSkillKey) {
+	if _, err := registry.CreateEditableSkill("hidden.example", "# Hidden\n", nil); !errors.Is(err, ErrInvalidSkillID) {
 		t.Fatalf("expected example key rejection, got %v", err)
 	}
 	if _, err := registry.CreateEditableSkill("demo", "# Demo\n", []EditableSkillInlineFile{{Path: `refs\bad.md`, Content: "x"}}); !errors.Is(err, ErrInvalidSkillPath) {
@@ -211,7 +211,7 @@ func TestImportEditableSkillArchiveSupportsRootAndWrappedLayouts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("import root archive: %v", err)
 	}
-	if item.Key != "root-skill" || item.Name != "Root Skill" || item.Status != AdminSkillStatusReady {
+	if item.ID != "root-skill" || item.Name != "Root Skill" || item.Status != AdminSkillStatusReady {
 		t.Fatalf("unexpected imported skill: %#v", item)
 	}
 	scriptInfo, err := os.Stat(filepath.Join(root, "root-skill", "scripts", "run.sh"))
@@ -234,7 +234,7 @@ func TestImportEditableSkillArchiveSupportsRootAndWrappedLayouts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("import wrapped archive: %v", err)
 	}
-	if wrapped.Key != "wrapped-skill" || wrapped.Status != AdminSkillStatusReady {
+	if wrapped.ID != "wrapped-skill" || wrapped.Status != AdminSkillStatusReady {
 		t.Fatalf("unexpected wrapped skill: %#v", wrapped)
 	}
 	if _, err := os.Stat(filepath.Join(root, "wrapped-skill", "wrapped")); !errors.Is(err, os.ErrNotExist) {
@@ -264,7 +264,7 @@ func TestDownloadedEditableSkillArchiveCanBeReimported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reimport downloaded skill: %v", err)
 	}
-	if item.Key != "reimported-skill" || item.Status != AdminSkillStatusReady {
+	if item.ID != "reimported-skill" || item.Status != AdminSkillStatusReady {
 		t.Fatalf("unexpected reimported skill: %#v", item)
 	}
 	if _, err := os.Stat(filepath.Join(root, "reimported-skill", "references", "guide.md")); err != nil {

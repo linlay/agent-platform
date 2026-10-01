@@ -20,7 +20,7 @@ func TestAdminSkillPackageImportAndDelete(t *testing.T) {
 		"skills/excel-helper/SKILL.md": "---\nname: excel-helper\ndescription: Excel helper\nmetadata:\n  version: 2.0.0\n---\n\nUse Excel.\n",
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=office-pack&version=1.0.0", bytes.NewReader(archive))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?id=office-pack&version=1.0.0", bytes.NewReader(archive))
 	request.Header.Set("Content-Type", "application/zip")
 	recorder := httptest.NewRecorder()
 	fixture.server.ServeHTTP(recorder, request)
@@ -55,7 +55,7 @@ func TestAdminSkillPackageImportAndDelete(t *testing.T) {
 		t.Fatalf("deleted package child remains: %v", err)
 	}
 
-	deleteBody, _ := json.Marshal(api.DeleteAdminSkillPackageRequest{Key: "office-pack"})
+	deleteBody, _ := json.Marshal(api.DeleteAdminSkillPackageRequest{ID: "office-pack"})
 	deleted := getAPIData[api.DeleteAdminSkillPackageResponse](t, fixture.server, http.MethodPost, "/api/admin/skill-packages/delete", deleteBody)
 	if !deleted.Deleted || len(deleted.Skills) != 1 {
 		t.Fatalf("unexpected delete response: %#v", deleted)
@@ -79,7 +79,7 @@ func TestAdminSkillPackageImportPreservesExistingStandaloneSkill(t *testing.T) {
 		"skills/word-helper/SKILL.md": "---\nname: word-helper\ndescription: Package skill\nmetadata:\n  version: 1.0.0\n---\n\nPackage content.\n",
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=office-pack&version=1.0.0", bytes.NewReader(archive))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?id=office-pack&version=1.0.0", bytes.NewReader(archive))
 	request.Header.Set("Content-Type", "application/zip")
 	recorder := httptest.NewRecorder()
 	fixture.server.ServeHTTP(recorder, request)
@@ -102,7 +102,7 @@ func TestAdminSkillPackageImportRollsBackWhenCatalogReloadFails(t *testing.T) {
 		"manifest.json":               `{"schemaVersion":1,"type":"skill-package","id":"office-pack","version":"1.0.0","skills":[{"id":"word-helper","version":"1.0.0","path":"skills/word-helper/"}]}`,
 		"skills/word-helper/SKILL.md": "---\nname: word-helper\ndescription: Word helper\n---\n\nUse Word.\n",
 	})
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=office-pack&version=1.0.0", bytes.NewReader(archive))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?id=office-pack&version=1.0.0", bytes.NewReader(archive))
 	request.Header.Set("Content-Type", "application/zip")
 	recorder := httptest.NewRecorder()
 	fixture.server.ServeHTTP(recorder, request)

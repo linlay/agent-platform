@@ -16,14 +16,14 @@ import (
 func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
 	f := newAgentSkillsTestFixture(t, true)
 	writeProjectionPackage(t, f, "center-extra")
-	content := `{"name":"office","skills":[{"key":"center-extra"}],"metadata":{"i18n":{"zh-CN":{"displayName":"办公包"},"en":{"displayName":"Office Suite"}}}}`
+	content := `{"name":"office","skills":[{"id":"center-extra"}],"metadata":{"i18n":{"zh-CN":{"displayName":"办公包"},"en":{"displayName":"Office Suite"}}}}`
 	if err := os.WriteFile(filepath.Join(f.cfg.Paths.SkillsCenterDir, "office", "package.json"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.server.reloadAdminSkills(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	httpPin := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills?locale=zh-CN", []byte(`{"key":"office","pinned":true}`))
+	httpPin := getAPIData[api.AgentSkillsResponse](t, f.server, "PUT", "/api/skills?locale=zh-CN", []byte(`{"id":"office","pinned":true}`))
 	if len(httpPin.Pinned) != 1 || httpPin.Pinned[0] != "office" || len(httpPin.Packages) != 1 || httpPin.Packages[0].DisplayName != "办公包" {
 		t.Fatalf("HTTP package pin locale: %+v", httpPin)
 	}
@@ -46,7 +46,7 @@ func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
 	}{
 		{"zh-list", map[string]any{"locale": "zh-CN"}, "办公包"},
 		{"en-list", map[string]any{"locale": "en-US"}, "Office Suite"},
-		{"zh-pin", map[string]any{"locale": "zh-CN", "key": "office", "pinned": true}, "办公包"},
+		{"zh-pin", map[string]any{"locale": "zh-CN", "id": "office", "pinned": true}, "办公包"},
 		{"unchanged", map[string]any{}, "Office Suite"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: tc.id, Payload: marshalPayload(tc.payload)}); err != nil {

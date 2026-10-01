@@ -18,8 +18,8 @@ type SkillCandidateDiagnostic struct {
 // ValidateSkillCandidate validates a complete SKILL.md candidate without
 // writing it into the skills catalog.
 func ValidateSkillCandidate(resourceKey string, content []byte, maxPromptChars int) []SkillCandidateDiagnostic {
-	if err := ValidateEditableSkillKey(resourceKey); err != nil {
-		return []SkillCandidateDiagnostic{{Severity: "error", Code: "invalid_skill_key", Message: err.Error()}}
+	if err := ValidateEditableSkillID(resourceKey); err != nil {
+		return []SkillCandidateDiagnostic{{Severity: "error", Code: "invalid_skill_id", Message: err.Error()}}
 	}
 	if !utf8.Valid(content) {
 		return []SkillCandidateDiagnostic{{Severity: "error", Code: "invalid_skill_encoding", Message: "SKILL.md must be UTF-8 text"}}

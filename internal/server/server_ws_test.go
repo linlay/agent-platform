@@ -255,7 +255,7 @@ func TestWebSocketQueryAvailabilityRouteRemoved(t *testing.T) {
 	}
 }
 
-func TestWebSocketQueryRejectsRemovedRequiredSkillKeys(t *testing.T) {
+func TestWebSocketQueryRejectsRemovedRequiredSkillIDs(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{

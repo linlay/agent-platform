@@ -38,7 +38,7 @@ const (
 var (
 	ErrSkillAlreadyExists         = errors.New("skill already exists")
 	ErrSkillNotFound              = errors.New("skill not found")
-	ErrInvalidSkillKey            = errors.New("invalid skill key")
+	ErrInvalidSkillID             = errors.New("invalid skill ID")
 	ErrInvalidSkillPath           = errors.New("invalid skill path")
 	ErrSkillFileTooLarge          = errors.New("skill file too large")
 	ErrSkillArchiveTooLarge       = errors.New("skill archive exceeds the maximum uncompressed size")
@@ -85,7 +85,7 @@ type AdminSkillDiagnostic struct {
 
 type AdminSkill struct {
 	Presentation skillmeta.Presentation
-	Key          string
+	ID           string
 	Name         string
 	Description  string
 	IconPath     string
@@ -120,7 +120,7 @@ type EditableSkillInlineFile struct {
 }
 
 type EditableSkillFileContent struct {
-	Key       string
+	ID        string
 	Path      string
 	Content   string
 	Encoding  string
@@ -139,7 +139,7 @@ func (r *FileRegistry) AdminSkills() ([]AdminSkill, error) {
 	}
 	usage := r.skillUsageByAgent()
 	items := []AdminSkill{}
-	keys, err := skillDirectoryKeys(root)
+	keys, err := skillDirectoryIDs(root)
 	if err != nil {
 		return nil, err
 	}
@@ -151,12 +151,12 @@ func (r *FileRegistry) AdminSkills() ([]AdminSkill, error) {
 		items = append(items, item)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
-		return items[i].Key < items[j].Key
+		return items[i].ID < items[j].ID
 	})
 	return items, nil
 }
 
-func (r *FileRegistry) AdminSkill(key string) (AdminSkill, bool, error) {
+func (r *FileRegistry) AdminSkill(id string) (AdminSkill, bool, error) {
 	if r == nil {
 		return AdminSkill{}, false, fmt.Errorf("skill registry is not configured")
 	}
@@ -164,11 +164,11 @@ func (r *FileRegistry) AdminSkill(key string) (AdminSkill, bool, error) {
 	if root == "" {
 		return AdminSkill{}, false, fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return AdminSkill{}, false, err
 	}
 	usage := r.skillUsageByAgent()
-	dir, err := editableSkillDir(root, key)
+	dir, err := editableSkillDir(root, id)
 	if err != nil {
 		return AdminSkill{}, false, err
 	}
@@ -185,14 +185,14 @@ func (r *FileRegistry) AdminSkill(key string) (AdminSkill, bool, error) {
 	if !info.IsDir() {
 		return AdminSkill{}, false, fmt.Errorf("%w: skill root is not a directory", ErrInvalidSkillPath)
 	}
-	item, err := buildAdminSkill(root, strings.TrimSpace(key), usage[strings.TrimSpace(key)], true)
+	item, err := buildAdminSkill(root, strings.TrimSpace(id), usage[strings.TrimSpace(id)], true)
 	if err != nil {
 		return AdminSkill{}, false, err
 	}
 	return item, true, nil
 }
 
-func (r *FileRegistry) CreateEditableSkill(key string, skillMd string, files []EditableSkillInlineFile) (AdminSkill, error) {
+func (r *FileRegistry) CreateEditableSkill(id string, skillMd string, files []EditableSkillInlineFile) (AdminSkill, error) {
 	if r == nil {
 		return AdminSkill{}, fmt.Errorf("skill registry is not configured")
 	}
@@ -200,13 +200,13 @@ func (r *FileRegistry) CreateEditableSkill(key string, skillMd string, files []E
 	if root == "" {
 		return AdminSkill{}, fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return AdminSkill{}, err
 	}
 	if strings.TrimSpace(skillMd) == "" {
 		return AdminSkill{}, fmt.Errorf("SKILL.md is required")
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return AdminSkill{}, err
 	}
@@ -238,33 +238,33 @@ func (r *FileRegistry) CreateEditableSkill(key string, skillMd string, files []E
 	}
 	cleanup = false
 	usage := r.skillUsageByAgent()
-	return buildAdminSkill(root, strings.TrimSpace(key), usage[strings.TrimSpace(key)], true)
+	return buildAdminSkill(root, strings.TrimSpace(id), usage[strings.TrimSpace(id)], true)
 }
 
-func (r *FileRegistry) DeleteEditableSkill(key string) error {
-	mutation, err := r.BeginDeleteEditableSkill(key)
+func (r *FileRegistry) DeleteEditableSkill(id string) error {
+	mutation, err := r.BeginDeleteEditableSkill(id)
 	if err != nil {
 		return err
 	}
 	return mutation.Commit()
 }
 
-func (r *FileRegistry) EditableSkillUsage(key string) ([]string, error) {
-	if err := ValidateEditableSkillKey(key); err != nil {
+func (r *FileRegistry) EditableSkillUsage(id string) ([]string, error) {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return nil, err
 	}
-	return append([]string(nil), r.skillUsageByAgent()[strings.TrimSpace(key)]...), nil
+	return append([]string(nil), r.skillUsageByAgent()[strings.TrimSpace(id)]...), nil
 }
 
-func (r *FileRegistry) ReadEditableSkillFile(key string, relPath string) (EditableSkillFileContent, error) {
+func (r *FileRegistry) ReadEditableSkillFile(id string, relPath string) (EditableSkillFileContent, error) {
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
 		return EditableSkillFileContent{}, fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return EditableSkillFileContent{}, err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return EditableSkillFileContent{}, err
 	}
@@ -299,7 +299,7 @@ func (r *FileRegistry) ReadEditableSkillFile(key string, relPath string) (Editab
 		return EditableSkillFileContent{}, ErrSkillFileBinary
 	}
 	return EditableSkillFileContent{
-		Key:       strings.TrimSpace(key),
+		ID:        strings.TrimSpace(id),
 		Path:      filepath.ToSlash(cleanRel),
 		Content:   string(data),
 		Encoding:  "utf-8",
@@ -309,15 +309,15 @@ func (r *FileRegistry) ReadEditableSkillFile(key string, relPath string) (Editab
 	}, nil
 }
 
-func (r *FileRegistry) ResolveEditableSkillFile(key string, relPath string) (string, EditableSkillFile, error) {
+func (r *FileRegistry) ResolveEditableSkillFile(id string, relPath string) (string, EditableSkillFile, error) {
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
 		return "", EditableSkillFile{}, fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return "", EditableSkillFile{}, err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return "", EditableSkillFile{}, err
 	}
@@ -351,7 +351,7 @@ func (r *FileRegistry) ResolveEditableSkillFile(key string, relPath string) (str
 // WriteEditableSkillArchive writes a portable ZIP archive of a skill's safe,
 // distributable files. Runtime environment configuration is intentionally
 // omitted because it may contain credentials.
-func (r *FileRegistry) WriteEditableSkillArchive(key string, destination io.Writer) error {
+func (r *FileRegistry) WriteEditableSkillArchive(id string, destination io.Writer) error {
 	if r == nil {
 		return fmt.Errorf("skill registry is not configured")
 	}
@@ -362,10 +362,10 @@ func (r *FileRegistry) WriteEditableSkillArchive(key string, destination io.Writ
 	if root == "" {
 		return fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return err
 	}
@@ -412,8 +412,8 @@ func (r *FileRegistry) WriteEditableSkillArchive(key string, destination io.Writ
 // ImportEditableSkillArchive validates and atomically installs a ZIP archive
 // into the shared skills center. The archive may either contain SKILL.md at
 // its root or wrap the complete skill in one top-level directory.
-func (r *FileRegistry) ImportEditableSkillArchive(key string, source io.ReaderAt, size int64) (AdminSkill, error) {
-	mutation, item, err := r.BeginImportEditableSkillArchive(key, source, size, false)
+func (r *FileRegistry) ImportEditableSkillArchive(id string, source io.ReaderAt, size int64) (AdminSkill, error) {
+	mutation, item, err := r.BeginImportEditableSkillArchive(id, source, size, false)
 	if err != nil {
 		return AdminSkill{}, err
 	}
@@ -423,15 +423,15 @@ func (r *FileRegistry) ImportEditableSkillArchive(key string, source io.ReaderAt
 // importEditableSkillArchiveIntoRoot contains the shared safe ZIP extraction
 // path for center and Agent-private skills. The caller owns the returned
 // directory and must remove it when a larger mutation subsequently fails.
-func importEditableSkillArchiveIntoRoot(root string, key string, source io.ReaderAt, size int64) (string, error) {
+func importEditableSkillArchiveIntoRoot(root string, id string, source io.ReaderAt, size int64) (string, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return "", fmt.Errorf("skill root is required")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return "", err
 	}
-	key = strings.TrimSpace(key)
+	id = strings.TrimSpace(id)
 	if source == nil || size <= 0 {
 		return "", ErrSkillArchiveInvalid
 	}
@@ -451,7 +451,7 @@ func importEditableSkillArchiveIntoRoot(root string, key string, source io.Reade
 	if !rootInfo.IsDir() {
 		return "", fmt.Errorf("%w: skill root is not a directory", ErrInvalidSkillPath)
 	}
-	finalDir, err := editableSkillDir(root, key)
+	finalDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return "", err
 	}
@@ -503,11 +503,11 @@ func importEditableSkillArchiveIntoRoot(root string, key string, source io.Reade
 	return finalDir, nil
 }
 
-// DetectEditableSkillArchiveKey returns the package-defined skill key without
-// extracting it. A package may explicitly set frontmatter.key; otherwise its
-// required frontmatter.name is the stable key. This lets Agent-private imports
+// DetectEditableSkillArchiveID returns the package-defined skill ID without
+// extracting it. A package may explicitly set frontmatter.id (legacy key is accepted); otherwise its
+// required frontmatter.name is the stable ID. This lets Agent-private imports
 // preserve the identity supplied by the ZIP itself.
-func DetectEditableSkillArchiveKey(source io.ReaderAt, size int64) (string, error) {
+func DetectEditableSkillArchiveID(source io.ReaderAt, size int64) (string, error) {
 	if source == nil || size <= 0 {
 		return "", ErrSkillArchiveInvalid
 	}
@@ -545,15 +545,22 @@ func DetectEditableSkillArchiveKey(source io.ReaderAt, size int64) (string, erro
 		return "", skillArchiveValidationError("skill_md_too_large", "SKILL.md exceeds the maximum text size", "SKILL.md")
 	}
 	frontmatter, _ := parseSkillFrontMatter(strings.ReplaceAll(string(content), "\r\n", "\n"))
-	key := strings.TrimSpace(frontMatterString(frontmatter["key"]))
+	key := strings.TrimSpace(frontMatterString(frontmatter["id"]))
+	legacyID := strings.TrimSpace(frontMatterString(frontmatter["key"]))
+	if key != "" && legacyID != "" && key != legacyID {
+		return "", skillArchiveValidationError("invalid_skill_id", "SKILL.md id and legacy key disagree", "SKILL.md")
+	}
+	if key == "" {
+		key = legacyID
+	}
 	if key == "" {
 		key = strings.TrimSpace(frontMatterString(frontmatter["name"]))
 	}
 	if key == "" {
-		return "", skillArchiveValidationError("missing_skill_name", "SKILL.md frontmatter.name is required to derive the skill key", "SKILL.md")
+		return "", skillArchiveValidationError("missing_skill_name", "SKILL.md frontmatter.name is required to derive the skill ID", "SKILL.md")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil || strings.Contains(key, "/") {
-		return "", skillArchiveValidationError("invalid_skill_key", "SKILL.md frontmatter.name or key must be a valid skill key", "SKILL.md")
+	if err := ValidateEditableSkillID(key); err != nil || strings.Contains(key, "/") {
+		return "", skillArchiveValidationError("invalid_skill_id", "SKILL.md frontmatter.id, legacy key or name must be a valid skill ID", "SKILL.md")
 	}
 	return key, nil
 }
@@ -828,15 +835,15 @@ func writeEditableSkillArchiveFile(archive *zip.Writer, root *os.Root, candidate
 	return err
 }
 
-func (r *FileRegistry) WriteEditableSkillFile(key string, relPath string, content string, encoding string, baseSHA256 string) (EditableSkillFile, error) {
+func (r *FileRegistry) WriteEditableSkillFile(id string, relPath string, content string, encoding string, baseSHA256 string) (EditableSkillFile, error) {
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
 		return EditableSkillFile{}, fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return EditableSkillFile{}, err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return EditableSkillFile{}, err
 	}
@@ -853,15 +860,15 @@ func (r *FileRegistry) WriteEditableSkillFile(key string, relPath string, conten
 	return editableSkillFileMetadata(target, cleanRel)
 }
 
-func (r *FileRegistry) DeleteEditableSkillFile(key string, relPath string, recursive bool, baseSHA256 string) error {
+func (r *FileRegistry) DeleteEditableSkillFile(id string, relPath string, recursive bool, baseSHA256 string) error {
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
 		return fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return err
 	}
@@ -909,15 +916,15 @@ func (r *FileRegistry) DeleteEditableSkillFile(key string, relPath string, recur
 	return os.Remove(target)
 }
 
-func (r *FileRegistry) MkdirEditableSkillFile(key string, relPath string) (EditableSkillFile, error) {
+func (r *FileRegistry) MkdirEditableSkillFile(id string, relPath string) (EditableSkillFile, error) {
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
 		return EditableSkillFile{}, fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return EditableSkillFile{}, err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return EditableSkillFile{}, err
 	}
@@ -950,15 +957,15 @@ func (r *FileRegistry) MkdirEditableSkillFile(key string, relPath string) (Edita
 	return editableSkillFileMetadata(target, cleanRel)
 }
 
-func (r *FileRegistry) RenameEditableSkillFile(key string, fromPath string, toPath string, overwrite bool) (EditableSkillFile, error) {
+func (r *FileRegistry) RenameEditableSkillFile(id string, fromPath string, toPath string, overwrite bool) (EditableSkillFile, error) {
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
 		return EditableSkillFile{}, fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return EditableSkillFile{}, err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return EditableSkillFile{}, err
 	}
@@ -1016,15 +1023,15 @@ func (r *FileRegistry) RenameEditableSkillFile(key string, fromPath string, toPa
 	return editableSkillFileMetadata(target, cleanTargetRel)
 }
 
-func (r *FileRegistry) UploadEditableSkillFile(key string, relPath string, src io.Reader, overwrite bool) (EditableSkillFile, error) {
+func (r *FileRegistry) UploadEditableSkillFile(id string, relPath string, src io.Reader, overwrite bool) (EditableSkillFile, error) {
 	root := strings.TrimSpace(r.cfg.Paths.SkillsCenterDir)
 	if root == "" {
 		return EditableSkillFile{}, fmt.Errorf("skills center directory is not configured")
 	}
-	if err := ValidateEditableSkillKey(key); err != nil {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return EditableSkillFile{}, err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return EditableSkillFile{}, err
 	}
@@ -1085,13 +1092,13 @@ func (r *FileRegistry) UploadEditableSkillFile(key string, relPath string, src i
 	return editableSkillFileMetadata(target, cleanRel)
 }
 
-// validSkillPathKey accepts a standalone ID or one package/member pair.
-// It is also used for runtime connector skill keys, where reserved names remain valid.
-func validSkillPathKey(key string) bool {
-	if strings.TrimSpace(key) != key {
+// validSkillPathID accepts a standalone ID or one package/member pair.
+// It is also used for runtime connector skill IDs, where reserved names remain valid.
+func validSkillPathID(id string) bool {
+	if strings.TrimSpace(id) != id {
 		return false
 	}
-	parts := strings.Split(key, "/")
+	parts := strings.Split(id, "/")
 	if len(parts) < 1 || len(parts) > 2 {
 		return false
 	}
@@ -1103,31 +1110,31 @@ func validSkillPathKey(key string) bool {
 	return true
 }
 
-func ValidateEditableSkillKey(key string) error {
-	key = strings.TrimSpace(key)
-	if !validSkillPathKey(key) {
-		return ErrInvalidSkillKey
+func ValidateEditableSkillID(id string) error {
+	id = strings.TrimSpace(id)
+	if !validSkillPathID(id) {
+		return ErrInvalidSkillID
 	}
-	for _, part := range strings.Split(key, "/") {
+	for _, part := range strings.Split(id, "/") {
 		if connector.IsReservedSkill(part) {
-			return fmt.Errorf("%w: connector skills belong to their connector package", ErrInvalidSkillKey)
+			return fmt.Errorf("%w: connector skills belong to their connector package", ErrInvalidSkillID)
 		}
 	}
 	return nil
 }
 
-func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool) (AdminSkill, error) {
-	if err := ValidateEditableSkillKey(key); err != nil {
+func buildAdminSkill(root string, id string, usedBy []string, includeFiles bool) (AdminSkill, error) {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return AdminSkill{}, err
 	}
-	skillDir, err := editableSkillDir(root, key)
+	skillDir, err := editableSkillDir(root, id)
 	if err != nil {
 		return AdminSkill{}, err
 	}
 	source := EditableSkillSource{Kind: "skills-center", Path: skillDir, SkillDir: skillDir}
 	item := AdminSkill{
-		Key:          key,
-		Name:         key,
+		ID:           id,
+		Name:         id,
 		Status:       AdminSkillStatusReady,
 		Source:       source,
 		UsedByAgents: append([]string(nil), usedBy...),
@@ -1151,8 +1158,8 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 		}
 		name, description, triggers, metadata, version := parseSkillPromptMetadata(prompt)
 		def := SkillDefinition{
-			Key:             key,
-			Name:            skillDisplayName(name, description, key),
+			ID:              id,
+			Name:            skillDisplayName(name, description, id),
 			Description:     description,
 			Triggers:        triggers,
 			Metadata:        metadata,
@@ -1164,7 +1171,7 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 		item.Description = def.Description
 		item.Version = version
 		item.Presentation = skillmeta.Parse(metadata, version)
-		for _, diagnostic := range skillMetadataDiagnostics(key, prompt) {
+		for _, diagnostic := range skillMetadataDiagnostics(id, prompt) {
 			item.Diagnostics = append(item.Diagnostics, skillDiagnostic(diagnostic.Severity, diagnostic.Code, diagnostic.Message, skillPath))
 		}
 		item.Meta = skillSummaryMeta(def)
@@ -1189,7 +1196,7 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 	item.Files = files
 	item.Size = totalSize
 	item.UpdatedAt = updatedAt
-	iconPath, err := resolveAdminSkillIcon(skillDir, key)
+	iconPath, err := resolveAdminSkillIcon(skillDir, id)
 	if err != nil {
 		return AdminSkill{}, err
 	}
@@ -1200,9 +1207,9 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 	return item, nil
 }
 
-func resolveAdminSkillIcon(skillDir string, key string) (string, error) {
-	key = path.Base(key)
-	for _, name := range []string{"icon.svg", "icon.png", strings.TrimSpace(key) + ".svg", strings.TrimSpace(key) + ".png"} {
+func resolveAdminSkillIcon(skillDir string, id string) (string, error) {
+	id = path.Base(id)
+	for _, name := range []string{"icon.svg", "icon.png", strings.TrimSpace(id) + ".svg", strings.TrimSpace(id) + ".png"} {
 		relPath := path.Join("assets", name)
 		pathOnDisk, cleanPath, err := resolveEditableSkillPath(skillDir, relPath)
 		if err != nil {
@@ -1464,19 +1471,19 @@ func ensureExistingEditableSkillDir(skillDir string) error {
 	return nil
 }
 
-func editableSkillDir(root string, key string) (string, error) {
-	if err := ValidateEditableSkillKey(key); err != nil {
+func editableSkillDir(root string, id string) (string, error) {
+	if err := ValidateEditableSkillID(id); err != nil {
 		return "", err
 	}
-	key = strings.TrimSpace(key)
-	dir := filepath.Join(root, filepath.FromSlash(key))
+	id = strings.TrimSpace(id)
+	dir := filepath.Join(root, filepath.FromSlash(id))
 	if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return "", ErrSkillSymlink
 	}
 	if err := ensureNoSymlinkAlongExistingPath(root, dir); err != nil {
 		return "", err
 	}
-	if strings.Contains(key, "/") {
+	if strings.Contains(id, "/") {
 		parent := filepath.Dir(dir)
 		if _, err := os.Lstat(filepath.Join(parent, "SKILL.md")); err == nil {
 			return "", ErrInvalidSkillPath
@@ -1488,7 +1495,7 @@ func editableSkillDir(root string, key string) (string, error) {
 		if !manifest.hasMember(filepath.Base(dir)) {
 			return "", ErrSkillNotFound
 		}
-		if manifest.Name != strings.SplitN(key, "/", 2)[0] {
+		if manifest.Name != strings.SplitN(id, "/", 2)[0] {
 			return "", fmt.Errorf("%w: package name differs from directory", ErrInvalidSkillPath)
 		}
 	} else if _, err := os.Lstat(filepath.Join(dir, "SKILL.md")); errors.Is(err, os.ErrNotExist) {
@@ -1612,12 +1619,12 @@ func (r *FileRegistry) skillUsageByAgent() map[string][]string {
 	return usage
 }
 
-func agentLocalSkillExists(source EditableAgentSource, key string) bool {
-	if source.Kind != "directory" || strings.TrimSpace(source.AgentDir) == "" || strings.Contains(key, "/") {
+func agentLocalSkillExists(source EditableAgentSource, id string) bool {
+	if source.Kind != "directory" || strings.TrimSpace(source.AgentDir) == "" || strings.Contains(id, "/") {
 		return false
 	}
 	root := filepath.Join(source.AgentDir, "skills")
-	dir, err := editableSkillDir(root, key)
+	dir, err := editableSkillDir(root, id)
 	if err != nil {
 		return false
 	}

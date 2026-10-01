@@ -19,7 +19,7 @@ import (
 
 func TestAdminSourceSkillTextReadWriteAndBinaryGuard(t *testing.T) {
 	fixture := newTestFixture(t)
-	target := api.AdminSourceTarget{Type: "skill", Key: "mock-skill", Path: "SKILL.md"}
+	target := api.AdminSourceTarget{Type: "skill", ID: "mock-skill", Path: "SKILL.md"}
 	read := getAdminSourceForTest(t, fixture.server, target)
 	if !strings.Contains(read.Content, "# Mock Skill") || read.Source.Path == "" || read.SHA256 == "" {
 		t.Fatalf("unexpected skill source: %#v", read)
@@ -35,7 +35,7 @@ func TestAdminSourceSkillTextReadWriteAndBinaryGuard(t *testing.T) {
 	}
 
 	binary := httptest.NewRecorder()
-	fixture.server.ServeHTTP(binary, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=skill&key=mock-skill&path=assets%2Flogo.bin", nil))
+	fixture.server.ServeHTTP(binary, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=skill&id=mock-skill&path=assets%2Flogo.bin", nil))
 	if binary.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("binary skill source status = %d body=%s", binary.Code, binary.Body.String())
 	}
@@ -140,7 +140,7 @@ func TestAdminSourceAutomationReadWriteAndReload(t *testing.T) {
 func TestAdminSourceRejectsInvalidTargetAndOldAgentRoute(t *testing.T) {
 	fixture := newTestFixture(t)
 	invalid := httptest.NewRecorder()
-	fixture.server.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=skill&key=mock-skill&path=..%2Fagent.yml", nil))
+	fixture.server.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=skill&id=mock-skill&path=..%2Fagent.yml", nil))
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid source target status = %d body=%s", invalid.Code, invalid.Body.String())
 	}
@@ -180,6 +180,9 @@ func TestAdminSourceRejectsSymlinkedAgentYAML(t *testing.T) {
 func getAdminSourceForTest(t *testing.T, server *Server, target api.AdminSourceTarget) api.AdminSourceResponse {
 	t.Helper()
 	path := "/api/admin/source?type=" + target.Type
+	if target.ID != "" {
+		path += "&id=" + target.ID
+	}
 	if target.Key != "" {
 		path += "&key=" + target.Key
 	}
@@ -236,7 +239,7 @@ func (p *sourceMutationProbe) WithCatalogMutation(ctx context.Context, fn func(c
 
 func TestAdminSourceSkillSaveSharesTransactionBoundary(t *testing.T) {
 	f := newTestFixture(t)
-	target := api.AdminSourceTarget{Type: "skill", Key: "mock-skill", Path: "SKILL.md"}
+	target := api.AdminSourceTarget{Type: "skill", ID: "mock-skill", Path: "SKILL.md"}
 	old := getAdminSourceForTest(t, f.server, target)
 	r := f.catalogReloader.(*reload.RuntimeCatalogReloader)
 	p := &sourceMutationProbe{RuntimeCatalogReloader: r, entered: make(chan struct{})}
