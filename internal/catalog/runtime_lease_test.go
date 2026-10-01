@@ -7,11 +7,76 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"agent-platform/internal/config"
 )
+
+func TestAgentRuntimeLeaseReleaseWithoutReloadKeepsConnectorMount(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		users int
+	}{{"single", 1}, {"concurrent", 2}} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "platform", "connectors"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams"), StateDir: filepath.Join(root, ".state")}}
+			if err := connectortest.WriteCLI(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0"); err != nil {
+				t.Fatal(err)
+			}
+			writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "demo", "agent.yml"), "key: demo\nname: Test\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.dbx\n")
+			r, err := NewFileRegistry(cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var called atomic.Int32
+			r.SetRuntimeReload(func() { called.Add(1) })
+			var releases []func()
+			var mount ConnectorMount
+			for i := 0; i < tc.users; i++ {
+				def, release, ok := r.AcquireAgentRuntime("demo")
+				if !ok || len(def.ConnectorMounts) != 1 {
+					t.Fatal("expected Agent runtime with one connector")
+				}
+				t.Cleanup(release)
+				releases = append(releases, release)
+				mount = def.ConnectorMounts[0]
+			}
+			var wg sync.WaitGroup
+			for _, release := range releases {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					release()
+					release() // Repeated release must remain idempotent.
+				}()
+			}
+			wg.Wait()
+			if got := called.Load(); got != 0 {
+				t.Fatalf("release without changes triggered %d reload callbacks", got)
+			}
+			if len(r.runtimeUsers) != 0 || len(r.liveConnectorUsers) != 0 || len(r.liveConnectorMounts) != 0 {
+				t.Fatal("released runtime still has active references")
+			}
+			def, ok := r.AgentDefinition("demo")
+			if !ok || len(def.ConnectorMounts) != 1 || def.ConnectorMounts[0] != mount {
+				t.Fatal("release changed the published connector mount")
+			}
+			runtimes := r.ConnectorRuntimes()
+			if len(runtimes) != 1 || runtimes[0].Dir != mount.Dir {
+				t.Fatalf("published connector missing from runtime references: %#v", runtimes)
+			}
+			if err := r.assembler.connectors.CollectShared(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(mount.Dir); err != nil {
+				t.Fatalf("published connector was not protected after release: %v", err)
+			}
+		})
+	}
+}
 
 func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testing.T) {
 	root := t.TempDir()
@@ -35,6 +100,11 @@ func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testi
 		t.Fatal("lease unavailable")
 	}
 	defer release()
+	_, releaseSecond, ok := r.AcquireAgentRuntime("first")
+	if !ok {
+		t.Fatal("second lease unavailable")
+	}
+	defer releaseSecond()
 	firstSkill := filepath.Join(first.ConnectorMounts[0].Dir, "skills", "builtin-dbx", "SKILL.md")
 	if linked {
 		info, err := os.Lstat(filepath.Join(filepath.Dir(firstSkill), "commands-link.md"))
@@ -58,6 +128,11 @@ func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testi
 	r.SetRuntimeReload(func() { called++ })
 	release()
 	release()
+	if called != 0 {
+		t.Fatal("deferred reload ran while another user was still active")
+	}
+	releaseSecond()
+	releaseSecond()
 	if called != 1 {
 		t.Fatalf("deferred reload callbacks: %d", called)
 	}

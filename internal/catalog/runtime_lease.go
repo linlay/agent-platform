@@ -76,7 +76,6 @@ func (r *FileRegistry) retainRuntimeLocked(keys []string) func() {
 				if r.liveConnectorUsers[identity] == 0 {
 					delete(r.liveConnectorUsers, identity)
 					delete(r.liveConnectorMounts, identity)
-					refresh = true
 				}
 			}
 			r.mu.Unlock()
