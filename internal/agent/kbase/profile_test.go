@@ -9,18 +9,30 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestResolveBoundaryPolicyOwnsToolsAndMemoryBoundary(t *testing.T) {
-	policy := ResolveBoundaryPolicy([]string{"bash", ToolSearch, "memory_search"})
-	if policy.MemoryEnabled {
-		t.Fatal("KBASE boundary must disable memory")
+func TestKBaseHasNoFixedToolBoundary(t *testing.T) {
+	if tools := Descriptor().Profile.ToolNames; len(tools) != 0 {
+		t.Fatalf("KBASE must not supply load-time tool defaults: %#v", tools)
 	}
-	if !reflect.DeepEqual(policy.ToolNames, DefaultToolNames()) {
-		t.Fatalf("dedicated KBASE tools = %#v, want %#v", policy.ToolNames, DefaultToolNames())
+	if got := EditingSystemInitSpec().ToolNames; len(got) != 0 {
+		t.Fatalf("editing stage must use the agent's declared tools: %#v", got)
 	}
+	want := []string{ToolDatetime, "file_read", "file_glob", "file_grep", "file_write", "file_edit"}
+	if !reflect.DeepEqual(CreateToolNames(), want) {
+		t.Fatalf("creation tool list = %#v, want %#v", CreateToolNames(), want)
+	}
+}
 
-	defaults := ResolveBoundaryPolicy([]string{"bash", "memory_search"})
-	if !reflect.DeepEqual(defaults.ToolNames, DefaultToolNames()) {
-		t.Fatalf("invalid-only tools must fall back to KBASE defaults: %#v", defaults.ToolNames)
+func TestApplyCreateToolDefaultsOnlyWhenToolsAreNotDeclared(t *testing.T) {
+	created := ApplyCreateToolDefaults(map[string]any{"mode": Mode})
+	tools, _ := created["toolConfig"].(map[string]any)["tools"].([]any)
+	if len(tools) != len(CreateToolNames()) || tools[1] != "file_read" {
+		t.Fatalf("creation tools not written: %#v", created["toolConfig"])
+	}
+	for name, explicit := range map[string][]any{"empty": {}, "custom": {"bash"}} {
+		kept := ApplyCreateToolDefaults(map[string]any{"toolConfig": map[string]any{"tools": explicit}})
+		if got := kept["toolConfig"].(map[string]any)["tools"].([]any); len(got) != len(explicit) {
+			t.Fatalf("%s: explicit tool list was replaced: %#v", name, got)
+		}
 	}
 }
 
@@ -36,17 +48,6 @@ func TestEditingProfileUsesIndependentStageCacheAndExactTools(t *testing.T) {
 		spec.PromptStage != EditingStage || spec.Mode != MainStage || spec.Stage != "editing" {
 		t.Fatalf("unexpected editing system-init spec: %#v", spec)
 	}
-	want := DefaultToolNames()
-	if !reflect.DeepEqual(EditingToolNames(), want) {
-		t.Fatalf("editing tools = %#v, want %#v", EditingToolNames(), want)
-	}
-	for _, forbidden := range []string{"bash", "file_delete", "file_move", "mkdir"} {
-		for _, toolName := range EditingToolNames() {
-			if toolName == forbidden {
-				t.Fatalf("editing tools must not contain %q: %#v", forbidden, EditingToolNames())
-			}
-		}
-	}
 }
 
 func TestEditingPromptUsesAccessPolicyAndAsynchronousIndexing(t *testing.T) {
@@ -54,11 +55,11 @@ func TestEditingPromptUsesAccessPolicyAndAsynchronousIndexing(t *testing.T) {
 		Mode:          Mode,
 		EditingMode:   true,
 		WorkspaceRoot: "/knowledge",
-		ToolNames:     EditingToolNames(),
+		ToolNames:     CreateToolNames(),
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: "/knowledge", ChatDir: "/runtime/chats/chat-1"},
 		},
-	}, api.QueryRequest{Message: "update policy"}, EditingToolNames(), EditingStage)
+	}, api.QueryRequest{Message: "update policy"}, CreateToolNames(), EditingStage)
 	for _, want := range []string{
 		"/knowledge",
 		"/runtime/chats/chat-1",
@@ -69,7 +70,7 @@ func TestEditingPromptUsesAccessPolicyAndAsynchronousIndexing(t *testing.T) {
 		"directory watcher",
 		"does not mean the change is immediately searchable",
 		"lineStats",
-		"Do not use shell commands",
+		"Do not use shell commands or other tools to change the Workspace while editingMode is off",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("editing prompt missing %q: %s", want, prompt)
@@ -81,19 +82,19 @@ func TestMainPromptDefinesSourceWorkspaceAndWritableChatDirectory(t *testing.T) 
 	prompt := RenderSystemPrompt(contracts.QuerySession{
 		Mode:          Mode,
 		WorkspaceRoot: "/knowledge",
-		ToolNames:     DefaultToolNames(),
+		ToolNames:     CreateToolNames(),
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
 				WorkspaceDir: "/knowledge",
 				ChatDir:      "/runtime/chats/chat-1",
 			},
 		},
-	}, api.QueryRequest{Message: "write a report"}, DefaultToolNames(), MainStage)
+	}, api.QueryRequest{Message: "write a report"}, CreateToolNames(), MainStage)
 	for _, want := range []string{
 		"/knowledge",
 		"/runtime/chats/chat-1",
 		"Relative file-tool paths resolve inside this workspace",
-		"structured file tools are always available",
+		"Use only the tools declared for this agent",
 		"read-only unless this run explicitly enables editingMode",
 		"Store conversation artifacts and temporary files under the explicit current chat directory path",
 	} {

@@ -22,7 +22,6 @@ func EditingSystemInitSpec() agentcontract.SystemInitSpec {
 		PromptStage:           EditingStage,
 		Mode:                  MainStage,
 		Stage:                 "editing",
-		ToolNames:             EditingToolNames(),
 		UseSharedSystemPrompt: true,
 		IncludeAfterCallHints: true,
 		Initial:               true,

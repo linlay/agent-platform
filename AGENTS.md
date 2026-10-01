@@ -8,6 +8,7 @@
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - Agent 类型由 `mode` 与顶层 `engine` 共同表达：`GENERAL`（通用，历史写法 `REACT` 继续接受且含义相同）、`CODER`、`KBASE` 由内置引擎执行；`engine: acp` 配合 `runtimeConfig.acpBridgeId` 交给外部 ACP bridge，可以不写 mode。`engine` 缺省为 `native`，不由 `acpBridgeId` 推断。接口统一返回 `GENERAL` 和 `engine`；历史 Chat 的 `REACT` 不改写，筛选与响应按别名处理。`configs/general-settings.yml` 提供 GENERAL 创建默认值，并可选让项目型 GENERAL 读取 Workspace 下的 AGENTS.md（默认关闭），见 [智能体配置说明](docs/智能体配置说明.md#类型与执行引擎)。
+- 新建项目型 Agent 通过 `configs/agent-creation.yml` 的能力模板组合技能、工具和连接器：`/api/admin/agents/creation-options` 返回四种创建类型（通用、编程、知识库、外部引擎）、各能力组的成员与实时可用性、默认模型和 ACP 引擎；`/api/admin/agents/create` 的 `capabilityGroups` 按组 key 展开并落盘为具体配置。模板只在创建时展开，不是持续绑定；字段缺省时不展开，出现时（含空数组）要求具体项目目录和可用模型，成员缺失、连接器互斥或对外部引擎提交能力组都在落盘前报错。`/api/admin/host/directories` 让远端客户端选择 Platform 宿主上的目录。见 [智能体配置说明](docs/智能体配置说明.md#创建模板)。
 - Agent `interactionConfig` 统一控制模型、权限级别、必用技能、连接器、本地文件和聊天记录输入；GENERAL 默认全开，CODER（含 ACP）默认关闭聊天记录，KBASE 默认关闭模型/权限级别/连接器/聊天记录。仅 `/api/agent` 返回解析值，Run 恢复快照私存于 `.state/run-interactions`，不进入公开 query；普通 Agent query 与活动 Run 控制执行准入校验，详见 [智能体配置说明](docs/智能体配置说明.md#对话输入能力-interactionconfig)。
 - 产物发布的 `artifact.published` push 按单个产物发送，只投递给已认证 Desktop Main；BTW、Explain 与其他 WS 不接收，attach/回放不重发。普通本地与代理实时发布统一转换，独立于网关与当前 Chat；`resource.pushed` 仅在实际上传网关成功后发送。
 - 已有 Chat 的发现与回放按持久化记录读取，不以当前 Agent 有效为前提；无效或删除 Agent 仍不能续聊。`/api/agents?includeChats=...` 仅为有效目录预览，完整历史使用 `/api/chats`，WebClient 独立加载和 composer 禁用的配套边界见 [会话存储与回放](docs/会话存储与回放.md#历史读取与当前-agent-可用性)。
@@ -28,7 +29,7 @@
 - 已具备固定 Schema 的 `platform_control` system control plane：Agent 显式挂载 Tool 即可调用全部注册 operation；`run.env.*` 仅保留当前普通 native root run 的 `set/unset`，使用进程内并发 Scope、operation-aware barrier 和 Host/Container 新 command snapshot，不修改 Platform 进程环境，也不跨 Platform 重启恢复。遗留 `runtimeConfig.runEnv` 静默忽略。 `chat.set_pinned` 为普通 native root Run 提供当前/指定 Chat 的实例级持久置顶，复用 conversation 服务及 `chats.order.changed` 广播；planning、子任务与 Team 不开放。
 - 已具备默认关闭的 SQLite memory、FTS 文本检索、显式记录与手工 consolidate。Memory embedding、learn/自动反馈和上下文预览已退役；KBASE 能力独立保留。
 - 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
-- 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 在 main/editing 两种 stage 使用相同的通用文本文件工具，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
+- 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 与其他内置类型一样完全使用 `agent.yml` 声明的工具、技能、连接器和 memory（没有固定工具集，新建时显式写入文件工具），main/editing 两种 stage 工具相同，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
 - 已具备 automation、`agent_invoke` 子智能体调度、`run_query` / `run_status` / `run_interrupt` 独立 Agent/Team 根 run 启动与控制、带隐藏协调器的 orchestrated Team、基于官方 Go SDK v1.6.1 的 MCP streamable HTTP/stdio session client 与后台 tool sync、WebSocket 控制面，以及 client/server channel 上按 Session 执行的 Agent 接出注册 v1（`agent.list/register/unregister`）；MCP 本地 Registry 同步校验，远端初始化/发现/重试不进入启动、保存或 watcher 关键路径，优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`。Channel 注册当前不升级 Query Stream、Run TTL、`registrationId` 路由、HITL Schema 或控制协议。
 尚未完全对齐 Java 版的部分能力包括 MCP 全量生产验证、automation 深度编排、热重载细节和更完整的客户端协议适配。未落地能力必须在专题文档中明确标注，不能写成已完成能力。
 
@@ -69,7 +70,8 @@ cmd/agent-platform/main.go
 - `internal/agent`：中立 mode 契约、公共 prompt 模板变量与 system-init spec；`internal/agent/builtin` 是 CODER/KBASE/TEAM 的静态分派点。
 - `internal/agent/general`：GENERAL 类型的创建默认值与项目规则文件读取策略；没有固定工具集、prompt 或 stage，不进入 builtin descriptor。
 - `internal/agent/coder`：CODER profile、prompt、planning、ACP/workspace 策略与创建默认策略。
-- `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init、创建默认值与严格工具/memory 边界。
+- `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init 与创建默认值（含创建时写入的工具清单）；没有固定工具或 memory 边界。
+- `internal/agentcreation`：mode 中立的创建模板展开，按 `configs/agent-creation.yml` 把所选能力组合并去重为具体工具、技能和连接器，并校验成员存在与连接器互斥；不依赖 catalog 或 server。
 - `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
 - `internal/runtime`：HTTP/WS 无关的 Query 与 Run 应用运行时；`types` 保存内部命令和结果，`query` 实现普通/旁聊 Query 准入、根 Run 注册/控制、Native 阻塞与异步启动、continuation 仲裁及重启 awaiting 对账，`session` 统一构造根/子 Agent/Team 的执行上下文和 system-init，`catalogview/reference` 承接租约快照与引用物化；`runstate` 持有活动 Run、observer、compact 协调与恢复等待项的唯一内存存储实现，`runexec` 执行 Native 生命周期、usage/终态落盘和 freeze 收尾，`orchestration` 执行子 Agent/Team 调度与结果回注。App 直接组装以上组件，不再反向注入 Server Native 方法。`adapter` 仅适配旧执行器/catalog DTO；根 Proxy 的 SSE/WS/channel 驱动仍通过显式 ProxyPort 保留在 Server，生命周期全面统一归 R18，不能写成已完成。Runtime 不得依赖 `internal/server`；边界与集成注意见 [Runtime模块边界](docs/Runtime模块边界.md)。
@@ -156,7 +158,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 主要接口分组：
 
 - 用户目录置顶：`/api/skills` 与 `/api/connectors/order` 支持 HTTP GET/PUT 和 WebSocket；共用 `internal/catalogorder` 用户隔离与原子落盘，分别保存到 `skills-center/order.json`、`connectors-center/order.json`。同一用户全部 Agent 共用各自有序置顶列表，更新单个 `{id,pinned}`，不触发 catalog/runtime 重载，不修改连接器配置或授权状态。
-- Catalog：`/api/agents`、HTTP-only `/api/agents/order`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/skill-packages/*`、`/api/admin/tools`、`/api/connectors`、`/api/admin/connectors`、`/api/admin/connectors/detail`；`/api/skills` 同时支持 HTTP 与 WebSocket，返回全局有效技能中心目录和用户级 `pinned`；可选 `agentKey` 仅用于计算 `configured`，不筛选目录，不传时均为 false。
+- Catalog：`/api/agents`、HTTP-only `/api/agents/order`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/agents/creation-options`、`/api/admin/host/directories`、`/api/admin/skills`、`/api/admin/skill-packages/*`、`/api/admin/tools`、`/api/connectors`、`/api/admin/connectors`、`/api/admin/connectors/detail`；`/api/skills` 同时支持 HTTP 与 WebSocket，返回全局有效技能中心目录和用户级 `pinned`；可选 `agentKey` 仅用于计算 `configured`，不筛选目录，不传时均为 false。
 - 外部连接器删除：`DELETE /api/admin/connectors/detail?id=<id>` 与 Agent mutation 及连接器导入/编辑串行，检查当前源码引用和保留的运行挂载；占用返回 409 和 `data.agentKeys`，内置包 403。删除以隐藏 staging 支持重载失败回滚；授权与 CLI 状态保留在 `.state/connectors/<id>`。
 - 标准连接器执行：`/api/connectors/execution/grants`、`/api/connectors/execution/{list,describe,invoke}` 与独立凭据入口 `/api/connectors/auth`；旧专用传输返回 410，协议升级和原收据命名空间保留要求见 [连接器执行协议](docs/连接器执行协议.md)。
 - Chat：`/api/chats`、`/api/chats/order`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`、`/api/chat/artifacts/{list,get,read}`。产物接口始终要求 JWT 并检查现有 Chat 引用权限。Chat order 支持 HTTP/WS `set_mode/move/set_pinned`，同实例跨 mode 共用置顶组；列表 `pinned` 与 catalog 附带 Chat 的 `chatsPinned` 在 limit/includeChats 之前筛选，归档/删除清理置顶，恢复不继承。
@@ -192,7 +194,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - 连接器包版本由资源发布方维护；Platform 不根据来源市场或重新打包动作推断版本，不用 CLI 或 Skill 版本替代连接器版本。具体服务适配应留在连接器资源包，项目文档只描述通用契约。
 - KBASE 对外 tool/REST/`source.publish` 契约以 LanceDB 路径回归；只有 `indexHash` 变化可触发新 generation，`queryHash` 中的 topK/RRF/权重/候选池调整不得引发全量重建。
 - KBASE watcher 对所有 `kbaseConfig.enabled: true` 的 capability 使用路径级 change set 更新 active generation；启动、手工普通 refresh 与周期 reconcile 才做全目录对账，`force=true`、首次索引和 `indexHash` 变化才创建新 generation。
-- 专用 KBASE 的 Workspace 始终是最终 canonical `runtimeConfig.workspaceRoot`，当前 Chat 目录只保存在 `ChatDir`；main/editing 两种 stage 固定提供相同的五个文件工具。KBASE editing 是 Workspace mutation 的 run 授权，不是 Agent 配置。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路；session 冻结的 `ScopedFilePolicy` 只负责固定工具准入、Workspace 识别、`WorkspaceMutationEnabled`、Workspace 已有文件先读后写和新文件父目录已存在，不覆盖 AccessPlan，也不限制文本扩展名或编码。`accessLevel`、hostAccess 与 HITL 按通用规则作用于 external，但不能替代 `editingMode:true`；固定工具集仍不可扩大。
+- 专用 KBASE 的 Workspace 始终是最终 canonical `runtimeConfig.workspaceRoot`，当前 Chat 目录只保存在 `ChatDir`；main/editing 两种 stage 使用 `agent.yml` 声明的同一组工具，没有固定工具集。KBASE editing 是 Workspace mutation 的 run 授权，不是 Agent 配置。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路；session 冻结的 `ScopedFilePolicy` 只负责会话工具准入、Workspace 识别、`WorkspaceMutationEnabled`、Workspace 已有文件先读后写和新文件父目录已存在，不覆盖 AccessPlan，也不限制文本扩展名或编码。`accessLevel`、hostAccess 与 HITL 按通用规则作用于 external，但不能替代 `editingMode:true`；工具集由 `agent.yml` 决定，声明了 Bash 也不能绕过未开启 editing 时的 Workspace 只读。
 - 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。
 
 ## 8. 开发流程
@@ -247,7 +249,7 @@ make test
 - [Platform控制工具设计](docs/Platform控制工具设计.md)：`platform_control` operation、显式工具挂载、run-local 环境快照、并发、脱敏、恢复与执行通道边界。
 - [KBASE LanceDB 检索与控制面](docs/KBASE-LanceDB检索与控制面.md)：LanceDB sidecar、control.db、generation、加权 RRF、恢复、回滚与分发边界。
 - [KBASE 编辑模式](docs/KBASE编辑模式.md)：`editingMode`、通用文本文件、AccessPolicy/HITL、watcher 异步索引和 KBASE Workspace/Chats 分离。
-- [KBASE 编辑模式越权对抗测试报告](docs/KBASE编辑模式越权对抗测试报告.md)：准入、固定工具集、HITL、approval replay、路径逃逸、chat 隔离和索引 hook 的红队验证记录。
+- [KBASE 编辑模式越权对抗测试报告](docs/KBASE编辑模式越权对抗测试报告.md)：准入、固定工具集（历史结论，见报告内适用范围说明）、HITL、approval replay、路径逃逸、chat 隔离和索引 hook 的红队验证记录。
 - [API与协议](docs/API与协议.md)：HTTP API 参数、SSE、WebSocket、HTTP 文件数据面、resource ticket。
 - [HITL协议](docs/HITL协议.md)：question / approval / form、submit、awaiting 事件。
 - [自动化](docs/自动化.md)：automation registry、orchestrator、dispatch、执行记录。

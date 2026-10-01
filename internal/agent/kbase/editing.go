@@ -10,10 +10,6 @@ func EditingModeEnabled(mode string, requested bool) bool {
 	return requested && IsMode(mode)
 }
 
-func EditingToolNames() []string {
-	return DefaultToolNames()
-}
-
 func RuntimeStage(editingMode bool) string {
 	if editingMode {
 		return EditingStage

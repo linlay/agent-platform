@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -407,6 +408,18 @@ func TestAgentCreateKBaseGeneratesKeyAndName(t *testing.T) {
 	afterCreate := time.Now().Unix()
 	if !strings.HasPrefix(created.Key, "kbase-") || created.Mode != "KBASE" {
 		t.Fatalf("unexpected kbase create response %#v", created)
+	}
+	// Creation writes the tool list into agent.yml; nothing is supplied at
+	// load time for a KBASE agent.
+	toolConfig, _ := created.Definition["toolConfig"].(map[string]any)
+	writtenTools, _ := toolConfig["tools"].([]any)
+	if len(writtenTools) != 6 || writtenTools[0] != "datetime" || writtenTools[1] != "file_read" {
+		t.Fatalf("KBASE creation must write its tools explicitly, got %#v", created.Definition["toolConfig"])
+	}
+	for _, tool := range []string{"file_read", "file_edit", "kbase_search"} {
+		if !slices.Contains(created.Tools, tool) {
+			t.Fatalf("created KBASE agent is missing %s: %#v", tool, created.Tools)
+		}
 	}
 	generatedAt, err := strconv.ParseInt(strings.TrimPrefix(created.Key, "kbase-"), 36, 64)
 	if err != nil {

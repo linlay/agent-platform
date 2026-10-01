@@ -73,6 +73,33 @@ func ApplyCreateDefaults(definition map[string]any, defaults CreateDefaults) map
 	return out
 }
 
+// ApplyCreateToolDefaults writes the creation tool list when the caller did
+// not send toolConfig.tools at all. An explicit list, including an empty one,
+// is kept as is. It runs only on creation, never when an existing agent is
+// loaded or saved.
+func ApplyCreateToolDefaults(definition map[string]any) map[string]any {
+	if definition == nil {
+		return nil
+	}
+	toolConfig := contracts.AnyMapNode(definition["toolConfig"])
+	if _, declared := toolConfig["tools"]; declared {
+		return definition
+	}
+	out := contracts.CloneMap(definition)
+	toolConfig = contracts.CloneMap(toolConfig)
+	if toolConfig == nil {
+		toolConfig = map[string]any{}
+	}
+	names := CreateToolNames()
+	tools := make([]any, 0, len(names))
+	for _, name := range names {
+		tools = append(tools, name)
+	}
+	toolConfig["tools"] = tools
+	out["toolConfig"] = toolConfig
+	return out
+}
+
 func emptyCreateValue(value any) bool {
 	if value == nil {
 		return true

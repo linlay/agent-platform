@@ -1281,18 +1281,20 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.Mode != AgentModeKBase {
 		t.Fatalf("mode = %q, want KBASE", def.Mode)
 	}
-	for _, tool := range agentkbase.DefaultToolNames() {
+	// Without toolConfig a KBASE agent gets only the capability tools every
+	// enabled knowledge base receives; file tools must be declared.
+	for _, tool := range kbase.CapabilityToolNames() {
 		if !containsString(def.Tools, tool) {
-			t.Fatalf("expected KBASE default tools to include %s, got %#v", tool, def.Tools)
+			t.Fatalf("expected KBASE capability tools to include %s, got %#v", tool, def.Tools)
 		}
 	}
-	for _, tool := range []string{"bash", "memory_search"} {
+	for _, tool := range append(agentkbase.StructuredFileToolNames(), "bash") {
 		if containsString(def.Tools, tool) {
-			t.Fatalf("expected KBASE default tools not to include %s, got %#v", tool, def.Tools)
+			t.Fatalf("KBASE must not receive undeclared tool %s, got %#v", tool, def.Tools)
 		}
 	}
-	if def.MemoryEnabled || def.MemoryConfig.Enabled {
-		t.Fatalf("expected KBASE to ignore memoryConfig, got %#v", def.MemoryConfig)
+	if !def.MemoryEnabled || !containsString(def.Tools, "memory_search") {
+		t.Fatalf("KBASE memoryConfig must be honored like any other agent, got %#v tools=%#v", def.MemoryConfig, def.Tools)
 	}
 	if def.KBaseConfig.Embedding.ModelKey != "openai-embedding" || def.KBaseConfig.Storage.Location != "workspace" {
 		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
@@ -1461,11 +1463,18 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if got, want := strings.Join(def.Tools, ","), strings.Join(agentkbase.DefaultToolNames(), ","); got != want {
-		t.Fatalf("unexpected KBASE filtered tools: got %q want %q", got, want)
+	// agent.yml is the single source of a KBASE agent's tools: declared tools
+	// are kept, and nothing undeclared is added except capability tools.
+	for _, tool := range []string{"kbase_search", "kbase_files", "memory_search", "bash", "datetime", "kbase_read"} {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected declared/capability tool %s, got %#v", tool, def.Tools)
+		}
 	}
-	if def.MemoryEnabled || def.MemoryConfig.Enabled || def.StaticMemoryPrompt != "" {
-		t.Fatalf("expected KBASE memory to be ignored, enabled=%v config=%#v static=%q", def.MemoryEnabled, def.MemoryConfig, def.StaticMemoryPrompt)
+	if containsString(def.Tools, "file_write") {
+		t.Fatalf("undeclared file tool must not be added: %#v", def.Tools)
+	}
+	if !def.MemoryEnabled || !def.MemoryConfig.Enabled {
+		t.Fatalf("KBASE memoryConfig must be honored, enabled=%v config=%#v", def.MemoryEnabled, def.MemoryConfig)
 	}
 	for _, include := range []string{"**/*.html", "**/*.htm", "**/*.pdf", "**/*.docx", "**/*.pptx"} {
 		if !containsString(def.KBaseConfig.Include, include) {

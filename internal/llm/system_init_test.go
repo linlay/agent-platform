@@ -537,7 +537,7 @@ func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
 	session.Mode = "KBASE"
 	session.EditingMode = true
 	session.WorkspaceRoot = "/knowledge"
-	session.ToolNames = agentkbase.EditingToolNames()
+	session.ToolNames = agentkbase.CreateToolNames()
 	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
 		WorkspaceRoot:            "/knowledge",
 		WorkspaceMutationEnabled: true,
@@ -555,7 +555,7 @@ func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
 	if profile.CacheKey != agentkbase.EditingCacheKey || profile.Mode != agentkbase.MainStage || profile.Stage != "editing" {
 		t.Fatalf("unexpected editing profile: %#v", profile)
 	}
-	assertToolNames(t, profile.Tools, agentkbase.EditingToolNames())
+	assertToolNames(t, profile.Tools, agentkbase.CreateToolNames())
 	if !strings.Contains(profile.SystemMessage["content"].(string), "KBASE Editing Mode") {
 		t.Fatalf("editing prompt missing from profile: %#v", profile.SystemMessage)
 	}
@@ -566,7 +566,7 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 	session.Mode = agentkbase.Mode
 	session.KBaseEnabled = true
 	session.WorkspaceRoot = "/knowledge"
-	session.ToolNames = agentkbase.DefaultToolNames()
+	session.ToolNames = agentkbase.CreateToolNames()
 	session.RuntimeContext.LocalPaths = contracts.LocalPaths{
 		WorkspaceDir: "/knowledge",
 		ChatDir:      "/runtime/chats/chat-1",
@@ -588,7 +588,7 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 	if profile.CacheKey != agentkbase.MainCacheKey || profile.Mode != agentkbase.MainStage || profile.Stage != "main" {
 		t.Fatalf("unexpected main profile: %#v", profile)
 	}
-	assertToolNames(t, profile.Tools, agentkbase.DefaultToolNames())
+	assertToolNames(t, profile.Tools, agentkbase.CreateToolNames())
 	content, _ := profile.SystemMessage["content"].(string)
 	if !strings.Contains(content, "read-only unless this run explicitly enables editingMode") ||
 		!strings.Contains(content, "/runtime/chats/chat-1") ||

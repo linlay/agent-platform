@@ -273,6 +273,12 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 	}
 	key := strings.TrimSpace(req.Key)
 	definition := s.applyCreateDefaultAgentConfig(req.Definition)
+	if req.CapabilityGroups != nil {
+		definition, err = s.applyAgentCreationTemplate(definition, *req.CapabilityGroups)
+		if err != nil {
+			return api.AgentDetailResponse{}, err
+		}
+	}
 	key, definition = s.normalizeGeneratedModeCreation(key, definition)
 	if err := catalog.NormalizeAgentReasoningConfig("agent definition", definition); err != nil {
 		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
@@ -376,10 +382,11 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 		return definition
 	}
 	defaults := s.deps.Config.KBase.DefaultAgent
-	return agentbuiltin.ApplyKBaseCreateDefaults(definition, agentbuiltin.KBaseCreateDefaults{
+	definition = agentbuiltin.ApplyKBaseCreateDefaults(definition, agentbuiltin.KBaseCreateDefaults{
 		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort,
 		EmbeddingModelKey: s.deps.Config.KBase.Embedding.ModelKey,
 	})
+	return agentbuiltin.ApplyKBaseCreateToolDefaults(definition)
 }
 
 func (s *Server) normalizeGeneratedModeCreation(key string, definition map[string]any) (string, map[string]any) {
@@ -387,11 +394,18 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 		return key, definition
 	}
 	mode := catalog.DefinitionRuntimeMode(definition)
-	descriptor, ok := agentbuiltin.Lookup(mode)
-	if !ok || strings.TrimSpace(descriptor.CreatePrefix) == "" {
+	prefix := ""
+	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
+		prefix = strings.TrimSpace(descriptor.CreatePrefix)
+	} else if agentbuiltin.IsGeneralMode(mode) && key == "" && strings.TrimSpace(stringValue(definition["key"])) == "" {
+		// A general agent keeps a caller-chosen key; one is generated only
+		// when the caller did not choose.
+		prefix = agentbuiltin.GeneralCreatePrefix
+	}
+	if prefix == "" {
 		return key, definition
 	}
-	newKey := descriptor.CreatePrefix + "-" + strconv.FormatInt(time.Now().Unix(), 36)
+	newKey := prefix + "-" + strconv.FormatInt(time.Now().Unix(), 36)
 	out := contracts.CloneMap(definition)
 	out["key"] = newKey
 

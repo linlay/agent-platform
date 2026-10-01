@@ -41,7 +41,6 @@ func Descriptor() agentcontract.ModeDescriptor {
 		CreatePrefix: CreatePrefix,
 		Profile: agentcontract.ModeProfile{
 			IconName:    DefaultIconName,
-			ToolNames:   DefaultToolNames(),
 			ContextTags: DefaultContextTags(),
 			Budget:      DefaultBudget(),
 		},

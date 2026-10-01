@@ -21,11 +21,11 @@ Directories:
 
 Rules:
 - The configured Workspace is the knowledge root for every dedicated KBASE run. Relative file-tool paths resolve inside this workspace.
-- The structured file tools are always available for common text files.
+- Use only the tools declared for this agent. The structured file tools, when declared, work on common text files.
 - The Workspace is read-only unless this run explicitly enables editingMode.
 - Store conversation artifacts and temporary files under the explicit current chat directory path. Chat files are not Workspace content.
 - Reads and writes outside the Workspace and current chat directory follow AccessPolicy and may require user approval.
-- Do not use shell commands or other tools to bypass the dedicated KBASE tool boundary.`
+- Do not use shell commands or other tools to change the Workspace while editingMode is off.`
 
 const DefaultEditingPrompt = `KBASE Editing Mode
 The user explicitly enabled KBASE Workspace mutation for this run.

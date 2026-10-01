@@ -300,6 +300,8 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/admin/agents/skills/import", s.method(http.MethodPost, s.handleAdminAgentPrivateSkillImport))
 	s.router.HandleFunc("/api/admin/agents/skills/delete", s.method(http.MethodPost, s.handleAdminAgentPrivateSkillDelete))
 	s.router.HandleFunc("/api/admin/agents/editor-options", s.method(http.MethodGet, s.handleAgentEditorOptions))
+	s.router.HandleFunc("/api/admin/agents/creation-options", s.method(http.MethodGet, s.handleAgentCreationOptions))
+	s.router.HandleFunc("/api/admin/host/directories", s.method(http.MethodGet, s.handleHostDirectories))
 	s.router.HandleFunc("/api/admin/channels", s.method(http.MethodGet, s.handleAdminChannels))
 	s.router.HandleFunc("/api/admin/registries", s.method(http.MethodGet, s.handleAdminRegistries))
 	s.router.HandleFunc("/api/admin/registries/detail", s.handleAdminRegistryDetail)

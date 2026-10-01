@@ -140,6 +140,8 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/skills/import` | multipart: `agentKey`、`file`；兼容可选 `id` | 为一个目录型 Agent 导入并启用专属 ZIP Skill，返回更新后的 admin agent detail |
 | POST | `/api/admin/agents/skills/delete` | body: `agentKey`、`id` | 删除该 Agent 的专属 Skill 与其配置引用，返回更新后的 admin agent detail |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
+| GET | `/api/admin/agents/creation-options` | 无 | 新建项目的类型、能力组、默认模型与 ACP 引擎，见 [创建模板](智能体配置说明.md#创建模板) |
+| GET | `/api/admin/host/directories` | `path`、`showHidden` | 列出 Platform 宿主目录的子目录，只返回目录名 |
 | GET | `/api/admin/skills` | 无 | skills-center skill 列表，包含状态、图标 URL、可选 `version`、摘要诊断、更新时间、大小与引用 agent |
 | GET | `/api/admin/skills/detail` | query: `id`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
 | POST | `/api/admin/skills/create` | body: `id`、`skillMd`、`files[]` | 创建后的 skill 详情 |
@@ -236,7 +238,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 
 `/api/chats` 和 `/api/chat` 的历史发现、owner 和回放不要求当前 Agent 配置有效；Agent 详情的 404 不代表 Chat 不存在。客户端应独立加载历史与当前执行配置，保留 Chat 自身的认证、缺失及损坏错误，不能通过历史读取恢复无效 Agent 的 query 能力。详见 [历史读取与当前 Agent 可用性](会话存储与回放.md#历史读取与当前-agent-可用性)。
 
-`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。`GENERAL` 与历史写法 `REACT` 互为别名：任一写法都同时匹配改名前以 `REACT` 保存和改名后以 `GENERAL` 保存的 chat。旧别名、`TEAM` 和未知值均返回 400。它筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受合法 `mode` 影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
+`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。`GENERAL` 与历史写法 `REACT` 互为别名：任一写法都同时匹配改名前以 `REACT` 保存和改名后以 `GENERAL` 保存的 chat。可选 `agentType` 取 `chat` 或 `project`（大小写无关，其他值返回 400），按 chat 所属 Agent 当前是否配置了具体项目目录筛选：`project` 只返回项目型 Agent 的 chat；`chat` 排除它们，同时保留 Team chat 以及 Agent 已不在 catalog 中的 chat。它与 `mode`、`pinned` 为 AND 关系，并在 `limit` 截断之前生效。WebSocket 使用同名 `agentType` 字段。旧别名、`TEAM` 和未知值均返回 400。它筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受合法 `mode` 影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
 
 `/api/chats` 的可选 `pinned` 与其他筛选按 AND 组合：`true` 只取置顶组，`false` 只取未置顶组，省略则取全部且置顶组在前。HTTP 只接受单个 `true` / `false`，WebSocket 只接受 JSON boolean；非法值返回 400。筛选和各组排序均在 `limit` 截断之前完成。例如 `mode=GENERAL&pinned=false&limit=8` 返回最多 8 条未置顶的匹配记录，不会让置顶项占用这 8 个位置。获取完整跨 mode 置顶组使用 `/api/chats?pinned=true`，不传 `mode` 或 `limit`。
 

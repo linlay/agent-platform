@@ -56,6 +56,13 @@
       "required": false
     },
     {
+      "key": "agent-creation",
+      "label": "configs/agent-creation.yml",
+      "relativePath": "configs/agent-creation.yml",
+      "templateRelativePath": "configs/agent-creation.example.yml",
+      "required": false
+    },
+    {
       "key": "general-settings",
       "label": "configs/general-settings.yml",
       "relativePath": "configs/general-settings.yml",

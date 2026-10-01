@@ -37,6 +37,16 @@ type ListOptions struct {
 	AgentModes []string
 	Pinned     *bool
 	Limit      int
+	// AgentKeyFilter narrows Agent-owned chats by owner key. Team-owned chats
+	// have no agent key: they pass an exclusion and fail an inclusion.
+	AgentKeyFilter *AgentKeyFilter
+}
+
+// AgentKeyFilter keeps (Exclude=false) or drops (Exclude=true) the chats owned
+// by the listed agents. An inclusion with no keys matches nothing.
+type AgentKeyFilter struct {
+	Keys    []string
+	Exclude bool
 }
 
 type PinnedListStore interface {

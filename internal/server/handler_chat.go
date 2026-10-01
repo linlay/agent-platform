@@ -15,8 +15,49 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool) ([]api.ChatSummaryResponse, error) {
-	items, err := s.conversationService().ListSummariesWithPinned(lastRunID, agentKey, agentModes, limit, pinned)
+const (
+	chatAgentTypeChat    = "chat"
+	chatAgentTypeProject = "project"
+)
+
+// parseChatAgentType validates the optional agentType filter. A chat-type
+// agent has no Workspace or uses @root; a project-type agent has a specific
+// project directory.
+func parseChatAgentType(raw string) (string, error) {
+	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
+	case "", chatAgentTypeChat, chatAgentTypeProject:
+		return value, nil
+	default:
+		return "", errors.New("agentType must be chat or project")
+	}
+}
+
+// chatAgentTypeFilter resolves agentType against the current catalog. It is
+// keyed by project agents in both directions so chats whose agent no longer
+// exists stay visible under agentType=chat instead of disappearing.
+func (s *Server) chatAgentTypeFilter(agentType string) *chat.AgentKeyFilter {
+	if agentType == "" || s.deps.Registry == nil {
+		return nil
+	}
+	filter := &chat.AgentKeyFilter{Exclude: agentType == chatAgentTypeChat}
+	for _, agent := range s.deps.Registry.Agents("all") {
+		if strings.TrimSpace(agent.WorkspaceDir) != "" {
+			filter.Keys = append(filter.Keys, agent.Key)
+		}
+	}
+	return filter
+}
+
+func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool, agentType string) ([]api.ChatSummaryResponse, error) {
+	var items []chat.Summary
+	var err error
+	if filter := s.chatAgentTypeFilter(agentType); filter != nil {
+		items, err = s.conversationService().ListSummariesWithOptions(chat.ListOptions{
+			LastRunID: lastRunID, AgentKey: agentKey, AgentModes: agentModes, Limit: limit, Pinned: pinned, AgentKeyFilter: filter,
+		})
+	} else {
+		items, err = s.conversationService().ListSummariesWithPinned(lastRunID, agentKey, agentModes, limit, pinned)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +409,12 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned)
+	agentType, err := parseChatAgentType(r.URL.Query().Get("agentType"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned, agentType)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

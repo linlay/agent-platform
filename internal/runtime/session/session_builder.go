@@ -169,9 +169,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	)
 	toolNames := BuildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
 	toolNames = agentbuiltin.CoderRuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentbuiltin.CoderMainStage, toolNames)
-	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
-		toolNames = agentbuiltin.KBaseDefaultToolNames()
-	}
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
 	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {

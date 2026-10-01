@@ -99,3 +99,33 @@ func TestNormalizeEditableDefinitionModeAndEngine(t *testing.T) {
 		t.Fatalf("engine: acp must not synthesize a mode: %#v", acp)
 	}
 }
+
+func TestKBaseAgentUsesDeclaredToolsLikeAnyNativeAgent(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "key: docs\nmode: KBASE\nmodelConfig:\n  modelKey: mock-model\n" +
+		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"toolConfig:\n  tools:\n    - file_read\n    - web_fetch\n" +
+		"skillConfig:\n  skills:\n    - online-docx\n" +
+		"kbaseConfig:\n  embedding:\n    modelKey: openai-embedding\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	def, err := parseAgentDefinitionForTest(path)
+	if err != nil {
+		t.Fatalf("parse KBASE agent: %v", err)
+	}
+	// Declared tools are kept, a skill brings bash exactly as it does for
+	// other native agents, and the capability tools are always present.
+	for _, tool := range []string{"file_read", "web_fetch", "bash", "kbase_search"} {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected tool %s, got %#v", tool, def.Tools)
+		}
+	}
+	if containsString(def.Tools, "file_write") {
+		t.Fatalf("undeclared tool was added: %#v", def.Tools)
+	}
+	if !kbaseAgentHasFileTool(def.Tools) || kbaseAgentHasFileTool([]string{"kbase_search", "datetime"}) {
+		t.Fatalf("file tool detection is wrong for %#v", def.Tools)
+	}
+}

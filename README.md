@@ -236,6 +236,7 @@ Provider `apiKey` 按明文字符串读取：
 - `configs/ai-tools.example.yml`
 - `configs/channels.example.yml`
 - `configs/coder-prompts.example.yml`
+- `configs/agent-creation.example.yml`
 - `configs/coder-settings.example.yml`
 - `configs/general-settings.example.yml`
 - `configs/kbase-prompts.example.yml`
@@ -250,6 +251,7 @@ Provider `apiKey` 按明文字符串读取：
 - `configs/ai-tools.yml`
 - `configs/channels.yml`
 - `configs/coder-prompts.yml`
+- `configs/agent-creation.yml`
 - `configs/coder-settings.yml`
 - `configs/general-settings.yml`
 - `configs/kbase-prompts.yml`
@@ -382,7 +384,7 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用、严格工具边界的专用预设，`GENERAL`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。所有 enabled KBASE 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；旧 `kbaseConfig.source` 会硬失败。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
+KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用知识库能力的专用预设，工具、技能、连接器和 memory 与其他内置类型一样完全取自 `agent.yml`，`GENERAL`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。所有 enabled KBASE 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；旧 `kbaseConfig.source` 会硬失败。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
 
 KBASE 固定使用 LanceDB generation 检索；SQLite `control.db` 只保存 generation、文件状态、refresh run 和恢复日志，不保存检索数据。SQLite runtime store 仅支持当前 schema：启动时仅会认领标记为 `application_id=0,user_version=0` 且完整结构匹配的库，其余库不会被迁移或改写。专用 `mode: KBASE` 的存储不匹配会隔离该 Agent；普通 Agent 的附加知识库会保留 Agent 可运行并把能力标为 degraded。详见 [KBASE LanceDB 检索与控制面](./docs/KBASE-LanceDB检索与控制面.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
 

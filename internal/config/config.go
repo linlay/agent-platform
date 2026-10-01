@@ -25,6 +25,7 @@ type Config struct {
 	KBasePrompts    KBasePromptsConfig
 	CoderSettings   CoderSettingsConfig
 	GeneralSettings GeneralSettingsConfig
+	AgentCreation   AgentCreationConfig
 	KBase           KBaseConfig
 	VisionRecognize VisionRecognizeConfig
 	WebFetch        WebFetchConfig
@@ -204,6 +205,35 @@ type CoderSettingsConfig struct {
 	WorkspaceAgents CoderWorkspaceAgentsConfig
 	DefaultAgent    CoderDefaultAgentConfig
 	ACPBridges      map[string]CoderACPBridgeConfig
+}
+
+// AgentCreationConfig holds the capability templates offered when a project
+// agent is created. A template is expanded once into the new agent.yml; it is
+// never a live binding, so editing this file does not change existing agents.
+type AgentCreationConfig struct {
+	// Types is keyed by creation type: general, coder or kbase.
+	Types  map[string]AgentCreationTypeConfig
+	Groups []AgentCreationGroupConfig
+}
+
+type AgentCreationTypeConfig struct {
+	// BaseTools are always written for the type. BaseToolsSet distinguishes an
+	// explicit (possibly empty) list from an absent key, which keeps the
+	// type's built-in creation tool list.
+	BaseTools     []string
+	BaseToolsSet  bool
+	DefaultGroups []string
+}
+
+// AgentCreationGroupConfig is one selectable capability group. Name and
+// Description map a locale to text; the empty key is the fallback text.
+type AgentCreationGroupConfig struct {
+	Key         string
+	Name        map[string]string
+	Description map[string]string
+	Skills      []string
+	Tools       []string
+	Connectors  []string
 }
 
 // GeneralSettingsConfig mirrors the CODER settings shape for the general

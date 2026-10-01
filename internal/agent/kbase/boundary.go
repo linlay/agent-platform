@@ -19,18 +19,17 @@ var structuredFileToolNames = []string{
 	"file_edit",
 }
 
-func DefaultToolNames() []string {
-	return append(corekbase.DefaultToolNames(), structuredFileToolNames...)
+// CreateToolNames is the tool list written into agent.yml when a KBASE agent
+// is created without one. A KBASE agent has no fixed tool boundary: its tools
+// are exactly what agent.yml declares plus the knowledge-base capability
+// tools every enabled KBASE receives, so this list is a creation template and
+// is never applied at load time.
+func CreateToolNames() []string {
+	return append([]string{ToolDatetime}, structuredFileToolNames...)
 }
 
-// BoundaryPolicy is the KBASE mode-owned runtime boundary consumed by the
-// catalog YAML adapter. Dedicated KBASE agents never carry memory state and
-// always use the same fixed tool set in main and editing stages.
-type BoundaryPolicy struct {
-	ToolNames     []string
-	MemoryEnabled bool
-}
-
-func ResolveBoundaryPolicy(_ []string) BoundaryPolicy {
-	return BoundaryPolicy{ToolNames: DefaultToolNames(), MemoryEnabled: false}
+// StructuredFileToolNames lists the file tools a KBASE agent needs to browse
+// and edit its Workspace. The catalog warns when none of them is declared.
+func StructuredFileToolNames() []string {
+	return append([]string(nil), structuredFileToolNames...)
 }

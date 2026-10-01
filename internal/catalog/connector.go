@@ -110,9 +110,6 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 			if !pkg.Builtin {
 				return fmt.Errorf("native capabilities require a trusted builtin source")
 			}
-			if strings.EqualFold(def.Mode, AgentModeKBase) {
-				return fmt.Errorf("Desktop connector is unavailable in KBASE mode")
-			}
 			def.ConnectorNativeTools = append(def.ConnectorNativeTools, pkg.NativeTools()...)
 			for _, tool := range append(pkg.NativeTools(), "file_read") {
 				if !containsString(def.Tools, tool) {
@@ -146,7 +143,7 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 			}
 			def.ConnectorEnv[key] = value
 		}
-		if (pkg.CLI != nil || len(pkg.Skills) > 0 && pkg.Type != "native") && !strings.EqualFold(def.Mode, AgentModeKBase) && !containsString(def.Tools, "bash") {
+		if (pkg.CLI != nil || len(pkg.Skills) > 0 && pkg.Type != "native") && !containsString(def.Tools, "bash") {
 			def.Tools = append(def.Tools, "bash")
 		}
 		if pkg.BinDir != "" && (pkg.CLI != nil || len(pkg.MCP) > 0 || len(pkg.Skills) > 0) {

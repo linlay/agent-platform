@@ -1,0 +1,97 @@
+# Capability templates offered when a project agent is created.
+#
+# A template is expanded once, at creation, into the concrete tools, skills and
+# connectors of the new agent.yml. It is not a live binding: editing this file
+# never changes agents that already exist. The file is read at startup; restart
+# the runtime after changing it.
+#
+# Skills and connectors can change while the runtime is running, so every
+# member is checked against the live catalog when options are listed and when
+# an agent is created. A group with a missing member is reported as unavailable
+# and cannot be selected.
+
+types:
+  # Keys: general, coder, kbase. The external-engine (ACP) type takes no groups.
+  general:
+    # Tools always written for a new agent of this type. Omit the key to use
+    # the built-in list; an explicit list (even an empty one) replaces it.
+    # base-tools:
+    #   - datetime
+    #   - file_read
+    # Groups preselected in the creation dialog. Users can deselect all of them.
+    default-groups:
+      - office
+      - web-data
+  coder:
+    default-groups: []
+  kbase:
+    default-groups: []
+
+groups:
+  # key: stable identifier submitted by clients (lowercase letters, digits, -).
+  # name / description: plain text, or a locale -> text object.
+  # skills / tools / connectors: members written into the new agent.yml.
+  # The list order is the display order. Members shared by several groups are
+  # written once.
+  - key: office
+    name:
+      zh-CN: 文档办公
+      en-US: Office documents
+    description:
+      zh-CN: 在线创建和编辑 Word、PowerPoint、Excel 文档
+      en-US: Create and edit Word, PowerPoint and Excel documents online
+    skills:
+      - online-docx
+      - online-pptx
+      - online-xlsx
+    connectors:
+      - builtin.httpx
+      - builtin.desktop-web
+
+  - key: web-data
+    name:
+      zh-CN: 网页与数据
+      en-US: Web and data
+    description:
+      zh-CN: 操作网页、调用 HTTP 接口、查询数据库
+      en-US: Operate web pages, call HTTP APIs and query databases
+    connectors:
+      - builtin.desktop-web
+      - builtin.httpx
+      - builtin.dbx
+
+  - key: app-skill-building
+    name:
+      zh-CN: 应用与技能制作
+      en-US: App and skill building
+    description:
+      zh-CN: 制作网页应用和平台技能
+      en-US: Build web apps and platform skills
+    skills:
+      - webapp-creator
+      - skill-creator
+    connectors:
+      - builtin.desktop-web
+
+  - key: platform-admin
+    name:
+      zh-CN: 平台管理
+      en-US: Platform administration
+    description:
+      zh-CN: 管理智能体、模型、技能和连接器等平台资源
+      en-US: Manage agents, models, skills, connectors and other platform resources
+    skills:
+      - platform-admin
+    connectors:
+      - builtin.httpx
+      - builtin.dbx
+
+  - key: automation
+    name:
+      zh-CN: 自动化与提醒
+      en-US: Automation and reminders
+    description:
+      zh-CN: 创建和管理定时任务与提醒
+      en-US: Create and manage scheduled tasks and reminders
+    skills:
+      - platform-automation

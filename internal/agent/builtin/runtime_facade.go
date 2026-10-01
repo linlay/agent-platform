@@ -33,9 +33,14 @@ type CoderProjectPromptFile = coder.ProjectPromptFile
 type CoderWorkspacePromptPolicy = coder.WorkspacePromptPolicy
 type CoderWorkspaceGitPolicy = coder.WorkspaceGitPolicy
 
-func IsCoderMode(mode string) bool   { return coder.IsMode(mode) }
-func IsKBaseMode(mode string) bool   { return kbase.IsMode(mode) }
-func IsGeneralMode(mode string) bool { return general.IsMode(mode) }
+func IsCoderMode(mode string) bool     { return coder.IsMode(mode) }
+func IsKBaseMode(mode string) bool     { return kbase.IsMode(mode) }
+func IsGeneralMode(mode string) bool   { return general.IsMode(mode) }
+func GeneralCreateToolNames() []string { return general.CreateToolNames() }
+func CoderDefaultToolNames() []string  { return coder.DefaultToolNames() }
+
+const GeneralCreatePrefix = general.CreatePrefix
+
 func IsCoderACPBackend(mode, acpBridgeID string) bool {
 	return coder.IsACPBackend(mode, acpBridgeID)
 }
@@ -105,6 +110,9 @@ func GeneralLoadWorkspacePrompt(policy GeneralWorkspacePromptPolicy) (string, er
 func ApplyKBaseCreateDefaults(definition map[string]any, defaults KBaseCreateDefaults) map[string]any {
 	return kbase.ApplyCreateDefaults(definition, defaults)
 }
+func ApplyKBaseCreateToolDefaults(definition map[string]any) map[string]any {
+	return kbase.ApplyCreateToolDefaults(definition)
+}
 func CoderResolveACPBridge(bridgeID string, lookup func(string) (CoderACPBridgeConfig, bool)) (CoderACPRoutingConfig, error) {
 	return coder.ResolveACPBridge(bridgeID, lookup)
 }
@@ -120,7 +128,7 @@ func CoderLoadWorkspacePrompt(policy CoderWorkspacePromptPolicy) (string, error)
 func CoderRuntimeToolNamesForAgent(mode, acpBridgeID, stage string, names []string) []string {
 	return coder.RuntimeToolNamesForAgent(mode, acpBridgeID, stage, names)
 }
-func KBaseDefaultToolNames() []string        { return kbase.DefaultToolNames() }
+func KBaseCreateToolNames() []string         { return kbase.CreateToolNames() }
 func TeamDefaultBudget() map[string]any      { return agentteam.DefaultBudget() }
 func TeamDefaultToolNames() []string         { return agentteam.DefaultToolNames() }
 func TeamDefaultContextTags() []string       { return agentteam.DefaultContextTags() }

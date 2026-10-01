@@ -2,7 +2,7 @@
 
 ## 范围
 
-KBASE Editing 是专用 `mode: KBASE` 的单次 Workspace mutation 授权。专用 KBASE 无论是否开启 editing，都固定提供以下结构化文件工具：
+KBASE Editing 是专用 `mode: KBASE` 的单次 Workspace mutation 授权。专用 KBASE 没有固定工具集：main 与 editing 两种 stage 都使用 `agent.yml` 声明的同一组工具（可以包含 Bash、技能和连接器带来的工具）。新建 KBASE 时默认写入以下结构化文件工具：
 
 ```text
 file_read file_glob file_grep file_write file_edit
@@ -53,7 +53,7 @@ AccessPolicy -> AccessPlan -> HITL -> FileTools
 - 管理员配置的真正 block 是最终决策，不生成无意义的 HITL。
 - 请求中的路径分类字段不受信任；`..`、绝对路径和 symlink 都按 canonical 实际目标计算 AccessPolicy、approval fingerprint 和 Workspace 分类。
 - read approval 不能复用于 write/edit，其他目标或其他操作的 approval 也不能重放。
-- 固定工具集在执行器入口再次校验，不能伪造 Bash 或未声明工具调用。
+- 执行器入口按本次会话的工具集再次校验，不能伪造 `agent.yml` 未声明的工具调用。声明了 Bash 时，未开启 editing 的 Workspace 写入和在 Workspace 内运行无法分析的程序仍由通用访问策略硬拒绝。
 
 AccessPlan 之后按 canonical 实际目标应用 Workspace mutation gate：
 
@@ -62,7 +62,7 @@ AccessPlan 之后按 canonical 实际目标应用 Workspace mutation gate：
 - approval、`hostAccess`、`writeRoots`、`auto_approve` 和 `full_access` 都不能替代 `editingMode:true`；
 - 当前 Chat 目录、其他 chatId 和 external 不受 KBASE Workspace gate 限制，继续服从实际 AccessPolicy 结果。
 
-`ScopedFilePolicy` 不覆盖 AccessPlan，也不表达扩展名或编码限制。它只负责固定工具准入、KBASE Workspace canonical 路径识别、`WorkspaceMutationEnabled` 和 KBASE Workspace 特有的写入保护：
+`ScopedFilePolicy` 不覆盖 AccessPlan，也不表达扩展名或编码限制。它只负责会话工具准入、KBASE Workspace canonical 路径识别、`WorkspaceMutationEnabled` 和 KBASE Workspace 特有的写入保护：
 
 - KBASE Workspace 已有文件必须在同一有效观察范围内完整 `file_read` 后才能 `file_write/file_edit`；
 - KBASE Workspace 新文件的父目录必须已存在；

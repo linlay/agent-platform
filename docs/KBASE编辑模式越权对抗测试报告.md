@@ -1,5 +1,7 @@
 # KBASE 编辑模式越权对抗测试报告
 
+> 适用范围说明：本报告记录的是专用 KBASE 仍使用固定工具集时的验证结果。此后 KBASE 改为完全使用 `agent.yml` 声明的工具（可包含 Bash、技能和连接器），报告中“固定工具集”“五个文件工具”相关结论只对声明了同样工具的 Agent 成立；Workspace 只读保护、路径逃逸、HITL 与 chat 隔离的结论不依赖固定工具集。声明 Bash 或连接器后的组合尚未按本报告的方法重新做对抗测试。
+
 ## 结论
 
 KBASE 不再建立独立的 external 写入硬上限。安全目标是：所有目录先服从通用 AccessPolicy/HITL；只有 Workspace mutation 额外要求 `editingMode:true`。该 gate 是专用 KBASE 能力边界，不是目录权限，任何 approval 或 access level 都不能替代。

@@ -292,11 +292,18 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}
+	// The session uses exactly the tools the definition declares, in both
+	// main and editing stages; nothing is substituted for a KBASE agent.
+	declaredTools := []string{
+		kbase.ToolSearch, kbase.ToolFiles, kbase.ToolRead, kbase.ToolStatus, kbase.ToolRefresh, kbase.ToolDatetime,
+		"file_read", "file_glob", "file_grep", "file_write", "file_edit", "bash",
+	}
 	def := catalog.AgentDefinition{
 		Key:       "docs-kbase",
 		Name:      "Docs",
 		Mode:      catalog.AgentModeKBase,
 		ModelKey:  "mock-model",
+		Tools:     append([]string(nil), declaredTools...),
 		Workspace: catalog.AgentWorkspaceConfig{Root: sourceRoot},
 		KBaseConfig: kbase.Config{
 			Enabled: true,
@@ -315,10 +322,7 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build editing session: %v", err)
 	}
-	wantTools := []string{
-		kbase.ToolSearch, kbase.ToolFiles, kbase.ToolRead, kbase.ToolStatus, kbase.ToolRefresh, kbase.ToolDatetime,
-		"file_read", "file_glob", "file_grep", "file_write", "file_edit",
-	}
+	wantTools := declaredTools
 	canonicalSource := absTestPath(t, sourceRoot)
 	if !session.EditingMode || session.WorkspaceRoot != canonicalSource {
 		t.Fatalf("unexpected editing snapshot: %#v", session)

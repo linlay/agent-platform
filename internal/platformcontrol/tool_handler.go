@@ -174,6 +174,7 @@ func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
 		definition := agentkbase.ApplyCreateDefaults(map[string]any{"mode": agentkbase.Mode}, agentkbase.CreateDefaults{
 			ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, EmbeddingModelKey: h.cfg.KBase.Embedding.ModelKey,
 		})
+		definition = agentkbase.ApplyCreateToolDefaults(definition)
 		missing := missingDefinitionFields(definition, "modelConfig.modelKey", "kbaseConfig.embedding.modelKey")
 		return successResult(map[string]any{
 			"path":               path,

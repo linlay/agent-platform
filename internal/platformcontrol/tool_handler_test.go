@@ -76,6 +76,7 @@ func TestGetKBaseCreationDefaultsAndMissingFields(t *testing.T) {
 		want := agentkbase.ApplyCreateDefaults(map[string]any{"mode": agentkbase.Mode}, agentkbase.CreateDefaults{
 			ModelKey: "answer-model", ReasoningEffort: "MEDIUM", EmbeddingModelKey: "embedding-model",
 		})
+		want = agentkbase.ApplyCreateToolDefaults(want)
 		if !reflect.DeepEqual(result.Structured["definitionDefaults"], want) || result.Structured["ready"] != true {
 			t.Fatalf("unexpected KBASE defaults: %#v", result.Structured)
 		}

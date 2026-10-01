@@ -32,6 +32,19 @@ func (s *Service) ListSummaries(lastRunID string, agentKey string, agentModes []
 	return s.Chats.ListChatsWithAgentModesAndLimit(lastRunID, agentKey, agentModes, limit)
 }
 
+// ListSummariesWithOptions keeps every filter and the truncation in the
+// persistence layer for stores that support the full option set.
+func (s *Service) ListSummariesWithOptions(options chat.ListOptions) ([]chat.Summary, error) {
+	if s == nil || s.Chats == nil {
+		return nil, ErrNotConfigured
+	}
+	store, ok := s.Chats.(chat.PinnedListStore)
+	if !ok {
+		return nil, errors.New("chat list filtering is not supported")
+	}
+	return store.ListChatsWithOptions(options)
+}
+
 // ListSummariesWithPinned keeps filtering and truncation in the persistence layer.
 func (s *Service) ListSummariesWithPinned(lastRunID, agentKey string, modes []string, limit int, pinned *bool) ([]chat.Summary, error) {
 	if pinned == nil {

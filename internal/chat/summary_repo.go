@@ -429,6 +429,23 @@ func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOr
 			query += " AND AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + ")"
 		}
 	}
+	if filter := options.AgentKeyFilter; filter != nil {
+		placeholders := make([]string, 0, len(filter.Keys))
+		for _, key := range filter.Keys {
+			if key = strings.TrimSpace(key); key != "" {
+				placeholders = append(placeholders, "?")
+				args = append(args, key)
+			}
+		}
+		switch {
+		case len(placeholders) == 0 && !filter.Exclude:
+			query += " AND 1=0"
+		case len(placeholders) > 0 && filter.Exclude:
+			query += " AND AGENT_KEY_ NOT IN (" + strings.Join(placeholders, ",") + ")"
+		case len(placeholders) > 0:
+			query += " AND AGENT_KEY_ IN (" + strings.Join(placeholders, ",") + ")"
+		}
+	}
 	query += " ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC"
 
 	rows, err := s.db.Query(query, args...)

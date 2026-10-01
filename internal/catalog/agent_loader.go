@@ -98,6 +98,12 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 		adminItems[fallbackKey] = invalidAdminAgent(source, fallbackKey, definition, "key_mismatch", err)
 		return err
 	}
+	if strings.EqualFold(def.Mode, AgentModeKBase) && !kbaseAgentHasFileTool(def.Tools) {
+		// A KBASE agent uses exactly the tools its agent.yml declares. Files
+		// written before that rule relied on a built-in tool set and now load
+		// without any way to browse or edit the Workspace.
+		log.Printf("[catalog][agents] warning code=kbase_file_tools_missing agent=%q message=KBASE agent declares none of %v in toolConfig.tools; add them to agent.yml to browse or edit the Workspace", def.Key, agentkbase.StructuredFileToolNames())
+	}
 	if def.KBaseConfig.Enabled {
 		if err := kbase.ValidateWorkspaceChatsSeparation(def.Workspace.Root, chatsDir); err != nil {
 			log.Printf("[catalog][agents] skip %s %s: KBASE workspace/chats overlap: %v", source.Kind, name, err)
@@ -327,9 +333,7 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 
 	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
-	if !strings.EqualFold(def.Mode, AgentModeKBase) {
-		def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
-	}
+	def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
 
 	topPromptFiles := parsePromptFileField(root["promptFile"])
 
@@ -793,17 +797,13 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if err := ValidateOrdinaryAgentTools(def.Tools); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if strings.EqualFold(def.Mode, AgentModeKBase) {
-		def = applyKBaseBoundaryPolicy(def)
-	}
-
 	if err := validateReservedBashToolNames(def.Tools); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if !strings.EqualFold(def.Mode, AgentModeKBase) && (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
+	if (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
 		def.Tools = append(def.Tools, "bash")
 	}
-	if !strings.EqualFold(def.Mode, AgentModeKBase) {
+	{
 		memoryConfig, err := parseAgentMemoryConfig(path, root["memoryConfig"])
 		if err != nil {
 			return AgentDefinition{}, nil, err
@@ -1004,17 +1004,6 @@ func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentD
 	return def
 }
 
-func applyKBaseBoundaryPolicy(def AgentDefinition) AgentDefinition {
-	policy := agentkbase.ResolveBoundaryPolicy(def.Tools)
-	def.Tools = policy.ToolNames
-	if !policy.MemoryEnabled {
-		def.StaticMemoryPrompt = ""
-		def.MemoryEnabled = false
-		def.MemoryConfig = AgentMemoryConfig{}
-	}
-	return def
-}
-
 func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) error {
 	if def == nil {
 		return nil
@@ -1047,8 +1036,17 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 	return nil
 }
 
+func kbaseAgentHasFileTool(tools []string) bool {
+	for _, name := range agentkbase.StructuredFileToolNames() {
+		if containsString(tools, name) {
+			return true
+		}
+	}
+	return false
+}
+
 func applyKBaseCapabilityTools(def AgentDefinition) AgentDefinition {
-	if !def.KBaseConfig.Enabled || strings.EqualFold(def.Mode, AgentModeKBase) {
+	if !def.KBaseConfig.Enabled {
 		return def
 	}
 	for _, toolName := range kbase.CapabilityToolNames() {

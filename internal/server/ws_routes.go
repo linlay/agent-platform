@@ -339,6 +339,7 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		LastRunID string          `json:"lastRunId"`
 		AgentKey  string          `json:"agentKey"`
 		Mode      string          `json:"mode"`
+		AgentType string          `json:"agentType"`
 		Limit     json.RawMessage `json:"limit"`
 		Pinned    json.RawMessage `json:"pinned"`
 	}](req)
@@ -370,7 +371,13 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned)
+	agentType, agentTypeErr := parseChatAgentType(payload.AgentType)
+	if agentTypeErr != nil {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, agentTypeErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned, agentType)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)

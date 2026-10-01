@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,6 +30,9 @@ func (c *Config) applyStructuredConfig(configRoot string, ignoreRemovedWorkingDi
 		return err
 	}
 	if err := c.applyGeneralSettingsFile(configFile(configRoot, "configs/general-settings.yml")); err != nil {
+		return err
+	}
+	if err := c.applyAgentCreationFile(configFile(configRoot, "configs/agent-creation.yml")); err != nil {
 		return err
 	}
 	if err := c.applyAIToolsFile(configFile(configRoot, "configs/ai-tools.yml")); err != nil {
@@ -781,6 +785,157 @@ func (c *Config) applyGeneralSettingsFile(path string) error {
 		settings.WorkspaceAgents.File = stringValue(anyValue(workspaceAgents["file"], settings.WorkspaceAgents.File), settings.WorkspaceAgents.File)
 	}
 	return nil
+}
+
+var agentCreationTypeKeys = []string{"general", "coder", "kbase"}
+
+func (c *Config) applyAgentCreationFile(path string) error {
+	values, err := loadYAMLMap(path)
+	if err != nil {
+		return err
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	parsed, err := parseAgentCreationConfig(values)
+	if err != nil {
+		return fmt.Errorf("agent-creation config: %w", err)
+	}
+	c.AgentCreation = parsed
+	return nil
+}
+
+func parseAgentCreationConfig(values map[string]any) (AgentCreationConfig, error) {
+	out := AgentCreationConfig{Types: map[string]AgentCreationTypeConfig{}}
+	var err error
+	groupKeys := map[string]bool{}
+	if raw, exists := values["groups"]; exists && raw != nil {
+		items, ok := raw.([]any)
+		if !ok {
+			return out, fmt.Errorf("groups must be a list")
+		}
+		for index, item := range items {
+			node, ok := item.(map[string]any)
+			if !ok {
+				return out, fmt.Errorf("groups[%d] must be an object", index)
+			}
+			key := strings.TrimSpace(stringValue(node["key"], ""))
+			if !validAgentCreationGroupKey(key) {
+				return out, fmt.Errorf("groups[%d].key must use lowercase letters, digits and hyphens", index)
+			}
+			if groupKeys[key] {
+				return out, fmt.Errorf("groups key %q is duplicated", key)
+			}
+			groupKeys[key] = true
+			group := AgentCreationGroupConfig{Key: key}
+			if group.Name, err = parseAgentCreationText(node["name"]); err != nil {
+				return out, fmt.Errorf("groups.%s.name %w", key, err)
+			}
+			if group.Description, err = parseAgentCreationText(node["description"]); err != nil {
+				return out, fmt.Errorf("groups.%s.description %w", key, err)
+			}
+			if group.Skills, err = parseAgentCreationNames(node["skills"]); err != nil {
+				return out, fmt.Errorf("groups.%s.skills %w", key, err)
+			}
+			if group.Tools, err = parseAgentCreationNames(node["tools"]); err != nil {
+				return out, fmt.Errorf("groups.%s.tools %w", key, err)
+			}
+			if group.Connectors, err = parseAgentCreationNames(node["connectors"]); err != nil {
+				return out, fmt.Errorf("groups.%s.connectors %w", key, err)
+			}
+			out.Groups = append(out.Groups, group)
+		}
+	}
+	if raw, exists := values["types"]; exists && raw != nil {
+		types, ok := raw.(map[string]any)
+		if !ok {
+			return out, fmt.Errorf("types must be an object")
+		}
+		for name, rawType := range types {
+			typeKey := strings.ToLower(strings.TrimSpace(name))
+			if !slices.Contains(agentCreationTypeKeys, typeKey) {
+				return out, fmt.Errorf("types.%s is not supported; use general, coder or kbase", name)
+			}
+			node, _ := rawType.(map[string]any)
+			var item AgentCreationTypeConfig
+			if rawTools, set := node["base-tools"]; set {
+				item.BaseToolsSet = true
+				if item.BaseTools, err = parseAgentCreationNames(rawTools); err != nil {
+					return out, fmt.Errorf("types.%s.base-tools %w", typeKey, err)
+				}
+			}
+			if item.DefaultGroups, err = parseAgentCreationNames(node["default-groups"]); err != nil {
+				return out, fmt.Errorf("types.%s.default-groups %w", typeKey, err)
+			}
+			for _, key := range item.DefaultGroups {
+				if !groupKeys[key] {
+					return out, fmt.Errorf("types.%s.default-groups references unknown group %q", typeKey, key)
+				}
+			}
+			out.Types[typeKey] = item
+		}
+	}
+	return out, nil
+}
+
+func validAgentCreationGroupKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, r := range key {
+		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// parseAgentCreationText accepts plain text or a locale -> text object.
+func parseAgentCreationText(raw any) (map[string]string, error) {
+	switch typed := raw.(type) {
+	case nil:
+		return nil, nil
+	case string:
+		if text := strings.TrimSpace(typed); text != "" {
+			return map[string]string{"": text}, nil
+		}
+		return nil, nil
+	case map[string]any:
+		out := make(map[string]string, len(typed))
+		for locale, value := range typed {
+			text, ok := value.(string)
+			if !ok {
+				return nil, fmt.Errorf("must map each locale to text")
+			}
+			if text = strings.TrimSpace(text); text != "" {
+				out[strings.ToLower(strings.TrimSpace(locale))] = text
+			}
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("must be text or a locale object")
+	}
+}
+
+func parseAgentCreationNames(raw any) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("must be a list")
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		text, ok := item.(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			return nil, fmt.Errorf("must contain only non-empty names")
+		}
+		if text = strings.TrimSpace(text); !slices.Contains(out, text) {
+			out = append(out, text)
+		}
+	}
+	return out, nil
 }
 
 func cloneConfigMap(src map[string]any) map[string]any {
