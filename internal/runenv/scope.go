@@ -1,8 +1,11 @@
 package runenv
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -23,13 +26,16 @@ type Limits struct {
 type Operation string
 
 const (
-	OperationSet   Operation = "set"
-	OperationUnset Operation = "unset"
+	OperationSet    Operation = "set"
+	OperationUnset  Operation = "unset"
+	OperationUpdate Operation = "update"
 )
 
 type MutationRequest struct {
 	Operation             Operation
 	Name                  string
+	Set                   map[string]string
+	Unset                 []string
 	Value                 string
 	ExpectedRevision      *uint64
 	IdempotencyKey        string
@@ -43,11 +49,16 @@ type MutationResult struct {
 	Idempotent bool   `json:"idempotent"`
 }
 
+// MaxIdempotencyRecords bounds receipts without evicting successful requests.
+// At capacity, new mutations fail before changing state; retries still work.
+const MaxIdempotencyRecords = 4096
+
+var ErrIdempotencyLimit = errors.New("run environment idempotency record limit reached")
+var ErrIdempotencyConflict = errors.New("idempotency key was already used with different arguments")
+
 type storedIdempotency struct {
-	Operation Operation
-	Name      string
-	Value     string
-	Result    MutationResult
+	Digest [32]byte
+	Result MutationResult
 }
 
 // Scope is the process-local dynamic environment owned by one root run.
@@ -107,18 +118,76 @@ func (s *Scope) Mutate(request MutationRequest) (MutationResult, error) {
 		return MutationResult{}, ErrClosed
 	}
 
-	name := NormalizeName(request.Name)
-	if err := ValidateName(name, s.limits.ExtraDeniedKeys); err != nil {
+	set := map[string]string{}
+	unset := []string{}
+	name := ""
+	switch request.Operation {
+	case OperationSet:
+		name = NormalizeName(request.Name)
+		set[name] = request.Value
+	case OperationUnset:
+		name = NormalizeName(request.Name)
+		unset = append(unset, name)
+	case OperationUpdate:
+		for raw, value := range request.Set {
+			key := NormalizeName(raw)
+			if _, exists := set[key]; exists {
+				return MutationResult{}, fmt.Errorf("duplicate normalized key %s", key)
+			}
+			set[key] = value
+		}
+		for _, raw := range request.Unset {
+			unset = append(unset, NormalizeName(raw))
+		}
+		if len(set) == 0 && len(unset) == 0 {
+			return MutationResult{}, fmt.Errorf("update must contain at least one set or unset key")
+		}
+	default:
+		return MutationResult{}, fmt.Errorf("unsupported run environment mutation %q", request.Operation)
+	}
+	seen := map[string]bool{}
+	for key, value := range set {
+		if err := ValidateName(key, s.limits.ExtraDeniedKeys); err != nil {
+			return MutationResult{}, err
+		}
+		if err := ValidateValue(value, s.limits.MaxValueBytes); err != nil {
+			return MutationResult{}, err
+		}
+		seen[key] = true
+	}
+	for _, key := range unset {
+		if err := ValidateName(key, s.limits.ExtraDeniedKeys); err != nil {
+			return MutationResult{}, err
+		}
+		if seen[key] {
+			return MutationResult{}, fmt.Errorf("duplicate or overlapping normalized key %s", key)
+		}
+		seen[key] = true
+	}
+	sort.Strings(unset)
+	// encoding/json sorts map keys. Include the revision precondition, including
+	// its absence, but never the idempotency key itself.
+	canonical, err := json.Marshal(struct {
+		Operation        Operation
+		Set              map[string]string
+		Unset            []string
+		ExpectedRevision *uint64
+	}{request.Operation, set, unset, request.ExpectedRevision})
+	if err != nil {
 		return MutationResult{}, err
 	}
+	digest := sha256.Sum256(canonical)
 	idempotencyKey := strings.TrimSpace(request.IdempotencyKey)
 	if idempotencyKey == "" {
 		idempotencyKey = strings.TrimSpace(request.DefaultIdempotencyKey)
 	}
 	if idempotencyKey != "" {
+		if len(idempotencyKey) > 256 {
+			return MutationResult{}, fmt.Errorf("idempotency key is too long")
+		}
 		if previous, ok := s.idempotency[idempotencyKey]; ok {
-			if previous.Operation != request.Operation || previous.Name != name || previous.Value != request.Value {
-				return MutationResult{}, fmt.Errorf("idempotency key was already used with different arguments")
+			if previous.Digest != digest {
+				return MutationResult{}, ErrIdempotencyConflict
 			}
 			result := previous.Result
 			result.Idempotent = true
@@ -128,53 +197,67 @@ func (s *Scope) Mutate(request MutationRequest) (MutationResult, error) {
 	if request.ExpectedRevision != nil && *request.ExpectedRevision != s.revision {
 		return MutationResult{}, fmt.Errorf("%w: expected %d, current %d", ErrRevisionConflict, *request.ExpectedRevision, s.revision)
 	}
-
+	candidate := make(map[string]string, len(s.values)+len(set))
+	for key, value := range s.values {
+		candidate[key] = value
+	}
 	changed := false
-	switch request.Operation {
-	case OperationSet:
-		if err := ValidateValue(request.Value, s.limits.MaxValueBytes); err != nil {
-			return MutationResult{}, fmt.Errorf("%s: %w", name, err)
+	for _, key := range unset {
+		if _, exists := candidate[key]; !exists {
+			return MutationResult{}, fmt.Errorf("%w: %s", ErrKeyNotSet, key)
 		}
-		previous, exists := s.values[name]
-		if !exists && len(s.values) >= s.limits.MaxDynamicKeys {
-			return MutationResult{}, fmt.Errorf("run environment exceeds %d dynamic keys", s.limits.MaxDynamicKeys)
-		}
-		total := len(request.Value)
-		for existingName, value := range s.values {
-			if existingName != name {
-				total += len(value)
-			}
-		}
-		if total > s.limits.MaxTotalBytes {
-			return MutationResult{}, fmt.Errorf("run environment exceeds %d total bytes", s.limits.MaxTotalBytes)
-		}
-		if !exists || previous != request.Value {
-			s.values[name] = request.Value
+		delete(candidate, key)
+		changed = true
+	}
+	for key, value := range set {
+		if old, exists := candidate[key]; !exists || old != value {
 			changed = true
 		}
-	case OperationUnset:
-		if _, exists := s.values[name]; !exists {
-			return MutationResult{}, fmt.Errorf("%w: %s", ErrKeyNotSet, name)
-		}
-		delete(s.values, name)
-		changed = true
-	default:
-		return MutationResult{}, fmt.Errorf("unsupported run environment mutation %q", request.Operation)
+		candidate[key] = value
 	}
-
+	if len(candidate) > s.limits.MaxDynamicKeys {
+		return MutationResult{}, fmt.Errorf("run environment exceeds %d dynamic keys", s.limits.MaxDynamicKeys)
+	}
+	total := 0
+	for _, value := range candidate {
+		total += len(value)
+	}
+	if total > s.limits.MaxTotalBytes {
+		return MutationResult{}, fmt.Errorf("run environment exceeds %d total bytes", s.limits.MaxTotalBytes)
+	}
+	if idempotencyKey != "" && len(s.idempotency) >= MaxIdempotencyRecords {
+		return MutationResult{}, ErrIdempotencyLimit
+	}
 	if changed {
+		s.values = candidate
 		s.revision++
 	}
 	result := MutationResult{Key: name, Revision: s.revision, Changed: changed}
 	if idempotencyKey != "" {
-		s.idempotency[idempotencyKey] = storedIdempotency{
-			Operation: request.Operation,
-			Name:      name,
-			Value:     request.Value,
-			Result:    result,
-		}
+		s.idempotency[idempotencyKey] = storedIdempotency{Digest: digest, Result: result}
 	}
 	return result, nil
+}
+
+// Inspect returns a coherent dynamic-only view; byte usage excludes key names.
+func (s *Scope) Inspect() (map[string]any, error) {
+	if s == nil {
+		return nil, ErrClosed
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
+		return nil, ErrClosed
+	}
+	values := make(map[string]string, len(s.values))
+	total := 0
+	for key, value := range s.values {
+		values[key] = value
+		total += len(value)
+	}
+	return map[string]any{"variables": values, "revision": s.revision,
+		"usage":  map[string]any{"dynamicKeys": len(values), "totalBytes": total, "idempotencyRecords": len(s.idempotency)},
+		"limits": map[string]any{"maxDynamicKeys": s.limits.MaxDynamicKeys, "maxValueBytes": s.limits.MaxValueBytes, "maxTotalBytes": s.limits.MaxTotalBytes, "maxIdempotencyRecords": MaxIdempotencyRecords}}, nil
 }
 
 func (s *Scope) Destroy() {
@@ -192,6 +275,7 @@ func (s *Scope) Destroy() {
 }
 
 func normalizeLimits(limits Limits) Limits {
+	limits.ExtraDeniedKeys = append([]string(nil), limits.ExtraDeniedKeys...)
 	if limits.MaxDynamicKeys <= 0 {
 		limits.MaxDynamicKeys = 32
 	}

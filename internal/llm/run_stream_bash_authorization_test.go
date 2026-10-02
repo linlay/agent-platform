@@ -390,7 +390,7 @@ func TestHostBashApprovalConcurrentInterruptBeforeDispatch(t *testing.T) {
 
 func TestHostBashApprovalConcurrentControlBarrier(t *testing.T) {
 	s, e, _ := newApprovedBashStream(t, 2)
-	barrier := &preparedToolInvocation{toolID: "set_env", toolName: "platform_control", args: map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "VALUE", "value": "new"}}}
+	barrier := &preparedToolInvocation{toolID: "set_env", toolName: "run_env", args: map[string]any{"operation": "set", "params": map[string]any{"key": "VALUE", "value": "new"}}}
 	s.queuedToolCalls = append([]*preparedToolInvocation{barrier}, s.queuedToolCalls...)
 	if err := s.invokeQueuedToolCallsAndPostHook(); err != nil {
 		t.Fatal(err)

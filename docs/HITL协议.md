@@ -38,7 +38,7 @@ assistant tool_calls[]
 
 - `question`：来自 `ask_user_question`，`params` 每项提交 `answer` 或 `answers`。
 - `approval`：来自 Bash HITL 或文件工具越权路径审批，用户只能 approve / approve_rule_run / reject，不能修改命令内容。
-- `platform_control` 的 `run.env.set/unset` 不使用专用 HITL；它们仍是 operation-aware barrier，并在执行时校验 key、value、limits、revision 与幂等。
+- `run_env` 的 set/unset/update 不增加专用 HITL；它们是 operation-aware barrier，执行时校验 key、value、最终状态限额、revision 与有界幂等收据。
 - `form`：来自 Bash HITL html form，approve 时提交修改后的 `form`，reject 可带 `reason`。
 - `planning`：wire-format 中来自 CODER 的 planning confirmation，`awaiting.ask.planning` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。它不是 `plan_*` / plan-tasks 的执行任务计划。
 

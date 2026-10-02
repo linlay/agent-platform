@@ -1,6 +1,6 @@
 package llm
 
-import "agent-platform/internal/platformcontrol"
+import "agent-platform/internal/toolpolicy"
 
 func hasToolExecutionBarrier(calls []*preparedToolInvocation) bool {
 	if hasWriteExecutionBarrier(calls) {
@@ -12,7 +12,7 @@ func hasToolExecutionBarrier(calls []*preparedToolInvocation) bool {
 			if call.toolName == "wait" {
 				return true
 			}
-			if descriptor, ok := platformcontrol.InvocationDescriptor(call.toolName, call.args); ok && descriptor.Barrier {
+			if descriptor, ok := toolpolicy.InvocationDescriptor(call.toolName, call.args); toolpolicy.OperationAware(call.toolName) && (!ok || descriptor.Barrier) {
 				return true
 			}
 		}

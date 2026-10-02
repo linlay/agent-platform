@@ -16,7 +16,6 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runenv"
 )
 
 func TestGetCoderCreationDefaultsMatchesModeCreateDefaults(t *testing.T) {
@@ -327,57 +326,10 @@ func TestExplicitToolGrantDoesNotDependOnAgentOrSkills(t *testing.T) {
 	}
 }
 
-func TestRunEnvironmentSetUnsetAreValueBlindAndRootScoped(t *testing.T) {
-	scope := runenv.NewScope(runenv.Limits{})
-	defer scope.Destroy()
-	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
-	handler := NewToolHandler(cfg, nil, nil)
-	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "run-1", AgentKey: "office"}, RunEnvironment: scope, CurrentToolID: "tool-set"}
-	capabilities, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list", "params": map[string]any{}}, execCtx)
-	if capabilities.Error != "" {
-		t.Fatalf("capabilities failed: %#v", capabilities)
-	}
-	capabilityData := capabilities.Structured["data"].(map[string]any)
-	capabilityOperations := capabilityData["operations"].([]string)
-	for _, required := range []string{"run.env.set", "run.env.unset"} {
-		found := false
-		for _, operation := range capabilityOperations {
-			if operation == required {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("capabilities omitted %s: %#v", required, capabilityData)
-		}
-	}
-	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "DOCUMENT_ID", "value": "document-secret-id", "idempotencyKey": "set-doc"}}, execCtx)
-	if result.Error != "" || strings.Contains(result.Output, "document-secret-id") {
-		t.Fatalf("set result leaked or failed: %#v", result)
-	}
-	data := result.Structured["data"].(map[string]any)
-	if data["key"] != "DOCUMENT_ID" || data["changed"] != true || data["revision"] != uint64(1) {
-		t.Fatalf("set result shape = %#v", data)
-	}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.unset", "params": map[string]any{"key": "DOCUMENT_ID", "idempotencyKey": "unset-doc"}}, execCtx)
-	if result.Error != "" || strings.Contains(result.Output, "document-secret-id") {
-		t.Fatalf("unset failed or leaked: %#v", result)
-	}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.unset", "params": map[string]any{"key": "DOCUMENT_ID"}}, execCtx)
-	if result.Error != "run_env_key_not_set" {
-		t.Fatalf("repeated unset = %#v", result)
-	}
-	child := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "run-1", AgentKey: "office", SubTaskID: "child"}, RunEnvironment: scope}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "CHILD", "value": "forbidden"}}, child)
-	if result.Error != "run_env_mutation_forbidden" {
-		t.Fatalf("child mutation = %#v", result)
-	}
-}
-
 func TestRemovedRunEnvironmentOperationsAreInvalid(t *testing.T) {
 	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil, nil)
-	for _, operation := range []string{"run.env.bind", "run.env.get", "run.env.list", "run.env.bulk"} {
+	for _, operation := range []string{"run.env.set", "run.env.unset", "run.env.bind", "run.env.get", "run.env.list", "run.env.bulk"} {
 		result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": operation, "params": map[string]any{}}, &contracts.ExecutionContext{})
 		if result.Error != "platform_control_invalid_operation" {
 			t.Fatalf("%s result = %#v", operation, result)

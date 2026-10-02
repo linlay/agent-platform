@@ -53,6 +53,7 @@ type Config struct {
 	Bash            BashConfig
 	FileTools       FileToolsConfig
 	PlatformControl PlatformControlConfig
+	RunEnv          RunEnvConfig
 	WebSocket       WebSocketConfig
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	Gateways []GatewayEntry
@@ -119,7 +120,10 @@ type PathsConfig struct {
 }
 
 type PlatformControlConfig struct {
-	Enabled        bool
+	Enabled bool
+}
+
+type RunEnvConfig struct {
 	DenyKeys       []string
 	MaxDynamicKeys int
 	MaxValueBytes  int

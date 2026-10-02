@@ -1385,9 +1385,9 @@ func TestHydrationRestoresAwaitingWithEmptyRunEnvironment(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			updated := strings.Replace(string(data), "    - ask_user_question\n", "    - ask_user_question\n    - platform_control\n", 1)
+			updated := strings.Replace(string(data), "    - ask_user_question\n", "    - ask_user_question\n    - run_env\n", 1)
 			if updated == string(data) {
-				t.Fatal("failed to mount platform_control")
+				t.Fatal("failed to mount run_env")
 			}
 			if err := os.WriteFile(agentPath, []byte(updated), 0o644); err != nil {
 				t.Fatal(err)

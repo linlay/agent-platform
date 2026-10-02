@@ -37,6 +37,7 @@ import (
 	"agent-platform/internal/platformcontrol"
 	projectpkg "agent-platform/internal/project"
 	"agent-platform/internal/reload"
+	"agent-platform/internal/runenvops"
 	"agent-platform/internal/runops"
 	agentruntime "agent-platform/internal/runtime"
 	runtimeadapter "agent-platform/internal/runtime/adapter"
@@ -405,6 +406,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
 	conversationService.Notifications = notifications
+	if err := toolExecutor.RegisterHandler(runenvops.NewToolHandler(cfg.RunEnv)); err != nil {
+		return nil, fmt.Errorf("register run_env tool: %w", err)
+	}
 	if err := toolExecutor.RegisterHandler(platformcontrol.NewToolHandler(cfg, registry, conversationService)); err != nil {
 		return nil, fmt.Errorf("register platform_control tool: %w", err)
 	}

@@ -59,13 +59,14 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if !reflect.DeepEqual(response.Data.Wonders, wantWonders) {
 		t.Fatalf("expected wonders in detail response, got %#v", response.Data.Wonders)
 	}
-	if len(response.Data.Tools) != 6 ||
+	if len(response.Data.Tools) != 7 ||
 		response.Data.Tools[0] != "datetime" ||
 		response.Data.Tools[1] != "ask_user_question" ||
-		response.Data.Tools[2] != "bash" ||
-		response.Data.Tools[3] != "memory_write" ||
-		response.Data.Tools[4] != "memory_read" ||
-		response.Data.Tools[5] != "memory_search" {
+		response.Data.Tools[2] != "run_env" ||
+		response.Data.Tools[3] != "bash" ||
+		response.Data.Tools[4] != "memory_write" ||
+		response.Data.Tools[5] != "memory_read" ||
+		response.Data.Tools[6] != "memory_search" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
 	if len(response.Data.Skills) != 1 || response.Data.Skills[0].ID != "mock-skill" || response.Data.Skills[0].DisplayName == "" {

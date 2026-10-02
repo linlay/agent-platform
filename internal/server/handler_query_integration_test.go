@@ -164,7 +164,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	}
 }
 
-func TestReactEmptyToolAllowlistDoesNotExposePlatformOrMCPTools(t *testing.T) {
+func TestReactEmptyToolAllowlistExposesOnlyAlwaysMountedRunEnv(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		toolConfig string
@@ -178,7 +178,7 @@ func TestReactEmptyToolAllowlistDoesNotExposePlatformOrMCPTools(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 					t.Fatalf("decode model request: %v", err)
 				}
-				if toolNames := providerRequestToolNames(payload["tools"]); len(toolNames) != 0 {
+				if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"run_env"}) {
 					t.Fatalf("empty REACT allowlist exposed tools: %#v", toolNames)
 				}
 				writeProviderSSE(t, w,
@@ -217,8 +217,8 @@ func TestReactExplicitToolAllowlistExposesOnlyConfiguredTool(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode model request: %v", err)
 		}
-		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"web_fetch"}) {
-			t.Fatalf("explicit REACT allowlist = %#v, want web_fetch only", toolNames)
+		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"run_env", "web_fetch"}) {
+			t.Fatalf("explicit REACT allowlist = %#v, want run_env and web_fetch only", toolNames)
 		}
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
@@ -255,7 +255,7 @@ func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode model request: %v", err)
 		}
-		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"web_fetch", "flow_start"}) {
+		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"run_env", "web_fetch", "flow_start"}) {
 			t.Fatalf("MCP server allowlist = %#v", toolNames)
 		}
 		writeProviderSSE(t, w,

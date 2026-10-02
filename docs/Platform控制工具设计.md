@@ -4,9 +4,7 @@
 
 `platform_control` 是显式挂载的 system tool。所有挂载它的 Agent 使用同一固定 Schema；Skill 只能说明调用方法，不能替 Agent 挂载 Tool。
 
-动态 Run 环境是当前普通 native root run 的轻量覆盖层，只供后续 Tool 新启动的 Host/Container 子进程继承。它不会修改 Platform 进程环境，也不会注入子 Agent、Team、独立 root run、ACP、Proxy、Channel、Terminal、MCP、LSP、sidecar、长期服务或已经启动的进程。
-
-Agent 配置不再声明动态 key。遗留 `runtimeConfig.runEnv` 会被静默忽略，不产生权限、校验规则或运行时状态。
+动态环境由独立工具 `run_env` 管理，见 [Run 环境工具](Run环境工具.md)。`platform-control.enabled` 不再控制环境能力。
 
 ## 固定操作
 
@@ -16,12 +14,10 @@ Agent 配置不再声明动态 key。遗留 `runtimeConfig.runEnv` 会被静默�
 - `catalog.defaults.get`
 - `catalog.validate`：resourceType 为 agent/team/skill/connector；connector 只校验 connector.json，旧 mcp-server 类型已退役。
 - `chat.set_pinned`：持久化当前或指定 Chat 的实例级置顶状态。
-- `run.env.set`
-- `run.env.unset`
 - `runtime.status`
 - `security.explain`
 
-旧 `run.env.bind/get/list/bulk` 未注册，调用统一返回 `platform_control_invalid_operation`。
+旧 `run.env.set/unset/bind/get/list/bulk` 未注册，调用统一返回 `platform_control_invalid_operation`。
 
 ### `chat.set_pinned`
 
@@ -39,59 +35,11 @@ Agent 配置不再声明动态 key。遗留 `runtimeConfig.runEnv` 会被静默�
 {"operation":"chat.set_pinned","status":"ok","scope":"instance","data":{"chatId":"chat-1","pinned":true,"changed":true}}
 ```
 
-该操作成功和错误 envelope 均使用 `scope: instance`，不包含 Run env `revision`；其他 operation 的既有 envelope 不变。首次置顶插入首位，重复设置相同状态返回 `changed:false`，不重排、不写盘、不广播；取消不存在 Chat 的置顶为幂等清理。不存在或仅上传形成的未命名占位 Chat 不能置顶。
+该操作成功和错误 envelope 均使用 `scope: instance`，不包含 Run env `revision`；其他 operation 同样不包含环境 revision。首次置顶插入首位，重复设置相同状态返回 `changed:false`，不重排、不写盘、不广播；取消不存在 Chat 的置顶为幂等清理。不存在或仅上传形成的未命名占位 Chat 不能置顶。
 
 HTTP、WS 和工具通过 `internal/conversation.Service.SetChatPinned` 共用存储与通知，持久化成功且有变化后发送 `chats.order.changed`（`updatedAt` 为置顶状态毫秒时间戳）。广播在持久化后立即发送，不依赖调用方随后读取列表成功。Desktop 现有导航订阅触发刷新，不打开 Chat、不切换当前对话。历史 JSONL 不修改，工具不直接写 `chat-pinned.json`。
 
 错误码：`platform_control_invalid_params`（缺少 boolean、非法/空 chatId 或未知参数）、`platform_control_stage_forbidden`、`platform_control_disabled`、`chat_pin_forbidden`（调用者不符合 root/native/挂载边界）、`chat_context_unavailable`（省略 ID 且无可信当前 Chat）、`chat_not_found`、`chat_pin_invalid_target`（占位 Chat）、`chat_pin_unavailable`（服务未装配或存储不支持）、`chat_pin_failed`（持久化失败）。失败不得声称已置顶。
-
-### `run.env.set`
-
-参数：
-
-```json
-{
-  "operation": "run.env.set",
-  "params": {
-    "key": "DOCUMENT_HUB_DOCUMENT_ID",
-    "value": "<documentId>",
-    "expectedRevision": 0,
-    "idempotencyKey": "optional-retry-key"
-  }
-}
-```
-
-`key`、`value` 必填；`expectedRevision`、`idempotencyKey` 可选。set 创建或覆盖当前 run 的动态值，相同值不提升 revision。空字符串和多行值合法；非法 UTF-8、NUL、超限值、非法/保留/危险 key 会被拒绝。
-
-### `run.env.unset`
-
-参数：
-
-```json
-{
-  "operation": "run.env.unset",
-  "params": {
-    "key": "DOCUMENT_HUB_DOCUMENT_ID",
-    "expectedRevision": 1,
-    "idempotencyKey": "optional-retry-key"
-  }
-}
-```
-
-unset 只能删除当前 run 成功 set 且仍存在的动态值。从未 set、已 unset 或只存在于 Host/Agent/Skill 静态层的 key 返回 `run_env_key_not_set`。相同 `idempotencyKey` 重试已成功的 unset，返回原成功结果。
-
-set/unset 成功数据统一为：
-
-```json
-{
-  "key": "DOCUMENT_HUB_DOCUMENT_ID",
-  "changed": true,
-  "idempotent": false,
-  "revision": 1
-}
-```
-
-成功结果不重复返回 value，但 `run.env.set.params.value` 是普通可观测 Tool 参数：它会原样进入 SSE、JSONL、raw messages、provider history、trace、archive、export 和 search，不得用于传递凭据或其他 Secret。`idempotencyKey` 仍在这些边界前脱敏；`catalog.validate.params.content` 按资源类型区分：`agent/team/skill/connector` 候选内容原样保留，未知或缺失资源类型继续整体脱敏；未知 operation 的通用 `params.value` 仍 fail-closed。
 
 ## Catalog 校验回执与历史
 
@@ -101,103 +49,12 @@ set/unset 成功数据统一为：
 
 参数脱敏必须幂等，并保持请求字段结构，不向 `params` 注入字节数等展示元数据。SSE、模型历史和持久化历史中的占位符只表示内容已隐藏，不能据此否定成功回执或推断原始请求。旧历史中的 `contentBytes` 不能复制到新请求；显式提交占位符时返回可恢复的错误，要求重新读取候选内容。
 
-## 校验与错误
+## 控制面与动态环境硬切
 
-平台统一保留：
+`capabilities.list` 只返回本工具操作，不再返回环境限额或 revision；`runtime.status` 不返回 runEnv；`security.explain` 不接受环境 key，环境规则改用 `run_env explain`。结果 envelope 不再附带环境 revision。`chat.set_pinned` 保持实例级行为。
 
-- portable uppercase key 格式与保留/危险 key denylist；
-- `platform-control.deny-keys` 追加 denylist；
-- 单值字节、动态 key 数和总字节限制；
-- optimistic `expectedRevision`；
-- 当前 Scope 内的幂等请求记录；
-- operation-aware scheduling barrier；
-- `idempotencyKey` 与未知资源类型的 Catalog candidate content 脱敏；已支持的 Catalog 候选内容和 run-env value 不脱敏。
+`platform-control` 配置仅保留 `enabled`；旧 deny-keys 与 max-dynamic-keys/max-value-bytes/max-total-bytes 出现即启动失败，必须移到 `run-env`。不兼容旧 run.env 操作，也不重写历史。
 
-主要错误码：
+在线文档流程改为 create/upload 获取 documentId → `run_env` 的 `set` → HTTPX session/edit/commit/download，无需先调用 capabilities.list。具体输入、状态、重启和迁移见 [Run 环境工具](Run环境工具.md)。
 
-| 错误码 | 语义 |
-| --- | --- |
-| `platform_control_invalid_operation` | 操作未注册，包括旧 bind/get/list/bulk |
-| `platform_control_invalid_params` | 参数缺失、类型错误或未知字段 |
-| `run_env_unavailable` | 当前执行不是具有 scope 的普通 native root run |
-| `run_env_mutation_forbidden` | 子任务或 Team 尝试修改 |
-| `run_env_key_not_set` | unset 的 key 不属于当前 run 的现存动态层 |
-| `run_env_key_invalid` / `run_env_key_forbidden` | key 格式非法或命中 denylist |
-| `run_env_value_invalid` | value 含 NUL、非法 UTF-8或超过单值限制 |
-| `run_env_limit_exceeded` | key 数或总量超限 |
-| `run_env_revision_conflict` | expectedRevision 与当前 revision 不同 |
-| `run_env_idempotency_conflict` | 同一幂等 key 被用于不同参数 |
-
-Run env 不触发专用 HITL；文件与 Bash 仍各自遵守原有 AccessPolicy、bashsec 和 HITL。
-
-## State、注入与环境优先级
-
-显式挂载 `platform_control` 的普通 native root run 在 admission 时取得独立的进程内 `Scope`。Scope 直接维护 values、revision、limits 与幂等状态；set/unset 在同一把锁内完成校验和变更，不读取或写入任何运行状态文件。
-
-环境优先级从低到高为：
-
-```text
-Host
-  -> Agent/Skill 静态 env
-  -> 当前 root run 动态 set
-  -> 单次 Tool invocation env
-  -> Platform 保留变量
-```
-
-unset 只移除第三层。因此 Host、Agent 或 Skill 存在同名低层值时，后续新子进程重新看到低层值。
-
-Host Bash、httpx/dbx、Node、Python、rg/file_glob/file_grep 和 Container 新 command 在每次启动前获取独立 snapshot。Container session reuse fingerprint 只包含静态环境；动态 revision/value 不参与 session 身份。Platform 不调用 `os.Setenv`。
-
-ExecutionContext 的并发 clone 共享同一个 root `Scope`；但构建子任务 session 时禁止从相同 RunID 的 RunManager 取回它。因此子 Agent 即使复用父 RunID 也没有动态 scope。
-
-## 进程生命周期与重启
-
-动态 run env 只属于当前 Platform 进程内的当前普通 root run，不写入 Chat、runtime 目录或其他持久化存储。run 正常完成、失败、interrupt 或 budget stop 后，RunManager 关闭 Scope 并清空内存；终态后的 Scope 拒绝继续访问。
-
-Platform 重启后，question/planning 仍按 HITL 原协议恢复，但恢复的 run 获得 revision `0` 的全新空 Scope。历史 set/unset 不从 Chat 重放，旧进程中的动态值也不会继承。approval/form 的重启行为保持原协议不变。
-
-## 配置
-
-Agent 只需显式挂载 Tool：
-
-```yaml
-toolConfig:
-  tools:
-    - platform_control
-```
-
-`configs/tools.yml` 的可选平台配置只控制全局限额：
-
-```yaml
-platform-control:
-  enabled: true
-  max-dynamic-keys: 32
-  max-value-bytes: 4096
-  max-total-bytes: 32768
-  deny-keys: []
-```
-
-旧 `platform_config` 与 `platform-control.profiles/bindings` 仍会硬失败。`runtimeConfig.runEnv` 则为了平滑读取遗留 Agent 文件而静默忽略。
-
-## 在线文档流程
-
-在线办公 Skill 的标准流程是：
-
-```text
-capabilities.list
-  -> create/upload 获取 documentId
-  -> run.env.set(DOCUMENT_HUB_DOCUMENT_ID)
-  -> session/edit/commit/download
-```
-
-同一 run 切换文档时再次 set 新 documentId，并重新建立、验证对应 session/lease；不需要新 run。不要使用内联 `KEY=value httpx ...`。
-
-## 实现位置
-
-| 位置 | 职责 |
-| --- | --- |
-| `internal/runenv` | 进程内 Scope、limits、revision 与幂等状态 |
-| `internal/platformcontrol` | 固定操作注册、参数校验、错误映射、脱敏 |
-| `internal/server/session_builder.go` | root native scope admission 与子任务隔离 |
-| `internal/contracts/run_control_manager.go` | scope 生命周期与 run 终态 cleanup |
-| `internal/tools` / `internal/sandbox` | Host/Container 新 command snapshot |
+操作调度属性统一由 `internal/toolpolicy` 提供，业务校验和执行保留在 `internal/platformcontrol`；本工具已有 Catalog 参数脱敏行为保留。`run_env` 不参与脱敏、流式参数缓冲和原始模型帧屏蔽。

@@ -3,7 +3,6 @@ package platformcontrol
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -17,7 +16,6 @@ import (
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/observability"
-	"agent-platform/internal/runenv"
 )
 
 const (
@@ -86,8 +84,6 @@ func invokeRegisteredOperation(h *ToolHandler, operationName string, params map[
 		return h.validate(strings.ToLower(strings.TrimSpace(stringValue(params, "resourceType"))), strings.TrimSpace(stringValue(params, "resourceKey")), stringValue(params, "content"))
 	case "chat.set_pinned":
 		return h.setChatPinned(params, execCtx)
-	case "run.env.set", "run.env.unset":
-		return h.mutateEnvironment(operationName, params, execCtx)
 	case "runtime.status":
 		return h.runtimeStatus(params, execCtx)
 	case "security.explain":
@@ -115,21 +111,11 @@ func validateOperationParams(operationName string, params map[string]any) error 
 		return requireStringFields(params, "resourceType", "resourceKey", "content")
 	case "chat.set_pinned":
 		return validateChatPinParams(params)
-	case "run.env.set":
-		if err := requireFields(params, []string{"key", "value"}, []string{"expectedRevision", "idempotencyKey"}); err != nil {
-			return err
-		}
-		return requireStringFields(params, "key", "value")
-	case "run.env.unset":
-		if err := requireFields(params, []string{"key"}, []string{"expectedRevision", "idempotencyKey"}); err != nil {
-			return err
-		}
-		return requireStringFields(params, "key")
 	case "security.explain":
-		if err := requireFields(params, []string{"operation"}, []string{"key", "path", "access"}); err != nil {
+		if err := requireFields(params, []string{"operation"}, []string{"path", "access"}); err != nil {
 			return err
 		}
-		for _, field := range []string{"operation", "key", "path", "access"} {
+		for _, field := range []string{"operation", "path", "access"} {
 			if _, exists := params[field]; exists {
 				if err := requireStringFields(params, field); err != nil {
 					return err
@@ -393,12 +379,8 @@ func requireStringFields(params map[string]any, fields ...string) error {
 
 func (h *ToolHandler) capabilities(execCtx *contracts.ExecutionContext, _ []string) contracts.ToolExecutionResult {
 	agentKey := ""
-	revision := uint64(0)
 	if execCtx != nil {
 		agentKey = strings.TrimSpace(execCtx.Session.AgentKey)
-		if execCtx.RunEnvironment != nil {
-			revision = execCtx.RunEnvironment.Revision()
-		}
 	}
 	allowed := make([]string, 0, len(descriptors))
 	for _, operation := range OperationNames() {
@@ -410,14 +392,12 @@ func (h *ToolHandler) capabilities(execCtx *contracts.ExecutionContext, _ []stri
 	}
 	return successResult(map[string]any{
 		"agentKey": agentKey, "operations": allowed,
-		"limits":         map[string]any{"maxDynamicKeys": h.cfg.PlatformControl.MaxDynamicKeys, "maxValueBytes": h.cfg.PlatformControl.MaxValueBytes, "maxTotalBytes": h.cfg.PlatformControl.MaxTotalBytes},
-		"runEnvRevision": revision,
 	})
 }
 
 func operationAvailable(execCtx *contracts.ExecutionContext, descriptor Descriptor) (bool, string) {
 	if execCtx == nil {
-		return descriptor.ReadOnly && !strings.HasPrefix(descriptor.Name, "run.env."), "execution context unavailable"
+		return descriptor.ReadOnly, "execution context unavailable"
 	}
 	if !descriptor.AllowsExecutionPolicy(execCtx.ToolExecutionPolicy) {
 		return false, "operation is not permitted in the current stage"
@@ -425,87 +405,28 @@ func operationAvailable(execCtx *contracts.ExecutionContext, descriptor Descript
 	if descriptor.Name == "chat.set_pinned" && !chatPinCallerAllowed(execCtx) {
 		return false, "chat pinning requires an ordinary native root Agent run with platform_control"
 	}
-	if strings.HasPrefix(descriptor.Name, "run.env.") && execCtx.RunEnvironment == nil {
-		return false, "run environment unavailable"
-	}
 	if !descriptor.ReadOnly && (strings.TrimSpace(execCtx.Session.SubTaskID) != "" || strings.TrimSpace(execCtx.Session.TeamID) != "") {
 		return false, "mutation is limited to ordinary root runs"
 	}
 	return true, ""
 }
 
-func (h *ToolHandler) mutateEnvironment(operationName string, params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	if execCtx == nil || execCtx.RunEnvironment == nil {
-		return errorResult("run_env_unavailable", "current run has no dynamic environment state")
-	}
-	if strings.TrimSpace(execCtx.Session.SubTaskID) != "" || strings.TrimSpace(execCtx.Session.TeamID) != "" {
-		return errorResult("run_env_mutation_forbidden", "only an ordinary root agent run may mutate its environment")
-	}
-	optional := []string{"expectedRevision", "idempotencyKey"}
-	request := runenv.MutationRequest{DefaultIdempotencyKey: strings.TrimSpace(execCtx.Session.RunID) + ":" + strings.TrimSpace(execCtx.CurrentToolID)}
-	if expected, ok, err := optionalRevision(params["expectedRevision"]); err != nil {
-		return errorResult("run_env_invalid_revision", err.Error())
-	} else if ok {
-		request.ExpectedRevision = &expected
-	}
-	request.IdempotencyKey = strings.TrimSpace(stringValue(params, "idempotencyKey"))
-	if _, exists := params["idempotencyKey"]; exists {
-		if err := requireStringFields(params, "idempotencyKey"); err != nil {
-			return errorResult("platform_control_invalid_params", err.Error())
-		}
-		if len(request.IdempotencyKey) == 0 || len(request.IdempotencyKey) > 128 {
-			return errorResult("platform_control_invalid_params", "params.idempotencyKey must contain 1 to 128 characters")
-		}
-	}
-	switch operationName {
-	case "run.env.set":
-		if err := requireFields(params, []string{"key", "value"}, optional); err != nil {
-			return errorResult("platform_control_invalid_params", err.Error())
-		}
-		if err := requireStringFields(params, "key", "value"); err != nil {
-			return errorResult("platform_control_invalid_params", err.Error())
-		}
-		request.Operation = runenv.OperationSet
-		request.Name = stringValue(params, "key")
-		request.Value = stringValue(params, "value")
-	case "run.env.unset":
-		if err := requireFields(params, []string{"key"}, optional); err != nil {
-			return errorResult("platform_control_invalid_params", err.Error())
-		}
-		if err := requireStringFields(params, "key"); err != nil {
-			return errorResult("platform_control_invalid_params", err.Error())
-		}
-		request.Operation = runenv.OperationUnset
-		request.Name = stringValue(params, "key")
-	}
-	result, err := execCtx.RunEnvironment.Mutate(request)
-	if err != nil {
-		return runEnvironmentError(err)
-	}
-	return successResult(map[string]any{"key": result.Key, "changed": result.Changed, "idempotent": result.Idempotent, "revision": result.Revision})
-}
-
 func (h *ToolHandler) runtimeStatus(params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
 	if err := requireFields(params, nil, nil); err != nil {
 		return errorResult("platform_control_invalid_params", err.Error())
-	}
-	revision := uint64(0)
-	if execCtx != nil && execCtx.RunEnvironment != nil {
-		revision = execCtx.RunEnvironment.Revision()
 	}
 	return successResult(map[string]any{
 		"platformControl": map[string]any{"enabled": h.cfg.PlatformControl.Enabled},
 		"containerHub":    map[string]any{"enabled": h.cfg.ContainerHub.Enabled},
 		"memory":          map[string]any{"enabled": h.cfg.Memory.Enabled},
-		"runEnv":          map[string]any{"available": execCtx != nil && execCtx.RunEnvironment != nil, "revision": revision},
 	})
 }
 
 func (h *ToolHandler) securityExplain(params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	if err := requireFields(params, []string{"operation"}, []string{"key", "path", "access"}); err != nil {
+	if err := requireFields(params, []string{"operation"}, []string{"path", "access"}); err != nil {
 		return errorResult("platform_control_invalid_params", err.Error())
 	}
-	for _, field := range []string{"operation", "key", "path", "access"} {
+	for _, field := range []string{"operation", "path", "access"} {
 		if _, exists := params[field]; exists {
 			if err := requireStringFields(params, field); err != nil {
 				return errorResult("platform_control_invalid_params", err.Error())
@@ -524,19 +445,6 @@ func (h *ToolHandler) securityExplain(params map[string]any, execCtx *contracts.
 		if !available {
 			data["reason"] = unavailableReason
 		}
-	}
-	if key := strings.ToUpper(strings.TrimSpace(stringValue(params, "key"))); key != "" {
-		keyData := map[string]any{"name": key}
-		if err := runenv.ValidateName(key, h.cfg.PlatformControl.DenyKeys); err != nil {
-			keyData["allowed"] = false
-			keyData["reason"] = err.Error()
-		} else if execCtx == nil || execCtx.RunEnvironment == nil {
-			keyData["allowed"] = false
-			keyData["reason"] = "run environment unavailable"
-		} else {
-			keyData["allowed"] = true
-		}
-		data["key"] = keyData
 	}
 	if rawPath := strings.TrimSpace(stringValue(params, "path")); rawPath != "" {
 		access := strings.ToLower(strings.TrimSpace(stringValue(params, "access")))
@@ -573,66 +481,14 @@ func (h *ToolHandler) securityExplain(params map[string]any, execCtx *contracts.
 	return successResult(data)
 }
 
-func optionalRevision(value any) (uint64, bool, error) {
-	if value == nil {
-		return 0, false, nil
-	}
-	switch typed := value.(type) {
-	case int:
-		if typed >= 0 {
-			return uint64(typed), true, nil
-		}
-	case int64:
-		if typed >= 0 {
-			return uint64(typed), true, nil
-		}
-	case float64:
-		if typed >= 0 && typed == float64(uint64(typed)) {
-			return uint64(typed), true, nil
-		}
-	}
-	return 0, false, fmt.Errorf("expectedRevision must be a non-negative integer")
-}
-
-func runEnvironmentError(err error) contracts.ToolExecutionResult {
-	code := "run_env_invalid_request"
-	message := err.Error()
-	switch {
-	case errors.Is(err, runenv.ErrClosed):
-		code = "run_env_closed"
-	case errors.Is(err, runenv.ErrRevisionConflict):
-		code = "run_env_revision_conflict"
-	case errors.Is(err, runenv.ErrKeyNotSet):
-		code = "run_env_key_not_set"
-	case strings.Contains(message, "idempotency key"):
-		code = "run_env_idempotency_conflict"
-	case strings.Contains(message, "name must match"):
-		code = "run_env_key_invalid"
-	case strings.Contains(message, "reserved or denied"), strings.Contains(message, "denied by platform policy"):
-		code = "run_env_key_forbidden"
-	case strings.Contains(message, "value must"), strings.Contains(message, "value exceeds"):
-		code = "run_env_value_invalid"
-	case strings.Contains(message, "dynamic keys"), strings.Contains(message, "total bytes"):
-		code = "run_env_limit_exceeded"
-	case strings.Contains(message, "checkpoint"):
-		code = "run_env_checkpoint_failed"
-	}
-	return errorResult(code, message)
-}
-
 func normalizeEnvelope(operation string, result contracts.ToolExecutionResult, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	revision := uint64(0)
-	if execCtx != nil && execCtx.RunEnvironment != nil {
-		revision = execCtx.RunEnvironment.Revision()
-	}
 	data := result.Structured
 	if data == nil {
 		data = map[string]any{}
 	}
-	envelope := map[string]any{"operation": operation, "status": "ok", "scope": "run", "revision": revision, "data": data}
+	envelope := map[string]any{"operation": operation, "status": "ok", "scope": "run", "data": data}
 	if operation == "chat.set_pinned" {
 		envelope["scope"] = "instance"
-		delete(envelope, "revision")
 	}
 	if result.Error != "" {
 		envelope["status"] = "error"

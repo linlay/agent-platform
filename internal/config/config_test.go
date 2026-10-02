@@ -1911,9 +1911,8 @@ func TestLoadAPEnvAndRuntimeYAMLWithToolsYAMLConfig(t *testing.T) {
 	})
 }
 
-func TestLoadPlatformControlLimits(t *testing.T) {
-	content := "platform-control:\n" +
-		"  enabled: true\n" +
+func TestLoadRunEnvLimits(t *testing.T) {
+	content := "run-env:\n" +
 		"  max-dynamic-keys: 12\n" +
 		"  max-value-bytes: 512\n" +
 		"  max-total-bytes: 4096\n" +
@@ -1923,11 +1922,11 @@ func TestLoadPlatformControlLimits(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.PlatformControl.MaxDynamicKeys != 12 || cfg.PlatformControl.MaxValueBytes != 512 || cfg.PlatformControl.MaxTotalBytes != 4096 {
-			t.Fatalf("limits = %#v", cfg.PlatformControl)
+		if cfg.RunEnv.MaxDynamicKeys != 12 || cfg.RunEnv.MaxValueBytes != 512 || cfg.RunEnv.MaxTotalBytes != 4096 {
+			t.Fatalf("limits = %#v", cfg.RunEnv)
 		}
-		if !reflect.DeepEqual(cfg.PlatformControl.DenyKeys, []string{"CUSTOM_DENY"}) {
-			t.Fatalf("deny keys = %#v", cfg.PlatformControl.DenyKeys)
+		if !reflect.DeepEqual(cfg.RunEnv.DenyKeys, []string{"CUSTOM_DENY"}) {
+			t.Fatalf("deny keys = %#v", cfg.RunEnv.DenyKeys)
 		}
 	})
 }
@@ -2910,4 +2909,30 @@ func TestNewApprovalKeysUseLevelDefaultsAndInheritance(t *testing.T) {
 			t.Fatal("workspace writes are governed by editing, not write-roots")
 		}
 	}
+}
+
+func TestRunEnvHardCutConfiguration(t *testing.T) {
+	for _, field := range []string{"deny-keys", "max-dynamic-keys", "max-value-bytes", "max-total-bytes"} {
+		content := "platform-control:\n  " + field + ": 12\nrun-env:\n  max-dynamic-keys: 32\n"
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "platform-control."+field+" was removed") {
+				t.Fatalf("legacy %s: %v", field, err)
+			}
+		})
+	}
+	content := "run-env:\n  enabled: false\n"
+	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "unknown run-env.enabled") {
+			t.Fatal(err)
+		}
+	})
+	content = "platform-control:\n  enabled: false\nrun-env:\n  max-dynamic-keys: 7\n"
+	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+		cfg, err := Load()
+		if err != nil || cfg.PlatformControl.Enabled || cfg.RunEnv.MaxDynamicKeys != 7 {
+			t.Fatalf("independence %#v %v", cfg.RunEnv, err)
+		}
+	})
 }

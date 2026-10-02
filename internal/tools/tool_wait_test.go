@@ -3,6 +3,7 @@ package tools
 import (
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/runenv"
 	"context"
 	"strings"
 	"sync/atomic"
@@ -143,5 +144,52 @@ func TestChildWaitIgnoresRootSteer(t *testing.T) {
 	}
 	if len(root.DrainSteers()) != 1 {
 		t.Fatal("root input lost")
+	}
+}
+
+func TestWaitRunEnvSnapshotControlsRecovery(t *testing.T) {
+	for _, state := range []string{"empty", "cleared", "nonempty", "closed"} {
+		t.Run(state, func(t *testing.T) {
+			scope := runenv.NewScope(runenv.Limits{})
+			if state != "empty" {
+				if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "A", Value: "x"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if state == "cleared" {
+				if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationUnset, Name: "A"}); err != nil {
+					t.Fatal(err)
+				}
+				if scope.Revision() != 2 {
+					t.Fatal(scope.Revision())
+				}
+			}
+			if state == "closed" {
+				scope.Destroy()
+			}
+			control := NewRunControl(context.Background(), "root")
+			defer control.Finish()
+			sink := waitTestSink{make(chan ToolWait, 2)}
+			exec := &ExecutionContext{RunEnvironment: scope, RunControl: control, CurrentToolID: "wait", StartedAt: time.Now(), ToolOutputSink: sink}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				_, _ = (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"offset": "1H"}, exec)
+			}()
+			select {
+			case event := <-sink.waits:
+				if event.Checkpoint.Unrecoverable != (state == "nonempty" || state == "closed") {
+					t.Fatalf("%s checkpoint %#v", state, event.Checkpoint)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("no checkpoint")
+			}
+			control.EnqueueSteer(api.SteerRequest{})
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("blank steer failed")
+			}
+		})
 	}
 }

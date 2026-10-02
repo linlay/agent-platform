@@ -1,6 +1,6 @@
 // Package general holds the rules that belong only to the general-purpose
 // native agent type. It has no fixed tool set, prompt or stage of its own;
-// those come from each agent.yml.
+// those come from Agent configuration and Platform automatic capabilities.
 package general
 
 import "strings"
@@ -29,7 +29,6 @@ var createToolNames = []string{
 	"plan_add_tasks",
 	"plan_update_task",
 	"plan_get_tasks",
-	"platform_control",
 	"web_fetch",
 	"vision_recognize",
 	"image_generate",
@@ -38,7 +37,7 @@ var createToolNames = []string{
 // CreateToolNames is the base tool list written into a new general agent when
 // it is created through a capability template and agent-creation.yml does not
 // configure base-tools. It is a creation template, never a load-time default:
-// a general agent runs with exactly the tools its agent.yml declares.
+// effective tools also include Platform presets and automatic capabilities.
 func CreateToolNames() []string {
 	return append([]string(nil), createToolNames...)
 }

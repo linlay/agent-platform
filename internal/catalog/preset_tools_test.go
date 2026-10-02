@@ -85,7 +85,7 @@ func TestPresetToolsCatalogAndStructuredSave(t *testing.T) {
 	if !ok {
 		t.Fatal("agent missing")
 	}
-	if !reflect.DeepEqual(d.Tools, []string{"datetime", "bash"}) || !d.ToolBindings[1].Excluded {
+	if !reflect.DeepEqual(d.Tools, []string{"datetime", "bash", "run_env"}) || !d.ToolBindings[1].Excluded {
 		t.Fatalf("resolved=%#v", d)
 	}
 	delete(definition, "toolConfig")
@@ -133,5 +133,47 @@ func TestPresetToolsModeDefaultsAndRuntimeDependencies(t *testing.T) {
 		if len(d.Tools) != 0 {
 			t.Fatalf("injected into %s", mode)
 		}
+	}
+}
+
+func TestRunEnvDefaultMountRespectsExclusions(t *testing.T) {
+	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
+		for _, presets := range [][]string{nil, {"run_env"}} {
+			for _, excluded := range []bool{false, true} {
+				d := AgentDefinition{Mode: mode, Engine: AgentEngineNative}
+				if excluded {
+					d.ExcludedTools = []string{"run_env"}
+				}
+				d.applyPresetTools(presets)
+				d.finishToolBindings()
+				if containsString(d.Tools, "run_env") == excluded || containsString(d.DeclaredTools, "run_env") {
+					t.Fatalf("%s excluded=%v tools=%v declared=%v", mode, excluded, d.Tools, d.DeclaredTools)
+				}
+				count := 0
+				for _, binding := range d.EffectiveToolBindings() {
+					if binding.Name == "run_env" {
+						count++
+						if binding.Active == excluded || binding.Excluded != excluded {
+							t.Fatalf("binding %#v", binding)
+						}
+					}
+				}
+				if count != 1 {
+					t.Fatalf("bindings %v", d.ToolBindings)
+				}
+			}
+		}
+	}
+	for _, d := range []AgentDefinition{{Mode: AgentModeCoder, Engine: AgentEngineACP}, {Mode: "TEAM"}, {Mode: "CHANNEL"}, {Mode: "PROXY"}} {
+		d.applyPresetTools(nil)
+		d.finishToolBindings()
+		if containsString(d.Tools, "run_env") {
+			t.Fatalf("non-native mount %#v", d)
+		}
+	}
+	definition := map[string]any{"mode": "GENERAL", "toolConfig": map[string]any{"tools": []string{"run_env", "bash"}}}
+	stripPresetToolDeclarations(definition, nil, nil)
+	if got := listStrings(mapNode(definition["toolConfig"])["tools"]); !reflect.DeepEqual(got, []string{"bash"}) {
+		t.Fatalf("automatic tool persisted %v", got)
 	}
 }

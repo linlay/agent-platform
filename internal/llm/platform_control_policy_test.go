@@ -12,7 +12,7 @@ import (
 func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T) {
 	stream := &llmRunStream{execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: "read_only"}}
 	read := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "runtime.status", "params": map[string]any{}}}
-	write := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "DOCUMENT_ID", "value": "value"}}}
+	write := &preparedToolInvocation{toolName: "run_env", args: map[string]any{"operation": "set", "params": map[string]any{"key": "DOCUMENT_ID", "value": "value"}}}
 	unknown := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "future.operation"}}
 	pin := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "chat.set_pinned", "params": map[string]any{"pinned": true}}}
 	if stream.isConcurrentToolInvocation(pin) || !stream.readOnlyToolDenied("platform_control", pin.args) {
@@ -28,7 +28,7 @@ func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T)
 	if stream.readOnlyToolDenied("platform_control", read.args) {
 		t.Fatal("planning stage rejected a read-only platform_control operation")
 	}
-	if !stream.readOnlyToolDenied("platform_control", write.args) || !stream.readOnlyToolDenied("platform_control", unknown.args) {
+	if !stream.readOnlyToolDenied("run_env", write.args) || !stream.readOnlyToolDenied("platform_control", unknown.args) {
 		t.Fatal("planning stage accepted a mutation or unknown operation")
 	}
 	bash := &preparedToolInvocation{toolName: "bash", args: map[string]any{"command": "httpx run online-docx session"}}
@@ -68,5 +68,35 @@ func TestCatalogValidationHistoryAndStreamContentPolicy(t *testing.T) {
 				t.Fatalf("unsafe history: %s", args)
 			}
 		})
+	}
+}
+
+func TestRunEnvPolicyAndArgumentsRemainObservable(t *testing.T) {
+	s := &llmRunStream{execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: "read_only"}}
+	for _, op := range []string{"list", "explain", "set", "unset", "update", "unknown"} {
+		args := map[string]any{"operation": op}
+		inv := &preparedToolInvocation{toolName: "run_env", args: args}
+		read := op == "list" || op == "explain"
+		if s.readOnlyToolDenied("run_env", args) == read || s.isConcurrentToolInvocation(inv) != read || hasToolExecutionBarrier([]*preparedToolInvocation{inv}) == read {
+			t.Fatalf("policy %s", op)
+		}
+	}
+	for _, op := range []string{"set", "update", "unknown"} {
+		raw := `{"operation":"` + op + `","params":{"value":"visible-value","set":{"A":"visible-value"},"idempotencyKey":"visible-retry-key"}}`
+		calls := []openAIToolCall{{ID: "env-1", Type: "function", Function: openAIFunctionCall{Name: "run_env", Arguments: raw}}}
+		if got := sanitizedToolCalls(calls)[0].Function.Arguments; got != raw {
+			t.Fatalf("history changed %s", got)
+		}
+		mapper := NewDeltaMapper("run", "chat", contracts.Budget{}, nil, nil)
+		events := mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "env-1", Name: "run_env", ArgsDelta: raw})
+		found := false
+		for _, e := range events {
+			if args, ok := e.(stream.ToolArgs); ok && args.Delta == raw {
+				found = true
+			}
+		}
+		if !found || len(mapper.sensitiveToolArgs) != 0 {
+			t.Fatalf("buffered or redacted %#v", events)
+		}
 	}
 }

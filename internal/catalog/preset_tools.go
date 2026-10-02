@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"agent-platform/internal/api"
@@ -78,6 +79,9 @@ func (d *AgentDefinition) finishToolBindings() {
 		return
 	}
 	derived := applyKBaseCapabilityTools(AgentDefinition{KBaseConfig: d.KBaseConfig})
+	// run_env is mounted by default, independent of declarations and presets,
+	// but still respects excludeTools. Child/Team sessions hide it separately.
+	derived.Tools = append(derived.Tools, "run_env")
 	if len(d.Skills) > 0 || runtimeRequiresBash(d.Runtime) {
 		derived.Tools = append(derived.Tools, "bash")
 	}
@@ -89,6 +93,16 @@ func (d *AgentDefinition) finishToolBindings() {
 	}
 	for _, name := range derived.Tools {
 		d.addAutomaticToolBinding(name, "runtime")
+		if name == "run_env" && containsString(d.ExcludedTools, name) {
+			d.Tools = slices.DeleteFunc(d.Tools, func(tool string) bool { return tool == name })
+			for i := range d.ToolBindings {
+				if d.ToolBindings[i].Name == name {
+					d.ToolBindings[i].Active = false
+					d.ToolBindings[i].Excluded = true
+				}
+			}
+			continue
+		}
 		if !containsString(d.Tools, name) {
 			d.Tools = append(d.Tools, name)
 		}
@@ -112,12 +126,17 @@ func (d AgentDefinition) EffectiveToolBindings() []api.AgentToolBinding {
 }
 
 // stripPresetToolDeclarations is used only by structured create/update, never
-// source editing. Existing declarations survive even while preset by Platform.
+// source editing. Fixed native tools and presets need no new declaration;
+// existing source declarations are preserved.
 func stripPresetToolDeclarations(definition map[string]any, presets, existing []string) {
 	if stringNode(definition["engine"]) == AgentEngineACP {
 		return
 	}
 	preset, keep := map[string]bool{}, map[string]bool{}
+	switch strings.ToUpper(strings.TrimSpace(stringNode(definition["mode"]))) {
+	case "", "REACT", AgentModeGeneral, AgentModeCoder, AgentModeKBase:
+		preset["run_env"] = true
+	}
 	for _, name := range presets {
 		preset[name] = true
 	}

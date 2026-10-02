@@ -205,8 +205,8 @@ func defaultConfig(options LoadOptions) Config {
 				},
 			},
 		},
-		PlatformControl: PlatformControlConfig{
-			Enabled:        true,
+		PlatformControl: PlatformControlConfig{Enabled: true},
+		RunEnv: RunEnvConfig{
 			MaxDynamicKeys: 32,
 			MaxValueBytes:  4096,
 			MaxTotalBytes:  32768,

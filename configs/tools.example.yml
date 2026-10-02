@@ -148,3 +148,11 @@ file-tools:
           rust:
             command: rust-analyzer
             args: []
+
+# Per-Run dynamic environment; no enabled switch. Values are ordinary observable
+# tool data, never secrets. Total bytes count UTF-8 values only, excluding keys.
+run-env:
+  max-dynamic-keys: 32
+  max-value-bytes: 4096
+  max-total-bytes: 32768
+  deny-keys: []
