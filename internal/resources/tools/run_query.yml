@@ -9,6 +9,12 @@ description: |
   the exact Agent Identity.key from the current system prompt. Chinese phrases
   “当前智能体”, “本智能体”, and “你自己” always mean that current Agent; do not
   substitute a key from Runtime Context: Sub-Agent Candidates.
+  accessLevel, mustUseSkills and chatName are optional. Only pass accessLevel
+  when the user explicitly requests a permission level. Automatic approval means
+  auto_approve, not full_access; destructive operations may still require approval.
+  Omission uses default and never inherits the parent permission level.
+  A deployment may disable non-default levels. chatName names a new Chat only;
+  do not combine it with chatId. taskName is not supported.
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -31,6 +37,23 @@ inputSchema:
       type: string
       minLength: 1
       description: Optional. Existing Chat owned by the selected target to continue.
+    accessLevel:
+      type: string
+      enum:
+        - default
+        - auto_approve
+        - full_access
+      description: Optional. Permission level for this run only; omitted means default. Non-default levels require deployment opt-in and target admission.
+    mustUseSkills:
+      type: array
+      items:
+        type: string
+        minLength: 1
+      description: Optional. Extra required skill IDs for an ordinary Agent run. Empty means none. Team runs and connector skills do not support this selection.
+    chatName:
+      type: string
+      minLength: 1
+      description: Optional. Initial name for a new Chat. Cannot be combined with chatId. Omit to use the normal naming behavior.
   required:
     - message
   additionalProperties: false

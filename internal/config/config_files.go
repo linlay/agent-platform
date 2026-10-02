@@ -451,8 +451,25 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 		return err
 	}
 	c.PresetTools = nil
+	c.RunQuery = RunQueryConfig{}
 	if len(values) == 0 {
 		return nil
+	}
+	if raw, exists := values["runQuery"]; exists {
+		options, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s: runQuery must be an object", path)
+		}
+		for key, value := range options {
+			if key != "allowAccessLevelOverride" {
+				return fmt.Errorf("%s: unknown runQuery field %q", path, key)
+			}
+			enabled, ok := value.(bool)
+			if !ok {
+				return fmt.Errorf("%s: runQuery.allowAccessLevelOverride must be a boolean", path)
+			}
+			c.RunQuery.AllowAccessLevelOverride = enabled
+		}
 	}
 	if raw, exists := values["preset-tools"]; exists {
 		names, err := ParseToolNames(raw, "preset-tools")

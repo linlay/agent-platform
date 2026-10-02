@@ -312,15 +312,18 @@ func HandleAwaitingLifecycle(params NativeOptions, data stream.EventData, tracke
 				internalAwaitingID = rawAwaitingID
 				publicAwaitingID = awaitingID
 			}
+			summaries, truncated := contracts.SummarizeApprovals(data.Value("approvals"))
 			params.RunControl.ExpectSubmit(contracts.AwaitingSubmitContext{
-				AwaitingID:       internalAwaitingID,
-				PublicAwaitingID: publicAwaitingID,
-				TaskID:           taskID,
-				Mode:             mode,
-				ItemCount:        AwaitingEventItemCount(data),
-				Questions:        AwaitingEventQuestions(data),
-				NoTimeout:        strings.EqualFold(mode, "planning"),
-				Timeout:          int64(contracts.AnyIntNode(data.Value("timeout"))),
+				Summaries:          summaries,
+				SummariesTruncated: truncated,
+				AwaitingID:         internalAwaitingID,
+				PublicAwaitingID:   publicAwaitingID,
+				TaskID:             taskID,
+				Mode:               mode,
+				ItemCount:          AwaitingEventItemCount(data),
+				Questions:          AwaitingEventQuestions(data),
+				NoTimeout:          strings.EqualFold(mode, "planning"),
+				Timeout:            int64(contracts.AnyIntNode(data.Value("timeout"))),
 			})
 		}
 		tracker.PendingAwaitingID = awaitingID

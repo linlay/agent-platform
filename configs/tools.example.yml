@@ -1,3 +1,8 @@
+# 允许 run_query 请求非 default 权限。默认关闭；修改后重启。
+# 开启即信任所有有资格调用 run_query 的 Agent 请求 full_access（仍受目标准入与硬约束限制）。
+runQuery:
+  allowAccessLevelOverride: false
+
 # Native Agent presets; not written to agent.yml. Restart after changes.
 # Omit or set [] to disable.
 preset-tools:

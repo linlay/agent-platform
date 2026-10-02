@@ -326,6 +326,7 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 	}
 	item := map[string]any{
 		"id":            invocation.toolID,
+		"toolName":      invocation.toolName,
 		"command":       command,
 		"description":   description,
 		"options":       s.approvalOptionsForInvocation(invocation),

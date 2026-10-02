@@ -616,11 +616,13 @@ type SubmitInfo struct {
 }
 
 type AwaitingSubmitContext struct {
-	AwaitingID       string
-	PublicAwaitingID string
-	TaskID           string
-	Mode             string
-	ItemCount        int
+	Summaries          []ApprovalSummary
+	SummariesTruncated bool
+	AwaitingID         string
+	PublicAwaitingID   string
+	TaskID             string
+	Mode               string
+	ItemCount          int
 	// Questions preserves the question definitions emitted with a question-mode
 	// awaiting event so submit validation can pair each response with its type.
 	Questions []any
@@ -646,16 +648,18 @@ type AwaitingSubmitRoute struct {
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 	return AwaitingSubmitContext{
-		AwaitingID:       c.AwaitingID,
-		PublicAwaitingID: c.PublicAwaitingID,
-		TaskID:           c.TaskID,
-		Mode:             c.Mode,
-		ItemCount:        c.ItemCount,
-		Questions:        append([]any(nil), c.Questions...),
-		Routes:           cloneAwaitingSubmitRoutes(c.Routes),
-		NoTimeout:        c.NoTimeout,
-		Timeout:          c.Timeout,
-		SteerReplan:      c.SteerReplan,
+		Summaries:          append([]ApprovalSummary(nil), c.Summaries...),
+		SummariesTruncated: c.SummariesTruncated,
+		AwaitingID:         c.AwaitingID,
+		PublicAwaitingID:   c.PublicAwaitingID,
+		TaskID:             c.TaskID,
+		Mode:               c.Mode,
+		ItemCount:          c.ItemCount,
+		Questions:          append([]any(nil), c.Questions...),
+		Routes:             cloneAwaitingSubmitRoutes(c.Routes),
+		NoTimeout:          c.NoTimeout,
+		Timeout:            c.Timeout,
+		SteerReplan:        c.SteerReplan,
 	}
 }
 
@@ -733,33 +737,41 @@ type RunOrigin struct {
 }
 
 type RunStartRequest struct {
-	AgentKey string
-	TeamID   string
-	ChatID   string
-	Message  string
-	Origin   RunOrigin
+	AccessLevel   string
+	MustUseSkills []string
+	ChatName      string
+	AgentKey      string
+	TeamID        string
+	ChatID        string
+	Message       string
+	Origin        RunOrigin
 }
 
 type RunAwaiting struct {
-	AwaitingID string         `json:"awaitingId"`
-	Mode       string         `json:"mode"`
-	Questions  []any          `json:"questions,omitempty"`
-	Payload    map[string]any `json:"payload,omitempty"`
+	ItemCount  int               `json:"itemCount"`
+	Summaries  []ApprovalSummary `json:"summaries,omitempty"`
+	Truncated  bool              `json:"truncated,omitempty"`
+	AwaitingID string            `json:"awaitingId"`
+	Mode       string            `json:"mode"`
+	Questions  []any             `json:"questions,omitempty"`
+	Payload    map[string]any    `json:"payload,omitempty"`
 }
 
 type RunSnapshot struct {
-	RunID       string         `json:"runId"`
-	ChatID      string         `json:"chatId"`
-	AgentKey    string         `json:"agentKey,omitempty"`
-	TeamID      string         `json:"teamId,omitempty"`
-	Status      string         `json:"status"`
-	LastSeq     int64          `json:"lastSeq"`
-	StartedAt   int64          `json:"startedAt"`
-	CompletedAt int64          `json:"completedAt,omitempty"`
-	Awaiting    *RunAwaiting   `json:"awaiting,omitempty"`
-	Content     string         `json:"content,omitempty"`
-	Error       map[string]any `json:"error,omitempty"`
-	Origin      *RunOrigin     `json:"-"`
+	AccessLevel   string         `json:"accessLevel"`
+	AwaitingCount int            `json:"awaitingCount,omitempty"`
+	RunID         string         `json:"runId"`
+	ChatID        string         `json:"chatId"`
+	AgentKey      string         `json:"agentKey,omitempty"`
+	TeamID        string         `json:"teamId,omitempty"`
+	Status        string         `json:"status"`
+	LastSeq       int64          `json:"lastSeq"`
+	StartedAt     int64          `json:"startedAt"`
+	CompletedAt   int64          `json:"completedAt,omitempty"`
+	Awaiting      *RunAwaiting   `json:"awaiting,omitempty"`
+	Content       string         `json:"content,omitempty"`
+	Error         map[string]any `json:"error,omitempty"`
+	Origin        *RunOrigin     `json:"-"`
 }
 
 type RunToolError struct {

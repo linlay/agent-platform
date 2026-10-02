@@ -651,13 +651,22 @@ func (b *TeamMergedHITLBatch) ResolveWaiting() {
 	o.TeamAwaitCounter++
 	mergedID := fmt.Sprintf("%s_team_await_%d", strings.TrimSpace(o.Session.RunID), o.TeamAwaitCounter)
 	forms, routes, timeoutSeconds := TeamMergedAwaitingDefinition(pending)
+	var approvals []any
+	for _, item := range pending {
+		if item != nil {
+			approvals = append(approvals, item.Ask.Approvals...)
+		}
+	}
+	summaries, truncated := contracts.SummarizeApprovals(approvals)
 	parentControl.ExpectSubmit(contracts.AwaitingSubmitContext{
-		AwaitingID: mergedID,
-		Mode:       "form",
-		ItemCount:  len(routes),
-		Routes:     routes,
-		NoTimeout:  timeoutSeconds == 0,
-		Timeout:    timeoutSeconds,
+		AwaitingID:         mergedID,
+		Summaries:          summaries,
+		SummariesTruncated: truncated,
+		Mode:               "form",
+		ItemCount:          len(routes),
+		Routes:             routes,
+		NoTimeout:          timeoutSeconds == 0,
+		Timeout:            timeoutSeconds,
 	})
 	parentControl.TransitionState(contracts.RunLoopStateWaitingSubmit)
 	if o.EmitInputs != nil {

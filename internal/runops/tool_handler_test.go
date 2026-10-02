@@ -14,6 +14,7 @@ import (
 type fakeRunToolService struct {
 	mu         sync.Mutex
 	starts     int
+	requests   []contracts.RunStartRequest
 	snapshots  map[string]contracts.RunSnapshot
 	interrupts []runtimetypes.InterruptCommand
 }
@@ -26,6 +27,7 @@ func (f *fakeRunToolService) StartRun(_ context.Context, req contracts.RunStartR
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.starts++
+	f.requests = append(f.requests, req)
 	runID := fmt.Sprintf("target-%d", f.starts)
 	snapshot := contracts.RunSnapshot{
 		RunID:     runID,

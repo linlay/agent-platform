@@ -102,6 +102,10 @@ func (h *ToolHandler) query(
 	origin contracts.RunOrigin,
 	parentControl *contracts.RunControl,
 ) (contracts.ToolExecutionResult, error) {
+	request, parseErr := parseQueryArguments(args)
+	if parseErr != nil {
+		return resultFromError(parseErr), nil
+	}
 	message := strings.TrimSpace(contracts.AnyStringNode(args["message"]))
 	agentKey := strings.TrimSpace(contracts.AnyStringNode(args["agentKey"]))
 	teamID := strings.TrimSpace(contracts.AnyStringNode(args["teamId"]))
@@ -132,11 +136,14 @@ func (h *ToolHandler) query(
 	}
 
 	snapshot, err := h.service.StartRun(ctx, contracts.RunStartRequest{
-		AgentKey: agentKey,
-		TeamID:   teamID,
-		ChatID:   chatID,
-		Message:  message,
-		Origin:   origin,
+		AgentKey:      agentKey,
+		TeamID:        teamID,
+		ChatID:        chatID,
+		Message:       message,
+		Origin:        origin,
+		AccessLevel:   request.AccessLevel,
+		MustUseSkills: request.MustUseSkills,
+		ChatName:      request.ChatName,
 	})
 	h.finishIdempotentStart(key, start, snapshot, err)
 	if err != nil {

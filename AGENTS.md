@@ -282,3 +282,6 @@ Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`�
 Platform 在启动时读取 `configs/tools.yml` 顶层 `preset-tools`，自动挂载到普通 Native GENERAL/CODER/KBASE（含子智能体和 Team 成员），不写入 agent.yml；缺省或空数组不预置，未知名称启动失败。`toolConfig.excludeTools` 排除预置与自身工具，不影响连接器和运行时自动依赖；ACP 不接受非空工具及排除配置，隐藏 Team 协调器仍使用固定集合。详情 `toolBindings` 提供来源、锁定、排除和实际生效状态；结构化保存保留源码排除项和旧有显式声明，创建时动态去除预置重复项。见 [智能体配置说明](docs/智能体配置说明.md#platform-预置工具)。
 
 内置工具名保持小写及下划线，平台自有输入字段统一 camelCase；旧参数名在模型准备与工具调用边界明确拒绝，不做别名转换。图片来源使用 sourceType: referenceName/filePath。内嵌及 agent-local 工具定义只接受 inputSchema，parameters 硬失败。协议透传、上游 Images response_format 与存储列名保持原契约；历史不改写，拒绝的旧文件写入参数仍需脱敏。详见 [工具输入命名](docs/MCP与工具交互.md#工具输入命名)。
+
+
+`run_query` 可选顶层 `accessLevel/mustUseSkills/chatName`；权限缺省 default、不继承父 Run（续聊也一样），新 Chat 名称与 chatId 互斥。`configs/tools.yml` 的 `runQuery.allowAccessLevelOverride` 默认关闭，非默认档位明确拒绝；开启是对所有有资格调用该工具的 Agent 的权限委派信任决定，仍经目标准入。技能选择不受开关控制，Team/连接器限制沿用。未知字段（含旧调用中被忽略的 taskName）和错误类型严格拒绝。query/status 返回当前 accessLevel；status 覆盖所有 HITL 等待类型及有界审批摘要，父 Agent 不能代 submit。详见 [子智能体调度](docs/子智能体调度.md)。

@@ -1,6 +1,7 @@
 package runstate
 
 import (
+	"sort"
 	"strings"
 
 	"agent-platform/internal/chat"
@@ -18,6 +19,7 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 	}
 	snapshot := contracts.RunSnapshot{
 		RunID:       status.RunID,
+		AccessLevel: status.AccessLevel,
 		ChatID:      status.ChatID,
 		AgentKey:    status.AgentKey,
 		TeamID:      status.TeamID,
@@ -29,20 +31,53 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 	}
 	if status.State == contracts.RunLoopStateWaitingSubmit {
 		if lister, ok := runs.(contracts.ActiveAwaitingLister); ok {
-			for _, awaiting := range lister.ActiveAwaitings(runID) {
-				if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "question") {
-					continue
-				}
+			waiters := lister.ActiveAwaitings(runID)
+			sort.Slice(waiters, func(i, j int) bool { return publicAwaitingID(waiters[i]) < publicAwaitingID(waiters[j]) })
+			snapshot.AwaitingCount = len(waiters)
+			for _, awaiting := range waiters {
 				publicID := strings.TrimSpace(awaiting.PublicAwaitingID)
 				if publicID == "" {
 					publicID = strings.TrimSpace(awaiting.AwaitingID)
 				}
 				snapshot.Awaiting = &contracts.RunAwaiting{
 					AwaitingID: publicID,
-					Mode:       "question",
-					Questions:  append([]any(nil), awaiting.Questions...),
+					Mode:       awaiting.Mode,
+					ItemCount:  awaiting.ItemCount,
+					Summaries:  append([]contracts.ApprovalSummary(nil), awaiting.Summaries...),
+					Truncated:  awaiting.SummariesTruncated,
+				}
+				if awaiting.Mode == "question" {
+					snapshot.Awaiting.Questions = append([]any(nil), awaiting.Questions...)
 				}
 				break
+			}
+		}
+	}
+	// Recovered waiters live in the deferred registry rather than RunControl.
+	// Read their persisted ask only when no active in-memory waiter is present.
+	if status.State == contracts.RunLoopStateWaitingSubmit && snapshot.Awaiting == nil && chats != nil {
+		if summary, err := chats.Summary(snapshot.ChatID); err == nil && summary != nil && summary.PendingAwaiting != nil && summary.PendingAwaiting.RunID == runID {
+			pending := summary.PendingAwaiting
+			if ask, err := chats.LoadAwaitingAsk(snapshot.ChatID, pending.AwaitingID); err == nil && ask != nil {
+				payload := ask.Payload
+				mode := ask.Mode
+				if mode == "" {
+					mode = pending.Mode
+				}
+				awaiting := &contracts.RunAwaiting{AwaitingID: pending.AwaitingID, Mode: mode}
+				key := map[string]string{"question": "questions", "approval": "approvals", "form": "forms"}[mode]
+				if items, ok := payload[key].([]any); ok {
+					awaiting.ItemCount = len(items)
+				}
+				if mode == "planning" && payload["planning"] != nil {
+					awaiting.ItemCount = 1
+				}
+				if mode == "question" {
+					awaiting.Questions, _ = payload["questions"].([]any)
+				}
+				awaiting.Summaries, awaiting.Truncated = contracts.SummarizeApprovals(payload["approvals"])
+				snapshot.Awaiting = awaiting
+				snapshot.AwaitingCount = 1
 			}
 		}
 	}
@@ -84,7 +119,7 @@ func ApplyEventSnapshot(snapshot *contracts.RunSnapshot, events []stream.EventDa
 				snapshot.Content = event.String("text")
 			}
 		case "awaiting.ask":
-			if snapshot.Awaiting != nil && snapshot.Awaiting.Payload == nil && event.String("awaitingId") == snapshot.Awaiting.AwaitingID {
+			if snapshot.Awaiting != nil && snapshot.Awaiting.Mode == "question" && snapshot.Awaiting.Payload == nil && event.String("awaitingId") == snapshot.Awaiting.AwaitingID {
 				snapshot.Awaiting.Payload = contracts.CloneMap(event.Payload)
 			}
 		case "run.error":
@@ -109,4 +144,11 @@ func CloneRunOrigin(origin *contracts.RunOrigin) *contracts.RunOrigin {
 	}
 	cloned := *origin
 	return &cloned
+}
+
+func publicAwaitingID(item contracts.AwaitingSubmitContext) string {
+	if id := strings.TrimSpace(item.PublicAwaitingID); id != "" {
+		return id
+	}
+	return item.AwaitingID
 }

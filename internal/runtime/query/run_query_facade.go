@@ -49,6 +49,17 @@ func (s *Service) GetRunStatus(runID string) (contracts.RunSnapshot, error) {
 }
 
 func (s *Service) StartRun(_ context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
+	accessLevel, valid := contracts.NormalizeAccessLevel(request.AccessLevel)
+	if !valid {
+		return contracts.RunSnapshot{}, runToolError("invalid_request", "accessLevel must be default, auto_approve, or full_access")
+	}
+	if accessLevel != contracts.AccessLevelDefault && !s.deps.Config.RunQuery.AllowAccessLevelOverride {
+		return contracts.RunSnapshot{}, runToolError("run_access_level_override_disabled", "runQuery.allowAccessLevelOverride is disabled")
+	}
+	chatName := strings.TrimSpace(request.ChatName)
+	if chatName != "" && strings.TrimSpace(request.ChatID) != "" {
+		return contracts.RunSnapshot{}, runToolError("invalid_request", "chatName cannot be combined with chatId")
+	}
 	agentKey := strings.TrimSpace(request.AgentKey)
 	teamID := strings.TrimSpace(request.TeamID)
 	message := strings.TrimSpace(request.Message)
@@ -75,12 +86,15 @@ func (s *Service) StartRun(_ context.Context, request contracts.RunStartRequest)
 	}
 
 	req := runtimetypes.QueryCommand{
-		ChatID:     chatID,
-		AgentKey:   agentKey,
-		TeamID:     teamID,
-		Role:       queryinput.QueryRoleUser,
-		Message:    message,
-		ChatSource: queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
+		ChatID:          chatID,
+		AgentKey:        agentKey,
+		TeamID:          teamID,
+		Role:            queryinput.QueryRoleUser,
+		Message:         message,
+		AccessLevel:     accessLevel,
+		MustUseSkills:   append([]string(nil), request.MustUseSkills...),
+		InitialChatName: chatName,
+		ChatSource:      queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
 	}
 	ctx := s.backgroundCtx
 	// Detach execution lifetime, but retain the trusted parent's connection scope.

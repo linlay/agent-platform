@@ -121,6 +121,7 @@ func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
 				}
 				want := map[string]any{
 					"id":            "bash",
+					"toolName":      "bash",
 					"command":       command,
 					"description":   wantDescription,
 					"options":       buildApprovalOptions(),

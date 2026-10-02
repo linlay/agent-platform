@@ -1049,6 +1049,10 @@ func (c *RunControl) expectSubmit(ctx AwaitingSubmitContext) bool {
 	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && existing.SteerReplan {
 		ctx.SteerReplan = true
 	}
+	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && len(ctx.Summaries) == 0 {
+		ctx.Summaries = append([]ApprovalSummary(nil), existing.Summaries...)
+		ctx.SummariesTruncated = existing.SummariesTruncated
+	}
 	c.awaitingSubmits[ctx.AwaitingID] = ctx.Clone()
 	if ctx.PublicAwaitingID != "" && ctx.PublicAwaitingID != ctx.AwaitingID {
 		c.awaitingAliases[ctx.PublicAwaitingID] = ctx.AwaitingID

@@ -635,7 +635,7 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	agentKey := req.AgentKey
 	chatSource := queryChatSource(ctx, req)
 	persistedAgentMode := chatAgentMode(agentDef, admission.OrchestratedTeam)
-	summary, created, err := s.deps.Chats.EnsureChatWithSourceAndMode(chatID, agentKey, req.TeamID, req.Message, chatSource, persistedAgentMode)
+	summary, created, err := s.deps.Chats.EnsureChatWithInitialName(chatID, agentKey, req.TeamID, req.Message, chatSource, persistedAgentMode, req.InitialChatName)
 	if err != nil {
 		return preparedQuery{}, err
 	}

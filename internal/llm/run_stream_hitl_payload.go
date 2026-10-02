@@ -283,22 +283,28 @@ func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitConte
 	if awaitAsk == nil {
 		return AwaitingSubmitContext{}
 	}
+	summaries, truncated := SummarizeApprovals(awaitAsk.Approvals)
 	return AwaitingSubmitContext{
-		AwaitingID: awaitAsk.AwaitingID,
-		Mode:       awaitAsk.Mode,
-		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
-		Questions:  append([]any(nil), awaitAsk.Questions...),
-		Timeout:    awaitAsk.Timeout,
+		Summaries:          summaries,
+		SummariesTruncated: truncated,
+		AwaitingID:         awaitAsk.AwaitingID,
+		Mode:               awaitAsk.Mode,
+		ItemCount:          awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
+		Questions:          append([]any(nil), awaitAsk.Questions...),
+		Timeout:            awaitAsk.Timeout,
 	}
 }
 
 func awaitingContextFromDeltaAsk(awaitAsk DeltaAwaitAsk) AwaitingSubmitContext {
+	summaries, truncated := SummarizeApprovals(awaitAsk.Approvals)
 	return AwaitingSubmitContext{
-		AwaitingID: awaitAsk.AwaitingID,
-		Mode:       awaitAsk.Mode,
-		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
-		Questions:  append([]any(nil), awaitAsk.Questions...),
-		Timeout:    awaitAsk.Timeout,
+		Summaries:          summaries,
+		SummariesTruncated: truncated,
+		AwaitingID:         awaitAsk.AwaitingID,
+		Mode:               awaitAsk.Mode,
+		ItemCount:          awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
+		Questions:          append([]any(nil), awaitAsk.Questions...),
+		Timeout:            awaitAsk.Timeout,
 	}
 }
 

@@ -32,6 +32,10 @@ func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID 
 }
 
 func (s *FileStore) EnsureChatWithSourceAndMode(chatID string, agentKey string, teamID string, firstMessage string, source string, agentMode string) (Summary, bool, error) {
+	return s.EnsureChatWithInitialName(chatID, agentKey, teamID, firstMessage, source, agentMode, "")
+}
+
+func (s *FileStore) EnsureChatWithInitialName(chatID, agentKey, teamID, firstMessage, source, agentMode, initialName string) (Summary, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	source = strings.TrimSpace(source)
@@ -75,6 +79,9 @@ func (s *FileStore) EnsureChatWithSourceAndMode(chatID string, agentKey string, 
 		Read: ChatReadState{
 			IsRead: true,
 		},
+	}
+	if name := strings.TrimSpace(initialName); name != "" {
+		summary.ChatName = name
 	}
 	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, AGENT_MODE_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', '')`,
