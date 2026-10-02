@@ -29,7 +29,7 @@
 - 已具备固定 Schema 的 `platform_control` system control plane：Agent 显式挂载 Tool 即可调用全部注册 operation；`run.env.*` 仅保留当前普通 native root run 的 `set/unset`，使用进程内并发 Scope、operation-aware barrier 和 Host/Container 新 command snapshot，不修改 Platform 进程环境，也不跨 Platform 重启恢复。遗留 `runtimeConfig.runEnv` 静默忽略。 `chat.set_pinned` 为普通 native root Run 提供当前/指定 Chat 的实例级持久置顶，复用 conversation 服务及 `chats.order.changed` 广播；planning、子任务与 Team 不开放。
 - 已具备默认关闭的 SQLite memory、FTS 文本检索、显式记录与手工 consolidate。Memory embedding、learn/自动反馈和上下文预览已退役；KBASE 能力独立保留。
 - 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
-- 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 与其他内置类型一样完全使用 `agent.yml` 声明的工具、技能、连接器和 memory（没有固定工具集，新建时显式写入文件工具），main/editing 两种 stage 工具相同，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
+- 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 与其他内置类型一样合并 Platform 预置工具与 `agent.yml` 声明的工具，并使用声明的技能、连接器和 memory（没有固定工具集，新建时仅写入未被 Platform 预置覆盖的文件工具），main/editing 两种 stage 工具相同，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
 - 已具备 automation、`agent_invoke` 子智能体调度、`run_query` / `run_status` / `run_interrupt` 独立 Agent/Team 根 run 启动与控制、带隐藏协调器的 orchestrated Team、基于官方 Go SDK v1.6.1 的 MCP streamable HTTP/stdio session client 与后台 tool sync、WebSocket 控制面，以及 client/server channel 上按 Session 执行的 Agent 接出注册 v1（`agent.list/register/unregister`）；MCP 本地 Registry 同步校验，远端初始化/发现/重试不进入启动、保存或 watcher 关键路径，优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`。Channel 注册当前不升级 Query Stream、Run TTL、`registrationId` 路由、HITL Schema 或控制协议。
 尚未完全对齐 Java 版的部分能力包括 MCP 全量生产验证、automation 深度编排、热重载细节和更完整的客户端协议适配。未落地能力必须在专题文档中明确标注，不能写成已完成能力。
 
@@ -278,3 +278,5 @@ Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`�
 - Native 未提交模型尝试失败时以 `reasoning.end/content.end/tool.end` 的 `status:"failed"` 与公共 error 收尾，正常 end 不增加状态字段；失败输出作为独立展示 event 保存，不进入模型上下文，`run.activity` 仅作辅助提示。详见 [API与协议](docs/API与协议.md)。
 
 技能管理 HTTP：`GET /api/admin/skills` 返回 `{skills,packages,pinned}`，`PUT /api/admin/skills/pin {id,pinned}` 返回 `{pinned}`，复用用户级 skillOrder 存储但不注册 WS。旧包列表 GET 保留供 Desktop；管理页不再消费使用端 `/api/skills`。新列表对象结构需与 WebClient 同批发布，详见 API与协议。
+
+Platform 在启动时读取 `configs/tools.yml` 顶层 `preset-tools`，自动挂载到普通 Native GENERAL/CODER/KBASE（含子智能体和 Team 成员），不写入 agent.yml；缺省或空数组不预置，未知名称启动失败。`toolConfig.excludeTools` 排除预置与自身工具，不影响连接器和运行时自动依赖；ACP 不接受非空工具及排除配置，隐藏 Team 协调器仍使用固定集合。详情 `toolBindings` 提供来源、锁定、排除和实际生效状态；结构化保存保留源码排除项和旧有显式声明，创建时动态去除预置重复项。见 [智能体配置说明](docs/智能体配置说明.md#platform-预置工具)。

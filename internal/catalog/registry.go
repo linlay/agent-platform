@@ -58,7 +58,10 @@ type AgentDefinition struct {
 	Engine               string // AgentEngineNative or AgentEngineACP; never empty after parsing.
 	ACPBridgeID          string
 	VisibilityScopes     []string
-	Tools                []string
+	Tools                []string // Resolved tools; raw YAML is preserved separately.
+	DeclaredTools        []string
+	ExcludedTools        []string
+	ToolBindings         []api.AgentToolBinding
 	Connectors           []string
 	ConnectorMCPServers  []string
 	ConnectorCLIEntries  []connector.CLIEntry
@@ -321,6 +324,9 @@ type FileRegistry struct {
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
+	if err := validatePresetTools(cfg.PresetTools, toolDefs); err != nil {
+		return nil, err
+	}
 	for _, generated := range []string{cfg.Paths.EffectiveRUAgentsDir()} {
 		if connector.RootsOverlap(generated, cfg.Paths.AgentsDir) || connector.RootsOverlap(generated, cfg.Paths.SkillsCenterDir) {
 			return nil, fmt.Errorf("generated runtime overlaps Agent or Skill sources")
@@ -333,6 +339,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	if err != nil {
 		return nil, err
 	}
+	assembler.presetTools = append([]string(nil), cfg.PresetTools...)
 	assembler.connectors.NativeDesktopDir = cfg.Paths.NativeDesktopDir
 	assembler.connectors.NativeDesktopWebDir = cfg.Paths.NativeDesktopWebDir
 	registry := &FileRegistry{
@@ -846,6 +853,9 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst.Wonders = append([]string(nil), src.Wonders...)
 	dst.VisibilityScopes = append([]string(nil), src.VisibilityScopes...)
 	dst.Tools = append([]string(nil), src.Tools...)
+	dst.DeclaredTools = append([]string(nil), src.DeclaredTools...)
+	dst.ExcludedTools = append([]string(nil), src.ExcludedTools...)
+	dst.ToolBindings = append([]api.AgentToolBinding(nil), src.ToolBindings...)
 	dst.Skills = append([]string(nil), src.Skills...)
 	dst.Connectors = append([]string(nil), src.Connectors...)
 	dst.ConnectorMCPServers = append([]string(nil), src.ConnectorMCPServers...)

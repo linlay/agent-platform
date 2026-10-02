@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	PresetTools     []string
 	DocumentPreview documentpreview.Config
 	HTTPProxy       httpclient.Config
 	IdentityFile    string

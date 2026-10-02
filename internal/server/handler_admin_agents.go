@@ -148,6 +148,7 @@ func adminAgentDetailFromAgentDetail(detail api.AgentDetailResponse, item catalo
 		Model:        detail.ModelKey,
 		Mode:         detail.Mode,
 		Tools:        append([]string{}, detail.Tools...),
+		ToolBindings: append([]api.AgentToolBinding{}, detail.ToolBindings...),
 		Skills:       agentDetailSkillIDs(detail.Skills),
 		Controls:     cloneListMaps(detail.Controls),
 		Meta:         cloneMeta(detail.Meta),

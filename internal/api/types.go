@@ -513,7 +513,16 @@ type AgentDetailSkill struct {
 	Description string `json:"description,omitempty"`
 }
 
+type AgentToolBinding struct {
+	Name      string `json:"name"`
+	Source    string `json:"source"`
+	Removable bool   `json:"removable"`
+	Excluded  bool   `json:"excluded"`
+	Active    bool   `json:"active"`
+}
+
 type AgentDetailResponse struct {
+	ToolBindings      []AgentToolBinding `json:"toolBindings"`
 	ModelKey          string             `json:"modelKey,omitempty"`
 	ServiceTier       string             `json:"serviceTier,omitempty"`
 	ReasoningEffort   string             `json:"reasoningEffort,omitempty"`
@@ -583,6 +592,7 @@ type DeleteAdminSourceResponse struct {
 }
 
 type AdminAgentDetailResponse struct {
+	ToolBindings  []AgentToolBinding       `json:"toolBindings"`
 	Key           string                   `json:"key"`
 	Name          string                   `json:"name"`
 	Icon          any                      `json:"icon,omitempty"`

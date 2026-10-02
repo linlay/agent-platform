@@ -1,3 +1,4 @@
+# 创建落盘时动态扣除 tools.yml 的 preset-tools；空预置保留原有创建默认能力。
 # Capability templates offered when a project agent is created.
 #
 # A template is expanded once, at creation, into the concrete tools, skills and

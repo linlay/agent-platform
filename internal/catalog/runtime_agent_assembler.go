@@ -43,6 +43,7 @@ func runtimeAgentAssemblyDiagnosticCode(err error) string {
 }
 
 type runtimeAgentAssembler struct {
+	presetTools  []string
 	frozenAgents map[string]AgentDefinition
 	frozenAdmin  map[string]AdminAgent
 	// refreshedAgents contains only sources fully validated and published (or

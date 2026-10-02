@@ -99,12 +99,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 		adminItems[fallbackKey] = invalidAdminAgent(source, fallbackKey, definition, "key_mismatch", err)
 		return err
 	}
-	if strings.EqualFold(def.Mode, AgentModeKBase) && !kbaseAgentHasFileTool(def.Tools) {
-		// A KBASE agent uses exactly the tools its agent.yml declares. Files
-		// written before that rule relied on a built-in tool set and now load
-		// without any way to browse or edit the Workspace.
-		log.Printf("[catalog][agents] warning code=kbase_file_tools_missing agent=%q message=KBASE agent declares none of %v in toolConfig.tools; add them to agent.yml to browse or edit the Workspace", def.Key, agentkbase.StructuredFileToolNames())
-	}
+
 	if def.KBaseConfig.Enabled {
 		if err := kbase.ValidateWorkspaceChatsSeparation(def.Workspace.Root, chatsDir); err != nil {
 			log.Printf("[catalog][agents] skip %s %s: KBASE workspace/chats overlap: %v", source.Kind, name, err)
@@ -127,6 +122,9 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 	if err := assembler.resolveConnectors(&def); err != nil {
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_connector", err)
 		return err
+	}
+	if strings.EqualFold(def.Mode, AgentModeKBase) && !kbaseAgentHasFileTool(def.Tools) {
+		log.Printf("[catalog][agents] warning code=kbase_file_tools_missing agent=%q message=KBASE effective tools contain none of %v; check preset-tools, toolConfig.tools and excludeTools", def.Key, agentkbase.StructuredFileToolNames())
 	}
 	runtimeDir, err := assembler.assemble(source, def)
 	if errors.Is(err, errAgentRuntimeBusy) {
@@ -684,6 +682,13 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.Tools = listStrings(toolConfig["tools"])
+	def.DeclaredTools = append([]string{}, def.Tools...)
+	if raw, exists := toolConfig["excludeTools"]; exists {
+		def.ExcludedTools, err = config.ParseToolNames(raw, "toolConfig.excludeTools")
+		if err != nil {
+			return AgentDefinition{}, nil, err
+		}
+	}
 	if raw, exists := root["connectorConfig"]; exists {
 		config, ok := raw.(map[string]any)
 		if !ok {

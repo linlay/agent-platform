@@ -342,6 +342,9 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 	if len(def.Project.PromptFiles) > 0 {
 		return fmt.Errorf("projectConfig.promptFiles is not supported for engine: acp")
 	}
+	if len(def.ExcludedTools) > 0 {
+		return fmt.Errorf("toolConfig.excludeTools is not supported for engine: acp")
+	}
 	if len(def.Tools) > 0 {
 		return fmt.Errorf("toolConfig.tools is not supported for engine: acp; ACP bridges do not execute platform tools")
 	}

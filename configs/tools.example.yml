@@ -1,3 +1,21 @@
+# Native Agent presets; not written to agent.yml. Restart after changes.
+# Omit or set [] to disable.
+preset-tools:
+  - datetime
+  - sleep
+  - file_read
+  - file_write
+  - file_edit
+  - file_glob
+  - file_grep
+  - vision_recognize
+  - image_generate
+  - plan_add_tasks
+  - plan_update_task
+  - plan_get_tasks
+  - ask_user_question
+  - artifact_publish
+
 # Tool runtime config. Copy to configs/tools.yml to customize locally.
 
 access-policy:

@@ -450,8 +450,16 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 	if err != nil {
 		return err
 	}
+	c.PresetTools = nil
 	if len(values) == 0 {
 		return nil
+	}
+	if raw, exists := values["preset-tools"]; exists {
+		names, err := ParseToolNames(raw, "preset-tools")
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		c.PresetTools = names
 	}
 	if accessPolicy, ok := values["access-policy"].(map[string]any); ok && len(accessPolicy) > 0 {
 		if err := rejectRemovedWorkingDirectoryKeyUnlessAudit(path, "access-policy", accessPolicy, ignoreRemovedWorkingDirectory); err != nil {

@@ -204,6 +204,7 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Mode:              catalog.AgentModeForAPI(def.Mode),
 		Engine:            catalog.AgentEngineForAPI(def),
 		Tools:             effectiveAgentTools(def),
+		ToolBindings:      def.EffectiveToolBindings(),
 		Skills:            s.agentDetailSkills(def),
 		Controls:          cloneListMaps(def.Controls),
 		Meta:              meta,
