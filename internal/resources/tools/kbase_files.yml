@@ -35,10 +35,10 @@ inputSchema:
     depth:
       type: integer
       description: Maximum tree depth for mode=tree. Defaults to 2 and is capped at 8.
-    head_limit:
+    headLimit:
       type: integer
       description: Maximum number of entries to return after offset. Defaults to 100; 0 means unlimited.
     offset:
       type: integer
-      description: Number of entries to skip before applying head_limit.
+      description: Number of entries to skip before applying headLimit.
   additionalProperties: false

@@ -2,6 +2,6 @@ key: memory_consolidate
 name: memory_consolidate
 label: Memory Consolidate
 description: Consolidate learned observations by archiving stale entries, merging duplicates, and promoting strong observations into stable facts.
-parameters:
+inputSchema:
   type: object
   properties: {}

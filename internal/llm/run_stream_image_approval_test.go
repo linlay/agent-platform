@@ -73,14 +73,14 @@ func TestImageAccessCombinedApprovalAndMask(t *testing.T) {
 		for _, decision := range []string{"approve", "approve_rule_run", "reject"} {
 			t.Run(tool+"/"+decision, func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "outside.png")
-				source := map[string]any{"file_path": path}
+				source := map[string]any{"filePath": path}
 				if tool == "image_generate" {
-					source = map[string]any{"source_type": "file_path", "value": path}
+					source = map[string]any{"sourceType": "filePath", "value": path}
 				}
 				args := map[string]any{"images": []any{source, source}}
 				count := 2
 				if tool == "image_generate" {
-					args["mask"] = map[string]any{"source_type": "file_path", "value": path, "mode": "alpha"}
+					args["mask"] = map[string]any{"sourceType": "filePath", "value": path, "mode": "alpha"}
 					count++
 				}
 				s, invocation, executor := newImageApprovalStream(t, tool, args)
@@ -127,7 +127,7 @@ func TestImageAccessSymlinkChangedWhileAwaiting(t *testing.T) {
 	if err := os.Symlink(first, link); err != nil {
 		t.Skip(err)
 	}
-	s, invocation, executor := newImageApprovalStream(t, "vision_recognize", map[string]any{"images": []any{map[string]any{"file_path": link}}})
+	s, invocation, executor := newImageApprovalStream(t, "vision_recognize", map[string]any{"images": []any{map[string]any{"filePath": link}}})
 	if err := s.invokeActiveToolCall(); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestImageAccessSymlinkChangedWhileAwaiting(t *testing.T) {
 func TestImageAccessAutoApprovalAndProtectedRoot(t *testing.T) {
 	for _, protected := range []bool{false, true} {
 		path := filepath.Join(t.TempDir(), "image.png")
-		s, invocation, executor := newImageApprovalStream(t, "vision_recognize", map[string]any{"images": []any{map[string]any{"file_path": path}}})
+		s, invocation, executor := newImageApprovalStream(t, "vision_recognize", map[string]any{"images": []any{map[string]any{"filePath": path}}})
 		s.session.AccessLevel = AccessLevelAutoApprove
 		if protected {
 			s.session.ProtectedPaths = []string{filepath.Dir(path)}

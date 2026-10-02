@@ -68,7 +68,7 @@ func TestEmbeddedFileGrepFlagNamesMatchExecutor(t *testing.T) {
 			continue
 		}
 		properties := contracts.AnyMapNode(def.Parameters["properties"])
-		for _, flag := range []string{"-i", "-n", "-A", "-B", "-C"} {
+		for _, flag := range []string{"caseInsensitive", "lineNumbers", "afterContext", "beforeContext", "context"} {
 			if _, ok := properties[flag]; !ok {
 				t.Errorf("missing executor flag %q in file_grep schema", flag)
 			}
@@ -392,13 +392,13 @@ func TestImageGenerateToolSchemaMatchesContract(t *testing.T) {
 		t.Fatal("expected image_generate builtin tool definition")
 	}
 	properties := mapChild(t, imageGenerateDef, "properties")
-	for _, want := range []string{"prompt", "images", "mask", "profile", "size", "response_format", "n"} {
+	for _, want := range []string{"prompt", "images", "mask", "profile", "size", "responseFormat", "n"} {
 		if _, ok := properties[want]; !ok {
 			t.Fatalf("expected image_generate property %q", want)
 		}
 	}
-	if !enumContains(t, properties["response_format"], "b64_json") || !enumContains(t, properties["response_format"], "url") {
-		t.Fatalf("expected image_generate response_format enum, got %#v", properties["response_format"])
+	if !enumContains(t, properties["responseFormat"], "b64_json") || !enumContains(t, properties["responseFormat"], "url") {
+		t.Fatalf("expected image_generate responseFormat enum, got %#v", properties["responseFormat"])
 	}
 	images := contracts.AnyMapNode(properties["images"])
 	if contracts.AnyIntNode(images["minItems"]) != 1 || contracts.AnyIntNode(images["maxItems"]) != 4 {
@@ -409,30 +409,30 @@ func TestImageGenerateToolSchemaMatchesContract(t *testing.T) {
 	if _, exists := imageItem["oneOf"]; exists {
 		t.Fatalf("image_generate images item must not use oneOf: %#v", imageItem)
 	}
-	if _, exists := imageProperties["reference_name"]; exists {
-		t.Fatalf("legacy reference_name property must not exist: %#v", imageProperties)
+	if _, exists := imageProperties["referenceName"]; exists {
+		t.Fatalf("legacy referenceName property must not exist: %#v", imageProperties)
 	}
-	if _, exists := imageProperties["file_path"]; exists {
-		t.Fatalf("legacy file_path property must not exist: %#v", imageProperties)
+	if _, exists := imageProperties["filePath"]; exists {
+		t.Fatalf("legacy filePath property must not exist: %#v", imageProperties)
 	}
-	if !reflect.DeepEqual(imageItem["required"], []any{"source_type", "value"}) || imageItem["additionalProperties"] != false {
+	if !reflect.DeepEqual(imageItem["required"], []any{"sourceType", "value"}) || imageItem["additionalProperties"] != false {
 		t.Fatalf("unexpected image source contract: %#v", imageItem)
 	}
-	if !enumContains(t, imageProperties["source_type"], "reference_name") || !enumContains(t, imageProperties["source_type"], "file_path") {
-		t.Fatalf("unexpected image source_type enum: %#v", imageProperties["source_type"])
+	if !enumContains(t, imageProperties["sourceType"], "referenceName") || !enumContains(t, imageProperties["sourceType"], "filePath") {
+		t.Fatalf("unexpected image sourceType enum: %#v", imageProperties["sourceType"])
 	}
 	mask := contracts.AnyMapNode(properties["mask"])
 	maskProperties := contracts.AnyMapNode(mask["properties"])
 	if _, exists := mask["oneOf"]; exists {
 		t.Fatalf("image_generate mask must not use oneOf: %#v", mask)
 	}
-	if _, exists := maskProperties["reference_name"]; exists {
-		t.Fatalf("legacy mask reference_name property must not exist: %#v", maskProperties)
+	if _, exists := maskProperties["referenceName"]; exists {
+		t.Fatalf("legacy mask referenceName property must not exist: %#v", maskProperties)
 	}
-	if _, exists := maskProperties["file_path"]; exists {
-		t.Fatalf("legacy mask file_path property must not exist: %#v", maskProperties)
+	if _, exists := maskProperties["filePath"]; exists {
+		t.Fatalf("legacy mask filePath property must not exist: %#v", maskProperties)
 	}
-	if !reflect.DeepEqual(mask["required"], []any{"source_type", "value", "mode"}) || mask["additionalProperties"] != false {
+	if !reflect.DeepEqual(mask["required"], []any{"sourceType", "value", "mode"}) || mask["additionalProperties"] != false {
 		t.Fatalf("unexpected mask source contract: %#v", mask)
 	}
 	if !enumContains(t, maskProperties["mode"], "alpha") || !enumContains(t, maskProperties["mode"], "white_edit") || !enumContains(t, maskProperties["mode"], "black_edit") {
@@ -608,10 +608,10 @@ func TestFileGrepOutputModeEnumIsSchemaArray(t *testing.T) {
 	}
 
 	properties := mapChild(t, fileGrepDef, "properties")
-	outputMode := properties["output_mode"]
+	outputMode := properties["outputMode"]
 	for _, want := range []string{"content", "files_with_matches", "count"} {
 		if !enumContains(t, outputMode, want) {
-			t.Fatalf("expected file_grep output_mode enum to include %q", want)
+			t.Fatalf("expected file_grep outputMode enum to include %q", want)
 		}
 	}
 	glob := properties["glob"].(map[string]any)

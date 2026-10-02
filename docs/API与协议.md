@@ -665,7 +665,7 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 | `<currentChatId>/relative/path` | 不再生成 | 不作为 `path` | 禁止 | 仅可作为隐藏 HTTP 逻辑键 |
 | 历史 `/api/resource?file=...` | 不再生成 | 不作为 `path` | 不迁移、不预览 | endpoint 本身继续作为内部数据面 |
 
-KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`head_limit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
+KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`headLimit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
 
 专用 KBASE 的 main/editing stage 都挂载 `file_read/file_glob/file_grep/file_write/file_edit`，两者工具 schema 相同，Workspace 固定为本 run 冻结的 `runtimeConfig.workspaceRoot`；相对路径从该 Workspace 解析，当前 `chatId` 的 Chat 目录只保存在 `ChatDir` 并通过 `@chat` 使用。所有获准目录统一先服从 AccessPolicy。未开启 editing 时 Workspace write/edit 返回 `kbase_editing_mode_required`；`hostAccess`、writeRoots、approval 和 `full_access` 不能替代该 Workspace mutation gate。
 

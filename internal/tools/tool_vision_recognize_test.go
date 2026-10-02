@@ -41,7 +41,7 @@ func TestVisionRecognizeRejectsNonVLModel(t *testing.T) {
 		models: registry,
 	}
 	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
-		"images": []any{map[string]any{"reference_name": "demo.png"}},
+		"images": []any{map[string]any{"referenceName": "demo.png"}},
 		"prompt": "describe",
 	}, &contracts.ExecutionContext{})
 	if err != nil {
@@ -64,7 +64,7 @@ func TestVisionRecognizeImagesArrayContract(t *testing.T) {
 		{name: "missing", args: map[string]any{}, wantCode: "vision_images_required"},
 		{name: "null", args: map[string]any{"images": nil}, wantCode: "vision_images_required"},
 		{name: "empty", args: map[string]any{"images": []any{}}, wantCode: "vision_images_required"},
-		{name: "single object", args: map[string]any{"images": map[string]any{"file_path": "@chat/image.png"}}, wantCode: "vision_images_invalid_type", actualType: "object"},
+		{name: "single object", args: map[string]any{"images": map[string]any{"filePath": "@chat/image.png"}}, wantCode: "vision_images_invalid_type", actualType: "object"},
 		{name: "string", args: map[string]any{"images": "@chat/image.png"}, wantCode: "vision_images_invalid_type", actualType: "string"},
 	}
 	for _, test := range tests {
@@ -80,7 +80,7 @@ func TestVisionRecognizeImagesArrayContract(t *testing.T) {
 				t.Fatalf("unexpected diagnostics %#v", result.Structured)
 			}
 			message, _ := result.Structured["message"].(string)
-			if !strings.Contains(message, `"images":[{"file_path":"@chat/image.png"}]`) {
+			if !strings.Contains(message, `"images":[{"filePath":"@chat/image.png"}]`) {
 				t.Fatalf("missing correction example: %s", message)
 			}
 		})
@@ -105,8 +105,8 @@ func TestVisionRecognizeAcceptsMultipleImages(t *testing.T) {
 	executor := visionTestExecutor(chatsDir, registry, server.Client())
 	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
 		"images": []any{
-			map[string]any{"reference_name": "first.png"},
-			map[string]any{"reference_name": "second.png"},
+			map[string]any{"referenceName": "first.png"},
+			map[string]any{"referenceName": "second.png"},
 		},
 		"prompt": "compare",
 	}, &contracts.ExecutionContext{Request: api.QueryRequest{
@@ -150,7 +150,7 @@ func TestVisionRecognizeReferenceNameOpenAI(t *testing.T) {
 	executor := visionTestExecutor(chatsDir, registry, server.Client())
 
 	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
-		"images": []any{map[string]any{"reference_name": "demo.png"}},
+		"images": []any{map[string]any{"referenceName": "demo.png"}},
 		"prompt": "describe this",
 	}, &contracts.ExecutionContext{Request: apiQuery("chat-1", "demo.png")})
 	if err != nil {
@@ -198,9 +198,9 @@ func TestVisionRecognizeAnthropicRequest(t *testing.T) {
 	executor := visionTestExecutor(chatsDir, registry, server.Client())
 
 	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
-		"images":        []any{map[string]any{"reference_name": "demo.png"}},
-		"prompt":        "extract text",
-		"output_format": "json",
+		"images":       []any{map[string]any{"referenceName": "demo.png"}},
+		"prompt":       "extract text",
+		"outputFormat": "json",
 	}, &contracts.ExecutionContext{Request: apiQuery("chat-1", "demo.png")})
 	if err != nil {
 		t.Fatalf("invokeVisionRecognize: %v", err)
@@ -230,7 +230,7 @@ func TestVisionRecognizeFilePathRequiresApprovalOutsideWorkspace(t *testing.T) {
 	executor := visionTestExecutor(t.TempDir(), registry, nil)
 
 	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
-		"images": []any{map[string]any{"file_path": imagePath}},
+		"images": []any{map[string]any{"filePath": imagePath}},
 		"prompt": "describe",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root}})
 	if err != nil {

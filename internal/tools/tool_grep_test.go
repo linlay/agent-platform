@@ -121,8 +121,8 @@ func TestInvokeGrepReportsRipgrepStderrAndPartialResults(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	result, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     "needle",
-		"output_mode": "content",
+		"pattern":    "needle",
+		"outputMode": "content",
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGrep: %v", err)
@@ -172,9 +172,9 @@ func TestInvokeGrepNoMatchReturnsEmptySuccess(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	result, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     ".",
-		"glob":        "*.d.ts",
-		"output_mode": "content",
+		"pattern":    ".",
+		"glob":       "*.d.ts",
+		"outputMode": "content",
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGrep: %v", err)
@@ -204,11 +204,11 @@ func TestInvokeGrepContentCountTypeAndPagination(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	content, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     "needle",
-		"type":        "go",
-		"output_mode": "content",
-		"head_limit":  float64(1),
-		"offset":      float64(1),
+		"pattern":    "needle",
+		"type":       "go",
+		"outputMode": "content",
+		"headLimit":  float64(1),
+		"offset":     float64(1),
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("content grep: %v", err)
@@ -222,9 +222,9 @@ func TestInvokeGrepContentCountTypeAndPagination(t *testing.T) {
 	}
 
 	count, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     "needle",
-		"type":        "go",
-		"output_mode": "count",
+		"pattern":    "needle",
+		"type":       "go",
+		"outputMode": "count",
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("count grep: %v", err)
@@ -243,9 +243,9 @@ func TestInvokeGrepContextMultilineAndDashPattern(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	contextResult, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     "needle",
-		"output_mode": "content",
-		"-A":          float64(1),
+		"pattern":      "needle",
+		"outputMode":   "content",
+		"afterContext": float64(1),
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("context grep: %v", err)
@@ -255,9 +255,9 @@ func TestInvokeGrepContextMultilineAndDashPattern(t *testing.T) {
 	}
 
 	multiline, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     "foo.*bar",
-		"output_mode": "content",
-		"multiline":   true,
+		"pattern":    "foo.*bar",
+		"outputMode": "content",
+		"multiline":  true,
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("multiline grep: %v", err)
@@ -267,8 +267,8 @@ func TestInvokeGrepContextMultilineAndDashPattern(t *testing.T) {
 	}
 
 	dash, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     "-after",
-		"output_mode": "content",
+		"pattern":    "-after",
+		"outputMode": "content",
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("dash grep: %v", err)
@@ -318,9 +318,9 @@ func TestInvokeGrepAllowsSessionSkillsDir(t *testing.T) {
 	}}
 
 	result, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     "calendar needle",
-		"path":        skillsRoot,
-		"output_mode": "content",
+		"pattern":    "calendar needle",
+		"path":       skillsRoot,
+		"outputMode": "content",
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeGrep: %v", err)
@@ -347,9 +347,9 @@ func TestInvokeGrepConsumesReadPathApproval(t *testing.T) {
 	filetools.RegisterExactReadApproval(execCtx, plan.Fingerprint)
 
 	result, err := executor.invokeGrep(context.Background(), map[string]any{
-		"pattern":     "needle",
-		"path":        outside,
-		"output_mode": "content",
+		"pattern":    "needle",
+		"path":       outside,
+		"outputMode": "content",
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeGrep: %v", err)
@@ -521,4 +521,32 @@ func stringSliceResult(t *testing.T, value any) []string {
 		out = append(out, text)
 	}
 	return out
+}
+
+func TestInvokeGrepCamelCaseOptionsReachRipgrep(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "sample.txt"), []byte("BEFORE\nNEEDLE\nAFTER\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	executor := fileToolExecutor(root, false)
+	for _, tc := range []struct {
+		name          string
+		before, after bool
+	}{
+		{"beforeContext", true, false}, {"afterContext", false, true}, {"context", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := executor.invokeGrep(context.Background(), map[string]any{"pattern": "needle", "outputMode": "content", "caseInsensitive": true, "lineNumbers": false, tc.name: 1}, fileToolExecutionContext(root))
+			if err != nil || result.Error != "" {
+				t.Fatalf("grep failed: %#v %v", result, err)
+			}
+			lines := strings.Join(stringSliceResult(t, result.Structured["results"]), "\n")
+			if !strings.Contains(lines, "NEEDLE") || strings.Contains(lines, "BEFORE") != tc.before || strings.Contains(lines, "AFTER") != tc.after {
+				t.Fatalf("wrong context: %s", lines)
+			}
+			if strings.Contains(lines, ":2:") {
+				t.Fatalf("lineNumbers=false ignored: %s", lines)
+			}
+		})
+	}
 }

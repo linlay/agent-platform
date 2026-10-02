@@ -223,8 +223,8 @@ func TestAutomaticCompactUsesProviderUsageForLargePinnedImage(t *testing.T) {
 				map[string]any{"type": "image_url", "image_url": map[string]any{"url": dataURL}},
 			}},
 			{Role: "assistant", ToolCalls: []contracts.ModelToolCall{
-				{ID: "vision-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "vision_recognize", Arguments: `{"images":{"file_path":"@chat/image.png"}}`}},
-				{ID: "read-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "file_read", Arguments: `{"file_path":"@skills/online-xlsx/SKILL.md"}`}},
+				{ID: "vision-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "vision_recognize", Arguments: `{"images":{"filePath":"@chat/image.png"}}`}},
+				{ID: "read-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "file_read", Arguments: `{"filePath":"@skills/online-xlsx/SKILL.md"}`}},
 			}},
 			{Role: "tool", Name: "vision_recognize", ToolCallID: "vision-1", Content: `{"error":"vision_images_invalid_type"}`},
 			{Role: "tool", Name: "file_read", ToolCallID: "read-1", Content: strings.Repeat("skill text ", 750)},

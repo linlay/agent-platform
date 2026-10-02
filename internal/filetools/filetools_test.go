@@ -73,11 +73,11 @@ func TestBuildAccessAndWritePlansUseCanonicalKeysForEquivalentForms(t *testing.T
 
 	relativeWriteAccess := mustAccessPlan(t, accessCfg, WriteAccess, "notes.txt")
 	absoluteWriteAccess := mustAccessPlan(t, accessCfg, WriteAccess, filepath.Join(root, ".", "notes.txt"))
-	relativeWrite, err := BuildWritePlanWithAccess(relativeWriteAccess, fileCfg, map[string]any{"file_path": "notes.txt", "content": "hello"})
+	relativeWrite, err := BuildWritePlanWithAccess(relativeWriteAccess, fileCfg, map[string]any{"filePath": "notes.txt", "content": "hello"})
 	if err != nil {
 		t.Fatalf("build relative write plan: %v", err)
 	}
-	absoluteWrite, err := BuildWritePlanWithAccess(absoluteWriteAccess, fileCfg, map[string]any{"file_path": filepath.Join(root, ".", "notes.txt"), "content": "hello"})
+	absoluteWrite, err := BuildWritePlanWithAccess(absoluteWriteAccess, fileCfg, map[string]any{"filePath": filepath.Join(root, ".", "notes.txt"), "content": "hello"})
 	if err != nil {
 		t.Fatalf("build absolute write plan: %v", err)
 	}
@@ -99,10 +99,10 @@ func TestBuildEditPlanWithAccessUsesEditFingerprintAndRuleKey(t *testing.T) {
 	cfg := config.FileToolsConfig{MaxWriteBytes: 1024}
 
 	plan, err := BuildEditPlanWithAccess(access, cfg, map[string]any{
-		"file_path":   "notes.txt",
-		"old_string":  "hello",
-		"new_string":  "hi",
-		"replace_all": true,
+		"filePath":    "notes.txt",
+		"oldString":   "hello",
+		"newString":   "hi",
+		"replaceAll":  true,
 		"description": "编辑 notes",
 	})
 	if err != nil {
@@ -119,9 +119,9 @@ func TestBuildEditPlanWithAccessUsesEditFingerprintAndRuleKey(t *testing.T) {
 	}
 
 	changed, err := BuildEditPlanWithAccess(access, cfg, map[string]any{
-		"file_path":   "notes.txt",
-		"old_string":  "hello",
-		"new_string":  "hi!",
+		"filePath":    "notes.txt",
+		"oldString":   "hello",
+		"newString":   "hi!",
 		"description": "编辑 notes",
 	})
 	if err != nil {
@@ -313,8 +313,8 @@ func TestBuildWritePlanWithAccessWithoutDescription(t *testing.T) {
 	cfg := config.FileToolsConfig{MaxWriteBytes: 1024}
 
 	plan, err := BuildWritePlanWithAccess(access, cfg, map[string]any{
-		"file_path": "notes.txt",
-		"content":   "hello",
+		"filePath": "notes.txt",
+		"content":  "hello",
 	})
 	if err != nil {
 		t.Fatalf("build write plan without description: %v", err)
@@ -337,9 +337,9 @@ func TestBuildEditPlanWithAccessWithoutDescription(t *testing.T) {
 	cfg := config.FileToolsConfig{MaxWriteBytes: 1024}
 
 	plan, err := BuildEditPlanWithAccess(access, cfg, map[string]any{
-		"file_path":  "notes.txt",
-		"old_string": "hello",
-		"new_string": "hi",
+		"filePath":  "notes.txt",
+		"oldString": "hello",
+		"newString": "hi",
 	})
 	if err != nil {
 		t.Fatalf("build edit plan without description: %v", err)

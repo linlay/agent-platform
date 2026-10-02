@@ -126,7 +126,7 @@ func TestToolHandlerFilesReadStatusAndRefresh(t *testing.T) {
 	execCtx := kbaseToolExecutionContext()
 
 	files, err := handler.Invoke(context.Background(), ToolFiles, map[string]any{
-		"mode": " tree ", "path": " docs ", "pattern": " ** ", "status": " active ", "type": " md ", "depth": float64(3), "head_limit": float64(25), "offset": float64(4),
+		"mode": " tree ", "path": " docs ", "pattern": " ** ", "status": " active ", "type": " md ", "depth": float64(3), "headLimit": float64(25), "offset": float64(4),
 	}, execCtx)
 	if err != nil || files.Structured["tool"] != ToolFiles || service.filesOptions.HeadLimit != 25 || service.filesOptions.Depth != 3 || service.filesOptions.Offset != 4 {
 		t.Fatalf("unexpected files result=%#v options=%#v err=%v", files, service.filesOptions, err)
@@ -158,7 +158,7 @@ func TestToolHandlerFilesKeepsAbsentHeadLimitSentinel(t *testing.T) {
 		t.Fatalf("files: %v", err)
 	}
 	if service.filesOptions.HeadLimit != -1 {
-		t.Fatalf("expected absent head_limit sentinel -1, got %#v", service.filesOptions)
+		t.Fatalf("expected absent headLimit sentinel -1, got %#v", service.filesOptions)
 	}
 }
 

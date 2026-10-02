@@ -13,7 +13,7 @@ import (
 func (t *RuntimeToolExecutor) invokeSleep(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	// Validate here as well as in the model schema: direct tool callers bypass it.
 	var ms float64
-	switch v := args["duration_ms"].(type) {
+	switch v := args["durationMs"].(type) {
 	case float64:
 		ms = v
 	case int:
@@ -24,7 +24,7 @@ func (t *RuntimeToolExecutor) invokeSleep(ctx context.Context, args map[string]a
 		ms, _ = v.Float64()
 	}
 	if len(args) != 1 || math.IsNaN(ms) || math.IsInf(ms, 0) || ms < 1 || ms > 86400000 || math.Trunc(ms) != ms {
-		return ToolExecutionResult{Error: "invalid_sleep_arguments", Output: "duration_ms must be an integer between 1 and 86400000; no other arguments are accepted", ExitCode: -1}, nil
+		return ToolExecutionResult{Error: "invalid_sleep_arguments", Output: "durationMs must be an integer between 1 and 86400000; no other arguments are accepted", ExitCode: -1}, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return ToolExecutionResult{}, err

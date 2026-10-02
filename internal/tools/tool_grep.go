@@ -70,12 +70,12 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		return fileToolError("grep_ripgrep_missing", "ripgrep (rg) is not installed or bundled with agent-platform"), nil
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(stringArg(args, "output_mode")))
+	mode := strings.ToLower(strings.TrimSpace(stringArg(args, "outputMode")))
 	if mode == "" {
 		mode = "files_with_matches"
 	}
 	if mode != "content" && mode != "files_with_matches" && mode != "count" {
-		return fileToolError("grep_invalid_mode", "output_mode must be content, files_with_matches, or count"), nil
+		return fileToolError("grep_invalid_mode", "outputMode must be content, files_with_matches, or count"), nil
 	}
 
 	rgArgs := []string{
@@ -97,16 +97,16 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	case "count":
 		rgArgs = append(rgArgs, "-c")
 	case "content":
-		if _, ok := args["-n"]; !ok || boolArg(args, "-n") {
+		if _, ok := args["lineNumbers"]; !ok || boolArg(args, "lineNumbers") {
 			rgArgs = append(rgArgs, "-n")
 		}
 	}
-	if boolArg(args, "-i") {
+	if boolArg(args, "caseInsensitive") {
 		rgArgs = append(rgArgs, "-i")
 	}
-	for _, flag := range []string{"-A", "-B", "-C"} {
-		if value := int64Arg(args, flag); value > 0 {
-			rgArgs = append(rgArgs, flag, formatInt64(value))
+	for _, option := range []struct{ name, flag string }{{"afterContext", "-A"}, {"beforeContext", "-B"}, {"context", "-C"}} {
+		if value := int64Arg(args, option.name); value > 0 {
+			rgArgs = append(rgArgs, option.flag, formatInt64(value))
 		}
 	}
 	if boolArg(args, "multiline") {
@@ -200,8 +200,8 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if offset < 0 {
 		offset = 0
 	}
-	headLimit := numericArg(args, "head_limit")
-	if _, ok := args["head_limit"]; !ok {
+	headLimit := numericArg(args, "headLimit")
+	if _, ok := args["headLimit"]; !ok {
 		headLimit = defaultGrepHeadLimit
 	}
 	results, truncated := pageGrepResults(lines, offset, headLimit)

@@ -1898,7 +1898,7 @@ func TestStepWriterMergesParallelToolSnapshotsIntoAssistantToolCalls(t *testing.
 		Payload: map[string]any{
 			"toolId":    "call_00",
 			"toolName":  "file_read",
-			"arguments": `{"file_path":"/tmp/a.txt"}`,
+			"arguments": `{"filePath":"/tmp/a.txt"}`,
 		},
 	})
 	onEventForTest(writer, stream.EventData{
@@ -4722,7 +4722,7 @@ The tool results above already reflect these automatic approvals; do not re-prom
 					Type: "function",
 					Function: StoredFunction{
 						Name:      "file_read",
-						Arguments: `{"file_path":"/tmp/secret.txt"}`,
+						Arguments: `{"filePath":"/tmp/secret.txt"}`,
 					},
 				}},
 				ToolID: "tool-1",

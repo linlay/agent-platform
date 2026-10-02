@@ -29,8 +29,8 @@ func TestFileHistoryRecordsNewFileWithEmptyOriginal(t *testing.T) {
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": "new.txt",
-		"content":   "hello\n",
+		"filePath": "new.txt",
+		"content":  "hello\n",
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeWrite: %v", err)
@@ -78,17 +78,17 @@ func TestFileHistoryKeepsFirstOriginalAndLatestCurrent(t *testing.T) {
 	}}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  "app.txt",
-		"old_string": "one\n",
-		"new_string": "two\n",
+		"filePath":  "app.txt",
+		"oldString": "one\n",
+		"newString": "two\n",
 	}, execCtx)
 	if err != nil || result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("first invokeEdit result=%#v err=%v", result, err)
 	}
 	result, err = executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  "app.txt",
-		"old_string": "two\n",
-		"new_string": "three\n",
+		"filePath":  "app.txt",
+		"oldString": "two\n",
+		"newString": "three\n",
 	}, execCtx)
 	if err != nil || result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("second invokeEdit result=%#v err=%v", result, err)

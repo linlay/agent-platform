@@ -33,10 +33,10 @@ func TestInvokeReadReadsAllowedFileWithLineRange(t *testing.T) {
 	executor := fileToolExecutor(root, true)
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        "notes.txt",
-		"offset":           float64(2),
-		"limit":            float64(1),
-		"add_line_numbers": false,
+		"filePath":       "notes.txt",
+		"offset":         float64(2),
+		"limit":          float64(1),
+		"addLineNumbers": false,
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
@@ -82,29 +82,29 @@ func TestMustUseSkillRunAccessAllowsSelectedReadsAndBlocksMutations(t *testing.T
 		ReadonlyRoots: []string{selected},
 	}
 
-	read, err := executor.invokeRead(map[string]any{"file_path": "@skills-center/selected/SKILL.md"}, execCtx)
+	read, err := executor.invokeRead(map[string]any{"filePath": "@skills-center/selected/SKILL.md"}, execCtx)
 	if err != nil || read.Error != "" || read.ExitCode != 0 {
 		t.Fatalf("selected skill read should succeed without approval: result=%#v err=%v", read, err)
 	}
-	referenceRead, err := executor.invokeRead(map[string]any{"file_path": "@skills-center/selected/references/guide.md"}, execCtx)
+	referenceRead, err := executor.invokeRead(map[string]any{"filePath": "@skills-center/selected/references/guide.md"}, execCtx)
 	if err != nil || referenceRead.Error != "" || referenceRead.ExitCode != 0 {
 		t.Fatalf("selected skill subresource read should succeed without approval: result=%#v err=%v", referenceRead, err)
 	}
-	siblingRead, err := executor.invokeRead(map[string]any{"file_path": "@skills-center/sibling/SKILL.md"}, execCtx)
+	siblingRead, err := executor.invokeRead(map[string]any{"filePath": "@skills-center/sibling/SKILL.md"}, execCtx)
 	if err != nil || siblingRead.Structured["error"] != "file_read_approval_required" {
 		t.Fatalf("unselected sibling should require approval: result=%#v err=%v", siblingRead, err)
 	}
 	write, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": "@skills-center/selected/SKILL.md",
-		"content":   "changed",
+		"filePath": "@skills-center/selected/SKILL.md",
+		"content":  "changed",
 	}, execCtx)
 	if err != nil || write.Structured["error"] != "file_write_path_blocked" {
 		t.Fatalf("selected skill write should be blocked: result=%#v err=%v", write, err)
 	}
 	edit, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  "@skills-center/selected/SKILL.md",
-		"old_string": "selected",
-		"new_string": "changed",
+		"filePath":  "@skills-center/selected/SKILL.md",
+		"oldString": "selected",
+		"newString": "changed",
 	}, execCtx)
 	if err != nil || edit.Structured["error"] != "file_edit_path_blocked" {
 		t.Fatalf("selected skill edit should be blocked: result=%#v err=%v", edit, err)
@@ -132,20 +132,20 @@ func TestTempFileWriteReadAndEditSkipHITL(t *testing.T) {
 	aliasPath := "@temp/" + filepath.ToSlash(filepath.Join(filepath.Base(tempDir), "note.txt"))
 
 	written, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": aliasPath,
-		"content":   "old",
+		"filePath": aliasPath,
+		"content":  "old",
 	}, execCtx)
 	if err != nil || written.Error != "" || written.ExitCode != 0 {
 		t.Fatalf("temporary write should not require approval: result=%#v err=%v", written, err)
 	}
-	read, err := executor.invokeRead(map[string]any{"file_path": aliasPath, "add_line_numbers": false}, execCtx)
+	read, err := executor.invokeRead(map[string]any{"filePath": aliasPath, "addLineNumbers": false}, execCtx)
 	if err != nil || read.Error != "" || read.Structured["content"] != "old" {
 		t.Fatalf("temporary read failed: result=%#v err=%v", read, err)
 	}
 	edited, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  aliasPath,
-		"old_string": "old",
-		"new_string": "new",
+		"filePath":  aliasPath,
+		"oldString": "old",
+		"newString": "new",
 	}, execCtx)
 	if err != nil || edited.Error != "" || edited.ExitCode != 0 {
 		t.Fatalf("temporary edit should not require approval: result=%#v err=%v", edited, err)
@@ -166,7 +166,7 @@ func TestInvokeReadPathEscapeRequiresApproval(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 
-	result, err := executor.invokeRead(map[string]any{"file_path": filepath.Join("link", "secret.txt")}, fileToolExecutionContext(root))
+	result, err := executor.invokeRead(map[string]any{"filePath": filepath.Join("link", "secret.txt")}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
 	}
@@ -191,8 +191,8 @@ func TestInvokeReadOutsideWorkspaceAutoApproveReadsFile(t *testing.T) {
 	}}
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        filepath.Join(outside, "secret.txt"),
-		"add_line_numbers": false,
+		"filePath":       filepath.Join(outside, "secret.txt"),
+		"addLineNumbers": false,
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
@@ -221,8 +221,8 @@ func TestInvokeReadConsumesExactPathApproval(t *testing.T) {
 	filetools.RegisterExactReadApproval(execCtx, plan.Fingerprint)
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        filepath.Join(outside, "secret.txt"),
-		"add_line_numbers": false,
+		"filePath":       filepath.Join(outside, "secret.txt"),
+		"addLineNumbers": false,
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
@@ -247,8 +247,8 @@ func TestInvokeReadUsesRulePathApproval(t *testing.T) {
 	filetools.RegisterRuleReadApproval(execCtx, plan.RuleKey)
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        filepath.Join(outside, "secret.txt"),
-		"add_line_numbers": false,
+		"filePath":       filepath.Join(outside, "secret.txt"),
+		"addLineNumbers": false,
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
@@ -277,8 +277,8 @@ func TestInvokeReadAllowsSessionAgentDir(t *testing.T) {
 	}}
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        agentFile,
-		"add_line_numbers": false,
+		"filePath":       agentFile,
+		"addLineNumbers": false,
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
@@ -308,8 +308,8 @@ func TestInvokeReadAllowsSessionSkillsDir(t *testing.T) {
 	}}
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        "@skills/automation/SKILL.md",
-		"add_line_numbers": false,
+		"filePath":       "@skills/automation/SKILL.md",
+		"addLineNumbers": false,
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
@@ -326,7 +326,7 @@ func TestInvokeReadReturnsRawContentByDefaultAndCanAddLineNumbers(t *testing.T) 
 	}
 	executor := fileToolExecutor(root, true)
 
-	result, err := executor.invokeRead(map[string]any{"file_path": "notes.txt"}, fileToolExecutionContext(root))
+	result, err := executor.invokeRead(map[string]any{"filePath": "notes.txt"}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestInvokeReadReturnsRawContentByDefaultAndCanAddLineNumbers(t *testing.T) 
 		t.Fatalf("unexpected default content: %#v", result.Structured["content"])
 	}
 
-	numbered, err := executor.invokeRead(map[string]any{"file_path": "notes.txt", "add_line_numbers": true}, fileToolExecutionContext(root))
+	numbered, err := executor.invokeRead(map[string]any{"filePath": "notes.txt", "addLineNumbers": true}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeRead numbered: %v", err)
 	}
@@ -359,8 +359,8 @@ func TestInvokeReadDecodesGB18030Text(t *testing.T) {
 	executor := fileToolExecutor(root, true)
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        "settings.ini",
-		"add_line_numbers": false,
+		"filePath":       "settings.ini",
+		"addLineNumbers": false,
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
@@ -386,7 +386,7 @@ func TestInvokeReadKeepsUnknownInvalidBytesAsBase64(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 
-	result, err := executor.invokeRead(map[string]any{"file_path": "payload"}, fileToolExecutionContext(root))
+	result, err := executor.invokeRead(map[string]any{"filePath": "payload"}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestInvokeReadRejectsBinaryExtension(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 
-	result, err := executor.invokeRead(map[string]any{"file_path": "data.bin"}, fileToolExecutionContext(root))
+	result, err := executor.invokeRead(map[string]any{"filePath": "data.bin"}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
 	}
@@ -433,7 +433,7 @@ func TestInvokeReadReturnsImagePayload(t *testing.T) {
 	executor := fileToolExecutor(root, true)
 	execCtx := fileToolExecutionContext(root)
 
-	result, err := executor.invokeRead(map[string]any{"file_path": "tiny.png"}, execCtx)
+	result, err := executor.invokeRead(map[string]any{"filePath": "tiny.png"}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestInvokeReadRejectsBlockedDevice(t *testing.T) {
 		RequireWriteApproval:   true,
 		RequireReadBeforeWrite: true,
 	}}}
-	result, err := executor.invokeRead(map[string]any{"file_path": "/dev/null"}, fileToolExecutionContext(root))
+	result, err := executor.invokeRead(map[string]any{"filePath": "/dev/null"}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
 	}
@@ -475,10 +475,10 @@ func TestInvokeReadDedupsUnchangedFile(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "notes.txt"}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "notes.txt"}, execCtx); err != nil {
 		t.Fatalf("first read: %v", err)
 	}
-	result, err := executor.invokeRead(map[string]any{"file_path": "notes.txt"}, execCtx)
+	result, err := executor.invokeRead(map[string]any{"filePath": "notes.txt"}, execCtx)
 	if err != nil {
 		t.Fatalf("second read: %v", err)
 	}
@@ -497,10 +497,10 @@ func TestInvokeReadDedupRespectsLineNumberOption(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "notes.txt", "add_line_numbers": true}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "notes.txt", "addLineNumbers": true}, execCtx); err != nil {
 		t.Fatalf("first read: %v", err)
 	}
-	result, err := executor.invokeRead(map[string]any{"file_path": "notes.txt", "add_line_numbers": false}, execCtx)
+	result, err := executor.invokeRead(map[string]any{"filePath": "notes.txt", "addLineNumbers": false}, execCtx)
 	if err != nil {
 		t.Fatalf("raw read: %v", err)
 	}
@@ -525,10 +525,10 @@ func TestInvokeReadLineRangeCanStartBeyondInitialReadLimit(t *testing.T) {
 	executor.cfg.FileTools.MaxReadBytes = len("line-20\n")
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        "notes.txt",
-		"offset":           float64(20),
-		"limit":            float64(1),
-		"add_line_numbers": false,
+		"filePath":       "notes.txt",
+		"offset":         float64(20),
+		"limit":          float64(1),
+		"addLineNumbers": false,
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("range read: %v", err)
@@ -547,7 +547,7 @@ func TestInvokeWriteRequiresApprovalByDefault(t *testing.T) {
 	executor := fileToolExecutor(root, true)
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   filepath.Join(root, "owner.md"),
+		"filePath":    filepath.Join(root, "owner.md"),
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}, fileToolExecutionContext(workspace))
@@ -572,7 +572,7 @@ func TestInvokeWriteOutsideWorkspaceAutoApproveRequiresPathApproval(t *testing.T
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   filepath.Join(outside, "owner.md"),
+		"filePath":    filepath.Join(outside, "owner.md"),
 		"content":     "hello",
 		"description": "写入 workspace 外文件",
 	}, execCtx)
@@ -598,7 +598,7 @@ func TestInvokeWriteInsideSessionWorkspaceBypassesWriteApproval(t *testing.T) {
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "hello",
 		"description": "写入 workspace 文件",
 	}, execCtx)
@@ -635,7 +635,7 @@ func TestInvokeWriteInsideSessionHostAccessBypassesApprovals(t *testing.T) {
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   filepath.Join(owner, "greeting.md"),
+		"filePath":    filepath.Join(owner, "greeting.md"),
 		"content":     "hello",
 		"description": "写入 owner 文件",
 	}, execCtx)
@@ -672,7 +672,7 @@ func TestInvokeWriteInsideSessionChatDirBypassesWriteApproval(t *testing.T) {
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   filepath.Join(chatDir, "artifact.md"),
+		"filePath":    filepath.Join(chatDir, "artifact.md"),
 		"content":     "hello",
 		"description": "写入 chat 产物",
 	}, execCtx)
@@ -711,14 +711,14 @@ func TestInvokeEditInsideSessionChatDirBypassesWriteApproval(t *testing.T) {
 			},
 		},
 	}}
-	if _, err := executor.invokeRead(map[string]any{"file_path": path}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": path}, execCtx); err != nil {
 		t.Fatalf("invokeRead: %v", err)
 	}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   path,
-		"old_string":  "hello",
-		"new_string":  "hi",
+		"filePath":    path,
+		"oldString":   "hello",
+		"newString":   "hi",
 		"description": "编辑 chat 产物",
 	}, execCtx)
 	if err != nil {
@@ -743,7 +743,7 @@ func TestInvokeWriteOutsideSessionWorkspaceRequiresPathApproval(t *testing.T) {
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   filepath.Join(outside, "owner.md"),
+		"filePath":    filepath.Join(outside, "owner.md"),
 		"content":     "hello",
 		"description": "写入 workspace 外文件",
 	}, execCtx)
@@ -760,7 +760,7 @@ func TestInvokeWriteConsumesExactApprovalAndCreatesParents(t *testing.T) {
 	workspace := t.TempDir()
 	executor := fileToolExecutor(root, true)
 	args := map[string]any{
-		"file_path":   filepath.Join(root, "nested", "owner.md"),
+		"filePath":    filepath.Join(root, "nested", "owner.md"),
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}
@@ -791,7 +791,7 @@ func TestInvokeWriteUsesPrefixApproval(t *testing.T) {
 	root := t.TempDir()
 	executor := fileToolExecutor(root, true)
 	args := map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}
@@ -817,7 +817,7 @@ func TestInvokeWritePathEscapeRequiresApproval(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   filepath.Join("link", "owner.md"),
+		"filePath":    filepath.Join("link", "owner.md"),
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}, fileToolExecutionContext(root))
@@ -854,7 +854,7 @@ func TestInvokeWriteBlocksSessionReadonlyRootEvenWithAccessApprovals(t *testing.
 	filetools.RegisterRuleAccessApproval(execCtx, plan.RuleKey)
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   target,
+		"filePath":    target,
 		"content":     "new",
 		"description": "写入 agent 文档",
 	}, execCtx)
@@ -879,7 +879,7 @@ func TestInvokeWriteDoesNotUseSessionHostReadRootsForPathApproval(t *testing.T) 
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   filepath.Join(ownerDir, "OWNER.md"),
+		"filePath":    filepath.Join(ownerDir, "OWNER.md"),
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, execCtx)
@@ -896,7 +896,7 @@ func TestInvokeWriteConsumesExactPathApprovalBeforeWriting(t *testing.T) {
 	outside := t.TempDir()
 	executor := fileToolExecutor(root, false)
 	args := map[string]any{
-		"file_path":   filepath.Join(outside, "owner.md"),
+		"filePath":    filepath.Join(outside, "owner.md"),
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}
@@ -924,7 +924,7 @@ func TestInvokeWriteUsesRulePathApprovalBeforeWriting(t *testing.T) {
 	outside := t.TempDir()
 	executor := fileToolExecutor(root, false)
 	args := map[string]any{
-		"file_path":   filepath.Join(outside, "owner.md"),
+		"filePath":    filepath.Join(outside, "owner.md"),
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}
@@ -1017,7 +1017,7 @@ func fileToolExecutionContext(workspaceRoot string) *contracts.ExecutionContext 
 
 func fileToolWritePlan(t *testing.T, executor *RuntimeToolExecutor, args map[string]any) filetools.WritePlan {
 	t.Helper()
-	access := fileToolAccessPlan(t, executor, filetools.WriteAccess, stringArg(args, "file_path"))
+	access := fileToolAccessPlan(t, executor, filetools.WriteAccess, stringArg(args, "filePath"))
 	plan, err := filetools.BuildWritePlanWithAccess(access, executor.cfg.FileTools, args)
 	if err != nil {
 		t.Fatalf("build write plan: %v", err)
@@ -1027,7 +1027,7 @@ func fileToolWritePlan(t *testing.T, executor *RuntimeToolExecutor, args map[str
 
 func fileToolEditPlan(t *testing.T, executor *RuntimeToolExecutor, args map[string]any) filetools.WritePlan {
 	t.Helper()
-	access := fileToolAccessPlan(t, executor, filetools.WriteAccess, stringArg(args, "file_path"))
+	access := fileToolAccessPlan(t, executor, filetools.WriteAccess, stringArg(args, "filePath"))
 	plan, err := filetools.BuildEditPlanWithAccess(access, executor.cfg.FileTools, args)
 	if err != nil {
 		t.Fatalf("build edit plan: %v", err)
@@ -1082,8 +1082,8 @@ func TestKBaseEditingFileToolsEnforceSourceMutationRulesWithoutIndexHook(t *test
 	execCtx := kbaseEditingExecutionContext(root)
 
 	unread, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": "policy.md",
-		"content":   "must read first\n",
+		"filePath": "policy.md",
+		"content":  "must read first\n",
 	}, kbaseEditingExecutionContext(root))
 	if err != nil {
 		t.Fatal(err)
@@ -1092,14 +1092,14 @@ func TestKBaseEditingFileToolsEnforceSourceMutationRulesWithoutIndexHook(t *test
 		t.Fatalf("KBASE editing must enforce read-before-write independently of global config: %#v", unread.Structured)
 	}
 
-	read, err := executor.invokeRead(map[string]any{"file_path": "policy.md", "add_line_numbers": false}, execCtx)
+	read, err := executor.invokeRead(map[string]any{"filePath": "policy.md", "addLineNumbers": false}, execCtx)
 	if err != nil || read.Error != "" {
 		t.Fatalf("read Markdown before edit: result=%#v err=%v", read, err)
 	}
 	edited, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  "policy.md",
-		"old_string": "7 days",
-		"new_string": "14 days",
+		"filePath":  "policy.md",
+		"oldString": "7 days",
+		"newString": "14 days",
 	}, execCtx)
 	if err != nil || edited.Error != "" {
 		t.Fatalf("edit Markdown: result=%#v err=%v", edited, err)
@@ -1113,8 +1113,8 @@ func TestKBaseEditingFileToolsEnforceSourceMutationRulesWithoutIndexHook(t *test
 
 	for _, name := range []string{"notes.txt", "page.html", "metadata.json", "content.custom"} {
 		written, err := executor.invokeWrite(context.Background(), map[string]any{
-			"file_path": filepath.Join(root, name),
-			"content":   "generic text",
+			"filePath": filepath.Join(root, name),
+			"content":  "generic text",
 		}, execCtx)
 		if err != nil || written.Error != "" {
 			t.Fatalf("write generic source format %q: result=%#v err=%v", name, written, err)
@@ -1134,14 +1134,14 @@ func TestKBaseEditingPreservesGenericEncodingAndRejectsMissingParent(t *testing.
 	executor := fileToolExecutor(root, false)
 	execCtx := kbaseEditingExecutionContext(root)
 
-	read, err := executor.invokeRead(map[string]any{"file_path": nonUTF8, "add_line_numbers": false}, execCtx)
+	read, err := executor.invokeRead(map[string]any{"filePath": nonUTF8, "addLineNumbers": false}, execCtx)
 	if err != nil || read.Error != "" || read.Structured["encoding"] != "gb18030" {
 		t.Fatalf("read generic non-UTF-8 source text: result=%#v err=%v", read, err)
 	}
 	edited, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  nonUTF8,
-		"old_string": "旧值",
-		"new_string": "新值",
+		"filePath":  nonUTF8,
+		"oldString": "旧值",
+		"newString": "新值",
 	}, execCtx)
 	if err != nil || edited.Error != "" || edited.Structured["encoding"] != "gb18030" {
 		t.Fatalf("edit generic non-UTF-8 source text: result=%#v err=%v", edited, err)
@@ -1151,8 +1151,8 @@ func TestKBaseEditingPreservesGenericEncodingAndRejectsMissingParent(t *testing.
 		t.Fatalf("source encoding was not preserved: raw=%q err=%v", string(raw), err)
 	}
 	write, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": filepath.Join(root, "missing", "new.md"),
-		"content":   "new",
+		"filePath": filepath.Join(root, "missing", "new.md"),
+		"content":  "new",
 	}, execCtx)
 	if err != nil {
 		t.Fatal(err)
@@ -1225,8 +1225,8 @@ func TestKBaseReadOnlyFileToolsAllowSourceReadsAndChatMutationsButRejectSourceMu
 	}
 
 	read, err := executor.Invoke(context.Background(), "file_read", map[string]any{
-		"file_path":        "policy.txt",
-		"add_line_numbers": false,
+		"filePath":       "policy.txt",
+		"addLineNumbers": false,
 	}, execCtx)
 	if err != nil || read.Error != "" || !strings.Contains(read.Output, "source needle") {
 		t.Fatalf("read-only KBASE source read failed: result=%#v err=%v", read, err)
@@ -1252,15 +1252,15 @@ func TestKBaseReadOnlyFileToolsAllowSourceReadsAndChatMutationsButRejectSourceMu
 		{
 			name: "relative source write",
 			tool: "file_write",
-			args: map[string]any{"file_path": "new.txt", "content": "blocked"},
+			args: map[string]any{"filePath": "new.txt", "content": "blocked"},
 		},
 		{
 			name: "absolute source edit",
 			tool: "file_edit",
 			args: map[string]any{
-				"file_path":  sourcePath,
-				"old_string": "source",
-				"new_string": "changed",
+				"filePath":  sourcePath,
+				"oldString": "source",
+				"newString": "changed",
 			},
 		},
 	} {
@@ -1280,8 +1280,8 @@ func TestKBaseReadOnlyFileToolsAllowSourceReadsAndChatMutationsButRejectSourceMu
 
 	chatPath := filepath.Join(chatDir, "report.txt")
 	written, err := executor.Invoke(context.Background(), "file_write", map[string]any{
-		"file_path": chatPath,
-		"content":   "chat artifact",
+		"filePath": chatPath,
+		"content":  "chat artifact",
 	}, execCtx)
 	if err != nil || written.Error != "" {
 		t.Fatalf("read-only KBASE chat write failed: result=%#v err=%v", written, err)
@@ -1290,9 +1290,9 @@ func TestKBaseReadOnlyFileToolsAllowSourceReadsAndChatMutationsButRejectSourceMu
 		t.Fatalf("chat mutation returned file-change hooks: %#v", written.Structured)
 	}
 	edited, err := executor.Invoke(context.Background(), "file_edit", map[string]any{
-		"file_path":  chatPath,
-		"old_string": "chat",
-		"new_string": "conversation",
+		"filePath":  chatPath,
+		"oldString": "chat",
+		"newString": "conversation",
 	}, execCtx)
 	if err != nil || edited.Error != "" {
 		t.Fatalf("read-only KBASE chat edit failed: result=%#v err=%v", edited, err)
@@ -1315,8 +1315,8 @@ func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
 
 	chatPath := filepath.Join(chatDir, "report.txt")
 	written, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": chatPath,
-		"content":   "temporary report\n",
+		"filePath": chatPath,
+		"content":  "temporary report\n",
 	}, execCtx)
 	if err != nil || written.Error != "" {
 		t.Fatalf("write chatspace text: result=%#v err=%v", written, err)
@@ -1326,16 +1326,16 @@ func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
 	}
 
 	read, err := executor.invokeRead(map[string]any{
-		"file_path":        chatPath,
-		"add_line_numbers": false,
+		"filePath":       chatPath,
+		"addLineNumbers": false,
 	}, execCtx)
 	if err != nil || read.Error != "" || !strings.Contains(read.Output, "temporary report") {
 		t.Fatalf("read chatspace text: result=%#v err=%v", read, err)
 	}
 	edited, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  chatPath,
-		"old_string": "temporary report",
-		"new_string": "final report",
+		"filePath":  chatPath,
+		"oldString": "temporary report",
+		"newString": "final report",
 	}, execCtx)
 	if err != nil || edited.Error != "" {
 		t.Fatalf("edit chatspace text: result=%#v err=%v", edited, err)
@@ -1368,8 +1368,8 @@ func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
 
 	externalPath := filepath.Join(outside, "allowed.txt")
 	externalWrite, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": externalPath,
-		"content":   "allowed by full_access",
+		"filePath": externalPath,
+		"content":  "allowed by full_access",
 	}, execCtx)
 	if err != nil || externalWrite.Error != "" {
 		t.Fatalf("full_access external write: result=%#v err=%v", externalWrite, err)
@@ -1380,9 +1380,9 @@ func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	externalEdit, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  externalEditPath,
-		"old_string": "before",
-		"new_string": "after",
+		"filePath":  externalEditPath,
+		"oldString": "before",
+		"newString": "after",
 	}, execCtx)
 	if err != nil || externalEdit.Error != "" {
 		t.Fatalf("full_access external edit: result=%#v err=%v", externalEdit, err)
@@ -1400,8 +1400,8 @@ func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	otherChatWrite, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": otherChatPath,
-		"content":   "changed",
+		"filePath": otherChatPath,
+		"content":  "changed",
 	}, execCtx)
 	if err != nil || otherChatWrite.Error != "" {
 		t.Fatalf("full_access other-chat write: result=%#v err=%v", otherChatWrite, err)
@@ -1412,14 +1412,14 @@ func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	execCtx.Session.AccessLevel = contracts.AccessLevelDefault
-	externalRead, err := executor.invokeRead(map[string]any{"file_path": externalReadPath}, execCtx)
+	externalRead, err := executor.invokeRead(map[string]any{"filePath": externalReadPath}, execCtx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if externalRead.Structured["error"] != "file_read_approval_required" {
 		t.Fatalf("expected external read to use common HITL, got %#v", externalRead.Structured)
 	}
-	otherChatRead, err := executor.invokeRead(map[string]any{"file_path": otherChatPath}, execCtx)
+	otherChatRead, err := executor.invokeRead(map[string]any{"filePath": otherChatPath}, execCtx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1428,8 +1428,8 @@ func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
 	}
 	unapprovedWritePath := filepath.Join(outside, "needs-approval.txt")
 	unapprovedWrite, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": unapprovedWritePath,
-		"content":   "pending",
+		"filePath": unapprovedWritePath,
+		"content":  "pending",
 	}, execCtx)
 	if err != nil {
 		t.Fatal(err)
@@ -1496,7 +1496,7 @@ func TestInvokeWriteRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "main.go",
+		"filePath":    "main.go",
 		"content":     "package main\n",
 		"description": "写入 Go 文件",
 	}, execCtx)
@@ -1539,7 +1539,7 @@ func TestInvokeWriteSkipsWorkspaceHooksForCoderChatFile(t *testing.T) {
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "@chat/report.md",
+		"filePath":    "@chat/report.md",
 		"content":     "chat output\n",
 		"description": "写入 Chat 文件",
 	}, execCtx)
@@ -1567,14 +1567,14 @@ func TestInvokeEditRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 		ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
 		WorkspaceRoot:    root,
 	}}
-	if _, err := executor.invokeRead(map[string]any{"file_path": "main.go", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "main.go", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "main.go",
-		"old_string":  "bad",
-		"new_string":  "main",
+		"filePath":    "main.go",
+		"oldString":   "bad",
+		"newString":   "main",
 		"description": "编辑 Go 文件",
 	}, execCtx)
 	if err != nil {
@@ -1595,7 +1595,7 @@ func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T)
 	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
 
 	if _, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "notes.txt",
+		"filePath":    "notes.txt",
 		"content":     "hello",
 		"description": "写入普通文件",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "REACT", WorkspaceRoot: root}}); err != nil {
@@ -1606,7 +1606,7 @@ func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T)
 	}
 
 	if _, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "notes2.txt",
+		"filePath":    "notes2.txt",
 		"content":     "hello",
 		"description": "写入普通文件",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER", ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true}}}); err != nil {
@@ -1620,7 +1620,7 @@ func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T)
 		t.Fatalf("write existing fixture: %v", err)
 	}
 	failed, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "existing.txt",
+		"filePath":    "existing.txt",
 		"content":     "new",
 		"description": "写入已有文件",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER", ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true}, WorkspaceRoot: root}})
@@ -1643,7 +1643,7 @@ func TestInvokeWriteRejectsExistingFileThatWasNotRead(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, fileToolExecutionContext(root))
@@ -1663,7 +1663,7 @@ func TestInvokeWriteRejectsFileModifiedSinceRead(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	time.Sleep(time.Millisecond)
@@ -1672,7 +1672,7 @@ func TestInvokeWriteRejectsFileModifiedSinceRead(t *testing.T) {
 	}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, execCtx)
@@ -1699,7 +1699,7 @@ func TestInvokeWriteAllowsChatScopedSnapshotAcrossRuns(t *testing.T) {
 	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
 
 	readCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-file-state", RunID: "run-read"}}
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, readCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, readCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	ledgerPath := filepath.Join(store.ChatDir("chat-file-state"), chat.ToolRootDirName, chat.ToolStateDirName, chat.FileVersionsFileName)
@@ -1709,7 +1709,7 @@ func TestInvokeWriteAllowsChatScopedSnapshotAcrossRuns(t *testing.T) {
 
 	writeCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-file-state", RunID: "run-write"}}
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, writeCtx)
@@ -1741,7 +1741,7 @@ func TestInvokeReadDoesNotPersistChatLedgerInReadOnlyMode(t *testing.T) {
 		Session:             contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-btw-file-read", RunID: "run-btw"},
 		ToolExecutionPolicy: contracts.ToolExecutionPolicyReadOnly,
 	}
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	ledgerPath := filepath.Join(store.ChatDir("chat-btw-file-read"), chat.ToolRootDirName, chat.ToolStateDirName, chat.FileVersionsFileName)
@@ -1763,11 +1763,11 @@ func TestInvokeWriteDoesNotReuseChatSnapshotForDifferentChat(t *testing.T) {
 	executor.chats = store
 	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
 
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-a", RunID: "run-read"}}); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-a", RunID: "run-read"}}); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-b", RunID: "run-write"}})
@@ -1792,7 +1792,7 @@ func TestInvokeWriteRejectsModifiedFileAfterChatScopedSnapshot(t *testing.T) {
 	}
 	executor.chats = store
 	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-file-state", RunID: "run-read"}}); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-file-state", RunID: "run-read"}}); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	time.Sleep(time.Millisecond)
@@ -1801,7 +1801,7 @@ func TestInvokeWriteRejectsModifiedFileAfterChatScopedSnapshot(t *testing.T) {
 	}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-file-state", RunID: "run-write"}})
@@ -1827,7 +1827,7 @@ func TestInvokeWriteRejectsSameStatDifferentSHAAfterChatScopedSnapshot(t *testin
 	executor.chats = store
 	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
 	readCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-file-state", RunID: "run-read"}}
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, readCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, readCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	resolvedPath := filepath.Join(realPath(t, root), "owner.md")
@@ -1841,7 +1841,7 @@ func TestInvokeWriteRejectsSameStatDifferentSHAAfterChatScopedSnapshot(t *testin
 	}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-file-state", RunID: "run-write"}})
@@ -1866,13 +1866,13 @@ func TestInvokeEditRefreshesChatScopedSnapshot(t *testing.T) {
 	}
 	executor.chats = store
 	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-edit-state", RunID: "run-read"}}); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-edit-state", RunID: "run-read"}}); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	if result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "old",
-		"new_string":  "edited",
+		"filePath":    "owner.md",
+		"oldString":   "old",
+		"newString":   "edited",
 		"description": "编辑 owner 文档",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-edit-state", RunID: "run-edit"}}); err != nil {
 		t.Fatalf("invokeEdit: %v", err)
@@ -1880,7 +1880,7 @@ func TestInvokeEditRefreshesChatScopedSnapshot(t *testing.T) {
 		t.Fatalf("expected edit success, got %#v", result)
 	}
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "final",
 		"description": "写入 owner 文档",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{WorkspaceRoot: root, ChatID: "chat-edit-state", RunID: "run-write"}})
@@ -1903,11 +1903,11 @@ func TestInvokeWriteAllowsReadThenWriteAndRefreshesSnapshot(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, execCtx)
@@ -1934,12 +1934,12 @@ func TestInvokeWritePreservesExistingGB18030EncodingByDefault(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "settings.ini", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "settings.ini", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "settings.ini",
+		"filePath":    "settings.ini",
 		"content":     "标题=新值\n",
 		"description": "写入 GBK 配置",
 	}, execCtx)
@@ -1971,7 +1971,7 @@ func TestInvokeWriteRejectsExplicitNonFileEncodings(t *testing.T) {
 	for _, encoding := range []string{"shift_jis", "euc-kr", "cp437"} {
 		t.Run(encoding, func(t *testing.T) {
 			result, err := executor.invokeWrite(context.Background(), map[string]any{
-				"file_path":   encoding + ".txt",
+				"filePath":    encoding + ".txt",
 				"content":     "plain text\n",
 				"encoding":    encoding,
 				"description": "写入指定编码文件",
@@ -1994,11 +1994,11 @@ func TestInvokeReadAfterWriteAndEditReturnsFreshContent(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md"}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md"}, execCtx); err != nil {
 		t.Fatalf("initial read: %v", err)
 	}
 	if result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new\n",
 		"description": "写入 owner 文档",
 	}, execCtx); err != nil {
@@ -2006,7 +2006,7 @@ func TestInvokeReadAfterWriteAndEditReturnsFreshContent(t *testing.T) {
 	} else if result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("expected write success, got %#v", result)
 	}
-	afterWrite, err := executor.invokeRead(map[string]any{"file_path": "owner.md"}, execCtx)
+	afterWrite, err := executor.invokeRead(map[string]any{"filePath": "owner.md"}, execCtx)
 	if err != nil {
 		t.Fatalf("read after write: %v", err)
 	}
@@ -2014,16 +2014,16 @@ func TestInvokeReadAfterWriteAndEditReturnsFreshContent(t *testing.T) {
 		t.Fatalf("expected fresh read after write, got %#v", afterWrite.Structured)
 	}
 	if result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "new",
-		"new_string":  "edited",
+		"filePath":    "owner.md",
+		"oldString":   "new",
+		"newString":   "edited",
 		"description": "编辑 owner 文档",
 	}, execCtx); err != nil {
 		t.Fatalf("invokeEdit: %v", err)
 	} else if result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("expected edit success, got %#v", result)
 	}
-	afterEdit, err := executor.invokeRead(map[string]any{"file_path": "owner.md"}, execCtx)
+	afterEdit, err := executor.invokeRead(map[string]any{"filePath": "owner.md"}, execCtx)
 	if err != nil {
 		t.Fatalf("read after edit: %v", err)
 	}
@@ -2046,11 +2046,11 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	writeCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "write.md", "limit": float64(1), "add_line_numbers": false}, writeCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "write.md", "limit": float64(1), "addLineNumbers": false}, writeCtx); err != nil {
 		t.Fatalf("partial read for write: %v", err)
 	}
 	writeResult, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "write.md",
+		"filePath":    "write.md",
 		"content":     "new\n",
 		"description": "写入 owner 文档",
 	}, writeCtx)
@@ -2063,13 +2063,13 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 	assertErrorMessageContains(t, writeResult, "fully read")
 
 	editCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "edit.md", "limit": float64(1), "add_line_numbers": false}, editCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "edit.md", "limit": float64(1), "addLineNumbers": false}, editCtx); err != nil {
 		t.Fatalf("partial read for edit: %v", err)
 	}
 	editResult, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "edit.md",
-		"old_string":  "one",
-		"new_string":  "uno",
+		"filePath":    "edit.md",
+		"oldString":   "one",
+		"newString":   "uno",
 		"description": "编辑 owner 文档",
 	}, editCtx)
 	if err != nil {
@@ -2082,7 +2082,7 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 
 	executor.cfg.FileTools.MaxReadBytes = 3
 	truncatedCtx := fileToolExecutionContext(root)
-	readResult, err := executor.invokeRead(map[string]any{"file_path": "truncated.md", "add_line_numbers": false}, truncatedCtx)
+	readResult, err := executor.invokeRead(map[string]any{"filePath": "truncated.md", "addLineNumbers": false}, truncatedCtx)
 	if err != nil {
 		t.Fatalf("truncated read: %v", err)
 	}
@@ -2090,7 +2090,7 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 		t.Fatalf("expected truncated read, got %#v", readResult.Structured)
 	}
 	truncatedWrite, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "truncated.md",
+		"filePath":    "truncated.md",
 		"content":     "new\n",
 		"description": "写入 owner 文档",
 	}, truncatedCtx)
@@ -2108,7 +2108,7 @@ func TestInvokeWriteReportsLineStatsForNewFile(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "one\ntwo",
 		"description": "写入 owner 文档",
 	}, fileToolExecutionContext(root))
@@ -2129,12 +2129,12 @@ func TestInvokeWriteReportsLineStatsForOverwrite(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "one\nTWO\nthree\nfour\n",
 		"description": "写入 owner 文档",
 	}, execCtx)
@@ -2155,12 +2155,12 @@ func TestInvokeWriteAllowsConsecutiveWritesAfterSnapshotRefresh(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md"}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md"}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	for _, content := range []string{"one", "two"} {
 		result, err := executor.invokeWrite(context.Background(), map[string]any{
-			"file_path":   "owner.md",
+			"filePath":    "owner.md",
 			"content":     content,
 			"description": "写入 owner 文档",
 		}, execCtx)
@@ -2186,7 +2186,7 @@ func TestInvokeWriteCanDisableReadBeforeWrite(t *testing.T) {
 	executor.cfg.FileTools.RequireReadBeforeWrite = false
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   "owner.md",
+		"filePath":    "owner.md",
 		"content":     "new",
 		"description": "写入 owner 文档",
 	}, fileToolExecutionContext(root))
@@ -2204,7 +2204,7 @@ func TestInvokeWriteMaxBytes(t *testing.T) {
 	executor.cfg.FileTools.MaxWriteBytes = 3
 
 	result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
-		"file_path":   "too-big.txt",
+		"filePath":    "too-big.txt",
 		"content":     strings.Repeat("x", 4),
 		"description": "写入测试文件",
 	}, fileToolExecutionContext(root))
@@ -2224,14 +2224,14 @@ func TestInvokeEditReplacesUniqueStringAndRefreshesSnapshot(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "world",
-		"new_string":  "agent",
+		"filePath":    "owner.md",
+		"oldString":   "world",
+		"newString":   "agent",
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
@@ -2258,14 +2258,14 @@ func TestInvokeEditPreservesGB18030Encoding(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "settings.ini", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "settings.ini", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "settings.ini",
-		"old_string":  "测试",
-		"new_string":  "中文",
+		"filePath":    "settings.ini",
+		"oldString":   "测试",
+		"newString":   "中文",
 		"description": "编辑 GBK 配置",
 	}, execCtx)
 	if err != nil {
@@ -2297,14 +2297,14 @@ func TestInvokeEditLineStatsIgnoreUnchangedContext(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "alpha\nold value\nomega\n",
-		"new_string":  "alpha\nnew value\nomega\n",
+		"filePath":    "owner.md",
+		"oldString":   "alpha\nold value\nomega\n",
+		"newString":   "alpha\nnew value\nomega\n",
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
@@ -2324,14 +2324,14 @@ func TestInvokeEditReplaceAllAndMultipleMatchRejection(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	rejected, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "one",
-		"new_string":  "two",
+		"filePath":    "owner.md",
+		"oldString":   "one",
+		"newString":   "two",
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
@@ -2342,17 +2342,17 @@ func TestInvokeEditReplaceAllAndMultipleMatchRejection(t *testing.T) {
 	}
 
 	edited, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "one",
-		"new_string":  "two",
-		"replace_all": true,
+		"filePath":    "owner.md",
+		"oldString":   "one",
+		"newString":   "two",
+		"replaceAll":  true,
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeEdit replace all: %v", err)
 	}
 	if edited.Error != "" || edited.Structured["replacements"] != 2 {
-		t.Fatalf("expected replace_all success, got %#v", edited)
+		t.Fatalf("expected replaceAll success, got %#v", edited)
 	}
 	assertResultLineStats(t, edited, 2, 2, 2)
 	if got, err := os.ReadFile(path); err != nil || string(got) != "two\nsame\ntwo\n" {
@@ -2368,14 +2368,14 @@ func TestInvokeEditRejectsMissingStringAndIdenticalStrings(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	missing, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "absent",
-		"new_string":  "new",
+		"filePath":    "owner.md",
+		"oldString":   "absent",
+		"newString":   "new",
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
@@ -2386,9 +2386,9 @@ func TestInvokeEditRejectsMissingStringAndIdenticalStrings(t *testing.T) {
 	}
 
 	same, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "hello",
-		"new_string":  "hello",
+		"filePath":    "owner.md",
+		"oldString":   "hello",
+		"newString":   "hello",
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
@@ -2412,13 +2412,13 @@ func TestInvokeEditMissingStringReportsDiagnostics(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	indentCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "indent.go", "add_line_numbers": false}, indentCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "indent.go", "addLineNumbers": false}, indentCtx); err != nil {
 		t.Fatalf("read indent: %v", err)
 	}
 	indentResult, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "indent.go",
-		"old_string":  "\t\t\tif ok {\n\t\t\t\treturn nil\n\t\t\t}\n",
-		"new_string":  "\t\tif ok {\n\t\t\treturn nil\n\t\t}\n",
+		"filePath":    "indent.go",
+		"oldString":   "\t\t\tif ok {\n\t\t\t\treturn nil\n\t\t\t}\n",
+		"newString":   "\t\tif ok {\n\t\t\treturn nil\n\t\t}\n",
 		"description": "编辑缩进测试",
 	}, indentCtx)
 	if err != nil {
@@ -2436,13 +2436,13 @@ func TestInvokeEditMissingStringReportsDiagnostics(t *testing.T) {
 	}
 
 	appliedCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "applied.txt", "add_line_numbers": false}, appliedCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "applied.txt", "addLineNumbers": false}, appliedCtx); err != nil {
 		t.Fatalf("read applied: %v", err)
 	}
 	appliedResult, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "applied.txt",
-		"old_string":  "hello world",
-		"new_string":  "hello agent",
+		"filePath":    "applied.txt",
+		"oldString":   "hello world",
+		"newString":   "hello agent",
 		"description": "编辑已应用测试",
 	}, appliedCtx)
 	if err != nil {
@@ -2466,9 +2466,9 @@ func TestInvokeEditCreatesNewFileWithEmptyOldString(t *testing.T) {
 	execCtx := fileToolExecutionContext(root)
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "new.md",
-		"old_string":  "",
-		"new_string":  "hello\n",
+		"filePath":    "new.md",
+		"oldString":   "",
+		"newString":   "hello\n",
 		"description": "创建文件",
 	}, execCtx)
 	if err != nil {
@@ -2493,9 +2493,9 @@ func TestInvokeEditRequiresReadForExistingFileAndRejectsExternalChanges(t *testi
 	execCtx := fileToolExecutionContext(root)
 
 	notRead, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "old",
-		"new_string":  "new",
+		"filePath":    "owner.md",
+		"oldString":   "old",
+		"newString":   "new",
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
@@ -2506,7 +2506,7 @@ func TestInvokeEditRequiresReadForExistingFileAndRejectsExternalChanges(t *testi
 	}
 	assertErrorMessageContains(t, notRead, "fully read")
 
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	time.Sleep(time.Millisecond)
@@ -2514,9 +2514,9 @@ func TestInvokeEditRequiresReadForExistingFileAndRejectsExternalChanges(t *testi
 		t.Fatalf("external write: %v", err)
 	}
 	modified, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "external",
-		"new_string":  "new",
+		"filePath":    "owner.md",
+		"oldString":   "external",
+		"newString":   "new",
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
@@ -2536,13 +2536,13 @@ func TestInvokeEditConsumesApprovalAndPreservesCRLF(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 	execCtx := fileToolExecutionContext(workspace)
-	if _, err := executor.invokeRead(map[string]any{"file_path": path, "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": path, "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	args := map[string]any{
-		"file_path":   path,
-		"old_string":  "hello\nworld",
-		"new_string":  "hello\nagent",
+		"filePath":    path,
+		"oldString":   "hello\nworld",
+		"newString":   "hello\nagent",
 		"description": "编辑 owner 文档",
 	}
 	plan := fileToolEditPlan(t, executor, args)
@@ -2573,14 +2573,14 @@ func TestInvokeEditPreservesMixedLineEndings(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := fileToolExecutionContext(root)
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "old value",
-		"new_string":  "new value",
+		"filePath":    "owner.md",
+		"oldString":   "old value",
+		"newString":   "new value",
 		"description": "编辑 owner 文档",
 	}, execCtx)
 	if err != nil {
@@ -2609,14 +2609,14 @@ func TestInvokeEditInsideSessionWorkspaceBypassesWriteApproval(t *testing.T) {
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: root},
 		},
 	}}
-	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":   "owner.md",
-		"old_string":  "old",
-		"new_string":  "new",
+		"filePath":    "owner.md",
+		"oldString":   "old",
+		"newString":   "new",
 		"description": "编辑 workspace 文件",
 	}, execCtx)
 	if err != nil {
@@ -2636,8 +2636,8 @@ func TestInvokeWriteWithoutDescription(t *testing.T) {
 	executor := fileToolExecutor(root, true)
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": filepath.Join(root, "owner.md"),
-		"content":   "hello",
+		"filePath": filepath.Join(root, "owner.md"),
+		"content":  "hello",
 	}, fileToolExecutionContext(workspace))
 	if err != nil {
 		t.Fatalf("invokeWrite without description: %v", err)
@@ -2657,14 +2657,14 @@ func TestInvokeEditWithoutDescription(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 	execCtx := fileToolExecutionContext(workspace)
-	if _, err := executor.invokeRead(map[string]any{"file_path": path, "add_line_numbers": false}, execCtx); err != nil {
+	if _, err := executor.invokeRead(map[string]any{"filePath": path, "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	result, err := executor.invokeEdit(context.Background(), map[string]any{
-		"file_path":  path,
-		"old_string": "old",
-		"new_string": "new",
+		"filePath":  path,
+		"oldString": "old",
+		"newString": "new",
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeEdit without description: %v", err)

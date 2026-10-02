@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/models"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/skills"
+	"agent-platform/internal/toolargs"
 )
 
 // ArtifactPusher 是 tool_artifact 产物外发的最小依赖面：由应用层注入（通常是
@@ -167,6 +168,9 @@ func (t *RuntimeToolExecutor) runtimeInfo() runtimeenv.Info {
 }
 
 func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if err := toolargs.RejectLegacy(toolName, args); err != nil {
+		return ToolExecutionResult{Error: "invalid_tool_arguments", Output: err.Error(), ExitCode: -1}, nil
+	}
 	result, err := t.invoke(ctx, toolName, args, execCtx)
 	if err == nil && runtimeToolUsesCompactModelOutput(toolName) {
 		result.Output = CompactToolModelOutput(result.Structured, result.Output)

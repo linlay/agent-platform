@@ -101,7 +101,7 @@ func ripgrepSearchFailure(
 			sortGrepFiles(lines)
 		}
 		partialLimit := defaultPartialLimit
-		if requested := numericArg(args, "head_limit"); requested > 0 && requested < partialLimit {
+		if requested := numericArg(args, "headLimit"); requested > 0 && requested < partialLimit {
 			partialLimit = requested
 		}
 		partialResults, partialTruncated := pageGrepResults(lines, 0, partialLimit)

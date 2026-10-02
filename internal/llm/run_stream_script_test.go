@@ -42,7 +42,7 @@ func (*streamingOutputToolExecutor) ReviewBashAccess(ctx context.Context, args m
 func TestScriptBatchWriteBarrierPreservesOrder(t *testing.T) {
 	executor := &recordingToolExecutor{}
 	stream := &llmRunStream{ctx: context.Background(), engine: &LLMAgentEngine{tools: executor}, execCtx: &ExecutionContext{}}
-	write := &preparedToolInvocation{toolID: "write", toolName: "file_write", args: map[string]any{"file_path": "task.sh", "content": "echo ok"}}
+	write := &preparedToolInvocation{toolID: "write", toolName: "file_write", args: map[string]any{"filePath": "task.sh", "content": "echo ok"}}
 	bash := &preparedToolInvocation{toolID: "run", toolName: "bash", args: map[string]any{"command": "sh task.sh"}}
 	stream.queuedToolCalls = []*preparedToolInvocation{write, bash}
 	if stream.prepareQueuedBashApprovalBatch() {

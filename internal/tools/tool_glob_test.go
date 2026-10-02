@@ -226,9 +226,9 @@ func TestInvokeGlobPaginationUsesModifiedTimeOrder(t *testing.T) {
 	executor := fileToolExecutor(root, false)
 
 	result, err := executor.invokeGlob(context.Background(), map[string]any{
-		"pattern":    "*.go",
-		"head_limit": 1,
-		"offset":     1,
+		"pattern":   "*.go",
+		"headLimit": 1,
+		"offset":    1,
 	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGlob: %v", err)

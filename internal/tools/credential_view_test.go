@@ -27,15 +27,15 @@ func TestCredentialFileReadsAreBlocked(t *testing.T) {
 	}
 	// The identity file is platform state and is blocked; provider definitions
 	// are ordinary configuration whose secret fields are redacted when read.
-	identity, err := executor.invokeRead(map[string]any{"file_path": executor.cfg.IdentityFile, "add_line_numbers": false}, fileToolExecutionContext(root))
+	identity, err := executor.invokeRead(map[string]any{"filePath": executor.cfg.IdentityFile, "addLineNumbers": false}, fileToolExecutionContext(root))
 	if err != nil || identity.Error != "file_read_path_blocked" || strings.Contains(identity.Output, "opaque-identity-token") {
 		t.Fatal(err, identity)
 	}
-	providerRead, err := executor.invokeRead(map[string]any{"file_path": provider, "add_line_numbers": false}, fileToolExecutionContext(root))
+	providerRead, err := executor.invokeRead(map[string]any{"filePath": provider, "addLineNumbers": false}, fileToolExecutionContext(root))
 	if err != nil || providerRead.Error != "" || strings.Contains(providerRead.Output, "private-api-key") || !strings.Contains(providerRead.Output, "REDACTED") {
 		t.Fatal("provider read must succeed with redaction", err, providerRead.Output)
 	}
-	result, err := executor.invokeRead(map[string]any{"file_path": provider, "offset": 2, "limit": 1, "add_line_numbers": false}, fileToolExecutionContext(root))
+	result, err := executor.invokeRead(map[string]any{"filePath": provider, "offset": 2, "limit": 1, "addLineNumbers": false}, fileToolExecutionContext(root))
 	if err != nil || strings.Contains(result.Output, "private-api-key") {
 		t.Fatal(err, result.Output)
 	}
@@ -45,7 +45,7 @@ func TestCredentialFileReadsAreBlocked(t *testing.T) {
 	}
 	alias := filepath.Join(root, "public-alias.yml")
 	if err := os.Symlink(provider, alias); err == nil {
-		result, err := executor.invokeRead(map[string]any{"file_path": alias}, fileToolExecutionContext(root))
+		result, err := executor.invokeRead(map[string]any{"filePath": alias}, fileToolExecutionContext(root))
 		if err != nil || strings.Contains(result.Output, "private-api-key") {
 			t.Fatal(err, result.Output)
 		}

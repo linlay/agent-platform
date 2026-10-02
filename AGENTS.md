@@ -37,7 +37,7 @@
 
 `contextConfig.agents` 为非授权的候选摘要引用：不可用项跳过，正常主 Agent 保持可用，管理接口与运行日志提供有界 `context_agents_unavailable` 警告，实际调用与必要执行依赖仍严格校验，见 [智能体配置说明](docs/智能体配置说明.md#context-tags)。Agent 加载不再由 Desktop 工具名强制推导 `builtin.desktop` 声明；执行时的受信任挂载与权限检查保留，见 [Desktop 连接器](docs/连接器共享包与Desktop迁移.md#builtindesktop)。
 
-Native Agent 可显式挂载 `sleep(duration_ms)`，在当前 Run 内等待，steer 唤醒后由同一模型循环处理；`tool.wait` 提供客户端倒计时信息，客户端界面尚需接入。见 [原生等待工具](docs/原生等待工具.md)。
+Native Agent 可显式挂载 `sleep(durationMs)`，在当前 Run 内等待，steer 唤醒后由同一模型循环处理；`tool.wait` 提供客户端倒计时信息，客户端界面尚需接入。见 [原生等待工具](docs/原生等待工具.md)。
 
 ## 2. 技术栈
 
@@ -280,3 +280,5 @@ Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`�
 技能管理 HTTP：`GET /api/admin/skills` 返回 `{skills,packages,pinned}`，`PUT /api/admin/skills/pin {id,pinned}` 返回 `{pinned}`，复用用户级 skillOrder 存储但不注册 WS。旧包列表 GET 保留供 Desktop；管理页不再消费使用端 `/api/skills`。新列表对象结构需与 WebClient 同批发布，详见 API与协议。
 
 Platform 在启动时读取 `configs/tools.yml` 顶层 `preset-tools`，自动挂载到普通 Native GENERAL/CODER/KBASE（含子智能体和 Team 成员），不写入 agent.yml；缺省或空数组不预置，未知名称启动失败。`toolConfig.excludeTools` 排除预置与自身工具，不影响连接器和运行时自动依赖；ACP 不接受非空工具及排除配置，隐藏 Team 协调器仍使用固定集合。详情 `toolBindings` 提供来源、锁定、排除和实际生效状态；结构化保存保留源码排除项和旧有显式声明，创建时动态去除预置重复项。见 [智能体配置说明](docs/智能体配置说明.md#platform-预置工具)。
+
+内置工具名保持小写及下划线，平台自有输入字段统一 camelCase；旧参数名在模型准备与工具调用边界明确拒绝，不做别名转换。图片来源使用 sourceType: referenceName/filePath。内嵌及 agent-local 工具定义只接受 inputSchema，parameters 硬失败。协议透传、上游 Images response_format 与存储列名保持原契约；历史不改写，拒绝的旧文件写入参数仍需脱敏。详见 [工具输入命名](docs/MCP与工具交互.md#工具输入命名)。

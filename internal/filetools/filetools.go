@@ -66,7 +66,7 @@ func BuildAccessPlanFromPolicy(cfg config.AccessPolicyConfig, session QuerySessi
 	plan, err := accesspolicy.BuildPathPlan(cfg, session, policyMode, rawPath)
 	if err != nil {
 		if strings.Contains(err.Error(), "path is required") {
-			return AccessPlan{}, fmt.Errorf("file_path is required")
+			return AccessPlan{}, fmt.Errorf("filePath is required")
 		}
 		return AccessPlan{}, err
 	}
@@ -157,23 +157,23 @@ func BuildWritePlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, arg
 }
 
 func BuildEditPlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args map[string]any) (WritePlan, error) {
-	oldString, ok := args["old_string"].(string)
+	oldString, ok := args["oldString"].(string)
 	if !ok {
-		return WritePlan{}, fmt.Errorf("old_string is required for edit")
+		return WritePlan{}, fmt.Errorf("oldString is required for edit")
 	}
-	newString, ok := args["new_string"].(string)
+	newString, ok := args["newString"].(string)
 	if !ok {
-		return WritePlan{}, fmt.Errorf("new_string is required for edit")
+		return WritePlan{}, fmt.Errorf("newString is required for edit")
 	}
 	if oldString == newString {
-		return WritePlan{}, fmt.Errorf("old_string and new_string must be different")
+		return WritePlan{}, fmt.Errorf("oldString and newString must be different")
 	}
 	description := strings.TrimSpace(AnyStringNode(args["description"]))
 	encodingName := strings.TrimSpace(AnyStringNode(args["encoding"]))
 	if len([]byte(newString)) > maxPositive(cfg.MaxWriteBytes, 1<<20) {
-		return WritePlan{}, fmt.Errorf("new_string exceeds max write bytes")
+		return WritePlan{}, fmt.Errorf("newString exceeds max write bytes")
 	}
-	replaceAll := AnyBoolNode(args["replace_all"])
+	replaceAll := AnyBoolNode(args["replaceAll"])
 	pathKey, rootKey, err := canonicalAccessKeys(access)
 	if err != nil {
 		return WritePlan{}, err
@@ -189,7 +189,7 @@ func BuildEditPlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args
 	rootHash := sha256.Sum256([]byte("file_edit\x00" + rootKey))
 	commandText := fmt.Sprintf("file_edit %s (%d -> %d bytes)", access.Path, len([]byte(oldString)), len([]byte(newString)))
 	if replaceAll {
-		commandText += " replace_all"
+		commandText += " replaceAll"
 	}
 	return WritePlan{
 		FilePath:    access.Path,

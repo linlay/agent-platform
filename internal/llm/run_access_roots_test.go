@@ -52,19 +52,19 @@ func TestMustUseSkillRunAccessSkipsReadHITLAndBlocksMutation(t *testing.T) {
 		execCtx: &contracts.ExecutionContext{Session: session},
 	}
 
-	selectedRead := &preparedToolInvocation{toolName: "file_read", args: map[string]any{"file_path": "@skills/selected/SKILL.md"}}
+	selectedRead := &preparedToolInvocation{toolName: "file_read", args: map[string]any{"filePath": "@skills/selected/SKILL.md"}}
 	selectedPlan := stream.lookupFileAccessPlan(selectedRead)
 	if selectedPlan == nil || selectedPlan.Blocked || stream.fileAccessPlanNeedsApproval(*selectedPlan) {
 		t.Fatalf("selected skill read should not need HITL: %#v", selectedPlan)
 	}
-	siblingRead := &preparedToolInvocation{toolName: "file_read", args: map[string]any{"file_path": "@skills/sibling/SKILL.md"}}
+	siblingRead := &preparedToolInvocation{toolName: "file_read", args: map[string]any{"filePath": "@skills/sibling/SKILL.md"}}
 	siblingPlan := stream.lookupFileAccessPlan(siblingRead)
 	if siblingPlan == nil || !stream.fileAccessPlanNeedsApproval(*siblingPlan) {
 		t.Fatalf("unselected sibling should still need HITL: %#v", siblingPlan)
 	}
 	selectedWrite := &preparedToolInvocation{toolName: "file_write", args: map[string]any{
-		"file_path": "@skills/selected/SKILL.md",
-		"content":   "changed",
+		"filePath": "@skills/selected/SKILL.md",
+		"content":  "changed",
 	}}
 	writePlan := stream.lookupFileAccessPlan(selectedWrite)
 	if writePlan == nil || !writePlan.Blocked || stream.fileAccessPlanNeedsApproval(*writePlan) {

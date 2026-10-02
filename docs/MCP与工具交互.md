@@ -42,7 +42,7 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 ## 图片生成与产物发布 URL
 
-`image_generate` 统一覆盖文生图、图生图和局部重绘：省略 `images` 是文生图；传入 1–4 张 `images` 时，第一张固定为编辑主体，其余为参考图；可选 `mask` 固定作用于第一张图。图片和 mask 每项使用 `{"source_type":"reference_name","value":"image.png"}` 或 `{"source_type":"file_path","value":"@chat/image.png"}`；旧属性和字符串元素会在 provider 调用前失败。路径继续经过 AccessPolicy/HITL。运行时保留输入原始字节和 Alpha 通道，不使用视觉识别工具的大图 JPEG 重编码。
+`image_generate` 统一覆盖文生图、图生图和局部重绘：省略 `images` 是文生图；传入 1–4 张 `images` 时，第一张固定为编辑主体，其余为参考图；可选 `mask` 固定作用于第一张图。图片和 mask 每项使用 `{"sourceType":"referenceName","value":"image.png"}` 或 `{"sourceType":"filePath","value":"@chat/image.png"}`；旧属性和字符串元素会在 provider 调用前失败。路径继续经过 AccessPolicy/HITL。运行时保留输入原始字节和 Alpha 通道，不使用视觉识别工具的大图 JPEG 重编码。
 
 模型请求协议完全由模型 YAML 的 `image.generation` 与 `image.edit` 决定。GPT Image 可分别使用 Images JSON/Multipart；Gemini Image 可让文生图和图生图都使用 Chat Completions。runtime 不按 model key、modelId 或 provider 硬编码路由，profile 也不能覆盖 endpoint。
 
@@ -214,3 +214,29 @@ Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surfa
 ### Desktop 确认期限与取消
 
 反向 request 的可选顶层 `deadlineAt` 是 Platform 从实际工具 context 截止时间生成的 epoch milliseconds，不接受模型参数声明。Desktop 确认队列从入队开始计时，包括尚未展示的请求；确认期限不能超过工具剩余期限，并为执行与返回预留时间。Platform 到期或取消仍发送 `desktop.bridge.cancel`，Desktop 必须终止尚未执行的确认并关闭对应弹窗，不能在迟到确认后继续执行。已经执行的副作用不因取消而被视为回滚。Desktop 确认超时、用户取消、窗口不可用的错误原因通过既有诊断位置透传；Platform 自身工具超时和取消保持独立错误。
+
+
+## 工具输入命名
+
+工具名保持小写单词或 snake_case；平台自有输入键统一 camelCase，嵌套对象同样遵守。旧键不再接受：模型调用准备阶段、ToolRouter 与原生执行器入口检查已移除字段，返回 `invalid_tool_arguments` 和替代字段名，新旧键同时出现也拒绝。检查只覆盖指定平台工具及字段路径，不改写参数或枚举值，不遍历 CDP/MCP/AWCP 透传业务对象。
+
+| 工具 | 旧字段 | 新字段 |
+| --- | --- | --- |
+| file_read / file_write / file_edit | file_path | filePath |
+| file_read | add_line_numbers | addLineNumbers |
+| file_edit | old_string / new_string / replace_all | oldString / newString / replaceAll |
+| file_glob / file_grep / kbase_files | head_limit | headLimit |
+| file_grep | output_mode | outputMode |
+| file_grep | -A / -B / -C | afterContext / beforeContext / context |
+| file_grep | -i / -n | caseInsensitive / lineNumbers |
+| regex | case_insensitive | caseInsensitive |
+| sleep | duration_ms | durationMs |
+| image_generate | images[].source_type / mask.source_type | images[].sourceType / mask.sourceType |
+| image_generate | response_format | responseFormat |
+| vision_recognize | images[].file_path / images[].reference_name / output_format | images[].filePath / images[].referenceName / outputFormat |
+
+`image_generate` 的 `sourceType` 枚举由 `reference_name/file_path` 改成 `referenceName/filePath`；`files_with_matches`、`white_edit`、`b64_json` 等其他枚举不改。`desktop_action` 返回的 `visionRecognizeImage.reference_name` 改成 `visionRecognizeImage.referenceName`，可直接作为识图工具的图片对象。
+
+工具定义只接受 `inputSchema`；包括 agent-local 定义在内，使用旧 `parameters` 字段将加载失败。JSON Schema 标准关键字、上游 Images 请求体的 `response_format`、Lance 的 `source_type` 存储列不在本次改名范围。
+
+历史 JSONL 与模型原始消息不做字段迁移；旧会话继续调用旧参数时返回明确错误，由模型使用新名重试。文件写入的旧名或混合名调用即使被拒绝，也必须在展示、历史与 trace 副本中隐藏内容，不能依赖执行校验替代脱敏。Desktop 图片调用方需与 Platform 同批升级；本地提示词及自建技能中的旧示例也需更新。

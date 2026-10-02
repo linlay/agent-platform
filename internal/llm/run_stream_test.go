@@ -1055,7 +1055,7 @@ func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 		execCtx:      &contracts.ExecutionContext{Session: session},
 		maxSteps:     2,
 		allowToolUse: true,
-		currentTurn:  providerTurnWithToolCall("tool_1", "file_write", `{"file_path":"owner.md","content":"one\ntwo\n"}`),
+		currentTurn:  providerTurnWithToolCall("tool_1", "file_write", `{"filePath":"owner.md","content":"one\ntwo\n"}`),
 	}
 
 	if err := stream.finishCurrentTurn(); err != nil {
@@ -1100,7 +1100,7 @@ func TestFinishCurrentTurnEstimatesFileEditChangeOnToolEnd(t *testing.T) {
 		execCtx:      &contracts.ExecutionContext{Session: session},
 		maxSteps:     2,
 		allowToolUse: true,
-		currentTurn:  providerTurnWithToolCall("tool_1", "file_edit", `{"file_path":"owner.md","old_string":"hello world","new_string":"hello agent"}`),
+		currentTurn:  providerTurnWithToolCall("tool_1", "file_edit", `{"filePath":"owner.md","oldString":"hello world","newString":"hello agent"}`),
 	}
 
 	if err := stream.finishCurrentTurn(); err != nil {
@@ -2277,7 +2277,7 @@ func TestPrepareToolCallReadOnlyPolicyBlocksBeforeInvocationPreparation(t *testi
 		Type: "function",
 		Function: openAIFunctionCall{
 			Name:      "file_write",
-			Arguments: `{"file_path":"x.txt","content":"x"}`,
+			Arguments: `{"filePath":"x.txt","content":"x"}`,
 		},
 	})
 	if invocation != nil || toolMsg == nil || len(deltas) != 1 {
@@ -2522,7 +2522,7 @@ func TestPrepareToolCall_WriteToolDescriptionNotRequired(t *testing.T) {
 		Type: "function",
 		Function: openAIFunctionCall{
 			Name:      "file_write",
-			Arguments: `{"file_path":"/tmp/test.txt","content":"hello"}`,
+			Arguments: `{"filePath":"/tmp/test.txt","content":"hello"}`,
 		},
 	})
 	if invocation == nil {
@@ -2544,7 +2544,7 @@ func TestPrepareToolCall_WriteToolDescriptionNotRequired(t *testing.T) {
 		Type: "function",
 		Function: openAIFunctionCall{
 			Name:      "file_edit",
-			Arguments: `{"file_path":"/tmp/test.txt","old_string":"hello","new_string":"hi"}`,
+			Arguments: `{"filePath":"/tmp/test.txt","oldString":"hello","newString":"hi"}`,
 		},
 	})
 	if invocation2 == nil {
@@ -3303,7 +3303,7 @@ func TestWriteToolEmitsApprovalBeforeExecuting(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path":   filepath.Join(root, "owner.md"),
+				"filePath":    filepath.Join(root, "owner.md"),
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -3365,7 +3365,7 @@ func TestWriteToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path":   filepath.Join(chatDir, "artifact.md"),
+				"filePath":    filepath.Join(chatDir, "artifact.md"),
 				"content":     "hello",
 				"description": "写入 chat 产物",
 			},
@@ -3419,7 +3419,7 @@ func TestWriteToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path":   filepath.Join(ownerDir, "OWNER.md"),
+				"filePath":    filepath.Join(ownerDir, "OWNER.md"),
 				"content":     "hello",
 				"description": "写入 owner 文件",
 			},
@@ -3470,9 +3470,9 @@ func TestEditToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_edit",
 			args: map[string]any{
-				"file_path":   filepath.Join(chatDir, "artifact.md"),
-				"old_string":  "hello",
-				"new_string":  "hi",
+				"filePath":    filepath.Join(chatDir, "artifact.md"),
+				"oldString":   "hello",
+				"newString":   "hi",
 				"description": "编辑 chat 产物",
 			},
 		},
@@ -3525,9 +3525,9 @@ func TestEditToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_edit",
 			args: map[string]any{
-				"file_path":   filepath.Join(ownerDir, "OWNER.md"),
-				"old_string":  "hello",
-				"new_string":  "hi",
+				"filePath":    filepath.Join(ownerDir, "OWNER.md"),
+				"oldString":   "hello",
+				"newString":   "hi",
 				"description": "编辑 owner 文件",
 			},
 		},
@@ -3569,7 +3569,7 @@ func TestWriteToolApprovalUsesToolLabelInCommand(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path":   filepath.Join(root, "owner.md"),
+				"filePath":    filepath.Join(root, "owner.md"),
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -3617,7 +3617,7 @@ func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 			toolName:         "file_write",
 			approvalDecision: "approve",
 			args: map[string]any{
-				"file_path":   filepath.Join(root, "owner.md"),
+				"filePath":    filepath.Join(root, "owner.md"),
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -3667,9 +3667,9 @@ func TestEditToolEmitsApprovalBeforeExecuting(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_edit",
 			args: map[string]any{
-				"file_path":   filepath.Join(root, "owner.md"),
-				"old_string":  "hello",
-				"new_string":  "hi",
+				"filePath":    filepath.Join(root, "owner.md"),
+				"oldString":   "hello",
+				"newString":   "hi",
 				"description": "编辑 owner 文档",
 			},
 		},
@@ -3721,9 +3721,9 @@ func TestEditToolApprovalUsesToolLabelInCommand(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_edit",
 			args: map[string]any{
-				"file_path":   filepath.Join(root, "owner.md"),
-				"old_string":  "hello",
-				"new_string":  "hi",
+				"filePath":    filepath.Join(root, "owner.md"),
+				"oldString":   "hello",
+				"newString":   "hi",
 				"description": "编辑 owner 文档",
 			},
 		},
@@ -3772,9 +3772,9 @@ func TestEditToolApprovalExecutesAndEditsFile(t *testing.T) {
 			toolName:         "file_edit",
 			approvalDecision: "approve",
 			args: map[string]any{
-				"file_path":   filepath.Join(root, "owner.md"),
-				"old_string":  "hello",
-				"new_string":  "hi",
+				"filePath":    filepath.Join(root, "owner.md"),
+				"oldString":   "hello",
+				"newString":   "hi",
 				"description": "编辑 owner 文档",
 			},
 		},
@@ -3818,7 +3818,7 @@ func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_read",
 			args: map[string]any{
-				"file_path": filepath.Join(outside, "secret.txt"),
+				"filePath": filepath.Join(outside, "secret.txt"),
 			},
 		},
 	}
@@ -3925,9 +3925,9 @@ func TestFileEditPathApprovalUsesEditCommand(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_edit",
 			args: map[string]any{
-				"file_path":   filepath.Join(outside, "owner.md"),
-				"old_string":  "",
-				"new_string":  "hello",
+				"filePath":    filepath.Join(outside, "owner.md"),
+				"oldString":   "",
+				"newString":   "hello",
 				"description": "编辑 owner 文档",
 			},
 		},
@@ -3986,7 +3986,7 @@ func TestFileReadAccessAllowsSessionSkillsDirBeforeApproval(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_read",
 			args: map[string]any{
-				"file_path": skillFile,
+				"filePath": skillFile,
 			},
 		},
 	}
@@ -4032,7 +4032,7 @@ func TestFileReadAccessApprovalDecisions(t *testing.T) {
 					toolName:         "file_read",
 					approvalDecision: decision,
 					args: map[string]any{
-						"file_path": filepath.Join(outside, "secret.txt"),
+						"filePath": filepath.Join(outside, "secret.txt"),
 					},
 				},
 			}
@@ -4072,7 +4072,7 @@ func TestFileReadAccessAutoApproveRecordsApprovalSummary(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_read",
 			args: map[string]any{
-				"file_path": filepath.Join(outside, "secret.txt"),
+				"filePath": filepath.Join(outside, "secret.txt"),
 			},
 		},
 	}
@@ -4136,7 +4136,7 @@ func TestPendingFileReadApprovalResolvesAfterAccessLevelUpdate(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_read",
 			args: map[string]any{
-				"file_path": filepath.Join(outside, "secret.txt"),
+				"filePath": filepath.Join(outside, "secret.txt"),
 			},
 		},
 	}
@@ -4305,8 +4305,8 @@ func TestRunAuthoredChatAndTempScriptsAvoidUnexpectedAwaiting(t *testing.T) {
 				toolID:   "tool_write",
 				toolName: "file_write",
 				args: map[string]any{
-					"file_path": test.filePath,
-					"content":   "print('ok')\n",
+					"filePath": test.filePath,
+					"content":  "print('ok')\n",
 				},
 			}
 			if err := stream.invokeActiveToolCall(); err != nil {
@@ -4481,7 +4481,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 	stream.activeToolCall = &preparedToolInvocation{
 		toolID:   "tool_write",
 		toolName: "file_write",
-		args:     map[string]any{"file_path": "@chat/task.py", "content": "print('ok')\n"},
+		args:     map[string]any{"filePath": "@chat/task.py", "content": "print('ok')\n"},
 	}
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke file_write: %v", err)
@@ -4588,7 +4588,7 @@ func TestFileReadFullAccessDoesNotRecordApprovalSummary(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_read",
 			args: map[string]any{
-				"file_path": filepath.Join(outside, "secret.txt"),
+				"filePath": filepath.Join(outside, "secret.txt"),
 			},
 		},
 	}
@@ -4629,7 +4629,7 @@ func TestFileReadAccessRejectDoesNotExecute(t *testing.T) {
 			toolName:         "file_read",
 			approvalDecision: "reject",
 			args: map[string]any{
-				"file_path": filepath.Join(outside, "secret.txt"),
+				"filePath": filepath.Join(outside, "secret.txt"),
 			},
 		},
 	}
@@ -4666,7 +4666,7 @@ func TestFileReadAccessApprovalNoticeUsesPlanCommand(t *testing.T) {
 		toolID:   "tool_1",
 		toolName: "file_read",
 		args: map[string]any{
-			"file_path": "/etc/passwd",
+			"filePath": "/etc/passwd",
 		},
 		hitlDecision: &hitlDecisionState{
 			Decision: "approve",
@@ -4745,7 +4745,7 @@ func TestFileWriteAndEditApprovalNoticeUseToolLabel(t *testing.T) {
 			toolName: "file_write",
 			label:    "写入文件",
 			args: map[string]any{
-				"file_path":   "owner.md",
+				"filePath":    "owner.md",
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -4756,9 +4756,9 @@ func TestFileWriteAndEditApprovalNoticeUseToolLabel(t *testing.T) {
 			toolName: "file_edit",
 			label:    "编辑文件",
 			args: map[string]any{
-				"file_path":   "owner.md",
-				"old_string":  "hello",
-				"new_string":  "hi",
+				"filePath":    "owner.md",
+				"oldString":   "hello",
+				"newString":   "hi",
 				"description": "编辑 owner 文档",
 			},
 			expectedStart: "编辑文件 ",
@@ -4829,7 +4829,7 @@ func TestWriteOutsideAccessPolicyRootsCombinesPathAndContentApproval(t *testing.
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path":   filepath.Join(outside, "owner.md"),
+				"filePath":    filepath.Join(outside, "owner.md"),
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -4906,8 +4906,8 @@ func TestKBaseExternalWriteUsesCommonApprovalBeforeExecutor(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path": filepath.Join(outside, "owner.md"),
-				"content":   "blocked",
+				"filePath": filepath.Join(outside, "owner.md"),
+				"content":  "blocked",
 			},
 		},
 	}
@@ -4961,8 +4961,8 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 	invocation := &preparedToolInvocation{
 		toolName: "file_write",
 		args: map[string]any{
-			"file_path": target,
-			"content":   "blocked",
+			"filePath": target,
+			"content":  "blocked",
 		},
 	}
 	plan, ok := stream.buildFileAccessPlan(invocation)
@@ -4998,9 +4998,9 @@ func TestEditOutsideAccessPolicyRootsCombinesPathAndContentApprovalUsesToolLabel
 			toolID:   "tool_1",
 			toolName: "file_edit",
 			args: map[string]any{
-				"file_path":   filepath.Join(outside, "owner.md"),
-				"old_string":  "",
-				"new_string":  "hello",
+				"filePath":    filepath.Join(outside, "owner.md"),
+				"oldString":   "",
+				"newString":   "hello",
 				"description": "编辑 owner 文档",
 			},
 		},
@@ -5049,7 +5049,7 @@ func TestWriteOutsideAccessPolicyRootsCombinedSubmitExecutesOriginalToolCall(t *
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path":   filepath.Join(outside, "owner.md"),
+				"filePath":    filepath.Join(outside, "owner.md"),
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -5115,7 +5115,7 @@ func TestWriteOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 					toolName:         "file_write",
 					approvalDecision: decision,
 					args: map[string]any{
-						"file_path":   target,
+						"filePath":    target,
 						"content":     "hello",
 						"description": "写入 owner 文档",
 					},
@@ -5176,7 +5176,7 @@ func TestWriteOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T)
 			toolName:         "file_write",
 			approvalDecision: "reject",
 			args: map[string]any{
-				"file_path":   target,
+				"filePath":    target,
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -5228,9 +5228,9 @@ func TestEditOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 					toolName:         "file_edit",
 					approvalDecision: decision,
 					args: map[string]any{
-						"file_path":   target,
-						"old_string":  "",
-						"new_string":  "hello",
+						"filePath":    target,
+						"oldString":   "",
+						"newString":   "hello",
 						"description": "编辑 owner 文档",
 					},
 				},
@@ -5283,9 +5283,9 @@ func TestEditOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T) 
 			toolName:         "file_edit",
 			approvalDecision: "reject",
 			args: map[string]any{
-				"file_path":   target,
-				"old_string":  "",
-				"new_string":  "hello",
+				"filePath":    target,
+				"oldString":   "",
+				"newString":   "hello",
 				"description": "编辑 owner 文档",
 			},
 		},
@@ -5325,9 +5325,9 @@ func TestFileEditApprovalNoticeUsesPlanCommand(t *testing.T) {
 		toolID:   "tool_1",
 		toolName: "file_edit",
 		args: map[string]any{
-			"file_path":   "owner.md",
-			"old_string":  "old",
-			"new_string":  "new",
+			"filePath":    "owner.md",
+			"oldString":   "old",
+			"newString":   "new",
 			"description": "编辑 owner 文档",
 		},
 		hitlDecision: &hitlDecisionState{

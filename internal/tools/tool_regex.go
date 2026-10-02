@@ -19,7 +19,7 @@ func (t *RuntimeToolExecutor) invokeRegex(args map[string]any) ToolExecutionResu
 		return regexErrorResult("regex_invalid_pattern", "pattern is required")
 	}
 	compiledPattern := pattern
-	if boolArg(args, "case_insensitive") {
+	if boolArg(args, "caseInsensitive") {
 		compiledPattern = "(?i)" + compiledPattern
 	}
 	re, err := regexp.Compile(compiledPattern)

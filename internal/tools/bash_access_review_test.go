@@ -97,7 +97,7 @@ func TestSandboxExecutorVerifiesMappedContentBeforeAuthoredAllow(t *testing.T) {
 	ctx.Session.RunID = "run"
 	ctx.Session.AgentKey = "ordinary"
 	ctx.Session.RuntimeContext.SandboxPaths.WorkspaceDir = "/workspace"
-	write, err := executor.invokeWrite(context.Background(), map[string]any{"file_path": "task.sh", "content": content}, ctx)
+	write, err := executor.invokeWrite(context.Background(), map[string]any{"filePath": "task.sh", "content": content}, ctx)
 	if err != nil || write.Error != "" {
 		t.Fatalf("write %+v %v", write, err)
 	}

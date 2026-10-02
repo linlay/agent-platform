@@ -19,7 +19,7 @@ func TestRunStreamInterruptClosesWaitingApprovalBeforeCancel(t *testing.T) {
 	queued := &preparedToolInvocation{
 		toolID:   "tool-queued",
 		toolName: "file_read",
-		args:     map[string]any{"file_path": "README.md"},
+		args:     map[string]any{"filePath": "README.md"},
 	}
 	stream := &llmRunStream{
 		session:         contracts.QuerySession{RunID: "run-interrupt-approval", ChatID: "chat-interrupt-approval"},
@@ -94,7 +94,7 @@ func TestRunStreamInterruptClosesEveryWaitingApprovalBatchCallOnce(t *testing.T)
 
 func TestRunStreamInterruptKeepsQueuedBatchCallOrder(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run-interrupt-ordered-batch")
-	ready := &preparedToolInvocation{toolID: "tool-ready-first", toolName: "file_read", args: map[string]any{"file_path": "README.md"}}
+	ready := &preparedToolInvocation{toolID: "tool-ready-first", toolName: "file_read", args: map[string]any{"filePath": "README.md"}}
 	waiting := &preparedToolInvocation{toolID: "tool-approval-second", toolName: "bash", args: map[string]any{"command": "touch marker"}}
 	stream := &llmRunStream{
 		session:    contracts.QuerySession{RunID: "run-interrupt-ordered-batch"},
@@ -148,7 +148,7 @@ func TestRunStreamInterruptRecordsUnknownActiveBatchOutcome(t *testing.T) {
 			invocations: []*preparedToolInvocation{{
 				toolID:   "tool-running-in-batch",
 				toolName: "file_write",
-				args:     map[string]any{"file_path": "marker"},
+				args:     map[string]any{"filePath": "marker"},
 			}},
 			remaining: 1,
 		},

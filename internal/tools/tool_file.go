@@ -25,7 +25,7 @@ import (
 
 func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessSession := t.policySession(execCtx)
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, stringArg(args, "file_path"))
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, stringArg(args, "filePath"))
 	if err != nil {
 		return filePathResolutionError("file_read_invalid_path", err), nil
 	}
@@ -184,7 +184,7 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
 	accessSession := t.policySession(execCtx)
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "file_path"))
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "filePath"))
 	if err != nil {
 		return filePathResolutionError("file_write_invalid_plan", err), nil
 	}
@@ -321,7 +321,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
 	accessSession := t.policySession(execCtx)
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "file_path"))
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "filePath"))
 	if err != nil {
 		return filePathResolutionError("file_edit_invalid_plan", err), nil
 	}
@@ -395,7 +395,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		currentContent = decoded.Content
 		currentEncoding = decoded.Encoding
 	} else if plan.OldString != "" {
-		return fileToolError("file_edit_file_not_found", "file does not exist and old_string is not empty"), nil
+		return fileToolError("file_edit_file_not_found", "file does not exist and oldString is not empty"), nil
 	}
 	if strings.TrimSpace(currentEncoding) == "" {
 		currentEncoding = "utf-8"
@@ -409,7 +409,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	replacements := 0
 	if oldString == "" {
 		if beforeExists && normalizedContent != "" {
-			return fileToolError("file_edit_file_exists", "old_string is empty but file already has content"), nil
+			return fileToolError("file_edit_file_exists", "oldString is empty but file already has content"), nil
 		}
 		updatedContent = newString
 		replacements = 1
@@ -419,7 +419,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 			return fileEditStringNotFoundResult(normalizedContent, oldString, newString), nil
 		}
 		if replacements > 1 && !plan.ReplaceAll {
-			return fileToolError("file_edit_multiple_matches", fmt.Sprintf("old_string matched %d times; set replace_all=true or provide more context", replacements)), nil
+			return fileToolError("file_edit_multiple_matches", fmt.Sprintf("oldString matched %d times; set replaceAll=true or provide more context", replacements)), nil
 		}
 		if lineEndings == "MIXED" {
 			updatedContent, replacements = replaceNormalizedMatchesPreservingLineEndings(currentContent, normalizedContent, oldString, newString, plan.ReplaceAll)
@@ -787,7 +787,7 @@ func fileEditStringNotFoundResult(normalizedContent string, oldString string, ne
 		"candidateMatchesAfterRemovingOneLeadingTab": candidateMatches,
 		"oldStringBytes":                             len([]byte(oldString)),
 	}
-	return fileToolErrorWithFields("file_edit_string_not_found", "old_string was not found in file. If you copied from file_read output with line numbers, the tab after the line number is not part of the file content; re-read with add_line_numbers=false and retry.", map[string]any{
+	return fileToolErrorWithFields("file_edit_string_not_found", "oldString was not found in file. If you copied from file_read output with line numbers, the tab after the line number is not part of the file content; re-read with addLineNumbers=false and retry.", map[string]any{
 		"diagnostics": diagnostics,
 	})
 }
@@ -947,10 +947,10 @@ func recordReadSnapshot(execCtx *ExecutionContext, path string, info os.FileInfo
 }
 
 func addLineNumbersArg(args map[string]any) bool {
-	if _, ok := args["add_line_numbers"]; !ok {
+	if _, ok := args["addLineNumbers"]; !ok {
 		return false
 	}
-	return boolArg(args, "add_line_numbers")
+	return boolArg(args, "addLineNumbers")
 }
 
 func addLineNumbers(content string, startLine int) string {

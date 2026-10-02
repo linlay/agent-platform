@@ -23,7 +23,7 @@ func TestFileToolsAuthoredScriptExecution(t *testing.T) {
 	ctx.Session.AgentKey = "ordinary"
 	ctx.Session.RunID = "run"
 	path := filepath.Join(dir, "task.sh")
-	written, err := executor.invokeWrite(context.Background(), map[string]any{"file_path": path, "content": "#!/bin/sh\nprintf 'authored\\n'\nexit 7\n"}, ctx)
+	written, err := executor.invokeWrite(context.Background(), map[string]any{"filePath": path, "content": "#!/bin/sh\nprintf 'authored\\n'\nexit 7\n"}, ctx)
 	if err != nil || written.Error != "" {
 		t.Fatalf("write: %+v %v", written, err)
 	}
@@ -44,7 +44,7 @@ func TestFileToolsAuthoredScriptExecution(t *testing.T) {
 		}
 
 	}
-	edited, err := executor.invokeEdit(context.Background(), map[string]any{"file_path": path, "old_string": "authored", "new_string": "edited"}, ctx)
+	edited, err := executor.invokeEdit(context.Background(), map[string]any{"filePath": path, "oldString": "authored", "newString": "edited"}, ctx)
 	if err != nil || edited.Error != "" {
 		t.Fatalf("edit: %+v %v", edited, err)
 	}
@@ -75,16 +75,16 @@ func TestFileEditExternalAndFailedWriteDoNotCreateProof(t *testing.T) {
 	if err := os.WriteFile(path, []byte("echo external"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if result, _ := executor.invokeRead(map[string]any{"file_path": path}, ctx); result.Error != "" {
+	if result, _ := executor.invokeRead(map[string]any{"filePath": path}, ctx); result.Error != "" {
 		t.Fatal(result)
 	}
-	if result, _ := executor.invokeEdit(context.Background(), map[string]any{"file_path": path, "old_string": "external", "new_string": "edited"}, ctx); result.Error != "" {
+	if result, _ := executor.invokeEdit(context.Background(), map[string]any{"filePath": path, "oldString": "external", "newString": "edited"}, ctx); result.Error != "" {
 		t.Fatal(result)
 	}
 	if ctx.AuthoredScripts.Matches(ctx.ScriptOwner(), path) {
 		t.Fatal("local edit of foreign script created proof")
 	}
-	result, _ := executor.invokeWrite(context.Background(), map[string]any{"file_path": filepath.Join(dir, "failed.sh"), "content": strings.Repeat("x", 2048)}, ctx)
+	result, _ := executor.invokeWrite(context.Background(), map[string]any{"filePath": filepath.Join(dir, "failed.sh"), "content": strings.Repeat("x", 2048)}, ctx)
 	if result.Error == "" {
 		t.Fatal("oversized write unexpectedly succeeded")
 	}
@@ -98,7 +98,7 @@ func TestAuthoredProofUsesEncodedBytes(t *testing.T) {
 	executor := fileToolExecutor(dir, true)
 	ctx := fileToolExecutionContext(dir)
 	p := filepath.Join(dir, "encoded.sh")
-	result, _ := executor.invokeWrite(context.Background(), map[string]any{"file_path": p, "content": "echo 中文", "encoding": "gb18030"}, ctx)
+	result, _ := executor.invokeWrite(context.Background(), map[string]any{"filePath": p, "content": "echo 中文", "encoding": "gb18030"}, ctx)
 	if result.Error != "" {
 		t.Fatal(result)
 	}

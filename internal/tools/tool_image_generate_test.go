@@ -191,10 +191,10 @@ func TestImageGenerateB64ResponsePersistsArtifact(t *testing.T) {
 	registry := writeImageGenerateRegistry(t, modelServer.URL, true)
 	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, chatsRoot)
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
-		"prompt":          "draw a tiny robot",
-		"size":            "512x512",
-		"response_format": "b64_json",
-		"n":               2,
+		"prompt":         "draw a tiny robot",
+		"size":           "512x512",
+		"responseFormat": "b64_json",
+		"n":              2,
 	}, &contracts.ExecutionContext{
 		Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"},
 	})
@@ -291,8 +291,8 @@ func TestImageGenerateURLResponsePersistsArtifact(t *testing.T) {
 	registry := writeImageGenerateRegistry(t, modelServer.URL, true)
 	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, chatsRoot)
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
-		"prompt":          "draw",
-		"response_format": "url",
+		"prompt":         "draw",
+		"responseFormat": "url",
 	}, &contracts.ExecutionContext{
 		Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"},
 	})
@@ -413,10 +413,10 @@ func TestImageGenerateMultipartEditWithNormalizedMask(t *testing.T) {
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "move the robot",
 		"images": []any{
-			map[string]any{"source_type": "reference_name", "value": "target.png"},
-			map[string]any{"source_type": "file_path", "value": "@chat/reference.png"},
+			map[string]any{"sourceType": "referenceName", "value": "target.png"},
+			map[string]any{"sourceType": "filePath", "value": "@chat/reference.png"},
 		},
-		"mask": map[string]any{"source_type": "reference_name", "value": "mask.png", "mode": "white_edit"},
+		"mask": map[string]any{"sourceType": "referenceName", "value": "mask.png", "mode": "white_edit"},
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{
 		ChatID: "chat-1",
 		RunID:  "run-1",
@@ -469,8 +469,8 @@ func TestImageGenerateChatCompletionEditUsesUnifiedInputs(t *testing.T) {
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "edit",
 		"images": []any{
-			map[string]any{"source_type": "reference_name", "value": "target.png"},
-			map[string]any{"source_type": "reference_name", "value": "reference.png"},
+			map[string]any{"sourceType": "referenceName", "value": "target.png"},
+			map[string]any{"sourceType": "referenceName", "value": "reference.png"},
 		},
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"}})
 	if err != nil {
@@ -557,9 +557,9 @@ func TestImageGenerateRejectsUnsupportedMaskBeforeReadingImages(t *testing.T) {
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "edit",
 		"images": []any{
-			map[string]any{"source_type": "reference_name", "value": "missing.png"},
+			map[string]any{"sourceType": "referenceName", "value": "missing.png"},
 		},
-		"mask": map[string]any{"source_type": "reference_name", "value": "missing-mask.png", "mode": "alpha"},
+		"mask": map[string]any{"sourceType": "referenceName", "value": "missing-mask.png", "mode": "alpha"},
 	}, &contracts.ExecutionContext{})
 	if err != nil {
 		t.Fatal(err)
@@ -574,7 +574,7 @@ func TestImageGenerateMaskRequiresImages(t *testing.T) {
 	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, "")
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "edit",
-		"mask":   map[string]any{"source_type": "reference_name", "value": "mask.png", "mode": "alpha"},
+		"mask":   map[string]any{"sourceType": "referenceName", "value": "mask.png", "mode": "alpha"},
 	}, &contracts.ExecutionContext{})
 	if err != nil {
 		t.Fatal(err)
@@ -600,11 +600,11 @@ func TestImageGenerateRejectsLegacyAndMalformedSourcesBeforeProviderCall(t *test
 		source any
 	}{
 		{name: "string element", source: "image.png"},
-		{name: "legacy reference_name", source: map[string]any{"reference_name": "image.png"}},
-		{name: "legacy file_path", source: map[string]any{"file_path": "@chat/image.png"}},
-		{name: "unknown source type", source: map[string]any{"source_type": "url", "value": "https://example.com/image.png"}},
-		{name: "empty value", source: map[string]any{"source_type": "reference_name", "value": "  "}},
-		{name: "unknown property", source: map[string]any{"source_type": "reference_name", "value": "image.png", "extra": true}},
+		{name: "legacy referenceName", source: map[string]any{"referenceName": "image.png"}},
+		{name: "legacy filePath", source: map[string]any{"filePath": "@chat/image.png"}},
+		{name: "unknown source type", source: map[string]any{"sourceType": "url", "value": "https://example.com/image.png"}},
+		{name: "empty value", source: map[string]any{"sourceType": "referenceName", "value": "  "}},
+		{name: "unknown property", source: map[string]any{"sourceType": "referenceName", "value": "image.png", "extra": true}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -618,7 +618,7 @@ func TestImageGenerateRejectsLegacyAndMalformedSourcesBeforeProviderCall(t *test
 			if result.Error != "image_generate_image_source_invalid" || result.Structured["index"] != 0 {
 				t.Fatalf("unexpected result: %#v", result)
 			}
-			if _, ok := result.Structured["example"].(map[string]any); !ok || !strings.Contains(contracts.AnyStringNode(result.Structured["message"]), "source_type") {
+			if _, ok := result.Structured["example"].(map[string]any); !ok || !strings.Contains(contracts.AnyStringNode(result.Structured["message"]), "sourceType") {
 				t.Fatalf("missing indexed migration example: %#v", result.Structured)
 			}
 		})
@@ -649,7 +649,7 @@ func TestImageGenerateFilePathOutsideReadRootsRequiresHITL(t *testing.T) {
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "edit",
 		"images": []any{
-			map[string]any{"source_type": "file_path", "value": externalImage},
+			map[string]any{"sourceType": "filePath", "value": externalImage},
 		},
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{
 		ChatID: "chat-1",

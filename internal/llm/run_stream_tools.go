@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/toolargs"
 	"agent-platform/internal/toolpolicy"
 )
 
@@ -44,6 +45,11 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		return nil, deltas, message
 	}
 	args, _ = expandedArgs.(map[string]any)
+
+	if err := toolargs.RejectLegacy(toolCall.Function.Name, args); err != nil {
+		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, err.Error(), "invalid_tool_arguments")
+		return nil, deltas, message
+	}
 
 	if s.readOnlyToolDenied(toolCall.Function.Name, args) {
 		result := toolpolicy.DisabledResult(toolCall.Function.Name)

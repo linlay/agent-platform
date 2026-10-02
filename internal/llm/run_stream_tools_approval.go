@@ -207,7 +207,7 @@ func (s *llmRunStream) fileAccessPlanNeedsApproval(plan filetools.AccessPlan) bo
 func fileAccessPlanInput(toolName string, args map[string]any) (filetools.AccessMode, string, bool) {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "file_read":
-		return filetools.ReadAccess, mapStringArg(args, "file_path"), strings.TrimSpace(mapStringArg(args, "file_path")) != ""
+		return filetools.ReadAccess, mapStringArg(args, "filePath"), strings.TrimSpace(mapStringArg(args, "filePath")) != ""
 	case "desktop_cdp":
 		path, ok := args["paramsFile"].(string)
 		_, hasParams := args["params"]
@@ -219,9 +219,9 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 		}
 		return filetools.ReadAccess, rawPath, true
 	case "file_write":
-		return filetools.WriteAccess, mapStringArg(args, "file_path"), strings.TrimSpace(mapStringArg(args, "file_path")) != ""
+		return filetools.WriteAccess, mapStringArg(args, "filePath"), strings.TrimSpace(mapStringArg(args, "filePath")) != ""
 	case "file_edit":
-		return filetools.WriteAccess, mapStringArg(args, "file_path"), strings.TrimSpace(mapStringArg(args, "file_path")) != ""
+		return filetools.WriteAccess, mapStringArg(args, "filePath"), strings.TrimSpace(mapStringArg(args, "filePath")) != ""
 	default:
 		return "", "", false
 	}

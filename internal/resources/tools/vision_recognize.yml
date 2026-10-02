@@ -7,15 +7,15 @@ inputSchema:
   properties:
     images:
       type: array
-      description: 'Required. Images to recognize. Always pass an array, even for one image. Each item must provide exactly one source, for example: [{"reference_name":"image.png"}] or [{"file_path":"@chat/image.png"}].'
+      description: 'Required. Images to recognize. Always pass an array, even for one image. Each item must provide exactly one source, for example: [{"referenceName":"image.png"}] or [{"filePath":"@chat/image.png"}].'
       minItems: 1
       items:
         type: object
         properties:
-          reference_name:
+          referenceName:
             type: string
             description: Current chat attachment file name to inspect. The name must not include path separators.
-          file_path:
+          filePath:
             type: string
             description: Explicit host image file path to inspect. Semantic roots such as @chat, @agent, @skills, and @temp are supported. This path is checked by access-policy rules in configs/tools.yml.
         additionalProperties: false
@@ -25,7 +25,7 @@ inputSchema:
     profile:
       type: string
       description: Optional. Profile name from configs/ai-tools.yml > vision-recognize. Defaults to default-profile.
-    output_format:
+    outputFormat:
       type: string
       description: Optional. Desired result shape. Supports text or json, overriding the selected profile.
       enum:

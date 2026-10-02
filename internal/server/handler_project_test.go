@@ -202,7 +202,7 @@ func TestProjectChangesAndDiffUseRunFileHistory(t *testing.T) {
 	}
 	filePath := filepath.Join(coderWorkspace, "generated.txt")
 	result, err := fixture.tools.Invoke(context.Background(), "file_write", map[string]any{
-		"file_path": filePath,
+		"filePath": filePath,
 		"content":   "hello project\n",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{
 		AgentKey: "coder-file", Mode: "CODER", ChatID: chatID, RunID: runID, WorkspaceRoot: coderWorkspace,
@@ -225,7 +225,7 @@ func TestProjectChangesAndDiffUseRunFileHistory(t *testing.T) {
 		t.Fatalf("unexpected project diff: %#v", diff)
 	}
 	result, err = fixture.tools.Invoke(context.Background(), "file_write", map[string]any{
-		"file_path": filePath,
+		"filePath": filePath,
 		"content":   "hello modified project\n",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{
 		AgentKey: "coder-file", Mode: "CODER", ChatID: chatID, RunID: runID, WorkspaceRoot: coderWorkspace,
@@ -240,7 +240,7 @@ func TestProjectChangesAndDiffUseRunFileHistory(t *testing.T) {
 
 	existingPath := filepath.Join(coderWorkspace, "docs", "hello.md")
 	result, err = fixture.tools.Invoke(context.Background(), "file_write", map[string]any{
-		"file_path": existingPath,
+		"filePath": existingPath,
 		"content":   "# Hello\n\nmodified workspace\n",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{
 		AgentKey: "coder-file", Mode: "CODER", ChatID: chatID, RunID: runID, WorkspaceRoot: coderWorkspace,
@@ -255,7 +255,7 @@ func TestProjectChangesAndDiffUseRunFileHistory(t *testing.T) {
 
 	binaryPath := filepath.Join(coderWorkspace, "binary.txt")
 	result, err = fixture.tools.Invoke(context.Background(), "file_write", map[string]any{
-		"file_path": binaryPath,
+		"filePath": binaryPath,
 		"content":   "\x00binary history",
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{
 		AgentKey: "coder-file", Mode: "CODER", ChatID: chatID, RunID: runID, WorkspaceRoot: coderWorkspace,

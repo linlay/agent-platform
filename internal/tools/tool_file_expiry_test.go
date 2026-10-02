@@ -51,7 +51,7 @@ func TestFileMutationExpiryAndRealReread(t *testing.T) {
 				ctx := fileToolExecutionContext(root)
 				ctx.Session.ChatID = "chat-expiry"
 				ctx.Session.RunID = "read"
-				args := map[string]any{"file_path": "a.txt"}
+				args := map[string]any{"filePath": "a.txt"}
 				if _, err := executor.invokeRead(args, ctx); err != nil {
 					t.Fatal(err)
 				}
@@ -66,7 +66,7 @@ func TestFileMutationExpiryAndRealReread(t *testing.T) {
 					ctx.Session.RunID = "edit"
 				}
 				mutate := func() ToolExecutionResult {
-					params := map[string]any{"file_path": "a.txt", "old_string": "old", "new_string": "new", "content": "new", "description": "update"}
+					params := map[string]any{"filePath": "a.txt", "oldString": "old", "newString": "new", "content": "new", "description": "update"}
 					var result ToolExecutionResult
 					var err error
 					if operation == "file_edit" {
@@ -119,7 +119,7 @@ func TestReadAndEditDetectSameStatChangedSHA(t *testing.T) {
 			}
 			executor := fileToolExecutor(root, false)
 			ctx := fileToolExecutionContext(root)
-			args := map[string]any{"file_path": "a.txt"}
+			args := map[string]any{"filePath": "a.txt"}
 			if _, err := executor.invokeRead(args, ctx); err != nil {
 				t.Fatal(err)
 			}
@@ -162,7 +162,7 @@ func TestRestoredChatSnapshotExpiresWithoutRenewal(t *testing.T) {
 	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
 	first := fileToolExecutionContext(root)
 	first.Session.ChatID = "chat-restored"
-	args := map[string]any{"file_path": "a.txt"}
+	args := map[string]any{"filePath": "a.txt"}
 	if _, err := executor.invokeRead(args, first); err != nil {
 		t.Fatal(err)
 	}

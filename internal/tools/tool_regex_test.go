@@ -72,10 +72,10 @@ func TestInvokeRegexLimitTruncatesPreviewOnly(t *testing.T) {
 
 func TestInvokeRegexCaseInsensitive(t *testing.T) {
 	result := (&RuntimeToolExecutor{}).invokeRegex(map[string]any{
-		"operation":        "count",
-		"text":             "Alpha alpha ALPHA",
-		"pattern":          "alpha",
-		"case_insensitive": true,
+		"operation":       "count",
+		"text":            "Alpha alpha ALPHA",
+		"pattern":         "alpha",
+		"caseInsensitive": true,
 	})
 	if result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("expected regex success, got %#v", result)

@@ -1115,7 +1115,7 @@ func TestInvokeDesktopCDPCaptureScreenshotSavesImageAndOmitsBase64(t *testing.T)
 		t.Fatalf("expected saved/dataOmitted flags: %#v", data)
 	}
 	visionImage := data["visionRecognizeImage"].(map[string]any)
-	if visionImage["reference_name"] != referenceName {
+	if visionImage["referenceName"] != referenceName {
 		t.Fatalf("unexpected vision image payload: %#v", visionImage)
 	}
 }

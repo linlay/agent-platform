@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/observability"
 	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/timecontract"
+	"agent-platform/internal/toolargs"
 	"agent-platform/internal/toolpolicy"
 )
 
@@ -239,6 +240,11 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 	def, ok := r.lookup(toolName)
 	if execCtx != nil && (!execCtx.Session.AllowsTool(toolName) || (ok && !execCtx.Session.AllowsTool(def.Name))) {
 		return ToolNotMountedResult(toolName), nil
+	}
+	if ok && !strings.EqualFold(AnyStringNode(def.Meta["sourceType"]), "mcp") {
+		if err := toolargs.RejectLegacy(def.Name, args); err != nil {
+			return ToolExecutionResult{Error: "invalid_tool_arguments", Output: err.Error(), ExitCode: -1}, nil
+		}
 	}
 	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !allowsReadOnlyInvocation(def, ok, toolName, args) {
 		return toolpolicy.DisabledResult(toolName), nil

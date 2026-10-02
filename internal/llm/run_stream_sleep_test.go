@@ -45,7 +45,7 @@ func TestSleepSteerContinuesSameRun(t *testing.T) {
 			session := QuerySession{RunID: "run-sleep", ChatID: "chat-sleep", ToolNames: []string{"sleep"}}
 			s := &llmRunStream{ctx: ctx, engine: &LLMAgentEngine{tools: executor}, session: session, runControl: control,
 				execCtx: &ExecutionContext{Session: session, RunControl: control, StartedAt: time.Now(), Budget: Budget{Tool: RetryPolicy{MaxCalls: 10}}}}
-			call := &preparedToolInvocation{toolID: "sleep-1", toolName: "sleep", args: map[string]any{"duration_ms": 60000}}
+			call := &preparedToolInvocation{toolID: "sleep-1", toolName: "sleep", args: map[string]any{"durationMs": 60000}}
 			if batch {
 				err = s.startToolCallBatch([]*preparedToolInvocation{call})
 			} else {

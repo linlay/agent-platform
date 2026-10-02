@@ -39,16 +39,16 @@ func isPlainFileName(name string) bool {
 
 func (t *RuntimeToolExecutor) planToolImageSource(raw any, execCtx *ExecutionContext, policy toolImageSourcePolicy) (resolvedToolImageSource, filetools.AccessPlan, ToolExecutionResult, bool) {
 	item := AnyMapNode(raw)
-	referenceName := strings.TrimSpace(FirstNonEmptyString(item["reference_name"], item["referenceName"]))
-	filePath := strings.TrimSpace(FirstNonEmptyString(item["file_path"], item["filePath"]))
+	referenceName := strings.TrimSpace(AnyStringNode(item["referenceName"]))
+	filePath := strings.TrimSpace(AnyStringNode(item["filePath"]))
 	mimeHint := ""
 	session := t.policySession(execCtx)
 	if (referenceName == "" && filePath == "") || (referenceName != "" && filePath != "") {
-		return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.SourceInvalidCode, "each image must provide exactly one of reference_name or file_path", nil), true
+		return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.SourceInvalidCode, "each image must provide exactly one of referenceName or filePath", nil), true
 	}
 	if referenceName != "" {
 		if !isPlainFileName(referenceName) {
-			return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.ReferenceNameInvalidCode, "reference_name must be a file name without path separators", map[string]any{"referenceName": referenceName}), true
+			return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.ReferenceNameInvalidCode, "referenceName must be a file name without path separators", map[string]any{"referenceName": referenceName}), true
 		}
 		chatID := ""
 		if execCtx != nil {
@@ -58,7 +58,7 @@ func (t *RuntimeToolExecutor) planToolImageSource(raw any, execCtx *ExecutionCon
 			}
 		}
 		if chatID == "" || strings.TrimSpace(t.cfg.Paths.ChatsDir) == "" {
-			return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.ChatUnavailableCode, "chat context is required to load reference_name images", nil), true
+			return resolvedToolImageSource{}, filetools.AccessPlan{}, policy.Error(policy.ChatUnavailableCode, "chat context is required to load referenceName images", nil), true
 		}
 		if execCtx != nil {
 			for _, ref := range execCtx.Request.References {

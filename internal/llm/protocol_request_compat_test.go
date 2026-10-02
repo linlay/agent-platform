@@ -325,7 +325,7 @@ func TestOpenAIProtocolPrepareRequestPreservesToolMessageOrderAndGaps(t *testing
 			{Role: "system", Content: "system prompt"},
 			{Role: "assistant", ToolCalls: []openAIToolCall{
 				{ID: "call_1", Type: "function", Function: openAIFunctionCall{Name: "datetime", Arguments: "{}"}},
-				{ID: "call_2", Type: "function", Function: openAIFunctionCall{Name: "file_read", Arguments: `{"file_path":"README.md"}`}},
+				{ID: "call_2", Type: "function", Function: openAIFunctionCall{Name: "file_read", Arguments: `{"filePath":"README.md"}`}},
 			}},
 			{Role: "user", Content: "intervening context"},
 			{Role: "tool", ToolCallID: "call_1", Name: "datetime", Content: "2026-07-19T00:00:00Z"},
@@ -470,7 +470,7 @@ func TestOpenAIProtocolPrepareRequestOmitsStoredToolBase64(t *testing.T) {
 					Type: "function",
 					Function: openAIFunctionCall{
 						Name:      "file_read",
-						Arguments: `{"file_path":"/private/tmp/page1.png"}`,
+						Arguments: `{"filePath":"/private/tmp/page1.png"}`,
 					},
 				}},
 			},

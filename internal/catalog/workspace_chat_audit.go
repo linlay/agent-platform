@@ -145,9 +145,9 @@ func workspaceLessExplicitPathRequirements(tools []string) []string {
 		case "artifact_publish":
 			requirements = append(requirements, "artifact_publish source @chat/...")
 		case "vision_recognize":
-			requirements = append(requirements, "vision_recognize reference_name or explicit file_path")
+			requirements = append(requirements, "vision_recognize referenceName or explicit filePath")
 		case "file_read", "file_write", "file_edit":
-			requirements = append(requirements, tool+".file_path with an explicit semantic root")
+			requirements = append(requirements, tool+".filePath with an explicit semantic root")
 		}
 	}
 	return requirements

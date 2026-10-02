@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/toolargs"
 )
 
 const Hidden = "[REDACTED]"
@@ -178,7 +179,12 @@ func (p Policy) Arguments(tool, raw string, sessions ...contracts.QuerySession) 
 	if json.Unmarshal([]byte(raw), &args) != nil {
 		return `{"redacted":true}`
 	}
-	file, _ := args["file_path"].(string)
+	// Rejected legacy calls still reach traces and history. Do not expose their
+	// content, or guess which path a mixed-name request intended to use.
+	if toolargs.RejectLegacy(tool, args) != nil {
+		return `{"redacted":true}`
+	}
+	file, _ := args["filePath"].(string)
 	if len(sessions) > 0 {
 		if resolved, err := accesspolicy.ResolveSessionPath(sessions[0], file); err == nil {
 			file = resolved
@@ -187,7 +193,7 @@ func (p Policy) Arguments(tool, raw string, sessions ...contracts.QuerySession) 
 	if p.Source(file) == Ordinary {
 		return raw
 	}
-	for _, key := range []string{"content", "old_string", "new_string"} {
+	for _, key := range []string{"content", "oldString", "newString"} {
 		if value, ok := args[key].(string); ok {
 			args[key] = p.Text(file, value, tool == "file_edit")
 		}

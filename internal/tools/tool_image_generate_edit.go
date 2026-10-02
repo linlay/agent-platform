@@ -136,7 +136,7 @@ func (t *RuntimeToolExecutor) loadImageGenerateInputs(args map[string]any, execC
 }
 
 func normalizeImageGenerateSource(raw any, label string, index int, allowMode bool) (map[string]any, ToolExecutionResult, bool) {
-	example := map[string]any{"source_type": "reference_name", "value": "image.png"}
+	example := map[string]any{"sourceType": "referenceName", "value": "image.png"}
 	diagnostics := map[string]any{"source": label, "example": example}
 	if index >= 0 {
 		diagnostics["index"] = index
@@ -146,46 +146,46 @@ func normalizeImageGenerateSource(raw any, label string, index int, allowMode bo
 		diagnostics["actualType"] = fmt.Sprintf("%T", raw)
 		return nil, modelToolError(
 			"image_generate_image_source_invalid",
-			label+" must be an object like {\"source_type\":\"reference_name\",\"value\":\"image.png\"}",
+			label+" must be an object like {\"sourceType\":\"referenceName\",\"value\":\"image.png\"}",
 			diagnostics,
 		), true
 	}
 	for key := range node {
-		if key == "source_type" || key == "value" || (allowMode && key == "mode") {
+		if key == "sourceType" || key == "value" || (allowMode && key == "mode") {
 			continue
 		}
 		diagnostics["property"] = key
-		allowed := "source_type and value"
+		allowed := "sourceType and value"
 		if allowMode {
 			allowed += " plus mode"
 		}
 		return nil, modelToolError(
 			"image_generate_image_source_invalid",
-			label+" only accepts "+allowed+"; legacy reference_name/file_path properties are not supported",
+			label+" only accepts "+allowed+"; legacy referenceName/filePath properties are not supported",
 			diagnostics,
 		), true
 	}
-	sourceType, sourceTypeOK := node["source_type"].(string)
+	sourceType, sourceTypeOK := node["sourceType"].(string)
 	sourceType = strings.TrimSpace(sourceType)
 	value, valueOK := node["value"].(string)
 	value = strings.TrimSpace(value)
 	if !sourceTypeOK || !valueOK || value == "" {
 		return nil, modelToolError(
 			"image_generate_image_source_invalid",
-			label+" requires non-empty string fields source_type and value; example: {\"source_type\":\"reference_name\",\"value\":\"image.png\"}",
+			label+" requires non-empty string fields sourceType and value; example: {\"sourceType\":\"referenceName\",\"value\":\"image.png\"}",
 			diagnostics,
 		), true
 	}
 	switch sourceType {
-	case "reference_name":
-		return map[string]any{"reference_name": value}, ToolExecutionResult{}, false
-	case "file_path":
-		return map[string]any{"file_path": value}, ToolExecutionResult{}, false
+	case "referenceName":
+		return map[string]any{"referenceName": value}, ToolExecutionResult{}, false
+	case "filePath":
+		return map[string]any{"filePath": value}, ToolExecutionResult{}, false
 	default:
 		diagnostics["sourceType"] = sourceType
 		return nil, modelToolError(
 			"image_generate_image_source_invalid",
-			label+".source_type must be reference_name or file_path",
+			label+".sourceType must be referenceName or filePath",
 			diagnostics,
 		), true
 	}

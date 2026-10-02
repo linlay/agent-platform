@@ -137,8 +137,8 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	if offset < 0 {
 		offset = 0
 	}
-	headLimit := numericArg(args, "head_limit")
-	if _, ok := args["head_limit"]; !ok {
+	headLimit := numericArg(args, "headLimit")
+	if _, ok := args["headLimit"]; !ok {
 		headLimit = defaultGlobHeadLimit
 	}
 	results, truncated := pageGrepResults(lines, offset, headLimit)

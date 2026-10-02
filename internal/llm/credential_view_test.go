@@ -10,7 +10,7 @@ import (
 
 func TestCredentialMutationHistoryAndChunkedStream(t *testing.T) {
 	policy := credentialview.Policy{Providers: "/runtime/registries/providers"}
-	raw := `{"file_path":"/runtime/registries/providers/demo.yml","content":"key: demo\napiKey: private-value\n"}`
+	raw := `{"filePath":"/runtime/registries/providers/demo.yml","content":"key: demo\napiKey: private-value\n"}`
 	calls := []openAIToolCall{{ID: "write-1", Type: "function", Function: openAIFunctionCall{Name: "file_write", Arguments: raw}}}
 	history := sanitizedToolCalls(calls, policy)
 	if strings.Contains(history[0].Function.Arguments, "private-value") || calls[0].Function.Arguments != raw {
@@ -50,7 +50,7 @@ func TestCredentialMutationRelativePathContext(t *testing.T) {
 	root := t.TempDir()
 	policy := credentialview.Policy{Providers: root + "/registries/providers"}
 	session := contracts.QuerySession{WorkspaceRoot: root}
-	raw := `{"file_path":"registries/providers/demo.yml","content":"key: demo\napiKey: private-value\n"}`
+	raw := `{"filePath":"registries/providers/demo.yml","content":"key: demo\napiKey: private-value\n"}`
 	mapper := NewDeltaMapper("r", "c", contracts.Budget{}, nil, nil)
 	mapper.credentialPolicy = policy
 	mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "w", Name: "file_write", ArgsDelta: raw, PathSession: &session})

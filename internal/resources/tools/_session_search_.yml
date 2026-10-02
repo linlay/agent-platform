@@ -2,7 +2,7 @@ key: _session_search_
 name: _session_search_
 label: Session Search
 description: Search the current chat/session history for prior messages, events, and run outputs without promoting them into long-term memory.
-parameters:
+inputSchema:
   type: object
   properties:
     chatId:

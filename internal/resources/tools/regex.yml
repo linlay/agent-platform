@@ -24,7 +24,7 @@ inputSchema:
     pattern:
       type: string
       description: Required. Go RE2 regular expression pattern for the exact feature to count or match. Lookaround and backreferences are not supported.
-    case_insensitive:
+    caseInsensitive:
       type: boolean
       description: Match case-insensitively by applying the RE2 (?i) flag to the pattern.
     limit:

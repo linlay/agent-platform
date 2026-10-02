@@ -76,9 +76,9 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	if size == "" {
 		size = "1024x1024"
 	}
-	responseFormat, ok := resolveImageGenerateResponseFormat(AnyStringNode(args["response_format"]), profile.ResponseFormat, model.Image.ResponseFormats)
+	responseFormat, ok := resolveImageGenerateResponseFormat(AnyStringNode(args["responseFormat"]), profile.ResponseFormat, model.Image.ResponseFormats)
 	if !ok {
-		return modelToolError("image_generate_response_format_invalid", "response_format must be b64_json or url", nil), nil
+		return modelToolError("image_generate_response_format_invalid", "responseFormat must be b64_json or url", nil), nil
 	}
 	n := AnyIntNode(args["n"])
 	if n <= 0 {

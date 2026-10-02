@@ -29,10 +29,10 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 			)
 		}
 	}
-	parameters := AnyMapNode(root["inputSchema"])
-	if len(parameters) == 0 {
-		parameters = AnyMapNode(root["parameters"])
+	if _, exists := root["parameters"]; exists {
+		return api.ToolDetailResponse{}, fmt.Errorf("tool %q field parameters is no longer supported; use inputSchema", name)
 	}
+	parameters := AnyMapNode(root["inputSchema"])
 	outputSchema := AnyMapNode(root["outputSchema"])
 	viewportType := AnyStringNode(root["viewportType"])
 	viewportKey := AnyStringNode(root["viewportKey"])

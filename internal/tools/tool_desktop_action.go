@@ -651,7 +651,7 @@ func (s *desktopScreenshotSink) commit() (map[string]any, error) {
 		"mimeType":             desktopCdpScreenshotMimeType,
 		"sizeBytes":            s.size,
 		"sha256":               hex.EncodeToString(s.hash.Sum(nil)),
-		"visionRecognizeImage": map[string]any{"reference_name": s.referenceName},
+		"visionRecognizeImage": map[string]any{"referenceName": s.referenceName},
 	}, nil
 }
 
@@ -709,7 +709,7 @@ func (t *RuntimeToolExecutor) storeDesktopCdpScreenshot(result ToolExecutionResu
 		"mimeType":             desktopCdpScreenshotMimeType,
 		"sizeBytes":            len(imageBytes),
 		"sha256":               hex.EncodeToString(sha[:]),
-		"visionRecognizeImage": map[string]any{"reference_name": referenceName},
+		"visionRecognizeImage": map[string]any{"referenceName": referenceName},
 	}
 	response["result"] = resultNode
 	payload["response"] = response

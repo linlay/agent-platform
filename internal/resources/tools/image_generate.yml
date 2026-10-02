@@ -25,40 +25,40 @@ inputSchema:
       description: Required. Text prompt describing the image to generate or the requested edit.
     images:
       type: array
-      description: Optional. One to four input images. images[0] is the edit target; later images are references. Use {"source_type":"reference_name","value":"image.png"} for a current-chat attachment or {"source_type":"file_path","value":"@chat/image.png"} for an access-policy-checked path.
+      description: Optional. One to four input images. images[0] is the edit target; later images are references. Use {"sourceType":"referenceName","value":"image.png"} for a current-chat attachment or {"sourceType":"filePath","value":"@chat/image.png"} for an access-policy-checked path.
       minItems: 1
       maxItems: 4
       items:
         type: object
         properties:
-          source_type:
+          sourceType:
             type: string
             description: Required. How value is resolved.
             enum:
-              - reference_name
-              - file_path
+              - referenceName
+              - filePath
           value:
             type: string
             minLength: 1
-            description: Required. Current-chat attachment name when source_type is reference_name; otherwise an explicit image path. Semantic roots such as @chat, @agent, @skills, and @temp are supported for file_path and checked by access policy.
+            description: Required. Current-chat attachment name when sourceType is referenceName; otherwise an explicit image path. Semantic roots such as @chat, @agent, @skills, and @temp are supported for filePath and checked by access policy.
         required:
-          - source_type
+          - sourceType
           - value
         additionalProperties: false
     mask:
       type: object
       description: Optional inpainting mask for images[0]. Requires images and a model whose YAML declares native mask support.
       properties:
-        source_type:
+        sourceType:
           type: string
           description: Required. How value is resolved.
           enum:
-            - reference_name
-            - file_path
+            - referenceName
+            - filePath
         value:
           type: string
           minLength: 1
-          description: Required. Current-chat attachment name when source_type is reference_name; otherwise an explicit mask path checked by access policy.
+          description: Required. Current-chat attachment name when sourceType is referenceName; otherwise an explicit mask path checked by access policy.
         mode:
           type: string
           description: Required. Mask interpretation. alpha edits transparent pixels; white_edit edits white pixels; black_edit edits black pixels.
@@ -67,7 +67,7 @@ inputSchema:
             - white_edit
             - black_edit
       required:
-        - source_type
+        - sourceType
         - value
         - mode
       additionalProperties: false
@@ -77,7 +77,7 @@ inputSchema:
     size:
       type: string
       description: Optional. Image size to send to the provider, overriding the selected profile.
-    response_format:
+    responseFormat:
       type: string
       description: Optional. Preferred provider response format, overriding the selected profile. Sent only when the configured model endpoint supports this parameter; the actual returned format may differ.
       enum:

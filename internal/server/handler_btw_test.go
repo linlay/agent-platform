@@ -478,7 +478,7 @@ func TestBTWDeniedToolReturnsResultWithoutAwaiting(t *testing.T) {
 		}
 		if hasBTW && !hasToolResult {
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_write","type":"function","function":{"name":"file_write","arguments":"{\"file_path\":\"x.txt\",\"content\":\"x\"}"}}]} ,"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_write","type":"function","function":{"name":"file_write","arguments":"{\"filePath\":\"x.txt\",\"content\":\"x\"}"}}]} ,"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 			return

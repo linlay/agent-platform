@@ -19,7 +19,7 @@ func validateWriteToolArgs(toolName string, args map[string]any) error {
 	if !isWriteTool(toolName) {
 		return nil
 	}
-	if strings.TrimSpace(mapStringArg(args, "file_path")) == "" {
+	if strings.TrimSpace(mapStringArg(args, "filePath")) == "" {
 		return nil
 	}
 	return nil

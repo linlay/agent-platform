@@ -193,7 +193,7 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"file_path": map[string]any{"type": "string", "description": "path"},
+					"filePath": map[string]any{"type": "string", "description": "path"},
 				},
 			},
 		},
@@ -225,7 +225,7 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
-								"file_path": map[string]any{"type": "string", "description": "path"},
+								"filePath": map[string]any{"type": "string", "description": "path"},
 							},
 						},
 					},
@@ -253,11 +253,11 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 	}
 	readDefinition := toolDefinitionByName(t, workspaceLess, "file_read")
 	readProperties, _ := readDefinition.Parameters["properties"].(map[string]any)
-	filePath, _ := readProperties["file_path"].(map[string]any)
+	filePath, _ := readProperties["filePath"].(map[string]any)
 	description, _ := filePath["description"].(string)
 	for _, expected := range []string{"@chat", "@skills", "@temp", "relative paths", "@workspace"} {
 		if !strings.Contains(description, expected) {
-			t.Fatalf("expected file_read.file_path description to contain %q, got %q", expected, description)
+			t.Fatalf("expected file_read.filePath description to contain %q, got %q", expected, description)
 		}
 	}
 	artifactDefinition := toolDefinitionByName(t, workspaceLess, "artifact_publish")
@@ -273,9 +273,9 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 	visionDefinition := toolDefinitionByName(t, workspaceLess, "vision_recognize")
 	visionPathDescription := nestedSchemaDescription(
 		visionDefinition.Parameters,
-		"properties", "images", "items", "properties", "file_path",
+		"properties", "images", "items", "properties", "filePath",
 	)
-	if !strings.Contains(visionPathDescription, "reference_name") ||
+	if !strings.Contains(visionPathDescription, "referenceName") ||
 		!strings.Contains(visionPathDescription, "relative paths") {
 		t.Fatalf("expected Workspace-less vision file path contract, got %#v", visionDefinition)
 	}

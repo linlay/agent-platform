@@ -44,8 +44,8 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 		execCtx := cloneKBaseAdversarialContext(baseContext)
 		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
 		args := map[string]any{
-			"file_path": rawPath,
-			"content":   "approved",
+			"filePath": rawPath,
+			"content":  "approved",
 		}
 		plan, err := filetools.BuildAccessPlanFromPolicy(
 			executor.cfg.AccessPolicy,
@@ -95,8 +95,8 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
 		target := filepath.Join(hostAccess, "allowed.txt")
 		result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
-			"file_path": target,
-			"content":   "host allowed",
+			"filePath": target,
+			"content":  "host allowed",
 		}, execCtx)
 		if err != nil || result.Error != "" {
 			t.Fatalf("hostAccess write failed: result=%#v err=%v", result, err)
@@ -114,8 +114,8 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 		configuredExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
 		target := filepath.Join(outside, "configured-root.txt")
 		result, err := configuredExecutor.Invoke(context.Background(), "file_write", map[string]any{
-			"file_path": target,
-			"content":   "configured root",
+			"filePath": target,
+			"content":  "configured root",
 		}, execCtx)
 		if err != nil || result.Error != "" {
 			t.Fatalf("configured writeRoots write failed: result=%#v err=%v", result, err)
@@ -127,8 +127,8 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 		execCtx.Session.AccessLevel = contracts.AccessLevelFullAccess
 		target := filepath.Join(outside, "full-access.txt")
 		result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
-			"file_path": target,
-			"content":   "full access",
+			"filePath": target,
+			"content":  "full access",
 		}, execCtx)
 		if err != nil || result.Error != "" {
 			t.Fatalf("full_access write failed: result=%#v err=%v", result, err)
@@ -155,8 +155,8 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
 		target := filepath.Join(outside, "blocked.txt")
 		result, err := blockedExecutor.Invoke(context.Background(), "file_write", map[string]any{
-			"file_path": target,
-			"content":   "must not write",
+			"filePath": target,
+			"content":  "must not write",
 		}, execCtx)
 		if err != nil {
 			t.Fatal(err)
@@ -257,16 +257,16 @@ func TestKBaseEditingAdversarialReadApprovalCannotBeReusedForWrite(t *testing.T)
 	}
 	filetools.RegisterRuleReadApproval(execCtx, readPlan.RuleKey)
 	readResult, err := executor.Invoke(context.Background(), "file_read", map[string]any{
-		"file_path":        path,
-		"add_line_numbers": false,
+		"filePath":       path,
+		"addLineNumbers": false,
 	}, execCtx)
 	if err != nil || readResult.Error != "" || !strings.Contains(readResult.Output, "original") {
 		t.Fatalf("approved read failed: result=%#v err=%v", readResult, err)
 	}
 
 	writeResult, err := executor.Invoke(context.Background(), "file_write", map[string]any{
-		"file_path": path,
-		"content":   "compromised",
+		"filePath": path,
+		"content":  "compromised",
 	}, execCtx)
 	if err != nil {
 		t.Fatal(err)
@@ -351,22 +351,22 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		{
 			name: "relative_existing_write",
 			tool: "file_write",
-			args: map[string]any{"file_path": "policy.txt", "content": "blocked"},
+			args: map[string]any{"filePath": "policy.txt", "content": "blocked"},
 		},
 		{
 			name: "absolute_existing_edit",
 			tool: "file_edit",
-			args: map[string]any{"file_path": sourcePath, "old_string": "original", "new_string": "blocked"},
+			args: map[string]any{"filePath": sourcePath, "oldString": "original", "newString": "blocked"},
 		},
 		{
 			name: "absolute_new_write",
 			tool: "file_write",
-			args: map[string]any{"file_path": filepath.Join(source, "new.txt"), "content": "blocked"},
+			args: map[string]any{"filePath": filepath.Join(source, "new.txt"), "content": "blocked"},
 		},
 		{
 			name: "canonical_parent_traversal",
 			tool: "file_write",
-			args: map[string]any{"file_path": filepath.Join("nested", "..", "traversal.txt"), "content": "blocked"},
+			args: map[string]any{"filePath": filepath.Join("nested", "..", "traversal.txt"), "content": "blocked"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -378,8 +378,8 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		execCtx := cloneKBaseAdversarialContext(baseContext)
 		execCtx.Session.AccessLevel = contracts.AccessLevelFullAccess
 		assertSourceGate(t, baseExecutor, execCtx, "file_write", map[string]any{
-			"file_path": sourcePath,
-			"content":   "blocked",
+			"filePath": sourcePath,
+			"content":  "blocked",
 		})
 	})
 
@@ -387,8 +387,8 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		execCtx := cloneKBaseAdversarialContext(baseContext)
 		execCtx.Session.AccessLevel = contracts.AccessLevelAutoApprove
 		assertSourceGate(t, baseExecutor, execCtx, "file_write", map[string]any{
-			"file_path": sourcePath,
-			"content":   "blocked",
+			"filePath": sourcePath,
+			"content":  "blocked",
 		})
 	})
 
@@ -396,8 +396,8 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		execCtx := cloneKBaseAdversarialContext(baseContext)
 		execCtx.Session.RuntimeHostAccess.WriteRoots = []string{source}
 		assertSourceGate(t, baseExecutor, execCtx, "file_write", map[string]any{
-			"file_path": sourcePath,
-			"content":   "blocked",
+			"filePath": sourcePath,
+			"content":  "blocked",
 		})
 	})
 
@@ -408,8 +408,8 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		level.WriteRoots = []string{source}
 		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
 		assertSourceGate(t, executor, cloneKBaseAdversarialContext(baseContext), "file_write", map[string]any{
-			"file_path": sourcePath,
-			"content":   "blocked",
+			"filePath": sourcePath,
+			"content":  "blocked",
 		})
 	})
 
@@ -436,8 +436,8 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		filetools.RegisterExactAccessApproval(execCtx, plan.Fingerprint)
 		filetools.RegisterRuleAccessApproval(execCtx, plan.RuleKey)
 		assertSourceGate(t, executor, execCtx, "file_write", map[string]any{
-			"file_path": sourcePath,
-			"content":   "blocked",
+			"filePath": sourcePath,
+			"content":  "blocked",
 		})
 	})
 
@@ -450,8 +450,8 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 			t.Skipf("symlink unavailable: %v", err)
 		}
 		assertSourceGate(t, baseExecutor, cloneKBaseAdversarialContext(baseContext), "file_write", map[string]any{
-			"file_path": filepath.Join(link, "policy.txt"),
-			"content":   "blocked",
+			"filePath": filepath.Join(link, "policy.txt"),
+			"content":  "blocked",
 		})
 	})
 
@@ -461,8 +461,8 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		level.ReadonlyRoots = append(level.ReadonlyRoots, "@workspace")
 		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
 		result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
-			"file_path": sourcePath,
-			"content":   "blocked",
+			"filePath": sourcePath,
+			"content":  "blocked",
 		}, cloneKBaseAdversarialContext(baseContext))
 		if err != nil {
 			t.Fatal(err)
@@ -511,6 +511,6 @@ func kbaseAdversarialReadArgs(toolName string, filePath string, dir string) map[
 	case "file_grep":
 		return map[string]any{"path": dir, "pattern": "needle"}
 	default:
-		return map[string]any{"file_path": filePath, "add_line_numbers": false}
+		return map[string]any{"filePath": filePath, "addLineNumbers": false}
 	}
 }

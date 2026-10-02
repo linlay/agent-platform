@@ -69,7 +69,7 @@ func TestWindowsSources(t *testing.T) {
 }
 func TestArgumentsAndGrep(t *testing.T) {
 	p := Policy{Providers: "/runtime/registries/providers"}
-	raw := `{"file_path":"/runtime/registries/providers/demo.yml","content":"key: demo\napiKey: secret-value\n"}`
+	raw := `{"filePath":"/runtime/registries/providers/demo.yml","content":"key: demo\napiKey: secret-value\n"}`
 	got := p.Arguments("file_write", raw)
 	if strings.Contains(got, "secret-value") || !strings.Contains(got, "key: demo") {
 		t.Fatal(got)
@@ -81,5 +81,24 @@ func TestArgumentsAndGrep(t *testing.T) {
 	got = p.Grep("/runtime", line)
 	if strings.Contains(got, "secret-value") || !strings.Contains(got, "key: demo") {
 		t.Fatal(got)
+	}
+}
+
+func TestRejectedLegacyAndMixedArgumentsRemainRedacted(t *testing.T) {
+	p := Policy{Providers: "/runtime/providers"}
+	for _, raw := range []string{
+		`{"file_path":"/runtime/providers/key.yml","content":"secret-value"}`,
+		`{"filePath":"/tmp/plain","file_path":"/runtime/providers/key.yml","content":"secret-value"}`,
+		`{"filePath":"/runtime/providers/key.yml","old_string":"secret-value","newString":"replacement"}`,
+	} {
+		for _, tool := range []string{"file_write", "file_edit"} {
+			if tool == "file_write" && strings.Contains(raw, "old_string") {
+				continue
+			}
+			got := p.Arguments(tool, raw)
+			if strings.Contains(got, "secret-value") {
+				t.Fatalf("%s leaked: %s", tool, got)
+			}
+		}
 	}
 }

@@ -109,8 +109,8 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 
 func (h *ToolHandler) invokeFiles(agentKey string, args map[string]any) (contracts.ToolExecutionResult, error) {
 	headLimit := -1
-	if _, ok := args["head_limit"]; ok {
-		headLimit = int(toolInt64Arg(args, "head_limit"))
+	if _, ok := args["headLimit"]; ok {
+		headLimit = int(toolInt64Arg(args, "headLimit"))
 	}
 	result, err := h.service.Files(agentKey, FilesOptions{
 		Mode:      strings.TrimSpace(toolStringArg(args, "mode")),

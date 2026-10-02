@@ -69,8 +69,8 @@ func TestImageGenerateBabelArkSmoke(t *testing.T) {
 					if operation == "edit" {
 						args["prompt"] = "Keep the simple composition and change the centered blue square to green. Do not add text."
 						args["images"] = []any{map[string]any{
-							"source_type": "reference_name",
-							"value":       "target.png",
+							"sourceType": "referenceName",
+							"value":      "target.png",
 						}}
 					}
 					runID := "smoke-" + profile + "-" + operation

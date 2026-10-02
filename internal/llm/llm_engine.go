@@ -558,15 +558,15 @@ func hardenWorkspaceLessToolDefinition(def *api.ToolDetailResponse) {
 		setToolParameterDescription(def.Parameters, "path",
 			"Required because this run has no Workspace. Use @chat to search the current Chat directory, @temp for temporary files, or another explicit semantic root or absolute path. Relative paths and @workspace return workspace_unavailable.")
 	case "file_read", "file_write", "file_edit":
-		setToolParameterDescription(def.Parameters, "file_path",
+		setToolParameterDescription(def.Parameters, "filePath",
 			"Required. This run has no Workspace, so relative paths and @workspace are unavailable. Use an explicit @chat, @agent, @skills, @skills-center, @connectors, @owner, or @temp path, or an allowed absolute path.")
 	case "artifact_publish":
 		setNestedToolParameterDescription(def.Parameters, []string{"properties", "artifacts", "items", "properties", "path"},
 			"Required. This run has no Workspace, so publish an existing file through an explicit @chat/... or @temp/... path. Relative and @workspace paths return workspace_unavailable.")
 		appendToolDefinitionNote(def, "This run has no Workspace. Artifact sources must use explicit @chat/... or @temp/... paths.")
 	case "vision_recognize":
-		setNestedToolParameterDescription(def.Parameters, []string{"properties", "images", "items", "properties", "file_path"},
-			"Explicit host image path. This run has no Workspace, so relative paths and @workspace are unavailable. Prefer reference_name for a current Chat attachment or screenshot; otherwise use an explicit semantic-root or allowed absolute path.")
+		setNestedToolParameterDescription(def.Parameters, []string{"properties", "images", "items", "properties", "filePath"},
+			"Explicit host image path. This run has no Workspace, so relative paths and @workspace are unavailable. Prefer referenceName for a current Chat attachment or screenshot; otherwise use an explicit semantic-root or allowed absolute path.")
 	}
 }
 

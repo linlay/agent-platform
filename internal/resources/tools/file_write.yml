@@ -9,7 +9,7 @@ description: |
 inputSchema:
   type: object
   properties:
-    file_path:
+    filePath:
       type: string
       description: Required. Absolute path, an explicit @workspace/@chat/@agent/@skills/@skills-center/@owner/@temp path, or a path relative to the current Workspace.
     content:
@@ -22,6 +22,6 @@ inputSchema:
       type: string
       description: Optional. 这次写文件的用途简述（一句话，中文），会在需要人工审批时展示给用户。
   required:
-    - file_path
+    - filePath
     - content
   additionalProperties: false

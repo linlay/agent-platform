@@ -58,7 +58,7 @@ func TestRipgrepSearchFailurePreservesBoundedDiagnostics(t *testing.T) {
 		strings.Join(lines, "\n")+"\n",
 		stderr,
 		"exit status 2",
-		map[string]any{"head_limit": 0},
+		map[string]any{"headLimit": 0},
 		defaultGlobHeadLimit,
 		false,
 		map[string]any{"pattern": "*.yml"},

@@ -3,7 +3,7 @@ label: 搜索文件
 description: |
   A powerful search tool built on ripgrep. Filter files with glob/type,
   switch between content/files/count output modes, support context lines,
-  multiline regex, case-insensitive search and head_limit-based pagination.
+  multiline regex, case-insensitive search and headLimit-based pagination.
   Use this tool to locate matching files or lines. When the user needs an
   exact count or capture extraction from known text, prefer regex instead;
   for file content, read the relevant file content first and then call regex.
@@ -22,7 +22,7 @@ inputSchema:
     type:
       type: string
       description: Ripgrep file type filter, such as 'go' or 'py'.
-    output_mode:
+    outputMode:
       type: string
       enum:
         - content
@@ -30,30 +30,30 @@ inputSchema:
         - count
       default: files_with_matches
       description: Output mode. Use content for matching lines, files_with_matches for matching paths, or count for per-file counts.
-    -i:
+    caseInsensitive:
       type: boolean
       description: Case-insensitive search.
-    -n:
+    lineNumbers:
       type: boolean
       description: Show line numbers in content mode. Defaults to true for content mode.
-    -A:
+    afterContext:
       type: integer
       description: Number of lines to include after each match.
-    -B:
+    beforeContext:
       type: integer
       description: Number of lines to include before each match.
-    -C:
+    context:
       type: integer
       description: Number of context lines to include around each match.
     multiline:
       type: boolean
       description: Enable multiline regex mode with rg -U --multiline-dotall.
-    head_limit:
+    headLimit:
       type: integer
       description: Maximum number of result entries to return after offset. Defaults to 250; 0 means unlimited.
     offset:
       type: integer
-      description: Number of result entries to skip before applying head_limit.
+      description: Number of result entries to skip before applying headLimit.
   required:
     - pattern
   additionalProperties: false

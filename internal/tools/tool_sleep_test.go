@@ -32,7 +32,7 @@ func TestSleepWakeAndCancellation(t *testing.T) {
 				duration = 5
 			}
 			go func() {
-				result, err := (&RuntimeToolExecutor{}).invokeSleep(ctx, map[string]any{"duration_ms": duration}, &ExecutionContext{RunControl: control, ToolOutputSink: sink})
+				result, err := (&RuntimeToolExecutor{}).invokeSleep(ctx, map[string]any{"durationMs": duration}, &ExecutionContext{RunControl: control, ToolOutputSink: sink})
 				if err != nil {
 					result.Error = err.Error()
 				}
@@ -85,7 +85,7 @@ func TestSleepInSubTaskIgnoresRootSteer(t *testing.T) {
 	defer control.Finish()
 	control.EnqueueSteer(api.SteerRequest{RunID: "root-run", Message: "for the root"})
 	execCtx := &ExecutionContext{RunControl: control, Session: QuerySession{SubTaskID: "task-1"}}
-	result, err := (&RuntimeToolExecutor{}).invokeSleep(context.Background(), map[string]any{"duration_ms": 20}, execCtx)
+	result, err := (&RuntimeToolExecutor{}).invokeSleep(context.Background(), map[string]any{"durationMs": 20}, execCtx)
 	if err != nil || result.Structured["reason"] != "elapsed" {
 		t.Fatalf("sub-agent sleep woken by root steer: %#v %v", result, err)
 	}
@@ -96,7 +96,7 @@ func TestSleepInSubTaskIgnoresRootSteer(t *testing.T) {
 
 func TestSleepRejectsInvalidDurations(t *testing.T) {
 	for _, v := range []any{nil, "1", -1, 0, 1.5, 86400001, math.NaN(), math.Inf(1)} {
-		result, err := (&RuntimeToolExecutor{}).invokeSleep(context.Background(), map[string]any{"duration_ms": v}, nil)
+		result, err := (&RuntimeToolExecutor{}).invokeSleep(context.Background(), map[string]any{"durationMs": v}, nil)
 		if err != nil || result.Error != "invalid_sleep_arguments" {
 			t.Fatalf("accepted %#v: %#v %v", v, result, err)
 		}
@@ -105,7 +105,7 @@ func TestSleepRejectsInvalidDurations(t *testing.T) {
 
 func TestSleepRejectsWaitBeyondRunTimeout(t *testing.T) {
 	execCtx := &ExecutionContext{StartedAt: time.Now().Add(-50 * time.Second), Budget: Budget{Timeout: 60}}
-	result, err := (&RuntimeToolExecutor{}).invokeSleep(context.Background(), map[string]any{"duration_ms": 30000}, execCtx)
+	result, err := (&RuntimeToolExecutor{}).invokeSleep(context.Background(), map[string]any{"durationMs": 30000}, execCtx)
 	if err != nil || result.Error != "sleep_exceeds_run_timeout" {
 		t.Fatalf("accepted wait past run timeout: %#v %v", result, err)
 	}
@@ -113,7 +113,7 @@ func TestSleepRejectsWaitBeyondRunTimeout(t *testing.T) {
 		t.Fatalf("bad remaining: %#v", result.Structured)
 	}
 	execCtx.BudgetPaused = time.Minute
-	result, err = (&RuntimeToolExecutor{}).invokeSleep(context.Background(), map[string]any{"duration_ms": 5}, execCtx)
+	result, err = (&RuntimeToolExecutor{}).invokeSleep(context.Background(), map[string]any{"durationMs": 5}, execCtx)
 	if err != nil || result.Structured["reason"] != "elapsed" {
 		t.Fatalf("rejected wait within budget: %#v %v", result, err)
 	}

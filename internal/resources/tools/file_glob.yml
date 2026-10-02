@@ -13,12 +13,12 @@ inputSchema:
     path:
       type: string
       description: Directory to search. Defaults to the current Workspace unless it resolves to the filesystem root, which is never searchable and requires an explicit narrower path. Explicit semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, and @temp. A Workspace-less session requires path.
-    head_limit:
+    headLimit:
       type: integer
       description: Maximum number of matching paths to return after offset. Defaults to 100; 0 means unlimited.
     offset:
       type: integer
-      description: Number of matching paths to skip before applying head_limit.
+      description: Number of matching paths to skip before applying headLimit.
   required:
     - pattern
   additionalProperties: false

@@ -75,9 +75,9 @@ func TestImageGenerateResponseFormatPolicy(t *testing.T) {
 					if err := os.WriteFile(filepath.Join(chatDir, "input.png"), raw, 0600); err != nil {
 						t.Fatal(err)
 					}
-					args := map[string]any{"prompt": "draw", "response_format": "url"}
+					args := map[string]any{"prompt": "draw", "responseFormat": "url"}
 					if edit {
-						args["images"] = []any{map[string]any{"source_type": "reference_name", "value": "input.png"}}
+						args["images"] = []any{map[string]any{"sourceType": "referenceName", "value": "input.png"}}
 					}
 					executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, root)
 					result, err := executor.invokeImageGenerate(context.Background(), args, &contracts.ExecutionContext{Session: contracts.QuerySession{

@@ -2,7 +2,7 @@ key: _skill_candidate_write_
 name: _skill_candidate_write_
 label: Skill Candidate Write
 description: Store a reusable workflow or procedure candidate for later promotion into a real skill.
-parameters:
+inputSchema:
   type: object
   properties:
     title:

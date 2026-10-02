@@ -40,7 +40,7 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 	if strings.TrimSpace(profile.ModelKey) == "" {
 		return modelToolError("vision_profile_model_missing", "vision profile model-key is required: "+profileName, map[string]any{"profile": profileName}), nil
 	}
-	outputFormat := resolveVisionOutputFormat(AnyStringNode(args["output_format"]), profile.OutputFormat)
+	outputFormat := resolveVisionOutputFormat(AnyStringNode(args["outputFormat"]), profile.OutputFormat)
 	prompt := strings.TrimSpace(AnyStringNode(args["prompt"]))
 	if prompt == "" {
 		return modelToolError("vision_prompt_required", "prompt is required", nil), nil
@@ -94,7 +94,7 @@ func (t *RuntimeToolExecutor) loadVisionImages(args map[string]any, execCtx *Exe
 	if !ok {
 		return nil, modelToolError(
 			"vision_images_invalid_type",
-			`images must be a JSON array; for one image use {"images":[{"file_path":"@chat/image.png"}]}`,
+			`images must be a JSON array; for one image use {"images":[{"filePath":"@chat/image.png"}]}`,
 			map[string]any{
 				"expectedType": "array",
 				"actualType":   visionJSONType(raw),
