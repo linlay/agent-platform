@@ -1,0 +1,22 @@
+name: surface_evaluate
+label: 网页执行脚本
+description: "Evaluate JavaScript in a webpage and return its value. Before reading or changing page content, call awcp_manual for that page and prefer a matching AWCP section; use this tool only when the page has no AWCP manual or no matching section. An exception reported in exceptionDetails is a script failure. Re-read state before retrying a mutation; dispatching an event does not prove success."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+    expression:
+      type: string
+      description: JavaScript expression. Use a synchronous IIFE for synchronous reads. Mutually exclusive with expressionFile.
+    expressionFile:
+      type: string
+      description: Path to a UTF-8 JavaScript file used as the expression, for scripts too large to pass inline. Relative paths resolve from the execution workspace; explicit roots such as @chat and authorized absolute paths follow the standard file read AccessPolicy and approval rules. Mutually exclusive with expression.
+    awaitPromise:
+      type: boolean
+      description: Optional, default true. Wait for a returned Promise to settle.
+  required:
+    - surfaceId
+  additionalProperties: false

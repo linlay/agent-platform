@@ -47,7 +47,7 @@ groups:
       - online-xlsx
     connectors:
       - builtin.httpx
-      - builtin.desktop-web
+      - builtin.web-control
 
   - key: web-data
     name:
@@ -57,7 +57,7 @@ groups:
       zh-CN: 操作网页、调用 HTTP 接口、查询数据库
       en-US: Operate web pages, call HTTP APIs and query databases
     connectors:
-      - builtin.desktop-web
+      - builtin.web-control
       - builtin.httpx
       - builtin.dbx
 
@@ -72,7 +72,8 @@ groups:
       - webapp-creator
       - skill-creator
     connectors:
-      - builtin.desktop-web
+      - builtin.web-control
+      - builtin.desktop
 
   - key: platform-admin
     name:

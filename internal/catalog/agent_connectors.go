@@ -85,7 +85,7 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 		ExternalRoot:        r.cfg.Paths.EffectiveConnectorsCenterDir(),
 		BuiltinRoot:         r.cfg.Paths.BuiltinConnectorsDir,
 		NativeDesktopDir:    r.cfg.Paths.NativeDesktopDir,
-		NativeDesktopWebDir: r.cfg.Paths.NativeDesktopWebDir,
+		NativeWebControlDir: r.cfg.Paths.NativeWebControlDir,
 		StateRoot:           r.cfg.Paths.EffectiveConnectorStateDir(),
 	}}
 	if err := assembler.resolveConnectors(&def); err != nil {

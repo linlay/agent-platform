@@ -3025,7 +3025,7 @@ func assertCoderPlanningToolSet(t *testing.T, got []string) {
 		t.Fatalf("coder planning tools length=%d tools=%#v", len(got), got)
 	}
 	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", "finalize_planning")
-	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
+	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "workpanel_open", "surface_cdp", "awcp_invoke", "agent_invoke", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 }
 
 func awaitingQuestionText(payload map[string]any) string {

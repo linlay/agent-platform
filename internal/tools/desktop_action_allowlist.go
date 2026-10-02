@@ -7,7 +7,8 @@ import (
 
 // Exact runtime admission policy, deliberately separate from the model-facing
 // tool schema. Follow Desktop's public registry excluding WebApp-page-only
-// actions; TestDesktopActionContractMatchesDesktopSource verifies that boundary.
+// actions and the WorkPanel/webpage actions owned by builtin.web-control;
+// TestDesktopActionContractMatchesDesktopSource verifies that boundary.
 var desktopActionNames = [...]string{
 	"desktop.navigate.toRoute",
 	"desktop.assistant.chat",
@@ -26,27 +27,7 @@ var desktopActionNames = [...]string{
 	"desktop.display",
 	"desktop.copilot.getPagePreferences",
 	"desktop.copilot.setPagePreference",
-	"desktop.web.listSurfaces",
-	"desktop.web.getSurfaceState",
-	"desktop.web.interactElement",
-	"desktop.web.executeScript",
 	"desktop.web.exportArtifact",
-	"desktop.web.activateSurface",
-	"desktop.web.navigate",
-	"desktop.web.reload",
-	"desktop.web.refreshSurface",
-	"desktop.web.goBack",
-	"desktop.web.openTab",
-	"desktop.web.closeTab",
-	"desktop.web.switchTab",
-	"desktop.workpanel.getState",
-	"desktop.workpanel.openTab",
-	"desktop.workpanel.openWeb",
-	"desktop.workpanel.openLocalFile",
-	"desktop.workpanel.refreshWeb",
-	"desktop.workpanel.activateTab",
-	"desktop.workpanel.closeTab",
-	"desktop.workpanel.closeWorkpanel",
 	"desktop.site.list",
 	"desktop.website.list",
 	"desktop.website.add",
@@ -111,6 +92,18 @@ var desktopActionNames = [...]string{
 	"desktop.pet.hide",
 	"desktop.pet.list",
 	"desktop.pet.set",
+}
+
+// Reverse actions the web-control tools may send. They are never accepted from
+// the model through desktop_action.
+var webControlActionNames = [...]string{
+	"desktop.workpanel.getState",
+	"desktop.workpanel.openWeb",
+	"desktop.workpanel.openLocalFile",
+	"desktop.workpanel.refreshWeb",
+	"desktop.workpanel.closeTab",
+	"desktop.workpanel.closeWorkpanel",
+	"desktop.web.interactElement",
 }
 
 var desktopActionNamePattern = regexp.MustCompile(`^desktop(?:\.[A-Za-z][A-Za-z0-9]*)+$`)

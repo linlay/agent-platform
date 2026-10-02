@@ -1,0 +1,19 @@
+{
+  "id": "builtin.web-control",
+  "name": "Web Control",
+  "icon": "assets/icon.svg",
+  "version": "1.0.0",
+  "type": "native",
+  "auth_mode": "no_auth",
+  "description": "Open webpages and files in the WorkPanel and control authorized webpages with AWCP and CDP",
+  "i18n": {
+    "en": {
+      "name": "Web Control",
+      "description": "Open webpages and files in the WorkPanel and control authorized webpages with AWCP and CDP"
+    },
+    "zh-CN": {
+      "name": "网页控制",
+      "description": "在工作面板打开网页和文件，并通过 AWCP 和 CDP 控制已授权网页"
+    }
+  }
+}

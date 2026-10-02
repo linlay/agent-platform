@@ -15,14 +15,14 @@ func (p PathsConfig) EffectiveConnectorStateDir() string {
 }
 
 func (p PathsConfig) ConnectorSources() connector.Sources {
-	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeDesktopDir: p.NativeDesktopDir, NativeDesktopWebDir: p.NativeDesktopWebDir, StateRoot: p.EffectiveConnectorStateDir(), LegacyStateRoot: p.LegacyConnectorStateDir}
+	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeDesktopDir: p.NativeDesktopDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveConnectorStateDir(), LegacyStateRoot: p.LegacyConnectorStateDir}
 }
 
 func validateConnectorPaths(p PathsConfig) error {
 	if err := p.ConnectorSources().ValidateRoots(); err != nil {
 		return err
 	}
-	if err := (connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeDesktopDir: p.NativeDesktopDir, NativeDesktopWebDir: p.NativeDesktopWebDir, StateRoot: p.EffectiveStateDir()}).ValidateRoots(); err != nil {
+	if err := (connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeDesktopDir: p.NativeDesktopDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveStateDir()}).ValidateRoots(); err != nil {
 		return fmt.Errorf("AP_RUNTIME_STATE_DIR: %w", err)
 	}
 	// Connector sources and persistent state must stay outside generated Agents
@@ -47,12 +47,12 @@ func (p *PathsConfig) PrepareNativeConnectors() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	web, releaseWeb, err := p.ConnectorSources().InstallEmbeddedDesktopWeb()
+	web, releaseWeb, err := p.ConnectorSources().InstallEmbeddedWebControl()
 	if err != nil {
 		release()
 		return nil, err
 	}
 	p.NativeDesktopDir = pkg.Dir
-	p.NativeDesktopWebDir = web.Dir
+	p.NativeWebControlDir = web.Dir
 	return func() { releaseWeb(); release() }, nil
 }

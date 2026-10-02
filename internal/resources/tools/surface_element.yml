@@ -1,0 +1,29 @@
+name: surface_element
+label: 网页元素操作
+description: "Fill, select, focus or scroll one element identified by a CSS selector. Use surface_click to click. Verify the expected state afterwards. Prefer a matching AWCP section when the page provides one."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+    selector:
+      type: string
+      description: Required. CSS selector of a verified element.
+    action:
+      type: string
+      enum:
+        - fill
+        - select
+        - focus
+        - scroll
+      description: Required. fill sets an input value, select chooses an option, focus focuses the element, scroll scrolls it into view.
+    value:
+      type: string
+      description: Value for fill or select.
+  required:
+    - surfaceId
+    - selector
+    - action
+  additionalProperties: false

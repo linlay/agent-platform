@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/interaction"
@@ -168,6 +169,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		McpToolNamesForServers(s.deps.Tools, agentDef.ConnectorMCPServers)...,
 	)
 	toolNames := BuildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
+	toolNames = RuntimeModeToolNames(toolNames, s.deps.Config.RuntimeMode)
 	toolNames = agentbuiltin.CoderRuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentbuiltin.CoderMainStage, toolNames)
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
@@ -462,6 +464,21 @@ func BuildSessionToolNames(base []string, allowInvokeAgents bool) []string {
 		tools = append(tools, name)
 	}
 	return tools
+}
+
+// RuntimeModeToolNames hides native connector tools the current runtime cannot
+// execute, so the model is not offered page control without a Desktop host.
+func RuntimeModeToolNames(tools []string, mode config.RuntimeMode) []string {
+	if mode == config.RuntimeModeDesktop {
+		return tools
+	}
+	kept := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if !connector.NativeToolRequiresDesktop(tool) {
+			kept = append(kept, tool)
+		}
+	}
+	return kept
 }
 
 type McpServerToolResolver interface {

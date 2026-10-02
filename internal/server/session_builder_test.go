@@ -118,8 +118,8 @@ func TestBuildSessionToolNamesDoesNotAutoAddDesktopTools(t *testing.T) {
 }
 
 func TestBuildSessionToolNamesKeepsExplicitDesktopTools(t *testing.T) {
-	got := buildSessionToolNames([]string{"datetime", "desktop_action", "desktop_cdp"}, true)
-	want := []string{"datetime", "desktop_action", "desktop_cdp"}
+	got := buildSessionToolNames([]string{"datetime", "desktop_action", "surface_cdp"}, true)
+	want := []string{"datetime", "desktop_action", "surface_cdp"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildSessionToolNames() = %#v, want %#v", got, want)
 	}

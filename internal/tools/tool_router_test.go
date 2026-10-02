@@ -130,7 +130,7 @@ func TestPlatformControlReadOnlyPolicyUsesOperationDescriptor(t *testing.T) {
 func TestToolRouterRejectsUnregisteredToolWithoutCallingBackend(t *testing.T) {
 	backend := &recordingPolicyBackend{}
 	router := mustNewToolRouter(t, backend, nil, nil, nil)
-	for _, name := range []string{"missing_tool", "desktop_action", "desktop_cdp"} {
+	for _, name := range []string{"missing_tool", "desktop_action", "surface_cdp"} {
 		result, err := router.Invoke(context.Background(), name, nil, &ExecutionContext{})
 		if err != nil || result.Error != "tool_not_registered" || result.ExitCode != -1 {
 			t.Fatalf("unregistered tool %s: result=%#v err=%v", name, result, err)
@@ -486,7 +486,7 @@ func TestToolInvocationResultStatus(t *testing.T) {
 func TestRuntimeCompactModelOutputPolicyIsCodeOwned(t *testing.T) {
 	for _, name := range []string{
 		"bash", "bash_sandbox",
-		"desktop_action", "desktop_cdp",
+		"desktop_action", "workpanel_open", "surface_evaluate", "surface_cdp", "awcp_invoke",
 		"file_read", "file_write", "file_edit", "file_glob", "file_grep",
 		"image_generate", "vision_recognize", "web_fetch",
 		"regex",

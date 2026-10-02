@@ -67,21 +67,44 @@ func TestDesktopMigrationRejectsConcurrentChanges(t *testing.T) {
 	}
 }
 
-func TestDesktopMigrationPreservesSelectedWebVariant(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agents", "demo", "agent.yml")
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("key: demo\nmode: REACT\ntoolConfig:\n  tools:\n    - desktop_action\nconnectorConfig:\n  connectors:\n    - builtin.desktop-web\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	plan, err := PreviewDesktop(root)
-	if err != nil || len(plan.Changes) != 1 {
-		t.Fatalf("preview: %+v %v", plan, err)
-	}
-	change := plan.Changes[0]
-	if len(change.AddedTools) != 0 || !strings.Contains(string(change.Data), "builtin.desktop-web") || strings.Contains(string(change.Data), "builtin.desktop\n") {
-		t.Fatalf("changed variant: %s", change.Data)
+func TestDesktopMigrationMapsLegacyMountsToWebControl(t *testing.T) {
+	for _, tc := range []struct {
+		name, mounts string
+		want         []string
+		unwanted     string
+	}{
+		// The former web-only variant becomes builtin.web-control alone.
+		{"web variant", "    - builtin.desktop-web\n", []string{`"builtin.web-control"`}, `"builtin.desktop"`},
+		// The former full Desktop keeps its page control by adding web-control.
+		{"full desktop", "    - builtin.desktop\n", []string{`"builtin.desktop"`, `"builtin.web-control"`}, "builtin.desktop-web"},
+	} {
+		root := t.TempDir()
+		path := filepath.Join(root, "agents", "demo", "agent.yml")
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		// Keys without a value ("tools:") must not abort the whole plan.
+		if err := os.WriteFile(path, []byte("key: demo\nmode: GENERAL\ntoolConfig:\n  tools:\nskillConfig:\n  skills:\nconnectorConfig:\n  connectors:\n"+tc.mounts), 0600); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := PreviewDesktop(root)
+		if err != nil || len(plan.Changes) != 1 {
+			t.Fatalf("%s preview: %+v %v", tc.name, plan, err)
+		}
+		change := plan.Changes[0]
+		if len(change.AddedTools) != 0 || strings.Contains(string(change.Data), tc.unwanted) {
+			t.Fatalf("%s: %s", tc.name, change.Data)
+		}
+		for _, id := range tc.want {
+			if !strings.Contains(string(change.Data), id) {
+				t.Fatalf("%s misses %s: %s", tc.name, id, change.Data)
+			}
+		}
+		if _, err := ApplyDesktop(plan, false); err != nil {
+			t.Fatalf("%s apply: %v", tc.name, err)
+		}
+		if next, err := PreviewDesktop(root); err != nil || len(next.Changes) != 0 {
+			t.Fatalf("%s is not idempotent: %+v %v", tc.name, next, err)
+		}
 	}
 }

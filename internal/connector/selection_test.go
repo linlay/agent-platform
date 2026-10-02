@@ -26,7 +26,7 @@ func TestSelectionUsesManifestDeclarationsInEitherDirection(t *testing.T) {
 			t.Fatalf("conflict: %#v %v", conflict, err)
 		}
 	}
-	for _, packages := range [][]Package{nil, {a}, {a, c}, {{Manifest: Manifest{ID: DesktopConnectorID}}, {Manifest: Manifest{ID: DesktopWebConnectorID}}}} {
+	for _, packages := range [][]Package{nil, {a}, {a, c}, {{Manifest: Manifest{ID: DesktopConnectorID}}, {Manifest: Manifest{ID: WebControlConnectorID}}}} {
 		if err := ValidateSelection(packages); err != nil {
 			t.Fatalf("undeclared conflict: %v", err)
 		}

@@ -29,7 +29,7 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpManual(ctx context.Context, args 
 		return desktopAwcpInvalidArgsResult(err), nil
 	}
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
-		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
+		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "webpage control requires the Desktop runtime and is unavailable in standalone mode", nil), nil
 	}
 	source, err := buildDesktopActionSource(execCtx)
 	if err != nil {
@@ -50,7 +50,7 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpFromCDP(ctx context.Context, args
 	}
 	params := args["params"].(map[string]any)
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
-		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
+		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "webpage control requires the Desktop runtime and is unavailable in standalone mode", nil), nil
 	}
 	source, err := buildDesktopActionSource(execCtx)
 	if err != nil {

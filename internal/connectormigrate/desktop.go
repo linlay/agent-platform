@@ -36,6 +36,11 @@ func desktopList(root map[string]any, section, key string) ([]string, error) {
 		values = value
 	case string:
 		values = []any{value}
+	case map[string]any:
+		// A key with no value ("skills:") loads as an empty mapping.
+		if len(value) != 0 {
+			return nil, fmt.Errorf("invalid %s.%s", section, key)
+		}
 	default:
 		return nil, fmt.Errorf("invalid %s.%s", section, key)
 	}
@@ -124,33 +129,49 @@ func PreviewDesktop(runtimeRoot string) (DesktopPlan, error) {
 				keptSkills = append(keptSkills, skill)
 			}
 		}
-		if !found {
-			return nil
-		}
-		runtime, _ := node["runtimeConfig"].(map[string]any)
-		if strings.EqualFold(fmt.Sprint(node["mode"]), "KBASE") || runtime["acpBridgeId"] != nil {
-			return fmt.Errorf("%s cannot mount Desktop in its current mode", path)
-		}
-		mounted := false
+		// builtin.desktop used to include WorkPanel and webpage control, and
+		// builtin.desktop-web was its web-only variant. Both now map to the
+		// independent builtin.web-control connector.
+		const legacyWebConnector = "builtin.desktop-web"
+		hasDesktop, hasWeb, hadLegacyWeb := false, false, false
 		unique := []string{}
 		seen := map[string]bool{}
 		for _, id := range mounts {
-			if connector.IsDesktop(id) {
-				mounted = true
+			switch id {
+			case connector.DesktopConnectorID:
+				hasDesktop = true
+			case connector.WebControlConnectorID:
+				hasWeb = true
+			case legacyWebConnector:
+				hadLegacyWeb = true
+				id = connector.WebControlConnectorID
 			}
 			if !seen[id] {
 				unique = append(unique, id)
 				seen[id] = true
 			}
 		}
+		if !found && !hadLegacyWeb && (!hasDesktop || hasWeb) {
+			return nil
+		}
+		runtime, _ := node["runtimeConfig"].(map[string]any)
+		if found && (strings.EqualFold(fmt.Sprint(node["mode"]), "KBASE") || runtime["acpBridgeId"] != nil) {
+			return fmt.Errorf("%s cannot mount Desktop in its current mode", path)
+		}
 		change := DesktopChange{Path: path, Before: sum(data)}
-		if !mounted {
-			unique = append(unique, "builtin.desktop")
+		if !hasDesktop && !hasWeb && !hadLegacyWeb {
+			// Standalone legacy tools or skills: mount both connectors, as the
+			// former builtin.desktop did, and report tools the Agent did not have.
+			unique = append(unique, connector.DesktopConnectorID)
+			seen[connector.DesktopConnectorID] = true
 			for _, tool := range []string{"desktop_action", "desktop_cdp"} {
 				if !had[tool] {
 					change.AddedTools = append(change.AddedTools, tool)
 				}
 			}
+		}
+		if !seen[connector.WebControlConnectorID] {
+			unique = append(unique, connector.WebControlConnectorID)
 		}
 		for _, part := range []struct {
 			section, key string

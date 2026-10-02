@@ -868,7 +868,7 @@ Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信�
 {"frame":"request","type":"desktop.cdp.call","id":"dsc-123","payload":{"requestId":"dsc-123","method":"Runtime.evaluate","params":{"expression":"document.title"},"surfaceId":"surface-1","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"}}}
 ```
 
-Desktop 模式由 Main Broker 处理普通 `desktop.*` request type、AWCP 专用 wire action `desktop.awcp.manual` / `desktop.awcp.invoke` 和 `desktop.cdp.call`；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Desktop-only 的 `desktop.workpanel.openLocalFile` 在 Standalone 由 `desktop_action` 返回 `desktop_action_unsupported_runtime`；`desktop_cdp` 的普通 CDP 与 AWCP method 均返回 `desktop_cdp_unsupported_runtime`，不转发给 agent-webclient。普通 Action 的调用方可选 request ID 继续映射为帧 `id`；AWCP 的帧 `id` 只由 Platform 生成。响应必须保持同 `id`、同 request `type`；旧统一 envelope 不提供兼容入口。模型通过 `desktop_cdp` 的两个静态 AWCP method 分别映射到 manual/invoke wire；`AWCP.getManual` 不带 params 或传 `{}` 时返回轻量目录，读取章节时必须精确传 `{section,revision}`。Platform 原样转发手册参数，并将工具顶层可选 `surfaceId` 加入 wire payload；不投影或缓存页面合同。`AWCP.invoke` 的模型 params 只含 `{revision,action,args}`，wire payload 可另带 `surfaceId`，运行核心不保存 revision、Action 集合或重试状态，不编译业务 Schema、不改写工具 Schema，目标和来源仅由可信 Run 决定；合法 AWCP `ok:false` 保持普通 response data 并让工具失败，不统一添加执行阶段标记，页面字段错误也不提升为宿主证据。宿主错误仍使用 error frame，可信预检只投影 `manual_required/page_changed/stale_revision/action_not_found`。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`，各层都不自动重放。
+Desktop 模式由 Main Broker 处理普通 `desktop.*` request type、AWCP 专用 wire action `desktop.awcp.manual` / `desktop.awcp.invoke` 和 `desktop.cdp.call`；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Desktop-only 的 `desktop.workpanel.openLocalFile` 在 Standalone 返回 `desktop_action_unsupported_runtime`；`surface_*` 与 `awcp_*` 工具在 Standalone 不提供给模型，直接调用返回 `desktop_cdp_unsupported_runtime`，不转发给 agent-webclient。普通 Action 的调用方可选 request ID 继续映射为帧 `id`；AWCP 的帧 `id` 只由 Platform 生成。响应必须保持同 `id`、同 request `type`；旧统一 envelope 不提供兼容入口。模型通过 `awcp_manual` / `awcp_invoke` 两个静态工具分别映射到 manual/invoke wire；`awcp_manual` 只带 `surfaceId` 时返回轻量目录，读取章节时必须同时给出 `section` 与 `revision`。Platform 把工具字段组装为 wire payload 并附带可选 `surfaceId`；不投影或缓存页面合同。`awcp_invoke` 只接收 `revision`、`action`、`args`，wire payload 可另带 `surfaceId`，运行核心不保存 revision、Action 集合或重试状态，不编译业务 Schema、不改写工具 Schema，目标和来源仅由可信 Run 决定；合法 AWCP `ok:false` 保持普通 response data 并让工具失败，不统一添加执行阶段标记，页面字段错误也不提升为宿主证据。宿主错误仍使用 error frame，可信预检只投影 `manual_required/page_changed/stale_revision/action_not_found`。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`，各层都不自动重放。
 
 Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame，外层 `frame/type/id/code/msg/data` 不变。`type/msg` 承载原始错误类型和消息，`data` 只保存 `{action, details?}`，不再嵌套完整 Action result 或 `error`。Platform 从 `data.details` 提取有界的 `issues`（最多 16 项，每项 `path/code/expected/actual` 字符串最多 256 字节）与恢复提示；`actual` 只表示类型或缺失，不返回输入值。参数错误在模型工具结果中保留 `invalid_args`，其他 provider 错误保留既有分类。此边界由 Desktop/Platform 配套发布；不猜测历史嵌套格式，不改变 CDP/AWCP 各自的诊断协议。
 
@@ -974,13 +974,13 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 
 | Route | Payload | 返回 |
 |---|---|---|
-| `/api/agents` | `includeChats`、`chatsPinned`、`includeTeam`、`scope`、`mode` | `response` |
+| `/api/agents` | `includeChats`、`chatsPinned`、`includeTeam`、`scope`、`mode`、`hasWorkspace` | `response` |
 | `/api/agent` | `agentKey` | `response` |
 | `/api/skills` | 可选 `agentKey` 读取；`id/pinned` 写入 | `response`；data 与 HTTP `/api/skills` 完全一致 |
 | `/api/agent/model-config` | `agentKey`、可选 `modelKey/reasoningEffort/serviceTier` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |
-| `/api/chats` | `lastRunId`、`agentKey`、`mode`、`pinned`、`limit` | `response` |
+| `/api/chats` | `lastRunId`、`agentKey`、`mode`、`pinned`、`hasWorkspace`、`limit` | `response` |
 | `/api/chats/order` | 空 payload 读取；或 `operation` 与对应字段更新 | `response` |
 | `/api/chat` | `chatId`、`includeRawMessages` | `response` |
 | `/api/read` | `chatId` | `response` |
@@ -1271,11 +1271,11 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 纯文本选区 steer 使用 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；`text` 必须为非空字符串，`annotation` 为可选字符串。选区在准入时冻结并作为文本注入，不要求视觉模型、不授予客户端 path/URL 文件访问权限。消费后的原始 message/references 进入 steer JSONL，用于回放和续聊重建；btw/explain 仅写各自隐藏分支。selection 可以与当前 Chat 的文件引用混合使用，HTTP/WS 控制归属规则保持一致。
 
-## 网页 Container / Surface 契约
+## 网页 Surface 契约
 
-Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surface。`desktop_cdp` 以 Surface.list / Surface.getCurrent 发现网页，所有 CDP 页面操作只使用 surfaceId，不暴露另一个目标 ID 或 session selector。Surface.open/close/getState/goBack 是 Desktop 方法，其余受限 Chromium 方法仍由 Desktop 定位到精确 webContents 后执行。导航和刷新保留身份，关闭重开使旧身份失效。
+每个网页是一个独立 Surface，由 `surfaceId` 标识；导航和刷新保留身份，关闭重开使旧身份失效。网页控制工具以 `surface_list` 发现本次 Run 已授权的网页，`surface_state` 省略 `surfaceId` 时读取所属应用的当前页；所有页面操作只使用 `surfaceId`。Desktop 协议中的 `containerId` 与 WorkPanel 条目 ID 不出现在模型工具的参数和结果里。`surface_*` 工具在 Platform 内映射为 `desktop.cdp.call` 的 Surface.list / Surface.getCurrent / Surface.getState / Surface.goBack / Surface.close 等 Desktop 方法和受限 Chromium 方法，由 Desktop 定位到精确 webContents 后执行。
 
-普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
+普通 Chat 用 `workpanel_open` 打开网址，返回 `surfaceId` 与状态；这是打开新页面的唯一入口，Website 内的多个标签在 `surface_list` 中是多个独立 Surface。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。`awcp_manual` / `awcp_invoke` 接受可选 `surfaceId`，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
 
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 

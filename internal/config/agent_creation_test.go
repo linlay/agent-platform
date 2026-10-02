@@ -32,10 +32,13 @@ func TestShippedAgentCreationExampleParses(t *testing.T) {
 	if cfg.Types["general"].BaseToolsSet {
 		t.Fatalf("the example leaves base-tools unset so the built-in list applies")
 	}
-	// builtin.desktop grants full desktop control and belongs to no template.
+	// Only app building opts into Desktop management, required for WebApp packaging.
 	for _, group := range cfg.Groups {
+		if group.Key == "app-skill-building" && !reflect.DeepEqual(group.Connectors, []string{"builtin.web-control", "builtin.desktop"}) {
+			t.Fatalf("app building requires webpage control and Desktop packaging: %v", group.Connectors)
+		}
 		for _, id := range group.Connectors {
-			if id == "builtin.desktop" {
+			if id == "builtin.desktop" && group.Key != "app-skill-building" {
 				t.Fatalf("group %s must not mount builtin.desktop", group.Key)
 			}
 		}

@@ -1,0 +1,25 @@
+name: awcp_invoke
+label: 网站动作
+description: "Invoke one business action that the website documents in its AWCP manual. Read the section with awcp_manual first and build args from its inputSchema, using the same revision. Field validation is owned by the website; Platform does not coerce or repair arguments. Fix reported invalid arguments explicitly, but do not automatically replay a timeout, disconnect, cancellation or unknown outcome. A stale revision requires reading the manual again."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: Exact webpage identity returned by workpanel_open or surface_list. May be omitted only inside the application this Run belongs to.
+    revision:
+      type: string
+      description: Required. Revision of the manual the section was read from.
+    action:
+      type: string
+      description: Required. Section name being invoked.
+    args:
+      type: object
+      description: Required. Arguments built from the section's inputSchema, using native JSON types.
+      additionalProperties: true
+  required:
+    - revision
+    - action
+    - args
+  additionalProperties: false

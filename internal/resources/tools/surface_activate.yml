@@ -1,0 +1,13 @@
+name: surface_activate
+label: 显示网页
+description: "Bring a webpage to the foreground so the user can see it. Not needed before reading or operating a page: authorized background pages can be controlled directly."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+  required:
+    - surfaceId
+  additionalProperties: false

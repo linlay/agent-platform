@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 )
@@ -29,7 +30,7 @@ func TestDesktopCDPParamsFileSendsParamsThroughExistingRequest(t *testing.T) {
 				execCtx.Session.AgentHasRuntimeSandbox = true
 				execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir = "/workspace"
 			}
-			result, err := executor.Invoke(context.Background(), "desktop_cdp", map[string]any{
+			result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
 				"method": "Runtime.evaluate", "paramsFile": input,
 				"requestId": "request-params", "surfaceId": "surface-1",
 			}, execCtx)
@@ -129,9 +130,6 @@ func TestDesktopCDPParamsFileReadLimitAndWorkspaceRequired(t *testing.T) {
 		t.Fatalf("invalid file sent a request: %#v", requests)
 	}
 	execCtx.Session.WorkspaceRoot = root
-	execCtx.Session.NativeConnectorTools = map[string]string{"desktop_action": "builtin.desktop", "desktop_cdp": "builtin.desktop"}
-	execCtx.Session.ConnectorDirs = map[string]string{"builtin.desktop": root}
-	executor.cfg.Paths.StateDir = filepath.Join(root, ".state")
 	executor.cfg.FileTools.MaxReadBytes = 3
 	result, err = executor.invokeDesktopCDP(context.Background(), args, execCtx)
 	if err != nil || result.ExitCode != 0 {
@@ -219,8 +217,19 @@ func desktopCDPParamsTestRuntime(root string) (*RuntimeToolExecutor, *ExecutionC
 	}
 	execCtx := desktopActionTestExecutionContext()
 	execCtx.Session.WorkspaceRoot = root
-	execCtx.Session.NativeConnectorTools = map[string]string{"desktop_action": "builtin.desktop", "desktop_cdp": "builtin.desktop"}
-	execCtx.Session.ConnectorDirs = map[string]string{"builtin.desktop": root}
+	execCtx.Session.NativeConnectorTools = mountedNativeToolsForTest()
+	execCtx.Session.ConnectorDirs = map[string]string{connector.DesktopConnectorID: root, connector.WebControlConnectorID: root}
 	executor.cfg.Paths.StateDir = filepath.Join(root, ".state")
 	return executor, execCtx, invoker
+}
+
+// mountedNativeToolsForTest grants every tool of both native connectors.
+func mountedNativeToolsForTest() map[string]string {
+	tools := map[string]string{}
+	for _, id := range connector.NativeConnectorIDs() {
+		for _, name := range (connector.Package{Manifest: connector.Manifest{ID: id, Type: "native"}, Native: []string{"mounted"}}).NativeTools() {
+			tools[name] = id
+		}
+	}
+	return tools
 }

@@ -61,7 +61,8 @@ func TestCanonicalAndOpaqueArgumentsPass(t *testing.T) {
 		{"regex", `{"caseInsensitive":true,"text":"case_insensitive"}`},
 		{"image_generate", `{"images":[{"sourceType":"referenceName","value":"image.png"}],"mask":{"sourceType":"filePath","value":"@chat/mask.png","mode":"white_edit"},"responseFormat":"b64_json"}`},
 		{"vision_recognize", `{"images":[{"referenceName":"image.png"}],"outputFormat":"text"}`},
-		{"desktop_cdp", `{"method":"AWCP.invoke","params":{"args":{"file_path":"opaque"}}}`},
+		{"awcp_invoke", `{"revision":"r","action":"orders.read","args":{"file_path":"opaque"}}`},
+		{"surface_cdp", `{"method":"DOM.querySelector","params":{"node_id":1}}`},
 		{"desktop_action", `{"args":{"source_type":"opaque"}}`},
 		{"mcp_external", `{"file_path":"opaque","response_format":"url"}`},
 	} {

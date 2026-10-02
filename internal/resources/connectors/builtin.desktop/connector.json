@@ -2,21 +2,18 @@
   "id": "builtin.desktop",
   "name": "Desktop",
   "icon": "assets/icon.svg",
-  "version": "1.1.1",
+  "version": "2.0.0",
   "type": "native",
   "auth_mode": "no_auth",
-  "description": "Desktop actions and authorized webpage operations",
+  "description": "Desktop shell, application and service actions",
   "i18n": {
     "en": {
       "name": "Desktop",
-      "description": "Desktop actions and authorized webpage operations"
+      "description": "Desktop shell, application and service actions"
     },
     "zh-CN": {
       "name": "桌面端",
-      "description": "操作桌面端功能与已授权网页"
+      "description": "操作桌面端外壳、应用与服务功能"
     }
-  },
-  "mutuallyExclusiveWith": [
-    "builtin.desktop-web"
-  ]
+  }
 }

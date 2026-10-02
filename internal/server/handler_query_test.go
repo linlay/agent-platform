@@ -724,7 +724,7 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
-	if containsString(prepared.Session.ToolNames, "desktop_action") || containsString(prepared.Session.ToolNames, "desktop_cdp") {
+	if containsString(prepared.Session.ToolNames, "desktop_action") || containsString(prepared.Session.ToolNames, "surface_cdp") {
 		t.Fatalf("did not expect desktop tools from params.desktop, got %#v", prepared.Session.ToolNames)
 	}
 	if !reflect.DeepEqual(prepared.Session.ToolNames, []string{"datetime", "bash"}) {

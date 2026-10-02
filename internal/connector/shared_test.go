@@ -87,7 +87,7 @@ func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.NativeTools()) != 2 || len(pkg.Skills) != 2 || pkg.BinDir != "" || !pkg.Builtin {
+	if len(pkg.NativeTools()) != 1 || len(pkg.Skills) != 1 || pkg.BinDir != "" || !pkg.Builtin {
 		t.Fatalf("native contract: %#v", pkg)
 	}
 	icon, err := pkg.ReadIcon()
@@ -100,13 +100,13 @@ func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 			t.Fatalf("desktop skill SVG icon %s: %v", skill.Name, err)
 		}
 	}
-	for _, name := range []string{"desktop-action", "desktop-cdp"} {
+	for _, name := range []string{"desktop-action", "desktop-cdp", "web-control"} {
 		if !IsReservedSkill(name) {
 			t.Fatal("native skill selectable as ordinary skill")
 		}
 	}
 	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "evil", "connector.json"), `{"id":"evil","name":"Evil","version":"1.0.0","type":"native","auth_mode":null}`)
-	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "evil", "native.json"), `{"capabilities":["desktop.action","desktop.cdp"]}`)
+	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "evil", "native.json"), `{"capabilities":["desktop.action"]}`)
 	if _, err := s.Load("evil"); err == nil {
 		t.Fatal("external native handler binding accepted")
 	}

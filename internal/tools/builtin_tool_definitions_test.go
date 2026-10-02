@@ -232,7 +232,11 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 	visibleNames := map[string]bool{
 		"agent_invoke": true, "artifact_publish": true, "ask_user_question": true,
 		"bash": true, "bash_sandbox": true, "datetime": true, "wait": true,
-		"desktop_action": true, "desktop_cdp": true,
+		"desktop_action":  true,
+		"workpanel_state": true, "workpanel_open": true, "workpanel_close": true,
+		"surface_list": true, "surface_state": true, "surface_navigate": true, "surface_activate": true, "surface_close": true,
+		"surface_screenshot": true, "surface_evaluate": true, "surface_click": true, "surface_element": true, "surface_cdp": true,
+		"awcp_manual": true, "awcp_invoke": true,
 		"file_edit": true, "file_glob": true, "file_grep": true, "file_read": true, "file_write": true,
 		"finalize_planning": true, "image_generate": true,
 		"kbase_files": true, "kbase_read": true, "kbase_refresh": true, "kbase_search": true, "kbase_status": true,

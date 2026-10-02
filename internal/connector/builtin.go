@@ -12,36 +12,21 @@ import (
 	"agent-platform/internal/resources"
 )
 
-// WriteBuiltin extracts the Platform-owned native Desktop resources. CLI
+// WriteBuiltin extracts a Platform-owned native connector package. CLI
 // connector packages are built and versioned by their independent projects.
 func WriteBuiltin(dir, name, version string) error {
 	id := "builtin." + name
-	if !IsDesktop(id) {
+	if !IsNative(id) {
 		return fmt.Errorf("unknown builtin connector %q", name)
 	}
 	// Remove obsolete bundled skills when refreshing an older verified cache.
 	if err := os.RemoveAll(filepath.Join(dir, "skills")); err != nil {
 		return err
 	}
-	if id == DesktopWebConnectorID {
-		// Select common files before writing: the web package never contains the
-		// full action catalog, even transiently. Its entrypoints are overlaid below.
-		if err := writeBuiltinResources(dir, id, path.Join("connectors", DesktopConnectorID), version, desktopWebSharedResource); err != nil {
-			return err
-		}
-	}
-	return writeBuiltinResources(dir, id, path.Join("connectors", id), version, nil)
+	return writeBuiltinResources(dir, id, path.Join("connectors", id), version)
 }
 
-func desktopWebSharedResource(relative string) bool {
-	return relative == "native.json" || strings.HasPrefix(relative, "assets/") ||
-		strings.HasPrefix(relative, "skills/desktop-cdp/") ||
-		strings.HasPrefix(relative, "skills/desktop-action/assets/") ||
-		relative == "skills/desktop-action/references/workpanel.md" ||
-		relative == "skills/desktop-action/references/web-surfaces.md"
-}
-
-func writeBuiltinResources(dir, id, source, version string, include func(string) bool) error {
+func writeBuiltinResources(dir, id, source, version string) error {
 	if err := fs.WalkDir(resources.ConnectorFS, source, func(file string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -51,9 +36,6 @@ func writeBuiltinResources(dir, id, source, version string, include func(string)
 		}
 		relative := strings.TrimPrefix(strings.TrimPrefix(file, source), "/")
 		if entry.IsDir() {
-			return nil
-		}
-		if include != nil && !include(relative) {
 			return nil
 		}
 		dest := filepath.Join(dir, filepath.FromSlash(relative))
@@ -92,8 +74,10 @@ func writeBuiltinResources(dir, id, source, version string, include func(string)
 // skills. These names cannot grant a connector through mustUseSkills.
 func BuiltinSkillConnector(name string) string {
 	switch strings.ToLower(name) {
-	case "desktop-action", "desktop-cdp":
-		return "builtin.desktop"
+	case "desktop-action":
+		return DesktopConnectorID
+	case "desktop-cdp", "web-control":
+		return WebControlConnectorID
 	case "builtin-dbx":
 		return "builtin.dbx"
 	case "builtin-httpx":

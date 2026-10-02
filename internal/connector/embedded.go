@@ -11,14 +11,14 @@ import (
 // persistent copy. The returned lease protects this source while the caller
 // serves catalog/management requests, including when no Agent has mounted it.
 func (s Sources) InstallEmbeddedDesktop() (Package, func(), error) {
-	return s.installEmbeddedDesktop("desktop")
+	return s.installEmbeddedNative("desktop")
 }
 
-func (s Sources) InstallEmbeddedDesktopWeb() (Package, func(), error) {
-	return s.installEmbeddedDesktop("desktop-web")
+func (s Sources) InstallEmbeddedWebControl() (Package, func(), error) {
+	return s.installEmbeddedNative("web-control")
 }
 
-func (s Sources) installEmbeddedDesktop(name string) (Package, func(), error) {
+func (s Sources) installEmbeddedNative(name string) (Package, func(), error) {
 	if err := s.ValidateRoots(); err != nil {
 		return Package{}, nil, err
 	}
@@ -30,7 +30,7 @@ func (s Sources) installEmbeddedDesktop(name string) (Package, func(), error) {
 		return Package{}, nil, err
 	}
 	defer assembly()
-	stage, err := os.MkdirTemp("", "platform-desktop-")
+	stage, err := os.MkdirTemp("", "platform-native-")
 	if err != nil {
 		return Package{}, nil, err
 	}
@@ -38,11 +38,11 @@ func (s Sources) installEmbeddedDesktop(name string) (Package, func(), error) {
 	id := "builtin." + name
 	dir := filepath.Join(stage, id)
 	if err := WriteBuiltin(dir, name, ""); err != nil {
-		return Package{}, nil, fmt.Errorf("extract embedded Desktop: %w", err)
+		return Package{}, nil, fmt.Errorf("extract embedded %s: %w", id, err)
 	}
 	pkg, err := LoadDirectory(dir, id)
 	if err != nil {
-		return Package{}, nil, fmt.Errorf("validate embedded Desktop: %w", err)
+		return Package{}, nil, fmt.Errorf("validate embedded %s: %w", id, err)
 	}
 	pkg.Builtin = true
 	pkg, err = s.InstallShared(pkg)

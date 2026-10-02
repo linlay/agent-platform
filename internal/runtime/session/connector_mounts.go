@@ -47,15 +47,14 @@ func RuntimeConnectorDirs(def catalog.AgentDefinition) map[string]string {
 }
 
 func RuntimeNativeConnectorTools(def catalog.AgentDefinition) map[string]string {
-	result := map[string]string{}
+	mounted := map[string]bool{}
 	for _, mount := range def.ConnectorMounts {
-		if !connector.IsDesktop(mount.ID) {
-			continue
-		}
-		for _, name := range def.ConnectorNativeTools {
-			if name == "desktop_action" || name == "desktop_cdp" {
-				result[name] = mount.ID
-			}
+		mounted[mount.ID] = true
+	}
+	result := map[string]string{}
+	for _, name := range def.ConnectorNativeTools {
+		if id, ok := connector.NativeToolConnector(name); ok && mounted[id] {
+			result[name] = id
 		}
 	}
 	return result

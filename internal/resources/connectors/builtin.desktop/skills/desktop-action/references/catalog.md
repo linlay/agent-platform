@@ -23,27 +23,7 @@ Do not call implementation-only bridge branches or WebClient actions that are no
 | `desktop.display` | execute | display |
 | `desktop.copilot.getPagePreferences` | read | copilot |
 | `desktop.copilot.setPagePreference` | execute | copilot |
-| `desktop.web.listSurfaces` | read | web |
-| `desktop.web.getSurfaceState` | read | web |
-| `desktop.web.interactElement` | execute | web |
-| `desktop.web.executeScript` | execute | web |
 | `desktop.web.exportArtifact` | execute | web |
-| `desktop.web.activateSurface` | execute | web |
-| `desktop.web.navigate` | execute | web |
-| `desktop.web.reload` | execute | web |
-| `desktop.web.refreshSurface` | execute | web |
-| `desktop.web.goBack` | execute | web |
-| `desktop.web.openTab` | execute | web |
-| `desktop.web.closeTab` | execute | web |
-| `desktop.web.switchTab` | execute | web |
-| `desktop.workpanel.getState` | read | workpanel |
-| `desktop.workpanel.openTab` | execute | workpanel |
-| `desktop.workpanel.openWeb` | execute | workpanel |
-| `desktop.workpanel.openLocalFile` | execute | workpanel |
-| `desktop.workpanel.refreshWeb` | execute | workpanel |
-| `desktop.workpanel.activateTab` | execute | workpanel |
-| `desktop.workpanel.closeTab` | execute | workpanel |
-| `desktop.workpanel.closeWorkpanel` | execute | workpanel |
 | `desktop.site.list` | read | web |
 | `desktop.website.list` | read | web |
 | `desktop.website.add` | execute | web |
@@ -115,26 +95,15 @@ Do not call implementation-only bridge branches or WebClient actions that are no
 - Supported effects are `fireworks`, `snowfall`, and `nationalDay`. The duration defaults to 8000 ms and must be an integer from 1000 through 30000.
 - The action is available in Desktop runtime and standalone WebClient. Read `references/display.md` for its exact contract and failure behavior.
 
-## Web Tab Lifecycle Contracts
+## Webpages And WorkPanel
 
-
-## WorkPanel Lifecycle Contracts
-
-- WorkPanel actions bind to the current run's trusted Chat and never accept caller-selected ownership fields.
-- `desktop.workpanel.openWeb` opens or activates a deterministic HTTP(S) WebView item, including a Desktop-host-visible loopback service. It still rejects `file://`; Desktop does not synthesize a temporary HTTP server for a file.
-- `desktop.workpanel.openLocalFile` takes `{path,title?}` and is available only to an ordinary Agent Platform Run in Desktop runtime. The path must be relative to that Agent's authoritative Workspace; the result contains only `{workspace}`.
-- `desktop.workpanel.refreshWeb` only reloads an exact already-open normalized URL.
-- `desktop.workpanel.activateTab` and `desktop.workpanel.closeTab` take `{tabId}`, where `tabId` is `state.items[].itemId` from `desktop.workpanel.getState`.
-- `desktop.workpanel.closeWorkpanel` takes no arguments and refuses to discard protected non-overview entries.
-- Read `references/workpanel.md` before calling any of these actions.
+Opening webpages, file previews, the WorkPanel and all webpage content belong to the separate `builtin.web-control` connector (`workpanel_*`, `surface_*` and `awcp_*` tools). `desktop_action` does not open or operate pages. The `desktop.web.*` page actions and `desktop.workpanel.*` actions are not callable through `desktop_action`.
 
 ## Deprecated Or Non-Public Names
 
 - Do not use `desktop.setting.getState`, `desktop.setting.validatePatch`, `desktop.setting.previewPatch`, or `desktop.setting.applyPatch`; Desktop exposes dedicated domain actions instead.
-- Do not use `desktop.web.getActiveSurface`; use `desktop.web.getSurfaceState` with an exact `surfaceId`. The old action has no compatibility alias.
 - Do not use `desktop.page.*`; page-control branches are internal, not public action enum values.
 - Do not use old namespaces such as `desktop.settings.*`, `desktop.embeddedWeb.*`, `desktop.webs.*`, `desktop.websites.*`, `desktop.staticServer.*`, `desktop.tunnelHub.*`, `desktop.agents.*`, or `desktop.automations.*`.
-- Do not use removed names `desktop.web.getPageContext`, `desktop.web.readPageData`, or `desktop.web.extractStructured`; prefer `desktop-cdp` for webpage content, DOM inspection, screenshots, arbitrary scripts, CDP protocol calls, and page-level automation beyond navigation/tab control.
 - Website/WebApp names are flattened. Do not use `desktop.web.website.*`, `desktop.web.websites.*`, or `desktop.websites.*`; use `desktop.website.*`.
 - Do not use `desktop.web.webapp.*`, `desktop.web.webapps.*`, or old lifecycle names `desktop.webapp.installAndOpen`, `desktop.webapp.checkPrerequisites`, `desktop.webapp.getPublishInfo`, and `desktop.webapp.selectDirectory`; use the listed `desktop.webapp.*` actions. No compatibility aliases exist.
 - Do not call `desktop.market.buildSandboxImage` through `desktop_action` unless a future runtime `/actions` catalog lists it.
@@ -143,7 +112,5 @@ Do not call implementation-only bridge branches or WebClient actions that are no
 ## Contract Updates
 
 - Read `references/webapp.md` for `desktop.webapp.package.init/validate/build` and Workspace-relative installation. Old `desktop.webapp.manifest.init`, `desktop.webapp.manifest.validate`, and `desktop.webapp.init` are removed.
-- Read `references/agent-skill.md` for Agent/Skill open and update, `references/runtime-assistant.md` for runtime information and assistant chat, and `references/web-surfaces.md` for the supported current-page actions and export.
+- Read `references/agent-skill.md` for Agent/Skill open and update and `references/runtime-assistant.md` for runtime information and assistant chat.
 - If Desktop declares an eligible action but Platform returns `unknown_action`, update/rebuild/restart Platform with the matching embedded action schema. Do not retry obsolete aliases or use HTTP as a fallback.
-
-All webpage actions select one exact `surfaceId`, including WorkPanel network pages. `refreshSurface` reloads that one page; `closeTab` no longer accepts a separate tab selector. See [web surfaces](web-surfaces.md).

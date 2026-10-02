@@ -13,7 +13,7 @@ import (
 )
 
 func TestRunConnectorSnapshotRetainsVersionAcrossRestart(t *testing.T) {
-	for _, name := range []string{"desktop", "desktop-web"} {
+	for _, name := range []string{"desktop", "web-control"} {
 		t.Run(name, func(t *testing.T) { testRunConnectorSnapshotRetainsVersion(t, name) })
 	}
 }
@@ -42,7 +42,11 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	if err := s.freezeRunConnectors(preparedQuery{Req: api.QueryRequest{RunID: "frozen"}, AgentDef: old}); err != nil {
 		t.Fatal(err)
 	}
-	changed := filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin."+name, "skills", "desktop-action", "references", "version.md")
+	skill, tool := "desktop-action", "desktop_action"
+	if name == "web-control" {
+		skill, tool = "web-control", "surface_cdp"
+	}
+	changed := filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin."+name, "skills", skill, "references", "version.md")
 	os.WriteFile(changed, []byte("new version"), 0600)
 	if err := registry.Reload(context.Background(), "agents"); err != nil {
 		t.Fatal(err)
@@ -62,7 +66,7 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	if restored.ConnectorMounts[0].Dir != old.ConnectorMounts[0].Dir {
 		t.Fatal("restart silently switched package version")
 	}
-	if got := runtimeNativeConnectorTools(restored); got["desktop_action"] != "builtin."+name || got["desktop_cdp"] != "builtin."+name {
+	if got := runtimeNativeConnectorTools(restored); got[tool] != "builtin."+name {
 		t.Fatalf("restored authorization: %v", got)
 	}
 	if len(fresh.ConnectorRuntimes()) < 2 {

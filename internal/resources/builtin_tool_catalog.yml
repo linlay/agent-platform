@@ -10,7 +10,6 @@ visibleBuiltinTools:
   - datetime
   - wait
   - desktop_action
-  - desktop_cdp
   - file_edit
   - file_glob
   - file_grep
@@ -30,3 +29,18 @@ visibleBuiltinTools:
   - regex
   - vision_recognize
   - web_fetch
+  - awcp_invoke
+  - awcp_manual
+  - surface_activate
+  - surface_cdp
+  - surface_click
+  - surface_close
+  - surface_element
+  - surface_evaluate
+  - surface_list
+  - surface_navigate
+  - surface_screenshot
+  - surface_state
+  - workpanel_close
+  - workpanel_open
+  - workpanel_state

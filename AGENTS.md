@@ -191,7 +191,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - TEAM 是内部专用 mode：公共机制进入 `internal/agent`，调度规则进入 `internal/agent/team`。普通 `AgentDefinition` 必须拒绝 `mode: TEAM`，隐藏协调器不得注册到 `/api/agents`、`/api/agent` 或普通 `agent_invoke` 目标中。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
-- AWCP 遵循网站手册渐进披露：固定 `desktop_cdp` 方法 `AWCP.getManual` 返回目录/章节说明，章节请求携带 `{section,revision}`，页面通过 `surfaceId` 在 Run grant 内选择，通用 `AWCP.invoke` 接收 `{revision,action,args}`。网站说明只作为工具结果，`internal/llm` 不得加入 AWCP 专属状态、动态 Schema、纠错预算或调度分支；授权页面与业务校验留在工具/Desktop/网站边界。详见 [MCP与工具交互](docs/MCP与工具交互.md)。
+- AWCP 遵循网站手册渐进披露：固定工具 `awcp_manual` 返回目录/章节说明，章节请求携带 `section` 与 `revision`，页面通过 `surfaceId` 在 Run grant 内选择，通用 `awcp_invoke` 接收 `revision`、`action`、`args`。网站说明只作为工具结果，`internal/llm` 不得加入 AWCP 专属状态、动态 Schema、纠错预算或调度分支；授权页面与业务校验留在工具/Desktop/网站边界。详见 [MCP与工具交互](docs/MCP与工具交互.md)。
 - Desktop 普通 Action 白名单跟随 `desktop/src/shared/desktop-actions.ts`，排除仅限 WebApp page 的动作；相邻仓库存在时工具测试直接核对上游定义，CI 可通过 `DESKTOP_SOURCE` 指定 checkout，见 [MCP与工具交互](docs/MCP与工具交互.md)。
 - 连接器包版本由资源发布方维护；Platform 不根据来源市场或重新打包动作推断版本，不用 CLI 或 Skill 版本替代连接器版本。具体服务适配应留在连接器资源包，项目文档只描述通用契约。
 - KBASE 对外 tool/REST/`source.publish` 契约以 LanceDB 路径回归；只有 `indexHash` 变化可触发新 generation，`queryHash` 中的 topK/RRF/权重/候选池调整不得引发全量重建。
@@ -264,12 +264,12 @@ make test
 - [版本化打包方案](docs/版本化打包方案.md)：README 索引的交付专题文档。
 - [手工测试用例](docs/手工测试用例.md)：curl 回归用例。
 
-- `builtin.desktop` 是受信任内置 native 连接器，自动挂载 desktop_action/desktop_cdp 与对应技能，不自动授予 Bash；声明 `auth_mode: "no_auth"`，无需连接配置；挂载授权与客户端在线状态分离。共享包、运行快照及显式离线迁移见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md)。
+- `builtin.desktop` 与 `builtin.web-control` 是受信任内置 native 连接器，分别自动挂载 `desktop_action` 和网页控制工具组及对应技能，不自动授予 Bash；声明 `auth_mode: "no_auth"`，无需连接配置；挂载授权与客户端在线状态分离。共享包、运行快照及显式离线迁移见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md)。
 
 
 ### Desktop 内嵌连接器来源
 
-`builtin.desktop`（桌面端）与 `builtin.desktop-web`（桌面端（网页））随 Platform Go 程序编译分发，共用 native handler 和工具，按完整功能/WorkPanel 与网页功能装配技能；公共 CDP 与网页参考资料只维护一份。同一 Agent 二选一，旧 `builtin.desktop` 保持完整功能。目录名称和描述按请求语言解析，互斥关系由包清单 `mutuallyExclusiveWith` 声明，服务端通用校验，WebClient 显示具体冲突并保留原选择。启动原子发布到各自 `ru-connectors/<id>/<contentDigest>/`，已有相同内容的运行包校验复用；进程持有两版共享包租约，各 Agent 仅持挂载引用。网页版是技能引导范围，不新增执行权限层，详见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md#builtindesktop)。
+`builtin.desktop`（桌面端）与 `builtin.web-control`（网页控制）随 Platform Go 程序编译分发，是两个各管一块、可同时挂载的独立连接器。`builtin.desktop` 只提供 `desktop_action`，负责 Desktop 外壳、应用与服务，不再打开或操作网页；`builtin.web-control` 提供 15 个参数固定的 `workpanel_*`、`surface_*`、`awcp_*` 工具，按地址打开并控制网页（含 Website/WebApp Copilot 授权范围内的页面），不管理 Website 条目和 WebApp 生命周期。模型只使用打开时的 `url`（`http(s)://` 网页或 `@workspace/`、`@chat/` 文件）和网页的 `surfaceId`，WorkPanel 条目与容器标识不外露；`desktop_cdp` 已删除。工具归属由 `internal/connector/native.go` 的注册表唯一决定，新工具在 Platform 内映射到既有反向请求，Desktop 协议不变；Standalone 模式只暴露 `workpanel_*`。旧 `builtin.desktop-web` 已不存在，存量 Agent 通过显式离线迁移转换。启动原子发布到各自 `ru-connectors/<id>/<contentDigest>/`，已有相同内容的运行包校验复用；进程持有两个共享包租约，各 Agent 仅持挂载引用。详见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md#builtinweb-control)。
 
 Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。此调整不改变连接器配置状态、Agent 挂载、工具权限或历史 Chat。
 

@@ -7,14 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 )
 
-func TestDesktopVariantCatalogLocalized(t *testing.T) {
+func TestNativeConnectorCatalogLocalized(t *testing.T) {
 	f := setupAdminRegistriesFixture(t)
 	f.server.deps.Config.Paths.BuiltinConnectorsDir = ""
 	release, err := f.server.deps.Config.Paths.PrepareNativeConnectors()
@@ -23,7 +22,7 @@ func TestDesktopVariantCatalogLocalized(t *testing.T) {
 	}
 	defer release()
 	for _, endpoint := range []string{"/api/connectors", "/api/admin/connectors"} {
-		for _, tc := range []struct{ locale, full, web string }{{"zh-CN", "桌面端", "桌面端（网页）"}, {"en", "Desktop", "Desktop (Web)"}, {"zh", "桌面端", "桌面端（网页）"}, {"en-US", "Desktop", "Desktop (Web)"}} {
+		for _, tc := range []struct{ locale, desktop, web string }{{"zh-CN", "桌面端", "网页控制"}, {"en", "Desktop", "Web Control"}, {"zh", "桌面端", "网页控制"}, {"en-US", "Desktop", "Web Control"}} {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, endpoint, nil)
 			req.Header.Set("Accept-Language", tc.locale)
@@ -41,26 +40,26 @@ func TestDesktopVariantCatalogLocalized(t *testing.T) {
 			}
 			found := 0
 			for _, item := range body.Data.Connectors {
-				if !connector.IsDesktop(item.ID) {
+				if !connector.IsNative(item.ID) {
 					continue
 				}
 				found++
-				want, other := tc.full, connector.DesktopWebConnectorID
-				if item.ID == connector.DesktopWebConnectorID {
-					want, other = tc.web, connector.DesktopConnectorID
+				want, tools := tc.desktop, 1
+				if item.ID == connector.WebControlConnectorID {
+					want, tools = tc.web, 15
 				}
-				if item.Name != want || item.I18N != nil || !item.Builtin || !item.ReadOnly || item.AuthMode != connector.AuthNoAuth || len(item.NativeTools) != 2 || len(item.Skills) != 2 || len(item.MutuallyExclusiveWith) != 1 || item.MutuallyExclusiveWith[0] != other {
+				if item.Name != want || item.I18N != nil || !item.Builtin || !item.ReadOnly || item.AuthMode != connector.AuthNoAuth || len(item.NativeTools) != tools || len(item.Skills) != 1 || len(item.MutuallyExclusiveWith) != 0 {
 					t.Fatalf("%s: %+v", tc.locale, item)
 				}
 			}
 			if found != 2 {
-				t.Fatalf("variants: %d", found)
+				t.Fatalf("native connectors: %d", found)
 			}
 		}
 	}
 }
 
-func TestDesktopVariantConflictHTTPPreservesSelection(t *testing.T) {
+func TestNativeConnectorsCanBeSelectedTogether(t *testing.T) {
 	f := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
 		release, err := cfg.Paths.PrepareNativeConnectors()
 		if err != nil {
@@ -68,18 +67,16 @@ func TestDesktopVariantConflictHTTPPreservesSelection(t *testing.T) {
 		}
 		t.Cleanup(release)
 	}})
-	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "builtin.desktop-web", "enabled": true}))
-	req := httptest.NewRequest(http.MethodPut, "/api/admin/agents/connectors?locale=zh-CN", strings.NewReader(`{"agentKey":"mock-agent","connectorId":"builtin.desktop","enabled":true}`))
-	rec := httptest.NewRecorder()
-	f.server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "所选连接器互斥") {
-		t.Fatalf("conflict: %d %s", rec.Code, rec.Body.String())
-	}
+	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": connector.WebControlConnectorID, "enabled": true}))
+	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": connector.DesktopConnectorID, "enabled": true}))
 	after := agentConnectorResponse(t, agentConnectorRequest(f.server, "GET", "mock-agent", nil))
-	for _, id := range after.ConnectorIDs {
-		if id == connector.DesktopConnectorID {
-			t.Fatal("conflicting choice saved")
-		}
+	if !reflect.DeepEqual(after.ConnectorIDs, []string{connector.WebControlConnectorID, connector.DesktopConnectorID}) {
+		t.Fatalf("selection: %v", after.ConnectorIDs)
+	}
+	// The retired web variant is not a selectable connector.
+	rec := agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "builtin.desktop-web", "enabled": true})
+	if rec.Code == http.StatusOK {
+		t.Fatalf("retired connector accepted: %s", rec.Body.String())
 	}
 }
 

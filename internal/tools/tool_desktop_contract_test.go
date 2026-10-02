@@ -27,6 +27,32 @@ var desktopWebappPageOnlyActions = []string{
 	"desktop.native.notification.show",
 }
 
+// Desktop's WorkPanel and webpage actions belong to builtin.web-control. The
+// typed web-control tools either send them (webControlActionNames) or reach
+// the same executor through a CDP method, so desktop_action never exposes them.
+var desktopActionsOwnedByWebControl = []string{
+	"desktop.web.activateSurface",
+	"desktop.web.closeTab",
+	"desktop.web.executeScript",
+	"desktop.web.getSurfaceState",
+	"desktop.web.goBack",
+	"desktop.web.interactElement",
+	"desktop.web.listSurfaces",
+	"desktop.web.navigate",
+	"desktop.web.openTab",
+	"desktop.web.refreshSurface",
+	"desktop.web.reload",
+	"desktop.web.switchTab",
+	"desktop.workpanel.activateTab",
+	"desktop.workpanel.closeTab",
+	"desktop.workpanel.closeWorkpanel",
+	"desktop.workpanel.getState",
+	"desktop.workpanel.openLocalFile",
+	"desktop.workpanel.openTab",
+	"desktop.workpanel.openWeb",
+	"desktop.workpanel.refreshWeb",
+}
+
 func TestDesktopActionRejectsWebappPageOnlyActions(t *testing.T) {
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{
@@ -76,6 +102,16 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 	for _, action := range desktopWebappPageOnlyActions {
 		excluded[action] = true
 	}
+	owned := map[string]bool{}
+	for _, action := range desktopActionsOwnedByWebControl {
+		owned[action] = true
+		excluded[action] = true
+	}
+	for _, action := range webControlActionNames {
+		if !owned[action] {
+			t.Fatalf("web-control sends %s without owning it", action)
+		}
+	}
 	seen := map[string]bool{}
 	var want []string
 	for _, match := range matches {
@@ -90,7 +126,7 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 	}
 	for action := range excluded {
 		if !seen[action] {
-			t.Fatalf("obsolete page-only exclusion: %s", action)
+			t.Fatalf("obsolete exclusion, Desktop no longer defines %s", action)
 		}
 	}
 	policy, err := os.ReadFile(filepath.Join(root, "src", "main", "modules", "desktop-actions", "webapp-native-actions.ts"))
@@ -113,6 +149,6 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 	sort.Strings(want)
 	got := sortedDesktopActionAllowlist(t)
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Platform must follow Desktop actions (excluding WebApp-page-only actions)\nDesktop: %v\nPlatform: %v", want, got)
+		t.Fatalf("Platform must follow Desktop actions (excluding WebApp-page-only and web-control actions)\nDesktop: %v\nPlatform: %v", want, got)
 	}
 }

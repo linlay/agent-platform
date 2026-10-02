@@ -14,7 +14,7 @@ func TestEmbeddedDesktopWithoutBuiltinCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	if !pkg.Builtin || len(pkg.NativeTools()) != 2 || len(pkg.Skills) != 2 {
+	if !pkg.Builtin || len(pkg.NativeTools()) != 1 || len(pkg.Skills) != 1 {
 		t.Fatalf("incomplete Desktop: %#v", pkg)
 	}
 	if filepath.Dir(pkg.Dir) != filepath.Join(s.SharedRoot(), "builtin.desktop") {

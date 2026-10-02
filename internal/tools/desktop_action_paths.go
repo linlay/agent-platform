@@ -55,14 +55,14 @@ func resolveDesktopActionAlias(session QuerySession, raw string) (string, error)
 	alias, suffix, _ := strings.Cut(value, "/")
 	alias = strings.ToLower(alias)
 	if alias != "@chat" && alias != "@workspace" {
-		return "", fmt.Errorf("only @chat and @workspace are supported for WebApp paths")
+		return "", fmt.Errorf("only @chat and @workspace are supported for this path")
 	}
 	if strings.HasPrefix(suffix, "/") || strings.Contains(suffix, ":") {
 		return "", fmt.Errorf("alias suffix must be a relative path without a drive or URI")
 	}
 	for _, segment := range strings.Split(suffix, "/") {
 		if segment == ".." {
-			return "", fmt.Errorf("parent traversal is not allowed in WebApp paths")
+			return "", fmt.Errorf("parent traversal is not allowed in this path")
 		}
 	}
 	workspace := accesspolicy.SessionWorkspaceRoot(session)

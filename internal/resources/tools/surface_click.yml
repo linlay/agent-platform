@@ -1,0 +1,26 @@
+name: surface_click
+label: 网页点击
+description: "Click in a webpage with real input events, by CSS selector or by coordinates. Without waitFor, success proves input delivery, not business completion. Do not replay a click whose outcome is reported as unknown; read the page state first. Prefer a matching AWCP section when the page provides one."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+    selector:
+      type: string
+      description: CSS selector of the element to click. Mutually exclusive with x and y.
+    x:
+      type: number
+      description: Horizontal position in Chromium CSS pixels. Requires y.
+    y:
+      type: number
+      description: Vertical position in Chromium CSS pixels. Requires x.
+    waitFor:
+      type: object
+      description: "Optional condition to observe after the click, for example {\"selector\": \".saved\", \"state\": \"visible\"}. It may observe visible/hidden, value, checked or URL state."
+      additionalProperties: true
+  required:
+    - surfaceId
+  additionalProperties: false

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestDesktopCDPInputClickForwardsOneRequest(t *testing.T) {
+func TestSurfaceClickForwardsOneInputClickRequest(t *testing.T) {
 	for _, input := range []map[string]any{
 		{"surfaceId": "target-1", "x": 260.5, "y": 344.0},
 		{"surfaceId": "target-1", "selector": "#button"},
@@ -13,13 +13,7 @@ func TestDesktopCDPInputClickForwardsOneRequest(t *testing.T) {
 		{"surfaceId": "target-1", "selector": "#button", "waitFor": map[string]any{"selector": "#check", "state": "checked", "checked": false}},
 	} {
 		executor, execCtx, invoker := desktopCDPParamsTestRuntime(t.TempDir())
-		paramsInput := make(map[string]any)
-		for key, value := range input {
-			if key != "surfaceId" {
-				paramsInput[key] = value
-			}
-		}
-		result, err := executor.Invoke(context.Background(), "desktop_cdp", map[string]any{"method": "Input.click", "surfaceId": input["surfaceId"], "params": paramsInput}, execCtx)
+		result, err := executor.Invoke(context.Background(), "surface_click", input, execCtx)
 		if err != nil || result.ExitCode != 0 {
 			t.Fatalf("result=%#v err=%v", result, err)
 		}
@@ -35,6 +29,12 @@ func TestDesktopCDPInputClickForwardsOneRequest(t *testing.T) {
 		}
 		if x, present := params["x"]; present && x != 260.5 {
 			t.Fatalf("lost number type: %#v", x)
+		}
+		if requests[0].Payload["surfaceId"] != "target-1" {
+			t.Fatalf("surface lost: %#v", requests[0].Payload)
+		}
+		if _, leaked := params["surfaceId"]; leaked {
+			t.Fatal("surfaceId leaked into params")
 		}
 		source := requests[0].Payload["source"].(map[string]any)
 		if source["runId"] != execCtx.Session.RunID {

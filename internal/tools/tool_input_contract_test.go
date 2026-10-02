@@ -17,7 +17,7 @@ func TestEmbeddedInputPropertiesAreCamelCase(t *testing.T) {
 	}
 	namePattern := regexp.MustCompile(`^[a-z][a-zA-Z0-9]*$`)
 	// Opaque protocol and user-owned dictionaries are not platform field schemas.
-	opaque := map[string]bool{"desktop_action.args": true, "desktop_cdp.params": true, "platform_control.params": true}
+	opaque := map[string]bool{"desktop_action.args": true, "surface_cdp.params": true, "surface_click.waitFor": true, "awcp_invoke.args": true, "platform_control.params": true}
 	var walk func(string, any)
 	walk = func(path string, value any) {
 		switch node := value.(type) {

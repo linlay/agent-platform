@@ -19,7 +19,7 @@ func testTemplate() Template {
 				TypeKBase:   {BaseToolsSet: true, BaseTools: []string{"file_read"}},
 			},
 			Groups: []config.AgentCreationGroupConfig{
-				{Key: "office", Skills: []string{"online-docx"}, Connectors: []string{"builtin.httpx", "builtin.desktop-web"}},
+				{Key: "office", Skills: []string{"online-docx"}, Connectors: []string{"builtin.httpx", "custom.desktop-lite"}},
 				{Key: "data", Tools: []string{"web_fetch"}, Connectors: []string{"builtin.httpx", "builtin.dbx"}},
 				{Key: "desktop", Connectors: []string{"builtin.desktop"}},
 				{Key: "broken", Skills: []string{"gone"}, Tools: []string{"missing_tool"}, Connectors: []string{"nope"}},
@@ -36,10 +36,10 @@ func testLookup() Lookup {
 	return Lookup{
 		SkillExists:     exists("online-docx"),
 		ToolExists:      exists("web_fetch", "bash", "file_read"),
-		ConnectorExists: exists("builtin.httpx", "builtin.dbx", "builtin.desktop", "builtin.desktop-web"),
+		ConnectorExists: exists("builtin.httpx", "builtin.dbx", "builtin.desktop", "custom.desktop-lite"),
 		ConnectorConflict: func(ids []string) error {
-			if slices.Contains(ids, "builtin.desktop") && slices.Contains(ids, "builtin.desktop-web") {
-				return fmt.Errorf("builtin.desktop conflicts with builtin.desktop-web")
+			if slices.Contains(ids, "builtin.desktop") && slices.Contains(ids, "custom.desktop-lite") {
+				return fmt.Errorf("builtin.desktop conflicts with custom.desktop-lite")
 			}
 			return nil
 		},
@@ -62,7 +62,7 @@ func TestExpandMergesOverlappingGroupsOnce(t *testing.T) {
 	want := Expansion{
 		Tools:      []string{"web_fetch"},
 		Skills:     []string{"online-docx"},
-		Connectors: []string{"builtin.httpx", "builtin.desktop-web", "builtin.dbx"},
+		Connectors: []string{"builtin.httpx", "custom.desktop-lite", "builtin.dbx"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expansion = %#v, want %#v", got, want)

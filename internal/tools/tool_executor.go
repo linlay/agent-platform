@@ -200,13 +200,16 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 	if execCtx != nil && !execCtx.Session.AllowsTool(toolName) {
 		return ToolNotMountedResult(toolName), nil
 	}
-	if toolName == "desktop_action" || toolName == "desktop_cdp" {
+	if owner, native := connector.NativeToolConnector(toolName); native {
 		id := ""
 		if execCtx != nil {
 			id = execCtx.Session.NativeConnectorTools[toolName]
 		}
-		if !connector.IsDesktop(id) || execCtx.Session.ConnectorDirs[id] == "" {
-			return ToolExecutionResult{Error: "connector_not_mounted", Output: "Desktop tool requires a mounted Desktop connector", ExitCode: -1}, nil
+		if id != owner || execCtx.Session.ConnectorDirs[id] == "" {
+			return ToolExecutionResult{Error: "connector_not_mounted", Output: "tool requires the mounted " + owner + " connector", ExitCode: -1}, nil
+		}
+		if isWebControlTool(toolName) {
+			return t.invokeWebControl(ctx, toolName, args, execCtx)
 		}
 	}
 	switch strings.TrimSpace(toolName) {
@@ -220,8 +223,6 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 		return t.invokeArtifactPublish(args, execCtx)
 	case "desktop_action":
 		return t.invokeDesktopAction(ctx, args, execCtx)
-	case "desktop_cdp":
-		return t.invokeDesktopCDP(ctx, args, execCtx)
 	case "file_read":
 		return t.invokeRead(args, execCtx)
 	case "file_write":
@@ -292,9 +293,12 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 }
 
 func runtimeToolUsesCompactModelOutput(toolName string) bool {
+	if isWebControlTool(strings.ToLower(strings.TrimSpace(toolName))) {
+		return true
+	}
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "bash", "bash_sandbox",
-		"desktop_action", "desktop_cdp",
+		"desktop_action",
 		"file_read", "file_write", "file_edit", "file_glob", "file_grep",
 		"image_generate", "vision_recognize", "web_fetch",
 		"regex":

@@ -82,7 +82,13 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 	if !allowlist[action] {
 		return desktopActionErrorResult("unknown_action", "desktop action is not allowlisted", map[string]any{"action": action}), nil
 	}
+	return t.dispatchDesktopAction(ctx, action, args, execCtx)
+}
 
+// dispatchDesktopAction sends an already admitted reverse action. Callers own
+// the admission decision: desktop_action checks its model-facing allowlist and
+// the web-control tools only send their fixed internal actions.
+func (t *RuntimeToolExecutor) dispatchDesktopAction(ctx context.Context, action string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	actionArgs, ok := args["args"].(map[string]any)
 	if !ok || actionArgs == nil {
 		actionArgs = map[string]any{}
@@ -148,12 +154,12 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 func (t *RuntimeToolExecutor) invokeRawDesktopCDP(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	for key := range args {
 		if key != "method" && key != "params" && key != "paramsFile" && key != "surfaceId" && key != "requestId" {
-			return desktopActionErrorResult("invalid_args", "unsupported desktop_cdp field; select a page using surfaceId", nil), nil
+			return desktopActionErrorResult("invalid_args", "unsupported page request field; select a page using surfaceId", nil), nil
 		}
 	}
 	method := strings.TrimSpace(stringArg(args, "method"))
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
-		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
+		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "webpage control requires the Desktop runtime and is unavailable in standalone mode", nil), nil
 	}
 	params, failure, failed := t.resolveDesktopCDPParams(args, execCtx)
 	if failed {

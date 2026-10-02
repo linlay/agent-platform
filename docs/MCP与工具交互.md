@@ -59,11 +59,23 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 新工具结果不返回 `/api/resource?file=...`；该形式仅供既有聊天只读兼容。浏览器数据层负责把逻辑引用转换为实际的 `GET /api/resource?file=<query-encoded-key>`。
 
-## `desktop_action` 的 WorkPanel
+## WorkPanel 反向动作
 
-`desktop.workpanel.*` 只操作当前 run 所属 Chat 的工作面板。动作 `args` 顶层不接受 `chatId`、`workspaceId`、`surfaceId`、`agentKey`、`stableKey`、`preload` 或 `webPreferences`；Platform 从 `ExecutionContext.Session` 生成可信顶层 `source`，模型不能覆盖。合法 WebClient descriptor 的 `context` 可以携带契约要求且与可信 Chat 一致的上下文身份，但不能用它改选所属 Chat。
+`desktop.workpanel.*` 是 Platform 发给客户端的反向动作，只操作当前 run 所属 Chat 的工作面板。模型不直接调用它们：`builtin.web-control` 的 `workpanel_state`、`workpanel_open`、`workpanel_close` 工具在 Platform 内映射到这些动作，`desktop_action` 的运行时白名单不再包含 `desktop.workpanel.*`。Platform 从 `ExecutionContext.Session` 生成可信顶层 `source`，模型不能覆盖，也不能通过参数改选所属 Chat。
 
-当前公开动作及精确参数如下：
+模型工具与反向动作的对应关系：
+
+| 工具 | 反向动作 |
+| --- | --- |
+| `workpanel_state` | `desktop.workpanel.getState` |
+| `workpanel_open`（`http(s)://`） | `desktop.workpanel.openWeb`；`reload: true` 时随后发送 `desktop.workpanel.refreshWeb` |
+| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，路径由 Platform 解析为 Workspace 相对路径 |
+| `workpanel_close`（文件 `url`） | 先 `desktop.workpanel.getState` 严格匹配已记录的 Workspace 路径，再 `desktop.workpanel.closeTab`；网页使用 `surface_close` |
+| `workpanel_close`（`all: true`） | `desktop.workpanel.closeWorkpanel` |
+
+条目 ID 只在 Platform 内部使用，工具结果中的工作区被投影为 `{kind,url,title,active,...}` 条目列表。`desktop.workpanel.openTab`（通用描述符）和 `desktop.workpanel.activateTab` 没有对应的模型工具。
+
+客户端侧各动作的精确参数如下：
 
 - `desktop.workpanel.getState`：无参数，读取工作区、条目和活动条目。
 - `desktop.workpanel.openTab({descriptor})`：按规范描述符打开或激活一个确定性 Tab。网页描述符使用 `{kind:"web",url,title?,pinned?,closable?}`；WebClient 描述符必须遵守其 module、route 和 context 契约。
@@ -76,58 +88,53 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 - `desktop.display({kind:"effect",effect,durationMs?})`：在 Desktop Main Window 或 Standalone 根页面显示 fireworks、snowfall、nationalDay。时长缺省 8000 ms，必须是 1000–30000 的整数；启动后立即返回 accepted，新请求替换当前效果。
 
 
-## `desktop_cdp` 参数文件
+## 网页控制工具的文件参数
 
-`desktop_cdp` 可直接传入 `params` 对象，也可通过 `paramsFile` 读取参数文件。两者互斥（包括显式传入 `params: null`）；都省略时保持无参数调用。工具层使用 `paramsFile`，没有 `param-file` 或 `params-file` 别名。
+`surface_cdp` 可直接传入 `params` 对象，也可通过 `paramsFile` 读取参数文件。两者互斥（包括显式传入 `params: null`）；都省略时保持无参数调用。
 
 ```json
 {
-  "method": "Runtime.evaluate",
   "surfaceId": "实际 surfaceId",
+  "method": "DOM.querySelector",
   "paramsFile": "params.json"
 }
 ```
 
-`params.json` 只保存原来的 `params` 内容，不包含外层 `method`、`surfaceId` 等请求字段：
+`params.json` 只保存 `params` 内容，不包含外层 `method`、`surfaceId` 等请求字段。
 
-```json
-{
-  "expression": "document.title",
-  "returnByValue": true
-}
-```
+`surface_evaluate` 的 `expression` 与 `expressionFile` 互斥；`expressionFile` 指向一个 UTF-8 JavaScript 文件，内容整体作为表达式，用于内联放不下的大脚本。
 
 相对路径按本次执行 Workspace 解析；没有 Workspace 时返回 `workspace_unavailable`，不回退到 Platform 进程目录。也支持 `@workspace`、`@chat`、`@temp` 等通用路径别名，以及经授权的绝对路径；Container 执行路径使用现有映射解析为 Host 路径。文件读取复用 AccessPolicy 和文件预审批，越权读取进入 HITL，批准后继续执行；canonical 路径校验与临时根逃逸阻断仍生效。
 
-文件必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
+`paramsFile` 必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON；`expressionFile` 必须是非空 UTF-8 文本。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
 
-Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符串布尔值静默转换；`paramsFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
+Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符串布尔值静默转换；`paramsFile`、`expressionFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
 
 ## Desktop 反向 Provider
 
-Agent 可看到静态 Desktop 工具 `desktop_action` 与 `desktop_cdp`。模型侧 `internal/resources/tools/desktop_action.yml` 仅声明字符串 Action 与当前挂载 Skill 阅读要求，不枚举业务域或全部动作；精确运行时白名单由 `internal/tools/desktop_action_allowlist.go` 独立维护，不依赖工具 Schema，域前缀不表示通配授权；AWCP 动态页面 Action 不进入该白名单，而通过 `desktop_cdp` 的 `AWCP.getManual` / `AWCP.invoke` 两个静态 method 使用。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
+Agent 可看到的 Desktop 相关工具都是静态的：`builtin.desktop` 提供 `desktop_action`，`builtin.web-control` 提供 15 个 `workpanel_*`、`surface_*`、`awcp_*` 工具。模型侧 `internal/resources/tools/desktop_action.yml` 仅声明字符串 Action 与当前挂载 Skill 阅读要求，不枚举业务域或全部动作；精确运行时白名单由 `internal/tools/desktop_action_allowlist.go` 独立维护，不依赖工具 Schema，域前缀不表示通配授权。网页控制工具的参数由各自的固定 Schema 定义，在 `internal/tools/tool_web_control.go` 映射到既有反向请求；AWCP 动态页面 Action 不进入白名单，而通过 `awcp_manual` / `awcp_invoke` 两个静态工具使用。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
 
-- Desktop 模式：普通 `desktop.*` 由 `desktop_action` 直接以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`desktop_cdp` 的普通 CDP method 使用 `desktop.cdp.call`，两个 AWCP method 分别映射到 `desktop.awcp.manual` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
-- Standalone 模式：只有七个 `desktop.workpanel.*` 与 `desktop.display` 具体类型发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`，CDP 返回 `desktop_cdp_unsupported_runtime`。
+- Desktop 模式：`desktop_action` 与 `workpanel_*` 以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`surface_*` 使用 `desktop.cdp.call`（`surface_element` 使用 `desktop.web.interactElement` 动作），`awcp_manual` / `awcp_invoke` 分别映射到 `desktop.awcp.manual` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
+- Standalone 模式：只有 `desktop.workpanel.*`（不含 `openLocalFile`）与 `desktop.display` 具体类型发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`。会话只暴露 `workpanel_*`，`surface_*` 与 `awcp_*` 不提供给模型，直接调用返回 `desktop_cdp_unsupported_runtime`。
 
-普通 Action 名称跟随 `desktop/src/shared/desktop-actions.ts` 的 `DESKTOP_ACTION_DEFINITIONS`，排除 Desktop 明确限制为 WebApp page 调用的 11 个动作（`desktop.assistant.image/image.cancel`、`desktop.capabilities.list` 与八个 `desktop.native.*`）。模型必须传递 Skill 中的具体动作名，通配符和未登记动作均在 Platform 分发前拒绝；参数校验、目标授权和确认仍由 Desktop 执行。两个旧 `desktop.webapp.manifest.*` 动作已删除，工程初始化使用 `desktop.webapp.package.init`。
+`desktop_action` 的动作名称跟随 `desktop/src/shared/desktop-actions.ts` 的 `DESKTOP_ACTION_DEFINITIONS`，排除 Desktop 明确限制为 WebApp page 调用的 11 个动作（`desktop.assistant.image/image.cancel`、`desktop.capabilities.list` 与八个 `desktop.native.*`），以及归 `builtin.web-control` 所有的 20 个 `desktop.workpanel.*` 与 `desktop.web.*` 页面动作（`desktop.web.exportArtifact` 仍属 `desktop_action`）。模型必须传递 Skill 中的具体动作名，通配符和未登记动作均在 Platform 分发前拒绝；参数校验、目标授权和确认仍由 Desktop 执行。两个旧 `desktop.webapp.manifest.*` 动作已删除，工程初始化使用 `desktop.webapp.package.init`。
 
-本地存在相邻 `desktop` checkout 时，`go test ./internal/tools -run TestDesktopActionContractMatchesDesktopSource -count=1` 会直接核对上游定义。CI 或非相邻 checkout 可设置 `DESKTOP_SOURCE` 为 Desktop 仓库路径；显式配置路径缺失会失败，未配置且无相邻仓库时跳过这项跨仓检查。更新 Desktop 动作后需同步内部白名单、技能目录和契约测试；新增动作不需要向模型 Schema 添加枚举或业务域；按适用范围更新完整/网页技能目录。Skill 负责操作帮助，不能授予权限；Standalone 限制、Run 来源校验、WebApp-page-only 排除及 Desktop 确认机制不变。内部白名单或内嵌工具 Schema 的变更需要重新构建并重启 Platform。
+本地存在相邻 `desktop` checkout 时，`go test ./internal/tools -run TestDesktopActionContractMatchesDesktopSource -count=1` 会直接核对上游定义。CI 或非相邻 checkout 可设置 `DESKTOP_SOURCE` 为 Desktop 仓库路径；显式配置路径缺失会失败，未配置且无相邻仓库时跳过这项跨仓检查。更新 Desktop 动作后需同步内部白名单、技能目录和契约测试；新增动作不需要向模型 Schema 添加枚举或业务域；契约测试同时核对归网页控制连接器所有的动作仍存在于 Desktop 定义中。Skill 负责操作帮助，不能授予权限；Standalone 限制、Run 来源校验、WebApp-page-only 排除及 Desktop 确认机制不变。内部白名单或内嵌工具 Schema 的变更需要重新构建并重启 Platform。
 
 Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey/teamId`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
 
-AWCP 按网站操作手册渐进披露，`desktop_cdp` 的工具定义始终固定。模型先读取 `site.description` 中整个页面的纯文本操作说明和动作目录；页面说明包含 Action 样例。模型再按任务读取某个动作的详细参数约束及示例，最后使用通用 `AWCP.invoke`。页面说明是普通工具结果，不注册成工具，不注入 system prompt，也不改写下一轮模型请求的 Schema。网站新增动作无需修改 Platform 核心。
+AWCP 按网站操作手册渐进披露，`awcp_manual` 与 `awcp_invoke` 的工具定义始终固定。模型先读取 `site.description` 中整个页面的纯文本操作说明和动作目录；页面说明包含 Action 样例。模型再按任务读取某个动作的详细参数约束及示例，最后使用通用 `awcp_invoke`。页面说明是普通工具结果，不注册成工具，不注入 system prompt，也不改写下一轮模型请求的 Schema。网站新增动作无需修改 Platform 核心。
 
 ```json
-{"method":"AWCP.getManual","surfaceId":"surface-1"}
-{"method":"AWCP.getManual","surfaceId":"surface-1","params":{"section":"orders.select","revision":"page-revision"}}
-{"method":"AWCP.invoke","surfaceId":"surface-1","params":{"revision":"page-revision","action":"orders.select","args":{"ids":["order-1"]}}}
+awcp_manual  {"surfaceId":"surface-1"}
+awcp_manual  {"surfaceId":"surface-1","section":"orders.select","revision":"page-revision"}
+awcp_invoke  {"surfaceId":"surface-1","revision":"page-revision","action":"orders.select","args":{"ids":["order-1"]}}
 ```
 
-- 目录读取：省略 params 或传 `{}`，返回当前 revision、`site.description` 页面操作说明和动作目录，不提前加载各 Action 的完整参数约束。
-- 单项手册读取：`params` 必须精确为 `{section,revision}`，返回网站原始 v1 章节 `{revision,section,description,inputSchema,examples?}`。Platform 不编译 Schema，不要求 examples 存在或非空，也不限制为模型提供商支持的 Schema 子集。
-- 页面由工具顶层 `surfaceId` 选择，限定在可信 Run grant 内；container 是包含多个 surface 的容器，容器标识不能替代页面标识。Platform 对 `{}` 或 `{section,revision}` 做原样转发，并将可选 `surfaceId` 加入 wire payload；Desktop 和页面原生按目录/单章节获取，不在 Platform 投影完整合同，也不缓存页面状态。
-- 调用：params 精确为 `{revision,action,args}`，模型使用手册返回的 revision。Platform 校验固定外壳，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，网站自己的 validator/handler 负责业务参数校验和执行。原来的单 Action 键包装与运行核心注入 revision 已移除。
+- 目录读取：`awcp_manual` 只带 `surfaceId`，返回当前 revision、`site.description` 页面操作说明和动作目录，不提前加载各 Action 的完整参数约束。
+- 单项手册读取：`awcp_manual` 同时给出 `section` 与 `revision`，返回网站原始 v1 章节 `{revision,section,description,inputSchema,examples?}`。Platform 不编译 Schema，不要求 examples 存在或非空，也不限制为模型提供商支持的 Schema 子集。
+- 页面由工具的 `surfaceId` 选择，限定在可信 Run grant 内。Platform 把工具字段组装为既有 wire payload（目录为空，章节为 `{section,revision}`，并附带可选 `surfaceId`）；Desktop 和页面原生按目录/单章节获取，不在 Platform 投影完整合同，也不缓存页面状态。
+- 调用：`awcp_invoke` 精确接收 `revision`、`action`、`args`（及可选 `surfaceId`），模型使用手册返回的 revision。Platform 校验固定外壳并以工具自身的字段名报告错误，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，网站自己的 validator/handler 负责业务参数校验和执行。
 
 运行核心不保存 AWCP revision、动作集合、模型请求绑定、失效 generation 或纠错预算；发现、调用和失败都走普通工具循环。错误原样按既有 response/error 分层返回，模型结合网站手册和执行状态决定修参、重新读取或向用户解释，Platform 不自动重放、不强制最终回答、不移除工具，也不因批次出现 AWCP 就改变通用排序和并发规则。有先后依赖的操作须逐步发起；不要在执行状态未知时盲目重复可能有副作用的操作。权限、审批、取消、通用 Run 限额和 Desktop 授权页面边界继续生效。
 
@@ -137,7 +144,7 @@ WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；�
 
 Desktop 模式只将 `scope=app` 且 JWT `device_id` 与握手 `deviceId` 完全一致的已认证 `source=desktop-main` WebSocket 作为默认连接 generation；`source` 或 query device metadata 本身不构成授权。已有且可达的 run target 始终优先；automation、`run_query` 等独立根 run 首次调用 Desktop 工具时若无 target，才把当前默认连接写入该 run。旧 target 已无法解析且请求尚未发送时，可以原子改绑新 generation 并发送一次；连接在请求发送后断开时返回 `*_client_disconnected`，不得自动重放。父 run 终态不撤销独立子 run 的绑定。Standalone 不读取该默认连接。目标元数据只保存在运行内存，不进入 prompt、事件、chat 或数据库。
 
-`desktop_action_target_unavailable` 保持稳定错误码。Standalone 无 target 使用 `run_target_missing`；Desktop Main 从未建立使用 `desktop_main_missing`，曾建立但当前离线使用 `desktop_main_disconnected`，无法进一步归类的旧绑定仍使用 `target_connection_unavailable`。普通 CDP 与 AWCP 均通过 `desktop_cdp` 返回对应的 `desktop_cdp_*` 工具错误和相同 reason。
+`desktop_action_target_unavailable` 保持稳定错误码。Standalone 无 target 使用 `run_target_missing`；Desktop Main 从未建立使用 `desktop_main_missing`，曾建立但当前离线使用 `desktop_main_disconnected`，无法进一步归类的旧绑定仍使用 `target_connection_unavailable`。`surface_*` 与 `awcp_*` 工具沿用传输层的 `desktop_cdp_*` 错误码和相同 reason。
 
 默认 Desktop target 只决定反向请求送达位置，不扩大 WorkPanel 或页面权限。`desktop.workpanel.*` 到达 Desktop 后仍必须通过该 run 的 canonical Chat/grant；没有 grant 的独立 run 返回 `source_chat_not_ready`，不能借用当前可见 Chat。Team WorkPanel 的现有限制同样不变。
 
@@ -166,7 +173,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 - MCP server 暂时不可用或协议版本不兼容时，调用返回结构化 MCP unavailable 错误。
 - MCP streamable HTTP 和 stdio session、ACP、Proxy、Channel、LSP、KBASE sidecar 与其他长期驻留服务不继承动态 run env。stdio MCP 子进程仍只使用 registry 启动时的静态 `env`；运行中 `platform_control run.env.set/unset` 不重启或修改已存在 session。
 - `qiuerscript-tool` 在 stdin 关闭后正常退出，不支持私有 `shutdown` RPC。
-- `desktop_action`、`desktop_cdp` 及 Desktop Main Broker 反向 Action/AWCP/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
+- `desktop_action`、网页控制工具组及 Desktop Main Broker 反向 Action/AWCP/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
 - `ask_user_question` 由 `internal/toolinteraction` 中明确注册的 handler 负责等待、submit 规范化和固定 QA 模型输出；没有通用 YAML 表单 fallback。
 - HITL viewport 细节见 [HITL协议](HITL协议.md)。
 
@@ -191,11 +198,11 @@ Desktop 拥有按方法的参数预检和目标授权；Platform 不复制 Chrom
 
 ## 整合点击能力
 
-已挂载 `desktop_cdp` 的 Agent 可通过 `method: "Input.click"` 使用整合点击能力，参数放在 `params` 中，目标使用顶层 `surfaceId`。该方法复用一次 `desktop.cdp.call` 反向请求、可信 Run 来源和现有页面/WorkPanel 授权，不增加网络入口。`Input.click` 由 Desktop 编排，不直接转发给 Chromium。
+已挂载 `builtin.web-control` 的 Agent 通过 `surface_click` 使用整合点击能力：`surfaceId` 选择页面，`selector` 或 `x`/`y`、可选 `waitFor` 直接作为工具参数。它映射为一次 `desktop.cdp.call` 的 `Input.click`，复用可信 Run 来源和现有页面/WorkPanel 授权，不增加网络入口。`Input.click` 由 Desktop 编排，不直接转发给 Chromium。
 
 Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；模型不构造按下/释放事件、不写参数文件。Desktop 执行唯一定位、滚动和命中检查、真实左键单击、可选的后置条件观察。`waitFor` 完全可省略，此时只证明输入完成。等待超时、取消、导航和输入结果不确定分别保留动作阶段，不自动重放点击。Windows/macOS 均使用 Chromium CSS 视口坐标，不做宿主 DPI 换算。
 
-`params` 使用标准 CSS `selector` 或数字 `x/y`，二者互斥；可选整数 `timeoutMs` 为 100–10000，默认 3000。可选 `waitFor` 支持 visible/hidden（selector）、value（selector 与字符串 value）、checked（selector 与布尔 checked）、url（仅字符串 value）条件。Desktop 的执行结果区分 `action.outcome` 与 `conditionMatched`。工具结果外层成功只证明协议成功，不能代替页面/业务成功。原始 CDP 仍保留，但正常点击不再拆为多次模型调用。Desktop 与 Platform 需配套更新；旧 Desktop 拒绝新方法时明确报告版本能力缺失，不把它当成点击失败后重试。
+工具参数使用标准 CSS `selector` 或数字 `x/y`，二者互斥；可选整数 `timeoutMs` 为 100–10000，默认 3000。可选 `waitFor` 支持 visible/hidden（selector）、value（selector 与字符串 value）、checked（selector 与布尔 checked）、url（仅字符串 value）条件。Desktop 的执行结果区分 `action.outcome` 与 `conditionMatched`。工具结果外层成功只证明协议成功，不能代替页面/业务成功。底层输入事件仍可经 `surface_cdp` 发送，但正常点击不再拆为多次模型调用。Desktop 与 Platform 需配套更新；旧 Desktop 拒绝新方法时明确报告版本能力缺失，不把它当成点击失败后重试。
 
 ## Desktop Action 错误诊断
 
@@ -205,11 +212,11 @@ Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；�
 
 Platform 对 WebApp init、validate、build 和 install 的指定路径字段复用 Session 路径解析，支持 `@chat` 与 `@workspace`。别名只来自当前 Run 的可信上下文，目标必须同时位于别名根和 Workspace 内；解析后转换为 Workspace 相对路径发送给 Desktop，不修改 source 根，不解析其他 Action 或嵌套业务字段。普通相对路径及 build 返回路径保持兼容。Desktop 继续在执行前检查真实路径、链接边界和文件权限；Platform 解析不是文件访问授权。无项目默认 Chat 内落盘，有项目默认项目内落盘；缺根、跨卷及越界明确拒绝，不自动选择替代目录。
 
-## 网页 Container / Surface 契约
+## 网页 Surface 契约
 
-Container 承载页面；每个网页 tab 或 WorkPanel Web item 是独立 Surface。`desktop_cdp` 以 Surface.list / Surface.getCurrent 发现网页，所有 CDP 页面操作只使用 surfaceId，不暴露另一个目标 ID 或 session selector。Surface.open/close/getState/goBack 是 Desktop 方法，其余受限 Chromium 方法仍由 Desktop 定位到精确 webContents 后执行。导航和刷新保留身份，关闭重开使旧身份失效。
+每个网页是一个独立 Surface，由 `surfaceId` 标识；导航和刷新保留身份，关闭重开使旧身份失效。网页控制工具以 `surface_list` 发现本次 Run 已授权的网页，`surface_state` 省略 `surfaceId` 时读取所属应用的当前页；所有页面操作只使用 `surfaceId`。Desktop 协议中的 `containerId` 与 WorkPanel 条目 ID 不出现在模型工具的参数和结果里。`surface_*` 工具在 Platform 内映射为 `desktop.cdp.call` 的 Surface.list / Surface.getCurrent / Surface.getState / Surface.goBack / Surface.close 等 Desktop 方法和受限 Chromium 方法，由 Desktop 定位到精确 webContents 后执行。
 
-普通 Chat 打开 URL 默认使用 desktop.workpanel.openWeb，返回 surfaceId、containerId 与状态。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。AWCP 两个方法接受可选顶层 surfaceId，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
+普通 Chat 用 `workpanel_open` 打开网址，返回 `surfaceId` 与状态；这是打开新页面的唯一入口，Website 内的多个标签在 `surface_list` 中是多个独立 Surface。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。`awcp_manual` / `awcp_invoke` 接受可选 `surfaceId`，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
 
 ### Desktop 确认期限与取消
 

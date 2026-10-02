@@ -14,9 +14,9 @@ import (
 type Sources struct {
 	ExternalRoot string
 	BuiltinRoot  string
-	// Native Desktop directories are verified, leased packages from the running binary.
+	// Native directories are verified, leased packages from the running binary.
 	NativeDesktopDir    string
-	NativeDesktopWebDir string
+	NativeWebControlDir string
 	StateRoot           string
 	// LegacyStateRoot is only read by the startup/offline layout migration.
 	LegacyStateRoot string
@@ -37,7 +37,7 @@ func (s Sources) Load(id string) (Package, error) {
 	if !ValidID(id) {
 		return Package{}, fmt.Errorf("invalid connector id %q", id)
 	}
-	if dir := s.embeddedDesktopDir(id); dir != "" {
+	if dir := s.embeddedNativeDir(id); dir != "" {
 		pkg, err := LoadDirectory(dir, id)
 		pkg.Builtin, pkg.StateRoot = true, s.PersistentRoot()
 		return pkg, err
@@ -58,8 +58,8 @@ func (s Sources) LoadAll() ([]Package, error) {
 
 func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 	packages := []Package{}
-	for _, id := range []string{DesktopConnectorID, DesktopWebConnectorID} {
-		if s.embeddedDesktopDir(id) == "" || id == exclude {
+	for _, id := range NativeConnectorIDs() {
+		if s.embeddedNativeDir(id) == "" || id == exclude {
 			continue
 		}
 		pkg, err := s.Load(id)
@@ -84,7 +84,7 @@ func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 		}
 		for _, entry := range entries {
 			id := entry.Name()
-			if id == exclude || s.embeddedDesktopDir(id) != "" {
+			if id == exclude || s.embeddedNativeDir(id) != "" {
 				continue
 			}
 			if strings.HasPrefix(id, ".") {
@@ -130,12 +130,12 @@ func (s Sources) ReadFile(id, file string) (File, error) {
 	return File{ID: id, File: file, Content: string(data), SHA256: digest(data)}, nil
 }
 
-func (s Sources) embeddedDesktopDir(id string) string {
+func (s Sources) embeddedNativeDir(id string) string {
 	switch id {
 	case DesktopConnectorID:
 		return s.NativeDesktopDir
-	case DesktopWebConnectorID:
-		return s.NativeDesktopWebDir
+	case WebControlConnectorID:
+		return s.NativeWebControlDir
 	default:
 		return ""
 	}

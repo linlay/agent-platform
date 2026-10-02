@@ -6,7 +6,7 @@
 
 - The form filling workflow detected Ant Design or React-controlled inputs.
 - 用户说输入框、下拉框或自动完成组件点击后消失、失焦、被清空。
-- 普通 `Input.insertText`、鼠标点击、键盘输入不稳定。
+- 普通 `surface_cdp` 的 `Input.insertText`、鼠标点击、键盘输入不稳定。
 - DOM 里的值变了，但 Ant Design Form 校验、提交值或页面状态没有同步。
 
 ## Stack Detection
@@ -28,7 +28,7 @@ Use this reference when Ant Design classes or React-controlled field markers are
 
 ## Pattern
 
-Use `Runtime.evaluate` after identifying the target field by stable selectors such as `id`, `name`, label text, or the nearest `.ant-form-item`.
+Use `surface_evaluate` after identifying the target field by stable selectors such as `id`, `name`, label text, or the nearest `.ant-form-item`.
 
 ```js
 (() => {

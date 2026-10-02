@@ -1,0 +1,17 @@
+name: surface_screenshot
+label: 网页截图
+description: "Capture a PNG screenshot of a webpage. The image is saved to the current Chat and the result exposes a referenceName; inspect it with vision_recognize. Do not repeat image data in conversation or files."
+clientVisible: true
+readOnly: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+    fullPage:
+      type: boolean
+      description: Optional. true captures the whole scrollable page instead of the visible viewport.
+  required:
+    - surfaceId
+  additionalProperties: false

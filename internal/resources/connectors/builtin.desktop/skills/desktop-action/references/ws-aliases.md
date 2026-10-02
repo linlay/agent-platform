@@ -74,7 +74,7 @@ desktop.workpanel.closeTab
 desktop.workpanel.closeWorkpanel
 ```
 
-`desktop.workpanel.openLocalFile` is intentionally absent. It is available only through `desktop_action` from an eligible ordinary Agent Platform Run in Desktop runtime; Desktop WS `action.call` returns `forbidden` and must not be used as a fallback.
+`desktop.workpanel.openLocalFile` is intentionally absent. It is available only through the web-control `workpanel_open` tool from an eligible ordinary Agent Platform Run in Desktop runtime; Desktop WS `action.call` returns `forbidden` and must not be used as a fallback.
 
 ## Do Not Use
 
@@ -82,7 +82,7 @@ desktop.workpanel.closeWorkpanel
 - Removed surface-state names `web.getActiveSurface` and `desktop.web.getActiveSurface`; use `web.getSurfaceState` or canonical `desktop.web.getSurfaceState` with an exact `surfaceId`.
 - Old web aliases such as `web.entries.list`, `web.website.*`, `web.webapp.*`, `web.list`, `web.surfaces`, `web.active`, `web.activate`, `web.context`, `web.read`, `web.back`, `web.tab.open`, `web.tab.close`, `web.tab.switch`, `web.websites.*`, `web.webapps.*`, and `web.webapps.status`.
 - Removed WebApp short names `webapp.installAndOpen`, `webapp.checkPrerequisites`, and `webapp.getPublishInfo`; they return unknown request/action and have no compatibility alias.
-- Page-content aliases such as `web.getPageContext`, `web.readPageData`, `web.extractStructured`, `web.interactElement`, and `web.executeScript`; use `desktop-cdp` instead.
+- Page-content aliases such as `web.getPageContext`, `web.readPageData`, `web.extractStructured`, `web.interactElement`, and `web.executeScript`; use the web-control tools instead.
 - Old Help and Kanban aliases such as `help.openTopic`, `kanban.listIssues`, `kanban.getIssue`, `kanban.createIssue`, `kanban.updateIssue`, `kanban.deleteIssue`, and `kanban.moveIssue`.
 - Old pet aliases such as `pet.settings` and `pet.appearances`. No public short pet aliases are exposed in the current WS alias map; use canonical `desktop.pet.*` action names.
 - Internal page aliases such as `page.context`, `page.read`, `page.interact`, `page.fillForm`, and `page.submitForm`; they resolve to non-public `desktop.page.*` actions.
@@ -90,3 +90,5 @@ desktop.workpanel.closeWorkpanel
 ## Agent-only Tooling
 
 `desktop.webapp.package.init`, `desktop.webapp.package.validate`, and `desktop.webapp.package.build` require a trusted Platform Run. Desktop WS `action.call` is not a fallback for these actions. The canonical `desktop.web.interactElement` and `desktop.web.executeScript` are public actions; this does not imply that a corresponding short WS alias is supported.
+
+The WorkPanel and `web.*` names above describe Desktop's own WS protocol. Through Agent Platform tools they are reached with the `builtin.web-control` connector, not `desktop_action`.

@@ -2,8 +2,6 @@ package catalog
 
 import (
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,7 +34,7 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	if one.ConnectorMounts[0].Dir != two.ConnectorMounts[0].Dir {
 		t.Fatal("duplicated native package")
 	}
-	if containsString(one.Tools, "bash") || !containsString(one.Tools, "file_read") || len(one.ConnectorNativeTools) != 2 || len(one.ConnectorSkills) != 2 {
+	if containsString(one.Tools, "bash") || !containsString(one.Tools, "file_read") || !containsString(one.Tools, "desktop_action") || containsString(one.Tools, "surface_list") || len(one.ConnectorNativeTools) != 1 || len(one.ConnectorSkills) != 1 {
 		t.Fatalf("wrong native tools: %#v", one)
 	}
 	legacy, ok := r.AgentDefinition("legacy")
@@ -46,7 +44,7 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	if len(legacy.ConnectorMounts) != 0 || len(legacy.ConnectorNativeTools) != 0 {
 		t.Fatal("tool declaration must not synthesize connector execution grants")
 	}
-	if one.SkillInstructionsPath("desktop-cdp") != "@connectors/builtin.desktop/skills/desktop-cdp/SKILL.md" {
+	if one.SkillInstructionsPath("desktop-action") != "@connectors/builtin.desktop/skills/desktop-action/SKILL.md" {
 		t.Fatal("unstable skill path")
 	}
 	if _, err := os.Stat(filepath.Join(one.RuntimeDir, "connectors", "builtin.desktop", "connector.json")); !os.IsNotExist(err) {
@@ -54,7 +52,7 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	}
 }
 
-func TestDesktopWebMountAndVariantConflict(t *testing.T) {
+func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
 	release, err := cfg.Paths.PrepareNativeConnectors()
@@ -62,63 +60,34 @@ func TestDesktopWebMountAndVariantConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	source := "key: web\nname: Web\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop-web\n"
-	path := filepath.Join(cfg.Paths.AgentsDir, "web", "agent.yml")
-	writeRuntimeAssemblerFile(t, path, source)
+	source := "key: web\nname: Web\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.web-control\n"
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "web", "agent.yml"), source)
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "both", "agent.yml"), "key: both\nname: Both\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop\n    - builtin.web-control\n")
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "retired", "agent.yml"), "key: retired\nname: Retired\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop-web\n")
 	r, err := NewFileRegistry(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	def, ok := r.AgentDefinition("web")
-	if !ok || len(def.ConnectorNativeTools) != 2 || len(def.ConnectorSkills) != 2 || containsString(def.Tools, "bash") || !containsString(def.Tools, "file_read") {
-		t.Fatalf("web mount: %+v", def)
+	if !ok || len(def.ConnectorNativeTools) != 15 || len(def.ConnectorSkills) != 1 || containsString(def.Tools, "bash") || !containsString(def.Tools, "file_read") {
+		t.Fatalf("web-control mount: %+v", def)
 	}
-	if def.SkillInstructionsPath("desktop-action") != "@connectors/builtin.desktop-web/skills/desktop-action/SKILL.md" {
-		t.Fatal("wrong web skill path")
+	// Page control alone grants no Desktop shell action.
+	if containsString(def.Tools, "desktop_action") || !containsString(def.Tools, "workpanel_open") || !containsString(def.Tools, "surface_cdp") || !containsString(def.Tools, "awcp_invoke") {
+		t.Fatalf("web-control tools: %v", def.Tools)
 	}
-	if _, err := r.PrepareAgentConnector("web", "builtin.desktop", true); !errors.Is(err, connector.ErrSelectionConflict) {
-		t.Fatalf("mutation conflict: %v", err)
+	if def.SkillInstructionsPath("web-control") != "@connectors/builtin.web-control/skills/web-control/SKILL.md" {
+		t.Fatal("wrong web-control skill path")
 	}
-	current, err := r.ReadEditableAgentSource("web")
-	if err != nil {
-		t.Fatal(err)
+	both, ok := r.AgentDefinition("both")
+	if !ok || len(both.ConnectorNativeTools) != 16 || len(both.ConnectorSkills) != 2 || !containsString(both.Tools, "desktop_action") || !containsString(both.Tools, "surface_list") {
+		t.Fatalf("combined mount: %+v", both)
 	}
-	if _, err := r.WriteEditableAgentSource("web", source+"    - builtin.desktop\n", current.SHA256); !errors.Is(err, connector.ErrSelectionConflict) {
-		t.Fatalf("source conflict: %v", err)
+	if _, err := r.PrepareAgentConnector("web", "builtin.desktop", true); err != nil {
+		t.Fatalf("Desktop must be addable next to web-control: %v", err)
 	}
-	if data, err := os.ReadFile(path); err != nil || string(data) != source {
-		t.Fatalf("rejected mutation changed source: %v", err)
-	}
-	// Generic validation reads declarations before importing potentially colliding skills.
-	conflicting := AgentDefinition{Connectors: []string{"builtin.desktop-web", "builtin.desktop"}}
-	if err := resolveConnectorPackages(&conflicting, cfg.Paths.ConnectorSources().Load); !errors.Is(err, connector.ErrSelectionConflict) {
-		t.Fatalf("runtime conflict: %v", err)
-	}
-}
-
-func TestDesktopSelectionCanRepairConflictingSource(t *testing.T) {
-	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills"), TeamsDir: filepath.Join(root, "teams")}}
-	release, err := cfg.Paths.PrepareNativeConnectors()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer release()
-	source := "key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop\n    - builtin.desktop-web\n"
-	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "demo", "agent.yml"), source)
-	r, err := NewFileRegistry(cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := r.AgentDefinition("demo"); ok {
-		t.Fatal("conflicting Agent became ready")
-	}
-	ids, err := r.ReadAgentConnectors("demo")
-	if err != nil || len(ids) != 2 {
-		t.Fatalf("cannot display invalid selection: %v %v", ids, err)
-	}
-	candidate, err := r.PrepareAgentConnector("demo", "builtin.desktop", false)
-	if err != nil || len(candidate.ConnectorIDs) != 1 || candidate.ConnectorIDs[0] != "builtin.desktop-web" {
-		t.Fatalf("cannot repair: %+v %v", candidate, err)
+	// The former web variant no longer exists; its Agents need the offline migration.
+	if _, ok := r.AgentDefinition("retired"); ok {
+		t.Fatal("retired builtin.desktop-web mount became ready")
 	}
 }

@@ -135,6 +135,12 @@ func (i *scriptedClientRequestInvoker) InvokeClientRequest(ctx context.Context, 
 	return i.err
 }
 
+// dispatchDesktopActionArgs sends an admitted reverse action the way the
+// web-control tools do, bypassing only the desktop_action model allowlist.
+func (t *RuntimeToolExecutor) dispatchDesktopActionArgs(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	return t.dispatchDesktopAction(ctx, stringArg(args, "action"), args, execCtx)
+}
+
 func desktopActionTestExecutionContext() *ExecutionContext {
 	return &ExecutionContext{Session: QuerySession{
 		RunID: "run-desktop-action-test", ChatID: "chat-desktop-action-test",
@@ -183,7 +189,7 @@ func TestDesktopReverseRequestPreservesNonRetryableClientMetadata(t *testing.T) 
 		clientRequest: invoker,
 		clientTargets: emptyRunClientTargetStore{},
 	}
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "workpanel-rejected",
 		"action":    "desktop.workpanel.openWeb",
 		"args":      map[string]any{"url": "https://example.test/document"},
@@ -214,7 +220,7 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 		clientRequest: invoker,
 		clientTargets: emptyRunClientTargetStore{},
 	}
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "standalone-workpanel", "action": "desktop.workpanel.getState", "args": map[string]any{},
 	}, desktopActionTestExecutionContext())
 	if err != nil || result.ExitCode != 0 || invoker.calls != 1 || invoker.request.Type != "desktop.workpanel.getState" {
@@ -254,7 +260,7 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 	if err != nil || unsupported.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
 		t.Fatalf("standalone Desktop action was not rejected before dispatch: result=%#v calls=%d err=%v", unsupported, invoker.calls, err)
 	}
-	localFile, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	localFile, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.workpanel.openLocalFile", "args": map[string]any{"path": "artifacts/report.html"},
 	}, desktopActionTestExecutionContext())
 	if err != nil || localFile.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
@@ -286,7 +292,7 @@ func TestDesktopReverseRequestDoesNotUseStaleSessionTargetWhenRunTargetIsMissing
 		clientRequest: invoker,
 		clientTargets: runs,
 	}
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.workpanel.getState", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
 		RunID: "run-without-reverse-target", ChatID: "chat-1", RunOwner: AgentRunOwner("agent-1", ""),
@@ -319,7 +325,7 @@ func TestDesktopReverseRequestUsesLatestRunTarget(t *testing.T) {
 	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeStandalone}}).
 		WithClientRequestInvoker(invoker).
 		WithClientTargetStore(runs)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "latest-target", "action": "desktop.workpanel.getState", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
 		RunID: "run-latest-target", ChatID: "chat-latest-target", SubTaskID: "sub-agent-1",
@@ -350,7 +356,7 @@ func TestDesktopReverseRequestDoesNotInheritTargetForIndependentRootRun(t *testi
 		WithClientRequestInvoker(invoker).
 		WithClientTargetStore(runs).
 		WithDesktopMainTargetProvider(provider)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.workpanel.getState", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
 		RunID: "run-independent", ChatID: "chat-independent", RunOwner: AgentRunOwner("agent-1", ""),
@@ -402,7 +408,7 @@ func TestDesktopRuntimeIndependentRunBindsDesktopMainTarget(t *testing.T) {
 		{name: "desktop.workpanel.openLocalFile", args: map[string]any{"path": "artifacts/report.html", "title": "Report"}},
 	}
 	for index, action := range actions {
-		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 			"requestId": "independent-action-" + string(rune('1'+index)),
 			"action":    action.name,
 			"args":      action.args,
@@ -454,7 +460,7 @@ func TestDesktopRuntimeKeepsExistingRunTarget(t *testing.T) {
 		WithDesktopMainTargetProvider(provider)
 	actions := []string{"desktop.website.list", "desktop.pet.show", "desktop.theme.get", "desktop.workpanel.getState"}
 	for index, action := range actions {
-		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 			"requestId": fmt.Sprintf("existing-target-%d", index), "action": action, "args": map[string]any{},
 		}, &ExecutionContext{Session: QuerySession{RunID: "run-existing", ChatID: "chat-existing", AgentKey: "agent-1"}})
 		if err != nil || result.ExitCode != 0 {
@@ -592,7 +598,7 @@ func TestDesktopRuntimeDefaultTargetDoesNotGrantWorkPanel(t *testing.T) {
 		WithClientRequestInvoker(invoker).
 		WithClientTargetStore(runs).
 		WithDesktopMainTargetProvider(provider)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "detached-workpanel", "action": "desktop.workpanel.getState", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{RunID: "run-without-chat-grant", ChatID: "chat-detached", AgentKey: "agent-child"}})
 	if err != nil {
@@ -1251,15 +1257,7 @@ func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
 		"desktop.copilot.getPagePreferences",
 		"desktop.copilot.setPagePreference",
 		"desktop.display",
-		"desktop.workpanel.getState",
-		"desktop.workpanel.openTab",
-		"desktop.workpanel.openWeb",
-		"desktop.workpanel.openLocalFile",
-		"desktop.workpanel.refreshWeb",
-		"desktop.workpanel.activateTab",
-		"desktop.workpanel.closeTab",
-		"desktop.workpanel.closeWorkpanel",
-		"desktop.web.listSurfaces",
+		"desktop.web.exportArtifact",
 		"desktop.webapp.getStatus",
 		"desktop.website.list",
 		"desktop.pet.show",
@@ -1405,19 +1403,7 @@ func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
 		"desktop.skin.import",
 		"desktop.skin.set",
 		"desktop.skin.remove",
-		"desktop.web.activateSurface",
-		"desktop.web.closeTab",
-		"desktop.web.executeScript",
 		"desktop.web.exportArtifact",
-		"desktop.web.getSurfaceState",
-		"desktop.web.goBack",
-		"desktop.web.interactElement",
-		"desktop.web.listSurfaces",
-		"desktop.web.navigate",
-		"desktop.web.openTab",
-		"desktop.web.refreshSurface",
-		"desktop.web.reload",
-		"desktop.web.switchTab",
 		"desktop.webapp.checkRuntime",
 		"desktop.webapp.getPublishStatus",
 		"desktop.webapp.getStatus",
@@ -1438,14 +1424,6 @@ func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
 		"desktop.website.open",
 		"desktop.website.remove",
 		"desktop.website.update",
-		"desktop.workpanel.activateTab",
-		"desktop.workpanel.closeTab",
-		"desktop.workpanel.closeWorkpanel",
-		"desktop.workpanel.getState",
-		"desktop.workpanel.openLocalFile",
-		"desktop.workpanel.openTab",
-		"desktop.workpanel.openWeb",
-		"desktop.workpanel.refreshWeb",
 	}
 	sort.Strings(want)
 
@@ -1458,8 +1436,8 @@ func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 102 {
-		t.Fatalf("desktop action count = %d, want 102", len(actions))
+	if len(actions) != 82 {
+		t.Fatalf("desktop action count = %d, want 82", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{
@@ -1602,26 +1580,39 @@ func TestDesktopAwcpInvokeRejectsMismatchedResponseLocally(t *testing.T) {
 	}
 }
 
-func TestDesktopCDPToolSchemaIsStaticAndDoesNotUseCombinators(t *testing.T) {
+func TestWebControlToolSchemasAreStaticClosedObjects(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
 		t.Fatalf("load embedded tools: %v", err)
 	}
+	found := 0
 	for _, def := range defs {
-		if def.Name != "desktop_cdp" {
+		if def.Name == "desktop_cdp" {
+			t.Fatal("desktop_cdp must not be defined; webpages are controlled by the web-control tools")
+		}
+		if !isWebControlTool(def.Name) {
 			continue
 		}
+		found++
 		if def.Parameters["type"] != "object" || def.Parameters["additionalProperties"] != false {
-			t.Fatalf("desktop_cdp schema is not a closed object: %#v", def.Parameters)
+			t.Fatalf("%s schema is not a closed object: %#v", def.Name, def.Parameters)
 		}
 		for _, keyword := range []string{"oneOf", "anyOf", "allOf", "if", "then", "else"} {
 			if _, exists := def.Parameters[keyword]; exists {
-				t.Fatalf("desktop_cdp schema contains %s: %#v", keyword, def.Parameters)
+				t.Fatalf("%s schema contains %s: %#v", def.Name, keyword, def.Parameters)
 			}
 		}
-		return
+		properties, _ := def.Parameters["properties"].(map[string]any)
+		// Item and container identities stay internal to Platform.
+		for _, hidden := range []string{"tabId", "itemId", "containerId", "requestId", "chatId", "workspaceId"} {
+			if _, exposed := properties[hidden]; exposed {
+				t.Fatalf("%s exposes %s", def.Name, hidden)
+			}
+		}
 	}
-	t.Fatal("desktop_cdp tool definition is unavailable")
+	if found != 15 {
+		t.Fatalf("web-control tool definitions = %d, want 15", found)
+	}
 }
 
 func TestDesktopAwcpManualUsesDedicatedWireAndRejectsExtraFields(t *testing.T) {
@@ -1671,43 +1662,26 @@ func TestDesktopAwcpManualRejectsInvalidClientEnvelope(t *testing.T) {
 	}
 }
 
-func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
-	want := []string{
-		"AWCP.getManual",
-		"AWCP.invoke",
-		"DOM.getBoxModel",
-		"DOM.getDocument",
-		"DOM.getOuterHTML",
-		"DOM.querySelector",
-		"DOM.querySelectorAll",
-		"Input.dispatchKeyEvent",
-		"Input.dispatchMouseEvent",
-		"Input.click",
-		"Input.insertText",
-		"Network.disable",
-		"Network.enable",
-		"Page.bringToFront",
-		"Page.captureScreenshot",
-		"Page.enable",
-		"Page.navigate",
-		"Page.reload",
-		"Runtime.evaluate",
-		"Surface.getCurrent",
-		"Surface.list",
-		"Surface.close",
-		"Surface.getState",
-		"Surface.goBack",
-		"Surface.open",
+func TestSurfaceCDPMethodEnumOnlyListsMethodsWithoutDedicatedTool(t *testing.T) {
+	want := make([]string, 0, len(webControlRawCDPMethods))
+	for method := range webControlRawCDPMethods {
+		want = append(want, method)
 	}
 	sort.Strings(want)
 
-	got := sortedToolPropertyEnum(t, "desktop_cdp", "method")
+	got := sortedToolPropertyEnum(t, "surface_cdp", "method")
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("desktop_cdp method enum mismatch\nwant: %#v\n got: %#v", want, got)
+		t.Fatalf("surface_cdp method enum mismatch\nwant: %#v\n got: %#v", want, got)
 	}
-	for _, endpoint := range []string{"/json/version", "/json", "/json/list"} {
-		if enumContainsString(got, endpoint) {
-			t.Fatalf("desktop_cdp method enum must not include HTTP endpoint %q", endpoint)
+	// One entry per operation: methods served by a dedicated tool, AWCP and the
+	// loopback gateway endpoints are not reachable through the raw tool.
+	for _, excluded := range []string{
+		"Surface.list", "Surface.getCurrent", "Surface.getState", "Surface.open", "Surface.close", "Surface.goBack",
+		"Page.navigate", "Page.reload", "Page.bringToFront", "Page.captureScreenshot", "Runtime.evaluate", "Input.click",
+		"AWCP.getManual", "AWCP.invoke", "/json/version", "/json", "/json/list",
+	} {
+		if enumContainsString(got, excluded) {
+			t.Fatalf("surface_cdp method enum must not include %q", excluded)
 		}
 	}
 }

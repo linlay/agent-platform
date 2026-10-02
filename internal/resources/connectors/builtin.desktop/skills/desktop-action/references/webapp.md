@@ -59,3 +59,7 @@ These three actions require a trusted Agent Platform Run in Desktop runtime. All
 | `desktop.webapp.package.build` | `{projectPath, outputPath}` |
 
 Initialize a Manifest v2 project, edit its files, validate the directory, then build a validated ZIP at a new output path. Build refuses to overwrite an existing output. Inspect the returned validation result before installing. Installation from Platform requires `workspaceArchivePath`; the absolute `archivePath` form belongs only to Desktop UI/local file selection. Do not call the removed `manifest.init`, `manifest.validate`, or `desktop.webapp.init` aliases.
+
+## Export
+
+`desktop.web.exportArtifact` accepts `{surfaceId, format}` for an authorized WebApp export provider and saves the export to Downloads. It does not provide an export bridge for ordinary webpages. Obtain the `surfaceId` with the web-control `surface_list` tool.

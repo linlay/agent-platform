@@ -12,7 +12,7 @@ runtime/
     └── run-connectors/<runIdHash>.json      # 私有不可变运行挂载快照
 ```
 
-CLI 内置来源为 Platform verified bundle 的 connectors 目录，其源码清单与技能位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`；native `builtin.desktop` 与 `builtin.desktop-web` 的清单和技能入口保留在 `internal/resources/connectors/`，公共技能资料只维护一份，随程序内嵌。共享包包含清单、技能及其资源、适用的 bin/libs；运行引用和快照不保存凭据。模型通过 `@connectors/<id>/...` 访问当前 Agent 已挂载的包；Container 只读映射对应 `/connectors/<id>`。
+CLI 内置来源为 Platform verified bundle 的 connectors 目录，其源码清单与技能位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`；native `builtin.desktop` 与 `builtin.web-control` 的清单和技能各自完整保存在 `internal/resources/connectors/<id>/`，随程序内嵌。共享包包含清单、技能及其资源、适用的 bin/libs；运行引用和快照不保存凭据。模型通过 `@connectors/<id>/...` 访问当前 Agent 已挂载的包；Container 只读映射对应 `/connectors/<id>`。
 
 ## 安装、升级和回收
 
@@ -26,38 +26,73 @@ Run 的挂载快照保存在私有状态目录，持久引用位于共享根 `.r
 
 ## builtin.desktop
 
-Agent 使用 `connectorConfig.connectors` 在两个内置连接器中选择一个：
+Platform 内嵌两个 native 连接器。它们各管一块、互不重叠，Agent 可以只挂一个，也可以同时挂载：
 
-| ID | 中文名称 | 英文名称 | 技能内容 |
-| --- | --- | --- | --- |
-| `builtin.desktop` | 桌面端 | Desktop | 全部 Desktop Action 与完整 CDP/AWCP |
-| `builtin.desktop-web` | 桌面端（网页） | Desktop (Web) | 完整 WorkPanel、`desktop.web.*` 与完整 CDP/AWCP |
+| ID | 中文名称 | 英文名称 | 工具 | 技能 |
+| --- | --- | --- | --- | --- |
+| `builtin.desktop` | 桌面端 | Desktop | `desktop_action` | `desktop-action` |
+| `builtin.web-control` | 网页控制 | Web Control | 15 个 `workpanel_*`、`surface_*`、`awcp_*` 工具 | `web-control` |
 
-网页版保留 WorkPanel 本地文件预览、通用标签页和关闭面板；不提供 Website 条目管理、WebApp 安装/生命周期、设置、市场、服务、Agent/Skill 编辑、宠物等技能资料。两个包使用相同的 `desktop-action`、`desktop-cdp` 技能名，运行路径分别属于各自 `@connectors/<id>/skills/`，不跨包引用。
+`builtin.desktop` 负责 Desktop 外壳、应用与服务：导航、主题/语言/皮肤/宠物、运行信息与诊断、控制中心、市场、看板、Website 条目和 WebApp 生命周期。它不再打开或操作网页：`desktop.workpanel.*` 以及除 `desktop.web.exportArtifact` 以外的 `desktop.web.*` 已从 `desktop_action` 运行时白名单移除，调用返回 `unknown_action`。
 
-两者均声明相同的 `desktop.action`、`desktop.cdp`，自动接入 `desktop_action`、`desktop_cdp` 和技能读取所需的 `file_read`，不会自动增加 Bash。Platform/Desktop handler、动作白名单、审批、客户端归属与 mode 限制共用一套。网页版的差异是提供给模型的操作资料，不是额外权限隔离；知道其他有效动作名称的调用仍走现有执行规则。共享工具 Schema 不枚举业务域，要求读取当前挂载技能。
+`builtin.web-control` 负责按地址打开并控制网页，见下节。工具归属由 `internal/connector/native.go` 的注册表唯一决定：工具只由拥有它的连接器授予，挂载 `builtin.desktop` 不会获得任何网页工具，反之亦然。两者都自动接入技能读取所需的 `file_read`，不会自动增加 Bash。
 
-同一 Agent 不能同时挂载两版，关系只由各自 `connector.json.mutuallyExclusiveWith` 声明，不在源码按 Desktop ID 判定。通用校验支持内置和外部包、单向声明；YAML 装载后的包解析、源码编辑、连接器选择保存和冻结定义恢复均适用。选择接口失败时不保存冲突配置，返回 HTTP 400、`data.error.code=connector_selection_conflict`、`connectorId`、`conflictingConnectorIds` 和本地化消息。目录透传声明，WebClient 点击冲突项会显示冲突名称、提示先取消原选择，并在列表顶部保留错误；服务端兜底失败也可见，不自动替换已选项。该交互已由 WebClient 组件测试验证，真实 Desktop 环境仍需联调。
+两个包都声明 `auth_mode: "no_auth"`：挂载即具备调用资格，无需连接配置，不读写 connection.json。管理接口返回无需配置及不可执行认证操作的能力字段；实际客户端可用性、归属和审批在调用时检查。仅这两个显式注册的内置 ID 可以使用 native 能力，外部包不能伪造 builtin 命名空间或任意 native handler。KBASE、ACP 不开放此能力。
 
-现有 `builtin.desktop` 配置继续使用全部技能，无需迁移。切换只影响新发布定义；活动 Run 和可恢复等待继续使用冻结包与连接器 ID。
+启动时原子安装两个包到各自 `ru-connectors/<id>/<contentDigest>` 并持有租约，沿用共享、升级、回收和 Run 快照机制。执行授权从冻结挂载解析实际连接器 ID。
 
-### 技能装配与维护
+Agent 加载不根据 `toolConfig.tools` 中出现的工具名强制要求声明特定连接器 ID。工具声明与连接器挂载各自解析；只有工具声明但缺少挂载时，Agent 可装载和聊天，实际调用返回 `connector_not_mounted`。不会根据工具名自动挂载包、导入 Skill 或生成执行授权。
 
-完整源位于 `internal/resources/connectors/builtin.desktop/`；网页版目录只存自身清单、`desktop-action/SKILL.md` 与网页动作目录。`internal/connector/builtin.go` 在内嵌装配时选择公共 CDP 全目录、WorkPanel/web-surfaces references、图标及 native 定义，再装配网页版专有文件，生成自包含运行包。共享资料只在完整源修改一次，两版动作目录与入口分别维护；新增网页动作应同步网页版目录。测试检查公共文件字节一致、网页版动作范围和 Markdown 引用完整性。
+## builtin.web-control
 
-启动原子安装两版到各自 `ru-connectors/<id>/<contentDigest>` 并持有租约，沿用共享、升级、回收和 Run 快照机制。执行授权从冻结挂载解析实际 ID，不把网页版重写成完整版。仅显式注册的两个内置 ID 可以使用这些 native 能力。
+网页控制只处理“按地址打开并控制网页”。它不管理 Website 条目，也不负责 WebApp 的安装、打包和发布；Website 与 WebApp 的页面在其 Copilot Run 的授权范围内同样由这些工具操作。
 
-Agent 加载不再根据 `toolConfig.tools` 中出现 `desktop_action` / `desktop_cdp` 就强制要求声明特定连接器 ID。工具声明与连接器挂载各自解析，工具存在性沿用通用工具目录、模型工具过滤与调用路由；未注册工具调用返回 `tool_not_registered`，不通过工具名反推连接器配置。这里没有新增对全部工具的 catalog 硬校验，也不把远端 MCP 发现加入加载关键路径。
+模型只面对两种标识：
 
-移除的是配置加载阶段的特殊绑定阻断，不会根据工具名自动挂载包、导入 Skill 或生成执行授权。当前 Desktop native handler 的受信任挂载、客户端归属和审批检查仍保留；只有工具声明但缺少运行授权时，Agent 可装载和聊天，实际 Desktop 调用仍返回工具错误。旧普通 Skill 引用的解析与保留名称规则不在此次调整范围内，不能据此保证所有旧配置都会变为 ready。
+- **url**：用于 `workpanel_open`；只有文件预览使用它调用 `workpanel_close`，单个网页通过 `surfaceId` 关闭。网页以 `http://` 或 `https://` 开头；文件预览以 `@workspace/` 或 `@chat/` 开头并且必须位于当前 Workspace 内。其他写法（裸相对路径、无协议的主机名、绝对路径、`file://`）一律在发送前拒绝并给出改写提示，不做猜测。
+- **surfaceId**：一个正在运行的网页。每个网页就是一个独立 surface，导航和刷新不改变它。
 
-包声明和技能共享，实际工具仍由 Platform 经现有协议路由到 Desktop 客户端。已有参数 Schema、客户端归属、审批与 mode 限制继续生效；KBASE、ACP 不开放此能力。外部包不能伪造 builtin 命名空间或任意 native handler。
+WorkPanel 条目 ID 和页面容器 ID 只在 Platform 内部使用，不出现在工具参数和结果中。
 
-两版 Desktop 均明确声明 `auth_mode: "no_auth"`：挂载即具备调用资格，无需连接配置，不读写 connection.json。管理接口返回无需配置及不可执行认证操作的能力字段；实际客户端可用性、归属和审批在调用时检查。
+| 分类 | 工具 | 说明 |
+| --- | --- | --- |
+| WorkPanel | `workpanel_state` | 当前 Chat 面板中打开的条目 |
+| WorkPanel | `workpanel_open` | 打开网页或预览文件，是打开新页面的唯一入口；网页返回 `surfaceId`；`reload` 在打开后刷新 |
+| WorkPanel | `workpanel_close` | 按文件 `url` 严格匹配已记录的 Workspace 路径关闭预览，或 `all: true` 关闭整个面板；不接受网页 URL |
+| Surface | `surface_list` / `surface_state` | 发现已授权网页、读取单页状态；`surface_state` 省略 `surfaceId` 读取所属应用的当前页 |
+| Surface | `surface_navigate` | `goto` / `reload` / `back`，页面内导航 |
+| Surface | `surface_activate` / `surface_close` | 显示、关闭一个网页 |
+| Surface | `surface_screenshot` | PNG 截图，保存到当前 Chat 并返回引用名 |
+| Surface | `surface_evaluate` | 执行脚本并返回值；大脚本用 `expressionFile` |
+| Surface | `surface_click` / `surface_element` | 真实点击；按选择器填写、选择、聚焦、滚动 |
+| Surface | `surface_cdp` | 没有专用工具的 CDP 方法（DOM、底层输入、Network） |
+| AWCP | `awcp_manual` / `awcp_invoke` | 读取网站手册目录与章节、调用网站声明的业务动作 |
+
+CDP 不单独成类：它是通道，每个方法都作用在某个 surface 上。有明确用途的方法是参数固定的 surface 工具；`surface_cdp` 只保留没有专用工具的方法，方法名保持 CDP 原名，同一操作只有一个入口。读取或修改页面内容时先用 `awcp_manual`，页面没有手册或没有匹配章节才使用 surface 内容工具，该规则只写在技能中。
+
+实现要点：
+
+- 每个工具在 `internal/tools/tool_web_control.go` 映射到既有的反向请求（WorkPanel 动作、`desktop.cdp.call`、`desktop.awcp.manual` / `desktop.awcp.invoke`），Desktop 协议与动作注册表没有变化。
+- `workpanel_close` 关闭文件时由 Platform 读取面板状态，只接受唯一且完整匹配的已记录 Workspace 路径；不按文件名兜底，缺少路径或多项匹配返回 `workpanel_item_not_found`。单个网页先通过 `surface_list` 获取身份，再调用 `surface_close`，不通过 URL 推断关闭目标。
+- 文件预览沿用 Desktop 的规则：文件必须位于 Workspace 内。`@chat/` 只有在 Chat 目录位于 Workspace 内时可用；Chat 目录在 Workspace 之外的预览尚未实现，需要 Desktop 接受 Chat 目录作为可信根。
+- `workpanel_state` 返回条目的种类、打开地址、标题和激活状态，不返回对应的 `surfaceId`；网页的 `surfaceId` 通过 `workpanel_open` 结果或 `surface_list` 取得。
+- `surface_cdp.paramsFile` 与 `surface_evaluate.expressionFile` 走标准文件读取 AccessPolicy 与审批。
+- 5 个只读工具（`workpanel_state`、`surface_list`、`surface_state`、`surface_screenshot`、`awcp_manual`）在 planning/只读阶段可用。
+- Standalone 运行模式下会话只暴露 `workpanel_*`，且不支持文件预览；`surface_*` 与 `awcp_*` 需要 Desktop 运行模式。
+- 传输层错误码沿用既有的 `desktop_action_*` / `desktop_cdp_*` 前缀。
 
 ## 显式离线迁移
 
-迁移工具默认只输出预览。它将旧 Agent 的 Desktop 工具/普通技能引用转换为 builtin.desktop 挂载；已选择任一 Desktop 版本时保留该选择，不追加另一版，并报告新增的工具入口；原来仅使用一种 Desktop 工具的 Agent 会获得另一种入口，应用前须显式接受该变化。无关 YAML 内容保持原样。
+迁移工具默认只输出预览。它按下表把旧配置转换为当前的两个连接器，并报告新增的工具入口；原来仅声明一种 Desktop 工具的 Agent 会获得另一种入口，应用前须显式接受该变化。
+
+| 旧配置 | 迁移结果 |
+| --- | --- |
+| 挂载 `builtin.desktop-web` | 改为 `builtin.web-control` |
+| 仅挂载 `builtin.desktop` | 追加 `builtin.web-control`，保留原有的网页能力 |
+| 只声明旧工具 `desktop_action` / `desktop_cdp` 或旧普通技能 | 移除旧声明，挂载 `builtin.desktop` 与 `builtin.web-control` |
+| 已挂载 `builtin.web-control` | 不变 |
+
+`builtin.desktop-web` 已不存在，仍引用它的 Agent 在迁移前无法装载。无关 YAML 内容保持原样。
 
 ```sh
 go run ./cmd/migrate-desktop --runtime-dir /path/to/runtime

@@ -95,7 +95,7 @@ func (s *llmRunStream) buildFileAccessPlan(invocation *preparedToolInvocation) (
 	if invocation == nil {
 		return nil, false
 	}
-	if strings.EqualFold(strings.TrimSpace(invocation.toolName), "desktop_cdp") && s.engine.cfg.RuntimeMode != config.RuntimeModeDesktop {
+	if name := strings.ToLower(strings.TrimSpace(invocation.toolName)); (name == "surface_cdp" || name == "surface_evaluate") && s.engine.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return nil, false
 	}
 	mode, rawPath, ok := fileAccessPlanInput(invocation.toolName, invocation.args)
@@ -208,10 +208,14 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "file_read":
 		return filetools.ReadAccess, mapStringArg(args, "filePath"), strings.TrimSpace(mapStringArg(args, "filePath")) != ""
-	case "desktop_cdp":
+	case "surface_cdp":
 		path, ok := args["paramsFile"].(string)
 		_, hasParams := args["params"]
 		return filetools.ReadAccess, path, ok && strings.TrimSpace(path) != "" && !hasParams && strings.TrimSpace(mapStringArg(args, "method")) != ""
+	case "surface_evaluate":
+		path, ok := args["expressionFile"].(string)
+		_, hasExpression := args["expression"]
+		return filetools.ReadAccess, path, ok && strings.TrimSpace(path) != "" && !hasExpression
 	case "file_glob", "file_grep":
 		rawPath := strings.TrimSpace(mapStringArg(args, "path"))
 		if rawPath == "" {

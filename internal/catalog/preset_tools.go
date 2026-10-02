@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/connector"
 )
 
 func validatePresetTools(names []string, definitions []api.ToolDetailResponse) error {
@@ -17,7 +18,8 @@ func validatePresetTools(names []string, definitions []api.ToolDetailResponse) e
 		if !registered[name] {
 			return fmt.Errorf("preset-tools: tool %q is not registered locally", name)
 		}
-		if strings.HasPrefix(name, "_") || name == "agent_delegate" || name == "desktop_action" || name == "desktop_cdp" {
+		_, native := connector.NativeToolConnector(name)
+		if strings.HasPrefix(name, "_") || name == "agent_delegate" || native {
 			return fmt.Errorf("preset-tools: tool %q requires an internal session or connector mount", name)
 		}
 	}
