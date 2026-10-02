@@ -19,7 +19,9 @@ inputSchema:
       description: Brief user-facing explanation of what is being awaited.
     match:
       type: string
-      enum: [any, all]
+      enum:
+        - any
+        - all
       description: How optional conditions combine; defaults to any.
     conditions:
       description: Optional event conditions that may complete the wait before its time limit.
@@ -30,9 +32,14 @@ inputSchema:
         type: object
         properties:
           type:
-            description: Event type to inspect.
+            description: Required. Event type to inspect.
             type: string
-            enum: [run.terminal, file.exists, file.modifiedAfter, kbase.refreshTerminal, connector.authorizationTerminal]
+            enum:
+              - run.terminal
+              - file.exists
+              - file.modifiedAfter
+              - kbase.refreshTerminal
+              - connector.authorizationTerminal
           runId:
             description: Target Run created by run_query.
             type: string
@@ -54,6 +61,7 @@ inputSchema:
           authorizationId:
             description: Exact authorization attempt ID returned by the connector.
             type: string
-        required: [type]
+        required:
+          - type
         additionalProperties: false
   additionalProperties: false

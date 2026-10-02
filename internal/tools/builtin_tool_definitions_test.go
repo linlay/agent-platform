@@ -882,3 +882,38 @@ func validatePortableEmbeddedSchema(schema map[string]any, path string, toolName
 	}
 	return nil
 }
+
+// Input schemas are sent to every model provider. The embedded YAML loader keeps
+// inline lists such as `enum: [a, b]` as strings, which strict providers reject.
+func TestEmbeddedToolSchemasStayProviderPortable(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var walk func(tool string, path string, node any)
+	walk = func(tool string, path string, node any) {
+		switch value := node.(type) {
+		case map[string]any:
+			for key, child := range value {
+				// Composition keywords are rejected or ignored by several providers;
+				// express alternatives with enums and executor-side validation.
+				if key == "oneOf" || key == "anyOf" || key == "allOf" {
+					t.Errorf("%s: %s.%s is not portable across model providers", tool, path, key)
+				}
+				if key == "enum" || key == "required" {
+					if _, ok := child.([]any); !ok {
+						t.Errorf("%s: %s.%s must be a list, got %T %v", tool, path, key, child, child)
+					}
+				}
+				walk(tool, path+"."+key, child)
+			}
+		case []any:
+			for _, child := range value {
+				walk(tool, path+"[]", child)
+			}
+		}
+	}
+	for _, def := range defs {
+		walk(def.Name, "inputSchema", def.Parameters)
+	}
+}
