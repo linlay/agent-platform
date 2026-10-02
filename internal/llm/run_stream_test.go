@@ -419,6 +419,16 @@ func TestParallelToolCallBatchStreamsResultAsEachToolCompletes(t *testing.T) {
 	if err := stream.finishCurrentTurn(); err != nil {
 		t.Fatalf("finishCurrentTurn returned error: %v", err)
 	}
+	// Calls with empty arguments are announced before the turn's tool end.
+	for _, toolID := range []string{"tool_1", "tool_2", "tool_3"} {
+		delta, err := stream.Next()
+		if err != nil {
+			t.Fatalf("expected tool call delta for %s: %v", toolID, err)
+		}
+		if call, ok := delta.(contracts.DeltaToolCall); !ok || call.ID != toolID || call.ArgsDelta != "" {
+			t.Fatalf("expected empty-arguments DeltaToolCall for %s, got %#v", toolID, delta)
+		}
+	}
 	if delta, err := stream.Next(); err != nil {
 		t.Fatalf("expected tool end delta before batch starts: %v", err)
 	} else if _, ok := delta.(contracts.DeltaToolEnd); !ok {

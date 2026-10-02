@@ -708,6 +708,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	if len(fileChanges) == 0 {
 		fileChanges = nil
 	}
+	s.pending = append(s.pending, turn.emptyArgumentToolCallDeltas()...)
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})
 	s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 	s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))

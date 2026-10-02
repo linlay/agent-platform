@@ -210,6 +210,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 				messages = append(messages, msg)
 			}
 		}
+		messages = e.repairUnpairedToolResults(session.RunID, messages)
 		currentMessages := session.CurrentMessages
 		if len(currentMessages) == 0 {
 			currentMessages = e.buildCurrentMessagesForRequest(req, session, model.IsVision)

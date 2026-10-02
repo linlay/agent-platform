@@ -202,6 +202,26 @@ func (t *providerTurnStream) appendToolCallDelta(index int, toolID string, toolT
 	}}
 }
 
+// emptyArgumentToolCallDeltas returns a delta for every tool call whose
+// arguments stayed empty. appendToolCallDelta only emits when arguments grow,
+// yet such a call is still executed; without a tool block its result would be
+// persisted without the call.
+func (t *providerTurnStream) emptyArgumentToolCallDeltas() []AgentDelta {
+	indexes := make([]int, 0, len(t.toolCalls))
+	for idx, acc := range t.toolCalls {
+		if acc.Arguments.Len() == 0 && strings.TrimSpace(acc.ID) != "" {
+			indexes = append(indexes, idx)
+		}
+	}
+	sort.Ints(indexes)
+	deltas := make([]AgentDelta, 0, len(indexes))
+	for _, idx := range indexes {
+		acc := t.toolCalls[idx]
+		deltas = append(deltas, DeltaToolCall{Index: idx, ID: acc.ID, Name: acc.FunctionName})
+	}
+	return deltas
+}
+
 func (t *providerTurnStream) materializeToolCalls() ([]openAIToolCall, error) {
 	if len(t.toolCalls) == 0 {
 		return nil, nil

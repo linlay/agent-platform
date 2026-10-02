@@ -5,7 +5,12 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 	scope := taskScope(taskID)
 	events := d.closeForSwitch("content", taskID)
 	active, ok := d.state.activeContents[scope]
-	if !ok || active.ID != input.ContentID {
+	if ok && active.ID != input.ContentID {
+		// A replaced block must still end, or its snapshot is never persisted.
+		events = append(events, d.closeContentScope(scope)...)
+		ok = false
+	}
+	if !ok {
 		d.state.activeContents[scope] = activeContentState{
 			ID: input.ContentID,
 			Block: contentBlockState{

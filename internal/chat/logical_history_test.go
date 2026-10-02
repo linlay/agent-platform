@@ -875,3 +875,48 @@ func TestFailedStreamEndIsDisplayOnlyHistory(t *testing.T) {
 		t.Fatal("failed attempt entered model history")
 	}
 }
+
+func TestStepWriterRestoresCallForResultWithoutSnapshot(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	defer store.Close()
+	const chatID = "chat-result-without-snapshot"
+	const runID = "run-result-without-snapshot"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := ensureRunStartedForTest(store, chatID, runID, testEpochMillis(20)); err != nil {
+		t.Fatalf("start run: %v", err)
+	}
+	result := func(toolID string) stream.EventData {
+		return stream.NewEvent("tool.result", map[string]any{"toolId": toolID, "toolName": "datetime", "result": "ok"}).Data()
+	}
+
+	// Outside a committed model turn the call belongs to earlier history.
+	resumed := NewStepWriter(store, chatID, runID, "REACT")
+	resumed.OnEvent(result("call-resumed"))
+	resumed.Flush()
+
+	writer := NewStepWriter(store, chatID, runID, "REACT")
+	writer.OnEvent(stream.NewEvent("llm.request", map[string]any{"runId": runID, "chatId": chatID}).Data())
+	writer.CommitModelTurn("", 1)
+	writer.OnEvent(result("call-missing"))
+	writer.Flush()
+	if err := writer.Err(); err != nil {
+		t.Fatalf("writer error: %v", err)
+	}
+
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	data := string(mustJSONMarshalForTest(t, lines))
+	if !strings.Contains(data, `"id":"call-missing"`) {
+		t.Fatalf("expected restored call for unpaired result: %s", data)
+	}
+	if strings.Contains(data, `"id":"call-resumed"`) {
+		t.Fatalf("result outside a committed turn must not gain a call: %s", data)
+	}
+}

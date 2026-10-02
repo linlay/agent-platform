@@ -1937,3 +1937,19 @@ func TestModelRetryActivityCarriesBackoff(t *testing.T) {
 		t.Fatal(payload["message"])
 	}
 }
+
+func TestDispatcherClosesReplacedContentAndReasoningBlocks(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+
+	_ = dispatcher.Dispatch(ContentDelta{ContentID: "run_1_c_1", Delta: "first"})
+	events := dispatcher.Dispatch(ContentDelta{ContentID: "run_1_c_2", Delta: "second"})
+	assertEventTypes(t, events, "content.end", "content.snapshot", "content.start", "content.delta")
+	if got := events[1].Payload["text"]; got != "first" {
+		t.Fatalf("expected snapshot of the replaced content block, got %#v", got)
+	}
+
+	dispatcher = NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	_ = dispatcher.Dispatch(ReasoningDelta{ReasoningID: "run_1_r_1", Delta: "first"})
+	events = dispatcher.Dispatch(ReasoningDelta{ReasoningID: "run_1_r_2", Delta: "second"})
+	assertEventTypes(t, events, "reasoning.end", "reasoning.snapshot", "reasoning.start", "reasoning.delta")
+}

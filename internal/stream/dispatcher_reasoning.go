@@ -6,7 +6,11 @@ func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []Str
 	events := d.closeForSwitch("reasoning", taskID)
 	reasoningLabel := ReasoningLabelForID(input.ReasoningID)
 	active, ok := d.state.activeReasonings[scope]
-	if !ok || active.ID != input.ReasoningID {
+	if ok && active.ID != input.ReasoningID {
+		events = append(events, d.closeReasoningScope(scope)...)
+		ok = false
+	}
+	if !ok {
 		d.state.activeReasonings[scope] = activeReasoningState{
 			ID:    input.ReasoningID,
 			Block: reasoningBlockState{TaskID: taskID, Label: reasoningLabel},

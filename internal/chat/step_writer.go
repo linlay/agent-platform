@@ -37,6 +37,10 @@ type StepWriter struct {
 	// tool name tracking (for tool.result → StoredMessage.Name)
 	toolNames   map[string]string
 	toolTaskIDs map[string]string
+	// toolCallsSeen and awaitingTurnResults guard against a result whose call
+	// never produced a snapshot; see restoreMissingToolCall.
+	toolCallsSeen       map[string]bool
+	awaitingTurnResults bool
 
 	// msgId generation
 	currentMsgID  string
@@ -84,6 +88,7 @@ func NewStepWriter(store StepLineStore, chatID, runID, mode string) *StepWriter 
 		closedTaskIDs: map[string]bool{},
 		toolNames:     map[string]string{},
 		toolTaskIDs:   map[string]string{},
+		toolCallsSeen: map[string]bool{},
 	}
 	return w
 }
@@ -179,6 +184,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		taskID := event.String("taskId")
 		ts := event.Timestamp
 		w.toolNames[toolID] = toolName
+		w.toolCallsSeen[toolID] = true
 		if strings.TrimSpace(taskID) != "" {
 			w.toolTaskIDs[toolID] = taskID
 		}
@@ -198,6 +204,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 
 	case "tool.result":
+		w.restoreMissingToolCall(event)
 		w.flushAssistantStepBeforeToolResult(event)
 		w.ensureStep()
 		toolID := event.String("toolId")
@@ -342,6 +349,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			w.flushCurrentStep()
 			w.modelTurnCommitRequired = true
 			w.modelTurnCommitted = false
+			w.awaitingTurnResults = false
 			w.captureRootLLMRequestData(event)
 			w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 			w.lastTimestamp = event.Timestamp
@@ -457,6 +465,7 @@ func (w *StepWriter) CommitModelTurn(taskID string, runSeq int) {
 	if w.modelTurnCommitRequired {
 		w.modelTurnCommitted = true
 		w.modelTurnRunSeq = runSeq
+		w.awaitingTurnResults = true
 		if len(w.pendingAwaiting) > 0 {
 			w.flushCurrentStepAt(w.lastTimestamp)
 		}
@@ -671,6 +680,35 @@ func (w *StepWriter) appendSourceEvent(event stream.EventData) bool {
 	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 	w.lastTimestamp = event.Timestamp
 	return true
+}
+
+// restoreMissingToolCall persists the call for a result that arrives after a
+// committed root model turn without any tool.snapshot. Continuation history
+// is rebuilt from JSONL, and a result without its call is rejected upstream.
+// Results outside that window (resumed runs, sub-task tools) belong to calls
+// persisted elsewhere and are left alone.
+func (w *StepWriter) restoreMissingToolCall(event stream.EventData) {
+	toolID := strings.TrimSpace(event.String("toolId"))
+	toolName := strings.TrimSpace(event.String("toolName"))
+	if !w.awaitingTurnResults || toolID == "" || toolName == "" || w.toolCallsSeen[toolID] || w.taskIDForEvent(event) != "" {
+		return
+	}
+	w.toolCallsSeen[toolID] = true
+	w.toolNames[toolID] = toolName
+	w.ensureStep()
+	w.ensureMsgID()
+	ts := event.Timestamp
+	w.appendStoredMessage(stream.EventData{Seq: event.Seq, Type: event.Type, Timestamp: event.Timestamp}, StoredMessage{
+		Role: "assistant",
+		ToolCalls: []StoredToolCall{{
+			ID:       toolID,
+			Type:     "function",
+			Function: StoredFunction{Name: toolName, Arguments: "{}"},
+			ToolID:   toolID,
+		}},
+		MsgID: w.currentMsgID,
+		Ts:    &ts,
+	})
 }
 
 func (w *StepWriter) flushAssistantStepBeforeToolResult(event stream.EventData) {
