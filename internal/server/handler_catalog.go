@@ -67,6 +67,11 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
+	hasWorkspace, err := parseOptionalBoolQuery(r, "hasWorkspace")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
 
 	scope, err := catalog.NormalizeAgentSummaryScope(r.URL.Query().Get("scope"))
 	if err != nil {
@@ -79,7 +84,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if includeTeam {
-		items, err := s.listAgentCatalogSummariesWithPinned(includeChats, scope, modes, pinned)
+		items, err := s.listAgentCatalogSummariesWithPinned(includeChats, scope, modes, pinned, hasWorkspace)
 		if err != nil {
 			if isTimeContractViolation(err) {
 				writeTimeContractViolation(w, err)
@@ -91,7 +96,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, api.Success(items))
 		return
 	}
-	items, err := s.listAgentSummariesWithPinned(includeChats, scope, modes, pinned)
+	items, err := s.listAgentSummariesWithPinned(includeChats, scope, modes, pinned, hasWorkspace)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

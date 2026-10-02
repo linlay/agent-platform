@@ -56,11 +56,11 @@ func newTestMemoryStore(root string) (*memory.SQLiteStore, error) {
 }
 
 func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
-	return s.listChatSummariesWithPinned(lastRunID, agentKey, nil, 0, nil, "")
+	return s.listChatSummariesWithPinned(lastRunID, agentKey, nil, 0, nil, nil)
 }
 
 func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.AgentSummary, error) {
-	return s.listAgentSummariesWithPinned(includeChats, scope, nil, nil)
+	return s.listAgentSummariesWithPinned(includeChats, scope, nil, nil, nil)
 }
 
 func newServerFromFixture(t *testing.T, fixture testFixture) *Server {

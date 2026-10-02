@@ -38,6 +38,18 @@ func hasDeprecatedAgentModePayload(req ws.RequestFrame) bool {
 	return present
 }
 
+func hasDeprecatedAgentTypePayload(req ws.RequestFrame) bool {
+	if len(req.Payload) == 0 {
+		return false
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(req.Payload, &payload); err != nil {
+		return false
+	}
+	_, present := payload["agentType"]
+	return present
+}
+
 func (a wsTokenAuthenticator) VerifyToken(ctx context.Context, token string) (ws.AuthSession, error) {
 	if a.server == nil {
 		return ws.AuthSession{Context: ctx}, nil
@@ -234,6 +246,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		IncludeTeam  bool            `json:"includeTeam"`
 		Scope        string          `json:"scope"`
 		Mode         string          `json:"mode"`
+		HasWorkspace json.RawMessage `json:"hasWorkspace"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
@@ -256,6 +269,12 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	hasWorkspace, workspaceErr := parseOptionalBoolPayload(payload.HasWorkspace, "hasWorkspace")
+	if workspaceErr != nil {
+		conn.SendError(req.ID, "invalid_request", 400, workspaceErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 
 	scope, err := catalog.NormalizeAgentSummaryScope(payload.Scope)
 	if err != nil {
@@ -270,7 +289,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		return
 	}
 	if payload.IncludeTeam {
-		items, listErr := s.listAgentCatalogSummariesWithPinned(payload.IncludeChats, scope, modes, pinned)
+		items, listErr := s.listAgentCatalogSummariesWithPinned(payload.IncludeChats, scope, modes, pinned, hasWorkspace)
 		if listErr != nil {
 			if isTimeContractViolation(listErr) {
 				sendTimeContractViolation(conn, req.ID, listErr)
@@ -285,7 +304,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	items, listErr := s.listAgentSummariesWithPinned(payload.IncludeChats, scope, modes, pinned)
+	items, listErr := s.listAgentSummariesWithPinned(payload.IncludeChats, scope, modes, pinned, hasWorkspace)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)
@@ -336,12 +355,12 @@ func (s *Server) wsTeams(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 
 func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
-		LastRunID string          `json:"lastRunId"`
-		AgentKey  string          `json:"agentKey"`
-		Mode      string          `json:"mode"`
-		AgentType string          `json:"agentType"`
-		Limit     json.RawMessage `json:"limit"`
-		Pinned    json.RawMessage `json:"pinned"`
+		LastRunID    string          `json:"lastRunId"`
+		AgentKey     string          `json:"agentKey"`
+		Mode         string          `json:"mode"`
+		Limit        json.RawMessage `json:"limit"`
+		Pinned       json.RawMessage `json:"pinned"`
+		HasWorkspace json.RawMessage `json:"hasWorkspace"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
@@ -350,6 +369,11 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	}
 	if hasDeprecatedAgentModePayload(req) {
 		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, deprecatedAgentModeMessage, nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if hasDeprecatedAgentTypePayload(req) {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, deprecatedAgentTypeMessage, nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -371,13 +395,13 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	agentType, agentTypeErr := parseChatAgentType(payload.AgentType)
-	if agentTypeErr != nil {
-		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, agentTypeErr.Error(), nil)
+	hasWorkspace, workspaceErr := parseOptionalBoolPayload(payload.HasWorkspace, "hasWorkspace")
+	if workspaceErr != nil {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, workspaceErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned, agentType)
+	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned, hasWorkspace)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)

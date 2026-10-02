@@ -15,43 +15,42 @@ import (
 	"agent-platform/internal/stream"
 )
 
-const (
-	chatAgentTypeChat    = "chat"
-	chatAgentTypeProject = "project"
-)
+const deprecatedAgentTypeMessage = "agentType is no longer supported; use hasWorkspace instead"
 
-// parseChatAgentType validates the optional agentType filter. A chat-type
-// agent has no Workspace or uses @root; a project-type agent has a specific
-// project directory.
-func parseChatAgentType(raw string) (string, error) {
-	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
-	case "", chatAgentTypeChat, chatAgentTypeProject:
-		return value, nil
-	default:
-		return "", errors.New("agentType must be chat or project")
+func hasDeprecatedAgentTypeQuery(r *http.Request) bool {
+	if r == nil {
+		return false
 	}
+	_, present := r.URL.Query()["agentType"]
+	return present
 }
 
-// chatAgentTypeFilter resolves agentType against the current catalog. It is
-// keyed by project agents in both directions so chats whose agent no longer
-// exists stay visible under agentType=chat instead of disappearing.
-func (s *Server) chatAgentTypeFilter(agentType string) *chat.AgentKeyFilter {
-	if agentType == "" || s.deps.Registry == nil {
+// agentHasWorkspace reports whether an agent has a specific project directory.
+// An agent with no Workspace, or one that uses @root, has none.
+func agentHasWorkspace(agent api.AgentSummary) bool {
+	return strings.TrimSpace(agent.WorkspaceDir) != ""
+}
+
+// chatWorkspaceFilter resolves hasWorkspace against the current catalog. It is
+// keyed by workspace agents in both directions so chats whose agent no longer
+// exists stay visible under hasWorkspace=false instead of disappearing.
+func (s *Server) chatWorkspaceFilter(hasWorkspace *bool) *chat.AgentKeyFilter {
+	if hasWorkspace == nil || s.deps.Registry == nil {
 		return nil
 	}
-	filter := &chat.AgentKeyFilter{Exclude: agentType == chatAgentTypeChat}
+	filter := &chat.AgentKeyFilter{Exclude: !*hasWorkspace}
 	for _, agent := range s.deps.Registry.Agents("all") {
-		if strings.TrimSpace(agent.WorkspaceDir) != "" {
+		if agentHasWorkspace(agent) {
 			filter.Keys = append(filter.Keys, agent.Key)
 		}
 	}
 	return filter
 }
 
-func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool, agentType string) ([]api.ChatSummaryResponse, error) {
+func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool, hasWorkspace *bool) ([]api.ChatSummaryResponse, error) {
 	var items []chat.Summary
 	var err error
-	if filter := s.chatAgentTypeFilter(agentType); filter != nil {
+	if filter := s.chatWorkspaceFilter(hasWorkspace); filter != nil {
 		items, err = s.conversationService().ListSummariesWithOptions(chat.ListOptions{
 			LastRunID: lastRunID, AgentKey: agentKey, AgentModes: agentModes, Limit: limit, Pinned: pinned, AgentKeyFilter: filter,
 		})
@@ -394,6 +393,10 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, deprecatedAgentModeMessage))
 		return
 	}
+	if hasDeprecatedAgentTypeQuery(r) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, deprecatedAgentTypeMessage))
+		return
+	}
 	limit, err := parseChatListLimit(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
@@ -409,12 +412,12 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	agentType, err := parseChatAgentType(r.URL.Query().Get("agentType"))
+	hasWorkspace, err := parseOptionalBoolQuery(r, "hasWorkspace")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned, agentType)
+	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned, hasWorkspace)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

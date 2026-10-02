@@ -37,8 +37,8 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 	}
 }
 
-func (s *Server) listAgentSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool) ([]api.AgentSummary, error) {
-	items := s.filteredAgentSummaries(scope, modes)
+func (s *Server) listAgentSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool, hasWorkspace *bool) ([]api.AgentSummary, error) {
+	items := s.filteredAgentSummaries(scope, modes, hasWorkspace)
 	if s.deps.Chats == nil {
 		return items, nil
 	}
@@ -63,8 +63,17 @@ func (s *Server) listAgentSummariesWithPinned(includeChats int, scope string, mo
 	return items, nil
 }
 
-func (s *Server) filteredAgentSummaries(scope string, modes []string) []api.AgentSummary {
+func (s *Server) filteredAgentSummaries(scope string, modes []string, hasWorkspace *bool) []api.AgentSummary {
 	items := s.deps.Registry.Agents(scope)
+	if hasWorkspace != nil {
+		filtered := make([]api.AgentSummary, 0, len(items))
+		for _, item := range items {
+			if agentHasWorkspace(item) == *hasWorkspace {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
 	if modes = chat.NormalizeAgentModes(modes); len(modes) > 0 {
 		allowed := make(map[string]struct{}, len(modes))
 		for _, mode := range modes {
@@ -107,9 +116,13 @@ func agentCatalogSummary(agent api.AgentSummary) api.AgentCatalogSummary {
 	}
 }
 
-func (s *Server) listAgentCatalogSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool) ([]api.AgentCatalogSummary, error) {
-	agents := s.filteredAgentSummaries(scope, modes)
+func (s *Server) listAgentCatalogSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool, hasWorkspace *bool) ([]api.AgentCatalogSummary, error) {
+	agents := s.filteredAgentSummaries(scope, modes, hasWorkspace)
 	teams := s.deps.Registry.Teams()
+	if hasWorkspace != nil && *hasWorkspace {
+		// A Team has no project directory of its own.
+		teams = nil
+	}
 	agentStats := map[string]chat.AgentChatStats{}
 	teamStats := map[string]chat.AgentChatStats{}
 	if s.deps.Chats != nil {

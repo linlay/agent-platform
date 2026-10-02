@@ -410,52 +410,36 @@ func (s *FileStore) listChatsLocked(options ListOptions, applyOrder bool) ([]Sum
 
 // The caller holds mu so membership, ordering and persisted summaries share one snapshot.
 func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOrder bool, pins PinnedState, orderState OrderState) ([]Summary, error) {
-	lastRunID, agentKey, agentModes, limit := options.LastRunID, options.AgentKey, options.AgentModes, options.Limit
+	lastRunID, limit := options.LastRunID, options.Limit
+	where, args := chatListWhere(options)
+	owners := newAgentKeyMatcher(options.AgentKeyFilter)
 
-	query := "SELECT " + summarySelectColumns + " FROM CHATS WHERE 1=1"
-	var args []any
-	if options.TeamID != "" {
-		query += " AND AGENT_KEY_='' AND TEAM_ID_=?"
-		args = append(args, options.TeamID)
-	}
-	if agentKey != "" || options.OwnerOnly && options.TeamID == "" {
-		query += " AND AGENT_KEY_=?"
-		args = append(args, agentKey)
-	}
-	if agentModes = NormalizeAgentModes(agentModes); len(agentModes) > 0 {
-		placeholders := make([]string, 0, len(agentModes))
-		for _, agentMode := range agentModes {
-			placeholders = append(placeholders, "?")
-			args = append(args, agentMode)
+	pinnedOnly := options.Pinned != nil && *options.Pinned
+	unpinnedOnly := options.Pinned != nil && !*options.Pinned
+	// Recency already is the published order here, so the first matching rows
+	// are the final page. Manual order and the pinned-first global list still
+	// need every match before they can be arranged.
+	stopAtLimit := limit > 0 && (!applyOrder || unpinnedOnly && orderState.SortMode != SortModeManual)
+	switch {
+	case pinnedOnly:
+		// Pins are a short ID list, so read them by primary key instead of
+		// scanning every chat and comparing afterwards.
+		if len(pins.Order) == 0 {
+			return nil, nil
 		}
-		if agentKey == "" {
-			// Teams have a public Team owner instead of an agent mode. They remain
-			// visible in the global chat list regardless of a mode query.
-			query += " AND ((AGENT_KEY_='' AND COALESCE(TEAM_ID_,'') <> '') OR AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + "))"
-		} else {
-			query += " AND AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + ")"
+		where, args = appendChatIDsClause(where, args, pins.Order)
+	case stopAtLimit:
+		ids, err := s.recentChatIDsLocked(where, args, options, owners, pins, limit)
+		if err != nil {
+			return nil, err
 		}
+		if len(ids) == 0 {
+			return nil, nil
+		}
+		where, args = appendChatIDsClause("", nil, ids)
 	}
-	if filter := options.AgentKeyFilter; filter != nil {
-		placeholders := make([]string, 0, len(filter.Keys))
-		for _, key := range filter.Keys {
-			if key = strings.TrimSpace(key); key != "" {
-				placeholders = append(placeholders, "?")
-				args = append(args, key)
-			}
-		}
-		switch {
-		case len(placeholders) == 0 && !filter.Exclude:
-			query += " AND 1=0"
-		case len(placeholders) > 0 && filter.Exclude:
-			query += " AND AGENT_KEY_ NOT IN (" + strings.Join(placeholders, ",") + ")"
-		case len(placeholders) > 0:
-			query += " AND AGENT_KEY_ IN (" + strings.Join(placeholders, ",") + ")"
-		}
-	}
-	query += " ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC"
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.Query("SELECT "+summarySelectColumns+" FROM CHATS WHERE 1=1"+where+chatListRecentOrder, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -478,12 +462,7 @@ func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOr
 		if err := validateActiveSummaryTimeContract(sum, fmt.Sprintf("chat.list[%d]", len(items))); err != nil {
 			return nil, err
 		}
-		// Attachment upload may allocate a Chat before the first accepted query.
-		// Keep that shell addressable by chatId, but do not publish it as history.
-		if isPendingChatName(sum.ChatName) && strings.TrimSpace(sum.LastRunID) == "" {
-			continue
-		}
-		if lastRunID != "" && !RunIDAfter(sum.LastRunID, lastRunID) {
+		if !publishedInChatList(sum.ChatName, sum.LastRunID, lastRunID) || !owners.matches(sum.AgentKey) {
 			continue
 		}
 		sum.Pinned = containsChatID(pins.Order, sum.ChatID)
@@ -491,9 +470,6 @@ func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOr
 			continue
 		}
 		items = append(items, sum)
-		if !applyOrder && limit > 0 && len(items) >= limit {
-			break
-		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -508,6 +484,115 @@ func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOr
 		items = items[:limit]
 	}
 	return items, nil
+}
+
+const chatListRecentOrder = " ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC"
+
+// chatListWhere renders the owner and mode conditions as " AND ..." clauses.
+func chatListWhere(options ListOptions) (string, []any) {
+	agentKey := options.AgentKey
+	where := ""
+	var args []any
+	if options.TeamID != "" {
+		where += " AND AGENT_KEY_='' AND TEAM_ID_=?"
+		args = append(args, options.TeamID)
+	}
+	if agentKey != "" || options.OwnerOnly && options.TeamID == "" {
+		where += " AND AGENT_KEY_=?"
+		args = append(args, agentKey)
+	}
+	if agentModes := NormalizeAgentModes(options.AgentModes); len(agentModes) > 0 {
+		placeholders := make([]string, 0, len(agentModes))
+		for _, agentMode := range agentModes {
+			placeholders = append(placeholders, "?")
+			args = append(args, agentMode)
+		}
+		if agentKey == "" {
+			// Teams have a public Team owner instead of an agent mode. They remain
+			// visible in the global chat list regardless of a mode query.
+			where += " AND ((AGENT_KEY_='' AND COALESCE(TEAM_ID_,'') <> '') OR AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + "))"
+		} else {
+			where += " AND AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + ")"
+		}
+	}
+	return where, args
+}
+
+func appendChatIDsClause(where string, args []any, chatIDs []string) (string, []any) {
+	placeholders := make([]string, 0, len(chatIDs))
+	for _, chatID := range chatIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, chatID)
+	}
+	return where + " AND CHAT_ID_ IN (" + strings.Join(placeholders, ",") + ")", args
+}
+
+// recentChatIDsLocked picks the newest matching chats from the few columns the
+// filters need, so the wide summary row and its RUNS lookup are only computed
+// for the chats that are returned.
+func (s *FileStore) recentChatIDsLocked(where string, args []any, options ListOptions, owners agentKeyMatcher, pins PinnedState, limit int) ([]string, error) {
+	rows, err := s.db.Query("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, LAST_RUN_ID_ FROM CHATS WHERE 1=1"+where+chatListRecentOrder, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0, limit)
+	for rows.Next() {
+		var chatID, chatName, agentKey, lastRunID string
+		if err := rows.Scan(&chatID, &chatName, &agentKey, &lastRunID); err != nil {
+			return nil, err
+		}
+		if !publishedInChatList(chatName, lastRunID, options.LastRunID) || !owners.matches(agentKey) {
+			continue
+		}
+		if options.Pinned != nil && containsChatID(pins.Order, chatID) != *options.Pinned {
+			continue
+		}
+		ids = append(ids, chatID)
+		if len(ids) >= limit {
+			break
+		}
+	}
+	return ids, rows.Err()
+}
+
+func publishedInChatList(chatName string, lastRunID string, afterRunID string) bool {
+	// Attachment upload may allocate a Chat before the first accepted query.
+	// Keep that shell addressable by chatId, but do not publish it as history.
+	if isPendingChatName(chatName) && strings.TrimSpace(lastRunID) == "" {
+		return false
+	}
+	return afterRunID == "" || RunIDAfter(lastRunID, afterRunID)
+}
+
+// agentKeyMatcher applies AgentKeyFilter while rows are read. The owner keys
+// come from the catalog, so they are matched in memory rather than in SQL.
+type agentKeyMatcher struct {
+	active  bool
+	exclude bool
+	keys    map[string]struct{}
+}
+
+func newAgentKeyMatcher(filter *AgentKeyFilter) agentKeyMatcher {
+	if filter == nil {
+		return agentKeyMatcher{}
+	}
+	matcher := agentKeyMatcher{active: true, exclude: filter.Exclude, keys: make(map[string]struct{}, len(filter.Keys))}
+	for _, key := range filter.Keys {
+		if key = strings.TrimSpace(key); key != "" {
+			matcher.keys[key] = struct{}{}
+		}
+	}
+	return matcher
+}
+
+func (m agentKeyMatcher) matches(agentKey string) bool {
+	if !m.active {
+		return true
+	}
+	_, listed := m.keys[agentKey]
+	return listed != m.exclude
 }
 
 func (s *FileStore) RecentChatsByAgent(agentKey string, limit int) ([]Summary, error) {
