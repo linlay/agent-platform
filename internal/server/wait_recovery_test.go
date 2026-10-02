@@ -121,7 +121,7 @@ func TestLiveWaitBlankSteerContinuesSameRun(t *testing.T) {
 	if !strings.Contains(response.Body.String(), "steered") || !strings.Contains(response.Body.String(), `"continued":true`) {
 		t.Fatal("blank steer did not end the wait as continued", response.Body.String())
 	}
-	if input, _ := resumed.Load().(string); !strings.Contains(input, querymessages.EmptyQueryContinuation) {
+	if input, _ := resumed.Load().(string); !strings.Contains(input, querymessages.EmptySteerContinuation) {
 		t.Fatal("model did not receive the continuation instruction", input)
 	}
 	if strings.Count(response.Body.String(), `"type":"request.steer"`) != 1 {

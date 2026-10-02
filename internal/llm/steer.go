@@ -43,8 +43,8 @@ func (e *LLMAgentEngine) steerPreparer(session contracts.QuerySession, vision bo
 		inputOptions.RequestID = req.RequestID
 		text := req.Message
 		if strings.TrimSpace(text) == "" && len(refs) == 0 {
-			// Same rule as a blank query: the public message stays empty.
-			text = querymessages.EmptyQueryContinuation
+			// As with a blank query, the public message stays empty.
+			text = querymessages.EmptySteerContinuation
 		}
 		req.PreparedMessages = []map[string]any{{"role": "user", "content": querymessages.BuildContentWithImageBlocks(text, refs, blocks, inputOptions)}}
 		return req, nil

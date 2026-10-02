@@ -16,6 +16,11 @@ import (
 
 const EmptyQueryContinuation = "Continue based on the current conversation context."
 
+// EmptySteerContinuation is the model input for a blank steer. Unlike a blank
+// query, which resumes interrupted work, it tells an active Run to stop holding
+// back (for example in a wait) and move on.
+const EmptySteerContinuation = "Proceed now with the next step; do not wait any longer."
+
 const advancedUserPromptSchema = "agent_platform.user_prompt.v1"
 const advancedUserPromptOpenTag = `<advanced_user_prompt schema="` + advancedUserPromptSchema + `">`
 

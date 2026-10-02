@@ -187,6 +187,8 @@ func (t *RuntimeToolExecutor) invokeWait(ctx context.Context, args map[string]an
 	result := structuredResult(map[string]any{"reason": reason, "startedAt": started.UnixMilli(), "deadlineAt": a.deadline.UnixMilli(), "endedAt": ended.UnixMilli(), "elapsedMs": elapsed.Milliseconds(), "resolvedTimezone": a.timezone, "dateOnly": a.dateOnly, "deadlineAlreadyPassed": !a.deadline.After(started), "conditions": states, "matchedConditionIndexes": indexes, "waitStats": map[string]any{"count": count, "totalWaitMs": total.Milliseconds()}})
 	if continued && reason == "steered" {
 		result.Structured["continued"] = true
+		// Models read results more reliably than tool definitions; say it here.
+		result.Structured["note"] = "The user chose to stop waiting. Do not wait for the remaining time; proceed with the next step."
 		result.Output = structuredResult(result.Structured).Output
 	}
 	if reason == "failed" {

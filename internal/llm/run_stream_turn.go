@@ -942,7 +942,7 @@ func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 		if len(steer.PreparedMessages) == 0 {
 			content := steer.Message
 			if strings.TrimSpace(content) == "" {
-				content = querymessages.EmptyQueryContinuation
+				content = querymessages.EmptySteerContinuation
 			}
 			steer.PreparedMessages = []map[string]any{{"role": "user", "content": content}}
 		}

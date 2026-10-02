@@ -4,6 +4,7 @@ import (
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,7 +62,8 @@ func TestWaitWakeAndBudget(t *testing.T) {
 				if reason == "continued" {
 					want = "steered"
 				}
-				if result.Structured["reason"] != want || (result.Structured["continued"] == true) != (reason == "continued") {
+				_, noted := result.Structured["note"]
+				if result.Structured["reason"] != want || (result.Structured["continued"] == true) != (reason == "continued") || noted != (reason == "continued") || noted != strings.Contains(result.Output, "stop waiting") {
 					t.Fatalf("%+v", result)
 				}
 				if exec.WaitCount != 1 || exec.BudgetPaused <= 0 {

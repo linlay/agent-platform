@@ -144,7 +144,7 @@ func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
 	_ = json.Unmarshal(encoded, &refs)
 	if content == "" && len(refs) == 0 && len(messageMapsFromAny(line["messages"])) != 1 {
 		// Blank steer: rebuild the same continuation the live Run gave the model.
-		content = querymessages.EmptyQueryContinuation
+		content = querymessages.EmptySteerContinuation
 	}
 	role := strings.TrimSpace(stringValue(steer["role"]))
 	if role == "" {
