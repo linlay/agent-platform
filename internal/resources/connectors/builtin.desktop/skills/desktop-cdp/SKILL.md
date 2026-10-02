@@ -24,7 +24,7 @@ Before page-content reads, DOM inspection or interaction:
 
 1. Read one directory with `{"method":"AWCP.getManual","surfaceId":"page:returned-id"}`.
 2. If a section matches the task, read it with `{"method":"AWCP.getManual","surfaceId":"page:returned-id","params":{"section":"orders.read","revision":"returned-revision"}}`. Read only needed sections.
-3. Invoke with `{"method":"AWCP.invoke","surfaceId":"page:returned-id","params":{"revision":"returned-revision","action":"orders.read","args":{}}}`. Build native JSON arguments from that section's inputSchema.
+3. Invoke with `{"method":"AWCP.invoke","surfaceId":"page:returned-id","params":{"revision":"returned-revision","action":"orders.read","args":{}}}`. Build native JSON arguments from that section's inputSchema. AWCP.invoke requires exactly one source: inline params or top-level paramsFile; the file contains exactly revision, action and args. Keep method and surfaceId outside.
 4. Only a host-confirmed missing AWCP entry (`awcp_protocol_unavailable`) or a valid directory without a matching section permits ordinary CDP/DOM for that task. Permission failures, unsupported versions, malformed contracts and unknown execution outcomes are not absence of AWCP. Read [AWCP](references/awcp.md) for recovery.
 
 Keep the same surfaceId throughout. Reuse a valid manual binding for the same page and Run; do not probe before every click. Navigation, guest replacement or stale revision requires fresh discovery. Never reuse a manual across Runs. Platform does not inject dynamic schemas, bind revision implicitly or replay calls. Screenshot-only, navigation and tab-management tasks do not require a manual probe. Successful AWCP results need no automatic DOM or screenshot verification.
@@ -61,7 +61,7 @@ Use `Surface.getState` to inspect one page, `Surface.goBack` for history, `Surfa
 
 ## Parameters and results
 
-Use direct JSON `params` for ordinary reads, inputs and short scripts. Use `paramsFile` only for a large script/batch that needs file loading; it contains only the params object. Native booleans and numbers are required. A type error does not justify changing the whole task to file-based calls.
+Use native JSON `params` or `paramsFile` for CDP and AWCP.invoke, never both. The UTF-8 file contains only the complete params object; AWCP.getManual keeps inline parameters. Native booleans, numbers, arrays and objects retain their types. For AWCP, args must be an object: use `args: {}` for a no-argument action, and fill an object according to the manual for actions with arguments. Do not pass `""` or a string containing `{}`. When a parameter error reports `executionStarted:false`, correct the identified field or file and call again.
 
 Use synchronous IIFEs for synchronous reads and `awaitPromise:true` for invoked asynchronous expressions. `Runtime.evaluate.exceptionDetails` is a script failure even when CDP transport succeeds. Re-read state before retrying a mutation; event delivery alone does not establish success. Read selectors/coordinates from the page, and verify the expected state after input.
 

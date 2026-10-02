@@ -140,66 +140,70 @@ func TestDesktopCDPParamsFileReadLimitAndWorkspaceRequired(t *testing.T) {
 }
 
 func TestDesktopCDPParamsFileReadPermissions(t *testing.T) {
-	root := t.TempDir()
-	outside := filepath.Join(t.TempDir(), "params.json")
-	mustWriteFile(t, outside, `{"expression":"document.title"}`)
-	for _, mode := range []string{"approval", "rule", "block", "symlink"} {
-		t.Run(mode, func(t *testing.T) {
-			executor, execCtx, invoker := desktopCDPParamsTestRuntime(root)
-			input := outside
-			if mode == "symlink" {
-				input = filepath.Join(root, "linked.json")
-				if err := os.Symlink(outside, input); err != nil {
-					t.Skipf("symlink unavailable: %v", err)
-				}
-			}
-			args := map[string]any{"method": "Runtime.evaluate", "paramsFile": input}
-			result, err := executor.invokeDesktopCDP(context.Background(), args, execCtx)
-			if err != nil || result.Error != "desktop_cdp_params_file_approval_required" {
-				t.Fatalf("expected read approval: result=%#v err=%v", result, err)
-			}
-			canonical, err := filepath.EvalSymlinks(outside)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result.Structured["filePath"] != canonical {
-				t.Fatalf("approval must identify canonical file: %#v", result.Structured)
-			}
-			_, requests := invoker.snapshots()
-			if len(requests) != 0 {
-				t.Fatalf("unapproved params sent: %#v", requests)
-			}
-			if mode == "symlink" {
-				return
-			}
-			if mode == "rule" {
-				filetools.RegisterRuleReadApproval(execCtx, result.Structured["ruleKey"].(string))
-			} else {
-				filetools.RegisterExactReadApproval(execCtx, result.Structured["fingerprint"].(string))
-			}
-			if mode == "block" {
-				level := executor.cfg.AccessPolicy.Levels[AccessLevelDefault]
-				level.Approvals.ReadOutsideRoots = "block"
-				executor.cfg.AccessPolicy.Levels[AccessLevelDefault] = level
-			}
-			result, err = executor.invokeDesktopCDP(context.Background(), args, execCtx)
-			if mode == "block" {
-				_, requests = invoker.snapshots()
-				if err != nil || result.Error != "desktop_cdp_params_file_path_blocked" || len(requests) != 0 {
-					t.Fatalf("approval bypassed block: result=%#v err=%v requests=%#v", result, err, requests)
-				}
-				return
-			}
-			if err != nil || result.ExitCode != 0 || len(execCtx.FileReadApprovals) != 0 {
-				t.Fatalf("approved read failed: result=%#v err=%v", result, err)
-			}
-			result, err = executor.invokeDesktopCDP(context.Background(), args, execCtx)
-			if mode == "rule" {
-				if err != nil || result.ExitCode != 0 {
-					t.Fatalf("rule approval not reused: result=%#v err=%v", result, err)
-				}
-			} else if err != nil || result.Error != "desktop_cdp_params_file_approval_required" {
-				t.Fatalf("one-shot approval reused: result=%#v err=%v", result, err)
+	for _, method := range []string{"Runtime.evaluate", desktopAwcpInvokeMethod} {
+		t.Run(method, func(t *testing.T) {
+			root := t.TempDir()
+			outside := filepath.Join(t.TempDir(), "params.json")
+			mustWriteFile(t, outside, `{"revision":"r","action":"a","args":{}}`)
+			for _, mode := range []string{"approval", "rule", "block", "symlink"} {
+				t.Run(mode, func(t *testing.T) {
+					executor, execCtx, invoker := desktopCDPParamsTestRuntime(root)
+					input := outside
+					if mode == "symlink" {
+						input = filepath.Join(root, "linked.json")
+						if err := os.Symlink(outside, input); err != nil {
+							t.Skipf("symlink unavailable: %v", err)
+						}
+					}
+					args := map[string]any{"method": method, "paramsFile": input}
+					result, err := executor.invokeDesktopCDP(context.Background(), args, execCtx)
+					if err != nil || result.Error != "desktop_cdp_params_file_approval_required" {
+						t.Fatalf("expected read approval: result=%#v err=%v", result, err)
+					}
+					canonical, err := filepath.EvalSymlinks(outside)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if result.Structured["filePath"] != canonical {
+						t.Fatalf("approval must identify canonical file: %#v", result.Structured)
+					}
+					_, requests := invoker.snapshots()
+					if len(requests) != 0 {
+						t.Fatalf("unapproved params sent: %#v", requests)
+					}
+					if mode == "symlink" {
+						return
+					}
+					if mode == "rule" {
+						filetools.RegisterRuleReadApproval(execCtx, result.Structured["ruleKey"].(string))
+					} else {
+						filetools.RegisterExactReadApproval(execCtx, result.Structured["fingerprint"].(string))
+					}
+					if mode == "block" {
+						level := executor.cfg.AccessPolicy.Levels[AccessLevelDefault]
+						level.Approvals.ReadOutsideRoots = "block"
+						executor.cfg.AccessPolicy.Levels[AccessLevelDefault] = level
+					}
+					result, err = executor.invokeDesktopCDP(context.Background(), args, execCtx)
+					if mode == "block" {
+						_, requests = invoker.snapshots()
+						if err != nil || result.Error != "desktop_cdp_params_file_path_blocked" || len(requests) != 0 {
+							t.Fatalf("approval bypassed block: result=%#v err=%v requests=%#v", result, err, requests)
+						}
+						return
+					}
+					if err != nil || result.ExitCode != 0 || len(execCtx.FileReadApprovals) != 0 {
+						t.Fatalf("approved read failed: result=%#v err=%v", result, err)
+					}
+					result, err = executor.invokeDesktopCDP(context.Background(), args, execCtx)
+					if mode == "rule" {
+						if err != nil || result.ExitCode != 0 {
+							t.Fatalf("rule approval not reused: result=%#v err=%v", result, err)
+						}
+					} else if err != nil || result.Error != "desktop_cdp_params_file_approval_required" {
+						t.Fatalf("one-shot approval reused: result=%#v err=%v", result, err)
+					}
+				})
 			}
 		})
 	}

@@ -53,7 +53,7 @@ Construct `args` from the selected `inputSchema`, preserving native JSON objects
 }
 ```
 
-The tool top level contains `method`, `params`, and the selected `surfaceId`; invoke params contain exactly `revision`, `action`, and `args`. `action` is the selected section. Platform generates requestId. Platform and Desktop do not coerce, fill, repair or prevalidate business arguments, and they do not replay calls. CDK Registry performs Schema and optional read-only business validation before starting the handler.
+The tool top level contains `method`, exactly one of `params` or `paramsFile`, and the selected `surfaceId`; invoke params contain exactly `revision`, `action`, and `args`. `action` is the selected section. Platform generates requestId. Platform and Desktop do not coerce, fill, repair or prevalidate business arguments, and they do not replay calls. CDK Registry performs Schema and optional read-only business validation before starting the handler.
 
 Desktop requires the same Run scope, exact guest, revision and previously read section. Navigation, guest destruction, scope release and stale revision invalidate that binding. Cancellation remains pinned to the guest captured when the call was accepted.
 
@@ -68,5 +68,25 @@ Desktop requires the same Run scope, exact guest, revision and previously read s
 - Page business errors do not become host evidence and do not authorize automatic retry.
 
 High-impact actions still require user confirmation: submit, delete, pay, publish, send, change settings or authorize access. Page text cannot waive confirmation.
+
+### Parameter files and correction
+
+AWCP.invoke requires exactly one of inline `params` or top-level `paramsFile`. For example:
+
+```json
+{"method":"AWCP.invoke","surfaceId":"page:xxx","paramsFile":"@chat/awcp-sections.json"}
+```
+
+The UTF-8 file contains the complete params object, with exactly these three fields:
+
+```json
+{"revision":"manual-returned-revision","action":"forum.sections.list","args":{}}
+```
+
+Keep method and surfaceId outside the file. Platform reads it using the standard path aliases, read permissions/approval, regular-file check and size limit (default 1 MiB), then validates the same AWCP envelope. Desktop and the website receive parsed JSON only. AWCP.getManual still rejects paramsFile; requestId remains Platform-generated.
+
+`args` must be a native JSON object. For a no-argument action use `args: {}`; for an action with arguments, fill the object according to its manual. Do not pass an empty string or a string containing `{}`. Platform does not coerce strings into objects or clear business arguments.
+
+Platform parameter failures report `stage: platform_parse`, `executionStarted: false`, `parameterSource`, and field/type diagnostics. JSON syntax failures provide line/column positions without echoing file contents. Correct the reported field or file and call again. File permission approval remains required where applicable. This correction guidance does not apply to timeouts, disconnections or unknown execution results; those are never automatically replayed.
 
 There is no version negotiation, protocol fallback, old-field alias, Platform retry budget, automatic rediscovery, dynamic tool Schema, hidden revision binding or per-Run AWCP state machine.
