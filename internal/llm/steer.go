@@ -41,7 +41,12 @@ func (e *LLMAgentEngine) steerPreparer(session contracts.QuerySession, vision bo
 		req.ChatID, req.References = chatID, refs
 		inputOptions := options
 		inputOptions.RequestID = req.RequestID
-		req.PreparedMessages = []map[string]any{{"role": "user", "content": querymessages.BuildContentWithImageBlocks(req.Message, refs, blocks, inputOptions)}}
+		text := req.Message
+		if strings.TrimSpace(text) == "" && len(refs) == 0 {
+			// Same rule as a blank query: the public message stays empty.
+			text = querymessages.EmptyQueryContinuation
+		}
+		req.PreparedMessages = []map[string]any{{"role": "user", "content": querymessages.BuildContentWithImageBlocks(text, refs, blocks, inputOptions)}}
 		return req, nil
 	}
 }

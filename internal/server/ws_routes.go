@@ -200,7 +200,6 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/attach", s.wsAttach)
 	handler.RegisterRoute("/api/detach", s.wsDetach)
 	handler.RegisterRoute("/api/submit", s.wsSubmit)
-	handler.RegisterRoute("/api/wait/skip", s.wsWaitSkip)
 	handler.RegisterRoute("/api/steer", s.wsSteer)
 	handler.RegisterRoute("/api/interrupt", s.wsInterrupt)
 	handler.RegisterRoute("/api/access-level", s.wsAccessLevel)

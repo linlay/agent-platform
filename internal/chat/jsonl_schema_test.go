@@ -211,11 +211,12 @@ func TestFileOnlySteerSchemaAllowsReferencesWithoutSnapshot(t *testing.T) {
 	if err := ValidateJSONLContent(withoutSnapshot, "chat.jsonl"); err != nil {
 		t.Fatal(err)
 	}
-	for _, invalid := range []string{
-		strings.Replace(valid, `"references":[{"type":"file","url":"notes.md"}]`, `"references":[]`, 1),
-	} {
-		if err := ValidateJSONLContent(invalid, "chat.jsonl"); err == nil {
-			t.Fatal("accepted empty steer or missing snapshot")
-		}
+	// A blank steer is the "continue now" input accepted by an active wait.
+	blank := strings.Replace(withoutSnapshot, `,"references":[{"type":"file","url":"notes.md"}]`, "", 1)
+	if err := ValidateJSONLContent(blank, "chat.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateJSONLContent(strings.Replace(blank, `"message":""`, `"message":null`, 1), "chat.jsonl"); err == nil {
+		t.Fatal("accepted steer without a string message")
 	}
 }

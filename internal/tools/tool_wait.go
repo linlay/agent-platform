@@ -56,27 +56,13 @@ func (t *RuntimeToolExecutor) invokeWait(ctx context.Context, args map[string]an
 	if execCtx != nil && !execCtx.StartedAt.IsZero() && a.deadline.After(execCtx.StartedAt.Add(time.Duration(NormalizeBudget(execCtx.Budget).LifetimeTimeout)*time.Second)) {
 		return ToolExecutionResult{Error: "wait_exceeds_run_lifetime", Output: "Wait exceeds the Run lifetime; use automation for longer scheduling.", ExitCode: -1}, nil
 	}
-	var wake, runDone, skip <-chan struct{}
-	var waitControl *RunControl
-	waitKey := ""
-	if execCtx != nil {
-		waitControl = execCtx.RunControl
-		waitKey = execCtx.CurrentToolID
-		if execCtx.Session.PublicTaskID != "" {
-			waitKey = execCtx.Session.PublicTaskID + ":" + waitKey
-		}
-		if execCtx.Session.WaitControl != nil {
-			waitControl = execCtx.Session.WaitControl
-		}
-	}
+	var wake, runDone <-chan struct{}
+	continued := false
 	if execCtx != nil && execCtx.RunControl != nil {
 		if execCtx.Session.SubTaskID == "" {
 			wake = execCtx.RunControl.SteerAvailable()
 		}
 		runDone = execCtx.RunControl.Context().Done()
-		handle := waitControl.RegisterNativeWait(waitKey)
-		skip = handle.Done
-		defer waitControl.FinishNativeWait(waitKey)
 	}
 	states := make([]WaitConditionState, len(a.conditions))
 	for i, c := range a.conditions {
@@ -150,9 +136,8 @@ func (t *RuntimeToolExecutor) invokeWait(ctx context.Context, args map[string]an
 			finished = true
 		case <-wake:
 			reason = "steered"
-			finished = true
-		case <-skip:
-			reason = "skipped"
+			// Only blank steers queued: the user asked to continue without new input.
+			continued = execCtx.RunControl.QueuedSteersBlank()
 			finished = true
 		case <-timer.C:
 			if !check() {
@@ -182,9 +167,6 @@ func (t *RuntimeToolExecutor) invokeWait(ctx context.Context, args map[string]an
 		reason = "canceled"
 	default:
 	}
-	if execCtx != nil && execCtx.RunControl != nil {
-		reason = waitControl.ResolveNativeWait(waitKey, reason)
-	}
 	ended := time.Now()
 	elapsed := ended.Sub(started)
 	count := 1
@@ -203,6 +185,10 @@ func (t *RuntimeToolExecutor) invokeWait(ctx context.Context, args map[string]an
 		}
 	}
 	result := structuredResult(map[string]any{"reason": reason, "startedAt": started.UnixMilli(), "deadlineAt": a.deadline.UnixMilli(), "endedAt": ended.UnixMilli(), "elapsedMs": elapsed.Milliseconds(), "resolvedTimezone": a.timezone, "dateOnly": a.dateOnly, "deadlineAlreadyPassed": !a.deadline.After(started), "conditions": states, "matchedConditionIndexes": indexes, "waitStats": map[string]any{"count": count, "totalWaitMs": total.Milliseconds()}})
+	if continued && reason == "steered" {
+		result.Structured["continued"] = true
+		result.Output = structuredResult(result.Structured).Output
+	}
 	if reason == "failed" {
 		result.Error = "wait_condition_failed"
 		result.Structured["message"] = failure

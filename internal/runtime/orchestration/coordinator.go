@@ -973,8 +973,6 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		result.Error = err.Error()
 		return result
 	}
-	subSession.PublicTaskID = task.TaskID
-	subSession.WaitControl = contracts.RunControlFromContext(o.RunCtx)
 	subSession.WebClientTarget = o.Session.WebClientTarget
 	if len(subSession.RuntimeContext.References) > 0 {
 		subReq.References = subSession.RuntimeContext.References

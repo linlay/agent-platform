@@ -148,12 +148,12 @@ func TestSteerAllowsReferencesWithoutText(t *testing.T) {
 	})
 	service := NewService(Dependencies{Runs: runs})
 
-	for _, cmd := range []runtimetypes.SteerCommand{
-		{RunRef: runtimetypes.RunRef{RunID: "run"}, Message: " "},
-		{References: []runtimetypes.Reference{{URL: "notes.md"}}},
-	} {
-		_, err := service.Steer(context.Background(), cmd)
-		assertApplicationCode(t, err, apperrors.CodeInvalidRequest)
+	_, err := service.Steer(context.Background(), runtimetypes.SteerCommand{References: []runtimetypes.Reference{{URL: "notes.md"}}})
+	assertApplicationCode(t, err, apperrors.CodeInvalidRequest)
+	// A blank steer means "continue" and is queued like any other steer.
+	blank, err := service.Steer(context.Background(), runtimetypes.SteerCommand{RunRef: runtimetypes.RunRef{RunID: "run", AgentKey: "agent"}, Message: " "})
+	if err != nil || !blank.Accepted {
+		t.Fatalf("%#v %v", blank, err)
 	}
 	result, err := service.Steer(context.Background(), runtimetypes.SteerCommand{RunRef: runtimetypes.RunRef{RunID: "run", AgentKey: "agent"}, References: []runtimetypes.Reference{{URL: "notes.md"}}})
 	if err != nil || !result.Accepted {

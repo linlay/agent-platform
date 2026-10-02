@@ -258,10 +258,11 @@ func validateCurrentSteerSchema(line map[string]any) error {
 			return newJSONLSchemaViolation(line, "steer."+field, "non-empty string", jsonValueType(steer[field]), "steer payload field is required")
 		}
 	}
-	message, messageOK := steer["message"].(string)
-	references, _ := steer["references"].([]any)
-	if !messageOK || (strings.TrimSpace(message) == "" && len(references) == 0) {
-		return newJSONLSchemaViolation(line, "steer.message", "string with text or references", jsonValueType(steer["message"]), "steer content is required")
+	_, messageOK := steer["message"].(string)
+	// A blank steer (no text, no references) is the "continue now" input that an
+	// active wait accepts; the message field itself must still be a string.
+	if !messageOK {
+		return newJSONLSchemaViolation(line, "steer.message", "string", jsonValueType(steer["message"]), "steer message must be a string")
 	}
 	if requestID, found := steer["requestId"]; found {
 		value, ok := requestID.(string)

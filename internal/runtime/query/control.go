@@ -38,8 +38,8 @@ func (s *Service) Submit(_ context.Context, command runtimetypes.SubmitCommand) 
 }
 
 func (s *Service) Steer(_ context.Context, command runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
-	if strings.TrimSpace(command.RunID) == "" || (strings.TrimSpace(command.Message) == "" && len(command.References) == 0) {
-		return runtimetypes.SteerResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId and either message or references are required")
+	if strings.TrimSpace(command.RunID) == "" {
+		return runtimetypes.SteerResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId is required")
 	}
 
 	req := queryinput.SteerRequest{

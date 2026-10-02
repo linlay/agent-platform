@@ -326,12 +326,10 @@ type QuerySession struct {
 	// SubTaskID, when non-empty, isolates sandbox session for a sub-agent
 	// child task within the same run. Empty for main-agent sessions so they
 	// share the run-level sandbox.
-	SubTaskID    string
-	PublicTaskID string      `json:"-"`
-	WaitControl  *RunControl `json:"-"`
-	ChatID       string
-	ChatName     string
-	AgentKey     string
+	SubTaskID string
+	ChatID    string
+	ChatName  string
+	AgentKey  string
 	// WebClientTarget identifies the browser surface that originated this run.
 	// It is runtime-only and is deliberately excluded from persisted/session
 	// protocol payloads.

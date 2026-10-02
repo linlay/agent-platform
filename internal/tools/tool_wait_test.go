@@ -29,7 +29,7 @@ func TestWaitOffsetPriorityAndValidation(t *testing.T) {
 	}
 }
 func TestWaitWakeAndBudget(t *testing.T) {
-	for _, reason := range []string{"steered", "skipped", "canceled"} {
+	for _, reason := range []string{"steered", "continued", "canceled"} {
 		t.Run(reason, func(t *testing.T) {
 			control := NewRunControl(context.Background(), "root")
 			defer control.Finish()
@@ -48,16 +48,20 @@ func TestWaitWakeAndBudget(t *testing.T) {
 			switch reason {
 			case "steered":
 				control.EnqueueSteer(api.SteerRequest{Message: "continue"})
-			case "skipped":
-				if control.SkipNativeWait("call") != "accepted" {
-					t.Fatal("skip failed")
+			case "continued":
+				if !control.EnqueueSteer(api.SteerRequest{}) {
+					t.Fatal("blank steer rejected")
 				}
 			case "canceled":
 				control.Interrupt(InterruptInfo{})
 			}
 			select {
 			case result := <-done:
-				if result.Structured["reason"] != reason {
+				want := reason
+				if reason == "continued" {
+					want = "steered"
+				}
+				if result.Structured["reason"] != want || (result.Structured["continued"] == true) != (reason == "continued") {
 					t.Fatalf("%+v", result)
 				}
 				if exec.WaitCount != 1 || exec.BudgetPaused <= 0 {
@@ -66,10 +70,7 @@ func TestWaitWakeAndBudget(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("wait did not wake")
 			}
-			if control.SkipNativeWait("call") != "already_resolved" {
-				t.Fatal("late skip not idempotent")
-			}
-			if reason == "steered" && len(control.DrainSteers()) != 1 {
+			if reason != "canceled" && len(control.DrainSteers()) != 1 {
 				t.Fatal("steer consumed by wait")
 			}
 		})
@@ -129,33 +130,14 @@ func TestWaitNoToolTimeoutOrRetry(t *testing.T) {
 	}
 }
 
-func TestChildWaitUsesPublicIdentityWithoutConsumingRootInput(t *testing.T) {
+func TestChildWaitIgnoresRootSteer(t *testing.T) {
 	root := NewRunControl(context.Background(), "root")
 	defer root.Finish()
-	child := NewRunControl(context.Background(), "child")
-	defer child.Finish()
 	root.EnqueueSteer(api.SteerRequest{Message: "root only"})
-	sink := waitTestSink{make(chan ToolWait, 2)}
-	done := make(chan ToolExecutionResult, 1)
-	go func() {
-		result, _ := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"offset": "1H"}, &ExecutionContext{RunControl: child, CurrentToolID: "call", Session: QuerySession{SubTaskID: "sub_1", PublicTaskID: "root_t_1", WaitControl: root}, ToolOutputSink: sink})
-		done <- result
-	}()
-	select {
-	case <-sink.waits:
-	case <-time.After(time.Second):
-		t.Fatal("no child wait")
-	}
-	if root.SkipNativeWait("root_t_1:call") != "accepted" {
-		t.Fatal("public tool ID cannot skip child")
-	}
-	select {
-	case result := <-done:
-		if result.Structured["reason"] != "skipped" {
-			t.Fatal(result)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("child skip did not wake")
+	base := time.Now().Add(30 * time.Millisecond).UTC().Format(time.RFC3339Nano)
+	result, err := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"base": base}, &ExecutionContext{RunControl: root, CurrentToolID: "call", Session: QuerySession{SubTaskID: "sub_1"}})
+	if err != nil || result.Structured["reason"] != "elapsed" {
+		t.Fatal(result, err)
 	}
 	if len(root.DrainSteers()) != 1 {
 		t.Fatal("root input lost")

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"agent-platform/internal/querymessages"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -142,7 +143,8 @@ func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
 	encoded, _ := json.Marshal(steer["references"])
 	_ = json.Unmarshal(encoded, &refs)
 	if content == "" && len(refs) == 0 && len(messageMapsFromAny(line["messages"])) != 1 {
-		return nil
+		// Blank steer: rebuild the same continuation the live Run gave the model.
+		content = querymessages.EmptyQueryContinuation
 	}
 	role := strings.TrimSpace(stringValue(steer["role"]))
 	if role == "" {

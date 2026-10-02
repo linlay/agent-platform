@@ -1,6 +1,11 @@
 package contracts
 
-import "context"
+import (
+	"context"
+	"strings"
+
+	"agent-platform/internal/api"
+)
 
 // WaitCondition is deliberately a closed union. Providers must reject unknown
 // targets rather than silently turning lookup failures into timeouts.
@@ -24,53 +29,21 @@ type WaitConditionProvider interface {
 	CheckWaitCondition(context.Context, WaitCondition, *ExecutionContext) (bool, string, error)
 }
 
-// NativeWait belongs to one invocation; the enclosing RunControl serializes
-// skip/finish so a late skip can never wake a subsequent wait.
-type NativeWait struct {
-	Done     chan struct{}
-	Resolved bool
-	Reason   string
+// QueuedSteersBlank reports whether every queued steer is blank, i.e. the user
+// asked to continue without giving new input. It does not consume the queue.
+func (c *RunControl) QueuedSteersBlank() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, steer := range c.steerQueue {
+		if !blankSteer(steer) {
+			return false
+		}
+	}
+	return len(c.steerQueue) > 0
 }
 
-func (c *RunControl) RegisterNativeWait(toolID string) *NativeWait {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.waits == nil {
-		c.waits = map[string]*NativeWait{}
-	}
-	if w := c.waits[toolID]; w != nil {
-		return w
-	}
-	w := &NativeWait{Done: make(chan struct{})}
-	c.waits[toolID] = w
-	return w
-}
-func (c *RunControl) FinishNativeWait(toolID string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if w := c.waits[toolID]; w != nil {
-		w.Resolved = true
-	}
-}
-func (c *RunControl) SkipNativeWait(toolID string) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	w := c.waits[toolID]
-	if w == nil {
-		return "not_found"
-	}
-	if w.Resolved {
-		return "already_resolved"
-	}
-	select {
-	case <-w.Done:
-		return "already_resolved"
-	default:
-		w.Resolved = true
-		w.Reason = "skipped"
-		close(w.Done)
-	}
-	return "accepted"
+func blankSteer(req api.SteerRequest) bool {
+	return strings.TrimSpace(req.Message) == "" && len(req.References) == 0
 }
 
 // WaitCheckpoint is private runtime state stored with an awaiting record. It
@@ -85,21 +58,6 @@ type WaitCheckpoint struct {
 	ToolCalls      int    `json:"toolCalls"`
 	ToolRounds     int    `json:"toolRounds"`
 	Unrecoverable  bool   `json:"unrecoverable"`
-}
-
-func (c *RunControl) ResolveNativeWait(toolID, reason string) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	w := c.waits[toolID]
-	if w == nil {
-		return reason
-	}
-	if w.Reason != "" && reason != "canceled" {
-		return w.Reason
-	}
-	w.Resolved = true
-	w.Reason = reason
-	return reason
 }
 
 // RunSteerPreparer binds attachment validation while a recovered Run is waiting

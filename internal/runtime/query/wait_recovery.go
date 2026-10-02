@@ -39,7 +39,6 @@ func (s *Service) hydrateWait(item chat.PendingAwaitingWithChat, step *chat.Pers
 	if err != nil {
 		return err
 	}
-	recovered.Control.RegisterNativeWait(item.AwaitingID)
 	recovered.Control.TransitionState(contracts.RunLoopStateToolExecuting)
 	ctx, cancel := context.WithCancel(s.backgroundCtx)
 	deferred := DeferredAwaiting{ChatID: item.ChatID, RunID: item.RunID, AwaitingID: item.AwaitingID, CreatedAt: item.CreatedAt, Mode: "wait", Ask: step.Ask, SupervisorCancel: cancel}

@@ -130,7 +130,7 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 
 ## Steer selection 与控制归属
 
-native Agent/Team 协调器的 `/api/steer` 可传 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`，文字或有效引用至少一项。纯文本 selection 不要求视觉模型；图片与普通文件沿用当前 Chat 资源校验，非视觉模型保留图片工具读取引用。准入准备本次运行的内存输入，安全点消费后仅将 message/references 写入 steer JSONL；续聊按当前资源重建，图片不保留历史版本，失效附件降级为不可用提示。旧 messages 快照兼容读取。btw/explain 的记录留在隐藏分支，不改父 Chat。
+native Agent/Team 协调器的 `/api/steer` 可传 `references:[{type:"selection",text:"选中文本",annotation:"可选批注"}]`；文字和引用都为空的空白 steer 表示继续。纯文本 selection 不要求视觉模型；图片与普通文件沿用当前 Chat 资源校验，非视觉模型保留图片工具读取引用。准入准备本次运行的内存输入，安全点消费后仅将 message/references 写入 steer JSONL；续聊按当前资源重建，图片不保留历史版本，失效附件降级为不可用提示。旧 messages 快照兼容读取。btw/explain 的记录留在隐藏分支，不改父 Chat。
 
 HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创建连接的 transport、device 或 lane；既有 Agent/Team owner、等待项、参数校验和重复提交仲裁保持不变。其他 Run 控制入口仍要求原连接归属；等待项恢复以及 planning 创建的新执行 Run 继承原控制归属，不由 Submit 请求改绑。详见 [API与协议](API与协议.md)。
 

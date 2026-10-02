@@ -211,7 +211,7 @@ func (s *Service) resolvePersistedAwaitingSubmit(req queryinput.SubmitRequest) (
 
 func (s *Service) normalizeDeferredSubmit(deferred DeferredAwaiting, params queryinput.SubmitParams) (map[string]any, error) {
 	if deferred.Mode == "wait" {
-		return nil, fmt.Errorf("wait is resolved by time, events, steer, or /api/wait/skip")
+		return nil, fmt.Errorf("wait is resolved by time, events, or steer")
 	}
 	mode := strings.ToLower(strings.TrimSpace(deferred.Mode))
 	switch mode {

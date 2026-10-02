@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/querymessages"
 	"errors"
 	"fmt"
 	"io"
@@ -939,7 +940,11 @@ func (s *llmRunStream) appendTailSteersBeforeFinish() bool {
 func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 	for _, steer := range steers {
 		if len(steer.PreparedMessages) == 0 {
-			steer.PreparedMessages = []map[string]any{{"role": "user", "content": steer.Message}}
+			content := steer.Message
+			if strings.TrimSpace(content) == "" {
+				content = querymessages.EmptyQueryContinuation
+			}
+			steer.PreparedMessages = []map[string]any{{"role": "user", "content": content}}
 		}
 		s.pending = append(s.pending, NewSteerDelta(steer))
 		steerKey := ""

@@ -401,7 +401,6 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/compact", s.method(http.MethodPost, s.handleCompact))
 	s.router.HandleFunc("/api/attach", s.method(http.MethodGet, s.handleAttach))
 	s.router.HandleFunc("/api/submit", s.method(http.MethodPost, s.handleSubmit))
-	s.router.HandleFunc("/api/wait/skip", s.method(http.MethodPost, s.handleWaitSkip))
 	s.router.HandleFunc("/api/steer", s.method(http.MethodPost, s.handleSteer))
 	s.router.HandleFunc("/api/interrupt", s.method(http.MethodPost, s.handleInterrupt))
 	s.router.HandleFunc("/api/access-level", s.method(http.MethodPost, s.handleAccessLevel))

@@ -477,7 +477,7 @@ Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行
 
 实时 SSE / WS stream 中所有工具统一使用 `tool.start → tool.args × N → tool.end → tool.snapshot → tool.output × 0..N → tool.result` 生命周期，不再存在 `action.*` 事件。`tool.end` / `tool.snapshot` 只表示调用参数已经完整；只有唯一的 `tool.result` 收口执行结果。`tool.output` 是可选过程输出，当前只有 Native Host `bash` 发送，Container Hub `bash` 与 `bash_sandbox` 仍只返回最终结果；工具输入 Schema、模型参数和配置均未增加开关。
 
-原生 `wait` 通过 `tool.wait` 和 `tool.wait.update` 发送等待期限、说明与条件进度，仍由唯一 `tool.result` 收口。用户输入提前唤醒后在同一 Run 继续；HTTP/WS `POST /api/wait/skip` 支持外部提前结束等待。参数、断线快照、预算和重启恢复规则见 [原生等待工具](原生等待工具.md)。
+原生 `wait` 通过 `tool.wait` 和 `tool.wait.update` 发送等待期限、说明与条件进度，仍由唯一 `tool.result` 收口。用户输入（`/api/steer`）提前唤醒后在同一 Run 继续，没有专用的跳过接口；空白 steer 表示“继续”：照常入队、发布 `message` 为空的 `request.steer` 并持久化，模型输入补充继续指令。参数、断线快照、预算和重启恢复规则见 [原生等待工具](原生等待工具.md)。
 
 `tool.output` 的公开结构如下；`taskId` 只在 Team / Plan task 范围内携带：
 
@@ -1212,7 +1212,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 ### 附件 steer
 
-`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，但非空文字或有效文件引用至少一项；同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，仅最后一次主 Run 明确异常结束或取消后允许完全空白表示继续；空 query 的 message 保持为空，仅模型输入补充英文继续指令，steer 仍禁止完全空白。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，也可以完全空白（无文字、无引用）表示继续；同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，仅最后一次主 Run 明确异常结束或取消后允许完全空白表示继续；空 query 的 message 保持为空，仅模型输入补充英文继续指令，steer 接受完全空白，表示继续（公开 message 为空，模型输入补充同一句继续指令）。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
 
 普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
