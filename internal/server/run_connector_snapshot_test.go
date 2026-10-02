@@ -26,7 +26,7 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	}
 	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo")
 	os.MkdirAll(agentDir, 0700)
-	os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin."+name+"\n"), 0600)
+	os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin."+name+"\n"), 0600)
 	registry, err := catalog.NewFileRegistry(cfg, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -32,7 +32,7 @@ func TestAgentPrivateSkillMutationLockIsHeldUntilFinalized(t *testing.T) {
 	if _, err := registry.CreateEditableAgent("demo", map[string]any{
 		"key":         "demo",
 		"name":        "Demo",
-		"mode":        "REACT",
+		"mode":        "GENERAL",
 		"modelConfig": map[string]any{"modelKey": "test-model"},
 	}, nil, nil); err != nil {
 		t.Fatalf("create Agent: %v", err)

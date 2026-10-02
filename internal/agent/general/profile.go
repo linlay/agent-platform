@@ -8,7 +8,7 @@ import "strings"
 const (
 	Mode = "GENERAL"
 	// legacyMode is the spelling used before the type was renamed. It stays
-	// accepted so existing agent files and chat records keep their meaning.
+	// accepted internally so historical chat/run snapshots keep their meaning.
 	legacyMode = "REACT"
 )
 

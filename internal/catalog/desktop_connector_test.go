@@ -21,9 +21,9 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	defer release()
 
 	for _, key := range []string{"one", "two"} {
-		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Desktop\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop\n")
+		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Desktop\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop\n")
 	}
-	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "legacy", "agent.yml"), "key: legacy\nname: Legacy\nmode: REACT\nmodelConfig:\n  modelKey: test\ntoolConfig:\n  tools:\n    - desktop_action\n")
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "legacy", "agent.yml"), "key: legacy\nname: Legacy\nmode: GENERAL\nmodelConfig:\n  modelKey: test\ntoolConfig:\n  tools:\n    - desktop_action\n")
 	r, err := NewFileRegistry(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestDesktopWebMountAndVariantConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	source := "key: web\nname: Web\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop-web\n"
+	source := "key: web\nname: Web\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop-web\n"
 	path := filepath.Join(cfg.Paths.AgentsDir, "web", "agent.yml")
 	writeRuntimeAssemblerFile(t, path, source)
 	r, err := NewFileRegistry(cfg, nil)
@@ -104,7 +104,7 @@ func TestDesktopSelectionCanRepairConflictingSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	source := "key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop\n    - builtin.desktop-web\n"
+	source := "key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop\n    - builtin.desktop-web\n"
 	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "demo", "agent.yml"), source)
 	r, err := NewFileRegistry(cfg, nil)
 	if err != nil {

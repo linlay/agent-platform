@@ -360,7 +360,7 @@ func runSubAgentAwaitingSubmitRoutingTest(t *testing.T, useTaskRunID bool) {
 				"toolConfig:",
 				"  tools:",
 				"    - agent_invoke",
-				"mode: REACT",
+				"mode: GENERAL",
 				"react:",
 				"  maxSteps: 6",
 			})
@@ -377,7 +377,7 @@ func runSubAgentAwaitingSubmitRoutingTest(t *testing.T, useTaskRunID bool) {
 				"toolConfig:",
 				"  tools:",
 				"    - ask_user_question",
-				"mode: REACT",
+				"mode: GENERAL",
 				"react:",
 				"  maxSteps: 6",
 				"budget:",

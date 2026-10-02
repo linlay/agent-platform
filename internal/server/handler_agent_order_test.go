@@ -60,7 +60,7 @@ func writeAgentOrderTestAgent(t *testing.T, cfg *config.Config, key string, scop
 	lines := []string{
 		"key: " + key,
 		"name: " + key,
-		"mode: REACT",
+		"mode: GENERAL",
 		"modelConfig:",
 		"  modelKey: mock-model",
 	}

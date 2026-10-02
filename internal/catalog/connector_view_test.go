@@ -10,7 +10,7 @@ import (
 func TestPureViewMountDoesNotGrantExecution(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), ConnectorsCenterDir: filepath.Join(root, "connectors"), RUAgentsDir: filepath.Join(root, "ru-agents"), TeamsDir: filepath.Join(root, "teams"), SkillsCenterDir: filepath.Join(root, "skills")}}
-	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "demo", "agent.yml"), "key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - forms\n")
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "demo", "agent.yml"), "key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - forms\n")
 	dir := filepath.Join(cfg.Paths.ConnectorsCenterDir, "forms")
 	for path, data := range map[string]string{
 		"connector.json":  `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","auth_mode":"none"}`,

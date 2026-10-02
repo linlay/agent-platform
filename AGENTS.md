@@ -7,7 +7,7 @@
 当前仓库定位是“最小可运行闭环 + 特色能力持续补齐”：
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
-- Agent 类型由 `mode` 与顶层 `engine` 共同表达：`GENERAL`（通用，历史写法 `REACT` 继续接受且含义相同）、`CODER`、`KBASE` 由内置引擎执行；`engine: acp` 配合 `runtimeConfig.acpBridgeId` 交给外部 ACP bridge，可以不写 mode。`engine` 缺省为 `native`，不由 `acpBridgeId` 推断。接口统一返回 `GENERAL` 和 `engine`；历史 Chat 的 `REACT` 不改写，筛选与响应按别名处理。`configs/general-settings.yml` 提供 GENERAL 创建默认值，并可选让项目型 GENERAL 读取 Workspace 下的 AGENTS.md（默认关闭），见 [智能体配置说明](docs/智能体配置说明.md#类型与执行引擎)。
+- Agent 类型由 `mode` 与顶层 `engine` 共同表达：`GENERAL`（通用；YAML 与 API 输入不再接受 `REACT`，仅历史 Chat/Run 数据兼容读取）、`CODER`、`KBASE` 由内置引擎执行；`engine: acp` 配合 `runtimeConfig.acpBridgeId` 交给外部 ACP bridge，可以不写 mode。`engine` 缺省为 `native`，不由 `acpBridgeId` 推断。接口统一返回 `GENERAL` 和 `engine`；历史 Chat 的 `REACT` 不改写，筛选与响应按别名处理。`configs/general-settings.yml` 提供 GENERAL 创建默认值，并可选让项目型 GENERAL 读取 Workspace 下的 AGENTS.md（默认关闭），见 [智能体配置说明](docs/智能体配置说明.md#类型与执行引擎)。
 - 新建项目型 Agent 通过 `configs/agent-creation.yml` 的能力模板组合技能、工具和连接器：`/api/admin/agents/creation-options` 返回四种创建类型（通用、编程、知识库、外部引擎）、各能力组的成员与实时可用性、默认模型和 ACP 引擎；`/api/admin/agents/create` 的 `capabilityGroups` 按组 key 展开并落盘为具体配置。模板只在创建时展开，不是持续绑定；字段缺省时不展开，出现时（含空数组）要求具体项目目录和可用模型，成员缺失、连接器互斥或对外部引擎提交能力组都在落盘前报错。`/api/admin/host/directories` 让远端客户端选择 Platform 宿主上的目录。见 [智能体配置说明](docs/智能体配置说明.md#创建模板)。
 - Agent `interactionConfig` 统一控制模型、权限级别、必用技能、连接器、本地文件和聊天记录输入；GENERAL 默认全开，CODER（含 ACP）默认关闭聊天记录，KBASE 默认关闭模型/权限级别/连接器/聊天记录。仅 `/api/agent` 返回解析值，Run 恢复快照私存于 `.state/run-interactions`，不进入公开 query；普通 Agent query 与活动 Run 控制执行准入校验，详见 [智能体配置说明](docs/智能体配置说明.md#对话输入能力-interactionconfig)。
 - 产物发布的 `artifact.published` push 按单个产物发送，只投递给已认证 Desktop Main；BTW、Explain 与其他 WS 不接收，attach/回放不重发。普通本地与代理实时发布统一转换，独立于网关与当前 Chat；`resource.pushed` 仅在实际上传网关成功后发送。

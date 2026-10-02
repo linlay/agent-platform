@@ -32,7 +32,7 @@ modelConfig:
     enabled: true
   modelKey: old-model
 role: assistant
-mode: REACT
+mode: GENERAL
 name: Example
 key: example
 customA:
@@ -49,7 +49,7 @@ customA:
 	definition := tree.(map[string]any)
 	want := `key: example
 name: Example
-mode: REACT
+mode: GENERAL
 role: assistant
 modelConfig:
   modelKey: old-model

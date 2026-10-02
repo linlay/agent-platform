@@ -25,8 +25,8 @@ const removedChatWorkspaceRoot = "@chat"
 var defaultAgentVisibilityScopes = []string{"nav"}
 
 // AgentModeGeneral is the canonical spelling of the general-purpose native
-// agent type. agentModeLegacyReact is its historical spelling and stays
-// accepted on every read boundary (YAML, API and stored chat rows).
+// agent type. The legacy spelling is supported only when reading historical
+// chat/run data; YAML and API inputs must use GENERAL.
 const AgentModeGeneral = "GENERAL"
 const agentModeLegacyReact = "REACT"
 
@@ -73,8 +73,10 @@ func ParsePublicAgentMode(value string) (string, error) {
 		return AgentModeGeneral, nil
 	}
 	switch strings.ToUpper(raw) {
-	case AgentModeGeneral, agentModeLegacyReact:
+	case AgentModeGeneral:
 		return AgentModeGeneral, nil
+	case agentModeLegacyReact:
+		return "", deprecation.New("mode REACT was removed from configuration and API inputs; use GENERAL")
 	case AgentModeCoder, AgentModeKBase, AgentModeProxy, AgentModeChannel:
 		return strings.ToUpper(raw), nil
 	case "PLAN-EXECUTE":

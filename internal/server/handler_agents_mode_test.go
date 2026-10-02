@@ -63,7 +63,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	seedAgentModeChat(t, store, "chat-react-agent", "loyw3v28", "mock-agent", "", "REACT", 1_000)
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&mode=react,PLAN-EXECUTE&includeChats=1", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&mode=general,PLAN-EXECUTE&includeChats=1", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mode-filtered agents status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -101,7 +101,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	for _, mode := range []string{"TEAM", "PLAN_EXECUTE", "ACP-PROXY", "ONESHOT"} {
+	for _, mode := range []string{"REACT", "react", "TEAM", "PLAN_EXECUTE", "ACP-PROXY", "ONESHOT"} {
 		rec = httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?mode="+mode, nil))
 		if rec.Code != http.StatusBadRequest {
@@ -129,7 +129,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		ID:    "agents_mode_ws",
 		Payload: marshalPayload(map[string]any{
 			"scope":        "nav",
-			"mode":         "ReAcT,PLAN-EXECUTE",
+			"mode":         "GENERAL,PLAN-EXECUTE",
 			"includeChats": 1,
 		}),
 	}); err != nil {
@@ -154,7 +154,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/agents",
 		ID:      "retired_agents_mode_ws",
-		Payload: marshalPayload(map[string]any{"mode": "PLAN_EXECUTE"}),
+		Payload: marshalPayload(map[string]any{"mode": "REACT"}),
 	}); err != nil {
 		t.Fatalf("write retired mode websocket request: %v", err)
 	}

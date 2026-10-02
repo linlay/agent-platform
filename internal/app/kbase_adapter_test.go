@@ -26,8 +26,8 @@ func TestKBaseCatalogSourceExposesOnlyEnabledCapabilities(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeAgent("active.yml", "key: active\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(knowledgeDir)+"\nkbaseConfig:\n  enabled: true\n")
-	writeAgent("disabled.yml", "key: disabled\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  enabled: false\n")
+	writeAgent("active.yml", "key: active\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(knowledgeDir)+"\nkbaseConfig:\n  enabled: true\n")
+	writeAgent("disabled.yml", "key: disabled\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  enabled: false\n")
 
 	registry, err := catalog.NewFileRegistry(config.Config{Paths: config.PathsConfig{
 		AgentsDir: agentsDir, TeamsDir: teamsDir, SkillsCenterDir: skillsDir,

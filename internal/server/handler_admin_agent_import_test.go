@@ -21,7 +21,7 @@ import (
 func TestAdminAgentImportCreatesCompleteAgentAndKeepsInvalidAgent(t *testing.T) {
 	fixture := newTestFixture(t)
 	readyArchive := serverSkillImportZIP(t, map[string]string{
-		"portable/agent.yml":       "key: portable-agent\nname: Portable Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n",
+		"portable/agent.yml":       "key: portable-agent\nname: Portable Agent\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n",
 		"portable/SOUL.md":         "Portable soul\n",
 		"portable/assets/card.txt": "card\n",
 	})
@@ -71,7 +71,7 @@ func TestAdminAgentImportRequiresExplicitOverwrite(t *testing.T) {
 		t.Fatalf("write old soul: %v", err)
 	}
 	archive := serverSkillImportZIP(t, map[string]string{
-		"agent.yml":        "key: mock-agent\nname: Imported Mock\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n",
+		"agent.yml":        "key: mock-agent\nname: Imported Mock\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n",
 		"new-resource.txt": "replacement\n",
 	})
 
@@ -119,7 +119,7 @@ func TestAdminAgentImportRollsBackOnHardReloadFailure(t *testing.T) {
 	fixture := newTestFixture(t)
 	fixture.server.deps.CatalogReloader = failingSkillImportReloader{}
 	archive := serverSkillImportZIP(t, map[string]string{
-		"agent.yml": "key: rollback-import\nname: Rollback Import\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n",
+		"agent.yml": "key: rollback-import\nname: Rollback Import\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n",
 	})
 	body, contentType := agentImportBody(t, "rollback.zip", archive, false)
 	rec := httptest.NewRecorder()
@@ -143,7 +143,7 @@ func TestAdminAgentImportRestoresExistingAgentOnHardReloadFailure(t *testing.T) 
 	}
 	fixture.server.deps.CatalogReloader = failingSkillImportReloader{}
 	archive := serverSkillImportZIP(t, map[string]string{
-		"agent.yml":        "key: mock-agent\nname: Broken Replacement\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n",
+		"agent.yml":        "key: mock-agent\nname: Broken Replacement\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n",
 		"replacement-only": "new",
 	})
 	body, contentType := agentImportBody(t, "replacement.zip", archive, true)
@@ -214,7 +214,7 @@ func TestAdminAgentImportMapsArchiveErrors(t *testing.T) {
 		{name: "wrong extension", filename: "agent.txt", archive: []byte("not zip"), wantStatus: http.StatusUnsupportedMediaType},
 		{name: "invalid zip", filename: "agent.zip", archive: []byte("not zip"), wantStatus: http.StatusUnsupportedMediaType},
 		{name: "invalid layout", filename: "agent.zip", archive: serverSkillImportZIP(t, map[string]string{"README.md": "missing"}), wantStatus: http.StatusUnprocessableEntity, wantText: "missing_agent_config"},
-		{name: "invalid overwrite", filename: "agent.zip", archive: serverSkillImportZIP(t, map[string]string{"agent.yml": "key: okay\nname: Okay\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n"}), overwrite: "sometimes", wantStatus: http.StatusBadRequest, wantText: "overwrite must be a boolean"},
+		{name: "invalid overwrite", filename: "agent.zip", archive: serverSkillImportZIP(t, map[string]string{"agent.yml": "key: okay\nname: Okay\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n"}), overwrite: "sometimes", wantStatus: http.StatusBadRequest, wantText: "overwrite must be a boolean"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body, contentType := agentImportBodyWithOverwrite(t, tc.filename, tc.archive, tc.overwrite)

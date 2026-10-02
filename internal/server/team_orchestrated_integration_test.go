@@ -241,7 +241,7 @@ func setupOrchestratedTeamRuntime(t *testing.T) func(string, *config.Config) {
 			content := strings.Join([]string{
 				"key: " + key,
 				"name: " + member.name,
-				"mode: REACT",
+				"mode: GENERAL",
 				"visibility:",
 				"  scopes:",
 				"    - internal",

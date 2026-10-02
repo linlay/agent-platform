@@ -198,7 +198,7 @@ func TestAdminAgentPrivateSkillImportRejectsInvalidArchiveAndFlatAgent(t *testin
 				"  modelKey: mock-model",
 				"runtimeConfig:",
 				"  workspaceRoot: " + filepath.ToSlash(filepath.Join(filepath.Dir(cfg.Paths.AgentsDir), "workspace")),
-				"mode: REACT",
+				"mode: GENERAL",
 			}, "\n")
 			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "flat-agent.yml"), []byte(flat), 0o644); err != nil {
 				t.Fatalf("write flat agent: %v", err)

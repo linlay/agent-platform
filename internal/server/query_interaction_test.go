@@ -51,7 +51,7 @@ func TestAgentInteractionDetailAndQueryHTTP(t *testing.T) {
 	fixture := newTestFixture(t)
 	agent := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "interaction-agent", "definition": map[string]any{
-			"key": "interaction-agent", "name": "Interaction", "mode": "REACT", "modelConfig": map[string]any{"modelKey": "mock-model"},
+			"key": "interaction-agent", "name": "Interaction", "mode": "GENERAL", "modelConfig": map[string]any{"modelKey": "mock-model"},
 			"interactionConfig": map[string]any{"model": false, "accessLevel": false, "mustUseSkills": false, "connectors": false, "attachment": map[string]any{"localFiles": false, "chatRecords": false}},
 		},
 	})

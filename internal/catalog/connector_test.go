@@ -23,7 +23,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(agents, "demo", "agent.yml")
-	base := "key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: test\n"
+	base := "key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\n"
 	if err := os.WriteFile(path, []byte(base+"connectorConfig:\n  connectors:\n    - builtin.dbx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

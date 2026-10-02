@@ -85,7 +85,7 @@ func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testi
 		t.Fatal(err)
 	}
 	for _, key := range []string{"first", "second"} {
-		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Test\nmode: REACT\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.dbx\n")
+		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Test\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.dbx\n")
 	}
 	sourceSkill := filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx", "skills", "builtin-dbx")
 	linked := os.Symlink(filepath.Join("references", "commands.md"), filepath.Join(sourceSkill, "commands-link.md")) == nil

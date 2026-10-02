@@ -36,7 +36,7 @@ func writeInvalidAdminAgentFixtures(t *testing.T, cfg *config.Config) {
 	if err := os.WriteFile(filepath.Join(semanticDir, "agent.yml"), []byte(strings.Join([]string{
 		"key: invalid-semantic",
 		"name: Invalid Semantic",
-		"mode: REACT",
+		"mode: GENERAL",
 		"modelConfig:",
 		"  modelKey: mock-model",
 		"runtimeConfig:",
@@ -228,7 +228,7 @@ func TestAdminSourceRejectsInvalidAgentEditsAndStaleWrites(t *testing.T) {
 
 	assertRejected("invalid yaml", "key: mock-agent\n  name: invalid\n", sourceResp.Data.SHA256, http.StatusBadRequest)
 	assertRejected("key mismatch", strings.Replace(original, "key: mock-agent", "key: another-agent", 1), sourceResp.Data.SHA256, http.StatusBadRequest)
-	assertRejected("semantic error", strings.Replace(original, "mode: REACT", "mode: TEAM", 1), sourceResp.Data.SHA256, http.StatusBadRequest)
+	assertRejected("semantic error", strings.Replace(original, "mode: GENERAL", "mode: TEAM", 1), sourceResp.Data.SHA256, http.StatusBadRequest)
 	assertRejected("stale hash", original, "stale-hash", http.StatusConflict)
 
 	pathAttempt := httptest.NewRecorder()

@@ -35,7 +35,7 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"toolConfig:\n" +
@@ -65,7 +65,7 @@ func TestParseAgentFileSupportsMCPServerAllowlist(t *testing.T) {
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"toolConfig:\n" +
@@ -91,7 +91,7 @@ func TestParseAgentFileSupportsMCPServerAllowlist(t *testing.T) {
 
 func TestParseAgentFileRejectsInvalidMCPServerKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.yml")
-	content := "key: demo\nmode: REACT\nmodelConfig:\n  modelKey: demo-model\ntoolConfig:\n  mcp-servers:\n    - ../flowCenter\n"
+	content := "key: demo\nmode: GENERAL\nmodelConfig:\n  modelKey: demo-model\ntoolConfig:\n  mcp-servers:\n    - ../flowCenter\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestParseAgentFileRejectsInternalAgentDelegateTool(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.yml")
 	content := "key: invalid-delegate\n" +
 		"name: Invalid Delegate\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"toolConfig:\n" +
@@ -132,7 +132,7 @@ func TestParseAgentFileRejectsRemovedTools(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "agent.yml")
 			content := "key: removed-run-tool\n" +
 				"name: Removed Run Tool\n" +
-				"mode: REACT\n" +
+				"mode: GENERAL\n" +
 				"modelConfig:\n" +
 				"  modelKey: demo-model\n" +
 				"toolConfig:\n" +
@@ -364,7 +364,7 @@ func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
 			lines: []string{
 				"key: react-demo",
 				"name: React Demo",
-				"mode: REACT",
+				"mode: GENERAL",
 			},
 		},
 		{
@@ -513,7 +513,7 @@ func TestParseAgentFileValidatesChannelImportConfig(t *testing.T) {
 			body: []string{
 				"key: assistant",
 				"name: Assistant",
-				"mode: REACT",
+				"mode: GENERAL",
 				"modelConfig:",
 				"  modelKey: mock-model",
 				"channelConfig:",
@@ -526,7 +526,7 @@ func TestParseAgentFileValidatesChannelImportConfig(t *testing.T) {
 			body: []string{
 				"key: assistant",
 				"name: Assistant",
-				"mode: REACT",
+				"mode: GENERAL",
 				"modelConfig:",
 				"  modelKey: mock-model",
 				"channelConfig:",
@@ -559,7 +559,7 @@ func TestParseAgentFileReadsChannelExportsAndAllowDefaults(t *testing.T) {
 	content := strings.Join([]string{
 		"key: assistant",
 		"name: Assistant",
-		"mode: REACT",
+		"mode: GENERAL",
 		"modelConfig:",
 		"  modelKey: mock-model",
 		"channelConfig:",
@@ -679,7 +679,7 @@ func TestParseAgentFileAcceptsCanonicalPlanExecuteMode(t *testing.T) {
 }
 
 func TestParseAgentFileRejectsRetiredPublicModes(t *testing.T) {
-	for _, mode := range []string{"ACP-PROXY", "ACP_PROXY", "PLAN_EXECUTE", "ONESHOT"} {
+	for _, mode := range []string{"REACT", "react", "ACP-PROXY", "ACP_PROXY", "PLAN_EXECUTE", "ONESHOT"} {
 		t.Run(mode, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "agent.yml")
 			content := "key: demo\nname: Demo\nmode: " + mode + "\nmodelConfig:\n  modelKey: demo-model\n"
@@ -701,10 +701,10 @@ func TestLoadAgentsWithAdminSkipsInvalidDefinitions(t *testing.T) {
 	log.SetOutput(&logs)
 	t.Cleanup(func() { log.SetOutput(previousLogOutput) })
 	for name, content := range map[string]string{
-		"valid":        "key: valid\nname: Valid\nmode: REACT\nmodelConfig:\n  modelKey: demo-model\n",
+		"valid":        "key: valid\nname: Valid\nmode: GENERAL\nmodelConfig:\n  modelKey: demo-model\n",
 		"oneshot":      "key: oneshot\nname: Oneshot\nmode: ONESHOT\nmodelConfig:\n  modelKey: demo-model\n",
 		"retired-plan": "key: retired-plan\nname: Retired Plan\nmode: PLAN_EXECUTE\nmodelConfig:\n  modelKey: demo-model\n",
-		"key-mismatch": "key: another-key\nname: Key Mismatch\nmode: REACT\nmodelConfig:\n  modelKey: demo-model\n",
+		"key-mismatch": "key: another-key\nname: Key Mismatch\nmode: GENERAL\nmodelConfig:\n  modelKey: demo-model\n",
 		"invalid-yaml": "key: invalid-yaml\nmode: [\n",
 	} {
 		dir := filepath.Join(root, name)
@@ -778,7 +778,7 @@ func TestParseAgentFileRejectsRemovedToolConfigBuckets(t *testing.T) {
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"toolConfig:\n" +
@@ -1210,11 +1210,11 @@ func TestAgentModeWorkspaceAdmissionMatrix(t *testing.T) {
 	}{
 		{name: "coder host requires workspace", mode: AgentModeCoder, wantErr: true, errContains: "workspaceRoot is required for CODER"},
 		{name: "coder host accepts workspace", mode: AgentModeCoder, workspace: workspace},
-		{name: "react host may omit workspace", mode: "REACT"},
+		{name: "react host may omit workspace", mode: "GENERAL"},
 		{name: "plan execute host may omit workspace", mode: "PLAN_EXECUTE"},
 		{name: "proxy host may omit workspace", mode: AgentModeProxy},
 		{name: "channel host may omit workspace", mode: AgentModeChannel},
-		{name: "react sandbox requires workspace", mode: "REACT", sandbox: true, wantErr: true, errContains: "workspaceRoot is required for Container Hub sandbox"},
+		{name: "react sandbox requires workspace", mode: "GENERAL", sandbox: true, wantErr: true, errContains: "workspaceRoot is required for Container Hub sandbox"},
 		{name: "plan execute sandbox accepts workspace", mode: "PLAN_EXECUTE", workspace: workspace, sandbox: true},
 		{name: "kbase uses workspace", mode: AgentModeKBase, workspace: workspace, kbase: enabledKBase},
 		{name: "kbase requires workspace", mode: AgentModeKBase, kbase: enabledKBase, wantErr: true, errContains: "runtimeConfig.workspaceRoot is required"},
@@ -1493,7 +1493,7 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 	configPath := filepath.Join(agentDir, "agent.yml")
 	content := "key: zenmi\n" +
 		"name: Zenmi\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n  modelKey: mock-model\n" +
 		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(knowledgeDir) + "\n" +
 		"toolConfig:\n  tools:\n    - datetime\n" +
@@ -1612,7 +1612,7 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 	}
 	optionalContent := "key: optional-overlap\n" +
 		"name: optional-overlap\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n  modelKey: mock-model\n" +
 		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(chatsDir) + "\n" +
 		"kbaseConfig:\n  enabled: true\n"
@@ -1674,7 +1674,7 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 
 func TestFlatAgentRejectsRelativeKBaseWorkspace(t *testing.T) {
 	agentsDir := t.TempDir()
-	content := "key: flat\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n" +
+	content := "key: flat\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n" +
 		"runtimeConfig:\n  workspaceRoot: ./knowledge\n" +
 		"kbaseConfig:\n  enabled: true\n"
 	if err := os.WriteFile(filepath.Join(agentsDir, "flat.yml"), []byte(content), 0o644); err != nil {
@@ -1700,8 +1700,8 @@ func TestOrdinaryAgentKBaseEnablementIsExplicitAndModeLimited(t *testing.T) {
 		content string
 		want    string
 	}{
-		{name: "missing enabled", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  tags:\n    - docs\n", want: "enabled must be explicitly configured"},
-		{name: "enabled missing workspace", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  enabled: true\n", want: "workspaceRoot is required"},
+		{name: "missing enabled", content: "key: react\nmode: GENERAL\n" + base + "kbaseConfig:\n  tags:\n    - docs\n", want: "enabled must be explicitly configured"},
+		{name: "enabled missing workspace", content: "key: react\nmode: GENERAL\n" + base + "kbaseConfig:\n  enabled: true\n", want: "workspaceRoot is required"},
 		{name: "ACP coder", content: "key: coder\nmode: CODER\nengine: acp\n" + base + "runtimeConfig:\n  acpBridgeId: bridge\n  workspaceRoot: " + workspaceRoot + "\n" + "kbaseConfig:\n  enabled: true\n", want: "not supported for ACP CODER"},
 		{name: "proxy", content: "key: proxy\nmode: PROXY\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for GENERAL"},
 		{name: "channel", content: "key: channel\nmode: CHANNEL\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for GENERAL"},
@@ -1749,7 +1749,7 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
 	workspaceRoot := filepath.ToSlash(t.TempDir())
 	disabledPath := filepath.Join(t.TempDir(), "disabled.yml")
-	disabled := "key: disabled\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n" +
+	disabled := "key: disabled\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n" +
 		"toolConfig:\n  tools:\n    - datetime\n" +
 		"kbaseConfig:\n  enabled: false\n  retrieval:\n    topK: 12\n"
 	if err := os.WriteFile(disabledPath, []byte(disabled), 0o644); err != nil {
@@ -1932,7 +1932,7 @@ func TestParseAgentFileRejectsChatWorkspaceRoot(t *testing.T) {
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: chat-worker\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
@@ -1951,7 +1951,7 @@ func TestParseAgentFileAcceptsSlashWorkspaceRoot(t *testing.T) {
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: chat-worker\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
@@ -1980,7 +1980,7 @@ func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: bootstrap\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
@@ -2180,7 +2180,7 @@ func TestParseAgentFileInjectsMemoryManagementToolsOnlyWhenEnabled(t *testing.T)
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"memoryConfig:\n" +
@@ -2217,7 +2217,7 @@ func TestParseAgentFileKeepsBaseMemoryToolsDisabledByDefault(t *testing.T) {
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -2244,7 +2244,7 @@ func TestParseAgentFileKeepsMemoryManagementToolsOptIn(t *testing.T) {
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"memoryConfig:\n" +
@@ -2270,7 +2270,7 @@ func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"memoryConfig:\n" +
@@ -2407,7 +2407,7 @@ func TestParseAgentFileWithPromptsLoadsSoulSections(t *testing.T) {
 		"name: Demo\n" +
 		"role: Demo role\n" +
 		"description: Demo description\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -2437,7 +2437,7 @@ func TestParseAgentFileWithPromptsLoadsWithoutSoulFile(t *testing.T) {
 		"name: Demo\n" +
 		"role: Demo role\n" +
 		"description: Demo description\n" +
-		"mode: REACT\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -2462,7 +2462,7 @@ func TestParseAgentFileExportsWithoutExternalAgentKey(t *testing.T) {
 	content := strings.Join([]string{
 		"key: demo-agent",
 		"name: Demo",
-		"mode: REACT",
+		"mode: GENERAL",
 		"modelConfig:",
 		"  modelKey: demo-model",
 		"channelConfig:",
@@ -2498,7 +2498,7 @@ func TestParseAgentFileExportWithoutChannelIdFails(t *testing.T) {
 	content := strings.Join([]string{
 		"key: demo-agent",
 		"name: Demo",
-		"mode: REACT",
+		"mode: GENERAL",
 		"modelConfig:",
 		"  modelKey: demo-model",
 		"channelConfig:",
@@ -2538,7 +2538,7 @@ func TestParseAgentFileRejectsRetiredMemoryConfig(t *testing.T) {
 		for _, value := range []string{"{}", "null", "false"} {
 			t.Run(field+"/"+value, func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "agent.yml")
-				content := "key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: demo-model\nmemoryConfig:\n  enabled: false\n  " + field + ": " + value + "\n"
+				content := "key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: demo-model\nmemoryConfig:\n  enabled: false\n  " + field + ": " + value + "\n"
 				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 					t.Fatal(err)
 				}

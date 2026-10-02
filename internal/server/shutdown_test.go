@@ -41,7 +41,7 @@ func TestHTTPQueryStreamClosesDuringRootContextShutdown(t *testing.T) {
 				"description: test agent",
 				"modelConfig:",
 				"  modelKey: mock-model",
-				"mode: REACT",
+				"mode: GENERAL",
 				"react:",
 				"  maxSteps: 6",
 			})

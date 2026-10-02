@@ -32,7 +32,7 @@ func TestEditableAgentArchiveImportsCompleteRootAndWrappedPackages(t *testing.T)
 			agentsDir := filepath.Join(t.TempDir(), "agents")
 			registry := newAgentArchiveTestRegistry(agentsDir)
 			archive := buildAgentImportZIP(t, []agentArchiveTestEntry{
-				{name: tc.prefix + tc.configName, content: "key: portable-agent\nname: Portable Agent\nmode: REACT\nmodelConfig:\n  modelKey: model-a\n"},
+				{name: tc.prefix + tc.configName, content: "key: portable-agent\nname: Portable Agent\nmode: GENERAL\nmodelConfig:\n  modelKey: model-a\n"},
 				{name: tc.prefix + "SOUL.md", content: "Portable soul\n"},
 				{name: tc.prefix + "skills/local-skill/SKILL.md", content: "---\nname: local-skill\n---\n"},
 				{name: tc.prefix + ".config/token", content: "secret\n"},
@@ -85,7 +85,7 @@ func TestEditableAgentArchiveConflictOverwriteAndRollback(t *testing.T) {
 	if err := os.MkdirAll(existingDir, 0o755); err != nil {
 		t.Fatalf("mkdir existing agent: %v", err)
 	}
-	oldConfig := "key: existing\nname: Existing Agent\nmode: REACT\nmodelConfig:\n  modelKey: old-model\n"
+	oldConfig := "key: existing\nname: Existing Agent\nmode: GENERAL\nmodelConfig:\n  modelKey: old-model\n"
 	if err := os.WriteFile(filepath.Join(existingDir, "agent.yml"), []byte(oldConfig), 0o644); err != nil {
 		t.Fatalf("write existing agent: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestEditableAgentArchiveConflictOverwriteAndRollback(t *testing.T) {
 		Source: EditableAgentSource{Kind: "directory", Path: filepath.Join(existingDir, "agent.yml"), AgentDir: existingDir},
 	}
 	archive := buildAgentImportZIP(t, []agentArchiveTestEntry{
-		{name: "agent.yml", content: "key: existing\nname: Replacement Agent\nmode: REACT\nmodelConfig:\n  modelKey: new-model\n"},
+		{name: "agent.yml", content: "key: existing\nname: Replacement Agent\nmode: GENERAL\nmodelConfig:\n  modelKey: new-model\n"},
 		{name: "new-only.txt", content: "new"},
 	})
 
@@ -148,12 +148,12 @@ func TestEditableAgentArchiveOverwritesFlatAgentAsDirectory(t *testing.T) {
 		t.Fatalf("mkdir agents: %v", err)
 	}
 	flatPath := filepath.Join(agentsDir, "flat.yml")
-	if err := os.WriteFile(flatPath, []byte("key: flat\nname: Flat\nmode: REACT\nmodelConfig:\n  modelKey: old\n"), 0o644); err != nil {
+	if err := os.WriteFile(flatPath, []byte("key: flat\nname: Flat\nmode: GENERAL\nmodelConfig:\n  modelKey: old\n"), 0o644); err != nil {
 		t.Fatalf("write flat agent: %v", err)
 	}
 	registry := newAgentArchiveTestRegistry(agentsDir)
 	registry.adminAgents["flat"] = AdminAgent{Key: "flat", Name: "Flat", Status: AdminAgentStatusReady, Source: EditableAgentSource{Kind: "file", Path: flatPath}}
-	archive := buildAgentImportZIP(t, []agentArchiveTestEntry{{name: "agent.yml", content: "key: flat\nname: Flat Imported\nmode: REACT\nmodelConfig:\n  modelKey: new\n"}})
+	archive := buildAgentImportZIP(t, []agentArchiveTestEntry{{name: "agent.yml", content: "key: flat\nname: Flat Imported\nmode: GENERAL\nmodelConfig:\n  modelKey: new\n"}})
 
 	mutation, err := registry.BeginImportEditableAgentArchive(bytes.NewReader(archive), int64(len(archive)), true)
 	if err != nil {
@@ -165,11 +165,11 @@ func TestEditableAgentArchiveOverwritesFlatAgentAsDirectory(t *testing.T) {
 	if _, err := os.Stat(flatPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("flat source should be removed, got %v", err)
 	}
-	assertAgentArchiveFileContent(t, filepath.Join(agentsDir, "flat", "agent.yml"), "key: flat\nname: Flat Imported\nmode: REACT\nmodelConfig:\n  modelKey: new\n")
+	assertAgentArchiveFileContent(t, filepath.Join(agentsDir, "flat", "agent.yml"), "key: flat\nname: Flat Imported\nmode: GENERAL\nmodelConfig:\n  modelKey: new\n")
 }
 
 func TestEditableAgentArchiveRejectsUnsafeAndInvalidPackages(t *testing.T) {
-	validConfig := "key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: model-a\n"
+	validConfig := "key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: model-a\n"
 	for _, tc := range []struct {
 		name    string
 		entries []agentArchiveTestEntry
@@ -182,8 +182,8 @@ func TestEditableAgentArchiveRejectsUnsafeAndInvalidPackages(t *testing.T) {
 		{name: "case collision", entries: []agentArchiveTestEntry{{name: "agent.yml", content: validConfig}, {name: "Docs/Guide.md", content: "a"}, {name: "docs/guide.md", content: "b"}}, code: "duplicate_path"},
 		{name: "file directory conflict", entries: []agentArchiveTestEntry{{name: "agent.yml", content: validConfig}, {name: "assets", content: "file"}, {name: "assets/logo.txt", content: "child"}}, code: "path_conflict"},
 		{name: "invalid definition root", entries: []agentArchiveTestEntry{{name: "agent.yml", content: "- not\n- a map\n"}}, code: "invalid_agent_definition"},
-		{name: "invalid UTF-8", entries: []agentArchiveTestEntry{{name: "agent.yml", content: "key: demo\nname: \xff\nmode: REACT\n"}}, code: "invalid_agent_encoding"},
-		{name: "invalid key", entries: []agentArchiveTestEntry{{name: "agent.yml", content: "key: ../demo\nname: Demo\nmode: REACT\n"}}, code: "invalid_agent_definition"},
+		{name: "invalid UTF-8", entries: []agentArchiveTestEntry{{name: "agent.yml", content: "key: demo\nname: \xff\nmode: GENERAL\n"}}, code: "invalid_agent_encoding"},
+		{name: "invalid key", entries: []agentArchiveTestEntry{{name: "agent.yml", content: "key: ../demo\nname: Demo\nmode: GENERAL\n"}}, code: "invalid_agent_definition"},
 		{name: "internal mode", entries: []agentArchiveTestEntry{{name: "agent.yml", content: "key: demo\nname: Demo\nmode: TEAM\n"}}, code: "invalid_agent_definition"},
 		{name: "missing config", entries: []agentArchiveTestEntry{{name: "README.md", content: "missing"}}, code: "missing_agent_config"},
 	} {
@@ -243,13 +243,13 @@ func TestEditableAgentArchiveRejectsUnsafeAndInvalidPackages(t *testing.T) {
 func TestEditableAgentArchiveEnforcesUploadEntryAndExpandedSizeLimits(t *testing.T) {
 	agentsDir := filepath.Join(t.TempDir(), "agents")
 	registry := newAgentArchiveTestRegistry(agentsDir)
-	archive := buildAgentImportZIP(t, []agentArchiveTestEntry{{name: "agent.yml", content: "key: limits\nname: Limits\nmode: REACT\nmodelConfig:\n  modelKey: model-a\n"}})
+	archive := buildAgentImportZIP(t, []agentArchiveTestEntry{{name: "agent.yml", content: "key: limits\nname: Limits\nmode: GENERAL\nmodelConfig:\n  modelKey: model-a\n"}})
 	if _, err := registry.BeginImportEditableAgentArchive(bytes.NewReader(archive), EditableAgentMaxArchiveUploadBytes+1, false); !errors.Is(err, ErrAgentArchiveUploadTooLarge) {
 		t.Fatalf("expected upload-size rejection, got %v", err)
 	}
 
 	tooManyEntries := make([]agentArchiveTestEntry, 0, EditableAgentMaxArchiveFiles+1)
-	tooManyEntries = append(tooManyEntries, agentArchiveTestEntry{name: "agent.yml", content: "key: too-many\nname: Too Many\nmode: REACT\nmodelConfig:\n  modelKey: model-a\n"})
+	tooManyEntries = append(tooManyEntries, agentArchiveTestEntry{name: "agent.yml", content: "key: too-many\nname: Too Many\nmode: GENERAL\nmodelConfig:\n  modelKey: model-a\n"})
 	for index := 0; index < EditableAgentMaxArchiveFiles; index++ {
 		tooManyEntries = append(tooManyEntries, agentArchiveTestEntry{name: fmt.Sprintf("files/%04d.txt", index), content: "x"})
 	}
@@ -259,7 +259,7 @@ func TestEditableAgentArchiveEnforcesUploadEntryAndExpandedSizeLimits(t *testing
 	}
 
 	oversized := buildAgentImportZIP(t, []agentArchiveTestEntry{
-		{name: "agent.yml", content: "key: oversized\nname: Oversized\nmode: REACT\nmodelConfig:\n  modelKey: model-a\n"},
+		{name: "agent.yml", content: "key: oversized\nname: Oversized\nmode: GENERAL\nmodelConfig:\n  modelKey: model-a\n"},
 		{name: "large.bin", content: "x"},
 	})
 	oversized = patchZIPDeclaredUncompressedSizes(t, oversized, map[string]uint32{"large.bin": uint32(EditableAgentMaxArchiveUploadBytes + 1)})
@@ -267,7 +267,7 @@ func TestEditableAgentArchiveEnforcesUploadEntryAndExpandedSizeLimits(t *testing
 		t.Fatalf("expected expanded-size rejection, got %v", err)
 	}
 
-	totalEntries := []agentArchiveTestEntry{{name: "agent.yml", content: "key: total-limit\nname: Total Limit\nmode: REACT\nmodelConfig:\n  modelKey: model-a\n"}}
+	totalEntries := []agentArchiveTestEntry{{name: "agent.yml", content: "key: total-limit\nname: Total Limit\nmode: GENERAL\nmodelConfig:\n  modelKey: model-a\n"}}
 	declaredSizes := map[string]uint32{}
 	for index := 0; index < 9; index++ {
 		name := fmt.Sprintf("files/large-%d.bin", index)

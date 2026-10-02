@@ -15,7 +15,8 @@ func TestParseAgentModeAndEngine(t *testing.T) {
 	}{
 		{name: "default", wantMode: "GENERAL", wantEngine: "native"},
 		{name: "general", mode: "general", wantMode: "GENERAL", wantEngine: "native"},
-		{name: "legacy react", mode: "REACT", wantMode: "GENERAL", wantEngine: "native"},
+		{name: "legacy react rejected", mode: "REACT", wantErr: "use GENERAL"},
+		{name: "mixed case legacy rejected", mode: " ReAcT ", wantErr: "use GENERAL"},
 		{name: "native coder", mode: "CODER", engine: "native", wantMode: "CODER", wantEngine: "native"},
 		{name: "acp without mode", engine: "acp", wantMode: "CODER", wantEngine: "acp"},
 		{name: "acp with coder", mode: "CODER", engine: "ACP", wantMode: "CODER", wantEngine: "acp"},
@@ -41,6 +42,9 @@ func TestParseAgentModeAndEngine(t *testing.T) {
 func TestAgentModeForAPIMapsLegacyReact(t *testing.T) {
 	if got := AgentModeForAPI("react"); got != "GENERAL" {
 		t.Fatalf("AgentModeForAPI(react) = %q", got)
+	}
+	if got := NormalizeAgentModeForRuntime("REACT"); got != "GENERAL" {
+		t.Fatalf("historical runtime mode = %q", got)
 	}
 	if got := NormalizeAgentModeForRuntime(""); got != "GENERAL" {
 		t.Fatalf("NormalizeAgentModeForRuntime(empty) = %q", got)
@@ -84,12 +88,12 @@ func TestParseAgentFileEngineRules(t *testing.T) {
 }
 
 func TestNormalizeEditableDefinitionModeAndEngine(t *testing.T) {
-	legacy := normalizeEditableDefinition(map[string]any{"key": "a", "mode": "REACT", "engine": "native"})
-	if legacy["mode"] != "GENERAL" {
-		t.Fatalf("legacy REACT should be saved as GENERAL, got %#v", legacy["mode"])
+	canonical := normalizeEditableDefinition(map[string]any{"key": "a", "mode": "GENERAL", "engine": "native"})
+	if canonical["mode"] != "GENERAL" {
+		t.Fatalf("GENERAL should be saved as GENERAL, got %#v", canonical["mode"])
 	}
-	if _, exists := legacy["engine"]; exists {
-		t.Fatalf("default native engine must not be written: %#v", legacy)
+	if _, exists := canonical["engine"]; exists {
+		t.Fatalf("default native engine must not be written: %#v", canonical)
 	}
 	acp := normalizeEditableDefinition(map[string]any{"key": "a", "engine": "ACP"})
 	if acp["engine"] != "acp" {
@@ -127,5 +131,22 @@ func TestKBaseAgentUsesDeclaredToolsLikeAnyNativeAgent(t *testing.T) {
 	}
 	if !kbaseAgentHasFileTool(def.Tools) || kbaseAgentHasFileTool([]string{"kbase_search", "datetime"}) {
 		t.Fatalf("file tool detection is wrong for %#v", def.Tools)
+	}
+}
+
+func TestEditableDefinitionRejectsLegacyReact(t *testing.T) {
+	for _, mode := range []string{"REACT", "react", " ReAcT "} {
+		definition := map[string]any{"key": "demo", "mode": mode, "modelConfig": map[string]any{"modelKey": "test"}}
+		if err := validateEditableDefinition("demo", definition); err == nil || !strings.Contains(err.Error(), "use GENERAL") {
+			t.Fatalf("mode %q: expected rejection before normalization, got %v", mode, err)
+		}
+	}
+}
+
+func TestImportedDefinitionRejectsLegacyReact(t *testing.T) {
+	for _, mode := range []string{"REACT", "react", " ReAcT "} {
+		if err := validateImportedAgentDefinitionStructure("demo", map[string]any{"key": "demo", "mode": mode}); err == nil || !strings.Contains(err.Error(), "use GENERAL") {
+			t.Fatalf("import mode %q: expected rejection, got %v", mode, err)
+		}
 	}
 }

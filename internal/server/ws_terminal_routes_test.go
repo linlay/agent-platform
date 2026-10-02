@@ -653,14 +653,14 @@ func TestOpenTerminalSessionRequiresConfiguredWorkspace(t *testing.T) {
 			writeTerminalTestAgentFile(t, cfg, "react-empty", strings.Join([]string{
 				"key: react-empty",
 				"name: Empty Workspace",
-				"mode: REACT",
+				"mode: GENERAL",
 				"modelConfig:",
 				"  modelKey: mock-model",
 			}, "\n"))
 			writeTerminalTestAgentFile(t, cfg, "react-workspace", strings.Join([]string{
 				"key: react-workspace",
 				"name: Workspace",
-				"mode: REACT",
+				"mode: GENERAL",
 				"modelConfig:",
 				"  modelKey: mock-model",
 				"runtimeConfig:",

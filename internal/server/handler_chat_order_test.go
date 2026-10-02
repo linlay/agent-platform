@@ -45,7 +45,7 @@ func TestChatOrderHTTPAndWebSocketShareCanonicalState(t *testing.T) {
 	if order.SortMode != "manual" || order.UpdatedAt == nil {
 		t.Fatalf("moved order = %#v", order)
 	}
-	assertChatsLimitHTTP(t, fixture.server, "/api/chats?mode=REACT&limit=2", []string{"chat-old", "chat-new"})
+	assertChatsLimitHTTP(t, fixture.server, "/api/chats?mode=GENERAL&limit=2", []string{"chat-old", "chat-new"})
 
 	updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{
 		Operation:    "move",
@@ -65,7 +65,7 @@ func TestChatOrderHTTPAndWebSocketShareCanonicalState(t *testing.T) {
 
 	writeChatOrderWSRequest(t, conn, "order_get", nil)
 	assertChatOrderWSResponse(t, conn, "order_get", "manual")
-	writeChatsLimitWSRequest(t, conn, "manual_chats", map[string]any{"mode": "REACT"})
+	writeChatsLimitWSRequest(t, conn, "manual_chats", map[string]any{"mode": "GENERAL"})
 	assertChatsLimitWSResponse(t, conn, "manual_chats", []string{"chat-old", "chat-new", "chat-middle"})
 
 	writeChatOrderWSRequest(t, conn, "order_recent", map[string]any{
@@ -73,7 +73,7 @@ func TestChatOrderHTTPAndWebSocketShareCanonicalState(t *testing.T) {
 		"sortMode":  "recent",
 	})
 	assertChatOrderWSResponse(t, conn, "order_recent", "recent")
-	writeChatsLimitWSRequest(t, conn, "recent_chats", map[string]any{"mode": "REACT"})
+	writeChatsLimitWSRequest(t, conn, "recent_chats", map[string]any{"mode": "GENERAL"})
 	assertChatsLimitWSResponse(t, conn, "recent_chats", []string{"chat-new", "chat-middle", "chat-old"})
 
 	writeChatOrderWSRequest(t, conn, "order_manual", map[string]any{
@@ -81,7 +81,7 @@ func TestChatOrderHTTPAndWebSocketShareCanonicalState(t *testing.T) {
 		"sortMode":  "manual",
 	})
 	assertChatOrderWSResponse(t, conn, "order_manual", "manual")
-	writeChatsLimitWSRequest(t, conn, "manual_restored", map[string]any{"mode": "REACT"})
+	writeChatsLimitWSRequest(t, conn, "manual_restored", map[string]any{"mode": "GENERAL"})
 	assertChatsLimitWSResponse(t, conn, "manual_restored", []string{"chat-old", "chat-new", "chat-middle"})
 }
 

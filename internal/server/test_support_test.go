@@ -257,7 +257,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"    - platform: skills-center",
 		"      destination: /skills",
 		"      mode: ro",
-		"mode: REACT",
+		"mode: GENERAL",
 		"budget:",
 		"  tool:",
 		"    timeout: 210",

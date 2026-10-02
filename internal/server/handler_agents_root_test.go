@@ -22,7 +22,7 @@ func TestRootAgentWorkspaceOmittedOverHTTPAndWebSocket(t *testing.T) {
 		notifications: ws.NewHub(),
 		setupRuntime: func(_ string, cfg *config.Config) {
 			file := filepath.Join(cfg.Paths.AgentsDir, "root-agent.yml")
-			if err := os.WriteFile(file, []byte("key: root-agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: \"@root\"\n"), 0600); err != nil {
+			if err := os.WriteFile(file, []byte("key: root-agent\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: \"@root\"\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
 		},

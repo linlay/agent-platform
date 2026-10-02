@@ -1174,7 +1174,7 @@ func TestWebSocketDetachedAwaitingQuestionTimesOutAndReplays(t *testing.T) {
 				"toolConfig:",
 				"  tools:",
 				"    - ask_user_question",
-				"mode: REACT",
+				"mode: GENERAL",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write helper agent config: %v", err)
 			}
@@ -1832,7 +1832,7 @@ func startAwaitingPushQuestionFlow(t *testing.T, configure func(*config.Config))
 				"toolConfig:",
 				"  tools:",
 				"    - ask_user_question",
-				"mode: REACT",
+				"mode: GENERAL",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write helper agent config: %v", err)
 			}

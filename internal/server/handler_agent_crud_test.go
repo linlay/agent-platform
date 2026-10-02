@@ -34,7 +34,7 @@ func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 			"icon":        "bot",
 			"role":        "Editor",
 			"description": "editable test agent",
-			"mode":        "REACT",
+			"mode":        "GENERAL",
 			"modelConfig": map[string]any{"modelKey": "mock-model"},
 			"toolConfig":  map[string]any{"tools": []any{"datetime"}},
 			"runtimeConfig": map[string]any{
@@ -150,7 +150,7 @@ func TestAgentCRUDRejectsLegacyACPProxyID(t *testing.T) {
 
 func TestAgentCRUDRejectsRetiredModes(t *testing.T) {
 	fixture := newTestFixture(t)
-	for _, mode := range []string{"ACP-PROXY", "ACP_PROXY", "PLAN_EXECUTE", "ONESHOT"} {
+	for _, mode := range []string{"REACT", "react", "ACP-PROXY", "ACP_PROXY", "PLAN_EXECUTE", "ONESHOT"} {
 		body, err := json.Marshal(map[string]any{
 			"key": "retired-mode-agent",
 			"definition": map[string]any{
@@ -176,7 +176,7 @@ func TestAgentCRUDRejectsInternalAgentDelegateTool(t *testing.T) {
 		"key": "invalid-delegate-agent",
 		"definition": map[string]any{
 			"key":         "invalid-delegate-agent",
-			"mode":        "REACT",
+			"mode":        "GENERAL",
 			"modelConfig": map[string]any{"modelKey": "mock-model"},
 			"toolConfig":  map[string]any{"tools": []any{"agent_delegate"}},
 		},
@@ -198,7 +198,7 @@ func TestAgentCRUDRejectsRemovedRunTools(t *testing.T) {
 	fixture := newTestFixture(t)
 	legacyDefinition := map[string]any{
 		"key":         "removed-run-tool-agent",
-		"mode":        "REACT",
+		"mode":        "GENERAL",
 		"modelConfig": map[string]any{"modelKey": "mock-model"},
 		"toolConfig":  map[string]any{"tools": []any{" AGENT_RUN_STATUS "}},
 	}
@@ -222,7 +222,7 @@ func TestAgentCRUDRejectsRemovedRunTools(t *testing.T) {
 		"key": "run-tool-update-agent",
 		"definition": map[string]any{
 			"key":         "run-tool-update-agent",
-			"mode":        "REACT",
+			"mode":        "GENERAL",
 			"modelConfig": map[string]any{"modelKey": "mock-model"},
 		},
 	})
@@ -252,7 +252,7 @@ func TestAgentCreateRejectsInvalidACPBridgeDefinition(t *testing.T) {
 			name: "non coder",
 			definition: map[string]any{
 				"key":  "bridge-react-agent",
-				"mode": "REACT",
+				"mode": "GENERAL",
 				"runtimeConfig": map[string]any{
 					"acpBridgeId": "codex",
 				},
@@ -1065,7 +1065,7 @@ func TestAgentCreateCoderDefaultBudgetDoesNotApplyToNonCoder(t *testing.T) {
 		"definition": map[string]any{
 			"key":         "react-no-coder-budget",
 			"name":        "React No Coder Budget",
-			"mode":        "REACT",
+			"mode":        "GENERAL",
 			"modelConfig": map[string]any{"modelKey": "mock-model"},
 			"toolConfig":  map[string]any{"tools": []any{"datetime"}},
 		},
@@ -1383,7 +1383,7 @@ func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 		"definition": map[string]any{
 			"key":               "react-model-errors",
 			"name":              "react-model-errors",
-			"mode":              "REACT",
+			"mode":              "GENERAL",
 			"interactionConfig": map[string]any{"model": false},
 			"modelConfig":       map[string]any{"modelKey": "mock-model"},
 		},
@@ -1925,7 +1925,7 @@ func TestAgentUpdateNameEndpoint(t *testing.T) {
 			"icon":        "bot",
 			"role":        "Editor",
 			"description": "editable test agent",
-			"mode":        "REACT",
+			"mode":        "GENERAL",
 			"modelConfig": map[string]any{"modelKey": "mock-model"},
 			"toolConfig":  map[string]any{"tools": []any{"datetime"}},
 			"runtimeConfig": map[string]any{
@@ -1956,7 +1956,7 @@ func TestAgentUpdateNameEndpoint(t *testing.T) {
 		t.Fatalf("expected description to remain unchanged, got %q", updated.Description)
 	}
 	if updated.Mode != "GENERAL" || updated.Definition["mode"] != "GENERAL" {
-		t.Fatalf("expected legacy REACT to be saved as GENERAL, got %#v", updated.Definition["mode"])
+		t.Fatalf("expected GENERAL to remain GENERAL, got %#v", updated.Definition["mode"])
 	}
 	modelConfig, _ := updated.Definition["modelConfig"].(map[string]any)
 	if modelConfig["modelKey"] != "mock-model" {
@@ -2110,7 +2110,7 @@ func TestAgentCreateGeneralAppliesDefaultsAndReportsEngine(t *testing.T) {
 		"definition": map[string]any{
 			"key":  "general-defaults",
 			"name": "General Defaults",
-			"mode": "REACT",
+			"mode": "GENERAL",
 		},
 	})
 	if created.Mode != "GENERAL" || created.Definition["mode"] != "GENERAL" || created.Engine != "native" {

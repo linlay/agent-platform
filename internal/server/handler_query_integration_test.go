@@ -192,7 +192,7 @@ func TestReactEmptyToolAllowlistDoesNotExposePlatformOrMCPTools(t *testing.T) {
 					Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
 				}}},
 				setupRuntime: func(_ string, cfg *config.Config) {
-					definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig
+					definition := "key: mock-agent\nname: Mock Agent\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig
 					if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
 						t.Fatalf("write REACT agent: %v", err)
 					}
@@ -231,7 +231,7 @@ func TestReactExplicitToolAllowlistExposesOnlyConfiguredTool(t *testing.T) {
 			Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
 		}}},
 		setupRuntime: func(_ string, cfg *config.Config) {
-			definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\n"
+			definition := "key: mock-agent\nname: Mock Agent\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\n"
 			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
 				t.Fatalf("write REACT agent: %v", err)
 			}
@@ -278,7 +278,7 @@ func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
 				t.Fatal(err)
 			}
 			toolMeta["serverKey"] = connector.AgentVersionServerKey("mock-agent", "flowcenter", filepath.Base(mounted.Dir))
-			definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\nconnectorConfig:\n  connectors:\n    - flowcenter\n"
+			definition := "key: mock-agent\nname: Mock Agent\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\nconnectorConfig:\n  connectors:\n    - flowcenter\n"
 			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
 				t.Fatalf("write REACT agent: %v", err)
 			}

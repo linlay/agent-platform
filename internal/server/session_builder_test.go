@@ -925,7 +925,7 @@ func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(agentsDir, "react-app", "agent.yml"), []byte(
 		"key: react-app\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: mock-model\n",
 	), 0o644); err != nil {

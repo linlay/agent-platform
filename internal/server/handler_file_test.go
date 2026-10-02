@@ -430,10 +430,10 @@ func newAgentFileTestFixture(t *testing.T) (testFixture, string, string) {
 			}
 			writeAgentFileTestAgent(t, filepath.Join(cfg.Paths.AgentsDir, "coder-file", "agent.yml"), "coder-file", "CODER", coderWorkspace)
 			writeAgentFileTestAgent(t, filepath.Join(cfg.Paths.AgentsDir, "kbase-file", "agent.yml"), "kbase-file", "KBASE", kbaseWorkspace)
-			writeAgentFileTestAgent(t, filepath.Join(cfg.Paths.AgentsDir, "root-workspace", "agent.yml"), "root-workspace", "REACT", string(filepath.Separator))
+			writeAgentFileTestAgent(t, filepath.Join(cfg.Paths.AgentsDir, "root-workspace", "agent.yml"), "root-workspace", "GENERAL", string(filepath.Separator))
 			writeAgentFileTestAgent(t, filepath.Join(cfg.Paths.AgentsDir, "project-root-workspace", "agent.yml"), "project-root-workspace", "CODER", string(filepath.Separator))
 			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "react-no-workspace", "agent.yml"), []byte(
-				"key: react-no-workspace\nname: react-no-workspace\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n",
+				"key: react-no-workspace\nname: react-no-workspace\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n",
 			), 0o644); err != nil {
 				t.Fatalf("write no-workspace agent: %v", err)
 			}

@@ -13,7 +13,7 @@ func TestHostRootWorkspacePreservesRuntimeAndPublicIdentity(t *testing.T) {
 	for _, value := range []string{"@root", "/", t.TempDir(), ""} {
 		t.Run(value, func(t *testing.T) {
 			config := filepath.Join(t.TempDir(), "agent.yml")
-			data := []byte(fmt.Sprintf("key: general\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: %q\n", value))
+			data := []byte(fmt.Sprintf("key: general\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: %q\n", value))
 			if err := os.WriteFile(config, data, 0600); err != nil {
 				t.Fatal(err)
 			}

@@ -84,7 +84,7 @@ func TestChatPinnedHTTPAndWSFilterBeforeLimits(t *testing.T) {
 	for _, id := range []string{"chat-11", "chat-10", "chat-09", "chat-kbase", "chat-coder", "chat-team"} {
 		updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{Operation: "set_pinned", ChatID: id, Pinned: &yes}, 200)
 	}
-	assertChatsLimitHTTP(t, fixture.server, "/api/chats?pinned=false&mode=REACT&limit=8", []string{"chat-08", "chat-07", "chat-06", "chat-05", "chat-04", "chat-03", "chat-02", "chat-01"})
+	assertChatsLimitHTTP(t, fixture.server, "/api/chats?pinned=false&mode=GENERAL&limit=8", []string{"chat-08", "chat-07", "chat-06", "chat-05", "chat-04", "chat-03", "chat-02", "chat-01"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?pinned=true", []string{"chat-team", "chat-coder", "chat-kbase", "chat-09", "chat-10", "chat-11"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?mode=KBASE&pinned=true", []string{"chat-team", "chat-kbase"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?limit=2", []string{"chat-team", "chat-coder"})
@@ -142,7 +142,7 @@ func TestChatPinnedHTTPAndWSFilterBeforeLimits(t *testing.T) {
 		t.Fatalf("pin push: %+v", push)
 	}
 	assertChatOrderWSResponse(t, conn, "unpin", "recent")
-	writeChatsLimitWSRequest(t, conn, "unpinned", map[string]any{"pinned": false, "mode": "REACT", "limit": 8})
+	writeChatsLimitWSRequest(t, conn, "unpinned", map[string]any{"pinned": false, "mode": "GENERAL", "limit": 8})
 	assertChatsLimitWSResponse(t, conn, "unpinned", []string{"chat-11", "chat-08", "chat-07", "chat-06", "chat-05", "chat-04", "chat-03", "chat-02"})
 	writeChatsLimitWSRequest(t, conn, "pins", map[string]any{"pinned": true})
 	assertChatsLimitWSResponse(t, conn, "pins", []string{"chat-team", "chat-coder", "chat-kbase", "chat-09", "chat-10"})

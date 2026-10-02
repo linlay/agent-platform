@@ -324,7 +324,7 @@ func TestSyncPreservesInvalidLocalAgentWithoutFailingUpgrade(t *testing.T) {
 		"toolConfig:",
 		"  tools:",
 		"    - platform_config",
-		"mode: REACT",
+		"mode: GENERAL",
 	}, "\n")
 	agentPath := filepath.Join(runtimeRoot, "agents", "desktopAssistant", "agent.yml")
 	writeTestFile(t, agentPath, invalidAgent)

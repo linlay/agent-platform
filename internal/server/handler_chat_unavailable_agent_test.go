@@ -22,7 +22,7 @@ import (
 // Catalog membership is execution metadata, not the authority for persisted
 // Chat existence or replay. No provider call is needed for these regressions.
 func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
-	for _, state := range []string{"valid", "invalid", "deleted"} {
+	for _, state := range []string{"valid", "invalid", "legacy-mode", "deleted"} {
 		t.Run(state, func(t *testing.T) {
 			fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, _ *http.Request) {
 				t.Error("history reads and rejected continuation must not call the model")
@@ -51,7 +51,11 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 			switch state {
 			case "invalid":
 				// A missing declared connector remains a real catalog failure.
-				if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: mock-agent\nname: Broken\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nconnectorConfig:\n  connectors:\n    - missing.connector\n"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: mock-agent\nname: Broken\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nconnectorConfig:\n  connectors:\n    - missing.connector\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			case "legacy-mode":
+				if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: mock-agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			case "deleted":
@@ -69,7 +73,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 			if got := read("/api/agent?agentKey=mock-agent"); got.Code != wantStatus {
 				t.Fatalf("Agent status: %d %s", got.Code, got.Body.String())
 			}
-			for _, path := range []string{"/api/chats", "/api/chats?agentKey=mock-agent&mode=REACT"} {
+			for _, path := range []string{"/api/chats", "/api/chats?agentKey=mock-agent&mode=GENERAL"} {
 				got := read(path)
 				var response api.ApiResponse[[]api.ChatSummaryResponse]
 				if err := json.Unmarshal(got.Body.Bytes(), &response); err != nil || got.Code != http.StatusOK || len(response.Data) != 1 || response.Data[0].ChatID != chatID {
@@ -78,7 +82,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 			}
 			if state != "valid" {
 				code, status := apperrors.CodeAgentNotFound, http.StatusNotFound
-				if state == "invalid" {
+				if state == "invalid" || state == "legacy-mode" {
 					code, status = apperrors.CodeAgentConfigurationInvalid, http.StatusUnprocessableEntity
 				}
 				for _, locale := range []string{i18n.LocaleEN, i18n.LocaleZhCN} {

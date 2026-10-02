@@ -37,7 +37,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=react,PLAN-EXECUTE", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=general,PLAN-EXECUTE", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mode-filtered HTTP status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -56,7 +56,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=REACT&agentKey=agent-react&lastRunId=loyw3v27", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=GENERAL&agentKey=agent-react&lastRunId=loyw3v27", nil))
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode combined-filter HTTP response: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown mode must fail, status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, mode := range []string{"TEAM", "PLAN_EXECUTE", "ONESHOT"} {
+	for _, mode := range []string{"REACT", "react", "TEAM", "PLAN_EXECUTE", "ONESHOT"} {
 		rec = httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode="+mode, nil))
 		if rec.Code != http.StatusBadRequest {
@@ -78,7 +78,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=REACT", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=GENERAL", nil))
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode react-only response: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Type:  "/api/chats",
 		ID:    "mode_ws",
 		Payload: marshalPayload(map[string]any{
-			"mode": "ReAcT,PLAN-EXECUTE",
+			"mode": "GENERAL,PLAN-EXECUTE",
 		}),
 	}); err != nil {
 		t.Fatalf("write mode-filtered websocket request: %v", err)
@@ -140,7 +140,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chats",
 		ID:      "mode_ws_retired",
-		Payload: marshalPayload(map[string]any{"mode": "PLAN_EXECUTE"}),
+		Payload: marshalPayload(map[string]any{"mode": "REACT"}),
 	}); err != nil {
 		t.Fatalf("write unknown-mode websocket request: %v", err)
 	}

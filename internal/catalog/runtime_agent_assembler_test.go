@@ -258,7 +258,7 @@ func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testi
 	writeRuntimeAssemblerFile(t, filepath.Join(agentsDir, "flat.yml"), strings.Join([]string{
 		"key: flat",
 		"name: Flat",
-		"mode: REACT",
+		"mode: GENERAL",
 		"modelConfig:",
 		"  modelKey: demo-model",
 		"skillConfig:",
@@ -339,7 +339,7 @@ func writeRuntimeAssemblerAgent(t *testing.T, agentsDir, key string, skills []st
 	lines := []string{
 		"key: " + key,
 		"name: " + key,
-		"mode: REACT",
+		"mode: GENERAL",
 		"modelConfig:",
 		"  modelKey: demo-model",
 	}

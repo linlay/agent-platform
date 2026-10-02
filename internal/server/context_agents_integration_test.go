@@ -44,7 +44,7 @@ func newContextCandidatesFixture(t *testing.T, refs []string, calls *atomic.Int3
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(path, []byte("key: "+key+"\nmode: REACT\nmodelConfig: {modelKey: mock-model}\n"+extra), 0o644); err != nil {
+				if err := os.WriteFile(path, []byte("key: "+key+"\nmode: GENERAL\nmodelConfig: {modelKey: mock-model}\n"+extra), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}

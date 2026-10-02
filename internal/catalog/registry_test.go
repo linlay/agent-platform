@@ -174,7 +174,7 @@ func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing
 	if err := os.WriteFile(path, []byte(
 		"key: demo\n"+
 			"name: Demo\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"controls:\n"+
@@ -336,7 +336,7 @@ func TestParseAgentFileReadsRuntimePromptsAndContextConfigTags(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: runtime_prompts\n"+
 			"name: Runtime Prompts\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"runtimePrompts:\n"+
@@ -369,7 +369,7 @@ func TestParseAgentFileReadsOnlyContextConfigTags(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: zenmi\n"+
 			"name: 小宅\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"contextConfig:\n"+
@@ -398,7 +398,7 @@ func TestParseAgentFileReadsContextAgents(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: router\n"+
 			"name: Router\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"contextConfig:\n"+
@@ -511,7 +511,7 @@ func TestParseAgentFileDropsSandboxContextTag(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: zenmi\n"+
 			"name: 小宅\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"contextConfig:\n"+
@@ -546,7 +546,7 @@ func TestLoadAgentsDoesNotExposeSandboxInContextTagsMeta(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(
 		"key: zenmi\n"+
 			"name: 小宅\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"contextTags:\n"+
@@ -588,7 +588,7 @@ func TestParseAgentFileMapsModelReasoningIntoStageSettings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: reasoned\n"+
 			"name: Reasoned\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  reasoning:\n"+
@@ -618,7 +618,7 @@ func TestParseAgentFileNormalizesSixLevelReasoningEffort(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: reasoned-alias\n"+
 			"name: Reasoned Alias\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  reasoning:\n"+
@@ -652,7 +652,7 @@ func TestParseAgentFileRejectsInvalidReasoningEffort(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: bad-reasoning\n"+
 			"name: Bad Reasoning\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  reasoning:\n"+
@@ -672,7 +672,7 @@ func TestParseAgentFileNoneReasoningEffortDisablesReasoning(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: no-reasoning\n"+
 			"name: No Reasoning\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  reasoning:\n"+
@@ -773,7 +773,7 @@ func TestParseAgentFileRejectsInvalidSamplingType(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: bad-sampling\n"+
 			"name: Bad Sampling\n"+
-			"mode: REACT\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  sampling:\n"+

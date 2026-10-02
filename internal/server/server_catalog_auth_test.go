@@ -239,7 +239,7 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 				"internal-agent": strings.Join([]string{
 					"key: internal-agent",
 					"name: Internal Agent",
-					"mode: REACT",
+					"mode: GENERAL",
 					"modelConfig:",
 					"  modelKey: mock-model",
 					"visibility:",
@@ -605,7 +605,7 @@ func TestExecuteInternalQueryBypassesHTTPAuth(t *testing.T) {
 }
 
 func TestAgentDetailReasoningEffortPersists(t *testing.T) {
-	for _, mode := range []string{"REACT", "CODER"} {
+	for _, mode := range []string{"GENERAL", "CODER"} {
 		t.Run(mode, func(t *testing.T) {
 			fixture := newTestFixture(t)
 			key := "selected-effort-" + strings.ToLower(mode)
