@@ -26,3 +26,10 @@ func (p Profiles) Profiles(command runtimetypes.QueryCommand, input contracts.Qu
 	}
 	return p.Builder.BuildSystemInitProfiles(contracts.SystemInitBuildInput{Request: QueryRequest(command), Session: input, ToolDefinitions: p.Tools.Definitions()})
 }
+
+func (e Engine) BindSteerPreparer(session contracts.QuerySession, control *contracts.RunControl) error {
+	if preparer, ok := e.AgentEngine.(contracts.RunSteerPreparer); ok {
+		return preparer.BindSteerPreparer(session, control)
+	}
+	return nil
+}

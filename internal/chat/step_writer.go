@@ -230,8 +230,17 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			InternalOnly: boolFromAny(event.Value("internalOnly")),
 		})
 		w.needNewMsgID = true
+		if toolName == "wait" {
+			w.flushCurrentStepAt(event.Timestamp)
+		}
 
-	case "tool.output", "tool.wait":
+	case "tool.wait", "tool.wait.update":
+		payload := eventPayloadWithoutSeq(event)
+		payload["type"] = "awaiting.ask"
+		payload["mode"] = "wait"
+		payload["awaitingId"] = event.String("toolId")
+		w.bufferAwaitingEvent(stream.EventData{Type: "awaiting.ask", Seq: event.Seq, Timestamp: event.Timestamp, Payload: payload})
+	case "tool.output":
 		// Transient execution output is retained only by the live RunEventBus.
 		// Cold replay is intentionally reconstructed from snapshot + result.
 

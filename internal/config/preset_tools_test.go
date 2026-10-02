@@ -14,8 +14,8 @@ func TestPresetToolsConfig(t *testing.T) {
 		bad   bool
 	}{
 		{"bash: {}", nil, false}, {"preset-tools: []", []string{}, false},
-		{"preset-tools:\n  - datetime\n  - sleep\n  - datetime", []string{"datetime", "sleep"}, false},
-		{"preset-tools: sleep", nil, true}, {"preset-tools: [1]", nil, true}, {"preset-tools: ['']", nil, true}, {"preset-tools: null", nil, true},
+		{"preset-tools:\n  - datetime\n  - wait\n  - datetime", []string{"datetime", "wait"}, false},
+		{"preset-tools: wait", nil, true}, {"preset-tools: [1]", nil, true}, {"preset-tools: ['']", nil, true}, {"preset-tools: null", nil, true},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "tools.yml")

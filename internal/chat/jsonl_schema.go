@@ -322,7 +322,7 @@ func validateCurrentAwaitingSchema(line map[string]any) error {
 		}
 		mode := strings.TrimSpace(stringFromAny(item["mode"]))
 		switch mode {
-		case "question", "approval", "form":
+		case "question", "approval", "form", "wait":
 		case "planning":
 			planning, ok := item["planning"].(map[string]any)
 			if !ok || len(planning) == 0 {

@@ -1,13 +1,15 @@
 package kbase
 
 type RefreshOptions struct {
-	Force bool
-	Mode  string
-	Scope string
-	Paths []string
+	RefreshID string
+	Force     bool
+	Mode      string
+	Scope     string
+	Paths     []string
 }
 
 type RefreshResult struct {
+	RefreshID         string `json:"refreshId"`
 	AgentKey          string `json:"agentKey"`
 	Mode              string `json:"mode"`
 	Status            string `json:"status"`
@@ -28,6 +30,7 @@ type RefreshResult struct {
 }
 
 type Status struct {
+	RefreshID          string            `json:"refreshId,omitempty"`
 	AgentKey           string            `json:"agentKey"`
 	Mode               string            `json:"mode"`
 	StorageLocation    string            `json:"storageLocation"`

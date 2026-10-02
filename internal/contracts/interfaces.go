@@ -319,16 +319,19 @@ type QuerySession struct {
 	// previously persisted run is resumed after a process restart. A zero value
 	// means the run manager captures a fresh registration clock for a new run.
 	StartedAtMillis int64
+	WaitResume      *WaitCheckpoint `json:"-"`
 	// RunScopeID isolates run admission without changing ChatID, which remains
 	// the resource and conversation identity exposed to tools and events.
 	RunScopeID string
 	// SubTaskID, when non-empty, isolates sandbox session for a sub-agent
 	// child task within the same run. Empty for main-agent sessions so they
 	// share the run-level sandbox.
-	SubTaskID string
-	ChatID    string
-	ChatName  string
-	AgentKey  string
+	SubTaskID    string
+	PublicTaskID string      `json:"-"`
+	WaitControl  *RunControl `json:"-"`
+	ChatID       string
+	ChatName     string
+	AgentKey     string
 	// WebClientTarget identifies the browser surface that originated this run.
 	// It is runtime-only and is deliberately excluded from persisted/session
 	// protocol payloads.
@@ -506,9 +509,14 @@ type ToolOutputSink interface {
 
 // ToolWait describes a native timed wait. It is emitted once; clients tick locally.
 type ToolWait struct {
-	StartedAt  int64
-	DeadlineAt int64
-	DurationMs int64
+	Checkpoint  *WaitCheckpoint
+	Description string
+	Match       string
+	Conditions  []WaitConditionState
+	Update      bool
+	StartedAt   int64
+	DeadlineAt  int64
+	DurationMs  int64
 }
 
 type ToolWaitSink interface {
@@ -517,13 +525,14 @@ type ToolWaitSink interface {
 
 type ExecutionContext struct {
 	// AuthoredScripts is shared only by tool invocations of this run; never serialized.
-	AuthoredScripts *scriptstate.Scope `json:"-"`
-	Request         api.QueryRequest
-	Session         QuerySession
-	RunControl      *RunControl
-	CurrentToolID   string
-	CurrentToolName string
-	ToolOutputSink  ToolOutputSink
+	AuthoredScripts  *scriptstate.Scope `json:"-"`
+	Request          api.QueryRequest
+	Session          QuerySession
+	RunControl       *RunControl
+	CurrentToolID    string
+	CurrentToolName  string
+	WaitResumeStates []WaitConditionState
+	ToolOutputSink   ToolOutputSink
 
 	SandboxSession        *SandboxSession
 	Budget                Budget
@@ -559,6 +568,8 @@ type ExecutionContext struct {
 	ReadFileState                map[string]ReadFileSnapshot
 	StartedAt                    time.Time
 	BudgetPaused                 time.Duration
+	WaitCount                    int
+	WaitTotal                    time.Duration
 	ModelCalls                   int
 	ToolCalls                    int
 	RunLimits                    RunLimits

@@ -1456,6 +1456,9 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 	}
 	toolID := awaitingID
 	toolName := "ask_user_question"
+	if mode == "wait" {
+		toolName = "wait"
+	}
 	if strings.EqualFold(mode, "approval") {
 		toolName = "bash"
 		if approvals, _ := ask["approvals"].([]any); len(approvals) > 0 {

@@ -973,6 +973,8 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		result.Error = err.Error()
 		return result
 	}
+	subSession.PublicTaskID = task.TaskID
+	subSession.WaitControl = contracts.RunControlFromContext(o.RunCtx)
 	subSession.WebClientTarget = o.Session.WebClientTarget
 	if len(subSession.RuntimeContext.References) > 0 {
 		subReq.References = subSession.RuntimeContext.References
@@ -1150,6 +1152,10 @@ func RouteChildStreamInput(parentRunID string, taskID string, input stream.Strea
 			value.AwaitAsk = &awaitCopy
 		}
 		return value
+	case stream.ToolWait:
+		value.TaskID = taskID
+		value.ToolID = NamespaceChildID(taskID, value.ToolID)
+		return value
 	case stream.ToolEnd:
 		value.ToolID = NamespaceChildID(taskID, value.ToolID)
 		return value
@@ -1214,6 +1220,10 @@ func RouteTeamChildStreamInput(_ string, teamID string, task PreparedSubTask, in
 			awaitCopy.AwaitingID = NamespaceChildID(task.TaskID, awaitCopy.AwaitingID)
 			value.AwaitAsk = &awaitCopy
 		}
+		return value
+	case stream.ToolWait:
+		value.TaskID = task.TaskID
+		value.ToolID = NamespaceChildID(task.TaskID, value.ToolID)
 		return value
 	case stream.ToolEnd:
 		value.ToolID = NamespaceChildID(task.TaskID, value.ToolID)

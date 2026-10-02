@@ -413,12 +413,13 @@ type DefaultsConfig struct {
 }
 
 type BudgetDefaultsConfig struct {
-	Timeout  int // seconds
-	MaxSteps int
-	Model    RetryBudgetConfig
-	Tool     RetryBudgetConfig
-	Hitl     HitlBudgetConfig
-	Stages   map[string]StageBudgetConfig
+	LifetimeTimeout int // seconds including waits
+	Timeout         int // seconds
+	MaxSteps        int
+	Model           RetryBudgetConfig
+	Tool            RetryBudgetConfig
+	Hitl            HitlBudgetConfig
+	Stages          map[string]StageBudgetConfig
 }
 
 type RetryBudgetConfig struct {

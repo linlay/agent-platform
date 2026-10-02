@@ -1,8 +1,11 @@
 package kbase
 
 import (
+	"agent-platform/internal/operationstate"
 	"context"
+	"crypto/rand"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -81,9 +84,12 @@ func (q *deltaQueue) pendingCount() int {
 }
 
 type refreshCoordinator struct {
-	resolver    refreshResolver
-	state       *capabilityState
-	generations generationCoordinatorBackend
+	operationMu       sync.Mutex
+	operations        map[string]string
+	currentOperations map[string]string
+	resolver          refreshResolver
+	state             *capabilityState
+	generations       generationCoordinatorBackend
 
 	mu             sync.Mutex
 	wg             sync.WaitGroup
@@ -113,6 +119,21 @@ func (c *refreshCoordinator) Refresh(ctx context.Context, agentKey string, optio
 	if err != nil {
 		return RefreshResult{AgentKey: agentKey, Status: "failed", Error: err.Error()}, err
 	}
+	options.RefreshID = rand.Text()
+	c.operationMu.Lock()
+	if c.operations == nil {
+		c.operations = map[string]string{}
+		c.currentOperations = map[string]string{}
+	}
+	c.operations[options.RefreshID] = agentKey
+	c.currentOperations[agentKey] = options.RefreshID
+	c.operationMu.Unlock()
+	defer func() { c.operationMu.Lock(); delete(c.operations, options.RefreshID); c.operationMu.Unlock() }()
+	operationRoot := filepath.Join(cfg.StorageDir, "refresh-operations")
+	initial := RefreshResult{AgentKey: agentKey, RefreshID: options.RefreshID, Mode: options.Mode, Status: "running"}
+	if err := operationstate.Write(operationRoot, options.RefreshID, initial); err != nil {
+		return initial, err
+	}
 	storageKey := storageLockKey(cfg.StorageDir)
 	lock := c.storageLock(storageKey)
 	lock.Lock()
@@ -121,6 +142,14 @@ func (c *refreshCoordinator) Refresh(ctx context.Context, agentKey string, optio
 	defer c.setRunning(cfg.AgentKey, storageKey, false)
 
 	result, err := c.generations.Refresh(ctx, cfg, embedder, options, func() int { return c.PendingChanges(cfg.StorageDir) })
+	result.RefreshID = options.RefreshID
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err.Error()
+	}
+	if saveErr := operationstate.Write(operationRoot, options.RefreshID, result); err == nil && saveErr != nil {
+		err = saveErr
+	}
 	if err == nil {
 		c.state.ClearFailure(cfg.AgentKey)
 	}

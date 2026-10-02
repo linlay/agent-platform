@@ -30,18 +30,20 @@ type StageBudget struct {
 }
 
 type Budget struct {
-	Timeout  int                    `json:"timeout,omitempty"`
-	MaxSteps int                    `json:"maxSteps,omitempty"`
-	Model    RetryPolicy            `json:"model,omitempty"`
-	Tool     RetryPolicy            `json:"tool,omitempty"`
-	Hitl     HitlPolicy             `json:"hitl,omitempty"`
-	Stages   map[string]StageBudget `json:"stages,omitempty"`
+	LifetimeTimeout int                    `json:"lifetimeTimeout,omitempty"`
+	Timeout         int                    `json:"timeout,omitempty"`
+	MaxSteps        int                    `json:"maxSteps,omitempty"`
+	Model           RetryPolicy            `json:"model,omitempty"`
+	Tool            RetryPolicy            `json:"tool,omitempty"`
+	Hitl            HitlPolicy             `json:"hitl,omitempty"`
+	Stages          map[string]StageBudget `json:"stages,omitempty"`
 }
 
 func DefaultBudget(cfg config.Config) Budget {
 	return Budget{
-		Timeout:  cfg.Defaults.Budget.Timeout,
-		MaxSteps: cfg.Defaults.Budget.MaxSteps,
+		Timeout:         cfg.Defaults.Budget.Timeout,
+		LifetimeTimeout: cfg.Defaults.Budget.LifetimeTimeout,
+		MaxSteps:        cfg.Defaults.Budget.MaxSteps,
 		Model: RetryPolicy{
 			MaxCalls:   cfg.Defaults.Budget.Model.MaxCalls,
 			Timeout:    cfg.Defaults.Budget.Model.Timeout,
@@ -92,6 +94,9 @@ func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
 	if len(overrides) == 0 {
 		return budget
 	}
+	if value := anyIntNode(overrides["lifetimeTimeout"]); value > 0 {
+		budget.LifetimeTimeout = value
+	}
 	rootStepsOverridden := false
 	rootToolExplicit := false
 	if value := anyIntNode(overrides["timeout"]); value > 0 {
@@ -119,6 +124,9 @@ func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
 	if rootStepsOverridden && !rootToolExplicit && budget.MaxSteps > 0 {
 		budget.Tool.MaxCalls = budget.MaxSteps * 2
 	}
+	if cfg.Defaults.Budget.LifetimeTimeout <= 0 && anyIntNode(overrides["lifetimeTimeout"]) <= 0 {
+		budget.LifetimeTimeout = 0
+	}
 	return NormalizeBudget(budget)
 }
 
@@ -126,6 +134,9 @@ func normalizeBudget(b Budget) Budget {
 	hadStepOverride := b.MaxSteps > 0
 	if b.Timeout <= 0 {
 		b.Timeout = 3600
+	}
+	if b.LifetimeTimeout <= 0 {
+		b.LifetimeTimeout = max(86400, b.Timeout)
 	}
 	if b.MaxSteps <= 0 {
 		b.MaxSteps = 100

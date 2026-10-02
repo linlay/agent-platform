@@ -821,6 +821,7 @@ func (s *llmRunStream) consumeActiveToolExecution() error {
 		return nil
 	}
 	invocation := execution.invocation
+	s.mergeConcurrentExecutionContext(completed.execCtx)
 	s.activeToolExecution = nil
 	execution.cancel()
 	if errors.Is(completed.err, ErrRunInterrupted) {
@@ -924,8 +925,15 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 }
 
 func (s *llmRunStream) mergeConcurrentExecutionContext(execCtx *ExecutionContext) {
-	if s == nil || s.execCtx == nil || execCtx == nil || len(execCtx.ReadFileState) == 0 {
+	if s == nil || s.execCtx == nil || execCtx == nil {
 		return
+	}
+	if execCtx.BudgetPaused > s.execCtx.BudgetPaused {
+		s.execCtx.BudgetPaused = execCtx.BudgetPaused
+	}
+	if execCtx.WaitCount > s.execCtx.WaitCount {
+		s.execCtx.WaitCount = execCtx.WaitCount
+		s.execCtx.WaitTotal = execCtx.WaitTotal
 	}
 	if s.execCtx.ReadFileState == nil {
 		s.execCtx.ReadFileState = map[string]ReadFileSnapshot{}

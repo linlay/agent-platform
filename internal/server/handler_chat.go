@@ -156,7 +156,7 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 }
 
 func toAPIAwaiting(pending *chat.PendingAwaiting) *api.Awaiting {
-	if pending == nil {
+	if pending == nil || pending.Mode == "wait" {
 		return nil
 	}
 	return &api.Awaiting{

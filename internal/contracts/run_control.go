@@ -184,6 +184,7 @@ func (w *submitWaiter) deliver(result SubmitResult) bool {
 }
 
 type RunControl struct {
+	waits map[string]*NativeWait
 	runID string
 
 	ctx    context.Context

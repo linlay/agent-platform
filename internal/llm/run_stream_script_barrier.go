@@ -9,7 +9,7 @@ func hasToolExecutionBarrier(calls []*preparedToolInvocation) bool {
 	for _, call := range calls {
 		if call != nil {
 			// A timed wait separates the operations before and after it.
-			if call.toolName == "sleep" {
+			if call.toolName == "wait" {
 				return true
 			}
 			if descriptor, ok := platformcontrol.InvocationDescriptor(call.toolName, call.args); ok && descriptor.Barrier {

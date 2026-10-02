@@ -197,7 +197,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaToolWait:
 		return []stream.StreamInput{stream.ToolWait{ToolID: value.ToolID, ToolName: value.ToolName,
-			StartedAt: value.StartedAt, DeadlineAt: value.DeadlineAt, DurationMs: value.DurationMs}}
+			StartedAt: value.StartedAt, DeadlineAt: value.DeadlineAt, DurationMs: value.DurationMs, Checkpoint: value.Checkpoint, Description: value.Description, Match: value.Match, Conditions: value.Conditions, Update: value.Update}}
 	case DeltaToolResult:
 		m.lastKind = ""
 		toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)

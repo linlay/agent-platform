@@ -60,12 +60,17 @@ type ToolOutput struct {
 func (ToolOutput) streamInputTag() {}
 
 type ToolWait struct {
-	ToolID     string
-	ToolName   string
-	TaskID     string
-	StartedAt  int64
-	DeadlineAt int64
-	DurationMs int64
+	Checkpoint  any
+	Description string
+	Match       string
+	Conditions  any
+	Update      bool
+	ToolID      string
+	ToolName    string
+	TaskID      string
+	StartedAt   int64
+	DeadlineAt  int64
+	DurationMs  int64
 }
 
 func (ToolWait) streamInputTag() {}

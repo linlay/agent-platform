@@ -522,7 +522,7 @@ func (r *ToolRouter) invokeWithPolicy(ctx context.Context, toolName string, exec
 	}
 	// Sleep owns its timer; retrying or applying the ordinary tool timeout would
 	// change the requested wait. The parent Run cancellation still applies.
-	if toolName == "sleep" {
+	if toolName == "wait" {
 		timeout, retryCount = 0, 0
 	}
 	var lastErr error

@@ -1,7 +1,6 @@
 package connectorauth
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -18,7 +17,7 @@ func (m *Manager) SessionStatus(id, sessionID string) (Session, error) {
 	defer m.mu.Unlock()
 	s := m.sessions[id]
 	if sessionID == "" || s == nil || s.ID != sessionID {
-		return Session{}, fmt.Errorf("authorization session unavailable")
+		return m.persistedAuthorization(id, sessionID)
 	}
 	result := s.Session
 	if !time.Now().Before(s.ExpiresAt) && (result.Status == "pending" || result.Status == "preparing") {

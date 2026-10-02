@@ -27,8 +27,8 @@ func RejectLegacy(tool string, args map[string]any) error {
 		fields = []fieldRename{{"head_limit", "headLimit"}, {"output_mode", "outputMode"}, {"-A", "afterContext"}, {"-B", "beforeContext"}, {"-C", "context"}, {"-i", "caseInsensitive"}, {"-n", "lineNumbers"}}
 	case "regex":
 		fields = []fieldRename{{"case_insensitive", "caseInsensitive"}}
-	case "sleep":
-		fields = []fieldRename{{"duration_ms", "durationMs"}}
+	case "wait":
+		fields = []fieldRename{{"duration_ms", "offset"}, {"durationMs", "offset"}, {"timeout_ms", "offset"}, {"timeoutMs", "offset"}}
 	case "image_generate":
 		fields = []fieldRename{{"response_format", "responseFormat"}}
 	case "vision_recognize":

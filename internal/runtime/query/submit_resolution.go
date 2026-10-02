@@ -210,6 +210,9 @@ func (s *Service) resolvePersistedAwaitingSubmit(req queryinput.SubmitRequest) (
 }
 
 func (s *Service) normalizeDeferredSubmit(deferred DeferredAwaiting, params queryinput.SubmitParams) (map[string]any, error) {
+	if deferred.Mode == "wait" {
+		return nil, fmt.Errorf("wait is resolved by time, events, steer, or /api/wait/skip")
+	}
 	mode := strings.ToLower(strings.TrimSpace(deferred.Mode))
 	switch mode {
 	case "question":
@@ -557,6 +560,12 @@ func (s *Service) hydrateDeferredAwaitings() error {
 		step, err := s.LoadPersistedAwaitingStep(item.ChatID, item.AwaitingID)
 		if err != nil {
 			return fmt.Errorf("load awaiting step chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
+		}
+		if item.Mode == "wait" {
+			if err := s.hydrateWait(item, step); err != nil {
+				return err
+			}
+			continue
 		}
 		if latest != nil {
 			if restartTerminalAwaitingCode(latest.Answer) != "" {

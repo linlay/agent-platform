@@ -101,7 +101,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 				}
 				return
 			}
-			lastSeq = event.Seq
+			lastSeq = max(lastSeq, event.Seq)
 		}
 	}
 }

@@ -219,6 +219,20 @@ func (s *Service) RegisterRecoveredAwaitingRun(item chat.PendingAwaitingWithChat
 	if admission.TeamID == "" && !sessionbuild.IsProxyRoutedAgent(admission.AgentDef) && sessionbuild.ContainsTool(admission.AgentDef.Tools, "platform_control") {
 		session.RunEnvironment = s.deps.Sessions.NewRunEnvironmentScope()
 	}
+	if item.Mode == "wait" {
+		if ask, err := s.deps.Chats.LoadAwaitingAsk(item.ChatID, item.AwaitingID); err == nil && ask != nil {
+			if checkpoint, err := decodeWaitCheckpoint(ask.Payload["waitCheckpoint"]); err == nil {
+				session.ResolvedBudget = checkpoint.Budget
+			}
+		}
+	}
+	if reader, ok := s.deps.Runs.(interface {
+		StoredRunSnapshot(string) (contracts.RunSnapshot, error)
+	}); ok {
+		if saved, err := reader.StoredRunSnapshot(item.RunID); err == nil {
+			session.RunOrigin = saved.Origin
+		}
+	}
 	initialSeq := s.PersistedRunLiveSeq(item.ChatID, item.RunID)
 	recovered, err := runs.RegisterRecoveredAwaiting(s.backgroundCtx, session, item.AwaitingID, initialSeq)
 	if err != nil {

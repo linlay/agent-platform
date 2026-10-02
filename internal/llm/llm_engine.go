@@ -149,6 +149,19 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	if execCtx.StartedAt.IsZero() {
 		execCtx.StartedAt = time.Now()
+		if session.StartedAtMillis > 0 {
+			execCtx.StartedAt = time.UnixMilli(session.StartedAtMillis)
+		}
+		if resume := session.WaitResume; resume != nil {
+			execCtx.StartedAt = time.UnixMilli(resume.StartedAt)
+			execCtx.Budget = resume.Budget
+			execCtx.BudgetPaused = time.Duration(resume.BudgetPausedMs) * time.Millisecond
+			execCtx.WaitCount = resume.WaitCount
+			execCtx.WaitTotal = time.Duration(resume.WaitTotalMs) * time.Millisecond
+			execCtx.ModelCalls = resume.ModelCalls
+			execCtx.ToolCalls = resume.ToolCalls
+			execCtx.ToolRounds = resume.ToolRounds
+		}
 	}
 	e.restorePlanTasksForRun(execCtx, &session, options.Stage, effectiveDefs)
 	cacheKey := SystemInitCacheKey(session.Mode, options.Stage)

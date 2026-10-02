@@ -12,9 +12,9 @@ import (
 	runtimetools "agent-platform/internal/tools"
 )
 
-func TestSleepPreservesToolOrder(t *testing.T) {
+func TestWaitPreservesToolOrder(t *testing.T) {
 	before := &preparedToolInvocation{toolID: "before", toolName: "datetime"}
-	wait := &preparedToolInvocation{toolID: "wait", toolName: "sleep"}
+	wait := &preparedToolInvocation{toolID: "wait", toolName: "wait"}
 	after := &preparedToolInvocation{toolID: "after", toolName: "datetime"}
 	s := &llmRunStream{execCtx: &ExecutionContext{}, queuedToolCalls: []*preparedToolInvocation{before, wait, after}}
 	for _, want := range []*preparedToolInvocation{before, wait} {
@@ -31,7 +31,7 @@ func TestSleepPreservesToolOrder(t *testing.T) {
 	}
 }
 
-func TestSleepSteerContinuesSameRun(t *testing.T) {
+func TestWaitSteerContinuesSameRun(t *testing.T) {
 	for _, batch := range []bool{false, true} {
 		t.Run(map[bool]string{false: "serial", true: "batch"}[batch], func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -42,10 +42,10 @@ func TestSleepSteerContinuesSameRun(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			session := QuerySession{RunID: "run-sleep", ChatID: "chat-sleep", ToolNames: []string{"sleep"}}
+			session := QuerySession{RunID: "run-sleep", ChatID: "chat-sleep", ToolNames: []string{"wait"}}
 			s := &llmRunStream{ctx: ctx, engine: &LLMAgentEngine{tools: executor}, session: session, runControl: control,
 				execCtx: &ExecutionContext{Session: session, RunControl: control, StartedAt: time.Now(), Budget: Budget{Tool: RetryPolicy{MaxCalls: 10}}}}
-			call := &preparedToolInvocation{toolID: "sleep-1", toolName: "sleep", args: map[string]any{"durationMs": 60000}}
+			call := &preparedToolInvocation{toolID: "sleep-1", toolName: "wait", args: map[string]any{"offset": "+1m"}}
 			if batch {
 				err = s.startToolCallBatch([]*preparedToolInvocation{call})
 			} else {
@@ -95,7 +95,7 @@ func TestSleepSteerContinuesSameRun(t *testing.T) {
 			for _, delta := range s.pending {
 				if result, ok := delta.(DeltaToolResult); ok {
 					results++
-					if result.ToolID != "sleep-1" || result.Result.Structured["reason"] != "steer" {
+					if result.ToolID != "sleep-1" || result.Result.Structured["reason"] != "steered" {
 						t.Fatalf("bad wake result: %#v", result)
 					}
 				}
@@ -115,5 +115,23 @@ func TestSleepSteerContinuesSameRun(t *testing.T) {
 				t.Fatal("steer duplicated")
 			}
 		})
+	}
+}
+
+func TestChildCannotDrainOrCloseParentSteers(t *testing.T) {
+	control := NewRunControl(context.Background(), "root")
+	defer control.Finish()
+	control.EnqueueSteer(api.SteerRequest{Message: "root input"})
+	child := &llmRunStream{runControl: control, execCtx: &ExecutionContext{Session: QuerySession{SubTaskID: "child"}}}
+	child.appendPendingSteers()
+	if child.appendTailSteersBeforeFinish() {
+		t.Fatal("child consumed root input")
+	}
+	child.closeSteers()
+	if !control.EnqueueSteer(api.SteerRequest{Message: "another input"}) {
+		t.Fatal("child closed parent steer gate")
+	}
+	if len(control.DrainSteers()) != 2 {
+		t.Fatal("child drained parent input")
 	}
 }

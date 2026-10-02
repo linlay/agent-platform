@@ -15,6 +15,24 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 	runID = strings.TrimSpace(runID)
 	status, ok := runs.RunStatus(runID)
 	if !ok {
+		if reader, valid := runs.(interface {
+			StoredRunSnapshot(string) (contracts.RunSnapshot, error)
+		}); valid {
+			if snapshot, err := reader.StoredRunSnapshot(runID); err == nil {
+				if chats != nil {
+					if detail, err := chats.LoadChat(snapshot.ChatID); err == nil {
+						events := []stream.EventData{}
+						for _, event := range detail.Events {
+							if event.String("runId") == runID {
+								events = append(events, event)
+							}
+						}
+						ApplyEventSnapshot(&snapshot, events)
+					}
+				}
+				return snapshot, nil
+			}
+		}
 		return contracts.RunSnapshot{}, &contracts.RunToolError{Code: "run_not_found", Message: "run not found"}
 	}
 	snapshot := contracts.RunSnapshot{

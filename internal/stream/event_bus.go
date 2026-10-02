@@ -71,6 +71,7 @@ func (o *Observer) Done() <-chan struct{} {
 }
 
 type RunEventBus struct {
+	activeWaits           map[string]EventData
 	mu                    sync.RWMutex
 	events                []EventData
 	frozen                bool
@@ -110,6 +111,18 @@ func (b *RunEventBus) Publish(event EventData) {
 	if b.frozen {
 		b.mu.Unlock()
 		return
+	}
+	key := event.String("taskId") + "\x00" + event.String("toolId")
+	switch event.Type {
+	case "tool.wait", "tool.wait.update":
+		if b.activeWaits == nil {
+			b.activeWaits = map[string]EventData{}
+		}
+		b.activeWaits[key] = event
+	case "tool.result":
+		delete(b.activeWaits, key)
+	case "run.complete", "run.cancel", "run.error":
+		b.activeWaits = nil
 	}
 	b.events = append(b.events, event)
 	b.latestSeq = event.Seq
@@ -195,6 +208,16 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 		}
 	}
 
+	// Attach snapshots are live projections, not new entries in the Run log.
+	// A zero sequence leaves the consumer replay cursor unchanged.
+	for _, wait := range b.activeWaits {
+		snapshot := wait
+		snapshot.Seq = 0
+		snapshot.Type = "tool.wait.update"
+		snapshot.Payload = clonePayload(wait.Payload)
+		snapshot.Payload["attachSnapshot"] = true
+		replay = append(replay, snapshot)
+	}
 	bufferSize := len(replay) + defaultObserverBuffer
 	if bufferSize < defaultObserverBuffer {
 		bufferSize = defaultObserverBuffer

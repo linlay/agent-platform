@@ -1,0 +1,59 @@
+name: wait
+label: 等待
+description: Wait within the current Run until a required time limit or optional event conditions are met. User input wakes the wait. Prefer this over shell sleep or model polling. offset takes precedence over base. Use automation for scheduling beyond 24 hours.
+inputSchema:
+  type: object
+  properties:
+    offset:
+      type: string
+      description: Positive duration from now, at most 24 hours; units S (seconds), m (minutes), H (hours), D (24 hours). Example +1H30m. Takes precedence over base.
+    base:
+      type: string
+      description: Absolute deadline using datetime formats, including RFC3339. Required when offset is absent. A date alone means midnight; past deadlines finish immediately.
+    timezone:
+      type: string
+      description: Timezone interpreted as in datetime.
+    description:
+      type: string
+      maxLength: 200
+      description: Brief user-facing explanation of what is being awaited.
+    match:
+      type: string
+      enum: [any, all]
+      description: How optional conditions combine; defaults to any.
+    conditions:
+      description: Optional event conditions that may complete the wait before its time limit.
+      type: array
+      minItems: 1
+      maxItems: 8
+      items:
+        type: object
+        properties:
+          type:
+            description: Event type to inspect.
+            type: string
+            enum: [run.terminal, file.exists, file.modifiedAfter, kbase.refreshTerminal, connector.authorizationTerminal]
+          runId:
+            description: Target Run created by run_query.
+            type: string
+          filePath:
+            description: Readable file path in the current execution scope.
+            type: string
+          after:
+            type: integer
+            description: File modification lower bound as Unix milliseconds.
+          agentKey:
+            description: Agent owning the KBASE refresh.
+            type: string
+          refreshId:
+            description: Stable refresh operation ID returned by KBASE.
+            type: string
+          connectorId:
+            description: Connector mounted for the current Agent.
+            type: string
+          authorizationId:
+            description: Exact authorization attempt ID returned by the connector.
+            type: string
+        required: [type]
+        additionalProperties: false
+  additionalProperties: false

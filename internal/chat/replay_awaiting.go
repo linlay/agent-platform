@@ -22,7 +22,7 @@ func newStepAwaitingReplay(rawAwaiting any, chatID string, runID string, liveSeq
 		consumed:                map[int]bool{},
 	}
 	for _, item := range awaitingList {
-		if item == nil {
+		if item == nil || stringValue(item["mode"]) == "wait" {
 			continue
 		}
 

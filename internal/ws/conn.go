@@ -803,7 +803,7 @@ func (c *Conn) StartEventForward(requestID string, events <-chan stream.EventDat
 					c.finishStream(requestID, reason, lastSeq)
 					return
 				}
-				lastSeq = event.Seq
+				lastSeq = max(lastSeq, event.Seq)
 				switch event.Type {
 				case "run.complete":
 					reason = "done"
@@ -842,7 +842,7 @@ func (c *Conn) sendStreamEvent(requestID string, event stream.EventData) bool {
 		c.mu.Unlock()
 		return false
 	}
-	entry.lastSeq = event.Seq
+	entry.lastSeq = max(entry.lastSeq, event.Seq)
 	ok := c.enqueue(outboundMessage{
 		frame: StreamFrame{
 			Frame:    FrameStream,

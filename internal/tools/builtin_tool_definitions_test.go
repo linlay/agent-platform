@@ -231,7 +231,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 
 	visibleNames := map[string]bool{
 		"agent_invoke": true, "artifact_publish": true, "ask_user_question": true,
-		"bash": true, "bash_sandbox": true, "datetime": true, "sleep": true,
+		"bash": true, "bash_sandbox": true, "datetime": true, "wait": true,
 		"desktop_action": true, "desktop_cdp": true,
 		"file_edit": true, "file_glob": true, "file_grep": true, "file_read": true, "file_write": true,
 		"finalize_planning": true, "image_generate": true,

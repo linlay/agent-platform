@@ -22,7 +22,7 @@ const (
 
 func isContinuableDeferredAwaitingMode(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "question", "planning":
+	case "question", "planning", "wait":
 		return true
 	default:
 		return false
@@ -50,7 +50,7 @@ func (s *Service) clearPendingAwaitingGate(chatID string, awaitingID string) {
 
 func isAwaitingGateMode(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "question", "planning", "form", "approval":
+	case "question", "planning", "form", "approval", "wait":
 		return true
 	default:
 		return false

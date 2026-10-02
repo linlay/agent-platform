@@ -145,7 +145,11 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 	if m == nil {
 		return Status{AgentKey: agentKey, Mode: Mode}, managerUnavailableError()
 	}
-	return m.status.Status(agentKey)
+	result, err := m.status.Status(agentKey)
+	m.refresh.operationMu.Lock()
+	result.RefreshID = m.refresh.currentOperations[agentKey]
+	m.refresh.operationMu.Unlock()
+	return result, err
 }
 
 func (m *Manager) Search(ctx context.Context, agentKey, query string, options SearchOptions) (SearchResult, error) {

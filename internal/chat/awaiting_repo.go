@@ -114,6 +114,10 @@ func loadPersistedAwaitingStepFromLines(lines []map[string]any, awaitingID strin
 		if matchedAsk == nil {
 			continue
 		}
+		if matchedAsk.Mode == "wait" && latest != nil && len(persistedAwaitingToolCalls(line["messages"])) == 0 {
+			latest.Ask = matchedAsk
+			continue
+		}
 		latest = &PersistedAwaitingStep{
 			RunID:           strings.TrimSpace(stringValue(line["runId"])),
 			TaskID:          strings.TrimSpace(stringValue(line["taskId"])),

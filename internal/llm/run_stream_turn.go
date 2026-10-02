@@ -801,7 +801,7 @@ func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 	if elapsed < 0 {
 		elapsed = 0
 	}
-	if budget.Timeout > 0 && elapsed > budget.RunTimeout() {
+	if (budget.Timeout > 0 && elapsed > budget.RunTimeout()) || time.Since(s.execCtx.StartedAt) > time.Duration(budget.LifetimeTimeout)*time.Second {
 		return apperrors.Payload(
 			apperrors.CodeRunTimeout,
 			"run exceeded configured timeout",
@@ -913,14 +913,14 @@ func (s *llmRunStream) FinalAssistantContent() (string, bool) {
 }
 
 func (s *llmRunStream) appendPendingSteers() {
-	if s.runControl == nil {
+	if s.runControl == nil || !s.ownsSteers() {
 		return
 	}
 	s.appendSteers(s.runControl.DrainSteers())
 }
 
 func (s *llmRunStream) appendTailSteersBeforeFinish() bool {
-	if s.runControl == nil {
+	if s.runControl == nil || !s.ownsSteers() {
 		return false
 	}
 	var steers []api.SteerRequest
@@ -970,7 +970,7 @@ func (s *llmRunStream) enqueueTerminalRunError(payload map[string]any) {
 }
 
 func (s *llmRunStream) closeSteers() {
-	if s.runControl != nil && !s.preserveSteersOnFinish {
+	if s.runControl != nil && s.ownsSteers() && !s.preserveSteersOnFinish {
 		s.runControl.CloseSteers()
 	}
 }
@@ -1051,4 +1051,8 @@ func (s *llmRunStream) sanitizedToolCalls(calls []openAIToolCall) []openAIToolCa
 		}
 	}
 	return out
+}
+
+func (s *llmRunStream) ownsSteers() bool {
+	return s.session.SubTaskID == "" && (s.execCtx == nil || s.execCtx.Session.SubTaskID == "")
 }

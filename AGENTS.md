@@ -37,7 +37,7 @@
 
 `contextConfig.agents` 为非授权的候选摘要引用：不可用项跳过，正常主 Agent 保持可用，管理接口与运行日志提供有界 `context_agents_unavailable` 警告，实际调用与必要执行依赖仍严格校验，见 [智能体配置说明](docs/智能体配置说明.md#context-tags)。Agent 加载不再由 Desktop 工具名强制推导 `builtin.desktop` 声明；执行时的受信任挂载与权限检查保留，见 [Desktop 连接器](docs/连接器共享包与Desktop迁移.md#builtindesktop)。
 
-Native Agent 可显式挂载 `sleep(durationMs)`，在当前 Run 内等待，steer 唤醒后由同一模型循环处理；`tool.wait` 提供客户端倒计时信息，客户端界面尚需接入。见 [原生等待工具](docs/原生等待工具.md)。
+Native Agent 通过 preset-tools 或显式声明挂载 `wait`：offset 优先于 base，时间为必填上限，可选多事件 any/all、同 Run steer 唤醒和 HTTP/WS skip；tool.wait/update 支持 WebClient 倒计时及 attach 快照。等待暂停执行预算、受 lifetimeTimeout 约束，普通根 Run 使用 awaiting 恢复，子任务/Team/非空 run.env 不跨重启恢复。见 [原生等待工具](docs/原生等待工具.md)。
 
 ## 2. 技术栈
 

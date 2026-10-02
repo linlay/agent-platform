@@ -122,3 +122,12 @@ func (e *LLMAgentEngine) materializeHistorySteer(raw map[string]any, session con
 	result["content"] = querymessages.BuildContentWithImageBlocks(text, refs, blocks, options)
 	return result
 }
+
+func (e *LLMAgentEngine) BindSteerPreparer(session contracts.QuerySession, control *contracts.RunControl) error {
+	model, err := e.models.GetModel(session.ModelKey)
+	if err != nil {
+		return err
+	}
+	control.SetSteerPreparer(e.steerPreparer(session, model.IsVision))
+	return nil
+}

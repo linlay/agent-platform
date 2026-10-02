@@ -13,8 +13,8 @@ import (
 )
 
 func TestPresetToolsResolveAndExclude(t *testing.T) {
-	d := AgentDefinition{Engine: AgentEngineNative, Mode: AgentModeGeneral, Tools: []string{"datetime", "bash", "sleep"}, ExcludedTools: []string{"sleep", "bash", "file_read"}}
-	d.applyPresetTools([]string{"datetime", "sleep", "file_read"})
+	d := AgentDefinition{Engine: AgentEngineNative, Mode: AgentModeGeneral, Tools: []string{"datetime", "bash", "wait"}, ExcludedTools: []string{"wait", "bash", "file_read"}}
+	d.applyPresetTools([]string{"datetime", "wait", "file_read"})
 	if !reflect.DeepEqual(d.Tools, []string{"datetime"}) {
 		t.Fatalf("tools=%v", d.Tools)
 	}
@@ -37,7 +37,7 @@ func TestPresetToolsResolveAndExclude(t *testing.T) {
 	clone := cloneAgentDefinitionSnapshot(d)
 	clone.ToolBindings[0].Source = "changed"
 	clone.ExcludedTools[0] = "changed"
-	if d.ToolBindings[0].Source != "preset" || d.ExcludedTools[0] != "sleep" {
+	if d.ToolBindings[0].Source != "preset" || d.ExcludedTools[0] != "wait" {
 		t.Fatal("snapshot alias")
 	}
 	for _, isolated := range []AgentDefinition{{Engine: AgentEngineACP}, {Mode: "TEAM"}} {
@@ -60,8 +60,8 @@ func TestPresetToolsValidateRegistration(t *testing.T) {
 }
 func TestPresetToolsCatalogAndStructuredSave(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{PresetTools: []string{"datetime", "sleep"}, Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), SkillsCenterDir: filepath.Join(root, "skills"), ChatsDir: filepath.Join(root, "chats")}}
-	r, err := NewFileRegistry(cfg, []api.ToolDetailResponse{{Name: "datetime"}, {Name: "sleep"}, {Name: "bash"}})
+	cfg := config.Config{PresetTools: []string{"datetime", "wait"}, Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), SkillsCenterDir: filepath.Join(root, "skills"), ChatsDir: filepath.Join(root, "chats")}}
+	r, err := NewFileRegistry(cfg, []api.ToolDetailResponse{{Name: "datetime"}, {Name: "wait"}, {Name: "bash"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestPresetToolsCatalogAndStructuredSave(t *testing.T) {
 		t.Fatalf("preset persisted: %v", got)
 	}
 	// Simulate a source edit: existing explicit preset plus a source-only exclusion.
-	raw := "key: demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\ntoolConfig:\n  tools:\n    - datetime\n    - bash\n  excludeTools:\n    - sleep\n"
+	raw := "key: demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\ntoolConfig:\n  tools:\n    - datetime\n    - bash\n  excludeTools:\n    - wait\n"
 	if err := os.WriteFile(files.Source.Path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -96,12 +96,12 @@ func TestPresetToolsCatalogAndStructuredSave(t *testing.T) {
 	if got := listStrings(mapNode(saved.Definition["toolConfig"])["tools"]); !reflect.DeepEqual(got, []string{"datetime"}) {
 		t.Fatalf("lost original declaration: %v", got)
 	}
-	if got := listStrings(mapNode(saved.Definition["toolConfig"])["excludeTools"]); !reflect.DeepEqual(got, []string{"sleep"}) {
+	if got := listStrings(mapNode(saved.Definition["toolConfig"])["excludeTools"]); !reflect.DeepEqual(got, []string{"wait"}) {
 		t.Fatalf("lost exclusion: %v", got)
 	}
 }
 func TestPresetToolsACPRejectsExclusions(t *testing.T) {
-	d := AgentDefinition{Engine: AgentEngineACP, ACPBridgeID: "bridge", ExcludedTools: []string{"sleep"}}
+	d := AgentDefinition{Engine: AgentEngineACP, ACPBridgeID: "bridge", ExcludedTools: []string{"wait"}}
 	if ValidateAgentCoderBackend(d) == nil {
 		t.Fatal("ACP accepted exclusion")
 	}
@@ -113,9 +113,9 @@ func TestPresetToolsACPRejectsExclusions(t *testing.T) {
 
 func TestPresetToolsModeDefaultsAndRuntimeDependencies(t *testing.T) {
 	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
-		d := AgentDefinition{Mode: mode, Engine: AgentEngineNative, DeclaredTools: []string{}, ExcludedTools: []string{"sleep", "bash"}}
-		d.applyPresetTools([]string{"datetime", "sleep"})
-		if !containsString(d.Tools, "datetime") || containsString(d.Tools, "sleep") || containsString(d.Tools, "bash") {
+		d := AgentDefinition{Mode: mode, Engine: AgentEngineNative, DeclaredTools: []string{}, ExcludedTools: []string{"wait", "bash"}}
+		d.applyPresetTools([]string{"datetime", "wait"})
+		if !containsString(d.Tools, "datetime") || containsString(d.Tools, "wait") || containsString(d.Tools, "bash") {
 			t.Fatalf("mode=%s tools=%v", mode, d.Tools)
 		}
 		d.KBaseConfig.Enabled = true

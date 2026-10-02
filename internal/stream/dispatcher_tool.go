@@ -254,7 +254,7 @@ func isBashToolResult(toolName string) bool {
 
 // A wait starts at actual execution, after arguments have completed.
 func (d *StreamEventDispatcher) handleToolWait(input ToolWait) []StreamEvent {
-	if input.ToolID == "" || input.ToolName == "" || input.StartedAt <= 0 || input.DurationMs <= 0 || input.DeadlineAt-input.StartedAt != input.DurationMs {
+	if input.ToolID == "" || input.ToolName == "" || input.StartedAt <= 0 || input.DurationMs < 0 || max(int64(0), input.DeadlineAt-input.StartedAt) != input.DurationMs {
 		return nil
 	}
 	taskID := strings.TrimSpace(input.TaskID)
@@ -271,5 +271,13 @@ func (d *StreamEventDispatcher) handleToolWait(input ToolWait) []StreamEvent {
 	if taskID != "" {
 		payload["taskId"] = taskID
 	}
-	return []StreamEvent{NewEvent("tool.wait", payload)}
+	payload["waitCheckpoint"] = input.Checkpoint
+	payload["description"] = input.Description
+	payload["match"] = input.Match
+	payload["conditions"] = input.Conditions
+	eventType := "tool.wait"
+	if input.Update {
+		eventType = "tool.wait.update"
+	}
+	return []StreamEvent{NewEvent(eventType, payload)}
 }

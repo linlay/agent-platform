@@ -113,6 +113,12 @@ func CompactFloat64(value any) float64 {
 }
 
 func ClientVisibleEventData(data stream.EventData) stream.EventData {
+	if data.Type == "tool.wait" || data.Type == "tool.wait.update" {
+		payload := contracts.CloneMap(data.Payload)
+		delete(payload, "waitCheckpoint")
+		data.Payload = payload
+		return data
+	}
 	if len(data.Payload) == 0 {
 		return data
 	}
@@ -284,6 +290,25 @@ func ShouldStartRunContinuation(persisted bool, completion chat.RunCompletion, c
 }
 
 func HandleAwaitingLifecycle(params NativeOptions, data stream.EventData, tracker *AwaitingTracker) {
+	if data.Type == "tool.wait" {
+		id := data.String("toolId")
+		if params.Chats != nil {
+			_ = params.Chats.SetPendingAwaiting(params.Session.ChatID, chat.PendingAwaiting{AwaitingID: id, RunID: params.Session.RunID, Mode: "wait", CreatedAt: data.Timestamp})
+		}
+		tracker.PendingAwaitingID = id
+		tracker.PendingMode = "wait"
+		return
+	}
+	if data.Type == "tool.result" && data.String("toolName") == "wait" {
+		if params.Chats != nil {
+			_ = params.Chats.ClearPendingAwaiting(params.Session.ChatID, data.String("toolId"))
+		}
+		if tracker.PendingAwaitingID == data.String("toolId") {
+			tracker.PendingAwaitingID = ""
+			tracker.PendingMode = ""
+		}
+		return
+	}
 	switch data.Type {
 	case "awaiting.ask":
 		awaitingID := strings.TrimSpace(data.String("awaitingId"))

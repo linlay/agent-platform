@@ -22,8 +22,10 @@ resource:
   ticket-ttl-seconds: 86400
 
 budget:
-  # 单次 run 执行耗时上限；CODER planning confirmation 的用户等待时间不计入。
+  # 单次 run 执行耗时上限；原生 wait 与 CODER planning confirmation 的等待时间不计入。
   timeout: 3600
+  # 包含 wait 的生命周期上限，0 表示 max(24 小时, timeout)。Agent budget 使用 lifetimeTimeout。
+  lifetime-timeout: 0
   max-steps: 100
   model:
     max-calls: 100

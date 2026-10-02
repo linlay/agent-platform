@@ -24,7 +24,7 @@ func TestRemovedArgumentsRejectedWithoutMutatingInput(t *testing.T) {
 		{"file_grep", `{"-B":0}`, "beforeContext"},
 		{"file_grep", `{"-C":0}`, "context"},
 		{"regex", `{"case_insensitive":false}`, "caseInsensitive"},
-		{"sleep", `{"duration_ms":1}`, "durationMs"},
+		{"wait", `{"duration_ms":1}`, "offset"},
 		{"image_generate", `{"response_format":"url"}`, "responseFormat"},
 		{"image_generate", `{"images":[{"source_type":"secret"}]}`, "images[0].sourceType"},
 		{"image_generate", `{"mask":{"source_type":"secret"}}`, "mask.sourceType"},

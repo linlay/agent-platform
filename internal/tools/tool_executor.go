@@ -28,6 +28,7 @@ type ArtifactPusher interface {
 }
 
 type RuntimeToolExecutor struct {
+	waitConditions  WaitConditionProvider
 	cfg             config.Config
 	sandbox         SandboxClient
 	chats           chat.Store
@@ -179,7 +180,7 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 }
 
 func (t *RuntimeToolExecutor) SupportsToolOutput(toolName string, execCtx *ExecutionContext) bool {
-	return strings.EqualFold(strings.TrimSpace(toolName), "sleep") || strings.EqualFold(strings.TrimSpace(toolName), "bash") &&
+	return strings.EqualFold(strings.TrimSpace(toolName), "wait") || strings.EqualFold(strings.TrimSpace(toolName), "bash") &&
 		execCtx != nil && !hasRuntimeSandbox(execCtx.Session)
 }
 
@@ -211,8 +212,8 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 	switch strings.TrimSpace(toolName) {
 	case "agent_delegate":
 		return ToolExecutionResult{Output: "agent_delegate is only executed by an orchestrated Team coordinator", Error: "internal_tool_only", ExitCode: -1}, nil
-	case "sleep":
-		return t.invokeSleep(ctx, args, execCtx)
+	case "wait":
+		return t.invokeWait(ctx, args, execCtx)
 	case "datetime":
 		return t.invokeDateTime(args), nil
 	case "artifact_publish":

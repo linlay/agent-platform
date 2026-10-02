@@ -216,6 +216,21 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 			log.Printf("[server][awaiting] prepare continuation system init failed chatId=%s runId=%s err=%v", chatID, runID, err)
 		}
 	}
+	if mode == "wait" {
+		checkpoint, err := decodeWaitCheckpoint(answer["waitCheckpoint"])
+		if err != nil {
+			return false, err
+		}
+		session.WaitResume = &checkpoint
+		session.ResolvedBudget = checkpoint.Budget
+		if scope, err := s.runControlScopes().Load(sourceRunID); err == nil {
+			session.Subject = scope.Subject
+		}
+		if status, ok := s.deps.Runs.RunStatus(sourceRunID); ok {
+			session.RunOrigin = status.RunOrigin
+		}
+		session.CurrentMessages = nil
+	}
 	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, sourceRunID, submitReq.AwaitingID, answer)
 
 	initialSeq := s.continuationInitialSeq(chatID, sourceRunID, runID)

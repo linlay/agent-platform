@@ -282,6 +282,8 @@ func (c *Config) applyBillingValues(values map[string]any) {
 }
 
 func (c *Config) applyRuntimeBudgetValues(budget map[string]any) {
+	c.Defaults.Budget.LifetimeTimeout = intValue(anyValue(budget["lifetimeTimeout"], c.Defaults.Budget.LifetimeTimeout), c.Defaults.Budget.LifetimeTimeout)
+	c.Defaults.Budget.LifetimeTimeout = intValue(anyValue(budget["lifetime-timeout"], c.Defaults.Budget.LifetimeTimeout), c.Defaults.Budget.LifetimeTimeout)
 	c.Defaults.Budget.Timeout = intValue(anyValue(budget["timeout"], c.Defaults.Budget.Timeout), c.Defaults.Budget.Timeout)
 	c.Defaults.Budget.MaxSteps = intValue(anyValue(budget["maxSteps"], c.Defaults.Budget.MaxSteps), c.Defaults.Budget.MaxSteps)
 	c.Defaults.Budget.MaxSteps = intValue(anyValue(budget["max-steps"], c.Defaults.Budget.MaxSteps), c.Defaults.Budget.MaxSteps)

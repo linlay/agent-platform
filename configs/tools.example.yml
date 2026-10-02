@@ -7,7 +7,7 @@ runQuery:
 # Omit or set [] to disable.
 preset-tools:
   - datetime
-  - sleep
+  - wait
   - file_read
   - file_write
   - file_edit

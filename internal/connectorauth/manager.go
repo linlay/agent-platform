@@ -17,6 +17,7 @@ import (
 )
 
 type Session struct {
+	AuthorizationID     string    `json:"authorizationId,omitempty"`
 	ID                  string    `json:"sessionId"`
 	ConnectorID         string    `json:"connectorId"`
 	ComponentID         string    `json:"componentId,omitempty"`
@@ -197,8 +198,15 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
 	s := &login{Session: Session{ID: rand.Text(), ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "preparing", ExpiresAt: time.Now().Add(15 * time.Minute)}, cancel: cancel, done: make(chan struct{})}
+	s.AuthorizationID = s.ID
 	s.ComponentID = component
 	s.generation = &state.Generation
+	if err := m.persistAuthorization(s.Session); err != nil {
+		cancel()
+		release()
+		m.mu.Unlock()
+		return Session{}, err
+	}
 	m.sessions[id] = s
 	result := s.Session
 	m.mu.Unlock()
@@ -237,6 +245,7 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 			s.Status = "authorized"
 			s.Message = "Login completed"
 		}
+		_ = m.persistAuthorization(s.Session)
 	}()
 	return result, nil
 }

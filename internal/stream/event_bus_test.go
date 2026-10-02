@@ -299,3 +299,34 @@ func TestRunEventBusSeedCursorKeepsRecoveredAttachOpenAtHistoryBoundary(t *testi
 		t.Fatal("must not reseed a live event bus")
 	}
 }
+
+func TestAttachRestoresActiveWaitAfterReplayTrimming(t *testing.T) {
+	bus := NewRunEventBus(2, 2, nil)
+	bus.Publish(EventData{Seq: 1, Type: "tool.wait", Timestamp: 1, Payload: map[string]any{"toolId": "w", "runId": "r", "startedAt": int64(1), "deadlineAt": int64(1000)}})
+	for i := int64(2); i <= 5; i++ {
+		bus.Publish(EventData{Seq: i, Type: "tool.output", Timestamp: i})
+	}
+	observer, err := bus.Subscribe(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Unsubscribe(observer.ID)
+	snapshot := <-observer.Events
+	if snapshot.Type != "tool.wait.update" || snapshot.Seq != 0 || snapshot.String("toolId") != "w" {
+		t.Fatalf("missing current wait: %+v", snapshot)
+	}
+	bus.Publish(EventData{Seq: 6, Type: "tool.result", Timestamp: 6, Payload: map[string]any{"toolId": "w"}})
+	if result := <-observer.Events; result.Seq != 6 {
+		t.Fatal(result)
+	}
+	next, err := bus.Subscribe(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Unsubscribe(next.ID)
+	select {
+	case stale := <-next.Events:
+		t.Fatalf("completed wait revived: %+v", stale)
+	default:
+	}
+}

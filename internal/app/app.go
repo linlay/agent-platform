@@ -179,7 +179,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
-	runManager := runstate.NewManager()
+	runManager := runstate.NewManager().WithStateRoot(cfg.Paths.StateDir)
 	runtimeService := agentruntime.NewService()
 	proxyRuntime := runtimeproxy.NewService()
 	wsHub := ws.NewHub()
@@ -481,6 +481,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		DeferredAwaitings: deferredAwaitings, Proxy: server.RuntimeProxyPort{Server: srv}, ResourceTickets: srv.RuntimeResourceTickets(),
 	})
 	runtimeService.Bind(queryService)
+	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), kbase: kbaseManager, auth: srv})
 	if err := queryService.Reconcile(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
 	}

@@ -164,6 +164,9 @@ func (r *historyReplay) replaySubmit(line map[string]any) error {
 	rd := ensureRun(r.runs, &r.runOrder, runID)
 	submit, _ := line["submit"].(map[string]any)
 	answer, _ := line["answer"].(map[string]any)
+	if stringValue(answer["mode"]) == "wait" {
+		return nil
+	}
 	if len(submit) > 0 {
 		submit = cloneStringAnyMap(submit)
 		clearReplayCursorFields(submit)

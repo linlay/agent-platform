@@ -25,6 +25,7 @@ const (
 )
 
 type managedRun struct {
+	lifetimeTimer       *time.Timer
 	interactionConfig   *interaction.Config
 	run                 contracts.ActiveRun
 	control             *contracts.RunControl
@@ -41,6 +42,7 @@ type managedRun struct {
 }
 
 type Manager struct {
+	recordRoot            string
 	mu                    sync.Mutex
 	runs                  map[string]*managedRun
 	reaperStop            chan struct{}
@@ -195,6 +197,12 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 		runEnvironment:    session.RunEnvironment,
 		startedAt:         startedAt,
 		activeSince:       startedAt,
+	}
+	m.saveRunRecord(m.runs[session.RunID])
+	if lifetime := session.ResolvedBudget.LifetimeTimeout; lifetime > 0 {
+		m.runs[session.RunID].lifetimeTimer = time.AfterFunc(max(time.Duration(0), time.Until(startedAt.Add(time.Duration(lifetime)*time.Second))), func() {
+			control.Interrupt(contracts.InterruptInfo{Source: contracts.InterruptSourceUnknown, Reason: contracts.InterruptReasonRunExpired, Detail: "run lifetime exceeded"})
+		})
 	}
 	return contracts.WithRunControl(control.Context(), control), control, run
 }
@@ -461,7 +469,11 @@ func (m *Manager) Finish(runID string) {
 	m.mu.Lock()
 	state, ok := m.runs[runID]
 	if ok {
+		if state.lifetimeTimer != nil {
+			state.lifetimeTimer.Stop()
+		}
 		state.completedAt = time.Now()
+		m.saveRunRecord(state)
 	}
 	m.mu.Unlock()
 	if ok {
