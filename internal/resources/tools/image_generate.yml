@@ -1,5 +1,10 @@
 name: image_generate
-label: 图像生成
+label: "图像生成"
+i18n:
+  en:
+    label: "Generate Image"
+  zh-CN:
+    label: "图像生成"
 description: |
   Generate or edit images through the globally configured image model. Use
   this when the user explicitly asks to create, transform, or inpaint an image.

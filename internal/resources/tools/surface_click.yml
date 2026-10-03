@@ -1,5 +1,10 @@
 name: surface_click
-label: 网页点击
+label: "网页点击"
+i18n:
+  en:
+    label: "Click Page"
+  zh-CN:
+    label: "网页点击"
 description: "Click in a webpage with real input events, by CSS selector or by coordinates. Without waitFor, success proves input delivery, not business completion. Do not replay a click whose outcome is reported as unknown; read the page state first. Prefer a matching AWCP section when the page provides one."
 clientVisible: true
 inputSchema:

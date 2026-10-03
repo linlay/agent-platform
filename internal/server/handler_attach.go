@@ -84,7 +84,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 				_ = sseWriter.WriteDone()
 				return
 			}
-			if err := sseWriter.WriteJSON("message", event); err != nil {
+			if err := sseWriter.WriteJSON("message", localizeStreamEventData(requestLocale(r, "en"), event)); err != nil {
 				if isTimeContractViolation(err) {
 					s.terminateSSEForTimeContractViolation(
 						sseWriter,

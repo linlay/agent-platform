@@ -9,6 +9,7 @@ import (
 
 	"agent-platform/internal/contracts"
 	runtimetypes "agent-platform/internal/runtime/types"
+	"agent-platform/internal/toolinput"
 )
 
 const (
@@ -74,7 +75,7 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 	}
 	session := execCtx.Session
 	if session.RunOrigin != nil {
-		result := errorResult("run_chaining_not_allowed", "a run created by run_query cannot call run tools")
+		result := errorResult("run_chaining_not_allowed", "a run created by run_query cannot call run tools; return the request to the initiating ordinary main Agent Run to query, start or interrupt its owned runs; changing runId cannot remove this restriction")
 		return contracts.RunOrigin{}, &result
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner)
@@ -154,6 +155,9 @@ func (h *ToolHandler) query(
 }
 
 func (h *ToolHandler) status(args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
+	if err := toolinput.Validate(args, map[string]string{"runId": "s!"}, ""); err != nil {
+		return resultFromError(err), nil
+	}
 	runID := strings.TrimSpace(contracts.AnyStringNode(args["runId"]))
 	if runID == "" {
 		return errorResult("invalid_request", "runId is required"), nil
@@ -169,6 +173,9 @@ func (h *ToolHandler) status(args map[string]any, origin contracts.RunOrigin) (c
 }
 
 func (h *ToolHandler) interrupt(ctx context.Context, args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
+	if err := toolinput.Validate(args, map[string]string{"runId": "s!", "message": "s"}, ""); err != nil {
+		return resultFromError(err), nil
+	}
 	runID := strings.TrimSpace(contracts.AnyStringNode(args["runId"]))
 	if runID == "" {
 		return errorResult("invalid_request", "runId is required"), nil
@@ -285,6 +292,17 @@ func runPayload(run contracts.RunSnapshot) map[string]any {
 }
 
 func resultFromError(err error) contracts.ToolExecutionResult {
+	var input *toolinput.Error
+	if errors.As(err, &input) {
+		r := errorResult("invalid_request", input.Error())
+		for k, v := range input.Details() {
+			r.Structured[k] = v
+		}
+		r.Structured["stage"] = "admission"
+		r.Structured["executionState"] = "not_started"
+		r.Output = contracts.CompactToolModelOutput(r.Structured, "")
+		return r
+	}
 	var typed *contracts.RunToolError
 	if errors.As(err, &typed) {
 		return errorResult(typed.Code, typed.Message)

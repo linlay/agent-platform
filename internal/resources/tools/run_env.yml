@@ -1,5 +1,10 @@
 name: run_env
-label: 运行环境
+label: "运行环境"
+i18n:
+  en:
+    label: "Run Environment"
+  zh-CN:
+    label: "运行环境"
 description: |
   Automatically mounted for native Agents. Manage only this native root Run's process-local dynamic environment. Operations:
   list {} returns variables/revision/usage/limits; explain {key?} explains rules without reading static values;

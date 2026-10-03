@@ -1,5 +1,10 @@
 name: plan_update_task
-label: 更新任务
+label: "更新任务"
+i18n:
+  en:
+    label: "Update Task"
+  zh-CN:
+    label: "更新任务"
 description: "Update one task in the ordered plan. Only the first non-terminal task may advance from init, either through init -> in_progress -> completed/failed/canceled or directly through init -> completed/failed/canceled. If a task is in_progress, only that current task may advance to a terminal status; later tasks remain blocked. At most one task may be in_progress. Same-status updates are idempotent and may update description. Terminal tasks cannot be restarted or changed to another status; append a new task to retry. A rejected update does not change task state: use the returned plan, currentTaskId, blockingTaskId and recovery guidance to correct the call instead of repeating it unchanged. Do not mark a task completed merely to unblock a later task. Success returns the updated plan snapshot, including currentTaskId when a task is in_progress."
 clientVisible: true
 inputSchema:

@@ -8,6 +8,7 @@ import (
 
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/credentialview"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
@@ -155,6 +156,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolName:        toolName,
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
+			ToolI18n:        m.resolveToolTranslations(toolName),
 			ChunkIndex:      chunkIndex,
 			AwaitAsk:        awaitAsk,
 		}
@@ -170,7 +172,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			if buffer := m.sensitiveToolArgs[toolID]; buffer != nil {
 				toolName := m.toolNames[toolID]
 				toolLabel, toolDescription := m.resolveToolMetadata(toolName)
-				inputs = append(inputs, stream.ToolArgs{ToolID: toolID, Delta: m.sanitizeToolArgumentsForCall(toolID, toolName, buffer.String()), ToolName: toolName, ToolLabel: toolLabel, ToolDescription: toolDescription, ChunkIndex: 0})
+				inputs = append(inputs, stream.ToolArgs{ToolID: toolID, Delta: m.sanitizeToolArgumentsForCall(toolID, toolName, buffer.String()), ToolName: toolName, ToolLabel: toolLabel, ToolDescription: toolDescription, ToolI18n: m.resolveToolTranslations(toolName), ChunkIndex: 0})
 				delete(m.sensitiveToolArgs, toolID)
 			}
 			delete(m.toolPathSessions, toolID)
@@ -639,4 +641,16 @@ func (m *DeltaMapper) sanitizeToolArgumentsForCall(toolID, toolName, raw string)
 		return m.credentialPolicy.Arguments(toolName, raw, *session)
 	}
 	return m.sanitizeToolArguments(toolName, raw)
+}
+
+func (m *DeltaMapper) resolveToolTranslations(name string) map[string]any {
+	if m.toolRegistry == nil {
+		return nil
+	}
+	tool, ok := m.toolRegistry.Tool(name)
+	if !ok {
+		return nil
+	}
+	value, _ := tool.Meta["toolI18n"].(map[string]any)
+	return i18n.CloneToolTranslations(value)
 }

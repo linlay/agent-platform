@@ -1,13 +1,18 @@
 name: run_query
-label: 发起独立运行
+label: "发起独立运行"
+i18n:
+  en:
+    label: "Start Independent Run"
+  zh-CN:
+    label: "发起独立运行"
 description: |
   Start an independent root run for exactly one catalog Agent or Team. By
   default, it creates a new Chat/thread; when chatId is provided, it continues
   that target-owned Chat instead. Return its chatId and runId immediately. This
   tool does not wait for the target result, and the target continues if the
   caller run is interrupted. When targeting the current Agent, set agentKey to
-  the exact Agent Identity.key from the current system prompt. Chinese phrases
-  “当前智能体”, “本智能体”, and “你自己” always mean that current Agent; do not
+  the exact Agent Identity.key from the current system prompt. References to the current Agent, this Agent, or yourself in any language
+  always mean that current Agent; do not
   substitute a key from Runtime Context: Sub-Agent Candidates.
   accessLevel, mustUseSkills and chatName are optional. Only pass accessLevel
   when the user explicitly requests a permission level. Automatic approval means

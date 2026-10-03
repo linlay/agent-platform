@@ -1,5 +1,10 @@
 name: surface_screenshot
-label: 网页截图
+label: "网页截图"
+i18n:
+  en:
+    label: "Capture Page"
+  zh-CN:
+    label: "网页截图"
 description: "Capture a PNG screenshot of a webpage. The image is saved to the current Chat and the result exposes a referenceName; inspect it with vision_recognize. Do not repeat image data in conversation or files."
 clientVisible: true
 readOnly: true

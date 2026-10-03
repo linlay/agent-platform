@@ -1,6 +1,11 @@
 key: _session_search_
 name: _session_search_
-label: Session Search
+label: "搜索会话"
+i18n:
+  en:
+    label: "Session Search"
+  zh-CN:
+    label: "搜索会话"
 description: Search the current chat/session history for prior messages, events, and run outputs without promoting them into long-term memory.
 inputSchema:
   type: object

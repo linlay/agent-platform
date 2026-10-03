@@ -1,5 +1,10 @@
 name: kbase_files
-label: 浏览知识库文件
+label: "浏览知识库文件"
+i18n:
+  en:
+    label: "Browse Knowledge Base Files"
+  zh-CN:
+    label: "浏览知识库文件"
 description: List files and compact directory tree entries from the current KBASE index. This reads indexed KBASE metadata only, not the host filesystem.
 clientVisible: true
 readOnly: true

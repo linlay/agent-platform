@@ -1,11 +1,10 @@
 package tools
 
 import (
+	"agent-platform/internal/toolinput"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/url"
-	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -101,37 +100,36 @@ func webControlInvalidArgs(message string, field string) ToolExecutionResult {
 
 // webControlFields rejects fields outside a tool's fixed input contract.
 func webControlFields(args map[string]any, allowed ...string) (ToolExecutionResult, bool) {
-	unknown := make([]string, 0)
-	for key := range args {
-		known := false
-		for _, name := range allowed {
-			if key == name {
-				known = true
-				break
-			}
-		}
-		if !known {
-			unknown = append(unknown, key)
+	fields := map[string]bool{}
+	for _, key := range allowed {
+		fields[key] = true
+	}
+	for _, key := range toolinput.Keys(args) {
+		if !fields[key] {
+			return webControlInputError(toolinput.Unknown("", toolinput.Keys(fields))), true
 		}
 	}
-	if len(unknown) == 0 {
-		return ToolExecutionResult{}, false
-	}
-	sort.Strings(unknown)
-	return webControlInvalidArgs(fmt.Sprintf("unsupported field %q", unknown[0]), unknown[0]), true
+	return ToolExecutionResult{}, false
+}
+func webControlInputError(err *toolinput.Error) ToolExecutionResult {
+	details := err.Details()
+	details["category"] = "validation"
+	details["stage"] = "arguments"
+	details["executionState"] = "not_started"
+	return desktopActionErrorResult("invalid_args", err.Error(), details)
 }
 
 func webControlString(args map[string]any, field string, required bool) (string, ToolExecutionResult, bool) {
 	raw, present := args[field]
 	if !present {
 		if required {
-			return "", webControlInvalidArgs(field+" is required", field), true
+			return "", webControlInputError(toolinput.New(field, "non-empty JSON string", raw, false, `Provide a non-empty string, for example "text".`)), true
 		}
 		return "", ToolExecutionResult{}, false
 	}
 	value, ok := raw.(string)
 	if !ok || strings.TrimSpace(value) == "" {
-		return "", webControlInvalidArgs(field+" must be a non-empty string", field), true
+		return "", webControlInputError(toolinput.New(field, "non-empty JSON string", raw, true, `Provide a non-empty string, for example "text".`)), true
 	}
 	return value, ToolExecutionResult{}, false
 }
@@ -143,7 +141,7 @@ func webControlBool(args map[string]any, field string) (bool, bool, ToolExecutio
 	}
 	value, ok := raw.(bool)
 	if !ok {
-		return false, true, webControlInvalidArgs(field+" must be a boolean", field), true
+		return false, true, webControlInputError(toolinput.New(field, "JSON boolean", raw, true, "Use true or false without quotes.")), true
 	}
 	return value, true, ToolExecutionResult{}, false
 }

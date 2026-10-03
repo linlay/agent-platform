@@ -1,5 +1,10 @@
 name: memory_read
-label: 读取记忆
+label: "读取记忆"
+i18n:
+  en:
+    label: "Read Memory"
+  zh-CN:
+    label: "读取记忆"
 description: Read the current personal Markdown document and its revision before editing.
 clientVisible: false
 inputSchema:

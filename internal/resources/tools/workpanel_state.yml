@@ -1,5 +1,10 @@
 name: workpanel_state
-label: 工作面板状态
+label: "工作面板状态"
+i18n:
+  en:
+    label: "WorkPanel State"
+  zh-CN:
+    label: "工作面板状态"
 description: "List what is open in the current Chat's WorkPanel. Each item reports kind (web or file), the url it was opened with, title and whether it is active. Use surface_list for live webpages and their surfaceId."
 clientVisible: true
 readOnly: true

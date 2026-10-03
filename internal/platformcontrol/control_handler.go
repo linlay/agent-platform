@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/models"
+	"agent-platform/internal/toolinput"
 )
 
 func (h *ToolHandler) ConfigureControl(sources *adminsource.ControlService, chats *conversation.Service, modelRegistry *models.ModelRegistry) *ToolHandler {
@@ -43,20 +44,21 @@ func controlFail(code, message, stage string) contracts.ToolExecutionResult {
 }
 
 var argumentFields = map[string]map[string]string{
-	"catalog_query.list":     {"resourceType": "s!", "status": "s", "limit": "n", "cursor": "s"},
-	"catalog_query.get":      {"resourceType": "s!", "resourceKey": "s!", "path": "s"},
-	"catalog_query.defaults": {"type": "s!"},
-	"catalog_query.validate": {"resourceType": "s!", "resourceKey": "s!", "content": "s!", "path": "s", "mcpUrl": "s"},
-	"catalog_manage.apply":   {"resourceType": "s!", "resourceKey": "s!", "path": "s", "content": "s!", "baseRevision": "s", "preservePaths": "a", "mcpUrl": "s"},
-	"catalog_manage.delete":  {"resourceType": "s!", "resourceKey": "s!", "baseRevision": "s!"},
-	"chat_query.current":     {},
-	"chat_query.list":        {"scope": "s", "archived": "b", "pinned": "b", "limit": "n", "cursor": "s"},
-	"chat_query.search":      {"query": "s!", "scope": "s", "chatId": "s", "archived": "b", "limit": "n", "cursor": "s"},
-	"chat_query.read":        {"chatId": "s!", "archived": "b", "view": "s!", "limit": "n", "cursor": "s"},
-	"chat_query.artifacts":   {"chatId": "s", "runId": "s", "limit": "n", "cursor": "s"},
-	"chat_manage.rename":     {"chatId": "s", "chatName": "s!"},
-	"chat_manage.setPinned":  {"chatId": "s", "pinned": "b!"},
-	"chat_manage.archive":    {"chatId": "s", "chatIds": "a"}, "chat_manage.restore": {"chatId": "s", "chatIds": "a"},
+	"catalog_query.resourceTypes": {},
+	"catalog_query.list":          {"resourceType": "s!", "status": "s", "limit": "n", "cursor": "s"},
+	"catalog_query.get":           {"resourceType": "s!", "resourceKey": "s!", "path": "s"},
+	"catalog_query.defaults":      {"type": "s!"},
+	"catalog_query.validate":      {"resourceType": "s!", "resourceKey": "s!", "content": "s!", "path": "s", "mcpUrl": "s"},
+	"catalog_manage.apply":        {"resourceType": "s!", "resourceKey": "s!", "path": "s", "content": "s!", "baseRevision": "s", "preservePaths": "a", "mcpUrl": "s"},
+	"catalog_manage.delete":       {"resourceType": "s!", "resourceKey": "s!", "baseRevision": "s!"},
+	"chat_query.current":          {},
+	"chat_query.list":             {"scope": "s", "archived": "b", "pinned": "b", "limit": "n", "cursor": "s"},
+	"chat_query.search":           {"query": "s!", "scope": "s", "chatId": "s", "archived": "b", "limit": "n", "cursor": "s"},
+	"chat_query.read":             {"chatId": "s!", "archived": "b", "view": "s!", "limit": "n", "cursor": "s"},
+	"chat_query.artifacts":        {"chatId": "s", "runId": "s", "limit": "n", "cursor": "s"},
+	"chat_manage.rename":          {"chatId": "s", "chatName": "s!"},
+	"chat_manage.setPinned":       {"chatId": "s", "pinned": "b!"},
+	"chat_manage.archive":         {"chatId": "s", "chatIds": "a"}, "chat_manage.restore": {"chatId": "s", "chatIds": "a"},
 	"chat_manage.fork":                 {"sourceChatId": "s!", "sourceRunId": "s", "chatName": "s"},
 	"chat_manage.export":               {"chatId": "s!", "archived": "b", "format": "s!"},
 	"chat_manage.delete":               {"chatId": "s!", "archived": "b"},
@@ -66,26 +68,26 @@ var argumentFields = map[string]map[string]string{
 
 func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.ExecutionContext) (string, map[string]any, error) {
 	if e == nil || e.Session.NativeConnectorTools[tool] != connector.PlatformControlConnectorID || e.Session.ConnectorDirs[connector.PlatformControlConnectorID] == "" {
-		return "", nil, fmt.Errorf("connector_not_mounted")
+		return "", nil, fmt.Errorf("connector_not_mounted: configure builtin.platform-control for this Agent through an authorized configuration change, then start a new Run")
 	}
 	if connector.IsPlatformRootTool(tool) && !rootCaller(e) {
-		return "", nil, fmt.Errorf("caller_forbidden: ordinary native main root Run required")
+		return "", nil, fmt.Errorf("caller_forbidden: ordinary native main root Run required; invoke this tool from the owning Agent main Run, outside Team, subtask or side-chat execution")
 	}
-	for key := range args {
-		if key != "action" && key != "args" {
-			return "", nil, fmt.Errorf("unknown field %s; expected action and args", key)
+	if err := toolinput.Validate(args, map[string]string{"action": "s!", "args": "o"}, ""); err != nil {
+		var input *toolinput.Error
+		if errors.As(err, &input) && input.Field == "action" {
+			v, present := args["action"]
+			return "", nil, toolinput.Choice("action", v, present, controlActionNames(tool))
 		}
+		return "", nil, err
 	}
-	action, ok := args["action"].(string)
-	if !ok || action == "" {
-		return "", nil, fmt.Errorf("action must be a non-empty string")
-	}
+	action := args["action"].(string)
 	descriptor, ok := connector.LookupControlAction(tool, action)
 	if !ok {
-		return "", nil, fmt.Errorf("unsupported action %q for %s", action, tool)
+		return "", nil, toolinput.Enum("action", action, controlActionNames(tool))
 	}
 	if contracts.IsReadOnlyToolExecutionPolicy(e.ToolExecutionPolicy) && !descriptor.ReadOnly {
-		return "", nil, fmt.Errorf("stage_forbidden")
+		return "", nil, fmt.Errorf("stage_forbidden: this action mutates state; retry only in an execution stage that permits mutation")
 	}
 	params := map[string]any{}
 	if raw, exists := args["args"]; exists {
@@ -96,44 +98,15 @@ func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.Ex
 		}
 	}
 	fields := argumentFields[tool+"."+action]
-	for field, value := range params {
-		kind, ok := fields[field]
-		if !ok {
-			return "", nil, fmt.Errorf("unknown args.%s", field)
-		}
-		valid := false
-		switch kind[0] {
-		case 's':
-			_, valid = value.(string)
-		case 'b':
-			_, valid = value.(bool)
-		case 'n':
-			n, ok := value.(float64)
-			valid = ok && n >= 1 && n <= 100 && n == float64(int(n))
-		case 'a':
-			v, ok := value.([]any)
-			valid = ok
-			for _, x := range v {
-				if _, ok := x.(string); !ok {
-					valid = false
-				}
-			}
-		}
-		if !valid {
-			return "", nil, fmt.Errorf("args.%s has invalid type or value", field)
-		}
+	if err := validateControlEnums(tool, action, params); err != nil {
+		return "", nil, err
 	}
-	for field, kind := range fields {
-		if strings.HasSuffix(kind, "!") {
-			v, ok := params[field]
-			if !ok || kind[0] == 's' && strings.TrimSpace(v.(string)) == "" {
-				return "", nil, fmt.Errorf("args.%s is required", field)
-			}
-		}
+	if err := toolinput.Validate(params, fields, "args."); err != nil {
+		return "", nil, err
 	}
 	if tool == "chat_manage" && (action == "archive" || action == "restore") {
 		if _, _, err := conversation.ControlArchiveIDs(params); err != nil {
-			return "", nil, err
+			return "", nil, toolinput.New("args", "either chatId or chatIds (1–100 distinct valid Chat IDs)", params, true, err.Error()+"; use {\"chatId\":\"<ID from chat_query.list>\"} or {\"chatIds\":[\"<ID from chat_query.list>\"]}.")
 		}
 	}
 	return action, params, nil
@@ -192,7 +165,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]any, e *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
 	action, p, err := h.admitted(tool, args, e)
 	if err != nil {
-		return controlFail("control_request_rejected", err.Error(), "admission"), nil
+		return controlInputFailure("control_request_rejected", err, "admission"), nil
 	}
 	var value any
 	switch tool {
@@ -235,7 +208,7 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 		value, err = h.inspect(action, p, e)
 	}
 	if err != nil {
-		failure := controlFail("control_failed", sanitizeDiagnostic(err.Error()), "execution")
+		failure := controlInputFailure("control_failed", err, "execution")
 		var mutation *contracts.MutationError
 		if errors.As(err, &mutation) && mutation.State != "not_started" {
 			if mutation.State == "rolled_back" {
@@ -258,6 +231,9 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 	return successResult(payload), nil
 }
 func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[string]any) (any, error) {
+	if action == "resourceTypes" {
+		return catalogResourceTypes(), nil
+	}
 	if action == "defaults" {
 		typ := stringValue(p, "type")
 		paths := map[string]string{"general": GeneralCreationPath, "coder": CoderCreationPath, "kbase": KBaseCreationPath}
@@ -299,6 +275,12 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 		return map[string]any{"valid": err == nil, "diagnostics": diagnostics}, nil
 	}
 	if action == "get" {
+		if t.ResourceType == "provider" || t.ResourceType == "mcp" {
+			if t.Path != "" {
+				return nil, fmt.Errorf("path is unsupported for read-only resource")
+			}
+			return h.readDiscoveryResource(t.ResourceType, t.ResourceKey)
+		}
 		if t.ResourceType == "tool" {
 			v, ok := h.registry.Tool(t.ResourceKey)
 			if !ok {
@@ -343,6 +325,28 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 				add(v.Key, true, nil)
 			}
 		}
+	case "provider":
+		if h.models == nil {
+			return nil, fmt.Errorf("models unavailable")
+		}
+		for _, v := range h.models.ProviderSummaries() {
+			if status == "invalid" {
+				continue
+			}
+			items = append(items, map[string]any{"resourceKey": v.Key, "resourceType": "provider", "valid": true, "diagnostics": nil, "editable": false, "definition": v})
+		}
+	case "mcp":
+		packages, err := h.cfg.Paths.ConnectorSources().LoadAll()
+		if err != nil {
+			return nil, fmt.Errorf("cannot enumerate MCP components: connector sources unavailable; inspect connector list with status invalid")
+		}
+		if status != "invalid" {
+			for _, pkg := range packages {
+				for name := range pkg.MCP {
+					items = append(items, publicMCPComponent(pkg, name))
+				}
+			}
+		}
 	case "connector":
 		ids := map[string]bool{}
 		for _, id := range connector.NativeConnectorIDs() {
@@ -364,11 +368,22 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 			}
 		}
 		for id := range ids {
-			_, err := sources.Load(id)
+			pkg, err := sources.Load(id)
 			if err != nil {
 				add(id, false, []map[string]any{candidateError("invalid_connector", err)})
 			} else {
 				add(id, true, nil)
+				if status != "invalid" {
+					item := items[len(items)-1]
+					item["editable"] = !pkg.Builtin
+					item["hasMcp"], item["hasCli"], item["hasView"], item["hasNative"] = len(pkg.MCP) > 0, pkg.CLI != nil, len(pkg.Views) > 0, len(pkg.Native) > 0
+					keys := []string{}
+					for name := range pkg.MCP {
+						keys = append(keys, id+"/"+name)
+					}
+					sort.Strings(keys)
+					item["mcpKeys"] = keys
+				}
 			}
 		}
 	case "agent":
@@ -446,7 +461,7 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 	if end < len(items) {
 		next = items[end-1]["resourceKey"].(string)
 	}
-	return map[string]any{"items": items[start:end], "nextCursor": next}, nil
+	return map[string]any{"items": items[start:end], "nextCursor": next, "total": len(items), "hasMore": next != ""}, nil
 }
 func (h *ToolHandler) chatQuery(action string, p map[string]any, e *contracts.ExecutionContext) (any, error) {
 	if h.conversations == nil {
@@ -509,7 +524,7 @@ func (h *ToolHandler) inspect(action string, p map[string]any, e *contracts.Exec
 		if component != "" {
 			v, ok := components[component]
 			if !ok {
-				return map[string]any{"component": component, "status": "unavailable"}, nil
+				return nil, toolinput.Enum("args.component", component, toolinput.Keys(components))
 			}
 			return map[string]any{"component": component, "state": v}, nil
 		}

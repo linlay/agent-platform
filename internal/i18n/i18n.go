@@ -1,6 +1,7 @@
 package i18n
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 )
@@ -285,11 +286,14 @@ func Translate(locale string, code string, message string) string {
 }
 
 func LocalizeValue(locale string, value any) any {
-	if ResolveLocale(locale) == LocaleEN || value == nil {
+	if value == nil {
 		return value
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
+		return value
+	}
+	if ResolveLocale(locale) == LocaleEN && !bytes.Contains(data, []byte(`"toolI18n"`)) {
 		return value
 	}
 	var decoded any
@@ -300,7 +304,7 @@ func LocalizeValue(locale string, value any) any {
 }
 
 func LocalizeEventPayload(locale string, eventType string, payload map[string]any) map[string]any {
-	if ResolveLocale(locale) == LocaleEN || payload == nil {
+	if payload == nil {
 		return payload
 	}
 	out, _ := localizeJSONValue(locale, payload).(map[string]any)
@@ -308,7 +312,7 @@ func LocalizeEventPayload(locale string, eventType string, payload map[string]an
 		return payload
 	}
 	switch eventType {
-	case "run.error", "task.error", "awaiting.answer":
+	case "run.error", "task.error", "awaiting.answer", "tool.start", "tool.snapshot":
 		return out
 	default:
 		return cloneMap(payload)
@@ -322,6 +326,7 @@ func localizeJSONValue(locale string, value any) any {
 		for key, child := range typed {
 			out[key] = localizeJSONValue(locale, child)
 		}
+		localizeToolPresentation(locale, out)
 		code, _ := out["code"].(string)
 		if message, ok := out["message"].(string); ok {
 			out["message"] = Translate(locale, code, message)

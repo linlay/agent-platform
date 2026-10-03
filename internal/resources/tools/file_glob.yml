@@ -1,5 +1,10 @@
 name: file_glob
-label: 查找文件
+label: "查找文件"
+i18n:
+  en:
+    label: "Find Files"
+  zh-CN:
+    label: "查找文件"
 description: |
   Find files by path/name glob without reading file contents. Use this when
   you know part of a filename, extension, or directory pattern and need matching

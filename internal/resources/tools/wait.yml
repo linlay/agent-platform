@@ -1,5 +1,10 @@
 name: wait
-label: 等待
+label: "等待"
+i18n:
+  en:
+    label: "Wait"
+  zh-CN:
+    label: "等待"
 description: Wait within the current Run until a required time limit or optional event conditions are met. User input wakes the wait (reason steered); continued:true means the user chose to stop waiting, so proceed with the next step instead of waiting for the remaining time. Prefer this over shell sleep or model polling. offset takes precedence over base. Use automation for scheduling beyond 24 hours.
 inputSchema:
   type: object

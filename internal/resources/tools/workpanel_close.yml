@@ -1,5 +1,10 @@
 name: workpanel_close
-label: 工作面板关闭
+label: "工作面板关闭"
+i18n:
+  en:
+    label: "Close WorkPanel"
+  zh-CN:
+    label: "工作面板关闭"
 description: "Close one file preview by its recorded Workspace path, or close the whole WorkPanel. Provide exactly one of url or all. To close one webpage, use surface_list then surface_close with its surfaceId; webpage URLs are not accepted here. Close the whole WorkPanel only when the user asked for it."
 clientVisible: true
 inputSchema:

@@ -4,7 +4,7 @@
 
 | 工具 | action | 执行环境 |
 | --- | --- | --- |
-| catalog_query | list/get/defaults/validate | 普通 native main root |
+| catalog_query | resourceTypes/list/get/defaults/validate | 普通 native main root |
 | catalog_manage | apply/delete | 普通 native main root |
 | chat_query | current/list/search/read/artifacts | 普通 native main root |
 | chat_manage | rename/setPinned/archive/restore/fork/export/delete | 普通 native main root |
@@ -23,7 +23,28 @@ Standalone 隐藏七个 Desktop 工具；Catalog/Chat 在子任务、Team、BTW/
 
 ## Catalog 源文件事务
 
-查询支持 Agent、Team、Skill、Connector、Model、Tool；模型和工具仅查询。列表支持状态、1–100 条分页；get 返回脱敏 content、目录内容摘要 baseRevision、editable 和 redactedPaths。
+查询支持 Agent、Team、Skill、Connector、Model、Provider、Tool、MCP 组件；`resourceTypes {}` 返回类型与操作能力矩阵。列表默认 20 条，支持 1–100 条分页，返回 `items/nextCursor/total/hasMore`；total 为当前请求按 status 筛选后的数量，不冻结跨页快照。必须用同一 resourceType/status 跟进 nextCursor 到空才能报告完整清单。可编辑源 get 返回脱敏 content、目录内容摘要 baseRevision、editable 和 redactedPaths；只读资源返回白名单 definition。
+
+| resourceType | list/get | validate/apply | delete | 边界 |
+| --- | --- | --- | --- | --- |
+| agent | 是 | 是 | 是 | 调用者自身、引用与版本保护 |
+| team | 是 | 是 | 否 | 协调器不单独进入目录 |
+| skill | 是 | 是 | 是 | 技能中心独立技能及 package/member；不含包元数据或 Agent 自有技能 |
+| connector | 是 | 外部包 | 外部包 | 内置不可变；已有包仅 connector.json，新 HTTP MCP 可附 mcpUrl |
+| provider | 是 | 否 | 否 | 包括没有模型的已加载供应商 |
+| model | 是 | 否 | 否 | 已加载模型，含无 provider 的 ACP 模型 |
+| tool | 是 | 否 | 否 | Catalog 工具定义，不等于某 Agent 可调用集合 |
+| mcp | 是 | 否 | 否 | connectorId/component，本地声明，不是运行时实例 |
+
+以上可写操作仍受挂载、调用者、审批、引用和版本校验限制。Provider 仅返回 key、protocols、credentialConfigured、defaultModel、modelKeys/modelCount；不返回 API Key、URL、endpoint、headers 或完整配置。credentialConfigured 只表示本地非空值，不表示授权验证成功。provider/model 的 valid 表示当前 registry 已加载，未新增坏源文件枚举。
+
+Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。一个包可以包含多个 MCP 组件，也可能只有 CLI/VIEW/native，不能以 Connector 数量代替 MCP 数量。MCP list/get 只给出父连接器、组件名、transport、enabled、builtin 和 `scope:connector-declaration/availability:not_checked`；valid 仅表示包可加载，不证明 transport/URL 等通过运行时校验。不输出 URL、command、args、env 或 headers。损坏包会使 MCP 枚举失败，避免静默报告不完整清单。
+
+现有 `platform_inspect runtimeStatus {component:"mcp"}` 才是 Agent/内容版本作用域的已缓存同步状态入口，最多返回 100 项，count 表示实际总数；它不触发联网探测。未挂载组件可能无实例，一个组件也可能对应多个 Agent/版本实例。MCP 远端 tools/resources/prompts 的完整查询及统一会话分页本次未新增。
+
+其他实际资源的取舍：Skill package 元数据已有 `/api/admin/skill-packages/*` 与 admin source 管理，尚无独立 Catalog target；Agent 自有/连接器技能需按所属定义读取。Chat/Archive/Artifact 使用 chat_query 与 Chat API；活动 Run 用 run_status；Automation 使用专用 automation 工具/API；Memory/Owner 使用其专用文件与权限协议；KBASE 文档/索引使用专用 KBASE 能力。ACP bridge、Gateway/Channel、创建模板和部署配置属于执行/配置域，本次只保留 defaults/runtimeStatus 与既有管理入口，不把运行状态或凭据目录当作通用源码资源。未开放 provider/model/MCP 写入、任意文件写入、凭据编辑或全平台资源 CRUD。
+
+2026-10-03 执行记录核查：#21 的 provider 确实报 unsupported resourceType；#22 实际包含 20 个 model，nextCursor 非空，最终声称 19 个且已列全均不成立；#24 只证明四个 connector 存在，不证明四个 MCP。记录中 limit 被拒，而本次修改前源码已支持 limit，属于运行版本差异，不能据记录推断当前源码仍拒绝。以上改动需重新构建运行版本与内嵌技能后生效，不改写历史记录。
 
 可修改范围：
 
@@ -111,3 +132,7 @@ archive/restore 同时支持单个 `chatId` 或 `chatIds`（1–100 个互异 ID
 - 最后补充的无效 Agent 配置展示、预置开关、YAML 空多行值和批量归档/恢复边界，catalog/adminsource/conversation/server 定向测试通过。
 - adminsource/conversation 的 race 回归通过；WebClient TypeScript、模块边界及连接器相关 3 个 Jest 套件 35 项通过。
 - i18n 保持原有 55 项违规，没有新增硬编码。未改动本轮已确认保留的大会话搜索限制；未执行部署或重启。
+
+### 参数错误恢复提示
+
+控制工具准入现在返回 `field/expected/actual/recovery`，明确类型、整数范围、合法枚举和修复示例；`limit:"100"` 应改为 `limit:100`（JSON 整数 1–100）。未知字段只列合法字段，不回显任意键名和值。审批准备错误保留这些信息。未知 runtimeStatus 组件返回错误并列出当前快照组件名。完整证据、范围、Desktop Kanban 私有运行字段边界及未完成项见 [工具参数错误审计](工具参数错误审计.md)。

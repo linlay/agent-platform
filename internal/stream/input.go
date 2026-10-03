@@ -35,6 +35,7 @@ type ToolArgs struct {
 	ToolName        string
 	ToolLabel       string
 	ToolDescription string
+	ToolI18n        map[string]any
 	ChunkIndex      int
 	AwaitAsk        *AwaitAsk
 }
