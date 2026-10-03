@@ -9,7 +9,7 @@ const (
 	defaultLLMInteractionConsoleCategoryUse = "usage"
 )
 
-func defaultLoggingConfig(chatsDir string, memoryDir string) LoggingConfig {
+func defaultLoggingConfig(chatsDir string) LoggingConfig {
 	return LoggingConfig{
 		Request:   ToggleConfig{Enabled: defaultLoggingEnabled},
 		Auth:      ToggleConfig{Enabled: defaultLoggingEnabled},
@@ -18,10 +18,6 @@ func defaultLoggingConfig(chatsDir string, memoryDir string) LoggingConfig {
 		Action:    ToggleConfig{Enabled: defaultLoggingEnabled},
 		Viewport:  ToggleConfig{Enabled: defaultLoggingEnabled},
 		SSE:       ToggleConfig{Enabled: defaultSSELoggingEnabled},
-		Memory: MemoryLoggingConfig{
-			Enabled: defaultLoggingEnabled,
-			File:    memoryLogFileDefault(memoryDir),
-		},
 		LLMInteraction: LLMInteractionLoggingConfig{
 			Enabled: defaultLoggingEnabled,
 			ConsoleCategories: []string{

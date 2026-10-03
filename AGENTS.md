@@ -27,7 +27,7 @@
 - 活动 native CODER planning 的阶段切换保留 steer；生成候选计划或等待确认期间的新指令使旧计划失效，并在同一 Run 中重新规划。旧确认与 steer 原子仲裁，已失效计划不能被迟到的 approve 执行；失效事件和工具结果进入回放，跨进程 suspended 等待仍通过 submit 恢复。见 [HITL协议](docs/HITL协议.md)。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账；活动 Run 保留收尾权，恢复 claim 失败不退回补写，无执行者的补写按等待项串行并重新读取持久化状态。Host Bash builtin 审批准备与启动分离，单次/本轮人工批准后均可恢复符合条件的并发；一次性授权绑定 toolID，不随执行上下文复制给兄弟调用，写入与控制操作屏障仍保持顺序。同一 Host Bash 的 access/security 与 builtin 技能 hook 在首次审批合并冻结，批准后新增未授权 hook 按要求变化收口，不复用已回答的等待项，见 [Bash审批卡住排查](docs/Bash审批卡住排查.md)。
 - `builtin.platform-control` 显式挂载后提供 12 个 `{action,args}` 工具，Catalog/Chat 限普通 native main root；catalog_manage 和 Chat 删除强制一次性审批，不受 full_access 绕过。源文件事务复用 adminsource 锁、版本复验和回滚，chat_manage.setPinned 复用会话置顶服务。run_env 独立管理进程内动态环境，其参数仍全部可观测。详见 [平台控制连接器](docs/Platform控制工具设计.md) 与 [Run 环境工具](docs/Run环境工具.md)。
-- 已具备默认关闭的 SQLite memory、FTS 文本检索、显式记录与手工 consolidate。Memory embedding、learn/自动反馈和上下文预览已退役；KBASE 能力独立保留。
+- Memory 已改为纯 Markdown：runtime/owner/OWNER.md、AP_RUNTIME_MEMORY_DIR/memory.md 与 daily/YYYY-MM-DD.md，固定路径、revision 冲突校验、跨进程锁与原子保存。全局默认启用，Agent memoryConfig.enabled 显式启用；普通 Native Run 冻结长期记忆与 Owner，日期日志按需文字查询。旧 SQLite Memory、scope、自动学习、管理工具及旧 API 全部退役，无迁移；知识索引归 KBX。见 [记忆系统](docs/记忆系统.md)。
 - 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
 - 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 与其他内置类型一样合并 Platform 预置工具与 `agent.yml` 声明的工具，并使用声明的技能、连接器和 memory（没有固定工具集，新建时仅写入未被 Platform 预置覆盖的文件工具），main/editing 两种 stage 工具相同，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
 - 已具备 automation、`agent_invoke` 子智能体调度、`run_query` / `run_status` / `run_interrupt` 独立 Agent/Team 根 run 启动与控制、带隐藏协调器的 orchestrated Team、基于官方 Go SDK v1.6.1 的 MCP streamable HTTP/stdio session client 与后台 tool sync、WebSocket 控制面，以及 client/server channel 上按 Session 执行的 Agent 接出注册 v1（`agent.list/register/unregister`）；MCP 本地 Registry 同步校验，远端初始化/发现/重试不进入启动、保存或 watcher 关键路径，优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`。Channel 注册当前不升级 Query Stream、Run TTL、`registrationId` 路由、HITL Schema 或控制协议。
@@ -44,7 +44,7 @@ Native Agent 通过 preset-tools 或显式声明挂载 `wait`：offset 优先于
 - 语言：Go
 - HTTP：标准库 `net/http`
 - 序列化：标准库 `encoding/json`
-- 存储：本地文件系统 + SQLite memory/control store + 本地 LanceDB KBASE generation
+- 存储：本地文件系统 + Markdown memory + SQLite control store + 本地 LanceDB KBASE generation
 - 配置：环境变量 + `configs/*.yml`
 
 当前没有引入 Web 框架、第三方路由库、外部数据库或消息队列。Go 主程序仍以 `CGO_ENABLED=0` 构建；KBASE 通过随包分发的 `kbase-lance-engine` Rust 伴随进程使用锁定的 LanceDB Rust SDK。配置默认值以 `internal/config/config.go` 与 `configs/*.example.yml` 为事实源。
@@ -84,7 +84,7 @@ cmd/agent-platform/main.go
 - `internal/llm`：prompt 构建、run stream、HITL、planning、tool loop；Provider HTTP 打开、首响应超时和响应分类由 `internal/modelclient` 承接。
 - `internal/tools`：通用 tool registry/router、Bash、FileTools、memory、desktop、MCP tool 调用；mode 工具通过命名 handler 接入，不在 executor 中增加 mode switch。
 - `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
-- `internal/memory`：SQLite memory、FTS 文本检索、上下文召回与显式生命周期整理。
+- `internal/memory`：个人 Markdown 文件、版本冲突、日期文字查询与上下文记录原则；不持有数据库或知识索引。
 - `internal/view`：VIEW 展示定义、声明资源、远端模板获取和 Chat 内容寻址快照；无 Tool 执行或 HITL 决策职责。VIEW 与 MCP/CLI 组件可组合，纯 VIEW 不授予 Bash/PATH。
 - `internal/connector`：中立连接器包/JSON/技能与 assets 图标结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取 Agent 挂载引用指向的 ru-connectors/<id>/<contentDigest>，MCP 按 Agent/连接器/组件/内容版本建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级 token 保存/退出、null 模式显式受管 CLI 准备/扫码、普通 OAuth 授权码与 MCP OAuth 发现、PKCE、loopback 回调和持久化刷新；oneid-token 复用 Desktop identity-file，按调用环境注入 AP_ACCESS_TOKEN，HTTP MCP 按同一来源生成 Bearer Header，不复制 SSO 凭据到连接器状态目录。auth_bindings 声明包外凭证的 HTTP/Host CLI/stdio 消费映射；MCP 支持多资源 grant、客户端注册信息、元数据回退及追加授权。认证状态按秒驱动 MCP Registry 更新，不触碰包文件或重建 Agent。通用执行按连接器/adapter 授权，直接传 argv 或 MCP 原生工具参数，不注册业务 operation/profile；通用执行与 Agent/管理接口共用当前部署的连接器凭据，不提供多租户凭据隔离；通用 runtime 安装尚未实现，见连接器专题。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析；Team 只接受目录式 orchestrated 定义，并以原子快照冻结成员、协调器配置和 prompt。
@@ -136,14 +136,14 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 Automation 定义目录中的 `executions.db` 是 schema V2 的旁路执行历史库。已知旧版在后台创建一致性备份后重建为空 V2，不迁移旧行；History 初始化、备份和写入失败不得阻止 Platform、Automation 调度或 Query/Run。`AUTOMATION_EXECUTIONS` 保存触发快照、`chatId/runId`、真实 `finishReason` 和完整助手结果，列表只读取摘要，详情按需读取全文。
 
-Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，当前固定使用 SQLite store，支持 FTS 文本检索、observation / fact 显式生命周期治理与 memory tools。旧 embedding 列和历史记录保留，运行时不再使用向量、learn 或自动反馈。
+Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以 memory.md 和 daily/YYYY-MM-DD.md 为唯一内容源；用户资料位于 owner/OWNER.md。旧数据库和自动学习方案全部退役，无迁移。
 
 KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包含：
 
 - `control.db`：schema v4 控制面，记录 generation、文件状态、file operation、增量 refresh 指标和 index run；不保存 chunk、FTS 或 embedding。control 与 Lance schema 版本独立；SQLite 控制面只接受当前 schema，绝不原地迁移。
 - `generations/<generationId>/lance/`：LanceDB chunks table 及索引；同级 `manifest.json` 保存 generation 元数据。
 
-核心 DTO 位于 `internal/api`，包括 query、submit、steer、interrupt、chat、upload、automation、memory console 等请求和响应类型。
+核心 DTO 位于 `internal/api`，包括 query、submit、steer、interrupt、chat、upload、automation、Markdown memory 等请求和响应类型。
 
 ## 6. API 定义
 
@@ -166,7 +166,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - Chat：`/api/chats`、`/api/chats/order`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`、`/api/chat/artifacts/{list,get,read}`。产物接口始终要求 JWT 并检查现有 Chat 引用权限。Chat order 支持 HTTP/WS `set_mode/move/set_pinned`，同实例跨 mode 共用置顶组；列表 `pinned` 与 catalog 附带 Chat 的 `chatsPinned` 在 limit/includeChats 之前筛选，归档/删除清理置顶，恢复不继承。
 - Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。
 - Run：`/api/query`、`/api/btw`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。Desktop 的普通 `/ws` 同时支持`main`、`btw`、`explain` 三条 lane（source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`）；三者统一用 WS `/api/query`，按已认证连接身份分流为普通或隐藏旁聊执行。main 是默认 Desktop target 并接收全局 Push，btw/explain 不更新主 Chat 历史、摘要或未读；HTTP 统一使用 `/api/query`，body `lane` 默认 `main`、支持 `btw`，`explain` 仅限 Desktop WS；旧 HTTP `/api/btw` 保留兼容，网页仍使用 SSE。Run 网络来源为 HTTP 或 WS，无网络来源时 transport 为空；run_query 继承可信父 Run 的连接归属，runOrigin 单独表达派生关系。除 Submit 外，Run 控制仍校验 transport 及 WS 身份/device/lane；Submit 支持跨设备和 HTTP/WS 提交，保留既有认证、owner 和审批校验。归属保存在 `.state/run-controls`，恢复与 planning 执行续跑继承，旧 Run 缺归属拒绝。每条 WS 只允许一个 Run stream，切换前 detach，三条 lane 可并行。
-- Memory：memory console 的记录、scope 与历史接口；`/api/learn` 和 `/api/memory/context-preview` 已删除。
+- Memory：HTTP 文件 `/api/memory/file`（GET/PUT/DELETE）、日期 `/api/memory/daily` 和文字查询 `/api/memory/search`；旧 meta/scope/record/history/learn 接口不注册。
 - KBASE：`/api/kbase/{agentKey}/status`、`/api/kbase/{agentKey}/refresh` 以及五个 KBASE tools。
 - Project Git：独立 HTTP `GET /api/project/git?agentKey=...` 按实际 Workspace 读取分支/游离 HEAD/非 Git/无目录/不可用状态，不按 mode 筛选；依赖宿主 Git，只读且限时，不进入 `/api/agents` 或 `/api/agent`，不改变 `expectedBranch` 约束。
 - Project Git 分支操作：HTTP `GET/POST /api/project/git/branches` 按需列本地分支、切换或新建并切换，校验 revision；只允许完整且不包含 ChatsRoot 的 worktree，保留 Git 改动保护，不 force/stash/clean、不执行 hooks，不修改 `expectedBranch` 配置。
@@ -223,7 +223,7 @@ make test
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件只使用相对于当前 Chat 的 `<relativePath>`，也可引用普通 Agent Workspace 或冻结临时根内的实际 Host 绝对路径与 HTTP(S)/data/blob；Markdown 不使用 `@temp`。真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
 - 平台控制工具使用固定 action/args Schema 并要求受信任连接器挂载；run_env 使用独立 operation/params Schema，普通 Native GENERAL/CODER/KBASE 默认挂载，可通过 excludeTools 排除。旧 platform-control 配置整段硬失败，run-env 只保留 deny-keys 与三个限额。
-- Memory 全局默认关闭；Agent `memoryConfig.embedding/autoRemember`、Provider `memory` 已退役，出现即报错。runtime memory 的两个 hybrid weight 和 prompts 的 `memory` 节已退役，加载时静默忽略，不阻止启动，也不恢复旧能力。旧数据库及 schema 保留；静态 memory.md、Chat 摘要/压缩和 KBASE 不属于该退役范围。
+- Markdown Memory 全局默认开启，Agent 显式启用；旧 SQLite/管理工具配置明确拒绝，不提供历史迁移。Owner 与长期记忆只在新 Native Run 读取；文件编辑无需 catalog 重载。
 - 文件工具权限独立于 Bash 权限，普通越权路径通过 HITL approval 兜底；readonly、临时根逃逸与其他 hard block 不产生可放宽的 HITL。
 - `AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR` 与 `AP_ACCESS_TOKEN` 为 Platform 保留变量。Agent/Skill/run.env/调用配置共用 `shellenv.UnsafeOverride`；技能 `.runtime-env.json` 的 PATH 只追加额外目录。Host 工具环境按 `bash.inherit-env` 名单继承，`SSH_AUTH_SOCK` 仅给 Git 网络操作，默认 Bash 无登录 profile。AP_ACCESS_TOKEN 仅在验证的 oneid-token 直接 CLI 和对应 MCP 身份链路即时注入，不进入普通 Host Shell。有效 StateDir 与 identity 文件三档均拒绝普通工具读写；完整隔离与敏感读取例外尚未落地，见 [改造进度](docs/AccessPolicy与HITL改造.md)。
 - 专用 KBASE 未开启 editing 时 Workspace 可读但不可 mutation，当前 Chat 目录仍按 `@chat` 可读写；开启后 Workspace mutation 在 shipped default policy 下免逐次 HITL。external 和其他 chatId 默认进入 HITL，`writeRoots`、hostAccess、`full_access` 或 approval 可按通用策略放宽；这些授权不能放宽非 editing KBASE Workspace，管理员显式 block 仍优先。Workspace mutation 不触发同步索引 hook，KBASE watcher 按 debounce 与 change set 异步刷新。
@@ -235,7 +235,7 @@ make test
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
 - KBASE Lance sidecar 只监听 loopback，由 Go 生成一次性 Bearer token 并监督生命周期。存在 enabled KBASE capability 时会启动并探测 sidecar；`mode: KBASE` 将其标为 required，故障使健康检查失败，普通 Agent 附加能力将其标为 optional，故障只在 `/healthz` 和 capability 状态中报告 degraded。无 active generation 时 search 返回 stale 并触发冷建，sidecar 故障显式返回 unavailable。
 - 当前 KBASE 只对文本抽取结果做 embedding/FTS；PDF/DOCX/PPTX/HTML 均是先抽取文本，不得宣称支持图片、音频或视频语义检索。
-- SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。仅在 `app.New` 启动装配期，`chats.db`、`archive.db`、Memory SQLite 与 KBASE `control.db` 的标记恰为 `0/0`，且表、列语义、约束、索引、触发器和 FTS 对象完整匹配当前 DDL 时，服务才会在事务中写入当前标记；列物理顺序不影响比较。运行期仅验证，绝不认领、迁移、删除或修复。其他标记组合、结构差异或残留旧数据均拒绝；chat/archive/memory 会阻止启动，required KBASE capability 会隔离对应 Agent 并保留管理端诊断，引用它的 Team 同样不可运行；optional capability 保留普通 Agent 可运行并报告 degraded/unavailable。
+- SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。仅在 `app.New` 启动装配期，`chats.db`、`archive.db`、KBASE `control.db` 的标记恰为 `0/0`，且表、列语义、约束、索引、触发器和 FTS 对象完整匹配当前 DDL 时，服务才会在事务中写入当前标记；列物理顺序不影响比较。运行期仅验证，绝不认领、迁移、删除或修复。其他标记组合、结构差异或残留旧数据均拒绝；chat/archive 会阻止启动，required KBASE capability 会隔离对应 Agent 并保留管理端诊断，引用它的 Team 同样不可运行；optional capability 保留普通 Agent 可运行并报告 degraded/unavailable。
 
 ## 特色功能文档索引
 
@@ -246,7 +246,7 @@ make test
 - [HTTP客户端与系统代理](docs/HTTP客户端与系统代理.md)：默认 `auto` 跳过 PAC/WPAD、显式覆盖、macOS/Windows 固定代理、`pac_auto` 启用 Windows PAC/WPAD、绕过、刷新与平台限制。
 - [工具目录权限](docs/工具目录权限.md)：Bash、FileTools、allowed paths、越权审批、读后写闭环。
 - [真流式和H2A](docs/真流式和H2A.md)：SSE、heartbeat、`[DONE]`、attach、backlog、H2A 缓冲。
-- [记忆系统](docs/记忆系统.md)：SQLite 手工记录、FTS 文本检索、consolidate、memory tools 与已退役能力。
+- [记忆系统](docs/记忆系统.md)：Markdown 文件、记录原则、编辑协议与旧方案退役。
 - [运行时和沙箱](docs/运行时和沙箱.md)：runtime 目录、Container Hub、mounts、host / sandbox 工具边界。
 - [Platform控制工具设计](docs/Platform控制工具设计.md)：平台控制操作、工具挂载和 Catalog 校验。
 - [Run环境工具](docs/Run环境工具.md)：动态环境、原子 update、幂等限额、执行通道、恢复与硬切迁移。

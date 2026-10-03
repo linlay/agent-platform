@@ -89,9 +89,6 @@ func (d *AgentDefinition) finishToolBindings() {
 	}
 	if d.MemoryEnabled {
 		derived.Tools = append(derived.Tools, "memory_write", "memory_read", "memory_search")
-		if d.MemoryConfig.ManagementTools {
-			derived.Tools = append(derived.Tools, "memory_update", "memory_forget", "memory_timeline", "memory_promote", "memory_consolidate")
-		}
 	}
 	for _, name := range derived.Tools {
 		d.addAutomaticToolBinding(name, "runtime")

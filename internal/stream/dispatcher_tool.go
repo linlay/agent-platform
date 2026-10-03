@@ -148,16 +148,6 @@ func memoryToolEventType(toolName string) string {
 		return "memory.read"
 	case "memory_search":
 		return "memory.search"
-	case "memory_update":
-		return "memory.update"
-	case "memory_forget":
-		return "memory.forget"
-	case "memory_timeline":
-		return "memory.timeline"
-	case "memory_promote":
-		return "memory.promote"
-	case "memory_consolidate":
-		return "memory.consolidate"
 	default:
 		return ""
 	}

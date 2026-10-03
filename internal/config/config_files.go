@@ -91,13 +91,22 @@ func (c *Config) applyAutomationValues(values map[string]any) {
 }
 
 func (c *Config) applyMemoryValues(values map[string]any) error {
-	// Retired hybrid-vector-weight and hybrid-fts-weight are intentionally ignored.
+	for key := range values {
+		switch key {
+		case "enabled", "context-max-chars", "timezone":
+		default:
+			return fmt.Errorf("memory.%s is no longer supported; Markdown memory only accepts enabled, context-max-chars, timezone", key)
+		}
+	}
 	c.Memory.Enabled = boolValue(anyValue(values["enabled"], c.Memory.Enabled), c.Memory.Enabled)
-	c.Memory.DBFileName = stringValue(anyValue(values["db-file-name"], c.Memory.DBFileName), c.Memory.DBFileName)
-	c.Memory.ContextTopN = intValue(anyValue(values["context-top-n"], c.Memory.ContextTopN), c.Memory.ContextTopN)
 	c.Memory.ContextMaxChars = intValue(anyValue(values["context-max-chars"], c.Memory.ContextMaxChars), c.Memory.ContextMaxChars)
-	c.Memory.SearchDefaultLimit = intValue(anyValue(values["search-default-limit"], c.Memory.SearchDefaultLimit), c.Memory.SearchDefaultLimit)
-	c.Memory.DualWriteMarkdown = boolValue(anyValue(values["dual-write-markdown"], c.Memory.DualWriteMarkdown), c.Memory.DualWriteMarkdown)
+	c.Memory.Timezone = stringValue(anyValue(values["timezone"], c.Memory.Timezone), c.Memory.Timezone)
+	if c.Memory.ContextMaxChars < 256 || c.Memory.ContextMaxChars > 65536 {
+		return fmt.Errorf("memory.context-max-chars must be between 256 and 65536")
+	}
+	if _, err := time.LoadLocation(c.Memory.Timezone); err != nil {
+		return fmt.Errorf("memory.timezone: %w", err)
+	}
 	return nil
 }
 

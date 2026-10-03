@@ -1,20 +1,20 @@
 name: memory_read
 label: 读取记忆
-description: Read persisted agent memory, with optional filtering by ID, category, limit, and sort order.
+description: Read the current personal Markdown document and its revision before editing.
 clientVisible: false
 inputSchema:
   type: object
-  properties:
-    id:
-      type: string
-      description: Memory ID to read. When provided, only that record is returned.
-    category:
-      type: string
-      description: Category filter, such as preference, constraint, profile, workflow, decision, glossary, unresolved_issue, bugfix, todo, project, or remember.
-    limit:
-      type: integer
-      description: Maximum number of records to return. Defaults to 10.
-    sort:
-      type: string
-      description: Sort order. Supported values are recent and importance. Defaults to recent.
   additionalProperties: false
+  properties:
+    kind:
+      description: Required. Personal profile, long-term memory, or a dated note.
+      type: string
+      enum:
+        - owner
+        - memory
+        - daily
+    date:
+      type: string
+      description: Optional. Daily date YYYY-MM-DD, defaults to today in the Platform memory timezone.
+  required:
+    - kind

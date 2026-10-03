@@ -39,7 +39,7 @@ search 在没有 active generation 时返回 `stale: true` 并触发 refresh；s
 
 KBASE 检索引擎固定为 LanceDB，不提供可选存储引擎。`configs/kbase-settings.yml` 出现不支持的配置键会使启动配置加载失败。存在 enabled capability 时 runtime 会启动并检查 Lance sidecar 的私有握手。若至少有一个 required capability，sidecar 故障使 `/healthz` 返回 `503`；只有 optional capability 时 `/healthz` 仍返回 `200`，同时在 `kbase` 状态中报告 `degraded` 和错误。所有知识库操作都显式返回 unavailable。
 
-KBASE 只检索从文本格式和文档抽取出的文本；chat、memory 及 KBASE 的 SQLite `control.db` 各自承担独立的现行存储职责。
+KBASE 只检索从文本格式和文档抽取出的文本；Chat 的 SQLite、纯 Markdown Memory 及 KBASE 的 SQLite `control.db` 各自承担独立的现行存储职责。
 
 ## Editing 与索引解耦
 

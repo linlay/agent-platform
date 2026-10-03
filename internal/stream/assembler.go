@@ -34,7 +34,6 @@ type StreamRequest struct {
 	// instant.
 	StartedAtMillis    int64
 	BootstrapSynthetic *SyntheticQuery
-	MemoryUsageSummary map[string]any
 	QueryMetadata      map[string]any
 }
 

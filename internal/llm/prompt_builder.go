@@ -3,7 +3,6 @@ package llm
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/memory"
 	"agent-platform/internal/querymessages"
 	"agent-platform/internal/referenceprompt"
 )
@@ -77,7 +77,6 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendSection("agent-soul", "Soul Prompt", "agent.soul", strings.TrimSpace(session.SoulPrompt))
 	appendSection("agent-prompt", "Agent Prompt", "agent.prompt", strings.TrimSpace(session.AgentsPrompt))
 	appendSection("workspace-agents", "Workspace AGENTS.md", "workspace.agents", buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt))
-	appendSection("static-memory", "Static Memory Prompt", "memory.static", strings.TrimSpace(session.StaticMemoryPrompt))
 	appendSection("reference-protocol", "Reference Context Protocol", "references.protocol", referenceprompt.SystemPrompt)
 	if session.AdvancedUserPrompt {
 		appendSection("advanced-user-prompt-protocol", "Advanced User Prompt Protocol", "query.advanced_user_prompt", querymessages.AdvancedUserPromptSystemPrompt)
@@ -114,7 +113,7 @@ func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session 
 		case "session":
 			appendSection("runtime-session", "Runtime Context: Session", "runtime.session", buildSessionSection(session))
 		case "owner":
-			appendSection("runtime-owner", "Runtime Context: Owner", "runtime.owner", buildOwnerSection(session.RuntimeContext.LocalPaths))
+			appendSection("runtime-owner", "Runtime Context: Owner", "runtime.owner", buildSessionOwnerSection(session))
 		case "agents":
 			appendSection("runtime-agents", "Runtime Context: Sub-Agent Candidates", "runtime.agents", buildAgentsSection(session.RuntimeContext.AgentDigests))
 		}
@@ -128,25 +127,8 @@ func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session 
 }
 
 func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, session QuerySession) {
-	before := len(*sections)
-	appendSection := func(id, title, category, content string) {
-		content = strings.TrimSpace(content)
-		if content == "" {
-			return
-		}
-		*sections = append(*sections, systemPromptSection{
-			ID:       id,
-			Title:    title,
-			Category: category,
-			Content:  content,
-		})
-	}
-	appendSection("memory-stable", "Runtime Context: Stable Memory", "memory.stable", strings.TrimSpace(session.StableMemoryContext))
-	appendSection("memory-session", "Runtime Context: Current Session", "memory.session", strings.TrimSpace(session.SessionMemoryContext))
-	appendSection("memory-observation", "Runtime Context: Relevant Observations", "memory.observation", strings.TrimSpace(session.ObservationContext))
-	appendSection("memory-workflow", "Runtime Context: Workflow Memory", "memory.workflow", strings.TrimSpace(session.WorkflowContext))
-	if len(*sections) == before {
-		appendSection("memory-agent", "Runtime Context: Agent Memory", "memory.agent", buildMemorySection(session))
+	if content := buildMemorySection(session); content != "" {
+		*sections = append(*sections, systemPromptSection{ID: "memory-personal", Title: "Personal Memory", Category: "memory.personal", Content: content})
 	}
 }
 
@@ -434,50 +416,25 @@ func appendContextDir(lines *[]string, key, value, desc string) {
 	*lines = append(*lines, key+": "+strings.TrimSpace(value)+" # "+desc)
 }
 
-func buildOwnerSection(paths LocalPaths) string {
-	ownerDir := strings.TrimSpace(paths.OwnerDir)
-	if ownerDir == "" {
+func buildSessionOwnerSection(session QuerySession) string {
+	if !session.OwnerPromptLoaded {
+		return buildOwnerSection(session.RuntimeContext.LocalPaths)
+	}
+	if strings.TrimSpace(session.OwnerPrompt) == "" {
 		return ""
 	}
-	entries := collectOwnerMarkdownFiles(ownerDir)
-	if len(entries) == 0 {
-		return ""
-	}
-	lines := []string{"Runtime Context: Owner"}
-	for _, file := range entries {
-		relative, err := filepath.Rel(ownerDir, file)
-		if err != nil {
-			continue
-		}
-		lines = append(lines, "--- file: "+filepath.ToSlash(relative))
-		data, err := os.ReadFile(file)
-		if err != nil {
-			lines = append(lines, "[UNREADABLE: "+filepath.ToSlash(relative)+"]")
-			continue
-		}
-		lines = append(lines, strings.TrimRight(string(data), "\n"))
-	}
-	return strings.Join(lines, "\n")
+	return "Runtime Context: Owner\n<owner_data>\n" + session.OwnerPrompt + "\n</owner_data>"
 }
 
-func collectOwnerMarkdownFiles(ownerDir string) []string {
-	var files []string
-	_ = filepath.WalkDir(ownerDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d == nil || d.IsDir() {
-			return nil
-		}
-		name := strings.ToLower(d.Name())
-		if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".markdown") {
-			files = append(files, path)
-		}
-		return nil
-	})
-	sort.Slice(files, func(i, j int) bool {
-		ri, _ := filepath.Rel(ownerDir, files[i])
-		rj, _ := filepath.Rel(ownerDir, files[j])
-		return filepath.ToSlash(ri) < filepath.ToSlash(rj)
-	})
-	return files
+func buildOwnerSection(paths LocalPaths) string {
+	if paths.OwnerDir == "" {
+		return ""
+	}
+	d, err := memory.NewStore("", paths.OwnerDir, nil).Read("owner", "")
+	if err != nil || strings.TrimSpace(d.Content) == "" {
+		return ""
+	}
+	return "Runtime Context: Owner\n<owner_data>\n" + d.Content + "\n</owner_data>"
 }
 
 func buildSandboxSection(context *SandboxContext) string {
@@ -558,26 +515,7 @@ func formatAgentDigest(digest AgentDigest) string {
 }
 
 func buildMemorySection(session QuerySession) string {
-	sections := make([]string, 0, 3)
-	if strings.TrimSpace(session.StableMemoryContext) != "" {
-		sections = append(sections, strings.TrimSpace(session.StableMemoryContext))
-	}
-	if strings.TrimSpace(session.SessionMemoryContext) != "" {
-		sections = append(sections, strings.TrimSpace(session.SessionMemoryContext))
-	}
-	if strings.TrimSpace(session.ObservationContext) != "" {
-		sections = append(sections, strings.TrimSpace(session.ObservationContext))
-	}
-	if strings.TrimSpace(session.WorkflowContext) != "" {
-		sections = append(sections, strings.TrimSpace(session.WorkflowContext))
-	}
-	if len(sections) > 0 {
-		return strings.Join(sections, "\n\n")
-	}
-	if strings.TrimSpace(session.MemoryContext) != "" {
-		return "Runtime Context: Agent Memory\n" + strings.TrimSpace(session.MemoryContext)
-	}
-	return ""
+	return strings.TrimSpace(session.MemoryContext)
 }
 
 func summarizeScene(scene *api.Scene) string {

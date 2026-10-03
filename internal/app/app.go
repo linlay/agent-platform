@@ -33,7 +33,6 @@ import (
 	"agent-platform/internal/mcp"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
-	"agent-platform/internal/observability"
 	"agent-platform/internal/platformcontrol"
 	projectpkg "agent-platform/internal/project"
 	"agent-platform/internal/reload"
@@ -151,26 +150,14 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	archiver := chat.NewArchiver(chatStore, archiveStore)
 	log.Printf("archive store ready in %s (root=%s)", startupElapsed(archiveStoreStartedAt), filepath.Join(cfg.Paths.ChatsDir, "archive"))
 
-	var memoryStore memory.Store
-	var sqliteMemoryStore *memory.SQLiteStore
-	var skillCandidateStore skills.CandidateStore
-	if cfg.Memory.Enabled {
-		memoryStoreStartedAt := time.Now()
-		sqliteMemoryStore, err = memory.NewSQLiteStoreAtStartup(cfg.Paths.MemoryDir, cfg.Memory.DBFileName)
-		if err != nil {
-			return nil, fmt.Errorf("init memory store (%s): %w", cfg.Paths.MemoryDir, err)
-		}
-		memoryStore = sqliteMemoryStore
-		log.Printf("memory store ready in %s (root=%s)", startupElapsed(memoryStoreStartedAt), cfg.Paths.MemoryDir)
-		skillCandidateStore, err = skills.NewFileCandidateStore(filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"))
-		if err != nil {
-			return nil, fmt.Errorf("init skill candidate store (%s): %w", filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"), err)
-		}
-		if err := observability.InitMemoryLogger(cfg.Logging.Memory.Enabled, cfg.Logging.Memory.File); err != nil {
-			return nil, fmt.Errorf("init memory logger (%s): %w", cfg.Logging.Memory.File, err)
-		}
-	} else {
-		log.Printf("memory system disabled by config")
+	memoryLocation, err := time.LoadLocation(cfg.Memory.Timezone)
+	if err != nil {
+		return nil, fmt.Errorf("memory timezone: %w", err)
+	}
+	memoryStore := memory.NewStore(cfg.Paths.MemoryDir, cfg.Paths.OwnerDir, memoryLocation)
+	skillCandidateStore, err := skills.NewFileCandidateStore(filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"))
+	if err != nil {
+		return nil, err
 	}
 
 	modelRegistryStartedAt := time.Now()
@@ -591,9 +578,6 @@ func (a *App) Close() error {
 	if a.wsHub != nil {
 		a.wsHub.CloseAll(gws.CloseNormalClosure, "server shutting down")
 	}
-	if err := observability.CloseMemoryLogger(); err != nil {
-		log.Printf("close memory logger: %v", err)
-	}
 	if a.automation != nil {
 		done := a.automation.Stop()
 		select {
@@ -616,9 +600,6 @@ func (a *App) Close() error {
 		if err := a.mcpClient.Close(); err != nil {
 			log.Printf("close MCP client: %v", err)
 		}
-	}
-	if err := observability.CloseMemoryLogger(); err != nil {
-		log.Printf("close memory logger: %v", err)
 	}
 	return nil
 }

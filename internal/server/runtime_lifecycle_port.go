@@ -24,7 +24,7 @@ func (s *Server) validPendingAwaitingInfo(chatID string, pending *chat.PendingAw
 	return s.deps.Runtime.PendingAwaitingInfo(chatID, pending)
 }
 func runtimePreparedQuery(p preparedQuery) runtimetypes.PreparedQuery {
-	out := runtimetypes.PreparedQuery{Req: queryCommandFromAPI(p.Req), Summary: p.Summary, Created: p.Created, AgentDef: p.AgentDef, TeamSnapshot: p.TeamSnapshot, Session: p.Session, MemoryUsageSummary: p.MemoryUsageSummary, SystemInitLine: p.SystemInitLine, ResourceBaseURL: p.ResourceBaseURL, Release: p.Release, ContinueRun: p.ContinueRun, InitialSeq: p.InitialSeq, SyntheticBootstrap: p.SyntheticBootstrap}
+	out := runtimetypes.PreparedQuery{Req: queryCommandFromAPI(p.Req), Summary: p.Summary, Created: p.Created, AgentDef: p.AgentDef, TeamSnapshot: p.TeamSnapshot, Session: p.Session, SystemInitLine: p.SystemInitLine, ResourceBaseURL: p.ResourceBaseURL, Release: p.Release, ContinueRun: p.ContinueRun, InitialSeq: p.InitialSeq, SyntheticBootstrap: p.SyntheticBootstrap}
 	if p.Execution != nil {
 		e := runtimetypes.QueryExecutionOptions(*p.Execution)
 		out.Execution = &e

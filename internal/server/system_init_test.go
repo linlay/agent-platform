@@ -43,8 +43,7 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 		ContextTags:          []string{"system"},
 		PromptAppend:         contracts.DefaultPromptAppendConfig(),
 		AgentHasMemoryConfig: true,
-		SessionMemoryContext: "Runtime Context: Current Session\n- stale session memory",
-		ObservationContext:   "Runtime Context: Relevant Observations\n- stale observation",
+		MemoryContext:        "Runtime Context: Current Session\n- stale session memory",
 	}
 	oldProfiles := llm.BuildSystemInitProfiles(oldSession, req, toolDefs, 0, 0, 0, config.PromptsConfig{})
 	if len(oldProfiles) != 1 {
@@ -80,8 +79,7 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 	}}
 	newSession := oldSession
 	newSession.RunID = "run-new"
-	newSession.SessionMemoryContext = "Runtime Context: Current Session\n- fresh session memory"
-	newSession.ObservationContext = "Runtime Context: Relevant Observations\n- fresh observation"
+	newSession.MemoryContext = "Runtime Context: Current Session\n- fresh session memory"
 
 	pending, err := server.prepareSystemInitCache(req, &newSession, false)
 	if err != nil {
@@ -128,7 +126,7 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 		ContextTags:          []string{"system"},
 		PromptAppend:         contracts.DefaultPromptAppendConfig(),
 		AgentHasMemoryConfig: true,
-		SessionMemoryContext: "Runtime Context: Current Session\n- fresh",
+		MemoryContext:        "Runtime Context: Current Session\n- fresh",
 	}
 	server := &Server{deps: Dependencies{
 		Config:      config.Config{},

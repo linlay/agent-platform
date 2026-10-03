@@ -113,15 +113,11 @@ func TestLoadDefaults(t *testing.T) {
 					!cfg.Logging.Tool.Enabled ||
 					!cfg.Logging.Action.Enabled ||
 					!cfg.Logging.Viewport.Enabled ||
-					!cfg.Logging.Memory.Enabled ||
 					!cfg.Logging.LLMInteraction.Enabled {
 					t.Fatalf("expected default logging surfaces enabled, got %#v", cfg.Logging)
 				}
 				if cfg.Logging.SSE.Enabled {
 					t.Fatalf("expected sse logging disabled by default")
-				}
-				if cfg.Logging.Memory.File != filepath.Join("runtime", "memory", "memory.log") {
-					t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
 				}
 				if cfg.Logging.LLMInteraction.MaskSensitive {
 					t.Fatalf("expected llm interaction logs to be unmasked by default")
@@ -172,8 +168,8 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Defaults.Budget.Tool.Timeout != 600 {
 					t.Fatalf("expected default tool timeout 600, got %d", cfg.Defaults.Budget.Tool.Timeout)
 				}
-				if cfg.Memory.Enabled {
-					t.Fatalf("expected memory runtime disabled by default")
+				if !cfg.Memory.Enabled {
+					t.Fatalf("expected Markdown memory runtime enabled by default")
 				}
 				if cfg.RuntimeMode != RuntimeModeStandalone {
 					t.Fatalf("unexpected default runtime mode: %q", cfg.RuntimeMode)
@@ -1514,12 +1510,6 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "custom-chats") {
 			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
 		}
-		if cfg.Memory.StorageDir != filepath.Join("var", "custom-memory") {
-			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
-		}
-		if cfg.Logging.Memory.File != filepath.Join("var", "custom-memory", "memory.log") {
-			t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
-		}
 	})
 }
 
@@ -1555,12 +1545,6 @@ func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 		}
 		if cfg.Models.ExternalDir != filepath.Join(runtimeRoot, "registries", "models") {
 			t.Fatalf("unexpected models dir: %q", cfg.Models.ExternalDir)
-		}
-		if cfg.Memory.StorageDir != filepath.Join(runtimeRoot, "memory") {
-			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
-		}
-		if cfg.Logging.Memory.File != filepath.Join(runtimeRoot, "memory", "memory.log") {
-			t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
 		}
 	})
 }
@@ -1727,9 +1711,6 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 		if cfg.Paths.KBaseDir != filepath.Join("var", "custom-kbase") {
 			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 		}
-		if cfg.Logging.Memory.File != filepath.Join("var", "custom-memory", "memory.log") {
-			t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
-		}
 		if cfg.Paths.PanDir != panDir {
 			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
 		}
@@ -1739,35 +1720,6 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 		if cfg.Models.ExternalDir != filepath.Join("var", "custom-registries", "models") {
 			t.Fatalf("unexpected models dir: %q", cfg.Models.ExternalDir)
 		}
-		if cfg.Memory.StorageDir != filepath.Join("var", "custom-memory") {
-			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
-		}
-	})
-}
-
-func TestLoadIgnoresLoggingMemoryRuntimeYAML(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AP_RUNTIME_MEMORY_DIR":     filepath.Join("var", "custom-memory"),
-		"LOGGING_AGENT_MEMORY_FILE": filepath.Join("var", "custom-log", "memory.log"),
-		"LOGGING_MEMORY_ENABLED":    "false",
-	}, func() {
-		content := "" +
-			"logging:\n" +
-			"  memory:\n" +
-			"    enabled: false\n" +
-			"    file: " + filepath.ToSlash(filepath.Join("var", "custom-log", "memory.log")) + "\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Logging.Memory.File != filepath.Join("var", "custom-memory", "memory.log") {
-				t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
-			}
-			if !cfg.Logging.Memory.Enabled {
-				t.Fatalf("expected memory logging to keep source default enabled")
-			}
-		})
 	})
 }
 
@@ -2844,49 +2796,6 @@ func TestLoadIgnoresRetiredMemoryPrompts(t *testing.T) {
 			})
 		}
 	})
-}
-
-func TestLoadIgnoresRetiredMemoryHybridWeights(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
-			withIsolatedEnv(t, nil, func() {
-				configDir := t.TempDir()
-				if err := os.MkdirAll(filepath.Join(configDir, "configs"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				path := filepath.Join(configDir, "configs", "runtime.yml")
-				content := fmt.Sprintf("memory:\n  enabled: %t\n  search-default-limit: 17\n", enabled)
-				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				baseline, err := Load(LoadOptions{ConfigDir: configDir})
-				if err != nil {
-					t.Fatalf("load baseline: %v", err)
-				}
-				if baseline.Memory.Enabled != enabled || baseline.Memory.SearchDefaultLimit != 17 {
-					t.Fatalf("supported memory settings were not loaded: %#v", baseline.Memory)
-				}
-				for name, retired := range map[string]string{
-					"vector": "  hybrid-vector-weight: 0.7\n",
-					"fts":    "  hybrid-fts-weight: 0.3\n",
-					"both":   "  hybrid-vector-weight: 0.7\n  hybrid-fts-weight: 0.3\n",
-				} {
-					t.Run(name, func(t *testing.T) {
-						if err := os.WriteFile(path, []byte(content+retired), 0o644); err != nil {
-							t.Fatal(err)
-						}
-						cfg, err := Load(LoadOptions{ConfigDir: configDir})
-						if err != nil {
-							t.Fatalf("load with retired memory weights: %v", err)
-						}
-						if cfg.Memory != baseline.Memory {
-							t.Fatalf("retired weights changed effective memory settings: got %#v, want %#v", cfg.Memory, baseline.Memory)
-						}
-					})
-				}
-			})
-		})
-	}
 }
 
 func TestNewApprovalKeysUseLevelDefaultsAndInheritance(t *testing.T) {

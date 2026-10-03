@@ -77,7 +77,7 @@ func (p RuntimeProxyPort) Execute(ctx context.Context, prepared runtimetypes.Pre
 }
 func (s *Server) RuntimeResourceTickets() proxy.TicketIssuer { return s.ticketService }
 func proxyPreparedQuery(p runtimetypes.PreparedQuery) preparedQuery {
-	out := preparedQuery{Req: queryRequestFromRuntime(p.Req), Summary: p.Summary, Created: p.Created, AgentDef: p.AgentDef, TeamSnapshot: p.TeamSnapshot, Session: p.Session, MemoryUsageSummary: p.MemoryUsageSummary, SystemInitLine: p.SystemInitLine, ResourceBaseURL: p.ResourceBaseURL, Release: p.Release, ContinueRun: p.ContinueRun, InitialSeq: p.InitialSeq, SyntheticBootstrap: p.SyntheticBootstrap}
+	out := preparedQuery{Req: queryRequestFromRuntime(p.Req), Summary: p.Summary, Created: p.Created, AgentDef: p.AgentDef, TeamSnapshot: p.TeamSnapshot, Session: p.Session, SystemInitLine: p.SystemInitLine, ResourceBaseURL: p.ResourceBaseURL, Release: p.Release, ContinueRun: p.ContinueRun, InitialSeq: p.InitialSeq, SyntheticBootstrap: p.SyntheticBootstrap}
 	if p.Execution != nil {
 		e := queryExecutionOptions(*p.Execution)
 		out.Execution = &e

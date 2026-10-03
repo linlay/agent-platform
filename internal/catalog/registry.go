@@ -101,7 +101,6 @@ type AgentDefinition struct {
 	PlanPrompt         string
 	ExecutePrompt      string
 	SummaryPrompt      string
-	StaticMemoryPrompt string
 	MemoryEnabled      bool
 	MemoryConfig       AgentMemoryConfig
 }
@@ -141,7 +140,6 @@ type AgentProjectGitConfig struct {
 
 type AgentMemoryConfig struct {
 	Enabled         bool
-	ManagementTools bool
 }
 
 type AgentRuntimePrompts struct {

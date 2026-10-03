@@ -403,7 +403,7 @@ func (r *ContainerHubMountResolver) memorySource(agentKey string) (string, error
 	if memoryRoot == "" {
 		return "", fmt.Errorf("container-hub mount validation failed for memory-dir: AP_RUNTIME_MEMORY_DIR is required")
 	}
-	memoryDir := filepath.Join(memoryRoot, agentKey)
+	memoryDir := memoryRoot
 	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
 		return "", fmt.Errorf("container-hub mount validation failed for memory-dir: %w", err)
 	}

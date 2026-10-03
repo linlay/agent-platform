@@ -51,8 +51,8 @@ func marshalPayload(value any) json.RawMessage {
 	return testutil.MarshalPayload(value)
 }
 
-func newTestMemoryStore(root string) (*memory.SQLiteStore, error) {
-	return memory.NewSQLiteStoreAtStartup(root, "memory.db")
+func newTestMemoryStore(root string) (*memory.Store, error) {
+	return memory.NewStore(root, filepath.Join(root, "..", "owner"), nil), nil
 }
 
 func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
@@ -91,7 +91,7 @@ type testFixture struct {
 	server          *Server
 	cfg             config.Config
 	chats           chat.Store
-	memories        memory.Store
+	memories        *memory.Store
 	registry        catalog.Registry
 	modelRegistry   *models.ModelRegistry
 	runs            *runstate.Manager

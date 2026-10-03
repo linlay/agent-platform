@@ -17,7 +17,7 @@ inputSchema:
       type: string
       minLength: 1
       maxLength: 200
-      description: Required for every wait, including time-only waits. Briefly explain to the user what is being awaited and why; identify the targets when conditions are supplied. Must not be blank.
+      description: Required. For every wait, including time-only waits. Briefly explain to the user what is being awaited and why; identify the targets when conditions are supplied. Must not be blank.
     match:
       type: string
       enum:

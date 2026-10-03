@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/interaction"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/memory"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
 	"agent-platform/internal/runenv"
@@ -289,6 +290,22 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	}
 	if principal != nil {
 		session.Subject = principal.Subject
+	}
+
+	personalMemory := memory.NewStore(s.deps.Config.Paths.MemoryDir, s.deps.Config.Paths.OwnerDir, nil)
+	if ContainsTool(agentDef.ContextTags, "owner") {
+		owner, err := personalMemory.Read("owner", "")
+		if err != nil {
+			return contracts.QuerySession{}, fmt.Errorf("load OWNER.md: %w", err)
+		}
+		session.OwnerPrompt, session.OwnerPromptLoaded = owner.Content, true
+	}
+	if options.IncludeMemory && agentDef.MemoryEnabled && s.deps.Config.Memory.Enabled && !IsProxyRoutedAgent(agentDef) {
+		prompt, err := personalMemory.Context(s.deps.Config.Memory.ContextMaxChars)
+		if err != nil {
+			return contracts.QuerySession{}, fmt.Errorf("load memory.md: %w", err)
+		}
+		session.MemoryContext = prompt
 	}
 	session.CurrentMessages = s.BuildCurrentMessages(req, session)
 	if err := s.ConfigureViews(&session, agentDef); err != nil {

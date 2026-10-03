@@ -233,7 +233,7 @@ func TestMountResolverUsesAPRuntimeHostPathEnv(t *testing.T) {
 	if mount, ok := mountByDestination(mounts, "/chat"); !ok || mount.Source != wantChat || mount.ReadOnly {
 		t.Fatalf("chat mount = %#v, ok=%v", mount, ok)
 	}
-	if mount, ok := mountByDestination(mounts, "/memory"); !ok || mount.Source != filepath.Join(hostMemory, "reader") {
+	if mount, ok := mountByDestination(mounts, "/memory"); !ok || mount.Source != hostMemory {
 		t.Fatalf("memory mount = %#v, ok=%v", mount, ok)
 	}
 	if mount, ok := mountByDestination(mounts, "/pan"); !ok || mount.Source != hostPan {

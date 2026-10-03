@@ -118,7 +118,6 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		ContinueRun:        prepared.ContinueRun,
 		InitialSeq:         prepared.InitialSeq,
 		BootstrapSynthetic: prepared.SyntheticBootstrap,
-		MemoryUsageSummary: memoryUsageEventPayload(prepared.MemoryUsageSummary, prepared.Req.ChatID, prepared.Req.RunID, prepared.Req.AgentKey),
 		QueryMetadata:      contracts.CloneMap(execution.QueryMetadata),
 	})
 	if s.deps.Tools != nil {
@@ -730,65 +729,18 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	}
 
 	prepared := preparedQuery{
-		Req:                req,
-		Summary:            summary,
-		Created:            created,
-		AgentDef:           agentDef,
-		TeamSnapshot:       admission.TeamSnapshot,
-		Session:            session,
-		MemoryUsageSummary: session.MemoryUsageSummary,
-		SystemInitLine:     systemInitLine,
-		ResourceBaseURL:    admission.ResourceBaseURL,
-		Release:            combinedRelease,
+		Req:             req,
+		Summary:         summary,
+		Created:         created,
+		AgentDef:        agentDef,
+		TeamSnapshot:    admission.TeamSnapshot,
+		Session:         session,
+		SystemInitLine:  systemInitLine,
+		ResourceBaseURL: admission.ResourceBaseURL,
+		Release:         combinedRelease,
 	}
 	succeeded = true
 	return prepared, nil
-}
-
-func memoryUsageEventPayload(summary *queryinput.MemoryUsageSummary, chatID string, runID string, agentKey string) map[string]any {
-	if summary == nil {
-		return nil
-	}
-	payload := map[string]any{
-		"chatId":           strings.TrimSpace(chatID),
-		"runId":            strings.TrimSpace(runID),
-		"agentKey":         strings.TrimSpace(agentKey),
-		"hasStaticMemory":  summary.HasStaticMemory,
-		"stableCount":      summary.StableCount,
-		"sessionCount":     summary.SessionCount,
-		"observationCount": summary.ObservationCount,
-		"stableChars":      summary.StableChars,
-		"sessionChars":     summary.SessionChars,
-		"observationChars": summary.ObservationChars,
-	}
-	if len(summary.StableItems) > 0 {
-		payload["stableItems"] = summary.StableItems
-	}
-	if len(summary.SessionItems) > 0 {
-		payload["sessionItems"] = summary.SessionItems
-	}
-	if len(summary.ObservationItems) > 0 {
-		payload["observationItems"] = summary.ObservationItems
-	}
-	if strings.TrimSpace(summary.UserHint) != "" {
-		payload["userHint"] = strings.TrimSpace(summary.UserHint)
-	}
-	if len(summary.DisclosedLayers) > 0 {
-		payload["disclosedLayers"] = append([]string(nil), summary.DisclosedLayers...)
-	}
-	if strings.TrimSpace(summary.SnapshotID) != "" {
-		payload["snapshotId"] = strings.TrimSpace(summary.SnapshotID)
-	}
-	if strings.TrimSpace(summary.StopReason) != "" {
-		payload["stopReason"] = strings.TrimSpace(summary.StopReason)
-	}
-	if len(summary.CandidateCounts) > 0 {
-		payload["candidateCounts"] = cloneIntMap(summary.CandidateCounts)
-	}
-	if len(summary.SelectedCounts) > 0 {
-		payload["selectedCounts"] = cloneIntMap(summary.SelectedCounts)
-	}
-	return payload
 }
 
 func queryChatSource(ctx context.Context, req runtimetypes.QueryCommand) string {

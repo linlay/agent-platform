@@ -380,16 +380,12 @@ type QuerySession struct {
 	HistoryMessages               []map[string]any
 	CurrentMessages               []map[string]any
 	MemoryContext                 string
-	StableMemoryContext           string
-	SessionMemoryContext          string
-	ObservationContext            string
-	WorkflowContext               string
 	PlanTaskContext               string
-	MemoryUsageSummary            *api.MemoryUsageSummary
 	RuntimeContext                RuntimeRequestContext
 	PromptAppend                  PromptAppendConfig
 	AdvancedUserPrompt            bool
-	StaticMemoryPrompt            string
+	OwnerPrompt                   string
+	OwnerPromptLoaded             bool
 	SkillCatalogPrompt            string
 	SystemInitCache               map[string]SystemInitSnapshot
 	PendingSystemInitKeys         map[string]bool

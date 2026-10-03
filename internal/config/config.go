@@ -396,13 +396,9 @@ type BillingConfig struct {
 }
 
 type MemoryConfig struct {
-	Enabled            bool
-	DBFileName         string
-	ContextTopN        int
-	ContextMaxChars    int
-	SearchDefaultLimit int
-	DualWriteMarkdown  bool
-	StorageDir         string
+	Enabled         bool
+	ContextMaxChars int
+	Timezone        string
 }
 
 type DefaultsConfig struct {
@@ -486,17 +482,11 @@ type LoggingConfig struct {
 	Action         ToggleConfig
 	Viewport       ToggleConfig
 	SSE            ToggleConfig
-	Memory         MemoryLoggingConfig
 	LLMInteraction LLMInteractionLoggingConfig
 }
 
 type ToggleConfig struct {
 	Enabled bool
-}
-
-type MemoryLoggingConfig struct {
-	Enabled bool
-	File    string
 }
 
 type LLMInteractionLoggingConfig struct {

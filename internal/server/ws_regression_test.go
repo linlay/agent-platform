@@ -134,7 +134,7 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 		t.Fatalf("expected detailed run summary usage, got %#v", detail.Runs)
 	}
 
-	matches, err := memories.Search("answer", 10)
+	matches, err := memories.Search("answer", "")
 	if err != nil {
 		t.Fatalf("search memories: %v", err)
 	}
@@ -1027,7 +1027,7 @@ func (wsRegressionCatalogRegistry) TeamDefinition(string) (catalog.TeamDefinitio
 
 func (wsRegressionCatalogRegistry) Reload(context.Context, string) error { return nil }
 
-func newServerForHelperTests(t *testing.T) (*Server, *chat.FileStore, *memory.SQLiteStore) {
+func newServerForHelperTests(t *testing.T) (*Server, *chat.FileStore, *memory.Store) {
 	t.Helper()
 	root := t.TempDir()
 	chats, err := chat.NewFileStoreAtStartup(filepath.Join(root, "chats"))

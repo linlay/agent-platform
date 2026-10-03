@@ -32,7 +32,7 @@ type RuntimeToolExecutor struct {
 	cfg             config.Config
 	sandbox         SandboxClient
 	chats           chat.Store
-	memory          memory.Store
+	memory          *memory.Store
 	models          *models.ModelRegistry
 	skillCandidates skills.CandidateStore
 	artifactPusher  ArtifactPusher
@@ -46,7 +46,7 @@ type RuntimeToolExecutor struct {
 	runtimeEnv      runtimeenv.Info
 }
 
-func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat.Store, memoryStore memory.Store, skillCandidates skills.CandidateStore) (*RuntimeToolExecutor, error) {
+func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat.Store, memoryStore *memory.Store, skillCandidates skills.CandidateStore) (*RuntimeToolExecutor, error) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
 		return nil, err
@@ -267,16 +267,6 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 		return t.invokeMemoryRead(toolName, args, execCtx)
 	case "memory_write":
 		return t.invokeMemoryWrite(toolName, args, execCtx)
-	case "memory_update":
-		return t.invokeMemoryUpdate(toolName, args, execCtx)
-	case "memory_forget":
-		return t.invokeMemoryForget(toolName, args, execCtx)
-	case "memory_timeline":
-		return t.invokeMemoryTimeline(toolName, args, execCtx)
-	case "memory_promote":
-		return t.invokeMemoryPromote(toolName, args, execCtx)
-	case "memory_consolidate":
-		return t.invokeMemoryConsolidate(toolName, args, execCtx)
 	case "_session_search_", "session_search":
 		return t.invokeSessionSearch(args, execCtx)
 	case "_skill_candidate_write_", "skill_candidate_write":

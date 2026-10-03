@@ -449,25 +449,6 @@ func TestAssemblerBootstrapOmitsEmptyQueryContext(t *testing.T) {
 	}
 }
 
-func TestAssemblerBootstrapOmitsMemoryContextWhenPresent(t *testing.T) {
-	assembler := NewAssembler(StreamRequest{
-		RequestID: "req_5",
-		RunID:     "run_5",
-		ChatID:    "chat_5",
-		AgentKey:  "agent_5",
-		Message:   "hello",
-		Role:      "user",
-		MemoryUsageSummary: map[string]any{
-			"hasStaticMemory":  true,
-			"stableCount":      2,
-			"observationCount": 1,
-		},
-	})
-
-	bootstrap := assembler.Bootstrap()
-	assertStampedTypes(t, bootstrap, "request.query", "run.start")
-}
-
 func TestAssemblerFailNormalizesRunError(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RunID:  "run_1",

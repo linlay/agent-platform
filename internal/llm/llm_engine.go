@@ -194,7 +194,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 				ToolDefinitions:         effectiveDefs,
 				IncludeAfterCallHints:   true,
 			})
-			e.logPromptMemory(session.RunID, options.Stage, session)
 			if e.llmConsoleEnabled(llmConsolePrompt) {
 				log.Printf("[llm][run:%s][%s] LLM delta stream system prompt:\n%s", session.RunID, options.Stage, systemPrompt)
 			}

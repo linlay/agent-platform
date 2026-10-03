@@ -397,44 +397,6 @@ type AccessLevelRequest = queryinput.AccessLevelRequest
 
 type AccessLevelResponse = queryinput.AccessLevelResponse
 
-type StoredMemoryResponse struct {
-	ID             string   `json:"id"`
-	RequestID      string   `json:"requestId,omitempty"`
-	ChatID         string   `json:"chatId"`
-	AgentKey       string   `json:"agentKey,omitempty"`
-	SubjectKey     string   `json:"subjectKey,omitempty"`
-	Kind           string   `json:"kind,omitempty"`
-	RefID          string   `json:"refId,omitempty"`
-	ScopeType      string   `json:"scopeType,omitempty"`
-	ScopeKey       string   `json:"scopeKey,omitempty"`
-	Title          string   `json:"title,omitempty"`
-	Summary        string   `json:"summary"`
-	SourceType     string   `json:"sourceType"`
-	Category       string   `json:"category"`
-	Importance     int      `json:"importance"`
-	Confidence     float64  `json:"confidence,omitempty"`
-	Status         string   `json:"status,omitempty"`
-	Tags           []string `json:"tags,omitempty"`
-	CreatedAt      int64    `json:"createdAt"`
-	UpdatedAt      int64    `json:"updatedAt"`
-	AccessCount    int      `json:"accessCount,omitempty"`
-	LastAccessedAt *int64   `json:"lastAccessedAt,omitempty"`
-}
-
-type MemoryUsageItem = queryinput.MemoryUsageItem
-
-type MemoryHitItem struct {
-	ID        string `json:"id,omitempty"`
-	Layer     string `json:"layer,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	ScopeType string `json:"scopeType,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Summary   string `json:"summary,omitempty"`
-	Category  string `json:"category,omitempty"`
-}
-
-type MemoryUsageSummary = queryinput.MemoryUsageSummary
-
 type AgentSummary struct {
 	Key                    string                     `json:"key"`
 	Name                   string                     `json:"name"`

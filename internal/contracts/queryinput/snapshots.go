@@ -31,34 +31,6 @@ type Awaiting struct {
 	CreatedAt  int64  `json:"createdAt"`
 }
 
-type MemoryUsageItem struct {
-	ID        string `json:"id,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	ScopeType string `json:"scopeType,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Summary   string `json:"summary,omitempty"`
-	Category  string `json:"category,omitempty"`
-}
-
-type MemoryUsageSummary struct {
-	HasStaticMemory  bool              `json:"hasStaticMemory"`
-	StableCount      int               `json:"stableCount"`
-	SessionCount     int               `json:"sessionCount"`
-	ObservationCount int               `json:"observationCount"`
-	StableItems      []MemoryUsageItem `json:"stableItems,omitempty"`
-	SessionItems     []MemoryUsageItem `json:"sessionItems,omitempty"`
-	ObservationItems []MemoryUsageItem `json:"observationItems,omitempty"`
-	UserHint         string            `json:"userHint,omitempty"`
-	StableChars      int               `json:"stableChars"`
-	SessionChars     int               `json:"sessionChars"`
-	ObservationChars int               `json:"observationChars"`
-	DisclosedLayers  []string          `json:"disclosedLayers,omitempty"`
-	SnapshotID       string            `json:"snapshotId,omitempty"`
-	StopReason       string            `json:"stopReason,omitempty"`
-	CandidateCounts  map[string]int    `json:"candidateCounts,omitempty"`
-	SelectedCounts   map[string]int    `json:"selectedCounts,omitempty"`
-}
-
 type ToolDefinition struct {
 	Key           string         `json:"key"`
 	Name          string         `json:"name"`

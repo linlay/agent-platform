@@ -722,19 +722,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 
 ### Memory
 
-`/api/learn` 和 `/api/memory/context-preview` 已退役，HTTP 为未注册路由（404），WebSocket 为未知 type（invalid_request，400）。记录、scope、历史及显式 memory tools 保留；不再自动学习或反馈。
-
-| Method | Path | 参数 | 响应 |
-|---|---|---|---|
-| GET | `/api/memory/meta` | 无 | memory category/type/scope/status 元数据 |
-| GET | `/api/memory/scope/list` | query: `agentKey` | scope 列表 |
-| GET | `/api/memory/scope/detail` | query: `agentKey`、`scopeType`、`scopeKey` | scope 详情 |
-| POST | `/api/memory/scope/save` | body: `agentKey`、`scopeType`、`scopeKey`、`mode`、`markdown`、`records`、`archiveMissing` | scope 保存结果 |
-| POST | `/api/memory/scope/validate` | body: `agentKey`、`scopeType`、`markdown` | scope markdown 校验结果 |
-| GET | `/api/memory/record/list` | query: `agentKey`、`scopeType`、`scopeKey`、`category`、`status`、`limit`、`cursor` | memory record 列表 |
-| GET | `/api/memory/history` | query: `agentKey`、`memoryId`、`limit`、`cursor` | memory history |
-| GET | `/api/memory/record/detail` | query: `id` | memory record 详情 |
-| GET | `/api/memory/record/timeline` | query: `id`、`limit` | memory record timeline |
+Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`（GET/PUT/DELETE）、`/api/memory/daily`（GET）和 `/api/memory/search`（GET）。文件使用固定 kind/date 标识和 revision 乐观锁，冲突 409。详情见 [记忆系统](记忆系统.md#编辑协议)。旧 Memory meta/scope/record/history/context-preview 与 learn 接口不注册，无数据库兼容模式。
 
 ### Viewport / Resource
 
@@ -1017,13 +1005,6 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/steer` | `SteerRequest` | `response` |
 | `/api/interrupt` | `InterruptRequest` | `response` |
 | `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
-| `/api/memory/meta` | 无 | `response` |
-| `/api/memory/scope/list` | `agentKey` | `response` |
-| `/api/memory/scope/detail` | `agentKey`、`scopeType`、`scopeKey` | `response` |
-| `/api/memory/scope/save` | scope 保存字段 | `response` |
-| `/api/memory/scope/validate` | `agentKey`、`scopeType`、`markdown` | `response` |
-| `/api/memory/record/list` | memory record 过滤字段 | `response` |
-| `/api/memory/record/detail` | `id` | `response` |
 | `/api/file` | `agentKey`、`path`、可选 `encoding`、可选 `response=json` | `response`；data 为 agent workspace 文件 metadata，文本文件包含 `content` |
 | `/api/viewport` | `viewportKey`、`viewportType` | `response` |
 | `/api/resource` | `file`、`pushURL` | `response` |

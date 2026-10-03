@@ -1271,8 +1271,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 		"    candidateMultiplier: 5\n" +
 		"    candidateMax: 200\n" +
 		"memoryConfig:\n" +
-		"  enabled: true\n" +
-		"  managementTools: true\n"
+		"  enabled: true\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -2174,43 +2173,6 @@ func TestParseAgentFileRejectsInvalidRuntimeEnv(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tt.errContains)
 			}
 		})
-	}
-}
-
-func TestParseAgentFileInjectsMemoryManagementToolsOnlyWhenEnabled(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"mode: GENERAL\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n" +
-		"memoryConfig:\n" +
-		"  enabled: true\n" +
-		"  managementTools: true\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentDefinitionForTest(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	want := []string{
-		"memory_write",
-		"memory_read",
-		"memory_search",
-		"memory_update",
-		"memory_forget",
-		"memory_timeline",
-		"memory_promote",
-		"memory_consolidate",
-	}
-	for _, tool := range want {
-		if !containsString(def.Tools, tool) {
-			t.Fatalf("expected %s in tools, got %#v", tool, def.Tools)
-		}
 	}
 }
 

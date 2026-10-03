@@ -338,7 +338,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 - `/pan` -> `AP_RUNTIME_PAN_DIR`（`rw`）
 - `/agent` -> `<AP_RUNTIME_DIR>/ru-agents/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
 - `/owner` -> `<AP_RUNTIME_DIR>/owner`（`ro`，目录缺失时自动创建）
-- `/memory` -> `AP_RUNTIME_MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
+- `/memory` -> `AP_RUNTIME_MEMORY_DIR`（`ro`，目录缺失时自动创建）
 
 容器 session 与未显式指定 cwd 的命令固定使用 `/workspace`。协议为 `dual-root-v2`。当 ChatsRoot 位于 Workspace 内时，Platform 下发 `/workspace/<ChatsRoot-relative>` mask，Hub 按 Workspace bind → mask tmpfs → current Chat bind 的顺序创建容器，确保 Chat 只从 `/chat` 可见。`/workspace`、`/chat`、mask 及其子路径是保留挂载目标，`runtimeConfig.sandboxMounts` 不能覆盖。session 复用身份包含 environment、canonical Workspace、canonical Chat、mask 和完整 mount fingerprint。
 
@@ -413,7 +413,7 @@ docker compose logs -f
 - Query 看起来不像真流式：默认 SSE writer 会逐事件 flush；优先检查代理、浏览器、网关或调用方是否缓冲。
 - `bash` 执行失败：检查 `AP_CONTAINER_HUB_BASE_URL`、`container-hub.default-environment-id`，以及 runtime 目录配置是否为宿主机真实路径。
 - chat 没有持久化：检查 `AP_RUNTIME_CHATS_DIR` 是否可写。
-- Memory 升级：learn、自动反馈、向量检索和 context-preview 已退役；runtime 的旧混合检索权重与 prompts 的 `memory` 节静默忽略，Agent/Provider 的旧字段仍需删除。数据库与手工记录保留。详见 [记忆系统](./docs/记忆系统.md)。
+- Memory 已整体替换为纯 Markdown：OWNER.md、memory.md 与 daily 日期记录；SQLite、scope、自动学习与旧工具协议下线，不做历史迁移。WebClient/ Desktop 提供“记忆与资料”编辑入口，知识索引归 KBX。详见 [记忆系统](./docs/记忆系统.md)。
 - 上传后无法下载：确认文件已落到 `AP_RUNTIME_CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否使用响应中的 ChatScope `url`。
 
 ## 文档索引

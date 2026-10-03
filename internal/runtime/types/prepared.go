@@ -6,7 +6,6 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/stream"
 )
 
@@ -17,7 +16,6 @@ type PreparedQuery struct {
 	AgentDef           catalog.AgentDefinition
 	TeamSnapshot       *catalog.TeamSnapshot
 	Session            contracts.QuerySession
-	MemoryUsageSummary *queryinput.MemoryUsageSummary
 	SystemInitLine     *chat.QueryLineSystem
 	ResourceBaseURL    string
 	Release            func()

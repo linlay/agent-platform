@@ -114,13 +114,9 @@ func defaultConfig(options LoadOptions) Config {
 			Currency: "CNY",
 		},
 		Memory: MemoryConfig{
-			Enabled:            false,
-			DBFileName:         "memory.db",
-			ContextTopN:        5,
-			ContextMaxChars:    4000,
-			SearchDefaultLimit: 10,
-			DualWriteMarkdown:  true,
-			StorageDir:         paths.MemoryDir,
+			Enabled:         true,
+			ContextMaxChars: 12000,
+			Timezone:        "Local",
 		},
 		Defaults: DefaultsConfig{
 			Budget: BudgetDefaultsConfig{
@@ -164,7 +160,7 @@ func defaultConfig(options LoadOptions) Config {
 			Secret:     "",
 			TTLSeconds: 86400,
 		},
-		Logging: defaultLoggingConfig(paths.ChatsDir, paths.MemoryDir),
+		Logging: defaultLoggingConfig(paths.ChatsDir),
 		CORS: CORSConfig{
 			Enabled:               false,
 			PathPattern:           "/api/**",
@@ -249,13 +245,6 @@ func expandPathHome(runtimeRoot, envKey string) (string, error) {
 		return home, nil
 	}
 	return filepath.Join(home, runtimeRoot[2:]), nil
-}
-
-func memoryLogFileDefault(memoryDir string) string {
-	if strings.TrimSpace(memoryDir) == "" {
-		return ""
-	}
-	return filepath.Join(memoryDir, "memory.log")
 }
 
 func defaultLSPDiagnosticsHookConfig() LSPDiagnosticsHookConfig {
@@ -400,14 +389,9 @@ func (c *Config) normalize(configRoot string) error {
 	c.Teams.ExternalDir = filepath.Clean(c.Paths.TeamsDir)
 	c.Skills.ExternalDir = filepath.Clean(c.Paths.SkillsCenterDir)
 	c.Automation.ExternalDir = filepath.Clean(c.Paths.AutomationsDir)
-	c.Memory.StorageDir = filepath.Clean(c.Paths.MemoryDir)
 	c.Logging.LLMInteraction.RecordDir = filepath.Clean(c.Paths.ChatsDir)
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
-	c.Logging.Memory.File = memoryLogFileDefault(c.Paths.MemoryDir)
-	if strings.TrimSpace(c.Logging.Memory.File) != "" {
-		c.Logging.Memory.File = filepath.Clean(c.Logging.Memory.File)
-	}
 
 	c.Auth.LocalPublicKeyFile = fixedAuthLocalPublicKeyFile(configRoot)
 	if strings.TrimSpace(c.Auth.JWKSURI) != "" {

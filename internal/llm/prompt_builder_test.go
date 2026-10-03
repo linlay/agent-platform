@@ -19,29 +19,6 @@ func runtimeSystemPromptForTest(session QuerySession) string {
 	return strings.Join(contents, "\n\n")
 }
 
-func TestBuildSystemPromptPlacesStaticMemoryBeforeRuntimeMemory(t *testing.T) {
-	prompt := buildSystemPrompt(QuerySession{
-		AgentKey:             "demo",
-		AgentName:            "Demo",
-		AgentRole:            "Prompt Tester",
-		AgentDescription:     "Verifies prompt ordering",
-		Mode:                 "REACT",
-		SoulPrompt:           "soul",
-		StaticMemoryPrompt:   "static-memory",
-		AgentHasMemoryConfig: true,
-		StableMemoryContext:  "Runtime Context: Stable Memory\n- stable-fact",
-	}, api.QueryRequest{}, "", PromptBuildOptions{})
-
-	staticIndex := strings.Index(prompt, "static-memory")
-	runtimeIndex := strings.Index(prompt, "Runtime Context: Stable Memory")
-	if staticIndex < 0 || runtimeIndex < 0 {
-		t.Fatalf("expected both static and runtime memory sections, got %q", prompt)
-	}
-	if staticIndex > runtimeIndex {
-		t.Fatalf("expected static memory before runtime memory, got %q", prompt)
-	}
-}
-
 func TestBuildSystemPromptInjectsAgentIdentityWithoutSoulIdentity(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:         "demo",
@@ -424,21 +401,6 @@ func TestBuildSystemPromptKeepsIdentityWhenSoulIsMissing(t *testing.T) {
 	}
 }
 
-func TestBuildMemorySectionAvoidsDuplicatingLayeredHeaders(t *testing.T) {
-	section := buildMemorySection(QuerySession{
-		StableMemoryContext: "Runtime Context: Stable Memory\n- stable-fact",
-		ObservationContext:  "Runtime Context: Relevant Observations\n- recent-observation",
-		WorkflowContext:     "Runtime Context: Related Workflows\nworkflow: deploy automation",
-	})
-
-	if strings.Count(section, "Runtime Context: Stable Memory") != 1 {
-		t.Fatalf("expected one stable memory header, got %q", section)
-	}
-	if strings.Count(section, "Runtime Context: Relevant Observations") != 1 {
-		t.Fatalf("expected one observation header, got %q", section)
-	}
-}
-
 func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
 	prompt := runtimeSystemPromptForTest(QuerySession{
 		AgentHasRuntimeSandbox: true,
@@ -462,10 +424,10 @@ func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
 func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
 	prompt := runtimeSystemPromptForTest(QuerySession{
 		AgentHasMemoryConfig: true,
-		StableMemoryContext:  "Runtime Context: Stable Memory\n- stable-fact",
+		MemoryContext:        "Personal Memory\n- stable-fact",
 	})
 
-	if !strings.Contains(prompt, "Runtime Context: Stable Memory") {
+	if !strings.Contains(prompt, "Personal Memory") {
 		t.Fatalf("expected memory section in prompt, got %q", prompt)
 	}
 }

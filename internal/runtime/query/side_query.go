@@ -198,16 +198,15 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 	keepBranch = true
 	keepRuntime = true
 	return preparedQuery{
-		Release:            releaseRuntime,
-		Req:                req,
-		Summary:            summaryCopy,
-		Created:            false,
-		AgentDef:           agentDef,
-		TeamSnapshot:       teamSnapshot,
-		Session:            session,
-		MemoryUsageSummary: session.MemoryUsageSummary,
-		SystemInitLine:     pendingSystem,
-		ResourceBaseURL:    input.ResourceBaseURL,
+		Release:         releaseRuntime,
+		Req:             req,
+		Summary:         summaryCopy,
+		Created:         false,
+		AgentDef:        agentDef,
+		TeamSnapshot:    teamSnapshot,
+		Session:         session,
+		SystemInitLine:  pendingSystem,
+		ResourceBaseURL: input.ResourceBaseURL,
 		Execution: &queryExecutionOptions{
 			StepLineStore:   branch,
 			CompletionStore: nil,

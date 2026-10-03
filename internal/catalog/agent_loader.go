@@ -333,7 +333,6 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 
 	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
-	def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
 
 	topPromptFiles := parsePromptFileField(root["promptFile"])
 
@@ -823,13 +822,6 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 					def.Tools = append(def.Tools, memTool)
 				}
 			}
-			if def.MemoryConfig.ManagementTools {
-				for _, memTool := range []string{"memory_update", "memory_forget", "memory_timeline", "memory_promote", "memory_consolidate"} {
-					if !containsString(def.Tools, memTool) {
-						def.Tools = append(def.Tools, memTool)
-					}
-				}
-			}
 		}
 	}
 
@@ -920,10 +912,7 @@ func parseAgentMemoryConfig(path string, value any) (AgentMemoryConfig, error) {
 	if enabled, ok := node["enabled"].(bool); ok {
 		cfg.Enabled = enabled
 	}
-	if managementTools, ok := node["managementTools"].(bool); ok {
-		cfg.ManagementTools = managementTools
-	}
-	for _, key := range []string{"embedding", "autoRemember"} {
+	for _, key := range []string{"embedding", "autoRemember", "managementTools"} {
 		if _, exists := node[key]; exists {
 			return cfg, fmt.Errorf("%s: memoryConfig.%s is no longer supported; remove this field", path, key)
 		}
@@ -1079,9 +1068,7 @@ func filterTools(tools []string, keep func(string) bool) []string {
 
 func isMemoryTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "memory_write", "memory_read", "memory_search",
-		"memory_update", "memory_forget", "memory_timeline",
-		"memory_promote", "memory_consolidate":
+	case "memory_write", "memory_read", "memory_search":
 		return true
 	default:
 		return false

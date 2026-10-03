@@ -52,12 +52,9 @@ automation:
   pool-size: 4
 
 memory:
-  enabled: false
-  db-file-name: memory.db
-  context-top-n: 5
-  context-max-chars: 4000
-  search-default-limit: 10
-  dual-write-markdown: true
+  enabled: true
+  context-max-chars: 12000
+  timezone: Local
 
 # KBASE behavior settings live in configs/kbase-settings.yml.
 
