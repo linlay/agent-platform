@@ -176,3 +176,74 @@ func TestAgentMCPReadsSharedTokenWithoutWritingItIntoRuntime(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentRegistryIsolatesUnavailableRunPins(t *testing.T) {
+	for _, tc := range []struct{ name, manifest string }{
+		{"unsupported-native", `{"id":"old-package","name":"Old","version":"1.0.0","type":"native","auth_mode":"no_auth"}`},
+		{"malformed", `{`},
+		{"missing", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := connector.Sources{ExternalRoot: filepath.Join(t.TempDir(), "connectors-center")}
+			registry, err := NewAgentRegistry(sources)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			path := filepath.Join(dir, "connector.json")
+			if tc.manifest != "" {
+				if err := os.WriteFile(path, []byte(tc.manifest), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			mount := connector.AgentRuntime{AgentKey: "old-agent", ID: "old-package", Dir: dir, FromRunPin: true}
+			provider := &fixtureAgentConnectors{mounts: []connector.AgentRuntime{mount}}
+			if err := registry.BindAgents(provider); err != nil {
+				t.Fatalf("historical pin blocked binding: %v", err)
+			}
+			if len(registry.Servers()) != 0 {
+				t.Fatal("invalid package created routes")
+			}
+			if _, err := connector.LoadDirectory(dir, mount.ID); err == nil {
+				t.Fatal("restoration must still reject the package")
+			}
+			if tc.manifest != "" {
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != tc.manifest {
+					t.Fatalf("historical package changed: %v", err)
+				}
+			}
+			// The same package must fail when also mounted by a current/live Agent.
+			mount.FromRunPin = false
+			provider.mounts = append(provider.mounts, mount)
+			if err := registry.Reload(); err == nil || !strings.Contains(err.Error(), "Agent old-agent connector old-package") {
+				t.Fatalf("current mount must fail with context: %v", err)
+			}
+		})
+	}
+}
+
+func TestAgentRegistryBindsValidRunPin(t *testing.T) {
+	sources := connector.Sources{ExternalRoot: filepath.Join(t.TempDir(), "connectors-center")}
+	registry, err := NewAgentRegistry(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"connector.json": `{"id":"historical","name":"Historical","version":"1.0.0","type":"mcp","auth_mode":"no_auth"}`,
+		"mcp.json":       `{"mcpServers":{"server":{"type":"http","url":"https://example.com/mcp"}}}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	provider := &fixtureAgentConnectors{mounts: []connector.AgentRuntime{{AgentKey: "old-agent", ID: "historical", Dir: dir, Digest: "old-version", FromRunPin: true}}}
+	if err := registry.BindAgents(provider); err != nil {
+		t.Fatal(err)
+	}
+	key := connector.AgentVersionServerKey("old-agent", connector.ServerKey("historical", "server"), "old-version")
+	if _, ok := registry.Server(key); !ok {
+		t.Fatal("valid historical MCP route missing")
+	}
+}

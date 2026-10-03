@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 
@@ -54,7 +55,13 @@ func (r *Registry) loadAgentServers() (map[string]ServerDefinition, error) {
 		}
 		pkg, err := connector.LoadDirectory(mount.Dir, mount.ID)
 		if err != nil {
-			return nil, err
+			// Historical pins preserve packages for Run restoration, but are
+			// not current Agent configuration. Restoration validates them again.
+			if mount.FromRunPin {
+				log.Printf("[mcp] skip unavailable Run pin: agent=%s connector=%s: %v", mount.AgentKey, mount.ID, err)
+				continue
+			}
+			return nil, fmt.Errorf("Agent %s connector %s: %w", mount.AgentKey, mount.ID, err)
 		}
 		pkg.StateRoot = r.sources.PersistentRoot()
 		if len(pkg.MCP) == 0 {

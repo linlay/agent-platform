@@ -53,10 +53,11 @@ func (s Sources) PinnedRuntimes() ([]AgentRuntime, error) {
 		if err := ReadJSON(filepath.Join(s.SharedRoot(), ".run-pins", entry.Name()), &mounts); err != nil {
 			return nil, err
 		}
-		for _, mount := range mounts {
+		for i, mount := range mounts {
 			if !ValidID(mount.ID) || !validDigest(mount.Digest) || mount.Dir != filepath.Join(s.SharedRoot(), mount.ID, mount.Digest) {
 				return nil, fmt.Errorf("invalid durable connector pin")
 			}
+			mounts[i].FromRunPin = true
 		}
 		result = append(result, mounts...)
 	}

@@ -11,6 +11,9 @@ type AgentRuntime struct {
 	ID       string
 	Dir      string
 	Digest   string
+	// FromRunPin is assigned when reading durable Run references, never from JSON.
+	// Current Agent and live runtime mounts remain subject to strict validation.
+	FromRunPin bool `json:"-"`
 }
 
 // AgentServerKey keeps process/session identity distinct from package identity.
