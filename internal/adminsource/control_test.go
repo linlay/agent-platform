@@ -90,7 +90,8 @@ func TestControlRollbackAndProtection(t *testing.T) {
 	}
 	s.Registry.(*controlRegistry).fail = true
 	result, e := s.Apply(context.Background(), c, "caller", p.Digest)
-	if e != nil || result["status"] != "rolled_back" {
+	var failure *contracts.MutationError
+	if !errors.As(e, &failure) || failure.State != "rolled_back" || result["status"] != "rolled_back" {
 		t.Fatalf("%v %v", result, e)
 	}
 	b, _ := os.ReadFile(path)
@@ -281,5 +282,37 @@ func TestControlMutationErrorsIdentifyPreflight(t *testing.T) {
 	var failure *contracts.MutationError
 	if !errors.As(err, &failure) || failure.State != "not_started" {
 		t.Fatalf("preflight marked uncertain: %v", err)
+	}
+}
+
+func TestControlMCPAuthenticationValidatedBeforeApproval(t *testing.T) {
+	for _, tt := range []struct {
+		name, mode, endpoint string
+		valid                bool
+	}{
+		{"oauth_https", "mcp", "https://example.test/mcp", true},
+		{"oauth_private_https", "mcp", "https://10.0.0.1/mcp", true},
+		{"oauth_localhost", "mcp", "http://localhost:8080/mcp", true},
+		{"oauth_loopback", "mcp", "http://127.0.0.1:8080/mcp", true},
+		{"oauth_ipv6_loopback", "mcp", "http://[::1]:8080/mcp", true},
+		{"oauth_public_http", "mcp", "http://example.test/mcp", false},
+		{"oauth_private_http", "mcp", "http://10.0.0.1/mcp", false},
+		{"no_auth_public_http", "no_auth", "http://example.test/mcp", true},
+		{"no_auth_private_http", "no_auth", "http://10.0.0.1/mcp", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := controlFixture(t)
+			c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: tt.endpoint, Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"` + tt.mode + `"}`}
+			plan, err := s.Prepare(c, "caller")
+			if (err == nil) != tt.valid {
+				t.Fatalf("valid=%v: plan=%v err=%v", tt.valid, plan, err)
+			}
+			if !tt.valid && (plan != nil || !strings.Contains(err.Error(), "HTTPS MCP resource")) {
+				t.Fatalf("invalid OAuth endpoint reached approval: %v %v", plan, err)
+			}
+			if _, err := os.Stat(filepath.Join(s.Config.Paths.ConnectorsCenterDir, "remote")); !os.IsNotExist(err) {
+				t.Fatalf("preparation wrote connector: %v", err)
+			}
+		})
 	}
 }

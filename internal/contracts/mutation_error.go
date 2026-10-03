@@ -1,6 +1,7 @@
 package contracts
 
-// MutationError distinguishes rejection before side effects from uncertain or committed writes.
+// MutationError distinguishes rejection before side effects, confirmed rollback,
+// and uncertain or committed writes.
 type MutationError struct {
 	State string
 	Err   error

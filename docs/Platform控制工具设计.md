@@ -30,11 +30,11 @@ Standalone 隐藏七个 Desktop 工具；Catalog/Chat 在子任务、Team、BTW/
 - Agent：agent.yml、SOUL.md、AGENTS.md。
 - Team：team.yml / team.yaml；不能删除 Team。
 - Skill：SKILL.md 和相对文本文件；package/member 与 package.json 成员列表一起发布，创建包仍使用现有管理入口。含 package.json 的包根不能作为普通 skill 操作，必须指定 package/member。
-- 外部 Connector：已有包仅编辑 connector.json；新建 HTTP MCP 可额外传 mcpUrl，由平台生成 mcp.json，与清单一起审批、校验及原子发布。不提供 CLI 安装或通用文件写入。需要登录使用 auth_mode=mcp，复用现有 .well-known 发现、PKCE、回调和刷新；公开服务可显式 no_auth。保存候选不发起远端请求。
+- 外部 Connector：已有包仅编辑 connector.json；新建 HTTP MCP 可额外传 mcpUrl，由平台生成 mcp.json，与清单一起审批、校验及原子发布。不提供 CLI 安装或通用文件写入。需要登录使用 auth_mode=mcp，复用现有 .well-known 发现、PKCE、回调和刷新；公开服务可显式 no_auth。创建候选在审批前复用登录的本地校验：MCP OAuth 地址要求 HTTPS，保留 localhost、127.0.0.1 和 ::1 的 HTTP 例外；no_auth 的 HTTP(S) 范围不变。保存候选不发起远端请求。
 
 apply 提交完整 UTF-8 文本，最多 1 MiB；目录版本覆盖整个资源（最多 64 MiB），现有对象必须带 get 得到的版本，新建必须满足不存在。禁止绝对路径、点段、符号链接和非普通文件；内置对象、调用者自身以及受引用对象受保护。Agent env 查询脱敏，保留旧值必须使用 preservePaths；连接器行内凭据不通过此工具编辑。
 
-prepare 生成脱敏前后内容和摘要；执行在 `adminsource` 共用 Agent/source mutation 锁内复验基准与授权，再隐藏 staging → backup → 原子发布，配合 catalog directory mutation 协调 watcher。硬重载失败恢复来源并重新加载。返回 applied、pending（执行目录租约待发布）、invalid 或 rolled_back；不能把 pending/invalid 当作完全生效。执行错误按阶段区分 not_started、unknown 和 committed；已发布后的备份清理失败不能标成未执行。更新保留原文件权限，新建源文件默认 0644（仍受 umask 影响），私有状态另按 0600 写入。
+prepare 生成脱敏前后内容和摘要；执行在 `adminsource` 共用 Agent/source mutation 锁内复验基准与授权，再隐藏 staging → backup → 原子发布，配合 catalog directory mutation 协调 watcher。硬重载失败恢复来源并重新加载。正常返回 applied、pending（执行目录租约待发布）或 invalid；不能把 pending/invalid 当作完全生效。确认来源及目录均恢复后返回工具错误 control_rolled_back（非零退出码），status 与 executionState 均为 rolled_back，表示操作失败、已恢复原状；解决失败原因后需重新提交并审批。恢复文件或重新加载失败时仍返回 unknown，不能声称恢复成功。其他执行错误按阶段区分 not_started、unknown 和 committed；已发布后的备份清理失败不能标成未执行。更新保留原文件权限，新建源文件默认 0644（仍受 umask 影响），私有状态另按 0600 写入。
 
 ## 强制一次性审批
 

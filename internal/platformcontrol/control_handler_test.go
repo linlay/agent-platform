@@ -7,6 +7,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,6 +60,74 @@ func TestControlAdmissionAndExactApproval(t *testing.T) {
 		if result.Error == "" {
 			t.Fatal("invalid caller accepted")
 		}
+	}
+}
+
+func TestControlRollbackReturnsFailure(t *testing.T) {
+	for _, restored := range []bool{true, false} {
+		name := "rollback_reload_failed"
+		if restored {
+			name = "restored"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents")}}
+			registry, err := catalog.NewFileRegistry(cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(cfg.Paths.AgentsDir, "other", "SOUL.md")
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("original"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			reloads := 0
+			source := &adminsource.ControlService{Config: cfg, Registry: registry, Mutations: adminsource.NewService(), Reload: func(context.Context, string) error {
+				reloads++
+				if restored && reloads == 2 {
+					return nil
+				}
+				return errors.New("test reload failure")
+			}}
+			h := NewToolHandler(cfg, registry, nil).ConfigureControl(source, nil, nil)
+			view, err := source.Read(adminsource.ControlTarget{ResourceType: "agent", ResourceKey: "other", Path: "SOUL.md"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := map[string]any{"action": "apply", "args": map[string]any{"resourceType": "agent", "resourceKey": "other", "path": "SOUL.md", "content": "replacement", "baseRevision": view.BaseRevision}}
+			execution := controlExecution()
+			plan, err := h.PrepareToolApproval(context.Background(), "catalog_manage", args, execution)
+			if err != nil {
+				t.Fatal(err)
+			}
+			execution.ToolApprovals = map[string]bool{plan.Fingerprint: true}
+			result, err := h.Invoke(context.Background(), "catalog_manage", args, execution)
+			if err != nil || result.ExitCode == 0 || result.Error == "" {
+				t.Fatalf("failed mutation reported success: %+v %v", result, err)
+			}
+			state, code, strategy := "unknown", "control_failed", "inspect_state"
+			if restored {
+				state, code, strategy = "rolled_back", "control_rolled_back", "fix_input"
+				if result.Structured["status"] != "rolled_back" {
+					t.Fatalf("missing rollback status: %+v", result)
+				}
+			}
+			if result.Structured["executionState"] != state || result.Error != code || result.Structured["recovery"].(map[string]any)["strategy"] != strategy {
+				t.Fatalf("incorrect failure semantics: %+v", result)
+			}
+			b, err := os.ReadFile(path)
+			if err != nil || string(b) != "original" || reloads != 2 {
+				t.Fatalf("source not restored: %q, reloads=%d, err=%v", b, reloads, err)
+			}
+			if execution.ToolApprovals[plan.Fingerprint] {
+				t.Fatal("failed mutation retained approval")
+			}
+			result, err = h.Invoke(context.Background(), "catalog_manage", args, execution)
+			if err != nil || result.Error != "approval_required" {
+				t.Fatalf("retry bypassed fresh approval: %+v %v", result, err)
+			}
+		})
 	}
 }
 

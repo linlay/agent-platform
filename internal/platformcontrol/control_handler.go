@@ -235,8 +235,14 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 		failure := controlFail("control_failed", sanitizeDiagnostic(err.Error()), "execution")
 		var mutation *contracts.MutationError
 		if errors.As(err, &mutation) && mutation.State != "not_started" {
+			if mutation.State == "rolled_back" {
+				failure = controlFail("control_rolled_back", sanitizeDiagnostic(err.Error()), "execution")
+				failure.Structured["status"] = "rolled_back"
+				failure.Structured["recovery"] = map[string]any{"strategy": "fix_input", "message": "The operation failed and the previous state was restored. Resolve the reported cause and submit a new request for approval before retrying."}
+			} else {
+				failure.Structured["recovery"] = map[string]any{"strategy": "inspect_state", "message": "Read the target state before retrying; the operation may have committed."}
+			}
 			failure.Structured["executionState"] = mutation.State
-			failure.Structured["recovery"] = map[string]any{"strategy": "inspect_state", "message": "Read the target state before retrying; the operation may have committed."}
 			failure.Output = contracts.CompactToolModelOutput(failure.Structured, "")
 		}
 		return failure, nil

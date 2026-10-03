@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 	"agent-platform/internal/pathutil"
@@ -718,7 +719,8 @@ func (s *ControlService) applyLocked(ctx context.Context, c ControlChange, calle
 		if e := s.reload(context.WithoutCancel(ctx), c.ResourceType); e != nil {
 			return nil, fmt.Errorf("rollback_reload_failed: %w", e)
 		}
-		return map[string]any{"status": "rolled_back", "diagnostics": []string{cause.Error()}}, nil
+		state = "rolled_back"
+		return map[string]any{"status": "rolled_back", "diagnostics": []string{cause.Error()}}, fmt.Errorf("change failed; previous state restored: %w", cause)
 	}
 	if !removeWhole {
 		if e = os.Rename(stage, p.root); e != nil {
@@ -858,6 +860,11 @@ func controlMCPFile(c ControlChange) (string, error) {
 	if m.Type != "mcp" || (m.AuthMode != connector.AuthMCP && m.AuthMode != connector.AuthNoAuth) {
 		return "", fmt.Errorf("HTTP MCP creation requires type=mcp and auth_mode=mcp (OAuth discovery) or no_auth")
 	}
-	data, err := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "http", "url": c.MCPURL}}}, "", "  ")
+	components := map[string]map[string]any{"main": {"type": "http", "url": c.MCPURL}}
+	// Match login's local validation before asking the user to approve creation.
+	if err := connectorauth.ValidatePackage(connector.Package{Manifest: m, MCP: components}); err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(map[string]any{"mcpServers": components}, "", "  ")
 	return string(data) + "\n", err
 }
