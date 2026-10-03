@@ -68,8 +68,38 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	content, usage, err := t.completeVisionRecognition(callCtx, model, provider, profile, outputFormat, prompt, images)
+	contentTruncated := false
+	partialContent := ""
+	if errors.Is(err, errTextModelOutputTruncated) && strings.TrimSpace(content) != "" {
+		// A partial answer is still useful; return it flagged as incomplete.
+		// JSON output must stay parseable, so it is flagged only through the
+		// structured field, and incomplete JSON is reported as a failure.
+		switch {
+		case outputFormat != "json":
+			content += textModelTruncatedNotice
+			contentTruncated = true
+			err = nil
+		case json.Valid([]byte(strings.TrimSpace(content))):
+			contentTruncated = true
+			err = nil
+		default:
+			partialContent = content
+		}
+	}
 	if err != nil {
-		return modelToolError("vision_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+		code := "vision_model_request_failed"
+		if errors.Is(err, errTextModelOutputTruncated) {
+			code = "vision_model_output_truncated"
+		}
+		diagnostics := map[string]any{"modelKey": model.Key, "profile": profileName}
+		if partialContent != "" {
+			diagnostics["outputFormat"] = outputFormat
+			diagnostics["partialContent"] = partialContent
+		}
+		if len(usage) > 0 {
+			diagnostics["usage"] = usage
+		}
+		return modelToolError(code, err.Error(), diagnostics), nil
 	}
 	payload := map[string]any{
 		"ok":           true,
@@ -78,6 +108,9 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 		"outputFormat": outputFormat,
 		"content":      content,
 		"images":       visionImageMetadata(images),
+	}
+	if contentTruncated {
+		payload["contentTruncated"] = true
 	}
 	if len(usage) > 0 {
 		payload["usage"] = usage
@@ -206,6 +239,7 @@ func (t *RuntimeToolExecutor) completeVisionOpenAI(ctx context.Context, model mo
 			Message struct {
 				Content any `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage map[string]any `json:"usage"`
 	}
@@ -216,8 +250,12 @@ func (t *RuntimeToolExecutor) completeVisionOpenAI(ctx context.Context, model mo
 		return "", decoded.Usage, fmt.Errorf("vision model returned no choices")
 	}
 	contentText := extractVisionOpenAIContent(decoded.Choices[0].Message.Content)
+	finishReason := strings.TrimSpace(decoded.Choices[0].FinishReason)
+	if strings.EqualFold(finishReason, "length") {
+		return contentText, decoded.Usage, textModelTruncatedError(contentText, finishReason)
+	}
 	if strings.TrimSpace(contentText) == "" {
-		return "", decoded.Usage, fmt.Errorf("vision model returned empty content")
+		return "", decoded.Usage, textModelEmptyContentError(finishReason)
 	}
 	return contentText, decoded.Usage, nil
 }
@@ -236,7 +274,7 @@ func (t *RuntimeToolExecutor) completeVisionAnthropic(ctx context.Context, model
 	}
 	body := map[string]any{
 		"model":      model.ModelID,
-		"max_tokens": 1200,
+		"max_tokens": textModelOutputLimit(model, 1200),
 		"system":     visionSystemPrompt(profile, outputFormat),
 		"messages": []map[string]any{
 			{"role": "user", "content": content},
@@ -252,7 +290,8 @@ func (t *RuntimeToolExecutor) completeVisionAnthropic(ctx context.Context, model
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage map[string]any `json:"usage"`
+		StopReason string         `json:"stop_reason"`
+		Usage      map[string]any `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return "", nil, err
@@ -264,8 +303,12 @@ func (t *RuntimeToolExecutor) completeVisionAnthropic(ctx context.Context, model
 		}
 	}
 	contentText := strings.TrimSpace(strings.Join(parts, "\n"))
+	stopReason := strings.TrimSpace(decoded.StopReason)
+	if strings.EqualFold(stopReason, "max_tokens") {
+		return contentText, decoded.Usage, textModelTruncatedError(contentText, stopReason)
+	}
 	if contentText == "" {
-		return "", decoded.Usage, fmt.Errorf("vision model returned empty content")
+		return "", decoded.Usage, textModelEmptyContentError(stopReason)
 	}
 	return contentText, decoded.Usage, nil
 }

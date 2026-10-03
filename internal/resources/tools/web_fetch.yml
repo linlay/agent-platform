@@ -5,7 +5,7 @@ i18n:
     label: "Fetch Webpage"
   zh-CN:
     label: "网页抓取"
-description: Fetch a public HTTP(S) URL, convert the content to markdown-like text, and apply a prompt using the configured small model. Use this for public web pages; authenticated or private URLs are not supported.
+description: Fetch a public HTTP(S) URL, convert the content to markdown-like text, and apply a prompt using the configured small model. Use this for public web pages; authenticated or private URLs are not supported. A non-2xx HTTP response fails with web_fetch_http_error and a cross-host redirect fails with web_fetch_cross_host_redirect (call again with the redirect URL); neither returns page content.
 inputSchema:
   type: object
   properties:

@@ -324,3 +324,52 @@ func apiQuery(chatID string, name string) api.QueryRequest {
 		}},
 	}
 }
+
+func TestVisionRecognizeReportsTruncatedModelOutput(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		format      string
+		response    string
+		wantError   string
+		wantFlag    bool
+		wantContent string
+	}{
+		{"before content", "text", `{"choices":[{"finish_reason":"length","message":{"reasoning_content":"thinking"}}],"usage":{"completion_tokens":7}}`, "vision_model_output_truncated", false, ""},
+		{"mid content", "text", `{"choices":[{"finish_reason":"length","message":{"content":"a tiny"}}],"usage":{"completion_tokens":7}}`, "", true, "a tiny" + textModelTruncatedNotice},
+		{"complete json", "json", `{"choices":[{"finish_reason":"length","message":{"content":"{\"text\":\"hi\"}"}}],"usage":{"completion_tokens":7}}`, "", true, `{"text":"hi"}`},
+		{"incomplete json", "json", `{"choices":[{"finish_reason":"length","message":{"content":"{\"text\":\"h"}}],"usage":{"completion_tokens":7}}`, "vision_model_output_truncated", false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.response))
+			}))
+			defer server.Close()
+
+			chatsDir := t.TempDir()
+			writeTestPNG(t, filepath.Join(chatsDir, "chat-1", "demo.png"))
+			registry := writeVisionRegistry(t, server.URL, "OPENAI", models.ModelTypeVL)
+			executor := visionTestExecutor(chatsDir, registry, server.Client())
+			result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
+				"images":       []any{map[string]any{"referenceName": "demo.png"}},
+				"prompt":       "describe this",
+				"outputFormat": tc.format,
+			}, &contracts.ExecutionContext{Request: apiQuery("chat-1", "demo.png")})
+			if err != nil {
+				t.Fatalf("invokeVisionRecognize: %v", err)
+			}
+			if result.Error != tc.wantError || (result.Structured["contentTruncated"] == true) != tc.wantFlag {
+				t.Fatalf("unexpected result: %#v", result)
+			}
+			usage, _ := result.Structured["usage"].(map[string]any)
+			if contracts.AnyIntNode(usage["completion_tokens"]) != 7 {
+				t.Fatalf("expected usage, got %#v", result.Structured)
+			}
+			if tc.wantFlag && contracts.AnyStringNode(result.Structured["content"]) != tc.wantContent {
+				t.Fatalf("expected content %q, got %#v", tc.wantContent, result.Structured["content"])
+			}
+			if tc.name == "incomplete json" && contracts.AnyStringNode(result.Structured["partialContent"]) != `{"text":"h` {
+				t.Fatalf("expected partial content diagnostics, got %#v", result.Structured)
+			}
+		})
+	}
+}

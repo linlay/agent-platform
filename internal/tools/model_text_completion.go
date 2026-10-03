@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,7 +22,43 @@ type textModelRequest struct {
 	MaxOutputTokens int
 }
 
+// textModelReasoningHeadroomTokens is added to the wire output limit of
+// reasoning models, where reasoning and answer share one budget. Without it the
+// reasoning alone can exhaust MaxOutputTokens and leave no answer.
+const textModelReasoningHeadroomTokens = 4096
+
+// errTextModelOutputTruncated marks a response cut off by the output token
+// limit. Completion helpers return it together with whatever answer text was
+// produced: empty text means the limit was hit before any answer, non-empty
+// text is a usable but incomplete answer.
+var errTextModelOutputTruncated = errors.New("model output truncated")
+
+func textModelTruncatedError(text string, reason string) error {
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("%w: output token limit reached before any answer text (finish reason: %s)", errTextModelOutputTruncated, reason)
+	}
+	return fmt.Errorf("%w: output token limit reached mid-answer (finish reason: %s)", errTextModelOutputTruncated, reason)
+}
+
+// textModelOutputLimit returns the wire output limit for an answer budget.
+func textModelOutputLimit(model models.ModelDefinition, answerTokens int) int {
+	if model.IsReasoner && answerTokens > 0 {
+		return answerTokens + textModelReasoningHeadroomTokens
+	}
+	return answerTokens
+}
+
+const textModelTruncatedNotice = "\n\n[Output truncated: the model reached its output limit before finishing.]"
+
+func textModelEmptyContentError(reason string) error {
+	if reason = strings.TrimSpace(reason); reason != "" {
+		return fmt.Errorf("model returned empty content (finish reason: %s)", reason)
+	}
+	return fmt.Errorf("model returned empty content")
+}
+
 func (t *RuntimeToolExecutor) completeTextModel(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, request textModelRequest) (string, map[string]any, error) {
+	request.MaxOutputTokens = textModelOutputLimit(model, request.MaxOutputTokens)
 	switch strings.ToUpper(strings.TrimSpace(model.Protocol)) {
 	case "OPENAI_RESPONSES":
 		return t.completeResponsesModel(ctx, model, provider, []contracts.ModelMessage{{Role: "system", Content: strings.TrimSpace(request.SystemPrompt)}, {Role: "user", Content: strings.TrimSpace(request.UserPrompt)}}, request.MaxOutputTokens)
@@ -55,6 +92,7 @@ func (t *RuntimeToolExecutor) completeTextModelOpenAI(ctx context.Context, model
 			Message struct {
 				Content any `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage map[string]any `json:"usage"`
 	}
@@ -65,8 +103,12 @@ func (t *RuntimeToolExecutor) completeTextModelOpenAI(ctx context.Context, model
 		return "", decoded.Usage, fmt.Errorf("model returned no choices")
 	}
 	contentText := extractVisionOpenAIContent(decoded.Choices[0].Message.Content)
+	finishReason := strings.TrimSpace(decoded.Choices[0].FinishReason)
+	if strings.EqualFold(finishReason, "length") {
+		return contentText, decoded.Usage, textModelTruncatedError(contentText, finishReason)
+	}
 	if strings.TrimSpace(contentText) == "" {
-		return "", decoded.Usage, fmt.Errorf("model returned empty content")
+		return "", decoded.Usage, textModelEmptyContentError(finishReason)
 	}
 	return contentText, decoded.Usage, nil
 }
@@ -94,7 +136,8 @@ func (t *RuntimeToolExecutor) completeTextModelAnthropic(ctx context.Context, mo
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage map[string]any `json:"usage"`
+		StopReason string         `json:"stop_reason"`
+		Usage      map[string]any `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return "", nil, err
@@ -106,8 +149,12 @@ func (t *RuntimeToolExecutor) completeTextModelAnthropic(ctx context.Context, mo
 		}
 	}
 	contentText := strings.TrimSpace(strings.Join(parts, "\n"))
+	stopReason := strings.TrimSpace(decoded.StopReason)
+	if strings.EqualFold(stopReason, "max_tokens") {
+		return contentText, decoded.Usage, textModelTruncatedError(contentText, stopReason)
+	}
 	if contentText == "" {
-		return "", decoded.Usage, fmt.Errorf("model returned empty content")
+		return "", decoded.Usage, textModelEmptyContentError(stopReason)
 	}
 	return contentText, decoded.Usage, nil
 }

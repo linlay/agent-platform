@@ -42,11 +42,15 @@ func (t *RuntimeToolExecutor) completeResponsesModel(ctx context.Context, model 
 	}
 	_ = json.Unmarshal(data, &raw)
 	if r.Status != "completed" || r.Error != nil {
+		if r.Error == nil && r.IncompleteDetails.Reason == "max_output_tokens" {
+			text := strings.TrimSpace(r.Text())
+			return text, raw.Usage, textModelTruncatedError(text, r.IncompleteDetails.Reason)
+		}
 		return "", raw.Usage, fmt.Errorf("responses model did not complete (status=%s)", r.Status)
 	}
 	text := strings.TrimSpace(r.Text())
 	if text == "" {
-		return "", raw.Usage, fmt.Errorf("responses model returned empty content")
+		return "", raw.Usage, textModelEmptyContentError(r.Status)
 	}
 	return text, raw.Usage, nil
 }

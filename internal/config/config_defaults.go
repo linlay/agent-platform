@@ -539,7 +539,7 @@ func normalizeWebFetchConfig(cfg WebFetchConfig) WebFetchConfig {
 			profile.MaxMarkdownChars = 100000
 		}
 		if profile.MaxOutputTokens <= 0 {
-			profile.MaxOutputTokens = 1200
+			profile.MaxOutputTokens = 4000
 		}
 		profile.SystemPrompt = strings.TrimSpace(profile.SystemPrompt)
 		profiles[normalizedKey] = profile

@@ -91,30 +91,44 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 		return modelToolError("web_fetch_request_failed", err.Error(), map[string]any{"url": rawURL}), nil
 	}
 	if redirect != nil {
-		result := webFetchRedirectMessage(*redirect, prompt)
-		payload := map[string]any{
-			"ok":         true,
+		// Nothing was fetched: the caller must retry against the new host,
+		// which is validated and approved as a separate call.
+		return modelToolError("web_fetch_cross_host_redirect", webFetchRedirectMessage(*redirect, prompt), map[string]any{
 			"url":        rawURL,
 			"finalUrl":   redirect.OriginalURL,
-			"bytes":      len(result),
 			"code":       redirect.StatusCode,
 			"codeText":   redirect.StatusText,
 			"durationMs": time.Since(start).Milliseconds(),
-			"result":     result,
 			"redirect": map[string]any{
 				"originalUrl": redirect.OriginalURL,
 				"redirectUrl": redirect.RedirectURL,
 				"statusCode":  redirect.StatusCode,
 				"statusText":  redirect.StatusText,
 			},
+		}), nil
+	}
+	if response.Code < 200 || response.Code > 299 {
+		// The body of a failed response is an error page, not the requested
+		// content; never hand it to the model as if the fetch succeeded.
+		diagnostics := map[string]any{
+			"url":         rawURL,
+			"finalUrl":    response.FinalURL,
+			"bytes":       response.Bytes,
+			"code":        response.Code,
+			"codeText":    response.CodeText,
+			"contentType": response.ContentType,
+			"durationMs":  time.Since(start).Milliseconds(),
 		}
-		return structuredResult(payload), nil
+		if excerpt := webFetchBodyExcerpt(response); excerpt != "" {
+			diagnostics["bodyExcerpt"] = excerpt
+		}
+		return modelToolError("web_fetch_http_error", fmt.Sprintf("HTTP %d %s", response.Code, response.CodeText), diagnostics), nil
 	}
 
 	content := response.Content
 	truncated := false
 	if profile.MaxMarkdownChars > 0 && len(content) > profile.MaxMarkdownChars {
-		content = content[:profile.MaxMarkdownChars] + "\n\n[Content truncated due to length...]"
+		content = strings.ToValidUTF8(content[:profile.MaxMarkdownChars], "") + "\n\n[Content truncated due to length...]"
 		truncated = true
 	}
 
@@ -122,12 +136,34 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 	directReturn := isPreapproved && strings.Contains(strings.ToLower(response.ContentType), "text/markdown") && len(content) < maxInt(profile.MaxMarkdownChars, 100000)
 	result := content
 	var usage map[string]any
+	resultTruncated := false
 	if !directReturn {
 		callCtx, callCancel := context.WithTimeout(ctx, time.Duration(maxInt(profile.Timeout, 60))*time.Second)
 		defer callCancel()
-		result, usage, err = t.applyWebFetchPrompt(callCtx, model, provider, profile, prompt, content, response.FinalURL, isPreapproved)
+		result, usage, err = t.applyWebFetchPrompt(callCtx, model, provider, profile, prompt, content, response.FinalURL, isPreapproved, truncated)
+		if errors.Is(err, errTextModelOutputTruncated) && strings.TrimSpace(result) != "" {
+			// A partial answer is still useful; return it flagged as incomplete.
+			result += textModelTruncatedNotice
+			resultTruncated = true
+			err = nil
+		}
 		if err != nil {
-			return modelToolError("web_fetch_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+			code := "web_fetch_model_request_failed"
+			if errors.Is(err, errTextModelOutputTruncated) {
+				code = "web_fetch_model_output_truncated"
+			}
+			diagnostics := map[string]any{
+				"modelKey": model.Key,
+				"profile":  profileName,
+				"url":      rawURL,
+				"finalUrl": response.FinalURL,
+				"code":     response.Code,
+				"codeText": response.CodeText,
+			}
+			if len(usage) > 0 {
+				diagnostics["usage"] = usage
+			}
+			return modelToolError(code, err.Error(), diagnostics), nil
 		}
 	}
 
@@ -150,6 +186,9 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 	}
 	if directReturn {
 		payload["directReturn"] = true
+	}
+	if resultTruncated {
+		payload["resultTruncated"] = true
 	}
 	if len(usage) > 0 {
 		payload["usage"] = usage
@@ -246,7 +285,7 @@ func readWebFetchResponse(resp *http.Response, profile config.WebFetchProfileCon
 	}
 	persistedPath := ""
 	persistedSize := 0
-	if isWebFetchBinaryContentType(contentType) {
+	if isWebFetchBinaryContentType(contentType) && resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		if path, err := persistWebFetchBinary(data, contentType, execCtx); err == nil {
 			persistedPath = path
 			persistedSize = len(data)
@@ -268,8 +307,8 @@ func readWebFetchResponse(resp *http.Response, profile config.WebFetchProfileCon
 	}, nil
 }
 
-func (t *RuntimeToolExecutor) applyWebFetchPrompt(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.WebFetchProfileConfig, prompt string, content string, finalURL string, preapproved bool) (string, map[string]any, error) {
-	userPrompt := webFetchModelPrompt(finalURL, prompt, content, preapproved)
+func (t *RuntimeToolExecutor) applyWebFetchPrompt(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.WebFetchProfileConfig, prompt string, content string, finalURL string, preapproved bool, truncated bool) (string, map[string]any, error) {
+	userPrompt := webFetchModelPrompt(finalURL, prompt, content, preapproved, truncated)
 	systemPrompt := strings.TrimSpace(profile.SystemPrompt)
 	if systemPrompt == "" {
 		systemPrompt = "You extract and summarize fetched web content according to the user's prompt."
@@ -277,14 +316,17 @@ func (t *RuntimeToolExecutor) applyWebFetchPrompt(ctx context.Context, model mod
 	return t.completeTextModel(ctx, model, provider, textModelRequest{
 		SystemPrompt:    systemPrompt,
 		UserPrompt:      userPrompt,
-		MaxOutputTokens: maxInt(profile.MaxOutputTokens, 1200),
+		MaxOutputTokens: maxInt(profile.MaxOutputTokens, 4000),
 	})
 }
 
-func webFetchModelPrompt(finalURL string, prompt string, content string, preapproved bool) string {
+func webFetchModelPrompt(finalURL string, prompt string, content string, preapproved bool, truncated bool) string {
 	approvalLine := "The URL is not on the direct-return preapproved host list."
 	if preapproved {
 		approvalLine = "The URL is on the direct-return preapproved host list."
+	}
+	if truncated {
+		approvalLine += "\nThe fetched content below is only the beginning of the page; the rest was cut off for length. Say so in your answer if the missing part could matter."
 	}
 	return strings.TrimSpace(fmt.Sprintf(`Fetched URL: %s
 %s
@@ -358,6 +400,21 @@ func isWebFetchRedirectStatus(code int) bool {
 	default:
 		return false
 	}
+}
+
+const webFetchBodyExcerptRunes = 500
+
+// webFetchBodyExcerpt returns a short diagnostic excerpt of a failed
+// response's text body.
+func webFetchBodyExcerpt(response *webFetchContent) string {
+	if response == nil || isWebFetchBinaryContentType(response.ContentType) {
+		return ""
+	}
+	runes := []rune(strings.TrimSpace(strings.ToValidUTF8(response.Content, "")))
+	if len(runes) > webFetchBodyExcerptRunes {
+		return string(runes[:webFetchBodyExcerptRunes]) + "…"
+	}
+	return string(runes)
 }
 
 func webFetchStatusText(code int, raw string) string {

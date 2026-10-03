@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
@@ -180,8 +181,173 @@ func TestWebFetchCrossHostRedirectReturnsInstruction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invokeWebFetch: %v", err)
 	}
-	if result.Error != "" || result.Structured["redirect"] == nil || !strings.Contains(contracts.AnyStringNode(result.Structured["result"]), "REDIRECT DETECTED") {
-		t.Fatalf("expected redirect instruction, got %#v", result)
+	if result.Error != "web_fetch_cross_host_redirect" || result.Structured["ok"] != false || result.Structured["redirect"] == nil || !strings.Contains(contracts.AnyStringNode(result.Structured["message"]), "REDIRECT DETECTED") {
+		t.Fatalf("expected redirect instruction error, got %#v", result)
+	}
+}
+
+func TestWebFetchHTTPErrorStatusFailsWithoutModelCall(t *testing.T) {
+	webServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`<html><body><p>Access denied by firewall</p></body></html>`))
+	}))
+	defer webServer.Close()
+
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("model must not be called for a failed HTTP response")
+	}))
+	defer modelServer.Close()
+
+	registry := writeWebFetchRegistry(t, modelServer.URL, "OPENAI")
+	executor := webFetchTestExecutor(config.WebFetchConfig{}, registry, routedHTTPClient(map[string]string{"example.com": webServer.URL}))
+	result, err := executor.invokeWebFetch(context.Background(), map[string]any{
+		"url":    "https://example.com/blocked",
+		"prompt": "summarize",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeWebFetch: %v", err)
+	}
+	if result.Error != "web_fetch_http_error" || result.Structured["ok"] != false || contracts.AnyIntNode(result.Structured["code"]) != http.StatusForbidden {
+		t.Fatalf("expected HTTP error result, got %#v", result)
+	}
+	if _, ok := result.Structured["result"]; ok {
+		t.Fatalf("failed fetch must not carry a result, got %#v", result.Structured)
+	}
+	if !strings.Contains(contracts.AnyStringNode(result.Structured["bodyExcerpt"]), "Access denied by firewall") {
+		t.Fatalf("expected body excerpt diagnostics, got %#v", result.Structured)
+	}
+}
+
+func TestWebFetchModelOutputTruncatedBeforeContent(t *testing.T) {
+	webServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body><p>News</p></body></html>`))
+	}))
+	defer webServer.Close()
+
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"length","message":{"role":"assistant","reasoning_content":"thinking"}}],"usage":{"completion_tokens":1200}}`))
+	}))
+	defer modelServer.Close()
+
+	registry := writeWebFetchRegistry(t, modelServer.URL, "OPENAI")
+	executor := webFetchTestExecutor(config.WebFetchConfig{}, registry, routedHTTPClient(map[string]string{"example.com": webServer.URL}))
+	result, err := executor.invokeWebFetch(context.Background(), map[string]any{
+		"url":    "https://example.com/news",
+		"prompt": "summarize",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeWebFetch: %v", err)
+	}
+	if result.Error != "web_fetch_model_output_truncated" || result.Structured["ok"] != false {
+		t.Fatalf("expected truncated model output error, got %#v", result)
+	}
+	usage, _ := result.Structured["usage"].(map[string]any)
+	if contracts.AnyIntNode(usage["completion_tokens"]) != 1200 {
+		t.Fatalf("expected usage in diagnostics, got %#v", result.Structured)
+	}
+}
+
+func TestWebFetchModelOutputTruncatedMidAnswerIsFlagged(t *testing.T) {
+	webServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body><p>News</p></body></html>`))
+	}))
+	defer webServer.Close()
+
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"length","message":{"content":"1. headline one"}}],"usage":{"completion_tokens":4000}}`))
+	}))
+	defer modelServer.Close()
+
+	registry := writeWebFetchRegistry(t, modelServer.URL, "OPENAI")
+	executor := webFetchTestExecutor(config.WebFetchConfig{}, registry, routedHTTPClient(map[string]string{"example.com": webServer.URL}))
+	result, err := executor.invokeWebFetch(context.Background(), map[string]any{
+		"url":    "https://example.com/news",
+		"prompt": "list headlines",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeWebFetch: %v", err)
+	}
+	if result.Error != "" || result.Structured["ok"] != true || result.Structured["resultTruncated"] != true {
+		t.Fatalf("expected flagged partial result, got %#v", result)
+	}
+	if !strings.HasPrefix(contracts.AnyStringNode(result.Structured["result"]), "1. headline one\n\n[Output truncated") {
+		t.Fatalf("expected partial result with notice, got %#v", result.Structured["result"])
+	}
+}
+
+func TestWebFetchTruncatedContentIsDisclosedToModel(t *testing.T) {
+	webServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(strings.Repeat("新闻", 200)))
+	}))
+	defer webServer.Close()
+
+	var captured map[string]any
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode model request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":"partial summary"}}]}`))
+	}))
+	defer modelServer.Close()
+
+	cfg := defaultWebFetchTestConfig()
+	profile := cfg.Profiles["general"]
+	profile.MaxMarkdownChars = 100
+	cfg.Profiles["general"] = profile
+	registry := writeWebFetchRegistry(t, modelServer.URL, "OPENAI")
+	executor := webFetchTestExecutor(cfg, registry, routedHTTPClient(map[string]string{"example.com": webServer.URL}))
+	result, err := executor.invokeWebFetch(context.Background(), map[string]any{
+		"url":    "https://example.com/long",
+		"prompt": "summarize",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeWebFetch: %v", err)
+	}
+	if result.Error != "" || result.Structured["contentTruncated"] != true {
+		t.Fatalf("expected truncated success, got %#v", result)
+	}
+	messages, _ := captured["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("expected OpenAI messages, got %#v", captured)
+	}
+	userMessage, _ := messages[1].(map[string]any)
+	userPrompt := contracts.AnyStringNode(userMessage["content"])
+	if !strings.Contains(userPrompt, "only the beginning of the page") || !utf8.ValidString(userPrompt) || strings.ContainsRune(userPrompt, utf8.RuneError) {
+		t.Fatalf("expected truncation notice and valid UTF-8, got %q", userPrompt)
+	}
+}
+
+func TestCompleteTextModelAddsReasoningHeadroom(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode model request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":"answer"}}]}`))
+	}))
+	defer server.Close()
+
+	registry := writeWebFetchRegistry(t, server.URL, "OPENAI")
+	model, provider, err := registry.Get("web-model")
+	if err != nil {
+		t.Fatalf("get model: %v", err)
+	}
+	executor := &RuntimeToolExecutor{httpClient: server.Client()}
+	for _, tc := range []struct {
+		reasoner bool
+		want     int
+	}{{false, 1200}, {true, 1200 + textModelReasoningHeadroomTokens}} {
+		model.IsReasoner = tc.reasoner
+		if _, _, err := executor.completeTextModel(context.Background(), model, provider, textModelRequest{SystemPrompt: "system", UserPrompt: "user", MaxOutputTokens: 1200}); err != nil {
+			t.Fatalf("completeTextModel: %v", err)
+		}
+		if captured["max_tokens"] != float64(tc.want) {
+			t.Fatalf("reasoner=%v: expected max_tokens %d, got %#v", tc.reasoner, tc.want, captured["max_tokens"])
+		}
 	}
 }
 
