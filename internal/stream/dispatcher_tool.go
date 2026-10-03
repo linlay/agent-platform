@@ -3,6 +3,8 @@ package stream
 import (
 	"strings"
 	"unicode/utf8"
+
+	"agent-platform/internal/i18n"
 )
 
 func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
@@ -14,6 +16,7 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 			Name:        input.ToolName,
 			Label:       input.ToolLabel,
 			Description: input.ToolDescription,
+			I18n:        i18n.CloneToolTranslations(input.ToolI18n),
 		}
 		events = append(events, NewEvent("tool.start", map[string]any{
 			"toolId":          input.ToolID,
@@ -23,6 +26,9 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 			"toolLabel":       input.ToolLabel,
 			"toolDescription": input.ToolDescription,
 		}))
+		if len(input.ToolI18n) > 0 {
+			events[len(events)-1].Payload["toolI18n"] = i18n.CloneToolTranslations(input.ToolI18n)
+		}
 		if input.AwaitAsk != nil {
 			if event := d.newAwaitAskEvent(*input.AwaitAsk); event.Type != "" {
 				events = append(events, event)
@@ -204,6 +210,9 @@ func (d *StreamEventDispatcher) closeTool(toolID string, fileChange map[string]a
 	}
 	if len(fileChange) > 0 {
 		snapshotPayload["fileChange"] = clonePayload(fileChange)
+	}
+	if len(block.I18n) > 0 {
+		snapshotPayload["toolI18n"] = i18n.CloneToolTranslations(block.I18n)
 	}
 	events = append(events, NewEvent("tool.snapshot", snapshotPayload))
 	return events

@@ -1,5 +1,10 @@
 name: bash_sandbox
-label: 执行沙箱命令
+label: "执行沙箱命令"
+i18n:
+  en:
+    label: "Run Sandbox Command"
+  zh-CN:
+    label: "执行沙箱命令"
 description: Execute a command inside the sandbox container. Runtime routes to this internal implementation when the agent declares runtimeConfig.environmentId. Uses the same run-authored script and opaque-entry policy as Host Bash, resolving executable identities and verifying mapped script bytes inside the actual container. Failed resolution is conservatively reviewed; host files do not prove container /tmp contents. Optionally include a short Chinese description explaining the command purpose.
 inputSchema:
   type: object
@@ -9,7 +14,7 @@ inputSchema:
       description: Required. Command string to execute inside the sandbox container via /bin/sh -lc.
     description:
       type: string
-      description: Optional. 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户；省略时使用命令摘要。
+      description: Optional. A short Chinese sentence describing the command purpose, shown during human approval. Defaults to a command summary when omitted.
     cwd:
       type: string
       description: Working directory for this execution. When empty, the current run's default sandbox cwd is used.
@@ -18,7 +23,7 @@ inputSchema:
       description: Execution timeout in seconds.
     env:
       type: array
-      description: 本次命令追加的环境变量（合并到 session 默认 env 之上）。
+      description: Additional environment variables for this command, merged over the session defaults.
       items:
         type: object
         properties:

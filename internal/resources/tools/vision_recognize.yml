@@ -1,5 +1,10 @@
 name: vision_recognize
-label: 图像识别
+label: "图像识别"
+i18n:
+  en:
+    label: "Analyze Image"
+  zh-CN:
+    label: "图像识别"
 description: Recognize images through the globally configured vision model. Use this when the active model cannot inspect images directly, or when OCR/visual extraction is needed as a tool result. Always pass images as a JSON array, even for one image.
 explicitOnly: true
 inputSchema:

@@ -1,5 +1,10 @@
 name: awcp_invoke
-label: 网站动作
+label: "网站动作"
+i18n:
+  en:
+    label: "Website Action"
+  zh-CN:
+    label: "网站动作"
 description: "Invoke one business action that the website documents in its AWCP manual. Read the section with awcp_manual first and build args from its inputSchema, using the same revision. Field validation is owned by the website; Platform does not coerce or repair arguments. Fix reported invalid arguments explicitly, but do not automatically replay a timeout, disconnect, cancellation or unknown outcome. A stale revision requires reading the manual again."
 clientVisible: true
 inputSchema:

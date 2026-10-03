@@ -1,5 +1,10 @@
 name: memory_write
-label: 维护记忆
+label: "维护记忆"
+i18n:
+  en:
+    label: "Manage Memory"
+  zh-CN:
+    label: "维护记忆"
 description: Save or delete personal Markdown, or append a daily note. Only ordinary native main runs may write. Read first and supply revision. Never store credentials or unverified assumptions.
 clientVisible: false
 inputSchema:

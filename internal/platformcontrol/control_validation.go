@@ -39,7 +39,7 @@ func validateControlEnums(tool, action string, p map[string]any) error {
 	}
 	// Resource capabilities stay in their existing service; do not broaden write permissions here.
 	if tool == "catalog_query" && (action == "list" || action == "get") {
-		enums["resourceType"] = []string{"agent", "team", "skill", "connector", "model", "tool"}
+		enums["resourceType"] = []string{"agent", "team", "skill", "connector", "model", "tool", "provider", "mcp"}
 	}
 	if tool == "catalog_manage" || (tool == "catalog_query" && action == "validate") {
 		enums["resourceType"] = []string{"agent", "team", "skill", "connector"}

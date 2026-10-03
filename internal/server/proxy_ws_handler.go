@@ -129,7 +129,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 				_ = sseWriter.WriteDone()
 				return
 			}
-			if err := sseWriter.WriteJSON("message", event); err != nil {
+			if err := sseWriter.WriteJSON("message", localizeStreamEventData(requestLocale(r, "en"), event)); err != nil {
 				if isTimeContractViolation(err) {
 					s.terminateSSEForTimeContractViolation(
 						sseWriter,

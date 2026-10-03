@@ -76,3 +76,23 @@ func TestRuntimeComponentListsActualAvailableNames(t *testing.T) {
 		t.Fatalf("%#v %v", r, err)
 	}
 }
+
+func TestDiscoveryResourcesRetainReadOnlyAdmission(t *testing.T) {
+	h := &ToolHandler{}
+	for _, kind := range []string{"provider", "mcp"} {
+		for _, action := range []string{"list", "get"} {
+			params := map[string]any{"resourceType": kind}
+			if action == "get" {
+				params["resourceKey"] = "demo"
+			}
+			_, _, err := h.admitted("catalog_query", map[string]any{"action": action, "args": params}, controlExecution())
+			if err != nil {
+				t.Fatalf("%s %s: %v", action, kind, err)
+			}
+		}
+		_, _, err := h.admitted("catalog_manage", map[string]any{"action": "apply", "args": map[string]any{"resourceType": kind, "resourceKey": "demo", "content": "text"}}, controlExecution())
+		if err == nil {
+			t.Fatalf("write accepted for %s", kind)
+		}
+	}
+}

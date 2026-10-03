@@ -44,20 +44,21 @@ func controlFail(code, message, stage string) contracts.ToolExecutionResult {
 }
 
 var argumentFields = map[string]map[string]string{
-	"catalog_query.list":     {"resourceType": "s!", "status": "s", "limit": "n", "cursor": "s"},
-	"catalog_query.get":      {"resourceType": "s!", "resourceKey": "s!", "path": "s"},
-	"catalog_query.defaults": {"type": "s!"},
-	"catalog_query.validate": {"resourceType": "s!", "resourceKey": "s!", "content": "s!", "path": "s", "mcpUrl": "s"},
-	"catalog_manage.apply":   {"resourceType": "s!", "resourceKey": "s!", "path": "s", "content": "s!", "baseRevision": "s", "preservePaths": "a", "mcpUrl": "s"},
-	"catalog_manage.delete":  {"resourceType": "s!", "resourceKey": "s!", "baseRevision": "s!"},
-	"chat_query.current":     {},
-	"chat_query.list":        {"scope": "s", "archived": "b", "pinned": "b", "limit": "n", "cursor": "s"},
-	"chat_query.search":      {"query": "s!", "scope": "s", "chatId": "s", "archived": "b", "limit": "n", "cursor": "s"},
-	"chat_query.read":        {"chatId": "s!", "archived": "b", "view": "s!", "limit": "n", "cursor": "s"},
-	"chat_query.artifacts":   {"chatId": "s", "runId": "s", "limit": "n", "cursor": "s"},
-	"chat_manage.rename":     {"chatId": "s", "chatName": "s!"},
-	"chat_manage.setPinned":  {"chatId": "s", "pinned": "b!"},
-	"chat_manage.archive":    {"chatId": "s", "chatIds": "a"}, "chat_manage.restore": {"chatId": "s", "chatIds": "a"},
+	"catalog_query.resourceTypes": {},
+	"catalog_query.list":          {"resourceType": "s!", "status": "s", "limit": "n", "cursor": "s"},
+	"catalog_query.get":           {"resourceType": "s!", "resourceKey": "s!", "path": "s"},
+	"catalog_query.defaults":      {"type": "s!"},
+	"catalog_query.validate":      {"resourceType": "s!", "resourceKey": "s!", "content": "s!", "path": "s", "mcpUrl": "s"},
+	"catalog_manage.apply":        {"resourceType": "s!", "resourceKey": "s!", "path": "s", "content": "s!", "baseRevision": "s", "preservePaths": "a", "mcpUrl": "s"},
+	"catalog_manage.delete":       {"resourceType": "s!", "resourceKey": "s!", "baseRevision": "s!"},
+	"chat_query.current":          {},
+	"chat_query.list":             {"scope": "s", "archived": "b", "pinned": "b", "limit": "n", "cursor": "s"},
+	"chat_query.search":           {"query": "s!", "scope": "s", "chatId": "s", "archived": "b", "limit": "n", "cursor": "s"},
+	"chat_query.read":             {"chatId": "s!", "archived": "b", "view": "s!", "limit": "n", "cursor": "s"},
+	"chat_query.artifacts":        {"chatId": "s", "runId": "s", "limit": "n", "cursor": "s"},
+	"chat_manage.rename":          {"chatId": "s", "chatName": "s!"},
+	"chat_manage.setPinned":       {"chatId": "s", "pinned": "b!"},
+	"chat_manage.archive":         {"chatId": "s", "chatIds": "a"}, "chat_manage.restore": {"chatId": "s", "chatIds": "a"},
 	"chat_manage.fork":                 {"sourceChatId": "s!", "sourceRunId": "s", "chatName": "s"},
 	"chat_manage.export":               {"chatId": "s!", "archived": "b", "format": "s!"},
 	"chat_manage.delete":               {"chatId": "s!", "archived": "b"},
@@ -230,6 +231,9 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 	return successResult(payload), nil
 }
 func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[string]any) (any, error) {
+	if action == "resourceTypes" {
+		return catalogResourceTypes(), nil
+	}
 	if action == "defaults" {
 		typ := stringValue(p, "type")
 		paths := map[string]string{"general": GeneralCreationPath, "coder": CoderCreationPath, "kbase": KBaseCreationPath}
@@ -271,6 +275,12 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 		return map[string]any{"valid": err == nil, "diagnostics": diagnostics}, nil
 	}
 	if action == "get" {
+		if t.ResourceType == "provider" || t.ResourceType == "mcp" {
+			if t.Path != "" {
+				return nil, fmt.Errorf("path is unsupported for read-only resource")
+			}
+			return h.readDiscoveryResource(t.ResourceType, t.ResourceKey)
+		}
 		if t.ResourceType == "tool" {
 			v, ok := h.registry.Tool(t.ResourceKey)
 			if !ok {
@@ -315,6 +325,28 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 				add(v.Key, true, nil)
 			}
 		}
+	case "provider":
+		if h.models == nil {
+			return nil, fmt.Errorf("models unavailable")
+		}
+		for _, v := range h.models.ProviderSummaries() {
+			if status == "invalid" {
+				continue
+			}
+			items = append(items, map[string]any{"resourceKey": v.Key, "resourceType": "provider", "valid": true, "diagnostics": nil, "editable": false, "definition": v})
+		}
+	case "mcp":
+		packages, err := h.cfg.Paths.ConnectorSources().LoadAll()
+		if err != nil {
+			return nil, fmt.Errorf("cannot enumerate MCP components: connector sources unavailable; inspect connector list with status invalid")
+		}
+		if status != "invalid" {
+			for _, pkg := range packages {
+				for name := range pkg.MCP {
+					items = append(items, publicMCPComponent(pkg, name))
+				}
+			}
+		}
 	case "connector":
 		ids := map[string]bool{}
 		for _, id := range connector.NativeConnectorIDs() {
@@ -336,11 +368,22 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 			}
 		}
 		for id := range ids {
-			_, err := sources.Load(id)
+			pkg, err := sources.Load(id)
 			if err != nil {
 				add(id, false, []map[string]any{candidateError("invalid_connector", err)})
 			} else {
 				add(id, true, nil)
+				if status != "invalid" {
+					item := items[len(items)-1]
+					item["editable"] = !pkg.Builtin
+					item["hasMcp"], item["hasCli"], item["hasView"], item["hasNative"] = len(pkg.MCP) > 0, pkg.CLI != nil, len(pkg.Views) > 0, len(pkg.Native) > 0
+					keys := []string{}
+					for name := range pkg.MCP {
+						keys = append(keys, id+"/"+name)
+					}
+					sort.Strings(keys)
+					item["mcpKeys"] = keys
+				}
 			}
 		}
 	case "agent":
@@ -418,7 +461,7 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 	if end < len(items) {
 		next = items[end-1]["resourceKey"].(string)
 	}
-	return map[string]any{"items": items[start:end], "nextCursor": next}, nil
+	return map[string]any{"items": items[start:end], "nextCursor": next, "total": len(items), "hasMore": next != ""}, nil
 }
 func (h *ToolHandler) chatQuery(action string, p map[string]any, e *contracts.ExecutionContext) (any, error) {
 	if h.conversations == nil {

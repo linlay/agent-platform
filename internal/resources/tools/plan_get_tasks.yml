@@ -1,5 +1,10 @@
 name: plan_get_tasks
-label: 读取任务
+label: "读取任务"
+i18n:
+  en:
+    label: "Read Tasks"
+  zh-CN:
+    label: "读取任务"
 description: Read the current ordered plan snapshot, including each task's status and currentTaskId when a task is in_progress. At most one task can be in_progress. This tool only reports state and does not prescribe or perform the next update. If no tasks exist, it returns an empty plan snapshot.
 clientVisible: true
 inputSchema:

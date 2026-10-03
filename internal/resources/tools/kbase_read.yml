@@ -1,5 +1,10 @@
 name: kbase_read
-label: 读取知识库片段
+label: "读取知识库片段"
+i18n:
+  en:
+    label: "Read Knowledge Base Excerpt"
+  zh-CN:
+    label: "读取知识库片段"
 description: Read a KBASE chunk by chunkId, or read indexed chunks for a source path. Results include line/page/slide source location when available.
 clientVisible: true
 readOnly: true

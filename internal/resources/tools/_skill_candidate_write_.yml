@@ -1,6 +1,11 @@
 key: _skill_candidate_write_
 name: _skill_candidate_write_
-label: Skill Candidate Write
+label: "写入技能候选"
+i18n:
+  en:
+    label: "Write Skill Candidate"
+  zh-CN:
+    label: "写入技能候选"
 description: Store a reusable workflow or procedure candidate for later promotion into a real skill.
 inputSchema:
   type: object

@@ -1,5 +1,10 @@
 name: surface_navigate
-label: 网页导航
+label: "网页导航"
+i18n:
+  en:
+    label: "Navigate Page"
+  zh-CN:
+    label: "网页导航"
 description: "Navigate inside an existing webpage: go to a URL, reload, or go back. The surfaceId stays the same. Use workpanel_open to open a new page."
 clientVisible: true
 inputSchema:

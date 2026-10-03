@@ -1,5 +1,10 @@
 name: "desktop_shell"
-label: "desktop_shell"
+label: "桌面控制"
+i18n:
+  en:
+    label: "Desktop Control"
+  zh-CN:
+    label: "桌面控制"
 description: "desktop_shell: navigate.toRoute, help.openTopic, agent.open, skill.open, assistant.chat, display, runtime.info, runtime.diagnostics, general.deviceName. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
 clientVisible: true
 explicitOnly: true

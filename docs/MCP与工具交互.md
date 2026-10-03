@@ -253,3 +253,26 @@ Platform 对 WebApp init、validate、build 和 install 的指定路径字段复
 工具定义只接受 `inputSchema`；包括 agent-local 定义在内，使用旧 `parameters` 字段将加载失败。JSON Schema 标准关键字、上游 Images 请求体的 `response_format`、Lance 的 `source_type` 存储列不在本次改名范围。
 
 历史 JSONL 与模型原始消息不做字段迁移；旧会话继续调用旧参数时返回明确错误，由模型使用新名重试。文件写入的旧名或混合名调用即使被拒绝，也必须在展示、历史与 trace 副本中隐藏内容，不能依赖执行校验替代脱敏。Desktop 图片调用方需与 Platform 同批升级；本地提示词及自建技能中的旧示例也需更新。
+
+## 工具展示多语言
+
+工具 YAML 支持可选顶层 `i18n`，语言复用 Platform 的 `en` / `zh-CN` 及其归一化规则。每个语言对象只接受字符串 `label`、`description`；空白字段按缺省处理，不支持的语言、重复归一化语言或非法字段在加载时拒绝。
+
+```yaml
+name: desktop_settings
+label: 桌面设置
+description: "Manage Desktop settings using action and args."
+i18n:
+  en:
+    label: Desktop Settings
+  zh-CN:
+    label: 桌面设置
+```
+
+`i18n.description` 是受支持的可选界面说明，但 Platform 内嵌的全部工具（含 builtin.platform-control / builtin.web-control 的 native 工具）仅配置翻译名称，不配置翻译描述。内嵌工具原始 description、输入与输出 Schema 中的 description 均使用英文。dbx/httpx 是 CLI 连接器，不新增独立模型工具，仍通过 Bash 调用。
+
+展示逐字段优先选择当前语言，其次顶层默认值；名称最终回退到工具 name。模型协议只从原始定义构造 name、description、parameters/input_schema 等协议字段，不发送 label、翻译表或界面翻译后的 description。工具名称、action、参数、权限与执行逻辑不受界面语言影响。
+
+工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。
+
+旧 JSONL 不迁移。旧工具事件可从当前 Platform 内置定义补齐展示翻译；已有冻结快照优先，不用全局目录猜测旧 Agent-local/MCP 工具的同名定义，无法解析时保留原始显示名。切换客户端语言后，新请求/事件按新语言输出；WebClient 已缓存的目录或历史节点需重新加载，当前本次 Platform 修改不包含前端缓存刷新改造。Bash 的动态参数 description 是原始调用内容，不自动翻译。

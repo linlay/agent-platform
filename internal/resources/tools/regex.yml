@@ -1,5 +1,10 @@
 name: regex
-label: 正则匹配
+label: "正则匹配"
+i18n:
+  en:
+    label: "Match Regular Expression"
+  zh-CN:
+    label: "正则匹配"
 description: |
   Deterministically count or preview regular expression matches in provided
   text using Go RE2 syntax. You MUST prefer this tool over mental math,

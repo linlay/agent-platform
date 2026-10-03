@@ -1,5 +1,10 @@
 name: surface_close
-label: 关闭网页
+label: "关闭网页"
+i18n:
+  en:
+    label: "Close Page"
+  zh-CN:
+    label: "关闭网页"
 description: "Close one webpage. Its surfaceId becomes invalid. Do not also issue workpanel_close for the same page."
 clientVisible: true
 inputSchema:

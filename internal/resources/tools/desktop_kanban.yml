@@ -1,5 +1,10 @@
 name: "desktop_kanban"
-label: "desktop_kanban"
+label: "桌面看板"
+i18n:
+  en:
+    label: "Desktop Kanban"
+  zh-CN:
+    label: "桌面看板"
 description: "desktop_kanban: kanban.listIssues, kanban.getIssue, kanban.createIssue, kanban.updateIssue, kanban.deleteIssue, kanban.moveIssue. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
 clientVisible: true
 explicitOnly: true

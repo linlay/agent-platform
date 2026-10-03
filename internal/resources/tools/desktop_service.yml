@@ -1,5 +1,10 @@
 name: "desktop_service"
-label: "desktop_service"
+label: "桌面服务"
+i18n:
+  en:
+    label: "Desktop Services"
+  zh-CN:
+    label: "桌面服务"
 description: "desktop_service: controlCenter.listServices, controlCenter.getServiceStatus, controlCenter.getServiceDetail, controlCenter.getServiceLogsMeta, controlCenter.readServiceLog, controlCenter.openService, controlCenter.openLogViewer, controlCenter.installService, controlCenter.initializeService, controlCenter.startService, controlCenter.stopService, controlCenter.restartService. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
 clientVisible: true
 explicitOnly: true

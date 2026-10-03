@@ -1,5 +1,10 @@
 name: "platform_inspect"
-label: 平台诊断
+label: "平台诊断"
+i18n:
+  en:
+    label: "Platform Diagnostics"
+  zh-CN:
+    label: "平台诊断"
 description: "runtimeStatus: component? (runtime/models/mcp/connectors/kbase/containerHub/memory/catalog). securityExplain: path with access?, or tool with action?. Reads existing state without granting permissions or starting remote probes."
 clientVisible: true
 explicitOnly: true

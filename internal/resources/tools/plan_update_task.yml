@@ -1,5 +1,10 @@
 name: plan_update_task
-label: 更新任务
+label: "更新任务"
+i18n:
+  en:
+    label: "Update Task"
+  zh-CN:
+    label: "更新任务"
 description: "Update one task in the optional ordered plan. Only the first non-terminal task may be updated from init, either through init -> in_progress -> completed/failed/canceled or directly through init -> completed/failed/canceled. If a task is in_progress, only that current task may move to completed, failed, or canceled; later tasks remain blocked. Same-status updates are idempotent and may update description. Terminal tasks cannot be restarted; append a new task to retry."
 clientVisible: true
 inputSchema:

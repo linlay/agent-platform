@@ -1,5 +1,10 @@
 name: file_grep
-label: 搜索文件
+label: "搜索文件"
+i18n:
+  en:
+    label: "Search Files"
+  zh-CN:
+    label: "搜索文件"
 description: |
   A powerful search tool built on ripgrep. Filter files with glob/type,
   switch between content/files/count output modes, support context lines,

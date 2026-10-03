@@ -1,5 +1,10 @@
 name: file_read
-label: 读取文件
+label: "读取文件"
+i18n:
+  en:
+    label: "Read File"
+  zh-CN:
+    label: "读取文件"
 description: Read a single file from the host filesystem. Use this before editing or inspecting file contents; this tool is read-only and does not require approval. PNG/JPEG/WebP/GIF images return base64 image payloads, known binary/device files are rejected, and repeated reads in the same run may return file_unchanged.
 inputSchema:
   type: object

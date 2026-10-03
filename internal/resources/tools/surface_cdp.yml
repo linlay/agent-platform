@@ -1,5 +1,10 @@
 name: surface_cdp
-label: 网页CDP
+label: "网页CDP"
+i18n:
+  en:
+    label: "Page CDP"
+  zh-CN:
+    label: "网页CDP"
 description: "Send one Chrome DevTools Protocol method that has no dedicated tool to a webpage. Navigation, screenshots, script evaluation and clicks use the surface_* tools; website business actions use awcp_manual and awcp_invoke. Use native JSON types in params. On invalid_args fix every reported field; do not reload or close the page to fix parameter types."
 clientVisible: true
 inputSchema:

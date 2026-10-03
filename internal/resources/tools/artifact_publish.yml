@@ -1,5 +1,10 @@
 name: artifact_publish
-label: 发布产物
+label: "发布产物"
+i18n:
+  en:
+    label: "Publish Artifact"
+  zh-CN:
+    label: "发布产物"
 description: |
   Publish files as user-visible artifacts for the current run. You MUST call
   this tool whenever a requested deliverable file exists. Sources must be

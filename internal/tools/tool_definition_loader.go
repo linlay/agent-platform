@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/view"
 )
 
@@ -118,6 +119,13 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	}
 	if sourceKey != "" {
 		meta["sourceKey"] = sourceKey
+	}
+	translations, err := i18n.ParseToolTranslations(root["i18n"])
+	if err != nil {
+		return api.ToolDetailResponse{}, fmt.Errorf("tool %q: %w", name, err)
+	}
+	if len(translations) > 0 {
+		meta["toolI18n"] = translations
 	}
 	return api.ToolDetailResponse{
 		Key:           fallbackToolString(AnyStringNode(root["key"]), name),

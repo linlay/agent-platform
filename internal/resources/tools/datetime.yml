@@ -1,5 +1,10 @@
 name: datetime
-label: 日期时间
+label: "日期时间"
+i18n:
+  en:
+    label: "Date and Time"
+  zh-CN:
+    label: "日期时间"
 description: Get the current or an absolute base date and time with optional timezone and chained offset support. The output also includes the lunar calendar.
 inputSchema:
   type: object

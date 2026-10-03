@@ -1,5 +1,10 @@
 name: ask_user_question
-label: 向用户提问
+label: "向用户提问"
+i18n:
+  en:
+    label: "Ask User"
+  zh-CN:
+    label: "向用户提问"
 description: |
   Ask the user for missing input; this is not a generic confirmation button.
   Any question that requires a user response must use this tool; do not ask it

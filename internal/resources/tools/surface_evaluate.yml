@@ -1,5 +1,10 @@
 name: surface_evaluate
-label: 网页执行脚本
+label: "网页执行脚本"
+i18n:
+  en:
+    label: "Run Page Script"
+  zh-CN:
+    label: "网页执行脚本"
 description: "Evaluate JavaScript in a webpage and return its value. Before reading or changing page content, call awcp_manual for that page and prefer a matching AWCP section; use this tool only when the page has no AWCP manual or no matching section. An exception reported in exceptionDetails is a script failure. Re-read state before retrying a mutation; dispatching an event does not prove success."
 clientVisible: true
 inputSchema:

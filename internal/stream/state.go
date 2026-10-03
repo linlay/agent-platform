@@ -66,6 +66,7 @@ type activeContentState struct {
 }
 
 type toolBlockState struct {
+	I18n        map[string]any
 	TaskID      string
 	Name        string
 	Label       string
