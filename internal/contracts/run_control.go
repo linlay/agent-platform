@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 const (
@@ -861,6 +862,23 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		return SubmitAck{Accepted: false, Status: "already_resolved", SubmitID: firstNonBlankSubmitID(resolved.Request.SubmitID, req.SubmitID), Detail: detail}
 	}
 	awaiting := c.awaitingSubmits[awaitingID]
+	if len(awaiting.ExactApprovalIDs) > 0 && len(req.Params) > 0 {
+		items, err := queryinput.DecodeSubmitParams(req.Params)
+		valid := err == nil && len(items) == len(awaiting.ExactApprovalIDs)
+		if valid {
+			for i, item := range items {
+				decision := AnyStringNode(item["decision"])
+				if AnyStringNode(item["id"]) != awaiting.ExactApprovalIDs[i] || decision != "approve" && decision != "reject" {
+					valid = false
+					break
+				}
+			}
+		}
+		if !valid {
+			c.mu.Unlock()
+			return SubmitAck{Accepted: false, Status: "invalid", SubmitID: req.SubmitID, Detail: "Exact approval requires matching invocation IDs and approve or reject"}
+		}
+	}
 	waiter, ok := c.submitWaiters[awaitingID]
 	// A planning approval handed off to a new run must close the old steer
 	// gate in the same critical section as accepting the decision. A steer
@@ -1042,6 +1060,9 @@ func (c *RunControl) expectSubmit(ctx AwaitingSubmitContext) bool {
 	// same public awaiting arrives.
 	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && len(ctx.Routes) == 0 && len(existing.Routes) > 0 {
 		ctx.Routes = cloneAwaitingSubmitRoutes(existing.Routes)
+	}
+	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && len(existing.ExactApprovalIDs) > 0 {
+		ctx.ExactApprovalIDs = append([]string(nil), existing.ExactApprovalIDs...)
 	}
 	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && existing.SteerReplan {
 		ctx.SteerReplan = true

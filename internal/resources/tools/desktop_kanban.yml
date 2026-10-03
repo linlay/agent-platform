@@ -1,0 +1,29 @@
+name: "desktop_kanban"
+label: "desktop_kanban"
+description: "desktop_kanban: kanban.listIssues, kanban.getIssue, kanban.createIssue, kanban.updateIssue, kanban.deleteIssue, kanban.moveIssue. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "kanban.listIssues"
+        - "kanban.getIssue"
+        - "kanban.createIssue"
+        - "kanban.updateIssue"
+        - "kanban.deleteIssue"
+        - "kanban.moveIssue"
+    args:
+      type: "object"
+      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+  required:
+    - "action"
+  additionalProperties: false

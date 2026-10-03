@@ -221,8 +221,8 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 		return t.invokeDateTime(args), nil
 	case "artifact_publish":
 		return t.invokeArtifactPublish(args, execCtx)
-	case "desktop_action":
-		return t.invokeDesktopAction(ctx, args, execCtx)
+	case "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market", "desktop_kanban":
+		return t.invokeDesktopDomain(ctx, toolName, args, execCtx)
 	case "file_read":
 		return t.invokeRead(args, execCtx)
 	case "file_write":
@@ -298,7 +298,7 @@ func runtimeToolUsesCompactModelOutput(toolName string) bool {
 	}
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "bash", "bash_sandbox",
-		"desktop_action",
+		"desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market", "desktop_kanban",
 		"file_read", "file_write", "file_edit", "file_glob", "file_grep",
 		"image_generate", "vision_recognize", "web_fetch",
 		"regex":

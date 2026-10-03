@@ -9,7 +9,6 @@ visibleBuiltinTools:
   - bash_sandbox
   - datetime
   - wait
-  - desktop_action
   - file_edit
   - file_glob
   - file_grep
@@ -25,7 +24,18 @@ visibleBuiltinTools:
   - plan_add_tasks
   - plan_get_tasks
   - plan_update_task
-  - platform_control
+  - catalog_query
+  - catalog_manage
+  - chat_query
+  - chat_manage
+  - platform_inspect
+  - desktop_shell
+  - desktop_settings
+  - desktop_site
+  - desktop_webapp
+  - desktop_service
+  - desktop_market
+  - desktop_kanban
   - run_env
   - regex
   - vision_recognize

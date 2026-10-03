@@ -49,7 +49,7 @@ func newContextCandidatesFixture(t *testing.T, refs []string, calls *atomic.Int3
 				}
 			}
 			// Plain declarations must no longer be rejected for lacking a named connector.
-			write("valid-candidate", "description: UNIQUE_VALID_CANDIDATE\ntoolConfig:\n  tools:\n    - desktop_action\n    - surface_list\n")
+			write("valid-candidate", "description: UNIQUE_VALID_CANDIDATE\ntoolConfig:\n  tools:\n    - desktop_shell\n    - surface_list\n")
 			write("invalid-candidate", "description: UNIQUE_INVALID_CANDIDATE\nconnectorConfig:\n  connectors:\n    - missing.connector\n")
 			path := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
 			body, err := os.ReadFile(path)

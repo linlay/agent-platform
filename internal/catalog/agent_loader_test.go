@@ -143,6 +143,9 @@ func TestParseAgentFileRejectsRemovedTools(t *testing.T) {
 			}
 			_, err := parseAgentDefinitionForTest(path)
 			want := "was removed; use " + tc.replacement
+			if tc.legacy == "platform_config" {
+				want = "was removed; mount builtin.platform-control"
+			}
 			if err == nil || !strings.Contains(err.Error(), want) {
 				t.Fatalf("expected %q, got %v", want, err)
 			}

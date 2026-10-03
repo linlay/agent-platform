@@ -406,11 +406,24 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
 	conversationService.Notifications = notifications
+	conversationService.ControlStateDir = filepath.Join(cfg.Paths.EffectiveStateDir(), "conversation-control")
 	if err := toolExecutor.RegisterHandler(runenvops.NewToolHandler(cfg.RunEnv)); err != nil {
 		return nil, fmt.Errorf("register run_env tool: %w", err)
 	}
-	if err := toolExecutor.RegisterHandler(platformcontrol.NewToolHandler(cfg, registry, conversationService)); err != nil {
-		return nil, fmt.Errorf("register platform_control tool: %w", err)
+	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation}, conversationService, modelRegistry)
+	controlHandler.RuntimeSnapshot = func() map[string]any {
+		statuses := []map[string]any{}
+		for _, server := range mcpRegistry.Servers() {
+			if len(statuses) >= 100 {
+				break
+			}
+			status, known := mcpToolSync.ServerStatus(server.Key)
+			statuses = append(statuses, map[string]any{"key": server.Key, "known": known, "sync": status})
+		}
+		return map[string]any{"platform": map[string]any{"runtimeMode": cfg.RuntimeMode, "uptimeSeconds": int64(time.Since(serverStartedAt).Seconds())}, "mcp": map[string]any{"servers": statuses, "count": len(mcpRegistry.Servers()), "cached": true}, "kbase": kbaseManager.RuntimeSnapshot()}
+	}
+	if err := toolExecutor.RegisterHandler(controlHandler); err != nil {
+		return nil, fmt.Errorf("register platform control tools: %w", err)
 	}
 	deferredAwaitings := runstate.NewDeferredAwaitingStore()
 	var projectHistory contracts.ProjectFileHistoryReader = toolExecutor

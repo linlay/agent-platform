@@ -61,11 +61,27 @@ func (s *Server) handleAdminAgentConnectors(w http.ResponseWriter, r *http.Reque
 	if def, found := s.deps.Registry.AgentDefinition(key); found {
 		active = append(active, def.Connectors...)
 	}
+	declared := slices.Clone(ids)
+	presets := []string{}
+	if provider, ok := s.deps.Registry.(interface {
+		PresetConnectorIDs(string) ([]string, error)
+	}); ok {
+		presets, err = provider.PresetConnectorIDs(key)
+		if err != nil {
+			s.writeAgentHTTPResponse(w, nil, mapAdminSourceAgentError(err))
+			return
+		}
+	}
+	for _, id := range presets {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
 	configuredSet, activeSet := slices.Clone(ids), slices.Clone(active)
 	slices.Sort(configuredSet)
 	slices.Sort(activeSet)
 	s.writeAgentHTTPResponse(w, api.AgentConnectorsResponse{
-		AgentKey: key, ConnectorIDs: ids, ActiveConnectorIDs: active,
+		AgentKey: key, ConnectorIDs: ids, ActiveConnectorIDs: active, PresetConnectorIDs: presets, DeclaredConnectorIDs: declared,
 		ReloadPending: !slices.Equal(configuredSet, activeSet),
 	}, nil)
 }

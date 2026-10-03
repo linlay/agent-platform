@@ -232,7 +232,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 	visibleNames := map[string]bool{
 		"agent_invoke": true, "artifact_publish": true, "ask_user_question": true,
 		"bash": true, "bash_sandbox": true, "datetime": true, "wait": true,
-		"desktop_action":  true,
+		"desktop_shell": true, "desktop_settings": true, "desktop_site": true, "desktop_webapp": true, "desktop_service": true, "desktop_market": true, "desktop_kanban": true,
 		"workpanel_state": true, "workpanel_open": true, "workpanel_close": true,
 		"surface_list": true, "surface_state": true, "surface_navigate": true, "surface_activate": true, "surface_close": true,
 		"surface_screenshot": true, "surface_evaluate": true, "surface_click": true, "surface_element": true, "surface_cdp": true,
@@ -241,7 +241,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"finalize_planning": true, "image_generate": true,
 		"kbase_files": true, "kbase_read": true, "kbase_refresh": true, "kbase_search": true, "kbase_status": true,
 		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
-		"platform_control": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true,
+		"catalog_query": true, "catalog_manage": true, "chat_query": true, "chat_manage": true, "platform_inspect": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true,
 	}
 	for _, def := range defs {
 		visible, ok := def.Meta["catalogVisible"].(bool)
@@ -724,7 +724,7 @@ func TestPlatformControlSchemaIsFixedAndSimple(t *testing.T) {
 	}
 	var platformControl api.ToolDetailResponse
 	for _, def := range defs {
-		if def.Name == "platform_control" {
+		if def.Name == "catalog_manage" {
 			platformControl = def
 			break
 		}
@@ -739,14 +739,14 @@ func TestPlatformControlSchemaIsFixedAndSimple(t *testing.T) {
 		t.Fatalf("platform_control metadata = %#v", platformControl.Meta)
 	}
 	properties := mapChild(t, platformControl.Parameters, "properties")
-	operation, ok := properties["operation"].(map[string]any)
+	operation, ok := properties["action"].(map[string]any)
 	if !ok {
-		t.Fatalf("platform_control operation schema = %#v", properties["operation"])
+		t.Fatalf("platform_control operation schema = %#v", properties["action"])
 	}
-	if got, want := operation["enum"], []any{"capabilities.list", "catalog.defaults.get", "catalog.validate", "chat.set_pinned", "runtime.status", "security.explain"}; !reflect.DeepEqual(got, want) {
+	if got, want := operation["enum"], []any{"apply", "delete"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("platform_control operation enum = %#v, want %#v", got, want)
 	}
-	if got, want := platformControl.Parameters["required"], []any{"operation"}; !reflect.DeepEqual(got, want) {
+	if got, want := platformControl.Parameters["required"], []any{"action"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("platform_control required = %#v, want %#v", got, want)
 	}
 	for _, keyword := range []string{"oneOf", "anyOf", "allOf", "if", "then", "else"} {

@@ -17,7 +17,13 @@ type DesktopChange struct {
 	After      string   `json:"after"`
 	Data       []byte   `json:"-"`
 }
+type DesktopReview struct {
+	Path   string `json:"path"`
+	Before string `json:"before"`
+	Reason string `json:"reason"`
+}
 type DesktopPlan struct {
+	Pending      []DesktopReview `json:"pending,omitempty"`
 	Root         string          `json:"root"`
 	Changes      []DesktopChange `json:"changes"`
 	RetireSkills []string        `json:"retireSkills"`
@@ -110,69 +116,71 @@ func PreviewDesktop(runtimeRoot string) (DesktopPlan, error) {
 		if err != nil {
 			return err
 		}
-		found := false
-		had := map[string]bool{}
-		keptTools := []string{}
-		keptSkills := []string{}
+
+		found, needControl, needWeb := false, false, false
+		legacyDesktop := false
+		keptTools, keptSkills := []string{}, []string{}
 		for _, tool := range tools {
-			if tool == "desktop_action" || tool == "desktop_cdp" {
+			switch tool {
+			case "platform_control":
 				found = true
-				had[tool] = true
-			} else {
+			case "desktop_action":
+				found = true
+				needControl = true
+			case "desktop_cdp":
+				found = true
+				needWeb = true
+			default:
 				keptTools = append(keptTools, tool)
 			}
 		}
 		for _, skill := range skills {
-			if skill == "desktop-action" || skill == "desktop-cdp" {
+			switch skill {
+			case "desktop-action":
 				found = true
-			} else {
+				needControl = true
+			case "desktop-cdp":
+				found = true
+				needWeb = true
+			default:
 				keptSkills = append(keptSkills, skill)
 			}
 		}
-		// builtin.desktop used to include WorkPanel and webpage control, and
-		// builtin.desktop-web was its web-only variant. Both now map to the
-		// independent builtin.web-control connector.
-		const legacyWebConnector = "builtin.desktop-web"
-		hasDesktop, hasWeb, hadLegacyWeb := false, false, false
 		unique := []string{}
 		seen := map[string]bool{}
 		for _, id := range mounts {
 			switch id {
-			case connector.DesktopConnectorID:
-				hasDesktop = true
-			case connector.WebControlConnectorID:
-				hasWeb = true
-			case legacyWebConnector:
-				hadLegacyWeb = true
+			case "builtin.desktop":
+				legacyDesktop = true
+				id = connector.PlatformControlConnectorID
+				found = true
+				needControl = true
+			case "builtin.desktop-web":
 				id = connector.WebControlConnectorID
+				found = true
+				needWeb = true
 			}
 			if !seen[id] {
 				unique = append(unique, id)
 				seen[id] = true
 			}
 		}
-		if !found && !hadLegacyWeb && (!hasDesktop || hasWeb) {
+		if !found {
 			return nil
 		}
-		runtime, _ := node["runtimeConfig"].(map[string]any)
-		if found && (strings.EqualFold(fmt.Sprint(node["mode"]), "KBASE") || runtime["acpBridgeId"] != nil) {
-			return fmt.Errorf("%s cannot mount Desktop in its current mode", path)
+		if strings.EqualFold(fmt.Sprint(node["engine"]), "acp") {
+			return fmt.Errorf("%s cannot mount native tools with ACP", path)
 		}
 		change := DesktopChange{Path: path, Before: sum(data)}
-		if !hasDesktop && !hasWeb && !hadLegacyWeb {
-			// Standalone legacy tools or skills: mount both connectors, as the
-			// former builtin.desktop did, and report tools the Agent did not have.
-			unique = append(unique, connector.DesktopConnectorID)
-			seen[connector.DesktopConnectorID] = true
-			for _, tool := range []string{"desktop_action", "desktop_cdp"} {
-				if !had[tool] {
-					change.AddedTools = append(change.AddedTools, tool)
-				}
-			}
+		// Legacy names are not evidence of an intentional grant of all management tools.
+		if legacyDesktop || needControl && !seen[connector.PlatformControlConnectorID] {
+			plan.Pending = append(plan.Pending, DesktopReview{Path: path, Before: sum(data), Reason: "review this Agent: remove retired desktop declarations and explicitly configure any required platform/web connectors; no permissions are inferred"})
+			return nil
 		}
-		if !seen[connector.WebControlConnectorID] {
+		if needWeb && !seen[connector.WebControlConnectorID] {
 			unique = append(unique, connector.WebControlConnectorID)
 		}
+
 		for _, part := range []struct {
 			section, key string
 			values       []string
@@ -189,6 +197,9 @@ func PreviewDesktop(runtimeRoot string) (DesktopPlan, error) {
 	})
 	if err != nil {
 		return plan, err
+	}
+	if len(plan.Pending) > 0 {
+		return plan, nil
 	}
 	for _, name := range []string{"desktop-action", "desktop-cdp"} {
 		path := filepath.Join(root, "skills-center", name)
@@ -341,4 +352,13 @@ func RollbackDesktop(backup string) error {
 		}
 	}
 	return nil
+}
+
+func containsMigrationString(values []string, value string) bool {
+	for _, v := range values {
+		if v == value {
+			return true
+		}
+	}
+	return false
 }

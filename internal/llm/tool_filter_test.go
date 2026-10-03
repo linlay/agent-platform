@@ -32,17 +32,17 @@ func TestFilterToolDefinitionsRequiresExplicitAllowlist(t *testing.T) {
 func TestFilterToolDefinitionsRequiresExplicitPlatformControlGrant(t *testing.T) {
 	defs := []api.ToolDetailResponse{
 		{Name: "datetime"},
-		{Name: "platform_control", Meta: map[string]any{"explicitOnly": true}},
+		{Name: "catalog_query", Meta: map[string]any{"explicitOnly": true}},
 	}
 
 	if filtered := filterToolDefinitions(defs, nil); len(filtered) != 0 {
 		t.Fatalf("empty allowlist must hide every tool, got %#v", filtered)
 	}
 	if filtered := filterToolDefinitions(defs, []string{"datetime"}); len(filtered) != 1 || filtered[0].Name != "datetime" {
-		t.Fatalf("platform_control must be hidden from unrelated explicit grants, got %#v", filtered)
+		t.Fatalf("catalog_query must be hidden from unrelated explicit grants, got %#v", filtered)
 	}
-	if filtered := filterToolDefinitions(defs, []string{"platform_control"}); len(filtered) != 1 || filtered[0].Name != "platform_control" {
-		t.Fatalf("platform_control explicit grant was not honored, got %#v", filtered)
+	if filtered := filterToolDefinitions(defs, []string{"catalog_query"}); len(filtered) != 1 || filtered[0].Name != "catalog_query" {
+		t.Fatalf("catalog_query explicit grant was not honored, got %#v", filtered)
 	}
 }
 
@@ -56,9 +56,15 @@ func TestPlatformControlSchemaIsByteIdenticalAcrossAgents(t *testing.T) {
 		{AgentKey: "online-office", SkillIDs: []string{"online-docx"}},
 		{AgentKey: "sample-agent", SkillIDs: []string{"platform-admin"}},
 	} {
-		effective := effectiveToolDefinitions(defs, []string{"platform_control"}, session)
-		if len(effective) != 1 || effective[0].Name != "platform_control" {
-			t.Fatalf("unexpected platform_control definition for %s: %#v", session.AgentKey, effective)
+		session.RunID = "run"
+		session.ChatID = "chat"
+		session.Mode = "GENERAL"
+		session.RunOwner = contracts.AgentRunOwner(session.AgentKey, "")
+		session.NativeConnectorTools = map[string]string{"catalog_query": "builtin.platform-control"}
+		session.ConnectorDirs = map[string]string{"builtin.platform-control": "/trusted"}
+		effective := effectiveToolDefinitions(defs, []string{"catalog_query"}, session)
+		if len(effective) != 1 || effective[0].Name != "catalog_query" {
+			t.Fatalf("unexpected catalog_query definition for %s: %#v", session.AgentKey, effective)
 		}
 		encoded, err := json.Marshal(effective[0])
 		if err != nil {
@@ -69,7 +75,7 @@ func TestPlatformControlSchemaIsByteIdenticalAcrossAgents(t *testing.T) {
 			continue
 		}
 		if string(encoded) != string(onlineSchema) {
-			t.Fatalf("platform_control schema differs by Agent/Skill\nonline=%s\nadmin=%s", onlineSchema, encoded)
+			t.Fatalf("catalog_query schema differs by Agent/Skill\nonline=%s\nadmin=%s", onlineSchema, encoded)
 		}
 	}
 }

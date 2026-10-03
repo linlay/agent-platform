@@ -9,15 +9,15 @@ import (
 
 func TestEmbeddedDesktopWithoutBuiltinCache(t *testing.T) {
 	s := Sources{ExternalRoot: filepath.Join(t.TempDir(), "connectors-center")}
-	pkg, release, err := s.InstallEmbeddedDesktop()
+	pkg, release, err := s.InstallEmbeddedPlatformControl()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
-	if !pkg.Builtin || len(pkg.NativeTools()) != 1 || len(pkg.Skills) != 1 {
+	if !pkg.Builtin || len(pkg.NativeTools()) != 12 || len(pkg.Skills) != 1 {
 		t.Fatalf("incomplete Desktop: %#v", pkg)
 	}
-	if filepath.Dir(pkg.Dir) != filepath.Join(s.SharedRoot(), "builtin.desktop") {
+	if filepath.Dir(pkg.Dir) != filepath.Join(s.SharedRoot(), "builtin.platform-control") {
 		t.Fatal(pkg.Dir)
 	}
 	for _, skill := range pkg.Skills {
@@ -27,23 +27,23 @@ func TestEmbeddedDesktopWithoutBuiltinCache(t *testing.T) {
 			}
 		}
 	}
-	s.NativeDesktopDir = pkg.Dir
+	s.NativePlatformControlDir = pkg.Dir
 	items, err := s.LoadAll()
 	if err != nil || len(items) != 1 {
 		t.Fatalf("catalog: %v %v", items, err)
 	}
-	file, err := s.ReadFile("builtin.desktop", "native.json")
-	if err != nil || !strings.Contains(file.Content, "desktop") {
+	file, err := s.ReadFile("builtin.platform-control", "native.json")
+	if err != nil || !strings.Contains(file.Content, "platform.control") {
 		t.Fatalf("read: %+v %v", file, err)
 	}
-	// Even another process/source without our NativeDesktopDir must respect the lease.
+	// Even another process/source without our NativePlatformControlDir must respect the lease.
 	if err := (Sources{ExternalRoot: s.ExternalRoot}).CollectShared(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(pkg.Dir); err != nil {
 		t.Fatal(err)
 	}
-	second, releaseSecond, err := s.InstallEmbeddedDesktop()
+	second, releaseSecond, err := s.InstallEmbeddedPlatformControl()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,17 +66,17 @@ func TestEmbeddedDesktopWithoutBuiltinCache(t *testing.T) {
 	}
 	// Old cache content is never selected or even loaded as the native source.
 	s.BuiltinRoot = t.TempDir()
-	if err := os.Mkdir(filepath.Join(s.BuiltinRoot, "builtin.desktop"), 0755); err != nil {
+	if err := os.Mkdir(filepath.Join(s.BuiltinRoot, "builtin.platform-control"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	items, err = s.LoadAll()
 	if err != nil || len(items) != 1 || items[0].Dir != pkg.Dir {
 		t.Fatalf("old cache overrides embedded: %v %v", items, err)
 	}
-	if err := os.WriteFile(filepath.Join(pkg.Dir, "skills", "desktop-action", "SKILL.md"), []byte("tampered"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "skills", "platform-control", "SKILL.md"), []byte("tampered"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, release, err := s.InstallEmbeddedDesktop(); err == nil {
+	if _, release, err := s.InstallEmbeddedPlatformControl(); err == nil {
 		release()
 		t.Fatal("accepted corrupt shared package")
 	}

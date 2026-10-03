@@ -1,0 +1,39 @@
+name: "desktop_settings"
+label: "desktop_settings"
+description: "desktop_settings: theme.get, theme.set, locale.get, locale.set, skin.get, skin.list, skin.import, skin.set, skin.remove, pet.state, pet.list, pet.show, pet.hide, pet.set, copilot.getPagePreferences, copilot.setPagePreference. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "theme.get"
+        - "theme.set"
+        - "locale.get"
+        - "locale.set"
+        - "skin.get"
+        - "skin.list"
+        - "skin.import"
+        - "skin.set"
+        - "skin.remove"
+        - "pet.state"
+        - "pet.list"
+        - "pet.show"
+        - "pet.hide"
+        - "pet.set"
+        - "copilot.getPagePreferences"
+        - "copilot.setPagePreference"
+    args:
+      type: "object"
+      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+  required:
+    - "action"
+  additionalProperties: false

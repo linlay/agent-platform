@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/credentialview"
 	"encoding/json"
 	"log"
 	"strings"
@@ -8,7 +9,6 @@ import (
 
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/models"
-	"agent-platform/internal/platformcontrol"
 )
 
 func (s *llmRunStream) currentContextSize() int {
@@ -514,7 +514,7 @@ func (s *llmRunStream) drainUsageChunk() {
 		if err != nil {
 			break
 		}
-		if sessionHasTool(s.session, platformcontrol.ToolName) {
+		if credentialview.HasCatalogTools(s.session.ToolNames) {
 			s.engine.logRawChunk(s.session.RunID, "[REDACTED_RAW_PROVIDER_FRAME]")
 		} else {
 			s.engine.logRawChunk(s.session.RunID, formatRawSSEFrame(eventName, rawChunk))

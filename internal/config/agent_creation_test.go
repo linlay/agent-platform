@@ -23,7 +23,7 @@ func TestShippedAgentCreationExampleParses(t *testing.T) {
 			t.Fatalf("group %s needs both locales: %#v", group.Key, group.Name)
 		}
 	}
-	if want := []string{"office", "web-data", "app-skill-building", "platform-admin", "automation"}; !reflect.DeepEqual(keys, want) {
+	if want := []string{"office", "web-data", "app-skill-building", "automation"}; !reflect.DeepEqual(keys, want) {
 		t.Fatalf("group order = %v, want %v", keys, want)
 	}
 	if got := cfg.Types["general"].DefaultGroups; !reflect.DeepEqual(got, []string{"office", "web-data"}) {
@@ -34,12 +34,12 @@ func TestShippedAgentCreationExampleParses(t *testing.T) {
 	}
 	// Only app building opts into Desktop management, required for WebApp packaging.
 	for _, group := range cfg.Groups {
-		if group.Key == "app-skill-building" && !reflect.DeepEqual(group.Connectors, []string{"builtin.web-control", "builtin.desktop"}) {
+		if group.Key == "app-skill-building" && !reflect.DeepEqual(group.Connectors, []string{"builtin.web-control"}) {
 			t.Fatalf("app building requires webpage control and Desktop packaging: %v", group.Connectors)
 		}
 		for _, id := range group.Connectors {
-			if id == "builtin.desktop" && group.Key != "app-skill-building" {
-				t.Fatalf("group %s must not mount builtin.desktop", group.Key)
+			if id == "builtin.platform-control" && group.Key != "app-skill-building" {
+				t.Fatalf("group %s must not mount builtin.platform-control", group.Key)
 			}
 		}
 	}

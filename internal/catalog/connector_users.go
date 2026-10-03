@@ -10,6 +10,11 @@ import (
 // ConnectorUsers includes current source references (even for invalid or not yet
 // reloaded Agents) and published runtimes retained by Run/Terminal leases.
 func (r *FileRegistry) ConnectorUsers(id string) ([]string, error) {
+	for _, preset := range r.cfg.PresetConnectors {
+		if strings.EqualFold(preset, id) {
+			return nil, fmt.Errorf("connector is referenced by preset-connectors in configs/tools.yml; remove that configuration and restart before deleting")
+		}
+	}
 	users := map[string]bool{}
 	r.mu.RLock()
 	for key, def := range r.agents {

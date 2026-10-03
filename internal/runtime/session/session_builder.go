@@ -173,7 +173,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	if options.SubTaskID != "" || strings.TrimSpace(req.TeamID) != "" {
 		filtered := make([]string, 0, len(toolNames))
 		for _, name := range toolNames {
-			if !strings.EqualFold(strings.TrimSpace(name), "run_env") {
+			if !strings.EqualFold(strings.TrimSpace(name), "run_env") && !connector.IsPlatformRootTool(name) {
 				filtered = append(filtered, name)
 			}
 		}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -14,11 +15,14 @@ import (
 var ErrNotConfigured = errors.New("conversation service is not configured")
 
 type Service struct {
-	Chats         chat.Store
-	Archives      *chat.ArchiveStore
-	Archiver      *chat.Archiver
-	Runs          contracts.RunManager
-	Notifications contracts.NotificationSink
+	ControlStateDir string // private persistent receipts, under Platform .state
+	controlMutation sync.Mutex
+	mutationOwner   *Service
+	Chats           chat.Store
+	Archives        *chat.ArchiveStore
+	Archiver        *chat.Archiver
+	Runs            contracts.RunManager
+	Notifications   contracts.NotificationSink
 }
 
 func NewService(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Archiver, runs contracts.RunManager) *Service {
@@ -99,6 +103,11 @@ type RestoreResult struct {
 }
 
 func (s *Service) ArchiveChats(chatIDs []string) ([]ArchiveResult, error) {
+	release := s.LockMutation()
+	defer release()
+	return s.archiveChats(chatIDs)
+}
+func (s *Service) archiveChats(chatIDs []string) ([]ArchiveResult, error) {
 	if s == nil || s.Archiver == nil {
 		return nil, errors.New("archiver is not configured")
 	}
@@ -143,6 +152,11 @@ func (s *Service) ArchiveChats(chatIDs []string) ([]ArchiveResult, error) {
 }
 
 func (s *Service) RestoreArchives(chatIDs []string) ([]RestoreResult, error) {
+	release := s.LockMutation()
+	defer release()
+	return s.restoreArchives(chatIDs)
+}
+func (s *Service) restoreArchives(chatIDs []string) ([]RestoreResult, error) {
 	if s == nil || s.Archiver == nil {
 		return nil, errors.New("archiver is not configured")
 	}
@@ -214,6 +228,11 @@ func (s *Service) SearchArchives(query, agentKey string, limit int) ([]chat.Arch
 }
 
 func (s *Service) DeleteArchive(chatID string) error {
+	release := s.LockMutation()
+	defer release()
+	return s.deleteArchive(chatID)
+}
+func (s *Service) deleteArchive(chatID string) error {
 	if s == nil || s.Archives == nil {
 		return errors.New("archive store is not configured")
 	}
@@ -256,4 +275,36 @@ func restoreResultError(err error) string {
 	default:
 		return err.Error()
 	}
+}
+
+// LockMutation serializes transport and tool mutations, including preflight checks.
+// It does not synchronize the separate Run admission lifecycle.
+func (s *Service) LockMutation() func() {
+	if s == nil {
+		return func() {}
+	}
+	if s.mutationOwner != nil {
+		return s.mutationOwner.LockMutation()
+	}
+	s.controlMutation.Lock()
+	return s.controlMutation.Unlock
+}
+
+// WithDependencies creates an explicit view without copying synchronization state.
+// This supports embedders replacing transport dependencies while sharing the same lock.
+func (s *Service) WithDependencies(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Archiver, runs contracts.RunManager, notifications contracts.NotificationSink) *Service {
+	view := &Service{ControlStateDir: s.ControlStateDir, Chats: s.Chats, Archives: s.Archives, Archiver: s.Archiver, Runs: s.Runs, Notifications: notifications, mutationOwner: s}
+	if chats != nil {
+		view.Chats = chats
+	}
+	if archives != nil {
+		view.Archives = archives
+	}
+	if archiver != nil {
+		view.Archiver = archiver
+	}
+	if runs != nil {
+		view.Runs = runs
+	}
+	return view
 }

@@ -48,8 +48,8 @@ func TestPresetToolsResolveAndExclude(t *testing.T) {
 	}
 }
 func TestPresetToolsValidateRegistration(t *testing.T) {
-	defs := []api.ToolDetailResponse{{Name: "datetime"}, {Name: "remote", Meta: map[string]any{"sourceType": "mcp"}}, {Name: "agent_delegate"}, {Name: "desktop_action"}}
-	for _, name := range []string{"missing", "remote", "agent_delegate", "desktop_action"} {
+	defs := []api.ToolDetailResponse{{Name: "datetime"}, {Name: "remote", Meta: map[string]any{"sourceType": "mcp"}}, {Name: "agent_delegate"}, {Name: "desktop_shell"}}
+	for _, name := range []string{"missing", "remote", "agent_delegate", "desktop_shell"} {
 		if validatePresetTools([]string{name}, defs) == nil {
 			t.Fatalf("accepted %s", name)
 		}

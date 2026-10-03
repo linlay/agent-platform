@@ -9,6 +9,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/timecontract"
@@ -237,6 +238,11 @@ func (r *ToolRouter) ListFileHistory(chatID string, runID string) ([]FileHistory
 
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	def, ok := r.lookup(toolName)
+	if owner, native := connector.NativeToolConnector(toolName); native {
+		if execCtx == nil || execCtx.Session.NativeConnectorTools[toolName] != owner || execCtx.Session.ConnectorDirs[owner] == "" {
+			return ToolExecutionResult{Error: "connector_not_mounted", Output: "tool requires mounted " + owner, ExitCode: -1}, nil
+		}
+	}
 	if execCtx != nil && (!execCtx.Session.AllowsTool(toolName) || (ok && !execCtx.Session.AllowsTool(def.Name))) {
 		return ToolNotMountedResult(toolName), nil
 	}

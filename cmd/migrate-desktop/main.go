@@ -12,7 +12,7 @@ func main() {
 	root := flag.String("runtime-dir", "", "deployment runtime root")
 	apply := flag.Bool("apply", false, "apply the previewed migration while Platform is stopped")
 	offline := flag.Bool("offline", false, "confirm Platform and editors are stopped")
-	expand := flag.Bool("allow-expansion", false, "accept explicitly reported additional Desktop tool entry points")
+	expand := flag.Bool("allow-expansion", false, "accept explicitly reported additional Platform and Desktop tool entry points")
 	rollback := flag.String("rollback", "", "restore a migration backup while Platform is stopped")
 	flag.Parse()
 	if (*apply || *rollback != "") && !*offline {

@@ -138,7 +138,7 @@ func (s *llmRunStream) queuedApprovalCandidate(invocation *preparedToolInvocatio
 }
 
 func approvalRequestCanJoinBatch(request approvalRequest) bool {
-	return request.result.Rule.IsBuiltinApproval()
+	return request.kind != approvalKindTool && request.result.Rule.IsBuiltinApproval()
 }
 
 func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvocation) (queuedBashApprovalCandidate, bool) {

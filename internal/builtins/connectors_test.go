@@ -174,7 +174,7 @@ func TestLegacyDesktopCacheVerifiedButExcludedFromRelease(t *testing.T) {
 	if err := connectortest.WriteCLI(filepath.Join(cache, "connectors", "builtin.dbx"), "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := connector.WriteBuiltin(filepath.Join(cache, "connectors", "builtin.desktop"), "desktop", "1.0.0"); err != nil {
+	if err := connectortest.WriteCLI(filepath.Join(cache, "connectors", "builtin.desktop"), "desktop", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	manifest := Manifest{SchemaVersion: manifestSchemaVersion, Platform: ManifestPlatform{OS: runtime.GOOS, Arch: runtime.GOARCH}}
@@ -206,7 +206,7 @@ func TestLegacyDesktopCacheVerifiedButExcludedFromRelease(t *testing.T) {
 	if err := VerifyManifest(cache, manifest); err != nil {
 		t.Fatalf("source modified: %v", err)
 	}
-	mustWrite(t, filepath.Join(cache, "connectors", "builtin.desktop", "skills", "desktop-action", "SKILL.md"), []byte("tampered"))
+	mustWrite(t, filepath.Join(cache, "connectors", "builtin.desktop", "skills", "builtin-desktop", "SKILL.md"), []byte("tampered"))
 	if _, err := ProcessConnectorsRoot(); err == nil {
 		t.Fatal("legacy Desktop checksum bypassed")
 	}

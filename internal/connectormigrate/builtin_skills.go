@@ -42,7 +42,7 @@ func migrateBuiltinSkills(data []byte) ([]byte, bool, error) {
 		if !ok {
 			return nil, false, fmt.Errorf("skillConfig.skills must contain strings")
 		}
-		if id := connector.BuiltinSkillConnector(key); id != "" && id != "builtin.desktop" {
+		if id := connector.BuiltinSkillConnector(key); id != "" && id != "builtin.platform-control" {
 			added = append(added, id)
 		} else {
 			ordinary = append(ordinary, key)

@@ -13,6 +13,7 @@ import (
 type approvalKind string
 
 const (
+	approvalKindTool         approvalKind = "tool"
 	approvalKindImageAccess  approvalKind = "image_access"
 	approvalKindFileAccess   approvalKind = "file_access"
 	approvalKindFileWrite    approvalKind = "file_write"
@@ -29,6 +30,7 @@ const (
 )
 
 type approvalRequest struct {
+	toolApproval       *ToolApproval
 	bashHITLReview     *hitl.InterceptResult
 	bashArguments      string
 	bashFingerprint    string
@@ -49,6 +51,9 @@ func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvo
 	}
 	if invocation != nil && invocation.approvalDecision != "" && invocation.shownApproval != nil {
 		return *invocation.shownApproval, true
+	}
+	if request, ok := s.toolApprovalRequest(invocation); ok {
+		return request, true
 	}
 	if isBashTool(invocation.toolName) && (s.lookupBashSecurityReview(invocation).Decision == bashsec.ReviewBlock || s.lookupBashAccessReview(invocation).Blocked()) {
 		return approvalRequest{}, false
@@ -175,6 +180,8 @@ func (s *llmRunStream) executeApprovedApprovalRequest(request approvalRequest) e
 		s.grantDisplayedBashAccess(request.invocation.approvalDecision, *request.bashAccessReview)
 	}
 	switch request.kind {
+	case approvalKindTool:
+		return s.executeApprovedTool(request)
 	case approvalKindImageAccess:
 		return s.executeApprovedImageAccess(request)
 	case approvalKindFileAccess:

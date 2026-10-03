@@ -1,0 +1,28 @@
+name: "chat_query"
+label: 查询会话
+description: "current: no args. list: scope? (agent/instance), archived?, pinned?, limit?, cursor?. search: query, chatId?, scope?, archived?, limit?, cursor?. read: chatId, view (summary/messages), archived?, limit?, cursor?. artifacts: chatId?, runId?, limit?, cursor?. Search may return incomplete and skippedChatIds; continue using nextCursor. Read/search expose only visible messages."
+clientVisible: true
+explicitOnly: true
+readOnly: true
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "current"
+        - "list"
+        - "search"
+        - "read"
+        - "artifacts"
+    args:
+      type: "object"
+      description: "current: no args. list: scope? (agent/instance), archived?, pinned?, limit?, cursor?. search: query, chatId?, scope?, archived?, limit?, cursor?. read: chatId, view (summary/messages), archived?, limit?, cursor?. artifacts: chatId?, runId?, limit?, cursor?. Search may return incomplete and skippedChatIds; continue using nextCursor. Read/search expose only visible messages."
+  required:
+    - "action"
+  additionalProperties: false

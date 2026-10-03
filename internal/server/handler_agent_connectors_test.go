@@ -175,3 +175,30 @@ func TestAgentConnectorsConcurrentTogglesPreserveBothChanges(t *testing.T) {
 		t.Fatalf("lost update or null empty list: %#v", read)
 	}
 }
+
+func TestAgentConnectorsPresetSourceAndReloadState(t *testing.T) {
+	f := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
+		writeMCPConnectorForTest(t, cfg.Paths.EffectiveConnectorsCenterDir(), "docs")
+		cfg.PresetConnectors = []string{"docs"}
+	}})
+	initial := agentConnectorResponse(t, agentConnectorRequest(f.server, "GET", "mock-agent", nil))
+	if initial.ReloadPending || !reflect.DeepEqual(initial.PresetConnectorIDs, []string{"docs"}) || !reflect.DeepEqual(initial.ConnectorIDs, []string{"docs"}) || len(initial.DeclaredConnectorIDs) != 0 {
+		t.Fatalf("bad state %+v", initial)
+	}
+	source, err := f.registry.(*catalog.FileRegistry).ReadEditableAgentSource("mock-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "docs", "enabled": true}))
+	if enabled.ReloadPending || len(enabled.DeclaredConnectorIDs) != 0 {
+		t.Fatalf("preset written %+v", enabled)
+	}
+	rejected := agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "docs", "enabled": false})
+	if rejected.Code < 400 {
+		t.Fatal("preset disabled")
+	}
+	after, _ := f.registry.(*catalog.FileRegistry).ReadEditableAgentSource("mock-agent")
+	if after.Content != source.Content {
+		t.Fatal("preset toggle changed source")
+	}
+}

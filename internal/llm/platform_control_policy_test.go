@@ -11,11 +11,11 @@ import (
 
 func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T) {
 	stream := &llmRunStream{execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: "read_only"}}
-	read := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "runtime.status", "params": map[string]any{}}}
+	read := &preparedToolInvocation{toolName: "platform_inspect", args: map[string]any{"action": "runtimeStatus", "args": map[string]any{}}}
 	write := &preparedToolInvocation{toolName: "run_env", args: map[string]any{"operation": "set", "params": map[string]any{"key": "DOCUMENT_ID", "value": "value"}}}
-	unknown := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "future.operation"}}
-	pin := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "chat.set_pinned", "params": map[string]any{"pinned": true}}}
-	if stream.isConcurrentToolInvocation(pin) || !stream.readOnlyToolDenied("platform_control", pin.args) {
+	unknown := &preparedToolInvocation{toolName: "platform_inspect", args: map[string]any{"action": "futureAction"}}
+	pin := &preparedToolInvocation{toolName: "chat_manage", args: map[string]any{"action": "setPinned", "args": map[string]any{"pinned": true}}}
+	if stream.isConcurrentToolInvocation(pin) || !stream.readOnlyToolDenied("chat_manage", pin.args) {
 		t.Fatal("Chat pin mutation must be a scheduling barrier and forbidden during planning")
 	}
 
@@ -25,10 +25,10 @@ func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T)
 	if stream.isConcurrentToolInvocation(write) {
 		t.Fatal("run.env mutation must be a scheduling barrier")
 	}
-	if stream.readOnlyToolDenied("platform_control", read.args) {
+	if stream.readOnlyToolDenied("platform_inspect", read.args) {
 		t.Fatal("planning stage rejected a read-only platform_control operation")
 	}
-	if !stream.readOnlyToolDenied("run_env", write.args) || !stream.readOnlyToolDenied("platform_control", unknown.args) {
+	if !stream.readOnlyToolDenied("run_env", write.args) || !stream.readOnlyToolDenied("platform_inspect", unknown.args) {
 		t.Fatal("planning stage accepted a mutation or unknown operation")
 	}
 	bash := &preparedToolInvocation{toolName: "bash", args: map[string]any{"command": "httpx run online-docx session"}}
@@ -41,8 +41,8 @@ func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T)
 func TestCatalogValidationHistoryAndStreamContentPolicy(t *testing.T) {
 	for _, resourceType := range []string{"agent", "team", "skill", "connector"} {
 		t.Run(resourceType, func(t *testing.T) {
-			raw := `{"operation":"catalog.validate","params":{"resourceType":"` + resourceType + `","resourceKey":"demo","content":"key: demo\nname: confidential-candidate\n"}}`
-			calls := []openAIToolCall{{ID: "validate-1", Type: "function", Function: openAIFunctionCall{Name: "platform_control", Arguments: raw}}}
+			raw := `{"action":"validate","args":{"resourceType":"` + resourceType + `","resourceKey":"demo","content":"key: demo\nname: confidential-candidate\n"}}`
+			calls := []openAIToolCall{{ID: "validate-1", Type: "function", Function: openAIFunctionCall{Name: "catalog_query", Arguments: raw}}}
 			history := sanitizedToolCalls(calls)
 			if calls[0].Function.Arguments != raw {
 				t.Fatal("history redaction mutated execution arguments")
@@ -51,7 +51,7 @@ func TestCatalogValidationHistoryAndStreamContentPolicy(t *testing.T) {
 				t.Fatal("repeated history redaction changed arguments")
 			}
 			mapper := NewDeltaMapper("run-1", "chat-1", contracts.Budget{}, nil, nil)
-			mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "validate-1", Name: "platform_control", ArgsDelta: raw})
+			mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "validate-1", Name: "catalog_query", ArgsDelta: raw})
 			events := mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"validate-1"}})
 			if len(events) != 2 {
 				t.Fatalf("unexpected events: %#v", events)
@@ -64,7 +64,7 @@ func TestCatalogValidationHistoryAndStreamContentPolicy(t *testing.T) {
 			if err := json.Unmarshal([]byte(args), &parsed); err != nil {
 				t.Fatal(err)
 			}
-			if len(parsed["params"].(map[string]any)) != 3 || !strings.Contains(args, "confidential-candidate") || strings.Contains(args, "contentBytes") {
+			if len(parsed["args"].(map[string]any)) != 3 || !strings.Contains(args, "confidential-candidate") || strings.Contains(args, "contentBytes") {
 				t.Fatalf("unsafe history: %s", args)
 			}
 		})

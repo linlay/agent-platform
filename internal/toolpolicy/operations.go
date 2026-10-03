@@ -1,6 +1,9 @@
 package toolpolicy
 
-import "strings"
+import (
+	"agent-platform/internal/connector"
+	"strings"
+)
 
 // Operation contains scheduling policy only; handlers own validation and execution.
 type Operation struct {
@@ -11,14 +14,7 @@ type Operation struct {
 }
 
 var operations = map[string]map[string]Operation{
-	"platform_control": {
-		"capabilities.list":    {ReadOnly: true, AllowedStages: []string{"all"}},
-		"catalog.defaults.get": {ReadOnly: true, AllowedStages: []string{"all"}},
-		"catalog.validate":     {ReadOnly: true, AllowedStages: []string{"all"}},
-		"chat.set_pinned":      {Barrier: true, AllowedStages: []string{"main"}},
-		"runtime.status":       {ReadOnly: true, AllowedStages: []string{"all"}},
-		"security.explain":     {ReadOnly: true, AllowedStages: []string{"all"}},
-	},
+
 	"run_env": {
 		"list":    {ReadOnly: true, AllowedStages: []string{"all"}},
 		"explain": {ReadOnly: true, AllowedStages: []string{"all"}},
@@ -29,10 +25,20 @@ var operations = map[string]map[string]Operation{
 }
 
 func OperationAware(tool string) bool {
+	if owner, ok := connector.NativeToolConnector(tool); ok && owner == connector.PlatformControlConnectorID {
+		return true
+	}
 	_, ok := operations[strings.ToLower(strings.TrimSpace(tool))]
 	return ok
 }
 func LookupOperation(tool, name string) (Operation, bool) {
+	if a, ok := connector.LookupControlAction(tool, name); ok {
+		stage := "main"
+		if a.ReadOnly && !strings.HasPrefix(tool, "desktop_") {
+			stage = "all"
+		}
+		return Operation{Name: name, ReadOnly: a.ReadOnly, Barrier: !a.ReadOnly || strings.HasPrefix(tool, "desktop_"), AllowedStages: []string{stage}}, true
+	}
 	name = strings.ToLower(strings.TrimSpace(name))
 	policy, ok := operations[strings.ToLower(strings.TrimSpace(tool))][name]
 	policy.Name = name
@@ -41,6 +47,9 @@ func LookupOperation(tool, name string) (Operation, bool) {
 }
 func InvocationDescriptor(tool string, args map[string]any) (Operation, bool) {
 	name, _ := args["operation"].(string)
+	if owner, ok := connector.NativeToolConnector(tool); ok && owner == connector.PlatformControlConnectorID {
+		name, _ = args["action"].(string)
+	}
 	return LookupOperation(tool, name)
 }
 func (o Operation) AllowsExecutionPolicy(policy string) bool {

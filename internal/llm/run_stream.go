@@ -176,6 +176,9 @@ type toolCallAccumulator struct {
 }
 
 type preparedToolInvocation struct {
+	toolApprovalChecked   bool
+	toolApproval          *ToolApproval
+	toolApprovalErr       error
 	toolID                string
 	toolName              string
 	args                  map[string]any

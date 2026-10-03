@@ -7,9 +7,11 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 )
 
 // Desktop rejects these actions outside an authorized local WebApp page.
@@ -98,7 +100,7 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 	if len(matches) == 0 {
 		t.Fatal("Desktop action definitions are empty")
 	}
-	excluded := map[string]bool{}
+	excluded := map[string]bool{"desktop.agent.update": true, "desktop.skill.update": true}
 	for _, action := range desktopWebappPageOnlyActions {
 		excluded[action] = true
 	}
@@ -147,7 +149,13 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 		t.Fatalf("Desktop page-only policy changed; review Platform exclusions\nDesktop: %v\nPlatform: %v", pageOnly, desktopWebappPageOnlyActions)
 	}
 	sort.Strings(want)
-	got := sortedDesktopActionAllowlist(t)
+	var got []string
+	for _, a := range connector.ControlActions() {
+		if strings.HasPrefix(a.Tool, "desktop_") {
+			got = append(got, "desktop."+a.Action)
+		}
+	}
+	sort.Strings(got)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Platform must follow Desktop actions (excluding WebApp-page-only and web-control actions)\nDesktop: %v\nPlatform: %v", want, got)
 	}

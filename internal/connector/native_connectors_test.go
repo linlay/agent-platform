@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -13,7 +12,7 @@ import (
 
 func TestEmbeddedNativeConnectors(t *testing.T) {
 	s := Sources{ExternalRoot: filepath.Join(t.TempDir(), "connectors-center")}
-	desktop, releaseDesktop, err := s.InstallEmbeddedDesktop()
+	desktop, releaseDesktop, err := s.InstallEmbeddedPlatformControl()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,13 +22,13 @@ func TestEmbeddedNativeConnectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer releaseWeb()
-	s.NativeDesktopDir, s.NativeWebControlDir = desktop.Dir, web.Dir
+	s.NativePlatformControlDir, s.NativeWebControlDir = desktop.Dir, web.Dir
 	items, err := s.LoadAll()
 	if err != nil || len(items) != 2 {
 		t.Fatalf("catalog: %v %v", items, err)
 	}
 	// The two connectors own disjoint tools and can be mounted together.
-	if !reflect.DeepEqual(desktop.NativeTools(), []string{"desktop_action"}) || len(desktop.Skills) != 1 || desktop.Skills[0].Name != "desktop-action" {
+	if len(desktop.NativeTools()) != 12 || len(desktop.Skills) != 1 || desktop.Skills[0].Name != "platform-control" {
 		t.Fatalf("desktop capabilities: %v %+v", desktop.NativeTools(), desktop.Skills)
 	}
 	if len(web.NativeTools()) != 15 || len(web.Skills) != 1 || web.Skills[0].Name != "web-control" || web.AuthMode != AuthNoAuth {
@@ -96,7 +95,7 @@ func TestEmbeddedNativeConnectors(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(desktop.Dir, "skills", "desktop-action", "references", "catalog.md"))
+	data, err := os.ReadFile(filepath.Join(desktop.Dir, "skills", "platform-control", "references", "catalog.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +125,7 @@ func TestEmbeddedNativeConnectors(t *testing.T) {
 }
 
 func TestNativeConnectorPresentation(t *testing.T) {
-	for _, tc := range []struct{ name, zh, en string }{{"desktop", "桌面端", "Desktop"}, {"web-control", "网页控制", "Web Control"}} {
+	for _, tc := range []struct{ name, zh, en string }{{"platform-control", "平台控制", "Platform Control"}, {"web-control", "网页控制", "Web Control"}} {
 		dir := t.TempDir()
 		if err := WriteBuiltin(dir, tc.name, ""); err != nil {
 			t.Fatal(err)

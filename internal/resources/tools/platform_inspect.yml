@@ -1,0 +1,25 @@
+name: "platform_inspect"
+label: 平台诊断
+description: "runtimeStatus: component? (runtime/models/mcp/connectors/kbase/containerHub/memory/catalog). securityExplain: path with access?, or tool with action?. Reads existing state without granting permissions or starting remote probes."
+clientVisible: true
+explicitOnly: true
+readOnly: true
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "runtimeStatus"
+        - "securityExplain"
+    args:
+      type: "object"
+      description: "runtimeStatus: component? (runtime/models/mcp/connectors/kbase/containerHub/memory/catalog). securityExplain: path with access?, or tool with action?. Reads existing state without granting permissions or starting remote probes."
+  required:
+    - "action"
+  additionalProperties: false

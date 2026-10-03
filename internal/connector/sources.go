@@ -15,9 +15,9 @@ type Sources struct {
 	ExternalRoot string
 	BuiltinRoot  string
 	// Native directories are verified, leased packages from the running binary.
-	NativeDesktopDir    string
-	NativeWebControlDir string
-	StateRoot           string
+	NativePlatformControlDir string
+	NativeWebControlDir      string
+	StateRoot                string
 	// LegacyStateRoot is only read by the startup/offline layout migration.
 	LegacyStateRoot string
 }
@@ -34,6 +34,9 @@ func (s Sources) Root(id string) string {
 }
 
 func (s Sources) Load(id string) (Package, error) {
+	if id == "builtin.desktop" || id == "builtin.desktop-web" {
+		return Package{}, fmt.Errorf("retired connector %s; run the offline migration", id)
+	}
 	if !ValidID(id) {
 		return Package{}, fmt.Errorf("invalid connector id %q", id)
 	}
@@ -84,7 +87,7 @@ func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 		}
 		for _, entry := range entries {
 			id := entry.Name()
-			if id == exclude || s.embeddedNativeDir(id) != "" {
+			if id == "builtin.desktop" || id == "builtin.desktop-web" || id == exclude || s.embeddedNativeDir(id) != "" {
 				continue
 			}
 			if strings.HasPrefix(id, ".") {
@@ -132,8 +135,8 @@ func (s Sources) ReadFile(id, file string) (File, error) {
 
 func (s Sources) embeddedNativeDir(id string) string {
 	switch id {
-	case DesktopConnectorID:
-		return s.NativeDesktopDir
+	case PlatformControlConnectorID:
+		return s.NativePlatformControlDir
 	case WebControlConnectorID:
 		return s.NativeWebControlDir
 	default:

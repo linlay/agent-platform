@@ -1,0 +1,27 @@
+name: "catalog_query"
+label: 查询目录
+description: "list: resourceType, status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation). Read before updating to obtain baseRevision."
+clientVisible: true
+explicitOnly: true
+readOnly: true
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "list"
+        - "get"
+        - "defaults"
+        - "validate"
+    args:
+      type: "object"
+      description: "list: resourceType, status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation). Read before updating to obtain baseRevision."
+  required:
+    - "action"
+  additionalProperties: false

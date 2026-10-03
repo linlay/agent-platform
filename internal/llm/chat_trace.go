@@ -14,7 +14,6 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/credentialview"
 	"agent-platform/internal/observability"
-	"agent-platform/internal/platformcontrol"
 )
 
 type llmChatTrace struct {
@@ -216,8 +215,8 @@ func (t *llmChatTrace) appendToolCalls(toolCalls []openAIToolCall) {
 	items, _ := t.payload["toolCalls"].([]any)
 	for _, call := range toolCalls {
 		arguments := call.Function.Arguments
-		if strings.EqualFold(strings.TrimSpace(call.Function.Name), platformcontrol.ToolName) {
-			arguments = platformcontrol.SanitizeArguments(arguments)
+		if credentialview.IsCatalogTool(strings.TrimSpace(call.Function.Name)) {
+			arguments = credentialview.CatalogArguments(arguments)
 		}
 		arguments = t.credentialPolicy.Arguments(call.Function.Name, arguments)
 		items = append(items, map[string]any{
@@ -358,8 +357,8 @@ func traceResponseToolCalls(toolCalls []openAIToolCall) []any {
 	out := make([]any, 0, len(toolCalls))
 	for _, call := range toolCalls {
 		arguments := call.Function.Arguments
-		if strings.EqualFold(strings.TrimSpace(call.Function.Name), platformcontrol.ToolName) {
-			arguments = platformcontrol.SanitizeArguments(arguments)
+		if credentialview.IsCatalogTool(strings.TrimSpace(call.Function.Name)) {
+			arguments = credentialview.CatalogArguments(arguments)
 		}
 		out = append(out, map[string]any{
 			"id":   strings.TrimSpace(call.ID),

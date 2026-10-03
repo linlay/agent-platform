@@ -1940,7 +1940,7 @@ func TestLoadRejectsRemovedPlatformControlAuthorization(t *testing.T) {
 			}
 			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 				_, err := Load()
-				if err == nil || !strings.Contains(err.Error(), "platform-control."+field+" was removed") {
+				if err == nil || !strings.Contains(err.Error(), "platform-control was removed") {
 					t.Fatalf("Load error = %v", err)
 				}
 			})
@@ -2916,7 +2916,7 @@ func TestRunEnvHardCutConfiguration(t *testing.T) {
 		content := "platform-control:\n  " + field + ": 12\nrun-env:\n  max-dynamic-keys: 32\n"
 		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "platform-control."+field+" was removed") {
+			if err == nil || !strings.Contains(err.Error(), "platform-control was removed") {
 				t.Fatalf("legacy %s: %v", field, err)
 			}
 		})
@@ -2928,10 +2928,10 @@ func TestRunEnvHardCutConfiguration(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	content = "platform-control:\n  enabled: false\nrun-env:\n  max-dynamic-keys: 7\n"
+	content = "run-env:\n  max-dynamic-keys: 7\n"
 	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 		cfg, err := Load()
-		if err != nil || cfg.PlatformControl.Enabled || cfg.RunEnv.MaxDynamicKeys != 7 {
+		if err != nil || cfg.RunEnv.MaxDynamicKeys != 7 {
 			t.Fatalf("independence %#v %v", cfg.RunEnv, err)
 		}
 	})

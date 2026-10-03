@@ -47,6 +47,13 @@ func parseConnectorIDs(value any) ([]string, error) {
 	if value == nil {
 		return nil, nil
 	}
+	if names, ok := value.([]string); ok {
+		items := make([]any, len(names))
+		for i, name := range names {
+			items[i] = name
+		}
+		value = items
+	}
 	items, ok := value.([]any)
 	if !ok {
 		return nil, fmt.Errorf("connectorConfig.connectors must be an array")
@@ -68,6 +75,7 @@ func parseConnectorIDs(value any) ([]string, error) {
 
 func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 	def.applyPresetTools(a.presetTools)
+	def.Connectors = mergePresetConnectors(*def, a.presetConnectors)
 	err := resolveConnectorPackages(def, func(id string) (connector.Package, error) {
 		pkg, err := a.connectors.Load(id)
 		if err != nil {

@@ -15,46 +15,46 @@ type RunQueryConfig struct {
 }
 
 type Config struct {
-	RunQuery        RunQueryConfig
-	PresetTools     []string
-	DocumentPreview documentpreview.Config
-	HTTPProxy       httpclient.Config
-	IdentityFile    string
-	RuntimeMode     RuntimeMode
-	Server          ServerConfig
-	Paths           PathsConfig
-	Agents          CatalogConfig
-	Teams           CatalogConfig
-	Skills          SkillCatalogConfig
-	Prompts         PromptsConfig
-	CoderPrompts    CoderPromptsConfig
-	KBasePrompts    KBasePromptsConfig
-	CoderSettings   CoderSettingsConfig
-	GeneralSettings GeneralSettingsConfig
-	AgentCreation   AgentCreationConfig
-	KBase           KBaseConfig
-	VisionRecognize VisionRecognizeConfig
-	WebFetch        WebFetchConfig
-	ImageGenerate   ImageGenerateConfig
-	Providers       CatalogConfig
-	Models          CatalogConfig
-	Query           QueryConfig
-	Automation      AutomationConfig
-	Billing         BillingConfig
-	Memory          MemoryConfig
-	Defaults        DefaultsConfig
-	SSE             SSEConfig
-	Auth            AuthConfig
-	ResourceTicket  ResourceTicketConfig
-	Logging         LoggingConfig
-	CORS            CORSConfig
-	ContainerHub    ContainerHubConfig
-	AccessPolicy    AccessPolicyConfig
-	Bash            BashConfig
-	FileTools       FileToolsConfig
-	PlatformControl PlatformControlConfig
-	RunEnv          RunEnvConfig
-	WebSocket       WebSocketConfig
+	RunQuery         RunQueryConfig
+	PresetTools      []string
+	PresetConnectors []string
+	DocumentPreview  documentpreview.Config
+	HTTPProxy        httpclient.Config
+	IdentityFile     string
+	RuntimeMode      RuntimeMode
+	Server           ServerConfig
+	Paths            PathsConfig
+	Agents           CatalogConfig
+	Teams            CatalogConfig
+	Skills           SkillCatalogConfig
+	Prompts          PromptsConfig
+	CoderPrompts     CoderPromptsConfig
+	KBasePrompts     KBasePromptsConfig
+	CoderSettings    CoderSettingsConfig
+	GeneralSettings  GeneralSettingsConfig
+	AgentCreation    AgentCreationConfig
+	KBase            KBaseConfig
+	VisionRecognize  VisionRecognizeConfig
+	WebFetch         WebFetchConfig
+	ImageGenerate    ImageGenerateConfig
+	Providers        CatalogConfig
+	Models           CatalogConfig
+	Query            QueryConfig
+	Automation       AutomationConfig
+	Billing          BillingConfig
+	Memory           MemoryConfig
+	Defaults         DefaultsConfig
+	SSE              SSEConfig
+	Auth             AuthConfig
+	ResourceTicket   ResourceTicketConfig
+	Logging          LoggingConfig
+	CORS             CORSConfig
+	ContainerHub     ContainerHubConfig
+	AccessPolicy     AccessPolicyConfig
+	Bash             BashConfig
+	FileTools        FileToolsConfig
+	RunEnv           RunEnvConfig
+	WebSocket        WebSocketConfig
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	Gateways []GatewayEntry
 	// Channels 是 channel 元数据与 agent 准入配置；每条可合成一条 gateway entry。
@@ -98,29 +98,25 @@ type PathsConfig struct {
 	// bundle. It is not a user-configurable runtime path.
 	BuiltinConnectorsDir string
 	// Native Desktop package paths are set only by embedded resource assembly.
-	NativeDesktopDir        string
-	NativeWebControlDir     string
-	ConnectorsCenterDir     string
-	StateDir                string
-	LegacyConnectorStateDir string
-	LegacyConnectorsDir     string
-	RegistriesDir           string
-	ToolsDir                string
-	OwnerDir                string
-	AgentsDir               string
-	RUAgentsDir             string
-	TeamsDir                string
-	RootDir                 string
-	AutomationsDir          string
-	ChatsDir                string
-	MemoryDir               string
-	KBaseDir                string
-	PanDir                  string
-	SkillsCenterDir         string
-}
-
-type PlatformControlConfig struct {
-	Enabled bool
+	NativePlatformControlDir string
+	NativeWebControlDir      string
+	ConnectorsCenterDir      string
+	StateDir                 string
+	LegacyConnectorStateDir  string
+	LegacyConnectorsDir      string
+	RegistriesDir            string
+	ToolsDir                 string
+	OwnerDir                 string
+	AgentsDir                string
+	RUAgentsDir              string
+	TeamsDir                 string
+	RootDir                  string
+	AutomationsDir           string
+	ChatsDir                 string
+	MemoryDir                string
+	KBaseDir                 string
+	PanDir                   string
+	SkillsCenterDir          string
 }
 
 type RunEnvConfig struct {

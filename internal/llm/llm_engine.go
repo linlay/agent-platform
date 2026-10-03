@@ -13,6 +13,7 @@ import (
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/httpclient"
@@ -465,6 +466,19 @@ func cachedToolsCompatibleWithStageOverride(override []string, cached []openAITo
 
 func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, session QuerySession) []api.ToolDetailResponse {
 	filtered := filterToolDefinitions(defs, allowed)
+	controlFiltered := make([]api.ToolDetailResponse, 0, len(filtered))
+	for _, def := range filtered {
+		if owner, ok := connector.NativeToolConnector(def.Name); ok && owner == connector.PlatformControlConnectorID {
+			if session.NativeConnectorTools[def.Name] != owner || session.ConnectorDirs[owner] == "" {
+				continue
+			}
+			if connector.IsPlatformRootTool(def.Name) && !OrdinaryNativeRoot(session) {
+				continue
+			}
+		}
+		controlFiltered = append(controlFiltered, def)
+	}
+	filtered = controlFiltered
 	if session.AgentHasRuntimeSandbox {
 		if sandboxBash, ok := sandboxBashAsPublicBash(defs); ok {
 			out := make([]api.ToolDetailResponse, 0, len(filtered))

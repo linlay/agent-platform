@@ -8,7 +8,6 @@ import (
 
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/credentialview"
-	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
@@ -128,7 +127,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		} else {
 			toolName = m.toolNames[toolID]
 		}
-		if strings.EqualFold(toolName, platformcontrol.ToolName) || credentialview.IsFileMutation(toolName) {
+		if credentialview.IsCatalogTool(toolName) || credentialview.IsFileMutation(toolName) {
 			buffer := m.sensitiveToolArgs[toolID]
 			if buffer == nil {
 				buffer = &strings.Builder{}
@@ -629,8 +628,8 @@ func (m *DeltaMapper) resolveToolMetadata(toolName string) (string, string) {
 }
 
 func (m *DeltaMapper) sanitizeToolArguments(toolName, raw string) string {
-	if strings.EqualFold(toolName, platformcontrol.ToolName) {
-		return platformcontrol.SanitizeArguments(raw)
+	if credentialview.IsCatalogTool(toolName) {
+		return credentialview.CatalogArguments(raw)
 	}
 	return m.credentialPolicy.Arguments(toolName, raw)
 }

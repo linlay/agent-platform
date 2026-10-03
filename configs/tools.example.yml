@@ -21,6 +21,12 @@ preset-tools:
   - ask_user_question
   - artifact_publish
 
+# Platform preset connectors for native GENERAL/CODER/KBASE Agents.
+# Full packages (tools + skills) are mounted; not written to agent.yml.
+# Omit or set [] to disable. Restart after changes. Management stays explicit.
+preset-connectors:
+  - builtin.web-control
+
 # Tool runtime config. Copy to configs/tools.yml to customize locally.
 
 access-policy:

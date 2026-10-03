@@ -111,26 +111,20 @@ func TestToolRouterEnforcesReadOnlyExecutionPolicy(t *testing.T) {
 	}
 }
 
-func TestPlatformControlReadOnlyPolicyUsesOperationDescriptor(t *testing.T) {
-	def := api.ToolDetailResponse{Name: "platform_control", Meta: map[string]any{"readOnly": false, "operationAware": true}}
-	if !allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "runtime.status"}) {
-		t.Fatal("read-only platform_control operation was denied by the final router")
-	}
-	if allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "run.env.set"}) {
-		t.Fatal("mutating platform_control operation was allowed by the final router")
-	}
-	if allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "chat.set_pinned"}) {
-		t.Fatal("Chat pin mutation was allowed by the read-only router")
-	}
-	if allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "future.operation"}) {
-		t.Fatal("unknown platform_control operation was allowed by the final router")
+func TestControlReadOnlyPolicyUsesActionDescriptor(t *testing.T) {
+	def := api.ToolDetailResponse{Name: "desktop_settings", Meta: map[string]any{"readOnly": false, "operationAware": true}}
+	for _, action := range []string{"theme.get", "theme.set", "future"} {
+		got := allowsReadOnlyInvocation(def, true, def.Name, map[string]any{"action": action})
+		if got != (action == "theme.get") {
+			t.Fatalf("%s = %v", action, got)
+		}
 	}
 }
 
 func TestToolRouterRejectsUnregisteredToolWithoutCallingBackend(t *testing.T) {
 	backend := &recordingPolicyBackend{}
 	router := mustNewToolRouter(t, backend, nil, nil, nil)
-	for _, name := range []string{"missing_tool", "desktop_action", "surface_cdp"} {
+	for _, name := range []string{"missing_tool", "desktop_action", "platform_control"} {
 		result, err := router.Invoke(context.Background(), name, nil, &ExecutionContext{})
 		if err != nil || result.Error != "tool_not_registered" || result.ExitCode != -1 {
 			t.Fatalf("unregistered tool %s: result=%#v err=%v", name, result, err)
@@ -486,7 +480,7 @@ func TestToolInvocationResultStatus(t *testing.T) {
 func TestRuntimeCompactModelOutputPolicyIsCodeOwned(t *testing.T) {
 	for _, name := range []string{
 		"bash", "bash_sandbox",
-		"desktop_action", "workpanel_open", "surface_evaluate", "surface_cdp", "awcp_invoke",
+		"desktop_shell", "workpanel_open", "surface_evaluate", "surface_cdp", "awcp_invoke",
 		"file_read", "file_write", "file_edit", "file_glob", "file_grep",
 		"image_generate", "vision_recognize", "web_fetch",
 		"regex",

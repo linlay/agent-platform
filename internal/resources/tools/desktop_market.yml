@@ -1,0 +1,38 @@
+name: "desktop_market"
+label: "desktop_market"
+description: "desktop_market: market.getSettings, market.validateSettings, market.previewSettingsPatch, market.applySettingsPatch, market.listItems, market.getItemDetail, market.refresh, market.installItem, market.updateItem, market.uninstallItem, market.openItem, market.importSkill, market.importSandboxImage, market.exportSandboxImage, market.deleteSandboxImage. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "market.getSettings"
+        - "market.validateSettings"
+        - "market.previewSettingsPatch"
+        - "market.applySettingsPatch"
+        - "market.listItems"
+        - "market.getItemDetail"
+        - "market.refresh"
+        - "market.installItem"
+        - "market.updateItem"
+        - "market.uninstallItem"
+        - "market.openItem"
+        - "market.importSkill"
+        - "market.importSandboxImage"
+        - "market.exportSandboxImage"
+        - "market.deleteSandboxImage"
+    args:
+      type: "object"
+      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+  required:
+    - "action"
+  additionalProperties: false

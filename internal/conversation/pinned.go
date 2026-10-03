@@ -18,6 +18,11 @@ type PinResult struct {
 // SetChatPinned is shared by transport and tool callers. Publish immediately
 // after persistence, even if a caller's subsequent snapshot read fails.
 func (s *Service) SetChatPinned(chatID string, pinned bool) (PinResult, error) {
+	release := s.LockMutation()
+	defer release()
+	return s.setChatPinned(chatID, pinned)
+}
+func (s *Service) setChatPinned(chatID string, pinned bool) (PinResult, error) {
 	result := PinResult{ChatID: strings.TrimSpace(chatID), Pinned: pinned}
 	if s == nil || s.Chats == nil {
 		return result, ErrNotConfigured

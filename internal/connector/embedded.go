@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 )
 
-// InstallEmbeddedDesktop uses only resources compiled into Platform. The
+// InstallEmbeddedPlatformControl uses only resources compiled into Platform. The
 // temporary source is discarded; the versioned shared package is the sole
 // persistent copy. The returned lease protects this source while the caller
 // serves catalog/management requests, including when no Agent has mounted it.
-func (s Sources) InstallEmbeddedDesktop() (Package, func(), error) {
-	return s.installEmbeddedNative("desktop")
+func (s Sources) InstallEmbeddedPlatformControl() (Package, func(), error) {
+	return s.installEmbeddedNative("platform-control")
 }
 
 func (s Sources) InstallEmbeddedWebControl() (Package, func(), error) {

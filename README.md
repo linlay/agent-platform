@@ -2,7 +2,7 @@
 
 原生模型新增独立 `OPENAI_RESPONSES` 协议；本地 JSONL 保存每次模型调用的可选 `responseId` 与 `reasoning_content` 加密条目，续聊不依赖服务端 response ID。配置、格式及兼容边界见 [Responses 协议](docs/Responses协议.md)。
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、`platform_control` system control plane、JWT 鉴权、resource ticket、chat 文件落盘、可选手工 Memory、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、`builtin.platform-control` 平台控制连接器、JWT 鉴权、resource ticket、chat 文件落盘、可选手工 Memory、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
@@ -77,7 +77,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `mustUseSkills` 为本次 run 选中的每个 Skill 目录追加 trusted read + readonly roots：完整目录免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，任何 `accessLevel`、hostAccess 或 approval 都不能写入这些选中目录。Container 仍只读挂载整个 `/skills-center`，mount 可见性不等同于 AccessPolicy 授权。
 - Agent YAML 已配置普通 Skill 与本次 `mustUseSkills` 选中 Skill 的 `scripts/**` 入口，经本 Run 内存凭据（canonical 路径与 SHA-256）及执行前复验匹配后免入口 HITL；凭据不落盘、不跨 Run 继承，外围 Shell 和写入限制保持独立。见 [工具目录权限](docs/工具目录权限.md#技能脚本入口执行凭据)。
 - 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 在 main/editing 两种 stage 提供相同的五个通用文本文件工具，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
-- `platform_control` 对所有显式配置它的 Agent 暴露同一固定 Schema 和全部注册 operation；动态环境独立使用 `run_env`（list/set/unset/update/explain），只作用于当前普通 native root Run，无需在 Agent 配置预声明 key。动态值仅存在于当前 Platform 进程内，只在新建 Host/Container 命令前生成独立快照，绝不调用 `os.Setenv`；Platform 重启后的 question/planning 续接使用新的空环境。
+- `builtin.platform-control` 显式挂载后提供 Catalog、Chat、诊断和七个 Desktop 域工具；配置修改及删除 Chat 必须一次性人工审批。`run_env` 保持独立默认挂载，动态值只作用于当前普通 native root Run 的后续命令。详见 [平台控制连接器](docs/Platform控制工具设计.md)。
 
 Native 模型流式正文与推理各自达到 4,000 Unicode 字符后检测持续精确复读，命中会取消请求且不自动重试；详见 [流式复读取消](docs/配置化说明.md#流式复读取消)。
 
@@ -193,7 +193,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 本地启动变量从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留启动/部署 allowlist。运行时配置使用 `configs/runtime.yml`，工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
 
-Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` 与网页控制工具（`workpanel_*`、`surface_*`、`awcp_*`）优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
+Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。七个 `desktop_*` 域工具与网页控制工具（`workpanel_*`、`surface_*`、`awcp_*`）优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
 外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-connectors/<id>/<contentDigest>`，持久化授权状态保存在通用 `.state` 根下的 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下免除入口执行审批；匹配的业务 Hook 仍按规则审批，需要凭据时仅支持已验证的直接子进程；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`，由各项目与二进制一起打包，Platform 锁定并校验完整包；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。外部包支持通过 `DELETE /api/admin/connectors/detail?id=<id>` 删除；需先解除 Agent 引用并等待旧运行挂载释放，授权和 CLI 状态保留，重载失败恢复原包。ZIP 导入后异步 CLI 准备（有 bin 跳过 init）、独立准备状态与登录凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
@@ -300,7 +300,7 @@ orchestrator:
 
 普通主 Agent 还可分别显式挂载 `run_query`、`run_status`、`run_interrupt`，用于发起、查询和中断标准独立 Agent/Team 根 run。它们与 `agent_invoke` 不同：不复用父 `chatId/runId`，query 在目标 run 注册后立即返回，父 run 中断不取消目标；后续控制只允许同一调用 Agent 与 subject 操作自己通过 `run_query` 创建的 run。目标不使用白名单或 `contextConfig.agents`，精确 catalog 名称存在即可调用；`run_query` 的工具描述负责把“当前智能体”“本智能体”“你自己”解析为 system prompt 的 `Agent Identity.key`，不得用候选摘要替代。目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除，Agent 配置引用旧名会硬失败。支持可选 `accessLevel/mustUseSkills/chatName`；权限覆盖默认关闭，省略时为 `default` 且不继承父 Run，显式新 Chat 名称与 `chatId` 互斥；状态返回当前档位与等待摘要。完整契约见 [子智能体调度](./docs/子智能体调度.md)。
 
-`platform_control` 提供平台控制操作；`run_env` 独立提供当前普通 native root Run 的 list/set/unset/update/explain。run_env 由所有普通 Native GENERAL/CODER/KBASE 默认自动挂载，不依赖 preset-tools，可通过 excludeTools 排除，无需写入 Agent YAML；平台管理能力组另行挂载 platform_control。动态值只影响后续新工具进程，不继承到子任务或其他 Run。全部 run_env 参数可观测，不能传 Secret。旧 run.env 入口与 platform-control 环境限额配置硬切，详见 [Run 环境工具](docs/Run环境工具.md)。
+`builtin.platform-control` 提供平台治理能力；`run_env` 独立提供当前普通 native root Run 的 list/set/unset/update/explain，由普通 Native GENERAL/CODER/KBASE 默认挂载，可通过 excludeTools 排除。动态值仅影响后续命令、不继承到子任务或其他 Run。旧 platform-control 配置段已移除。详见 [Run 环境工具](docs/Run环境工具.md)。
 
 ## 4. 部署
 
@@ -447,8 +447,10 @@ docker compose logs -f
 
 ### Desktop 内嵌连接器来源
 
-`builtin.desktop`（桌面端）与 `builtin.web-control`（网页控制）随 Platform Go 程序编译分发，是两个各管一块、可同时挂载的独立连接器。`builtin.desktop` 只提供 `desktop_action`，负责 Desktop 外壳、应用与服务，不再打开或操作网页；`builtin.web-control` 提供 15 个参数固定的 `workpanel_*`、`surface_*`、`awcp_*` 工具，按地址打开并控制网页（含 Website/WebApp Copilot 授权范围内的页面），不管理 Website 条目和 WebApp 生命周期。模型只使用打开时的 `url`（`http(s)://` 网页或 `@workspace/`、`@chat/` 文件）和网页的 `surfaceId`，WorkPanel 条目与容器标识不外露；`desktop_cdp` 已删除。工具归属由 `internal/connector/native.go` 的注册表唯一决定，新工具在 Platform 内映射到既有反向请求，Desktop 协议不变；Standalone 模式只暴露 `workpanel_*`。旧 `builtin.desktop-web` 已不存在，存量 Agent 通过显式离线迁移转换。启动原子发布到各自 `ru-connectors/<id>/<contentDigest>/`，已有相同内容的运行包校验复用；进程持有两个共享包租约，各 Agent 仅持挂载引用。详见 [连接器共享包与Desktop迁移](docs/连接器共享包与Desktop迁移.md#builtinweb-control)。
+`builtin.platform-control`（平台控制，12 个工具）与 `builtin.web-control`（网页控制，15 个工具）随 Platform 内嵌分发，可独立或同时挂载。前者管理 Catalog、Chat、运行诊断和 Desktop 外壳/应用/服务；后者按地址打开和操作网页。两者使用受信任共享运行包、原有租约与反向请求，Desktop 传输协议保持不变。旧入口须显式迁移。详见 [平台控制连接器](docs/Platform控制工具设计.md) 与 [连接器共享包](docs/连接器共享包与Desktop迁移.md)。
 
 Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。此调整不改变连接器配置状态、Agent 挂载、工具权限或历史 Chat。
 
 原生 `sleep` 工具支持同一 Run 内等待、steer 提前唤醒与倒计时事件。显式挂载、Run 边界及 WebClient 接入见 [原生等待工具](./docs/原生等待工具.md)。
+
+平台管理连接器仅按部署者显式配置挂载，源码无主智能体名单；旧工具声明不自动扩权。已支持 `preset-connectors`、控制工具 agent.yml 原文保留及批量归档/恢复；搜索大文件保护和联调边界见 [Platform控制工具设计](docs/Platform控制工具设计.md#2026-10-03-审核修复与未完成项)。

@@ -80,14 +80,14 @@ func TestSharedAssemblyPreventsCollectionAndStartupReuses(t *testing.T) {
 
 func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 	s := runtimeFixture(t)
-	if err := WriteBuiltin(filepath.Join(s.BuiltinRoot, "builtin.desktop"), "desktop", ""); err != nil {
+	if err := WriteBuiltin(filepath.Join(s.BuiltinRoot, "builtin.platform-control"), "platform-control", ""); err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := s.Load("builtin.desktop")
+	pkg, err := s.Load("builtin.platform-control")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.NativeTools()) != 1 || len(pkg.Skills) != 1 || pkg.BinDir != "" || !pkg.Builtin {
+	if len(pkg.NativeTools()) != 12 || len(pkg.Skills) != 1 || pkg.BinDir != "" || !pkg.Builtin {
 		t.Fatalf("native contract: %#v", pkg)
 	}
 	icon, err := pkg.ReadIcon()
@@ -100,7 +100,7 @@ func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 			t.Fatalf("desktop skill SVG icon %s: %v", skill.Name, err)
 		}
 	}
-	for _, name := range []string{"desktop-action", "desktop-cdp", "web-control"} {
+	for _, name := range []string{"platform-control", "desktop-cdp", "web-control"} {
 		if !IsReservedSkill(name) {
 			t.Fatal("native skill selectable as ordinary skill")
 		}

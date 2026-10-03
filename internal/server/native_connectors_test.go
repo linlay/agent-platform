@@ -22,7 +22,7 @@ func TestNativeConnectorCatalogLocalized(t *testing.T) {
 	}
 	defer release()
 	for _, endpoint := range []string{"/api/connectors", "/api/admin/connectors"} {
-		for _, tc := range []struct{ locale, desktop, web string }{{"zh-CN", "桌面端", "网页控制"}, {"en", "Desktop", "Web Control"}, {"zh", "桌面端", "网页控制"}, {"en-US", "Desktop", "Web Control"}} {
+		for _, tc := range []struct{ locale, desktop, web string }{{"zh-CN", "平台控制", "网页控制"}, {"en", "Platform Control", "Web Control"}, {"zh", "平台控制", "网页控制"}, {"en-US", "Platform Control", "Web Control"}} {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, endpoint, nil)
 			req.Header.Set("Accept-Language", tc.locale)
@@ -44,7 +44,7 @@ func TestNativeConnectorCatalogLocalized(t *testing.T) {
 					continue
 				}
 				found++
-				want, tools := tc.desktop, 1
+				want, tools := tc.desktop, 12
 				if item.ID == connector.WebControlConnectorID {
 					want, tools = tc.web, 15
 				}
@@ -68,9 +68,9 @@ func TestNativeConnectorsCanBeSelectedTogether(t *testing.T) {
 		t.Cleanup(release)
 	}})
 	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": connector.WebControlConnectorID, "enabled": true}))
-	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": connector.DesktopConnectorID, "enabled": true}))
+	agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": connector.PlatformControlConnectorID, "enabled": true}))
 	after := agentConnectorResponse(t, agentConnectorRequest(f.server, "GET", "mock-agent", nil))
-	if !reflect.DeepEqual(after.ConnectorIDs, []string{connector.WebControlConnectorID, connector.DesktopConnectorID}) {
+	if !reflect.DeepEqual(after.ConnectorIDs, []string{connector.WebControlConnectorID, connector.PlatformControlConnectorID}) {
 		t.Fatalf("selection: %v", after.ConnectorIDs)
 	}
 	// The retired web variant is not a selectable connector.

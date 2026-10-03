@@ -43,7 +43,7 @@ HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`fiel
 
 ## 核心流程
 
-`platform_control` 是 run 内的 system tool，不是 HTTP 协议扩展。动态环境变量由普通 native root Agent 在当前 run 中调用 `run_env` 的 `set/unset/update` 修改；`POST /api/query`、前端和 Chat API 都不传 `documentId`、run env 或 platform-control 授权字段。
+`builtin.platform-control` 提供 run 内的平台工具，不是 HTTP 协议扩展。动态环境变量由普通 native root Agent 在当前 run 中调用 `run_env` 的 `set/unset/update` 修改；`POST /api/query`、前端和 Chat API 都不传 `documentId`、run env 或 platform-control 授权字段。
 
 ```text
 普通 JSON API -> ApiResponse envelope
@@ -253,7 +253,7 @@ WebClient 与 Desktop 导航只通过一次 `/api/chats/order` 读取排序配�
 
 PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 `pinnedChats`，避免保存成功后摘要读取失败造成写入结果歧义。成功后两端通过统一读取接口刷新，普通未置顶预览按需补位。
 
-智能体可通过 `platform_control` 的 `chat.set_pinned` 调用同一置顶业务入口，沿用 `chats.order.changed` 通知；工具契约与执行边界见 [Platform 控制工具设计](Platform控制工具设计.md#chatset_pinned)。
+智能体可通过 `chat_manage` 的 `setPinned` 调用同一置顶业务入口，沿用 `chats.order.changed` 通知；工具契约与执行边界见 [Platform 控制工具设计](Platform控制工具设计.md#chatset_pinned)。
 
 `PUT /api/chats/order` 接受三种互斥 operation：
 

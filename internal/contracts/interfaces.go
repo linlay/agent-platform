@@ -522,6 +522,8 @@ type ToolWaitSink interface {
 }
 
 type ExecutionContext struct {
+	// ToolApprovals are exact one-shot handler approvals, never model input.
+	ToolApprovals map[string]bool
 	// AuthoredScripts is shared only by tool invocations of this run; never serialized.
 	AuthoredScripts  *scriptstate.Scope `json:"-"`
 	Request          api.QueryRequest
@@ -625,6 +627,7 @@ type SubmitInfo struct {
 }
 
 type AwaitingSubmitContext struct {
+	ExactApprovalIDs   []string // one-time approvals bound to these invocation IDs
 	Summaries          []ApprovalSummary
 	SummariesTruncated bool
 	AwaitingID         string
@@ -657,6 +660,7 @@ type AwaitingSubmitRoute struct {
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 	return AwaitingSubmitContext{
+		ExactApprovalIDs:   append([]string(nil), c.ExactApprovalIDs...),
 		Summaries:          append([]ApprovalSummary(nil), c.Summaries...),
 		SummariesTruncated: c.SummariesTruncated,
 		AwaitingID:         c.AwaitingID,

@@ -32,15 +32,15 @@ func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
 	}
 	defer conn.Close()
 	readConnectedPush(t, conn)
-	handler := platformcontrol.NewToolHandler(config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}, nil, fixture.server.conversationService())
+	handler := platformcontrol.NewToolHandler(config.Config{}, nil, fixture.server.conversationService()).ConfigureControl(nil, fixture.server.conversationService(), nil)
 	caller := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		RunID: "run-pin", ChatID: "tool-pin", AgentKey: "mock-agent", Mode: "REACT",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""), ToolNames: []string{"platform_control"},
+		RunID: "run-pin", ChatID: "tool-pin", AgentKey: "mock-agent", Mode: "GENERAL",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""), ToolNames: []string{"chat_manage"}, NativeConnectorTools: map[string]string{"chat_manage": "builtin.platform-control"}, ConnectorDirs: map[string]string{"builtin.platform-control": "/trusted"},
 	}}
 	invoke := func() {
 		t.Helper()
-		result, err := handler.Invoke(t.Context(), "platform_control", map[string]any{
-			"operation": "chat.set_pinned", "params": map[string]any{"pinned": true},
+		result, err := handler.Invoke(t.Context(), "chat_manage", map[string]any{
+			"action": "setPinned", "args": map[string]any{"pinned": true},
 		}, caller)
 		if err != nil || result.Error != "" {
 			t.Fatalf("pin tool: %+v %v", result, err)

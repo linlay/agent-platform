@@ -12,6 +12,8 @@ import (
 )
 
 func (s *Server) handleChatDelete(w http.ResponseWriter, r *http.Request) {
+	release := s.conversationService().LockMutation()
+	defer release()
 	var req api.DeleteChatRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
@@ -72,6 +74,8 @@ func (s *Server) handleChatDerive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deriveChat(req api.DeriveChatRequest) (api.DeriveChatResponse, *statusError) {
+	release := s.conversationService().LockMutation()
+	defer release()
 	sourceChatID := strings.TrimSpace(req.SourceChatID)
 	sourceRunID := strings.TrimSpace(req.SourceRunID)
 	targetChatID := strings.TrimSpace(req.ChatID)
@@ -159,6 +163,8 @@ func mapDeriveChatResponse(result chat.DeriveChatResult) api.DeriveChatResponse 
 }
 
 func (s *Server) handleChatRename(w http.ResponseWriter, r *http.Request) {
+	release := s.conversationService().LockMutation()
+	defer release()
 	var req api.RenameChatRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))

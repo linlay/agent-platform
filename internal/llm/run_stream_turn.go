@@ -14,7 +14,6 @@ import (
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/credentialview"
-	"agent-platform/internal/platformcontrol"
 )
 
 const finalAnswerInstruction = "The tool execution loop has reached its configured step limit. Do not call any more tools. Based only on the conversation and tool results already available, provide the final answer or summary now."
@@ -428,7 +427,7 @@ func (s *llmRunStream) consumeCurrentTurn() (done bool, consumeError error) {
 		return false, streamErr
 	}
 
-	if sessionHasTool(s.session, platformcontrol.ToolName) {
+	if credentialview.HasCatalogTools(s.session.ToolNames) {
 		s.engine.logRawChunk(s.session.RunID, "[REDACTED_RAW_PROVIDER_FRAME]")
 	} else {
 		s.engine.logRawChunk(s.session.RunID, formatRawSSEFrame(eventName, rawChunk))
@@ -778,8 +777,8 @@ func sanitizedToolCalls(toolCalls []openAIToolCall, policies ...credentialview.P
 	}
 	out := append([]openAIToolCall(nil), toolCalls...)
 	for index := range out {
-		if strings.EqualFold(strings.TrimSpace(out[index].Function.Name), platformcontrol.ToolName) {
-			out[index].Function.Arguments = platformcontrol.SanitizeArguments(out[index].Function.Arguments)
+		if credentialview.IsCatalogTool(strings.TrimSpace(out[index].Function.Name)) {
+			out[index].Function.Arguments = credentialview.CatalogArguments(out[index].Function.Arguments)
 		} else {
 			out[index].Function.Arguments = policy.Arguments(out[index].Function.Name, out[index].Function.Arguments)
 		}

@@ -1090,6 +1090,9 @@ func isMemoryTool(name string) bool {
 
 func validateReservedBashToolNames(tools []string) error {
 	for _, tool := range tools {
+		if tool == "platform_control" || tool == "desktop_action" {
+			return fmt.Errorf("%s is retired; migrate to builtin.platform-control", tool)
+		}
 		if err := validateReservedBashToolName(tool, "toolConfig.tools"); err != nil {
 			return err
 		}

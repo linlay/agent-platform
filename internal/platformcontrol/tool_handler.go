@@ -1,11 +1,11 @@
 package platformcontrol
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"strings"
 
+	"agent-platform/internal/adminsource"
 	agentcoder "agent-platform/internal/agent/coder"
 	agentgeneral "agent-platform/internal/agent/general"
 	agentkbase "agent-platform/internal/agent/kbase"
@@ -14,7 +14,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
-	"agent-platform/internal/filetools"
+	"agent-platform/internal/models"
 	"agent-platform/internal/observability"
 )
 
@@ -26,9 +26,13 @@ const (
 )
 
 type ToolHandler struct {
-	cfg      config.Config
-	registry catalog.Registry
-	chats    ChatPinService
+	RuntimeSnapshot func() map[string]any
+	cfg             config.Config
+	registry        catalog.Registry
+	chats           ChatPinService
+	sources         *adminsource.ControlService
+	conversations   *conversation.Service
+	models          *models.ModelRegistry
 }
 
 type ChatPinService interface {
@@ -40,92 +44,7 @@ func NewToolHandler(cfg config.Config, registry catalog.Registry, chats ChatPinS
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{ToolName}
-}
-
-func (h *ToolHandler) Invoke(_ context.Context, _ string, args map[string]any, execCtx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
-	rawOperation, operationExists := args["operation"]
-	operationValue, operationIsString := rawOperation.(string)
-	operationName := strings.ToLower(strings.TrimSpace(operationValue))
-	if !operationExists || !operationIsString || operationName == "" {
-		return operationError(operationName, "platform_control_invalid_params", "operation must be a non-empty string", execCtx), nil
-	}
-	params, validationError := strictParams(args)
-	if validationError != nil {
-		return operationError(operationName, "platform_control_invalid_params", validationError.Error(), execCtx), nil
-	}
-	descriptor, exists := LookupOperation(operationName)
-	if !exists {
-		return operationError(operationName, "platform_control_invalid_operation", "operation is not supported", execCtx), nil
-	}
-	if !h.cfg.PlatformControl.Enabled {
-		return operationError(operationName, "platform_control_disabled", "platform_control is disabled", execCtx), nil
-	}
-	if execCtx != nil && !descriptor.AllowsExecutionPolicy(execCtx.ToolExecutionPolicy) {
-		return operationError(operationName, "platform_control_stage_forbidden", "operation is not permitted in the current stage", execCtx), nil
-	}
-	if descriptor.Validate == nil || descriptor.Invoke == nil {
-		return operationError(operationName, "platform_control_invalid_operation", "operation is not executable", execCtx), nil
-	}
-	if err := descriptor.Validate(params); err != nil {
-		return operationError(operationName, "platform_control_invalid_params", err.Error(), execCtx), nil
-	}
-	result := descriptor.Invoke(h, operationName, params, execCtx)
-	return normalizeEnvelope(operationName, result, execCtx), nil
-}
-
-func invokeRegisteredOperation(h *ToolHandler, operationName string, params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	switch operationName {
-	case "capabilities.list":
-		return h.capabilities(execCtx, nil)
-	case "catalog.defaults.get":
-		return h.get(strings.TrimSpace(stringValue(params, "path")))
-	case "catalog.validate":
-		return h.validate(strings.ToLower(strings.TrimSpace(stringValue(params, "resourceType"))), strings.TrimSpace(stringValue(params, "resourceKey")), stringValue(params, "content"))
-	case "chat.set_pinned":
-		return h.setChatPinned(params, execCtx)
-	case "runtime.status":
-		return h.runtimeStatus(params, execCtx)
-	case "security.explain":
-		return h.securityExplain(params, execCtx)
-	}
-	return errorResult("platform_control_invalid_operation", "operation is not executable")
-}
-
-func validateOperationParams(operationName string, params map[string]any) error {
-	switch operationName {
-	case "capabilities.list", "runtime.status":
-		return requireFields(params, nil, nil)
-	case "catalog.defaults.get":
-		if err := requireFields(params, []string{"path"}, nil); err != nil {
-			return err
-		}
-		return requireStringFields(params, "path")
-	case "catalog.validate":
-		if _, exists := params["contentBytes"]; exists {
-			return fmt.Errorf("unknown params field %q: this is redacted display metadata, not a request parameter; catalog.validate accepts only resourceType, resourceKey, content; reread the candidate file and submit its complete content", "contentBytes")
-		}
-		if err := requireFields(params, []string{"resourceType", "resourceKey", "content"}, nil); err != nil {
-			return err
-		}
-		return requireStringFields(params, "resourceType", "resourceKey", "content")
-	case "chat.set_pinned":
-		return validateChatPinParams(params)
-	case "security.explain":
-		if err := requireFields(params, []string{"operation"}, []string{"path", "access"}); err != nil {
-			return err
-		}
-		for _, field := range []string{"operation", "path", "access"} {
-			if _, exists := params[field]; exists {
-				if err := requireStringFields(params, field); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	default:
-		return fmt.Errorf("operation is not supported")
-	}
+	return []string{"catalog_query", "catalog_manage", "chat_query", "chat_manage", "platform_inspect"}
 }
 
 func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
@@ -325,179 +244,4 @@ func errorResult(code string, message string) contracts.ToolExecutionResult {
 		Error:      code,
 		ExitCode:   -1,
 	}
-}
-
-func strictParams(args map[string]any) (map[string]any, error) {
-	for key := range args {
-		if key != "operation" && key != "params" {
-			return nil, fmt.Errorf("unknown top-level field %q", key)
-		}
-	}
-	raw, exists := args["params"]
-	if !exists {
-		return map[string]any{}, nil
-	}
-	params, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("params must be an object")
-	}
-	if len(params) > 32 {
-		return nil, fmt.Errorf("params exceeds 32 properties")
-	}
-	return params, nil
-}
-
-func requireFields(params map[string]any, required, optional []string) error {
-	allowed := map[string]bool{}
-	for _, key := range required {
-		allowed[key] = true
-	}
-	for _, key := range optional {
-		allowed[key] = true
-	}
-	for key := range params {
-		if !allowed[key] {
-			return fmt.Errorf("unknown params field %q", key)
-		}
-	}
-	for _, key := range required {
-		if _, ok := params[key]; !ok {
-			return fmt.Errorf("params.%s is required", key)
-		}
-	}
-	return nil
-}
-
-func requireStringFields(params map[string]any, fields ...string) error {
-	for _, field := range fields {
-		if _, ok := params[field].(string); !ok {
-			return fmt.Errorf("params.%s must be a string", field)
-		}
-	}
-	return nil
-}
-
-func (h *ToolHandler) capabilities(execCtx *contracts.ExecutionContext, _ []string) contracts.ToolExecutionResult {
-	agentKey := ""
-	if execCtx != nil {
-		agentKey = strings.TrimSpace(execCtx.Session.AgentKey)
-	}
-	allowed := make([]string, 0, len(descriptors))
-	for _, operation := range OperationNames() {
-		descriptor, exists := LookupOperation(operation)
-		available, _ := operationAvailable(execCtx, descriptor)
-		if exists && available {
-			allowed = append(allowed, operation)
-		}
-	}
-	return successResult(map[string]any{
-		"agentKey": agentKey, "operations": allowed,
-	})
-}
-
-func operationAvailable(execCtx *contracts.ExecutionContext, descriptor Descriptor) (bool, string) {
-	if execCtx == nil {
-		return descriptor.ReadOnly, "execution context unavailable"
-	}
-	if !descriptor.AllowsExecutionPolicy(execCtx.ToolExecutionPolicy) {
-		return false, "operation is not permitted in the current stage"
-	}
-	if descriptor.Name == "chat.set_pinned" && !chatPinCallerAllowed(execCtx) {
-		return false, "chat pinning requires an ordinary native root Agent run with platform_control"
-	}
-	if !descriptor.ReadOnly && (strings.TrimSpace(execCtx.Session.SubTaskID) != "" || strings.TrimSpace(execCtx.Session.TeamID) != "") {
-		return false, "mutation is limited to ordinary root runs"
-	}
-	return true, ""
-}
-
-func (h *ToolHandler) runtimeStatus(params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	if err := requireFields(params, nil, nil); err != nil {
-		return errorResult("platform_control_invalid_params", err.Error())
-	}
-	return successResult(map[string]any{
-		"platformControl": map[string]any{"enabled": h.cfg.PlatformControl.Enabled},
-		"containerHub":    map[string]any{"enabled": h.cfg.ContainerHub.Enabled},
-		"memory":          map[string]any{"enabled": h.cfg.Memory.Enabled},
-	})
-}
-
-func (h *ToolHandler) securityExplain(params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	if err := requireFields(params, []string{"operation"}, []string{"path", "access"}); err != nil {
-		return errorResult("platform_control_invalid_params", err.Error())
-	}
-	for _, field := range []string{"operation", "path", "access"} {
-		if _, exists := params[field]; exists {
-			if err := requireStringFields(params, field); err != nil {
-				return errorResult("platform_control_invalid_params", err.Error())
-			}
-		}
-	}
-	target := strings.ToLower(strings.TrimSpace(stringValue(params, "operation")))
-	descriptor, known := LookupOperation(target)
-	available, unavailableReason := operationAvailable(execCtx, descriptor)
-	allowed := known && available
-	data := map[string]any{"operation": target, "known": known, "allowed": allowed}
-	if known {
-		data["riskClass"] = descriptor.RiskClass
-		data["readOnly"] = descriptor.ReadOnly
-		data["barrier"] = descriptor.Barrier
-		if !available {
-			data["reason"] = unavailableReason
-		}
-	}
-	if rawPath := strings.TrimSpace(stringValue(params, "path")); rawPath != "" {
-		access := strings.ToLower(strings.TrimSpace(stringValue(params, "access")))
-		if access == "" {
-			access = string(filetools.ReadAccess)
-		}
-		if access != string(filetools.ReadAccess) && access != string(filetools.WriteAccess) {
-			return errorResult("platform_control_invalid_params", "params.access must be read or write")
-		}
-		pathData := map[string]any{"path": rawPath, "access": access}
-		if execCtx == nil {
-			pathData["allowed"] = false
-			pathData["reason"] = "execution context unavailable"
-		} else {
-			plan, err := filetools.BuildAccessPlanFromPolicy(h.cfg.AccessPolicy, execCtx.Session, filetools.AccessMode(access), rawPath)
-			if err != nil {
-				pathData["allowed"] = false
-				pathData["reason"] = sanitizeDiagnostic(err.Error())
-			} else {
-				pathData["allowed"] = plan.AllowedByWhitelist || plan.AutoApproved
-				pathData["blocked"] = plan.Blocked
-				pathData["requiresApproval"] = !plan.Blocked && !plan.AllowedByWhitelist && !plan.AutoApproved
-				pathData["autoApproved"] = plan.AutoApproved
-				pathData["accessLevel"] = plan.AccessLevel
-				pathData["root"] = plan.Root
-				pathData["resolvedPath"] = plan.Path
-				if strings.TrimSpace(plan.Reason) != "" {
-					pathData["reason"] = plan.Reason
-				}
-			}
-		}
-		data["path"] = pathData
-	}
-	return successResult(data)
-}
-
-func normalizeEnvelope(operation string, result contracts.ToolExecutionResult, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	data := result.Structured
-	if data == nil {
-		data = map[string]any{}
-	}
-	envelope := map[string]any{"operation": operation, "status": "ok", "scope": "run", "data": data}
-	if operation == "chat.set_pinned" {
-		envelope["scope"] = "instance"
-	}
-	if result.Error != "" {
-		envelope["status"] = "error"
-	}
-	result.Structured = envelope
-	result.Output = contracts.CompactToolModelOutput(envelope, "")
-	return result
-}
-
-func operationError(operation, code, message string, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	return normalizeEnvelope(operation, errorResult(code, message), execCtx)
 }

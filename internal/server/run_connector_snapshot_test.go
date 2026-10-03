@@ -13,7 +13,7 @@ import (
 )
 
 func TestRunConnectorSnapshotRetainsVersionAcrossRestart(t *testing.T) {
-	for _, name := range []string{"desktop", "web-control"} {
+	for _, name := range []string{"platform-control", "web-control"} {
 		t.Run(name, func(t *testing.T) { testRunConnectorSnapshotRetainsVersion(t, name) })
 	}
 }
@@ -42,7 +42,7 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	if err := s.freezeRunConnectors(preparedQuery{Req: api.QueryRequest{RunID: "frozen"}, AgentDef: old}); err != nil {
 		t.Fatal(err)
 	}
-	skill, tool := "desktop-action", "desktop_action"
+	skill, tool := "platform-control", "desktop_shell"
 	if name == "web-control" {
 		skill, tool = "web-control", "surface_cdp"
 	}

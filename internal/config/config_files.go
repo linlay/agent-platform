@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/connector"
 	"agent-platform/internal/deprecation"
 )
 
@@ -453,6 +454,7 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 		return err
 	}
 	c.PresetTools = nil
+	c.PresetConnectors = nil
 	c.RunQuery = RunQueryConfig{}
 	if len(values) == 0 {
 		return nil
@@ -479,6 +481,18 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		c.PresetTools = names
+	}
+	if raw, exists := values["preset-connectors"]; exists {
+		ids, err := ParseToolNames(raw, "preset-connectors")
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		for _, id := range ids {
+			if !connector.ValidID(id) {
+				return fmt.Errorf("%s: preset-connectors contains invalid connector id %q", path, id)
+			}
+		}
+		c.PresetConnectors = ids
 	}
 	if accessPolicy, ok := values["access-policy"].(map[string]any); ok && len(accessPolicy) > 0 {
 		if err := rejectRemovedWorkingDirectoryKeyUnlessAudit(path, "access-policy", accessPolicy, ignoreRemovedWorkingDirectory); err != nil {
@@ -523,11 +537,10 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 			return err
 		}
 	}
-	if platformControl, ok := values["platform-control"].(map[string]any); ok && len(platformControl) > 0 {
-		if err := c.applyPlatformControlValues(path, platformControl); err != nil {
-			return err
-		}
+	if _, exists := values["platform-control"]; exists {
+		return fmt.Errorf("%s: platform-control was removed; mount builtin.platform-control and use run-env for dynamic environment limits", path)
 	}
+
 	return nil
 }
 
@@ -546,21 +559,6 @@ func validateGitBashValues(bash map[string]any) error {
 		}
 		if _, ok := value.(bool); !ok {
 			return fmt.Errorf("bash.git-bash.enabled must be a boolean")
-		}
-	}
-	return nil
-}
-
-func (c *Config) applyPlatformControlValues(path string, values map[string]any) error {
-	for _, removed := range []string{"profiles", "bindings"} {
-		if _, ok := values[removed]; ok {
-			return fmt.Errorf("%s: platform-control.%s was removed; explicitly mounting platform_control now grants every registered operation", path, removed)
-		}
-	}
-	c.PlatformControl.Enabled = boolValue(anyValue(values["enabled"], c.PlatformControl.Enabled), c.PlatformControl.Enabled)
-	for _, key := range []string{"deny-keys", "max-dynamic-keys", "max-value-bytes", "max-total-bytes"} {
-		if _, exists := values[key]; exists {
-			return fmt.Errorf("%s: platform-control.%s was removed; move it to run-env.%s", path, key, key)
 		}
 	}
 	return nil

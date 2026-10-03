@@ -1,0 +1,39 @@
+name: "desktop_webapp"
+label: "desktop_webapp"
+description: "desktop_webapp: webapp.getStatus, webapp.checkRuntime, webapp.getPublishStatus, webapp.start, webapp.stop, webapp.restart, webapp.open, webapp.updatePreferences, webapp.package.init, webapp.package.validate, webapp.package.build, webapp.install, webapp.uninstall, webapp.publish, webapp.unpublish, web.exportArtifact. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "webapp.getStatus"
+        - "webapp.checkRuntime"
+        - "webapp.getPublishStatus"
+        - "webapp.start"
+        - "webapp.stop"
+        - "webapp.restart"
+        - "webapp.open"
+        - "webapp.updatePreferences"
+        - "webapp.package.init"
+        - "webapp.package.validate"
+        - "webapp.package.build"
+        - "webapp.install"
+        - "webapp.uninstall"
+        - "webapp.publish"
+        - "webapp.unpublish"
+        - "web.exportArtifact"
+    args:
+      type: "object"
+      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+  required:
+    - "action"
+  additionalProperties: false

@@ -1,0 +1,25 @@
+name: "catalog_manage"
+label: 管理目录
+description: "apply: resourceType, resourceKey, content, path?, baseRevision?, preservePaths?, mcpUrl?. delete: resourceType, resourceKey, baseRevision. Updates require the current baseRevision; new targets omit it. mcpUrl creates a new HTTP MCP connector with generated mcp.json; use auth_mode=mcp for standard OAuth discovery or no_auth. Every mutation requires single-use approval."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "apply"
+        - "delete"
+    args:
+      type: "object"
+      description: "apply: resourceType, resourceKey, content, path?, baseRevision?, preservePaths?, mcpUrl?. delete: resourceType, resourceKey, baseRevision. Updates require the current baseRevision; new targets omit it. mcpUrl creates a new HTTP MCP connector with generated mcp.json; use auth_mode=mcp for standard OAuth discovery or no_auth. Every mutation requires single-use approval."
+  required:
+    - "action"
+  additionalProperties: false

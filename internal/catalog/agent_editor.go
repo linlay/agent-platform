@@ -191,6 +191,7 @@ func (r *FileRegistry) CreateEditableAgent(key string, definition map[string]any
 
 	definition = normalizeEditableDefinition(definition)
 	stripPresetToolDeclarations(definition, r.cfg.PresetTools, nil)
+	stripPresetConnectorDeclarations(definition, r.cfg.PresetConnectors, nil)
 	agentDir := filepath.Join(r.cfg.Paths.AgentsDir, key)
 	source := EditableAgentSource{
 		Kind:     "directory",
@@ -236,6 +237,7 @@ func (r *FileRegistry) UpdateEditableAgent(key string, definition map[string]any
 
 	definition = normalizeEditableDefinition(definition)
 	stripPresetToolDeclarations(definition, r.cfg.PresetTools, listStrings(oldTools["tools"]))
+	stripPresetConnectorDeclarations(definition, r.cfg.PresetConnectors, listStrings(mapNode(existing.Definition["connectorConfig"])["connectors"]))
 	if soulPrompt == nil {
 		soulPrompt = &existing.SoulPrompt
 	}

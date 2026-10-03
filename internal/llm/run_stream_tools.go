@@ -912,6 +912,7 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 	cloned.AccessPolicyApprovals = nil
 	cloned.AccessPolicyRuleApprovals = cloneBoolMap(s.execCtx.AccessPolicyRuleApprovals)
 	cloned.BashSecurityApprovals = nil
+	cloned.ToolApprovals = nil
 	cloned.FileReadApprovals = cloneIntMap(s.execCtx.FileReadApprovals)
 	cloned.FileReadRuleApprovals = cloneBoolMap(s.execCtx.FileReadRuleApprovals)
 	cloned.FileAccessApprovals = cloneIntMap(s.execCtx.FileAccessApprovals)
@@ -1057,6 +1058,19 @@ func (s *llmRunStream) handleDeferredToolInvocation(invocation *preparedToolInvo
 }
 
 func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
+	s.prepareToolApproval(invocation)
+	if invocation.toolApprovalErr != nil {
+		s.appendOriginalToolResult(invocation, ToolExecutionResult{Error: "tool_review_failed", Output: invocation.toolApprovalErr.Error(), ExitCode: -1})
+		return true, nil
+	}
+	if request, ok := s.toolApprovalRequest(invocation); ok {
+		if invocation.approvalDecision != "" && invocation.shownApproval != nil {
+			return true, s.executeApprovedApprovalRequest(*invocation.shownApproval)
+		}
+		s.skipPostToolHook = true
+		return true, s.emitApprovalRequestDeltas(request)
+	}
+
 	if s.usesHostBashAuthorization(invocation) {
 		return true, s.invokeAuthorizedHostBash(invocation)
 	}

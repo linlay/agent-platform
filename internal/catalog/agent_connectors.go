@@ -56,6 +56,13 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 	if err != nil {
 		return AgentConnectorCandidate{}, err
 	}
+	presets := presetConnectorIDsForTree(root, r.cfg.PresetConnectors)
+	if slices.Contains(presets, id) {
+		if !enabled {
+			return AgentConnectorCandidate{}, fmt.Errorf("preset connector is managed through configs/tools.yml")
+		}
+		return AgentConnectorCandidate{Source: source, Content: source.Content, ConnectorIDs: ids}, nil
+	}
 	candidate := AgentConnectorCandidate{Source: source, Content: source.Content, ConnectorIDs: ids}
 	if slices.Contains(ids, id) == enabled {
 		return candidate, nil
@@ -81,12 +88,12 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 	}
 	// Validate package availability and skill collisions before saving, including
 	// when runtime publication will be deferred by an active Agent lease.
-	assembler := runtimeAgentAssembler{connectors: connector.Sources{
-		ExternalRoot:        r.cfg.Paths.EffectiveConnectorsCenterDir(),
-		BuiltinRoot:         r.cfg.Paths.BuiltinConnectorsDir,
-		NativeDesktopDir:    r.cfg.Paths.NativeDesktopDir,
-		NativeWebControlDir: r.cfg.Paths.NativeWebControlDir,
-		StateRoot:           r.cfg.Paths.EffectiveConnectorStateDir(),
+	assembler := runtimeAgentAssembler{presetConnectors: r.cfg.PresetConnectors, connectors: connector.Sources{
+		ExternalRoot:             r.cfg.Paths.EffectiveConnectorsCenterDir(),
+		BuiltinRoot:              r.cfg.Paths.BuiltinConnectorsDir,
+		NativePlatformControlDir: r.cfg.Paths.NativePlatformControlDir,
+		NativeWebControlDir:      r.cfg.Paths.NativeWebControlDir,
+		StateRoot:                r.cfg.Paths.EffectiveConnectorStateDir(),
 	}}
 	if err := assembler.resolveConnectors(&def); err != nil {
 		return AgentConnectorCandidate{}, err
@@ -100,9 +107,15 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 // Validate declarations of available packages; execution still requires every package.
 func (r *FileRegistry) validateEditableConnectorSelection(definition map[string]any) error {
 	ids, err := parseConnectorIDs(mapNode(definition["connectorConfig"])["connectors"])
-	if err != nil || len(ids) < 2 {
+	if err != nil {
 		return err
 	}
+	def, _, err := parseAgentTree("agent.yml", cloneAgentSnapshotMap(definition))
+	if err != nil {
+		return err
+	}
+	def.Connectors = ids
+	ids = mergePresetConnectors(def, r.cfg.PresetConnectors)
 	packages := make([]connector.Package, 0, len(ids))
 	for _, id := range ids {
 		pkg, err := r.cfg.Paths.ConnectorSources().Load(id)

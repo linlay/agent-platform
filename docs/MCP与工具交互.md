@@ -112,7 +112,7 @@ Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符�
 
 ## Desktop 反向 Provider
 
-Agent 可看到的 Desktop 相关工具都是静态的：`builtin.desktop` 提供 `desktop_action`，`builtin.web-control` 提供 15 个 `workpanel_*`、`surface_*`、`awcp_*` 工具。模型侧 `internal/resources/tools/desktop_action.yml` 仅声明字符串 Action 与当前挂载 Skill 阅读要求，不枚举业务域或全部动作；精确运行时白名单由 `internal/tools/desktop_action_allowlist.go` 独立维护，不依赖工具 Schema，域前缀不表示通配授权。网页控制工具的参数由各自的固定 Schema 定义，在 `internal/tools/tool_web_control.go` 映射到既有反向请求；AWCP 动态页面 Action 不进入白名单，而通过 `awcp_manual` / `awcp_invoke` 两个静态工具使用。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
+平台控制连接器提供 12 个静态工具，各自 action 枚举固定；网页连接器提供 15 个固定参数工具。Desktop 动作在内部映射到原有反向请求，注册表由 internal/connector/control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
 
 - Desktop 模式：`desktop_action` 与 `workpanel_*` 以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`surface_*` 使用 `desktop.cdp.call`（`surface_element` 使用 `desktop.web.interactElement` 动作），`awcp_manual` / `awcp_invoke` 分别映射到 `desktop.awcp.manual` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
 - Standalone 模式：只有 `desktop.workpanel.*`（不含 `openLocalFile`）与 `desktop.display` 具体类型发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`。会话只暴露 `workpanel_*`，`surface_*` 与 `awcp_*` 不提供给模型，直接调用返回 `desktop_cdp_unsupported_runtime`。

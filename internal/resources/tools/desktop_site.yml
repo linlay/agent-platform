@@ -1,0 +1,29 @@
+name: "desktop_site"
+label: "desktop_site"
+description: "desktop_site: site.list, website.list, website.add, website.update, website.remove, website.open. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "site.list"
+        - "website.list"
+        - "website.add"
+        - "website.update"
+        - "website.remove"
+        - "website.open"
+    args:
+      type: "object"
+      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+  required:
+    - "action"
+  additionalProperties: false

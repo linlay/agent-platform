@@ -43,9 +43,10 @@ func runtimeAgentAssemblyDiagnosticCode(err error) string {
 }
 
 type runtimeAgentAssembler struct {
-	presetTools  []string
-	frozenAgents map[string]AgentDefinition
-	frozenAdmin  map[string]AdminAgent
+	presetTools      []string
+	presetConnectors []string
+	frozenAgents     map[string]AgentDefinition
+	frozenAdmin      map[string]AdminAgent
 	// refreshedAgents contains only sources fully validated and published (or
 	// verified unchanged) by the latest Agent load. Missing frozen keys still
 	// need reconciliation after their active users leave.

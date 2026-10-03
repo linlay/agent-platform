@@ -74,8 +74,8 @@ func writeBuiltinResources(dir, id, source, version string) error {
 // skills. These names cannot grant a connector through mustUseSkills.
 func BuiltinSkillConnector(name string) string {
 	switch strings.ToLower(name) {
-	case "desktop-action":
-		return DesktopConnectorID
+	case "desktop-action", "platform-control":
+		return PlatformControlConnectorID
 	case "desktop-cdp", "web-control":
 		return WebControlConnectorID
 	case "builtin-dbx":

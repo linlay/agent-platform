@@ -21,7 +21,7 @@ func testTemplate() Template {
 			Groups: []config.AgentCreationGroupConfig{
 				{Key: "office", Skills: []string{"online-docx"}, Connectors: []string{"builtin.httpx", "custom.desktop-lite"}},
 				{Key: "data", Tools: []string{"web_fetch"}, Connectors: []string{"builtin.httpx", "builtin.dbx"}},
-				{Key: "desktop", Connectors: []string{"builtin.desktop"}},
+				{Key: "desktop", Connectors: []string{"builtin.platform-control"}},
 				{Key: "broken", Skills: []string{"gone"}, Tools: []string{"missing_tool"}, Connectors: []string{"nope"}},
 			},
 		},
@@ -36,10 +36,10 @@ func testLookup() Lookup {
 	return Lookup{
 		SkillExists:     exists("online-docx"),
 		ToolExists:      exists("web_fetch", "bash", "file_read"),
-		ConnectorExists: exists("builtin.httpx", "builtin.dbx", "builtin.desktop", "custom.desktop-lite"),
+		ConnectorExists: exists("builtin.httpx", "builtin.dbx", "builtin.platform-control", "custom.desktop-lite"),
 		ConnectorConflict: func(ids []string) error {
-			if slices.Contains(ids, "builtin.desktop") && slices.Contains(ids, "custom.desktop-lite") {
-				return fmt.Errorf("builtin.desktop conflicts with custom.desktop-lite")
+			if slices.Contains(ids, "builtin.platform-control") && slices.Contains(ids, "custom.desktop-lite") {
+				return fmt.Errorf("builtin.platform-control conflicts with custom.desktop-lite")
 			}
 			return nil
 		},

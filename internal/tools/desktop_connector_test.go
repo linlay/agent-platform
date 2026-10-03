@@ -40,15 +40,15 @@ func TestNativeToolsBelongToExactlyOneConnector(t *testing.T) {
 	executor, ctx, invoker := desktopCDPParamsTestRuntime(root)
 	// Mounting Desktop alone grants no page tool, and a grant recorded for the
 	// wrong connector is not honoured.
-	ctx.Session.ConnectorDirs = map[string]string{connector.DesktopConnectorID: root}
-	ctx.Session.NativeConnectorTools = map[string]string{"desktop_action": connector.DesktopConnectorID, "surface_list": connector.DesktopConnectorID}
+	ctx.Session.ConnectorDirs = map[string]string{connector.PlatformControlConnectorID: root}
+	ctx.Session.NativeConnectorTools = map[string]string{"desktop_shell": connector.PlatformControlConnectorID, "surface_list": connector.PlatformControlConnectorID}
 	result, err := executor.Invoke(context.Background(), "surface_list", map[string]any{}, ctx)
 	if err != nil || result.Error != "connector_not_mounted" {
 		t.Fatalf("borrowed mount: %+v %v", result, err)
 	}
 	// desktop_action no longer reaches WorkPanel or page actions.
 	for _, action := range []string{"desktop.workpanel.openWeb", "desktop.workpanel.getState", "desktop.web.listSurfaces", "desktop.web.executeScript"} {
-		result, err = executor.Invoke(context.Background(), "desktop_action", map[string]any{"action": action, "args": map[string]any{}}, ctx)
+		result, err = executor.Invoke(context.Background(), "desktop_shell", map[string]any{"action": action, "args": map[string]any{}}, ctx)
 		if err != nil || result.Error != "unknown_action" {
 			t.Fatalf("%s: %+v %v", action, result, err)
 		}
@@ -72,11 +72,31 @@ func TestNativeToolsBelongToExactlyOneConnector(t *testing.T) {
 			t.Fatalf("%s %v: %+v %v", tc.tool, tc.args, result, err)
 		}
 	}
-	result, err = executor.Invoke(context.Background(), "desktop_action", map[string]any{"action": "desktop.theme.get"}, ctx)
+	result, err = executor.Invoke(context.Background(), "desktop_shell", map[string]any{"action": "runtime.info"}, ctx)
 	if err != nil || result.Error != "connector_not_mounted" {
 		t.Fatalf("desktop action without Desktop mount: %+v %v", result, err)
 	}
 	if _, requests := invoker.snapshots(); len(requests) != 3 {
 		t.Fatalf("dispatch count: %d", len(requests))
+	}
+}
+
+func TestDesktopReadActionCannotBypassPlanning(t *testing.T) {
+	root := t.TempDir()
+	executor, ctx, invoker := desktopCDPParamsTestRuntime(root)
+	ctx.ToolExecutionPolicy = "read_only"
+	ctx.Session.ConnectorDirs = map[string]string{connector.PlatformControlConnectorID: root}
+	for _, a := range connector.ControlActions() {
+		if a.Tool != "desktop_shell" || !a.ReadOnly {
+			continue
+		}
+		ctx.Session.NativeConnectorTools = map[string]string{a.Tool: connector.PlatformControlConnectorID}
+		result, err := executor.invokeDesktopDomain(context.Background(), a.Tool, map[string]any{"action": a.Action}, ctx)
+		if err != nil || result.Error != "stage_forbidden" {
+			t.Fatalf("planning dispatched %s: %+v %v", a.Action, result, err)
+		}
+	}
+	if _, requests := invoker.snapshots(); len(requests) != 0 {
+		t.Fatal("planning reached Desktop")
 	}
 }

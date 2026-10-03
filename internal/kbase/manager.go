@@ -190,3 +190,12 @@ func (m *Manager) RollbackGeneration(ctx context.Context, agentKey, generationID
 func managerUnavailableError() error {
 	return &PolicyError{Kind: ErrorUnavailable, Message: "kbase manager not configured"}
 }
+
+// RuntimeSnapshot reads the existing sidecar state without scanning storage or
+// starting an engine, for the platform diagnostic tool.
+func (m *Manager) RuntimeSnapshot() LanceEngineState {
+	if m == nil || m.lance == nil {
+		return LanceEngineState{}
+	}
+	return m.lance.State()
+}

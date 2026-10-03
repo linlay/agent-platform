@@ -12,7 +12,7 @@ runtime/
     └── run-connectors/<runIdHash>.json      # 私有不可变运行挂载快照
 ```
 
-CLI 内置来源为 Platform verified bundle 的 connectors 目录，其源码清单与技能位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`；native `builtin.desktop` 与 `builtin.web-control` 的清单和技能各自完整保存在 `internal/resources/connectors/<id>/`，随程序内嵌。共享包包含清单、技能及其资源、适用的 bin/libs；运行引用和快照不保存凭据。模型通过 `@connectors/<id>/...` 访问当前 Agent 已挂载的包；Container 只读映射对应 `/connectors/<id>`。
+CLI 内置来源为 Platform verified bundle 的 connectors 目录，其源码清单与技能位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`；native `builtin.platform-control` 与 `builtin.web-control` 的清单和技能各自完整保存在 `internal/resources/connectors/<id>/`，随程序内嵌。共享包包含清单、技能及其资源、适用的 bin/libs；运行引用和快照不保存凭据。模型通过 `@connectors/<id>/...` 访问当前 Agent 已挂载的包；Container 只读映射对应 `/connectors/<id>`。
 
 ## 安装、升级和回收
 
@@ -24,24 +24,13 @@ Run 的挂载快照保存在私有状态目录，持久引用位于共享根 `.r
 
 共享包路径通过统一文件访问策略只读；未挂载包不获得文件读取或 CLI 专属免审权。Host Bash 仍遵循现有宿主执行模型，不提供操作系统级沙箱隔离。
 
-## builtin.desktop
+## builtin.platform-control
 
-Platform 内嵌两个 native 连接器。它们各管一块、互不重叠，Agent 可以只挂一个，也可以同时挂载：
+内嵌 native/no_auth 平台控制连接器提供 catalog_query、catalog_manage、chat_query、chat_manage、platform_inspect 和七个 desktop_* 工具，使用统一 `{action,args}`。工具归属和运行时元数据分别在 internal/connector/native.go 与 control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
 
-| ID | 中文名称 | 英文名称 | 工具 | 技能 |
-| --- | --- | --- | --- | --- |
-| `builtin.desktop` | 桌面端 | Desktop | `desktop_action` | `desktop-action` |
-| `builtin.web-control` | 网页控制 | Web Control | 15 个 `workpanel_*`、`surface_*`、`awcp_*` 工具 | `web-control` |
+它与 builtin.web-control 可同时挂载，互不授予对方工具；都为技能读取加入 file_read，不自动增加 Bash。调用始终检查受信任挂载。Catalog/Chat 限普通 native main root；KBASE 原生根 Run 可以使用平台工具，ACP 不执行这些工具。Standalone 仅显示五个本地平台工具。
 
-`builtin.desktop` 负责 Desktop 外壳、应用与服务：导航、主题/语言/皮肤/宠物、运行信息与诊断、控制中心、市场、看板、Website 条目和 WebApp 生命周期。它不再打开或操作网页：`desktop.workpanel.*` 以及除 `desktop.web.exportArtifact` 以外的 `desktop.web.*` 已从 `desktop_action` 运行时白名单移除，调用返回 `unknown_action`。
-
-`builtin.web-control` 负责按地址打开并控制网页，见下节。工具归属由 `internal/connector/native.go` 的注册表唯一决定：工具只由拥有它的连接器授予，挂载 `builtin.desktop` 不会获得任何网页工具，反之亦然。两者都自动接入技能读取所需的 `file_read`，不会自动增加 Bash。
-
-两个包都声明 `auth_mode: "no_auth"`：挂载即具备调用资格，无需连接配置，不读写 connection.json。管理接口返回无需配置及不可执行认证操作的能力字段；实际客户端可用性、归属和审批在调用时检查。仅这两个显式注册的内置 ID 可以使用 native 能力，外部包不能伪造 builtin 命名空间或任意 native handler。KBASE、ACP 不开放此能力。
-
-启动时原子安装两个包到各自 `ru-connectors/<id>/<contentDigest>` 并持有租约，沿用共享、升级、回收和 Run 快照机制。执行授权从冻结挂载解析实际连接器 ID。
-
-Agent 加载不根据 `toolConfig.tools` 中出现的工具名强制要求声明特定连接器 ID。工具声明与连接器挂载各自解析；只有工具声明但缺少挂载时，Agent 可装载和聊天，实际调用返回 `connector_not_mounted`。不会根据工具名自动挂载包、导入 Skill 或生成执行授权。
+启动原子发布内嵌包并持有共享租约，Agent 只保存引用。原来的 builtin.desktop 已退役，历史工具记录不改写；迁移后的 Desktop 动作通过原有反向请求发送，确认规则保持由 Desktop 负责。
 
 ## builtin.web-control
 
@@ -83,16 +72,16 @@ CDP 不单独成类：它是通道，每个方法都作用在某个 surface 上�
 
 ## 显式离线迁移
 
-迁移工具默认只输出预览。它按下表把旧配置转换为当前的两个连接器，并报告新增的工具入口；原来仅声明一种 Desktop 工具的 Agent 会获得另一种入口，应用前须显式接受该变化。
+迁移工具默认只输出预览，应用前显式接受报告的新增工具：
 
 | 旧配置 | 迁移结果 |
 | --- | --- |
-| 挂载 `builtin.desktop-web` | 改为 `builtin.web-control` |
-| 仅挂载 `builtin.desktop` | 追加 `builtin.web-control`，保留原有的网页能力 |
-| 只声明旧工具 `desktop_action` / `desktop_cdp` 或旧普通技能 | 移除旧声明，挂载 `builtin.desktop` 与 `builtin.web-control` |
-| 已挂载 `builtin.web-control` | 不变 |
+| builtin.desktop / platform_control / desktop_action / desktop-action | builtin.platform-control |
+| builtin.desktop-web / desktop_cdp / desktop-cdp | builtin.web-control |
+| 仅 builtin.desktop | 不额外授予 Web 权限 |
+| 已挂载两个新连接器 | 不变 |
 
-`builtin.desktop-web` 已不存在，仍引用它的 Agent 在迁移前无法装载。无关 YAML 内容保持原样。
+旧配置不在线隐式升级。无关 YAML 字节保持原样。旧 tools.yml 的 platform-control 配置段另行删除，run-env 保留。
 
 ```sh
 go run ./cmd/migrate-desktop --runtime-dir /path/to/runtime

@@ -9,10 +9,10 @@ import (
 )
 
 func TestNativeConnectorToolsFollowFrozenMount(t *testing.T) {
-	tools := []string{"desktop_action", "workpanel_open", "surface_cdp", "awcp_invoke"}
+	tools := []string{"desktop_shell", "workpanel_open", "surface_cdp", "awcp_invoke"}
 	for id, want := range map[string]map[string]string{
-		connector.DesktopConnectorID:    {"desktop_action": connector.DesktopConnectorID},
-		connector.WebControlConnectorID: {"workpanel_open": connector.WebControlConnectorID, "surface_cdp": connector.WebControlConnectorID, "awcp_invoke": connector.WebControlConnectorID},
+		connector.PlatformControlConnectorID: {"desktop_shell": connector.PlatformControlConnectorID},
+		connector.WebControlConnectorID:      {"workpanel_open": connector.WebControlConnectorID, "surface_cdp": connector.WebControlConnectorID, "awcp_invoke": connector.WebControlConnectorID},
 	} {
 		// A tool is granted only by the mounted connector that owns it.
 		def := catalog.AgentDefinition{ConnectorNativeTools: tools, ConnectorMounts: []catalog.ConnectorMount{{ID: id, Dir: "/frozen/package"}}}
@@ -27,12 +27,12 @@ func TestNativeConnectorToolsFollowFrozenMount(t *testing.T) {
 }
 
 func TestRuntimeModeToolNamesHidesDesktopOnlyPageTools(t *testing.T) {
-	tools := []string{"datetime", "desktop_action", "workpanel_state", "workpanel_open", "workpanel_close", "surface_list", "surface_cdp", "awcp_manual", "awcp_invoke"}
+	tools := []string{"datetime", "desktop_shell", "workpanel_state", "workpanel_open", "workpanel_close", "surface_list", "surface_cdp", "awcp_manual", "awcp_invoke"}
 	if got := RuntimeModeToolNames(tools, config.RuntimeModeDesktop); !reflect.DeepEqual(got, tools) {
 		t.Fatalf("desktop runtime: %v", got)
 	}
 	// A standalone WebClient hosts the WorkPanel but no controllable pages.
-	want := []string{"datetime", "desktop_action", "workpanel_state", "workpanel_open", "workpanel_close"}
+	want := []string{"datetime", "workpanel_state", "workpanel_open", "workpanel_close"}
 	if got := RuntimeModeToolNames(tools, config.RuntimeModeStandalone); !reflect.DeepEqual(got, want) {
 		t.Fatalf("standalone runtime: %v", got)
 	}

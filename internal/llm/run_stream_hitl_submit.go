@@ -299,6 +299,10 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 }
 
 func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) map[string]any {
+	if request := invocation.shownApproval; request != nil && request.kind == approvalKindTool && request.toolApproval != nil {
+		return map[string]any{"id": invocation.toolID, "toolName": invocation.toolName, "command": request.toolApproval.Title, "description": request.toolApproval.Title, "review": request.toolApproval.Details, "fingerprint": request.toolApproval.Fingerprint, "options": []any{map[string]any{"decision": "approve"}}, "allowFreeText": true}
+	}
+
 	command := mapStringArg(invocation.args, "command")
 	combinedAccessPlan, combinedWritePlan, combinedWriteApproval := s.combinedFileWriteApprovalPlans(invocation)
 	if combinedWriteApproval {

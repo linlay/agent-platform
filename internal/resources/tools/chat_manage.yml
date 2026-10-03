@@ -1,0 +1,30 @@
+name: "chat_manage"
+label: 管理会话
+description: "rename: chatName, chatId?. setPinned: pinned, chatId?. archive/restore: exactly one of chatId or chatIds (1-100 distinct IDs); batches return total, succeeded, failed and per-item results, continue on failure without rollback. fork: sourceChatId, sourceRunId?, chatName?. export: chatId, format (markdown/snapshot), archived?. snapshot is the full existing Snapshot V1 timeline including reasoning and tools. delete: chatId, archived?; single-use approval required. Export returns a file URL, not the full content to the model."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
+      type: "string"
+      enum:
+        - "rename"
+        - "setPinned"
+        - "archive"
+        - "restore"
+        - "fork"
+        - "export"
+        - "delete"
+    args:
+      type: "object"
+      description: "rename: chatName, chatId?. setPinned: pinned, chatId?. archive/restore: exactly one of chatId or chatIds (1-100 distinct IDs); batches return total, succeeded, failed and per-item results, continue on failure without rollback. fork: sourceChatId, sourceRunId?, chatName?. export: chatId, format (markdown/snapshot), archived?. snapshot is the full existing Snapshot V1 timeline including reasoning and tools. delete: chatId, archived?; single-use approval required. Export returns a file URL, not the full content to the model."
+  required:
+    - "action"
+  additionalProperties: false

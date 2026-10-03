@@ -216,7 +216,7 @@ func TestWaitRestartWithRunEnvSnapshots(t *testing.T) {
 				writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"resumed"},"finish_reason":"stop"}]}`, "[DONE]")
 			}, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
 				cfg.PresetTools = append(cfg.PresetTools, "wait", "run_env")
-				cfg.PlatformControl.Enabled = false
+				// run_env is independent of connector configuration.
 			}})
 			now := started.UnixMilli()
 			seedDeferredAwaitingPayload(t, fixture.chats, "wait-chat", "wait-run", "wait-call", "wait", 0, now, map[string]any{"startedAt": now, "deadlineAt": time.Now().UnixMilli() + 200, "description": "env recovery", "match": "any", "conditions": []any{}, "waitCheckpoint": checkpoint})
