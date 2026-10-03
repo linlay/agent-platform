@@ -13,6 +13,15 @@ operationAware: true
 tags:
   - "platform"
   - "management"
+confirmationRules:
+  - when:
+      /action: market.installItem
+    viewportType: html
+    viewportKey: installation_review
+  - when:
+      /action: market.updateItem
+    viewportType: html
+    viewportKey: installation_review
 inputSchema:
   type: "object"
   properties:

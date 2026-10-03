@@ -218,6 +218,16 @@ func parseYAMLList(lines []yamlLine, start int, indent int) ([]any, int, error) 
 				itemMap[key] = map[string]any{}
 			}
 			i++
+			// The first key after "- " lives at indent+2. Its nested value
+			// must be consumed before the remaining keys of the same item.
+			if !hasValue && i < len(lines) && lines[i].indent > indent+2 {
+				child, next, err := parseYAMLBlock(lines, i, lines[i].indent)
+				if err != nil {
+					return nil, i, err
+				}
+				itemMap[key] = child
+				i = next
+			}
 			if i < len(lines) && lines[i].indent > indent {
 				extra, next, err := parseYAMLMap(lines, i, lines[i].indent)
 				if err != nil {

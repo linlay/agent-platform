@@ -13,6 +13,11 @@ operationAware: true
 tags:
   - "platform"
   - "management"
+confirmationRules:
+  - when:
+      /action: delete
+    viewportType: html
+    viewportKey: platform_control_review
 inputSchema:
   type: "object"
   properties:

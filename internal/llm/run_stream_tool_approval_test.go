@@ -11,10 +11,17 @@ import (
 	"testing"
 )
 
-type exactApprovalExecutor struct{ recordingToolExecutor }
+type exactApprovalExecutor struct {
+	recordingToolExecutor
+	plainApproval bool
+}
 
 func (e *exactApprovalExecutor) PrepareToolApproval(_ context.Context, _ string, _ map[string]any, c *ExecutionContext) (*ToolApproval, error) {
-	return &ToolApproval{Title: "catalog change", Fingerprint: ToolApprovalFingerprint(c, "catalog_manage", "apply", "candidate"), ViewportKey: "platform_control_review", Form: map[string]any{"before": "old", "after": "new"}}, nil
+	key := "platform_control_review"
+	if e.plainApproval {
+		key = ""
+	}
+	return &ToolApproval{Title: "catalog change", Fingerprint: ToolApprovalFingerprint(c, "catalog_manage", "apply", "candidate"), ViewportKey: key, Form: map[string]any{"before": "old", "after": "new"}}, nil
 }
 func TestExactToolReviewCannotAutoApprove(t *testing.T) {
 	for _, level := range []string{AccessLevelFullAccess, AccessLevelAutoApprove, AccessLevelDefault} {
@@ -101,6 +108,20 @@ func TestReviewInputDiagnosticReachesModel(t *testing.T) {
 	for _, fragment := range []string{"expected", "actual", "recovery", "not_started", "args.content"} {
 		if !strings.Contains(string(b), fragment) {
 			t.Fatal(string(b))
+		}
+	}
+}
+
+func TestExactToolApprovalWithoutFormStillRequiresApproval(t *testing.T) {
+	for _, level := range []string{AccessLevelFullAccess, AccessLevelAutoApprove, AccessLevelDefault} {
+		executor := &exactApprovalExecutor{plainApproval: true}
+		ctx := context.Background()
+		session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: level}
+		s := &llmRunStream{ctx: ctx, session: session, engine: &LLMAgentEngine{tools: executor}, runControl: NewRunControl(ctx, "run"), execCtx: &ExecutionContext{Session: session, AccessLevel: level}}
+		call := &preparedToolInvocation{toolID: "call", toolName: "catalog_manage", args: map[string]any{"action": "apply"}}
+		handled, err := s.handleToolApprovalBeforeInvoke(call)
+		if err != nil || !handled || s.hitlAwaitArgs["mode"] != "approval" || len(executor.invocations) != 0 {
+			t.Fatalf("missing form bypassed approval at %s: %v %v %#v", level, handled, err, s.hitlAwaitArgs)
 		}
 	}
 }

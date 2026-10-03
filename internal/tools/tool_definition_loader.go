@@ -33,6 +33,11 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if _, exists := root["parameters"]; exists {
 		return api.ToolDetailResponse{}, fmt.Errorf("tool %q field parameters is no longer supported; use inputSchema", name)
 	}
+	if raw, exists := root["confirmationRules"]; exists {
+		if _, err := parseConfirmationRules(raw); err != nil {
+			return api.ToolDetailResponse{}, fmt.Errorf("tool %q: %w", name, err)
+		}
+	}
 	parameters := AnyMapNode(root["inputSchema"])
 	outputSchema := AnyMapNode(root["outputSchema"])
 	viewportType := AnyStringNode(root["viewportType"])
@@ -76,6 +81,9 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	meta := map[string]any{
 		"sourceType":     sourceType,
 		"sourceCategory": sourceCategory,
+	}
+	if raw, exists := root["confirmationRules"]; exists {
+		meta["confirmationRules"] = raw
 	}
 	if strict, ok := root["strict"].(bool); ok {
 		meta["strict"] = strict

@@ -267,3 +267,24 @@ plain:
 		t.Fatalf("expected multiline prompt preserved, got %#v", got)
 	}
 }
+
+func TestYAMLListFirstKeyNestedValueAndSiblingKeys(t *testing.T) {
+	tree, err := LoadYAMLTreeBytes([]byte(`rules:
+  - when:
+      /args/type: remove
+      /enabled: true
+    viewportType: html
+    viewportKey: deletion
+  - viewportType: html
+    viewportKey: fallback
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := tree.(map[string]any)["rules"].([]any)
+	first := rules[0].(map[string]any)
+	when := first["when"].(map[string]any)
+	if len(rules) != 2 || when["/args/type"] != "remove" || when["/enabled"] != true || first["viewportKey"] != "deletion" {
+		t.Fatalf("incorrect nested list map: %#v", tree)
+	}
+}

@@ -160,7 +160,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		}
 		form = map[string]any{"action": action, "resourceType": "chat", "resourceKey": p["chatId"], "archived": archived, "baseRevision": digest}
 	}
-	return &contracts.ToolApproval{Fingerprint: contracts.ToolApprovalFingerprint(e, tool, action, digest), Title: tool + " / " + action, ViewportKey: "platform_control_review", Form: form}, nil
+	return &contracts.ToolApproval{Fingerprint: contracts.ToolApprovalFingerprint(e, tool, action, digest), Title: tool + " / " + action, Form: form}, nil
 }
 func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]any, e *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
 	action, p, err := h.admitted(tool, args, e)

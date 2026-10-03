@@ -61,11 +61,11 @@ prepare 生成脱敏前后内容和摘要；执行在 `adminsource` 共用 Agent
 
 所有 catalog_manage 与 chat_manage.delete 都必须人工批准，即使 full_access / auto_approve。审批绑定 subject、Agent、Run、tool invocation、目标、内容与基准版本；批准不赋予同轮规则授权，也不传给并发兄弟调用。提交必须匹配调用 ID，且只能 approve/reject。审批等待期间变更目标或候选内容会使授权失效。
 
-平台控制统一发出 `awaiting.ask(mode: form, viewportType: html, viewportKey: platform_control_review)`；`forms[].id` 绑定工具调用，`forms[].form` 保存业务审阅数据。HTML 随 Platform 编译内置，经 `/api/viewport` 返回，固定 key 不接受本地或远端覆盖。通用 approval 不再扩展 review/before/after/fingerprint，WebClient 不解释平台控制业务字段。
+平台控制通过工具 YML 的 `confirmationRules` 选择界面：`catalog_manage` 的 `/action: delete` 使用 `resource_delete_review`，其默认规则保留 `platform_control_review`；`chat_manage` 的删除继续使用原模板；Go Handler 不再指定模板。匹配后发出 `awaiting.ask(mode: form, viewportType: html, viewportKey: platform_control_review)`；`forms[].id` 绑定工具调用，`forms[].form` 保存业务审阅数据。HTML 随 Platform 编译内置，经 `/api/viewport` 返回，固定 key 不接受本地或远端覆盖。通用 approval 不再扩展 review/before/after/fingerprint，WebClient 不解释平台控制业务字段。
 
 模板只读展示创建、修改、资源删除或 Chat 删除；修改默认展示有界文本差异，完整脱敏内容可折叠查看。Agent 主定义 apply 才附带权限字段提醒。模板通过 awaiting_init/update 接收数据，仅响应宿主 awaiting_collect；同意、拒绝、理由和倒计时由宿主承担。容器限制整体高度，HTML 内部滚动。
 
-服务端以内部冻结的调用上下文接受 approve/reject，严格校验工具 ID，不从公开表单数据推导授权；表单返回值不能改写工具参数，也不进入 Bash 命令重建路径。批准后仍按内容摘要和基准版本复验、消费一次性授权；拒绝反馈回到 Agent 重新生成候选。超时不自动批准，form 仍不跨进程恢复。模型提供的“已确认”字段无效。Desktop 业务动作继续由 Desktop 原有确认处理，Platform 不重复添加审批。
+服务端以内部冻结的调用上下文接受 approve/reject，严格校验工具 ID，不从公开表单数据推导授权；表单返回值不能改写工具参数，也不进入 Bash 命令重建路径。批准后仍按内容摘要和基准版本复验、消费一次性授权；拒绝反馈回到 Agent 重新生成候选。超时不自动批准，form 仍不跨进程恢复。模型提供的“已确认”字段无效。市场安装／升级与本地 WebApp 安装新增配置式 `installation_review` 前置审批；Desktop 原有确认仍保留，开启时需要再次确认，可信授权收据交接尚未实现。其他 Desktop 动作不新增 Platform 审批。
 
 已知 agent/team/skill/connector 的模型候选 content 在事件、历史和 trace 中保留原文，避免下一轮丢失编辑内容。读取的既有 env 值和审批安全副本仍按字段脱敏，服务端 preservePaths 回填值不注入模型参数；未知类型和未完成参数保守脱敏。run_env 参数依旧可观测，不用于 Secret。
 

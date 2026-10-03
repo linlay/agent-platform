@@ -1447,11 +1447,13 @@ func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	}
 	for index, action := range actions {
 		requestID := fmt.Sprintf("direct-action-%d", index)
-		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-			"requestId": requestID,
-			"action":    action,
-			"args":      map[string]any{},
-		}, desktopActionTestExecutionContext())
+		args := map[string]any{"requestId": requestID, "action": action, "args": map[string]any{}}
+		execution := desktopActionTestExecutionContext()
+		execution.CurrentToolID = requestID
+		if tool, ok := desktopInstallTool(action); ok {
+			execution.ToolApprovals = map[string]bool{desktopInstallFingerprint(execution, tool, args): true}
+		}
+		result, err := executor.invokeDesktopAction(context.Background(), args, execution)
 		if err != nil || result.ExitCode != 0 {
 			t.Fatalf("action %s failed: result=%#v err=%v", action, result, err)
 		}

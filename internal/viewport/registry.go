@@ -3,6 +3,9 @@ package viewport
 import (
 	"agent-platform/internal/resources"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,18 +21,16 @@ func NewRegistry(root string) *Registry {
 
 func (r *Registry) Get(viewportKey string) (map[string]any, bool, error) {
 	// Builtins cannot be shadowed by a runtime file or remote viewport server.
-	if viewportKey == "platform_control_review" {
-		html, err := resources.ViewportFS.ReadFile("viewports/platform_control_review.html")
-		if err != nil {
-			return nil, false, err
-		}
+	viewportKey = strings.TrimSpace(viewportKey)
+	if viewportKey == "" || strings.ContainsAny(viewportKey, "/\\") || viewportKey == "." || viewportKey == ".." {
+		return nil, false, fmt.Errorf("invalid viewport key")
+	}
+	html, err := resources.ViewportFS.ReadFile("viewports/" + viewportKey + ".html")
+	if err == nil {
 		return map[string]any{"viewportKey": viewportKey, "html": string(html)}, true, nil
 	}
-	if strings.TrimSpace(viewportKey) == "confirm_dialog" {
-		return map[string]any{
-			"viewportKey": "confirm_dialog",
-			"html":        `<div data-viewport="confirm_dialog"><p>builtin ask-user viewport placeholder</p></div>`,
-		}, true, nil
+	if !errors.Is(err, fs.ErrNotExist) {
+		return nil, false, err
 	}
 
 	// Try QLC (JSON schema) files first

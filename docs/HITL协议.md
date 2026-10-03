@@ -137,3 +137,34 @@ HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创�
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 
 平台控制内置审阅使用 `mode: form` 与 `viewportType: html, viewportKey: platform_control_review`，不需要挂载 VIEW。业务数据位于 `forms[].form`，通用 approval 无 review 扩展。模板与授权相互独立：仅服务端保存的一次性指纹可授权；客户端超时不能自动提交，HTML form 仅在宿主 collect 后响应，拒绝不依赖 iframe。详见 [平台控制工具](Platform控制工具设计.md#强制一次性审批)。
+
+
+### 工具执行前确认界面配置
+
+工具 YML 顶层的 `confirmationRules` 为业务 Handler 已要求的一次性确认选择 HTML form，不自行产生审批要求，也不修改授权策略。现已接入 `catalog_manage.apply/delete`、`chat_manage.delete`、`desktop_market.market.installItem/updateItem` 与 `desktop_webapp.webapp.install`；其他操作只有实现 `ToolApprovalPlanner` 后才能使用此配置。Bash 技能 HITL form 继续使用已有规则，Desktop 确认继续由 Desktop 执行端负责。
+
+```yaml
+confirmationRules:
+  - when:
+      /action: delete
+    viewportType: html
+    viewportKey: platform_control_review
+  - viewportType: html
+    viewportKey: platform_control_review
+```
+
+- 无 `when` 表示默认规则，最多一条；优先匹配条件规则，不依赖配置顺序。多条条件规则同时命中则返回 `tool_review_failed`，不执行工具。
+- `when` 是非空对象，以 JSON Pointer 读取原始调用参数（如 `/action`、`/args/type`、`/items/0/type`，支持 `~0`/`~1` 转义），多个条件同时满足。值只接受 JSON 标量，比较区分类型；缺失字段不等于显式 null。不支持脚本、正则或表达式。
+- 当前只接受 `viewportType: html`；`viewportKey` 必填。配置结构错误在工具定义加载时报错；模板内容仍由现有 viewport 服务解析。
+- 无规则或无匹配且无默认规则时，仍要求普通一次性审批；工具顶层的 `viewportType/viewportKey` 不参与确认界面选择，保留交互工具原有用途。
+- Handler 只提供指纹、标题和 `forms[].form` 业务数据；ToolRouter 从工具定义选择模板，忽略 Handler 的界面值。模型无法通过调用参数指定模板。批准仍执行原始冻结参数，表单回传内容不改写操作。
+- 内置 HTML 按 `internal/resources/viewports/<viewportKey>.html` 文件名自动解析并嵌入构建，不再逐个在 Go 源码注册模板 key。内置模板优先于运行目录和远端模板。
+
+
+### 内置确认页面类型
+
+- `platform_control_review`：已有配置变更 diff 页面，继续用于 catalog apply；现有 Chat 删除保持原页面，不新增独立会话模板。
+- `resource_delete_review`：catalog delete 的对象与范围核对页，当前内容折叠展示，不使用整篇删除 diff。
+- `installation_review`：市场安装、市场升级与本地 WebApp 归档安装／更新。只展示经过参数校验的目标与来源类别，版本尚未解析时明确标注；不宣称冻结安装包内容。安装阶段仍由 Desktop 验证包、来源与权限。
+
+三个安装操作新增 Platform 一次性前置确认，授权绑定 Run、工具调用 ID 和原始参数；即使 full_access 也不能跳过此前置确认。批准后的参数变化、兄弟调用或重用授权均拒绝。Platform 未向 Desktop 发送跳过确认的字段或提升 permissionMode，Desktop 自有确认策略保持不变，开启时还会出现第二次确认。合并成一次确认尚未实现，需另行设计可验证授权收据；不能仅凭 source 标记免审。所有页面均为内置离线 HTML/CSS/JS，无外网组件。

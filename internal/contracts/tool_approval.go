@@ -8,7 +8,8 @@ import (
 )
 
 // ToolApproval is an exact, one-shot review prepared by the business handler.
-// The LLM loop displays it without knowing its resource domain.
+// The router resolves ViewportKey exclusively from confirmationRules.
+// Business handlers supply only the fingerprint, title and form data.
 type ToolApproval struct {
 	Fingerprint string         `json:"fingerprint"`
 	Title       string         `json:"title"`
