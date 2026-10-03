@@ -46,11 +46,28 @@ func (t *RuntimeToolExecutor) invokeDesktopAwcpManual(ctx context.Context, args 
 
 func (t *RuntimeToolExecutor) invokeDesktopAwcpFromCDP(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if err := validateDesktopAwcpCall(args); err != nil {
-		return desktopAwcpInvalidArgsResult(err), nil
+		source := "params"
+		if _, exists := args["paramsFile"]; exists {
+			source = "paramsFile"
+		}
+		return desktopAwcpParameterError(err, source), nil
 	}
-	params := args["params"].(map[string]any)
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "webpage control requires the Desktop runtime and is unavailable in standalone mode", nil), nil
+	}
+	parameterSource := "params"
+	params, _ := args["params"].(map[string]any)
+	if _, hasFile := args["paramsFile"]; hasFile {
+		parameterSource = "paramsFile"
+		var failure ToolExecutionResult
+		var failed bool
+		params, failure, failed = t.resolveDesktopCDPParams(args, execCtx)
+		if failed {
+			return desktopAwcpFileFailure(failure), nil
+		}
+	}
+	if err := validateDesktopAwcpArgs(params); err != nil {
+		return desktopAwcpParameterError(err, parameterSource), nil
 	}
 	source, err := buildDesktopActionSource(execCtx)
 	if err != nil {
@@ -74,7 +91,7 @@ func (e *desktopAwcpValidationError) Error() string {
 }
 
 func desktopAwcpInvalidArgsResult(err error) ToolExecutionResult {
-	details := map[string]any{"executionStarted": false, "stage": "platform_parse"}
+	details := map[string]any{"executionStarted": false, "stage": "platform_parse", "parameterSource": "params"}
 	var validationErr *desktopAwcpValidationError
 	if errors.As(err, &validationErr) {
 		for key, value := range validationErr.details {
@@ -93,6 +110,7 @@ func newDesktopAwcpValidationError(message string, path []string, expectedType s
 	if len(path) > 0 {
 		details["field"] = path[len(path)-1]
 	}
+	message = fmt.Sprintf("%s 位置：%s；实际类型：%s。请修正后重新调用。", message, strings.Join(path, "."), details["actualType"])
 	return &desktopAwcpValidationError{message: message, details: details}
 }
 
@@ -122,6 +140,11 @@ func desktopAwcpJSONType(value any, present bool) string {
 }
 
 func validateDesktopAwcpArgs(args map[string]any) error {
+	for _, key := range []string{"method", "surfaceId", "params", "paramsFile"} {
+		if _, exists := args[key]; exists {
+			return newDesktopAwcpValidationError("参数对象只包含 revision、action、args；不要包装整条调用，method 和 surfaceId 留在外层。", []string{"params"}, "object with exactly revision, action and args", args, true)
+		}
+	}
 	revisionValue, revisionPresent := args["revision"]
 	revision, revisionOK := revisionValue.(string)
 	actionValue, actionPresent := args["action"]
@@ -130,19 +153,19 @@ func validateDesktopAwcpArgs(args map[string]any) error {
 	innerArgs, argsOK := innerArgsValue.(map[string]any)
 	if !revisionOK || revision == "" || utf16Length(revision) > 128 {
 		return newDesktopAwcpValidationError(
-			"params.revision must be a non-empty AWCP revision of at most 128 characters.",
+			"params.revision 必须填写手册返回的非空 revision，最多 128 个 UTF-16 字符。",
 			[]string{"params", "revision"}, "non-empty string", revisionValue, revisionPresent,
 		)
 	}
 	if !actionOK || utf16Length(action) > 128 || !desktopAwcpActionPattern.MatchString(action) {
 		return newDesktopAwcpValidationError(
-			"params.action must be a valid AWCP action name of at most 128 characters.",
+			"params.action 必须填写手册中的动作名称，最多 128 个 UTF-16 字符，仅允许小写字母、数字及分段的连字符和点。",
 			[]string{"params", "action"}, "AWCP action name string", actionValue, actionPresent,
 		)
 	}
 	if !argsOK || innerArgs == nil {
 		return newDesktopAwcpValidationError(
-			fmt.Sprintf("params.args must be a JSON object; received %s.", desktopAwcpJSONType(innerArgsValue, argsPresent)),
+			"args 必须是原生 JSON 对象；无参数动作传 args: {}，有参数动作按手册填写对象，不要传空字符串或字符串 {}",
 			[]string{"params", "args"}, "object", innerArgsValue, argsPresent,
 		)
 	}
@@ -270,20 +293,37 @@ func validateDesktopAwcpCall(args map[string]any) error {
 	if raw, present := args["surfaceId"]; present {
 		id, ok := raw.(string)
 		if !ok || strings.TrimSpace(id) == "" {
-			return fmt.Errorf("surfaceId must be a non-empty string")
+			return newDesktopAwcpValidationError("surfaceId 必须为非空页面标识。", []string{"surfaceId"}, "non-empty string", raw, true)
 		}
 	}
+	method, _ := args["method"].(string)
+	invoke := strings.TrimSpace(method) == desktopAwcpInvokeMethod
 	for key := range args {
-		if key != "method" && key != "params" && key != "surfaceId" {
+		if key != "method" && key != "params" && key != "surfaceId" && !(invoke && key == "paramsFile") {
 			return newDesktopAwcpValidationError(
-				fmt.Sprintf("unsupported AWCP field %q; use method, params and optional surfaceId within the Run grant", key),
+				"不支持的 AWCP 外层字段；保留 method、参数来源和可选 surfaceId，不接受 requestId。",
 				[]string{key}, "field omitted", args[key], true,
 			)
 		}
 	}
 	paramsValue, paramsPresent := args["params"]
 	params, ok := paramsValue.(map[string]any)
-	method, _ := args["method"].(string)
+	if invoke {
+		rawFile, hasFile := args["paramsFile"]
+		if hasFile && paramsPresent {
+			return newDesktopAwcpValidationError("params 与 paramsFile 必须二选一；删除其中一个来源，不合并。", []string{"paramsFile"}, "exclusive parameter source", rawFile, true)
+		}
+		if hasFile {
+			path, valid := rawFile.(string)
+			if !valid || strings.TrimSpace(path) == "" {
+				return newDesktopAwcpValidationError("paramsFile 必须填写 UTF-8 JSON 参数文件的非空路径。", []string{"paramsFile"}, "non-empty path string", rawFile, true)
+			}
+			return nil
+		}
+		if !paramsPresent {
+			return newDesktopAwcpValidationError("缺少参数来源；提供 params 对象或 paramsFile 文件路径，必须二选一。", []string{"params"}, "object or paramsFile path", nil, false)
+		}
+	}
 	if strings.TrimSpace(method) == desktopAwcpGetManualMethod {
 		if !paramsPresent {
 			return nil
@@ -315,4 +355,42 @@ func validateDesktopAwcpCall(args map[string]any) error {
 		)
 	}
 	return validateDesktopAwcpArgs(params)
+}
+
+// Parameter source is diagnostic only; it never becomes part of the wire envelope.
+func desktopAwcpParameterError(err error, source string) ToolExecutionResult {
+	var validationErr *desktopAwcpValidationError
+	if errors.As(err, &validationErr) {
+		validationErr.details["parameterSource"] = source
+		path, _ := validationErr.details["path"].([]string)
+		if source == "paramsFile" && len(path) > 0 && path[0] == "params" {
+			validationErr.message += " 请修正 paramsFile 文件内容后重新调用。"
+		}
+	}
+	return desktopAwcpInvalidArgsResult(err)
+}
+
+func desktopAwcpFileFailure(result ToolExecutionResult) ToolExecutionResult {
+	// Preserve approval fingerprints/rule keys and existing file error codes.
+	payload := result.Structured
+	details, _ := payload["details"].(map[string]any)
+	if details == nil {
+		details = map[string]any{}
+		payload["details"] = details
+	}
+	details["parameterSource"] = "paramsFile"
+	details["executionStarted"] = false
+	details["stage"] = "platform_parse"
+	if _, exists := details["path"]; !exists {
+		details["path"] = []string{"paramsFile"}
+		details["expectedType"] = "readable UTF-8 JSON object file"
+		details["actualType"] = "string"
+	}
+	if errorPayload, ok := payload["error"].(map[string]any); ok {
+		errorPayload["message"] = fmt.Sprint(errorPayload["message"]) + " 请修正 paramsFile 文件或路径后重新调用。"
+	} else if result.Error != "desktop_cdp_params_file_approval_required" {
+		payload["message"] = fmt.Sprint(payload["message"]) + " 请修正 paramsFile 文件或路径后重新调用。"
+	}
+	result.Output = structuredResultWithExit(payload, result.ExitCode).Output
+	return result
 }

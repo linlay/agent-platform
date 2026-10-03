@@ -751,7 +751,7 @@ func (t *RuntimeToolExecutor) webControlAwcpManual(ctx context.Context, args map
 }
 
 func (t *RuntimeToolExecutor) webControlAwcpInvoke(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	if failure, failed := webControlFields(args, "surfaceId", "revision", "action", "args"); failed {
+	if failure, failed := webControlFields(args, "surfaceId", "revision", "action", "args", "paramsFile"); failed {
 		return failure, nil
 	}
 	params := map[string]any{}
@@ -761,6 +761,13 @@ func (t *RuntimeToolExecutor) webControlAwcpInvoke(ctx context.Context, args map
 		}
 	}
 	request := map[string]any{"method": desktopAwcpInvokeMethod, "params": params}
+	if file, present := args["paramsFile"]; present {
+		request["paramsFile"] = file
+		if len(params) == 0 {
+			delete(request, "params")
+		}
+	}
+
 	if value, present := args["surfaceId"]; present {
 		request["surfaceId"] = value
 	}

@@ -20,6 +20,9 @@ func TestSurfaceFileInputAccessApproval(t *testing.T) {
 		{"surface_cdp", func(path string) map[string]any {
 			return map[string]any{"surfaceId": "page:1", "method": "DOM.getDocument", "paramsFile": path}
 		}},
+		{"awcp_invoke", func(path string) map[string]any {
+			return map[string]any{"surfaceId": "page:1", "paramsFile": path}
+		}},
 		{"surface_evaluate", func(path string) map[string]any {
 			return map[string]any{"surfaceId": "page:1", "expressionFile": path}
 		}},

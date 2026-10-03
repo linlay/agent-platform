@@ -212,6 +212,14 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 		path, ok := args["paramsFile"].(string)
 		_, hasParams := args["params"]
 		return filetools.ReadAccess, path, ok && strings.TrimSpace(path) != "" && !hasParams && strings.TrimSpace(mapStringArg(args, "method")) != ""
+	case "awcp_invoke":
+		path, ok := args["paramsFile"].(string)
+		for _, key := range []string{"revision", "action", "args"} {
+			if _, present := args[key]; present {
+				return filetools.ReadAccess, path, false
+			}
+		}
+		return filetools.ReadAccess, path, ok && strings.TrimSpace(path) != ""
 	case "surface_evaluate":
 		path, ok := args["expressionFile"].(string)
 		_, hasExpression := args["expression"]

@@ -1533,7 +1533,7 @@ func TestDesktopAwcpInvokeRejectsInvalidPayloadWithoutCallingClient(t *testing.T
 	}{
 		{name: "missing revision", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"action": "orders.read", "args": map[string]any{}}}},
 		{name: "extra target", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{}}, "targetId": "forged"}},
-		{name: "params file", args: map[string]any{"method": desktopAwcpInvokeMethod, "paramsFile": "missing.json"}},
+		{name: "conflicting params file", args: map[string]any{"method": desktopAwcpInvokeMethod, "paramsFile": "missing.json", "params": nil}},
 		{name: "extra param", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "orders.read", "args": map[string]any{}, "targetId": "forged"}}},
 		{name: "invalid action", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "Orders.read", "args": map[string]any{}}}},
 		{name: "non object args", args: map[string]any{"method": desktopAwcpInvokeMethod, "params": map[string]any{"revision": "r", "action": "orders.read", "args": []any{}}}},

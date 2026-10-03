@@ -134,7 +134,13 @@ awcp_invoke  {"surfaceId":"surface-1","revision":"page-revision","action":"order
 - 目录读取：`awcp_manual` 只带 `surfaceId`，返回当前 revision、`site.description` 页面操作说明和动作目录，不提前加载各 Action 的完整参数约束。
 - 单项手册读取：`awcp_manual` 同时给出 `section` 与 `revision`，返回网站原始 v1 章节 `{revision,section,description,inputSchema,examples?}`。Platform 不编译 Schema，不要求 examples 存在或非空，也不限制为模型提供商支持的 Schema 子集。
 - 页面由工具的 `surfaceId` 选择，限定在可信 Run grant 内。Platform 把工具字段组装为既有 wire payload（目录为空，章节为 `{section,revision}`，并附带可选 `surfaceId`）；Desktop 和页面原生按目录/单章节获取，不在 Platform 投影完整合同，也不缓存页面状态。
-- 调用：`awcp_invoke` 精确接收 `revision`、`action`、`args`（及可选 `surfaceId`），模型使用手册返回的 revision。Platform 校验固定外壳并以工具自身的字段名报告错误，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，网站自己的 validator/handler 负责业务参数校验和执行。
+- 调用：`awcp_invoke` 接收内联 `revision/action/args` 或互斥的 `paramsFile`（及可选 `surfaceId`），模型使用手册返回的 revision。Platform 校验固定外壳并以工具自身的字段名报告错误，生成 request ID 并注入可信 source；Desktop 校验当前授权页和版本，网站自己的 validator/handler 负责业务参数校验和执行。
+
+`awcp_invoke` 也可传 `{"surfaceId":"page:xxx","paramsFile":"@chat/awcp-sections.json"}`，与内联 revision/action/args 互斥。文件必须是 UTF-8 JSON 对象，完整对应 params，且仅包含 `revision/action/args`，例如 `{"revision":"手册返回值","action":"forum.sections.list","args":{}}`。surfaceId 留在外层，不传 method，不合并两种参数来源。Platform 复用普通 CDP 的文件读取器、路径别名、canonical 路径/权限审批、普通文件检查及大小限制；文件解析后执行相同 AWCP envelope 校验，业务 schema 仍由页面负责。Desktop wire payload 不增加文件路径；手册、revision、Surface grant 与 requestId 边界保持原样。
+
+参数错误在发出请求前终止，返回 `stage: platform_parse`、`executionStarted:false`，保留 `path/expectedType/actualType` 并以 `parameterSource` 区分 params/paramsFile。JSON 语法错误给出从 1 开始的行和 Unicode 列，不回显正文。提示要求修正字段或文件后重新调用：args 必须是原生 JSON 对象；无参数动作传 args: {}，有参数动作按手册填写对象，不接受空字符串或字符串 {}，不自动转换。文件授权错误保留原审批字段与错误码，不能通过修参绕过权限。超时、断连和未知执行结果不套用参数错误重试提示，也不自动重放。
+
+该改动随 Platform 二进制及内嵌 Desktop 技能发布，重新构建并重启 Platform 后由标准连接器装配加载；不修改已安装的 ru-connectors 缓存。Desktop/网站桥仍使用原协议，无需为文件路径增加处理。
 
 运行核心不保存 AWCP revision、动作集合、模型请求绑定、失效 generation 或纠错预算；发现、调用和失败都走普通工具循环。错误原样按既有 response/error 分层返回，模型结合网站手册和执行状态决定修参、重新读取或向用户解释，Platform 不自动重放、不强制最终回答、不移除工具，也不因批次出现 AWCP 就改变通用排序和并发规则。有先后依赖的操作须逐步发起；不要在执行状态未知时盲目重复可能有副作用的操作。权限、审批、取消、通用 Run 限额和 Desktop 授权页面边界继续生效。
 

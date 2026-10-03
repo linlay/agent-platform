@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,9 +39,30 @@ func (t *RuntimeToolExecutor) resolveDesktopCDPParams(args map[string]any, execC
 	if failed {
 		return nil, failure, true
 	}
-	var params map[string]any
-	if !utf8.Valid(data) || json.Unmarshal(data, &params) != nil || params == nil {
-		return nil, desktopActionErrorResult("desktop_cdp_params_file_invalid_json", "paramsFile must contain a single UTF-8 JSON object containing only the CDP params", nil), true
+	invalidJSON := func(message, actual string, extra map[string]any) (map[string]any, ToolExecutionResult, bool) {
+		details := map[string]any{"path": []string{"paramsFile"}, "expectedType": "object", "actualType": actual}
+		for key, value := range extra {
+			details[key] = value
+		}
+		return nil, desktopActionErrorResult("desktop_cdp_params_file_invalid_json", message, details), true
+	}
+	if !utf8.Valid(data) {
+		return invalidJSON("paramsFile 不是有效 UTF-8；请将参数文件保存为 UTF-8 JSON 对象。", "invalid UTF-8", nil)
+	}
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		// Never echo parser messages: an unexpected byte can be credential data.
+		offset := int64(len(data) + 1)
+		var syntax *json.SyntaxError
+		if errors.As(err, &syntax) {
+			offset = syntax.Offset
+		}
+		line, column := desktopParamsJSONPosition(data, offset)
+		return invalidJSON(fmt.Sprintf("paramsFile JSON 语法错误（第 %d 行，第 %d 列）；请修正 JSON 语法，仅保留一个完整参数对象。", line, column), "invalid JSON", map[string]any{"line": line, "column": column})
+	}
+	params, ok := value.(map[string]any)
+	if !ok || params == nil {
+		return invalidJSON(fmt.Sprintf("paramsFile 根节点必须是 JSON 对象，实际类型为 %s；文件只保存 params 内容，不包装整条调用。", desktopAwcpJSONType(value, true)), desktopAwcpJSONType(value, true), nil)
 	}
 	return params, ToolExecutionResult{}, false
 }
@@ -65,7 +87,7 @@ func (t *RuntimeToolExecutor) readDesktopInputFile(field, codePrefix, path strin
 	// Reject special files before opening: a FIFO must not block the tool loop.
 	info, err := os.Stat(access.Path)
 	if err != nil {
-		return nil, desktopActionErrorResult(codePrefix+"_read_failed", err.Error(), nil), true
+		return nil, desktopActionErrorResult(codePrefix+"_read_failed", desktopInputReadError(field, err), nil), true
 	}
 	if !info.Mode().IsRegular() {
 		return nil, desktopActionErrorResult(codePrefix+"_invalid_file", field+" must be a regular file", nil), true
@@ -82,15 +104,46 @@ func (t *RuntimeToolExecutor) readDesktopInputFile(field, codePrefix, path strin
 	}
 	file, err := os.Open(access.Path)
 	if err != nil {
-		return nil, desktopActionErrorResult(codePrefix+"_read_failed", err.Error(), nil), true
+		return nil, desktopActionErrorResult(codePrefix+"_read_failed", desktopInputReadError(field, err), nil), true
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, int64(maxBytes)+1))
 	if err != nil {
-		return nil, desktopActionErrorResult(codePrefix+"_read_failed", err.Error(), nil), true
+		return nil, desktopActionErrorResult(codePrefix+"_read_failed", desktopInputReadError(field, err), nil), true
 	}
 	if len(data) > maxBytes {
 		return tooLarge()
 	}
 	return data, ToolExecutionResult{}, false
+}
+
+func desktopInputReadError(field string, err error) string {
+	if errors.Is(err, os.ErrNotExist) {
+		return field + " 文件不存在；请创建参数文件或修正路径。"
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return field + " 文件不可读；请修正文件读取权限或使用有权读取的参数文件。"
+	}
+	return field + " 无法读取；请检查路径及文件读取权限。"
+}
+
+// SyntaxError.Offset is a one-based byte offset; report one-based Unicode columns.
+func desktopParamsJSONPosition(data []byte, offset int64) (int, int) {
+	end := int(offset - 1)
+	if end < 0 {
+		end = 0
+	}
+	if end > len(data) {
+		end = len(data)
+	}
+	line, column := 1, 1
+	for _, r := range string(data[:end]) {
+		if r == '\n' {
+			line++
+			column = 1
+		} else {
+			column++
+		}
+	}
+	return line, column
 }
