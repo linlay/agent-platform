@@ -427,6 +427,7 @@ docker compose logs -f
 - [记忆系统](./docs/记忆系统.md)
 - [运行时和沙箱](./docs/运行时和沙箱.md)
 - [Platform 控制工具设计与实现](./docs/Platform控制工具设计.md)
+- [工具参数错误审计与恢复提示](./docs/工具参数错误审计.md)
 - [运行时资源迁移](./docs/运行时资源迁移.md)
 - [API与协议](./docs/API与协议.md)
 - [HITL协议](./docs/HITL协议.md)

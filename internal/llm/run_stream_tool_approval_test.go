@@ -3,8 +3,11 @@ package llm
 import (
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/toolinput"
 	"agent-platform/internal/toolinteraction"
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +87,20 @@ func TestExactToolFormExecutesOnlyFrozenArguments(t *testing.T) {
 				t.Fatal("approval survived invocation")
 			}
 		})
+	}
+}
+
+func TestReviewInputDiagnosticReachesModel(t *testing.T) {
+	s := &llmRunStream{ctx: context.Background()}
+	call := &preparedToolInvocation{toolID: "bad", toolName: "catalog_manage", toolApprovalChecked: true, toolApprovalErr: toolinput.New("args.content", "JSON string", true, true, `Use content:"text".`)}
+	handled, err := s.handleToolApprovalBeforeInvoke(call)
+	if err != nil || !handled || len(s.messages) != 1 || s.hitlPendingCall != nil {
+		t.Fatalf("handled=%v error=%v messages=%v", handled, err, s.messages)
+	}
+	b, _ := json.Marshal(s.messages[0].Content)
+	for _, fragment := range []string{"expected", "actual", "recovery", "not_started", "args.content"} {
+		if !strings.Contains(string(b), fragment) {
+			t.Fatal(string(b))
+		}
 	}
 }

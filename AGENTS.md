@@ -290,3 +290,5 @@ Platform 在启动时读取 `configs/tools.yml` 顶层 `preset-tools`，自动�
 平台管理连接器仅按部署者显式配置挂载，源码无主智能体名单；旧工具声明不自动扩权。已支持 `preset-connectors`、控制工具 agent.yml 原文保留及批量归档/恢复；搜索大文件保护和联调边界见 [Platform控制工具设计](docs/Platform控制工具设计.md#2026-10-03-审核修复与未完成项)。
 
 普通 Native Agent 支持 `configs/tools.yml` 并列的 `preset-tools` / `preset-connectors`；预置连接器按完整包与显式声明合并去重，不回写 agent.yml。示例预置 builtin.web-control，平台管理仍由部署者显式配置；详情见 [智能体配置说明](docs/智能体配置说明.md#platform-预置连接器)。控制工具已支持逐项结果的批量归档/恢复，以及 agent.yml 环境变量脱敏与 preservePaths 原文编辑；大会话搜索继续保留 8 MiB 跳过保护，向量化摘要留待后续。
+
+平台控制准入、Desktop domain 信封、Web 公共字段校验及 run_status/run_interrupt 采用可操作的安全参数诊断；已知字段输出 field/expected/actual/recovery，未知键名和值不回显，审批准备保留 typed input error。范围与 Desktop 看板只读审计见 [工具参数错误审计](docs/工具参数错误审计.md)，未统一的服务错误与跨仓库修复不能写成已完成。

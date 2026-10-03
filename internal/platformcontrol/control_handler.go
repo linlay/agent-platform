@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/models"
+	"agent-platform/internal/toolinput"
 )
 
 func (h *ToolHandler) ConfigureControl(sources *adminsource.ControlService, chats *conversation.Service, modelRegistry *models.ModelRegistry) *ToolHandler {
@@ -66,26 +67,26 @@ var argumentFields = map[string]map[string]string{
 
 func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.ExecutionContext) (string, map[string]any, error) {
 	if e == nil || e.Session.NativeConnectorTools[tool] != connector.PlatformControlConnectorID || e.Session.ConnectorDirs[connector.PlatformControlConnectorID] == "" {
-		return "", nil, fmt.Errorf("connector_not_mounted")
+		return "", nil, fmt.Errorf("connector_not_mounted: configure builtin.platform-control for this Agent through an authorized configuration change, then start a new Run")
 	}
 	if connector.IsPlatformRootTool(tool) && !rootCaller(e) {
-		return "", nil, fmt.Errorf("caller_forbidden: ordinary native main root Run required")
+		return "", nil, fmt.Errorf("caller_forbidden: ordinary native main root Run required; invoke this tool from the owning Agent main Run, outside Team, subtask or side-chat execution")
 	}
-	for key := range args {
-		if key != "action" && key != "args" {
-			return "", nil, fmt.Errorf("unknown field %s; expected action and args", key)
+	if err := toolinput.Validate(args, map[string]string{"action": "s!", "args": "o"}, ""); err != nil {
+		var input *toolinput.Error
+		if errors.As(err, &input) && input.Field == "action" {
+			v, present := args["action"]
+			return "", nil, toolinput.Choice("action", v, present, controlActionNames(tool))
 		}
+		return "", nil, err
 	}
-	action, ok := args["action"].(string)
-	if !ok || action == "" {
-		return "", nil, fmt.Errorf("action must be a non-empty string")
-	}
+	action := args["action"].(string)
 	descriptor, ok := connector.LookupControlAction(tool, action)
 	if !ok {
-		return "", nil, fmt.Errorf("unsupported action %q for %s", action, tool)
+		return "", nil, toolinput.Enum("action", action, controlActionNames(tool))
 	}
 	if contracts.IsReadOnlyToolExecutionPolicy(e.ToolExecutionPolicy) && !descriptor.ReadOnly {
-		return "", nil, fmt.Errorf("stage_forbidden")
+		return "", nil, fmt.Errorf("stage_forbidden: this action mutates state; retry only in an execution stage that permits mutation")
 	}
 	params := map[string]any{}
 	if raw, exists := args["args"]; exists {
@@ -96,44 +97,15 @@ func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.Ex
 		}
 	}
 	fields := argumentFields[tool+"."+action]
-	for field, value := range params {
-		kind, ok := fields[field]
-		if !ok {
-			return "", nil, fmt.Errorf("unknown args.%s", field)
-		}
-		valid := false
-		switch kind[0] {
-		case 's':
-			_, valid = value.(string)
-		case 'b':
-			_, valid = value.(bool)
-		case 'n':
-			n, ok := value.(float64)
-			valid = ok && n >= 1 && n <= 100 && n == float64(int(n))
-		case 'a':
-			v, ok := value.([]any)
-			valid = ok
-			for _, x := range v {
-				if _, ok := x.(string); !ok {
-					valid = false
-				}
-			}
-		}
-		if !valid {
-			return "", nil, fmt.Errorf("args.%s has invalid type or value", field)
-		}
+	if err := validateControlEnums(tool, action, params); err != nil {
+		return "", nil, err
 	}
-	for field, kind := range fields {
-		if strings.HasSuffix(kind, "!") {
-			v, ok := params[field]
-			if !ok || kind[0] == 's' && strings.TrimSpace(v.(string)) == "" {
-				return "", nil, fmt.Errorf("args.%s is required", field)
-			}
-		}
+	if err := toolinput.Validate(params, fields, "args."); err != nil {
+		return "", nil, err
 	}
 	if tool == "chat_manage" && (action == "archive" || action == "restore") {
 		if _, _, err := conversation.ControlArchiveIDs(params); err != nil {
-			return "", nil, err
+			return "", nil, toolinput.New("args", "either chatId or chatIds (1–100 distinct valid Chat IDs)", params, true, err.Error()+"; use {\"chatId\":\"<ID from chat_query.list>\"} or {\"chatIds\":[\"<ID from chat_query.list>\"]}.")
 		}
 	}
 	return action, params, nil
@@ -192,7 +164,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]any, e *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
 	action, p, err := h.admitted(tool, args, e)
 	if err != nil {
-		return controlFail("control_request_rejected", err.Error(), "admission"), nil
+		return controlInputFailure("control_request_rejected", err, "admission"), nil
 	}
 	var value any
 	switch tool {
@@ -235,7 +207,7 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 		value, err = h.inspect(action, p, e)
 	}
 	if err != nil {
-		failure := controlFail("control_failed", sanitizeDiagnostic(err.Error()), "execution")
+		failure := controlInputFailure("control_failed", err, "execution")
 		var mutation *contracts.MutationError
 		if errors.As(err, &mutation) && mutation.State != "not_started" {
 			if mutation.State == "rolled_back" {
@@ -509,7 +481,7 @@ func (h *ToolHandler) inspect(action string, p map[string]any, e *contracts.Exec
 		if component != "" {
 			v, ok := components[component]
 			if !ok {
-				return map[string]any{"component": component, "status": "unavailable"}, nil
+				return nil, toolinput.Enum("args.component", component, toolinput.Keys(components))
 			}
 			return map[string]any{"component": component, "state": v}, nil
 		}

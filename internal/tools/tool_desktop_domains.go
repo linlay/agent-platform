@@ -4,34 +4,44 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/toolinput"
 	"context"
-	"fmt"
+	"errors"
 )
 
 func (t *RuntimeToolExecutor) invokeDesktopDomain(ctx context.Context, tool string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	fail := func(code, message string) (ToolExecutionResult, error) {
 		return desktopActionErrorResult(code, message, map[string]any{"stage": "arguments", "executionState": "not_started", "recovery": map[string]any{"strategy": "fix_input"}}), nil
 	}
-	for key := range args {
-		if key != "action" && key != "args" {
-			return fail("invalid_args", fmt.Sprintf("unknown field %s; expected action and args", key))
+	inputFail := func(err error) (ToolExecutionResult, error) {
+		var input *toolinput.Error
+		if errors.As(err, &input) {
+			details := input.Details()
+			details["stage"] = "arguments"
+			details["executionState"] = "not_started"
+			return desktopActionErrorResult("invalid_args", input.Error(), details), nil
 		}
+		return fail("invalid_args", err.Error())
 	}
-	action, ok := args["action"].(string)
-	if !ok || action == "" {
-		return fail("invalid_args", "action must be a non-empty string")
+	if err := toolinput.Validate(args, map[string]string{"action": "s!", "args": "o"}, ""); err != nil {
+		return inputFail(err)
 	}
-	_, ok = connector.LookupControlAction(tool, action)
-	if !ok {
+	action := args["action"].(string)
+	if _, ok := connector.LookupControlAction(tool, action); !ok {
+		var allowed []string
+		for _, a := range connector.ControlActions() {
+			if a.Tool == tool {
+				allowed = append(allowed, a.Action)
+			}
+		}
+		err := toolinput.Enum("action", action, allowed)
 		if owner := connector.ControlActionOwner(action); owner != "" {
-			return fail("action_tool_mismatch", "action belongs to "+owner)
+			return fail("action_tool_mismatch", "Use tool "+owner+" for this action; choose an action belonging to the selected tool.")
 		}
-		return fail("unknown_action", "unsupported action for "+tool)
-	}
-	if raw, exists := args["args"]; exists {
-		if _, ok := raw.(map[string]any); !ok {
-			return fail("invalid_args", "args must be an object")
-		}
+		details := err.(*toolinput.Error).Details()
+		details["stage"] = "arguments"
+		details["executionState"] = "not_started"
+		return desktopActionErrorResult("unknown_action", err.Error(), details), nil
 	}
 	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) {
 		return fail("stage_forbidden", "action is unavailable in a read-only stage")

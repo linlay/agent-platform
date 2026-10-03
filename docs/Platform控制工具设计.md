@@ -111,3 +111,7 @@ archive/restore 同时支持单个 `chatId` 或 `chatIds`（1–100 个互异 ID
 - 最后补充的无效 Agent 配置展示、预置开关、YAML 空多行值和批量归档/恢复边界，catalog/adminsource/conversation/server 定向测试通过。
 - adminsource/conversation 的 race 回归通过；WebClient TypeScript、模块边界及连接器相关 3 个 Jest 套件 35 项通过。
 - i18n 保持原有 55 项违规，没有新增硬编码。未改动本轮已确认保留的大会话搜索限制；未执行部署或重启。
+
+### 参数错误恢复提示
+
+控制工具准入现在返回 `field/expected/actual/recovery`，明确类型、整数范围、合法枚举和修复示例；`limit:"100"` 应改为 `limit:100`（JSON 整数 1–100）。未知字段只列合法字段，不回显任意键名和值。审批准备错误保留这些信息。未知 runtimeStatus 组件返回错误并列出当前快照组件名。完整证据、范围、Desktop Kanban 私有运行字段边界及未完成项见 [工具参数错误审计](工具参数错误审计.md)。

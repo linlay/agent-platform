@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolargs"
+	"agent-platform/internal/toolinput"
 	"agent-platform/internal/toolpolicy"
 )
 
@@ -1060,7 +1061,17 @@ func (s *llmRunStream) handleDeferredToolInvocation(invocation *preparedToolInvo
 func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
 	s.prepareToolApproval(invocation)
 	if invocation.toolApprovalErr != nil {
-		s.appendOriginalToolResult(invocation, ToolExecutionResult{Error: "tool_review_failed", Output: invocation.toolApprovalErr.Error(), ExitCode: -1})
+		result := ToolExecutionResult{Error: "tool_review_failed", Output: invocation.toolApprovalErr.Error(), ExitCode: -1}
+		var input *toolinput.Error
+		if errors.As(invocation.toolApprovalErr, &input) {
+			result.Structured = input.Details()
+			result.Structured["error"] = result.Error
+			result.Structured["message"] = input.Error()
+			result.Structured["stage"] = "admission"
+			result.Structured["executionState"] = "not_started"
+			result.Output = CompactToolModelOutput(result.Structured, "")
+		}
+		s.appendOriginalToolResult(invocation, result)
 		return true, nil
 	}
 	if request, ok := s.toolApprovalRequest(invocation); ok {
