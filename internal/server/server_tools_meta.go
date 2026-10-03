@@ -23,7 +23,7 @@ func (s *Server) enrichToolMetadata(events []stream.EventData, _ string) {
 		return
 	}
 	for i := range events {
-		if events[i].Type != "tool.snapshot" {
+		if events[i].Type != "tool.snapshot" && events[i].Type != "tool.start" {
 			continue
 		}
 		toolName := events[i].String("toolName")
@@ -31,11 +31,18 @@ func (s *Server) enrichToolMetadata(events []stream.EventData, _ string) {
 			continue
 		}
 		def, ok := lookup.Tool(toolName)
-		if !ok {
+		if !ok || toolSourceCategory(def) != "platform" {
 			continue
 		}
+		if events[i].Payload["toolI18n"] != nil {
+			continue
+		}
+		events[i].Payload = contracts.CloneMap(events[i].Payload)
 		if events[i].Payload == nil {
 			events[i].Payload = map[string]any{}
+		}
+		if translations := anyMapValueToolTranslations(def.Meta); len(translations) > 0 {
+			events[i].Payload["toolI18n"] = translations
 		}
 		if label := def.Label; label != "" {
 			events[i].Payload["toolLabel"] = label
@@ -77,6 +84,7 @@ func (s *Server) listTools() []api.ToolSummary {
 			mcpToolName = strings.TrimSpace(anyStringValue(tool.Meta["mcpToolName"]))
 		}
 		items = append(items, api.ToolSummary{
+			ToolI18n:       anyMapValueToolTranslations(tool.Meta),
 			Key:            tool.Key,
 			Name:           tool.Name,
 			Label:          tool.Label,
@@ -415,4 +423,9 @@ func newChatID() string {
 		data[8:10],
 		data[10:16],
 	)
+}
+
+func anyMapValueToolTranslations(meta map[string]any) map[string]any {
+	value, _ := meta["toolI18n"].(map[string]any)
+	return i18n.CloneToolTranslations(value)
 }

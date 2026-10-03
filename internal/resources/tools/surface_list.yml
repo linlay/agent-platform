@@ -1,5 +1,10 @@
 name: surface_list
-label: 网页列表
+label: "网页列表"
+i18n:
+  en:
+    label: "List Pages"
+  zh-CN:
+    label: "网页列表"
 description: "List the live webpages this Run is authorized to control, including background pages. Each entry has surfaceId, title, URL and page state. Every webpage is one independent surface."
 clientVisible: true
 readOnly: true

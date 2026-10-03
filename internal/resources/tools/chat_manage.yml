@@ -1,5 +1,10 @@
 name: "chat_manage"
-label: 管理会话
+label: "管理会话"
+i18n:
+  en:
+    label: "Manage Chats"
+  zh-CN:
+    label: "管理会话"
 description: "rename: chatName, chatId?. setPinned: pinned, chatId?. archive/restore: exactly one of chatId or chatIds (1-100 distinct IDs); batches return total, succeeded, failed and per-item results, continue on failure without rollback. fork: sourceChatId, sourceRunId?, chatName?. export: chatId, format (markdown/snapshot), archived?. snapshot is the full existing Snapshot V1 timeline including reasoning and tools. delete: chatId, archived?; single-use approval required. Export returns a file URL, not the full content to the model."
 clientVisible: true
 explicitOnly: true

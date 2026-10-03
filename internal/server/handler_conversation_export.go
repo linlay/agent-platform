@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/conversationexport"
+	"agent-platform/internal/i18n"
 )
 
 const (
@@ -43,10 +44,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	var contentType string
 	var extension string
 	var title string
-	locale := "zh-CN"
-	if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
-		locale = "en-US"
-	}
+	locale := requestLocale(r, i18n.LocaleZhCN)
 	var attachments []conversationexport.AttachmentV1
 	if format == chatSnapshotExportFormat {
 		reader, ok := s.deps.Chats.(publishedArtifactReader)
@@ -103,6 +101,10 @@ func (s *Server) loadConversationSnapshot(chatID string, attachments []conversat
 	detail, err := s.deps.Chats.LoadChat(chatID)
 	if err != nil {
 		return conversationexport.SnapshotDocument{}, err
+	}
+	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
+	for index := range detail.Events {
+		detail.Events[index] = localizeStreamEventData(locale, detail.Events[index])
 	}
 	return conversationexport.BuildSnapshotDocument(summary, detail.Events, attachments, capturedAt, locale, s.resolveExportAssistant)
 }

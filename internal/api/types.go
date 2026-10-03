@@ -1212,14 +1212,15 @@ type AdminSkillValidateResponse struct {
 }
 
 type ToolSummary struct {
-	Key            string `json:"key"`
-	Name           string `json:"name"`
-	Label          string `json:"label,omitempty"`
-	Description    string `json:"description,omitempty"`
-	SourceType     string `json:"sourceType"`
-	SourceCategory string `json:"sourceCategory"`
-	ServerKey      string `json:"serverKey,omitempty"`
-	MCPToolName    string `json:"mcpToolName,omitempty"`
+	ToolI18n       map[string]any `json:"toolI18n,omitempty"`
+	Key            string         `json:"key"`
+	Name           string         `json:"name"`
+	Label          string         `json:"label,omitempty"`
+	Description    string         `json:"description,omitempty"`
+	SourceType     string         `json:"sourceType"`
+	SourceCategory string         `json:"sourceCategory"`
+	ServerKey      string         `json:"serverKey,omitempty"`
+	MCPToolName    string         `json:"mcpToolName,omitempty"`
 }
 
 type ToolDetailResponse = queryinput.ToolDefinition

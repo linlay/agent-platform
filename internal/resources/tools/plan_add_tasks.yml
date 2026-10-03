@@ -1,5 +1,10 @@
 name: plan_add_tasks
-label: 创建任务
+label: "创建任务"
+i18n:
+  en:
+    label: "Create Tasks"
+  zh-CN:
+    label: "创建任务"
 description: Optionally record an ordered plan as a lightweight progress aid. Multiple tasks may be added in one call and every new task starts in init. Creating tasks does not start them or require an immediate status update; decide whether and when to update them according to the work. Tasks remain ordered and at most one may be in_progress. Defaults to appending to the current plan. Use mode=new only for a distinct new plan; it creates a new planId and makes the provided tasks the complete initial list. Success returns taskId | status | description lines.
 clientVisible: true
 inputSchema:

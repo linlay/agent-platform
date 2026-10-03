@@ -1,6 +1,11 @@
 key: _skill_candidate_list_
 name: _skill_candidate_list_
-label: Skill Candidate List
+label: "列出技能候选"
+i18n:
+  en:
+    label: "List Skill Candidates"
+  zh-CN:
+    label: "列出技能候选"
 description: List stored skill candidates for the current agent.
 inputSchema:
   type: object

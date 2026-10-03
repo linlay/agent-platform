@@ -44,6 +44,10 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 			"stream": "stdout", "delta": "scan-qr\n", "chunkIndex": 0,
 		},
 	})
+	eventBus.Publish(stream.EventData{Seq: 3, Type: "tool.start", Timestamp: testEpochMillis + 2, Payload: map[string]any{
+		"toolId": "localized", "toolName": "desktop_settings", "toolLabel": "original",
+		"toolI18n": map[string]any{"en": map[string]any{"label": "Desktop Settings"}},
+	}})
 	runs.Finish(session.RunID)
 	eventBus.Freeze()
 
@@ -74,6 +78,9 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 	}
 	if !strings.Contains(body, `"type":"tool.output"`) || !strings.Contains(body, `"delta":"scan-qr\n"`) {
 		t.Fatalf("expected replayed tool.output event, got %s", body)
+	}
+	if !strings.Contains(body, `"toolLabel":"Desktop Settings"`) || strings.Contains(body, "toolI18n") {
+		t.Fatalf("attach did not localize tool metadata: %s", body)
 	}
 	if !strings.Contains(body, "data: [DONE]") {
 		t.Fatalf("expected done sentinel, got %s", body)

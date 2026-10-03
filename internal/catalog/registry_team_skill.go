@@ -90,7 +90,9 @@ func (r *FileRegistry) Tools(tag string) []api.ToolSummary {
 		if strings.EqualFold(sourceType, "mcp") {
 			serverKey = strings.TrimSpace(anyStringValue(tool.Meta["serverKey"]))
 		}
+		translations, _ := tool.Meta["toolI18n"].(map[string]any)
 		items = append(items, api.ToolSummary{
+			ToolI18n:       translations,
 			Key:            tool.Key,
 			Name:           tool.Name,
 			Label:          tool.Label,

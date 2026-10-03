@@ -1,5 +1,10 @@
 name: surface_state
-label: 网页状态
+label: "网页状态"
+i18n:
+  en:
+    label: "Page State"
+  zh-CN:
+    label: "网页状态"
 description: "Read the state of one webpage. Omit surfaceId to read the current page of the application this Run belongs to; an ordinary Chat may have no current page, so pass the surfaceId from workpanel_open or surface_list."
 clientVisible: true
 readOnly: true

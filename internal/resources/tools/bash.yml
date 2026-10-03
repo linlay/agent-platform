@@ -1,5 +1,10 @@
 name: bash
-label: 执行命令
+label: "执行命令"
+i18n:
+  en:
+    label: "Run Command"
+  zh-CN:
+    label: "执行命令"
 description: |
   Run allowlisted host shell commands. Windows runs through PowerShell by default; Unix/macOS run through bash/sh.
   Use bash for running commands, tests, builds, package managers, git, and other terminal operations. When file_write/file_edit are available, create or edit files with those tools first, then use bash only to run them.
@@ -16,7 +21,7 @@ inputSchema:
       description: Required. Host shell command. Prefer a single executable command. Use cwd for working directory changes instead of `cd /path && ...`. Avoid shell control operators, pipes, redirections, command substitutions, heredocs, eval/source, and background jobs unless strictly required.
     description:
       type: string
-      description: Optional. 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户；省略时使用命令摘要。
+      description: Optional. A short Chinese sentence describing the command purpose, shown during human approval. Defaults to a command summary when omitted.
     cwd:
       type: string
       description: Optional cwd for this invocation. Defaults explicitly to the current Workspace. Supported semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, and @temp. If no Workspace exists, the effective session schema requires cwd; normally use @chat or @temp.

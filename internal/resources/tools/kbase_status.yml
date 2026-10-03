@@ -1,5 +1,10 @@
 name: kbase_status
-label: 知识库状态
+label: "知识库状态"
+i18n:
+  en:
+    label: "Knowledge Base Status"
+  zh-CN:
+    label: "知识库状态"
 description: Inspect current KBASE index status, including indexing/stale state, file and chunk counts, storage location, embedding configuration, and chunk configuration.
 clientVisible: true
 readOnly: true

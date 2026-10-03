@@ -1,5 +1,10 @@
 name: memory_search
-label: 查找记忆
+label: "查找记忆"
+i18n:
+  en:
+    label: "Search Memory"
+  zh-CN:
+    label: "查找记忆"
 description: List daily notes or search personal Markdown text. Knowledge indexing belongs to KBX.
 clientVisible: false
 inputSchema:

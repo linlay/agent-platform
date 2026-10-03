@@ -1,5 +1,10 @@
 name: kbase_refresh
-label: 刷新知识库
+label: "刷新知识库"
+i18n:
+  en:
+    label: "Refresh Knowledge Base"
+  zh-CN:
+    label: "刷新知识库"
 description: Trigger a KBASE index refresh for the current KBASE agent. Use force only when the index should be rebuilt from scratch.
 clientVisible: true
 readOnly: false

@@ -1,5 +1,10 @@
 name: surface_element
-label: 网页元素操作
+label: "网页元素操作"
+i18n:
+  en:
+    label: "Interact with Page Element"
+  zh-CN:
+    label: "网页元素操作"
 description: "Fill, select, focus or scroll one element identified by a CSS selector. Use surface_click to click. Verify the expected state afterwards. Prefer a matching AWCP section when the page provides one."
 clientVisible: true
 inputSchema:

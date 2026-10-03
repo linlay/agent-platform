@@ -1,5 +1,10 @@
 name: finalize_planning
-label: 确认规划
+label: "确认规划"
+i18n:
+  en:
+    label: "Confirm Plan"
+  zh-CN:
+    label: "确认规划"
 description: Finalize the CODER planning-mode Markdown plan. This tool is only available during CODER planning mode and must be called exactly once when the plan is ready for user confirmation.
 clientVisible: false
 inputSchema:

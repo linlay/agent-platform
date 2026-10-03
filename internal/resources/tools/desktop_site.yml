@@ -1,5 +1,10 @@
 name: "desktop_site"
-label: "desktop_site"
+label: "桌面网站"
+i18n:
+  en:
+    label: "Desktop Websites"
+  zh-CN:
+    label: "桌面网站"
 description: "desktop_site: site.list, website.list, website.add, website.update, website.remove, website.open. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
 clientVisible: true
 explicitOnly: true

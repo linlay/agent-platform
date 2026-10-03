@@ -432,7 +432,7 @@ docker compose logs -f
 - [HITL协议](./docs/HITL协议.md)
 - [自动化](./docs/自动化.md)
 - [智能体调度（含 `agent_invoke`、TEAM 隐藏调度与独立 run 工具组）](./docs/子智能体调度.md)
-- [MCP与工具交互](./docs/MCP与工具交互.md)
+- [MCP与工具交互](./docs/MCP与工具交互.md)：工具协议与[工具展示多语言](./docs/MCP与工具交互.md#工具展示多语言)，名称按客户端语言解析，模型使用原始英文描述。
 - [会话存储与回放](./docs/会话存储与回放.md)
 - [鉴权与安全边界](./docs/鉴权与安全边界.md)
 - [版本化打包方案](./docs/版本化打包方案.md)

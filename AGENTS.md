@@ -292,3 +292,5 @@ Platform 在启动时读取 `configs/tools.yml` 顶层 `preset-tools`，自动�
 普通 Native Agent 支持 `configs/tools.yml` 并列的 `preset-tools` / `preset-connectors`；预置连接器按完整包与显式声明合并去重，不回写 agent.yml。示例预置 builtin.web-control，平台管理仍由部署者显式配置；详情见 [智能体配置说明](docs/智能体配置说明.md#platform-预置连接器)。控制工具已支持逐项结果的批量归档/恢复，以及 agent.yml 环境变量脱敏与 preservePaths 原文编辑；大会话搜索继续保留 8 MiB 跳过保护，向量化摘要留待后续。
 
 Catalog 控制查询提供 resourceTypes 能力枚举，provider 与 MCP 声明组件只读 list/get；Provider 凭据和端点不回显，MCP 按 connectorId/component 表示，不能以连接器数代替 MCP 数。列表提供 total/hasMore 与 nextCursor，须完整分页；运行时 MCP 同步仍通过 platform_inspect 缓存快照。支持矩阵及未纳入资源见 [平台控制连接器](docs/Platform控制工具设计.md#catalog-源文件事务)。
+
+工具 YAML 支持展示用 `i18n.{en,zh-CN}.{label,description}`；内嵌 63 个工具（含两个 Native connector 的 27 个工具）仅配置 label 翻译，不配置 i18n.description，原始及 Schema description 保持英文。模型工具定义不带 label/翻译表。Native tool.start/snapshot 冻结内部展示快照，HTTP/WS/回放/导出按查看者语言解析并移除翻译表；旧历史不迁移，前端已有缓存需重载。见 [工具展示多语言](docs/MCP与工具交互.md#工具展示多语言)。
