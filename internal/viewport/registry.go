@@ -1,6 +1,7 @@
 package viewport
 
 import (
+	"agent-platform/internal/resources"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -16,6 +17,14 @@ func NewRegistry(root string) *Registry {
 }
 
 func (r *Registry) Get(viewportKey string) (map[string]any, bool, error) {
+	// Builtins cannot be shadowed by a runtime file or remote viewport server.
+	if viewportKey == "platform_control_review" {
+		html, err := resources.ViewportFS.ReadFile("viewports/platform_control_review.html")
+		if err != nil {
+			return nil, false, err
+		}
+		return map[string]any{"viewportKey": viewportKey, "html": string(html)}, true, nil
+	}
 	if strings.TrimSpace(viewportKey) == "confirm_dialog" {
 		return map[string]any{
 			"viewportKey": "confirm_dialog",

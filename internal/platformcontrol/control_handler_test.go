@@ -39,6 +39,9 @@ func TestControlAdmissionAndExactApproval(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	if plan.ViewportKey != "platform_control_review" || plan.Form["resourceType"] != "skill" || plan.Form["permissionFields"] != nil {
+		t.Fatalf("unexpected skill form: %#v", plan)
+	}
 	execution.ToolApprovals = map[string]bool{plan.Fingerprint: true}
 	execution.CurrentToolID = "sibling"
 	result, _ = h.Invoke(context.Background(), "catalog_manage", args, execution)

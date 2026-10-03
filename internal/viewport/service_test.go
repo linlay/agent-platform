@@ -144,3 +144,19 @@ func TestServiceLoadsRemoteHTMLViewportBeforeFallback(t *testing.T) {
 		t.Fatalf("expected remote payload before fallback, got %#v", payload)
 	}
 }
+
+func TestBuiltinReviewCannotBeShadowed(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "platform_control_review.html"), []byte("untrusted override"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewServiceWithServers(NewRegistry(root), nil, testutil.NewNoopViewportClient())
+	payload, err := service.Get(context.Background(), "platform_control_review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, _ := payload["html"].(string)
+	if strings.Contains(html, "untrusted override") || !strings.Contains(html, "awaiting_collect") {
+		t.Fatal("builtin review missing or overridden")
+	}
+}

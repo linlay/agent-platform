@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>操作审阅</title>
+<style>
+:root { color-scheme: light dark; font: 14px/1.6 system-ui, sans-serif; color: #222; --muted: #69717d; --line: #d9dee5; --code: #f3f5f7; --add: #dff5e6; --remove: #ffe5e5; }
+@media (prefers-color-scheme: dark) { :root { color: #eee; --muted: #a8aeb8; --line: #494d56; --code: #303238; --add: #163d2b; --remove: #4b262b; } }
+:root[data-theme=dark] { color: #eee; --muted: #a8aeb8; --line: #494d56; --code: #303238; --add: #163d2b; --remove: #4b262b; }
+:root[data-theme=light] { color: #222; --muted: #69717d; --line: #d9dee5; --code: #f3f5f7; --add: #dff5e6; --remove: #ffe5e5; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 8px 12px 16px; overflow-wrap: anywhere; }
+h1 { margin: 0 0 4px; font-size: 16px; }
+p { margin: 6px 0 12px; }
+.target { font-weight: 600; }
+.note, summary, .empty { color: var(--muted); }
+#changes { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.line { display: flex; white-space: pre-wrap; font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.line span { flex: 0 0 22px; text-align: center; user-select: none; }
+.line code { padding-right: 8px; min-width: 0; overflow-wrap: anywhere; }
+.add { background: var(--add); }.remove { background: var(--remove); }
+details { margin: 10px 0; } summary { cursor: pointer; }
+pre { background: var(--code); padding: 12px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
+</style>
+</head>
+<body>
+<h1 id="heading"></h1><p class="target" id="target"></p><p id="notice" class="note"></p>
+<div id="changes" aria-label="Changes"></div>
+<details id="before-section"><summary id="before-label"></summary><pre id="before"></pre></details>
+<details id="after-section"><summary id="after-label"></summary><pre id="after"></pre></details>
+<details id="revision-section"><summary id="revision-label"></summary><code id="revision"></code></details>
+<script>
+(() => {
+  'use strict';
+  let state = null;
+  const el = id => document.getElementById(id);
+  const text = (id, value) => { el(id).textContent = value; };
+  const strings = {
+    zh: {create:'创建资源', update:'修改资源', delete:'删除资源', chat:'删除会话', before:'查看变更前完整内容', after:'查看变更后完整内容', revision:'基准版本', unchanged:'内容没有变化。', more:'差异较长，剩余内容请展开完整文本查看。', remove:'本次操作将删除此对象，请核对目标。', once:'同意后仅执行本次操作；需要调整请拒绝并说明。', permissions:'请核对配置中的权限设置：'},
+    en: {create:'Create resource', update:'Update resource', delete:'Delete resource', chat:'Delete conversation', before:'View full original content', after:'View full proposed content', revision:'Base revision', unchanged:'No content changes.', more:'Long diff. Expand the full text to inspect the remaining content.', remove:'This operation will delete this target. Please review it.', once:'Approval applies only to this operation. Reject with feedback to request changes.', permissions:'Review the permission settings: '}
+  };
+  // Trim common edges first. Bound the LCS work for large configurations;
+  // if it exceeds the budget, show the entire changed span as a replacement.
+  function diff(before, after) {
+    const a = before ? before.split('\n') : [], b = after ? after.split('\n') : [];
+    let start = 0, end = 0;
+    while (start < a.length && start < b.length && a[start] === b[start]) start++;
+    while (end < a.length-start && end < b.length-start && a[a.length-1-end] === b[b.length-1-end]) end++;
+    const x = a.slice(start, a.length-end), y = b.slice(start, b.length-end);
+    const out = a.slice(Math.max(0,start-3), start).map(line => [' ',line]);
+    if (x.length+y.length <= 2000 && x.length*y.length <= 200000) {
+      const rows = Array.from({length:x.length+1}, () => new Uint32Array(y.length+1));
+      for (let i=x.length-1;i>=0;i--) for (let j=y.length-1;j>=0;j--) rows[i][j] = x[i] === y[j] ? rows[i+1][j+1]+1 : Math.max(rows[i+1][j],rows[i][j+1]);
+      let i=0,j=0;
+      while((i<x.length || j<y.length) && out.length<=600) {
+        if(i<x.length && j<y.length && x[i]===y[j]) {out.push([' ',x[i++]]);j++;}
+        else if(i<x.length && (j===y.length || rows[i+1][j]>=rows[i][j+1])) out.push(['-',x[i++]]);
+        else out.push(['+',y[j++]]);
+      }
+    } else {
+      for (const line of x) {out.push(['-',line]);if(out.length>600)break;}
+      for (const line of y) {if(out.length>600)break;out.push(['+',line]);}
+    }
+    for (const line of a.slice(a.length-end, a.length-end+Math.min(end,3))) out.push([' ',line]);
+    return out;
+  }
+  function render(data) {
+    state = data;
+    const f = data.form || {}, lang = String(data.locale || navigator.language).startsWith('zh') ? 'zh' : 'en', t = strings[lang];
+    document.documentElement.lang = lang;
+    if (data.colorScheme === 'dark' || data.colorScheme === 'light') {
+      document.documentElement.dataset.theme = data.colorScheme;
+      document.documentElement.style.colorScheme = data.colorScheme;
+    }
+    const deleting = f.action === 'delete', before = typeof f.before === 'string' ? f.before : '', after = typeof f.after === 'string' ? f.after : '';
+    text('heading', deleting ? (f.resourceType === 'chat' ? t.chat : t.delete) : (f.baseRevision ? t.update : t.create));
+    text('target', [f.resourceType,f.resourceKey,f.path].filter(v => typeof v==='string' && v).join(' / '));
+    const fields = Array.isArray(f.permissionFields) ? f.permissionFields.filter(v => typeof v==='string') : [];
+    text('notice', (deleting ? t.remove : t.once) + (fields.length ? ' '+t.permissions+fields.join(', ') : ''));
+    text('before-label',t.before);text('after-label',t.after);text('revision-label',t.revision);
+    text('before',before);text('after',after);text('revision',f.baseRevision || '');
+    el('before-section').hidden = !before;el('after-section').hidden = deleting || !after;el('revision-section').hidden = !f.baseRevision;
+    const changes = el('changes');changes.replaceChildren();changes.hidden = !(before || after);
+    if (before === after && before) { const p=document.createElement('p');p.className='empty';p.textContent=t.unchanged;changes.append(p);return; }
+    const lines = diff(before,after);
+    for (const [sign,line] of lines.slice(0,600)) {
+      const row=document.createElement('div'), prefix=document.createElement('span'), code=document.createElement('code');
+      row.className='line '+(sign==='+'?'add':sign==='-'?'remove':'');prefix.textContent=sign;code.textContent=line || ' ';row.append(prefix,code);changes.append(row);
+    }
+    if (lines.length>600) {const p=document.createElement('p');p.className='note';p.textContent=t.more;changes.append(p);}
+  }
+  addEventListener('message', event => {
+    if (event.source !== parent) return;
+    const message=event.data;
+    if (!message || typeof message!=='object') return;
+    if ((message.type==='awaiting_init' || message.type==='awaiting_update') && message.data?.mode==='form') render(message.data);
+    if (message.type==='awaiting_collect' && state && message.data?.runId===state.runId && message.data?.awaitingId===state.awaitingId && message.data?.decision==='submit') {
+      parent.postMessage({type:'frontend_awaiting_submit',params:[{id:state.activeFormId,decision:'approve',form:state.form || {}}]},'*');
+    }
+  });
+})();
+</script>
+</body>
+</html>

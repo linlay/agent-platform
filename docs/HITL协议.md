@@ -39,7 +39,7 @@ assistant tool_calls[]
 - `question`：来自 `ask_user_question`，`params` 每项提交 `answer` 或 `answers`。
 - `approval`：来自 Bash HITL 或文件工具越权路径审批，用户只能 approve / approve_rule_run / reject，不能修改命令内容。
 - `run_env` 的 set/unset/update 不增加专用 HITL；它们是 operation-aware barrier，执行时校验 key、value、最终状态限额、revision 与有界幂等收据。
-- `form`：来自 Bash HITL html form，approve 时提交修改后的 `form`，reject 可带 `reason`。
+- `form`：用于 HTML 表单。Bash HITL 表单 approve 时用提交的 `form` 重建命令；工具审阅表单只批准后端冻结的调用，不使用返回的 form 改写参数。reject 可带 `reason`。
 - `planning`：wire-format 中来自 CODER 的 planning confirmation，`awaiting.ask.planning` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。它不是 `plan_*` / plan-tasks 的执行任务计划。
 
 native CODER planning 的 `planning approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；旧 live stream 随后以 `reason:"done"` 正常结束，不再追加新 run 的 `run.start`。旧 run 完成后，服务端启动新的 execute run，并通过 WebSocket push `run.started { runId, chatId, agentKey, startedAt }` 暴露新 `runId`；`startedAt` 等于该 run 注册时捕获的 epoch milliseconds。webclient 应在旧 stream done 后 attach 新 `runId` 获取执行流。新 run 自己的 stream 首部为 execution run bootstrap `request.query`，包含标准 query 字段 `requestId` / `runId` / `chatId` / `role` / `message`，然后是新 run 的 `run.start`。`planning reject` 不启动新 run，仍留在当前 planning run 中生成下一版 planning 或结束。
@@ -135,3 +135,5 @@ native Agent/Team 协调器的 `/api/steer` 可传 `references:[{type:"selection
 HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创建连接的 transport、device 或 lane；既有 Agent/Team owner、等待项、参数校验和重复提交仲裁保持不变。其他 Run 控制入口仍要求原连接归属；等待项恢复以及 planning 创建的新执行 Run 继承原控制归属，不由 Submit 请求改绑。详见 [API与协议](API与协议.md)。
 
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
+
+平台控制内置审阅使用 `mode: form` 与 `viewportType: html, viewportKey: platform_control_review`，不需要挂载 VIEW。业务数据位于 `forms[].form`，通用 approval 无 review 扩展。模板与授权相互独立：仅服务端保存的一次性指纹可授权；客户端超时不能自动提交，HTML form 仅在宿主 collect 后响应，拒绝不依赖 iframe。详见 [平台控制工具](Platform控制工具设计.md#强制一次性审批)。

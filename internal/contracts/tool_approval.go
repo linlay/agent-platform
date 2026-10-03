@@ -12,7 +12,8 @@ import (
 type ToolApproval struct {
 	Fingerprint string         `json:"fingerprint"`
 	Title       string         `json:"title"`
-	Details     map[string]any `json:"details"`
+	ViewportKey string         `json:"viewportKey,omitempty"`
+	Form        map[string]any `json:"form,omitempty"`
 }
 type ToolApprovalPlanner interface {
 	PrepareToolApproval(context.Context, string, map[string]any, *ExecutionContext) (*ToolApproval, error)

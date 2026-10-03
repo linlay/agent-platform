@@ -284,15 +284,7 @@ func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitConte
 		return AwaitingSubmitContext{}
 	}
 	summaries, truncated := SummarizeApprovals(awaitAsk.Approvals)
-	var exact []string
-	for _, raw := range awaitAsk.Approvals {
-		item := AnyMapNode(raw)
-		if AnyStringNode(item["fingerprint"]) != "" {
-			exact = append(exact, AnyStringNode(item["id"]))
-		}
-	}
 	return AwaitingSubmitContext{
-		ExactApprovalIDs:   exact,
 		Summaries:          summaries,
 		SummariesTruncated: truncated,
 		AwaitingID:         awaitAsk.AwaitingID,
@@ -305,15 +297,7 @@ func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitConte
 
 func awaitingContextFromDeltaAsk(awaitAsk DeltaAwaitAsk) AwaitingSubmitContext {
 	summaries, truncated := SummarizeApprovals(awaitAsk.Approvals)
-	var exact []string
-	for _, raw := range awaitAsk.Approvals {
-		item := AnyMapNode(raw)
-		if AnyStringNode(item["fingerprint"]) != "" {
-			exact = append(exact, AnyStringNode(item["id"]))
-		}
-	}
 	return AwaitingSubmitContext{
-		ExactApprovalIDs:   exact,
 		Summaries:          summaries,
 		SummariesTruncated: truncated,
 		AwaitingID:         awaitAsk.AwaitingID,

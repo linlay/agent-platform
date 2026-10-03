@@ -862,7 +862,7 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		return SubmitAck{Accepted: false, Status: "already_resolved", SubmitID: firstNonBlankSubmitID(resolved.Request.SubmitID, req.SubmitID), Detail: detail}
 	}
 	awaiting := c.awaitingSubmits[awaitingID]
-	if len(awaiting.ExactApprovalIDs) > 0 && len(req.Params) > 0 {
+	if len(awaiting.ExactApprovalIDs) > 0 {
 		items, err := queryinput.DecodeSubmitParams(req.Params)
 		valid := err == nil && len(items) == len(awaiting.ExactApprovalIDs)
 		if valid {

@@ -159,7 +159,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		return nil, err
 	}
 	var digest string
-	var details map[string]any
+	var form map[string]any
 	if tool == "catalog_manage" {
 		if h.sources == nil {
 			return nil, fmt.Errorf("catalog service unavailable")
@@ -169,7 +169,10 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 			return nil, err
 		}
 		digest = plan.Digest
-		details = map[string]any{"resourceType": plan.Change.ResourceType, "resourceKey": plan.Change.ResourceKey, "path": plan.Change.Path, "baseRevision": plan.Change.BaseRevision, "before": plan.Before, "after": plan.After, "generatedFiles": plan.GeneratedFiles, "reviewFields": []string{"toolConfig", "connectorConfig", "skillConfig", "hostAccess", "accessLevel"}}
+		form = map[string]any{"action": action, "resourceType": plan.Change.ResourceType, "resourceKey": plan.Change.ResourceKey, "path": plan.Change.Path, "baseRevision": plan.Change.BaseRevision, "before": plan.Before, "after": plan.After}
+		if action == "apply" && plan.Change.ResourceType == "agent" && (plan.Change.Path == "" || plan.Change.Path == "agent.yml") {
+			form["permissionFields"] = []string{"toolConfig", "connectorConfig", "skillConfig", "hostAccess", "accessLevel"}
+		}
 	} else {
 		if action != "delete" {
 			return nil, nil
@@ -182,9 +185,9 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		if err != nil {
 			return nil, err
 		}
-		details = map[string]any{"chatId": p["chatId"], "archived": archived, "baseRevision": digest}
+		form = map[string]any{"action": action, "resourceType": "chat", "resourceKey": p["chatId"], "archived": archived, "baseRevision": digest}
 	}
-	return &contracts.ToolApproval{Fingerprint: contracts.ToolApprovalFingerprint(e, tool, action, digest), Title: tool + " / " + action, Details: details}, nil
+	return &contracts.ToolApproval{Fingerprint: contracts.ToolApprovalFingerprint(e, tool, action, digest), Title: tool + " / " + action, ViewportKey: "platform_control_review", Form: form}, nil
 }
 func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]any, e *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
 	action, p, err := h.admitted(tool, args, e)

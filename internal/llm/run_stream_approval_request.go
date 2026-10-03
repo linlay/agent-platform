@@ -151,7 +151,11 @@ func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error 
 
 	if s.runControl != nil {
 		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
-		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
+		context := awaitingContextFromDeltaAsk(awaitDelta)
+		if request.kind == approvalKindTool {
+			context.ExactApprovalIDs = []string{invocation.toolID}
+		}
+		s.runControl.ExpectSubmit(context)
 	}
 	s.activeToolCall = nil
 	if s.execCtx != nil {
@@ -162,6 +166,12 @@ func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error 
 }
 
 func (s *llmRunStream) approvalRequestArgs(request approvalRequest) map[string]any {
+	if plan := request.toolApproval; request.kind == approvalKindTool && plan != nil && plan.ViewportKey != "" {
+		return map[string]any{
+			"mode": "form", "viewportType": "html", "viewportKey": plan.ViewportKey,
+			"forms": []any{map[string]any{"id": request.invocation.toolID, "title": plan.Title, "form": CloneMap(plan.Form)}},
+		}
+	}
 	if request.kind == approvalKindHITL {
 		return s.buildHITLArgs(request.invocation, request.result)
 	}

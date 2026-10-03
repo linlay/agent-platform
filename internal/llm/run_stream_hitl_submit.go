@@ -84,6 +84,18 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	if strings.EqualFold(AnyStringNode(normalized["mode"]), "form") {
 		selectedForm := firstAwaitItem(normalized["forms"])
 		decision := strings.ToLower(strings.TrimSpace(AnyStringNode(selectedForm["decision"])))
+		// Tool review forms approve the frozen invocation. Their return payload
+		// is never used to rewrite tool arguments or grant a broader permission.
+		if request := invocation.shownApproval; request != nil && request.kind == approvalKindTool {
+			reason := strings.TrimSpace(AnyStringNode(selectedForm["reason"]))
+			s.applyHITLDecision(invocation, *match, awaitingID, decision, reason, decision == "approve")
+			if decision != "approve" {
+				s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
+				return nil
+			}
+			invocation.approvalDecision = decision
+			return s.executeApprovedApprovalRequest(*request)
+		}
 		if decision == "approve" {
 			formPayload := AnyMapNode(selectedForm["form"])
 			rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
@@ -300,7 +312,7 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 
 func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) map[string]any {
 	if request := invocation.shownApproval; request != nil && request.kind == approvalKindTool && request.toolApproval != nil {
-		return map[string]any{"id": invocation.toolID, "toolName": invocation.toolName, "command": request.toolApproval.Title, "description": request.toolApproval.Title, "review": request.toolApproval.Details, "fingerprint": request.toolApproval.Fingerprint, "options": []any{map[string]any{"decision": "approve"}}, "allowFreeText": true}
+		return map[string]any{"id": invocation.toolID, "toolName": invocation.toolName, "command": request.toolApproval.Title, "description": request.toolApproval.Title, "options": []any{map[string]any{"decision": "approve"}}, "allowFreeText": true}
 	}
 
 	command := mapStringArg(invocation.args, "command")
