@@ -3,7 +3,7 @@ name: platform-control
 description: Manage Platform definitions, conversations, diagnostics, and Desktop applications using the mounted platform control connector.
 ---
 
-Use `{action,args}` with the appropriate tool. Read [catalog](references/catalog.md) before catalog changes and [chat](references/chat.md) before conversation changes. Desktop action arguments and confirmation remain owned by Desktop. Page/WorkPanel operations use the separate web-control connector.
+Use `{action,args}` with the appropriate tool. Use catalog_query resourceTypes to discover the supported resource/operation matrix. Read [catalog](references/catalog.md) before catalog discovery or changes and [chat](references/chat.md) before conversation changes. Desktop action arguments and confirmation remain owned by Desktop. Page/WorkPanel operations use the separate web-control connector.
 
 Catalog and Chat tools require an ordinary native root Run. Standalone exposes only catalog_query, catalog_manage, chat_query, chat_manage and platform_inspect. Never substitute files or shell commands to bypass a rejected management operation.
 

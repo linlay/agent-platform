@@ -1,6 +1,6 @@
 name: "catalog_query"
 label: 查询目录
-description: "list: resourceType, status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation). Read before updating to obtain baseRevision."
+description: "resourceTypes: no args, discover supported resources and operations. list: resourceType (agent/team/skill/connector/model/provider/tool/mcp), status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation). Read before updating to obtain baseRevision."
 clientVisible: true
 explicitOnly: true
 readOnly: true
@@ -15,13 +15,14 @@ inputSchema:
       description: "Required. Exact action owned by this tool; see its mounted skill reference."
       type: "string"
       enum:
+        - "resourceTypes"
         - "list"
         - "get"
         - "defaults"
         - "validate"
     args:
       type: "object"
-      description: "list: resourceType, status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation). Read before updating to obtain baseRevision."
+      description: "resourceTypes: no args, discover supported resources and operations. list: resourceType (agent/team/skill/connector/model/provider/tool/mcp), status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation). Read before updating to obtain baseRevision."
   required:
     - "action"
   additionalProperties: false

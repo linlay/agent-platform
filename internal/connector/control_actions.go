@@ -7,6 +7,7 @@ type ControlAction struct {
 }
 
 var controlActions = []ControlAction{
+	{"catalog_query", "resourceTypes", true},
 	{"catalog_query", "list", true},
 	{"catalog_query", "get", true},
 	{"catalog_query", "defaults", true},
