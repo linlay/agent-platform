@@ -116,7 +116,7 @@ func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx 
 		return planTaskTransitionFailure(state, transitionErr), nil
 	}
 	t.persistPlanTasksSnapshot(execCtx, state)
-	return ToolExecutionResult{Output: "OK", Structured: planStatePayload(state), ExitCode: 0}, nil
+	return structuredResult(planStatePayload(state)), nil
 }
 
 func ensurePlanState(execCtx *ExecutionContext) *PlanRuntimeState {
@@ -150,6 +150,17 @@ func planTaskTransitionFailure(state *PlanRuntimeState, transitionErr *plantasks
 	payload["taskId"] = transitionErr.TaskID
 	payload["fromStatus"] = transitionErr.FromStatus
 	payload["toStatus"] = transitionErr.ToStatus
+	switch transitionErr.Code {
+	case apperrors.CodePlanTaskNotCurrent:
+		payload["message"] = fmt.Sprintf("Plan update was not applied: task %s is currently in_progress; task %s cannot advance to %s.", transitionErr.CurrentTaskID, transitionErr.TaskID, transitionErr.ToStatus)
+		payload["recovery"] = "Use the returned plan to resolve the current task with its actual outcome before advancing a later task. Do not repeat this update unchanged or mark a task completed merely to unblock another task."
+	case apperrors.CodePlanTaskPredecessorIncomplete:
+		payload["message"] = fmt.Sprintf("Plan update was not applied: preceding task %s is not terminal; task %s cannot advance to %s.", transitionErr.BlockingTaskID, transitionErr.TaskID, transitionErr.ToStatus)
+		payload["recovery"] = "Use the returned plan to handle the first non-terminal task in list order, recording its actual outcome before advancing a later task. Do not repeat this update unchanged or mark a task completed merely to unblock another task."
+	default:
+		payload["message"] = fmt.Sprintf("Plan update was not applied: task %s cannot transition from %s to %s.", transitionErr.TaskID, transitionErr.FromStatus, transitionErr.ToStatus)
+		payload["recovery"] = "Use the returned plan to choose a legal transition: init to in_progress or a terminal status, in_progress to a terminal status, or the same status. Terminal tasks cannot change status; append a new task for retry. Preserve list order and at most one in_progress task. Do not repeat this update unchanged."
+	}
 	if transitionErr.CurrentTaskID != "" {
 		payload["currentTaskId"] = transitionErr.CurrentTaskID
 	}

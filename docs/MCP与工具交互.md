@@ -38,7 +38,7 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 工具定义可选声明 `outputSchema`。没有 `outputSchema` 的 MCP 或 Desktop action result 按不透明 JSON 透传；平台不会根据 `createdAt`、`timestamp`、`iso` 等字段名猜测时间语义。
 
-本地 `plan_add_tasks`、`plan_get_tasks`、`plan_update_task` 使用有序、单活动任务状态机。新 task 固定为 `init` 且不会自动启动；只允许最前面的非终态 task 由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，且只有当前活动 task 可由 `in_progress` 进入任一终态。相同状态更新幂等，终态重试通过追加新 task 表达。非法更新不改变内存或 snapshot，工具结果分别使用稳定错误码 `plan_task_predecessor_incomplete`、`plan_task_not_current`、`invalid_plan_task_transition`，并在 structured result 中返回未变化的 plan 和状态诊断。
+本地 `plan_add_tasks`、`plan_get_tasks`、`plan_update_task` 使用有序、单活动任务状态机。新 task 固定为 `init` 且不会自动启动；只允许最前面的非终态 task 由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，且只有当前活动 task 可由 `in_progress` 进入任一终态。相同状态更新幂等，终态重试通过追加新 task 表达。非法更新不改变内存或 snapshot，工具结果分别使用稳定错误码 `plan_task_predecessor_incomplete`、`plan_task_not_current`、`invalid_plan_task_transition`，并在 structured result 中返回未变化的 plan 和状态诊断。 Plan 状态转移错误额外提供 `message` 与 `recovery`，明确本次更新未生效、当前/阻塞任务及纠正方向；应直接使用返回快照纠正调用，必要时再调用 `plan_get_tasks`，不要原样重试或为解除阻塞将任务标为完成。`plan_update_task` 成功时向模型返回与 Structured 相同的 JSON 快照（`planId`、`plan`、有活动项时的 `currentTaskId`），不再只返回 `OK`；`plan_add_tasks` 的新增任务文本返回保持不变。
 
 ## 图片生成与产物发布 URL
 

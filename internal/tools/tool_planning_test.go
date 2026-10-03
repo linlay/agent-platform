@@ -615,6 +615,7 @@ func TestPlanUpdateTaskSupportsInProgressAndDescriptionUpdate(t *testing.T) {
 	if result.ExitCode != 0 {
 		t.Fatalf("expected in_progress update success, got %#v", result)
 	}
+	assertPlanModelSnapshot(t, result)
 	if execCtx.PlanState.ActiveTaskID != "task_1" {
 		t.Fatalf("active task=%q want task_1", execCtx.PlanState.ActiveTaskID)
 	}
@@ -635,6 +636,7 @@ func TestPlanUpdateTaskSupportsInProgressAndDescriptionUpdate(t *testing.T) {
 	if result.ExitCode != 0 {
 		t.Fatalf("expected completed update success, got %#v", result)
 	}
+	assertPlanModelSnapshot(t, result)
 	if execCtx.PlanState.ActiveTaskID != "" {
 		t.Fatalf("active task=%q want empty", execCtx.PlanState.ActiveTaskID)
 	}
@@ -778,4 +780,88 @@ Write a standard planning document.
 ## Assumptions
 - Use chat .tools/planning
 `
+}
+
+// Model history consumes Output while clients consume Structured. Both must
+// describe the same post-update or unchanged rejected plan.
+func assertPlanModelSnapshot(t *testing.T, result ToolExecutionResult) {
+	t.Helper()
+	var output, structured any
+	if err := json.Unmarshal([]byte(result.Output), &output); err != nil {
+		t.Fatalf("model result is not a JSON snapshot: %q: %v", result.Output, err)
+	}
+	data, err := json.Marshal(result.Structured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &structured); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(output, structured) {
+		t.Fatalf("model/client plan mismatch: %s / %s", result.Output, data)
+	}
+}
+
+func TestPlanUpdateTaskErrorGuidancePreservesStateAndSnapshot(t *testing.T) {
+	cases := []struct {
+		name, firstStatus, taskID, toStatus, code, blockingID, currentID string
+	}{
+		{"other_task_completed_while_active", "in_progress", "b", "completed", "plan_task_not_current", "a", "a"},
+		{"second_active_task", "in_progress", "b", "in_progress", "plan_task_predecessor_incomplete", "a", "a"},
+		{"pending_predecessor_completion", "init", "b", "completed", "plan_task_predecessor_incomplete", "a", ""},
+		{"pending_predecessor_start", "init", "b", "in_progress", "plan_task_predecessor_incomplete", "a", ""},
+		{"terminal_restart", "completed", "a", "in_progress", "invalid_plan_task_transition", "", ""},
+		{"terminal_rewrite", "failed", "a", "completed", "invalid_plan_task_transition", "", ""},
+		{"active_reset", "in_progress", "a", "init", "invalid_plan_task_transition", "", "a"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+			state := &PlanRuntimeState{PlanID: "p", ActiveTaskID: tc.currentID, Tasks: []PlanTask{
+				{TaskID: "a", Description: "first", Status: tc.firstStatus},
+				{TaskID: "b", Description: "second", Status: "init"},
+			}}
+			execCtx := &ExecutionContext{Session: QuerySession{RunID: "r", ChatID: "c"}, PlanState: state}
+			executor.persistPlanTasksSnapshot(execCtx, state)
+			path := plantasks.Path(root, "c", "r")
+			beforeFile, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := *state
+			before.Tasks = append([]PlanTask(nil), state.Tasks...)
+			// Repeating a rejected update still must not mutate state or description.
+			for attempt := 0; attempt < 2; attempt++ {
+				result, err := executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{
+					"taskId": tc.taskID, "status": tc.toStatus, "description": "must not be applied",
+				}, execCtx)
+				if err != nil || result.ExitCode != -1 || result.Error != tc.code {
+					t.Fatalf("unexpected rejection: %#v %v", result, err)
+				}
+				assertPlanModelSnapshot(t, result)
+				if AnyStringNode(result.Structured["blockingTaskId"]) != tc.blockingID || AnyStringNode(result.Structured["currentTaskId"]) != tc.currentID {
+					t.Fatalf("wrong blocking/current task: %#v", result.Structured)
+				}
+				message := AnyStringNode(result.Structured["message"])
+				recovery := AnyStringNode(result.Structured["recovery"])
+				if !strings.Contains(message, "not applied") || !strings.Contains(message, "task "+tc.taskID) || !strings.Contains(recovery, "Do not repeat") {
+					t.Fatalf("missing correction guidance: %#v", result.Structured)
+				}
+				if tc.blockingID != "" && (!strings.Contains(message, "task "+tc.blockingID) || !strings.Contains(recovery, "actual outcome")) {
+					t.Fatalf("missing blocker/outcome guidance: %#v", result.Structured)
+				}
+				if tc.code == "invalid_plan_task_transition" && (!strings.Contains(message, "from "+tc.firstStatus+" to "+tc.toStatus) || !strings.Contains(recovery, "append a new task")) {
+					t.Fatalf("missing transition/retry guidance: %#v", result.Structured)
+				}
+				if !reflect.DeepEqual(state, &before) || !reflect.DeepEqual(result.Structured["plan"], PlanTasksArray(&before)) {
+					t.Fatalf("rejection changed plan: %#v", result)
+				}
+				afterFile, err := os.ReadFile(path)
+				if err != nil || string(afterFile) != string(beforeFile) {
+					t.Fatalf("rejection changed persisted snapshot: %v", err)
+				}
+			}
+		})
+	}
 }
