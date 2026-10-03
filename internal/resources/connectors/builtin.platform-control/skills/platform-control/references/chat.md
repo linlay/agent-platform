@@ -13,7 +13,7 @@ Use chat_query and chat_manage in an ordinary native main root Run with builtin.
 ## Management
 
 - rename: `{chatId?, chatName}`; omitted Chat means current.
-- setPinned: `{chatId?, pinned}`; pinning uses the shared instance-wide Chat ordering service.
+- setPinned: `{chatId?, pinned}`; example: `{"action":"setPinned","args":{"pinned":true}}`; pinning uses the shared instance-wide Chat ordering service.
 - archive / restore: exactly one of `{chatId}` or `{chatIds:["id1","id2"]}`. Batches accept 1–100 distinct IDs, validate the request before mutation, then check ownership and execute each Chat independently. Return `total`, `succeeded`, `failed`, and `results` with `chatId`, `success`, `error` on failure and `executionState`. Continue after failures; successful changes are not rolled back. Retry only the failed IDs after inspecting their errors and any unknown execution state.
 - fork: `{sourceChatId, sourceRunId?, chatName?}` creates an independent Chat using the existing derivation service.
 - export: `{chatId, archived?, format:"markdown"|"snapshot"}` writes visible Markdown or the full standard Snapshot V1 timeline into the current Chat and returns a relative url. It does not publish the file or send it elsewhere.
