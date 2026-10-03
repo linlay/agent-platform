@@ -26,7 +26,7 @@
 - steer 支持 `selection.text` 纯文本选区（不要求视觉模型），以及通过 `/api/upload` 上传后以 `references` 注入当前 native Agent/Team 协调器的图片与普通文件（含 HTML/MD），允许纯附件及混合附件；视觉模型准入冻结图片输入，非视觉模型的图片和普通文件为经校验的工具读取引用，公开事件仅带引用，JSONL 仅保存 message/references，续聊按当前模型能力重建附件输入（图片不保留历史版本，失效附件提示不可用），旧 messages 快照兼容读取。同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，仅最后一次主 Run 明确异常结束或取消后允许完全空白表示继续；空 query 的 message 保持为空，仅模型输入补充英文继续指令，steer 同样接受完全空白，表示继续（公开 message 为空，模型输入补充独立的“立即进行下一步”指令）；远端附件路径尚不支持。
 - 活动 native CODER planning 的阶段切换保留 steer；生成候选计划或等待确认期间的新指令使旧计划失效，并在同一 Run 中重新规划。旧确认与 steer 原子仲裁，已失效计划不能被迟到的 approve 执行；失效事件和工具结果进入回放，跨进程 suspended 等待仍通过 submit 恢复。见 [HITL协议](docs/HITL协议.md)。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账；活动 Run 保留收尾权，恢复 claim 失败不退回补写，无执行者的补写按等待项串行并重新读取持久化状态。Host Bash builtin 审批准备与启动分离，单次/本轮人工批准后均可恢复符合条件的并发；一次性授权绑定 toolID，不随执行上下文复制给兄弟调用，写入与控制操作屏障仍保持顺序。同一 Host Bash 的 access/security 与 builtin 技能 hook 在首次审批合并冻结，批准后新增未授权 hook 按要求变化收口，不复用已回答的等待项，见 [Bash审批卡住排查](docs/Bash审批卡住排查.md)。
-- 已具备固定 Schema 的 `platform_control` system control plane：Agent 显式挂载 Tool 即可调用全部注册 operation；`run.env.*` 仅保留当前普通 native root run 的 `set/unset`，使用进程内并发 Scope、operation-aware barrier 和 Host/Container 新 command snapshot，不修改 Platform 进程环境，也不跨 Platform 重启恢复。遗留 `runtimeConfig.runEnv` 静默忽略。 `chat.set_pinned` 为普通 native root Run 提供当前/指定 Chat 的实例级持久置顶，复用 conversation 服务及 `chats.order.changed` 广播；planning、子任务与 Team 不开放。
+- `platform_control` 管理平台控制操作，`run_env` 独立管理普通 native root Run 的动态环境（list/set/unset/update/explain）。动态值、revision 与有界幂等收据仅在进程内；set/unset/update 使用 operation-aware barrier 和 Host/Container 新 command snapshot，不改 Platform 环境、不跨重启恢复。`run_env` 全部参数（包括 value、idempotencyKey）不脱敏；子任务/Team 隐藏该工具并拒绝执行。`chat.set_pinned` 保留在 platform_control。见 [Run 环境工具](docs/Run环境工具.md)。
 - 已具备默认关闭的 SQLite memory、FTS 文本检索、显式记录与手工 consolidate。Memory embedding、learn/自动反馈和上下文预览已退役；KBASE 能力独立保留。
 - 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
 - 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 与其他内置类型一样合并 Platform 预置工具与 `agent.yml` 声明的工具，并使用声明的技能、连接器和 memory（没有固定工具集，新建时仅写入未被 Platform 预置覆盖的文件工具），main/editing 两种 stage 工具相同，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
@@ -78,7 +78,7 @@ cmd/agent-platform/main.go
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
 - `internal/runtime`：HTTP/WS 无关的 Query 与 Run 应用运行时；`types` 保存内部命令和结果，`query` 实现普通/旁聊 Query 准入、根 Run 注册/控制、Native 阻塞与异步启动、continuation 仲裁及重启 awaiting 对账，`session` 统一构造根/子 Agent/Team 的执行上下文和 system-init，`catalogview/reference` 承接租约快照与引用物化；`runstate` 持有活动 Run、observer、compact 协调与恢复等待项的唯一内存存储实现，`runexec` 执行 Native 生命周期、usage/终态落盘和 freeze 收尾，`orchestration` 执行子 Agent/Team 调度与结果回注。App 直接组装以上组件，不再反向注入 Server Native 方法。`adapter` 仅适配旧执行器/catalog DTO；根 Proxy 的 SSE/WS/channel 驱动仍通过显式 ProxyPort 保留在 Server，生命周期全面统一归 R18，不能写成已完成。Runtime 不得依赖 `internal/server`；边界与集成注意见 [Runtime模块边界](docs/Runtime模块边界.md)。
 - `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；直接依赖 `internal/runtime` 的窄接口，不经过 Server。
-- `internal/platformcontrol` 与 `internal/runenv`：统一 system control operation registry/handler，以及当前普通 native root run 的进程内并发 Scope、revision、limits 与幂等状态。
+- `internal/platformcontrol` 维护平台控制操作；`internal/runenvops` 维护独立 run_env handler；`internal/runenv` 保存进程内 Scope、revision、限额及摘要幂等收据；`internal/toolpolicy` 提供中立操作调度属性。
 - `internal/server`：HTTP/WS 解码、鉴权、响应映射、SSE flush 和迁移期薄适配；不得直接依赖 `llm`、`tools` 或具体 Agent mode。
 - `internal/conversation`、`internal/adminsource`、`internal/chatresource`：分别承接会话/归档编排、管理端源码 mutation 并发事务、Chat 资源解析与 mutation 边界。
 - `internal/llm`：prompt 构建、run stream、HITL、planning、tool loop；Provider HTTP 打开、首响应超时和响应分类由 `internal/modelclient` 承接。
@@ -222,7 +222,7 @@ make test
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件只使用相对于当前 Chat 的 `<relativePath>`，也可引用普通 Agent Workspace 或冻结临时根内的实际 Host 绝对路径与 HTTP(S)/data/blob；Markdown 不使用 `@temp`。真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
-- `platform_control` 对所有 Agent 使用同一固定 Schema；Agent 显式挂载 Tool 即获得全部注册 operation，Skill 与 `mustUseSkills` 不会替 Agent 挂载 Tool。动态 key 无需预声明，只有当前普通 native root run 成功 set 的 key 才能 unset；set value 是会进入会话、trace 与导出的普通 Tool 参数，不得承载 Secret。子 Agent、Team、ACP、Proxy、Channel、Terminal、MCP、LSP、sidecar 和已启动进程不继承。旧 `platform_config` 以及 `platform-control.profiles/bindings` 配置硬失败，遗留 `runtimeConfig.runEnv` 静默忽略。
+- `platform_control` 与 `run_env` 各自使用固定 Schema，准入按有效 Tools；run_env 默认挂载到普通 Native GENERAL/CODER/KBASE，不依赖 preset-tools，可通过 excludeTools 排除、无需写入 agent.yml；Skill 不替 Agent 挂载其他工具。run-env 仅有 deny-keys 与三个限额，没有 enabled；platform-control.enabled 不影响它。旧 platform-control 环境配置和旧 run.env 操作硬失败；遗留 runtimeConfig.runEnv 继续静默忽略。
 - Memory 全局默认关闭；Agent `memoryConfig.embedding/autoRemember`、Provider `memory` 已退役，出现即报错。runtime memory 的两个 hybrid weight 和 prompts 的 `memory` 节已退役，加载时静默忽略，不阻止启动，也不恢复旧能力。旧数据库及 schema 保留；静态 memory.md、Chat 摘要/压缩和 KBASE 不属于该退役范围。
 - 文件工具权限独立于 Bash 权限，普通越权路径通过 HITL approval 兜底；readonly、临时根逃逸与其他 hard block 不产生可放宽的 HITL。
 - `AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR` 与 `AP_ACCESS_TOKEN` 为 Platform 保留变量。Agent/Skill/run.env/调用配置共用 `shellenv.UnsafeOverride`；技能 `.runtime-env.json` 的 PATH 只追加额外目录。Host 工具环境按 `bash.inherit-env` 名单继承，`SSH_AUTH_SOCK` 仅给 Git 网络操作，默认 Bash 无登录 profile。AP_ACCESS_TOKEN 仅在验证的 oneid-token 直接 CLI 和对应 MCP 身份链路即时注入，不进入普通 Host Shell。有效 StateDir 与 identity 文件三档均拒绝普通工具读写；完整隔离与敏感读取例外尚未落地，见 [改造进度](docs/AccessPolicy与HITL改造.md)。
@@ -248,7 +248,8 @@ make test
 - [真流式和H2A](docs/真流式和H2A.md)：SSE、heartbeat、`[DONE]`、attach、backlog、H2A 缓冲。
 - [记忆系统](docs/记忆系统.md)：SQLite 手工记录、FTS 文本检索、consolidate、memory tools 与已退役能力。
 - [运行时和沙箱](docs/运行时和沙箱.md)：runtime 目录、Container Hub、mounts、host / sandbox 工具边界。
-- [Platform控制工具设计](docs/Platform控制工具设计.md)：`platform_control` operation、显式工具挂载、run-local 环境快照、并发、脱敏、恢复与执行通道边界。
+- [Platform控制工具设计](docs/Platform控制工具设计.md)：平台控制操作、工具挂载和 Catalog 校验。
+- [Run环境工具](docs/Run环境工具.md)：动态环境、原子 update、幂等限额、执行通道、恢复与硬切迁移。
 - [KBASE LanceDB 检索与控制面](docs/KBASE-LanceDB检索与控制面.md)：LanceDB sidecar、control.db、generation、加权 RRF、恢复、回滚与分发边界。
 - [KBASE 编辑模式](docs/KBASE编辑模式.md)：`editingMode`、通用文本文件、AccessPolicy/HITL、watcher 异步索引和 KBASE Workspace/Chats 分离。
 - [KBASE 编辑模式越权对抗测试报告](docs/KBASE编辑模式越权对抗测试报告.md)：准入、固定工具集（历史结论，见报告内适用范围说明）、HITL、approval replay、路径逃逸、chat 隔离和索引 hook 的红队验证记录。

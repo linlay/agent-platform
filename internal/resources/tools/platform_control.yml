@@ -8,7 +8,7 @@ clientVisible: true
 explicitOnly: true
 readOnly: false
 operationAware: true
-tags: [platform, control, run-env, validation, chat]
+tags: [platform, control, validation, chat]
 inputSchema:
   type: object
   properties:
@@ -20,8 +20,6 @@ inputSchema:
         - catalog.defaults.get
         - catalog.validate
         - chat.set_pinned
-        - run.env.set
-        - run.env.unset
         - runtime.status
         - security.explain
     params:

@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,7 +74,7 @@ func TestBuildQuerySessionRejectsRemovedRunTool(t *testing.T) {
 func TestBuildQuerySessionCreatesOnlyRootNativeRunEnvironment(t *testing.T) {
 	runs := runstate.NewManager()
 	server := &Server{deps: Dependencies{Runs: runs}}
-	definition := catalog.AgentDefinition{Key: "ordinary", Mode: "REACT", Tools: []string{"platform_control"}}
+	definition := catalog.AgentDefinition{Key: "ordinary", Mode: "REACT", Tools: []string{"run_env"}}
 	request := api.QueryRequest{AgentKey: "ordinary", ChatID: "chat-root", RunID: "run-root", Role: "user"}
 	session, err := server.BuildQuerySession(context.Background(), request, chat.Summary{ChatID: "chat-root"}, definition, querySessionBuildOptions{})
 	if err != nil {
@@ -85,6 +88,9 @@ func TestBuildQuerySessionCreatesOnlyRootNativeRunEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if slices.Contains(child.ToolNames, "run_env") {
+		t.Fatal("child model can see run_env")
+	}
 	if child.RunEnvironment != nil {
 		t.Fatal("subtask acquired the root run environment")
 	}
@@ -93,7 +99,17 @@ func TestBuildQuerySessionCreatesOnlyRootNativeRunEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	if withoutTool.RunEnvironment != nil {
-		t.Fatal("agent without platform_control acquired a run environment")
+		t.Fatal("agent without run_env acquired a run environment")
+	}
+	teamRequest := request
+	teamRequest.TeamID = "team"
+	team, err := server.BuildQuerySession(context.Background(), teamRequest, chat.Summary{ChatID: "chat-root"}, definition, querySessionBuildOptions{SubTaskID: "member"})
+	if err != nil || team.RunEnvironment != nil || slices.Contains(team.ToolNames, "run_env") {
+		t.Fatalf("team %#v %v", team, err)
+	}
+	legacy, err := server.BuildQuerySession(context.Background(), request, chat.Summary{ChatID: "chat-root"}, catalog.AgentDefinition{Key: "ordinary", Mode: "GENERAL", Tools: []string{"platform_control"}, DeclaredTools: []string{"run_env"}}, querySessionBuildOptions{})
+	if err != nil || legacy.RunEnvironment != nil {
+		t.Fatalf("used declared or legacy tools: %#v %v", legacy.RunEnvironment, err)
 	}
 	runs.Finish("run-root")
 }
@@ -175,7 +191,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 		t.Fatalf("build query session: %v", err)
 	}
 
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task", "run_env"}
 	if !reflect.DeepEqual(session.ToolNames, wantTools) {
 		t.Fatalf("tool names = %#v, want %#v", session.ToolNames, wantTools)
 	}
@@ -1015,5 +1031,43 @@ func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {
 	}
 	if paramsSession.PlanningMode {
 		t.Fatalf("did not expect params.planningMode to enable planning mode")
+	}
+}
+
+func TestRunEnvDefaultMountRespectsExclusionWithoutPreset(t *testing.T) {
+	for _, excluded := range []bool{false, true} {
+		t.Run(fmt.Sprint(excluded), func(t *testing.T) {
+			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {}, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
+				cfg.PresetTools = nil
+				if excluded {
+					p := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+					data, err := os.ReadFile(p)
+					if err != nil {
+						t.Fatal(err)
+					}
+					updated := strings.Replace(string(data), "toolConfig:\n", "toolConfig:\n  excludeTools:\n    - run_env\n", 1)
+					if updated == string(data) {
+						t.Fatal("missing toolConfig")
+					}
+					if err := os.WriteFile(p, []byte(updated), 0644); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}})
+			def, ok := fixture.registry.AgentDefinition("mock-agent")
+			if !ok {
+				t.Fatal("missing agent")
+			}
+			if slices.Contains(def.DeclaredTools, "run_env") {
+				t.Fatal("automatic tool became declared")
+			}
+			session, err := fixture.server.BuildQuerySession(context.Background(), api.QueryRequest{AgentKey: "mock-agent", ChatID: "env-chat", RunID: "env-run", Role: "user"}, chat.Summary{ChatID: "env-chat"}, def, querySessionBuildOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (session.RunEnvironment != nil) == excluded || slices.Contains(session.ToolNames, "run_env") == excluded {
+				t.Fatalf("exclude=%v scope=%v tools=%v", excluded, session.RunEnvironment, session.ToolNames)
+			}
+		})
 	}
 }

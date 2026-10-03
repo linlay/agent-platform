@@ -170,6 +170,15 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	)
 	toolNames := BuildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
 	toolNames = RuntimeModeToolNames(toolNames, s.deps.Config.RuntimeMode)
+	if options.SubTaskID != "" || strings.TrimSpace(req.TeamID) != "" {
+		filtered := make([]string, 0, len(toolNames))
+		for _, name := range toolNames {
+			if !strings.EqualFold(strings.TrimSpace(name), "run_env") {
+				filtered = append(filtered, name)
+			}
+		}
+		toolNames = filtered
+	}
 	toolNames = agentbuiltin.CoderRuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentbuiltin.CoderMainStage, toolNames)
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
@@ -265,7 +274,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	if !options.DisableSkillScriptGrants && !IsProxyRoutedAgent(agentDef) && !agentbuiltin.IsCoderACPBackend(agentDef.Mode, agentDef.ACPBridgeID) && !strings.EqualFold(agentDef.Mode, agentbuiltin.TeamMode) {
 		session.SkillScripts = BuildSkillScriptScope(session, agentDef, mustUseSkills.Skills)
 	}
-	if options.SubTaskID == "" && strings.TrimSpace(req.TeamID) == "" && !IsProxyRoutedAgent(agentDef) && ContainsTool(agentDef.Tools, "platform_control") {
+	if options.SubTaskID == "" && strings.TrimSpace(req.TeamID) == "" && !IsProxyRoutedAgent(agentDef) && ContainsTool(agentDef.Tools, "run_env") {
 		if existing, ok := LookupRunEnvironment(s.deps.Runs, req.RunID); ok {
 			session.RunEnvironment = existing
 		} else {
@@ -301,7 +310,7 @@ func LookupRunEnvironment(runs contracts.RunManager, runID string) (*runenv.Scop
 }
 
 func (s *Builder) NewRunEnvironmentScope() *runenv.Scope {
-	cfg := s.deps.Config.PlatformControl
+	cfg := s.deps.Config.RunEnv
 	return runenv.NewScope(runenv.Limits{
 		MaxDynamicKeys:  cfg.MaxDynamicKeys,
 		MaxValueBytes:   cfg.MaxValueBytes,

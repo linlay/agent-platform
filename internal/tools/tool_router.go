@@ -11,7 +11,6 @@ import (
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
-	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/timecontract"
 	"agent-platform/internal/toolargs"
 	"agent-platform/internal/toolpolicy"
@@ -295,8 +294,8 @@ func (r *ToolRouter) SupportsToolOutput(toolName string, execCtx *ExecutionConte
 }
 
 func allowsReadOnlyInvocation(def api.ToolDetailResponse, found bool, toolName string, args map[string]any) bool {
-	if strings.EqualFold(strings.TrimSpace(toolName), platformcontrol.ToolName) || strings.EqualFold(strings.TrimSpace(def.Name), platformcontrol.ToolName) {
-		descriptor, ok := platformcontrol.InvocationDescriptor(platformcontrol.ToolName, args)
+	if toolpolicy.OperationAware(toolName) || toolpolicy.OperationAware(def.Name) {
+		descriptor, ok := toolpolicy.InvocationDescriptor(def.Name, args)
 		return found && ok && descriptor.ReadOnly
 	}
 	return toolpolicy.AllowsReadOnly(def, found)

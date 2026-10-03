@@ -1,0 +1,35 @@
+name: run_env
+label: 运行环境
+description: |
+  Automatically mounted for native Agents. Manage only this native root Run's process-local dynamic environment. Operations:
+  list {} returns variables/revision/usage/limits; explain {key?} explains rules without reading static values;
+  set {key,value,expectedRevision?,idempotencyKey?}; unset {key,expectedRevision?,idempotencyKey?};
+  update {set?:{KEY:"value"},unset?:["KEY"],expectedRevision?,idempotencyKey?} atomically changes a nonempty batch.
+  Missing unset keys, duplicate normalized keys, intersections and unknown fields fail the whole request.
+  Values and idempotencyKey are visible in tool history and logs: never supply secrets.
+  Changes affect subsequent Host/Container tool commands only, never child Agents, Teams or other Runs.
+  No persistence across restart. Mutations are forbidden in read-only stages.
+clientVisible: true
+explicitOnly: false
+readOnly: false
+operationAware: true
+tags: [run, environment]
+inputSchema:
+  type: object
+  properties:
+    operation:
+      type: string
+      description: Required. Operation in the current Run.
+      enum:
+        - list
+        - set
+        - unset
+        - update
+        - explain
+    params:
+      type: object
+      description: Optional. Operation-specific parameters as described above.
+      maxProperties: 4
+  required:
+    - operation
+  additionalProperties: false

@@ -68,6 +68,8 @@ groups:
     description:
       zh-CN: 制作网页应用和平台技能
       en-US: Build web apps and platform skills
+    tools:
+      - platform_control
     skills:
       - webapp-creator
       - skill-creator
@@ -82,6 +84,8 @@ groups:
     description:
       zh-CN: 管理智能体、模型、技能和连接器等平台资源
       en-US: Manage agents, models, skills, connectors and other platform resources
+    tools:
+      - platform_control
     skills:
       - platform-admin
     connectors:

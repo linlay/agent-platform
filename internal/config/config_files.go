@@ -514,6 +514,15 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 			return err
 		}
 	}
+	if raw, exists := values["run-env"]; exists {
+		values, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s: run-env must be a mapping", path)
+		}
+		if err := c.applyRunEnvValues(path, values); err != nil {
+			return err
+		}
+	}
 	if platformControl, ok := values["platform-control"].(map[string]any); ok && len(platformControl) > 0 {
 		if err := c.applyPlatformControlValues(path, platformControl); err != nil {
 			return err
@@ -549,17 +558,33 @@ func (c *Config) applyPlatformControlValues(path string, values map[string]any) 
 		}
 	}
 	c.PlatformControl.Enabled = boolValue(anyValue(values["enabled"], c.PlatformControl.Enabled), c.PlatformControl.Enabled)
-	c.PlatformControl.DenyKeys = csvOrList(anyValue(values["deny-keys"], c.PlatformControl.DenyKeys), c.PlatformControl.DenyKeys)
-	c.PlatformControl.MaxDynamicKeys = intValue(anyValue(values["max-dynamic-keys"], c.PlatformControl.MaxDynamicKeys), c.PlatformControl.MaxDynamicKeys)
-	c.PlatformControl.MaxValueBytes = intValue(anyValue(values["max-value-bytes"], c.PlatformControl.MaxValueBytes), c.PlatformControl.MaxValueBytes)
-	c.PlatformControl.MaxTotalBytes = intValue(anyValue(values["max-total-bytes"], c.PlatformControl.MaxTotalBytes), c.PlatformControl.MaxTotalBytes)
+	for _, key := range []string{"deny-keys", "max-dynamic-keys", "max-value-bytes", "max-total-bytes"} {
+		if _, exists := values[key]; exists {
+			return fmt.Errorf("%s: platform-control.%s was removed; move it to run-env.%s", path, key, key)
+		}
+	}
+	return nil
+}
+
+func (c *Config) applyRunEnvValues(path string, values map[string]any) error {
+	for key := range values {
+		switch key {
+		case "deny-keys", "max-dynamic-keys", "max-value-bytes", "max-total-bytes":
+		default:
+			return fmt.Errorf("%s: unknown run-env.%s", path, key)
+		}
+	}
+	c.RunEnv.DenyKeys = csvOrList(anyValue(values["deny-keys"], c.RunEnv.DenyKeys), c.RunEnv.DenyKeys)
+	c.RunEnv.MaxDynamicKeys = intValue(anyValue(values["max-dynamic-keys"], c.RunEnv.MaxDynamicKeys), c.RunEnv.MaxDynamicKeys)
+	c.RunEnv.MaxValueBytes = intValue(anyValue(values["max-value-bytes"], c.RunEnv.MaxValueBytes), c.RunEnv.MaxValueBytes)
+	c.RunEnv.MaxTotalBytes = intValue(anyValue(values["max-total-bytes"], c.RunEnv.MaxTotalBytes), c.RunEnv.MaxTotalBytes)
 	for field, value := range map[string]int{
-		"max-dynamic-keys": c.PlatformControl.MaxDynamicKeys,
-		"max-value-bytes":  c.PlatformControl.MaxValueBytes,
-		"max-total-bytes":  c.PlatformControl.MaxTotalBytes,
+		"max-dynamic-keys": c.RunEnv.MaxDynamicKeys,
+		"max-value-bytes":  c.RunEnv.MaxValueBytes,
+		"max-total-bytes":  c.RunEnv.MaxTotalBytes,
 	} {
 		if value <= 0 {
-			return fmt.Errorf("%s: platform-control.%s must be greater than zero", path, field)
+			return fmt.Errorf("%s: run-env.%s must be greater than zero", path, field)
 		}
 	}
 	return nil

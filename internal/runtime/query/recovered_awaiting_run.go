@@ -216,7 +216,7 @@ func (s *Service) RegisterRecoveredAwaitingRun(item chat.PendingAwaitingWithChat
 		AccessLevel:     sessionbuild.NormalizedAccessLevel(original.AccessLevel),
 		EditingMode:     editingMode,
 	}
-	if admission.TeamID == "" && !sessionbuild.IsProxyRoutedAgent(admission.AgentDef) && sessionbuild.ContainsTool(admission.AgentDef.Tools, "platform_control") {
+	if admission.TeamID == "" && !sessionbuild.IsProxyRoutedAgent(admission.AgentDef) && sessionbuild.ContainsTool(admission.AgentDef.Tools, "run_env") {
 		session.RunEnvironment = s.deps.Sessions.NewRunEnvironmentScope()
 	}
 	if item.Mode == "wait" {

@@ -17,7 +17,6 @@ import (
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
-	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolargs"
 	"agent-platform/internal/toolpolicy"
@@ -231,7 +230,7 @@ func (s *llmRunStream) prioritizeAwaitingToolCalls(invocations []*preparedToolIn
 		if invocation == nil {
 			continue
 		}
-		if descriptor, ok := platformcontrol.InvocationDescriptor(invocation.toolName, invocation.args); ok && descriptor.Barrier {
+		if descriptor, ok := toolpolicy.InvocationDescriptor(invocation.toolName, invocation.args); toolpolicy.OperationAware(invocation.toolName) && (!ok || descriptor.Barrier) {
 			// A barrier preserves the provider's exact call order. In particular,
 			// approval preflight must not move a later run.env mutation ahead of a
 			// process launch that is required to observe the previous revision.
@@ -358,7 +357,7 @@ func (s *llmRunStream) isConcurrentToolInvocation(invocation *preparedToolInvoca
 	if invocation == nil {
 		return false
 	}
-	if descriptor, ok := platformcontrol.InvocationDescriptor(invocation.toolName, invocation.args); ok {
+	if descriptor, ok := toolpolicy.InvocationDescriptor(invocation.toolName, invocation.args); ok {
 		return descriptor.ReadOnly && !descriptor.Barrier
 	}
 	switch strings.ToLower(strings.TrimSpace(invocation.toolName)) {
@@ -1814,8 +1813,8 @@ func (s *llmRunStream) readOnlyToolDenied(toolName string, args map[string]any) 
 	if s == nil || s.execCtx == nil || !IsReadOnlyToolExecutionPolicy(s.execCtx.ToolExecutionPolicy) {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(toolName), platformcontrol.ToolName) {
-		descriptor, ok := platformcontrol.InvocationDescriptor(toolName, args)
+	if toolpolicy.OperationAware(toolName) {
+		descriptor, ok := toolpolicy.InvocationDescriptor(toolName, args)
 		return !ok || !descriptor.ReadOnly
 	}
 	def, found := s.lookupToolDefinition(toolName)

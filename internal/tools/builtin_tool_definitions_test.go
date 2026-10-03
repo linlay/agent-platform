@@ -241,7 +241,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"finalize_planning": true, "image_generate": true,
 		"kbase_files": true, "kbase_read": true, "kbase_refresh": true, "kbase_search": true, "kbase_status": true,
 		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
-		"platform_control": true, "regex": true, "vision_recognize": true, "web_fetch": true,
+		"platform_control": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true,
 	}
 	for _, def := range defs {
 		visible, ok := def.Meta["catalogVisible"].(bool)
@@ -743,7 +743,7 @@ func TestPlatformControlSchemaIsFixedAndSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform_control operation schema = %#v", properties["operation"])
 	}
-	if got, want := operation["enum"], []any{"capabilities.list", "catalog.defaults.get", "catalog.validate", "chat.set_pinned", "run.env.set", "run.env.unset", "runtime.status", "security.explain"}; !reflect.DeepEqual(got, want) {
+	if got, want := operation["enum"], []any{"capabilities.list", "catalog.defaults.get", "catalog.validate", "chat.set_pinned", "runtime.status", "security.explain"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("platform_control operation enum = %#v, want %#v", got, want)
 	}
 	if got, want := platformControl.Parameters["required"], []any{"operation"}; !reflect.DeepEqual(got, want) {

@@ -6,37 +6,34 @@ import (
 	"strings"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/toolpolicy"
 )
 
 const ToolName = "platform_control"
 
 type Descriptor struct {
-	Name           string
+	toolpolicy.Operation
 	RiskClass      string
-	ReadOnly       bool
-	Barrier        bool
 	SensitivePaths []string
-	AllowedStages  []string
 	Validate       func(map[string]any) error
 	Invoke         func(*ToolHandler, string, map[string]any, *contracts.ExecutionContext) contracts.ToolExecutionResult
 }
 
 var descriptors = map[string]Descriptor{
-	"capabilities.list":    operation("capabilities.list", "low", true, false, nil, "all"),
-	"catalog.defaults.get": operation("catalog.defaults.get", "low", true, false, nil, "all"),
-	"catalog.validate":     operation("catalog.validate", "low", true, false, nil, "all"),
-	"chat.set_pinned":      operation("chat.set_pinned", "low", false, true, nil, "main"),
-	"run.env.set":          operation("run.env.set", "high", false, true, []string{"params.idempotencyKey"}, "main"),
-	"run.env.unset":        operation("run.env.unset", "high", false, true, []string{"params.idempotencyKey"}, "main"),
-	"runtime.status":       operation("runtime.status", "low", true, false, nil, "all"),
-	"security.explain":     operation("security.explain", "low", true, false, nil, "all"),
+	"capabilities.list":    operation("capabilities.list", "low"),
+	"catalog.defaults.get": operation("catalog.defaults.get", "low"),
+	"catalog.validate":     operation("catalog.validate", "low"),
+	"chat.set_pinned":      operation("chat.set_pinned", "low"),
+	"runtime.status":       operation("runtime.status", "low"),
+	"security.explain":     operation("security.explain", "low"),
 }
 
-func operation(name, risk string, readOnly, barrier bool, sensitive []string, stage string) Descriptor {
-	return Descriptor{
-		Name: name, RiskClass: risk, ReadOnly: readOnly, Barrier: barrier, SensitivePaths: sensitive,
-		AllowedStages: []string{stage},
+func operation(name, risk string) Descriptor {
+	policy, ok := toolpolicy.LookupOperation(ToolName, name)
+	if !ok {
+		panic("missing platform operation policy: " + name)
 	}
+	return Descriptor{Operation: policy, RiskClass: risk}
 }
 
 func init() {
@@ -53,19 +50,6 @@ func init() {
 func LookupOperation(name string) (Descriptor, bool) {
 	descriptor, ok := descriptors[strings.ToLower(strings.TrimSpace(name))]
 	return descriptor, ok
-}
-
-func (d Descriptor) AllowsExecutionPolicy(policy string) bool {
-	stage := "main"
-	if strings.EqualFold(strings.TrimSpace(policy), "read_only") {
-		stage = "planning"
-	}
-	for _, allowed := range d.AllowedStages {
-		if strings.EqualFold(strings.TrimSpace(allowed), "all") || strings.EqualFold(strings.TrimSpace(allowed), stage) {
-			return true
-		}
-	}
-	return false
 }
 
 func OperationNames() []string {
@@ -101,8 +85,7 @@ func SanitizeArguments(raw string) string {
 		paths = append(append([]string(nil), descriptor.SensitivePaths...), failClosedPaths...)
 	} else {
 		// Unknown operations have no trusted argument contract. Keep their
-		// generic value field fail-closed, while registered run.env.set values
-		// remain ordinary observable tool arguments.
+		// generic value field fail-closed.
 		paths = append(paths, "params.value")
 	}
 	params, _ := args["params"].(map[string]any)
