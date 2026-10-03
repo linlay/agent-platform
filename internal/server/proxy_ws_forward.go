@@ -42,8 +42,8 @@ func proxyQueryPayloadWithWorkspace(req api.QueryRequest, proxy *catalog.ProxyCo
 	return runtimeproxy.QueryPayloadWithWorkspace(queryCommandFromAPI(req), proxy, runtimeReferencesFromAPI(references), workspaceRoot)
 }
 
-func proxyForwardParams(req api.QueryRequest, workspaceRoot string) map[string]any {
-	return runtimeproxy.ForwardParams(queryCommandFromAPI(req), workspaceRoot)
+func proxyForwardParams(req api.QueryRequest, proxy *catalog.ProxyConfig, workspaceRoot string) map[string]any {
+	return runtimeproxy.ForwardParams(queryCommandFromAPI(req), proxy, workspaceRoot)
 }
 
 func proxyRequestHasReservedCWD(params map[string]any) bool {

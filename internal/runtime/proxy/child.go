@@ -38,7 +38,7 @@ func RunChild(ctx context.Context, runID string, taskID string, subReq runtimety
 	if chatID := strings.TrimSpace(proxy.ChatID); chatID != "" {
 		payload["chatId"] = chatID
 	}
-	if params := ForwardParams(subReq, workspaceRoot); params != nil {
+	if params := ForwardParams(subReq, proxy, workspaceRoot); params != nil {
 		payload["params"] = params
 	}
 	body, err := json.Marshal(payload)

@@ -73,7 +73,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		"message":     req.Message,
 		"accessLevel": req.AccessLevel,
 		"references":  proxyReferences,
-		"params":      proxyForwardParams(req, prepared.Session.WorkspaceRoot),
+		"params":      proxyForwardParams(req, proxy, prepared.Session.WorkspaceRoot),
 		"model":       req.Model,
 		"scene":       req.Scene,
 	}

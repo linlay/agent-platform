@@ -1,11 +1,60 @@
 package proxy
 
 import (
+	"reflect"
 	"testing"
 
 	"agent-platform/internal/catalog"
 	runtimetypes "agent-platform/internal/runtime/types"
+	"agent-platform/internal/stream"
 )
+
+func TestForwardParamsWorkspaceTrustBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		proxy     *catalog.ProxyConfig
+		workspace string
+		cwd       any
+	}{
+		{"no route", nil, "/private/workspace", nil},
+		{"loopback proxy", &catalog.ProxyConfig{BaseURL: "http://127.0.0.1:17071"}, "/private/workspace", nil},
+		{"channel", &catalog.ProxyConfig{ChannelID: "peer"}, "/private/workspace", nil},
+		{"ACP", &catalog.ProxyConfig{LocalACP: true}, "/private/workspace", "/private/workspace"},
+		{"ACP missing workspace", &catalog.ProxyConfig{LocalACP: true}, "", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, params := range []map[string]any{nil, {"channel": "desktop", "cwd": "/untrusted"}} {
+				req := runtimetypes.QueryCommand{Params: params}
+				got := ForwardParams(req, tc.proxy, tc.workspace)
+				if got["cwd"] != tc.cwd {
+					t.Fatalf("cwd = %#v, want %#v", got["cwd"], tc.cwd)
+				}
+				if got["channel"] != params["channel"] {
+					t.Fatalf("lost params: %#v", got)
+				}
+				if params != nil && params["cwd"] != "/untrusted" {
+					t.Fatalf("mutated original request: %#v", params)
+				}
+				frame := QueryPayloadWithWorkspace(req, tc.proxy, nil, tc.workspace)
+				if !reflect.DeepEqual(frame["payload"].(map[string]any)["params"], got) {
+					t.Fatalf("WS payload differs from HTTP params: %#v", frame)
+				}
+			}
+		})
+	}
+}
+
+func TestNormalizeQueryEventRemovesEchoedExecutionCWD(t *testing.T) {
+	params := map[string]any{"cwd": "/private/workspace", "channel": "desktop"}
+	event := NormalizeEventIdentity(stream.EventData{Type: "request.query", Payload: map[string]any{"params": params}}, runtimetypes.QueryCommand{ChatID: "local-chat"})
+	got := event.Payload["params"].(map[string]any)
+	if _, exists := got["cwd"]; exists || got["channel"] != "desktop" || event.String("chatId") != "local-chat" {
+		t.Fatalf("unexpected public query event: %#v", event)
+	}
+	if params["cwd"] != "/private/workspace" {
+		t.Fatal("mutated upstream params")
+	}
+}
 
 func TestQueryPayloadDoesNotInjectHostWorkspace(t *testing.T) {
 	payload := QueryPayloadWithWorkspace(runtimetypes.QueryCommand{

@@ -150,6 +150,8 @@ type AgentRuntimePrompts struct {
 // ProxyConfig configures PROXY mode: forward /api/query to a remote
 // AGW-compatible service (e.g. claude-code relay-server on port 3210).
 type ProxyConfig struct {
+	// LocalACP is set only by trusted ACP routing, never from Agent YAML or query input.
+	LocalACP     bool   `json:"-" yaml:"-"`
 	BaseURL      string // e.g. http://127.0.0.1:3210
 	WebSocketURL string // optional direct websocket endpoint for CHANNEL imports
 	Transport    string // ws or sse; defaults to ws for bidirectional run control

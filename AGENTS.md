@@ -39,6 +39,8 @@
 
 Native Agent 通过 preset-tools 或显式声明挂载 `wait`：offset 优先于 base，时间为必填上限，顶层 description 始终必填且非空（纯时间与条件等待均需要），可选多事件 any/all，同 Run steer 唤醒，空白 steer 表示继续并可提前结束等待（按普通 steer 入队与持久化，正文为空，无专用 skip 接口）；tool.wait/update 支持 WebClient 倒计时及 attach 快照。等待暂停执行预算、受 lifetimeTimeout 约束，普通根 Run 使用 awaiting 恢复，子任务/Team/非空 run.env 不跨重启恢复。见 [原生等待工具](docs/原生等待工具.md)。
 
+ACP CODER 仅向 `acp-bridges` 显式注册且共享 Workspace 的 bridge 转发冻结的 canonical Workspace 为 `params.cwd`；该能力由私有路由标记控制，用户 cwd 仍拒绝，普通 PROXY/CHANNEL 不注入宿主路径。详见 [ACP 工作目录契约](docs/智能体配置说明.md#本机-acp-工作目录契约)。
+
 ## 2. 技术栈
 
 - 语言：Go

@@ -222,7 +222,7 @@ Memory 深度调优使用 `configs/runtime.yml` 中的 `memory.*`。
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 
-ACP CODER bridge 在 `configs/coder-settings.yml` 的 `acp-bridges` 中定义；agent 以顶层 `engine: acp` 加 `runtimeConfig.acpBridgeId` 引用条目，`timeout-ms` 默认 `300000`。配置变更需重启 runtime。
+ACP CODER bridge 在 `configs/coder-settings.yml` 的 `acp-bridges` 中定义；agent 以顶层 `engine: acp` 加 `runtimeConfig.acpBridgeId` 引用条目，`timeout-ms` 默认 `300000`。配置变更需重启 runtime。ACP bridge 须能访问同一 Workspace，地址配置保持兼容；Platform 将 canonical `runtimeConfig.workspaceRoot` 作为私有 `params.cwd` 传给本机 bridge，用户不能覆盖，普通 PROXY/CHANNEL 不转发宿主 cwd。详见 [ACP 工作目录契约](docs/智能体配置说明.md#本机-acp-工作目录契约)。
 
 Provider `apiKey` 按明文字符串读取：
 
