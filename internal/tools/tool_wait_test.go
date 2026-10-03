@@ -5,6 +5,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/runenv"
 	"context"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,16 +18,16 @@ func (s waitTestSink) EmitToolOutput(context.Context, ToolOutput) error { return
 func (s waitTestSink) EmitToolWait(_ context.Context, w ToolWait) error { s.waits <- w; return nil }
 func TestWaitOffsetPriorityAndValidation(t *testing.T) {
 	now := time.Date(2026, 10, 2, 10, 0, 0, 0, time.UTC)
-	args, err := parseWaitArguments(map[string]any{"offset": "+1H30m", "base": "invalid ignored date"}, now)
+	args, err := parseWaitArguments(map[string]any{"description": "等待测试目标", "offset": "+1H30m", "base": "invalid ignored date"}, now)
 	if err != nil || args.deadline.Sub(now) != 90*time.Minute {
 		t.Fatalf("%+v %v", args, err)
 	}
 	for _, offset := range []any{"+5M", "+1w", "-5m", "0S", "1.5S", "25H", "", nil} {
-		if _, err := parseWaitArguments(map[string]any{"offset": offset, "base": "2026-10-02T11:00:00Z"}, now); err == nil {
+		if _, err := parseWaitArguments(map[string]any{"description": "等待测试目标", "offset": offset, "base": "2026-10-02T11:00:00Z"}, now); err == nil {
 			t.Fatalf("accepted %v", offset)
 		}
 	}
-	if _, err := parseWaitArguments(map[string]any{}, now); err == nil {
+	if _, err := parseWaitArguments(map[string]any{"description": "等待测试目标"}, now); err == nil {
 		t.Fatal("time upper bound required")
 	}
 }
@@ -39,7 +40,7 @@ func TestWaitWakeAndBudget(t *testing.T) {
 			exec := &ExecutionContext{RunControl: control, CurrentToolID: "call", StartedAt: time.Now(), Budget: Budget{Timeout: 1}, ToolOutputSink: sink}
 			done := make(chan ToolExecutionResult, 1)
 			go func() {
-				result, _ := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"offset": "+1H"}, exec)
+				result, _ := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"description": "等待测试目标", "offset": "+1H"}, exec)
 				done <- result
 			}()
 			select {
@@ -90,7 +91,7 @@ func TestWaitEventsAnyAllAndTimeout(t *testing.T) {
 	executor := (&RuntimeToolExecutor{}).WithWaitConditionProvider(provider)
 	conditions := []WaitCondition{{Type: "run.terminal", RunID: "done"}, {Type: "run.terminal", RunID: "pending"}}
 	for _, match := range []string{"any", "all"} {
-		result, err := executor.invokeWait(context.Background(), map[string]any{"base": time.Now().Add(20 * time.Millisecond).UTC().Format(time.RFC3339Nano), "conditions": conditions, "match": match}, nil)
+		result, err := executor.invokeWait(context.Background(), map[string]any{"description": "等待测试目标", "base": time.Now().Add(20 * time.Millisecond).UTC().Format(time.RFC3339Nano), "conditions": conditions, "match": match}, nil)
 		want := "event"
 		if match == "all" {
 			want = "timeout"
@@ -100,17 +101,17 @@ func TestWaitEventsAnyAllAndTimeout(t *testing.T) {
 		}
 	}
 	provider.count.Store(1)
-	result, _ := executor.invokeWait(context.Background(), map[string]any{"offset": "1H", "conditions": conditions, "match": "all"}, nil)
+	result, _ := executor.invokeWait(context.Background(), map[string]any{"description": "等待测试目标", "offset": "1H", "conditions": conditions, "match": "all"}, nil)
 	if result.Structured["reason"] != "event" {
 		t.Fatal(result)
 	}
 }
 func TestWaitPastDateAndLifetime(t *testing.T) {
-	result, _ := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"base": "2020-01-01"}, nil)
+	result, _ := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"description": "等待测试目标", "base": "2020-01-01"}, nil)
 	if result.Structured["reason"] != "elapsed" || result.Structured["dateOnly"] != true || result.Structured["deadlineAlreadyPassed"] != true {
 		t.Fatal(result)
 	}
-	result, _ = (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"offset": "1H"}, &ExecutionContext{StartedAt: time.Now(), Budget: Budget{LifetimeTimeout: 10}})
+	result, _ = (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"description": "等待测试目标", "offset": "1H"}, &ExecutionContext{StartedAt: time.Now(), Budget: Budget{LifetimeTimeout: 10}})
 	if result.Error != "wait_exceeds_run_lifetime" {
 		t.Fatal(result)
 	}
@@ -138,7 +139,7 @@ func TestChildWaitIgnoresRootSteer(t *testing.T) {
 	defer root.Finish()
 	root.EnqueueSteer(api.SteerRequest{Message: "root only"})
 	base := time.Now().Add(30 * time.Millisecond).UTC().Format(time.RFC3339Nano)
-	result, err := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"base": base}, &ExecutionContext{RunControl: root, CurrentToolID: "call", Session: QuerySession{SubTaskID: "sub_1"}})
+	result, err := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"description": "等待测试目标", "base": base}, &ExecutionContext{RunControl: root, CurrentToolID: "call", Session: QuerySession{SubTaskID: "sub_1"}})
 	if err != nil || result.Structured["reason"] != "elapsed" {
 		t.Fatal(result, err)
 	}
@@ -174,7 +175,7 @@ func TestWaitRunEnvSnapshotControlsRecovery(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				_, _ = (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"offset": "1H"}, exec)
+				_, _ = (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"description": "等待测试目标", "offset": "1H"}, exec)
 			}()
 			select {
 			case event := <-sink.waits:
@@ -191,5 +192,44 @@ func TestWaitRunEnvSnapshotControlsRecovery(t *testing.T) {
 				t.Fatal("blank steer failed")
 			}
 		})
+	}
+}
+
+func TestWaitDescriptionRequired(t *testing.T) {
+	for _, withConditions := range []bool{false, true} {
+		for _, tc := range []struct {
+			name  string
+			value any
+			omit  bool
+		}{
+			{name: "missing", omit: true},
+			{name: "empty", value: ""},
+			{name: "whitespace", value: " \t\n　"},
+			{name: "null", value: nil},
+			{name: "number", value: 42},
+			{name: "too_long", value: strings.Repeat("等", 201)},
+		} {
+			t.Run(fmt.Sprintf("conditions_%t/%s", withConditions, tc.name), func(t *testing.T) {
+				args := map[string]any{"base": "2020-01-01"}
+				if !tc.omit {
+					args["description"] = tc.value
+				}
+				if withConditions {
+					args["conditions"] = []WaitCondition{{Type: "run.terminal", RunID: "done"}}
+				}
+				result, err := (&RuntimeToolExecutor{}).invokeWait(context.Background(), args, nil)
+				if err != nil || result.Error != "invalid_wait_arguments" || !strings.Contains(result.Output, "description") {
+					t.Fatalf("expected description validation error, got %+v %v", result, err)
+				}
+			})
+		}
+		args := map[string]any{"offset": "1S", "description": "  " + strings.Repeat("等", 200) + "  "}
+		if withConditions {
+			args["conditions"] = []WaitCondition{{Type: "run.terminal", RunID: "done"}}
+		}
+		parsed, err := parseWaitArguments(args, time.Now())
+		if err != nil || parsed.description != strings.Repeat("等", 200) {
+			t.Fatalf("valid Unicode description rejected or not trimmed: %+v %v", parsed, err)
+		}
 	}
 }

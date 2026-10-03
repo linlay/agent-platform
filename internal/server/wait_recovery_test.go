@@ -184,7 +184,7 @@ func TestWaitRestartWithRunEnvSnapshots(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				_, _ = (&tools.RuntimeToolExecutor{}).Invoke(context.Background(), "wait", map[string]any{"offset": "1H"}, &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "wait-run", ToolNames: []string{"wait", "run_env"}}, RunEnvironment: scope, RunControl: control, StartedAt: started, ToolOutputSink: sink})
+				_, _ = (&tools.RuntimeToolExecutor{}).Invoke(context.Background(), "wait", map[string]any{"offset": "1H", "description": "等待测试目标"}, &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "wait-run", ToolNames: []string{"wait", "run_env"}}, RunEnvironment: scope, RunControl: control, StartedAt: started, ToolOutputSink: sink})
 			}()
 			var checkpoint *contracts.WaitCheckpoint
 			select {

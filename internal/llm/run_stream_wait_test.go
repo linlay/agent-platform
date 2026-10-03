@@ -45,7 +45,7 @@ func TestWaitSteerContinuesSameRun(t *testing.T) {
 			session := QuerySession{RunID: "run-sleep", ChatID: "chat-sleep", ToolNames: []string{"wait"}}
 			s := &llmRunStream{ctx: ctx, engine: &LLMAgentEngine{tools: executor}, session: session, runControl: control,
 				execCtx: &ExecutionContext{Session: session, RunControl: control, StartedAt: time.Now(), Budget: Budget{Tool: RetryPolicy{MaxCalls: 10}}}}
-			call := &preparedToolInvocation{toolID: "sleep-1", toolName: "wait", args: map[string]any{"offset": "+1m"}}
+			call := &preparedToolInvocation{toolID: "sleep-1", toolName: "wait", args: map[string]any{"offset": "+1m", "description": "等待测试目标"}}
 			if batch {
 				err = s.startToolCallBatch([]*preparedToolInvocation{call})
 			} else {
@@ -82,7 +82,7 @@ func TestWaitSteerContinuesSameRun(t *testing.T) {
 				t.Fatalf("wait mapping: %#v", inputs)
 			}
 			events := d.Dispatch(inputs[0])
-			if len(events) != 1 || events[0].Type != "tool.wait" || events[0].Data().String("runId") != "run-sleep" {
+			if len(events) != 1 || events[0].Type != "tool.wait" || events[0].Data().String("runId") != "run-sleep" || events[0].Data().String("description") != "等待测试目标" {
 				t.Fatalf("bad public wait: %#v", events)
 			}
 			s.pending = nil

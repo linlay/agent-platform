@@ -451,6 +451,6 @@ docker compose logs -f
 
 Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。此调整不改变连接器配置状态、Agent 挂载、工具权限或历史 Chat。
 
-原生 `sleep` 工具支持同一 Run 内等待、steer 提前唤醒与倒计时事件。显式挂载、Run 边界及 WebClient 接入见 [原生等待工具](./docs/原生等待工具.md)。
+原生 `wait` 工具支持同一 Run 内等待、steer 提前唤醒与倒计时事件；每次调用必须提供非空的顶层 `description`，说明等待目标或原因。显式挂载、Run 边界及 WebClient 接入见 [原生等待工具](./docs/原生等待工具.md)。
 
 平台管理连接器仅按部署者显式配置挂载，源码无主智能体名单；旧工具声明不自动扩权。已支持 `preset-connectors`、控制工具 agent.yml 原文保留及批量归档/恢复；搜索大文件保护和联调边界见 [Platform控制工具设计](docs/Platform控制工具设计.md#2026-10-03-审核修复与未完成项)。

@@ -15,8 +15,9 @@ inputSchema:
       description: Timezone interpreted as in datetime.
     description:
       type: string
+      minLength: 1
       maxLength: 200
-      description: Brief user-facing explanation of what is being awaited.
+      description: Required for every wait, including time-only waits. Briefly explain to the user what is being awaited and why; identify the targets when conditions are supplied. Must not be blank.
     match:
       type: string
       enum:
@@ -64,4 +65,6 @@ inputSchema:
         required:
           - type
         additionalProperties: false
+  required:
+    - description
   additionalProperties: false

@@ -37,7 +37,7 @@
 
 `contextConfig.agents` 为非授权的候选摘要引用：不可用项跳过，正常主 Agent 保持可用，管理接口与运行日志提供有界 `context_agents_unavailable` 警告，实际调用与必要执行依赖仍严格校验，见 [智能体配置说明](docs/智能体配置说明.md#context-tags)。Agent 加载不由新工具名推导 `builtin.platform-control` 挂载；旧工具名必须迁移；执行时的受信任挂载与权限检查保留，见 [Desktop 连接器](docs/连接器共享包与Desktop迁移.md#builtindesktop)。
 
-Native Agent 通过 preset-tools 或显式声明挂载 `wait`：offset 优先于 base，时间为必填上限，可选多事件 any/all，同 Run steer 唤醒，空白 steer 表示继续并可提前结束等待（按普通 steer 入队与持久化，正文为空，无专用 skip 接口）；tool.wait/update 支持 WebClient 倒计时及 attach 快照。等待暂停执行预算、受 lifetimeTimeout 约束，普通根 Run 使用 awaiting 恢复，子任务/Team/非空 run.env 不跨重启恢复。见 [原生等待工具](docs/原生等待工具.md)。
+Native Agent 通过 preset-tools 或显式声明挂载 `wait`：offset 优先于 base，时间为必填上限，顶层 description 始终必填且非空（纯时间与条件等待均需要），可选多事件 any/all，同 Run steer 唤醒，空白 steer 表示继续并可提前结束等待（按普通 steer 入队与持久化，正文为空，无专用 skip 接口）；tool.wait/update 支持 WebClient 倒计时及 attach 快照。等待暂停执行预算、受 lifetimeTimeout 约束，普通根 Run 使用 awaiting 恢复，子任务/Team/非空 run.env 不跨重启恢复。见 [原生等待工具](docs/原生等待工具.md)。
 
 ## 2. 技术栈
 

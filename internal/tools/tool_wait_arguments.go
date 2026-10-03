@@ -36,7 +36,10 @@ func parseWaitArguments(args map[string]any, now time.Time) (waitArguments, erro
 			}
 		}
 	}
-	a.description = stringArg(args, "description")
+	a.description = strings.TrimSpace(stringArg(args, "description"))
+	if a.description == "" {
+		return a, fmt.Errorf("description is required and must explain what is being awaited")
+	}
 	if utf8.RuneCountInString(a.description) > 200 {
 		return a, fmt.Errorf("description must not exceed 200 characters")
 	}
