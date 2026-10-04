@@ -109,13 +109,20 @@ func (s *Service) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryComman
 	if err != nil {
 		return runtimetypes.QueryResult{}, err
 	}
-	if session.IsProxyRoutedAgent(prepared.AgentDef) {
-		return s.deps.Proxy.Execute(ctx, prepared, hooks)
-	}
 	registered, statusErr := s.RegisterPreparedQuery(ctx, prepared)
 	if statusErr != nil {
 		releaseQuery(prepared.Release)
 		return runtimetypes.QueryResult{}, statusErr
+	}
+	if session.IsProxyRoutedAgent(prepared.AgentDef) {
+		bus, ok := s.deps.Runs.EventBus(prepared.Req.RunID)
+		if !ok {
+			releaseQuery(prepared.Release)
+			s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.Req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+			s.FinishRegisteredQuery(prepared, registered)
+			return runtimetypes.QueryResult{}, &contracts.RunToolError{Code: "internal_error", Message: "run event bus unavailable"}
+		}
+		return s.deps.Proxy.Execute(prepared, registered, bus)
 	}
 	var fullText *queryFullTextBuilder
 	var observe func(stream.EventData)

@@ -52,7 +52,7 @@ decode/auth -> Runtime.StartQuery -> Runtime.AttachRun -> transport forward
             -> subscription acknowledges delivery -> RunState finish
 ```
 
-客户端断开只关闭本订阅，不中断 Run。EventBus freeze 时订阅必须确认 delivery done，否则终态注销、Chat admission 和下一轮 Query 都可能被阻塞。SSE 与 WS 现在复用 Runtime 的相同订阅语义。
+客户端断开只关闭本订阅，不中断 Run。Proxy 上游序号可不从 1 开始：其 EventBus 显式允许在尚未淘汰任何事件时从 0 回放，后接入者不必赶在首事件前订阅；发生实际淘汰后仍严格返回 replay window exceeded，Native 与恢复 Run 不启用此例外。EventBus freeze 时订阅必须确认 delivery done，否则终态注销、Chat admission 和下一轮 Query 都可能被阻塞。SSE 与 WS 现在复用 Runtime 的相同订阅语义。
 
 Native LLM stream 在工具执行中收到取消后，先完成工具结果收尾，再交付终态或 context 错误；运行中的异步工具共享 2 秒收尾期限，结果不可确认时保留明确的未知副作用失败记录。`runexec` 继续通过 Mapper/Processor/StepWriter 持久化这些普通工具结果，终态前 flush；worker 不直接操作 Chat store 或 EventBus。持久层失败、进程崩溃或强制终止不在此内存收尾保证内，历史读取仍对无结果的有效调用 fail closed。
 
@@ -62,11 +62,11 @@ Native LLM stream 在工具执行中收到取消后，先完成工具结果收�
 
 HTTP 默认 SSE、WebSocket 启动的 Native Run、HTTP `stream:false`、Runtime 进程内阻塞调用和旧内部 Query 接口都调用 `runexec.Execute`。同步入口不再维护另一份 `Next/Map` 循环；子 Agent、Team 调度、阶段标记、awaiting、usage 聚合和 continuation 使用同一路径。子 Session 构建由共享 Session Builder 提供，Proxy 子任务 SSE 驱动位于 `runtime/proxy`。
 
-正文、usage 和 finishReason 以执行器生成并交给持久化的 `RunCompletion` 为唯一结果来源。Native 非流式响应不再用 `queryEventCollector` 的计算结果补写它们；该 collector 仍服务于 Proxy 协议适配。`fullText` 单独观察经过 Processor 的 normalized 内部事件，保留重试丢弃信号，不从公共 EventBus 反推模型轮次。StepWriter 在最终完成记录之前 flush，以保留最后一个阶段的模型信息。
+正文、usage 和 finishReason 以执行器生成并交给持久化的 `RunCompletion` 为唯一结果来源。Native 与 Proxy 非流式响应都不再用 `queryEventCollector` 的计算结果补写它们；旧 collector 仅保留为测试兼容。`fullText` 单独观察经过 Processor 的 normalized 内部事件，保留重试丢弃信号，不从公共 EventBus 反推模型轮次。StepWriter 在最终完成记录之前 flush，以保留最后一个阶段的模型信息。
 
-等待方式由入口决定：SSE/WS 断线只解除订阅，Run 可继续并通过 attach 重新订阅；阻塞调用在执行期间保持 observer，沿用原有 RunControl context，不把请求取消改成新的 Run 中断策略。执行结束后先冻结并排空事件，再注销 Run、释放准入；只有成功持久化完成的 Run 才尝试启动 continuation。
+等待方式由入口决定：SSE/WS 断线只解除订阅，Run 可继续并通过 attach 重新订阅；Native 阻塞调用保留原有执行与 RunControl context。Proxy 阻塞调用直接等待完成结果，不创建前台 observer，调用方 context 取消不终止已注册 Run；显式 interrupt、服务关闭和 Run lifetime 仍可终止执行。执行结束后先冻结并排空事件，再注销 Run、释放准入；只有成功持久化完成的 Run 才尝试启动 continuation。
 
-Runtime 的 Native 阻塞调用直接取得执行结果，不再生成 HTTP 请求或解析 SSE。旧内部 Query 的 status/body 与 SSE 回调编码器只保留在 Server 测试文件中，测试经实际 Runtime 启动/订阅或阻塞入口执行。Proxy 主 Run 保留现有 SSE/WS 驱动、完成记录捕获及非流式 collector，尚未统一到 Native 执行核心。此次调整不改变 JSONL、数据库 schema、assembler/mapper 渲染与缓冲规则、事件字段或序列。
+Runtime 的 Native 与 Proxy 阻塞调用直接取得执行结果，不再模拟 HTTP 请求或解析自身输出的 SSE。旧内部 Query 的 status/body 与 SSE 回调编码器只保留在 Server 测试文件中，测试经实际 Runtime 启动/订阅或阻塞入口执行。Proxy 的异步启动、HTTP JSON 和 automation 阻塞调用使用同一个 `ProxyExecutor`，后台持续接收上游 SSE/WS 并记账；不会等待前台 observer 才开始接收。完成落盘后直接交付阻塞结果，再按既有规则 freeze/确认订阅交付和释放 Run。Proxy 不合并进 Native 模型执行核心。此次调整不改变 JSONL、数据库 schema、assembler/mapper 渲染与缓冲规则、事件字段或序列。
 
 ## 相邻应用服务
 
@@ -83,7 +83,7 @@ R16 已移走 Native admission/session、根 Run 执行/恢复及子 Agent/Team 
 两处适配仍明确保留：
 
 - `runtime/adapter` 只转换旧 `contracts.AgentEngine` / system-init / catalog 的 DTO。Core 接受 `types.QueryCommand`；旧执行器仍接受 `api.QueryRequest`，转换集中在适配包，不持有准入、恢复或生命周期。
-- 根 Proxy 仍经 `query.ProxyPort` 接入；受管 Run 的上游 SSE/WS/channel 驱动已移到 `runtime/proxy.Driver`，公共收尾及 recorder/usage 已移到 `runtime/runexec`。Server 保留 HTTP/SSE 响应、阻塞结果捕获、非流式 collector、channel socket 适配和控制转发；需要注册时仍复用 Runtime prepared registration。旧未注册阻塞 SSE 入口暂留 Server，不改变其注册和取消语义。R18 尚未完成，不能据此宣称 Proxy 已完全迁移；Native 路径不进入 ProxyPort。
+- 根 Proxy 仍经 `query.ProxyPort` 接入；受管 Run 的上游 SSE/WS/channel 驱动已移到 `runtime/proxy.Driver`，公共收尾及 recorder/usage 已移到 `runtime/runexec`。Server 保留通用 HTTP/SSE 响应、channel socket 适配、路由配置和控制转发；所有根 Proxy 调用均通过 Runtime prepared registration，旧未注册阻塞 SSE 入口与模拟 HTTP 结果捕获已删除。R18 的路由/控制适配仍保留，不能据此宣称 ProxyPort 已完全移除；Native 路径不进入 ProxyPort。
 
 HTTP/WS 保留外部请求解码、认证、来源/transport/device/lane 校验与错误编码。Runtime 保留 Agent/Team owner、输入能力、等待项身份和权限级别校验。Submit 仍允许跨设备及 HTTP/WS；其他控制仍校验持久化 control scope。未改变外部路由、SSE/WS 字段、JSONL/SQLite schema、模型协议或工具取消收尾策略。
 

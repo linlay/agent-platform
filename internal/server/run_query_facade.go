@@ -8,8 +8,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	runtimetypes "agent-platform/internal/runtime/types"
-	"agent-platform/internal/stream"
 )
 
 func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, error) {
@@ -32,14 +30,6 @@ func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, 
 		RunID:    req.RunID,
 		Detail:   ack.Detail,
 	}, nil
-}
-
-func (s *Server) startPreparedProxyRun(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus) {
-	_ = s.proxyExecutor().Start(runtimePreparedQuery(prepared), runtimetypes.RegisteredRun(registered), eventBus, false)
-}
-
-func (s *Server) startPreparedProxyRunAndWait(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus) error {
-	return s.proxyExecutor().Start(runtimePreparedQuery(prepared), runtimetypes.RegisteredRun(registered), eventBus, true)
 }
 
 func runOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) bool {

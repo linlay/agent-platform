@@ -330,3 +330,38 @@ func TestAttachRestoresActiveWaitAfterReplayTrimming(t *testing.T) {
 	default:
 	}
 }
+
+func TestProxyInitialSequenceGapDoesNotHideReplayEviction(t *testing.T) {
+	for _, proxy := range []bool{false, true} {
+		bus := NewRunEventBus(2, 0, nil)
+		if proxy {
+			bus.AllowInitialSequenceGap()
+		}
+		bus.Publish(EventData{Seq: 7, Type: "content.delta"})
+		observer, err := bus.Subscribe(0)
+		if proxy {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if event := <-observer.Events; event.Seq != 7 {
+				t.Fatalf("first event=%+v", event)
+			}
+			bus.Unsubscribe(observer.ID)
+		} else if err == nil {
+			t.Fatal("Native replay rules changed")
+		}
+		if _, err := bus.Subscribe(3); err == nil {
+			t.Fatal("nonzero cursor bypassed replay gap")
+		}
+		bus.Publish(EventData{Seq: 8, Type: "content.delta"})
+		bus.Publish(EventData{Seq: 9, Type: "run.complete"})
+		if _, err := bus.Subscribe(0); err == nil {
+			t.Fatal("evicted events were silently skipped")
+		}
+		observer, err = bus.Subscribe(7)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bus.Unsubscribe(observer.ID)
+	}
+}

@@ -15,8 +15,7 @@ import (
 	"agent-platform/internal/stream"
 )
 
-// ProxyExecutor owns the lifecycle of registered root Proxy runs. It does not
-// own client HTTP/WS responses or the legacy unregistered blocking SSE path.
+// ProxyExecutor owns root Proxy execution independently of client observers.
 type ProxyExecutor struct {
 	BackgroundContext context.Context
 	Chats             chat.Store
@@ -30,6 +29,37 @@ type ProxyExecutor struct {
 }
 
 func (e *ProxyExecutor) Start(prepared runtimetypes.PreparedQuery, registered runtimetypes.RegisteredRun, bus *stream.RunEventBus, wait bool) error {
+	var startup chan error
+	if wait {
+		startup = make(chan error, 1)
+	}
+	e.launch(prepared, registered, bus, startup, nil)
+	if startup != nil {
+		return <-startup
+	}
+	return nil
+}
+
+func (e *ProxyExecutor) ExecuteBlocking(prepared runtimetypes.PreparedQuery, registered runtimetypes.RegisteredRun, bus *stream.RunEventBus) (runtimetypes.QueryResult, error) {
+	completed := make(chan runtimetypes.QueryResult, 1)
+	e.launch(prepared, registered, bus, nil, func(result runtimetypes.QueryResult) { completed <- result })
+	result := <-completed
+	if result.FinishReason == "error" {
+		status := 500
+		var data any
+		if len(result.ErrorPayload) > 0 {
+			data = map[string]any{"error": result.ErrorPayload}
+		}
+		if result.ErrorPayload["code"] == "time_contract_violation" {
+			status = 422
+		}
+		return result, &runtimetypes.RequestError{Status: status, Message: result.ErrorMessage, Data: data}
+	}
+	return result, nil
+}
+
+func (e *ProxyExecutor) launch(prepared runtimetypes.PreparedQuery, registered runtimetypes.RegisteredRun, bus *stream.RunEventBus, startup chan<- error, onComplete func(runtimetypes.QueryResult)) {
+	bus.AllowInitialSequenceGap()
 	e.broadcast("run.started", map[string]any{
 		"runId": prepared.Req.RunID, "chatId": prepared.Req.ChatID,
 		"agentKey": prepared.Req.AgentKey, "startedAt": registered.StartedAtMillis,
@@ -55,22 +85,14 @@ func (e *ProxyExecutor) Start(prepared runtimetypes.PreparedQuery, registered ru
 	recorder := NewProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, e.Chats, writer, registered.Control, e.Notifications, chatUsage, e.Models, e.Billing)
 	ctx, cancel := context.WithCancel(registered.RunCtx)
 	stopLifecycle := context.AfterFunc(e.BackgroundContext, cancel)
-	var startup chan error
-	if wait {
-		startup = make(chan error, 1)
-	}
 	go func() {
 		defer cancel()
 		defer stopLifecycle()
-		e.Execute(ctx, prepared, route, bus, recorder, startup, nil)
+		e.execute(ctx, prepared, route, bus, recorder, startup, onComplete)
 	}()
-	if startup != nil {
-		return <-startup
-	}
-	return nil
 }
 
-func (e *ProxyExecutor) Execute(ctx context.Context, prepared runtimetypes.PreparedQuery, route *proxy.Route, bus *stream.RunEventBus, recorder *ProxyEventRecorder, startup chan<- error, onCompletion func(chat.RunCompletion)) {
+func (e *ProxyExecutor) execute(ctx context.Context, prepared runtimetypes.PreparedQuery, route *proxy.Route, bus *stream.RunEventBus, recorder *ProxyEventRecorder, startup chan<- error, onCompletion func(runtimetypes.QueryResult)) {
 	defer func() {
 		if route != nil {
 			e.Routes.Unregister(prepared.Req.RunID, route)
@@ -92,7 +114,7 @@ func (e *ProxyExecutor) Execute(ctx context.Context, prepared runtimetypes.Prepa
 		// Deliver the recorder's result before closing observers. Waiting for
 		// delivery first would deadlock a caller that still owns its observer.
 		if onCompletion != nil && completion.RunID != "" {
-			onCompletion(completion)
+			onCompletion(recorder.Result(completion))
 		}
 		if bus != nil {
 			bus.FreezeAndWait()
@@ -151,13 +173,6 @@ func (s *proxyEventSink) ErrorAfter(err error, lastSeq int64) {
 		s.recorder.OnEvent(event)
 	}
 }
-func (s *proxyEventSink) ObserverCount() int {
-	if s.bus == nil {
-		return 0
-	}
-	return s.bus.ObserverCount()
-}
-
 func ProxyRunErrorEvent(req runtimetypes.QueryCommand, err error) stream.EventData {
 	payload := map[string]any{"runId": req.RunID, "chatId": req.ChatID, "message": err.Error(), "error": err.Error()}
 	if IsTimeContractViolation(err) {

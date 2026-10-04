@@ -19,6 +19,9 @@ import (
 )
 
 type ProxyEventRecorder struct {
+	fullText          *FullTextBuilder
+	errorPayload      map[string]any
+	errorMessage      string
 	req               runtimetypes.QueryCommand
 	agentDef          catalog.AgentDefinition
 	chatStore         chat.Store
@@ -308,6 +311,17 @@ func (r *ProxyEventRecorder) OnEvent(event stream.EventData) {
 	}
 	if event.Type == "planning.snapshot" {
 		r.markPlanningSnapshot(event)
+	}
+	if r.req.IncludeFullText {
+		if r.fullText == nil {
+			r.fullText = NewFullTextBuilder()
+		}
+		r.fullText.Consume(event)
+	}
+	if event.Type == "run.error" {
+		r.errorPayload, _ = event.Value("error").(map[string]any)
+		r.errorPayload = contracts.CloneMap(r.errorPayload)
+		r.errorMessage = proxyResultErrorMessage(event)
 	}
 	switch event.Type {
 	case "content.start":

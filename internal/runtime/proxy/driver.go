@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/httpclient"
@@ -26,7 +25,6 @@ type EventSink interface {
 	Publish(*int64, stream.EventData) (stream.EventData, error)
 	Error(error)
 	ErrorAfter(error, int64)
-	ObserverCount() int
 }
 
 // ChannelConnection is one existing inbound connection. Its owner keeps the
@@ -292,7 +290,6 @@ func (d *Driver) runSSE(
 	startup chan<- error,
 ) {
 	startupResolved := false
-	startupObserverReady := false
 	resolveStartup := func(err error) {
 		if startup == nil || startupResolved {
 			return
@@ -410,10 +407,6 @@ func (d *Driver) runSSE(
 			continue
 		}
 		resolveStartup(nil)
-		if startup != nil && !startupObserverReady {
-			startupObserverReady = true
-			waitForProxyStartupObserver(runCtx, events)
-		}
 		event, err = events.Publish(&seq, event)
 		if err != nil {
 			terminalSeen = true
@@ -431,28 +424,5 @@ func (d *Driver) runSSE(
 		err = fmt.Errorf("proxy sse read failed: %w", err)
 		resolveStartup(err)
 		events.ErrorAfter(err, seq)
-	}
-}
-
-// StartQuery must validate the first upstream SSE event before the HTTP
-// adapter commits a 200 response. Once validation succeeds, hold that event
-// briefly until the adapter has attached its observer; otherwise an upstream
-// sequence beginning above 1 could be mistaken for an expired replay window.
-func waitForProxyStartupObserver(ctx context.Context, events EventSink) {
-	if events == nil || events.ObserverCount() > 0 {
-		return
-	}
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-	for events.ObserverCount() == 0 {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			return
-		case <-ticker.C:
-		}
 	}
 }

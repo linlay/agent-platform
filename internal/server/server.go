@@ -178,7 +178,6 @@ type Server struct {
 	connectorOrder    *catalogorder.FileOrderStore
 }
 
-type syncQueryContextKey struct{}
 type chatSourceContextKey struct{}
 
 type statusRecorder struct {

@@ -36,14 +36,15 @@ func TestServerDoesNotOwnManagedProxyExecution(t *testing.T) {
 			switch decl := node.(type) {
 			case *ast.FuncDecl:
 				switch decl.Name.Name {
-				case "launchPreparedProxyRun", "runProxySSE", "runProxyInboundChannel":
+				case "launchPreparedProxyRun", "runProxySSE", "runProxyInboundChannel",
+					"handleProxyQuery", "handleProxyWebSocketQuery", "handleProxyQueryNonStream", "executePreparedProxyCompatibility":
 					t.Errorf("Server still owns managed Proxy execution: %s in %s", decl.Name.Name, path)
 				}
 			case *ast.TypeSpec:
 				// DTO/recorder aliases remain valid at the legacy HTTP boundary.
 				if _, ownsState := decl.Type.(*ast.StructType); ownsState {
 					switch decl.Name.Name {
-					case "proxyEventRecorder", "proxyUsageTracker":
+					case "proxyEventRecorder", "proxyUsageTracker", "internalQueryCapture", "queryResponseBuffer", "queryEventCollector":
 						t.Errorf("Server still owns Proxy recording state: %s in %s", decl.Name.Name, path)
 					}
 				}
