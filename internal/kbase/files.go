@@ -305,3 +305,23 @@ func pageFileEntries(entries []FileEntry, offset int, headLimit int) ([]FileEntr
 	}
 	return entries[offset:end], true
 }
+
+// FormatIndexedFiles formats a complete inventory supplied by an external
+// backend. It performs no storage access and is not used for retrieval top-K.
+func FormatIndexedFiles(entries []FileEntry, options FilesOptions) (FilesResult, error) {
+	normalized, err := normalizeFilesOptions(options)
+	if err != nil {
+		return FilesResult{}, err
+	}
+	records := make([]fileRecord, 0, len(entries))
+	for _, e := range entries {
+		records = append(records, fileRecord{Path: e.Path, Ext: e.Ext, Mime: e.Mime, Size: e.Size, Status: e.Status})
+	}
+	return filesResultFromRecords(emptyFilesResult(normalized), normalized, records)
+}
+
+// IndexedPathAllowed applies the existing capability's inclusion policy to a
+// document read or inventory entry, independently of the retired index engine.
+func IndexedPathAllowed(path string, include, exclude []string) bool {
+	return (len(include) == 0 || matchesAny(compileMatchers(include), path)) && !matchesAny(compileMatchers(exclude), path)
+}

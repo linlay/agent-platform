@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -296,6 +297,19 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 			Path: fmt.Sprintf("dist/%s/builtin.%s_%s_%s_%s.zip", version, component.Name, version, goos, goarch), Format: "zip",
 			Tree: &builtins.TreeLayout{Root: "runtime", Outputs: []builtins.TreeOutput{{Path: "connectors/builtin." + component.Name, Type: "dir"}}}}, nil
 	}
+	if component.Name == "kbx" {
+		switch goos + "/" + goarch {
+		case "darwin/arm64", "darwin/amd64", "windows/amd64":
+		default:
+			return builtins.Target{}, fmt.Errorf("KBX release does not support %s/%s", goos, goarch)
+		}
+		binary, format := "kbx", "tar.gz"
+		if goos == "windows" {
+			binary += ".exe"
+			format = "zip"
+		}
+		return builtins.Target{Path: fmt.Sprintf("dist/%s/kbx_%s_%s_%s.%s", version, version, goos, goarch, format), Format: format, Entry: binary, Output: binary}, nil
+	}
 	if exists {
 		target.Path = fmt.Sprintf("dist/%s/%s_%s_%s_%s.%s", version, component.Name, version, goos, goarch, target.Format)
 		return target, nil
@@ -334,7 +348,7 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 
 func isLocallyVersionedComponent(name string) bool {
 	switch name {
-	case "dbx", "httpx", "kbase-lance-engine", "poppler-pdftotext", builtins.GitBashComponent:
+	case "dbx", "httpx", "kbx", "kbase-lance-engine", "poppler-pdftotext", builtins.GitBashComponent:
 		return true
 	default:
 		return false
@@ -358,6 +372,20 @@ func localComponentVersion(repositoryRoot string, fallback string) (string, erro
 	path := filepath.Join(repositoryRoot, "VERSION")
 	payload, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		if filepath.Base(repositoryRoot) == "kbx" {
+			cargo, e := os.ReadFile(filepath.Join(repositoryRoot, "Cargo.toml"))
+			if e != nil {
+				return "", e
+			}
+			section := regexp.MustCompile(`(?ms)^\[package\]\s*(.*?)(?:^\[|\z)`).FindSubmatch(cargo)
+			if len(section) == 2 {
+				v := regexp.MustCompile(`(?m)^version\s*=\s*"([^"]+)"`).FindSubmatch(section[1])
+				if len(v) == 2 {
+					return string(v[1]), nil
+				}
+			}
+			return "", errors.New("KBX Cargo.toml must contain package.version")
+		}
 		return strings.TrimSpace(fallback), nil
 	}
 	if err != nil {

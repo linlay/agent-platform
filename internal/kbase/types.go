@@ -1,5 +1,7 @@
 package kbase
 
+import "encoding/json"
+
 type RefreshOptions struct {
 	RefreshID string
 	Force     bool
@@ -30,6 +32,7 @@ type RefreshResult struct {
 }
 
 type Status struct {
+	ChunksKnown        *bool             `json:"chunksKnown,omitempty"`
 	RefreshID          string            `json:"refreshId,omitempty"`
 	AgentKey           string            `json:"agentKey"`
 	Mode               string            `json:"mode"`
@@ -110,19 +113,26 @@ type SearchOptions struct {
 }
 
 type SearchResult struct {
-	AgentKey   string      `json:"agentKey"`
-	Query      string      `json:"query"`
-	Count      int         `json:"count"`
-	MatchCount int         `json:"matchCount"`
-	Offset     int         `json:"offset"`
-	Limit      int         `json:"limit"`
-	Truncated  bool        `json:"truncated"`
-	Results    []SearchHit `json:"results"`
-	Stale      bool        `json:"stale,omitempty"`
-	Indexing   bool        `json:"indexing,omitempty"`
+	RetrievalChannels        []string    `json:"retrievalChannels,omitempty"`
+	OptionalUnavailable      []string    `json:"optionalUnavailable,omitempty"`
+	Engine                   string      `json:"engine,omitempty"`
+	Degraded                 bool        `json:"degraded,omitempty"`
+	CandidateBudgetExhausted bool        `json:"candidateBudgetExhausted,omitempty"`
+	AgentKey                 string      `json:"agentKey"`
+	Query                    string      `json:"query"`
+	Count                    int         `json:"count"`
+	MatchCount               int         `json:"matchCount"`
+	Offset                   int         `json:"offset"`
+	Limit                    int         `json:"limit"`
+	Truncated                bool        `json:"truncated"`
+	Results                  []SearchHit `json:"results"`
+	Stale                    bool        `json:"stale,omitempty"`
+	Indexing                 bool        `json:"indexing,omitempty"`
 }
 
 type SearchHit struct {
+	ResultID   string  `json:"resultId,omitempty"`
+	EvidenceID string  `json:"evidenceId,omitempty"`
 	ChunkID    string  `json:"chunkId"`
 	Path       string  `json:"path"`
 	Heading    string  `json:"heading,omitempty"`
@@ -146,18 +156,20 @@ type ReadOptions struct {
 }
 
 type ReadResult struct {
-	Found      bool   `json:"found"`
-	ChunkID    string `json:"chunkId,omitempty"`
-	Path       string `json:"path,omitempty"`
-	Heading    string `json:"heading,omitempty"`
-	StartLine  int    `json:"startLine,omitempty"`
-	EndLine    int    `json:"endLine,omitempty"`
-	PageStart  int    `json:"pageStart,omitempty"`
-	PageEnd    int    `json:"pageEnd,omitempty"`
-	SlideStart int    `json:"slideStart,omitempty"`
-	SlideEnd   int    `json:"slideEnd,omitempty"`
-	SourceType string `json:"sourceType,omitempty"`
-	Content    string `json:"content,omitempty"`
+	HasMore      bool   `json:"hasMore,omitempty"`
+	NextEvidence string `json:"nextEvidence,omitempty"`
+	Found        bool   `json:"found"`
+	ChunkID      string `json:"chunkId,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Heading      string `json:"heading,omitempty"`
+	StartLine    int    `json:"startLine,omitempty"`
+	EndLine      int    `json:"endLine,omitempty"`
+	PageStart    int    `json:"pageStart,omitempty"`
+	PageEnd      int    `json:"pageEnd,omitempty"`
+	SlideStart   int    `json:"slideStart,omitempty"`
+	SlideEnd     int    `json:"slideEnd,omitempty"`
+	SourceType   string `json:"sourceType,omitempty"`
+	Content      string `json:"content,omitempty"`
 }
 
 type FilesOptions struct {
@@ -273,4 +285,20 @@ type chunkRecord struct {
 	EmbeddingModel     string
 	EmbeddingDimension int
 	UpdatedAt          int64
+}
+
+// KBX status has no exact chunk count in the current reader protocol.
+func (s Status) MarshalJSON() ([]byte, error) {
+	type plain Status
+	b, err := json.Marshal(plain(s))
+	if err != nil || s.Engine != "kbx" {
+		return b, err
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(b, &fields); err != nil {
+		return nil, err
+	}
+	delete(fields, "chunks")
+	fields["chunksKnown"] = json.RawMessage("false")
+	return json.Marshal(fields)
 }

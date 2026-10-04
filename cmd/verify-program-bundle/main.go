@@ -22,8 +22,7 @@ import (
 
 const (
 	bundleRootName = "agent-platform"
-	sidecarName    = "kbase-lance-engine"
-	engineSDK      = "lancedb=0.30.0"
+	sidecarName    = "kbx"
 	popplerName    = "poppler-pdftotext"
 )
 
@@ -115,13 +114,13 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 	sidecarPath := filepath.Join(root, filepath.FromSlash(sidecarRelativePath))
 	info, err := os.Stat(sidecarPath)
 	if err != nil {
-		return fmt.Errorf("sidecar %q: %w", sidecarRelativePath, err)
+		return fmt.Errorf("KBX executable %q: %w", sidecarRelativePath, err)
 	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("sidecar %q is not a regular file", sidecarRelativePath)
+		return fmt.Errorf("KBX executable %q is not a regular file", sidecarRelativePath)
 	}
 	if targetOS != "windows" && info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("sidecar %q is not executable", sidecarRelativePath)
+		return fmt.Errorf("KBX executable %q is not executable", sidecarRelativePath)
 	}
 
 	builtinManifest, err := readBuiltinsManifest(filepath.Join(root, "builtins.manifest.json"))
@@ -137,22 +136,22 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 	if err := builtins.VerifyPlatformSelection(root, builtinManifest); err != nil {
 		return err
 	}
+	if err := builtins.RequireKBXComponent(builtinManifest); err != nil {
+		return err
+	}
 	component, err := findSidecarComponent(builtinManifest)
 	if err != nil {
 		return err
 	}
 	if filepath.ToSlash(component.Path) != sidecarRelativePath {
-		return fmt.Errorf("builtins manifest sidecar path is %q, want %q", component.Path, sidecarRelativePath)
-	}
-	if component.SDKVersion != engineSDK {
-		return fmt.Errorf("builtins manifest sidecar sdkVersion is %q, want %q", component.SDKVersion, engineSDK)
+		return fmt.Errorf("builtins manifest KBX path is %q, want %q", component.Path, sidecarRelativePath)
 	}
 	actualSHA, err := fileSHA256(sidecarPath)
 	if err != nil {
 		return err
 	}
 	if !strings.EqualFold(component.SHA256, actualSHA) {
-		return fmt.Errorf("sidecar SHA-256 mismatch: manifest=%s actual=%s", component.SHA256, actualSHA)
+		return fmt.Errorf("KBX SHA-256 mismatch: manifest=%s actual=%s", component.SHA256, actualSHA)
 	}
 	if popplerBuiltinRequired(targetOS, targetArch) {
 		if err := verifyPopplerBuiltin(root, builtinManifest, targetOS, targetArch); err != nil {
@@ -161,17 +160,15 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 	}
 
 	for _, relativePath := range []string{
-		"licenses/kbase-lance-engine/LICENSE-APACHE-2.0",
-		"licenses/kbase-lance-engine/NOTICE",
-		"licenses/kbase-lance-engine/THIRD_PARTY_COMPONENTS.json",
-		"sbom/kbase-lance-engine.cdx.json",
+		"licenses/kbx/LICENSE",
+		"licenses/kbx/THIRD-PARTY-LICENSES.txt",
 	} {
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(relativePath)))
 		if err != nil || !info.Mode().IsRegular() {
 			if err == nil {
 				err = errors.New("not a regular file")
 			}
-			return fmt.Errorf("required sidecar release metadata %q: %w", relativePath, err)
+			return fmt.Errorf("required KBX release metadata %q: %w", relativePath, err)
 		}
 	}
 	return nil

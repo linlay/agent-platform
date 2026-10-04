@@ -456,3 +456,28 @@ func TestConnectorLockDerivesNewPlatformWithoutGitBash(t *testing.T) {
 		t.Fatal("canonical lock changed")
 	}
 }
+
+func TestKBXLocalVersionAndTargets(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "kbx")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Cargo.toml"), []byte("[package]\nname = \"kbx\"\nversion = \"1.2.3\"\n[dependencies]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	version, err := localComponentVersion(root, "1.0.0")
+	if err != nil || version != "1.2.3" {
+		t.Fatalf("%s %v", version, err)
+	}
+	component := builtins.Component{Name: "kbx", Version: version}
+	for _, target := range []string{"darwin/arm64", "darwin/amd64", "windows/amd64"} {
+		os, arch, _ := strings.Cut(target, "/")
+		got, err := localTargetTemplate(component, builtins.Target{}, false, os, arch)
+		if err != nil || !strings.HasPrefix(got.Path, "dist/v1.2.3/kbx_v1.2.3_") {
+			t.Fatalf("%+v %v", got, err)
+		}
+	}
+	if _, err := localTargetTemplate(component, builtins.Target{}, false, "linux", "amd64"); err == nil {
+		t.Fatal("unsupported KBX release target accepted")
+	}
+}

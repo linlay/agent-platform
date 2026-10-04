@@ -43,6 +43,7 @@ type Component struct {
 	License          string            `json:"license,omitempty"`
 	LicenseDirectory string            `json:"licenseDirectory,omitempty"`
 	Licenses         []string          `json:"licenses,omitempty"`
+	ArchiveLicenses  []string          `json:"archiveLicenses,omitempty"`
 	Targets          map[string]Target `json:"targets"`
 }
 
@@ -188,7 +189,7 @@ func ResolveRoot(repoRoot string, override string, lock Lock) (string, error) {
 		}
 		return filepath.Clean(override), nil
 	}
-	return filepath.Clean(filepath.Join(repoRoot, lock.DefaultRoot)), nil
+	return DefaultSourceRoot(repoRoot, lock.DefaultRoot), nil
 }
 
 // ResolveConnectorsRoot keeps connector build inputs independent of BUILTINS_ROOT.
@@ -202,7 +203,7 @@ func ResolveConnectorsRoot(repoRoot, override string, lock Lock) (string, error)
 		if err != nil {
 			return "", err
 		}
-		root = filepath.Join(absolute, lock.DefaultRoot)
+		root = DefaultSourceRoot(absolute, lock.DefaultRoot)
 	}
 	if !filepath.IsAbs(root) {
 		return "", errors.New("CONNECTORS_ROOT must be an absolute path")
@@ -362,6 +363,9 @@ func Stage(options StageOptions) (StageResult, error) {
 			}
 		}
 		manifest.Components = append(manifest.Components, staged)
+		if err := stageArchiveLicenses(repositoryRoot, outputDir, component, target); err != nil {
+			return StageResult{}, err
+		}
 		if err := stageLicenses(repositoryRoot, outputDir, component); err != nil {
 			return StageResult{}, err
 		}
@@ -1091,4 +1095,43 @@ func joinWithin(root string, path string) (string, error) {
 		return "", fmt.Errorf("path escapes root: %s", path)
 	}
 	return candidate, nil
+}
+
+// Archive notices come from the same checksum-verified target as the binary,
+// so multi-target builds cannot accidentally distribute another target's list.
+func stageArchiveLicenses(repositoryRoot, outputDir string, component Component, target Target) error {
+	if len(component.ArchiveLicenses) == 0 {
+		return nil
+	}
+	if component.Kind != "archive" {
+		return fmt.Errorf("%s archiveLicenses requires an archive component", component.Name)
+	}
+	artifact, err := joinWithin(repositoryRoot, target.Path)
+	if err != nil {
+		return err
+	}
+	if err = verifyFileSHA256(artifact, target.SHA256); err != nil {
+		return err
+	}
+	directory := component.LicenseDirectory
+	if directory == "" {
+		directory = component.Name
+	}
+	for _, entry := range component.ArchiveLicenses {
+		payload, e := ReadArchiveEntry(artifact, target.Format, entry)
+		if e != nil {
+			return fmt.Errorf("%s archive license %s: %w", component.Name, entry, e)
+		}
+		if len(strings.TrimSpace(string(payload))) == 0 {
+			return fmt.Errorf("%s archive license %s is empty", component.Name, entry)
+		}
+		destination, e := joinWithin(filepath.Join(outputDir, "licenses"), filepath.Join(directory, filepath.Base(entry)))
+		if e != nil {
+			return e
+		}
+		if e = writeFileAtomic(destination, payload, 0644); e != nil {
+			return e
+		}
+	}
+	return nil
 }

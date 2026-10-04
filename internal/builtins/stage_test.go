@@ -487,3 +487,37 @@ func fileSHA256(t *testing.T, path string) string {
 	}
 	return bytesSHA256(payload)
 }
+
+func TestStageArchiveLicenses(t *testing.T) {
+	for _, tc := range []struct {
+		name, content, entry string
+		badChecksum          bool
+		wantError            bool
+	}{
+		{name: "valid", content: "license for target", entry: "LICENSE"},
+		{name: "missing", content: "license", entry: "MISSING", wantError: true},
+		{name: "empty", content: " \n", entry: "LICENSE", wantError: true},
+		{name: "checksum", content: "license", entry: "LICENSE", badChecksum: true, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			archive := filepath.Join(root, "kbx.tar.gz")
+			mustWriteTarGzip(t, archive, "LICENSE", []byte(tc.content))
+			target := Target{Path: "kbx.tar.gz", Format: "tar.gz", SHA256: fileSHA256(t, archive)}
+			if tc.badChecksum {
+				target.SHA256 = strings.Repeat("0", 64)
+			}
+			output := filepath.Join(root, "output")
+			err := stageArchiveLicenses(root, output, Component{Name: "kbx", Kind: "archive", ArchiveLicenses: []string{tc.entry}}, target)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("error = %v, want error %v", err, tc.wantError)
+			}
+			if !tc.wantError {
+				data, err := os.ReadFile(filepath.Join(output, "licenses", "kbx", "LICENSE"))
+				if err != nil || string(data) != tc.content {
+					t.Fatalf("license = %q, error %v", data, err)
+				}
+			}
+		})
+	}
+}
