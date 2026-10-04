@@ -108,20 +108,20 @@ func TestVerifyBundleRootRejectsIncompleteRelease(t *testing.T) {
 		{
 			name: "dependency inventory missing",
 			mutate: func(t *testing.T, root string) {
-				if err := os.Remove(filepath.Join(root, "licenses", sidecarName, "THIRD_PARTY_COMPONENTS.json")); err != nil {
+				if err := os.Remove(filepath.Join(root, "licenses", sidecarName, "THIRD-PARTY-LICENSES.txt")); err != nil {
 					t.Fatal(err)
 				}
 			},
-			message: "required sidecar release metadata",
+			message: "required KBX release metadata",
 		},
 		{
-			name: "sidecar sbom missing",
+			name: "KBX license missing",
 			mutate: func(t *testing.T, root string) {
-				if err := os.Remove(filepath.Join(root, "sbom", sidecarName+".cdx.json")); err != nil {
+				if err := os.Remove(filepath.Join(root, "licenses", sidecarName, "LICENSE")); err != nil {
 					t.Fatal(err)
 				}
 			},
-			message: "required sidecar release metadata",
+			message: "required KBX release metadata",
 		},
 	}
 
@@ -153,11 +153,11 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		t.Fatal(err)
 	}
 	components := []builtins.ManifestComponent{{
-		Name:         sidecarName,
-		Version:      "1.0.0",
-		Path:         sidecarRelativePath,
-		SHA256:       digest,
-		SDKVersion:   engineSDK,
+		Name:    sidecarName,
+		Version: "1.0.0",
+		Path:    sidecarRelativePath,
+		SHA256:  digest,
+
 		License:      "Apache-2.0",
 		Distribution: "checksum-verified-artifact",
 	}}
@@ -219,10 +219,8 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 	writeProgramManifest(t, root, goos, goarch, requiredPaths)
 	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0644)
 	for _, relativePath := range []string{
-		"licenses/kbase-lance-engine/LICENSE-APACHE-2.0",
-		"licenses/kbase-lance-engine/NOTICE",
-		"licenses/kbase-lance-engine/THIRD_PARTY_COMPONENTS.json",
-		"sbom/kbase-lance-engine.cdx.json",
+		"licenses/kbx/LICENSE",
+		"licenses/kbx/THIRD-PARTY-LICENSES.txt",
 	} {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(relativePath)), []byte("{}\n"), 0o644)
 	}

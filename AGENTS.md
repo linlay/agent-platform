@@ -22,14 +22,14 @@
 - 模型空响应与传输/解析失败分别输出常开结构化诊断；可选 LLM trace 按每次尝试独立留档，原路径保留最近尝试，并保存前 16/后 48 帧的有界事件结构、处理结果、结束方式、响应元数据与正文/思考计数，空响应标记 `empty_response`；输出受限、过滤/拒答与其他空响应分别返回明确中文提示和非重试错误终态，保留已生成内容，输出受限不执行本轮工具，见 [模型空响应排查](docs/配置化说明.md#模型空响应排查)。
 - Native 模型流式正文与推理各自达到 4,000 Unicode 字符后启用精确尾部复读检测；命中取消当前请求，以 `model_output_repetition` 非重试错误收口并丢弃未提交轮次，已执行工具不回滚。阈值与范围见 [配置化说明](docs/配置化说明.md#流式复读取消)。
 - 统一工具生命周期支持 live-only `tool.output`（每次调用 `0..N` 条，最终仍由唯一 `tool.result` 收口）；当前仅 Native Host Bash 通过普通 pipe 接收 stdout/stderr，以 tee 临时文件作为最终事实源并按 50ms 周期发送原始控制流，Container Hub Bash、Chat JSONL 与冷回放不保存过程输出。活动异步工具的取消先在整批共享 2 秒期限内收集真实返回；超时或仅返回取消错误时显式记录副作用未知，只有确定未启动的调用才标记 `executed:false`，工具结果持久化先于 Run 终态。
-- 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 已成为 `builtin.dbx/builtin.httpx`，dbx/httpx 清单与完整技能源码位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`，完整包（清单、bin/libs、skills）随 Platform 分发，按 Agent 挂载组装到 ru-connectors/<id>/<contentDigest>，不可修改或删除；`runtime/connectors-center` 只提供外部原包，遗留 builtin 副本忽略，Agent 挂载后增加本 Agent 运行包 PATH 并导入技能元数据，skillId 保留原始技能名、不加连接器前缀，同一 Agent 内重名报冲突，技能正文随完整包复制，不重复放入 Agent 的普通 skills 目录；通用持久化运行状态根为 `.state/`，连接器授权与受管 CLI 状态归入 `.state/connectors/<id>`，连接器技能禁止 mustUseSkills，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
+- 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbx/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 已成为 `builtin.dbx/builtin.httpx`，dbx/httpx 清单与完整技能源码位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`，完整包（清单、bin/libs、skills）随 Platform 分发，按 Agent 挂载组装到 ru-connectors/<id>/<contentDigest>，不可修改或删除；`runtime/connectors-center` 只提供外部原包，遗留 builtin 副本忽略，Agent 挂载后增加本 Agent 运行包 PATH 并导入技能元数据，skillId 保留原始技能名、不加连接器前缀，同一 Agent 内重名报冲突，技能正文随完整包复制，不重复放入 Agent 的普通 skills 目录；通用持久化运行状态根为 `.state/`，连接器授权与受管 CLI 状态归入 `.state/connectors/<id>`，连接器技能禁止 mustUseSkills，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - steer 支持 `selection.text` 纯文本选区（不要求视觉模型），以及通过 `/api/upload` 上传后以 `references` 注入当前 native Agent/Team 协调器的图片与普通文件（含 HTML/MD），允许纯附件及混合附件；视觉模型准入冻结图片输入，非视觉模型的图片和普通文件为经校验的工具读取引用，公开事件仅带引用，JSONL 仅保存 message/references，续聊按当前模型能力重建附件输入（图片不保留历史版本，失效附件提示不可用），旧 messages 快照兼容读取。同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，仅最后一次主 Run 明确异常结束或取消后允许完全空白表示继续；空 query 的 message 保持为空，仅模型输入补充英文继续指令，steer 同样接受完全空白，表示继续（公开 message 为空，模型输入补充独立的“立即进行下一步”指令）；远端附件路径尚不支持。
 - 活动 native CODER planning 的阶段切换保留 steer；生成候选计划或等待确认期间的新指令使旧计划失效，并在同一 Run 中重新规划。旧确认与 steer 原子仲裁，已失效计划不能被迟到的 approve 执行；失效事件和工具结果进入回放，跨进程 suspended 等待仍通过 submit 恢复。见 [HITL协议](docs/HITL协议.md)。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账；活动 Run 保留收尾权，恢复 claim 失败不退回补写，无执行者的补写按等待项串行并重新读取持久化状态。Host Bash builtin 审批准备与启动分离，单次/本轮人工批准后均可恢复符合条件的并发；一次性授权绑定 toolID，不随执行上下文复制给兄弟调用，写入与控制操作屏障仍保持顺序。同一 Host Bash 的 access/security 与 builtin 技能 hook 在首次审批合并冻结，批准后新增未授权 hook 按要求变化收口，不复用已回答的等待项，见 [Bash审批卡住排查](docs/Bash审批卡住排查.md)。
 - `builtin.platform-control` 显式挂载后提供 12 个 `{action,args}` 工具，Catalog/Chat 限普通 native main root；catalog_manage 和 Chat 删除强制一次性审批，不受 full_access 绕过；审阅通过工具 YML `confirmationRules` 选择内置 HTML viewport 的 `mode: form`（无 when 为默认规则，条件使用 JSON Pointer，Handler 不指定模板），catalog 删除使用独立资源删除页，市场安装／升级与本地 WebApp 安装新增安装审阅页及一次性前置确认（Desktop 原确认保留，尚未合并）；业务数据位于 `forms[].form`，通用 approval 无 review 扩展，批准仍执行冻结调用并复验版本。源文件事务复用 adminsource 锁、版本复验和回滚，chat_manage.setPinned 复用会话置顶服务。run_env 独立管理进程内动态环境，其参数仍全部可观测。详见 [平台控制连接器](docs/Platform控制工具设计.md) 与 [Run 环境工具](docs/Run环境工具.md)。
 - Memory 已改为纯 Markdown：runtime/owner/OWNER.md、AP_RUNTIME_MEMORY_DIR/memory.md 与 daily/YYYY-MM-DD.md，固定路径、revision 冲突校验、跨进程锁与原子保存。全局默认启用，Agent memoryConfig.enabled 显式启用；普通 Native Run 冻结长期记忆与 Owner，日期日志按需文字查询。旧 SQLite Memory、scope、自动学习、管理工具及旧 API 全部退役，无迁移；知识索引归 KBX。见 [记忆系统](docs/记忆系统.md)。
-- 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
-- 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 与其他内置类型一样合并 Platform 预置工具与 `agent.yml` 声明的工具，并使用声明的技能、连接器和 memory（没有固定工具集，新建时仅写入未被 Platform 预置覆盖的文件工具），main/editing 两种 stage 工具相同，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
+- 知识库运行入口已改接 `internal/kbx`，保留普通 Agent 挂载与专用 `mode: KBASE`；检索、过滤、文件清单和证据回读使用受管 KBX CLI。旧 kbase 引擎源码和数据保留，但 app 不再创建旧 Manager、watcher 或 sidecar。KBX 已接入 builtin 同步、cache 与 release 校验；单库单例 update/断线重连仍未完成，refresh/wait 显式 unavailable，不能描述为完整索引闭环；见 [KBX接入](docs/KBX接入.md)。
+- 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 与其他内置类型一样合并 Platform 预置工具与 `agent.yml` 声明的工具，并使用声明的技能、连接器和 memory（没有固定工具集，新建时仅写入未被 Platform 预置覆盖的文件工具），main/editing 两种 stage 工具相同，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦；当前等待 KBX 单例 update 协议接通自动维护。
 - 已具备 automation、`agent_invoke` 子智能体调度、`run_query` / `run_status` / `run_interrupt` 独立 Agent/Team 根 run 启动与控制、带隐藏协调器的 orchestrated Team、基于官方 Go SDK v1.6.1 的 MCP streamable HTTP/stdio session client 与后台 tool sync、WebSocket 控制面，以及 client/server channel 上按 Session 执行的 Agent 接出注册 v1（`agent.list/register/unregister`）；MCP 本地 Registry 同步校验，远端初始化/发现/重试不进入启动、保存或 watcher 关键路径，优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`。Channel 注册当前不升级 Query Stream、Run TTL、`registrationId` 路由、HITL Schema 或控制协议。
 尚未完全对齐 Java 版的部分能力包括 MCP 全量生产验证、automation 深度编排、热重载细节和更完整的客户端协议适配。未落地能力必须在专题文档中明确标注，不能写成已完成能力。
 
@@ -49,7 +49,7 @@ ACP CODER 仅向 `acp-bridges` 显式注册且共享 Workspace 的 bridge 转发
 - 存储：本地文件系统 + Markdown memory + SQLite control store + 本地 LanceDB KBASE generation
 - 配置：环境变量 + `configs/*.yml`
 
-当前没有引入 Web 框架、第三方路由库、外部数据库或消息队列。Go 主程序仍以 `CGO_ENABLED=0` 构建；KBASE 通过随包分发的 `kbase-lance-engine` Rust 伴随进程使用锁定的 LanceDB Rust SDK。配置默认值以 `internal/config/config.go` 与 `configs/*.example.yml` 为事实源。
+当前没有引入 Web 框架、第三方路由库、外部数据库或消息队列。Go 主程序仍以 `CGO_ENABLED=0` 构建；知识库通过受管 KBX CLI 读取，旧 `kbase-lance-engine` 执行链路已断开；KBX 已接入正式分发链路，索引维护协议尚待接通。配置默认值以 `internal/config/config.go` 与 `configs/*.example.yml` 为事实源。
 
 ## 3. 架构设计
 
@@ -76,7 +76,8 @@ cmd/agent-platform/main.go
 - `internal/agent/coder`：CODER profile、prompt、planning、ACP/workspace 策略与创建默认策略。
 - `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init 与创建默认值（含创建时写入的工具清单）；没有固定工具或 memory 边界。
 - `internal/agentcreation`：mode 中立的创建模板展开，按 `configs/agent-creation.yml` 把所选能力组合并去重为具体工具、技能和连接器，并校验成员存在与连接器互斥；不依赖 catalog 或 server。
-- `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
+- `internal/kbx`：当前知识库执行门面，使用受管 CLI 及 chunk/evidence 协议；维护连接基础已实现，但未来 update 协议尚未接到生产。
+- `internal/kbase`：保留的旧引擎与共享配置/DTO/工具权限门面，生产 app 不再构造其 Manager；旧实现说明：`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
 - `internal/runtime`：HTTP/WS 无关的 Query 与 Run 应用运行时；`types` 保存内部命令和结果，`query` 实现普通/旁聊 Query 准入、根 Run 注册/控制、Native 阻塞与异步启动、continuation 仲裁及重启 awaiting 对账，`session` 统一构造根/子 Agent/Team 的执行上下文和 system-init，`catalogview/reference` 承接租约快照与引用物化；`runstate` 持有活动 Run、observer、compact 协调与恢复等待项的唯一内存存储实现，`runexec` 执行 Native 生命周期、usage/终态落盘和 freeze 收尾，`orchestration` 执行子 Agent/Team 调度与结果回注。App 直接组装以上组件，不再反向注入 Server Native 方法。`adapter` 仅适配旧执行器/catalog DTO；根 Proxy 的 SSE/WS/channel 驱动仍通过显式 ProxyPort 保留在 Server，生命周期全面统一归 R18，不能写成已完成。Runtime 不得依赖 `internal/server`；边界与集成注意见 [Runtime模块边界](docs/Runtime模块边界.md)。
 - `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；直接依赖 `internal/runtime` 的窄接口，不经过 Server。
@@ -140,7 +141,7 @@ Automation 定义目录中的 `executions.db` 是 schema V2 的旁路执行历�
 
 Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以 memory.md 和 daily/YYYY-MM-DD.md 为唯一内容源；用户资料位于 owner/OWNER.md。旧数据库和自动学习方案全部退役，无迁移。
 
-KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包含：
+KBX 新索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlite`（及 KBX 配套存储）；workspace 模式用 `.kbx-platform/<agentKey>/<scopeHash>/`。以下旧 KBASE 数据仅保留，不再由运行入口访问：
 
 - `control.db`：schema v4 控制面，记录 generation、文件状态、file operation、增量 refresh 指标和 index run；不保存 chunk、FTS 或 embedding。control 与 Lance schema 版本独立；SQLite 控制面只接受当前 schema，绝不原地迁移。
 - `generations/<generationId>/lance/`：LanceDB chunks table 及索引；同级 `manifest.json` 保存 generation 元数据。

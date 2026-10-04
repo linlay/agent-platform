@@ -38,6 +38,7 @@ type LanceEngineHandshake struct {
 }
 
 type LanceEngineState struct {
+	Engine          string `json:"engine,omitempty"`
 	Available       bool   `json:"available"`
 	ProtocolVersion int    `json:"protocolVersion,omitempty"`
 	EngineVersion   string `json:"engineVersion,omitempty"`

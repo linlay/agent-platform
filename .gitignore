@@ -34,6 +34,7 @@ coverage.out
 
 # Workspace-local KBASE storage (control.db, snapshots, Lance generations)
 .kbase/
+.kbx-platform/
 
 # Local config/secrets
 .env

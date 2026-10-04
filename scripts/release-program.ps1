@@ -242,7 +242,7 @@ function Build-ProgramBundle {
 
         $archiveDigest = (Get-FileHash -Algorithm SHA256 $bundleArchive).Hash.ToLowerInvariant()
         [IO.File]::WriteAllText("$bundleArchive.sha256", "$archiveDigest  $(Split-Path $bundleArchive -Leaf)`n", [Text.UTF8Encoding]::new($false))
-        $sidecarName = if ($TargetOs -eq "windows") { "kbase-lance-engine.exe" } else { "kbase-lance-engine" }
+        $sidecarName = if ($TargetOs -eq "windows") { "kbx.exe" } else { "kbx" }
         $sidecarPath = Join-Path (Join-Path $bundleRoot "bin") $sidecarName
         $sizes = [ordered]@{
             backendBytes = (Get-Item $backendPath).Length

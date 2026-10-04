@@ -66,7 +66,7 @@ build_program_bundle() {
   local scripts_dir
   local backend_path
   local backend_entry
-  local sidecar_name="kbase-lance-engine"
+  local sidecar_name="kbx"
   local sidecar_path
 
   binary_name="$(binary_name_for_os "$target_os")"
