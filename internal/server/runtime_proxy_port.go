@@ -64,6 +64,11 @@ func (p RuntimeProxyPort) Execute(ctx context.Context, prepared runtimetypes.Pre
 		out.FinishReason = value.FinishReason
 		out.ErrorPayload = value.ErrorPayload
 	}
+	if result.Completion != nil {
+		out.Content = result.Completion.AssistantText
+		out.Usage = result.Completion.Usage
+		out.FinishReason = result.Completion.FinishReason
+	}
 	out.ChatID = prepared.Req.ChatID
 	out.RunID = prepared.Req.RunID
 	if result.StatusCode != http.StatusOK {

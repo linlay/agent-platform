@@ -62,7 +62,7 @@ func (s *Server) launchPreparedProxyRun(prepared preparedQuery, registered regis
 	go func() {
 		defer cancelProxy()
 		defer stopLifecycle()
-		s.runProxyWebSocketWithStartup(proxyCtx, prepared, route, eventBus, recorder, started)
+		s.runProxyWebSocketWithStartup(proxyCtx, prepared, route, eventBus, recorder, started, nil)
 	}()
 }
 

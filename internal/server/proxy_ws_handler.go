@@ -117,7 +117,9 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 		chatUsage = *prepared.Summary.Usage
 	}
 	recorder := newProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, s.deps.Chats, stepWriter, control, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
-	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
+	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder, func(completion chat.RunCompletion) {
+		notifyInternalQueryCompletion(r.Context(), &completion, "")
+	})
 
 	lastSeq := int64(0)
 	for {
@@ -201,7 +203,9 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 		chatUsage = *prepared.Summary.Usage
 	}
 	recorder := newProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, s.deps.Chats, stepWriter, proxyControl, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
-	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
+	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder, func(completion chat.RunCompletion) {
+		notifyInternalQueryCompletion(r.Context(), &completion, "")
+	})
 
 	collector := newQueryEventCollector(prepared.Req.IncludeFullText)
 	for {
@@ -239,8 +243,9 @@ func (s *Server) runProxyWebSocket(
 	route *proxyRunRoute,
 	eventBus *stream.RunEventBus,
 	recorder *proxyEventRecorder,
+	onCompletion func(chat.RunCompletion),
 ) {
-	s.runProxyWebSocketWithStartup(runCtx, prepared, route, eventBus, recorder, nil)
+	s.runProxyWebSocketWithStartup(runCtx, prepared, route, eventBus, recorder, nil, onCompletion)
 }
 
 func (s *Server) runProxyWebSocketWithStartup(
@@ -250,6 +255,7 @@ func (s *Server) runProxyWebSocketWithStartup(
 	eventBus *stream.RunEventBus,
 	recorder *proxyEventRecorder,
 	startup chan<- error,
+	onCompletion func(chat.RunCompletion),
 ) {
 	defer func() {
 		if route != nil {
@@ -274,6 +280,12 @@ func (s *Server) runProxyWebSocketWithStartup(
 				finishReason = completion.FinishReason
 			}
 		}
+		// Hand the result directly to the caller before closing its observer.
+		// The detached run context does not carry the caller's capture, and
+		// FreezeAndWait cannot finish until the caller releases its observer.
+		if onCompletion != nil && completion.RunID != "" {
+			onCompletion(completion)
+		}
 		if eventBus != nil {
 			eventBus.FreezeAndWait()
 		}
@@ -282,9 +294,6 @@ func (s *Server) runProxyWebSocketWithStartup(
 		s.broadcast("run.finished", runFinishedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, finishReason, completedAtMillis))
 		if persisted {
 			s.broadcastRunCompletionNotifications(completion)
-		}
-		if completion.RunID != "" {
-			notifyInternalQueryCompletion(runCtx, &completion, "")
 		}
 	}()
 
