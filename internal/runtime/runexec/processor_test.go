@@ -56,3 +56,21 @@ func TestFullTextFailedEndDropsOnlyFailedAttempt(t *testing.T) {
 		t.Fatalf("incorrect final text: %s", got)
 	}
 }
+
+func TestRunEventProcessorCommitsReplacementAfterDiscard(t *testing.T) {
+	var summary strings.Builder
+	processor := NewProcessor(ProcessorOptions{AssistantText: &summary})
+
+	processor.BeginModelTurn("")
+	partial := stream.EventData{Type: "content.delta", Payload: map[string]any{"delta": "partial"}}
+	processor.Decorate(&partial)
+	processor.DiscardModelTurn("", false)
+
+	replacement := stream.EventData{Type: "content.delta", Payload: map[string]any{"delta": "safe replacement"}}
+	processor.Decorate(&replacement)
+	processor.CommitModelTurn("")
+
+	if summary.String() != "safe replacement" {
+		t.Fatalf("summary = %q, want committed replacement", summary.String())
+	}
+}
