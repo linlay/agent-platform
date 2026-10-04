@@ -21,9 +21,9 @@ run tools ────────┘                    ├> runexec
 - `runtime/session`：构造执行 Session，冻结模型、工具、权限、技能与连接器、路径、环境、历史及 system-init；由 App 创建，Native 根 Run、子 Agent/Team 与 compact 共用。
 - `runtime/catalogview`：Agent/Team 租约及 Team 可执行快照解析；`runtime/reference`：输入引用校验与物化，远端文件请求限于该非核心 I/O 包。
 - `runtime/runstate`：活动 Run 注册、Chat 独占、observer/backlog、attach/detach、控制状态、compact barrier、Run 环境销毁、快照查询与恢复等待项的内存登记。
-- `runtime/runexec`：Native Query 共用执行核心 `Execute` 及 `StartNative` / `ExecuteNative` 生命周期驱动，负责模型流、编排、事件消费、StepLine、模型轮次提交/丢弃、usage/cost、完成落盘、freeze/交付确认与 continuation；共用 fullText 汇总和时间契约错误识别。
+- `runtime/runexec`：Native Query 共用执行核心 `Execute` 及 `StartNative` / `ExecuteNative` 生命周期驱动，负责模型流、编排、事件消费、StepLine、模型轮次提交/丢弃、usage/cost、完成落盘、freeze/交付确认与 continuation；共用 fullText 汇总和时间契约错误识别。`ProxyExecutor` 单独负责受管根 Proxy 的启动、完成落盘、freeze/交付确认及结束通知；Proxy recorder 与 usage tracker 同归此包，Native 执行路径不变。
 - `runtime/orchestration`：实际执行 `agent_invoke` 与 Team 调度，构造子调用、继承上下文、合并 HITL、路由事件并回注结果；Session/system-init 端口在 Native 驱动中绑定到 `runtime/session.Builder`，不绑定 Server。
-- `runtime/proxy`：上游 HTTP/WS 协议值对象、Reference 物化规则、事件/usage 映射、活动 Proxy route、子任务 SSE 驱动和 submit/steer/interrupt 控制客户端。
+- `runtime/proxy`：上游 HTTP/WS 协议值对象、Reference 物化规则、事件/usage 映射、活动 Proxy route、子任务 SSE 驱动和 submit/steer/interrupt 控制客户端；`Driver` 承接受管根 Proxy 的上游 SSE、独立 WS 与 inbound channel 驱动。channel 仅通过窄接口借用既有连接，单次 Run 清理请求订阅，不关闭共享连接。独立 WS 随 Run context 取消关闭，以解除静默上游的阻塞读取。
 
 ## 调用与依赖规则
 
@@ -83,7 +83,7 @@ R16 已移走 Native admission/session、根 Run 执行/恢复及子 Agent/Team 
 两处适配仍明确保留：
 
 - `runtime/adapter` 只转换旧 `contracts.AgentEngine` / system-init / catalog 的 DTO。Core 接受 `types.QueryCommand`；旧执行器仍接受 `api.QueryRequest`，转换集中在适配包，不持有准入、恢复或生命周期。
-- 根 Proxy 的 HTTP/SSE、WS 与 inbound channel 驱动仍在 Server，经 `query.ProxyPort` 注入。该端口只提供代理路由、上游模型发现、代理启动/阻塞执行及代理控制转发；Native 路径不进入它。WS/非流式 Proxy 需要注册时，经 Runtime 的 prepared registration 端口复用注册逻辑。Proxy 保留原完成记录捕获和非流式 collector，尚未统一 HTTP/WS 的全部生命周期公共段，归 R18；不能据此宣称 Proxy 已完全迁移。
+- 根 Proxy 仍经 `query.ProxyPort` 接入；受管 Run 的上游 SSE/WS/channel 驱动已移到 `runtime/proxy.Driver`，公共收尾及 recorder/usage 已移到 `runtime/runexec`。Server 保留 HTTP/SSE 响应、阻塞结果捕获、非流式 collector、channel socket 适配和控制转发；需要注册时仍复用 Runtime prepared registration。旧未注册阻塞 SSE 入口暂留 Server，不改变其注册和取消语义。R18 尚未完成，不能据此宣称 Proxy 已完全迁移；Native 路径不进入 ProxyPort。
 
 HTTP/WS 保留外部请求解码、认证、来源/transport/device/lane 校验与错误编码。Runtime 保留 Agent/Team owner、输入能力、等待项身份和权限级别校验。Submit 仍允许跨设备及 HTTP/WS；其他控制仍校验持久化 control scope。未改变外部路由、SSE/WS 字段、JSONL/SQLite schema、模型协议或工具取消收尾策略。
 

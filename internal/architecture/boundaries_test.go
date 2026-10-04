@@ -19,6 +19,40 @@ func TestRuntimeNeverDependsOnServerTransport(t *testing.T) {
 	})
 }
 
+func TestServerDoesNotOwnManagedProxyExecution(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(repositoryRoot(t), "internal/server/*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		tree, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(tree, func(node ast.Node) bool {
+			switch decl := node.(type) {
+			case *ast.FuncDecl:
+				switch decl.Name.Name {
+				case "launchPreparedProxyRun", "runProxySSE", "runProxyInboundChannel":
+					t.Errorf("Server still owns managed Proxy execution: %s in %s", decl.Name.Name, path)
+				}
+			case *ast.TypeSpec:
+				// DTO/recorder aliases remain valid at the legacy HTTP boundary.
+				if _, ownsState := decl.Type.(*ast.StructType); ownsState {
+					switch decl.Name.Name {
+					case "proxyEventRecorder", "proxyUsageTracker":
+						t.Errorf("Server still owns Proxy recording state: %s in %s", decl.Name.Name, path)
+					}
+				}
+			}
+			return true
+		})
+	}
+}
+
 func TestDomainServicesNeverDependOnServerTransport(t *testing.T) {
 	root := repositoryRoot(t)
 	assertNoImports(t, root, []string{
