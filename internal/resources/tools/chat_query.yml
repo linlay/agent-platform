@@ -1,5 +1,4 @@
 name: "chat_query"
-label: "查询会话"
 i18n:
   en:
     label: "Query Chats"

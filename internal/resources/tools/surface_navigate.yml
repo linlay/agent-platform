@@ -1,5 +1,4 @@
 name: surface_navigate
-label: "网页导航"
 i18n:
   en:
     label: "Navigate Page"

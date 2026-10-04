@@ -1,5 +1,4 @@
 name: wait
-label: "等待"
 i18n:
   en:
     label: "Wait"

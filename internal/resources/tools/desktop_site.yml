@@ -1,5 +1,4 @@
 name: "desktop_site"
-label: "桌面网站"
 i18n:
   en:
     label: "Desktop Websites"

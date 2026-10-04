@@ -1,5 +1,4 @@
 name: run_query
-label: "发起独立运行"
 i18n:
   en:
     label: "Start Independent Run"

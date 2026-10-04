@@ -1,5 +1,4 @@
 name: surface_list
-label: "网页列表"
 i18n:
   en:
     label: "List Pages"

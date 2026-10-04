@@ -1,5 +1,4 @@
 name: bash_sandbox
-label: "执行沙箱命令"
 i18n:
   en:
     label: "Run Sandbox Command"

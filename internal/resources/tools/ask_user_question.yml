@@ -1,5 +1,4 @@
 name: ask_user_question
-label: "向用户提问"
 i18n:
   en:
     label: "Ask User"

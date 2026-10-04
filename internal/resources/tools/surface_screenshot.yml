@@ -1,5 +1,4 @@
 name: surface_screenshot
-label: "网页截图"
 i18n:
   en:
     label: "Capture Page"

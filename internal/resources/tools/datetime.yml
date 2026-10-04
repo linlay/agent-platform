@@ -1,5 +1,4 @@
 name: datetime
-label: "日期时间"
 i18n:
   en:
     label: "Date and Time"

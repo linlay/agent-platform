@@ -1,5 +1,4 @@
 name: "catalog_query"
-label: "查询目录"
 i18n:
   en:
     label: "Query Catalog"

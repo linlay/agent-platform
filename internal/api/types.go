@@ -256,11 +256,14 @@ type QueryRequest struct {
 	Message   string `json:"message"`
 	// Trusted channel hint for the remote actor. Ignored outside gateway
 	// contexts when deriving chat summary source.
-	SourceUser      string             `json:"sourceUser,omitempty"`
-	References      []Reference        `json:"references,omitempty"`
-	Params          map[string]any     `json:"params,omitempty"`
-	Scene           *Scene             `json:"scene,omitempty"`
-	Stream          *bool              `json:"stream,omitempty"`
+	SourceUser string         `json:"sourceUser,omitempty"`
+	References []Reference    `json:"references,omitempty"`
+	Params     map[string]any `json:"params,omitempty"`
+	Scene      *Scene         `json:"scene,omitempty"`
+	Stream     *bool          `json:"stream,omitempty"`
+	// WebSocket main lane only: start the Run without reserving or opening a
+	// Run stream and answer with QueryAcceptedResponse.
+	Detached        *bool              `json:"detached,omitempty"`
 	IncludeUsage    bool               `json:"includeUsage,omitempty"`
 	IncludeFullText bool               `json:"includeFullText,omitempty"`
 	PlanningMode    *bool              `json:"planningMode,omitempty"`
@@ -381,6 +384,18 @@ type DetachRequest struct {
 	AgentKey string `json:"agentKey,omitempty"`
 	TeamID   string `json:"teamId,omitempty"`
 	Reason   string `json:"reason,omitempty"`
+}
+
+// QueryAcceptedResponse acknowledges a detached query. The Run continues in
+// the background; observers use /api/attach and global run.* Push.
+type QueryAcceptedResponse struct {
+	Accepted  bool   `json:"accepted"`
+	Status    string `json:"status"`
+	RunID     string `json:"runId"`
+	ChatID    string `json:"chatId"`
+	AgentKey  string `json:"agentKey,omitempty"`
+	TeamID    string `json:"teamId,omitempty"`
+	StartedAt int64  `json:"startedAt,omitempty"`
 }
 
 type DetachResponse struct {

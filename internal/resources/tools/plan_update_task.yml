@@ -1,5 +1,4 @@
 name: plan_update_task
-label: "更新任务"
 i18n:
   en:
     label: "Update Task"

@@ -1,6 +1,5 @@
 key: _skill_candidate_list_
 name: _skill_candidate_list_
-label: "列出技能候选"
 i18n:
   en:
     label: "List Skill Candidates"

@@ -1,5 +1,4 @@
 name: workpanel_close
-label: "工作面板关闭"
 i18n:
   en:
     label: "Close WorkPanel"

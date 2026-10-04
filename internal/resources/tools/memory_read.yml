@@ -1,5 +1,4 @@
 name: memory_read
-label: "读取记忆"
 i18n:
   en:
     label: "Read Memory"

@@ -1,5 +1,4 @@
 name: file_grep
-label: "搜索文件"
 i18n:
   en:
     label: "Search Files"

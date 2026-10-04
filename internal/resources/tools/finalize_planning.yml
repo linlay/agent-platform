@@ -1,5 +1,4 @@
 name: finalize_planning
-label: "确认规划"
 i18n:
   en:
     label: "Confirm Plan"

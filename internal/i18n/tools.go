@@ -66,6 +66,13 @@ func localizeToolPresentation(locale string, out map[string]any) {
 	if len(translations) == 0 {
 		return
 	}
+	// A prior display label may belong to another viewer. Never use it as
+	// the fallback once a translation table is available.
+	name, _ := out["name"].(string)
+	if labelKey == "toolLabel" {
+		name, _ = out["toolName"].(string)
+	}
+	out[labelKey] = name
 	if translation, ok := translations[ResolveLocale(locale)].(map[string]any); ok {
 		for field, target := range map[string]string{"label": labelKey, "description": descriptionKey} {
 			if value, ok := translation[field].(string); ok && strings.TrimSpace(value) != "" {

@@ -1,5 +1,4 @@
 name: agent_invoke
-label: "调度智能体"
 i18n:
   en:
     label: "Invoke Agent"

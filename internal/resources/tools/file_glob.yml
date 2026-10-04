@@ -1,5 +1,4 @@
 name: file_glob
-label: "查找文件"
 i18n:
   en:
     label: "Find Files"

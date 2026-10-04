@@ -1,6 +1,5 @@
 key: _session_search_
 name: _session_search_
-label: "搜索会话"
 i18n:
   en:
     label: "Session Search"

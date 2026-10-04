@@ -1,5 +1,4 @@
 name: "desktop_service"
-label: "桌面服务"
 i18n:
   en:
     label: "Desktop Services"

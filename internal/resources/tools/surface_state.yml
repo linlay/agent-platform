@@ -1,5 +1,4 @@
 name: surface_state
-label: "网页状态"
 i18n:
   en:
     label: "Page State"

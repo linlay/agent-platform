@@ -1,5 +1,4 @@
 name: image_generate
-label: "图像生成"
 i18n:
   en:
     label: "Generate Image"

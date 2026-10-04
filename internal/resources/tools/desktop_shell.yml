@@ -1,5 +1,4 @@
 name: "desktop_shell"
-label: "桌面控制"
 i18n:
   en:
     label: "Desktop Control"

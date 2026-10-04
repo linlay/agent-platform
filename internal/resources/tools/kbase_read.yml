@@ -1,5 +1,4 @@
 name: kbase_read
-label: "读取知识库片段"
 i18n:
   en:
     label: "Read Knowledge Base Excerpt"

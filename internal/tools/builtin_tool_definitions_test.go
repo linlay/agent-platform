@@ -134,7 +134,7 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 			continue
 		}
 		found[def.Name] = true
-		if def.Label != wantLabels[def.Name] {
+		if def.Meta["toolI18n"].(map[string]any)["zh-CN"].(map[string]any)["label"] != wantLabels[def.Name] {
 			t.Fatalf("%s label = %q, want %q", def.Name, def.Label, wantLabels[def.Name])
 		}
 		if !strings.Contains(def.Description, "independent") || !strings.Contains(def.Description, "run") {

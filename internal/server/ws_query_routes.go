@@ -24,6 +24,10 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 }
 func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.RequestFrame, side bool) {
 	ctx = controlscope.WithContext(ctx, wsControlScope(conn))
+	if wsQueryDetachedRequested(req) {
+		s.wsQueryDetached(ctx, conn, req, side)
+		return
+	}
 	if _, err := conn.ReserveStream(req.ID, ""); err != nil {
 		if e, ok := err.(*ws.ProtocolError); ok {
 			conn.SendProtocolError(req.ID, e)
@@ -93,6 +97,59 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 	conn.AttachStreamCleanup(req.ID, subscription.Close)
 	forwarding = true
 	conn.StartEventForward(req.ID, subscription.Events, subscription.Close)
+}
+
+// wsQueryDetachedRequested peeks the flag before stream admission: a detached
+// query must never reserve, or be rejected by, the connection's Run stream.
+func wsQueryDetachedRequested(req ws.RequestFrame) bool {
+	peek, err := ws.DecodePayload[struct {
+		Detached *bool `json:"detached,omitempty"`
+	}](req)
+	return err == nil && peek.Detached != nil && *peek.Detached
+}
+
+// wsQueryDetached starts a background Run and answers with a plain response.
+// It opens no Run stream, so it is independent of the single-stream slot.
+func (s *Server) wsQueryDetached(ctx context.Context, conn *ws.Conn, req ws.RequestFrame, side bool) {
+	defer conn.CompleteRequest(req.ID)
+	if side {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, "detached queries require the main WebSocket lane", nil)
+		return
+	}
+	payload, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		return
+	}
+	req.Payload = payload
+	queryRequest, err := ws.DecodePayload[api.QueryRequest](req)
+	if err != nil {
+		if errors.Is(err, api.ErrRequiredSkillKeysRemoved) {
+			conn.SendError(req.ID, "required_skill_keys_removed", http.StatusBadRequest, api.RequiredSkillKeysRemovedMessage, nil)
+		} else if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {
+			conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, api.ReferenceSandboxPathRemovedMessage, nil)
+		} else {
+			conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, "invalid query payload", nil)
+		}
+		return
+	}
+	command := trustedQueryCommand(ctx, queryRequest)
+	command.Locale = conn.Locale()
+	command.ResourceBaseURL = conn.RequestBaseURL()
+	command.ChatSource = chatSourceFromContext(ctx)
+	command.ClientTarget = runtimeClientTarget(conn.WebClientTarget())
+	if principal := PrincipalFromContext(ctx); principal != nil {
+		command.Caller.Subject = strings.TrimSpace(principal.Subject)
+	}
+	handle, err := s.deps.Runtime.StartQuery(ctx, command)
+	if err != nil {
+		s.sendWSQueryStartError(conn, req.ID, err)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", api.QueryAcceptedResponse{
+		Accepted: true, Status: "running", RunID: handle.RunID, ChatID: handle.ChatID,
+		AgentKey: handle.AgentKey, TeamID: handle.TeamID, StartedAt: handle.StartedAt,
+	})
 }
 
 func (s *Server) sendWSQueryStartError(conn *ws.Conn, requestID string, err error) {

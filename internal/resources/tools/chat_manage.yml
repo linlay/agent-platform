@@ -1,5 +1,4 @@
 name: "chat_manage"
-label: "管理会话"
 i18n:
   en:
     label: "Manage Chats"

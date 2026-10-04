@@ -1,5 +1,4 @@
 name: file_edit
-label: "编辑文件"
 i18n:
   en:
     label: "Edit File"

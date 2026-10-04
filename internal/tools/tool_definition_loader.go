@@ -38,6 +38,9 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 			return api.ToolDetailResponse{}, fmt.Errorf("tool %q: %w", name, err)
 		}
 	}
+	if _, exists := root["label"]; exists {
+		return api.ToolDetailResponse{}, fmt.Errorf("tool %q top-level label is no longer supported; use i18n.<locale>.label", name)
+	}
 	parameters := AnyMapNode(root["inputSchema"])
 	outputSchema := AnyMapNode(root["outputSchema"])
 	viewportType := AnyStringNode(root["viewportType"])
@@ -138,7 +141,7 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	return api.ToolDetailResponse{
 		Key:           fallbackToolString(AnyStringNode(root["key"]), name),
 		Name:          name,
-		Label:         AnyStringNode(root["label"]),
+		Label:         name,
 		Description:   AnyStringNode(root["description"]),
 		AfterCallHint: AnyStringNode(root["afterCallHint"]),
 		Parameters:    CloneMap(parameters),

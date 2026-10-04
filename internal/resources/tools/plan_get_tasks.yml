@@ -1,5 +1,4 @@
 name: plan_get_tasks
-label: "读取任务"
 i18n:
   en:
     label: "Read Tasks"

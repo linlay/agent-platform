@@ -1,5 +1,4 @@
 name: "desktop_kanban"
-label: "桌面看板"
 i18n:
   en:
     label: "Desktop Kanban"

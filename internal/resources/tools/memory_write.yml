@@ -1,5 +1,4 @@
 name: memory_write
-label: "维护记忆"
 i18n:
   en:
     label: "Manage Memory"

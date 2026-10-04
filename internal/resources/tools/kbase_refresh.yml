@@ -1,5 +1,4 @@
 name: kbase_refresh
-label: "刷新知识库"
 i18n:
   en:
     label: "Refresh Knowledge Base"

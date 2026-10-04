@@ -1,5 +1,4 @@
 name: surface_click
-label: "网页点击"
 i18n:
   en:
     label: "Click Page"

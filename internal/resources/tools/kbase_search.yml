@@ -1,5 +1,4 @@
 name: kbase_search
-label: "搜索知识库"
 i18n:
   en:
     label: "Search Knowledge Base"

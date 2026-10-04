@@ -401,6 +401,8 @@ Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane�
 
 每条 WS 连接最多一个 Run stream（终端类订阅独立）；query 在准备 Chat/启动 Run 前原子预留名额，attach 同样申请名额。已有 stream 时返回 409 `active_stream_exists`（同一 Run 重复观察仍为 `duplicate_observe`）。冲突错误的结构化 diagnostics 返回所属 lane、连接诊断 ID、旧流的 Run/请求/stream 身份、占用起始时间和预留或已绑定状态；尚未生成 Run 时仍可按请求 ID 定位。切换 Run 必须先 detach 或等待旧 stream 终态；detach 不终止后台 Run。main/btw/explain 三条连接可以同时各有一个 stream。
 
+后台启动使用 main lane 的 `/api/query` 并在 payload 传 `detached:true`：Platform 不预留、不创建 Run stream，Run 注册并开始执行后返回普通 `response`，`data` 为 `{accepted:true, status:"running", runId, chatId, agentKey|teamId, startedAt}`，启动失败返回与普通 query 相同的 error frame。它不受 `active_stream_exists` 约束，可以与本连接已有的 stream 以及其他 detached Run 并行；Run 控制归属仍绑定发起连接的 lane，后续状态由全局 `run.started` / `run.finished` / `chat.updated` Push 收敛，需要逐条输出时再 `/api/attach`。btw/explain lane 传 `detached:true` 返回 400 `invalid_request`，HTTP `POST /api/query` 传 `detached:true` 返回 400 `detached_ws_required`，均不创建 Chat。
+
 发布配套要求：旧网页的“HTTP query + WS attach/interrupt”混用会被拒绝，必须改为 HTTP 全链路。旧 Desktop 在同一连接并发订阅多个 Run 会被拒绝，必须先 detach。这里只完成 Platform 协议与集成测试，真实三端联调尚待客户端配套验收。
 
 

@@ -1,5 +1,4 @@
 name: file_write
-label: "写入文件"
 i18n:
   en:
     label: "Write File"

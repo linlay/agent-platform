@@ -1,5 +1,4 @@
 name: surface_close
-label: "关闭网页"
 i18n:
   en:
     label: "Close Page"

@@ -1,5 +1,4 @@
 name: "catalog_manage"
-label: "管理目录"
 i18n:
   en:
     label: "Manage Catalog"

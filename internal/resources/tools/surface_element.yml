@@ -1,5 +1,4 @@
 name: surface_element
-label: "网页元素操作"
 i18n:
   en:
     label: "Interact with Page Element"

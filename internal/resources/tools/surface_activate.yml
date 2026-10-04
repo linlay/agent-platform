@@ -1,5 +1,4 @@
 name: surface_activate
-label: "显示网页"
 i18n:
   en:
     label: "Show Page"

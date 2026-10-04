@@ -1,5 +1,4 @@
 name: kbase_files
-label: "浏览知识库文件"
 i18n:
   en:
     label: "Browse Knowledge Base Files"

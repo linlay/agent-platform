@@ -64,3 +64,10 @@ func TestToolLoaderAcceptsPresentationDescriptionWithoutChangingModel(t *testing
 		t.Fatalf("description isolation: %#v", got)
 	}
 }
+
+func TestToolLoaderRejectsTopLevelLabel(t *testing.T) {
+	_, err := parseToolDefinition(map[string]any{"name": "custom", "label": "duplicate"}, toolDefinitionParseOptions{})
+	if err == nil {
+		t.Fatal("top-level label must be replaced by i18n labels")
+	}
+}

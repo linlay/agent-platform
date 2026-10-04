@@ -1,5 +1,4 @@
 name: bash
-label: "执行命令"
 i18n:
   en:
     label: "Run Command"

@@ -1,5 +1,4 @@
 name: artifact_publish
-label: "发布产物"
 i18n:
   en:
     label: "Publish Artifact"

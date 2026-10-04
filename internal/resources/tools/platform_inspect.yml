@@ -1,5 +1,4 @@
 name: "platform_inspect"
-label: "平台诊断"
 i18n:
   en:
     label: "Platform Diagnostics"

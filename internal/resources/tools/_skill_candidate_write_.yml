@@ -1,6 +1,5 @@
 key: _skill_candidate_write_
 name: _skill_candidate_write_
-label: "写入技能候选"
 i18n:
   en:
     label: "Write Skill Candidate"

@@ -1,5 +1,4 @@
 name: "desktop_webapp"
-label: "桌面网页应用"
 i18n:
   en:
     label: "Desktop Web Apps"

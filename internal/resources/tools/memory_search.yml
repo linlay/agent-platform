@@ -1,5 +1,4 @@
 name: memory_search
-label: "查找记忆"
 i18n:
   en:
     label: "Search Memory"

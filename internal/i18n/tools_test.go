@@ -59,3 +59,10 @@ func TestToolTranslationsValidation(t *testing.T) {
 		t.Fatalf("fallback: %#v", got)
 	}
 }
+
+func TestToolLabelNeverFallsBackToAnotherLanguage(t *testing.T) {
+	got := LocalizeValue("en", map[string]any{"name": "custom", "label": "旧中文名称", "toolI18n": map[string]any{"zh-CN": map[string]any{"label": "中文名称"}}}).(map[string]any)
+	if got["label"] != "custom" {
+		t.Fatalf("foreign-language fallback: %#v", got)
+	}
+}

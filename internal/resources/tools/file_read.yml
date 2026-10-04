@@ -1,5 +1,4 @@
 name: file_read
-label: "读取文件"
 i18n:
   en:
     label: "Read File"

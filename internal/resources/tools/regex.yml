@@ -1,5 +1,4 @@
 name: regex
-label: "正则匹配"
 i18n:
   en:
     label: "Match Regular Expression"

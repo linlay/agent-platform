@@ -1,5 +1,4 @@
 name: plan_add_tasks
-label: "创建任务"
 i18n:
   en:
     label: "Create Tasks"

@@ -1,5 +1,4 @@
 name: workpanel_open
-label: "工作面板打开"
 i18n:
   en:
     label: "Open WorkPanel"

@@ -1,5 +1,4 @@
 name: "desktop_settings"
-label: "桌面设置"
 i18n:
   en:
     label: "Desktop Settings"

@@ -1,5 +1,4 @@
 name: agent_delegate
-label: "委派团队成员"
 i18n:
   en:
     label: "Delegate to Team Member"

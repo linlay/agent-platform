@@ -1,5 +1,4 @@
 name: web_fetch
-label: "网页抓取"
 i18n:
   en:
     label: "Fetch Webpage"

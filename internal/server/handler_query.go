@@ -22,6 +22,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		writeQueryStartError(w, err)
 		return
 	}
+	if req.Detached != nil && *req.Detached {
+		writeStatusError(w, btwStatusError(http.StatusBadRequest, "detached_ws_required", "detached queries require the main WebSocket connection"))
+		return
+	}
 	lane := strings.TrimSpace(req.Lane)
 	if lane == "" {
 		lane = "main"

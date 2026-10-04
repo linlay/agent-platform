@@ -1,5 +1,4 @@
 name: awcp_invoke
-label: "网站动作"
 i18n:
   en:
     label: "Website Action"

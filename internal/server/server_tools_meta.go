@@ -396,7 +396,6 @@ func canonicalizePublicToolDefinition(tool api.ToolDetailResponse) (api.ToolDeta
 		canonical := cloneToolDetailResponse(tool)
 		canonical.Key = "bash"
 		canonical.Name = "bash"
-		canonical.Label = "执行命令"
 		canonical.Description = "Run a command. Runtime decides whether to execute on the host or inside the sandbox based on the agent's runtimeConfig.environmentId. Always include a short Chinese description explaining the command purpose."
 		return canonical, true
 	default:

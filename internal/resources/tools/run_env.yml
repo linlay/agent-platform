@@ -1,5 +1,4 @@
 name: run_env
-label: "运行环境"
 i18n:
   en:
     label: "Run Environment"

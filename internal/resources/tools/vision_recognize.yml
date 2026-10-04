@@ -1,5 +1,4 @@
 name: vision_recognize
-label: "图像识别"
 i18n:
   en:
     label: "Analyze Image"
