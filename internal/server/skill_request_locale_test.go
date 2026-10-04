@@ -13,7 +13,7 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
+func TestSkillConnectionLocale(t *testing.T) {
 	f := newAgentSkillsTestFixture(t, true)
 	writeProjectionPackage(t, f, "center-extra")
 	content := `{"name":"office","skills":[{"id":"center-extra"}],"metadata":{"i18n":{"zh-CN":{"displayName":"办公包"},"en":{"displayName":"Office Suite"}}}}`
@@ -47,8 +47,15 @@ func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
 		{"zh-list", map[string]any{"locale": "zh-CN"}, "办公包"},
 		{"en-list", map[string]any{"locale": "en-US"}, "Office Suite"},
 		{"zh-pin", map[string]any{"locale": "zh-CN", "id": "office", "pinned": true}, "办公包"},
-		{"unchanged", map[string]any{}, "Office Suite"},
+		{"unchanged", map[string]any{}, "办公包"},
 	} {
+		if locale, ok := tc.payload["locale"]; ok {
+			if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/locale", ID: tc.id + "-locale", Payload: marshalPayload(map[string]any{"locale": locale})}); err != nil {
+				t.Fatal(err)
+			}
+			waitForWebSocketResponseData[map[string]any](t, conn, tc.id+"-locale")
+			delete(tc.payload, "locale")
+		}
 		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: tc.id, Payload: marshalPayload(tc.payload)}); err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +64,7 @@ func TestSkillRequestLocaleDoesNotChangeSharedConnection(t *testing.T) {
 			t.Fatalf("%s: %+v", tc.id, r.Packages)
 		}
 	}
-	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/skills", ID: "bad-locale", Payload: marshalPayload(map[string]any{"locale": "invalid-locale"})}); err != nil {
+	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/locale", ID: "bad-locale", Payload: marshalPayload(map[string]any{"locale": "invalid-locale"})}); err != nil {
 		t.Fatal(err)
 	}
 	for {

@@ -939,7 +939,7 @@ func (c *Conn) SendResponse(frameType string, id string, code int, msg string, d
 			ID:    id,
 			Code:  code,
 			Msg:   msg,
-			Data:  data,
+			Data:  i18n.LocalizeValue(c.Locale(), data),
 		},
 		msgType: gws.TextMessage,
 	})

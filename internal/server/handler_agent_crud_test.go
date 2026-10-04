@@ -1896,6 +1896,14 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 	readAutomationConnectedPush(t, conn)
 
 	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest, Type: "/api/locale", ID: "set-model-test-locale",
+		Payload: marshalPayload(map[string]any{"locale": "en-US"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForWebSocketResponseData[map[string]any](t, conn, "set-model-test-locale")
+
+	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame: ws.FrameRequest,
 		Type:  "/api/agent/model-config",
 		ID:    "update-coder-model",
@@ -1903,6 +1911,7 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 			"agentKey":        coderCreated.Key,
 			"modelKey":        "mock-model",
 			"reasoningEffort": "NONE",
+			"serviceTier":     nil,
 		}),
 	}); err != nil {
 		t.Fatalf("write model config request: %v", err)

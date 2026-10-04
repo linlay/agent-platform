@@ -10,7 +10,6 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/catalogorder"
 	"agent-platform/internal/connector"
-	"agent-platform/internal/i18n"
 	"agent-platform/internal/ws"
 )
 
@@ -37,7 +36,6 @@ func (s *Server) handleAgentSkills(w http.ResponseWriter, r *http.Request) {
 func (s *Server) wsAgentSkills(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		AgentKey string          `json:"agentKey"`
-		Locale   string          `json:"locale"`
 		ID       json.RawMessage `json:"id"`
 		Pinned   json.RawMessage `json:"pinned"`
 	}](req)
@@ -46,15 +44,6 @@ func (s *Server) wsAgentSkills(ctx context.Context, conn *ws.Conn, req ws.Reques
 		return
 	}
 	locale := conn.Locale()
-	if requested := strings.TrimSpace(payload.Locale); requested != "" {
-		normalized, ok := i18n.NormalizeLocale(requested)
-		if !ok {
-			s.sendAgentWSError(conn, req, agentSkillsStatusError(http.StatusBadRequest, "invalid_locale", "invalid locale"))
-			return
-		}
-		locale = normalized
-	}
-	// Desktop surfaces share a physical WS connection; locale is request-scoped.
 	respond := func(response api.AgentSkillsResponse, err error) {
 		if err != nil {
 			s.sendAgentWSError(conn, req, err)

@@ -1320,7 +1320,7 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 连接器 `auth_mode="no_auth"` 无需登录或配置完成标记。connection 接口返回 `configurationRequired=false`、`configured=false`、`authentication.status="no_auth"` 和 `canConnect/canDisconnect/canCheck=false`；无需准备或准备完成时 readiness 为 no_auth，并不代表客户端在线。客户端显示“无需配置”，隐藏认证操作。connect/disconnect/check 返回 HTTP 409 和 `connector_auth_not_required`。Desktop 已使用此模式；Agent 挂载、执行授权与客户端能力检查仍有效。完整约束见 [连接器安装与授权](连接器安装与授权.md#no_auth-状态与客户端接入)。
 
-技能目录 WebSocket `/api/skills` 支持 payload 可选 `locale`，同时适用于列表和置顶写响应。它仅决定本次响应的展示语言，不改变连接语言，避免 Desktop 多页面共用连接时相互干扰。省略或空值沿用连接语言，不支持的语言返回 400 `invalid_locale`。
+技能目录 WebSocket `/api/skills` 的列表和置顶写响应统一使用连接语言。通过 `/api/locale` 切换连接语言，不向业务 payload 添加 `locale`；不支持的语言由 `/api/locale` 返回 400 `invalid_locale`。
 
 技能包图标：包根目录可放 `icon.svg` 或 `icon.png`，SVG 优先，不读取包根 `assets/`，不向子技能继承。管理包列表及 `/api/skills` 的 `packages` 返回可选 `icon` URL：`GET /api/skill-packages/icon?id=<package>`。图标接口沿用 API 鉴权、私有 ETag 缓存与图片校验，非法 id 返回 400，包或图标不可用返回 404；SVG 拒绝脚本及外部资源，符号链接图标不提供。独立技能和包成员仍从各自 `assets/` 读取图标。
 
