@@ -322,7 +322,29 @@ func (s *Server) runProxyWebSocketWithStartup(
 		return
 	}
 	defer upstream.Close()
+	// DialContext only covers the handshake. Close an established connection
+	// on cancellation so a silent upstream cannot keep ReadMessage blocked.
+	stopCancel := context.AfterFunc(runCtx, func() { _ = upstream.Close() })
+	defer stopCancel()
 
+	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
+		ChatID:          prepared.Req.ChatID,
+		RunID:           prepared.Req.RunID,
+		Subject:         prepared.Session.Subject,
+		ResourceBaseURL: prepared.ResourceBaseURL,
+		WorkspaceRoot:   prepared.Session.WorkspaceRoot,
+		References:      prepared.Req.References,
+	})
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.Req, err)
+		return
+	}
+	if err := upstream.WriteJSON(proxyQueryPayloadWithWorkspace(prepared.Req, prepared.AgentDef.ProxyConfig, proxyReferences, prepared.Session.WorkspaceRoot)); err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("proxy websocket write failed: %w", err))
+		return
+	}
+
+	// Send the initial query before starting the sole control-message writer.
 	writeDone := make(chan error, 1)
 	go func() {
 		for {
@@ -341,23 +363,6 @@ func (s *Server) runProxyWebSocketWithStartup(
 			}
 		}
 	}()
-
-	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
-		ChatID:          prepared.Req.ChatID,
-		RunID:           prepared.Req.RunID,
-		Subject:         prepared.Session.Subject,
-		ResourceBaseURL: prepared.ResourceBaseURL,
-		WorkspaceRoot:   prepared.Session.WorkspaceRoot,
-		References:      prepared.Req.References,
-	})
-	if err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.Req, err)
-		return
-	}
-	if err := upstream.WriteJSON(proxyQueryPayloadWithWorkspace(prepared.Req, prepared.AgentDef.ProxyConfig, proxyReferences, prepared.Session.WorkspaceRoot)); err != nil {
-		s.publishProxyError(eventBus, recorder, prepared.Req, fmt.Errorf("proxy websocket write failed: %w", err))
-		return
-	}
 
 	var seq int64
 	terminalSeen := false
