@@ -297,6 +297,14 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 			Path: fmt.Sprintf("dist/%s/builtin.%s_%s_%s_%s.zip", version, component.Name, version, goos, goarch), Format: "zip",
 			Tree: &builtins.TreeLayout{Root: "runtime", Outputs: []builtins.TreeOutput{{Path: "connectors/builtin." + component.Name, Type: "dir"}}}}, nil
 	}
+	if component.Name == "memx" {
+		binary, format := "memx", "tar.gz"
+		if goos == "windows" {
+			binary += ".exe"
+			format = "zip"
+		}
+		return builtins.Target{Path: fmt.Sprintf("dist/%s/memx_%s_%s_%s.%s", version, version, goos, goarch, format), Format: format, Entry: binary, Output: binary}, nil
+	}
 	if component.Name == "kbx" {
 		switch goos + "/" + goarch {
 		case "darwin/arm64", "darwin/amd64", "windows/amd64":
@@ -348,7 +356,7 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 
 func isLocallyVersionedComponent(name string) bool {
 	switch name {
-	case "dbx", "httpx", "kbx", "kbase-lance-engine", "poppler-pdftotext", builtins.GitBashComponent:
+	case "dbx", "httpx", "kbx", "memx", "kbase-lance-engine", "poppler-pdftotext", builtins.GitBashComponent:
 		return true
 	default:
 		return false

@@ -94,6 +94,29 @@
       }
     },
     {
+      "name": "memx",
+      "version": "0.1.0",
+      "repository": "memx",
+      "source": "agent-platform-builtins/memx",
+      "kind": "archive",
+      "required": true,
+      "licenseDirectory": "memx",
+      "archiveLicenses": [
+        "THIRD-PARTY-LICENSES.txt"
+      ],
+      "targets": {
+        "darwin-arm64": {
+          "version": "0.1.0",
+          "source": "agent-platform-builtins/memx",
+          "path": "dist/v0.1.0/memx_v0.1.0_darwin_arm64.tar.gz",
+          "format": "tar.gz",
+          "entry": "memx",
+          "output": "memx",
+          "sha256": "f884c5ed2bb19ec18d387dd93afc5e6cdd759ee14828dff8168110c67b8bde73"
+        }
+      }
+    },
+    {
       "name": "poppler-pdftotext",
       "version": "v26.07.0",
       "repository": "poppler-pdftotext",

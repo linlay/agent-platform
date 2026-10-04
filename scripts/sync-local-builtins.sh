@@ -149,7 +149,7 @@ if [[ -z "$BUILTINS_ROOT" ]]; then
 fi
 [[ "$BUILTINS_ROOT" = /* ]] || die "builtins root must be absolute"
 BUILTINS_ROOT="$(cd "$BUILTINS_ROOT" && pwd)"
-for component in ripgrep kbx poppler-pdftotext; do
+for component in ripgrep kbx memx poppler-pdftotext; do
   [[ -d "$BUILTINS_ROOT/$component" ]] || die "missing sibling builtin project: $BUILTINS_ROOT/$component"
 done
 
@@ -175,6 +175,7 @@ copy_project ripgrep
 copy_project dbx
 copy_project httpx
 copy_project kbx
+copy_project memx
 copy_project poppler-pdftotext
 
 for target in "${TARGETS[@]}"; do
@@ -186,7 +187,7 @@ for target in "${TARGETS[@]}"; do
   fi
 done
 
-# dbx, httpx, kbx, and poppler-pdftotext are local source
+# dbx, httpx, kbx, memx, and poppler-pdftotext are local source
 # projects. Rebuild their archives from the isolated collection on every sync.
 # ripgrep is the only precompiled component and is only copied and verified.
 (
@@ -219,6 +220,7 @@ done <"$poppler_targets_file"
 for target in "${TARGETS[@]}"; do
   python3 "$SCRIPT_DIR/build-kbx.py" --source "$collection_root/kbx" \
     --target "$target" --target-dir "$BUILD_ROOT/.cargo-target/kbx"
+  bash "$collection_root/memx/scripts/build-release.sh" --os "${target%%/*}" --arch "${target##*/}"
 done
 
 local_lock="$work_dir/builtins.local.lock.json"

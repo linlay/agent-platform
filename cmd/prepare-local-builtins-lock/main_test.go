@@ -481,3 +481,34 @@ func TestKBXLocalVersionAndTargets(t *testing.T) {
 		t.Fatal("unsupported KBX release target accepted")
 	}
 }
+
+func TestMemxLocalVersionAndTargets(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "memx")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "VERSION"), []byte("0.1.0\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	version, err := localComponentVersion(root, "0.0.0")
+	if err != nil || version != "0.1.0" || !isLocallyVersionedComponent("memx") {
+		t.Fatalf("%s %v", version, err)
+	}
+	component := builtins.Component{Name: "memx", Version: version}
+	for _, goos := range []string{"darwin", "linux", "windows"} {
+		for _, goarch := range []string{"arm64", "amd64"} {
+			target, err := localTargetTemplate(component, builtins.Target{}, false, goos, goarch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			extension, binary := "tar.gz", "memx"
+			if goos == "windows" {
+				extension, binary = "zip", "memx.exe"
+			}
+			expected := "dist/v0.1.0/memx_v0.1.0_" + goos + "_" + goarch + "." + extension
+			if target.Path != expected || target.Entry != binary || target.Output != binary || target.Format != extension {
+				t.Fatalf("bad target: %+v", target)
+			}
+		}
+	}
+}

@@ -169,6 +169,16 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 	components = append(components, builtins.ManifestComponent{
 		Name: "rg", Version: "15.1.0", Path: "bin/rg", SHA256: rgDigest,
 	})
+	memxPath := "bin/memx"
+	if goos == "windows" {
+		memxPath += ".exe"
+	}
+	writeFile(t, filepath.Join(root, filepath.FromSlash(memxPath)), []byte("memx-binary"), 0755)
+	memxDigest, err := fileSHA256(filepath.Join(root, filepath.FromSlash(memxPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	components = append(components, builtins.ManifestComponent{Name: "memx", Version: "0.1.0", Path: memxPath, SHA256: memxDigest})
 	if popplerBuiltinRequired(goos, goarch) {
 		launcher := "bin/pdftotext"
 		if goos == "windows" {
@@ -363,5 +373,22 @@ func createZip(t *testing.T, sourceRoot, archivePath string) {
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestVerifyBundleRejectsPreMemxCache(t *testing.T) {
+	root := t.TempDir()
+	writeCompleteBundle(t, root, "darwin", "arm64")
+	manifest := readFixtureBuiltinsManifest(t, root)
+	components := []builtins.ManifestComponent{}
+	for _, c := range manifest.Components {
+		if c.Name != "memx" {
+			components = append(components, c)
+		}
+	}
+	manifest.Components = components
+	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0644)
+	if err := verifyBundleRoot(root, "darwin", "arm64"); err == nil || !strings.Contains(err.Error(), "requires the memx builtin") {
+		t.Fatalf("old cache accepted: %v", err)
 	}
 }

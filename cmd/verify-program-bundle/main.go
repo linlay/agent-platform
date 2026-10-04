@@ -139,6 +139,9 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 	if err := builtins.RequireKBXComponent(builtinManifest); err != nil {
 		return err
 	}
+	if err := builtins.RequireMemxComponent(builtinManifest); err != nil {
+		return err
+	}
 	component, err := findSidecarComponent(builtinManifest)
 	if err != nil {
 		return err

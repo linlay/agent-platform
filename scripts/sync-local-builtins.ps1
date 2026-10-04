@@ -104,7 +104,7 @@ if (-not [IO.Path]::IsPathRooted($BuiltinsRoot)) {
     throw "-BuiltinsRoot must be an absolute path"
 }
 $BuiltinsRoot = (Resolve-Path -LiteralPath $BuiltinsRoot).Path
-foreach ($component in @("ripgrep", "kbx", "poppler-pdftotext")) {
+foreach ($component in @("ripgrep", "kbx", "memx", "poppler-pdftotext")) {
     $componentRoot = Join-Path $BuiltinsRoot $component
     if (-not (Test-Path -LiteralPath $componentRoot -PathType Container)) {
         throw "Missing sibling builtin project: $componentRoot"
@@ -124,7 +124,7 @@ try {
     New-Item -ItemType Directory -Path $env:GOCACHE -Force | Out-Null
     New-Item -ItemType Directory -Path $env:GOMODCACHE -Force | Out-Null
 
-    foreach ($component in @("ripgrep", "dbx", "httpx", "kbx", "poppler-pdftotext")) {
+    foreach ($component in @("ripgrep", "dbx", "httpx", "kbx", "memx", "poppler-pdftotext")) {
         Copy-IsolatedProject -Name $component -CollectionRoot $CollectionRoot
     }
 
@@ -172,6 +172,9 @@ try {
         Invoke-Native -Command "python" -WorkingDirectory $RepoRoot -Arguments @(
             (Join-Path $ScriptDir "build-kbx.py"), "--source", (Join-Path $CollectionRoot "kbx"),
             "--target", $item, "--target-dir", (Join-Path $BuildRoot ".cargo-target/kbx")
+        )
+        Invoke-Native -Command "go" -WorkingDirectory (Join-Path $CollectionRoot "memx") -Arguments @(
+            "run", "./scripts/release", "--os", $parts[0], "--arch", $parts[1]
         )
     }
 

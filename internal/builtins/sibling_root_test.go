@@ -64,3 +64,24 @@ func TestRequireKBXComponent(t *testing.T) {
 		}
 	}
 }
+
+func TestRequireMemxComponent(t *testing.T) {
+	for _, goos := range []string{"darwin", "windows", "linux"} {
+		manifest := Manifest{Platform: ManifestPlatform{OS: goos, Arch: "arm64"}, Components: []ManifestComponent{{Name: "kbx", Path: "bin/kbx"}}}
+		if RequireMemxComponent(manifest) == nil {
+			t.Fatal("cache without memx accepted")
+		}
+		expected := "bin/memx"
+		if goos == "windows" {
+			expected += ".exe"
+		}
+		manifest.Components = append(manifest.Components, ManifestComponent{Name: "memx", Path: "wrong/memx"})
+		if RequireMemxComponent(manifest) == nil {
+			t.Fatal("wrong memx path accepted")
+		}
+		manifest.Components[1].Path = expected
+		if err := RequireMemxComponent(manifest); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
