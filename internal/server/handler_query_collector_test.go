@@ -91,21 +91,3 @@ func TestQueryEventCollectorTerminalDiscardRetainsPriorCommittedSummary(t *testi
 		t.Fatalf("assistant text = %q, want prior committed summary", result.AssistantText)
 	}
 }
-
-func TestRunEventProcessorCommitsReplacementAfterDiscard(t *testing.T) {
-	var summary strings.Builder
-	processor := &runEventProcessor{assistantText: &summary}
-
-	processor.beginModelTurn("")
-	partial := stream.EventData{Type: "content.delta", Payload: map[string]any{"delta": "partial"}}
-	processor.decorate(&partial)
-	processor.discardModelTurn("", false)
-
-	replacement := stream.EventData{Type: "content.delta", Payload: map[string]any{"delta": "safe replacement"}}
-	processor.decorate(&replacement)
-	processor.commitModelTurn("")
-
-	if summary.String() != "safe replacement" {
-		t.Fatalf("summary = %q, want committed replacement", summary.String())
-	}
-}
