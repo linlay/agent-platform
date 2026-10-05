@@ -230,14 +230,18 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 		t.Fatalf("workspace download Content-Disposition=%q", got)
 	}
 
-	outsidePath, err := filepath.Abs("handler_resource_integration_test.go")
-	if err != nil {
-		t.Fatal(err)
+	// Use an existing toolchain file, not this checkout: the checkout itself
+	// may be under an allowed temporary root. Validate the fixture so none of
+	// the external-path assertions silently lose coverage.
+	outsidePath := filepath.Join(runtime.GOROOT(), "src", "runtime", "runtime.go")
+	if info, err := os.Stat(outsidePath); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("outside fixture must be an existing regular file: %q: %v", outsidePath, err)
 	}
-	if state, _, _, classifyErr := temppaths.System().Classify(outsidePath); classifyErr == nil && state == temppaths.Outside {
-		if outsideRec := requestAbsolute("alice", chatID, outsidePath, ""); outsideRec.Code != http.StatusForbidden {
-			t.Fatalf("outside workspace status=%d body=%s", outsideRec.Code, outsideRec.Body.String())
-		}
+	if state, _, _, err := temppaths.System().Classify(outsidePath); err != nil || state != temppaths.Outside {
+		t.Fatalf("outside fixture must be outside frozen temporary roots: %q: state=%s err=%v", outsidePath, state, err)
+	}
+	if outsideRec := requestAbsolute("alice", chatID, outsidePath, ""); outsideRec.Code != http.StatusForbidden {
+		t.Fatalf("outside workspace status=%d", outsideRec.Code)
 	}
 	chatAbsolutePath := filepath.Join(fixture.chats.ChatDir(chatID), "chat-internal.png")
 	if err := os.MkdirAll(filepath.Dir(chatAbsolutePath), 0o755); err != nil {
@@ -326,23 +330,17 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 
 	tmpLink := tmpPath + "-link.png"
 	t.Cleanup(func() { _ = os.Remove(tmpLink) })
-	escapeTarget, err := filepath.Abs("handler_resource_integration_test.go")
-	if err != nil {
+	if err := os.Symlink(outsidePath, tmpLink); err != nil {
 		t.Fatal(err)
 	}
-	if state, _, _, classifyErr := temppaths.System().Classify(escapeTarget); classifyErr == nil && state == temppaths.Outside {
-		if err := os.Symlink(escapeTarget, tmpLink); err != nil {
-			t.Fatal(err)
-		}
-		if tmpLinkRec := requestAbsolute("alice", chatID, tmpLink, ""); tmpLinkRec.Code != http.StatusForbidden {
-			t.Fatalf("tmp symlink escape status=%d body=%q", tmpLinkRec.Code, tmpLinkRec.Body.Bytes())
-		}
+	if tmpLinkRec := requestAbsolute("alice", chatID, tmpLink, ""); tmpLinkRec.Code != http.StatusForbidden {
+		t.Fatalf("tmp symlink escape status=%d", tmpLinkRec.Code)
 	}
 
 	if runtime.GOOS != "windows" {
 		traversalPath := "/tmp/../" + strings.TrimPrefix(filepath.ToSlash(outsidePath), "/")
 		if traversalRec := requestAbsolute("alice", chatID, traversalPath, ""); traversalRec.Code != http.StatusForbidden {
-			t.Fatalf("cleaned tmp traversal status=%d body=%s", traversalRec.Code, traversalRec.Body.String())
+			t.Fatalf("cleaned tmp traversal status=%d", traversalRec.Code)
 		}
 	}
 }

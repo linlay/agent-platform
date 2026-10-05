@@ -1,6 +1,7 @@
 package hostenv
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNPMDiscoveryRefreshAndIsolation(t *testing.T) {
@@ -19,6 +21,7 @@ func TestNPMDiscoveryRefreshAndIsolation(t *testing.T) {
 	prefix := filepath.Join(t.TempDir(), "global with spaces")
 	env := []string{"PATH=" + tools, "HOME=" + t.TempDir()}
 	Refresh()
+	t.Cleanup(Refresh)
 	if got := WithNPM(env); Value(got, "PATH") != tools {
 		t.Fatal(got)
 	}
@@ -30,13 +33,25 @@ func TestNPMDiscoveryRefreshAndIsolation(t *testing.T) {
 		t.Fatal("negative cache unexpectedly changed")
 	}
 	Refresh()
+	started := time.Now()
 	got := WithNPM(env)
+	elapsed := time.Since(started)
 	want := tools + ":" + filepath.Join(prefix, "bin")
 	if Value(got, "PATH") != want || Value(env, "PATH") != tools {
-		t.Fatalf("PATH=%s", Value(got, "PATH"))
+		// This second probe is diagnostic only: never replace the failed
+		// discovery with a retry, which could hide an intermittent failure.
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, filepath.Join(tools, "npm"), "prefix", "-g")
+		cmd.Env = env
+		cmd.WaitDelay = time.Second
+		output, probeErr := cmd.CombinedOutput()
+		t.Fatalf("refreshed discovery: elapsed=%s PATH=%q want=%q inputPATH=%q; diagnostic second probe: output=%q err=%v context=%v", elapsed, Value(got, "PATH"), want, Value(env, "PATH"), output, probeErr, ctx.Err())
 	}
 	// The refreshed positive result is cached without invoking npm again.
-	os.Remove(filepath.Join(tools, "npm"))
+	if err := os.Remove(filepath.Join(tools, "npm")); err != nil {
+		t.Fatal(err)
+	}
 	if Value(WithNPM(env), "PATH") != want {
 		t.Fatal("cache not used")
 	}

@@ -178,7 +178,7 @@ func TestLoadDefaults(t *testing.T) {
 				if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills,@temp" {
 					t.Fatalf("unexpected default access-policy read roots: %#v", defaultLevel.ReadRoots)
 				}
-				if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@workspace,@chat,@temp" {
+				if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@chat,@temp" {
 					t.Fatalf("unexpected default access-policy write roots: %#v", defaultLevel.WriteRoots)
 				}
 			})

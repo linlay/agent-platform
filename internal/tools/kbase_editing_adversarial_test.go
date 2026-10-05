@@ -200,6 +200,9 @@ func TestKBaseEditingAdversarialExternalReadsRequireCommonPolicyApproval(t *test
 		})
 
 		t.Run(toolName+"_with_exact_approval", func(t *testing.T) {
+			if toolName != "file_read" {
+				requireRipgrep(t)
+			}
 			execCtx := kbaseEditingExecutionContext(source)
 			execCtx.Session.AccessLevel = contracts.AccessLevelDefault
 			args := kbaseAdversarialReadArgs(toolName, outsideFile, outside)

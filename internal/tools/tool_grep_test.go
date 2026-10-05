@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -366,6 +365,7 @@ func TestInvokeGrepRipgrepMissing(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "notes.txt"), "needle\n")
 	executor := fileToolExecutor(root, false)
+	t.Setenv("AP_BUILTINS_BIN", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	t.Chdir(root)
 
@@ -490,8 +490,8 @@ func TestResolveRipgrepPathPrefersExplicitBuiltinsCache(t *testing.T) {
 
 func requireRipgrep(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("rg"); err != nil {
-		t.Skip("ripgrep not installed")
+	if _, err := resolveRipgrepPath(); err != nil {
+		t.Skipf("ripgrep dependency unavailable: %v; provide rg via AP_BUILTINS_BIN or PATH", err)
 	}
 }
 
@@ -524,6 +524,7 @@ func stringSliceResult(t *testing.T, value any) []string {
 }
 
 func TestInvokeGrepCamelCaseOptionsReachRipgrep(t *testing.T) {
+	requireRipgrep(t)
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "sample.txt"), []byte("BEFORE\nNEEDLE\nAFTER\n"), 0600); err != nil {
 		t.Fatal(err)
