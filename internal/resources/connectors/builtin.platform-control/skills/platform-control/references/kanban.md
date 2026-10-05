@@ -4,6 +4,12 @@ Use `desktop_kanban` with `{action,args}`.
 
 Use these actions for Desktop Kanban issue CRUD and move operations.
 
+## Execution
+
+- With Kanban enabled, eligible local `todo` issues assigned through `assigneeAgentKey` run automatically; scheduled automation uses its own trigger. Creation is asynchronous: a null `runId` does not mean dispatch failed.
+- Desktop owns execution, results, and workflow progression. Do not launch duplicate runs, write results into `description`, or manually move issues to simulate progress or completion. Read progress with `kanban.getIssue`.
+- Use updates/moves for requested edits or workflow changes. Send only changed fields: resetting `status` to `todo` can trigger another run.
+
 ## Actions
 
 ```text
@@ -32,22 +38,14 @@ kanban.moveIssue [execute]
     "input": {
       "title": "Follow up",
       "description": "Check the integration status",
-      "status": "todo"
+      "status": "todo",
+      "assigneeAgentKey": "<actual-current-agent-key>"
     }
   }
 }
 ```
 
-```json
-{
-  "action": "kanban.moveIssue",
-  "args": {
-    "id": "issue-id",
-    "status": "in_progress",
-    "position": 0
-  }
-}
-```
+Use an actual Agent key from the current context.
 
 ## Local Issue Input And Status
 
@@ -64,7 +62,7 @@ For ordinary creation, `args.input.title` is a required non-empty string. Common
 | `localWorkflowId` | Optional ID from listIssues.localWorkflows; do not copy an issue's workflowId |
 | `priority` / `severity` | Priority P0–P3 / severity critical/high/medium/low |
 
-`updateIssue` accepts partial `input`; omitted fields retain their values. To assign an existing issue, use `args: {"id":"issue-id","input":{"assigneeAgentKey":"cutej"}}`. Do not infer that assignment or a returned `todo` snapshot means a Run has started; verify runtime state separately.
+`updateIssue` accepts partial `input`; omitted fields retain their values. To assign an existing issue, use `args: {"id":"issue-id","input":{"assigneeAgentKey":"cutej"}}`.
 
 | Status | Desktop column |
 | --- | --- |
