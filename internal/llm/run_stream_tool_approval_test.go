@@ -13,7 +13,8 @@ import (
 
 type exactApprovalExecutor struct {
 	recordingToolExecutor
-	plainApproval bool
+	plainApproval    bool
+	allowAutoApprove bool
 }
 
 func (e *exactApprovalExecutor) PrepareToolApproval(_ context.Context, _ string, _ map[string]any, c *ExecutionContext) (*ToolApproval, error) {
@@ -21,7 +22,7 @@ func (e *exactApprovalExecutor) PrepareToolApproval(_ context.Context, _ string,
 	if e.plainApproval {
 		key = ""
 	}
-	return &ToolApproval{Title: "catalog change", Fingerprint: ToolApprovalFingerprint(c, "catalog_manage", "apply", "candidate"), ViewportKey: key, Form: map[string]any{"before": "old", "after": "new"}}, nil
+	return &ToolApproval{AllowAutoApprove: e.allowAutoApprove, Title: "catalog change", Fingerprint: ToolApprovalFingerprint(c, "catalog_manage", "apply", "candidate"), ViewportKey: key, Form: map[string]any{"before": "old", "after": "new"}}, nil
 }
 func TestExactToolReviewCannotAutoApprove(t *testing.T) {
 	for _, level := range []string{AccessLevelFullAccess, AccessLevelAutoApprove, AccessLevelDefault} {
@@ -123,5 +124,37 @@ func TestExactToolApprovalWithoutFormStillRequiresApproval(t *testing.T) {
 		if err != nil || !handled || s.hitlAwaitArgs["mode"] != "approval" || len(executor.invocations) != 0 {
 			t.Fatalf("missing form bypassed approval at %s: %v %v %#v", level, handled, err, s.hitlAwaitArgs)
 		}
+	}
+}
+
+func TestToolReviewOptInAutoApproval(t *testing.T) {
+	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		t.Run(level, func(t *testing.T) {
+			executor := &exactApprovalExecutor{allowAutoApprove: true}
+			ctx := context.Background()
+			// Session stays default: policy must use the current execution access level.
+			session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: AccessLevelDefault}
+			s := &llmRunStream{ctx: ctx, session: session, engine: &LLMAgentEngine{tools: executor}, runControl: NewRunControl(ctx, "run"), execCtx: &ExecutionContext{Session: session, AccessLevel: level}}
+			call := &preparedToolInvocation{toolID: "call", toolName: "catalog_manage", args: map[string]any{"action": "apply"}}
+			handled, err := s.handleToolApprovalBeforeInvoke(call)
+			if err != nil || !handled {
+				t.Fatalf("handled=%v error=%v", handled, err)
+			}
+			if level == AccessLevelDefault {
+				if s.hitlPendingCall != call || len(executor.invocations) != 0 {
+					t.Fatal("default skipped review")
+				}
+				return
+			}
+			if s.hitlPendingCall != nil || len(executor.invocations) != 1 || s.approvalAuto != 1 {
+				t.Fatalf("auto approval: pending=%v calls=%d count=%d", s.hitlPendingCall, len(executor.invocations), s.approvalAuto)
+			}
+			if call.hitlDecision == nil || call.hitlDecision.Decision != "auto_approved" {
+				t.Fatal("missing audit decision")
+			}
+			if len(s.execCtx.ToolApprovals) != 0 || len(s.hitlRuleWhitelist) != 0 {
+				t.Fatal("one-shot approval leaked")
+			}
+		})
 	}
 }

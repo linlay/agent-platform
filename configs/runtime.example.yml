@@ -52,12 +52,12 @@ automation:
   pool-size: 4
 
 memory:
-  enabled: true
+  enabled: false
   context-max-chars: 12000
   timezone: Local
   worker:
     enabled: true
-    model-key: "" # 留空使用 Platform 默认聊天模型
+    model-key: th-minimax-m3 # 留空使用 Platform 默认聊天模型
     poll-interval-seconds: 300
     timeout-seconds: 120 # 每次 CLI 调用上限；模型超时不超过此值
     max-batches: 20 # 每轮最多提取批次数，已处理批次不重复调用模型

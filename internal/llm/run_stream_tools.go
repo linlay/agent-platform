@@ -1079,6 +1079,9 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 		if invocation.approvalDecision != "" && invocation.shownApproval != nil {
 			return true, s.executeApprovedApprovalRequest(*invocation.shownApproval)
 		}
+		if s.canAutoApproveTool(request) {
+			return true, s.autoApproveTool(request)
+		}
 		s.skipPostToolHook = true
 		return true, s.emitApprovalRequestDeltas(request)
 	}

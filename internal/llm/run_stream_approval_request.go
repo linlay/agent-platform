@@ -228,6 +228,13 @@ func (s *llmRunStream) tryResolveApprovalFastPath(request approvalRequest, mode 
 		return true, nil
 	}
 	switch request.kind {
+	case approvalKindTool:
+		if s.canAutoApproveTool(request) {
+			if mode == approvalFastPathExecuteNow {
+				return true, s.autoApproveTool(request)
+			}
+			return true, nil
+		}
 	case approvalKindFileWrite:
 		if request.fileWritePlan != nil && filetools.HasWriteApproval(s.execCtx, *request.fileWritePlan) {
 			if mode == approvalFastPathExecuteNow {

@@ -16,7 +16,7 @@ confirmationRules:
   - when:
       /action: delete
     viewportType: html
-    viewportKey: platform_control_review
+    viewportKey: chat_delete_review
 inputSchema:
   type: "object"
   properties:

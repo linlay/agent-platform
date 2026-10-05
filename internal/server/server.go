@@ -27,6 +27,7 @@ import (
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/documentpreview"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/kbasescenter"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	projectpkg "agent-platform/internal/project"
@@ -85,6 +86,7 @@ type Dependencies struct {
 	Memory                 *memory.Store
 	MemoryMaintenance      MemoryMaintenance
 	KBase                  KBaseService
+	KBasesCenter           *kbasescenter.Service
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry
 	Runs                   contracts.RunManager

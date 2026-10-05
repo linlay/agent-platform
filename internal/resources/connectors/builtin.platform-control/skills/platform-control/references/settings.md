@@ -30,7 +30,7 @@ copilot.setPagePreference [execute]
 
 When changing a page's agent selection, first call `copilot.getPagePreferences` and select an actual key from the returned available agent options based on the user's request. Do not infer a key from an agent display name or copy one from examples or another environment. If only enabling or disabling Copilot, omit `agentKey` to preserve the existing selection.
 
-Theme, locale, and Copilot setters use the Desktop Action confirmation flow. Getters and `general.deviceName` do not require confirmation.
+Theme, locale, and Copilot setters use Platform viewport review in default mode, and server-side automatic approval in auto_approve/full_access; trusted Platform calls do not repeat Desktop confirmation. Getters and `general.deviceName` do not require confirmation.
 
 Do not call `setting.getState`, `setting.validatePatch`, `setting.previewPatch`, or `setting.applyPatch`. These actions have no compatibility layer. Website, market, pet, and other settings remain in their dedicated action domains.
 
@@ -89,7 +89,7 @@ Use `skin.*` for Desktop skins (皮肤). `theme.*` controls only light/dark/syst
 - Same manifest ID/version returns `packageExists`, never overwrites. Different versions coexist. Use list to inspect existing skins instead of repeatedly importing a duplicate.
 - Applying an installed skin clears a custom background by default; pass `keepBackground: true` to retain it. Built-in skin selection preserves the custom background. Selecting `default` returns to default skin styling.
 - Remove accepts installed skin IDs only. Removing the selected skin falls back to default; it does not delete the original ZIP.
-- Mutations use the existing Desktop Action permission/confirmation flow. Do not introduce an extra conversational confirmation when the target is already clear.
+- Mutations use the same Platform review policy, with no repeated Desktop confirmation for trusted Platform calls. Do not introduce an extra conversational confirmation when the target is already clear.
 - Treat outer `ok: false` as failure. Errors include `invalid_args`, `skin_not_found`, `file_not_found`, `file_access_denied`, package validation/limit errors, `packageExists` and `storageFailed`. No write result contains an inner `ok` or full skin list.
 - If the action is unknown, check the catalog and Platform runtime allowlist/version; update/rebuild/restart the stale component. Do not fall back to HTTP, arbitrary script execution, or direct profile edits.
 

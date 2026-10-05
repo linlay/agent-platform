@@ -45,3 +45,7 @@
 使用新 cache 中的 KBX 执行 TestLiveChunkAndFilterContract 通过：单文件返回 5 个独立 chunk，目录前缀边界、扩展名大小写、证据回读和行分页通过，本地 mock embedding 合约通过。builtins、prepare-local-builtins-lock、verify-program-bundle、render-program-manifest 测试通过；新增测试覆盖 worktree 默认路径、显式覆盖、旧 cache 拒绝和 archive 许可证的缺失/空内容/校验和异常。Shell 语法、Python 编译检查及 diff 空白检查通过。
 
 同步对 Poppler 同版本不同 SHA、dbx/httpx 本地 commit 与正式 lock 不匹配保留了既有告警与拒绝回写规则；本地 cache 和服务包构建成功。未验证 Windows PowerShell 和其他架构；Linux/Windows ARM64 尚无 KBX 发行支持。此项完成不改变 singleton update 协议仍待接通的状态。
+
+## 2026-10-05 全目录补充验证
+
+覆盖全部一级子目录、年报大库及失败文件副本排除试验，见 [KBX 全目录验证报告](KBX全目录验证报告.md)。本机实际 KBX 缓存版本与上文不同，具体版本、覆盖数量及维护链路限制以该次报告为准。

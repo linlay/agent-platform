@@ -12,6 +12,23 @@ operationAware: true
 tags:
   - "platform"
   - "management"
+confirmationRules:
+  - when:
+      /action: kanban.createIssue
+    viewportType: html
+    viewportKey: desktop_kanban_review
+  - when:
+      /action: kanban.updateIssue
+    viewportType: html
+    viewportKey: desktop_kanban_review
+  - when:
+      /action: kanban.deleteIssue
+    viewportType: html
+    viewportKey: desktop_kanban_review
+  - when:
+      /action: kanban.moveIssue
+    viewportType: html
+    viewportKey: desktop_kanban_review
 inputSchema:
   type: "object"
   properties:

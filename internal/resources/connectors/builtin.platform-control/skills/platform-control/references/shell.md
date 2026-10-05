@@ -60,7 +60,7 @@ help.openTopic [execute]
 # Runtime Information and Assistant Chat
 
 - `runtime.info`: no args. Returns startup-cached `{productName, version, buildTime}`.
-- `runtime.diagnostics`: no args. Returns sensitive device/path/runtime/service diagnostics and a credential summary, never raw credentials. Desktop controls confirmation before collecting these details; WebApp callers are forbidden.
+- `runtime.diagnostics`: no args. Returns sensitive device/path/runtime/service diagnostics and a credential summary, never raw credentials. Platform reviews the data categories before Desktop collects these details; auto_approve/full_access allows automatic approval. Trusted Platform calls are exempt from the Desktop dialog. WebApp callers are forbidden.
 - `assistant.chat`: `{message}` with non-empty text. Sends the request to Desktop's configured helper agent. Use only when the task calls for that assistant; do not delegate the same request back recursively.
 
 `assistant.image` and `assistant.image.cancel` require a local WebApp-page identity and cannot be called by Platform's `desktop_shell` tool.

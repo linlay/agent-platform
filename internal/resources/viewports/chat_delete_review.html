@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>删除会话</title><style>
+:root { color-scheme: light dark; font: 14px/1.6 system-ui, sans-serif; color: #222; --muted: #69717d; --line: #d9dee5; --code: #f3f5f7; --add: #dff5e6; --remove: #ffe5e5; }
+@media (prefers-color-scheme: dark) { :root { color: #eee; --muted: #a8aeb8; --line: #494d56; --code: #303238; --add: #163d2b; --remove: #4b262b; } }
+:root[data-theme=dark] { color: #eee; --muted: #a8aeb8; --line: #494d56; --code: #303238; --add: #163d2b; --remove: #4b262b; }
+:root[data-theme=light] { color: #222; --muted: #69717d; --line: #d9dee5; --code: #f3f5f7; --add: #dff5e6; --remove: #ffe5e5; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 8px 12px 16px; overflow-wrap: anywhere; }
+h1 { margin: 0 0 4px; font-size: 16px; }
+p { margin: 6px 0 12px; }
+.note, summary { color: var(--muted); }
+details { margin: 10px 0; } summary { cursor: pointer; }
+</style></head><body>
+<h1 id="heading"></h1><p id="notice" class="note"></p>
+<p><span id="target-label"></span>：<strong id="target"></strong></p>
+<p><span id="location-label"></span>：<span id="location"></span></p>
+<details id="revision-section"><summary id="revision-label"></summary><code id="revision"></code></details>
+<script>
+(() => {
+  'use strict';
+  let state = null;
+  const el = id => document.getElementById(id);
+  const text = (id, value) => { el(id).textContent = typeof value === 'string' ? value : ''; };
+  function render(data) {
+    state = data;
+    const f = data.form || {}, zh = String(data.locale || navigator.language).startsWith('zh');
+    document.documentElement.lang = zh ? 'zh' : 'en';
+    if (data.colorScheme === 'dark' || data.colorScheme === 'light') {
+      document.documentElement.dataset.theme = data.colorScheme;
+      document.documentElement.style.colorScheme = data.colorScheme;
+    }
+    const t = zh
+      ? {heading:'删除会话',notice:'请核对会话标识和所在位置。同意后仅执行本次删除；需要调整请拒绝并说明。',target:'会话标识',location:'所在位置',active:'会话列表',archived:'归档',revision:'基准版本'}
+      : {heading:'Delete conversation',notice:'Review the conversation ID and location. Approval applies only to this deletion. Reject with feedback to request changes.',target:'Conversation ID',location:'Location',active:'Conversation list',archived:'Archive',revision:'Baseline revision'};
+    text('heading', t.heading); text('notice', t.notice);
+    text('target-label', t.target); text('target', f.resourceKey);
+    text('location-label', t.location); text('location', f.archived === true ? t.archived : t.active);
+    text('revision-label', t.revision); text('revision', f.baseRevision);
+    el('revision-section').hidden = !f.baseRevision;
+  }
+  addEventListener('message', event => {
+    if (event.source !== parent) return;
+    const message=event.data;
+    if (!message || typeof message!=='object') return;
+    if ((message.type==='awaiting_init' || message.type==='awaiting_update') && message.data?.mode==='form') render(message.data);
+    if (message.type==='awaiting_collect' && state && message.data?.runId===state.runId && message.data?.awaitingId===state.awaitingId && message.data?.decision==='submit') {
+      parent.postMessage({type:'frontend_awaiting_submit',params:[{id:state.activeFormId,decision:'approve',form:state.form || {}}]},'*');
+    }
+  });
+})();
+</script></body></html>

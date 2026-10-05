@@ -14,9 +14,33 @@ tags:
   - "management"
 confirmationRules:
   - when:
-      /action: webapp.install
+      /action: webapp.start
     viewportType: html
-    viewportKey: installation_review
+    viewportKey: desktop_webapp_review
+  - when:
+      /action: webapp.stop
+    viewportType: html
+    viewportKey: desktop_webapp_review
+  - when:
+      /action: webapp.restart
+    viewportType: html
+    viewportKey: desktop_webapp_review
+  - when:
+      /action: webapp.open
+    viewportType: html
+    viewportKey: desktop_webapp_review
+  - when:
+      /action: webapp.updatePreferences
+    viewportType: html
+    viewportKey: desktop_webapp_review
+  - when:
+      /action: webapp.unpublish
+    viewportType: html
+    viewportKey: desktop_webapp_review
+  - when:
+      /action: web.exportArtifact
+    viewportType: html
+    viewportKey: desktop_export_review
 inputSchema:
   type: "object"
   properties:

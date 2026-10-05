@@ -3,11 +3,11 @@ name: platform-control
 description: Manage Platform definitions, conversations, diagnostics, and Desktop applications using the mounted platform control connector.
 ---
 
-Use `{action,args}` with the appropriate tool. Use catalog_query resourceTypes to discover the supported resource/operation matrix. Read [catalog](references/catalog.md) before catalog discovery or changes and [chat](references/chat.md) before conversation changes. Desktop action arguments and confirmation remain owned by Desktop. Page/WorkPanel operations use the separate web-control connector.
+Use `{action,args}` with the appropriate tool. Use catalog_query resourceTypes to discover the supported resource/operation matrix. Read [catalog](references/catalog.md) before catalog discovery or changes and [chat](references/chat.md) before conversation changes. Desktop validates action arguments; Platform reviews routine management actions while Desktop confirms host-impacting and market operations. Page/WorkPanel operations use the separate web-control connector.
 
 Catalog and Chat tools require an ordinary native root Run. Standalone exposes only catalog_query, catalog_manage, chat_query, chat_manage and platform_inspect. Never substitute files or shell commands to bypass a rejected management operation.
 
-catalog_manage and chat_manage delete always require explicit Platform approval; prepare the exact candidate before requesting it. A changed baseline requires a new review. Desktop tools use Desktop confirmation only. Unknown execution outcomes require reading state before retrying.
+catalog_manage apply and routine Desktop management use Platform review in default mode and allow server-side auto approval in auto_approve/full_access. catalog_manage delete and chat_manage delete always require explicit human approval. Prepare the exact candidate; a changed baseline requires a new review. Market resource management, service lifecycle, and WebApp install/uninstall/publish keep Desktop confirmation. Unknown execution outcomes require reading state before retrying.
 
 platform_inspect: runtimeStatus {component?}; securityExplain {path,access?} or {tool,action?}. These explain cached state and current policy without granting access.
 

@@ -12,6 +12,19 @@ operationAware: true
 tags:
   - "platform"
   - "management"
+confirmationRules:
+  - when:
+      /action: website.add
+    viewportType: html
+    viewportKey: desktop_website_review
+  - when:
+      /action: website.update
+    viewportType: html
+    viewportKey: desktop_website_review
+  - when:
+      /action: website.remove
+    viewportType: html
+    viewportKey: desktop_website_review
 inputSchema:
   type: "object"
   properties:

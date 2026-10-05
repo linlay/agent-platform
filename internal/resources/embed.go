@@ -13,5 +13,5 @@ var ConnectorFS embed.FS
 
 // ViewportFS contains Platform-owned HTML forms, served by fixed builtin keys.
 //
-//go:embed viewports/*.html
+//go:embed viewports/*.html viewports/shared/*
 var ViewportFS embed.FS

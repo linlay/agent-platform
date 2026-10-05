@@ -36,7 +36,7 @@ func (s *llmRunStream) toolApprovalRequest(invocation *preparedToolInvocation) (
 }
 func (s *llmRunStream) executeApprovedTool(request approvalRequest) error {
 	invocation := request.invocation
-	if request.toolApproval == nil || invocation.approvalDecision != "approve" {
+	if request.toolApproval == nil || (invocation.approvalDecision != "approve" && invocation.approvalDecision != "auto_approved") {
 		s.appendOriginalToolResult(invocation, ToolExecutionResult{Error: "approval_rejected", Output: "this operation requires one-time approval", ExitCode: -1})
 		return nil
 	}
@@ -47,4 +47,18 @@ func (s *llmRunStream) executeApprovedTool(request approvalRequest) error {
 	s.execCtx.ToolApprovals[fingerprint] = true
 	defer delete(s.execCtx.ToolApprovals, fingerprint)
 	return s.executeOriginalBash(invocation)
+}
+
+func (s *llmRunStream) canAutoApproveTool(request approvalRequest) bool {
+	if request.toolApproval == nil || !request.toolApproval.AllowAutoApprove {
+		return false
+	}
+	level := s.currentAccessLevel()
+	return level == AccessLevelAutoApprove || level == AccessLevelFullAccess
+}
+
+func (s *llmRunStream) autoApproveTool(request approvalRequest) error {
+	request.invocation.shownApproval = &request
+	s.applyHITLDecision(request.invocation, request.result, "", "auto_approved", "accessLevel="+s.currentAccessLevel(), true)
+	return s.executeApprovedTool(request)
 }

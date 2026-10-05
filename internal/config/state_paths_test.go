@@ -41,6 +41,7 @@ func TestStateDirectoryEnvironmentAndFixedRuntimeLayout(t *testing.T) {
 					cfg.Paths.OwnerDir: "owner", cfg.Paths.RootDir: "root",
 					cfg.Paths.AutomationsDir: "automations", cfg.Paths.SkillsCenterDir: "skills-center",
 					cfg.Paths.ConnectorsCenterDir: "connectors-center",
+					cfg.Paths.KBasesCenterDir:     "kbases-center",
 				} {
 					if path != filepath.Join(runtimeRoot, child) {
 						t.Fatalf("%s escaped fixed runtime layout: %s", child, path)
@@ -56,6 +57,22 @@ func TestStateEnvironmentCannotOverlapRuntimeSources(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": root, "AP_RUNTIME_STATE_DIR": filepath.Join(root, "agents")}, func() {
 		if _, err := Load(LoadOptions{ConfigDir: t.TempDir()}); err == nil {
 			t.Fatal("state environment bypassed overlap validation")
+		}
+	})
+}
+
+func TestKBasesCenterExpandsRuntimeHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": "~/knowledge-center-layout-test"}, func() {
+		cfg, err := Load(LoadOptions{ConfigDir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Paths.KBasesCenterDir != filepath.Join(home, "knowledge-center-layout-test", "kbases-center") {
+			t.Fatal(cfg.Paths.KBasesCenterDir)
 		}
 	})
 }

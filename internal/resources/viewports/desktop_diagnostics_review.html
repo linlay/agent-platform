@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>诊断读取</title><style>/* REVIEW_STYLES */</style></head>
+<body><div id="review" aria-live="polite"></div>
+<script>/* REVIEW_SCRIPT */</script>
+<script>
+Review.mount(u=>{
+ const {t}=u;
+ u.title(t('诊断读取','Diagnostics'),t('允许智能体读取桌面诊断信息？','Allow the agent to read Desktop diagnostics?'),t('用于排查运行环境、服务状态和登录问题。以下只列出信息类别，尚未读取实际诊断内容。','Helps investigate runtime, service and sign-in problems. Only categories are shown here; diagnostic values have not been collected.'));
+ u.field(t('设备信息','Device information'),t('设备与系统的诊断信息','Device and system diagnostics'));
+ u.field(t('本机路径','Local paths'),t('安装位置、运行目录等宿主路径','Host paths such as installation and runtime directories'));
+ u.field(t('运行环境','Runtime'),t('Desktop、Electron 和 Node 等版本','Versions of Desktop, Electron and Node'));
+ u.field(t('登录状态','Sign-in status'),t('SSO 登录凭据摘要；不包含凭据原文','SSO credential summary, without raw credentials'));
+ u.field(t('内部服务','Internal services'),t('本机内部服务状态和诊断信息','Status and diagnostics of internal services'));
+ u.notice(t('同意后，这些信息会作为工具结果提供给当前智能体，可能包含本机用户名或目录名称。此操作不会修改设置。','If approved, this information is returned to the current agent and may include local user or directory names. This action does not change settings.'),true);
+ u.extras(u.args,[]);
+});
+</script></body></html>

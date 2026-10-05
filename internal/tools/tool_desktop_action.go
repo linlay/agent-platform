@@ -126,11 +126,6 @@ func (t *RuntimeToolExecutor) dispatchDesktopAction(ctx context.Context, action 
 			"recovery": map[string]any{"strategy": "fix_input", "message": "Use @chat for the current Chat or @workspace for the bound project, within the current trusted Workspace. Do not change source or use parent traversal."},
 		}), nil
 	}
-	if tool, ok := desktopInstallTool(action); ok {
-		if execCtx == nil || !ConsumeToolApproval(execCtx, desktopInstallFingerprint(execCtx, tool, args)) {
-			return desktopActionErrorResult("approval_required", "installation requires one-time approval of this invocation", nil), nil
-		}
-	}
 	return t.invokeDesktopClientRequest(ctx, requestID, action, resolvedArgs, &source, "desktop_action", false, execCtx)
 }
 

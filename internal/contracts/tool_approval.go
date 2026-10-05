@@ -9,12 +9,14 @@ import (
 
 // ToolApproval is an exact, one-shot review prepared by the business handler.
 // The router resolves ViewportKey exclusively from confirmationRules.
-// Business handlers supply only the fingerprint, title and form data.
+// Business handlers supply the fingerprint, title, form and approval policy.
 type ToolApproval struct {
-	Fingerprint string         `json:"fingerprint"`
-	Title       string         `json:"title"`
-	ViewportKey string         `json:"viewportKey,omitempty"`
-	Form        map[string]any `json:"form,omitempty"`
+	// Opt-in only: default false preserves mandatory manual approval.
+	AllowAutoApprove bool           `json:"-"`
+	Fingerprint      string         `json:"fingerprint"`
+	Title            string         `json:"title"`
+	ViewportKey      string         `json:"viewportKey,omitempty"`
+	Form             map[string]any `json:"form,omitempty"`
 }
 type ToolApprovalPlanner interface {
 	PrepareToolApproval(context.Context, string, map[string]any, *ExecutionContext) (*ToolApproval, error)

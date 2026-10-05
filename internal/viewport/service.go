@@ -26,5 +26,20 @@ func (s *Service) Get(_ context.Context, key string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"viewportKey": key, "html": string(html)}, nil
+	page := string(html)
+	// Shared assets are embedded inline: review pages remain offline and retain
+	// the existing CSP. Only builtin, fixed markers are expanded.
+	for _, asset := range []struct{ marker, path string }{
+		{"/* REVIEW_STYLES */", "viewports/shared/review.css"},
+		{"/* REVIEW_SCRIPT */", "viewports/shared/review.js"},
+	} {
+		if strings.Contains(page, asset.marker) {
+			content, err := resources.ViewportFS.ReadFile(asset.path)
+			if err != nil {
+				return nil, err
+			}
+			page = strings.ReplaceAll(page, asset.marker, string(content))
+		}
+	}
+	return map[string]any{"viewportKey": key, "html": page}, nil
 }

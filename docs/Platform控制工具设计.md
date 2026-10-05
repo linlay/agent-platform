@@ -17,7 +17,7 @@
 | desktop_market | 15 个市场动作 | Desktop |
 | desktop_kanban | 6 个看板动作 | Desktop |
 
-全部工具使用固定 `{action,args}`，action 枚举来自 `internal/connector/control_actions.go`；顶层未知字段拒绝。Catalog/Chat/Inspect 还严格检查动作参数类型与字段。Desktop 保留原有动作字段校验与确认流程，新适配器仅添加 `desktop.` 传输前缀。`agent.update`、`skill.update` 不再暴露给模型。不同工具的 action 不互相兼容。
+全部工具使用固定 `{action,args}`，action 枚举来自 `internal/connector/control_actions.go`；顶层未知字段拒绝。Catalog/Chat/Inspect 还严格检查动作参数类型与字段。Desktop 保留动作字段校验；日常管理的确认由 Platform 接管，重影响动作继续使用 Desktop 确认，适配器添加 `desktop.` 传输前缀。`agent.update`、`skill.update` 不再暴露给模型。不同工具的 action 不互相兼容。
 
 Standalone 隐藏七个 Desktop 工具；Catalog/Chat 在子任务、Team、BTW/Explain 中隐藏并在执行时再次拒绝。ACP/Proxy/Channel 不经过 native 执行入口。planning/read-only 仅允许平台只读动作；七个 Desktop 管理工具全部禁止 planning，并按顺序屏障执行，包括其只读动作。未知动作按非只读处理。
 
@@ -60,15 +60,28 @@ prepare 生成脱敏前后内容和摘要；执行在 `adminsource` 共用 Agent
 
 `catalog_query.get` 的 agent.yml 环境变量脱敏及 `catalog_manage.apply` 的 preservePaths 补回通过原文位置编辑，保留未改动的注释、引号、字段顺序、换行和多行值；环境变量表达式按原文补回，不落盘为进程环境的值。重复键等无法明确定位的文本拒绝处理；原本的块状多行值不能补回到候选行内 flow env，需要保留块状 env。此保证针对控制工具源码链路，不等于所有既有结构化表单都支持无损 YAML 往返。
 
-## 强制一次性审批
+## 一次性审批与权限档位
 
-所有 catalog_manage 与 chat_manage.delete 都必须人工批准，即使 full_access / auto_approve。审批绑定 subject、Agent、Run、tool invocation、目标、内容与基准版本；批准不赋予同轮规则授权，也不传给并发兄弟调用。提交必须匹配调用 ID，且只能 approve/reject。审批等待期间变更目标或候选内容会使授权失效。
+`catalog_manage.apply` 在 default 下人工审阅，在 auto_approve / full_access 下由服务端自动批准并记录 auto_approved 决策；`catalog_manage.delete` 与 `chat_manage.delete` 仍必须人工批准，即使 full_access / auto_approve。审批绑定 subject、Agent、Run、tool invocation、目标、内容与基准版本；批准不赋予同轮规则授权，也不传给并发兄弟调用。提交必须匹配调用 ID，且只能 approve/reject。审批等待期间变更目标或候选内容会使授权失效。
 
-平台控制通过工具 YML 的 `confirmationRules` 选择界面：`catalog_manage` 的 `/action: delete` 使用 `resource_delete_review`，其默认规则保留 `platform_control_review`；`chat_manage` 的删除继续使用原模板；Go Handler 不再指定模板。匹配后发出 `awaiting.ask(mode: form, viewportType: html, viewportKey: platform_control_review)`；`forms[].id` 绑定工具调用，`forms[].form` 保存业务审阅数据。HTML 随 Platform 编译内置，经 `/api/viewport` 返回，固定 key 不接受本地或远端覆盖。通用 approval 不再扩展 review/before/after/fingerprint，WebClient 不解释平台控制业务字段。
+平台控制通过工具 YML 的 `confirmationRules` 选择界面：`catalog_manage` 的 `/action: delete` 使用 `resource_delete_review`，其默认规则保留 `platform_control_review`；`chat_manage.delete` 使用独立的 `chat_delete_review` 模板，展示会话标识、归档位置和基准版本；Go Handler 不再指定模板。匹配后发出 `awaiting.ask(mode: form, viewportType: html, viewportKey: platform_control_review)`；`forms[].id` 绑定工具调用，`forms[].form` 保存业务审阅数据。HTML 随 Platform 编译内置，经 `/api/viewport` 返回，固定 key 不接受本地或远端覆盖。通用 approval 不再扩展 review/before/after/fingerprint，WebClient 不解释平台控制业务字段。
 
 模板只读展示创建、修改、资源删除或 Chat 删除；修改默认展示有界文本差异，完整脱敏内容可折叠查看。Agent 主定义 apply 才附带权限字段提醒。模板通过 awaiting_init/update 接收数据，仅响应宿主 awaiting_collect；同意、拒绝、理由和倒计时由宿主承担。容器限制整体高度，HTML 内部滚动。
 
-服务端以内部冻结的调用上下文接受 approve/reject，严格校验工具 ID，不从公开表单数据推导授权；表单返回值不能改写工具参数，也不进入 Bash 命令重建路径。批准后仍按内容摘要和基准版本复验、消费一次性授权；拒绝反馈回到 Agent 重新生成候选。超时不自动批准，form 仍不跨进程恢复。模型提供的“已确认”字段无效。市场安装／升级与本地 WebApp 安装新增配置式 `installation_review` 前置审批；Desktop 原有确认仍保留，开启时需要再次确认，可信授权收据交接尚未实现。其他 Desktop 动作不新增 Platform 审批。
+服务端以内部冻结的调用上下文接受 approve/reject，严格校验工具 ID，不从公开表单数据推导授权；表单返回值不能改写工具参数，也不进入 Bash 命令重建路径。批准后仍按内容摘要和基准版本复验、消费一次性授权；拒绝反馈回到 Agent 重新生成候选。超时不自动批准，form 仍不跨进程恢复。模型提供的“已确认”字段无效。Desktop 日常管理按业务使用六个专用审阅页：外观/皮肤/桌宠/Copilot 偏好、网站条目增改删、看板写操作、单个 WebApp 启停/重启/打开/偏好/撤销发布、产物导出及敏感诊断读取。default 用业务名称、具体字段和操作影响展示审阅，原始 JSON 默认折叠在技术详情；auto_approve / full_access 自动批准并记录决策；每次仍消费绑定 Run、调用 ID 与原始参数的一次性授权，不发送 permissionMode 提权字段。诊断审批只展示数据类别，批准前不采集敏感值。审阅前通过固定只读动作，在总计 3 秒预算内尽力读取所选对象的名称和当前值；仅保留相关字段与所选名称，不回传整个列表或 WebApp 配置。修改页可显示“当前 → 改为”，读取失败明确标注当前值不可用，不伪造前值。该快照仅用于展示，不是版本锁或新增授权依据；Desktop 执行时继续校验实际状态。auto_approve / full_access 不做展示预读取。
+
+| viewport key | 业务展示 |
+| --- | --- |
+| `desktop_appearance_review` | 主题、语言、皮肤、桌宠和页面助理偏好，显示名称和选项变化 |
+| `desktop_website_review` | 网站名称、网址和助理的前后对比；移除入口的实际影响 |
+| `desktop_kanban_review` | 任务标题/内容、状态、优先级及执行安排；删除关联定时任务和待办自动执行提醒 |
+| `desktop_webapp_review` | 应用名称、名称/打开方式变更，启停/重启/撤销发布的具体影响 |
+| `desktop_export_review` | 页面名称、文件格式、下载目录；文件名由实际导出生成 |
+| `desktop_diagnostics_review` | 将读取的数据类别和提供给当前智能体的范围，不提前读取诊断值 |
+
+六页共用内置 CSS 和宿主 collect 消息协议，viewport 服务将共享资源内联，保持离线 HTML 与原 CSP。对象名称和业务内容只通过 textContent 显示，不执行 HTML 或 Markdown。未知附加字段会提示展开技术详情核对。
+
+Desktop 对这些动作仅在可信内部 agentPlatform 调用上下文下豁免自身确认；公开请求自报 source 不获得豁免。原 action confirmation 定义、全局开关与 dialog 保留，将动作移出白名单并撤销对应 Platform 审阅可恢复原确认。导航、打开详情/日志、市场刷新等轻量动作不新增 Platform 审阅。市场资源管理（含安装/升级/卸载与镜像导入导出/删除）、基础服务变更、WebApp 安装/卸载/公开发布继续由 Desktop 确认，不叠加 Platform viewport；原市场及 WebApp 安装前置审批已移除。Platform/Desktop 需配套更新，旧 Desktop 对新 Platform 审阅动作仍可能重复确认。
 
 已知 agent/team/skill/connector 的模型候选 content 在事件、历史和 trace 中保留原文，避免下一轮丢失编辑内容。读取的既有 env 值和审批安全副本仍按字段脱敏，服务端 preservePaths 回填值不注入模型参数；未知类型和未完成参数保守脱敏。run_env 参数依旧可观测，不用于 Secret。
 

@@ -113,6 +113,7 @@ type PathsConfig struct {
 	ChatsDir                 string
 	MemoryDir                string
 	KBaseDir                 string
+	KBasesCenterDir          string
 	PanDir                   string
 	SkillsCenterDir          string
 }
@@ -770,6 +771,7 @@ func validateRUAgentsDir(paths PathsConfig) error {
 		"chats-dir":             paths.ChatsDir,
 		"memory-dir":            paths.MemoryDir,
 		"kbase-dir":             paths.KBaseDir,
+		"kbases-center-dir":     paths.KBasesCenterDir,
 		"pan-dir":               paths.PanDir,
 		"skills-center-dir":     paths.SkillsCenterDir,
 	} {

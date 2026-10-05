@@ -49,6 +49,10 @@ func (t *RuntimeToolExecutor) invokeDesktopDomain(ctx context.Context, tool stri
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return fail("desktop_unsupported_runtime", "Desktop domain tools require Desktop runtime")
 	}
-	// The existing transport retains its structured error codes and confirmation policy.
+	if desktopControlReviewAction(tool, action) && !ConsumeToolApproval(execCtx, desktopControlFingerprint(execCtx, tool, args)) {
+		return desktopActionErrorResult("approval_required", "action requires one-time approval of this invocation", map[string]any{"stage": "authorization", "executionState": "not_started"}), nil
+	}
+	// Heavy host operations retain Desktop confirmation; reviewed actions use
+	// Desktop's trusted Agent Platform exemption without permission elevation.
 	return t.dispatchDesktopAction(ctx, "desktop."+action, args, execCtx)
 }

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>应用操作</title><style>/* REVIEW_STYLES */</style></head>
+<body><div id="review" aria-live="polite"></div>
+<script>/* REVIEW_SCRIPT */</script>
+<script>
+Review.mount(u=>{
+ const {t,args:a,current:c,action}=u,id=a.webappId||a.id,patch=u.record(a.patch);
+ const titles={'webapp.start':t('启动应用','Start an app'),'webapp.stop':t('停止应用','Stop an app'),'webapp.restart':t('重启应用','Restart an app'),'webapp.open':t('打开应用','Open an app'),'webapp.updatePreferences':t('修改应用偏好','Edit app preferences'),'webapp.unpublish':t('停止公开发布','Stop public access')};
+ u.title(t('本地应用','Local app'),titles[action]||t('管理应用','Manage an app'),t('本次操作只针对下面这个应用。','This operation applies only to the app below.'));
+ u.target(c.label||t('所选应用','Selected app'),'',c.label?'':id);
+ const impacts={
+ 'webapp.start':t('启动应用服务，使应用可以在本机使用。','Start the app service so it can be used locally.'),
+ 'webapp.stop':t('停止应用服务，正在访问它的页面和请求可能中断。不会卸载应用或删除已保存的数据。','Stop the app service. Open pages and requests may be interrupted. The app and saved data are kept.'),
+ 'webapp.restart':t('先停止再启动应用。使用过程中会短暂中断，尚未保存的操作可能受影响。','Stop and then start the app. Access is briefly interrupted and unsaved work may be affected.'),
+ 'webapp.open':t('启动这个应用，并在 Desktop 中打开它。','Start this app and open it in Desktop.'),
+ 'webapp.unpublish':t('停止通过公开隧道地址访问此应用。应用仍可在本机运行，已保存的数据不会删除。','Disable access through the public tunnel address. The app can keep running locally and saved data is kept.')};
+ if(action==='webapp.updatePreferences'){
+  if(u.own(patch,'label'))u.change(t('应用名称','App name'),'label',patch.label);
+  if(u.own(patch,'openMode'))u.change(t('打开方式','Open in'),'openMode',patch.openMode,v=>({workspace:t('工作区','Workspace'),dialog:t('独立弹窗','Dialog window')}[v]||u.format(v)));
+  u.notice(t('只调整名称或打开方式，不会安装或升级应用。','Only the name or open mode changes. This does not install or update the app.'));u.extras(patch,['label','openMode']);u.extras(a,['id','webappId','patch']);
+ } else {u.notice(impacts[action]||t('请核对技术详情中的操作。','Review the operation in technical details.'),['webapp.stop','webapp.restart','webapp.unpublish'].includes(action));u.extras(a,['id','webappId']);}
+ u.required(id,t('应用标识','App ID'));u.snapshot();
+});
+</script></body></html>

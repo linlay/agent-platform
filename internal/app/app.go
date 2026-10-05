@@ -28,6 +28,7 @@ import (
 	"agent-platform/internal/hostshell"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/kbasescenter"
 	"agent-platform/internal/kbx"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
@@ -306,6 +307,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
+	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesCenterDir, kbx.NewCenterEngine())
+	if err != nil {
+		return nil, fmt.Errorf("initialize knowledge base center: %w", err)
+	}
 	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry)
 	mcpSyncCoordinator := mcp.NewSyncCoordinator(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second, notifications)
 	mcpReloader := mcp.NewRegistryReloader(mcpRegistry, mcpToolSync, mcpSyncCoordinator)
@@ -449,6 +454,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Memory:                 memoryStore,
 		MemoryMaintenance:      memoryWorker,
 		KBase:                  kbaseManager,
+		KBasesCenter:           kbasesCenter,
 		Registry:               registry,
 		Models:                 modelRegistry,
 		Runs:                   runManager,

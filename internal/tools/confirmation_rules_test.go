@@ -128,6 +128,9 @@ func TestEmbeddedCatalogAndChatConfirmationRules(t *testing.T) {
 			}
 			wants := def.Name == "catalog_manage" || action == "delete"
 			wantKey := "platform_control_review"
+			if def.Name == "chat_manage" {
+				wantKey = "chat_delete_review"
+			}
 			if def.Name == "catalog_manage" && action == "delete" {
 				wantKey = "resource_delete_review"
 			}

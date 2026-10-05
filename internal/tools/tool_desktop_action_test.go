@@ -1450,9 +1450,7 @@ func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 		args := map[string]any{"requestId": requestID, "action": action, "args": map[string]any{}}
 		execution := desktopActionTestExecutionContext()
 		execution.CurrentToolID = requestID
-		if tool, ok := desktopInstallTool(action); ok {
-			execution.ToolApprovals = map[string]bool{desktopInstallFingerprint(execution, tool, args): true}
-		}
+
 		result, err := executor.invokeDesktopAction(context.Background(), args, execution)
 		if err != nil || result.ExitCode != 0 {
 			t.Fatalf("action %s failed: result=%#v err=%v", action, result, err)
