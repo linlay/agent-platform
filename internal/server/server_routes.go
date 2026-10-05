@@ -20,7 +20,6 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/observability"
-	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 )
@@ -252,14 +251,6 @@ func (w *sseInterceptor) Write(p []byte) (int, error) {
 }
 
 func (w *sseInterceptor) Flush() {}
-
-func withChatSourceContext(ctx context.Context, source string) context.Context {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return ctx
-	}
-	return context.WithValue(runtimetypes.WithChatSource(ctx, source), chatSourceContextKey{}, source)
-}
 
 func chatSourceFromContext(ctx context.Context) string {
 	if ctx == nil {
