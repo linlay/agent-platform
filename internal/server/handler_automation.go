@@ -472,21 +472,23 @@ func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time
 
 func mapAutomationQuery(query automation.Query) api.AutomationQueryResponse {
 	return api.AutomationQueryResponse{
-		Message: query.Message,
-		ChatID:  query.ChatID,
-		Role:    query.Role,
-		Hidden:  cloneAutomationBoolPtr(query.Hidden),
-		Params:  contracts.CloneAnyMap(query.Params),
+		AccessLevel: query.AccessLevel,
+		Message:     query.Message,
+		ChatID:      query.ChatID,
+		Role:        query.Role,
+		Hidden:      cloneAutomationBoolPtr(query.Hidden),
+		Params:      contracts.CloneAnyMap(query.Params),
 	}
 }
 
 func automationQueryFromRequest(req api.AutomationQueryRequest) automation.Query {
 	return automation.Query{
-		ChatID:  strings.TrimSpace(req.ChatID),
-		Role:    strings.TrimSpace(req.Role),
-		Hidden:  cloneAutomationBoolPtr(req.Hidden),
-		Message: req.Message,
-		Params:  contracts.CloneAnyMap(req.Params),
+		AccessLevel: strings.TrimSpace(req.AccessLevel),
+		ChatID:      strings.TrimSpace(req.ChatID),
+		Role:        strings.TrimSpace(req.Role),
+		Hidden:      cloneAutomationBoolPtr(req.Hidden),
+		Message:     req.Message,
+		Params:      contracts.CloneAnyMap(req.Params),
 	}
 }
 
@@ -516,6 +518,7 @@ func applyAutomationUpdate(def *automation.Definition, req api.UpdateAutomationR
 		def.RemainingRuns = cloneIntPtr(req.RemainingRuns)
 	}
 	if req.Query != nil {
+		def.Query.AccessLevel = strings.TrimSpace(req.Query.AccessLevel)
 		def.Query.ChatID = strings.TrimSpace(req.Query.ChatID)
 		def.Query.Role = strings.TrimSpace(req.Query.Role)
 		def.Query.Hidden = cloneAutomationBoolPtr(req.Query.Hidden)

@@ -56,6 +56,13 @@ func (s *Service) StartRun(_ context.Context, request contracts.RunStartRequest)
 	if accessLevel != contracts.AccessLevelDefault && !s.deps.Config.RunQuery.AllowAccessLevelOverride {
 		return contracts.RunSnapshot{}, runToolError("run_access_level_override_disabled", "runQuery.allowAccessLevelOverride is disabled")
 	}
+	if strings.TrimSpace(request.AccessLevel) == "" {
+		// Inheritance is not an explicit override. Read the live control state so
+		// changes made after the parent session started apply to new runs too.
+		if parent, ok := s.deps.Runs.RunStatus(strings.TrimSpace(request.Origin.RunID)); ok {
+			accessLevel = sessionbuild.NormalizedAccessLevel(parent.AccessLevel)
+		}
+	}
 	chatName := strings.TrimSpace(request.ChatName)
 	if chatName != "" && strings.TrimSpace(request.ChatID) != "" {
 		return contracts.RunSnapshot{}, runToolError("invalid_request", "chatName cannot be combined with chatId")

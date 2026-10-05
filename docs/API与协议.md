@@ -334,13 +334,15 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 | POST | `/api/automation/execution` | body: `executionId`（兼容 `id`） | 单条 execution 与完整 query/result 内容 |
 
-`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
+`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`accessLevel`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
 
 Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 同样是 epoch milliseconds。这些 `*At` 字段是排序、计算和客户端本地化的唯一权威时间。对应的 `nextFireTime`、`startedTime`、`completedTime` 均由 Platform 按 `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）转换为 `YYYY-MM-DD HH:mm:ss`，只用于阅读，不保留毫秒或时区信息。
 
 Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 是创建 execution 时解析出的有效业务时区快照，解析顺序为 automation `environment.zoneId`、Platform `automation.default-zone-id`、进程 `time.Local`。它不会随 automation 后续修改或删除而变化，也不参与上述 `*Time` 展示转换。
 
 Automation 列表和详情固定返回 `executionHistory:{available,state,message?}`，其中 `state` 为 `initializing|ready|degraded|unavailable`。History 不可读不影响 Automation 配置 API；`/api/automation/executions` 和 `/api/automation/execution` 此时返回 `503`。
+
+Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `default/auto_approve/full_access`，省略时执行权限为 `default`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不受 `runQuery.allowAccessLevelOverride` 限制；目标交互准入及工具硬限制继续生效。
 
 `POST /api/automation/trigger` 是 HTTP-only 的原生手动触发入口。每次请求都会创建不同的 Execution，并与 Cron 执行共用全局 Automation 并发池；暂停状态也可触发，但不会扣减 `remainingRuns`、持久化 Automation 或改变 `nextFireAt`。成功响应保持统一 200 包装，例如 `data:{"accepted":true,"status":"accepted","automationId":"daily-report","executionId":"exec_xxx"}`。该响应只表示已受理，Query 准入、模型执行、HITL 或停止取消等后续结果通过 execution history 和 `automation.execution.*` push 反映。
 

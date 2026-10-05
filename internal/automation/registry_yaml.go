@@ -33,6 +33,9 @@ func renderDefinition(def Definition) []byte {
 	}
 
 	writeYAMLLine(&b, 0, "query:")
+	if level, err := normalizeAutomationAccessLevel(def.Query.AccessLevel); err == nil && level != "" {
+		writeYAMLKeyValue(&b, 2, "accessLevel", level)
+	}
 	if strings.TrimSpace(def.Query.RequestID) != "" {
 		writeYAMLKeyValue(&b, 2, "requestId", def.Query.RequestID)
 	}

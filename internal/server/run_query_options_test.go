@@ -38,7 +38,7 @@ func TestRunQueryOptionalSettings(t *testing.T) {
 				}
 				expected := level
 				if expected == "" {
-					expected = "default"
+					expected = "full_access"
 				}
 				if started.AccessLevel != expected {
 					t.Fatalf("started=%#v", started)
@@ -66,8 +66,8 @@ func TestRunQueryOptionalSettings(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if continued.AccessLevel != "default" {
-					t.Fatalf("continuation inherited level: %#v", continued)
+				if continued.AccessLevel != "full_access" {
+					t.Fatalf("continuation did not inherit parent level: %#v", continued)
 				}
 				waitRunTerminal(t, fixture.server, continued.RunID)
 				summary, _ = fixture.chats.Summary(started.ChatID)
@@ -97,10 +97,15 @@ func TestRunQueryTargetAdmissionForOptions(t *testing.T) {
 		},
 	})
 	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
+	_, _, _ = fixture.runs.Register(context.Background(), contracts.QuerySession{
+		RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "full_access",
+	})
+	defer fixture.runs.Finish("parent")
 	for _, tc := range []struct {
 		request contracts.RunStartRequest
 		code    string
 	}{
+		{contracts.RunStartRequest{AgentKey: "mock-agent"}, "interaction_disabled"},
 		{contracts.RunStartRequest{AgentKey: "mock-agent", AccessLevel: "full_access"}, "interaction_disabled"},
 		{contracts.RunStartRequest{AgentKey: "mock-agent", MustUseSkills: []string{"demo"}}, "interaction_disabled"},
 		{contracts.RunStartRequest{TeamID: "default", MustUseSkills: []string{"demo"}}, "must_use_skills_unsupported"},
@@ -127,4 +132,35 @@ func TestRunQueryTargetAdmissionForOptions(t *testing.T) {
 	}
 	waitRunTerminal(t, fixture.server, started.RunID)
 
+}
+
+func TestRunQueryInheritsLiveParentAccessLevel(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
+	}, testFixtureOptions{})
+	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
+	_, parent, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
+		RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "default",
+	})
+	defer fixture.runs.Finish("parent")
+	var chatID string
+	for _, level := range []string{"default", "auto_approve", "full_access", "default"} {
+		parent.UpdateAccessLevel(level)
+		started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
+			AgentKey: "mock-agent", ChatID: chatID, Message: "inherit current permission",
+			Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "tool"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if started.AccessLevel != level {
+			t.Fatalf("want %s, got %#v", level, started)
+		}
+		parent.UpdateAccessLevel("auto_approve")
+		finished := waitRunTerminal(t, fixture.server, started.RunID)
+		if finished.AccessLevel != level {
+			t.Fatalf("child permission changed with parent: %#v", finished)
+		}
+		chatID = started.ChatID
+	}
 }
