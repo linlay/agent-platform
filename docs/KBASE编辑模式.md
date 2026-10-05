@@ -94,4 +94,4 @@ KBASE 自身的目录 watcher 监听 KBASE Workspace，在 debounce 后按 canon
 
 修正目录后，Catalog 热重载会重新执行校验并恢复准入。该检查不依赖 `editingMode`，普通 Agent 挂载 KBASE capability 时同样适用。
 
-权限对抗覆盖见 [KBASE 编辑模式越权对抗测试报告](KBASE编辑模式越权对抗测试报告.md)。
+权限回归入口：`internal/tools/kbase_editing_adversarial_test.go`、`internal/filetools/scoped_test.go`；工具集合以当前 Agent 配置及 Platform 预置为准。

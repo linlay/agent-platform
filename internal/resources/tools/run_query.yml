@@ -16,8 +16,8 @@ description: |
   accessLevel, mustUseSkills and chatName are optional. Only pass accessLevel
   when the user explicitly requests a permission level. Automatic approval means
   auto_approve, not full_access; destructive operations may still require approval.
-  Omission uses default and never inherits the parent permission level.
-  A deployment may disable non-default levels. chatName names a new Chat only;
+  Omission inherits the parent Run current permission level at invocation time.
+  A deployment may disable explicit non-default overrides; inheritance remains allowed. chatName names a new Chat only;
   do not combine it with chatId. taskName is not supported.
 clientVisible: true
 explicitOnly: true
@@ -47,7 +47,7 @@ inputSchema:
         - default
         - auto_approve
         - full_access
-      description: Optional. Permission level for this run only; omitted means default. Non-default levels require deployment opt-in and target admission.
+      description: Optional. Permission level for this run only; omitted inherits the parent Run current level. Explicit non-default levels require deployment opt-in. Target admission applies to all levels.
     mustUseSkills:
       type: array
       items:

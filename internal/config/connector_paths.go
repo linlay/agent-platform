@@ -15,7 +15,7 @@ func (p PathsConfig) EffectiveConnectorStateDir() string {
 }
 
 func (p PathsConfig) ConnectorSources() connector.Sources {
-	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveConnectorStateDir(), LegacyStateRoot: p.LegacyConnectorStateDir}
+	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveConnectorStateDir()}
 }
 
 func validateConnectorPaths(p PathsConfig) error {

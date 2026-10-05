@@ -44,11 +44,12 @@ type AutomationExecutionHistoryStatus struct {
 }
 
 type AutomationQueryResponse struct {
-	Message string         `json:"message"`
-	ChatID  string         `json:"chatId,omitempty"`
-	Role    string         `json:"role,omitempty"`
-	Hidden  *bool          `json:"hidden,omitempty"`
-	Params  map[string]any `json:"params,omitempty"`
+	AccessLevel string         `json:"accessLevel,omitempty"`
+	Message     string         `json:"message"`
+	ChatID      string         `json:"chatId,omitempty"`
+	Role        string         `json:"role,omitempty"`
+	Hidden      *bool          `json:"hidden,omitempty"`
+	Params      map[string]any `json:"params,omitempty"`
 }
 
 type AutomationExecutionBrief struct {
@@ -111,11 +112,12 @@ type CreateAutomationRequest struct {
 }
 
 type AutomationQueryRequest struct {
-	Message string         `json:"message"`
-	ChatID  string         `json:"chatId,omitempty"`
-	Role    string         `json:"role,omitempty"`
-	Hidden  *bool          `json:"hidden,omitempty"`
-	Params  map[string]any `json:"params,omitempty"`
+	AccessLevel string         `json:"accessLevel,omitempty"`
+	Message     string         `json:"message"`
+	ChatID      string         `json:"chatId,omitempty"`
+	Role        string         `json:"role,omitempty"`
+	Hidden      *bool          `json:"hidden,omitempty"`
+	Params      map[string]any `json:"params,omitempty"`
 }
 
 type UpdateAutomationRequest struct {

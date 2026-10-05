@@ -102,8 +102,6 @@ type PathsConfig struct {
 	NativeWebControlDir      string
 	ConnectorsCenterDir      string
 	StateDir                 string
-	LegacyConnectorStateDir  string
-	LegacyConnectorsDir      string
 	RegistriesDir            string
 	ToolsDir                 string
 	OwnerDir                 string
@@ -208,6 +206,8 @@ type KBasePromptsConfig struct {
 }
 
 type CoderSettingsConfig struct {
+	// SourcePath is fixed by the loader, never accepted from API requests.
+	SourcePath      string
 	WorkspaceAgents CoderWorkspaceAgentsConfig
 	DefaultAgent    CoderDefaultAgentConfig
 	ACPBridges      map[string]CoderACPBridgeConfig
@@ -399,6 +399,16 @@ type MemoryConfig struct {
 	Enabled         bool
 	ContextMaxChars int
 	Timezone        string
+	Worker          MemoryWorkerConfig
+}
+
+type MemoryWorkerConfig struct {
+	Enabled             bool
+	ModelKey            string
+	PollIntervalSeconds int
+	TimeoutSeconds      int
+	MaxBatches          int
+	SummaryMaxChars     int
 }
 
 type DefaultsConfig struct {

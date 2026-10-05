@@ -23,6 +23,8 @@ import (
 	"agent-platform/internal/ws"
 )
 
+const gatewayDownloadMaxBytes = 100 * 1024 * 1024
+
 // wsDownload 处理网关通过 WS /api/upload 通知 platform "有一份用户传到企微仓库的文件、
 // 请按 upload.url 拉取" 的场景。upload.url 可以指向网关 HTTP /api/pull/...。
 // 接受两种 payload 形状：
@@ -293,9 +295,12 @@ func (s *Server) fetchGatewayDownload(ctx context.Context, chatID string, rawURL
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("download status=%d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, gatewayDownloadMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if len(data) > gatewayDownloadMaxBytes {
+		return nil, fmt.Errorf("download exceeds maximum file size of 100 MiB")
 	}
 	return data, nil
 }

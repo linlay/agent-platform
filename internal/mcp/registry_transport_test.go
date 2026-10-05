@@ -129,7 +129,7 @@ func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			tree, _ := config.LoadYAMLTreeBytes([]byte(test.content))
-			_, _, _, err := ConvertLegacy(filepath.Join(root, "server.yml"), tree)
+			_, err := parseServerTree(filepath.Join(root, "server.yml"), tree)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("NewRegistry error = %v, want %q", err, test.want)
 			}
@@ -137,14 +137,14 @@ func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 	}
 }
 
-func TestMigrationRejectsRemovedToolClassificationFields(t *testing.T) {
+func TestServerParserRejectsRemovedToolClassificationFields(t *testing.T) {
 	for _, field := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
 		t.Run(field, func(t *testing.T) {
 			tree, err := config.LoadYAMLTreeBytes([]byte("key: demo\nbaseUrl: https://example.test\ntools:\n  - name: test\n    " + field + ": removed\n"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, _, _, err := ConvertLegacy(filepath.Join(t.TempDir(), "demo.yml"), tree); err == nil || !strings.Contains(err.Error(), field) {
+			if _, err := parseServerTree(filepath.Join(t.TempDir(), "demo.yml"), tree); err == nil || !strings.Contains(err.Error(), field) {
 				t.Fatalf("removed field accepted: %v", err)
 			}
 		})

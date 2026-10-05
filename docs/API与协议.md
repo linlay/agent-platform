@@ -20,6 +20,12 @@
 
 普通 Agent query 准入失败时，已存在但配置无效的 Agent 返回 `422 agent_configuration_invalid`，不存在或不可用且无 invalid 管理记录的 Agent 返回 `404 agent_not_found`，均不可重试。HTTP（包括 SSE 启动前）与 WebSocket 在 `data.error` 保留应用错误码、`status`、`retryable` 和可选 `diagnostics`，按请求/连接语言返回提示。`contextConfig.agents` 中不可用的候选引用继续跳过并警告，不因此阻断主 Agent；已有 Chat 历史仍可读取。
 
+## Desktop ACP 注册
+
+`PUT /api/desktop/acp-bridges` 接受 `sourcePluginId`、`bridgeId`、`baseUrl`、可选 `timeoutMs` 和 `authToken`；省略 token 时保留已有值，显式空字符串清除。`DELETE` 接受同一插件身份与 bridge ID。插件身份由 Desktop 在认证的插件 socket 上确定，不能从插件请求体透传覆盖。
+
+该入口即使全局 auth 关闭也强制验证 JWT，且要求已验证的 app scope、非空 subject 和 device claim；网页或无身份请求不能注册。app scope 的本机宿主是断言插件身份的信任边界。响应仅包含 `changed`、`removed`、`restartRequired`，不回显配置路径或 token。参数错误返回 400，归属或配置冲突返回 409，持久化失败返回 500。旧 Platform 不支持该入口时 Desktop 显式失败，无文件写入降级。持久化与生效边界见 [ACP CODER Backend](智能体配置说明.md#ACP-CODER-Backend)。
+
 ## 统一时间契约
 
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。
@@ -253,7 +259,7 @@ WebClient 与 Desktop 导航只通过一次 `/api/chats/order` 读取排序配�
 
 PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 `pinnedChats`，避免保存成功后摘要读取失败造成写入结果歧义。成功后两端通过统一读取接口刷新，普通未置顶预览按需补位。
 
-智能体可通过 `chat_manage` 的 `setPinned` 调用同一置顶业务入口，沿用 `chats.order.changed` 通知；工具契约与执行边界见 [Platform 控制工具设计](Platform控制工具设计.md#chatset_pinned)。
+智能体可通过 `chat_manage` 的 `setPinned` 调用同一置顶业务入口，沿用 `chats.order.changed` 通知；工具契约与执行边界见 [Platform 控制工具设计](Platform控制工具设计.md#会话)。
 
 `PUT /api/chats/order` 接受三种互斥 operation：
 
@@ -276,7 +282,7 @@ Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详�
 
 `/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的公开 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。新的 Native / Team run 只在事件实际发布时递增该游标，内部事件复用最近公开游标；历史 run 的旧游标不迁移。对 `WAITING_SUBMIT` active run，该 attach 应在 submit 前建立并保持等待；submit 成功不应再创建第二个 attach，同一连接会从 `request.submit` / `awaiting.answer` 开始继续接收该 run 的后续事件。
 
-`POST /api/compact` 的标准手动请求为 `{ "requestId":"...", "chatId":"...", "trigger":"manual", "level":"l1_tools"|"summary" }`，HTTP 与 WebSocket 字段一致。`l1_tools` 只确定性压缩白名单内已经完成、配对完整的 assistant tool call/result，普通 user/assistant/system、引用、附件、未完成工具与 HITL 原样保留；它不调用模型，也不产生 `compactionUsage`。`summary` 将符合条件的多个旧 Run 和活动 Run 已完成前缀合并成一个摘要，严格只调用一次摘要模型；摘要输入先做不落盘的 L1 结构化投影，完整规范化输入仍超出预算时返回 `summary_input_too_large`，绝不丢弃中间历史或拆成多次摘要调用。
+`POST /api/compact` 的标准手动请求为 `{ "requestId":"...", "chatId":"...", "trigger":"manual", "level":"l1_tools"|"summary" }`，HTTP 与 WebSocket 字段一致。`l1_tools` 确定性清理可压缩轮次的 reasoning 与完整工具组，保护最近 N 轮完整模型调用及未完成交互，保留正文、引用和附件；通过原行 `_compact` 标记控制上下文，不复制或改写原文，不调用模型，也不产生 `compactionUsage`。`summary` 将符合条件的多个旧 Run 和活动 Run 已完成前缀合并成一个摘要，严格只调用一次摘要模型；摘要输入先做不落盘的 L1 结构化投影，完整规范化输入仍超出预算时返回 `summary_input_too_large`，绝不丢弃中间历史或拆成多次摘要调用。
 
 压缩规划、L1 前后计算、L2 mandatory 检查和结果校验共用同一套多模态安全估算。普通文本和工具 Schema 使用同一文本 Token 估算器；`image_url` 的 Base64 正文不作为文本计数，可从有界图片头读取尺寸时按 `ceil(width×height/750)` 计算并限制在 256–32768 token，WebP、外部 URL、非法 Data URL 或无法识别尺寸时固定为 8192 token；尺寸检查不会完整解码或访问网络。活动 Run 有有效 provider prompt usage 时，自动触发取该 usage 增量估算与完整请求估算的较大值，压缩后保留保守校准系数。L1 完成后用同一口径重新计算，只有仍达到模型窗口 90% 才进入 L2；L1 不使用 60% 目标，最近 N 轮完整模型调用在 L1 中始终硬保留（默认按模型窗口取 5/7/10）。L2 摘要 prompt 会将候选图片正文临时投影为 MIME、字节大小、可读宽高和 payload SHA-256，不修改活动消息、Chat JSONL 或 checkpoint 中保留的原始图片消息。
 
@@ -307,7 +313,7 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 `POST /api/agent/model-config`（HTTP/WS 相同）仅接受 `agentKey` 必填，`modelKey`、`reasoningEffort`、`serviceTier` 至少一项。省略字段保持原值；modelKey 不允许空值；reasoningEffort 为 NONE/LOW/MEDIUM/HIGH/XHIGH/MAX，不接受空值/null；serviceTier 为非空字符串或 null，null 清除等级，STANDARD 也按清除处理，非标准等级仅限 ACP。未知字段（包括旧 key 别名）拒绝。更新会校验最终模型与 ACP 能力；响应为 `{agentKey,modelKey,reasoningEffort,serviceTier?}`。YAML 的 modelConfig.reasoning.enabled/effort 结构保持不变，API 通过 NONE 表达关闭。
 
 
-`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；新增的 `introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
+`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；`introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
 ### Archive
 
@@ -334,13 +340,15 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 | POST | `/api/automation/execution` | body: `executionId`（兼容 `id`） | 单条 execution 与完整 query/result 内容 |
 
-`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
+`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`accessLevel`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
 
 Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 同样是 epoch milliseconds。这些 `*At` 字段是排序、计算和客户端本地化的唯一权威时间。对应的 `nextFireTime`、`startedTime`、`completedTime` 均由 Platform 按 `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）转换为 `YYYY-MM-DD HH:mm:ss`，只用于阅读，不保留毫秒或时区信息。
 
 Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 是创建 execution 时解析出的有效业务时区快照，解析顺序为 automation `environment.zoneId`、Platform `automation.default-zone-id`、进程 `time.Local`。它不会随 automation 后续修改或删除而变化，也不参与上述 `*Time` 展示转换。
 
 Automation 列表和详情固定返回 `executionHistory:{available,state,message?}`，其中 `state` 为 `initializing|ready|degraded|unavailable`。History 不可读不影响 Automation 配置 API；`/api/automation/executions` 和 `/api/automation/execution` 此时返回 `503`。
+
+Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `default/auto_approve/full_access`，省略时执行权限为 `default`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不受 `runQuery.allowAccessLevelOverride` 限制；目标交互准入及工具硬限制继续生效。
 
 `POST /api/automation/trigger` 是 HTTP-only 的原生手动触发入口。每次请求都会创建不同的 Execution，并与 Cron 执行共用全局 Automation 并发池；暂停状态也可触发，但不会扣减 `remainingRuns`、持久化 Automation 或改变 `nextFireAt`。成功响应保持统一 200 包装，例如 `data:{"accepted":true,"status":"accepted","automationId":"daily-report","executionId":"exec_xxx"}`。该响应只表示已受理，Query 准入、模型执行、HITL 或停止取消等后续结果通过 execution history 和 `automation.execution.*` push 反映。
 
@@ -725,7 +733,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 
 ### Memory
 
-Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`（GET/PUT/DELETE）、`/api/memory/daily`（GET）和 `/api/memory/search`（GET）。文件使用固定 kind/date 标识和 revision 乐观锁，冲突 409。详情见 [记忆系统](记忆系统.md#编辑协议)。旧 Memory meta/scope/record/history/context-preview 与 learn 接口不注册，无数据库兼容模式。
+Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`（GET/PUT/DELETE）、`/api/memory/daily`（GET）和 `/api/memory/search`（GET）。文件使用固定 kind/date 标识和 revision 乐观锁，冲突 409。详情见 [记忆系统](记忆系统.md#手工触发与内置工具)。旧 Memory meta/scope/record/history/context-preview 与 learn 接口不注册，无数据库兼容模式。
 
 ### Viewport / Resource
 
@@ -738,12 +746,14 @@ Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`
 | GET | `/api/project/tree` | query: `agentKey`、`path`、`limit`、`cursor` | CODER/KBASE Workspace 单层目录树，目录优先稳定排序 |
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
-| GET | `/api/viewport` | query: `viewportKey`、`viewportType` | 平台内置审批模板；外部模板使用 `/api/view` |
+| GET | `/api/viewport` | query: `viewportKey`；`viewportType` 不参与选择 | 平台内置审批模板；未命中时 data 为 `{viewportKey,status:"not_implemented"}`；外部模板使用 `/api/view` |
 | GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/冻结临时根资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`name`、`file` | upload ticket；文件保存为 `<chatId>/<name>` |
 | POST | `/api/document/commit` | body: 来源判别联合、`mode`、`expectedRevision`、MIME 与文本/二进制 payload | 覆盖原文档或生成新 Artifact 的身份、类型与 revision |
 | POST | `/api/resource/image/commit` | body: `operation=resource.image.commit`、`profile`、`agentKey`、`chatId`、`resourceId`、`relativePath`、`mode`、`expectedRevision`、`mimeType`、`dataBase64` | 覆盖原 Artifact 或生成新 Artifact 的身份与 revision |
+
+`/api/viewport` 只读取随 Platform 内嵌的 HTML 审批模板，不加载本地外部目录或远端 registry。自定义展示与表单使用 `/api/view` 及 Agent 挂载的 VIEW 连接器。
 
 `/api/upload` 的 `chatId` 与 `name` 均可省略。无 `chatId` 时平台会先分配会话；同时无 `name` 时，该会话以 `<default>` 标记为尚未正式命名。仅完成上传、尚未接受首条正式 query 的占位会话仍可通过 `chatId` 继续使用，但不进入 `/api/chats` 历史列表。上传文件保持既有契约，落入 `<chatId>/<name>`，公开 `url` 为不带 `chatId` 的 `<name>`。首条正式 query 在会话尚无历史 run 时会用 message 生成 `chatName`，并广播 `chat.renamed`；已命名或已有历史的会话不会被覆盖。
 
@@ -1008,7 +1018,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/interrupt` | `InterruptRequest` | `response` |
 | `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
 | `/api/file` | `agentKey`、`path`、可选 `encoding`、可选 `response=json` | `response`；data 为 agent workspace 文件 metadata，文本文件包含 `content` |
-| `/api/viewport` | `viewportKey`、`viewportType` | `response` |
+| `/api/viewport` | `viewportKey`；`viewportType` 不参与选择 | `response`；旧兼容模板，未命中状态同 HTTP |
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
 
@@ -1089,7 +1099,7 @@ Channel 有两个互不替代的维度：`channel.mode` 只决定 WebSocket 由�
 
 `GET /api/admin/channels` 与 `GET /api/monitor/channels` 继续在每个 export 上使用兼容字段 `cardStatus`，状态值为 `error / rejected / retrying / pending / accepted / offline`。server channel 多 Session 按最严重状态聚合；只有所有具备有效 v1 connected 的活跃 Session 均经最终 list 确认一致时才是 `accepted`，没有活跃 Session 时为 `offline`。
 
-本次升级只实现 Agent 接出注册、解除、查询和对账。注册成功的 `registrationId` 会保存，但尚不用于 Query/Run 路由；新版 Query Stream、Run TTL、HITL Schema、Steer/Interrupt/Submit 控制路由均未实现。完整 Gateway 帧定义见 [Gateway Agent 注册与调用协议](Gateway-Agent注册与调用协议.md)。
+Channel 注册支持 Agent 接出注册、解除、查询和对账。注册成功的 `registrationId` 会保存，但尚不用于 Query/Run 路由；新版 Query Stream、Run TTL、HITL Schema、Steer/Interrupt/Submit 控制路由均未实现。注册帧与对端契约见 [Gateway Agent 接出注册协议](Gateway-Agent注册与调用协议.md)。
 
 ## 约束与注意事项
 
@@ -1135,7 +1145,7 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 
 `detach` 只释放当前 WS 连接上的 terminal subscriber；Agent 的 PTY、cwd 与输出回放 buffer 保持不变。`streamRequestId` 必须指向当前 WS 连接上的 terminal stream；如果同时传入 `terminalId`，后端会校验两者绑定关系。浏览器隐藏 terminal 面板、SPA 切换 Chat、组件卸载都应使用 `detach`，之后用同一 `agentKey + terminalKey` open 会复用原 PTY。如果 open 请求已发出但尚未收到 `terminal.opened`，前端可只传 `streamRequestId` 进行预取消。只有用户关闭 terminal tab 时才调用 `/api/terminal/close`，该操作会结束对应 Agent 的 PTY；同样支持在 `terminal.opened` 前仅传 `streamRequestId` 做关闭预取消。
 
-该接口定义为 Workspace Terminal。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；cwd 只由 Platform 从 Agent 的最终 Workspace 解析，不信任前端 cwd，也不会回退 Chat。没有 Workspace、Workspace 不存在或不是目录时拒绝打开。terminal 只冻结 `AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config` 与 `AP_WORKSPACE_DIR=<workspace>`，不注入 `AP_CHAT_DIR`。如果未来需要 Chat Terminal，将使用独立显式类型，不复用本接口或隐式 fallback。
+该接口定义为 Workspace Terminal。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；cwd 只由 Platform 从 Agent 的最终 Workspace 解析，不信任前端 cwd，也不会回退 Chat。没有 Workspace、Workspace 不存在或不是目录时拒绝打开。terminal 只冻结 `AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config` 与 `AP_WORKSPACE_DIR=<workspace>`，不注入 `AP_CHAT_DIR`。
 
 ## 相关文件
 
@@ -1145,7 +1155,6 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 - `internal/server/ws_resource_routes.go`
 - `internal/api/types.go`
 - `internal/api/types_automation.go`
-- `internal/api/types_memory_console.go`
 - `internal/ws/protocol.go`
 - `docs/手工测试用例.md`
 
@@ -1335,4 +1344,4 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 `PUT /api/admin/skills/pin {id,pinned}` 仅支持 HTTP，与 `/api/skills` 共用同一个用户级 `skillOrder` store 和 `skills-center/order.json`。身份来自认证上下文，关闭认证时沿用 local 用户。新增置顶只接受管理目录里的独立技能或技能包；取消置顶允许清理合法但已失效的 ID（包括旧成员键）。pinned 必须显式提供，重复置顶幂等且不移动位置，取消后再置顶才移到最前。写入成功直接返回 `{pinned}`，不再读取目录，不触发 catalog reload。
 
-使用端 `/api/skills` 的 HTTP/WS 目录、配置标记与置顶契约不变。管理页不得借用此接口或建立业务 WS。旧 `GET /api/admin/skill-packages` 保留供 Desktop，包 import/delete/skills/delete 和 source 编辑接口保留。此次管理列表从数组切换为对象，与配套 WebClient 绑定发布、刷新已有客户端并成对回滚；不支持旧前端单独连接新列表协议。
+使用端 `/api/skills` 的 HTTP/WS 目录、配置标记与置顶契约不变。管理页不得借用此接口或建立业务 WS。旧 `GET /api/admin/skill-packages` 保留供 Desktop，包 import/delete/skills/delete 和 source 编辑接口保留。管理列表使用对象响应，客户端必须按该结构解析。

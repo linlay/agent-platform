@@ -35,6 +35,7 @@ var alwaysDeniedTools = map[string]struct{}{
 	"file_write":              {},
 	"file_edit":               {},
 	"memory_write":            {},
+	"memory_update":           {},
 	"plan_add_tasks":          {},
 	"plan_update_task":        {},
 	"finalize_planning":       {},

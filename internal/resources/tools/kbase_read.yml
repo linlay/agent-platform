@@ -4,7 +4,7 @@ i18n:
     label: "Read Knowledge Base Excerpt"
   zh-CN:
     label: "读取知识库片段"
-description: Read a KBASE chunk by chunkId, or read indexed chunks for a source path. Results include line/page/slide source location when available.
+description: Read the exact KBX evidence range by chunkId, or read the indexed extracted text by source path. Line numbers refer to extracted text.
 clientVisible: true
 readOnly: true
 inputSchema:
@@ -12,7 +12,7 @@ inputSchema:
   properties:
     chunkId:
       type: string
-      description: Chunk id returned by kbase_search.
+      description: Content-addressed chunk id returned by kbase_search. Do not combine with offset or limit.
     path:
       type: string
       description: Workspace-relative source path.

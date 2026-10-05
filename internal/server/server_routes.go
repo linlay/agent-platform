@@ -253,18 +253,6 @@ func (w *sseInterceptor) Write(p []byte) (int, error) {
 
 func (w *sseInterceptor) Flush() {}
 
-func withSyncQueryContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, syncQueryContextKey{}, true)
-}
-
-func isSyncQueryContext(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	value, _ := ctx.Value(syncQueryContextKey{}).(bool)
-	return value
-}
-
 func withChatSourceContext(ctx context.Context, source string) context.Context {
 	source = strings.TrimSpace(source)
 	if source == "" {
@@ -293,8 +281,11 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/memory/file", s.handleMemoryFile)
 	s.router.HandleFunc("/api/memory/daily", s.method(http.MethodGet, s.handleMemoryDaily))
 	s.router.HandleFunc("/api/memory/search", s.method(http.MethodGet, s.handleMemorySearch))
+	s.router.HandleFunc("/api/memory/update", s.method(http.MethodPost, s.handleMemoryUpdate))
+	s.router.HandleFunc("/api/memory/status", s.method(http.MethodGet, s.handleMemoryStatus))
 	s.router.HandleFunc("/api/admin/source", s.handleAdminSource)
 	s.router.HandleFunc("/api/admin/agents/order", s.handleAdminAgentOrder)
+	s.router.HandleFunc("/api/desktop/acp-bridges", s.handleDesktopACPBridges)
 	s.router.HandleFunc("/api/admin/agents/create", s.method(http.MethodPost, s.handleAgentCreate))
 	s.router.HandleFunc("/api/admin/agents/import", s.method(http.MethodPost, s.handleAdminAgentImport))
 	s.router.HandleFunc("/api/admin/agents/update", s.method(http.MethodPost, s.handleAgentUpdate))

@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"agent-platform/internal/catalog"
-	"agent-platform/internal/config"
 	"agent-platform/internal/kbase"
 )
 
@@ -42,41 +41,4 @@ func (s kbaseCatalogSource) Agent(key string) (kbase.AgentSpec, bool) {
 		WorkspaceRoot: definition.Workspace.Root,
 		Config:        definition.KBaseConfig,
 	}, true
-}
-
-func kbaseManagerOptions(cfg config.Config) kbase.ManagerOptions {
-	extraction := cfg.KBase.Extraction
-	return kbase.ManagerOptions{
-		RuntimeDir:               cfg.Paths.KBaseDir,
-		DefaultEmbeddingModelKey: cfg.KBase.Embedding.ModelKey,
-		RefreshDebounce:          cfg.KBase.Refresh.Debounce,
-		ReconcileInterval:        cfg.KBase.Refresh.ReconcileInterval,
-		Index: kbase.IndexOptions{
-			FTSBaseTokenizer: cfg.KBase.Index.FTS.BaseTokenizer,
-			ANNMinRows:       cfg.KBase.Index.Vector.ANNMinRows,
-		},
-		Maintenance: kbase.MaintenanceOptions{
-			OptimizeChangeThreshold: cfg.KBase.Maintenance.OptimizeChangeThreshold,
-			OptimizeInterval:        cfg.KBase.Maintenance.OptimizeInterval,
-			VersionRetention:        cfg.KBase.Maintenance.VersionRetention,
-		},
-		Extraction: kbase.ExtractionConfig{
-			Timeout:      extraction.Timeout,
-			MaxFileBytes: extraction.MaxFileBytes,
-			PDF: kbase.PDFExtractionConfig{
-				Enabled: extraction.PDF.Enabled,
-				Backend: extraction.PDF.Backend,
-				Binary:  extraction.PDF.Binary,
-			},
-			DOCX: kbase.DOCXExtractionConfig{
-				Enabled: extraction.DOCX.Enabled,
-				Backend: extraction.DOCX.Backend,
-			},
-			PPTX: kbase.PPTXExtractionConfig{
-				Enabled:      extraction.PPTX.Enabled,
-				Backend:      extraction.PPTX.Backend,
-				IncludeNotes: extraction.PPTX.IncludeNotes,
-			},
-		},
-	}
 }

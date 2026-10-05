@@ -1,0 +1,12 @@
+name: memory_update
+i18n:
+  en:
+    label: "Update Memory"
+  zh-CN:
+    label: "整理记忆"
+description: Request one background memory maintenance pass over completed chats. Returns accepted status, not completed facts. Active chats are skipped. Use memory_write for an explicit fact that must be saved immediately. Requires an ordinary native main root run with memory enabled.
+clientVisible: false
+inputSchema:
+  type: object
+  additionalProperties: false
+  properties: {}

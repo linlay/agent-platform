@@ -16,9 +16,9 @@ type blockingAutomation struct {
 	done context.Context
 }
 
-func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
+func TestAppStartupIgnoresLegacyConnectorSourcesAndState(t *testing.T) {
 	root := t.TempDir()
-	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_KBASE_DIR", "AP_RUNTIME_PAN_DIR"} {
+	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_KBASE_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_STATE_DIR"} {
 		t.Setenv(key, "")
 	}
 	t.Setenv("AP_RUNTIME_DIR", filepath.Join(root, "runtime"))
@@ -56,6 +56,28 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(oldState, "demo.json"), []byte(`{"TOKEN":"test-state"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// Conflicting and malformed legacy content must neither block startup nor
+	// overwrite the current package or credentials.
+	files := map[string]string{
+		"connectors-center/demo/connector.json":             `{"id":"demo","name":"Current Demo","version":"2.0.0","type":"cli","auth_mode":"none"}`,
+		"connectors-center/demo/cli.json":                   `{}`,
+		".state/connectors/demo/credentials.json":           `{"TOKEN":"current-state"}`,
+		"connectors/invalid/connector.json":                 "invalid legacy manifest",
+		"connector-state/.credentials/demo.json":            "invalid legacy credentials",
+		"connectors-center/.credentials/demo.json":          "ignored credentials",
+		"connectors-center/.state/demo/data":                "ignored CLI state",
+		"connectors-center/builtin.obsolete/connector.json": "ignored builtin copy",
+		"connectors-center/.builtin-state/data":             "ignored builtin state",
+	}
+	for relative, value := range files {
+		path := filepath.Join(root, "runtime", relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	agentDir := filepath.Join(root, "runtime", "agents", "demo")
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
 		t.Fatal(err)
@@ -80,8 +102,19 @@ func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
 			t.Fatalf("startup did not prepare %s: %v", path, err)
 		}
 	}
-	if _, err := os.Stat(oldPackage); !os.IsNotExist(err) {
-		t.Fatal("startup retained old package location")
+	for relative, want := range files {
+		if data, err := os.ReadFile(filepath.Join(root, "runtime", relative)); err != nil || string(data) != want {
+			t.Fatalf("startup changed %s: %v", relative, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(oldState, "demo.json")); err != nil || string(data) != `{"TOKEN":"test-state"}` {
+		t.Fatalf("startup changed old credentials: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(oldPackage, "connector.json")); err != nil {
+		t.Fatalf("startup moved old package: %v", err)
+	}
+	if backups, err := filepath.Glob(filepath.Join(root, "runtime", ".connector-layout-backup-*")); err != nil || len(backups) != 0 {
+		t.Fatalf("unexpected migration backups: %v %v", backups, err)
 	}
 	data, err := os.ReadFile(legacy)
 	if err != nil || string(data) != string(content) {

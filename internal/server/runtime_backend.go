@@ -1,15 +1,10 @@
 package server
 
 import (
-	"strings"
-
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
-
-// ExecuteQuery waits for a Native executor result directly. Proxy retains its
-// protocol-specific compatibility adapter until that driver is extracted.
 
 func runtimeLocalInterruptRequest(command runtimetypes.InterruptCommand, req api.InterruptRequest) api.InterruptRequest {
 	if command.Caller.Scope == "server" {
@@ -96,16 +91,4 @@ func apiReferencesFromRuntime(references []runtimetypes.Reference) []api.Referen
 		}
 	}
 	return converted
-}
-
-func summarizeRuntimeQueryBody(body string) string {
-	body = strings.Join(strings.Fields(strings.TrimSpace(body)), " ")
-	if body == "" {
-		return "<empty body>"
-	}
-	const maxLen = 240
-	if len(body) > maxLen {
-		return body[:maxLen] + "..."
-	}
-	return body
 }

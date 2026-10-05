@@ -394,6 +394,14 @@ func parseQuery(node map[string]any) (Query, error) {
 			return Query{}, fmt.Errorf("invalid query.chatId %q", chatID)
 		}
 	}
+	accessLevel, err := optionalStringNode(node, "accessLevel")
+	if err != nil {
+		return Query{}, err
+	}
+	accessLevel, err = normalizeAutomationAccessLevel(accessLevel)
+	if err != nil {
+		return Query{}, err
+	}
 	role, err := optionalStringNode(node, "role")
 	if err != nil {
 		return Query{}, err
@@ -419,14 +427,15 @@ func parseQuery(node map[string]any) (Query, error) {
 	}
 
 	return Query{
-		RequestID:  requestID,
-		ChatID:     chatID,
-		Role:       role,
-		Hidden:     hidden,
-		Message:    message,
-		References: references,
-		Params:     params,
-		Scene:      scene,
+		AccessLevel: accessLevel,
+		RequestID:   requestID,
+		ChatID:      chatID,
+		Role:        role,
+		Hidden:      hidden,
+		Message:     message,
+		References:  references,
+		Params:      params,
+		Scene:       scene,
 	}, nil
 }
 
@@ -539,6 +548,9 @@ func (r *Registry) Validate(def Definition) error {
 	}
 	if strings.TrimSpace(def.Query.Message) == "" {
 		return fmt.Errorf("query.message is required")
+	}
+	if _, err := normalizeAutomationAccessLevel(def.Query.AccessLevel); err != nil {
+		return err
 	}
 	if _, err := normalizeAutomationQueryRole(def.Query.Role); err != nil {
 		return err
@@ -765,4 +777,15 @@ func positiveIntPtrNode(value any, field string) (*int, error) {
 	default:
 		return nil, fmt.Errorf("%s must be a positive integer", field)
 	}
+}
+
+func normalizeAutomationAccessLevel(value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", nil
+	}
+	level, ok := contracts.NormalizeAccessLevel(value)
+	if !ok {
+		return "", fmt.Errorf("invalid query.accessLevel: must be default, auto_approve, or full_access")
+	}
+	return level, nil
 }

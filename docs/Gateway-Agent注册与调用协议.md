@@ -1,9 +1,8 @@
-# Gateway Agent 注册与调用协议 v1
+# Gateway Agent 接出注册协议 v1
 
-> 状态：Gateway 联调候选稿；日期：2026-08-12。
-> Agent Platform 当前只实现第 1～8 节的接出注册、解除、列表查询和 Session 对账。第 9～11 节的新版 Query Stream、Run TTL、`registrationId` 路由、HITL Schema 和控制协议尚未实现。
+本文说明 Agent Platform 已接入的 Agent 注册、解除、查询与 Session 对账协议。Gateway 侧的 scope、所有权与清理规则是对端契约；Platform 是注册请求发送方，不接收对端动态注册。
 
-本文定义 Agent Platform 与 Gateway 之间的 Agent 在线注册、解除注册、注册查询以及注册后的 query / steer / interrupt / HITL 调用协议。
+注册成功不表示 Query/Run 协议升级：`registrationId` 尚不用于调用路由，新版 Query Stream、Run TTL、HITL Schema 与控制路由尚未实现。当前调用接口见 [API 与协议](API与协议.md)。
 
 ## 1. 设计原则
 
@@ -380,161 +379,7 @@ Gateway 管理端如需查询跨 Platform、跨 channel、离线或历史注册�
 
 Agent Platform 自动对账固定先执行一次 `agent.list`。只有初始列表成功后，才会解除当前 Session 已持有但本地不再导出的 Agent，并注册缺失项或完整更新差异项；完成后再次 list 验证。其他 Session 的项目只读不改。初始 list 失败时不执行任何变更，`NOT_REGISTERED` 按幂等成功处理。
 
-## 9. 注册后的 Agent Query（Agent Platform 尚未升级）
-
-Gateway 对外接收 Agent 调用后，先在当前 Platform-channel scope 中按 `agentKey` 查找活跃注册路由：
-
-```text
-(platformKey, agentKey) -> registrationId + owner session
-```
-
-只有同时满足以下条件才转发 query：
-
-- Agent 仍处于活跃注册状态。
-- owner session 仍在线。
-- Agent 的展开后 capabilities 包含 `query`。
-- Gateway 调用方已通过自身鉴权。
-- Agent Platform 侧本地 channel export 权限仍允许 query。
-
-### 9.1 Query 请求
-
-Gateway 通过该 Agent 的 owner session 向 Agent Platform 发送：
-
-```json
-{
-  "frame": "request",
-  "type": "/api/query",
-  "id": "query-001",
-  "payload": {
-    "requestId": "query-001",
-    "runId": "run-001",
-    "chatId": "chat-001",
-    "agentKey": "agent-001",
-    "role": "user",
-    "message": "帮我查询最近一笔订单",
-    "references": [],
-    "params": {},
-    "stream": true
-  }
-}
-```
-
-`payload.agentKey` 必须是 Gateway 注册表中的精确 `agentKey`，不允许 Gateway 使用 Agent Platform 未申报的本地 key 绕过注册路由。
-
-### 9.2 Query Stream
-
-Agent Platform 使用相同 `id` 返回流事件：
-
-```json
-{
-  "frame": "stream",
-  "id": "query-001",
-  "streamId": "run-001",
-  "event": {
-    "type": "content.delta",
-    "timestamp": 1786502402000,
-    "payload": {
-      "text": "正在查询。"
-    }
-  },
-  "lastSeq": 12
-}
-```
-
-run 以 `run.complete` / `run.error` / `run.cancel` 终态事件或明确的 stream 结束帧结束。Gateway 在 query 成功准入时必须建立：
-
-```text
-runId -> platform-channel scope + agentKey + owner session
-```
-
-后续 steer / interrupt / HITL 必须复用该 run 路由，不得根据同名 Agent 的新 session 重新选路。
-
-## 10. Run 控制协议（Agent Platform 尚未升级）
-
-### 10.1 Steer
-
-前置条件：Agent 注册 capabilities 包含 `steer`。
-
-```json
-{
-  "frame": "request",
-  "type": "/api/steer",
-  "id": "steer-001",
-  "payload": {
-    "requestId": "steer-request-001",
-    "runId": "run-001",
-    "chatId": "chat-001",
-    "agentKey": "agent-001",
-    "steerId": "steer-001",
-    "message": "优先检查最近一笔订单"
-  }
-}
-```
-
-Gateway 必须等待相同 `id` 的 `response` 或 `error`，不得仅因为 WebSocket 写入成功就向上游声明 steer 已成功。
-
-### 10.2 Interrupt
-
-前置条件：Agent 注册 capabilities 包含 `interrupt`。
-
-```json
-{
-  "frame": "request",
-  "type": "/api/interrupt",
-  "id": "interrupt-001",
-  "payload": {
-    "requestId": "interrupt-001",
-    "runId": "run-001",
-    "chatId": "chat-001",
-    "agentKey": "agent-001",
-    "message": "停止执行",
-    "source": "gateway"
-  }
-}
-```
-
-Gateway 必须等待相同 `id` 的 `response` 或 `error`。
-
-### 10.3 HITL Submit
-
-前置条件：Agent 注册 capabilities 包含 `hitl`。
-
-Agent Platform 在 query stream 中发送 question / approval / form / planning 等 awaiting 事件，Gateway 收集用户答案后向原 run owner session 发送：
-
-```json
-{
-  "frame": "request",
-  "type": "/api/submit",
-  "id": "submit-001",
-  "payload": {
-    "runId": "run-001",
-    "chatId": "chat-001",
-    "agentKey": "agent-001",
-    "awaitingId": "awaiting-001",
-    "submitId": "submit-001",
-    "params": {
-      "answer": "确认"
-    }
-  }
-}
-```
-
-Gateway 必须等待 submit ACK。`hitl` 是业务能力名，`/api/submit` 是传输接口；Agent 注册中不重复申报 `submit` capability。
-
-## 11. 路由错误（Agent Platform 尚未升级）
-
-Gateway 在转发 query 或 run 控制前应返回稳定错误：
-
-| errorCode | 建议 code | 语义 |
-|---|---:|---|
-| `AGENT_NOT_REGISTERED` | 404 | 当前 Platform-channel scope 不存在该 Agent |
-| `AGENT_OFFLINE` | 503 | 注册记录正在清理或 owner session 不可用 |
-| `CAPABILITY_NOT_SUPPORTED` | 409 | Agent 未申报对应能力 |
-| `RUN_NOT_FOUND` | 404 | run 不存在或已清理 |
-| `RUN_OWNER_MISMATCH` | 403 | run 不属于该 Agent / Platform-channel scope |
-| `UPSTREAM_DISCONNECTED` | 503 | run owner session 断开，无法继续调用 |
-
-## 12. 注册错误码
+## 9. 注册错误码
 
 | errorCode | 建议 code | 语义 |
 |---|---:|---|
@@ -551,11 +396,11 @@ Gateway 在转发 query 或 run 控制前应返回稳定错误：
 
 5xx 和网络超时可重试；4xx 默认不自动重试，应等待配置变更、旧 session 清理或重连。`agent.register` 是同 owner session 下的幂等完整替换，因响应丢失而重试不会创建重复 Agent。
 
-## 13. 时间字段
+## 10. 时间字段
 
 所有 `timestamp`、`registeredAt`、`updatedAt` 均为 Unix epoch milliseconds（JSON number / Go `int64`），不使用秒级 Unix 时间，也不在同一协议中混用 ISO-8601 字符串。
 
-## 14. 推荐时序
+## 11. 注册对账时序
 
 ```text
 Agent Platform                         Gateway
@@ -576,18 +421,11 @@ Agent Platform                         Gateway
       |----------- agent.list ---------->|
       |<-- current platform-channel all --|
       |                                  |
-      |<----------- /api/query -----------|
-      |------------ stream -------------->|
-      |<----- /api/steer|interrupt -------|
-      |------------ response ------------>|
-      |<---------- /api/submit -----------|
-      |------------ response ------------>|
-      |                                  |
       |----------- disconnect ----------->|
       |     Gateway cleans session-owned  |
 ```
 
-## 15. 版本切换
+## 12. 版本协商
 
 本协议不兼容替换旧 Agent Card 协议，不保留 Skill / Tool / Tag / KBASE 隐式 Skill 卡片字段。建议 Gateway 与 Agent Platform 同版本发布，并通过 `connected.data.agentRegistration.version` 在应用层显式协商：
 

@@ -60,24 +60,14 @@ function Copy-IsolatedProject {
     }
 }
 
-function Copy-ExistingKbaseRelease {
-    param([string]$CollectionRoot, [string]$TargetOS, [string]$TargetArch)
-    $sourceRoot = Join-Path $BuiltinsRoot "kbase-lance-engine"
-    $version = (Get-Content -LiteralPath (Join-Path $sourceRoot "VERSION") -Raw).Trim()
-    $archiveName = "kbase-lance-engine`_$version`_$TargetOS`_$TargetArch.zip"
-    $sourceArchive = Join-Path $sourceRoot "dist/$version/$archiveName"
-    if (-not (Test-Path -LiteralPath $sourceArchive -PathType Leaf)) {
-        return $false
-    }
-    $destinationDir = Join-Path $CollectionRoot "kbase-lance-engine/dist/$version"
-    New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
-    Copy-Item -LiteralPath $sourceArchive -Destination (Join-Path $destinationDir $archiveName) -Force
-    $sourceHash = "$sourceArchive.sha256"
-    if (Test-Path -LiteralPath $sourceHash -PathType Leaf) {
-        Copy-Item -LiteralPath $sourceHash -Destination "$($destinationDir)/$archiveName.sha256" -Force
-    }
-    Write-Host "[builtins-sync] reuse kbase-lance-engine release: $sourceArchive"
-    return $true
+function Resolve-DefaultSourceRoot {
+    param([string]$Kind)
+    Push-Location $RepoRoot
+    try {
+        $result = & go run ./cmd/resolve-builtin-roots --repo-root $RepoRoot --kind $Kind
+        if ($LASTEXITCODE -ne 0) { throw "Could not resolve $Kind source root" }
+        return "$result".Trim()
+    } finally { Pop-Location }
 }
 
 if ($All -and $Target.Count -gt 0) {
@@ -95,27 +85,26 @@ if ($All) {
 $Targets = @($Targets | ForEach-Object { $_.Trim().ToLowerInvariant() } | Select-Object -Unique)
 foreach ($item in $Targets) { Assert-Target $item }
 
-foreach ($command in @("go", "git", "powershell", "robocopy")) { Assert-Command $command }
+foreach ($command in @("go", "git", "powershell", "robocopy", "python", "cargo")) { Assert-Command $command }
 if (-not (Test-Path -LiteralPath $CanonicalLock -PathType Leaf)) {
     throw "Canonical builtin lock not found: $CanonicalLock"
 }
 
 if (-not $ConnectorsRoot) { $ConnectorsRoot = $env:CONNECTORS_ROOT }
-if (-not $ConnectorsRoot) { $ConnectorsRoot = Join-Path (Split-Path -Parent $RepoRoot) "agent-platform-connectors" }
+if (-not $ConnectorsRoot) { $ConnectorsRoot = Resolve-DefaultSourceRoot "connectors" }
 if (-not [IO.Path]::IsPathRooted($ConnectorsRoot)) { throw "-ConnectorsRoot must be absolute" }
 $ConnectorsRoot = (Resolve-Path -LiteralPath $ConnectorsRoot).Path
 foreach ($component in @("dbx", "httpx")) {
     if (-not (Test-Path -LiteralPath (Join-Path $ConnectorsRoot "$component/connector") -PathType Container)) { throw "Missing connector project: $component" }
 }
 $ConnectorLock = Join-Path $ScriptDir "release-assets/connectors.lock.json"
-if (-not $BuiltinsRoot) {
-    $BuiltinsRoot = Join-Path (Split-Path -Parent $RepoRoot) "agent-platform-builtins"
-}
+if (-not $BuiltinsRoot) { $BuiltinsRoot = $env:BUILTINS_ROOT }
+if (-not $BuiltinsRoot) { $BuiltinsRoot = Resolve-DefaultSourceRoot "builtins" }
 if (-not [IO.Path]::IsPathRooted($BuiltinsRoot)) {
     throw "-BuiltinsRoot must be an absolute path"
 }
 $BuiltinsRoot = (Resolve-Path -LiteralPath $BuiltinsRoot).Path
-foreach ($component in @("ripgrep", "kbase-lance-engine", "poppler-pdftotext")) {
+foreach ($component in @("ripgrep", "kbx", "memx", "poppler-pdftotext")) {
     $componentRoot = Join-Path $BuiltinsRoot $component
     if (-not (Test-Path -LiteralPath $componentRoot -PathType Container)) {
         throw "Missing sibling builtin project: $componentRoot"
@@ -135,7 +124,7 @@ try {
     New-Item -ItemType Directory -Path $env:GOCACHE -Force | Out-Null
     New-Item -ItemType Directory -Path $env:GOMODCACHE -Force | Out-Null
 
-    foreach ($component in @("ripgrep", "dbx", "httpx", "kbase-lance-engine", "poppler-pdftotext")) {
+    foreach ($component in @("ripgrep", "dbx", "httpx", "kbx", "memx", "poppler-pdftotext")) {
         Copy-IsolatedProject -Name $component -CollectionRoot $CollectionRoot
     }
 
@@ -180,13 +169,13 @@ try {
 
     foreach ($item in $Targets) {
         $parts = $item.Split('/')
-        if (-not (Copy-ExistingKbaseRelease -CollectionRoot $CollectionRoot -TargetOS $parts[0] -TargetArch $parts[1])) {
-            $cargoTargetDir = Join-Path $BuildRoot ".cargo-target/$($parts[0])-$($parts[1])"
-            Invoke-Native -Command "powershell" -WorkingDirectory (Join-Path $CollectionRoot "kbase-lance-engine") -Arguments @(
-                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/build-release.ps1",
-                "-TargetOS", $parts[0], "-TargetArch", $parts[1], "-CargoTargetDir", $cargoTargetDir
-            )
-        }
+        Invoke-Native -Command "python" -WorkingDirectory $RepoRoot -Arguments @(
+            (Join-Path $ScriptDir "build-kbx.py"), "--source", (Join-Path $CollectionRoot "kbx"),
+            "--target", $item, "--target-dir", (Join-Path $BuildRoot ".cargo-target/kbx")
+        )
+        Invoke-Native -Command "go" -WorkingDirectory (Join-Path $CollectionRoot "memx") -Arguments @(
+            "run", "./scripts/release", "--os", $parts[0], "--arch", $parts[1]
+        )
     }
 
     $LocalLock = Join-Path $WorkDir "builtins.local.lock.json"
@@ -211,10 +200,7 @@ try {
             "--connectors-lock", $LocalConnectorsLock, "--connectors-root", $CollectionRoot,
             "--output", $stageDir, "--os", $parts[0], "--arch", $parts[1], "--builtins-root", $CollectionRoot
         )
-        Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments @(
-            "run", "./cmd/stage-kbase-lance-engine", "--repo-root", $RepoRoot, "--lock", $LocalLock,
-            "--output", $stageDir, "--os", $parts[0], "--arch", $parts[1], "--builtins-root", $CollectionRoot
-        )
+
     }
 
     # Activation starts only after every target has built and staged. A failed

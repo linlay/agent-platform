@@ -128,4 +128,4 @@ Markdown 使用完整 fenced block：
 3. 旧远端服务可暂用 `remote.protocol: "legacy-viewport"`，保持 `viewports/get` 与 `params.viewportKey`；认证移到部署凭据文件，包只保留占位符。
 4. 客户端升级后验证展示、修改、拒绝与历史回放，再清理不再引用的旧文件。
 
-`/api/viewport` 仅提供随 Platform 嵌入的审批模板，包括 `confirm_dialog`、`platform_control_review`、`resource_delete_review` 和 `installation_review`。外部 `viewports/` 文件、`registries/viewport-servers` 注册、对应管理分类与目录监听已移除；自定义视图使用 VIEW 连接器。旧历史记录不改写，引用已退役外部模板时不可再加载该模板。在线 Chat/Archive 回放支持 VIEW；独立会话 HTML 导出尚不内联 VIEW 模板，保留原始结果。
+`/api/viewport` 仅提供随 Platform 嵌入的审批模板，包括 `confirm_dialog`、`platform_control_review`、`resource_delete_review` 和 `installation_review`。外部 `viewports/` 文件、`registries/viewport-servers` 注册、对应管理分类与目录监听已移除；自定义视图使用 VIEW 连接器。旧历史记录不改写，引用已退役外部模板时不可再加载该模板。在线 Chat/Archive 回放支持 VIEW。Platform 会话导出仅提供 Markdown 与 snapshot JSON；独立 HTML 由客户端生成，尚不内联 VIEW 模板，不能把在线回放支持等同于离线导出支持。

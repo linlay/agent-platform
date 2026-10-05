@@ -96,7 +96,7 @@ Agent runtimeConfig.env
   < Platform reserved context
 ```
 
-后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启后的续接 run 从空动态层开始。`mustUseSkills` 不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；`AP_ACCESS_TOKEN` 由普通 Agent Host Bash 和已挂载 oneid-token 连接器的 stdio MCP 在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
+后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启后的续接 run 从空动态层开始。`mustUseSkills` 不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；普通 Host Shell 不自动获得 `AP_ACCESS_TOKEN`；经验证的单条直接 oneid-token CLI 调用在独立子进程中使用该变量，已挂载 oneid-token stdio MCP 也在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
 
 ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子任务 session 时即使复用相同 RunID 也禁止取得 root Scope。`run_query` 新 root、子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 与长期服务都不继承。
 
@@ -108,7 +108,7 @@ ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子�
 
 - 活动 Run、子 Agent 调用、Team 成员和 Terminal 持有目录租约；候选普通文件不同时保留原定义及文件，记录待发布变更。来源删除、配置失效也保留收尾处理，最后一个使用者结束后重载。冻结保护本身不标记待处理：无关 Agent 或 Team 重载不使未变化 Agent 在结束后再次重载；成功核对到配置已恢复原样时清除待发布标记。
 - 开始 Agent 加载后，扫描、加载或本地绑定失败会保守标记活动 Agent，不清除原待处理状态。更早的来源校验、持久 pin 检查或装配锁获取失败只保留原标记，不新增标记；此机制不保证所有失败都自动重试。底层独立 `teams` / `skills` 加载不修改标记，但正常 skills 热重载会级联 agents，影响本 Agent 普通文件的技能变化仍需延期发布。
-- 连接器版本引用不参与普通文件一致性比较；普通文件一致时可发布新连接器版本，旧 Run 继续使用原版本；若升级改变了合并配置等普通文件，则仍延期发布。仍有活动引用指向旧版本时保留收尾标记，最后一个 Agent 使用者结束后沿用重载流程协调 MCP 路由、共享包保护和旧版本回收。旧版本最后一个使用者退出后，其他后续重载也可能提前完成清理；否则持续重叠的 Run 可能延迟释放目录、MCP 注册项、工具快照及已建立的会话或 stdio 子进程。此流程仍发送既有目录通知，不新增广播去重或独立清理协议。
+- 连接器版本引用不参与普通文件一致性比较；普通文件一致时可发布新连接器版本，旧 Run 继续使用原版本；若升级改变了合并配置等普通文件，则仍延期发布。仍有活动引用指向旧版本时保留收尾标记，最后一个 Agent 使用者结束后沿用重载流程协调 MCP 路由、共享包保护和旧版本回收。旧版本最后一个使用者退出后，其他后续重载也可能提前完成清理；否则持续重叠的 Run 可能延迟释放目录、MCP 注册项、工具快照及已建立的会话或 stdio 子进程。
 - 空闲且含连接器的 Agent 在 `.staging` 组装完整候选，再整目录替换；未变化时保留稳定目录。替换失败尝试恢复旧目录。Windows 对目录重命名的访问拒绝、共享冲突及锁冲突进行有界退避重试，macOS 与其他 Unix 平台立即返回错误；目标路径被其他写入方重新创建时拒绝覆盖。失败诊断保留发布阶段、操作系统错误码、进程、重试次数、路径元数据及回滚结果，不读取配置正文。回滚失败时保留旧目录备份并报告其路径。
 - 无连接器的 Agent 沿用稳定根中的逐文件同步方式。
 - 候选校验失败保留原执行文件；该 Agent 的新定义显示无效诊断，其他 Agent 继续发布。
@@ -140,15 +140,15 @@ AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config
 AP_WORKSPACE_DIR=<canonical workspace>
 ```
 
-Workspace Terminal 是 Agent/Workspace 级长生命周期 PTY，不注入 `AP_CHAT_DIR`；未来若需要 Chat Terminal，必须使用独立显式类型。
+Workspace Terminal 是 Agent/Workspace 级长生命周期 PTY，不注入 `AP_CHAT_DIR`。
 
-普通 Agent Host Bash 还可获得：
+经验证的单条直接 oneid-token CLI 调用，其独立子进程可获得：
 
 ```text
 AP_ACCESS_TOKEN=<有效 identity 文件当前非空单行内容>
 ```
 
-该 token 每次新建 Bash 都重新读取，不缓存；Workspace Terminal、`file_grep/file_glob`、Container、Proxy、ACP、MCP、LSP 和 sidecar 不自动获得它。文件缺失、不可读、为空或非法时省略变量，Bash 仍正常启动。
+该 token 在连接器子进程启动前从有效 identity 文件重新读取，不进入普通 Host Shell、Workspace Terminal、`file_grep/file_glob`、Container、Proxy、ACP、LSP 或 sidecar。身份不可用时不得复用旧 token 或继承父进程 token；连接器凭据解析错误会阻止该调用启动。oneid-token MCP 使用独立身份链路：stdio 在创建进程前注入，HTTP 按请求生成 Bearer Header。
 
 Container 中三个值分别是 `/agent/.config`、`/workspace`、`/chat`。Workspace/Chat 双根和 KBASE 的 `runtimeConfig.workspaceRoot` 契约不受 Agent 组装影响。
 
@@ -158,12 +158,12 @@ Host run 的额外 `mustUseSkills` 不创建 mount：session 按需暴露真实 
 
 Platform 普通技能创建、导入、删除与文件编辑（包括 `/api/admin/source`），以及技能包导入、整包删除和包内单技能删除，与后台 Catalog 发布共用串行保护区。ZIP 解压、安全检查和静态校验先在保护区外完成，发布前再检查当前 revision、归属与引用。技能快照和普通文本保存只进入保护区，不停止 watcher；目录发布、重命名和删除只同步释放对应资源根的监听句柄，提交或回滚后恢复。
 
-Catalog 按资源根建立独立 watcher；配置根重叠时合并后端，避免重复监听。所有事件由统一调度器合并分类，实际 reload 仍串行执行；技能操作不会暂停其他非重叠资源根的监听。API 显式 reload 后记录加载前后均一致的内容指纹（路径、权限与文件内容，不以 mtime 代替内容），重复和迟到事件只核对差异。恢复监听触发对应类别的补偿检查，内容没有变化就不再 reload，不再无条件全量重载。加载失败或加载期间内容变化不确认该状态；其他类别和加载期间的新事件继续排队。
+Catalog 按资源根建立独立 watcher；配置根重叠时合并后端，避免重复监听。所有事件由统一调度器合并分类，实际 reload 仍串行执行；技能操作不会暂停其他非重叠资源根的监听。API 显式 reload 后记录加载前后均一致的内容指纹（路径、权限与文件内容，不以 mtime 代替内容），重复和迟到事件只核对差异。恢复监听触发对应类别的补偿检查，内容没有变化则不 reload。加载失败或加载期间内容变化不确认该状态；其他类别和加载期间的新事件继续排队。
 
-现有 `skills → agents` 加载链路保留，用于同步 `ru-agents` 和内存 Catalog；本次未实现按单个 Agent 依赖增量组装，也不改变活动 Run 的租约保护。指纹核对只在事件/API 重载时执行，不做固定周期轮询；大型资源根会增加文件读取成本，需要按实际目录规模验证。
+现有 `skills → agents` 加载链路保留，用于同步 `ru-agents` 和内存 Catalog；不按单个 Agent 依赖增量组装，活动 Run 受租约保护。指纹核对只在事件/API 重载时执行，不做固定周期轮询；大型资源根会增加文件读取成本，需要按实际目录规模验证。
 
 解压与备份使用技能中心相邻的隐藏事务目录，不进入技能扫描根；正常部署中二者位于同一卷，目录发布保持原子 rename，禁止跨卷复制降级。监听注册与事件过滤均排除事务目录及其后代，`.package` 元数据不作为普通技能内容触发重载。
 
-回滚只逆转已成功执行的备份和发布，不删除尚未移动的原目录。回滚失败时保留旧资源备份和原始包记录，不在启动时自动删除技能中心外的恢复目录；错误必须保留恢复位置供诊断。该保护覆盖 Platform 技能管理入口；连接器导入、编辑、删除复用同一保护，仍保留原有使用中与准备中拒绝规则。Desktop 应通过管理 API 发布或条件恢复，不直接移动正式目录；智能体应在 Workspace/临时目录准备资源后调用管理入口。Bash、外部编辑器及其他进程直接写盘不受此进程内锁约束，watcher 仅提供变化发现与最终同步，不承诺多文件写入的事务隔离。本次不增加 Host Bash 文件系统隔离。
+回滚只逆转已成功执行的备份和发布，不删除尚未移动的原目录。回滚失败时保留旧资源备份和原始包记录，不在启动时自动删除技能中心外的恢复目录；错误必须保留恢复位置供诊断。该保护覆盖 Platform 技能管理入口；连接器导入、编辑、删除复用同一保护，仍保留原有使用中与准备中拒绝规则。Desktop 应通过管理 API 发布或条件恢复，不直接移动正式目录；智能体应在 Workspace/临时目录准备资源后调用管理入口。Bash、外部编辑器及其他进程直接写盘不受此进程内锁约束，watcher 仅提供变化发现与最终同步，不承诺多文件写入的事务隔离。Host Bash 没有文件系统隔离。
 
 目录枚举统一忽略示例目录、隐藏目录和保留的旧连接器目录；单个技能包清单损坏或名称与目录不符时，记录 invalid_skill_package 并跳过该包，不阻断其他技能和技能包。具体包的读写/安装接口仍返回明确校验错误，不静默修复内容。

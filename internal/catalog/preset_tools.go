@@ -88,7 +88,7 @@ func (d *AgentDefinition) finishToolBindings() {
 		derived.Tools = append(derived.Tools, "bash")
 	}
 	if d.MemoryEnabled {
-		derived.Tools = append(derived.Tools, "memory_write", "memory_read", "memory_search")
+		derived.Tools = append(derived.Tools, "memory_write", "memory_read", "memory_search", "memory_update")
 	}
 	for _, name := range derived.Tools {
 		d.addAutomaticToolBinding(name, "runtime")

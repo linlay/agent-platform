@@ -978,7 +978,7 @@ func globToRegexp(pattern string) string {
 			b.WriteString(`[^/]`)
 			continue
 		}
-		b.WriteString(regexp.QuoteMeta(string(ch)))
+		b.WriteString(regexp.QuoteMeta(pattern[i : i+1]))
 	}
 	b.WriteString("$")
 	return b.String()

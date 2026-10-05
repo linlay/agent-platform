@@ -62,9 +62,9 @@ func (s *Store) target(kind, date string) (string, string, error) {
 		if date == "" && s.OwnerDir != "" {
 			return s.OwnerDir, "OWNER.md", nil
 		}
-	case "memory":
+	case "memory", "summary":
 		if date == "" && s.MemoryDir != "" {
-			return s.MemoryDir, "memory.md", nil
+			return s.MemoryDir, "summary.md", nil
 		}
 	case "daily":
 		if validDate(date) && s.MemoryDir != "" {
@@ -173,6 +173,13 @@ func (s *Store) mutate(kind, date, base string, change func(string) (string, boo
 	}
 	defer lock.Close()
 	if err := lockFile(lock); err != nil {
+		return Document{}, err
+	}
+	// memx owns recovery of its multi-file journal. Do not let UI/tool writes
+	// overtake an unfinished automatic transaction after a process crash.
+	if _, err := lockRoot.Lstat(".memx-pending.json"); err == nil {
+		return Document{}, ErrConflict
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return Document{}, err
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {

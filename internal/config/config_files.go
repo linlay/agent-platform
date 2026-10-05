@@ -93,9 +93,9 @@ func (c *Config) applyAutomationValues(values map[string]any) {
 func (c *Config) applyMemoryValues(values map[string]any) error {
 	for key := range values {
 		switch key {
-		case "enabled", "context-max-chars", "timezone":
+		case "enabled", "context-max-chars", "timezone", "worker":
 		default:
-			return fmt.Errorf("memory.%s is no longer supported; Markdown memory only accepts enabled, context-max-chars, timezone", key)
+			return fmt.Errorf("memory.%s is no longer supported; Markdown memory only accepts enabled, context-max-chars, timezone, worker", key)
 		}
 	}
 	c.Memory.Enabled = boolValue(anyValue(values["enabled"], c.Memory.Enabled), c.Memory.Enabled)
@@ -106,6 +106,29 @@ func (c *Config) applyMemoryValues(values map[string]any) error {
 	}
 	if _, err := time.LoadLocation(c.Memory.Timezone); err != nil {
 		return fmt.Errorf("memory.timezone: %w", err)
+	}
+	if raw, exists := values["worker"]; exists {
+		w, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("memory.worker must be a map")
+		}
+		for key := range w {
+			switch key {
+			case "enabled", "model-key", "poll-interval-seconds", "timeout-seconds", "max-batches", "summary-max-chars":
+			default:
+				return fmt.Errorf("unknown memory.worker.%s", key)
+			}
+		}
+		v := &c.Memory.Worker
+		v.Enabled = boolValue(anyValue(w["enabled"], v.Enabled), v.Enabled)
+		v.ModelKey = stringValue(anyValue(w["model-key"], v.ModelKey), v.ModelKey)
+		v.PollIntervalSeconds = intValue(anyValue(w["poll-interval-seconds"], v.PollIntervalSeconds), v.PollIntervalSeconds)
+		v.TimeoutSeconds = intValue(anyValue(w["timeout-seconds"], v.TimeoutSeconds), v.TimeoutSeconds)
+		v.MaxBatches = intValue(anyValue(w["max-batches"], v.MaxBatches), v.MaxBatches)
+		v.SummaryMaxChars = intValue(anyValue(w["summary-max-chars"], v.SummaryMaxChars), v.SummaryMaxChars)
+		if v.PollIntervalSeconds < 10 || v.PollIntervalSeconds > 86400 || v.TimeoutSeconds < 10 || v.TimeoutSeconds > 600 || v.MaxBatches < 1 || v.MaxBatches > 200 || v.SummaryMaxChars < 256 || v.SummaryMaxChars > 65536 {
+			return fmt.Errorf("invalid memory.worker limits")
+		}
 	}
 	return nil
 }
@@ -791,6 +814,7 @@ func (c *Config) applyKBasePromptsFile(path string) {
 }
 
 func (c *Config) applyCoderSettingsFile(path string) error {
+	c.CoderSettings.SourcePath = path
 	values, err := loadYAMLMap(path)
 	if err != nil {
 		return err

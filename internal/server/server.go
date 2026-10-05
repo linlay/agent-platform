@@ -83,6 +83,7 @@ type Dependencies struct {
 	Archives               *chat.ArchiveStore
 	Archiver               *chat.Archiver
 	Memory                 *memory.Store
+	MemoryMaintenance      MemoryMaintenance
 	KBase                  KBaseService
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry
@@ -157,6 +158,7 @@ type ChannelConnectionSnapshotProvider interface {
 }
 
 type Server struct {
+	acpRegistrations  *config.ACPRegistrationStore
 	documentPreview   *documentpreview.Service
 	router            *http.ServeMux
 	deps              Dependencies
@@ -178,7 +180,6 @@ type Server struct {
 	connectorOrder    *catalogorder.FileOrderStore
 }
 
-type syncQueryContextKey struct{}
 type chatSourceContextKey struct{}
 
 type statusRecorder struct {
@@ -260,6 +261,7 @@ func New(deps Dependencies) (*Server, error) {
 		backgroundCtx, backgroundCancel = context.WithCancel(context.Background())
 	}
 	s := &Server{
+		acpRegistrations:  config.NewACPRegistrationStore(deps.Config.CoderSettings),
 		router:            http.NewServeMux(),
 		deps:              deps,
 		authVerifier:      authVerifier,
