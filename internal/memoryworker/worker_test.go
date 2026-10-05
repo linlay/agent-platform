@@ -57,6 +57,7 @@ func (f *fakeCLI) Call(_ context.Context, method string, in, out any) error {
 	case "ping":
 		data["version"] = "0.3.0"
 		data["maintenanceVersion"] = 2
+		data["configDirEnv"] = true
 	case "read":
 		data["content"] = ""
 	case "receipt":

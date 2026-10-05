@@ -178,7 +178,7 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	components = append(components, builtins.ManifestComponent{Name: "memx", Version: "0.3.0", Path: memxPath, SHA256: memxDigest})
+	components = append(components, builtins.ManifestComponent{Name: "memx", Version: "0.3.1", Path: memxPath, SHA256: memxDigest})
 	if popplerBuiltinRequired(goos, goarch) {
 		launcher := "bin/pdftotext"
 		if goos == "windows" {

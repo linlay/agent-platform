@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"agent-platform/internal/builtins"
@@ -66,9 +69,20 @@ func (c Client) Call(ctx context.Context, method string, params, out any) error 
 	if len(input) > 8<<20 {
 		return fmt.Errorf("memx input exceeds 8 MiB")
 	}
-	return c.execute(ctx, binary, []string{"--root", c.Root, "--timezone", c.Timezone, "--config-dir", c.ConfigDir, "call"}, input, "platform-memory", out)
+	return c.execute(ctx, binary, []string{"--root", c.Root, "--timezone", c.Timezone, "call"}, input, "platform-memory", out)
 }
 func (c Client) SetConfig(ctx context.Context, input []byte) error {
+	// Verify support before publishing credentials so an incompatible CLI cannot
+	// silently select its standalone default configuration directory.
+	var capabilities struct {
+		ConfigDirEnv bool `json:"configDirEnv"`
+	}
+	if err := c.Call(ctx, "ping", struct{}{}, &capabilities); err != nil {
+		return err
+	}
+	if !capabilities.ConfigDirEnv {
+		return fmt.Errorf("memx >= 0.3.1 with MEMX_CONFIG_DIR support required; synchronize builtins")
+	}
 	binary := c.Binary
 	if binary == "" {
 		var err error
@@ -77,10 +91,20 @@ func (c Client) SetConfig(ctx context.Context, input []byte) error {
 			return fmt.Errorf("managed memx unavailable: %w", err)
 		}
 	}
-	return c.execute(ctx, binary, []string{"--config-dir", c.ConfigDir, "config", "set", "--stdin"}, input, "", nil)
+	return c.execute(ctx, binary, []string{"config", "set", "--stdin"}, input, "", nil)
 }
 func (c Client) execute(ctx context.Context, binary string, args []string, input []byte, id string, out any) error {
+	if !filepath.IsAbs(c.ConfigDir) {
+		return fmt.Errorf("memx configuration directory must be absolute")
+	}
 	cmd := exec.CommandContext(ctx, binary, args...)
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if !strings.EqualFold(key, "MEMX_CONFIG_DIR") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Env = append(cmd.Env, "MEMX_CONFIG_DIR="+c.ConfigDir)
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = 2 * time.Second

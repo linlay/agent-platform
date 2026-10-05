@@ -20,6 +20,8 @@ func TestMemxIntegration(t *testing.T) {
 	if binary == "" {
 		t.Skip("set MEMX_TEST_BINARY for subprocess integration")
 	}
+	inherited := filepath.Join(t.TempDir(), "other-instance")
+	t.Setenv("MEMX_CONFIG_DIR", inherited)
 	var calls atomic.Int32
 	var token atomic.Value
 	token.Store("first-key")
@@ -110,5 +112,8 @@ func TestMemxIntegration(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatal("new config unused")
+	}
+	if _, err := os.Stat(inherited); !os.IsNotExist(err) {
+		t.Fatal("inherited config directory was used", err)
 	}
 }

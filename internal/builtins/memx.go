@@ -20,11 +20,11 @@ func RequireMemxComponent(manifest Manifest) error {
 				major, a := strconv.Atoi(parts[0])
 				minor, b := strconv.Atoi(parts[1])
 				patch, c := strconv.Atoi(parts[2])
-				if a == nil && b == nil && c == nil && major >= 0 && minor >= 0 && patch >= 0 && (major > 0 || minor >= 3) {
+				if a == nil && b == nil && c == nil && major >= 0 && minor >= 0 && patch >= 0 && (major > 0 || minor > 3 || minor == 3 && patch >= 1) {
 					return nil
 				}
 			}
 		}
 	}
-	return fmt.Errorf("release requires memx >= 0.3.0 at %s; run scripts/sync-local-builtins to rebuild the cache", expected)
+	return fmt.Errorf("release requires memx >= 0.3.1 at %s; run scripts/sync-local-builtins to rebuild the cache", expected)
 }

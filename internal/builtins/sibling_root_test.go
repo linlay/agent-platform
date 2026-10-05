@@ -85,6 +85,10 @@ func TestRequireMemxComponent(t *testing.T) {
 			t.Fatal("pre-maintenance memx accepted")
 		}
 		manifest.Components[1].Version = "0.3.0"
+		if RequireMemxComponent(manifest) == nil {
+			t.Fatal("memx without environment configuration accepted")
+		}
+		manifest.Components[1].Version = "0.3.1"
 		if err := RequireMemxComponent(manifest); err != nil {
 			t.Fatal(err)
 		}
