@@ -120,7 +120,7 @@ func StateFromSnapshot(snapshot *Snapshot) *contracts.PlanRuntimeState {
 	for _, task := range snapshot.Tasks {
 		taskID := strings.TrimSpace(task.TaskID)
 		description := strings.TrimSpace(task.Description)
-		status := contracts.NormalizePlanTaskStatus(task.Status)
+		status := NormalizePlanTaskStatus(task.Status)
 		if taskID == "" || description == "" || status == "" {
 			continue
 		}
@@ -153,7 +153,7 @@ func FormatStateContext(state *contracts.PlanRuntimeState) string {
 	for _, task := range state.Tasks {
 		taskID := strings.TrimSpace(task.TaskID)
 		description := strings.TrimSpace(task.Description)
-		status := contracts.NormalizePlanTaskStatus(task.Status)
+		status := NormalizePlanTaskStatus(task.Status)
 		if taskID == "" || description == "" || status == "" {
 			continue
 		}

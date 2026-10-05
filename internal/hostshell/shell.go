@@ -55,7 +55,7 @@ func Resolve(cfg config.BashConfig, opts Options) (Invocation, error) {
 		if opts.Interactive {
 			inv.Executable = TerminalExecutable(cfg.ShellExecutable, envValue(opts.Env, "SHELL"), opts.GOOS)
 		} else {
-			inv.Executable, inv.Args = LegacyInvocation(cfg, opts.Command, opts.GOOS)
+			inv.Executable, inv.Args = UnmanagedInvocation(cfg, opts.Command, opts.GOOS)
 		}
 		return inv, nil
 	}
@@ -179,7 +179,7 @@ func CommandBase(command string, windows bool) string {
 	return base
 }
 
-func LegacyInvocation(cfg config.BashConfig, command, goos string) (string, []string) {
+func UnmanagedInvocation(cfg config.BashConfig, command, goos string) (string, []string) {
 	executable := strings.TrimSpace(cfg.ShellExecutable)
 	if executable == "" {
 		executable = "bash"

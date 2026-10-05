@@ -1,11 +1,14 @@
 package tools
 
-import . "agent-platform/internal/contracts"
+import (
+	. "agent-platform/internal/contracts"
+	"agent-platform/internal/filetools"
+)
 
 func computeLineDiffStats(before string, after string) LineDiffStats {
-	return ComputeLineDiffStats(before, after)
+	return filetools.ComputeLineDiffStats(before, after)
 }
 
 func lineStatsPayload(stats LineDiffStats) map[string]any {
-	return LineStatsPayload(stats)
+	return filetools.LineStatsPayload(stats)
 }

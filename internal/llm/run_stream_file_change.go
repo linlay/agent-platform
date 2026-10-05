@@ -40,7 +40,7 @@ func (s *llmRunStream) estimatedToolFileChange(invocation *preparedToolInvocatio
 
 	switch strings.ToLower(strings.TrimSpace(plan.Operation)) {
 	case "write":
-		stats := contracts.ComputeLineDiffStats(beforeContent, string(plan.Content))
+		stats := filetools.ComputeLineDiffStats(beforeContent, string(plan.Content))
 		return fileChangePayload(plan.FilePath, "write", stats)
 	case "edit":
 		afterContent, ok := estimateEditedContent(beforeContent, beforeExists, *plan)
@@ -50,7 +50,7 @@ func (s *llmRunStream) estimatedToolFileChange(invocation *preparedToolInvocatio
 		if len([]byte(afterContent)) > maxInt(s.sessionFileToolsConfig(filetools.WriteAccess).MaxWriteBytes, 1<<20) {
 			return nil
 		}
-		stats := contracts.ComputeLineDiffStats(beforeContent, afterContent)
+		stats := filetools.ComputeLineDiffStats(beforeContent, afterContent)
 		return fileChangePayload(plan.FilePath, "edit", stats)
 	default:
 		return nil
@@ -143,6 +143,6 @@ func fileChangePayload(filePath string, operation string, stats contracts.LineDi
 	return map[string]any{
 		"filePath":  filePath,
 		"operation": operation,
-		"lineStats": contracts.LineStatsPayload(stats),
+		"lineStats": filetools.LineStatsPayload(stats),
 	}
 }

@@ -1,17 +1,19 @@
-package contracts
+package filetools
 
 import (
 	"sort"
 	"strings"
+
+	"agent-platform/internal/contracts"
 )
 
 const maxExactLineDiffCells = 8_000_000
 
-func ComputeLineDiffStats(before string, after string) LineDiffStats {
+func ComputeLineDiffStats(before string, after string) contracts.LineDiffStats {
 	return diffLineSlices(splitDiffLines(before), splitDiffLines(after))
 }
 
-func LineStatsPayload(stats LineDiffStats) map[string]any {
+func LineStatsPayload(stats contracts.LineDiffStats) map[string]any {
 	return map[string]any{
 		"addedLines":   stats.AddedLines,
 		"deletedLines": stats.DeletedLines,
@@ -32,7 +34,7 @@ func splitDiffLines(content string) []string {
 	return lines
 }
 
-func diffLineSlices(before []string, after []string) LineDiffStats {
+func diffLineSlices(before []string, after []string) contracts.LineDiffStats {
 	prefix := 0
 	for prefix < len(before) && prefix < len(after) && before[prefix] == after[prefix] {
 		prefix++
@@ -52,11 +54,11 @@ func diffLineSlices(before []string, after []string) LineDiffStats {
 
 	switch {
 	case len(before) == 0 && len(after) == 0:
-		return LineDiffStats{}
+		return contracts.LineDiffStats{}
 	case len(before) == 0:
-		return LineDiffStats{AddedLines: len(after)}
+		return contracts.LineDiffStats{AddedLines: len(after)}
 	case len(after) == 0:
-		return LineDiffStats{DeletedLines: len(before)}
+		return contracts.LineDiffStats{DeletedLines: len(before)}
 	}
 
 	cells := (len(before) + 1) * (len(after) + 1)
@@ -67,19 +69,19 @@ func diffLineSlices(before []string, after []string) LineDiffStats {
 	return exactLineDiffStats(before, after)
 }
 
-func anchoredLineDiffStats(before []string, after []string) LineDiffStats {
+func anchoredLineDiffStats(before []string, after []string) contracts.LineDiffStats {
 	matches := uniqueLineMatches(before, after)
 	if len(matches) <= 2 {
 		added := len(after)
 		deleted := len(before)
-		return LineDiffStats{
+		return contracts.LineDiffStats{
 			AddedLines:   added,
 			DeletedLines: deleted,
 			EditedLines:  minLineDiffInt(added, deleted),
 		}
 	}
 
-	var stats LineDiffStats
+	var stats contracts.LineDiffStats
 	done := linePair{}
 	for _, match := range matches[1:] {
 		segmentStats := diffLineSlices(before[done.x:match.x], after[done.y:match.y])
@@ -91,7 +93,7 @@ func anchoredLineDiffStats(before []string, after []string) LineDiffStats {
 	return stats
 }
 
-func exactLineDiffStats(before []string, after []string) LineDiffStats {
+func exactLineDiffStats(before []string, after []string) contracts.LineDiffStats {
 	rows := len(before) + 1
 	cols := len(after) + 1
 	lcs := make([]int, rows*cols)
@@ -112,7 +114,7 @@ func exactLineDiffStats(before []string, after []string) LineDiffStats {
 		}
 	}
 
-	var stats LineDiffStats
+	var stats contracts.LineDiffStats
 	hunkAdded := 0
 	hunkDeleted := 0
 	flushHunk := func() {

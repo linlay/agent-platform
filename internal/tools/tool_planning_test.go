@@ -854,7 +854,7 @@ func TestPlanUpdateTaskErrorGuidancePreservesStateAndSnapshot(t *testing.T) {
 				if tc.code == "invalid_plan_task_transition" && (!strings.Contains(message, "from "+tc.firstStatus+" to "+tc.toStatus) || !strings.Contains(recovery, "append a new task")) {
 					t.Fatalf("missing transition/retry guidance: %#v", result.Structured)
 				}
-				if !reflect.DeepEqual(state, &before) || !reflect.DeepEqual(result.Structured["plan"], PlanTasksArray(&before)) {
+				if !reflect.DeepEqual(state, &before) || !reflect.DeepEqual(result.Structured["plan"], plantasks.PlanTasksArray(&before)) {
 					t.Fatalf("rejection changed plan: %#v", result)
 				}
 				afterFile, err := os.ReadFile(path)

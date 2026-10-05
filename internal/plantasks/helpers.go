@@ -1,6 +1,10 @@
-package contracts
+package plantasks
 
-import "strings"
+import (
+	"strings"
+
+	"agent-platform/internal/contracts"
+)
 
 func NormalizePlanTaskStatus(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -19,7 +23,7 @@ func NormalizePlanTaskStatus(raw string) string {
 	}
 }
 
-func PlanTasksArray(state *PlanRuntimeState) []map[string]any {
+func PlanTasksArray(state *contracts.PlanRuntimeState) []map[string]any {
 	if state == nil {
 		return []map[string]any{}
 	}

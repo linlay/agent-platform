@@ -40,7 +40,7 @@ func TestManagedInvocationAndEnvironment(t *testing.T) {
 	}
 }
 
-func TestManagedUnavailableAndLegacyFallback(t *testing.T) {
+func TestManagedUnavailableAndUnmanagedFallback(t *testing.T) {
 	cfg := config.BashConfig{GitBash: config.GitBashConfig{Enabled: true}}
 	if _, err := Resolve(cfg, Options{GOOS: "windows"}); err == nil {
 		t.Fatal("missing runtime silently accepted")

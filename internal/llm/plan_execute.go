@@ -182,7 +182,7 @@ func (s *planPipelineStream) advanceTaskExecution() error {
 }
 
 func (s *planPipelineStream) startTaskStream(task *PlanTask) error {
-	beforeStatus := NormalizePlanTaskStatus(task.Status)
+	beforeStatus := plantasks.NormalizePlanTaskStatus(task.Status)
 
 	// Build messages from accumulated executeMessages (Java: context.executeMessages() is shared
 	// across all tasks, so each task sees previous tasks' conversation + steers).
@@ -213,7 +213,7 @@ func (s *planPipelineStream) startTaskStream(task *PlanTask) error {
 			if !isPlanTool(toolName) {
 				return PostToolContinue
 			}
-			afterStatus := NormalizePlanTaskStatus(task.Status)
+			afterStatus := plantasks.NormalizePlanTaskStatus(task.Status)
 			if afterStatus != beforeStatus && isTerminalPlanStatus(afterStatus) {
 				return PostToolStop
 			}
@@ -252,7 +252,7 @@ func (s *planPipelineStream) afterStageEOF() error {
 	if s.taskLifecycle {
 		s.taskLifecycle = false
 		task := &s.execCtx.PlanState.Tasks[s.taskIndex]
-		finalStatus := NormalizePlanTaskStatus(task.Status)
+		finalStatus := plantasks.NormalizePlanTaskStatus(task.Status)
 
 		if isTerminalPlanStatus(finalStatus) {
 			s.emitTaskTerminal(task, finalStatus)
@@ -301,7 +301,7 @@ func (s *planPipelineStream) emitTaskFailure(task *PlanTask, message string) {
 	s.pending = append(s.pending, DeltaPlanUpdate{
 		PlanID: s.execCtx.PlanState.PlanID,
 		ChatID: s.session.ChatID,
-		Plan:   PlanTasksArray(s.execCtx.PlanState),
+		Plan:   plantasks.PlanTasksArray(s.execCtx.PlanState),
 	})
 	s.pending = append(s.pending, DeltaTaskLifecycle{
 		Kind:   "error",

@@ -26,10 +26,10 @@ func (e *TransitionError) Error() string {
 
 func ApplyTaskUpdate(state *contracts.PlanRuntimeState, taskID string, toStatus string, description string) *TransitionError {
 	if state == nil {
-		return &TransitionError{Code: apperrors.CodeInvalidPlanTaskTransition, TaskID: strings.TrimSpace(taskID), ToStatus: contracts.NormalizePlanTaskStatus(toStatus)}
+		return &TransitionError{Code: apperrors.CodeInvalidPlanTaskTransition, TaskID: strings.TrimSpace(taskID), ToStatus: NormalizePlanTaskStatus(toStatus)}
 	}
 	taskID = strings.TrimSpace(taskID)
-	toStatus = contracts.NormalizePlanTaskStatus(toStatus)
+	toStatus = NormalizePlanTaskStatus(toStatus)
 	taskIndex := -1
 	for index := range state.Tasks {
 		if strings.TrimSpace(state.Tasks[index].TaskID) == taskID {
@@ -41,7 +41,7 @@ func ApplyTaskUpdate(state *contracts.PlanRuntimeState, taskID string, toStatus 
 		return &TransitionError{Code: apperrors.CodeInvalidPlanTaskTransition, TaskID: taskID, ToStatus: toStatus}
 	}
 
-	fromStatus := contracts.NormalizePlanTaskStatus(state.Tasks[taskIndex].Status)
+	fromStatus := NormalizePlanTaskStatus(state.Tasks[taskIndex].Status)
 	currentTaskID, multipleActive := currentTask(state)
 	failure := func(code apperrors.Code, blockingTaskID string) *TransitionError {
 		return &TransitionError{
@@ -101,7 +101,7 @@ func ReconcileState(state *contracts.PlanRuntimeState) {
 	state.ActiveTaskID = ""
 	predecessorsTerminal := true
 	for index := range state.Tasks {
-		status := contracts.NormalizePlanTaskStatus(state.Tasks[index].Status)
+		status := NormalizePlanTaskStatus(state.Tasks[index].Status)
 		state.Tasks[index].Status = status
 		if status == "in_progress" {
 			if state.ActiveTaskID == "" && predecessorsTerminal {
@@ -123,7 +123,7 @@ func CurrentTaskID(state *contracts.PlanRuntimeState) string {
 }
 
 func IsTerminalStatus(status string) bool {
-	switch contracts.NormalizePlanTaskStatus(status) {
+	switch NormalizePlanTaskStatus(status) {
 	case "completed", "failed", "canceled":
 		return true
 	default:
@@ -137,7 +137,7 @@ func currentTask(state *contracts.PlanRuntimeState) (string, bool) {
 	}
 	currentTaskID := ""
 	for _, task := range state.Tasks {
-		if contracts.NormalizePlanTaskStatus(task.Status) != "in_progress" {
+		if NormalizePlanTaskStatus(task.Status) != "in_progress" {
 			continue
 		}
 		if currentTaskID != "" {

@@ -97,7 +97,7 @@ func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx 
 	if strings.TrimSpace(taskID) == "" {
 		return ToolExecutionResult{Output: "失败: 缺少 taskId", Error: "missing_task_id", ExitCode: -1}, nil
 	}
-	status := NormalizePlanTaskStatus(AnyStringNode(args["status"]))
+	status := plantasks.NormalizePlanTaskStatus(AnyStringNode(args["status"]))
 	if status == "" {
 		return ToolExecutionResult{Output: "失败: 非法状态，仅支持 init/in_progress/completed/failed/canceled", Error: "invalid_task_status", ExitCode: -1}, nil
 	}
@@ -136,7 +136,7 @@ func planStatePayload(state *PlanRuntimeState) map[string]any {
 	}
 	payload := map[string]any{
 		"planId": state.PlanID,
-		"plan":   PlanTasksArray(state),
+		"plan":   plantasks.PlanTasksArray(state),
 	}
 	if currentTaskID := plantasks.CurrentTaskID(state); currentTaskID != "" {
 		payload["currentTaskId"] = currentTaskID

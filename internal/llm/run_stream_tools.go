@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolargs"
 	"agent-platform/internal/toolinput"
@@ -855,7 +856,7 @@ func (s *llmRunStream) consumeActiveToolExecution() error {
 			s.pending = append(s.pending, DeltaPlanUpdate{
 				PlanID: s.execCtx.PlanState.PlanID,
 				ChatID: s.session.ChatID,
-				Plan:   PlanTasksArray(s.execCtx.PlanState),
+				Plan:   plantasks.PlanTasksArray(s.execCtx.PlanState),
 			})
 		}
 		appendSourcePublishDelta(&s.pending, s.session, invocation, result)
@@ -1236,7 +1237,7 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 		s.pending = append(s.pending, DeltaPlanUpdate{
 			PlanID: s.execCtx.PlanState.PlanID,
 			ChatID: s.session.ChatID,
-			Plan:   PlanTasksArray(s.execCtx.PlanState),
+			Plan:   plantasks.PlanTasksArray(s.execCtx.PlanState),
 		})
 	}
 	appendSourcePublishDelta(&s.pending, s.session, invocation, result)
