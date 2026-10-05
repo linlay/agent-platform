@@ -53,11 +53,11 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 `image_generate` 和 `artifact_publish` 的工具说明共同约束模型输出：`path` 只用于工具间传递，可以是经授权的当前 Workspace/Chat 内 Host 绝对路径，禁止展示、写进 Markdown 或转换成 `file://`；用户可见内容只能逐字复制工具返回的 `url`，禁止手工拼接或编码资源地址。图片生成后使用 `images[n].url`；再次发布后改用 `publishedArtifacts[n].url`，因为后者指向 `artifacts/<runId>/` 发布副本。缺少有效 `url` 时必须报告资源物化或发布失败，不得伪造 Markdown。
 
 ```markdown
-![夏日海报](chat_01/generated.png)
-[下载夏日海报](chat_01/artifacts/run_01/generated.png)
+![夏日海报](generated.png)
+[下载夏日海报](artifacts/run_01/generated.png)
 ```
 
-新工具结果不返回 `/api/resource?file=...`；该形式仅供既有聊天只读兼容。浏览器数据层负责把逻辑引用转换为实际的 `GET /api/resource?file=<query-encoded-key>`。
+工具结果与 Markdown 使用相对于当前 Chat、不带 `chatId` 的 `url`。浏览器数据层补入当前 `chatId`，再转换为实际的 `GET /api/resource?file=<chatId>/<relativePath>`，查询参数按 HTTP 规则编码。该 HTTP 地址不作为 Markdown 地址；历史 endpoint Markdown 不迁移且不再预览。
 
 ## WorkPanel 反向动作
 

@@ -25,7 +25,7 @@ Provider 复用现有 `baseUrl`、`apiKey`。默认端点为 `/v1/responses`；b
 
 `prompt_cache_key` 是请求体参数，不是 HTTP Header。它由已有 Chat ID 即时计算，不新增数据库、`.state` 或 JSONL 字段，也从 `system-init/react` 的 `requestOptions` 排除；旧 Chat 无需迁移。可选 `.llm-records` 原始请求 trace 仍记录实际发送的字段。无 Chat 上下文时省略；文本提取和视觉识别的独立一次性辅助调用也不生成。Provider/模型 compat 中的静态 `prompt_cache_key` 不覆盖此规则，避免所有会话共用一个值。
 
-该字段不是 Responses 协议的必填项；平台默认发送是为了兼容依赖会话亲和的上游。2026-09-28 BabelArk `gpt-6-luna`（用户配置为 Azure 来源）的合成对照中，无 key 第 2 轮报 `invalid_encrypted_content`，固定 key 连续 12 轮通过；这支持当前接入策略，不证明服务商的具体路由机制，也不能保证已有失效密文恢复有效。
+该字段不是 Responses 协议的必填项；平台默认发送是为了兼容依赖会话亲和的上游。固定 key 不保证已有失效密文恢复有效，也不用于推断服务商的具体路由机制。
 
 开启思考时发送 `reasoning:{effort:"…",summary:"auto"}`；档位优先使用模型 `reasoningEffortMapping`，未配置映射时使用所选档位的小写值，未指定时使用 medium。模型实际支持的档位由上游决定；关闭平台思考开关时不自动请求摘要或设置 effort，上游自身的默认推理行为仍由模型/compat 决定。输出预算映射为 `max_output_tokens`，只在显式配置时传 temperature/top_p，不继承 Chat Completions 的默认 temperature、seed、penalty 参数。
 
@@ -111,4 +111,4 @@ HTTP 200 的 SSE 也可能携带上游错误。标准 `error` / `response.failed
 
 自动化测试覆盖请求转换、默认端点、旧协议隔离、终态/断流/截断、usage、每轮 JSONL ID、磁盘重载、延迟快照、丢弃轮次、L1 状态保护、辅助文本/图片调用和加密状态恢复边界。
 
-可选实网测试（会调用上游并产生费用）通过环境变量 `AP_TEST_RESPONSES_KEY`、`AP_TEST_RESPONSES_URL` 开启 `TestResponsesLiveStatelessToolRoundTrip`；默认跳过。测试只调用合成函数、不读写用户文件。2026-09-24 Babelark Luna 两轮无 previous_response_id 的函数调用/结果回传通过；该次实际返回 reasoning_tokens=0 且没有加密条目，所以实网加密条目回传尚未验证，相关转换与持久化由合成测试覆盖。
+可选实网测试（会调用上游并产生费用）通过环境变量 `AP_TEST_RESPONSES_KEY`、`AP_TEST_RESPONSES_URL` 开启 `TestResponsesLiveStatelessToolRoundTrip`；默认跳过。测试只调用合成函数、不读写用户文件。实网加密条目回传尚未完成验证，相关转换与持久化由合成测试覆盖。

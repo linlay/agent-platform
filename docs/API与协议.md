@@ -253,7 +253,7 @@ WebClient 与 Desktop 导航只通过一次 `/api/chats/order` 读取排序配�
 
 PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 `pinnedChats`，避免保存成功后摘要读取失败造成写入结果歧义。成功后两端通过统一读取接口刷新，普通未置顶预览按需补位。
 
-智能体可通过 `chat_manage` 的 `setPinned` 调用同一置顶业务入口，沿用 `chats.order.changed` 通知；工具契约与执行边界见 [Platform 控制工具设计](Platform控制工具设计.md#chatset_pinned)。
+智能体可通过 `chat_manage` 的 `setPinned` 调用同一置顶业务入口，沿用 `chats.order.changed` 通知；工具契约与执行边界见 [Platform 控制工具设计](Platform控制工具设计.md#会话)。
 
 `PUT /api/chats/order` 接受三种互斥 operation：
 
@@ -276,7 +276,7 @@ Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详�
 
 `/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的公开 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。新的 Native / Team run 只在事件实际发布时递增该游标，内部事件复用最近公开游标；历史 run 的旧游标不迁移。对 `WAITING_SUBMIT` active run，该 attach 应在 submit 前建立并保持等待；submit 成功不应再创建第二个 attach，同一连接会从 `request.submit` / `awaiting.answer` 开始继续接收该 run 的后续事件。
 
-`POST /api/compact` 的标准手动请求为 `{ "requestId":"...", "chatId":"...", "trigger":"manual", "level":"l1_tools"|"summary" }`，HTTP 与 WebSocket 字段一致。`l1_tools` 只确定性压缩白名单内已经完成、配对完整的 assistant tool call/result，普通 user/assistant/system、引用、附件、未完成工具与 HITL 原样保留；它不调用模型，也不产生 `compactionUsage`。`summary` 将符合条件的多个旧 Run 和活动 Run 已完成前缀合并成一个摘要，严格只调用一次摘要模型；摘要输入先做不落盘的 L1 结构化投影，完整规范化输入仍超出预算时返回 `summary_input_too_large`，绝不丢弃中间历史或拆成多次摘要调用。
+`POST /api/compact` 的标准手动请求为 `{ "requestId":"...", "chatId":"...", "trigger":"manual", "level":"l1_tools"|"summary" }`，HTTP 与 WebSocket 字段一致。`l1_tools` 确定性清理可压缩轮次的 reasoning 与完整工具组，保护最近 N 轮完整模型调用及未完成交互，保留正文、引用和附件；通过原行 `_compact` 标记控制上下文，不复制或改写原文，不调用模型，也不产生 `compactionUsage`。`summary` 将符合条件的多个旧 Run 和活动 Run 已完成前缀合并成一个摘要，严格只调用一次摘要模型；摘要输入先做不落盘的 L1 结构化投影，完整规范化输入仍超出预算时返回 `summary_input_too_large`，绝不丢弃中间历史或拆成多次摘要调用。
 
 压缩规划、L1 前后计算、L2 mandatory 检查和结果校验共用同一套多模态安全估算。普通文本和工具 Schema 使用同一文本 Token 估算器；`image_url` 的 Base64 正文不作为文本计数，可从有界图片头读取尺寸时按 `ceil(width×height/750)` 计算并限制在 256–32768 token，WebP、外部 URL、非法 Data URL 或无法识别尺寸时固定为 8192 token；尺寸检查不会完整解码或访问网络。活动 Run 有有效 provider prompt usage 时，自动触发取该 usage 增量估算与完整请求估算的较大值，压缩后保留保守校准系数。L1 完成后用同一口径重新计算，只有仍达到模型窗口 90% 才进入 L2；L1 不使用 60% 目标，最近 N 轮完整模型调用在 L1 中始终硬保留（默认按模型窗口取 5/7/10）。L2 摘要 prompt 会将候选图片正文临时投影为 MIME、字节大小、可读宽高和 payload SHA-256，不修改活动消息、Chat JSONL 或 checkpoint 中保留的原始图片消息。
 
@@ -307,7 +307,7 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 `POST /api/agent/model-config`（HTTP/WS 相同）仅接受 `agentKey` 必填，`modelKey`、`reasoningEffort`、`serviceTier` 至少一项。省略字段保持原值；modelKey 不允许空值；reasoningEffort 为 NONE/LOW/MEDIUM/HIGH/XHIGH/MAX，不接受空值/null；serviceTier 为非空字符串或 null，null 清除等级，STANDARD 也按清除处理，非标准等级仅限 ACP。未知字段（包括旧 key 别名）拒绝。更新会校验最终模型与 ACP 能力；响应为 `{agentKey,modelKey,reasoningEffort,serviceTier?}`。YAML 的 modelConfig.reasoning.enabled/effort 结构保持不变，API 通过 NONE 表达关闭。
 
 
-`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；新增的 `introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
+`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；`introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
 ### Archive
 
@@ -739,12 +739,14 @@ Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`
 | GET | `/api/project/tree` | query: `agentKey`、`path`、`limit`、`cursor` | CODER/KBASE Workspace 单层目录树，目录优先稳定排序 |
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
-| GET | `/api/viewport` | query: `viewportKey`、`viewportType` | viewport 模板或 fallback |
+| GET | `/api/viewport` | query: `viewportKey`；`viewportType` 不参与选择 | 旧兼容模板；全部未命中且无错误时 data 为 `{viewportKey,status:"not_implemented"}` |
 | GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/冻结临时根资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`name`、`file` | upload ticket；文件保存为 `<chatId>/<name>` |
 | POST | `/api/document/commit` | body: 来源判别联合、`mode`、`expectedRevision`、MIME 与文本/二进制 payload | 覆盖原文档或生成新 Artifact 的身份、类型与 revision |
 | POST | `/api/resource/image/commit` | body: `operation=resource.image.commit`、`profile`、`agentKey`、`chatId`、`resourceId`、`relativePath`、`mode`、`expectedRevision`、`mimeType`、`dataBase64` | 覆盖原 Artifact 或生成新 Artifact 的身份与 revision |
+
+`/api/viewport` 依次查找内嵌 HTML、本地 QLC/HTML、远端模板，内嵌模板不可覆盖。本地目录为 `dirname(有效 RegistriesDir)/viewports`，远端注册目录为 `<有效 RegistriesDir>/viewport-servers`，默认分别为 `runtime/viewports` 与 `runtime/registries/viewport-servers`；读取或远端错误按错误返回。
 
 `/api/upload` 的 `chatId` 与 `name` 均可省略。无 `chatId` 时平台会先分配会话；同时无 `name` 时，该会话以 `<default>` 标记为尚未正式命名。仅完成上传、尚未接受首条正式 query 的占位会话仍可通过 `chatId` 继续使用，但不进入 `/api/chats` 历史列表。上传文件保持既有契约，落入 `<chatId>/<name>`，公开 `url` 为不带 `chatId` 的 `<name>`。首条正式 query 在会话尚无历史 run 时会用 message 生成 `chatName`，并广播 `chat.renamed`；已命名或已有历史的会话不会被覆盖。
 
@@ -1010,7 +1012,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/interrupt` | `InterruptRequest` | `response` |
 | `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
 | `/api/file` | `agentKey`、`path`、可选 `encoding`、可选 `response=json` | `response`；data 为 agent workspace 文件 metadata，文本文件包含 `content` |
-| `/api/viewport` | `viewportKey`、`viewportType` | `response` |
+| `/api/viewport` | `viewportKey`；`viewportType` 不参与选择 | `response`；旧兼容模板，未命中状态同 HTTP |
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
 
@@ -1091,7 +1093,7 @@ Channel 有两个互不替代的维度：`channel.mode` 只决定 WebSocket 由�
 
 `GET /api/admin/channels` 与 `GET /api/monitor/channels` 继续在每个 export 上使用兼容字段 `cardStatus`，状态值为 `error / rejected / retrying / pending / accepted / offline`。server channel 多 Session 按最严重状态聚合；只有所有具备有效 v1 connected 的活跃 Session 均经最终 list 确认一致时才是 `accepted`，没有活跃 Session 时为 `offline`。
 
-本次升级只实现 Agent 接出注册、解除、查询和对账。注册成功的 `registrationId` 会保存，但尚不用于 Query/Run 路由；新版 Query Stream、Run TTL、HITL Schema、Steer/Interrupt/Submit 控制路由均未实现。完整 Gateway 帧定义见 [Gateway Agent 注册与调用协议](Gateway-Agent注册与调用协议.md)。
+Channel 注册支持 Agent 接出注册、解除、查询和对账。注册成功的 `registrationId` 会保存，但尚不用于 Query/Run 路由；新版 Query Stream、Run TTL、HITL Schema、Steer/Interrupt/Submit 控制路由均未实现。注册帧与对端契约见 [Gateway Agent 接出注册协议](Gateway-Agent注册与调用协议.md)。
 
 ## 约束与注意事项
 
@@ -1137,7 +1139,7 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 
 `detach` 只释放当前 WS 连接上的 terminal subscriber；Agent 的 PTY、cwd 与输出回放 buffer 保持不变。`streamRequestId` 必须指向当前 WS 连接上的 terminal stream；如果同时传入 `terminalId`，后端会校验两者绑定关系。浏览器隐藏 terminal 面板、SPA 切换 Chat、组件卸载都应使用 `detach`，之后用同一 `agentKey + terminalKey` open 会复用原 PTY。如果 open 请求已发出但尚未收到 `terminal.opened`，前端可只传 `streamRequestId` 进行预取消。只有用户关闭 terminal tab 时才调用 `/api/terminal/close`，该操作会结束对应 Agent 的 PTY；同样支持在 `terminal.opened` 前仅传 `streamRequestId` 做关闭预取消。
 
-该接口定义为 Workspace Terminal。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；cwd 只由 Platform 从 Agent 的最终 Workspace 解析，不信任前端 cwd，也不会回退 Chat。没有 Workspace、Workspace 不存在或不是目录时拒绝打开。terminal 只冻结 `AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config` 与 `AP_WORKSPACE_DIR=<workspace>`，不注入 `AP_CHAT_DIR`。如果未来需要 Chat Terminal，将使用独立显式类型，不复用本接口或隐式 fallback。
+该接口定义为 Workspace Terminal。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；cwd 只由 Platform 从 Agent 的最终 Workspace 解析，不信任前端 cwd，也不会回退 Chat。没有 Workspace、Workspace 不存在或不是目录时拒绝打开。terminal 只冻结 `AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config` 与 `AP_WORKSPACE_DIR=<workspace>`，不注入 `AP_CHAT_DIR`。
 
 ## 相关文件
 
@@ -1147,7 +1149,6 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 - `internal/server/ws_resource_routes.go`
 - `internal/api/types.go`
 - `internal/api/types_automation.go`
-- `internal/api/types_memory_console.go`
 - `internal/ws/protocol.go`
 - `docs/手工测试用例.md`
 
@@ -1337,4 +1338,4 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 `PUT /api/admin/skills/pin {id,pinned}` 仅支持 HTTP，与 `/api/skills` 共用同一个用户级 `skillOrder` store 和 `skills-center/order.json`。身份来自认证上下文，关闭认证时沿用 local 用户。新增置顶只接受管理目录里的独立技能或技能包；取消置顶允许清理合法但已失效的 ID（包括旧成员键）。pinned 必须显式提供，重复置顶幂等且不移动位置，取消后再置顶才移到最前。写入成功直接返回 `{pinned}`，不再读取目录，不触发 catalog reload。
 
-使用端 `/api/skills` 的 HTTP/WS 目录、配置标记与置顶契约不变。管理页不得借用此接口或建立业务 WS。旧 `GET /api/admin/skill-packages` 保留供 Desktop，包 import/delete/skills/delete 和 source 编辑接口保留。此次管理列表从数组切换为对象，与配套 WebClient 绑定发布、刷新已有客户端并成对回滚；不支持旧前端单独连接新列表协议。
+使用端 `/api/skills` 的 HTTP/WS 目录、配置标记与置顶契约不变。管理页不得借用此接口或建立业务 WS。旧 `GET /api/admin/skill-packages` 保留供 Desktop，包 import/delete/skills/delete 和 source 编辑接口保留。管理列表使用对象响应，客户端必须按该结构解析。

@@ -21,6 +21,8 @@
 
 Standalone 隐藏七个 Desktop 工具；Catalog/Chat 在子任务、Team、BTW/Explain 中隐藏并在执行时再次拒绝。ACP/Proxy/Channel 不经过 native 执行入口。planning/read-only 仅允许平台只读动作；七个 Desktop 管理工具全部禁止 planning，并按顺序屏障执行，包括其只读动作。未知动作按非只读处理。
 
+`configs/tools.yml` 支持 `preset-connectors`，示例预置 `builtin.web-control`。普通 native GENERAL/CODER/KBASE 合并整包挂载，去重且不回写 Agent 源码；ACP/隐藏 Team 协调器不注入。连接器列表返回 `presetConnectorIds`、`declaredConnectorIds` 和包含两者的 `connectorIds`；预置项不可从单个 Agent 取消。删除连接器也检查全局预置引用。平台管理连接器仍不进入默认预置。
+
 ## Catalog 源文件事务
 
 查询支持 Agent、Team、Skill、Connector、Model、Provider、Tool、MCP 组件；`resourceTypes {}` 返回类型与操作能力矩阵。列表默认 20 条，支持 1–100 条分页，返回 `items/nextCursor/total/hasMore`；total 为当前请求按 status 筛选后的数量，不冻结跨页快照。必须用同一 resourceType/status 跟进 nextCursor 到空才能报告完整清单。可编辑源 get 返回脱敏 content、目录内容摘要 baseRevision、editable 和 redactedPaths；只读资源返回白名单 definition。
@@ -40,11 +42,10 @@ Standalone 隐藏七个 Desktop 工具；Catalog/Chat 在子任务、Team、BTW/
 
 Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。一个包可以包含多个 MCP 组件，也可能只有 CLI/VIEW/native，不能以 Connector 数量代替 MCP 数量。MCP list/get 只给出父连接器、组件名、transport、enabled、builtin 和 `scope:connector-declaration/availability:not_checked`；valid 仅表示包可加载，不证明 transport/URL 等通过运行时校验。不输出 URL、command、args、env 或 headers。损坏包会使 MCP 枚举失败，避免静默报告不完整清单。
 
-现有 `platform_inspect runtimeStatus {component:"mcp"}` 才是 Agent/内容版本作用域的已缓存同步状态入口，最多返回 100 项，count 表示实际总数；它不触发联网探测。未挂载组件可能无实例，一个组件也可能对应多个 Agent/版本实例。MCP 远端 tools/resources/prompts 的完整查询及统一会话分页本次未新增。
+现有 `platform_inspect runtimeStatus {component:"mcp"}` 才是 Agent/内容版本作用域的已缓存同步状态入口，最多返回 100 项，count 表示实际总数；它不触发联网探测。未挂载组件可能无实例，一个组件也可能对应多个 Agent/版本实例。MCP 远端 tools/resources/prompts 的完整查询及统一会话分页尚不支持。
 
-其他实际资源的取舍：Skill package 元数据已有 `/api/admin/skill-packages/*` 与 admin source 管理，尚无独立 Catalog target；Agent 自有/连接器技能需按所属定义读取。Chat/Archive/Artifact 使用 chat_query 与 Chat API；活动 Run 用 run_status；Automation 使用专用 automation 工具/API；Memory/Owner 使用其专用文件与权限协议；KBASE 文档/索引使用专用 KBASE 能力。ACP bridge、Gateway/Channel、创建模板和部署配置属于执行/配置域，本次只保留 defaults/runtimeStatus 与既有管理入口，不把运行状态或凭据目录当作通用源码资源。未开放 provider/model/MCP 写入、任意文件写入、凭据编辑或全平台资源 CRUD。
+其他实际资源的取舍：Skill package 元数据已有 `/api/admin/skill-packages/*` 与 admin source 管理，尚无独立 Catalog target；Agent 自有/连接器技能需按所属定义读取。Chat/Archive/Artifact 使用 chat_query 与 Chat API；活动 Run 用 run_status；Automation 使用专用 automation 工具/API；Memory/Owner 使用其专用文件与权限协议；KBASE 文档/索引使用专用 KBASE 能力。ACP bridge、Gateway/Channel、创建模板和部署配置属于执行/配置域，使用 defaults/runtimeStatus 与既有管理入口，不把运行状态或凭据目录当作通用源码资源。未开放 provider/model/MCP 写入、任意文件写入、凭据编辑或全平台资源 CRUD。
 
-2026-10-03 执行记录核查：#21 的 provider 确实报 unsupported resourceType；#22 实际包含 20 个 model，nextCursor 非空，最终声称 19 个且已列全均不成立；#24 只证明四个 connector 存在，不证明四个 MCP。记录中 limit 被拒，而本次修改前源码已支持 limit，属于运行版本差异，不能据记录推断当前源码仍拒绝。以上改动需重新构建运行版本与内嵌技能后生效，不改写历史记录。
 
 可修改范围：
 
@@ -56,6 +57,8 @@ Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。
 apply 提交完整 UTF-8 文本，最多 1 MiB；目录版本覆盖整个资源（最多 64 MiB），现有对象必须带 get 得到的版本，新建必须满足不存在。禁止绝对路径、点段、符号链接和非普通文件；内置对象、调用者自身以及受引用对象受保护。Agent env 查询脱敏，保留旧值必须使用 preservePaths；连接器行内凭据不通过此工具编辑。
 
 prepare 生成脱敏前后内容和摘要；执行在 `adminsource` 共用 Agent/source mutation 锁内复验基准与授权，再隐藏 staging → backup → 原子发布，配合 catalog directory mutation 协调 watcher。硬重载失败恢复来源并重新加载。正常返回 applied、pending（执行目录租约待发布）或 invalid；不能把 pending/invalid 当作完全生效。确认来源及目录均恢复后返回工具错误 control_rolled_back（非零退出码），status 与 executionState 均为 rolled_back，表示操作失败、已恢复原状；解决失败原因后需重新提交并审批。恢复文件或重新加载失败时仍返回 unknown，不能声称恢复成功。其他执行错误按阶段区分 not_started、unknown 和 committed；已发布后的备份清理失败不能标成未执行。更新保留原文件权限，新建源文件默认 0644（仍受 umask 影响），私有状态另按 0600 写入。
+
+`catalog_query.get` 的 agent.yml 环境变量脱敏及 `catalog_manage.apply` 的 preservePaths 补回通过原文位置编辑，保留未改动的注释、引号、字段顺序、换行和多行值；环境变量表达式按原文补回，不落盘为进程环境的值。重复键等无法明确定位的文本拒绝处理；原本的块状多行值不能补回到候选行内 flow env，需要保留块状 env。此保证针对控制工具源码链路，不等于所有既有结构化表单都支持无损 YAML 往返。
 
 ## 强制一次性审批
 
@@ -77,11 +80,17 @@ list/search 按 Chat ID 的稳定顺序使用存储层 keyset 分页，游标不
 
 rename/setPinned 可以操作当前 Chat，置顶复用现有服务与 chats.order.changed。archive/delete/fork 拒绝当前调用 Chat、活动 Run 和 pending HITL。删除审批同时绑定摘要和历史内容版本。fork/export 使用 Run/tool ID 派生结果路径和持久收据，同一次调用不会产生多个副本，参数变更冲突。export 输出当前 Chat 下的正文 Markdown 或标准完整 snapshot JSON。未完成的 fork 收据无法证明已存在目标来源时返回 idempotency_conflict，不认领现有目标、不覆盖或删除。HTTP 与工具的归档、恢复、置顶、删除、改名、复制共用修改锁；Service 依赖视图显式共享锁，不复制 sync.Mutex。
 
+archive/restore 同时支持单个 `chatId` 或 `chatIds`（1–100 个互异 ID，两者互斥）。请求格式先整体验证，再逐项检查权限并执行；失败继续，返回 total/succeeded/failed 和含错误、executionState 的逐项结果，不回滚已成功项。单项响应兼容原契约。
+
 ## 诊断与边界
 
 runtimeStatus 返回配置启用状态、目录数量、运行模式/uptime、MCP 的已有同步快照、连接器本地 configured 状态与 KBASE sidecar 快照，不触发联网探测。暂未注入的组件明确返回 unavailable；Container Hub 的 enabled 不是健康探测。securityExplain 解释本 Run 挂载、动作与文件访问策略，不授予权限。
 
-本次不改变 Run 准入与 Chat mutation 之间的既有并发边界，不宣称已解决所有跨入口的准入竞态。`@chat/` 在 Workspace 外的 Desktop 预览仍受原协议限制。进程崩溃的任意多文件事务没有新增全局恢复日志；来源发布和 fork/export 通过已有原子落盘及收据恢复边界处理。真实 Desktop、Windows 与 Container Hub 仍需目标环境联调。
+Run 准入与 Chat mutation 之间尚无覆盖所有入口的统一并发事务。`@chat/` 在 Workspace 外的 Desktop 预览仍受原协议限制。任意多文件事务没有全局崩溃恢复日志；来源发布和 fork/export 通过已有原子落盘及收据恢复边界处理。真实 Desktop、Windows、Container Hub 与第三方 MCP OAuth 仍需目标环境联调。
+
+搜索不提供向量化摘要、流式分段全文索引或单会话中途取消；分页不冻结全库快照，新增 ID 位于游标之前时需重新查询。snapshot 不打包产物字节，归档附件元数据尚未单独恢复。
+
+控制工具准入返回 `field/expected/actual/recovery`，未知键名和值不回显；审批准备保留结构化错误。格式与覆盖范围见 [工具参数错误与恢复提示](工具参数错误审计.md)。
 
 ## 迁移
 
@@ -90,49 +99,3 @@ runtimeStatus 返回配置启用状态、目录数量、运行模式/uptime、MC
 `cmd/migrate-desktop` 提供预览、离线应用、逐项 pending 报告、备份和回滚。旧 platform_control 仅移除；旧 desktop_cdp/desktop-cdp/builtin.desktop-web 迁往 builtin.web-control。desktop_action/desktop-action 未有显式新管理挂载时，以及旧 builtin.desktop 的历史能力无法判定时，列为 pending，保留该 Agent 源文，不能通过 --allow-expansion 跳过。其余明确条目可继续迁移；有 pending 时不清理旧共享技能。管理员逐条明确新连接器配置并移除旧声明后重新预览。只迁移源文件，不编辑运行目录或 Chat 历史。
 
 工具具体参数见 [Catalog reference](../internal/resources/connectors/builtin.platform-control/skills/platform-control/references/catalog.md) 与 [Chat reference](../internal/resources/connectors/builtin.platform-control/skills/platform-control/references/chat.md)。
-
-## 初次实现验证记录（修复前）
-
-- Go 全量回归：`DESKTOP_SOURCE=../zenmind-desktop go test -p 2 ./...`，124 个包通过或无测试；后续目录成员与诊断收尾另行通过 adminsource/platformcontrol/app 定向回归。
-- Desktop 动作契约：与本地 Desktop 源码交叉校验通过，不等于真实客户端联调。
-- WebClient：TypeScript、模块边界检查、6 个相关测试套件（51 项）通过。
-- WebClient 全量存在 19 个失败套件 / 74 项失败；未修改 HEAD 在独立临时目录复测得到相同失败套件与数量，属于现有基线。
-- zenmind-env：本地 8 个、云端模板 4 个 Agent 源定义通过暂存区离线迁移，写回前复验原文摘要；未改动运行包或 Chat 历史。迁移备份位于临时目录 `/tmp/env-control-source-migration/.desktop-migration-1586485693`；云端备份位置见 `/tmp/env-cloud-control-migration.json`。
-- Windows、真实 Desktop 和 Container Hub 仍待目标环境联调；本次没有执行部署或提交 Git commit。
-
-## 2026-10-03 审核修复与未完成项
-
-已修复候选正文回归、包根误删、资源大小写保护、锁复制、自动迁移扩权、Desktop 阶段策略、固定大小查询游标、搜索预算与片段、完整 snapshot、HTTP MCP 最小包创建及明确执行状态。zenmind-env 已更新退役技能/工具引用和点击脚本参数；依据旧迁移摘要撤回 7 处自动管理挂载，未内置主智能体名称。
-
-本轮补充：`configs/tools.yml` 支持 `preset-connectors`，示例与本地配置预置 `builtin.web-control`。普通 native GENERAL/CODER/KBASE 合并整包挂载，去重且不回写 Agent 源码；ACP/隐藏 Team 协调器不注入。连接器列表返回 `presetConnectorIds`、`declaredConnectorIds` 和包含两者的 `connectorIds`；预置项不可从单个 Agent 取消。删除连接器也检查全局预置引用。平台管理连接器仍不进入默认预置。
-
-`catalog_query.get` 的 agent.yml 环境变量脱敏及 `catalog_manage.apply` 的 preservePaths 补回通过原文位置编辑，保留未改动的注释、引号、字段顺序、换行和多行值；环境变量表达式按原文补回，不落盘为进程环境的值。重复键等无法明确定位的文本拒绝处理；原本的块状多行值不能补回到候选行内 flow env，需要保留块状 env。此保证针对控制工具源码链路，不等于所有既有结构化表单都支持无损 YAML 往返。
-
-archive/restore 同时支持单个 `chatId` 或 `chatIds`（1–100 个互异 ID，两者互斥）。请求格式先整体验证，再逐项检查权限并执行；失败继续，返回 total/succeeded/failed 和含错误、executionState 的逐项结果，不回滚已成功项。单项响应兼容原契约。
-
-以下事项尚未完成，不能作为已交付能力：
-
-- 按用户本轮决定保留现有搜索保护：单会话内部仍会构建快照，8 MiB 以上会话明确跳过并报告 incomplete/skippedChatIds。向量化摘要留作后续，不在本次实现流式分段搜索、全文索引和单会话中途取消。固定 ID 分页没有冻结全库快照，新增 ID 在游标之前时需重新查询。
-- fork 崩溃后若仅有 started 收据，现有目标安全拒绝恢复；未新增可原子恢复的来源证明日志。
-- 完整 snapshot 使用既有时间线契约。归档附件元数据尚未单独恢复，产物文件字节不打包进 JSON；不是原始 JSONL/凭据的备份。
-- 真实 Desktop 网页技能、Windows 权限与大小写、真实第三方 MCP OAuth 仍需目标环境联调；本地测试不能代替这些验证。
-- WebClient 导出资源已可本地构建；相邻 tunnel-hub-server 仓库缺失，仅分享页面展示资源未同步；不影响控制工具、snapshot 生成或本地导出，不作为本次核心改造阻塞项。i18n 原有 55 项违规仍保留，新增 12 项已消除。
-
-### 修复验证
-
-- 全量 Go 回归最终 124 个包通过或无测试。首轮 TestQuerySSEPersistsChatHistory 出现一次终态事件未落盘的时序失败；该用例连续 10 次复测通过，随后全量重跑通过，未据此认定其根因已修复。
-- 全量之后追加的游标认证加密通过 conversation/adminsource 的 race 回归，以及 platformcontrol/credentialview/toolpolicy/connectormigrate 定向回归；最终 go vet ./... 通过。
-- WebClient TypeScript、模块边界、3 个相关 Jest 套件 17 项通过；i18n 恢复到既有 55 项，仍不是零违规。导出模板构建及不可变资源校验通过；服务器同步因目标仓库缺失未执行。
-- 环境检查覆盖 34 份 Agent YAML、2 份 include 清单和修改后的网页点击脚本语法；指定范围内无退役工具/技能引用。此检查不等于真实业务页面操作验收。
-
-
-### preset-connectors 与原文编辑补充验证
-
-- `DESKTOP_SOURCE=/Users/linlay/Project/zenmind/zenmind-desktop go test -p 2 ./...`：124 个包通过或无测试，包括 Desktop 源码契约。
-- 最后补充的无效 Agent 配置展示、预置开关、YAML 空多行值和批量归档/恢复边界，catalog/adminsource/conversation/server 定向测试通过。
-- adminsource/conversation 的 race 回归通过；WebClient TypeScript、模块边界及连接器相关 3 个 Jest 套件 35 项通过。
-- i18n 保持原有 55 项违规，没有新增硬编码。未改动本轮已确认保留的大会话搜索限制；未执行部署或重启。
-
-### 参数错误恢复提示
-
-控制工具准入现在返回 `field/expected/actual/recovery`，明确类型、整数范围、合法枚举和修复示例；`limit:"100"` 应改为 `limit:100`（JSON 整数 1–100）。未知字段只列合法字段，不回显任意键名和值。审批准备错误保留这些信息。未知 runtimeStatus 组件返回错误并列出当前快照组件名。完整证据、范围、Desktop Kanban 私有运行字段边界及未完成项见 [工具参数错误审计](工具参数错误审计.md)。

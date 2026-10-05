@@ -78,18 +78,18 @@ Runtime 的 Native 阻塞调用直接取得执行结果，不再生成 HTTP 请�
 
 ## 保留的协议与旧契约适配
 
-R16 已移走 Native admission/session、根 Run 执行/恢复及子 Agent/Team 编排，`app.New` 不再把 `srv.StartQueryRuntime`、`srv.ExecuteQuery`、`srv.SubmitRuntime` 等回注到 Query。
+Native admission/session、根 Run 执行/恢复及子 Agent/Team 编排由 Runtime 负责，`app.New` 不再把 `srv.StartQueryRuntime`、`srv.ExecuteQuery`、`srv.SubmitRuntime` 等回注到 Query。
 
 两处适配仍明确保留：
 
 - `runtime/adapter` 只转换旧 `contracts.AgentEngine` / system-init / catalog 的 DTO。Core 接受 `types.QueryCommand`；旧执行器仍接受 `api.QueryRequest`，转换集中在适配包，不持有准入、恢复或生命周期。
-- 根 Proxy 的 HTTP/SSE、WS 与 inbound channel 驱动仍在 Server，经 `query.ProxyPort` 注入。该端口只提供代理路由、上游模型发现、代理启动/阻塞执行及代理控制转发；Native 路径不进入它。WS/非流式 Proxy 需要注册时，经 Runtime 的 prepared registration 端口复用注册逻辑。Proxy 保留原完成记录捕获和非流式 collector，尚未统一 HTTP/WS 的全部生命周期公共段，归 R18；不能据此宣称 Proxy 已完全迁移。
+- 根 Proxy 的 HTTP/SSE、WS 与 inbound channel 驱动仍在 Server，经 `query.ProxyPort` 注入。该端口只提供代理路由、上游模型发现、代理启动/阻塞执行及代理控制转发；Native 路径不进入它。WS/非流式 Proxy 需要注册时，经 Runtime 的 prepared registration 端口复用注册逻辑。Proxy 保留原完成记录捕获和非流式 collector，尚未统一 HTTP/WS 的全部生命周期公共段；不能据此宣称 Proxy 已完全迁移。
 
 HTTP/WS 保留外部请求解码、认证、来源/transport/device/lane 校验与错误编码。Runtime 保留 Agent/Team owner、输入能力、等待项身份和权限级别校验。Submit 仍允许跨设备及 HTTP/WS；其他控制仍校验持久化 control scope。未改变外部路由、SSE/WS 字段、JSONL/SQLite schema、模型协议或工具取消收尾策略。
 
 ## 集成注意事项
 
-- R11/R12 的参数收敛已同步到迁移后的 Session、continuation、恢复和 Proxy Reference 实现。原 `server/session_builder.go`、Session 上下文 helper 和 Server fixture 已迁移到 `runtime/session` 及显式组装的测试适配，不恢复旧 Server 业务文件。
-- R13–R15 的 Memory 去重保持现有实现；Query/Session 的重新装配不改变 Memory 服务边界。
+- 原 `server/session_builder.go`、Session 上下文 helper 和 Server fixture 已迁移到 `runtime/session` 及显式组装的测试适配，不恢复旧 Server 业务文件。
+- Query/Session 的重新装配不改变 Memory 服务边界。
 - `contextConfig.agents` 的不可用候选继续由公共 catalog 解析器跳过并生成有界诊断，`runtime/session` 只记录警告；历史 Chat 读取不依赖当前 Agent 可执行。`runtime/query` 准入保留 `422 agent_configuration_invalid` / `404 agent_not_found` 的区分，HTTP/WS 保留结构化错误与本地化提示。
 - Windows 验证使用 `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...`，不等同于 Windows 原生运行测试。

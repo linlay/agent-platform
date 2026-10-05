@@ -1,8 +1,8 @@
 # agent-platform
 
-原生模型新增独立 `OPENAI_RESPONSES` 协议；本地 JSONL 保存每次模型调用的可选 `responseId` 与 `reasoning_content` 加密条目，续聊不依赖服务端 response ID。配置、格式及兼容边界见 [Responses 协议](docs/Responses协议.md)。
+原生模型支持 `OPENAI_RESPONSES` 协议；本地 JSONL 保存每次模型调用的可选 `responseId` 与 `reasoning_content` 加密条目，续聊不依赖服务端 response ID。配置、格式及兼容边界见 [Responses 协议](docs/Responses协议.md)。
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、`builtin.platform-control` 平台控制连接器、JWT 鉴权、resource ticket、chat 文件落盘、可选手工 Memory、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，配置使用 Go 代码默认值、`configs/*.yml` 和环境变量 allowlist／启动参数，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、`builtin.platform-control` 平台控制连接器、JWT 鉴权、resource ticket、chat 文件落盘、可选手工 Memory、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
@@ -18,7 +18,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `GET/PUT /api/agents/order`
 - `GET /api/agent?agentKey=...`
 - `GET /api/skills?agentKey=...`：全局技能目录、当前 Agent 的 `configured` 标记和用户 `pinned`；agentKey 可选；技能显示名称、请求语言与版本规则见 [技能展示元数据](docs/技能展示元数据.md)
-- `PUT /api/skills`：单条 `{key,pinned}` 更新置顶
+- `PUT /api/skills`：单条 `{id,pinned}` 更新当前用户置顶，`pinned` 必须显式提供布尔值
 - `GET /api/teams`
 - `GET /api/admin/skills`
 - `POST /api/admin/skill-packages/import`
@@ -28,7 +28,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `GET /api/chat?chatId=...`
 - `POST /api/chats/search`
 - `POST /api/read`
-- `GET /api/chat/export?chatId=...&format=markdown|html`
+- `GET /api/chat/export?chatId=...&format=markdown|snapshot`
 - `GET /api/archives`
 - `GET /api/archive?chatId=...`
 - `POST /api/archives/search`
@@ -51,7 +51,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 
 - `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，Native Host Bash 还能在退出前发送临时 `tool.output`；每个工具仍由唯一 `tool.result` 收口。请求体传 `stream:false` 时返回普通 JSON，默认 `data` 只包含 `content`，可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`，错拼字段 `steam` 不会被识别。
 - `POST /api/query` 携带 `lane:"btw"` 在已有 chat 下创建或继续隐藏只读分支，复用 `/api/query` 的 ReAct 与 SSE 协议，不更新父 chat JSONL、摘要、未读或后续上下文；扩展工具只有显式声明 `readOnly` 时才可执行。
-- Desktop 通过普通 `/ws` 登记 main、btw、explain 三条 lane（source 为 `desktop-main`、`desktop-btw`、`desktop-explain`），统一用 `/api/query` 并按连接身份分流；握手 `connected.data.lane` 确认服务端识别结果。main 承载普通 Run、全局 Push 和默认 Desktop target，btw/explain 承载隐藏分支；同 lane 的新连接只替换本 lane 旧连接。HTTP 的 `lane` 默认 main、支持 btw，explain 仅限 Desktop WS。Run 的创建与控制必须使用相同 transport，WS 控制还必须匹配身份/设备/lane；每条连接最多一个 Run stream，切换前 detach。
+- Desktop 通过普通 `/ws` 登记 main、btw、explain 三条 lane（source 为 `desktop-main`、`desktop-btw`、`desktop-explain`），统一用 `/api/query` 并按连接身份分流；握手 `connected.data.lane` 确认服务端识别结果。main 承载普通 Run、全局 Push 和默认 Desktop target，btw/explain 承载隐藏分支；同 lane 的新连接只替换本 lane 旧连接。HTTP 的 `lane` 默认 main、支持 btw，explain 仅限 Desktop WS。除 HITL Submit 外，Run 控制仍校验创建时的 transport 及适用的身份/设备/lane；`/api/submit` 支持跨设备和 HTTP/WS 提交，保留既有认证、Agent/Team owner、等待项、参数校验和重复提交仲裁，不改绑原 Run 控制归属；每条连接最多一个 Run stream，切换前 detach。
 - 其余 JSON 接口统一返回：
 
 ```json
@@ -64,24 +64,24 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 
 - `code = 0` 表示成功，失败时 `code` 使用 HTTP 状态码数值。
 - `GET /api/chat` 默认返回 `events`，`includeRawMessages=true` 时追加 `rawMessages`。
-- `GET /api/viewport` 会先读取 `runtime/viewports` 下的本地 `.html/.qlc` 模板，再尝试 `registries/viewport-servers` 中注册的远端 viewport server，命中失败时才返回 fallback 占位结果。
+- `GET /api/viewport` 保留旧模板兼容；新展示配置使用 [VIEW 连接器](docs/VIEW连接器.md)。接口规则见 [API与协议](docs/API与协议.md#viewport--resource)。
 - `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 按公开 run owner 校验：普通 Agent 携带 `agentKey`，Team 只携带 `teamId`，不得提交隐藏协调器 key 或 `agentKey`。
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 `agentKey` 或 `teamId`。
 - Chat 支持跨普通、CODER/KBASE 等 mode 的统一置顶，独立保存到 `chat-pinned.json`；未置顶列表在截断前排除置顶项，展示排序不修改内容时间。协议与存储见 [API与协议](./docs/API与协议.md) 和 [会话存储与回放](./docs/会话存储与回放.md)。
 - Platform 重启会从持久化 pending summary 恢复未超时/无限等待的 question 与永久 planning；approval/form 或已超时等待项会补齐 error answer、未执行 tool result 和 cancel completion，再清除 pending。活动 Run 的等待项由原执行流程收尾，会话读取不提前补写超时结果。
 - 工具执行中取消会先收尾工具结果，再保存 Run 终态；活动异步工具在整批共享 2 秒期限内保留真实返回，无法确认时明确记录副作用未知。旧的缺失结果历史不会自动重写，人工恢复流程见 [会话存储与回放](./docs/会话存储与回放.md)。
-- 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，实际下载继续使用 `GET /api/resource?file=...`；新图片/产物结果的 `url` 是 `<chatId>/<relativePath>` 逻辑引用，由客户端转换成该 HTTP 请求，历史 `/api/resource?file=...` 保持只读兼容。`path` 只供智能体工具读取或继续发布，绝不进入 Markdown；`/ws` 只传文件引用与状态，不承载文件字节。
+- 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，实际下载继续使用 `GET /api/resource?file=...`；上传、生成图片和发布产物的 `url` 是相对于当前 Chat、按路径段编码的 `<relativePath>`，不含 `chatId`；Markdown 原样使用返回的 `url`，客户端资源 adapter 加入当前 `chatId` 后转换成该 HTTP 请求。发布产物 URL 指向发布副本。历史 endpoint Markdown 不迁移且不再预览，HTTP 数据面仍保留。`path` 只供智能体工具读取或继续发布，绝不进入 Markdown；`/ws` 只传文件引用与状态，不承载文件字节。
 - 产物发布成功后逐个发送 `artifact.published`，仅已认证 Desktop Main WS 接收，不依赖当前 Chat 或网关；BTW、Explain 及其他 WS 不接收，attach/回放不重发。`resource.pushed` 只表示实际上传网关成功。
 - `image_generate` 对 Agent 使用统一参数：无输入图时文生图，最多四张 Chat/本地输入图时图生图；生成和编辑端点及请求格式完全由模型 YAML 选择 Images JSON、Images Multipart 或 Chat Completions，不按模型名/provider 分支。生成与编辑可分别配置 `omitResponseFormat`，省略上游不接受的返回格式参数。可选 mask 支持 alpha、白区编辑和黑区编辑三种显式语义，仅在模型声明原生 `openai-alpha` 能力时执行局部重绘。
-- 文件工具与 Bash 共享 `AccessPolicy`；普通、自写和临时脚本在 `default` 按调用与内容版本审批，`auto_approve` 自动审计，`full_access` 允许；选中技能入口保留独立凭据。有效 `.state` 等私有目录在三档均拒绝普通工具读写。连接器凭据仅注入已验证的直接子进程，业务 Hook 独立生效。Host 并发批准继续按 toolID 隔离。见 [工具目录权限](docs/工具目录权限.md) 与 [改造进度及边界](docs/AccessPolicy与HITL改造.md)。
+- 文件工具与 Bash 共享 `AccessPolicy`；普通和临时脚本在 `default` 按调用与内容版本审批，`auto_approve` 自动审计，`full_access` 允许；本 Run 在 Chat 目录中通过文件工具写入且内容未变的自写脚本免执行审批，选中技能入口保留独立凭据。有效 `.state` 等私有目录在三档均拒绝普通工具读写。连接器凭据仅注入已验证的直接子进程，业务 Hook 独立生效。Host 并发批准继续按 toolID 隔离。见 [工具目录权限](docs/工具目录权限.md) 与 [权限与审批边界](docs/AccessPolicy与HITL改造.md)。
 - `mustUseSkills` 为本次 run 选中的每个 Skill 目录追加 trusted read + readonly roots：完整目录免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，任何 `accessLevel`、hostAccess 或 approval 都不能写入这些选中目录。Container 仍只读挂载整个 `/skills-center`，mount 可见性不等同于 AccessPolicy 授权。
 - Agent YAML 已配置普通 Skill 与本次 `mustUseSkills` 选中 Skill 的 `scripts/**` 入口，经本 Run 内存凭据（canonical 路径与 SHA-256）及执行前复验匹配后免入口 HITL；凭据不落盘、不跨 Run 继承，外围 Shell 和写入限制保持独立。见 [工具目录权限](docs/工具目录权限.md#技能脚本入口执行凭据)。
-- 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 在 main/editing 两种 stage 提供相同的五个通用文本文件工具，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
+- 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 的 main/editing 两种 stage 使用同一组配置工具，工具由 Platform 预置与 Agent 声明合并并应用排除项，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 - `builtin.platform-control` 显式挂载后提供 Catalog、Chat、诊断和七个 Desktop 域工具；Catalog 支持资源能力枚举及 Provider/MCP 组件只读发现，连接器与 MCP 分开表示，列表需跟进 nextCursor；配置修改及删除 Chat 必须一次性人工审批。`run_env` 保持独立默认挂载，动态值只作用于当前普通 native root Run 的后续命令。详见 [平台控制连接器](docs/Platform控制工具设计.md)。
 
 Native 模型流式正文与推理各自达到 4,000 Unicode 字符后检测持续精确复读，命中会取消请求且不自动重试；详见 [流式复读取消](docs/配置化说明.md#流式复读取消)。
 
-当前仍未与 Java 版完全对齐的能力主要集中在 MCP 全量生产验证，以及更深层的 automation 执行编排细节；MCP 的 HTTP/stdio client、SDK 支持版本的自动协商、session 生命周期与 tool sync 已接通。平台工具模型已统一，不再区分 frontend/action/backend/builtin。
+MCP 支持 HTTP/stdio client、SDK 协议版本协商、session 生命周期与 tool sync；全量生产验证和更深层的 automation 执行编排仍有待完善。
 
 ## 2. 快速开始
 
@@ -113,9 +113,7 @@ make run-local
 
 Windows 可用构建环境变量 `BUNDLE_GIT_BASH=false` 排除 Git Bash，默认 `true`。该变量同时适用于 builtin sync、Platform release 和继承环境的 Desktop 构建脚本；不修改正式 lock 或运行时 Shell 配置。已有完整 cache 时可直接执行 `make release BUNDLE_GIT_BASH=false`。详见 [Git Bash 可选打包](docs/WindowsGitBash实施进度.md#可选打包-git-bash)。
 
-本次连接器布局升级后，本机 cache 需要通过 `sync-local-builtins` 更新一次：dbx/httpx 从全局 bin 转为完整 builtin connector，由 Platform 直接加载随包版本，仅挂载它们的 Agent 会增加相应 PATH。旧全局 bin cache 会明确阻止启动。
-
-`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 包含 agents、connectors、chats、skills-center、registries、memory 等运行数据；Platform 会由 agents、skills-center 与挂载的 connectors 重建 `ru-agents/` 作为唯一 Agent 执行目录。
+`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 包含 agents、connectors-center、chats、skills-center、registries、memory 等运行数据；Platform 会由 agents、skills-center 与挂载的 connectors 重建 `ru-agents/` 作为唯一 Agent 执行目录。
 
 常用验证：
 
@@ -201,7 +199,7 @@ Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 
 
 连接器资源包通过清单声明组件、图标、认证方式与授权页面展示。包内程序、安装脚本和远程服务定义的分发边界见 [连接器打包与分发](./docs/连接器打包与分发.md)。
 
-五种认证模式（token / oneid-token / oauth / mcp / null）统一使用包外凭证来源；认证操作不触碰连接器定义文件。`auth_bindings` 声明 HTTP Header 或 Host CLI/stdio 环境模板，HTTP 发送前、进程启动前读取票据；自管 CLI 继续通过 `configEnv` 使用独立目录。MCP 支持多资源授权、客户端注册信息落盘、元数据发现回退、PKCE、刷新及追加权限提示，详见 [凭证消费映射与多组件授权](./docs/连接器安装与授权.md#凭证消费映射与多组件授权)。
+连接器认证模式包括 `no_auth`、`token`、`oneid-token`、`oauth`、`mcp` 与 `null`。`no_auth` 无需配置；需要凭证的模式使用包外来源，认证操作不触碰连接器定义文件。`auth_bindings` 声明 HTTP Header 或 Host CLI/stdio 环境模板，HTTP 发送前、进程启动前读取票据；自管 CLI 继续通过 `configEnv` 使用独立目录。MCP 支持多资源授权、客户端注册信息落盘、元数据发现回退、PKCE、刷新及追加权限提示，详见 [凭证消费映射与多组件授权](./docs/连接器安装与授权.md#凭证消费映射与多组件授权)。
 
 ### 根 `.env.example`
 
@@ -342,7 +340,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 
 容器 session 与未显式指定 cwd 的命令固定使用 `/workspace`。协议为 `dual-root-v2`。当 ChatsRoot 位于 Workspace 内时，Platform 下发 `/workspace/<ChatsRoot-relative>` mask，Hub 按 Workspace bind → mask tmpfs → current Chat bind 的顺序创建容器，确保 Chat 只从 `/chat` 可见。`/workspace`、`/chat`、mask 及其子路径是保留挂载目标，`runtimeConfig.sandboxMounts` 不能覆盖。session 复用身份包含 environment、canonical Workspace、canonical Chat、mask 和完整 mount fingerprint。
 
-目录型 agent 可在源目录 `.config/` 保存专属覆盖，Skill `.config/` 提供可分发默认值；Platform 合并到 `ru-agents/<agentKey>/.config/`。平台冻结四个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN`。Host 注入前三者对应的生成配置目录、真实 Workspace（无 Workspace 时省略）和 Chat；Workspace Terminal 只注入 Agent 配置目录与真实 Workspace，不注入 `AP_CHAT_DIR`；Container 固定为 `/agent/.config`、`/workspace` 与 `/chat`。第四个在普通 Agent Host Bash 及显式 oneid-token stdio MCP 创建前从有效 identity 文件即时读取，默认文件为 `<有效 StateDir>/identity/access-token`，可由最高优先级的 `--identity-file <absolute-path>` 覆盖，不进入 Terminal 或 Container。agent `runtimeConfig.env`、skill `.runtime-env.json`、run dynamic env 与调用级 env 均不得覆盖。动态层只通过 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope；Host Bash、直接短进程和 Container 新 command 获取快照，子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 和已启动进程不继承或更新，Platform 重启后的续接 run 从空动态层开始。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。完整组装、冲突和迁移规则见 [Agent 运行时组装](./docs/Agent运行时组装.md)。
+目录型 agent 可在源目录 `.config/` 保存专属覆盖，Skill `.config/` 提供可分发默认值；Platform 合并到 `ru-agents/<agentKey>/.config/`。平台冻结四个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN`。Host 注入前三者对应的生成配置目录、真实 Workspace（无 Workspace 时省略）和 Chat；Workspace Terminal 只注入 Agent 配置目录与真实 Workspace，不注入 `AP_CHAT_DIR`；Container 固定为 `/agent/.config`、`/workspace` 与 `/chat`。普通 Host Shell 不自动获得第四个变量；经验证的单条直接 oneid-token CLI 调用在独立子进程中使用该变量，已挂载 oneid-token stdio MCP 也从有效 identity 文件即时读取，默认文件为 `<有效 StateDir>/identity/access-token`，可由最高优先级的 `--identity-file <absolute-path>` 覆盖，不进入 Terminal 或 Container。agent `runtimeConfig.env`、skill `.runtime-env.json`、run dynamic env 与调用级 env 均不得覆盖。动态层只通过 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope；Host Bash、直接短进程和 Container 新 command 获取快照，子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 和已启动进程不继承或更新，Platform 重启后的续接 run 从空动态层开始。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。完整组装、冲突和迁移规则见 [Agent 运行时组装](./docs/Agent运行时组装.md)。
 
 `runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 
@@ -427,7 +425,7 @@ docker compose logs -f
 - [记忆系统](./docs/记忆系统.md)
 - [运行时和沙箱](./docs/运行时和沙箱.md)
 - [Platform 控制工具设计与实现](./docs/Platform控制工具设计.md)
-- [工具参数错误审计与恢复提示](./docs/工具参数错误审计.md)
+- [工具参数错误与恢复提示](./docs/工具参数错误审计.md)
 - [运行时资源迁移](./docs/运行时资源迁移.md)
 - [API与协议](./docs/API与协议.md)
 - [HITL协议](./docs/HITL协议.md)
@@ -438,20 +436,9 @@ docker compose logs -f
 - [鉴权与安全边界](./docs/鉴权与安全边界.md)
 - [版本化打包方案](./docs/版本化打包方案.md)
 - [手工测试用例](./docs/手工测试用例.md)
-
-运行中的普通 native Agent / Team 协调器支持图片与普通文件 steer：先通过 `/api/upload` 上传，再向 `/api/steer` 传 `references`，文字可为空；普通文件（含 HTML/MD）作为工具读取引用，视觉模型直接接收图片，非视觉模型接收图片文件引用供已配置的识别工具读取。query 始终要求非空文字。附件、图片冻结、回放和续聊契约见 [API与协议](docs/API与协议.md)；PROXY/CHANNEL 附件 steer 尚不支持。
-
-活动 native CODER 在 planning 输出或确认等待时收到 steer，会使旧计划失效并按新要求重新规划；新计划仍需确认，旧批准请求不能启动执行。时序与 `planning.superseded` 事件见 [HITL协议](docs/HITL协议.md)。
-
-连接器共享目录、Desktop 原生挂载及离线迁移见 [连接器共享包与 Desktop 迁移](docs/连接器共享包与Desktop迁移.md)。
-
-
-### Desktop 内嵌连接器来源
-
-`builtin.platform-control`（平台控制，12 个工具）与 `builtin.web-control`（网页控制，15 个工具）随 Platform 内嵌分发，可独立或同时挂载。前者管理 Catalog、Chat、运行诊断和 Desktop 外壳/应用/服务；后者按地址打开和操作网页。两者使用受信任共享运行包、原有租约与反向请求，Desktop 传输协议保持不变。旧入口须显式迁移。详见 [平台控制连接器](docs/Platform控制工具设计.md) 与 [连接器共享包](docs/连接器共享包与Desktop迁移.md)。
-
-Desktop 不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。此调整不改变连接器配置状态、Agent 挂载、工具权限或历史 Chat。
-
-原生 `wait` 工具支持同一 Run 内等待、steer 提前唤醒与倒计时事件；每次调用必须提供非空的顶层 `description`，说明等待目标或原因。显式挂载、Run 边界及 WebClient 接入见 [原生等待工具](./docs/原生等待工具.md)。
-
-平台管理连接器仅按部署者显式配置挂载，源码无主智能体名单；旧工具声明不自动扩权。已支持 `preset-connectors`、控制工具 agent.yml 原文保留及批量归档/恢复；搜索大文件保护和联调边界见 [Platform控制工具设计](docs/Platform控制工具设计.md#2026-10-03-审核修复与未完成项)。
+- [Agent 运行时组装](docs/Agent运行时组装.md)
+- [连接器安装与授权](docs/连接器安装与授权.md)、[共享包与 Desktop 迁移](docs/连接器共享包与Desktop迁移.md)
+- [VIEW 连接器](docs/VIEW连接器.md)
+- [原生等待工具](docs/原生等待工具.md)、[Run 环境工具](docs/Run环境工具.md)
+- [KBASE 检索与控制面](docs/KBASE-LanceDB检索与控制面.md)、[KBASE 编辑模式](docs/KBASE编辑模式.md)
+- [Gateway 接出注册](docs/Gateway-Agent注册与调用协议.md)
