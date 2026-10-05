@@ -41,6 +41,7 @@ var requiredBuiltinToolNames = []string{
 	"file_read",
 	"file_write",
 	"memory_read",
+	"memory_update",
 	"memory_search",
 	"memory_write",
 	"plan_add_tasks",

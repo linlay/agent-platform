@@ -83,6 +83,7 @@ type Dependencies struct {
 	Archives               *chat.ArchiveStore
 	Archiver               *chat.Archiver
 	Memory                 *memory.Store
+	MemoryMaintenance      MemoryMaintenance
 	KBase                  KBaseService
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry

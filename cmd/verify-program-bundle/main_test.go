@@ -178,7 +178,7 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	components = append(components, builtins.ManifestComponent{Name: "memx", Version: "0.1.0", Path: memxPath, SHA256: memxDigest})
+	components = append(components, builtins.ManifestComponent{Name: "memx", Version: "0.3.0", Path: memxPath, SHA256: memxDigest})
 	if popplerBuiltinRequired(goos, goarch) {
 		launcher := "bin/pdftotext"
 		if goos == "windows" {
@@ -388,7 +388,7 @@ func TestVerifyBundleRejectsPreMemxCache(t *testing.T) {
 	}
 	manifest.Components = components
 	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0644)
-	if err := verifyBundleRoot(root, "darwin", "arm64"); err == nil || !strings.Contains(err.Error(), "requires the memx builtin") {
+	if err := verifyBundleRoot(root, "darwin", "arm64"); err == nil || !strings.Contains(err.Error(), "requires memx") {
 		t.Fatalf("old cache accepted: %v", err)
 	}
 }

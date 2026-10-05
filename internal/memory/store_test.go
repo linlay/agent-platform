@@ -133,7 +133,7 @@ func TestRejectEscapesSymlinksAndOversizedFiles(t *testing.T) {
 	if err := os.WriteFile(external, []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(external, filepath.Join(s.MemoryDir, "memory.md")); err != nil {
+	if err := os.Symlink(external, filepath.Join(s.MemoryDir, "summary.md")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	if _, err := s.Read("memory", ""); err == nil {

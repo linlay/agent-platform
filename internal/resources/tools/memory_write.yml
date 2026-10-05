@@ -16,6 +16,7 @@ inputSchema:
       enum:
         - owner
         - memory
+        - summary
         - daily
     date:
       type: string

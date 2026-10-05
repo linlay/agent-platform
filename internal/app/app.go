@@ -33,6 +33,7 @@ import (
 	"agent-platform/internal/lsp"
 	"agent-platform/internal/mcp"
 	"agent-platform/internal/memory"
+	"agent-platform/internal/memoryworker"
 	"agent-platform/internal/models"
 	"agent-platform/internal/platformcontrol"
 	projectpkg "agent-platform/internal/project"
@@ -73,6 +74,7 @@ type App struct {
 	lspManager             *lsp.Manager
 	mcpClient              *mcp.Client
 	kbaseManager           *kbx.Manager
+	memoryWorker           *memoryworker.Worker
 }
 
 type automationStopper interface {
@@ -156,6 +158,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("memory timezone: %w", err)
 	}
 	memoryStore := memory.NewStore(cfg.Paths.MemoryDir, cfg.Paths.OwnerDir, memoryLocation)
+	if err := memoryStore.PrepareSummary(); err != nil {
+		return nil, fmt.Errorf("prepare memory summary: %w", err)
+	}
 	skillCandidateStore, err := skills.NewFileCandidateStore(filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"))
 	if err != nil {
 		return nil, err
@@ -424,6 +429,17 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	})
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
 	sessions := runtimesession.New(runtimesession.Dependencies{Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
+	memoryClient := memoryworker.Client{Root: cfg.Paths.MemoryDir, Timezone: cfg.Memory.Timezone, ConfigDir: filepath.Join(cfg.Paths.StateDir, "memx")}
+	memoryWorker := memoryworker.New(cfg.Memory, memoryworker.StateRoot(cfg.Paths.StateDir), chatStore,
+		memoryClient,
+		&memoryworker.ModelConfigSync{ModelKey: cfg.Memory.Worker.ModelKey, Models: modelRegistry, TimeoutSeconds: cfg.Memory.Worker.TimeoutSeconds, Client: memoryClient},
+		func(key string) (string, bool) {
+			def, ok := registry.AgentDefinition(key)
+			return def.Workspace.ProjectDir(), ok && def.MemoryConfig.Enabled && def.Engine == catalog.AgentEngineNative && def.ProxyConfig == nil && def.Mode != "CHANNEL"
+		})
+	if err := toolExecutor.RegisterHandler(&memoryworker.ToolHandler{Worker: memoryWorker}); err != nil {
+		return nil, fmt.Errorf("register memory maintenance: %w", err)
+	}
 	srv, err = server.New(server.Dependencies{
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
@@ -431,6 +447,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Archives:          archiveStore,
 		Archiver:          archiver,
 		Memory:            memoryStore,
+		MemoryMaintenance: memoryWorker,
 		KBase:             kbaseManager,
 		Registry:          registry,
 		Models:            modelRegistry,
@@ -530,6 +547,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		log.Printf("automation orchestrator disabled")
 	}
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
+	memoryWorker.Start(backgroundCtx)
 	cleanupBackground = false
 	cleanupMCP = false
 	cleanupNative = false
@@ -547,6 +565,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		lspManager:             lspManager,
 		mcpClient:              mcpClient,
 		kbaseManager:           kbaseManager,
+		memoryWorker:           memoryWorker,
 	}, nil
 }
 
@@ -562,6 +581,13 @@ func (a *App) Close() error {
 	// restarting the process after shutdown has begun.
 	if a.backgroundCancel != nil {
 		a.backgroundCancel()
+	}
+	if a.memoryWorker != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := a.memoryWorker.Wait(ctx); err != nil {
+			log.Printf("close memory worker: %v", err)
+		}
+		cancel()
 	}
 	if a.kbaseManager != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)

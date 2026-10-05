@@ -415,7 +415,7 @@ docker compose logs -f
 - Query 看起来不像真流式：默认 SSE writer 会逐事件 flush；优先检查代理、浏览器、网关或调用方是否缓冲。
 - `bash` 执行失败：检查 `AP_CONTAINER_HUB_BASE_URL`、`container-hub.default-environment-id`，以及 runtime 目录配置是否为宿主机真实路径。
 - chat 没有持久化：检查 `AP_RUNTIME_CHATS_DIR` 是否可写。
-- Memory 已整体替换为纯 Markdown：OWNER.md、memory.md 与 daily 日期记录；SQLite、scope、自动学习与旧工具协议下线，不做历史迁移。WebClient/ Desktop 提供“记忆与资料”编辑入口，知识索引归 KBX。详见 [记忆系统](./docs/记忆系统.md)。
+- Memory 使用 OWNER.md、summary.md 与 daily 日期记录；Platform worker 默认每 300 秒整理已完成 Chat，通过单次 memx 0.3.0 自行调用模型、校验并写入有来源的事实并跨日归并。全局 memory.worker 配置控制频率、模型和限额；支持手工 HTTP 触发、memory_update 与直接 memory_write。现有 kind=memory 保持兼容，旧 memory.md 复制一次并保留备份。详见 [记忆系统](./docs/记忆系统.md)。
 - 上传后无法下载：确认文件已落到 `AP_RUNTIME_CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否使用响应中的 ChatScope `url`。
 
 ## 文档索引

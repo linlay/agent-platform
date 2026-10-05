@@ -80,6 +80,11 @@ func TestRequireMemxComponent(t *testing.T) {
 			t.Fatal("wrong memx path accepted")
 		}
 		manifest.Components[1].Path = expected
+		manifest.Components[1].Version = "0.1.0"
+		if RequireMemxComponent(manifest) == nil {
+			t.Fatal("pre-maintenance memx accepted")
+		}
+		manifest.Components[1].Version = "0.3.0"
 		if err := RequireMemxComponent(manifest); err != nil {
 			t.Fatal(err)
 		}

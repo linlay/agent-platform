@@ -397,6 +397,16 @@ type MemoryConfig struct {
 	Enabled         bool
 	ContextMaxChars int
 	Timezone        string
+	Worker          MemoryWorkerConfig
+}
+
+type MemoryWorkerConfig struct {
+	Enabled             bool
+	ModelKey            string
+	PollIntervalSeconds int
+	TimeoutSeconds      int
+	MaxBatches          int
+	SummaryMaxChars     int
 }
 
 type DefaultsConfig struct {

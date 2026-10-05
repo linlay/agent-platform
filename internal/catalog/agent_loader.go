@@ -817,7 +817,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		def.MemoryConfig = memoryConfig
 		def.MemoryEnabled = def.MemoryConfig.Enabled
 		if def.MemoryConfig.Enabled {
-			for _, memTool := range []string{"memory_write", "memory_read", "memory_search"} {
+			for _, memTool := range []string{"memory_write", "memory_read", "memory_search", "memory_update"} {
 				if !containsString(def.Tools, memTool) {
 					def.Tools = append(def.Tools, memTool)
 				}
@@ -1068,7 +1068,7 @@ func filterTools(tools []string, keep func(string) bool) []string {
 
 func isMemoryTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "memory_write", "memory_read", "memory_search":
+	case "memory_write", "memory_read", "memory_search", "memory_update":
 		return true
 	default:
 		return false

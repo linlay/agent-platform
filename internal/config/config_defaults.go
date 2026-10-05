@@ -115,6 +115,7 @@ func defaultConfig(options LoadOptions) Config {
 			Enabled:         true,
 			ContextMaxChars: 12000,
 			Timezone:        "Local",
+			Worker:          MemoryWorkerConfig{Enabled: true, PollIntervalSeconds: 300, TimeoutSeconds: 120, MaxBatches: 20, SummaryMaxChars: 8000},
 		},
 		Defaults: DefaultsConfig{
 			Budget: BudgetDefaultsConfig{
