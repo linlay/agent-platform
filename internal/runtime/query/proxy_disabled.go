@@ -1,8 +1,6 @@
 package query
 
 import (
-	"context"
-
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/runtime/session"
@@ -24,7 +22,7 @@ func (unavailableProxy) Models(string) ([]queryinput.CoderModelOption, error, bo
 func (unavailableProxy) Start(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun, *stream.RunEventBus, bool) error {
 	return ErrNotConfigured
 }
-func (unavailableProxy) Execute(context.Context, runtimetypes.PreparedQuery, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error) {
+func (unavailableProxy) Execute(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun, *stream.RunEventBus) (runtimetypes.QueryResult, error) {
 	return runtimetypes.QueryResult{}, ErrNotConfigured
 }
 func (unavailableProxy) Submit(queryinput.SubmitRequest) (queryinput.SubmitResponse, *runtimetypes.RequestError, bool) {

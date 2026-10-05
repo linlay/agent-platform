@@ -1,5 +1,7 @@
 # KBASE LanceDB 检索与控制面
 
+> 当前生产装配已切换到 KBX，以下内容是保留的旧引擎设计，不代表当前执行链路。新接入及未完成的维护/分发边界见 [KBX接入](KBX接入.md)。
+
 KBASE 已是 mode 中立的公共能力，`internal/kbase` 同时服务专用 `mode: KBASE` 和通过 `kbaseConfig.enabled: true` 挂载知识库的普通 Agent。它固定使用 LanceDB 作为唯一的 chunk、全文和向量检索库。首次索引、`force=true` 或 `indexHash` 变化时构建独立 generation，完成索引和校验后由 `control.db` 原子切换 active generation；日常文件变化直接增量更新 active generation，旧 generation 可用于内部 generation rollback。
 
 `control.db` 是 SQLite 控制面，不保存 chunk 正文、FTS 倒排或 embedding。它只保存：

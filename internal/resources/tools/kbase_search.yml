@@ -4,7 +4,7 @@ i18n:
     label: "Search Knowledge Base"
   zh-CN:
     label: "搜索知识库"
-description: Search the current KBASE agent knowledge base. Results include source paths, line/page/slide ranges, snippets, scores, and match type.
+description: Search the current Agent KBX knowledge base. The limit counts chunks, including multiple chunks from one document. Filters apply before recall; offset is unavailable.
 tags: [knowledge-base, search]
 clientVisible: true
 readOnly: true
@@ -17,18 +17,15 @@ inputSchema:
     limit:
       type: integer
       description: Maximum number of chunks to return. Defaults to the agent retrieval topK.
-    offset:
-      type: integer
-      description: Number of sorted matching chunks to skip before applying limit.
     pathPrefix:
       type: string
-      description: Workspace-relative path prefix to search within, such as docs/.
+      description: Workspace-relative directory prefix applied before recall, such as docs/. Matching is case-sensitive and respects directory boundaries.
     pathGlob:
       type: string
-      description: KBASE glob matched against workspace-relative indexed paths. Supports *, ?, and **.
+      description: KBX glob matched against workspace-relative indexed paths. Supports *, ?, and **.
     type:
       type: string
-      description: Optional file extension filter such as md or .pdf.
+      description: Case-insensitive final file extension filter such as md or .pdf, applied before recall.
   required:
     - query
   additionalProperties: false

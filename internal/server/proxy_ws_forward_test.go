@@ -22,9 +22,7 @@ func TestProxyPublicationEmitsPublishedNotResourcePushed(t *testing.T) {
 		t.Fatal(err)
 	}
 	notifications := &recordingNotificationSink{}
-	recorder := &proxyEventRecorder{
-		stepWriter: chat.NewStepWriter(chats, "chat-1", "run-1", ""), notifications: notifications,
-	}
+	recorder := newProxyEventRecorder(api.QueryRequest{ChatID: "chat-1", RunID: "run-1"}, testEpochMillis, catalog.AgentDefinition{}, chats, chat.NewStepWriter(chats, "chat-1", "run-1", ""), nil, notifications, chat.UsageData{}, nil, config.BillingConfig{})
 	seq := int64(0)
 	_, err = publishProxyLiveEvent(nil, recorder, api.QueryRequest{ChatID: "chat-1", RunID: "run-1"}, &seq, stream.EventData{
 		Type: "artifact.publish", Timestamp: testEpochMillis,

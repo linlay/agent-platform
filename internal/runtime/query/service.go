@@ -37,7 +37,7 @@ type ProxyPort interface {
 	Configure(*catalog.AgentDefinition) *runtimetypes.RequestError
 	Models(string) ([]queryinput.CoderModelOption, error, bool)
 	Start(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun, *stream.RunEventBus, bool) error
-	Execute(context.Context, runtimetypes.PreparedQuery, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
+	Execute(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun, *stream.RunEventBus) (runtimetypes.QueryResult, error)
 	Submit(queryinput.SubmitRequest) (queryinput.SubmitResponse, *runtimetypes.RequestError, bool)
 	Steer(queryinput.SteerRequest) (queryinput.SteerResponse, *runtimetypes.RequestError, bool)
 	Interrupt(queryinput.InterruptRequest) (queryinput.InterruptResponse, *runtimetypes.RequestError, bool)

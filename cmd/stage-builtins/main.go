@@ -92,6 +92,12 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		if err := builtins.RequireKBXComponent(result.Manifest); err != nil {
+			log.Fatal(err)
+		}
+		if err := builtins.RequireMemxComponent(result.Manifest); err != nil {
+			log.Fatal(err)
+		}
 		fmt.Printf("[builtins] staged %d cached components for %s/%s from %s\n", len(result.Manifest.Components), *targetOS, *targetArch, result.CacheDir)
 		return
 	}

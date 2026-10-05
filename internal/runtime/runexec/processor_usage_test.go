@@ -1,4 +1,4 @@
-package server
+package runexec
 
 import (
 	"context"
@@ -8,23 +8,21 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
-	. "agent-platform/internal/contracts"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 	"agent-platform/internal/stream"
 )
 
 func TestRunEventProcessorFirstTerminalErrorWins(t *testing.T) {
-	control := NewRunControl(context.Background(), "run-terminal-error")
-	processor := &runEventProcessor{
-		runControl: control,
-		runID:      "run-terminal-error",
-		chatID:     "chat-terminal-error",
-		agentKey:   "agent-terminal-error",
-	}
+	control := contracts.NewRunControl(context.Background(), "run-terminal-error")
+	processor := NewProcessor(ProcessorOptions{
+		RunControl: control,
+		RunID:      "run-terminal-error",
+		ChatID:     "chat-terminal-error",
+		AgentKey:   "agent-terminal-error",
+	})
 	errorPayload := map[string]any{
 		"code": "tool_calls_exceeded",
 		"diagnostics": map[string]any{
@@ -46,16 +44,16 @@ func TestRunEventProcessorFirstTerminalErrorWins(t *testing.T) {
 		t.Fatalf("consume late run.cancel: %v", err)
 	}
 
-	if processor.terminalFinishReason() != "error" {
-		t.Fatalf("terminal reason = %q, want error", processor.terminalFinishReason())
+	if processor.TerminalFinishReason() != "error" {
+		t.Fatalf("terminal reason = %q, want error", processor.TerminalFinishReason())
 	}
-	if AnyStringNode(processor.terminalErrorPayload()["code"]) != "tool_calls_exceeded" {
-		t.Fatalf("terminal payload was not retained: %#v", processor.terminalErrorPayload())
+	if contracts.AnyStringNode(processor.TerminalErrorPayload()["code"]) != "tool_calls_exceeded" {
+		t.Fatalf("terminal payload was not retained: %#v", processor.TerminalErrorPayload())
 	}
-	if control.State() != RunLoopStateFailed {
-		t.Fatalf("run state = %s, want %s", control.State(), RunLoopStateFailed)
+	if control.State() != contracts.RunLoopStateFailed {
+		t.Fatalf("run state = %s, want %s", control.State(), contracts.RunLoopStateFailed)
 	}
-	if control.Interrupt(InterruptInfo{Source: InterruptSourceHTTPAPI, Reason: InterruptReasonUserCancelled}) {
+	if control.Interrupt(contracts.InterruptInfo{Source: contracts.InterruptSourceHTTPAPI, Reason: contracts.InterruptReasonUserCancelled}) {
 		t.Fatal("late interrupt must be unmatched after terminal error")
 	}
 }
@@ -65,8 +63,8 @@ func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 	for _, eventType := range eventTypes {
 		t.Run(eventType, func(t *testing.T) {
 			runUsage := chat.UsageData{}
-			processor := &runEventProcessor{
-				chatUsage: chat.UsageData{
+			processor := NewProcessor(ProcessorOptions{
+				ChatUsage: chat.UsageData{
 					PromptTokens:           100,
 					CompletionTokens:       50,
 					TotalTokens:            150,
@@ -77,8 +75,8 @@ func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 					LlmChatCompletionCount: 4,
 					ToolCallCount:          6,
 				},
-				runUsage: &runUsage,
-			}
+				RunUsage: &runUsage,
+			})
 			data := &stream.EventData{
 				Type: eventType,
 				Payload: map[string]any{
@@ -105,7 +103,7 @@ func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 				},
 			}
 
-			processor.decorate(data)
+			processor.Decorate(data)
 
 			if _, ok := data.Payload["chatUsage"]; ok {
 				t.Fatalf("terminal event should not carry top-level chatUsage: %#v", data.Payload)
@@ -115,90 +113,46 @@ func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 				t.Fatalf("expected nested usage payload, got %#v", data.Payload)
 			}
 			run, _ := usage["run"].(map[string]any)
-			if AnyIntNode(run["promptTokens"]) != 7 || AnyIntNode(run["completionTokens"]) != 3 || AnyIntNode(run["totalTokens"]) != 10 {
+			if contracts.AnyIntNode(run["promptTokens"]) != 7 || contracts.AnyIntNode(run["completionTokens"]) != 3 || contracts.AnyIntNode(run["totalTokens"]) != 10 {
 				t.Fatalf("unexpected run usage %#v", usage)
 			}
 			runPromptDetails, _ := run["promptTokensDetails"].(map[string]any)
 			runCompletionDetails, _ := run["completionTokensDetails"].(map[string]any)
-			if AnyIntNode(runPromptDetails["cacheHitTokens"]) != 5 || AnyIntNode(runPromptDetails["cacheMissTokens"]) != 2 ||
-				AnyIntNode(runCompletionDetails["reasoningTokens"]) != 2 {
+			if contracts.AnyIntNode(runPromptDetails["cacheHitTokens"]) != 5 || contracts.AnyIntNode(runPromptDetails["cacheMissTokens"]) != 2 ||
+				contracts.AnyIntNode(runCompletionDetails["reasoningTokens"]) != 2 {
 				t.Fatalf("unexpected run detailed usage %#v", usage)
 			}
-			if AnyIntNode(run["llmChatCompletionCount"]) != 1 {
+			if contracts.AnyIntNode(run["llmChatCompletionCount"]) != 1 {
 				t.Fatalf("unexpected run llm chat completion count %#v", usage)
 			}
-			if AnyIntNode(run["toolCallCount"]) != 2 {
+			if contracts.AnyIntNode(run["toolCallCount"]) != 2 {
 				t.Fatalf("unexpected run tool call count %#v", usage)
 			}
 			chatUsage, _ := usage["chat"].(map[string]any)
-			if AnyIntNode(chatUsage["promptTokens"]) != 107 || AnyIntNode(chatUsage["completionTokens"]) != 53 || AnyIntNode(chatUsage["totalTokens"]) != 160 {
+			if contracts.AnyIntNode(chatUsage["promptTokens"]) != 107 || contracts.AnyIntNode(chatUsage["completionTokens"]) != 53 || contracts.AnyIntNode(chatUsage["totalTokens"]) != 160 {
 				t.Fatalf("unexpected chat usage %#v", usage)
 			}
 			chatPromptDetails, _ := chatUsage["promptTokensDetails"].(map[string]any)
 			chatCompletionDetails, _ := chatUsage["completionTokensDetails"].(map[string]any)
-			if AnyIntNode(chatPromptDetails["cacheHitTokens"]) != 25 || AnyIntNode(chatPromptDetails["cacheMissTokens"]) != 82 ||
-				AnyIntNode(chatCompletionDetails["reasoningTokens"]) != 12 {
+			if contracts.AnyIntNode(chatPromptDetails["cacheHitTokens"]) != 25 || contracts.AnyIntNode(chatPromptDetails["cacheMissTokens"]) != 82 ||
+				contracts.AnyIntNode(chatCompletionDetails["reasoningTokens"]) != 12 {
 				t.Fatalf("unexpected chat detailed usage %#v", usage)
 			}
-			if AnyIntNode(chatUsage["llmChatCompletionCount"]) != 5 {
+			if contracts.AnyIntNode(chatUsage["llmChatCompletionCount"]) != 5 {
 				t.Fatalf("unexpected chat llm chat completion count %#v", usage)
 			}
-			if AnyIntNode(chatUsage["toolCallCount"]) != 8 {
+			if contracts.AnyIntNode(chatUsage["toolCallCount"]) != 8 {
 				t.Fatalf("unexpected chat tool call count %#v", usage)
 			}
 		})
 	}
 }
 
-func TestSystemInitQueryIsNotPublishedToClients(t *testing.T) {
-	event := stream.EventData{
-		Type: "request.query",
-		Payload: map[string]any{
-			"kind":   "system-init",
-			"hidden": true,
-			"system": map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:test"},
-		},
-	}
-	if stream.IsClientVisibleEventData(event) {
-		t.Fatalf("system-init query must remain storage-only: %#v", event)
-	}
-	visible := clientVisibleEventData(stream.EventData{
-		Type: "request.query",
-		Payload: map[string]any{
-			"message": "hello",
-			"system":  map[string]any{"secret": true},
-		},
-	})
-	if _, ok := visible.Payload["system"]; ok || visible.String("message") != "hello" {
-		t.Fatalf("client query filtering failed: %#v", visible)
-	}
-}
-
-func TestInternalOnlyToolResultIsNotPublishedToClients(t *testing.T) {
-	event := stream.EventData{
-		Type: "tool.result",
-		Payload: map[string]any{
-			"toolId":       "tool-skipped",
-			"internalOnly": true,
-			"result":       `{"error":"tool_calls_exceeded","executed":false}`,
-		},
-	}
-	if stream.IsClientVisibleEventData(event) {
-		t.Fatalf("internal-only tool result must remain storage-only: %#v", event)
-	}
-
-	builder := newQueryFullTextBuilder()
-	builder.Consume(event)
-	if got := builder.Text(""); got != "" {
-		t.Fatalf("internal-only tool result leaked into full text: %q", got)
-	}
-}
-
 func TestRunEventProcessorKeepsTerminalUsageWhenOnlyLLMChatCompletionCountKnown(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		runUsage: &runUsage,
-	}
+	processor := NewProcessor(ProcessorOptions{
+		RunUsage: &runUsage,
+	})
 	data := &stream.EventData{
 		Type: "run.error",
 		Payload: map[string]any{
@@ -209,20 +163,20 @@ func TestRunEventProcessorKeepsTerminalUsageWhenOnlyLLMChatCompletionCountKnown(
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	usage, _ := data.Payload["usage"].(map[string]any)
 	run, _ := usage["run"].(map[string]any)
-	if AnyIntNode(run["llmChatCompletionCount"]) != 1 {
+	if contracts.AnyIntNode(run["llmChatCompletionCount"]) != 1 {
 		t.Fatalf("expected terminal usage with llmChatCompletionCount, got %#v", data.Payload)
 	}
 }
 
 func TestRunEventProcessorKeepsTerminalUsageWhenOnlyToolCallCountKnown(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		runUsage: &runUsage,
-	}
+	processor := NewProcessor(ProcessorOptions{
+		RunUsage: &runUsage,
+	})
 	data := &stream.EventData{
 		Type: "run.error",
 		Payload: map[string]any{
@@ -233,25 +187,25 @@ func TestRunEventProcessorKeepsTerminalUsageWhenOnlyToolCallCountKnown(t *testin
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	usage, _ := data.Payload["usage"].(map[string]any)
 	run, _ := usage["run"].(map[string]any)
-	if AnyIntNode(run["toolCallCount"]) != 2 {
+	if contracts.AnyIntNode(run["toolCallCount"]) != 2 {
 		t.Fatalf("expected terminal usage with toolCallCount, got %#v", data.Payload)
 	}
 }
 
 func TestRunEventProcessorOmitsTerminalUsageWhenUnknown(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		chatUsage: chat.UsageData{
+	processor := NewProcessor(ProcessorOptions{
+		ChatUsage: chat.UsageData{
 			PromptTokens:     100,
 			CompletionTokens: 50,
 			TotalTokens:      150,
 		},
-		runUsage: &runUsage,
-	}
+		RunUsage: &runUsage,
+	})
 	data := &stream.EventData{
 		Type: "run.complete",
 		Payload: map[string]any{
@@ -260,7 +214,7 @@ func TestRunEventProcessorOmitsTerminalUsageWhenUnknown(t *testing.T) {
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	if _, ok := data.Payload["usage"]; ok {
 		t.Fatalf("did not expect usage without known run tokens: %#v", data.Payload)
@@ -272,8 +226,8 @@ func TestRunEventProcessorOmitsTerminalUsageWhenUnknown(t *testing.T) {
 
 func TestRunEventProcessorDecoratesUsageSnapshotWithChatUsage(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		chatUsage: chat.UsageData{
+	processor := NewProcessor(ProcessorOptions{
+		ChatUsage: chat.UsageData{
 			PromptTokens:           100,
 			CompletionTokens:       50,
 			TotalTokens:            150,
@@ -284,8 +238,8 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithChatUsage(t *testing.T) {
 			LlmChatCompletionCount: 4,
 			ToolCallCount:          6,
 		},
-		runUsage: &runUsage,
-	}
+		RunUsage: &runUsage,
+	})
 	data := &stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
@@ -315,32 +269,32 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithChatUsage(t *testing.T) {
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	usage, _ := data.Payload["usage"].(map[string]any)
 	chatUsage, _ := usage["chat"].(map[string]any)
-	if AnyIntNode(chatUsage["promptTokens"]) != 107 || AnyIntNode(chatUsage["completionTokens"]) != 53 || AnyIntNode(chatUsage["totalTokens"]) != 160 {
+	if contracts.AnyIntNode(chatUsage["promptTokens"]) != 107 || contracts.AnyIntNode(chatUsage["completionTokens"]) != 53 || contracts.AnyIntNode(chatUsage["totalTokens"]) != 160 {
 		t.Fatalf("unexpected chat usage %#v", usage)
 	}
 	chatPromptDetails, _ := chatUsage["promptTokensDetails"].(map[string]any)
 	chatCompletionDetails, _ := chatUsage["completionTokensDetails"].(map[string]any)
-	if AnyIntNode(chatPromptDetails["cacheHitTokens"]) != 25 || AnyIntNode(chatPromptDetails["cacheMissTokens"]) != 82 ||
-		AnyIntNode(chatCompletionDetails["reasoningTokens"]) != 12 {
+	if contracts.AnyIntNode(chatPromptDetails["cacheHitTokens"]) != 25 || contracts.AnyIntNode(chatPromptDetails["cacheMissTokens"]) != 82 ||
+		contracts.AnyIntNode(chatCompletionDetails["reasoningTokens"]) != 12 {
 		t.Fatalf("unexpected detailed chat usage %#v", usage)
 	}
-	if AnyIntNode(chatUsage["llmChatCompletionCount"]) != 5 {
+	if contracts.AnyIntNode(chatUsage["llmChatCompletionCount"]) != 5 {
 		t.Fatalf("unexpected chat llm completion count %#v", usage)
 	}
-	if AnyIntNode(chatUsage["toolCallCount"]) != 8 {
+	if contracts.AnyIntNode(chatUsage["toolCallCount"]) != 8 {
 		t.Fatalf("unexpected chat tool call count %#v", usage)
 	}
 }
 
 func TestRunEventProcessorKeepsZeroDetailedUsageInSnapshotAggregates(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		runUsage: &runUsage,
-	}
+	processor := NewProcessor(ProcessorOptions{
+		RunUsage: &runUsage,
+	})
 	data := &stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
@@ -364,20 +318,20 @@ func TestRunEventProcessorKeepsZeroDetailedUsageInSnapshotAggregates(t *testing.
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	usage, _ := data.Payload["usage"].(map[string]any)
 	for _, key := range []string{"run", "chat"} {
 		stats, _ := usage[key].(map[string]any)
 		promptDetails, _ := stats["promptTokensDetails"].(map[string]any)
-		if _, ok := promptDetails["cacheHitTokens"]; !ok || AnyIntNode(promptDetails["cacheHitTokens"]) != 0 {
+		if _, ok := promptDetails["cacheHitTokens"]; !ok || contracts.AnyIntNode(promptDetails["cacheHitTokens"]) != 0 {
 			t.Fatalf("expected %s cacheHitTokens=0, got %#v", key, stats)
 		}
-		if AnyIntNode(promptDetails["cacheMissTokens"]) != 10 {
+		if contracts.AnyIntNode(promptDetails["cacheMissTokens"]) != 10 {
 			t.Fatalf("expected %s cacheMissTokens=10, got %#v", key, stats)
 		}
 		completionDetails, _ := stats["completionTokensDetails"].(map[string]any)
-		if _, ok := completionDetails["reasoningTokens"]; !ok || AnyIntNode(completionDetails["reasoningTokens"]) != 0 {
+		if _, ok := completionDetails["reasoningTokens"]; !ok || contracts.AnyIntNode(completionDetails["reasoningTokens"]) != 0 {
 			t.Fatalf("expected %s reasoningTokens=0, got %#v", key, stats)
 		}
 	}
@@ -385,9 +339,9 @@ func TestRunEventProcessorKeepsZeroDetailedUsageInSnapshotAggregates(t *testing.
 
 func TestRunEventProcessorNormalizesCumulativeUsageSnapshotCacheMissTokens(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		runUsage: &runUsage,
-	}
+	processor := NewProcessor(ProcessorOptions{
+		RunUsage: &runUsage,
+	})
 	data := &stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
@@ -416,35 +370,35 @@ func TestRunEventProcessorNormalizesCumulativeUsageSnapshotCacheMissTokens(t *te
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	usage, _ := data.Payload["usage"].(map[string]any)
 	current, _ := usage["current"].(map[string]any)
 	currentPromptDetails, _ := current["promptTokensDetails"].(map[string]any)
-	if AnyIntNode(currentPromptDetails["cacheHitTokens"]) != 8059 || AnyIntNode(currentPromptDetails["cacheMissTokens"]) != 692 {
+	if contracts.AnyIntNode(currentPromptDetails["cacheHitTokens"]) != 8059 || contracts.AnyIntNode(currentPromptDetails["cacheMissTokens"]) != 692 {
 		t.Fatalf("expected current usage details to remain unchanged, got %#v", usage)
 	}
 	run, _ := usage["run"].(map[string]any)
 	runPromptDetails, _ := run["promptTokensDetails"].(map[string]any)
-	if AnyIntNode(run["promptTokens"]) != 16929 || AnyIntNode(runPromptDetails["cacheHitTokens"]) != 8059 ||
-		AnyIntNode(runPromptDetails["cacheMissTokens"]) != 8870 {
+	if contracts.AnyIntNode(run["promptTokens"]) != 16929 || contracts.AnyIntNode(runPromptDetails["cacheHitTokens"]) != 8059 ||
+		contracts.AnyIntNode(runPromptDetails["cacheMissTokens"]) != 8870 {
 		t.Fatalf("expected run cache miss to be normalized from cumulative prompt tokens, got %#v", usage)
 	}
 	chatUsage, _ := usage["chat"].(map[string]any)
 	chatPromptDetails, _ := chatUsage["promptTokensDetails"].(map[string]any)
-	if AnyIntNode(chatUsage["promptTokens"]) != 16929 || AnyIntNode(chatPromptDetails["cacheHitTokens"]) != 8059 ||
-		AnyIntNode(chatPromptDetails["cacheMissTokens"]) != 8870 {
+	if contracts.AnyIntNode(chatUsage["promptTokens"]) != 16929 || contracts.AnyIntNode(chatPromptDetails["cacheHitTokens"]) != 8059 ||
+		contracts.AnyIntNode(chatPromptDetails["cacheMissTokens"]) != 8870 {
 		t.Fatalf("expected chat cache miss to be normalized from cumulative prompt tokens, got %#v", usage)
 	}
 }
 
 func TestRunEventProcessorDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		billing:  config.BillingConfig{Currency: "CNY"},
-		models:   writeUsageCostRegistry(t),
-		runUsage: &runUsage,
-	}
+	processor := NewProcessor(ProcessorOptions{
+		Billing:  config.BillingConfig{Currency: "CNY"},
+		Models:   writeUsageCostRegistry(t),
+		RunUsage: &runUsage,
+	})
 	data := &stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
@@ -468,7 +422,7 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	usage, _ := data.Payload["usage"].(map[string]any)
 	current, _ := usage["current"].(map[string]any)
@@ -476,9 +430,9 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 		t.Fatalf("expected current modelKey, got %#v", current)
 	}
 	currentCost, _ := current["estimatedCost"].(map[string]any)
-	if currentCost["currency"] != "CNY" || floatValue(currentCost["inputCacheHit"]) != 0.005 ||
-		floatValue(currentCost["inputCacheMiss"]) != 2.4 || floatValue(currentCost["output"]) != 6 ||
-		floatValue(currentCost["total"]) != 8.405 {
+	if currentCost["currency"] != "CNY" || FloatValue(currentCost["inputCacheHit"]) != 0.005 ||
+		FloatValue(currentCost["inputCacheMiss"]) != 2.4 || FloatValue(currentCost["output"]) != 6 ||
+		FloatValue(currentCost["total"]) != 8.405 {
 		t.Fatalf("unexpected current estimated cost %#v", currentCost)
 	}
 	run, _ := usage["run"].(map[string]any)
@@ -486,9 +440,9 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 		t.Fatalf("did not expect run modelKey, got %#v", run)
 	}
 	runCost, _ := run["estimatedCost"].(map[string]any)
-	if runCost["currency"] != "CNY" || floatValue(runCost["inputCacheHit"]) != 0.005 ||
-		floatValue(runCost["inputCacheMiss"]) != 2.4 || floatValue(runCost["output"]) != 6 ||
-		floatValue(runCost["total"]) != 8.405 {
+	if runCost["currency"] != "CNY" || FloatValue(runCost["inputCacheHit"]) != 0.005 ||
+		FloatValue(runCost["inputCacheMiss"]) != 2.4 || FloatValue(runCost["output"]) != 6 ||
+		FloatValue(runCost["total"]) != 8.405 {
 		t.Fatalf("expected run cost to accumulate from current usage, got %#v", runCost)
 	}
 	if runUsage.EstimatedCostCurrency != "CNY" || runUsage.EstimatedCostTotal != 8.405 {
@@ -508,15 +462,20 @@ func TestRunEventProcessorPersistsDebugLLMChatEstimatedCostToJSONL(t *testing.T)
 	if _, _, err := store.EnsureChat("chat-debug-cost", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	startServerFixtureRun(t, store, "chat-debug-cost", "run-debug-cost", testEpochMillis)
+	defer store.Close()
+	if err := store.OnRunStarted(chat.RunStart{
+		ChatID: "chat-debug-cost", RunID: "run-debug-cost", StartedAtMillis: 1_700_000_000_000,
+	}); err != nil {
+		t.Fatalf("record run start: %v", err)
+	}
 	stepWriter := chat.NewStepWriter(store, "chat-debug-cost", "run-debug-cost", "REACT")
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		stepWriter: stepWriter,
-		billing:    config.BillingConfig{Currency: "CNY"},
-		models:     writeUsageCostRegistry(t),
-		runUsage:   &runUsage,
-	}
+	processor := NewProcessor(ProcessorOptions{
+		StepWriter: stepWriter,
+		Billing:    config.BillingConfig{Currency: "CNY"},
+		Models:     writeUsageCostRegistry(t),
+		RunUsage:   &runUsage,
+	})
 
 	processor.Consume(stream.NewEvent("content.snapshot", map[string]any{
 		"contentId": "content-1",
@@ -565,9 +524,9 @@ func TestRunEventProcessorPersistsDebugLLMChatEstimatedCostToJSONL(t *testing.T)
 	}
 	usage, _ := step["usage"].(map[string]any)
 	estimatedCost, _ := usage["estimatedCost"].(map[string]any)
-	if estimatedCost["currency"] != "CNY" || floatValue(estimatedCost["inputCacheHit"]) != 0.005 ||
-		floatValue(estimatedCost["inputCacheMiss"]) != 2.4 || floatValue(estimatedCost["output"]) != 6 ||
-		floatValue(estimatedCost["total"]) != 8.405 {
+	if estimatedCost["currency"] != "CNY" || FloatValue(estimatedCost["inputCacheHit"]) != 0.005 ||
+		FloatValue(estimatedCost["inputCacheMiss"]) != 2.4 || FloatValue(estimatedCost["output"]) != 6 ||
+		FloatValue(estimatedCost["total"]) != 8.405 {
 		t.Fatalf("expected step usage estimated cost, got %#v in step %#v", estimatedCost, step)
 	}
 
@@ -588,11 +547,11 @@ func TestRunEventProcessorPersistsDebugLLMChatEstimatedCostToJSONL(t *testing.T)
 
 func TestRunEventProcessorOmitsDebugLLMChatEstimatedCostWithoutPricing(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		billing:  config.BillingConfig{Currency: "CNY"},
-		models:   writeUsageCostRegistry(t),
-		runUsage: &runUsage,
-	}
+	processor := NewProcessor(ProcessorOptions{
+		Billing:  config.BillingConfig{Currency: "CNY"},
+		Models:   writeUsageCostRegistry(t),
+		RunUsage: &runUsage,
+	})
 	data := &stream.EventData{
 		Type: "debug.llmChat",
 		Payload: map[string]any{
@@ -609,7 +568,7 @@ func TestRunEventProcessorOmitsDebugLLMChatEstimatedCostWithoutPricing(t *testin
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	inner, _ := data.Payload["data"].(map[string]any)
 	usage, _ := inner["usage"].(map[string]any)
@@ -621,12 +580,12 @@ func TestRunEventProcessorOmitsDebugLLMChatEstimatedCostWithoutPricing(t *testin
 
 func TestRunEventProcessorPreservesEstimatedCostOnTerminalUsage(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		billing:  config.BillingConfig{Currency: "CNY"},
-		models:   writeUsageCostRegistry(t),
-		runUsage: &runUsage,
-	}
-	processor.decorate(&stream.EventData{
+	processor := NewProcessor(ProcessorOptions{
+		Billing:  config.BillingConfig{Currency: "CNY"},
+		Models:   writeUsageCostRegistry(t),
+		RunUsage: &runUsage,
+	})
+	processor.Decorate(&stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
 			"usage": map[string]any{
@@ -644,7 +603,7 @@ func TestRunEventProcessorPreservesEstimatedCostOnTerminalUsage(t *testing.T) {
 			},
 		},
 	})
-	processor.decorate(&stream.EventData{
+	processor.Decorate(&stream.EventData{
 		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"data": map[string]any{
@@ -670,7 +629,7 @@ func TestRunEventProcessorPreservesEstimatedCostOnTerminalUsage(t *testing.T) {
 		},
 	}
 
-	processor.decorate(data)
+	processor.Decorate(data)
 
 	usage, _ := data.Payload["usage"].(map[string]any)
 	run, _ := usage["run"].(map[string]any)
@@ -678,18 +637,18 @@ func TestRunEventProcessorPreservesEstimatedCostOnTerminalUsage(t *testing.T) {
 	if _, exists := run["modelKey"]; exists {
 		t.Fatalf("did not expect terminal usage to expose modelKey, got %#v", run)
 	}
-	if floatValue(runCost["total"]) != 9 {
+	if FloatValue(runCost["total"]) != 9 {
 		t.Fatalf("expected terminal usage to preserve cost, got %#v", run)
 	}
 }
 
 func TestRunEventProcessorAccumulatesCurrentCostAcrossModels(t *testing.T) {
 	runUsage := chat.UsageData{}
-	processor := &runEventProcessor{
-		billing:  config.BillingConfig{Currency: "CNY"},
-		models:   writeUsageCostRegistry(t),
-		runUsage: &runUsage,
-	}
+	processor := NewProcessor(ProcessorOptions{
+		Billing:  config.BillingConfig{Currency: "CNY"},
+		Models:   writeUsageCostRegistry(t),
+		RunUsage: &runUsage,
+	})
 	for _, event := range []stream.EventData{
 		{
 			Type: "usage.snapshot",
@@ -713,7 +672,7 @@ func TestRunEventProcessorAccumulatesCurrentCostAcrossModels(t *testing.T) {
 		},
 	} {
 		current := event
-		processor.decorate(&current)
+		processor.Decorate(&current)
 	}
 
 	if runUsage.ModelKey != "" {
@@ -721,181 +680,6 @@ func TestRunEventProcessorAccumulatesCurrentCostAcrossModels(t *testing.T) {
 	}
 	if runUsage.EstimatedCostCurrency != "CNY" || runUsage.EstimatedCostTotal != 13 {
 		t.Fatalf("expected cost to sum per current model, got %#v", runUsage)
-	}
-}
-
-func TestProxyUsageTrackerDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) {
-	runUsage := chat.UsageData{}
-	tracker := newProxyUsageTracker(
-		chat.UsageData{
-			PromptTokens:             10,
-			CompletionTokens:         5,
-			TotalTokens:              15,
-			LlmChatCompletionCount:   1,
-			FirstTokenLatencyTotalMs: 500,
-			FirstTokenLatencyCount:   1,
-			GenerationDurationMs:     500,
-		},
-		&runUsage,
-		writeUsageCostRegistry(t),
-		config.BillingConfig{Currency: "CNY"},
-	)
-	event := &stream.EventData{
-		Type: "usage.snapshot",
-		Payload: map[string]any{
-			"usage": map[string]any{
-				"current": map[string]any{
-					"promptTokens":     1_000_000,
-					"completionTokens": 1_000_000,
-					"totalTokens":      2_000_000,
-					"modelKey":         "mock-model",
-					"promptTokensDetails": map[string]any{
-						"cacheHitTokens":  200_000,
-						"cacheMissTokens": 800_000,
-					},
-				},
-				"run": map[string]any{
-					"promptTokens":     1_000_000,
-					"completionTokens": 1_000_000,
-					"totalTokens":      2_000_000,
-					"timing": map[string]any{
-						"firstTokenLatencyMs":  2000,
-						"generationDurationMs": 2500,
-					},
-				},
-			},
-		},
-	}
-
-	tracker.Decorate(event)
-
-	usage, _ := event.Payload["usage"].(map[string]any)
-	current, _ := usage["current"].(map[string]any)
-	currentCost, _ := current["estimatedCost"].(map[string]any)
-	if current["modelKey"] != "mock-model" || floatValue(currentCost["total"]) != 8.405 {
-		t.Fatalf("expected proxy current cost decoration, got %#v", current)
-	}
-	run, _ := usage["run"].(map[string]any)
-	runCost, _ := run["estimatedCost"].(map[string]any)
-	if floatValue(runCost["total"]) != 8.405 {
-		t.Fatalf("expected proxy run cost from current usage, got %#v", run)
-	}
-	runTiming, _ := run["timing"].(map[string]any)
-	if AnyIntNode(runTiming["firstTokenLatencyTotalMs"]) != 2000 ||
-		AnyIntNode(runTiming["firstTokenLatencyCount"]) != 1 ||
-		AnyIntNode(runTiming["generationDurationMs"]) != 2500 {
-		t.Fatalf("expected proxy run cumulative timing, got %#v", run)
-	}
-	if _, ok := runTiming["firstTokenLatencyMs"]; ok {
-		t.Fatalf("did not expect proxy run average first token latency, got %#v", run)
-	}
-	if _, ok := runTiming["outputTokensPerSecond"]; ok {
-		t.Fatalf("did not expect proxy run output speed in timing, got %#v", run)
-	}
-	chatUsage, _ := usage["chat"].(map[string]any)
-	chatCost, _ := chatUsage["estimatedCost"].(map[string]any)
-	if AnyIntNode(chatUsage["totalTokens"]) != 2_000_015 || floatValue(chatCost["total"]) != 8.405 {
-		t.Fatalf("expected proxy chat usage to include base tokens and run cost, got %#v", chatUsage)
-	}
-	chatTiming, _ := chatUsage["timing"].(map[string]any)
-	if AnyIntNode(chatTiming["firstTokenLatencyTotalMs"]) != 2500 ||
-		AnyIntNode(chatTiming["firstTokenLatencyCount"]) != 2 ||
-		AnyIntNode(chatTiming["generationDurationMs"]) != 3000 {
-		t.Fatalf("expected proxy chat cumulative timing, got %#v", chatUsage)
-	}
-	if _, ok := chatTiming["firstTokenLatencyMs"]; ok {
-		t.Fatalf("did not expect proxy chat average first token latency, got %#v", chatUsage)
-	}
-	if _, ok := chatTiming["outputTokensPerSecond"]; ok {
-		t.Fatalf("did not expect proxy chat output speed in timing, got %#v", chatUsage)
-	}
-	if runUsage.EstimatedCostCurrency != "CNY" || runUsage.EstimatedCostTotal != 8.405 {
-		t.Fatalf("expected proxy run usage to capture cost, got %#v", runUsage)
-	}
-}
-
-func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
-	store, err := chat.NewFileStoreAtStartup(t.TempDir())
-	if err != nil {
-		t.Fatalf("new chat store: %v", err)
-	}
-	if _, _, err := store.EnsureChat("chat-proxy-cost", "proxy-agent", "", "hello"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	startServerFixtureRun(t, store, "chat-proxy-cost", "run-proxy-cost", testEpochMillis)
-	stepWriter := chat.NewStepWriter(store, "chat-proxy-cost", "run-proxy-cost", "PROXY")
-	recorder := newProxyEventRecorder(
-		api.QueryRequest{ChatID: "chat-proxy-cost", RunID: "run-proxy-cost", AgentKey: "proxy-agent", Message: "hello"},
-		1_700_000_000_000,
-		catalog.AgentDefinition{Key: "proxy-agent", Mode: "PROXY"},
-		store,
-		stepWriter,
-		nil,
-		nil,
-		chat.UsageData{},
-		writeUsageCostRegistry(t),
-		config.BillingConfig{Currency: "CNY"},
-	)
-	recorder.OnEvent(stream.EventData{
-		Type:      "content.start",
-		Timestamp: testEpochMillis + 1,
-		Payload:   map[string]any{"contentId": "content-1", "runId": "run-proxy-cost"},
-	})
-	recorder.OnEvent(stream.EventData{
-		Type:      "content.delta",
-		Timestamp: testEpochMillis + 2,
-		Payload:   map[string]any{"contentId": "content-1", "delta": "answer"},
-	})
-	recorder.OnEvent(stream.EventData{
-		Type:      "content.end",
-		Timestamp: testEpochMillis + 3,
-		Payload:   map[string]any{"contentId": "content-1"},
-	})
-	usageEvent := stream.EventData{
-		Type:      "usage.snapshot",
-		Timestamp: testEpochMillis + 4,
-		Payload: map[string]any{
-			"usage": map[string]any{
-				"current": map[string]any{
-					"promptTokens":     1_000_000,
-					"completionTokens": 1_000_000,
-					"totalTokens":      2_000_000,
-					"modelKey":         "mock-model",
-				},
-				"run": map[string]any{
-					"promptTokens":     1_000_000,
-					"completionTokens": 1_000_000,
-					"totalTokens":      2_000_000,
-				},
-			},
-		},
-	}
-	recorder.DecorateEvent(&usageEvent)
-	recorder.OnEvent(usageEvent)
-	terminalEvent := stream.EventData{
-		Type:      "run.complete",
-		Timestamp: testEpochMillis + 5,
-		Payload:   map[string]any{"runId": "run-proxy-cost"},
-	}
-	recorder.DecorateEvent(&terminalEvent)
-	recorder.OnEvent(terminalEvent)
-
-	persisted, completion := recorder.Finish()
-	if !persisted {
-		t.Fatalf("expected proxy completion to persist")
-	}
-	if completion.Usage.EstimatedCostCurrency != "CNY" || completion.Usage.EstimatedCostTotal != 9 {
-		t.Fatalf("expected completion usage cost from decorated snapshot, got %#v", completion.Usage)
-	}
-	detail, err := store.LoadChat("chat-proxy-cost")
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-	if detail.ReplayUsage.LastRun.EstimatedCostCurrency != "CNY" || detail.ReplayUsage.LastRun.EstimatedCostTotal != 9 {
-		t.Fatalf("expected replay lastRun cost from proxy step usage, got %#v", detail.ReplayUsage.LastRun)
-	}
-	if detail.ReplayUsage.Chat.EstimatedCostCurrency != "CNY" || detail.ReplayUsage.Chat.EstimatedCostTotal != 9 {
-		t.Fatalf("expected replay chat cost from proxy step usage, got %#v", detail.ReplayUsage.Chat)
 	}
 }
 

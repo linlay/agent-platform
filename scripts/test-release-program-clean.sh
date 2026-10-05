@@ -37,9 +37,9 @@ rm -rf "$REPO_ROOT/dist"
 )
 
 for path in \
-  agent-platform/bin/kbase-lance-engine \
-  agent-platform/licenses/kbase-lance-engine/THIRD_PARTY_COMPONENTS.json \
-  agent-platform/sbom/kbase-lance-engine.cdx.json; do
+  agent-platform/bin/kbx \
+  agent-platform/licenses/kbx/LICENSE \
+  agent-platform/licenses/kbx/THIRD-PARTY-LICENSES.txt; do
   tar -tzf "$archive" | grep -Fqx "$path"
 done
 

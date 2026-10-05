@@ -371,6 +371,16 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid multipart form"))
 		return
 	}
+	// Validate every part before creating a Chat or allocating an upload ID.
+	// Case-insensitive matching also protects the manifest on macOS/Windows.
+	for _, headers := range r.MultipartForm.File {
+		for _, header := range headers {
+			if strings.EqualFold(safeFilename(header.Filename), uploadManifestName) {
+				writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "file name is reserved by the system; rename the file before uploading"))
+				return
+			}
+		}
+	}
 	requestID := strings.TrimSpace(r.FormValue("requestId"))
 	if requestID == "" {
 		requestID = newRunID()

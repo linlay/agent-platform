@@ -375,6 +375,9 @@ func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	if _, err := store.SetChatSortMode(SortModeRecent); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, _, err := store.EnsureChat("chat-history", "agent-history", "", "history"); err != nil {
 		t.Fatalf("ensure historical chat: %v", err)

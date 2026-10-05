@@ -28,6 +28,7 @@ import (
 	"agent-platform/internal/hostshell"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/kbx"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
 	"agent-platform/internal/mcp"
@@ -71,7 +72,7 @@ type App struct {
 	automationExecutions   *automation.ExecutionHistoryService
 	lspManager             *lsp.Manager
 	mcpClient              *mcp.Client
-	kbaseManager           *kbase.Manager
+	kbaseManager           *kbx.Manager
 }
 
 type automationStopper interface {
@@ -247,7 +248,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	mcpToolSync.ReconcileRegistry()
 	kbaseSource := kbaseCatalogSource{registry: registry}
-	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseSource, modelRegistry).WithSupportPackages(supportPackages)
+	kbaseManager := kbx.NewManager(kbx.Options{RuntimeDir: cfg.Paths.KBaseDir, DefaultEmbeddingModelKey: cfg.KBase.Embedding.ModelKey}, kbaseSource, modelRegistry)
 	if lspManager != nil {
 		runtimeToolExecutor.WithFileChangeHooks(lspManager)
 	}

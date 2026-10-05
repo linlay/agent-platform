@@ -253,18 +253,6 @@ func (w *sseInterceptor) Write(p []byte) (int, error) {
 
 func (w *sseInterceptor) Flush() {}
 
-func withSyncQueryContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, syncQueryContextKey{}, true)
-}
-
-func isSyncQueryContext(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	value, _ := ctx.Value(syncQueryContextKey{}).(bool)
-	return value
-}
-
 func withChatSourceContext(ctx context.Context, source string) context.Context {
 	source = strings.TrimSpace(source)
 	if source == "" {

@@ -2,7 +2,7 @@ package app
 
 import (
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
+
 	"agent-platform/internal/runops"
 	"context"
 	"fmt"
@@ -13,8 +13,10 @@ type authorizationWaitReader interface {
 }
 type waitEventProvider struct {
 	runs  *runops.ToolHandler
-	kbase *kbase.Manager
-	auth  authorizationWaitReader
+	kbase interface {
+		RefreshOperationStatus(string, string) (string, error)
+	}
+	auth authorizationWaitReader
 }
 
 func (p waitEventProvider) CheckWaitCondition(ctx context.Context, c contracts.WaitCondition, e *contracts.ExecutionContext) (bool, string, error) {

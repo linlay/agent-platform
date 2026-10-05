@@ -93,6 +93,18 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 		"stale":      result.Stale,
 		"indexing":   result.Indexing,
 	})
+	if result.Engine == "kbx" {
+		delete(toolResult.Structured, "matchCount")
+		delete(toolResult.Structured, "offset")
+		delete(toolResult.Structured, "truncated")
+		toolResult.Structured["engine"] = "kbx"
+		toolResult.Structured["resultUnit"] = "chunk"
+		toolResult.Structured["retrievalChannels"] = result.RetrievalChannels
+		toolResult.Structured["optionalUnavailable"] = result.OptionalUnavailable
+		toolResult.Structured["degraded"] = result.Degraded
+		toolResult.Structured["candidateBudgetExhausted"] = result.CandidateBudgetExhausted
+		toolResult.Output = contracts.CompactToolModelOutput(toolResult.Structured, "")
+	}
 	if sources := searchHitSources(result.Results); len(sources) > 0 {
 		publicationQuery := strings.TrimSpace(result.Query)
 		if publicationQuery == "" {
@@ -153,18 +165,20 @@ func (h *ToolHandler) invokeRead(agentKey string, args map[string]any) (contract
 		return kbaseToolFailure(err), nil
 	}
 	return kbaseStructuredResult(map[string]any{
-		"found":      result.Found,
-		"chunkId":    result.ChunkID,
-		"path":       result.Path,
-		"heading":    result.Heading,
-		"startLine":  result.StartLine,
-		"endLine":    result.EndLine,
-		"pageStart":  result.PageStart,
-		"pageEnd":    result.PageEnd,
-		"slideStart": result.SlideStart,
-		"slideEnd":   result.SlideEnd,
-		"sourceType": result.SourceType,
-		"content":    result.Content,
+		"found":        result.Found,
+		"chunkId":      result.ChunkID,
+		"path":         result.Path,
+		"heading":      result.Heading,
+		"startLine":    result.StartLine,
+		"endLine":      result.EndLine,
+		"pageStart":    result.PageStart,
+		"pageEnd":      result.PageEnd,
+		"slideStart":   result.SlideStart,
+		"slideEnd":     result.SlideEnd,
+		"sourceType":   result.SourceType,
+		"content":      result.Content,
+		"hasMore":      result.HasMore,
+		"nextEvidence": result.NextEvidence,
 	}), nil
 }
 
@@ -196,6 +210,10 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 		"pendingRecoveryOperations": status.PendingRecoveryOps,
 		"pendingChanges":            status.PendingChanges,
 		"storageDiskUsage":          status.StorageDiskUsage,
+	}
+	if status.Engine == "kbx" {
+		delete(payload, "chunks")
+		payload["chunksKnown"] = false
 	}
 	if status.LastIndexedAt != nil {
 		payload["lastIndexedAt"] = *status.LastIndexedAt
@@ -244,7 +262,7 @@ func kbaseToolFailure(err error) contracts.ToolExecutionResult {
 	case ErrorNotFound:
 		code = "kbase_agent_not_found"
 	}
-	structured := map[string]any{"error": code}
+	structured := map[string]any{"error": code, "message": strings.TrimSpace(err.Error())}
 	if kind == ErrorUnavailable {
 		structured["stale"] = true
 		structured["unavailable"] = true

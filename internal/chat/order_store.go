@@ -45,7 +45,7 @@ type OrderValidationError struct {
 func (e *OrderValidationError) Error() string { return e.Message }
 
 func defaultOrderState() OrderState {
-	return OrderState{Version: 1, SortMode: SortModeRecent, Order: []string{}}
+	return OrderState{Version: 1, SortMode: SortModeManual, Order: []string{}}
 }
 
 func (s *FileStore) chatOrderPath() string {
@@ -57,7 +57,7 @@ func (s *FileStore) ChatOrder() (OrderState, error) {
 	defer s.mu.Unlock()
 	state, err := s.readChatOrderLocked()
 	if err != nil {
-		log.Printf("chat order: ignoring %s and falling back to recent: %v", s.chatOrderPath(), err)
+		log.Printf("chat order: ignoring %s and falling back to manual: %v", s.chatOrderPath(), err)
 		return defaultOrderState(), nil
 	}
 	return state, nil
@@ -170,7 +170,7 @@ func (s *FileStore) MoveChat(chatID string, beforeChatID string, afterChatID str
 func (s *FileStore) readChatOrderForListLocked() OrderState {
 	state, err := s.readChatOrderLocked()
 	if err != nil {
-		log.Printf("chat order: ignoring %s and falling back to recent: %v", s.chatOrderPath(), err)
+		log.Printf("chat order: ignoring %s and falling back to manual: %v", s.chatOrderPath(), err)
 		return defaultOrderState()
 	}
 	return state
