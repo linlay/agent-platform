@@ -100,11 +100,11 @@ func (c Client) execute(ctx context.Context, binary string, args []string, input
 	cmd := exec.CommandContext(ctx, binary, args...)
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
-		if !strings.EqualFold(key, "MEMX_CONFIG_DIR") {
+		if !strings.EqualFold(key, "MEMX_CONFIG_DIR") && !strings.EqualFold(key, "MEMX_CONFIG_FILE") {
 			cmd.Env = append(cmd.Env, entry)
 		}
 	}
-	cmd.Env = append(cmd.Env, "MEMX_CONFIG_DIR="+c.ConfigDir)
+	cmd.Env = append(cmd.Env, "MEMX_CONFIG_FILE="+filepath.Join(c.ConfigDir, "models.yml"), "MEMX_CONFIG_DIR="+c.ConfigDir)
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = 2 * time.Second

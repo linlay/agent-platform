@@ -283,6 +283,7 @@ type KBaseDefaultAgentConfig struct {
 
 type KBaseEmbeddingConfig struct {
 	ModelKey string
+	Prompt   string
 }
 
 type KBaseIndexConfig struct {

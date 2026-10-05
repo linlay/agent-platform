@@ -11,6 +11,9 @@ import (
 
 func TestMain(m *testing.M) {
 	if os.Getenv("MEMX_CLIENT_TEST_PROCESS") == "1" {
+		if os.Getenv("MEMX_CONFIG_FILE") != filepath.Join(os.Getenv("MEMX_EXPECT_CONFIG_DIR"), "models.yml") {
+			os.Exit(84)
+		}
 		if os.Getenv("MEMX_CONFIG_DIR") != os.Getenv("MEMX_EXPECT_CONFIG_DIR") {
 			os.Exit(81)
 		}
@@ -46,6 +49,7 @@ func TestEverySubprocessReceivesInstanceConfiguration(t *testing.T) {
 	t.Setenv("MEMX_CLIENT_TEST_PROCESS", "1")
 	t.Setenv("MEMX_EXPECT_CONFIG_DIR", dir)
 	t.Setenv("MEMX_CONFIG_DIR", filepath.Join(t.TempDir(), "inherited-other-instance"))
+	t.Setenv("MEMX_CONFIG_FILE", "/wrong-inherited-models.yml")
 	c := Client{Binary: executable, ConfigDir: dir, Root: t.TempDir(), Timezone: "UTC"}
 	if e := c.SetConfig(context.Background(), []byte(`{"schemaVersion":1,"models":{}}`)); e != nil {
 		t.Fatal(e)

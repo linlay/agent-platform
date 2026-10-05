@@ -12,7 +12,10 @@ import (
 
 // CenterEngine implements explicit manual indexing for independent libraries.
 // It is separate from the Agent capability's reconnectable-worker contract.
-type CenterEngine struct{ runner Runner }
+type CenterEngine struct {
+	runner    Runner
+	embedding bool
+}
 
 func NewCenterEngine() *CenterEngine { return &CenterEngine{runner: cliRunner{}} }
 
@@ -62,6 +65,25 @@ func (e *CenterEngine) Update(ctx context.Context, db, source string) error {
 	if !strings.Contains(string(out), "status=complete") || strings.Contains(string(out), "status=partial") {
 		return fmt.Errorf("KBX indexing was incomplete; inspect the source documents and retry")
 	}
+	if e.embedding {
+		if _, err := e.runner.Run(ctx, db, centerConfig, "embed", "-c", "workspace"); err != nil {
+			return fmt.Errorf("KBX text index updated, but vector indexing failed: %w", err)
+		}
+		raw, err := e.Read(ctx, db, "status", "", 0)
+		if err != nil {
+			return err
+		}
+		var status struct {
+			Capabilities struct {
+				Vector struct {
+					Complete bool `json:"complete"`
+				} `json:"vector"`
+			} `json:"capabilities"`
+		}
+		if err = json.Unmarshal(raw, &status); err != nil || !status.Capabilities.Vector.Complete {
+			return fmt.Errorf("KBX vector indexing is incomplete")
+		}
+	}
 	return nil
 }
 func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limit int) (json.RawMessage, error) {
@@ -73,6 +95,9 @@ func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limi
 		args = []string{"ls", "kbx://workspace", "--agent"}
 	case "search":
 		args = []string{"search", "--agent", "--full", "-c", "workspace", "-n", strconv.Itoa(limit), "--", arg}
+		if e.embedding {
+			args = []string{"query", "--agent", "--full", "--no-graph", "--no-rerank", "-c", "workspace", "-n", strconv.Itoa(limit), "--", arg}
+		}
 	case "read":
 		args = []string{"get", "--agent", "--no-line-numbers", "--lines", "200", "--", arg}
 	default:

@@ -20,7 +20,7 @@ import (
 type Runner interface {
 	Run(context.Context, string, []byte, ...string) ([]byte, error)
 }
-type cliRunner struct{}
+type cliRunner struct{ configFile string }
 
 type boundedBuffer struct {
 	bytes.Buffer
@@ -38,7 +38,7 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func (cliRunner) Run(ctx context.Context, database string, config []byte, args ...string) ([]byte, error) {
+func (runner cliRunner) Run(ctx context.Context, database string, config []byte, args ...string) ([]byte, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("KBX command is required")
 	}
@@ -53,9 +53,20 @@ func (cliRunner) Run(ctx context.Context, database string, config []byte, args .
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	cfg := filepath.Join(dir, "config.yml")
-	if err = os.WriteFile(cfg, config, 0600); err != nil {
-		return nil, err
+	cfg := runner.configFile
+	if cfg == "" {
+		cfg = filepath.Join(dir, "config.yml")
+		if err = os.WriteFile(cfg, config, 0600); err != nil {
+			return nil, err
+		}
+	} else {
+		if !filepath.IsAbs(cfg) {
+			return nil, fmt.Errorf("KBX config file must be absolute")
+		}
+		st, statErr := os.Lstat(cfg)
+		if statErr != nil || !st.Mode().IsRegular() {
+			return nil, fmt.Errorf("KBX config file unavailable")
+		}
 	}
 	argv := []string{"--kb", database, "--config", cfg}
 	argv = append(argv, args...)
@@ -63,11 +74,11 @@ func (cliRunner) Run(ctx context.Context, database string, config []byte, args .
 	cmd.Dir = dir
 	for _, e := range builtins.EnsureBinInEnv(os.Environ()) {
 		key, _, _ := strings.Cut(e, "=")
-		if !strings.EqualFold(key, "KBX_CONFIG_DIR") && !strings.EqualFold(key, "INDEX_PATH") {
+		if !strings.EqualFold(key, "KBX_CONFIG_FILE") && !strings.EqualFold(key, "KBX_CONFIG_DIR") && !strings.EqualFold(key, "INDEX_PATH") {
 			cmd.Env = append(cmd.Env, e)
 		}
 	}
-	cmd.Env = append(cmd.Env, "KBX_CONFIG_DIR="+dir)
+	cmd.Env = append(cmd.Env, "KBX_CONFIG_FILE="+cfg, "KBX_CONFIG_DIR="+filepath.Dir(cfg))
 	var stdout boundedBuffer
 	cmd.Stdout = &stdout
 	// Do not return raw provider diagnostics: they may contain endpoint credentials.

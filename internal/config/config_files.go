@@ -147,6 +147,10 @@ func (c *Config) applyKBaseValues(values map[string]any) error {
 	embedding, _ := values["embedding"].(map[string]any)
 	if len(embedding) > 0 {
 		c.KBase.Embedding.ModelKey = stringValue(anyValue(embedding["modelKey"], c.KBase.Embedding.ModelKey), c.KBase.Embedding.ModelKey)
+		c.KBase.Embedding.Prompt = stringValue(anyValue(embedding["prompt"], "raw"), "raw")
+		if c.KBase.Embedding.Prompt != "raw" && c.KBase.Embedding.Prompt != "qwen3" {
+			return fmt.Errorf("embedding.prompt must be raw or qwen3")
+		}
 	}
 	index, _ := values["index"].(map[string]any)
 	if len(index) > 0 {

@@ -10,6 +10,8 @@ embedding:
   # Default embedding modelKey for new KBASE agents. This must reference a
   # runtime/registries/models/*.yml model with type: embedding.
   modelKey:
+  # KBX global embedding input format: raw or qwen3.
+  prompt: raw
 
 index:
   fts:

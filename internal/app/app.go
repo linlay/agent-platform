@@ -307,7 +307,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
-	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesCenterDir, kbx.NewCenterEngine())
+	centerEngine, err := kbx.NewConfiguredCenterEngine(filepath.Join(cfg.Paths.StateDir, "kbx", "index.yml"), modelRegistry, cfg.KBase.Embedding.ModelKey, cfg.KBase.Embedding.Prompt)
+	if err != nil {
+		return nil, fmt.Errorf("configure KBX center: %w", err)
+	}
+	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesCenterDir, centerEngine)
 	if err != nil {
 		return nil, fmt.Errorf("initialize knowledge base center: %w", err)
 	}

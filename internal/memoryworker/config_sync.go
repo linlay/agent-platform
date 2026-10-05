@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 )
 
@@ -114,9 +115,38 @@ func connectionSnapshot(m models.ModelDefinition, p models.ProviderDefinition, t
 			delete(headers, k)
 		}
 	}
-	return map[string]any{"schemaVersion": 1, "models": map[string]any{"extraction": map[string]any{
+	role := map[string]any{
 		"protocol": wire, "url": base + "/" + strings.TrimLeft(endpoint, "/"), "model": m.ModelID,
 		"auth": map[string]any{"type": auth, "apiKey": p.APIKey}, "timeoutSeconds": timeout,
 		"headers": headers, "parameters": map[string]any{"maxOutputTokens": 4096},
-	}}}, nil
+	}
+	extras := mergeMemoryRequestExtras(memoryRequestAlways(def.Compat), memoryRequestAlways(m.Compat))
+	if len(extras) > 0 {
+		role["request"] = map[string]any{"extraBody": extras}
+	}
+	return map[string]any{"schemaVersion": 1, "models": map[string]any{"extraction": role}}, nil
+}
+
+// The host resolves registry policy. MEMX receives only the final wire fields;
+// an extraction call does not opt into interactive reasoning overrides.
+func memoryRequestAlways(compat map[string]any) map[string]any {
+	request, _ := compat["request"].(map[string]any)
+	always, _ := request["always"].(map[string]any)
+	return always
+}
+func mergeMemoryRequestExtras(base, override map[string]any) map[string]any {
+	result := contracts.CloneAnyMap(base)
+	if result == nil {
+		result = map[string]any{}
+	}
+	for key, value := range contracts.CloneAnyMap(override) {
+		left, lok := result[key].(map[string]any)
+		right, rok := value.(map[string]any)
+		if lok && rok {
+			result[key] = mergeMemoryRequestExtras(left, right)
+		} else {
+			result[key] = value
+		}
+	}
+	return result
 }

@@ -84,3 +84,25 @@ func TestShutdownCancelsCLI(t *testing.T) {
 		t.Fatal("cancelled update persisted")
 	}
 }
+
+func TestConnectionSnapshotResolvesRequestCompatibility(t *testing.T) {
+	provider := models.ProviderDefinition{BaseURL: "https://example.test", APIKey: "secret", Protocols: map[string]models.ProtocolDefinition{"OPENAI": {Compat: map[string]any{"request": map[string]any{"always": map[string]any{"reasoning_split": false, "chat_template_kwargs": map[string]any{"one": true}}}}}}}
+	model := models.ModelDefinition{ModelID: "any-model", Protocol: "OPENAI", Compat: map[string]any{"request": map[string]any{"always": map[string]any{"reasoning_split": true, "chat_template_kwargs": map[string]any{"enable_thinking": false}}, "whenReasoningEnabled": map[string]any{"reasoning_effort": "high"}}}}
+	snapshot, err := connectionSnapshot(model, provider, 120)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := snapshot["models"].(map[string]any)["extraction"].(map[string]any)
+	body := role["request"].(map[string]any)["extraBody"].(map[string]any)
+	if body["reasoning_split"] != true || body["reasoning_effort"] != nil {
+		t.Fatal("incorrect resolved overrides")
+	}
+	nested := body["chat_template_kwargs"].(map[string]any)
+	if nested["one"] != true || nested["enable_thinking"] != false {
+		t.Fatal("nested merge failed")
+	}
+	nested["one"] = false
+	if memoryRequestAlways(provider.Protocol("OPENAI").Compat)["chat_template_kwargs"].(map[string]any)["one"] != true {
+		t.Fatal("registry mutated")
+	}
+}
