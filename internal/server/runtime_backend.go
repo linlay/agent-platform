@@ -6,21 +6,6 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
-func runtimeLocalInterruptRequest(command runtimetypes.InterruptCommand, req api.InterruptRequest) api.InterruptRequest {
-	if command.Caller.Scope == "server" {
-		return interruptRequestWithCause(req, command.Source, command.Reason, command.Detail)
-	}
-	return httpAPIUserInterruptRequest(req)
-}
-
-func submitResultToRuntime(response api.SubmitResponse) runtimetypes.SubmitResult {
-	return runtimetypes.SubmitResult{
-		Accepted: response.Accepted, Status: response.Status, ChatID: response.ChatID, RunID: response.RunID,
-		AwaitingID: response.AwaitingID, SubmitID: response.SubmitID, Continued: response.Continued,
-		ErrorCode: response.ErrorCode, Detail: response.Detail,
-	}
-}
-
 func queryRequestFromRuntime(cmd runtimetypes.QueryCommand) api.QueryRequest {
 	references := apiReferencesFromRuntime(cmd.References)
 	var scene *api.Scene
