@@ -1,4 +1,4 @@
-# Build outputs
+# 构建与发布产物
 dist/
 build/
 out/
@@ -6,23 +6,27 @@ out/
 /release-local/
 target/
 
-# Go build artifacts
+# Go 编译与测试产物
 /agent-platform
 *.test
 *.out
 coverage.out
 
-# Runtime generated directories (generated/overridden locally)
+# 本地运行数据、生成目录与进程锁
 /runtime/
 /ru-agents/
 /ru-connectors/
 /run/
+/connectors-center/
+/.lock/
+
+# 历史根目录布局：保留忽略，避免误提交本地数据
+# 当前默认布局位于 runtime/；internal/resources/connectors 仍纳入版本管理。
 /agents/
 /teams/
 /chats/
 /data/
 /models/
-# External runtime connectors; internal/resources/connectors is versioned.
 /connectors/
 /providers/
 /skills/
@@ -32,11 +36,11 @@ coverage.out
 /memory/
 /pan/
 
-# Workspace-local KBASE storage (control.db, snapshots, Lance generations)
+# Workspace 内的 KBASE 存储（control.db、快照、Lance generations）
 .kbase/
 .kbx-platform/
 
-# Local config/secrets
+# 本地配置与密钥；仅放行配置示例
 .env
 /application.yaml
 /application.yml
@@ -47,7 +51,25 @@ coverage.out
 !/configs/**/*.example.yaml
 !/configs/**/*.example.pem
 
-# IDE/Editor
+# 持久状态与凭据；旧布局也保留防误提交保护
+/.state/
+/identity/
+/connector-state/
+
+# 本地验收夹具（含嵌套 Git 和符号链接）
+/.ap-access-acceptance/
+
+# 本地助手文件；根 AGENTS.md 是正式项目文档
+AGENTS.md
+agents.md
+agent.md
+!/AGENTS.md
+
+# 日志
+*.log
+logs/
+
+# IDE 与编辑器
 .classpath
 .idea/
 .project
@@ -55,24 +77,6 @@ coverage.out
 .vscode/
 *.iml
 
-# OS / local assistant files
+# 操作系统生成文件
 .DS_Store
 Thumbs.db
-AGENTS.md
-agents.md
-agent.md
-
-# Logs
-*.log
-logs/
-
-# Imported connector sources and persistent authorization.
-/connectors-center/
-/.state/
-# Legacy identity credentials remain private.
-/identity/
-# Retired connector state layout (migration source).
-/connector-state/
-
-# Runtime process coordination locks.
-/.lock/

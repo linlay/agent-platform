@@ -417,29 +417,4 @@ docker compose logs -f
 
 ## 文档索引
 
-- [Runtime模块边界](./docs/Runtime模块边界.md)
-- [智能体配置说明](./docs/智能体配置说明.md)
-- [配置化说明](./docs/配置化说明.md)
-- [HTTP客户端与系统代理](./docs/HTTP客户端与系统代理.md)：默认 `auto` 跳过 PAC/WPAD、显式覆盖、系统固定代理、`pac_auto` 启用 Windows PAC/WPAD、纯 WPAD 未发现时直连与脱敏网络诊断（企业网络待目标系统验证）。
-- [工具目录权限](./docs/工具目录权限.md)
-- [真流式和H2A](./docs/真流式和H2A.md)
-- [记忆系统](./docs/记忆系统.md)
-- [运行时和沙箱](./docs/运行时和沙箱.md)
-- [Platform 控制工具设计与实现](./docs/Platform控制工具设计.md)
-- [工具参数错误与恢复提示](./docs/工具参数错误审计.md)
-- [运行时资源迁移](./docs/运行时资源迁移.md)
-- [API与协议](./docs/API与协议.md)
-- [HITL协议](./docs/HITL协议.md)
-- [自动化](./docs/自动化.md)
-- [智能体调度（含 `agent_invoke`、TEAM 隐藏调度与独立 run 工具组）](./docs/子智能体调度.md)
-- [MCP与工具交互](./docs/MCP与工具交互.md)：工具协议与[工具展示多语言](./docs/MCP与工具交互.md#工具展示多语言)，名称按客户端语言解析，模型使用原始英文描述。
-- [会话存储与回放](./docs/会话存储与回放.md)
-- [鉴权与安全边界](./docs/鉴权与安全边界.md)
-- [版本化打包方案](./docs/版本化打包方案.md)
-- [手工测试用例](./docs/手工测试用例.md)
-- [Agent 运行时组装](docs/Agent运行时组装.md)
-- [连接器安装与授权](docs/连接器安装与授权.md)、[共享包与 Desktop 迁移](docs/连接器共享包与Desktop迁移.md)
-- [VIEW 连接器](docs/VIEW连接器.md)
-- [原生等待工具](docs/原生等待工具.md)、[Run 环境工具](docs/Run环境工具.md)
-- [KBX 接入](docs/KBX接入.md)、[KBASE 检索与控制面](docs/KBASE-LanceDB检索与控制面.md)、[KBASE 编辑模式](docs/KBASE编辑模式.md)
-- [Gateway 接出注册](docs/Gateway-Agent注册与调用协议.md)
+参见 [完整文档索引](docs/README.md)，按配置、运行时、协议、权限、连接器、知识库、构建和验证分类。历史报告单列，不能作为当前能力或本轮测试通过的依据。
