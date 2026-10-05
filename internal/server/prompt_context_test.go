@@ -75,12 +75,6 @@ func TestResolveSandboxPathsLocalModeLocalEngine(t *testing.T) {
 	if paths.ModelsDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "models")) {
 		t.Fatalf("models dir = %q", paths.ModelsDir)
 	}
-	if paths.ViewportServersDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers")) {
-		t.Fatalf("viewport servers dir = %q", paths.ViewportServersDir)
-	}
-	if paths.ViewportsDir != absTestPath(t, filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports")) {
-		t.Fatalf("viewports dir = %q", paths.ViewportsDir)
-	}
 }
 
 func TestResolveSandboxPathsContainerMode(t *testing.T) {
@@ -156,14 +150,8 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	if paths.ConnectorsCenterDir != cfg.Paths.EffectiveConnectorsCenterDir() {
 		t.Fatalf("mcp servers dir = %q", paths.ConnectorsCenterDir)
 	}
-	if paths.ViewportServersDir != filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers") {
-		t.Fatalf("viewport servers dir = %q", paths.ViewportServersDir)
-	}
 	if paths.ToolsDir != cfg.Paths.ToolsDir {
 		t.Fatalf("tools dir = %q", paths.ToolsDir)
-	}
-	if paths.ViewportsDir != filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports") {
-		t.Fatalf("viewports dir = %q", paths.ViewportsDir)
 	}
 	if paths.ChatDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
 		t.Fatalf("chat dir = %q", paths.ChatDir)
@@ -1006,9 +994,7 @@ func testPromptContextDefinition(paths config.PathsConfig) catalog.AgentDefiniti
 				{"platform": "models"},
 				{"platform": "providers"},
 				{"platform": "mcp-servers"},
-				{"platform": "viewport-servers"},
 				{"platform": "tools"},
-				{"platform": "viewports"},
 			},
 		},
 	}

@@ -1265,11 +1265,6 @@ func (c *Config) applyChannelsFile(path string) error {
 }
 
 func parseChannelConfig(channelID string, values map[string]any) (ChannelConfig, error) {
-	for _, key := range []string{"type", "default-agent", "agents", "gateway"} {
-		if _, exists := values[key]; exists {
-			return ChannelConfig{}, deprecation.New("channels config: channel %q uses removed key %q; use mode, endpoint, auth, heartbeat, and reconnect", channelID, key)
-		}
-	}
 	for key := range values {
 		switch key {
 		case "mode", "transport", "protocol", "endpoint", "auth", "heartbeat", "reconnect":

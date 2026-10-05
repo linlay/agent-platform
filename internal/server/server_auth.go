@@ -42,9 +42,6 @@ func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Request {
-	if isRetiredApplicationTransport(r.URL.Path) {
-		return r // Only returns an upgrade error; no operation or resource access.
-	}
 	if isConnectorExecutionRoute(r.URL.Path) {
 		return r // Each exact execution route validates a restricted capability token.
 	}
@@ -130,13 +127,4 @@ func isConnectorExecutionRoute(path string) bool {
 		return true
 	}
 	return false
-}
-
-// Compatibility is limited to rejecting retired transports at the HTTP boundary.
-func isRetiredApplicationTransport(path string) bool {
-	return strings.HasPrefix(path, "/api/webapp/") || path == "/api/desktop/webapp/grants" || path == "/api/desktop/connector/auth" || path == "/api/desktop/connector/auth/cancel"
-}
-func retiredApplicationTransport(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	writeRequestError(w, &requestError{Code: "connector_contract_upgrade_required", Status: http.StatusGone})
 }

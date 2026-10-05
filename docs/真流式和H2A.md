@@ -39,10 +39,10 @@ Desktop 使用 `main`、`btw`、`explain` 三条独立 WebSocket v2 lane（sourc
 
 ## 配置与接口
 
-- `POST /api/query`：body `lane` 缺省或 `main` 发起普通 run，`btw` 创建/继续隐藏分支；`explain` 仅支持 Desktop WS，HTTP 返回 403。默认返回 SSE；`stream:false` 返回 JSON。旧 HTTP `/api/btw` 保留兼容。
+- `POST /api/query`：body `lane` 缺省或 `main` 发起普通 run，`btw` 创建/继续隐藏分支；`explain` 仅支持 Desktop WS，HTTP 返回 403。默认返回 SSE；`stream:false` 返回 JSON。旧 HTTP `/api/btw` 已删除。
 - `GET /api/attach`：按 `runId + (agentKey | teamId) + lastSeq` 续接 backlog。
 - WS `/api/detach`：按 `runId + (agentKey | teamId)` 关闭当前连接上的 run observer。
-- WS `/api/query`：main 执行普通 query，已认证的 btw/explain lane 创建或继续隐藏分支；WS `/api/btw` 保留为旁聊兼容入口。
+- WS `/api/query`：main 执行普通 query，已认证的 btw/explain lane 创建或继续隐藏分支；旧 WS `/api/btw` 已删除。
 - SSE heartbeat 固定为 30 秒。
 - H2A render 默认值在 `internal/stream/defaults.go`，默认不缓冲、heartbeat 透传。
 

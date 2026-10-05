@@ -22,7 +22,7 @@ const (
 	adminRegistryStatusDisabled = "disabled"
 )
 
-var adminRegistryCategories = []string{"providers", "models", "viewport-servers"}
+var adminRegistryCategories = []string{"providers", "models"}
 
 func (s *Server) handleAdminRegistries(w http.ResponseWriter, _ *http.Request) {
 	response, err := s.listAdminRegistries()
@@ -224,7 +224,7 @@ func (s *Server) analyzeAdminRegistry(category string, file string, content []by
 		summary.Diagnostics = []api.AdminAgentDiagnostic{adminRegistryDiagnostic("error", "invalid_config", "registry YAML must be a map", sourcePath)}
 		return summary, nil, true
 	}
-	summary.Key = adminRegistryKey(category, file, root)
+	summary.Key = adminRegistryKey(file, root)
 	summary.Name = strings.TrimSpace(contracts.FirstNonEmptyString(root["name"]))
 	summary.Summary = adminRegistryPublicSummary(category, root)
 	diagnostics := s.adminRegistryDiagnostics(category, file, root, sourcePath)
@@ -338,13 +338,6 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 				}
 			}
 		}
-	case "viewport-servers":
-		if adminRegistryKey(category, file, root) == "" {
-			addError("missing_key", "serverKey or key is required")
-		}
-		if strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"])) == "" {
-			addError("missing_base_url", "viewport server baseUrl is required")
-		}
 	default:
 		addError("invalid_category", "unsupported registry category")
 	}
@@ -427,13 +420,7 @@ func adminRegistrySource(category string, path string) *api.AgentSource {
 	return &api.AgentSource{Kind: category, Path: path}
 }
 
-func adminRegistryKey(category string, file string, root map[string]any) string {
-	switch category {
-	case "viewport-servers":
-		if key := strings.TrimSpace(contracts.FirstNonEmptyString(root["serverKey"], root["server-key"], root["key"])); key != "" {
-			return key
-		}
-	}
+func adminRegistryKey(file string, root map[string]any) string {
 	if key := strings.TrimSpace(contracts.FirstNonEmptyString(root["key"])); key != "" {
 		return key
 	}
@@ -485,10 +472,6 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 		put("isFunction", root["isFunction"])
 		put("maxInputTokens", root["maxInputTokens"])
 		put("maxOutputTokens", root["maxOutputTokens"])
-		put("timeout", root["timeout"])
-	case "viewport-servers":
-		put("baseUrl", contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
-		put("endpointPath", contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
 		put("timeout", root["timeout"])
 	}
 	return out

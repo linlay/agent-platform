@@ -26,7 +26,7 @@ func TestCompactAndBTWRejectInvalidHistoricalJSONLWith422(t *testing.T) {
 
 	for _, request := range []*http.Request{
 		httptest.NewRequest(http.MethodPost, "/api/compact", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent"}`)),
-		httptest.NewRequest(http.MethodPost, "/api/btw", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"inspect"}`)),
+		httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","message":"inspect"}`)),
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, request)

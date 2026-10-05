@@ -591,9 +591,7 @@ function Initialize-ProgramRuntime {
     (Join-Path $Script:RuntimeRoot 'registries/providers'), `
     (Join-Path $Script:RuntimeRoot 'registries/models'), `
     (Join-Path $Script:RuntimeRoot 'connectors-center'), `
-    (Join-Path $Script:RuntimeRoot 'registries/viewport-servers'), `
     (Join-Path $Script:RuntimeRoot 'tools'), `
-    (Join-Path $Script:RuntimeRoot 'viewports'), `
     (Join-Path $Script:RuntimeRoot 'owner'), `
     (Join-Path $Script:RuntimeRoot 'agents'), `
     (Join-Path $Script:RuntimeRoot 'teams'), `

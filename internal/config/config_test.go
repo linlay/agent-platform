@@ -2340,7 +2340,7 @@ func TestLoadChannelsConfigRejectsRemovedLegacyFields(t *testing.T) {
 			"      url: ${WECOM_BRIDGE_WS_URL}\n" +
 			"      jwt-token: ${WECOM_BRIDGE_JWT_TOKEN}\n"
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
-			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "removed key") {
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "does not support key") {
 				t.Fatalf("legacy channel config must fail, got %v", err)
 			}
 		})
@@ -2350,7 +2350,7 @@ func TestLoadChannelsConfigRejectsRemovedLegacyFields(t *testing.T) {
 func TestParseChannelConfigRejectsEveryRemovedTopLevelKey(t *testing.T) {
 	for _, key := range []string{"type", "default-agent", "agents", "gateway"} {
 		t.Run(key, func(t *testing.T) {
-			if _, err := parseChannelConfig("peer", map[string]any{key: "legacy"}); err == nil || !strings.Contains(err.Error(), "removed key") {
+			if _, err := parseChannelConfig("peer", map[string]any{key: "legacy"}); err == nil || !strings.Contains(err.Error(), "does not support key") {
 				t.Fatalf("removed key %q must fail, got %v", key, err)
 			}
 		})
@@ -2468,7 +2468,7 @@ func TestLoadChannelsConfigRejectsInvalidType(t *testing.T) {
 			"  wecom:\n" +
 			"    type: invalid\n"
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
-			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "removed key") {
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "does not support key") {
 				t.Fatalf("expected removed channel type to fail")
 			}
 		})

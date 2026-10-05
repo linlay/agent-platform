@@ -687,9 +687,7 @@ program_prepare_runtime_dirs() {
     "$RUNTIME_ROOT/registries/providers" \
     "$RUNTIME_ROOT/registries/models" \
     "$RUNTIME_ROOT/connectors-center" \
-    "$RUNTIME_ROOT/registries/viewport-servers" \
     "$RUNTIME_ROOT/tools" \
-    "$RUNTIME_ROOT/viewports" \
     "$RUNTIME_ROOT/owner" \
     "$RUNTIME_ROOT/agents" \
     "$RUNTIME_ROOT/teams" \

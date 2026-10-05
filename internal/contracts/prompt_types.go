@@ -113,9 +113,7 @@ type LocalPaths struct {
 	ProvidersDir        string
 	ConnectorsDir       string
 	ConnectorsCenterDir string
-	ViewportServersDir  string
 	ToolsDir            string
-	ViewportsDir        string
 }
 
 type SandboxPaths struct {
@@ -137,7 +135,5 @@ type SandboxPaths struct {
 	ProvidersDir        string
 	ConnectorsDir       string
 	ConnectorsCenterDir string
-	ViewportServersDir  string
 	ToolsDir            string
-	ViewportsDir        string
 }

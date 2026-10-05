@@ -195,8 +195,8 @@ func testBTWWebSocketLaneGuardsAndSequentialStreams(t *testing.T, source string,
 	if err := primary.ReadJSON(&laneError); err != nil {
 		t.Fatalf("read primary BTW lane error: %v", err)
 	}
-	if laneError.Type != "btw_ws_lane_required" {
-		t.Fatalf("primary BTW error type = %q, want btw_ws_lane_required", laneError.Type)
+	if laneError.Code != http.StatusBadRequest || laneError.Type != "invalid_request" {
+		t.Fatalf("removed BTW route error type = %q, want unknown request", laneError.Type)
 	}
 
 	var workPanelBTW *gws.Conn
@@ -255,7 +255,7 @@ func testBTWWebSocketLaneGuardsAndSequentialStreams(t *testing.T, source string,
 			payload map[string]any
 		}{
 			{primary, "main-after-explanation", "/api/query", map[string]any{"chatId": "chat-main-after-explanation", "agentKey": "mock-agent", "message": "main still available"}},
-			{workPanelBTW, "work-panel-after-explanation", "/api/btw", map[string]any{"chatId": chatID, "message": "work panel still available"}},
+			{workPanelBTW, "work-panel-after-explanation", "/api/query", map[string]any{"chatId": chatID, "message": "work panel still available"}},
 		} {
 			sendSelectionLaneRequest(t, request.conn, request.id, request.route, request.payload)
 			for {
@@ -297,7 +297,7 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 		t.Fatalf("load parent summary: %#v err=%v", summaryBefore, err)
 	}
 
-	btw := httptest.NewRequest(http.MethodPost, "/api/btw", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"side question"}`))
+	btw := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","message":"side question"}`))
 	btw.Header.Set("Content-Type", "application/json")
 	btwRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(btwRec, btw)
@@ -348,7 +348,7 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 		t.Fatalf("BTW provider message missing side-question boundary: %#v", messages[2])
 	}
 
-	continueReq := httptest.NewRequest(http.MethodPost, "/api/btw", bytes.NewBufferString(`{"chatId":"`+chatID+`","btwId":"`+btwID+`","message":"follow up","stream":false,"includeUsage":true}`))
+	continueReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","btwId":"`+btwID+`","message":"follow up","stream":false,"includeUsage":true}`))
 	continueReq.Header.Set("Content-Type", "application/json")
 	continueRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(continueRec, continueReq)
@@ -389,7 +389,7 @@ func TestBTWInheritsNonTeamParentAgentInsteadOfDefaultChannelAgent(t *testing.T)
 	const chatID = "chat-btw-parent-agent"
 	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
 
-	rec := serveJSONRequestForBTWTest(t, fixture.server, "/api/btw", `{"chatId":"`+chatID+`","message":"side"}`)
+	rec := serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"`+chatID+`","message":"side"}`)
 	requestEvent := findSSEMessageByType(t, decodeSSEMessages(t, rec.Body.String()), "request.query")
 	if requestEvent["agentKey"] != "mock-agent" {
 		t.Fatalf("BTW used agent %q, want parent agent mock-agent: %#v", requestEvent["agentKey"], requestEvent)
@@ -409,7 +409,7 @@ func TestBTWRejectsWhenNonTeamParentAgentUsesChannelBackend(t *testing.T) {
 		t.Fatalf("ensure channel parent: %v", err)
 	}
 
-	rec := serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/btw", `{"chatId":"`+chatID+`","message":"side"}`)
+	rec := serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"`+chatID+`","message":"side"}`)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "btw_backend_unsupported") {
 		t.Fatalf("expected channel parent BTW rejection, got %d %s", rec.Code, rec.Body.String())
 	}
@@ -433,7 +433,7 @@ func TestBTWPreservesSystemAndToolCacheShape(t *testing.T) {
 	})
 	const chatID = "chat-btw-cache"
 	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
-	serveJSONRequestForBTWTest(t, fixture.server, "/api/btw", `{"chatId":"`+chatID+`","message":"side"}`)
+	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"`+chatID+`","message":"side"}`)
 
 	mu.Lock()
 	requests := append([]map[string]any(nil), providerRequests...)
@@ -490,7 +490,7 @@ func TestBTWDeniedToolReturnsResultWithoutAwaiting(t *testing.T) {
 	})
 	const chatID = "chat-btw-tool-policy"
 	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
-	rec := serveJSONRequestForBTWTest(t, fixture.server, "/api/btw", `{"chatId":"`+chatID+`","message":"try a write"}`)
+	rec := serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"`+chatID+`","message":"try a write"}`)
 	body := rec.Body.String()
 	if !strings.Contains(body, "btw_tool_disabled") || !strings.Contains(body, "read-only answer") {
 		t.Fatalf("expected disabled tool result and final answer: %s", body)
@@ -543,7 +543,7 @@ func TestBTWReadToolLimitKeepsProviderToolShapeAndForcesSideAnswer(t *testing.T)
 
 	const chatID = "chat-btw-read-limit"
 	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent task"}`)
-	rec := serveJSONRequestForBTWTest(t, fixture.server, "/api/btw", `{"chatId":"`+chatID+`","message":"当前算到哪年了"}`)
+	rec := serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"`+chatID+`","message":"当前算到哪年了"}`)
 	if !strings.Contains(rec.Body.String(), "btw_tool_limit_reached") || !strings.Contains(rec.Body.String(), "still at 2026") {
 		t.Fatalf("expected BTW tool limit and final side answer, got %s", rec.Body.String())
 	}
@@ -593,14 +593,14 @@ func TestBuildBTWUserMessageEscapesQuestionAndUsesFallback(t *testing.T) {
 
 func TestBTWRequiresExistingParentAndExistingContinuation(t *testing.T) {
 	fixture := newTestFixture(t)
-	rec := serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/btw", `{"chatId":"missing-chat","message":"side"}`)
+	rec := serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"missing-chat","message":"side"}`)
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "chat_not_found") {
 		t.Fatalf("expected missing parent error, got %d %s", rec.Code, rec.Body.String())
 	}
 	if _, _, err := fixture.chats.EnsureChat("chat-btw-missing", "mock-agent", "", "parent"); err != nil {
 		t.Fatalf("ensure parent: %v", err)
 	}
-	rec = serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/btw", `{"chatId":"chat-btw-missing","btwId":"btw_missing","message":"side"}`)
+	rec = serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"chat-btw-missing","btwId":"btw_missing","message":"side"}`)
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "btw_not_found") {
 		t.Fatalf("expected missing BTW error, got %d %s", rec.Code, rec.Body.String())
 	}

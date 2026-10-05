@@ -739,9 +739,7 @@ func ResolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		ProvidersDir:        CleanOrEmpty(filepath.Join(paths.RegistriesDir, "providers")),
 		ConnectorsCenterDir: CleanOrEmpty(paths.EffectiveConnectorsCenterDir()),
 		ConnectorsDir:       AgentConnectorPath(agentDir),
-		ViewportServersDir:  CleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
 		ToolsDir:            CleanOrEmpty(paths.ToolsDir),
-		ViewportsDir:        CleanOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(paths.RegistriesDir)), "viewports")),
 	}, nil
 }
 
@@ -833,9 +831,7 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	if len(def.ConnectorMounts) > 0 {
 		connectorsDir = "/connectors"
 	}
-	var viewportServersDir string
 	var toolsDir string
-	var viewportsDir string
 	for _, mount := range PromptContextSandboxMounts(def.Runtime["sandboxMounts"]) {
 		switch strings.ToLower(strings.TrimSpace(AnyString(mount["platform"]))) {
 		case "skills-center":
@@ -856,12 +852,8 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 			connectorsDir = "/connectors"
 		case "connectors-center":
 			connectorsCenterDir = "/connectors-center"
-		case "viewport-servers":
-			viewportServersDir = "/viewport-servers"
 		case "tools":
 			toolsDir = "/tools"
-		case "viewports":
-			viewportsDir = "/viewports"
 		}
 	}
 
@@ -883,9 +875,7 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		ProvidersDir:        providersDir,
 		ConnectorsDir:       connectorsDir,
 		ConnectorsCenterDir: connectorsCenterDir,
-		ViewportServersDir:  viewportServersDir,
 		ToolsDir:            toolsDir,
-		ViewportsDir:        viewportsDir,
 	}
 }
 
@@ -930,12 +920,8 @@ func ResolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 			paths.ConnectorsDir = AgentConnectorPath(def.RuntimeDir)
 		case "connectors-center":
 			paths.ConnectorsCenterDir = AbsOrEmpty(cfg.Paths.EffectiveConnectorsCenterDir())
-		case "viewport-servers":
-			paths.ViewportServersDir = AbsOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"))
 		case "tools":
 			paths.ToolsDir = AbsOrEmpty(cfg.Paths.ToolsDir)
-		case "viewports":
-			paths.ViewportsDir = AbsOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports"))
 		}
 	}
 	if len(def.ConnectorMounts) > 0 {

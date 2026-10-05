@@ -130,12 +130,11 @@ func TestExecutionAuthenticationRouting(t *testing.T) {
 			}
 		}
 	}
-	for _, path := range []string{"/api/webapp/connector/invoke", "/api/webapp/artifact/read", "/api/desktop/webapp/grants", "/api/desktop/connector/auth"} {
+	for _, path := range []string{"/api/btw", "/api/webapp/connector/invoke", "/api/webapp/artifact/read", "/api/desktop/webapp/grants", "/api/desktop/connector/auth", "/api/desktop/connector/auth/cancel"} {
 		r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
-		w := httptest.NewRecorder()
-		s.ServeHTTP(w, r)
-		if w.Code != 410 || !strings.Contains(w.Body.String(), "connector_contract_upgrade_required") {
-			t.Fatal(w.Code, w.Body.String())
+		_, pattern := s.router.Handler(r)
+		if pattern == path || pattern == "/api/webapp/" {
+			t.Fatalf("retired route is still registered: %s", path)
 		}
 	}
 	for _, path := range []string{"/api/connectors/execution/list", "/api/connectors/execution/describe", "/api/connectors/execution/invoke"} {

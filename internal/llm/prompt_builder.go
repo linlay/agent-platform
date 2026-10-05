@@ -374,7 +374,6 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
 	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "外部连接器包来源目录")
 	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "当前 Agent 已挂载连接器的入口，按 Run 快照解析到共享只读包；使用技能目录列出的完整路径")
-	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
 }
 
@@ -396,7 +395,6 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
 	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "外部连接器包来源目录")
 	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "当前 Agent 已挂载连接器的入口，按 Run 快照解析到共享只读包；使用技能目录列出的完整路径")
-	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
 }
 

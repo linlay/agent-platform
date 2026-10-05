@@ -33,7 +33,6 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `GET /api/archive?chatId=...`
 - `POST /api/archives/search`
 - `POST /api/query`
-- `POST /api/btw`（兼容入口）
 - `POST /api/submit`
 - `POST /api/steer`
 - `POST /api/interrupt`
@@ -64,7 +63,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 
 - `code = 0` 表示成功，失败时 `code` 使用 HTTP 状态码数值。
 - `GET /api/chat` 默认返回 `events`，`includeRawMessages=true` 时追加 `rawMessages`。
-- `GET /api/viewport` 会先读取 `runtime/viewports` 下的本地 `.html/.qlc` 模板，再尝试 `registries/viewport-servers` 中注册的远端 viewport server，命中失败时才返回 fallback 占位结果。
+- `GET /api/viewport` 仅提供平台内置审批模板；外部自定义模板统一使用 VIEW 连接器与 `/api/view`，不再读取旧本地目录或远端 viewport registry。
 - `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 按公开 run owner 校验：普通 Agent 携带 `agentKey`，Team 只携带 `teamId`，不得提交隐藏协调器 key 或 `agentKey`。
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 `agentKey` 或 `teamId`。
 - Chat 支持跨普通、CODER/KBASE 等 mode 的统一置顶，独立保存到 `chat-pinned.json`；未置顶列表在截断前排除置顶项，展示排序不修改内容时间。协议与存储见 [API与协议](./docs/API与协议.md) 和 [会话存储与回放](./docs/会话存储与回放.md)。

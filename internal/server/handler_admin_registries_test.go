@@ -164,7 +164,7 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 		t.Fatal("registry list must expose explicit model and provider icons")
 	}
 	for key := range byFile {
-		if strings.HasPrefix(key, "mcp-servers/") {
+		if strings.HasPrefix(key, "mcp-servers/") || strings.HasPrefix(key, "viewport-servers/") {
 			t.Fatalf("retired registry still listed: %s", key)
 		}
 	}
@@ -177,14 +177,6 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	}
 	if item := byFile["models/capability-model.yml"]; item.Status != "ready" || item.Name != "Capability Model" || item.Summary["type"] != "chat" || item.Summary["provider"] != "mock" || item.Summary["protocol"] != "OPENAI" || item.Summary["isVision"] != true || item.Summary["isReasoner"] != true || item.Summary["isFunction"] != true {
 		t.Fatalf("capability model list summary missing display fields: %#v", item)
-	}
-	if item := byFile["viewport-servers/missing-base.yml"]; item.Status != "invalid" || item.Diagnostic == nil || item.Diagnostic.Code != "missing_base_url" || item.DiagnosticCount != 1 {
-		t.Fatalf("viewport diagnostic summary missing: %#v", item)
-	}
-	if item := byFile["viewport-servers/missing-base.yml"]; item.Summary != nil {
-		if _, ok := item.Summary["viewportCount"]; ok {
-			t.Fatalf("viewport server list summary should not expose viewport count: %#v", item)
-		}
 	}
 	if item := byFile["providers/warning-only.yml"]; item.Status != "ready" || item.Diagnostic == nil || item.Diagnostic.Severity != "warning" || item.Diagnostic.Code != "missing_api_key" || item.DiagnosticCount != 1 {
 		t.Fatalf("warning-only provider diagnostic summary missing: %#v", item)

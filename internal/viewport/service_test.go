@@ -2,161 +2,40 @@ package viewport
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"agent-platform/internal/testutil"
 )
 
-func TestServiceLoadsLocalViewportAndFallbacks(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "demo.html"), []byte("<div>demo</div>"), 0o644); err != nil {
-		t.Fatalf("write viewport file: %v", err)
-	}
-
-	service := NewServiceWithServers(NewRegistry(root), nil, testutil.NewNoopViewportClient())
-	local, err := service.Get(context.Background(), "demo")
-	if err != nil {
-		t.Fatalf("load local viewport: %v", err)
-	}
-	if local["html"] != "<div>demo</div>" {
-		t.Fatalf("unexpected local viewport payload: %#v", local)
-	}
-
-	fallback, err := service.Get(context.Background(), "missing")
-	if err != nil {
-		t.Fatalf("fallback viewport: %v", err)
-	}
-	if fallback["status"] != "not_implemented" {
-		t.Fatalf("expected fallback payload, got %#v", fallback)
+func TestServiceProvidesBuiltinApprovalTemplates(t *testing.T) {
+	service := NewService()
+	for _, key := range []string{"confirm_dialog", "platform_control_review", "resource_delete_review", "installation_review"} {
+		t.Run(key, func(t *testing.T) {
+			payload, err := service.Get(context.Background(), key)
+			if err != nil || payload["viewportKey"] != key {
+				t.Fatalf("builtin %s: %#v %v", key, payload, err)
+			}
+			html, _ := payload["html"].(string)
+			if strings.TrimSpace(html) == "" {
+				t.Fatal("builtin template is empty")
+			}
+			if key != "confirm_dialog" && !strings.Contains(html, "awaiting_collect") {
+				t.Fatal("review submission protocol missing")
+			}
+		})
 	}
 }
 
-func TestServiceWithoutFallbackKeepsUnavailablePayload(t *testing.T) {
-	service := NewServiceWithServers(NewRegistry(t.TempDir()), nil, nil)
-	payload, err := service.Get(context.Background(), "missing")
-	if err != nil {
-		t.Fatalf("get missing viewport: %v", err)
-	}
-	if payload["viewportKey"] != "missing" || payload["status"] != "not_implemented" {
-		t.Fatalf("unexpected unavailable payload: %#v", payload)
-	}
-}
-
-func TestRegistryProvidesDefaultConfirmDialog(t *testing.T) {
-	registry := NewRegistry(t.TempDir())
-	payload, ok, err := registry.Get("confirm_dialog")
-	if err != nil {
-		t.Fatalf("get confirm dialog: %v", err)
-	}
-	if !ok {
-		t.Fatal("expected confirm dialog to exist")
-	}
-	if payload["viewportKey"] != "confirm_dialog" {
-		t.Fatalf("unexpected payload %#v", payload)
-	}
-	if html, _ := payload["html"].(string); !strings.Contains(html, "ask-user viewport placeholder") {
-		t.Fatalf("expected generic ask-user placeholder, got %#v", payload)
-	}
-}
-
-func TestServerRegistryLoadsViewportServersDirectoryAndServerKey(t *testing.T) {
-	registriesRoot := t.TempDir()
-	serversRoot := DefaultServersRoot(registriesRoot)
-	if err := os.MkdirAll(serversRoot, 0o755); err != nil {
-		t.Fatalf("create viewport servers dir: %v", err)
-	}
-	config := "serverKey: weather\nbaseUrl: http://127.0.0.1:11969\nendpointPath: /mcp\n"
-	if err := os.WriteFile(filepath.Join(serversRoot, "mock.yml"), []byte(config), 0o644); err != nil {
-		t.Fatalf("write viewport server config: %v", err)
-	}
-
-	servers, err := NewServerRegistry(serversRoot).List()
-	if err != nil {
-		t.Fatalf("list viewport servers: %v", err)
-	}
-	if len(servers) != 1 {
-		t.Fatalf("expected 1 server, got %d", len(servers))
-	}
-	if servers[0].Key != "weather" {
-		t.Fatalf("expected server key from serverKey field, got %#v", servers[0])
-	}
-}
-
-func TestServiceLoadsRemoteHTMLViewportBeforeFallback(t *testing.T) {
-	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req jsonRPCRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("decode request: %v", err)
+func TestServiceRejectsInvalidKeysAndExternalTemplates(t *testing.T) {
+	service := NewService()
+	for _, key := range []string{"", "..", "../platform_control_review", "nested/template", `nested\template`} {
+		if _, err := service.Get(context.Background(), key); err == nil {
+			t.Fatalf("accepted invalid key %q", key)
 		}
-		if req.Method != "viewports/get" {
-			t.Fatalf("unexpected method %q", req.Method)
+	}
+	for _, key := range []string{"leave_form", "expense_form", "procurement_form", "missing"} {
+		payload, err := service.Get(context.Background(), key)
+		if err != nil || payload["status"] != "not_implemented" {
+			t.Fatalf("external template %s: %#v %v", key, payload, err)
 		}
-		if req.Params["viewportKey"] != "show_weather_card" {
-			t.Fatalf("unexpected params %#v", req.Params)
-		}
-		if err := json.NewEncoder(w).Encode(map[string]any{
-			"jsonrpc": "2.0",
-			"id":      req.ID,
-			"result": map[string]any{
-				"viewportKey":  "show_weather_card",
-				"viewportType": "html",
-				"payload":      "<html><body>weather</body></html>",
-			},
-		}); err != nil {
-			t.Fatalf("encode response: %v", err)
-		}
-	}))
-	defer remote.Close()
-
-	registriesRoot := t.TempDir()
-	if err := os.MkdirAll(DefaultRoot(registriesRoot), 0o755); err != nil {
-		t.Fatalf("create viewports dir: %v", err)
-	}
-	serversRoot := DefaultServersRoot(registriesRoot)
-	if err := os.MkdirAll(serversRoot, 0o755); err != nil {
-		t.Fatalf("create viewport servers dir: %v", err)
-	}
-	config := "serverKey: mock\nbaseUrl: " + remote.URL + "\nendpointPath: /mcp\n"
-	if err := os.WriteFile(filepath.Join(serversRoot, "mock.yml"), []byte(config), 0o644); err != nil {
-		t.Fatalf("write viewport server config: %v", err)
-	}
-
-	service := NewServiceWithServers(
-		NewRegistry(DefaultRoot(registriesRoot)),
-		NewSyncer(NewServerRegistry(serversRoot), remote.Client()),
-		testutil.NewNoopViewportClient(),
-	)
-
-	payload, err := service.Get(context.Background(), "show_weather_card")
-	if err != nil {
-		t.Fatalf("load remote viewport: %v", err)
-	}
-	if payload["html"] != "<html><body>weather</body></html>" {
-		t.Fatalf("expected remote html payload, got %#v", payload)
-	}
-	if _, exists := payload["status"]; exists {
-		t.Fatalf("expected remote payload before fallback, got %#v", payload)
-	}
-}
-
-func TestBuiltinReviewCannotBeShadowed(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "platform_control_review.html"), []byte("untrusted override"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	service := NewServiceWithServers(NewRegistry(root), nil, testutil.NewNoopViewportClient())
-	payload, err := service.Get(context.Background(), "platform_control_review")
-	if err != nil {
-		t.Fatal(err)
-	}
-	html, _ := payload["html"].(string)
-	if strings.Contains(html, "untrusted override") || !strings.Contains(html, "awaiting_collect") {
-		t.Fatal("builtin review missing or overridden")
 	}
 }

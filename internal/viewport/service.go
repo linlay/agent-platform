@@ -2,41 +2,29 @@ package viewport
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"strings"
 
-	"agent-platform/internal/contracts"
+	"agent-platform/internal/resources"
 )
 
-type Service struct {
-	registry *Registry
-	syncer   *Syncer
-	fallback contracts.ViewportClient
-}
+type Service struct{}
 
-func NewServiceWithServers(registry *Registry, syncer *Syncer, fallback contracts.ViewportClient) *Service {
-	return &Service{registry: registry, syncer: syncer, fallback: fallback}
-}
+func NewService() *Service { return &Service{} }
 
-func (s *Service) Get(ctx context.Context, viewportKey string) (map[string]any, error) {
-	if s.registry != nil {
-		payload, ok, err := s.registry.Get(viewportKey)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			return payload, nil
-		}
+func (s *Service) Get(_ context.Context, key string) (map[string]any, error) {
+	key = strings.TrimSpace(key)
+	if key == "" || strings.ContainsAny(key, "/\\") || key == "." || key == ".." {
+		return nil, fmt.Errorf("invalid viewport key")
 	}
-	if s.syncer != nil {
-		payload, ok, err := s.syncer.Get(ctx, viewportKey)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			return payload, nil
-		}
+	html, err := resources.ViewportFS.ReadFile("viewports/" + key + ".html")
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]any{"viewportKey": key, "status": "not_implemented"}, nil
 	}
-	if s.fallback != nil {
-		return s.fallback.Get(ctx, viewportKey)
+	if err != nil {
+		return nil, err
 	}
-	return map[string]any{"viewportKey": viewportKey, "status": "not_implemented"}, nil
+	return map[string]any{"viewportKey": key, "html": string(html)}, nil
 }

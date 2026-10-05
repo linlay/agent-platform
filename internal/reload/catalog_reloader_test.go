@@ -94,9 +94,7 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 		"models",
 		"providers",
 		"tools",
-		"viewports",
 		"connectors",
-		"viewport-servers",
 	}
 	if !reflect.DeepEqual(gotReasons, wantReasons) {
 		t.Fatalf("watch reasons = %#v, want %#v", gotReasons, wantReasons)
