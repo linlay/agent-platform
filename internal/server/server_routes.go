@@ -285,6 +285,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/memory/status", s.method(http.MethodGet, s.handleMemoryStatus))
 	s.router.HandleFunc("/api/admin/source", s.handleAdminSource)
 	s.router.HandleFunc("/api/admin/agents/order", s.handleAdminAgentOrder)
+	s.router.HandleFunc("/api/desktop/acp-bridges", s.handleDesktopACPBridges)
 	s.router.HandleFunc("/api/admin/agents/create", s.method(http.MethodPost, s.handleAgentCreate))
 	s.router.HandleFunc("/api/admin/agents/import", s.method(http.MethodPost, s.handleAdminAgentImport))
 	s.router.HandleFunc("/api/admin/agents/update", s.method(http.MethodPost, s.handleAgentUpdate))

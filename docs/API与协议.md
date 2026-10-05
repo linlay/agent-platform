@@ -20,6 +20,12 @@
 
 普通 Agent query 准入失败时，已存在但配置无效的 Agent 返回 `422 agent_configuration_invalid`，不存在或不可用且无 invalid 管理记录的 Agent 返回 `404 agent_not_found`，均不可重试。HTTP（包括 SSE 启动前）与 WebSocket 在 `data.error` 保留应用错误码、`status`、`retryable` 和可选 `diagnostics`，按请求/连接语言返回提示。`contextConfig.agents` 中不可用的候选引用继续跳过并警告，不因此阻断主 Agent；已有 Chat 历史仍可读取。
 
+## Desktop ACP 注册
+
+`PUT /api/desktop/acp-bridges` 接受 `sourcePluginId`、`bridgeId`、`baseUrl`、可选 `timeoutMs` 和 `authToken`；省略 token 时保留已有值，显式空字符串清除。`DELETE` 接受同一插件身份与 bridge ID。插件身份由 Desktop 在认证的插件 socket 上确定，不能从插件请求体透传覆盖。
+
+该入口即使全局 auth 关闭也强制验证 JWT，且要求已验证的 app scope、非空 subject 和 device claim；网页或无身份请求不能注册。app scope 的本机宿主是断言插件身份的信任边界。响应仅包含 `changed`、`removed`、`restartRequired`，不回显配置路径或 token。参数错误返回 400，归属或配置冲突返回 409，持久化失败返回 500。旧 Platform 不支持该入口时 Desktop 显式失败，无文件写入降级。持久化与生效边界见 [ACP CODER Backend](智能体配置说明.md#ACP-CODER-Backend)。
+
 ## 统一时间契约
 
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。

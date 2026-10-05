@@ -814,6 +814,7 @@ func (c *Config) applyKBasePromptsFile(path string) {
 }
 
 func (c *Config) applyCoderSettingsFile(path string) error {
+	c.CoderSettings.SourcePath = path
 	values, err := loadYAMLMap(path)
 	if err != nil {
 		return err

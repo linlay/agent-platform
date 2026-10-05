@@ -206,6 +206,8 @@ type KBasePromptsConfig struct {
 }
 
 type CoderSettingsConfig struct {
+	// SourcePath is fixed by the loader, never accepted from API requests.
+	SourcePath      string
 	WorkspaceAgents CoderWorkspaceAgentsConfig
 	DefaultAgent    CoderDefaultAgentConfig
 	ACPBridges      map[string]CoderACPBridgeConfig
