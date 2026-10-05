@@ -41,7 +41,6 @@ func TestStateDirectoryEnvironmentAndFixedRuntimeLayout(t *testing.T) {
 					cfg.Paths.OwnerDir: "owner", cfg.Paths.RootDir: "root",
 					cfg.Paths.AutomationsDir: "automations", cfg.Paths.SkillsCenterDir: "skills-center",
 					cfg.Paths.ConnectorsCenterDir: "connectors-center",
-					cfg.Paths.LegacyConnectorsDir: "connectors", cfg.Paths.LegacyConnectorStateDir: "connector-state",
 				} {
 					if path != filepath.Join(runtimeRoot, child) {
 						t.Fatalf("%s escaped fixed runtime layout: %s", child, path)

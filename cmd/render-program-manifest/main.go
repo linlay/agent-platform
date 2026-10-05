@@ -45,11 +45,11 @@ func render(template, output, version, targetOS, targetArch, backend, asset stri
 		return err
 	}
 	start, stop, deploy, common := "start.sh", "stop.sh", "deploy.sh", "scripts/program-common.sh"
-	sidecar := "bin/kbase-lance-engine"
+	sidecar := "bin/kbx"
 	errorLog := ""
 	if targetOS == "windows" {
 		start, stop, deploy, common = "start.ps1", "stop.ps1", "deploy.ps1", "scripts/program-common.ps1"
-		sidecar = "bin/kbase-lance-engine.exe"
+		sidecar = "bin/kbx.exe"
 		errorLog = "    \"errorLogRelativePath\": \"run/agent-platform.stderr.log\","
 	}
 	poppler := ""

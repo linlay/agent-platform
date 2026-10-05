@@ -83,6 +83,7 @@ type Dependencies struct {
 	Archives               *chat.ArchiveStore
 	Archiver               *chat.Archiver
 	Memory                 *memory.Store
+	MemoryMaintenance      MemoryMaintenance
 	KBase                  KBaseService
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry
@@ -178,7 +179,6 @@ type Server struct {
 	connectorOrder    *catalogorder.FileOrderStore
 }
 
-type syncQueryContextKey struct{}
 type chatSourceContextKey struct{}
 
 type statusRecorder struct {

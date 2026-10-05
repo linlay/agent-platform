@@ -4,7 +4,7 @@ i18n:
     label: "Refresh Knowledge Base"
   zh-CN:
     label: "刷新知识库"
-description: Trigger a KBASE index refresh for the current KBASE agent. Use force only when the index should be rebuilt from scratch.
+description: Request KBX maintenance for the current Agent. Returns unavailable until the singleton update/reconnect protocol is supported; it never falls back to the retired index engine.
 clientVisible: true
 readOnly: false
 inputSchema:

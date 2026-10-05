@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_ROOT="$REPO_ROOT/build/builtins"
 BUILTINS_ROOT="${BUILTINS_ROOT:-}"
-CONNECTORS_ROOT="${CONNECTORS_ROOT:-$REPO_ROOT/../agent-platform-connectors}"
+CONNECTORS_ROOT="${CONNECTORS_ROOT:-}"
 BUNDLE_GIT_BASH="$(printf '%s' "${BUNDLE_GIT_BASH:-true}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 case "$BUNDLE_GIT_BASH" in true|false) ;; *) echo 'BUNDLE_GIT_BASH must be true or false' >&2; exit 1 ;; esac
 export BUNDLE_GIT_BASH
@@ -41,11 +41,16 @@ target follows automatically after its VERSION and Git commit are verified.
 Cross-built targets never change the canonical lock.
 
 With no target selector, builds the current host target. --all requests the
-six target matrix and therefore requires every relevant Rust target, linker,
+six target matrix; currently KBX release supports only darwin/amd64,
+darwin/arm64 and windows/amd64, so unsupported targets fail before building.
+Supported cross-builds require the relevant Rust target, linker,
 and SDK to be provisioned on this machine. ripgrep is consumed from its locked
 vendor artifact because the sibling collection currently carries no ripgrep
 source checkout. poppler-pdftotext rebuilds its Go launcher and repackages its
 verified native runtime only for targets declared in the canonical lock.
+Source roots default to the adjacent agent-platform-builtins and
+agent-platform-connectors repositories; linked worktrees also check the main
+checkout siblings. Flags and environment variables remain explicit overrides.
 EOF
 }
 
@@ -120,6 +125,12 @@ host_target="$(detect_os)/$(detect_arch)"
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
   TARGETS=("$host_target")
 fi
+for target in "${TARGETS[@]}"; do
+  case "$target" in
+    darwin/amd64|darwin/arm64|windows/amd64) ;;
+    *) die "KBX release does not support $target yet; no builtin cache was changed" ;;
+  esac
+done
 mkdir -p "$BUILD_ROOT"
 if [[ -z "${GOCACHE:-}" ]]; then
   export GOCACHE="$BUILD_ROOT/.gocache"
@@ -134,14 +145,17 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -z "$BUILTINS_ROOT" ]]; then
-  BUILTINS_ROOT="$REPO_ROOT/../agent-platform-builtins"
+  BUILTINS_ROOT="$(cd "$REPO_ROOT" && go run ./cmd/resolve-builtin-roots --repo-root "$REPO_ROOT" --kind builtins)"
 fi
 [[ "$BUILTINS_ROOT" = /* ]] || die "builtins root must be absolute"
 BUILTINS_ROOT="$(cd "$BUILTINS_ROOT" && pwd)"
-for component in ripgrep kbase-lance-engine poppler-pdftotext; do
+for component in ripgrep kbx memx poppler-pdftotext; do
   [[ -d "$BUILTINS_ROOT/$component" ]] || die "missing sibling builtin project: $BUILTINS_ROOT/$component"
 done
 
+if [[ -z "$CONNECTORS_ROOT" ]]; then
+  CONNECTORS_ROOT="$(cd "$REPO_ROOT" && go run ./cmd/resolve-builtin-roots --repo-root "$REPO_ROOT" --kind connectors)"
+fi
 [[ "$CONNECTORS_ROOT" = /* ]] || die "connectors root must be absolute"
 CONNECTORS_ROOT="$(cd "$CONNECTORS_ROOT" && pwd)"
 for component in dbx httpx; do
@@ -160,7 +174,8 @@ copy_project() {
 copy_project ripgrep
 copy_project dbx
 copy_project httpx
-copy_project kbase-lance-engine
+copy_project kbx
+copy_project memx
 copy_project poppler-pdftotext
 
 for target in "${TARGETS[@]}"; do
@@ -172,7 +187,7 @@ for target in "${TARGETS[@]}"; do
   fi
 done
 
-# dbx, httpx, kbase-lance-engine, and poppler-pdftotext are local source
+# dbx, httpx, kbx, memx, and poppler-pdftotext are local source
 # projects. Rebuild their archives from the isolated collection on every sync.
 # ripgrep is the only precompiled component and is only copied and verified.
 (
@@ -203,13 +218,9 @@ while IFS= read -r target; do
   )
 done <"$poppler_targets_file"
 for target in "${TARGETS[@]}"; do
-  target_os="${target%%/*}"
-  target_arch="${target#*/}"
-  cargo_target_dir="$BUILD_ROOT/.cargo-target/$target_os-$target_arch"
-  (
-    cd "$collection_root/kbase-lance-engine"
-    scripts/build-release.sh --os "$target_os" --arch "$target_arch" --cargo-target-dir "$cargo_target_dir"
-  )
+  python3 "$SCRIPT_DIR/build-kbx.py" --source "$collection_root/kbx" \
+    --target "$target" --target-dir "$BUILD_ROOT/.cargo-target/kbx"
+  bash "$collection_root/memx/scripts/build-release.sh" --os "${target%%/*}" --arch "${target##*/}"
 done
 
 local_lock="$work_dir/builtins.local.lock.json"
@@ -240,7 +251,6 @@ for target in "${TARGETS[@]}"; do
   (
     cd "$REPO_ROOT"
     go run ./cmd/stage-builtins --repo-root "$REPO_ROOT" --lock "$local_lock" --connectors-lock "$local_connectors_lock" --connectors-root "$collection_root" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$collection_root"
-    go run ./cmd/stage-kbase-lance-engine --repo-root "$REPO_ROOT" --lock "$local_lock" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$collection_root"
   )
 done
 

@@ -49,7 +49,7 @@ func RunChild(ctx context.Context, runID string, taskID string, subReq runtimety
 		return result
 	}
 
-	client := httpclient.NewClient(requestTimeout(proxy))
+	client := httpclient.NewClient(RequestTimeout(proxy))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		result.Status = "failed"
@@ -156,7 +156,7 @@ func parseProxySSEDataLineAt(line string) (stream.EventData, bool, error) {
 	}
 	return DecodeEventAt([]byte(payload), "proxy.child.sse.event")
 }
-func requestTimeout(proxy *catalog.ProxyConfig) time.Duration {
+func RequestTimeout(proxy *catalog.ProxyConfig) time.Duration {
 	if proxy != nil && proxy.TimeoutMS > 0 {
 		return time.Duration(proxy.TimeoutMS) * time.Millisecond
 	}

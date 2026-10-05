@@ -8,6 +8,8 @@
 
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
+Memory 由 Platform worker 调用 memx 维护 summary 与 daily；知识库读取使用受管 KBX CLI，索引 update/refresh 尚未接通。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
+
 ## 2. 技术栈
 
 - 语言：Go
@@ -16,7 +18,7 @@
 - 存储：本地文件系统 + Markdown memory + SQLite control store + 本地 LanceDB KBASE generation
 - 配置：环境变量 + `configs/*.yml`
 
-当前没有引入 Web 框架、第三方路由库、外部数据库或消息队列。Go 主程序仍以 `CGO_ENABLED=0` 构建；KBASE 通过随包分发的 `kbase-lance-engine` Rust 伴随进程使用锁定的 LanceDB Rust SDK。配置默认值以 `internal/config/config.go` 与 `configs/*.example.yml` 为事实源。
+当前没有引入 Web 框架、第三方路由库、外部数据库或消息队列。Go 主程序仍以 `CGO_ENABLED=0` 构建；知识库通过受管 KBX CLI 读取，旧 `kbase-lance-engine` 执行链路已断开；KBX 已接入正式分发链路，索引维护协议尚待接通。配置默认值以 `internal/config/config.go` 与 `configs/*.example.yml` 为事实源。
 
 ## 3. 架构设计
 
@@ -43,9 +45,10 @@ cmd/agent-platform/main.go
 - `internal/agent/coder`：CODER profile、prompt、planning、ACP/workspace 策略与创建默认策略。
 - `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init 与创建默认值（含创建时写入的工具清单）；没有固定工具或 memory 边界。
 - `internal/agentcreation`：mode 中立的创建模板展开，按 `configs/agent-creation.yml` 把所选能力组合并去重为具体工具、技能和连接器，并校验成员存在与连接器互斥；不依赖 catalog 或 server。
-- `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
+- `internal/kbx`：当前知识库执行门面，使用受管 CLI 及 chunk/evidence 协议；维护连接基础已实现，但未来 update 协议尚未接到生产。
+- `internal/kbase`：保留的旧引擎与共享配置/DTO/工具权限门面，生产 app 不再构造其 Manager；旧实现说明：`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
-- `internal/runtime`：HTTP/WS 无关的 Query 与 Run 应用运行时；`types` 保存内部命令和结果，`query` 实现普通/旁聊 Query 准入、根 Run 注册/控制、Native 阻塞与异步启动、continuation 仲裁及重启 awaiting 对账，`session` 统一构造根/子 Agent/Team 的执行上下文和 system-init，`catalogview/reference` 承接租约快照与引用物化；`runstate` 持有活动 Run、observer、compact 协调与恢复等待项的唯一内存存储实现，`runexec` 执行 Native 生命周期、usage/终态落盘和 freeze 收尾，`orchestration` 执行子 Agent/Team 调度与结果回注。App 直接组装以上组件，不再反向注入 Server Native 方法。`adapter` 仅适配旧执行器/catalog DTO；根 Proxy 的 SSE/WS/channel 驱动仍通过显式 ProxyPort 保留在 Server，生命周期尚未全面统一，不能写成已完成。Runtime 不得依赖 `internal/server`；边界与集成注意见 [Runtime模块边界](docs/Runtime模块边界.md)。
+- `internal/runtime`：HTTP/WS 无关的 Query 与 Run 应用运行时；`types` 保存内部命令和结果，`query` 实现普通/旁聊 Query 准入、根 Run 注册/控制、Native 阻塞与异步启动、continuation 仲裁及重启 awaiting 对账，`session` 统一构造根/子 Agent/Team 的执行上下文和 system-init，`catalogview/reference` 承接租约快照与引用物化；`runstate` 持有活动 Run、observer、compact 协调与恢复等待项的唯一内存存储实现，`runexec` 执行 Native 生命周期、usage/终态落盘和 freeze 收尾，`orchestration` 执行子 Agent/Team 调度与结果回注。App 直接组装以上组件，不再反向注入 Server Native 方法。`adapter` 仅适配旧执行器/catalog DTO；受管根 Proxy 的上游 SSE/WS/channel 驱动归 `proxy.Driver`，公共收尾及 recorder/usage 归 `runexec`；异步与阻塞调用统一注册并后台执行，阻塞结果直接来自完成记录，前台观察者不控制上游接收。Server 经显式 ProxyPort 保留响应与 channel 适配、路由配置和控制转发；旧阻塞 SSE 入口已移除，ProxyPort 仍保留路由与控制适配。Runtime 不得依赖 `internal/server`；边界与集成注意见 [Runtime模块边界](docs/Runtime模块边界.md)。
 - `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；直接依赖 `internal/runtime` 的窄接口，不经过 Server。
 - `internal/platformcontrol` 维护平台控制操作；`internal/runenvops` 维护独立 run_env handler；`internal/runenv` 保存进程内 Scope、revision、限额及摘要幂等收据；`internal/toolpolicy` 提供中立操作调度属性。
 - `internal/server`：HTTP/WS 解码、鉴权、响应映射、SSE flush 和迁移期薄适配；不得直接依赖 `llm`、`tools` 或具体 Agent mode。
@@ -54,8 +57,9 @@ cmd/agent-platform/main.go
 - `internal/tools`：通用 tool registry/router、Bash、FileTools、memory、desktop、MCP tool 调用；mode 工具通过命名 handler 接入，不在 executor 中增加 mode switch。
 - `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
 - `internal/memory`：个人 Markdown 文件、版本冲突、日期文字查询与上下文记录原则；不持有数据库或知识索引。
+- `internal/memoryworker`：已完成 Chat 的增量调度、模型连接配置同步、memx 子进程协议和手工触发；不自行生成记忆文件，不依赖 Server。
 - `internal/view`：VIEW 展示定义、声明资源、远端模板获取和 Chat 内容寻址快照；无 Tool 执行或 HITL 决策职责。VIEW 与 MCP/CLI 组件可组合，纯 VIEW 不授予 Bash/PATH。
-- `internal/connector`：中立连接器包/JSON/技能与 assets 图标结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取 Agent 挂载引用指向的 ru-connectors/<id>/<contentDigest>，MCP 按 Agent/连接器/组件/内容版本建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级 token 保存/退出、null 模式显式受管 CLI 准备/扫码、普通 OAuth 授权码与 MCP OAuth 发现、PKCE、loopback 回调和持久化刷新；oneid-token 复用 Desktop identity-file，按调用环境注入 AP_ACCESS_TOKEN，HTTP MCP 按同一来源生成 Bearer Header，不复制 SSO 凭据到连接器状态目录。auth_bindings 声明包外凭证的 HTTP/Host CLI/stdio 消费映射；MCP 支持多资源 grant、客户端注册信息、元数据回退及追加授权。认证状态按秒驱动 MCP Registry 更新，不触碰包文件或重建 Agent。通用执行按连接器/adapter 授权，直接传 argv 或 MCP 原生工具参数，不注册业务 operation/profile；通用执行与 Agent/管理接口共用当前部署的连接器凭据，不提供多租户凭据隔离；通用 runtime 安装尚未实现，见连接器专题。
+- `internal/connector`：中立连接器包/JSON/技能与 assets 图标结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；旧包/凭据/MCP 目录迁移代码及 connector-migrate 命令已移除；`internal/connectormigrate` 仅保留独立 Desktop 工具声明调整。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取 Agent 挂载引用指向的 ru-connectors/<id>/<contentDigest>，MCP 按 Agent/连接器/组件/内容版本建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级 token 保存/退出、null 模式显式受管 CLI 准备/扫码、普通 OAuth 授权码与 MCP OAuth 发现、PKCE、loopback 回调和持久化刷新；oneid-token 复用 Desktop identity-file，按调用环境注入 AP_ACCESS_TOKEN，HTTP MCP 按同一来源生成 Bearer Header，不复制 SSO 凭据到连接器状态目录。auth_bindings 声明包外凭证的 HTTP/Host CLI/stdio 消费映射；MCP 支持多资源 grant、客户端注册信息、元数据回退及追加授权。认证状态按秒驱动 MCP Registry 更新，不触碰包文件或重建 Agent。通用执行按连接器/adapter 授权，直接传 argv 或 MCP 原生工具参数，不注册业务 operation/profile；通用执行与 Agent/管理接口共用当前部署的连接器凭据，不提供多租户凭据隔离；通用 runtime 安装尚未实现，见连接器专题。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析；Team 只接受目录式 orchestrated 定义，并以原子快照冻结成员、协调器配置和 prompt。
 - `internal/config`：环境变量、YAML、默认值。
 - `internal/httpclient`：Platform 出站 HTTP 客户端工厂、显式/环境/系统固定代理解析与缓存刷新；内部服务使用直连客户端，不修改标准库全局 Transport 或进程环境；默认 `auto` 在 Windows/macOS 上跳过 PAC/WPAD 并在无适用固定代理时直连；显式 `pac_auto` 启用 Windows WinHTTP PAC/WPAD（企业网络待目标系统验证），仅无显式 PAC 的 WPAD 发现返回 12180 时按无代理直连；解析失败标记 `proxy=unresolved`，DNS 与 Windows 网络错误提供脱敏分类。macOS PAC/WPAD 尚未实现，`pac_auto` 命中不支持的自动代理时报错。
@@ -105,9 +109,9 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 Automation 定义目录中的 `executions.db` 是 schema V2 的旁路执行历史库。已知旧版在后台创建一致性备份后重建为空 V2，不迁移旧行；History 初始化、备份和写入失败不得阻止 Platform、Automation 调度或 Query/Run。`AUTOMATION_EXECUTIONS` 保存触发快照、`chatId/runId`、真实 `finishReason` 和完整助手结果，列表只读取摘要，详情按需读取全文。
 
-Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以 memory.md 和 daily/YYYY-MM-DD.md 为唯一内容源；用户资料位于 owner/OWNER.md。旧数据库和自动学习方案全部退役，无迁移。
+Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以 summary.md 和 daily/YYYY-MM-DD.md 为内容源；用户资料位于 owner/OWNER.md。memx 管理收据及恢复日志，Platform worker 进度位于 `.state/memory-worker`。旧 memory.md 仅在 summary 缺失时复制并保留备份；旧数据库不迁移。
 
-KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包含：
+KBX 新索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlite`（及 KBX 配套存储）；workspace 模式用 `.kbx-platform/<agentKey>/<scopeHash>/`。以下旧 KBASE 数据仅保留，不再由运行入口访问：
 
 - `control.db`：schema v4 控制面，记录 generation、文件状态、file operation、增量 refresh 指标和 index run；不保存 chunk、FTS 或 embedding。control 与 Lance schema 版本独立；SQLite 控制面只接受当前 schema，绝不原地迁移。
 - `generations/<generationId>/lance/`：LanceDB chunks table 及索引；同级 `manifest.json` 保存 generation 元数据。
@@ -154,7 +158,7 @@ make run
 make test
 ```
 
-首次本地运行、更新相邻 builtin 项目或执行 `make release` 前，先执行 `./scripts/sync-local-builtins.sh`；它每次在隔离工作目录中重新构建本机 `dbx`、`httpx`、Rust sidecar 和 `poppler-pdftotext` launcher/archive，并原子更新 `build/builtins/<host>/`。Poppler native runtime 是校验后重新打包的预编译 payload，不在 platform 中编译；`rg` 是唯一只校验复制的 vendor artifact。同步按各本地项目的 `VERSION` 生成临时 lock；Shell 与 PowerShell 在 cache 激活后使用同一正式 lock 状态机。schema v2 的组件 `version/commit/source` 是全平台目标 release，target 同名字段与 `path/sha256` 是该平台实际 release。精确 native host 上严格更高的干净版本经一次精确 `yes` 可抢占为新目标；其他平台的本地 VERSION/Git HEAD 匹配目标并验证成功后自动更新自己的 target。交叉构建只更新 cache，任何 runner 都不得写其他平台 SHA；同版本不同 commit/SHA、dirty、降级、checkout 不匹配或非交互 leader 均不回写。正式写 lock 前必须先将验证 archive 原子固化到相邻项目的稳定 `dist/<version>/`，同路径不同 SHA 必须拒绝；并发 lock 变化同样放弃写入。`--all` 仅为 canonical lock 声明的 Poppler 目标构建，当前为 darwin-arm64 与 windows-amd64，且正式 lock 仍只允许精确 host target 跟随。同步脚本不写 `release-local/`；`make run` / `make build-local` / `make release` 不得重新引入 builtin 或 Rust 构建步骤；运行和 release 从本机 build cache 使用 builtin 二进制；release 原样复制已校验的完整连接器包，保持资源及树哈希不变，不从 Platform 源码补写清单或技能。
+首次本地运行、更新相邻 builtin 项目或执行 `make release` 前，先执行 `./scripts/sync-local-builtins.sh`；它每次在隔离工作目录中重新构建本机 `dbx`、`httpx`、`kbx`、`memx` 和 `poppler-pdftotext` launcher/archive，并原子更新 `build/builtins/<host>/`。Poppler native runtime 是校验后重新打包的预编译 payload，不在 platform 中编译；`rg` 是唯一只校验复制的 vendor artifact。同步按各本地项目的 `VERSION` 生成临时 lock；Shell 与 PowerShell 在 cache 激活后使用同一正式 lock 状态机。schema v2 的组件 `version/commit/source` 是全平台目标 release，target 同名字段与 `path/sha256` 是该平台实际 release。精确 native host 上严格更高的干净版本经一次精确 `yes` 可抢占为新目标；其他平台的本地 VERSION/Git HEAD 匹配目标并验证成功后自动更新自己的 target。交叉构建只更新 cache，任何 runner 都不得写其他平台 SHA；同版本不同 commit/SHA、dirty、降级、checkout 不匹配或非交互 leader 均不回写。正式写 lock 前必须先将验证 archive 原子固化到相邻项目的稳定 `dist/<version>/`，同路径不同 SHA 必须拒绝；并发 lock 变化同样放弃写入。`--all` 仅为 canonical lock 声明的 Poppler 目标构建，当前为 darwin-arm64 与 windows-amd64，且正式 lock 仍只允许精确 host target 跟随。同步脚本不写 `release-local/`；`make run` / `make build-local` / `make release` 不得重新引入 builtin 或 Rust 构建步骤；运行和 release 从本机 build cache 使用 builtin 二进制；release 原样复制已校验的完整连接器包，保持资源及树哈希不变，不从 Platform 源码补写清单或技能。
 
 涉及文档、配置或目录规范调整时，同步检查 `README.md`、`AGENTS.md`、`docs/` 与 `.gitignore`。
 
@@ -201,5 +205,5 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 | 连接器 | [连接器](docs/连接器.md)、[安装与授权](docs/连接器安装与授权.md)、[执行协议](docs/连接器执行协议.md)、[共享包与 Desktop 迁移](docs/连接器共享包与Desktop迁移.md)、[VIEW](docs/VIEW连接器.md) |
 | 工具与调度 | [MCP 与工具交互](docs/MCP与工具交互.md)、[平台控制连接器](docs/Platform控制工具设计.md)、[参数错误与恢复提示](docs/工具参数错误审计.md)、[Run 环境工具](docs/Run环境工具.md)、[原生等待工具](docs/原生等待工具.md)、[子智能体调度](docs/子智能体调度.md)、[自动化](docs/自动化.md) |
 | 会话与记忆 | [会话存储与回放](docs/会话存储与回放.md)、[记忆系统](docs/记忆系统.md) |
-| KBASE | [检索与控制面](docs/KBASE-LanceDB检索与控制面.md)、[编辑模式](docs/KBASE编辑模式.md) |
+| KBASE | [KBX 接入](docs/KBX接入.md)、 [检索与控制面](docs/KBASE-LanceDB检索与控制面.md)、[编辑模式](docs/KBASE编辑模式.md) |
 | 构建与运维 | [版本化打包](docs/版本化打包方案.md)、[运行时资源迁移](docs/运行时资源迁移.md)、[Windows Git Bash](docs/WindowsGitBash实施进度.md)、[手工测试用例](docs/手工测试用例.md) |

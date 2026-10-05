@@ -80,6 +80,8 @@ type RunEventBus struct {
 	maxObservers          int
 	oldestSeq             int64
 	latestSeq             int64
+	allowInitialGap       bool
+	replayTruncated       bool
 	nextObserverID        atomic.Int64
 	onObserverCountChange func(int)
 }
@@ -130,6 +132,7 @@ func (b *RunEventBus) Publish(event EventData) {
 		b.oldestSeq = event.Seq
 	}
 	if b.maxEvents > 0 && len(b.events) > b.maxEvents {
+		b.replayTruncated = true
 		trim := len(b.events) - b.maxEvents
 		b.events = append([]EventData(nil), b.events[trim:]...)
 		if len(b.events) > 0 {
@@ -180,6 +183,20 @@ func (b *RunEventBus) SeedCursor(seq int64) bool {
 	return true
 }
 
+// AllowInitialSequenceGap is opt-in for Proxy upstreams whose first event can
+// start above 1. Replaying from zero is safe until actual eviction occurs.
+// Native and recovered buses keep their existing cursor rules.
+func (b *RunEventBus) AllowInitialSequenceGap() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.frozen && len(b.events) == 0 && b.latestSeq == 0 {
+		b.allowInitialGap = true
+	}
+}
+
 func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 	if b == nil {
 		return nil, fmt.Errorf("event bus unavailable")
@@ -191,7 +208,8 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 		b.mu.Unlock()
 		return nil, err
 	}
-	if b.oldestSeq > 0 && afterSeq < b.oldestSeq-1 {
+	fromInitialGap := afterSeq == 0 && b.allowInitialGap && !b.replayTruncated
+	if b.oldestSeq > 0 && afterSeq < b.oldestSeq-1 && !fromInitialGap {
 		err := &ReplayWindowExceededError{
 			AfterSeq:  afterSeq,
 			OldestSeq: b.oldestSeq,

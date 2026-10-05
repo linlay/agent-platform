@@ -681,9 +681,12 @@ func TestKBaseFilesSchemaIncludesModeAndStatusEnums(t *testing.T) {
 			t.Fatalf("expected kbase_files mode enum to include %q", want)
 		}
 	}
-	for _, want := range []string{"active", "skipped", "error", "deleted", "all"} {
-		if !enumContains(t, properties["status"], want) {
-			t.Fatalf("expected kbase_files status enum to include %q", want)
+	if !enumContains(t, properties["status"], "active") {
+		t.Fatal("KBX inventory must advertise active files")
+	}
+	for _, unsupported := range []string{"skipped", "error", "deleted", "all"} {
+		if enumContains(t, properties["status"], unsupported) {
+			t.Fatalf("KBX inventory must not advertise unsupported status %q", unsupported)
 		}
 	}
 }

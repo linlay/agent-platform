@@ -15,6 +15,9 @@ func TestChatOrderMoveFromRecentAppliesBeforeLimitAndRestoresManual(t *testing.T
 		t.Fatal(err)
 	}
 	defer store.Close()
+	if _, err := store.SetChatSortMode(SortModeRecent); err != nil {
+		t.Fatal(err)
+	}
 
 	for index := 0; index < 20; index++ {
 		id := fmt.Sprintf("chat-%02d", index)
@@ -127,7 +130,7 @@ func TestChatOrderCorruptSidecarFallsBackAndCanBeRebuilt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.SortMode != SortModeRecent || state.UpdatedAt != 0 {
+	if state.SortMode != SortModeManual || state.UpdatedAt != 0 {
 		t.Fatalf("fallback state = %+v", state)
 	}
 	state, err = store.SetChatSortMode(SortModeManual)
@@ -213,7 +216,7 @@ func TestChatOrderManualUsesCreationTimeAcrossActivityAndRestart(t *testing.T) {
 	add("a", base, base+100)
 	add("b", base+1, base+50)
 	add("c", base+1, base+10)
-	check("a", "b", "c")
+	check("c", "b", "a")
 	if _, err := store.SetChatSortMode(SortModeManual); err != nil {
 		t.Fatal(err)
 	}
@@ -247,4 +250,34 @@ func TestChatOrderManualUsesCreationTimeAcrossActivityAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("f", "e", "d", "c", "a", "b")
+}
+
+func TestChatOrderDefaultManualPreservesExplicitRecentAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.ChatOrder()
+	if err != nil || state.SortMode != SortModeManual || state.UpdatedAt != 0 {
+		t.Fatalf("default state=%+v err=%v", state, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ChatOrderFileName)); !os.IsNotExist(err) {
+		t.Fatalf("default read should not persist preference: %v", err)
+	}
+	if _, err := store.SetChatSortMode(SortModeRecent); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state, err = store.ChatOrder()
+	if err != nil || state.SortMode != SortModeRecent || state.UpdatedAt == 0 {
+		t.Fatalf("explicit recent state=%+v err=%v", state, err)
+	}
 }

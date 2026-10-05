@@ -726,7 +726,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 
 ### Memory
 
-Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`（GET/PUT/DELETE）、`/api/memory/daily`（GET）和 `/api/memory/search`（GET）。文件使用固定 kind/date 标识和 revision 乐观锁，冲突 409。详情见 [记忆系统](记忆系统.md#编辑协议)。旧 Memory meta/scope/record/history/context-preview 与 learn 接口不注册，无数据库兼容模式。
+Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`（GET/PUT/DELETE）、`/api/memory/daily`（GET）和 `/api/memory/search`（GET）。文件使用固定 kind/date 标识和 revision 乐观锁，冲突 409。详情见 [记忆系统](记忆系统.md#手工触发与内置工具)。旧 Memory meta/scope/record/history/context-preview 与 learn 接口不注册，无数据库兼容模式。
 
 ### Viewport / Resource
 

@@ -102,8 +102,6 @@ type PathsConfig struct {
 	NativeWebControlDir      string
 	ConnectorsCenterDir      string
 	StateDir                 string
-	LegacyConnectorStateDir  string
-	LegacyConnectorsDir      string
 	RegistriesDir            string
 	ToolsDir                 string
 	OwnerDir                 string
@@ -399,6 +397,16 @@ type MemoryConfig struct {
 	Enabled         bool
 	ContextMaxChars int
 	Timezone        string
+	Worker          MemoryWorkerConfig
+}
+
+type MemoryWorkerConfig struct {
+	Enabled             bool
+	ModelKey            string
+	PollIntervalSeconds int
+	TimeoutSeconds      int
+	MaxBatches          int
+	SummaryMaxChars     int
 }
 
 type DefaultsConfig struct {

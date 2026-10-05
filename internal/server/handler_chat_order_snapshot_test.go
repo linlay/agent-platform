@@ -37,7 +37,7 @@ func TestChatOrderSnapshotHTTPAndWS(t *testing.T) {
 		}
 		return response.Data
 	}
-	if snapshot := read(); len(snapshot.PinnedChats) != 0 || snapshot.SortMode != "recent" {
+	if snapshot := read(); len(snapshot.PinnedChats) != 0 || snapshot.SortMode != "manual" {
 		t.Fatalf("empty snapshot: %+v", snapshot)
 	}
 	for i := 0; i < 30; i++ {

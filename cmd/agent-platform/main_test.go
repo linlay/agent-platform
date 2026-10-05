@@ -73,8 +73,10 @@ func TestParseConfigOptionsRejectsRuntimeDir(t *testing.T) {
 }
 
 func TestParseConfigOptionsRejectsUnexpectedArgs(t *testing.T) {
-	if _, err := parseConfigOptions([]string{"run"}); err == nil {
-		t.Fatal("expected unexpected argument error")
+	for _, args := range [][]string{{"run"}, {"connector-migrate", "--runtime-dir", "/tmp/runtime", "--apply"}} {
+		if _, err := parseConfigOptions(args); err == nil {
+			t.Fatalf("expected unexpected argument error for %v", args)
+		}
 	}
 }
 

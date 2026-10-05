@@ -63,10 +63,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	if err := (connector.Sources{ExternalRoot: root, StateRoot: stateDir}).ValidateRoots(); err != nil {
 		return err
 	}
-	sources := connector.Sources{ExternalRoot: root, StateRoot: filepath.Join(stateDir, "connectors"), LegacyStateRoot: filepath.Join(runtimeRoot, "connector-state")}
-	if err := sources.MigrateLegacy(filepath.Join(runtimeRoot, "connectors")); err != nil {
-		return err
-	}
+	sources := connector.Sources{ExternalRoot: root, StateRoot: filepath.Join(stateDir, "connectors")}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	encoder := json.NewEncoder(out)

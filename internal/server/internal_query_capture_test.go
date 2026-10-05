@@ -25,11 +25,10 @@ type InternalQueryResult struct {
 type internalQueryCaptureKey struct{}
 
 type internalQueryCapture struct {
-	mu             sync.Mutex
-	hooks          InternalQueryHooks
-	completion     *chat.RunCompletion
-	errorMessage   string
-	responseResult *queryRunResult
+	mu           sync.Mutex
+	hooks        InternalQueryHooks
+	completion   *chat.RunCompletion
+	errorMessage string
 }
 
 func withInternalQueryCapture(ctx context.Context, capture *internalQueryCapture) context.Context {
@@ -62,22 +61,6 @@ func notifyInternalQueryRunStarted(ctx context.Context, start chat.RunStart) {
 	}()
 }
 
-func notifyInternalQueryCompletion(ctx context.Context, completion *chat.RunCompletion, errorMessage string) {
-	capture := internalQueryCaptureFromContext(ctx)
-	if capture == nil {
-		return
-	}
-	capture.mu.Lock()
-	defer capture.mu.Unlock()
-	if completion != nil {
-		copy := *completion
-		capture.completion = &copy
-	}
-	if message := strings.TrimSpace(errorMessage); message != "" {
-		capture.errorMessage = message
-	}
-}
-
 func (c *internalQueryCapture) result(statusCode int, body string) InternalQueryResult {
 	if c == nil {
 		return InternalQueryResult{StatusCode: statusCode, Body: strings.TrimSpace(body)}
@@ -99,8 +82,8 @@ func (c *internalQueryCapture) result(statusCode int, body string) InternalQuery
 // prepareBlockingQuery shares admission/session construction with StartQuery;
 // no HTTP request is manufactured for Native in-process execution.
 
-// queryResponseBuffer is only a legacy response encoder. Runtime Native callers
-// obtain the executor result directly and do not parse or capture HTTP/SSE.
+// queryResponseBuffer encodes legacy test responses only. Production callers
+// obtain Native and Proxy results directly from Runtime.
 type queryResponseBuffer struct {
 	header http.Header
 	status int
@@ -114,14 +97,3 @@ func (w *queryResponseBuffer) Header() http.Header            { return w.header 
 func (w *queryResponseBuffer) WriteHeader(status int)         { w.status = status }
 func (w *queryResponseBuffer) Write(data []byte) (int, error) { return w.body.Write(data) }
 func (w *queryResponseBuffer) Flush()                         {}
-
-// Proxy keeps its existing upstream protocol driver and synchronous-context
-// contract. This request carries transport metadata only; admission is done.
-func (s *Server) executePreparedProxyCompatibility(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
-	req, _ := http.NewRequestWithContext(withSyncQueryContext(ctx), http.MethodPost, "/api/query", nil)
-	if proxyUpstreamTransport(prepared.AgentDef.ProxyConfig) == "ws" {
-		s.handleProxyWebSocketQuery(w, req, prepared)
-	} else {
-		s.handleProxyQuery(w, req, prepared)
-	}
-}

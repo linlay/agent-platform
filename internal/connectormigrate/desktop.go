@@ -4,6 +4,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -361,4 +362,15 @@ func containsMigrationString(values []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func writeJSON(path string, value any, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), mode)
 }

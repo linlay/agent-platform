@@ -17,23 +17,21 @@ func defaultConfig(options LoadOptions) Config {
 	runtimeMode, _ := ParseRuntimeMode(options.RuntimeMode)
 	runtimeRoot := defaultRuntimeRoot()
 	paths := PathsConfig{
-		LegacyConnectorsDir:     filepath.Join(runtimeRoot, "connectors"),
-		ConnectorsCenterDir:     filepath.Join(runtimeRoot, "connectors-center"),
-		StateDir:                filepath.Join(runtimeRoot, ".state"),
-		LegacyConnectorStateDir: filepath.Join(runtimeRoot, "connector-state"),
-		RegistriesDir:           filepath.Join(runtimeRoot, "registries"),
-		ToolsDir:                filepath.Join(runtimeRoot, "tools"),
-		OwnerDir:                filepath.Join(runtimeRoot, "owner"),
-		AgentsDir:               filepath.Join(runtimeRoot, "agents"),
-		RUAgentsDir:             filepath.Join(runtimeRoot, "ru-agents"),
-		TeamsDir:                filepath.Join(runtimeRoot, "teams"),
-		RootDir:                 filepath.Join(runtimeRoot, "root"),
-		AutomationsDir:          filepath.Join(runtimeRoot, "automations"),
-		ChatsDir:                filepath.Join(runtimeRoot, "chats"),
-		MemoryDir:               filepath.Join(runtimeRoot, "memory"),
-		KBaseDir:                filepath.Join(runtimeRoot, "kbase"),
-		PanDir:                  filepath.Join(runtimeRoot, "pan"),
-		SkillsCenterDir:         filepath.Join(runtimeRoot, "skills-center"),
+		ConnectorsCenterDir: filepath.Join(runtimeRoot, "connectors-center"),
+		StateDir:            filepath.Join(runtimeRoot, ".state"),
+		RegistriesDir:       filepath.Join(runtimeRoot, "registries"),
+		ToolsDir:            filepath.Join(runtimeRoot, "tools"),
+		OwnerDir:            filepath.Join(runtimeRoot, "owner"),
+		AgentsDir:           filepath.Join(runtimeRoot, "agents"),
+		RUAgentsDir:         filepath.Join(runtimeRoot, "ru-agents"),
+		TeamsDir:            filepath.Join(runtimeRoot, "teams"),
+		RootDir:             filepath.Join(runtimeRoot, "root"),
+		AutomationsDir:      filepath.Join(runtimeRoot, "automations"),
+		ChatsDir:            filepath.Join(runtimeRoot, "chats"),
+		MemoryDir:           filepath.Join(runtimeRoot, "memory"),
+		KBaseDir:            filepath.Join(runtimeRoot, "kbase"),
+		PanDir:              filepath.Join(runtimeRoot, "pan"),
+		SkillsCenterDir:     filepath.Join(runtimeRoot, "skills-center"),
 	}
 	return Config{
 		DocumentPreview: documentpreview.DefaultConfig(),
@@ -117,6 +115,7 @@ func defaultConfig(options LoadOptions) Config {
 			Enabled:         true,
 			ContextMaxChars: 12000,
 			Timezone:        "Local",
+			Worker:          MemoryWorkerConfig{Enabled: true, PollIntervalSeconds: 300, TimeoutSeconds: 120, MaxBatches: 20, SummaryMaxChars: 8000},
 		},
 		Defaults: DefaultsConfig{
 			Budget: BudgetDefaultsConfig{
@@ -346,8 +345,6 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.StateDir = stateDir
 	for name, value := range map[string]*string{
 		"connectors-center-dir": &c.Paths.ConnectorsCenterDir,
-		"connector-state-dir":   &c.Paths.LegacyConnectorStateDir,
-		"connectors-dir":        &c.Paths.LegacyConnectorsDir,
 	} {
 		if strings.TrimSpace(*value) == "" {
 			continue

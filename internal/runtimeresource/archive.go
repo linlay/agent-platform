@@ -74,11 +74,6 @@ func extractArchive(sourcePath, expectedVersion, workRoot string) (archiveInvent
 		if relative == "" {
 			continue
 		}
-		// Older environment archives used connectors/. Normalize only the
-		// source package scope; generated runtime and credentials remain excluded.
-		if relative == "connectors" || strings.HasPrefix(relative, "connectors/") {
-			relative = "connectors-center" + strings.TrimPrefix(relative, "connectors")
-		}
 		key := archivePathKey(relative)
 		if _, exists := seen[key]; exists {
 			return archiveInventory{}, fmt.Errorf("duplicate runtime resource ZIP path: %s", relative)

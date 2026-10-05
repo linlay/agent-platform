@@ -108,20 +108,20 @@ func TestVerifyBundleRootRejectsIncompleteRelease(t *testing.T) {
 		{
 			name: "dependency inventory missing",
 			mutate: func(t *testing.T, root string) {
-				if err := os.Remove(filepath.Join(root, "licenses", sidecarName, "THIRD_PARTY_COMPONENTS.json")); err != nil {
+				if err := os.Remove(filepath.Join(root, "licenses", sidecarName, "THIRD-PARTY-LICENSES.txt")); err != nil {
 					t.Fatal(err)
 				}
 			},
-			message: "required sidecar release metadata",
+			message: "required KBX release metadata",
 		},
 		{
-			name: "sidecar sbom missing",
+			name: "KBX license missing",
 			mutate: func(t *testing.T, root string) {
-				if err := os.Remove(filepath.Join(root, "sbom", sidecarName+".cdx.json")); err != nil {
+				if err := os.Remove(filepath.Join(root, "licenses", sidecarName, "LICENSE")); err != nil {
 					t.Fatal(err)
 				}
 			},
-			message: "required sidecar release metadata",
+			message: "required KBX release metadata",
 		},
 	}
 
@@ -153,11 +153,11 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		t.Fatal(err)
 	}
 	components := []builtins.ManifestComponent{{
-		Name:         sidecarName,
-		Version:      "1.0.0",
-		Path:         sidecarRelativePath,
-		SHA256:       digest,
-		SDKVersion:   engineSDK,
+		Name:    sidecarName,
+		Version: "1.0.0",
+		Path:    sidecarRelativePath,
+		SHA256:  digest,
+
 		License:      "Apache-2.0",
 		Distribution: "checksum-verified-artifact",
 	}}
@@ -169,6 +169,16 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 	components = append(components, builtins.ManifestComponent{
 		Name: "rg", Version: "15.1.0", Path: "bin/rg", SHA256: rgDigest,
 	})
+	memxPath := "bin/memx"
+	if goos == "windows" {
+		memxPath += ".exe"
+	}
+	writeFile(t, filepath.Join(root, filepath.FromSlash(memxPath)), []byte("memx-binary"), 0755)
+	memxDigest, err := fileSHA256(filepath.Join(root, filepath.FromSlash(memxPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	components = append(components, builtins.ManifestComponent{Name: "memx", Version: "0.3.0", Path: memxPath, SHA256: memxDigest})
 	if popplerBuiltinRequired(goos, goarch) {
 		launcher := "bin/pdftotext"
 		if goos == "windows" {
@@ -219,10 +229,8 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 	writeProgramManifest(t, root, goos, goarch, requiredPaths)
 	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0644)
 	for _, relativePath := range []string{
-		"licenses/kbase-lance-engine/LICENSE-APACHE-2.0",
-		"licenses/kbase-lance-engine/NOTICE",
-		"licenses/kbase-lance-engine/THIRD_PARTY_COMPONENTS.json",
-		"sbom/kbase-lance-engine.cdx.json",
+		"licenses/kbx/LICENSE",
+		"licenses/kbx/THIRD-PARTY-LICENSES.txt",
 	} {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(relativePath)), []byte("{}\n"), 0o644)
 	}
@@ -365,5 +373,22 @@ func createZip(t *testing.T, sourceRoot, archivePath string) {
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestVerifyBundleRejectsPreMemxCache(t *testing.T) {
+	root := t.TempDir()
+	writeCompleteBundle(t, root, "darwin", "arm64")
+	manifest := readFixtureBuiltinsManifest(t, root)
+	components := []builtins.ManifestComponent{}
+	for _, c := range manifest.Components {
+		if c.Name != "memx" {
+			components = append(components, c)
+		}
+	}
+	manifest.Components = components
+	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0644)
+	if err := verifyBundleRoot(root, "darwin", "arm64"); err == nil || !strings.Contains(err.Error(), "requires memx") {
+		t.Fatalf("old cache accepted: %v", err)
 	}
 }

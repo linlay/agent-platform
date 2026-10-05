@@ -34,7 +34,7 @@ func TestChatOrderHTTPAndWebSocketShareCanonicalState(t *testing.T) {
 	seedAgentModeChat(t, store, "chat-new", "loyw3v2a", "agent-react", "", "REACT", 3_000)
 
 	order := readChatOrderHTTP(t, fixture.server)
-	if order.SortMode != "recent" || order.UpdatedAt != nil {
+	if order.SortMode != "manual" || order.UpdatedAt != nil {
 		t.Fatalf("default order = %#v", order)
 	}
 	order = updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{

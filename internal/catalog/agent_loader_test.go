@@ -2203,7 +2203,7 @@ func TestParseAgentFileKeepsBaseMemoryToolsDisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileKeepsMemoryManagementToolsOptIn(t *testing.T) {
+func TestParseAgentFileMountsMemoryMaintenanceButNotRetiredTools(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -2222,7 +2222,10 @@ func TestParseAgentFileKeepsMemoryManagementToolsOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"memory_update", "memory_forget", "memory_timeline", "memory_promote"} {
+	if !containsString(def.Tools, "memory_update") {
+		t.Fatal("memory maintenance tool missing")
+	}
+	for _, tool := range []string{"memory_forget", "memory_timeline", "memory_promote"} {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected %s to stay opt-in, got %#v", tool, def.Tools)
 		}

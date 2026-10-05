@@ -4,7 +4,7 @@ i18n:
     label: "Browse Knowledge Base Files"
   zh-CN:
     label: "浏览知识库文件"
-description: List files and compact directory tree entries from the current KBASE index. This reads indexed KBASE metadata only, not the host filesystem.
+description: List files and compact directory tree entries from the current KBX index. This reads indexed KBX metadata only, not the host filesystem.
 clientVisible: true
 readOnly: true
 inputSchema:
@@ -27,12 +27,8 @@ inputSchema:
       type: string
       enum:
         - active
-        - skipped
-        - error
-        - deleted
-        - all
       default: active
-      description: Indexed file status filter. all includes active, skipped, error, and deleted files.
+      description: KBX currently exposes active indexed files only.
     type:
       type: string
       description: Optional file extension filter such as md or .pdf.

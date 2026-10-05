@@ -1,4 +1,4 @@
-package server
+package runexec
 
 import (
 	"testing"
@@ -29,7 +29,7 @@ func TestRunEventProcessorSurfacesInvalidPersistedQueryMessageTime(t *testing.T)
 		"content": "hello",
 		"ts":      int64(0),
 	}})
-	processor := runEventProcessor{stepWriter: writer}
+	processor := NewProcessor(ProcessorOptions{StepWriter: writer})
 	_, _, err = processor.Consume(stream.StreamEvent{
 		Seq:       1,
 		Type:      "request.query",
