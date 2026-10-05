@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestConnectorManagementDerivesStateRootAndMigratesLegacyCredentials(t *testing.T) {
+func TestConnectorManagementUsesCurrentStateAndIgnoresLegacyCredentials(t *testing.T) {
 	for _, custom := range []bool{false, true} {
 		t.Run(map[bool]string{false: "runtime-default", true: "custom-state"}[custom], func(t *testing.T) {
 			runtimeRoot := t.TempDir()
@@ -25,9 +25,11 @@ func TestConnectorManagementDerivesStateRootAndMigratesLegacyCredentials(t *test
 				t.Setenv("AP_RUNTIME_STATE_DIR", state)
 			}
 			for path, data := range map[string]string{
-				filepath.Join(center, "demo", "connector.json"): `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`,
-				filepath.Join(center, "demo", "cli.json"):       `{}`,
-				filepath.Join(old, ".credentials", "demo.json"): `{"TOKEN":"test-credential"}`,
+				filepath.Join(center, "demo", "connector.json"):                    `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`,
+				filepath.Join(center, "demo", "cli.json"):                          `{}`,
+				filepath.Join(old, ".credentials", "demo.json"):                    `{"TOKEN":"test-credential"}`,
+				filepath.Join(runtimeRoot, "connectors", "demo", "connector.json"): "invalid ignored legacy package",
+				filepath.Join(state, "connectors", "demo", "credentials.json"):     `{"TOKEN":"current-credential"}`,
 			} {
 				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 					t.Fatal(err)
@@ -40,15 +42,25 @@ func TestConnectorManagementDerivesStateRootAndMigratesLegacyCredentials(t *test
 			if err := runConnectorManagement(args, &out); err != nil {
 				t.Fatal(err)
 			}
-			if bytes.Contains(out.Bytes(), []byte("test-credential")) {
+			if bytes.Contains(out.Bytes(), []byte("test-credential")) || bytes.Contains(out.Bytes(), []byte("current-credential")) {
 				t.Fatal("status exposed credential")
 			}
 			path := filepath.Join(state, "connectors", "demo", "credentials.json")
-			if data, err := os.ReadFile(path); err != nil || string(data) != `{"TOKEN":"test-credential"}` {
+			if data, err := os.ReadFile(path); err != nil || string(data) != `{"TOKEN":"current-credential"}` {
 				t.Fatal("state did not use the selected Platform root", err)
 			}
-			if _, err := os.Lstat(old); !os.IsNotExist(err) {
-				t.Fatal("old state retained")
+			if data, err := os.ReadFile(filepath.Join(old, ".credentials", "demo.json")); err != nil || string(data) != `{"TOKEN":"test-credential"}` {
+				t.Fatal("old state changed", err)
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			out.Reset()
+			if err := runConnectorManagement(args, &out); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatal("status recovered credentials from old location")
 			}
 
 		})

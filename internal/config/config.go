@@ -102,8 +102,6 @@ type PathsConfig struct {
 	NativeWebControlDir      string
 	ConnectorsCenterDir      string
 	StateDir                 string
-	LegacyConnectorStateDir  string
-	LegacyConnectorsDir      string
 	RegistriesDir            string
 	ToolsDir                 string
 	OwnerDir                 string

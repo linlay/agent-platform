@@ -191,9 +191,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err != nil {
 		return nil, fmt.Errorf("load builtin connectors: %w", err)
 	}
-	if err := cfg.Paths.ConnectorSources().MigrateLegacy(cfg.Paths.LegacyConnectorsDir); err != nil {
-		return nil, fmt.Errorf("migrate connector layout: %w", err)
-	}
 	nativeRelease, err := cfg.Paths.PrepareNativeConnectors()
 	if err != nil {
 		return nil, fmt.Errorf("load embedded Desktop connector: %w", err)

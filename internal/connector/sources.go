@@ -18,8 +18,6 @@ type Sources struct {
 	NativePlatformControlDir string
 	NativeWebControlDir      string
 	StateRoot                string
-	// LegacyStateRoot is only read by the startup/offline layout migration.
-	LegacyStateRoot string
 }
 
 var ErrBuiltinReadOnly = errors.New("builtin connectors are platform-owned and cannot be modified or deleted")
