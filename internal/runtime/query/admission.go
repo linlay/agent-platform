@@ -332,17 +332,6 @@ func applyDesktopImageStudioRunLimits(req runtimetypes.QueryCommand, session *co
 	session.RunLimits.FinalAnswerPrompt = "The Image Studio task has reached its only permitted tool round. Do not call any tool again; report the existing tool result accurately."
 }
 
-func cloneIntMap(input map[string]int) map[string]int {
-	if len(input) == 0 {
-		return nil
-	}
-	out := make(map[string]int, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
-}
-
 func (s *Service) PrepareQueryAdmissionRequest(
 	ctx context.Context,
 	req runtimetypes.QueryCommand,

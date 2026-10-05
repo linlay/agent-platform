@@ -15,16 +15,6 @@ func firstNonBlank(values ...string) string {
 	}
 	return ""
 }
-func cloneIntMap(input map[string]int) map[string]int {
-	if len(input) == 0 {
-		return nil
-	}
-	out := make(map[string]int, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
-}
 func normalizeQueryModelServiceTier(value string) (string, bool) {
 	return agentbuiltin.CoderNormalizeServiceTier(value)
 }
