@@ -71,6 +71,7 @@ const (
 
 type ModelEmbeddingConfig struct {
 	Dimension    int
+	BatchSize    int
 	Timeout      int
 	EndpointPath string
 }
@@ -272,6 +273,9 @@ func validateModelForRuntime(model ModelDefinition, modelType string) error {
 	}
 	if modelType == ModelTypeEmbedding && model.Embedding.Dimension <= 0 {
 		return fmt.Errorf("model %s embedding.dimension is required", model.Key)
+	}
+	if modelType == ModelTypeEmbedding && model.Embedding.BatchSize < 0 {
+		return fmt.Errorf("model %s embedding.batchSize must be positive when configured", model.Key)
 	}
 	if modelType == ModelTypeImageGeneration {
 		if err := ValidateModelImageConfig(model.Image); err != nil {
@@ -724,6 +728,7 @@ func loadModelEmbedding(raw any) ModelEmbeddingConfig {
 	}
 	return ModelEmbeddingConfig{
 		Dimension:    intNode(values["dimension"]),
+		BatchSize:    intNode(values["batchSize"]),
 		Timeout:      intNode(values["timeout"]),
 		EndpointPath: strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
 	}

@@ -236,6 +236,9 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 			timeout = 60
 		}
 		role := map[string]any{"url": endpoint, "model": model.ModelID, "timeout_ms": timeout * 1000, "prompt": "raw"}
+		if model.Embedding.BatchSize > 0 {
+			role["batch_size"] = model.Embedding.BatchSize
+		}
 		if provider.APIKey != "" {
 			role["api_key"] = provider.APIKey
 		}

@@ -246,6 +246,7 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 		"modelId: text-embedding-v4",
 		"embedding:",
 		"  dimension: 1024",
+		"  batchSize: 20",
 		"  timeout: 60",
 		"  endpointPath: /v1/embeddings",
 	}, "\n")), 0o644); err != nil {
@@ -300,6 +301,7 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 	if embedding.Type != ModelTypeEmbedding ||
 		embedding.ModelID != "text-embedding-v4" ||
 		embedding.Embedding.Dimension != 1024 ||
+		embedding.Embedding.BatchSize != 20 ||
 		embedding.Embedding.Timeout != 60 ||
 		embedding.Embedding.EndpointPath != "/v1/embeddings" {
 		t.Fatalf("unexpected embedding model: %#v", embedding)

@@ -14,7 +14,7 @@ func TestGlobalCenterConfigUsesSelectedRegistryModel(t *testing.T) {
 		os.Mkdir(filepath.Join(root, dir), 0700)
 	}
 	os.WriteFile(filepath.Join(root, "providers", "test.yml"), []byte("key: test\nbaseUrl: https://example.test\napiKey: private-test-key\n"), 0600)
-	os.WriteFile(filepath.Join(root, "models", "embed.yml"), []byte("key: embed\nprovider: test\ntype: embedding\nmodelId: text-embedding-v4\nembedding:\n  dimension: 1024\n  endpointPath: /v1/embeddings\n"), 0600)
+	os.WriteFile(filepath.Join(root, "models", "embed.yml"), []byte("key: embed\nprovider: test\ntype: embedding\nmodelId: text-embedding-v4\nembedding:\n  dimension: 1024\n  batchSize: 20\n  endpointPath: /v1/embeddings\n"), 0600)
 	registry, err := models.LoadModelRegistry(root)
 	if err != nil {
 		t.Fatal(err)
@@ -34,16 +34,17 @@ func TestGlobalCenterConfigUsesSelectedRegistryModel(t *testing.T) {
 	var cfg struct {
 		Models struct {
 			Embedding struct {
-				Model  string
-				Prompt string
-				URL    string
+				BatchSize int `json:"batch_size"`
+				Model     string
+				Prompt    string
+				URL       string
 			}
 		}
 	}
 	if err = json.Unmarshal(raw, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Models.Embedding.Model != "text-embedding-v4" || cfg.Models.Embedding.Prompt != "raw" || cfg.Models.Embedding.URL != "https://example.test/v1/embeddings" {
+	if cfg.Models.Embedding.BatchSize != 20 || cfg.Models.Embedding.Model != "text-embedding-v4" || cfg.Models.Embedding.Prompt != "raw" || cfg.Models.Embedding.URL != "https://example.test/v1/embeddings" {
 		t.Fatal("wrong model snapshot")
 	}
 	st, _ := os.Stat(file)
