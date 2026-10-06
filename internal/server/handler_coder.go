@@ -170,27 +170,27 @@ type acpModelCatalogResponse struct {
 	} `json:"data"`
 }
 
-func (s *Server) acpBridgeConfigForAgent(agentKey string) (config.CoderACPBridgeConfig, bool) {
+func (s *Server) acpBridgeConfigForAgent(agentKey string) (config.ACPBridgeConfig, bool) {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" || s.deps.Registry == nil {
-		return config.CoderACPBridgeConfig{}, false
+		return config.ACPBridgeConfig{}, false
 	}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
 	if !ok || !catalog.AgentUsesACPCoderBackend(def) {
-		return config.CoderACPBridgeConfig{}, false
+		return config.ACPBridgeConfig{}, false
 	}
 	bridgeID := strings.TrimSpace(def.ACPBridgeID)
 	if bridgeID == "" {
-		return config.CoderACPBridgeConfig{}, false
+		return config.ACPBridgeConfig{}, false
 	}
-	bridge, ok := s.deps.Config.CoderSettings.ACPBridges[bridgeID]
+	bridge, ok := s.deps.Config.ACP.ACPBridges[bridgeID]
 	if !ok || strings.TrimSpace(bridge.BaseURL) == "" {
-		return config.CoderACPBridgeConfig{}, false
+		return config.ACPBridgeConfig{}, false
 	}
 	return bridge, true
 }
 
-func fetchACPCoderModelOptions(bridge config.CoderACPBridgeConfig) ([]api.CoderModelOption, error) {
+func fetchACPCoderModelOptions(bridge config.ACPBridgeConfig) ([]api.CoderModelOption, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(bridge.BaseURL), "/")
 	if baseURL == "" {
 		return nil, nil

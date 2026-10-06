@@ -190,7 +190,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 ## 3. 配置说明
 
-本地启动变量从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留启动/部署 allowlist。运行时配置使用 `configs/runtime.yml`，工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
+本地启动变量从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留启动/部署 allowlist。运行时配置使用 `configs/runtime.yml`，工具运行时与 AI 工具配置统一使用 `configs/tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
 
 Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。七个 `desktop_*` 域工具与网页控制工具（`workpanel_*`、`surface_*`、`awcp_*`）优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
@@ -221,7 +221,7 @@ Memory 深度调优使用 `configs/runtime.yml` 中的 `memory.*`。
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 
-ACP CODER bridge 在 `configs/coder-settings.yml` 的 `acp-bridges` 中定义；agent 以顶层 `engine: acp` 加 `runtimeConfig.acpBridgeId` 引用条目，`timeout-ms` 默认 `300000`。配置变更需重启 runtime。ACP bridge 须能访问同一 Workspace，地址配置保持兼容；Platform 将 canonical `runtimeConfig.workspaceRoot` 作为私有 `params.cwd` 传给本机 bridge，用户不能覆盖，普通 PROXY/CHANNEL 不转发宿主 cwd。详见 [ACP 工作目录契约](docs/智能体配置说明.md#本机-acp-工作目录契约)。
+ACP CODER bridge 在 `configs/agent-settings.yml` 的 `acp-bridges` 中定义；agent 以顶层 `engine: acp` 加 `runtimeConfig.acpBridgeId` 引用条目，`timeout-ms` 默认 `300000`。配置变更需重启 runtime。ACP bridge 须能访问同一 Workspace，地址配置保持兼容；Platform 将 canonical `runtimeConfig.workspaceRoot` 作为私有 `params.cwd` 传给本机 bridge，用户不能覆盖，普通 PROXY/CHANNEL 不转发宿主 cwd。详见 [ACP 工作目录契约](docs/智能体配置说明.md#本机-acp-工作目录契约)。
 
 Provider `apiKey` 按明文字符串读取：
 
@@ -232,39 +232,29 @@ Provider `apiKey` 按明文字符串读取：
 
 本仓库保留与参考仓库一致的结构化配置入口：
 
-- `configs/ai-tools.example.yml`
-- `configs/channels.example.yml`
-- `configs/coder-prompts.example.yml`
-- `configs/agent-creation.example.yml`
-- `configs/coder-settings.example.yml`
-- `configs/general-settings.example.yml`
-- `configs/kbase-prompts.example.yml`
-- `configs/kbase-settings.example.yml`
-- `configs/local-public-key.example.pem`
-- `configs/prompts.example.yml`
-- `configs/runtime.example.yml`
 - `configs/tools.example.yml`
+- `configs/channels.example.yml`
+- `configs/agent-prompt.example.yml`
+- `configs/agent-creation.example.yml`
+- `configs/agent-settings.example.yml`
+- `configs/local-public-key.example.pem`
+- `configs/runtime.example.yml`
 
 当前 Go runtime 实际会读取：
 
-- `configs/ai-tools.yml`
-- `configs/channels.yml`
-- `configs/coder-prompts.yml`
-- `configs/agent-creation.yml`
-- `configs/coder-settings.yml`
-- `configs/general-settings.yml`
-- `configs/kbase-prompts.yml`
-- `configs/kbase-settings.yml`
-- `configs/local-public-key.pem`
-- `configs/prompts.yml`
-- `configs/runtime.yml`
 - `configs/tools.yml`
+- `configs/channels.yml`
+- `configs/agent-prompt.yml`
+- `configs/agent-creation.yml`
+- `configs/agent-settings.yml`
+- `configs/local-public-key.pem`
+- `configs/runtime.yml`
 
 `configs/` 不是可配置目录，固定使用 runtime 根目录下的 `./configs`；容器内固定挂载到 `/opt/configs`。
 
 **静态配置**：`configs/` 下所有文件都只在进程启动时读取一次；修改 `configs/*.yml` 或 `configs/*.pem` 后必须重启 runtime 才会生效。
 
-**KBASE PDF 抽取**：正式服务包在已锁定的 darwin-arm64 与 windows-amd64 平台随 Host builtin 分发 `pdftotext`（Poppler 26.07.0）。运行时把服务包根目录的 `bin/` 前置到 PATH，因此 `configs/kbase-settings.yml` 保持 `binary: pdftotext`；显式的绝对路径或自定义命令仍由使用者负责提供。两个 payload 均完成来源、archive、manifest 与依赖闭包校验；Windows 的实际抽取 smoke 应在 Windows release runner 上执行后再对外发布。
+KBX 抽取由受管 CLI 负责；旧 KBASE 抽取配置已下线。配置归属与升级步骤见 [Agent 配置合并](docs/Agent配置合并.md)。
 
 本地 JWT 公钥规则：
 

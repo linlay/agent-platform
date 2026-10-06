@@ -39,6 +39,9 @@ type searchResponse struct {
 		Evidence evidence
 	}
 	Trace struct {
+		Steps []struct {
+			Reason string `json:"reason"`
+		} `json:"steps"`
 		Coverage struct {
 			RetrievalUsed       []string `json:"retrievalUsed"`
 			OptionalUnavailable []string `json:"optionalUnavailable"`
@@ -114,6 +117,11 @@ func (m *Manager) Search(ctx context.Context, key, query string, o kbase.SearchO
 	var response searchResponse
 	if err = m.call(ctx, l, true, &response, args...); err != nil {
 		return kbase.SearchResult{}, err
+	}
+	for _, step := range response.Trace.Steps {
+		if step.Reason == "vector_index_unavailable" || step.Reason == "dimension_mismatch" {
+			return kbase.SearchResult{}, unavailable("KBX vector index is unavailable or incompatible with runtime.kbx.embedding; inspect KBX status and explicitly rebuild vectors if required")
+		}
 	}
 	if response.Type != "kbx.search.response" || response.RetrievalVersion != 6 || response.Trace.ResultUnit != "chunk" {
 		return kbase.SearchResult{}, unavailable("KBX retrieval contract 6 with chunk results is required")

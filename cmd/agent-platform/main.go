@@ -30,6 +30,13 @@ type shutdownServer interface {
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "config-migrate" {
+		if err := config.RunConfigMigration(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "builtins-manifest" {
 		if err := builtins.RunManifestCommand(os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)

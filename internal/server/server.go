@@ -264,7 +264,7 @@ func New(deps Dependencies) (*Server, error) {
 		backgroundCtx, backgroundCancel = context.WithCancel(context.Background())
 	}
 	s := &Server{
-		acpRegistrations:  config.NewACPRegistrationStore(deps.Config.CoderSettings),
+		acpRegistrations:  config.NewACPRegistrationStore(deps.Config.ACP),
 		router:            http.NewServeMux(),
 		deps:              deps,
 		authVerifier:      authVerifier,

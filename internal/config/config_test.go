@@ -280,7 +280,7 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	for _, want := range []string{
 		"resource:\n",
 		"  ticket-ttl-seconds: 86400\n",
-		"# KBASE behavior settings live in configs/kbase-settings.yml.\n",
+		"kbx:\n",
 		"container-hub:\n",
 		"  base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}\n",
 		"  # auth-token:\n",
@@ -314,134 +314,16 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		}
 	}
 
-	kbaseSettingsExampleBytes, err := os.ReadFile(ProjectFile("configs/kbase-settings.example.yml"))
-	if err != nil {
-		t.Fatalf("read kbase settings example: %v", err)
+	var merged Config
+	if err := merged.applyAgentSettingsFile(ProjectFile("configs/agent-settings.example.yml")); err != nil {
+		t.Fatal(err)
 	}
-	kbaseSettingsExample := string(kbaseSettingsExampleBytes)
-	for _, want := range []string{
-		"# KBASE-specific runtime settings.\n",
-		"default-agent:\n",
-		"  # Optional default modelKey for new KBASE agents; leave empty to require explicit configuration.\n",
-		"  modelKey:\n",
-		"  # Optional default reasoning effort for new KBASE agents; leave empty to require explicit configuration.\n",
-		"  reasoningEffort:\n",
-		"embedding:\n",
-		"  # Default embedding modelKey for new KBASE agents. This must reference a\n",
-		"  # runtime/registries/models/*.yml model with type: embedding.\n",
-		"  modelKey:\n",
-		"index:\n",
-		"  fts:\n",
-		"    base-tokenizer: icu\n",
-		"  vector:\n",
-		"    ann-min-rows: 50000\n",
-		"maintenance:\n",
-		"  optimize-change-threshold: 1000\n",
-		"  optimize-interval: 24h\n",
-		"  version-retention: 168h\n",
-		"refresh:\n",
-		"  debounce: 2s\n",
-		"  reconcile-interval: 10m\n",
-		"extraction:\n",
-		"  timeout: 180s\n",
-		"  max-file-bytes: 314572800\n",
-		"  pdf:\n",
-		"    enabled: true\n",
-		"    backend: poppler\n",
-		"    binary: pdftotext\n",
-		"  docx:\n",
-		"    enabled: true\n",
-		"    backend: native\n",
-		"  pptx:\n",
-		"    enabled: true\n",
-		"    backend: native\n",
-		"    include-notes: true\n",
-	} {
-		if !strings.Contains(kbaseSettingsExample, want) {
-			t.Fatalf("expected kbase settings example to contain %q", want)
-		}
+	if err := merged.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
+		t.Fatal(err)
 	}
-
-	promptsExampleBytes, err := os.ReadFile(ProjectFile("configs/prompts.example.yml"))
-	if err != nil {
-		t.Fatalf("read prompts example: %v", err)
+	if !strings.Contains(merged.CoderPrompts.SystemPrompt, "```echarts") || !strings.Contains(merged.KBasePrompts.SystemPrompt, "kbase_search") {
+		t.Fatal("merged prompts lost content")
 	}
-	promptsExample := string(promptsExampleBytes)
-	for _, want := range []string{
-		"# Shared prompt configuration. Copy to configs/prompts.yml to customize locally.\n",
-		"# CODER prompts live in configs/coder-prompts.yml.\n",
-		"# KBASE prompts live in configs/kbase-prompts.yml.\n",
-		"skill:\n",
-		"tool-appendix:\n",
-		"plan-execute:\n",
-		"btw:\n",
-	} {
-		if !strings.Contains(promptsExample, want) {
-			t.Fatalf("expected prompts example to contain %q", want)
-		}
-	}
-	if strings.Contains(promptsExample, "\ncoder:\n") || strings.Contains(promptsExample, "You are CODER") {
-		t.Fatalf("expected prompts example to move CODER prompts to coder-prompts.example.yml")
-	}
-
-	coderPromptsExampleBytes, err := os.ReadFile(ProjectFile("configs/coder-prompts.example.yml"))
-	if err != nil {
-		t.Fatalf("read coder prompts example: %v", err)
-	}
-	coderPromptsExample := string(coderPromptsExampleBytes)
-	for _, want := range []string{
-		"# CODER-specific prompt configuration. Copy to configs/coder-prompts.yml to customize locally.\n",
-		"system-prompt: |\n",
-		"You are CODER, an interactive coding agent",
-		"When referencing existing local workspace files",
-		"# Response presentation",
-		"Use an ECharts chart only when it materially improves",
-		"The block content must be valid JSON",
-		"```echarts\n",
-		"planning-prompt: |\n",
-	} {
-		if !strings.Contains(coderPromptsExample, want) {
-			t.Fatalf("expected coder prompts example to contain %q", want)
-		}
-	}
-	for _, removed := range []string{"summary-system-prompt:", "summary-user-prompt-template:"} {
-		if strings.Contains(coderPromptsExample, removed) {
-			t.Fatalf("did not expect coder prompts example to contain legacy key %q", removed)
-		}
-	}
-	if strings.Contains(coderPromptsExample, "\ncoder:\n") {
-		t.Fatalf("expected coder prompts example to use top-level fields")
-	}
-
-	kbasePromptsExampleBytes, err := os.ReadFile(ProjectFile("configs/kbase-prompts.example.yml"))
-	if err != nil {
-		t.Fatalf("read kbase prompts example: %v", err)
-	}
-	kbasePromptsExample := string(kbasePromptsExampleBytes)
-	for _, want := range []string{
-		"# KBASE-specific prompt configuration. Copy to configs/kbase-prompts.yml to customize locally.\n",
-		"system-prompt: |\n",
-		"KBASE Mode\n",
-		"{{agent_key}}",
-		"{{workspace_dir}}",
-		"{{available_tools}}",
-		"kbase_search",
-		"kbase_files",
-		"kbase_read",
-		"call kbase_refresh once with force=false",
-		"retry the original kbase_files or kbase_search operation",
-		"do not treat zero or unavailable indexed counts as proof that the source contains no documents",
-		"never describe an unready index as an empty knowledge base",
-		"Use force=true only when the user explicitly requests a full index rebuild.",
-	} {
-		if !strings.Contains(kbasePromptsExample, want) {
-			t.Fatalf("expected kbase prompts example to contain %q", want)
-		}
-	}
-	if strings.Contains(kbasePromptsExample, "\nkbase:\n") {
-		t.Fatalf("expected kbase prompts example to use top-level fields")
-	}
-
 	envExampleBytes, err := os.ReadFile(ProjectFile(".env.example"))
 	if err != nil {
 		t.Fatalf("read env example: %v", err)
@@ -679,419 +561,9 @@ func TestLoadAPContainerHubBaseURLEnvOverridesRuntimeYAMLConfig(t *testing.T) {
 	})
 }
 
-func TestLoadPromptsConfigLeavesSkillInstructionsEmptyWhenFileMissing(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), nil, func() {
-				withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), nil, func() {
-					cfg, err := Load()
-					if err != nil {
-						t.Fatalf("load config: %v", err)
-					}
-					if cfg.Prompts.Skill.InstructionsPrompt != "" {
-						t.Fatalf("expected empty prompts override when file is missing, got %q", cfg.Prompts.Skill.InstructionsPrompt)
-					}
-					if cfg.CoderPrompts.SystemPrompt != "" {
-						t.Fatalf("expected empty coder prompt when file is missing, got %q", cfg.CoderPrompts.SystemPrompt)
-					}
-					if cfg.KBasePrompts.SystemPrompt != "" {
-						t.Fatalf("expected empty kbase prompt when file is missing, got %q", cfg.KBasePrompts.SystemPrompt)
-					}
-				})
-			})
-		})
-	})
-}
-
-func TestLoadPromptsConfigFromFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"skill:\n" +
-			"  catalog-header: custom skills header\n" +
-			"  disclosure-header: custom disclosure\n" +
-			"  instructions-label: custom label\n" +
-			"  instructions-prompt: |\n" +
-			"    custom skill instructions\n" +
-			"    second line\n" +
-			"tool-appendix:\n" +
-			"  tool-description-title: custom tool title\n" +
-			"  after-call-hint-title: custom hint title\n" +
-			"plan-execute:\n" +
-			"  task-execution-prompt-template: |\n" +
-			"    custom task {{task_id}}\n" +
-			"  plan-user-prompt-template: |\n" +
-			"    custom plan {{user_request}}\n" +
-			"  summary-system-prompt: custom summary system\n" +
-			"  summary-user-prompt-template: |\n" +
-			"    custom summary {{task_results}}\n" +
-			"btw:\n" +
-			"  user-prompt-template: |\n" +
-			"    custom BTW {{question_json}}\n" +
-			"  final-answer-prompt: custom BTW final\n"
-		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
-			withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), nil, func() {
-				withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), nil, func() {
-					cfg, err := Load()
-					if err != nil {
-						t.Fatalf("load config: %v", err)
-					}
-					want := "custom skill instructions\nsecond line"
-					if cfg.Prompts.Skill.InstructionsPrompt != want {
-						t.Fatalf("expected prompts override %q, got %q", want, cfg.Prompts.Skill.InstructionsPrompt)
-					}
-					if cfg.Prompts.Skill.CatalogHeader != "custom skills header" {
-						t.Fatalf("expected catalog header override, got %q", cfg.Prompts.Skill.CatalogHeader)
-					}
-					if cfg.Prompts.Skill.DisclosureHeader != "custom disclosure" {
-						t.Fatalf("expected disclosure header override, got %q", cfg.Prompts.Skill.DisclosureHeader)
-					}
-					if cfg.Prompts.Skill.InstructionsLabel != "custom label" {
-						t.Fatalf("expected instructions label override, got %q", cfg.Prompts.Skill.InstructionsLabel)
-					}
-					if cfg.Prompts.ToolAppendix.ToolDescriptionTitle != "custom tool title" {
-						t.Fatalf("expected tool description title override, got %q", cfg.Prompts.ToolAppendix.ToolDescriptionTitle)
-					}
-					if cfg.Prompts.ToolAppendix.AfterCallHintTitle != "custom hint title" {
-						t.Fatalf("expected after call hint title override, got %q", cfg.Prompts.ToolAppendix.AfterCallHintTitle)
-					}
-					if cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate != "custom task {{task_id}}" {
-						t.Fatalf("expected task prompt override, got %q", cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate)
-					}
-					if cfg.Prompts.PlanExecute.PlanUserPromptTemplate != "custom plan {{user_request}}" {
-						t.Fatalf("expected plan user prompt override, got %q", cfg.Prompts.PlanExecute.PlanUserPromptTemplate)
-					}
-					if cfg.Prompts.PlanExecute.SummarySystemPrompt != "custom summary system" {
-						t.Fatalf("expected summary system prompt override, got %q", cfg.Prompts.PlanExecute.SummarySystemPrompt)
-					}
-					if cfg.Prompts.PlanExecute.SummaryUserPromptTemplate != "custom summary {{task_results}}" {
-						t.Fatalf("expected summary user prompt override, got %q", cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)
-					}
-					if cfg.Prompts.BTW.UserPromptTemplate != "custom BTW {{question_json}}" {
-						t.Fatalf("expected BTW prompt override, got %q", cfg.Prompts.BTW.UserPromptTemplate)
-					}
-					if cfg.Prompts.BTW.FinalAnswerPrompt != "custom BTW final" {
-						t.Fatalf("expected BTW final prompt override, got %q", cfg.Prompts.BTW.FinalAnswerPrompt)
-					}
-
-				})
-			})
-		})
-	})
-}
-
-func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"system-prompt: |\n" +
-			"  custom coder system\n" +
-			"  read before editing\n" +
-			"planning-prompt: |\n" +
-			"  custom coder planning\n" +
-			"  use finalize_planning only\n"
-		withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.CoderPrompts.SystemPrompt != "custom coder system\nread before editing" {
-				t.Fatalf("expected coder system prompt override, got %q", cfg.CoderPrompts.SystemPrompt)
-			}
-			want := "custom coder planning\nuse finalize_planning only"
-			if cfg.CoderPrompts.PlanningPrompt != want {
-				t.Fatalf("expected coder planning prompt %q, got %q", want, cfg.CoderPrompts.PlanningPrompt)
-			}
-		})
-	})
-}
-
-func TestLoadKBasePromptsConfigFromFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		kbasePromptsContent := "" +
-			"system-prompt: |\n" +
-			"  dedicated kbase system\n" +
-			"  cite evidence\n"
-		withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), &kbasePromptsContent, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.KBasePrompts.SystemPrompt != "dedicated kbase system\ncite evidence" {
-				t.Fatalf("expected dedicated kbase system prompt, got %q", cfg.KBasePrompts.SystemPrompt)
-			}
-		})
-	})
-}
-
-func TestLoadCoderSettingsMissingFileLeavesEmpty(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), nil, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.CoderSettings.WorkspaceAgents.Enabled || cfg.CoderSettings.WorkspaceAgents.File != "" {
-				t.Fatalf("expected empty coder workspace agents config, got %#v", cfg.CoderSettings.WorkspaceAgents)
-			}
-			if cfg.CoderSettings.DefaultAgent.ModelKey != "" || cfg.CoderSettings.DefaultAgent.ReasoningEffort != "" || len(cfg.CoderSettings.DefaultAgent.Budget) != 0 {
-				t.Fatalf("expected empty coder default agent config, got %#v", cfg.CoderSettings.DefaultAgent)
-			}
-			if len(cfg.CoderSettings.ACPBridges) != 0 {
-				t.Fatalf("expected empty coder ACP bridges config, got %#v", cfg.CoderSettings.ACPBridges)
-			}
-		})
-	})
-}
-
-func TestLoadCoderSettingsConfigFromFile(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{"CODEX_ACP_BRIDGE_AUTH_TOKEN": "coder-token"}, func() {
-		content := "" +
-			"default-agent:\n" +
-			"  modelKey: deepseek-v4-pro\n" +
-			"  reasoningEffort: MEDIUM\n" +
-			"  budget:\n" +
-			"    timeout: 3600\n" +
-			"    maxSteps: 240\n" +
-			"    tool:\n" +
-			"      maxCalls: 200\n" +
-			"acp-bridges:\n" +
-			"  codex:\n" +
-			"    base-url: http://127.0.0.1:3211\n" +
-			"    auth-token: ${CODEX_ACP_BRIDGE_AUTH_TOKEN:}\n" +
-			"  codex-alt:\n" +
-			"    base-url: http://127.0.0.1:3212\n" +
-			"    timeout-ms: 420000\n" +
-			"workspace-agents:\n" +
-			"  enabled: true\n" +
-			"  file: RULES.md\n"
-		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if !cfg.CoderSettings.WorkspaceAgents.Enabled || cfg.CoderSettings.WorkspaceAgents.File != "RULES.md" {
-				t.Fatalf("unexpected coder workspace agents override: %#v", cfg.CoderSettings.WorkspaceAgents)
-			}
-			if cfg.CoderSettings.DefaultAgent.ModelKey != "deepseek-v4-pro" || cfg.CoderSettings.DefaultAgent.ReasoningEffort != "MEDIUM" {
-				t.Fatalf("unexpected coder default agent override: %#v", cfg.CoderSettings.DefaultAgent)
-			}
-			budget := cfg.CoderSettings.DefaultAgent.Budget
-			tool, _ := budget["tool"].(map[string]any)
-			if intValue(budget["timeout"], 0) != 3600 || intValue(budget["maxSteps"], 0) != 240 || intValue(tool["maxCalls"], 0) != 200 {
-				t.Fatalf("unexpected coder default agent budget: %#v", budget)
-			}
-			if got := cfg.CoderSettings.ACPBridges["codex"]; got.BaseURL != "http://127.0.0.1:3211" || got.AuthToken != "coder-token" || got.TimeoutMS != 300000 {
-				t.Fatalf("unexpected codex ACP bridge config: %#v", got)
-			}
-			if got := cfg.CoderSettings.ACPBridges["codex-alt"]; got.BaseURL != "http://127.0.0.1:3212" || got.TimeoutMS != 420000 {
-				t.Fatalf("unexpected codex-alt ACP bridge config: %#v", got)
-			}
-		})
-	})
-}
-
-func TestLoadGeneralSettings(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "general-settings.yml"), nil, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.GeneralSettings.WorkspaceAgents.Enabled || cfg.GeneralSettings.WorkspaceAgents.File != "AGENTS.md" {
-				t.Fatalf("general agents must not read the project rules file by default: %#v", cfg.GeneralSettings.WorkspaceAgents)
-			}
-			if cfg.GeneralSettings.DefaultAgent.ModelKey != "" {
-				t.Fatalf("unexpected default model: %#v", cfg.GeneralSettings.DefaultAgent)
-			}
-		})
-		content := "" +
-			"default-agent:\n" +
-			"  modelKey: general-model\n" +
-			"  reasoningEffort: HIGH\n" +
-			"  budget:\n" +
-			"    maxSteps: 200\n" +
-			"workspace-agents:\n" +
-			"  enabled: true\n" +
-			"  file: RULES.md\n"
-		withProjectFileContents(t, filepath.Join("configs", "general-settings.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			settings := cfg.GeneralSettings
-			if settings.DefaultAgent.ModelKey != "general-model" || settings.DefaultAgent.ReasoningEffort != "HIGH" || intValue(settings.DefaultAgent.Budget["maxSteps"], 0) != 200 {
-				t.Fatalf("unexpected general default agent: %#v", settings.DefaultAgent)
-			}
-			if !settings.WorkspaceAgents.Enabled || settings.WorkspaceAgents.File != "RULES.md" {
-				t.Fatalf("unexpected general workspace agents: %#v", settings.WorkspaceAgents)
-			}
-		})
-	})
-}
-
-func TestLoadCoderSettingsRejectsACPBridgeWithoutBaseURL(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"acp-bridges:\n" +
-			"  codex:\n" +
-			"    timeout-ms: 300000\n"
-		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &content, func() {
-			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "acp-bridges.codex.base-url is required") {
-				t.Fatalf("expected missing base-url error, got %v", err)
-			}
-		})
-	})
-}
-
-func TestLoadCoderSettingsRejectsLegacyACPProxiesAndInvalidBridgeTimeout(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		legacy := "acp-proxies:\n  codex:\n    base-url: http://127.0.0.1:17071\n"
-		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &legacy, func() {
-			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "acp-proxies was removed; use acp-bridges") {
-				t.Fatalf("expected legacy ACP proxies rejection, got %v", err)
-			}
-		})
-
-		invalidTimeout := "acp-bridges:\n  codex:\n    base-url: http://127.0.0.1:17071\n    timeout-ms: 0\n"
-		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &invalidTimeout, func() {
-			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "acp-bridges.codex.timeout-ms must be a positive integer") {
-				t.Fatalf("expected invalid bridge timeout rejection, got %v", err)
-			}
-		})
-
-		legacyTimeout := "acp-bridges:\n  codex:\n    base-url: http://127.0.0.1:17071\n    timeout: 300\n"
-		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &legacyTimeout, func() {
-			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "acp-bridges.codex.timeout was removed; use timeout-ms") {
-				t.Fatalf("expected legacy bridge timeout rejection, got %v", err)
-			}
-		})
-	})
-}
-
-func TestLoadKBaseSettingsMissingFileUsesDefaults(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
-					t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
-				}
-				if cfg.KBase.DefaultAgent.ModelKey != "" || cfg.KBase.DefaultAgent.ReasoningEffort != "" {
-					t.Fatalf("expected empty kbase default agent config, got %#v", cfg.KBase.DefaultAgent)
-				}
-				if cfg.KBase.Embedding.ModelKey != "" {
-					t.Fatalf("expected empty kbase embedding config, got %#v", cfg.KBase.Embedding)
-				}
-				assertKBaseLanceDefaults(t, cfg.KBase)
-				if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
-					cfg.KBase.Extraction.MaxFileBytes != 50*1024*1024 ||
-					!cfg.KBase.Extraction.PDF.Enabled ||
-					cfg.KBase.Extraction.PDF.Backend != "poppler" ||
-					cfg.KBase.Extraction.PDF.Binary != "pdftotext" ||
-					!cfg.KBase.Extraction.PPTX.IncludeNotes {
-					t.Fatalf("unexpected kbase extraction defaults: %#v", cfg.KBase.Extraction)
-				}
-			})
-		})
-	})
-}
-
-func TestLoadKBaseSettingsConfigFromFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		kbaseSettings := "" +
-			"default-agent:\n" +
-			"  modelKey: settings-kbase-model\n" +
-			"  reasoningEffort: HIGH\n" +
-			"embedding:\n" +
-			"  modelKey: settings-embedding-model-key\n" +
-			"index:\n" +
-			"  fts:\n" +
-			"    base-tokenizer: ngram\n" +
-			"  vector:\n" +
-			"    ann-min-rows: 25000\n" +
-			"maintenance:\n" +
-			"  optimize-change-threshold: 2500\n" +
-			"  optimize-interval: 12h\n" +
-			"  version-retention: 240h\n" +
-			"refresh:\n" +
-			"  debounce: 6s\n" +
-			"extraction:\n" +
-			"  timeout: 66s\n" +
-			"  max-file-bytes: 6666\n" +
-			"  pdf:\n" +
-			"    enabled: true\n" +
-			"    binary: settings-pdftotext\n" +
-			"  pptx:\n" +
-			"    include-notes: true\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), &kbaseSettings, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.KBase.Refresh.Debounce.String() != "6s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
-					t.Fatalf("unexpected kbase refresh config: %#v", cfg.KBase.Refresh)
-				}
-				if cfg.KBase.DefaultAgent.ModelKey != "settings-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "HIGH" {
-					t.Fatalf("unexpected kbase default agent config: %#v", cfg.KBase.DefaultAgent)
-				}
-				if cfg.KBase.Embedding.ModelKey != "settings-embedding-model-key" {
-					t.Fatalf("unexpected kbase embedding config: %#v", cfg.KBase.Embedding)
-				}
-				if cfg.KBase.Index.FTS.BaseTokenizer != "ngram" || cfg.KBase.Index.Vector.ANNMinRows != 25000 ||
-					cfg.KBase.Maintenance.OptimizeChangeThreshold != 2500 ||
-					cfg.KBase.Maintenance.OptimizeInterval != 12*time.Hour ||
-					cfg.KBase.Maintenance.VersionRetention != 240*time.Hour {
-					t.Fatalf("unexpected kbase Lance settings: %#v", cfg.KBase)
-				}
-				if cfg.KBase.Extraction.Timeout.String() != "1m6s" ||
-					cfg.KBase.Extraction.MaxFileBytes != 6666 ||
-					!cfg.KBase.Extraction.PDF.Enabled ||
-					cfg.KBase.Extraction.PDF.Binary != "settings-pdftotext" ||
-					!cfg.KBase.Extraction.PPTX.IncludeNotes {
-					t.Fatalf("unexpected kbase settings config: %#v", cfg.KBase.Extraction)
-				}
-			})
-		})
-	})
-}
-
-func TestLoadKBaseSettingsRejectsInvalidLanceConfig(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{name: "storage", content: "storage:\n  engine: remote\n", want: "storage is no longer supported"},
-		{name: "migration", content: "migration:\n  max-concurrency: 0\n", want: "migration is no longer supported"},
-		{name: "ann threshold", content: "index:\n  vector:\n    ann-min-rows: 999\n", want: "ann-min-rows"},
-		{name: "optimize threshold", content: "maintenance:\n  optimize-change-threshold: 0\n", want: "optimize-change-threshold"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			withIsolatedEnv(t, nil, func() {
-				withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
-					withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), &test.content, func() {
-						_, err := Load()
-						if err == nil || !strings.Contains(err.Error(), test.want) {
-							t.Fatalf("Load() error = %v, want substring %q", err, test.want)
-						}
-					})
-				})
-			})
-		})
-	}
-}
-
 func TestLoadVisionRecognizeMissingFileDefaultsDisabled(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), nil, func() {
 			withProjectFileContents(t, filepath.Join("configs", "vision-recognize.yml"), nil, func() {
 				cfg, err := Load()
 				if err != nil {
@@ -1124,7 +596,7 @@ func TestLoadVisionRecognizeConfigFromFile(t *testing.T) {
 			"      system-prompt: |\n" +
 			"        extract text\n" +
 			"        return json\n"
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1148,7 +620,7 @@ func TestLoadVisionRecognizeConfigFromFile(t *testing.T) {
 
 func TestLoadWebFetchMissingFileDefaultsDisabled(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), nil, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1183,7 +655,7 @@ func TestLoadWebFetchConfigFromFile(t *testing.T) {
 			"      max-output-tokens: 321\n" +
 			"      system-prompt: |\n" +
 			"        summarize web pages\n"
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1210,7 +682,7 @@ func TestLoadWebFetchConfigFromFile(t *testing.T) {
 
 func TestLoadImageGenerateMissingFileDefaultsDisabled(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), nil, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1234,7 +706,7 @@ func TestLoadImageGenerateConfigFromFile(t *testing.T) {
 			"  profiles:\n" +
 			"    general:\n" +
 			"      model-key: babelark-gemini-3_1-flash-image\n"
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1270,8 +742,8 @@ func TestLoadImageGenerateConfigRejectsProfileEndpointOverride(t *testing.T) {
 			"    general:\n" +
 			"      model-key: image-model\n" +
 			"      endpoint-path: /v1/images/generations\n"
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
-			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "endpoint-path is no longer supported") {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "tools.image-generate.profiles.general.endpoint-path") {
 				t.Fatalf("expected endpoint override rejection, got %v", err)
 			}
 		})
@@ -1295,16 +767,10 @@ func TestLoadAIToolsConfigFromFile(t *testing.T) {
 			"        extract merged text\n" +
 			"image-generate:\n" +
 			"  enabled: false\n" +
-			"  profiles: {}\n" +
-			"speech:\n" +
-			"  speech-to-text:\n" +
-			"    enabled: false\n" +
-			"    profiles: {}\n" +
-			"  text-to-speech:\n" +
-			"    enabled: false\n" +
-			"    profiles: {}\n"
+			"  profiles: {}\n"
+
 		withProjectFileContents(t, filepath.Join("configs", "vision-recognize.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
+			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 				cfg, err := Load()
 				if err != nil {
 					t.Fatalf("load config: %v", err)
@@ -1380,21 +846,14 @@ func TestLoadUsesConfigDirOptionForStructuredFilesAndAuthKey(t *testing.T) {
 		t.Fatalf("create configs dir: %v", err)
 	}
 	if err := os.WriteFile(
-		filepath.Join(configsDir, "prompts.yml"),
-		[]byte("skill:\n  catalog-header: service config header\n"),
+		filepath.Join(configsDir, "agent-prompt.yml"),
+		[]byte("shared:\n  skill:\n    catalog-header: service config header\ncoder:\n  system-prompt: service coder system\n  planning-prompt: service coder plan\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write prompts config: %v", err)
 	}
 	if err := os.WriteFile(
-		filepath.Join(configsDir, "coder-prompts.yml"),
-		[]byte("system-prompt: service coder system\nplanning-prompt: service coder plan\n"),
-		0o644,
-	); err != nil {
-		t.Fatalf("write coder prompts config: %v", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(configsDir, "ai-tools.yml"),
+		filepath.Join(configsDir, "tools.yml"),
 		[]byte("vision-recognize:\n  enabled: true\n  default-profile: service\n"),
 		0o644,
 	); err != nil {
@@ -1402,7 +861,7 @@ func TestLoadUsesConfigDirOptionForStructuredFilesAndAuthKey(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(configsDir, "tools.yml"),
-		[]byte("bash:\n  shell-executable: service-shell\n"),
+		[]byte("vision-recognize:\n  enabled: true\n  default-profile: service\nbash:\n  shell-executable: service-shell\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write tools config: %v", err)
@@ -2758,44 +2217,6 @@ func withProjectFileContents(t *testing.T, relativePath string, content *string,
 	})
 
 	fn()
-}
-
-func TestLoadIgnoresRetiredMemoryPrompts(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		configDir := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(configDir, "configs"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		path := filepath.Join(configDir, "configs", "prompts.yml")
-		content := "btw:\n  user-prompt-template: preserved BTW prompt\n"
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		baseline, err := Load(LoadOptions{ConfigDir: configDir})
-		if err != nil {
-			t.Fatalf("load baseline: %v", err)
-		}
-		if baseline.Prompts.BTW.UserPromptTemplate != "preserved BTW prompt" {
-			t.Fatal("supported prompt was not loaded")
-		}
-		for name, retired := range map[string]string{
-			"empty":      "memory: {}\n",
-			"configured": "memory:\n  system-prompt-template: retired system prompt\n  user-prompt-template: retired user prompt\n",
-		} {
-			t.Run(name, func(t *testing.T) {
-				if err := os.WriteFile(path, []byte(content+retired), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				cfg, err := Load(LoadOptions{ConfigDir: configDir})
-				if err != nil {
-					t.Fatalf("load with retired memory prompts: %v", err)
-				}
-				if !reflect.DeepEqual(cfg.Prompts, baseline.Prompts) {
-					t.Fatalf("retired memory prompts changed effective prompts: got %#v, want %#v", cfg.Prompts, baseline.Prompts)
-				}
-			})
-		}
-	})
 }
 
 func TestNewApprovalKeysUseLevelDefaultsAndInheritance(t *testing.T) {

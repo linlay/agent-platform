@@ -204,8 +204,8 @@ func (s *Server) buildAgentCreationOptions(locale string) api.AgentCreationOptio
 	// CODER tools come from its built-in default when agent.yml declares none.
 	coder.BaseTools = agentbuiltin.CoderDefaultToolNames()
 
-	bridgeIDs := make([]string, 0, len(cfg.CoderSettings.ACPBridges))
-	for id := range cfg.CoderSettings.ACPBridges {
+	bridgeIDs := make([]string, 0, len(cfg.ACP.ACPBridges))
+	for id := range cfg.ACP.ACPBridges {
 		bridgeIDs = append(bridgeIDs, id)
 	}
 	sort.Strings(bridgeIDs)
@@ -218,7 +218,7 @@ func (s *Server) buildAgentCreationOptions(locale string) api.AgentCreationOptio
 		DefaultGroups:           []string{},
 	}
 	if !acp.Available {
-		acp.UnavailableReason = label("未在 configs/coder-settings.yml 配置 acp-bridges", "No acp-bridges are configured in configs/coder-settings.yml")
+		acp.UnavailableReason = label("未在 configs/agent-settings.yml 配置 acp-bridges", "No acp-bridges are configured in configs/agent-settings.yml")
 	}
 	for _, id := range bridgeIDs {
 		acp.ACPBridges = append(acp.ACPBridges, api.AgentCreationACPBridge{ID: id})

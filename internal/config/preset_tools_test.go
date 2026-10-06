@@ -13,15 +13,15 @@ func TestPresetToolsConfig(t *testing.T) {
 		want  []string
 		bad   bool
 	}{
-		{"bash: {}", nil, false}, {"preset-tools: []", []string{}, false},
+		{"general: {}", nil, false}, {"preset-tools: []", []string{}, false},
 		{"preset-tools:\n  - datetime\n  - wait\n  - datetime", []string{"datetime", "wait"}, false},
 		{"preset-tools: wait", nil, true}, {"preset-tools: [1]", nil, true}, {"preset-tools: ['']", nil, true}, {"preset-tools: null", nil, true},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "tools.yml")
+			path := filepath.Join(t.TempDir(), "agent-settings.yml")
 			_ = os.WriteFile(path, []byte(tc.value), 0600)
 			var cfg Config
-			err := cfg.applyToolsFile(path, false)
+			err := cfg.applyAgentSettingsFile(path)
 			if (err != nil) != tc.bad {
 				t.Fatalf("err=%v", err)
 			}
@@ -44,10 +44,10 @@ func TestPresetConnectorsConfig(t *testing.T) {
 		{"preset-connectors: ['../bad']", nil, true}, {"preset-connectors: [1]", nil, true},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "tools.yml")
+			path := filepath.Join(t.TempDir(), "agent-settings.yml")
 			_ = os.WriteFile(path, []byte(tc.value), 0600)
 			cfg := Config{PresetConnectors: []string{"stale"}}
-			err := cfg.applyToolsFile(path, false)
+			err := cfg.applyAgentSettingsFile(path)
 			if (err != nil) != tc.bad {
 				t.Fatalf("err=%v", err)
 			}

@@ -28,7 +28,7 @@ inputSchema:
       description: Required. Recognition instruction, such as what to describe, extract, compare, or transcribe.
     profile:
       type: string
-      description: Optional. Profile name from configs/ai-tools.yml > vision-recognize. Defaults to default-profile.
+      description: Optional. Profile name from configs/tools.yml > vision-recognize. Defaults to default-profile.
     outputFormat:
       type: string
       description: Optional. Desired result shape. Supports text or json, overriding the selected profile.

@@ -487,7 +487,7 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 				ModelKey:        "mock-model",
 				ReasoningEffort: "MEDIUM",
 			}
-			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
+			cfg.KBX.Embedding = config.KBaseEmbeddingConfig{
 				ModelKey: "mock-embedding-model-key",
 			}
 		},
@@ -517,21 +517,8 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 		t.Fatalf("expected created kbase model key mock-model, got %#v", created.Meta)
 	}
 	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
-	embedding, _ := kbaseConfig["embedding"].(map[string]any)
-	if embedding["modelKey"] != "mock-embedding-model-key" {
-		t.Fatalf("expected kbase default embedding modelKey, got %#v", kbaseConfig)
-	}
-	if _, ok := embedding["providerKey"]; ok {
-		t.Fatalf("expected kbase default embedding providerKey not to be persisted, got %#v", embedding)
-	}
-	if _, ok := embedding["model"]; ok {
-		t.Fatalf("expected kbase default embedding model not to be persisted, got %#v", embedding)
-	}
-	if _, ok := embedding["dimension"]; ok {
-		t.Fatalf("expected kbase default embedding dimension not to be persisted, got %#v", embedding)
-	}
-	if _, ok := embedding["timeout"]; ok {
-		t.Fatalf("expected kbase default embedding timeout not to be persisted, got %#v", embedding)
+	if _, exists := kbaseConfig["embedding"]; exists {
+		t.Fatal("deployment embedding must not be written into Agent YAML")
 	}
 	def, ok := fixture.registry.AgentDefinition(created.Key)
 	if !ok {
@@ -553,7 +540,7 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	}
 }
 
-func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) {
+func TestAgentCreateKBasePreservesExplicitModelAndChunkConfig(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
@@ -565,7 +552,7 @@ func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) 
 				ModelKey:        "default-model",
 				ReasoningEffort: "MEDIUM",
 			}
-			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
+			cfg.KBX.Embedding = config.KBaseEmbeddingConfig{
 				ModelKey: "default-embedding-model-key",
 			}
 		},
@@ -588,9 +575,6 @@ func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) 
 				"workspaceRoot": workspaceDir,
 			},
 			"kbaseConfig": map[string]any{
-				"embedding": map[string]any{
-					"modelKey": "explicit-embedding-model-key",
-				},
 				"chunk": map[string]any{
 					"unit":          "estimatedTokens",
 					"maxTokens":     1200,
@@ -608,9 +592,8 @@ func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) 
 		t.Fatalf("expected explicit kbase reasoning effort to win, got %#v", modelConfig)
 	}
 	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
-	embedding, _ := kbaseConfig["embedding"].(map[string]any)
-	if embedding["modelKey"] != "explicit-embedding-model-key" {
-		t.Fatalf("expected explicit kbase embedding modelKey to win, got %#v", kbaseConfig)
+	if _, exists := kbaseConfig["embedding"]; exists {
+		t.Fatal("deployment embedding must not be written into Agent YAML")
 	}
 	def, ok := fixture.registry.AgentDefinition(created.Key)
 	if !ok {
@@ -635,7 +618,7 @@ func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 				ModelKey:        "mock-model",
 				ReasoningEffort: "MEDIUM",
 			}
-			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
+			cfg.KBX.Embedding = config.KBaseEmbeddingConfig{
 				ModelKey: "default-embedding-model-key",
 			}
 		},
@@ -653,7 +636,7 @@ func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 			},
 			"kbaseConfig": map[string]any{
 				"embedding": map[string]any{
-					"providerKey": "openai",
+					"modelKey": "old-agent-model",
 				},
 			},
 		},
@@ -666,7 +649,7 @@ func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "kbaseConfig.embedding.providerKey is no longer supported") {
+	if !strings.Contains(rec.Body.String(), "kbaseConfig.embedding retired") {
 		t.Fatalf("expected removed embedding field error, got %s", rec.Body.String())
 	}
 }
@@ -680,7 +663,7 @@ func TestAgentCreateKBaseRejectsInvalidChunkUnit(t *testing.T) {
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
 			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{ModelKey: "mock-model"}
-			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{ModelKey: "default-embedding-model-key"}
+			cfg.KBX.Embedding = config.KBaseEmbeddingConfig{ModelKey: "default-embedding-model-key"}
 		},
 	})
 	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
@@ -1219,7 +1202,7 @@ func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},
@@ -1318,7 +1301,7 @@ func TestAgentModelConfigUpdateRejectsUnsupportedACPServiceTier(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},

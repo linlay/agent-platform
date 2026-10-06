@@ -10,7 +10,8 @@ bundle_root="$tmp_dir/agent-platform"
 mkdir -p "$bundle_root/backend" "$bundle_root/configs" "$bundle_root/scripts"
 cp "$REPO_ROOT/scripts/release-assets/program/unix/deploy.sh" "$bundle_root/deploy.sh"
 cp "$REPO_ROOT/scripts/release-assets/program/unix/program-common.sh" "$bundle_root/scripts/program-common.sh"
-cp "$REPO_ROOT/configs/ai-tools.example.yml" "$bundle_root/configs/ai-tools.example.yml"
+cp "$REPO_ROOT/configs/tools.example.yml" "$bundle_root/configs/tools.example.yml"
+cp "$REPO_ROOT/configs/agent-settings.example.yml" "$bundle_root/configs/agent-settings.example.yml"
 printf '{}\n' >"$bundle_root/manifest.json"
 printf 'AP_RUNTIME_DIR=\nAP_CONTAINER_HUB_BASE_URL=\n' >"$bundle_root/.env.example"
 cat >"$bundle_root/backend/agent-platform" <<'EOF'
@@ -38,7 +39,7 @@ run_deploy() {
 
 configured_output="$tmp_dir/configured"
 run_deploy "$configured_output" --ai-image-generate-model-key th-gpt-image-2_5-sunburst
-configured_file="$configured_output/configs/ai-tools.yml"
+configured_file="$configured_output/configs/tools.yml"
 image_generate_block="$(
   awk '
     /^image-generate:$/ { in_section = 1 }
@@ -65,14 +66,14 @@ image_generate_block="$(
 
 default_output="$tmp_dir/default"
 run_deploy "$default_output"
-cmp "$REPO_ROOT/configs/ai-tools.example.yml" "$default_output/configs/ai-tools.yml"
+cmp "$REPO_ROOT/configs/tools.example.yml" "$default_output/configs/tools.yml"
 
 existing_output="$tmp_dir/existing"
 mkdir -p "$existing_output/configs"
-printf 'custom-ai-tools-config\n' >"$existing_output/configs/ai-tools.yml"
+printf 'custom-tools-config\n' >"$existing_output/configs/tools.yml"
 run_deploy "$existing_output" --ai-image-generate-model-key ignored-model-key
-[[ "$(cat "$existing_output/configs/ai-tools.yml")" == "custom-ai-tools-config" ]] || {
-  echo "[program-deploy-test] existing ai-tools.yml was overwritten" >&2
+[[ "$(cat "$existing_output/configs/tools.yml")" == "custom-tools-config" ]] || {
+  echo "[program-deploy-test] existing tools.yml was overwritten" >&2
   exit 1
 }
 
@@ -80,7 +81,7 @@ reset_output="$tmp_dir/reset-output"
 reset_backup="$tmp_dir/config-backups/v0.3.26-to-v0.3.27/agent-platform"
 mkdir -p "$reset_output/configs"
 printf 'ENGINE=local\nOLD_FIELD=remove-me\nAP_CHAT_RESOURCE_TICKET_SECRET=ticket-secret\n' >"$reset_output/.env"
-printf 'stale-yaml\n' >"$reset_output/configs/ai-tools.yml"
+printf 'stale-yaml\n' >"$reset_output/configs/tools.yml"
 run_deploy "$reset_output" \
   --desktop-config-reset \
   --desktop-config-backup-dir "$reset_backup" \
@@ -91,7 +92,7 @@ grep -Fqx 'OLD_FIELD=remove-me' "$reset_backup/.env"
 grep -Fqx 'AP_CHAT_RESOURCE_TICKET_SECRET=ticket-secret' "$reset_output/.env"
 ! grep -Fq 'ENGINE=' "$reset_output/.env"
 ! grep -Fq 'OLD_FIELD=' "$reset_output/.env"
-cmp "$REPO_ROOT/configs/ai-tools.example.yml" "$reset_output/configs/ai-tools.yml"
+cmp "$REPO_ROOT/configs/tools.example.yml" "$reset_output/configs/tools.yml"
 
 resource_source="$tmp_dir/current env.zip"
 resource_previous_source="$tmp_dir/previous env.zip"
@@ -252,3 +253,18 @@ run_deploy "$preview_output" --desktop-config-reset --desktop-config-backup-dir 
 grep -Fq 'api-base-url: "https://new-api.test"' "$preview_file"
 grep -Fq 'public-base-url: "https://new-public.test"' "$preview_file"
 echo '[program-deploy-test] preview initialization and reset passed'
+
+mode_output="$tmp_dir/mode-settings"
+run_deploy "$mode_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test --coder-model-key coder-fixture --coder-reasoning-effort HIGH --kbase-model-key answer-fixture --kbase-reasoning-effort MEDIUM --kbase-embedding-model-key embedding-fixture
+grep -Fq '    modelKey: coder-fixture' "$mode_output/configs/agent-settings.yml"
+grep -Fq '    modelKey: answer-fixture' "$mode_output/configs/agent-settings.yml"
+grep -Fq '    model-key: embedding-fixture' "$mode_output/configs/runtime.yml"
+legacy_output="$tmp_dir/legacy-settings"
+mkdir -p "$legacy_output/configs"
+printf 'default-agent: {}\n' >"$legacy_output/configs/coder-settings.yml"
+if run_deploy "$legacy_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test >"$tmp_dir/legacy.log" 2>&1; then
+  echo '[program-deploy-test] legacy config must block initialization' >&2
+  exit 1
+fi
+[[ ! -f "$legacy_output/configs/agent-settings.yml" ]]
+echo '[program-deploy-test] merged Agent settings and migration guard passed'

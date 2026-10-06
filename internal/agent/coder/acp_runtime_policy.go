@@ -31,15 +31,15 @@ func ResolveACPBridge(bridgeID string, lookup ACPBridgeLookup) (ACPRoutingConfig
 		return ACPRoutingConfig{}, fmt.Errorf("runtimeConfig.acpBridgeId is required for ACP CODER")
 	}
 	if lookup == nil {
-		return ACPRoutingConfig{}, fmt.Errorf("ACP bridge %q is not configured in configs/coder-settings.yml acp-bridges", bridgeID)
+		return ACPRoutingConfig{}, fmt.Errorf("ACP bridge %q is not configured in configs/agent-settings.yml acp-bridges", bridgeID)
 	}
 	bridge, ok := lookup(bridgeID)
 	if !ok {
-		return ACPRoutingConfig{}, fmt.Errorf("ACP bridge %q is not configured in configs/coder-settings.yml acp-bridges", bridgeID)
+		return ACPRoutingConfig{}, fmt.Errorf("ACP bridge %q is not configured in configs/agent-settings.yml acp-bridges", bridgeID)
 	}
 	baseURL := strings.TrimSpace(bridge.BaseURL)
 	if baseURL == "" {
-		return ACPRoutingConfig{}, fmt.Errorf("ACP bridge %q is missing base-url in configs/coder-settings.yml acp-bridges", bridgeID)
+		return ACPRoutingConfig{}, fmt.Errorf("ACP bridge %q is missing base-url in configs/agent-settings.yml acp-bridges", bridgeID)
 	}
 	timeoutMS := bridge.TimeoutMS
 	if timeoutMS <= 0 {

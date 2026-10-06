@@ -177,3 +177,28 @@ func TestRunEnvDefaultMountRespectsExclusions(t *testing.T) {
 		t.Fatalf("automatic tool persisted %v", got)
 	}
 }
+
+func TestModePresetsAssemblyAndSourceEditing(t *testing.T) {
+	cfg := config.Config{PresetTools: []string{"datetime"}, ModePresets: map[string]config.AgentPresets{
+		"coder": {Tools: []string{"datetime", "file_read"}},
+	}}
+	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
+		def := AgentDefinition{Mode: mode, Engine: AgentEngineNative, Tools: []string{"wait"}}
+		def.applyPresetTools(cfg.PresetsForMode(mode).Tools)
+		if !containsString(def.Tools, "datetime") || !containsString(def.Tools, "wait") {
+			t.Fatal(def.Tools)
+		}
+		if containsString(def.Tools, "file_read") != (mode == AgentModeCoder) {
+			t.Fatalf("mode isolation: %s %v", mode, def.Tools)
+		}
+	}
+	definition := map[string]any{"mode": "CODER", "toolConfig": map[string]any{"tools": []any{"datetime", "file_read", "wait"}}}
+	stripPresetToolDeclarations(definition, cfg.PresetsForMode("CODER").Tools, nil)
+	if got := listStrings(mapNode(definition["toolConfig"])["tools"]); len(got) != 1 || got[0] != "wait" {
+		t.Fatal(got)
+	}
+	r := &FileRegistry{cfg: config.Config{ModePresets: map[string]config.AgentPresets{"coder": {Connectors: []string{"builtin.httpx"}}}}}
+	if _, err := r.ConnectorUsers("builtin.httpx"); err == nil {
+		t.Fatal("mode preset connector deletion was allowed")
+	}
+}

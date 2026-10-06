@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"agent-platform/internal/config"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,7 @@ func runtimeAgentAssemblyDiagnosticCode(err error) string {
 }
 
 type runtimeAgentAssembler struct {
+	modePresets      map[string]config.AgentPresets
 	presetTools      []string
 	presetConnectors []string
 	frozenAgents     map[string]AgentDefinition

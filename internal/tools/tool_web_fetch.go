@@ -48,7 +48,7 @@ type webFetchRedirect struct {
 func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	cfg := t.cfg.WebFetch
 	if !cfg.Enabled {
-		return modelToolError("web_fetch_disabled", "web_fetch is disabled by configs/ai-tools.yml", nil), nil
+		return modelToolError("web_fetch_disabled", "web_fetch is disabled by configs/tools.yml", nil), nil
 	}
 	if t.models == nil {
 		return modelToolError("web_fetch_model_registry_unavailable", "model registry is not configured for web_fetch", nil), nil

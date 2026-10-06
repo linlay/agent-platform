@@ -11,15 +11,15 @@ import (
 
 func acpStoreFixture(t *testing.T, original string) (*ACPRegistrationStore, string) {
 	t.Helper()
-	file := filepath.Join(t.TempDir(), "coder-settings.yml")
+	file := filepath.Join(t.TempDir(), "agent-settings.yml")
 	if err := os.WriteFile(file, []byte(original), 0600); err != nil {
 		t.Fatal(err)
 	}
 	var cfg Config
-	if err := cfg.applyCoderSettingsFile(file); err != nil {
+	if err := cfg.applyAgentSettingsFile(file); err != nil {
 		t.Fatal(err)
 	}
-	return NewACPRegistrationStore(cfg.CoderSettings), file
+	return NewACPRegistrationStore(cfg.ACP), file
 }
 func acpTestInput(id string) ACPRegistration {
 	return ACPRegistration{SourcePluginID: "plugin-" + id, BridgeID: id, BaseURL: "http://127.0.0.1:17071", TimeoutMS: 300000}
@@ -41,7 +41,7 @@ func requireACP(t *testing.T, store *ACPRegistrationStore, input ACPRegistration
 	return result
 }
 func TestACPRegistrationLifecycle(t *testing.T) {
-	original := "# preserve defaults\ndefault-agent:\n  modelKey: native\nacp-bridges:\n  manual:\n    base-url: https://example.test\nworkspace-agents:\n  enabled: true\n"
+	original := "# preserve defaults\ncoder:\n  default-agent:\n    modelKey: native\nacp-bridges:\n  manual:\n    base-url: https://example.test\ngeneral:\n  workspace-agents:\n    file: AGENTS.md\n"
 	store, file := acpStoreFixture(t, original)
 	input := acpTestInput("codex")
 	token := "test-secret"
@@ -51,7 +51,7 @@ func TestACPRegistrationLifecycle(t *testing.T) {
 		t.Fatalf("%+v", result)
 	}
 	first := readACPFile(t, file)
-	if !strings.Contains(first, "# preserve defaults\ndefault-agent:\n  modelKey: native") || !strings.Contains(first, "workspace-agents:\n  enabled: true") {
+	if !strings.Contains(first, "# preserve defaults\ncoder:\n  default-agent:\n    modelKey: native") || !strings.Contains(first, "workspace-agents:\n    file: AGENTS.md") {
 		t.Fatal("unrelated source changed")
 	}
 	input.AuthToken = nil
@@ -70,13 +70,13 @@ func TestACPRegistrationLifecycle(t *testing.T) {
 		t.Fatal("conflicting owner changed file")
 	}
 	var loaded Config
-	if err := loaded.applyCoderSettingsFile(file); err != nil {
+	if err := loaded.applyAgentSettingsFile(file); err != nil {
 		t.Fatal(err)
 	}
-	if loaded.CoderSettings.ACPBridges["codex"].AuthToken != token {
+	if loaded.ACP.ACPBridges["codex"].AuthToken != token {
 		t.Fatal("token lost")
 	}
-	restarted := NewACPRegistrationStore(loaded.CoderSettings)
+	restarted := NewACPRegistrationStore(loaded.ACP)
 	if result = requireACP(t, restarted, input, false); result.Changed || result.RestartRequired {
 		t.Fatal(result)
 	}
@@ -138,15 +138,15 @@ func TestACPRegistrationConcurrentAndWriteFailure(t *testing.T) {
 	}
 	wg.Wait()
 	var cfg Config
-	if err := cfg.applyCoderSettingsFile(file); err != nil {
+	if err := cfg.applyAgentSettingsFile(file); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.CoderSettings.ACPBridges) != 3 {
+	if len(cfg.ACP.ACPBridges) != 3 {
 		t.Fatal("concurrent update lost")
 	}
 	// A non-directory parent deterministically prevents publication on all OSes.
 	original := readACPFile(t, file)
-	store.path = filepath.Join(file, "coder-settings.yml")
+	store.path = filepath.Join(file, "agent-settings.yml")
 	if _, err := store.Mutate(acpTestInput("new"), false); err == nil {
 		t.Fatal("expected failure")
 	}
@@ -159,8 +159,8 @@ func TestACPRegistrationConcurrentAndWriteFailure(t *testing.T) {
 	}
 }
 func TestACPRegistrationMissingFileAndUnsafeInputs(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "configs", "coder-settings.yml")
-	store := NewACPRegistrationStore(CoderSettingsConfig{SourcePath: file})
+	file := filepath.Join(t.TempDir(), "configs", "agent-settings.yml")
+	store := NewACPRegistrationStore(ACPSettingsConfig{SourcePath: file})
 	input := acpTestInput("codex")
 	for _, url := range []string{"file:///tmp/a", "http://user:secret@example.test", "http://"} {
 		bad := input
@@ -190,7 +190,7 @@ func TestACPRegistrationMissingFileAndUnsafeInputs(t *testing.T) {
 
 func TestACPRegistrationAtomicPublicationFailure(t *testing.T) {
 	root := t.TempDir()
-	target := filepath.Join(root, "coder-settings.yml")
+	target := filepath.Join(root, "agent-settings.yml")
 	if err := os.Mkdir(target, 0700); err != nil {
 		t.Fatal(err)
 	}

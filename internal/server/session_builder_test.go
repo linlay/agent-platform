@@ -249,9 +249,7 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 			"  modelKey: deepseek-v4-flash\n"+
 			"runtimeConfig:\n"+
 			"  workspaceRoot: "+filepath.ToSlash(workspace)+"\n"+
-			"kbaseConfig:\n"+
-			"  embedding:\n"+
-			"    modelKey: openai-embedding\n",
+			"kbaseConfig: {}\n",
 	), 0o644); err != nil {
 		t.Fatalf("write agent config: %v", err)
 	}

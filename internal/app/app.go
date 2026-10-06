@@ -254,7 +254,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	mcpToolSync.ReconcileRegistry()
 	kbaseSource := kbaseCatalogSource{registry: registry}
-	kbaseManager := kbx.NewManager(kbx.Options{RuntimeDir: cfg.Paths.KBaseDir, DefaultEmbeddingModelKey: cfg.KBase.Embedding.ModelKey}, kbaseSource, modelRegistry)
+	kbxConfig := &kbx.ModelConfigSource{File: filepath.Join(cfg.Paths.StateDir, "kbx", "index.yml"), Registry: modelRegistry, ModelKey: cfg.KBX.Embedding.ModelKey, Prompt: cfg.KBX.Embedding.Prompt}
+	if _, err := kbxConfig.Snapshot(); err != nil {
+		return nil, fmt.Errorf("configure KBX: %w", err)
+	}
+	kbaseManager := kbx.NewManager(kbx.Options{RuntimeDir: cfg.Paths.KBaseDir, ConfigSource: kbxConfig}, kbaseSource, modelRegistry)
 	if lspManager != nil {
 		runtimeToolExecutor.WithFileChangeHooks(lspManager)
 	}
@@ -307,10 +311,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
-	centerEngine, err := kbx.NewConfiguredCenterEngine(filepath.Join(cfg.Paths.StateDir, "kbx", "index.yml"), modelRegistry, cfg.KBase.Embedding.ModelKey, cfg.KBase.Embedding.Prompt)
-	if err != nil {
-		return nil, fmt.Errorf("configure KBX center: %w", err)
-	}
+	centerEngine := kbx.NewCenterEngineWithSource(kbxConfig)
 	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesCenterDir, centerEngine)
 	if err != nil {
 		return nil, fmt.Errorf("initialize knowledge base center: %w", err)

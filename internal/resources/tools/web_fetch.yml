@@ -16,7 +16,7 @@ inputSchema:
       description: Required. Instruction to apply to the fetched content, such as summarize, extract facts, or answer a question from the page.
     profile:
       type: string
-      description: Optional. Profile name from configs/ai-tools.yml > web-fetch. Defaults to default-profile.
+      description: Optional. Profile name from configs/tools.yml > web-fetch. Defaults to default-profile.
   required:
     - url
     - prompt

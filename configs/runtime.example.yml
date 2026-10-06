@@ -63,7 +63,11 @@ memory:
     max-batches: 20 # 每轮最多提取批次数，已处理批次不重复调用模型
     summary-max-chars: 8000
 
-# KBASE behavior settings live in configs/kbase-settings.yml.
+kbx:
+  embedding:
+    # Empty disables vector operations; must reference an embedding model.
+    model-key:
+    prompt: raw # raw or qwen3
 
 container-hub:
   base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}

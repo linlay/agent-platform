@@ -35,17 +35,24 @@
       "required": false
     },
     {
+      "key": "agent-settings",
+      "label": "configs/agent-settings.yml",
+      "relativePath": "configs/agent-settings.yml",
+      "templateRelativePath": "configs/agent-settings.example.yml",
+      "required": false
+    },
+    {
+      "key": "agent-prompt",
+      "label": "configs/agent-prompt.yml",
+      "relativePath": "configs/agent-prompt.yml",
+      "templateRelativePath": "configs/agent-prompt.example.yml",
+      "required": false
+    },
+    {
       "key": "tools",
       "label": "configs/tools.yml",
       "relativePath": "configs/tools.yml",
       "templateRelativePath": "configs/tools.example.yml",
-      "required": false
-    },
-    {
-      "key": "ai-tools",
-      "label": "configs/ai-tools.yml",
-      "relativePath": "configs/ai-tools.yml",
-      "templateRelativePath": "configs/ai-tools.example.yml",
       "required": false
     },
     {
@@ -63,52 +70,10 @@
       "required": false
     },
     {
-      "key": "general-settings",
-      "label": "configs/general-settings.yml",
-      "relativePath": "configs/general-settings.yml",
-      "templateRelativePath": "configs/general-settings.example.yml",
-      "required": false
-    },
-    {
-      "key": "coder-settings",
-      "label": "configs/coder-settings.yml",
-      "relativePath": "configs/coder-settings.yml",
-      "templateRelativePath": "configs/coder-settings.example.yml",
-      "required": false
-    },
-    {
-      "key": "coder-prompts",
-      "label": "configs/coder-prompts.yml",
-      "relativePath": "configs/coder-prompts.yml",
-      "templateRelativePath": "configs/coder-prompts.example.yml",
-      "required": false
-    },
-    {
-      "key": "kbase-settings",
-      "label": "configs/kbase-settings.yml",
-      "relativePath": "configs/kbase-settings.yml",
-      "templateRelativePath": "configs/kbase-settings.example.yml",
-      "required": false
-    },
-    {
-      "key": "kbase-prompts",
-      "label": "configs/kbase-prompts.yml",
-      "relativePath": "configs/kbase-prompts.yml",
-      "templateRelativePath": "configs/kbase-prompts.example.yml",
-      "required": false
-    },
-    {
       "key": "local-public-key",
       "label": "configs/local-public-key.pem",
       "relativePath": "configs/local-public-key.pem",
       "templateRelativePath": "configs/local-public-key.example.pem",
-      "required": false
-    },
-    {
-      "key": "prompts",
-      "label": "configs/prompts.yml",
-      "relativePath": "configs/prompts.yml",
-      "templateRelativePath": "configs/prompts.example.yml",
       "required": false
     }
   ],

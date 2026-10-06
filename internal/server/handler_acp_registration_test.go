@@ -13,7 +13,7 @@ import (
 
 func TestDesktopACPRegistrationAuthority(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "coder-settings.yml")
-	s := &Server{router: http.NewServeMux(), acpRegistrations: config.NewACPRegistrationStore(config.CoderSettingsConfig{SourcePath: path})}
+	s := &Server{router: http.NewServeMux(), acpRegistrations: config.NewACPRegistrationStore(config.ACPSettingsConfig{SourcePath: path})}
 	s.routes()
 	body := `{"sourcePluginId":"codex-plugin","bridgeId":"codex","baseUrl":"http://127.0.0.1:17071"}`
 	for _, p := range []*Principal{nil, {Subject: "user", Claims: map[string]any{"scope": "web", "deviceId": "device"}}, {Subject: "user", Claims: map[string]any{"scope": "app"}}} {

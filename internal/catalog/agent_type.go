@@ -339,7 +339,7 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 		return fmt.Errorf("runtimeConfig.acpBridgeId is required for engine: acp")
 	}
 	if def.ProxyConfig != nil {
-		return fmt.Errorf("proxyConfig is not supported for engine: acp; configure configs/coder-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
+		return fmt.Errorf("proxyConfig is not supported for engine: acp; configure configs/agent-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
 	}
 	if len(def.Project.PromptFiles) > 0 {
 		return fmt.Errorf("projectConfig.promptFiles is not supported for engine: acp")

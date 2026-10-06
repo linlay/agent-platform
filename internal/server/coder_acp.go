@@ -23,7 +23,7 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 	}
 	bridgeID := strings.TrimSpace(def.ACPBridgeID)
 	routing, err := agentbuiltin.CoderResolveACPBridge(bridgeID, func(key string) (agentbuiltin.CoderACPBridgeConfig, bool) {
-		bridge, ok := s.deps.Config.CoderSettings.ACPBridges[key]
+		bridge, ok := s.deps.Config.ACP.ACPBridges[key]
 		return agentbuiltin.CoderACPBridgeConfig{
 			BaseURL:   bridge.BaseURL,
 			AuthToken: bridge.AuthToken,

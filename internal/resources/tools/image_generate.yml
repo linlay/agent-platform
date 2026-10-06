@@ -77,7 +77,7 @@ inputSchema:
       additionalProperties: false
     profile:
       type: string
-      description: Optional. Profile name from configs/ai-tools.yml > image-generate. Omit it to use the configured default profile. Available values are injected at startup.
+      description: Optional. Profile name from configs/tools.yml > image-generate. Omit it to use the configured default profile. Available values are injected at startup.
     size:
       type: string
       description: Optional. Image size to send to the provider, overriding the selected profile.

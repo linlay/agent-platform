@@ -27,7 +27,7 @@ var (
 type ACPRegistrationStore struct {
 	mu     sync.Mutex
 	path   string
-	active map[string]CoderACPBridgeConfig
+	active map[string]ACPBridgeConfig
 }
 
 type ACPRegistration struct {
@@ -44,8 +44,8 @@ type ACPRegistrationResult struct {
 	RestartRequired bool `json:"restartRequired"`
 }
 
-func NewACPRegistrationStore(settings CoderSettingsConfig) *ACPRegistrationStore {
-	active := make(map[string]CoderACPBridgeConfig, len(settings.ACPBridges))
+func NewACPRegistrationStore(settings ACPSettingsConfig) *ACPRegistrationStore {
+	active := make(map[string]ACPBridgeConfig, len(settings.ACPBridges))
 	for k, v := range settings.ACPBridges {
 		active[k] = v
 	}
@@ -131,7 +131,7 @@ func (s *ACPRegistrationStore) Mutate(input ACPRegistration, remove bool) (ACPRe
 		delete(bridges, input.BridgeID)
 		result.Changed, result.Removed = exists, exists
 	} else {
-		next := CoderACPBridgeConfig{BaseURL: input.BaseURL, TimeoutMS: input.TimeoutMS, AuthToken: existing.AuthToken}
+		next := ACPBridgeConfig{BaseURL: input.BaseURL, TimeoutMS: input.TimeoutMS, AuthToken: existing.AuthToken}
 		if input.AuthToken != nil {
 			next.AuthToken = *input.AuthToken
 		}

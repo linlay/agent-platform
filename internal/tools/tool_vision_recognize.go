@@ -21,7 +21,7 @@ const defaultVisionRecognizeMaxImages = 4
 func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	cfg := t.cfg.VisionRecognize
 	if !cfg.Enabled {
-		return modelToolError("vision_recognize_disabled", "vision_recognize is disabled by configs/ai-tools.yml", nil), nil
+		return modelToolError("vision_recognize_disabled", "vision_recognize is disabled by configs/tools.yml", nil), nil
 	}
 	if t.models == nil {
 		return modelToolError("vision_model_registry_unavailable", "model registry is not configured for vision_recognize", nil), nil

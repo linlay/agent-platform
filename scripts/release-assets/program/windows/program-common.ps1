@@ -453,27 +453,25 @@ function Set-ProgramYamlSectionValue([string]$Path, [string]$Section, [string]$N
   Write-ProgramTextFile $Path $lines.ToArray()
 }
 
-function New-ProgramDeployCoderSettingsFile([string]$Source, [string]$Target) {
-  Copy-Item -LiteralPath $Source -Destination $Target
-  if (-not [string]::IsNullOrWhiteSpace($Script:DeployCoderModelKey)) {
-    Set-ProgramYamlSectionValue $Target 'default-agent' 'modelKey' $Script:DeployCoderModelKey
+function Set-ProgramYamlNestedValue([string]$Path, [string]$Section, [string]$Child, [string]$Name, [string]$Value) {
+  $lines = [System.Collections.Generic.List[string]]::new()
+  $current = ''; $nested = ''; $replaced = $false
+  foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+    if ($line -match '^[^\s#][^:]*:') { $current = $matches[0].TrimEnd(':'); $nested = '' }
+    if ($line -match '^  [^\s#][^:]*:') { $nested = $matches[0].Trim().TrimEnd(':') }
+    if ($current -eq $Section -and $nested -eq $Child -and $line -match ("^    {0}:" -f [regex]::Escape($Name))) {
+      $lines.Add(("    {0}: {1}" -f $Name, $Value)); $replaced = $true
+    } else { $lines.Add($line) }
   }
-  if (-not [string]::IsNullOrWhiteSpace($Script:DeployCoderReasoningEffort)) {
-    Set-ProgramYamlSectionValue $Target 'default-agent' 'reasoningEffort' $Script:DeployCoderReasoningEffort
-  }
+  if (-not $replaced) { Fail-Program "failed to update $Section.$Child.$Name in $Path" }
+  Write-ProgramTextFile $Path $lines.ToArray()
 }
-
-function New-ProgramDeployKBaseSettingsFile([string]$Source, [string]$Target) {
+function New-ProgramDeployAgentSettingsFile([string]$Source, [string]$Target) {
   Copy-Item -LiteralPath $Source -Destination $Target
-  if (-not [string]::IsNullOrWhiteSpace($Script:DeployKBaseModelKey)) {
-    Set-ProgramYamlSectionValue $Target 'default-agent' 'modelKey' $Script:DeployKBaseModelKey
-  }
-  if (-not [string]::IsNullOrWhiteSpace($Script:DeployKBaseReasoningEffort)) {
-    Set-ProgramYamlSectionValue $Target 'default-agent' 'reasoningEffort' $Script:DeployKBaseReasoningEffort
-  }
-  if (-not [string]::IsNullOrWhiteSpace($Script:DeployKBaseEmbeddingModelKey)) {
-    Set-ProgramYamlSectionValue $Target 'embedding' 'modelKey' $Script:DeployKBaseEmbeddingModelKey
-  }
+  if ($Script:DeployCoderModelKey) { Set-ProgramYamlNestedValue $Target 'coder' 'default-agent' 'modelKey' $Script:DeployCoderModelKey }
+  if ($Script:DeployCoderReasoningEffort) { Set-ProgramYamlNestedValue $Target 'coder' 'default-agent' 'reasoningEffort' $Script:DeployCoderReasoningEffort }
+  if ($Script:DeployKBaseModelKey) { Set-ProgramYamlNestedValue $Target 'kbase' 'default-agent' 'modelKey' $Script:DeployKBaseModelKey }
+  if ($Script:DeployKBaseReasoningEffort) { Set-ProgramYamlNestedValue $Target 'kbase' 'default-agent' 'reasoningEffort' $Script:DeployKBaseReasoningEffort }
 }
 
 function Install-ProgramDeployLocalPublicKey {
@@ -491,11 +489,15 @@ function New-ProgramDeployRuntimeFile([string]$Source, [string]$Target) {
   Assert-ProgramArgValue '--document-preview-api-base-url' $Script:DeployDocumentPreviewAPIBaseUrl
   Assert-ProgramArgValue '--document-preview-public-base-url' $Script:DeployDocumentPreviewPublicBaseUrl
   Copy-Item -LiteralPath $Source -Destination $Target
+  if ($Script:DeployKBaseEmbeddingModelKey) { Set-ProgramYamlNestedValue $Target 'kbx' 'embedding' 'model-key' $Script:DeployKBaseEmbeddingModelKey }
   Set-ProgramYamlSectionValue $Target 'document-preview' 'api-base-url' ('"' + $Script:DeployDocumentPreviewAPIBaseUrl + '"')
   Set-ProgramYamlSectionValue $Target 'document-preview' 'public-base-url' ('"' + $Script:DeployDocumentPreviewPublicBaseUrl + '"')
 }
 
 function Initialize-ProgramDeployConfig {
+  foreach ($retired in @('general-settings','coder-settings','kbase-settings','prompts','coder-prompts','kbase-prompts','ai-tools')) {
+    if (Test-Path -LiteralPath (Join-Path $Script:ConfigDir "$retired.yml")) { Fail-Program 'legacy config detected; stop Platform and run config-migrate before deployment' }
+  }
   New-Item -ItemType Directory -Force -Path $Script:ConfigDir | Out-Null
   if (-not (Test-Path -LiteralPath $Script:EnvFile -PathType Leaf)) {
     Copy-Item -LiteralPath $Script:EnvExampleFile -Destination $Script:EnvFile
@@ -517,9 +519,8 @@ function Initialize-ProgramDeployConfig {
       }
       switch ($name) {
         'runtime' { New-ProgramDeployRuntimeFile $example.FullName $target }
-        'ai-tools' { New-ProgramDeployAIToolsFile $example.FullName $target }
-        'coder-settings' { New-ProgramDeployCoderSettingsFile $example.FullName $target }
-        'kbase-settings' { New-ProgramDeployKBaseSettingsFile $example.FullName $target }
+        'tools' { New-ProgramDeployAIToolsFile $example.FullName $target }
+        'agent-settings' { New-ProgramDeployAgentSettingsFile $example.FullName $target }
         default { Copy-Item -LiteralPath $example.FullName -Destination $target }
       }
     }

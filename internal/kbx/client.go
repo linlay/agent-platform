@@ -78,7 +78,7 @@ func (runner cliRunner) Run(ctx context.Context, database string, config []byte,
 			cmd.Env = append(cmd.Env, e)
 		}
 	}
-	cmd.Env = append(cmd.Env, "KBX_CONFIG_FILE="+cfg, "KBX_CONFIG_DIR="+filepath.Dir(cfg))
+	cmd.Env = append(cmd.Env, "KBX_CONFIG_DIR="+filepath.Dir(cfg))
 	var stdout boundedBuffer
 	cmd.Stdout = &stdout
 	// Do not return raw provider diagnostics: they may contain endpoint credentials.

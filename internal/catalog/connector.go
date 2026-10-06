@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"agent-platform/internal/config"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,8 +75,9 @@ func parseConnectorIDs(value any) ([]string, error) {
 }
 
 func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
-	def.applyPresetTools(a.presetTools)
-	def.Connectors = mergePresetConnectors(*def, a.presetConnectors)
+	presets := (config.Config{PresetTools: a.presetTools, PresetConnectors: a.presetConnectors, ModePresets: a.modePresets}).PresetsForMode(def.Mode)
+	def.applyPresetTools(presets.Tools)
+	def.Connectors = mergePresetConnectors(*def, presets.Connectors)
 	err := resolveConnectorPackages(def, func(id string) (connector.Package, error) {
 		pkg, err := a.connectors.Load(id)
 		if err != nil {

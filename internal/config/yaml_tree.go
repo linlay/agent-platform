@@ -11,14 +11,17 @@ import (
 )
 
 type yamlLine struct {
-	indent int
-	text   string
+	rejectDuplicates bool
+	indent           int
+	text             string
 }
 
 // YAMLTreeOptions enables narrowly scoped parsing behavior for callers that
 // need more than the repository's legacy YAML subset. The zero value preserves
 // the existing behavior used by runtime configuration loaders.
 type YAMLTreeOptions struct {
+	// RejectDuplicateKeys is enabled for deployment configuration files.
+	RejectDuplicateKeys       bool
 	DecodeDoubleQuotedEscapes bool
 	// PreserveDecodedScalarPaths skips environment interpolation after escape
 	// decoding for exact-value fields such as automation query.message.
@@ -78,8 +81,9 @@ func LoadYAMLTreeReaderWithOptions(reader io.Reader, options YAMLTreeOptions) (a
 		}
 		indent := countIndent(trimmed)
 		lines = append(lines, yamlLine{
-			indent: indent,
-			text:   strings.TrimSpace(trimmed),
+			rejectDuplicates: options.RejectDuplicateKeys,
+			indent:           indent,
+			text:             strings.TrimSpace(trimmed),
 		})
 	}
 	if err := scanner.Err(); err != nil {
@@ -128,6 +132,9 @@ func parseYAMLMap(lines []yamlLine, start int, indent int) (map[string]any, int,
 		}
 
 		key, rawValue, hasValue := splitYAMLKeyValue(line.text)
+		if _, exists := result[key]; exists && line.rejectDuplicates {
+			return nil, i, fmt.Errorf("duplicate YAML mapping key %q at line %d", key, i+1)
+		}
 		if key == "" {
 			return nil, i, fmt.Errorf("invalid yaml key at line %d", i+1)
 		}

@@ -111,7 +111,7 @@ func TestKBaseAgentUsesDeclaredToolsLikeAnyNativeAgent(t *testing.T) {
 		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"toolConfig:\n  tools:\n    - file_read\n    - web_fetch\n" +
 		"skillConfig:\n  skills:\n    - online-docx\n" +
-		"kbaseConfig:\n  embedding:\n    modelKey: openai-embedding\n"
+		"kbaseConfig: {}\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

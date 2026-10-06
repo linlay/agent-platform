@@ -123,7 +123,7 @@ func TestAgentCreationOptionsDescribeTypesAndGroupAvailability(t *testing.T) {
 
 func TestAgentCreationOptionsListConfiguredACPBridges(t *testing.T) {
 	fixture := newAgentCreationFixture(t, func(cfg *config.Config) {
-		cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+		cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 			"codex":  {BaseURL: "http://127.0.0.1:1", AuthToken: "secret-token"},
 			"claude": {BaseURL: "http://127.0.0.1:2"},
 		}
@@ -236,7 +236,7 @@ func TestAgentCreateCoderGroupsKeepBuiltInTools(t *testing.T) {
 
 func TestAgentCreateRejectsTemplatesThatCannotRun(t *testing.T) {
 	fixture := newAgentCreationFixture(t, func(cfg *config.Config) {
-		cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{"codex": {BaseURL: "http://127.0.0.1:1"}}
+		cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{"codex": {BaseURL: "http://127.0.0.1:1"}}
 	})
 	workspace := t.TempDir()
 	general := func(runtimeConfig map[string]any, extra map[string]any) map[string]any {

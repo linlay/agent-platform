@@ -23,7 +23,7 @@
 
 Standalone 隐藏七个 Desktop 工具；Catalog/Chat/Automation 在子任务、Team、BTW/Explain 中隐藏并在执行时再次拒绝。ACP/Proxy/Channel 不经过 native 执行入口。planning/read-only 仅允许平台只读动作；七个 Desktop 管理工具全部禁止 planning，并按顺序屏障执行，包括其只读动作。未知动作按非只读处理。
 
-`configs/tools.yml` 支持 `preset-connectors`，示例预置 `builtin.web-control`。普通 native GENERAL/CODER/KBASE 合并整包挂载，去重且不回写 Agent 源码；ACP/隐藏 Team 协调器不注入。连接器列表返回 `presetConnectorIds`、`declaredConnectorIds` 和包含两者的 `connectorIds`；预置项不可从单个 Agent 取消。删除连接器也检查全局预置引用。平台管理连接器仍不进入默认预置。
+`configs/agent-settings.yml` 支持全局和 mode `preset-connectors`，示例预置 `builtin.web-control`。普通 native GENERAL/CODER/KBASE 合并整包挂载，去重且不回写 Agent 源码；ACP/隐藏 Team 协调器不注入。连接器列表返回 `presetConnectorIds`、`declaredConnectorIds` 和包含两者的 `connectorIds`；预置项不可从单个 Agent 取消。删除连接器也检查全局及所有 mode 预置引用。平台管理连接器仍不进入默认预置。
 
 ## Catalog 源文件事务
 

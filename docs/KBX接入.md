@@ -18,6 +18,8 @@ Platform 的 app 装配、五个知识库工具、HTTP status/refresh、health �
 
 ## 存储与配置
 
+模型选择统一来自 `runtime.yml → kbx.embedding`（model-key、prompt）；中心与 Agent capability 共用部署级连接来源，Agent embedding 字段已退役。受管快照通过 --config 显式注入，调用前刷新注册表连接变化，旧 KBASE 引擎设置下线。见 [Agent 配置合并](Agent配置合并.md)。
+
 默认新索引位置为 `<AP_RUNTIME_KBASE_DIR>/<agentKey>/kbx/<scopeHash>/index.sqlite`；workspace 存储为 `<workspaceRoot>/.kbx-platform/<agentKey>/<scopeHash>/index.sqlite`。scopeHash 包含解析后的 workspaceRoot、include/exclude 和 chunk 配置，防止切换 Workspace 或内容范围后复用错误索引。每个 Agent 隔离；库内路径拒绝符号链接替换。旧 `.kbase`、control.db、generations 保留，不迁移、不删除。
 
 旧默认 1000 estimatedTokens/100 overlap 映射为 KBX 默认 3600/540 字符。自定义切块需明确改为 `unit: chars`；不猜测自定义 token 数的字符换算。旧非默认 RRF 权重明确拒绝；排序由 KBX 决定。topK 与候选预算继续映射。

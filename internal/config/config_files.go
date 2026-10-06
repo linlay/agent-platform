@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform/internal/connector"
 	"agent-platform/internal/deprecation"
 )
 
@@ -16,27 +15,19 @@ func (c *Config) applyStructuredConfig(configRoot string, ignoreRemovedWorkingDi
 	if err := c.applyRuntimeFile(configFile(configRoot, "configs/runtime.yml")); err != nil {
 		return err
 	}
-	if err := c.applyKBaseSettingsFile(configFile(configRoot, "configs/kbase-settings.yml")); err != nil {
+	if err := rejectLegacyAgentFiles(configRoot); err != nil {
+		return err
+	}
+	if err := c.applyAgentSettingsFile(configFile(configRoot, "configs/agent-settings.yml")); err != nil {
 		return err
 	}
 	if err := c.applyToolsFile(configFile(configRoot, "configs/tools.yml"), ignoreRemovedWorkingDirectory); err != nil {
 		return err
 	}
-	if err := c.applyPromptsFile(configFile(configRoot, "configs/prompts.yml")); err != nil {
-		return err
-	}
-	c.applyCoderPromptsFile(configFile(configRoot, "configs/coder-prompts.yml"))
-	c.applyKBasePromptsFile(configFile(configRoot, "configs/kbase-prompts.yml"))
-	if err := c.applyCoderSettingsFile(configFile(configRoot, "configs/coder-settings.yml")); err != nil {
-		return err
-	}
-	if err := c.applyGeneralSettingsFile(configFile(configRoot, "configs/general-settings.yml")); err != nil {
+	if err := c.applyAgentPromptFile(configFile(configRoot, "configs/agent-prompt.yml")); err != nil {
 		return err
 	}
 	if err := c.applyAgentCreationFile(configFile(configRoot, "configs/agent-creation.yml")); err != nil {
-		return err
-	}
-	if err := c.applyAIToolsFile(configFile(configRoot, "configs/ai-tools.yml")); err != nil {
 		return err
 	}
 	if err := c.applyChannelsFile(configFile(configRoot, "configs/channels.yml")); err != nil {
@@ -46,11 +37,14 @@ func (c *Config) applyStructuredConfig(configRoot string, ignoreRemovedWorkingDi
 }
 
 func loadYAMLMap(path string) (map[string]any, error) {
-	tree, err := LoadYAMLTree(path)
+	tree, err := LoadYAMLTreeWithOptions(path, YAMLTreeOptions{RejectDuplicateKeys: true})
 	if err != nil {
 		return nil, err
 	}
-	values, _ := tree.(map[string]any)
+	values, ok := tree.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%s: expected a mapping", path)
+	}
 	return values, nil
 }
 
@@ -133,6 +127,8 @@ func (c *Config) applyMemoryValues(values map[string]any) error {
 	return nil
 }
 
+// applyKBaseValues retains the retired engine parser for reference only.
+// No production configuration loader calls it.
 func (c *Config) applyKBaseValues(values map[string]any) error {
 	for _, legacyKey := range []string{"storage", "migration"} {
 		if _, exists := values[legacyKey]; exists {
@@ -203,10 +199,18 @@ func (c *Config) applyKBaseValues(values map[string]any) error {
 func (c *Config) applyRuntimeFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
-		return nil
+		return err
 	}
 	if len(values) == 0 {
 		return nil
+	}
+	if _, exists := values["kbase"]; exists {
+		return fmt.Errorf("runtime.kbase retired; use runtime.kbx for KBX settings")
+	}
+	if raw, exists := values["kbx"]; exists {
+		if err := c.applyKBXValues(raw); err != nil {
+			return err
+		}
 	}
 	if _, exists := values["paths"]; exists {
 		return deprecation.New("%s: paths configuration was removed; use AP_RUNTIME_DIR and the supported AP_RUNTIME_*_DIR environment variables; other runtime subdirectories are fixed", path)
@@ -268,17 +272,6 @@ func (c *Config) applyRuntimeDefaultsValues(defaults map[string]any) {
 	}
 	c.Defaults.CoderPlanning.MaxSteps = intValue(anyValue(planning["maxSteps"], c.Defaults.CoderPlanning.MaxSteps), c.Defaults.CoderPlanning.MaxSteps)
 	c.Defaults.CoderPlanning.MaxSteps = intValue(anyValue(planning["max-steps"], c.Defaults.CoderPlanning.MaxSteps), c.Defaults.CoderPlanning.MaxSteps)
-}
-
-func (c *Config) applyKBaseSettingsFile(path string) error {
-	values, err := loadYAMLMap(path)
-	if err != nil {
-		return err
-	}
-	if len(values) == 0 {
-		return nil
-	}
-	return c.applyKBaseValues(values)
 }
 
 func durationValue(value any, fallback time.Duration) time.Duration {
@@ -489,8 +482,6 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 	if err != nil {
 		return err
 	}
-	c.PresetTools = nil
-	c.PresetConnectors = nil
 	c.RunQuery = RunQueryConfig{}
 	if len(values) == 0 {
 		return nil
@@ -511,24 +502,19 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 			c.RunQuery.AllowAccessLevelOverride = enabled
 		}
 	}
-	if raw, exists := values["preset-tools"]; exists {
-		names, err := ParseToolNames(raw, "preset-tools")
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+	for _, key := range []string{"preset-tools", "preset-connectors"} {
+		if _, exists := values[key]; exists {
+			return fmt.Errorf("%s: %s moved to agent-settings.yml", path, key)
 		}
-		c.PresetTools = names
 	}
-	if raw, exists := values["preset-connectors"]; exists {
-		ids, err := ParseToolNames(raw, "preset-connectors")
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		for _, id := range ids {
-			if !connector.ValidID(id) {
-				return fmt.Errorf("%s: preset-connectors contains invalid connector id %q", path, id)
-			}
-		}
-		c.PresetConnectors = ids
+	if _, exists := values["speech"]; exists {
+		return fmt.Errorf("%s: speech is not implemented", path)
+	}
+	if _, err := configMap(values, path, "runQuery", "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "platform-control", "vision-recognize", "web-fetch", "image-generate"); err != nil {
+		return err
+	}
+	if err := c.applyAIToolsValues(values); err != nil {
+		return err
 	}
 	if accessPolicy, ok := values["access-policy"].(map[string]any); ok && len(accessPolicy) > 0 {
 		if err := rejectRemovedWorkingDirectoryKeyUnlessAudit(path, "access-policy", accessPolicy, ignoreRemovedWorkingDirectory); err != nil {
@@ -749,16 +735,6 @@ func (c *Config) applyCORSValues(values map[string]any) {
 	c.CORS.MaxAgeSeconds = intValue(anyValue(values["max-age-seconds"], c.CORS.MaxAgeSeconds), c.CORS.MaxAgeSeconds)
 }
 
-func (c *Config) applyPromptsFile(path string) error {
-	values, err := loadYAMLMap(path)
-	if err != nil {
-		return nil
-	}
-	// Retired memory prompt templates are intentionally ignored.
-	c.applyPromptsValues(values)
-	return nil
-}
-
 func (c *Config) applyPromptsValues(values map[string]any) {
 	skill, _ := values["skill"].(map[string]any)
 	if len(skill) > 0 {
@@ -795,87 +771,6 @@ func (c *Config) applyKBasePromptsValues(values map[string]any) {
 	c.KBasePrompts.SystemPrompt = stringValue(anyValue(values["system-prompt"], c.KBasePrompts.SystemPrompt), c.KBasePrompts.SystemPrompt)
 }
 
-func (c *Config) applyCoderPromptsFile(path string) {
-	values, err := loadYAMLMap(path)
-	if err != nil {
-		return
-	}
-	if len(values) == 0 {
-		return
-	}
-	c.applyCoderPromptsValues(values)
-}
-
-func (c *Config) applyKBasePromptsFile(path string) {
-	values, err := loadYAMLMap(path)
-	if err != nil {
-		return
-	}
-	if len(values) == 0 {
-		return
-	}
-	c.applyKBasePromptsValues(values)
-}
-
-func (c *Config) applyCoderSettingsFile(path string) error {
-	c.CoderSettings.SourcePath = path
-	values, err := loadYAMLMap(path)
-	if err != nil {
-		return err
-	}
-	if len(values) == 0 {
-		return nil
-	}
-	defaultAgent, _ := values["default-agent"].(map[string]any)
-	if len(defaultAgent) > 0 {
-		c.CoderSettings.DefaultAgent.ModelKey = stringValue(anyValue(defaultAgent["modelKey"], c.CoderSettings.DefaultAgent.ModelKey), c.CoderSettings.DefaultAgent.ModelKey)
-		c.CoderSettings.DefaultAgent.ReasoningEffort = stringValue(anyValue(defaultAgent["reasoningEffort"], c.CoderSettings.DefaultAgent.ReasoningEffort), c.CoderSettings.DefaultAgent.ReasoningEffort)
-		if budget, ok := defaultAgent["budget"].(map[string]any); ok {
-			c.CoderSettings.DefaultAgent.Budget = cloneConfigMap(budget)
-		}
-	}
-	if _, exists := values["acp-proxies"]; exists {
-		return fmt.Errorf("coder-settings config: acp-proxies was removed; use acp-bridges")
-	}
-	acpBridges, err := parseCoderACPBridges(values["acp-bridges"], c.CoderSettings.ACPBridges)
-	if err != nil {
-		return err
-	}
-	c.CoderSettings.ACPBridges = acpBridges
-	workspaceAgents, _ := values["workspace-agents"].(map[string]any)
-	if len(workspaceAgents) == 0 {
-		return nil
-	}
-	c.CoderSettings.WorkspaceAgents.Enabled = boolValue(anyValue(workspaceAgents["enabled"], c.CoderSettings.WorkspaceAgents.Enabled), c.CoderSettings.WorkspaceAgents.Enabled)
-	c.CoderSettings.WorkspaceAgents.File = stringValue(anyValue(workspaceAgents["file"], c.CoderSettings.WorkspaceAgents.File), c.CoderSettings.WorkspaceAgents.File)
-	return nil
-}
-
-func (c *Config) applyGeneralSettingsFile(path string) error {
-	values, err := loadYAMLMap(path)
-	if err != nil {
-		return err
-	}
-	if len(values) == 0 {
-		return nil
-	}
-	settings := &c.GeneralSettings
-	if defaultAgent, _ := values["default-agent"].(map[string]any); len(defaultAgent) > 0 {
-		settings.DefaultAgent.ModelKey = stringValue(anyValue(defaultAgent["modelKey"], settings.DefaultAgent.ModelKey), settings.DefaultAgent.ModelKey)
-		settings.DefaultAgent.ReasoningEffort = stringValue(anyValue(defaultAgent["reasoningEffort"], settings.DefaultAgent.ReasoningEffort), settings.DefaultAgent.ReasoningEffort)
-		if budget, ok := defaultAgent["budget"].(map[string]any); ok {
-			settings.DefaultAgent.Budget = cloneConfigMap(budget)
-		}
-	}
-	if workspaceAgents, _ := values["workspace-agents"].(map[string]any); len(workspaceAgents) > 0 {
-		settings.WorkspaceAgents.Enabled = boolValue(anyValue(workspaceAgents["enabled"], settings.WorkspaceAgents.Enabled), settings.WorkspaceAgents.Enabled)
-		settings.WorkspaceAgents.File = stringValue(anyValue(workspaceAgents["file"], settings.WorkspaceAgents.File), settings.WorkspaceAgents.File)
-	}
-	return nil
-}
-
-var agentCreationTypeKeys = []string{"general", "coder", "kbase"}
-
 func (c *Config) applyAgentCreationFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -891,6 +786,8 @@ func (c *Config) applyAgentCreationFile(path string) error {
 	c.AgentCreation = parsed
 	return nil
 }
+
+var agentCreationTypeKeys = []string{"general", "coder", "kbase"}
 
 func parseAgentCreationConfig(values map[string]any) (AgentCreationConfig, error) {
 	out := AgentCreationConfig{Types: map[string]AgentCreationTypeConfig{}}
@@ -1051,8 +948,8 @@ func cloneConfigValue(value any) any {
 	}
 }
 
-func parseCoderACPBridges(raw any, fallback map[string]CoderACPBridgeConfig) (map[string]CoderACPBridgeConfig, error) {
-	out := make(map[string]CoderACPBridgeConfig, len(fallback))
+func parseCoderACPBridges(raw any, fallback map[string]ACPBridgeConfig) (map[string]ACPBridgeConfig, error) {
+	out := make(map[string]ACPBridgeConfig, len(fallback))
 	for key, value := range fallback {
 		out[strings.TrimSpace(key)] = value
 	}
@@ -1061,7 +958,7 @@ func parseCoderACPBridges(raw any, fallback map[string]CoderACPBridgeConfig) (ma
 	}
 	values, ok := raw.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("coder-settings config: acp-bridges must be an object")
+		return nil, fmt.Errorf("agent-settings config: acp-bridges must be an object")
 	}
 	if len(values) == 0 {
 		return out, nil
@@ -1069,31 +966,31 @@ func parseCoderACPBridges(raw any, fallback map[string]CoderACPBridgeConfig) (ma
 	for rawID, rawValue := range values {
 		id := strings.TrimSpace(rawID)
 		if id == "" {
-			return nil, fmt.Errorf("coder-settings config: acp-bridges id must not be empty")
+			return nil, fmt.Errorf("agent-settings config: acp-bridges id must not be empty")
 		}
 		bridgeValues, ok := rawValue.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("coder-settings config: acp-bridges.%s must be an object", id)
+			return nil, fmt.Errorf("agent-settings config: acp-bridges.%s must be an object", id)
 		}
-		cfg := CoderACPBridgeConfig{TimeoutMS: 300000}
+		cfg := ACPBridgeConfig{TimeoutMS: 300000}
 		if existing, ok := out[id]; ok {
 			cfg = existing
 		}
 		cfg.BaseURL = stringValue(anyValue(bridgeValues["base-url"], cfg.BaseURL), cfg.BaseURL)
 		cfg.AuthToken = stringValue(anyValue(bridgeValues["auth-token"], cfg.AuthToken), cfg.AuthToken)
 		if _, exists := bridgeValues["timeout"]; exists {
-			return nil, fmt.Errorf("coder-settings config: acp-bridges.%s.timeout was removed; use timeout-ms", id)
+			return nil, fmt.Errorf("agent-settings config: acp-bridges.%s.timeout was removed; use timeout-ms", id)
 		}
 		if rawTimeoutMS, exists := bridgeValues["timeout-ms"]; exists {
 			cfg.TimeoutMS = intValue(rawTimeoutMS, 0)
 			if cfg.TimeoutMS <= 0 {
-				return nil, fmt.Errorf("coder-settings config: acp-bridges.%s.timeout-ms must be a positive integer", id)
+				return nil, fmt.Errorf("agent-settings config: acp-bridges.%s.timeout-ms must be a positive integer", id)
 			}
 		} else if cfg.TimeoutMS <= 0 {
 			cfg.TimeoutMS = 300000
 		}
 		if strings.TrimSpace(cfg.BaseURL) == "" {
-			return nil, fmt.Errorf("coder-settings config: acp-bridges.%s.base-url is required", id)
+			return nil, fmt.Errorf("agent-settings config: acp-bridges.%s.base-url is required", id)
 		}
 		out[id] = cfg
 	}
@@ -1175,13 +1072,9 @@ func (c *Config) applyImageGenerateValues(values map[string]any) error {
 	return nil
 }
 
-func (c *Config) applyAIToolsFile(path string) error {
-	values, err := loadYAMLMap(path)
-	if err != nil {
+func (c *Config) applyAIToolsValues(values map[string]any) error {
+	if err := validateAIToolValues(values); err != nil {
 		return err
-	}
-	if len(values) == 0 {
-		return nil
 	}
 	if visionRecognize, ok := values["vision-recognize"].(map[string]any); ok && len(visionRecognize) > 0 {
 		c.applyVisionRecognizeValues(visionRecognize)

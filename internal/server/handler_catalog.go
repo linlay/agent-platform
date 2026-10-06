@@ -313,7 +313,7 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 			return fmt.Errorf("runtimeConfig.acpBridgeId is required for engine: acp")
 		}
 		if len(contracts.AnyMapNode(definition["proxyConfig"])) > 0 {
-			return fmt.Errorf("proxyConfig is not supported for engine: acp; configure configs/coder-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
+			return fmt.Errorf("proxyConfig is not supported for engine: acp; configure configs/agent-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
 		}
 	} else if acpBridgeID != "" {
 		return fmt.Errorf("runtimeConfig.acpBridgeId requires engine: acp")
@@ -390,7 +390,6 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	defaults := s.deps.Config.KBase.DefaultAgent
 	definition = agentbuiltin.ApplyKBaseCreateDefaults(definition, agentbuiltin.KBaseCreateDefaults{
 		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort,
-		EmbeddingModelKey: s.deps.Config.KBase.Embedding.ModelKey,
 	})
 	return agentbuiltin.ApplyKBaseCreateToolDefaults(definition)
 }

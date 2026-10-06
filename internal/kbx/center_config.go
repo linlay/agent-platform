@@ -1,10 +1,12 @@
 package kbx
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/models"
@@ -14,6 +16,30 @@ import (
 // FILE is injected into each child; --config bridges CLI versions that only
 // recognize --config / CONFIG_DIR. No per-library model settings are stored.
 func NewConfiguredCenterEngine(file string, registry *models.ModelRegistry, modelKey, prompt string) (*CenterEngine, error) {
+	source := &ModelConfigSource{File: file, Registry: registry, ModelKey: modelKey, Prompt: prompt}
+	if _, err := source.Snapshot(); err != nil {
+		return nil, err
+	}
+	return NewCenterEngineWithSource(source), nil
+}
+
+// ModelConfigSource is the sole deployment-level model selection for both KBX paths.
+// Registry connection changes are resolved before calls; no Agent may override them.
+type ModelConfigSource struct {
+	File             string
+	Registry         *models.ModelRegistry
+	ModelKey, Prompt string
+	mu               sync.Mutex
+	last             []byte
+}
+
+func NewCenterEngineWithSource(source *ModelConfigSource) *CenterEngine {
+	return &CenterEngine{runner: cliRunner{configFile: source.File}, embedding: source.ModelKey != "", configSource: source}
+}
+func (s *ModelConfigSource) Snapshot() ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	file, registry, modelKey, prompt := s.File, s.Registry, s.ModelKey, s.Prompt
 	if !filepath.IsAbs(file) {
 		return nil, fmt.Errorf("KBX config file must be absolute")
 	}
@@ -23,7 +49,7 @@ func NewConfiguredCenterEngine(file string, registry *models.ModelRegistry, mode
 	if prompt != "raw" && prompt != "qwen3" {
 		return nil, fmt.Errorf("invalid KBX embedding prompt")
 	}
-	m := NewManager(Options{DefaultEmbeddingModelKey: modelKey}, nil, registry)
+	m := NewManager(Options{DefaultEmbeddingModelKey: modelKey, EmbeddingPrompt: prompt}, nil, registry)
 	raw, err := m.config(library{spec: kbase.AgentSpec{Config: kbase.DefaultConfig()}}, true)
 	if err != nil {
 		return nil, err
@@ -38,6 +64,9 @@ func NewConfiguredCenterEngine(file string, registry *models.ModelRegistry, mode
 	raw, err = json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return nil, err
+	}
+	if bytes.Equal(raw, s.last) {
+		return append([]byte(nil), raw...), nil
 	}
 	dir := filepath.Dir(file)
 	if err = os.MkdirAll(dir, 0700); err != nil {
@@ -67,5 +96,6 @@ func NewConfiguredCenterEngine(file string, registry *models.ModelRegistry, mode
 	if err = os.Rename(f.Name(), file); err != nil {
 		return nil, err
 	}
-	return &CenterEngine{runner: cliRunner{configFile: file}, embedding: modelKey != ""}, nil
+	s.last = append([]byte(nil), raw...)
+	return raw, nil
 }

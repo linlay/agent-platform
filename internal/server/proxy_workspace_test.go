@@ -792,7 +792,7 @@ func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) 
 				}, testFixtureOptions{
 					notifications: platformws.NewHub(),
 					configure: func(cfg *config.Config) {
-						cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+						cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 							bridgeID: {BaseURL: upstream.URL, AuthToken: "coder-token", TimeoutMS: 420000},
 						}
 					},
@@ -913,7 +913,7 @@ func TestACPCoderForwardsProviderlessModel(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL},
 			}
 		},
@@ -982,7 +982,7 @@ func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 	}, testFixtureOptions{
 		notifications: platformws.NewHub(),
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL},
 			}
 		},
@@ -1063,7 +1063,7 @@ func TestACPCoderForwardsPlanningMode(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL},
 			}
 		},
@@ -1111,7 +1111,7 @@ func TestACPCoderRejectsUnknownProxyID(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 				"other": {BaseURL: "http://127.0.0.1:3211"},
 			}
 		},
@@ -1346,7 +1346,7 @@ func TestACPCoderRejectsUnavailableWorkspace(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) { writeProviderSSE(t, w, `[DONE]`) }, testFixtureOptions{
 		notifications: platformws.NewHub(),
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{"codex": {BaseURL: upstream.URL}}
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{"codex": {BaseURL: upstream.URL}}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{

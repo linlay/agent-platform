@@ -168,7 +168,7 @@ func TestFetchACPCoderModelOptionsFiltersNonChatModels(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	options, err := fetchACPCoderModelOptions(config.CoderACPBridgeConfig{BaseURL: upstream.URL})
+	options, err := fetchACPCoderModelOptions(config.ACPBridgeConfig{BaseURL: upstream.URL})
 	if err != nil {
 		t.Fatalf("fetch ACP coder model options: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},
@@ -456,7 +456,7 @@ func TestAgentDetailDoesNotFetchOrEmbedModelOptions(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},

@@ -81,3 +81,6 @@ logs/
 # 操作系统生成文件
 .DS_Store
 Thumbs.db
+
+# Offline configuration migration backups contain private deployment settings.
+/config-backups/

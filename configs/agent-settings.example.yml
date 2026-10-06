@@ -1,0 +1,78 @@
+# Agent settings. Copy to agent-settings.yml. Restart after changes.
+
+# Native Agent presets; not written to agent.yml. Restart after changes.
+# Effective presets = global + mode, deduplicated in first-seen order.
+# A mode-level [] adds nothing; it does not clear global presets.
+# Omit or set [] to disable.
+preset-tools:
+  - datetime
+  - wait
+  - file_read
+  - file_write
+  - file_edit
+  - file_glob
+  - file_grep
+  - vision_recognize
+  - image_generate
+  - plan_add_tasks
+  - plan_update_task
+  - plan_get_tasks
+  - ask_user_question
+  - artifact_publish
+
+# Platform preset connectors for native GENERAL/CODER/KBASE Agents.
+# Full packages (tools + skills) are mounted; not written to agent.yml.
+# Omit or set [] to disable. Restart after changes. Management stays explicit.
+preset-connectors:
+  - builtin.web-control
+
+general:
+  preset-tools: []
+  preset-connectors: []
+  default-agent:
+    # Optional default modelKey for new GENERAL agents; leave empty to require explicit configuration.
+    modelKey:
+    # Optional default reasoning effort for new GENERAL agents; leave empty to require explicit configuration.
+    reasoningEffort:
+    # Optional default budget written when creating a new GENERAL agent without an explicit budget.
+    # budget:
+    #   maxSteps: 200
+
+coder:
+  preset-tools: []
+  preset-connectors: []
+  default-agent:
+    # Optional default modelKey for new CODER agents; leave empty to require explicit configuration.
+    modelKey:
+    # Optional default reasoning effort for new CODER agents; leave empty to require explicit configuration.
+    reasoningEffort:
+    # Optional default budget written when creating a new CODER agent without an explicit budget.
+    budget:
+      timeout: 3600
+      maxSteps: 240
+      tool:
+        maxCalls: 200
+
+  workspace-agents:
+    # Declaring file enables automatic rules injection from <workspaceRoot>/<file>.
+    # Omit workspace-agents entirely to disable it; no enabled flag.
+    file: AGENTS.md
+
+kbase:
+  preset-tools: []
+  preset-connectors: []
+  default-agent:
+    # Optional default modelKey for new KBASE agents; leave empty to require explicit configuration.
+    modelKey:
+    # Optional default reasoning effort for new KBASE agents; leave empty to require explicit configuration.
+    reasoningEffort:
+
+acp-bridges:
+  # Trusted ACP bridges must share the configured Workspace filesystem.
+  # Existing endpoint configuration is preserved; no loopback-only restriction.
+  # Platform supplies canonical workspaceRoot as params.cwd; clients cannot override it.
+  # CLI settings stay in the respective bridge.
+  # codex:
+  #   base-url: http://127.0.0.1:17071
+  #   timeout-ms: 300000
+  #   auth-token: ${CODEX_ACP_BRIDGE_AUTH_TOKEN:}

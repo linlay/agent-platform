@@ -7,9 +7,8 @@ import (
 )
 
 type CreateDefaults struct {
-	ModelKey          string
-	ReasoningEffort   string
-	EmbeddingModelKey string
+	ModelKey        string
+	ReasoningEffort string
 }
 
 func ApplyCreateDefaults(definition map[string]any, defaults CreateDefaults) map[string]any {
@@ -52,24 +51,6 @@ func ApplyCreateDefaults(definition map[string]any, defaults CreateDefaults) map
 		out["modelConfig"] = modelConfig
 	}
 
-	embeddingModelKey := strings.TrimSpace(defaults.EmbeddingModelKey)
-	kbaseConfig := contracts.CloneMap(contracts.AnyMapNode(out["kbaseConfig"]))
-	if kbaseConfig == nil {
-		kbaseConfig = map[string]any{}
-	}
-	embedding := contracts.CloneMap(contracts.AnyMapNode(kbaseConfig["embedding"]))
-	if embedding == nil {
-		embedding = map[string]any{}
-	}
-	explicitModelKey := strings.TrimSpace(contracts.AnyStringNode(embedding["modelKey"]))
-	if explicitModelKey != "" || embeddingModelKey != "" {
-		if explicitModelKey == "" {
-			explicitModelKey = embeddingModelKey
-		}
-		embedding["modelKey"] = explicitModelKey
-		kbaseConfig["embedding"] = embedding
-		out["kbaseConfig"] = kbaseConfig
-	}
 	return out
 }
 

@@ -20,7 +20,8 @@ try {
 
   Copy-Item (Join-Path $RepoRoot 'scripts/release-assets/program/windows/deploy.ps1') (Join-Path $BundleRoot 'deploy.ps1')
   Copy-Item (Join-Path $RepoRoot 'scripts/release-assets/program/windows/program-common.ps1') (Join-Path $BundleScripts 'program-common.ps1')
-  Copy-Item (Join-Path $RepoRoot 'configs/ai-tools.example.yml') (Join-Path $BundleConfigs 'ai-tools.example.yml')
+  Copy-Item (Join-Path $RepoRoot 'configs/tools.example.yml') (Join-Path $BundleConfigs 'tools.example.yml')
+  Copy-Item (Join-Path $RepoRoot 'configs/agent-settings.example.yml') (Join-Path $BundleConfigs 'agent-settings.example.yml')
   [System.IO.File]::WriteAllText((Join-Path $BundleRoot 'manifest.json'), "{}`r`n")
   [System.IO.File]::WriteAllText((Join-Path $BundleRoot '.env.example'), "AP_RUNTIME_DIR=`r`nAP_CONTAINER_HUB_BASE_URL=`r`n")
   [System.IO.File]::WriteAllText((Join-Path $BundleBackend 'agent-platform.exe'), '')
@@ -40,7 +41,7 @@ try {
 
   $ConfiguredOutput = Join-Path $TempRoot 'configured'
   Invoke-TestDeploy $ConfiguredOutput @('--ai-image-generate-model-key', 'th-gpt-image-2_5-sunburst')
-  $ConfiguredFile = Join-Path (Join-Path $ConfiguredOutput 'configs') 'ai-tools.yml'
+  $ConfiguredFile = Join-Path (Join-Path $ConfiguredOutput 'configs') 'tools.yml'
   $ConfiguredContent = [System.IO.File]::ReadAllText($ConfiguredFile).Replace("`r`n", "`n")
   $ImageStart = $ConfiguredContent.IndexOf("image-generate:`n")
   $ImageEnd = $ConfiguredContent.IndexOf("speech:`n", $ImageStart)
@@ -55,17 +56,17 @@ try {
 
   $DefaultOutput = Join-Path $TempRoot 'default'
   Invoke-TestDeploy $DefaultOutput @()
-  $TemplateContent = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'configs/ai-tools.example.yml'))
-  $DefaultContent = [System.IO.File]::ReadAllText((Join-Path (Join-Path $DefaultOutput 'configs') 'ai-tools.yml'))
+  $TemplateContent = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'configs/tools.example.yml'))
+  $DefaultContent = [System.IO.File]::ReadAllText((Join-Path (Join-Path $DefaultOutput 'configs') 'tools.yml'))
   Assert-Test ($DefaultContent -ceq $TemplateContent) 'default image-generate config changed without the deploy argument'
 
   $ExistingOutput = Join-Path $TempRoot 'existing'
   $ExistingConfigDir = Join-Path $ExistingOutput 'configs'
   New-Item -ItemType Directory -Force -Path $ExistingConfigDir | Out-Null
-  $ExistingFile = Join-Path $ExistingConfigDir 'ai-tools.yml'
-  [System.IO.File]::WriteAllText($ExistingFile, "custom-ai-tools-config`r`n")
+  $ExistingFile = Join-Path $ExistingConfigDir 'tools.yml'
+  [System.IO.File]::WriteAllText($ExistingFile, "custom-tools-config`r`n")
   Invoke-TestDeploy $ExistingOutput @('--ai-image-generate-model-key', 'ignored-model-key')
-  Assert-Test ([System.IO.File]::ReadAllText($ExistingFile) -ceq "custom-ai-tools-config`r`n") 'existing ai-tools.yml was overwritten'
+  Assert-Test ([System.IO.File]::ReadAllText($ExistingFile) -ceq "custom-tools-config`r`n") 'existing tools.yml was overwritten'
 
   $MissingValueFailed = $false
   try {
@@ -111,6 +112,12 @@ try {
   Assert-Test ([IO.File]::ReadAllText($PreviewFile) -ceq $PreviewBefore) 'failed reset changed config'
   Invoke-TestDeploy $PreviewOutput ($ResetArgs + @('--document-preview-api-base-url', 'https://new-api.test', '--document-preview-public-base-url', 'https://new-public.test'))
   Assert-Test ([IO.File]::ReadAllText($PreviewFile).Contains('public-base-url: "https://new-public.test"')) 'reset did not render preview origin'
+  $ModeOutput = Join-Path $TempRoot 'mode-settings'
+  Invoke-TestDeploy $ModeOutput @('--document-preview-api-base-url','http://hub:8090','--document-preview-public-base-url','https://docs.example.test','--coder-model-key','coder-fixture','--kbase-model-key','answer-fixture','--kbase-embedding-model-key','embedding-fixture')
+  $ModeContent = [IO.File]::ReadAllText((Join-Path $ModeOutput 'configs/agent-settings.yml'))
+  Assert-Test ($ModeContent.Contains('    modelKey: coder-fixture')) 'coder model not nested correctly'
+  Assert-Test ($ModeContent.Contains('    modelKey: answer-fixture')) 'KBASE agent model not nested correctly'
+  Assert-Test ([IO.File]::ReadAllText((Join-Path $ModeOutput 'configs/runtime.yml')).Contains('    model-key: embedding-fixture')) 'KBX model not in runtime'
   Write-Host '[program-deploy-test] passed'
 } finally {
   Remove-Item Env:AP_RUNTIME_DIR -ErrorAction SilentlyContinue

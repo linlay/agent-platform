@@ -59,11 +59,11 @@ func defaultConfig(options LoadOptions) Config {
 			Enabled:        false,
 			DefaultProfile: "general",
 		},
-		CoderSettings: CoderSettingsConfig{
-			ACPBridges: map[string]CoderACPBridgeConfig{},
+		ACP: ACPSettingsConfig{
+			ACPBridges: map[string]ACPBridgeConfig{},
 		},
 		GeneralSettings: GeneralSettingsConfig{
-			WorkspaceAgents: CoderWorkspaceAgentsConfig{File: "AGENTS.md"},
+			WorkspaceAgents: CoderWorkspaceAgentsConfig{},
 		},
 		KBase: KBaseConfig{
 			Index: KBaseIndexConfig{

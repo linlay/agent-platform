@@ -13,7 +13,7 @@ func (r *FileRegistry) PresetConnectorIDs(key string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return presetConnectorIDsForTree(tree, r.cfg.PresetConnectors), nil
+	return presetConnectorIDsForTree(tree, r.cfg.PresetsForMode(stringNode(tree["mode"])).Connectors), nil
 }
 
 // Configuration display must remain available for an otherwise invalid Agent

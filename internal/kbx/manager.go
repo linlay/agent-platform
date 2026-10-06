@@ -17,7 +17,10 @@ import (
 )
 
 // Options contains Platform-owned configuration. KBX owns all index operations.
-type Options struct{ RuntimeDir, DefaultEmbeddingModelKey string }
+type Options struct {
+	RuntimeDir, DefaultEmbeddingModelKey, EmbeddingPrompt string
+	ConfigSource                                          *ModelConfigSource
+}
 type embeddingModels interface {
 	GetEmbedding(string) (models.ModelDefinition, models.ProviderDefinition, error)
 }
@@ -209,11 +212,18 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 		return nil, fmt.Errorf("KBX requires character chunking for custom sizes; configure unit: chars")
 	}
 	cfg["chunking"] = map[string]any{"strategy": "window", "max_chars": maxChars, "overlap_chars": overlap}
-	key := l.spec.Config.Embedding.ModelKey
-	if key == "" {
-		key = m.options.DefaultEmbeddingModelKey
-	}
-	if embedding && key != "" {
+	key := m.options.DefaultEmbeddingModelKey
+	if m.options.ConfigSource != nil {
+		raw, err := m.options.ConfigSource.Snapshot()
+		if err != nil {
+			return nil, err
+		}
+		var shared map[string]any
+		if err = json.Unmarshal(raw, &shared); err != nil {
+			return nil, err
+		}
+		cfg["models"] = shared["models"]
+	} else if embedding && key != "" {
 		if m.models == nil {
 			return nil, unavailable("KBX embedding registry unavailable")
 		}
@@ -236,6 +246,9 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 			timeout = 60
 		}
 		role := map[string]any{"url": endpoint, "model": model.ModelID, "timeout_ms": timeout * 1000, "prompt": "raw"}
+		if m.options.EmbeddingPrompt != "" {
+			role["prompt"] = m.options.EmbeddingPrompt
+		}
 		if model.Embedding.BatchSize > 0 {
 			role["batch_size"] = model.Embedding.BatchSize
 		}

@@ -56,10 +56,10 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 	if err != nil {
 		return AgentConnectorCandidate{}, err
 	}
-	presets := presetConnectorIDsForTree(root, r.cfg.PresetConnectors)
+	presets := presetConnectorIDsForTree(root, r.cfg.PresetsForMode(stringNode(root["mode"])).Connectors)
 	if slices.Contains(presets, id) {
 		if !enabled {
-			return AgentConnectorCandidate{}, fmt.Errorf("preset connector is managed through configs/tools.yml")
+			return AgentConnectorCandidate{}, fmt.Errorf("preset connector is managed through configs/agent-settings.yml")
 		}
 		return AgentConnectorCandidate{Source: source, Content: source.Content, ConnectorIDs: ids}, nil
 	}
@@ -88,7 +88,7 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 	}
 	// Validate package availability and skill collisions before saving, including
 	// when runtime publication will be deferred by an active Agent lease.
-	assembler := runtimeAgentAssembler{presetConnectors: r.cfg.PresetConnectors, connectors: connector.Sources{
+	assembler := runtimeAgentAssembler{modePresets: r.cfg.ModePresets, presetConnectors: r.cfg.PresetConnectors, connectors: connector.Sources{
 		ExternalRoot:             r.cfg.Paths.EffectiveConnectorsCenterDir(),
 		BuiltinRoot:              r.cfg.Paths.BuiltinConnectorsDir,
 		NativePlatformControlDir: r.cfg.Paths.NativePlatformControlDir,
@@ -115,7 +115,7 @@ func (r *FileRegistry) validateEditableConnectorSelection(definition map[string]
 		return err
 	}
 	def.Connectors = ids
-	ids = mergePresetConnectors(def, r.cfg.PresetConnectors)
+	ids = mergePresetConnectors(def, r.cfg.PresetsForMode(def.Mode).Connectors)
 	packages := make([]connector.Package, 0, len(ids))
 	for _, id := range ids {
 		pkg, err := r.cfg.Paths.ConnectorSources().Load(id)

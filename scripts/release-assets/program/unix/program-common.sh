@@ -540,33 +540,29 @@ program_set_yaml_section_value() {
   mv "$tmp" "$file"
 }
 
-program_render_coder_settings_file() {
-  local source="$1"
-  local target="$2"
-
-  cp "$source" "$target"
-  if [[ -n "$DEPLOY_CODER_MODEL_KEY" ]]; then
-    program_set_yaml_section_value "$target" "default-agent" "modelKey" "$DEPLOY_CODER_MODEL_KEY"
+program_set_yaml_nested_value() {
+  local file="$1" section="$2" child="$3" key="$4" value="$5" tmp
+  tmp="$file.tmp.$$"
+  if ! awk -v section="$section" -v child="$child" -v key="$key" -v value="$value" '
+    /^[^[:space:]#][^:]*:/ { current=$1; sub(/:$/, "", current); nested="" }
+    /^  [^[:space:]#][^:]*:/ { nested=$1; sub(/:$/, "", nested) }
+    current==section && nested==child && $0 ~ "^    " key ":" { print "    " key ": " value; replaced=1; next }
+    { print }
+    END { if (!replaced) exit 1 }
+  ' "$file" >"$tmp"; then
+    rm -f "$tmp"
+    program_die "failed to update $section.$child.$key in $file"
   fi
-  if [[ -n "$DEPLOY_CODER_REASONING_EFFORT" ]]; then
-    program_set_yaml_section_value "$target" "default-agent" "reasoningEffort" "$DEPLOY_CODER_REASONING_EFFORT"
-  fi
+  mv "$tmp" "$file"
 }
 
-program_render_kbase_settings_file() {
-  local source="$1"
-  local target="$2"
-
+program_render_agent_settings_file() {
+  local source="$1" target="$2"
   cp "$source" "$target"
-  if [[ -n "$DEPLOY_KBASE_MODEL_KEY" ]]; then
-    program_set_yaml_section_value "$target" "default-agent" "modelKey" "$DEPLOY_KBASE_MODEL_KEY"
-  fi
-  if [[ -n "$DEPLOY_KBASE_REASONING_EFFORT" ]]; then
-    program_set_yaml_section_value "$target" "default-agent" "reasoningEffort" "$DEPLOY_KBASE_REASONING_EFFORT"
-  fi
-  if [[ -n "$DEPLOY_KBASE_EMBEDDING_MODEL_KEY" ]]; then
-    program_set_yaml_section_value "$target" "embedding" "modelKey" "$DEPLOY_KBASE_EMBEDDING_MODEL_KEY"
-  fi
+  if [[ -n "$DEPLOY_CODER_MODEL_KEY" ]]; then program_set_yaml_nested_value "$target" coder default-agent modelKey "$DEPLOY_CODER_MODEL_KEY"; fi
+  if [[ -n "$DEPLOY_CODER_REASONING_EFFORT" ]]; then program_set_yaml_nested_value "$target" coder default-agent reasoningEffort "$DEPLOY_CODER_REASONING_EFFORT"; fi
+  if [[ -n "$DEPLOY_KBASE_MODEL_KEY" ]]; then program_set_yaml_nested_value "$target" kbase default-agent modelKey "$DEPLOY_KBASE_MODEL_KEY"; fi
+  if [[ -n "$DEPLOY_KBASE_REASONING_EFFORT" ]]; then program_set_yaml_nested_value "$target" kbase default-agent reasoningEffort "$DEPLOY_KBASE_REASONING_EFFORT"; fi
 }
 
 program_install_local_public_key() {
@@ -586,11 +582,16 @@ program_render_runtime_file() {
   program_require_arg_value "--document-preview-api-base-url" "$DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL"
   program_require_arg_value "--document-preview-public-base-url" "$DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL"
   cp "$source" "$target"
+  if [[ -n "$DEPLOY_KBASE_EMBEDDING_MODEL_KEY" ]]; then program_set_yaml_nested_value "$target" kbx embedding model-key "$DEPLOY_KBASE_EMBEDDING_MODEL_KEY"; fi
   program_set_yaml_section_value "$target" "document-preview" "api-base-url" "\"$DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL\""
   program_set_yaml_section_value "$target" "document-preview" "public-base-url" "\"$DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL\""
 }
 
 program_initialize_deploy_config() {
+  local retired
+  for retired in general-settings coder-settings kbase-settings prompts coder-prompts kbase-prompts ai-tools; do
+    [[ ! -f "$CONFIG_DIR/$retired.yml" ]] || program_die "legacy config detected; stop Platform and run config-migrate before deployment"
+  done
   mkdir -p "$CONFIG_DIR"
   if [[ ! -f "$ENV_FILE" ]]; then
     cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
@@ -613,14 +614,11 @@ program_initialize_deploy_config() {
         runtime)
           program_render_runtime_file "$example" "$target"
           ;;
-        ai-tools)
+        tools)
           program_render_ai_tools_file "$example" "$target"
           ;;
-        coder-settings)
-          program_render_coder_settings_file "$example" "$target"
-          ;;
-        kbase-settings)
-          program_render_kbase_settings_file "$example" "$target"
+        agent-settings)
+          program_render_agent_settings_file "$example" "$target"
           ;;
         *)
           cp "$example" "$target"

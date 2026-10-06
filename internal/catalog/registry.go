@@ -98,11 +98,11 @@ type AgentDefinition struct {
 	AgentsPrompt string // resolved from promptFile or AGENTS.md fallback
 
 	// PLAN_EXECUTE stage prompts (stage-scoped promptFile).
-	PlanPrompt         string
-	ExecutePrompt      string
-	SummaryPrompt      string
-	MemoryEnabled      bool
-	MemoryConfig       AgentMemoryConfig
+	PlanPrompt    string
+	ExecutePrompt string
+	SummaryPrompt string
+	MemoryEnabled bool
+	MemoryConfig  AgentMemoryConfig
 }
 
 type AgentWorkspaceConfig struct {
@@ -139,7 +139,7 @@ type AgentProjectGitConfig struct {
 }
 
 type AgentMemoryConfig struct {
-	Enabled         bool
+	Enabled bool
 }
 
 type AgentRuntimePrompts struct {
@@ -324,8 +324,10 @@ type FileRegistry struct {
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
-	if err := validatePresetTools(cfg.PresetTools, toolDefs); err != nil {
-		return nil, err
+	for _, mode := range []string{"general", "coder", "kbase"} {
+		if err := validatePresetTools(cfg.PresetsForMode(mode).Tools, toolDefs); err != nil {
+			return nil, fmt.Errorf("%s presets: %w", mode, err)
+		}
 	}
 	for _, generated := range []string{cfg.Paths.EffectiveRUAgentsDir()} {
 		if connector.RootsOverlap(generated, cfg.Paths.AgentsDir) || connector.RootsOverlap(generated, cfg.Paths.SkillsCenterDir) {
@@ -339,6 +341,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	if err != nil {
 		return nil, err
 	}
+	assembler.modePresets = cfg.ModePresets
 	assembler.presetTools = append([]string(nil), cfg.PresetTools...)
 	assembler.presetConnectors = append([]string(nil), cfg.PresetConnectors...)
 	assembler.connectors.NativePlatformControlDir = cfg.Paths.NativePlatformControlDir

@@ -352,7 +352,7 @@ func (s *ControlService) Validate(t ControlTarget, content string) error {
 				}
 			}
 			var packages []connector.Package
-			ids, err := catalog.EffectiveConnectorIDs(m, s.Config.PresetConnectors)
+			ids, err := catalog.EffectiveConnectorIDs(m, s.Config.PresetsForMode(agentModeForPresets(m)).Connectors)
 			if err != nil {
 				return err
 			}
@@ -868,3 +868,5 @@ func controlMCPFile(c ControlChange) (string, error) {
 	data, err := json.MarshalIndent(map[string]any{"mcpServers": components}, "", "  ")
 	return string(data) + "\n", err
 }
+
+func agentModeForPresets(m map[string]any) string { mode, _ := m["mode"].(string); return mode }

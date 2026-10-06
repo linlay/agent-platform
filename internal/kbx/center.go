@@ -13,8 +13,9 @@ import (
 // CenterEngine implements explicit manual indexing for independent libraries.
 // It is separate from the Agent capability's reconnectable-worker contract.
 type CenterEngine struct {
-	runner    Runner
-	embedding bool
+	configSource *ModelConfigSource
+	runner       Runner
+	embedding    bool
 }
 
 func NewCenterEngine() *CenterEngine { return &CenterEngine{runner: cliRunner{}} }
@@ -22,6 +23,11 @@ func NewCenterEngine() *CenterEngine { return &CenterEngine{runner: cliRunner{}}
 var centerConfig = []byte(`{"models":{"embedding":null,"query_expansion":null,"reranker":null,"graph_extraction":null}}`)
 
 func (e *CenterEngine) Update(ctx context.Context, db, source string) error {
+	if e.configSource != nil {
+		if _, err := e.configSource.Snapshot(); err != nil {
+			return err
+		}
+	}
 	actual, err := filepath.EvalSymlinks(source)
 	if err != nil || actual != source {
 		return fmt.Errorf("source directory is unavailable or changed identity")
@@ -87,6 +93,11 @@ func (e *CenterEngine) Update(ctx context.Context, db, source string) error {
 	return nil
 }
 func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limit int) (json.RawMessage, error) {
+	if e.configSource != nil {
+		if _, err := e.configSource.Snapshot(); err != nil {
+			return nil, err
+		}
+	}
 	var args []string
 	switch operation {
 	case "status":
@@ -110,6 +121,23 @@ func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limi
 	var result json.RawMessage
 	if err = decodeEnvelope(raw, &result); err != nil {
 		return nil, err
+	}
+	if operation == "search" && e.embedding {
+		var trace struct {
+			Trace struct {
+				Steps []struct {
+					Reason string `json:"reason"`
+				} `json:"steps"`
+			} `json:"trace"`
+		}
+		if err = json.Unmarshal(result, &trace); err != nil {
+			return nil, err
+		}
+		for _, step := range trace.Trace.Steps {
+			if step.Reason == "vector_index_unavailable" || step.Reason == "dimension_mismatch" {
+				return nil, fmt.Errorf("KBX vector index is unavailable or incompatible with runtime.kbx.embedding; inspect KBX status and explicitly rebuild vectors if required")
+			}
+		}
 	}
 	return result, nil
 }

@@ -1251,9 +1251,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"kbaseConfig:\n" +
-		"  embedding:\n" +
-		"    modelKey: openai-embedding\n" +
-		"  storage:\n" +
+				"  storage:\n" +
 		"    location: workspace\n" +
 		"  include:\n" +
 		"    - \"**/*.md\"\n" +
@@ -1298,7 +1296,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if !def.MemoryEnabled || !containsString(def.Tools, "memory_search") {
 		t.Fatalf("KBASE memoryConfig must be honored like any other agent, got %#v tools=%#v", def.MemoryConfig, def.Tools)
 	}
-	if def.KBaseConfig.Embedding.ModelKey != "openai-embedding" || def.KBaseConfig.Storage.Location != "workspace" {
+	if def.KBaseConfig.Storage.Location != "workspace" {
 		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
 	}
 	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitChars ||
@@ -1453,9 +1451,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 		"    - bash\n" +
 		"    - datetime\n" +
 		"kbaseConfig:\n" +
-		"  embedding:\n" +
-		"    modelKey: openai-embedding\n" +
-		"memoryConfig:\n" +
+				"memoryConfig:\n" +
 		"  enabled: true\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
@@ -1501,7 +1497,7 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 		"toolConfig:\n  tools:\n    - datetime\n" +
 		"kbaseConfig:\n" +
 		"  enabled: true\n" +
-		"  embedding:\n    modelKey: openai-embedding\n"
+		""
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
@@ -1543,7 +1539,7 @@ func TestDedicatedKBaseLoadsConfiguredWorkspace(t *testing.T) {
 		"modelConfig:\n  modelKey: mock-model\n" +
 		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(sourceRoot) + "\n" +
 		"kbaseConfig:\n" +
-		"  embedding:\n    modelKey: openai-embedding\n"
+		""
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1807,7 +1803,7 @@ func TestParseAgentFileRejectsRemovedKBaseEmbeddingFields(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.embedding.providerKey is no longer supported") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.embedding retired") {
 		t.Fatalf("expected removed kbase embedding field error, got %v", err)
 	}
 }

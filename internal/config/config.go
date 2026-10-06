@@ -18,6 +18,9 @@ type Config struct {
 	RunQuery         RunQueryConfig
 	PresetTools      []string
 	PresetConnectors []string
+	ModePresets      map[string]AgentPresets
+	ACP              ACPSettingsConfig
+	KBX              KBXConfig
 	DocumentPreview  documentpreview.Config
 	HTTPProxy        httpclient.Config
 	IdentityFile     string
@@ -207,11 +210,8 @@ type KBasePromptsConfig struct {
 }
 
 type CoderSettingsConfig struct {
-	// SourcePath is fixed by the loader, never accepted from API requests.
-	SourcePath      string
 	WorkspaceAgents CoderWorkspaceAgentsConfig
 	DefaultAgent    CoderDefaultAgentConfig
-	ACPBridges      map[string]CoderACPBridgeConfig
 }
 
 // AgentCreationConfig holds the capability templates offered when a project
@@ -261,7 +261,7 @@ type CoderDefaultAgentConfig struct {
 	Budget          map[string]any
 }
 
-type CoderACPBridgeConfig struct {
+type ACPBridgeConfig struct {
 	BaseURL   string
 	AuthToken string
 	TimeoutMS int
@@ -828,4 +828,41 @@ func (c Config) IsLocalMode() bool {
 
 func fixedAuthLocalPublicKeyFile(configRoot string) string {
 	return configFile(configRoot, filepath.Join("configs", "local-public-key.pem"))
+}
+
+// ACP settings are independent of Agent mode.
+type ACPSettingsConfig struct {
+	SourcePath string
+	ACPBridges map[string]ACPBridgeConfig
+}
+type AgentPresets struct{ Tools, Connectors []string }
+type KBXConfig struct{ Embedding KBaseEmbeddingConfig }
+
+func (c Config) PresetsForMode(mode string) AgentPresets {
+	mode = strings.TrimSpace(mode)
+	if mode == "" || strings.EqualFold(mode, "REACT") {
+		mode = "general"
+	}
+	p := c.ModePresets[strings.ToLower(mode)]
+	return AgentPresets{Tools: mergePresetNames(c.PresetTools, p.Tools), Connectors: mergePresetNames(c.PresetConnectors, p.Connectors)}
+}
+func mergePresetNames(groups ...[]string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, group := range groups {
+		for _, name := range group {
+			if !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+func (c Config) AllPresetConnectors() []string {
+	out := c.PresetConnectors
+	for _, mode := range []string{"general", "coder", "kbase"} {
+		out = mergePresetNames(out, c.ModePresets[mode].Connectors)
+	}
+	return out
 }

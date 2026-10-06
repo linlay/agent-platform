@@ -27,7 +27,7 @@ import (
 func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	cfg := t.cfg.ImageGenerate
 	if !cfg.Enabled {
-		return modelToolError("image_generate_disabled", "image_generate is disabled by configs/ai-tools.yml", nil), nil
+		return modelToolError("image_generate_disabled", "image_generate is disabled by configs/tools.yml", nil), nil
 	}
 	if t.models == nil {
 		return modelToolError("image_generate_model_registry_unavailable", "model registry is not configured for image_generate", nil), nil
