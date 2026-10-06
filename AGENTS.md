@@ -39,7 +39,7 @@ cmd/agent-platform/main.go
 核心模块边界（详细调用规则见 [Runtime 模块边界](docs/Runtime模块边界.md)）：
 
 - `internal/agent` 保存中立 mode 契约；`builtin` 静态分派 CODER/KBASE/TEAM。GENERAL 没有固定工具集、prompt 或 stage；CODER、KBASE、TEAM 的特有规则分别归各自子包。TEAM 仅由 orchestrated Team 合成，不能创建为普通 Agent，隐藏协调器不进入公开 catalog。
-- `internal/agentcreation` 展开创建模板，不依赖 catalog 或 server；`internal/catalog` 装载目录定义并冻结 Team 成员、协调器与 prompt 快照。参见 [智能体配置](docs/智能体配置说明.md) 和 [运行时组装](docs/Agent运行时组装.md)。
+- `internal/catalog` 装载目录定义并冻结 Team 成员、协调器与 prompt 快照。参见 [智能体配置](docs/智能体配置说明.md) 和 [运行时组装](docs/Agent运行时组装.md)。
 - `internal/runtime` 负责 Query 准入、Session、Run 状态、执行、恢复和子任务编排，不得依赖 Server。App 直接组装各组件；`adapter` 只转换旧执行器/catalog DTO。受管根 Proxy 驱动归 `proxy.Driver`，公共收尾与 recorder/usage 归 `runexec`；Server 经 ProxyPort 保留路由、响应、channel 与控制适配，不能宣称 ProxyPort 已移除。
 - `internal/server` 只做 HTTP/WS 解码、鉴权、响应映射、SSE flush 和薄适配，不得直接依赖 llm、tools 或具体 Agent mode。
 - `internal/runops` 负责独立 run 工具、所有权、幂等和禁止链式调用，直接依赖 Runtime 窄接口；`internal/automation` 负责注册、调度与执行记录。自动化初始权限来自 `query.accessLevel`，省略为 default，不继承 Chat 历史权限。 `internal/automation.Service` 共用于 HTTP 和 Platform Control 的独立 Automation 工具，版本校验、审批及调用收据见 [自动化](docs/自动化.md#platform-control-管理工具)。

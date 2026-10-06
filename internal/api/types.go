@@ -727,52 +727,31 @@ type CreateAgentRequest struct {
 	Definition   map[string]any `json:"definition"`
 	SoulPrompt   *string        `json:"soulPrompt,omitempty"`
 	AgentsPrompt *string        `json:"agentsPrompt,omitempty"`
-	// CapabilityGroups selects creation templates by group key. An absent
-	// field leaves the definition as sent; a present field, including an empty
-	// list, creates a project agent: base tools are written, the selected
-	// groups are expanded, and a project directory and usable model are
-	// required.
-	CapabilityGroups *[]string `json:"capabilityGroups,omitempty"`
 }
 
-type AgentCreationOptionsResponse struct {
-	Types  []AgentCreationTypeOption  `json:"types"`
-	Groups []AgentCreationGroupOption `json:"groups"`
-	Models []AgentEditorModelOption   `json:"models"`
+type AgentCreationDefaultsResponse struct {
+	Types  []AgentCreationTypeOption `json:"types"`
+	Models []AgentEditorModelOption  `json:"models"`
 }
 
 type AgentCreationTypeOption struct {
-	Key                     string                   `json:"key"`
-	Label                   string                   `json:"label"`
-	Mode                    string                   `json:"mode"`
-	Engine                  string                   `json:"engine"`
-	Available               bool                     `json:"available"`
-	UnavailableReason       string                   `json:"unavailableReason,omitempty"`
-	WorkspaceRequired       bool                     `json:"workspaceRequired"`
-	ModelRequired           bool                     `json:"modelRequired"`
-	DefaultModelKey         string                   `json:"defaultModelKey,omitempty"`
-	DefaultModelAvailable   bool                     `json:"defaultModelAvailable"`
-	DefaultReasoningEffort  string                   `json:"defaultReasoningEffort,omitempty"`
-	SupportsGroups          bool                     `json:"supportsGroups"`
-	GroupsUnsupportedReason string                   `json:"groupsUnsupportedReason,omitempty"`
-	BaseTools               []string                 `json:"baseTools"`
-	DefaultGroups           []string                 `json:"defaultGroups"`
-	ACPBridges              []AgentCreationACPBridge `json:"acpBridges,omitempty"`
+	Key                    string                   `json:"key"`
+	Label                  string                   `json:"label"`
+	Mode                   string                   `json:"mode"`
+	Engine                 string                   `json:"engine"`
+	Available              bool                     `json:"available"`
+	UnavailableReason      string                   `json:"unavailableReason,omitempty"`
+	WorkspaceRequired      bool                     `json:"workspaceRequired"`
+	ModelRequired          bool                     `json:"modelRequired"`
+	DefaultModelKey        string                   `json:"defaultModelKey,omitempty"`
+	DefaultModelAvailable  bool                     `json:"defaultModelAvailable"`
+	DefaultReasoningEffort string                   `json:"defaultReasoningEffort,omitempty"`
+	BaseTools              []string                 `json:"baseTools"`
+	ACPBridges             []AgentCreationACPBridge `json:"acpBridges,omitempty"`
 }
 
 type AgentCreationACPBridge struct {
 	ID string `json:"id"`
-}
-
-type AgentCreationGroupOption struct {
-	Key               string                `json:"key"`
-	Name              string                `json:"name"`
-	Description       string                `json:"description,omitempty"`
-	Skills            []AgentCreationMember `json:"skills"`
-	Tools             []string              `json:"tools"`
-	Connectors        []AgentCreationMember `json:"connectors"`
-	Available         bool                  `json:"available"`
-	UnavailableReason string                `json:"unavailableReason,omitempty"`
 }
 
 // HostDirectoryListResponse lists the sub-directories of one directory on the
@@ -790,11 +769,6 @@ type HostDirectoryListResponse struct {
 type HostDirectoryEntry struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
-}
-
-type AgentCreationMember struct {
-	Key  string `json:"key"`
-	Name string `json:"name"`
 }
 
 type UpdateAgentRequest struct {

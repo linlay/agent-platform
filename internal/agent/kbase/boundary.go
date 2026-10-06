@@ -22,7 +22,7 @@ var structuredFileToolNames = []string{
 // CreateToolNames is the tool list written into agent.yml when a KBASE agent
 // is created without one. A KBASE agent has no fixed tool boundary: its tools
 // are exactly what agent.yml declares plus the knowledge-base capability
-// tools every enabled KBASE receives, so this list is a creation template and
+// tools every enabled KBASE receives, so this list supplies creation defaults and
 // is never applied at load time.
 func CreateToolNames() []string {
 	return append([]string{ToolDatetime}, structuredFileToolNames...)

@@ -7,7 +7,7 @@ Use catalog_query for discovery and catalog_manage for approved source changes. 
 - resourceTypes: `{}` returns the supported resource types and list/get/validate/apply/delete capabilities. These are type-level capabilities; instance restrictions and approval still apply.
 - list: `{resourceType, status?, limit?, cursor?}`. Types: agent, team, skill, connector, model, provider, tool, mcp. status is all (default), valid, invalid. limit 1–100 (default 20). Returns items, nextCursor, total (after status filtering), hasMore. Follow nextCursor with the same resourceType/status until empty before claiming a complete count; total is per request, not a frozen multi-page snapshot. Invalid entries may include diagnostics.
 - get: `{resourceType, resourceKey, path?}`. Editable sources return content, baseRevision, redactedPaths and editable. Providers/models/tools/MCP components and built-in connectors are read-only. Provider/MCP do not accept path.
-- defaults: `{type:"general"|"coder"|"kbase"}` returns creation defaults and configured templates/models.
+- defaults: `{type:"general"|"coder"|"kbase"}` returns creation defaults and available models.
 - validate: `{resourceType, resourceKey, path?, content, mcpUrl?}` validates UTF-8 candidate text without saving. Validation does not grant write permission.
 
 ## Providers and MCP discovery

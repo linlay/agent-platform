@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"agent-platform/internal/adminsource"
-	"agent-platform/internal/agentcreation"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/connector"
@@ -254,14 +253,6 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 			return nil, fmt.Errorf("type must be general, coder or kbase")
 		}
 		result := h.get(path)
-		result.Structured["creationTemplates"] = h.cfg.AgentCreation
-		groups := []map[string]any{}
-		lookup := agentcreation.Lookup{SkillExists: func(id string) bool { _, ok := h.registry.SkillDefinition(id); return ok }, ToolExists: func(id string) bool { _, ok := h.registry.Tool(id); return ok }, ConnectorExists: func(id string) bool { _, err := h.cfg.Paths.ConnectorSources().Load(id); return err == nil }}
-		for _, group := range h.cfg.AgentCreation.Groups {
-			missing := agentcreation.MissingMembers(group, lookup)
-			groups = append(groups, map[string]any{"key": group.Key, "available": len(missing) == 0, "missingMembers": missing})
-		}
-		result.Structured["groupAvailability"] = groups
 		if h.models != nil {
 			publicModels := []map[string]any{}
 			for _, m := range h.models.List() {

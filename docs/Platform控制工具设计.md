@@ -46,7 +46,7 @@ Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。
 
 现有 `platform_inspect runtimeStatus {component:"mcp"}` 才是 Agent/内容版本作用域的已缓存同步状态入口，最多返回 100 项，count 表示实际总数；它不触发联网探测。未挂载组件可能无实例，一个组件也可能对应多个 Agent/版本实例。MCP 远端 tools/resources/prompts 的完整查询及统一会话分页尚不支持。
 
-其他实际资源的取舍：Skill package 元数据已有 `/api/admin/skill-packages/*` 与 admin source 管理，尚无独立 Catalog target；Agent 自有/连接器技能需按所属定义读取。Chat/Archive/Artifact 使用 chat_query 与 Chat API；活动 Run 用 run_status；Automation 使用专用 automation 工具/API；Memory/Owner 使用其专用文件与权限协议；KBASE 文档/索引使用专用 KBASE 能力。ACP bridge、Gateway/Channel、创建模板和部署配置属于执行/配置域，使用 defaults/runtimeStatus 与既有管理入口，不把运行状态或凭据目录当作通用源码资源。未开放 provider/model/MCP 写入、任意文件写入、凭据编辑或全平台资源 CRUD。
+其他实际资源的取舍：Skill package 元数据已有 `/api/admin/skill-packages/*` 与 admin source 管理，尚无独立 Catalog target；Agent 自有/连接器技能需按所属定义读取。Chat/Archive/Artifact 使用 chat_query 与 Chat API；活动 Run 用 run_status；Automation 使用专用 automation 工具/API；Memory/Owner 使用其专用文件与权限协议；KBASE 文档/索引使用专用 KBASE 能力。ACP bridge、Gateway/Channel、创建默认值和部署配置属于执行/配置域，使用 defaults/runtimeStatus 与既有管理入口，不把运行状态或凭据目录当作通用源码资源。未开放 provider/model/MCP 写入、任意文件写入、凭据编辑或全平台资源 CRUD。
 
 
 可修改范围：
@@ -109,7 +109,7 @@ Run 准入与 Chat mutation 之间尚无覆盖所有入口的统一并发事务�
 
 ## 迁移
 
-旧 platform_control、desktop_action 与 builtin.desktop 退出新调用目录，旧历史名称保留回放。`configs/tools.yml` 出现 platform-control（含 enabled:false）即报错；删除旧段，保留独立 run-env 段。创建模板移除 platform-admin 能力组及应用/技能制作组隐含管理权限。
+旧 platform_control、desktop_action 与 builtin.desktop 退出新调用目录，旧历史名称保留回放。`configs/tools.yml` 出现 platform-control（含 enabled:false）即报错；删除旧段，保留独立 run-env 段。客户端明确提交所需的连接器挂载；创建接口不隐含授予管理权限。
 
 `cmd/migrate-desktop` 提供预览、离线应用、逐项 pending 报告、备份和回滚。旧 platform_control 仅移除；旧 desktop_cdp/desktop-cdp/builtin.desktop-web 迁往 builtin.web-control。desktop_action/desktop-action 未有显式新管理挂载时，以及旧 builtin.desktop 的历史能力无法判定时，列为 pending，保留该 Agent 源文，不能通过 --allow-expansion 跳过。其余明确条目可继续迁移；有 pending 时不清理旧共享技能。管理员逐条明确新连接器配置并移除旧声明后重新预览。只迁移源文件，不编辑运行目录或 Chat 历史。
 

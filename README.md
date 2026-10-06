@@ -235,7 +235,6 @@ Provider `apiKey` 按明文字符串读取：
 - `configs/tools.example.yml`
 - `configs/channels.example.yml`
 - `configs/agent-prompt.example.yml`
-- `configs/agent-creation.example.yml`
 - `configs/agent-settings.example.yml`
 - `configs/local-public-key.example.pem`
 - `configs/runtime.example.yml`
@@ -245,7 +244,6 @@ Provider `apiKey` 按明文字符串读取：
 - `configs/tools.yml`
 - `configs/channels.yml`
 - `configs/agent-prompt.yml`
-- `configs/agent-creation.yml`
 - `configs/agent-settings.yml`
 - `configs/local-public-key.pem`
 - `configs/runtime.yml`

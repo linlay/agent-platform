@@ -34,10 +34,8 @@ var createToolNames = []string{
 	"image_generate",
 }
 
-// CreateToolNames is the base tool list written into a new general agent when
-// it is created through a capability template and agent-creation.yml does not
-// configure base-tools. It is a creation template, never a load-time default:
-// effective tools also include Platform presets and automatic capabilities.
+// CreateToolNames lists recommended tools for clients creating a general agent.
+// It is not a load-time default; clients submit their concrete tool selection.
 func CreateToolNames() []string {
 	return append([]string(nil), createToolNames...)
 }

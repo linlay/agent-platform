@@ -148,7 +148,7 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/skills/import` | multipart: `agentKey`、`file`；兼容可选 `id` | 为一个目录型 Agent 导入并启用专属 ZIP Skill，返回更新后的 admin agent detail |
 | POST | `/api/admin/agents/skills/delete` | body: `agentKey`、`id` | 删除该 Agent 的专属 Skill 与其配置引用，返回更新后的 admin agent detail |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
-| GET | `/api/admin/agents/creation-options` | 无 | 新建项目的类型、能力组、默认模型与 ACP 引擎，见 [创建模板](智能体配置说明.md#创建模板) |
+| GET | `/api/admin/agents/creation-defaults` | 无 | 创建所需的类型、默认模型、基础工具与 ACP 引擎，见 [智能体创建](智能体配置说明.md#智能体创建) |
 | GET | `/api/admin/host/directories` | `path`、`showHidden` | 列出 Platform 宿主目录的子目录，只返回目录名 |
 | GET | `/api/admin/skills` | 无 | 管理目录 `{skills,packages,pinned}`；技能保留状态、图标 URL、版本、诊断、更新时间、大小与引用 agent，包保留有序成员与完整性，pinned 为当前用户偏好 |
 | PUT | `/api/admin/skills/pin` | body: `id`、`pinned` | HTTP-only，更新当前用户单项置顶，返回 `{pinned}` |

@@ -28,7 +28,7 @@ set/unset/update 在 Scope 同一把锁中校验与提交。update 按归一化 
 
 ## 调用范围与生命周期
 
-普通 Native GENERAL/CODER/KBASE 默认自动挂载 run_env，不依赖 preset-tools，但可通过 excludeTools 排除。未排除时进入有效 Tools，排除后不创建 Scope；新建时无需落盘到 Agent YAML，旧显式声明仍可读取。Scope 准入继续使用有效 Tools，不使用 DeclaredTools。平台管理连接器需要显式挂载，创建模板不再隐含授予管理权限。
+普通 Native GENERAL/CODER/KBASE 默认自动挂载 run_env，不依赖 preset-tools，但可通过 excludeTools 排除。未排除时进入有效 Tools，排除后不创建 Scope；新建时无需落盘到 Agent YAML，旧显式声明仍可读取。Scope 准入继续使用有效 Tools，不使用 DeclaredTools。平台管理连接器需要显式挂载，创建接口不隐含授予管理权限。
 
 固定挂载不扩大执行范围：仅普通 native root Run 获得 Scope。list/explain 可用于该调用者的只读阶段，set/unset/update 仅在执行阶段可用并作为调度屏障，保持模型调用顺序、审批和启动时的环境快照一致。子任务与 Team 模型列表隐藏 run_env，执行入口仍拒绝。run_query 新 root 不继承父 Scope，符合准入时获得自己的空 Scope。
 
@@ -52,7 +52,7 @@ run-env:
 
 升级前将 tools.yml 的 platform-control.deny-keys/max-dynamic-keys/max-value-bytes/max-total-bytes 移到 run-env；旧键出现就启动失败，即使已同时配置新键。旧 platform-control.profiles/bindings 继续报错；runtimeConfig.runEnv 继续静默忽略。
 
-platform_control 不再注册任何 run.env 操作，也不在 capabilities.list/runtime.status/结果 envelope 中返回环境字段；security.explain 不再接受环境 key。历史记录不改写。同步有效 agent-creation.yml、显式 base-tools、存量 Agent 和技能源文件，不修改 ru-agents/ru-connectors。
+platform_control 不再注册任何 run.env 操作，也不在 capabilities.list/runtime.status/结果 envelope 中返回环境字段；security.explain 不再接受环境 key。历史记录不改写。同步存量 Agent 和技能源文件，不修改 ru-agents/ru-connectors。
 
 在线文档流程：create/upload 取得 documentId → run_env set DOCUMENT_HUB_DOCUMENT_ID → HTTPX session/edit/commit/download，不再调用 platform_control capabilities.list。切换文档后重建并验证对应 session/lease。
 

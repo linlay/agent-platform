@@ -161,7 +161,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 	var req api.CreateAgentRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeStrictJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
 		return
 	}
@@ -279,11 +279,8 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 	}
 	key := strings.TrimSpace(req.Key)
 	definition := s.applyCreateDefaultAgentConfig(req.Definition)
-	if req.CapabilityGroups != nil {
-		definition, err = s.applyAgentCreationTemplate(definition, *req.CapabilityGroups)
-		if err != nil {
-			return api.AgentDetailResponse{}, err
-		}
+	if err := s.validateCreateModel(definition); err != nil {
+		return api.AgentDetailResponse{}, err
 	}
 	key, definition = s.normalizeGeneratedModeCreation(key, definition)
 	if err := catalog.NormalizeAgentReasoningConfig("agent definition", definition); err != nil {

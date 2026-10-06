@@ -63,13 +63,6 @@
       "required": false
     },
     {
-      "key": "agent-creation",
-      "label": "configs/agent-creation.yml",
-      "relativePath": "configs/agent-creation.yml",
-      "templateRelativePath": "configs/agent-creation.example.yml",
-      "required": false
-    },
-    {
       "key": "local-public-key",
       "label": "configs/local-public-key.pem",
       "relativePath": "configs/local-public-key.pem",
