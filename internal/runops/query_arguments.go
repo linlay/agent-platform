@@ -50,7 +50,7 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 				request.MustUseSkills = append(request.MustUseSkills, strings.TrimSpace(id))
 			}
 		default:
-			message := fmt.Sprintf("unknown run_query argument %q", key)
+			message := fmt.Sprintf("unknown chat_start argument %q", key)
 			if key == "taskName" {
 				message += "; use chatName for a new Chat"
 			}

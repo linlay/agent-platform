@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	QueryToolName     = "run_query"
-	StatusToolName    = "run_status"
-	InterruptToolName = "run_interrupt"
+	QueryToolName     = "chat_start"
+	StatusToolName    = "chat_get_status"
+	InterruptToolName = "chat_interrupt"
 )
 
 type idempotentStart struct {
@@ -64,18 +64,18 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 	case InterruptToolName:
 		return h.interrupt(ctx, args, origin)
 	default:
-		return errorResult("invalid_tool", "tool must be run_query, run_status, or run_interrupt"), nil
+		return errorResult("invalid_tool", "tool must be chat_start, chat_get_status, or chat_interrupt"), nil
 	}
 }
 
 func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contracts.RunOrigin, *contracts.ToolExecutionResult) {
 	if execCtx == nil {
-		result := errorResult("run_context_required", "run tools require an active main Agent run")
+		result := errorResult("run_context_required", "Chat tools require an active main Agent run")
 		return contracts.RunOrigin{}, &result
 	}
 	session := execCtx.Session
 	if session.RunOrigin != nil {
-		result := errorResult("run_chaining_not_allowed", "a run created by run_query cannot call run tools; return the request to the initiating ordinary main Agent Run to query, start or interrupt its owned runs; changing runId cannot remove this restriction")
+		result := errorResult("run_chaining_not_allowed", "a run created by chat_start cannot call Chat tools; return the request to the initiating ordinary main Agent Run to query, start or interrupt its owned runs; changing runId cannot remove this restriction")
 		return contracts.RunOrigin{}, &result
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner)
@@ -85,7 +85,7 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 		owner.IsTeam() ||
 		callerAgentKey == "" ||
 		owner.AgentKey != callerAgentKey {
-		result := errorResult("run_caller_not_allowed", "run tools are only available to an ordinary main Agent root run")
+		result := errorResult("run_caller_not_allowed", "Chat tools are only available to an ordinary main Agent root run")
 		return contracts.RunOrigin{}, &result
 	}
 	return contracts.RunOrigin{
@@ -218,7 +218,7 @@ func (h *ToolHandler) requireOwnedRun(runID string, origin contracts.RunOrigin) 
 		result := resultFromError(err)
 		return &result
 	}
-	result := errorResult("run_not_owned", "run was not created by run_query for this caller and subject")
+	result := errorResult("run_not_owned", "run was not created by chat_start for this caller and subject")
 	return &result
 }
 

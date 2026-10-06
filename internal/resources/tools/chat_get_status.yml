@@ -1,0 +1,20 @@
+name: chat_get_status
+i18n:
+  en:
+    label: "Get Chat Run Status"
+  zh-CN:
+    label: "查询会话运行状态"
+description: Read the current status and result snapshot of an independent run previously created by chat_start for this caller and subject. Do not use this tool for the current run or for agent_invoke or agent_delegate child tasks. When awaiting human approval, tell the user to handle it in the target Chat instead of repeatedly polling. This tool cannot submit approvals.
+clientVisible: true
+explicitOnly: true
+readOnly: true
+inputSchema:
+  type: object
+  properties:
+    runId:
+      type: string
+      minLength: 1
+      description: Required. Run ID returned by chat_start. Identifies one execution within a Chat, not the Chat itself.
+  required:
+    - runId
+  additionalProperties: false

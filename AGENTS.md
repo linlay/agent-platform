@@ -42,7 +42,7 @@ cmd/agent-platform/main.go
 - `internal/catalog` 装载目录定义并冻结 Team 成员、协调器与 prompt 快照。参见 [智能体配置](docs/智能体配置说明.md) 和 [运行时组装](docs/Agent运行时组装.md)。
 - `internal/runtime` 负责 Query 准入、Session、Run 状态、执行、恢复和子任务编排，不得依赖 Server。App 直接组装各组件；`adapter` 只转换旧执行器/catalog DTO。受管根 Proxy 驱动归 `proxy.Driver`，公共收尾与 recorder/usage 归 `runexec`；Server 经 ProxyPort 保留路由、响应、channel 与控制适配，不能宣称 ProxyPort 已移除。
 - `internal/server` 只做 HTTP/WS 解码、鉴权、响应映射、SSE flush 和薄适配，不得直接依赖 llm、tools 或具体 Agent mode。
-- `internal/runops` 负责独立 run 工具、所有权、幂等和禁止链式调用，直接依赖 Runtime 窄接口；`internal/automation` 负责注册、调度与执行记录。自动化初始权限来自 `query.accessLevel`，省略为 default，不继承 Chat 历史权限。 `internal/automation.Service` 共用于 HTTP 和 Platform Control 的独立 Automation 工具，版本校验、审批及调用收据见 [自动化](docs/自动化.md#platform-control-管理工具)。
+- `internal/runops` 负责 Chat 会话工具、所有权、幂等和禁止链式调用，直接依赖 Runtime 窄接口；`internal/automation` 负责注册、调度与执行记录。自动化初始权限来自 `query.accessLevel`，省略为 default，不继承 Chat 历史权限。 `internal/automation.Service` 共用于 HTTP 和 Platform Control 的独立 Automation 工具，版本校验、审批及调用收据见 [自动化](docs/自动化.md#platform-control-管理工具)。
 - `internal/llm` 负责 prompt、模型流、HITL、planning 与工具循环；`internal/modelclient` 承接 Provider HTTP、首响应超时和错误分类；`internal/tools` 是通用工具 registry/router，mode 工具通过 named handler 接入，不增加 mode switch。
 - `internal/conversation`、`adminsource`、`chatresource` 分别负责会话/归档编排、源码 mutation 事务、Chat 资源解析和 mutation；Chat 资源沿用 principal/Chat 权限，不借用连接器授权。`internal/chat` 保存会话与回放数据。
 - `internal/connector` 校验、导入和编辑中立连接器包；`connectorauth` 负责部署级授权与 CLI 准备；`connectorops` 提供调用方中立的 CLI/MCP 执行与短期授权，不持有 WebApp、appId、Chat 或页面生命周期，不注册业务 operation/profile。旧包/凭据/MCP 目录迁移和 connector-migrate 命令已移除，`connectormigrate` 仅保留独立 Desktop 工具声明调整。包、挂载与凭据边界见 [连接器](docs/连接器.md)、[安装与授权](docs/连接器安装与授权.md) 和 [执行协议](docs/连接器执行协议.md)。
@@ -65,7 +65,7 @@ cmd/agent-platform/main.go
 ├── internal/                    # Go runtime 实现
 │   ├── agent/                   # 中立 mode 契约及 CODER/KBASE/TEAM 特有实现
 │   ├── runtime/                 # Query/Run 门面、状态、执行、编排与 Proxy
-│   ├── runops/                  # 独立 run 工具组 handler、所有权与幂等
+│   ├── runops/                  # Chat 会话工具组 handler、所有权与幂等
 │   ├── conversation/            # Chat/Archive/Compact 应用服务
 │   ├── adminsource/             # Admin source mutation 事务边界
 │   ├── chatresource/            # Chat 资源应用服务
@@ -170,7 +170,8 @@ make test
 - MCP registry 同时支持 `streamable-http` 与 `stdio`，版本兼容范围由锁定的官方 SDK 校验：优先请求 `2025-11-25`，接受 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，缺失、无效及未知版本仍拒绝并关闭连接。必须保留 SDK 原始 Connection，使协商版本、HTTP 协议头和 SSE 状态更新生效；日志记录实际协商版本。本地 YAML/重复 Key/transport 契约错误仍使启动或热重载硬失败；合法配置发布后，远端初始化、`tools/list` 与 availability 重试由单 worker 后台执行，`pending/syncing/unavailable` 不影响 Platform 基础健康。旧 external stdio 私有协议没有兼容期；`service.yml`、`type: external`、`external:` 或 `kind: external-service` 会使启动/热重载硬失败。平台、新版 stdio server 二进制和 registry 配置必须同批发布。
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；orchestrated Team 自动注入 session-local embedded builtin `agent_delegate` 和三个 plan tools。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
 - flat plan task 按数组顺序执行且同时最多一个 `in_progress`；最前面的非终态 task 可由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，`in_progress` 可进入任一终态，终态重试必须追加新 task。TEAM 的 plan task 表示顺序阶段，但当前阶段内部仍可通过单次 `agent_delegate` 按 `maxParallel` 并行执行成员。
-- `run_query` / `run_status` / `run_interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run，省略 accessLevel 时继承父 Run 调用当时的当前档位（不受显式覆盖开关限制，后续不联动）；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除且配置引用会硬失败。
+- 中文“会话”和“对话”均指 Chat；“新开会话／对话”使用 `chat_start` 并省略 `chatId`，未指定目标时模型填写当前 `Agent Identity.key`；只有继续用户指定的已有 Chat 才传 `chatId`。查询与中断仍按 `runId` 定位一次执行，不关闭或删除 Chat。
+- `chat_start` / `chat_get_status` / `chat_interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run，省略 accessLevel 时继承父 Run 调用当时的当前档位（不受显式覆盖开关限制，后续不联动）；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 Chat 工具。旧 `run_query`、`run_status`、`run_interrupt` 及更早的 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除且配置引用会硬失败。
 - chat 创建后 `teamId` 固定。Team 以 `teamId` 为公开 owner，`agentKey` 不得与 Team 请求或控制请求同时出现；隐藏协调器 key 只用于进程内执行，不得作为公共 Agent 身份回显。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
 - KBASE Lance sidecar 只监听 loopback，由 Go 生成一次性 Bearer token 并监督生命周期。存在 enabled KBASE capability 时会启动并探测 sidecar；`mode: KBASE` 将其标为 required，故障使健康检查失败，普通 Agent 附加能力将其标为 optional，故障只在 `/healthz` 和 capability 状态中报告 degraded。无 active generation 时 search 返回 stale 并触发冷建，sidecar 故障显式返回 unavailable。

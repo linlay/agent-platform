@@ -374,9 +374,12 @@ func ValidateAgentModelConfig(def AgentDefinition) error {
 // share this guard.
 func ValidateOrdinaryAgentTools(tools []string) error {
 	removedRunTools := map[string]string{
-		"agent_run_query":     "run_query",
-		"agent_run_status":    "run_status",
-		"agent_run_interrupt": "run_interrupt",
+		"run_query":           "chat_start",
+		"run_status":          "chat_get_status",
+		"run_interrupt":       "chat_interrupt",
+		"agent_run_query":     "chat_start",
+		"agent_run_status":    "chat_get_status",
+		"agent_run_interrupt": "chat_interrupt",
 	}
 	for _, tool := range tools {
 		normalized := strings.ToLower(strings.TrimSpace(tool))

@@ -58,7 +58,7 @@ func TestAutomationAccessLevelReachesRuntime(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
 	}, testFixtureOptions{})
-	// The run_query override switch stays disabled. Automation uses Query admission.
+	// The chat_start override switch stays disabled. Automation uses Query admission.
 	if fixture.server.deps.Config.RunQuery.AllowAccessLevelOverride {
 		t.Fatal("test requires overrides disabled")
 	}

@@ -7,7 +7,7 @@ import (
 )
 
 func TestRunQuerySchemaKeepsNewArgumentsOptional(t *testing.T) {
-	data, err := resources.ToolFS.ReadFile("tools/run_query.yml")
+	data, err := resources.ToolFS.ReadFile("tools/chat_start.yml")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -46,7 +46,7 @@ Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。
 
 现有 `platform_inspect runtimeStatus {component:"mcp"}` 才是 Agent/内容版本作用域的已缓存同步状态入口，最多返回 100 项，count 表示实际总数；它不触发联网探测。未挂载组件可能无实例，一个组件也可能对应多个 Agent/版本实例。MCP 远端 tools/resources/prompts 的完整查询及统一会话分页尚不支持。
 
-其他实际资源的取舍：Skill package 元数据已有 `/api/admin/skill-packages/*` 与 admin source 管理，尚无独立 Catalog target；Agent 自有/连接器技能需按所属定义读取。Chat/Archive/Artifact 使用 chat_query 与 Chat API；活动 Run 用 run_status；Automation 使用专用 automation 工具/API；Memory/Owner 使用其专用文件与权限协议；KBASE 文档/索引使用专用 KBASE 能力。ACP bridge、Gateway/Channel、创建默认值和部署配置属于执行/配置域，使用 defaults/runtimeStatus 与既有管理入口，不把运行状态或凭据目录当作通用源码资源。未开放 provider/model/MCP 写入、任意文件写入、凭据编辑或全平台资源 CRUD。
+其他实际资源的取舍：Skill package 元数据已有 `/api/admin/skill-packages/*` 与 admin source 管理，尚无独立 Catalog target；Agent 自有/连接器技能需按所属定义读取。Chat/Archive/Artifact 使用 chat_query 与 Chat API；活动 Run 用 chat_get_status；Automation 使用专用 automation 工具/API；Memory/Owner 使用其专用文件与权限协议；KBASE 文档/索引使用专用 KBASE 能力。ACP bridge、Gateway/Channel、创建默认值和部署配置属于执行/配置域，使用 defaults/runtimeStatus 与既有管理入口，不把运行状态或凭据目录当作通用源码资源。未开放 provider/model/MCP 写入、任意文件写入、凭据编辑或全平台资源 CRUD。
 
 
 可修改范围：

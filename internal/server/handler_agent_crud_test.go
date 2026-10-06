@@ -211,7 +211,7 @@ func TestAgentCRUDRejectsRemovedRunTools(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(legacyBody)))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tool agent_run_status was removed; use run_status") {
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tool agent_run_status was removed; use chat_get_status") {
 		t.Fatalf("expected removed run tool create rejection, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if _, found := fixture.registry.AgentDefinition("removed-run-tool-agent"); found {
@@ -236,7 +236,7 @@ func TestAgentCRUDRejectsRemovedRunTools(t *testing.T) {
 	}
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/update", bytes.NewReader(legacyBody)))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tool agent_run_status was removed; use run_status") {
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tool agent_run_status was removed; use chat_get_status") {
 		t.Fatalf("expected removed run tool update rejection, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

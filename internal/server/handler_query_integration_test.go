@@ -3579,7 +3579,7 @@ func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
 		t.Fatalf("get run status: %v", err)
 	}
 	if status.Status != "failed" || stringValue(status.Error["code"]) != "tool_calls_exceeded" {
-		t.Fatalf("run_status lost terminal error: %#v", status)
+		t.Fatalf("chat_get_status lost terminal error: %#v", status)
 	}
 	interrupt, err := fixture.server.InterruptRun(api.InterruptRequest{
 		RunID: runID, ChatID: chatID, AgentKey: "mock-agent",
@@ -3786,7 +3786,7 @@ func TestQueryNonStreamToolBudgetExceededPersistsError(t *testing.T) {
 	}
 	status, err := fixture.server.GetRunStatus(runID)
 	if err != nil || status.Status != "failed" || stringValue(status.Error["code"]) != "tool_calls_exceeded" {
-		t.Fatalf("sync run_status lost error: status=%#v err=%v", status, err)
+		t.Fatalf("sync chat_get_status lost error: status=%#v err=%v", status, err)
 	}
 }
 

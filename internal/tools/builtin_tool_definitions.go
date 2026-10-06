@@ -70,9 +70,9 @@ var requiredBuiltinToolNames = []string{
 	"bash_sandbox",
 	"ask_user_question",
 	"agent_invoke",
-	"run_query",
-	"run_status",
-	"run_interrupt",
+	"chat_start",
+	"chat_get_status",
+	"chat_interrupt",
 }
 
 func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {

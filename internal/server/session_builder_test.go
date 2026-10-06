@@ -66,7 +66,7 @@ func TestBuildQuerySessionRejectsRemovedRunTool(t *testing.T) {
 	_, err := server.BuildQuerySession(context.Background(), api.QueryRequest{}, chat.Summary{}, catalog.AgentDefinition{
 		Key: "ordinary", Mode: "REACT", Tools: []string{" AGENT_RUN_QUERY "},
 	}, querySessionBuildOptions{})
-	if err == nil || !strings.Contains(err.Error(), "tool agent_run_query was removed; use run_query") {
+	if err == nil || !strings.Contains(err.Error(), "tool agent_run_query was removed; use chat_start") {
 		t.Fatalf("expected session-level removed tool rejection, got %v", err)
 	}
 }

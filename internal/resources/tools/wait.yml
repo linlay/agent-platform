@@ -46,7 +46,7 @@ inputSchema:
               - kbase.refreshTerminal
               - connector.authorizationTerminal
           runId:
-            description: Target Run created by run_query.
+            description: Target Run created by chat_start.
             type: string
           filePath:
             description: Readable file path in the current execution scope.

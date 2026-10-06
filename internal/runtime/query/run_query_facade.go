@@ -108,7 +108,7 @@ func (s *Service) StartRun(_ context.Context, request contracts.RunStartRequest)
 	// RunOrigin describes derivation separately from transport/lane.
 	parentRunID := strings.TrimSpace(request.Origin.RunID)
 	if parentRunID == "" {
-		return contracts.RunSnapshot{}, runToolError("run_context_required", "run_query requires a parent runId")
+		return contracts.RunSnapshot{}, runToolError("run_context_required", "chat_start requires a parent runId")
 	}
 	scope, err := s.runControlScopes().Load(parentRunID)
 	if err != nil || (scope.Transport != "http" && scope.Transport != "ws") {

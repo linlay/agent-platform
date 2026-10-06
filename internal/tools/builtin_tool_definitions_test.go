@@ -37,12 +37,12 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["agent_invoke"] {
 		t.Fatal("expected agent_invoke builtin tool definition")
 	}
-	for _, name := range []string{"run_query", "run_status", "run_interrupt"} {
+	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt"} {
 		if !byName[name] {
 			t.Fatalf("expected %s builtin tool definition", name)
 		}
 	}
-	for _, name := range []string{"agent_run", "agent_run_query", "agent_run_status", "agent_run_interrupt"} {
+	for _, name := range []string{"run_query", "run_status", "run_interrupt", "agent_run", "agent_run_query", "agent_run_status", "agent_run_interrupt"} {
 		if byName[name] {
 			t.Fatalf("did not expect removed %s tool definition", name)
 		}
@@ -125,12 +125,12 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 	}
 	found := map[string]bool{}
 	wantLabels := map[string]string{
-		"run_query":     "发起独立运行",
-		"run_status":    "查询独立运行状态",
-		"run_interrupt": "中断独立运行",
+		"chat_start":      "发起会话运行",
+		"chat_get_status": "查询会话运行状态",
+		"chat_interrupt":  "中断会话运行",
 	}
 	for _, def := range defs {
-		if def.Name != "run_query" && def.Name != "run_status" && def.Name != "run_interrupt" {
+		if def.Name != "chat_start" && def.Name != "chat_get_status" && def.Name != "chat_interrupt" {
 			continue
 		}
 		found[def.Name] = true
@@ -140,33 +140,33 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 		if !strings.Contains(def.Description, "independent") || !strings.Contains(def.Description, "run") {
 			t.Fatalf("%s description does not define independent-run semantics: %q", def.Name, def.Description)
 		}
-		wantReadOnly := def.Name == "run_status"
+		wantReadOnly := def.Name == "chat_get_status"
 		if def.Meta["clientVisible"] != true || def.Meta["explicitOnly"] != true || def.Meta["readOnly"] != wantReadOnly || def.Meta["catalogVisible"] != false {
 			t.Fatalf("unexpected %s metadata: %#v", def.Name, def.Meta)
 		}
-		if def.Name == "run_query" {
+		if def.Name == "chat_start" {
 			for _, requiredRule := range []string{"Agent Identity.key", "current Agent", "this Agent", "yourself in any language", "Sub-Agent Candidates"} {
 				if !strings.Contains(def.Description, requiredRule) {
-					t.Fatalf("run_query description missing current-agent rule %q: %q", requiredRule, def.Description)
+					t.Fatalf("chat_start description missing current-agent rule %q: %q", requiredRule, def.Description)
 				}
 			}
 			if def.Parameters["type"] != "object" || def.Parameters["additionalProperties"] != false {
-				t.Fatalf("run_query schema is not a closed object: %#v", def.Parameters)
+				t.Fatalf("chat_start schema is not a closed object: %#v", def.Parameters)
 			}
 			if _, exists := def.Parameters["oneOf"]; exists {
-				t.Fatalf("run_query schema must not use oneOf: %#v", def.Parameters)
+				t.Fatalf("chat_start schema must not use oneOf: %#v", def.Parameters)
 			}
 			properties := mapChild(t, def.Parameters, "properties")
 			for _, field := range []string{"message", "agentKey", "teamId", "chatId"} {
 				if _, exists := properties[field]; !exists {
-					t.Fatalf("run_query schema is missing %s: %#v", field, properties)
+					t.Fatalf("chat_start schema is missing %s: %#v", field, properties)
 				}
 			}
 			if _, exists := properties["action"]; exists {
-				t.Fatalf("run_query schema still exposes action: %#v", properties)
+				t.Fatalf("chat_start schema still exposes action: %#v", properties)
 			}
 			if required, _ := def.Parameters["required"].([]any); !reflect.DeepEqual(required, []any{"message"}) {
-				t.Fatalf("run_query required = %#v, want [message]", required)
+				t.Fatalf("chat_start required = %#v, want [message]", required)
 			}
 			continue
 		}
@@ -178,7 +178,7 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 			t.Fatalf("%s required = %#v, want [runId]", def.Name, required)
 		}
 	}
-	for _, name := range []string{"run_query", "run_status", "run_interrupt"} {
+	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt"} {
 		if !found[name] {
 			t.Fatalf("embedded %s definition is unavailable", name)
 		}
@@ -253,7 +253,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		}
 	}
 	for _, hiddenName := range []string{
-		"agent_delegate", "run_query", "run_status", "run_interrupt", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
+		"agent_delegate", "chat_start", "chat_get_status", "chat_interrupt", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
 		"memory_timeline", "memory_update", "memory_write", "memory_read", "memory_promote", "memory_search", "memory_consolidate", "memory_forget",
 	} {
 		if visibleNames[hiddenName] {

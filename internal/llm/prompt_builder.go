@@ -494,7 +494,7 @@ func buildAgentsSection(digests []AgentDigest) string {
 	builder := strings.Builder{}
 	builder.WriteString("Runtime Context: Sub-Agent Candidates\n")
 	builder.WriteString("以下是为当前智能体选择的可调用/委派子智能体候选摘要，仅供目标选择和任务路由参考。\n")
-	builder.WriteString("这些候选不是当前智能体，也不构成 agent_invoke、agent_delegate、run_query 或 catalog 的权限或目标白名单；当前智能体及其 key 只由 Agent Identity 定义。\n")
+	builder.WriteString("这些候选不是当前智能体，也不构成 agent_invoke、agent_delegate、chat_start 或 catalog 的权限或目标白名单；当前智能体及其 key 只由 Agent Identity 定义。\n")
 	builder.WriteString("如需了解某个候选的完整配置，可以自行查看 agents 目录下对应的 agent.yml。\n")
 	builder.WriteString(strings.Join(blocks, "\n---\n"))
 	if included < total {

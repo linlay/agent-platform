@@ -535,7 +535,7 @@ Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行
 }
 ```
 
-该 `run.error` 是完成态事实：SSE、WebSocket、`/api/attach` 和 `run_status` 返回同一错误，run summary 持久化为 `finishReason:"error"`，运行状态为 `FAILED`。首个终态获胜；平台确定错误后到达的 `/api/interrupt` 返回 `accepted:false, status:"unmatched"`，不能把失败覆盖为 cancel。`stream:false` 仍完成相同持久化，但 HTTP 返回错误 envelope。
+该 `run.error` 是完成态事实：SSE、WebSocket、`/api/attach` 和 `chat_get_status` 返回同一错误，run summary 持久化为 `finishReason:"error"`，运行状态为 `FAILED`。首个终态获胜；平台确定错误后到达的 `/api/interrupt` 返回 `accepted:false, status:"unmatched"`，不能把失败覆盖为 cancel。`stream:false` 仍完成相同持久化，但 HTTP 返回错误 envelope。
 
 预算错误闭合后的历史可以安全用于同一 Chat 的后续新 run。部署修复前已经缺少 tool result、且执行状态无法证明的历史不会自动修复，仍按 `chat_history_incomplete` 返回 `409`。
 
@@ -1275,7 +1275,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 
-主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；run_query 工具入口仍要求文字。
+主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；chat_start 工具入口仍要求文字。
 
 完全空 query 额外要求服务端 `canContinue:true`。`/api/chat` 与 `/api/chats` 返回该布尔值，由最后一次持久化主 Run 计算：只允许已结束的 `error/cancel`，兼容 `cancelled/canceled/interrupted`；正常完成、未知终态、新 Run 已启动但尚未结束、等待人工交互以及无历史均为 false。不能回退到更早一次失败或取消，也不因浏览器断线推断异常中断。已有历史但不满足该条件时返回 HTTP 400、`empty_query_not_allowed`。原始 message 保持为空，模型输入补充 `Continue based on the current conversation context.`，纯附件 query 不受该额外限制。
 
@@ -1284,7 +1284,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 `/api/submit` 不要求创建与提交的 transport、device boundary 或 lane 相同，允许桌面创建、手机审批及 HTTP/WS 交叉提交。HTTP/WS 的既有认证、Agent/Team owner、等待项和提交参数校验及重复提交仲裁保持不变；其他 Run 控制入口仍执行原通道归属检查。
 
-`run_query` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 `runOrigin`；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
+`chat_start` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 `runOrigin`；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
 
 ## 通用智能体根目录与项目目录
 

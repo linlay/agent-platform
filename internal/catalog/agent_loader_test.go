@@ -123,9 +123,12 @@ func TestParseAgentFileRejectsRemovedTools(t *testing.T) {
 		legacy      string
 		replacement string
 	}{
-		{legacy: "agent_run_query", replacement: "run_query"},
-		{legacy: " AGENT_RUN_STATUS ", replacement: "run_status"},
-		{legacy: "agent_run_interrupt", replacement: "run_interrupt"},
+		{legacy: "run_query", replacement: "chat_start"},
+		{legacy: " RUN_STATUS ", replacement: "chat_get_status"},
+		{legacy: "run_interrupt", replacement: "chat_interrupt"},
+		{legacy: "agent_run_query", replacement: "chat_start"},
+		{legacy: " AGENT_RUN_STATUS ", replacement: "chat_get_status"},
+		{legacy: "agent_run_interrupt", replacement: "chat_interrupt"},
 		{legacy: "platform_config", replacement: "platform_control"},
 	} {
 		t.Run(strings.TrimSpace(tc.legacy), func(t *testing.T) {

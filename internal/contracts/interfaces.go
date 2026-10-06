@@ -334,7 +334,7 @@ type QuerySession struct {
 	// It is runtime-only and is deliberately excluded from persisted/session
 	// protocol payloads.
 	WebClientTarget WebClientTarget `json:"-"`
-	// RunOrigin marks a root run created by the run_query tool.
+	// RunOrigin marks a root run created by the chat_start tool.
 	// It is runtime-only: the public request cannot forge it, and a marked run
 	// is forbidden from calling any run tool.
 	RunOrigin *RunOrigin `json:"-"`
@@ -735,7 +735,7 @@ type RunStatusInfo struct {
 }
 
 // RunOrigin is the trusted runtime identity attached to a detached run
-// created by run_query. Subject participates in ownership checks but is not
+// created by chat_start. Subject participates in ownership checks but is not
 // persisted into request.query audit metadata.
 type RunOrigin struct {
 	AgentKey string

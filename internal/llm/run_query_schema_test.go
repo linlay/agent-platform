@@ -10,7 +10,7 @@ import (
 )
 
 func TestRunQuerySchemaOptionalFieldsSurviveProtocols(t *testing.T) {
-	data, err := resources.ToolFS.ReadFile("tools/run_query.yml")
+	data, err := resources.ToolFS.ReadFile("tools/chat_start.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestRunQuerySchemaOptionalFieldsSurviveProtocols(t *testing.T) {
 	}
 	root := tree.(map[string]any)
 	schema := root["inputSchema"].(map[string]any)
-	specs := toOpenAIToolSpecs([]api.ToolDetailResponse{{Name: "run_query", Parameters: schema}})
+	specs := toOpenAIToolSpecs([]api.ToolDetailResponse{{Name: "chat_start", Parameters: schema}})
 	assertSerializedToolSchemaRoots(t, "openai", map[string]any{"tools": openAIToolSpecsToAny(specs)}, "parameters")
 	assertSerializedToolSchemaRoots(t, "anthropic", map[string]any{"tools": toAnthropicToolSpecs(specs)}, "input_schema")
 	for _, payload := range []any{specs[0].Function.Parameters, toAnthropicToolSpecs(specs)[0]["input_schema"]} {

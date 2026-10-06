@@ -1,5 +1,5 @@
-# 允许 run_query 显式请求非 default 权限。省略时继承父 Run 当前档位，不受此开关限制。默认关闭；修改后重启。
-# 开启即信任所有有资格调用 run_query 的 Agent 请求 full_access（仍受目标准入与硬约束限制）。
+# 允许 chat_start 显式请求非 default 权限。省略时继承父 Run 当前档位，不受此开关限制。默认关闭；修改后重启。
+# 开启即信任所有有资格调用 chat_start 的 Agent 请求 full_access（仍受目标准入与硬约束限制）。
 runQuery:
   allowAccessLevelOverride: false
 

@@ -298,7 +298,7 @@ func TestKBaseAdversarialForbiddenToolsCannotBeInjectedInEitherStage(t *testing.
 				"artifact_publish",
 				"desktop_action",
 				"memory_search",
-				"run_query",
+				"chat_start",
 				"agent_invoke",
 			} {
 				t.Run(toolName, func(t *testing.T) {
