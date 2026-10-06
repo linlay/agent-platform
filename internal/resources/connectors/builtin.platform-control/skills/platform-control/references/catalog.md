@@ -7,8 +7,8 @@ Use catalog_query for discovery and catalog_manage for approved source changes. 
 - resourceTypes: `{}` returns the supported resource types and list/get/validate/apply/delete capabilities. These are type-level capabilities; instance restrictions and approval still apply.
 - list: `{resourceType, status?, limit?, cursor?}`. Types: agent, team, skill, connector, model, provider, tool, mcp. status is all (default), valid, invalid. limit 1–100 (default 20). Returns items, nextCursor, total (after status filtering), hasMore. Follow nextCursor with the same resourceType/status until empty before claiming a complete count; total is per request, not a frozen multi-page snapshot. Invalid entries may include diagnostics.
 - get: `{resourceType, resourceKey, path?}`. Editable sources return content, baseRevision, redactedPaths and editable. Providers/models/tools/MCP components and built-in connectors are read-only. Provider/MCP do not accept path.
-- defaults: `{type:"general"|"coder"|"kbase"}` returns creation defaults and available models.
-- validate: `{resourceType, resourceKey, path?, content, mcpUrl?}` validates UTF-8 candidate text without saving. Validation does not grant write permission.
+- defaults: `{type:"general"|"coder"|"kbase"}` returns creation defaults and available models. These defaults do not supply the user's project directory; `ready` describes configured defaults, not a complete project candidate.
+- validate: `{resourceType, resourceKey, path?, content, mcpUrl?, isProject?}` validates UTF-8 candidate text without saving. `isProject` is an optional boolean for agent.yml candidates. Validation does not grant write permission.
 
 ## Providers and MCP discovery
 
@@ -22,7 +22,7 @@ For runtime MCP discovery use `platform_inspect runtimeStatus {component:"mcp"}`
 
 ## Writes
 
-- apply: `{resourceType, resourceKey, path?, content, baseRevision?, preservePaths?, mcpUrl?}`. Read the source first; pass its exact baseRevision. Omit revision only when creating a new absent resource. Content is the complete replacement text, at most 1 MiB.
+- apply: `{resourceType, resourceKey, path?, content, baseRevision?, preservePaths?, mcpUrl?, isProject?}`. Read the source first; pass its exact baseRevision. Omit revision only when creating a new absent resource. Content is the complete replacement text, at most 1 MiB.
 - delete: `{resourceType, resourceKey, baseRevision}` deletes the resource directory or the selected packaged skill member. Team deletion is unsupported. Referenced skills/connectors/agents are protected.
 
 Paths: Agent defaults to agent.yml and also permits SOUL.md or AGENTS.md; Team uses team.yml or existing team.yaml; Skill defaults to SKILL.md and permits relative text files; Connector permits connector.json only. No absolute paths, dot segments, symlinks, provider/model/tool/MCP writes, or modifying the calling Agent. builtin.* is immutable. Skill member keys are package/member; package.json membership changes atomically with the member. A bare package key is rejected; create whole packages through the existing package administration flow first. Case variants do not bypass protected resource checks.
@@ -30,6 +30,16 @@ Paths: Agent defaults to agent.yml and also permits SOUL.md or AGENTS.md; Team u
 runtimeConfig.env values are redacted. To retain a key, leave its value as [REDACTED] and put its exact path (for example runtimeConfig.env.API_TOKEN) in preservePaths. Never copy a placeholder without preservePaths, ask to reveal credentials, or embed connector credentials; use connector authorization.
 
 catalog_manage apply pauses for one-time human approval in default mode; auto_approve/full_access permits server-side automatic approval. catalog_manage delete always requires human approval, including full_access. Approval displays sanitized before/after and binds caller, Run, tool invocation, content and source baseline. Changed content or revision needs a new call and review. It cannot authorize a sibling call or a whole Run. Source publication uses staging/backup and shared mutation locks. Results distinguish applied, pending (active execution lease), and invalid (published source diagnostics). A control_rolled_back error with status and executionState rolled_back means the operation failed and the previous state was restored; resolve the cause and obtain fresh approval before retrying. Inspect status before claiming success. For an unknown outcome, read the source before retrying.
+
+## Project Agents and workspace directories
+
+When the user asks for an Agent for a specific project, put that project's directory in `runtimeConfig.workspaceRoot` in the agent.yml candidate, and pass `isProject:true` in both validate and apply args. Use each directory supplied by the user; an Agent's name or description does not bind its workspace. Do not copy `@root` from an unrelated Agent to fill a missing project directory. After publication, get the source and verify that its workspaceRoot matches the requested project before reporting completion.
+
+`isProject:true` requires a specific existing absolute directory (home expansion follows the ordinary Workspace rules). Empty values, `@root`, files, missing directories and canonical filesystem/volume/share roots, including symlinks to them, are rejected before approval and checked again before publication. The flag applies only to agent.yml; it is request intent and is not written into Agent configuration. Omitted or false leaves the ordinary Agent contract unchanged. A project may use GENERAL, CODER, KBASE or the explicit ACP engine; a Git repository is not required.
+
+`workspaceRoot: "@root"` means a general root-directory Agent with no specific project workspace. Its tools execute at the host root, but the public catalog omits `workspaceDir`, so Desktop does not put it in Projects. This project identity is independent of the Agent's mode. Use `@root` only when the user intends that general root-directory behavior.
+
+The HTTP creation endpoint remains `POST /api/admin/agents/create`; project callers add top-level `isProject:true` and supply `definition.runtimeConfig.workspaceRoot`. Do not put isProject inside definition or agent.yml.
 
 ## Create an HTTP MCP connector
 

@@ -4,7 +4,7 @@ i18n:
     label: "Manage Catalog"
   zh-CN:
     label: "管理目录"
-description: "apply: resourceType, resourceKey, content, path?, baseRevision?, preservePaths?, mcpUrl?. delete: resourceType, resourceKey, baseRevision. Updates require the current baseRevision; new targets omit it. mcpUrl creates a new HTTP MCP connector with generated mcp.json; use auth_mode=mcp for standard OAuth discovery or no_auth. Every mutation requires single-use approval."
+description: "apply: resourceType, resourceKey, content, path?, baseRevision?, preservePaths?, mcpUrl?, isProject? (boolean, agent.yml only). For a project, set isProject:true and put the user's specific existing directory in runtimeConfig.workspaceRoot; @root is not a project directory. delete: resourceType, resourceKey, baseRevision. Updates require the current baseRevision; new targets omit it. mcpUrl creates a new HTTP MCP connector with generated mcp.json; use auth_mode=mcp for standard OAuth discovery or no_auth. Every mutation requires single-use approval."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -30,7 +30,7 @@ inputSchema:
         - "delete"
     args:
       type: "object"
-      description: "apply: resourceType, resourceKey, content, path?, baseRevision?, preservePaths?, mcpUrl?. delete: resourceType, resourceKey, baseRevision. Updates require the current baseRevision; new targets omit it. mcpUrl creates a new HTTP MCP connector with generated mcp.json; use auth_mode=mcp for standard OAuth discovery or no_auth. Every mutation requires single-use approval."
+      description: "apply: resourceType, resourceKey, content, path?, baseRevision?, preservePaths?, mcpUrl?, isProject? (boolean, agent.yml only; true requires a specific existing workspaceRoot). delete: resourceType, resourceKey, baseRevision. Updates require the current baseRevision; new targets omit it. Every mutation requires single-use approval."
   required:
     - "action"
   additionalProperties: false

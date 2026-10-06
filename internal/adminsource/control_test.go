@@ -3,6 +3,7 @@ package adminsource
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +76,41 @@ func TestControlVersionAndApprovalChanges(t *testing.T) {
 	b, _ := os.ReadFile(path)
 	if string(b) != "new" {
 		t.Fatal(string(b))
+	}
+}
+
+func TestControlProjectIntentChecksWorkspaceAndBindsApproval(t *testing.T) {
+	s := controlFixture(t)
+	target := ControlTarget{ResourceType: "agent", ResourceKey: "project-agent"}
+	change := ControlChange{ControlTarget: target, Action: "apply", IsProject: true}
+	change.Content = "key: project-agent\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nruntimeConfig:\n  workspaceRoot: '@root'\n"
+	if _, err := s.Prepare(change, "caller"); err == nil {
+		t.Fatal("project intent accepted @root")
+	}
+	ordinary := change
+	ordinary.IsProject = false
+	if _, err := s.Prepare(ordinary, "caller"); err != nil {
+		t.Fatalf("ordinary Agent rejected @root: %v", err)
+	}
+	workspace := t.TempDir()
+	change.Content = fmt.Sprintf("key: project-agent\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nruntimeConfig:\n  workspaceRoot: %q\n", workspace)
+	plan, err := s.Prepare(change, "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary = change
+	ordinary.IsProject = false
+	if _, err := s.Apply(context.Background(), ordinary, "caller", plan.Digest); err == nil || !strings.Contains(err.Error(), "approval_stale") {
+		t.Fatalf("changed project intent reused approval: %v", err)
+	}
+	if err := os.Remove(workspace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Apply(context.Background(), change, "caller", plan.Digest); err == nil {
+		t.Fatal("project directory removed after review was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(s.Config.Paths.AgentsDir, target.ResourceKey)); !os.IsNotExist(err) {
+		t.Fatalf("failed project validation wrote source: %v", err)
 	}
 }
 func TestControlRollbackAndProtection(t *testing.T) {

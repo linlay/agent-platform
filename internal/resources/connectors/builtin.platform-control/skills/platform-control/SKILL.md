@@ -11,6 +11,8 @@ catalog_manage apply and routine Desktop management use Platform review in defau
 
 platform_inspect: runtimeStatus {component?}; securityExplain {path,access?} or {tool,action?}. These explain cached state and current policy without granting access.
 
-Desktop references: [shell](references/shell.md), [settings](references/settings.md), [website](references/website.md), [webapp](references/webapp.md), [control-center](references/control-center.md), [market](references/market.md), [kanban](references/kanban.md). Action names omit the desktop. wire prefix. Do not supply source, workspaceRoot or confirmationSummary. Use @chat/ and @workspace/ paths where supported.
+For project Agent creation, use each user-supplied project directory as `runtimeConfig.workspaceRoot` in the Agent definition and set `isProject:true` in catalog validate/apply args. `@root` denotes a general root-directory Agent with no specific project workspace; it does not appear in Desktop Projects. Read [catalog](references/catalog.md) for the project checks and post-publication verification.
+
+Desktop references: [shell](references/shell.md), [settings](references/settings.md), [website](references/website.md), [webapp](references/webapp.md), [control-center](references/control-center.md), [market](references/market.md), [kanban](references/kanban.md). Action names omit the desktop. wire prefix. For Desktop action args, do not supply source, workspaceRoot or confirmationSummary. This restriction does not apply to runtimeConfig.workspaceRoot inside an Agent definition. Use @chat/ and @workspace/ paths where supported.
 
 Automation creation, updates, enable/pause and manual trigger use Platform review in default mode and permit auto approval in auto_approve/full_access. Saved query.accessLevel controls future runs independently of the calling chat.

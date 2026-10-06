@@ -47,8 +47,8 @@ var argumentFields = map[string]map[string]string{
 	"catalog_query.list":          {"resourceType": "s!", "status": "s", "limit": "n", "cursor": "s"},
 	"catalog_query.get":           {"resourceType": "s!", "resourceKey": "s!", "path": "s"},
 	"catalog_query.defaults":      {"type": "s!"},
-	"catalog_query.validate":      {"resourceType": "s!", "resourceKey": "s!", "content": "s!", "path": "s", "mcpUrl": "s"},
-	"catalog_manage.apply":        {"resourceType": "s!", "resourceKey": "s!", "path": "s", "content": "s!", "baseRevision": "s", "preservePaths": "a", "mcpUrl": "s"},
+	"catalog_query.validate":      {"resourceType": "s!", "resourceKey": "s!", "content": "s!", "path": "s", "mcpUrl": "s", "isProject": "b"},
+	"catalog_manage.apply":        {"resourceType": "s!", "resourceKey": "s!", "path": "s", "content": "s!", "baseRevision": "s", "preservePaths": "a", "mcpUrl": "s", "isProject": "b"},
 	"catalog_manage.delete":       {"resourceType": "s!", "resourceKey": "s!", "baseRevision": "s!"},
 	"chat_query.current":          {},
 	"chat_query.list":             {"scope": "s", "archived": "b", "pinned": "b", "limit": "n", "cursor": "s"},
@@ -122,6 +122,7 @@ func controlTarget(p map[string]any) adminsource.ControlTarget {
 }
 func controlChange(action string, p map[string]any) adminsource.ControlChange {
 	c := adminsource.ControlChange{ControlTarget: controlTarget(p), Action: action, Content: stringValue(p, "content"), BaseRevision: stringValue(p, "baseRevision"), MCPURL: stringValue(p, "mcpUrl")}
+	c.IsProject, _ = p["isProject"].(bool)
 	if paths, ok := p["preservePaths"].([]any); ok {
 		for _, p := range paths {
 			c.PreservePaths = append(c.PreservePaths, p.(string))
@@ -152,6 +153,9 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		}
 		digest = plan.Digest
 		form = map[string]any{"action": action, "resourceType": plan.Change.ResourceType, "resourceKey": plan.Change.ResourceKey, "path": plan.Change.Path, "baseRevision": plan.Change.BaseRevision, "before": plan.Before, "after": plan.After}
+		if plan.Change.IsProject {
+			form["isProject"] = true
+		}
 		if action == "apply" && plan.Change.ResourceType == "agent" && (plan.Change.Path == "" || plan.Change.Path == "agent.yml") {
 			form["permissionFields"] = []string{"toolConfig", "connectorConfig", "skillConfig", "hostAccess", "accessLevel"}
 		}
@@ -268,6 +272,9 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 			return nil, fmt.Errorf("catalog unavailable")
 		}
 		err := h.sources.Validate(t, stringValue(p, "content"))
+		if isProject, _ := p["isProject"].(bool); err == nil && isProject {
+			err = h.sources.ValidateProject(t, stringValue(p, "content"))
+		}
 		if err == nil && stringValue(p, "mcpUrl") != "" {
 			_, err = h.sources.Prepare(controlChange("apply", p), "")
 		}

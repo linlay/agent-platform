@@ -724,6 +724,7 @@ type AdminChannelConfigSummary struct {
 
 type CreateAgentRequest struct {
 	Key          string         `json:"key,omitempty"`
+	IsProject    bool           `json:"isProject,omitempty"`
 	Definition   map[string]any `json:"definition"`
 	SoulPrompt   *string        `json:"soulPrompt,omitempty"`
 	AgentsPrompt *string        `json:"agentsPrompt,omitempty"`

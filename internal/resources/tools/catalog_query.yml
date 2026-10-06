@@ -4,7 +4,7 @@ i18n:
     label: "Query Catalog"
   zh-CN:
     label: "查询目录"
-description: "resourceTypes: no args, discover supported resources and operations. list: resourceType (agent/team/skill/connector/model/provider/tool/mcp), status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation). Read before updating to obtain baseRevision."
+description: "resourceTypes: no args, discover supported resources and operations. list: resourceType (agent/team/skill/connector/model/provider/tool/mcp), status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation), isProject? (boolean, agent.yml only). For a project, set isProject:true and put the user's specific existing directory in runtimeConfig.workspaceRoot; @root is not a project directory. Read before updating to obtain baseRevision."
 clientVisible: true
 explicitOnly: true
 readOnly: true
@@ -26,7 +26,7 @@ inputSchema:
         - "validate"
     args:
       type: "object"
-      description: "resourceTypes: no args, discover supported resources and operations. list: resourceType (agent/team/skill/connector/model/provider/tool/mcp), status?, limit?, cursor?. get: resourceType, resourceKey, path?. defaults: type (general/coder/kbase). validate: resourceType, resourceKey, content, path?, mcpUrl? (HTTP MCP creation). Read before updating to obtain baseRevision."
+      description: "resourceTypes: no args. list/get/defaults: see the tool description. validate: resourceType, resourceKey, content, path?, mcpUrl?, isProject? (boolean, agent.yml only; true requires a specific existing workspaceRoot)."
   required:
     - "action"
   additionalProperties: false

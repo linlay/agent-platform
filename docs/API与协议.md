@@ -127,6 +127,8 @@ GET /ws -> request / response / stream / push / error frames
 
 ### Admin
 
+Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.workspaceRoot` 是具体、现存且非 canonical 文件系统/驱动器/共享根的绝对目录，拒绝 `@root`；失败在写盘前返回 HTTP 400 `invalid_project_workspace`。省略或 false 保留普通 Agent 契约，标志不持久化。具体创建与模型工具的同名校验见 [智能体创建](智能体配置说明.md#智能体创建)。
+
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
@@ -140,7 +142,7 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/connectors/auth/cancel?id=<id>` | 连接器 id | 取消当前登录会话 |
 | GET/PUT/DELETE | `/api/admin/source` | GET query: `type`、`key`/`id`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256`；DELETE body: `target`、`baseSha256` | 读取或保存受控的 Agent、Skill、Skill Package、Automation、Registry 文本 source；旧 MCP source 删除入口已退役；mutation 使用哈希防止覆盖并发修改（技能包必填） |
 | GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
-| POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
+| POST | `/api/admin/agents/create` | body: `key`、可选 boolean `isProject`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
 | POST | `/api/admin/agents/import` | multipart: `file`、可选 `overwrite` | 导入完整 Agent ZIP，返回包含 `status` 与 `diagnostics` 的 admin agent 详情 |
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/update-name` | body: `key`/`agentKey`、`name` | 更新后的 agent 详情 |

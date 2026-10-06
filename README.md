@@ -6,6 +6,8 @@
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
+项目型智能体仍通过 `/api/admin/agents/create` 创建，调用方传 `isProject:true` 和具体项目目录 `definition.runtimeConfig.workspaceRoot`；模型 catalog validate/apply 使用同名参数，详见 [智能体创建](docs/智能体配置说明.md#智能体创建)。
+
 Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据管理和短期执行授权，不持有应用或页面模型，见 [连接器执行协议](docs/连接器执行协议.md)。已发布产物通过独立 Chat API 按现有会话访问权限读取。
 
 网站 AWCP 操作采用手册渐进披露：按需读取动作目录和单项说明，再通过固定 `invoke` 调用；不向模型运行核心注入页面工具 Schema 或专属状态机。参见 [Desktop 反向 Provider](docs/MCP与工具交互.md#desktop-反向-provider)。

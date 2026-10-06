@@ -277,6 +277,11 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 	if err := validateCreateAgentDefinition(req.Definition); err != nil {
 		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
+	if req.IsProject {
+		if err := catalog.ValidateProjectWorkspace(req.Definition); err != nil {
+			return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_project_workspace", err.Error())
+		}
+	}
 	key := strings.TrimSpace(req.Key)
 	definition := s.applyCreateDefaultAgentConfig(req.Definition)
 	if err := s.validateCreateModel(definition); err != nil {

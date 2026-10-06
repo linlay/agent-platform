@@ -37,6 +37,7 @@ type ControlChange struct {
 	BaseRevision  string   `json:"baseRevision,omitempty"`
 	PreservePaths []string `json:"preservePaths,omitempty"`
 	MCPURL        string   `json:"mcpUrl,omitempty"`
+	IsProject     bool     `json:"isProject,omitempty"`
 }
 type ControlSource struct {
 	ControlTarget
@@ -397,9 +398,26 @@ func (s *ControlService) Validate(t ControlTarget, content string) error {
 	}
 	return nil
 }
+
+// ValidateProject applies the same project-directory contract as Agent creation
+// to a raw agent.yml candidate used by the control tools.
+func (s *ControlService) ValidateProject(t ControlTarget, content string) error {
+	if t.ResourceType != "agent" || t.Path != "" && t.Path != "agent.yml" {
+		return fmt.Errorf("isProject only supports agent.yml candidates")
+	}
+	definition, err := parseDefinition(content)
+	if err != nil {
+		return err
+	}
+	return catalog.ValidateProjectWorkspace(definition)
+}
+
 func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, error) {
 	if c.Action != "apply" && c.Action != "delete" {
 		return nil, fmt.Errorf("unsupported action")
+	}
+	if c.IsProject && c.Action != "apply" {
+		return nil, fmt.Errorf("isProject only supports applying agent.yml")
 	}
 	if connector.IsBuiltin(c.ResourceKey) || c.ResourceType == "agent" && strings.EqualFold(c.ResourceKey, caller) {
 		return nil, fmt.Errorf("protected resource")
@@ -472,6 +490,11 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 		}
 		if e = s.Validate(c.ControlTarget, c.Content); e != nil {
 			return nil, e
+		}
+		if c.IsProject {
+			if e = s.ValidateProject(c.ControlTarget, c.Content); e != nil {
+				return nil, e
+			}
 		}
 		p.After = c.Content
 		if c.ResourceType == "agent" && filepath.Base(rel) == "agent.yml" {

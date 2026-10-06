@@ -8,8 +8,10 @@ import (
 	"agent-platform/internal/contracts"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +65,72 @@ func TestControlAdmissionAndExactApproval(t *testing.T) {
 		if result.Error == "" {
 			t.Fatal("invalid caller accepted")
 		}
+	}
+}
+
+func TestControlProjectValidationAndPublication(t *testing.T) {
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents")}}
+	registry, err := catalog.NewFileRegistry(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &adminsource.ControlService{Config: cfg, Registry: registry, Mutations: adminsource.NewService()}
+	h := NewToolHandler(cfg, registry, nil).ConfigureControl(source, nil, nil)
+	execution := controlExecution()
+	params := map[string]any{
+		"resourceType": "agent", "resourceKey": "project-agent", "isProject": true,
+		"content": "key: project-agent\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nruntimeConfig:\n  workspaceRoot: '@root'\n",
+	}
+	for _, action := range []string{"validate", "apply"} {
+		tool := "catalog_query"
+		if action == "apply" {
+			tool = "catalog_manage"
+		}
+		args := map[string]any{"action": action, "args": params}
+		if _, _, err := h.admitted(tool, args, execution); err != nil {
+			t.Fatalf("project intent rejected at admission: %v", err)
+		}
+		for _, invalid := range []any{"true", 1, nil} {
+			params["isProject"] = invalid
+			if _, _, err := h.admitted(tool, args, execution); err == nil {
+				t.Fatalf("nonboolean project intent accepted: %#v", invalid)
+			}
+		}
+		params["isProject"] = true
+	}
+	validation, err := h.catalogQuery(context.Background(), "validate", params)
+	if err != nil || validation.(map[string]any)["valid"] != false {
+		t.Fatalf("invalid project validated: %#v, %v", validation, err)
+	}
+	args := map[string]any{"action": "apply", "args": params}
+	if _, err := h.PrepareToolApproval(context.Background(), "catalog_manage", args, execution); err == nil {
+		t.Fatal("invalid project reached approval")
+	}
+	params["content"] = fmt.Sprintf("key: project-agent\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nruntimeConfig:\n  workspaceRoot: %q\n", t.TempDir())
+	validation, err = h.catalogQuery(context.Background(), "validate", params)
+	if err != nil || validation.(map[string]any)["valid"] != true {
+		t.Fatalf("valid project rejected: %#v, %v", validation, err)
+	}
+	approval, err := h.PrepareToolApproval(context.Background(), "catalog_manage", args, execution)
+	if err != nil || approval.Form["isProject"] != true {
+		t.Fatalf("project review: %#v, %v", approval, err)
+	}
+	result, err := h.Invoke(context.Background(), "catalog_manage", args, execution)
+	if err != nil || result.Error != "approval_required" {
+		t.Fatalf("project publication bypassed approval: %#v, %v", result, err)
+	}
+	execution.ToolApprovals = map[string]bool{approval.Fingerprint: true}
+	result, err = h.Invoke(context.Background(), "catalog_manage", args, execution)
+	if err != nil || result.Error != "" || result.Structured["status"] != "applied" {
+		t.Fatalf("approved project publication: %#v, %v", result, err)
+	}
+	definition, found := registry.AgentDefinition("project-agent")
+	if !found || definition.Workspace.ProjectDir() == "" {
+		t.Fatal("published project has no public workspace identity")
+	}
+	content, err := os.ReadFile(filepath.Join(cfg.Paths.AgentsDir, "project-agent", "agent.yml"))
+	if err != nil || strings.Contains(string(content), "isProject") {
+		t.Fatalf("project intent persisted: %s, %v", content, err)
 	}
 }
 
