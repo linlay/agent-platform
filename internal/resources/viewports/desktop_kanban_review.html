@@ -11,9 +11,9 @@ Review.mount(u=>{
  const priority=v=>({P0:t('P0 · 最高','P0 · Highest'),P1:t('P1 · 高','P1 · High'),P2:t('P2 · 普通','P2 · Normal'),P3:t('P3 · 低','P3 · Low')}[v]||u.format(v));
  const severity=v=>({critical:t('严重','Critical'),high:t('高','High'),medium:t('中','Medium'),low:t('低','Low')}[v]||u.format(v));
  const titles={'kanban.createIssue':t('创建看板任务','Create a task'),'kanban.updateIssue':t('修改看板任务','Edit a task'),'kanban.deleteIssue':t('删除看板任务','Delete a task'),'kanban.moveIssue':t('移动看板任务','Move a task')};
- u.title(t('看板任务','Kanban task'),titles[action]||t('调整看板任务','Change a task'),remove?t('删除前请确认任务和关联的定时执行。','Review the task and its linked schedule before deletion.'):t('核对任务内容、所在列和执行安排。','Review the task, its column and execution settings.'));
+ u.title(titles[action]||t('调整看板任务','Change a task'));
  u.target(create?(input.title||t('未填写任务标题','Task title is missing')):(c.title||t('所选任务','Selected task')),c.status?status(c.status):'',!create&&!c.title?a.id:'');
- if(remove){u.notice(t('将删除这条本地任务；若关联了定时任务，也会一并删除。删除不是归档，请确认不再需要此任务。','This deletes the local task and any linked scheduled automation. Deletion is not archiving; make sure you no longer need the task.'),true);if(c.automationId)u.field(t('关联自动化','Linked automation'),c.automationId);u.extras(a,['id']);}
+ if(remove){u.notice(t('同时删除关联的定时任务。','Also deletes any linked scheduled automation.'),true);if(c.automationId)u.field(t('关联自动化','Linked automation'),c.automationId);u.extras(a,['id']);}
  else if(move){u.change(t('移动到','Move to'),'status',a.status,status);u.field(t('列内顺序','Order within column'),t('按指定顺序放置；排序值为 ','Place at the requested order; position value: ')+u.format(a.position));u.extras(a,['id','status','position','baseIssueRevision']);}
  else {
   const labels={title:t('任务标题','Title'),description:t('任务内容','Description'),status:t('所在列','Column'),priority:t('优先级','Priority'),severity:t('严重程度','Severity'),assigneeAgentKey:t('执行智能体','Agent'),projectId:t('所属项目','Project'),localWorkflowId:t('本地工作流','Local workflow'),projectVersion:t('项目版本','Project version'),dueDate:t('截止时间','Due date'),resolution:t('处理结果','Resolution'),securityLevelKey:t('可见范围','Visibility'),reporterId:t('报告人','Reporter'),componentKeys:t('关联组件','Components'),originalEstimate:t('原始工时估计','Original estimate'),remainingEstimate:t('剩余工时估计','Remaining estimate'),timeSpent:t('已投入工时','Time spent'),assigneeId:t('负责人','Assignee'),workerType:t('执行者类型','Worker type'),workerId:t('执行者','Worker'),workerAgent:t('执行智能体','Worker agent'),runState:t('执行状态','Run state'),automationId:t('关联自动化','Linked automation'),automationEnabled:t('定时执行','Scheduled execution'),automationCron:t('定时规则','Schedule rule'),automationMessage:t('定时执行指令','Scheduled instructions'),automationTimezone:t('定时时区','Schedule timezone'),attachmentChatId:t('附件来源会话','Attachment conversation'),attachments:t('附件','Attachments'),syncToCloud:t('同步到云端','Sync to cloud'),localWorkflowAction:t('工作流操作','Workflow action'),chatId:t('关联会话','Linked conversation'),runId:t('关联运行','Linked run')};
@@ -25,6 +25,6 @@ Review.mount(u=>{
  const resultingStatus=move?a.status:input.status;
  if(resultingStatus==='todo')u.notice(t('当看板已启用且任务满足执行条件时，分配给智能体的待办任务可能自动开始执行；重新设为待办可能触发再次运行。','When Kanban is enabled and the task is eligible, a to-do task assigned to an agent may start automatically. Moving it back to To do may trigger another run.'),true);
  if(!create)u.required(a.id,t('任务标识','Task ID'));
- u.snapshot(!create);
+
 });
 </script></body></html>

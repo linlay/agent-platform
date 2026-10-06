@@ -8,42 +8,41 @@
 Review.mount(u=>{
  const {t,form:f,action}=u, before=u.record(f.before), after=u.record(f.after), d=action==='delete'?before:after;
  const query=u.record(d.query), oldQuery=u.record(before.query);
- const access=v=>({default:t('默认：需要时请求批准','Default: request approval when needed'),auto_approve:t('自动批准：自动处理可批准的操作','Auto approve: automatically approve eligible operations'),full_access:t('完全访问','Full access')})[v||'default']||v;
+ const access=v=>({default:t('默认','Default'),auto_approve:t('自动批准','Auto approve'),full_access:t('完全访问','Full access')})[v||'default']||v;
  const enabled=v=>v?t('已开启','Enabled'):t('已暂停','Paused');
  const schedule=d=>{
   const parts=String(d.cron||'').trim().split(/\s+/),[m,h,day,month,week]=parts;
   if(parts.length===5&&/^\d+$/.test(m)&&/^\d+$/.test(h)&&day==='*'&&month==='*'&&(week==='*'||week==='1-5')) {
    const clock=h.padStart(2,'0')+':'+m.padStart(2,'0');return (week==='1-5'?t('每周一至周五 ','Every Monday–Friday '):t('每天 ','Every day '))+clock;
   }
-  return t('自定义时间计划（见下方实际时间）','Custom schedule (see calculated times below)');
+  return t('自定义：','Custom: ')+(d.cron||'');
  };
  const when=value=>{try{return new Intl.DateTimeFormat(document.documentElement.lang,{timeZone:d.zoneId,year:'numeric',month:'long',day:'numeric',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(value));}catch{return value;}};
  const zone=value=>{if(value==='Asia/Shanghai')return t('北京时间（Asia/Shanghai）','China Standard Time (Asia/Shanghai)');return value;};
  const target=d=>d.teamId?t('团队：','Team: ')+(u.record(f.names)[d.teamId]||d.teamId):t('智能体：','Agent: ')+(u.record(f.names)[d.agentKey]||d.agentKey);
- const field=(label,oldValue,newValue,formatter=u.format)=>{
-  if((action==='update'||action==='setEnabled')&&JSON.stringify(oldValue)!==JSON.stringify(newValue)) {u.current.value=oldValue;u.change(label,'value',newValue,formatter);delete u.current.value;}
-  else u.field(label,formatter(newValue));
+ const field=(label,oldValue,newValue,formatter=u.format,options={})=>{
+  if(action==='update'||action==='setEnabled')u.compare(label,oldValue,newValue,formatter,options);
+  else if(newValue!==undefined&&newValue!==null&&newValue!=='')u.field(label,formatter(newValue),options);
  };
 
  const titles={create:t('创建自动化任务','Create an automation'),update:t('修改自动化任务','Update an automation'),setEnabled:after.enabled?t('开启自动化任务','Enable an automation'):t('暂停自动化任务','Pause an automation')};
- u.title(t('自动化 · 执行计划','Automation · Schedule'),titles[action]||t('审阅自动化任务','Review automation'),t('核对任务内容和执行时间。批准后将保存以下设置。','Review the task and schedule. Approval saves the settings below.'));
+ u.title(titles[action]||t('审阅自动化任务','Review automation'));
  u.target(d.name||t('未命名任务','Untitled task'),d.description);
- field(t('任务名称','Task name'),before.name,d.name);
+ if(action!=='create')field(t('任务名称','Task name'),before.name,d.name);
  field(t('任务说明','Description'),before.description,d.description);
  field(t('执行者','Run by'),target(before),target(d));
  field(t('执行内容','Instructions'),oldQuery.message,query.message);
  field(t('执行计划','Schedule'),schedule(before),schedule(d));
- if(before.cron!==d.cron&&action==='update'&&schedule(before)===schedule(d))u.notice(t('自定义计划已修改，请核对以下执行时间与技术详情中的 Cron。','The custom schedule changed. Check the calculated times and Cron in technical details.'),true);
  field(t('时区','Time zone'),before.zoneId,d.zoneId,zone);
  field(t('保存后状态','State after saving'),before.enabled,d.enabled,enabled);
  field(t('剩余定时次数','Scheduled runs remaining'),before.remainingRuns,d.remainingRuns,v=>v??t('不限次数','Unlimited'));
- field(t('运行权限','Run permissions'),oldQuery.accessLevel,query.accessLevel,access);
+ field(t('运行权限','Run permissions'),oldQuery.accessLevel,query.accessLevel,access,{critical:true});
  field(t('会话目标','Conversation'),oldQuery.chatId,query.chatId,v=>v||t('每次创建新会话','A new conversation for each run'));
- if(d.enabled)u.field(t('接下来计划执行','Upcoming scheduled times'),f.preview?.length?f.preview.map(when).join('\n'):t('未计算到后续时间，请调整计划','No future time found; revise the schedule'));
- else u.notice(t('任务暂停后不会安排后续定时执行。开启后才会按计划运行。','A paused task has no future scheduled runs. Enable it to resume scheduling.'));
- if(action!=='create')u.notice(t('修改或暂停任务可能中断正在进行的定时执行；手动启动的执行不受影响。','Saving updates the schedule registration and may cancel a run using that registration. Manually triggered runs are not canceled.'),true);
- u.notice(t('任务使用这里保存的运行权限，不继承当前聊天的权限。','The task uses these saved permissions independently of the current chat.'));
- if(Object.keys(u.record(f.executionOptions)).length||query.hidden||query.role!=='automation'||Object.keys(u.record(query.params)).length||oldQuery.hidden!==query.hidden||oldQuery.role!==query.role||JSON.stringify(oldQuery.params)!==JSON.stringify(query.params))u.notice(t('含会话可见性、角色或附加执行参数，请展开技术详情核对。','Conversation visibility, role or additional execution parameters are present or changed. Review technical details.'),true);
-
+ if(d.enabled&&(action==='create'||before.cron!==d.cron||before.zoneId!==d.zoneId||before.enabled!==d.enabled))u.field(t('接下来计划执行','Upcoming scheduled times'),f.preview?.length?f.preview.map(when).join('\n'):t('未计算到后续时间，请调整计划','No future time found; revise the schedule'));
+ if(action!=='create')u.notice(t('可能中断正在进行的定时执行。','May interrupt an active scheduled run.'),true);
+ field(t('隐藏会话','Hidden conversation'),oldQuery.hidden,query.hidden,u.format,{critical:true});
+ field(t('执行角色','Execution role'),oldQuery.role,query.role);
+ field(t('附加参数','Additional parameters'),oldQuery.params,query.params,v=>JSON.stringify(v??{},null,2));
+ if(Object.keys(u.record(f.executionOptions)).length)u.field(t('本次执行设置','Run settings'),JSON.stringify(f.executionOptions,null,2));
 });
 </script></body></html>

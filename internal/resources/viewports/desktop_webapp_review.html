@@ -8,7 +8,7 @@
 Review.mount(u=>{
  const {t,args:a,current:c,action}=u,id=a.webappId||a.id,patch=u.record(a.patch);
  const titles={'webapp.start':t('启动应用','Start an app'),'webapp.stop':t('停止应用','Stop an app'),'webapp.restart':t('重启应用','Restart an app'),'webapp.open':t('打开应用','Open an app'),'webapp.updatePreferences':t('修改应用偏好','Edit app preferences'),'webapp.unpublish':t('停止公开发布','Stop public access')};
- u.title(t('本地应用','Local app'),titles[action]||t('管理应用','Manage an app'),t('本次操作只针对下面这个应用。','This operation applies only to the app below.'));
+ u.title(titles[action]||t('管理应用','Manage an app'));
  u.target(c.label||t('所选应用','Selected app'),'',c.label?'':id);
  const impacts={
  'webapp.start':t('启动应用服务，使应用可以在本机使用。','Start the app service so it can be used locally.'),
@@ -19,8 +19,8 @@ Review.mount(u=>{
  if(action==='webapp.updatePreferences'){
   if(u.own(patch,'label'))u.change(t('应用名称','App name'),'label',patch.label);
   if(u.own(patch,'openMode'))u.change(t('打开方式','Open in'),'openMode',patch.openMode,v=>({workspace:t('工作区','Workspace'),dialog:t('独立弹窗','Dialog window')}[v]||u.format(v)));
-  u.notice(t('只调整名称或打开方式，不会安装或升级应用。','Only the name or open mode changes. This does not install or update the app.'));u.extras(patch,['label','openMode']);u.extras(a,['id','webappId','patch']);
- } else {u.notice(impacts[action]||t('请核对技术详情中的操作。','Review the operation in technical details.'),['webapp.stop','webapp.restart','webapp.unpublish'].includes(action));u.extras(a,['id','webappId']);}
- u.required(id,t('应用标识','App ID'));u.snapshot();
+  u.extras(patch,['label','openMode']);u.extras(a,['id','webappId','patch']);
+ } else {if(['webapp.stop','webapp.restart','webapp.unpublish'].includes(action))u.notice(impacts[action]||t('请核对详情中的操作。','Review the operation in details.'),['webapp.stop','webapp.restart','webapp.unpublish'].includes(action));u.extras(a,['id','webappId']);}
+ u.required(id,t('应用标识','App ID'));
 });
 </script></body></html>

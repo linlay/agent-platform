@@ -10,7 +10,7 @@ Review.mount(u=>{
  const theme=v=>({light:t('浅色','Light'),dark:t('深色','Dark'),system:t('跟随系统','Follow system')}[v]||u.format(v));
  const locale=v=>({'zh-CN':'简体中文','en-US':'English'}[v]||u.format(v));
  const titles={'theme.set':t('切换桌面主题','Change Desktop theme'),'locale.set':t('切换界面语言','Change interface language'),'skin.import':t('导入新皮肤','Import a skin'),'skin.set':t('更换桌面皮肤','Change Desktop skin'),'skin.remove':t('删除已安装的皮肤','Remove an installed skin'),'pet.show':t('显示桌宠','Show your desktop pet'),'pet.hide':t('隐藏桌宠','Hide your desktop pet'),'pet.set':t('更换桌宠外观','Change your pet’s appearance'),'copilot.setPagePreference':t('调整页面助理','Change the page assistant')};
- u.title(t('外观与偏好','Appearance & preferences'),titles[action]||t('调整桌面偏好','Change Desktop preferences'),t('核对下面的设置，其他偏好保持不变。','Review these settings. Other preferences will stay the same.'));
+ u.title(titles[action]||t('调整桌面偏好','Change Desktop preferences'));
  switch(action){
  case 'theme.set':u.change(t('界面主题','Theme'),'themeMode',a.themeMode,theme);u.required(a.themeMode,t('主题','Theme'));u.extras(a,['themeMode']);break;
  case 'locale.set':u.change(t('界面语言','Language'),'locale',a.locale,locale);u.required(a.locale,t('语言','Language'));u.extras(a,['locale']);break;
@@ -19,9 +19,9 @@ Review.mount(u=>{
  case 'skin.set':
   u.change(t('桌面皮肤','Skin'),'skinId',a.skinId,v=>u.name(v,t('默认皮肤','Default skin')));
   u.field(t('自定义背景','Custom background'),a.keepBackground===true?t('保留当前背景','Keep current background'):t('使用已安装皮肤时清除自定义背景','Clear the custom background when applying an installed skin'));
-  u.notice(t('内置皮肤会保留自定义背景。已安装皮肤只有明确选择保留时才会保留。','Built-in skins keep the custom background. Installed skins keep it only when requested.'));u.required(a.skinId,t('皮肤','Skin'));u.extras(a,['skinId','keepBackground']);break;
+  u.required(a.skinId,t('皮肤','Skin'));u.extras(a,['skinId','keepBackground']);break;
  case 'skin.remove':u.target(u.name(a.skinId),t('将从已安装皮肤中移除','Will be removed from installed skins'));u.notice(t('若正在使用这套皮肤，桌面会恢复默认皮肤。原始 ZIP 文件不会被删除。','If this skin is active, Desktop will return to the default skin. The original ZIP file is kept.'),true);u.required(a.skinId,t('皮肤','Skin'));u.extras(a,['skinId']);break;
- case 'pet.show':case 'pet.hide':u.change(t('桌宠显示','Pet visibility'),'enabled',action==='pet.show',v=>v?t('显示','Visible'):t('隐藏','Hidden'));u.notice(t('不会删除桌宠，也不会卸载外观。','Your pet and installed appearances will be kept.'));u.extras(a,[]);break;
+ case 'pet.show':case 'pet.hide':u.change(t('桌宠显示','Pet visibility'),'enabled',action==='pet.show',v=>v?t('显示','Visible'):t('隐藏','Hidden'));u.extras(a,[]);break;
  case 'pet.set':u.change(t('桌宠外观','Pet appearance'),'appearanceId',a.appearanceId||a.id,v=>u.name(v));u.required(a.appearanceId||a.id,t('桌宠外观','Pet appearance'));u.extras(a,['appearanceId','id']);break;
  case 'copilot.setPagePreference':{
   const pages={controlCenter:t('控制中心','Control Center'),market:t('市场','Market'),help:t('帮助','Help'),agents:t('智能体','Agents'),schedules:t('定时任务','Schedules'),skills:t('技能','Skills')};
@@ -31,6 +31,6 @@ Review.mount(u=>{
   u.extras(a,['pageKey','enabled','agentKey']);break;}
  default:u.notice(t('无法识别这项外观设置，请拒绝并重新提交。','Unrecognized preference. Reject and request a new submission.'),true);
  }
- u.snapshot(action!=='skin.import');
+
 });
 </script></body></html>

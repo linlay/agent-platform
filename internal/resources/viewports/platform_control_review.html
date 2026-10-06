@@ -1,106 +1,61 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
-<title>操作审阅</title>
-<style>
-:root { color-scheme: light dark; font: 14px/1.6 system-ui, sans-serif; color: #222; --muted: #69717d; --line: #d9dee5; --code: #f3f5f7; --add: #dff5e6; --remove: #ffe5e5; }
-@media (prefers-color-scheme: dark) { :root { color: #eee; --muted: #a8aeb8; --line: #494d56; --code: #303238; --add: #163d2b; --remove: #4b262b; } }
-:root[data-theme=dark] { color: #eee; --muted: #a8aeb8; --line: #494d56; --code: #303238; --add: #163d2b; --remove: #4b262b; }
-:root[data-theme=light] { color: #222; --muted: #69717d; --line: #d9dee5; --code: #f3f5f7; --add: #dff5e6; --remove: #ffe5e5; }
-* { box-sizing: border-box; }
-body { margin: 0; padding: 8px 12px 16px; overflow-wrap: anywhere; }
-h1 { margin: 0 0 4px; font-size: 16px; }
-p { margin: 6px 0 12px; }
-.target { font-weight: 600; }
-.note, summary, .empty { color: var(--muted); }
-#changes { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.line { display: flex; white-space: pre-wrap; font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.line span { flex: 0 0 22px; text-align: center; user-select: none; }
-.line code { padding-right: 8px; min-width: 0; overflow-wrap: anywhere; }
-.add { background: var(--add); }.remove { background: var(--remove); }
-details { margin: 10px 0; } summary { cursor: pointer; }
-pre { background: var(--code); padding: 12px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
-</style>
-</head>
-<body>
-<h1 id="heading"></h1><p class="target" id="target"></p><p id="notice" class="note"></p>
-<div id="changes" aria-label="Changes"></div>
-<details id="before-section"><summary id="before-label"></summary><pre id="before"></pre></details>
-<details id="after-section"><summary id="after-label"></summary><pre id="after"></pre></details>
-<details id="revision-section"><summary id="revision-label"></summary><code id="revision"></code></details>
-<script>
-(() => {
-  'use strict';
-  let state = null;
-  const el = id => document.getElementById(id);
-  const text = (id, value) => { el(id).textContent = value; };
-  const strings = {
-    zh: {create:'创建资源', update:'修改资源', delete:'删除资源', chat:'删除会话', before:'查看变更前完整内容', after:'查看变更后完整内容', revision:'基准版本', unchanged:'内容没有变化。', more:'差异较长，剩余内容请展开完整文本查看。', remove:'本次操作将删除此对象，请核对目标。', once:'同意后仅执行本次操作；需要调整请拒绝并说明。', permissions:'请核对配置中的权限设置：'},
-    en: {create:'Create resource', update:'Update resource', delete:'Delete resource', chat:'Delete conversation', before:'View full original content', after:'View full proposed content', revision:'Base revision', unchanged:'No content changes.', more:'Long diff. Expand the full text to inspect the remaining content.', remove:'This operation will delete this target. Please review it.', once:'Approval applies only to this operation. Reject with feedback to request changes.', permissions:'Review the permission settings: '}
-  };
-  // Trim common edges first. Bound the LCS work for large configurations;
-  // if it exceeds the budget, show the entire changed span as a replacement.
-  function diff(before, after) {
-    const a = before ? before.split('\n') : [], b = after ? after.split('\n') : [];
-    let start = 0, end = 0;
-    while (start < a.length && start < b.length && a[start] === b[start]) start++;
-    while (end < a.length-start && end < b.length-start && a[a.length-1-end] === b[b.length-1-end]) end++;
-    const x = a.slice(start, a.length-end), y = b.slice(start, b.length-end);
-    const out = a.slice(Math.max(0,start-3), start).map(line => [' ',line]);
-    if (x.length+y.length <= 2000 && x.length*y.length <= 200000) {
-      const rows = Array.from({length:x.length+1}, () => new Uint32Array(y.length+1));
-      for (let i=x.length-1;i>=0;i--) for (let j=y.length-1;j>=0;j--) rows[i][j] = x[i] === y[j] ? rows[i+1][j+1]+1 : Math.max(rows[i+1][j],rows[i][j+1]);
-      let i=0,j=0;
-      while((i<x.length || j<y.length) && out.length<=600) {
-        if(i<x.length && j<y.length && x[i]===y[j]) {out.push([' ',x[i++]]);j++;}
-        else if(i<x.length && (j===y.length || rows[i+1][j]>=rows[i][j+1])) out.push(['-',x[i++]]);
-        else out.push(['+',y[j++]]);
-      }
-    } else {
-      for (const line of x) {out.push(['-',line]);if(out.length>600)break;}
-      for (const line of y) {if(out.length>600)break;out.push(['+',line]);}
-    }
-    for (const line of a.slice(a.length-end, a.length-end+Math.min(end,3))) out.push([' ',line]);
-    return out;
+<title>资源变更</title><style>/* REVIEW_STYLES */</style></head>
+<body><div id="review" aria-live="polite"></div><script>/* REVIEW_SCRIPT */</script><script>
+Review.mount(u=>{
+ const {t,form:f}=u;
+ const types={agent:t('智能体','agent'),team:t('团队','team'),skill:t('技能','skill'),connector:t('连接器','connector'),provider:t('服务商','provider'),model:t('模型','model')};
+ const labels={name:t('名称','Name'),description:t('说明','Description'),model:t('模型','Model'),modelConfig:t('模型设置','Model settings'),mode:t('类型','Type'),engine:t('运行引擎','Engine'),prompt:t('指令','Instructions'),systemPrompt:t('系统指令','System instructions'),instructions:t('指令','Instructions'),toolConfig:t('工具','Tools'),connectorConfig:t('连接器','Connectors'),skillConfig:t('技能','Skills'),hostAccess:t('本机访问','Host access'),accessLevel:t('运行权限','Permissions'),runtimeConfig:t('运行设置','Runtime settings'),enabled:t('启用状态','Enabled'),members:t('团队成员','Team members'),provider:t('服务商','Provider'),baseUrl:t('服务地址','Service URL')};
+ const critical=key=>/tool|connector|skill|access|permission|runtime/i.test(key);
+ const simple=value=>{
+  let s=String(value).trim();
+  if(/^\|[-+]?\n/.test(s)) {
+   const lines=s.split('\n').slice(1), indents=lines.filter(x=>x.trim()).map(x=>/^ */.exec(x)[0].length);
+   const indent=indents.length?Math.min(...indents):0;return lines.map(x=>x.slice(indent)).join('\n');
   }
-  function render(data) {
-    state = data;
-    const f = data.form || {}, lang = String(data.locale || navigator.language).startsWith('zh') ? 'zh' : 'en', t = strings[lang];
-    document.documentElement.lang = lang;
-    if (data.colorScheme === 'dark' || data.colorScheme === 'light') {
-      document.documentElement.dataset.theme = data.colorScheme;
-      document.documentElement.style.colorScheme = data.colorScheme;
-    }
-    const deleting = f.action === 'delete', before = typeof f.before === 'string' ? f.before : '', after = typeof f.after === 'string' ? f.after : '';
-    text('heading', deleting ? (f.resourceType === 'chat' ? t.chat : t.delete) : (f.baseRevision ? t.update : t.create));
-    text('target', [f.resourceType,f.resourceKey,f.path].filter(v => typeof v==='string' && v).join(' / '));
-    const fields = Array.isArray(f.permissionFields) ? f.permissionFields.filter(v => typeof v==='string') : [];
-    text('notice', (deleting ? t.remove : t.once) + (fields.length ? ' '+t.permissions+fields.join(', ') : ''));
-    text('before-label',t.before);text('after-label',t.after);text('revision-label',t.revision);
-    text('before',before);text('after',after);text('revision',f.baseRevision || '');
-    el('before-section').hidden = !before;el('after-section').hidden = deleting || !after;el('revision-section').hidden = !f.baseRevision;
-    const changes = el('changes');changes.replaceChildren();changes.hidden = !(before || after);
-    if (before === after && before) { const p=document.createElement('p');p.className='empty';p.textContent=t.unchanged;changes.append(p);return; }
-    const lines = diff(before,after);
-    for (const [sign,line] of lines.slice(0,600)) {
-      const row=document.createElement('div'), prefix=document.createElement('span'), code=document.createElement('code');
-      row.className='line '+(sign==='+'?'add':sign==='-'?'remove':'');prefix.textContent=sign;code.textContent=line || ' ';row.append(prefix,code);changes.append(row);
-    }
-    if (lines.length>600) {const p=document.createElement('p');p.className='note';p.textContent=t.more;changes.append(p);}
+  const list=/^(?:tools|connectors|skills):\s*\n((?:[ \t]+- [^\n]+\n?)+)$/.exec(s);
+  if(list)return list[1].trim().split('\n').map(x=>x.trim().replace(/^- /,'')).join('\n');
+  try {const v=JSON.parse(s);if(typeof v==='string')return v;if(Array.isArray(v)&&v.every(x=>typeof x==='string'))return v.join('\n');}catch{}
+  return ({default:t('默认','Default'),auto_approve:t('自动批准','Auto approve'),full_access:t('完全访问','Full access'),true:t('开启','On'),false:t('关闭','Off')})[s]||s;
+ };
+ // Split source into exact top-level spans, not an executable YAML parser.
+ // Unsupported formats remain a complete text comparison; no environment expansion.
+ function sections(source){
+  if(!source)return {};
+  try {
+   const v=JSON.parse(source);
+   if(v&&typeof v==='object'&&!Array.isArray(v))return Object.fromEntries(Object.entries(v).map(([k,v])=>[k,typeof v==='string'?v:JSON.stringify(v,null,2)]));
+  }catch{}
+  if(!['agent','team','provider','model'].includes(f.resourceType)||!(/\.ya?ml$/i.test(f.path||'')||!f.path))return null;
+  const groups={};let key=null;
+  for(const line of String(source).split('\n')){
+   const match=/^([A-Za-z][\w-]*):(?:\s|$)(.*)$/.exec(line);
+   if(match){key=match[1];if(Object.hasOwn(groups,key))return null;groups[key]=match[2];}
+   else if(key)groups[key]+='\n'+line;
+   else if(line.trim())return null;
   }
-  addEventListener('message', event => {
-    if (event.source !== parent) return;
-    const message=event.data;
-    if (!message || typeof message!=='object') return;
-    if ((message.type==='awaiting_init' || message.type==='awaiting_update') && message.data?.mode==='form') render(message.data);
-    if (message.type==='awaiting_collect' && state && message.data?.runId===state.runId && message.data?.awaitingId===state.awaitingId && message.data?.decision==='submit') {
-      parent.postMessage({type:'frontend_awaiting_submit',params:[{id:state.activeFormId,decision:'approve',form:state.form || {}}]},'*');
-    }
-  });
-})();
-</script>
-</body>
-</html>
+  return key?groups:null;
+ }
+ const before=String(f.before||''),after=String(f.after||''),old=sections(before),next=sections(after),create=!f.baseRevision;
+ u.title((create?t('创建','Create '):t('修改','Update '))+(types[f.resourceType]||t('资源','resource')));
+ const name=(create?next?.name:old?.name)||next?.name;
+ u.target(name?simple(name):f.resourceKey);
+ if(f.isProject)u.field(t('项目类型','Project type'),t('项目智能体','Project agent'));
+ if(f.path&&!['agent.yml','team.yml'].includes(f.path))u.field(t('文件','File'),f.path);
+ if(old&&next){
+  const keys=[...new Set([...Object.keys(next),...Object.keys(old)])];
+  let count=0;
+  for(const key of keys){
+   if(old[key]===next[key])continue;
+   count++;
+   const options={critical:critical(key),target:key==='name'},label=labels[key]||key;
+   if(create) {if(key!=='name')u.field(label,simple(next[key]??''),options);}
+   else u.compare(label,old[key],next[key],v=>v===undefined?t('未设置','Not set'):simple(v),options);
+  }
+  if(!count&&before!==after)u.compare(t('文件内容','File contents'),before,after);
+  else if(!count)u.notice(t('内容没有变化','No content changes'));
+ }else if(create)u.field(t('内容','Contents'),after);
+ else u.compare(t('内容','Contents'),before,after);
+});
+</script></body></html>

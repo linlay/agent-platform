@@ -8,28 +8,26 @@
 Review.mount(u=>{
  const {t,form:f,action}=u, before=u.record(f.before), after=u.record(f.after), d=action==='delete'?before:after;
  const query=u.record(d.query), oldQuery=u.record(before.query);
- const access=v=>({default:t('默认：需要时请求批准','Default: request approval when needed'),auto_approve:t('自动批准：自动处理可批准的操作','Auto approve: automatically approve eligible operations'),full_access:t('完全访问','Full access')})[v||'default']||v;
+ const access=v=>({default:t('默认','Default'),auto_approve:t('自动批准','Auto approve'),full_access:t('完全访问','Full access')})[v||'default']||v;
  const enabled=v=>v?t('已开启','Enabled'):t('已暂停','Paused');
  const schedule=d=>{
   const parts=String(d.cron||'').trim().split(/\s+/),[m,h,day,month,week]=parts;
   if(parts.length===5&&/^\d+$/.test(m)&&/^\d+$/.test(h)&&day==='*'&&month==='*'&&(week==='*'||week==='1-5')) {
    const clock=h.padStart(2,'0')+':'+m.padStart(2,'0');return (week==='1-5'?t('每周一至周五 ','Every Monday–Friday '):t('每天 ','Every day '))+clock;
   }
-  return t('自定义时间计划（见下方实际时间）','Custom schedule (see calculated times below)');
+  return t('自定义：','Custom: ')+(d.cron||'');
  };
  const when=value=>{try{return new Intl.DateTimeFormat(document.documentElement.lang,{timeZone:d.zoneId,year:'numeric',month:'long',day:'numeric',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(value));}catch{return value;}};
  const zone=value=>{if(value==='Asia/Shanghai')return t('北京时间（Asia/Shanghai）','China Standard Time (Asia/Shanghai)');return value;};
  const target=d=>d.teamId?t('团队：','Team: ')+(u.record(f.names)[d.teamId]||d.teamId):t('智能体：','Agent: ')+(u.record(f.names)[d.agentKey]||d.agentKey);
- const field=(label,oldValue,newValue,formatter=u.format)=>{
-  if((action==='update'||action==='setEnabled')&&JSON.stringify(oldValue)!==JSON.stringify(newValue)) {u.current.value=oldValue;u.change(label,'value',newValue,formatter);delete u.current.value;}
-  else u.field(label,formatter(newValue));
- };
 
- u.title(t('自动化 · 删除','Automation · Delete'),t('删除这个自动化任务？','Delete this automation?'),t('删除后，这个任务不会再按计划执行。','After deletion, this task will no longer run on its schedule.'));
- u.target(d.name||t('所选任务','Selected task'),target(d));
+
+ u.title(t('删除这个自动化任务？','Delete this automation?'));
+ u.target(d.name||t('所选任务','Selected task'));
+ u.field(t('执行者','Run by'),target(d));
  u.field(t('执行内容','Instructions'),query.message);u.field(t('原执行计划','Current schedule'),schedule(d));u.field(t('时区','Time zone'),zone(d.zoneId));
- u.notice(t('任务定义将被删除，已有执行历史与会话保留。恢复定时执行需要重新创建任务。','The task definition will be deleted. Existing execution history and conversations are retained. Recreate the task to schedule it again.'),true);
- u.notice(t('删除可能中断正在进行的定时执行；手动启动的执行不受影响。','Deletion cancels the schedule registration and may cancel a run using it. Manually triggered runs are not canceled.'),true);
+ u.notice(t('删除任务，保留已有执行历史和会话。','Deletes the task; keeps existing execution history and conversations.'),true);
+ u.notice(t('可能中断正在进行的定时执行。','May interrupt an active scheduled run.'),true);
 
 });
 </script></body></html>

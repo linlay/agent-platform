@@ -1,38 +1,14 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'"><title>删除资源</title><style>
-:root { color-scheme: light dark; font: 14px/1.6 system-ui, sans-serif; color: #222; --muted: #69717d; --line: #d9dee5; --code: #f3f5f7; --add: #dff5e6; --remove: #ffe5e5; }
-@media (prefers-color-scheme: dark) { :root { color: #eee; --muted: #a8aeb8; --line: #494d56; --code: #303238; --add: #163d2b; --remove: #4b262b; } }
-:root[data-theme=dark] { color: #eee; --muted: #a8aeb8; --line: #494d56; --code: #303238; --add: #163d2b; --remove: #4b262b; }
-:root[data-theme=light] { color: #222; --muted: #69717d; --line: #d9dee5; --code: #f3f5f7; --add: #dff5e6; --remove: #ffe5e5; }
-* { box-sizing: border-box; }
-body { margin: 0; padding: 8px 12px 16px; overflow-wrap: anywhere; }
-h1 { margin: 0 0 4px; font-size: 16px; }
-p { margin: 6px 0 12px; }
-.target { font-weight: 600; }
-.note, summary, .empty { color: var(--muted); }
-#changes { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.line { display: flex; white-space: pre-wrap; font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.line span { flex: 0 0 22px; text-align: center; user-select: none; }
-.line code { padding-right: 8px; min-width: 0; overflow-wrap: anywhere; }
-.add { background: var(--add); }.remove { background: var(--remove); }
-details { margin: 10px 0; } summary { cursor: pointer; }
-pre { background: var(--code); padding: 12px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>删除资源</title><style>/* REVIEW_STYLES */</style></head>
+<body><div id="review" aria-live="polite"></div><script>/* REVIEW_SCRIPT */</script><script>
+Review.mount(u=>{
+ const {t,form:f}=u;
+ const types={agent:t('智能体','agent'),team:t('团队','team'),skill:t('技能','skill'),connector:t('连接器','connector'),provider:t('服务商','provider'),model:t('模型','model')};
+ u.title(t('删除','Delete ')+(types[f.resourceType]||t('资源','resource')));
+ u.target(f.resourceKey);
+ u.field(t('删除范围','Scope'),f.path||t('完整定义及目录','Complete definition and directory'),{critical:true});
 
-.card {border:1px solid var(--line);border-radius:10px;padding:14px;margin:12px 0;} dl {margin:0;} dt {color:var(--muted);font-size:12px;margin-top:10px;} dd {margin:0;font-weight:600;} .warning {border-left:3px solid #d98537;padding:10px;background:var(--code);border-radius:4px;}</style></head><body><h1 id="heading"></h1><p class="note" id="intro"></p><div class="card"><dl><dt id="type-label"></dt><dd id="type"></dd><dt id="key-label"></dt><dd id="key"></dd><dt id="path-label"></dt><dd id="path"></dd></dl></div><p class="warning" id="warning"></p><details id="contents"><summary id="contents-label"></summary><pre id="before"></pre></details><details id="revision-section"><summary id="revision-label"></summary><code id="revision"></code></details><script>(()=>{'use strict';let state=null;const el=id=>document.getElementById(id);const text=(id,value)=>{el(id).textContent=typeof value==='string'?value:'';};function render(data){state=data;const f=data.form||{},zh=String(data.locale||navigator.language).startsWith('zh');document.documentElement.lang=zh?'zh':'en';if(data.colorScheme==='dark'||data.colorScheme==='light'){document.documentElement.dataset.theme=data.colorScheme;document.documentElement.style.colorScheme=data.colorScheme;}
-
-const labels=zh?{heading:'删除资源',intro:'请核对即将删除的对象。',type:'资源类型',key:'资源标识',path:'目标范围',all:'该资源的完整定义／目录',warning:'批准后将执行本次删除。引用与版本检查仍由服务端执行；需要调整请拒绝。',contents:'查看当前内容',revision:'基准版本'}:{heading:'Delete resource',intro:'Review the target before deletion.',type:'Resource type',key:'Resource key',path:'Target scope',all:'The complete resource definition / directory',warning:'Approval executes this deletion. The server still checks references and revisions. Reject to request changes.',contents:'View current content',revision:'Baseline revision'};
-for(const k of ['heading','intro','warning']) text(k,labels[k]);
-for(const k of ['type','key','path']) text(k+'-label',labels[k]);
-text('type',f.resourceType);text('key',f.resourceKey);text('path',f.path||labels.all);
-text('contents-label',labels.contents);text('before',f.before);el('contents').hidden=!f.before;
-text('revision-label',labels.revision);text('revision',f.baseRevision);el('revision-section').hidden=!f.baseRevision;
-}
-  addEventListener('message', event => {
-    if (event.source !== parent) return;
-    const message=event.data;
-    if (!message || typeof message!=='object') return;
-    if ((message.type==='awaiting_init' || message.type==='awaiting_update') && message.data?.mode==='form') render(message.data);
-    if (message.type==='awaiting_collect' && state && message.data?.runId===state.runId && message.data?.awaitingId===state.awaitingId && message.data?.decision==='submit') {
-      parent.postMessage({type:'frontend_awaiting_submit',params:[{id:state.activeFormId,decision:'approve',form:state.form || {}}]},'*');
-    }
-  });
-})();</script></body></html>
+});
+</script></body></html>

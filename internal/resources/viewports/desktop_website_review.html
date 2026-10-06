@@ -16,7 +16,7 @@ Review.mount(u=>{
  const input={...p};if(typeof input.label!=='string'&&typeof input.name==='string')input.label=input.name;
  if((typeof input.copilotAgentKey!=='string'||!input.copilotAgentKey.trim())&&typeof input.agentKey==='string')input.copilotAgentKey=input.agentKey;
  const agent=v=>v?u.name(v):t('跟随桌面默认助理','Follow the Desktop default assistant');
- u.title(t('网站条目','Website entry'),add?t('添加网站快捷入口','Add a website shortcut'):remove?t('移除网站快捷入口','Remove a website shortcut'):t('修改网站快捷入口','Edit a website shortcut'),remove?t('移除 Desktop 中的入口，不会删除网站本身。','Remove the Desktop shortcut. The website itself is not deleted.'):t('核对网站名称、访问地址和页面助理。','Review the website name, address and page assistant.'));
+ u.title(add?t('添加网站快捷入口','Add a website shortcut'):remove?t('移除网站快捷入口','Remove a website shortcut'):t('修改网站快捷入口','Edit a website shortcut'));
  u.target(add?(input.label||input.url||t('新网站','New website')):(c.label||t('所选网站','Selected website')),c.url||'',add?'':(!c.label?(a.websiteId||a.id):''));
  if(remove){if(c.url)u.field(t('网站地址','Website address'),c.url);u.notice(t('此操作只移除已保存的网站条目。需要时可重新添加。','Only the saved website entry is removed. You can add it again later.'),true);u.extras(a,['id','websiteId']);}
  else {
@@ -26,9 +26,9 @@ Review.mount(u=>{
   if(add&&!u.own(input,'copilotAgentKey'))u.field(t('页面助理','Page assistant'),agent(''));
   if(add)u.required(input.url,t('网站地址','Website address'));
   u.extras(input,['label','name','url','copilotAgentKey','agentKey','id','websiteId']);
-  if(!add)u.notice(t('只修改上面列出的项目，未填写的设置保持不变。','Only the fields shown above will change. Omitted settings are kept.'));
+
  }
  if(!add)u.required(a.websiteId||a.id,t('网站标识','Website ID'));
- u.snapshot(!add);
+
 });
 </script></body></html>

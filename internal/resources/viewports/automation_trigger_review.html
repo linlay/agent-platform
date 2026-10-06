@@ -8,30 +8,28 @@
 Review.mount(u=>{
  const {t,form:f,action}=u, before=u.record(f.before), after=u.record(f.after), d=action==='delete'?before:after;
  const query=u.record(d.query), oldQuery=u.record(before.query);
- const access=v=>({default:t('默认：需要时请求批准','Default: request approval when needed'),auto_approve:t('自动批准：自动处理可批准的操作','Auto approve: automatically approve eligible operations'),full_access:t('完全访问','Full access')})[v||'default']||v;
+ const access=v=>({default:t('默认','Default'),auto_approve:t('自动批准','Auto approve'),full_access:t('完全访问','Full access')})[v||'default']||v;
  const enabled=v=>v?t('已开启','Enabled'):t('已暂停','Paused');
  const schedule=d=>{
   const parts=String(d.cron||'').trim().split(/\s+/),[m,h,day,month,week]=parts;
   if(parts.length===5&&/^\d+$/.test(m)&&/^\d+$/.test(h)&&day==='*'&&month==='*'&&(week==='*'||week==='1-5')) {
    const clock=h.padStart(2,'0')+':'+m.padStart(2,'0');return (week==='1-5'?t('每周一至周五 ','Every Monday–Friday '):t('每天 ','Every day '))+clock;
   }
-  return t('自定义时间计划（见下方实际时间）','Custom schedule (see calculated times below)');
+  return t('自定义：','Custom: ')+(d.cron||'');
  };
  const when=value=>{try{return new Intl.DateTimeFormat(document.documentElement.lang,{timeZone:d.zoneId,year:'numeric',month:'long',day:'numeric',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(value));}catch{return value;}};
  const zone=value=>{if(value==='Asia/Shanghai')return t('北京时间（Asia/Shanghai）','China Standard Time (Asia/Shanghai)');return value;};
  const target=d=>d.teamId?t('团队：','Team: ')+(u.record(f.names)[d.teamId]||d.teamId):t('智能体：','Agent: ')+(u.record(f.names)[d.agentKey]||d.agentKey);
- const field=(label,oldValue,newValue,formatter=u.format)=>{
-  if((action==='update'||action==='setEnabled')&&JSON.stringify(oldValue)!==JSON.stringify(newValue)) {u.current.value=oldValue;u.change(label,'value',newValue,formatter);delete u.current.value;}
-  else u.field(label,formatter(newValue));
- };
 
- u.title(t('自动化 · 立即执行','Automation · Run now'),t('现在执行一次任务','Run this task once now'),t('批准后立即提交执行请求；完成结果可在执行记录中查看。','Approval submits a run now. View its outcome in execution history.'));
- u.target(d.name||t('所选任务','Selected task'),target(d));
- u.field(t('执行内容','Instructions'),query.message);u.field(t('运行权限','Run permissions'),access(query.accessLevel));
+
+ u.title(t('现在执行一次任务','Run this task once now'));
+ u.target(d.name||t('所选任务','Selected task'));
+ u.field(t('执行者','Run by'),target(d));
+ u.field(t('执行内容','Instructions'),query.message);u.field(t('运行权限','Run permissions'),access(query.accessLevel),{critical:true});
  u.field(t('会话目标','Conversation'),query.chatId||t('创建新会话','Create a new conversation'));
  u.field(t('定时任务状态','Schedule state'),enabled(d.enabled));
- u.notice(t('本次只执行一次，不改变启停状态，不消耗剩余定时次数。执行可能需要等待空闲名额。','Runs once without changing the schedule state or consuming scheduled runs. It may wait for an available execution slot.'));
- if(Object.keys(u.record(f.executionOptions)).length||query.hidden||query.role!=='automation'||Object.keys(u.record(query.params)).length)u.notice(t('此任务含附加执行设置，请展开技术详情核对。','This task has additional execution settings. Review technical details.'),true);
+ u.notice(t('仅执行一次，不消耗定时次数。','Runs once without consuming scheduled runs.'));
+ if(Object.keys(u.record(f.executionOptions)).length||query.hidden||query.role!=='automation'||Object.keys(u.record(query.params)).length)u.notice(t('此任务含附加执行设置，请展开详情核对。','This task has additional execution settings. Review details.'),true);
 
 });
 </script></body></html>
