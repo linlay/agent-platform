@@ -148,8 +148,8 @@ func TestMigrationPreservesRawValuesAndRejectsConflicts(t *testing.T) {
 	if err := RunConfigMigration([]string{"--config-dir", root, "--apply"}, &out); err == nil {
 		t.Fatal("accepted conflicting mode")
 	}
-	if err := c.applyStructuredConfig(root, false); err == nil {
-		t.Fatal("silently ignored old config")
+	if err := c.applyStructuredConfig(root, false); err != nil {
+		t.Fatalf("legacy file must not block loading: %v", err)
 	}
 }
 
@@ -232,5 +232,28 @@ func TestMigrationModelIdentityPreservesUnresolvedExpressions(t *testing.T) {
 	b := migrationModelIdentity(YAMLSourceValue{Head: "${EMBED_B:}"})
 	if a == "" || a == b {
 		t.Fatal("distinct unresolved model declarations collapsed")
+	}
+}
+
+func TestStructuredConfigIgnoresRetiredFiles(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "configs")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range retiredAgentFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("invalid: [\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent-settings.yml"), []byte("general:\n  default-agent:\n    modelKey: current-model\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var cfg Config
+	if err := cfg.applyStructuredConfig(root, false); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GeneralSettings.DefaultAgent.ModelKey != "current-model" {
+		t.Fatal("new settings not loaded")
 	}
 }

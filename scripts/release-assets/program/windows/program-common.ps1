@@ -495,9 +495,6 @@ function New-ProgramDeployRuntimeFile([string]$Source, [string]$Target) {
 }
 
 function Initialize-ProgramDeployConfig {
-  foreach ($retired in @('general-settings','coder-settings','kbase-settings','prompts','coder-prompts','kbase-prompts','ai-tools')) {
-    if (Test-Path -LiteralPath (Join-Path $Script:ConfigDir "$retired.yml")) { Fail-Program 'legacy config detected; stop Platform and run config-migrate before deployment' }
-  }
   New-Item -ItemType Directory -Force -Path $Script:ConfigDir | Out-Null
   if (-not (Test-Path -LiteralPath $Script:EnvFile -PathType Leaf)) {
     Copy-Item -LiteralPath $Script:EnvExampleFile -Destination $Script:EnvFile

@@ -47,6 +47,6 @@ Agent YAML 的 kbaseConfig.embedding 已退役，出现即报错；创建流程�
 
 旧 general-settings/coder-settings/kbase-settings 按 mode 合并；prompts/coder-prompts/kbase-prompts 按 shared/coder/kbase 合并；tools 的 preset 移入 agent-settings，ai-tools 有效配置移入 tools。旧 KBASE 引擎设置不复制，原值保存在备份。未接入的禁用 speech 示例移除，启用 speech 时要求先处理。新旧目标节点冲突直接停止，不决定覆盖顺序。
 
-指定 agents-dir 时检查并移除 Agent embedding 声明；与旧全局模型不同的声明导致冲突，必须先明确统一的模型选择。未指定时不改 Agent 文件，启动仍会拒绝遗留字段。不会访问或重建索引。
+指定 agents-dir 时检查并移除 Agent embedding 声明；与旧全局模型不同的声明导致冲突，必须先明确统一的模型选择。未指定时不改 Agent 文件，运行时忽略遗留 embedding 声明，统一使用 runtime.kbx.embedding。不会访问或重建索引。
 
-启动拒绝七个旧配置文件及 tools 中的旧 preset 位置。部署脚本遇到旧文件时停止，避免先创建新文件掩盖本地定制。部署参数 --ai-* 写入 tools，--coder-* 和 --kbase-model-key/--kbase-reasoning-effort 写入 agent-settings，--kbase-embedding-model-key 写入 runtime.kbx.embedding.model-key；仅首次生成时渲染，已有文件不覆盖。
+启动和部署忽略七个旧配置文件，不再因其存在而失败；旧文件内容不参与配置加载，保留定制值需显式迁移。tools 中的旧 preset 位置仍需迁入 agent-settings。部署参数 --ai-* 写入 tools，--coder-* 和 --kbase-model-key/--kbase-reasoning-effort 写入 agent-settings，--kbase-embedding-model-key 写入 runtime.kbx.embedding.model-key；仅首次生成时渲染，已有文件不覆盖。

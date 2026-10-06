@@ -588,10 +588,6 @@ program_render_runtime_file() {
 }
 
 program_initialize_deploy_config() {
-  local retired
-  for retired in general-settings coder-settings kbase-settings prompts coder-prompts kbase-prompts ai-tools; do
-    [[ ! -f "$CONFIG_DIR/$retired.yml" ]] || program_die "legacy config detected; stop Platform and run config-migrate before deployment"
-  done
   mkdir -p "$CONFIG_DIR"
   if [[ ! -f "$ENV_FILE" ]]; then
     cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"

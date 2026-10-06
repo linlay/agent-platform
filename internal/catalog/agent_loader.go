@@ -770,9 +770,8 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
 	kbaseConfig := mapNode(root["kbaseConfig"])
-	if _, exists := kbaseConfig["embedding"]; exists {
-		return def, nil, fmt.Errorf("kbaseConfig.embedding retired; configure runtime.yml kbx.embedding")
-	}
+	// Embedding is deployment-owned; ignore retired Agent overrides.
+	delete(kbaseConfig, "embedding")
 	def.KBaseConfig, err = kbase.ParseConfig(kbaseConfig)
 	if err != nil {
 		return AgentDefinition{}, nil, err

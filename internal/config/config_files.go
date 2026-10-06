@@ -14,9 +14,6 @@ func (c *Config) applyStructuredConfig(configRoot string, ignoreRemovedWorkingDi
 	if err := c.applyRuntimeFile(configFile(configRoot, "configs/runtime.yml")); err != nil {
 		return err
 	}
-	if err := rejectLegacyAgentFiles(configRoot); err != nil {
-		return err
-	}
 	if err := c.applyAgentSettingsFile(configFile(configRoot, "configs/agent-settings.yml")); err != nil {
 		return err
 	}

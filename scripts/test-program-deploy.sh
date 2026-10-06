@@ -262,9 +262,7 @@ grep -Fq '    model-key: embedding-fixture' "$mode_output/configs/runtime.yml"
 legacy_output="$tmp_dir/legacy-settings"
 mkdir -p "$legacy_output/configs"
 printf 'default-agent: {}\n' >"$legacy_output/configs/coder-settings.yml"
-if run_deploy "$legacy_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test >"$tmp_dir/legacy.log" 2>&1; then
-  echo '[program-deploy-test] legacy config must block initialization' >&2
-  exit 1
-fi
-[[ ! -f "$legacy_output/configs/agent-settings.yml" ]]
-echo '[program-deploy-test] merged Agent settings and migration guard passed'
+run_deploy "$legacy_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test >"$tmp_dir/legacy.log" 2>&1
+[[ -f "$legacy_output/configs/agent-settings.yml" ]]
+[[ -f "$legacy_output/configs/coder-settings.yml" ]]
+echo '[program-deploy-test] merged Agent settings and ignored legacy files passed'

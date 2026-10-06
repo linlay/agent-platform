@@ -2,25 +2,12 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"agent-platform/internal/connector"
 )
 
 var retiredAgentFiles = []string{"general-settings.yml", "coder-settings.yml", "kbase-settings.yml", "prompts.yml", "coder-prompts.yml", "kbase-prompts.yml", "ai-tools.yml"}
-
-func rejectLegacyAgentFiles(root string) error {
-	for _, name := range retiredAgentFiles {
-		path := configFile(root, "configs/"+name)
-		if _, err := os.Stat(path); err == nil {
-			return fmt.Errorf("%s retired; run config-migrate before starting (agent-settings.yml, agent-prompt.yml, tools.yml, runtime.yml)", path)
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
-}
 
 func configMap(raw any, path string, keys ...string) (map[string]any, error) {
 	values, ok := raw.(map[string]any)
