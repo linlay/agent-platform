@@ -118,41 +118,22 @@ func TestParseAgentFileRejectsInternalAgentDelegateTool(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsRemovedTools(t *testing.T) {
-	for _, tc := range []struct {
-		legacy      string
-		replacement string
-	}{
-		{legacy: "run_query", replacement: "chat_start"},
-		{legacy: " RUN_STATUS ", replacement: "chat_get_status"},
-		{legacy: "run_interrupt", replacement: "chat_interrupt"},
-		{legacy: "agent_run_query", replacement: "chat_start"},
-		{legacy: " AGENT_RUN_STATUS ", replacement: "chat_get_status"},
-		{legacy: "agent_run_interrupt", replacement: "chat_interrupt"},
-		{legacy: "platform_config", replacement: "platform_control"},
-	} {
-		t.Run(strings.TrimSpace(tc.legacy), func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "agent.yml")
-			content := "key: removed-run-tool\n" +
-				"name: Removed Run Tool\n" +
-				"mode: GENERAL\n" +
-				"modelConfig:\n" +
-				"  modelKey: demo-model\n" +
-				"toolConfig:\n" +
-				"  tools:\n" +
-				"    - '" + tc.legacy + "'\n"
-			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			_, err := parseAgentDefinitionForTest(path)
-			want := "was removed; use " + tc.replacement
-			if tc.legacy == "platform_config" {
-				want = "was removed; mount builtin.platform-control"
-			}
-			if err == nil || !strings.Contains(err.Error(), want) {
-				t.Fatalf("expected %q, got %v", want, err)
-			}
-		})
+func TestParseAgentFileRejectsPlatformConfigTool(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "key: invalid-platform-tool\n" +
+		"name: Invalid Platform Tool\n" +
+		"mode: GENERAL\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"toolConfig:\n" +
+		"  tools:\n" +
+		"    - platform_config\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := parseAgentDefinitionForTest(path)
+	if err == nil || !strings.Contains(err.Error(), "was removed; mount builtin.platform-control") {
+		t.Fatalf("expected platform control mount validation error, got %v", err)
 	}
 }
 

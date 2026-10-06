@@ -70,10 +70,10 @@ func runToolExecContext(subject string, toolID string) *contracts.ExecutionConte
 		Subject:  subject,
 		RunOwner: contracts.AgentRunOwner("zenmi", ""),
 	}
-	return &contracts.ExecutionContext{Session: session, CurrentToolID: toolID, CurrentToolName: QueryToolName}
+	return &contracts.ExecutionContext{Session: session, CurrentToolID: toolID, CurrentToolName: StartToolName}
 }
 
-func TestRunQueryIsIdempotentPerParentRunAndToolID(t *testing.T) {
+func TestChatStartIsIdempotentPerParentRunAndToolID(t *testing.T) {
 	service := newFakeRunToolService()
 	runs := runstate.NewManager()
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
@@ -82,11 +82,11 @@ func TestRunQueryIsIdempotentPerParentRunAndToolID(t *testing.T) {
 	handler := NewToolHandler(service, runs)
 	args := map[string]any{"agentKey": "webOperator", "message": "search"}
 
-	first, err := handler.Invoke(context.Background(), QueryToolName, args, runToolExecContext("alice", "tool-1"))
+	first, err := handler.Invoke(context.Background(), StartToolName, args, runToolExecContext("alice", "tool-1"))
 	if err != nil || first.Error != "" {
 		t.Fatalf("first query failed: result=%#v err=%v", first, err)
 	}
-	second, err := handler.Invoke(context.Background(), QueryToolName, args, runToolExecContext("alice", "tool-1"))
+	second, err := handler.Invoke(context.Background(), StartToolName, args, runToolExecContext("alice", "tool-1"))
 	if err != nil || second.Error != "" {
 		t.Fatalf("idempotent retry failed: result=%#v err=%v", second, err)
 	}
@@ -99,7 +99,7 @@ func TestRunQueryIsIdempotentPerParentRunAndToolID(t *testing.T) {
 		t.Fatalf("retry changed run: first=%v second=%v", firstRun, secondRun)
 	}
 
-	third, _ := handler.Invoke(context.Background(), QueryToolName, args, runToolExecContext("alice", "tool-2"))
+	third, _ := handler.Invoke(context.Background(), StartToolName, args, runToolExecContext("alice", "tool-2"))
 	if third.Error != "" || service.starts != 2 {
 		t.Fatalf("different toolId should create another run: result=%#v starts=%d", third, service.starts)
 	}
@@ -110,7 +110,7 @@ func TestRunAllowsSelfTargetAndRejectsChainingAndUnownedRuns(t *testing.T) {
 	service.snapshots["external-run"] = contracts.RunSnapshot{RunID: "external-run", ChatID: "external-chat", AgentKey: "other", Status: "running"}
 	handler := NewToolHandler(service, nil)
 
-	self, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+	self, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{
 		"agentKey": "zenmi", "message": "loop",
 	}, runToolExecContext("alice", "tool-self"))
 	if self.Error != "" || self.Structured["accepted"] != true {
@@ -119,7 +119,7 @@ func TestRunAllowsSelfTargetAndRejectsChainingAndUnownedRuns(t *testing.T) {
 
 	chainedCtx := runToolExecContext("alice", "tool-chain")
 	chainedCtx.Session.RunOrigin = &contracts.RunOrigin{AgentKey: "zenmi"}
-	chained, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+	chained, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{
 		"agentKey": "webOperator", "message": "loop",
 	}, chainedCtx)
 	if chained.Error != "run_chaining_not_allowed" {
@@ -138,14 +138,14 @@ func TestRunToolsRejectUnsupportedCallers(t *testing.T) {
 	handler := NewToolHandler(newFakeRunToolService(), nil)
 	args := map[string]any{"agentKey": "webOperator", "message": "search"}
 
-	noContext, _ := handler.Invoke(context.Background(), QueryToolName, args, nil)
+	noContext, _ := handler.Invoke(context.Background(), StartToolName, args, nil)
 	if noContext.Error != "run_context_required" {
 		t.Fatalf("missing context error = %q", noContext.Error)
 	}
 
 	child := runToolExecContext("alice", "tool-child")
 	child.Session.SubTaskID = "child-task"
-	childResult, _ := handler.Invoke(context.Background(), QueryToolName, args, child)
+	childResult, _ := handler.Invoke(context.Background(), StartToolName, args, child)
 	if childResult.Error != "run_caller_not_allowed" {
 		t.Fatalf("child caller error = %q", childResult.Error)
 	}
@@ -153,7 +153,7 @@ func TestRunToolsRejectUnsupportedCallers(t *testing.T) {
 	teamMember := runToolExecContext("alice", "tool-team-member")
 	teamMember.Session.TeamID = "research"
 	teamMember.Session.RunOwner = contracts.TeamRunOwner("research", "member")
-	teamMemberResult, _ := handler.Invoke(context.Background(), QueryToolName, args, teamMember)
+	teamMemberResult, _ := handler.Invoke(context.Background(), StartToolName, args, teamMember)
 	if teamMemberResult.Error != "run_caller_not_allowed" {
 		t.Fatalf("Team member caller error = %q", teamMemberResult.Error)
 	}
@@ -162,7 +162,7 @@ func TestRunToolsRejectUnsupportedCallers(t *testing.T) {
 	coordinator.Session.AgentKey = "__team_coordinator"
 	coordinator.Session.TeamID = "research"
 	coordinator.Session.RunOwner = contracts.TeamRunOwner("research", "__team_coordinator")
-	coordinatorResult, _ := handler.Invoke(context.Background(), QueryToolName, args, coordinator)
+	coordinatorResult, _ := handler.Invoke(context.Background(), StartToolName, args, coordinator)
 	if coordinatorResult.Error != "run_caller_not_allowed" {
 		t.Fatalf("Team coordinator caller error = %q", coordinatorResult.Error)
 	}
@@ -171,7 +171,7 @@ func TestRunToolsRejectUnsupportedCallers(t *testing.T) {
 func TestRunOwnershipIncludesSubject(t *testing.T) {
 	service := newFakeRunToolService()
 	handler := NewToolHandler(service, nil)
-	started, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+	started, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{
 		"agentKey": "webOperator", "message": "search",
 	}, runToolExecContext("alice", "tool-query"))
 	runID := started.Structured["run"].(map[string]any)["runId"].(string)
@@ -184,7 +184,7 @@ func TestRunOwnershipIncludesSubject(t *testing.T) {
 	}
 }
 
-func TestRunQueryValidatesTargetAndMessage(t *testing.T) {
+func TestChatStartValidatesTargetAndMessage(t *testing.T) {
 	service := newFakeRunToolService()
 	handler := NewToolHandler(service, nil)
 	execCtx := runToolExecContext("alice", "tool-query")
@@ -194,13 +194,13 @@ func TestRunQueryValidatesTargetAndMessage(t *testing.T) {
 		{"agentKey": "writer"},
 		{"agentKey": "writer", "teamId": "research", "message": "ambiguous"},
 	} {
-		result, _ := handler.Invoke(context.Background(), QueryToolName, args, execCtx)
+		result, _ := handler.Invoke(context.Background(), StartToolName, args, execCtx)
 		if result.Error != "invalid_request" {
 			t.Fatalf("args %#v error = %q, want invalid_request", args, result.Error)
 		}
 	}
 
-	team, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+	team, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{
 		"teamId": "research", "message": "review",
 	}, execCtx)
 	if team.Error != "" || team.Structured["action"] != "query" {
@@ -212,7 +212,7 @@ func TestGetRunStatusAndInterrupt(t *testing.T) {
 	service := newFakeRunToolService()
 	handler := NewToolHandler(service, nil)
 	execCtx := runToolExecContext("alice", "tool-query")
-	started, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+	started, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{
 		"agentKey": "webOperator", "message": "search",
 	}, execCtx)
 	runID := started.Structured["run"].(map[string]any)["runId"].(string)

@@ -227,11 +227,11 @@ func TestRunSelfTargetChatRules(t *testing.T) {
 			},
 			RunControl:      parentControl,
 			CurrentToolID:   toolID,
-			CurrentToolName: runopspkg.QueryToolName,
+			CurrentToolName: runopspkg.StartToolName,
 		}
 	}
 
-	sameChat, err := handler.Invoke(context.Background(), runopspkg.QueryToolName, map[string]any{
+	sameChat, err := handler.Invoke(context.Background(), runopspkg.StartToolName, map[string]any{
 		"agentKey": "mock-agent", "chatId": "self-parent-chat", "message": "same chat",
 	}, execContext("self-same-chat"))
 	if err != nil {
@@ -245,7 +245,7 @@ func TestRunSelfTargetChatRules(t *testing.T) {
 		t.Fatalf("parent active run changed: active=%#v ok=%t err=%v", active, ok, activeErr)
 	}
 
-	newChat, err := handler.Invoke(context.Background(), runopspkg.QueryToolName, map[string]any{
+	newChat, err := handler.Invoke(context.Background(), runopspkg.StartToolName, map[string]any{
 		"agentKey": "mock-agent", "message": "new chat",
 	}, execContext("self-new-chat"))
 	if err != nil || newChat.Error != "" {
@@ -261,7 +261,7 @@ func TestRunSelfTargetChatRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure idle chat: %v", err)
 	}
-	idleChat, err := handler.Invoke(context.Background(), runopspkg.QueryToolName, map[string]any{
+	idleChat, err := handler.Invoke(context.Background(), runopspkg.StartToolName, map[string]any{
 		"agentKey": "mock-agent", "chatId": "self-idle-chat", "message": "idle chat",
 	}, execContext("self-idle-chat"))
 	if err != nil || idleChat.Error != "" {

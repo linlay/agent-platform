@@ -373,19 +373,8 @@ func ValidateAgentModelConfig(def AgentDefinition) error {
 // runtime-synthesized internal agents. Directory agents and API-managed agents
 // share this guard.
 func ValidateOrdinaryAgentTools(tools []string) error {
-	removedRunTools := map[string]string{
-		"run_query":           "chat_start",
-		"run_status":          "chat_get_status",
-		"run_interrupt":       "chat_interrupt",
-		"agent_run_query":     "chat_start",
-		"agent_run_status":    "chat_get_status",
-		"agent_run_interrupt": "chat_interrupt",
-	}
 	for _, tool := range tools {
 		normalized := strings.ToLower(strings.TrimSpace(tool))
-		if replacement, removed := removedRunTools[normalized]; removed {
-			return fmt.Errorf("tool %s was removed; use %s", normalized, replacement)
-		}
 		if normalized == "platform_config" {
 			return fmt.Errorf("tool platform_config was removed; mount builtin.platform-control")
 		}

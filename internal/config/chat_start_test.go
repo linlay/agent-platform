@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestRunQueryPermissionOptIn(t *testing.T) {
+func TestChatStartPermissionOptIn(t *testing.T) {
 	for _, tc := range []struct {
 		yaml         string
 		enabled, bad bool

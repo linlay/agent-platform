@@ -42,11 +42,6 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 			t.Fatalf("expected %s builtin tool definition", name)
 		}
 	}
-	for _, name := range []string{"run_query", "run_status", "run_interrupt", "agent_run", "agent_run_query", "agent_run_status", "agent_run_interrupt"} {
-		if byName[name] {
-			t.Fatalf("did not expect removed %s tool definition", name)
-		}
-	}
 	if !byName["regex"] {
 		t.Fatal("expected regex builtin tool definition")
 	}

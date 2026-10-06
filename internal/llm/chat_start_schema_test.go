@@ -9,7 +9,7 @@ import (
 	"agent-platform/internal/resources"
 )
 
-func TestRunQuerySchemaOptionalFieldsSurviveProtocols(t *testing.T) {
+func TestChatStartSchemaOptionalFieldsSurviveProtocols(t *testing.T) {
 	data, err := resources.ToolFS.ReadFile("tools/chat_start.yml")
 	if err != nil {
 		t.Fatal(err)

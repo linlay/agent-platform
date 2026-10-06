@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	QueryToolName     = "chat_start"
+	StartToolName     = "chat_start"
 	StatusToolName    = "chat_get_status"
 	InterruptToolName = "chat_interrupt"
 )
@@ -48,7 +48,7 @@ func NewToolHandler(service Runtime, runs contracts.RunManager) *ToolHandler {
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{QueryToolName, StatusToolName, InterruptToolName}
+	return []string{StartToolName, StatusToolName, InterruptToolName}
 }
 
 func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
@@ -57,7 +57,7 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 		return *errResult, nil
 	}
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case QueryToolName:
+	case StartToolName:
 		return h.query(ctx, args, origin, execCtx.RunControl)
 	case StatusToolName:
 		return h.status(args, origin)
@@ -123,7 +123,7 @@ func (h *ToolHandler) query(
 	if !leader {
 		select {
 		case <-ctx.Done():
-			return errorResult("run_query_cancelled", ctx.Err().Error()), nil
+			return errorResult("chat_start_cancelled", ctx.Err().Error()), nil
 		case <-start.done:
 		}
 		if start.err != nil {

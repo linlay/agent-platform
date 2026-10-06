@@ -61,7 +61,7 @@ bash
 artifact_publish
 desktop_action
 memory_search
-run_query
+chat_start
 agent_invoke
 ```
 

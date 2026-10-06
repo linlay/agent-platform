@@ -14,7 +14,7 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestRunQueryOptionalSettings(t *testing.T) {
+func TestChatStartOptionalSettings(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "disabled", true: "enabled"}[enabled], func(t *testing.T) {
 			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,7 @@ func TestRunQueryOptionalSettings(t *testing.T) {
 	}
 }
 
-func TestRunQueryTargetAdmissionForOptions(t *testing.T) {
+func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
 	}, testFixtureOptions{
@@ -134,7 +134,7 @@ func TestRunQueryTargetAdmissionForOptions(t *testing.T) {
 
 }
 
-func TestRunQueryInheritsLiveParentAccessLevel(t *testing.T) {
+func TestChatStartInheritsLiveParentAccessLevel(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
 	}, testFixtureOptions{})

@@ -14,7 +14,7 @@ import (
 	"agent-platform/internal/ws"
 )
 
-func TestRunQueryInheritsParentConnectionWithoutCancellation(t *testing.T) {
+func TestChatStartInheritsParentConnectionWithoutCancellation(t *testing.T) {
 	for _, scope := range []controlscope.Scope{
 		{Transport: "ws", Lane: "main", Subject: "app", Boundary: "desktop"},
 		{Transport: "ws", Lane: "btw", Subject: "app", Boundary: "desktop"},
@@ -147,7 +147,7 @@ func TestHITLSubmitStillRequiresAuthentication(t *testing.T) {
 	}
 }
 
-func TestRunQueryRejectsMissingOrInvalidParentTransport(t *testing.T) {
+func TestChatStartRejectsMissingOrInvalidParentTransport(t *testing.T) {
 	for _, transport := range []string{"missing", "", "internal"} {
 		t.Run(transport, func(t *testing.T) {
 			fixture := newTestFixture(t)

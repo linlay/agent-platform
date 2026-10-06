@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRunQueryOptionalArgumentsAndStrictValidation(t *testing.T) {
+func TestChatStartOptionalArgumentsAndStrictValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		extra map[string]any
@@ -34,7 +34,7 @@ func TestRunQueryOptionalArgumentsAndStrictValidation(t *testing.T) {
 			for key, value := range tc.extra {
 				args[key] = value
 			}
-			result, err := handler.Invoke(context.Background(), QueryToolName, args, runToolExecContext("alice", "tool"))
+			result, err := handler.Invoke(context.Background(), StartToolName, args, runToolExecContext("alice", "tool"))
 			if err != nil || result.Error != tc.code {
 				t.Fatalf("result=%#v err=%v", result, err)
 			}
@@ -48,7 +48,7 @@ func TestRunQueryOptionalArgumentsAndStrictValidation(t *testing.T) {
 						t.Fatalf("options not forwarded: %#v", req)
 					}
 				}
-				result, err = handler.Invoke(context.Background(), QueryToolName, args, runToolExecContext("alice", "tool"))
+				result, err = handler.Invoke(context.Background(), StartToolName, args, runToolExecContext("alice", "tool"))
 				if err != nil || result.Error != "" || service.starts != 1 {
 					t.Fatalf("retry not idempotent: %#v %v starts=%d", result, err, service.starts)
 				}
