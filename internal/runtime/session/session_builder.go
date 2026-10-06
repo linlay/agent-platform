@@ -215,7 +215,8 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		AgentName:                     agentDef.Name,
 		AgentRole:                     agentDef.Role,
 		AgentDescription:              agentDef.Description,
-		Locale:                        options.Locale,
+		Locale:                        s.deps.Config.Prompts.Runtime.ResolveLocale(options.Locale),
+		EnvironmentPromptTemplate:     s.deps.Config.Prompts.Runtime.Template(),
 		ModelKey:                      agentDef.ModelKey,
 		ToolNames:                     toolNames,
 		ToolSetFrozen:                 true,
@@ -306,6 +307,9 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 			return contracts.QuerySession{}, fmt.Errorf("load memory.md: %w", err)
 		}
 		session.MemoryContext = prompt
+	}
+	if err := s.restorePromptLocale(&session); err != nil {
+		return contracts.QuerySession{}, err
 	}
 	session.CurrentMessages = s.BuildCurrentMessages(req, session)
 	if err := s.ConfigureViews(&session, agentDef); err != nil {

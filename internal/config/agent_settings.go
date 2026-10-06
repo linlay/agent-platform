@@ -205,7 +205,7 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "skill", "tool-appendix", "plan-execute", "btw")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "tool-appendix", "plan-execute", "btw")
 	if err != nil {
 		return err
 	}
@@ -240,6 +240,9 @@ func (c *Config) applyAgentPromptFile(path string) error {
 				return err
 			}
 		}
+	}
+	if err := c.applyRuntimePrompt(shared, path+".shared"); err != nil {
+		return err
 	}
 	c.applyPromptsValues(shared)
 	c.applyCoderPromptsValues(coder)

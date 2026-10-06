@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"agent-platform/internal/api"
@@ -187,7 +188,7 @@ func buildLLMSystemCache(lines []map[string]any) (map[string]llmSystemSnapshot, 
 		if system == nil {
 			continue
 		}
-		cache[systemCacheID(system.AgentKey, system.CacheKey, system.Fingerprint)] = llmSystemSnapshot{
+		snapshot := llmSystemSnapshot{
 			AgentKey:       system.AgentKey,
 			CacheKey:       system.CacheKey,
 			Fingerprint:    system.Fingerprint,
@@ -197,6 +198,11 @@ func buildLLMSystemCache(lines []map[string]any) (map[string]llmSystemSnapshot, 
 			ToolChoice:     strings.TrimSpace(system.ToolChoice),
 			RequestOptions: cloneMapDeep(system.RequestOptions),
 		}
+		key := systemCacheID(system.AgentKey, system.CacheKey, system.Fingerprint)
+		if previous, ok := cache[key]; ok && !reflect.DeepEqual(previous, snapshot) {
+			return nil, systemSchemaError(line, "ambiguous systemRef snapshot")
+		}
+		cache[key] = snapshot
 	}
 	return cache, nil
 }

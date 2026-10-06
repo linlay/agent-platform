@@ -248,7 +248,7 @@ Provider `apiKey` 按明文字符串读取：
 
 - `configs/tools.yml`
 - `configs/channels.yml`
-- `configs/agent-prompt.yml`
+- `configs/agent-prompt.yml`（环境提示词与 Run 语言见 [Agent 配置合并](docs/Agent配置合并.md#runtime-context-语言与模板)）
 - `configs/agent-settings.yml`
 - `configs/local-public-key.pem`
 - `configs/runtime.yml`

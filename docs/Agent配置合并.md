@@ -3,7 +3,7 @@
 ## 配置归属
 
 - `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
-- `configs/agent-prompt.yml`：`shared`（skill/tool-appendix/plan-execute/btw）、`coder`、`kbase` 提示词。注入时机不变。
+- `configs/agent-prompt.yml`：`shared`（runtime/skill/tool-appendix/plan-execute/btw）、`coder`、`kbase` 提示词。注入时机不变。
 - `configs/tools.yml`：访问策略、Bash/FileTools/run-env/runQuery，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
 
@@ -52,3 +52,20 @@ Agent YAML 的 kbaseConfig.embedding 已退役，出现即报错；创建流程�
 指定 agents-dir 时检查并移除 Agent embedding 声明；与旧全局模型不同的声明导致冲突，必须先明确统一的模型选择。未指定时不改 Agent 文件，运行时忽略遗留 embedding 声明，统一使用 runtime.kbx.embedding。不会访问或重建索引。
 
 启动和部署忽略七个旧配置文件，不再因其存在而失败；旧文件内容不参与配置加载，保留定制值需显式迁移。tools 中的旧 preset 位置仍需迁入 agent-settings。部署参数 --ai-* 写入 tools，--coder-* 和 --kbase-model-key/--kbase-reasoning-effort 写入 agent-settings，--kbase-embedding-model-key 写入 runtime.kbx.embedding.model-key；仅首次生成时渲染，已有文件不覆盖。
+
+## Runtime Context 语言与模板
+
+环境头部配置位于 `agent-prompt.yml -> shared.runtime`，示例见 `configs/agent-prompt.example.yml`。只有两个设置：
+
+- `default-locale`：无客户端语言时使用，缺省 `zh-CN`；支持现有语言归一化规则，例如 `en-US` 归为 `en`。
+- `environment-prompt-template`：环境头部模板，只接受 `{{os}}`、`{{arch}}`、`{{timezone}}`、`{{locale}}` 四个占位符，可在双大括号内留空格。
+
+省略设置使用默认值；显式空白、null、错误类型、不支持的语言、未知或残缺占位符均报错。已有配置文件 YAML 损坏会阻止启动。目录字段由运行时在模板之后追加，说明固定为英文；模板不负责目录布局。是否注入环境段仍由 Agent 的 `contextConfig.tags` 中是否包含 `system` 控制。
+
+Desktop 的全局语言仍通过连接握手和 `/api/locale` 同步，不增加任何业务请求字段。新的 Native Run 从当前客户端语言生成提示词；无语言头的 HTTP 请求和 Automation 使用上述默认值。子智能体、Team 成员及 `chat_start` 继承父 Run 的提示词语言。CODER/KBASE/TEAM 的 `language_preference` 与环境段使用同一归一化语言。
+
+Run 首次准备的语言、环境模板及各阶段 system-init 存于受保护的 `<StateDir>/run-prompts/`，沿用现有 Run 私有快照的写入方式。普通工具循环复用已生成的消息；同 Run 的 submit、跨设备恢复及 wait 重启恢复读取快照，不按提交客户端语言重新渲染。Planning 转执行复用已准备的执行阶段；若创建新的执行 Run，则继承源 Run 的语言。快照损坏报错，不静默重建；旧 Run 没有这种快照时沿用原准备路径，不改写历史数据。
+
+新 Run 仍通过既有 system-init 内容比较决定是否复用。指纹覆盖实际渲染内容、工具和请求配置；语言相同但模板、上下文等内容变化也会产生新版本。历史回放与导出使用精确 systemRef；遇到旧数据中同一引用对应不同内容时明确报错，不猜测版本。
+
+升级后默认环境文字由“中文”改为 `zh-CN`，目录说明改为英文，相关 Chat 的下一次 Run 会生成新的 system-init；未包含环境段的提示词仍可能因完整内容指纹调整产生新记录。语言来回切换也会切换提示词版本，可能影响供应商缓存。自定义 CODER/KBASE 模板的 `language_preference` 现在得到 `en` / `zh-CN`，部署应检查相关措辞。此改动仅作用于 Platform 生成的 Native 提示词，不改变外部 ACP bridge 的提示词管理。

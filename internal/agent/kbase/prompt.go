@@ -72,15 +72,16 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 		chatDir = agentcontract.FirstNonBlank(session.RuntimeContext.SandboxPaths.ChatDir, chatDir)
 	}
 	values := agentcontract.CommonPromptValues(agentcontract.PromptContext{
-		AgentKey:       session.AgentKey,
-		AgentName:      session.AgentName,
-		Mode:           session.Mode,
-		PlanningMode:   session.PlanningMode,
-		EditingMode:    session.EditingMode,
-		WorkspaceDir:   workspaceDir,
-		ChatDir:        chatDir,
-		AvailableTools: toolNames,
-		UserRequest:    req.Message,
+		LanguagePreference: session.Locale,
+		AgentKey:           session.AgentKey,
+		AgentName:          session.AgentName,
+		Mode:               session.Mode,
+		PlanningMode:       session.PlanningMode,
+		EditingMode:        session.EditingMode,
+		WorkspaceDir:       workspaceDir,
+		ChatDir:            chatDir,
+		AvailableTools:     toolNames,
+		UserRequest:        req.Message,
 	})
 	return agentcontract.RenderPromptTemplate(prompt, values)
 }

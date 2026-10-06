@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 )
 
@@ -105,6 +106,8 @@ func (s *FileStore) LoadRunSystemInit(chatID string, runID string, agentKey stri
 }
 
 func findSystemInitByRef(lines []map[string]any, ref systemInitRef) (*SystemInitLine, error) {
+	var matched *QueryLineSystem
+	var result *SystemInitLine
 	for _, line := range lines {
 		if strings.TrimSpace(stringFromAny(line["_type"])) != "query" {
 			continue
@@ -116,10 +119,14 @@ func findSystemInitByRef(lines []map[string]any, ref systemInitRef) (*SystemInit
 		if system == nil || system.AgentKey != ref.AgentKey || system.CacheKey != ref.CacheKey || system.Fingerprint != ref.Fingerprint {
 			continue
 		}
-		result := systemInitLineFromQueryLine(line, system)
-		return &result, nil
+		if matched != nil && !reflect.DeepEqual(matched, system) {
+			return nil, fmt.Errorf("ambiguous systemRef snapshot: %s/%s/%s", ref.AgentKey, ref.CacheKey, ref.Fingerprint)
+		}
+		matched = system
+		converted := systemInitLineFromQueryLine(line, system)
+		result = &converted
 	}
-	return nil, nil
+	return result, nil
 }
 
 func (s *FileStore) LoadAllSystemInits(chatID string) (SystemInitIndex, error) {

@@ -169,6 +169,7 @@ type QueryConfig struct {
 }
 
 type PromptsConfig struct {
+	Runtime      RuntimePromptConfig
 	Skill        PromptSkillConfig
 	ToolAppendix ToolAppendixPromptsConfig
 	PlanExecute  PlanExecutePromptsConfig

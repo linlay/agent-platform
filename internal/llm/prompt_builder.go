@@ -11,6 +11,7 @@ import (
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/querymessages"
@@ -311,13 +312,9 @@ func resolveStageSystemPrompt(session QuerySession, stage string) string {
 }
 
 func buildSystemEnvironmentSection(session QuerySession) string {
-	lines := []string{
-		"Runtime Context: System Environment",
-		"os: " + runtime.GOOS,
-		"arch: " + runtime.GOARCH,
-		"timezone: " + localTimezoneName(),
-		"language: 中文",
-	}
+	header := config.RuntimePromptConfig{EnvironmentPromptTemplate: session.EnvironmentPromptTemplate}.Render(
+		runtime.GOOS, runtime.GOARCH, localTimezoneName(), session.Locale)
+	lines := []string{header}
 	appendContextPaths(&lines, session)
 	return strings.Join(lines, "\n")
 }
@@ -351,51 +348,51 @@ func appendContextPaths(lines *[]string, session QuerySession) {
 }
 
 func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bool) {
-	rootDirDesc := "容器家目录"
-	panDirDesc := "用户网盘挂载目录"
+	rootDirDesc := "Container home directory"
+	panDirDesc := "Mounted user drive"
 	if localMode {
-		rootDirDesc = "root 目录"
-		panDirDesc = "用户网盘目录"
+		rootDirDesc = "Root directory"
+		panDirDesc = "User drive directory"
 	}
-	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "相对路径根 / 权限工作根")
-	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "当前会话文件目录，可存放产物、临时代码和临时文件")
+	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "Relative path base / permission workspace root")
+	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "Current chat files, artifacts, temporary code and files")
 	appendContextDir(lines, "root_dir", paths.RootDir, rootDirDesc)
-	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
-	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 运行目录")
-	appendContextDir(lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
-	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "共享技能中心目录")
-	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Agent 可编辑事实源目录")
-	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform 生成的 Agent 执行目录，禁止人工编辑")
-	appendContextDir(lines, "teams_dir", paths.TeamsDir, "团队配置目录")
-	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "计划任务配置目录")
-	appendContextDir(lines, "chats_dir", paths.ChatsDir, "会话记录目录")
-	appendContextDir(lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
-	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
-	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
-	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "外部连接器包来源目录")
-	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "当前 Agent 已挂载连接器的入口，按 Run 快照解析到共享只读包；使用技能目录列出的完整路径")
+	appendContextDir(lines, "skills_dir", paths.SkillsDir, "Current Agent private skills")
+	appendContextDir(lines, "agent_dir", paths.AgentDir, "Current Agent runtime directory")
+	appendContextDir(lines, "owner_dir", paths.OwnerDir, "Owner profile directory")
+	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "Shared skills catalog")
+	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Editable Agent source directory")
+	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform-generated Agent execution directory; do not edit manually")
+	appendContextDir(lines, "teams_dir", paths.TeamsDir, "Team configuration directory")
+	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "Automation configuration directory")
+	appendContextDir(lines, "chats_dir", paths.ChatsDir, "Chat records directory")
+	appendContextDir(lines, "memory_dir", paths.MemoryDir, "Memory storage directory")
+	appendContextDir(lines, "models_dir", paths.ModelsDir, "Model registry directory")
+	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "Provider registry directory")
+	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "External connector package sources")
+	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "Mounted connectors resolved to shared read-only packages from the Run snapshot; use full paths listed in the skill catalog")
 	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
 }
 
 func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
-	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "相对路径根 / 权限工作根")
-	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "当前会话文件目录，可存放产物、临时代码和临时文件")
-	appendContextDir(lines, "root_dir", paths.RootDir, "root 目录")
-	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
-	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 运行目录")
-	appendContextDir(lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
-	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "共享技能中心目录")
-	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Agent 可编辑事实源目录")
-	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform 生成的 Agent 执行目录，禁止人工编辑")
-	appendContextDir(lines, "teams_dir", paths.TeamsDir, "团队配置目录")
-	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "计划任务配置目录")
-	appendContextDir(lines, "chats_dir", paths.ChatsDir, "会话记录目录")
-	appendContextDir(lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
-	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
-	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
-	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "外部连接器包来源目录")
-	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "当前 Agent 已挂载连接器的入口，按 Run 快照解析到共享只读包；使用技能目录列出的完整路径")
-	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
+	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "Relative path base / permission workspace root")
+	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "Current chat files, artifacts, temporary code and files")
+	appendContextDir(lines, "root_dir", paths.RootDir, "Root directory")
+	appendContextDir(lines, "skills_dir", paths.SkillsDir, "Current Agent private skills")
+	appendContextDir(lines, "agent_dir", paths.AgentDir, "Current Agent runtime directory")
+	appendContextDir(lines, "owner_dir", paths.OwnerDir, "Owner profile directory")
+	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "Shared skills catalog")
+	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Editable Agent source directory")
+	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform-generated Agent execution directory; do not edit manually")
+	appendContextDir(lines, "teams_dir", paths.TeamsDir, "Team configuration directory")
+	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "Automation configuration directory")
+	appendContextDir(lines, "chats_dir", paths.ChatsDir, "Chat records directory")
+	appendContextDir(lines, "memory_dir", paths.MemoryDir, "Memory storage directory")
+	appendContextDir(lines, "models_dir", paths.ModelsDir, "Model registry directory")
+	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "Provider registry directory")
+	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "External connector package sources")
+	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "Mounted connectors resolved to shared read-only packages from the Run snapshot; use full paths listed in the skill catalog")
+	appendContextDir(lines, "pan_dir", paths.PanDir, "User drive directory")
 }
 
 func appendSemanticRoot(lines *[]string, key, value, desc string) {

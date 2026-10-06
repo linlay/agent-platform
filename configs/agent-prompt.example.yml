@@ -1,6 +1,16 @@
 # Agent prompt configuration. Copy to agent-prompt.yml.
 
 shared:
+  # Header only; runtime directory fields are appended after this template.
+  runtime:
+    default-locale: zh-CN
+    environment-prompt-template: |
+      Runtime Context: System Environment
+      os: {{os}}
+      arch: {{arch}}
+      timezone: {{timezone}}
+      language: {{locale}}
+
   skill:
     instructions-prompt: |
       Use installed skills to support the user's task.

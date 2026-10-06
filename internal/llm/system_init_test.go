@@ -675,3 +675,54 @@ func assertToolNames(t *testing.T, raw []any, expected []string) {
 		t.Fatalf("tool names = %#v, want %#v", actual, expected)
 	}
 }
+
+func TestSystemInitFingerprintIncludesRenderedLocaleAndTemplate(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Locale = "en-US"
+	build := func(session contracts.QuerySession) contracts.SystemInitProfile {
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{}, nil, 10, 10, 10, config.PromptsConfig{})
+		if len(profiles) != 1 {
+			t.Fatalf("profiles: %d", len(profiles))
+		}
+		return profiles[0]
+	}
+	english := build(session)
+	session.Locale = "en"
+	equivalent := build(session)
+	if english.Fingerprint != equivalent.Fingerprint {
+		t.Fatal("equivalent locale changed fingerprint")
+	}
+	session.Locale = "zh-CN"
+	chinese := build(session)
+	if english.Fingerprint == chinese.Fingerprint {
+		t.Fatal("different languages share fingerprint")
+	}
+	if !strings.Contains(chinese.SystemMessage["content"].(string), "language: zh-CN") {
+		t.Fatal(chinese.SystemMessage)
+	}
+	session.EnvironmentPromptTemplate = "Custom environment {{locale}}"
+	custom := build(session)
+	if chinese.Fingerprint == custom.Fingerprint {
+		t.Fatal("different templates share fingerprint")
+	}
+	session.RunID = "next-run"
+	if custom.Fingerprint != build(session).Fingerprint {
+		t.Fatal("unchanged prompt cannot be reused across Runs")
+	}
+}
+
+func TestModeAndEnvironmentUseSamePromptLocale(t *testing.T) {
+	for _, mode := range []string{"CODER", "KBASE"} {
+		t.Run(mode, func(t *testing.T) {
+			session := fingerprintTestSession()
+			session.Mode = mode
+			session.Locale = "en-US"
+			session.ModeSystemPrompt = "Respond in {{language_preference}}"
+			profiles := BuildSystemInitProfiles(session, api.QueryRequest{}, nil, 10, 10, 10, config.PromptsConfig{})
+			content := profiles[0].SystemMessage["content"].(string)
+			if !strings.Contains(content, "Respond in en") || !strings.Contains(content, "language: en") || strings.Contains(content, "en-US") {
+				t.Fatal(content)
+			}
+		})
+	}
+}

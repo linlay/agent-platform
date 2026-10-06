@@ -954,6 +954,7 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		childRunCtx = contracts.WithRunControl(options.RunControl.Context(), options.RunControl)
 	}
 	subSession, err := o.BuildQuerySession(childRunCtx, subReq, o.Summary, task.AgentDef, session.Options{
+		Locale:            o.Session.Locale,
 		Created:           false,
 		IncludeHistory:    options.IncludeHistory,
 		IncludeMemory:     false,
@@ -977,7 +978,10 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 	if len(subSession.RuntimeContext.References) > 0 {
 		subReq.References = subSession.RuntimeContext.References
 	}
-	o.WriteChildTaskQueryAndSystem(subReq, &subSession, task)
+	if err := o.WriteChildTaskQueryAndSystem(subReq, &subSession, task); err != nil {
+		result.Status, result.Text, result.Error = "failed", err.Error(), err.Error()
+		return result
+	}
 
 	if session.IsProxyAgentMode(task.AgentDef.Mode) {
 		return o.RunProxyChildTask(result, subReq, subSession.WorkspaceRoot, task, route)
@@ -1066,15 +1070,19 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 	return result
 }
 
-func (o *Coordinator) WriteChildTaskQueryAndSystem(subReq runtimetypes.QueryCommand, subSession *contracts.QuerySession, task PreparedSubTask) {
+func (o *Coordinator) WriteChildTaskQueryAndSystem(subReq runtimetypes.QueryCommand, subSession *contracts.QuerySession, task PreparedSubTask) error {
 	if o.Chats == nil {
-		return
+		return nil
 	}
 	var system *chat.QueryLineSystem
 	if subSession != nil && o.PrepareSystemInit != nil {
 		o.SystemInitMu.Lock()
 		defer o.SystemInitMu.Unlock()
-		system, _ = o.PrepareSystemInit(subReq, subSession, false)
+		var err error
+		system, err = o.PrepareSystemInit(subReq, subSession, false)
+		if err != nil {
+			return err
+		}
 	}
 	var liveSeq int64
 	if o.CurrentLiveSeq != nil {
@@ -1103,6 +1111,7 @@ func (o *Coordinator) WriteChildTaskQueryAndSystem(subReq runtimetypes.QueryComm
 		Messages: CurrentMessagesFromSession(subSession),
 		System:   system,
 	})
+	return nil
 }
 
 func CurrentMessagesFromSession(session *contracts.QuerySession) []map[string]any {

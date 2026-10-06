@@ -8,7 +8,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/i18n"
 	"agent-platform/internal/runtime/catalogview"
 	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/runtime/runstate"
@@ -119,7 +118,11 @@ func (s *Service) StartRun(_ context.Context, request contracts.RunStartRequest)
 	if subject := strings.TrimSpace(request.Origin.Subject); subject != "" {
 		ctx = runtimetypes.WithIdentity(ctx, &contracts.AuthIdentity{Subject: subject})
 	}
-	admission, err := s.PrepareQueryAdmissionRequest(ctx, req, true, i18n.DefaultLocale, "")
+	locale, err := s.deps.Sessions.RunPromptLocale(parentRunID)
+	if err != nil {
+		return contracts.RunSnapshot{}, err
+	}
+	admission, err := s.PrepareQueryAdmissionRequest(ctx, req, true, locale, "")
 	if err != nil {
 		return contracts.RunSnapshot{}, mapRunAdmissionError(err, agentKey, teamID)
 	}

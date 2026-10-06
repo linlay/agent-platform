@@ -28,7 +28,7 @@ func (s *Builder) PrepareSystemInitCacheFrom(req runtimetypes.QueryCommand, sess
 	if session == nil || s.deps.Tools == nil || s.deps.Profiles == nil {
 		return nil, nil
 	}
-	profiles, err := s.deps.Profiles.Profiles(req, *session)
+	profiles, err := s.frozenSystemProfiles(req, session)
 	if err != nil {
 		return nil, err
 	}

@@ -50,6 +50,9 @@ func (b SystemInitProfileBuilder) BuildSystemInitProfiles(input contracts.System
 			b.applyRequestProfile(&profiles[i], input.Session, input.Request)
 		}
 	}
+	for i := range profiles {
+		profiles[i].Fingerprint = fingerprintSystemInitProfile(profiles[i])
+	}
 	if err := validateSystemInitProfiles(profiles); err != nil {
 		return nil, err
 	}
@@ -84,7 +87,16 @@ func validateSystemInitProfiles(profiles []contracts.SystemInitProfile) error {
 	return nil
 }
 
-func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, defaultCoderPlanningMaxSteps int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
+func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, defaultCoderPlanningMaxSteps int, prompts config.PromptsConfig) (profiles []contracts.SystemInitProfile) {
+	defer func() {
+		for i := range profiles {
+			profiles[i].Fingerprint = fingerprintSystemInitProfile(profiles[i])
+		}
+	}()
+	session.Locale = prompts.Runtime.ResolveLocale(session.Locale)
+	if session.EnvironmentPromptTemplate == "" {
+		session.EnvironmentPromptTemplate = prompts.Runtime.Template()
+	}
 	toolDefs = mergeToolDefinitions(toolDefs, session.ModeToolDefinitions)
 	mode := normalizedSystemInitMode(session.Mode)
 	if session.PlanningMode {
@@ -272,6 +284,8 @@ func SystemInitCacheKey(mode string, stage string) string {
 
 func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, toolDefs []api.ToolDetailResponse) string {
 	payload := map[string]any{
+		"locale":                        config.RuntimePromptConfig{}.ResolveLocale(session.Locale),
+		"environmentPromptTemplate":     session.EnvironmentPromptTemplate,
 		"agentKey":                      session.AgentKey,
 		"agentName":                     session.AgentName,
 		"agentRole":                     session.AgentRole,
@@ -598,4 +612,14 @@ func replaceSystemMessage(messages []openAIMessage, system openAIMessage) []open
 		}
 	}
 	return append([]openAIMessage{system}, out...)
+}
+
+// Fingerprint the actual persisted request profile, including rendered language
+// and environment. Different content must never share a history reference.
+func fingerprintSystemInitProfile(profile contracts.SystemInitProfile) string {
+	return fingerprintLLMCallProfile(map[string]any{
+		"systemMessage": profile.SystemMessage, "tools": profile.Tools,
+		"model": profile.Model, "toolChoice": profile.ToolChoice,
+		"requestOptions": profile.RequestOptions,
+	})
 }

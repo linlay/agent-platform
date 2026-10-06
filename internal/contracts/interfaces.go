@@ -350,6 +350,8 @@ type QuerySession struct {
 	AgentRole                     string
 	AgentDescription              string
 	Locale                        string
+	EnvironmentPromptTemplate     string
+	PromptSnapshotRestored        bool `json:"-"`
 	ModelKey                      string
 	ToolNames                     []string
 	ToolSetFrozen                 bool `json:"-"`

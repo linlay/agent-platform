@@ -134,7 +134,7 @@ func TestCoderPlanningSteerReplacesProposal(t *testing.T) {
 			defer release()
 			client := http.Client{Timeout: 10 * time.Second}
 			const chatID = "chat-steered-planning"
-			resp, err := client.Post(server.URL+"/api/query", "application/json", strings.NewReader(`{"chatId":"`+chatID+`","agentKey":"coder-app","message":"create a plan","planningMode":true}`))
+			resp, err := client.Post(server.URL+"/api/query?locale=en", "application/json", strings.NewReader(`{"chatId":"`+chatID+`","agentKey":"coder-app","message":"create a plan","planningMode":true}`))
 			if err != nil {
 				t.Fatal(err)
 			}

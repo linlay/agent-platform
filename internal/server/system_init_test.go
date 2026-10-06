@@ -88,8 +88,8 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 	if pending == nil {
 		t.Fatalf("expected changed system payload to append one system cache line, got %#v", pending)
 	}
-	if pending.Fingerprint != oldProfiles[0].Fingerprint {
-		t.Fatalf("expected same fingerprint to be retained, got %#v", pending)
+	if pending.Fingerprint == oldProfiles[0].Fingerprint {
+		t.Fatalf("changed system content must have a different fingerprint, got %#v", pending)
 	}
 	snapshot, ok := newSession.SystemInitCache["react:main"]
 	if !ok {

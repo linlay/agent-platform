@@ -252,3 +252,22 @@ func TestSystemInitQueryIsStorageOnly(t *testing.T) {
 		t.Fatalf("storage query was not available to system cache: %#v err=%v", index, err)
 	}
 }
+
+func TestAmbiguousSystemReferenceIsRejected(t *testing.T) {
+	lines := []map[string]any{}
+	for _, content := range []string{"language: en", "language: zh-CN"} {
+		lines = append(lines, map[string]any{"_type": "query", "system": map[string]any{
+			"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "same-legacy-fingerprint",
+			"systemMessage": map[string]any{"role": "system", "content": content},
+		}})
+	}
+	if _, err := findSystemInitByRef(lines, systemInitRef{AgentKey: "agent", CacheKey: "react:main", Fingerprint: "same-legacy-fingerprint"}); err == nil {
+		t.Fatal("ambiguous historical reference accepted")
+	}
+	if _, err := buildLLMSystemCache(lines); err == nil {
+		t.Fatal("ambiguous export cache accepted")
+	}
+	if _, err := buildLLMSystemCache([]map[string]any{lines[0], lines[0]}); err != nil {
+		t.Fatalf("identical records must remain readable: %v", err)
+	}
+}

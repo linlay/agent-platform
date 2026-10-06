@@ -29,7 +29,7 @@ func TestQueryModelResponseFailureIsPersistedWithoutRetry(t *testing.T) {
 				writeProviderSSE(t, w, test.frame)
 			})
 			recorder := httptest.NewRecorder()
-			fixture.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"response-failure","message":"hello"}`)))
+			fixture.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/query?locale=en", bytes.NewBufferString(`{"chatId":"response-failure","message":"hello"}`)))
 			body := recorder.Body.String()
 			if calls.Load() != 1 || !strings.Contains(body, `"code":"`+test.code+`"`) || !strings.Contains(body, test.message) || !strings.Contains(body, `"type":"run.error"`) || strings.Contains(body, `"type":"run.complete"`) || strings.Contains(body, `"type":"tool.result"`) {
 				t.Fatalf("calls=%d unexpected stream: %s", calls.Load(), body)

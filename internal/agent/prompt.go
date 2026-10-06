@@ -31,7 +31,7 @@ func RenderPromptTemplate(prompt string, values map[string]string) string {
 func CommonPromptValues(ctx PromptContext) map[string]string {
 	language := strings.TrimSpace(ctx.LanguagePreference)
 	if language == "" {
-		language = "中文"
+		language = "zh-CN"
 	}
 	workspaceDir := strings.TrimSpace(ctx.WorkspaceDir)
 	if workspaceDir == "" {

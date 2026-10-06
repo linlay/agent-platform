@@ -611,10 +611,10 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 	if strings.Contains(section, "workspace_dir: /workspace") {
 		t.Fatalf("expected local paths instead of sandbox paths, got %q", section)
 	}
-	if !strings.Contains(section, "agents_dir: /Users/tester/Project/app/runtime/agents # Agent 可编辑事实源目录") {
+	if !strings.Contains(section, "agents_dir: /Users/tester/Project/app/runtime/agents # Editable Agent source directory") {
 		t.Fatalf("expected editable agents source in system environment, got %q", section)
 	}
-	if !strings.Contains(section, "ru_agents_dir: /Users/tester/Project/app/runtime/ru-agents # Platform 生成的 Agent 执行目录，禁止人工编辑") {
+	if !strings.Contains(section, "ru_agents_dir: /Users/tester/Project/app/runtime/ru-agents # Platform-generated Agent execution directory; do not edit manually") {
 		t.Fatalf("expected generated agent runtime root in system environment, got %q", section)
 	}
 	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
@@ -647,7 +647,7 @@ func TestBuildSystemEnvironmentSectionSeparatesExplicitWorkspaceAndChatDir(t *te
 		},
 	})
 
-	if !strings.Contains(section, "workspace_dir: / # 相对路径根 / 权限工作根") {
+	if !strings.Contains(section, "workspace_dir: / # Relative path base / permission workspace root") {
 		t.Fatalf("expected explicit workspace root in system environment, got %q", section)
 	}
 	if !strings.Contains(section, "chat_dir: /Users/tester/Project/app/runtime/chats/chat-1") {
@@ -718,7 +718,7 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 	if strings.Contains("\n"+section, "\nagents_dir:") {
 		t.Fatalf("expected sandbox agents source to remain unavailable, got %q", section)
 	}
-	if !strings.Contains(section, "ru_agents_dir: /agents # Platform 生成的 Agent 执行目录，禁止人工编辑") {
+	if !strings.Contains(section, "ru_agents_dir: /agents # Platform-generated Agent execution directory; do not edit manually") {
 		t.Fatalf("expected existing /agents mount to be identified as generated runtime content, got %q", section)
 	}
 	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {

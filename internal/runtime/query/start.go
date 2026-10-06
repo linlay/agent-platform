@@ -7,7 +7,6 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/i18n"
 	"agent-platform/internal/runtime/proxy"
 	"agent-platform/internal/runtime/session"
 	runtimetypes "agent-platform/internal/runtime/types"
@@ -54,7 +53,7 @@ func (s *Service) PrepareBlockingQuery(ctx context.Context, cmd runtimetypes.Que
 func (s *Service) prepare(ctx context.Context, cmd runtimetypes.QueryCommand) (preparedQuery, error) {
 	locale := strings.TrimSpace(cmd.Locale)
 	if locale == "" {
-		locale = i18n.DefaultLocale
+		locale = s.deps.Config.Prompts.Runtime.ResolveLocale("")
 	}
 	cmd.Locale = locale
 	var prepared preparedQuery

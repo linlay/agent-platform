@@ -177,10 +177,18 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 			return false, err
 		}
 	}
+	locale := submitReq.Locale
+	if newExecutionRun {
+		var err error
+		locale, err = s.deps.Sessions.RunPromptLocale(sourceRunID)
+		if err != nil {
+			return false, err
+		}
+	}
 	session, err := s.deps.Sessions.BuildQuerySession(context.Background(), req, summary, agentDef, sessionbuild.Options{
 		DisableSkillScriptGrants: !newExecutionRun,
 		Created:                  false,
-		Locale:                   submitReq.Locale,
+		Locale:                   locale,
 		IncludeHistory:           true,
 		IncludeMemory:            true,
 		AllowInvokeAgents:        sessionbuild.ResolvedModeCapabilities(agentDef).InvokeChildren,
@@ -214,6 +222,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 			continuationSystem = systemInitLine
 		} else {
 			log.Printf("[server][awaiting] prepare continuation system init failed chatId=%s runId=%s err=%v", chatID, runID, err)
+			return false, err
 		}
 	}
 	if mode == "wait" {
@@ -404,21 +413,20 @@ func (s *Service) preparePlanningApproveContinuation(req runtimetypes.QueryComma
 	}
 	planningSession := *session
 	planningSession.PlanningMode = true
-	profiles, err := s.deps.Profiles.Profiles(profileReq, planningSession)
-	if err != nil {
+	if _, err := s.deps.Sessions.PrepareSystemInitCache(profileReq, &planningSession, false); err != nil {
 		return err
 	}
-	var executeSystem chat.QueryLineSystem
-	for _, profile := range profiles {
-		if strings.TrimSpace(profile.CacheKey) != agentbuiltin.CoderExecuteCacheKey {
-			continue
-		}
-		executeSystem = sessionbuild.QueryLineSystemFromProfile(profile)
-		break
+	snapshot := planningSession.SystemInitCache[agentbuiltin.CoderExecuteCacheKey]
+	executeSystem := chat.QueryLineSystem{
+		AgentKey: snapshot.AgentKey, CacheKey: agentbuiltin.CoderExecuteCacheKey,
+		Fingerprint: snapshot.Fingerprint, SystemMessage: snapshot.SystemMessage,
+		Tools: snapshot.Tools, Model: snapshot.Model, ToolChoice: snapshot.ToolChoice,
+		RequestOptions: snapshot.RequestOptions,
 	}
 	if strings.TrimSpace(executeSystem.CacheKey) == "" || strings.TrimSpace(executeSystem.Fingerprint) == "" {
 		return fmt.Errorf("coder execute system init profile unavailable")
 	}
+	session.PromptSnapshotRestored = planningSession.PromptSnapshotRestored
 	session.PlanningMode = false
 	session.SystemInitCache = map[string]contracts.SystemInitSnapshot{
 		executeSystem.CacheKey: sessionbuild.SystemInitSnapshotFromLine(executeSystem),

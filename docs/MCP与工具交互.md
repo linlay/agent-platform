@@ -274,4 +274,4 @@ i18n:
 
 工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。
 
-旧 JSONL 不迁移。旧工具事件可从当前 Platform 内置定义补齐展示翻译；已有冻结快照优先，不用全局目录猜测旧 Agent-local/MCP 工具的同名定义，无法解析时保留原始显示名。Desktop 在连接握手时设置当前全局语言，语言切换后通过 `/api/locale` 更新已连接通道；普通 WS 响应与后续流事件统一按连接语言解析。业务 payload 不携带 locale，不冻结请求或 Run 级语言，也不因语言变化重建观察订阅。Bash 的动态参数 description 是原始调用内容，不自动翻译。
+旧 JSONL 不迁移。旧工具事件可从当前 Platform 内置定义补齐展示翻译；已有冻结快照优先，不用全局目录猜测旧 Agent-local/MCP 工具的同名定义，无法解析时保留原始显示名。Desktop 在连接握手时设置当前全局语言，语言切换后通过 `/api/locale` 更新已连接通道；普通 WS 响应与后续流事件统一按连接语言解析。业务 payload 不携带 locale，展示语言不按请求或 Run 冻结，也不因语言变化重建观察订阅。Native 模型提示词的语言在 Run 开始时冻结，与工具展示语言独立；详见 [Agent 配置合并](Agent配置合并.md#runtime-context-语言与模板)。Bash 的动态参数 description 是原始调用内容，不自动翻译。

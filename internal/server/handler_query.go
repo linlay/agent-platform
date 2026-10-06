@@ -38,7 +38,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		command := trustedQueryCommand(r.Context(), req)
 		command.SideQuery = true
 		command.SideQueryID = req.BTWID
-		command.Locale = requestLocale(r, i18n.DefaultLocale)
+		command.Locale = requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale(""))
 		command.ResourceBaseURL = requestBaseURL(r)
 		s.writeRuntimeQueryResponse(w, r.Context(), command)
 
@@ -55,7 +55,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	command := trustedQueryCommand(r.Context(), req)
-	command.Locale = requestLocale(r, i18n.DefaultLocale)
+	command.Locale = requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale(""))
 	command.ResourceBaseURL = requestBaseURL(r)
 	command.ChatSource = chatSourceFromContext(r.Context())
 	command.ClientTarget = runtimeClientTarget(webClientTargetFromHTTPRequest(r))
@@ -85,7 +85,7 @@ func writeQueryStartError(w http.ResponseWriter, err error) {
 
 func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request, req api.QueryRequest) {
 	command := trustedQueryCommand(r.Context(), req)
-	command.Locale = requestLocale(r, i18n.DefaultLocale)
+	command.Locale = requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale(""))
 	command.ResourceBaseURL = requestBaseURL(r)
 	command.ChatSource = chatSourceFromContext(r.Context())
 	command.ClientTarget = runtimeClientTarget(webClientTargetFromHTTPRequest(r))
