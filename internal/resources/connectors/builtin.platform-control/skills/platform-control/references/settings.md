@@ -83,7 +83,7 @@ Use `skin.*` for Desktop skins (皮肤). `theme.*` controls only light/dark/syst
 | `skin.set` | execute | `{ skinId, keepBackground? }` | Same state shape as get |
 | `skin.remove` | execute | `{ skinId }` | `{ skinId, activeSkinId }` |
 
-- `filePath` must be an absolute local ZIP path on the Desktop host: `/Users/.../dunhuang.skin.zip` on macOS or `C:\Users\...\dunhuang.skin.zip` on Windows (escape backslashes in JSON). Relative paths, aliases, URLs, file URIs, shell expansion and Windows UNC/device paths are not accepted. A container or remote Agent path is not automatically a Desktop-host path. The action does not download files.
+- `filePath` must be an absolute local ZIP path on the Desktop host: `/Users/<user>/Downloads/<skin-package>.zip` on macOS or `C:\Users\<user>\Downloads\<skin-package>.zip` on Windows (replace placeholders and escape backslashes in JSON). Relative paths, aliases, URLs, file URIs, shell expansion and Windows UNC/device paths are not accepted. A container or remote Agent path is not automatically a Desktop-host path. The action does not download files.
 - Import installs only; it does not apply the skin. For “导入并使用”, import, then set using the returned `skinId`. For “导入皮肤”, stop after successful import. Do not derive skin IDs from names, manifest IDs or file names.
 - List includes built-in and installed summaries without image bytes, tokens or storage paths. Get distinguishes saved selection from effective fallback. `source` is `builtin` or `installed`; version is present for installed packages.
 - Same manifest ID/version returns `packageExists`, never overwrites. Different versions coexist. Use list to inspect existing skins instead of repeatedly importing a duplicate.
@@ -96,7 +96,7 @@ Use `skin.*` for Desktop skins (皮肤). `theme.*` controls only light/dark/syst
 ```json
 {
   "action": "skin.import",
-  "args": { "filePath": "/Users/linlay/Project/zenmind/zenmind-desktop/output/skin-collection/dunhuang.skin.zip" }
+  "args": { "filePath": "<absolute-desktop-host-zip-path>" }
 }
 ```
 

@@ -6,7 +6,8 @@ Use these actions for Desktop Kanban issue CRUD and move operations.
 
 ## Execution
 
-- With Kanban enabled, eligible local `todo` issues assigned through `assigneeAgentKey` run automatically; scheduled automation uses its own trigger. Creation is asynchronous: a null `runId` does not mean dispatch failed.
+- To create for automatic execution, set `args.input.status: "todo"` and the actual `assigneeAgentKey`. With Kanban enabled, eligible local `todo` issues auto-run; scheduled automation uses its own trigger.
+- Omitted status defaults to `backlog`, which does not auto-run. Report returned `backlog` as created and awaiting scheduling, never as ready or dispatched. For eligible `todo`, a null `runId` can reflect asynchronous admission.
 - Desktop owns execution, results, and workflow progression. Do not launch duplicate runs, write results into `description`, or manually move issues to simulate progress or completion. Read progress with `kanban.getIssue`.
 - Use updates/moves for requested edits or workflow changes. Send only changed fields: resetting `status` to `todo` can trigger another run.
 
@@ -36,16 +37,15 @@ kanban.moveIssue [execute]
   "action": "kanban.createIssue",
   "args": {
     "input": {
-      "title": "Follow up",
-      "description": "Check the integration status",
+      "title": "<task-title>",
       "status": "todo",
-      "assigneeAgentKey": "<actual-current-agent-key>"
+      "assigneeAgentKey": "<agent-key>"
     }
   }
 }
 ```
 
-Use an actual Agent key from the current context.
+Replace placeholders with the requested title and an actual Agent key from the current context or catalog.
 
 ## Local Issue Input And Status
 
@@ -57,12 +57,12 @@ For ordinary creation, `args.input.title` is a required non-empty string. Common
 | --- | --- |
 | `description` | Issue text |
 | `status` | Explicit column key; omitted defaults to `backlog` |
-| `assigneeAgentKey` | Agent key of the executor, e.g. `cutej` only when the current catalog/context identifies that Agent |
+| `assigneeAgentKey` | Executor Agent key from the current context or catalog |
 | `projectId` | Existing project ID from listIssues |
 | `localWorkflowId` | Optional ID from listIssues.localWorkflows; do not copy an issue's workflowId |
 | `priority` / `severity` | Priority P0–P3 / severity critical/high/medium/low |
 
-`updateIssue` accepts partial `input`; omitted fields retain their values. To assign an existing issue, use `args: {"id":"issue-id","input":{"assigneeAgentKey":"cutej"}}`.
+`updateIssue` accepts partial `input`; omitted fields retain their values. To assign an existing issue, use `args: {"id":"<issue-id>","input":{"assigneeAgentKey":"<agent-key>"}}`.
 
 | Status | Desktop column |
 | --- | --- |
