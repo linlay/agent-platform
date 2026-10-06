@@ -48,4 +48,10 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	request("GET", "/api/admin/kbases/missing", "", 404)
 	request("DELETE", "/api/admin/kbases/"+d.ID, "", 200)
 	request("GET", "/api/admin/kbases/"+d.ID, "", 404)
+	input, _ = json.Marshal(kbasescenter.Input{Name: "Combined", Collections: []kbasescenter.Collection{{Name: "docs", SourcePath: t.TempDir()}, {Name: "reports", SourcePath: t.TempDir()}}})
+	raw = request("POST", "/api/admin/kbases", string(input), 200)
+	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 {
+		t.Fatalf("multiple collections: %s %v", raw, err)
+	}
+	request("POST", "/api/admin/kbases/"+d.ID+"/search", `{"query":"fixture","method":"get"}`, 400)
 }

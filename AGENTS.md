@@ -82,7 +82,7 @@ cmd/agent-platform/main.go
 
 `docs/` 是特色能力的主说明区；当前项目事实文件 `AGENTS.md` 只保留事实总览、开发入口和专题索引。
 
-知识库中心使用固定 `<AP_RUNTIME_DIR>/kbases-center/<id>/` 保存部署级独立库，管理与手动 KBX 全文召回见 [知识库中心](docs/知识库中心.md)。现有 `kbase/` Agent 索引不迁移。
+知识库中心使用固定 `<AP_RUNTIME_DIR>/kbases-center/<id>/` 保存部署级独立库，支持多 collection 创建与来源展示，召回缺省 query，可选择 search/vsearch/gsearch，图谱构建尚未接通。管理与手动 KBX 维护见 [知识库中心](docs/知识库中心.md)。现有 `kbase/` Agent 索引不迁移。
 
 ## 5. 数据结构
 

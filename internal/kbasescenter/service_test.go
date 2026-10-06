@@ -15,7 +15,120 @@ type testEngine struct {
 	err     error
 }
 
-func (e testEngine) Update(ctx context.Context, db, source string) error {
+type recordingEngine struct {
+	testEngine
+	operation string
+	selected  []string
+}
+
+func (e *recordingEngine) Read(_ context.Context, _, operation, _ string, _ int, selected ...string) (json.RawMessage, error) {
+	e.operation = operation
+	e.selected = append([]string(nil), selected...)
+	return json.RawMessage(`{"results":[]}`), nil
+}
+
+func TestMultipleCollectionsAndSearchScope(t *testing.T) {
+	engine := &recordingEngine{}
+	s, err := New(context.Background(), t.TempDir(), engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collections := []Collection{{Name: "docs", SourcePath: t.TempDir()}, {Name: "报告", SourcePath: t.TempDir()}}
+	d, err := s.Create(Input{Name: "Combined", Collections: collections})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Collections) != 2 || d.SourcePath != "" {
+		t.Fatalf("definition: %+v", d)
+	}
+	if _, err = s.Refresh(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, s, d.ID, "ready")
+	if _, err = s.Search(context.Background(), d.ID, SearchInput{Query: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if engine.operation != "query" || len(engine.selected) != 2 {
+		t.Fatalf("default scope: %+v", engine)
+	}
+	for _, method := range []string{"query", "search", "vsearch", "gsearch"} {
+		if _, err = s.Search(context.Background(), d.ID, SearchInput{Query: "fixture", Method: method, Collections: []string{"报告"}}); err != nil {
+			t.Fatal(err)
+		}
+		if engine.operation != method || len(engine.selected) != 1 || engine.selected[0] != "报告" {
+			t.Fatalf("selected scope: %+v", engine)
+		}
+	}
+	for _, input := range []SearchInput{{Query: "fixture", Method: "get"}, {Query: "fixture", Collections: []string{"foreign"}}} {
+		if _, err = s.Search(context.Background(), d.ID, input); err == nil {
+			t.Fatal("invalid search accepted")
+		}
+	}
+	if _, err = s.Read(context.Background(), d.ID, "read", "kbx://报告/2026/a..b.md", 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"kbx://foreign/a.md", "kbx://docs/../a.md", "kbx://docs/a/../../b.md", "kbx://docs/\\secret"} {
+		if _, err = s.Read(context.Background(), d.ID, "read", ref, 0); err == nil {
+			t.Fatalf("invalid reference accepted: %s", ref)
+		}
+	}
+	if _, err = s.Edit(d.ID, Input{Name: "Renamed", Collections: d.Collections}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Edit(d.ID, Input{Name: "Changed", Collections: []Collection{d.Collections[0]}}); err == nil {
+		t.Fatal("sources changed")
+	}
+	reopened, _ := New(context.Background(), s.root, engine)
+	persisted, err := reopened.Get(d.ID)
+	if err != nil || len(persisted.Collections) != 2 {
+		t.Fatalf("persistence: %+v %v", persisted, err)
+	}
+}
+
+func TestCollectionValidationAndLegacyDefinition(t *testing.T) {
+	s, _ := New(context.Background(), t.TempDir(), testEngine{})
+	path := t.TempDir()
+	for _, collections := range [][]Collection{
+		{}, {{Name: "docs", SourcePath: path}, {Name: "docs", SourcePath: t.TempDir()}},
+		{{Name: "docs", SourcePath: path}, {Name: "reports", SourcePath: path}},
+		{{Name: "a/b", SourcePath: path}}, {{Name: "valid", SourcePath: "relative"}},
+		{{Name: "valid", SourcePath: s.root}},
+	} {
+		if _, err := s.Create(Input{Name: "Invalid", Collections: collections}); err == nil {
+			t.Fatalf("invalid collections accepted: %+v", collections)
+		}
+	}
+	if _, err := s.Create(Input{Name: "Ambiguous", SourcePath: path, Collections: []Collection{{Name: "docs", SourcePath: path}}}); err == nil {
+		t.Fatal("ambiguous sources accepted")
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(path, alias); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Create(Input{Name: "Alias", Collections: []Collection{{Name: "docs", SourcePath: path}, {Name: "reports", SourcePath: alias}}}); err == nil {
+		t.Fatal("duplicate canonical sources accepted")
+	}
+	d, err := s.Create(Input{Name: "Existing", SourcePath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Collections = nil
+	if err := s.save(d); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := s.Get(d.ID)
+	if err != nil || len(loaded.Collections) != 1 || loaded.Collections[0].Name != "workspace" || loaded.Collections[0].SourcePath != d.SourcePath {
+		t.Fatalf("legacy definition: %+v %v", loaded, err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(s.root, d.ID, "library.json"))
+	var stored Definition
+	json.Unmarshal(raw, &stored)
+	if len(stored.Collections) != 0 {
+		t.Fatal("reading rewrote legacy definition")
+	}
+}
+
+func (e testEngine) Update(ctx context.Context, db string, collections []Collection) error {
 	if e.release != nil {
 		select {
 		case <-e.release:
@@ -28,7 +141,7 @@ func (e testEngine) Update(ctx context.Context, db, source string) error {
 	}
 	return os.WriteFile(db, []byte("index"), 0600)
 }
-func (e testEngine) Read(context.Context, string, string, string, int) (json.RawMessage, error) {
+func (e testEngine) Read(context.Context, string, string, string, int, ...string) (json.RawMessage, error) {
 	return json.RawMessage(`{"results":[]}`), nil
 }
 func waitState(t *testing.T, s *Service, id, want string) Definition {

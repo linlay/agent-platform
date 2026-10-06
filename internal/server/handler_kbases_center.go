@@ -82,10 +82,7 @@ func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
 			if !decode(&input) {
 				return
 			}
-			if input.Limit == 0 {
-				input.Limit = 10
-			}
-			result, err = service.Read(r.Context(), parts[0], "search", input.Query, input.Limit)
+			result, err = service.Search(r.Context(), parts[0], input)
 		case "status", "files", "read":
 			if !method(http.MethodGet) {
 				return
