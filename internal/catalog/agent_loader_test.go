@@ -1108,7 +1108,7 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	if !reflect.DeepEqual(def.Tools, wantTools) {
 		t.Fatalf("tools = %#v, want %#v", def.Tools, wantTools)
 	}

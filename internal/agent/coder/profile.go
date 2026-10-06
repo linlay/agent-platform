@@ -25,7 +25,6 @@ var defaultToolNames = []string{
 	"file_glob",
 	"file_grep",
 	"datetime",
-	"regex",
 	"vision_recognize",
 	"artifact_publish",
 	contracts.PlanAddTasksToolName,

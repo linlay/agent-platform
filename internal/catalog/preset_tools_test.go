@@ -136,6 +136,38 @@ func TestPresetToolsModeDefaultsAndRuntimeDependencies(t *testing.T) {
 	}
 }
 
+func TestCoderRegexPresetControlsEffectiveToolsAndExclusion(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mode     string
+		preset   bool
+		excluded bool
+		want     bool
+	}{
+		{name: "coder configured", mode: AgentModeCoder, preset: true, want: true},
+		{name: "coder preset removed", mode: AgentModeCoder},
+		{name: "coder agent exclusion", mode: AgentModeCoder, preset: true, excluded: true},
+		{name: "general unaffected", mode: AgentModeGeneral, preset: true},
+		{name: "kbase unaffected", mode: AgentModeKBase, preset: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Config{PresetTools: []string{"file_read", "ask_user_question"}, ModePresets: map[string]config.AgentPresets{}}
+			if tc.preset {
+				cfg.ModePresets["coder"] = config.AgentPresets{Tools: []string{"regex"}}
+			}
+			def := AgentDefinition{Mode: tc.mode, Engine: AgentEngineNative}
+			if tc.excluded {
+				def.ExcludedTools = []string{"regex"}
+			}
+			def.applyPresetTools(cfg.PresetsForMode(tc.mode).Tools)
+			def.finishToolBindings()
+			if containsString(def.Tools, "regex") != tc.want {
+				t.Fatalf("effective tools=%v want regex=%v", def.Tools, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunEnvDefaultMountRespectsExclusions(t *testing.T) {
 	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
 		for _, presets := range [][]string{nil, {"run_env"}} {

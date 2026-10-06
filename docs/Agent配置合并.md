@@ -13,6 +13,8 @@
 
 agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase 各自的同名数组相加，按名称去重并保留首次出现顺序。mode 省略或 [] 仅表示无增量，不清除全局项。预置仍只作用于 native GENERAL/CODER/KBASE，不写入 Agent YAML。创建、编辑、展示、装配和连接器删除保护使用相同有效预置；已有显式声明不被删除。
 
+分发示例通过 `coder.preset-tools` 为普通 CODER 提供 `regex`，CODER mode profile 的缺省工具列表不再内置该工具。
+
 `<mode>.default-agent.modelKey/reasoningEffort` 只在创建时补全，已有 Agent 不受动态覆盖。GENERAL/CODER 的 budget 语义不变。kbase 节表示 KBASE Agent，不是知识库引擎。
 
 GENERAL/CODER 的 `workspace-agents` 仅接受非空 `file`：声明即自动读取，省略整个节点即不读取；enabled 已删除。不自动读取不限制工具按权限主动读文件。GENERAL 无具体 Workspace 或使用 @root 时不读取；CODER 显式 projectConfig.promptFiles 仍优先。示例仅为 CODER 声明 AGENTS.md。

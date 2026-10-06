@@ -66,6 +66,9 @@ func TestDefaultToolNamesForBackendExposePlatformToolsOnlyToNativeCoder(t *testi
 	if !containsTool(native, "artifact_publish") {
 		t.Fatalf("native CODER default tools=%#v, want artifact_publish", native)
 	}
+	if containsTool(native, "regex") {
+		t.Fatalf("regex must be supplied by configuration, got default tools=%#v", native)
+	}
 	if acp := DefaultToolNamesForBackend("codex"); len(acp) != 0 {
 		t.Fatalf("ACP CODER default tools=%#v, want none", acp)
 	}

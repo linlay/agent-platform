@@ -13,6 +13,7 @@ preset-tools:
   - file_edit
   - file_glob
   - file_grep
+  - web_fetch
   - vision_recognize
   - image_generate
   - plan_add_tasks
@@ -42,7 +43,8 @@ general:
     #   maxSteps: 200
 
 coder:
-  preset-tools: []
+  preset-tools:
+    - regex
   preset-connectors: []
   default-agent:
     # Optional default modelKey for new CODER agents; leave empty to require explicit configuration.
