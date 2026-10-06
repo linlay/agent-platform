@@ -91,6 +91,7 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 	assembler := runtimeAgentAssembler{modePresets: r.cfg.ModePresets, presetConnectors: r.cfg.PresetConnectors, connectors: connector.Sources{
 		ExternalRoot:             r.cfg.Paths.EffectiveConnectorsCenterDir(),
 		BuiltinRoot:              r.cfg.Paths.BuiltinConnectorsDir,
+		NativeTaskControlDir:     r.cfg.Paths.NativeTaskControlDir,
 		NativePlatformControlDir: r.cfg.Paths.NativePlatformControlDir,
 		NativeWebControlDir:      r.cfg.Paths.NativeWebControlDir,
 		StateRoot:                r.cfg.Paths.EffectiveConnectorStateDir(),

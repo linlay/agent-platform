@@ -1,0 +1,19 @@
+{
+  "id": "builtin.task-control",
+  "name": "Task Control",
+  "icon": "assets/icon.svg",
+  "version": "1.0.0",
+  "type": "native",
+  "auth_mode": "no_auth",
+  "description": "Manage conversations, start and follow Agent tasks, and maintain automation schedules",
+  "i18n": {
+    "en": {
+      "name": "Task Control",
+      "description": "Manage conversations, start and follow Agent tasks, and maintain automation schedules"
+    },
+    "zh-CN": {
+      "name": "任务管理",
+      "description": "管理会话、发起和跟进智能体任务，以及创建和维护自动化计划"
+    }
+  }
+}

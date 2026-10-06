@@ -3,6 +3,7 @@ package connector
 import "strings"
 
 const (
+	TaskControlConnectorID     = "builtin.task-control"
 	PlatformControlConnectorID = "builtin.platform-control"
 	WebControlConnectorID      = "builtin.web-control"
 )
@@ -10,7 +11,8 @@ const (
 // nativeConnectorTools is the single source of truth for which Platform tools
 // a native connector mounts. Tool names never come from the package itself.
 var nativeConnectorTools = map[string][]string{
-	PlatformControlConnectorID: {"automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market", "desktop_kanban"},
+	TaskControlConnectorID:     {"chat_start", "chat_get_status", "chat_interrupt", "chat_query", "chat_manage", "automation_query", "automation_manage"},
+	PlatformControlConnectorID: {"catalog_query", "catalog_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market", "desktop_kanban"},
 	WebControlConnectorID: {
 		"workpanel_state", "workpanel_open", "workpanel_close",
 		"surface_list", "surface_state", "surface_navigate", "surface_activate", "surface_close",
@@ -27,7 +29,7 @@ func IsNative(id string) bool {
 
 // NativeConnectorIDs lists the embedded native connectors in stable order.
 func NativeConnectorIDs() []string {
-	return []string{PlatformControlConnectorID, WebControlConnectorID}
+	return []string{PlatformControlConnectorID, TaskControlConnectorID, WebControlConnectorID}
 }
 
 // NativeToolConnector returns the native connector that owns a Platform tool.

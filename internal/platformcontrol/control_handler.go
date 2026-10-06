@@ -66,8 +66,9 @@ var argumentFields = map[string]map[string]string{
 }
 
 func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.ExecutionContext) (string, map[string]any, error) {
-	if e == nil || e.Session.NativeConnectorTools[tool] != connector.PlatformControlConnectorID || e.Session.ConnectorDirs[connector.PlatformControlConnectorID] == "" {
-		return "", nil, fmt.Errorf("connector_not_mounted: configure builtin.platform-control for this Agent through an authorized configuration change, then start a new Run")
+	owner, registered := connector.NativeToolConnector(tool)
+	if !registered || e == nil || e.Session.NativeConnectorTools[tool] != owner || e.Session.ConnectorDirs[owner] == "" {
+		return "", nil, fmt.Errorf("connector_not_mounted: configure %s for this Agent through an authorized configuration change, then start a new Run", owner)
 	}
 	if connector.IsPlatformRootTool(tool) && !rootCaller(e) {
 		return "", nil, fmt.Errorf("caller_forbidden: ordinary native main root Run required; invoke this tool from the owning Agent main Run, outside Team, subtask or side-chat execution")

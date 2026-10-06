@@ -44,15 +44,22 @@ func TestNativeConnectorCatalogLocalized(t *testing.T) {
 					continue
 				}
 				found++
-				want, tools := tc.desktop, 14
+				want, tools := tc.desktop, 10
 				if item.ID == connector.WebControlConnectorID {
 					want, tools = tc.web, 15
+				}
+				if item.ID == connector.TaskControlConnectorID {
+					tools = 7
+					want = "Task Control"
+					if tc.desktop == "平台控制" {
+						want = "任务管理"
+					}
 				}
 				if item.Name != want || item.I18N != nil || !item.Builtin || !item.ReadOnly || item.AuthMode != connector.AuthNoAuth || len(item.NativeTools) != tools || len(item.Skills) != 1 || len(item.MutuallyExclusiveWith) != 0 {
 					t.Fatalf("%s: %+v", tc.locale, item)
 				}
 			}
-			if found != 2 {
+			if found != 3 {
 				t.Fatalf("native connectors: %d", found)
 			}
 		}

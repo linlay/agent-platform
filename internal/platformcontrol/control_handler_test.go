@@ -16,9 +16,9 @@ import (
 )
 
 func controlExecution() *contracts.ExecutionContext {
-	s := contracts.QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("caller", ""), NativeConnectorTools: map[string]string{}, ConnectorDirs: map[string]string{connector.PlatformControlConnectorID: "/mounted"}}
+	s := contracts.QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("caller", ""), NativeConnectorTools: map[string]string{}, ConnectorDirs: map[string]string{connector.PlatformControlConnectorID: "/mounted", connector.TaskControlConnectorID: "/task"}}
 	for _, a := range connector.ControlActions() {
-		s.NativeConnectorTools[a.Tool] = connector.PlatformControlConnectorID
+		s.NativeConnectorTools[a.Tool], _ = connector.NativeToolConnector(a.Tool)
 		s.ToolNames = append(s.ToolNames, a.Tool)
 	}
 	return &contracts.ExecutionContext{Session: s, CurrentToolID: "call", AccessLevel: "full_access"}

@@ -23,9 +23,11 @@ preset-tools:
 
 # Platform preset connectors for native GENERAL/CODER/KBASE Agents.
 # Full packages (tools + skills) are mounted; not written to agent.yml.
-# Omit or set [] to disable. Restart after changes. Management stays explicit.
+# Omit or set [] to disable. Restart after changes. Platform management stays explicit.
+# Task Control provides Chat and Automation tools to ordinary native root Runs.
 preset-connectors:
   - builtin.web-control
+  - builtin.task-control
 
 general:
   preset-tools: []

@@ -388,3 +388,21 @@ func schemaRequiredSet(parameters map[string]any) map[string]bool {
 	}
 	return required
 }
+
+func TestTaskControlDefinitionsRequireMountAndRoot(t *testing.T) {
+	defs := []api.ToolDetailResponse{{Name: "chat_start"}, {Name: "chat_query"}, {Name: "automation_manage"}}
+	allowed := []string{"chat_start", "chat_query", "automation_manage"}
+	session := contracts.QuerySession{AgentKey: "a", RunID: "r", ChatID: "c", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("a", "")}
+	if got := effectiveToolDefinitions(defs, allowed, session); len(got) != 0 {
+		t.Fatal("unmounted tools exposed")
+	}
+	session.NativeConnectorTools = map[string]string{"chat_start": "builtin.task-control", "chat_query": "builtin.task-control", "automation_manage": "builtin.task-control"}
+	session.ConnectorDirs = map[string]string{"builtin.task-control": "/mounted"}
+	if got := effectiveToolDefinitions(defs, allowed, session); len(got) != 3 {
+		t.Fatalf("mounted tools missing: %v", got)
+	}
+	session.SubTaskID = "child"
+	if got := effectiveToolDefinitions(defs, allowed, session); len(got) != 0 {
+		t.Fatal("child tools exposed")
+	}
+}

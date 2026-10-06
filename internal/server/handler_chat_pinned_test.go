@@ -35,7 +35,7 @@ func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
 	handler := platformcontrol.NewToolHandler(config.Config{}, nil, fixture.server.conversationService()).ConfigureControl(nil, fixture.server.conversationService(), nil)
 	caller := &contracts.ExecutionContext{Session: contracts.QuerySession{
 		RunID: "run-pin", ChatID: "tool-pin", AgentKey: "mock-agent", Mode: "GENERAL",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""), ToolNames: []string{"chat_manage"}, NativeConnectorTools: map[string]string{"chat_manage": "builtin.platform-control"}, ConnectorDirs: map[string]string{"builtin.platform-control": "/trusted"},
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""), ToolNames: []string{"chat_manage"}, NativeConnectorTools: map[string]string{"chat_manage": "builtin.task-control"}, ConnectorDirs: map[string]string{"builtin.task-control": "/trusted"},
 	}}
 	invoke := func() {
 		t.Helper()

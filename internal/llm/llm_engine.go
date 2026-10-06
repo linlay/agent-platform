@@ -467,7 +467,7 @@ func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, s
 	filtered := filterToolDefinitions(defs, allowed)
 	controlFiltered := make([]api.ToolDetailResponse, 0, len(filtered))
 	for _, def := range filtered {
-		if owner, ok := connector.NativeToolConnector(def.Name); ok && owner == connector.PlatformControlConnectorID {
+		if owner, ok := connector.NativeToolConnector(def.Name); ok && (owner == connector.PlatformControlConnectorID || owner == connector.TaskControlConnectorID) {
 			if session.NativeConnectorTools[def.Name] != owner || session.ConnectorDirs[owner] == "" {
 				continue
 			}

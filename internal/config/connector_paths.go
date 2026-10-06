@@ -15,14 +15,14 @@ func (p PathsConfig) EffectiveConnectorStateDir() string {
 }
 
 func (p PathsConfig) ConnectorSources() connector.Sources {
-	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveConnectorStateDir()}
+	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeTaskControlDir: p.NativeTaskControlDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveConnectorStateDir()}
 }
 
 func validateConnectorPaths(p PathsConfig) error {
 	if err := p.ConnectorSources().ValidateRoots(); err != nil {
 		return err
 	}
-	if err := (connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveStateDir()}).ValidateRoots(); err != nil {
+	if err := (connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeTaskControlDir: p.NativeTaskControlDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveStateDir()}).ValidateRoots(); err != nil {
 		return fmt.Errorf("AP_RUNTIME_STATE_DIR: %w", err)
 	}
 	// Connector sources and persistent state must stay outside generated Agents
@@ -52,7 +52,14 @@ func (p *PathsConfig) PrepareNativeConnectors() (func(), error) {
 		release()
 		return nil, err
 	}
+	task, releaseTask, err := p.ConnectorSources().InstallEmbeddedTaskControl()
+	if err != nil {
+		releaseWeb()
+		release()
+		return nil, err
+	}
+	p.NativeTaskControlDir = task.Dir
 	p.NativePlatformControlDir = pkg.Dir
 	p.NativeWebControlDir = web.Dir
-	return func() { releaseWeb(); release() }, nil
+	return func() { releaseTask(); releaseWeb(); release() }, nil
 }

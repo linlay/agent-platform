@@ -4,7 +4,7 @@ i18n:
     label: "Query Chats"
   zh-CN:
     label: "查询会话"
-description: "current: no args. list: scope? (agent/instance), archived?, pinned?, limit?, cursor?. search: query, chatId?, scope?, archived?, limit?, cursor?. read: chatId, view (summary/messages), archived?, limit?, cursor?. artifacts: chatId?, runId?, limit?, cursor?. Search may return incomplete and skippedChatIds; continue using nextCursor. Read/search expose only visible messages."
+description: "current: no args. list: scope? (agent/instance), archived?, pinned?, limit?, cursor?. search: query, chatId?, scope?, archived?, limit?, cursor?. read: chatId, view (summary/messages), archived?, limit?, cursor?. artifacts: chatId?, runId?, limit?, cursor?. Search may return incomplete and skippedChatIds; continue using nextCursor. Read/search expose only visible messages. Use chat_start to execute a task and chat_get_status to follow a run launched by it."
 clientVisible: true
 explicitOnly: true
 readOnly: true

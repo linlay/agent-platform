@@ -87,7 +87,7 @@ func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.NativeTools()) != 14 || len(pkg.Skills) != 1 || pkg.BinDir != "" || !pkg.Builtin {
+	if len(pkg.NativeTools()) != 10 || len(pkg.Skills) != 1 || pkg.BinDir != "" || !pkg.Builtin {
 		t.Fatalf("native contract: %#v", pkg)
 	}
 	icon, err := pkg.ReadIcon()

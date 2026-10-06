@@ -1,6 +1,6 @@
 # Automation
 
-Use automation_query and automation_manage with `{action,args}`. Requires builtin.platform-control mounted in an ordinary Native root Run. Definitions and histories are deployment-wide management resources. Planning stages allow queries only. Existing HTTP/Desktop management remains available through the shared Automation service.
+Use automation_query and automation_manage with `{action,args}`. Requires builtin.task-control mounted in an ordinary Native root Run. Definitions and histories are deployment-wide management resources. Planning stages allow queries only. Existing HTTP/Desktop management remains available through the shared Automation service.
 
 ## Read and preview
 

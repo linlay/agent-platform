@@ -34,7 +34,7 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	if one.ConnectorMounts[0].Dir != two.ConnectorMounts[0].Dir {
 		t.Fatal("duplicated native package")
 	}
-	if containsString(one.Tools, "bash") || !containsString(one.Tools, "file_read") || !containsString(one.Tools, "desktop_shell") || containsString(one.Tools, "surface_list") || len(one.ConnectorNativeTools) != 14 || len(one.ConnectorSkills) != 1 {
+	if containsString(one.Tools, "bash") || !containsString(one.Tools, "file_read") || !containsString(one.Tools, "desktop_shell") || containsString(one.Tools, "surface_list") || len(one.ConnectorNativeTools) != 10 || len(one.ConnectorSkills) != 1 {
 		t.Fatalf("wrong native tools: %#v", one)
 	}
 	if _, ok := r.AgentDefinition("legacy"); ok {
@@ -76,7 +76,7 @@ func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 		t.Fatal("wrong web-control skill path")
 	}
 	both, ok := r.AgentDefinition("both")
-	if !ok || len(both.ConnectorNativeTools) != 29 || len(both.ConnectorSkills) != 2 || !containsString(both.Tools, "desktop_shell") || !containsString(both.Tools, "surface_list") {
+	if !ok || len(both.ConnectorNativeTools) != 25 || len(both.ConnectorSkills) != 2 || !containsString(both.Tools, "desktop_shell") || !containsString(both.Tools, "surface_list") {
 		t.Fatalf("combined mount: %+v", both)
 	}
 	if _, err := r.PrepareAgentConnector("web", "builtin.platform-control", true); err != nil {
@@ -85,5 +85,38 @@ func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 	// The former web variant no longer exists; its Agents need the offline migration.
 	if _, ok := r.AgentDefinition("retired"); ok {
 		t.Fatal("retired builtin.desktop-web mount became ready")
+	}
+}
+
+func TestTaskControlMountIsIndependent(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	release, err := cfg.Paths.PrepareNativeConnectors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	for _, key := range []string{"task", "platform"} {
+		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Test\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin."+key+"-control\n")
+	}
+	r, err := NewFileRegistry(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, ok := r.AgentDefinition("task")
+	if !ok {
+		t.Fatal("task unavailable")
+	}
+	platform, _ := r.AgentDefinition("platform")
+	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_query", "chat_manage", "automation_query", "automation_manage"} {
+		if !containsString(task.Tools, name) || containsString(platform.Tools, name) {
+			t.Fatalf("tool ownership: %s", name)
+		}
+	}
+	if len(task.ConnectorNativeTools) != 7 || containsString(task.Tools, "catalog_manage") || containsString(task.Tools, "desktop_shell") || containsString(task.Tools, "surface_list") {
+		t.Fatalf("excess task grants: %v", task.Tools)
+	}
+	if task.SkillInstructionsPath("task-control") != "@connectors/builtin.task-control/skills/task-control/SKILL.md" {
+		t.Fatal("missing task skill")
 	}
 }

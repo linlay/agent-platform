@@ -15,6 +15,7 @@ type Sources struct {
 	ExternalRoot string
 	BuiltinRoot  string
 	// Native directories are verified, leased packages from the running binary.
+	NativeTaskControlDir     string
 	NativePlatformControlDir string
 	NativeWebControlDir      string
 	StateRoot                string
@@ -133,6 +134,8 @@ func (s Sources) ReadFile(id, file string) (File, error) {
 
 func (s Sources) embeddedNativeDir(id string) string {
 	switch id {
+	case TaskControlConnectorID:
+		return s.NativeTaskControlDir
 	case PlatformControlConnectorID:
 		return s.NativePlatformControlDir
 	case WebControlConnectorID:

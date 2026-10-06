@@ -100,6 +100,7 @@ type PathsConfig struct {
 	// bundle. It is not a user-configurable runtime path.
 	BuiltinConnectorsDir string
 	// Native Desktop package paths are set only by embedded resource assembly.
+	NativeTaskControlDir     string
 	NativePlatformControlDir string
 	NativeWebControlDir      string
 	ConnectorsCenterDir      string

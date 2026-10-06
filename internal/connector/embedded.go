@@ -55,3 +55,7 @@ func (s Sources) installEmbeddedNative(name string) (Package, func(), error) {
 	}
 	return pkg, release, nil
 }
+
+func (s Sources) InstallEmbeddedTaskControl() (Package, func(), error) {
+	return s.installEmbeddedNative("task-control")
+}

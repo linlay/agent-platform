@@ -5,15 +5,15 @@
   "version": "3.0.0",
   "type": "native",
   "auth_mode": "no_auth",
-  "description": "Platform resources, conversations, automations, diagnostics and Desktop management",
+  "description": "Platform resources, diagnostics and Desktop management",
   "i18n": {
     "en": {
       "name": "Platform Control",
-      "description": "Platform resources, conversations, automations, diagnostics and Desktop management"
+      "description": "Platform resources, diagnostics and Desktop management"
     },
     "zh-CN": {
       "name": "平台控制",
-      "description": "管理平台资源、会话、自动化、运行诊断和 Desktop"
+      "description": "管理平台资源、运行诊断和 Desktop"
     }
   }
 }

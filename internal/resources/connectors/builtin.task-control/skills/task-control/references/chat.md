@@ -1,6 +1,6 @@
 # Conversations
 
-Use chat_query and chat_manage in an ordinary native main root Run with builtin.platform-control mounted. Anonymous Runs can access only their current Chat; authenticated query-owned Chats remain owner restricted. Agent availability is not required for historical reads.
+Use chat_query and chat_manage in an ordinary native main root Run with builtin.task-control mounted. Anonymous Runs can access only their current Chat; authenticated query-owned Chats remain owner restricted. Agent availability is not required for historical reads.
 
 ## Queries
 
