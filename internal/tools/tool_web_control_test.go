@@ -530,7 +530,7 @@ func TestAwcpToolsReportValidationInTheirOwnFieldNames(t *testing.T) {
 
 func TestWebControlToolSetMatchesConnectorRegistry(t *testing.T) {
 	executor, execCtx, _ := webControlTestRuntime(t, nil)
-	tools := (connector.Package{Manifest: connector.Manifest{ID: connector.WebControlConnectorID, Type: "native"}, Native: []string{"mounted"}}).NativeTools()
+	tools := (connector.Package{Manifest: connector.Manifest{ID: connector.WebControlConnectorID, Type: "native"}}).NativeTools()
 	if len(tools) != 15 {
 		t.Fatalf("web-control tools: %v", tools)
 	}

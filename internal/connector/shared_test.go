@@ -106,7 +106,6 @@ func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 		}
 	}
 	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "evil", "connector.json"), `{"id":"evil","name":"Evil","version":"1.0.0","type":"native","auth_mode":null}`)
-	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "evil", "native.json"), `{"capabilities":["desktop.action"]}`)
 	if _, err := s.Load("evil"); err == nil {
 		t.Fatal("external native handler binding accepted")
 	}

@@ -386,7 +386,7 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 				if status != "invalid" {
 					item := items[len(items)-1]
 					item["editable"] = !pkg.Builtin
-					item["hasMcp"], item["hasCli"], item["hasView"], item["hasNative"] = len(pkg.MCP) > 0, pkg.CLI != nil, len(pkg.Views) > 0, len(pkg.Native) > 0
+					item["hasMcp"], item["hasCli"], item["hasView"], item["hasNative"] = len(pkg.MCP) > 0, pkg.CLI != nil, len(pkg.Views) > 0, len(pkg.NativeTools()) > 0
 					keys := []string{}
 					for name := range pkg.MCP {
 						keys = append(keys, id+"/"+name)

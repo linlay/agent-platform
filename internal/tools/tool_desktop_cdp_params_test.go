@@ -231,7 +231,7 @@ func desktopCDPParamsTestRuntime(root string) (*RuntimeToolExecutor, *ExecutionC
 func mountedNativeToolsForTest() map[string]string {
 	tools := map[string]string{}
 	for _, id := range connector.NativeConnectorIDs() {
-		for _, name := range (connector.Package{Manifest: connector.Manifest{ID: id, Type: "native"}, Native: []string{"mounted"}}).NativeTools() {
+		for _, name := range (connector.Package{Manifest: connector.Manifest{ID: id, Type: "native"}}).NativeTools() {
 			tools[name] = id
 		}
 	}

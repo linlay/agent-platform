@@ -154,3 +154,24 @@ func TestNativeConnectorPresentation(t *testing.T) {
 		t.Fatal("accepted unregistered native package")
 	}
 }
+
+func TestNativeManifestWithoutCapabilityFile(t *testing.T) {
+	for _, id := range NativeConnectorIDs() {
+		t.Run(id, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, id)
+			putRuntimeFile(t, filepath.Join(dir, "connector.json"), `{"id":"`+id+`","name":"Native","version":"1.0.0","type":"native","auth_mode":"no_auth"}`)
+			pkg, err := Load(root, id)
+			if err != nil || len(pkg.NativeTools()) == 0 {
+				t.Fatalf("native manifest must resolve registered tools without native.json: %v %v", pkg.NativeTools(), err)
+			}
+			putRuntimeFile(t, filepath.Join(dir, "native.json"), `{"capabilities":["platform.control"]}`)
+			if _, err := Load(root, id); err == nil || !strings.Contains(err.Error(), "native.json is no longer supported") {
+				t.Fatalf("legacy declaration should fail explicitly: %v", err)
+			}
+		})
+	}
+	if tools := (Package{Manifest: Manifest{ID: "unknown", Type: "native"}}).NativeTools(); len(tools) != 0 {
+		t.Fatalf("unknown native connector received tools: %v", tools)
+	}
+}

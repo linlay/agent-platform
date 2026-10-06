@@ -43,7 +43,7 @@ func (s Sources) Summaries() ([]Summary, error) {
 	result := make([]Summary, 0, len(packages))
 	for _, pkg := range packages {
 		summary := Summary{Manifest: pkg.Manifest, Builtin: pkg.Builtin, ReadOnly: pkg.Builtin, CanDelete: !pkg.Builtin, HasMCP: len(pkg.MCP) > 0, HasCLI: pkg.CLI != nil, HasBin: pkg.BinDir != "", Skills: []string{}}
-		summary.HasNative = len(pkg.Native) > 0
+		summary.HasNative = len(pkg.NativeTools()) > 0
 		summary.NativeTools = pkg.NativeTools()
 		for _, skill := range pkg.Skills {
 			summary.Skills = append(summary.Skills, skill.Name)

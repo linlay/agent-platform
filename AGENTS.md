@@ -171,12 +171,14 @@ make test
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；orchestrated Team 自动注入 session-local embedded builtin `agent_delegate` 和三个 plan tools。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
 - flat plan task 按数组顺序执行且同时最多一个 `in_progress`；最前面的非终态 task 可由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，`in_progress` 可进入任一终态，终态重试必须追加新 task。TEAM 的 plan task 表示顺序阶段，但当前阶段内部仍可通过单次 `agent_delegate` 按 `maxParallel` 并行执行成员。
 - 中文“会话”和“对话”均指 Chat；“新开会话／对话”使用 `chat_start` 并省略 `chatId`，未指定目标时模型填写当前 `Agent Identity.key`；只有继续用户指定的已有 Chat 才传 `chatId`。查询与中断仍按 `runId` 定位一次执行，不关闭或删除 Chat。
-- `chat_start` / `chat_get_status` / `chat_interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run，省略 accessLevel 时继承父 Run 调用当时的当前档位（不受显式覆盖开关限制，后续不联动）；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 Chat 工具。旧 `run_query`、`run_status`、`run_interrupt` 及更早的 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除且配置引用会硬失败。
+- `chat_start` / `chat_get_status` / `chat_interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run，省略 accessLevel 时继承父 Run 调用当时的当前档位（不受显式覆盖开关限制，后续不联动）；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 Chat 工具。
 - chat 创建后 `teamId` 固定。Team 以 `teamId` 为公开 owner，`agentKey` 不得与 Team 请求或控制请求同时出现；隐藏协调器 key 只用于进程内执行，不得作为公共 Agent 身份回显。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
 - KBASE Lance sidecar 只监听 loopback，由 Go 生成一次性 Bearer token 并监督生命周期。存在 enabled KBASE capability 时会启动并探测 sidecar；`mode: KBASE` 将其标为 required，故障使健康检查失败，普通 Agent 附加能力将其标为 optional，故障只在 `/healthz` 和 capability 状态中报告 degraded。无 active generation 时 search 返回 stale 并触发冷建，sidecar 故障显式返回 unavailable。
 - 当前 KBASE 只对文本抽取结果做 embedding/FTS；PDF/DOCX/PPTX/HTML 均是先抽取文本，不得宣称支持图片、音频或视频语义检索。
 - SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。仅在 `app.New` 启动装配期，`chats.db`、`archive.db`、KBASE `control.db` 的标记恰为 `0/0`，且表、列语义、约束、索引、触发器和 FTS 对象完整匹配当前 DDL 时，服务才会在事务中写入当前标记；列物理顺序不影响比较。运行期仅验证，绝不认领、迁移、删除或修复。其他标记组合、结构差异或残留旧数据均拒绝；chat/archive 会阻止启动，required KBASE capability 会隔离对应 Agent 并保留管理端诊断，引用它的 Team 同样不可运行；optional capability 保留普通 Agent 可运行并报告 degraded/unavailable。
+
+原生连接器仅通过 `connector.json` 的 `type: native` 与已注册 ID 识别，工具归属以 `internal/connector/native.go` 为唯一事实源；不再维护 `native.json` capabilities 声明，旧文件明确拒绝。
 
 Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。
 

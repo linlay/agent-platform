@@ -32,8 +32,8 @@ func TestEmbeddedDesktopWithoutBuiltinCache(t *testing.T) {
 	if err != nil || len(items) != 1 {
 		t.Fatalf("catalog: %v %v", items, err)
 	}
-	file, err := s.ReadFile("builtin.platform-control", "native.json")
-	if err != nil || !strings.Contains(file.Content, "platform.control") {
+	file, err := s.ReadFile("builtin.platform-control", "connector.json")
+	if err != nil || !strings.Contains(file.Content, "builtin.platform-control") {
 		t.Fatalf("read: %+v %v", file, err)
 	}
 	// Even another process/source without our NativePlatformControlDir must respect the lease.

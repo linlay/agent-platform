@@ -46,7 +46,6 @@ type Package struct {
 	Skills     []Skill
 	MCP        map[string]map[string]any
 	CLI        map[string]any
-	Native     []string
 	Views      map[string]view.Definition
 	iconSHA256 string
 }
@@ -162,18 +161,9 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		if !IsNative(id) || pkg.AuthMode != AuthNoAuth || len(pkg.AuthBindings) != 0 || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
 			return Package{}, fmt.Errorf("native connectors require a registered builtin capability package without executable components")
 		}
-		var config struct {
-			Capabilities []string `json:"capabilities"`
-		}
-		if err := read("native.json", &config); err != nil {
-			return Package{}, err
-		}
-		if !validNativeCapabilities(id, config.Capabilities) {
-			return Package{}, fmt.Errorf("invalid %s capabilities", id)
-		}
-		pkg.Native = config.Capabilities
-	} else if _, err := os.Lstat(filepath.Join(dir, "native.json")); !os.IsNotExist(err) {
-		return Package{}, fmt.Errorf("native.json requires a registered native builtin")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "native.json")); !os.IsNotExist(err) {
+		return Package{}, fmt.Errorf("native.json is no longer supported; native tools are registered by connector ID in Platform")
 	}
 	pkg.Skills, err = loadSkills(filepath.Join(dir, "skills"))
 	if err != nil {

@@ -7,13 +7,6 @@ const (
 	WebControlConnectorID      = "builtin.web-control"
 )
 
-// nativeConnectorCapabilities is the exact native.json contract of every
-// native connector compiled into Platform.
-var nativeConnectorCapabilities = map[string][]string{
-	PlatformControlConnectorID: {"platform.control"},
-	WebControlConnectorID:      {"web.workpanel", "web.surface", "web.awcp"},
-}
-
 // nativeConnectorTools is the single source of truth for which Platform tools
 // a native connector mounts. Tool names never come from the package itself.
 var nativeConnectorTools = map[string][]string{
@@ -51,23 +44,10 @@ func NativeToolConnector(tool string) (string, bool) {
 
 // NativeTools is the platform registry, never a package-selected handler name.
 func (p Package) NativeTools() []string {
-	if p.Type != "native" || len(p.Native) == 0 {
+	if p.Type != "native" || !IsNative(p.ID) {
 		return nil
 	}
 	return append([]string(nil), nativeConnectorTools[p.ID]...)
-}
-
-func validNativeCapabilities(id string, capabilities []string) bool {
-	expected, ok := nativeConnectorCapabilities[id]
-	if !ok || len(capabilities) != len(expected) {
-		return false
-	}
-	for index, capability := range expected {
-		if capabilities[index] != capability {
-			return false
-		}
-	}
-	return true
 }
 
 // NativeToolRequiresDesktop reports tools that only work when Platform runs
