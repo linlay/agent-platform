@@ -107,7 +107,7 @@ func TestBuiltinConnectorAPIListsReadsAndRejectsMutation(t *testing.T) {
 	}
 	external := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	writeMCPConnectorForTest(t, external, "remote")
-	for _, endpoint := range []string{"/api/connectors", "/api/admin/connectors"} {
+	for _, endpoint := range []string{"/api/admin/connectors"} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, endpoint, nil))
 		var response struct {

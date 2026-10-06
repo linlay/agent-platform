@@ -796,6 +796,9 @@ func mapAgentEditError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, catalog.ErrPresetConnectorReadOnly) {
+		return newAgentStatusError(http.StatusForbidden, "preset_connector_readonly", err.Error())
+	}
 	var conflict *connector.SelectionConflictError
 	if errors.As(err, &conflict) {
 		return newAgentStatusErrorWithData(http.StatusBadRequest, "connector_selection_conflict", connector.ErrSelectionConflict.Error(), map[string]any{

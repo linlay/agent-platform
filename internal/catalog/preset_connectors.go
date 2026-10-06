@@ -1,6 +1,49 @@
 package catalog
 
-import "strings"
+import (
+	"errors"
+	"slices"
+	"strings"
+
+	"agent-platform/internal/connector"
+)
+
+var ErrPresetConnectorReadOnly = errors.New("preset connector mounts are read-only and managed through configs/agent-settings.yml")
+
+// SelectableConnectorIDs projects a configured selection without inherited mounts.
+func SelectableConnectorIDs(ids, presets []string) []string {
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !slices.Contains(presets, id) {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// SelectableConnectors keeps non-preset builtins selectable and only discloses
+// mutual exclusions against other visible entries. Runtime validation still
+// checks the complete mounted selection, including inherited packages.
+func SelectableConnectors(items []connector.Summary, presets []string) []connector.Summary {
+	result := make([]connector.Summary, 0, len(items))
+	visible := make(map[string]bool, len(items))
+	for _, item := range items {
+		if !slices.Contains(presets, item.ID) {
+			visible[item.ID] = true
+			result = append(result, item)
+		}
+	}
+	for i := range result {
+		conflicts := []string{}
+		for _, id := range result[i].MutuallyExclusiveWith {
+			if visible[id] {
+				conflicts = append(conflicts, id)
+			}
+		}
+		result[i].MutuallyExclusiveWith = conflicts
+	}
+	return result
+}
 
 // PresetConnectorIDs describes platform configuration, independently of the
 // published runtime snapshot (which may still be leased by a Run).

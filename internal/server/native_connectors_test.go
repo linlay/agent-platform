@@ -21,7 +21,7 @@ func TestNativeConnectorCatalogLocalized(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	for _, endpoint := range []string{"/api/connectors", "/api/admin/connectors"} {
+	for _, endpoint := range []string{"/api/admin/connectors"} {
 		for _, tc := range []struct{ locale, desktop, web string }{{"zh-CN", "平台控制", "网页控制"}, {"en", "Platform Control", "Web Control"}, {"zh", "平台控制", "网页控制"}, {"en-US", "Platform Control", "Web Control"}} {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, endpoint, nil)

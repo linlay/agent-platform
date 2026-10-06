@@ -85,8 +85,14 @@ func TestConnectorIconZIPCatalogAndHTTP(t *testing.T) {
 				continue
 			}
 			found = true
-			if item.Icon != "assets/icon.svg" || !strings.HasPrefix(item.IconURL, "/api/connectors/icon?id=brand-demo&v=") || len(item.IconSHA256) != 64 {
+			if !strings.HasPrefix(item.IconURL, "/api/connectors/icon?id=brand-demo&v=") {
+				t.Fatalf("missing icon URL: %+v", item)
+			}
+			if endpoint == "/api/admin/connectors" && (item.Icon != "assets/icon.svg" || len(item.IconSHA256) != 64) {
 				t.Fatalf("missing icon metadata: %+v", item)
+			}
+			if endpoint == "/api/connectors" && (item.Icon != "" || item.IconSHA256 != "") {
+				t.Fatalf("usage catalog exposes unused icon metadata: %+v", item)
 			}
 			image := request(item.IconURL, "")
 			if image.Code != http.StatusOK || image.Body.String() != svg || image.Header().Get("Content-Type") != "image/svg+xml" || image.Header().Get("X-Content-Type-Options") != "nosniff" || !strings.Contains(image.Header().Get("Content-Security-Policy"), "sandbox") {

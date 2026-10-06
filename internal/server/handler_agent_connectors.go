@@ -8,9 +8,32 @@ import (
 
 	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 )
 
+func (s *Server) connectorPresets(key string) ([]string, error) {
+	if key == "" {
+		return s.deps.Config.AllPresetConnectors(), nil
+	}
+	provider, ok := s.deps.Registry.(interface {
+		PresetConnectorIDs(string) ([]string, error)
+	})
+	if !ok {
+		return nil, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "agent connector presets are not configured")
+	}
+	ids, err := provider.PresetConnectorIDs(key)
+	return ids, mapAdminSourceAgentError(err)
+}
+
+func (s *Server) handleAgentConnectors(w http.ResponseWriter, r *http.Request) {
+	s.handleAgentConnectorSelection(w, r, false)
+}
+
 func (s *Server) handleAdminAgentConnectors(w http.ResponseWriter, r *http.Request) {
+	s.handleAgentConnectorSelection(w, r, true)
+}
+
+func (s *Server) handleAgentConnectorSelection(w http.ResponseWriter, r *http.Request, management bool) {
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodGet && r.Method != http.MethodPut {
 		w.Header().Set("Allow", "GET, PUT")
@@ -80,8 +103,15 @@ func (s *Server) handleAdminAgentConnectors(w http.ResponseWriter, r *http.Reque
 	configuredSet, activeSet := slices.Clone(ids), slices.Clone(active)
 	slices.Sort(configuredSet)
 	slices.Sort(activeSet)
-	s.writeAgentHTTPResponse(w, api.AgentConnectorsResponse{
+	reloadPending := !slices.Equal(configuredSet, activeSet)
+	if !management {
+		s.writeAgentHTTPResponse(w, api.AgentConnectorsResponse{
+			AgentKey: key, ConnectorIDs: catalog.SelectableConnectorIDs(ids, presets), ReloadPending: reloadPending,
+		}, nil)
+		return
+	}
+	s.writeAgentHTTPResponse(w, api.AdminAgentConnectorsResponse{
 		AgentKey: key, ConnectorIDs: ids, ActiveConnectorIDs: active, PresetConnectorIDs: presets, DeclaredConnectorIDs: declared,
-		ReloadPending: !slices.Equal(configuredSet, activeSet),
+		ReloadPending: reloadPending,
 	}, nil)
 }

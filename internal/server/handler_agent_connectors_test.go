@@ -47,13 +47,13 @@ func agentConnectorRequest(server *Server, method, key string, payload any) *htt
 	return rec
 }
 
-func agentConnectorResponse(t *testing.T, rec *httptest.ResponseRecorder) api.AgentConnectorsResponse {
+func agentConnectorResponse(t *testing.T, rec *httptest.ResponseRecorder) api.AdminAgentConnectorsResponse {
 	t.Helper()
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
 	var envelope struct {
-		Data api.AgentConnectorsResponse `json:"data"`
+		Data api.AdminAgentConnectorsResponse `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
@@ -189,13 +189,11 @@ func TestAgentConnectorsPresetSourceAndReloadState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enabled := agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "docs", "enabled": true}))
-	if enabled.ReloadPending || len(enabled.DeclaredConnectorIDs) != 0 {
-		t.Fatalf("preset written %+v", enabled)
-	}
-	rejected := agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "docs", "enabled": false})
-	if rejected.Code < 400 {
-		t.Fatal("preset disabled")
+	for _, enabled := range []bool{false, true} {
+		rejected := agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "docs", "enabled": enabled})
+		if rejected.Code != http.StatusForbidden || !strings.Contains(rejected.Body.String(), "preset_connector_readonly") {
+			t.Fatalf("preset toggle accepted: %d %s", rejected.Code, rejected.Body.String())
+		}
 	}
 	after, _ := f.registry.(*catalog.FileRegistry).ReadEditableAgentSource("mock-agent")
 	if after.Content != source.Content {

@@ -9,11 +9,42 @@ import (
 
 	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/mcp"
 )
 
-func (s *Server) handleConnectors(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	presets, err := s.connectorPresets(strings.TrimSpace(r.URL.Query().Get("agentKey")))
+	if err != nil {
+		s.writeAgentHTTPResponse(w, nil, err)
+		return
+	}
+	items, err := s.connectorSources().Summaries()
+	if err != nil {
+		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusServiceUnavailable, "connector_catalog_unavailable", err.Error()))
+		return
+	}
+	result := make([]api.ConnectorOption, 0, len(items))
+	for _, item := range catalog.SelectableConnectors(items, presets) {
+		manifest := item.Manifest.Localized(responseLocale(w))
+		result = append(result, api.ConnectorOption{
+			ID: item.ID, Name: manifest.Name, Description: manifest.Description,
+			IconURL: connectorIconURL(item), MutuallyExclusiveWith: item.MutuallyExclusiveWith,
+		})
+	}
+	s.writeAgentHTTPResponse(w, api.ConnectorOptionsResponse{Connectors: result}, nil)
+}
+
+func connectorIconURL(item connector.Summary) string {
+	if item.Icon == "" {
+		return ""
+	}
+	return "/api/connectors/icon?id=" + url.QueryEscape(item.ID) + "&v=" + item.IconSHA256
+}
+
+func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 	sources := s.connectorSources()
 	items, err := sources.Summaries()
 	if err != nil {
@@ -49,9 +80,7 @@ func (s *Server) handleConnectors(w http.ResponseWriter, _ *http.Request) {
 				value.Preparation = prepared
 			}
 		}
-		if item.Icon != "" {
-			value.IconURL = "/api/connectors/icon?id=" + url.QueryEscape(item.ID) + "&v=" + item.IconSHA256
-		}
+		value.IconURL = connectorIconURL(item)
 		pkg, err := sources.Load(item.ID)
 		if err != nil {
 			s.writeAgentHTTPResponse(w, nil, err)

@@ -58,10 +58,7 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 	}
 	presets := presetConnectorIDsForTree(root, r.cfg.PresetsForMode(stringNode(root["mode"])).Connectors)
 	if slices.Contains(presets, id) {
-		if !enabled {
-			return AgentConnectorCandidate{}, fmt.Errorf("preset connector is managed through configs/agent-settings.yml")
-		}
-		return AgentConnectorCandidate{Source: source, Content: source.Content, ConnectorIDs: ids}, nil
+		return AgentConnectorCandidate{}, ErrPresetConnectorReadOnly
 	}
 	candidate := AgentConnectorCandidate{Source: source, Content: source.Content, ConnectorIDs: ids}
 	if slices.Contains(ids, id) == enabled {

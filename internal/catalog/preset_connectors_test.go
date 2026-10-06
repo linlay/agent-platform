@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -45,12 +46,14 @@ func TestPresetConnectorMountAndSourceIsolation(t *testing.T) {
 		}
 		path := filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml")
 		before, _ := os.ReadFile(path)
-		candidate, err := r.PrepareAgentConnector(key, connector.WebControlConnectorID, true)
-		if err != nil || candidate.Content != string(before) {
-			t.Fatalf("preset enable changed source %v", err)
+		for _, enabled := range []bool{false, true} {
+			if _, err = r.PrepareAgentConnector(key, connector.WebControlConnectorID, enabled); !errors.Is(err, ErrPresetConnectorReadOnly) {
+				t.Fatalf("preset toggle accepted: %v", err)
+			}
 		}
-		if _, err = r.PrepareAgentConnector(key, connector.WebControlConnectorID, false); err == nil {
-			t.Fatal("preset disabled through agent toggle")
+		after, _ := os.ReadFile(path)
+		if string(before) != string(after) {
+			t.Fatal("preset toggle changed source")
 		}
 	}
 	// Explicit duplicate stays in source while the effective package is unique.
