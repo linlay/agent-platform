@@ -40,6 +40,10 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-center、connectors-center、通用 state 根、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等目录相同或互相包含。
 
+## Skill 调度范围
+
+共享调度提示按用户目标、交付形态与技能触发条件判断适用性。用户指令优先；技能的可用、读取或选中不扩大任务范围，工作流与完成标准只适用于用户要求。该边界是模型提示约束，不替代工具权限或 HITL。
+
 ## Skill 来源选择
 
 `skillConfig.skills` 声明精确 Skill ID，不增加 `source`。独立技能使用单段 ID；包成员使用 `<package-id>/<skill-id>`，不支持按成员短名回退或多层路径：

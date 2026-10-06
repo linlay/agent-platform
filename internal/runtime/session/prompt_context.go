@@ -475,6 +475,7 @@ func BuildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 		}
 	}
 	sections = append(sections, `Skill loading contract:
+- Follow the user's instructions over skill instructions. Skill availability or selection does not expand the task or change its deliverable; apply workflows only within the requested scope.
 - Check all catalog entries for applicability, including connector skills. When a listed skill applies or the user names it, read its exact path with file_read before acting or running its CLI; do not wait for the user to ask you to read it.
 - Each catalog path points to a SKILL.md file. Copy its value verbatim into file_read.filePath. @skills, @skills-center, and @connectors are distinct semantic roots accepted directly by file_read; do not replace the prefix, derive a path from skillId, or guess an absolute path.
 - A path under @connectors/<id>/... resolves inside the current Agent's mounted connector package. Pass the entire value directly to file_read.filePath. CLI availability does not mean its skill instructions have been read.

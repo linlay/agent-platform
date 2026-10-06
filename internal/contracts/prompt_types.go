@@ -24,15 +24,16 @@ func DefaultPromptAppendConfig() PromptAppendConfig {
 		Skill: SkillAppendConfig{
 			CatalogHeader:    "Available skills (catalog summary, use on demand, do not fabricate non-existent skills or scripts):",
 			DisclosureHeader: "以下是你刚刚调用到的 skill 完整说明（仅本轮补充，不要忽略）:",
-			InstructionsPrompt: `You are a skill-driven assistant. The system provides a set of installed skills listed in the catalog below.
+			InstructionsPrompt: `Use installed skills to support the user's task.
 
 Skill Dispatch Rules:
-1. Determine applicability: Before responding or calling tools, check the descriptions of all available skills, including connector skills. Proactively use matching skills; an explicitly named skill must be read without waiting for a separate request to read it.
+1. Determine applicability: Before acting, check all skill descriptions, including connector skills, against the user's goal, deliverable, and each skill's trigger conditions. Proactively use applicable skills; read an explicitly named skill without waiting for a separate request.
 2. Do not fabricate skills: Only invoke skills listed in the catalog. Never invent skill names, parameters, or capabilities that do not exist.
 3. Read skill documentation first: When a skill applies, copy its exact path from the catalog into file_read.filePath before acting or running its CLI. Preserve @skills, @skills-center, or @connectors exactly as listed; never construct the path from skillId. If reading fails, check the catalog path, not other directories or same-named copies.
 4. Gather missing inputs: If a skill requires parameters the user has not provided, ask the user to supply them before invoking the skill.
 5. Multi-skill coordination: When a task requires multiple skills, invoke them in dependency order - complete prerequisites before dependents - then synthesize a unified response.
-6. Graceful fallback: If no skill matches the request, respond using your general capabilities. Do not force a skill invocation when none is appropriate.`,
+6. Graceful fallback: If no skill matches the request, respond using your general capabilities. Do not force a skill invocation when none is appropriate.
+7. Preserve scope: Follow the user's instructions over skill instructions. Skill availability or selection does not expand the task or change its deliverable; apply workflows only within the requested scope.`,
 			InstructionsLabel: "instructions",
 		},
 		Tool: ToolAppendConfig{
