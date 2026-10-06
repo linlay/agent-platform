@@ -7,6 +7,17 @@ type ControlAction struct {
 }
 
 var controlActions = []ControlAction{
+	{"automation_query", "list", true},
+	{"automation_query", "get", true},
+	{"automation_query", "executions", true},
+	{"automation_query", "execution", true},
+	{"automation_query", "validate", true},
+	{"automation_manage", "create", false},
+	{"automation_manage", "update", false},
+	{"automation_manage", "setEnabled", false},
+	{"automation_manage", "delete", false},
+	{"automation_manage", "trigger", false},
+
 	{"catalog_query", "resourceTypes", true},
 	{"catalog_query", "list", true},
 	{"catalog_query", "get", true},
@@ -129,7 +140,7 @@ func ControlActionOwner(action string) string {
 }
 func IsPlatformRootTool(tool string) bool {
 	switch tool {
-	case "catalog_query", "catalog_manage", "chat_query", "chat_manage":
+	case "automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage":
 		return true
 	}
 	return false

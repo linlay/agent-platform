@@ -165,6 +165,16 @@ func (o *Orchestrator) Trigger(id string) (Execution, error) {
 		return Execution{}, fmt.Errorf("%w: %s", ErrAutomationNotFound, id)
 	}
 
+	return o.triggerDefinition(*definition)
+}
+
+// triggerDefinition dispatches the approved snapshot without rereading mutable source.
+func (o *Orchestrator) triggerDefinition(def Definition) (Execution, error) {
+	if o == nil || o.dispatcher == nil || !o.dispatcher.available() {
+		return Execution{}, ErrOrchestratorUnavailable
+	}
+	definition := &def
+
 	o.mu.Lock()
 	if o.stopping || o.runCtx == nil || o.runCtx.Err() != nil {
 		o.mu.Unlock()
@@ -310,14 +320,14 @@ func (o *Orchestrator) fire(reg *Registration) (bool, error) {
 		if nextRemaining > 0 {
 			updated := reg.Definition
 			updated.RemainingRuns = intPtr(nextRemaining)
-			if err := o.registry.Persist(updated); err != nil {
+			if err := o.registry.applyControlDefinition(updated, definitionRevision(reg.Definition), false); err != nil {
 				o.mu.Unlock()
 				return false, err
 			}
 			reg.Definition = updated
 			dispatchDef = updated
 		} else {
-			if err := o.registry.Delete(reg.Definition); err != nil {
+			if err := o.registry.applyControlDefinition(reg.Definition, definitionRevision(reg.Definition), true); err != nil {
 				o.mu.Unlock()
 				return false, err
 			}

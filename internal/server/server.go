@@ -103,6 +103,7 @@ type Dependencies struct {
 	Channels               ChannelRegistry
 	ChannelStatus          ChannelStatusProvider
 	AutomationOrchestrator *automation.Orchestrator
+	AutomationService      *automation.Service
 	AutomationRegistry     *automation.Registry
 	AutomationExecutions   automation.ExecutionHistoryReader
 	DeltaMappers           contracts.StreamDeltaMapperFactory

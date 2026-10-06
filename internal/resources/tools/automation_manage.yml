@@ -1,0 +1,43 @@
+name: "automation_manage"
+i18n:
+  en:
+    label: "Manage Automations"
+  zh-CN:
+    label: "管理自动化"
+description: "create: name, cron (five fields), query {message, accessLevel?, chatId?, role?, hidden?, params?}, agentKey or teamId, description?, zoneId?, enabled?, remainingRuns? (positive integer). update: id, baseRevision, optional create fields; query replaces the entire query. setEnabled: id, baseRevision, enabled. delete/trigger: id, baseRevision. Read get first. Task accessLevel defaults to default independently of caller permissions. All mutations need exact invocation approval; delete always requires a human."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+confirmationRules:
+  - when:
+      /action: delete
+    viewportType: html
+    viewportKey: automation_delete_review
+  - when:
+      /action: trigger
+    viewportType: html
+    viewportKey: automation_trigger_review
+  - viewportType: html
+    viewportKey: automation_review
+inputSchema:
+  type: object
+  properties:
+    action:
+      type: string
+      description: "Required. Exact action owned by this tool."
+      enum:
+        - "create"
+        - "update"
+        - "setEnabled"
+        - "delete"
+        - "trigger"
+    args:
+      type: object
+      description: "create: name, cron (five fields), query {message, accessLevel?, chatId?, role?, hidden?, params?}, agentKey or teamId, description?, zoneId?, enabled?, remainingRuns? (positive integer). update: id, baseRevision, optional create fields; query replaces the entire query. setEnabled: id, baseRevision, enabled. delete/trigger: id, baseRevision. Read get first. Task accessLevel defaults to default independently of caller permissions. All mutations need exact invocation approval; delete always requires a human."
+  required:
+    - "action"
+  additionalProperties: false

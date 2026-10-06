@@ -180,3 +180,7 @@ confirmationRules:
 ToolApproval 的 AllowAutoApprove 由业务 Handler 显式选择，默认 false，不能由模型参数或 HTML 表单设置。catalog apply 和上述 Desktop 日常管理在 default 下显示审阅，在 auto_approve / full_access 下由服务端记录 auto_approved 并签发一次性授权；目录删除和会话删除保持强制人工审批。批准后的参数变化、兄弟调用或重用授权仍拒绝，自动批准不产生整轮规则授权。
 
 Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定白名单豁免本地确认，不依赖公开 source 字段或 permissionMode 提权；原 Desktop dialog 保留。市场资源与重影响动作不新增 Platform viewport。所有页面均为内置离线 HTML/CSS/JS，无外网组件。
+
+### Automation 管理审阅
+
+`automation_manage` 使用独立业务审批：create/update/setEnabled → `automation_review`，trigger → `automation_trigger_review`，delete → `automation_delete_review`。非删除动作允许 auto_approve/full_access 自动批准，delete 始终人工批准。授权绑定调用身份、完整候选和 baseRevision，执行时消费一次；版本冲突不复用旧授权。调用完成收据只用于同次调用幂等，不授予下一次调用权限。具体输入、状态和中断恢复见 [自动化](自动化.md#platform-control-管理工具)。

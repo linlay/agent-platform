@@ -1,0 +1,32 @@
+name: "automation_query"
+i18n:
+  en:
+    label: "Query Automations"
+  zh-CN:
+    label: "查询自动化"
+description: "list: limit? (1-100), offset?. get: id. executions: id, limit?, offset?. execution: executionId. validate: complete create fields; validates without saving and previews schedule times. get returns baseRevision for management."
+clientVisible: true
+explicitOnly: true
+readOnly: true
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: object
+  properties:
+    action:
+      type: string
+      description: "Required. Exact action owned by this tool."
+      enum:
+        - "list"
+        - "get"
+        - "executions"
+        - "execution"
+        - "validate"
+    args:
+      type: object
+      description: "list: limit? (1-100), offset?. get: id. executions: id, limit?, offset?. execution: executionId. validate: complete create fields; validates without saving and previews schedule times. get returns baseRevision for management."
+  required:
+    - "action"
+  additionalProperties: false

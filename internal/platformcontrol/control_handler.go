@@ -104,6 +104,13 @@ func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.Ex
 	if err := toolinput.Validate(params, fields, "args."); err != nil {
 		return "", nil, err
 	}
+	if tool == "automation_manage" || tool == "automation_query" {
+		if q, ok := params["query"].(map[string]any); ok {
+			if err := toolinput.Validate(q, map[string]string{"message": "s!", "accessLevel": "s", "chatId": "s", "role": "s", "hidden": "b", "params": "o"}, "args.query."); err != nil {
+				return "", nil, err
+			}
+		}
+	}
 	if tool == "chat_manage" && (action == "archive" || action == "restore") {
 		if _, _, err := conversation.ControlArchiveIDs(params); err != nil {
 			return "", nil, toolinput.New("args", "either chatId or chatIds (1–100 distinct valid Chat IDs)", params, true, err.Error()+"; use {\"chatId\":\"<ID from chat_query.list>\"} or {\"chatIds\":[\"<ID from chat_query.list>\"]}.")
@@ -124,6 +131,9 @@ func controlChange(action string, p map[string]any) adminsource.ControlChange {
 	return c
 }
 func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args map[string]any, e *contracts.ExecutionContext) (*contracts.ToolApproval, error) {
+	if tool == "automation_manage" {
+		return h.prepareAutomationApproval(ctx, tool, args, e)
+	}
 	if tool != "catalog_manage" && tool != "chat_manage" {
 		return nil, nil
 	}
@@ -169,6 +179,8 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 	}
 	var value any
 	switch tool {
+	case "automation_query", "automation_manage":
+		value, err = h.invokeAutomation(tool, action, p, e)
 	case "catalog_query":
 		value, err = h.catalogQuery(ctx, action, p)
 	case "catalog_manage":

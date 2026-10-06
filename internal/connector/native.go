@@ -17,7 +17,7 @@ var nativeConnectorCapabilities = map[string][]string{
 // nativeConnectorTools is the single source of truth for which Platform tools
 // a native connector mounts. Tool names never come from the package itself.
 var nativeConnectorTools = map[string][]string{
-	PlatformControlConnectorID: {"catalog_query", "catalog_manage", "chat_query", "chat_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market", "desktop_kanban"},
+	PlatformControlConnectorID: {"automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market", "desktop_kanban"},
 	WebControlConnectorID: {
 		"workpanel_state", "workpanel_open", "workpanel_close",
 		"surface_list", "surface_state", "surface_navigate", "surface_activate", "surface_close",

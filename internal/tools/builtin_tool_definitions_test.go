@@ -241,7 +241,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"finalize_planning": true, "image_generate": true,
 		"kbase_files": true, "kbase_read": true, "kbase_refresh": true, "kbase_search": true, "kbase_status": true,
 		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
-		"catalog_query": true, "catalog_manage": true, "chat_query": true, "chat_manage": true, "platform_inspect": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true,
+		"automation_query": true, "automation_manage": true, "catalog_query": true, "catalog_manage": true, "chat_query": true, "chat_manage": true, "platform_inspect": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true,
 	}
 	for _, def := range defs {
 		visible, ok := def.Meta["catalogVisible"].(bool)

@@ -2,34 +2,23 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
-	"agent-platform/internal/contracts"
-	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
 )
 
-type automationStatusError struct {
-	status  int
-	code    string
-	message string
+func newAutomationStatusError(status int, code, message string) error {
+	return automation.StatusError{Status: status, Code: code, Message: message}
 }
-
-func (e automationStatusError) Error() string { return e.message }
-
-func newAutomationStatusError(status int, code string, message string) error {
-	return automationStatusError{status: status, code: code, message: message}
+func (s *Server) automationService() *automation.Service {
+	if s.deps.AutomationService != nil {
+		return s.deps.AutomationService
+	}
+	return &automation.Service{Registry: s.deps.AutomationRegistry, Orchestrator: s.deps.AutomationOrchestrator, History: s.deps.AutomationExecutions, DefaultZoneID: s.deps.Config.Automation.DefaultZoneID}
 }
 
 func (s *Server) handleAutomations(w http.ResponseWriter, r *http.Request) {
@@ -154,9 +143,9 @@ func (s *Server) writeAutomationHTTPResponse(w http.ResponseWriter, response any
 		writeJSON(w, http.StatusOK, api.Success(response))
 		return
 	}
-	var statusErr automationStatusError
+	var statusErr automation.StatusError
 	if errors.As(err, &statusErr) {
-		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+		writeJSON(w, statusErr.Status, api.Failure(statusErr.Status, statusErr.Message))
 		return
 	}
 	if isTimeContractViolation(err) {
@@ -166,535 +155,49 @@ func (s *Server) writeAutomationHTTPResponse(w http.ResponseWriter, response any
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 }
 
-func (s *Server) automationDepsReady() error {
-	if s == nil || s.deps.AutomationRegistry == nil {
-		return newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation registry is not configured")
-	}
-	return nil
+func (s *Server) automationDepsReady() error { return s.automationService().AutomationDepsReady() }
+func (s *Server) listAutomations(req api.AutomationListRequest) (api.AutomationListResponse, error) {
+	return s.automationService().ListAutomations(req)
 }
-
-func (s *Server) listAutomations(_ api.AutomationListRequest) (api.AutomationListResponse, error) {
-	if err := s.automationDepsReady(); err != nil {
-		return api.AutomationListResponse{}, err
-	}
-	defs, err := s.deps.AutomationRegistry.Load()
-	if err != nil {
-		return api.AutomationListResponse{}, err
-	}
-	sort.Slice(defs, func(i, j int) bool { return defs[i].ID < defs[j].ID })
-
-	active := map[string]automation.AutomationInfo{}
-	if s.deps.AutomationOrchestrator != nil {
-		for _, item := range s.deps.AutomationOrchestrator.Automations() {
-			active[item.Definition.ID] = item
-		}
-	}
-
-	response := api.AutomationListResponse{
-		Items:            make([]api.AutomationSummaryResponse, 0, len(defs)),
-		Total:            len(defs),
-		ExecutionHistory: s.automationExecutionHistoryStatus(),
-	}
-	for _, def := range defs {
-		var next *time.Time
-		if item, ok := active[def.ID]; ok && !item.NextFireTime.IsZero() {
-			next = &item.NextFireTime
-		}
-		summary, err := s.mapAutomationSummary(def, next)
-		if err != nil {
-			return api.AutomationListResponse{}, err
-		}
-		response.Items = append(response.Items, summary)
-	}
-	return response, nil
-}
-
 func (s *Server) loadAutomation(id string) (api.AutomationDetailResponse, error) {
-	def, err := s.findAutomation(id)
-	if err != nil {
-		return api.AutomationDetailResponse{}, err
-	}
-	var next *time.Time
-	if s.deps.AutomationOrchestrator != nil {
-		for _, item := range s.deps.AutomationOrchestrator.Automations() {
-			if item.Definition.ID == def.ID && !item.NextFireTime.IsZero() {
-				next = &item.NextFireTime
-				break
-			}
-		}
-	}
-	summary, err := s.mapAutomationSummary(def, next)
-	if err != nil {
-		return api.AutomationDetailResponse{}, err
-	}
-	return api.AutomationDetailResponse{
-		AutomationSummaryResponse: summary,
-		Query:                     mapAutomationQuery(def.Query),
-		ExecutionHistory:          s.automationExecutionHistoryStatus(),
-	}, nil
+	return s.automationService().LoadAutomation(id)
 }
-
 func (s *Server) createAutomation(req api.CreateAutomationRequest) (api.AutomationDetailResponse, error) {
-	if err := s.automationDepsReady(); err != nil {
-		return api.AutomationDetailResponse{}, err
-	}
-	id, err := s.nextAutomationID(req.Name)
-	if err != nil {
-		return api.AutomationDetailResponse{}, err
-	}
-	enabled := true
-	if req.Enabled != nil {
-		enabled = *req.Enabled
-	}
-	def := automation.Definition{
-		ID:            id,
-		Name:          strings.TrimSpace(req.Name),
-		Description:   strings.TrimSpace(req.Description),
-		Enabled:       enabled,
-		Cron:          strings.TrimSpace(req.Cron),
-		RemainingRuns: cloneIntPtr(req.RemainingRuns),
-		AgentKey:      strings.TrimSpace(req.AgentKey),
-		TeamID:        strings.TrimSpace(req.TeamID),
-		Environment:   automation.Environment{ZoneID: strings.TrimSpace(req.ZoneID)},
-		Query:         automationQueryFromRequest(req.Query),
-		SourceFile:    filepath.Join(s.deps.AutomationRegistry.Root(), id+".yml"),
-	}
-	if err := s.deps.AutomationRegistry.Persist(def); err != nil {
-		return api.AutomationDetailResponse{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", err.Error())
-	}
-	if err := s.reloadAutomations(); err != nil {
-		return api.AutomationDetailResponse{}, err
-	}
-	return s.loadAutomation(id)
+	return s.automationService().CreateAutomation(req)
 }
-
 func (s *Server) updateAutomation(req api.UpdateAutomationRequest) (api.AutomationDetailResponse, error) {
-	req.ID = firstNonBlank(req.ID, req.AutomationID)
-	def, err := s.findAutomation(req.ID)
-	if err != nil {
-		return api.AutomationDetailResponse{}, err
-	}
-	applyAutomationUpdate(&def, req)
-	if err := s.deps.AutomationRegistry.Persist(def); err != nil {
-		return api.AutomationDetailResponse{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", err.Error())
-	}
-	if err := s.reloadAutomations(); err != nil {
-		return api.AutomationDetailResponse{}, err
-	}
-	return s.loadAutomation(def.ID)
+	return s.automationService().UpdateAutomation(req)
 }
-
 func (s *Server) deleteAutomation(req api.DeleteAutomationRequest) (map[string]any, error) {
-	req.ID = firstNonBlank(req.ID, req.AutomationID)
-	def, err := s.findAutomation(req.ID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.deps.AutomationRegistry.Delete(def); err != nil {
-		return nil, err
-	}
-	if err := s.reloadAutomations(); err != nil {
-		return nil, err
-	}
-	return map[string]any{"id": def.ID, "deleted": true}, nil
+	return s.automationService().DeleteAutomation(req)
 }
-
 func (s *Server) toggleAutomation(req api.ToggleAutomationRequest) (api.AutomationDetailResponse, error) {
-	req.ID = firstNonBlank(req.ID, req.AutomationID)
-	return s.updateAutomation(api.UpdateAutomationRequest{ID: req.ID, Enabled: &req.Enabled})
+	return s.automationService().ToggleAutomation(req)
 }
-
 func (s *Server) triggerAutomation(id string) (api.TriggerAutomationResponse, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return api.TriggerAutomationResponse{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "id is required")
-	}
-	if err := s.automationDepsReady(); err != nil {
-		return api.TriggerAutomationResponse{}, err
-	}
-	if s.deps.AutomationOrchestrator == nil {
-		return api.TriggerAutomationResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation orchestrator is not configured")
-	}
-	execution, err := s.deps.AutomationOrchestrator.Trigger(id)
-	if err != nil {
-		switch {
-		case errors.Is(err, automation.ErrAutomationNotFound):
-			return api.TriggerAutomationResponse{}, newAutomationStatusError(http.StatusNotFound, "not_found", "automation not found")
-		case errors.Is(err, automation.ErrOrchestratorUnavailable):
-			return api.TriggerAutomationResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation orchestrator is unavailable")
-		default:
-			return api.TriggerAutomationResponse{}, err
-		}
-	}
-	return api.TriggerAutomationResponse{
-		Accepted:     true,
-		Status:       "accepted",
-		AutomationID: execution.AutomationID,
-		ExecutionID:  execution.ID,
-	}, nil
+	return s.automationService().TriggerAutomation(id)
 }
-
 func (s *Server) listAutomationExecutions(req api.AutomationExecutionsRequest) (api.AutomationExecutionListResponse, error) {
-	if err := s.automationDepsReady(); err != nil {
-		return api.AutomationExecutionListResponse{}, err
-	}
-	if s.deps.AutomationExecutions == nil {
-		return api.AutomationExecutionListResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution history is not configured")
-	}
-	status := s.deps.AutomationExecutions.Status()
-	if !status.Available {
-		return api.AutomationExecutionListResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", firstNonBlank(status.Message, "automation execution history is unavailable"))
-	}
-	id := firstNonBlank(req.ID, req.AutomationID)
-	if id == "" {
-		return api.AutomationExecutionListResponse{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "id is required")
-	}
-	items, total, err := s.deps.AutomationExecutions.ListByAutomation(id, req.Limit, req.Offset)
-	if err != nil {
-		return api.AutomationExecutionListResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution history is unreadable: "+err.Error())
-	}
-	loc := s.automationDisplayLocation()
-	response := api.AutomationExecutionListResponse{Items: make([]api.AutomationExecutionResponse, 0, len(items)), Total: total}
-	for _, item := range items {
-		response.Items = append(response.Items, mapAutomationExecution(item, loc))
-	}
-	return response, nil
+	return s.automationService().ListAutomationExecutions(req)
 }
-
 func (s *Server) loadAutomationExecution(req api.AutomationExecutionRequest) (api.AutomationExecutionDetailResponse, error) {
-	if err := s.automationDepsReady(); err != nil {
-		return api.AutomationExecutionDetailResponse{}, err
-	}
-	if s.deps.AutomationExecutions == nil {
-		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution history is not configured")
-	}
-	status := s.deps.AutomationExecutions.Status()
-	if !status.Available {
-		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", firstNonBlank(status.Message, "automation execution history is unavailable"))
-	}
-	executionID := firstNonBlank(req.ExecutionID, req.ID)
-	if executionID == "" {
-		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "executionId is required")
-	}
-	item, err := s.deps.AutomationExecutions.GetExecution(executionID)
-	if err != nil {
-		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution history is unreadable: "+err.Error())
-	}
-	if item == nil {
-		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusNotFound, "not_found", "automation execution not found")
-	}
-	return api.AutomationExecutionDetailResponse{
-		AutomationExecutionResponse: mapAutomationExecution(*item, s.automationDisplayLocation()),
-		QueryContent:                item.QueryContent,
-		ResultContent:               item.ResultContent,
-	}, nil
+	return s.automationService().LoadAutomationExecution(req)
 }
-
 func (s *Server) automationExecutionHistoryStatus() api.AutomationExecutionHistoryStatus {
-	if s == nil || s.deps.AutomationExecutions == nil {
-		return api.AutomationExecutionHistoryStatus{State: string(automation.ExecutionHistoryUnavailable), Message: "automation execution history is not configured"}
-	}
-	status := s.deps.AutomationExecutions.Status()
-	return api.AutomationExecutionHistoryStatus{
-		Available: status.Available,
-		State:     string(status.State),
-		Message:   status.Message,
-	}
+	return s.automationService().AutomationExecutionHistoryStatus()
 }
-
 func (s *Server) findAutomation(id string) (automation.Definition, error) {
-	if err := s.automationDepsReady(); err != nil {
-		return automation.Definition{}, err
-	}
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return automation.Definition{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "id is required")
-	}
-	defs, err := s.deps.AutomationRegistry.Load()
-	if err != nil {
-		return automation.Definition{}, err
-	}
-	for _, def := range defs {
-		if def.ID == id {
-			return def, nil
-		}
-	}
-	return automation.Definition{}, newAutomationStatusError(http.StatusNotFound, "not_found", "automation not found")
+	return s.automationService().FindAutomation(id)
 }
-
-func (s *Server) reloadAutomations() error {
-	if s.deps.AutomationOrchestrator == nil {
-		return nil
-	}
-	if err := s.deps.AutomationOrchestrator.Reload(); err != nil {
-		return err
-	}
-	return nil
-}
-
+func (s *Server) reloadAutomations() error { return s.automationService().ReloadAutomations() }
 func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time) (api.AutomationSummaryResponse, error) {
-	resp := api.AutomationSummaryResponse{
-		ID:            def.ID,
-		Name:          def.Name,
-		Description:   def.Description,
-		Cron:          def.Cron,
-		AgentKey:      def.AgentKey,
-		Enabled:       def.Enabled,
-		TeamID:        def.TeamID,
-		ZoneID:        def.Environment.ZoneID,
-		SourceFile:    def.SourceFile,
-		RemainingRuns: cloneIntPtr(def.RemainingRuns),
-	}
-	if next != nil && !next.IsZero() {
-		nextFireAt := next.UnixMilli()
-		if err := timecontract.ValidateEpochMillis(nextFireAt, "nextFireAt", "automation.nextFire"); err != nil {
-			return api.AutomationSummaryResponse{}, err
-		}
-		// nextFireAt remains the authoritative instant. nextFireTime is a
-		// second-precision display value in the platform timezone.
-		formatted := automationReadableTimeMillis(nextFireAt, s.automationDisplayLocation())
-		resp.NextFireAt = &nextFireAt
-		resp.NextFireTime = &formatted
-	}
-	if s.deps.AutomationExecutions != nil {
-		status := s.deps.AutomationExecutions.Status()
-		if status.Available {
-			last, err := s.deps.AutomationExecutions.LastExecution(def.ID)
-			if err != nil {
-				log.Printf("[automation] load last execution failed automationID=%s err=%v", def.ID, err)
-			} else if last != nil {
-				resp.LastExecution = mapAutomationExecutionBrief(*last, s.automationDisplayLocation())
-			}
-		}
-	}
-	return resp, nil
+	return s.automationService().MapAutomationSummary(def, next)
 }
-
-func mapAutomationQuery(query automation.Query) api.AutomationQueryResponse {
-	return api.AutomationQueryResponse{
-		AccessLevel: query.AccessLevel,
-		Message:     query.Message,
-		ChatID:      query.ChatID,
-		Role:        query.Role,
-		Hidden:      cloneAutomationBoolPtr(query.Hidden),
-		Params:      contracts.CloneAnyMap(query.Params),
-	}
-}
-
-func automationQueryFromRequest(req api.AutomationQueryRequest) automation.Query {
-	return automation.Query{
-		AccessLevel: strings.TrimSpace(req.AccessLevel),
-		ChatID:      strings.TrimSpace(req.ChatID),
-		Role:        strings.TrimSpace(req.Role),
-		Hidden:      cloneAutomationBoolPtr(req.Hidden),
-		Message:     req.Message,
-		Params:      contracts.CloneAnyMap(req.Params),
-	}
-}
-
-func applyAutomationUpdate(def *automation.Definition, req api.UpdateAutomationRequest) {
-	if req.Name != nil {
-		def.Name = strings.TrimSpace(*req.Name)
-	}
-	if req.Description != nil {
-		def.Description = strings.TrimSpace(*req.Description)
-	}
-	if req.Cron != nil {
-		def.Cron = strings.TrimSpace(*req.Cron)
-	}
-	if req.AgentKey != nil {
-		def.AgentKey = strings.TrimSpace(*req.AgentKey)
-	}
-	if req.TeamID != nil {
-		def.TeamID = strings.TrimSpace(*req.TeamID)
-	}
-	if req.ZoneID != nil {
-		def.Environment.ZoneID = strings.TrimSpace(*req.ZoneID)
-	}
-	if req.Enabled != nil {
-		def.Enabled = *req.Enabled
-	}
-	if req.RemainingRuns != nil {
-		def.RemainingRuns = cloneIntPtr(req.RemainingRuns)
-	}
-	if req.Query != nil {
-		def.Query.AccessLevel = strings.TrimSpace(req.Query.AccessLevel)
-		def.Query.ChatID = strings.TrimSpace(req.Query.ChatID)
-		def.Query.Role = strings.TrimSpace(req.Query.Role)
-		def.Query.Hidden = cloneAutomationBoolPtr(req.Query.Hidden)
-		def.Query.Message = req.Query.Message
-		def.Query.Params = contracts.CloneAnyMap(req.Query.Params)
-	}
-}
-
-func cloneAutomationBoolPtr(value *bool) *bool {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
-func mapAutomationExecutionBrief(item automation.Execution, loc *time.Location) *api.AutomationExecutionBrief {
-	resp := &api.AutomationExecutionBrief{
-		ID:            item.ID,
-		Status:        item.Status,
-		ZoneID:        item.ZoneID,
-		ChatID:        item.ChatID,
-		RunID:         item.RunID,
-		FinishReason:  item.FinishReason,
-		HasResult:     strings.TrimSpace(item.ResultPreview) != "",
-		ResultPreview: item.ResultPreview,
-		StartedAt:     item.StartedAt,
-		StartedTime:   automationReadableTimeMillis(item.StartedAt, loc),
-		RunStartedAt:  cloneInt64Ptr(item.RunStartedAt),
-		CompletedAt:   cloneInt64Ptr(item.CompletedAt),
-		DurationMs:    cloneInt64Ptr(item.DurationMs),
-		Error:         item.Error,
-	}
-	if item.CompletedAt != nil {
-		resp.CompletedTime = automationReadableTimeMillis(*item.CompletedAt, loc)
-	}
-	return resp
-}
-
-func mapAutomationExecution(item automation.Execution, loc *time.Location) api.AutomationExecutionResponse {
-	resp := api.AutomationExecutionResponse{
-		ID:             item.ID,
-		AutomationID:   item.AutomationID,
-		AutomationName: item.AutomationName,
-		SourceFile:     item.SourceFile,
-		AgentKey:       item.AgentKey,
-		TeamID:         item.TeamID,
-		Status:         item.Status,
-		Error:          item.Error,
-		ZoneID:         item.ZoneID,
-		ChatID:         item.ChatID,
-		RunID:          item.RunID,
-		FinishReason:   item.FinishReason,
-		HasResult:      strings.TrimSpace(firstNonBlank(item.ResultContent, item.ResultPreview)) != "",
-		ResultPreview:  item.ResultPreview,
-		StartedAt:      item.StartedAt,
-		StartedTime:    automationReadableTimeMillis(item.StartedAt, loc),
-		RunStartedAt:   cloneInt64Ptr(item.RunStartedAt),
-		CompletedAt:    cloneInt64Ptr(item.CompletedAt),
-		DurationMs:     cloneInt64Ptr(item.DurationMs),
-	}
-	if item.CompletedAt != nil {
-		resp.CompletedTime = automationReadableTimeMillis(*item.CompletedAt, loc)
-	}
-	return resp
-}
-
 func (s *Server) automationDisplayLocation() *time.Location {
-	if s == nil {
-		return time.Local
-	}
-	return loadAutomationAPILocation("", s.deps.Config.Automation.DefaultZoneID)
+	return s.automationService().AutomationDisplayLocation()
 }
-
-func loadAutomationAPILocation(zoneID string, defaultZoneID string) *time.Location {
-	if loc, err := loadAutomationAPILocationByID(zoneID); err == nil {
-		return loc
-	}
-	if loc, err := loadAutomationAPILocationByID(defaultZoneID); err == nil {
-		return loc
-	}
-	return time.Local
-}
-
-func loadAutomationAPILocationByID(zoneID string) (*time.Location, error) {
-	zoneID = strings.TrimSpace(zoneID)
-	if zoneID == "" {
-		return nil, errors.New("empty zoneId")
-	}
-	return time.LoadLocation(zoneID)
-}
-
-func automationReadableTimeMillis(ms int64, loc *time.Location) string {
-	if loc == nil {
-		loc = time.Local
-	}
-	return time.UnixMilli(ms).In(loc).Format("2006-01-02 15:04:05")
-}
-
 func (s *Server) nextAutomationID(name string) (string, error) {
-	base := automationSlug(name)
-	existing := map[string]struct{}{}
-	defs, err := s.deps.AutomationRegistry.Load()
-	if err != nil {
-		return "", err
-	}
-	for _, def := range defs {
-		existing[def.ID] = struct{}{}
-	}
-	root := strings.TrimSpace(s.deps.AutomationRegistry.Root())
-	for i := 0; i < 10; i++ {
-		id := base
-		if i > 0 {
-			id = base + "-" + randomAutomationSuffix()
-		}
-		if _, ok := existing[id]; ok {
-			continue
-		}
-		if root != "" {
-			if automationFileExists(filepath.Join(root, id+".yml")) || automationFileExists(filepath.Join(root, id+".yaml")) {
-				continue
-			}
-		}
-		return id, nil
-	}
-	return "", newAutomationStatusError(http.StatusInternalServerError, "internal_error", "failed to allocate automation id")
-}
-
-func automationSlug(name string) string {
-	name = strings.ToLower(strings.TrimSpace(name))
-	var b strings.Builder
-	lastDash := false
-	for _, r := range name {
-		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
-		if valid {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if !lastDash && b.Len() > 0 {
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	slug := strings.Trim(b.String(), "-")
-	if slug == "" {
-		return "automation"
-	}
-	return slug
-}
-
-func randomAutomationSuffix() string {
-	b := make([]byte, 3)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-func automationFileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func cloneIntPtr(src *int) *int {
-	if src == nil {
-		return nil
-	}
-	value := *src
-	return &value
-}
-
-func cloneInt64Ptr(src *int64) *int64 {
-	if src == nil {
-		return nil
-	}
-	value := *src
-	return &value
+	return s.automationService().NextAutomationID(name)
 }
 
 func (s *Server) wsAutomations(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
@@ -750,9 +253,9 @@ func (s *Server) sendAutomationWSResponse(conn *ws.Conn, req ws.RequestFrame, re
 }
 
 func (s *Server) sendAutomationWSError(conn *ws.Conn, req ws.RequestFrame, err error) {
-	var statusErr automationStatusError
+	var statusErr automation.StatusError
 	if errors.As(err, &statusErr) {
-		conn.SendError(req.ID, statusErr.code, statusErr.status, statusErr.message, nil)
+		conn.SendError(req.ID, statusErr.Code, statusErr.Status, statusErr.Message, nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}

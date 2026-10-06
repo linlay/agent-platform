@@ -409,7 +409,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err := toolExecutor.RegisterHandler(runenvops.NewToolHandler(cfg.RunEnv)); err != nil {
 		return nil, fmt.Errorf("register run_env tool: %w", err)
 	}
-	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation}, conversationService, modelRegistry)
+	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID, ReceiptDir: filepath.Join(cfg.Paths.EffectiveStateDir(), "automation-control")}
+	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation}, conversationService, modelRegistry).ConfigureAutomation(automationService)
 	controlHandler.RuntimeSnapshot = func() map[string]any {
 		statuses := []map[string]any{}
 		for _, server := range mcpRegistry.Servers() {
@@ -478,6 +479,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		SystemInits:            systemInits,
 		Sessions:               sessions,
 		AutomationRegistry:     automationRegistry,
+		AutomationService:      automationService,
 		AutomationExecutions:   automationExecutionHistory,
 		AdminSources:           adminSourceService,
 		ChatResources:          chatResourceService,

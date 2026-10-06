@@ -146,3 +146,23 @@ func TestEmbeddedCatalogAndChatConfirmationRules(t *testing.T) {
 		t.Fatal("missing embedded tools")
 	}
 }
+
+func TestEmbeddedAutomationConfirmationRules(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, def := range defs {
+		if def.Name != "automation_manage" {
+			continue
+		}
+		for action, key := range map[string]string{"create": "automation_review", "update": "automation_review", "setEnabled": "automation_review", "trigger": "automation_trigger_review", "delete": "automation_delete_review"} {
+			got, err := selectConfirmationRule(def.Meta["confirmationRules"], map[string]any{"action": action})
+			if err != nil || got == nil || got.viewportKey != key {
+				t.Fatalf("%s: %+v %v", action, got, err)
+			}
+		}
+		return
+	}
+	t.Fatal("automation_manage missing")
+}

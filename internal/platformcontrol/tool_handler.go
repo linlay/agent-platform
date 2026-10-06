@@ -9,6 +9,7 @@ import (
 	agentcoder "agent-platform/internal/agent/coder"
 	agentgeneral "agent-platform/internal/agent/general"
 	agentkbase "agent-platform/internal/agent/kbase"
+	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
@@ -26,6 +27,7 @@ const (
 )
 
 type ToolHandler struct {
+	automations     *automation.Service
 	RuntimeSnapshot func() map[string]any
 	cfg             config.Config
 	registry        catalog.Registry
@@ -44,7 +46,7 @@ func NewToolHandler(cfg config.Config, registry catalog.Registry, chats ChatPinS
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{"catalog_query", "catalog_manage", "chat_query", "chat_manage", "platform_inspect"}
+	return []string{"automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage", "platform_inspect"}
 }
 
 func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {

@@ -1,9 +1,11 @@
 # 平台控制连接器
 
-`builtin.platform-control` 是 Platform 内嵌、只读、无需认证的 native 连接器。显式挂载后导入 12 个工具和 `platform-control` 技能，不自动授予 Bash。仅声明工具名不能获得连接器执行授权。`run_env` 保持独立。管理连接器主要由部署者为平台主智能体显式配置；源码不包含主智能体名单，不从业务类型或旧工具声明推导管理授权。
+`builtin.platform-control` 是 Platform 内嵌、只读、无需认证的 native 连接器。显式挂载后导入 14 个工具和 `platform-control` 技能，不自动授予 Bash。仅声明工具名不能获得连接器执行授权。`run_env` 保持独立。管理连接器主要由部署者为平台主智能体显式配置；源码不包含主智能体名单，不从业务类型或旧工具声明推导管理授权。
 
 | 工具 | action | 执行环境 |
 | --- | --- | --- |
+| automation_query | list/get/executions/execution/validate | 普通 native main root |
+| automation_manage | create/update/setEnabled/delete/trigger | 普通 native main root |
 | catalog_query | resourceTypes/list/get/defaults/validate | 普通 native main root |
 | catalog_manage | apply/delete | 普通 native main root |
 | chat_query | current/list/search/read/artifacts | 普通 native main root |
@@ -17,9 +19,9 @@
 | desktop_market | 15 个市场动作 | Desktop |
 | desktop_kanban | 6 个看板动作 | Desktop |
 
-全部工具使用固定 `{action,args}`，action 枚举来自 `internal/connector/control_actions.go`；顶层未知字段拒绝。Catalog/Chat/Inspect 还严格检查动作参数类型与字段。Desktop 保留动作字段校验；日常管理的确认由 Platform 接管，重影响动作继续使用 Desktop 确认，适配器添加 `desktop.` 传输前缀。`agent.update`、`skill.update` 不再暴露给模型。不同工具的 action 不互相兼容。
+全部工具使用固定 `{action,args}`，action 枚举来自 `internal/connector/control_actions.go`；顶层未知字段拒绝。Catalog/Chat/Automation/Inspect 还严格检查动作参数类型与字段。Desktop 保留动作字段校验；日常管理的确认由 Platform 接管，重影响动作继续使用 Desktop 确认，适配器添加 `desktop.` 传输前缀。`agent.update`、`skill.update` 不再暴露给模型。不同工具的 action 不互相兼容。
 
-Standalone 隐藏七个 Desktop 工具；Catalog/Chat 在子任务、Team、BTW/Explain 中隐藏并在执行时再次拒绝。ACP/Proxy/Channel 不经过 native 执行入口。planning/read-only 仅允许平台只读动作；七个 Desktop 管理工具全部禁止 planning，并按顺序屏障执行，包括其只读动作。未知动作按非只读处理。
+Standalone 隐藏七个 Desktop 工具；Catalog/Chat/Automation 在子任务、Team、BTW/Explain 中隐藏并在执行时再次拒绝。ACP/Proxy/Channel 不经过 native 执行入口。planning/read-only 仅允许平台只读动作；七个 Desktop 管理工具全部禁止 planning，并按顺序屏障执行，包括其只读动作。未知动作按非只读处理。
 
 `configs/tools.yml` 支持 `preset-connectors`，示例预置 `builtin.web-control`。普通 native GENERAL/CODER/KBASE 合并整包挂载，去重且不回写 Agent 源码；ACP/隐藏 Team 协调器不注入。连接器列表返回 `presetConnectorIds`、`declaredConnectorIds` 和包含两者的 `connectorIds`；预置项不可从单个 Agent 取消。删除连接器也检查全局预置引用。平台管理连接器仍不进入默认预置。
 
@@ -112,3 +114,7 @@ Run 准入与 Chat mutation 之间尚无覆盖所有入口的统一并发事务�
 `cmd/migrate-desktop` 提供预览、离线应用、逐项 pending 报告、备份和回滚。旧 platform_control 仅移除；旧 desktop_cdp/desktop-cdp/builtin.desktop-web 迁往 builtin.web-control。desktop_action/desktop-action 未有显式新管理挂载时，以及旧 builtin.desktop 的历史能力无法判定时，列为 pending，保留该 Agent 源文，不能通过 --allow-expansion 跳过。其余明确条目可继续迁移；有 pending 时不清理旧共享技能。管理员逐条明确新连接器配置并移除旧声明后重新预览。只迁移源文件，不编辑运行目录或 Chat 历史。
 
 工具具体参数见 [Catalog reference](../internal/resources/connectors/builtin.platform-control/skills/platform-control/references/catalog.md) 与 [Chat reference](../internal/resources/connectors/builtin.platform-control/skills/platform-control/references/chat.md)。
+
+## Automation 独立工具组
+
+新增 `automation_query`（list/get/executions/execution/validate）与 `automation_manage`（create/update/setEnabled/delete/trigger），使用同一 Platform Control 挂载和 Native 根 Run 准入。它们共用 `internal/automation.Service`，不调用 Server handler 或 Desktop action，也不扩展 Catalog 的 resourceType。三类业务 viewport、版本校验、调用收据与手动执行语义见 [自动化](自动化.md#platform-control-管理工具)。

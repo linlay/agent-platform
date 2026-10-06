@@ -39,9 +39,10 @@ type TeamLookup interface {
 }
 
 type Registry struct {
-	root     string
-	teams    TeamLookup
-	sourceMu sync.Mutex
+	root         string
+	teams        TeamLookup
+	sourceMu     sync.Mutex
+	managementMu sync.Mutex
 }
 
 const EditableSourceMaxTextBytes int64 = 1 << 20
@@ -508,6 +509,11 @@ func parseReferences(value any) ([]api.Reference, error) {
 }
 
 func (r *Registry) Persist(def Definition) error {
+	r.sourceMu.Lock()
+	defer r.sourceMu.Unlock()
+	return r.persistDefinition(def)
+}
+func (r *Registry) persistDefinition(def Definition) error {
 	if err := r.Validate(def); err != nil {
 		return err
 	}
@@ -579,6 +585,11 @@ func normalizeAutomationQueryRole(role string) (string, error) {
 }
 
 func (r *Registry) Delete(def Definition) error {
+	r.sourceMu.Lock()
+	defer r.sourceMu.Unlock()
+	return r.deleteDefinition(def)
+}
+func (r *Registry) deleteDefinition(def Definition) error {
 	path, err := r.automationPath(def)
 	if err != nil {
 		return err

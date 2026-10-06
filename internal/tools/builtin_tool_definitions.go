@@ -47,6 +47,8 @@ var requiredBuiltinToolNames = []string{
 	"plan_add_tasks",
 	"plan_get_tasks",
 	"plan_update_task",
+	"automation_query",
+	"automation_manage",
 	"catalog_query",
 	"catalog_manage",
 	"chat_query",
