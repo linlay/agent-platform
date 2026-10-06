@@ -17,6 +17,7 @@ func TestDesktopControlRequiresExactOneShotApproval(t *testing.T) {
 		params       map[string]any
 	}{
 		{"desktop_settings", "theme.set", map[string]any{"themeMode": "dark"}},
+		{"desktop_settings", "pet.import", map[string]any{"filePath": "/tmp/panda.pet.zip"}},
 		{"desktop_site", "website.add", map[string]any{"label": "Example", "url": "https://example.test"}},
 		{"desktop_kanban", "kanban.createIssue", map[string]any{"input": map[string]any{"title": "Example"}}},
 		{"desktop_webapp", "webapp.stop", map[string]any{"webappId": "app"}},

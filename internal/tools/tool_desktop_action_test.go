@@ -1389,6 +1389,7 @@ func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
 		"desktop.pet.hide",
 		"desktop.pet.list",
 		"desktop.pet.set",
+		"desktop.pet.import",
 		"desktop.pet.show",
 		"desktop.pet.state",
 		"desktop.runtime.diagnostics",
@@ -1436,8 +1437,8 @@ func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 82 {
-		t.Fatalf("desktop action count = %d, want 82", len(actions))
+	if len(actions) != 83 {
+		t.Fatalf("desktop action count = %d, want 83", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{

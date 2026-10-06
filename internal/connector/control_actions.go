@@ -62,6 +62,7 @@ var controlActions = []ControlAction{
 	{"desktop_settings", "pet.show", false},
 	{"desktop_settings", "pet.hide", false},
 	{"desktop_settings", "pet.set", false},
+	{"desktop_settings", "pet.import", false},
 	{"desktop_settings", "copilot.getPagePreferences", true},
 	{"desktop_settings", "copilot.setPagePreference", false},
 	{"desktop_site", "site.list", true},

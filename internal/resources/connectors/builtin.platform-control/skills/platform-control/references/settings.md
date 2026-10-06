@@ -114,6 +114,7 @@ pet.state [read]
 pet.show [execute]
 pet.hide [execute]
 pet.list [read]
+pet.import [execute]
 pet.set [execute]
 ```
 
@@ -135,3 +136,11 @@ pet.set [execute]
   }
 }
 ```
+
+### Import a local pet
+
+- Call `pet.import` with `{ "filePath": "/absolute/path/panda.pet.zip" }` on the Desktop host. macOS absolute paths and Windows drive-qualified absolute paths are supported. Relative paths, aliases, URLs and Windows UNC/device paths are rejected. A remote or container path is not automatically a Desktop-host path.
+- Import installs only: it does not change the selected pet, visibility or Agent binding. Success returns `{ appearanceId, displayName }`. Only call `pet.set` with the returned ID if the user also requested applying it.
+- Default mode uses Platform appearance review; auto_approve/full_access permit automatic approval. Trusted Platform calls do not repeat Desktop confirmation.
+- Duplicate manifest IDs return `packageExists` and are never overwritten. Read `pet.list` to inspect installed appearances. Invalid or oversized packages are rejected.
+- For a requested directory, enumerate individual `.pet.zip` files and call once per package; report successes, existing packages and failures. Do not treat a collection ZIP as one pet or write into Desktop storage directly. If unavailable, update the Desktop/Platform components rather than using private IPC or UI automation.

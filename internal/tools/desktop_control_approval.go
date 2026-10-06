@@ -20,7 +20,7 @@ func desktopControlReviewAction(tool, action string) bool {
 	}
 	switch action {
 	case "theme.set", "locale.set", "skin.import", "skin.set", "skin.remove",
-		"pet.show", "pet.hide", "pet.set", "copilot.setPagePreference",
+		"pet.show", "pet.hide", "pet.set", "pet.import", "copilot.setPagePreference",
 		"website.add", "website.update", "website.remove",
 		"kanban.createIssue", "kanban.updateIssue", "kanban.deleteIssue", "kanban.moveIssue",
 		"webapp.start", "webapp.stop", "webapp.restart", "webapp.open", "webapp.updatePreferences", "webapp.unpublish",

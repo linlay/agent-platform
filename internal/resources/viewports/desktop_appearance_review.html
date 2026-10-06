@@ -9,11 +9,13 @@ Review.mount(u=>{
  const {t,args:a,current:c,action}=u;
  const theme=v=>({light:t('浅色','Light'),dark:t('深色','Dark'),system:t('跟随系统','Follow system')}[v]||u.format(v));
  const locale=v=>({'zh-CN':'简体中文','en-US':'English'}[v]||u.format(v));
- const titles={'theme.set':t('切换桌面主题','Change Desktop theme'),'locale.set':t('切换界面语言','Change interface language'),'skin.import':t('导入新皮肤','Import a skin'),'skin.set':t('更换桌面皮肤','Change Desktop skin'),'skin.remove':t('删除已安装的皮肤','Remove an installed skin'),'pet.show':t('显示桌宠','Show your desktop pet'),'pet.hide':t('隐藏桌宠','Hide your desktop pet'),'pet.set':t('更换桌宠外观','Change your pet’s appearance'),'copilot.setPagePreference':t('调整页面助理','Change the page assistant')};
+ const titles={'pet.import':t('导入桌宠','Import a pet'),'theme.set':t('切换桌面主题','Change Desktop theme'),'locale.set':t('切换界面语言','Change interface language'),'skin.import':t('导入新皮肤','Import a skin'),'skin.set':t('更换桌面皮肤','Change Desktop skin'),'skin.remove':t('删除已安装的皮肤','Remove an installed skin'),'pet.show':t('显示桌宠','Show your desktop pet'),'pet.hide':t('隐藏桌宠','Hide your desktop pet'),'pet.set':t('更换桌宠外观','Change your pet’s appearance'),'copilot.setPagePreference':t('调整页面助理','Change the page assistant')};
  u.title(titles[action]||t('调整桌面偏好','Change Desktop preferences'));
  switch(action){
  case 'theme.set':u.change(t('界面主题','Theme'),'themeMode',a.themeMode,theme);u.required(a.themeMode,t('主题','Theme'));u.extras(a,['themeMode']);break;
  case 'locale.set':u.change(t('界面语言','Language'),'locale',a.locale,locale);u.required(a.locale,t('语言','Language'));u.extras(a,['locale']);break;
+ case 'pet.import':{
+  const path=typeof a.filePath==='string'?a.filePath:'';u.target(path.split(/[\\/]/).pop()||t('未选择桌宠文件','No pet file selected'));u.field(t('文件位置','File location'),path);u.notice(t('导入后不切换当前桌宠。','Importing does not change the current pet.'));u.required(path,t('桌宠文件','Pet file'));u.extras(a,['filePath']);break;}
  case 'skin.import':{
   const path=typeof a.filePath==='string'?a.filePath:'';u.target(path.split(/[\\/]/).pop()||t('未选择皮肤文件','No skin file selected'),t('从本机 ZIP 文件导入','Import from a ZIP file on this computer'));u.field(t('文件位置','File location'),path);u.notice(t('仅安装皮肤，不会立即切换当前外观。','This installs the skin without changing your current appearance.'));u.required(path,t('皮肤文件','Skin file'));u.extras(a,['filePath']);break;}
  case 'skin.set':

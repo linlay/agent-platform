@@ -92,6 +92,7 @@ var desktopActionNames = [...]string{
 	"desktop.pet.hide",
 	"desktop.pet.list",
 	"desktop.pet.set",
+	"desktop.pet.import",
 }
 
 // Reverse actions the web-control tools may send. They are never accepted from
