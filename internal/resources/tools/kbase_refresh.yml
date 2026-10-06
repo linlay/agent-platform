@@ -4,7 +4,7 @@ i18n:
     label: "Refresh Knowledge Base"
   zh-CN:
     label: "刷新知识库"
-description: Request KBX maintenance for the current Agent. Returns unavailable until the singleton update/reconnect protocol is supported; it never falls back to the retired index engine.
+description: Schedule asynchronous KBX source reconciliation for the current Agent. Returns a durable refreshId; wait for kbase.refreshTerminal and inspect kbase_status before retrying retrieval.
 clientVisible: true
 readOnly: false
 inputSchema:
@@ -12,6 +12,6 @@ inputSchema:
   properties:
     force:
       type: boolean
-      description: Rebuild the index even when file metadata appears unchanged.
+      description: Fully reconcile source files and explicitly rebuild all vectors for the current model contract. Use only for an authorized rebuild.
       default: false
   additionalProperties: false

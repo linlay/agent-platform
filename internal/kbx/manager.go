@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"agent-platform/internal/builtins"
@@ -19,6 +20,9 @@ import (
 // Options contains Platform-owned configuration. KBX owns all index operations.
 type Options struct {
 	RuntimeDir, DefaultEmbeddingModelKey, EmbeddingPrompt string
+	StateDir                                              string
+	Debounce, ReconcileInterval, MaintenanceTimeout       time.Duration
+	MaxParallel                                           int
 	ConfigSource                                          *ModelConfigSource
 }
 type embeddingModels interface {
@@ -26,20 +30,44 @@ type embeddingModels interface {
 }
 
 type Manager struct {
-	options Options
-	agents  kbase.AgentSource
-	models  embeddingModels
-	runner  Runner
+	options    Options
+	agents     kbase.AgentSource
+	models     embeddingModels
+	runner     Runner
+	mu         sync.Mutex
+	ctx        context.Context
+	cancel     context.CancelFunc
+	workers    map[string]*libraryWorker
+	gate       chan struct{}
+	wg         sync.WaitGroup
+	closed     bool
+	startError error
+	lockFile   *os.File
 }
 type library struct {
 	spec     kbase.AgentSpec
 	database string
 }
 
-const updateUnavailable = "KBX singleton update/reconnect protocol is not available in the installed integration; index maintenance is unavailable"
-
 func NewManager(options Options, agents kbase.AgentSource, registry *models.ModelRegistry) *Manager {
+	if options.StateDir == "" {
+		options.StateDir = filepath.Join(options.RuntimeDir, ".state")
+	}
+	if options.Debounce <= 0 {
+		options.Debounce = 500 * time.Millisecond
+	}
+	if options.ReconcileInterval <= 0 {
+		options.ReconcileInterval = 5 * time.Minute
+	}
+	if options.MaintenanceTimeout <= 0 {
+		options.MaintenanceTimeout = 35 * time.Minute
+	}
+	if options.MaxParallel <= 0 {
+		options.MaxParallel = 2
+	}
 	m := &Manager{options: options, agents: agents, runner: cliRunner{}}
+	m.workers = make(map[string]*libraryWorker)
+	m.gate = make(chan struct{}, options.MaxParallel)
 	if registry != nil {
 		m.models = registry
 	}
@@ -153,23 +181,6 @@ func (m *Manager) ValidateAndAdoptStartupStorageContracts() map[string]error {
 	return failures
 }
 
-// Current KBX has no reconnectable update command. These hooks deliberately do
-// not start the legacy watcher or infer completion from the old one-shot update.
-func (m *Manager) Start(context.Context)             {}
-func (m *Manager) ReconcileWatchers(context.Context) {}
-func (m *Manager) Close(context.Context) error       { return nil }
-func (m *Manager) Refresh(_ context.Context, key string, _ kbase.RefreshOptions) (kbase.RefreshResult, error) {
-	if err := m.ValidateAgent(key); err != nil {
-		return kbase.RefreshResult{}, err
-	}
-	return kbase.RefreshResult{}, unavailable(updateUnavailable)
-}
-func (m *Manager) RefreshOperationStatus(key, _ string) (string, error) {
-	if err := m.ValidateAgent(key); err != nil {
-		return "", err
-	}
-	return "", unavailable(updateUnavailable)
-}
 func (m *Manager) RuntimeSnapshot() kbase.LanceEngineState {
 	_, err := builtins.ResolveProcessBuiltin("kbx")
 	s := kbase.LanceEngineState{Engine: "kbx", Available: err == nil}
@@ -187,18 +198,22 @@ func (m *Manager) ProbeSidecar(ctx context.Context) (bool, kbase.LanceEngineStat
 		required = required || a.Requirement == kbase.RequirementRequired
 	}
 	s := m.RuntimeSnapshot()
+	m.mu.Lock()
+	startErr := m.startError
+	m.mu.Unlock()
+	if startErr != nil {
+		s.Available = false
+		s.LastError = startErr.Error()
+		return required, s, unavailable(s.LastError)
+	}
 	if !s.Available {
 		return required, s, unavailable(s.LastError)
 	}
-	// Validate reader flags, not merely a binary filename/version.
-	_, err := m.runner.Run(ctx, "unused", []byte("{}"), "search", "--filter-help")
+	// Probe the maintenance contract without opening an index or accessing models.
+	err := m.probeMaintenance(ctx)
 	if err != nil {
 		s.Available = false
-		s.LastError = "KBX chunk/filter CLI is unavailable"
-	}
-	if err == nil {
-		s.LastError = updateUnavailable
-		err = unavailable(updateUnavailable)
+		s.LastError = err.Error()
 	}
 	return required, s, err
 }
@@ -260,8 +275,18 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 	return json.Marshal(cfg)
 }
 func (m *Manager) call(ctx context.Context, l library, embedding bool, out any, args ...string) error {
+	state := kbase.Status{}
+	if m.workerStatus(l, &state) && (state.Indexes == nil || !state.Indexes.FTS.Ready) {
+		return &readinessError{PolicyError: &kbase.PolicyError{Kind: kbase.ErrorUnavailable, Message: "KBX index is not ready; wait for refreshId and inspect kbase_status"}, state: state}
+	}
 	if _, err := os.Stat(l.database); err != nil {
-		return unavailable("KBX index is not ready; " + updateUnavailable)
+		m.mu.Lock()
+		w := m.workers[l.spec.Key]
+		m.mu.Unlock()
+		if w != nil && w.library.database == l.database {
+			w.changed("", true)
+		}
+		return unavailable("KBX index is not ready; use kbase_status and kbase_refresh to schedule and wait for indexing")
 	}
 	cfg, err := m.config(l, embedding)
 	if err != nil {

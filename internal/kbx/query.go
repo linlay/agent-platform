@@ -118,15 +118,16 @@ func (m *Manager) Search(ctx context.Context, key, query string, o kbase.SearchO
 	if err = m.call(ctx, l, true, &response, args...); err != nil {
 		return kbase.SearchResult{}, err
 	}
-	for _, step := range response.Trace.Steps {
-		if step.Reason == "vector_index_unavailable" || step.Reason == "dimension_mismatch" {
-			return kbase.SearchResult{}, unavailable("KBX vector index is unavailable or incompatible with runtime.kbx.embedding; inspect KBX status and explicitly rebuild vectors if required")
-		}
-	}
 	if response.Type != "kbx.search.response" || response.RetrievalVersion != 6 || response.Trace.ResultUnit != "chunk" {
 		return kbase.SearchResult{}, unavailable("KBX retrieval contract 6 with chunk results is required")
 	}
 	result := kbase.SearchResult{AgentKey: key, Query: query, Limit: limit, Results: []kbase.SearchHit{}, Engine: "kbx", Stale: true, Degraded: response.Trace.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
+	state := kbase.Status{}
+	if m.workerStatus(l, &state) {
+		result.Stale = state.Stale
+		result.Indexing = state.Indexing
+		result.RefreshID = state.RefreshID
+	}
 	for _, hit := range response.Results {
 		p, err := documentPath(hit.File)
 		if err != nil {

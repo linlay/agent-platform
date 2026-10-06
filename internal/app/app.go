@@ -258,7 +258,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if _, err := kbxConfig.Snapshot(); err != nil {
 		return nil, fmt.Errorf("configure KBX: %w", err)
 	}
-	kbaseManager := kbx.NewManager(kbx.Options{RuntimeDir: cfg.Paths.KBaseDir, ConfigSource: kbxConfig}, kbaseSource, modelRegistry)
+	kbaseManager := kbx.NewManager(kbx.Options{StateDir: cfg.Paths.StateDir, RuntimeDir: cfg.Paths.KBaseDir, ConfigSource: kbxConfig}, kbaseSource, modelRegistry)
 	if lspManager != nil {
 		runtimeToolExecutor.WithFileChangeHooks(lspManager)
 	}

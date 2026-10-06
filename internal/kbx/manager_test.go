@@ -120,10 +120,10 @@ func TestScopeChangeGetsDifferentIndexAndDisabledAgentFails(t *testing.T) {
 		t.Fatalf("disabled capability exposed: %v", e)
 	}
 }
-func TestRefreshDoesNotExecuteLegacyOrOneShotUpdate(t *testing.T) {
+func TestRefreshRequiresStartedScheduler(t *testing.T) {
 	m, _ := newTestManager(t)
 	m.runner = runFunc(func(context.Context, string, []byte, ...string) ([]byte, error) {
-		t.Fatal("unsupported maintenance must not invoke CLI")
+		t.Fatal("unstarted scheduler must not invoke CLI")
 		return nil, nil
 	})
 	if _, e := m.Refresh(context.Background(), "docs", kbase.RefreshOptions{}); kbase.KindOf(e) != kbase.ErrorUnavailable {

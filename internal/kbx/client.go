@@ -84,14 +84,15 @@ func (runner cliRunner) Run(ctx context.Context, database string, config []byte,
 	// Do not return raw provider diagnostics: they may contain endpoint credentials.
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = 2 * time.Second
-	if err = cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, fmt.Errorf("KBX %s failed: %w", args[0], err)
-	}
+	err = cmd.Run()
 	if stdout.exceeded {
 		return nil, fmt.Errorf("KBX output exceeded 16 MiB")
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return stdout.Bytes(), ctx.Err()
+		}
+		return stdout.Bytes(), fmt.Errorf("KBX %s failed: %w", args[0], err)
 	}
 	return stdout.Bytes(), nil
 }

@@ -1,58 +1,64 @@
 # KBX 接入
 
-## 当前结论
+## 当前实现
 
-Platform 的 app 装配、五个知识库工具、HTTP status/refresh、health 和 wait 入口已接到 `internal/kbx.Manager`。旧 `internal/kbase.Manager`、目录 watcher、generation 和 Lance sidecar 不再从生产入口实例化，也没有自动回退。旧代码和数据保留；共用的配置、DTO、工具权限校验、引用发布和文件列表格式化仍保留在 `internal/kbase`。
+Platform 的 app 装配、知识库工具、HTTP status/refresh、health 和 wait 使用 `internal/kbx.Manager`。读取要求 Agent envelope v2、retrieval contract v6；维护要求 KBX `capabilities --format json` 声明维护协议 v1、结构化错误、无扫描注册及文件路径更新。不能用二进制版本号代替能力探测。
 
-**这是读取链路切换，尚不是可上线的完整索引维护闭环。** 对照 KBX `c5ff759`：单库单例、后台执行、断线重连的 update 协议尚未实现。Platform 的 refresh/wait 明确返回 unavailable；status 标记 stale/degraded；有必需知识库的 health 返回未就绪。不会运行旧 update/embed 来冒充新维护协议。
+**Platform 负责目录监听和后台调度，不启动 `kbx watch`。** KBX 负责抽取、分块、全文/向量索引、写锁与事务。旧 `internal/kbase.Manager`、Lance sidecar 和 generation 不再由生产 App 实例化；共享配置、DTO、工具权限、引用发布与文件列表格式化仍在 `internal/kbase`。不自动回退旧引擎。
 
-## 已接入行为
+## 维护生命周期
 
-- `kbase_search` 使用 KBX `query --agent --no-graph --no-rerank --full`，校验 Agent envelope v2、retrieval contract v6 和 `resultUnit=chunk`。同一文档可返回多个 chunk，保留 chunkId、evidenceId、resultId 和抽取文本行号。
-- `pathPrefix`、`pathGlob`、`type` 转成 KBX 原生 JSON filter；include/exclude 同样在召回前传入。目录前缀尊重边界，扩展名忽略大小写。没有先取 top N 再用 Go 过滤。搜索不支持 offset，非零值明确报错；不伪造精确 matchCount 或分页完成标志。保留降级、候选预算和实际召回通道信息。
-- `kbase_read` 通过 chunkId（内容哈希和字节范围）精确回读，或以相对路径和一基行号 offset/limit 读取抽取文本。拒绝跨 collection 引用、目录越界和被配置排除的文档。原始 PDF 页码、PPT 页码不伪造。
-- `kbase_files` 读取 KBX 完整 active 文档清单，再做目录树、通配符与分页展示；不触碰旧 control.db。未索引、失败、删除状态不冒充 active；不支持的 status 明确拒绝。不把 KBX 抽取正文的 bytes 当原文件大小。
-- `kbase_status` 返回 engine=kbx、文件数和字符切块信息。当前 KBX agent status 不提供准确 chunk 总量，省略 chunks 并返回 chunksKnown=false。
-- CLI 只从受管 builtin 目录解析 kbx，不走普通 PATH；独立私有配置、argv 调用、有界输出、临时凭据文件 0600 并在完成后清理；不回显原始模型诊断。
-- 保留 Agent 挂载、执行上下文授权、KBASE editingMode 与源文件权限边界。
+- Platform 启动后为每个启用知识库能力的 Agent 建立 worker，先监听再首次全目录对账。Catalog 发布新增或更换索引范围时启动新 worker，删除或停用时取消旧 worker。旧索引保留，不迁移或删除源文档。
+- 每库串行执行，全局最多两库同时维护。默认合并窗口 500ms，从第一条变化计时，持续写入不会无限推迟；路径集合超过 4096 项转全目录对账。创建目录、删除/重命名、监听异常保守使用全目录对账；普通文件新增/修改使用 `--paths-from`。每五分钟补充全目录对账，弥补漏事件。监听失败会在状态报告，周期对账继续工作。
+- 请求批次开始时冻结已观察变化。执行期间的新事件留在下一批，结束时不清空它们。显式 refresh 不附着到已经运行的旧批次，force 单独排队；每库最多 256 个待执行显式请求，超限返回 unavailable。
+- 注册使用 `collection add --no-index`；先保存 pattern、ignore、字符切块，并用 `collection show --format json` 验证，再执行 `update -c workspace --no-commands --format json`。恢复时已有数据库先 list 并核对唯一 workspace collection 及源目录，拒绝串库。无数据库才尝试首次注册。
+- 更新成功且配置了 embedding 模型、库非空时调用 `embed -c workspace --format json`。每个批次冻结一份部署级模型配置；普通模型失败不自动 force。`force=true` 表示全目录内容对账并调用全库 `embed --force`，不带 `-c`；用户须明确授权重建。KBX update 会读取文件内容并核对哈希，不只依赖修改时间。
+- 同时校验维护响应 type/version/operation/status/exitCode、文件失败数和最终索引能力。非零退出仍解析 JSON；partial（包括退出码 0）不冒充完成。`INDEX_BUSY` 和普通 embed 的 `SESSION_LIMIT` 最多三次尝试，分别延迟一、二秒；force embed 的 partial 不自动重复 force。每批总超时 35 分钟，embed 单次预算 30 分钟；其他失败由手动或周期对账重试。
+- 不使用 KBX nextActions 执行任意命令，不运行 collection update-command。没有稳定进度流或准确百分比，不编造进度。
+
+## 刷新回执与等待
+
+`kbase_refresh` / HTTP refresh 异步返回 `status: pending` 和 `refreshId`。Platform 在返回前将请求回执原子写入 `<AP_RUNTIME_STATE_DIR>/kbx/refresh/`，记录 Agent、索引范围路径及 force；运行中改为 running，最终为 completed/failed/canceled/interrupted。同一 runtime 的调度器持有文件锁，禁止两个 Platform 同时维护其回执。
+
+通用 wait 条件 `kbase.refreshTerminal` 使用 agentKey/refreshId；只接受当前 Agent 的回执，只有明确的终态会完成等待。等待取消或 HTTP 断开不会取消后台维护。completed 表示本次文本维护与所配置 embedding 已完成；未配置 embedding 时可完成全文索引，向量能力仍报告不可用。
+
+重启将未完成旧回执标记 interrupted，并发起新的首次全量对账；历史终态不会被后续批次覆盖。这里是重新执行、重新对账，不是重连 KBX 持久任务。超时强制终止可能没有最终 JSON，不据此认定成功。回执写入失败会报告错误；不能持久化的请求不确认接收。
+
+## 状态与读取
+
+`kbase_status` 提供 refreshId、state（unindexed/indexing/ready/refreshing/degraded/error）、indexing/stale、全文及向量 readiness、文件数、最近完成时间和错误。是否与源目录同步由 Platform worker 判断，不能从 KBX 空库或 fullText.ready 推断已扫描。未完成首次扫描的注册空库不可作为空知识库查询。未就绪工具错误提供当前 refreshId/indexing/state，模型可等待后重试。
+
+- `kbase_search` 使用 `query --agent --no-graph --no-rerank --full`，验证 chunk 协议；保留 KBX 的实际召回通道、降级和候选预算信息。向量缺失时允许 KBX 返回有效全文结果；不会把失败伪装成无命中。
+- `pathPrefix`、`pathGlob`、`type` 与 Agent 的 include/exclude 在召回前下推，不是取 top N 后再过滤。搜索不支持 offset；不伪造精确 matchCount 或分页完成标志。
+- `kbase_read` 用 chunkId 精确回读，或用相对路径和一基行号分页，拒绝跨 collection、目录越界和配置排除内容。`kbase_files` 只展示 KBX active 文档清单。
+- KBX 没有精确 chunk 总数，status 省略 chunks 并返回 chunksKnown=false。向量未配置或未完整时不声称向量可用。
+- health 探测受管 CLI 的维护能力；首次索引未完成不会被解释为 CLI 故障。旧二进制缺少协议或调度器启动失败则明确不可用。
+
+## 源文件过滤
+
+include/exclude 在抽取和 embedding **之前**配置。KBX 额外排除隐藏组件、node_modules、vendor、dist、build 及知识库自身文件；include 不能重新纳入。Platform 另外排除 workspace 内的 runtime/state 目录，监听也忽略这些目录；不跟随源目录符号链接。
+
+KBX globset 当前允许 `*` / `?` 跨 `/`，与 Platform 原有语义不同。为防止扩大源范围，目前只接受可证明等价的维护规则：明确相对路径、`dir/**`、`**/*.ext`、`docs/**/*.ext` 等；例如 `docs/*.md`、`a?b.md`、`**/private*.txt` 会在扫描前明确拒绝。默认 include/exclude 已覆盖。多个 include 用花括号 OR，字面逗号转义。更一般的规则需要 KBX 提供源 glob 的 literalSeparator 契约后接入，不能静默转换语义。
 
 ## 存储与配置
 
-模型选择统一来自 `runtime.yml → kbx.embedding`（model-key、prompt）；中心与 Agent capability 共用部署级连接来源，Agent embedding 字段已退役。受管快照通过 --config 显式注入，调用前刷新注册表连接变化，旧 KBASE 引擎设置下线。见 [Agent 配置合并](Agent配置合并.md)。
+模型统一来自 `runtime.yml → kbx.embedding`（model-key、prompt），中心和 Agent 共用部署级连接来源。每个进程传入私有 `--config`，关闭 query expansion、reranker 与 graph，不继承用户的 KBX 配置。CLI 仅从受管 builtin 目录解析，以 argv 调用，不经过 shell；输出上限 16MiB，临时配置权限 0600，用后清理，不回显原始模型 stderr。
 
-默认新索引位置为 `<AP_RUNTIME_KBASE_DIR>/<agentKey>/kbx/<scopeHash>/index.sqlite`；workspace 存储为 `<workspaceRoot>/.kbx-platform/<agentKey>/<scopeHash>/index.sqlite`。scopeHash 包含解析后的 workspaceRoot、include/exclude 和 chunk 配置，防止切换 Workspace 或内容范围后复用错误索引。每个 Agent 隔离；库内路径拒绝符号链接替换。旧 `.kbase`、control.db、generations 保留，不迁移、不删除。
+索引位置为 `<AP_RUNTIME_KBASE_DIR>/<agentKey>/kbx/<scopeHash>/index.sqlite`；workspace 模式为 `<workspaceRoot>/.kbx-platform/<agentKey>/<scopeHash>/index.sqlite`。scopeHash 含 canonical workspaceRoot、include/exclude、chunk 配置；更换范围时隔离。库目录拒绝符号链接替换。旧 `.kbase`、control.db、generations 保留。
 
-旧默认 1000 estimatedTokens/100 overlap 映射为 KBX 默认 3600/540 字符。自定义切块需明确改为 `unit: chars`；不猜测自定义 token 数的字符换算。旧非默认 RRF 权重明确拒绝；排序由 KBX 决定。topK 与候选预算继续映射。
+旧默认 1000 estimatedTokens/100 overlap 映射为 3600/540 字符；自定义切块需配置 `unit: chars`。旧非默认 RRF 权重明确拒绝，topK 与候选预算继续映射。模型连接地址/密钥改变不自动重建向量；模型/prompt 合同不兼容由 KBX 明确报错，显式 force 才重建。
 
-Embedding 从 Platform 模型注册表映射 endpoint/model/API key/timeout，私有配置关闭 query expansion、reranker 和 graph。构建 fixture 使用 raw prompt。KBX 使用自身 HTTP 客户端；目前没有把 Platform 系统代理/PAC 行为移植给 KBX，loopback 测试需要 NO_PROXY。这不是代理行为已对齐的声明。
+调度默认值见 `internal/kbx.NewManager`，由 App 注入有效 StateDir；没有新增 YAML 目录配置。KBX 使用自身 HTTP 客户端，Platform 系统代理/PAC 尚未映射；本地模型 mock 通过 NO_PROXY 绕过系统代理。
 
-## 待接 update 协议
+## 分发与验证
 
-约定：KBX 对每个知识库用一把锁保证 update 单例。Platform 为该库开启后台 worker，运行可能耗时很长的 update。Platform 断联后再次运行同库 update，能获取原任务状态或最终结果；不同库可并行。
+沿用 `scripts/sync-local-builtins.sh` 校验缓存，再由 make run/build/release 消费；不手工覆盖 manifest、正式 lock 或其他平台 SHA。实际受管二进制必须通过维护能力探测，旧 cache 需要同步。正式版本与源码必须符合现有发布规则。
 
-`internal/kbx/worker.go` 已验证：同库连接复用、异库并行、取消 HTTP 等待者不取消 worker、连接结束后显式重连、关闭本地连接。**它目前未接到生产维护调用，也未证明 KBX 任务能在进程退出后继续运行。** 该承诺必须由 KBX 新协议实现。
-
-需要 KBX 提供参数、协议版本、任务 ID、进度和终态、连接失败与任务失败的区别、如何区分重连和新一轮更新，以及成功是否包含向量完成。之后补齐真正的后台调度、持久化运行状态、重启恢复和 wait 终态。旧一次性 update 的文本输出不能作为该协议。
-
-## 分发边界
-
-运行时依赖受管 builtin 目录中的 kbx（开发环境可用 AP_BUILTINS_BIN 指定目录）。KBX 已接入 builtins lock/cache/release：同步从相邻源码的 Cargo.toml 读取版本，在隔离目录构建；archive 同时包含二进制、LICENSE 和依赖许可证清单，校验 SHA 后进入 cache。正式发布必须包含 bin/kbx；旧的仅含 kbase-lance-engine 的 cache 会报错，旧 sidecar 不再随包分发。
-
-```bash
-bash scripts/sync-local-builtins.sh --target darwin/arm64
-make release-program PROGRAM_TARGET_MATRIX=darwin/arm64
-```
-
-两个源码目录默认取相邻的 agent-platform-builtins 和 agent-platform-connectors；Git worktree 自动回退主仓库的相邻项目。显式路径参数和环境变量仍可覆盖。当前上游仅提供 darwin/arm64、darwin/amd64、windows/amd64 发行目标，Linux/Windows ARM64 在同步前明确拒绝；本机验收仅覆盖 macOS ARM64，Windows PowerShell 及其他架构还需对应 runner 验证。
-
-## 验证
-
-详见 [KBX 验证记录](KBX验证记录.md)。真实文档测试为 opt-in；所有索引位于测试临时目录，文档内容、大小和修改时间在前后校验。测试里的 collection add/embed 仅负责构造读取 fixture，未进入生产维护链路。
+macOS ARM64 上的 `TestLivePlatformLifecycle` 验证首次自动索引、读取证据、监听新增/删除及异步 refresh；`TestLivePlatformEmbeddingExcludesAndFailure` 用本地模型 mock 验证排除发生在 embedding 前、向量完成、模型失败降级及显式 force。索引和文档均在测试临时目录，不外发用户文档。Windows 锁和 watcher 仍需原生 Windows 验证；KBX 当前未提供 Linux/Windows ARM64 发行目标。
 
 ```sh
-KBX_ACCEPTANCE_SOURCE='/Users/linlay/Documents/知识库测试用文档' \
-KBX_ACCEPTANCE_BIN='/path/to/current/kbx/bin' \
-go test -v ./internal/kbx -run 'TestRealKnowledgeBases|TestLiveChunkAndFilterContract|TestLiveVectorPrefilterAndLibraryIsolation' -count=1
+KBX_ACCEPTANCE_BIN=/absolute/managed/bin \
+go test ./internal/kbx -run 'TestLivePlatform|TestLiveChunkAndFilterContract|TestLiveVectorPrefilterAndLibraryIsolation' -count=1
 ```
 
-向量测试启动 loopback HTTP 服务，仅使用人工文本和确定性向量，不把用户文档发送给外部模型，也不等于真实 embedding 模型的语义质量评估。
+历史真实文档范围、已知抽取失败与本次验证记录见 [KBX 验证记录](KBX验证记录.md)。部署级知识库中心仍使用其独立管理入口，不由 Agent worker 监听。

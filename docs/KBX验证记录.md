@@ -28,7 +28,7 @@
 - 人工长文档真实 CLI 检索一次返回同文件的 5 个不同 chunk。
 - `allowed` 前缀不匹配 `allowed-old`；`.MD` 匹配 `.md`；空范围返回空结果；精确 chunk 回读、按一基行号翻页、非法路径拒绝均通过。
 - 本地确定性 embedding 服务验证了模型配置、鉴权、embed 后的纯向量召回、向量召回前过滤及知识库隔离。没有外发真实文档；不声称验证了真实模型语义效果。
-- worker 测试覆盖同库复用、异库并行、取消等待者、重新连接、关闭和错误传递。真实 KBX singleton update/进程断线续跑尚不可测试。
+- 当时的 worker 连接包装测试覆盖复用、并行和断开；该旧包装现已被 Platform 调度器替换，当前维护实现与验证见文末 2026-10-07 记录。
 - KBX/app/kbase/reload/llm/tools 的 race 检查通过；Server 普通回归通过，但扩大 race 检查仍有以下基线问题。`CGO_ENABLED=0 go build ./cmd/agent-platform`、`go vet ./internal/kbx ./internal/app` 和 `git diff --check` 通过。
 - Server race 下的 `TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem`、`TestSelectionExplainWebSocketLaneGuardsAndSequentialStreams`、`TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContractError`、`TestStartRunRegistersIndependentAgentAndTeamRuns` 失败；在未修改基线副本上四项均复现。其中 proxy_ws_handler.go 的 WebSocket 并发写被 race detector 捕获，其余涉及异步断言或临时目录清理时序，未扩展本次 KBX 修改去修复这些独立问题。不能把整套 race 验收记为通过。
 - config 回归有一项基线失败：`TestLoadDefaults` 期望 default WriteRoots 包含 `@workspace`，实际是 `@chat,@temp`。在 `git archive HEAD` 生成的未修改基线副本中同样复现，未在本次修改权限默认值。
@@ -49,3 +49,31 @@
 ## 2026-10-05 全目录补充验证
 
 覆盖全部一级子目录、年报大库及失败文件副本排除试验，见 [KBX 全目录验证报告](KBX全目录验证报告.md)。本机实际 KBX 缓存版本与上文不同，具体版本、覆盖数量及维护链路限制以该次报告为准。
+
+## 2026-10-07 Platform 维护接入
+
+KBX 源码 `7ed2922179715a72e629e89f9abc9536294e1dbc`，版本 `0.1.0`（维护者有意回调），macOS ARM64。本次接入以 capabilities 中的维护协议 v1 为判断依据，不比较版本大小。
+
+通过标准 `scripts/sync-local-builtins.sh` 更新本机受管缓存，manifest 中 KBX SHA-256 为 `e3602196735c719df03344f6dced032d6e5c4d10953aa9379e85b537f400d1e6`。正式发布 lock 按现有同步规则保持不变，没有手工改写 SHA。同步同时按项目流程重新装配其他 builtin；脚本报告的其他组件版本/commit 差异不由本次 KBX 接入调整。
+
+使用该受管缓存通过：
+
+- `TestLivePlatformLifecycle`：由生产 Manager.Start 自动建库，搜索、精确证据回读、监听新增和删除、持久 refreshId 及 force 请求。
+- `TestLivePlatformEmbeddingExcludesAndFailure`：本地 HTTP 模型 mock 确认被排除文件没有进入 embedding；向量完成、模型失败终态、全文继续可检索、显式 force 恢复。
+- `TestLiveChunkAndFilterContract`、`TestLiveVectorPrefilterAndLibraryIsolation`：原读取、预过滤和跨库隔离回归。
+- 调度单元测试：取消请求上下文不取消任务；普通批次不吞并排队的 force；先持久化后确认；Agent 所有权校验；重启只中断未完成回执；runtime 文件锁；执行期间新变化进入下一批；partial/非零退出 JSON 不误报成功；不等价 glob 在扫描前拒绝。
+- `go test -race ./internal/kbx ./internal/kbase ./internal/app`、`go vet ./internal/kbx ./internal/kbase ./internal/app`、`CGO_ENABLED=0 go build ./cmd/agent-platform` 和 diff 空白检查通过。
+
+本轮 `go test ./...` 未全绿，失败均在 `internal/server`。以下五项在 `git archive HEAD` 创建的未修改基线副本中同样失败：
+
+- `TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem`
+- `TestCoderPlanningModeQuestionsConfirmThenExecutes`
+- `TestCoderPlanningModeRejectCanGenerateRevisionAndApprove`
+- `TestBuildQuerySessionUsesCoderProfileDefaults`
+- `TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig`
+
+前四项涉及 CODER 工具集合仍期望 regex，最后一项涉及旧 embedding 创建字段拒绝断言。另一次 `TestQueryCanExecuteBackendToolLoop` 未及时观察到持久 run.complete，在当前修改和基线单独执行均通过，记录为时序不稳定，不宣称全仓回归通过。
+
+Windows AMD64 的 KBX 包测试可交叉编译；这不替代原生 Windows 执行验证。
+
+本次没有重启用户正在运行的 Platform，也未用生产模型外发用户知识库文档。代码、受管缓存和临时目录集成验证完成；真实运行实例需加载新 Go 程序后才启用 worker。原生 Windows watcher/锁以及真实模型语义质量仍不在本机验证结论内。

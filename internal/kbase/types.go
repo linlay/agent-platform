@@ -11,27 +11,30 @@ type RefreshOptions struct {
 }
 
 type RefreshResult struct {
-	RefreshID         string `json:"refreshId"`
-	AgentKey          string `json:"agentKey"`
-	Mode              string `json:"mode"`
-	Status            string `json:"status"`
-	Scope             string `json:"scope,omitempty"`
-	CandidatePaths    int    `json:"candidatePaths,omitempty"`
-	ScannedFiles      int    `json:"scannedFiles"`
-	ChangedFiles      int    `json:"changedFiles"`
-	NewFiles          int    `json:"newFiles,omitempty"`
-	ModifiedFiles     int    `json:"modifiedFiles,omitempty"`
-	MetadataOnlyFiles int    `json:"metadataOnlyFiles,omitempty"`
-	UnchangedFiles    int    `json:"unchangedFiles,omitempty"`
-	DeletedFiles      int    `json:"deletedFiles"`
-	IndexedChunks     int    `json:"indexedChunks"`
-	EmbeddedChunks    int    `json:"embeddedChunks,omitempty"`
-	ReusedChunks      int    `json:"reusedChunks,omitempty"`
-	PendingChanges    int    `json:"pendingChanges,omitempty"`
-	Error             string `json:"error,omitempty"`
+	FailedFiles       int               `json:"failedFiles,omitempty"`
+	Failures          []json.RawMessage `json:"failures,omitempty"`
+	RefreshID         string            `json:"refreshId"`
+	AgentKey          string            `json:"agentKey"`
+	Mode              string            `json:"mode"`
+	Status            string            `json:"status"`
+	Scope             string            `json:"scope,omitempty"`
+	CandidatePaths    int               `json:"candidatePaths,omitempty"`
+	ScannedFiles      int               `json:"scannedFiles"`
+	ChangedFiles      int               `json:"changedFiles"`
+	NewFiles          int               `json:"newFiles,omitempty"`
+	ModifiedFiles     int               `json:"modifiedFiles,omitempty"`
+	MetadataOnlyFiles int               `json:"metadataOnlyFiles,omitempty"`
+	UnchangedFiles    int               `json:"unchangedFiles,omitempty"`
+	DeletedFiles      int               `json:"deletedFiles"`
+	IndexedChunks     int               `json:"indexedChunks"`
+	EmbeddedChunks    int               `json:"embeddedChunks,omitempty"`
+	ReusedChunks      int               `json:"reusedChunks,omitempty"`
+	PendingChanges    int               `json:"pendingChanges,omitempty"`
+	Error             string            `json:"error,omitempty"`
 }
 
 type Status struct {
+	State              string            `json:"state,omitempty"`
 	ChunksKnown        *bool             `json:"chunksKnown,omitempty"`
 	RefreshID          string            `json:"refreshId,omitempty"`
 	AgentKey           string            `json:"agentKey"`
@@ -82,9 +85,10 @@ type IndexStatus struct {
 }
 
 type VectorIndexStatus struct {
-	Type          string `json:"type"`
-	Ready         bool   `json:"ready"`
-	UnindexedRows int    `json:"unindexedRows"`
+	PendingContentUnits *int   `json:"pendingContentUnits,omitempty"`
+	Type                string `json:"type"`
+	Ready               bool   `json:"ready"`
+	UnindexedRows       int    `json:"unindexedRows"`
 }
 
 type FileStats struct {
@@ -113,6 +117,7 @@ type SearchOptions struct {
 }
 
 type SearchResult struct {
+	RefreshID                string      `json:"refreshId,omitempty"`
 	RetrievalChannels        []string    `json:"retrievalChannels,omitempty"`
 	OptionalUnavailable      []string    `json:"optionalUnavailable,omitempty"`
 	Engine                   string      `json:"engine,omitempty"`
@@ -301,4 +306,17 @@ func (s Status) MarshalJSON() ([]byte, error) {
 	delete(fields, "chunks")
 	fields["chunksKnown"] = json.RawMessage("false")
 	return json.Marshal(fields)
+}
+
+// KBX reports content units, not Lance row counts; never relabel one as the other.
+func (s VectorIndexStatus) MarshalJSON() ([]byte, error) {
+	type plain VectorIndexStatus
+	if s.PendingContentUnits == nil {
+		return json.Marshal(plain(s))
+	}
+	return json.Marshal(struct {
+		Type                string `json:"type"`
+		Ready               bool   `json:"ready"`
+		PendingContentUnits int    `json:"pendingContentUnits"`
+	}{s.Type, s.Ready, *s.PendingContentUnits})
 }

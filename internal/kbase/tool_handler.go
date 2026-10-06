@@ -92,6 +92,7 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 		"results":    result.Results,
 		"stale":      result.Stale,
 		"indexing":   result.Indexing,
+		"refreshId":  result.RefreshID,
 	})
 	if result.Engine == "kbx" {
 		delete(toolResult.Structured, "matchCount")
@@ -189,6 +190,8 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 	}
 	payload := map[string]any{
 		"agentKey":                  status.AgentKey,
+		"refreshId":                 status.RefreshID,
+		"state":                     status.State,
 		"mode":                      status.Mode,
 		"storageLocation":           status.StorageLocation,
 		"storageDir":                status.StorageDir,
@@ -234,6 +237,9 @@ func (h *ToolHandler) invokeRefresh(ctx context.Context, agentKey string, args m
 	}
 	return kbaseStructuredResult(map[string]any{
 		"agentKey":          result.AgentKey,
+		"refreshId":         result.RefreshID,
+		"failedFiles":       result.FailedFiles,
+		"failures":          result.Failures,
 		"mode":              result.Mode,
 		"status":            result.Status,
 		"scope":             result.Scope,
@@ -266,6 +272,11 @@ func kbaseToolFailure(err error) contracts.ToolExecutionResult {
 	if kind == ErrorUnavailable {
 		structured["stale"] = true
 		structured["unavailable"] = true
+	}
+	if state, ok := err.(interface{ KnowledgeBaseState() map[string]any }); ok {
+		for k, v := range state.KnowledgeBaseState() {
+			structured[k] = v
+		}
 	}
 	result := contracts.ToolExecutionResult{
 		Output:     strings.TrimSpace(err.Error()),
