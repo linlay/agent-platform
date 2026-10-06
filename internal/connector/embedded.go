@@ -59,3 +59,7 @@ func (s Sources) installEmbeddedNative(name string) (Package, func(), error) {
 func (s Sources) InstallEmbeddedTaskControl() (Package, func(), error) {
 	return s.installEmbeddedNative("task-control")
 }
+
+func (s Sources) InstallEmbeddedKanbanControl() (Package, func(), error) {
+	return s.installEmbeddedNative("kanban-control")
+}

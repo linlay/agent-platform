@@ -28,7 +28,7 @@ func TestEmbeddedNativeConnectors(t *testing.T) {
 		t.Fatalf("catalog: %v %v", items, err)
 	}
 	// The two connectors own disjoint tools and can be mounted together.
-	if len(desktop.NativeTools()) != 10 || len(desktop.Skills) != 1 || desktop.Skills[0].Name != "platform-control" {
+	if len(desktop.NativeTools()) != 9 || len(desktop.Skills) != 1 || desktop.Skills[0].Name != "platform-control" {
 		t.Fatalf("desktop capabilities: %v %+v", desktop.NativeTools(), desktop.Skills)
 	}
 	if len(web.NativeTools()) != 15 || len(web.Skills) != 1 || web.Skills[0].Name != "web-control" || web.AuthMode != AuthNoAuth {

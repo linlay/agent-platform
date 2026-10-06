@@ -406,3 +406,14 @@ func TestTaskControlDefinitionsRequireMountAndRoot(t *testing.T) {
 		t.Fatal("child tools exposed")
 	}
 }
+
+func TestKanbanDefinitionsRequireOwnMount(t *testing.T) {
+	defs := []api.ToolDetailResponse{{Name: "desktop_kanban"}}
+	for _, owner := range []string{"", "builtin.platform-control", "builtin.kanban-control"} {
+		session := contracts.QuerySession{NativeConnectorTools: map[string]string{"desktop_kanban": owner}, ConnectorDirs: map[string]string{owner: "/mounted"}}
+		got := effectiveToolDefinitions(defs, []string{"desktop_kanban"}, session)
+		if (len(got) == 1) != (owner == "builtin.kanban-control") {
+			t.Fatalf("owner %q exposed %v", owner, got)
+		}
+	}
+}

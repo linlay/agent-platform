@@ -9,8 +9,9 @@ import (
 )
 
 func TestNativeConnectorToolsFollowFrozenMount(t *testing.T) {
-	tools := []string{"chat_start", "automation_manage", "desktop_shell", "workpanel_open", "surface_cdp", "awcp_invoke"}
+	tools := []string{"chat_start", "automation_manage", "desktop_kanban", "desktop_shell", "workpanel_open", "surface_cdp", "awcp_invoke"}
 	for id, want := range map[string]map[string]string{
+		connector.KanbanControlConnectorID:   {"desktop_kanban": connector.KanbanControlConnectorID},
 		connector.TaskControlConnectorID:     {"chat_start": connector.TaskControlConnectorID, "automation_manage": connector.TaskControlConnectorID},
 		connector.PlatformControlConnectorID: {"desktop_shell": connector.PlatformControlConnectorID},
 		connector.WebControlConnectorID:      {"workpanel_open": connector.WebControlConnectorID, "surface_cdp": connector.WebControlConnectorID, "awcp_invoke": connector.WebControlConnectorID},
@@ -28,7 +29,7 @@ func TestNativeConnectorToolsFollowFrozenMount(t *testing.T) {
 }
 
 func TestRuntimeModeToolNamesHidesDesktopOnlyPageTools(t *testing.T) {
-	tools := []string{"datetime", "desktop_shell", "workpanel_state", "workpanel_open", "workpanel_close", "surface_list", "surface_cdp", "awcp_manual", "awcp_invoke"}
+	tools := []string{"datetime", "desktop_kanban", "desktop_shell", "workpanel_state", "workpanel_open", "workpanel_close", "surface_list", "surface_cdp", "awcp_manual", "awcp_invoke"}
 	if got := RuntimeModeToolNames(tools, config.RuntimeModeDesktop); !reflect.DeepEqual(got, tools) {
 		t.Fatalf("desktop runtime: %v", got)
 	}

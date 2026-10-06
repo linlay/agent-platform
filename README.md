@@ -413,3 +413,5 @@ docker compose logs -f
 知识库中心：部署级独立知识库、多 collection 建库、手动 KBX 索引更新，以及综合/全文/向量/图召回方式选择，图谱构建尚未接通，见 [知识库中心](docs/知识库中心.md)。
 
 `builtin.task-control`（任务管理）独立提供五个 Chat 工具和两个 Automation 工具；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
+
+`builtin.kanban-control`（看板控制）独立提供 `desktop_kanban` 的六个看板动作，依赖 Desktop；原 `builtin.platform-control` 挂载不再授予看板能力。需要看板的 Agent 应显式挂载新连接器，详见 [连接器](docs/连接器.md#kanban-control-看板控制)。

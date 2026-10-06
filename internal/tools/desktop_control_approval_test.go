@@ -27,8 +27,9 @@ func TestDesktopControlRequiresExactOneShotApproval(t *testing.T) {
 			root := t.TempDir()
 			executor, e, invoker := desktopCDPParamsTestRuntime(root)
 			e.CurrentToolID = "install-call"
-			e.Session.ConnectorDirs = map[string]string{connector.PlatformControlConnectorID: root}
-			e.Session.NativeConnectorTools = map[string]string{tc.tool: connector.PlatformControlConnectorID}
+			owner, _ := connector.NativeToolConnector(tc.tool)
+			e.Session.ConnectorDirs = map[string]string{owner: root}
+			e.Session.NativeConnectorTools = map[string]string{tc.tool: owner}
 			args := map[string]any{"action": tc.action, "args": tc.params}
 			plan, err := executor.PrepareToolApproval(context.Background(), tc.tool, args, e)
 			if err != nil || plan == nil || plan.ViewportKey != "" || !plan.AllowAutoApprove {
@@ -97,8 +98,9 @@ func TestDesktopControlPresentationAndHostOwnedActions(t *testing.T) {
 		{"desktop_market", "market.installItem"}, {"desktop_market", "market.updateItem"}, {"desktop_market", "market.uninstallItem"},
 		{"desktop_market", "market.exportSandboxImage"}, {"desktop_webapp", "webapp.install"}, {"desktop_webapp", "webapp.publish"},
 	} {
-		e.Session.ConnectorDirs = map[string]string{connector.PlatformControlConnectorID: t.TempDir()}
-		e.Session.NativeConnectorTools = map[string]string{tc.tool: connector.PlatformControlConnectorID}
+		owner, _ := connector.NativeToolConnector(tc.tool)
+		e.Session.ConnectorDirs = map[string]string{owner: t.TempDir()}
+		e.Session.NativeConnectorTools = map[string]string{tc.tool: owner}
 		args := map[string]any{"action": tc.action, "args": map[string]any{}}
 		plan, err := executor.PrepareToolApproval(context.Background(), tc.tool, args, e)
 		if err != nil || plan != nil {

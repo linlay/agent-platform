@@ -112,7 +112,7 @@ Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符�
 
 ## Desktop 反向 Provider
 
-平台控制连接器提供 10 个静态工具，各自 action 枚举固定；任务管理连接器 `builtin.task-control` 提供 7 个工具（5 个 Chat、2 个 Automation），其中三个 Chat 执行工具使用直接参数，其余使用 action/args；网页连接器提供 15 个固定参数工具。Desktop 动作在内部映射到原有反向请求，注册表由 internal/connector/control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
+平台控制连接器提供 9 个静态工具，各自 action 枚举固定；看板连接器 `builtin.kanban-control` 独立提供 `desktop_kanban` 的 6 个动作；任务管理连接器 `builtin.task-control` 提供 7 个工具（5 个 Chat、2 个 Automation），其中三个 Chat 执行工具使用直接参数，其余使用 action/args；网页连接器提供 15 个固定参数工具。Desktop 动作在内部映射到原有反向请求，注册表由 internal/connector/control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
 
 - Desktop 模式：`desktop_action` 与 `workpanel_*` 以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`surface_*` 使用 `desktop.cdp.call`（`surface_element` 使用 `desktop.web.interactElement` 动作），`awcp_manual` / `awcp_invoke` 分别映射到 `desktop.awcp.manual` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
 - Standalone 模式：只有 `desktop.workpanel.*`（不含 `openLocalFile`）与 `desktop.display` 具体类型发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`。会话只暴露 `workpanel_*`，`surface_*` 与 `awcp_*` 不提供给模型，直接调用返回 `desktop_cdp_unsupported_runtime`。

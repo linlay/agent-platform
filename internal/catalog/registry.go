@@ -344,6 +344,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	assembler.modePresets = cfg.ModePresets
 	assembler.presetTools = append([]string(nil), cfg.PresetTools...)
 	assembler.presetConnectors = append([]string(nil), cfg.PresetConnectors...)
+	assembler.connectors.NativeKanbanControlDir = cfg.Paths.NativeKanbanControlDir
 	assembler.connectors.NativeTaskControlDir = cfg.Paths.NativeTaskControlDir
 	assembler.connectors.NativePlatformControlDir = cfg.Paths.NativePlatformControlDir
 	assembler.connectors.NativeWebControlDir = cfg.Paths.NativeWebControlDir

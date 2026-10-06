@@ -3,6 +3,7 @@ package connector
 import "strings"
 
 const (
+	KanbanControlConnectorID   = "builtin.kanban-control"
 	TaskControlConnectorID     = "builtin.task-control"
 	PlatformControlConnectorID = "builtin.platform-control"
 	WebControlConnectorID      = "builtin.web-control"
@@ -11,8 +12,9 @@ const (
 // nativeConnectorTools is the single source of truth for which Platform tools
 // a native connector mounts. Tool names never come from the package itself.
 var nativeConnectorTools = map[string][]string{
+	KanbanControlConnectorID:   {"desktop_kanban"},
 	TaskControlConnectorID:     {"chat_start", "chat_get_status", "chat_interrupt", "chat_query", "chat_manage", "automation_query", "automation_manage"},
-	PlatformControlConnectorID: {"catalog_query", "catalog_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market", "desktop_kanban"},
+	PlatformControlConnectorID: {"catalog_query", "catalog_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market"},
 	WebControlConnectorID: {
 		"workpanel_state", "workpanel_open", "workpanel_close",
 		"surface_list", "surface_state", "surface_navigate", "surface_activate", "surface_close",
@@ -29,7 +31,7 @@ func IsNative(id string) bool {
 
 // NativeConnectorIDs lists the embedded native connectors in stable order.
 func NativeConnectorIDs() []string {
-	return []string{PlatformControlConnectorID, TaskControlConnectorID, WebControlConnectorID}
+	return []string{KanbanControlConnectorID, PlatformControlConnectorID, TaskControlConnectorID, WebControlConnectorID}
 }
 
 // NativeToolConnector returns the native connector that owns a Platform tool.
@@ -57,5 +59,5 @@ func (p Package) NativeTools() []string {
 // control and AWCP need the Desktop page host.
 func NativeToolRequiresDesktop(tool string) bool {
 	id, ok := NativeToolConnector(tool)
-	return ok && (id == PlatformControlConnectorID && strings.HasPrefix(tool, "desktop_") || id == WebControlConnectorID && !strings.HasPrefix(tool, "workpanel_"))
+	return ok && (id == KanbanControlConnectorID || id == PlatformControlConnectorID && strings.HasPrefix(tool, "desktop_") || id == WebControlConnectorID && !strings.HasPrefix(tool, "workpanel_"))
 }

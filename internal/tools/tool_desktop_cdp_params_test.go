@@ -222,7 +222,7 @@ func desktopCDPParamsTestRuntime(root string) (*RuntimeToolExecutor, *ExecutionC
 	execCtx := desktopActionTestExecutionContext()
 	execCtx.Session.WorkspaceRoot = root
 	execCtx.Session.NativeConnectorTools = mountedNativeToolsForTest()
-	execCtx.Session.ConnectorDirs = map[string]string{connector.PlatformControlConnectorID: root, connector.WebControlConnectorID: root}
+	execCtx.Session.ConnectorDirs = map[string]string{connector.KanbanControlConnectorID: root, connector.PlatformControlConnectorID: root, connector.WebControlConnectorID: root}
 	executor.cfg.Paths.StateDir = filepath.Join(root, ".state")
 	return executor, execCtx, invoker
 }

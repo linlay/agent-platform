@@ -1,0 +1,19 @@
+{
+  "id": "builtin.kanban-control",
+  "name": "Kanban Control",
+  "icon": "assets/icon.svg",
+  "version": "1.0.0",
+  "type": "native",
+  "auth_mode": "no_auth",
+  "description": "Manage Desktop kanban issues and workflow",
+  "i18n": {
+    "en": {
+      "name": "Kanban Control",
+      "description": "Manage Desktop kanban issues and workflow"
+    },
+    "zh-CN": {
+      "name": "看板控制",
+      "description": "管理 Desktop 看板事项与工作流"
+    }
+  }
+}
