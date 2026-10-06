@@ -76,3 +76,39 @@ func TestMemoryEvidenceOriginalTextWithoutSyntheticContext(t *testing.T) {
 		t.Fatal(out)
 	}
 }
+
+func TestMemoryArchiveEvidenceUsesOriginalSources(t *testing.T) {
+	s, err := newArchiveStore(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.db.Close()
+	archived := testArchivedChat("history", "agent", "History", "Done")
+	if err = s.ArchiveChat(archived); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.MemoryChats(context.Background(), 1, 0, "", 200)
+	if err != nil || len(rows) != 1 || rows[0].ChatID != "history" {
+		t.Fatal(rows, err)
+	}
+	runs, err := s.ListRuns("history")
+	if err != nil || len(runs) == 0 {
+		t.Fatal(runs, err)
+	}
+	raw := `{"_type":"query","runId":"` + runs[0].RunID + `","updatedAt":1790985600000,"query":{"role":"user","message":"请用中文"}}
+{"_type":"query","runId":"` + runs[0].RunID + `","updatedAt":1790985600000,"query":{"kind":"system-init","message":"secret"}}`
+	if _, err = s.db.Exec("UPDATE ARCHIVED_CHATS SET JSONL_CONTENT_=? WHERE CHAT_ID_=?", raw, "history"); err != nil {
+		t.Fatal(err)
+	}
+	messages, err := s.MemoryMessages("history", runs[0].RunID)
+	if err != nil || len(messages) != 1 || messages[0].Content != "请用中文" {
+		t.Fatal(messages, err)
+	}
+	if _, err = s.db.Exec("UPDATE ARCHIVED_CHATS SET SOURCE_='automation:test' WHERE CHAT_ID_='history'"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = s.MemoryChats(context.Background(), 1, 0, "", 200)
+	if err != nil || len(rows) != 0 {
+		t.Fatal(rows, err)
+	}
+}

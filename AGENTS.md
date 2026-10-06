@@ -8,7 +8,7 @@
 
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
-Memory 由 Platform worker 调用 memx 维护 summary 与 daily；知识库读取使用受管 KBX CLI，索引 update/refresh 尚未接通。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
+Memory 由 Platform worker 调用 memx 维护 summary 与 daily，支持定时增量与手工日期范围任务（独立进度、配置模型）；知识库读取使用受管 KBX CLI，索引 update/refresh 尚未接通。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
 
 ## 2. 技术栈
 

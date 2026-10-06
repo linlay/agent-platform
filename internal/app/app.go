@@ -447,7 +447,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		func(key string) (string, bool) {
 			def, ok := registry.AgentDefinition(key)
 			return def.Workspace.ProjectDir(), ok && def.MemoryConfig.Enabled && def.Engine == catalog.AgentEngineNative && def.ProxyConfig == nil && def.Mode != "CHANNEL"
-		})
+		}).WithArchives(archiveStore)
 	if err := toolExecutor.RegisterHandler(&memoryworker.ToolHandler{Worker: memoryWorker}); err != nil {
 		return nil, fmt.Errorf("register memory maintenance: %w", err)
 	}

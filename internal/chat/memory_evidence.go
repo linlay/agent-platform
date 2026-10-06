@@ -68,6 +68,10 @@ func (s *FileStore) MemoryMessages(chatID, runID string) ([]MemoryMessage, error
 	if err != nil {
 		return nil, err
 	}
+	return memoryMessagesFromLines(lines, runID), nil
+}
+
+func memoryMessagesFromLines(lines []map[string]any, runID string) []MemoryMessage {
 	var out []MemoryMessage
 	for _, line := range lines {
 		if stringValue(line["runId"]) != runID || stringValue(line["taskId"]) != "" || stringValue(line["subAgentKey"]) != "" || stringValue(line["taskSubAgentKey"]) != "" || stringValue(line["teamId"]) != "" {
@@ -113,5 +117,5 @@ func (s *FileStore) MemoryMessages(chatID, runID string) ([]MemoryMessage, error
 			}
 		}
 	}
-	return out, nil
+	return out
 }

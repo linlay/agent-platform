@@ -24,29 +24,36 @@ type Chats interface {
 }
 type Eligibility func(string) (project string, enabled bool)
 type Status struct {
-	Enabled             bool   `json:"enabled"`
-	Automatic           bool   `json:"automatic"`
-	PollIntervalSeconds int    `json:"pollIntervalSeconds"`
-	State               string `json:"state"`
-	StartedAt           int64  `json:"startedAt,omitempty"`
-	FinishedAt          int64  `json:"finishedAt,omitempty"`
-	Processed           int    `json:"processedBatches"`
-	Error               string `json:"error,omitempty"`
+	Enabled             bool         `json:"enabled"`
+	Automatic           bool         `json:"automatic"`
+	PollIntervalSeconds int          `json:"pollIntervalSeconds"`
+	State               string       `json:"state"`
+	StartedAt           int64        `json:"startedAt,omitempty"`
+	FinishedAt          int64        `json:"finishedAt,omitempty"`
+	Processed           int          `json:"processedBatches"`
+	Error               string       `json:"error,omitempty"`
+	ModelKey            string       `json:"modelKey"`
+	Timezone            string       `json:"timezone"`
+	Manual              *RangeStatus `json:"manual,omitempty"`
 }
 type Worker struct {
-	cfg        config.MemoryConfig
-	stateDir   string
-	location   *time.Location
-	chats      Chats
-	cli        CLI
-	syncConfig ConfigSync
-	eligible   Eligibility
-	mu         sync.Mutex
-	status     Status
-	wake       chan struct{}
-	done       chan struct{}
-	started    bool
-	ctx        context.Context
+	cfg          config.MemoryConfig
+	stateDir     string
+	location     *time.Location
+	chats        Chats
+	archives     Chats
+	manual       *RangeStatus
+	manualCancel context.CancelFunc
+	cancelRange  bool
+	cli          CLI
+	syncConfig   ConfigSync
+	eligible     Eligibility
+	mu           sync.Mutex
+	status       Status
+	wake         chan struct{}
+	done         chan struct{}
+	started      bool
+	ctx          context.Context
 }
 
 func New(cfg config.MemoryConfig, stateDir string, chats Chats, cli CLI, syncConfig ConfigSync, eligible Eligibility) *Worker {
@@ -54,17 +61,17 @@ func New(cfg config.MemoryConfig, stateDir string, chats Chats, cli CLI, syncCon
 	if loc == nil {
 		loc = time.Local
 	}
-	return &Worker{cfg: cfg, stateDir: stateDir, location: loc, chats: chats, cli: cli, syncConfig: syncConfig, eligible: eligible, wake: make(chan struct{}, 1), done: make(chan struct{}), status: Status{Enabled: cfg.Enabled, Automatic: cfg.Worker.Enabled, PollIntervalSeconds: cfg.Worker.PollIntervalSeconds, State: "idle"}}
+	return &Worker{cfg: cfg, stateDir: stateDir, location: loc, chats: chats, cli: cli, syncConfig: syncConfig, eligible: eligible, wake: make(chan struct{}, 1), done: make(chan struct{}), status: Status{Enabled: cfg.Enabled, Automatic: cfg.Worker.Enabled, PollIntervalSeconds: cfg.Worker.PollIntervalSeconds, ModelKey: cfg.Worker.ModelKey, Timezone: loc.String(), State: "idle"}}
 }
-func (w *Worker) Status() Status { w.mu.Lock(); defer w.mu.Unlock(); return w.status }
+func (w *Worker) Status() Status { w.mu.Lock(); defer w.mu.Unlock(); return w.statusLocked() }
 func (w *Worker) Trigger() (Status, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if !w.cfg.Enabled || !w.started || w.ctx.Err() != nil {
-		return w.status, fmt.Errorf("memory worker unavailable")
+		return w.statusLocked(), fmt.Errorf("memory worker unavailable")
 	}
 	if w.status.State == "running" || w.status.State == "queued" {
-		return w.status, nil
+		return w.statusLocked(), nil
 	}
 	w.status.State = "queued"
 	w.status.Error = ""
@@ -72,7 +79,7 @@ func (w *Worker) Trigger() (Status, error) {
 	case w.wake <- struct{}{}:
 	default:
 	}
-	return w.status, nil
+	return w.statusLocked(), nil
 }
 func (w *Worker) Start(ctx context.Context) {
 	w.mu.Lock()
@@ -82,24 +89,22 @@ func (w *Worker) Start(ctx context.Context) {
 	}
 	w.started = true
 	w.ctx = ctx
+	w.restoreRangeLocked()
 	w.mu.Unlock()
 	go func() {
 		defer close(w.done)
-		if w.cfg.Enabled && !w.cfg.Worker.Enabled {
-			if err := w.syncModels(ctx); err != nil {
-				w.mu.Lock()
-				w.status.State = "failed"
-				w.status.Error = err.Error()
-				w.mu.Unlock()
-			}
-		}
 		interval := time.Duration(w.cfg.Worker.PollIntervalSeconds) * time.Second
 		if interval <= 0 {
 			interval = 5 * time.Minute
 		}
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		if w.cfg.Enabled && w.cfg.Worker.Enabled {
+		if w.cfg.Enabled && w.hasPendingRange() {
+			select {
+			case w.wake <- struct{}{}:
+			default:
+			}
+		} else if w.cfg.Enabled && w.cfg.Worker.Enabled {
 			_, _ = w.Trigger()
 		}
 		for {
@@ -114,6 +119,10 @@ func (w *Worker) Start(ctx context.Context) {
 			}
 			if ctx.Err() != nil {
 				return
+			}
+			if w.hasPendingRange() {
+				w.executeRange(ctx)
+				continue
 			}
 			w.mu.Lock()
 			w.status.State = "running"
@@ -350,7 +359,7 @@ func makeBatches(r chat.RunSummary, project string, messages []chat.MemoryMessag
 		}
 		// A failed/cancelled run can still contain explicit user corrections, but its
 		// assistant output must never be summarized as completed work.
-		if m.Role == "assistant" && r.FinishReason != "stop" && r.FinishReason != "end_turn" {
+		if m.Role == "assistant" && r.FinishReason != "complete" && r.FinishReason != "stop" && r.FinishReason != "end_turn" {
 			continue
 		}
 		runes := []rune(m.Content)

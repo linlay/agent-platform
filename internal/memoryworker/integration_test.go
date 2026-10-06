@@ -117,3 +117,65 @@ func TestMemxIntegration(t *testing.T) {
 		t.Fatal("inherited config directory was used", err)
 	}
 }
+
+func TestRangeMemxIntegration(t *testing.T) {
+	binary := os.Getenv("MEMX_TEST_BINARY")
+	if binary == "" {
+		t.Skip("set MEMX_TEST_BINARY for subprocess integration")
+	}
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var req struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.Model != "configured-extraction-model" || len(req.Messages) != 2 {
+			t.Error("configuration not used")
+			w.WriteHeader(400)
+			return
+		}
+		var payload struct {
+			Evidence Batch `json:"evidence"`
+		}
+		if json.Unmarshal([]byte(req.Messages[1].Content), &payload) != nil || len(payload.Evidence.Sources) == 0 {
+			w.WriteHeader(400)
+			return
+		}
+		src := payload.Evidence.Sources[0]
+		facts, _ := json.Marshal(map[string]any{"facts": []any{map[string]any{"key": "language", "text": src.Content, "sourceId": src.ID, "quote": src.Content, "durable": true}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": string(facts)}}}})
+	}))
+	defer upstream.Close()
+	cli := Client{Binary: binary, Root: t.TempDir(), ConfigDir: t.TempDir(), Timezone: "UTC"}
+	config, _ := json.Marshal(map[string]any{"schemaVersion": 1, "models": map[string]any{"extraction": map[string]any{"protocol": "openai_chat", "url": upstream.URL, "model": "configured-extraction-model", "auth": map[string]string{"type": "none"}, "timeoutSeconds": 10, "parameters": map[string]int{"maxOutputTokens": 4096}}}})
+	if err := cli.SetConfig(context.Background(), config); err != nil {
+		t.Fatal(err)
+	}
+	worker, _, _ := workerFixture(t, cli)
+	job := manualJob(worker, "2026-10-03", "2026-10-03")
+	if err := worker.runRange(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	if job.NewFacts == nil || *job.NewFacts != 1 || job.ProcessedBatches != 1 {
+		t.Fatalf("%+v", job)
+	}
+	for _, path := range []string{"daily/2026-10-03.md", "summary.md"} {
+		b, err := os.ReadFile(filepath.Join(cli.Root, path))
+		if err != nil || !strings.Contains(string(b), "请使用中文") {
+			t.Fatal(path, err, string(b))
+		}
+	}
+	job = manualJob(worker, "2026-10-02", "2026-10-04")
+	if err := worker.runRange(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || job.ReusedBatches != 1 {
+		t.Fatal("overlapping range re-extracted", calls.Load(), job)
+	}
+	if _, err := os.Stat(filepath.Join(worker.stateDir, "checkpoint.json")); !os.IsNotExist(err) {
+		t.Fatal("range touched incremental state", err)
+	}
+}
