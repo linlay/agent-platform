@@ -340,6 +340,10 @@ func buildSessionSection(session QuerySession) string {
 	return strings.Join(lines, "\n")
 }
 
+// chatDirDescription tells the model where run-authored scripts skip execution
+// approval; the rule itself lives in accesspolicy.authoredScriptExempt.
+const chatDirDescription = "Current chat files, artifacts, temporary code and files; scripts written here with file_write run without approval"
+
 func appendContextPaths(lines *[]string, session QuerySession) {
 	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
 		appendSandboxContextPaths(lines, session.RuntimeContext.SandboxPaths, session.RuntimeContext.LocalMode)
@@ -356,7 +360,7 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 		panDirDesc = "User drive directory"
 	}
 	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "Relative path base / permission workspace root")
-	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "Current chat files, artifacts, temporary code and files")
+	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, chatDirDescription)
 	appendContextDir(lines, "root_dir", paths.RootDir, rootDirDesc)
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "Current Agent private skills")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "Current Agent runtime directory")
@@ -377,7 +381,7 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 
 func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "Relative path base / permission workspace root")
-	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "Current chat files, artifacts, temporary code and files")
+	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, chatDirDescription)
 	appendContextDir(lines, "root_dir", paths.RootDir, "Root directory")
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "Current Agent private skills")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "Current Agent runtime directory")

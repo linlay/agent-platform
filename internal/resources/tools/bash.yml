@@ -7,7 +7,8 @@ i18n:
 description: |
   Run allowlisted host shell commands. Windows runs through PowerShell by default; Unix/macOS run through bash/sh.
   Use bash for running commands, tests, builds, package managers, git, and other terminal operations. When file_write/file_edit are available, create or edit files with those tools first, then use bash only to run them.
-  A script fully written by file_write in this run, with unchanged bytes (or subsequent verified file_edit changes), skips only opaque-entry approval. This applies to interpreter invocation and direct script execution; it does not grant directory access or approve other commands. Other scripts and custom executables require approval at default, are audited auto-approvals at auto_approve, and are allowed at full_access. Existing direct temporary Python/Node exceptions remain; /tmp is not a general executable allowlist.
+  A script this run wrote into @chat with file_write (and file_edit afterwards), still unchanged, runs without approval; write one-off scripts there. Other scripts, including those in @temp or /tmp, and custom executables need approval at the default access level. Only the script's own entry is exempt, not other commands or path rules.
+  The command string does not expand @chat or @temp: use the absolute filePath returned by file_write, or set cwd to the root and use a relative file name.
   Use the cwd parameter for directory changes; do not inline `cd /path && ...` when cwd can express the target directory.
   Shell syntax may be available, but security policy can block control operators, redirections, substitutions, and opaque scripts.
   Avoid writing commands like `cd /path && command`, `cmd1; cmd2`, `cmd1 && cmd2`, `cmd1 || cmd2`, `cmd1 | cmd2`, `cmd > file`, `cmd 2>&1`, `cmd >/dev/null 2>&1`, `$(cmd)`, backticks, heredocs, `eval`, `source`, or background jobs with `&`.
