@@ -124,7 +124,7 @@ func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limi
 			args = append(args, "--full")
 		}
 		if operation == "query" {
-			args = append(args, "--no-rerank")
+			args = append(args, "--no-rerank", "--explain")
 		}
 		for _, name := range collections {
 			args = append(args, "-c", name)
@@ -150,6 +150,10 @@ func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limi
 			if err != nil {
 				return nil, err
 			}
+		}
+		result, err = withSimilarityScores(result, operation)
+		if err != nil {
+			return nil, err
 		}
 		return withDocumentSources(result, "results", collections)
 	}
