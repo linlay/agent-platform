@@ -184,3 +184,7 @@ Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定
 ### Automation 管理审阅
 
 `automation_manage` 使用独立业务审批：create/update/setEnabled → `automation_review`，trigger → `automation_trigger_review`，delete → `automation_delete_review`。非删除动作允许 auto_approve/full_access 自动批准，delete 始终人工批准。授权绑定调用身份、完整候选和 baseRevision，执行时消费一次；版本冲突不复用旧授权。调用完成收据只用于同次调用幂等，不授予下一次调用权限。具体输入、状态和中断恢复见 [自动化](自动化.md#platform-control-管理工具)。
+
+### 审阅 HTML 自适应高度
+
+内置 viewport 加载入口为所有 HTML 统一注入 `shared/resize.js`，不依赖具体审阅组件，也不需要模板逐一接入；新增内置 HTML 自动覆盖。尺寸桥接通过 `ResizeObserver` 测量自然正文高度，在正文展开、收起、详情浮层开关或宽度变化时向宿主发送 `awaiting_resize`，包含当前 `runId`、`awaitingId`、`formId` 和 `height`（CSS 像素）。WebClient 仅接收当前 iframe 与表单对应的有限正数高度，短内容收缩，长内容受宿主整体最大高度约束并在 iframe 内滚动；不支持上报的模板保留默认尺寸。该消息只影响布局，不参与 collect、批准或拒绝。

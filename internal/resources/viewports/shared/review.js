@@ -73,8 +73,7 @@ const Review = (() => {
           }
           if (!panel.hidden) {
             // Keep the floating panel inside this iframe, including short reviews.
-            const available = Math.max(80, innerHeight - 84);
-            pre.style.maxHeight = Math.min(260, available) + 'px';
+            pre.style.maxHeight = '260px';
             main.style.minHeight = (panel.offsetTop + panel.offsetHeight) + 'px';
           }
         }
@@ -135,9 +134,15 @@ const Review = (() => {
           main.replaceChildren(node('p', 'notice warning', t('内容加载失败，请重新提交。', 'Unable to display this request. Resubmit it.')));
         }
         document.getElementById('review').replaceChildren(main);
-        requestAnimationFrame(measure);
+        const observer = new ResizeObserver(measure);
+        observer.observe(main);
+        const pendingMeasure = requestAnimationFrame(measure);
         addEventListener('resize', measure);
-        dispose = () => removeEventListener('resize', measure);
+        dispose = () => {
+          observer.disconnect();
+          cancelAnimationFrame(pendingMeasure);
+          removeEventListener('resize', measure);
+        };
       }
       if (message.type === 'awaiting_collect' && state && message.data?.runId === state.runId && message.data?.awaitingId === state.awaitingId && message.data?.decision === 'submit') {
         parent.postMessage({type: 'frontend_awaiting_submit', params: [{id: state.activeFormId, decision: 'approve', form: state.form || {}}]}, '*');

@@ -2,8 +2,12 @@ package viewport
 
 import (
 	"context"
+	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/resources"
 )
 
 func TestServiceProvidesBuiltinApprovalTemplates(t *testing.T) {
@@ -40,5 +44,26 @@ func TestServiceRejectsInvalidKeysAndExternalTemplates(t *testing.T) {
 		if err != nil || payload["status"] != "not_implemented" {
 			t.Fatalf("external template %s: %#v %v", key, payload, err)
 		}
+	}
+}
+
+// Enumerate the embedded directory so new templates cannot miss the common bridge.
+func TestEveryBuiltinViewportHasSizingBridge(t *testing.T) {
+	files, err := fs.Glob(resources.ViewportFS, "viewports/*.html")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("enumerate viewports: %v", err)
+	}
+	for _, file := range files {
+		key := strings.TrimSuffix(filepath.Base(file), ".html")
+		t.Run(key, func(t *testing.T) {
+			payload, err := NewService().Get(context.Background(), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			html := payload["html"].(string)
+			if strings.Count(html, "<script data-viewport-resize>") != 1 || strings.Count(html, "type: 'awaiting_resize'") != 1 {
+				t.Fatal("each builtin must include exactly one shared sizing bridge")
+			}
+		})
 	}
 }

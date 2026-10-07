@@ -41,5 +41,17 @@ func (s *Service) Get(_ context.Context, key string) (map[string]any, error) {
 			page = strings.ReplaceAll(page, asset.marker, string(content))
 		}
 	}
+	// Every builtin template gets the same sizing bridge, including templates
+	// that do not use the review renderer. Templates own their natural layout.
+	resize, err := resources.ViewportFS.ReadFile("viewports/shared/resize.js")
+	if err != nil {
+		return nil, err
+	}
+	bridge := "<script data-viewport-resize>" + string(resize) + "</script>"
+	if end := strings.LastIndex(strings.ToLower(page), "</body>"); end >= 0 {
+		page = page[:end] + bridge + page[end:]
+	} else {
+		page += bridge
+	}
 	return map[string]any{"viewportKey": key, "html": page}, nil
 }
