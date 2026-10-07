@@ -14,7 +14,7 @@ func TestReasoningLabelForIDIsDeterministic(t *testing.T) {
 }
 
 func TestReasoningLabelForIDFallsBackForEmptyID(t *testing.T) {
-	if got := ReasoningLabelForID(""); got != "正在思考" {
+	if got := ReasoningLabelForID(""); got != "Thinking" {
 		t.Fatalf("expected first reasoning label for empty id fallback, got %q", got)
 	}
 }

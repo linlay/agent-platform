@@ -293,7 +293,7 @@ func LocalizeValue(locale string, value any) any {
 	if err != nil {
 		return value
 	}
-	if ResolveLocale(locale) == LocaleEN && !bytes.Contains(data, []byte(`"toolI18n"`)) {
+	if ResolveLocale(locale) == LocaleEN && !bytes.Contains(data, []byte(`"toolI18n"`)) && !bytes.Contains(data, []byte(`"reasoningId"`)) {
 		return value
 	}
 	var decoded any
@@ -312,6 +312,10 @@ func LocalizeEventPayload(locale string, eventType string, payload map[string]an
 		return payload
 	}
 	switch eventType {
+	case "reasoning.start", "reasoning.snapshot":
+		reasoningID, _ := out["reasoningId"].(string)
+		out["reasoningLabel"] = ReasoningLabelForID(locale, reasoningID)
+		return out
 	case "run.error", "task.error", "awaiting.answer", "tool.start", "tool.snapshot":
 		return out
 	default:
@@ -327,6 +331,10 @@ func localizeJSONValue(locale string, value any) any {
 			out[key] = localizeJSONValue(locale, child)
 		}
 		localizeToolPresentation(locale, out)
+		if eventType, _ := out["type"].(string); eventType == "reasoning.start" || eventType == "reasoning.snapshot" {
+			reasoningID, _ := out["reasoningId"].(string)
+			out["reasoningLabel"] = ReasoningLabelForID(locale, reasoningID)
+		}
 		code, _ := out["code"].(string)
 		if message, ok := out["message"].(string); ok {
 			out["message"] = Translate(locale, code, message)

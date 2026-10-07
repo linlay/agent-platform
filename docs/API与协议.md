@@ -542,6 +542,8 @@ Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行
 
 预算错误闭合后的历史可以安全用于同一 Chat 的后续新 run。部署修复前已经缺少 tool result、且执行状态无法证明的历史不会自动修复，仍按 `chat_history_incomplete` 返回 `409`。
 
+`reasoning.start` 与 `reasoning.snapshot` 的 `reasoningLabel` 是按查看者语言解析的显示文案。`en`、`zh-CN` 各有 30 条，文案及固定对应顺序以 `internal/i18n/reasoning.go` 为事实源；中文文案不含「中」和「正在」。对 `TrimSpace(reasoningId)` 的 UTF-8 字节做 32 位 FNV-1a 哈希，再 `% 30` 选择同一组双语文案，语言不参与哈希；空 ID 使用第一组 `Thinking / 思考`。HTTP 使用请求语言，WebSocket 使用连接当前语言；SSE、attach、Chat/Archive 回放与 Snapshot 导出复用该规则。协议只保留现有 `reasoningLabel`，不增加 key 或翻译表。标签只作等待文案，推理正文保持原样。
+
 orchestrated Team 的总控 reasoning 和 `agent_delegate` 工具事件会被过滤，不进入客户端事件流。成员输出继续使用现有 `task.*` 与 task-scoped `content.*`：成员事件带 `taskId`，可带 `teamId`、成员 `agentKey`、`presentation:"task"`，并在 `actor` 中标记 `type:"agent"`。一项和多项委派使用相同终止规则，成员正文不会成为根回答；最终非流式 `content`、run summary 与 `AssistantText` 只取总控生成的唯一 Team 最终正文。
 
 `run.activity` 是运行中的非终止状态事件，用于展示当前 run 正在等待、运行、重试或完成某个活动阶段。基础字段为 `runId`、`chatId`、`phase`、`status`；可选字段包括 `taskId`、`backend`、`key`、`message`，以及按场景嵌套的 `retry` / `recovery` / `degradation` 对象。当前 native 模型调用使用 `phase:"model_call"`，可恢复重试使用 `status:"retrying"` 且把 `attempt`、`maxAttempts`、`reason`、`timeoutSeconds`、`elapsedMs` 放入 `retry`。重试的 `retry.error` 保留公共结构化错误（错误码、消息及诊断），供客户端明确展示重试原因。普通重试还携带 `retry.delayMs`（本次计划等待毫秒数）与 `retry.retryAt`（最早重试时间，epoch ms），顶层 `runSeq` 标识模型轮次；`attempt` 包含首次请求，客户端重试序号展示为 `attempt-1` / `maxAttempts-1`。等待前先发出事件，message 明确说明序号及等待秒数；等待支持取消。`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。`run.activity` 只用于 live / attach，默认不进入 `/api/chat` 历史回放。

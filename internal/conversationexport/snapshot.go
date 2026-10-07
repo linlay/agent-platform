@@ -9,6 +9,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
@@ -276,8 +277,10 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 	if len(title) > MaxTitleBytes {
 		return SnapshotDocument{}, ErrTooLarge
 	}
-	if locale != "en-US" {
-		locale = "zh-CN"
+	if i18n.ResolveLocale(i18n.LocaleZhCN, locale) == i18n.LocaleEN {
+		locale = "en-US"
+	} else {
+		locale = i18n.LocaleZhCN
 	}
 	snapshot := SnapshotV1{Version: SnapshotVersion, Title: title, Locale: locale, CreatedAt: summary.CreatedAt, CapturedAt: capturedAt, Turns: []TurnV1{}, Attachments: append([]AttachmentV1{}, attachments...)}
 	turnByRun := map[string]int{}
