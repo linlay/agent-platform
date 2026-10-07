@@ -262,7 +262,50 @@ func normalizeAwaitingAskPayload(eventType string, payload map[string]any) map[s
 	if strings.EqualFold(strings.TrimSpace(mode), "planning") {
 		delete(payload, "timeout")
 	}
+	// Native, proxy and replay events share this boundary. Option descriptions
+	// are local UI text; keep the approval title and question/form content.
+	if approvals, exists := payload["approvals"]; exists {
+		payload["approvals"] = mapAwaitingObjects(approvals, func(approval map[string]any) map[string]any {
+			item := clonePayload(approval)
+			if options, exists := item["options"]; exists {
+				item["options"] = mapAwaitingObjects(options, func(option map[string]any) map[string]any {
+					result := clonePayload(option)
+					delete(result, "description")
+					return result
+				})
+			}
+			return item
+		})
+	}
 	return payload
+}
+
+func mapAwaitingObjects(value any, transform func(map[string]any) map[string]any) any {
+	switch items := value.(type) {
+	case []any:
+		if items == nil {
+			return items
+		}
+		result := make([]any, len(items))
+		for i, item := range items {
+			result[i] = item
+			if object, ok := item.(map[string]any); ok {
+				result[i] = transform(object)
+			}
+		}
+		return result
+	case []map[string]any:
+		if items == nil {
+			return items
+		}
+		result := make([]map[string]any, len(items))
+		for i, item := range items {
+			result[i] = transform(item)
+		}
+		return result
+	default:
+		return value
+	}
 }
 
 func (d EventData) Value(key string) any {

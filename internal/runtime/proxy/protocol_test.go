@@ -80,3 +80,26 @@ func TestDecodeFramePreservesEventIdentity(t *testing.T) {
 		t.Fatalf("event = %#v", frame.Event)
 	}
 }
+
+func TestDecodeProxyApprovalDropsOptionDescription(t *testing.T) {
+	eventJSON := `{"seq":2,"type":"awaiting.ask","timestamp":1700000000000,"mode":"approval","approvals":[{"id":"permission-1","command":"echo ok","description":"approval title","options":[{"decision":"approve","description":"ACP option text"}]}]}`
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{"HTTP event", eventJSON},
+		{"WebSocket frame", `{"frame":"stream","id":"request-1","event":` + eventJSON + `}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			frame, ok, err := DecodeFrameAt([]byte(tc.data), "proxy.test")
+			if err != nil || !ok || !frame.HasEvent {
+				t.Fatalf("decode = %#v, ok=%v, err=%v", frame, ok, err)
+			}
+			approval := frame.Event.Payload["approvals"].([]any)[0].(map[string]any)
+			option := approval["options"].([]any)[0].(map[string]any)
+			if !reflect.DeepEqual(option, map[string]any{"decision": "approve"}) || approval["description"] != "approval title" {
+				t.Fatalf("unexpected approval payload: %#v", approval)
+			}
+		})
+	}
+}
