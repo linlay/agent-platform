@@ -194,12 +194,14 @@ func TestBuildSystemPromptAddsCoderSystemPromptOnlyForMainCoderStage(t *testing.
 
 func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
-		AgentKey:         "coder",
-		AgentName:        "Coder",
-		Mode:             "CODER",
-		PlanningMode:     false,
-		ToolNames:        []string{"bash", "file_read", "file_write", "file_edit", "ask_user_question", "plan_add_tasks", "plan_get_tasks", "plan_update_task"},
-		ModeSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{planning_mode}} {{workspace_dir}} {{available_tools}} {{planning_stage_tools}} {{execute_stage_tools}} {{file_read_tool_name}} {{ask_user_question_tool_name}}",
+		AgentKey:                "coder",
+		AgentName:               "Coder",
+		Mode:                    "CODER",
+		PlanningMode:            false,
+		ToolNames:               []string{"bash", "file_read", "file_write", "file_edit", "ask_user_question", "plan_add_tasks", "plan_get_tasks", "plan_update_task"},
+		PlanningExcludeTools:    []string{"bash", "file_write", "file_edit", "plan_add_tasks", "plan_update_task"},
+		PlanExecuteExcludeTools: []string{"ask_user_question"},
+		ModeSystemPrompt:        "CODER {{agent_key}} {{agent_name}} {{planning_mode}} {{workspace_dir}} {{available_tools}} {{planning_stage_tools}} {{execute_stage_tools}} {{file_read_tool_name}} {{ask_user_question_tool_name}}",
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{WorkspaceDir: "/workspace"},
 		},
@@ -220,7 +222,7 @@ func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 	for _, expected := range []string{
 		"CODER coder Coder false /workspace",
 		"bash, file_read, file_write, file_edit, ask_user_question, plan_add_tasks, plan_get_tasks, plan_update_task",
-		"file_read, file_glob, file_grep, datetime, regex, vision_recognize, ask_user_question, finalize_planning",
+		"file_read, ask_user_question, plan_get_tasks, finalize_planning",
 		"bash, file_read, file_write, file_edit, plan_add_tasks, plan_get_tasks, plan_update_task",
 		"file_read ask_user_question",
 	} {

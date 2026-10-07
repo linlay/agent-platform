@@ -142,7 +142,7 @@ func TestAssemblerBootstrapCanUseSyntheticQuery(t *testing.T) {
 			Message: "Execute planning",
 			Messages: []map[string]any{{
 				"role":    "user",
-				"content": "Execute the confirmed CODER planning.",
+				"content": "Execute the confirmed plan.",
 			}},
 			System: map[string]any{
 				"agentKey":    "coder",

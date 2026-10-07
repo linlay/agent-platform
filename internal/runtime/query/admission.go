@@ -53,7 +53,7 @@ func ApplyQueryModelOptionsToSession(options *queryinput.QueryModelOptions, sess
 	}
 	session.StageSettings = applyQueryModelOptionsToRawStageSettings(session.Mode, session.StageSettings, modelKey, reasoningEffort)
 	session.ResolvedPlanExecuteSettings = applyQueryModelOptionsToResolvedPlanExecuteSettings(session.ResolvedPlanExecuteSettings, modelKey, reasoningEffort)
-	session.ResolvedCoderPlanningSettings = applyQueryModelOptionsToResolvedCoderPlanningSettings(session.ResolvedCoderPlanningSettings, modelKey, reasoningEffort)
+	session.ResolvedPlanningSettings = applyQueryModelOptionsToResolvedPlanningSettings(session.ResolvedPlanningSettings, modelKey, reasoningEffort)
 }
 
 type queryAdmission struct {
@@ -157,6 +157,8 @@ func applyQueryModelOptionsToRawStageSettings(mode string, raw map[string]any, m
 	stages := []string{"plan", "execute", "summary"}
 	if agentbuiltin.IsCoderMode(mode) {
 		stages = []string{"planning", "execute"}
+	} else if agentbuiltin.PlanningModeSupported(mode) {
+		stages = append(stages, "planning")
 	}
 	for _, stage := range stages {
 		nested := contracts.CloneMap(contracts.AnyMapNode(out[stage]))
@@ -195,7 +197,7 @@ func normalizeQueryModelReasoningEffort(value string) (string, bool) {
 	return agentbuiltin.CoderNormalizeReasoningEffort(value)
 }
 
-func applyQueryModelOptionsToResolvedCoderPlanningSettings(settings contracts.CoderPlanningSettings, modelKey string, reasoningEffort string) contracts.CoderPlanningSettings {
+func applyQueryModelOptionsToResolvedPlanningSettings(settings contracts.PlanningModeSettings, modelKey string, reasoningEffort string) contracts.PlanningModeSettings {
 	apply := func(stage *contracts.StageSettings) {
 		if modelKey != "" {
 			stage.ModelKey = modelKey
@@ -488,8 +490,8 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if err := s.ValidateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
 	}
-	if req.PlanningMode != nil && *req.PlanningMode && !agentbuiltin.IsCoderMode(agentDef.Mode) {
-		return queryAdmission{}, &statusError{Status: 400, Message: "planningMode is only supported for CODER agents"}
+	if req.PlanningMode != nil && *req.PlanningMode && (orchestratedTeam || !agentbuiltin.PlanningModeSupported(agentDef.Mode)) {
+		return queryAdmission{}, &statusError{Status: 400, Message: "planningMode is only supported for GENERAL, CODER and KBASE agents"}
 	}
 	if req.EditingMode != nil && *req.EditingMode && !agentbuiltin.IsKBaseMode(agentDef.Mode) {
 		const code = "editing_mode_unsupported"

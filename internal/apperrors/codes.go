@@ -134,10 +134,12 @@ const (
 	CodePlanTaskNotCurrent            Code = "plan_task_not_current"
 	CodeInvalidPlanTaskTransition     Code = "invalid_plan_task_transition"
 	CodePlanningNotCreated            Code = "planning_not_created"
-	CodePlanNotCreated                Code = "plan_not_created"
-	CodeToolCallsNotAllowed           Code = "tool_calls_not_allowed"
-	CodeBTWToolLimitReached           Code = "btw_tool_limit_reached"
-	CodeTeamMemberFailed              Code = "team_member_failed"
+	// CodePlanningContinuationUnavailable: an approved plan had no new Run to execute in.
+	CodePlanningContinuationUnavailable Code = "planning_continuation_unavailable"
+	CodePlanNotCreated                  Code = "plan_not_created"
+	CodeToolCallsNotAllowed             Code = "tool_calls_not_allowed"
+	CodeBTWToolLimitReached             Code = "btw_tool_limit_reached"
+	CodeTeamMemberFailed                Code = "team_member_failed"
 
 	CodeBudgetExceeded                      Code = "budget_exceeded"
 	CodeModelCallsExceeded                  Code = "model_calls_exceeded"

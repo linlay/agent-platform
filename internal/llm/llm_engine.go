@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	"agent-platform/internal/agent/planmode"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
@@ -72,7 +74,7 @@ func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, t
 }
 
 func (e *LLMAgentEngine) Stream(ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
-	return resolveAgentMode(session.Mode).Start(e, ctx, req, session)
+	return startAgentMode(e, ctx, req, session)
 }
 
 func (e *LLMAgentEngine) newRunStream(ctx context.Context, req api.QueryRequest, session QuerySession, allowToolUse bool) (AgentStream, error) {
@@ -120,15 +122,15 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	execCtx := options.ExecCtx
 	if execCtx == nil {
 		execCtx = &ExecutionContext{
-			Request:               req,
-			Session:               session,
-			Budget:                session.ResolvedBudget,
-			PlanExecuteSettings:   session.ResolvedPlanExecuteSettings,
-			CoderPlanningSettings: session.ResolvedCoderPlanningSettings,
-			RunLimits:             session.RunLimits,
-			AccessLevel:           session.AccessLevel,
-			ToolExecutionPolicy:   session.ToolExecutionPolicy,
-			RunLoopState:          RunLoopStateIdle,
+			Request:              req,
+			Session:              session,
+			Budget:               session.ResolvedBudget,
+			PlanExecuteSettings:  session.ResolvedPlanExecuteSettings,
+			PlanningModeSettings: session.ResolvedPlanningSettings,
+			RunLimits:            session.RunLimits,
+			AccessLevel:          session.AccessLevel,
+			ToolExecutionPolicy:  session.ToolExecutionPolicy,
+			RunLoopState:         RunLoopStateIdle,
 		}
 	}
 	execCtx.Request = req
@@ -165,7 +167,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		}
 	}
 	e.restorePlanTasksForRun(execCtx, &session, options.Stage, effectiveDefs)
-	cacheKey := SystemInitCacheKey(session.Mode, options.Stage)
+	cacheKey := sessionSystemInitCacheKey(session, options.Stage)
 	cachedSystem, cachedTools, cacheOK := resolveCachedSystemInit(session, cacheKey)
 	if cacheOK && !session.PromptSnapshotRestored && !cachedSystemInitHasPlanTaskContext(cachedSystem, session.PlanTaskContext) {
 		cacheOK = false
@@ -402,14 +404,11 @@ func normalizeBudgetStageName(stage string) string {
 }
 
 func stageSettingsForSession(session QuerySession, stage string) StageSettings {
-	if agentcoder.IsMode(session.Mode) {
-		normalized := strings.ToLower(strings.TrimSpace(stage))
-		if session.PlanningMode || strings.HasPrefix(normalized, "coder-") || normalized == agentcoder.MainStage {
-			if strings.Contains(normalized, "planning") {
-				return session.ResolvedCoderPlanningSettings.Planning
-			}
-			return session.ResolvedCoderPlanningSettings.Execute
-		}
+	if planmode.IsPlanningStage(stage) && agentbuiltin.PlanningModeSupported(session.Mode) {
+		return session.ResolvedPlanningSettings.Planning
+	}
+	if agentcoder.IsMode(session.Mode) && (session.PlanningMode || strings.EqualFold(strings.TrimSpace(stage), agentcoder.MainStage)) {
+		return session.ResolvedPlanningSettings.Execute
 	}
 	return planExecuteStageSettingsForName(session.ResolvedPlanExecuteSettings, stage)
 }

@@ -102,6 +102,7 @@ var definitions = []Definition{
 	def(CodePlanTaskNotCurrent, CategoryTool, ScopeTask, http.StatusConflict, false),
 	def(CodeInvalidPlanTaskTransition, CategoryTool, ScopeTask, http.StatusConflict, false),
 	def(CodePlanningNotCreated, CategoryModel, ScopeRun, http.StatusInternalServerError, false),
+	def(CodePlanningContinuationUnavailable, CategorySystem, ScopeRun, http.StatusInternalServerError, false),
 	def(CodePlanNotCreated, CategorySystem, ScopeRun, http.StatusInternalServerError, false),
 	def(CodeToolCallsNotAllowed, CategorySystem, ScopeRun, http.StatusInternalServerError, false),
 	def(CodeBTWToolLimitReached, CategoryTool, ScopeTool, http.StatusInternalServerError, false),

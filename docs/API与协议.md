@@ -956,7 +956,7 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 
 `run.finished` 是 run 退出 active 状态的终态通知：`finishReason` 只允许 `complete | error | cancel`，对应的 `status` 分别是 `completed | failed | interrupted`。前端必须以 `status` 判断结果，不得仅因收到 `run.finished` 就当作成功；完整错误内容仍从同一 run 的 stream `run.error` 获取。
 
-`awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：对普通 HITL 等待项，`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。CODER planning confirmation 使用 `mode:"planning"` 和同时包含 `planningId + planningFile` 的 `planning` payload，永远省略 `timeout`，表示永久等待；它不同于 `plan_*` / plan-tasks 的执行任务计划。awaiting mode 只允许 `question | approval | form | planning`。
+`awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：对普通 HITL 等待项，`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。planning confirmation 使用 `mode:"planning"` 和同时包含 `planningId + planningFile` 的 `planning` payload，永远省略 `timeout`，表示永久等待；它不同于 `plan_*` / plan-tasks 的执行任务计划。awaiting mode 只允许 `question | approval | form | planning`。
 
 stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会显示超时秒数和原因；`error` 可附带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
 
@@ -1207,7 +1207,7 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
 
 ### planning 期间的 steer
 
-活动 native CODER planning Run 的阶段结束不会关闭 Run 的 steer 队列。生成候选计划期间入队的 steer 会在当前模型调用结束后使该计划失效，并在同一 Run 中生成新 revision；等待确认期间收到 steer 也会立即使旧确认失效并唤醒规划。旧计划失效统一发布 `planning.superseded`，字段为 `planningId`、`planningFile`、`awaitingId`、`reason:"steer"`；客户端应将该计划标为已失效，不再允许执行。已有确认框还会收到 `awaiting.answer(status:"error", error.code:"planning_superseded")`，没有确认框时不会补造 `awaiting.ask` 或 `request.submit`。
+活动原生 planning Run（GENERAL/CODER/KBASE）的一轮规划结束不会关闭 Run 的 steer 队列。生成候选计划期间入队的 steer 会在当前模型调用结束后使该计划失效，并在同一 Run 中生成新 revision；等待确认期间收到 steer 也会立即使旧确认失效并唤醒规划。旧计划失效统一发布 `planning.superseded`，字段为 `planningId`、`planningFile`、`awaitingId`、`reason:"steer"`；客户端应将该计划标为已失效，不再允许执行。已有确认框还会收到 `awaiting.answer(status:"error", error.code:"planning_superseded")`，没有确认框时不会补造 `awaiting.ask` 或 `request.submit`。
 
 steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 返回 `409 already_resolved`；approve 先被接受并创建 execution continuation 时，旧 Run 的 steer 返回 `accepted:false,status:"unmatched"`。后续指令应发往新 execution Run。新计划仍需重新确认。此行为适用于仍有 planning 执行者的活动 Run，跨进程 suspended 等待项仍通过 submit 恢复；完整时序见 [HITL协议](HITL协议.md)。
 

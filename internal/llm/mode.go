@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
+	"agent-platform/internal/agent/planmode"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
@@ -24,8 +24,6 @@ func resolveAgentMode(mode string) AgentMode {
 		return oneshotMode{}
 	case "PLAN_EXECUTE", "PLAN-EXECUTE":
 		return planPipelineMode{}
-	case agentcoder.Mode:
-		return coderMode{}
 	case agentteam.Mode:
 		return teamMode{}
 	case "GENERAL", "REACT":
@@ -44,48 +42,37 @@ func (reactMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 	return engine.newRunStream(ctx, req, session, true)
 }
 
-type coderMode struct{}
-
-func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+// startAgentMode applies planningMode before the mode-specific start: planning
+// is a capability of every ordinary native Agent, not a mode of its own.
+func startAgentMode(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+	mode := resolveAgentMode(session.Mode)
+	if !agentbuiltin.PlanningModeSupported(session.Mode) {
+		return mode.Start(engine, ctx, req, session)
+	}
 	if session.PlanningMode {
-		return agentcoder.NewPlanningStream(coderRuntimeAdapter{engine: engine}, ctx, req, session)
+		return planmode.NewPlanningStream(planningRuntimeAdapter{engine: engine, mode: session.Mode}, ctx, req, session)
 	}
-	if agentcoder.IsPlanningApproveContinuationParams(req.Params) {
-		settings := session.ResolvedCoderPlanningSettings
-		executeTools := agentcoder.PlanningExecuteToolsForStage(settings.Execute, session.ToolNames)
-		stageSession := session
-		stageSession.ToolNames = append([]string(nil), executeTools...)
-		if modelKey := strings.TrimSpace(settings.Execute.ModelKey); modelKey != "" {
-			stageSession.ModelKey = modelKey
-		}
-		stream, err := engine.newRunStreamWithOptions(ctx, req, stageSession, true, runStreamOptions{
-			ToolNames: executeTools,
-			ModelKey:  strings.TrimSpace(settings.Execute.ModelKey),
-			Stage:     agentcoder.ExecuteStage,
+	if !session.ConfirmedPlanRun {
+		return mode.Start(engine, ctx, req, session)
+	}
+	// A Run started from a confirmed plan is an ordinary Run of the same Agent.
+	// The session already carries its tool exclusions; only the synthetic
+	// "execute planning" query is added when the caller has not written it.
+	pending := []AgentDelta(nil)
+	if !req.SyntheticQueryBootstrapped {
+		pending = append(pending, DeltaSyntheticQuery{
+			ChatID:   session.ChatID,
+			Role:     api.QueryRoleUser,
+			Message:  planmode.ExecuteSyntheticQueryMessage(session.Locale),
+			Messages: cloneRawMessageMaps(session.CurrentMessages),
+			System:   TakePendingSystemInitPayload(&session, sessionSystemInitCacheKey(session, "")),
 		})
-		if err != nil {
-			return nil, err
-		}
-		pending := []AgentDelta{
-			DeltaStageMarker{Stage: agentcoder.ExecuteStage},
-		}
-		if !req.SyntheticQueryBootstrapped {
-			pending = append(pending, DeltaSyntheticQuery{
-				ChatID:   session.ChatID,
-				Role:     api.QueryRoleUser,
-				Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
-				Messages: cloneRawMessageMaps(session.CurrentMessages),
-				System:   TakePendingSystemInitPayload(&session, agentcoder.ExecuteCacheKey),
-			})
-		}
-		return &prefixedAgentStream{
-			pending: pending,
-			stream:  stream,
-		}, nil
 	}
-	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
-		Stage: agentcoder.MainStage,
-	})
+	stream, err := mode.Start(engine, ctx, req, session)
+	if err != nil {
+		return nil, err
+	}
+	return &prefixedAgentStream{pending: pending, stream: stream}, nil
 }
 
 type prefixedAgentStream struct {

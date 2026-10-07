@@ -10,6 +10,7 @@ import (
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	"agent-platform/internal/agent/planmode"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -292,11 +293,11 @@ func resolveStageInstructionsPrompt(session QuerySession, stage string) string {
 }
 
 func resolveStageSystemPrompt(session QuerySession, stage string) string {
-	if agentcoder.IsMode(session.Mode) && (session.PlanningMode || strings.HasPrefix(strings.ToLower(strings.TrimSpace(stage)), "coder-")) {
-		if strings.Contains(strings.ToLower(strings.TrimSpace(stage)), "planning") {
-			return strings.TrimSpace(session.ResolvedCoderPlanningSettings.Planning.SystemPrompt)
-		}
-		return strings.TrimSpace(session.ResolvedCoderPlanningSettings.Execute.SystemPrompt)
+	if planmode.IsPlanningStage(stage) && agentbuiltin.PlanningModeSupported(session.Mode) {
+		return strings.TrimSpace(session.ResolvedPlanningSettings.Planning.SystemPrompt)
+	}
+	if agentcoder.IsMode(session.Mode) && session.PlanningMode {
+		return strings.TrimSpace(session.ResolvedPlanningSettings.Execute.SystemPrompt)
 	}
 	settings := session.ResolvedPlanExecuteSettings
 	switch strings.ToLower(strings.TrimSpace(stage)) {

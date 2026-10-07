@@ -30,6 +30,36 @@ preset-connectors:
   - builtin.web-control
   - builtin.task-control
 
+# planningMode tool exclusions for native GENERAL / CODER / KBASE Agents. Both lists remove tools from
+# the Agent's effective tools; neither can add a tool the Agent does not have.
+# Anything not listed stays available, including newly mounted MCP and
+# connector tools, so add mutating tools here when you mount them.
+# finalize_planning is managed by the platform and must not be listed.
+# Omit a list to use the built-in default below; [] removes nothing.
+planning-mode:
+  # Unavailable to a planning Run.
+  exclude-tools:
+    - bash
+    - bash_sandbox
+    - file_write
+    - file_edit
+    - artifact_publish
+    - image_generate
+    - memory_write
+    - memory_update
+    - plan_add_tasks
+    - plan_update_task
+    - agent_invoke
+    - chat_start
+    - chat_interrupt
+    - chat_manage
+    - automation_manage
+    - catalog_manage
+    - run_env
+  # Unavailable to the Run started from a confirmed plan.
+  execute-exclude-tools:
+    - ask_user_question
+
 general:
   preset-tools: []
   preset-connectors: []

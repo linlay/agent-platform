@@ -1,4 +1,4 @@
-package coder
+package planmode
 
 import (
 	"encoding/json"
@@ -39,7 +39,10 @@ func BuildContinuationRequest(input ContinuationRequestInput) api.QueryRequest {
 	return req
 }
 
-func BuildPlanningApproveContinuationRequest(input ContinuationRequestInput) api.QueryRequest {
+// BuildConfirmedPlanRequest is the request of the new Run that executes an
+// approved plan: the original request with planningMode off and the confirmed
+// plan as its message.
+func BuildConfirmedPlanRequest(input ContinuationRequestInput) api.QueryRequest {
 	req := input.Original
 	originalMessage := strings.TrimSpace(req.Message)
 	req.ChatID = firstNonBlank(req.ChatID, input.Submit.ChatID, input.SummaryChatID)
@@ -50,8 +53,8 @@ func BuildPlanningApproveContinuationRequest(input ContinuationRequestInput) api
 	req.Role = api.QueryRoleSystem
 	planningMode := false
 	req.PlanningMode = &planningMode
-	req.Message = PlanningApproveExecutePrompt(originalMessage, input.PlanningMarkdown)
-	req.Params = MarkPlanningApproveContinuationParams(contracts.CloneMap(req.Params))
+	req.Message = ConfirmedPlanPrompt(originalMessage, input.PlanningMarkdown)
+	req.Params = MarkConfirmedPlanRun(contracts.CloneMap(req.Params))
 	if strings.TrimSpace(req.AccessLevel) == "" {
 		req.AccessLevel = contracts.AccessLevelDefault
 	}
@@ -74,8 +77,10 @@ func SubmitPlanningDecision(params api.SubmitParams) string {
 	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(items[0]["decision"])))
 }
 
-func StartsNewExecutionRun(mode string, answer map[string]any, agentMode string, acpBridgeID string) bool {
-	return PlanningContinuationDecision(mode, answer) == "approve" && IsNativeBackend(agentMode, acpBridgeID)
+// StartsNewExecutionRun reports whether an awaiting answer approves a plan of
+// an Agent whose planning Runs are executed by the platform.
+func StartsNewExecutionRun(mode string, answer map[string]any, nativePlanning bool) bool {
+	return nativePlanning && PlanningContinuationDecision(mode, answer) == "approve"
 }
 
 func ContinuationPrompt(mode string, awaitingID string, answer map[string]any, planningMarkdown string) string {

@@ -19,6 +19,7 @@ type Config struct {
 	PresetTools      []string
 	PresetConnectors []string
 	ModePresets      map[string]AgentPresets
+	PlanningMode     PlanningModeConfig
 	ACP              ACPSettingsConfig
 	KBX              KBXConfig
 	DocumentPreview  documentpreview.Config
@@ -174,6 +175,13 @@ type PromptsConfig struct {
 	ToolAppendix ToolAppendixPromptsConfig
 	PlanExecute  PlanExecutePromptsConfig
 	BTW          BTWPromptsConfig
+	PlanningMode PlanningModePromptsConfig
+}
+
+// PlanningModePromptsConfig is the planning prompt shared by native Agents of
+// every mode; a mode-specific planning prompt takes precedence over it.
+type PlanningModePromptsConfig struct {
+	PlanningPrompt string
 }
 
 type PromptSkillConfig struct {
@@ -809,6 +817,45 @@ type ACPSettingsConfig struct {
 	ACPBridges map[string]ACPBridgeConfig
 }
 type AgentPresets struct{ Tools, Connectors []string }
+
+// PlanningModeConfig removes tools from a native Agent's effective tools for
+// the two Run forms planning creates. finalize_planning is owned by the
+// platform and cannot be listed here.
+type PlanningModeConfig struct {
+	// ExcludeTools is unavailable to a planning Run.
+	ExcludeTools []string
+	// ExecuteExcludeTools is unavailable to a Run started from a confirmed plan.
+	ExecuteExcludeTools []string
+}
+
+// DefaultPlanningModeConfig keeps planning free of local mutation and keeps
+// confirmed-plan execution from asking the user again.
+func DefaultPlanningModeConfig() PlanningModeConfig {
+	return PlanningModeConfig{
+		ExcludeTools: []string{
+			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate",
+			"memory_write", "memory_update", "plan_add_tasks", "plan_update_task",
+			"agent_invoke", "chat_start", "chat_interrupt", "chat_manage",
+			"automation_manage", "catalog_manage", "run_env",
+		},
+		ExecuteExcludeTools: []string{"ask_user_question"},
+	}
+}
+
+// Effective fills an unset (nil) list with its default so a Config built
+// without the defaults loader still keeps planning free of mutation. An
+// explicit empty list is preserved and removes nothing.
+func (c PlanningModeConfig) Effective() PlanningModeConfig {
+	defaults := DefaultPlanningModeConfig()
+	if c.ExcludeTools == nil {
+		c.ExcludeTools = defaults.ExcludeTools
+	}
+	if c.ExecuteExcludeTools == nil {
+		c.ExecuteExcludeTools = defaults.ExecuteExcludeTools
+	}
+	return c
+}
+
 type KBXConfig struct{ Embedding KBaseEmbeddingConfig }
 
 func (c Config) PresetsForMode(mode string) AgentPresets {

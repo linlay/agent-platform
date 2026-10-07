@@ -92,7 +92,7 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 		assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 		assertStringSliceExcludes(t, toolNames, contracts.FinalizePlanningToolName, "ask_user_question")
 		assertProviderMessagesContainToolResult(t, payload, "tool_plan", contracts.FinalizePlanningToolName, "approve")
-		if !providerMessagesContainText(payload, "Execute the confirmed CODER planning.\n\nOriginal request:\nplease plan first") ||
+		if !providerMessagesContainText(payload, "Execute the confirmed plan.\n\nOriginal request:\nplease plan first") ||
 			!providerMessagesContainText(payload, "Confirmed planning:\n# Deferred Coder Plan") {
 			t.Fatalf("expected execute prompt in provider messages, got %#v", payload["messages"])
 		}
@@ -111,6 +111,8 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 			if err := os.MkdirAll(workspace, 0o755); err != nil {
 				t.Fatalf("mkdir workspace: %v", err)
 			}
+			// Production mounts these through agent-settings presets.
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
 			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
 				"key: coder-app",
 				"name: Coder App",
@@ -1794,7 +1796,7 @@ func assertDeferredPlanningApproveJSONL(t *testing.T, store chat.Store, chatID s
 			continue
 		}
 		query, _ := line["query"].(map[string]any)
-		if stringValue(query["message"]) == "Execute planning" && stringValue(line["runId"]) != sourceRunID {
+		if stringValue(query["message"]) == "执行计划" && stringValue(line["runId"]) != sourceRunID {
 			executeQueryIndex = index
 			break
 		}
@@ -1838,7 +1840,7 @@ func assertDeferredPlanningApproveJSONL(t *testing.T, store chat.Store, chatID s
 	}
 	message, _ := rawMessages[0].(map[string]any)
 	if stringValue(message["role"]) != "user" ||
-		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Execute the confirmed CODER planning.") ||
+		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Execute the confirmed plan.") ||
 		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Confirmed planning:\n# Deferred Coder Plan") {
 		t.Fatalf("unexpected execute query message %#v in:\n%s", message, content)
 	}

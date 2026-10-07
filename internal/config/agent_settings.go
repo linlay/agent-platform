@@ -71,6 +71,35 @@ func parseAgentPresets(values map[string]any, path string) (AgentPresets, error)
 	}
 	return out, nil
 }
+
+// parsePlanningMode replaces only the lists that are present; an explicit []
+// removes nothing for that Run form.
+func parsePlanningMode(values map[string]any, path string, current PlanningModeConfig) (PlanningModeConfig, error) {
+	if _, exists := values["planning-mode"]; !exists {
+		return current, nil
+	}
+	v, err := optionalConfigMap(values, "planning-mode", path, "exclude-tools", "execute-exclude-tools")
+	if err != nil {
+		return current, err
+	}
+	for key, target := range map[string]*[]string{"exclude-tools": &current.ExcludeTools, "execute-exclude-tools": &current.ExecuteExcludeTools} {
+		raw, exists := v[key]
+		if !exists {
+			continue
+		}
+		names, err := ParseToolNames(raw, path+".planning-mode."+key)
+		if err != nil {
+			return current, err
+		}
+		for _, name := range names {
+			if strings.EqualFold(name, "finalize_planning") {
+				return current, fmt.Errorf("%s.planning-mode.%s: finalize_planning is managed by the platform", path, key)
+			}
+		}
+		*target = names
+	}
+	return current, nil
+}
 func parseAgentDefaults(values map[string]any, path string) (CoderDefaultAgentConfig, error) {
 	var out CoderDefaultAgentConfig
 	v, err := optionalConfigMap(values, "default-agent", path, "modelKey", "reasoningEffort", "budget")
@@ -117,7 +146,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "general", "coder", "kbase", "acp-bridges")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "acp-bridges")
 	if err != nil {
 		return err
 	}
@@ -126,6 +155,9 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	c.PresetTools, c.PresetConnectors = presets.Tools, presets.Connectors
+	if c.PlanningMode, err = parsePlanningMode(values, path, c.PlanningMode); err != nil {
+		return err
+	}
 	c.ModePresets = map[string]AgentPresets{}
 	c.ACP.SourcePath = path
 	c.ACP.ACPBridges, err = parseCoderACPBridges(values["acp-bridges"], nil)
@@ -205,7 +237,7 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "tool-appendix", "plan-execute", "btw")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "tool-appendix", "plan-execute", "btw", "planning-mode")
 	if err != nil {
 		return err
 	}
@@ -214,6 +246,7 @@ func (c *Config) applyAgentPromptFile(path string) error {
 		"tool-appendix": {"tool-description-title", "after-call-hint-title"},
 		"plan-execute":  {"task-execution-prompt-template", "plan-user-prompt-template", "summary-system-prompt", "summary-user-prompt-template"},
 		"btw":           {"user-prompt-template", "final-answer-prompt"},
+		"planning-mode": {"planning-prompt"},
 	}
 	for section, keys := range schemas {
 		m, err := optionalConfigMap(shared, section, path+".shared", keys...)

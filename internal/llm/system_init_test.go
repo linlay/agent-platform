@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
@@ -438,16 +437,8 @@ func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
 	assertToolNames(t, profiles[0].Tools, []string{"bash", "datetime", "plan_add_tasks", "plan_get_tasks", "plan_update_task"})
 }
 
-func TestCoderPlanningModeBuildsPlanningAndExecuteSystemInit(t *testing.T) {
-	session := fingerprintTestSession()
-	session.Mode = "CODER"
-	session.PlanningMode = true
-	session.ModeSystemPrompt = "custom coder system prompt"
-	session.ResolvedCoderPlanningSettings = contracts.CoderPlanningSettings{
-		MaxSteps: 12,
-		Execute:  contracts.StageSettings{Tools: []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"}},
-	}
-	toolDefs := []api.ToolDetailResponse{
+func planningSystemInitToolDefs() []api.ToolDetailResponse {
+	return []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
 		{Name: "file_read", Description: "read files", Parameters: map[string]any{"type": "object"}},
 		{Name: "ask_user_question", Description: "ask", Parameters: map[string]any{"type": "object"}},
@@ -456,50 +447,83 @@ func TestCoderPlanningModeBuildsPlanningAndExecuteSystemInit(t *testing.T) {
 		{Name: "plan_get_tasks", Description: "get tasks", Parameters: map[string]any{"type": "object"}},
 		{Name: "plan_update_task", Description: "update task", Parameters: map[string]any{"type": "object"}},
 	}
-	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
-	profiles := BuildSystemInitProfiles(session, req, toolDefs, 12, 4, 12, config.PromptsConfig{})
-	if len(profiles) != 2 {
-		t.Fatalf("expected CODER planning plan/execute profiles, got %#v", profiles)
-	}
-	byKey := map[string]contracts.SystemInitProfile{}
-	for _, profile := range profiles {
-		byKey[profile.CacheKey] = profile
-	}
-	if _, ok := byKey["coder:planning"]; !ok {
-		t.Fatalf("missing coder planning profile %#v", byKey)
-	}
-	if _, ok := byKey["coder:execute"]; !ok {
-		t.Fatalf("missing coder execute profile %#v", byKey)
-	}
-	if _, ok := byKey["coder:summary"]; ok {
-		t.Fatalf("did not expect coder summary profile %#v", byKey)
-	}
-	assertToolNames(t, byKey["coder:planning"].Tools, []string{"file_read", "ask_user_question", contracts.FinalizePlanningToolName})
-	executeTools := []string{"bash", "file_read", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
-	assertToolNames(t, byKey["coder:execute"].Tools, executeTools)
-	wantExecuteSystem := agentcoder.PlanningExecutionSystemPrompt(session, req, session.ResolvedCoderPlanningSettings, agentcoder.PlanningModeTools(), executeTools, agentcoder.DefaultExecuteSystemPrompt)
-	if byKey["coder:execute"].SystemMessage["content"] != wantExecuteSystem {
-		t.Fatalf("unexpected coder execute system message %#v want %q", byKey["coder:execute"].SystemMessage, wantExecuteSystem)
+}
+
+// A planning Run has one profile for every native mode; the Run that executes
+// the confirmed plan builds its own profile as an ordinary Run.
+func TestPlanningModeBuildsOnePlanningSystemInitForEveryNativeMode(t *testing.T) {
+	for mode, wantKey := range map[string]string{"GENERAL": "react:planning", "CODER": "coder:planning", "KBASE": "kbase:planning"} {
+		session := fingerprintTestSession()
+		session.Mode = mode
+		session.PlanningMode = true
+		session.ToolNames = []string{"bash", "file_read", "ask_user_question"}
+		session.PlanningExcludeTools = []string{"bash"}
+		session.PlanExecuteExcludeTools = []string{"ask_user_question"}
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{})
+		if len(profiles) != 1 || profiles[0].CacheKey != wantKey || !profiles[0].Initial || profiles[0].Stage != "planning" {
+			t.Fatalf("%s: expected one initial %s planning profile, got %#v", mode, wantKey, profiles)
+		}
+		assertToolNames(t, profiles[0].Tools, []string{"file_read", "ask_user_question", contracts.FinalizePlanningToolName})
 	}
 }
 
-func TestSystemInitCacheKeyMapsCoderPlanningStages(t *testing.T) {
+func TestPlanningModeIsNotBuiltForUnsupportedModes(t *testing.T) {
+	for _, mode := range []string{"TEAM", "PLAN_EXECUTE", "ONESHOT"} {
+		session := fingerprintTestSession()
+		session.Mode = mode
+		session.PlanningMode = true
+		if profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{}); len(profiles) != 0 {
+			t.Fatalf("%s must not build planning profiles, got %#v", mode, profiles)
+		}
+	}
+}
+
+// The Run started from a confirmed plan is an ordinary Run: same prompt as the
+// Agent's normal Run for the same tools, kept under its own cache key.
+func TestConfirmedPlanRunBuildsOrdinaryProfileUnderOwnCacheKey(t *testing.T) {
+	for mode, keys := range map[string][2]string{"GENERAL": {"react:main", "react:execute"}, "CODER": {"coder:main", "coder:execute"}, "KBASE": {"kbase:main", "kbase:execute"}} {
+		session := fingerprintTestSession()
+		session.Mode = mode
+		// As built by the session builder: CODER's plan task tools are already listed.
+		session.ToolNames = []string{"bash", "file_read", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+		req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
+		ordinary := BuildSystemInitProfiles(session, req, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{})
+		session.ConfirmedPlanRun = true
+		confirmed := BuildSystemInitProfiles(session, req, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{})
+		if len(ordinary) != 1 || len(confirmed) != 1 {
+			t.Fatalf("%s: expected one profile each, got %#v and %#v", mode, ordinary, confirmed)
+		}
+		if ordinary[0].CacheKey != keys[0] || confirmed[0].CacheKey != keys[1] || !confirmed[0].Initial {
+			t.Fatalf("%s: cache keys = %q, %q want %q, %q", mode, ordinary[0].CacheKey, confirmed[0].CacheKey, keys[0], keys[1])
+		}
+		if ordinary[0].SystemMessage["content"] != confirmed[0].SystemMessage["content"] || !reflect.DeepEqual(ordinary[0].Tools, confirmed[0].Tools) {
+			t.Fatalf("%s: a confirmed-plan Run must build the ordinary Run profile", mode)
+		}
+	}
+}
+
+func TestSessionSystemInitCacheKeySeparatesRunForms(t *testing.T) {
 	cases := []struct {
-		mode  string
-		stage string
-		want  string
+		mode      string
+		stage     string
+		confirmed bool
+		want      string
 	}{
 		{mode: "CODER", stage: "coder", want: "coder:main"},
-		{mode: "CODER", stage: "coder-planning", want: "coder:planning"},
-		{mode: "CODER", stage: "coder-planning-feedback", want: "coder:planning"},
-		{mode: "CODER", stage: "coder-execute", want: "coder:execute"},
-		{mode: "CODER", stage: "coder-execute-step-2", want: "coder:execute"},
+		{mode: "CODER", stage: "planning", want: "coder:planning"},
+		{mode: "CODER", stage: "planning-feedback", want: "coder:planning"},
+		{mode: "CODER", stage: "coder", confirmed: true, want: "coder:execute"},
+		{mode: "GENERAL", stage: "planning", want: "react:planning"},
+		{mode: "GENERAL", stage: "general", confirmed: true, want: "react:execute"},
+		{mode: "KBASE", stage: "planning-feedback", want: "kbase:planning"},
 		{mode: "PLAN_EXECUTE", stage: "summary", want: "plan-execute:summary"},
+		{mode: "PLAN_EXECUTE", stage: "plan", confirmed: true, want: "plan-execute:plan"},
 		{mode: "REACT", stage: "anything", want: "react:main"},
 	}
 	for _, tc := range cases {
-		if got := SystemInitCacheKey(tc.mode, tc.stage); got != tc.want {
-			t.Fatalf("SystemInitCacheKey(%q, %q)=%q want %q", tc.mode, tc.stage, got, tc.want)
+		session := contracts.QuerySession{Mode: tc.mode, ConfirmedPlanRun: tc.confirmed}
+		if got := sessionSystemInitCacheKey(session, tc.stage); got != tc.want {
+			t.Fatalf("sessionSystemInitCacheKey(%q, %q, confirmed=%v)=%q want %q", tc.mode, tc.stage, tc.confirmed, got, tc.want)
 		}
 	}
 }
@@ -724,5 +748,28 @@ func TestModeAndEnvironmentUseSamePromptLocale(t *testing.T) {
 				t.Fatal(content)
 			}
 		})
+	}
+}
+
+// CODER normally re-adds its plan task tools when a Run starts. A Run started
+// from a confirmed plan must keep exactly the tools left after the configured
+// execution exclusions, in both the persisted profile and the model request.
+func TestConfirmedPlanRunKeepsExcludedPlanTaskToolsRemovedForCoder(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = "CODER"
+	session.ConfirmedPlanRun = true
+	session.ToolNames = []string{"bash", "file_read"}
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{})
+	if len(profiles) != 1 {
+		t.Fatalf("expected one profile, got %#v", profiles)
+	}
+	assertToolNames(t, profiles[0].Tools, []string{"bash", "file_read"})
+	if got := resolveAllowedToolNames(session, "coder", nil); !reflect.DeepEqual(got, []string{"bash", "file_read"}) {
+		t.Fatalf("request tools = %#v, excluded plan task tools must not return", got)
+	}
+
+	session.ConfirmedPlanRun = false
+	if got := resolveAllowedToolNames(session, "coder", nil); len(got) != 5 {
+		t.Fatalf("an ordinary CODER Run still gets its plan task tools, got %#v", got)
 	}
 }

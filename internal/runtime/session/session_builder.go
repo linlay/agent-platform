@@ -40,7 +40,10 @@ type Options struct {
 }
 
 func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryCommand, summary chat.Summary, agentDef catalog.AgentDefinition, options Options) (contracts.QuerySession, error) {
-	editingMode := agentbuiltin.KBaseEditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode)
+	planningModeRequested := agentbuiltin.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode)
+	// A planning Run never mutates the Workspace; editing takes effect in the
+	// Run that executes the confirmed plan, which keeps the request's editingMode.
+	editingMode := agentbuiltin.KBaseEditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode) && !planningModeRequested
 	mustUseSkills, err := s.ResolveSkills(agentDef, req.MustUseSkills)
 	if err != nil {
 		return contracts.QuerySession{}, MustUseSkillUnavailableStatus(err)
@@ -187,11 +190,10 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		capabilityPrompts = append(capabilityPrompts, kbase.DefaultCapabilityPrompt)
 	}
 	resolvedPlanExecuteSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
-	resolvedCoderPlanningSettings := contracts.ResolveCoderPlanningSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)
+	resolvedPlanningSettings := contracts.ResolvePlanningModeSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)
 	if agentDef.KBaseConfig.Enabled {
 		resolvedPlanExecuteSettings.Plan.Tools = AppendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Plan.Tools)
 		resolvedPlanExecuteSettings.Execute.Tools = AppendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Execute.Tools)
-		resolvedCoderPlanningSettings.Execute.Tools = AppendKBaseCapabilityToolsToExplicitStage(resolvedCoderPlanningSettings.Execute.Tools)
 	}
 	var scopedFilePolicy *contracts.ScopedFilePolicy
 	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
@@ -202,76 +204,89 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		}
 	}
 
+	planningMode := s.deps.Config.PlanningMode.Effective()
 	session := contracts.QuerySession{
-		RequestID:                     req.RequestID,
-		RunID:                         req.RunID,
-		TempRoot:                      SystemTempRoot(),
-		TempRoots:                     SystemTempRoots(),
-		SubTaskID:                     options.SubTaskID,
-		ChatID:                        req.ChatID,
-		ChatName:                      summary.ChatName,
-		AgentKey:                      req.AgentKey,
-		RunOwner:                      contracts.AgentRunOwner(req.AgentKey, req.TeamID),
-		AgentName:                     agentDef.Name,
-		AgentRole:                     agentDef.Role,
-		AgentDescription:              agentDef.Description,
-		Locale:                        s.deps.Config.Prompts.Runtime.ResolveLocale(options.Locale),
-		EnvironmentPromptTemplate:     s.deps.Config.Prompts.Runtime.Template(),
-		ModelKey:                      agentDef.ModelKey,
-		ToolNames:                     toolNames,
-		ToolSetFrozen:                 true,
-		ProtectedPaths:                accesspolicy.PlatformProtectedPaths(s.deps.Config),
-		PathAppend:                    ResolveSkillPathAppend(agentDef, agentDef.EffectiveSkills(), s.deps.Config.Bash.PathAppendRoots),
-		Mode:                          agentDef.Mode,
-		ModeCapabilities:              ResolvedModeCapabilities(agentDef),
-		SupportsContextCompaction:     !IsProxyRoutedAgent(agentDef),
-		KBaseEnabled:                  agentDef.KBaseConfig.Enabled,
-		CapabilityPrompts:             capabilityPrompts,
-		PlanningMode:                  agentbuiltin.CoderPlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
-		EditingMode:                   editingMode,
-		ScopedFilePolicy:              scopedFilePolicy,
-		TeamID:                        req.TeamID,
-		Created:                       options.Created,
-		ConnectorDirs:                 RuntimeConnectorDirs(agentDef),
-		SharedConnectorsRoot:          s.deps.Config.Paths.ConnectorSources().SharedRoot(),
-		NativeConnectorTools:          RuntimeNativeConnectorTools(agentDef),
-		ConnectorCLIEntries:           append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
-		SkillIDs:                      append([]string(nil), agentDef.EffectiveSkills()...),
-		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
-		ConnectorBinDirs:              append([]string(nil), agentDef.ConnectorBinDirs...),
-		ConnectorEnv:                  agentconfig.Merge(agentDef.ConnectorEnv),
-		ConnectorCredentials:          agentDef.ConnectorCredentials,
-		ContextTags:                   append([]string(nil), agentDef.ContextTags...),
-		Budget:                        contracts.CloneMap(agentDef.Budget),
-		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),
-		ResolvedBudget:                contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
-		ResolvedPlanExecuteSettings:   resolvedPlanExecuteSettings,
-		ResolvedCoderPlanningSettings: resolvedCoderPlanningSettings,
-		HistoryMessages:               historyMessages,
-		RuntimeContext:                runtimeContext,
-		PromptAppend:                  promptAppend,
-		AdvancedUserPrompt:            s.deps.Config.Query.AdvancedUserPrompt && !IsProxyRoutedAgent(agentDef),
-		SkillCatalogPrompt:            skillCatalogPrompt,
-		SoulPrompt:                    agentDef.SoulPrompt,
-		AgentsPrompt:                  agentDef.AgentsPrompt,
-		WorkspaceAgentsPrompt:         workspaceAgentsPrompt,
-		PlanPrompt:                    agentDef.PlanPrompt,
-		ExecutePrompt:                 agentDef.ExecutePrompt,
-		SummaryPrompt:                 agentDef.SummaryPrompt,
-		ModeSystemPrompt:              agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
-		RuntimeEnvironmentID:          ExtractRuntimeField(agentDef.Runtime, "environmentId"),
-		RuntimeLevel:                  ExtractRuntimeField(agentDef.Runtime, "level"),
-		RuntimeExtraMounts:            RuntimeConnectorMounts(RuntimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && HasRuntimeSandbox(agentDef.Runtime)), agentDef),
-		RuntimeHostAccess:             RuntimeHostAccess(agentDef.HostAccess),
-		RunAccessRoots:                runAccessRoots,
-		AgentHasRuntimeSandbox:        HasRuntimeSandbox(agentDef.Runtime),
-		AgentHasMemoryConfig:          agentDef.MemoryEnabled,
-		WorkspaceRoot:                 resolvedWorkspaceRoot,
-		ChatRoot:                      strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
-		AccessLevel:                   NormalizedAccessLevel(req.AccessLevel),
-		InteractionConfig:             func() *interaction.Config { c := agentDef.Interaction(); return &c }(),
-		SkillHookDirs:                 skillHookDirs,
-		StaticRuntimeEnv:              runtimeEnvOverrides,
+		RequestID:                   req.RequestID,
+		RunID:                       req.RunID,
+		TempRoot:                    SystemTempRoot(),
+		TempRoots:                   SystemTempRoots(),
+		SubTaskID:                   options.SubTaskID,
+		ChatID:                      req.ChatID,
+		ChatName:                    summary.ChatName,
+		AgentKey:                    req.AgentKey,
+		RunOwner:                    contracts.AgentRunOwner(req.AgentKey, req.TeamID),
+		AgentName:                   agentDef.Name,
+		AgentRole:                   agentDef.Role,
+		AgentDescription:            agentDef.Description,
+		Locale:                      s.deps.Config.Prompts.Runtime.ResolveLocale(options.Locale),
+		EnvironmentPromptTemplate:   s.deps.Config.Prompts.Runtime.Template(),
+		ModelKey:                    agentDef.ModelKey,
+		ToolNames:                   toolNames,
+		ToolSetFrozen:               true,
+		ProtectedPaths:              accesspolicy.PlatformProtectedPaths(s.deps.Config),
+		PathAppend:                  ResolveSkillPathAppend(agentDef, agentDef.EffectiveSkills(), s.deps.Config.Bash.PathAppendRoots),
+		Mode:                        agentDef.Mode,
+		ModeCapabilities:            ResolvedModeCapabilities(agentDef),
+		SupportsContextCompaction:   !IsProxyRoutedAgent(agentDef),
+		KBaseEnabled:                agentDef.KBaseConfig.Enabled,
+		CapabilityPrompts:           capabilityPrompts,
+		PlanningMode:                planningModeRequested,
+		PlanningExcludeTools:        append([]string(nil), planningMode.ExcludeTools...),
+		PlanExecuteExcludeTools:     append([]string(nil), planningMode.ExecuteExcludeTools...),
+		EditingMode:                 editingMode,
+		ScopedFilePolicy:            scopedFilePolicy,
+		TeamID:                      req.TeamID,
+		Created:                     options.Created,
+		ConnectorDirs:               RuntimeConnectorDirs(agentDef),
+		SharedConnectorsRoot:        s.deps.Config.Paths.ConnectorSources().SharedRoot(),
+		NativeConnectorTools:        RuntimeNativeConnectorTools(agentDef),
+		ConnectorCLIEntries:         append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
+		SkillIDs:                    append([]string(nil), agentDef.EffectiveSkills()...),
+		MustUseSkills:               append([]string(nil), req.MustUseSkills...),
+		ConnectorBinDirs:            append([]string(nil), agentDef.ConnectorBinDirs...),
+		ConnectorEnv:                agentconfig.Merge(agentDef.ConnectorEnv),
+		ConnectorCredentials:        agentDef.ConnectorCredentials,
+		ContextTags:                 append([]string(nil), agentDef.ContextTags...),
+		Budget:                      contracts.CloneMap(agentDef.Budget),
+		StageSettings:               contracts.CloneMap(agentDef.StageSettings),
+		ResolvedBudget:              contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
+		ResolvedPlanExecuteSettings: resolvedPlanExecuteSettings,
+		ResolvedPlanningSettings:    resolvedPlanningSettings,
+		HistoryMessages:             historyMessages,
+		RuntimeContext:              runtimeContext,
+		PromptAppend:                promptAppend,
+		AdvancedUserPrompt:          s.deps.Config.Query.AdvancedUserPrompt && !IsProxyRoutedAgent(agentDef),
+		SkillCatalogPrompt:          skillCatalogPrompt,
+		SoulPrompt:                  agentDef.SoulPrompt,
+		AgentsPrompt:                agentDef.AgentsPrompt,
+		WorkspaceAgentsPrompt:       workspaceAgentsPrompt,
+		PlanPrompt:                  agentDef.PlanPrompt,
+		ExecutePrompt:               agentDef.ExecutePrompt,
+		SummaryPrompt:               agentDef.SummaryPrompt,
+		ModeSystemPrompt:            agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
+		RuntimeEnvironmentID:        ExtractRuntimeField(agentDef.Runtime, "environmentId"),
+		RuntimeLevel:                ExtractRuntimeField(agentDef.Runtime, "level"),
+		RuntimeExtraMounts:          RuntimeConnectorMounts(RuntimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && HasRuntimeSandbox(agentDef.Runtime)), agentDef),
+		RuntimeHostAccess:           RuntimeHostAccess(agentDef.HostAccess),
+		RunAccessRoots:              runAccessRoots,
+		AgentHasRuntimeSandbox:      HasRuntimeSandbox(agentDef.Runtime),
+		AgentHasMemoryConfig:        agentDef.MemoryEnabled,
+		WorkspaceRoot:               resolvedWorkspaceRoot,
+		ChatRoot:                    strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
+		AccessLevel:                 NormalizedAccessLevel(req.AccessLevel),
+		InteractionConfig:           func() *interaction.Config { c := agentDef.Interaction(); return &c }(),
+		SkillHookDirs:               skillHookDirs,
+		StaticRuntimeEnv:            runtimeEnvOverrides,
+	}
+	if agentbuiltin.NativePlanning(agentDef.Mode, agentDef.ACPBridgeID) && !session.PlanningMode && agentbuiltin.IsConfirmedPlanRun(req.Params) {
+		// A Run started from a confirmed plan is an ordinary Run of this Agent
+		// with the configured execution exclusions applied to its tools.
+		session.ConfirmedPlanRun = true
+		if s.deps.Tools != nil {
+			session.ToolNames = agentbuiltin.ConfirmedPlanTools(session, s.deps.Tools.Definitions())
+		} else {
+			session.ToolNames = agentbuiltin.ConfirmedPlanTools(session, nil)
+		}
 	}
 	if !options.DisableSkillScriptGrants && !IsProxyRoutedAgent(agentDef) && !agentbuiltin.IsCoderACPBackend(agentDef.Mode, agentDef.ACPBridgeID) && !strings.EqualFold(agentDef.Mode, agentbuiltin.TeamMode) {
 		session.SkillScripts = BuildSkillScriptScope(session, agentDef, mustUseSkills.Skills)

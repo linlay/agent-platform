@@ -345,52 +345,59 @@ type QuerySession struct {
 	TeamRuntime *TeamRuntimeContext
 	// ModeToolDefinitions are session-local tools owned by a built-in mode.
 	// They are included in model/system-init schemas but never enter catalog.
-	ModeToolDefinitions           []api.ToolDetailResponse
-	AgentName                     string
-	AgentRole                     string
-	AgentDescription              string
-	Locale                        string
-	EnvironmentPromptTemplate     string
-	PromptSnapshotRestored        bool `json:"-"`
-	ModelKey                      string
-	ToolNames                     []string
-	ToolSetFrozen                 bool `json:"-"`
-	Mode                          string
-	ModeCapabilities              agentcontract.ModeCapabilities
-	SupportsContextCompaction     bool `json:"-"`
-	KBaseEnabled                  bool
-	CapabilityPrompts             []string
-	PlanningMode                  bool
-	EditingMode                   bool
-	ScopedFilePolicy              *ScopedFilePolicy
-	TeamID                        string
-	Created                       bool
-	Subject                       string
-	SkillIDs                      []string
-	MustUseSkills                 []string
-	ConnectorCLIEntries           []connector.CLIEntry `json:"-"`
-	ConnectorBinDirs              []string
-	ConnectorEnv                  map[string]string                 `json:"-"`
-	ConnectorCredentials          []connector.CredentialEnvironment `json:"-"`
-	ContextTags                   []string
-	Budget                        map[string]any
-	StageSettings                 map[string]any
-	ResolvedBudget                Budget
-	ResolvedPlanExecuteSettings   PlanExecuteSettings
-	ResolvedCoderPlanningSettings CoderPlanningSettings
-	RunLimits                     RunLimits
-	HistoryMessages               []map[string]any
-	CurrentMessages               []map[string]any
-	MemoryContext                 string
-	PlanTaskContext               string
-	RuntimeContext                RuntimeRequestContext
-	PromptAppend                  PromptAppendConfig
-	AdvancedUserPrompt            bool
-	OwnerPrompt                   string
-	OwnerPromptLoaded             bool
-	SkillCatalogPrompt            string
-	SystemInitCache               map[string]SystemInitSnapshot
-	PendingSystemInitKeys         map[string]bool
+	ModeToolDefinitions       []api.ToolDetailResponse
+	AgentName                 string
+	AgentRole                 string
+	AgentDescription          string
+	Locale                    string
+	EnvironmentPromptTemplate string
+	PromptSnapshotRestored    bool `json:"-"`
+	ModelKey                  string
+	ToolNames                 []string
+	ToolSetFrozen             bool `json:"-"`
+	Mode                      string
+	ModeCapabilities          agentcontract.ModeCapabilities
+	SupportsContextCompaction bool `json:"-"`
+	KBaseEnabled              bool
+	CapabilityPrompts         []string
+	PlanningMode              bool
+	// PlanningExcludeTools and PlanExecuteExcludeTools are the configured tools
+	// removed from a planning Run and from a Run started by a confirmed plan.
+	PlanningExcludeTools    []string
+	PlanExecuteExcludeTools []string
+	// ConfirmedPlanRun marks an ordinary Run that was started from a confirmed
+	// plan; ToolNames already has the execution exclusions applied.
+	ConfirmedPlanRun            bool
+	EditingMode                 bool
+	ScopedFilePolicy            *ScopedFilePolicy
+	TeamID                      string
+	Created                     bool
+	Subject                     string
+	SkillIDs                    []string
+	MustUseSkills               []string
+	ConnectorCLIEntries         []connector.CLIEntry `json:"-"`
+	ConnectorBinDirs            []string
+	ConnectorEnv                map[string]string                 `json:"-"`
+	ConnectorCredentials        []connector.CredentialEnvironment `json:"-"`
+	ContextTags                 []string
+	Budget                      map[string]any
+	StageSettings               map[string]any
+	ResolvedBudget              Budget
+	ResolvedPlanExecuteSettings PlanExecuteSettings
+	ResolvedPlanningSettings    PlanningModeSettings
+	RunLimits                   RunLimits
+	HistoryMessages             []map[string]any
+	CurrentMessages             []map[string]any
+	MemoryContext               string
+	PlanTaskContext             string
+	RuntimeContext              RuntimeRequestContext
+	PromptAppend                PromptAppendConfig
+	AdvancedUserPrompt          bool
+	OwnerPrompt                 string
+	OwnerPromptLoaded           bool
+	SkillCatalogPrompt          string
+	SystemInitCache             map[string]SystemInitSnapshot
+	PendingSystemInitKeys       map[string]bool
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt            string
@@ -532,18 +539,18 @@ type ExecutionContext struct {
 	WaitResumeStates []WaitConditionState
 	ToolOutputSink   ToolOutputSink
 
-	SandboxSession        *SandboxSession
-	Budget                Budget
-	PlanExecuteSettings   PlanExecuteSettings
-	CoderPlanningSettings CoderPlanningSettings
-	RunLoopState          RunLoopState
-	PlanState             *PlanRuntimeState
-	PlanningState         *PlanningRuntimeState
-	PlanningRevision      int
-	StaticRuntimeEnv      map[string]string
-	RunEnvironment        *runenv.Scope
-	AccessLevel           string
-	ToolExecutionPolicy   string
+	SandboxSession       *SandboxSession
+	Budget               Budget
+	PlanExecuteSettings  PlanExecuteSettings
+	PlanningModeSettings PlanningModeSettings
+	RunLoopState         RunLoopState
+	PlanState            *PlanRuntimeState
+	PlanningState        *PlanningRuntimeState
+	PlanningRevision     int
+	StaticRuntimeEnv     map[string]string
+	RunEnvironment       *runenv.Scope
+	AccessLevel          string
+	ToolExecutionPolicy  string
 	// AccessPolicyApprovals stores one-shot approvals for exact host bash access-policy fingerprints.
 	AccessPolicyApprovals map[string]int
 	// AccessPolicyRuleApprovals stores run-scoped approvals for host bash access-policy rules.

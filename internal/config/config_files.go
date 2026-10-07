@@ -748,6 +748,9 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 		c.Prompts.PlanExecute.SummarySystemPrompt = stringValue(anyValue(planPrompts["summary-system-prompt"], c.Prompts.PlanExecute.SummarySystemPrompt), c.Prompts.PlanExecute.SummarySystemPrompt)
 		c.Prompts.PlanExecute.SummaryUserPromptTemplate = stringValue(anyValue(planPrompts["summary-user-prompt-template"], c.Prompts.PlanExecute.SummaryUserPromptTemplate), c.Prompts.PlanExecute.SummaryUserPromptTemplate)
 	}
+	if planningMode, _ := values["planning-mode"].(map[string]any); len(planningMode) > 0 {
+		c.Prompts.PlanningMode.PlanningPrompt = stringValue(anyValue(planningMode["planning-prompt"], c.Prompts.PlanningMode.PlanningPrompt), c.Prompts.PlanningMode.PlanningPrompt)
+	}
 	btwPrompts, _ := values["btw"].(map[string]any)
 	if len(btwPrompts) > 0 {
 		c.Prompts.BTW.UserPromptTemplate = stringValue(anyValue(btwPrompts["user-prompt-template"], c.Prompts.BTW.UserPromptTemplate), c.Prompts.BTW.UserPromptTemplate)

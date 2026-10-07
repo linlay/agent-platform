@@ -112,6 +112,7 @@ KBX 新索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlit
 ## 7. 开发要点
 
 - 配置按 agent-settings（全局 + mode preset、创建默认值、file 声明式 Workspace 规则、顶层 ACP）、agent-prompt（shared/coder/kbase）、tools（含 AI profiles）、runtime（KBX 和 memory/memx）归属；旧分散配置拒绝加载，迁移入口为 `config-migrate`。KBX 模型只来自 runtime.kbx，Agent embedding 覆盖已退役；旧 KBASE 引擎配置下线但代码保留。见 [Agent 配置合并](docs/Agent配置合并.md)。
+- `planningMode` 是原生 GENERAL/CODER/KBASE 的通用能力，实现位于 `internal/agent/planmode`，不属于 CODER，也不是 Run 内的阶段切换：规划 Run 只产出计划并等待确认，批准后由 Runtime 启动同一 Agent 的一次普通 Run 来执行，规划 Run 不在自身内执行计划。两者的工具均为 Agent 有效工具减去 `agent-settings.yml` 的 `planning-mode.exclude-tools` / `execute-exclude-tools`，`finalize_planning` 由 Platform 追加与去除；代码不内置只读工具清单，阶段级 `toolConfig.tools` 硬失败；规划与执行都不允许换模型，原生 Agent 的 `stageSettings.planning/execute` 声明 `modelKey` 同样硬失败。Team、PLAN-EXECUTE 拒绝 `planningMode`，ACP 交给 bridge；KBASE 规划 Run 不开启 editing。新增规则不得再以 `mode == CODER` 判断规划能力。见 [Agent 配置合并](docs/Agent配置合并.md#planning-mode-工具排除)。
 
 - 通用运行时配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准；KBASE capability 的配置、索引/检索默认值和工具名以 `internal/kbase` 为准，专用 KBASE mode 的 profile、prompt、创建策略和边界以 `internal/agent/kbase` 为准；CODER/TEAM 规则分别以 `internal/agent/coder`、`internal/agent/team` 为准，文档只解释和引用。
 - 共享 Skill 调度提示按用户目标和技能触发条件判断适用性；用户指令优先，技能工作流不扩大任务范围或改变交付形态。该提示约束不替代工具权限和 HITL。

@@ -311,7 +311,7 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 	if err != nil {
 		return queryinput.SubmitResponse{}, err
 	}
-	startsNewExecutionRun := agentbuiltin.CoderStartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.AgentDef.Mode, continuationAdmission.AgentDef.ACPBridgeID)
+	startsNewExecutionRun := agentbuiltin.StartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.AgentDef.Mode, continuationAdmission.AgentDef.ACPBridgeID)
 	if startsNewExecutionRun && strings.TrimSpace(req.ContinuationRunID) == "" {
 		req.ContinuationRunID = newRunID()
 	}
@@ -668,7 +668,7 @@ func (s *Service) prepareActiveSubmitContinuation(req queryinput.SubmitRequest, 
 	if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "planning") {
 		return req, nil
 	}
-	if agentbuiltin.CoderSubmitPlanningDecision(req.Params) != "approve" {
+	if agentbuiltin.SubmitPlanningDecision(req.Params) != "approve" {
 		return req, nil
 	}
 	if s == nil || s.deps.Runs == nil || s.deps.Registry == nil {
@@ -686,7 +686,7 @@ func (s *Service) prepareActiveSubmitContinuation(req queryinput.SubmitRequest, 
 	if err != nil {
 		return req, err
 	}
-	if !agentbuiltin.IsCoderNativeBackend(admission.AgentDef.Mode, admission.AgentDef.ACPBridgeID) {
+	if !agentbuiltin.NativePlanning(admission.AgentDef.Mode, admission.AgentDef.ACPBridgeID) {
 		return req, nil
 	}
 	if strings.TrimSpace(req.ContinuationRunID) == "" {

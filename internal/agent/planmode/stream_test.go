@@ -1,7 +1,8 @@
-package coder
+package planmode
 
 import (
 	"context"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -32,55 +33,47 @@ func (f fakePlanningRuntime) ToolDefinitions() []api.ToolDetailResponse {
 	return f.toolDefs
 }
 
-func (f fakePlanningRuntime) BuildExecuteSystemInitProfiles(contracts.QuerySession, api.QueryRequest, contracts.CoderPlanningSettings) []contracts.SystemInitProfile {
-	return nil
-}
-
-func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndFinalizePlanning(t *testing.T) {
-	stream := &coderPlanningStream{}
-	want := []string{"file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", contracts.FinalizePlanningToolName}
+func TestPlanningStageToolsFollowAgentToolsMinusPlanningExclusions(t *testing.T) {
+	stream := &planningStream{
+		runtime: fakePlanningRuntime{toolDefs: []api.ToolDetailResponse{{Name: "bash", Key: "_bash_"}}},
+		session: contracts.QuerySession{
+			ToolNames:            []string{"_bash_", "file_read", "file_write", "web_fetch", "plan_add_tasks", "plan_get_tasks", "ask_user_question"},
+			PlanningExcludeTools: []string{"bash", "file_write", "plan_add_tasks"},
+		},
+	}
+	want := []string{"file_read", "web_fetch", "plan_get_tasks", "ask_user_question", contracts.FinalizePlanningToolName}
 	if got := stream.planningStageTools(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("planningStageTools()=%#v want %#v", got, want)
 	}
-	forbidden := map[string]struct{}{
-		"bash":             {},
-		"file_write":       {},
-		"file_edit":        {},
-		"artifact_publish": {},
-		"plan_add_tasks":   {},
-		"plan_get_tasks":   {},
-		"plan_update_task": {},
-	}
-	for _, tool := range stream.planningStageTools() {
-		if _, ok := forbidden[tool]; ok {
-			t.Fatalf("planningStageTools() must not include mutating tool %q: %#v", tool, stream.planningStageTools())
-		}
-	}
 }
 
-func TestCoderExecuteStageToolsIncludePlanTaskTools(t *testing.T) {
-	stream := &coderPlanningStream{
+func TestExecuteStageToolsFollowAgentToolsMinusExecuteExclusions(t *testing.T) {
+	stream := &planningStream{
 		session: contracts.QuerySession{
-			ToolNames: []string{"bash", "file_read", "artifact_publish", "plan_add_tasks", contracts.FinalizePlanningToolName, "ask_user_question", "plan_update_task", "datetime"},
+			Mode:                    "CODER",
+			ToolNames:               []string{"bash", "file_read", "artifact_publish", "plan_add_tasks", contracts.FinalizePlanningToolName, "ask_user_question", "plan_update_task", "datetime"},
+			PlanExecuteExcludeTools: []string{"ask_user_question"},
 		},
 	}
-	want := []string{"bash", "file_read", "artifact_publish", "plan_add_tasks", "plan_update_task", "datetime", "plan_get_tasks"}
+	want := []string{"bash", "file_read", "artifact_publish", "plan_add_tasks", "plan_update_task", "datetime"}
 	if got := stream.executeStageTools(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("executeStageTools()=%#v want %#v", got, want)
 	}
 }
 
-func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
-	stream := &coderPlanningStream{
+func TestPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
+	stream := &planningStream{
 		runtime: fakePlanningRuntime{
 			settings: RuntimeSettings{
 				PlanningPrompt: "custom {{agent_key}} {{workspace_dir}} {{planning_stage_tools}} {{execute_stage_tools}}\nUse {{finalize_planning_tool_name}}.\n{{execute_tool_descriptions}}",
 			},
 		},
 		session: contracts.QuerySession{
-			AgentKey:     "coder",
-			PlanningMode: true,
-			ToolNames:    []string{"bash", "file_read", "file_write", "file_edit", "datetime"},
+			AgentKey:             "coder",
+			Mode:                 "CODER",
+			PlanningMode:         true,
+			ToolNames:            []string{"bash", "file_read", "file_write", "file_edit", "datetime"},
+			PlanningExcludeTools: []string{"bash", "file_write", "file_edit"},
 			RuntimeContext: contracts.RuntimeRequestContext{
 				LocalPaths: contracts.LocalPaths{WorkspaceDir: "/workspace"},
 			},
@@ -93,10 +86,10 @@ func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	if !strings.Contains(prompt, "Use finalize_planning.") {
 		t.Fatalf("expected configured finalize_planning instructions, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "file_read, file_glob, file_grep, datetime, regex, vision_recognize, ask_user_question, finalize_planning") {
+	if !strings.Contains(prompt, "custom coder /workspace file_read, datetime, finalize_planning bash,") {
 		t.Fatalf("expected rendered plan stage tools, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "bash, file_read, file_write, file_edit, datetime, plan_add_tasks, plan_get_tasks, plan_update_task") {
+	if !strings.Contains(prompt, "finalize_planning bash, file_read, file_write, file_edit, datetime\nUse") {
 		t.Fatalf("expected rendered execute stage tools, got %q", prompt)
 	}
 	if strings.Contains(prompt, "{{") || strings.Contains(prompt, "}}") {
@@ -104,41 +97,37 @@ func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	}
 }
 
-func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.T) {
-	stream := &coderPlanningStream{
-		req: api.QueryRequest{Message: "build it"},
-		session: contracts.QuerySession{
-			AgentKey:         "coder",
-			AgentName:        "Coder",
-			Mode:             "CODER",
-			PlanningMode:     true,
-			ToolNames:        []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"},
-			ModeSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{available_tools}} {{execute_stage_tools}} {{bash_tool_name}}",
-		},
-		settings: contracts.CoderPlanningSettings{
-			Execute: contracts.StageSettings{
-				SystemPrompt: "stage {{agent_key}} {{workspace_dir}}",
-				Tools:        []string{"bash", "file_read"},
+func TestPlanningPromptFallsBackToNeutralDefaultForAnyMode(t *testing.T) {
+	for _, mode := range []string{"GENERAL", "KBASE"} {
+		stream := &planningStream{
+			runtime: fakePlanningRuntime{},
+			session: contracts.QuerySession{
+				Mode:                    mode,
+				PlanningMode:            true,
+				ToolNames:               []string{"bash", "web_fetch", "ask_user_question"},
+				PlanningExcludeTools:    []string{"bash"},
+				PlanExecuteExcludeTools: []string{"ask_user_question"},
 			},
-		},
-	}
-	got := stream.executionSystemPrompt("fallback {{agent_key}}")
-	for _, expected := range []string{
-		"CODER coder Coder bash, file_read, plan_add_tasks, plan_get_tasks, plan_update_task bash, file_read, plan_add_tasks, plan_get_tasks, plan_update_task bash",
-		"stage coder",
-	} {
-		if !strings.Contains(got, expected) {
-			t.Fatalf("expected %q in rendered execution prompt, got %q", expected, got)
 		}
-	}
-	if strings.Contains(got, "{{") || strings.Contains(got, "}}") {
-		t.Fatalf("expected all configured CODER execution placeholders to be rendered, got %q", got)
+		prompt := stream.planningPrompt()
+		for _, expected := range []string{
+			"You are in planning mode.",
+			"web_fetch, ask_user_question, finalize_planning",
+			"Tools available after confirmation: bash, web_fetch",
+		} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s: expected %q in default planning prompt, got %q", mode, expected, prompt)
+			}
+		}
+		if strings.Contains(prompt, "{{") || strings.Contains(prompt, "CODER") {
+			t.Fatalf("%s: default planning prompt must be rendered and mode neutral, got %q", mode, prompt)
+		}
 	}
 }
 
 func TestPlanningApproveContinuationCarriesInMemoryAdmissionState(t *testing.T) {
 	state := &struct{ key string }{key: "frozen"}
-	stream := &coderPlanningStream{session: contracts.QuerySession{
+	stream := &planningStream{session: contracts.QuerySession{
 		RunID:    "source-run",
 		ChatID:   "chat",
 		AgentKey: "coder",
@@ -161,28 +150,34 @@ func TestPlanningApproveContinuationCarriesInMemoryAdmissionState(t *testing.T) 
 	}
 }
 
-func TestCoderPlanningExecutionEOFCompletesWithoutSummaryStage(t *testing.T) {
-	stream := &coderPlanningStream{
+func TestPlanningResolvedConfirmationCompletesWithoutExecuting(t *testing.T) {
+	stream := &planningStream{
 		planningDone:     true,
 		confirmationDone: true,
-		executionDone:    false,
 	}
-	if err := stream.afterStageEOF(); err != nil {
-		t.Fatalf("afterStageEOF: %v", err)
+	if _, err := stream.Next(); err != io.EOF {
+		t.Fatalf("Next() err = %v, want io.EOF", err)
 	}
-	if !stream.executionDone || !stream.summaryDone || !stream.completed {
-		t.Fatalf("expected execution EOF to complete the run, got %#v", stream)
-	}
-	if stream.current != nil {
-		t.Fatalf("did not expect a summary stream to start, got %#v", stream.current)
-	}
-	if len(stream.pending) != 0 {
-		t.Fatalf("did not expect summary stage marker after execution EOF, got %#v", stream.pending)
+	if !stream.completed || stream.current != nil {
+		t.Fatalf("a planning Run must end after confirmation without starting another stream, got %#v", stream)
 	}
 }
 
-func TestCoderPlanningConfirmationUsesPlanningMode(t *testing.T) {
-	stream := &coderPlanningStream{
+func TestPlanningApproveWithoutContinuationRunDoesNotHandOff(t *testing.T) {
+	stream := &planningStream{session: contracts.QuerySession{RunID: "source-run", ChatID: "chat"}}
+	if stream.preparePlanningApproveContinuation(api.SubmitRequest{
+		SubmitID: "submit",
+		Params:   api.SubmitParams{[]byte(`{"decision":"approve"}`)},
+	}, "await", map[string]any{"planning": map[string]any{"decision": "approve"}}) {
+		t.Fatal("approval without a continuation Run must not hand off")
+	}
+	if len(stream.pending) != 0 {
+		t.Fatalf("pending deltas = %#v", stream.pending)
+	}
+}
+
+func TestPlanningConfirmationUsesPlanningMode(t *testing.T) {
+	stream := &planningStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
 			PlanningRevision: 1,
@@ -235,8 +230,8 @@ func TestCoderPlanningConfirmationUsesPlanningMode(t *testing.T) {
 	}
 }
 
-func TestCoderPlanningStageEOFWithFinalizePlanningEmitsConfirmation(t *testing.T) {
-	stream := &coderPlanningStream{
+func TestPlanningStageEOFWithFinalizePlanningEmitsConfirmation(t *testing.T) {
+	stream := &planningStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
 			PlanningRevision: 1,
@@ -251,7 +246,7 @@ func TestCoderPlanningStageEOFWithFinalizePlanningEmitsConfirmation(t *testing.T
 	if err := stream.afterStageEOF(); err != nil {
 		t.Fatalf("afterStageEOF: %v", err)
 	}
-	if !stream.planningDone || stream.completed || stream.summaryDone || !stream.confirmationPending {
+	if !stream.planningDone || stream.completed || !stream.confirmationPending {
 		t.Fatalf("unexpected planning stream state: %#v", stream)
 	}
 	if len(stream.pending) != 1 {
@@ -263,8 +258,8 @@ func TestCoderPlanningStageEOFWithFinalizePlanningEmitsConfirmation(t *testing.T
 	}
 }
 
-func TestCoderPlanningStageEOFWithoutPlanButAssistantTextCompletes(t *testing.T) {
-	stream := &coderPlanningStream{
+func TestPlanningStageEOFWithoutPlanButAssistantTextCompletes(t *testing.T) {
+	stream := &planningStream{
 		execCtx: &contracts.ExecutionContext{},
 		executeMessages: []contracts.ModelMessage{
 			{Role: "user", Content: "这个怎么产生的"},
@@ -274,7 +269,7 @@ func TestCoderPlanningStageEOFWithoutPlanButAssistantTextCompletes(t *testing.T)
 	if err := stream.afterStageEOF(); err != nil {
 		t.Fatalf("afterStageEOF: %v", err)
 	}
-	if !stream.planningDone || !stream.completed || !stream.summaryDone {
+	if !stream.planningDone || !stream.completed {
 		t.Fatalf("expected planning stream to complete normally, got %#v", stream)
 	}
 	for _, delta := range stream.pending {
@@ -284,8 +279,8 @@ func TestCoderPlanningStageEOFWithoutPlanButAssistantTextCompletes(t *testing.T)
 	}
 }
 
-func TestCoderPlanningStageEOFWithoutPlanAndTextEmitsModelError(t *testing.T) {
-	stream := &coderPlanningStream{
+func TestPlanningStageEOFWithoutPlanAndTextEmitsModelError(t *testing.T) {
+	stream := &planningStream{
 		execCtx: &contracts.ExecutionContext{},
 		executeMessages: []contracts.ModelMessage{
 			{Role: "assistant", ToolCalls: []contracts.ModelToolCall{{ID: "tool_1"}}},
@@ -294,7 +289,7 @@ func TestCoderPlanningStageEOFWithoutPlanAndTextEmitsModelError(t *testing.T) {
 	if err := stream.afterStageEOF(); err != nil {
 		t.Fatalf("afterStageEOF: %v", err)
 	}
-	if !stream.planningDone || !stream.completed || !stream.summaryDone {
+	if !stream.planningDone || !stream.completed {
 		t.Fatalf("expected planning stream to complete after error, got %#v", stream)
 	}
 	if len(stream.pending) != 1 {
@@ -309,15 +304,15 @@ func TestCoderPlanningStageEOFWithoutPlanAndTextEmitsModelError(t *testing.T) {
 	}
 }
 
-func TestCoderPlanningFeedbackStageEOFWithoutPlanCompletes(t *testing.T) {
-	stream := &coderPlanningStream{
+func TestPlanningFeedbackStageEOFWithoutPlanCompletes(t *testing.T) {
+	stream := &planningStream{
 		execCtx:                   &contracts.ExecutionContext{},
 		currentPlanningIsFeedback: true,
 	}
 	if err := stream.afterStageEOF(); err != nil {
 		t.Fatalf("afterStageEOF: %v", err)
 	}
-	if !stream.planningDone || !stream.completed || !stream.summaryDone {
+	if !stream.planningDone || !stream.completed {
 		t.Fatalf("expected feedback stage to complete normally, got %#v", stream)
 	}
 	if len(stream.pending) != 0 {
@@ -374,10 +369,10 @@ func TestPlanningStageHasAssistantText(t *testing.T) {
 	}
 }
 
-func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) {
+func TestPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
 	runControl.SetObserverCount(0)
-	stream := &coderPlanningStream{
+	stream := &planningStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
 			RunControl:       runControl,
@@ -429,9 +424,9 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 	}
 }
 
-func TestCoderPlanningConfirmationPausesRunBudget(t *testing.T) {
+func TestPlanningConfirmationPausesRunBudget(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	stream := &coderPlanningStream{
+	stream := &planningStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
 			RunControl:       runControl,

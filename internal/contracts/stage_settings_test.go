@@ -117,8 +117,8 @@ func TestResolvePlanExecuteSettingsParsesNestedStageModelAndToolConfig(t *testin
 	}
 }
 
-func TestResolveCoderPlanningSettingsUsesPlanningNotPlan(t *testing.T) {
-	settings := ResolveCoderPlanningSettings(map[string]any{
+func TestResolvePlanningModeSettingsUsesPlanningNotPlan(t *testing.T) {
+	settings := ResolvePlanningModeSettings(map[string]any{
 		"plan": map[string]any{
 			"modelConfig": map[string]any{"modelKey": "plan-tasks-model"},
 		},
@@ -140,7 +140,7 @@ func TestResolveCoderPlanningSettingsUsesPlanningNotPlan(t *testing.T) {
 		t.Fatalf("execute model key = %q, want coder-execute-model", settings.Execute.ModelKey)
 	}
 
-	legacyOnly := ResolveCoderPlanningSettings(map[string]any{
+	legacyOnly := ResolvePlanningModeSettings(map[string]any{
 		"plan": map[string]any{
 			"modelConfig": map[string]any{"modelKey": "plan-tasks-model"},
 		},

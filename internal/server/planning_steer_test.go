@@ -124,6 +124,7 @@ func TestCoderPlanningSteerReplacesProposal(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
+				cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
 				definition := "key: coder-app\nname: Coder App\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 				if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(definition), 0644); err != nil {
 					t.Fatal(err)

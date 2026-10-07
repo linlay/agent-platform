@@ -147,14 +147,15 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		}
 	}
 	planningMarkdown := s.awaitingContinuationPlanningMarkdown(chatID, mode)
-	planningDecision := agentbuiltin.CoderPlanningContinuationDecision(mode, answer)
-	planningApprove := agentbuiltin.IsCoderMode(agentDef.Mode) && planningDecision == "approve"
-	planningReject := agentbuiltin.IsCoderMode(agentDef.Mode) && planningDecision == "reject"
+	planningDecision := agentbuiltin.PlanContinuationDecision(mode, answer)
+	nativePlanning := agentbuiltin.NativePlanning(agentDef.Mode, agentDef.ACPBridgeID)
+	planningApprove := nativePlanning && planningDecision == "approve"
+	planningReject := nativePlanning && planningDecision == "reject"
 	newExecutionRun := planningApprove && strings.TrimSpace(runID) != strings.TrimSpace(sourceRunID)
-	continuationInput := coderContinuationRequestInput(originalQuery, submitReq, summary, agentDef, mode, answer, planningMarkdown)
-	req := adapter.QueryCommand(agentbuiltin.CoderBuildContinuationRequest(continuationInput))
+	continuationInput := planContinuationRequestInput(originalQuery, submitReq, summary, agentDef, mode, answer, planningMarkdown)
+	req := adapter.QueryCommand(agentbuiltin.BuildPlanContinuationRequest(continuationInput))
 	if planningApprove {
-		req = adapter.QueryCommand(agentbuiltin.CoderBuildPlanningApproveContinuationRequest(continuationInput))
+		req = adapter.QueryCommand(agentbuiltin.BuildConfirmedPlanRequest(continuationInput))
 	} else if planningReject {
 		planningMode := true
 		req.PlanningMode = &planningMode
@@ -209,13 +210,23 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		session.WebClientTarget = resolveRunWebClientTarget(s.deps.Runs, sourceRunID)
 	}
 	var continuationSystem *chat.QueryLineSystem
+	var confirmedPlanBootstrap *stream.SyntheticQuery
 	if planningApprove {
-		if err := s.preparePlanningApproveContinuation(req, originalQuery, &session); err != nil {
-			log.Printf("[server][awaiting] prepare planning approve continuation failed chatId=%s runId=%s err=%v", chatID, runID, err)
+		confirmedPlanSystem, err := s.prepareConfirmedPlanRun(req, originalQuery, &session)
+		if err != nil {
+			log.Printf("[server][awaiting] prepare confirmed plan run failed chatId=%s runId=%s err=%v", chatID, runID, err)
 			return false, err
 		}
 		if newExecutionRun {
 			req.SyntheticQueryBootstrapped = true
+			confirmedPlanBootstrap = confirmedPlanSyntheticBootstrap(session, confirmedPlanSystem)
+		} else if confirmedPlanSystem != nil {
+			// Without a new Run the engine writes the synthetic query itself and
+			// needs the initial system-init left pending.
+			if session.PendingSystemInitKeys == nil {
+				session.PendingSystemInitKeys = map[string]bool{}
+			}
+			session.PendingSystemInitKeys[confirmedPlanSystem.CacheKey] = true
 		}
 	} else {
 		if systemInitLine, err := s.deps.Sessions.PrepareSystemInitCache(req, &session, false); err == nil {
@@ -257,7 +268,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		InitialSeq:   initialSeq,
 	}
 	if newExecutionRun {
-		prepared.SyntheticBootstrap = coderPlanningApproveSyntheticBootstrap(session)
+		prepared.SyntheticBootstrap = confirmedPlanBootstrap
 	} else if continuationSystem != nil {
 		prepared.SyntheticBootstrap = systemInitSyntheticBootstrap(session.ChatID, *continuationSystem)
 	}
@@ -401,54 +412,31 @@ func (s *Service) awaitingContinuationPlanningMarkdown(chatID string, mode strin
 	return strings.TrimSpace(detail.Planning.Markdown)
 }
 
-func (s *Service) preparePlanningApproveContinuation(req runtimetypes.QueryCommand, original *chat.QueryLine, session *contracts.QuerySession) error {
-	if session == nil || s == nil || s.deps.Profiles == nil || s.deps.Tools == nil {
-		return nil
+// prepareConfirmedPlanRun finishes the session of a Run started from a
+// confirmed plan. BuildQuerySession already made it an ordinary Run with the
+// execution tool exclusions; this prepares its system-init and makes the
+// confirmed plan its only current message.
+func (s *Service) prepareConfirmedPlanRun(req runtimetypes.QueryCommand, original *chat.QueryLine, session *contracts.QuerySession) (*chat.QueryLineSystem, error) {
+	if session == nil || s == nil {
+		return nil, nil
 	}
+	// The system prompt renders the user's original request, not the long
+	// execution message that embeds the whole plan.
 	profileReq := req
 	if original != nil && len(original.Query) > 0 {
 		if message := strings.TrimSpace(sessionbuild.StringValue(original.Query["message"])); message != "" {
 			profileReq.Message = message
 		}
 	}
-	planningSession := *session
-	planningSession.PlanningMode = true
-	if _, err := s.deps.Sessions.PrepareSystemInitCache(profileReq, &planningSession, false); err != nil {
-		return err
-	}
-	snapshot := planningSession.SystemInitCache[agentbuiltin.CoderExecuteCacheKey]
-	executeSystem := chat.QueryLineSystem{
-		AgentKey: snapshot.AgentKey, CacheKey: agentbuiltin.CoderExecuteCacheKey,
-		Fingerprint: snapshot.Fingerprint, SystemMessage: snapshot.SystemMessage,
-		Tools: snapshot.Tools, Model: snapshot.Model, ToolChoice: snapshot.ToolChoice,
-		RequestOptions: snapshot.RequestOptions,
-	}
-	if strings.TrimSpace(executeSystem.CacheKey) == "" || strings.TrimSpace(executeSystem.Fingerprint) == "" {
-		return fmt.Errorf("coder execute system init profile unavailable")
-	}
-	session.PromptSnapshotRestored = planningSession.PromptSnapshotRestored
-	session.PlanningMode = false
-	session.SystemInitCache = map[string]contracts.SystemInitSnapshot{
-		executeSystem.CacheKey: sessionbuild.SystemInitSnapshotFromLine(executeSystem),
-	}
-	session.PendingSystemInitKeys = map[string]bool{executeSystem.CacheKey: true}
-	if s.deps.Chats != nil {
-		if systemInits, err := s.deps.Chats.LoadAllSystemInits(req.ChatID); err == nil {
-			if existing := systemInits.Lookup(executeSystem.AgentKey, executeSystem.CacheKey); existing != nil && sessionbuild.SameSystemInitPayload(existing, executeSystem) {
-				session.PendingSystemInitKeys = nil
-			}
-		}
-	}
-	executeTools := agentbuiltin.CoderPlanningExecuteToolsForStage(session.ResolvedCoderPlanningSettings.Execute, session.ToolNames)
-	session.ToolNames = append([]string(nil), executeTools...)
-	if modelKey := strings.TrimSpace(session.ResolvedCoderPlanningSettings.Execute.ModelKey); modelKey != "" {
-		session.ModelKey = modelKey
+	system, err := s.deps.Sessions.PrepareSystemInitCache(profileReq, session, false)
+	if err != nil {
+		return nil, err
 	}
 	session.CurrentMessages = []map[string]any{{
 		"role":    queryinput.QueryRoleUser,
 		"content": req.Message,
 	}}
-	return nil
+	return system, nil
 }
 
 func systemInitSyntheticBootstrap(chatID string, system chat.QueryLineSystem) *stream.SyntheticQuery {
@@ -705,13 +693,13 @@ func (s *Service) resolveAwaitingContinuationAdmission(chatID string, requestedA
 	}, nil
 }
 
-func coderContinuationRequestInput(original *chat.QueryLine, submitReq queryinput.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planningMarkdown string) agentbuiltin.CoderContinuationRequestInput {
+func planContinuationRequestInput(original *chat.QueryLine, submitReq queryinput.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planningMarkdown string) agentbuiltin.PlanContinuationRequestInput {
 	var originalRequest runtimetypes.QueryCommand
 	if original != nil && len(original.Query) > 0 {
 		data, _ := json.Marshal(original.Query)
 		_ = json.Unmarshal(data, &originalRequest)
 	}
-	return agentbuiltin.CoderContinuationRequestInput{
+	return agentbuiltin.PlanContinuationRequestInput{
 		Original:           adapter.QueryRequest(originalRequest),
 		Submit:             submitReq,
 		SummaryChatID:      summary.ChatID,
@@ -724,14 +712,20 @@ func coderContinuationRequestInput(original *chat.QueryLine, submitReq queryinpu
 	}
 }
 
-func coderPlanningApproveSyntheticBootstrap(session contracts.QuerySession) *stream.SyntheticQuery {
-	return &stream.SyntheticQuery{
+// confirmedPlanSyntheticBootstrap is the first persisted query of the new Run:
+// a short visible message, the confirmed plan as the model message, and the
+// Run's system-init when it is not already stored for this Chat.
+func confirmedPlanSyntheticBootstrap(session contracts.QuerySession, system *chat.QueryLineSystem) *stream.SyntheticQuery {
+	bootstrap := &stream.SyntheticQuery{
 		ChatID:   session.ChatID,
 		Role:     queryinput.QueryRoleUser,
-		Message:  agentbuiltin.CoderExecuteSyntheticQueryMessage(session.Locale),
+		Message:  agentbuiltin.PlanExecuteSyntheticQueryMessage(session.Locale),
 		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
-		System:   contracts.TakePendingSystemInitPayload(&session, agentbuiltin.CoderExecuteCacheKey),
 	}
+	if system != nil {
+		bootstrap.System = systemInitSyntheticBootstrap(session.ChatID, *system).System
+	}
+	return bootstrap
 }
 
 func cloneMessageMapsForSyntheticBootstrap(messages []map[string]any) []map[string]any {

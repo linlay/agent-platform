@@ -15,6 +15,24 @@ agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase 各
 
 分发示例通过 `coder.preset-tools` 为普通 CODER 提供 `regex`，CODER mode profile 的缺省工具列表不再内置该工具。
 
+### planning-mode 工具排除
+
+agent-settings 顶层 `planning-mode` 对原生 GENERAL、CODER、KBASE 统一生效，决定 `planningMode` 产生的两种 Run 相对 Agent 有效工具少了什么，两个列表都是排除清单：
+
+- `exclude-tools`：规划 Run 不可用的工具。规划 Run 的工具 = Agent 有效工具 − 该列表，再由 Platform 追加 `finalize_planning`。
+- `execute-exclude-tools`：由已确认计划启动的执行 Run 不可用的工具，缺省为 `ask_user_question`。执行 Run 的工具 = Agent 有效工具 − 该列表，`finalize_planning` 由 Platform 去掉。
+
+约束：
+
+- 排除按工具名匹配，也匹配同一工具定义的 key；只能去掉工具，不能给 Agent 增加它没有的工具。
+- 未列出的工具一律保留，包括之后新挂载的 MCP 与连接器工具；挂载会修改数据的工具时需要同步加入 `exclude-tools`，规划只读由该配置维护，Platform 不再内置只读清单。
+- 省略某个列表时使用代码内置缺省值（见 `configs/agent-settings.example.yml`），显式 `[]` 表示不排除任何工具。
+- `finalize_planning` 由 Platform 管理，写入任一列表会使配置加载失败。
+- 原生 GENERAL、CODER、KBASE 的 `stageSettings.planning.toolConfig.tools` 与 `stageSettings.execute.toolConfig.tools` 都不支持，出现即加载失败，统一改用本节的排除配置。
+- 原生 GENERAL、CODER、KBASE 的 `stageSettings.planning` 与 `stageSettings.execute` 都不允许声明 `modelKey`（`modelConfig.modelKey` 与平铺写法都拒绝）：规划 Run、已确认计划的执行 Run 与普通 Run 一律使用 Agent 自身的 `modelConfig.modelKey`。阶段内 reasoning、sampling 等参数不受影响。
+- 规划提示词：`agent-prompt.yml` 的 `shared.planning-mode.planning-prompt` 供所有原生 mode 使用，`coder.planning-prompt` 对 CODER 优先；都省略时使用内置中立提示词。
+- 普通 Run 不受该配置影响。
+
 `<mode>.default-agent.modelKey/reasoningEffort` 只在创建时补全，已有 Agent 不受动态覆盖。GENERAL/CODER 的 budget 语义不变。kbase 节表示 KBASE Agent，不是知识库引擎。
 
 GENERAL/CODER 的 `workspace-agents` 仅接受非空 `file`：声明即自动读取，省略整个节点即不读取；enabled 已删除。不自动读取不限制工具按权限主动读文件。GENERAL 无具体 Workspace 或使用 @root 时不读取；CODER 显式 projectConfig.promptFiles 仍优先。示例仅为 CODER 声明 AGENTS.md。

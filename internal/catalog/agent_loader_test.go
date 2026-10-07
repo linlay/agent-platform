@@ -241,7 +241,7 @@ func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.ToSlash(t.TempDir())
 	planningPath := filepath.Join(root, "planning.yml")
-	planningConfig := "key: coder-planning\nname: Coder Planning\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nruntimeConfig:\n  workspaceRoot: " + workspace + "\nstageSettings:\n  planning:\n    modelConfig:\n      modelKey: planning-model\n    budget:\n      maxSteps: 17\nbudget:\n  stages:\n    planning:\n      maxSteps: 19\n"
+	planningConfig := "key: coder-planning\nname: Coder Planning\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nruntimeConfig:\n  workspaceRoot: " + workspace + "\nstageSettings:\n  planning:\n    modelConfig:\n      reasoning:\n        effort: HIGH\n    budget:\n      maxSteps: 17\nbudget:\n  stages:\n    planning:\n      maxSteps: 19\n"
 	if err := os.WriteFile(planningPath, []byte(planningConfig), 0o644); err != nil {
 		t.Fatalf("write planning config: %v", err)
 	}
@@ -249,9 +249,9 @@ func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse planning config: %v", err)
 	}
-	settings := contracts.ResolveCoderPlanningSettings(def.StageSettings, 60)
-	if settings.Planning.ModelKey != "planning-model" {
-		t.Fatalf("planning model key = %q", settings.Planning.ModelKey)
+	settings := contracts.ResolvePlanningModeSettings(def.StageSettings, 60)
+	if settings.Planning.ModelKey != "" || settings.Planning.ReasoningEffort != "HIGH" {
+		t.Fatalf("planning stage settings = %#v", settings.Planning)
 	}
 	if budget := contracts.ResolveBudget(config.Config{}, def.Budget); budget.Stages["planning"].MaxSteps != 17 {
 		t.Fatalf("planning stage budget = %#v", budget.Stages["planning"])
@@ -264,6 +264,45 @@ func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
 	}
 	if _, err := parseAgentDefinitionForTest(legacyPath); err == nil || !strings.Contains(err.Error(), "stageSettings.plan is unsupported") {
 		t.Fatalf("expected legacy CODER plan stage rejection, got %v", err)
+	}
+
+	for _, stage := range []string{"planning", "execute"} {
+		toolsPath := filepath.Join(root, stage+"-tools.yml")
+		toolsConfig := "key: coder-stage-tools\nname: Coder Stage Tools\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nruntimeConfig:\n  workspaceRoot: " + workspace + "\nstageSettings:\n  " + stage + ":\n    toolConfig:\n      tools: [file_read]\n"
+		if err := os.WriteFile(toolsPath, []byte(toolsConfig), 0o644); err != nil {
+			t.Fatalf("write stage tools config: %v", err)
+		}
+		if _, err := parseAgentDefinitionForTest(toolsPath); err == nil || !strings.Contains(err.Error(), "stageSettings."+stage+".toolConfig.tools is unsupported") {
+			t.Fatalf("expected CODER %s stage tools rejection, got %v", stage, err)
+		}
+	}
+
+	for mode, extra := range map[string]string{"GENERAL": "", "CODER": "runtimeConfig:\n  workspaceRoot: " + workspace + "\n", "KBASE": "runtimeConfig:\n  workspaceRoot: " + workspace + "\nkbaseConfig: {}\n"} {
+		for form, stage := range map[string]string{"nested": "    modelConfig:\n      modelKey: other-model\n", "flat": "    modelKey: other-model\n"} {
+			modelPath := filepath.Join(root, mode+"-"+form+"-execute-model.yml")
+			for _, stageName := range []string{"planning", "execute"} {
+				modelConfig := "key: stage-model\nname: Stage Model\nmode: " + mode + "\nmodelConfig:\n  modelKey: demo-model\n" + extra + "stageSettings:\n  " + stageName + ":\n" + stage
+				if err := os.WriteFile(modelPath, []byte(modelConfig), 0o644); err != nil {
+					t.Fatalf("write stage model config: %v", err)
+				}
+				if _, err := parseAgentDefinitionForTest(modelPath); err == nil || !strings.Contains(err.Error(), "stageSettings."+stageName+" modelKey is unsupported") {
+					t.Fatalf("expected %s %s %s model rejection, got %v", mode, form, stageName, err)
+				}
+			}
+		}
+	}
+
+	for mode, extra := range map[string]string{"GENERAL": "", "KBASE": "runtimeConfig:\n  workspaceRoot: " + workspace + "\nkbaseConfig: {}\n"} {
+		for _, stage := range []string{"planning", "execute"} {
+			toolsPath := filepath.Join(root, mode+"-"+stage+"-tools.yml")
+			toolsConfig := "key: stage-tools\nname: Stage Tools\nmode: " + mode + "\nmodelConfig:\n  modelKey: demo-model\n" + extra + "stageSettings:\n  " + stage + ":\n    toolConfig:\n      tools:\n        - file_read\n"
+			if err := os.WriteFile(toolsPath, []byte(toolsConfig), 0o644); err != nil {
+				t.Fatalf("write stage tools config: %v", err)
+			}
+			if _, err := parseAgentDefinitionForTest(toolsPath); err == nil || !strings.Contains(err.Error(), "stageSettings."+stage+".toolConfig.tools is unsupported") {
+				t.Fatalf("expected %s %s stage tools rejection, got %v", mode, stage, err)
+			}
+		}
 	}
 }
 

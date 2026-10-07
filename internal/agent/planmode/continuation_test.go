@@ -1,4 +1,4 @@
-package coder
+package planmode
 
 import (
 	"encoding/json"
@@ -24,11 +24,11 @@ func TestPlanningContinuationDecisionAndSubmitDecision(t *testing.T) {
 	if got := SubmitPlanningDecision(api.SubmitParams{raw, raw}); got != "" {
 		t.Fatalf("multiple submit decisions must be rejected, got %q", got)
 	}
-	if !StartsNewExecutionRun("planning", answer, Mode, "") {
-		t.Fatal("approved native CODER planning should start a new execution run")
+	if !StartsNewExecutionRun("planning", answer, true) {
+		t.Fatal("approved native planning should start a new execution run")
 	}
-	if StartsNewExecutionRun("planning", answer, Mode, "codex") || StartsNewExecutionRun("planning", map[string]any{}, Mode, "") {
-		t.Fatal("ACP CODER or non-approved planning must not start a native execution run")
+	if StartsNewExecutionRun("planning", answer, false) || StartsNewExecutionRun("planning", map[string]any{}, true) {
+		t.Fatal("bridge-owned or non-approved planning must not start a native execution run")
 	}
 }
 
@@ -76,7 +76,7 @@ func TestBuildContinuationRequestPreservesOriginalAndAppliesIdentityPrecedence(t
 	}
 }
 
-func TestBuildPlanningApproveContinuationRequestMarksInternalParamsWithoutMutatingOriginal(t *testing.T) {
+func TestBuildConfirmedPlanRequestMarksInternalParamsWithoutMutatingOriginal(t *testing.T) {
 	originalParams := map[string]any{"keep": "value"}
 	input := ContinuationRequestInput{
 		Original:         api.QueryRequest{Message: "build it", Params: originalParams},
@@ -84,14 +84,14 @@ func TestBuildPlanningApproveContinuationRequestMarksInternalParamsWithoutMutati
 		SummaryChatID:    "chat",
 		PlanningMarkdown: "# Confirmed",
 	}
-	req := BuildPlanningApproveContinuationRequest(input)
+	req := BuildConfirmedPlanRequest(input)
 	if req.RunID != "execute" || req.Role != api.QueryRoleSystem || req.PlanningMode == nil || *req.PlanningMode {
 		t.Fatalf("unexpected plan approve request: %#v", req)
 	}
 	if !strings.Contains(req.Message, "Original request:\nbuild it") || !strings.Contains(req.Message, "Confirmed planning:\n# Confirmed") {
 		t.Fatalf("unexpected execute prompt %q", req.Message)
 	}
-	if !IsPlanningApproveContinuationParams(req.Params) || originalParams[PlanningApproveContinuationParam] != nil {
+	if !IsConfirmedPlanRun(req.Params) || originalParams[ApproveContinuationParam] != nil {
 		t.Fatalf("continuation marker must be added to a clone, req=%#v original=%#v", req.Params, originalParams)
 	}
 }

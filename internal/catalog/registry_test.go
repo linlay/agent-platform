@@ -1400,8 +1400,8 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 			worker = item
 		}
 	}
-	if worker.DefaultModelKey != "execute-model" || worker.DefaultReasoningEffort != "HIGH" {
-		t.Fatalf("CODER defaults should prefer execute settings, got %#v", worker)
+	if worker.DefaultModelKey != "agent-model" || worker.DefaultReasoningEffort != "HIGH" {
+		t.Fatalf("CODER defaults should use the Agent model and execute reasoning, got %#v", worker)
 	}
 	if worker.Role != "Code worker" {
 		t.Fatalf("CODER summary role = %q, want Code worker", worker.Role)
@@ -1410,7 +1410,7 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal CODER agent summary: %v", err)
 	}
-	if !strings.Contains(string(workerData), `"defaultModelKey":"execute-model"`) ||
+	if !strings.Contains(string(workerData), `"defaultModelKey":"agent-model"`) ||
 		!strings.Contains(string(workerData), `"defaultReasoningEffort":"HIGH"`) ||
 		!strings.Contains(string(workerData), `"role":"Code worker"`) {
 		t.Fatalf("CODER summary JSON should include root defaults, got %s", workerData)

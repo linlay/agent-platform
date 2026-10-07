@@ -181,7 +181,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 		t.Fatalf("build query session: %v", err)
 	}
 
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task", "run_env"}
+	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task", "run_env"}
 	if !reflect.DeepEqual(session.ToolNames, wantTools) {
 		t.Fatalf("tool names = %#v, want %#v", session.ToolNames, wantTools)
 	}
@@ -904,7 +904,7 @@ func writeGitHead(workspace string, branch string) error {
 	return os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/"+branch+"\n"), 0o644)
 }
 
-func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {
+func TestBuildQuerySessionPlanningModeAppliesToNativeAgentsOnRequest(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
 	workspace := filepath.Join(root, "workspace")
@@ -978,8 +978,8 @@ func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build react session: %v", err)
 	}
-	if reactSession.PlanningMode {
-		t.Fatalf("did not expect non-CODER planning mode")
+	if !reactSession.PlanningMode {
+		t.Fatalf("expected planning mode for every ordinary native Agent")
 	}
 
 	disabledSession, err := server.BuildQuerySession(context.Background(), api.QueryRequest{

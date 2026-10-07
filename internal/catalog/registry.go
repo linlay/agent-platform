@@ -637,12 +637,9 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 }
 
 func agentSummaryCoderDefaults(def AgentDefinition) (string, string) {
-	settings := contracts.ResolveCoderPlanningSettings(def.StageSettings, 0)
-	modelKey := firstNonBlankString(
-		settings.Execute.ModelKey,
-		settings.Planning.ModelKey,
-		def.ModelKey,
-	)
+	settings := contracts.ResolvePlanningModeSettings(def.StageSettings, 0)
+	// Every Run of the Agent uses its own model.
+	modelKey := def.ModelKey
 	reasoningEffort := firstNonBlankString(
 		settings.Execute.ReasoningEffort,
 		settings.Planning.ReasoningEffort,

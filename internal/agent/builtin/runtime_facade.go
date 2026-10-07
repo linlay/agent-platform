@@ -1,9 +1,12 @@
 package builtin
 
 import (
+	"strings"
+
 	"agent-platform/internal/agent/coder"
 	"agent-platform/internal/agent/general"
 	"agent-platform/internal/agent/kbase"
+	"agent-platform/internal/agent/planmode"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
@@ -13,14 +16,13 @@ import (
 // built-in mode behavior. Transport adapters depend on this dispatch package,
 // never on a concrete CODER/KBASE/TEAM implementation.
 const (
-	CoderExecuteCacheKey                  = coder.ExecuteCacheKey
-	CoderMainStage                        = coder.MainStage
-	CoderPlanningApproveContinuationParam = coder.PlanningApproveContinuationParam
-	TeamMode                              = agentteam.Mode
-	TeamToolDelegate                      = agentteam.ToolDelegate
+	CoderMainStage               = coder.MainStage
+	PlanApproveContinuationParam = planmode.ApproveContinuationParam
+	TeamMode                     = agentteam.Mode
+	TeamToolDelegate             = agentteam.ToolDelegate
 )
 
-type CoderContinuationRequestInput = coder.ContinuationRequestInput
+type PlanContinuationRequestInput = planmode.ContinuationRequestInput
 type CoderCreateDefaults = coder.CreateDefaults
 type KBaseCreateDefaults = kbase.CreateDefaults
 type GeneralCreateDefaults = general.CreateDefaults
@@ -47,32 +49,48 @@ func IsCoderACPBackend(mode, acpBridgeID string) bool {
 func IsCoderNativeBackend(mode, acpBridgeID string) bool {
 	return coder.IsNativeBackend(mode, acpBridgeID)
 }
-func CoderPlanningModeEnabled(mode string, requested bool) bool {
-	return coder.PlanningModeEnabled(mode, requested)
+
+// PlanningModeSupported reports whether planningMode is accepted for an Agent
+// mode. Planning is a capability of ordinary native Agents, not of one mode;
+// TEAM coordinators and pipeline modes do not offer it.
+func PlanningModeSupported(mode string) bool {
+	return general.IsMode(mode) || coder.IsMode(mode) || kbase.IsMode(mode)
+}
+
+// NativePlanning reports whether the platform itself runs the Agent's planning
+// Runs. An ACP bridge receives planningMode and owns the flow instead.
+func NativePlanning(mode, acpBridgeID string) bool {
+	return PlanningModeSupported(mode) && strings.TrimSpace(acpBridgeID) == ""
+}
+func PlanningModeEnabled(mode string, requested bool) bool {
+	return requested && PlanningModeSupported(mode)
 }
 func KBaseEditingModeEnabled(mode string, requested bool) bool {
 	return kbase.EditingModeEnabled(mode, requested)
 }
-func CoderPlanningContinuationDecision(mode string, answer map[string]any) string {
-	return coder.PlanningContinuationDecision(mode, answer)
+func PlanContinuationDecision(mode string, answer map[string]any) string {
+	return planmode.PlanningContinuationDecision(mode, answer)
 }
-func CoderBuildContinuationRequest(input CoderContinuationRequestInput) api.QueryRequest {
-	return coder.BuildContinuationRequest(input)
+func BuildPlanContinuationRequest(input PlanContinuationRequestInput) api.QueryRequest {
+	return planmode.BuildContinuationRequest(input)
 }
-func CoderBuildPlanningApproveContinuationRequest(input CoderContinuationRequestInput) api.QueryRequest {
-	return coder.BuildPlanningApproveContinuationRequest(input)
+func BuildConfirmedPlanRequest(input PlanContinuationRequestInput) api.QueryRequest {
+	return planmode.BuildConfirmedPlanRequest(input)
 }
-func CoderPlanningExecuteToolsForStage(stage contracts.StageSettings, toolNames []string) []string {
-	return coder.PlanningExecuteToolsForStage(stage, toolNames)
+func IsConfirmedPlanRun(params map[string]any) bool {
+	return planmode.IsConfirmedPlanRun(params)
 }
-func CoderExecuteSyntheticQueryMessage(locale string) string {
-	return coder.ExecuteSyntheticQueryMessage(locale)
+func ConfirmedPlanTools(session contracts.QuerySession, defs []api.ToolDetailResponse) []string {
+	return planmode.ConfirmedPlanTools(session, defs)
 }
-func CoderSubmitPlanningDecision(params api.SubmitParams) string {
-	return coder.SubmitPlanningDecision(params)
+func PlanExecuteSyntheticQueryMessage(locale string) string {
+	return planmode.ExecuteSyntheticQueryMessage(locale)
 }
-func CoderStartsNewExecutionRun(mode string, answer map[string]any, agentMode, acpBridgeID string) bool {
-	return coder.StartsNewExecutionRun(mode, answer, agentMode, acpBridgeID)
+func SubmitPlanningDecision(params api.SubmitParams) string {
+	return planmode.SubmitPlanningDecision(params)
+}
+func StartsNewExecutionRun(mode string, answer map[string]any, agentMode, acpBridgeID string) bool {
+	return planmode.StartsNewExecutionRun(mode, answer, NativePlanning(agentMode, acpBridgeID))
 }
 func CoderModelOptionsFilterMode(agentKey, mode, acpBridgeID string) string {
 	return coder.ModelOptionsFilterMode(agentKey, mode, acpBridgeID)

@@ -70,7 +70,6 @@ func setupCoderRuntime(t *testing.T, cfg *config.Config) {
 		"mode: CODER",
 		"stageSettings:",
 		"  execute:",
-		"    modelKey: mock-model",
 		"    reasoningEffort: LOW",
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write coder agent config: %v", err)

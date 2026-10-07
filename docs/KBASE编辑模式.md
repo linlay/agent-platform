@@ -15,7 +15,7 @@ file_read file_glob file_grep file_write file_edit
 | 未开启 editing | 可读，不可 mutation | 可读写 |
 | 开启 editing | 可读写 | 可读写 |
 
-`editingMode` 不控制文件工具是否存在，也不改变 Workspace；它只允许本 run 修改 KBASE Workspace。它不复用 CODER planning，不产生第二个 execute run。普通 Agent 附加的 KBASE capability、Team 和其他 mode 不支持该字段。
+`editingMode` 不控制文件工具是否存在，也不改变 Workspace；它只允许本 run 修改 KBASE Workspace。它与 `planningMode` 相互独立，自身不产生第二个 execute run；二者同时出现时规划 Run 保持只读，`editingMode` 在已确认计划的执行 Run 生效。普通 Agent 附加的 KBASE capability、Team 和其他 mode 不支持该字段。
 
 这些工具处理普通文本文件，不按知识库索引格式限制扩展名或编码。`.md`、`.txt`、`.json`、`.csv`、`.html` 以及其他可被通用文本工具识别的格式均可读写；支持的非 UTF-8 编码沿用通用检测、显式编码和写回保留规则。DOCX、PPTX、PDF、图片等二进制格式仍需格式专用工具。
 

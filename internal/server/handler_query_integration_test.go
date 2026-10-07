@@ -720,15 +720,14 @@ func TestQueryRejectsInvalidAccessLevel(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsPlanningModeForNonCoderAgent(t *testing.T) {
+// planningMode is a capability of every ordinary native Agent, not of CODER.
+func TestQueryAcceptsPlanningModeForGeneralAgent(t *testing.T) {
 	fixture := newTestFixture(t)
 	enabled := true
 	req := api.QueryRequest{Message: "hello", AgentKey: "mock-agent", PlanningMode: &enabled}
 
-	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
-	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Message != "planningMode is only supported for CODER agents" {
-		t.Fatalf("expected non-CODER planningMode rejection, got %#v", err)
+	if _, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com"); err != nil {
+		t.Fatalf("expected GENERAL planningMode to be admitted, got %#v", err)
 	}
 }
 
@@ -2093,6 +2092,8 @@ Plan first, then check the current time before reporting.
 			if err := os.MkdirAll(workspace, 0o755); err != nil {
 				t.Fatalf("mkdir workspace: %v", err)
 			}
+			// Production mounts these through agent-settings presets.
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
 			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
 				"key: coder-app",
 				"name: Coder App",
@@ -2204,7 +2205,7 @@ Plan first, then check the current time before reporting.
 	}
 	assertPersistedPlanningModeRequestQuery(t, fixture.server)
 	assertJSONLFinalizePlanningHistory(t, fixture.chats, chatID, map[string]string{"tool_plan": "approve"})
-	assertJSONLCoderExecuteBootstrapQuery(t, fixture.chats, chatID, "Execute planning")
+	assertJSONLCoderExecuteBootstrapQuery(t, fixture.chats, chatID, "执行计划")
 }
 
 func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
@@ -2270,6 +2271,8 @@ func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 			if err := os.MkdirAll(workspace, 0o755); err != nil {
 				t.Fatalf("mkdir workspace: %v", err)
 			}
+			// Production mounts these through agent-settings presets.
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
 			lines := []string{
 				"key: coder-app",
 				"name: Coder App",
@@ -2408,6 +2411,8 @@ Plan should be canceled before execution.
 			if err := os.MkdirAll(workspace, 0o755); err != nil {
 				t.Fatalf("mkdir workspace: %v", err)
 			}
+			// Production mounts these through agent-settings presets.
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
 			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
 				"key: coder-app",
 				"name: Coder App",
@@ -2561,6 +2566,8 @@ Revised plan with explicit test coverage.
 			if err := os.MkdirAll(workspace, 0o755); err != nil {
 				t.Fatalf("mkdir workspace: %v", err)
 			}
+			// Production mounts these through agent-settings presets.
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
 			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
 				"key: coder-app",
 				"name: Coder App",
@@ -2810,7 +2817,8 @@ func jsonLCoderExecuteRunID(t *testing.T, store chat.Store, chatID string, oldRu
 			continue
 		}
 		query, _ := line["query"].(map[string]any)
-		if stringValue(query["message"]) != "Execute planning" {
+		// The synthetic execute query follows the Run locale.
+		if message := stringValue(query["message"]); message != "执行计划" && message != "Execute planning" {
 			continue
 		}
 		runID := stringValue(line["runId"])
@@ -2849,7 +2857,7 @@ func assertAttachedCoderExecuteRun(t *testing.T, body string, runID string, chat
 		t.Fatalf("expected attached execution replay, got %s", body)
 	}
 	if messages[0]["type"] != "request.query" || stringValue(messages[0]["runId"]) != runID ||
-		stringValue(messages[0]["requestId"]) != runID || stringValue(messages[0]["message"]) != "Execute planning" {
+		stringValue(messages[0]["requestId"]) != runID || stringValue(messages[0]["message"]) != "执行计划" {
 		t.Fatalf("expected first attached event to be execute request.query, got %#v in %s", messages[0], body)
 	}
 	for _, field := range []string{"synthetic", "stage", "source"} {
@@ -3021,11 +3029,12 @@ func writeProviderSSEFrame(t *testing.T, w io.Writer, frame string) {
 
 func assertCoderPlanningToolSet(t *testing.T, got []string) {
 	t.Helper()
-	if len(got) != 8 {
+	// The Agent's tools minus the default planning-mode exclusions, plus finalize_planning.
+	if len(got) != 9 {
 		t.Fatalf("coder planning tools length=%d tools=%#v", len(got), got)
 	}
-	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", "finalize_planning")
-	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "workpanel_open", "surface_cdp", "awcp_invoke", "agent_invoke", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
+	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", "plan_get_tasks", "finalize_planning")
+	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "artifact_publish", "run_env", "agent_invoke", "plan_add_tasks", "plan_update_task")
 }
 
 func awaitingQuestionText(payload map[string]any) string {
@@ -3274,7 +3283,7 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 		message, _ := rawMessages[0].(map[string]any)
 		executePrompt := textFromJSONLMessageContentForServerTest(message["content"])
 		if stringValue(message["role"]) != "user" ||
-			!strings.Contains(executePrompt, "Execute the confirmed CODER planning.") ||
+			!strings.Contains(executePrompt, "Execute the confirmed plan.") ||
 			!strings.Contains(executePrompt, "Original request:\nplease plan first") ||
 			!strings.Contains(executePrompt, "Confirmed planning:\n# Confirm Coder Plan") {
 			t.Fatalf("unexpected execute query model message %#v", message)
@@ -3307,7 +3316,7 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 		if stringValue(systemRef["agentKey"]) == "" {
 			t.Fatalf("expected execute react systemRef agentKey, got %#v", executeLine)
 		}
-		if got := strings.Count(content, "Execute the confirmed CODER planning.\\n\\nOriginal request:"); got != 1 {
+		if got := strings.Count(content, "Execute the confirmed plan.\\n\\nOriginal request:"); got != 1 {
 			t.Fatalf("expected execute prompt persisted once, got %d in:\n%s", got, content)
 		}
 		return

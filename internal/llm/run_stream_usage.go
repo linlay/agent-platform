@@ -111,7 +111,7 @@ func (s *llmRunStream) currentSystemSnapshot() (string, SystemInitSnapshot, bool
 	}
 	cacheKey := strings.TrimSpace(s.systemInitCacheKey)
 	if cacheKey == "" {
-		cacheKey = SystemInitCacheKey(s.session.Mode, s.promptBuildOptions.Stage)
+		cacheKey = sessionSystemInitCacheKey(s.session, s.promptBuildOptions.Stage)
 	}
 	snapshot, ok := s.session.SystemInitCache[cacheKey]
 	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {

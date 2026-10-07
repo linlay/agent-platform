@@ -1,4 +1,4 @@
-package coder
+package planmode
 
 import (
 	"agent-platform/internal/api"
@@ -8,7 +8,7 @@ import (
 // prepareSteeredPlanning runs only at a completed tool/model boundary. The
 // obsolete finalize_planning call gets its unique result before user messages
 // are appended, preserving a valid tool-call/result history for the next model.
-func (s *coderPlanningStream) prepareSteeredPlanning(steers []api.SteerRequest) {
+func (s *planningStream) prepareSteeredPlanning(steers []api.SteerRequest) {
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		plan := s.execCtx.PlanningState
 		answer := contracts.AwaitingErrorAnswer("planning", contracts.PlanningSuperseded, "Planning superseded by a new user instruction")
@@ -26,7 +26,6 @@ func (s *coderPlanningStream) prepareSteeredPlanning(steers []api.SteerRequest) 
 	s.preparePlanningFeedback(nil)
 	s.planningSuperseded = true
 	s.confirmationAsked = false
-	s.summaryDone = false
 	s.completed = false
 	for _, steer := range steers {
 		if len(steer.PreparedMessages) == 0 {

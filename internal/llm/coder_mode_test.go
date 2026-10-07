@@ -2,8 +2,11 @@ package llm
 
 import "testing"
 
-func TestResolveAgentModeCoder(t *testing.T) {
-	if _, ok := resolveAgentMode("CODER").(coderMode); !ok {
-		t.Fatalf("expected CODER to resolve to coderMode")
+// CODER is an ordinary built-in mode: it has no dedicated start path, and
+// planning is applied before the mode-specific start for every native mode.
+func TestResolveAgentModeCoderUsesBuiltinMainStage(t *testing.T) {
+	mode, ok := resolveAgentMode("CODER").(builtinMode)
+	if !ok || mode.stage != "coder" {
+		t.Fatalf("expected CODER to resolve to its builtin main stage, got %#v", resolveAgentMode("CODER"))
 	}
 }

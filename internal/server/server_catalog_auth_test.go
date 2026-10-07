@@ -275,7 +275,6 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 					"stageSettings:",
 					"  execute:",
 					"    modelConfig:",
-					"      modelKey: execute-model",
 					"      reasoning:",
 					"        effort: HIGH",
 					"icon:",
@@ -325,7 +324,7 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	if coder.Mode != catalog.AgentModeCoder || coder.WorkspaceDir == "" || coder.AgentConfigDir != filepath.Join(fixture.cfg.Paths.AgentsDir, "coder-agent") {
 		t.Fatalf("coder summary = %#v", coder)
 	}
-	if coder.DefaultModelKey != "execute-model" || coder.DefaultReasoningEffort != "HIGH" {
+	if coder.DefaultModelKey != "agent-model" || coder.DefaultReasoningEffort != "HIGH" {
 		t.Fatalf("coder defaults = %#v", coder)
 	}
 	if coder.Role != "Code assistant" {

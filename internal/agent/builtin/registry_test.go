@@ -62,3 +62,23 @@ func TestRenderTeamSystemPrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanningModeIsANativeCapabilityNotAMode(t *testing.T) {
+	for _, mode := range []string{"GENERAL", "REACT", "CODER", "KBASE"} {
+		if !PlanningModeSupported(mode) || !PlanningModeEnabled(mode, true) || PlanningModeEnabled(mode, false) {
+			t.Fatalf("%s must support planning only when requested", mode)
+		}
+		if !NativePlanning(mode, "") || NativePlanning(mode, "codex") {
+			t.Fatalf("%s planning is platform-run only without an ACP bridge", mode)
+		}
+	}
+	for _, mode := range []string{"TEAM", "PLAN_EXECUTE", "ONESHOT", "PROXY", "CHANNEL", ""} {
+		if PlanningModeSupported(mode) || NativePlanning(mode, "") {
+			t.Fatalf("%s must not support planning", mode)
+		}
+	}
+	answer := map[string]any{"planning": map[string]any{"decision": "approve"}}
+	if !StartsNewExecutionRun("planning", answer, "GENERAL", "") || StartsNewExecutionRun("planning", answer, "TEAM", "") || StartsNewExecutionRun("planning", answer, "CODER", "codex") {
+		t.Fatal("only platform-run planning hands off to a new execution Run")
+	}
+}

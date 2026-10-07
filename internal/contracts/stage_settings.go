@@ -26,10 +26,11 @@ type PlanExecuteSettings struct {
 	MaxWorkRoundsPerTask int
 }
 
-// CoderPlanningSettings is intentionally separate from PlanExecuteSettings.
-// The latter belongs to the PLAN_EXECUTE plan-tasks workflow; this type owns
-// the CODER planning confirmation and its subsequent execution stage.
-type CoderPlanningSettings struct {
+// PlanningModeSettings is intentionally separate from PlanExecuteSettings.
+// The latter belongs to the PLAN_EXECUTE plan-tasks workflow; this type holds
+// the model settings of a planningMode Run and of the Run that executes a
+// confirmed plan, for any native Agent.
+type PlanningModeSettings struct {
 	Planning StageSettings
 	Execute  StageSettings
 	MaxSteps int
@@ -70,8 +71,8 @@ func ResolvePlanExecuteSettings(raw map[string]any, defaultsMaxSteps int, defaul
 	return settings
 }
 
-func ResolveCoderPlanningSettings(raw map[string]any, defaultMaxSteps int) CoderPlanningSettings {
-	settings := CoderPlanningSettings{MaxSteps: defaultMaxSteps}
+func ResolvePlanningModeSettings(raw map[string]any, defaultMaxSteps int) PlanningModeSettings {
+	settings := PlanningModeSettings{MaxSteps: defaultMaxSteps}
 	if settings.MaxSteps <= 0 {
 		settings.MaxSteps = 60
 	}

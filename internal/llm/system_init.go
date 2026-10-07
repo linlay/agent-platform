@@ -9,10 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
+	"agent-platform/internal/agent/planmode"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -100,12 +99,11 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 	toolDefs = mergeToolDefinitions(toolDefs, session.ModeToolDefinitions)
 	mode := normalizedSystemInitMode(session.Mode)
 	if session.PlanningMode {
-		if mode != agentcoder.MainStage {
+		if !agentbuiltin.PlanningModeSupported(session.Mode) {
 			return nil
 		}
-		settings := resolveCoderPlanningRuntimeSettings(session, defaultCoderPlanningMaxSteps)
-		session.ResolvedCoderPlanningSettings = settings
-		return buildCoderPlanningSystemInitProfiles(session, req, settings, toolDefs)
+		session.ResolvedPlanningSettings = resolvePlanningModeRuntimeSettings(session, defaultCoderPlanningMaxSteps)
+		return []contracts.SystemInitProfile{buildPlanningSystemInitProfile(session, req, toolDefs)}
 	}
 	switch mode {
 	case "plan-execute":
@@ -195,14 +193,6 @@ func profileRuntimeStage(session contracts.QuerySession, profile contracts.Syste
 		}
 		return "react"
 	}
-	if mode == agentcoder.MainStage {
-		switch stage {
-		case "planning":
-			return agentcoder.PlanningStage
-		case "execute":
-			return agentcoder.ExecuteStage
-		}
-	}
 	if mode == agentkbase.MainStage && stage == "editing" {
 		return agentkbase.EditingStage
 	}
@@ -265,13 +255,25 @@ func modelSnapshotFromDefinition(model models.ModelDefinition, provider models.P
 	return out
 }
 
+// sessionSystemInitCacheKey keeps the three Run forms of one Agent apart: a
+// planning Run, a Run started from a confirmed plan, and an ordinary Run have
+// different tool sets and must not overwrite each other's system-init entry.
+func sessionSystemInitCacheKey(session contracts.QuerySession, stage string) string {
+	if agentbuiltin.PlanningModeSupported(session.Mode) {
+		if planmode.IsPlanningStage(stage) {
+			return normalizedSystemInitMode(session.Mode) + ":planning"
+		}
+		if session.ConfirmedPlanRun {
+			return normalizedSystemInitMode(session.Mode) + ":execute"
+		}
+	}
+	return SystemInitCacheKey(session.Mode, stage)
+}
+
 func SystemInitCacheKey(mode string, stage string) string {
 	normalizedMode := normalizedSystemInitMode(mode)
 	if normalizedMode == "plan-execute" {
 		return normalizedMode + ":" + normalizedPlanExecuteStage(stage)
-	}
-	if normalizedMode == agentcoder.MainStage {
-		return agentcoder.SystemInitCacheKey(stage)
 	}
 	if normalizedMode == agentkbase.MainStage {
 		return agentkbase.SystemInitCacheKey(stage)
@@ -303,7 +305,7 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"budget":                        session.Budget,
 		"stageSettings":                 session.StageSettings,
 		"resolvedPlanExecuteSettings":   session.ResolvedPlanExecuteSettings,
-		"resolvedCoderPlanningSettings": session.ResolvedCoderPlanningSettings,
+		"resolvedCoderPlanningSettings": session.ResolvedPlanningSettings,
 		"promptAppend":                  session.PromptAppend,
 		"ownerPrompt":                   session.OwnerPrompt,
 		"skillCatalogPrompt":            session.SkillCatalogPrompt,
@@ -360,6 +362,9 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 		if agentkbase.IsMode(session.Mode) && session.EditingMode {
 			profile.Fingerprint = ComputeSystemInitFingerprint(session, spec.FingerprintStage, effectiveDefs)
 		}
+	}
+	if session.ConfirmedPlanRun {
+		profile.CacheKey = sessionSystemInitCacheKey(session, stage)
 	}
 	return profile
 }
@@ -426,39 +431,25 @@ func buildSummarySystemInitProfile(session contracts.QuerySession, settings cont
 	}
 }
 
-func buildCoderPlanningSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings, toolDefs []api.ToolDetailResponse) []contracts.SystemInitProfile {
-	specs := agentcoder.PlanningSystemInitSpecs(session, req, settings)
-	profiles := make([]contracts.SystemInitProfile, 0, len(specs))
-	for _, spec := range specs {
-		profiles = append(profiles, buildCoderPlanningSystemInitProfile(session, req, spec, toolDefs))
-	}
-	return profiles
-}
-
-func buildCoderPlanningExecuteSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningExecuteSystemInitSpec(session, req, settings), toolDefs)
-}
-
-func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, spec agentcontract.SystemInitSpec, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	effectiveDefs := effectiveToolDefinitions(toolDefs, spec.ToolNames, session)
-	systemPrompt := strings.TrimSpace(spec.SystemPrompt)
-	if spec.UseSharedSystemPrompt {
-		systemPrompt = buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
-			Stage:                 spec.PromptStage,
-			ToolDefinitions:       effectiveDefs,
-			IncludeAfterCallHints: spec.IncludeAfterCallHints,
-		})
-	}
+// buildPlanningSystemInitProfile is the single profile of a planning Run: the
+// Agent's shared system prompt with the planning tool set.
+func buildPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
+	effectiveDefs := effectiveToolDefinitions(toolDefs, planmode.PlanningTools(session, toolDefs), session)
+	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
+		Stage:                 planmode.PlanningStage,
+		ToolDefinitions:       effectiveDefs,
+		IncludeAfterCallHints: true,
+	})
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
 		AgentKey:      strings.TrimSpace(session.AgentKey),
-		CacheKey:      spec.CacheKey,
-		Mode:          spec.Mode,
-		Stage:         spec.Stage,
-		Fingerprint:   ComputeSystemInitFingerprint(session, spec.FingerprintStage, effectiveDefs),
+		CacheKey:      sessionSystemInitCacheKey(session, planmode.PlanningStage),
+		Mode:          normalizedSystemInitMode(session.Mode),
+		Stage:         planmode.PlanningStage,
+		Fingerprint:   ComputeSystemInitFingerprint(session, planmode.PlanningStage, effectiveDefs),
 		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
 		Tools:         openAIToolSpecsToAny(specs),
-		Initial:       spec.Initial,
+		Initial:       true,
 	}
 }
 
@@ -470,10 +461,10 @@ func resolvePlanExecuteRuntimeSettings(session contracts.QuerySession, defaultMa
 	return settings
 }
 
-func resolveCoderPlanningRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int) contracts.CoderPlanningSettings {
-	settings := session.ResolvedCoderPlanningSettings
+func resolvePlanningModeRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int) contracts.PlanningModeSettings {
+	settings := session.ResolvedPlanningSettings
 	if settings.MaxSteps <= 0 {
-		settings = contracts.ResolveCoderPlanningSettings(session.StageSettings, defaultMaxSteps)
+		settings = contracts.ResolvePlanningModeSettings(session.StageSettings, defaultMaxSteps)
 	}
 	return settings
 }

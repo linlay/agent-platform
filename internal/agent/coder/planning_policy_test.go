@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"testing"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
 )
 
@@ -27,15 +26,6 @@ func TestCoderModeGuardsKeepProxySeparate(t *testing.T) {
 	if IsACPBackend("PROXY", "codex") {
 		t.Fatalf("ordinary PROXY must not become ACP CODER")
 	}
-	if !PlanningModeEnabled("CODER", true) {
-		t.Fatalf("expected requested planning mode to be enabled for CODER")
-	}
-	if PlanningModeEnabled("PROXY", true) {
-		t.Fatalf("ordinary PROXY must not enter CODER planning mode")
-	}
-	if PlanningModeEnabled("CODER", false) {
-		t.Fatalf("planning mode should require an explicit request")
-	}
 }
 
 func TestCoderRuntimeToolNamesOnlyNativeExecuteAddsPlanTaskTools(t *testing.T) {
@@ -47,16 +37,16 @@ func TestCoderRuntimeToolNamesOnlyNativeExecuteAddsPlanTaskTools(t *testing.T) {
 		contracts.PlanGetTasksToolName,
 		contracts.PlanUpdateTaskToolName,
 	}
-	if got := RuntimeToolNamesForAgent("CODER", "", "coder-execute", base); !reflect.DeepEqual(got, wantNative) {
+	if got := RuntimeToolNamesForAgent("CODER", "", MainStage, base); !reflect.DeepEqual(got, wantNative) {
 		t.Fatalf("native CODER execute tools=%#v want %#v", got, wantNative)
 	}
-	if got := RuntimeToolNamesForAgent("CODER", "", "coder-planning", base); !reflect.DeepEqual(got, base) {
+	if got := RuntimeToolNamesForAgent("CODER", "", "planning", base); !reflect.DeepEqual(got, base) {
 		t.Fatalf("native CODER planning tools=%#v want %#v", got, base)
 	}
-	if got := RuntimeToolNamesForAgent("CODER", "codex", "coder-execute", base); !reflect.DeepEqual(got, base) {
+	if got := RuntimeToolNamesForAgent("CODER", "codex", MainStage, base); !reflect.DeepEqual(got, base) {
 		t.Fatalf("ACP CODER execute tools=%#v want %#v", got, base)
 	}
-	if got := RuntimeToolNamesForAgent("PROXY", "", "coder-execute", base); !reflect.DeepEqual(got, base) {
+	if got := RuntimeToolNamesForAgent("PROXY", "", MainStage, base); !reflect.DeepEqual(got, base) {
 		t.Fatalf("ordinary PROXY execute tools=%#v want %#v", got, base)
 	}
 }
@@ -81,81 +71,4 @@ func containsTool(tools []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func TestPlanningExecuteToolsFilterPlanningOnlyTools(t *testing.T) {
-	base := []string{
-		"bash",
-		contracts.FinalizePlanningToolName,
-		AskUserQuestionToolName,
-		"file_read",
-		contracts.PlanGetTasksToolName,
-	}
-	want := []string{
-		"bash",
-		"file_read",
-		contracts.PlanGetTasksToolName,
-		contracts.PlanAddTasksToolName,
-		contracts.PlanUpdateTaskToolName,
-	}
-	if got := PlanningExecuteTools(base); !reflect.DeepEqual(got, want) {
-		t.Fatalf("PlanningExecuteTools()=%#v want %#v", got, want)
-	}
-	if !IsPlanningOnlyTool(contracts.FinalizePlanningToolName) || !IsPlanningOnlyTool(AskUserQuestionToolName) {
-		t.Fatalf("expected finalize_planning and ask_user_question to be planning-only")
-	}
-	if IsPlanningOnlyTool("bash") {
-		t.Fatalf("bash must be available outside planning")
-	}
-}
-
-func TestPlanningSystemInitSpecsPreserveCoderStagesAndTools(t *testing.T) {
-	session := contracts.QuerySession{
-		Mode:      "CODER",
-		ToolNames: []string{"bash", "file_read", contracts.FinalizePlanningToolName, AskUserQuestionToolName},
-	}
-	settings := contracts.CoderPlanningSettings{
-		Execute: contracts.StageSettings{
-			SystemPrompt: "execute {{agent_key}}",
-			Tools:        []string{"bash", "file_read", contracts.FinalizePlanningToolName, AskUserQuestionToolName},
-		},
-	}
-	specs := PlanningSystemInitSpecs(session, api.QueryRequest{Message: "ship it"}, settings)
-	if len(specs) != 2 {
-		t.Fatalf("expected plan and execute specs, got %#v", specs)
-	}
-
-	plan := specs[0]
-	if plan.CacheKey != PlanningCacheKey || plan.FingerprintStage != "coder-planning" ||
-		plan.PromptStage != "coder-planning" || plan.Mode != "coder" || plan.Stage != "planning" {
-		t.Fatalf("unexpected plan spec stages: %#v", plan)
-	}
-	if !plan.UseSharedSystemPrompt || !plan.IncludeAfterCallHints || !plan.Initial {
-		t.Fatalf("plan spec should use shared system prompt and after-call hints: %#v", plan)
-	}
-	if !reflect.DeepEqual(plan.ToolNames, PlanningModeTools()) {
-		t.Fatalf("planning spec tools=%#v want %#v", plan.ToolNames, PlanningModeTools())
-	}
-
-	execute := specs[1]
-	wantExecuteTools := []string{
-		"bash",
-		"file_read",
-		contracts.PlanAddTasksToolName,
-		contracts.PlanGetTasksToolName,
-		contracts.PlanUpdateTaskToolName,
-	}
-	if execute.CacheKey != ExecuteCacheKey || execute.FingerprintStage != "coder-execute" ||
-		execute.PromptStage != "coder-execute" || execute.Mode != "coder" || execute.Stage != "execute" {
-		t.Fatalf("unexpected execute spec stages: %#v", execute)
-	}
-	if execute.UseSharedSystemPrompt || execute.IncludeAfterCallHints || execute.Initial {
-		t.Fatalf("execute spec should carry its own rendered prompt without after-call hints: %#v", execute)
-	}
-	if !reflect.DeepEqual(execute.ToolNames, wantExecuteTools) {
-		t.Fatalf("execute spec tools=%#v want %#v", execute.ToolNames, wantExecuteTools)
-	}
-	if execute.SystemPrompt == "" {
-		t.Fatalf("execute spec should include rendered execution system prompt")
-	}
 }

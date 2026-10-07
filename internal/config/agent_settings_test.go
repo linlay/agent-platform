@@ -257,3 +257,56 @@ func TestStructuredConfigIgnoresRetiredFiles(t *testing.T) {
 		t.Fatal("new settings not loaded")
 	}
 }
+
+func TestPlanningModeSettings(t *testing.T) {
+	defaults := DefaultPlanningModeConfig()
+	load := func(body string) (Config, error) {
+		c := Config{PlanningMode: DefaultPlanningModeConfig()}
+		return c, c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", body))
+	}
+	c, err := load("general: {}\n")
+	if err != nil || !reflect.DeepEqual(c.PlanningMode, defaults) {
+		t.Fatalf("omitted planning-mode must keep defaults, got %#v err=%v", c.PlanningMode, err)
+	}
+	c, err = load("planning-mode:\n  exclude-tools:\n    - bash\n    - mcp_write\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.PlanningMode.ExcludeTools, []string{"bash", "mcp_write"}) || !reflect.DeepEqual(c.PlanningMode.ExecuteExcludeTools, defaults.ExecuteExcludeTools) {
+		t.Fatalf("a present list replaces only itself, got %#v", c.PlanningMode)
+	}
+	c, err = load("planning-mode:\n  exclude-tools: []\n  execute-exclude-tools: []\n")
+	if effective := c.PlanningMode.Effective(); err != nil || len(effective.ExcludeTools) != 0 || len(effective.ExecuteExcludeTools) != 0 {
+		t.Fatalf("explicit empty lists must remove nothing, got %#v err=%v", effective, err)
+	}
+	if unset := (PlanningModeConfig{}).Effective(); !reflect.DeepEqual(unset, defaults) {
+		t.Fatalf("unset lists must fall back to defaults, got %#v", unset)
+	}
+	for _, body := range []string{
+		"planning-mode:\n  tools: []\n",
+		"planning-mode:\n  exclude-tools: bash\n",
+		"planning-mode:\n  exclude-tools:\n    - finalize_planning\n",
+		"planning-mode:\n  execute-exclude-tools:\n    - finalize_planning\n",
+	} {
+		if _, err := load(body); err == nil {
+			t.Fatalf("expected %q to be rejected", body)
+		}
+	}
+}
+
+// The shipped examples must load and spell out the built-in planning defaults.
+func TestShippedExamplesDeclarePlanningModeDefaults(t *testing.T) {
+	c := Config{PlanningMode: DefaultPlanningModeConfig()}
+	if err := c.applyAgentSettingsFile(ProjectFile("configs/agent-settings.example.yml")); err != nil {
+		t.Fatalf("load agent-settings example: %v", err)
+	}
+	if !reflect.DeepEqual(c.PlanningMode, DefaultPlanningModeConfig()) {
+		t.Fatalf("example planning-mode = %#v, want the built-in defaults %#v", c.PlanningMode, DefaultPlanningModeConfig())
+	}
+	if err := c.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
+		t.Fatalf("load agent-prompt example: %v", err)
+	}
+	if !strings.Contains(c.Prompts.PlanningMode.PlanningPrompt, "{{planning_stage_tools}}") || strings.TrimSpace(c.CoderPrompts.PlanningPrompt) == "" {
+		t.Fatalf("expected shared and CODER planning prompts in the example")
+	}
+}

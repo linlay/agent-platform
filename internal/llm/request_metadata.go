@@ -77,7 +77,7 @@ func (s *llmRunStream) currentSystemCacheKey() string {
 	}
 	cacheKey := strings.TrimSpace(s.systemInitCacheKey)
 	if cacheKey == "" {
-		cacheKey = SystemInitCacheKey(s.session.Mode, s.promptBuildOptions.Stage)
+		cacheKey = sessionSystemInitCacheKey(s.session, s.promptBuildOptions.Stage)
 	}
 	return cacheKey
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
@@ -659,7 +660,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.InteractionConfig = &interactionConfig
-	if err := validateCoderPlanningConfig(def.Mode, root); err != nil {
+	if err := validatePlanningConfig(def.Mode, root); err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	modelConfig := mapNode(root["modelConfig"])
@@ -1171,11 +1172,39 @@ func NormalizeAgentReasoningConfig(path string, root map[string]any) error {
 	return nil
 }
 
-func validateCoderPlanningConfig(mode string, root map[string]any) error {
+// validatePlanningConfig rejects stage tool lists that planningMode no longer
+// reads: planning and confirmed-plan Runs use the Agent's own tools, and their
+// differences come only from planning-mode in agent-settings.yml.
+func validatePlanningConfig(mode string, root map[string]any) error {
+	stageSettings := mapNode(root["stageSettings"])
+	stageTools := func(stage string) bool {
+		_, exists := mapNode(mapNode(stageSettings[stage])["toolConfig"])["tools"]
+		return exists
+	}
+	if agentbuiltin.PlanningModeSupported(mode) {
+		// Neither list is read for a native Agent; accepting one would let a
+		// config look narrowed while every Agent tool stays available.
+		for _, stage := range []string{"planning", "execute"} {
+			if stageTools(stage) {
+				return fmt.Errorf("stageSettings.%s.toolConfig.tools is unsupported; configure planning-mode in agent-settings.yml", stage)
+			}
+		}
+		// Every Run of a native Agent uses the Agent's own model: planning, the
+		// Run started from a confirmed plan, and an ordinary Run. A second model
+		// here made the persisted system-init disagree with the model requested.
+		for _, stage := range []string{"planning", "execute"} {
+			node := mapNode(stageSettings[stage])
+			_, nested := mapNode(node["modelConfig"])["modelKey"]
+			_, flat := node["modelKey"]
+			if nested || flat {
+				return fmt.Errorf("stageSettings.%s modelKey is unsupported; use modelConfig.modelKey", stage)
+			}
+		}
+	}
 	if !strings.EqualFold(strings.TrimSpace(mode), "CODER") {
 		return nil
 	}
-	if _, exists := mapNode(root["stageSettings"])["plan"]; exists {
+	if _, exists := stageSettings["plan"]; exists {
 		return fmt.Errorf("CODER stageSettings.plan is unsupported; use stageSettings.planning")
 	}
 	if _, exists := mapNode(mapNode(root["budget"])["stages"])["plan"]; exists {
