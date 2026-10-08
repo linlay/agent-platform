@@ -7,8 +7,11 @@ import (
 	"testing"
 )
 
-func TestApprovalOptionDescriptionsAreRemovedAtEventBoundaries(t *testing.T) {
-	boundaries := []struct {
+func awaitingOptionDescriptionBoundaries() []struct {
+	name      string
+	normalize func(*testing.T, map[string]any) map[string]any
+} {
+	return []struct {
 		name      string
 		normalize func(*testing.T, map[string]any) map[string]any
 	}{
@@ -42,6 +45,10 @@ func TestApprovalOptionDescriptionsAreRemovedAtEventBoundaries(t *testing.T) {
 			return raw
 		}},
 	}
+}
+
+func TestApprovalOptionDescriptionsAreRemovedAtEventBoundaries(t *testing.T) {
+	boundaries := awaitingOptionDescriptionBoundaries()
 	for _, typedApprovals := range []bool{false, true} {
 		for _, typedOptions := range []bool{false, true} {
 			for _, boundary := range boundaries {
@@ -71,6 +78,39 @@ func TestApprovalOptionDescriptionsAreRemovedAtEventBoundaries(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestPlanningOptionDescriptionsAreRemovedAtEventBoundaries(t *testing.T) {
+	for _, typedOptions := range []bool{false, true} {
+		for _, boundary := range awaitingOptionDescriptionBoundaries() {
+			t.Run(fmt.Sprintf("%s/optionsTyped=%t", boundary.name, typedOptions), func(t *testing.T) {
+				options := []map[string]any{
+					{"decision": "approve", "description": "obsolete approve text"},
+					{"decision": "reject", "label": "Reject", "description": "obsolete reject text", "input": map[string]any{"type": "text", "placeholder": "Explain why"}},
+				}
+				payload := map[string]any{
+					"mode": "planning",
+					"planning": map[string]any{
+						"id": "confirm", "planningId": "plan-1", "title": "Review plan", "options": approvalTestObjects(options, typedOptions),
+					},
+				}
+				before, _ := json.Marshal(payload)
+				got := boundary.normalize(t, payload)
+				actual, err := json.Marshal(got["planning"])
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := `{"id":"confirm","options":[{"decision":"approve"},{"decision":"reject","input":{"placeholder":"Explain why","type":"text"},"label":"Reject"}],"planningId":"plan-1","title":"Review plan"}`
+				if string(actual) != want {
+					t.Fatalf("planning wire = %s, want %s", actual, want)
+				}
+				after, _ := json.Marshal(payload)
+				if string(before) != string(after) {
+					t.Fatalf("producer payload mutated: before=%s after=%s", before, after)
+				}
+			})
 		}
 	}
 }

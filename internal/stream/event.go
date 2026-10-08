@@ -262,22 +262,27 @@ func normalizeAwaitingAskPayload(eventType string, payload map[string]any) map[s
 	if strings.EqualFold(strings.TrimSpace(mode), "planning") {
 		delete(payload, "timeout")
 	}
-	// Native, proxy and replay events share this boundary. Option descriptions
-	// are local UI text; keep the approval title and question/form content.
+	// Native, proxy and replay events share this boundary. Approval and planning
+	// options use fixed decision codes; keep titles and question/form content.
 	if approvals, exists := payload["approvals"]; exists {
-		payload["approvals"] = mapAwaitingObjects(approvals, func(approval map[string]any) map[string]any {
-			item := clonePayload(approval)
-			if options, exists := item["options"]; exists {
-				item["options"] = mapAwaitingObjects(options, func(option map[string]any) map[string]any {
-					result := clonePayload(option)
-					delete(result, "description")
-					return result
-				})
-			}
-			return item
-		})
+		payload["approvals"] = mapAwaitingObjects(approvals, withoutAwaitingOptionDescriptions)
+	}
+	if planning, ok := payload["planning"].(map[string]any); ok {
+		payload["planning"] = withoutAwaitingOptionDescriptions(planning)
 	}
 	return payload
+}
+
+func withoutAwaitingOptionDescriptions(item map[string]any) map[string]any {
+	result := clonePayload(item)
+	if options, exists := result["options"]; exists {
+		result["options"] = mapAwaitingObjects(options, func(option map[string]any) map[string]any {
+			normalized := clonePayload(option)
+			delete(normalized, "description")
+			return normalized
+		})
+	}
+	return result
 }
 
 func mapAwaitingObjects(value any, transform func(map[string]any) map[string]any) any {
