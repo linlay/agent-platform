@@ -321,3 +321,23 @@ func TestOptInSingleQuotedEscapes(t *testing.T) {
 		t.Fatal("legacy parser changed", legacy, err)
 	}
 }
+
+func TestYAMLInterpolationOptOutKeepsDefaultBehavior(t *testing.T) {
+	t.Setenv("YAML_TEST_VALUE", "expanded")
+	raw := []byte("plain: ${YAML_TEST_VALUE}\nsingle: '${YAML_TEST_VALUE}'\ndouble: \"${YAML_TEST_VALUE}\"\n")
+	for _, disabled := range []bool{false, true} {
+		tree, err := LoadYAMLTreeBytesWithOptions(raw, YAMLTreeOptions{DisableEnvInterpolation: disabled})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "expanded"
+		if disabled {
+			want = "${YAML_TEST_VALUE}"
+		}
+		for key, value := range tree.(map[string]any) {
+			if value != want {
+				t.Fatalf("disabled=%v %s=%v", disabled, key, value)
+			}
+		}
+	}
+}

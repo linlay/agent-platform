@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,9 @@ type Runner interface {
 }
 type cliRunner struct{ configFile string }
 
+// errCommandNotStarted is private to the process boundary, not an index-level guarantee.
+var errCommandNotStarted = errors.New("KBX process did not start")
+
 type boundedBuffer struct {
 	bytes.Buffer
 	exceeded bool
@@ -38,7 +42,14 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func (runner cliRunner) Run(ctx context.Context, database string, config []byte, args ...string) ([]byte, error) {
+func (runner cliRunner) Run(ctx context.Context, database string, config []byte, args ...string) (output []byte, resultErr error) {
+	started := false
+	defer func() {
+		if resultErr != nil && !started {
+			resultErr = fmt.Errorf("%w: %w", errCommandNotStarted, resultErr)
+		}
+	}()
+
 	if len(args) == 0 {
 		return nil, fmt.Errorf("KBX command is required")
 	}
@@ -84,7 +95,11 @@ func (runner cliRunner) Run(ctx context.Context, database string, config []byte,
 	// Do not return raw provider diagnostics: they may contain endpoint credentials.
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = 2 * time.Second
-	err = cmd.Run()
+	if err = cmd.Start(); err != nil {
+		return nil, err
+	}
+	started = true
+	err = cmd.Wait()
 	if stdout.exceeded {
 		return nil, fmt.Errorf("KBX output exceeded 16 MiB")
 	}

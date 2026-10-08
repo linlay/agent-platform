@@ -25,6 +25,8 @@ type YAMLTreeOptions struct {
 	DecodeDoubleQuotedEscapes bool
 	// DecodeSingleQuotedEscapes enables YAML apostrophe escaping without environment interpolation.
 	DecodeSingleQuotedEscapes bool
+	// DisableEnvInterpolation keeps every scalar literal for declarative resource files.
+	DisableEnvInterpolation bool
 	// PreserveDecodedScalarPaths skips environment interpolation after escape
 	// decoding for exact-value fields such as automation query.message.
 	PreserveDecodedScalarPaths []string
@@ -35,6 +37,7 @@ type YAMLTreeOptions struct {
 // legacy literal behavior or decode escapes for an opted-in caller.
 type yamlDoubleQuotedScalar string
 type yamlSingleQuotedScalar string
+type yamlPlainScalar string
 
 func LoadYAMLTree(path string) (any, error) {
 	return LoadYAMLTreeWithOptions(path, YAMLTreeOptions{})
@@ -339,12 +342,15 @@ func parseYAMLScalar(raw string) any {
 	if isQuotedYAMLScalar(value) && strings.HasPrefix(value, "'") {
 		return yamlSingleQuotedScalar(value)
 	}
-	return parseLegacyYAMLScalar(value)
+	return yamlPlainScalar(value)
 }
 
-func parseLegacyYAMLScalar(value string) any {
+func parseLegacyYAMLScalar(value string, expandEnv bool) any {
 	quoted := isQuotedYAMLScalar(value)
-	value = interpolateEnvValue(strings.Trim(value, `"'`))
+	value = strings.Trim(value, `"'`)
+	if expandEnv {
+		value = interpolateEnvValue(value)
+	}
 	lower := strings.ToLower(value)
 	switch lower {
 	case "[]":
@@ -389,21 +395,26 @@ func normalizeYAMLTreeScalars(value any, options YAMLTreeOptions) any {
 
 func normalizeYAMLTreeScalarAtPath(value any, options YAMLTreeOptions, path string) any {
 	switch typed := value.(type) {
+	case yamlPlainScalar:
+		return parseLegacyYAMLScalar(string(typed), !options.DisableEnvInterpolation)
 	case yamlSingleQuotedScalar:
 		raw := string(typed)
 		if options.DecodeSingleQuotedEscapes {
 			return strings.ReplaceAll(raw[1:len(raw)-1], "''", "'")
 		}
-		return parseLegacyYAMLScalar(raw)
+		return parseLegacyYAMLScalar(raw, !options.DisableEnvInterpolation)
 	case yamlDoubleQuotedScalar:
 		raw := string(typed)
 		if options.DecodeDoubleQuotedEscapes {
 			if decoded, err := strconv.Unquote(raw); err == nil {
-				if preserveDecodedYAMLScalar(path, options.PreserveDecodedScalarPaths) {
+				if options.DisableEnvInterpolation || preserveDecodedYAMLScalar(path, options.PreserveDecodedScalarPaths) {
 					return decoded
 				}
 				return interpolateEnvValue(decoded)
 			}
+		}
+		if options.DisableEnvInterpolation {
+			return strings.Trim(raw, `"'`)
 		}
 		return interpolateEnvValue(strings.Trim(raw, `"'`))
 	case map[string]any:

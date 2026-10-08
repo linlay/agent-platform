@@ -22,6 +22,11 @@ import (
 
 var ErrNotFound = errors.New("knowledge base not found")
 var ErrBusy = errors.New("knowledge base is indexing")
+
+// ErrNotStarted guarantees that Update failed before any index mutation began.
+// Engines must not return it after a mutation command has started, even when a
+// later command fails before launch.
+var ErrNotStarted = errors.New("index update did not start")
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 var collectionNamePattern = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$`)
 
@@ -44,6 +49,8 @@ type Definition struct {
 	Error          string   `json:"error,omitempty"`
 	Orphaned       bool     `json:"orphaned,omitempty"`
 	SourceWarnings []string `json:"sourceWarnings,omitempty"`
+	RefreshError   string   `json:"refreshError,omitempty"`
+	InvalidID      bool     `json:"invalidId,omitempty"`
 }
 type Input struct {
 	Name        string       `json:"name"`
@@ -88,6 +95,8 @@ func New(ctx context.Context, root, runtimeRoot string, engine Engine) (*Service
 	if _, err = safeDirectory(runtimeRoot, "libraries", true); err != nil {
 		return nil, err
 	}
+	cleanupQuarantines(root)
+	cleanupQuarantines(filepath.Join(runtimeRoot, "libraries"))
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -209,7 +218,7 @@ func (s *Service) List() ([]Definition, error) {
 			continue
 		}
 		if !idPattern.MatchString(id) {
-			out = append(out, diagnostic(Definition{}, id, fmt.Errorf("invalid knowledge base directory ID %q: use 1–64 lowercase letters, digits, underscores or hyphens, starting with a letter or digit; rename the directory manually", id)))
+			out = append(out, diagnostic(Definition{InvalidID: true}, id, fmt.Errorf("invalid knowledge base directory ID %q: use 1–64 lowercase letters, digits, underscores or hyphens, starting with a letter or digit; rename the directory manually", id)))
 			continue
 		}
 		seen[id] = true
@@ -444,6 +453,8 @@ func (s *Service) Refresh(id string) (Definition, error) {
 	if state.CreatedAt == 0 {
 		state.CreatedAt = d.CreatedAt
 	}
+	previousState := state
+	state.RefreshError = ""
 	state.State, state.Error = "indexing", ""
 	state.TaskFingerprint = fingerprint
 	state.IndexedAt, state.AppliedFingerprint = 0, ""
@@ -462,7 +473,14 @@ func (s *Service) Refresh(id string) (Definition, error) {
 		defer s.mu.Unlock()
 		defer delete(s.busy, id)
 		state.UpdatedAt = time.Now().UnixMilli()
-		if err != nil {
+		if errors.Is(err, ErrNotStarted) {
+			state = previousState
+			if state.State == "" {
+				state.State = "unindexed"
+			}
+			state.UpdatedAt = time.Now().UnixMilli()
+			state.RefreshError = err.Error()
+		} else if err != nil {
 			state.State, state.Error = "error", err.Error()
 		} else {
 			state.State, state.IndexedAt, state.AppliedFingerprint = "ready", state.UpdatedAt, fingerprint

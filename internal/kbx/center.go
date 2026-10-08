@@ -4,6 +4,7 @@ import (
 	"agent-platform/internal/kbasescenter"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +24,23 @@ func NewCenterEngine() *CenterEngine { return &CenterEngine{runner: cliRunner{}}
 
 var centerConfig = []byte(`{"models":{"embedding":null,"query_expansion":null,"reranker":null,"graph_extraction":null}}`)
 
-func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbasescenter.Collection) error {
+func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbasescenter.Collection) (resultErr error) {
+	mutationStarted := false
+	defer func() {
+		if resultErr != nil && !mutationStarted {
+			resultErr = fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, resultErr)
+		}
+	}()
+	mutate := func(args ...string) ([]byte, error) {
+		out, err := e.runner.Run(ctx, db, centerConfig, args...)
+		// A command that failed to launch cannot mutate. Once any mutation command
+		// starts, later preflight/launch failures no longer prove the index untouched.
+		if err == nil || !errors.Is(err, errCommandNotStarted) {
+			mutationStarted = true
+		}
+		return out, err
+	}
+
 	if e.configSource != nil {
 		if _, err := e.configSource.Snapshot(); err != nil {
 			return err
@@ -68,7 +85,7 @@ func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbas
 		}
 		for _, c := range inventory.Collections {
 			if !wanted[c.Name] {
-				if _, err := e.runner.Run(ctx, db, centerConfig, "collection", "remove", c.Name); err != nil {
+				if _, err := mutate("collection", "remove", c.Name); err != nil {
 					return fmt.Errorf("remove collection %s: %w", c.Name, err)
 				}
 				continue
@@ -83,12 +100,12 @@ func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbas
 		names = append(names, c.Name)
 		args := []string{"collection", "add", c.SourcePath, "--name", c.Name}
 		if registered[c.Name] {
-			if _, err := e.runner.Run(ctx, db, centerConfig, "collection", "set-path", c.Name, c.SourcePath); err != nil {
+			if _, err := mutate("collection", "set-path", c.Name, c.SourcePath); err != nil {
 				return fmt.Errorf("collection %s: %w", c.Name, err)
 			}
 			args = []string{"update", "-c", c.Name, "--no-commands"}
 		}
-		out, err := e.runner.Run(ctx, db, centerConfig, args...)
+		out, err := mutate(args...)
 		if err != nil {
 			return fmt.Errorf("collection %s: %w", c.Name, err)
 		}
@@ -98,7 +115,7 @@ func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbas
 	}
 	if e.embedding {
 		for _, c := range collections {
-			if _, err := e.runner.Run(ctx, db, centerConfig, "embed", "-c", c.Name); err != nil {
+			if _, err := mutate("embed", "-c", c.Name); err != nil {
 				return fmt.Errorf("collection %s: KBX text index updated, but vector indexing failed: %w", c.Name, err)
 			}
 		}

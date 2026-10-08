@@ -75,7 +75,7 @@ func TestOfflineSourcesKeepCompletedIndexReadable(t *testing.T) {
 				t.Fatal(err)
 			}
 			offline, err := reopened.Get(d.ID)
-			if err != nil || offline.State != "ready" || offline.IndexedAt != ready.IndexedAt || len(offline.SourceWarnings) != 1 || !strings.Contains(offline.Error, "unavailable") {
+			if err != nil || offline.State != "ready" || offline.IndexedAt != ready.IndexedAt || len(offline.SourceWarnings) != 1 || offline.Error != "" || !strings.Contains(offline.SourceWarnings[0], "unavailable") {
 				t.Fatalf("offline status: %+v %v", offline, err)
 			}
 			for _, operation := range []string{"search", "files", "read"} {
@@ -312,5 +312,88 @@ func TestPlatformCasePolicyForScopeAndRootChecks(t *testing.T) {
 	}
 	if scopeFingerprint(collections[:1]) != scopeFingerprint([]Collection{{Name: "docs", SourcePath: strings.ToUpper(source)}}) {
 		t.Fatal("path casing changed fingerprint")
+	}
+}
+
+func TestPreflightFailureRestoresCompletedIndex(t *testing.T) {
+	s := newStorageService(t, testEngine{})
+	d := createFixture(t, s)
+	if _, err := s.Refresh(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	ready := waitState(t, s, d.ID, "ready")
+	waitIdle(t, s, d.ID)
+	s.engine = testEngine{err: ErrNotStarted}
+	if _, err := s.Refresh(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, s, d.ID)
+	reopened, err := New(context.Background(), s.root, s.runtimeRoot, testEngine{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reopened.Get(d.ID)
+	if err != nil || got.State != "ready" || got.IndexedAt != ready.IndexedAt || got.Error != "" || got.RefreshError == "" {
+		t.Fatalf("lost readiness: %+v %v", got, err)
+	}
+	if _, err := reopened.Search(context.Background(), d.ID, SearchInput{Query: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	d.Collections[0].SourcePath = t.TempDir()
+	writeFixture(t, s, d)
+	if _, err := s.Refresh(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, s, d.ID)
+	got, err = s.Get(d.ID)
+	if err != nil || got.State != "unindexed" {
+		t.Fatalf("restored wrong scope: %+v %v", got, err)
+	}
+}
+
+func TestStartupCleansOnlyGeneratedQuarantines(t *testing.T) {
+	s := newStorageService(t, testEngine{})
+	d := createFixture(t, s)
+	for _, root := range []string{s.root, filepath.Join(s.runtimeRoot, "libraries")} {
+		for _, name := range []string{".deleted-docs-0123456789abcdef01234567", ".deleted-manual"} {
+			if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Symlink(t.TempDir(), filepath.Join(root, ".deleted-link-0123456789abcdef01234567")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := New(context.Background(), s.root, s.runtimeRoot, testEngine{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{s.root, filepath.Join(s.runtimeRoot, "libraries")} {
+		if _, err := os.Stat(filepath.Join(root, ".deleted-docs-0123456789abcdef01234567")); !os.IsNotExist(err) {
+			t.Fatal("quarantine remains", err)
+		}
+		for _, name := range []string{".deleted-manual", ".deleted-link-0123456789abcdef01234567", d.ID} {
+			if _, err := os.Lstat(filepath.Join(root, name)); err != nil {
+				t.Fatal("removed unrelated entry", err)
+			}
+		}
+	}
+}
+
+func TestLibraryYAMLDoesNotExpandEnvironment(t *testing.T) {
+	t.Setenv("KBX_TEST_NAME", "expanded")
+	s := newStorageService(t, testEngine{})
+	d := createFixture(t, s)
+	file := filepath.Join(s.root, d.ID, "library.yml")
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = []byte(strings.Replace(string(raw), "name: \"Docs\"", "name: ${KBX_TEST_NAME}", 1))
+	if err := os.WriteFile(file, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(d.ID)
+	if err != nil || got.Name != "${KBX_TEST_NAME}" {
+		t.Fatalf("expanded environment: %+v %v", got, err)
 	}
 }

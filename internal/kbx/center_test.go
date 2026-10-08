@@ -5,6 +5,7 @@ import (
 	"agent-platform/internal/kbasescenter"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -375,5 +376,53 @@ func TestCenterRealCLI(t *testing.T) {
 	json.Unmarshal(raw, &inventory)
 	if len(inventory.Documents) != 0 {
 		t.Fatalf("deleted source still indexed: %s", raw)
+	}
+}
+
+func TestCenterUpdateNotStartedBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		failAt int
+		launch bool
+		safe   bool
+	}{
+		{"inventory", 0, false, true}, {"first launch", 1, true, true},
+		{"first mutation", 1, false, false}, {"later launch", 2, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := filepath.Join(t.TempDir(), "index.sqlite")
+			if err := os.WriteFile(db, []byte("fixture"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			source, _ := filepath.EvalSymlinks(t.TempDir())
+			e := NewCenterEngine()
+			call := 0
+			e.runner = runFunc(func(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
+				n := call
+				call++
+				if n == tc.failAt {
+					if tc.launch {
+						return nil, errCommandNotStarted
+					}
+					return nil, errors.New("failed")
+				}
+				if args[0] == "ls" {
+					return responseJSON(map[string]any{"collections": []any{map[string]any{"name": "docs"}}}), nil
+				}
+				return []byte("status=complete"), nil
+			})
+			err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: source}})
+			if err == nil || errors.Is(err, kbasescenter.ErrNotStarted) != tc.safe {
+				t.Fatalf("boundary: %v", err)
+			}
+		})
+	}
+	e := NewCenterEngineWithSource(&ModelConfigSource{File: "relative"})
+	if err := e.Update(context.Background(), "unused", nil); !errors.Is(err, kbasescenter.ErrNotStarted) {
+		t.Fatal(err)
+	}
+	e = NewCenterEngine()
+	if err := e.Update(context.Background(), "unused", []kbasescenter.Collection{{Name: "missing", SourcePath: "/no-such-kbx-source"}}); !errors.Is(err, kbasescenter.ErrNotStarted) {
+		t.Fatal(err)
 	}
 }

@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -32,6 +34,7 @@ type runtimeState struct {
 	IndexedAt          int64  `json:"indexedAt"`
 	State              string `json:"state"`
 	Error              string `json:"error,omitempty"`
+	RefreshError       string `json:"refreshError,omitempty"`
 	AppliedFingerprint string `json:"appliedFingerprint,omitempty"`
 	TaskFingerprint    string `json:"taskFingerprint,omitempty"`
 }
@@ -156,8 +159,7 @@ func (s *Service) loadConfiguration(id string, allowUnavailable bool) (Definitio
 	}
 	d.CreatedAt, d.UpdatedAt = info.ModTime().UnixMilli(), info.ModTime().UnixMilli()
 	tree, err := config.LoadYAMLTreeBytesWithOptions(b, config.YAMLTreeOptions{
-		RejectDuplicateKeys: true, DecodeDoubleQuotedEscapes: true, DecodeSingleQuotedEscapes: true,
-		PreserveDecodedScalarPaths: []string{"name", "description", "collections.name", "collections.sourcePath"},
+		RejectDuplicateKeys: true, DecodeDoubleQuotedEscapes: true, DecodeSingleQuotedEscapes: true, DisableEnvInterpolation: true,
 	})
 	if err != nil {
 		return d, yamlConfigurationError(err)
@@ -230,6 +232,7 @@ func (s *Service) load(id string) (Definition, error) {
 		d.UpdatedAt = state.UpdatedAt
 	}
 	d.State, d.Error, d.IndexedAt = state.State, state.Error, state.IndexedAt
+	d.RefreshError = state.RefreshError
 	if (d.State == "error" || d.State == "indexing") && !s.busy[id] && state.TaskFingerprint != "" && state.TaskFingerprint != scopeFingerprint(d.Collections) {
 		d.State, d.Error, d.IndexedAt = "unindexed", "", 0
 		return d, nil
@@ -270,9 +273,6 @@ func (s *Service) load(id string) (Definition, error) {
 	}
 	if d.State != "ready" {
 		return d, fmt.Errorf("invalid index state")
-	}
-	if len(d.SourceWarnings) > 0 {
-		d.Error = strings.Join(d.SourceWarnings, "; ")
 	}
 	return d, nil
 }
@@ -381,4 +381,24 @@ func (s *Service) offlineSource(c Collection) (string, error) {
 		return "", fmt.Errorf("source directory must not overlap kbases or ru-kbases")
 	}
 	return canonical.Host, nil
+}
+
+var quarantineName = regexp.MustCompile(`^\.deleted-[a-z0-9][a-z0-9_-]{0,63}-[a-f0-9]{24}$`)
+
+// Startup only removes our generated quarantine directories, never arbitrary
+// hidden files, template directories, or links to external content.
+func cleanupQuarantines(root string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		log.Printf("[kbases] read quarantine directory %s: %v", root, err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !quarantineName.MatchString(entry.Name()) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			log.Printf("[kbases] cleanup quarantine %s: %v", entry.Name(), err)
+		}
+	}
 }
