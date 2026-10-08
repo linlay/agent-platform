@@ -42,10 +42,12 @@ inputSchema:
           type: boolean
           description: "Whether the automation is enabled."
         remainingRuns:
-          type: integer
+          type:
+            - integer
+            - "null"
           minimum: 1
           maximum: 100
-          description: "Remaining scheduled executions."
+          description: "Remaining scheduled executions; update with null to remove the limit."
         query:
           type: object
           description: "Saved query."

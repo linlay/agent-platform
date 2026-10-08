@@ -863,6 +863,29 @@ func stringValue(value any) string {
 }
 
 func validatePortableEmbeddedSchema(schema map[string]any, path string, toolName string) error {
+	validType := func(raw any) bool {
+		name, ok := raw.(string)
+		if !ok {
+			return false
+		}
+		switch name {
+		case "array", "boolean", "integer", "null", "number", "object", "string":
+			return true
+		}
+		return false
+	}
+	if raw, exists := schema["type"]; exists {
+		valid := validType(raw)
+		if names, ok := raw.([]any); ok {
+			valid = len(names) > 0
+			for _, name := range names {
+				valid = valid && validType(name)
+			}
+		}
+		if !valid {
+			return fmt.Errorf("tool %s input schema %s.type must contain valid JSON Schema type names, got %#v", toolName, path, raw)
+		}
+	}
 	for _, keyword := range []string{"oneOf", "anyOf", "allOf", "const", "not", "if", "then", "else"} {
 		if _, exists := schema[keyword]; exists {
 			return fmt.Errorf("tool %s input schema %s must not use %s", toolName, path, keyword)
