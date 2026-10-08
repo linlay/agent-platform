@@ -10,6 +10,14 @@ Use catalog_query for discovery and catalog_manage for approved source changes, 
 - defaults: `{type:"general"|"coder"|"kbase"}` returns creation defaults and available models. These defaults do not supply the user's project directory; `ready` describes configured defaults, not a complete project candidate.
 - validate: `{resourceType, resourceKey, path?, content, mcpUrl?, isProject?}` validates UTF-8 candidate text without saving. `isProject` is an optional boolean for agent.yml candidates. Validation does not grant write permission.
 
+## Agent discovery
+
+Before choosing another Agent, use `list {resourceType:"agent",status:"valid"}` when discovery is needed. Follow pagination to inspect the full directory. There is no per-caller candidate selector; the current Agent is included and internal TEAM coordinators are excluded. Agent items add key (equal to resourceKey), name, role, description, mode and invocable. Summaries use catalog metadata, not full configuration or prompts. Invalid entries retain available metadata and have invocable:false. A warning alone does not make an Agent invalid.
+
+invocable means static agent_invoke target eligibility: invoke/internal visibility, supported child mode or ACP backend, and no agent_invoke in the target’s effective tools. It does not grant caller permission or allow self/nested invocation, and availability is checked again at execution. chat_start does not use these target restrictions; starting your own independent Chat uses the exact Agent Identity.key. Catalog listing grants neither tool permission nor Team roster membership.
+
+Legacy contextConfig.agents and the agents context tag are ignored with one non-blocking management warning; there is no automatic candidate prompt. Discovery remains exclusive to the explicitly mounted platform-control connector. Existing management diagnostics may include Host source paths and error details; this is a management interface, not a path-redacted public summary endpoint. The new deprecation warning does not include source paths or candidate values.
+
 ## Providers and MCP discovery
 
 Providers are loaded registry entries, including providers without models. Their allowlisted definition contains key, protocols, credentialConfigured, defaultModel, modelKeys and modelCount. No API keys, URLs, endpoint paths, headers, environment values or raw provider source are returned. credentialConfigured only reports a nonempty local credential, not successful authentication. valid for provider/model means loaded locally; invalid source files are not separately enumerated.

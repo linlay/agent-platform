@@ -89,8 +89,10 @@ func TestAuditWorkspaceChatConfigReportsMaskRequirementAndOrphanReferences(t *te
 		!strings.Contains(finding.Message, "file_glob.path") {
 		t.Fatalf("missing Workspace-less explicit path diagnostic: %#v", findings)
 	}
+	if _, ok := got["root-agent:orphan_agent_reference"]; ok {
+		t.Fatal("ignored candidate produced a blocking orphan finding")
+	}
 	for _, key := range []string{
-		"root-agent:orphan_agent_reference",
 		"team/demo:orphan_agent_reference",
 	} {
 		if finding, ok := got[key]; !ok || finding.Severity != "error" {

@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"agent-platform/internal/catalog"
-	"agent-platform/internal/contracts"
 )
 
 type Catalog struct{ catalog.Registry }
@@ -15,13 +14,4 @@ func (c Catalog) SkillIDs() []string {
 		}
 	}
 	return keys
-}
-func (c Catalog) AgentDigests() []contracts.AgentDigest {
-	var out []contracts.AgentDigest
-	if c.Registry != nil {
-		for _, a := range c.Agents("") {
-			out = append(out, contracts.AgentDigest{Key: a.Key, Name: a.Name, Role: a.Role, Description: a.Description, Mode: a.Mode})
-		}
-	}
-	return out
 }

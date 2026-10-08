@@ -571,7 +571,7 @@ var agentYAMLKeyOrder = map[string][]string{
 	},
 	"modelConfig":           {"modelKey", "serviceTier", "reasoning", "sampling"},
 	"modelConfig.reasoning": {"enabled", "effort"},
-	"contextConfig":         {"tags", "agents"},
+	"contextConfig":         {"tags"},
 }
 
 func renderYAMLMap(node map[string]any) []byte {

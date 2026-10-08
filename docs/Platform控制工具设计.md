@@ -24,6 +24,8 @@ Standalone 隐藏七个 Desktop 工具；Catalog/Chat/Automation 在子任务、
 
 看板工具 `desktop_kanban` 已迁入独立的 `builtin.kanban-control`。Chat 与 Automation 已迁入独立的 `builtin.task-control`，原有服务和审批实现继续复用；本文相关章节保留协议说明，不代表它们仍由 platform-control 挂载。
 
+Agent 发现复用 `catalog_query.list`（resourceType=agent），条目增加 key/name/role/description/mode/invocable，包含当前 Agent，排除隐藏 TEAM 协调器；不按旧候选配置过滤。invocable 复用 agent_invoke 的静态目标校验，不代表调用者权限，chat_start 的目标契约不变。旧候选字段与标签忽略并提供一条非阻断管理 warning，不再常驻注入 prompt。分页默认 20，公共入口校验 limit 为 1–100 整数，内部切片前另做 1–100 防御夹取。管理诊断沿用现有 SourcePath/错误详情契约，可能暴露 Host 源路径，不应宣称为路径脱敏接口；新弃用告警不携带路径或候选值。完整说明见 [Agent 发现](智能体配置说明.md#agent-发现与旧候选配置)。
+
 ## Catalog 源文件事务
 
 查询支持 Agent、Team、Skill、Connector、Model、Provider、Tool、MCP 组件；`resourceTypes {}` 返回类型与操作能力矩阵。列表默认 20 条，支持 1–100 条分页，返回 `items/nextCursor/total/hasMore`；total 为当前请求按 status 筛选后的数量，不冻结跨页快照。必须用同一 resourceType/status 跟进 nextCursor 到空才能报告完整清单。可编辑源 get 返回脱敏 content、目录内容摘要 baseRevision、editable 和 redactedPaths；只读资源返回白名单 definition。

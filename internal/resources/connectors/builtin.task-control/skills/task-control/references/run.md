@@ -10,7 +10,7 @@ In user requests, conversation, dialogue and chat are synonyms for Chat, includi
 
 - message: required non-empty string. The task message sent to the target.
 - agentKey / teamId: non-empty strings holding the exact catalog key or ID. Provide exactly one. If the user names no target, use the current Agent.
-- Current Agent: set agentKey to the exact Agent Identity.key from the current system prompt. References to the current Agent, this Agent or yourself in any language always mean that Agent; never substitute a key from Runtime Context: Sub-Agent Candidates.
+- Current Agent: set agentKey to the exact Agent Identity.key from the current system prompt. References to the current Agent, this Agent or yourself in any language always mean that Agent; never substitute another Agent’s key from catalog discovery.
 - chatId: non-empty string. Omit it to create a new Chat. Provide it only when the user asks to continue a specific existing Chat owned by the selected target. Never reuse the current chatId for a request to open a new Chat.
 - chatName: non-empty string naming a new Chat. Pass it only when the user specifies a name; otherwise normal naming applies. Cannot be combined with chatId. taskName is not supported.
 - accessLevel: `"default"`, `"auto_approve"` or `"full_access"`, for this run only. Pass it only when the user explicitly requests a permission level. Omission inherits the parent Run's current level at invocation time and does not follow later changes. Automatic approval means auto_approve, not full_access; destructive operations may still require approval. Target admission applies to all levels. See Permission review below.

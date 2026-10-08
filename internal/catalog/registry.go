@@ -80,7 +80,6 @@ type AgentDefinition struct {
 	KBaseConfig          knowledge.Config
 	KBaseRequirement     knowledge.Requirement
 	ContextTags          []string
-	ContextAgents        []string
 	Budget               map[string]any
 	StageSettings        map[string]any
 	RuntimePrompts       AgentRuntimePrompts
@@ -580,7 +579,7 @@ func (r *FileRegistry) AdminAgents() []AdminAgent {
 	keys := r.orderedAdminAgentKeysLocked()
 	items := make([]AdminAgent, 0, len(keys))
 	for _, key := range keys {
-		items = append(items, r.adminAgentWithContextDiagnosticsLocked(r.adminAgents[key]))
+		items = append(items, cloneAdminAgent(r.adminAgents[key]))
 	}
 	return items
 }
@@ -592,7 +591,7 @@ func (r *FileRegistry) AdminAgent(key string) (AdminAgent, bool) {
 	if !ok {
 		return AdminAgent{}, false
 	}
-	return r.adminAgentWithContextDiagnosticsLocked(def), true
+	return cloneAdminAgent(def), true
 }
 
 func (r *FileRegistry) AdminAgentKeys() []string {
@@ -899,7 +898,6 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst.KBaseConfig.Exclude = append([]string(nil), src.KBaseConfig.Exclude...)
 	dst.KBaseConfig.Tags = append([]string(nil), src.KBaseConfig.Tags...)
 	dst.ContextTags = append([]string(nil), src.ContextTags...)
-	dst.ContextAgents = append([]string(nil), src.ContextAgents...)
 	dst.Budget = cloneAgentSnapshotMap(src.Budget)
 	dst.StageSettings = cloneAgentSnapshotMap(src.StageSettings)
 	if src.ProxyConfig != nil {

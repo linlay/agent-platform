@@ -854,45 +854,14 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	}
 }
 
-func TestBuildSystemPromptIncludesAgentsContext(t *testing.T) {
-	prompt := buildSystemPrompt(QuerySession{
-		ContextTags: []string{"agents"},
-		RuntimeContext: RuntimeRequestContext{
-			AgentDigests: []AgentDigest{
-				{Key: "coder", Name: "Coder", Role: "code", Description: "writes code"},
-				{Key: "planner", Name: "Planner", Role: "plan", Description: "plans work"},
-			},
-		},
-	}, api.QueryRequest{}, "", PromptBuildOptions{})
-
-	if !strings.Contains(prompt, "Runtime Context: Sub-Agent Candidates") {
-		t.Fatalf("expected agents context header, got %q", prompt)
-	}
-	for _, expected := range []string{
-		"可调用/委派子智能体候选摘要",
-		"这些候选不是当前智能体",
-		"当前智能体及其 key 只由 Agent Identity 定义",
-	} {
-		if !strings.Contains(prompt, expected) {
-			t.Fatalf("expected sub-agent candidate semantics %q, got %q", expected, prompt)
-		}
-	}
-	if !strings.Contains(prompt, "key: coder") || !strings.Contains(prompt, "key: planner") {
-		t.Fatalf("expected selected agent digests, got %q", prompt)
-	}
-	if strings.Contains(prompt, "Runtime Context: Agents") || strings.Contains(prompt, "Runtime Context: All Agents") {
-		t.Fatalf("expected only sub-agent candidates context header, got %q", prompt)
-	}
-}
-
-func TestBuildSystemPromptOmitsSubAgentCandidatesWhenEmpty(t *testing.T) {
+func TestBuildSystemPromptIgnoresRetiredAgentsTag(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:    "demo",
 		ContextTags: []string{"agents"},
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 
 	if strings.Contains(prompt, "Runtime Context: Sub-Agent Candidates") {
-		t.Fatalf("expected empty sub-agent candidates section to be omitted, got %q", prompt)
+		t.Fatalf("expected retired sub-agent candidates section to be omitted, got %q", prompt)
 	}
 }
 

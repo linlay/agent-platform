@@ -91,5 +91,5 @@ HTTP/WS 保留外部请求解码、认证、来源/transport/device/lane 校验�
 
 - 原 `server/session_builder.go`、Session 上下文 helper 和 Server fixture 已迁移到 `runtime/session` 及显式组装的测试适配，不恢复旧 Server 业务文件。
 - Query/Session 的重新装配不改变 Memory 服务边界。
-- `contextConfig.agents` 的不可用候选继续由公共 catalog 解析器跳过并生成有界诊断，`runtime/session` 只记录警告；历史 Chat 读取不依赖当前 Agent 可执行。`runtime/query` 准入保留 `422 agent_configuration_invalid` / `404 agent_not_found` 的区分，HTTP/WS 保留结构化错误与本地化提示。
+- 旧 `contextConfig.agents` 与 agents 标签只由 Catalog 生成非阻断弃用诊断，Runtime 不再构建候选。历史 Chat 读取不依赖当前 Agent 可执行；Query 准入仍区分 `422 agent_configuration_invalid` 与 `404 agent_not_found`。
 - Windows 验证使用 `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...`，不等同于 Windows 原生运行测试。

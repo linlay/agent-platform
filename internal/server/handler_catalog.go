@@ -684,7 +684,6 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 			{Key: "system", Label: "system"},
 			{Key: "session", Label: "session"},
 			{Key: "owner", Label: "owner"},
-			{Key: "agents", Label: "agents"},
 			{Key: "memory-global", Label: "memory-global"},
 			{Key: "memory-agent", Label: "memory-agent"},
 		},

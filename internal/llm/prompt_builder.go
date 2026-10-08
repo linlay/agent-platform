@@ -19,8 +19,6 @@ import (
 	"agent-platform/internal/referenceprompt"
 )
 
-const agentsPromptMaxChars = 12000
-
 type PromptBuildOptions struct {
 	Stage                   string
 	StageInstructionsPrompt string
@@ -120,8 +118,6 @@ func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session 
 			appendSection("runtime-memory-global", "Runtime Context: Global Memory", "memory.global", session.GlobalMemoryContext)
 		case "memory-agent":
 			appendSection("runtime-memory-agent", "Runtime Context: Agent Memory", "memory.agent", session.AgentMemoryContext)
-		case "agents":
-			appendSection("runtime-agents", "Runtime Context: Sub-Agent Candidates", "runtime.agents", buildAgentsSection(session.RuntimeContext.AgentDigests))
 		}
 	}
 	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
@@ -450,62 +446,6 @@ func buildSandboxSection(context *SandboxContext) string {
 	}
 	lines = append(lines, "environment_prompt:")
 	lines = append(lines, strings.TrimSpace(context.EnvironmentPrompt))
-	return strings.Join(lines, "\n")
-}
-
-func buildAgentsSection(digests []AgentDigest) string {
-	if len(digests) == 0 {
-		return ""
-	}
-	blocks := make([]string, 0, len(digests))
-	totalChars := 0
-	included := 0
-	total := 0
-	for _, digest := range digests {
-		if strings.TrimSpace(digest.Key) != "" {
-			total++
-		}
-	}
-	for _, digest := range digests {
-		if strings.TrimSpace(digest.Key) == "" {
-			continue
-		}
-		block := formatAgentDigest(digest)
-		if strings.TrimSpace(block) == "" {
-			continue
-		}
-		projected := totalChars + len(block)
-		if len(blocks) > 0 {
-			projected += len("\n---\n")
-		}
-		if projected > agentsPromptMaxChars {
-			break
-		}
-		blocks = append(blocks, block)
-		totalChars = projected
-		included++
-	}
-	if len(blocks) == 0 {
-		return ""
-	}
-	builder := strings.Builder{}
-	builder.WriteString("Runtime Context: Sub-Agent Candidates\n")
-	builder.WriteString("以下是为当前智能体选择的可调用/委派子智能体候选摘要，仅供目标选择和任务路由参考。\n")
-	builder.WriteString("这些候选不是当前智能体，也不构成 agent_invoke、agent_delegate、chat_start 或 catalog 的权限或目标白名单；当前智能体及其 key 只由 Agent Identity 定义。\n")
-	builder.WriteString("如需了解某个候选的完整配置，可以自行查看 agents 目录下对应的 agent.yml。\n")
-	builder.WriteString(strings.Join(blocks, "\n---\n"))
-	if included < total {
-		builder.WriteString(fmt.Sprintf("\n[TRUNCATED: agents exceeds max chars=%d, included=%d/%d]", agentsPromptMaxChars, included, total))
-	}
-	return builder.String()
-}
-
-func formatAgentDigest(digest AgentDigest) string {
-	lines := []string{}
-	appendKeyValue(&lines, "key", digest.Key)
-	appendKeyValue(&lines, "name", digest.Name)
-	appendKeyValue(&lines, "role", digest.Role)
-	appendKeyValue(&lines, "description", digest.Description)
 	return strings.Join(lines, "\n")
 }
 

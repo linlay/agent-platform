@@ -109,11 +109,6 @@ func (s *Builder) BuildContext(input ContextInput) (contracts.RuntimeRequestCont
 		LocalPaths:   localPaths,
 		SandboxPaths: sandboxPaths,
 	}
-	agentDigests, diagnostic := BuildContextAgentDigests(s.deps.Registry, input.Definition, input.AgentKey)
-	if diagnostic != nil {
-		log.Printf("[runtime][context-agents][warn] code=%s agent=%q %s", diagnostic.Code, fmt.Sprintf("%.128s", input.AgentKey), diagnostic.Message)
-	}
-	context.AgentDigests = agentDigests
 	if input.Principal != nil {
 		context.AuthIdentity = BuildAuthIdentity(input.Principal)
 	}
@@ -929,79 +924,6 @@ func ResolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		paths.ConnectorsDir = AgentConnectorPath(def.RuntimeDir)
 	}
 	return paths
-}
-
-func BuildAgentDigests(registry Catalog) []contracts.AgentDigest {
-	if registry == nil {
-		return nil
-	}
-	items := registry.AgentDigests()
-	digests := make([]contracts.AgentDigest, 0, len(items))
-	for _, item := range items {
-		def, ok := registry.AgentDefinition(item.Key)
-		if !ok {
-			// A registry may expose a summary while concurrently reloading its
-			// definition. Keep the digest useful from the public summary instead
-			// of relying on the list-only meta payload.
-			def = catalog.AgentDefinition{Mode: item.Mode}
-		}
-		digest := contracts.AgentDigest{
-			Key:         item.Key,
-			Name:        item.Name,
-			Role:        item.Role,
-			Description: item.Description,
-			Mode:        def.Mode,
-			ModelKey:    def.ModelKey,
-			Tools:       append([]string(nil), def.Tools...),
-			Skills:      append([]string(nil), def.Skills...),
-		}
-		environmentID := strings.TrimSpace(AnyString(def.Runtime["environmentId"]))
-		level := strings.TrimSpace(AnyString(def.Runtime["level"]))
-		if environmentID != "" || level != "" {
-			digest.Sandbox = &contracts.SandboxDigest{
-				EnvironmentID: environmentID,
-				Level:         level,
-			}
-		}
-		digests = append(digests, digest)
-	}
-	return digests
-}
-
-func BuildContextAgentDigests(registry Catalog, def catalog.AgentDefinition, currentAgentKey string) ([]contracts.AgentDigest, *catalog.AdminAgentDiagnostic) {
-	if !AgentHasContextTag(def, "agents") {
-		return nil, nil
-	}
-	digests := BuildAgentDigests(registry)
-	keys := make([]string, 0, len(digests))
-	byKey := make(map[string]contracts.AgentDigest, len(digests))
-	for _, digest := range digests {
-		key := strings.TrimSpace(digest.Key)
-		if key != "" {
-			keys = append(keys, key)
-			byKey[key] = digest
-		}
-	}
-	selected, diagnostic := catalog.ResolveContextAgentKeys(def, currentAgentKey, keys)
-	filtered := make([]contracts.AgentDigest, 0, len(selected))
-	for _, key := range selected {
-		filtered = append(filtered, byKey[key])
-	}
-	return filtered, diagnostic
-}
-
-func AgentHasContextTag(def catalog.AgentDefinition, tag string) bool {
-	tag = strings.ToLower(strings.TrimSpace(tag))
-	if tag == "" {
-		return false
-	}
-	for _, configured := range def.ContextTags {
-		configured = strings.ToLower(strings.TrimSpace(configured))
-		if configured == tag {
-			return true
-		}
-	}
-	return false
 }
 
 func BuildAuthIdentity(principal *contracts.AuthIdentity) *contracts.AuthIdentity {

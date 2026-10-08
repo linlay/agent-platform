@@ -55,7 +55,6 @@ type RuntimeRequestContext struct {
 	LocalPaths     LocalPaths
 	SandboxPaths   SandboxPaths
 	SandboxContext *SandboxContext
-	AgentDigests   []AgentDigest
 }
 
 type AuthIdentity struct {
@@ -75,23 +74,6 @@ type SandboxContext struct {
 	UsesSandboxBash         bool
 	ExtraMounts             []string
 	EnvironmentPrompt       string
-}
-
-type AgentDigest struct {
-	Key         string
-	Name        string
-	Role        string
-	Description string
-	Mode        string
-	ModelKey    string
-	Tools       []string
-	Skills      []string
-	Sandbox     *SandboxDigest
-}
-
-type SandboxDigest struct {
-	EnvironmentID string
-	Level         string
 }
 
 type LocalPaths struct {

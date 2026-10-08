@@ -42,7 +42,6 @@ var chatDirPath = session.ChatDirPath
 var resolveSandboxPaths = session.ResolveSandboxPaths
 var resolveContainerSandboxPaths = session.ResolveContainerSandboxPaths
 var resolveLocalSandboxPaths = session.ResolveLocalSandboxPaths
-var agentHasContextTag = session.AgentHasContextTag
 var buildSandboxContext = session.BuildSandboxContext
 var fetchSandboxPrompt = session.FetchSandboxPrompt
 var summarizeSandboxMounts = session.SummarizeSandboxMounts

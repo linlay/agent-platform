@@ -24,7 +24,7 @@ func RunConfigMigration(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("config-migrate", flag.ContinueOnError)
 	flags.SetOutput(out)
 	root := flags.String("config-dir", ".", "Platform config root (contains configs/)")
-	agents := flags.String("agents-dir", "", "optional editable Agent directory to remove retired embedding declarations")
+	agents := flags.String("agents-dir", "", "optional editable Agent directory to remove retired embedding and context agents declarations")
 	apply := flags.Bool("apply", false, "apply after validation; stop Platform first")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -297,6 +297,14 @@ func planConfigMigration(dir, agents string) (*configMigration, error) {
 			if !ok {
 				return nil
 			}
+			afterContext, contextChanged, err := migrateIgnoredAgentContext(s, root)
+			if err != nil {
+				return err
+			}
+			if contextChanged {
+				s = afterContext
+				m.after[path] = []byte(s)
+			}
 			kb, ok := root["kbaseConfig"].(map[string]any)
 			if !ok {
 				return nil
@@ -336,7 +344,7 @@ func planConfigMigration(dir, agents string) (*configMigration, error) {
 			return nil, err
 		}
 	} else {
-		m.notes = append(m.notes, "Agent YAML is not scanned; use --agents-dir to migrate retired Agent embedding declarations.")
+		m.notes = append(m.notes, "Agent YAML is not scanned; use --agents-dir to migrate retired Agent embedding and context agents declarations.")
 	}
 	for name := range changed {
 		s, err := migrationRender(maps[name])
@@ -463,4 +471,61 @@ func migrationModelIdentity(value YAMLSourceValue) string {
 		return ""
 	}
 	return strings.Trim(raw, "\"'")
+}
+
+// Optional cleanup only: these declarations no longer affect Agent validity.
+func migrateIgnoredAgentContext(source string, root map[string]any) (string, bool, error) {
+	context, ok := root["contextConfig"].(map[string]any)
+	if !ok {
+		return source, false, nil
+	}
+	_, changed := context["agents"]
+	tagsChanged := false
+	tags := []string{}
+	switch values := context["tags"].(type) {
+	case []any:
+		for _, value := range values {
+			tag, ok := value.(string)
+			if !ok {
+				return source, false, nil
+			}
+			if strings.EqualFold(strings.TrimSpace(tag), "agents") {
+				tagsChanged = true
+			} else {
+				tags = append(tags, tag)
+			}
+		}
+	case string:
+		if strings.EqualFold(strings.TrimSpace(values), "agents") {
+			tagsChanged = true
+		}
+	}
+	if !changed && !tagsChanged {
+		return source, false, nil
+	}
+	fields, err := YAMLSourceMap(source, "contextConfig")
+	if err != nil {
+		return source, false, err
+	}
+	delete(fields, "agents")
+	if tagsChanged {
+		delete(fields, "tags")
+		if len(tags) > 0 {
+			var body strings.Builder
+			for _, tag := range tags {
+				fmt.Fprintf(&body, "  - %q\n", tag)
+			}
+			fields["tags"] = YAMLSourceValue{Body: body.String()}
+		}
+	}
+	replacement, err := migrationObject(fields)
+	if err != nil {
+		return source, false, err
+	}
+	top, err := YAMLSourceMap(source)
+	if err != nil {
+		return source, false, err
+	}
+	after, err := ReplaceYAMLSourceValues(source, top, map[string]YAMLSourceValue{"contextConfig": replacement})
+	return after, err == nil, err
 }

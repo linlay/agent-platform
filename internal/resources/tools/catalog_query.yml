@@ -4,7 +4,7 @@ i18n:
     label: "Query Catalog"
   zh-CN:
     label: "查询目录"
-description: "Discover Platform resources and validate definition candidates. Read the platform-control skill before use."
+description: "Discover resources, including Agent summaries, and validate definitions. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: true

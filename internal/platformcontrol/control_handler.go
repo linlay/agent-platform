@@ -403,8 +403,19 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 	case "agent":
 		if r, ok := h.registry.(interface{ AdminAgents() []catalog.AdminAgent }); ok {
 			for _, v := range r.AdminAgents() {
-				_, valid := h.registry.AgentDefinition(v.Key)
+				def, valid := h.registry.AgentDefinition(v.Key)
+				if valid && strings.EqualFold(def.Mode, "TEAM") {
+					continue // Internal coordinators are never public discovery targets.
+				}
+				before := len(items)
 				add(v.Key, valid, v.Diagnostics)
+				if len(items) == before {
+					continue
+				}
+				item := items[len(items)-1]
+				item["key"], item["name"], item["role"] = v.Key, v.Name, v.Role
+				item["description"], item["mode"] = v.Description, v.Mode
+				item["invocable"] = valid && catalog.AgentInvocationError(def) == nil
 			}
 		}
 	case "team", "skill":
@@ -465,7 +476,15 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 	}
 	limit := 20
 	if n, ok := p["limit"].(float64); ok {
-		limit = int(n)
+		// Bound before conversion, including values outside the int range.
+		switch {
+		case n < 1:
+			limit = 1
+		case n > 100:
+			limit = 100
+		case n >= 1:
+			limit = int(n)
+		}
 	}
 	end := start + limit
 	if end > len(items) {

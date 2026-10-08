@@ -230,6 +230,7 @@ func readyAdminAgent(def AgentDefinition, source EditableAgentSource, definition
 		SoulPrompt:    def.SoulPrompt,
 		AgentsPrompt:  def.AgentsPrompt,
 	}
+	item.Diagnostics = ignoredContextAgentsDiagnostics(definition)
 	item.Meta = adminAgentMeta(item, EffectiveAgentVisibilityScopes(def))
 	return item
 }
@@ -422,45 +423,11 @@ func normalizeContextTags(tags []string) []string {
 func normalizeContextTag(raw string) string {
 	tag := strings.ToLower(strings.TrimSpace(raw))
 	switch tag {
-	case "system", "session", "owner", "agents", "memory-global", "memory-agent":
+	case "system", "session", "owner", "memory-global", "memory-agent":
 		return tag
 	default:
 		return ""
 	}
-}
-
-func parseContextAgents(value any) ([]string, error) {
-	var raw []string
-	switch typed := value.(type) {
-	case nil:
-		return nil, nil
-	case string, []any, []string:
-		raw = listStrings(typed)
-	default:
-		return nil, fmt.Errorf("contextConfig.agents must be \"*\", a comma-separated string, or a list of agent keys")
-	}
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]string, 0, len(raw))
-	seen := map[string]struct{}{}
-	for _, item := range raw {
-		for _, part := range strings.Split(item, ",") {
-			agentKey := strings.TrimSpace(part)
-			if agentKey == "" {
-				continue
-			}
-			if agentKey == "*" {
-				return nil, nil
-			}
-			if _, ok := seen[agentKey]; ok {
-				continue
-			}
-			seen[agentKey] = struct{}{}
-			out = append(out, agentKey)
-		}
-	}
-	return out, nil
 }
 
 func parseRuntimePrompts(root map[string]any) AgentRuntimePrompts {
@@ -709,11 +676,6 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	contextConfig := mapNode(root["contextConfig"])
 	contextTags := listStrings(contextConfig["tags"])
 	def.ContextTags = normalizeContextTags(contextTags)
-	contextAgents, err := parseContextAgents(contextConfig["agents"])
-	if err != nil {
-		return AgentDefinition{}, nil, err
-	}
-	def.ContextAgents = contextAgents
 	if budget := mapNode(root["budget"]); len(budget) > 0 {
 		def.Budget = contracts.CloneMap(budget)
 		delete(def.Budget, "stages")

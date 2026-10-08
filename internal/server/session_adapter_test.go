@@ -47,14 +47,6 @@ func resolveMustUseSkills(def catalog.AgentDefinition, dir string, registry lega
 	return session.ResolveMustUseSkills(def, dir, skillCatalogAdapter{registry}, requested)
 }
 
-func buildAgentDigests(registry catalog.Registry) []contracts.AgentDigest {
-	return session.BuildAgentDigests(adapter.Catalog{Registry: registry})
-}
-
-func buildContextAgentDigests(registry catalog.Registry, def catalog.AgentDefinition, key string) ([]contracts.AgentDigest, *catalog.AdminAgentDiagnostic) {
-	return session.BuildContextAgentDigests(adapter.Catalog{Registry: registry}, def, key)
-}
-
 type legacySkillCatalog interface {
 	Skills(string) []api.SkillSummary
 	SkillDefinition(string) (catalog.SkillDefinition, bool)

@@ -450,19 +450,7 @@ func (s *Builder) loadPlanTaskContext(chatID string) string {
 }
 
 func ResolvedModeCapabilities(def catalog.AgentDefinition) agentcontract.ModeCapabilities {
-	if descriptor, ok := agentbuiltin.Lookup(def.Mode); ok {
-		capabilities := descriptor.Capabilities
-		if agentbuiltin.IsCoderACPBackend(def.Mode, def.ACPBridgeID) {
-			capabilities.RunAsChild = false
-		}
-		return capabilities
-	}
-	switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
-	case catalog.AgentModeGeneral, "REACT", "ONESHOT", catalog.AgentModeProxy:
-		return agentcontract.ModeCapabilities{InvokeChildren: true, RunAsChild: true}
-	default:
-		return agentcontract.ModeCapabilities{}
-	}
+	return catalog.ResolvedModeCapabilities(def)
 }
 
 func CoderProjectPromptFiles(files []catalog.AgentProjectPromptFile) []agentbuiltin.CoderProjectPromptFile {

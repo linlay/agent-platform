@@ -42,7 +42,6 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 	}
 	findings := make([]WorkspaceChatAuditFinding, 0)
 	knownAgentKeys := make(map[string]struct{})
-	agentReferences := make([]workspaceChatAuditReference, 0)
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") || !ShouldLoadRuntimeName(name) {
@@ -60,16 +59,8 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 		if strings.TrimSpace(key) != "" {
 			knownAgentKeys[strings.TrimSpace(key)] = struct{}{}
 		}
-		contextConfig := mapNode(definition["contextConfig"])
 		runtimeConfig := mapNode(definition["runtimeConfig"])
 		hasRuntimeSandbox := strings.TrimSpace(stringNode(runtimeConfig["environmentId"])) != ""
-		if targets := listStrings(contextConfig["agents"]); len(targets) > 0 {
-			agentReferences = append(agentReferences, workspaceChatAuditReference{
-				owner:      key,
-				sourcePath: source.Path,
-				targets:    targets,
-			})
-		}
 		findings = append(findings, auditReservedWorkspaceChatMounts(key, source.Path, definition)...)
 
 		def, _, parseErr := parseAgentFileRaw(source.Path)
@@ -114,7 +105,6 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 			})
 		}
 	}
-	findings = append(findings, auditOrphanAgentReferences(knownAgentKeys, agentReferences)...)
 	teamReferences, teamErr := auditTeamReferences(cfg.Paths.TeamsDir)
 	if teamErr != nil {
 		return nil, teamErr

@@ -201,16 +201,8 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 				return nil
 			}
 		}
-		if !catalog.AgentUsesACPCoderBackend(agentDef) && !session.ResolvedModeCapabilities(agentDef).RunAsChild {
-			o.InjectMainToolError(main, invoke.MainToolID, "sub-agent must be GENERAL/ONESHOT/CODER/KBASE/PROXY")
-			return nil
-		}
-		if !catalog.AgentInvocable(agentDef) {
-			o.InjectMainToolError(main, invoke.MainToolID, "sub-agent is not invocable")
-			return nil
-		}
-		if ContainsInvokeAgentsTool(agentDef.Tools) {
-			o.InjectMainToolError(main, invoke.MainToolID, "nested sub-agent invocation is not allowed")
+		if err := catalog.AgentInvocationError(agentDef); err != nil {
+			o.InjectMainToolError(main, invoke.MainToolID, err.Error())
 			return nil
 		}
 		o.TaskCounter++

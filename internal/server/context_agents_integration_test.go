@@ -69,15 +69,14 @@ func newContextCandidatesFixture(t *testing.T, refs []string, calls *atomic.Int3
 
 func TestQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		refs           []string
-		valid, warning bool
+		name string
+		refs []string
 	}{
-		{"missing", []string{"missing-candidate"}, false, true},
-		{"invalid", []string{"invalid-candidate"}, false, true},
-		{"mixed", []string{"missing-candidate", "valid-candidate", "invalid-candidate"}, true, true},
-		{"valid", []string{"valid-candidate"}, true, false},
-		{"all", nil, true, false},
+		{"missing", []string{"missing-candidate"}},
+		{"invalid", []string{"invalid-candidate"}},
+		{"mixed", []string{"missing-candidate", "valid-candidate", "invalid-candidate"}},
+		{"valid", []string{"valid-candidate"}},
+		{"all", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -93,24 +92,21 @@ func TestQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 				t.Fatalf("query failed: status=%d body=%s calls=%d", rec.Code, rec.Body.String(), calls.Load())
 			}
 			prompt := <-requests
-			if strings.Contains(prompt, "UNIQUE_VALID_CANDIDATE") != tc.valid || strings.Contains(prompt, "UNIQUE_INVALID_CANDIDATE") || strings.Contains(prompt, "missing-candidate") {
+			if strings.Contains(prompt, "UNIQUE_VALID_CANDIDATE") || strings.Contains(prompt, "UNIQUE_INVALID_CANDIDATE") || strings.Contains(prompt, "missing-candidate") {
 				t.Fatalf("wrong candidate prompt: %s", prompt)
 			}
-			if strings.Contains(prompt, "Runtime Context: Sub-Agent Candidates") != tc.valid {
+			if strings.Contains(prompt, "Runtime Context: Sub-Agent Candidates") {
 				t.Fatal("empty candidate section should be omitted")
 			}
 			detail, err := fixture.server.adminAgentDetail("mock-agent")
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantDiagnostics := 0
-			if tc.warning {
-				wantDiagnostics = 1
-			}
+			wantDiagnostics := 1
 			if detail.Status != catalog.AdminAgentStatusReady || len(detail.Diagnostics) != wantDiagnostics {
 				t.Fatalf("admin detail=%#v", detail)
 			}
-			if tc.warning && (detail.Diagnostics[0].Severity != "warning" || detail.Diagnostics[0].Code != "context_agents_unavailable") {
+			if detail.Diagnostics[0].Severity != "warning" || detail.Diagnostics[0].Code != "context_agents_ignored" {
 				t.Fatalf("diagnostics=%#v", detail.Diagnostics)
 			}
 			for _, key := range []string{"missing-candidate", "invalid-candidate"} {
@@ -169,7 +165,7 @@ func TestWebSocketQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 func TestUnavailableContextAgentDoesNotHideRequiredWorkspaceFailure(t *testing.T) {
 	cfg := testPromptContextConfig(t)
 	server := &Server{deps: Dependencies{Config: cfg, Registry: testCatalogRegistry{}}}
-	_, err := server.buildRuntimeRequestContext(runtimeRequestContextInput{AgentKey: "coder", ChatID: "chat", Definition: catalog.AgentDefinition{Key: "coder", Mode: "CODER", ContextTags: []string{"agents"}, ContextAgents: []string{"missing"}}})
+	_, err := server.buildRuntimeRequestContext(runtimeRequestContextInput{AgentKey: "coder", ChatID: "chat", Definition: catalog.AgentDefinition{Key: "coder", Mode: "CODER", ContextTags: []string{"agents"}}})
 	if err == nil || !strings.Contains(err.Error(), "workspace_unavailable") {
 		t.Fatalf("required workspace failure was lost: %v", err)
 	}

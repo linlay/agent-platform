@@ -14,7 +14,6 @@ import (
 // Catalog exposes only the definition and catalog snapshots used by a session.
 type Catalog interface {
 	AgentDefinition(string) (catalog.AgentDefinition, bool)
-	AgentDigests() []contracts.AgentDigest
 	SkillIDs() []string
 	SkillDefinition(string) (catalog.SkillDefinition, bool)
 }
