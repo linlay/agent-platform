@@ -78,6 +78,27 @@ func TestCenterRealSplitStorageLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 		if pass == 0 {
+			if err := os.Rename(source, source+"-offline"); err != nil {
+				t.Fatal(err)
+			}
+			offline, err := service.Get(d.ID)
+			if err != nil || offline.State != "ready" || len(offline.SourceWarnings) == 0 {
+				t.Fatalf("offline status: %+v %v", offline, err)
+			}
+			result, err := service.Search(ctx, d.ID, kbasescenter.SearchInput{Query: "quartzorchid", Method: "search"})
+			if err != nil || !strings.Contains(string(result), "quartzorchid") {
+				t.Fatalf("offline search: %s %v", result, err)
+			}
+			result, err = service.Read(ctx, d.ID, "read", "kbx://docs/note.md", 0)
+			if err != nil || !strings.Contains(string(result), "quartzorchid") {
+				t.Fatalf("offline read: %s %v", result, err)
+			}
+			if _, err := service.Refresh(d.ID); err == nil {
+				t.Fatal("refreshed offline source")
+			}
+			if err := os.Rename(source+"-offline", source); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.RemoveAll(runtimeRoot); err != nil {
 				t.Fatal(err)
 			}

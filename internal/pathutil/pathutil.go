@@ -171,6 +171,13 @@ func resolvePhysicalPath(path string, links int) (string, error) {
 	return current, nil
 }
 
+// CanonicalKey compares already resolved host paths without touching the filesystem.
+// It uses the same platform case and Unicode policy as Canonicalize, including
+// when a previously resolved source is temporarily offline.
+func CanonicalKey(path string) string {
+	return keyForPosix(filepath.ToSlash(filepath.Clean(path)))
+}
+
 func keyForPosix(posix string) string {
 	key := posix
 	if caseInsensitive {

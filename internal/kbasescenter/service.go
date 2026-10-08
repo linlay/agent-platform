@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agent-platform/internal/pathutil"
 )
 
 var ErrNotFound = errors.New("knowledge base not found")
@@ -34,13 +36,14 @@ type Definition struct {
 	Description string       `json:"description"`
 	Collections []Collection `json:"collections"`
 	// SourcePath is a convenience field for the HTTP single-source input.
-	SourcePath string `json:"sourcePath,omitempty"`
-	CreatedAt  int64  `json:"createdAt"`
-	UpdatedAt  int64  `json:"updatedAt"`
-	IndexedAt  int64  `json:"indexedAt"`
-	State      string `json:"state"`
-	Error      string `json:"error,omitempty"`
-	Orphaned   bool   `json:"orphaned,omitempty"`
+	SourcePath     string   `json:"sourcePath,omitempty"`
+	CreatedAt      int64    `json:"createdAt"`
+	UpdatedAt      int64    `json:"updatedAt"`
+	IndexedAt      int64    `json:"indexedAt"`
+	State          string   `json:"state"`
+	Error          string   `json:"error,omitempty"`
+	Orphaned       bool     `json:"orphaned,omitempty"`
+	SourceWarnings []string `json:"sourceWarnings,omitempty"`
 }
 type Input struct {
 	Name        string       `json:"name"`
@@ -91,6 +94,21 @@ func New(ctx context.Context, root, runtimeRoot string, engine Engine) (*Service
 	return &Service{root: root, runtimeRoot: runtimeRoot, engine: engine, ctx: ctx, busy: map[string]bool{}}, nil
 }
 func (s *Service) directory(id string) (string, error) {
+	dir, err := s.rawDirectory(id)
+	if err != nil {
+		return "", err
+	}
+	present, err := hasDefinition(dir)
+	if err != nil {
+		return "", err
+	}
+	if !present {
+		return "", ErrNotFound
+	}
+	return dir, nil
+}
+
+func (s *Service) rawDirectory(id string) (string, error) {
 	if !idPattern.MatchString(id) {
 		return "", ErrNotFound
 	}
@@ -125,10 +143,10 @@ func validateCollections(collections []Collection) error {
 		if !filepath.IsAbs(c.SourcePath) {
 			return fmt.Errorf("collection sourcePath must be an absolute directory path on the Platform host")
 		}
-		if paths[c.SourcePath] {
+		if paths[pathutil.CanonicalKey(c.SourcePath)] {
 			return fmt.Errorf("each collection must use a distinct source directory")
 		}
-		names[c.Name], paths[c.SourcePath] = true, true
+		names[c.Name], paths[pathutil.CanonicalKey(c.SourcePath)] = true, true
 	}
 	return nil
 }
@@ -183,13 +201,15 @@ func (s *Service) List() ([]Definition, error) {
 	seen := map[string]bool{}
 	for _, entry := range entries {
 		id := entry.Name()
-		if !idPattern.MatchString(id) || (!entry.IsDir() && entry.Type()&os.ModeSymlink == 0) {
+		if strings.HasPrefix(id, ".") || (!entry.IsDir() && entry.Type()&os.ModeSymlink == 0) {
 			continue
 		}
-		// Templates are not live definitions. Legacy JSON is explicitly diagnosed.
-		_, yamlErr := os.Lstat(filepath.Join(s.root, id, "library.yml"))
-		_, legacyErr := os.Lstat(filepath.Join(s.root, id, "library.json"))
-		if os.IsNotExist(yamlErr) && os.IsNotExist(legacyErr) {
+		present, presenceErr := hasDefinition(filepath.Join(s.root, id))
+		if presenceErr == nil && !present {
+			continue
+		}
+		if !idPattern.MatchString(id) {
+			out = append(out, diagnostic(Definition{}, id, fmt.Errorf("invalid knowledge base directory ID %q: use 1–64 lowercase letters, digits, underscores or hyphens, starting with a letter or digit; rename the directory manually", id)))
 			continue
 		}
 		seen[id] = true
@@ -232,12 +252,7 @@ func (s *Service) Get(id string) (Definition, error) {
 	defer s.mu.RUnlock()
 	d, err := s.load(id)
 	if err != nil {
-		if dir, dirErr := s.directory(id); dirErr == nil {
-			_, yamlErr := os.Lstat(filepath.Join(dir, "library.yml"))
-			_, legacyErr := os.Lstat(filepath.Join(dir, "library.json"))
-			if _, runErr := s.runtimeDirectory(id, false); runErr == nil && os.IsNotExist(yamlErr) && os.IsNotExist(legacyErr) {
-				d.Orphaned = true
-			}
+		if _, dirErr := s.directory(id); dirErr == nil {
 			return diagnostic(d, id, err), nil
 		}
 		if _, runErr := s.runtimeDirectory(id, false); runErr == nil && errors.Is(err, ErrNotFound) {
@@ -289,13 +304,20 @@ func (s *Service) Create(in Input) (Definition, error) {
 	if err := os.Mkdir(dir, 0700); err != nil {
 		return Definition{}, err
 	}
+	libraries, err := s.librariesDirectory(true)
+	if err != nil {
+		return Definition{}, errors.Join(err, os.RemoveAll(dir))
+	}
+	runDir := filepath.Join(libraries, d.ID)
+	// Claim both directories exclusively so rollback can never remove an older library.
+	if err := os.Mkdir(runDir, 0700); err != nil {
+		return Definition{}, errors.Join(err, os.RemoveAll(dir))
+	}
 	if err := s.saveConfiguration(d); err != nil {
-		os.RemoveAll(dir)
-		return Definition{}, err
+		return Definition{}, errors.Join(err, os.RemoveAll(runDir), os.RemoveAll(dir))
 	}
 	if err := s.saveState(d.ID, runtimeState{CreatedAt: now, UpdatedAt: now, State: "unindexed"}); err != nil {
-		os.RemoveAll(dir)
-		return Definition{}, err
+		return Definition{}, errors.Join(err, os.RemoveAll(runDir), os.RemoveAll(dir))
 	}
 	return d, nil
 }
@@ -382,14 +404,14 @@ func (s *Service) Delete(id string) error {
 	if errors.Is(configErr, ErrNotFound) && errors.Is(runErr, ErrNotFound) {
 		return ErrNotFound
 	}
-	// Remove the runtime first: interrupted deletion leaves a rebuildable definition.
+	// Quarantine before recursive deletion: partial cleanup must never expose a ready index.
 	if runErr == nil {
-		if err := os.RemoveAll(runDir); err != nil {
+		if err := quarantineAndRemove(runDir); err != nil {
 			return err
 		}
 	}
 	if configErr == nil {
-		return os.RemoveAll(dir)
+		return quarantineAndRemove(dir)
 	}
 	return nil
 }
@@ -413,6 +435,9 @@ func (s *Service) Refresh(id string) (Definition, error) {
 	// Freeze the desired scope. Completion only writes state, never configuration.
 	fingerprint := scopeFingerprint(d.Collections)
 	state, err := s.readState(id)
+	if errors.Is(err, errInvalidRuntimeState) {
+		state, err = runtimeState{}, nil
+	}
 	if err != nil {
 		return d, err
 	}

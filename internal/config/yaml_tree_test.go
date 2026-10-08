@@ -302,3 +302,22 @@ func TestStrictYAMLRejectsDuplicateListMappingKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestOptInSingleQuotedEscapes(t *testing.T) {
+	tree, err := LoadYAMLTreeBytesWithOptions([]byte("name: 'it''s'\ndescription: '${HOME}'\ncollections:\n  - name: '123'\n    sourcePath: '/docs/it''s'\n"), YAMLTreeOptions{DecodeSingleQuotedEscapes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := tree.(map[string]any)
+	if values["name"] != "it's" || values["description"] != "${HOME}" {
+		t.Fatal(values)
+	}
+	collection := values["collections"].([]any)[0].(map[string]any)
+	if collection["name"] != "123" || collection["sourcePath"] != "/docs/it's" {
+		t.Fatal(collection)
+	}
+	legacy, err := LoadYAMLTreeBytes([]byte("name: 'it''s'\n"))
+	if err != nil || legacy.(map[string]any)["name"] != "it''s" {
+		t.Fatal("legacy parser changed", legacy, err)
+	}
+}

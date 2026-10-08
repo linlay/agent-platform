@@ -2,6 +2,7 @@ package kbasescenter
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/pathutil"
 )
 
 // configuration is the only on-disk source of desired state. ID comes from the directory.
@@ -21,6 +23,8 @@ type configuration struct {
 	Description string       `json:"description"`
 	Collections []Collection `json:"collections"`
 }
+
+var errInvalidRuntimeState = errors.New("invalid runtime state")
 
 type runtimeState struct {
 	CreatedAt          int64  `json:"createdAt"`
@@ -47,11 +51,45 @@ func prepareRoot(root string) (string, error) {
 }
 
 func overlaps(a, b string) bool {
-	inside := func(root, path string) bool {
-		rel, err := filepath.Rel(root, path)
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	left := pathutil.Canonical{Key: pathutil.CanonicalKey(a)}
+	right := pathutil.Canonical{Key: pathutil.CanonicalKey(b)}
+	return pathutil.WithinRoot(left, right) || pathutil.WithinRoot(right, left)
+}
+
+// Only a live YAML definition or a diagnosable legacy definition identifies a library.
+// A template-only directory must never be editable or deletable through the library API.
+func hasDefinition(dir string) (bool, error) {
+	for _, name := range []string{"library.yml", "library.json"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			return true, nil
+		} else if !os.IsNotExist(err) {
+			return false, err
+		}
 	}
-	return inside(a, b) || inside(b, a)
+	return false, nil
+}
+
+func quarantineDirectory(dir string) (string, error) {
+	token := make([]byte, 12)
+	if _, err := rand.Read(token); err != nil {
+		return "", err
+	}
+	trash := filepath.Join(filepath.Dir(dir), ".deleted-"+filepath.Base(dir)+"-"+hex.EncodeToString(token))
+	if err := os.Rename(dir, trash); err != nil {
+		return "", err
+	}
+	return trash, nil
+}
+
+func quarantineAndRemove(dir string) error {
+	trash, err := quarantineDirectory(dir)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(trash); err != nil {
+		return fmt.Errorf("remove quarantined knowledge base %s: %w", trash, err)
+	}
+	return nil
 }
 
 // Each runtime path component is checked separately; MkdirAll would follow substitutions.
@@ -118,11 +156,11 @@ func (s *Service) loadConfiguration(id string, allowUnavailable bool) (Definitio
 	}
 	d.CreatedAt, d.UpdatedAt = info.ModTime().UnixMilli(), info.ModTime().UnixMilli()
 	tree, err := config.LoadYAMLTreeBytesWithOptions(b, config.YAMLTreeOptions{
-		RejectDuplicateKeys: true, DecodeDoubleQuotedEscapes: true,
+		RejectDuplicateKeys: true, DecodeDoubleQuotedEscapes: true, DecodeSingleQuotedEscapes: true,
 		PreserveDecodedScalarPaths: []string{"name", "description", "collections.name", "collections.sourcePath"},
 	})
 	if err != nil {
-		return d, fmt.Errorf("invalid library.yml: %w", err)
+		return d, yamlConfigurationError(err)
 	}
 	raw, err := json.Marshal(tree)
 	if err != nil {
@@ -132,7 +170,7 @@ func (s *Service) loadConfiguration(id string, allowUnavailable bool) (Definitio
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&desired); err != nil {
-		return d, fmt.Errorf("invalid library.yml: %w", err)
+		return d, yamlConfigurationError(err)
 	}
 	d.Name, d.Description, d.Collections = desired.Name, desired.Description, desired.Collections
 	if err := validate(Input{Name: d.Name, Description: d.Description}); err != nil {
@@ -144,11 +182,14 @@ func (s *Service) loadConfiguration(id string, allowUnavailable bool) (Definitio
 	for i, c := range d.Collections {
 		source, err := s.canonicalSource(c.SourcePath)
 		if err != nil {
-			// Only existing unchanged sources may be offline during a metadata edit.
-			// Refresh and all reads always require canonical, available sources.
 			_, statErr := os.Stat(c.SourcePath)
-			if allowUnavailable && os.IsNotExist(statErr) && !overlaps(filepath.Clean(c.SourcePath), s.root) && !overlaps(filepath.Clean(c.SourcePath), s.runtimeRoot) {
-				d.Collections[i].SourcePath = filepath.Clean(c.SourcePath)
+			if allowUnavailable && statErr != nil {
+				resolved, offlineErr := s.offlineSource(c)
+				if offlineErr != nil {
+					return d, fmt.Errorf("collection %s: %w", c.Name, offlineErr)
+				}
+				d.Collections[i].SourcePath = resolved
+				d.SourceWarnings = append(d.SourceWarnings, fmt.Sprintf("collection %s: source directory is unavailable; serving the last completed index when its scope matches", c.Name))
 				continue
 			}
 			return d, fmt.Errorf("collection %s: %w", c.Name, err)
@@ -174,7 +215,7 @@ func diagnostic(d Definition, id string, err error) Definition {
 }
 
 func (s *Service) load(id string) (Definition, error) {
-	d, err := s.loadConfiguration(id, false)
+	d, err := s.loadConfiguration(id, true)
 	if err != nil {
 		return d, err
 	}
@@ -230,11 +271,17 @@ func (s *Service) load(id string) (Definition, error) {
 	if d.State != "ready" {
 		return d, fmt.Errorf("invalid index state")
 	}
+	if len(d.SourceWarnings) > 0 {
+		d.Error = strings.Join(d.SourceWarnings, "; ")
+	}
 	return d, nil
 }
 
 func scopeFingerprint(collections []Collection) string {
 	ordered := append([]Collection(nil), collections...)
+	for i := range ordered {
+		ordered[i].SourcePath = pathutil.CanonicalKey(ordered[i].SourcePath)
+	}
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
 	raw, _ := json.Marshal(ordered)
 	sum := sha256.Sum256(raw)
@@ -258,7 +305,7 @@ func atomicWrite(dir, name string, b []byte) error {
 }
 
 func (s *Service) saveConfiguration(d Definition) error {
-	dir, err := s.directory(d.ID)
+	dir, err := s.rawDirectory(d.ID)
 	if err != nil {
 		return err
 	}
@@ -289,7 +336,12 @@ func (s *Service) readState(id string) (runtimeState, error) {
 		return state, err
 	}
 	if err := json.Unmarshal(b, &state); err != nil {
-		return state, fmt.Errorf("invalid runtime state: %w", err)
+		return state, fmt.Errorf("%w: %v", errInvalidRuntimeState, err)
+	}
+	switch state.State {
+	case "unindexed", "indexing", "ready", "error":
+	default:
+		return state, errInvalidRuntimeState
 	}
 	return state, nil
 }
@@ -304,4 +356,29 @@ func (s *Service) saveState(id string, state runtimeState) error {
 		return err
 	}
 	return atomicWrite(dir, "state.json", b)
+}
+
+func yamlConfigurationError(err error) error {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		if typeErr.Field == "collections" && typeErr.Type.Kind().String() == "slice" {
+			return fmt.Errorf("invalid library.yml: collections must use a block list (one '- name:' entry per collection); inline collections: [{...}] is unsupported")
+		}
+		return fmt.Errorf("invalid library.yml: %s must be text; enclose the value in double quotes (for example name: \"2024\")", typeErr.Field)
+	}
+	return fmt.Errorf("invalid library.yml: %w", err)
+}
+
+func (s *Service) offlineSource(c Collection) (string, error) {
+	// Resolve existing ancestors and links even when the leaf is offline. Never
+	// reuse an index after a link has been redirected: load compares the resolved
+	// scope against the fingerprint saved by the last successful update.
+	canonical, err := pathutil.Canonicalize(c.SourcePath)
+	if err != nil {
+		return "", err
+	}
+	if overlaps(canonical.Host, s.root) || overlaps(canonical.Host, s.runtimeRoot) {
+		return "", fmt.Errorf("source directory must not overlap kbases or ru-kbases")
+	}
+	return canonical.Host, nil
 }

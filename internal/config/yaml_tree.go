@@ -23,6 +23,8 @@ type YAMLTreeOptions struct {
 	// RejectDuplicateKeys is enabled for deployment configuration files.
 	RejectDuplicateKeys       bool
 	DecodeDoubleQuotedEscapes bool
+	// DecodeSingleQuotedEscapes enables YAML apostrophe escaping without environment interpolation.
+	DecodeSingleQuotedEscapes bool
 	// PreserveDecodedScalarPaths skips environment interpolation after escape
 	// decoding for exact-value fields such as automation query.message.
 	PreserveDecodedScalarPaths []string
@@ -32,6 +34,7 @@ type YAMLTreeOptions struct {
 // tree is parsed. This lets the public loaders decide whether to preserve the
 // legacy literal behavior or decode escapes for an opted-in caller.
 type yamlDoubleQuotedScalar string
+type yamlSingleQuotedScalar string
 
 func LoadYAMLTree(path string) (any, error) {
 	return LoadYAMLTreeWithOptions(path, YAMLTreeOptions{})
@@ -333,6 +336,13 @@ func parseYAMLScalar(raw string) any {
 	if isDoubleQuotedYAMLScalar(value) {
 		return yamlDoubleQuotedScalar(value)
 	}
+	if isQuotedYAMLScalar(value) && strings.HasPrefix(value, "'") {
+		return yamlSingleQuotedScalar(value)
+	}
+	return parseLegacyYAMLScalar(value)
+}
+
+func parseLegacyYAMLScalar(value string) any {
 	quoted := isQuotedYAMLScalar(value)
 	value = interpolateEnvValue(strings.Trim(value, `"'`))
 	lower := strings.ToLower(value)
@@ -379,6 +389,12 @@ func normalizeYAMLTreeScalars(value any, options YAMLTreeOptions) any {
 
 func normalizeYAMLTreeScalarAtPath(value any, options YAMLTreeOptions, path string) any {
 	switch typed := value.(type) {
+	case yamlSingleQuotedScalar:
+		raw := string(typed)
+		if options.DecodeSingleQuotedEscapes {
+			return strings.ReplaceAll(raw[1:len(raw)-1], "''", "'")
+		}
+		return parseLegacyYAMLScalar(raw)
 	case yamlDoubleQuotedScalar:
 		raw := string(typed)
 		if options.DecodeDoubleQuotedEscapes {

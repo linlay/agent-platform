@@ -169,3 +169,17 @@ func realPathForTest(t *testing.T, path string) string {
 	}
 	return real
 }
+
+func TestCanonicalKeyDoesNotRequireSourceOnline(t *testing.T) {
+	root := t.TempDir()
+	canonical, err := Canonicalize(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	if key := CanonicalKey(canonical.Host); key != canonical.Key {
+		t.Fatalf("offline key changed: %s != %s", key, canonical.Key)
+	}
+}

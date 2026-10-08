@@ -126,3 +126,39 @@ func TestKBasesCenterHTTPDiagnosticsAndDeletion(t *testing.T) {
 		}
 	}
 }
+
+func TestKBasesTemplateEndpointsReturnNotFound(t *testing.T) {
+	root := t.TempDir()
+	service, err := kbasescenter.New(context.Background(), root, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateDir := filepath.Join(root, "example")
+	if err := os.Mkdir(templateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	template := filepath.Join(templateDir, "library.example.yml")
+	if err := os.WriteFile(template, []byte("name: \"Example\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{deps: Dependencies{KBasesCenter: service}}
+	input, _ := json.Marshal(kbasescenter.Input{Name: "Attempt", SourcePath: t.TempDir()})
+	for _, request := range []struct{ method, path string }{
+		{"GET", "/api/admin/kbases/example"},
+		{"PUT", "/api/admin/kbases/example"},
+		{"POST", "/api/admin/kbases/example/refresh"},
+		{"DELETE", "/api/admin/kbases/example"},
+	} {
+		recorder := httptest.NewRecorder()
+		server.handleKBasesCenter(recorder, httptest.NewRequest(request.method, request.path, strings.NewReader(string(input))))
+		if recorder.Code != 404 {
+			t.Fatalf("%s template: %d %s", request.method, recorder.Code, recorder.Body.String())
+		}
+	}
+	if _, err := os.Stat(template); err != nil {
+		t.Fatal("template removed", err)
+	}
+	if _, err := os.Stat(filepath.Join(templateDir, "library.yml")); !os.IsNotExist(err) {
+		t.Fatal("template became live")
+	}
+}
