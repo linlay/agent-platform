@@ -552,25 +552,26 @@ type DeleteAdminSourceResponse struct {
 }
 
 type AdminAgentDetailResponse struct {
-	ToolBindings  []AgentToolBinding       `json:"toolBindings"`
-	Key           string                   `json:"key"`
-	Name          string                   `json:"name"`
-	Icon          any                      `json:"icon,omitempty"`
-	Description   string                   `json:"description,omitempty"`
-	Role          string                   `json:"role,omitempty"`
-	Model         string                   `json:"model,omitempty"`
-	Mode          string                   `json:"mode,omitempty"`
-	Tools         []string                 `json:"tools"`
-	Skills        []string                 `json:"skills"`
-	Controls      []map[string]any         `json:"controls"`
-	Meta          map[string]any           `json:"meta"`
-	Definition    map[string]any           `json:"definition,omitempty"`
-	SoulPrompt    string                   `json:"soulPrompt,omitempty"`
-	AgentsPrompt  string                   `json:"agentsPrompt,omitempty"`
-	Source        *AgentSource             `json:"source,omitempty"`
-	Status        string                   `json:"status"`
-	Diagnostics   []AdminAgentDiagnostic   `json:"diagnostics,omitempty"`
-	PrivateSkills []AdminAgentPrivateSkill `json:"privateSkills,omitempty"`
+	ConnectorBindings *AdminAgentConnectorsResponse `json:"connectorBindings,omitempty"`
+	ToolBindings      []AgentToolBinding            `json:"toolBindings"`
+	Key               string                        `json:"key"`
+	Name              string                        `json:"name"`
+	Icon              any                           `json:"icon,omitempty"`
+	Description       string                        `json:"description,omitempty"`
+	Role              string                        `json:"role,omitempty"`
+	Model             string                        `json:"model,omitempty"`
+	Mode              string                        `json:"mode,omitempty"`
+	Tools             []string                      `json:"tools"`
+	Skills            []string                      `json:"skills"`
+	Controls          []map[string]any              `json:"controls"`
+	Meta              map[string]any                `json:"meta"`
+	Definition        map[string]any                `json:"definition,omitempty"`
+	SoulPrompt        string                        `json:"soulPrompt,omitempty"`
+	AgentsPrompt      string                        `json:"agentsPrompt,omitempty"`
+	Source            *AgentSource                  `json:"source,omitempty"`
+	Status            string                        `json:"status"`
+	Diagnostics       []AdminAgentDiagnostic        `json:"diagnostics,omitempty"`
+	PrivateSkills     []AdminAgentPrivateSkill      `json:"privateSkills,omitempty"`
 }
 
 type AdminAgentPrivateSkill struct {

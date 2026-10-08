@@ -117,17 +117,19 @@ func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 	}
 	type entry struct {
 		connector.Summary
-		MCP         []mcpStatus `json:"mcp,omitempty"`
-		IconURL     string      `json:"iconUrl,omitempty"`
-		Preparation any         `json:"preparation,omitempty"`
+		Tools       []api.ToolSummary `json:"tools"`
+		MCP         []mcpStatus       `json:"mcp,omitempty"`
+		IconURL     string            `json:"iconUrl,omitempty"`
+		Preparation any               `json:"preparation,omitempty"`
 	}
 	var mounts []connector.AgentRuntime
 	if provider, ok := s.deps.Registry.(mcp.AgentConnectorSource); ok {
 		mounts = provider.ConnectorRuntimes()
 	}
+	allTools := s.toolSummaries(true)
 	result := make([]entry, 0, len(items))
 	for _, item := range items {
-		value := entry{Summary: item}
+		value := entry{Summary: item, Tools: []api.ToolSummary{}}
 		value.Manifest = item.Manifest.Localized(responseLocale(w))
 		if item.HasCLI && !item.Builtin {
 			prepared, err := s.connectorAuth.PreparationStatus(item.ID)
@@ -163,6 +165,18 @@ func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 			}
 			if !mounted {
 				value.MCP = append(value.MCP, mcpStatus{ServerKey: sourceKey, MCPServerToolSyncStatus: api.MCPServerToolSyncStatus{Status: "unmounted"}})
+			}
+		}
+		serverKeys := map[string]bool{}
+		for _, server := range value.MCP {
+			if server.AgentKey != "" {
+				serverKeys[server.ServerKey] = true
+			}
+		}
+		for _, tool := range allTools {
+			owner, native := connector.NativeToolConnector(tool.Name)
+			if (native && owner == item.ID) || (tool.SourceCategory == "mcp" && serverKeys[tool.ServerKey]) {
+				value.Tools = append(value.Tools, tool)
 			}
 		}
 		result = append(result, value)

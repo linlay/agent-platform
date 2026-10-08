@@ -132,7 +132,7 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
-| GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情，包含编辑配置、来源和诊断 |
+| GET | `/api/admin/agent` | query: `agentKey` | admin agent 详情，包含编辑配置、来源和诊断 |
 | GET | `/api/connectors` | 可选 query: `agentKey` | 使用目录 connectors[] 含 id/name、可选展示字段、readiness/MCP 快照；Agent 范围含 reloadPending，过滤预置 |
 | PUT（GET 兼容） | `/api/agents/connectors` | PUT: `{agentKey,connectorId,enabled}`；旧 GET: query `agentKey` | `{agentKey,connectorIds,reloadPending}`，connectorIds 过滤预置；正常读取复用 `/api/agent.connectors` |
 | GET | `/api/admin/connectors` | 无 | 完整管理目录：包摘要、组件、技能和 MCP 同步状态 |
@@ -313,12 +313,12 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 
 `/api/agent` 返回顶层 `modelKey`、`reasoningEffort`、可选 `serviceTier`。模型 key 原样反映配置，ACP 详情不访问上游模型列表、不自动回退到其他模型。思考读取 Agent 顶层 `modelConfig.reasoning`：显式 `enabled:false` 返回 `NONE`，否则返回规范化 `effort`，未配置回退 `MEDIUM`；不代表 stageSettings 或单次 query 的覆盖结果。未设置服务等级时省略 `serviceTier`。不返回 `model`、`selected*`、`modelConfig`、`modelOptions`，meta 不重复返回 modelKey/modelKeys/providerKey/protocol。
 
-`tools`、`skills`、`connectors` 统一为 ID 字符串数组，空列表为 `[]`。tools/skills 按已发布运行时顺序返回（含自动挂载），connectors 读取已保存源配置并过滤预置，活动 Run 延后生效时保持最新开关。技能展示名、description、version、revision 由 `/api/skills` 等目录提供；`/api/agent` 不返回 toolBindings，管理 `/api/admin/agents/detail` 及创建、修改、改名响应保留来源、removable、excluded、active。`meta.perAgentSkills` 已删除。
+`tools`、`skills`、`connectors` 统一为 ID 字符串数组，空列表为 `[]`。tools/skills 按已发布运行时顺序返回（含自动挂载），connectors 读取已保存源配置并过滤预置，活动 Run 延后生效时保持最新开关。技能展示名、description、version、revision 由 `/api/skills` 等目录提供；`/api/agent` 不返回 toolBindings，管理 `/api/admin/agent` 及创建、修改、改名响应保留来源、removable、excluded、active。`meta.perAgentSkills` 已删除。
 
 `POST /api/agent/model-config`（HTTP/WS 相同）仅接受 `agentKey` 必填，`modelKey`、`reasoningEffort`、`serviceTier` 至少一项。省略字段保持原值；modelKey 不允许空值；reasoningEffort 为 NONE/LOW/MEDIUM/HIGH/XHIGH/MAX，不接受空值/null；serviceTier 为非空字符串或 null，null 清除等级，STANDARD 也按清除处理，非标准等级仅限 ACP。未知字段（包括旧 key 别名）拒绝。更新会校验最终模型与 ACP 能力；响应为 `{agentKey,modelKey,reasoningEffort,serviceTier?}`。YAML 的 modelConfig.reasoning.enabled/effort 结构保持不变，API 通过 NONE 表达关闭。
 
 
-`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；`introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
+`/api/agent` 返回 `greetings`、`introductions` 与 `wonders` 数组。`greetings` 用作新会话主标题，客户端随机选一条，没有有效项时显示“与 <agentName> 对话”；`introductions` 用作输入框自我介绍 placeholder，独立随机选择，没有有效项时使用默认输入提示。`wonders` 用于可直接提交的 query 示例。`/api/agents` 列表摘要不返回这些数组。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agent` 获取这些字段，以及 `status`、`diagnostics`。
 
 ### Archive
 

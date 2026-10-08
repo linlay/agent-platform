@@ -323,3 +323,34 @@ func TestAdminAgentOrderOmitsAbsentUpdatedAt(t *testing.T) {
 		t.Fatalf("missing order file must omit updatedAt, got %#v", response.Data)
 	}
 }
+
+func TestAdminAgentUnifiedDetailIncludesConnectorBindings(t *testing.T) {
+	fixture := newTestFixture(t)
+	var first string
+	for _, path := range []string{"/api/admin/agent", "/api/admin/agents/detail"} {
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?agentKey=mock-agent", nil))
+		var response api.ApiResponse[api.AdminAgentDetailResponse]
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("detail: %s (%v)", rec.Body.String(), err)
+		}
+		if response.Data.ConnectorBindings == nil || response.Data.ConnectorBindings.AgentKey != "mock-agent" {
+			t.Fatalf("missing connector bindings: %s", rec.Body.String())
+		}
+		bindings, _ := json.Marshal(response.Data.ConnectorBindings)
+		selection := httptest.NewRecorder()
+		fixture.server.ServeHTTP(selection, httptest.NewRequest(http.MethodGet, "/api/admin/agents/connectors?agentKey=mock-agent", nil))
+		var original api.ApiResponse[api.AdminAgentConnectorsResponse]
+		if err := json.Unmarshal(selection.Body.Bytes(), &original); err != nil {
+			t.Fatal(err)
+		}
+		want, _ := json.Marshal(original.Data)
+		if string(bindings) != string(want) {
+			t.Fatalf("bindings differ: %s != %s", bindings, want)
+		}
+		if first != "" && first != rec.Body.String() {
+			t.Fatal("compatibility path differs")
+		}
+		first = rec.Body.String()
+	}
+}

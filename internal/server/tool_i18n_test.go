@@ -11,7 +11,7 @@ import (
 
 func TestToolCatalogAndLegacyReplayLocalizePerViewer(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
-	for _, tc := range []struct{ locale, label string }{{"en", "Platform Diagnostics"}, {"zh-CN", "平台诊断"}} {
+	for _, tc := range []struct{ locale, label string }{{"en", "Date and Time"}, {"zh-CN", "日期时间"}} {
 		req := httptest.NewRequest("GET", "/api/admin/tools", nil)
 		req.Header.Set("X-Locale", tc.locale)
 		rec := httptest.NewRecorder()

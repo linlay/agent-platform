@@ -23,10 +23,11 @@ type adminAgentRegistry interface {
 }
 
 func (s *Server) writeAdminAgentSaveResponse(w http.ResponseWriter, detail api.AgentDetailResponse, err error) {
+	detail.Tools = s.independentAgentToolNames(detail.Tools)
 	response := api.AdminAgentSaveResponse{AgentDetailResponse: detail}
 	if err == nil {
 		if def, found := s.deps.Registry.AgentDefinition(detail.Key); found {
-			response.ToolBindings = def.EffectiveToolBindings()
+			response.ToolBindings = s.independentAgentToolBindings(def.EffectiveToolBindings())
 		}
 	}
 	s.writeAgentHTTPResponse(w, response, err)
@@ -100,10 +101,10 @@ func (s *Server) adminAgentDetail(agentKey string) (api.AdminAgentDetailResponse
 			}
 			response := adminAgentDetailFromAgentDetail(detail, item)
 			response.ToolBindings = def.EffectiveToolBindings()
-			return s.withAdminAgentPrivateSkills(response)
+			return s.withAdminAgentBindings(response)
 		}
 	}
-	return s.withAdminAgentPrivateSkills(adminAgentDetailFromAdminAgent(item))
+	return s.withAdminAgentBindings(adminAgentDetailFromAdminAgent(item))
 }
 
 type adminAgentPrivateSkillReader interface {
@@ -111,6 +112,8 @@ type adminAgentPrivateSkillReader interface {
 }
 
 func (s *Server) withAdminAgentPrivateSkills(detail api.AdminAgentDetailResponse) (api.AdminAgentDetailResponse, error) {
+	detail.Tools = s.independentAgentToolNames(detail.Tools)
+	detail.ToolBindings = s.independentAgentToolBindings(detail.ToolBindings)
 	registry, ok := s.deps.Registry.(adminAgentPrivateSkillReader)
 	if !ok || registry == nil {
 		return detail, nil
@@ -372,4 +375,15 @@ func writeAgentOrderFile(agentsDir string, file catalog.AgentOrderFile) error {
 		return err
 	}
 	return os.Rename(tmpPath, filepath.Join(agentsDir, catalog.AgentOrderFileName))
+}
+
+func (s *Server) withAdminAgentBindings(detail api.AdminAgentDetailResponse) (api.AdminAgentDetailResponse, error) {
+	bindings, err := s.agentConnectorSelection(context.Background(), api.SetAgentConnectorRequest{AgentKey: detail.Key}, false)
+	if err == nil {
+		detail.ConnectorBindings = &bindings
+	} else if strings.EqualFold(detail.Status, catalog.AdminAgentStatusReady) {
+		return api.AdminAgentDetailResponse{}, err
+	}
+	// Invalid source remains editable even when its connector declarations cannot be read.
+	return s.withAdminAgentPrivateSkills(detail)
 }

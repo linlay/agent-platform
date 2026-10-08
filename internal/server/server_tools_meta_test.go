@@ -64,20 +64,18 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 	}}}}
 
 	all := requestAdminTools(t, server, "/api/admin/tools")
-	if len(all) != 3 {
-		t.Fatalf("expected all three tools, got %#v", all)
+	if len(all) != 1 {
+		t.Fatalf("expected only the independent tool, got %#v", all)
 	}
 	assertToolSummary(t, all, "bash", "local", "platform", "")
-	assertToolSummary(t, all, "qs_read", "mcp", "mcp", "qiuerscript")
-	assertToolSummary(t, all, "remote_tool", "mcp", "mcp", "demo")
 	assertAdminToolsResponseOmitsMeta(t, server, "/api/admin/tools")
 
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=mcp"), []string{"bash", "qs_read", "remote_tool"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=mcp"), []string{"bash", "qs_read", "remote_tool"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external"), []string{"bash", "qs_read", "remote_tool"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external&sourceCategory=mcp"), []string{"bash", "qs_read", "remote_tool"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=does-not-exist"), []string{"bash", "qs_read", "remote_tool"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?tag=remote"), []string{"bash", "qs_read", "remote_tool"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=mcp"), []string{"bash"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=mcp"), []string{"bash"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external"), []string{"bash"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external&sourceCategory=mcp"), []string{"bash"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=does-not-exist"), []string{"bash"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?tag=remote"), []string{"bash"})
 }
 
 func TestAdminToolsListHidesPrivateEmbeddedBuiltins(t *testing.T) {
@@ -194,7 +192,7 @@ func TestAdminToolsPreservesOriginalMCPNameWithoutChangingRoutingIdentity(t *tes
 		{Key: key, Name: key, Meta: map[string]any{"sourceType": "mcp", "serverKey": "agent-mcp-demo", "mcpToolName": original}},
 		{Key: "local_tool", Name: "local_tool", Meta: map[string]any{"sourceType": "local", "mcpToolName": "ignored"}},
 	}}}}
-	items := requestAdminTools(t, server, "/api/admin/tools")
+	items := server.toolSummaries(true)
 	if len(items) != 2 || items[0].MCPToolName != original || items[0].Name != key || items[0].Key != key {
 		t.Fatalf("original name or routing identity changed: %#v", items)
 	}

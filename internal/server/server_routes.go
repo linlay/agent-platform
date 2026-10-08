@@ -268,6 +268,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/agents/order", s.handleAgentOrder)
 	s.router.HandleFunc("/api/agents/connectors", s.handleAgentConnectors)
 	s.router.HandleFunc("/api/admin/agents", s.method(http.MethodGet, s.handleAdminAgents))
+	s.router.HandleFunc("/api/admin/agent", s.method(http.MethodGet, s.handleAdminAgentDetail))
 	s.router.HandleFunc("/api/admin/agents/detail", s.method(http.MethodGet, s.handleAdminAgentDetail))
 	s.router.HandleFunc("/api/admin/agents/connectors", s.handleAdminAgentConnectors)
 	s.router.HandleFunc("/api/memory/file", s.handleMemoryFile)

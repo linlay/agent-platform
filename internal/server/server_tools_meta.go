@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
@@ -57,11 +58,24 @@ func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
 }
 
 func (s *Server) listTools() []api.ToolSummary {
+	items := []api.ToolSummary{}
+	for _, tool := range s.toolSummaries(false) {
+		if _, owned := connector.NativeToolConnector(tool.Name); !owned && tool.SourceCategory != "mcp" && tool.SourceType != "mcp" {
+			items = append(items, tool)
+		}
+	}
+	return items
+}
+
+func (s *Server) toolSummaries(includeHidden bool) []api.ToolSummary {
+	if s.deps.Tools == nil {
+		return []api.ToolSummary{}
+	}
 	defs := s.deps.Tools.Definitions()
 	items := make([]api.ToolSummary, 0, len(defs))
 	seen := map[string]struct{}{}
 	for _, tool := range defs {
-		if visible, ok := tool.Meta["catalogVisible"].(bool); ok && !visible {
+		if visible, ok := tool.Meta["catalogVisible"].(bool); !includeHidden && ok && !visible {
 			continue
 		}
 		canonical, ok := canonicalizePublicToolDefinition(tool)
