@@ -85,7 +85,6 @@ type TargetMetadata struct {
 
 type StageOptions struct {
 	ConnectorsLockPath string
-	ConnectorsRoot     string
 	ExcludeGitBash     bool
 	RepoRoot           string
 	LockPath           string
@@ -192,25 +191,6 @@ func ResolveRoot(repoRoot string, override string, lock Lock) (string, error) {
 	return DefaultSourceRoot(repoRoot, lock.DefaultRoot), nil
 }
 
-// ResolveConnectorsRoot keeps connector build inputs independent of BUILTINS_ROOT.
-func ResolveConnectorsRoot(repoRoot, override string, lock Lock) (string, error) {
-	root := strings.TrimSpace(override)
-	if root == "" {
-		root = strings.TrimSpace(os.Getenv("CONNECTORS_ROOT"))
-	}
-	if root == "" {
-		absolute, err := filepath.Abs(repoRoot)
-		if err != nil {
-			return "", err
-		}
-		root = DefaultSourceRoot(absolute, lock.DefaultRoot)
-	}
-	if !filepath.IsAbs(root) {
-		return "", errors.New("CONNECTORS_ROOT must be an absolute path")
-	}
-	return filepath.Clean(root), nil
-}
-
 func FindComponent(lock Lock, name string) (Component, error) {
 	for _, component := range lock.Components {
 		if component.Name == name {
@@ -251,10 +231,6 @@ func Stage(options StageOptions) (StageResult, error) {
 		if err != nil {
 			return StageResult{}, err
 		}
-		connectorRoot, err := ResolveConnectorsRoot(repoRoot, options.ConnectorsRoot, connectorLock)
-		if err != nil {
-			return StageResult{}, err
-		}
 		for _, c := range connectorLock.Components {
 			if _, exists := roots[c.Name]; exists {
 				return StageResult{}, fmt.Errorf("duplicate component across locks: %s", c.Name)
@@ -262,7 +238,7 @@ func Stage(options StageOptions) (StageResult, error) {
 			if c.Name != "dbx" && c.Name != "httpx" {
 				return StageResult{}, fmt.Errorf("unsupported bundled connector %s", c.Name)
 			}
-			roots[c.Name] = connectorRoot
+			roots[c.Name] = builtinsRoot
 			lock.Components = append(lock.Components, c)
 		}
 	}

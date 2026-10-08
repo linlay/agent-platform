@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "defaultRoot": "../agent-platform-connectors",
+  "defaultRoot": "../agent-platform-builtins",
   "components": [
     {
       "name": "dbx",

@@ -2,8 +2,7 @@
 param(
     [switch]$All,
     [string[]]$Target,
-    [string]$BuiltinsRoot,
-    [string]$ConnectorsRoot
+    [string]$BuiltinsRoot
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,9 +47,7 @@ function Invoke-Native {
 
 function Copy-IsolatedProject {
     param([string]$Name, [string]$CollectionRoot)
-    $sourceRoot = $BuiltinsRoot
-    if ($Name -in @("dbx", "httpx")) { $sourceRoot = $ConnectorsRoot }
-    $source = Join-Path $sourceRoot $Name
+    $source = Join-Path $BuiltinsRoot $Name
     $destination = Join-Path $CollectionRoot $Name
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
     # Exclude only project build outputs; payloads may contain runtime dist/target directories.
@@ -61,11 +58,10 @@ function Copy-IsolatedProject {
 }
 
 function Resolve-DefaultSourceRoot {
-    param([string]$Kind)
     Push-Location $RepoRoot
     try {
-        $result = & go run ./cmd/resolve-builtin-roots --repo-root $RepoRoot --kind $Kind
-        if ($LASTEXITCODE -ne 0) { throw "Could not resolve $Kind source root" }
+        $result = & go run ./cmd/resolve-builtin-roots --repo-root $RepoRoot
+        if ($LASTEXITCODE -ne 0) { throw "Could not resolve builtins source root" }
         return "$result".Trim()
     } finally { Pop-Location }
 }
@@ -90,16 +86,9 @@ if (-not (Test-Path -LiteralPath $CanonicalLock -PathType Leaf)) {
     throw "Canonical builtin lock not found: $CanonicalLock"
 }
 
-if (-not $ConnectorsRoot) { $ConnectorsRoot = $env:CONNECTORS_ROOT }
-if (-not $ConnectorsRoot) { $ConnectorsRoot = Resolve-DefaultSourceRoot "connectors" }
-if (-not [IO.Path]::IsPathRooted($ConnectorsRoot)) { throw "-ConnectorsRoot must be absolute" }
-$ConnectorsRoot = (Resolve-Path -LiteralPath $ConnectorsRoot).Path
-foreach ($component in @("dbx", "httpx")) {
-    if (-not (Test-Path -LiteralPath (Join-Path $ConnectorsRoot "$component/connector") -PathType Container)) { throw "Missing connector project: $component" }
-}
 $ConnectorLock = Join-Path $ScriptDir "release-assets/connectors.lock.json"
 if (-not $BuiltinsRoot) { $BuiltinsRoot = $env:BUILTINS_ROOT }
-if (-not $BuiltinsRoot) { $BuiltinsRoot = Resolve-DefaultSourceRoot "builtins" }
+if (-not $BuiltinsRoot) { $BuiltinsRoot = Resolve-DefaultSourceRoot }
 if (-not [IO.Path]::IsPathRooted($BuiltinsRoot)) {
     throw "-BuiltinsRoot must be an absolute path"
 }
@@ -109,6 +98,9 @@ foreach ($component in @("ripgrep", "kbx", "memx", "poppler-pdftotext")) {
     if (-not (Test-Path -LiteralPath $componentRoot -PathType Container)) {
         throw "Missing sibling builtin project: $componentRoot"
     }
+}
+foreach ($component in @("dbx", "httpx")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $BuiltinsRoot "$component/connector") -PathType Container)) { throw "Missing connector project: $component" }
 }
 
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
@@ -197,7 +189,7 @@ try {
         New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
         Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments @(
             "run", "./cmd/stage-builtins", "--repo-root", $RepoRoot, "--lock", $LocalLock,
-            "--connectors-lock", $LocalConnectorsLock, "--connectors-root", $CollectionRoot,
+            "--connectors-lock", $LocalConnectorsLock,
             "--output", $stageDir, "--os", $parts[0], "--arch", $parts[1], "--builtins-root", $CollectionRoot
         )
 
@@ -248,7 +240,7 @@ try {
     )
     Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments @(
         "run", "./cmd/prepare-local-builtins-lock", "--input", $ConnectorLock,
-        "--builtins-root", $CollectionRoot, "--durable-builtins-root", $ConnectorsRoot,
+        "--builtins-root", $CollectionRoot, "--durable-builtins-root", $BuiltinsRoot,
         "--host-target", "windows/amd64", "--offer-canonical-update"
     )
 } finally {

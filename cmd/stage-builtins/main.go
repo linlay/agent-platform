@@ -15,7 +15,6 @@ func main() {
 	repoRoot := flag.String("repo-root", ".", "agent-platform repository root")
 	lockPath := flag.String("lock", "scripts/release-assets/builtins.lock.json", "builtins lock path")
 	connectorsLock := flag.String("connectors-lock", "scripts/release-assets/connectors.lock.json", "complete connector package lock (source staging only)")
-	connectorsRoot := flag.String("connectors-root", "", "absolute connector project collection root")
 	builtinsRoot := flag.String("builtins-root", "", "absolute builtins collection root")
 	cacheDir := flag.String("cache-dir", "", "absolute or repository-relative local builtins cache directory")
 	outputDir := flag.String("output", "", "service bundle output directory")
@@ -54,12 +53,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		var collectionRoot string
-		if connectorComponent {
-			collectionRoot, err = builtins.ResolveConnectorsRoot(root, *connectorsRoot, lock)
-		} else {
-			collectionRoot, err = builtins.ResolveRoot(root, *builtinsRoot, lock)
-		}
+		collectionRoot, err := builtins.ResolveRoot(root, *builtinsRoot, lock)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -103,7 +97,6 @@ func main() {
 	}
 	result, err := builtins.Stage(builtins.StageOptions{
 		ConnectorsLockPath: *connectorsLock,
-		ConnectorsRoot:     *connectorsRoot,
 		ExcludeGitBash:     !bundleGitBash,
 		RepoRoot:           root,
 		LockPath:           resolvedLockPath,

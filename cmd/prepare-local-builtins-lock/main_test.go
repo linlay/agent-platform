@@ -426,7 +426,7 @@ func TestConnectorLockDerivesNewPlatformWithoutGitBash(t *testing.T) {
 	if err := os.WriteFile(artifact, []byte("complete package"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	lock := builtins.Lock{SchemaVersion: 2, DefaultRoot: "../agent-platform-connectors", Components: []builtins.Component{{Name: "dbx", Version: "v1.2.3", Repository: "dbx", Kind: "archive-tree", Required: true, Targets: map[string]builtins.Target{"darwin-arm64": {Version: "v1.2.3", Path: "dist/v1.2.3/builtin.dbx_v1.2.3_darwin_arm64.zip", Format: "zip", SHA256: strings.Repeat("a", 64), Tree: &builtins.TreeLayout{Root: "runtime", Outputs: []builtins.TreeOutput{{Path: "connectors/builtin.dbx", Type: "dir"}}}}}}}}
+	lock := builtins.Lock{SchemaVersion: 2, DefaultRoot: "../agent-platform-builtins", Components: []builtins.Component{{Name: "dbx", Version: "v1.2.3", Repository: "dbx", Kind: "archive-tree", Required: true, Targets: map[string]builtins.Target{"darwin-arm64": {Version: "v1.2.3", Path: "dist/v1.2.3/builtin.dbx_v1.2.3_darwin_arm64.zip", Format: "zip", SHA256: strings.Repeat("a", 64), Tree: &builtins.TreeLayout{Root: "runtime", Outputs: []builtins.TreeOutput{{Path: "connectors/builtin.dbx", Type: "dir"}}}}}}}}
 	input := filepath.Join(root, "connectors.lock.json")
 	data, err := json.Marshal(lock)
 	if err != nil {

@@ -77,3 +77,9 @@ KBX 源码 `7ed2922179715a72e629e89f9abc9536294e1dbc`，版本 `0.1.0`（维护�
 Windows AMD64 的 KBX 包测试可交叉编译；这不替代原生 Windows 执行验证。
 
 本次没有重启用户正在运行的 Platform，也未用生产模型外发用户知识库文档。代码、受管缓存和临时目录集成验证完成；真实运行实例需加载新 Go 程序后才启用 worker。原生 Windows watcher/锁以及真实模型语义质量仍不在本机验证结论内。
+
+## 2026-10-07 正式 lock 基线重设
+
+维护者确认以 KBX 当前项目版本为准，将 `builtins.lock.json` 的 KBX 组件目标与 darwin-arm64 target 从 `1.0.0 / c5ff759` 重设为 `0.1.0 / 7ed2922179715a72e629e89f9abc9536294e1dbc`。同步状态机不登记更低版本，本次为一次性手工修正，未修改降级保护规则；上文 `1.0.0` 的历史验证结果保留。
+
+归档由干净 checkout 的隔离副本经 `scripts/build-kbx.py` 构建，固化为 `dist/v0.1.0/kbx_v0.1.0_darwin_arm64.tar.gz`，SHA-256 `144a8450875d2f5cfb7e9419d9c67f9c52c435996ce9e5e1c4ac869673a0195b`，其中 `kbx` 二进制与此前受管缓存一致（`e3602196…`）。登记后重新执行标准 `scripts/sync-local-builtins.sh`，状态机按同版本校验重建归档，路径与 SHA 一致，无冲突提示。其他平台尚无 KBX target。

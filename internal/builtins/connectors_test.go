@@ -250,16 +250,15 @@ func TestStageIndependentConnectorLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connectorsRoot := filepath.Join(root, "connector-projects")
-	archive := filepath.Join(connectorsRoot, "dbx", "release.tar.gz")
+	builtinsRoot := filepath.Join(root, "builtin-projects")
+	archive := filepath.Join(builtinsRoot, "dbx", "release.tar.gz")
 	mustWriteTreeTarGzip(t, archive, payload)
 	connectorLock := Lock{SchemaVersion: 2, DefaultRoot: "unused-connectors", Components: []Component{{Name: "dbx", Version: "v1.2.3", Repository: "dbx", Kind: "archive-tree", Required: true, Targets: map[string]Target{"darwin-arm64": {Version: "v1.2.3", Path: "release.tar.gz", Format: "tar.gz", SHA256: fileSHA256(t, archive), Tree: &TreeLayout{Root: "runtime", Outputs: []TreeOutput{{Path: "connectors/builtin.dbx", Type: "dir"}}}}}}}}
 	writeLock(t, filepath.Join(root, "connectors.lock.json"), connectorLock)
-	builtinsRoot := filepath.Join(root, "builtin-projects")
 	mustWrite(t, filepath.Join(builtinsRoot, "rg", "rg"), []byte("rg"))
 	builtinLock := Lock{SchemaVersion: 2, DefaultRoot: "unused-builtins", Components: []Component{{Name: "rg", Version: "1.0.0", Repository: "rg", Kind: "file", Required: true, Targets: map[string]Target{"darwin-arm64": {Version: "1.0.0", Path: "rg", Output: "rg", SHA256: fileSHA256(t, filepath.Join(builtinsRoot, "rg", "rg"))}}}}}
 	writeLock(t, filepath.Join(root, "builtins.lock.json"), builtinLock)
-	options := StageOptions{RepoRoot: root, LockPath: "builtins.lock.json", BuiltinsRoot: builtinsRoot, ConnectorsLockPath: "connectors.lock.json", ConnectorsRoot: connectorsRoot, OutputDir: "out", GOOS: "darwin", GOARCH: "arm64"}
+	options := StageOptions{RepoRoot: root, LockPath: "builtins.lock.json", BuiltinsRoot: builtinsRoot, ConnectorsLockPath: "connectors.lock.json", OutputDir: "out", GOOS: "darwin", GOARCH: "arm64"}
 	result, err := Stage(options)
 	if err != nil {
 		t.Fatal(err)

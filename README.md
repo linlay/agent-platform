@@ -94,7 +94,7 @@ MCP 支持 HTTP/stdio client、SDK 协议版本协商、session 生命周期与 
 - Go 1.22 或更新版本
 - Docker / Docker Compose（如需容器运行）
 - 可用的 provider / model 注册文件（放在 `runtime/registries/`）
-- 相邻的 `../agent-platform-builtins/{ripgrep,kbx,memx,poppler-pdftotext}` 与 `../agent-platform-connectors/{dbx,httpx}` 本地产物仓库集合；默认自动寻找相邻项目，Git worktree 也会查找主仓库的相邻项目；可分别用绝对路径环境变量 `BUILTINS_ROOT`、`CONNECTORS_ROOT` 覆盖
+- 相邻的 `../agent-platform-builtins/{ripgrep,kbx,memx,poppler-pdftotext,dbx,httpx}` 本地产物仓库集合；默认自动寻找相邻项目，Git worktree 也会查找主仓库的相邻项目；可用绝对路径环境变量 `BUILTINS_ROOT` 覆盖
 
 ### 本地启动
 
