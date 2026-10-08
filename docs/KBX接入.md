@@ -61,4 +61,4 @@ KBX_ACCEPTANCE_BIN=/absolute/managed/bin \
 go test ./internal/kbx -run 'TestLivePlatform|TestLiveChunkAndFilterContract|TestLiveVectorPrefilterAndLibraryIsolation' -count=1
 ```
 
-历史真实文档范围、已知抽取失败与本次验证记录见 [KBX 验证记录](KBX验证记录.md)。部署级知识库中心仍使用其独立管理入口，不由 Agent worker 监听。
+历史真实文档范围、已知抽取失败与本次验证记录见 [KBX 验证记录](KBX验证记录.md)。部署级知识库中心使用 `kbases/<id>/library.yml` 与持久的 `ru-kbases/libraries/<id>/`，仍使用独立管理入口，不由 Agent worker 监听；此布局不改变上述 Agent 索引路径。

@@ -20,7 +20,7 @@ import (
 
 var ErrNotFound = errors.New("knowledge base not found")
 var ErrBusy = errors.New("knowledge base is indexing")
-var idPattern = regexp.MustCompile(`^[a-f0-9]{24}$`)
+var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 var collectionNamePattern = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$`)
 
 type Collection struct {
@@ -33,13 +33,14 @@ type Definition struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
 	Collections []Collection `json:"collections"`
-	// SourcePath preserves existing single-source definitions and clients.
+	// SourcePath is a convenience field for the HTTP single-source input.
 	SourcePath string `json:"sourcePath,omitempty"`
 	CreatedAt  int64  `json:"createdAt"`
 	UpdatedAt  int64  `json:"updatedAt"`
 	IndexedAt  int64  `json:"indexedAt"`
 	State      string `json:"state"`
 	Error      string `json:"error,omitempty"`
+	Orphaned   bool   `json:"orphaned,omitempty"`
 }
 type Input struct {
 	Name        string       `json:"name"`
@@ -60,108 +61,44 @@ type Engine interface {
 	Read(context.Context, string, string, string, int, ...string) (json.RawMessage, error)
 }
 type Service struct {
-	root   string
-	engine Engine
-	ctx    context.Context
-	mu     sync.RWMutex
-	busy   map[string]bool
+	root        string
+	runtimeRoot string // ru-kbases; libraries/ is reserved for independent libraries.
+	engine      Engine
+	ctx         context.Context
+	mu          sync.RWMutex
+	busy        map[string]bool
 }
 
-func New(ctx context.Context, root string, engine Engine) (*Service, error) {
-	if strings.TrimSpace(root) == "" {
-		return nil, fmt.Errorf("knowledge base center root required")
-	}
-	if err := os.MkdirAll(root, 0700); err != nil {
-		return nil, err
-	}
-	root, err := filepath.EvalSymlinks(root)
+func New(ctx context.Context, root, runtimeRoot string, engine Engine) (*Service, error) {
+	var err error
+	root, err = prepareRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	root, err = filepath.Abs(root)
+	runtimeRoot, err = prepareRoot(runtimeRoot)
 	if err != nil {
+		return nil, err
+	}
+	if overlaps(root, runtimeRoot) {
+		return nil, fmt.Errorf("knowledge base configuration and runtime roots must not overlap")
+	}
+	if _, err = safeDirectory(runtimeRoot, "libraries", true); err != nil {
 		return nil, err
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &Service{root: root, engine: engine, ctx: ctx, busy: map[string]bool{}}, nil
+	return &Service{root: root, runtimeRoot: runtimeRoot, engine: engine, ctx: ctx, busy: map[string]bool{}}, nil
 }
 func (s *Service) directory(id string) (string, error) {
 	if !idPattern.MatchString(id) {
 		return "", ErrNotFound
 	}
-	dir := filepath.Join(s.root, id)
-	st, err := os.Lstat(dir)
-	if os.IsNotExist(err) {
-		return "", ErrNotFound
-	}
+	root, err := safeDirectory(filepath.Dir(s.root), filepath.Base(s.root), false)
 	if err != nil {
 		return "", err
 	}
-	if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("invalid knowledge base directory")
-	}
-	return dir, nil
-}
-func (s *Service) load(id string) (Definition, error) {
-	dir, err := s.directory(id)
-	if err != nil {
-		return Definition{}, err
-	}
-	p := filepath.Join(dir, "library.json")
-	st, err := os.Lstat(p)
-	if err != nil {
-		return Definition{}, err
-	}
-	if !st.Mode().IsRegular() {
-		return Definition{}, fmt.Errorf("invalid library definition")
-	}
-	b, err := os.ReadFile(p)
-	if err != nil {
-		return Definition{}, err
-	}
-	var d Definition
-	if err = json.Unmarshal(b, &d); err != nil {
-		return d, err
-	}
-	if d.ID != id {
-		return d, fmt.Errorf("library identity mismatch")
-	}
-	if len(d.Collections) == 0 && d.SourcePath != "" {
-		d.Collections = []Collection{{Name: "workspace", SourcePath: d.SourcePath}}
-	}
-	if err := validateCollections(d.Collections); err != nil {
-		return d, err
-	}
-	if d.State == "indexing" && !s.busy[id] {
-		d.State = "error"
-		d.Error = "Indexing was interrupted; retry updating the index"
-	}
-	return d, nil
-}
-func (s *Service) save(d Definition) error {
-	dir, err := s.directory(d.ID)
-	if err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(d, "", "  ")
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".library-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), filepath.Join(dir, "library.json"))
+	return safeDirectory(root, id, false)
 }
 func validate(in Input) error {
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 200 {
@@ -226,40 +163,88 @@ func (s *Service) canonicalSource(source string) (string, error) {
 	if err != nil || !st.IsDir() {
 		return "", fmt.Errorf("sourcePath must be an existing directory")
 	}
-	// Never scan the center itself, including when an ancestor is selected.
-	rel, _ := filepath.Rel(source, s.root)
-	back, _ := filepath.Rel(s.root, source)
-	inside := func(p string) bool { return p != ".." && !strings.HasPrefix(p, ".."+string(filepath.Separator)) }
-	if inside(rel) || inside(back) {
-		return "", fmt.Errorf("source directory must not overlap the knowledge base center")
+	if overlaps(source, s.root) || overlaps(source, s.runtimeRoot) {
+		return "", fmt.Errorf("source directory must not overlap kbases or ru-kbases")
 	}
 	return source, nil
 }
 func (s *Service) List() ([]Definition, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	entries, err := os.ReadDir(s.root)
+	root, err := safeDirectory(filepath.Dir(s.root), filepath.Base(s.root), false)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
 	out := []Definition{}
+	seen := map[string]bool{}
 	for _, entry := range entries {
-		if !idPattern.MatchString(entry.Name()) {
+		id := entry.Name()
+		if !idPattern.MatchString(id) || (!entry.IsDir() && entry.Type()&os.ModeSymlink == 0) {
 			continue
 		}
-		d, err := s.load(entry.Name())
+		// Templates are not live definitions. Legacy JSON is explicitly diagnosed.
+		_, yamlErr := os.Lstat(filepath.Join(s.root, id, "library.yml"))
+		_, legacyErr := os.Lstat(filepath.Join(s.root, id, "library.json"))
+		if os.IsNotExist(yamlErr) && os.IsNotExist(legacyErr) {
+			continue
+		}
+		seen[id] = true
+		d, err := s.load(id)
 		if err != nil {
-			return nil, err
+			d = diagnostic(d, id, err)
 		}
 		out = append(out, d)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	libraries, err := s.librariesDirectory(false)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	entries = nil
+	if err == nil {
+		entries, err = os.ReadDir(libraries)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, entry := range entries {
+		id := entry.Name()
+		if !idPattern.MatchString(id) || seen[id] || (!entry.IsDir() && entry.Type()&os.ModeSymlink == 0) {
+			continue
+		}
+		d := diagnostic(Definition{Orphaned: true}, id, fmt.Errorf("orphaned runtime data: restore kbases/%s/library.yml or explicitly delete this library", id))
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt == out[j].CreatedAt {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt > out[j].CreatedAt
+	})
 	return out, nil
 }
+
 func (s *Service) Get(id string) (Definition, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.load(id)
+	d, err := s.load(id)
+	if err != nil {
+		if dir, dirErr := s.directory(id); dirErr == nil {
+			_, yamlErr := os.Lstat(filepath.Join(dir, "library.yml"))
+			_, legacyErr := os.Lstat(filepath.Join(dir, "library.json"))
+			if _, runErr := s.runtimeDirectory(id, false); runErr == nil && os.IsNotExist(yamlErr) && os.IsNotExist(legacyErr) {
+				d.Orphaned = true
+			}
+			return diagnostic(d, id, err), nil
+		}
+		if _, runErr := s.runtimeDirectory(id, false); runErr == nil && errors.Is(err, ErrNotFound) {
+			return diagnostic(Definition{Orphaned: true}, id, fmt.Errorf("orphaned runtime data: configuration is missing")), nil
+		}
+	}
+	return d, err
 }
 func (s *Service) Create(in Input) (Definition, error) {
 	if err := validate(in); err != nil {
@@ -296,11 +281,19 @@ func (s *Service) Create(in Input) (Definition, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := filepath.Join(s.root, d.ID)
+	root, err := safeDirectory(filepath.Dir(s.root), filepath.Base(s.root), false)
+	if err != nil {
+		return Definition{}, err
+	}
+	dir := filepath.Join(root, d.ID)
 	if err := os.Mkdir(dir, 0700); err != nil {
 		return Definition{}, err
 	}
-	if err := s.save(d); err != nil {
+	if err := s.saveConfiguration(d); err != nil {
+		os.RemoveAll(dir)
+		return Definition{}, err
+	}
+	if err := s.saveState(d.ID, runtimeState{CreatedAt: now, UpdatedAt: now, State: "unindexed"}); err != nil {
 		os.RemoveAll(dir)
 		return Definition{}, err
 	}
@@ -312,12 +305,19 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d, err := s.load(id)
-	if err != nil {
-		return d, err
-	}
 	if s.busy[id] {
-		return d, ErrBusy
+		return Definition{}, ErrBusy
+	}
+	if _, err := s.directory(id); err != nil {
+		return Definition{}, err
+	}
+	d, err := s.loadConfiguration(id, true)
+	if err != nil {
+		// A full valid replacement can repair malformed YAML through the admin UI.
+		if in.Collections == nil && in.SourcePath == "" {
+			return d, err
+		}
+		d = Definition{ID: id}
 	}
 	if in.SourcePath != "" && in.Collections != nil {
 		return d, fmt.Errorf("sourcePath and collections are mutually exclusive")
@@ -334,7 +334,6 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 		for _, c := range d.Collections {
 			existing[c.Name] = c.SourcePath
 		}
-		changed := len(collections) != len(d.Collections)
 		for i, c := range collections {
 			// Unchanged sources need not be online to edit display metadata.
 			if existing[c.Name] != c.SourcePath {
@@ -344,7 +343,6 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 				}
 				collections[i].SourcePath = source
 			}
-			changed = changed || existing[c.Name] != collections[i].SourcePath
 		}
 		if err := validateCollections(collections); err != nil {
 			return d, err
@@ -354,40 +352,51 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 		if len(collections) == 1 && collections[0].Name == "workspace" {
 			d.SourcePath = collections[0].SourcePath
 		}
-		if changed {
-			// Never expose an old index as matching a newly saved source scope.
-			d.State, d.Error, d.IndexedAt = "unindexed", "", 0
-		}
 	}
 	d.Name = strings.TrimSpace(in.Name)
 	d.Description = in.Description
 	d.UpdatedAt = time.Now().UnixMilli()
-	return d, s.save(d)
+	if err := s.saveConfiguration(d); err != nil {
+		return d, err
+	}
+	loaded, err := s.load(id)
+	if err != nil {
+		return diagnostic(loaded, id, err), nil
+	}
+	return loaded, nil
 }
 func (s *Service) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := s.load(id); err != nil {
-		return err
-	}
 	if s.busy[id] {
 		return ErrBusy
 	}
-	dir, err := s.directory(id)
-	if err != nil {
-		return err
+	dir, configErr := s.directory(id)
+	runDir, runErr := s.runtimeDirectory(id, false)
+	if configErr != nil && !errors.Is(configErr, ErrNotFound) {
+		return configErr
 	}
-	// Rename first so a partial filesystem deletion cannot leave a visible half-library.
-	trash := filepath.Join(s.root, ".deleted-"+id)
-	if err = os.Rename(dir, trash); err != nil {
-		return err
+	if runErr != nil && !errors.Is(runErr, ErrNotFound) {
+		return runErr
 	}
-	return os.RemoveAll(trash)
+	if errors.Is(configErr, ErrNotFound) && errors.Is(runErr, ErrNotFound) {
+		return ErrNotFound
+	}
+	// Remove the runtime first: interrupted deletion leaves a rebuildable definition.
+	if runErr == nil {
+		if err := os.RemoveAll(runDir); err != nil {
+			return err
+		}
+	}
+	if configErr == nil {
+		return os.RemoveAll(dir)
+	}
+	return nil
 }
 func (s *Service) Refresh(id string) (Definition, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d, err := s.load(id)
+	d, err := s.loadConfiguration(id, false)
 	if err != nil {
 		return d, err
 	}
@@ -397,30 +406,44 @@ func (s *Service) Refresh(id string) (Definition, error) {
 	if s.engine == nil {
 		return d, fmt.Errorf("KBX engine unavailable")
 	}
-	d.State = "indexing"
-	d.Error = ""
-	d.UpdatedAt = time.Now().UnixMilli()
-	if err = s.save(d); err != nil {
+	dir, err := s.runtimeDirectory(id, true)
+	if err != nil {
 		return d, err
 	}
+	// Freeze the desired scope. Completion only writes state, never configuration.
+	fingerprint := scopeFingerprint(d.Collections)
+	state, err := s.readState(id)
+	if err != nil {
+		return d, err
+	}
+	if state.CreatedAt == 0 {
+		state.CreatedAt = d.CreatedAt
+	}
+	state.State, state.Error = "indexing", ""
+	state.TaskFingerprint = fingerprint
+	state.IndexedAt, state.AppliedFingerprint = 0, ""
+	state.UpdatedAt = time.Now().UnixMilli()
+	if err = s.saveState(id, state); err != nil {
+		return d, err
+	}
+	d.State, d.Error, d.IndexedAt = "indexing", "", 0
+	d.UpdatedAt = state.UpdatedAt
 	s.busy[id] = true
 	go func() {
 		ctx, cancel := context.WithTimeout(s.ctx, 30*time.Minute)
 		defer cancel()
-		err := s.engine.Update(ctx, filepath.Join(s.root, id, "index.sqlite"), d.Collections)
+		err := s.engine.Update(ctx, filepath.Join(dir, "index.sqlite"), d.Collections)
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		defer delete(s.busy, id)
-		d.UpdatedAt = time.Now().UnixMilli()
+		state.UpdatedAt = time.Now().UnixMilli()
 		if err != nil {
-			d.State = "error"
-			d.Error = err.Error()
+			state.State, state.Error = "error", err.Error()
 		} else {
-			d.State = "ready"
-			d.IndexedAt = d.UpdatedAt
+			state.State, state.IndexedAt, state.AppliedFingerprint = "ready", state.UpdatedAt, fingerprint
 		}
-		if saveErr := s.save(d); saveErr != nil {
-			log.Printf("[kbases-center] persist indexing result %s: %v", id, saveErr)
+		if saveErr := s.saveState(id, state); saveErr != nil {
+			log.Printf("[kbases] persist indexing result %s: %v", id, saveErr)
 		}
 	}()
 	return d, nil
@@ -487,7 +510,11 @@ func (s *Service) Read(ctx context.Context, id, operation, arg string, limit int
 			return nil, fmt.Errorf("invalid document reference")
 		}
 	}
-	db := filepath.Join(s.root, id, "index.sqlite")
+	dir, err := s.runtimeDirectory(id, false)
+	if err != nil {
+		return nil, err
+	}
+	db := filepath.Join(dir, "index.sqlite")
 	if st, err := os.Lstat(db); err != nil || !st.Mode().IsRegular() {
 		return nil, fmt.Errorf("index is unavailable")
 	}

@@ -312,7 +312,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}()
 	centerEngine := kbx.NewCenterEngineWithSource(kbxConfig)
-	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesCenterDir, centerEngine)
+	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, centerEngine)
 	if err != nil {
 		return nil, fmt.Errorf("initialize knowledge base center: %w", err)
 	}

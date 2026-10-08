@@ -41,7 +41,8 @@ func TestStateDirectoryEnvironmentAndFixedRuntimeLayout(t *testing.T) {
 					cfg.Paths.OwnerDir: "owner", cfg.Paths.RootDir: "root",
 					cfg.Paths.AutomationsDir: "automations", cfg.Paths.SkillsCenterDir: "skills-center",
 					cfg.Paths.ConnectorsCenterDir: "connectors-center",
-					cfg.Paths.KBasesCenterDir:     "kbases-center",
+					cfg.Paths.KBasesDir:           "kbases",
+					cfg.Paths.RUKBasesDir:         "ru-kbases",
 				} {
 					if path != filepath.Join(runtimeRoot, child) {
 						t.Fatalf("%s escaped fixed runtime layout: %s", child, path)
@@ -71,8 +72,8 @@ func TestKBasesCenterExpandsRuntimeHome(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.Paths.KBasesCenterDir != filepath.Join(home, "knowledge-center-layout-test", "kbases-center") {
-			t.Fatal(cfg.Paths.KBasesCenterDir)
+		if cfg.Paths.KBasesDir != filepath.Join(home, "knowledge-center-layout-test", "kbases") {
+			t.Fatal(cfg.Paths.KBasesDir)
 		}
 	})
 }

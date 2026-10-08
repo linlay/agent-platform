@@ -288,3 +288,17 @@ func TestYAMLListFirstKeyNestedValueAndSiblingKeys(t *testing.T) {
 		t.Fatalf("incorrect nested list map: %#v", tree)
 	}
 }
+
+func TestStrictYAMLRejectsDuplicateListMappingKeys(t *testing.T) {
+	for _, content := range []string{
+		"collections:\n  - name: first\n    name: second\n",
+		"collections:\n  - {name: first, name: second}\n",
+	} {
+		if _, err := LoadYAMLTreeBytesWithOptions([]byte(content), YAMLTreeOptions{RejectDuplicateKeys: true}); err == nil {
+			t.Fatalf("duplicate accepted: %s", content)
+		}
+		if _, err := LoadYAMLTreeBytes([]byte(content)); err != nil {
+			t.Fatalf("legacy behavior changed: %v", err)
+		}
+	}
+}

@@ -412,7 +412,7 @@ docker compose logs -f
 
 参见 [完整文档索引](docs/README.md)，按配置、运行时、协议、权限、连接器、知识库、构建和验证分类。历史报告单列，不能作为当前能力或本轮测试通过的依据。
 
-知识库中心：部署级独立知识库、多 collection 建库、手动 KBX 索引更新，以及综合/全文/向量/图召回方式选择，图谱构建尚未接通，见 [知识库中心](docs/知识库中心.md)。
+知识库中心：配置位于 `kbases/<id>/library.yml`，持久索引与状态位于 `ru-kbases/libraries/<id>/`；后者跨重启保留，不随 `ru-agents` 清空，也不可按 `ru-*` 批量清理。旧 `kbases-center` 不再读取。支持部署级独立知识库、多 collection 建库、手动 KBX 索引更新，以及综合/全文/向量/图召回方式选择，图谱构建尚未接通，见 [知识库中心](docs/知识库中心.md)。
 
 `builtin.task-control`（任务管理）独立提供五个 Chat 工具和两个 Automation 工具；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 

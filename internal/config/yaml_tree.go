@@ -210,7 +210,7 @@ func parseYAMLList(lines []yamlLine, start int, indent int) ([]any, int, error) 
 				i++
 			}
 		case isYAMLFlowMap(itemText):
-			itemMap, err := parseYAMLFlowMap(itemText)
+			itemMap, err := parseYAMLFlowMap(itemText, line.rejectDuplicates)
 			if err != nil {
 				return nil, i, err
 			}
@@ -241,6 +241,9 @@ func parseYAMLList(lines []yamlLine, start int, indent int) ([]any, int, error) 
 					return nil, i, err
 				}
 				for extraKey, extraValue := range extra {
+					if _, exists := itemMap[extraKey]; exists && line.rejectDuplicates {
+						return nil, i, fmt.Errorf("duplicate YAML mapping key %q at line %d", extraKey, i+1)
+					}
 					itemMap[extraKey] = extraValue
 				}
 				i = next
@@ -431,7 +434,7 @@ func isYAMLFlowMap(text string) bool {
 	return strings.HasPrefix(text, "{") && strings.HasSuffix(text, "}")
 }
 
-func parseYAMLFlowMap(raw string) (map[string]any, error) {
+func parseYAMLFlowMap(raw string, rejectDuplicates ...bool) (map[string]any, error) {
 	text := strings.TrimSpace(raw)
 	if !isYAMLFlowMap(text) {
 		return nil, fmt.Errorf("invalid yaml flow map")
@@ -451,7 +454,11 @@ func parseYAMLFlowMap(raw string) (map[string]any, error) {
 		if !ok {
 			return nil, fmt.Errorf("invalid yaml flow map entry %q", entry)
 		}
-		result[strings.TrimSpace(key)] = parseYAMLScalar(value)
+		key = strings.TrimSpace(key)
+		if _, exists := result[key]; exists && len(rejectDuplicates) > 0 && rejectDuplicates[0] {
+			return nil, fmt.Errorf("duplicate YAML mapping key %q", key)
+		}
+		result[key] = parseYAMLScalar(value)
 	}
 	return result, nil
 }

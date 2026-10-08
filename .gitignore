@@ -18,6 +18,9 @@ coverage.out
 /ru-connectors/
 /run/
 /connectors-center/
+/kbases/
+/ru-kbases/
+# Retired knowledge center data stays private.
 /kbases-center/
 /.lock/
 

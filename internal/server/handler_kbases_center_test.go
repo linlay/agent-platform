@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestKBasesCenterHTTP(t *testing.T) {
-	service, err := kbasescenter.New(context.Background(), t.TempDir(), nil)
+	service, err := kbasescenter.New(context.Background(), t.TempDir(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,4 +62,67 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	}
 	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","collections":[]}`, 400)
 	request("POST", "/api/admin/kbases/"+d.ID+"/search", `{"query":"fixture","method":"get"}`, 400)
+}
+
+func TestKBasesCenterHTTPDiagnosticsAndDeletion(t *testing.T) {
+	root, runtimeRoot := t.TempDir(), t.TempDir()
+	service, err := kbasescenter.New(context.Background(), root, runtimeRoot, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good, err := service.Create(kbasescenter.Input{Name: "Good", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, err := service.Create(kbasescenter.Input{Name: "Bad", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, bad.ID, "library.yml"), []byte("state: ready\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	orphan, err := service.Create(kbasescenter.Input{Name: "Orphan", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, orphan.ID)); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{deps: Dependencies{KBasesCenter: service}}
+	recorder := httptest.NewRecorder()
+	server.handleKBasesCenter(recorder, httptest.NewRequest("GET", "/api/admin/kbases", nil))
+	if recorder.Code != 200 {
+		t.Fatal(recorder.Body.String())
+	}
+	var response struct {
+		Code int
+		Data []kbasescenter.Definition
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Data) != 3 {
+		t.Fatal(recorder.Body.String())
+	}
+	for _, d := range response.Data {
+		if d.ID == good.ID && d.State != "unindexed" {
+			t.Fatal(d)
+		}
+		if d.ID == bad.ID && (d.State != "error" || d.Error == "") {
+			t.Fatal(d)
+		}
+		if d.ID == orphan.ID && (!d.Orphaned || d.State != "error") {
+			t.Fatal(d)
+		}
+	}
+	for _, id := range []string{bad.ID, orphan.ID} {
+		recorder = httptest.NewRecorder()
+		server.handleKBasesCenter(recorder, httptest.NewRequest("DELETE", "/api/admin/kbases/"+id, nil))
+		if recorder.Code != 200 {
+			t.Fatal(recorder.Body.String())
+		}
+		if _, err := os.Stat(filepath.Join(runtimeRoot, "libraries", id)); !os.IsNotExist(err) {
+			t.Fatal("runtime retained", err)
+		}
+	}
 }

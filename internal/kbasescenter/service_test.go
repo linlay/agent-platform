@@ -29,7 +29,7 @@ func (e *recordingEngine) Read(_ context.Context, _, operation, _ string, _ int,
 
 func TestMultipleCollectionsAndSearchScope(t *testing.T) {
 	engine := &recordingEngine{}
-	s, err := New(context.Background(), t.TempDir(), engine)
+	s, err := New(context.Background(), t.TempDir(), t.TempDir(), engine)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,15 +78,15 @@ func TestMultipleCollectionsAndSearchScope(t *testing.T) {
 	if edited, err := s.Edit(d.ID, Input{Name: "Changed", Collections: []Collection{d.Collections[0]}}); err != nil || len(edited.Collections) != 1 || edited.IndexedAt != 0 || edited.State != "unindexed" {
 		t.Fatalf("collection removal: %+v %v", edited, err)
 	}
-	reopened, _ := New(context.Background(), s.root, engine)
+	reopened, _ := New(context.Background(), s.root, s.runtimeRoot, engine)
 	persisted, err := reopened.Get(d.ID)
 	if err != nil || len(persisted.Collections) != 1 {
 		t.Fatalf("persistence: %+v %v", persisted, err)
 	}
 }
 
-func TestCollectionValidationAndLegacyDefinition(t *testing.T) {
-	s, _ := New(context.Background(), t.TempDir(), testEngine{})
+func TestCollectionValidation(t *testing.T) {
+	s, _ := New(context.Background(), t.TempDir(), t.TempDir(), testEngine{})
 	path := t.TempDir()
 	for _, collections := range [][]Collection{
 		{}, {{Name: "docs", SourcePath: path}, {Name: "docs", SourcePath: t.TempDir()}},
@@ -112,24 +112,13 @@ func TestCollectionValidationAndLegacyDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.Collections = nil
-	if err := s.save(d); err != nil {
+	if _, err := s.Get(d.ID); err != nil {
 		t.Fatal(err)
-	}
-	loaded, err := s.Get(d.ID)
-	if err != nil || len(loaded.Collections) != 1 || loaded.Collections[0].Name != "workspace" || loaded.Collections[0].SourcePath != d.SourcePath {
-		t.Fatalf("legacy definition: %+v %v", loaded, err)
-	}
-	raw, _ := os.ReadFile(filepath.Join(s.root, d.ID, "library.json"))
-	var stored Definition
-	json.Unmarshal(raw, &stored)
-	if len(stored.Collections) != 0 {
-		t.Fatal("reading rewrote legacy definition")
 	}
 }
 
 func TestEditCollectionScope(t *testing.T) {
-	s, _ := New(context.Background(), t.TempDir(), testEngine{})
+	s, _ := New(context.Background(), t.TempDir(), t.TempDir(), testEngine{})
 	d, err := s.Create(Input{Name: "Docs", Collections: []Collection{{Name: "docs", SourcePath: t.TempDir()}, {Name: "reports", SourcePath: t.TempDir()}}})
 	if err != nil {
 		t.Fatal(err)
@@ -228,10 +217,10 @@ func waitState(t *testing.T, s *Service, id, want string) Definition {
 	return Definition{}
 }
 func TestLibraryLifecycle(t *testing.T) {
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), "kbases")
 	source := t.TempDir()
 	release := make(chan struct{})
-	s, err := New(context.Background(), root, testEngine{release: release})
+	s, err := New(context.Background(), root, root+"-runtime", testEngine{release: release})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +248,7 @@ func TestLibraryLifecycle(t *testing.T) {
 	if _, err = s.Edit(d.ID, Input{Name: "Renamed", Description: "Notes"}); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := New(context.Background(), root, testEngine{})
+	reopened, err := New(context.Background(), root, root+"-runtime", testEngine{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,8 +273,8 @@ func TestLibraryLifecycle(t *testing.T) {
 	}
 }
 func TestLibraryValidationAndRecovery(t *testing.T) {
-	root := t.TempDir()
-	s, _ := New(context.Background(), root, testEngine{err: errors.New("failed")})
+	root := filepath.Join(t.TempDir(), "kbases")
+	s, _ := New(context.Background(), root, root+"-runtime", testEngine{err: errors.New("failed")})
 	for _, source := range []string{"relative", root, filepath.Dir(root)} {
 		if _, err := s.Create(Input{Name: "bad", SourcePath: source}); err == nil {
 			t.Fatal("unsafe source accepted", source)
@@ -303,7 +292,7 @@ func TestLibraryValidationAndRecovery(t *testing.T) {
 	}
 	waitState(t, s, d.ID, "error")
 	d.State = "indexing"
-	if err = s.save(d); err != nil {
+	if err = s.saveState(d.ID, runtimeState{State: d.State}); err != nil {
 		t.Fatal(err)
 	}
 	recovered, _ := s.Get(d.ID)
