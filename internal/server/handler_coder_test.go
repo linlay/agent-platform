@@ -889,7 +889,7 @@ data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
 	}
 	thinking, _ := payload["thinking"].(map[string]any)
 	outputConfig, _ := payload["output_config"].(map[string]any)
-	if len(thinking) != 1 || thinking["type"] != "adaptive" || outputConfig["effort"] != "high" {
+	if len(thinking) != 2 || thinking["type"] != "adaptive" || thinking["display"] != "summarized" || outputConfig["effort"] != "high" {
 		t.Fatalf("expected high reasoning thinking config, got %#v", payload)
 	}
 

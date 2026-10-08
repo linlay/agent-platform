@@ -732,7 +732,7 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 			if tc.wantScoped {
 				thinking, _ := prepared.RequestBody["thinking"].(map[string]any)
 				outputConfig, _ := prepared.RequestBody["output_config"].(map[string]any)
-				if len(thinking) != 1 || thinking["type"] != "adaptive" || outputConfig["effort"] != "high" || prepared.RequestBody["provider_scoped"] != true {
+				if len(thinking) != 2 || thinking["type"] != "adaptive" || thinking["display"] != "summarized" || outputConfig["effort"] != "high" || prepared.RequestBody["provider_scoped"] != true {
 					t.Fatalf("expected adaptive thinking with stage effort and scoped compat, got %#v", prepared.RequestBody)
 				}
 			} else if prepared.RequestBody["output_config"] != nil || prepared.RequestBody["provider_scoped"] != nil {

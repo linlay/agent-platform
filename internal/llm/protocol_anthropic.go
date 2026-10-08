@@ -94,6 +94,9 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 	case "", "ping":
 		s.currentTurn.trace.markStreamEvent("ignored")
 		return false, nil
+	case "message_start":
+		message := AnyMapNode(payload["message"])
+		s.accumulateUsage(mergeAnthropicUsage(s.currentTurn.usage, AnyMapNode(message["usage"])))
 	case "content_block_start":
 		block := AnyMapNode(payload["content_block"])
 		blockType := AnyStringNode(block["type"])
@@ -147,6 +150,9 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 			s.currentTurn.trace.markStreamEvent("ignored")
 		}
 	case "message_delta":
+		// Usage is cumulative, and the final delta includes thinking token counts.
+		// Collect it before finishing so both successful and truncated turns retain it.
+		s.accumulateUsage(mergeAnthropicUsage(s.currentTurn.usage, AnyMapNode(payload["usage"])))
 		delta := AnyMapNode(payload["delta"])
 		stopReason := strings.TrimSpace(AnyStringNode(delta["stop_reason"]))
 		if stopReason == "" {
@@ -205,6 +211,9 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 	if compatRequest := compatRequestOverrides(protocolConfig, stageSettings.ReasoningEnabled); len(compatRequest) > 0 {
 		requestBody = mergeAnyMaps(requestBody, compatRequest)
 	}
+	if stageSettings.MaxOutputTokens > 0 {
+		requestBody["max_tokens"] = stageSettings.MaxOutputTokens
+	}
 	delete(requestBody, "thinking")
 	outputConfig := CloneMap(AnyMapNode(requestBody["output_config"]))
 	delete(outputConfig, "effort")
@@ -216,7 +225,7 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 		if effort == "" {
 			effort = ReasoningEffortMedium
 		}
-		requestBody["thinking"] = map[string]any{"type": "adaptive"}
+		requestBody["thinking"] = map[string]any{"type": "adaptive", "display": "summarized"}
 		if outputConfig == nil {
 			outputConfig = map[string]any{}
 		}

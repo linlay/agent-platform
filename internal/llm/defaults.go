@@ -1,3 +1,4 @@
 package llm
 
-const defaultAnthropicMaxOutputTokens = 4096
+// Anthropic requires an output cap, shared by thinking, text and tool calls.
+const defaultAnthropicMaxOutputTokens = 32768

@@ -26,7 +26,7 @@ func TestAnthropicPrepareRequestUsesAdaptiveThinking(t *testing.T) {
 		{name: "max", settings: StageSettings{ReasoningEnabled: true, ReasoningEffort: "MAX"}, effort: "max"},
 		{name: "normalized", settings: StageSettings{ReasoningEnabled: true, ReasoningEffort: " extra_high "}, effort: "xhigh"},
 	}
-	for _, modelID := range []string{"claude-haiku-5-5", "claude-opus-5-5"} {
+	for _, modelID := range []string{"claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"} {
 		for _, tc := range tests {
 			t.Run(modelID+"/"+tc.name, func(t *testing.T) {
 				provider := models.ProviderDefinition{BaseURL: "https://example.com", APIKey: "token"}
@@ -52,7 +52,7 @@ func TestAnthropicPrepareRequestUsesAdaptiveThinking(t *testing.T) {
 					}
 					return
 				}
-				if !reflect.DeepEqual(body["thinking"], map[string]any{"type": "adaptive"}) ||
+				if !reflect.DeepEqual(body["thinking"], map[string]any{"type": "adaptive", "display": "summarized"}) ||
 					!reflect.DeepEqual(body["output_config"], map[string]any{"effort": tc.effort}) {
 					t.Fatalf("unexpected reasoning configuration: %#v", body)
 				}
@@ -63,7 +63,7 @@ func TestAnthropicPrepareRequestUsesAdaptiveThinking(t *testing.T) {
 
 func TestAnthropicPrepareRequestOwnsThinkingAndEffort(t *testing.T) {
 	outputConfig := map[string]any{"effort": "max", "format": map[string]any{"type": "json_schema"}}
-	thinking := map[string]any{"type": "custom", "custom_option": true}
+	thinking := map[string]any{"type": "custom", "display": "omitted", "custom_option": true}
 	for _, enabled := range []bool{true, false} {
 		prepared, err := (&anthropicProtocol{}).PrepareRequest(protocolStreamParams{
 			provider: models.ProviderDefinition{BaseURL: "https://example.com", APIKey: "token"},
@@ -84,7 +84,7 @@ func TestAnthropicPrepareRequestOwnsThinkingAndEffort(t *testing.T) {
 		wantOutput := map[string]any{"format": map[string]any{"type": "json_schema"}}
 		if enabled {
 			wantOutput["effort"] = "high"
-			if !reflect.DeepEqual(prepared.RequestBody["thinking"], map[string]any{"type": "adaptive"}) {
+			if !reflect.DeepEqual(prepared.RequestBody["thinking"], map[string]any{"type": "adaptive", "display": "summarized"}) {
 				t.Fatalf("compat changed thinking configuration: %#v", prepared.RequestBody)
 			}
 		} else if prepared.RequestBody["thinking"] != nil {
@@ -93,7 +93,7 @@ func TestAnthropicPrepareRequestOwnsThinkingAndEffort(t *testing.T) {
 		if !reflect.DeepEqual(prepared.RequestBody["output_config"], wantOutput) || prepared.RequestBody["provider_option"] != true {
 			t.Fatalf("unexpected compat configuration: %#v", prepared.RequestBody)
 		}
-		if outputConfig["effort"] != "max" || thinking["type"] != "custom" || len(thinking) != 2 {
+		if outputConfig["effort"] != "max" || thinking["type"] != "custom" || thinking["display"] != "omitted" || len(thinking) != 3 {
 			t.Fatalf("request preparation mutated shared compat: %#v, %#v", outputConfig, thinking)
 		}
 	}
@@ -124,7 +124,42 @@ func TestResolveAnthropicMaxTokensUsesStageMaxOutputTokens(t *testing.T) {
 
 func TestResolveAnthropicMaxTokensFallsBackToSourceDefault(t *testing.T) {
 	got := resolveAnthropicMaxTokens(StageSettings{})
-	if got != 4096 {
-		t.Fatalf("expected default max output tokens 4096, got %d", got)
+	if got != 32768 {
+		t.Fatalf("expected default max output tokens 32768, got %d", got)
+	}
+}
+
+func TestAnthropicPrepareRequestOutputLimitPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		stage int
+		limit any
+		want  float64
+	}{
+		{name: "source default", want: 32768},
+		{name: "explicit compat", limit: 65536, want: 65536},
+		{name: "stage beats compat", stage: 16384, limit: 65536, want: 16384},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			compat := map[string]any{}
+			if tc.limit != nil {
+				compat["max_tokens"] = tc.limit
+			}
+			prepared, err := (&anthropicProtocol{}).PrepareRequest(protocolStreamParams{
+				provider:      models.ProviderDefinition{BaseURL: "https://example.com", APIKey: "token"},
+				model:         models.ModelDefinition{Protocol: "ANTHROPIC", ModelID: "claude-haiku-5-5"},
+				stageSettings: StageSettings{MaxOutputTokens: tc.stage},
+				protocolConfig: protocolRuntimeConfig{Compat: map[string]any{
+					"request": map[string]any{"always": compat},
+				}},
+				messages: []openAIMessage{{Role: "user", Content: "hi"}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prepared.RequestBody["max_tokens"] != tc.want {
+				t.Fatalf("max_tokens = %#v, want %v", prepared.RequestBody["max_tokens"], tc.want)
+			}
+		})
 	}
 }
