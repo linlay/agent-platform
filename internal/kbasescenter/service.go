@@ -319,23 +319,44 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 	if s.busy[id] {
 		return d, ErrBusy
 	}
-	if in.SourcePath != "" && in.SourcePath != d.SourcePath {
-		return d, fmt.Errorf("sourcePath is immutable; create a new knowledge base to change its source")
+	if in.SourcePath != "" && in.Collections != nil {
+		return d, fmt.Errorf("sourcePath and collections are mutually exclusive")
 	}
-	if in.Collections != nil {
-		if len(in.Collections) != len(d.Collections) {
-			return d, fmt.Errorf("collections are immutable; create a new knowledge base to change its sources")
+	collections := append([]Collection(nil), in.Collections...)
+	if in.SourcePath != "" {
+		collections = []Collection{{Name: "workspace", SourcePath: in.SourcePath}}
+	}
+	if in.Collections != nil || in.SourcePath != "" {
+		if err := validateCollections(collections); err != nil {
+			return d, err
 		}
 		existing := map[string]string{}
 		for _, c := range d.Collections {
 			existing[c.Name] = c.SourcePath
 		}
-		seen := map[string]bool{}
-		for _, c := range in.Collections {
-			if existing[c.Name] != c.SourcePath || seen[c.Name] {
-				return d, fmt.Errorf("collections are immutable; create a new knowledge base to change its sources")
+		changed := len(collections) != len(d.Collections)
+		for i, c := range collections {
+			// Unchanged sources need not be online to edit display metadata.
+			if existing[c.Name] != c.SourcePath {
+				source, err := s.canonicalSource(c.SourcePath)
+				if err != nil {
+					return d, fmt.Errorf("collection %s: %w", c.Name, err)
+				}
+				collections[i].SourcePath = source
 			}
-			seen[c.Name] = true
+			changed = changed || existing[c.Name] != collections[i].SourcePath
+		}
+		if err := validateCollections(collections); err != nil {
+			return d, err
+		}
+		d.Collections = collections
+		d.SourcePath = ""
+		if len(collections) == 1 && collections[0].Name == "workspace" {
+			d.SourcePath = collections[0].SourcePath
+		}
+		if changed {
+			// Never expose an old index as matching a newly saved source scope.
+			d.State, d.Error, d.IndexedAt = "unindexed", "", 0
 		}
 	}
 	d.Name = strings.TrimSpace(in.Name)

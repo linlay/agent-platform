@@ -5,6 +5,7 @@ import (
 	"agent-platform/internal/kbasescenter"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -72,8 +73,102 @@ func TestCenterPartialRegistrationRetry(t *testing.T) {
 	if err := e.Update(context.Background(), db, collections); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) != 3 || !reflect.DeepEqual(calls[1], []string{"update", "-c", "docs", "--no-commands"}) || !reflect.DeepEqual(calls[2], []string{"collection", "add", reports, "--name", "reports"}) {
+	if len(calls) != 4 || !reflect.DeepEqual(calls[1], []string{"collection", "set-path", "docs", docs}) || !reflect.DeepEqual(calls[2], []string{"update", "-c", "docs", "--no-commands"}) || !reflect.DeepEqual(calls[3], []string{"collection", "add", reports, "--name", "reports"}) {
 		t.Fatalf("retry re-registered existing collection: %v", calls)
+	}
+}
+
+func TestCenterCollectionRemovalFailure(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "index.sqlite")
+	if err := os.WriteFile(db, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source, _ := filepath.EvalSymlinks(t.TempDir())
+	e := NewCenterEngine()
+	var calls [][]string
+	e.runner = runFunc(func(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if args[0] == "ls" {
+			return responseJSON(map[string]any{"collections": []any{map[string]any{"name": "removed"}}}), nil
+		}
+		return nil, fmt.Errorf("removal failed")
+	})
+	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: source}}); err == nil || !strings.Contains(err.Error(), "removal failed") {
+		t.Fatal("removal failure ignored", err)
+	}
+	if len(calls) != 2 || !reflect.DeepEqual(calls[1], []string{"collection", "remove", "removed"}) {
+		t.Fatalf("continued after failed removal: %v", calls)
+	}
+}
+
+func TestCenterRealCollectionChanges(t *testing.T) {
+	bin := os.Getenv("KBX_CENTER_TEST_BIN")
+	if bin == "" {
+		t.Skip("set KBX_CENTER_TEST_BIN to managed bin directory")
+	}
+	t.Setenv("AP_BUILTINS_BIN", bin)
+	if _, err := builtins.ConfigureProcessPath(); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	var sources []string
+	for _, name := range []string{"original", "removed", "rebound", "added"} {
+		source := filepath.Join(root, name)
+		if err := os.MkdirAll(source, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, name+".md"), []byte("# "+name+"\nquartzorchid mutation fixture."), 0600); err != nil {
+			t.Fatal(err)
+		}
+		sources = append(sources, source)
+	}
+	db := filepath.Join(root, "library", "index.sqlite")
+	if err := os.MkdirAll(filepath.Dir(db), 0700); err != nil {
+		t.Fatal(err)
+	}
+	e := NewCenterEngine()
+	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: sources[0]}, {Name: "reports", SourcePath: sources[1]}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: sources[2]}, {Name: "notes", SourcePath: sources[3]}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := e.Read(context.Background(), db, "files", "", 0, "docs", "notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files struct{ Documents []struct{ File string } }
+	if err := json.Unmarshal(raw, &files); err != nil {
+		t.Fatal(err)
+	}
+	if len(files.Documents) != 2 {
+		t.Fatalf("files: %s", raw)
+	}
+	for _, doc := range files.Documents {
+		if doc.File != "kbx://docs/rebound.md" && doc.File != "kbx://notes/added.md" {
+			t.Fatalf("old document retained: %s", raw)
+		}
+	}
+	for _, source := range sources {
+		if _, err := os.Stat(source); err != nil {
+			t.Fatal("source removed", err)
+		}
+	}
+	raw, err = e.runner.Run(context.Background(), db, centerConfig, "ls", "--agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inventory struct{ Collections []struct{ Name string } }
+	if err := decodeEnvelope(raw, &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Collections) != 2 {
+		t.Fatalf("stale collections: %s", raw)
+	}
+	for _, c := range inventory.Collections {
+		if c.Name == "reports" {
+			t.Fatalf("removed collection retained: %s", raw)
+		}
 	}
 }
 

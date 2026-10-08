@@ -53,5 +53,11 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 {
 		t.Fatalf("multiple collections: %s %v", raw, err)
 	}
+	input, _ = json.Marshal(kbasescenter.Input{Name: "Edited", Collections: []kbasescenter.Collection{d.Collections[0], {Name: "notes", SourcePath: t.TempDir()}}})
+	raw = request("PUT", "/api/admin/kbases/"+d.ID, string(input), 200)
+	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 || d.Collections[1].Name != "notes" || d.State != "unindexed" {
+		t.Fatalf("edited collections: %s %v", raw, err)
+	}
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","collections":[]}`, 400)
 	request("POST", "/api/admin/kbases/"+d.ID+"/search", `{"query":"fixture","method":"get"}`, 400)
 }

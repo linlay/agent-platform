@@ -46,6 +46,10 @@ func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbas
 	// Collection registration is checked on every retry: an interrupted initial
 	// scan can leave a valid database with an already registered collection.
 	registered := map[string]bool{}
+	wanted := map[string]bool{}
+	for _, c := range collections {
+		wanted[c.Name] = true
+	}
 	if st, err := os.Lstat(db); err == nil {
 		if !st.Mode().IsRegular() {
 			return fmt.Errorf("invalid KBX index path")
@@ -63,6 +67,12 @@ func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbas
 			return fmt.Errorf("invalid KBX collection response")
 		}
 		for _, c := range inventory.Collections {
+			if !wanted[c.Name] {
+				if _, err := e.runner.Run(ctx, db, centerConfig, "collection", "remove", c.Name); err != nil {
+					return fmt.Errorf("remove collection %s: %w", c.Name, err)
+				}
+				continue
+			}
 			registered[c.Name] = true
 		}
 	} else if !os.IsNotExist(err) {
@@ -73,6 +83,9 @@ func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbas
 		names = append(names, c.Name)
 		args := []string{"collection", "add", c.SourcePath, "--name", c.Name}
 		if registered[c.Name] {
+			if _, err := e.runner.Run(ctx, db, centerConfig, "collection", "set-path", c.Name, c.SourcePath); err != nil {
+				return fmt.Errorf("collection %s: %w", c.Name, err)
+			}
 			args = []string{"update", "-c", c.Name, "--no-commands"}
 		}
 		out, err := e.runner.Run(ctx, db, centerConfig, args...)

@@ -75,12 +75,12 @@ func TestMultipleCollectionsAndSearchScope(t *testing.T) {
 	if _, err = s.Edit(d.ID, Input{Name: "Renamed", Collections: d.Collections}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Edit(d.ID, Input{Name: "Changed", Collections: []Collection{d.Collections[0]}}); err == nil {
-		t.Fatal("sources changed")
+	if edited, err := s.Edit(d.ID, Input{Name: "Changed", Collections: []Collection{d.Collections[0]}}); err != nil || len(edited.Collections) != 1 || edited.IndexedAt != 0 || edited.State != "unindexed" {
+		t.Fatalf("collection removal: %+v %v", edited, err)
 	}
 	reopened, _ := New(context.Background(), s.root, engine)
 	persisted, err := reopened.Get(d.ID)
-	if err != nil || len(persisted.Collections) != 2 {
+	if err != nil || len(persisted.Collections) != 1 {
 		t.Fatalf("persistence: %+v %v", persisted, err)
 	}
 }
@@ -125,6 +125,73 @@ func TestCollectionValidationAndLegacyDefinition(t *testing.T) {
 	json.Unmarshal(raw, &stored)
 	if len(stored.Collections) != 0 {
 		t.Fatal("reading rewrote legacy definition")
+	}
+}
+
+func TestEditCollectionScope(t *testing.T) {
+	s, _ := New(context.Background(), t.TempDir(), testEngine{})
+	d, err := s.Create(Input{Name: "Docs", Collections: []Collection{{Name: "docs", SourcePath: t.TempDir()}, {Name: "reports", SourcePath: t.TempDir()}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Refresh(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	d = waitState(t, s, d.ID, "ready")
+	indexedAt := d.IndexedAt
+	// Reordering and display-only edits preserve the successful index.
+	reordered := []Collection{d.Collections[1], d.Collections[0]}
+	d, err = s.Edit(d.ID, Input{Name: "Renamed", Collections: reordered})
+	if err != nil || d.State != "ready" || d.IndexedAt != indexedAt {
+		t.Fatalf("metadata edit invalidated index: %+v %v", d, err)
+	}
+	original := append([]Collection(nil), d.Collections...)
+	added := Collection{Name: "notes", SourcePath: t.TempDir()}
+	d, err = s.Edit(d.ID, Input{Name: "Renamed", Collections: append(reordered, added)})
+	if err != nil || len(d.Collections) != 3 || d.State != "unindexed" || d.IndexedAt != 0 {
+		t.Fatalf("add: %+v %v", d, err)
+	}
+	if _, err = s.Read(context.Background(), d.ID, "files", "", 0); err == nil {
+		t.Fatal("stale index exposed after editing sources")
+	}
+	if _, err = s.Refresh(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	d = waitState(t, s, d.ID, "ready")
+	rebound := Collection{Name: "docs", SourcePath: t.TempDir()}
+	d, err = s.Edit(d.ID, Input{Name: "Renamed", Collections: []Collection{rebound, added}})
+	if err != nil || len(d.Collections) != 2 || d.State != "unindexed" || d.IndexedAt != 0 {
+		t.Fatalf("remove/rebind: %+v %v", d, err)
+	}
+	for _, c := range original {
+		if _, err := os.Stat(c.SourcePath); err != nil {
+			t.Fatalf("source removed: %v", err)
+		}
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(d.Collections[0].SourcePath, alias); err != nil {
+		t.Fatal(err)
+	}
+	invalid := [][]Collection{
+		{}, {{Name: "docs", SourcePath: rebound.SourcePath}, {Name: "docs", SourcePath: added.SourcePath}},
+		{{Name: "docs", SourcePath: rebound.SourcePath}, {Name: "alias", SourcePath: alias}},
+		{{Name: "notes", SourcePath: s.root}}, {{Name: "notes", SourcePath: filepath.Join(t.TempDir(), "missing")}},
+	}
+	for _, collections := range invalid {
+		if _, err := s.Edit(d.ID, Input{Name: "Invalid", Collections: collections}); err == nil {
+			t.Fatalf("invalid edit accepted: %+v", collections)
+		}
+	}
+	persisted, err := s.Get(d.ID)
+	if err != nil || persisted.Name != "Renamed" || len(persisted.Collections) != 2 {
+		t.Fatalf("invalid edit changed definition: %+v %v", persisted, err)
+	}
+	// Display edits remain possible if an existing source goes offline.
+	if err := os.Rename(persisted.Collections[0].SourcePath, persisted.Collections[0].SourcePath+"-offline"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Edit(d.ID, Input{Name: "Offline source", Collections: persisted.Collections}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -180,6 +247,9 @@ func TestLibraryLifecycle(t *testing.T) {
 	}
 	if err = s.Delete(d.ID); !errors.Is(err, ErrBusy) {
 		t.Fatal("deleted indexing library", err)
+	}
+	if _, err = s.Edit(d.ID, Input{Name: "Busy", Collections: []Collection{{Name: "new", SourcePath: source}}}); !errors.Is(err, ErrBusy) {
+		t.Fatal("edited indexing library", err)
 	}
 	if _, err = s.Refresh(d.ID); !errors.Is(err, ErrBusy) {
 		t.Fatal("duplicate refresh accepted", err)
