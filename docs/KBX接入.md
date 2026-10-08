@@ -4,7 +4,9 @@
 
 Platform 的 app 装配、知识库工具、HTTP status/refresh、health 和 wait 使用 `internal/kbx.Manager`。读取要求 Agent envelope v2、retrieval contract v6；维护要求 KBX `capabilities --format json` 声明维护协议 v1、结构化错误、无扫描注册及文件路径更新。不能用二进制版本号代替能力探测。
 
-**Platform 负责目录监听和后台调度，不启动 `kbx watch`。** KBX 负责抽取、分块、全文/向量索引、写锁与事务。旧 `internal/kbase.Manager`、Lance sidecar 和 generation 不再由生产 App 实例化；共享配置、DTO、工具权限、引用发布与文件列表格式化仍在 `internal/kbase`。不自动回退旧引擎。
+**Platform 负责目录监听和后台调度，不启动 `kbx watch`。** KBX 负责抽取、分块、全文/向量索引、写锁与事务。中立配置、DTO、工具处理器、引用发布与文件列表格式化归 `internal/knowledge`，该包不依赖 agent/catalog，不访问索引存储或启动进程。专用 mode 的规则归 `internal/agent/kbase`。
+
+`/healthz` 的 `data.kbase.sidecar` 及 status 的 sidecar 字段保持兼容；内部使用 `knowledge.RuntimeState` 与 KBX `ProbeRuntime`。JSON 名称、字段类型和 omitempty 保持稳定，KBX 未提供的版本信息不输出。Poppler 继续随包分发：KBX PDF 抽取仍调用 pdftotext，Agent 也可按 Bash 权限直接调用。
 
 ## 维护生命周期
 
@@ -44,9 +46,9 @@ KBX globset 当前允许 `*` / `?` 跨 `/`，与 Platform 原有语义不同。�
 
 模型统一来自 `runtime.yml → kbx.embedding`（model-key、prompt），中心和 Agent 共用部署级连接来源。每个进程传入私有 `--config`，关闭 query expansion、reranker 与 graph，不继承用户的 KBX 配置。CLI 仅从受管 builtin 目录解析，以 argv 调用，不经过 shell；输出上限 16MiB，临时配置权限 0600，用后清理，不回显原始模型 stderr。
 
-索引位置为 `<AP_RUNTIME_KBASE_DIR>/<agentKey>/kbx/<scopeHash>/index.sqlite`；workspace 模式为 `<workspaceRoot>/.kbx-platform/<agentKey>/<scopeHash>/index.sqlite`。scopeHash 含 canonical workspaceRoot、include/exclude、chunk 配置；更换范围时隔离。库目录拒绝符号链接替换。旧 `.kbase`、control.db、generations 保留。
+索引位置为 `<AP_RUNTIME_KBASE_DIR>/<agentKey>/kbx/<scopeHash>/index.sqlite`；workspace 模式为 `<workspaceRoot>/.kbx-platform/<agentKey>/<scopeHash>/index.sqlite`。scopeHash 含 canonical workspaceRoot、include/exclude、chunk 配置；更换范围时隔离。库目录拒绝符号链接替换。启动和维护不删除其他索引范围的数据或源文档。
 
-旧默认 1000 estimatedTokens/100 overlap 映射为 3600/540 字符；自定义切块需配置 `unit: chars`。旧非默认 RRF 权重明确拒绝，topK 与候选预算继续映射。模型连接地址/密钥改变不自动重建向量；模型/prompt 合同不兼容由 KBX 明确报错，显式 force 才重建。
+默认 1000 estimatedTokens/100 overlap 映射为 3600/540 字符；自定义切块需配置 `unit: chars`。非默认 RRF 权重不支持，topK 与候选预算映射到 KBX 查询参数。模型连接地址/密钥改变不自动重建向量；模型/prompt 合同不兼容由 KBX 明确报错，显式 force 才重建。
 
 调度默认值见 `internal/kbx.NewManager`，由 App 注入有效 StateDir；没有新增 YAML 目录配置。KBX 使用自身 HTTP 客户端，Platform 系统代理/PAC 尚未映射；本地模型 mock 通过 NO_PROXY 绕过系统代理。
 
@@ -61,4 +63,4 @@ KBX_ACCEPTANCE_BIN=/absolute/managed/bin \
 go test ./internal/kbx -run 'TestLivePlatform|TestLiveChunkAndFilterContract|TestLiveVectorPrefilterAndLibraryIsolation' -count=1
 ```
 
-历史真实文档范围、已知抽取失败与本次验证记录见 [KBX 验证记录](KBX验证记录.md)。部署级知识库中心使用 `kbases/<id>/library.yml` 与持久的 `ru-kbases/libraries/<id>/`，仍使用独立管理入口，不由 Agent worker 监听；此布局不改变上述 Agent 索引路径。
+部署级知识库中心使用 `kbases/<id>/library.yml` 与持久的 `ru-kbases/libraries/<id>/`，仍使用独立管理入口，不由 Agent worker 监听；此布局不改变上述 Agent 索引路径。

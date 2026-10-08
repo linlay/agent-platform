@@ -27,9 +27,9 @@ import (
 	"agent-platform/internal/gateway"
 	"agent-platform/internal/hostshell"
 	"agent-platform/internal/httpclient"
-	"agent-platform/internal/kbase"
 	"agent-platform/internal/kbasescenter"
 	"agent-platform/internal/kbx"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
 	"agent-platform/internal/mcp"
@@ -74,7 +74,7 @@ type App struct {
 	automationExecutions   *automation.ExecutionHistoryService
 	lspManager             *lsp.Manager
 	mcpClient              *mcp.Client
-	kbaseManager           *kbx.Manager
+	knowledgeManager       *kbx.Manager
 	memoryWorker           *memoryworker.Worker
 }
 
@@ -253,19 +253,19 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("bind Agent MCP instances: %w", err)
 	}
 	mcpToolSync.ReconcileRegistry()
-	kbaseSource := kbaseCatalogSource{registry: registry}
+	kbaseSource := knowledgeCatalogSource{registry: registry}
 	kbxConfig := &kbx.ModelConfigSource{File: filepath.Join(cfg.Paths.StateDir, "kbx", "index.yml"), Registry: modelRegistry, ModelKey: cfg.KBX.Embedding.ModelKey, Prompt: cfg.KBX.Embedding.Prompt}
 	if _, err := kbxConfig.Snapshot(); err != nil {
 		return nil, fmt.Errorf("configure KBX: %w", err)
 	}
-	kbaseManager := kbx.NewManager(kbx.Options{StateDir: cfg.Paths.StateDir, RuntimeDir: cfg.Paths.KBaseDir, ConfigSource: kbxConfig}, kbaseSource, modelRegistry)
+	knowledgeManager := kbx.NewManager(kbx.Options{StateDir: cfg.Paths.StateDir, RuntimeDir: cfg.Paths.KBaseDir, ConfigSource: kbxConfig}, kbaseSource, modelRegistry)
 	if lspManager != nil {
 		runtimeToolExecutor.WithFileChangeHooks(lspManager)
 	}
-	if err := kbaseManager.ValidateConfiguration(); err != nil {
+	if err := knowledgeManager.ValidateConfiguration(); err != nil {
 		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
 	}
-	startupKBaseFailures := kbaseManager.ValidateAndAdoptStartupStorageContracts()
+	startupKBaseFailures := knowledgeManager.ValidateStartupStorage()
 	startupKBaseKeys := make([]string, 0, len(startupKBaseFailures))
 	for key := range startupKBaseFailures {
 		startupKBaseKeys = append(startupKBaseKeys, key)
@@ -274,7 +274,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	for _, key := range startupKBaseKeys {
 		cause := startupKBaseFailures[key]
 		spec, _ := kbaseSource.Agent(key)
-		if spec.Requirement == kbase.RequirementRequired {
+		if spec.Requirement == knowledge.RequirementRequired {
 			registry.InvalidateRuntimeAgent(key, "invalid_kbase_storage", cause)
 			log.Printf("[catalog][agents] isolate required KBASE agent=%s: %v", key, cause)
 			continue
@@ -289,7 +289,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		len(registry.Skills("")),
 		len(toolExecutor.Definitions()),
 	)
-	if err := toolExecutor.RegisterHandler(kbase.NewToolHandler(kbaseManager)); err != nil {
+	if err := toolExecutor.RegisterHandler(knowledge.NewToolHandler(knowledgeManager)); err != nil {
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
 	}
 
@@ -320,7 +320,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	mcpSyncCoordinator := mcp.NewSyncCoordinator(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second, notifications)
 	mcpReloader := mcp.NewRegistryReloader(mcpRegistry, mcpToolSync, mcpSyncCoordinator)
 	mcpReloader.WatchCredentials(backgroundCtx)
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcpReloader, toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcpReloader, toolExecutor, cfg.Paths.ToolsDir, notifications, knowledgeManager)
 	registry.SetRuntimeReload(func() {
 		if backgroundCtx.Err() == nil {
 			go func() {
@@ -331,7 +331,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	})
 	reloader.AddObserver(cardReporter)
-	kbaseManager.Start(backgroundCtx)
+	knowledgeManager.Start(backgroundCtx)
 	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
@@ -421,7 +421,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			status, known := mcpToolSync.ServerStatus(server.Key)
 			statuses = append(statuses, map[string]any{"key": server.Key, "known": known, "sync": status})
 		}
-		return map[string]any{"platform": map[string]any{"runtimeMode": cfg.RuntimeMode, "uptimeSeconds": int64(time.Since(serverStartedAt).Seconds())}, "mcp": map[string]any{"servers": statuses, "count": len(mcpRegistry.Servers()), "cached": true}, "kbase": kbaseManager.RuntimeSnapshot()}
+		return map[string]any{"platform": map[string]any{"runtimeMode": cfg.RuntimeMode, "uptimeSeconds": int64(time.Since(serverStartedAt).Seconds())}, "mcp": map[string]any{"servers": statuses, "count": len(mcpRegistry.Servers()), "cached": true}, "kbase": knowledgeManager.RuntimeSnapshot()}
 	}
 	if err := toolExecutor.RegisterHandler(controlHandler); err != nil {
 		return nil, fmt.Errorf("register platform control tools: %w", err)
@@ -459,7 +459,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Archiver:               archiver,
 		Memory:                 memoryStore,
 		MemoryMaintenance:      memoryWorker,
-		KBase:                  kbaseManager,
+		KBase:                  knowledgeManager,
 		KBasesCenter:           kbasesCenter,
 		Registry:               registry,
 		Models:                 modelRegistry,
@@ -509,7 +509,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		DeferredAwaitings: deferredAwaitings, Proxy: server.RuntimeProxyPort{Server: srv}, ResourceTickets: srv.RuntimeResourceTickets(),
 	})
 	runtimeService.Bind(queryService)
-	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), kbase: kbaseManager, auth: srv})
+	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), kbase: knowledgeManager, auth: srv})
 	if err := queryService.Reconcile(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
 	}
@@ -573,7 +573,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		automationExecutions:   automationExecutionHistory,
 		lspManager:             lspManager,
 		mcpClient:              mcpClient,
-		kbaseManager:           kbaseManager,
+		knowledgeManager:       knowledgeManager,
 		memoryWorker:           memoryWorker,
 	}, nil
 }
@@ -598,9 +598,9 @@ func (a *App) Close() error {
 		}
 		cancel()
 	}
-	if a.kbaseManager != nil {
+	if a.knowledgeManager != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-		if err := a.kbaseManager.Close(ctx); err != nil {
+		if err := a.knowledgeManager.Close(ctx); err != nil {
 			log.Printf("close KBASE manager: %v", err)
 		}
 		cancel()

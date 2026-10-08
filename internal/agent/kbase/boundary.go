@@ -1,14 +1,14 @@
 package kbase
 
-import corekbase "agent-platform/internal/kbase"
+import "agent-platform/internal/knowledge"
 
 const (
-	ToolSearch   = corekbase.ToolSearch
-	ToolFiles    = corekbase.ToolFiles
-	ToolRead     = corekbase.ToolRead
-	ToolStatus   = corekbase.ToolStatus
-	ToolRefresh  = corekbase.ToolRefresh
-	ToolDatetime = corekbase.ToolDatetime
+	ToolSearch   = knowledge.ToolSearch
+	ToolFiles    = knowledge.ToolFiles
+	ToolRead     = knowledge.ToolRead
+	ToolStatus   = knowledge.ToolStatus
+	ToolRefresh  = knowledge.ToolRefresh
+	ToolDatetime = knowledge.ToolDatetime
 )
 
 var structuredFileToolNames = []string{

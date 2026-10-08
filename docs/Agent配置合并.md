@@ -39,7 +39,7 @@ GENERAL/CODER 的 `workspace-agents` 仅接受非空 `file`：声明即自动读
 
 `acp-bridges` 位于顶层，配置类型独立于 CODER。Desktop 注册仅修改目标 bridge，保留其他节点、环境变量表达式及插件归属；仍需重启激活。现有 ACP mode 准入未扩展。
 
-## KBX 与旧 KBASE 下线
+## KBX 模型与维护配置
 
 ```yaml
 kbx:
@@ -52,7 +52,7 @@ Platform 从 runtime.yml 选择模型并解析模型注册表。知识库中心�
 
 空 model-key 关闭向量配置，不回退聊天模型；非空无效模型明确失败。每次同步重新解析注册表，仅连接快照变化才写入文件。KBX 负责模型/prompt 与索引契约检查；不可用或维度不匹配显式报告，不自动执行 embed --force，也不自动迁移已有索引。配置同步不意味着索引已经兼容新模型。
 
-Agent YAML 的 kbaseConfig.embedding 已退役，出现即报错；创建流程不再补入该字段。旧 index/maintenance/refresh/extraction 从生产配置入口与模板下线，不转换为 KBX 参数；旧引擎代码和已有索引暂留。Agent capability 的索引维护协议尚未接通，此次配置统一不改变该限制。
+知识库模型只来自 runtime.kbx.embedding，Agent YAML 不配置 embedding。Agent capability 的维护由 Platform KBX worker 调度，详见 [KBX 接入](KBX接入.md)。
 
 ## 离线迁移
 
@@ -65,7 +65,7 @@ Agent YAML 的 kbaseConfig.embedding 已退役，出现即报错；创建流程�
 
 默认只输出路径和退役项，不输出配置值。显式 apply 在全部候选校验通过后写入，备份在 `<config-dir>/config-backups/<timestamp>/`，restore.tsv 记录原文件对应关系；NEW 行表示迁移新建的文件，恢复时删除这些新文件。迁移发生写入失败时尝试恢复，任何恢复失败均报告并保留备份。
 
-旧 general-settings/coder-settings/kbase-settings 按 mode 合并；prompts/coder-prompts/kbase-prompts 按 shared/coder/kbase 合并；tools 的 preset 移入 agent-settings，ai-tools 有效配置移入 tools。旧 KBASE 引擎设置不复制，原值保存在备份。未接入的禁用 speech 示例移除，启用 speech 时要求先处理。新旧目标节点冲突直接停止，不决定覆盖顺序。
+旧 general-settings/coder-settings/kbase-settings 按 mode 合并；prompts/coder-prompts/kbase-prompts 按 shared/coder/kbase 合并；tools 的 preset 移入 agent-settings，ai-tools 有效配置移入 tools。未接入的禁用 speech 示例移除，启用 speech 时要求先处理。新旧目标节点冲突直接停止，不决定覆盖顺序。
 
 指定 agents-dir 时检查并移除 Agent embedding 声明；与旧全局模型不同的声明导致冲突，必须先明确统一的模型选择。未指定时不改 Agent 文件，运行时忽略遗留 embedding 声明，统一使用 runtime.kbx.embedding。不会访问或重建索引。
 

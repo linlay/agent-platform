@@ -79,7 +79,7 @@ Windows 服务账户读取自身设置，不自动读取另一个已登录用户
 
 已接入的 HTTP 请求包括模型流、模型工具和图片请求、Web Fetch、KBASE Embedding、远程 MCP、连接器 OAuth、远端 VIEW/Viewport、产物推送，以及 HTTP Proxy Agent 与资源下载。
 
-Container Hub、Identity/JWKS 和 provider registration、KBASE Lance 本机 sidecar、健康检查使用专用直连客户端。通用客户端也自动排除 loopback，避免本机模型或服务被代理。
+Container Hub、Identity/JWKS 和 provider registration、健康检查使用专用直连客户端。通用客户端也自动排除 loopback，避免本机模型或服务被代理。
 
 客户端工厂共享连接池，克隆标准 Transport 并替换代理解析；不修改 `http.DefaultClient`、`http.DefaultTransport` 或 Platform 进程环境。MCP 按服务器克隆 Transport 时保留解析器、TLS 参数和连接超时覆盖。
 

@@ -34,8 +34,8 @@ ENV HOME=/opt
 USER 10001:10001
 EXPOSE 8080
 
-# /healthz checks the Go HTTP runtime and, when Lance KBASE is configured,
-# performs the authenticated protocol-v1 sidecar health handshake through Go.
+# /healthz checks the Go HTTP runtime and the managed KBX maintenance contract
+# when a knowledge-base capability is configured.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["/opt/backend/agent-platform", "healthcheck"]
 

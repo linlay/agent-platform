@@ -9,14 +9,14 @@ import (
 	"testing"
 
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 )
 
-type testSource map[string]kbase.AgentSpec
+type testSource map[string]knowledge.AgentSpec
 
-func (s testSource) Agent(key string) (kbase.AgentSpec, bool) { a, ok := s[key]; return a, ok }
-func (s testSource) Agents() []kbase.AgentSpec {
-	out := []kbase.AgentSpec{}
+func (s testSource) Agent(key string) (knowledge.AgentSpec, bool) { a, ok := s[key]; return a, ok }
+func (s testSource) Agents() []knowledge.AgentSpec {
+	out := []knowledge.AgentSpec{}
 	for _, a := range s {
 		out = append(out, a)
 	}
@@ -30,7 +30,7 @@ func (f runFunc) Run(c context.Context, p string, b []byte, a ...string) ([]byte
 }
 func newTestManager(t *testing.T) (*Manager, library) {
 	t.Helper()
-	cfg := kbase.DefaultConfig()
+	cfg := knowledge.DefaultConfig()
 	cfg.Enabled = true
 	source := testSource{"docs": {Key: "docs", WorkspaceRoot: t.TempDir(), Config: cfg}}
 	m := NewManager(Options{RuntimeDir: t.TempDir()}, source, nil)
@@ -67,8 +67,8 @@ func TestSearchDelegatesFiltersAndKeepsMultipleChunks(t *testing.T) {
 		}
 		return responseJSON(map[string]any{"type": "kbx.search.response", "retrievalVersion": 6, "trace": map[string]any{"resultUnit": "chunk", "degraded": true, "candidateBudgetExhausted": true}, "results": []any{map[string]any{"file": "kbx://workspace/docs/a.md", "chunk": map[string]any{"id": locator}, "evidence": map[string]any{"id": locator, "text": "first"}}, map[string]any{"file": "kbx://workspace/docs/a.md", "chunk": map[string]any{"id": strings.Replace(locator, "0-40", "40-80", 1)}, "evidence": map[string]any{"id": locator, "text": "second"}}}}), nil
 	})
-	h := kbase.NewToolHandler(m)
-	r, e := h.Invoke(context.Background(), kbase.ToolSearch, map[string]any{"query": "-not-a-flag", "pathPrefix": "docs", "pathGlob": "**/*.md", "type": "MD"}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", KBaseEnabled: true}})
+	h := knowledge.NewToolHandler(m)
+	r, e := h.Invoke(context.Background(), knowledge.ToolSearch, map[string]any{"query": "-not-a-flag", "pathPrefix": "docs", "pathGlob": "**/*.md", "type": "MD"}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", KBaseEnabled: true}})
 	if e != nil || r.Error != "" {
 		t.Fatalf("%v %+v", e, r)
 	}
@@ -88,7 +88,7 @@ func TestRejectSearchOffsetBeforeCLI(t *testing.T) {
 		t.Fatal("CLI must not run")
 		return nil, nil
 	})
-	if _, e := m.Search(context.Background(), "docs", "x", kbase.SearchOptions{Offset: 1}); e == nil {
+	if _, e := m.Search(context.Background(), "docs", "x", knowledge.SearchOptions{Offset: 1}); e == nil {
 		t.Fatal("offset accepted")
 	}
 }
@@ -100,7 +100,7 @@ func TestReadEvidenceAndRejectForeignCollection(t *testing.T) {
 		}
 		return responseJSON(map[string]any{"file": "kbx://other/secret.md", "evidence": map[string]any{"text": "secret"}}), nil
 	})
-	if _, e := m.Read("docs", kbase.ReadOptions{ChunkID: locator}); e == nil {
+	if _, e := m.Read("docs", knowledge.ReadOptions{ChunkID: locator}); e == nil {
 		t.Fatal("foreign collection accepted")
 	}
 }
@@ -116,7 +116,7 @@ func TestScopeChangeGetsDifferentIndexAndDisabledAgentFails(t *testing.T) {
 	}
 	a.Config.Enabled = false
 	s["docs"] = a
-	if e = m.ValidateAgent("docs"); kbase.KindOf(e) != kbase.ErrorNotFound {
+	if e = m.ValidateAgent("docs"); knowledge.KindOf(e) != knowledge.ErrorNotFound {
 		t.Fatalf("disabled capability exposed: %v", e)
 	}
 }
@@ -126,17 +126,17 @@ func TestRefreshRequiresStartedScheduler(t *testing.T) {
 		t.Fatal("unstarted scheduler must not invoke CLI")
 		return nil, nil
 	})
-	if _, e := m.Refresh(context.Background(), "docs", kbase.RefreshOptions{}); kbase.KindOf(e) != kbase.ErrorUnavailable {
+	if _, e := m.Refresh(context.Background(), "docs", knowledge.RefreshOptions{}); knowledge.KindOf(e) != knowledge.ErrorUnavailable {
 		t.Fatalf("%v", e)
 	}
 }
 
 func TestIndexedFilesUnicodeGlobAndUnknownCounts(t *testing.T) {
-	files, e := kbase.FormatIndexedFiles([]kbase.FileEntry{{Path: "规章/风险.md", Ext: ".md", Status: "active"}}, kbase.FilesOptions{Pattern: "规章/*.md", HeadLimit: 10})
+	files, e := knowledge.FormatIndexedFiles([]knowledge.FileEntry{{Path: "规章/风险.md", Ext: ".md", Status: "active"}}, knowledge.FilesOptions{Pattern: "规章/*.md", HeadLimit: 10})
 	if e != nil || len(files.Results) != 1 {
 		t.Fatalf("Unicode glob: %v %+v", e, files)
 	}
-	b, e := json.Marshal(kbase.Status{Engine: "kbx"})
+	b, e := json.Marshal(knowledge.Status{Engine: "kbx"})
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -16,7 +16,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/runtime/runstate"
 )
 
@@ -299,7 +299,7 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	// The session uses exactly the tools the definition declares, in both
 	// main and editing stages; nothing is substituted for a KBASE agent.
 	declaredTools := []string{
-		kbase.ToolSearch, kbase.ToolFiles, kbase.ToolRead, kbase.ToolStatus, kbase.ToolRefresh, kbase.ToolDatetime,
+		knowledge.ToolSearch, knowledge.ToolFiles, knowledge.ToolRead, knowledge.ToolStatus, knowledge.ToolRefresh, knowledge.ToolDatetime,
 		"file_read", "file_glob", "file_grep", "file_write", "file_edit", "bash",
 	}
 	def := catalog.AgentDefinition{
@@ -309,10 +309,10 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 		ModelKey:  "mock-model",
 		Tools:     append([]string(nil), declaredTools...),
 		Workspace: catalog.AgentWorkspaceConfig{Root: sourceRoot},
-		KBaseConfig: kbase.Config{
+		KBaseConfig: knowledge.Config{
 			Enabled: true,
 		},
-		KBaseRequirement: kbase.RequirementRequired,
+		KBaseRequirement: knowledge.RequirementRequired,
 	}
 	enabled := true
 	server := &Server{deps: Dependencies{Config: cfg}}
@@ -388,12 +388,12 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		Name:          "Zenmi",
 		Mode:          "REACT",
 		ModelKey:      "mock-model",
-		Tools:         append([]string{"datetime"}, kbase.DefaultToolNames()...),
+		Tools:         append([]string{"datetime"}, knowledge.DefaultToolNames()...),
 		Workspace:     catalog.AgentWorkspaceConfig{Root: workspace},
-		KBaseConfig: kbase.Config{
+		KBaseConfig: knowledge.Config{
 			Enabled: true,
 		},
-		KBaseRequirement: kbase.RequirementOptional,
+		KBaseRequirement: knowledge.RequirementOptional,
 	}
 	server := &Server{deps: Dependencies{Config: cfg}}
 	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
@@ -405,7 +405,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build query session: %v", err)
 	}
-	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 || session.CapabilityPrompts[0] != kbase.DefaultCapabilityPrompt {
+	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 || session.CapabilityPrompts[0] != knowledge.DefaultCapabilityPrompt {
 		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
 	}
 	for _, stage := range []contracts.StageSettings{session.ResolvedPlanExecuteSettings.Plan, session.ResolvedPlanExecuteSettings.Execute} {

@@ -6,12 +6,12 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
-	corekbase "agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 )
 
 const DefaultModePrompt = "KBASE Mode\nYou are a dedicated knowledge-base question-answering agent."
 
-const DefaultSystemPrompt = corekbase.DefaultCapabilityPrompt + "\n\n" + DefaultModePrompt
+const DefaultSystemPrompt = knowledge.DefaultCapabilityPrompt + "\n\n" + DefaultModePrompt
 
 const DefaultFileWorkspacePrompt = `KBASE File Workspace
 
@@ -49,7 +49,7 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 	if prompt == "" {
 		prompt = DefaultSystemPrompt
 	} else if !strings.Contains(prompt, "Knowledge Base Capability") {
-		prompt = corekbase.DefaultCapabilityPrompt + "\n\n" + prompt
+		prompt = knowledge.DefaultCapabilityPrompt + "\n\n" + prompt
 	}
 	prompt = strings.TrimSpace(prompt) + "\n\n" + DefaultFileWorkspacePrompt
 	if editing {

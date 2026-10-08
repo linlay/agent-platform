@@ -1,16 +1,16 @@
 package kbx
 
 import (
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"path/filepath"
 )
 
-func (m *Manager) Status(key string) (kbase.Status, error) {
+func (m *Manager) Status(key string) (knowledge.Status, error) {
 	l, err := m.resolve(key)
 	if err != nil {
-		return kbase.Status{}, err
+		return knowledge.Status{}, err
 	}
-	s := kbase.Status{AgentKey: key, Mode: kbase.Mode, Engine: "kbx", StorageDir: filepath.Dir(l.database), StorageLocation: l.spec.Config.Storage.Location, WorkspaceRoot: l.spec.WorkspaceRoot, Stale: true, Degraded: true, State: "unindexed", Chunk: kbase.ChunkConfig{Unit: "chars", MaxChars: 3600, OverlapChars: 540}}
+	s := knowledge.Status{AgentKey: key, Mode: knowledge.Mode, Engine: "kbx", StorageDir: filepath.Dir(l.database), StorageLocation: l.spec.Config.Storage.Location, WorkspaceRoot: l.spec.WorkspaceRoot, Stale: true, Degraded: true, State: "unindexed", Chunk: knowledge.ChunkConfig{Unit: "chars", MaxChars: 3600, OverlapChars: 540}}
 	if m.workerStatus(l, &s) {
 		return s, nil
 	}
@@ -50,7 +50,7 @@ func (m *Manager) Status(key string) (kbase.Status, error) {
 
 // Worker state describes source synchronization; KBX index readiness alone
 // cannot tell whether a registered empty library has ever scanned its source.
-func (m *Manager) workerStatus(l library, s *kbase.Status) bool {
+func (m *Manager) workerStatus(l library, s *knowledge.Status) bool {
 	m.mu.Lock()
 	w := m.workers[l.spec.Key]
 	startErr := m.startError
@@ -85,7 +85,7 @@ func (m *Manager) workerStatus(l library, s *kbase.Status) bool {
 		s.Files = w.index.Documents
 		s.FileStats.Active = s.Files
 		embeddingConfigured := m.options.DefaultEmbeddingModelKey != "" || (m.options.ConfigSource != nil && m.options.ConfigSource.ModelKey != "")
-		s.Indexes = &kbase.IndexesStatus{FTS: kbase.IndexStatus{Type: "fts", Ready: w.initialized && w.index.FullText.Ready}, Vector: kbase.VectorIndexStatus{Type: "vector", Ready: embeddingConfigured && w.index.Vector.Complete && (w.index.Vector.Compatible == nil || *w.index.Vector.Compatible), PendingContentUnits: &w.index.Vector.Pending}}
+		s.Indexes = &knowledge.IndexesStatus{FTS: knowledge.IndexStatus{Type: "fts", Ready: w.initialized && w.index.FullText.Ready}, Vector: knowledge.VectorIndexStatus{Type: "vector", Ready: embeddingConfigured && w.index.Vector.Complete && (w.index.Vector.Compatible == nil || *w.index.Vector.Compatible), PendingContentUnits: &w.index.Vector.Pending}}
 		s.Degraded = s.Files > 0 && !s.Indexes.Vector.Ready
 	}
 	if s.Degraded {
@@ -114,15 +114,15 @@ func (m *Manager) workerStatus(l library, s *kbase.Status) bool {
 			s.State = "indexing"
 		}
 	}
-	if l.spec.Config.Chunk.Unit == kbase.ChunkUnitChars {
+	if l.spec.Config.Chunk.Unit == knowledge.ChunkUnitChars {
 		s.Chunk = l.spec.Config.Chunk
 	}
 	return true
 }
 
 type readinessError struct {
-	*kbase.PolicyError
-	state kbase.Status
+	*knowledge.PolicyError
+	state knowledge.Status
 }
 
 func (e *readinessError) Unwrap() error { return e.PolicyError }

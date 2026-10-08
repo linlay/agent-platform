@@ -40,7 +40,7 @@ coverage.out
 /memory/
 /pan/
 
-# Workspace 内的 KBASE 存储（control.db、快照、Lance generations）
+# Workspace 内的知识库数据
 .kbase/
 .kbx-platform/
 

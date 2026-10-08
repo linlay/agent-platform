@@ -74,7 +74,7 @@ AccessPlan 之后按 canonical 实际目标应用 Workspace mutation gate：
 
 文件工具写入成功只表示内容已经落盘。工具结果不包含 `kbase-index` hook，也不直接调用 KBASE refresh。
 
-KBASE 自身的目录 watcher 监听 KBASE Workspace，在 debounce 后按 canonical 相对路径 change set 执行 delta refresh，并应用 `include/exclude`、extractor、内容 hash 和现有 generation 规则。当前 Chat 目录、其他 chatId 和外部目录不在该 watcher 范围内。
+Platform KBX worker 监听知识库 Workspace，在 debounce 后按相对路径批次调用 KBX 维护命令，并在抽取和 embedding 前应用 `include/exclude`。当前 Chat 目录、其他 chatId 和外部目录不在该 watcher 范围内。
 
 因此：
 

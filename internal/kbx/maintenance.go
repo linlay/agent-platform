@@ -1,7 +1,7 @@
 package kbx
 
 import (
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"context"
 	"encoding/json"
 	"errors"
@@ -234,7 +234,7 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 	// query and compare the resulting configuration before reading any source.
 	commands := [][]string{{"collection", "set-pattern", "workspace", pattern}, append([]string{"collection", "set-ignore", "workspace"}, ignores...)}
 	maxChars, overlap := 3600, 540
-	if l.spec.Config.Chunk.Unit == kbase.ChunkUnitChars {
+	if l.spec.Config.Chunk.Unit == knowledge.ChunkUnitChars {
 		maxChars = l.spec.Config.Chunk.MaxChars
 		overlap = l.spec.Config.Chunk.OverlapChars
 	}
@@ -326,7 +326,7 @@ func literalGlob(s string) string {
 	}
 	return b.String()
 }
-func applyRun(out *kbase.RefreshResult, r maintenanceResponse) {
+func applyRun(out *knowledge.RefreshResult, r maintenanceResponse) {
 	if r.Run == nil {
 		return
 	}

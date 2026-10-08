@@ -11,7 +11,7 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 )
 
 func parseAgentFileWithPromptsForTest(path string, agentDir string) (AgentDefinition, error) {
@@ -1223,12 +1223,12 @@ func TestParseAgentFileRejectsCoderWithoutWorkspace(t *testing.T) {
 
 func TestAgentModeWorkspaceAdmissionMatrix(t *testing.T) {
 	workspace := AgentWorkspaceConfig{Root: "/workspace"}
-	enabledKBase := kbase.Config{Enabled: true}
+	enabledKBase := knowledge.Config{Enabled: true}
 	tests := []struct {
 		name        string
 		mode        string
 		workspace   AgentWorkspaceConfig
-		kbase       kbase.Config
+		kbase       knowledge.Config
 		sandbox     bool
 		wantErr     bool
 		errContains string
@@ -1309,12 +1309,12 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.KBaseConfig.Storage.Location != "workspace" {
 		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
 	}
-	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitChars ||
+	if def.KBaseConfig.Chunk.Unit != knowledge.ChunkUnitChars ||
 		def.KBaseConfig.Chunk.MaxChars != 2000 ||
 		def.KBaseConfig.Chunk.OverlapChars != 100 {
 		t.Fatalf("unexpected chunk config: %#v", def.KBaseConfig.Chunk)
 	}
-	if def.KBaseConfig.Retrieval.TopK != 3 || def.KBaseConfig.Retrieval.Fusion != kbase.RetrievalFusionRRF ||
+	if def.KBaseConfig.Retrieval.TopK != 3 || def.KBaseConfig.Retrieval.Fusion != knowledge.RetrievalFusionRRF ||
 		def.KBaseConfig.Retrieval.RRFK != 48 || def.KBaseConfig.Retrieval.VectorWeight != 0.6 ||
 		def.KBaseConfig.Retrieval.FTSWeight != 0.4 || def.KBaseConfig.Retrieval.CandidateFloor != 20 ||
 		def.KBaseConfig.Retrieval.CandidateMultiplier != 5 || def.KBaseConfig.Retrieval.CandidateMax != 200 {
@@ -1367,7 +1367,7 @@ func TestParseAgentFileKBaseDefaultChunkUsesEstimatedTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitEstimatedTokens ||
+	if def.KBaseConfig.Chunk.Unit != knowledge.ChunkUnitEstimatedTokens ||
 		def.KBaseConfig.Chunk.MaxTokens != 1000 ||
 		def.KBaseConfig.Chunk.OverlapTokens != 100 ||
 		def.KBaseConfig.Chunk.MaxChars != 0 ||
@@ -1400,7 +1400,7 @@ func TestParseAgentFileKBaseTokenChunkConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitEstimatedTokens ||
+	if def.KBaseConfig.Chunk.Unit != knowledge.ChunkUnitEstimatedTokens ||
 		def.KBaseConfig.Chunk.MaxTokens != 1200 ||
 		def.KBaseConfig.Chunk.OverlapTokens != 120 {
 		t.Fatalf("unexpected token chunk config: %#v", def.KBaseConfig.Chunk)
@@ -1520,7 +1520,7 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 	if !ok {
 		t.Fatalf("zenmi missing; admin=%#v", admin["zenmi"])
 	}
-	if !def.KBaseConfig.Enabled || def.KBaseRequirement != kbase.RequirementOptional {
+	if !def.KBaseConfig.Enabled || def.KBaseRequirement != knowledge.RequirementOptional {
 		t.Fatalf("unexpected capability: enabled=%v requirement=%q", def.KBaseConfig.Enabled, def.KBaseRequirement)
 	}
 	if def.Workspace.Root != filepath.Clean(knowledgeDir) {
@@ -1741,10 +1741,10 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse %s capability: %v", mode, err)
 			}
-			if !def.KBaseConfig.Enabled || def.KBaseRequirement != kbase.RequirementOptional {
+			if !def.KBaseConfig.Enabled || def.KBaseRequirement != knowledge.RequirementOptional {
 				t.Fatalf("unexpected %s capability: %#v", mode, def.KBaseConfig)
 			}
-			for _, tool := range kbase.CapabilityToolNames() {
+			for _, tool := range knowledge.CapabilityToolNames() {
 				if containsString(def.Tools, tool) {
 					t.Fatalf("%s implicitly added KBASE tool %q: %#v", mode, tool, def.Tools)
 				}
@@ -1770,7 +1770,7 @@ func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
 		t.Fatalf("disabled capability changed ordinary agent: %#v", def)
 	}
 
-	dedicatedPath := filepath.Join(t.TempDir(), "kbase.yml")
+	dedicatedPath := filepath.Join(t.TempDir(), "knowledge.yml")
 	dedicated := "key: docs\nmode: KBASE\nmodelConfig:\n  modelKey: mock-model\n" +
 		"runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n" +
 		"kbaseConfig:\n"
@@ -1781,7 +1781,7 @@ func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse dedicated KBASE workspace: %v", err)
 	}
-	if !dedicatedDef.KBaseConfig.Enabled || dedicatedDef.KBaseRequirement != kbase.RequirementRequired || dedicatedDef.Workspace.Root != filepath.Clean(workspaceRoot) {
+	if !dedicatedDef.KBaseConfig.Enabled || dedicatedDef.KBaseRequirement != knowledge.RequirementRequired || dedicatedDef.Workspace.Root != filepath.Clean(workspaceRoot) {
 		t.Fatalf("unexpected dedicated capability: %#v", dedicatedDef.KBaseConfig)
 	}
 

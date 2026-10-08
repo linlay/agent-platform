@@ -14,7 +14,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 
 	"agent-platform/internal/interaction"
 )
@@ -77,8 +77,8 @@ type AgentDefinition struct {
 	HostAccess           AgentHostAccessConfig
 	Workspace            AgentWorkspaceConfig
 	Project              AgentProjectConfig
-	KBaseConfig          kbase.Config
-	KBaseRequirement     kbase.Requirement
+	KBaseConfig          knowledge.Config
+	KBaseRequirement     knowledge.Requirement
 	ContextTags          []string
 	ContextAgents        []string
 	Budget               map[string]any

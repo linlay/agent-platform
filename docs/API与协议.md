@@ -661,7 +661,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 ### KBASE
 
-KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mode: KBASE` 和挂载公共 capability 的普通 Agent；存在但未启用 KBASE 的 Agent 与未知 Agent 均返回 `404`，Manager 不保留 disabled capability。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约固定由 LanceDB 路径提供。agent catalog 热重载完成后会立即重绑所有 enabled Workspace watcher；Agent 删除、禁用或 Workspace/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
+KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mode: KBASE` 和挂载公共 capability 的普通 Agent；存在但未启用能力的 Agent 与未知 Agent 均返回 `404`。手工 refresh 与 `kbase_refresh` 共用 KBX 后端；search/files/read/status 是只读工具，refresh 在只读 policy 下禁用。五个工具名、REST 路径和 source.publish 保持兼容，检索与 chunk/evidence 定位由受管 KBX CLI 提供，中立契约位于 internal/knowledge。Catalog 热重载后更新 worker 快照和索引范围，周期全目录对账作为监听兜底。
 
 启用 KBASE capability 的 Agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按检索来源聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
 
@@ -685,50 +685,38 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 | `<currentChatId>/relative/path` | 不再生成 | 不作为 `path` | 禁止 | 仅可作为隐藏 HTTP 逻辑键 |
 | 历史 `/api/resource?file=...` | 不再生成 | 不作为 `path` | 不迁移、不预览 | endpoint 本身继续作为内部数据面 |
 
-KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`headLimit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
+KBASE 工具读取 KBX 的 active 索引内容。`kbase_search` 支持 pathPrefix/pathGlob/type，过滤在召回前下推；offset 明确拒绝，不返回伪造的 matchCount 或分页完成标志。结果保留实际召回通道、降级和候选预算信息。`kbase_files` 浏览 active 文件清单，支持 path/pattern/type、files/tree、depth/headLimit/offset；`kbase_read` 通过 chunkId 精确回读或 path 与一基行号分页，拒绝跨库、越界和被排除的内容。
 
-专用 KBASE 的 main/editing stage 都挂载 `file_read/file_glob/file_grep/file_write/file_edit`，两者工具 schema 相同，Workspace 固定为本 run 冻结的 `runtimeConfig.workspaceRoot`；相对路径从该 Workspace 解析，当前 `chatId` 的 Chat 目录只保存在 `ChatDir` 并通过 `@chat` 使用。所有获准目录统一先服从 AccessPolicy。未开启 editing 时 Workspace write/edit 返回 `kbase_editing_mode_required`；`hostAccess`、writeRoots、approval 和 `full_access` 不能替代该 Workspace mutation gate。
+专用 KBASE 的 main/editing stage 使用 Agent 有效工具集合，没有固定文件工具集。Workspace 固定为本 run 冻结的 runtimeConfig.workspaceRoot，相对路径从 Workspace 解析，当前 Chat 目录通过 @chat 使用。未开启 editing 时 Workspace mutation 返回 kbase_editing_mode_required；hostAccess、writeRoots、approval 和 full_access 不能替代这一 gate。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| GET | `/api/kbase/{agentKey}/status` | 无 | 当前 Lance 索引状态；`workspaceRoot` 是唯一内容根，不再返回 `sourceRoot`；包含 `degraded/error/engine/schemaVersion/generation/indexes/sidecar/pendingRecoveryOperations/pendingChanges/storageDiskUsage`；FTS/vector index 状态包含未索引行数 |
-| POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | 手工 refresh 始终做完整文件对账；结果在原字段外增加 `scope/candidatePaths/newFiles/modifiedFiles/metadataOnlyFiles/unchangedFiles/embeddedChunks/reusedChunks/pendingChanges`；`force=true` 构建新 generation |
+| GET | `/api/kbase/{agentKey}/status` | 无 | KBX worker 状态、refreshId、state、indexing/stale、文件数、全文及向量 readiness；chunksKnown=false，省略未知的 chunks |
+| POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | 异步返回 status=pending 和持久 refreshId；手工请求做完整对账，force=true 还强制重建 embedding |
 
-status 中 Lance 字段是可选扩展，旧客户端可忽略：
+status 字段节选：
 
 ```json
 {
   "workspaceRoot": "/absolute/docs",
+  "engine": "kbx",
+  "state": "ready",
+  "indexing": false,
   "stale": false,
-  "engine": "lancedb",
-  "schemaVersion": "4",
-  "generation": {
-    "id": "kbg_...",
-    "state": "active",
-    "tableVersion": 12,
-    "createdAt": 1700000000000
-  },
+  "files": 27,
+  "chunksKnown": false,
   "indexes": {
-    "fts": {"type": "FTS/ICU", "ready": true},
-    "vector": {"type": "flat", "ready": true, "unindexedRows": 0}
-  },
-  "sidecar": {
-    "available": true,
-    "protocolVersion": 2,
-    "engineVersion": "2.0.0",
-    "lancedbVersion": "0.30.0"
-  },
-  "pendingRecoveryOperations": 0,
-  "pendingChanges": 0,
-  "storageDiskUsage": 0
+    "fts": {"type": "fts", "ready": true},
+    "vector": {"type": "vector", "ready": false, "pendingContentUnits": 0}
+  }
 }
 ```
 
-`lastIndexedAt`、`indexes.lastOptimizedAt` 以及尚未完成的 `lastRun.finishedAt` 都是可选时间点：尚未发生时省略，control DB 中字符串 metadata 只在映射为公开 status 时严格校验，不能透出 `0` 或原始字符串。
+`lastIndexedAt` 与尚未完成的 `lastRun.finishedAt` 是可选时间点，公开值使用 Unix epoch 毫秒。sidecar 状态由受管 CLI 探测；未提供的版本字段不输出。
 
-KBASE 固定使用 LanceDB；没有 active generation 时 status/search 均标记 stale，search 会触发 refresh。sidecar 不可用时显式返回 unavailable。generation 构建、建索引或验证失败时 active generation 不会被替换。watcher 的 change-set 路径不会通过 REST/tool 暴露，外部普通 refresh 仍是完整对账。当前没有新增公开的 generation rollback REST 路由，Lance generation 原子回滚能力保留在 KBASE Manager 内部。
+首次扫描未完成时不把注册空库视为空知识库；模型失败可以使向量降级而全文继续可读。刷新回执最终为 completed/failed/canceled/interrupted，重启将旧未完成回执标记 interrupted 并重新全目录对账。通用 wait 使用 kbase.refreshTerminal 与 agentKey/refreshId；等待终态后仍须检查实际结果。详见 [KBX 接入](KBX接入.md)。
 
-容器与本地进程探活使用免鉴权 `GET /healthz`。它不返回用户数据：始终检查 Go HTTP runtime；存在 enabled KBASE capability 时，还通过 Go 内部持有的 Bearer token 检查 sidecar protocol handshake。至少一个专用 `mode: KBASE` 将 sidecar 标为 required，不可用时返回 HTTP 503；只有普通 Agent optional capability 时仍返回 HTTP 200，并在 `data.kbase` 中报告 `degraded` 与错误。
+免鉴权 `GET /healthz` 检查 Go HTTP runtime，并在有 enabled capability 时探测受管 KBX 的维护能力。专用 KBASE 为 required，不可用返回 HTTP 503；只有普通 Agent optional capability 时返回 HTTP 200 并报告 degraded。公开字段 `data.kbase.sidecar` 保持原名，required 失败时诊断位于 `data.error.kbase`，其中 sidecar 同样保留。例如正常探测的 kbase 内容为 `{"required":true,"sidecar":{"engine":"kbx","available":true}}`，不再使用旧 HTTP sidecar handshake。
 
 refresh 示例：
 

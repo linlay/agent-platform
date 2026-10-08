@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 )
 
 // The handler tests the service contract, independently of the knowledge engine.
@@ -18,10 +18,10 @@ import (
 type handlerKBaseService struct {
 	calls          []string
 	validateErr    error
-	statusResult   kbase.Status
+	statusResult   knowledge.Status
 	statusErr      error
 	refreshErr     error
-	refreshOptions kbase.RefreshOptions
+	refreshOptions knowledge.RefreshOptions
 }
 
 var _ KBaseService = (*handlerKBaseService)(nil)
@@ -29,23 +29,23 @@ var _ KBaseService = (*handlerKBaseService)(nil)
 func (s *handlerKBaseService) ValidateAgent(agentKey string) error {
 	s.calls = append(s.calls, "validate:"+agentKey)
 	if agentKey != "docs" {
-		return &kbase.PolicyError{Kind: kbase.ErrorNotFound, Message: "private catalog diagnostic"}
+		return &knowledge.PolicyError{Kind: knowledge.ErrorNotFound, Message: "private catalog diagnostic"}
 	}
 	return s.validateErr
 }
 
-func (s *handlerKBaseService) Status(agentKey string) (kbase.Status, error) {
+func (s *handlerKBaseService) Status(agentKey string) (knowledge.Status, error) {
 	s.calls = append(s.calls, "status:"+agentKey)
 	return s.statusResult, s.statusErr
 }
 
-func (s *handlerKBaseService) Refresh(_ context.Context, agentKey string, options kbase.RefreshOptions) (kbase.RefreshResult, error) {
+func (s *handlerKBaseService) Refresh(_ context.Context, agentKey string, options knowledge.RefreshOptions) (knowledge.RefreshResult, error) {
 	s.calls = append(s.calls, "refresh:"+agentKey)
 	s.refreshOptions = options
-	return kbase.RefreshResult{AgentKey: agentKey, Mode: options.Mode, Status: "success"}, s.refreshErr
+	return knowledge.RefreshResult{AgentKey: agentKey, Mode: options.Mode, Status: "success"}, s.refreshErr
 }
 
-func (*handlerKBaseService) ProbeSidecar(context.Context) (bool, kbase.LanceEngineState, error) {
+func (*handlerKBaseService) ProbeRuntime(context.Context) (bool, knowledge.RuntimeState, error) {
 	panic("HTTP status/refresh must not probe the knowledge engine")
 }
 
@@ -81,8 +81,8 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := &handlerKBaseService{statusResult: kbase.Status{
-				AgentKey: "docs", Mode: kbase.Mode, Engine: "kbx", Files: 3,
+			service := &handlerKBaseService{statusResult: knowledge.Status{
+				AgentKey: "docs", Mode: knowledge.Mode, Engine: "kbx", Files: 3,
 				Stale: true, Degraded: true, Error: "index maintenance unavailable",
 			}}
 			srv := &Server{deps: Dependencies{KBase: service}}
@@ -116,11 +116,11 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 					t.Fatalf("status payload=%s want=%s", response.Data, want)
 				}
 			} else {
-				want := kbase.RefreshOptions{Mode: "manual", Force: tt.wantForce}
+				want := knowledge.RefreshOptions{Mode: "manual", Force: tt.wantForce}
 				if !reflect.DeepEqual(service.refreshOptions, want) {
 					t.Fatalf("refresh options=%#v want=%#v", service.refreshOptions, want)
 				}
-				var result kbase.RefreshResult
+				var result knowledge.RefreshResult
 				if err := json.Unmarshal(response.Data, &result); err != nil {
 					t.Fatal(err)
 				}
@@ -140,7 +140,7 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 }
 
 func TestHandleKBaseServiceErrors(t *testing.T) {
-	unavailable := &kbase.PolicyError{Kind: kbase.ErrorUnavailable, Message: "KBX index maintenance unavailable"}
+	unavailable := &knowledge.PolicyError{Kind: knowledge.ErrorUnavailable, Message: "KBX index maintenance unavailable"}
 	tests := []struct {
 		name      string
 		service   handlerKBaseService
@@ -153,8 +153,8 @@ func TestHandleKBaseServiceErrors(t *testing.T) {
 		{name: "validation unavailable", service: handlerKBaseService{validateErr: unavailable}, method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusServiceUnavailable, wantMsg: unavailable.Message, wantCalls: "validate:docs"},
 		{name: "status unavailable", service: handlerKBaseService{statusErr: unavailable}, method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusServiceUnavailable, wantMsg: unavailable.Message, wantCalls: "validate:docs,status:docs"},
 		{name: "KBX refresh unavailable", service: handlerKBaseService{refreshErr: unavailable}, method: http.MethodPost, path: "/api/kbase/docs/refresh", want: http.StatusServiceUnavailable, wantMsg: unavailable.Message, wantCalls: "validate:docs,refresh:docs"},
-		{name: "agent disappears after validation", service: handlerKBaseService{statusErr: &kbase.PolicyError{Kind: kbase.ErrorNotFound, Message: "private catalog diagnostic"}}, method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusNotFound, wantMsg: "agent not found", wantCalls: "validate:docs,status:docs"},
-		{name: "invalid refresh", service: handlerKBaseService{refreshErr: &kbase.PolicyError{Kind: kbase.ErrorInvalid, Message: "invalid refresh options"}}, method: http.MethodPost, path: "/api/kbase/docs/refresh", want: http.StatusBadRequest, wantMsg: "invalid refresh options", wantCalls: "validate:docs,refresh:docs"},
+		{name: "agent disappears after validation", service: handlerKBaseService{statusErr: &knowledge.PolicyError{Kind: knowledge.ErrorNotFound, Message: "private catalog diagnostic"}}, method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusNotFound, wantMsg: "agent not found", wantCalls: "validate:docs,status:docs"},
+		{name: "invalid refresh", service: handlerKBaseService{refreshErr: &knowledge.PolicyError{Kind: knowledge.ErrorInvalid, Message: "invalid refresh options"}}, method: http.MethodPost, path: "/api/kbase/docs/refresh", want: http.StatusBadRequest, wantMsg: "invalid refresh options", wantCalls: "validate:docs,refresh:docs"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

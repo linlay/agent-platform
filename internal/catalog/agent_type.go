@@ -12,7 +12,7 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/deprecation"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 )
 
 const AgentModeCoder = agentcoder.Mode
@@ -313,7 +313,7 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 	return nil
 }
 
-func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, kbaseConfig kbase.Config, hasRuntimeSandbox bool) error {
+func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, kbaseConfig knowledge.Config, hasRuntimeSandbox bool) error {
 	if kbaseConfig.Enabled && strings.TrimSpace(workspace.Root) == "" {
 		return fmt.Errorf("runtimeConfig.workspaceRoot is required when KBASE is enabled")
 	}

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 )
 
@@ -31,7 +31,7 @@ type embeddingModels interface {
 
 type Manager struct {
 	options    Options
-	agents     kbase.AgentSource
+	agents     knowledge.AgentSource
 	models     embeddingModels
 	runner     Runner
 	mu         sync.Mutex
@@ -45,11 +45,11 @@ type Manager struct {
 	lockFile   *os.File
 }
 type library struct {
-	spec     kbase.AgentSpec
+	spec     knowledge.AgentSpec
 	database string
 }
 
-func NewManager(options Options, agents kbase.AgentSource, registry *models.ModelRegistry) *Manager {
+func NewManager(options Options, agents knowledge.AgentSource, registry *models.ModelRegistry) *Manager {
 	if options.StateDir == "" {
 		options.StateDir = filepath.Join(options.RuntimeDir, ".state")
 	}
@@ -74,7 +74,7 @@ func NewManager(options Options, agents kbase.AgentSource, registry *models.Mode
 	return m
 }
 func unavailable(message string) error {
-	return &kbase.PolicyError{Kind: kbase.ErrorUnavailable, Message: message}
+	return &knowledge.PolicyError{Kind: knowledge.ErrorUnavailable, Message: message}
 }
 func (m *Manager) resolve(key string) (library, error) {
 	if m.agents == nil {
@@ -82,7 +82,7 @@ func (m *Manager) resolve(key string) (library, error) {
 	}
 	spec, ok := m.agents.Agent(strings.TrimSpace(key))
 	if !ok || !spec.Config.Enabled {
-		return library{}, &kbase.PolicyError{Kind: kbase.ErrorNotFound, Message: "knowledge base not found for agent"}
+		return library{}, &knowledge.PolicyError{Kind: knowledge.ErrorNotFound, Message: "knowledge base not found for agent"}
 	}
 	if spec.Key == "" || filepath.Base(spec.Key) != spec.Key || spec.Key == "." || spec.Key == ".." {
 		return library{}, fmt.Errorf("invalid knowledge-base agent key")
@@ -106,13 +106,13 @@ func (m *Manager) resolve(key string) (library, error) {
 		return library{}, fmt.Errorf("KBX workspace must be a directory")
 	}
 	spec.WorkspaceRoot = root
-	if spec.Config.Chunk.Unit != kbase.ChunkUnitChars && spec.Config.Chunk.MaxTokens != 0 && (spec.Config.Chunk.MaxTokens != 1000 || spec.Config.Chunk.OverlapTokens != 100) {
+	if spec.Config.Chunk.Unit != knowledge.ChunkUnitChars && spec.Config.Chunk.MaxTokens != 0 && (spec.Config.Chunk.MaxTokens != 1000 || spec.Config.Chunk.OverlapTokens != 100) {
 		return library{}, fmt.Errorf("KBX custom chunk sizes require unit: chars")
 	}
-	defaults := kbase.DefaultConfig().Retrieval
+	defaults := knowledge.DefaultConfig().Retrieval
 	r := spec.Config.Retrieval
 	if r.RRFK != 0 && (r.RRFK != defaults.RRFK || r.VectorWeight != defaults.VectorWeight || r.FTSWeight != defaults.FTSWeight) {
-		return library{}, fmt.Errorf("KBX owns retrieval ranking; custom legacy RRF weights are unsupported")
+		return library{}, fmt.Errorf("KBX owns retrieval ranking; custom RRF weights are unsupported")
 	}
 	for _, pattern := range append(append([]string{}, spec.Config.Include...), spec.Config.Exclude...) {
 		if strings.ContainsAny(pattern, "[]{}\\") {
@@ -129,7 +129,7 @@ func (m *Manager) resolve(key string) (library, error) {
 	identity, _ := json.Marshal(struct {
 		Root             string
 		Include, Exclude []string
-		Chunk            kbase.ChunkConfig
+		Chunk            knowledge.ChunkConfig
 	}{root, spec.Config.Include, spec.Config.Exclude, spec.Config.Chunk})
 	sum := sha256.Sum256(identity)
 	storageRoot, err := canonicalRoot(m.options.RuntimeDir)
@@ -171,7 +171,7 @@ func (m *Manager) ValidateConfiguration() error {
 	}
 	return nil
 }
-func (m *Manager) ValidateAndAdoptStartupStorageContracts() map[string]error {
+func (m *Manager) ValidateStartupStorage() map[string]error {
 	failures := map[string]error{}
 	for _, a := range m.agents.Agents() {
 		if _, e := m.resolve(a.Key); e != nil {
@@ -181,21 +181,21 @@ func (m *Manager) ValidateAndAdoptStartupStorageContracts() map[string]error {
 	return failures
 }
 
-func (m *Manager) RuntimeSnapshot() kbase.LanceEngineState {
+func (m *Manager) RuntimeSnapshot() knowledge.RuntimeState {
 	_, err := builtins.ResolveProcessBuiltin("kbx")
-	s := kbase.LanceEngineState{Engine: "kbx", Available: err == nil}
+	s := knowledge.RuntimeState{Engine: "kbx", Available: err == nil}
 	if err != nil {
 		s.LastError = "managed KBX executable unavailable"
 	}
 	return s
 }
-func (m *Manager) ProbeSidecar(ctx context.Context) (bool, kbase.LanceEngineState, error) {
+func (m *Manager) ProbeRuntime(ctx context.Context) (bool, knowledge.RuntimeState, error) {
 	required := false
 	if len(m.agents.Agents()) == 0 {
-		return false, kbase.LanceEngineState{Engine: "kbx"}, nil
+		return false, knowledge.RuntimeState{Engine: "kbx"}, nil
 	}
 	for _, a := range m.agents.Agents() {
-		required = required || a.Requirement == kbase.RequirementRequired
+		required = required || a.Requirement == knowledge.RequirementRequired
 	}
 	s := m.RuntimeSnapshot()
 	m.mu.Lock()
@@ -221,7 +221,7 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 	cfg := map[string]any{"models": map[string]any{"embedding": nil, "query_expansion": nil, "reranker": nil, "graph_extraction": nil}}
 	chunk := l.spec.Config.Chunk
 	maxChars, overlap := 3600, 540
-	if chunk.Unit == kbase.ChunkUnitChars {
+	if chunk.Unit == knowledge.ChunkUnitChars {
 		maxChars, overlap = chunk.MaxChars, chunk.OverlapChars
 	} else if chunk.MaxTokens != 0 && (chunk.MaxTokens != 1000 || chunk.OverlapTokens != 100) {
 		return nil, fmt.Errorf("KBX requires character chunking for custom sizes; configure unit: chars")
@@ -275,9 +275,9 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 	return json.Marshal(cfg)
 }
 func (m *Manager) call(ctx context.Context, l library, embedding bool, out any, args ...string) error {
-	state := kbase.Status{}
+	state := knowledge.Status{}
 	if m.workerStatus(l, &state) && (state.Indexes == nil || !state.Indexes.FTS.Ready) {
-		return &readinessError{PolicyError: &kbase.PolicyError{Kind: kbase.ErrorUnavailable, Message: "KBX index is not ready; wait for refreshId and inspect kbase_status"}, state: state}
+		return &readinessError{PolicyError: &knowledge.PolicyError{Kind: knowledge.ErrorUnavailable, Message: "KBX index is not ready; wait for refreshId and inspect kbase_status"}, state: state}
 	}
 	if _, err := os.Stat(l.database); err != nil {
 		m.mu.Lock()

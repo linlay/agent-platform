@@ -13,16 +13,16 @@ import (
 	"sync"
 	"time"
 
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/operationstate"
 	"agent-platform/internal/watch"
 	"github.com/fsnotify/fsnotify"
 )
 
 type refreshReceipt struct {
-	Result   kbase.RefreshResult `json:"result"`
-	Database string              `json:"database"`
-	Force    bool                `json:"force"`
+	Result   knowledge.RefreshResult `json:"result"`
+	Database string                  `json:"database"`
+	Force    bool                    `json:"force"`
 }
 type refreshJob struct {
 	receipt refreshReceipt
@@ -170,34 +170,34 @@ func (m *Manager) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
-func (m *Manager) Refresh(ctx context.Context, key string, o kbase.RefreshOptions) (kbase.RefreshResult, error) {
+func (m *Manager) Refresh(ctx context.Context, key string, o knowledge.RefreshOptions) (knowledge.RefreshResult, error) {
 	if err := ctx.Err(); err != nil {
-		return kbase.RefreshResult{}, err
+		return knowledge.RefreshResult{}, err
 	}
 	l, err := m.resolve(key)
 	if err != nil {
-		return kbase.RefreshResult{}, err
+		return knowledge.RefreshResult{}, err
 	}
 	if len(o.Paths) > 0 || (o.Scope != "" && o.Scope != "full") {
-		return kbase.RefreshResult{}, fmt.Errorf("manual KBX refresh requires full scope")
+		return knowledge.RefreshResult{}, fmt.Errorf("manual KBX refresh requires full scope")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	w := m.workers[key]
 	if m.closed || m.ctx == nil || m.ctx.Err() != nil || m.startError != nil || w == nil || w.library.database != l.database {
-		return kbase.RefreshResult{}, unavailable("KBX scheduler is unavailable; inspect Platform startup and builtin capabilities")
+		return knowledge.RefreshResult{}, unavailable("KBX scheduler is unavailable; inspect Platform startup and builtin capabilities")
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.queue) >= 256 {
-		return kbase.RefreshResult{}, unavailable("KBX refresh queue is full")
+		return knowledge.RefreshResult{}, unavailable("KBX refresh queue is full")
 	}
 	if o.Mode == "" {
 		o.Mode = "manual"
 	}
-	r := refreshReceipt{Result: kbase.RefreshResult{RefreshID: rand.Text(), AgentKey: key, Mode: o.Mode, Scope: "full", Status: "pending"}, Database: l.database, Force: o.Force}
+	r := refreshReceipt{Result: knowledge.RefreshResult{RefreshID: rand.Text(), AgentKey: key, Mode: o.Mode, Scope: "full", Status: "pending"}, Database: l.database, Force: o.Force}
 	if err = operationstate.Write(m.receiptRoot(), r.Result.RefreshID, r); err != nil {
-		return kbase.RefreshResult{}, unavailable("cannot persist KBX refresh receipt")
+		return knowledge.RefreshResult{}, unavailable("cannot persist KBX refresh receipt")
 	}
 	w.queue = append(w.queue, refreshJob{receipt: r})
 	w.latest = r.Result.RefreshID
@@ -286,7 +286,7 @@ func (m *Manager) runLibrary(w *libraryWorker) {
 			}
 			if full {
 				w.changed("", true)
-			} else if kbase.IndexedPathAllowed(filepath.ToSlash(rel), w.library.spec.Config.Include, w.library.spec.Config.Exclude) {
+			} else if knowledge.IndexedPathAllowed(filepath.ToSlash(rel), w.library.spec.Config.Include, w.library.spec.Config.Exclude) {
 				w.changed(filepath.ToSlash(rel), false)
 			}
 		}, OnError: func(err error) {
@@ -348,7 +348,7 @@ func (m *Manager) runLibrary(w *libraryWorker) {
 				scope = "full"
 				paths = nil
 			}
-			r := refreshReceipt{Result: kbase.RefreshResult{RefreshID: rand.Text(), AgentKey: w.library.spec.Key, Mode: "background", Scope: scope, Status: "pending", CandidatePaths: len(paths)}, Database: w.library.database}
+			r := refreshReceipt{Result: knowledge.RefreshResult{RefreshID: rand.Text(), AgentKey: w.library.spec.Key, Mode: "background", Scope: scope, Status: "pending", CandidatePaths: len(paths)}, Database: w.library.database}
 			if err := operationstate.Write(m.receiptRoot(), r.Result.RefreshID, r); err != nil {
 				w.lastError = "cannot persist KBX refresh receipt"
 			} else {

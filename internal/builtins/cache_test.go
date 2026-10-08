@@ -19,7 +19,7 @@ func TestStageCacheCopiesVerifiedTargetCache(t *testing.T) {
 	mustWrite(t, launcherPath, []byte("launcher"))
 	mustWrite(t, filepath.Join(runtimeRoot, "bin", "pdftotext"), []byte("runtime"))
 	mustWrite(t, filepath.Join(cacheDir, "licenses", "rg", "LICENSE-MIT"), []byte("license"))
-	mustWrite(t, filepath.Join(cacheDir, "sbom", "kbase-lance-engine.cdx.json"), []byte("{}\n"))
+	mustWrite(t, filepath.Join(cacheDir, "sbom", "kbx.cdx.json"), []byte("{}\n"))
 
 	tree := []TreeOutput{
 		{Path: "bin/pdftotext", Type: "file"},
@@ -51,7 +51,7 @@ func TestStageCacheCopiesVerifiedTargetCache(t *testing.T) {
 		"bin/pdftotext",
 		"libexec/poppler-pdftotext/darwin-arm64/bin/pdftotext",
 		"licenses/rg/LICENSE-MIT",
-		"sbom/kbase-lance-engine.cdx.json",
+		"sbom/kbx.cdx.json",
 		"builtins.manifest.json",
 	} {
 		if _, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(relativePath))); err != nil {

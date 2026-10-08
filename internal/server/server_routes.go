@@ -32,7 +32,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Container/local liveness must remain callable when API auth is enabled.
 	// It returns no user data and performs the token-authenticated sidecar probe
-	// internally when Lance KBASE is required.
+	// internally when the KBX capability is required.
 	if r.URL.Path == "/healthz" {
 		s.router.ServeHTTP(w, r)
 		return

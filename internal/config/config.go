@@ -246,11 +246,6 @@ type ACPBridgeConfig struct {
 
 type KBaseConfig struct {
 	DefaultAgent KBaseDefaultAgentConfig
-	Embedding    KBaseEmbeddingConfig
-	Index        KBaseIndexConfig
-	Maintenance  KBaseMaintenanceConfig
-	Refresh      KBaseRefreshConfig
-	Extraction   KBaseExtractionConfig
 }
 
 type KBaseDefaultAgentConfig struct {
@@ -258,58 +253,9 @@ type KBaseDefaultAgentConfig struct {
 	ReasoningEffort string
 }
 
-type KBaseEmbeddingConfig struct {
+type KBXEmbeddingConfig struct {
 	ModelKey string
 	Prompt   string
-}
-
-type KBaseIndexConfig struct {
-	FTS    KBaseFTSIndexConfig
-	Vector KBaseVectorIndexConfig
-}
-
-type KBaseFTSIndexConfig struct {
-	BaseTokenizer string
-}
-
-type KBaseVectorIndexConfig struct {
-	ANNMinRows int
-}
-
-type KBaseMaintenanceConfig struct {
-	OptimizeChangeThreshold int
-	OptimizeInterval        time.Duration
-	VersionRetention        time.Duration
-}
-
-type KBaseRefreshConfig struct {
-	Debounce          time.Duration
-	ReconcileInterval time.Duration
-}
-
-type KBaseExtractionConfig struct {
-	Timeout      time.Duration
-	MaxFileBytes int64
-	PDF          KBasePDFExtractionConfig
-	DOCX         KBaseDOCXExtractionConfig
-	PPTX         KBasePPTXExtractionConfig
-}
-
-type KBasePDFExtractionConfig struct {
-	Enabled bool
-	Backend string
-	Binary  string
-}
-
-type KBaseDOCXExtractionConfig struct {
-	Enabled bool
-	Backend string
-}
-
-type KBasePPTXExtractionConfig struct {
-	Enabled      bool
-	Backend      string
-	IncludeNotes bool
 }
 
 type VisionRecognizeConfig struct {
@@ -853,7 +799,7 @@ func (c PlanningModeConfig) Effective() PlanningModeConfig {
 	return c
 }
 
-type KBXConfig struct{ Embedding KBaseEmbeddingConfig }
+type KBXConfig struct{ Embedding KBXEmbeddingConfig }
 
 func (c Config) PresetsForMode(mode string) AgentPresets {
 	mode = strings.TrimSpace(mode)

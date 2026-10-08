@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/operationstate"
 )
 
@@ -99,7 +99,7 @@ func TestRefreshReceiptSurvivesWaitCancellationAndQueuedForce(t *testing.T) {
 	m.Start(context.Background())
 	defer stopManager(t, m)
 	ctx, cancel := context.WithCancel(context.Background())
-	first, e := m.Refresh(ctx, "docs", kbase.RefreshOptions{})
+	first, e := m.Refresh(ctx, "docs", knowledge.RefreshOptions{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -109,7 +109,7 @@ func TestRefreshReceiptSurvivesWaitCancellationAndQueuedForce(t *testing.T) {
 		t.Fatal("worker did not start")
 	}
 	cancel()
-	next, e := m.Refresh(context.Background(), "docs", kbase.RefreshOptions{Force: true})
+	next, e := m.Refresh(context.Background(), "docs", knowledge.RefreshOptions{Force: true})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -138,7 +138,7 @@ func TestRestartInterruptsOnlyUnfinishedReceipts(t *testing.T) {
 	m.runner = &maintenanceFake{}
 	m.options.Debounce = time.Hour
 	for _, state := range []string{"running", "completed"} {
-		r := refreshReceipt{Result: kbase.RefreshResult{AgentKey: "docs", RefreshID: state, Status: state}}
+		r := refreshReceipt{Result: knowledge.RefreshResult{AgentKey: "docs", RefreshID: state, Status: state}}
 		if e := operationstate.Write(m.receiptRoot(), state, r); e != nil {
 			t.Fatal(e)
 		}
@@ -228,11 +228,11 @@ func TestLivePlatformLifecycle(t *testing.T) {
 		t.Fatalf("files want %d: %+v", n, s)
 	}
 	waitFiles(1)
-	hits, e := m.Search(context.Background(), "docs", "Orchard", kbase.SearchOptions{})
+	hits, e := m.Search(context.Background(), "docs", "Orchard", knowledge.SearchOptions{})
 	if e != nil || len(hits.Results) == 0 {
 		t.Fatalf("search %+v %v", hits, e)
 	}
-	evidence, e := m.Read("docs", kbase.ReadOptions{ChunkID: hits.Results[0].ChunkID})
+	evidence, e := m.Read("docs", knowledge.ReadOptions{ChunkID: hits.Results[0].ChunkID})
 	if e != nil || !strings.Contains(evidence.Content, "two reviewers") {
 		t.Fatalf("evidence %+v %v", evidence, e)
 	}
@@ -242,14 +242,14 @@ func TestLivePlatformLifecycle(t *testing.T) {
 		t.Fatal(e)
 	}
 	waitFiles(1)
-	r, e := m.Refresh(context.Background(), "docs", kbase.RefreshOptions{Force: true})
+	r, e := m.Refresh(context.Background(), "docs", knowledge.RefreshOptions{Force: true})
 	if e != nil {
 		t.Fatal(e)
 	}
 	if receipt := awaitRefresh(t, m, r.RefreshID); receipt.Result.Status != "completed" {
 		t.Fatalf("%+v", receipt)
 	}
-	files, e := m.Files("docs", kbase.FilesOptions{HeadLimit: 0})
+	files, e := m.Files("docs", knowledge.FilesOptions{HeadLimit: 0})
 	if e != nil || len(files.Results) != 1 || files.Results[0].Path != "new.md" {
 		t.Fatalf("inventory %+v %v", files, e)
 	}
@@ -314,7 +314,7 @@ func TestLivePlatformEmbeddingExcludesAndFailure(t *testing.T) {
 	defer stopManager(t, m)
 	refresh := func(force bool) refreshReceipt {
 		t.Helper()
-		r, e := m.Refresh(context.Background(), "docs", kbase.RefreshOptions{Force: force})
+		r, e := m.Refresh(context.Background(), "docs", knowledge.RefreshOptions{Force: force})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -342,7 +342,7 @@ func TestLivePlatformEmbeddingExcludesAndFailure(t *testing.T) {
 		t.Fatalf("fulltext lost after embedding failure: %+v", s)
 	}
 	broken.Store(false)
-	result, e := m.Search(context.Background(), "docs", "Orchard", kbase.SearchOptions{})
+	result, e := m.Search(context.Background(), "docs", "Orchard", knowledge.SearchOptions{})
 	if e != nil || len(result.Results) == 0 {
 		t.Fatalf("lexical fallback: %+v %v", result, e)
 	}
@@ -361,7 +361,7 @@ func TestChangesDuringRefreshRemainForNextBatch(t *testing.T) {
 	m.runner = f
 	m.Start(context.Background())
 	defer stopManager(t, m)
-	r, e := m.Refresh(context.Background(), "docs", kbase.RefreshOptions{})
+	r, e := m.Refresh(context.Background(), "docs", knowledge.RefreshOptions{})
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 )
 
 type textRange struct {
@@ -59,16 +59,16 @@ func appendFilter(args []string, v any) []string {
 	b, _ := json.Marshal(v)
 	return append(args, "--filter", string(b))
 }
-func (m *Manager) Search(ctx context.Context, key, query string, o kbase.SearchOptions) (kbase.SearchResult, error) {
+func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.SearchOptions) (knowledge.SearchResult, error) {
 	l, err := m.resolve(key)
 	if err != nil {
-		return kbase.SearchResult{}, err
+		return knowledge.SearchResult{}, err
 	}
 	if strings.TrimSpace(query) == "" {
-		return kbase.SearchResult{}, fmt.Errorf("query must not be blank")
+		return knowledge.SearchResult{}, fmt.Errorf("query must not be blank")
 	}
 	if o.Offset != 0 {
-		return kbase.SearchResult{}, fmt.Errorf("KBX chunk search does not support offset")
+		return knowledge.SearchResult{}, fmt.Errorf("KBX chunk search does not support offset")
 	}
 	limit := o.Limit
 	if limit <= 0 {
@@ -78,7 +78,7 @@ func (m *Manager) Search(ctx context.Context, key, query string, o kbase.SearchO
 		limit = 8
 	}
 	if limit > 50 {
-		return kbase.SearchResult{}, fmt.Errorf("limit must be at most 50")
+		return knowledge.SearchResult{}, fmt.Errorf("limit must be at most 50")
 	}
 	candidate := l.spec.Config.Retrieval.CandidateFloor
 	multiplier := l.spec.Config.Retrieval.CandidateMultiplier
@@ -116,13 +116,13 @@ func (m *Manager) Search(ctx context.Context, key, query string, o kbase.SearchO
 	args = append(args, "--", query)
 	var response searchResponse
 	if err = m.call(ctx, l, true, &response, args...); err != nil {
-		return kbase.SearchResult{}, err
+		return knowledge.SearchResult{}, err
 	}
 	if response.Type != "kbx.search.response" || response.RetrievalVersion != 6 || response.Trace.ResultUnit != "chunk" {
-		return kbase.SearchResult{}, unavailable("KBX retrieval contract 6 with chunk results is required")
+		return knowledge.SearchResult{}, unavailable("KBX retrieval contract 6 with chunk results is required")
 	}
-	result := kbase.SearchResult{AgentKey: key, Query: query, Limit: limit, Results: []kbase.SearchHit{}, Engine: "kbx", Stale: true, Degraded: response.Trace.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
-	state := kbase.Status{}
+	result := knowledge.SearchResult{AgentKey: key, Query: query, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx", Stale: true, Degraded: response.Trace.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
+	state := knowledge.Status{}
 	if m.workerStatus(l, &state) {
 		result.Stale = state.Stale
 		result.Indexing = state.Indexing
@@ -131,12 +131,12 @@ func (m *Manager) Search(ctx context.Context, key, query string, o kbase.SearchO
 	for _, hit := range response.Results {
 		p, err := documentPath(hit.File)
 		if err != nil {
-			return kbase.SearchResult{}, err
+			return knowledge.SearchResult{}, err
 		}
 		if hit.Chunk.ID == "" || hit.Evidence.ID == "" {
-			return kbase.SearchResult{}, unavailable("KBX result has no chunk/evidence locator")
+			return knowledge.SearchResult{}, unavailable("KBX result has no chunk/evidence locator")
 		}
-		result.Results = append(result.Results, kbase.SearchHit{ChunkID: hit.Chunk.ID, ResultID: hit.ResultID, EvidenceID: hit.Evidence.ID, Path: p, Heading: hit.Title, StartLine: hit.Chunk.Range.LineStart, EndLine: hit.Chunk.Range.LineEnd, SourceType: strings.TrimPrefix(strings.ToLower(path.Ext(p)), "."), Snippet: hit.Evidence.Text, Score: hit.Score, MatchType: "kbx"})
+		result.Results = append(result.Results, knowledge.SearchHit{ChunkID: hit.Chunk.ID, ResultID: hit.ResultID, EvidenceID: hit.Evidence.ID, Path: p, Heading: hit.Title, StartLine: hit.Chunk.Range.LineStart, EndLine: hit.Chunk.Range.LineEnd, SourceType: strings.TrimPrefix(strings.ToLower(path.Ext(p)), "."), Snippet: hit.Evidence.Text, Score: hit.Score, MatchType: "kbx"})
 	}
 	result.RetrievalChannels = response.Trace.Coverage.RetrievalUsed
 	result.OptionalUnavailable = response.Trace.Coverage.OptionalUnavailable
@@ -168,26 +168,26 @@ func relativePath(p string) (string, error) {
 
 var evidencePattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}#bytes=[0-9]+-[0-9]+$`)
 
-func (m *Manager) Read(key string, o kbase.ReadOptions) (kbase.ReadResult, error) {
+func (m *Manager) Read(key string, o knowledge.ReadOptions) (knowledge.ReadResult, error) {
 	l, err := m.resolve(key)
 	if err != nil {
-		return kbase.ReadResult{}, err
+		return knowledge.ReadResult{}, err
 	}
 	ctx, cancel := readerContext()
 	defer cancel()
 	args := []string{"get", "--agent", "--no-line-numbers"}
 	if o.ChunkID != "" {
 		if !evidencePattern.MatchString(o.ChunkID) {
-			return kbase.ReadResult{}, fmt.Errorf("chunkId must be a KBX content-addressed locator")
+			return knowledge.ReadResult{}, fmt.Errorf("chunkId must be a KBX content-addressed locator")
 		}
 		if o.Offset != 0 || o.Limit != 0 {
-			return kbase.ReadResult{}, fmt.Errorf("chunkId returns its exact range; use path for line pagination")
+			return knowledge.ReadResult{}, fmt.Errorf("chunkId returns its exact range; use path for line pagination")
 		}
 		args = append(args, "--evidence", o.ChunkID)
 	} else {
 		p, e := relativePath(o.Path)
 		if e != nil {
-			return kbase.ReadResult{}, e
+			return knowledge.ReadResult{}, e
 		}
 		n := o.Limit
 		if n <= 0 {
@@ -197,7 +197,7 @@ func (m *Manager) Read(key string, o kbase.ReadOptions) (kbase.ReadResult, error
 			n = 2000
 		}
 		if o.Offset < 0 {
-			return kbase.ReadResult{}, fmt.Errorf("offset must not be negative")
+			return knowledge.ReadResult{}, fmt.Errorf("offset must not be negative")
 		}
 		args = append(args, "--from", strconv.Itoa(max(1, o.Offset)), "--lines", strconv.Itoa(n), "--", "kbx://workspace/"+p)
 	}
@@ -211,28 +211,28 @@ func (m *Manager) Read(key string, o kbase.ReadOptions) (kbase.ReadResult, error
 		} `json:"readRange"`
 	}
 	if err = m.call(ctx, l, false, &r, args...); err != nil {
-		return kbase.ReadResult{}, err
+		return knowledge.ReadResult{}, err
 	}
 	p, err := documentPath(r.File)
 	if err != nil {
-		return kbase.ReadResult{}, err
+		return knowledge.ReadResult{}, err
 	}
-	if !kbase.IndexedPathAllowed(p, l.spec.Config.Include, append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**")) {
-		return kbase.ReadResult{}, fmt.Errorf("document is excluded by the knowledge-base policy")
+	if !knowledge.IndexedPathAllowed(p, l.spec.Config.Include, append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**")) {
+		return knowledge.ReadResult{}, fmt.Errorf("document is excluded by the knowledge-base policy")
 	}
 	content := r.Evidence.Text
 	if content == "" {
 		content = r.Body
 	}
-	return kbase.ReadResult{Found: true, ChunkID: o.ChunkID, Path: p, Heading: r.Title, StartLine: r.ReadRange.From, EndLine: r.ReadRange.Through, Content: content, HasMore: r.ReadRange.HasMore, NextEvidence: r.ReadRange.NextEvidence}, nil
+	return knowledge.ReadResult{Found: true, ChunkID: o.ChunkID, Path: p, Heading: r.Title, StartLine: r.ReadRange.From, EndLine: r.ReadRange.Through, Content: content, HasMore: r.ReadRange.HasMore, NextEvidence: r.ReadRange.NextEvidence}, nil
 }
-func (m *Manager) Files(key string, o kbase.FilesOptions) (kbase.FilesResult, error) {
+func (m *Manager) Files(key string, o knowledge.FilesOptions) (knowledge.FilesResult, error) {
 	l, err := m.resolve(key)
 	if err != nil {
-		return kbase.FilesResult{}, err
+		return knowledge.FilesResult{}, err
 	}
 	if o.Status != "" && o.Status != "active" {
-		return kbase.FilesResult{}, fmt.Errorf("KBX exposes active indexed files only")
+		return knowledge.FilesResult{}, fmt.Errorf("KBX exposes active indexed files only")
 	}
 	ctx, cancel := readerContext()
 	defer cancel()
@@ -241,20 +241,20 @@ func (m *Manager) Files(key string, o kbase.FilesOptions) (kbase.FilesResult, er
 		Documents []struct{ File string }
 	}
 	if err = m.call(ctx, l, false, &r, "ls", "kbx://workspace", "--agent"); err != nil {
-		return kbase.FilesResult{}, err
+		return knowledge.FilesResult{}, err
 	}
 	if !r.Complete {
-		return kbase.FilesResult{}, unavailable("KBX file inventory is incomplete")
+		return knowledge.FilesResult{}, unavailable("KBX file inventory is incomplete")
 	}
-	entries := []kbase.FileEntry{}
+	entries := []knowledge.FileEntry{}
 	for _, d := range r.Documents {
 		p, e := documentPath(d.File)
 		if e != nil {
-			return kbase.FilesResult{}, e
+			return knowledge.FilesResult{}, e
 		}
-		if kbase.IndexedPathAllowed(p, l.spec.Config.Include, append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**")) {
-			entries = append(entries, kbase.FileEntry{Path: p, Ext: strings.ToLower(path.Ext(p)), Status: "active"})
+		if knowledge.IndexedPathAllowed(p, l.spec.Config.Include, append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**")) {
+			entries = append(entries, knowledge.FileEntry{Path: p, Ext: strings.ToLower(path.Ext(p)), Status: "active"})
 		}
 	}
-	return kbase.FormatIndexedFiles(entries, o)
+	return knowledge.FormatIndexedFiles(entries, o)
 }

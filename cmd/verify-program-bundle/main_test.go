@@ -145,7 +145,7 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		binaryName += ".exe"
 	}
 	sidecarRelativePath := filepath.ToSlash(filepath.Join("bin", binaryName))
-	writeFile(t, filepath.Join(root, filepath.FromSlash(sidecarRelativePath)), []byte("sidecar-binary"), 0o755)
+	writeFile(t, filepath.Join(root, filepath.FromSlash(sidecarRelativePath)), []byte("kbx-binary"), 0o755)
 	writeFile(t, filepath.Join(root, "backend", "agent-platform"), []byte("runtime-binary"), 0o755)
 	requiredPaths := []string{"backend/agent-platform", sidecarRelativePath}
 	digest, err := fileSHA256(filepath.Join(root, filepath.FromSlash(sidecarRelativePath)))
@@ -157,9 +157,7 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		Version: "1.0.0",
 		Path:    sidecarRelativePath,
 		SHA256:  digest,
-
-		License:      "Apache-2.0",
-		Distribution: "checksum-verified-artifact",
+		License: "MIT",
 	}}
 	writeFile(t, filepath.Join(root, "bin", "rg"), []byte("rg-binary"), 0o755)
 	rgDigest, err := fileSHA256(filepath.Join(root, "bin", "rg"))
@@ -194,7 +192,6 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		}
 		components = append(components, builtins.ManifestComponent{
 			Name: popplerName, Version: "v26.07.0", Path: launcher, SHA256: treeDigest, Tree: tree,
-			Distribution: "checksum-verified-artifact",
 		})
 		requiredPaths = append(requiredPaths, launcher, runtimeRoot)
 	}

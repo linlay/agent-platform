@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 )
 
@@ -50,7 +50,7 @@ func (s *ModelConfigSource) Snapshot() ([]byte, error) {
 		return nil, fmt.Errorf("invalid KBX embedding prompt")
 	}
 	m := NewManager(Options{DefaultEmbeddingModelKey: modelKey, EmbeddingPrompt: prompt}, nil, registry)
-	raw, err := m.config(library{spec: kbase.AgentSpec{Config: kbase.DefaultConfig()}}, true)
+	raw, err := m.config(library{spec: knowledge.AgentSpec{Config: knowledge.DefaultConfig()}}, true)
 	if err != nil {
 		return nil, err
 	}

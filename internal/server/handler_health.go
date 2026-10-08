@@ -16,7 +16,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	kbaseState := map[string]any{"required": false}
 	if s != nil && s.deps.KBase != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		required, state, err := s.deps.KBase.ProbeSidecar(ctx)
+		required, state, err := s.deps.KBase.ProbeRuntime(ctx)
 		cancel()
 		kbaseState = map[string]any{"required": required, "sidecar": state}
 		if err != nil {

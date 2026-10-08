@@ -39,7 +39,6 @@ type Component struct {
 	Commit           string            `json:"commit,omitempty"`
 	Kind             string            `json:"kind"`
 	Required         bool              `json:"required"`
-	SDKVersion       string            `json:"sdkVersion,omitempty"`
 	License          string            `json:"license,omitempty"`
 	LicenseDirectory string            `json:"licenseDirectory,omitempty"`
 	Licenses         []string          `json:"licenses,omitempty"`
@@ -48,16 +47,15 @@ type Component struct {
 }
 
 type Target struct {
-	Version  string          `json:"version,omitempty"`
-	Source   string          `json:"source,omitempty"`
-	Commit   string          `json:"commit,omitempty"`
-	Path     string          `json:"path"`
-	Format   string          `json:"format,omitempty"`
-	Entry    string          `json:"entry,omitempty"`
-	Output   string          `json:"output,omitempty"`
-	SHA256   string          `json:"sha256"`
-	Tree     *TreeLayout     `json:"tree,omitempty"`
-	Metadata *TargetMetadata `json:"metadata,omitempty"`
+	Version string      `json:"version,omitempty"`
+	Source  string      `json:"source,omitempty"`
+	Commit  string      `json:"commit,omitempty"`
+	Path    string      `json:"path"`
+	Format  string      `json:"format,omitempty"`
+	Entry   string      `json:"entry,omitempty"`
+	Output  string      `json:"output,omitempty"`
+	SHA256  string      `json:"sha256"`
+	Tree    *TreeLayout `json:"tree,omitempty"`
 }
 
 // TreeLayout describes a checksum-verified archive subtree that is installed
@@ -73,14 +71,6 @@ type TreeLayout struct {
 type TreeOutput struct {
 	Path string `json:"path"`
 	Type string `json:"type"`
-}
-
-// TargetMetadata describes extra files that a platform archive carries beside
-// its executable. It is currently used by the Lance sidecar release so the
-// service package can preserve its dependency inventory and SBOM.
-type TargetMetadata struct {
-	CargoMetadata string `json:"cargoMetadata,omitempty"`
-	SBOM          string `json:"sbom,omitempty"`
 }
 
 type StageOptions struct {
@@ -113,7 +103,6 @@ type ManifestComponent struct {
 	Commit       string       `json:"commit,omitempty"`
 	Path         string       `json:"path"`
 	SHA256       string       `json:"sha256"`
-	SDKVersion   string       `json:"sdkVersion,omitempty"`
 	License      string       `json:"license,omitempty"`
 	Distribution string       `json:"distribution,omitempty"`
 	Tree         []TreeOutput `json:"tree,omitempty"`
@@ -302,7 +291,6 @@ func Stage(options StageOptions) (StageResult, error) {
 				Commit:       target.Commit,
 				Path:         target.Tree.Outputs[0].Path,
 				SHA256:       digest,
-				SDKVersion:   component.SDKVersion,
 				License:      component.License,
 				Distribution: "checksum-verified-artifact",
 				Tree:         append([]TreeOutput(nil), target.Tree.Outputs...),
@@ -325,17 +313,13 @@ func Stage(options StageOptions) (StageResult, error) {
 			}
 			outputHash := bytesSHA256(payload)
 			staged = ManifestComponent{
-				Name:       component.Name,
-				Version:    target.Version,
-				Source:     target.Source,
-				Commit:     target.Commit,
-				Path:       filepath.ToSlash(filepath.Join("bin", target.Output)),
-				SHA256:     outputHash,
-				SDKVersion: component.SDKVersion,
-				License:    component.License,
-			}
-			if target.Metadata != nil {
-				staged.Distribution = "checksum-verified-artifact"
+				Name:    component.Name,
+				Version: target.Version,
+				Source:  target.Source,
+				Commit:  target.Commit,
+				Path:    filepath.ToSlash(filepath.Join("bin", target.Output)),
+				SHA256:  outputHash,
+				License: component.License,
 			}
 		}
 		manifest.Components = append(manifest.Components, staged)
@@ -419,17 +403,6 @@ func validateComponent(component Component, schemaVersion int) error {
 		}
 		if component.Kind == "archive" && (target.Entry == "" || (target.Format != "tar.gz" && target.Format != "zip")) {
 			return fmt.Errorf("builtin %s target %s archive entry and format are required", component.Name, targetKey)
-		}
-		if target.Metadata != nil {
-			if component.Kind != "archive" {
-				return fmt.Errorf("builtin %s target %s metadata requires an archive", component.Name, targetKey)
-			}
-			if err := validateArchiveEntry(target.Metadata.CargoMetadata); err != nil {
-				return fmt.Errorf("builtin %s target %s cargo metadata: %w", component.Name, targetKey, err)
-			}
-			if err := validateArchiveEntry(target.Metadata.SBOM); err != nil {
-				return fmt.Errorf("builtin %s target %s SBOM: %w", component.Name, targetKey, err)
-			}
 		}
 	}
 	return nil

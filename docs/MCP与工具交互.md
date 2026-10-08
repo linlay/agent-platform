@@ -254,7 +254,7 @@ Platform 对 WebApp 指定路径字段复用当前 Session 的 `@chat` 与 `@wor
 
 `image_generate` 的 `sourceType` 枚举由 `reference_name/file_path` 改成 `referenceName/filePath`；`files_with_matches`、`white_edit`、`b64_json` 等其他枚举不改。`desktop_action` 返回的 `visionRecognizeImage.reference_name` 改成 `visionRecognizeImage.referenceName`，可直接作为识图工具的图片对象。
 
-工具定义只接受 `inputSchema`；包括 agent-local 定义在内，使用旧 `parameters` 字段将加载失败。JSON Schema 标准关键字、上游 Images 请求体的 `response_format`、Lance 的 `source_type` 存储列不在本次改名范围。
+工具定义只接受 `inputSchema`；包括 agent-local 定义在内，使用旧 `parameters` 字段将加载失败。JSON Schema 标准关键字与上游 Images 请求体的 `response_format` 按各自协议使用。
 
 历史 JSONL 与模型原始消息不做字段迁移；旧会话继续调用旧参数时返回明确错误，由模型使用新名重试。文件写入的旧名或混合名调用即使被拒绝，也必须在展示、历史与 trace 副本中隐藏内容，不能依赖执行校验替代脱敏。Desktop 图片调用方需与 Platform 同批升级；本地提示词及自建技能中的旧示例也需更新。
 

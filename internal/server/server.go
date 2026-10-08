@@ -26,8 +26,8 @@ import (
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/documentpreview"
-	"agent-platform/internal/kbase"
 	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	projectpkg "agent-platform/internal/project"
@@ -45,9 +45,9 @@ import (
 // an application facade, while server depends only on the operations it uses.
 type KBaseService interface {
 	ValidateAgent(agentKey string) error
-	Status(agentKey string) (kbase.Status, error)
-	Refresh(ctx context.Context, agentKey string, options kbase.RefreshOptions) (kbase.RefreshResult, error)
-	ProbeSidecar(ctx context.Context) (required bool, state kbase.LanceEngineState, err error)
+	Status(agentKey string) (knowledge.Status, error)
+	Refresh(ctx context.Context, agentKey string, options knowledge.RefreshOptions) (knowledge.RefreshResult, error)
+	ProbeRuntime(ctx context.Context) (required bool, state knowledge.RuntimeState, err error)
 	ReconcileWatchers(ctx context.Context)
 }
 

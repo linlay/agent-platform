@@ -108,7 +108,7 @@ cp .env.example .env
 make run
 ```
 
-`./scripts/sync-local-builtins.sh` 是本地 builtin 构建入口（当前 KBX 支持 macOS AMD64/ARM64、Windows AMD64）；Windows AMD64 使用 `powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target windows/amd64`，不依赖 Git Bash。两个入口都会在隔离工作目录中按相邻项目的本地 `VERSION`（KBX 使用 `Cargo.toml` 的 package version）重建 `dbx`、`httpx`、`kbx`、`memx` 和 `poppler-pdftotext` launcher/archive，生成只属于本次构建的临时 local lock，再原子更新 `build/builtins/<os>-<arch>/`。cache 激活后默认运行同一套正式 lock 状态机：精确 native host 上严格更高的干净版本可在输入精确 `yes` 后成为组件目标 release；落后平台的本地 `VERSION` 与 Git HEAD 匹配该目标后自动更新自己的 target，无需再次确认。正式 lock 中组件字段表示全平台目标，target 字段记录各平台实际 release/path/SHA；交叉构建只更新 cache，不能改正式 target，因而 macOS 不会改 Windows SHA。两个入口都不写 `release-local/`。`rg` 是唯一只校验并复制的预编译 vendor artifact。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；它通过 `AP_BUILTINS_BIN` 将本机 `build/builtins/<host>/bin` 设为唯一可信 builtin 目录，sidecar 也从该目录解析，但绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。
+`./scripts/sync-local-builtins.sh` 是本地 builtin 构建入口（当前 KBX 支持 macOS AMD64/ARM64、Windows AMD64）；Windows AMD64 使用 `powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target windows/amd64`，不依赖 Git Bash。两个入口都会在隔离工作目录中按相邻项目的本地 `VERSION`（KBX 使用 `Cargo.toml` 的 package version）重建 `dbx`、`httpx`、`kbx`、`memx` 和 `poppler-pdftotext` launcher/archive，生成只属于本次构建的临时 local lock，再原子更新 `build/builtins/<os>-<arch>/`。cache 激活后默认运行同一套正式 lock 状态机：精确 native host 上严格更高的干净版本可在输入精确 `yes` 后成为组件目标 release；落后平台的本地 `VERSION` 与 Git HEAD 匹配该目标后自动更新自己的 target，无需再次确认。正式 lock 中组件字段表示全平台目标，target 字段记录各平台实际 release/path/SHA；交叉构建只更新 cache，不能改正式 target，因而 macOS 不会改 Windows SHA。两个入口都不写 `release-local/`。`rg` 是唯一只校验并复制的预编译 vendor artifact。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；它通过 `AP_BUILTINS_BIN` 将本机 `build/builtins/<host>/bin` 设为唯一可信 builtin 目录，KBX 和 memx 也从该目录解析，但绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。
 
 `--all` 会要求本机已提供六个平台的 Rust target、对应 linker/SDK、`protoc` 与 `syft`；任一 target 不能构建时失败，且既有 `build/builtins` cache 不会被替换。正式 `make release-program` 只消费对应 target 的本机 cache，不会重新构建或回读 `../agent-platform-builtins`；cache 缺失、平台不匹配或 manifest 校验失败会直接终止发布。
 
@@ -261,7 +261,7 @@ Provider `apiKey` 按明文字符串读取：
 
 **静态配置**：`configs/` 下所有文件都只在进程启动时读取一次；修改 `configs/*.yml` 或 `configs/*.pem` 后必须重启 runtime 才会生效。
 
-KBX 抽取由受管 CLI 负责；旧 KBASE 抽取配置已下线。 Agent 知识库由 Platform 监听目录、后台调用 update/embed，refresh 返回可等待的 refreshId；要求受管 KBX 支持维护 JSON v1，见 [KBX 接入](docs/KBX接入.md)。配置归属与升级步骤见 [Agent 配置合并](docs/Agent配置合并.md)。
+KBX 抽取由受管 CLI 负责。Agent 知识库由 Platform 监听目录、后台调用 update/embed，refresh 返回可等待的 refreshId；要求受管 KBX 支持维护 JSON v1，见 [KBX 接入](docs/KBX接入.md)。配置归属与升级步骤见 [Agent 配置合并](docs/Agent配置合并.md)。
 
 本地 JWT 公钥规则：
 
@@ -382,9 +382,9 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用知识库能力的专用预设，工具、技能、连接器和 memory 与其他内置类型一样完全取自 `agent.yml`，`GENERAL`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。所有 enabled KBASE 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；旧 `kbaseConfig.source` 会硬失败。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
+KBASE 是可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用知识库能力的专用预设，工具、技能、连接器和 memory 与其他内置类型一样完全取自 `agent.yml`，`GENERAL`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。所有 enabled KBASE 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；旧 `kbaseConfig.source` 会硬失败。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
 
-KBASE 固定使用 LanceDB generation 检索；SQLite `control.db` 只保存 generation、文件状态、refresh run 和恢复日志，不保存检索数据。SQLite runtime store 仅支持当前 schema：启动时仅会认领标记为 `application_id=0,user_version=0` 且完整结构匹配的库，其余库不会被迁移或改写。专用 `mode: KBASE` 的存储不匹配会隔离该 Agent；普通 Agent 的附加知识库会保留 Agent 可运行并把能力标为 degraded。详见 [KBASE LanceDB 检索与控制面](./docs/KBASE-LanceDB检索与控制面.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
+KBASE 模式和普通 Agent 的知识库能力统一由受管 KBX CLI 实现，Platform 负责目录监听、异步刷新回执和重启对账。中立配置、DTO、工具处理器与引用发布位于 `internal/knowledge`；KBASE 工具、REST 和 `/healthz` 的 `kbase.sidecar` JSON 契约由该模块提供。索引范围由 scopeHash 隔离。Poppler 继续随包提供 KBX PDF 抽取及 Agent Bash 的 `pdftotext` 能力。详见 [KBX 接入](./docs/KBX接入.md)。当前检索基于抽取文本，不宣称支持图片、音频或视频语义检索。
 
 KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展名或 UTF-8；删除、重命名、建目录、Bash 和二进制 Office/PDF 通用写入仍不开放。目录权限由 AccessPolicy/HITL 决定，Workspace 写入由 watcher 异步索引。完整约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
 

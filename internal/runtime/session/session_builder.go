@@ -16,7 +16,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/interaction"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
@@ -186,7 +186,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
 	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
-		capabilityPrompts = append(capabilityPrompts, kbase.DefaultCapabilityPrompt)
+		capabilityPrompts = append(capabilityPrompts, knowledge.DefaultCapabilityPrompt)
 	}
 	resolvedPlanExecuteSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
 	resolvedPlanningSettings := contracts.ResolvePlanningModeSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)

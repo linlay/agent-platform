@@ -50,7 +50,7 @@ func TestDefaultSourceRootFromLinkedWorktree(t *testing.T) {
 }
 func TestRequireKBXComponent(t *testing.T) {
 	for _, goos := range []string{"darwin", "windows"} {
-		m := Manifest{Platform: ManifestPlatform{OS: goos, Arch: "arm64"}, Components: []ManifestComponent{{Name: "kbase-lance-engine", Path: "bin/kbase-lance-engine"}}}
+		m := Manifest{Platform: ManifestPlatform{OS: goos, Arch: "arm64"}, Components: []ManifestComponent{{Name: "retired-helper", Path: "bin/retired-helper"}}}
 		if RequireKBXComponent(m) == nil {
 			t.Fatal("old cache accepted")
 		}

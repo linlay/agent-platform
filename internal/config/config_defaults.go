@@ -66,43 +66,6 @@ func defaultConfig(options LoadOptions) Config {
 		GeneralSettings: GeneralSettingsConfig{
 			WorkspaceAgents: CoderWorkspaceAgentsConfig{},
 		},
-		KBase: KBaseConfig{
-			Index: KBaseIndexConfig{
-				FTS: KBaseFTSIndexConfig{
-					BaseTokenizer: "icu",
-				},
-				Vector: KBaseVectorIndexConfig{
-					ANNMinRows: 50000,
-				},
-			},
-			Maintenance: KBaseMaintenanceConfig{
-				OptimizeChangeThreshold: 1000,
-				OptimizeInterval:        24 * time.Hour,
-				VersionRetention:        7 * 24 * time.Hour,
-			},
-			Refresh: KBaseRefreshConfig{
-				Debounce:          2 * time.Second,
-				ReconcileInterval: 10 * time.Minute,
-			},
-			Extraction: KBaseExtractionConfig{
-				Timeout:      60 * time.Second,
-				MaxFileBytes: 50 * 1024 * 1024,
-				PDF: KBasePDFExtractionConfig{
-					Enabled: true,
-					Backend: "poppler",
-					Binary:  "pdftotext",
-				},
-				DOCX: KBaseDOCXExtractionConfig{
-					Enabled: true,
-					Backend: "native",
-				},
-				PPTX: KBasePPTXExtractionConfig{
-					Enabled:      true,
-					Backend:      "native",
-					IncludeNotes: true,
-				},
-			},
-		},
 		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
 		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
 		Automation: AutomationConfig{
@@ -413,9 +376,6 @@ func (c *Config) normalize(configRoot string) error {
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
 	c.ImageGenerate = normalizeImageGenerateConfig(c.ImageGenerate)
-	if err := normalizeKBaseConfig(&c.KBase); err != nil {
-		return err
-	}
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	c.AccessPolicy = normalizeAccessPolicyConfig(c.AccessPolicy)
 	if c.FileTools.MaxReadBytes <= 0 {
@@ -432,56 +392,6 @@ func (c *Config) normalize(configRoot string) error {
 	if err := c.normalizeGateways(); err != nil {
 		return err
 	}
-	return nil
-}
-
-func normalizeKBaseExtractionConfig(cfg KBaseExtractionConfig) KBaseExtractionConfig {
-	if cfg.Timeout <= 0 {
-		cfg.Timeout = 60 * time.Second
-	}
-	if cfg.MaxFileBytes <= 0 {
-		cfg.MaxFileBytes = 50 * 1024 * 1024
-	}
-	cfg.PDF.Backend = strings.ToLower(strings.TrimSpace(cfg.PDF.Backend))
-	if cfg.PDF.Backend == "" {
-		cfg.PDF.Backend = "poppler"
-	}
-	cfg.PDF.Binary = strings.TrimSpace(cfg.PDF.Binary)
-	if cfg.PDF.Binary == "" {
-		cfg.PDF.Binary = "pdftotext"
-	}
-	cfg.DOCX.Backend = strings.ToLower(strings.TrimSpace(cfg.DOCX.Backend))
-	if cfg.DOCX.Backend == "" {
-		cfg.DOCX.Backend = "native"
-	}
-	cfg.PPTX.Backend = strings.ToLower(strings.TrimSpace(cfg.PPTX.Backend))
-	if cfg.PPTX.Backend == "" {
-		cfg.PPTX.Backend = "native"
-	}
-	return cfg
-}
-
-func normalizeKBaseConfig(cfg *KBaseConfig) error {
-	if cfg == nil {
-		return nil
-	}
-	cfg.Index.FTS.BaseTokenizer = strings.ToLower(strings.TrimSpace(cfg.Index.FTS.BaseTokenizer))
-	if cfg.Index.FTS.BaseTokenizer == "" {
-		cfg.Index.FTS.BaseTokenizer = "icu"
-	}
-	if cfg.Index.Vector.ANNMinRows < 1000 {
-		return fmt.Errorf("kbase index.vector.ann-min-rows must be at least 1000")
-	}
-	if cfg.Maintenance.OptimizeChangeThreshold < 1 {
-		return fmt.Errorf("kbase maintenance.optimize-change-threshold must be at least 1")
-	}
-	if cfg.Maintenance.OptimizeInterval <= 0 {
-		return fmt.Errorf("kbase maintenance.optimize-interval must be positive")
-	}
-	if cfg.Maintenance.VersionRetention <= 0 {
-		return fmt.Errorf("kbase maintenance.version-retention must be positive")
-	}
-	cfg.Extraction = normalizeKBaseExtractionConfig(cfg.Extraction)
 	return nil
 }
 

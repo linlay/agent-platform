@@ -9,7 +9,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 )
 
 func TestPresetToolsResolveAndExclude(t *testing.T) {
@@ -100,7 +100,7 @@ func TestPresetToolsACPRejectsExclusions(t *testing.T) {
 
 func TestPresetToolsDoNotDeriveToolsFromCapabilities(t *testing.T) {
 	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
-		d := AgentDefinition{Mode: mode, Engine: AgentEngineNative, DeclaredTools: []string{}, ExcludedTools: []string{"wait", "bash"}, Skills: []string{"skill"}, MemoryEnabled: true, KBaseConfig: kbase.Config{Enabled: true}, Runtime: map[string]any{"env": map[string]string{"LANG": "en_US"}}}
+		d := AgentDefinition{Mode: mode, Engine: AgentEngineNative, DeclaredTools: []string{}, ExcludedTools: []string{"wait", "bash"}, Skills: []string{"skill"}, MemoryEnabled: true, KBaseConfig: knowledge.Config{Enabled: true}, Runtime: map[string]any{"env": map[string]string{"LANG": "en_US"}}}
 		d.applyPresetTools([]string{"datetime", "wait"})
 		if !containsString(d.Tools, "datetime") || containsString(d.Tools, "wait") || containsString(d.Tools, "bash") {
 			t.Fatalf("mode=%s tools=%v", mode, d.Tools)

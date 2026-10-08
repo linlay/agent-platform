@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 )
 
@@ -97,7 +97,7 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("fixture embed: %v: %s; requests=%d", err, output, requests.Load())
 	}
-	r, e := m.Search(ctx, "docs", "unseenlexicaltoken", kbase.SearchOptions{PathPrefix: "allowed", Type: "MD"})
+	r, e := m.Search(ctx, "docs", "unseenlexicaltoken", knowledge.SearchOptions{PathPrefix: "allowed", Type: "MD"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -122,7 +122,7 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	if otherLibrary.database == l.database {
 		t.Fatal("different libraries share storage")
 	}
-	if _, e = m.Search(ctx, "other", "alpha", kbase.SearchOptions{}); kbase.KindOf(e) != kbase.ErrorUnavailable {
+	if _, e = m.Search(ctx, "other", "alpha", knowledge.SearchOptions{}); knowledge.KindOf(e) != knowledge.ErrorUnavailable {
 		t.Fatalf("missing library borrowed another index: %v", e)
 	}
 	t.Log("ACCEPTANCE vector: model credentials/endpoint mapping, vector-only recall, prefix prefilter, and isolated library storage passed")

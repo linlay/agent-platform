@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/timecontract"
 )
 
@@ -59,7 +59,7 @@ func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		result, err := s.deps.KBase.Refresh(r.Context(), agentKey, kbase.RefreshOptions{Force: req.Force, Mode: "manual"})
+		result, err := s.deps.KBase.Refresh(r.Context(), agentKey, knowledge.RefreshOptions{Force: req.Force, Mode: "manual"})
 		if err != nil {
 			statusCode := kbaseErrorStatus(err)
 			writeJSON(w, statusCode, api.Failure(statusCode, kbaseErrorMessage(err)))
@@ -72,10 +72,10 @@ func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 }
 
 func kbaseErrorStatus(err error) int {
-	switch kbase.KindOf(err) {
-	case kbase.ErrorUnavailable:
+	switch knowledge.KindOf(err) {
+	case knowledge.ErrorUnavailable:
 		return http.StatusServiceUnavailable
-	case kbase.ErrorNotFound:
+	case knowledge.ErrorNotFound:
 		return http.StatusNotFound
 	default:
 		return http.StatusBadRequest
@@ -83,8 +83,8 @@ func kbaseErrorStatus(err error) int {
 }
 
 func kbaseErrorMessage(err error) string {
-	switch kbase.KindOf(err) {
-	case kbase.ErrorNotFound:
+	switch knowledge.KindOf(err) {
+	case knowledge.ErrorNotFound:
 		return "agent not found"
 	default:
 		return err.Error()

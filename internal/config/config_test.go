@@ -7,19 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"agent-platform/internal/deprecation"
 )
-
-func assertKBaseLanceDefaults(t *testing.T, cfg KBaseConfig) {
-	t.Helper()
-	if cfg.Index.FTS.BaseTokenizer != "icu" || cfg.Index.Vector.ANNMinRows != 50000 ||
-		cfg.Maintenance.OptimizeChangeThreshold != 1000 || cfg.Maintenance.OptimizeInterval != 24*time.Hour ||
-		cfg.Maintenance.VersionRetention != 168*time.Hour {
-		t.Fatalf("unexpected kbase Lance defaults: %#v", cfg)
-	}
-}
 
 func TestDefaultReadonlyRootsMatchToolsExample(t *testing.T) {
 	want := []string{"@agent", "@skills"}
@@ -64,22 +54,7 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.IdentityFile != ProjectFile(filepath.Join("runtime", ".state", "identity", "access-token")) {
 					t.Fatalf("unexpected default identity file: %q", cfg.IdentityFile)
 				}
-				if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
-					t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
-				}
-				assertKBaseLanceDefaults(t, cfg.KBase)
-				if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
-					cfg.KBase.Extraction.MaxFileBytes != 50*1024*1024 ||
-					!cfg.KBase.Extraction.PDF.Enabled ||
-					cfg.KBase.Extraction.PDF.Backend != "poppler" ||
-					cfg.KBase.Extraction.PDF.Binary != "pdftotext" ||
-					!cfg.KBase.Extraction.DOCX.Enabled ||
-					cfg.KBase.Extraction.DOCX.Backend != "native" ||
-					!cfg.KBase.Extraction.PPTX.Enabled ||
-					cfg.KBase.Extraction.PPTX.Backend != "native" ||
-					!cfg.KBase.Extraction.PPTX.IncludeNotes {
-					t.Fatalf("unexpected kbase extraction defaults: %#v", cfg.KBase.Extraction)
-				}
+
 				if !cfg.Auth.Enabled {
 					t.Fatalf("expected auth enabled by default")
 				}

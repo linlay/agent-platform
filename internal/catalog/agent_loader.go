@@ -14,7 +14,7 @@ import (
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 	"agent-platform/internal/rootpaths"
 
@@ -102,7 +102,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 	}
 
 	if def.KBaseConfig.Enabled {
-		if err := kbase.ValidateWorkspaceChatsSeparation(def.Workspace.Root, chatsDir); err != nil {
+		if err := knowledge.ValidateWorkspaceChatsSeparation(def.Workspace.Root, chatsDir); err != nil {
 			log.Printf("[catalog][agents] skip %s %s: KBASE workspace/chats overlap: %v", source.Kind, name, err)
 			adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_kbase_workspace_overlap", err)
 			return err
@@ -773,7 +773,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	kbaseConfig := mapNode(root["kbaseConfig"])
 	// Embedding is deployment-owned; ignore retired Agent overrides.
 	delete(kbaseConfig, "embedding")
-	def.KBaseConfig, err = kbase.ParseConfig(kbaseConfig)
+	def.KBaseConfig, err = knowledge.ParseConfig(kbaseConfig)
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -797,7 +797,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	if def.KBaseConfig.Enabled {
-		if err := kbase.ValidateConfig(def.KBaseConfig); err != nil {
+		if err := knowledge.ValidateConfig(def.KBaseConfig); err != nil {
 			return AgentDefinition{}, nil, err
 		}
 	}
@@ -1001,9 +1001,9 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 			return fmt.Errorf("kbaseConfig.enabled cannot be false for mode: KBASE")
 		}
 		def.KBaseConfig.Enabled = true
-		def.KBaseRequirement = kbase.RequirementRequired
+		def.KBaseRequirement = knowledge.RequirementRequired
 	} else {
-		def.KBaseRequirement = kbase.RequirementOptional
+		def.KBaseRequirement = knowledge.RequirementOptional
 		if len(raw) > 0 && !enabledSet {
 			return fmt.Errorf("kbaseConfig.enabled must be explicitly configured for non-KBASE agents")
 		}

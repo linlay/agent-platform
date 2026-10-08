@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/config"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/rootpaths"
 )
 
@@ -80,7 +80,7 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 			continue
 		}
 		if def.KBaseConfig.Enabled {
-			if separationErr := kbase.ValidateWorkspaceChatsSeparation(def.Workspace.Root, cfg.Paths.ChatsDir); separationErr != nil {
+			if separationErr := knowledge.ValidateWorkspaceChatsSeparation(def.Workspace.Root, cfg.Paths.ChatsDir); separationErr != nil {
 				findings = append(findings, workspaceChatFinding(key, "kbase_workspace_chats_overlap", separationErr, source.Path))
 				continue
 			}

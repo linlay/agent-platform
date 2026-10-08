@@ -352,10 +352,6 @@ func cloneTargets(source map[string]builtins.Target) map[string]builtins.Target 
 			tree.Outputs = append([]builtins.TreeOutput(nil), target.Tree.Outputs...)
 			target.Tree = &tree
 		}
-		if target.Metadata != nil {
-			metadata := *target.Metadata
-			target.Metadata = &metadata
-		}
 		cloned[key] = target
 	}
 	return cloned
@@ -404,17 +400,6 @@ func validatePromotedArtifact(collectionRoot string, component builtins.Componen
 	}
 	if _, err := builtins.ReadTargetPayload(artifact, component.Kind, target); err != nil {
 		return err
-	}
-	if target.Metadata != nil {
-		for label, entry := range map[string]string{"Cargo metadata": target.Metadata.CargoMetadata, "SBOM": target.Metadata.SBOM} {
-			payload, err := builtins.ReadArchiveEntry(artifact, target.Format, entry)
-			if err != nil {
-				return fmt.Errorf("%s: %w", label, err)
-			}
-			if !json.Valid(payload) {
-				return fmt.Errorf("%s is not JSON", label)
-			}
-		}
 	}
 	return nil
 }

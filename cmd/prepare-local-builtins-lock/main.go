@@ -322,41 +322,12 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 		target.Path = fmt.Sprintf("dist/%s/%s_%s_%s_%s.%s", version, component.Name, version, goos, goarch, target.Format)
 		return target, nil
 	}
-	if component.Name != "kbase-lance-engine" {
-		return builtins.Target{}, fmt.Errorf("required builtin %s has no target %s-%s", component.Name, goos, goarch)
-	}
-	var metadata *builtins.TargetMetadata
-	for _, existing := range component.Targets {
-		if existing.Metadata != nil {
-			copy := *existing.Metadata
-			metadata = &copy
-			break
-		}
-	}
-	if metadata == nil {
-		return builtins.Target{}, errors.New("kbase-lance-engine lock has no metadata template")
-	}
-	binary := "kbase-lance-engine"
-	format := "tar.gz"
-	if goos == "windows" {
-		binary += ".exe"
-		format = "zip"
-	}
-	return builtins.Target{
-		Version:  component.Version,
-		Source:   component.Source,
-		Commit:   component.Commit,
-		Path:     fmt.Sprintf("dist/%s/kbase-lance-engine_%s_%s_%s.%s", version, version, goos, goarch, format),
-		Format:   format,
-		Entry:    binary,
-		Output:   binary,
-		Metadata: metadata,
-	}, nil
+	return builtins.Target{}, fmt.Errorf("required builtin %s has no target %s-%s", component.Name, goos, goarch)
 }
 
 func isLocallyVersionedComponent(name string) bool {
 	switch name {
-	case "dbx", "httpx", "kbx", "memx", "kbase-lance-engine", "poppler-pdftotext", builtins.GitBashComponent:
+	case "dbx", "httpx", "kbx", "memx", "poppler-pdftotext", builtins.GitBashComponent:
 		return true
 	default:
 		return false
