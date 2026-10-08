@@ -198,7 +198,7 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 		"model":      model.ModelID,
 		"messages":   anthropicMessages,
 		"stream":     true,
-		"max_tokens": resolveAnthropicMaxTokens(stageSettings),
+		"max_tokens": resolveAnthropicMaxTokens(model, stageSettings),
 	}
 	if strings.TrimSpace(systemPrompt) != "" {
 		requestBody["system"] = systemPrompt
@@ -213,6 +213,9 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 	}
 	if stageSettings.MaxOutputTokens > 0 {
 		requestBody["max_tokens"] = stageSettings.MaxOutputTokens
+	}
+	if model.MaxOutputTokens > 0 && AnyIntNode(requestBody["max_tokens"]) > model.MaxOutputTokens {
+		return nil, "", fmt.Errorf("Anthropic max_tokens exceeds model %s maxOutputTokens (%d)", model.Key, model.MaxOutputTokens)
 	}
 	delete(requestBody, "thinking")
 	outputConfig := CloneMap(AnyMapNode(requestBody["output_config"]))
@@ -404,9 +407,12 @@ func anthropicToolChoice(toolChoice string, reasoningEnabled bool) map[string]an
 	}
 }
 
-func resolveAnthropicMaxTokens(stageSettings StageSettings) int {
+func resolveAnthropicMaxTokens(model ModelDefinition, stageSettings StageSettings) int {
 	if stageSettings.MaxOutputTokens > 0 {
 		return stageSettings.MaxOutputTokens
+	}
+	if model.MaxOutputTokens > 0 {
+		return model.MaxOutputTokens
 	}
 	return defaultAnthropicMaxOutputTokens
 }

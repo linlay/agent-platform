@@ -116,14 +116,14 @@ func TestAnthropicPrepareRequestRejectsInvalidActiveEffort(t *testing.T) {
 }
 
 func TestResolveAnthropicMaxTokensUsesStageMaxOutputTokens(t *testing.T) {
-	got := resolveAnthropicMaxTokens(StageSettings{MaxOutputTokens: 8192})
+	got := resolveAnthropicMaxTokens(models.ModelDefinition{MaxOutputTokens: 128000}, StageSettings{MaxOutputTokens: 8192})
 	if got != 8192 {
 		t.Fatalf("expected stage max output tokens 8192, got %d", got)
 	}
 }
 
 func TestResolveAnthropicMaxTokensFallsBackToSourceDefault(t *testing.T) {
-	got := resolveAnthropicMaxTokens(StageSettings{})
+	got := resolveAnthropicMaxTokens(models.ModelDefinition{}, StageSettings{})
 	if got != 32768 {
 		t.Fatalf("expected default max output tokens 32768, got %d", got)
 	}
@@ -133,12 +133,17 @@ func TestAnthropicPrepareRequestOutputLimitPrecedence(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		stage int
+		model int
 		limit any
 		want  float64
 	}{
 		{name: "source default", want: 32768},
+		{name: "model configuration", model: 128000, want: 128000},
+		{name: "smaller model limit", model: 16000, want: 16000},
 		{name: "explicit compat", limit: 65536, want: 65536},
+		{name: "compat lowers model limit", model: 128000, limit: 65536, want: 65536},
 		{name: "stage beats compat", stage: 16384, limit: 65536, want: 16384},
+		{name: "stage lowers model limit", model: 128000, stage: 16384, want: 16384},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			compat := map[string]any{}
@@ -147,7 +152,7 @@ func TestAnthropicPrepareRequestOutputLimitPrecedence(t *testing.T) {
 			}
 			prepared, err := (&anthropicProtocol{}).PrepareRequest(protocolStreamParams{
 				provider:      models.ProviderDefinition{BaseURL: "https://example.com", APIKey: "token"},
-				model:         models.ModelDefinition{Protocol: "ANTHROPIC", ModelID: "claude-haiku-5-5"},
+				model:         models.ModelDefinition{Protocol: "ANTHROPIC", ModelID: "claude-haiku-5-5", MaxOutputTokens: tc.model},
 				stageSettings: StageSettings{MaxOutputTokens: tc.stage},
 				protocolConfig: protocolRuntimeConfig{Compat: map[string]any{
 					"request": map[string]any{"always": compat},

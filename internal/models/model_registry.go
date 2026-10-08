@@ -48,6 +48,7 @@ type ModelDefinition struct {
 	IsReasoner             bool
 	IsVision               bool
 	ContextWindow          int
+	MaxOutputTokens        int
 	L1KeepRecentRounds     int
 	Timeout                int
 	Pricing                ModelPricing
@@ -681,6 +682,10 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		if raw, exists := values["l1KeepRecentRounds"]; exists && (keepRecent < 5 || keepRecent > 10 || fmt.Sprint(raw) != fmt.Sprint(keepRecent)) {
 			return nil, fmt.Errorf("model %s: l1KeepRecentRounds must be an integer from 5 to 10", key)
 		}
+		maxOutput := contracts.AnyIntNode(values["maxOutputTokens"])
+		if raw, exists := values["maxOutputTokens"]; exists && (maxOutput <= 0 || fmt.Sprint(raw) != fmt.Sprint(maxOutput)) {
+			return nil, fmt.Errorf("model %s: maxOutputTokens must be a positive integer", key)
+		}
 		model := ModelDefinition{
 			L1KeepRecentRounds:     keepRecent,
 			Key:                    key,
@@ -694,6 +699,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			IsReasoner:             parseTruthy(stringNode(values["isReasoner"])),
 			IsVision:               parseTruthyDefault(values["isVision"], false),
 			ContextWindow:          contracts.AnyIntNode(values["maxInputTokens"]),
+			MaxOutputTokens:        maxOutput,
 			Timeout:                intNode(values["timeout"]),
 			Pricing:                loadModelPricing(values["pricing"]),
 			Headers:                stringMapNode(values["headers"]),

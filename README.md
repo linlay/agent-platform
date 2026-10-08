@@ -2,7 +2,7 @@
 
 原生模型支持 `OPENAI_RESPONSES` 协议；本地 JSONL 保存每次模型调用的可选 `responseId` 与 `reasoning_content` 加密条目，续聊不依赖服务端 response ID。配置、格式及兼容边界见 [Responses 协议](docs/Responses协议.md)。
 
-原生 `ANTHROPIC` 模型的显式思考配置统一使用 `thinking.type: adaptive`、`thinking.display: summarized` 与 `output_config.effort`，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
+原生 `ANTHROPIC` 模型的显式思考配置统一使用 `thinking.type: adaptive`、`thinking.display: summarized` 与 `output_config.effort`，并读取模型级 `maxOutputTokens` 作为默认输出预算与能力上限，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
 
 本仓库是 `agent-platform` 的 Go 版运行时实现，配置使用 Go 代码默认值、`configs/*.yml` 和环境变量 allowlist／启动参数，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`chat_start` / `chat_get_status` / `chat_interrupt` Chat 会话工具组、`builtin.platform-control` 平台控制连接器、JWT 鉴权、resource ticket、chat 文件落盘、可配置的 memx Memory、Container Hub sandbox、受管 KBX 知识库读取与 Platform 目录监听维护，以及最小 OpenAI 协议模型与统一 tool loop。
 
