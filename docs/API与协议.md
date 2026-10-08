@@ -338,7 +338,7 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 | POST | `/api/automations` | body: `tag` | automation 列表 |
 | POST | `/api/automation` | body: `id` 或 `automationId` | automation 详情 |
 | POST | `/api/automation/create` | body: `name`、`cron`、`query`，以及 `agentKey` / `teamId` 二选一；可选 `description`、`enabled`、`zoneId`、`remainingRuns` | 创建后的 automation 详情 |
-| POST | `/api/automation/update` | body: `id` 或 `automationId`，以及可更新字段 | 更新后的 automation 详情 |
+| POST | `/api/automation/update` | body: `id` 或 `automationId`，以及可更新字段；`remainingRuns` 省略保持、正整数设置、`null` 清除次数限制 | 更新后的 automation 详情 |
 | POST | `/api/automation/delete` | body: `id` 或 `automationId` | 删除结果 |
 | POST | `/api/automation/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
 | POST | `/api/automation/trigger` | body: `id`（兼容 `automationId`） | 异步受理结果：`accepted`、`status`、`automationId`、`executionId` |

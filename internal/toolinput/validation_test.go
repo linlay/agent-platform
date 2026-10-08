@@ -6,6 +6,22 @@ import (
 	"testing"
 )
 
+func TestNullableFieldDoesNotRelaxNumberValidation(t *testing.T) {
+	for _, value := range []any{nil, float64(3)} {
+		if err := Validate(map[string]any{"count": value}, map[string]string{"count": "n?"}, "args."); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, value := range []any{float64(0), float64(101), float64(1.5), "3"} {
+		if err := Validate(map[string]any{"count": value}, map[string]string{"count": "n?"}, "args."); err == nil {
+			t.Fatalf("invalid number accepted: %v", value)
+		}
+	}
+	if err := Validate(map[string]any{"count": nil}, map[string]string{"count": "n"}, "args."); err == nil {
+		t.Fatal("null accepted by a non-nullable field")
+	}
+}
+
 func TestDiagnosticsNeverEchoValuesOrUnknownKeys(t *testing.T) {
 	for _, body := range []string{`{"token":"TOP-SECRET"}`, `{"token":{"TOP-SECRET":"TOP-SECRET"}}`, `{"TOP-SECRET":"TOP-SECRET"}`} {
 		var v map[string]any

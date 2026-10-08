@@ -422,4 +422,6 @@ docker compose logs -f
 
 `builtin.task-control`（任务管理）独立提供五个 Chat 工具和两个 Automation 工具；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
+平台管理与自动化的操作说明由相应内置连接器 Skill 承载，包含自动化时间/Cron 工作流、YAML 维护及 Provider/Model/外部连接器配置参考，不需要额外挂载外部 platform-admin 或 platform-automation Skill。自动化更新、时区和审批契约见 [自动化](docs/自动化.md#task-control-管理工具)。
+
 `builtin.kanban-control`（看板控制）独立提供 `desktop_kanban` 的六个看板动作，依赖 Desktop；原 `builtin.platform-control` 挂载不再授予看板能力。需要看板的 Agent 应显式挂载新连接器，详见 [连接器](docs/连接器.md#kanban-control-看板控制)。

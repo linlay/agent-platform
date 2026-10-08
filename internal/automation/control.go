@@ -162,8 +162,8 @@ func (s *Service) prepareControl(action string, args map[string]any, key string)
 	if err := s.Registry.Validate(def); err != nil {
 		return nil, err
 	}
-	// Resolve the effective zone in the plan so approval cannot silently change it.
-	def.Environment.ZoneID = resolveAutomationLocation(def.Environment.ZoneID, s.DefaultZoneID).String()
+	// Keep an omitted zone omitted in the source, as with YAML and HTTP writes.
+	// The effective zone in After is bound to approval separately below.
 	def.Query.AccessLevel, _ = normalizeAutomationAccessLevel(def.Query.AccessLevel)
 	if def.Query.AccessLevel == "" {
 		def.Query.AccessLevel = "default"
@@ -197,7 +197,7 @@ func (s *Service) prepareControl(action string, args map[string]any, key string)
 			p.Preview = append(p.Preview, next.Format(time.RFC3339))
 		}
 	}
-	p.Digest = digestJSON([]any{action, args, p.Revision, def})
+	p.Digest = digestJSON([]any{action, args, p.Revision, def, p.After.ZoneID})
 	return p, nil
 }
 func (s *Service) detailForDefinition(def Definition) (api.AutomationDetailResponse, error) {
@@ -251,7 +251,10 @@ func (s *Service) ExecuteControl(action string, args map[string]any, key string,
 		err = s.Registry.checkControlRevision(p.Definition.ID, p.Revision)
 		if err == nil {
 			var execution Execution
-			execution, err = s.Orchestrator.triggerDefinition(p.Definition)
+			// Manual execution freezes the reviewed effective zone without saving it.
+			snapshot := p.Definition
+			snapshot.Environment.ZoneID = p.After.ZoneID
+			execution, err = s.Orchestrator.triggerDefinition(snapshot)
 			if err == nil {
 				result = api.TriggerAutomationResponse{Accepted: true, Status: "accepted", AutomationID: execution.AutomationID, ExecutionID: execution.ID}
 			}

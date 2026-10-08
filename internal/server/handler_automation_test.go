@@ -30,6 +30,34 @@ type automationStoreRecorder struct {
 	store *automation.ExecutionStore
 }
 
+func TestAutomationHTTPRemainingRunsUpdateClearsWithoutRecreation(t *testing.T) {
+	fixture := newAutomationTestServer(t, false)
+	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
+		"name": "Limited task", "cron": "0 9 * * *", "agentKey": "demo-agent", "enabled": false,
+		"remainingRuns": 2, "query": map[string]any{"message": "Do the scheduled work"},
+	})
+	for _, patch := range []map[string]any{
+		{"id": created.ID, "name": "Renamed task"},
+		{"id": created.ID, "remainingRuns": nil},
+	} {
+		updated := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/update", patch)
+		if updated.ID != created.ID {
+			t.Fatal("update recreated automation")
+		}
+		if _, clearing := patch["remainingRuns"]; clearing {
+			if updated.RemainingRuns != nil {
+				t.Fatal("null did not remove the limit")
+			}
+		} else if updated.RemainingRuns == nil || *updated.RemainingRuns != 2 {
+			t.Fatal("omitted limit was changed")
+		}
+	}
+	def, err := fixture.server.deps.AutomationRegistry.ReadEditableSource(created.ID)
+	if err != nil || strings.Contains(def.Content, "remainingRuns:") {
+		t.Fatalf("cleared limit persisted: %+v, %v", def, err)
+	}
+}
+
 func (r automationStoreRecorder) Submit(item automation.Execution) {
 	if r.store != nil {
 		_ = r.store.Upsert(item)

@@ -390,7 +390,7 @@ func applyAutomationUpdate(def *Definition, req api.UpdateAutomationRequest) {
 	if req.Enabled != nil {
 		def.Enabled = *req.Enabled
 	}
-	if req.RemainingRuns != nil {
+	if req.RemainingRunsSet || req.RemainingRuns != nil {
 		def.RemainingRuns = cloneIntPtr(req.RemainingRuns)
 	}
 	if req.Query != nil {

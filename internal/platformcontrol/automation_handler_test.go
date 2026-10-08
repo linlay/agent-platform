@@ -34,6 +34,29 @@ func TestAutomationBooleanTypeErrorBeforeReview(t *testing.T) {
 	}
 }
 
+func TestAutomationRemainingRunsNullAdmissionOnlyOnUpdate(t *testing.T) {
+	h := &ToolHandler{}
+	e := controlExecution()
+	params := map[string]any{"id": "task", "baseRevision": "revision", "remainingRuns": nil}
+	_, admitted, err := h.admitted("automation_manage", map[string]any{"action": "update", "args": params}, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value, exists := admitted["remainingRuns"]; !exists || value != nil {
+		t.Fatal("explicit null was lost during admission")
+	}
+	for _, tool := range []string{"automation_manage", "automation_query"} {
+		action := "create"
+		if tool == "automation_query" {
+			action = "validate"
+		}
+		candidate := map[string]any{"name": "Task", "agentKey": "agent", "cron": "0 9 * * *", "remainingRuns": nil, "query": map[string]any{"message": "hello"}}
+		if _, _, err := h.admitted(tool, map[string]any{"action": action, "args": candidate}, e); err == nil {
+			t.Fatalf("%s accepted update-only null", action)
+		}
+	}
+}
+
 func TestAutomationToolAdmissionApprovalAndPolicy(t *testing.T) {
 	h := NewToolHandler(config.Config{}, nil, nil).ConfigureAutomation(&automation.Service{Registry: automation.NewRegistry(t.TempDir(), nil), ReceiptDir: t.TempDir(), DefaultZoneID: "UTC"})
 	args := map[string]any{"action": "create", "args": map[string]any{"name": "Task", "agentKey": "agent", "cron": "0 9 * * *", "enabled": "false", "query": map[string]any{"message": "hello", "hidden": "false"}}}

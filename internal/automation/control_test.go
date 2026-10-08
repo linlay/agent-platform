@@ -148,6 +148,114 @@ func TestControlValidationRejectsInvalidOrLegacyFields(t *testing.T) {
 		}
 	}
 }
+
+func TestControlRemainingRunsOmissionSetAndClear(t *testing.T) {
+	s := controlService(t)
+	args := createArgs()
+	args["remainingRuns"] = 2
+	id, revision := controlResult(t, applyTestControl(t, s, "create", args, "create"))
+	for _, tc := range []struct {
+		name   string
+		fields map[string]any
+		want   int
+	}{
+		{"omit", map[string]any{"name": "Updated name"}, 2},
+		{"set", map[string]any{"remainingRuns": 3}, 3},
+		{"clear", map[string]any{"remainingRuns": nil}, 0},
+	} {
+		patch := tc.fields
+		patch["id"], patch["baseRevision"] = id, revision
+		updated := applyTestControl(t, s, "update", patch, tc.name)
+		updatedID, nextRevision := controlResult(t, updated)
+		if updatedID != id {
+			t.Fatal("update recreated the task")
+		}
+		def, err := s.FindAutomation(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.want == 0 && def.RemainingRuns != nil || tc.want != 0 && (def.RemainingRuns == nil || *def.RemainingRuns != tc.want) {
+			t.Fatalf("%s: wrong remainingRuns: %#v", tc.name, def.RemainingRuns)
+		}
+		revision = nextRevision
+		if tc.want == 0 {
+			data, err := os.ReadFile(def.SourceFile)
+			if err != nil || strings.Contains(string(data), "remainingRuns:") {
+				t.Fatalf("cleared limit remained in YAML: %s, %v", data, err)
+			}
+			applyTestControl(t, s, "update", patch, tc.name)
+		}
+	}
+	for _, value := range []any{0, -1, 1.5, "3"} {
+		if _, err := s.PrepareControl("update", map[string]any{"id": id, "baseRevision": revision, "remainingRuns": value}, ""); err == nil {
+			t.Fatalf("invalid remainingRuns accepted: %v", value)
+		}
+	}
+}
+
+func TestControlTimezonePreservesSourceIntentAndBindsReview(t *testing.T) {
+	s := controlService(t)
+	args := createArgs()
+	id, revision := controlResult(t, applyTestControl(t, s, "create", args, "create"))
+	def, err := s.FindAutomation(id)
+	if err != nil || def.Environment.ZoneID != "" {
+		t.Fatalf("implicit zone persisted: %+v, %v", def, err)
+	}
+	patch := map[string]any{"id": id, "baseRevision": revision, "name": "Changed"}
+	approved, err := s.PrepareControl("update", patch, "update")
+	if err != nil || approved.After.ZoneID != "Asia/Shanghai" {
+		t.Fatalf("effective review zone: %+v, %v", approved, err)
+	}
+	s.DefaultZoneID = "UTC"
+	if _, err := s.ExecuteControl("update", patch, "update", func(d string) bool { return d == approved.Digest }); err == nil {
+		t.Fatal("changed effective timezone reused old approval")
+	}
+	_, revision = controlResult(t, applyTestControl(t, s, "update", patch, "update"))
+	def, err = s.FindAutomation(id)
+	if err != nil || def.Environment.ZoneID != "" {
+		t.Fatalf("update fixed an implicit zone: %+v, %v", def, err)
+	}
+	patch = map[string]any{"id": id, "baseRevision": revision, "zoneId": "Asia/Tokyo"}
+	_, revision = controlResult(t, applyTestControl(t, s, "update", patch, "fixed"))
+	def, _ = s.FindAutomation(id)
+	if def.Environment.ZoneID != "Asia/Tokyo" {
+		t.Fatal("explicit timezone not persisted")
+	}
+	patch = map[string]any{"id": id, "baseRevision": revision, "zoneId": ""}
+	applyTestControl(t, s, "update", patch, "follow-default")
+	def, _ = s.FindAutomation(id)
+	if def.Environment.ZoneID != "" {
+		t.Fatal("explicit timezone was not cleared")
+	}
+}
+
+func TestControlManualTriggerFreezesReviewedZoneWithoutSavingIt(t *testing.T) {
+	s := controlService(t)
+	id, revision := controlResult(t, applyTestControl(t, s, "create", createArgs(), "create"))
+	store, err := NewExecutionStore(t.TempDir(), "executions.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+		return successfulTestQuery(req, hooks), nil
+	}, nil, synchronousExecutionRecorder{store: store})
+	// A different scheduler default must not replace the zone shown in review.
+	s.Orchestrator = NewOrchestrator(s.Registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC"})
+	if err := s.Orchestrator.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { <-s.Orchestrator.Stop().Done() }()
+	result := applyTestControl(t, s, "trigger", map[string]any{"id": id, "baseRevision": revision}, "trigger").(api.TriggerAutomationResponse)
+	execution, err := store.GetExecution(result.ExecutionID)
+	if err != nil || execution == nil || execution.ZoneID != "Asia/Shanghai" {
+		t.Fatalf("wrong execution timezone snapshot: %+v, %v", execution, err)
+	}
+	def, err := s.FindAutomation(id)
+	if err != nil || def.Environment.ZoneID != "" {
+		t.Fatalf("manual trigger fixed the source timezone: %+v, %v", def, err)
+	}
+}
 func TestControlTriggerReplayDispatchesOnce(t *testing.T) {
 	s := controlService(t)
 	args := createArgs()

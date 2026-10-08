@@ -58,6 +58,7 @@ func Unknown(path string, allowed []string) *Error {
 
 // Validate uses the existing compact native contract: s string, b boolean,
 // n integer 1..100, a string array, o object; ! marks required fields (strings must be non-empty).
+// ? permits an explicit null on an optional field.
 func Validate(values map[string]any, fields map[string]string, prefix string) error {
 	for _, key := range Keys(values) {
 		if _, ok := fields[key]; !ok {
@@ -69,6 +70,10 @@ func Validate(values map[string]any, fields map[string]string, prefix string) er
 		v, present := values[key]
 		required := strings.HasSuffix(rule, "!")
 		if !present && !required {
+			continue
+		}
+		nullable := strings.HasSuffix(rule, "?")
+		if present && v == nil && nullable {
 			continue
 		}
 		field := prefix + key
@@ -104,6 +109,9 @@ func Validate(values map[string]any, fields map[string]string, prefix string) er
 		case 'o':
 			expected = "JSON object"
 			_, valid = v.(map[string]any)
+		}
+		if nullable {
+			expected += " or null"
 		}
 		if !present || !valid {
 			return New(field, expected, v, present, "Provide "+expected+".")

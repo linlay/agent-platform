@@ -132,6 +132,8 @@ type UpdateAutomationRequest struct {
 	Enabled       *bool                   `json:"enabled,omitempty"`
 	RemainingRuns *int                    `json:"remainingRuns,omitempty"`
 	Query         *AutomationQueryRequest `json:"query,omitempty"`
+	// RemainingRunsSet distinguishes an omitted update from an explicit null.
+	RemainingRunsSet bool `json:"-"`
 }
 
 type ToggleAutomationRequest struct {

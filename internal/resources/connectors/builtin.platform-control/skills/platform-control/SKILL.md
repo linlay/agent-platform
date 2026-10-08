@@ -13,6 +13,8 @@ platform_inspect: runtimeStatus {component?}, where component is platform/models
 
 For project Agent creation, use each user-supplied project directory as `runtimeConfig.workspaceRoot` in the Agent definition and set `isProject:true` in catalog validate/apply args. `@root` denotes a general root-directory Agent with no specific project workspace; it does not appear in Desktop Projects. Read [catalog](references/catalog.md) for the project checks and post-publication verification.
 
+Read [configuration maintenance](references/configuration.md) for explicitly requested Provider/Model YAML and external connector component source changes. Catalog read-only discovery does not grant source writes; this workflow requires independently available file tools and path permissions.
+
 Tool definitions only name a capability. Read the reference for a tool before calling it; action arguments, types, constraints and examples live there, not in the tool schema.
 
 | Tool | Reference |

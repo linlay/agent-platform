@@ -2,6 +2,8 @@
 
 Use automation_query and automation_manage with `{action,args}`. Requires builtin.task-control mounted in an ordinary Native root Run. Definitions and histories are deployment-wide management resources. Planning stages allow queries only. Existing HTTP/Desktop management remains available through the shared Automation service.
 
+Read [workflow](automation-workflow.md) for natural-language time and execution intent, and [YAML](automation-yaml.md) for source definitions.
+
 ## Read and preview
 
 - list: `{limit?,offset?}`. limit is an integer 1–100, default 20. Follow nextOffset while hasMore.
@@ -12,8 +14,8 @@ Use automation_query and automation_manage with `{action,args}`. Requires builti
 
 ## Manage
 
-- create: `{name,cron,query,agentKey?,teamId?,description?,zoneId?,enabled?,remainingRuns?}`. Choose an Agent or Team using catalog_query. cron uses five fields (minute hour day-of-month month day-of-week); zoneId is an IANA zone. enabled is boolean, default true. remainingRuns is a positive integer; omit for unlimited. Query is `{message,accessLevel?,chatId?,role?,hidden?,params?}`; hidden is boolean. Message text is preserved exactly. Access defaults to default, regardless of the calling chat's access level. Omitted zone resolves to the configured scheduling zone at approval.
-- update: `{id,baseRevision,...changed create fields}`. Omitted fields remain unchanged. Providing query replaces the complete query, so read and preserve fields you want to keep. remainingRuns cannot be cleared using null; omit it to retain the existing limit.
+- create: `{name,cron,query,agentKey?,teamId?,description?,zoneId?,enabled?,remainingRuns?}`. Unless the user specifies an executor, use the current Agent's exact key. Choose a different Agent or Team only when requested, using available context or catalog_query when mounted; task-control does not grant catalog_query. Exactly one of agentKey/teamId is required. cron uses five fields (minute hour day-of-month month day-of-week); zoneId is an IANA zone. enabled is boolean, default true. remainingRuns is an integer 1–100 in these tools; omit for unlimited. Query is `{message,accessLevel?,chatId?,role?,hidden?,params?}`; hidden is boolean. Message text is preserved exactly. Access defaults to default, regardless of the calling chat's access level. An omitted zone stays omitted in the definition and follows the configured scheduling zone, as with YAML. An explicit zone fixes the business timezone; approval and preview display the effective zone.
+- update: `{id,baseRevision,...changed create fields}`. Omitted fields remain unchanged. Providing query replaces the exposed query fields, so read and preserve fields you want to keep. Omit remainingRuns to retain the existing limit, provide an integer 1–100 to set it, or provide `remainingRuns:null` to remove the limit without recreating the task. Providing an empty zoneId removes the explicit timezone and follows the platform zone; omitting zoneId keeps its existing setting.
 - setEnabled: `{id,baseRevision,enabled}`. enabled is boolean, never a toggle.
 - trigger: `{id,baseRevision}` executes the approved snapshot once, including paused tasks. Does not enable a task or consume remainingRuns. Returns accepted and executionId; accepted does not mean completed. Use execution to inspect the result.
 - delete: `{id,baseRevision}` removes the definition and retains existing execution history and conversations.

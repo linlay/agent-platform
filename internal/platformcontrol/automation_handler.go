@@ -23,6 +23,7 @@ func init() {
 		}
 		update[k] = v
 	}
+	update["remainingRuns"] = "n?"
 	argumentFields["automation_manage.update"] = update
 	argumentFields["automation_manage.setEnabled"] = map[string]string{"id": "s!", "baseRevision": "s!", "enabled": "b!"}
 	for _, a := range []string{"delete", "trigger"} {
