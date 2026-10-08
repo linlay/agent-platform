@@ -201,8 +201,12 @@ while IFS= read -r target; do
   [[ -n "$target" ]] || continue
   (
     cd "$collection_root/poppler-pdftotext"
-    POPPLER_PDFTOTEXT_TARGET_MATRIX="$target" scripts/release/build.sh
+    GOFLAGS="${GOFLAGS:+$GOFLAGS }-buildvcs=false" POPPLER_PDFTOTEXT_TARGET_MATRIX="$target" scripts/release/build.sh
   )
+  python3 "$SCRIPT_DIR/reuse-locked-tree-archive.py" \
+    --lock "$REPO_ROOT/scripts/release-assets/builtins.lock.json" \
+    --source-root "$BUILTINS_ROOT" --built-root "$collection_root" \
+    --component poppler-pdftotext --target "$target"
 done <"$poppler_targets_file"
 for target in "${TARGETS[@]}"; do
   python3 "$SCRIPT_DIR/build-kbx.py" --source "$collection_root/kbx" \

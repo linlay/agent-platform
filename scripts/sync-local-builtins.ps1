@@ -154,8 +154,19 @@ try {
     foreach ($item in $popplerTargets) {
         if (-not $item) { continue }
         $parts = $item.Trim().Split('/')
-        Invoke-Native -Command "powershell" -WorkingDirectory (Join-Path $CollectionRoot "poppler-pdftotext") -Arguments @(
-            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/release/build.ps1", "-TargetOS", $parts[0], "-TargetArch", $parts[1]
+        $oldPopplerGoFlags = $env:GOFLAGS
+        try {
+            $env:GOFLAGS = ("$oldPopplerGoFlags -buildvcs=false").Trim()
+            Invoke-Native -Command "powershell" -WorkingDirectory (Join-Path $CollectionRoot "poppler-pdftotext") -Arguments @(
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/release/build.ps1", "-TargetOS", $parts[0], "-TargetArch", $parts[1]
+            )
+        } finally {
+            if ($null -eq $oldPopplerGoFlags) { Remove-Item Env:GOFLAGS -ErrorAction SilentlyContinue } else { $env:GOFLAGS = $oldPopplerGoFlags }
+        }
+        Invoke-Native -Command "python" -WorkingDirectory $RepoRoot -Arguments @(
+            (Join-Path $ScriptDir "reuse-locked-tree-archive.py"), "--lock", $CanonicalLock,
+            "--source-root", $BuiltinsRoot, "--built-root", $CollectionRoot,
+            "--component", "poppler-pdftotext", "--target", $item.Trim()
         )
     }
 

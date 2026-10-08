@@ -95,10 +95,10 @@
     },
     {
       "name": "memx",
-      "version": "0.4.1",
+      "version": "0.2.0",
       "repository": "memx",
       "source": "agent-platform-builtins/memx",
-      "commit": "9859fc91ddcf1ed4f212348edfba381480c03894",
+      "commit": "91a0f156eb1e4d712aa1521d1d3c1a326df0cfff",
       "kind": "archive",
       "required": true,
       "licenseDirectory": "memx",
@@ -107,14 +107,14 @@
       ],
       "targets": {
         "darwin-arm64": {
-          "version": "0.4.1",
+          "version": "0.2.0",
           "source": "agent-platform-builtins/memx",
-          "commit": "9859fc91ddcf1ed4f212348edfba381480c03894",
-          "path": "dist/v0.4.1/memx_v0.4.1_darwin_arm64.tar.gz",
+          "commit": "91a0f156eb1e4d712aa1521d1d3c1a326df0cfff",
+          "path": "dist/v0.2.0/memx_v0.2.0_darwin_arm64.tar.gz",
           "format": "tar.gz",
           "entry": "memx",
           "output": "memx",
-          "sha256": "ca184f5dad3eaf771d51a2e555eb3e98b85741fb15f40070ecbaa5af62d3f65c"
+          "sha256": "a00ac584af5398e3b55b7c8d78710ec5a911e89895905333a6c581593cbeef72"
         }
       }
     },
