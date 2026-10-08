@@ -4,25 +4,25 @@ i18n:
     label: "Website Action"
   zh-CN:
     label: "网站动作"
-description: "Invoke one business action that the website documents in its AWCP manual. Read the section with awcp_manual first and build args from its inputSchema, using the same revision. Field validation is owned by the website; Platform does not coerce or repair arguments. Fix reported invalid arguments explicitly, but do not automatically replay a timeout, disconnect, cancellation or unknown outcome. A stale revision requires reading the manual again."
+description: "Invoke one business action documented in a website's AWCP manual. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
     surfaceId:
       type: string
-      description: Exact webpage identity returned by workpanel_open or surface_list. May be omitted only inside the application this Run belongs to.
+      description: "Webpage identity."
     paramsFile:
       type: string
-      description: "Alternative to inline revision/action/args, mutually exclusive with all three. UTF-8 JSON file containing exactly revision, action and args, never the full call. Keep surfaceId outside; do not supply method. Standard path aliases, read permissions and approval, regular-file check and max read size apply. Platform sends parsed JSON only. For parameter errors with executionStarted:false, correct the reported field/file and call again."
+      description: "JSON file path for the invocation."
     revision:
       type: string
-      description: Required for inline input. Revision of the manual the section was read from.
+      description: "Manual revision."
     action:
       type: string
-      description: Required for inline input. Section name being invoked.
+      description: "Section name."
     args:
       type: object
-      description: "Required for inline input. Native JSON object built from the section inputSchema. No-argument actions use {}; actions with arguments must fill the object. Do not pass an empty string or a string containing {}."
+      description: "Action arguments."
       additionalProperties: true
   additionalProperties: false

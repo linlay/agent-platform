@@ -4,15 +4,15 @@ i18n:
     label: "Close WorkPanel"
   zh-CN:
     label: "工作面板关闭"
-description: "Close one file preview by its recorded Workspace path, or close the whole WorkPanel. Provide exactly one of url or all. To close one webpage, use surface_list then surface_close with its surfaceId; webpage URLs are not accepted here. Close the whole WorkPanel only when the user asked for it."
+description: "Close a file preview or the whole WorkPanel. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
     url:
       type: string
-      description: The @workspace/ or @chat/ file that was passed to workpanel_open. Must match a recorded Workspace path; matching only the file name is not allowed.
+      description: "File preview path."
     all:
       type: boolean
-      description: true closes the whole WorkPanel of the current Chat. Mutually exclusive with url.
+      description: "Close the whole WorkPanel."
   additionalProperties: false

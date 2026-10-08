@@ -4,7 +4,7 @@ i18n:
     label: "Platform Diagnostics"
   zh-CN:
     label: "平台诊断"
-description: "runtimeStatus: component? (runtime/models/mcp/connectors/kbase/containerHub/memory/catalog). securityExplain: path with access?, or tool with action?. Reads existing state without granting permissions or starting remote probes."
+description: "Inspect Platform runtime health and access policies. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: true
@@ -23,7 +23,7 @@ inputSchema:
         - "securityExplain"
     args:
       type: "object"
-      description: "runtimeStatus: component? (runtime/models/mcp/connectors/kbase/containerHub/memory/catalog). securityExplain: path with access?, or tool with action?. Reads existing state without granting permissions or starting remote probes."
+      description: "Action-specific arguments; see the platform-control skill."
   required:
     - "action"
   additionalProperties: false

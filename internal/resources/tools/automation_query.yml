@@ -4,7 +4,7 @@ i18n:
     label: "Query Automations"
   zh-CN:
     label: "查询自动化"
-description: "list: limit? (1-100), offset?. get: id. executions: id, limit?, offset?. execution: executionId. validate: complete create fields; validates without saving and previews schedule times. get returns baseRevision for management."
+description: "Inspect automation schedules and execution history, and preview schedule candidates. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: true
@@ -17,7 +17,7 @@ inputSchema:
   properties:
     action:
       type: string
-      description: "Required. Exact action owned by this tool."
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
       enum:
         - "list"
         - "get"
@@ -26,7 +26,7 @@ inputSchema:
         - "validate"
     args:
       type: object
-      description: "list: limit? (1-100), offset?. get: id. executions: id, limit?, offset?. execution: executionId. validate: complete create fields; validates without saving and previews schedule times. get returns baseRevision for management."
+      description: "Action-specific arguments; see the task-control skill's automation reference."
       properties:
         limit:
           type: integer

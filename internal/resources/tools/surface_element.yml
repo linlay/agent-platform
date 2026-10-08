@@ -4,17 +4,17 @@ i18n:
     label: "Interact with Page Element"
   zh-CN:
     label: "网页元素操作"
-description: "Fill, select, focus or scroll one element identified by a CSS selector. Use surface_click to click. Verify the expected state afterwards. Prefer a matching AWCP section when the page provides one."
+description: "Fill, select, focus or scroll one webpage element. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
     surfaceId:
       type: string
-      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+      description: "Required. Webpage identity."
     selector:
       type: string
-      description: Required. CSS selector of a verified element.
+      description: "Required. CSS selector."
     action:
       type: string
       enum:
@@ -22,10 +22,10 @@ inputSchema:
         - select
         - focus
         - scroll
-      description: Required. fill sets an input value, select chooses an option, focus focuses the element, scroll scrolls it into view.
+      description: "Required. Element action."
     value:
       type: string
-      description: Value for fill or select.
+      description: "Value for the action."
   required:
     - surfaceId
     - selector

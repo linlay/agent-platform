@@ -4,7 +4,7 @@ i18n:
     label: "Desktop Market"
   zh-CN:
     label: "桌面市场"
-description: "desktop_market: market.getSettings, market.validateSettings, market.previewSettingsPatch, market.applySettingsPatch, market.listItems, market.getItemDetail, market.refresh, market.installItem, market.updateItem, market.uninstallItem, market.openItem, market.importSkill, market.importSandboxImage, market.exportSandboxImage, market.deleteSandboxImage. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+description: "Manage Desktop marketplace resources. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -36,7 +36,7 @@ inputSchema:
         - "market.deleteSandboxImage"
     args:
       type: "object"
-      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+      description: "Action-specific arguments; see the platform-control skill's market reference."
   required:
     - "action"
   additionalProperties: false

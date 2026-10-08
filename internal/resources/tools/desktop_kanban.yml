@@ -4,7 +4,7 @@ i18n:
     label: "Desktop Kanban"
   zh-CN:
     label: "桌面看板"
-description: "Manage local Desktop Kanban issues with action and args. For execution after creation, set args.input.status to todo and args.input.assigneeAgentKey to the actual executor key. Omitted status defaults to backlog, which does not auto-run. With Kanban enabled, eligible local todo issues auto-run without an extra run or move; scheduled automation uses its own trigger. Desktop owns results/workflow. Read the kanban-control reference before mutations. Page control uses web-control."
+description: "Manage Desktop kanban issues and their workflow. Read the kanban-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -44,10 +44,7 @@ inputSchema:
         - "kanban.moveIssue"
     args:
       type: "object"
-      description: >-
-        Action-specific arguments. Create for execution:
-        {"input":{"title":"<task-title>","status":"todo","assigneeAgentKey":"<agent-key>"}}.
-        Replace placeholders with actual values; see the kanban-control reference for other actions.
+      description: "Action-specific arguments; see the kanban-control skill's kanban reference."
   required:
     - "action"
   additionalProperties: false

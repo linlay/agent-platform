@@ -4,7 +4,7 @@ i18n:
     label: "Desktop Services"
   zh-CN:
     label: "桌面服务"
-description: "desktop_service: controlCenter.listServices, controlCenter.getServiceStatus, controlCenter.getServiceDetail, controlCenter.getServiceLogsMeta, controlCenter.readServiceLog, controlCenter.openService, controlCenter.openLogViewer, controlCenter.installService, controlCenter.initializeService, controlCenter.startService, controlCenter.stopService, controlCenter.restartService. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+description: "Inspect and manage Desktop services. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -33,7 +33,7 @@ inputSchema:
         - "controlCenter.restartService"
     args:
       type: "object"
-      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+      description: "Action-specific arguments; see the platform-control skill's control-center reference."
   required:
     - "action"
   additionalProperties: false

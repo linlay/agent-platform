@@ -2,7 +2,7 @@
   "id": "builtin.platform-control",
   "name": "Platform Control",
   "icon": "assets/icon.svg",
-  "version": "3.0.0",
+  "version": "0.4.0",
   "type": "native",
   "auth_mode": "no_auth",
   "description": "Platform resources, diagnostics and Desktop management",

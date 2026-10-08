@@ -4,7 +4,7 @@ i18n:
     label: "Page State"
   zh-CN:
     label: "网页状态"
-description: "Read the state of one webpage. Omit surfaceId to read the current page of the application this Run belongs to; an ordinary Chat may have no current page, so pass the surfaceId from workpanel_open or surface_list."
+description: "Read the state of one webpage. Read the web-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:
@@ -12,5 +12,5 @@ inputSchema:
   properties:
     surfaceId:
       type: string
-      description: Exact webpage identity returned by workpanel_open or surface_list. Omit only to read the owning application's current page.
+      description: "Webpage identity."
   additionalProperties: false

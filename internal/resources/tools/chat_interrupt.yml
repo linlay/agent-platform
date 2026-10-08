@@ -4,7 +4,7 @@ i18n:
     label: "Interrupt Chat Run"
   zh-CN:
     label: "中断会话运行"
-description: Interrupt an independent run previously created by chat_start for this caller and subject. Do not use this tool for the current run or for agent_invoke or agent_delegate child tasks.
+description: "Interrupt an independent run started by chat_start. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -14,10 +14,10 @@ inputSchema:
     runId:
       type: string
       minLength: 1
-      description: Required. Run ID returned by chat_start. Identifies one execution within a Chat, not the Chat itself.
+      description: "Required. Run ID returned by chat_start."
     message:
       type: string
-      description: Optional. Reason or detail to attach to the interrupt request.
+      description: "Interrupt reason."
   required:
     - runId
   additionalProperties: false

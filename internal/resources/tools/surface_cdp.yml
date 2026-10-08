@@ -4,17 +4,17 @@ i18n:
     label: "Page CDP"
   zh-CN:
     label: "网页CDP"
-description: "Send one Chrome DevTools Protocol method that has no dedicated tool to a webpage. Navigation, screenshots, script evaluation and clicks use the surface_* tools; website business actions use awcp_manual and awcp_invoke. Use native JSON types in params. On invalid_args fix every reported field; do not reload or close the page to fix parameter types."
+description: "Send one Chrome DevTools Protocol method to a webpage. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
     surfaceId:
       type: string
-      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+      description: "Required. Webpage identity."
     method:
       type: string
-      description: Required. Chrome DevTools Protocol method.
+      description: "Required. Protocol method."
       enum:
         - Page.enable
         - DOM.getDocument
@@ -29,11 +29,11 @@ inputSchema:
         - Network.disable
     params:
       type: object
-      description: JSON parameters of the method. Mutually exclusive with paramsFile; omit both for a method without parameters.
+      description: "Method parameters."
       additionalProperties: true
     paramsFile:
       type: string
-      description: Path to a UTF-8 JSON file containing only the params object. Relative paths resolve from the execution workspace; explicit roots such as @chat and authorized absolute paths follow the standard file read AccessPolicy and approval rules. Mutually exclusive with params.
+      description: "JSON file path for the parameters."
   required:
     - surfaceId
     - method

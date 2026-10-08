@@ -4,31 +4,7 @@ i18n:
     label: "Start Chat Run"
   zh-CN:
     label: "发起会话运行"
-description: |
-  Start an independent root run in a Chat for exactly one catalog Agent or Team. By
-  default, it creates a new Chat; when chatId is provided, it continues
-  that target-owned Chat instead.
-  In user requests, conversation, dialogue, and chat are synonyms for Chat,
-  including their Chinese equivalents. Requests to open, create, or start a
-  new or separate conversation/dialogue/chat mean creating a new Chat with
-  this tool; omit chatId.
-  Never reuse the current chatId for a request to open a new Chat. Only provide
-  chatId when the user asks to continue a specific existing Chat.
-  If no target Agent or Team is specified, use the current Agent Identity.key.
-  Use chatName only when the user specifies a name for the new Chat.
-  A request to open a new Chat is not an agent_invoke or agent_delegate child call.
-  Return its chatId and runId immediately. This
-  tool does not wait for the target result, and the target continues if the
-  caller run is interrupted. When targeting the current Agent, set agentKey to
-  the exact Agent Identity.key from the current system prompt. References to the current Agent, this Agent, or yourself in any language
-  always mean that current Agent; do not
-  substitute a key from Runtime Context: Sub-Agent Candidates.
-  accessLevel, mustUseSkills and chatName are optional. Only pass accessLevel
-  when the user explicitly requests a permission level. Automatic approval means
-  auto_approve, not full_access; destructive operations may still require approval.
-  Omission inherits the parent Run current permission level at invocation time.
-  A deployment may disable explicit non-default overrides; inheritance remains allowed. chatName names a new Chat only;
-  do not combine it with chatId. taskName is not supported.
+description: "Start an independent run for an Agent or Team in a new or existing Chat. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -38,36 +14,36 @@ inputSchema:
     message:
       type: string
       minLength: 1
-      description: Required. Task message to send to the target Agent or Team.
+      description: "Required. Task message."
     agentKey:
       type: string
       minLength: 1
-      description: Optional. Exact catalog key of the target Agent. Provide exactly one of agentKey or teamId. When targeting the current Agent, use the exact Agent Identity.key from the current system prompt.
+      description: "Target Agent key."
     teamId:
       type: string
       minLength: 1
-      description: Optional. Exact catalog ID of the target Team. Provide exactly one of agentKey or teamId.
+      description: "Target Team ID."
     chatId:
       type: string
       minLength: 1
-      description: Optional. Existing Chat owned by the selected target to continue.
+      description: "Existing Chat to continue."
     accessLevel:
       type: string
       enum:
         - default
         - auto_approve
         - full_access
-      description: Optional. Permission level for this run only; omitted inherits the parent Run current level. Explicit non-default levels require deployment opt-in. Target admission applies to all levels.
+      description: "Permission level for this run."
     mustUseSkills:
       type: array
       items:
         type: string
         minLength: 1
-      description: Optional. Extra required skill IDs for an ordinary Agent run. Empty means none. Team runs and connector skills do not support this selection.
+      description: "Required skill IDs."
     chatName:
       type: string
       minLength: 1
-      description: Optional. Initial name for a new Chat. Cannot be combined with chatId. Omit to use the normal naming behavior.
+      description: "Name for a new Chat."
   required:
     - message
   additionalProperties: false

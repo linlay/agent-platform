@@ -4,27 +4,27 @@ i18n:
     label: "Navigate Page"
   zh-CN:
     label: "网页导航"
-description: "Navigate inside an existing webpage: go to a URL, reload, or go back. The surfaceId stays the same. Use workpanel_open to open a new page."
+description: "Navigate inside an existing webpage. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
     surfaceId:
       type: string
-      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+      description: "Required. Webpage identity."
     action:
       type: string
       enum:
         - goto
         - reload
         - back
-      description: Required. goto loads url in this page, reload reloads it, back goes back in its history.
+      description: "Required. Navigation action."
     url:
       type: string
-      description: Required for goto and rejected otherwise. Must start with http:// or https://.
+      description: "Destination address."
     ignoreCache:
       type: boolean
-      description: Optional, reload only. true bypasses the cache.
+      description: "Bypass the cache."
   required:
     - surfaceId
     - action

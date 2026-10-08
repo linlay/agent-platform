@@ -4,7 +4,7 @@ i18n:
     label: "Manage Automations"
   zh-CN:
     label: "管理自动化"
-description: "create: name, cron (five fields), query {message, accessLevel?, chatId?, role?, hidden?, params?}, agentKey or teamId, description?, zoneId?, enabled?, remainingRuns? (positive integer). update: id, baseRevision, optional create fields; query replaces the entire query. setEnabled: id, baseRevision, enabled. delete/trigger: id, baseRevision. Read get first. Task accessLevel defaults to default independently of caller permissions. All mutations need exact invocation approval; delete always requires a human."
+description: "Manage automation schedules and manual execution. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -28,7 +28,7 @@ inputSchema:
   properties:
     action:
       type: string
-      description: "Required. Exact action owned by this tool."
+      description: "Required. Exact action owned by this tool; see its mounted skill reference."
       enum:
         - "create"
         - "update"
@@ -37,7 +37,7 @@ inputSchema:
         - "trigger"
     args:
       type: object
-      description: "create: name, cron (five fields), query {message, accessLevel?, chatId?, role?, hidden?, params?}, agentKey or teamId, description?, zoneId?, enabled?, remainingRuns? (positive integer). update: id, baseRevision, optional create fields; query replaces the entire query. setEnabled: id, baseRevision, enabled. delete/trigger: id, baseRevision. Read get first. Task accessLevel defaults to default independently of caller permissions. All mutations need exact invocation approval; delete always requires a human."
+      description: "Action-specific arguments; see the task-control skill's automation reference."
       properties:
         enabled:
           type: boolean

@@ -1,6 +1,6 @@
 # Platform catalog
 
-Use catalog_query for discovery and catalog_manage for approved source changes. Only ordinary native main root Runs with builtin.platform-control mounted may call these tools. Planning permits reads and validation only. Never bypass a rejection through Bash or file tools.
+Use catalog_query for discovery and catalog_manage for approved source changes, both with `{action,args}`. Only ordinary native main root Runs with builtin.platform-control mounted may call these tools. Planning permits reads and validation only. Never bypass a rejection through Bash or file tools.
 
 ## Queries
 

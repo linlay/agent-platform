@@ -2,7 +2,7 @@
   "id": "builtin.task-control",
   "name": "Task Control",
   "icon": "assets/icon.svg",
-  "version": "1.0.0",
+  "version": "0.4.0",
   "type": "native",
   "auth_mode": "no_auth",
   "description": "Manage conversations, start and follow Agent tasks, and maintain automation schedules",

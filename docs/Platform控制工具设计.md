@@ -16,6 +16,8 @@
 
 全部工具使用固定 `{action,args}`，action 枚举来自 `internal/connector/control_actions.go`；顶层未知字段拒绝。Catalog/Chat/Automation/Inspect 还严格检查动作参数类型与字段。Desktop 保留动作字段校验；日常管理的确认由 Platform 接管，重影响动作继续使用 Desktop 确认，适配器添加 `desktop.` 传输前缀。`agent.update`、`skill.update` 不再暴露给模型。不同工具的 action 不互相兼容。
 
+平台、任务与看板连接器的 `action/args` 管理工具，`description` 只说明能力和对应 Skill 入口，不重复动作清单、参数表、示例或业务约束；`args.description` 只指向对应 Skill 手册。动作参数、类型、默认值、审批边界和重试规则由 Skill 及其 references 说明，模型应先读技能入口，再读本次操作所需章节。静态 Schema 保留现有枚举与类型校验，服务端继续负责执行准入。
+
 Standalone 隐藏七个 Desktop 工具；Catalog/Chat/Automation 在子任务、Team、BTW/Explain 中隐藏并在执行时再次拒绝。ACP/Proxy/Channel 不经过 native 执行入口。planning/read-only 仅允许平台只读动作；七个 Desktop 管理工具全部禁止 planning，并按顺序屏障执行，包括其只读动作。未知动作按非只读处理。
 
 `configs/agent-settings.yml` 支持全局和 mode `preset-connectors`，示例预置 `builtin.web-control` 与 `builtin.task-control`。普通 native GENERAL/CODER/KBASE 合并整包挂载，去重且不回写 Agent 源码；ACP/隐藏 Team 协调器不注入。连接器列表返回 `presetConnectorIds`、`declaredConnectorIds` 和包含两者的 `connectorIds`；预置项不可从单个 Agent 取消。删除连接器也检查全局及所有 mode 预置引用。平台管理连接器仍不进入默认预置。

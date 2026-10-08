@@ -4,7 +4,7 @@ i18n:
     label: "Desktop Settings"
   zh-CN:
     label: "桌面设置"
-description: "desktop_settings: theme.get, theme.set, locale.get, locale.set, skin.get, skin.list, skin.import, skin.set, skin.remove, pet.state, pet.list, pet.show, pet.hide, pet.set, pet.import, copilot.getPagePreferences, copilot.setPagePreference. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+description: "Manage Desktop appearance and preferences. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -79,7 +79,7 @@ inputSchema:
         - "copilot.setPagePreference"
     args:
       type: "object"
-      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+      description: "Action-specific arguments; see the platform-control skill's settings reference."
   required:
     - "action"
   additionalProperties: false

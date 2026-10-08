@@ -4,20 +4,20 @@ i18n:
     label: "Open WorkPanel"
   zh-CN:
     label: "工作面板打开"
-description: "Open a webpage or preview a file in the current Chat's WorkPanel. This is the only way to open a new page. An item that is already open is activated instead of duplicated. A webpage result includes surfaceId for the surface_* and awcp_* tools; a file preview has no surfaceId and cannot be controlled as a webpage. Opening does not prove the page finished loading. Open only addresses supplied by the user, returned by a trusted tool, already present in this conversation, or served by a host-visible service started for this task."
+description: "Open a webpage or file preview in the current Chat's WorkPanel. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
     url:
       type: string
-      description: "Required. A webpage starts with http:// or https:// (for example http://localhost:3000) and must not contain credentials. A file starts with @workspace/ (bound project) or @chat/ (current Chat) followed by a relative path, for example @workspace/artifacts/report.html, and must be inside the current Workspace. Bare paths, host names without a scheme, absolute paths and file:// are rejected. File previews require the Desktop runtime."
+      description: "Required. Webpage address or file preview path."
     title:
       type: string
-      description: Optional tab title for a file preview. Not accepted for webpages.
+      description: "Tab title for a file preview."
     reload:
       type: boolean
-      description: Optional. true reloads the webpage after opening or activating it. File previews always reload when reopened.
+      description: "Reload after opening."
   required:
     - url
   additionalProperties: false

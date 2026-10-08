@@ -4,14 +4,14 @@ i18n:
     label: "Close Page"
   zh-CN:
     label: "关闭网页"
-description: "Close one webpage. Its surfaceId becomes invalid. Do not also issue workpanel_close for the same page."
+description: "Close one webpage. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
     surfaceId:
       type: string
-      description: "Required. Exact webpage identity returned by workpanel_open or surface_list. A url is not a page identity."
+      description: "Required. Webpage identity."
   required:
     - surfaceId
   additionalProperties: false

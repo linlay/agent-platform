@@ -296,6 +296,8 @@ orchestrator:
 
 原生连接器由 `connector.json` 的 `type: native` 和连接器 ID 对应的源码工具表装配，不使用 `native.json`。`builtin.platform-control` 提供平台治理能力；`run_env` 独立提供当前普通 native root Run 的 list/set/unset/update/explain，由普通 Native GENERAL/CODER/KBASE 默认挂载，可通过 excludeTools 排除。动态值仅影响后续命令、不继承到子任务或其他 Run。旧 platform-control 配置段已移除。详见 [Run 环境工具](docs/Run环境工具.md)。
 
+四个内嵌原生连接器 platform-control/task-control/kanban-control/web-control 统一从 `0.4.0` 开始使用 Platform 版本系列，发布时统一维护源码清单版本；外部 dbx/httpx 保持独立项目版本。详见 [内嵌连接器来源](docs/连接器.md#desktop-内嵌连接器来源)。
+
 ## 4. 部署
 
 ### 容器构建

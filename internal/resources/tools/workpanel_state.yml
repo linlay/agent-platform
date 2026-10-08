@@ -4,7 +4,7 @@ i18n:
     label: "WorkPanel State"
   zh-CN:
     label: "工作面板状态"
-description: "List what is open in the current Chat's WorkPanel. Each item reports kind (web or file), the url it was opened with, title and whether it is active. Use surface_list for live webpages and their surfaceId."
+description: "List what is open in the current Chat's WorkPanel. Read the web-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:

@@ -4,7 +4,7 @@ i18n:
     label: "Desktop Web Apps"
   zh-CN:
     label: "桌面网页应用"
-description: "desktop_webapp: webapp.getStatus, webapp.checkRuntime, webapp.getPublishStatus, webapp.start, webapp.stop, webapp.restart, webapp.open, webapp.updatePreferences, webapp.package.init, webapp.package.validate, webapp.package.build, webapp.install, webapp.uninstall, webapp.publish, webapp.unpublish, web.exportArtifact. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+description: "Manage Desktop WebApp lifecycle and distribution. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -66,7 +66,7 @@ inputSchema:
         - "web.exportArtifact"
     args:
       type: "object"
-      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+      description: "Action-specific arguments; see the platform-control skill's webapp reference."
   required:
     - "action"
   additionalProperties: false

@@ -4,7 +4,7 @@ i18n:
     label: "Desktop Websites"
   zh-CN:
     label: "桌面网站"
-description: "desktop_site: site.list, website.list, website.add, website.update, website.remove, website.open. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+description: "Manage and open Desktop websites. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -40,7 +40,7 @@ inputSchema:
         - "website.open"
     args:
       type: "object"
-      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+      description: "Action-specific arguments; see the platform-control skill's website reference."
   required:
     - "action"
   additionalProperties: false

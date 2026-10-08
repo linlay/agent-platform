@@ -4,7 +4,7 @@ i18n:
     label: "Desktop Control"
   zh-CN:
     label: "桌面控制"
-description: "desktop_shell: navigate.toRoute, help.openTopic, agent.open, skill.open, assistant.chat, display, runtime.info, runtime.diagnostics, general.deviceName. Call with action and args. Desktop validates action arguments. Read the platform-control skill domain reference. Page control belongs to web-control."
+description: "Control Desktop navigation and shell utilities. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -35,7 +35,7 @@ inputSchema:
         - "general.deviceName"
     args:
       type: "object"
-      description: "Optional. Action-specific arguments; see the mounted platform-control skill."
+      description: "Action-specific arguments; see the platform-control skill's shell reference."
   required:
     - "action"
   additionalProperties: false

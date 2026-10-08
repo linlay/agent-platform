@@ -2,6 +2,14 @@
 
 The WorkPanel belongs to the current Chat. Platform supplies the Chat and Workspace from the trusted Run; no tool takes a Chat, workspace or item identifier.
 
+## Arguments
+
+- `workpanel_state`: `{}`.
+- `workpanel_open`: `{url, title?, reload?}`. `url` is a required string: a webpage starting with `http://` or `https://`, or a file starting with `@workspace/` (bound project) or `@chat/` (current Chat) followed by a relative path, for example `@workspace/artifacts/report.html`. Bare paths, host names without a scheme, absolute paths and `file://` are rejected. `title` is an optional string for a file preview and is not accepted for webpages. `reload` is an optional boolean.
+- `workpanel_close`: exactly one of `{url}` or `{all: true}`. `url` is the `@workspace/` or `@chat/` file that was passed to `workpanel_open`; webpage URLs are not accepted. `all` is a boolean.
+
+Booleans are native JSON values, never strings. Unknown fields are rejected.
+
 ## State
 
 `workpanel_state` lists the open items. Each item reports:

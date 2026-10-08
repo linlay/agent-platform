@@ -5,7 +5,15 @@ description: Manage conversations, start and follow independent Agent or Team ru
 
 # Task Control
 
-Requires builtin.task-control mounted in an ordinary Native root Run. Use chat_start to execute a task now and automation_manage to schedule future execution. Read [conversations](references/chat.md) for history and lifecycle operations, and [automation](references/automation.md) before changing schedules.
+Requires builtin.task-control mounted in an ordinary Native root Run. Use chat_start to execute a task now and automation_manage to schedule future execution.
+
+Tool definitions only name a capability. Read the reference for a tool before calling it; arguments, types, constraints and examples live there, not in the tool schema.
+
+| Tools | Reference |
+| --- | --- |
+| chat_start, chat_get_status, chat_interrupt | [independent runs](references/run.md) |
+| chat_query, chat_manage | [conversations](references/chat.md) |
+| automation_query, automation_manage | [automation](references/automation.md) |
 
 - chat_start starts an independent root run and returns chatId/runId immediately. Omit chatId for a new Chat; provide it only to continue an existing target-owned Chat. If no target is specified, use Agent Identity.key. Exactly one of agentKey/teamId is required. The target continues when the caller is interrupted.
 - chat_get_status reads the status/result of a run previously created by chat_start for this calling Agent and subject; chat_interrupt interrupts that run. Both take runId, not chatId. They cannot control arbitrary or current runs, or agent_invoke/agent_delegate children. Runs created by chat_start cannot chain these three execution tools.

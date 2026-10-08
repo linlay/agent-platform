@@ -8,13 +8,13 @@ version: 1.0.0
 
 The tools are grouped by what they act on:
 
-| Group | Tools | Acts on |
-| --- | --- | --- |
-| WorkPanel | `workpanel_state`, `workpanel_open`, `workpanel_close` | The current Chat's panel and what is open in it |
-| Surface | `surface_list`, `surface_state`, `surface_navigate`, `surface_activate`, `surface_close`, `surface_screenshot`, `surface_evaluate`, `surface_click`, `surface_element`, `surface_cdp` | One live webpage |
-| AWCP | `awcp_manual`, `awcp_invoke` | The business interface a website publishes |
+| Group | Tools | Acts on | Reference |
+| --- | --- | --- | --- |
+| WorkPanel | `workpanel_state`, `workpanel_open`, `workpanel_close` | The current Chat's panel and what is open in it | [WorkPanel](references/workpanel.md) |
+| Surface | `surface_list`, `surface_state`, `surface_navigate`, `surface_activate`, `surface_close`, `surface_screenshot`, `surface_evaluate`, `surface_click`, `surface_element`, `surface_cdp` | One live webpage | [Surface tools](references/surface.md) |
+| AWCP | `awcp_manual`, `awcp_invoke` | The business interface a website publishes | [AWCP](references/awcp.md) |
 
-Parameters are defined by each tool's schema. This skill covers how the tools fit together.
+Tool definitions only name a capability. Read the reference for a tool before calling it; arguments, types, constraints and examples live there, not in the tool schema. This file covers how the tools fit together.
 
 ## Two identities
 

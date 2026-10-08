@@ -140,11 +140,6 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 			t.Fatalf("unexpected %s metadata: %#v", def.Name, def.Meta)
 		}
 		if def.Name == "chat_start" {
-			for _, requiredRule := range []string{"Agent Identity.key", "current Agent", "this Agent", "yourself in any language", "Sub-Agent Candidates"} {
-				if !strings.Contains(def.Description, requiredRule) {
-					t.Fatalf("chat_start description missing current-agent rule %q: %q", requiredRule, def.Description)
-				}
-			}
 			if def.Parameters["type"] != "object" || def.Parameters["additionalProperties"] != false {
 				t.Fatalf("chat_start schema is not a closed object: %#v", def.Parameters)
 			}
