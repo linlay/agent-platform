@@ -28,3 +28,37 @@ func TestValidationOrderStable(t *testing.T) {
 		}
 	}
 }
+
+func TestTypeDiagnosticsDoNotReplaceInputValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, field, rule, body, expected string
+	}{
+		{"boolean", "enabled", "b!", `{"enabled":"false"}`, "JSON boolean"},
+		{"integer", "limit", "n", `{"limit":"10"}`, "JSON integer in range 1–100"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var values map[string]any
+			if err := json.Unmarshal([]byte(tc.body), &values); err != nil {
+				t.Fatal(err)
+			}
+			err := Validate(values, map[string]string{tc.field: tc.rule}, "args.")
+			input, ok := err.(*Error)
+			if !ok || input.Field != "args."+tc.field || input.Expected != tc.expected || input.Actual != "string" {
+				t.Fatalf("incorrect type diagnostic: %v", err)
+			}
+			if strings.Contains(input.Recovery, "Set ") || strings.Contains(input.Recovery, "example:") || !strings.Contains(input.Recovery, tc.expected) {
+				t.Fatalf("recovery should require the type without choosing a value: %s", input.Recovery)
+			}
+			if !strings.Contains(input.Error(), input.Field) || !strings.Contains(input.Error(), tc.expected) || !strings.Contains(input.Error(), "string") {
+				t.Fatal(input.Error())
+			}
+			encoded, err := json.Marshal(values)
+			if err != nil || string(encoded) != tc.body {
+				t.Fatalf("validation changed the input: %s %v", encoded, err)
+			}
+		})
+	}
+	if err := Validate(map[string]any{"enabled": false, "limit": float64(10)}, map[string]string{"enabled": "b!", "limit": "n"}, "args."); err != nil {
+		t.Fatalf("valid false and integer rejected: %v", err)
+	}
+}

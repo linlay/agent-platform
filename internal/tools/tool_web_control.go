@@ -141,7 +141,7 @@ func webControlBool(args map[string]any, field string) (bool, bool, ToolExecutio
 	}
 	value, ok := raw.(bool)
 	if !ok {
-		return false, true, webControlInputError(toolinput.New(field, "JSON boolean", raw, true, "Use true or false without quotes.")), true
+		return false, true, webControlInputError(toolinput.New(field, "JSON boolean", raw, true, "Provide a JSON boolean.")), true
 	}
 	return value, true, ToolExecutionResult{}, false
 }

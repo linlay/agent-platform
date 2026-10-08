@@ -233,6 +233,8 @@ Platform 对 WebApp init、validate、build 和 install 的指定路径字段复
 
 工具名保持小写单词或 snake_case；平台自有输入键统一 camelCase，嵌套对象同样遵守。旧键不再接受：模型调用准备阶段、ToolRouter 与原生执行器入口检查已移除字段，返回 `invalid_tool_arguments` 和替代字段名，新旧键同时出现也拒绝。检查只覆盖指定平台工具及字段路径，不改写参数或枚举值，不遍历 CDP/MCP/AWCP 透传业务对象。
 
+原生工具类型校验失败返回字段路径 `field`、要求类型 `expected`、实际类型 `actual` 和 `fix_input` 恢复提示；布尔和整数错误只说明要求类型及范围，不建议替换成固定值，校验不改写输入。
+
 | 工具 | 旧字段 | 新字段 |
 | --- | --- | --- |
 | file_read / file_write / file_edit | file_path | filePath |

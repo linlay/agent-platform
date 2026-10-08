@@ -27,6 +27,30 @@ inputSchema:
     args:
       type: object
       description: "list: limit? (1-100), offset?. get: id. executions: id, limit?, offset?. execution: executionId. validate: complete create fields; validates without saving and previews schedule times. get returns baseRevision for management."
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: "Page size."
+        offset:
+          type: integer
+          description: "Pagination offset."
+        enabled:
+          type: boolean
+          description: "Whether the candidate automation is enabled."
+        remainingRuns:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: "Remaining scheduled executions."
+        query:
+          type: object
+          description: "Candidate query."
+          properties:
+            hidden:
+              type: boolean
+              description: "Query visibility flag."
   required:
     - "action"
   additionalProperties: false

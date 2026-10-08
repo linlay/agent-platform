@@ -22,6 +22,8 @@ func TestControlActionableAdmission(t *testing.T) {
 		{"null", "catalog_query", `{"action":"list","args":null}`, "args", "null", "object"},
 		{"nested", "catalog_manage", `{"action":"apply","args":{"resourceType":"skill","resourceKey":"x","content":"secret-content","preservePaths":[{}]}}`, "args.preservePaths[0]", "object", "string"},
 		{"boolean", "chat_manage", `{"action":"setPinned","args":{"pinned":"true"}}`, "args.pinned", "string", "boolean"},
+		{"automation boolean", "automation_manage", `{"action":"setEnabled","args":{"id":"task","baseRevision":"revision","enabled":"false"}}`, "args.enabled", "string", "boolean"},
+		{"automation nested boolean", "automation_manage", `{"action":"create","args":{"name":"Task","cron":"0 9 * * *","query":{"message":"hello","hidden":"true"}}}`, "args.query.hidden", "string", "boolean"},
 		{"enum", "chat_query", `{"action":"read","args":{"chatId":"x","view":"secret-value"}}`, "args.view", "string", "summary, messages"},
 		{"action", "catalog_query", `{"action":"secret-value"}`, "action", "string", "list"},
 		{"unknown", "catalog_query", `{"action":"list","args":{"resourceType":"model","secret-key":"secret-value"}}`, "args.<unknown>", "unknown field present", "limit"},
@@ -42,7 +44,7 @@ func TestControlActionableAdmission(t *testing.T) {
 			if !strings.Contains(r.Output, "fix_input") || strings.Contains(r.Output, "secret-") {
 				t.Fatalf("unsafe/unhelpful: %s", r.Output)
 			}
-			if tc.name == "string limit" && !strings.Contains(r.Output, "limit:100") {
+			if tc.name == "string limit" && strings.Contains(r.Output, "limit:100") {
 				t.Fatal(r.Output)
 			}
 		})

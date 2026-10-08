@@ -38,6 +38,22 @@ inputSchema:
     args:
       type: object
       description: "create: name, cron (five fields), query {message, accessLevel?, chatId?, role?, hidden?, params?}, agentKey or teamId, description?, zoneId?, enabled?, remainingRuns? (positive integer). update: id, baseRevision, optional create fields; query replaces the entire query. setEnabled: id, baseRevision, enabled. delete/trigger: id, baseRevision. Read get first. Task accessLevel defaults to default independently of caller permissions. All mutations need exact invocation approval; delete always requires a human."
+      properties:
+        enabled:
+          type: boolean
+          description: "Whether the automation is enabled."
+        remainingRuns:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: "Remaining scheduled executions."
+        query:
+          type: object
+          description: "Saved query."
+          properties:
+            hidden:
+              type: boolean
+              description: "Query visibility flag."
   required:
     - "action"
   additionalProperties: false

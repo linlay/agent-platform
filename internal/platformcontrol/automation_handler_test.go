@@ -4,9 +4,35 @@ import (
 	"agent-platform/internal/automation"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/toolinput"
 	"context"
+	"errors"
 	"testing"
 )
+
+func TestAutomationBooleanTypeErrorBeforeReview(t *testing.T) {
+	h := &ToolHandler{}
+	params := map[string]any{"id": "task", "baseRevision": "revision", "enabled": "false"}
+	args := map[string]any{"action": "setEnabled", "args": params}
+	e := controlExecution()
+	approval, err := h.PrepareToolApproval(context.Background(), "automation_manage", args, e)
+	var input *toolinput.Error
+	if approval != nil || !errors.As(err, &input) || input.Field != "args.enabled" || input.Expected != "JSON boolean" || input.Actual != "string" {
+		t.Fatalf("incorrect pre-review type error: %#v %v", approval, err)
+	}
+	result, err := h.Invoke(context.Background(), "automation_manage", args, e)
+	if err != nil || result.Structured["executionState"] != "not_started" || result.Structured["field"] != "args.enabled" {
+		t.Fatalf("invalid input reached execution: %+v %v", result, err)
+	}
+	if params["enabled"] != "false" {
+		t.Fatal("validation changed the requested value")
+	}
+	params["enabled"] = false
+	_, admitted, err := h.admitted("automation_manage", args, e)
+	if err != nil || admitted["enabled"] != false {
+		t.Fatalf("corrected false was not preserved: %#v %v", admitted, err)
+	}
+}
 
 func TestAutomationToolAdmissionApprovalAndPolicy(t *testing.T) {
 	h := NewToolHandler(config.Config{}, nil, nil).ConfigureAutomation(&automation.Service{Registry: automation.NewRegistry(t.TempDir(), nil), ReceiptDir: t.TempDir(), DefaultZoneID: "UTC"})

@@ -12,7 +12,7 @@ func TestWebInputDiagnostics(t *testing.T) {
 		t.Fatal(r.Output)
 	}
 	_, _, r, bad = webControlBool(map[string]any{"visible": "secret-value"}, "visible")
-	if !bad || strings.Contains(r.Output, "secret-value") || !strings.Contains(r.Output, "without quotes") {
+	if !bad || strings.Contains(r.Output, "secret-value") || !strings.Contains(r.Output, "visible") || !strings.Contains(r.Output, "JSON boolean") || !strings.Contains(r.Output, "string") {
 		t.Fatal(r.Output)
 	}
 	r, bad = webControlFields(map[string]any{"secret-key": "secret-value"}, "url")

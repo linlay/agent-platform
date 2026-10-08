@@ -11,7 +11,11 @@ import (
 type Error struct{ Field, Expected, Actual, Recovery string }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("%s requires %s (actual: %s). %s", e.Field, e.Expected, e.Actual, e.Recovery)
+	message := fmt.Sprintf("Invalid parameter %s: expected %s; received %s.", e.Field, e.Expected, e.Actual)
+	if e.Recovery != "" {
+		message += " " + e.Recovery
+	}
+	return message
 }
 func (e *Error) Details() map[string]any {
 	return map[string]any{"field": e.Field, "expected": e.Expected, "actual": e.Actual, "recovery": map[string]any{"strategy": "fix_input", "message": e.Recovery}}
@@ -70,11 +74,9 @@ func Validate(values map[string]any, fields map[string]string, prefix string) er
 		field := prefix + key
 		valid := false
 		expected := ""
-		example := ""
 		switch rule[0] {
 		case 's':
 			expected = "JSON string"
-			example = `"text"`
 			s, ok := v.(string)
 			valid = ok
 			if required {
@@ -83,32 +85,28 @@ func Validate(values map[string]any, fields map[string]string, prefix string) er
 			}
 		case 'b':
 			expected = "JSON boolean"
-			example = "true"
 			_, valid = v.(bool)
 		case 'n':
 			expected = "JSON integer in range 1–100"
-			example = "100"
 			n, ok := v.(float64)
 			valid = ok && n >= 1 && n <= 100 && math.Trunc(n) == n
 		case 'a':
 			expected = "JSON array of strings"
-			example = `["id"]`
 			items, ok := v.([]any)
 			valid = ok
 			if ok {
 				for i, item := range items {
 					if _, ok := item.(string); !ok {
-						return New(fmt.Sprintf("%s[%d]", field, i), "JSON string", item, true, `Replace this element with a string, for example "id".`)
+						return New(fmt.Sprintf("%s[%d]", field, i), "JSON string", item, true, "Provide a JSON string.")
 					}
 				}
 			}
 		case 'o':
 			expected = "JSON object"
-			example = "{}"
 			_, valid = v.(map[string]any)
 		}
 		if !present || !valid {
-			return New(field, expected, v, present, "Set "+field+" to "+example+"; example: "+key+":"+example+".")
+			return New(field, expected, v, present, "Provide "+expected+".")
 		}
 	}
 	return nil
