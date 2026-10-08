@@ -90,7 +90,7 @@ func TestControlProjectValidationAndPublication(t *testing.T) {
 		if _, _, err := h.admitted(tool, args, execution); err != nil {
 			t.Fatalf("project intent rejected at admission: %v", err)
 		}
-		for _, invalid := range []any{"true", 1, nil} {
+		for _, invalid := range []any{"TRUE", " false", 1, nil} {
 			params["isProject"] = invalid
 			if _, _, err := h.admitted(tool, args, execution); err == nil {
 				t.Fatalf("nonboolean project intent accepted: %#v", invalid)

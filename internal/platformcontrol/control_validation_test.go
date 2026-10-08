@@ -21,9 +21,9 @@ func TestControlActionableAdmission(t *testing.T) {
 		{"missing", "catalog_query", `{"action":"list"}`, "args.resourceType", "missing", "one of"},
 		{"null", "catalog_query", `{"action":"list","args":null}`, "args", "null", "object"},
 		{"nested", "catalog_manage", `{"action":"apply","args":{"resourceType":"skill","resourceKey":"x","content":"secret-content","preservePaths":[{}]}}`, "args.preservePaths[0]", "object", "string"},
-		{"boolean", "chat_manage", `{"action":"setPinned","args":{"pinned":"true"}}`, "args.pinned", "string", "boolean"},
-		{"automation boolean", "automation_manage", `{"action":"setEnabled","args":{"id":"task","baseRevision":"revision","enabled":"false"}}`, "args.enabled", "string", "boolean"},
-		{"automation nested boolean", "automation_manage", `{"action":"create","args":{"name":"Task","cron":"0 9 * * *","query":{"message":"hello","hidden":"true"}}}`, "args.query.hidden", "string", "boolean"},
+		{"boolean", "chat_manage", `{"action":"setPinned","args":{"pinned":"TRUE"}}`, "args.pinned", "string", "boolean"},
+		{"automation boolean", "automation_manage", `{"action":"setEnabled","args":{"id":"task","baseRevision":"revision","enabled":"False"}}`, "args.enabled", "string", "boolean"},
+		{"automation nested boolean", "automation_manage", `{"action":"create","args":{"name":"Task","cron":"0 9 * * *","query":{"message":"hello","hidden":" true"}}}`, "args.query.hidden", "string", "boolean"},
 		{"enum", "chat_query", `{"action":"read","args":{"chatId":"x","view":"secret-value"}}`, "args.view", "string", "summary, messages"},
 		{"action", "catalog_query", `{"action":"secret-value"}`, "action", "string", "list"},
 		{"unknown", "catalog_query", `{"action":"list","args":{"resourceType":"model","secret-key":"secret-value"}}`, "args.<unknown>", "unknown field present", "limit"},
@@ -96,5 +96,44 @@ func TestDiscoveryResourcesRetainReadOnlyAdmission(t *testing.T) {
 		if err == nil {
 			t.Fatalf("write accepted for %s", kind)
 		}
+	}
+}
+
+func TestControlBooleanStringsNormalizeBeforeReview(t *testing.T) {
+	h := &ToolHandler{}
+	for _, tc := range []struct{ tool, action, field string }{
+		{"chat_manage", "setPinned", "pinned"},
+		{"chat_query", "list", "archived"},
+		{"catalog_query", "validate", "isProject"},
+		{"automation_manage", "setEnabled", "enabled"},
+	} {
+		for _, value := range []string{"true", "false"} {
+			params := map[string]any{tc.field: value}
+			switch tc.action {
+			case "validate":
+				params["resourceType"] = "agent"
+				params["resourceKey"] = "test"
+				params["content"] = "test"
+			case "setEnabled":
+				params["id"] = "test"
+				params["baseRevision"] = "test"
+			}
+			args := map[string]any{"action": tc.action, "args": params}
+			_, got, err := h.admitted(tc.tool, args, controlExecution())
+			if err != nil || got[tc.field] != (value == "true") {
+				t.Fatalf("%s %s: %#v %v", tc.tool, value, got, err)
+			}
+			if tc.action == "setPinned" {
+				if _, err := h.PrepareToolApproval(context.Background(), tc.tool, args, controlExecution()); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	q := map[string]any{"message": "true", "hidden": "false", "params": map[string]any{"hidden": "true"}}
+	args := map[string]any{"action": "create", "args": map[string]any{"name": "test", "cron": "0 9 * * *", "enabled": "false", "query": q}}
+	_, p, err := h.admitted("automation_manage", args, controlExecution())
+	if err != nil || p["enabled"] != false || q["hidden"] != false || q["message"] != "true" || q["params"].(map[string]any)["hidden"] != "true" {
+		t.Fatalf("%#v %v", p, err)
 	}
 }

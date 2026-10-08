@@ -37,16 +37,16 @@ func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
 		RunID: "run-pin", ChatID: "tool-pin", AgentKey: "mock-agent", Mode: "GENERAL",
 		RunOwner: contracts.AgentRunOwner("mock-agent", ""), ToolNames: []string{"chat_manage"}, NativeConnectorTools: map[string]string{"chat_manage": "builtin.task-control"}, ConnectorDirs: map[string]string{"builtin.task-control": "/trusted"},
 	}}
-	invoke := func() {
+	invoke := func(pinned any) {
 		t.Helper()
 		result, err := handler.Invoke(t.Context(), "chat_manage", map[string]any{
-			"action": "setPinned", "args": map[string]any{"pinned": true},
+			"action": "setPinned", "args": map[string]any{"pinned": pinned},
 		}, caller)
 		if err != nil || result.Error != "" {
 			t.Fatalf("pin tool: %+v %v", result, err)
 		}
 	}
-	invoke()
+	invoke("true")
 	var push ws.PushFrame
 	if err := conn.ReadJSON(&push); err != nil {
 		t.Fatal(err)
@@ -55,7 +55,16 @@ func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
 		t.Fatalf("tool push: %+v", push)
 	}
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?pinned=true", []string{"tool-pin"})
-	invoke() // No-op must not enqueue another push before the response below.
+	invoke("false")
+	if err := conn.ReadJSON(&push); err != nil {
+		t.Fatal(err)
+	}
+	assertChatsLimitHTTP(t, fixture.server, "/api/chats?pinned=false", []string{"tool-pin"})
+	invoke("true")
+	if err := conn.ReadJSON(&push); err != nil {
+		t.Fatal(err)
+	}
+	invoke(true) // No-op must not enqueue another push before the response below.
 	yes, no := true, false
 	updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{Operation: "set_pinned", ChatID: "tool-pin", Pinned: &yes}, 200)
 	writeChatOrderWSRequest(t, conn, "noop-check", map[string]any{})

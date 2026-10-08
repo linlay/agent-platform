@@ -47,6 +47,12 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 	args, _ = expandedArgs.(map[string]any)
 
+	// Preserve raw provider arguments; normalize only the execution copy and
+	// only platform-owned schemas before policy, review and execution.
+	if def, ok := s.lookupToolDefinition(toolCall.Function.Name); ok && !strings.EqualFold(AnyStringNode(def.Meta["sourceType"]), "mcp") {
+		toolinput.NormalizeSchemaBooleans(args, def.Parameters)
+	}
+
 	if err := toolargs.RejectLegacy(toolCall.Function.Name, args); err != nil {
 		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, err.Error(), "invalid_tool_arguments")
 		return nil, deltas, message

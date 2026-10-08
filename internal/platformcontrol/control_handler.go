@@ -101,12 +101,15 @@ func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.Ex
 	if err := validateControlEnums(tool, action, params); err != nil {
 		return "", nil, err
 	}
+	toolinput.NormalizeBooleanFields(params, fields)
 	if err := toolinput.Validate(params, fields, "args."); err != nil {
 		return "", nil, err
 	}
 	if tool == "automation_manage" || tool == "automation_query" {
 		if q, ok := params["query"].(map[string]any); ok {
-			if err := toolinput.Validate(q, map[string]string{"message": "s!", "accessLevel": "s", "chatId": "s", "role": "s", "hidden": "b", "params": "o"}, "args.query."); err != nil {
+			queryFields := map[string]string{"message": "s!", "accessLevel": "s", "chatId": "s", "role": "s", "hidden": "b", "params": "o"}
+			toolinput.NormalizeBooleanFields(q, queryFields)
+			if err := toolinput.Validate(q, queryFields, "args.query."); err != nil {
 				return "", nil, err
 			}
 		}

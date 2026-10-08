@@ -12,7 +12,7 @@ import (
 
 func TestAutomationBooleanTypeErrorBeforeReview(t *testing.T) {
 	h := &ToolHandler{}
-	params := map[string]any{"id": "task", "baseRevision": "revision", "enabled": "false"}
+	params := map[string]any{"id": "task", "baseRevision": "revision", "enabled": "FALSE"}
 	args := map[string]any{"action": "setEnabled", "args": params}
 	e := controlExecution()
 	approval, err := h.PrepareToolApproval(context.Background(), "automation_manage", args, e)
@@ -24,10 +24,10 @@ func TestAutomationBooleanTypeErrorBeforeReview(t *testing.T) {
 	if err != nil || result.Structured["executionState"] != "not_started" || result.Structured["field"] != "args.enabled" {
 		t.Fatalf("invalid input reached execution: %+v %v", result, err)
 	}
-	if params["enabled"] != "false" {
+	if params["enabled"] != "FALSE" {
 		t.Fatal("validation changed the requested value")
 	}
-	params["enabled"] = false
+	params["enabled"] = "false"
 	_, admitted, err := h.admitted("automation_manage", args, e)
 	if err != nil || admitted["enabled"] != false {
 		t.Fatalf("corrected false was not preserved: %#v %v", admitted, err)
@@ -36,12 +36,16 @@ func TestAutomationBooleanTypeErrorBeforeReview(t *testing.T) {
 
 func TestAutomationToolAdmissionApprovalAndPolicy(t *testing.T) {
 	h := NewToolHandler(config.Config{}, nil, nil).ConfigureAutomation(&automation.Service{Registry: automation.NewRegistry(t.TempDir(), nil), ReceiptDir: t.TempDir(), DefaultZoneID: "UTC"})
-	args := map[string]any{"action": "create", "args": map[string]any{"name": "Task", "agentKey": "agent", "cron": "0 9 * * *", "query": map[string]any{"message": "hello"}}}
+	args := map[string]any{"action": "create", "args": map[string]any{"name": "Task", "agentKey": "agent", "cron": "0 9 * * *", "enabled": "false", "query": map[string]any{"message": "hello", "hidden": "false"}}}
 	e := controlExecution()
 	ctx := context.Background()
 	p, err := h.PrepareToolApproval(ctx, "automation_manage", args, e)
 	if err != nil {
 		t.Fatal(err)
+	}
+	params := args["args"].(map[string]any)
+	if params["enabled"] != false || params["query"].(map[string]any)["hidden"] != false {
+		t.Fatal("review did not normalize boolean strings")
 	}
 	if !p.AllowAutoApprove || p.Form["action"] != "create" {
 		t.Fatal("create policy")
@@ -62,6 +66,9 @@ func TestAutomationToolAdmissionApprovalAndPolicy(t *testing.T) {
 		t.Fatalf("approved create: %+v", result)
 	}
 	item := result.Structured["automation"].(map[string]any)
+	if item["enabled"] != false {
+		t.Fatalf("approved false changed during execution: %#v", item["enabled"])
+	}
 	remove := map[string]any{"action": "delete", "args": map[string]any{"id": item["id"], "baseRevision": result.Structured["baseRevision"]}}
 	e.CurrentToolID = "delete"
 	p, err = h.PrepareToolApproval(ctx, "automation_manage", remove, e)

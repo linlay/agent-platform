@@ -277,3 +277,25 @@ i18n:
 工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。
 
 旧 JSONL 不迁移。旧工具事件可从当前 Platform 内置定义补齐展示翻译；已有冻结快照优先，不用全局目录猜测旧 Agent-local/MCP 工具的同名定义，无法解析时保留原始显示名。Desktop 在连接握手时设置当前全局语言，语言切换后通过 `/api/locale` 更新已连接通道；普通 WS 响应与后续流事件统一按连接语言解析。业务 payload 不携带 locale，展示语言不按请求或 Run 冻结，也不因语言变化重建观察订阅。Native 模型提示词的语言在 Run 开始时冻结，与工具展示语言独立；详见 [Agent 配置合并](Agent配置合并.md#runtime-context-语言与模板)。Bash 的动态参数 description 是原始调用内容，不自动翻译。
+
+## 内置工具布尔参数兼容
+
+模型应优先发送原生 JSON boolean。内置工具执行参数按明确的 Schema boolean 字段（含对象和数组内字段）兼容精确小写字符串 `"true"` 与 `"false"`；通用管理工具按 action 的运行时字段契约处理，并覆盖自动化 query.hidden。公共解析方法为 `internal/toolinput.ParseBool`。转换在相关校验、审批指纹生成和执行前完成，原始模型调用记录保持不变。
+
+不裁剪空格、不忽略大小写，不接受数字、`"1"`、`"0"`、`"yes"` 等额外布尔表示。无效值保持原样交给原有校验；普通文本、未声明字段、开放对象及 MCP/第三方协议透传参数不做此转换。此兼容仅用于工具调用，不改变 HTTP/WS API 的 boolean 契约。
+
+当前显式字段覆盖：
+
+| 工具 | 布尔字段 |
+| --- | --- |
+| file_read / file_edit | addLineNumbers / replaceAll |
+| file_grep / regex | caseInsensitive、lineNumbers、multiline / caseInsensitive |
+| kbase_refresh | force |
+| workpanel_open / workpanel_close | reload / all |
+| surface_navigate / surface_screenshot / surface_evaluate | ignoreCache / fullPage / awaitPromise |
+| ask_user_question | questions[].allowFreeText、questions[].options[].recommended |
+| chat_query / chat_manage | 各 action 声明的 archived、pinned |
+| catalog_query.validate / catalog_manage.apply | args.isProject |
+| automation_query / automation_manage | 各 action 声明的 args.enabled、args.query.hidden |
+
+字段与适用 action 仍以工具 Schema 和运行时契约为准；Desktop 通用 action 的开放 args、AWCP/CDP 业务参数不依据字段名猜测类型。
