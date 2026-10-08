@@ -70,6 +70,10 @@ func (s *Server) runInteractionPolicies() interaction.Store {
 func (s *Server) restoredInteractionPolicy(runID, mode string, query *chat.QueryLine) (*interaction.Config, error) {
 	return testQueryService(s).RestoredInteractionPolicy(runID, mode, query)
 }
+func (s *Server) PrepareRunStart(ctx context.Context, request contracts.RunStartRequest) (contracts.RunStartPlan, error) {
+	return testQueryService(s).PrepareRunStart(ctx, request)
+}
+
 func (s *Server) StartRun(ctx context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
 	return testQueryService(s).StartRun(ctx, request)
 }

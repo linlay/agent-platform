@@ -27,6 +27,9 @@ func (f *fakeBackend) ExecuteQuery(_ context.Context, _ runtimetypes.QueryComman
 	}
 	return runtimetypes.QueryResult{Content: "done"}, nil
 }
+func (f *fakeBackend) PrepareRunStart(context.Context, contracts.RunStartRequest) (contracts.RunStartPlan, error) {
+	return contracts.RunStartPlan{}, nil
+}
 func (f *fakeBackend) StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error) {
 	return contracts.RunSnapshot{}, nil
 }

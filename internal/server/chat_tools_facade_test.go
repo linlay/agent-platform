@@ -23,11 +23,12 @@ import (
 
 func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	fixture := newTestFixture(t)
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
+	callerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	bindTestRunControl(t, fixture.server, "parent-run", "ws", "desktop")
-	agentTargetRun, err := fixture.server.StartRun(cancelled, contracts.RunStartRequest{
+	registerTestParentRun(t, fixture, "parent-run")
+	agentTargetRun, err := fixture.server.StartRun(callerCtx, contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "detached agent",
 		Origin: contracts.RunOrigin{
@@ -41,6 +42,8 @@ func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start detached agent: %v", err)
 	}
+	// Once accepted, the run no longer follows the caller's lifetime.
+	cancel()
 	if agentTargetRun.RunID == "" || agentTargetRun.ChatID == "" || agentTargetRun.AgentKey != "mock-agent" || agentTargetRun.TeamID != "" {
 		t.Fatalf("unexpected Agent target run %#v", agentTargetRun)
 	}
@@ -180,6 +183,7 @@ func TestStartRunIgnoresCatalogVisibility(t *testing.T) {
 	})
 
 	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
+	registerTestParentRun(t, fixture, "parent")
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "run by exact key",
@@ -283,6 +287,7 @@ func TestGetRunStatusReportsQuestionAwaiting(t *testing.T) {
 	})
 
 	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
+	registerTestParentRun(t, fixture, "parent")
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "ask first",
@@ -385,6 +390,7 @@ func TestInterruptRunsDetachedSSEProxy(t *testing.T) {
 	})
 
 	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
+	registerTestParentRun(t, fixture, "parent")
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "proxy work",

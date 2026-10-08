@@ -475,25 +475,11 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 	if err != nil {
 		return err
 	}
-	c.RunQuery = RunQueryConfig{}
 	if len(values) == 0 {
 		return nil
 	}
-	if raw, exists := values["runQuery"]; exists {
-		options, ok := raw.(map[string]any)
-		if !ok {
-			return fmt.Errorf("%s: runQuery must be an object", path)
-		}
-		for key, value := range options {
-			if key != "allowAccessLevelOverride" {
-				return fmt.Errorf("%s: unknown runQuery field %q", path, key)
-			}
-			enabled, ok := value.(bool)
-			if !ok {
-				return fmt.Errorf("%s: runQuery.allowAccessLevelOverride must be a boolean", path)
-			}
-			c.RunQuery.AllowAccessLevelOverride = enabled
-		}
+	if _, exists := values["runQuery"]; exists {
+		return fmt.Errorf("%s: runQuery was removed; chat_start now starts at or below the caller Run level directly and requires human approval above it. Remove the section or run config-migrate", path)
 	}
 	for _, key := range []string{"preset-tools", "preset-connectors"} {
 		if _, exists := values[key]; exists {

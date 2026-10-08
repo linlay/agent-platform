@@ -2,6 +2,7 @@ package runstate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -508,6 +509,29 @@ func (m *Manager) DetachObserver(runID string, observerID string) {
 		return
 	}
 	state.eventBus.Unsubscribe(observerID)
+}
+
+// AcceptAtRunAccessLevel is the authorization acceptance point for work that
+// derives permission from a live Run: accept observes the Run's access level
+// and version while updates are excluded. It reports false for an unknown or
+// completed Run.
+func (m *Manager) AcceptAtRunAccessLevel(runID string, accept func(accessLevel string, version int64) error) (bool, error) {
+	if m == nil {
+		return false, nil
+	}
+	m.mu.Lock()
+	state := m.runs[strings.TrimSpace(runID)]
+	if state == nil || state.control == nil || !state.completedAt.IsZero() {
+		m.mu.Unlock()
+		return false, nil
+	}
+	control := state.control
+	m.mu.Unlock()
+	err := control.AcceptAtAccessLevel(accept)
+	if errors.Is(err, contracts.ErrRunInterrupted) {
+		return false, nil
+	}
+	return true, err
 }
 
 func (m *Manager) RunStatus(runID string) (contracts.RunStatusInfo, bool) {

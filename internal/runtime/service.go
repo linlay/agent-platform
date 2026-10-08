@@ -26,6 +26,7 @@ type Backend interface {
 
 	StartQuery(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
 	ExecuteQuery(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
+	PrepareRunStart(context.Context, contracts.RunStartRequest) (contracts.RunStartPlan, error)
 	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
 	RunStatus(string) (contracts.RunSnapshot, error)
 	AttachRun(context.Context, runtimetypes.RunRef, int64) (*runtimetypes.Subscription, error)
@@ -139,6 +140,14 @@ func (s *Service) ExecuteQueryWithHooks(ctx context.Context, cmd runtimetypes.Qu
 		return runtimetypes.QueryResult{}, err
 	}
 	return backend.ExecuteQuery(ctx, cmd, hooks)
+}
+
+func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStartRequest) (contracts.RunStartPlan, error) {
+	backend, err := s.current()
+	if err != nil {
+		return contracts.RunStartPlan{}, err
+	}
+	return backend.PrepareRunStart(ctx, request)
 }
 
 func (s *Service) StartRun(ctx context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {

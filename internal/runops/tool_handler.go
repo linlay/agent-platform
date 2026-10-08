@@ -19,11 +19,26 @@ const (
 )
 
 type idempotentStart struct {
-	done     chan struct{}
-	runID    string
-	snapshot contracts.RunSnapshot
-	err      error
+	done          chan struct{}
+	requestDigest string
+	runID         string
+	snapshot      contracts.RunSnapshot
+	err           error
 }
+
+// startReview is the frozen baseline of a chat_start invocation that was sent
+// to human review. It is kept until the caller Run ends: that invocation may
+// only ever start by consuming its one-shot approval against this exact
+// baseline, however often it is replayed. Re-evaluating against a changed
+// parent level takes a new tool call.
+type startReview struct {
+	parentAccessLevel   string
+	parentAccessVersion int64
+	approvalDigest      string
+	approval            contracts.ToolApproval
+}
+
+const startApprovalAction = "start"
 
 type ToolHandler struct {
 	service Runtime
@@ -31,9 +46,11 @@ type ToolHandler struct {
 
 	mu          sync.Mutex
 	idempotency map[string]*idempotentStart
+	reviews     map[string]startReview
 }
 
 type Runtime interface {
+	PrepareRunStart(context.Context, contracts.RunStartRequest) (contracts.RunStartPlan, error)
 	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
 	GetRunStatus(string) (contracts.RunSnapshot, error)
 	Interrupt(context.Context, runtimetypes.InterruptCommand) (runtimetypes.InterruptResult, error)
@@ -44,6 +61,7 @@ func NewToolHandler(service Runtime, runs contracts.RunManager) *ToolHandler {
 		service:     service,
 		runs:        runs,
 		idempotency: map[string]*idempotentStart{},
+		reviews:     map[string]startReview{},
 	}
 }
 
@@ -58,7 +76,7 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 	}
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case StartToolName:
-		return h.query(ctx, args, origin, execCtx.RunControl)
+		return h.query(ctx, args, origin, execCtx)
 	case StatusToolName:
 		return h.status(args, origin)
 	case InterruptToolName:
@@ -97,60 +115,171 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 	}, nil
 }
 
+func startKey(origin contracts.RunOrigin) string {
+	return origin.RunID + "\x00" + origin.ToolID
+}
+
+func startRequest(args map[string]any, origin contracts.RunOrigin) (contracts.RunStartRequest, error) {
+	request, err := parseQueryArguments(args)
+	if err != nil {
+		return request, err
+	}
+	request.Message = strings.TrimSpace(contracts.AnyStringNode(args["message"]))
+	request.AgentKey = strings.TrimSpace(contracts.AnyStringNode(args["agentKey"]))
+	request.TeamID = strings.TrimSpace(contracts.AnyStringNode(args["teamId"]))
+	request.ChatID = strings.TrimSpace(contracts.AnyStringNode(args["chatId"]))
+	request.Origin = origin
+	if request.Message == "" || (request.AgentKey == "") == (request.TeamID == "") {
+		return request, &contracts.RunToolError{Code: "invalid_request", Message: "message and exactly one of agentKey or teamId are required"}
+	}
+	if origin.RunID == "" || origin.ToolID == "" {
+		return request, &contracts.RunToolError{Code: "run_context_required", Message: "query requires parent runId and toolId"}
+	}
+	return request, nil
+}
+
+// PrepareToolApproval requires human review whenever chat_start asks for a
+// level above the caller Run's live level. The review can never be answered
+// by an access level, a rule or the model: AllowAutoApprove stays false.
+// Requests that are invalid or need no review return nil and are handled,
+// unchanged, by Invoke.
+func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args map[string]any, execCtx *contracts.ExecutionContext) (*contracts.ToolApproval, error) {
+	if strings.ToLower(strings.TrimSpace(tool)) != StartToolName {
+		return nil, nil
+	}
+	origin, errResult := h.callerOrigin(execCtx)
+	if errResult != nil {
+		return nil, nil
+	}
+	request, err := startRequest(args, origin)
+	if err != nil {
+		return nil, nil
+	}
+	key := startKey(origin)
+	h.mu.Lock()
+	h.cleanupIdempotencyLocked()
+	_, started := h.idempotency[key]
+	frozen, reviewed := h.reviews[key]
+	h.mu.Unlock()
+	if started {
+		return nil, nil
+	}
+	if reviewed {
+		// Never re-plan a reviewed call: show the review it was frozen with.
+		approval := frozen.approval
+		approval.Form = contracts.CloneMap(approval.Form)
+		return &approval, nil
+	}
+	plan, err := h.service.PrepareRunStart(ctx, request)
+	if err != nil || !plan.RequiresApproval {
+		return nil, nil
+	}
+	target := map[string]any{"type": "agent", "key": request.AgentKey, "name": plan.TargetName}
+	if request.TeamID != "" {
+		target = map[string]any{"type": "team", "key": request.TeamID, "name": plan.TargetName}
+	}
+	form := map[string]any{
+		"action":            startApprovalAction,
+		"caller":            map[string]any{"agentKey": origin.AgentKey, "chatId": origin.ChatID, "runId": origin.RunID},
+		"target":            target,
+		"continuesChat":     request.ChatID != "",
+		"chatId":            request.ChatID,
+		"chatName":          firstNonEmpty(request.ChatName, plan.ChatName),
+		"parentAccessLevel": plan.ParentAccessLevel,
+		"accessLevel":       plan.AccessLevel,
+		"message":           request.Message,
+		"mustUseSkills":     append([]string{}, request.MustUseSkills...),
+	}
+	approval := contracts.ToolApproval{
+		Fingerprint: contracts.ToolApprovalFingerprint(execCtx, StartToolName, startApprovalAction, plan.ApprovalDigest),
+		Title:       StartToolName + " / " + plan.AccessLevel,
+		Form:        form,
+	}
+	h.mu.Lock()
+	if existing, raced := h.reviews[key]; raced {
+		approval = existing.approval
+	} else {
+		h.reviews[key] = startReview{
+			parentAccessLevel:   plan.ParentAccessLevel,
+			parentAccessVersion: plan.ParentAccessVersion,
+			approvalDigest:      plan.ApprovalDigest,
+			approval:            approval,
+		}
+	}
+	h.mu.Unlock()
+	approval.Form = contracts.CloneMap(approval.Form)
+	return &approval, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func (h *ToolHandler) query(
 	ctx context.Context,
 	args map[string]any,
 	origin contracts.RunOrigin,
-	parentControl *contracts.RunControl,
+	execCtx *contracts.ExecutionContext,
 ) (contracts.ToolExecutionResult, error) {
-	request, parseErr := parseQueryArguments(args)
+	request, parseErr := startRequest(args, origin)
 	if parseErr != nil {
 		return resultFromError(parseErr), nil
 	}
-	message := strings.TrimSpace(contracts.AnyStringNode(args["message"]))
-	agentKey := strings.TrimSpace(contracts.AnyStringNode(args["agentKey"]))
-	teamID := strings.TrimSpace(contracts.AnyStringNode(args["teamId"]))
-	chatID := strings.TrimSpace(contracts.AnyStringNode(args["chatId"]))
-	if message == "" || (agentKey == "") == (teamID == "") {
-		return errorResult("invalid_request", "message and exactly one of agentKey or teamId are required"), nil
+	key := startKey(origin)
+	requestDigest := contracts.RunStartRequestDigest(request)
+	start, leader := h.beginIdempotentStart(key, requestDigest)
+	if start.requestDigest != requestDigest {
+		return resultFromError(&contracts.RunToolError{Code: "idempotency_conflict", ExecutionState: "not_started",
+			Message: "this tool call already started a run with different arguments"}), nil
 	}
-	if origin.RunID == "" || origin.ToolID == "" {
-		return errorResult("run_context_required", "query requires parent runId and toolId"), nil
-	}
-
-	key := origin.RunID + "\x00" + origin.ToolID
-	start, leader := h.beginIdempotentStart(key)
 	if !leader {
 		select {
 		case <-ctx.Done():
 			return errorResult("chat_start_cancelled", ctx.Err().Error()), nil
 		case <-start.done:
 		}
-		if start.err != nil {
+		// An unconfirmed start is reconciled against the recorded Run and is
+		// never started again.
+		if start.runID == "" {
 			return resultFromError(start.err), nil
 		}
 		snapshot, err := h.service.GetRunStatus(start.runID)
 		if err != nil {
+			if start.err != nil {
+				return resultFromError(start.err), nil
+			}
 			snapshot = start.snapshot
 		}
 		return successResult("query", true, "accepted", snapshot), nil
 	}
 
-	snapshot, err := h.service.StartRun(ctx, contracts.RunStartRequest{
-		AgentKey:      agentKey,
-		TeamID:        teamID,
-		ChatID:        chatID,
-		Message:       message,
-		Origin:        origin,
-		AccessLevel:   request.AccessLevel,
-		MustUseSkills: request.MustUseSkills,
-		ChatName:      request.ChatName,
-	})
+	// The frozen review is deliberately not removed here; see startReview.
+	h.mu.Lock()
+	review, reviewed := h.reviews[key]
+	h.mu.Unlock()
+	if reviewed {
+		// The approval lives in the trusted execution context and is consumed
+		// synchronously by Runtime against the digest Runtime computes.
+		request.Review = &contracts.RunStartReview{
+			ParentAccessLevel:   review.parentAccessLevel,
+			ParentAccessVersion: review.parentAccessVersion,
+			ApprovalDigest:      review.approvalDigest,
+			Consume: func(approvalDigest string) bool {
+				return contracts.ConsumeToolApproval(execCtx, contracts.ToolApprovalFingerprint(execCtx, StartToolName, startApprovalAction, approvalDigest))
+			},
+		}
+	}
+	snapshot, err := h.service.StartRun(ctx, request)
 	h.finishIdempotentStart(key, start, snapshot, err)
 	if err != nil {
 		return resultFromError(err), nil
 	}
-	h.cleanupIdempotencyWithParent(key, start, parentControl)
+	h.cleanupIdempotencyWithParent(key, start, execCtx.RunControl)
 	return successResult("query", true, "accepted", snapshot), nil
 }
 
@@ -222,14 +351,14 @@ func (h *ToolHandler) requireOwnedRun(runID string, origin contracts.RunOrigin) 
 	return &result
 }
 
-func (h *ToolHandler) beginIdempotentStart(key string) (*idempotentStart, bool) {
+func (h *ToolHandler) beginIdempotentStart(key string, requestDigest string) (*idempotentStart, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cleanupIdempotencyLocked()
 	if existing, ok := h.idempotency[key]; ok {
 		return existing, false
 	}
-	start := &idempotentStart{done: make(chan struct{})}
+	start := &idempotentStart{done: make(chan struct{}), requestDigest: requestDigest}
 	h.idempotency[key] = start
 	return start, true
 }
@@ -240,7 +369,14 @@ func (h *ToolHandler) finishIdempotentStart(key string, start *idempotentStart, 
 	start.runID = snapshot.RunID
 	start.err = err
 	if err != nil {
-		delete(h.idempotency, key)
+		// Only a start that definitely did not happen may be attempted again.
+		// An unconfirmed start keeps its record so retries reconcile instead.
+		var typed *contracts.RunToolError
+		if errors.As(err, &typed) && typed.ExecutionState == "unknown" {
+			start.runID = typed.RunID
+		} else {
+			delete(h.idempotency, key)
+		}
 	}
 	close(start.done)
 	h.mu.Unlock()
@@ -250,11 +386,20 @@ func (h *ToolHandler) cleanupIdempotencyLocked() {
 	if h.runs == nil {
 		return
 	}
-	for key := range h.idempotency {
+	parentDone := func(key string) bool {
 		parentRunID, _, _ := strings.Cut(key, "\x00")
 		status, ok := h.runs.RunStatus(parentRunID)
-		if !ok || status.CompletedAt != 0 {
+		return !ok || status.CompletedAt != 0
+	}
+	for key := range h.idempotency {
+		if parentDone(key) {
 			delete(h.idempotency, key)
+		}
+	}
+	// A review whose caller Run ended can never be approved or started.
+	for key := range h.reviews {
+		if parentDone(key) {
+			delete(h.reviews, key)
 		}
 	}
 }
@@ -305,7 +450,19 @@ func resultFromError(err error) contracts.ToolExecutionResult {
 	}
 	var typed *contracts.RunToolError
 	if errors.As(err, &typed) {
-		return errorResult(typed.Code, typed.Message)
+		r := errorResult(typed.Code, typed.Message)
+		if typed.ExecutionState != "" {
+			r.Structured["executionState"] = typed.ExecutionState
+		}
+		if typed.Retryable {
+			r.Structured["retryable"] = true
+		}
+		if typed.RunID != "" {
+			r.Structured["run"] = map[string]any{"runId": typed.RunID, "chatId": typed.ChatID}
+		}
+		data, _ := json.Marshal(r.Structured)
+		r.Output = string(data)
+		return r
 	}
 	if err == nil {
 		return errorResult("internal_error", "run tool failed")

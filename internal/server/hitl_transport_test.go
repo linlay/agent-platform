@@ -27,8 +27,9 @@ func TestChatStartInheritsParentConnectionWithoutCancellation(t *testing.T) {
 			if err := fixture.server.runControlScopes().Bind("parent", scope); err != nil {
 				t.Fatal(err)
 			}
+			registerTestParentRun(t, fixture, "parent")
 			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
+			defer cancel()
 			started, err := fixture.server.StartRun(ctx, contracts.RunStartRequest{
 				AgentKey: "mock-agent", Message: "independent task",
 				Origin: contracts.RunOrigin{AgentKey: "zenmi", RunID: "parent", ToolID: "call"},
@@ -36,6 +37,7 @@ func TestChatStartInheritsParentConnectionWithoutCancellation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			cancel()
 			got, err := fixture.server.runControlScopes().Load(started.RunID)
 			if err != nil || got != scope {
 				t.Fatalf("scope=%#v want=%#v err=%v", got, scope, err)

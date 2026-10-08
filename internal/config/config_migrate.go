@@ -136,6 +136,11 @@ func planConfigMigration(dir, agents string) (*configMigration, error) {
 			changed["agent-settings.yml"] = true
 		}
 	}
+	if _, ok := tools["runQuery"]; ok {
+		delete(tools, "runQuery")
+		changed["tools.yml"] = true
+		m.notes = append(m.notes, "Removed runQuery.allowAccessLevelOverride: chat_start above the caller Run level now always requires human approval (original retained in backup)")
+	}
 	var oldModel string
 	if source := m.before[filepath.Join(dir, "runtime.yml")]; len(source) > 0 {
 		fields, err := YAMLSourceMap(string(source), "kbx", "embedding")

@@ -10,12 +10,7 @@ import (
 	"agent-platform/internal/httpclient"
 )
 
-type RunQueryConfig struct {
-	AllowAccessLevelOverride bool
-}
-
 type Config struct {
-	RunQuery         RunQueryConfig
 	PresetTools      []string
 	PresetConnectors []string
 	ModePresets      map[string]AgentPresets

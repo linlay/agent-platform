@@ -2,6 +2,7 @@ package runops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -12,15 +13,28 @@ import (
 )
 
 type fakeRunToolService struct {
-	mu         sync.Mutex
-	starts     int
-	requests   []contracts.RunStartRequest
-	snapshots  map[string]contracts.RunSnapshot
-	interrupts []runtimetypes.InterruptCommand
+	mu          sync.Mutex
+	parentLevel string
+	startErr    error
+	starts      int
+	requests    []contracts.RunStartRequest
+	snapshots   map[string]contracts.RunSnapshot
+	interrupts  []runtimetypes.InterruptCommand
 }
 
 func newFakeRunToolService() *fakeRunToolService {
 	return &fakeRunToolService{snapshots: map[string]contracts.RunSnapshot{}}
+}
+
+func (f *fakeRunToolService) PrepareRunStart(_ context.Context, req contracts.RunStartRequest) (contracts.RunStartPlan, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	parent, _ := contracts.NormalizeAccessLevel(f.parentLevel)
+	plan := contracts.RunStartPlan{RequestedAccessLevel: req.AccessLevel, ParentAccessLevel: parent, ParentAccessVersion: 1, TargetName: "Target"}
+	plan.AccessLevel, plan.RequiresApproval = contracts.ResolveRunStartAccessLevel(req.AccessLevel, parent)
+	plan.RequestDigest = contracts.RunStartRequestDigest(req)
+	plan.ApprovalDigest = contracts.RunStartApprovalDigest(plan.RequestDigest, parent, 1, plan.AccessLevel)
+	return plan, nil
 }
 
 func (f *fakeRunToolService) StartRun(_ context.Context, req contracts.RunStartRequest) (contracts.RunSnapshot, error) {
@@ -29,6 +43,14 @@ func (f *fakeRunToolService) StartRun(_ context.Context, req contracts.RunStartR
 	f.starts++
 	f.requests = append(f.requests, req)
 	runID := fmt.Sprintf("target-%d", f.starts)
+	if f.startErr != nil {
+		err := f.startErr
+		var typed *contracts.RunToolError
+		if errors.As(err, &typed) && typed.ExecutionState == "unknown" {
+			f.snapshots[typed.RunID] = contracts.RunSnapshot{RunID: typed.RunID, ChatID: typed.ChatID, Status: "running", Origin: &req.Origin}
+		}
+		return contracts.RunSnapshot{}, err
+	}
 	snapshot := contracts.RunSnapshot{
 		RunID:     runID,
 		ChatID:    "chat-" + runID,
@@ -243,4 +265,135 @@ func TestGetRunStatusAndInterrupt(t *testing.T) {
 	if missingInterrupt.Error != "invalid_request" {
 		t.Fatalf("missing interrupt runId error = %q", missingInterrupt.Error)
 	}
+}
+
+func TestChatStartEscalationRequiresManualOneShotApproval(t *testing.T) {
+	for _, tc := range []struct {
+		parent, requested string
+		review            bool
+	}{
+		{"default", "", false}, {"default", "default", false}, {"default", "auto_approve", true}, {"default", "full_access", true},
+		{"auto_approve", "", false}, {"auto_approve", "default", false}, {"auto_approve", "auto_approve", false}, {"auto_approve", "full_access", true},
+		{"full_access", "", false}, {"full_access", "default", false}, {"full_access", "auto_approve", false}, {"full_access", "full_access", false},
+	} {
+		t.Run(tc.parent+"/"+tc.requested, func(t *testing.T) {
+			service := newFakeRunToolService()
+			service.parentLevel = tc.parent
+			handler := NewToolHandler(service, nil)
+			args := map[string]any{"agentKey": "worker", "message": "do it"}
+			if tc.requested != "" {
+				args["accessLevel"] = tc.requested
+			}
+			execCtx := runToolExecContext("alice", "tool-1")
+			approval, err := handler.PrepareToolApproval(context.Background(), StartToolName, args, execCtx)
+			if err != nil || (approval != nil) != tc.review {
+				t.Fatalf("approval=%#v err=%v", approval, err)
+			}
+			if !tc.review {
+				if _, err := handler.Invoke(context.Background(), StartToolName, args, execCtx); err != nil || service.requests[0].Review != nil {
+					t.Fatalf("unreviewed start carried a review: %#v %v", service.requests, err)
+				}
+				return
+			}
+			if approval.AllowAutoApprove || approval.Fingerprint == "" {
+				t.Fatalf("escalation must be manual and exact: %#v", approval)
+			}
+			if approval.Form["message"] != "do it" || approval.Form["parentAccessLevel"] != tc.parent || approval.Form["accessLevel"] != tc.requested {
+				t.Fatalf("review does not show the approved object: %#v", approval.Form)
+			}
+			if service.starts != 0 {
+				t.Fatal("review started a run")
+			}
+			if _, err := handler.Invoke(context.Background(), StartToolName, args, execCtx); err != nil {
+				t.Fatal(err)
+			}
+			review := service.requests[0].Review
+			if review == nil || review.ParentAccessLevel != tc.parent || review.ParentAccessVersion != 1 || review.ApprovalDigest == "" {
+				t.Fatalf("frozen baseline was not forwarded: %#v", review)
+			}
+			// The receipt exists only in the trusted execution context and is one-shot.
+			if review.Consume(review.ApprovalDigest) {
+				t.Fatal("consumed an approval nobody granted")
+			}
+			execCtx.ToolApprovals = map[string]bool{approval.Fingerprint: true}
+			if review.Consume("another-digest") || !review.Consume(review.ApprovalDigest) || review.Consume(review.ApprovalDigest) {
+				t.Fatal("approval must be bound to its digest and consumed once")
+			}
+		})
+	}
+}
+
+func TestChatStartPlannerIgnoresOtherToolsAndInvalidRequests(t *testing.T) {
+	service := newFakeRunToolService()
+	handler := NewToolHandler(service, nil)
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		exec *contracts.ExecutionContext
+	}{
+		{StatusToolName, map[string]any{"runId": "x"}, runToolExecContext("alice", "tool")},
+		{StartToolName, map[string]any{"agentKey": "worker", "accessLevel": "full_access"}, runToolExecContext("alice", "tool")},
+		{StartToolName, map[string]any{"agentKey": "worker", "message": "m", "accessLevel": "full_access", "approved": true}, runToolExecContext("alice", "tool")},
+		{StartToolName, map[string]any{"agentKey": "worker", "message": "m", "accessLevel": "full_access"}, nil},
+	} {
+		if approval, err := handler.PrepareToolApproval(context.Background(), tc.tool, tc.args, tc.exec); approval != nil || err != nil {
+			t.Fatalf("%s %v: %#v %v", tc.tool, tc.args, approval, err)
+		}
+	}
+	// Forged authorization fields stay unknown arguments and start nothing.
+	result, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{"agentKey": "worker", "message": "m", "accessLevel": "full_access", "approved": true}, runToolExecContext("alice", "tool"))
+	if result.Error != "unknown_argument" || service.starts != 0 {
+		t.Fatalf("result=%#v starts=%d", result, service.starts)
+	}
+}
+
+func TestChatStartIdempotencyDistinguishesOutcomes(t *testing.T) {
+	args := map[string]any{"agentKey": "worker", "message": "do it"}
+	t.Run("conflicting arguments", func(t *testing.T) {
+		service := newFakeRunToolService()
+		handler := NewToolHandler(service, nil)
+		execCtx := runToolExecContext("alice", "tool-1")
+		if result, _ := handler.Invoke(context.Background(), StartToolName, args, execCtx); result.Error != "" {
+			t.Fatalf("first: %#v", result)
+		}
+		result, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{"agentKey": "worker", "message": "something else"}, execCtx)
+		if result.Error != "idempotency_conflict" || result.Structured["executionState"] != "not_started" || service.starts != 1 {
+			t.Fatalf("result=%#v starts=%d", result, service.starts)
+		}
+		// Omitted and explicit default are different requests.
+		result, _ = handler.Invoke(context.Background(), StartToolName, map[string]any{"agentKey": "worker", "message": "do it", "accessLevel": "default"}, execCtx)
+		if result.Error != "idempotency_conflict" {
+			t.Fatalf("result=%#v", result)
+		}
+	})
+	t.Run("not started may be retried", func(t *testing.T) {
+		service := newFakeRunToolService()
+		service.startErr = &contracts.RunToolError{Code: "run_start_review_stale", Message: "stale", ExecutionState: "not_started", Retryable: true}
+		handler := NewToolHandler(service, nil)
+		execCtx := runToolExecContext("alice", "tool-1")
+		result, _ := handler.Invoke(context.Background(), StartToolName, args, execCtx)
+		if result.Error != "run_start_review_stale" || result.Structured["executionState"] != "not_started" || result.Structured["retryable"] != true {
+			t.Fatalf("result=%#v", result)
+		}
+		service.startErr = nil
+		if result, _ := handler.Invoke(context.Background(), StartToolName, args, execCtx); result.Error != "" || service.starts != 2 {
+			t.Fatalf("retry: %#v starts=%d", result, service.starts)
+		}
+	})
+	t.Run("unknown outcome is reconciled, never restarted", func(t *testing.T) {
+		service := newFakeRunToolService()
+		service.startErr = &contracts.RunToolError{Code: "run_start_outcome_unknown", Message: "unknown", ExecutionState: "unknown", RunID: "maybe-run", ChatID: "maybe-chat"}
+		handler := NewToolHandler(service, nil)
+		execCtx := runToolExecContext("alice", "tool-1")
+		result, _ := handler.Invoke(context.Background(), StartToolName, args, execCtx)
+		if result.Error != "run_start_outcome_unknown" || result.Structured["executionState"] != "unknown" {
+			t.Fatalf("result=%#v", result)
+		}
+		service.startErr = nil
+		result, _ = handler.Invoke(context.Background(), StartToolName, args, execCtx)
+		run, _ := result.Structured["run"].(map[string]any)
+		if result.Error != "" || run["runId"] != "maybe-run" || service.starts != 1 {
+			t.Fatalf("retry restarted or lost the run: %#v starts=%d", result, service.starts)
+		}
+	})
 }

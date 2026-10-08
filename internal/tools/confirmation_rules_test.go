@@ -166,3 +166,24 @@ func TestEmbeddedAutomationConfirmationRules(t *testing.T) {
 	}
 	t.Fatal("automation_manage missing")
 }
+
+// chat_start has one review page for every request the handler sends to review.
+func TestEmbeddedChatStartConfirmationRule(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, def := range defs {
+		if def.Name != "chat_start" {
+			continue
+		}
+		for _, args := range []map[string]any{{"accessLevel": "full_access"}, {"accessLevel": "auto_approve", "teamId": "t"}, {}} {
+			got, err := selectConfirmationRule(def.Meta["confirmationRules"], args)
+			if err != nil || got == nil || got.viewportKey != "chat_start_review" {
+				t.Fatalf("args=%v rule=%#v err=%v", args, got, err)
+			}
+		}
+		return
+	}
+	t.Fatal("missing chat_start")
+}

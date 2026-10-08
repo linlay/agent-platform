@@ -141,7 +141,7 @@ HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创�
 
 ### 工具执行前确认界面配置
 
-工具 YML 顶层的 `confirmationRules` 为业务 Handler 已要求的一次性确认选择 HTML form，不自行产生审批要求，也不修改授权策略。现已接入 `catalog_manage.apply/delete`、`chat_manage.delete` 及外观偏好、网站条目、看板、WebApp 日常管理、导出和诊断的 Desktop 动作；其他操作只有实现 `ToolApprovalPlanner` 后才能使用此配置。Bash 技能 HITL form 继续使用已有规则，Desktop 重影响动作的确认继续由 Desktop 执行端负责。
+工具 YML 顶层的 `confirmationRules` 为业务 Handler 已要求的一次性确认选择 HTML form，不自行产生审批要求，也不修改授权策略。现已接入 `catalog_manage.apply/delete`、`chat_manage.delete`、`chat_start`（权限高于调用方 Run 当前档位时）及外观偏好、网站条目、看板、WebApp 日常管理、导出和诊断的 Desktop 动作；其他操作只有实现 `ToolApprovalPlanner` 后才能使用此配置。Bash 技能 HITL form 继续使用已有规则，Desktop 重影响动作的确认继续由 Desktop 执行端负责。
 
 ```yaml
 confirmationRules:
@@ -177,7 +177,7 @@ confirmationRules:
 
 - `installation_review`：保留的安装模板，当前内置工具不再挂载；市场及 WebApp 安装统一由 Desktop 确认。
 
-ToolApproval 的 AllowAutoApprove 由业务 Handler 显式选择，默认 false，不能由模型参数或 HTML 表单设置。catalog apply 和上述 Desktop 日常管理在 default 下显示审阅，在 auto_approve / full_access 下由服务端记录 auto_approved 并签发一次性授权；目录删除和会话删除保持强制人工审批。批准后的参数变化、兄弟调用或重用授权仍拒绝，自动批准不产生整轮规则授权。
+ToolApproval 的 AllowAutoApprove 由业务 Handler 显式选择，默认 false，不能由模型参数或 HTML 表单设置。catalog apply 和上述 Desktop 日常管理在 default 下显示审阅，在 auto_approve / full_access 下由服务端记录 auto_approved 并签发一次性授权；`chat_start` 请求高于调用方 Run 当前档位的权限（`chat_start_review`）、目录删除和会话删除保持强制人工审批。批准后的参数变化、兄弟调用或重用授权仍拒绝，自动批准不产生整轮规则授权。
 
 Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定白名单豁免本地确认，不依赖公开 source 字段或 permissionMode 提权；原 Desktop dialog 保留。市场资源与重影响动作不新增 Platform viewport。所有页面均为内置离线 HTML/CSS/JS，无外网组件。
 

@@ -158,3 +158,22 @@ func TestToolReviewOptInAutoApproval(t *testing.T) {
 		})
 	}
 }
+
+// Raising the Run's access level while an exact tool review is displayed must
+// never answer it; only a matching human submit can.
+func TestExactToolReviewIgnoresAccessLevelChange(t *testing.T) {
+	executor := &exactApprovalExecutor{}
+	ctx := context.Background()
+	session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: AccessLevelAutoApprove}
+	s := &llmRunStream{ctx: ctx, session: session, engine: &LLMAgentEngine{tools: executor}, runControl: NewRunControl(ctx, "run"), execCtx: &ExecutionContext{Session: session, AccessLevel: AccessLevelAutoApprove}}
+	call := &preparedToolInvocation{toolID: "call", toolName: "chat_start", args: map[string]any{"accessLevel": AccessLevelFullAccess}}
+	if handled, err := s.handleToolApprovalBeforeInvoke(call); err != nil || !handled || s.hitlMatch == nil {
+		t.Fatalf("review not shown: %v %v", handled, err)
+	}
+	s.runControl.UpdateAccessLevel(AccessLevelFullAccess)
+	s.execCtx.AccessLevel = AccessLevelFullAccess
+	resolved, err := s.tryResolvePendingAccessLevelApproval(call, *s.hitlMatch, s.hitlAwaitingID)
+	if err != nil || resolved || len(executor.invocations) != 0 || call.approvalDecision != "" {
+		t.Fatalf("access level change answered an exact review: resolved=%v err=%v", resolved, err)
+	}
+}

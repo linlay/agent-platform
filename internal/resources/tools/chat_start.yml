@@ -8,6 +8,9 @@ description: "Start an independent run for an Agent or Team in a new or existing
 clientVisible: true
 explicitOnly: true
 readOnly: false
+confirmationRules:
+  - viewportType: html
+    viewportKey: chat_start_review
 inputSchema:
   type: object
   properties:
@@ -33,7 +36,7 @@ inputSchema:
         - default
         - auto_approve
         - full_access
-      description: "Permission level for this run."
+      description: "Permission level for this run. Above the caller Run level requires human approval."
     mustUseSkills:
       type: array
       items:

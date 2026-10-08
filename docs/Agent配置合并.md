@@ -4,7 +4,7 @@
 
 - `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
 - `configs/agent-prompt.yml`：`shared`（runtime/skill/tool-appendix/plan-execute/btw）、`coder`、`kbase` 提示词。注入时机不变。
-- `configs/tools.yml`：访问策略、Bash/FileTools/run-env/runQuery，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
+- `configs/tools.yml`：访问策略、Bash/FileTools/run-env，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
 
 所有上述 YAML 在启动时读取，修改需要重启；注册表连接快照可在调用前重新同步。

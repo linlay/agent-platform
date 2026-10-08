@@ -820,6 +820,30 @@ func (c *RunControl) UpdateAccessLevel(accessLevel string) (string, string, int6
 	return previous, normalized, version, true
 }
 
+// AcceptAtAccessLevel runs accept in one short critical section that excludes
+// access-level updates, so a decision and its side effect observe the same
+// level and version. It fails when the Run is no longer active. accept must be
+// brief and must not call back into this RunControl.
+func (c *RunControl) AcceptAtAccessLevel(accept func(accessLevel string, version int64) error) error {
+	if c == nil {
+		return ErrRunInterrupted
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.finished.Load() || c.interrupted.Load() || isTerminalRunLoopState(c.state) {
+		return ErrRunInterrupted
+	}
+	accessLevel := c.accessLevel
+	if accessLevel == "" {
+		accessLevel = AccessLevelDefault
+	}
+	version := c.accessVersion
+	if version <= 0 {
+		version = 1
+	}
+	return accept(accessLevel, version)
+}
+
 func (c *RunControl) AccessLevelSnapshot() (string, int64) {
 	if c == nil {
 		return AccessLevelDefault, 0

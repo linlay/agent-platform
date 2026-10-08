@@ -763,6 +763,8 @@ type RunStartRequest struct {
 	ChatID        string
 	Message       string
 	Origin        RunOrigin
+	// Review is set only by the trusted chat_start handler; see RunStartReview.
+	Review *RunStartReview `json:"-"`
 }
 
 type RunAwaiting struct {
@@ -795,6 +797,13 @@ type RunSnapshot struct {
 type RunToolError struct {
 	Code    string
 	Message string
+	// ExecutionState is not_started or unknown; empty means unspecified.
+	ExecutionState string
+	// Retryable marks failures the caller may retry with the same request.
+	Retryable bool
+	// RunID and ChatID identify a start whose outcome could not be confirmed.
+	RunID  string
+	ChatID string
 }
 
 func (e *RunToolError) Error() string {

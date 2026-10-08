@@ -57,3 +57,12 @@ func wsTestControlResponse(t testing.TB, serverURL, route string, payload any) [
 		}
 	}
 }
+
+// registerTestParentRun makes runID an active Run so chat_start can read its
+// live access level, as the calling Run always is in production.
+func registerTestParentRun(t testing.TB, fixture testFixture, runID string) *contracts.RunControl {
+	t.Helper()
+	_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: runID, ChatID: runID + "-chat", AgentKey: "zenmi"})
+	t.Cleanup(func() { fixture.runs.Finish(runID) })
+	return control
+}

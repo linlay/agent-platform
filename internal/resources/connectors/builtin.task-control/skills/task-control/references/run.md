@@ -13,7 +13,7 @@ In user requests, conversation, dialogue and chat are synonyms for Chat, includi
 - Current Agent: set agentKey to the exact Agent Identity.key from the current system prompt. References to the current Agent, this Agent or yourself in any language always mean that Agent; never substitute a key from Runtime Context: Sub-Agent Candidates.
 - chatId: non-empty string. Omit it to create a new Chat. Provide it only when the user asks to continue a specific existing Chat owned by the selected target. Never reuse the current chatId for a request to open a new Chat.
 - chatName: non-empty string naming a new Chat. Pass it only when the user specifies a name; otherwise normal naming applies. Cannot be combined with chatId. taskName is not supported.
-- accessLevel: `"default"`, `"auto_approve"` or `"full_access"`, for this run only. Pass it only when the user explicitly requests a permission level. Omission inherits the parent Run's current level at invocation time and does not follow later changes. Automatic approval means auto_approve, not full_access; destructive operations may still require approval. A deployment may disable explicit non-default overrides; inheritance remains allowed. Target admission applies to all levels.
+- accessLevel: `"default"`, `"auto_approve"` or `"full_access"`, for this run only. Pass it only when the user explicitly requests a permission level. Omission inherits the parent Run's current level at invocation time and does not follow later changes. Automatic approval means auto_approve, not full_access; destructive operations may still require approval. Target admission applies to all levels. See Permission review below.
 - mustUseSkills: array of non-empty skill ID strings required for an ordinary Agent run. Empty or omitted means none. Team runs and connector skills do not support this selection.
 
 Examples:
@@ -25,6 +25,18 @@ Examples:
 ```json
 {"message": "Continue with the second chapter", "agentKey": "writer", "chatId": "<existing chatId>"}
 ```
+
+### Permission review
+
+Levels are ordered default < auto_approve < full_access and compared with the calling Run's current level when the call is accepted.
+
+- At or below the calling Run's level, or omitted: the run starts directly.
+- Above it: the user must approve this one start in a review shown in the current Chat. No access level, approval rule or argument can grant it, and the calling Run's own level never changes. Waiting uses the normal approval timeout; a timeout counts as a rejection.
+- Rejected, dismissed, timed out or interrupted: nothing was started. Do not call chat_start again for the same task, and never omit or lower accessLevel to avoid the review. Report the outcome to the user.
+- An error with `retryable: true` (`run_start_review_stale`, `run_start_approval_required`, `run_parent_access_level_changed`) means nothing was started because the calling Run's level changed. Make a new chat_start call with the same target, message and accessLevel; a new review is shown when one is still required.
+- `run_start_outcome_unknown` means the start could not be confirmed. Check the returned runId with chat_get_status; do not start again.
+
+Errors raised before a run exists carry `executionState: "not_started"`.
 
 ## chat_get_status
 
@@ -40,4 +52,4 @@ When the run awaits human approval, tell the user to handle it in the target Cha
 
 - chat_get_status and chat_interrupt accept only runs created by chat_start for the same calling Agent and subject. They cannot address the current run, arbitrary runs, or agent_invoke/agent_delegate child tasks.
 - A run created by chat_start cannot call any of these three tools.
-- After a timeout or unknown outcome from chat_start, inspect existing Chats with chat_query before starting again; a repeated call starts another run.
+- After a transport timeout or unknown outcome from chat_start, inspect existing Chats with chat_query before starting again; a repeated call starts another run.

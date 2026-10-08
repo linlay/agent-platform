@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>以更高权限发起会话运行</title><style>/* REVIEW_STYLES */</style></head>
+<body><div id="review" aria-live="polite"></div><script>/* REVIEW_SCRIPT */</script><script>
+Review.mount(u=>{
+ const {t,form:f}=u;
+ const access=v=>({default:t('默认','Default'),auto_approve:t('自动批准','Auto approve'),full_access:t('完全访问','Full access')})[v||'default']||v;
+ const target=u.record(f.target),caller=u.record(f.caller);
+ u.title(t('以更高权限发起会话运行','Start a run with higher permissions'));
+ u.target((target.type==='team'?t('团队：','Team: '):t('智能体：','Agent: '))+(target.name||target.key||''),'',target.key);
+ u.required(target.key,t('目标','target'));
+ u.field(t('运行权限','Run permissions'),access(f.parentAccessLevel)+' → '+access(f.accessLevel),{critical:true});
+ u.field(t('发起方','Requested by'),t('智能体：','Agent: ')+(caller.agentKey||''));
+ u.field(t('会话目标','Conversation'),f.continuesChat?t('继续已有会话：','Continue conversation: ')+(f.chatName||f.chatId):(f.chatName?t('创建新会话：','Create a new conversation: ')+f.chatName:t('创建新会话','Create a new conversation')));
+ u.field(t('任务内容','Task'),f.message);
+ if(Array.isArray(f.mustUseSkills)&&f.mustUseSkills.length)u.field(t('指定技能','Required skills'),f.mustUseSkills);
+ u.notice(t('新运行的权限高于发起方当前权限，必须由你确认。','The new run would have higher permissions than the requesting run, so it needs your confirmation.'),true);
+ u.notice(t('仅批准这一次启动；发起方自身的权限不变，新运行启动后独立执行。','This approves only this start. The requesting run keeps its own permissions, and the new run continues independently.'));
+});
+</script></body></html>

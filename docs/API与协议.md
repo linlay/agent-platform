@@ -353,7 +353,7 @@ Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 
 
 Automation 列表和详情固定返回 `executionHistory:{available,state,message?}`，其中 `state` 为 `initializing|ready|degraded|unavailable`。History 不可读不影响 Automation 配置 API；`/api/automation/executions` 和 `/api/automation/execution` 此时返回 `503`。
 
-Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `default/auto_approve/full_access`，省略时执行权限为 `default`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不受 `runQuery.allowAccessLevelOverride` 限制；目标交互准入及工具硬限制继续生效。
+Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `default/auto_approve/full_access`，省略时执行权限为 `default`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不经过 `chat_start` 的权限提升审批；目标交互准入及工具硬限制继续生效。
 
 `POST /api/automation/trigger` 是 HTTP-only 的原生手动触发入口。每次请求都会创建不同的 Execution，并与 Cron 执行共用全局 Automation 并发池；暂停状态也可触发，但不会扣减 `remainingRuns`、持久化 Automation 或改变 `nextFireAt`。成功响应保持统一 200 包装，例如 `data:{"accepted":true,"status":"accepted","automationId":"daily-report","executionId":"exec_xxx"}`。该响应只表示已受理，Query 准入、模型执行、HITL 或停止取消等后续结果通过 execution history 和 `automation.execution.*` push 反映。
 
