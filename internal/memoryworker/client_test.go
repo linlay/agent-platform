@@ -23,7 +23,11 @@ func TestMain(m *testing.M) {
 			}
 		}
 		id := ""
-		data := map[string]any{"configDirEnv": os.Getenv("MEMX_TEST_UNSUPPORTED") != "1"}
+		version := "0.4.1"
+		if v := os.Getenv("MEMX_TEST_VERSION"); v != "" {
+			version = v
+		}
+		data := map[string]any{"version": version, "maintenanceVersion": 2, "configDirEnv": os.Getenv("MEMX_TEST_UNSUPPORTED") != "1"}
 		if len(os.Args) > 1 && os.Args[1] == "config" {
 			os.WriteFile(filepath.Join(os.Getenv("MEMX_CONFIG_DIR"), "set-called"), []byte("set"), 0600)
 		} else {
@@ -81,5 +85,27 @@ func TestUnsupportedCLIReceivesNoConfiguration(t *testing.T) {
 		if e := c.Call(context.Background(), "ping", struct{}{}, nil); e == nil {
 			t.Fatal("invalid instance directory accepted")
 		}
+	}
+}
+
+func TestOldCLIReceivesNoConfiguration(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"0.3.1", "0.3.2", "0.4.0"} {
+		t.Run(version, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("MEMX_CLIENT_TEST_PROCESS", "1")
+			t.Setenv("MEMX_EXPECT_CONFIG_DIR", dir)
+			t.Setenv("MEMX_TEST_VERSION", version)
+			c := Client{Binary: executable, ConfigDir: dir, Root: t.TempDir(), Timezone: "UTC"}
+			if err := c.SetConfig(context.Background(), []byte(`{"secret":"must-not-send"}`)); err == nil || !strings.Contains(err.Error(), "0.4.1") {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "set-called")); !os.IsNotExist(err) {
+				t.Fatal("configuration sent to old CLI", err)
+			}
+		})
 	}
 }

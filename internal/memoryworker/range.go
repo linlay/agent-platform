@@ -305,6 +305,9 @@ func (w *Worker) runRange(ctx context.Context, job *RangeStatus) error {
 	if err != nil {
 		return err
 	}
+	if err = requireMemx(ctx, w.call); err != nil {
+		return err
+	}
 	if err = w.syncModels(ctx); err != nil {
 		return err
 	}

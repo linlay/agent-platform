@@ -1,6 +1,7 @@
 package memoryworker
 
 import (
+	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"context"
 	"encoding/json"
@@ -9,17 +10,36 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestMemxIntegration(t *testing.T) {
+func integrationMemx(t *testing.T) string {
+	t.Helper()
 	binary := os.Getenv("MEMX_TEST_BINARY")
 	if binary == "" {
-		t.Skip("set MEMX_TEST_BINARY for subprocess integration")
+		name := "memx"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		binary, _ = filepath.Abs(filepath.Join("..", "..", "build", "builtins", runtime.GOOS+"-"+runtime.GOARCH, "bin", name))
+		if _, err := os.Stat(binary); os.IsNotExist(err) {
+			t.Skip("native memx cache missing; sync builtins, then run make test-memory-integration")
+		}
 	}
+	info, err := os.Stat(binary)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("MEMX_TEST_BINARY must name an existing executable: %s (%v)", binary, err)
+	}
+	t.Logf("testing memx executable: %s", binary)
+	return binary
+}
+
+func TestMemxIntegration(t *testing.T) {
+	binary := integrationMemx(t)
 	inherited := filepath.Join(t.TempDir(), "other-instance")
 	t.Setenv("MEMX_CONFIG_DIR", inherited)
 	var calls atomic.Int32
@@ -93,9 +113,23 @@ func TestMemxIntegration(t *testing.T) {
 	}
 	for _, p := range []string{"daily/2026-10-03.md", "summary.md"} {
 		b, e := os.ReadFile(filepath.Join(root, p))
-		if e != nil || !strings.Contains(string(b), "请使用中文") {
+		if e != nil || !strings.Contains(string(b), "请使用中文") || strings.Contains(string(b), "memx:fact") || strings.Contains(string(b), "language") {
 			t.Fatal(p, e)
 		}
+	}
+	// Platform reads/searches the actual clean Markdown and saves the same
+	// revision without needing to understand the private source records.
+	store := memory.NewStore(root, t.TempDir(), time.UTC)
+	daily, e := store.Read("daily", "2026-10-03")
+	if e != nil {
+		t.Fatal(e)
+	}
+	matches, e := store.SearchPage("请使用中文", "")
+	if e != nil || len(matches.Matches) != 2 {
+		t.Fatal(matches, e)
+	}
+	if _, e := store.Save("daily", daily.Date, "手工笔记\n\n"+daily.Content, daily.Revision); e != nil {
+		t.Fatal(e)
 	}
 	token.Store("rotated-key")
 	writeProvider()
@@ -116,13 +150,32 @@ func TestMemxIntegration(t *testing.T) {
 	if _, err := os.Stat(inherited); !os.IsNotExist(err) {
 		t.Fatal("inherited config directory was used", err)
 	}
+	// Direct Platform deletion leaves provenance for the next maintenance pass.
+	daily, e = store.Read("daily", "2026-10-03")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = store.Delete("daily", daily.Date, daily.Revision); e != nil {
+		t.Fatal(e)
+	}
+	meta := filepath.Join(root, ".memx-meta", "daily", daily.Date+".json")
+	if _, e = os.Stat(meta); e != nil {
+		t.Fatal("missing provenance before maintenance", e)
+	}
+	if e = cli.Call(context.Background(), "summarize", map[string]any{"through": daily.Date, "maxChars": 8000}, nil); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = os.Stat(meta); !os.IsNotExist(e) {
+		t.Fatal("orphan provenance remains", e)
+	}
+	summary, e := store.Read("memory", "")
+	if e != nil || strings.Contains(summary.Content, "请使用中文") || calls.Load() != 2 {
+		t.Fatal("forgotten fact restored or model called during cleanup", summary, calls.Load(), e)
+	}
 }
 
 func TestRangeMemxIntegration(t *testing.T) {
-	binary := os.Getenv("MEMX_TEST_BINARY")
-	if binary == "" {
-		t.Skip("set MEMX_TEST_BINARY for subprocess integration")
-	}
+	binary := integrationMemx(t)
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)

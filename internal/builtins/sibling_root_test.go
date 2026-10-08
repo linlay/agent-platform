@@ -88,9 +88,28 @@ func TestRequireMemxComponent(t *testing.T) {
 		if RequireMemxComponent(manifest) == nil {
 			t.Fatal("memx without environment configuration accepted")
 		}
-		manifest.Components[1].Version = "0.3.1"
+		for _, version := range []string{"0.3.1", "0.3.2", "0.4.0"} {
+			manifest.Components[1].Version = version
+			if RequireMemxComponent(manifest) == nil {
+				t.Fatalf("memx %s with encoded daily accepted", version)
+			}
+		}
+		manifest.Components[1].Version = "0.4.1"
 		if err := RequireMemxComponent(manifest); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestRequireMemxVersion(t *testing.T) {
+	for _, version := range []string{"0.4.1", "v0.4.1", "0.4.2", "0.5.0", "1.0.0"} {
+		if err := RequireMemxVersion(version); err != nil {
+			t.Fatal(version, err)
+		}
+	}
+	for _, version := range []string{"", "0.3.2", "0.4.0", "0.4.1-rc1", "0.4", "0.-4.1", "other"} {
+		if RequireMemxVersion(version) == nil {
+			t.Fatal("unsupported version accepted", version)
 		}
 	}
 }

@@ -37,7 +37,7 @@ LOCAL_BACKEND_BIN := $(LOCAL_BACKEND_DIR)/$(LOCAL_BINARY)
 LOCAL_PLUGINS_DIR := $(LOCAL_RELEASE_ROOT)/plugins
 LOCAL_BUILTINS_BIN := build/builtins/$(LOCAL_GOOS)-$(ARCH)/bin
 
-.PHONY: run build-local run-local audit-workspace-chat test test-integration test-program-deploy test-release-program-clean docker-build docker-up docker-down release release-program release-program-all clean
+.PHONY: run build-local run-local audit-workspace-chat test test-memory-integration test-integration test-program-deploy test-release-program-clean docker-build docker-up docker-down release release-program release-program-all clean
 
 ifeq ($(OS),Windows_NT)
 run: run-local
@@ -61,7 +61,7 @@ endif
 audit-workspace-chat:
 	set -a; [ ! -f .env ] || . ./.env; set +a; go run ./cmd/audit-workspace-chat-config --config-dir .
 
-test:
+test: test-memory-integration
 	@for pkg in $$(go list ./...); do \
 		attempt=1; \
 		while true; do \
@@ -80,6 +80,14 @@ test:
 			attempt=$$((attempt + 1)); \
 		done; \
 	done
+
+ifeq ($(OS),Windows_NT)
+test-memory-integration:
+	@$$env:MEMX_TEST_BINARY = '$(abspath $(LOCAL_BUILTINS_BIN))/memx.exe'; $$env:CGO_ENABLED = '$(CGO_ENABLED)'; go test -count=1 -run 'Test(MemxIntegration|RangeMemxIntegration)$$' -v ./internal/memoryworker; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }
+else
+test-memory-integration:
+	MEMX_TEST_BINARY="$(abspath $(LOCAL_BUILTINS_BIN))/memx" CGO_ENABLED=$(CGO_ENABLED) go test -count=1 -run 'Test(MemxIntegration|RangeMemxIntegration)$$' -v ./internal/memoryworker
+endif
 
 test-integration:
 	GOCACHE=$$(mktemp -d) CGO_ENABLED=$(CGO_ENABLED) RUN_SOCKET_TESTS=1 go test -p 1 -run TestQueryStreamsBeforeRunCompleteOverHTTP -v ./internal/server

@@ -49,13 +49,17 @@ type fakeCLI struct {
 	updates        int
 	summaryThrough string
 	failUpdate     bool
+	version        string
 }
 
 func (f *fakeCLI) Call(_ context.Context, method string, in, out any) error {
 	data := map[string]any{}
 	switch method {
 	case "ping":
-		data["version"] = "0.3.0"
+		data["version"] = "0.4.1"
+		if f.version != "" {
+			data["version"] = f.version
+		}
 		data["maintenanceVersion"] = 2
 		data["configDirEnv"] = true
 	case "read":
@@ -105,6 +109,25 @@ func TestWorkerReplayRestartAndDailyCutoff(t *testing.T) {
 	}
 	if cli.summaryThrough != "2026-10-03" {
 		t.Fatal(cli.summaryThrough)
+	}
+}
+
+func TestWorkersRejectEncodedDailyCLI(t *testing.T) {
+	for _, version := range []string{"0.3.1", "0.3.2", "0.4.0"} {
+		t.Run(version, func(t *testing.T) {
+			cli := &fakeCLI{version: version, receipts: map[string]bool{}}
+			w, syncer, now := workerFixture(t, cli)
+			if _, err := w.run(context.Background(), now); err == nil || !strings.Contains(err.Error(), "0.4.1") {
+				t.Fatal(err)
+			}
+			job := manualJob(w, "2026-10-03", "2026-10-03")
+			if err := w.runRange(context.Background(), job); err == nil || !strings.Contains(err.Error(), "0.4.1") {
+				t.Fatal(err)
+			}
+			if syncer.calls != 0 || cli.updates != 0 || cli.summaryThrough != "" {
+				t.Fatal("old CLI reached config or maintenance", syncer.calls, cli.updates, cli.summaryThrough)
+			}
+		})
 	}
 }
 func TestWorkerDoesNotAcknowledgeFailedWrite(t *testing.T) {

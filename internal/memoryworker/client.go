@@ -74,14 +74,8 @@ func (c Client) Call(ctx context.Context, method string, params, out any) error 
 func (c Client) SetConfig(ctx context.Context, input []byte) error {
 	// Verify support before publishing credentials so an incompatible CLI cannot
 	// silently select its standalone default configuration directory.
-	var capabilities struct {
-		ConfigDirEnv bool `json:"configDirEnv"`
-	}
-	if err := c.Call(ctx, "ping", struct{}{}, &capabilities); err != nil {
+	if err := requireMemx(ctx, c.Call); err != nil {
 		return err
-	}
-	if !capabilities.ConfigDirEnv {
-		return fmt.Errorf("memx >= 0.3.1 with MEMX_CONFIG_DIR support required; synchronize builtins")
 	}
 	binary := c.Binary
 	if binary == "" {
@@ -92,6 +86,24 @@ func (c Client) SetConfig(ctx context.Context, input []byte) error {
 		}
 	}
 	return c.execute(ctx, binary, []string{"config", "set", "--stdin"}, input, "", nil)
+}
+
+func requireMemx(ctx context.Context, call func(context.Context, string, any, any) error) error {
+	var capabilities struct {
+		Version            string `json:"version"`
+		MaintenanceVersion int    `json:"maintenanceVersion"`
+		ConfigDirEnv       bool   `json:"configDirEnv"`
+	}
+	if err := call(ctx, "ping", struct{}{}, &capabilities); err != nil {
+		return err
+	}
+	if err := builtins.RequireMemxVersion(capabilities.Version); err != nil {
+		return err
+	}
+	if capabilities.MaintenanceVersion != 2 || !capabilities.ConfigDirEnv {
+		return fmt.Errorf("memx maintenanceVersion=2 and MEMX_CONFIG_DIR support required; synchronize builtins")
+	}
+	return nil
 }
 func (c Client) execute(ctx context.Context, binary string, args []string, input []byte, id string, out any) error {
 	if !filepath.IsAbs(c.ConfigDir) {

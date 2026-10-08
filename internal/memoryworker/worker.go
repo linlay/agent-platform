@@ -237,16 +237,8 @@ func (w *Worker) run(ctx context.Context, now time.Time) (int, error) {
 	if err = save(); err != nil {
 		return 0, err
 	}
-	var version struct {
-		Version            string `json:"version"`
-		MaintenanceVersion int    `json:"maintenanceVersion"`
-		ConfigDirEnv       bool   `json:"configDirEnv"`
-	}
-	if err = w.call(ctx, "ping", struct{}{}, &version); err != nil {
+	if err = requireMemx(ctx, w.call); err != nil {
 		return 0, err
-	}
-	if version.MaintenanceVersion != 2 || !version.ConfigDirEnv {
-		return 0, fmt.Errorf("memx >= 0.3.1 with MEMX_CONFIG_DIR support required; synchronize builtins")
 	}
 	if err = w.syncModels(ctx); err != nil {
 		return 0, err
