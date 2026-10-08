@@ -53,7 +53,8 @@ func (e *LLMAgentEngine) StreamSummary(ctx context.Context, req api.QueryRequest
 	session.RequestID, session.RunID = req.RequestID, req.RunID
 	session.Mode, session.SubTaskID = "ONESHOT", ""
 	session.ToolNames, session.ModeToolDefinitions = nil, nil
-	session.MemoryContext = ""
+	session.GlobalMemoryContext = ""
+	session.AgentMemoryContext = ""
 	session.HistoryMessages, session.SystemInitCache = nil, nil
 	session.TeamRuntime = nil
 	session.RunLimits = RunLimits{}

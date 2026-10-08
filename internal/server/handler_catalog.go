@@ -685,6 +685,8 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 			{Key: "session", Label: "session"},
 			{Key: "owner", Label: "owner"},
 			{Key: "agents", Label: "agents"},
+			{Key: "memory-global", Label: "memory-global"},
+			{Key: "memory-agent", Label: "memory-agent"},
 		},
 		VisibilityScopes: []api.AgentEditorOption{
 			{Key: "nav", Label: "nav"},

@@ -388,7 +388,8 @@ type QuerySession struct {
 	RunLimits                   RunLimits
 	HistoryMessages             []map[string]any
 	CurrentMessages             []map[string]any
-	MemoryContext               string
+	GlobalMemoryContext         string
+	AgentMemoryContext          string
 	PlanTaskContext             string
 	RuntimeContext              RuntimeRequestContext
 	PromptAppend                PromptAppendConfig
@@ -428,7 +429,6 @@ type QuerySession struct {
 	// SkillScripts is an admission-built, memory-only grant for this run.
 	SkillScripts           *skillsexec.Scope `json:"-"`
 	AgentHasRuntimeSandbox bool
-	AgentHasMemoryConfig   bool
 	WorkspaceRoot          string
 	ChatRoot               string
 	AccessLevel            string

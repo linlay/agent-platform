@@ -53,6 +53,7 @@ automation:
 
 memory:
   enabled: false
+  # 旧兼容键，不再控制 Run 注入；注入预算使用下方 summary.global/agent。
   context-max-chars: 12000
   timezone: Local
   worker:

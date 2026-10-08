@@ -1436,3 +1436,10 @@ func TestAgentSummaryCoderDefaultsFallbackToModelConfigAndMedium(t *testing.T) {
 		t.Fatalf("unexpected CODER fallback defaults model=%q reasoning=%q", modelKey, reasoningEffort)
 	}
 }
+
+func TestNormalizeMemoryContextTags(t *testing.T) {
+	tags := normalizeContextTags([]string{"memory-agent", "memory-global", "memory-agent", "memory"})
+	if strings.Join(tags, ",") != "memory-agent,memory-global" {
+		t.Fatalf("tags=%v", tags)
+	}
+}

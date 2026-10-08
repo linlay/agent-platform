@@ -116,21 +116,16 @@ func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session 
 			appendSection("runtime-session", "Runtime Context: Session", "runtime.session", buildSessionSection(session))
 		case "owner":
 			appendSection("runtime-owner", "Runtime Context: Owner", "runtime.owner", buildSessionOwnerSection(session))
+		case "memory-global":
+			appendSection("runtime-memory-global", "Runtime Context: Global Memory", "memory.global", session.GlobalMemoryContext)
+		case "memory-agent":
+			appendSection("runtime-memory-agent", "Runtime Context: Agent Memory", "memory.agent", session.AgentMemoryContext)
 		case "agents":
 			appendSection("runtime-agents", "Runtime Context: Sub-Agent Candidates", "runtime.agents", buildAgentsSection(session.RuntimeContext.AgentDigests))
 		}
 	}
 	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
 		appendSection("runtime-sandbox", "Runtime Context: Sandbox", "runtime.sandbox", buildSandboxSection(session.RuntimeContext.SandboxContext))
-	}
-	if session.AgentHasMemoryConfig {
-		appendRuntimeMemorySystemPromptSections(sections, session)
-	}
-}
-
-func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, session QuerySession) {
-	if content := buildMemorySection(session); content != "" {
-		*sections = append(*sections, systemPromptSection{ID: "memory-personal", Title: "Personal Memory", Category: "memory.personal", Content: content})
 	}
 }
 
@@ -512,10 +507,6 @@ func formatAgentDigest(digest AgentDigest) string {
 	appendKeyValue(&lines, "role", digest.Role)
 	appendKeyValue(&lines, "description", digest.Description)
 	return strings.Join(lines, "\n")
-}
-
-func buildMemorySection(session QuerySession) string {
-	return strings.TrimSpace(session.MemoryContext)
 }
 
 func summarizeScene(scene *api.Scene) string {

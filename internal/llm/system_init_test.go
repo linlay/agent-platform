@@ -38,7 +38,8 @@ func TestSystemInitFingerprintIgnoresRequestDynamicContext(t *testing.T) {
 	changed := session
 	changed.RequestID = "request-2"
 	changed.RunID = "run-2"
-	changed.MemoryContext = "Runtime Context: Current Session\n- changed"
+	changed.GlobalMemoryContext = "Runtime Context: Global Memory\n- changed"
+	changed.AgentMemoryContext = "Runtime Context: Agent Memory\n- changed"
 	changed.RuntimeContext.References = []api.Reference{{Name: "new-ref"}}
 
 	tools := []api.ToolDetailResponse{{Name: "bash", Description: "run shell"}}

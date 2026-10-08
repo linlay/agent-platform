@@ -226,7 +226,7 @@ Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 
 
 Auth 默认开启，默认公钥文件为 `configs/local-public-key.pem`；相关默认值展示在 `configs/runtime.example.yml` 的 `auth` 节，根 `.env.example` 不再放 Auth 变量。
 
-Memory 深度调优使用 `configs/runtime.yml` 中的 `memory.*`。
+Memory 深度调优使用 `configs/runtime.yml` 中的 `memory.*`。Agent 的 `memoryConfig.enabled` 控制记忆采集；上下文独立通过 `contextConfig.tags` 的 `memory-global`（总体 Summary）和 `memory-agent`（当前 Agent Summary）选择，不配置标签就不注入。
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 

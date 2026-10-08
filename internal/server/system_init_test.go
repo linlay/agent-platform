@@ -34,16 +34,15 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
 	toolDefs := []api.ToolDetailResponse{{Name: "datetime", Description: "get current time"}}
 	oldSession := contracts.QuerySession{
-		RunID:                "run-old",
-		ChatID:               "chat-1",
-		AgentKey:             "agent",
-		ModelKey:             "mock-model",
-		ToolNames:            []string{"datetime"},
-		Mode:                 "REACT",
-		ContextTags:          []string{"system"},
-		PromptAppend:         contracts.DefaultPromptAppendConfig(),
-		AgentHasMemoryConfig: true,
-		MemoryContext:        "Runtime Context: Current Session\n- stale session memory",
+		RunID:               "run-old",
+		ChatID:              "chat-1",
+		AgentKey:            "agent",
+		ModelKey:            "mock-model",
+		ToolNames:           []string{"datetime"},
+		Mode:                "REACT",
+		ContextTags:         []string{"system", "memory-global"},
+		PromptAppend:        contracts.DefaultPromptAppendConfig(),
+		GlobalMemoryContext: "Runtime Context: Current Session\n- stale session memory",
 	}
 	oldProfiles := llm.BuildSystemInitProfiles(oldSession, req, toolDefs, 0, 0, 0, config.PromptsConfig{})
 	if len(oldProfiles) != 1 {
@@ -79,7 +78,7 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 	}}
 	newSession := oldSession
 	newSession.RunID = "run-new"
-	newSession.MemoryContext = "Runtime Context: Current Session\n- fresh session memory"
+	newSession.GlobalMemoryContext = "Runtime Context: Current Session\n- fresh session memory"
 
 	pending, err := server.prepareSystemInitCache(req, &newSession, false)
 	if err != nil {
@@ -117,16 +116,15 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
 	toolDefs := []api.ToolDetailResponse{{Name: "datetime", Description: "get current time"}}
 	session := contracts.QuerySession{
-		RunID:                "run-1",
-		ChatID:               "chat-1",
-		AgentKey:             "agent",
-		ModelKey:             "mock-model",
-		ToolNames:            []string{"datetime"},
-		Mode:                 "REACT",
-		ContextTags:          []string{"system"},
-		PromptAppend:         contracts.DefaultPromptAppendConfig(),
-		AgentHasMemoryConfig: true,
-		MemoryContext:        "Runtime Context: Current Session\n- fresh",
+		RunID:               "run-1",
+		ChatID:              "chat-1",
+		AgentKey:            "agent",
+		ModelKey:            "mock-model",
+		ToolNames:           []string{"datetime"},
+		Mode:                "REACT",
+		ContextTags:         []string{"system", "memory-global"},
+		PromptAppend:        contracts.DefaultPromptAppendConfig(),
+		GlobalMemoryContext: "Runtime Context: Current Session\n- fresh",
 	}
 	server := &Server{deps: Dependencies{
 		Config:      config.Config{},

@@ -266,7 +266,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		RuntimeHostAccess:           RuntimeHostAccess(agentDef.HostAccess),
 		RunAccessRoots:              runAccessRoots,
 		AgentHasRuntimeSandbox:      HasRuntimeSandbox(agentDef.Runtime),
-		AgentHasMemoryConfig:        agentDef.MemoryEnabled,
 		WorkspaceRoot:               resolvedWorkspaceRoot,
 		ChatRoot:                    strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
 		AccessLevel:                 NormalizedAccessLevel(req.AccessLevel),
@@ -312,15 +311,34 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		}
 		session.OwnerPrompt, session.OwnerPromptLoaded = owner.Content, true
 	}
-	if options.IncludeMemory && agentDef.MemoryEnabled && s.deps.Config.Memory.Enabled && !IsProxyRoutedAgent(agentDef) {
-		prompt, err := personalMemory.Context(s.deps.Config.Memory.ContextMaxChars)
-		if err != nil {
-			return contracts.QuerySession{}, fmt.Errorf("load memory.md: %w", err)
-		}
-		session.MemoryContext = prompt
-	}
 	if err := s.restorePromptLocale(&session); err != nil {
 		return contracts.QuerySession{}, err
+	}
+	if options.IncludeMemory && s.deps.Config.Memory.Enabled && !IsProxyRoutedAgent(agentDef) && catalog.AgentEngineForAPI(agentDef) == catalog.AgentEngineNative {
+		for _, layer := range []struct {
+			tag, key string
+			budget   config.MemorySummaryBudget
+			target   *string
+		}{
+			{"memory-global", "", s.deps.Config.Memory.Summary.Global, &session.GlobalMemoryContext},
+			{"memory-agent", agentDef.Key, s.deps.Config.Memory.Summary.Agent, &session.AgentMemoryContext},
+		} {
+			if !ContainsTool(agentDef.ContextTags, layer.tag) {
+				continue
+			}
+			doc, err := personalMemory.ReadSummary(layer.key)
+			if err != nil {
+				return contracts.QuerySession{}, err
+			}
+			if !doc.Exists {
+				continue
+			}
+			if !memory.SummaryWithinBudget(doc.Content, layer.key != "", layer.budget) {
+				log.Printf("memory summary omitted: agent=%q tag=%s exceeds summary budget", agentDef.Key, layer.tag)
+				continue
+			}
+			*layer.target = memory.SummaryPrompt(doc, layer.key != "", session.Locale)
+		}
 	}
 	session.CurrentMessages = s.BuildCurrentMessages(req, session)
 	if err := s.ConfigureViews(&session, agentDef); err != nil {

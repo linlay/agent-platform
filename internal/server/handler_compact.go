@@ -304,7 +304,8 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 	session.Mode = "ONESHOT"
 	session.ToolNames = nil
 	session.ModeToolDefinitions = nil
-	session.MemoryContext = ""
+	session.GlobalMemoryContext = ""
+	session.AgentMemoryContext = ""
 	session.HistoryMessages = nil
 	session.ResolvedBudget = contracts.NormalizeBudget(contracts.Budget{MaxSteps: 1})
 	var agentStream contracts.AgentStream

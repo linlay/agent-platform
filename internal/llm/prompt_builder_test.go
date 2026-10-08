@@ -423,10 +423,10 @@ func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
+func TestBuildRuntimeContextPromptIncludesSelectedMemorySection(t *testing.T) {
 	prompt := runtimeSystemPromptForTest(QuerySession{
-		AgentHasMemoryConfig: true,
-		MemoryContext:        "Personal Memory\n- stable-fact",
+		ContextTags:         []string{"memory-global"},
+		GlobalMemoryContext: "Personal Memory\n- stable-fact",
 	})
 
 	if !strings.Contains(prompt, "Personal Memory") {
@@ -434,7 +434,7 @@ func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *testing.T) {
+func TestBuildRuntimeContextPromptIgnoresMemoryFromRequestParams(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{}, api.QueryRequest{
 		Params: map[string]any{
 			"memoryContext": "param-memory",
@@ -442,7 +442,7 @@ func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *test
 	}, "", PromptBuildOptions{})
 
 	if strings.Contains(prompt, "Runtime Context: Agent Memory") {
-		t.Fatalf("expected memory fallback to stay gated by memory config, got %q", prompt)
+		t.Fatalf("expected request params not to inject memory, got %q", prompt)
 	}
 }
 
@@ -975,5 +975,23 @@ func assertLastField(t *testing.T, s string, field string) {
 	}
 	if strings.Contains(s[idx+len(field):], "_dir:") {
 		t.Fatalf("expected %q to be the last directory field in %q", field, s)
+	}
+}
+
+func TestMemoryPromptFollowsTagSelectionAndOrder(t *testing.T) {
+	for _, tags := range [][]string{nil, {"memory-global"}, {"memory-agent"}, {"memory-agent", "memory-global"}} {
+		session := QuerySession{ContextTags: tags, GlobalMemoryContext: "GLOBAL_FACT", AgentMemoryContext: "AGENT_FACT"}
+		prompt := runtimeSystemPromptForTest(session)
+		global, agent := false, false
+		for _, tag := range tags {
+			global = global || tag == "memory-global"
+			agent = agent || tag == "memory-agent"
+		}
+		if strings.Contains(prompt, "GLOBAL_FACT") != global || strings.Contains(prompt, "AGENT_FACT") != agent {
+			t.Fatalf("tags=%v prompt=%s", tags, prompt)
+		}
+		if len(tags) == 2 && strings.Index(prompt, "AGENT_FACT") > strings.Index(prompt, "GLOBAL_FACT") {
+			t.Fatal("tag order lost")
+		}
 	}
 }
