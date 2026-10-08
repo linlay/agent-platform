@@ -1,0 +1,3448 @@
+{
+  "date": "2026-10-09",
+  "timezone": "Asia/Shanghai",
+  "provider": "BabelArk",
+  "protocol": "ANTHROPIC",
+  "endpoint": "https://api.babelark.ai/v1/messages",
+  "totalRequests": 47,
+  "http200Count": 47,
+  "topLevelCacheReadRequests": 10,
+  "usageInconsistencyRequests": 1,
+  "trials": [
+    {
+      "startedAt": "2026-10-08T23:44:08Z",
+      "probeId": "a6f274c3856f6568419d1a90",
+      "syntheticPrefixLines": 240,
+      "maxOutputTokens": 512,
+      "results": [
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-system",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 3435,
+          "stopReason": "tool_use",
+          "requestId": "20261009074408968784216TCpteT9K",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13336
+            },
+            "cache_creation_input_tokens": 13336,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 111,
+            "output_tokens": 55,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13336
+                },
+                "cache_creation_input_tokens": 13336,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 111,
+                "output_tokens": 24,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13336
+                },
+                "cache_creation_input_tokens": 13336,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 111,
+                "output_tokens": 55,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 1,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "c5c03d5c3db1834a537026f2ef95292cc0d772fa8ab31cc444fc766848d6b98f",
+          "systemHash": "c5286ed91096550ed2996f3aa0fd0ac72a0fb075619a5b4703c174f0b9b2f9fb",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-system",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1607,
+          "stopReason": "end_turn",
+          "requestId": "20261009074411907397098icbdDX1R",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13336
+            },
+            "cache_creation_input_tokens": 13336,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 184,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13336
+                },
+                "cache_creation_input_tokens": 13336,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 184,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13336
+                },
+                "cache_creation_input_tokens": 13336,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 184,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "ea1141c79c47c64e15b659d3b67e2936ff906eb58e635eaf240ea7212a996aa5",
+          "systemHash": "c5286ed91096550ed2996f3aa0fd0ac72a0fb075619a5b4703c174f0b9b2f9fb",
+          "responseHeaderNames": [
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-system",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 1661,
+          "stopReason": "end_turn",
+          "requestId": "20261009074413515122602svbOraVU",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 13336,
+            "inference_geo": "global",
+            "input_tokens": 202,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13336,
+                "inference_geo": "global",
+                "input_tokens": 202,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13336,
+                "input_tokens": 202,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "f8417883af864d908e5c47ab31069e68cb5943673ea055f9b13ecd11ce4136fc",
+          "systemHash": "c5286ed91096550ed2996f3aa0fd0ac72a0fb075619a5b4703c174f0b9b2f9fb",
+          "responseHeaderNames": [
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-system",
+          "round": 4,
+          "httpStatus": 200,
+          "durationMs": 1557,
+          "stopReason": "end_turn",
+          "requestId": "20261009074415176033633p9eity6z",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13336
+            },
+            "cache_creation_input_tokens": 13336,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 218,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13336
+                },
+                "cache_creation_input_tokens": 13336,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 218,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13336
+                },
+                "cache_creation_input_tokens": 13336,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 218,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13336
+                },
+                "cache_creation_input_tokens": 13336,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 218,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 13336
+                    },
+                    "cache_creation_input_tokens": 13336,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 218,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "b11eec3fa61032d6ad400a1b7ee9f1bf9d792ab62d7c6dacd650fcc79b74fcba",
+          "systemHash": "c5286ed91096550ed2996f3aa0fd0ac72a0fb075619a5b4703c174f0b9b2f9fb",
+          "responseHeaderNames": [
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "conversation-prefix",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 1100,
+          "stopReason": "end_turn",
+          "requestId": "2026100907441673490983383f1x6uv",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13057
+            },
+            "cache_creation_input_tokens": 13057,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13057
+                },
+                "cache_creation_input_tokens": 13057,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13057
+                },
+                "cache_creation_input_tokens": 13057,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "55d1640f9262e45d40dfd519254d7db163ed8f30a481acb68831065367928624",
+          "systemHash": "e3997edf6a3ab78339900a9108e54dc0de13281c297e1b9f4d47670d92d13c82",
+          "responseHeaderNames": [
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "conversation-prefix",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1555,
+          "stopReason": "end_turn",
+          "requestId": "20261009074417836000783jOaUWtuV",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 16
+            },
+            "cache_creation_input_tokens": 16,
+            "cache_read_input_tokens": 13057,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 16
+                },
+                "cache_creation_input_tokens": 16,
+                "cache_read_input_tokens": 13057,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 16
+                },
+                "cache_creation_input_tokens": 16,
+                "cache_read_input_tokens": 13057,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "3b604ff04c81e8fbbede87048c6fac11a912cc31fd9ff786c1f4cac18da1416b",
+          "systemHash": "e3997edf6a3ab78339900a9108e54dc0de13281c297e1b9f4d47670d92d13c82",
+          "responseHeaderNames": [
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "conversation-prefix",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 2087,
+          "stopReason": "end_turn",
+          "requestId": "20261009074419399539337VPWlk4Pp",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13089
+            },
+            "cache_creation_input_tokens": 13089,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13089
+                },
+                "cache_creation_input_tokens": 13089,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13089
+                },
+                "cache_creation_input_tokens": 13089,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13089
+                },
+                "cache_creation_input_tokens": 13089,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 13089
+                    },
+                    "cache_creation_input_tokens": 13089,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 4,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "b2a3fab0adf99c4ac358d073cc16aad721201835532635c81d5ad6fab9a23052",
+          "systemHash": "e3997edf6a3ab78339900a9108e54dc0de13281c297e1b9f4d47670d92d13c82",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "conversation-prefix",
+          "round": 4,
+          "httpStatus": 200,
+          "durationMs": 1463,
+          "stopReason": "end_turn",
+          "requestId": "20261009074421482845015Y1NFXqq1",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 32
+            },
+            "cache_creation_input_tokens": 32,
+            "cache_read_input_tokens": 13073,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 32
+                },
+                "cache_creation_input_tokens": 32,
+                "cache_read_input_tokens": 13073,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 32
+                },
+                "cache_creation_input_tokens": 32,
+                "cache_read_input_tokens": 13073,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "3bf59ca7b2c74c459419986233a6694412047a564223b3f75d0f7014631dbbfc",
+          "systemHash": "e3997edf6a3ab78339900a9108e54dc0de13281c297e1b9f4d47670d92d13c82",
+          "responseHeaderNames": [
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-prefix",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 1892,
+          "stopReason": "tool_use",
+          "requestId": "20261009074422946313979BZT6YcYk",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13445
+            },
+            "cache_creation_input_tokens": 13445,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13445
+                },
+                "cache_creation_input_tokens": 13445,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "output_tokens": 55,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 55,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13445
+                },
+                "cache_creation_input_tokens": 13445,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 24,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13445
+                },
+                "cache_creation_input_tokens": 13445,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 13445
+                    },
+                    "cache_creation_input_tokens": 13445,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 4,
+                    "output_tokens": 55,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 55,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 1,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "23ecf82a6e83790b26452ccb06cd7eeae8b62074266116c37b99304fd33d6289",
+          "systemHash": "f965bfeade5204a56e873452e58f2215fd406a9fd8dc173461b5befac498618d",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-prefix",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 2140,
+          "stopReason": "end_turn",
+          "requestId": "20261009074424838806948X4USRCmb",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13520
+            },
+            "cache_creation_input_tokens": 13520,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 2,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13520
+                },
+                "cache_creation_input_tokens": 13520,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 2,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13520
+                },
+                "cache_creation_input_tokens": 13520,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 2,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "618ea1f7799460f785ddba508a8e581ae6039f322b8e31ff3152eb01ee2d3c62",
+          "systemHash": "f965bfeade5204a56e873452e58f2215fd406a9fd8dc173461b5befac498618d",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-prefix",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 2091,
+          "stopReason": "end_turn",
+          "requestId": "20261009074426980117318vQehOcBv",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13536
+            },
+            "cache_creation_input_tokens": 13536,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13536
+                },
+                "cache_creation_input_tokens": 13536,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13536
+                },
+                "cache_creation_input_tokens": 13536,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "fc2311c65f856c9388526721d467e9bf891dfb85e128375df64e5e31e621df65",
+          "systemHash": "f965bfeade5204a56e873452e58f2215fd406a9fd8dc173461b5befac498618d",
+          "responseHeaderNames": [
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-prefix",
+          "round": 4,
+          "httpStatus": 200,
+          "durationMs": 1760,
+          "stopReason": "end_turn",
+          "requestId": "2026100907442974890536tRkHrCBW",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 107
+            },
+            "cache_creation_input_tokens": 107,
+            "cache_read_input_tokens": 13445,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 107
+                },
+                "cache_creation_input_tokens": 107,
+                "cache_read_input_tokens": 13445,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 107
+                },
+                "cache_creation_input_tokens": 107,
+                "cache_read_input_tokens": 13445,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 107
+                },
+                "cache_creation_input_tokens": 107,
+                "cache_read_input_tokens": 13445,
+                "input_tokens": 4,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 107
+                    },
+                    "cache_creation_input_tokens": 107,
+                    "cache_read_input_tokens": 13445,
+                    "input_tokens": 4,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "fded97569298c0e885272a786370adb4c7aaa59f1e89caf066a48c5e46faeecd",
+          "systemHash": "f965bfeade5204a56e873452e58f2215fd406a9fd8dc173461b5befac498618d",
+          "responseHeaderNames": [
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control"
+          ]
+        }
+      ],
+      "effort": "low",
+      "sourceReport": "haiku-explicit-history.json"
+    },
+    {
+      "startedAt": "2026-10-08T23:41:00Z",
+      "probeId": "12eb36229140af1f57f8cc5c",
+      "syntheticPrefixLines": 240,
+      "maxOutputTokens": 512,
+      "results": [
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "control",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 2215,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13057,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13057,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13057,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13057,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 0
+                    },
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 13057,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "none"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "control",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1230,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13057,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13057,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13057,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "none"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "control",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 1681,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13057,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13057,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13057,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13057,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 0
+                    },
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 13057,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "none"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "conversation",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 1654,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13059,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13059,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13059,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13059,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 0
+                    },
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 13059,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "conversation",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1319,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13075,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13075,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13075,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13075,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 0
+                    },
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 13075,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "conversation",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 1249,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13091,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13091,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13091,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13091,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 0
+                    },
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 13091,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 2310,
+          "stopReason": "tool_use",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13447,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13447,
+                "output_tokens": 55,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 55,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13447,
+                "output_tokens": 24,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13447,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 0
+                    },
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 13447,
+                    "output_tokens": 55,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 55,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 1,
+          "cacheLocation": "cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1435,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13520,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13520,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13520,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13520,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 0
+                    },
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 13520,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 1076,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 13538,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 13538,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13538,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "system-repeat",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 1484,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13035
+            },
+            "cache_creation_input_tokens": 13035,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 26,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13035
+                },
+                "cache_creation_input_tokens": 13035,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13035
+                },
+                "cache_creation_input_tokens": 13035,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "system-repeat",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1731,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13035
+            },
+            "cache_creation_input_tokens": 13035,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 26,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13035
+                },
+                "cache_creation_input_tokens": 13035,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13035
+                },
+                "cache_creation_input_tokens": 13035,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13035
+                },
+                "cache_creation_input_tokens": 13035,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 26,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 13035
+                    },
+                    "cache_creation_input_tokens": 13035,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 26,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "system-repeat",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 1790,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13035
+            },
+            "cache_creation_input_tokens": 13035,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 26,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13035
+                },
+                "cache_creation_input_tokens": 13035,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13035
+                },
+                "cache_creation_input_tokens": 13035,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "system",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 1591,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13031
+            },
+            "cache_creation_input_tokens": 13031,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 24,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "system",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1962,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 13031,
+            "inference_geo": "global",
+            "input_tokens": 24,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13031,
+                "inference_geo": "global",
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13031,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "system",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 2350,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13031
+            },
+            "cache_creation_input_tokens": 13031,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 24,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 13031
+                    },
+                    "cache_creation_input_tokens": 13031,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 24,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control"
+        }
+      ],
+      "effort": "low",
+      "sourceReport": "haiku-followup.json"
+    },
+    {
+      "startedAt": "2026-10-08T23:45:47Z",
+      "probeId": "e6bd4cef83eb0d50594a8faa",
+      "syntheticPrefixLines": 240,
+      "maxOutputTokens": 512,
+      "effort": "high",
+      "results": [
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-prefix",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 2166,
+          "stopReason": "tool_use",
+          "requestId": "202610090745481148698444mNiIWTa",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13448
+            },
+            "cache_creation_input_tokens": 13448,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "output_tokens": 55,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13448
+                },
+                "cache_creation_input_tokens": 13448,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 24,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13448
+                },
+                "cache_creation_input_tokens": 13448,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "output_tokens": 55,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 1,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "d57624cb1d41c4354646e4d59668c6fef6d325fed19b5ca93e32b88539102323",
+          "systemHash": "4b953765e590b6dbf37683ff78e6c7f590a0c552791f7b281f0db0affc8dc0b5",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-prefix",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 2000,
+          "stopReason": "end_turn",
+          "requestId": "2026100907454974968479852JFZhxz",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13523
+            },
+            "cache_creation_input_tokens": 13523,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 2,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13523
+                },
+                "cache_creation_input_tokens": 13523,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 2,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13523
+                },
+                "cache_creation_input_tokens": 13523,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 2,
+                "output_tokens": 1,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13523
+                },
+                "cache_creation_input_tokens": 13523,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 2,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 13523
+                    },
+                    "cache_creation_input_tokens": 13523,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 2,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "4e647013ada3941a3cc0da4f097ad34e5a4d2e452325e168e290ded343b6de69",
+          "systemHash": "4b953765e590b6dbf37683ff78e6c7f590a0c552791f7b281f0db0affc8dc0b5",
+          "responseHeaderNames": [
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-prefix",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 3253,
+          "stopReason": "end_turn",
+          "requestId": "20261009074551752161817rjhQrJWS",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 16
+            },
+            "cache_creation_input_tokens": 16,
+            "cache_read_input_tokens": 13523,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 16
+                },
+                "cache_creation_input_tokens": 16,
+                "cache_read_input_tokens": 13523,
+                "input_tokens": 4,
+                "output_tokens": 29,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 29,
+            "output_tokens_details": {
+              "thinking_tokens": 25
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 16
+                },
+                "cache_creation_input_tokens": 16,
+                "cache_read_input_tokens": 13523,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 9,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 16
+                },
+                "cache_creation_input_tokens": 16,
+                "cache_read_input_tokens": 13523,
+                "input_tokens": 4,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 16
+                    },
+                    "cache_creation_input_tokens": 16,
+                    "cache_read_input_tokens": 13523,
+                    "input_tokens": 4,
+                    "output_tokens": 29,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 29,
+                "output_tokens_details": {
+                  "thinking_tokens": 25
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "9fc76926c8bcc62af1eddfb62d2bc88a370cfe64bec1c9ffcd621c9d715ad28e",
+          "systemHash": "4b953765e590b6dbf37683ff78e6c7f590a0c552791f7b281f0db0affc8dc0b5",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "tool-loop-prefix",
+          "round": 4,
+          "httpStatus": 200,
+          "durationMs": 1755,
+          "stopReason": "end_turn",
+          "requestId": "202610090745554298105aM5PsMHE",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13582
+            },
+            "cache_creation_input_tokens": 13582,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 4,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 43
+                },
+                "cache_creation_input_tokens": 43,
+                "cache_read_input_tokens": 13539,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13582
+                },
+                "cache_creation_input_tokens": 13582,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 4,
+                "output_tokens": 1,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13582
+                },
+                "cache_creation_input_tokens": 13582,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 43
+                    },
+                    "cache_creation_input_tokens": 43,
+                    "cache_read_input_tokens": 13539,
+                    "input_tokens": 4,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control,messages[last-user].content[last].cache_control",
+          "requestHash": "ae59927341b4b24d34cf106fe68be0bebba9d31f4358307d51c49e30706ed709",
+          "systemHash": "4b953765e590b6dbf37683ff78e6c7f590a0c552791f7b281f0db0affc8dc0b5",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ],
+          "usageWarnings": [
+            "usage.cache_creation_input_tokens=13582 differs from message-iteration total=43",
+            "usage.cache_read_input_tokens=0 differs from message-iteration total=13539"
+          ]
+        }
+      ],
+      "sourceReport": "haiku-high-thinking.json"
+    },
+    {
+      "startedAt": "2026-10-08T23:40:11Z",
+      "probeId": "64d2964a2298e667aba2b6d6",
+      "syntheticPrefixLines": 240,
+      "maxOutputTokens": 512,
+      "results": [
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "automatic",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 2355,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13033
+            },
+            "cache_creation_input_tokens": 13033,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 26,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13033
+                },
+                "cache_creation_input_tokens": 13033,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13033
+                },
+                "cache_creation_input_tokens": 13033,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "automatic",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1706,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 13033,
+            "inference_geo": "global",
+            "input_tokens": 26,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13033,
+                "inference_geo": "global",
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13033,
+                "input_tokens": 26,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "system",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 2064,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13031
+            },
+            "cache_creation_input_tokens": 13031,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 24,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 13031
+                    },
+                    "cache_creation_input_tokens": 13031,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 24,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control"
+        },
+        {
+          "modelKey": "babelark-claude-haiku-5_5",
+          "case": "system",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1298,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13031
+            },
+            "cache_creation_input_tokens": 13031,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 24,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "global",
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13031
+                },
+                "cache_creation_input_tokens": 13031,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "iterations": [
+                  {
+                    "cache_creation": {
+                      "ephemeral_1h_input_tokens": 0,
+                      "ephemeral_5m_input_tokens": 13031
+                    },
+                    "cache_creation_input_tokens": 13031,
+                    "cache_read_input_tokens": 0,
+                    "input_tokens": 24,
+                    "output_tokens": 4,
+                    "type": "message"
+                  }
+                ],
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control"
+        }
+      ],
+      "effort": "low",
+      "sourceReport": "haiku-initial.json"
+    },
+    {
+      "startedAt": "2026-10-08T23:42:21Z",
+      "probeId": "44c6f87529a0fb237bf602bf",
+      "syntheticPrefixLines": 240,
+      "maxOutputTokens": 512,
+      "results": [
+        {
+          "modelKey": "babelark-claude-sonnet-5_5",
+          "case": "automatic",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 2911,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 13060,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13060,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13060,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control",
+          "requestHash": "1c5345b9c2f63c86869885318a77a48a4ba467cd0aa7440a26e459ba6944c95e",
+          "systemHash": "49b4ec23c8de4b942368425f14b8d4e92e9e4708d28c4e20f6feb5f38043a0c7",
+          "responseHeaderNames": [
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type",
+            "Vary"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-sonnet-5_5",
+          "case": "automatic",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 1861,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 13060,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13060,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13060,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control",
+          "requestHash": "1c5345b9c2f63c86869885318a77a48a4ba467cd0aa7440a26e459ba6944c95e",
+          "systemHash": "49b4ec23c8de4b942368425f14b8d4e92e9e4708d28c4e20f6feb5f38043a0c7",
+          "responseHeaderNames": [
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-sonnet-5_5",
+          "case": "automatic",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 2073,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13056
+            },
+            "cache_creation_input_tokens": 13056,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 4,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13056
+                },
+                "cache_creation_input_tokens": 13056,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13056
+                },
+                "cache_creation_input_tokens": 13056,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 4,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control",
+          "requestHash": "1c5345b9c2f63c86869885318a77a48a4ba467cd0aa7440a26e459ba6944c95e",
+          "systemHash": "49b4ec23c8de4b942368425f14b8d4e92e9e4708d28c4e20f6feb5f38043a0c7",
+          "responseHeaderNames": [
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-sonnet-5_5",
+          "case": "system",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 2026,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13032
+            },
+            "cache_creation_input_tokens": 13032,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 24,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13032
+                },
+                "cache_creation_input_tokens": 13032,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13032
+                },
+                "cache_creation_input_tokens": 13032,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "863436ee9520e5770aa3c2b2db89a6c2c6815d60eb8f0db211e208557d2a9bd0",
+          "systemHash": "f30e4de9220e3e9237968adc8616690e1d82232bef159696691aee5e9bd60b24",
+          "responseHeaderNames": [
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-sonnet-5_5",
+          "case": "system",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 2955,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 13032,
+            "input_tokens": 24,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13032,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13032,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "e960d8dabf9a3a6ef25876ace963826aceddef552721b323a496aaf9cc4baf73",
+          "systemHash": "f30e4de9220e3e9237968adc8616690e1d82232bef159696691aee5e9bd60b24",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-sonnet-5_5",
+          "case": "system",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 1976,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 13032,
+            "input_tokens": 24,
+            "output_tokens": 5,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13032,
+                "input_tokens": 24,
+                "output_tokens": 3,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13032,
+                "input_tokens": 24,
+                "output_tokens": 5,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "50c5a5bc4dccfa014e6bc5a7f61ebce98e3ec55da73fd4e98a0a3a52f6807897",
+          "systemHash": "f30e4de9220e3e9237968adc8616690e1d82232bef159696691aee5e9bd60b24",
+          "responseHeaderNames": [
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-opus-5_5",
+          "case": "automatic",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 8411,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 13058,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13058,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13058,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control",
+          "requestHash": "dff03d7b080753d5b03ac0f7c88a9ced977effa5f8ee308fd55aef96df4ca329",
+          "systemHash": "80408da988d176161c0beb42ac72df9dbdf0ee0b1118c3e34e62d43e4b3f708f",
+          "responseHeaderNames": [
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-opus-5_5",
+          "case": "automatic",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 3540,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 13058,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13058,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13058,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control",
+          "requestHash": "dff03d7b080753d5b03ac0f7c88a9ced977effa5f8ee308fd55aef96df4ca329",
+          "systemHash": "80408da988d176161c0beb42ac72df9dbdf0ee0b1118c3e34e62d43e4b3f708f",
+          "responseHeaderNames": [
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-opus-5_5",
+          "case": "automatic",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 30729,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 13058,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13058,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 13058,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "cache_control",
+          "requestHash": "dff03d7b080753d5b03ac0f7c88a9ced977effa5f8ee308fd55aef96df4ca329",
+          "systemHash": "80408da988d176161c0beb42ac72df9dbdf0ee0b1118c3e34e62d43e4b3f708f",
+          "responseHeaderNames": [
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type",
+            "Vary"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-opus-5_5",
+          "case": "system",
+          "round": 1,
+          "httpStatus": 200,
+          "durationMs": 2272,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13030
+            },
+            "cache_creation_input_tokens": 13030,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 24,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13030
+                },
+                "cache_creation_input_tokens": 13030,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13030
+                },
+                "cache_creation_input_tokens": 13030,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "663eee2d5a4575e0e29b21dad0ca7843671c61cb27f446db49a88548a8027923",
+          "systemHash": "3156560b3ee4782f37670bb854db62f6e994cbd34ce315022aa67cd6e09bd466",
+          "responseHeaderNames": [
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-opus-5_5",
+          "case": "system",
+          "round": 2,
+          "httpStatus": 200,
+          "durationMs": 2892,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 13030
+            },
+            "cache_creation_input_tokens": 13030,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "not_available",
+            "input_tokens": 24,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 13030
+                },
+                "cache_creation_input_tokens": 13030,
+                "cache_read_input_tokens": 0,
+                "inference_geo": "not_available",
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 13030
+                },
+                "cache_creation_input_tokens": 13030,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "b5fc5ded40eab571cd30223a12e65a61dd0c708c68233f202b2b5dbf25a6cac0",
+          "systemHash": "3156560b3ee4782f37670bb854db62f6e994cbd34ce315022aa67cd6e09bd466",
+          "responseHeaderNames": [
+            "Date",
+            "Content-Type",
+            "Vary",
+            "Cache-Control",
+            "X-Babelark-Request-Id"
+          ]
+        },
+        {
+          "modelKey": "babelark-claude-opus-5_5",
+          "case": "system",
+          "round": 3,
+          "httpStatus": 200,
+          "durationMs": 18339,
+          "stopReason": "end_turn",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 13030,
+            "input_tokens": 24,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard"
+          },
+          "usageEvents": [
+            {
+              "event": "message_start",
+              "usage": {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13030,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "service_tier": "standard"
+              }
+            },
+            {
+              "event": "message_delta",
+              "usage": {
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 13030,
+                "input_tokens": 24,
+                "output_tokens": 4,
+                "output_tokens_details": {
+                  "thinking_tokens": 0
+                }
+              }
+            }
+          ],
+          "messageStop": true,
+          "toolCalls": 0,
+          "cacheLocation": "system[0].cache_control",
+          "requestHash": "ef966e1a10ea628df3feb30599175dcc0cd91869d9e99ac0a6bdecaac3bebd93",
+          "systemHash": "3156560b3ee4782f37670bb854db62f6e994cbd34ce315022aa67cd6e09bd466",
+          "responseHeaderNames": [
+            "Cache-Control",
+            "X-Babelark-Request-Id",
+            "Date",
+            "Content-Type",
+            "Vary"
+          ]
+        }
+      ],
+      "effort": "low",
+      "sourceReport": "sonnet-opus.json"
+    }
+  ]
+}
