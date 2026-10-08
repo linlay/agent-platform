@@ -33,6 +33,7 @@ type RangeStatus struct {
 	ReusedBatches    int    `json:"reusedBatches"`
 	EmptyRuns        int    `json:"emptyRuns"`
 	NewFacts         *int   `json:"newFacts,omitempty"`
+	DroppedFacts     int    `json:"droppedFacts,omitempty"`
 	Error            string `json:"error,omitempty"`
 	// Persisted cursors are not part of the public status.
 	Source int    `json:"-"`
@@ -365,12 +366,14 @@ func (w *Worker) runRange(ctx context.Context, job *RangeStatus) error {
 						return fmt.Errorf("memory authorization changed")
 					}
 					var result struct {
-						FactCount *int `json:"factCount"`
+						FactCount    *int `json:"factCount"`
+						DroppedCount int  `json:"droppedCount"`
 					}
 					if err = w.call(ctx, "update", map[string]any{"batch": batch}, &result); err != nil {
 						return err
 					}
 					job.ProcessedBatches++
+					job.DroppedFacts += result.DroppedCount
 					if result.FactCount != nil {
 						n := *result.FactCount
 						if job.NewFacts != nil {
@@ -382,6 +385,7 @@ func (w *Worker) runRange(ctx context.Context, job *RangeStatus) error {
 					w.mu.Lock()
 					w.manual.ProcessedBatches = job.ProcessedBatches
 					w.manual.NewFacts = job.NewFacts
+					w.manual.DroppedFacts = job.DroppedFacts
 					w.mu.Unlock()
 				}
 			}

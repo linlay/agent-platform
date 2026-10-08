@@ -45,7 +45,7 @@ func TestMemxIntegration(t *testing.T) {
 			return
 		}
 		source := evidence.Evidence.Sources[0]
-		result, _ := json.Marshal(map[string]any{"facts": []any{map[string]any{"key": "language", "text": source.Content, "sourceId": source.ID, "quote": source.Content, "durable": true}}})
+		result, _ := json.Marshal(map[string]any{"facts": []any{map[string]any{"key": "language", "text": source.Content, "sourceId": source.ID, "quote": source.Content, "kind": "preference", "basis": "stated"}}})
 		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": string(result)}}}})
 	}))
 	defer upstream.Close()
@@ -145,7 +145,7 @@ func TestRangeMemxIntegration(t *testing.T) {
 			return
 		}
 		src := payload.Evidence.Sources[0]
-		facts, _ := json.Marshal(map[string]any{"facts": []any{map[string]any{"key": "language", "text": src.Content, "sourceId": src.ID, "quote": src.Content, "durable": true}}})
+		facts, _ := json.Marshal(map[string]any{"facts": []any{map[string]any{"key": "language", "text": src.Content, "sourceId": src.ID, "quote": src.Content, "kind": "preference", "basis": "stated"}}})
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": string(facts)}}}})
 	}))
 	defer upstream.Close()
