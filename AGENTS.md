@@ -8,7 +8,7 @@
 
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
-Memory 由 Platform worker 调用 memx 维护 summary 与 daily，支持定时增量与手工日期范围任务（独立进度、配置模型）；知识库通过受管 KBX CLI 读取和维护，Platform 管理目录监听、异步刷新回执与重启对账。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
+Memory 由 Platform worker 调用 memx 维护分层 Agent daily/summary 与总体 summary（agents→summarize→consolidate），预算使用 memory.summary.global/agent；旧 worker.summary-max-chars 拒绝，分层管理 API 和双层上下文尚未完成，支持定时增量与手工日期范围任务（独立进度、配置模型）；知识库通过受管 KBX CLI 读取和维护，Platform 管理目录监听、异步刷新回执与重启对账。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
 
 ## 2. 技术栈
 
@@ -97,7 +97,7 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 Automation 定义目录中的 `executions.db` 是 schema V2 的旁路执行历史库。已知旧版在后台创建一致性备份后重建为空 V2，不迁移旧行；History 初始化、备份和写入失败不得阻止 Platform、Automation 调度或 Query/Run。`AUTOMATION_EXECUTIONS` 保存触发快照、`chatId/runId`、真实 `finishReason` 和完整助手结果，列表只读取摘要，详情按需读取全文。
 
-Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以 summary.md 和 daily/YYYY-MM-DD.md 为内容源；用户资料位于 owner/OWNER.md。memx 管理收据及恢复日志，Platform worker 进度位于 `.state/memory-worker`。旧 memory.md 仅在 summary 缺失时复制并保留备份；旧数据库不迁移。
+Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以总体 summary.md、agents/<agentKey>/summary.md 和 agents/<agentKey>/daily/YYYY-MM-DD.md 为当前 memx 内容源（管理端 daily/search 仍为旧布局，分层接入待完成）；用户资料位于 owner/OWNER.md。memx 管理收据及恢复日志，Platform worker 进度位于 `.state/memory-worker`。旧 memory.md 仅在 summary 缺失时复制并保留备份；旧数据库不迁移。
 
 KBX 索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlite`（及 KBX 配套存储）；workspace 模式用 `.kbx-platform/<agentKey>/<scopeHash>/`。启动和配置变更不得删除来源文件或其他索引范围的数据。
 
@@ -124,7 +124,7 @@ KBX 索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlite`�
 - `internal/skillsexec` 为 Agent YAML 已配置普通 Skill 和本次 `mustUseSkills` 选中 Skill 的 `scripts/**` 保存独立的本 Run 内存执行凭据，绑定 Agent/Run/执行环境、严格现存 canonical 路径和实际字节 SHA-256。复用通用解释器与脚本入口识别，仅免对应入口 opaque 审批（`bash-access:skill-script`）；Host 启动前复验，Container 使用选中技能 Host–guest 映射与容器摘要。内容不匹配撤销，不落盘、不复制技能、不跨 Run/子调用继承，同 Run 压缩保留，恢复同 Run 不重建凭据。外围 Shell、hard block、readonly 与 KBASE mutation gate 不变；Host 不隔离脚本内部访问，入口摘要不锁定完整依赖图。
 - 脚本入口策略对所有 Agent 相同，bootstrap 没有特权。`scriptstate` 自写证明只在当前 Chat 目录内取消执行审批；可信技能入口仍按 `skillsexec` 核验。命令语义统一由 `internal/shellanalysis` 描述（选项、操作数角色、递归、删除、远端修改、Git 子命令与配置依赖），`bash -c`/`env -S` 递归分析；破坏性操作、Git 可执行配置写入与远端修改分别由 `approvals.destructive/executable-config/remote-mutation` 决定。批准绑定精确调用、canonical cwd、环境、access level 和内容 SHA-256；普通路径规则不扩到父目录。复杂 Shell 与远端 mutation 仅单次批准。Host 启动前重新核对，Container 使用实际 guest 摘要；不隔离任意代码内部访问。
 - Catalog 按资源根保留独立 watcher（重叠根合并），事件统一分类排队并串行 reload。技能/连接器 ZIP 在发布保护区外解压校验，区内重新检查当前状态；快照和普通保存不暂停监听，目录 mutation 只暂停对应根。API 与 watcher 通过加载前后一致的内容指纹去重，恢复监听只做对应类别差异检查，不无条件全量 reload；失败及加载期间变化不确认新状态。现有 skills→agents/ru-agents 组装和活动租约保护保留。管理入口保护不覆盖 Bash/外部编辑器直接写盘，详见 [Agent运行时组装](docs/Agent运行时组装.md#技能包事务与目录监听)。
-- 普通 Native Agent 工具只来自全局/mode preset、Agent 显式声明与连接器自身工具；Skills、运行环境、Memory、KBASE capability 和 CODER 阶段不得隐式补工具或恢复被排除工具。Memory 工具按需声明；KBASE 工具由 kbase.preset-tools 示例提供，GENERAL/CODER 自行声明。内部 planning、TEAM 和 PLAN-EXECUTE 协议工具保留，参见 [智能体配置](docs/智能体配置说明.md)。
+- 普通 Native Agent 工具只来自全局/mode preset、Agent 显式声明与连接器自身工具；Skills、运行环境、Memory、KBASE capability 和 CODER 阶段不得隐式补工具或恢复被排除工具。专用 memory_read/memory_search/memory_write/memory_update 已下线；Agent 通过 memx 获取记忆、file_write/file_edit 修改 Markdown，仍受现有工具和路径权限约束，不自动授予工具；KBASE 工具由 kbase.preset-tools 示例提供，GENERAL/CODER 自行声明。内部 planning、TEAM 和 PLAN-EXECUTE 协议工具保留，参见 [智能体配置](docs/智能体配置说明.md)。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - Native `ANTHROPIC` 的显式思考配置使用 `thinking.type: adaptive`、`thinking.display: summarized` 与 `output_config.effort`，由有效 stage 的 reasoning 设置控制，不按模型名分支；请求构造在合并 compat 后统一设置，累计 token 用量由协议适配映射到现有 usage 事件，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
 - TEAM 是内部专用 mode：公共机制进入 `internal/agent`，调度规则进入 `internal/agent/team`。普通 `AgentDefinition` 必须拒绝 `mode: TEAM`，隐藏协调器不得注册到 `/api/agents`、`/api/agent` 或普通 `agent_invoke` 目标中。

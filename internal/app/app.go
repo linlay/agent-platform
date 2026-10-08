@@ -179,7 +179,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	proxyRuntime := runtimeproxy.NewService()
 	wsHub := ws.NewHub()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
-	runtimeToolExecutor, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
+	runtimeToolExecutor, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, skillCandidateStore)
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
@@ -448,9 +448,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			def, ok := registry.AgentDefinition(key)
 			return def.Workspace.ProjectDir(), ok && def.MemoryConfig.Enabled && def.Engine == catalog.AgentEngineNative && def.ProxyConfig == nil && def.Mode != "CHANNEL"
 		}).WithArchives(archiveStore)
-	if err := toolExecutor.RegisterHandler(&memoryworker.ToolHandler{Worker: memoryWorker}); err != nil {
-		return nil, fmt.Errorf("register memory maintenance: %w", err)
-	}
 	srv, err = server.New(server.Dependencies{
 		BackgroundContext:      backgroundCtx,
 		Config:                 cfg,

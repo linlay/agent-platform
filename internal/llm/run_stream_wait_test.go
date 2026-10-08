@@ -38,7 +38,7 @@ func TestWaitSteerContinuesSameRun(t *testing.T) {
 			defer cancel()
 			control := NewRunControl(ctx, "run-sleep")
 			defer control.Finish()
-			executor, err := runtimetools.NewRuntimeToolExecutor(config.Config{}, nil, nil, nil, nil)
+			executor, err := runtimetools.NewRuntimeToolExecutor(config.Config{}, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

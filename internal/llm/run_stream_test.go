@@ -3612,7 +3612,7 @@ func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 			RequireWriteApproval: true,
 		},
 	}
-	executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+	executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("new executor: %v", err)
 	}
@@ -3767,7 +3767,7 @@ func TestEditToolApprovalExecutesAndEditsFile(t *testing.T) {
 			RequireWriteApproval: true,
 		},
 	}
-	executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+	executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("new executor: %v", err)
 	}
@@ -5110,7 +5110,7 @@ func TestWriteOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 					RequireReadBeforeWrite: false,
 				},
 			}
-			executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+			executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil)
 			if err != nil {
 				t.Fatalf("new executor: %v", err)
 			}
@@ -5223,7 +5223,7 @@ func TestEditOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 					RequireReadBeforeWrite: false,
 				},
 			}
-			executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+			executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil)
 			if err != nil {
 				t.Fatalf("new executor: %v", err)
 			}

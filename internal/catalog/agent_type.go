@@ -374,6 +374,10 @@ func ValidateAgentModelConfig(def AgentDefinition) error {
 func ValidateOrdinaryAgentTools(tools []string) error {
 	for _, tool := range tools {
 		normalized := strings.ToLower(strings.TrimSpace(tool))
+		switch normalized {
+		case "memory_read", "memory_write", "memory_search", "memory_update":
+			return fmt.Errorf("%s is retired; use memx for reading and file_write/file_edit for changes", normalized)
+		}
 		if normalized == "platform_config" {
 			return fmt.Errorf("tool platform_config was removed; mount builtin.platform-control")
 		}

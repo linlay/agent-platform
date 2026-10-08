@@ -181,6 +181,14 @@ func TestDailyAppendSearchAndPagination(t *testing.T) {
 	if err != nil || !strings.Contains(ctx, "truncated") || strings.Contains(ctx, "Verified outcome") {
 		t.Fatalf("context budget or logs: %v", err)
 	}
+	for _, retired := range []string{"memory_read", "memory_search", "memory_write", "memory_update"} {
+		if strings.Contains(ctx, retired) {
+			t.Fatalf("context still recommends retired tool %s", retired)
+		}
+	}
+	if !strings.Contains(ctx, "use memx") || !strings.Contains(ctx, "file_edit or file_write") {
+		t.Fatal("context must explain the supported memory access paths")
+	}
 }
 
 func TestSearchPagesDoNotSkipDailyFilesAtMatchLimit(t *testing.T) {

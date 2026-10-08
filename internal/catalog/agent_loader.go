@@ -984,9 +984,6 @@ func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentD
 	}
 	def.MemoryEnabled = false
 	def.MemoryConfig.Enabled = false
-	def.Tools = filterTools(def.Tools, func(tool string) bool {
-		return !isMemoryTool(tool)
-	})
 	return def
 }
 
@@ -1029,28 +1026,6 @@ func kbaseAgentHasFileTool(tools []string) bool {
 		}
 	}
 	return false
-}
-
-func filterTools(tools []string, keep func(string) bool) []string {
-	if len(tools) == 0 {
-		return nil
-	}
-	filtered := make([]string, 0, len(tools))
-	for _, tool := range tools {
-		if keep(tool) {
-			filtered = append(filtered, tool)
-		}
-	}
-	return filtered
-}
-
-func isMemoryTool(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "memory_write", "memory_read", "memory_search", "memory_update":
-		return true
-	default:
-		return false
-	}
 }
 
 func validateReservedBashToolNames(tools []string) error {

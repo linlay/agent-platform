@@ -1457,7 +1457,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 		"  tools:\n" +
 		"    - kbase_search\n" +
 		"    - kbase_files\n" +
-		"    - memory_search\n" +
+		"    - file_read\n" +
 		"    - bash\n" +
 		"    - datetime\n" +
 		"kbaseConfig:\n" +
@@ -1473,7 +1473,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	}
 	// agent.yml is the single source of a KBASE agent's tools: declared tools
 	// are kept, and nothing undeclared is added except capability tools.
-	for _, tool := range []string{"kbase_search", "kbase_files", "memory_search", "bash", "datetime"} {
+	for _, tool := range []string{"kbase_search", "kbase_files", "file_read", "bash", "datetime"} {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected declared/capability tool %s, got %#v", tool, def.Tools)
 		}

@@ -14,7 +14,7 @@ func TestSkillCandidateToolWriteAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new candidate store: %v", err)
 	}
-	executor, err := NewRuntimeToolExecutor(config.Config{}, nil, nil, nil, store)
+	executor, err := NewRuntimeToolExecutor(config.Config{}, nil, nil, store)
 	if err != nil {
 		t.Fatalf("new runtime tool executor: %v", err)
 	}

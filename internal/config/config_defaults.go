@@ -78,9 +78,10 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		Memory: MemoryConfig{
 			Enabled:         true,
+			Summary:         DefaultMemorySummaryConfig(),
 			ContextMaxChars: 12000,
 			Timezone:        "Local",
-			Worker:          MemoryWorkerConfig{Enabled: true, PollIntervalSeconds: 300, TimeoutSeconds: 120, MaxBatches: 20, SummaryMaxChars: 8000},
+			Worker:          MemoryWorkerConfig{Enabled: true, PollIntervalSeconds: 300, TimeoutSeconds: 120, MaxBatches: 20},
 		},
 		PlanningMode: DefaultPlanningModeConfig(),
 		Defaults: DefaultsConfig{

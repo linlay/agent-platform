@@ -91,6 +91,8 @@ func (c Client) SetConfig(ctx context.Context, input []byte) error {
 func requireMemx(ctx context.Context, call func(context.Context, string, any, any) error) error {
 	var capabilities struct {
 		Version            string `json:"version"`
+		ProtocolVersion    int    `json:"protocolVersion"`
+		TokenUnitVersion   int    `json:"tokenUnitVersion"`
 		MaintenanceVersion int    `json:"maintenanceVersion"`
 		ConfigDirEnv       bool   `json:"configDirEnv"`
 	}
@@ -102,6 +104,9 @@ func requireMemx(ctx context.Context, call func(context.Context, string, any, an
 	}
 	if capabilities.MaintenanceVersion != 2 || !capabilities.ConfigDirEnv {
 		return fmt.Errorf("memx maintenanceVersion=2 and MEMX_CONFIG_DIR support required; synchronize builtins")
+	}
+	if capabilities.ProtocolVersion != 2 || capabilities.TokenUnitVersion != 1 {
+		return fmt.Errorf("memx protocolVersion=2 and tokenUnitVersion=1 required; synchronize Platform and builtins")
 	}
 	return nil
 }

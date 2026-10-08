@@ -118,45 +118,7 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 		delete(d.state.toolEndAtByID, input.ToolID)
 	}
 	events = append(events, resultEvent)
-	if !input.InternalOnly {
-		if eventType, memoryPayload := d.memoryToolResultEvent(input); eventType != "" && len(memoryPayload) > 0 {
-			events = append(events, NewEvent(eventType, memoryPayload))
-		}
-	}
 	return events
-}
-
-func (d *StreamEventDispatcher) memoryToolResultEvent(input ToolResult) (string, map[string]any) {
-	eventType := memoryToolEventType(input.ToolName)
-	if eventType == "" {
-		return "", nil
-	}
-	data := map[string]any{
-		"toolId":   input.ToolID,
-		"toolName": input.ToolName,
-		"result":   buildToolResultValue(input),
-	}
-	if len(input.Hitl) > 0 {
-		data["approval"] = clonePayload(input.Hitl)
-	}
-	return eventType, map[string]any{
-		"runId":  d.request.RunID,
-		"chatId": d.request.ChatID,
-		"data":   data,
-	}
-}
-
-func memoryToolEventType(toolName string) string {
-	switch strings.TrimSpace(toolName) {
-	case "memory_write":
-		return "memory.write"
-	case "memory_read":
-		return "memory.read"
-	case "memory_search":
-		return "memory.search"
-	default:
-		return ""
-	}
 }
 
 func (d *StreamEventDispatcher) closeAllTools() []StreamEvent {

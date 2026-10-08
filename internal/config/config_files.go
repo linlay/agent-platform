@@ -80,9 +80,9 @@ func (c *Config) applyAutomationValues(values map[string]any) {
 func (c *Config) applyMemoryValues(values map[string]any) error {
 	for key := range values {
 		switch key {
-		case "enabled", "context-max-chars", "timezone", "worker":
+		case "enabled", "context-max-chars", "timezone", "worker", "summary":
 		default:
-			return fmt.Errorf("memory.%s is no longer supported; Markdown memory only accepts enabled, context-max-chars, timezone, worker", key)
+			return fmt.Errorf("memory.%s is no longer supported; Markdown memory only accepts enabled, context-max-chars, timezone, worker, summary", key)
 		}
 	}
 	c.Memory.Enabled = boolValue(anyValue(values["enabled"], c.Memory.Enabled), c.Memory.Enabled)
@@ -94,6 +94,40 @@ func (c *Config) applyMemoryValues(values map[string]any) error {
 	if _, err := time.LoadLocation(c.Memory.Timezone); err != nil {
 		return fmt.Errorf("memory.timezone: %w", err)
 	}
+	if c.Memory.Summary == (MemorySummaryConfig{}) {
+		c.Memory.Summary = DefaultMemorySummaryConfig()
+	}
+	if raw, exists := values["summary"]; exists {
+		sections, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("memory.summary must be a map")
+		}
+		for scope, rawBudget := range sections {
+			var budget *MemorySummaryBudget
+			switch scope {
+			case "global":
+				budget = &c.Memory.Summary.Global
+			case "agent":
+				budget = &c.Memory.Summary.Agent
+			default:
+				return fmt.Errorf("unknown memory.summary.%s", scope)
+			}
+			fields, ok := rawBudget.(map[string]any)
+			if !ok {
+				return fmt.Errorf("memory.summary.%s must be a map", scope)
+			}
+			for key := range fields {
+				if key != "max-tokens" && key != "max-lines" {
+					return fmt.Errorf("unknown memory.summary.%s.%s", scope, key)
+				}
+			}
+			budget.MaxTokens = intValue(anyValue(fields["max-tokens"], budget.MaxTokens), budget.MaxTokens)
+			budget.MaxLines = intValue(anyValue(fields["max-lines"], budget.MaxLines), budget.MaxLines)
+			if budget.MaxTokens < 256 || budget.MaxTokens > 8000 || budget.MaxLines < 20 || budget.MaxLines > 1000 {
+				return fmt.Errorf("memory.summary.%s requires max-tokens between 256 and 8000 and max-lines between 20 and 1000", scope)
+			}
+		}
+	}
 	if raw, exists := values["worker"]; exists {
 		w, ok := raw.(map[string]any)
 		if !ok {
@@ -101,7 +135,9 @@ func (c *Config) applyMemoryValues(values map[string]any) error {
 		}
 		for key := range w {
 			switch key {
-			case "enabled", "model-key", "poll-interval-seconds", "timeout-seconds", "max-batches", "summary-max-chars":
+			case "enabled", "model-key", "poll-interval-seconds", "timeout-seconds", "max-batches":
+			case "summary-max-chars":
+				return fmt.Errorf("memory.worker.summary-max-chars is retired; use memory.summary.global/agent max-tokens and max-lines")
 			default:
 				return fmt.Errorf("unknown memory.worker.%s", key)
 			}
@@ -112,8 +148,7 @@ func (c *Config) applyMemoryValues(values map[string]any) error {
 		v.PollIntervalSeconds = intValue(anyValue(w["poll-interval-seconds"], v.PollIntervalSeconds), v.PollIntervalSeconds)
 		v.TimeoutSeconds = intValue(anyValue(w["timeout-seconds"], v.TimeoutSeconds), v.TimeoutSeconds)
 		v.MaxBatches = intValue(anyValue(w["max-batches"], v.MaxBatches), v.MaxBatches)
-		v.SummaryMaxChars = intValue(anyValue(w["summary-max-chars"], v.SummaryMaxChars), v.SummaryMaxChars)
-		if v.PollIntervalSeconds < 10 || v.PollIntervalSeconds > 86400 || v.TimeoutSeconds < 10 || v.TimeoutSeconds > 600 || v.MaxBatches < 1 || v.MaxBatches > 200 || v.SummaryMaxChars < 256 || v.SummaryMaxChars > 65536 {
+		if v.PollIntervalSeconds < 10 || v.PollIntervalSeconds > 86400 || v.TimeoutSeconds < 10 || v.TimeoutSeconds > 600 || v.MaxBatches < 1 || v.MaxBatches > 200 {
 			return fmt.Errorf("invalid memory.worker limits")
 		}
 	}

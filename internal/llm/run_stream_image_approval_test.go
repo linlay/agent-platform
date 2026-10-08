@@ -45,7 +45,7 @@ func (e *imageApprovalExecutor) Invoke(_ context.Context, name string, args map[
 func newImageApprovalStream(t *testing.T, tool string, args map[string]any) (*llmRunStream, *preparedToolInvocation, *imageApprovalExecutor) {
 	t.Helper()
 	cfg := config.Config{}
-	runtime, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+	runtime, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

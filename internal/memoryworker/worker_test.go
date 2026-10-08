@@ -60,6 +60,8 @@ func (f *fakeCLI) Call(_ context.Context, method string, in, out any) error {
 		if f.version != "" {
 			data["version"] = f.version
 		}
+		data["protocolVersion"] = 2
+		data["tokenUnitVersion"] = 1
 		data["maintenanceVersion"] = 2
 		data["configDirEnv"] = true
 	case "read":
@@ -72,6 +74,9 @@ func (f *fakeCLI) Call(_ context.Context, method string, in, out any) error {
 		}
 		f.updates++
 		f.receipts[in.(map[string]any)["batch"].(Batch).BatchID] = true
+	case "agents":
+		data["agents"] = []map[string]any{{"agentKey": "agent"}}
+	case "consolidate":
 	case "summarize":
 		f.summaryThrough = in.(map[string]any)["through"].(string)
 	default:
@@ -86,7 +91,7 @@ func (f *fakeCLI) Call(_ context.Context, method string, in, out any) error {
 func workerFixture(t *testing.T, cli CLI) (*Worker, *fakeSync, time.Time) {
 	t.Helper()
 	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
-	cfg := config.MemoryConfig{Enabled: true, Timezone: "UTC", Worker: config.MemoryWorkerConfig{PollIntervalSeconds: 300, TimeoutSeconds: 10, MaxBatches: 20, SummaryMaxChars: 8000}}
+	cfg := config.MemoryConfig{Enabled: true, Timezone: "UTC", Worker: config.MemoryWorkerConfig{PollIntervalSeconds: 300, TimeoutSeconds: 10, MaxBatches: 20}}
 	chats := fakeChats{runs: []chat.RunSummary{{ChatID: "chat", RunID: "run", AgentKey: "agent", CompletedAt: now.UnixMilli(), FinishReason: "stop"}}, messages: []chat.MemoryMessage{{ID: "query", Role: "user", Content: "请使用中文", At: now.UnixMilli()}}}
 	model := &fakeSync{}
 	w := New(cfg, t.TempDir(), chats, cli, model, func(string) (string, bool) { return "project", true })

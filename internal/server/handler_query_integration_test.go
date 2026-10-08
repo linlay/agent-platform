@@ -165,7 +165,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 }
 
 func TestNativeEmptyToolAllowlistExposesNoTools(t *testing.T) {
-	excludedTools := []string{"run_env", "bash", "file_read", "memory_read", "memory_write", "memory_search", "memory_update", "kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	excludedTools := []string{"run_env", "bash", "file_read", "kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	exclusionConfig := "toolConfig:\n  tools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n  excludeTools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n"
 
 	for _, mode := range []string{"GENERAL", "CODER", "KBASE"} {
@@ -1765,14 +1765,14 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				`[DONE]`,
 			)
 		case 2:
-			assertStringSliceContains(t, toolNames, "datetime", "memory_search", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "file_read", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time_alpha", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 3:
-			assertStringSliceContains(t, toolNames, "datetime", "memory_search", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "file_read", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_done_alpha", "plan_update_task", map[string]any{
@@ -1782,14 +1782,14 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				`[DONE]`,
 			)
 		case 4:
-			assertStringSliceContains(t, toolNames, "datetime", "memory_search", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "file_read", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time_beta", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 5:
-			assertStringSliceContains(t, toolNames, "datetime", "memory_search", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "file_read", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_done_beta", "plan_update_task", map[string]any{
@@ -1825,7 +1825,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				"toolConfig:",
 				"  tools:",
 				"    - datetime",
-				"    - memory_search",
+				"    - file_read",
 				"memoryConfig:",
 				"  enabled: true",
 				"mode: PLAN-EXECUTE",

@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 		if v := os.Getenv("MEMX_TEST_VERSION"); v != "" {
 			version = v
 		}
-		data := map[string]any{"version": version, "maintenanceVersion": 2, "configDirEnv": os.Getenv("MEMX_TEST_UNSUPPORTED") != "1"}
+		data := map[string]any{"version": version, "protocolVersion": 2, "tokenUnitVersion": 1, "maintenanceVersion": 2, "configDirEnv": os.Getenv("MEMX_TEST_UNSUPPORTED") != "1"}
 		if len(os.Args) > 1 && os.Args[1] == "config" {
 			os.WriteFile(filepath.Join(os.Getenv("MEMX_CONFIG_DIR"), "set-called"), []byte("set"), 0600)
 		} else {

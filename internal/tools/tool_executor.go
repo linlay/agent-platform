@@ -14,7 +14,6 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/httpclient"
-	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/skills"
@@ -32,7 +31,6 @@ type RuntimeToolExecutor struct {
 	cfg             config.Config
 	sandbox         SandboxClient
 	chats           chat.Store
-	memory          *memory.Store
 	models          *models.ModelRegistry
 	skillCandidates skills.CandidateStore
 	artifactPusher  ArtifactPusher
@@ -46,7 +44,7 @@ type RuntimeToolExecutor struct {
 	runtimeEnv      runtimeenv.Info
 }
 
-func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat.Store, memoryStore *memory.Store, skillCandidates skills.CandidateStore) (*RuntimeToolExecutor, error) {
+func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat.Store, skillCandidates skills.CandidateStore) (*RuntimeToolExecutor, error) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
 		return nil, err
@@ -63,7 +61,6 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 		cfg:             cfg,
 		sandbox:         sandbox,
 		chats:           chats,
-		memory:          memoryStore,
 		skillCandidates: skillCandidates,
 		httpClient:      httpclient.NewClient(0),
 		defs:            filtered,
@@ -261,12 +258,6 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 			return t.invokeSandboxBash(ctx, args, execCtx)
 		}
 		return t.invokeHostBash(ctx, args, execCtx)
-	case "memory_search":
-		return t.invokeMemorySearch(toolName, args, execCtx)
-	case "memory_read":
-		return t.invokeMemoryRead(toolName, args, execCtx)
-	case "memory_write":
-		return t.invokeMemoryWrite(toolName, args, execCtx)
 	case "_session_search_", "session_search":
 		return t.invokeSessionSearch(args, execCtx)
 	case "_skill_candidate_write_", "skill_candidate_write":

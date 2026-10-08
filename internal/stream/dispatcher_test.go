@@ -360,7 +360,7 @@ func TestDispatcherEmitsFileChangeOnToolResult(t *testing.T) {
 	}
 }
 
-func TestDispatcherEmitsDedicatedMemoryEventAlongsideToolResult(t *testing.T) {
+func TestDispatcherRetiredMemoryToolHasOnlyGenericResult(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -374,15 +374,8 @@ func TestDispatcherEmitsDedicatedMemoryEventAlongsideToolResult(t *testing.T) {
 			"memory": map[string]any{"id": "mem_1"},
 		},
 	})
-	assertEventTypes(t, events, "tool.result", "memory.write")
-	payload := events[1].ToData()
-	if payload["runId"] != "run_1" || payload["chatId"] != "chat_1" {
-		t.Fatalf("unexpected memory.write envelope: %#v", payload)
-	}
-	data, _ := payload["data"].(map[string]any)
-	if data["toolName"] != "memory_write" {
-		t.Fatalf("unexpected memory.write toolName: %#v", data)
-	}
+	assertEventTypes(t, events, "tool.result")
+
 }
 
 func TestDispatcherFallsBackToActiveTaskIDForSubAgentBlocks(t *testing.T) {

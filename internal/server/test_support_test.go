@@ -353,7 +353,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if sandboxClient == nil {
 		sandboxClient = testutil.NewNoopSandboxClient()
 	}
-	runtimeTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chats, memories, nil)
+	runtimeTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chats, nil)
 	if err != nil {
 		t.Fatalf("new runtime tool executor: %v", err)
 	}

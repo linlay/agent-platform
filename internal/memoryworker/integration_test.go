@@ -1,7 +1,6 @@
 package memoryworker
 
 import (
-	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"context"
 	"encoding/json"
@@ -46,7 +45,6 @@ func TestMemxIntegration(t *testing.T) {
 	var token atomic.Value
 	token.Store("first-key")
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
 		if r.Header.Get("Authorization") != "Bearer "+token.Load().(string) {
 			t.Error("wrong configured key")
 		}
@@ -56,6 +54,10 @@ func TestMemxIntegration(t *testing.T) {
 			} `json:"messages"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
+		if len(req.Messages) == 2 && respondConsolidation(t, w, req.Messages[1].Content) {
+			return
+		}
+		calls.Add(1)
 		var evidence struct {
 			Evidence Batch `json:"evidence"`
 		}
@@ -111,25 +113,25 @@ func TestMemxIntegration(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatal("completed evidence reprocessed")
 	}
-	for _, p := range []string{"daily/2026-10-03.md", "summary.md"} {
+	for _, p := range []string{"agents/agent/daily/2026-10-03.md", "agents/agent/summary.md", "summary.md"} {
 		b, e := os.ReadFile(filepath.Join(root, p))
 		if e != nil || !strings.Contains(string(b), "请使用中文") || strings.Contains(string(b), "memx:fact") || strings.Contains(string(b), "language") {
 			t.Fatal(p, e)
 		}
 	}
-	// Platform reads/searches the actual clean Markdown and saves the same
-	// revision without needing to understand the private source records.
-	store := memory.NewStore(root, t.TempDir(), time.UTC)
-	daily, e := store.Read("daily", "2026-10-03")
-	if e != nil {
-		t.Fatal(e)
+	// Read the layered document through the same CLI used by agents; generic
+	// file edits preserve its human notes without touching private metadata.
+	var document struct {
+		Document struct {
+			Content string `json:"content"`
+		} `json:"document"`
 	}
-	matches, e := store.SearchPage("请使用中文", "")
-	if e != nil || len(matches.Matches) != 2 {
-		t.Fatal(matches, e)
+	if err := cli.Call(context.Background(), "read", map[string]any{"scope": "agent", "agentKey": "agent", "kind": "daily", "date": "2026-10-03"}, &document); err != nil {
+		t.Fatal(err)
 	}
-	if _, e := store.Save("daily", daily.Date, "手工笔记\n\n"+daily.Content, daily.Revision); e != nil {
-		t.Fatal(e)
+	dailyPath := filepath.Join(root, "agents", "agent", "daily", "2026-10-03.md")
+	if err := os.WriteFile(dailyPath, []byte("手工笔记\n\n"+document.Document.Content), 0600); err != nil {
+		t.Fatal(err)
 	}
 	token.Store("rotated-key")
 	writeProvider()
@@ -150,35 +152,36 @@ func TestMemxIntegration(t *testing.T) {
 	if _, err := os.Stat(inherited); !os.IsNotExist(err) {
 		t.Fatal("inherited config directory was used", err)
 	}
-	// Direct Platform deletion leaves provenance for the next maintenance pass.
-	daily, e = store.Read("daily", "2026-10-03")
-	if e != nil {
-		t.Fatal(e)
+	// Direct file deletion leaves provenance for the next maintenance pass.
+	if err := os.Remove(dailyPath); err != nil {
+		t.Fatal(err)
 	}
-	if _, e = store.Delete("daily", daily.Date, daily.Revision); e != nil {
-		t.Fatal(e)
+	meta := filepath.Join(root, ".memx-meta", "agents", "agent", "daily", "2026-10-03.json")
+	if _, err := os.Stat(meta); err != nil {
+		t.Fatal("missing provenance before maintenance", err)
 	}
-	meta := filepath.Join(root, ".memx-meta", "daily", daily.Date+".json")
-	if _, e = os.Stat(meta); e != nil {
-		t.Fatal("missing provenance before maintenance", e)
+	if err := w.reconcile(context.Background(), "2026-10-03"); err != nil {
+		t.Fatal(err)
 	}
-	if e = cli.Call(context.Background(), "summarize", map[string]any{"through": daily.Date, "maxChars": 8000}, nil); e != nil {
-		t.Fatal(e)
+	if _, err := os.Stat(meta); !os.IsNotExist(err) {
+		t.Fatal("orphan provenance remains", err)
 	}
-	if _, e = os.Stat(meta); !os.IsNotExist(e) {
-		t.Fatal("orphan provenance remains", e)
+	for _, path := range []string{"summary.md", "agents/agent/summary.md"} {
+		b, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil || strings.Contains(string(b), "请使用中文") {
+			t.Fatal("forgotten fact restored", path, err)
+		}
 	}
-	summary, e := store.Read("memory", "")
-	if e != nil || strings.Contains(summary.Content, "请使用中文") || calls.Load() != 2 {
-		t.Fatal("forgotten fact restored or model called during cleanup", summary, calls.Load(), e)
+	if calls.Load() != 2 {
+		t.Fatal("evidence re-extracted during cleanup", calls.Load())
 	}
+
 }
 
 func TestRangeMemxIntegration(t *testing.T) {
 	binary := integrationMemx(t)
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
 		var req struct {
 			Model    string `json:"model"`
 			Messages []struct {
@@ -190,6 +193,10 @@ func TestRangeMemxIntegration(t *testing.T) {
 			w.WriteHeader(400)
 			return
 		}
+		if respondConsolidation(t, w, req.Messages[1].Content) {
+			return
+		}
+		calls.Add(1)
 		var payload struct {
 			Evidence Batch `json:"evidence"`
 		}
@@ -215,7 +222,7 @@ func TestRangeMemxIntegration(t *testing.T) {
 	if job.NewFacts == nil || *job.NewFacts != 1 || job.ProcessedBatches != 1 {
 		t.Fatalf("%+v", job)
 	}
-	for _, path := range []string{"daily/2026-10-03.md", "summary.md"} {
+	for _, path := range []string{"agents/agent/daily/2026-10-03.md", "agents/agent/summary.md", "summary.md"} {
 		b, err := os.ReadFile(filepath.Join(cli.Root, path))
 		if err != nil || !strings.Contains(string(b), "请使用中文") {
 			t.Fatal(path, err, string(b))
@@ -231,4 +238,31 @@ func TestRangeMemxIntegration(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(worker.stateDir, "checkpoint.json")); !os.IsNotExist(err) {
 		t.Fatal("range touched incremental state", err)
 	}
+}
+
+// The real CLI makes distinct extraction and consolidation requests. Keep the
+// mock wire-faithful and echo only the references actually supplied by memx.
+func respondConsolidation(t *testing.T, w http.ResponseWriter, content string) bool {
+	t.Helper()
+	var input struct {
+		Candidates *[]struct {
+			AgentKey string `json:"agentKey"`
+			Key      string `json:"key"`
+			Kind     string `json:"kind"`
+			Text     string `json:"text"`
+		} `json:"candidates"`
+	}
+	if json.Unmarshal([]byte(content), &input) != nil || input.Candidates == nil {
+		return false
+	}
+	entries := []any{}
+	for _, candidate := range *input.Candidates {
+		entries = append(entries, map[string]any{"kind": candidate.Kind, "text": candidate.Text, "sources": []any{map[string]any{"agentKey": candidate.AgentKey, "key": candidate.Key}}})
+	}
+	result, err := json.Marshal(map[string]any{"entries": entries, "conflicts": []any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": string(result)}}}})
+	return true
 }

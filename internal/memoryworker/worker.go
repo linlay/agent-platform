@@ -57,6 +57,9 @@ type Worker struct {
 }
 
 func New(cfg config.MemoryConfig, stateDir string, chats Chats, cli CLI, syncConfig ConfigSync, eligible Eligibility) *Worker {
+	if cfg.Summary == (config.MemorySummaryConfig{}) {
+		cfg.Summary = config.DefaultMemorySummaryConfig()
+	}
 	loc, _ := time.LoadLocation(cfg.Timezone)
 	if loc == nil {
 		loc = time.Local
@@ -326,10 +329,7 @@ func (w *Worker) run(ctx context.Context, now time.Time) (int, error) {
 	}
 	// Idempotent reconciliation also handles late daily facts and manual deletions.
 	through := midnight.AddDate(0, 0, -1).Format(time.DateOnly)
-	if err = w.call(ctx, "summarize", map[string]any{"through": through, "maxChars": w.cfg.Worker.SummaryMaxChars}, nil); err != nil {
-		return processed, err
-	}
-	return processed, firstError
+	return processed, errors.Join(firstError, w.reconcile(ctx, through))
 }
 func makeBatches(r chat.RunSummary, project string, messages []chat.MemoryMessage) []Batch {
 	var batches []Batch

@@ -24,7 +24,7 @@ func TestSessionSearchToolUsesCurrentChatByDefault(t *testing.T) {
 		t.Fatalf("append query: %v", err)
 	}
 
-	executor, err := NewRuntimeToolExecutor(config.Config{}, nil, chats, nil, nil)
+	executor, err := NewRuntimeToolExecutor(config.Config{}, nil, chats, nil)
 	if err != nil {
 		t.Fatalf("new runtime tool executor: %v", err)
 	}

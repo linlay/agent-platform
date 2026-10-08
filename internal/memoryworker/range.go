@@ -410,7 +410,7 @@ func (w *Worker) runRange(ctx context.Context, job *RangeStatus) error {
 	}
 	now := time.Now().In(w.location)
 	through := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, w.location).AddDate(0, 0, -1).Format(time.DateOnly)
-	return w.call(ctx, "summarize", map[string]any{"through": through, "maxChars": w.cfg.Worker.SummaryMaxChars}, nil)
+	return w.reconcile(ctx, through)
 }
 
 // CancelRange cancels only the named manual task, never automatic maintenance.

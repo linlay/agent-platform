@@ -34,7 +34,7 @@ func TestImageGenerateBabelArkSmoke(t *testing.T) {
 
 	chatsRoot := t.TempDir()
 	cfg.Paths.ChatsDir = chatsRoot
-	executor, err := NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+	executor, err := NewRuntimeToolExecutor(cfg, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

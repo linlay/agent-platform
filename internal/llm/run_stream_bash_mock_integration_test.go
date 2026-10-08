@@ -31,7 +31,7 @@ func TestHostBashApprovalConcurrentMockIntegration(t *testing.T) {
 	for _, mode := range []string{"approve", "approve_rule_run", "auto_approve"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := config.Config{Bash: config.BashConfig{AllowedCommands: []string{"echo"}, ShellFeaturesEnabled: true, MaxCommandChars: 16000}}
-			executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+			executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

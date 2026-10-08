@@ -450,7 +450,7 @@ func TestImageGenerateToolSchemaInjectsSortedProfileEnum(t *testing.T) {
 			"gpt-image-2": {},
 			"gemini-full": {},
 		},
-	}}, nil, nil, nil, nil)
+	}}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

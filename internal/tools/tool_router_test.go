@@ -489,7 +489,7 @@ func TestRuntimeCompactModelOutputPolicyIsCodeOwned(t *testing.T) {
 			t.Errorf("expected %s to use compact model output", name)
 		}
 	}
-	for _, name := range []string{"datetime", "memory_read", "plan_get_tasks", "artifact_publish"} {
+	for _, name := range []string{"datetime", "plan_get_tasks", "artifact_publish"} {
 		if runtimeToolUsesCompactModelOutput(name) {
 			t.Errorf("expected %s to keep its standard model output", name)
 		}

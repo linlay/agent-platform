@@ -325,6 +325,21 @@ type MemoryConfig struct {
 	ContextMaxChars int
 	Timezone        string
 	Worker          MemoryWorkerConfig
+	Summary         MemorySummaryConfig
+}
+
+type MemorySummaryConfig struct {
+	Global MemorySummaryBudget
+	Agent  MemorySummaryBudget
+}
+
+type MemorySummaryBudget struct {
+	MaxTokens int
+	MaxLines  int
+}
+
+func DefaultMemorySummaryConfig() MemorySummaryConfig {
+	return MemorySummaryConfig{Global: MemorySummaryBudget{MaxTokens: 2000, MaxLines: 200}, Agent: MemorySummaryBudget{MaxTokens: 1500, MaxLines: 150}}
 }
 
 type MemoryWorkerConfig struct {
@@ -333,7 +348,6 @@ type MemoryWorkerConfig struct {
 	PollIntervalSeconds int
 	TimeoutSeconds      int
 	MaxBatches          int
-	SummaryMaxChars     int
 }
 
 type DefaultsConfig struct {
@@ -777,7 +791,7 @@ func DefaultPlanningModeConfig() PlanningModeConfig {
 	return PlanningModeConfig{
 		ExcludeTools: []string{
 			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate",
-			"memory_write", "memory_update", "plan_add_tasks", "plan_update_task",
+			"plan_add_tasks", "plan_update_task",
 			"agent_invoke", "chat_start", "chat_interrupt", "chat_manage",
 			"automation_manage", "catalog_manage", "run_env",
 		},
