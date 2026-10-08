@@ -24,7 +24,7 @@ const labels=zh?{install:'安装资源',update:'升级资源',local:'安装／�
 text('heading',local?labels.local:update?labels.update:labels.install);
 for(const k of ['intro','warning','once'])text(k,labels[k]);
 for(const k of ['source','target','identity','version'])text(k+'-label',labels[k]);
-text('source',local?labels.archive:labels.market);text('target',local?f.workspaceArchivePath:f.itemId);text('identity',local?(f.expectedId||labels.unspecified):f.itemId);text('version',labels.unknown);
+text('source',local?labels.archive:labels.market);text('target',local?f.archivePath:f.itemId);text('identity',local?(f.expectedId||labels.unspecified):f.itemId);text('version',labels.unknown);
 }
   addEventListener('message', event => {
     if (event.source !== parent) return;

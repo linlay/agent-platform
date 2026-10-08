@@ -212,11 +212,13 @@ Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；�
 
 ## Desktop Action 错误诊断
 
-普通 Desktop Action 保留宿主的错误类别、阶段、执行状态、直接原因、结构化恢复建议和诊断编号。Platform 在固定诊断位置按白名单有界投影，仅对明确的密码及认证凭据值脱敏，路径、堆栈、版本号及其他非凭据内容保持原文；不把宿主内部失败推断成参数错误，不自动重放写动作。Workspace 始终来自当前 Execution Session，不能从 Chat 目录或模型参数补造；build 返回的相对路径只能在同一 Workspace 下交给 install。Desktop 与 Platform 配套发布。
+普通 Desktop Action 保留宿主的错误类别、阶段、执行状态、直接原因、结构化恢复建议和诊断编号。Platform 在固定诊断位置按白名单有界投影，仅对明确的密码及认证凭据值脱敏，路径、堆栈、版本号及其他非凭据内容保持原文；不把宿主内部失败推断成参数错误，不自动重放写动作。Workspace 始终来自当前 Execution Session，不能从 Chat 目录或模型参数补造；build 返回的相对路径在同一 Workspace 下交给 install，安装另有明确的本机 ZIP 输入边界。Desktop 与 Platform 配套发布。
 
 ## WebApp Action 路径别名
 
-Platform 对 WebApp init、validate、build 和 install 的指定路径字段复用 Session 路径解析，支持 `@chat` 与 `@workspace`。别名只来自当前 Run 的可信上下文，目标必须同时位于别名根和 Workspace 内；解析后转换为 Workspace 相对路径发送给 Desktop，不修改 source 根，不解析其他 Action 或嵌套业务字段。普通相对路径及 build 返回路径保持兼容。Desktop 继续在执行前检查真实路径、链接边界和文件权限；Platform 解析不是文件访问授权。无项目默认 Chat 内落盘，有项目默认项目内落盘；缺根、跨卷及越界明确拒绝，不自动选择替代目录。
+Platform 对 WebApp 指定路径字段复用当前 Session 的 `@chat` 与 `@workspace` 解析，不修改可信 source 根，不解析其他 Action 或嵌套业务字段。初始化、独立校验和构建仍要求目标同时位于别名根与 Workspace 内，并转换为 Workspace 相对路径发送 Desktop。
+
+安装统一使用一个归档路径字段：当前 Chat 或 Workspace 的别名转换为 Desktop 本机绝对路径，目标仍必须位于所选别名根，不能借符号链接、Junction 或父路径逃逸；Chat ZIP 不要求位于项目 Workspace，未绑定项目的 Chat 也可安装。已给出的本机绝对路径和普通相对路径原样转发，Desktop 分别按本机 ZIP 导入和可信 Run Workspace 校验。外部绝对路径仅用于单个 ZIP 安装，不开放独立包校验、扫描或构建权限。Platform 只负责来源解析，ZIP、Manifest、文件访问和安装授权归 Desktop；参数与包预检失败发生在安装确认前，确认后文件变化须重新验证和确认。Desktop 与 Platform 工具资源配套更新。
 
 ## 网页 Surface 契约
 

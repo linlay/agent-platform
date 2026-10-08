@@ -17,7 +17,7 @@ var desktopActionPathFields = map[string][]string{
 	"desktop.webapp.package.init":     {"projectPath"},
 	"desktop.webapp.package.validate": {"projectPath", "archivePath"},
 	"desktop.webapp.package.build":    {"projectPath", "outputPath"},
-	"desktop.webapp.install":          {"workspaceArchivePath"},
+	"desktop.webapp.install":          {"archivePath"},
 }
 
 type desktopActionPathError struct {
@@ -37,7 +37,16 @@ func resolveDesktopActionPaths(session QuerySession, action string, args map[str
 		if !ok || !strings.HasPrefix(strings.TrimSpace(raw), "@") {
 			continue
 		}
-		resolved, err := resolveDesktopActionAlias(session, raw)
+		var resolved string
+		var err error
+		if action == "desktop.webapp.install" {
+			// Installation consumes one Desktop-host ZIP, including a Chat ZIP
+			// outside the project Workspace. Tooling keeps its Workspace boundary.
+			_, candidate, resolveErr := resolveDesktopActionAliasTarget(session, raw)
+			resolved, err = candidate.Host, resolveErr
+		} else {
+			resolved, err = resolveDesktopActionAlias(session, raw)
+		}
 		if err != nil {
 			return nil, &desktopActionPathError{field: field, input: raw, err: err}
 		}
@@ -47,50 +56,17 @@ func resolveDesktopActionPaths(session QuerySession, action string, args map[str
 }
 
 func resolveDesktopActionAlias(session QuerySession, raw string) (string, error) {
-	value := strings.TrimSpace(raw)
-	if len(value) > 2048 || strings.IndexFunc(value, unicode.IsControl) >= 0 {
-		return "", fmt.Errorf("alias path exceeds 2048 bytes or contains control characters")
-	}
-	value = strings.ReplaceAll(value, "\\", "/")
-	alias, suffix, _ := strings.Cut(value, "/")
-	alias = strings.ToLower(alias)
-	if alias != "@chat" && alias != "@workspace" {
-		return "", fmt.Errorf("only @chat and @workspace are supported for this path")
-	}
-	if strings.HasPrefix(suffix, "/") || strings.Contains(suffix, ":") {
-		return "", fmt.Errorf("alias suffix must be a relative path without a drive or URI")
-	}
-	for _, segment := range strings.Split(suffix, "/") {
-		if segment == ".." {
-			return "", fmt.Errorf("parent traversal is not allowed in this path")
-		}
-	}
 	workspace := accesspolicy.SessionWorkspaceRoot(session)
 	if workspace == "" {
 		return "", fmt.Errorf("workspace_unavailable: a trusted Session Workspace is required; @chat does not replace it")
 	}
-	aliasRoot, err := accesspolicy.ResolveSessionPath(session, alias)
-	if err != nil {
-		return "", err
-	}
-	target, err := accesspolicy.ResolveSessionPath(session, alias+"/"+suffix)
+	_, candidate, err := resolveDesktopActionAliasTarget(session, raw)
 	if err != nil {
 		return "", err
 	}
 	root, err := pathutil.Canonicalize(workspace)
 	if err != nil {
 		return "", err
-	}
-	base, err := pathutil.Canonicalize(aliasRoot)
-	if err != nil {
-		return "", err
-	}
-	candidate, err := pathutil.Canonicalize(target)
-	if err != nil {
-		return "", err
-	}
-	if !pathutil.WithinRoot(candidate, base) {
-		return "", fmt.Errorf("resolved path %q escapes %s", candidate.Host, alias)
 	}
 	if !pathutil.WithinRoot(candidate, root) {
 		return "", fmt.Errorf("resolved path %q is outside the current Workspace %q", candidate.Host, root.Host)
@@ -105,4 +81,46 @@ func resolveDesktopActionAlias(session QuerySession, raw string) (string, error)
 		return "", fmt.Errorf("target is outside the current Workspace")
 	}
 	return filepath.ToSlash(relative), nil
+}
+
+func resolveDesktopActionAliasTarget(session QuerySession, raw string) (string, pathutil.Canonical, error) {
+	var empty pathutil.Canonical
+	value := strings.TrimSpace(raw)
+	if len(value) > 2048 || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return "", empty, fmt.Errorf("alias path exceeds 2048 bytes or contains control characters")
+	}
+	value = strings.ReplaceAll(value, "\\", "/")
+	alias, suffix, _ := strings.Cut(value, "/")
+	alias = strings.ToLower(alias)
+	if alias != "@chat" && alias != "@workspace" {
+		return "", empty, fmt.Errorf("only @chat and @workspace are supported for this path")
+	}
+	if strings.HasPrefix(suffix, "/") || strings.Contains(suffix, ":") {
+		return "", empty, fmt.Errorf("alias suffix must be a relative path without a drive or URI")
+	}
+	for _, segment := range strings.Split(suffix, "/") {
+		if segment == ".." {
+			return "", empty, fmt.Errorf("parent traversal is not allowed in this path")
+		}
+	}
+	aliasRoot, err := accesspolicy.ResolveSessionPath(session, alias)
+	if err != nil {
+		return "", empty, err
+	}
+	target, err := accesspolicy.ResolveSessionPath(session, alias+"/"+suffix)
+	if err != nil {
+		return "", empty, err
+	}
+	base, err := pathutil.Canonicalize(aliasRoot)
+	if err != nil {
+		return "", empty, err
+	}
+	candidate, err := pathutil.Canonicalize(target)
+	if err != nil {
+		return "", empty, err
+	}
+	if !pathutil.WithinRoot(candidate, base) {
+		return "", empty, fmt.Errorf("resolved path %q escapes %s", candidate.Host, alias)
+	}
+	return alias, candidate, nil
 }

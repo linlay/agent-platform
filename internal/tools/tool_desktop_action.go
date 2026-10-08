@@ -119,11 +119,15 @@ func (t *RuntimeToolExecutor) dispatchDesktopAction(ctx context.Context, action 
 	}
 	resolvedArgs, pathErr := resolveDesktopActionPaths(execCtx.Session, action, actionArgs)
 	if pathErr != nil {
+		recovery := "Use @chat for the current Chat or @workspace for the bound project, within the current trusted Workspace. Do not change source or use parent traversal."
+		if action == "desktop.webapp.install" {
+			recovery = "Use archivePath with a Desktop-host absolute ZIP path, @chat for the current Chat, or @workspace for the bound project. Aliases must stay within their own root; @chat installation does not require a project Workspace."
+		}
 		return desktopActionErrorResult("invalid_args", pathErr.err.Error(), map[string]any{
 			"category": "validation", "stage": "arguments", "executionState": "not_started",
 			"field":    "args." + pathErr.field,
 			"context":  map[string]any{"inputPath": pathErr.input, "workspaceRoot": source.WorkspaceRoot},
-			"recovery": map[string]any{"strategy": "fix_input", "message": "Use @chat for the current Chat or @workspace for the bound project, within the current trusted Workspace. Do not change source or use parent traversal."},
+			"recovery": map[string]any{"strategy": "fix_input", "message": recovery},
 		}), nil
 	}
 	return t.invokeDesktopClientRequest(ctx, requestID, action, resolvedArgs, &source, "desktop_action", false, execCtx)
