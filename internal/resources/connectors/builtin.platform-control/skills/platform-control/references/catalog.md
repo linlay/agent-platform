@@ -31,6 +31,26 @@ runtimeConfig.env values are redacted. To retain a key, leave its value as [REDA
 
 catalog_manage apply pauses for one-time human approval in default mode; auto_approve/full_access permits server-side automatic approval. catalog_manage delete always requires human approval, including full_access. Approval displays sanitized before/after and binds caller, Run, tool invocation, content and source baseline. Changed content or revision needs a new call and review. It cannot authorize a sibling call or a whole Run. Source publication uses staging/backup and shared mutation locks. Results distinguish applied, pending (active execution lease), and invalid (published source diagnostics). A control_rolled_back error with status and executionState rolled_back means the operation failed and the previous state was restored; resolve the cause and obtain fresh approval before retrying. Inspect status before claiming success. For an unknown outcome, read the source before retrying.
 
+## Create an Agent definition
+
+Start with `catalog_query defaults {type:"general"|"coder"|"kbase"}` for the requested mode and preserve its current `definitionDefaults` when composing the candidate. Defaults are a partial definition: add `key`, `name`, and the user's workspace. The YAML `key` must exactly match `args.resourceKey`; `name` is the display name, not the identifier. Use `name`, not `displayName`, for the Agent's display name.
+
+For example, the following is a complete minimal project creation request for `catalog_manage`. Replace the example model key with an available model from defaults and the workspace with the user's existing directory; merge any additional current defaults before submitting. This example uses GENERAL; use the requested mode and its defaults for CODER or KBASE.
+
+```json
+{
+  "action": "apply",
+  "args": {
+    "resourceType": "agent",
+    "resourceKey": "project-docs",
+    "isProject": true,
+    "content": "key: project-docs\nname: Project Docs\nmode: GENERAL\nmodelConfig:\n  modelKey: example-chat-model\nruntimeConfig:\n  workspaceRoot: /absolute/existing/project\n"
+  }
+}
+```
+
+Validate the same candidate with `catalog_query` and `action:"validate"` before apply. For an existing Agent, read and preserve its full definition and pass the returned `baseRevision` to apply; the minimal example is for creating an absent resource, not replacing an existing definition. If the user requests reuse by workspace, compare existing Agent definitions' workspace roots rather than inferring a match from their keys or names.
+
 ## Project Agents and workspace directories
 
 When the user asks for an Agent for a specific project, put that project's directory in `runtimeConfig.workspaceRoot` in the agent.yml candidate, and pass `isProject:true` in both validate and apply args. Use each directory supplied by the user; an Agent's name or description does not bind its workspace. Do not copy `@root` from an unrelated Agent to fill a missing project directory. After publication, get the source and verify that its workspaceRoot matches the requested project before reporting completion.

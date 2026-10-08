@@ -489,7 +489,7 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 	if _, exists := values["speech"]; exists {
 		return fmt.Errorf("%s: speech is not implemented", path)
 	}
-	if _, err := configMap(values, path, "runQuery", "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "platform-control", "vision-recognize", "web-fetch", "image-generate"); err != nil {
+	if _, err := configMap(values, path, "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "platform-control", "vision-recognize", "web-fetch", "image-generate"); err != nil {
 		return err
 	}
 	if err := c.applyAIToolsValues(values); err != nil {
