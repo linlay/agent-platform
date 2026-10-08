@@ -146,7 +146,6 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	})
@@ -257,7 +256,6 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	})
@@ -400,7 +398,6 @@ func TestDeferredQuestionSubmitRejectsInvalidAnswerAndAllowsRetry(t *testing.T) 
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 	})
 	if err != nil {
@@ -573,7 +570,6 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   hub,
 	})
@@ -692,7 +688,6 @@ func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	})
@@ -865,7 +860,6 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	})
@@ -978,7 +972,6 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	})
@@ -1033,7 +1026,6 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	})
@@ -1316,7 +1308,6 @@ func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	})
@@ -1359,7 +1350,6 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	})
@@ -1522,7 +1512,6 @@ func deferredRestartDependencies(fixture testFixture, runs *runstate.Manager, st
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 		Notifications:   notifications,
 	}
@@ -1705,13 +1694,12 @@ func seedCoderPlanningAwaitingForDeferredSubmit(t *testing.T, store chat.Store, 
 	}
 	assistantTs := queryTs + 1
 	awaiting := map[string]any{
-		"type":         "awaiting.ask",
-		"awaitingId":   awaitingID,
-		"runId":        runID,
-		"timestamp":    assistantTs,
-		"mode":         "planning",
-		"viewportType": "builtin",
-		"viewportKey":  "planning",
+		"type":       "awaiting.ask",
+		"awaitingId": awaitingID,
+		"runId":      runID,
+		"timestamp":  assistantTs,
+		"mode":       "planning",
+		"view":       map[string]any{"key": "planning"},
 		"planning": map[string]any{
 			"id":           "confirm",
 			"planningId":   planningID,

@@ -225,7 +225,6 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/terminal/status/detach", s.wsTerminalStatusDetach)
 	handler.RegisterRoute("/api/compact", s.wsCompact)
 	handler.RegisterRoute("/api/file", s.wsAgentFile)
-	handler.RegisterRoute("/api/viewport", s.wsViewport)
 	handler.RegisterRoute("/api/view", s.wsView)
 	handler.RegisterRoute("/api/project/git", s.wsProjectGit)
 	handler.RegisterRoute("/api/project/git/branches", s.wsProjectGitBranches)
@@ -880,25 +879,6 @@ func compactWSErrorType(status int) string {
 	default:
 		return "invalid_request"
 	}
-}
-
-func (s *Server) wsViewport(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[struct {
-		ViewportKey string `json:"viewportKey"`
-	}](req)
-	if err != nil || strings.TrimSpace(payload.ViewportKey) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "viewportKey is required", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	response, getErr := s.deps.Viewport.Get(ctx, payload.ViewportKey)
-	if getErr != nil {
-		conn.SendError(req.ID, "internal_error", 500, getErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", response)
-	conn.CompleteRequest(req.ID)
 }
 
 func (s *Server) broadcast(eventType string, data map[string]any) {

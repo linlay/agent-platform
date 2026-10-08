@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"agent-platform/internal/view"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,15 +9,16 @@ import (
 )
 
 // ToolApproval is an exact, one-shot review prepared by the business handler.
-// The router resolves ViewportKey exclusively from confirmationRules.
+// The router resolves View exclusively from confirmationRules.
 // Business handlers supply the fingerprint, title, form and approval policy.
 type ToolApproval struct {
 	// Opt-in only: default false preserves mandatory manual approval.
-	AllowAutoApprove bool           `json:"-"`
-	Fingerprint      string         `json:"fingerprint"`
-	Title            string         `json:"title"`
-	ViewportKey      string         `json:"viewportKey,omitempty"`
-	Form             map[string]any `json:"form,omitempty"`
+	AllowAutoApprove bool            `json:"-"`
+	View             *view.Reference `json:"view,omitempty"`
+	Fingerprint      string          `json:"fingerprint"`
+	Title            string          `json:"title"`
+
+	Form map[string]any `json:"form,omitempty"`
 }
 type ToolApprovalPlanner interface {
 	PrepareToolApproval(context.Context, string, map[string]any, *ExecutionContext) (*ToolApproval, error)

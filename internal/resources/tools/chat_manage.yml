@@ -15,8 +15,7 @@ tags:
 confirmationRules:
   - when:
       /action: delete
-    viewportType: html
-    viewportKey: chat_delete_review
+    view: {key: chat_delete_review}
 inputSchema:
   type: "object"
   properties:

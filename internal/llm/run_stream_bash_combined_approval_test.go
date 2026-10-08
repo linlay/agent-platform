@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/view"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -230,7 +231,7 @@ func TestHostBashCombinedApprovalExcludesSandboxAndForms(t *testing.T) {
 	}
 	s.session.AgentHasRuntimeSandbox = false
 	command := mapStringArg(call.args, "command")
-	s.checker = commandResultChecker{results: map[string]hitl.InterceptResult{command: {Intercepted: true, OriginalCommand: command, Rule: hitl.FlatRule{Mode: "form", ViewportType: "html"}}}}
+	s.checker = commandResultChecker{results: map[string]hitl.InterceptResult{command: {Intercepted: true, OriginalCommand: command, Rule: hitl.FlatRule{Mode: "form", View: view.Builtin("platform_control_review")}}}}
 	if s.usesHostBashAuthorization(call) {
 		t.Fatal("mutable form entered immutable builtin authorization")
 	}

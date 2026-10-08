@@ -15,10 +15,8 @@ tags:
 confirmationRules:
   - when:
       /action: delete
-    viewportType: html
-    viewportKey: resource_delete_review
-  - viewportType: html
-    viewportKey: platform_control_review
+    view: {key: resource_delete_review}
+  - view: {key: platform_control_review}
 inputSchema:
   type: "object"
   properties:

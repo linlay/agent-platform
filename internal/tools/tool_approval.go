@@ -34,9 +34,9 @@ func (r *ToolRouter) PrepareToolApproval(ctx context.Context, tool string, args 
 		return nil, err
 	}
 	resolved := *plan
-	resolved.ViewportKey = ""
+	resolved.View = nil
 	if selected != nil {
-		resolved.ViewportKey = selected.viewportKey
+		resolved.View = selected.view
 	}
 	return &resolved, nil
 }

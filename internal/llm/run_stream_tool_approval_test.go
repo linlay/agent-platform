@@ -5,6 +5,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/toolinput"
 	"agent-platform/internal/toolinteraction"
+	"agent-platform/internal/view"
 	"context"
 	"encoding/json"
 	"strings"
@@ -22,7 +23,11 @@ func (e *exactApprovalExecutor) PrepareToolApproval(_ context.Context, _ string,
 	if e.plainApproval {
 		key = ""
 	}
-	return &ToolApproval{AllowAutoApprove: e.allowAutoApprove, Title: "catalog change", Fingerprint: ToolApprovalFingerprint(c, "catalog_manage", "apply", "candidate"), ViewportKey: key, Form: map[string]any{"before": "old", "after": "new"}}, nil
+	var ref *view.Reference
+	if key != "" {
+		ref = view.Builtin(key)
+	}
+	return &ToolApproval{AllowAutoApprove: e.allowAutoApprove, Title: "catalog change", Fingerprint: ToolApprovalFingerprint(c, "catalog_manage", "apply", "candidate"), View: ref, Form: map[string]any{"before": "old", "after": "new"}}, nil
 }
 func TestExactToolReviewCannotAutoApprove(t *testing.T) {
 	for _, level := range []string{AccessLevelFullAccess, AccessLevelAutoApprove, AccessLevelDefault} {
@@ -36,7 +41,7 @@ func TestExactToolReviewCannotAutoApprove(t *testing.T) {
 			if err != nil || !handled || s.hitlPendingCall != call || len(executor.invocations) > 0 {
 				t.Fatalf("mandatory approval bypassed: %v %v", handled, err)
 			}
-			if s.hitlAwaitArgs["mode"] != "form" || s.hitlAwaitArgs["viewportKey"] != "platform_control_review" {
+			if s.hitlAwaitArgs["mode"] != "form" || s.hitlAwaitArgs["view"].(map[string]any)["key"] != "platform_control_review" {
 				t.Fatalf("expected HTML form: %#v", s.hitlAwaitArgs)
 			}
 			if s.hitlAwaitArgs["approvals"] != nil {

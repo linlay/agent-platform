@@ -46,14 +46,6 @@ func (*NoopMcpClient) CallTool(_ context.Context, serverKey string, toolName str
 	return map[string]any{"serverKey": serverKey, "toolName": toolName, "args": args, "meta": meta, "status": "not_implemented"}, nil
 }
 
-type NoopViewportClient struct{}
-
-func NewNoopViewportClient() *NoopViewportClient { return &NoopViewportClient{} }
-
-func (*NoopViewportClient) Get(_ context.Context, viewportKey string) (map[string]any, error) {
-	return map[string]any{"viewportKey": viewportKey, "status": "not_implemented"}, nil
-}
-
 func MarshalPayload(value any) json.RawMessage {
 	if value == nil {
 		return nil

@@ -166,9 +166,9 @@ func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error 
 }
 
 func (s *llmRunStream) approvalRequestArgs(request approvalRequest) map[string]any {
-	if plan := request.toolApproval; request.kind == approvalKindTool && plan != nil && plan.ViewportKey != "" {
+	if plan := request.toolApproval; request.kind == approvalKindTool && plan != nil && plan.View != nil {
 		return map[string]any{
-			"mode": "form", "viewportType": "html", "viewportKey": plan.ViewportKey,
+			"mode": "form", "view": plan.View.Map(),
 			"forms": []any{map[string]any{"id": request.invocation.toolID, "title": plan.Title, "form": CloneMap(plan.Form)}},
 		}
 	}

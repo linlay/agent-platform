@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/view"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -56,11 +57,10 @@ func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bash
 	return hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			RuleKey:      ruleKey,
-			Level:        level,
-			Title:        "Bash security approval",
-			ViewportType: "builtin",
-			ViewportKey:  "approval",
+			RuleKey: ruleKey,
+			Level:   level,
+			Title:   "Bash security approval",
+			View:    view.Builtin("approval"),
 		},
 		OriginalCommand: command,
 		MatchedCommand:  command,
@@ -80,11 +80,10 @@ func bashAccessInterceptResult(invocation *preparedToolInvocation, review access
 	return hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			RuleKey:      ruleKey,
-			Level:        1,
-			Title:        "Bash access approval",
-			ViewportType: "builtin",
-			ViewportKey:  "approval",
+			RuleKey: ruleKey,
+			Level:   1,
+			Title:   "Bash access approval",
+			View:    view.Builtin("approval"),
 		},
 		OriginalCommand: command,
 		MatchedCommand:  command,
@@ -100,11 +99,10 @@ func fileWriteInterceptResult(plan filetools.WritePlan) hitl.InterceptResult {
 	return hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			RuleKey:      plan.RuleKey,
-			Level:        2,
-			Title:        title,
-			ViewportType: "builtin",
-			ViewportKey:  "approval",
+			RuleKey: plan.RuleKey,
+			Level:   2,
+			Title:   title,
+			View:    view.Builtin("approval"),
 		},
 		OriginalCommand: plan.CommandText,
 		MatchedCommand:  plan.CommandText,
@@ -120,11 +118,10 @@ func fileAccessInterceptResult(plan filetools.AccessPlan) hitl.InterceptResult {
 	return hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			RuleKey:      plan.RuleKey,
-			Level:        1,
-			Title:        title,
-			ViewportType: "builtin",
-			ViewportKey:  "approval",
+			RuleKey: plan.RuleKey,
+			Level:   1,
+			Title:   title,
+			View:    view.Builtin("approval"),
 		},
 		OriginalCommand: plan.CommandText,
 		MatchedCommand:  plan.CommandText,

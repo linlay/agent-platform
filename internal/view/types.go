@@ -27,7 +27,8 @@ const MaxDocumentBytes = 8 << 20
 // Reference is a configured identity plus server-resolved snapshot metadata.
 // Configuration accepts only connectorId and key; clients must not select paths.
 type Reference struct {
-	ConnectorID string `json:"connectorId"`
+	Source      string `json:"source,omitempty"`
+	ConnectorID string `json:"connectorId,omitempty"`
 	Key         string `json:"key"`
 	Version     string `json:"version,omitempty"`
 	Hash        string `json:"hash,omitempty"`
@@ -35,8 +36,20 @@ type Reference struct {
 }
 
 func (r Reference) Validate() error {
-	if !idPattern.MatchString(r.ConnectorID) || !idPattern.MatchString(r.Key) || (r.Hash != "" && !hashPattern.MatchString(r.Hash)) {
+	if (r.Source != "" && r.Source != "builtin" && r.Source != "connector") || (r.ConnectorID == "" && r.Source == "connector") || (r.ConnectorID != "" && r.Source == "builtin") || (r.ConnectorID != "" && !idPattern.MatchString(r.ConnectorID)) || !idPattern.MatchString(r.Key) || (r.Hash != "" && !hashPattern.MatchString(r.Hash)) {
 		return fmt.Errorf("%w: connectorId, key or hash", ErrInvalid)
+	}
+	if r.ConnectorID == "" {
+		if r.Hash != "" || r.Version != "" {
+			return ErrInvalid
+		}
+		ref, err := ResolveBuiltin(r.Key)
+		if err != nil {
+			return err
+		}
+		if r.Renderer != "" && r.Renderer != ref.Renderer {
+			return ErrInvalid
+		}
 	}
 	return nil
 }
@@ -69,14 +82,22 @@ func ParseConfigReference(value any) (*Reference, error) {
 	if err != nil || ref == nil {
 		return ref, err
 	}
-	if ref.Version != "" || ref.Hash != "" || ref.Renderer != "" {
+	if ref.Source != "" || ref.Version != "" || ref.Hash != "" || ref.Renderer != "" {
 		return nil, fmt.Errorf("%w: configuration accepts only connectorId and key", ErrInvalid)
 	}
 	return ref, nil
 }
 
 func (r Reference) Map() map[string]any {
-	result := map[string]any{"connectorId": r.ConnectorID, "key": r.Key}
+	result := map[string]any{"key": r.Key, "source": r.Source}
+	if r.ConnectorID != "" {
+		result["connectorId"] = r.ConnectorID
+		if r.Source == "" {
+			result["source"] = "connector"
+		}
+	} else {
+		result["source"] = "builtin"
+	}
 	if r.Version != "" {
 		result["version"] = r.Version
 	}
@@ -114,7 +135,7 @@ type Definition struct {
 type Remote struct {
 	URL       string            `json:"url"`
 	Key       string            `json:"key,omitempty"`
-	Protocol  string            `json:"protocol,omitempty"` // views or legacy-viewport
+	Protocol  string            `json:"protocol,omitempty"` // views
 	TimeoutMS int               `json:"timeout,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
 }
@@ -194,7 +215,7 @@ func validateRemote(r Remote) error {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Fragment != "" {
 		return fmt.Errorf("%w: remote url", ErrInvalid)
 	}
-	if r.Protocol != "" && r.Protocol != "views" && r.Protocol != "legacy-viewport" {
+	if r.Protocol != "" && r.Protocol != "views" {
 		return fmt.Errorf("%w: remote protocol", ErrInvalid)
 	}
 	if r.TimeoutMS < 0 || r.TimeoutMS > 60000 {
@@ -227,4 +248,12 @@ type Document struct {
 	HTML   string         `json:"html,omitempty"`
 	QLC    map[string]any `json:"qlc,omitempty"`
 	Assets []Asset        `json:"assets,omitempty"`
+}
+
+func (r Reference) ConfigMap() map[string]any {
+	m := map[string]any{"key": r.Key}
+	if r.ConnectorID != "" {
+		m["connectorId"] = r.ConnectorID
+	}
+	return m
 }

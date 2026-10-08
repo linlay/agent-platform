@@ -11,7 +11,7 @@ var ToolFS embed.FS
 //go:embed all:connectors
 var ConnectorFS embed.FS
 
-// ViewportFS contains Platform-owned HTML forms, served by fixed builtin keys.
+// ViewFS contains Platform-owned HTML forms, served by fixed builtin keys.
 //
-//go:embed viewports/*.html viewports/shared/*
-var ViewportFS embed.FS
+//go:embed views/*.html views/shared/*
+var ViewFS embed.FS

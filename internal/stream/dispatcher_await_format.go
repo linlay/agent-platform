@@ -268,19 +268,11 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	if agentKey := strings.TrimSpace(d.request.AgentKey); agentKey != "" {
 		payload["agentKey"] = agentKey
 	}
-	viewportType, viewportKey := awaitAskViewport(input)
 	if input.View != nil {
 		payload["view"] = input.View.Map()
-		viewportType, viewportKey = "", ""
 	}
 	if input.ViewError != "" {
 		payload["viewError"] = input.ViewError
-	}
-	if viewportType != "" {
-		payload["viewportType"] = viewportType
-	}
-	if viewportKey != "" {
-		payload["viewportKey"] = viewportKey
 	}
 	if len(input.Questions) > 0 {
 		payload["questions"] = input.Questions
@@ -297,8 +289,4 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	event := NewEvent("awaiting.ask", payload)
 	d.state.awaitingAskAtByID[awaitingID] = event.Timestamp
 	return event
-}
-
-func awaitAskViewport(input AwaitAsk) (string, string) {
-	return strings.TrimSpace(input.ViewportType), strings.TrimSpace(input.ViewportKey)
 }

@@ -1314,7 +1314,7 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	if strings.Contains(body, `"toolType":`) {
 		t.Fatalf("did not expect toolType in live sse, got %s", body)
 	}
-	if strings.Contains(body, `"viewportKey":`) {
+	if strings.Contains(body, `"key":`) {
 		t.Fatalf("did not expect viewportKey for ordinary tool, got %s", body)
 	}
 	if !strings.Contains(body, "完成工具调用后") || !strings.Contains(body, "的最终回答") {
@@ -2700,7 +2700,7 @@ func readAwaitingApproval(t *testing.T, reader *bufio.Reader, streamBody *string
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
 			if payload["type"] == "awaiting.ask" && awaitingApprovalID(payload) == expectedApprovalID {
-				if payload["mode"] != "planning" || payload["viewportType"] != "builtin" || payload["viewportKey"] != "planning" {
+				if payload["mode"] != "planning" || payload["view"].(map[string]any)["renderer"] != "native" || payload["view"].(map[string]any)["key"] != "planning" {
 					t.Fatalf("expected planning awaiting.ask, got %#v", payload)
 				}
 				if _, ok := payload["timeout"]; ok {

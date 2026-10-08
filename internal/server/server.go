@@ -95,7 +95,6 @@ type Dependencies struct {
 	Sandbox                contracts.SandboxClient
 	MCP                    contracts.McpClient
 	MCPToolSyncStatus      MCPToolSyncStatusProvider
-	Viewport               contracts.ViewportClient
 	ToolInteractions       *toolinteraction.Registry
 	CatalogReloader        contracts.CatalogReloader
 	Notifications          contracts.NotificationSink

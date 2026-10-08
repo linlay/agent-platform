@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -14,6 +15,7 @@ import (
 // ViewRequest deliberately has no Agent/path/URL selector. A Chat determines
 // the owner; a snapshot hash supports history and Team/member presentations.
 type ViewRequest struct {
+	Source      string `json:"source"`
 	ChatID      string `json:"chatId"`
 	ConnectorID string `json:"connectorId"`
 	Key         string `json:"key"`
@@ -22,12 +24,18 @@ type ViewRequest struct {
 }
 
 func (s *Server) getView(ctx context.Context, req ViewRequest) (view.Document, error) {
-	ref := view.Reference{ConnectorID: req.ConnectorID, Key: req.Key, Hash: req.Hash}
-	if !chat.ValidChatID(req.ChatID) {
+	ref := view.Reference{Source: req.Source, ConnectorID: req.ConnectorID, Key: req.Key, Hash: req.Hash}
+	if req.Source != "builtin" && req.Source != "connector" {
 		return view.Document{}, view.ErrInvalid
 	}
 	if err := ref.Validate(); err != nil {
 		return view.Document{}, err
+	}
+	if req.Source == "builtin" {
+		return view.BuiltinDocument(req.Key)
+	}
+	if !chat.ValidChatID(req.ChatID) {
+		return view.Document{}, view.ErrInvalid
 	}
 	if s.deps.Chats == nil {
 		return view.Document{}, view.ErrNotFound
@@ -97,7 +105,11 @@ func viewStatus(err error) (int, string) {
 
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	doc, err := s.getView(r.Context(), ViewRequest{ChatID: q.Get("chatId"), ConnectorID: q.Get("connectorId"), Key: q.Get("key"), Hash: q.Get("hash"), Usage: q.Get("usage")})
+	if q.Has("viewportKey") || q.Has("viewportType") {
+		writeJSON(w, http.StatusBadRequest, api.Failure(400, "invalid_view"))
+		return
+	}
+	doc, err := s.getView(r.Context(), ViewRequest{Source: q.Get("source"), ChatID: q.Get("chatId"), ConnectorID: q.Get("connectorId"), Key: q.Get("key"), Hash: q.Get("hash"), Usage: q.Get("usage")})
 	if err != nil {
 		status, code := viewStatus(err)
 		writeJSON(w, status, api.Failure(status, code))
@@ -108,6 +120,12 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) wsView(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	var fields map[string]any
+	if json.Unmarshal(req.Payload, &fields) != nil || view.RejectLegacy(fields) != nil {
+		conn.SendError(req.ID, "invalid_view", 400, "invalid view request", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	payload, err := ws.DecodePayload[ViewRequest](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_view", 400, "invalid view request", nil)

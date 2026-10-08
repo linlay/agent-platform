@@ -1,21 +1,18 @@
 package hitl
 
 import (
-	"strings"
-
 	"agent-platform/internal/view"
 )
 
 type SubcommandRule struct {
-	Mode         string          `yaml:"mode"`
-	View         *view.Reference `yaml:"view"`
-	Match        string          `yaml:"match"`
-	Level        int             `yaml:"level"`
-	Title        string          `yaml:"title"`
-	ViewportType string          `yaml:"viewportType"`
-	ViewportKey  string          `yaml:"viewportKey"`
-	Timeout      int             `yaml:"timeout"`
-	AutoApprove  []string        `yaml:"autoApprove"`
+	Mode  string          `yaml:"mode"`
+	View  *view.Reference `yaml:"view"`
+	Match string          `yaml:"match"`
+	Level int             `yaml:"level"`
+	Title string          `yaml:"title"`
+
+	Timeout     int      `yaml:"timeout"`
+	AutoApprove []string `yaml:"autoApprove"`
 }
 
 type CommandBlock struct {
@@ -43,10 +40,9 @@ type FlatRule struct {
 	PassThroughFlags []string
 	Level            int
 	Title            string
-	ViewportType     string
-	ViewportKey      string
-	Timeout          int
-	AutoApprove      []string
+
+	Timeout     int
+	AutoApprove []string
 }
 
 // Legacy YAML infers form from html only at the compatibility boundary.
@@ -55,14 +51,14 @@ func (r FlatRule) EffectiveMode() string {
 	if r.Mode != "" {
 		return r.Mode
 	}
-	if strings.EqualFold(r.ViewportType, "html") {
+	if r.View != nil && r.View.ConnectorID == "" && r.View.Renderer == "html" {
 		return "form"
 	}
 	return "approval"
 }
 
 func (r FlatRule) IsBuiltinApproval() bool {
-	return r.EffectiveMode() == "approval" && r.View == nil && (r.ViewportType == "" || strings.EqualFold(r.ViewportType, "builtin"))
+	return r.EffectiveMode() == "approval" && (r.View == nil || (r.View.ConnectorID == "" && r.View.Renderer == "native"))
 }
 
 type CommandComponents struct {

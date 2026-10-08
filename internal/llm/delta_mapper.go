@@ -337,18 +337,16 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaAwaitAsk:
 		return []stream.StreamInput{stream.AwaitAsk{
-			AwaitingID:   value.AwaitingID,
-			Mode:         value.Mode,
-			Timeout:      value.Timeout,
-			RunID:        value.RunID,
-			ViewportType: value.ViewportType,
-			ViewportKey:  value.ViewportKey,
-			View:         value.View,
-			ViewError:    value.ViewError,
-			Questions:    append([]any(nil), value.Questions...),
-			Approvals:    append([]any(nil), value.Approvals...),
-			Forms:        append([]any(nil), value.Forms...),
-			Planning:     CloneMap(value.Planning),
+			AwaitingID: value.AwaitingID,
+			Mode:       value.Mode,
+			Timeout:    value.Timeout,
+			RunID:      value.RunID,
+			View:       value.View,
+			ViewError:  value.ViewError,
+			Questions:  append([]any(nil), value.Questions...),
+			Approvals:  append([]any(nil), value.Approvals...),
+			Forms:      append([]any(nil), value.Forms...),
+			Planning:   CloneMap(value.Planning),
 		}}
 	case DeltaRequestSubmit:
 		return []stream.StreamInput{stream.RequestSubmit{

@@ -15,8 +15,7 @@ tags:
 confirmationRules:
   - when:
       /action: runtime.diagnostics
-    viewportType: html
-    viewportKey: desktop_diagnostics_review
+    view: {key: desktop_diagnostics_review}
 inputSchema:
   type: "object"
   properties:

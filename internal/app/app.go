@@ -56,7 +56,6 @@ import (
 	"agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/tools"
-	"agent-platform/internal/viewport"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -467,7 +466,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		MCP:                    mcpClient,
 		MCPToolSyncStatus:      mcpToolSync,
 		ToolInteractions:       interactionRegistry,
-		Viewport:               viewport.NewService(),
 		CatalogReloader:        reloader,
 		Notifications:          notifications,
 		SkillCandidates:        skillCandidateStore,

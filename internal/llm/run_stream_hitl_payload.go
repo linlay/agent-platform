@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/view"
 	"fmt"
 	"strings"
 
@@ -180,35 +181,13 @@ func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]an
 		Timeout:    timeout,
 		RunID:      s.session.RunID,
 	}
-	await.ViewportType = strings.TrimSpace(AnyStringNode(args["viewportType"]))
-	await.ViewportKey = strings.TrimSpace(AnyStringNode(args["viewportKey"]))
 	await.View, await.ViewError = s.resolveView(args["view"], "form")
-	switch await.Mode {
-	case "question":
-		if await.ViewportType == "" {
-			await.ViewportType = "builtin"
+	if await.View == nil && mode != "form" {
+		key := mode
+		if key != "question" && key != "planning" {
+			key = "approval"
 		}
-		if await.ViewportKey == "" {
-			await.ViewportKey = "question"
-		}
-	case "approval":
-		if await.ViewportType == "" {
-			await.ViewportType = "builtin"
-		}
-		if await.ViewportKey == "" {
-			await.ViewportKey = "approval"
-		}
-	case "form":
-		if await.ViewportType == "" {
-			await.ViewportType = "html"
-		}
-	case "planning":
-		if await.ViewportType == "" {
-			await.ViewportType = "builtin"
-		}
-		if await.ViewportKey == "" {
-			await.ViewportKey = "planning"
-		}
+		await.View = view.Builtin(key)
 	}
 	if questions := cloneAnySlice(args["questions"]); len(questions) > 0 {
 		await.Questions = questions

@@ -222,14 +222,13 @@ func TestToolRouterReloadRuntimeToolDefinitionsRejectsUnknownTool(t *testing.T) 
 		defs: []api.ToolDetailResponse{{Name: "datetime"}},
 	}, nil, nil, nil)
 
-	if _, ok := router.Tool("leave_form"); ok {
+	if _, ok := router.Tool("platform_control_review"); ok {
 		t.Fatal("did not expect runtime tool before reload")
 	}
-	if err := os.WriteFile(filepath.Join(root, "leave_form.yml"), []byte(`
-name: leave_form
+	if err := os.WriteFile(filepath.Join(root, "platform_control_review.yml"), []byte(`
+name: platform_control_review
 description: Collect leave details.
-viewportType: html
-viewportKey: leave_form
+view: {key: platform_control_review}
 inputSchema:
   type: object
   properties:
@@ -263,8 +262,7 @@ func TestToolRouterViewportMetadataDoesNotChangeBackendRouting(t *testing.T) {
 	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{{
 		Name: "ordinary_tool",
 		Meta: map[string]any{
-			"viewportType": "html",
-			"viewportKey":  "ordinary_card",
+			"view": map[string]any{"key": "ordinary_card"},
 		},
 	}}}
 	interaction := &captureInteractionSubmitter{}
@@ -284,10 +282,9 @@ func TestToolRouterMCPViewportMetadataDoesNotCreateInteractionAwaiting(t *testin
 	def := api.ToolDetailResponse{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"sourceType":   "mcp",
-			"serverKey":    "remote",
-			"viewportType": "builtin",
-			"viewportKey":  "question",
+			"sourceType": "mcp",
+			"serverKey":  "remote",
+			"view":       map[string]any{"key": "question"},
 		},
 	}
 	router := mustNewToolRouter(
@@ -311,18 +308,16 @@ func TestToolRouterRejectsInvalidAskViewportOverlay(t *testing.T) {
 	backend := stubBackendToolExecutor{defs: []api.ToolDetailResponse{{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"viewportType": "builtin",
-			"viewportKey":  "question",
+			"view": map[string]any{"key": "question"},
 		},
 	}}}
 	_, err := NewToolRouter(backend, nil, nil, nil, api.ToolDetailResponse{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"viewportType": "builtin",
-			"viewportKey":  "legacy_question_dialog",
+			"view": map[string]any{"key": "legacy_question_dialog"},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "viewportKey=question") {
+	if err == nil || !strings.Contains(err.Error(), "builtin view question") {
 		t.Fatalf("expected invalid ask viewport overlay rejection, got %v", err)
 	}
 }
@@ -331,8 +326,7 @@ func TestToolRouterRequiresRegisteredAskInteractionHandler(t *testing.T) {
 	backend := stubBackendToolExecutor{defs: []api.ToolDetailResponse{{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"viewportType": "builtin",
-			"viewportKey":  "question",
+			"view": map[string]any{"key": "question"},
 		},
 	}}}
 	_, err := NewToolRouter(backend, nil, nil, nil)
@@ -435,9 +429,8 @@ func TestToolRouterInteractionToolDoesNotUseToolTimeoutDeadline(t *testing.T) {
 	router := mustNewToolRouter(t, stubBackendToolExecutor{defs: []api.ToolDetailResponse{{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"sourceType":   "local",
-			"viewportType": "builtin",
-			"viewportKey":  "question",
+			"sourceType": "local",
+			"view":       map[string]any{"key": "question"},
 		},
 	}}}, nil, nil, interaction)
 

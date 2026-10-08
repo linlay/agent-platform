@@ -61,7 +61,7 @@ var zhCNMessages = map[string]string{
 	"type must be thumbs_down or clear":                   "type 必须是 thumbs_down 或 clear",
 	"unauthorized":                                        "未授权",
 	"unknown type":                                        "未知类型",
-	"viewportKey is required":                             "viewportKey 不能为空",
+	"view key is required":                                "view key 不能为空",
 }
 
 var zhCNCodes = map[string]string{

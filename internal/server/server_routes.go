@@ -400,7 +400,6 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/project/tree", s.method(http.MethodGet, s.handleProjectTree))
 	s.router.HandleFunc("/api/project/changes", s.method(http.MethodGet, s.handleProjectChanges))
 	s.router.HandleFunc("/api/project/diff", s.method(http.MethodGet, s.handleProjectDiff))
-	s.router.HandleFunc("/api/viewport", s.method(http.MethodGet, s.handleViewport))
 	s.router.HandleFunc("/api/view", s.method(http.MethodGet, s.handleView))
 	s.router.HandleFunc("/api/tool-result", s.method(http.MethodGet, s.handleToolResult))
 	s.router.HandleFunc("/api/resource", s.getOrHead(s.handleResource))

@@ -194,7 +194,7 @@ func TestPlanningConfirmationUsesPlanningMode(t *testing.T) {
 		},
 	}
 	ask := stream.planningConfirmationAsk()
-	if ask.AwaitingID != "tool_plan" || ask.Mode != "planning" || ask.ViewportType != "builtin" || ask.ViewportKey != "planning" {
+	if ask.AwaitingID != "tool_plan" || ask.Mode != "planning" || ask.View.Renderer != "native" || ask.View.Key != "planning" {
 		t.Fatalf("expected planning confirmation ask, got %#v", ask)
 	}
 	if ask.Timeout != 0 {

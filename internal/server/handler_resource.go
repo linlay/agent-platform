@@ -33,20 +33,6 @@ type uploadManifestEntry struct {
 	CreatedAt int64  `json:"createdAt,omitempty"`
 }
 
-func (s *Server) handleViewport(w http.ResponseWriter, r *http.Request) {
-	viewportKey := r.URL.Query().Get("viewportKey")
-	if viewportKey == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "viewportKey is required"))
-		return
-	}
-	payload, err := s.deps.Viewport.Get(r.Context(), viewportKey)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, api.Success(payload))
-}
-
 func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	fileParam := r.URL.Query().Get("file")
 	if fileParam == "" {

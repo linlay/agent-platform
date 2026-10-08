@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"agent-platform/internal/view"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -9,8 +10,8 @@ import (
 )
 
 type confirmationRule struct {
-	when        map[string]any
-	viewportKey string
+	when map[string]any
+	view *view.Reference
 }
 
 // Rules select presentation only; the business planner remains responsible for
@@ -31,16 +32,19 @@ func parseConfirmationRules(raw any) ([]confirmationRule, error) {
 			return nil, fmt.Errorf("confirmationRules[%d] must be an object", i)
 		}
 		for k := range m {
-			if k != "when" && k != "viewportType" && k != "viewportKey" {
+			if k != "when" && k != "view" {
 				return nil, fmt.Errorf("confirmationRules[%d]: unknown field %s", i, k)
 			}
 		}
-		kind, _ := m["viewportType"].(string)
-		key, _ := m["viewportKey"].(string)
-		if kind != "html" || strings.TrimSpace(key) == "" || key != strings.TrimSpace(key) || strings.ContainsAny(key, "/\\") || key == "." || key == ".." {
-			return nil, fmt.Errorf("confirmationRules[%d] requires viewportType html and a valid viewportKey", i)
+		ref, err := view.ParseConfigReference(m["view"])
+		if err != nil || ref == nil || ref.ConnectorID != "" {
+			return nil, fmt.Errorf("confirmationRules[%d] requires a builtin HTML view", i)
 		}
-		rule := confirmationRule{viewportKey: key}
+		resolved, err := view.ResolveBuiltin(ref.Key)
+		if err != nil || resolved.Renderer != "html" {
+			return nil, fmt.Errorf("confirmationRules[%d] requires a builtin HTML view", i)
+		}
+		rule := confirmationRule{view: resolved}
 		if v, exists := m["when"]; exists {
 			when, ok := v.(map[string]any)
 			if !ok || len(when) == 0 {

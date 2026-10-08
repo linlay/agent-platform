@@ -15,14 +15,11 @@ tags:
 confirmationRules:
   - when:
       /action: delete
-    viewportType: html
-    viewportKey: automation_delete_review
+    view: {key: automation_delete_review}
   - when:
       /action: trigger
-    viewportType: html
-    viewportKey: automation_trigger_review
-  - viewportType: html
-    viewportKey: automation_review
+    view: {key: automation_trigger_review}
+  - view: {key: automation_review}
 inputSchema:
   type: object
   properties:

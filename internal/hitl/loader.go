@@ -42,7 +42,6 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 
 	var rules []FlatRule
 	seen := map[string]bool{}
-	viewportTypes := map[string]string{}
 	order := 0
 	for _, path := range files {
 		file, enabled, parseErr := parseRuleFile(path)
@@ -65,24 +64,19 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 				if err := validateSubcommandRule(command, sub, matchTokens); err != nil {
 					return nil, fmt.Errorf("%s: %w", path, err)
 				}
-				viewportType, viewportKey := normalizeViewport(sub)
-				viewportTypeKey := strings.ToLower(strings.TrimSpace(viewportKey))
-				if existing, ok := viewportTypes[viewportTypeKey]; ok && viewportTypeKey != "" && existing != viewportType {
-					return nil, fmt.Errorf("%s: viewportKey %q is associated with multiple viewportType values", path, viewportKey)
+				ref := view.Clone(sub.View)
+				if ref == nil {
+					ref = view.Builtin("confirm_dialog")
 				}
-				viewportTypes[viewportTypeKey] = viewportType
+				if ref.ConnectorID == "" {
+					ref, _ = view.ResolveBuiltin(ref.Key)
+				}
 				seen[key] = true
-				ruleKey := buildRuleKey(file.Key, command, match, sub.Level, viewportType, viewportKey)
-				mode := sub.Mode
-				if mode == "" {
-					mode = (FlatRule{ViewportType: viewportType}).EffectiveMode()
-				}
-				if sub.View != nil {
-					ruleKey += "::" + mode + "::" + sub.View.ConnectorID + "::" + sub.View.Key
-				}
+				mode := (FlatRule{Mode: sub.Mode, View: ref}).EffectiveMode()
+				ruleKey := buildRuleKey(file.Key, command, match, sub.Level, mode, ref)
 				rules = append(rules, FlatRule{
 					Mode:             mode,
-					View:             view.Clone(sub.View),
+					View:             ref,
 					RuleKey:          ruleKey,
 					FileKey:          file.Key,
 					SourcePath:       path,
@@ -93,8 +87,6 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 					PassThroughFlags: append([]string(nil), passFlags...),
 					Level:            sub.Level,
 					Title:            strings.TrimSpace(sub.Title),
-					ViewportType:     viewportType,
-					ViewportKey:      viewportKey,
 					Timeout:          sub.Timeout,
 					AutoApprove:      append([]string(nil), sub.AutoApprove...),
 				})
@@ -105,16 +97,12 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 	return rules, nil
 }
 
-func buildRuleKey(fileKey string, command string, match string, level int, viewportType string, viewportKey string) string {
-	return fmt.Sprintf(
-		"%s::%s::%s::%d::%s::%s",
-		strings.TrimSpace(fileKey),
-		strings.TrimSpace(command),
-		strings.TrimSpace(match),
-		level,
-		strings.TrimSpace(viewportType),
-		strings.TrimSpace(viewportKey),
-	)
+func buildRuleKey(fileKey, command, match string, level int, mode string, ref *view.Reference) string {
+	source := "builtin"
+	if ref.ConnectorID != "" {
+		source = "connector"
+	}
+	return fmt.Sprintf("%s::%s::%s::%d::%s::%s::%s::%s", strings.TrimSpace(fileKey), strings.TrimSpace(command), strings.TrimSpace(match), level, mode, source, ref.ConnectorID, ref.Key)
 }
 
 func parseRuleFile(path string) (RuleFile, bool, error) {
@@ -145,20 +133,21 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 			PassThroughFlags: stringList(rawCommand["passThroughFlags"]),
 		}
 		for _, rawSub := range listMaps(rawCommand["subcommands"]) {
+			if err := view.RejectLegacy(rawSub); err != nil {
+				return RuleFile{}, false, fmt.Errorf("%s: %w", path, err)
+			}
 			ref, err := view.ParseConfigReference(rawSub["view"])
 			if err != nil {
 				return RuleFile{}, false, fmt.Errorf("%s: %w", path, err)
 			}
 			block.Subcommands = append(block.Subcommands, SubcommandRule{
-				Mode:         strings.ToLower(strings.TrimSpace(stringValue(rawSub["mode"]))),
-				View:         ref,
-				Match:        strings.TrimSpace(stringValue(rawSub["match"])),
-				Level:        intValue(rawSub["level"]),
-				Title:        strings.TrimSpace(stringValue(rawSub["title"])),
-				ViewportType: strings.TrimSpace(stringValue(rawSub["viewportType"])),
-				ViewportKey:  strings.TrimSpace(stringValue(rawSub["viewportKey"])),
-				Timeout:      intValue(rawSub["timeout"]),
-				AutoApprove:  stringList(rawSub["autoApprove"]),
+				Mode:        strings.ToLower(strings.TrimSpace(stringValue(rawSub["mode"]))),
+				View:        ref,
+				Match:       strings.TrimSpace(stringValue(rawSub["match"])),
+				Level:       intValue(rawSub["level"]),
+				Title:       strings.TrimSpace(stringValue(rawSub["title"])),
+				Timeout:     intValue(rawSub["timeout"]),
+				AutoApprove: stringList(rawSub["autoApprove"]),
 			})
 		}
 		file.Commands = append(file.Commands, block)
@@ -181,52 +170,30 @@ func validateSubcommandRule(command string, sub SubcommandRule, matchTokens []st
 	if strings.TrimSpace(sub.Match) != "" && len(matchTokens) == 0 {
 		return fmt.Errorf("match is invalid")
 	}
-	viewportType, viewportKey := normalizeViewport(sub)
 	if sub.Mode != "" && sub.Mode != "approval" && sub.Mode != "form" {
 		return fmt.Errorf("mode must be approval or form")
 	}
-	if sub.View != nil {
+	if sub.View != nil && sub.View.ConnectorID != "" {
 		if sub.Mode != "form" {
 			return fmt.Errorf("a connector view requires mode=form")
 		}
-		if sub.ViewportType != "" || sub.ViewportKey != "" {
-			return fmt.Errorf("view cannot be mixed with legacy viewport fields")
-		}
 		return sub.View.Validate()
 	}
-	if sub.Mode == "form" && viewportType != "html" {
-		return fmt.Errorf("mode=form requires a view or legacy HTML viewport")
+	ref := sub.View
+	if ref == nil {
+		ref = view.Builtin("confirm_dialog")
 	}
-	if sub.Mode == "approval" && viewportType == "html" {
-		return fmt.Errorf("mode=approval cannot use legacy HTML form semantics")
+	resolved, err := view.ResolveBuiltin(ref.Key)
+	if err != nil {
+		return err
 	}
-	switch viewportType {
-	case "builtin", "html":
-	default:
-		return fmt.Errorf("viewportType must be one of builtin,html")
+	if sub.Mode == "form" && resolved.Renderer != "html" {
+		return fmt.Errorf("mode=form requires an HTML view")
 	}
-	if strings.TrimSpace(viewportKey) == "" {
-		return fmt.Errorf("viewportKey is required")
+	if sub.Mode == "approval" && resolved.Renderer != "native" {
+		return fmt.Errorf("mode=approval requires a native view")
 	}
 	return nil
-}
-
-func normalizeViewport(sub SubcommandRule) (string, string) {
-	if sub.View != nil {
-		return "", ""
-	}
-	viewportType := strings.ToLower(strings.TrimSpace(sub.ViewportType))
-	viewportKey := strings.TrimSpace(sub.ViewportKey)
-	if viewportType == "" && viewportKey == "" {
-		return "builtin", "confirm_dialog"
-	}
-	if viewportType == "" {
-		viewportType = "builtin"
-	}
-	if viewportKey == "" {
-		viewportKey = "confirm_dialog"
-	}
-	return viewportType, viewportKey
 }
 
 func normalizePassThroughFlags(flags []string) []string {

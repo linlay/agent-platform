@@ -126,7 +126,7 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 
 ## VIEW 连接器表单
 
-新表单采用显式 `mode: form` 与 `view: {connectorId,key}`，renderer 不决定 HITL 语义。`awaiting.ask.view` 提供版本与快照 hash，失败保留等待和拒绝入口。Team 成员引用在 `forms[i].form.view`。`/api/submit` 不变；旧 viewport 字段仅用于兼容。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
+新表单采用显式 `mode: form` 与 `view: {connectorId,key}`，renderer 不决定 HITL 语义。`awaiting.ask.view` 提供版本与快照 hash，失败保留等待和拒绝入口。Team 成员引用在 `forms[i].form.view`。`/api/submit` 不变；旧 viewport 字段已退役，输入出现即报错。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
 
 ## Steer selection 与控制归属
 
@@ -136,7 +136,7 @@ HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创�
 
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 
-平台控制内置审阅使用 `mode: form` 与 `viewportType: html`；catalog apply 使用 `platform_control_review`，catalog delete 使用 `resource_delete_review`，chat delete 使用独立的 `chat_delete_review`，Desktop 日常管理按业务使用六类专用 HTML 审阅页，不需要挂载 VIEW。业务数据位于 `forms[].form`，通用 approval 无 review 扩展。模板与授权相互独立：仅服务端保存的一次性指纹可授权；客户端超时不能自动提交，HTML form 仅在宿主 collect 后响应，拒绝不依赖 iframe。详见 [平台控制工具](Platform控制工具设计.md#一次性审批与权限档位)。
+平台控制内置审阅使用 `mode: form` 与内置 `view` 引用；catalog apply 使用 `platform_control_review`，catalog delete 使用 `resource_delete_review`，chat delete 使用独立的 `chat_delete_review`，Desktop 日常管理按业务使用六类专用 HTML 审阅页，不需要挂载 VIEW。业务数据位于 `forms[].form`，通用 approval 无 review 扩展。模板与授权相互独立：仅服务端保存的一次性指纹可授权；客户端超时不能自动提交，HTML form 仅在宿主 collect 后响应，拒绝不依赖 iframe。详见 [平台控制工具](Platform控制工具设计.md#一次性审批与权限档位)。
 
 
 ### 工具执行前确认界面配置
@@ -147,18 +147,16 @@ HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创�
 confirmationRules:
   - when:
       /action: delete
-    viewportType: html
-    viewportKey: platform_control_review
-  - viewportType: html
-    viewportKey: platform_control_review
+    view: {key: platform_control_review}
+  - view: {key: platform_control_review}
 ```
 
 - 无 `when` 表示默认规则，最多一条；优先匹配条件规则，不依赖配置顺序。多条条件规则同时命中则返回 `tool_review_failed`，不执行工具。
 - `when` 是非空对象，以 JSON Pointer 读取原始调用参数（如 `/action`、`/args/type`、`/items/0/type`，支持 `~0`/`~1` 转义），多个条件同时满足。值只接受 JSON 标量，比较区分类型；缺失字段不等于显式 null。不支持脚本、正则或表达式。
-- 当前只接受 `viewportType: html`；`viewportKey` 必填。配置结构错误在工具定义加载时报错；模板内容仍由现有 viewport 服务解析。
-- 无规则或无匹配且无默认规则时，仍要求普通一次性审批；工具顶层的 `viewportType/viewportKey` 不参与确认界面选择，保留交互工具原有用途。
+- 当前只接受内置 HTML `view: {key: ...}`；未知 key 在加载时失败。配置结构错误在工具定义加载时报错；模板内容仍由现有 viewport 服务解析。
+- 无规则或无匹配且无默认规则时，仍要求普通一次性审批；工具顶层的 `view` 不参与确认界面选择，保留交互工具原有用途。
 - Handler 只提供指纹、标题和 `forms[].form` 业务数据；ToolRouter 从工具定义选择模板，忽略 Handler 的界面值。模型无法通过调用参数指定模板。批准仍执行原始冻结参数，表单回传内容不改写操作。
-- 内置 HTML 按 `internal/resources/viewports/<viewportKey>.html` 文件名自动解析并嵌入构建，不再逐个在 Go 源码注册模板 key。内置模板优先于运行目录和远端模板。
+- 内置 HTML 按 `internal/resources/views/<key>.html` 文件名自动解析并嵌入构建，不再逐个在 Go 源码注册模板 key。内置模板优先于运行目录和远端模板。
 
 
 ### 内置确认页面类型
@@ -173,7 +171,7 @@ confirmationRules:
 - `desktop_export_review`：产物导出。
 - `desktop_diagnostics_review`：诊断读取范围。
 
-审阅页面使用紧凑页头，仅显示业务字段、实际变更和必要影响。长名称最多显示两行，正文最多显示六行并可展开全文；权限字段直接展示。右上角“详情”打开原始参数浮层，支持关闭按钮、点击外部和 Escape 关闭。Catalog 配置按顶层字段分组展示，无法分组的内容保留完整文本对比。`pet.import` 复用外观审阅，展示本机 ZIP 路径并提示只导入不切换；它与 `skin.import` 使用相同的自动批准与 Desktop 确认豁免策略。固定只读预读取只补充所选对象的信息，有总超时且失败可降级；无当前值时不伪造前值。诊断值不预读取，自动审批档位不执行展示预读取。共享样式与消息协议由 viewport 服务内联，不增加外部资源或新的授权字段。
+审阅页面使用紧凑页头，仅显示业务字段、实际变更和必要影响。长名称最多显示两行，正文最多显示六行并可展开全文；权限字段直接展示。右上角“详情”打开原始参数浮层，支持关闭按钮、点击外部和 Escape 关闭。Catalog 配置按顶层字段分组展示，无法分组的内容保留完整文本对比。`pet.import` 复用外观审阅，展示本机 ZIP 路径并提示只导入不切换；它与 `skin.import` 使用相同的自动批准与 Desktop 确认豁免策略。固定只读预读取只补充所选对象的信息，有总超时且失败可降级；无当前值时不伪造前值。诊断值不预读取，自动审批档位不执行展示预读取。共享样式与消息协议由 view 服务内联，不增加外部资源或新的授权字段。
 
 - `installation_review`：保留的安装模板，当前内置工具不再挂载；市场及 WebApp 安装统一由 Desktop 确认。
 
@@ -187,4 +185,4 @@ Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定
 
 ### 审阅 HTML 自适应高度
 
-内置 viewport 加载入口为所有 HTML 统一注入 `shared/resize.js`，不依赖具体审阅组件，也不需要模板逐一接入；新增内置 HTML 自动覆盖。尺寸桥接通过 `ResizeObserver` 测量自然正文高度，在正文展开、收起、详情浮层开关或宽度变化时向宿主发送 `awaiting_resize`，包含当前 `runId`、`awaitingId`、`formId` 和 `height`（CSS 像素）。WebClient 仅接收当前 iframe 与表单对应的有限正数高度，短内容收缩，长内容受宿主整体最大高度约束并在 iframe 内滚动；不支持上报的模板保留默认尺寸。该消息只影响布局，不参与 collect、批准或拒绝。
+内置 view 加载入口为所有 HTML 统一注入 `shared/resize.js`，不依赖具体审阅组件，也不需要模板逐一接入；新增内置 HTML 自动覆盖。尺寸桥接通过 `ResizeObserver` 测量自然正文高度，在正文展开、收起、详情浮层开关或宽度变化时向宿主发送 `awaiting_resize`，包含当前 `runId`、`awaitingId`、`formId` 和 `height`（CSS 像素）。WebClient 仅接收当前 iframe 与表单对应的有限正数高度，短内容收缩，长内容受宿主整体最大高度约束并在 iframe 内滚动；不支持上报的模板保留默认尺寸。该消息只影响布局，不参与 collect、批准或拒绝。

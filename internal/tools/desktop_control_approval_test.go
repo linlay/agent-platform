@@ -32,7 +32,7 @@ func TestDesktopControlRequiresExactOneShotApproval(t *testing.T) {
 			e.Session.NativeConnectorTools = map[string]string{tc.tool: owner}
 			args := map[string]any{"action": tc.action, "args": tc.params}
 			plan, err := executor.PrepareToolApproval(context.Background(), tc.tool, args, e)
-			if err != nil || plan == nil || plan.ViewportKey != "" || !plan.AllowAutoApprove {
+			if err != nil || plan == nil || plan.View != nil || !plan.AllowAutoApprove {
 				t.Fatalf("business planner: %#v %v", plan, err)
 			}
 			result, err := executor.Invoke(context.Background(), tc.tool, args, e)
@@ -88,7 +88,7 @@ func TestDesktopControlPresentationAndHostOwnedActions(t *testing.T) {
 			}
 			selected, err := selectConfirmationRule(def.Meta["confirmationRules"], map[string]any{"action": a.Action})
 			review := desktopControlReviewAction(a.Tool, a.Action)
-			if err != nil || review && (selected == nil || selected.viewportKey != desktopReviewExpectedKey(a.Action)) || !review && selected != nil {
+			if err != nil || review && (selected == nil || selected.view.Key != desktopReviewExpectedKey(a.Action)) || !review && selected != nil {
 				t.Fatalf("%s/%s: %#v %v", a.Tool, a.Action, selected, err)
 			}
 		}

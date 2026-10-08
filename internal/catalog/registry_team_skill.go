@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -196,8 +197,7 @@ func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
 		tool.Label,
 		tool.Description,
 		tool.AfterCallHint,
-		stringNode(tool.Meta["viewportType"]),
-		stringNode(tool.Meta["viewportKey"]),
+		fmt.Sprint(tool.Meta["view"]),
 	}
 	for _, field := range fields {
 		if strings.Contains(strings.ToLower(field), needle) {

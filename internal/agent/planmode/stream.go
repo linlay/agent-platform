@@ -1,6 +1,7 @@
 package planmode
 
 import (
+	"agent-platform/internal/view"
 	"context"
 	"errors"
 	"fmt"
@@ -402,11 +403,10 @@ func (s *planningStream) planningConfirmationAsk() contracts.DeltaAwaitAsk {
 		}
 	}
 	return contracts.DeltaAwaitAsk{
-		AwaitingID:   toolCallID,
-		Mode:         "planning",
-		RunID:        s.session.RunID,
-		ViewportType: "builtin",
-		ViewportKey:  "planning",
+		AwaitingID: toolCallID,
+		Mode:       "planning",
+		RunID:      s.session.RunID,
+		View:       view.Builtin("planning"),
 		Planning: map[string]any{
 			"id":           "confirm",
 			"planningId":   planningID,

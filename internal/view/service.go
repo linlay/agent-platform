@@ -28,6 +28,9 @@ func (s *Service) Resolve(ctx context.Context, mounts []Mount, ref Reference, us
 	if err := ref.Validate(); err != nil {
 		return Document{}, err
 	}
+	if ref.ConnectorID == "" {
+		return BuiltinDocument(ref.Key)
+	}
 	if usage != "display" && usage != "form" {
 		return Document{}, fmt.Errorf("%w: usage", ErrInvalid)
 	}
@@ -42,7 +45,7 @@ func (s *Service) Resolve(ctx context.Context, mounts []Mount, ref Reference, us
 		if !d.Supports(usage) {
 			return Document{}, fmt.Errorf("%w: unsupported usage", ErrInvalid)
 		}
-		doc := Document{View: Reference{ConnectorID: mount.ID, Key: ref.Key, Version: mount.Version, Renderer: d.Renderer}, Entry: d.Entry}
+		doc := Document{View: Reference{Source: "connector", ConnectorID: mount.ID, Key: ref.Key, Version: mount.Version, Renderer: d.Renderer}, Entry: d.Entry}
 		if d.Remote != nil {
 			data, err := s.fetch(ctx, mount.ID, ref.Key, d.Renderer, *d.Remote)
 			if err != nil {
@@ -157,9 +160,6 @@ func (s *Service) fetch(ctx context.Context, connectorID, key, renderer string, 
 		key = remote.Key
 	}
 	method, keyField := "views/get", "key"
-	if remote.Protocol == "legacy-viewport" {
-		method, keyField = "viewports/get", "viewportKey"
-	}
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": "view", "method": method, "params": map[string]any{keyField: key}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, remote.URL, bytes.NewReader(body))
 	if err != nil {
@@ -204,20 +204,20 @@ func (s *Service) fetch(ctx context.Context, connectorID, key, renderer string, 
 	if json.Unmarshal(data, &rpc) != nil || len(rpc.Error) > 0 && string(rpc.Error) != "null" {
 		return nil, ErrUnavailable
 	}
+	var fields map[string]any
+	if json.Unmarshal(rpc.Result, &fields) != nil || RejectLegacy(fields) != nil {
+		return nil, ErrUnavailable
+	}
 	var result struct {
-		Renderer     string          `json:"renderer"`
-		ViewportType string          `json:"viewportType"`
-		Payload      json.RawMessage `json:"payload"`
-		HTML         *string         `json:"html"`
-		QLC          json.RawMessage `json:"qlc"`
+		Renderer string          `json:"renderer"`
+		Payload  json.RawMessage `json:"payload"`
+		HTML     *string         `json:"html"`
+		QLC      json.RawMessage `json:"qlc"`
 	}
 	if json.Unmarshal(rpc.Result, &result) != nil {
 		return nil, ErrUnavailable
 	}
 	actual := result.Renderer
-	if actual == "" {
-		actual = result.ViewportType
-	}
 	if actual != "" && actual != renderer {
 		return nil, ErrUnavailable
 	}

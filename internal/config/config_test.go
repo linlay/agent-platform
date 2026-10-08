@@ -87,7 +87,7 @@ func TestLoadDefaults(t *testing.T) {
 					!cfg.Logging.Exception.Enabled ||
 					!cfg.Logging.Tool.Enabled ||
 					!cfg.Logging.Action.Enabled ||
-					!cfg.Logging.Viewport.Enabled ||
+					!cfg.Logging.View.Enabled ||
 					!cfg.Logging.LLMInteraction.Enabled {
 					t.Fatalf("expected default logging surfaces enabled, got %#v", cfg.Logging)
 				}

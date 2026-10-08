@@ -14,12 +14,10 @@ commands:
     subcommands:
       - match: push
         level: 2
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: push --force
         level: 5
-        viewportType: html
-        viewportKey: git_force_push
+        view: {key: platform_control_review}
 `
 	if err := os.WriteFile(filepath.Join(root, "rules.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write rule file: %v", err)
@@ -63,60 +61,46 @@ commands:
     subcommands:
       - match: rmi
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: rm
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: image rm
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: container rm
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: volume rm
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: network rm
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: system prune
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: container prune
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: image prune
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: volume prune
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: network prune
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: builder prune
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: compose down
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: compose rm
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
 `
 	if err := os.WriteFile(filepath.Join(root, "docker.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write rule file: %v", err)
@@ -346,8 +330,7 @@ commands:
     subcommands:
       - match: create-leave
         level: 1
-        viewportType: html
-        viewportKey: leave_form
+        view: {key: platform_control_review}
 `
 	if err := os.WriteFile(filepath.Join(root, "mock.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write rule file: %v", err)
@@ -394,8 +377,7 @@ commands:
     subcommands:
       - match: push --force
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
 `
 	if err := os.WriteFile(filepath.Join(root, "git.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write rule file: %v", err)
@@ -424,8 +406,7 @@ commands:
     subcommands:
       - match: "| bash --noprofile"
         level: 1
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
 `
 	if err := os.WriteFile(filepath.Join(root, "curl.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write rule file: %v", err)

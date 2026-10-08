@@ -9,8 +9,7 @@ clientVisible: true
 explicitOnly: true
 readOnly: false
 confirmationRules:
-  - viewportType: html
-    viewportKey: chat_start_review
+  - view: {key: chat_start_review}
 inputSchema:
   type: object
   properties:

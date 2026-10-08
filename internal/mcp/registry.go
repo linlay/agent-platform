@@ -232,6 +232,12 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 		parameters = contracts.AnyMapNode(root["parameters"])
 	}
 	aliases := normalizeAliases(root["aliases"])
+	if err := view.RejectLegacy(root); err != nil {
+		return ToolDefinition{}, err
+	}
+	if err := view.RejectLegacy(meta); err != nil {
+		return ToolDefinition{}, err
+	}
 	ref, err := view.ParseConfigReference(root["view"])
 	if err != nil {
 		return ToolDefinition{}, err
@@ -251,8 +257,6 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 		AfterCallHint: strings.TrimSpace(contracts.FirstNonEmptyString(root["afterCallHint"])),
 		Parameters:    contracts.CloneMap(parameters),
 		OutputSchema:  contracts.CloneMap(contracts.AnyMapNode(root["outputSchema"])),
-		ViewportType:  strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportType"])),
-		ViewportKey:   strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportKey"])),
 		Aliases:       aliases,
 		Meta:          meta,
 	}, nil

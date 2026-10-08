@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/view"
 	"log"
 	"strings"
 
@@ -255,18 +256,12 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 }
 
 func (s *llmRunStream) buildConfirmApprovalArgs(invocation *preparedToolInvocation, result hitl.InterceptResult) map[string]any {
-	viewportType := strings.TrimSpace(result.Rule.ViewportType)
-	if viewportType == "" {
-		viewportType = "builtin"
-	}
-	viewportKey := strings.TrimSpace(result.Rule.ViewportKey)
-	if viewportKey == "" {
-		viewportKey = "approval"
+	ref := result.Rule.View
+	if ref == nil {
+		ref = view.Builtin("approval")
 	}
 	return map[string]any{
-		"mode":         "approval",
-		"viewportType": viewportType,
-		"viewportKey":  viewportKey,
+		"mode": "approval", "view": ref.Map(),
 		"approvals": []any{
 			s.buildApprovalAskItem(invocation),
 		},
@@ -275,14 +270,10 @@ func (s *llmRunStream) buildConfirmApprovalArgs(invocation *preparedToolInvocati
 
 func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.InterceptResult) map[string]any {
 	args := map[string]any{
-		"mode":         "form",
-		"viewportType": result.Rule.ViewportType,
-		"viewportKey":  result.Rule.ViewportKey,
+		"mode": "form",
 	}
 	if result.Rule.View != nil {
 		args["view"] = result.Rule.View.Map()
-		delete(args, "viewportType")
-		delete(args, "viewportKey")
 	}
 	form := map[string]any{
 		"id":      "form-1",
@@ -302,9 +293,9 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 		return args
 	}
 	args["forms"] = []any{form}
-	log.Printf("[llm][run:%s][hitl][warning] missing html approval payload viewportKey=%s command=%q",
+	log.Printf("[llm][run:%s][hitl][warning] missing html approval payload view=%v command=%q",
 		s.session.RunID,
-		result.Rule.ViewportKey,
+		result.Rule.View,
 		result.OriginalCommand,
 	)
 	return args

@@ -429,7 +429,7 @@ type LoggingConfig struct {
 	Exception      ToggleConfig
 	Tool           ToggleConfig
 	Action         ToggleConfig
-	Viewport       ToggleConfig
+	View           ToggleConfig
 	SSE            ToggleConfig
 	LLMInteraction LLMInteractionLoggingConfig
 }

@@ -201,12 +201,11 @@ func TestHandleAwaitingLifecycleBroadcastsViewportMetadata(t *testing.T) {
 		Type:      "awaiting.ask",
 		Timestamp: testEpochMillis + 1_234,
 		Payload: map[string]any{
-			"awaitingId":   "await-1",
-			"runId":        "run-1",
-			"mode":         "form",
-			"timeout":      120,
-			"viewportType": "html",
-			"viewportKey":  "leave_form",
+			"awaitingId": "await-1",
+			"runId":      "run-1",
+			"mode":       "form",
+			"timeout":    120,
+			"view":       map[string]any{"source": "builtin", "renderer": "html", "key": "platform_control_review"},
 		},
 	}, tracker)
 
@@ -218,7 +217,7 @@ func TestHandleAwaitingLifecycleBroadcastsViewportMetadata(t *testing.T) {
 		t.Fatalf("expected one notification payload, got %#v", payloads)
 	}
 	payload := payloads[0]
-	if payload["viewportType"] != "html" || payload["viewportKey"] != "leave_form" {
+	if payload["view"].(map[string]any)["renderer"] != "html" || payload["view"].(map[string]any)["key"] != "platform_control_review" {
 		t.Fatalf("expected viewport metadata in awaiting.asking notification, got %#v", payload)
 	}
 }

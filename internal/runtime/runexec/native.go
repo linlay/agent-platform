@@ -368,12 +368,6 @@ func HandleAwaitingLifecycle(params NativeOptions, data stream.EventData, tracke
 			if ref := data.Value("view"); ref != nil {
 				payload["view"] = ref
 			}
-			if viewportType := strings.TrimSpace(data.String("viewportType")); viewportType != "" {
-				payload["viewportType"] = viewportType
-			}
-			if viewportKey := strings.TrimSpace(data.String("viewportKey")); viewportKey != "" {
-				payload["viewportKey"] = viewportKey
-			}
 			params.Notifications.Broadcast("awaiting.asking", payload)
 		}
 	case "awaiting.answer":

@@ -57,7 +57,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 		return rec
 	}
-	path := "/api/view?chatId=" + chatID + "&connectorId=forms&key=edit"
+	path := "/api/view?source=connector&chatId=" + chatID + "&connectorId=forms&key=edit"
 	rec := get(path)
 	if rec.Code != 200 {
 		t.Fatalf("view API: %d %s", rec.Code, rec.Body.String())
@@ -71,10 +71,10 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 	if response.Data.HTML != "<p>original</p>" || response.Data.View.Hash == "" {
 		t.Fatalf("document: %#v", response.Data)
 	}
-	if rec := get("/api/view?chatId=" + chatID + "&connectorId=other&key=edit"); rec.Code != 404 {
+	if rec := get("/api/view?source=connector&chatId=" + chatID + "&connectorId=other&key=edit"); rec.Code != 404 {
 		t.Fatalf("unmounted status %d", rec.Code)
 	}
-	if rec := get("/api/view?chatId=" + chatID + "&connectorId=forms&key=../private"); rec.Code != 400 {
+	if rec := get("/api/view?source=connector&chatId=" + chatID + "&connectorId=forms&key=../private"); rec.Code != 400 {
 		t.Fatalf("path status %d", rec.Code)
 	}
 	// The frozen reference is sufficient for history, with no current catalog.
@@ -110,7 +110,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 	conn := dialTestWebSocket(t, server.URL)
 	defer conn.Close()
 	waitForPushFrameType(t, conn, "connected")
-	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/view", ID: "view-test", Payload: marshalPayload(map[string]any{"chatId": chatID, "connectorId": "forms", "key": "edit", "hash": response.Data.View.Hash})}); err != nil {
+	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/view", ID: "view-test", Payload: marshalPayload(map[string]any{"source": "connector", "chatId": chatID, "connectorId": "forms", "key": "edit", "hash": response.Data.View.Hash})}); err != nil {
 		t.Fatal(err)
 	}
 	wire := waitForWebSocketFrame(t, conn, func(data []byte) bool {

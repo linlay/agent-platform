@@ -1,31 +1,31 @@
 package mcp
 
 import (
+	"agent-platform/internal/view"
 	"encoding/json"
 	"testing"
 )
 
 func TestToolDefinitionUnmarshalJSONSupportsViewportType(t *testing.T) {
 	var tool ToolDefinition
-	if err := json.Unmarshal([]byte(`{"name":"ask","viewportType":"builtin","viewportKey":"confirm_dialog"}`), &tool); err != nil {
+	if err := json.Unmarshal([]byte(`{"name":"ask","view": {"key": "confirm_dialog"}}`), &tool); err != nil {
 		t.Fatalf("unmarshal tool definition: %v", err)
 	}
-	if tool.ViewportType != "builtin" {
+	if tool.View.Key != "confirm_dialog" {
 		t.Fatalf("expected viewportType builtin, got %#v", tool)
 	}
 }
 
 func TestToolDefinitionToAPIToolUsesViewportTypeMeta(t *testing.T) {
 	tool := ToolDefinition{
-		Name:         "ask",
-		ViewportType: "builtin",
-		ViewportKey:  "confirm_dialog",
+		Name: "ask",
+		View: view.Builtin("confirm_dialog"),
 	}
 	apiTool := tool.ToAPITool("demo")
-	if apiTool.Meta["viewportType"] != "builtin" {
+	if apiTool.Meta["view"].(map[string]any)["key"] != "confirm_dialog" {
 		t.Fatalf("expected viewportType meta, got %#v", apiTool.Meta)
 	}
-	if apiTool.Meta["viewportKey"] != "confirm_dialog" {
+	if apiTool.Meta["view"].(map[string]any)["key"] != "confirm_dialog" {
 		t.Fatalf("expected viewportKey meta, got %#v", apiTool.Meta)
 	}
 	for _, field := range []string{"type", "kind", "toolAction", "submitResultFormat"} {

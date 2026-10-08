@@ -30,7 +30,7 @@ copilot.setPagePreference [execute]
 
 When changing a page's agent selection, first call `copilot.getPagePreferences` and select an actual key from the returned available agent options based on the user's request. Do not infer a key from an agent display name or copy one from examples or another environment. If only enabling or disabling Copilot, omit `agentKey` to preserve the existing selection.
 
-Theme, locale, and Copilot setters use Platform viewport review in default mode, and server-side automatic approval in auto_approve/full_access; trusted Platform calls do not repeat Desktop confirmation. Getters and `general.deviceName` do not require confirmation.
+Theme, locale, and Copilot setters use Platform view review in default mode, and server-side automatic approval in auto_approve/full_access; trusted Platform calls do not repeat Desktop confirmation. Getters and `general.deviceName` do not require confirmation.
 
 Do not call `setting.getState`, `setting.validatePatch`, `setting.previewPatch`, or `setting.applyPatch`. These actions have no compatibility layer. Website, market, pet, and other settings remain in their dedicated action domains.
 

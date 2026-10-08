@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/view"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ type connectorRejectChecker struct{ calls int }
 
 func (c *connectorRejectChecker) Check(command string, level int) hitl.InterceptResult {
 	c.calls++
-	return hitl.InterceptResult{Intercepted: true, OriginalCommand: command, Rule: hitl.FlatRule{RuleKey: "cli-approval", ViewportType: "builtin", Level: 1}}
+	return hitl.InterceptResult{Intercepted: true, OriginalCommand: command, Rule: hitl.FlatRule{RuleKey: "cli-approval", View: view.Builtin("approval"), Level: 1}}
 }
 
 func TestMountedConnectorLLMReviewKeepsResidualHITLAndOriginalCommand(t *testing.T) {

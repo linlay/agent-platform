@@ -78,7 +78,6 @@ func newServerFromFixture(t *testing.T, fixture testFixture) *Server {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 	})
 	if err != nil {
@@ -100,7 +99,6 @@ type testFixture struct {
 	interactions    *toolinteraction.Registry
 	sandbox         contracts.SandboxClient
 	mcp             contracts.McpClient
-	viewport        contracts.ViewportClient
 	catalogReloader contracts.CatalogReloader
 }
 
@@ -386,7 +384,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	runs := runstate.NewManager()
 	sandbox := sandboxClient
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandbox)
-	viewport := testutil.NewNoopViewportClient()
 	server, err := newRuntimeServer(Dependencies{
 		Config:           cfg,
 		Chats:            chats,
@@ -401,7 +398,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		Sandbox:          sandbox,
 		MCP:              mcp,
 		ToolInteractions: interactionRegistry,
-		Viewport:         viewport,
 		CatalogReloader:  reloader,
 		Notifications:    notifications,
 		Channels:         channelpkg.NewRegistry(cfg.Channels),
@@ -423,7 +419,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		interactions:    interactionRegistry,
 		sandbox:         sandbox,
 		mcp:             mcp,
-		viewport:        viewport,
 		catalogReloader: reloader,
 	}
 }

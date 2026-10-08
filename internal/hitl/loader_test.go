@@ -17,12 +17,10 @@ commands:
       - match: push
         level: 2
         title: Git Push Approval
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
       - match: push --force
         level: 5
-        viewportType: html
-        viewportKey: git_force_push
+        view: {key: platform_control_review}
 `
 	if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write rule file: %v", err)
@@ -55,8 +53,7 @@ commands:
     subcommands:
       - match: push
         level: 2
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
 `
 	if err := os.WriteFile(filepath.Join(root, "disabled.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write rule file: %v", err)
@@ -79,7 +76,7 @@ commands:
     subcommands:
       - match: push
         level: 1
-        viewportType: invalid
+        viewportType: builtin
         viewportKey: confirm_dialog
 `
 	if err := os.WriteFile(filepath.Join(root, "invalid.yml"), []byte(content), 0o644); err != nil {
@@ -99,8 +96,7 @@ commands:
     subcommands:
       - match: push
         level: 2
-        viewportType: builtin
-        viewportKey: confirm_dialog
+        view: {key: confirm_dialog}
 `
 	second := `
 commands:
@@ -108,8 +104,7 @@ commands:
     subcommands:
       - match: push
         level: 5
-        viewportType: html
-        viewportKey: another
+        view: {key: approval}
 `
 	if err := os.WriteFile(filepath.Join(root, "a.yml"), []byte(first), 0o644); err != nil {
 		t.Fatalf("write first rule file: %v", err)
@@ -138,14 +133,12 @@ commands:
     subcommands:
       - match: push
         level: 2
-        viewportType: builtin
-        viewportKey: same
+        view: {key: same}
   - command: docker
     subcommands:
       - match: rm
         level: 3
-        viewportType: html
-        viewportKey: same
+        view: {key: same}
 `
 	if err := os.WriteFile(filepath.Join(root, "conflict.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write conflict rule file: %v", err)
@@ -176,7 +169,7 @@ commands:
 	if len(rules) != 1 {
 		t.Fatalf("expected 1 rule, got %#v", rules)
 	}
-	if rules[0].ViewportType != "builtin" || rules[0].ViewportKey != "confirm_dialog" {
+	if rules[0].View.Renderer != "native" || rules[0].View.Key != "confirm_dialog" {
 		t.Fatalf("expected default builtin confirm dialog, got %#v", rules[0])
 	}
 }

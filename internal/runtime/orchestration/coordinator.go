@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"agent-platform/internal/view"
 	"context"
 	"encoding/json"
 	"errors"
@@ -671,13 +672,12 @@ func (b *TeamMergedHITLBatch) ResolveWaiting() {
 	parentControl.TransitionState(contracts.RunLoopStateWaitingSubmit)
 	if o.EmitInputs != nil {
 		o.EmitInputs(stream.AwaitAsk{
-			AwaitingID:   mergedID,
-			Mode:         "form",
-			Timeout:      timeoutSeconds,
-			RunID:        o.Session.RunID,
-			ViewportType: "html",
-			ViewportKey:  "team-hitl",
-			Forms:        forms,
+			AwaitingID: mergedID,
+			Mode:       "form",
+			Timeout:    timeoutSeconds,
+			RunID:      o.Session.RunID,
+			View:       view.Builtin("team-hitl"),
+			Forms:      forms,
 		})
 	}
 

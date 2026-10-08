@@ -92,7 +92,7 @@ func TestInteractionSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if agentKey != "mock-agent" {
 		t.Fatalf("expected agentKey on awaiting.ask, got %#v", awaitQuestionPayload)
 	}
-	if awaitQuestionPayload["viewportType"] != "builtin" || awaitQuestionPayload["viewportKey"] != "question" {
+	if awaitQuestionPayload["view"].(map[string]any)["renderer"] != "native" || awaitQuestionPayload["view"].(map[string]any)["key"] != "question" {
 		t.Fatalf("expected builtin question viewport on awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["toolTimeout"]; exists {
@@ -229,7 +229,7 @@ func TestInteractionSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			foundQuestionSnapshot = true
 		case "awaiting.ask":
 			foundAwaitAsk = true
-			if event.String("mode") != "question" || event.String("viewportType") != "builtin" || event.String("viewportKey") != "question" {
+			if event.String("mode") != "question" || event.Value("view").(map[string]any)["renderer"] != "native" || event.Value("view").(map[string]any)["key"] != "question" {
 				t.Fatalf("unexpected awaiting.ask payload %#v", event)
 			}
 			if _, exists := event.Payload["awaitName"]; exists {
@@ -1313,8 +1313,8 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved command to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
-		t.Fatalf("expected leave_form viewport in stream, got %s", body)
+	if !strings.Contains(body, `"key":"platform_control_review"`) {
+		t.Fatalf("expected platform_control_review viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"mode":"form"`) || !strings.Contains(body, `"forms":[`) {
 		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
@@ -1394,8 +1394,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 				"    subcommands:",
 				"      - match: rmi",
 				"        level: 1",
-				"        viewportType: builtin",
-				"        viewportKey: confirm_dialog",
+				"        view: {key: confirm_dialog}",
 				"        ruleKey: dangerous-commands::docker-rmi",
 			}, "\n")
 			if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(rulesContent), 0o644); err != nil {
@@ -1703,8 +1702,8 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected simple-bash command to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
-		t.Fatalf("expected leave_form viewport in stream, got %s", body)
+	if !strings.Contains(body, `"key":"platform_control_review"`) {
+		t.Fatalf("expected platform_control_review viewport in stream, got %s", body)
 	}
 }
 
@@ -1716,8 +1715,7 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 		"    subcommands:",
 		"      - match: expense add",
 		"        level: 1",
-		"        viewportType: html",
-		"        viewportKey: expense_form",
+		"        view: {key: resource_delete_review}",
 	}, "\n")
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
 		action:       "approve",
@@ -1732,8 +1730,8 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved expense command to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"viewportKey":"expense_form"`) {
-		t.Fatalf("expected expense_form viewport in stream, got %s", body)
+	if !strings.Contains(body, `"key":"resource_delete_review"`) {
+		t.Fatalf("expected resource_delete_review viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"form":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected expense approval payload in stream, got %s", body)
@@ -1748,8 +1746,7 @@ func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
 		"    subcommands:",
 		"      - match: procurement create",
 		"        level: 1",
-		"        viewportType: html",
-		"        viewportKey: procurement_form",
+		"        view: {key: installation_review}",
 	}, "\n")
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
 		action:       "approve",
@@ -1764,8 +1761,8 @@ func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved procurement command to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"viewportKey":"procurement_form"`) {
-		t.Fatalf("expected procurement_form viewport in stream, got %s", body)
+	if !strings.Contains(body, `"key":"installation_review"`) {
+		t.Fatalf("expected installation_review viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"form":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected procurement approval payload in stream, got %s", body)
@@ -1780,8 +1777,7 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 		"    subcommands:",
 		"      - match: rmi",
 		"        level: 1",
-		"        viewportType: builtin",
-		"        viewportKey: confirm_dialog",
+		"        view: {key: confirm_dialog}",
 	}, "\n")
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
 		action:       "approve",
@@ -1791,13 +1787,13 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 	if len(executed) != 1 || executed[0] != command {
 		t.Fatalf("expected approved docker rmi to execute once, got %#v", executed)
 	}
-	if strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
+	if strings.Contains(body, `"key":"confirm_dialog"`) {
 		t.Fatalf("did not expect confirm_dialog viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"mode":"approval"`) ||
 		!strings.Contains(body, `"approvals":[`) ||
 		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) ||
-		!strings.Contains(body, `"ruleKey":"dangerous::docker::rmi::1::builtin::confirm_dialog"`) ||
+		!strings.Contains(body, `"ruleKey":"dangerous::docker::rmi::1::approval::builtin::::confirm_dialog"`) ||
 		!strings.Contains(body, `"id":"tool_bash"`) ||
 		!strings.Contains(body, `"description":"`) ||
 		!strings.Contains(body, `"allowFreeText":true`) {
@@ -1841,8 +1837,7 @@ func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
 		"    subcommands:",
 		"      - match: image rm",
 		"        level: 1",
-		"        viewportType: builtin",
-		"        viewportKey: confirm_dialog",
+		"        view: {key: confirm_dialog}",
 	}, "\n")
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
 		action:       "reject",
@@ -1856,7 +1851,7 @@ func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
 	if got, ok := resultPayload["result"].(string); !ok || got != "user_rejected: User rejected this command. Do NOT retry with a different command. End the turn now." {
 		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
-	if strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
+	if strings.Contains(body, `"key":"confirm_dialog"`) {
 		t.Fatalf("did not expect confirm_dialog viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"decision":"reject"`) ||
@@ -1902,8 +1897,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		"      - match: create-leave",
 		"        level: 1",
 		"        title: mock 请假申请",
-		"        viewportType: html",
-		"        viewportKey: leave_form",
+		"        view: {key: platform_control_review}",
 	}
 	if options.timeout > 0 {
 		ruleLines = append(ruleLines, fmt.Sprintf("        timeout: %d", options.timeout))

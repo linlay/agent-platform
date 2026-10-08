@@ -284,10 +284,6 @@ type McpClient interface {
 	CallTool(ctx context.Context, serverKey string, toolName string, args map[string]any, meta map[string]any) (any, error)
 }
 
-type ViewportClient interface {
-	Get(ctx context.Context, viewportKey string) (map[string]any, error)
-}
-
 type CatalogReloader interface {
 	Reload(ctx context.Context, reason string) error
 }

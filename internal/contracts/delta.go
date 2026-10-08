@@ -253,18 +253,17 @@ type DeltaSourcePublish struct {
 func (DeltaSourcePublish) agentDeltaTag() {}
 
 type DeltaAwaitAsk struct {
-	View         *view.Reference
-	ViewError    string
-	AwaitingID   string
-	Mode         string
-	Timeout      int64
-	RunID        string
-	ViewportType string
-	ViewportKey  string
-	Questions    []any
-	Approvals    []any
-	Forms        []any
-	Planning     map[string]any
+	View       *view.Reference
+	ViewError  string
+	AwaitingID string
+	Mode       string
+	Timeout    int64
+	RunID      string
+
+	Questions []any
+	Approvals []any
+	Forms     []any
+	Planning  map[string]any
 }
 
 func (DeltaAwaitAsk) agentDeltaTag() {}

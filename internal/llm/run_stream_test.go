@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/view"
 	"bufio"
 	"context"
 	"errors"
@@ -1226,8 +1227,7 @@ func bashToolDefinition() api.ToolDetailResponse {
 		Name: "bash",
 		Meta: map[string]any{
 			"sourceType":    "local",
-			"viewportType":  "builtin",
-			"viewportKey":   "confirm_dialog",
+			"view":          map[string]any{"key": "confirm_dialog"},
 			"clientVisible": true,
 		},
 	}
@@ -1343,8 +1343,7 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 		Name: "ask_user_question",
 		Meta: map[string]any{
 			"sourceType":    "local",
-			"viewportType":  "builtin",
-			"viewportKey":   "confirm_dialog",
+			"view":          map[string]any{"key": "confirm_dialog"},
 			"clientVisible": true,
 		},
 	}
@@ -1965,11 +1964,10 @@ func TestEmitHITLConfirmDeltasUsesRuleTimeoutOverride(t *testing.T) {
 	result := hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			Match:        "create-leave",
-			Level:        1,
-			ViewportType: "html",
-			ViewportKey:  "leave_form",
-			Timeout:      60,
+			Match:   "create-leave",
+			Level:   1,
+			View:    view.Builtin("platform_control_review"),
+			Timeout: 60,
 		},
 		ParsedCommand: hitl.CommandComponents{
 			BaseCommand: "mock",
@@ -2019,11 +2017,10 @@ func TestAwaitHITLSubmitAndExecuteUsesRuleTimeoutOverride(t *testing.T) {
 		hitlMatch: &hitl.InterceptResult{
 			Intercepted: true,
 			Rule: hitl.FlatRule{
-				Match:        "rmi",
-				Level:        1,
-				ViewportType: "builtin",
-				ViewportKey:  "confirm_dialog",
-				Timeout:      1,
+				Match:   "rmi",
+				Level:   1,
+				View:    view.Builtin("confirm_dialog"),
+				Timeout: 1,
 			},
 		},
 		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
@@ -2423,8 +2420,7 @@ func TestPrepareToolCall_InvalidAskUserQuestionArgsReturnToolError(t *testing.T)
 		Name: "ask_user_question",
 		Meta: map[string]any{
 			"sourceType":    "local",
-			"viewportType":  "builtin",
-			"viewportKey":   "confirm_dialog",
+			"view":          map[string]any{"key": "confirm_dialog"},
 			"clientVisible": true,
 		},
 	}
@@ -2588,10 +2584,9 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 		{
 			name: "builtin confirm dialog",
 			rule: hitl.FlatRule{
-				Match:        "push",
-				Level:        1,
-				ViewportType: "builtin",
-				ViewportKey:  "confirm_dialog",
+				Match: "push",
+				Level: 1,
+				View:  view.Builtin("confirm_dialog"),
 			},
 			initialCommand: "git push origin main",
 			parsedCommand: hitl.CommandComponents{
@@ -2605,17 +2600,16 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				},
 			}),
 			expectedCommand: "git push origin main",
-			expectedView:    "builtin",
+			expectedView:    "native",
 			expectedKey:     "confirm_dialog",
 		},
 		{
 			name: "leave html viewport override",
 			rule: hitl.FlatRule{
-				Match:        "create-leave",
-				Level:        1,
-				Title:        "mock 请假申请",
-				ViewportType: "html",
-				ViewportKey:  "leave_form",
+				Match: "create-leave",
+				Level: 1,
+				Title: "mock 请假申请",
+				View:  view.Builtin("platform_control_review"),
 			},
 			initialCommand: sampleLeaveCommand(3),
 			parsedCommand: hitl.CommandComponents{
@@ -2631,7 +2625,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			}),
 			expectedCommand:          sampleLeaveCommand(2),
 			expectedView:             "html",
-			expectedKey:              "leave_form",
+			expectedKey:              "platform_control_review",
 			expectedInitialPayload:   sampleLeavePayload(3),
 			expectedSubmittedPayload: sampleLeavePayload(2),
 			expectedAnswerDecision:   "approve",
@@ -2639,10 +2633,9 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 		{
 			name: "expense html viewport override",
 			rule: hitl.FlatRule{
-				Match:        "expense add",
-				Level:        1,
-				ViewportType: "html",
-				ViewportKey:  "expense_form",
+				Match: "expense add",
+				Level: 1,
+				View:  view.Builtin("resource_delete_review"),
 			},
 			initialCommand: sampleExpenseCommand(1280.5),
 			parsedCommand: hitl.CommandComponents{
@@ -2674,7 +2667,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			}),
 			expectedCommand: canonicalExpenseCommand(640.25),
 			expectedView:    "html",
-			expectedKey:     "expense_form",
+			expectedKey:     "resource_delete_review",
 			expectedSubmittedPayload: map[string]any{
 				"employee":     map[string]any{"id": "E1001", "name": "张三"},
 				"department":   map[string]any{"code": "engineering", "name": "工程部"},
@@ -2714,10 +2707,9 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 		{
 			name: "procurement html viewport override",
 			rule: hitl.FlatRule{
-				Match:        "procurement create",
-				Level:        1,
-				ViewportType: "html",
-				ViewportKey:  "procurement_form",
+				Match: "procurement create",
+				Level: 1,
+				View:  view.Builtin("installation_review"),
 			},
 			initialCommand: sampleProcurementCommand("Shanghai"),
 			parsedCommand: hitl.CommandComponents{
@@ -2736,7 +2728,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			}),
 			expectedCommand:          sampleProcurementCommand("Hangzhou"),
 			expectedView:             "html",
-			expectedKey:              "procurement_form",
+			expectedKey:              "installation_review",
 			expectedInitialPayload:   map[string]any{"delivery_city": "Shanghai", "requester_id": "E1001"},
 			expectedSubmittedPayload: map[string]any{"delivery_city": "Hangzhou", "requester_id": "E1001"},
 			expectedAnswerDecision:   "approve",
@@ -2808,7 +2800,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			if tc.expectedInitialPayload != nil {
 				expectedMode = "form"
 			}
-			if awaitAsk.Mode != expectedMode || awaitAsk.ViewportType != tc.expectedView || awaitAsk.ViewportKey != tc.expectedKey {
+			if awaitAsk.Mode != expectedMode || awaitAsk.View.Renderer != tc.expectedView || awaitAsk.View.Key != tc.expectedKey {
 				t.Fatalf("unexpected await ask %#v", awaitAsk)
 			}
 			if tc.expectedInitialPayload != nil {
@@ -2823,10 +2815,10 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				if !reflect.DeepEqual(formPayload, tc.expectedInitialPayload) {
 					t.Fatalf("expected form payload %#v, got %#v", tc.expectedInitialPayload, awaitAsk)
 				}
-				if title, _ := form["title"].(string); tc.expectedKey == "leave_form" && title != "mock 请假申请" {
+				if title, _ := form["title"].(string); tc.expectedKey == "platform_control_review" && title != "mock 请假申请" {
 					t.Fatalf("expected form title in awaiting.ask payload, got %#v", form)
 				}
-				if tc.expectedKey != "leave_form" {
+				if tc.expectedKey != "platform_control_review" {
 					if _, ok := form["title"]; ok {
 						t.Fatalf("did not expect title for non-leave form, got %#v", form)
 					}
@@ -3846,7 +3838,7 @@ func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 	if !ok || ask.Mode != "approval" || len(ask.Approvals) != 1 {
 		t.Fatalf("expected approval ask, got %#v", stream.pending)
 	}
-	if ask.ViewportType != "builtin" || ask.ViewportKey != "approval" {
+	if ask.View.Renderer != "native" || ask.View.Key != "approval" {
 		t.Fatalf("expected builtin approval viewport, got %#v", ask)
 	}
 	item, _ := ask.Approvals[0].(map[string]any)
@@ -5428,10 +5420,9 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 		hitlMatch: &hitl.InterceptResult{
 			Intercepted: true,
 			Rule: hitl.FlatRule{
-				Match:        "rmi",
-				Level:        1,
-				ViewportType: "builtin",
-				ViewportKey:  "confirm_dialog",
+				Match: "rmi",
+				Level: 1,
+				View:  view.Builtin("confirm_dialog"),
 			},
 		},
 		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
@@ -5539,10 +5530,9 @@ func TestAwaitHITLSubmitAndExecute_FormRejectWithFeedbackEmitsRetryableResultAnd
 	result := hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			Match:        "create-leave",
-			Level:        1,
-			ViewportType: "html",
-			ViewportKey:  "leave_form",
+			Match: "create-leave",
+			Level: 1,
+			View:  view.Builtin("platform_control_review"),
 		},
 		ParsedCommand: hitl.CommandComponents{
 			BaseCommand: "mock",
@@ -5637,10 +5627,9 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 	result := hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			Match:        "create-leave",
-			Level:        1,
-			ViewportType: "html",
-			ViewportKey:  "leave_form",
+			Match: "create-leave",
+			Level: 1,
+			View:  view.Builtin("platform_control_review"),
 		},
 		ParsedCommand: hitl.CommandComponents{
 			BaseCommand: "mock",
@@ -5730,7 +5719,7 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 			results: map[string]hitl.InterceptResult{
 				"git status": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", RuleKey: "repo::git"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), RuleKey: "repo::git"},
 					OriginalCommand: "git status",
 				},
 			},
@@ -5823,17 +5812,17 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", RuleKey: "dangerous-commands::chmod"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), RuleKey: "dangerous-commands::chmod"},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 				"chmod 777 ~/b.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", RuleKey: "dangerous-commands::chmod"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), RuleKey: "dangerous-commands::chmod"},
 					OriginalCommand: "chmod 777 ~/b.sh",
 				},
 				"chmod 777 ~/c.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", RuleKey: "dangerous-commands::chmod"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), RuleKey: "dangerous-commands::chmod"},
 					OriginalCommand: "chmod 777 ~/c.sh",
 				},
 			},
@@ -5946,17 +5935,17 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 				"chmod 777 ~/b.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					Rule:            hitl.FlatRule{Level: 2, View: view.Builtin("confirm_dialog")},
 					OriginalCommand: "chmod 777 ~/b.sh",
 				},
 				"chmod 777 ~/c.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
 					OriginalCommand: "chmod 777 ~/c.sh",
 				},
 			},
@@ -6177,12 +6166,12 @@ func TestPrepareQueuedBashApprovalBatch_UsesLargestRuleTimeout(t *testing.T) {
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", Timeout: 40},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), Timeout: 40},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 				"chmod 777 ~/b.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog", Timeout: 60},
+					Rule:            hitl.FlatRule{Level: 2, View: view.Builtin("confirm_dialog"), Timeout: 60},
 					OriginalCommand: "chmod 777 ~/b.sh",
 				},
 			},
@@ -6228,12 +6217,12 @@ func TestAwaitHITLApprovalBatchAndContinueUsesLargestRuleTimeout(t *testing.T) {
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", Timeout: 4},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), Timeout: 4},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 				"chmod 777 ~/b.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog", Timeout: 10},
+					Rule:            hitl.FlatRule{Level: 2, View: view.Builtin("confirm_dialog"), Timeout: 10},
 					OriginalCommand: "chmod 777 ~/b.sh",
 				},
 			},
@@ -6333,12 +6322,12 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 				sampleLeaveCommand(3): {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "html", ViewportKey: "leave_form"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("platform_control_review")},
 					OriginalCommand: sampleLeaveCommand(3),
 					ParsedCommand: hitl.CommandComponents{
 						BaseCommand: "mock",
@@ -6392,7 +6381,7 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 
 	foundFormAsk := false
 	for _, delta := range stream.pending {
-		if typed, ok := delta.(contracts.DeltaAwaitAsk); ok && typed.Mode == "form" && typed.ViewportKey == "leave_form" {
+		if typed, ok := delta.(contracts.DeltaAwaitAsk); ok && typed.Mode == "form" && typed.View.Key == "platform_control_review" {
 			foundFormAsk = true
 		}
 	}
@@ -6479,7 +6468,7 @@ func TestPrepareQueuedBashApprovalBatch_SkipsWhitelistedRuleWithinRun(t *testing
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/d.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{RuleKey: "dangerous::chmod::777::1::builtin::confirm_dialog", Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					Rule:            hitl.FlatRule{RuleKey: "dangerous::chmod::777::1::builtin::confirm_dialog", Level: 1, View: view.Builtin("confirm_dialog")},
 					OriginalCommand: "chmod 777 ~/d.sh",
 				},
 			},
@@ -6532,12 +6521,12 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 				"chmod 777 ~/b.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
 					OriginalCommand: "chmod 777 ~/b.sh",
 				},
 			},
@@ -6651,7 +6640,7 @@ func TestInvokeQueuedToolCallsAndPostHook_BlocksReadySiblingBeforeLaterApproval(
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 			},
@@ -6735,10 +6724,9 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 		hitlMatch: &hitl.InterceptResult{
 			Intercepted: true,
 			Rule: hitl.FlatRule{
-				Match:        "rmi",
-				Level:        1,
-				ViewportType: "builtin",
-				ViewportKey:  "confirm_dialog",
+				Match: "rmi",
+				Level: 1,
+				View:  view.Builtin("confirm_dialog"),
 			},
 		},
 		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
@@ -6807,10 +6795,9 @@ func TestAwaitHITLSubmitAndExecute_FormTimeoutEmitsHITLMetadataAndSummary(t *tes
 		hitlMatch: &hitl.InterceptResult{
 			Intercepted: true,
 			Rule: hitl.FlatRule{
-				Match:        "create-leave",
-				Level:        1,
-				ViewportType: "html",
-				ViewportKey:  "leave_form",
+				Match: "create-leave",
+				Level: 1,
+				View:  view.Builtin("platform_control_review"),
 			},
 		},
 		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
@@ -6875,10 +6862,9 @@ func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 			result: hitl.InterceptResult{
 				Intercepted: true,
 				Rule: hitl.FlatRule{
-					Match:        "push",
-					Level:        1,
-					ViewportType: "builtin",
-					ViewportKey:  "confirm_dialog",
+					Match: "push",
+					Level: 1,
+					View:  view.Builtin("confirm_dialog"),
 				},
 				ParsedCommand: hitl.CommandComponents{
 					BaseCommand: "git",
@@ -6965,9 +6951,8 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 	}
 	args := stream.buildFormApprovalArgs(`mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip"}`, hitl.InterceptResult{
 		Rule: hitl.FlatRule{
-			ViewportType: "html",
-			ViewportKey:  "leave_form",
-			Title:        "mock 请假申请",
+			View:  view.Builtin("platform_control_review"),
+			Title: "mock 请假申请",
 		},
 		ParsedCommand: hitl.CommandComponents{
 			BaseCommand: "mock",
@@ -7122,8 +7107,7 @@ func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) 
 				Rule: hitl.FlatRule{
 					Match: "push",
 					Level: 2, AutoApprove: []string{contracts.AccessLevelDefault},
-					ViewportType: "builtin",
-					ViewportKey:  "confirm_dialog",
+					View: view.Builtin("confirm_dialog"),
 				},
 			},
 		},
@@ -7175,10 +7159,9 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 			result: hitl.InterceptResult{
 				Intercepted: true,
 				Rule: hitl.FlatRule{
-					Match:        "create-leave",
-					Level:        2,
-					ViewportType: "html",
-					ViewportKey:  "leave_form",
+					Match: "create-leave",
+					Level: 2,
+					View:  view.Builtin("platform_control_review"),
 				},
 				ParsedCommand: hitl.CommandComponents{
 					BaseCommand: "mock",

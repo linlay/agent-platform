@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/view"
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
@@ -56,7 +57,7 @@ func imageAccessInterceptResult(invocation *preparedToolInvocation, plans []file
 	sum := sha256.Sum256([]byte(strings.Join(keys, "\x00")))
 	command := strings.Join(paths, "\n")
 	return hitl.InterceptResult{Intercepted: true, OriginalCommand: command, MatchedCommand: command, MatchedWhole: true,
-		Rule: hitl.FlatRule{RuleKey: "file-images:" + hex.EncodeToString(sum[:]), Title: "Image input read approval", ViewportType: "builtin", ViewportKey: "approval"}}
+		Rule: hitl.FlatRule{RuleKey: "file-images:" + hex.EncodeToString(sum[:]), Title: "Image input read approval", View: view.Builtin("approval")}}
 }
 
 func (s *llmRunStream) executeApprovedImageAccess(request approvalRequest) error {

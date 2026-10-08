@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/view"
 	"context"
 	"fmt"
 	"os"
@@ -156,7 +157,7 @@ func TestHostBashApprovalConcurrent(t *testing.T) {
 				s.execCtx.AccessLevel = AccessLevelFullAccess
 				s.session.AccessLevel = AccessLevelFullAccess
 				s.runControl.SetInitialAccessLevel(AccessLevelFullAccess)
-				s.checker = commandResultChecker{results: map[string]hitl.InterceptResult{command: {Intercepted: true, OriginalCommand: command, Rule: hitl.FlatRule{RuleKey: "mock-login", ViewportType: "builtin", Level: 1}}}}
+				s.checker = commandResultChecker{results: map[string]hitl.InterceptResult{command: {Intercepted: true, OriginalCommand: command, Rule: hitl.FlatRule{RuleKey: "mock-login", View: view.Builtin("approval"), Level: 1}}}}
 			}
 			decision := mode
 			if mode == "security_and_access" || mode == "builtin_hitl" {

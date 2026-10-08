@@ -29,7 +29,7 @@ func (s *llmRunStream) toolApprovalRequest(invocation *preparedToolInvocation) (
 	}
 	plan := invocation.toolApproval
 	mode := "approval"
-	if plan.ViewportKey != "" {
+	if plan.View != nil {
 		mode = "form"
 	}
 	return approvalRequest{kind: approvalKindTool, invocation: invocation, toolApproval: plan, result: hitl.InterceptResult{Intercepted: true, Rule: hitl.FlatRule{Mode: mode, RuleKey: "tool-exact-" + plan.Fingerprint, Title: plan.Title}}}, true

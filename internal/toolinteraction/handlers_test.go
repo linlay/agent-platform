@@ -13,8 +13,7 @@ func interactionTool(name string) api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Name: name,
 		Meta: map[string]any{
-			"viewportType": "builtin",
-			"viewportKey":  "question",
+			"view": map[string]any{"key": "question"},
 		},
 	}
 }
@@ -43,7 +42,7 @@ func TestAskUserQuestionHandlerBuildInitialAwaitAsk(t *testing.T) {
 	if awaitAsk.Mode != "question" || awaitAsk.AwaitingID != "tool_1" {
 		t.Fatalf("unexpected await ask %#v", awaitAsk)
 	}
-	if awaitAsk.ViewportType != "builtin" || awaitAsk.ViewportKey != "question" {
+	if awaitAsk.View.Renderer != "native" || awaitAsk.View.Key != "question" {
 		t.Fatalf("expected builtin question viewport metadata, got %#v", awaitAsk)
 	}
 	questions := awaitAsk.Questions

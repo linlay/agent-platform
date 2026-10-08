@@ -1,4 +1,4 @@
-// Installed by the builtin viewport service for every HTML template.
+// Installed by the builtin view service for every HTML template.
 (() => {
   'use strict';
   let state = null, lastHeight = 0, pending = 0;

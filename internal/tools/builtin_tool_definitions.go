@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"agent-platform/internal/view"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -137,10 +138,9 @@ func validateRequiredToolInteractionMetadata(defs []api.ToolDetailResponse) erro
 		if !strings.EqualFold(strings.TrimSpace(def.Name), "ask_user_question") {
 			continue
 		}
-		viewportType, _ := def.Meta["viewportType"].(string)
-		viewportKey, _ := def.Meta["viewportKey"].(string)
-		if !strings.EqualFold(strings.TrimSpace(viewportType), "builtin") || strings.TrimSpace(viewportKey) != "question" {
-			return fmt.Errorf("tool ask_user_question requires viewportType=builtin and viewportKey=question")
+		ref, err := view.ParseConfigReference(def.Meta["view"])
+		if err != nil || ref == nil || ref.ConnectorID != "" || ref.Key != "question" {
+			return fmt.Errorf("tool ask_user_question requires builtin view question")
 		}
 		return nil
 	}

@@ -15,7 +15,7 @@ func TestConnectorViewRuleRequiresExplicitFormMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules, err := loadRulesFromDir(root)
-	if err != nil || len(rules) != 1 || rules[0].View == nil || rules[0].EffectiveMode() != "form" || rules[0].ViewportType != "" {
+	if err != nil || len(rules) != 1 || rules[0].View == nil || rules[0].EffectiveMode() != "form" || rules[0].View.Renderer != "" {
 		t.Fatalf("rules: %#v %v", rules, err)
 	}
 	for _, invalid := range []string{

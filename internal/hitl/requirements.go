@@ -1,6 +1,7 @@
 package hitl
 
 import (
+	"agent-platform/internal/view"
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
@@ -16,7 +17,7 @@ func CombineRequirements(command string, matches []InterceptResult) InterceptRes
 		return matches[0]
 	}
 	result := InterceptResult{Intercepted: true, OriginalCommand: command, MatchedCommand: command, MatchedWhole: true, Requirements: matches}
-	result.Rule = FlatRule{Mode: "approval", ViewportType: "builtin", ViewportKey: "confirm_dialog"}
+	result.Rule = FlatRule{Mode: "approval", View: view.Builtin("confirm_dialog")}
 	keys := []string{command}
 	var titles []string
 	for _, match := range matches {

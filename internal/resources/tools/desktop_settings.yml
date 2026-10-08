@@ -15,44 +15,34 @@ tags:
 confirmationRules:
   - when:
       /action: theme.set
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: locale.set
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: skin.import
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: skin.set
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: skin.remove
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: pet.show
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: pet.hide
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: pet.import
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: pet.set
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
   - when:
       /action: copilot.setPagePreference
-    viewportType: html
-    viewportKey: desktop_appearance_review
+    view: {key: desktop_appearance_review}
 inputSchema:
   type: "object"
   properties:

@@ -1,6 +1,7 @@
 package toolinteraction
 
 import (
+	"agent-platform/internal/view"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -91,19 +92,13 @@ func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID strin
 	if len(questions) == 0 {
 		return nil
 	}
-	viewportType := strings.TrimSpace(contracts.AnyStringNode(tool.Meta["viewportType"]))
-	viewportKey := strings.TrimSpace(contracts.AnyStringNode(tool.Meta["viewportKey"]))
-	if viewportType == "" || viewportKey == "" {
-		return nil
-	}
 	return &stream.AwaitAsk{
-		AwaitingID:   toolID,
-		ViewportType: viewportType,
-		ViewportKey:  viewportKey,
-		Mode:         "question",
-		Timeout:      timeout,
-		RunID:        runID,
-		Questions:    questions,
+		AwaitingID: toolID,
+		View:       view.Builtin("question"),
+		Mode:       "question",
+		Timeout:    timeout,
+		RunID:      runID,
+		Questions:  questions,
 	}
 }
 

@@ -81,10 +81,9 @@ type ToolDefinition struct {
 	AfterCallHint string
 	Parameters    map[string]any
 	OutputSchema  map[string]any
-	ViewportType  string
-	ViewportKey   string
-	Aliases       []string
-	Meta          map[string]any
+
+	Aliases []string
+	Meta    map[string]any
 }
 
 func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
@@ -98,14 +97,26 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		InputSchema   map[string]any `json:"inputSchema"`
 		Parameters    map[string]any `json:"parameters"`
 		OutputSchema  map[string]any `json:"outputSchema"`
-		ViewportType  string         `json:"viewportType"`
-		ViewportKey   string         `json:"viewportKey"`
-		Aliases       []string       `json:"aliases"`
-		Meta          map[string]any `json:"meta"`
-		Annotations   map[string]any `json:"annotations"`
+
+		Aliases     []string       `json:"aliases"`
+		Meta        map[string]any `json:"meta"`
+		Annotations map[string]any `json:"annotations"`
 	}
 	var raw rawToolDefinition
 	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if err := view.RejectLegacy(fields); err != nil {
+		return err
+	}
+	if err := view.RejectLegacy(contracts.AnyMapNode(fields["_meta"])); err != nil {
+		return err
+	}
+	if err := view.RejectLegacy(raw.Meta); err != nil {
 		return err
 	}
 	ref, err := view.ParseConfigReference(raw.View)
@@ -135,8 +146,6 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		AfterCallHint: raw.AfterCallHint,
 		Parameters:    contracts.CloneMap(parameters),
 		OutputSchema:  contracts.CloneMap(raw.OutputSchema),
-		ViewportType:  strings.TrimSpace(raw.ViewportType),
-		ViewportKey:   raw.ViewportKey,
 		Aliases:       append([]string(nil), raw.Aliases...),
 		Meta:          meta,
 	}
@@ -151,19 +160,11 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 		"sourceKey":      serverKey,
 		"clientVisible":  true,
 	}
-	if strings.TrimSpace(t.ViewportType) != "" {
-		meta["viewportType"] = strings.TrimSpace(t.ViewportType)
-	}
-	if strings.TrimSpace(t.ViewportKey) != "" {
-		meta["viewportKey"] = strings.TrimSpace(t.ViewportKey)
-	}
 	for key, value := range t.Meta {
 		meta[key] = value
 	}
 	if t.View != nil {
-		meta["view"] = t.View.Map()
-		delete(meta, "viewportType")
-		delete(meta, "viewportKey")
+		meta["view"] = t.View.ConfigMap()
 	}
 	for _, key := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
 		delete(meta, key)

@@ -730,7 +730,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 
 Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`（GET/PUT/DELETE）、`/api/memory/daily`（GET）和 `/api/memory/search`（GET）。文件使用固定 kind/date 标识和 revision 乐观锁，冲突 409。详情见 [记忆系统](记忆系统.md#手工触发与内置工具)。旧 Memory meta/scope/record/history/context-preview 与 learn 接口不注册，无数据库兼容模式。
 
-### Viewport / Resource
+### View / Resource
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
@@ -741,14 +741,14 @@ Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`
 | GET | `/api/project/tree` | query: `agentKey`、`path`、`limit`、`cursor` | CODER/KBASE Workspace 单层目录树，目录优先稳定排序 |
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
-| GET | `/api/viewport` | query: `viewportKey`；`viewportType` 不参与选择 | 平台内置审批模板；未命中时 data 为 `{viewportKey,status:"not_implemented"}`；外部模板使用 `/api/view` |
+| GET | `/api/view` | query: `source,key`；connector 另需 `chatId,connectorId`，可选 `usage,hash` | 统一返回 `{view,html?,qlc?,entry?,assets?}`；未知内置 key 或 native 文档返回 404 |
 | GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/冻结临时根资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`name`、`file` | upload ticket；文件保存为 `<chatId>/<name>` |
 | POST | `/api/document/commit` | body: 来源判别联合、`mode`、`expectedRevision`、MIME 与文本/二进制 payload | 覆盖原文档或生成新 Artifact 的身份、类型与 revision |
 | POST | `/api/resource/image/commit` | body: `operation=resource.image.commit`、`profile`、`agentKey`、`chatId`、`resourceId`、`relativePath`、`mode`、`expectedRevision`、`mimeType`、`dataBase64` | 覆盖原 Artifact 或生成新 Artifact 的身份与 revision |
 
-`/api/viewport` 只读取随 Platform 内嵌的 HTML 审批模板，不加载本地外部目录或远端 registry。自定义展示与表单使用 `/api/view` 及 Agent 挂载的 VIEW 连接器。
+`/api/view` 统一 builtin 与 connector 来源。前者只读取内嵌 HTML，后者沿用 Chat 鉴权与 VIEW 快照；source 必填。旧 `/api/viewport` 已删除。
 
 `/api/upload` 的 `chatId` 与 `name` 均可省略。无 `chatId` 时平台会先分配会话；同时无 `name` 时，该会话以 `<default>` 标记为尚未正式命名。仅完成上传、尚未接受首条正式 query 的占位会话仍可通过 `chatId` 继续使用，但不进入 `/api/chats` 历史列表。上传文件保持既有契约，落入 `<chatId>/<name>`，公开 `url` 为不带 `chatId` 的 `<name>`。首条正式 query 在会话尚无历史 run 时会用 message 生成 `chatName`，并广播 `chat.renamed`；已命名或已有历史的会话不会被覆盖。
 
@@ -927,7 +927,7 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 | `archive.deleted` | `chatId` |
 | `catalog.updated` | `reason`、`updatedAt` |
 | `chats.order.changed` | `updatedAt`；列表展示偏好修改后刷新，时间不代表 Chat 内容变化 |
-| `awaiting.asking` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`createdAt`、可选 `timeout` / `viewportType` / `viewportKey` |
+| `awaiting.asking` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`createdAt`、可选 `timeout` / `view` |
 | `awaiting.answered` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`answeredAt`、可选 `errorCode` / `submitId` / `durationMs` |
 | `artifact.published` | `chatId`、`runId`、`artifactId`、`name`、`type`、`mimeType`、`sizeBytes`、`sha256`、`url`、`publishedAt`；仅已认证 Desktop Main |
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`pushedAt` |
@@ -1015,7 +1015,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/interrupt` | `InterruptRequest` | `response` |
 | `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
 | `/api/file` | `agentKey`、`path`、可选 `encoding`、可选 `response=json` | `response`；data 为 agent workspace 文件 metadata，文本文件包含 `content` |
-| `/api/viewport` | `viewportKey`；`viewportType` 不参与选择 | `response`；旧兼容模板，未命中状态同 HTTP |
+| `/api/view` | `source,key`；connector 另带 `chatId,connectorId,usage,hash` | `response`；来源与错误语义同 HTTP |
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
 

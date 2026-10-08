@@ -443,7 +443,6 @@ func TestServerRejectsInvalidLocalJWTConfigAtStartup(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 	})
 	if err == nil {
@@ -475,7 +474,6 @@ func TestQueryAcceptsValidLocalJWT(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 	})
 	if err != nil {
@@ -522,7 +520,6 @@ func TestQueryRejectsInvalidLocalJWT(t *testing.T) {
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
 		CatalogReloader: fixture.catalogReloader,
 	})
 	if err != nil {

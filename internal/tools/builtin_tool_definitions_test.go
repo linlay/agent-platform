@@ -519,7 +519,7 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 		switch def.Name {
 		case "ask_user_question":
 			questionDef = def.Parameters
-			if def.Meta["viewportType"] != "builtin" || def.Meta["viewportKey"] != "question" {
+			if def.Meta["view"].(map[string]any)["key"] != "question" {
 				t.Fatalf("unexpected question tool metadata: %#v", def.Meta)
 			}
 		}

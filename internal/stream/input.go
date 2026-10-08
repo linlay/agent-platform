@@ -278,19 +278,18 @@ type SourceChunk struct {
 }
 
 type AwaitAsk struct {
-	View         *view.Reference
-	ViewError    string
-	AwaitingID   string
-	Mode         string
-	Timeout      int64
-	RunID        string
-	TaskID       string
-	ViewportType string
-	ViewportKey  string
-	Questions    []any
-	Approvals    []any
-	Forms        []any
-	Planning     map[string]any
+	View       *view.Reference
+	ViewError  string
+	AwaitingID string
+	Mode       string
+	Timeout    int64
+	RunID      string
+	TaskID     string
+
+	Questions []any
+	Approvals []any
+	Forms     []any
+	Planning  map[string]any
 }
 
 func (AwaitAsk) streamInputTag() {}

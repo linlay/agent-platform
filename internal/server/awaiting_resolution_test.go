@@ -109,7 +109,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 			if err := os.MkdirAll(hooks, 0700); err != nil {
 				t.Fatal(err)
 			}
-			rule := "commands:\n  - command: docker\n    subcommands:\n      - match: rmi\n        level: 1\n        viewportType: builtin\n        viewportKey: confirm_dialog\n        ruleKey: test-docker-rmi\n"
+			rule := "commands:\n  - command: docker\n    subcommands:\n      - match: rmi\n        level: 1\n        view: {key: confirm_dialog}\n        ruleKey: test-docker-rmi\n"
 			if err := os.WriteFile(filepath.Join(hooks, "approval.yml"), []byte(rule), 0600); err != nil {
 				t.Fatal(err)
 			}

@@ -16,7 +16,7 @@ func defaultLoggingConfig(chatsDir string) LoggingConfig {
 		Exception: ToggleConfig{Enabled: defaultLoggingEnabled},
 		Tool:      ToggleConfig{Enabled: defaultLoggingEnabled},
 		Action:    ToggleConfig{Enabled: defaultLoggingEnabled},
-		Viewport:  ToggleConfig{Enabled: defaultLoggingEnabled},
+		View:      ToggleConfig{Enabled: defaultLoggingEnabled},
 		SSE:       ToggleConfig{Enabled: defaultSSELoggingEnabled},
 		LLMInteraction: LLMInteractionLoggingConfig{
 			Enabled: defaultLoggingEnabled,

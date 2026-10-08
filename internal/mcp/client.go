@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"agent-platform/internal/view"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -159,7 +160,17 @@ func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinit
 		if tool == nil {
 			continue
 		}
-		definitions = append(definitions, toolDefinitionFromSDK(tool))
+		meta := map[string]any(tool.Meta)
+		if err := view.RejectLegacy(meta); err != nil {
+			return nil, fmt.Errorf("MCP tool %s: %w", tool.Name, err)
+		}
+		ref, err := view.ParseConfigReference(meta["view"])
+		if err != nil {
+			return nil, fmt.Errorf("MCP tool %s: %w", tool.Name, err)
+		}
+		definition := toolDefinitionFromSDK(tool)
+		definition.View = ref
+		definitions = append(definitions, definition)
 	}
 	c.markSuccess(server.Key)
 	observability.Log("mcp.response", map[string]any{"serverKey": server.Key, "method": "tools/list"})

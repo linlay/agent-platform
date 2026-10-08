@@ -419,8 +419,7 @@ func newQuestionDeltaMapper() *DeltaMapper {
 			Name: "ask_user_question",
 			Meta: map[string]any{
 				"clientVisible": false,
-				"viewportType":  "builtin",
-				"viewportKey":   "question",
+				"view":          map[string]any{"key": "question"},
 			},
 		},
 	}

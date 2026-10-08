@@ -43,14 +43,12 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	}
 	parameters := AnyMapNode(root["inputSchema"])
 	outputSchema := AnyMapNode(root["outputSchema"])
-	viewportType := AnyStringNode(root["viewportType"])
-	viewportKey := AnyStringNode(root["viewportKey"])
+	if err := view.RejectLegacy(root); err != nil {
+		return api.ToolDetailResponse{}, err
+	}
 	viewRef, err := view.ParseConfigReference(root["view"])
 	if err != nil {
 		return api.ToolDetailResponse{}, err
-	}
-	if viewRef != nil && (viewportType != "" || viewportKey != "") {
-		return api.ToolDetailResponse{}, fmt.Errorf("view cannot be mixed with legacy viewport fields")
 	}
 	external := AnyMapNode(root["external"])
 	_, hasExternal := root["external"]
@@ -116,14 +114,8 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if len(tags) > 0 {
 		meta["tags"] = tags
 	}
-	if viewportType != "" {
-		meta["viewportType"] = viewportType
-	}
 	if viewRef != nil {
-		meta["view"] = viewRef.Map()
-	}
-	if viewportKey != "" {
-		meta["viewportKey"] = viewportKey
+		meta["view"] = viewRef.ConfigMap()
 	}
 	if timeout := AnyIntNode(root["timeout"]); timeout > 0 {
 		meta["timeout"] = timeout

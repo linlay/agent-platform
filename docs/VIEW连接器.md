@@ -78,11 +78,11 @@ URL 由管理员配置，API 调用者不能覆盖。Platform POST JSON-RPC `vie
 
 ## HTTP、WS 和快照
 
-HTTP：`GET /api/view?chatId=<chat>&connectorId=crm-views&key=card&usage=display[&hash=<sha256>]`。WS request type 为 `/api/view`，payload 使用相同字段。成功响应保持 `{code:0,msg:"success",data:...}`，data 为：
+HTTP：`GET /api/view?source=connector&chatId=<chat>&connectorId=crm-views&key=card&usage=display[&hash=<sha256>]`。WS request type 为 `/api/view`，payload 使用相同字段。成功响应保持 `{code:0,msg:"success",data:...}`，data 为：
 
 ```json
 {
-  "view":{"connectorId":"crm-views","key":"card","version":"1.0.0","hash":"<64位小写SHA-256>","renderer":"html"},
+  "view":{"source":"connector","connectorId":"crm-views","key":"card","version":"1.0.0","hash":"<64位小写SHA-256>","renderer":"html"},
   "entry":"views/card.html",
   "html":"<main>...</main>",
   "assets":[{"path":"views/card.js","mediaType":"text/javascript; charset=utf-8","data":"<base64>"}]
@@ -115,17 +115,22 @@ Markdown 使用完整 fenced block：
 
 ````markdown
 ```view
-{"view":{"connectorId":"crm-views","key":"card","hash":"<已取得的快照hash>"},"payload":{"name":"示例"}}
+{"view":{"source":"connector","connectorId":"crm-views","key":"card","hash":"<已取得的快照hash>"},"payload":{"name":"示例"}}
 ```
 ````
 
 普通 Agent 的 Markdown 可省略 hash，按打开时当前挂载获取并产生快照；原文不会被改写，重新打开可能使用更新模板。固定历史版本需保存返回 hash。工具和 HITL 事件已经由服务端冻结。Team Markdown 必须使用已有快照 hash。
 
-## 迁移与兼容范围
+## 来源统一与硬切边界
 
-1. 把旧 `.html/.qlc` 复制进连接器 `views/`，关联资源一并复制并列入 `assets`，建立两个 JSON 清单，通过原 ZIP 导入入口安装。
-2. 挂载到需要的 Agent；工具 `viewportType/viewportKey` 替换为 `view`，HITL 改为显式 `mode: form` 加 `view`。
-3. 旧远端服务可暂用 `remote.protocol: "legacy-viewport"`，保持 `viewports/get` 与 `params.viewportKey`；认证移到部署凭据文件，包只保留占位符。
-4. 客户端升级后验证展示、修改、拒绝与历史回放，再清理不再引用的旧文件。
+所有实时事件统一携带 `view`。`source` 为 `builtin` 或 `connector`，`renderer` 为 `native`、`html` 或 `qlc`。配置只声明 `{key}` 或 `{connectorId,key}`，服务端解析来源与渲染器；连接器继续要求显式 `mode: form`。本次保留 `forms[]`、`/api/submit.params[]` 和 Team 合并协议，不新增模型生成 HTML。
 
-`/api/viewport` 仅提供随 Platform 嵌入的审批模板，包括 `confirm_dialog`、`platform_control_review`、`resource_delete_review` 和 `installation_review`。外部 `viewports/` 文件、`registries/viewport-servers` 注册、对应管理分类与目录监听已移除；自定义视图使用 VIEW 连接器。旧历史记录不改写，引用已退役外部模板时不可再加载该模板。在线 Chat/Archive 回放支持 VIEW。Platform 会话导出仅提供 Markdown 与 snapshot JSON；独立 HTML 由客户端生成，尚不内联 VIEW 模板，不能把在线回放支持等同于离线导出支持。
+内置引用示例：`{"source":"builtin","key":"platform_control_review","renderer":"html"}`。question、approval、planning、confirm_dialog 和 team-hitl 是客户端 native 组件，不通过接口获取 HTML。其他内置 HTML 从 `internal/resources/views/*.html` 自动发现，统一内联共享样式、脚本与尺寸桥。
+
+HTTP/WS 统一 `/api/view`：内置请求 `source=builtin&key=<key>`，连接器请求 `source=connector&chatId=<chat>&connectorId=<id>&key=<key>&usage=form[&hash=<hash>]`。响应统一 `{code,msg,data:{view,html?,qlc?,entry?,assets?}}`。来源缺失或非法返回 400；未知内置 key 或请求 native 文档返回 404。内置请求不需要 Chat；连接器继续通过 Chat 鉴权，保留快照和归档读取。
+
+Gateway 还需 Run 或 Chat 路由上下文，保留租户、Chat 权限与上游路由校验。Run 绑定按来源、连接器、key 和 hash 区分；Team 成员引用一并记录。
+
+旧 `/api/viewport`、`viewportType/viewportKey` 配置、远端 `legacy-viewport` 协议均删除。远端只支持 `views/get`。旧 Markdown `viewport` 块不再触发模板加载，使用 `view` 块；内置可写 `{"view":{"key":"platform_control_review"},"payload":{}}`。这是同批硬切，不提供旧事件、配置或快照迁移。
+
+在线 Chat/Archive 回放保留 VIEW 引用。独立 HTML 导出仍不内联 VIEW 模板，不代表离线导出支持。

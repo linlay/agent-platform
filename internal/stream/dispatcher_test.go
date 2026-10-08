@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"agent-platform/internal/view"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -921,12 +922,11 @@ func TestDispatcherEmitsQuestionModeAwaitAskAfterToolEnd(t *testing.T) {
 	assertEventTypes(t, endEvents, "tool.end", "tool.snapshot")
 
 	awaitEvents := dispatcher.Dispatch(AwaitAsk{
-		AwaitingID:   "tool_1",
-		ViewportType: "builtin",
-		ViewportKey:  "confirm_dialog",
-		Mode:         "question",
-		Timeout:      120,
-		RunID:        "run_1",
+		AwaitingID: "tool_1",
+		View:       view.Builtin("confirm_dialog"),
+		Mode:       "question",
+		Timeout:    120,
+		RunID:      "run_1",
 	})
 	assertEventTypes(t, awaitEvents, "awaiting.ask")
 	payload := awaitEvents[0].ToData()
@@ -943,12 +943,11 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	})
 
 	viewportEvents := dispatcher.Dispatch(AwaitAsk{
-		AwaitingID:   "tool_1",
-		Mode:         "approval",
-		Timeout:      120,
-		RunID:        "run_1",
-		ViewportType: "builtin",
-		ViewportKey:  "approval",
+		AwaitingID: "tool_1",
+		Mode:       "approval",
+		Timeout:    120,
+		RunID:      "run_1",
+		View:       view.Builtin("approval"),
 		Approvals: []any{
 			map[string]any{
 				"id":            "cmd-1",
@@ -961,7 +960,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	})
 	assertEventTypes(t, viewportEvents, "awaiting.ask")
 	payload := viewportEvents[0].ToData()
-	if payload["viewportType"] != "builtin" || payload["viewportKey"] != "approval" {
+	if payload["view"].(map[string]any)["renderer"] != "native" || payload["view"].(map[string]any)["key"] != "approval" {
 		t.Fatalf("expected builtin approval viewport metadata, got %#v", payload)
 	}
 	if payload["agentKey"] != "agent_1" {
@@ -993,7 +992,7 @@ func TestDispatcherDoesNotInferQuestionAwaitAskViewport(t *testing.T) {
 	if _, ok := payload["viewportType"]; ok {
 		t.Fatalf("dispatcher must not infer viewportType from awaiting mode, got %#v", payload)
 	}
-	if _, ok := payload["viewportKey"]; ok {
+	if _, ok := payload["view"]; ok {
 		t.Fatalf("dispatcher must not infer viewportKey from awaiting mode, got %#v", payload)
 	}
 }
@@ -1006,11 +1005,10 @@ func TestDispatcherEmitsPlanningModeAwaitAsk(t *testing.T) {
 	})
 
 	events := dispatcher.Dispatch(AwaitAsk{
-		AwaitingID:   "run_1_coder_planning_confirm_1",
-		Mode:         "planning",
-		RunID:        "run_1",
-		ViewportType: "builtin",
-		ViewportKey:  "planning",
+		AwaitingID: "run_1_coder_planning_confirm_1",
+		Mode:       "planning",
+		RunID:      "run_1",
+		View:       view.Builtin("planning"),
 		Planning: map[string]any{
 			"id":         "confirm",
 			"planningId": "run_1_planning_1",
@@ -1018,7 +1016,7 @@ func TestDispatcherEmitsPlanningModeAwaitAsk(t *testing.T) {
 	})
 	assertEventTypes(t, events, "awaiting.ask")
 	payload := events[0].ToData()
-	if payload["viewportType"] != "builtin" || payload["viewportKey"] != "planning" {
+	if payload["view"].(map[string]any)["renderer"] != "native" || payload["view"].(map[string]any)["key"] != "planning" {
 		t.Fatalf("expected builtin planning viewport metadata, got %#v", payload)
 	}
 	if _, ok := payload["approvals"]; ok {
@@ -1083,12 +1081,11 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 	})
 
 	events := dispatcher.Dispatch(AwaitAsk{
-		AwaitingID:   "tool_1",
-		ViewportType: "html",
-		ViewportKey:  "leave_form",
-		Mode:         "form",
-		Timeout:      120,
-		RunID:        "run_1",
+		AwaitingID: "tool_1",
+		View:       view.Builtin("platform_control_review"),
+		Mode:       "form",
+		Timeout:    120,
+		RunID:      "run_1",
 		Forms: []any{
 			map[string]any{
 				"id":    "form-1",
@@ -1103,7 +1100,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 	})
 	assertEventTypes(t, events, "awaiting.ask")
 	payload := events[0].ToData()
-	if payload["viewportType"] != "html" || payload["viewportKey"] != "leave_form" {
+	if payload["view"].(map[string]any)["renderer"] != "html" || payload["view"].(map[string]any)["key"] != "platform_control_review" {
 		t.Fatalf("expected html form viewport metadata, got %#v", payload)
 	}
 	forms, _ := payload["forms"].([]any)
@@ -1396,12 +1393,11 @@ func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 
 func TestEventDataMarshalsAwaitAskWithFormsBeforeTimestamp(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
-		"awaitingId":   "tool_1",
-		"viewportType": "html",
-		"viewportKey":  "leave_form",
-		"mode":         "form",
-		"timeout":      120,
-		"runId":        "run_1",
+		"awaitingId": "tool_1",
+		"view":       map[string]any{"key": "platform_control_review"},
+		"mode":       "form",
+		"timeout":    120,
+		"runId":      "run_1",
 		"forms": []any{
 			map[string]any{
 				"id":    "form-1",
