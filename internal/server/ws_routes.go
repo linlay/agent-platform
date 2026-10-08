@@ -313,7 +313,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	conn.CompleteRequest(req.ID)
 }
 
-func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+func (s *Server) wsAgent(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		AgentKey string `json:"agentKey"`
 	}](req)
@@ -328,9 +328,8 @@ func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response := localizeSkillResponse(conn.Locale(), s.buildAgentDetailResponse(def))
-	conn.SendResponse(req.Type, req.ID, 0, "success", response)
-	conn.CompleteRequest(req.ID)
+	response, err := s.buildAgentUsageResponse(ctx, def)
+	s.sendAgentWSResponse(conn, req, response, err)
 }
 
 func (s *Server) wsModelOptions(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

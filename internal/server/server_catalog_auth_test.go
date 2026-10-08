@@ -62,7 +62,7 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if !reflect.DeepEqual(response.Data.Tools, []string{"datetime", "ask_user_question", "bash"}) {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
-	if len(response.Data.Skills) != 1 || response.Data.Skills[0].ID != "mock-skill" || response.Data.Skills[0].DisplayName == "" {
+	if !reflect.DeepEqual(response.Data.Skills, []string{"mock-skill"}) {
 		t.Fatalf("expected skills in detail response, got %#v", response.Data.Skills)
 	}
 	if len(response.Data.Controls) != 1 || response.Data.Controls[0]["key"] != "tone" {
@@ -667,7 +667,7 @@ func TestAgentModelConfigPartialUpdateAndStrictFields(t *testing.T) {
 	}
 }
 
-func TestAgentDetailSkillsUseMountedNames(t *testing.T) {
+func TestAgentDetailSkillsOnlyExposeAssociationIDs(t *testing.T) {
 	fixture := newTestFixture(t)
 	runtimeDir := t.TempDir()
 	path := filepath.Join(runtimeDir, "skills", "mock-skill")
@@ -678,7 +678,7 @@ func TestAgentDetailSkillsUseMountedNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	detail := fixture.server.buildAgentDetailResponse(catalog.AgentDefinition{Key: "test", Mode: "REACT", Skills: []string{"mock-skill"}, RuntimeDir: runtimeDir})
-	if len(detail.Skills) != 1 || detail.Skills[0].ID != "mock-skill" || detail.Skills[0].Name != "私有技能" {
+	if !reflect.DeepEqual(detail.Skills, []string{"mock-skill"}) {
 		t.Fatalf("mounted skills: %#v", detail.Skills)
 	}
 }

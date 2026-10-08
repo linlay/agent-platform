@@ -16,12 +16,13 @@ import (
 
 func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	response, err := s.listSelectableConnectors(r.URL.Query().Get("agentKey"), responseLocale(w))
+	response, err := s.listSelectableConnectors(r.Context(), r.URL.Query().Get("agentKey"), responseLocale(w))
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) listSelectableConnectors(agentKey, locale string) (api.ConnectorOptionsResponse, error) {
-	presets, err := s.connectorPresets(strings.TrimSpace(agentKey))
+func (s *Server) listSelectableConnectors(ctx context.Context, agentKey, locale string) (api.ConnectorOptionsResponse, error) {
+	agentKey = strings.TrimSpace(agentKey)
+	presets, err := s.connectorPresets(agentKey)
 	if err != nil {
 		return api.ConnectorOptionsResponse{}, err
 	}
@@ -29,15 +30,69 @@ func (s *Server) listSelectableConnectors(agentKey, locale string) (api.Connecto
 	if err != nil {
 		return api.ConnectorOptionsResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "connector_catalog_unavailable", err.Error())
 	}
-	result := make([]api.ConnectorOption, 0, len(items))
+	response := api.ConnectorOptionsResponse{Connectors: make([]api.ConnectorOption, 0, len(items))}
+	if agentKey != "" {
+		state, err := s.agentConnectorSelection(ctx, api.SetAgentConnectorRequest{AgentKey: agentKey}, false)
+		if err != nil {
+			return api.ConnectorOptionsResponse{}, err
+		}
+		response.AgentKey, response.ReloadPending = agentKey, &state.ReloadPending
+	}
+	var mounts []connector.AgentRuntime
+	if provider, ok := s.deps.Registry.(mcp.AgentConnectorSource); ok {
+		mounts = provider.ConnectorRuntimes()
+	}
 	for _, item := range catalog.SelectableConnectors(items, presets) {
 		manifest := item.Manifest.Localized(locale)
-		result = append(result, api.ConnectorOption{
+		entry := api.ConnectorOption{
 			ID: item.ID, Name: manifest.Name, Description: manifest.Description,
 			IconURL: connectorIconURL(item), MutuallyExclusiveWith: item.MutuallyExclusiveWith,
-		})
+			Readiness: "unknown",
+		}
+		if s.connectorAuth != nil {
+			connection, err := s.connectorAuth.Connection(ctx, item.ID)
+			if err != nil {
+				entry.Readiness = "unavailable"
+			} else {
+				entry.Readiness = connection.Readiness
+				if preparation := connection.Preparation; preparation != nil {
+					switch preparation.Status {
+					case "pending":
+						entry.Readiness = "configuration_required"
+					case "failed", "canceled":
+						entry.Readiness = "unavailable"
+					}
+				}
+			}
+		}
+		pkg, err := s.connectorSources().Load(item.ID)
+		if err != nil {
+			entry.Readiness = "unavailable"
+		} else {
+			for _, sourceKey := range pkg.ServerKeys() {
+				mounted := false
+				for _, mount := range mounts {
+					if mount.ID != item.ID || (agentKey != "" && mount.AgentKey != agentKey) {
+						continue
+					}
+					mounted = true
+					key := connector.AgentVersionServerKey(mount.AgentKey, sourceKey, mount.Digest)
+					status := "pending"
+					if s.deps.MCPToolSyncStatus != nil {
+						if current, ok := s.deps.MCPToolSyncStatus.ServerStatus(key); ok {
+							status = current.Status
+						}
+					}
+					entry.MCP = append(entry.MCP, api.ConnectorMCPStatus{AgentKey: mount.AgentKey, ServerKey: sourceKey, Status: status, ToolCount: s.connectorMCPToolCount(key)})
+				}
+				if !mounted {
+					entry.MCP = append(entry.MCP, api.ConnectorMCPStatus{ServerKey: sourceKey, Status: "unmounted"})
+				}
+			}
+		}
+		response.Connectors = append(response.Connectors, entry)
 	}
-	return api.ConnectorOptionsResponse{Connectors: result}, nil
+	return response, nil
 }
 
 func connectorIconURL(item connector.Summary) string {

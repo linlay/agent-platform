@@ -133,8 +133,8 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 |---|---|---|---|
 | GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
 | GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情，包含编辑配置、来源和诊断 |
-| GET | `/api/connectors` | 可选 query: `agentKey` | 使用目录 `connectors[]`，仅含 id/name 和非空 description/iconUrl/mutuallyExclusiveWith，过滤平台预置 |
-| GET/PUT | `/api/agents/connectors` | GET: query `agentKey`；PUT: `{agentKey,connectorId,enabled}` | `{agentKey,connectorIds,reloadPending}`，connectorIds 过滤预置 |
+| GET | `/api/connectors` | 可选 query: `agentKey` | 使用目录 connectors[] 含 id/name、可选展示字段、readiness/MCP 快照；Agent 范围含 reloadPending，过滤预置 |
+| PUT（GET 兼容） | `/api/agents/connectors` | PUT: `{agentKey,connectorId,enabled}`；旧 GET: query `agentKey` | `{agentKey,connectorIds,reloadPending}`，connectorIds 过滤预置；正常读取复用 `/api/agent.connectors` |
 | GET | `/api/admin/connectors` | 无 | 完整管理目录：包摘要、组件、技能和 MCP 同步状态 |
 | GET/PUT | `/api/admin/agents/connectors` | GET: query `agentKey`；PUT: `{agentKey,connectorId,enabled}` | 完整配置、预置、声明和已生效挂载状态；预置切换返回 403 |
 | GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 清单声明的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
@@ -221,7 +221,7 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
-使用目录 `GET /api/connectors[?agentKey=...]` 仅返回 `data.connectors[]` 的 id/name 和非空 description/iconUrl/mutuallyExclusiveWith；按当前 Agent 过滤全局与 mode 预置，省略 agentKey 时过滤全部预置并集。`GET/PUT /api/agents/connectors` 只返回 agentKey、非预置 connectorIds 和 reloadPending。管理目录 `GET /api/admin/connectors` 保留完整包清单、`hasMcp/hasCli/hasBin/skills`；`mcp[]` 包含 `serverKey/toolCount/status` 和可选同步时间、脱敏诊断。管理挂载 `GET/PUT /api/admin/agents/connectors` 保留 presetConnectorIds、declaredConnectorIds 和 activeConnectorIds。两套挂载 PUT 都拒绝预置切换（403 `preset_connector_readonly`），不改变运行时自动挂载。读取定义使用 `GET /api/admin/connectors/detail?id=...&file=...`，保存使用同路径 PUT（`id/file/content/baseSha256`，哈希必填，冲突 409）。先校验、原子替换、本地 reload，失败恢复；远端初始化继续后台执行，发送 `catalog.updated(reason=connectors)`。完整契约见 [连接器](连接器.md)。
+使用目录 `GET /api/connectors[?agentKey=...]` 返回 `data.connectors[]` 的 id/name、非空 description/iconUrl/mutuallyExclusiveWith、本地 readiness 和可选 mcp[]（agentKey/serverKey/status/toolCount）；指定 Agent 时返回顶层 agentKey/reloadPending，全局省略。读取使用既有快照，不执行 CLI 或主动探测上游；按当前 Agent 过滤全局与 mode 预置，省略 agentKey 时过滤全部预置并集。`/api/agent.connectors` 提供已保存的非预置关联 ID；`PUT /api/agents/connectors` 只返回 agentKey、非预置 connectorIds 和 reloadPending，旧 GET 保留兼容。管理目录 `GET /api/admin/connectors` 保留完整包清单、`hasMcp/hasCli/hasBin/skills`；`mcp[]` 包含 `serverKey/toolCount/status` 和可选同步时间、脱敏诊断。管理挂载 `GET/PUT /api/admin/agents/connectors` 保留 presetConnectorIds、declaredConnectorIds 和 activeConnectorIds。两套挂载 PUT 都拒绝预置切换（403 `preset_connector_readonly`），不改变运行时自动挂载。读取定义使用 `GET /api/admin/connectors/detail?id=...&file=...`，保存使用同路径 PUT（`id/file/content/baseSha256`，哈希必填，冲突 409）。先校验、原子替换、本地 reload，失败恢复；远端初始化继续后台执行，发送 `catalog.updated(reason=connectors)`。完整契约见 [连接器](连接器.md)。
 
 带图标的连接器在管理目录另返回 `icon`（例如 `assets/icon.svg`）、`iconSha256` 和 `iconUrl`（`/api/connectors/icon?id=<id>&v=<sha256>`）；使用目录仅返回 iconUrl，未声明图标时省略。图标接口成功响应直接为 `image/svg+xml` 或 `image/png` 字节，失败沿用 JSON 错误包裹；仅允许读取该连接器清单声明的图片，不能用 `file` 参数读取其他包文件。启用鉴权时必须携带有效认证。缓存使用 `private, max-age=0, must-revalidate` 和内容 SHA-256 ETag；`If-None-Match` 命中返回 304。客户端通过带认证请求获取 Blob，再用 `<img>` 显示，失败显示默认图标。
 
@@ -313,7 +313,7 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 
 `/api/agent` 返回顶层 `modelKey`、`reasoningEffort`、可选 `serviceTier`。模型 key 原样反映配置，ACP 详情不访问上游模型列表、不自动回退到其他模型。思考读取 Agent 顶层 `modelConfig.reasoning`：显式 `enabled:false` 返回 `NONE`，否则返回规范化 `effort`，未配置回退 `MEDIUM`；不代表 stageSettings 或单次 query 的覆盖结果。未设置服务等级时省略 `serviceTier`。不返回 `model`、`selected*`、`modelConfig`、`modelOptions`，meta 不重复返回 modelKey/modelKeys/providerKey/protocol。
 
-`skills` 为 `{id,displayName}[]`，按 Agent 技能顺序返回，name 优先取已挂载技能（包含 Agent 私有覆盖）的名称，缺失时回退 key；空列表为 `[]`，`meta.perAgentSkills` 已删除。内部 Agent YAML 仍使用技能 ID 数组。
+`tools`、`skills`、`connectors` 统一为 ID 字符串数组，空列表为 `[]`。tools/skills 按已发布运行时顺序返回（含自动挂载），connectors 读取已保存源配置并过滤预置，活动 Run 延后生效时保持最新开关。技能展示名、description、version、revision 由 `/api/skills` 等目录提供；`/api/agent` 不返回 toolBindings，管理 `/api/admin/agents/detail` 及创建、修改、改名响应保留来源、removable、excluded、active。`meta.perAgentSkills` 已删除。
 
 `POST /api/agent/model-config`（HTTP/WS 相同）仅接受 `agentKey` 必填，`modelKey`、`reasoningEffort`、`serviceTier` 至少一项。省略字段保持原值；modelKey 不允许空值；reasoningEffort 为 NONE/LOW/MEDIUM/HIGH/XHIGH/MAX，不接受空值/null；serviceTier 为非空字符串或 null，null 清除等级，STANDARD 也按清除处理，非标准等级仅限 ACP。未知字段（包括旧 key 别名）拒绝。更新会校验最终模型与 ACP 能力；响应为 `{agentKey,modelKey,reasoningEffort,serviceTier?}`。YAML 的 modelConfig.reasoning.enabled/effort 结构保持不变，API 通过 NONE 表达关闭。
 
@@ -988,7 +988,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/agent` | `agentKey` | `response` |
 | `/api/skills` | 可选 `agentKey` 读取；`id/pinned` 写入 | `response`；data 与 HTTP `/api/skills` 完全一致 |
 | `/api/connectors` | 可选 `agentKey` 读取 | `response`；与 HTTP 使用目录相同的精简 DTO，展示文本使用连接语言 |
-| `/api/agents/connectors` | `agentKey` 读取；`agentKey/connectorId/enabled` 写入 | `response`；data 与 HTTP 使用挂载一致，失败返回原业务 error |
+| `/api/agents/connectors` | `agentKey/connectorId/enabled` 写入；旧 `agentKey` 读取保留兼容 | `response`；data 与 HTTP 使用挂载一致，失败返回原业务 error |
 | `/api/agent/model-config` | `agentKey`、可选 `modelKey/reasoningEffort/serviceTier` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |

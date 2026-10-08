@@ -467,13 +467,6 @@ type AdminAgentSummary struct {
 	Meta                   map[string]any         `json:"meta,omitempty"`
 }
 
-type AgentDetailSkill struct {
-	skillmeta.Presentation
-	ID          string `json:"id"`
-	Name        string `json:"-"` // Internal fallback; public name is displayName.
-	Description string `json:"description,omitempty"`
-}
-
 type AgentToolBinding struct {
 	Name      string `json:"name"`
 	Source    string `json:"source"`
@@ -483,7 +476,6 @@ type AgentToolBinding struct {
 }
 
 type AgentDetailResponse struct {
-	ToolBindings      []AgentToolBinding `json:"toolBindings"`
 	ModelKey          string             `json:"modelKey,omitempty"`
 	ServiceTier       string             `json:"serviceTier,omitempty"`
 	ReasoningEffort   string             `json:"reasoningEffort,omitempty"`
@@ -499,13 +491,20 @@ type AgentDetailResponse struct {
 	Mode              string             `json:"mode"`
 	Engine            string             `json:"engine,omitempty"`
 	Tools             []string           `json:"tools"`
-	Skills            []AgentDetailSkill `json:"skills"`
+	Skills            []string           `json:"skills"`
+	Connectors        []string           `json:"connectors"`
 	Controls          []map[string]any   `json:"controls"`
 	Meta              map[string]any     `json:"meta"`
 	Definition        map[string]any     `json:"definition,omitempty"`
 	SoulPrompt        string             `json:"soulPrompt,omitempty"`
 	AgentsPrompt      string             `json:"agentsPrompt,omitempty"`
 	Source            *AgentSource       `json:"source,omitempty"`
+}
+
+// Admin saves retain editing metadata without expanding the usage detail.
+type AdminAgentSaveResponse struct {
+	AgentDetailResponse
+	ToolBindings []AgentToolBinding `json:"toolBindings,omitempty"`
 }
 
 type AgentSource struct {

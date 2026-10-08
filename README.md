@@ -48,7 +48,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `GET /api/project/changes?agentKey=...&chatId=...`
 - `GET /api/project/diff?agentKey=...&chatId=...&runId=...&path=...`
 
-连接器使用接口与管理接口分离：Composer 使用 `/api/connectors` 和 `/api/agents/connectors` 的精简响应，平台预置不进入候选；管理端保留完整目录和挂载来源，预置只读。契约与生效边界见 [连接器](docs/连接器.md#使用目录与管理目录)。
+连接器使用接口与管理接口分离：Composer 从 `/api/agent.connectors` 复用关联 ID，`/api/connectors` 提供候选和本地状态，`/api/agents/connectors` 用于单项切换；tools/skills/connectors 统一为 ID 数组，toolBindings 留在管理详情，平台预置不进入候选；管理端保留完整目录和挂载来源，预置只读。契约与生效边界见 [连接器](docs/连接器.md#使用目录与管理目录)。
 
 连接器使用目录、挂载读取与单项切换同时支持 HTTP 和主 WebSocket，共用业务校验与响应投影；WebClient 在 Platform 模式复用既有主 WS，管理和认证仍用 HTTP。
 

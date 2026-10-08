@@ -96,7 +96,7 @@ func TestConnectorUsageCatalogIsScopedAndMinimal(t *testing.T) {
 			id := item["id"].(string)
 			ids = append(ids, id)
 			for key := range item {
-				if !slices.Contains([]string{"id", "name", "description", "iconUrl", "mutuallyExclusiveWith"}, key) {
+				if !slices.Contains([]string{"id", "name", "description", "iconUrl", "mutuallyExclusiveWith", "readiness", "mcp"}, key) {
 					t.Fatalf("unexpected usage field %s: %s", key, rec.Body.String())
 				}
 			}

@@ -22,6 +22,16 @@ type adminAgentRegistry interface {
 	AdminAgentKeys() []string
 }
 
+func (s *Server) writeAdminAgentSaveResponse(w http.ResponseWriter, detail api.AgentDetailResponse, err error) {
+	response := api.AdminAgentSaveResponse{AgentDetailResponse: detail}
+	if err == nil {
+		if def, found := s.deps.Registry.AgentDefinition(detail.Key); found {
+			response.ToolBindings = def.EffectiveToolBindings()
+		}
+	}
+	s.writeAgentHTTPResponse(w, response, err)
+}
+
 func (s *Server) adminAgentRegistry() (adminAgentRegistry, error) {
 	registry, ok := s.deps.Registry.(adminAgentRegistry)
 	if !ok || registry == nil {
@@ -88,7 +98,9 @@ func (s *Server) adminAgentDetail(agentKey string) (api.AdminAgentDetailResponse
 			if err != nil {
 				return api.AdminAgentDetailResponse{}, err
 			}
-			return s.withAdminAgentPrivateSkills(adminAgentDetailFromAgentDetail(detail, item))
+			response := adminAgentDetailFromAgentDetail(detail, item)
+			response.ToolBindings = def.EffectiveToolBindings()
+			return s.withAdminAgentPrivateSkills(response)
 		}
 	}
 	return s.withAdminAgentPrivateSkills(adminAgentDetailFromAdminAgent(item))
@@ -148,8 +160,7 @@ func adminAgentDetailFromAgentDetail(detail api.AgentDetailResponse, item catalo
 		Model:        detail.ModelKey,
 		Mode:         detail.Mode,
 		Tools:        append([]string{}, detail.Tools...),
-		ToolBindings: append([]api.AgentToolBinding{}, detail.ToolBindings...),
-		Skills:       agentDetailSkillIDs(detail.Skills),
+		Skills:       append([]string{}, detail.Skills...),
 		Controls:     cloneListMaps(detail.Controls),
 		Meta:         cloneMeta(detail.Meta),
 		Definition:   cloneMeta(detail.Definition),
@@ -361,12 +372,4 @@ func writeAgentOrderFile(agentsDir string, file catalog.AgentOrderFile) error {
 		return err
 	}
 	return os.Rename(tmpPath, filepath.Join(agentsDir, catalog.AgentOrderFileName))
-}
-
-func agentDetailSkillIDs(skills []api.AgentDetailSkill) []string {
-	keys := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		keys = append(keys, skill.ID)
-	}
-	return keys
 }

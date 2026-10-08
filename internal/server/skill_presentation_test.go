@@ -31,7 +31,7 @@ func TestSkillPresentationHTTPAndWSLocaleSwitch(t *testing.T) {
 		if locale == "en-US" {
 			want = "Workflow"
 		}
-		for _, path := range []string{"/api/skills", "/api/admin/skills", "/api/admin/skills/detail?id=mock-skill", "/api/agent?agentKey=mock-agent"} {
+		for _, path := range []string{"/api/skills", "/api/admin/skills", "/api/admin/skills/detail?id=mock-skill"} {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.Header.Set("X-Locale", locale)
 			rec := httptest.NewRecorder()
@@ -39,6 +39,14 @@ func TestSkillPresentationHTTPAndWSLocaleSwitch(t *testing.T) {
 			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"displayName":"`+want+`"`) || !strings.Contains(rec.Body.String(), `"version":"1.2.3"`) || strings.Contains(rec.Body.String(), `"i18n"`) {
 				t.Fatalf("%s %s: %s", path, locale, rec.Body.String())
 			}
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=mock-agent", nil)
+		req.Header.Set("X-Locale", locale)
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, req)
+		var response api.ApiResponse[api.AgentDetailResponse]
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || rec.Code != http.StatusOK || len(response.Data.Skills) != 1 || response.Data.Skills[0] != "mock-skill" || strings.Contains(rec.Body.String(), `"displayName"`) {
+			t.Fatalf("Agent associations must be locale-independent IDs: %s (%v)", rec.Body.String(), err)
 		}
 	}
 	server := httptest.NewServer(fixture.server)
@@ -74,6 +82,13 @@ func TestSkillPresentationHTTPAndWSLocaleSwitch(t *testing.T) {
 		if !found {
 			t.Fatal("missing skill")
 		}
+		if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/agent", ID: "agent-" + locale, Payload: json.RawMessage(`{"agentKey":"mock-agent"}`)}); err != nil {
+			t.Fatal(err)
+		}
+		agent := waitForWebSocketResponseData[api.AgentDetailResponse](t, conn, "agent-"+locale)
+		if len(agent.Skills) != 1 || agent.Skills[0] != "mock-skill" {
+			t.Fatalf("Agent WS associations changed with locale: %+v", agent.Skills)
+		}
 	}
 	definition, _ := fixture.server.deps.Registry.SkillDefinition("mock-skill")
 	if definition.Name != "mock-skill" || definition.Description != "Default description" {
@@ -84,7 +99,6 @@ func TestSkillPresentationHTTPAndWSLocaleSwitch(t *testing.T) {
 func TestSkillPublicIdentityUsesDisplayNameOnly(t *testing.T) {
 	for _, value := range []any{
 		api.AgentSkillsResponse{Skills: []api.AgentSkillResponse{{ID: "stable-id", Name: "Friendly Name"}}},
-		api.AgentDetailResponse{Skills: []api.AgentDetailSkill{{ID: "stable-id", Name: "Friendly Name"}}},
 		[]api.SkillSummary{{ID: "stable-id", Name: "Friendly Name"}},
 		[]api.AdminSkillSummary{{ID: "stable-id", Name: "Friendly Name"}},
 		api.AdminSkillDetailResponse{Skill: api.AdminSkillSummary{ID: "stable-id", Name: "Friendly Name"}},

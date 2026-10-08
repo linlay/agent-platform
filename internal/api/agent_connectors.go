@@ -7,15 +7,27 @@ type AgentConnectorsResponse struct {
 }
 
 type ConnectorOption struct {
-	ID                    string   `json:"id"`
-	Name                  string   `json:"name"`
-	Description           string   `json:"description,omitempty"`
-	IconURL               string   `json:"iconUrl,omitempty"`
-	MutuallyExclusiveWith []string `json:"mutuallyExclusiveWith,omitempty"`
+	ID                    string               `json:"id"`
+	Name                  string               `json:"name"`
+	Description           string               `json:"description,omitempty"`
+	IconURL               string               `json:"iconUrl,omitempty"`
+	MutuallyExclusiveWith []string             `json:"mutuallyExclusiveWith,omitempty"`
+	Readiness             string               `json:"readiness"`
+	MCP                   []ConnectorMCPStatus `json:"mcp,omitempty"`
+}
+
+// Public local runtime snapshots; no credential/session or management metadata.
+type ConnectorMCPStatus struct {
+	AgentKey  string `json:"agentKey,omitempty"`
+	ServerKey string `json:"serverKey"`
+	Status    string `json:"status"`
+	ToolCount int    `json:"toolCount"`
 }
 
 type ConnectorOptionsResponse struct {
-	Connectors []ConnectorOption `json:"connectors"`
+	Connectors    []ConnectorOption `json:"connectors"`
+	AgentKey      string            `json:"agentKey,omitempty"`
+	ReloadPending *bool             `json:"reloadPending,omitempty"`
 }
 
 type AdminAgentConnectorsResponse struct {

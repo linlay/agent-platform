@@ -155,8 +155,8 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "agent not found"))
 		return
 	}
-	response := s.buildAgentDetailResponse(def)
-	writeJSON(w, http.StatusOK, api.Success(localizeSkillResponse(responseLocale(w), response)))
+	response, err := s.buildAgentUsageResponse(r.Context(), def)
+	s.writeAgentHTTPResponse(w, response, err)
 }
 
 func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +166,7 @@ func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response, err := s.createAgent(r.Context(), req)
-	s.writeAgentHTTPResponse(w, response, err)
+	s.writeAdminAgentSaveResponse(w, response, err)
 }
 
 func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +182,7 @@ func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Key = key
 	response, err := s.updateAgent(r.Context(), req)
-	s.writeAgentHTTPResponse(w, response, err)
+	s.writeAdminAgentSaveResponse(w, response, err)
 }
 
 func (s *Server) handleAgentUpdateName(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +202,7 @@ func (s *Server) handleAgentUpdateName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response, err := s.updateAgentName(r.Context(), key, name)
-	s.writeAgentHTTPResponse(w, response, err)
+	s.writeAdminAgentSaveResponse(w, response, err)
 }
 
 func (s *Server) handleAgentModelConfig(w http.ResponseWriter, r *http.Request) {

@@ -11,7 +11,7 @@ import (
 	"agent-platform/internal/ws"
 )
 
-func (s *Server) wsConnectors(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+func (s *Server) wsConnectors(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	var payload struct {
 		AgentKey string `json:"agentKey"`
 	}
@@ -19,7 +19,7 @@ func (s *Server) wsConnectors(_ context.Context, conn *ws.Conn, req ws.RequestFr
 		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
 		return
 	}
-	response, err := s.listSelectableConnectors(payload.AgentKey, conn.Locale())
+	response, err := s.listSelectableConnectors(ctx, payload.AgentKey, conn.Locale())
 	s.sendAgentWSResponse(conn, req, response, err)
 }
 

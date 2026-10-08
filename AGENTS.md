@@ -180,9 +180,9 @@ make test
 - 当前 KBASE 只对文本抽取结果做 embedding/FTS；PDF/DOCX/PPTX/HTML 均是先抽取文本，不得宣称支持图片、音频或视频语义检索。
 - SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。仅在 `app.New` 启动装配期，`chats.db`、`archive.db`、KBASE `control.db` 的标记恰为 `0/0`，且表、列语义、约束、索引、触发器和 FTS 对象完整匹配当前 DDL 时，服务才会在事务中写入当前标记；列物理顺序不影响比较。运行期仅验证，绝不认领、迁移、删除或修复。其他标记组合、结构差异或残留旧数据均拒绝；chat/archive 会阻止启动，required KBASE capability 会隔离对应 Agent 并保留管理端诊断，引用它的 Team 同样不可运行；optional capability 保留普通 Agent 可运行并报告 degraded/unavailable。
 
-连接器使用与管理接口分离：使用接口仅返回前端展示和选择所需字段，并过滤平台预置；管理接口保留完整信息，预置挂载只读。隐藏目录不改变运行时自动挂载，非预置 builtin 仍可选择。接口和错误契约见 [连接器](docs/连接器.md#使用目录与管理目录)。
+`/api/agent` 的 tools、skills、connectors 均为 ID 数组：tools/skills 反映已发布运行时，connectors 反映已保存的非预置挂载；不返回技能展示对象或 toolBindings，后者仅由管理详情与保存响应返回。连接器使用与管理接口分离：使用接口仅返回前端展示和选择所需字段，并过滤平台预置；管理接口保留完整信息，预置挂载只读。隐藏目录不改变运行时自动挂载，非预置 builtin 仍可选择。接口和错误契约见 [连接器](docs/连接器.md#使用目录与管理目录)。
 
-连接器使用目录、挂载读取与单项切换共用 HTTP/主 WS 业务逻辑和精简 DTO；WS 展示使用连接语言，写入字段出现即按 mutation 校验，不将 false/null 或不完整写入当成读取。管理和认证接口保持 HTTP。
+连接器使用目录、Agent 关联读取与单项切换共用 HTTP/主 WS 业务逻辑和精简 DTO；`/api/connectors` 提供本地 readiness、MCP 同步快照与 Agent 范围的 reloadPending，读取不执行 CLI 或主动探测上游。旧挂载读取保留兼容，WebClient 复用 `/api/agent.connectors`；WS 展示使用连接语言，写入字段出现即按 mutation 校验，不将 false/null 或不完整写入当成读取。管理和认证接口保持 HTTP。
 
 原生连接器仅通过 `connector.json` 的 `type: native` 与已注册 ID 识别，工具归属以 `internal/connector/native.go` 为唯一事实源；不再维护 `native.json` capabilities 声明，旧文件明确拒绝。
 

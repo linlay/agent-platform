@@ -32,13 +32,6 @@ func localizeSkillResponse(locale string, value any) any {
 			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.ID, s.Description)
 		}
 		return v
-	case api.AgentDetailResponse:
-		v.Skills = append([]api.AgentDetailSkill{}, v.Skills...)
-		for i := range v.Skills {
-			s := &v.Skills[i]
-			s.Presentation, s.Description = s.Presentation.Resolve(locale, s.Name, s.ID, s.Description)
-		}
-		return v
 	case api.AdminSkillSummary:
 		v.Presentation, v.Description = v.Presentation.Resolve(locale, v.Name, v.ID, v.Description)
 		return v
