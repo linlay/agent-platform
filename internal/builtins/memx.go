@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const MinimumMemxVersion = "0.4.1"
+const MinimumMemxVersion = "0.2.0"
 
 // RequireMemxVersion is shared by release validation and runtime probes. The
 // current memory policy assumes plain daily Markdown with private provenance.
@@ -16,7 +16,7 @@ func RequireMemxVersion(version string) error {
 		major, a := strconv.Atoi(parts[0])
 		minor, b := strconv.Atoi(parts[1])
 		patch, c := strconv.Atoi(parts[2])
-		if a == nil && b == nil && c == nil && major >= 0 && minor >= 0 && patch >= 0 && (major > 0 || minor > 4 || minor == 4 && patch >= 1) {
+		if a == nil && b == nil && c == nil && major >= 0 && minor >= 0 && patch >= 0 && (major > 0 || minor > 2 || minor == 2 && patch >= 0) {
 			return nil
 		}
 	}

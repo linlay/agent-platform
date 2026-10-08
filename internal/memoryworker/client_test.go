@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 			}
 		}
 		id := ""
-		version := "0.4.1"
+		version := "0.2.0"
 		if v := os.Getenv("MEMX_TEST_VERSION"); v != "" {
 			version = v
 		}
@@ -93,14 +93,14 @@ func TestOldCLIReceivesNoConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0.3.1", "0.3.2", "0.4.0"} {
+	for _, version := range []string{"0.1.0", "0.1.1", "0.1.99"} {
 		t.Run(version, func(t *testing.T) {
 			dir := t.TempDir()
 			t.Setenv("MEMX_CLIENT_TEST_PROCESS", "1")
 			t.Setenv("MEMX_EXPECT_CONFIG_DIR", dir)
 			t.Setenv("MEMX_TEST_VERSION", version)
 			c := Client{Binary: executable, ConfigDir: dir, Root: t.TempDir(), Timezone: "UTC"}
-			if err := c.SetConfig(context.Background(), []byte(`{"secret":"must-not-send"}`)); err == nil || !strings.Contains(err.Error(), "0.4.1") {
+			if err := c.SetConfig(context.Background(), []byte(`{"secret":"must-not-send"}`)); err == nil || !strings.Contains(err.Error(), "0.2.0") {
 				t.Fatal(err)
 			}
 			if _, err := os.Stat(filepath.Join(dir, "set-called")); !os.IsNotExist(err) {

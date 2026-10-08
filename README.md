@@ -119,7 +119,7 @@ make run-local
 
 Windows 可用构建环境变量 `BUNDLE_GIT_BASH=false` 排除 Git Bash，默认 `true`。该变量同时适用于 builtin sync、Platform release 和继承环境的 Desktop 构建脚本；不修改正式 lock 或运行时 Shell 配置。已有完整 cache 时可直接执行 `make release BUNDLE_GIT_BASH=false`。详见 [Git Bash 可选打包](docs/WindowsGitBash实施进度.md#可选打包-git-bash)。
 
-`memx` 由相邻项目的 `scripts/build-release.sh` 与 Go 构建辅助程序生成版本化归档，Windows 同步直接调用该 Go 程序，不增加 memx 的 Python 依赖。发布缓存必须包含至少 0.4.1 的 `bin/memx`（Windows 为 `memx.exe`）；运行时还检查 maintenanceVersion=2 和 configDirEnv=true，避免新提示词搭配旧编码格式。同步后执行 `make test-memory-integration`，用本机 cache 验证真实 CLI；该检查也是 `make test` 的前置条件，缺失或不兼容会失败。配置与授权边界见 [记忆系统](docs/记忆系统.md)。
+`memx` 由相邻项目的 `scripts/build-release.sh` 与 Go 构建辅助程序生成版本化归档，Windows 同步直接调用该 Go 程序，不增加 memx 的 Python 依赖。发布缓存必须包含至少 0.2.0 的 `bin/memx`（Windows 为 `memx.exe`）；运行时还检查 maintenanceVersion=2 和 configDirEnv=true。分层 memx 的版本重新编号不代表 Platform 已完成新调用契约接入，当前状态见 [记忆分层改造方案](docs/记忆分层改造方案.md)。同步后执行 `make test-memory-integration`，用本机 cache 验证真实 CLI；该检查也是 `make test` 的前置条件，缺失或不兼容会失败。配置与授权边界见 [记忆系统](docs/记忆系统.md)。
 
 `make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 包含 agents、connectors-center、chats、skills-center、registries、memory 等运行数据；Platform 会由 agents、skills-center 与挂载的 connectors-center 包重建 `ru-agents/` 作为唯一 Agent 执行目录。
 
