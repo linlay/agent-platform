@@ -690,7 +690,7 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 					APIKey:  "token",
 				},
 				model:         ModelDefinition{ModelID: "claude-test"},
-				stageSettings: StageSettings{ReasoningEnabled: tc.reasoningEnabled},
+				stageSettings: StageSettings{ReasoningEnabled: tc.reasoningEnabled, ReasoningEffort: "HIGH"},
 				messages: []openAIMessage{
 					{Role: "system", Content: "anthropic system"},
 					{Role: "user", Content: "hi"},
@@ -711,9 +711,8 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 								"anthropic-beta": "tools-2024-04-04",
 							},
 							"whenReasoningEnabled": map[string]any{
-								"thinking": map[string]any{
-									"budget_tokens": 8192,
-								},
+								"provider_scoped": true,
+								"output_config":   map[string]any{"effort": "low"},
 							},
 						},
 					},
@@ -732,9 +731,12 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 			}
 			if tc.wantScoped {
 				thinking, _ := prepared.RequestBody["thinking"].(map[string]any)
-				if AnyIntNode(thinking["budget_tokens"]) != 8192 {
-					t.Fatalf("expected compat thinking override to win, got %#v", prepared.RequestBody)
+				outputConfig, _ := prepared.RequestBody["output_config"].(map[string]any)
+				if len(thinking) != 1 || thinking["type"] != "adaptive" || outputConfig["effort"] != "high" || prepared.RequestBody["provider_scoped"] != true {
+					t.Fatalf("expected adaptive thinking with stage effort and scoped compat, got %#v", prepared.RequestBody)
 				}
+			} else if prepared.RequestBody["output_config"] != nil || prepared.RequestBody["provider_scoped"] != nil {
+				t.Fatalf("expected reasoning fields to be omitted, got %#v", prepared.RequestBody)
 			}
 			if tools, _ := prepared.RequestBody["tools"].([]any); len(tools) != 1 {
 				t.Fatalf("expected one tool in request body, got %#v", prepared.RequestBody)

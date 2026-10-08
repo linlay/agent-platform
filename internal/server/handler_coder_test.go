@@ -888,7 +888,8 @@ data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
 		t.Fatalf("expected provider model override, got %#v", payload)
 	}
 	thinking, _ := payload["thinking"].(map[string]any)
-	if thinking["type"] != "enabled" || int(thinking["budget_tokens"].(float64)) != 4096 {
+	outputConfig, _ := payload["output_config"].(map[string]any)
+	if len(thinking) != 1 || thinking["type"] != "adaptive" || outputConfig["effort"] != "high" {
 		t.Fatalf("expected high reasoning thinking config, got %#v", payload)
 	}
 

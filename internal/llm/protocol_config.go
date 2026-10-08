@@ -46,10 +46,8 @@ func defaultProtocolCompat(protocol string) map[string]any {
 	case "ANTHROPIC":
 		return map[string]any{
 			"request": map[string]any{
-				"always": map[string]any{},
-				"whenReasoningEnabled": map[string]any{
-					"thinking": map[string]any{},
-				},
+				"always":               map[string]any{},
+				"whenReasoningEnabled": map[string]any{},
 			},
 			"response": map[string]any{
 				"reasoningFormat": "ANTHROPIC_THINKING_DELTA",

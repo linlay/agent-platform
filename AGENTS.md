@@ -128,6 +128,7 @@ KBX 新索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlit
 - Catalog 按资源根保留独立 watcher（重叠根合并），事件统一分类排队并串行 reload。技能/连接器 ZIP 在发布保护区外解压校验，区内重新检查当前状态；快照和普通保存不暂停监听，目录 mutation 只暂停对应根。API 与 watcher 通过加载前后一致的内容指纹去重，恢复监听只做对应类别差异检查，不无条件全量 reload；失败及加载期间变化不确认新状态。现有 skills→agents/ru-agents 组装和活动租约保护保留。管理入口保护不覆盖 Bash/外部编辑器直接写盘，详见 [Agent运行时组装](docs/Agent运行时组装.md#技能包事务与目录监听)。
 - 普通 Native Agent 工具只来自全局/mode preset、Agent 显式声明与连接器自身工具；Skills、运行环境、Memory、KBASE capability 和 CODER 阶段不得隐式补工具或恢复被排除工具。Memory 工具按需声明；KBASE 工具由 kbase.preset-tools 示例提供，GENERAL/CODER 自行声明。内部 planning、TEAM 和 PLAN-EXECUTE 协议工具保留，参见 [智能体配置](docs/智能体配置说明.md)。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
+- Native `ANTHROPIC` 的显式思考配置只使用 `thinking.type: adaptive` 与 `output_config.effort`，由有效 stage 的 reasoning 设置控制，不按模型名分支；请求构造在合并 compat 后统一设置这两个字段，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
 - TEAM 是内部专用 mode：公共机制进入 `internal/agent`，调度规则进入 `internal/agent/team`。普通 `AgentDefinition` 必须拒绝 `mode: TEAM`，隐藏协调器不得注册到 `/api/agents`、`/api/agent` 或普通 `agent_invoke` 目标中。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
 - 内置工具的显式 boolean 字段兼容精确字符串 `"true"` / `"false"`，公共方法归 `internal/toolinput`，在相关校验和审批前归一化；不转换普通文本或 MCP/开放参数，不放宽 HTTP/WS API 类型，详见 [MCP与工具交互](docs/MCP与工具交互.md#内置工具布尔参数兼容)。

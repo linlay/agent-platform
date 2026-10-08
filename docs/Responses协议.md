@@ -1,6 +1,6 @@
 # Responses 协议
 
-Platform 为原生 Chat 模型提供独立的 `OPENAI_RESPONSES` 协议，通过 `/v1/responses` 调用上游。现有 `OPENAI` 仍使用 Chat Completions，`ANTHROPIC` 的请求格式不变；公开 Query、SSE、WebSocket 与工具执行接口不变。
+Platform 为原生 Chat 模型提供独立的 `OPENAI_RESPONSES` 协议，通过 `/v1/responses` 调用上游。`OPENAI` 使用 Chat Completions，`ANTHROPIC` 使用 Messages 与[自适应思考](配置化说明.md#anthropic-自适应思考)；公开 Query、SSE、WebSocket 与工具执行接口不变。
 
 ## 模型与请求
 

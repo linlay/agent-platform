@@ -202,14 +202,30 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 		requestBody["tool_choice"] = anthropicToolChoice(effectiveToolChoice, stageSettings.ReasoningEnabled)
 	}
 
-	if stageSettings.ReasoningEnabled {
-		requestBody["thinking"] = map[string]any{
-			"type":          "enabled",
-			"budget_tokens": reasoningBudgetTokens(stageSettings.ReasoningEffort),
-		}
-	}
 	if compatRequest := compatRequestOverrides(protocolConfig, stageSettings.ReasoningEnabled); len(compatRequest) > 0 {
 		requestBody = mergeAnyMaps(requestBody, compatRequest)
+	}
+	delete(requestBody, "thinking")
+	outputConfig := CloneMap(AnyMapNode(requestBody["output_config"]))
+	delete(outputConfig, "effort")
+	if stageSettings.ReasoningEnabled {
+		effort, ok := NormalizeReasoningEffort(stageSettings.ReasoningEffort)
+		if !ok || effort == ReasoningEffortNone {
+			return nil, "", fmt.Errorf("Anthropic reasoning effort must be LOW, MEDIUM, HIGH, XHIGH or MAX")
+		}
+		if effort == "" {
+			effort = ReasoningEffortMedium
+		}
+		requestBody["thinking"] = map[string]any{"type": "adaptive"}
+		if outputConfig == nil {
+			outputConfig = map[string]any{}
+		}
+		outputConfig["effort"] = strings.ToLower(effort)
+	}
+	if len(outputConfig) > 0 {
+		requestBody["output_config"] = outputConfig
+	} else {
+		delete(requestBody, "output_config")
 	}
 	modelrequest.ApplyAnthropicSampling(requestBody, stageSettings.Sampling)
 
@@ -384,17 +400,4 @@ func resolveAnthropicMaxTokens(stageSettings StageSettings) int {
 		return stageSettings.MaxOutputTokens
 	}
 	return defaultAnthropicMaxOutputTokens
-}
-
-func reasoningBudgetTokens(effort string) int {
-	switch strings.ToUpper(strings.TrimSpace(effort)) {
-	case "LOW":
-		return 1024
-	case "HIGH":
-		return 4096
-	case "MEDIUM":
-		fallthrough
-	default:
-		return 2048
-	}
 }
