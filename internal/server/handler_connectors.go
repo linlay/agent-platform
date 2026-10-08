@@ -16,25 +16,28 @@ import (
 
 func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	presets, err := s.connectorPresets(strings.TrimSpace(r.URL.Query().Get("agentKey")))
+	response, err := s.listSelectableConnectors(r.URL.Query().Get("agentKey"), responseLocale(w))
+	s.writeAgentHTTPResponse(w, response, err)
+}
+
+func (s *Server) listSelectableConnectors(agentKey, locale string) (api.ConnectorOptionsResponse, error) {
+	presets, err := s.connectorPresets(strings.TrimSpace(agentKey))
 	if err != nil {
-		s.writeAgentHTTPResponse(w, nil, err)
-		return
+		return api.ConnectorOptionsResponse{}, err
 	}
 	items, err := s.connectorSources().Summaries()
 	if err != nil {
-		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusServiceUnavailable, "connector_catalog_unavailable", err.Error()))
-		return
+		return api.ConnectorOptionsResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "connector_catalog_unavailable", err.Error())
 	}
 	result := make([]api.ConnectorOption, 0, len(items))
 	for _, item := range catalog.SelectableConnectors(items, presets) {
-		manifest := item.Manifest.Localized(responseLocale(w))
+		manifest := item.Manifest.Localized(locale)
 		result = append(result, api.ConnectorOption{
 			ID: item.ID, Name: manifest.Name, Description: manifest.Description,
 			IconURL: connectorIconURL(item), MutuallyExclusiveWith: item.MutuallyExclusiveWith,
 		})
 	}
-	s.writeAgentHTTPResponse(w, api.ConnectorOptionsResponse{Connectors: result}, nil)
+	return api.ConnectorOptionsResponse{Connectors: result}, nil
 }
 
 func connectorIconURL(item connector.Summary) string {

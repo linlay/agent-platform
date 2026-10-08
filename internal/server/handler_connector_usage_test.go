@@ -18,11 +18,12 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectortest"
+	"agent-platform/internal/ws"
 )
 
 func connectorUsageFixture(t *testing.T) testFixture {
 	t.Helper()
-	return newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: func(root string, cfg *config.Config) {
+	return newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{notifications: ws.NewHub(), setupRuntime: func(root string, cfg *config.Config) {
 		cfg.PresetConnectors = []string{connector.WebControlConnectorID, "docs"}
 		cfg.ModePresets = map[string]config.AgentPresets{"coder": {Connectors: []string{"mail"}}}
 		cfg.Paths.BuiltinConnectorsDir = filepath.Join(root, "builtin-connectors")

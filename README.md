@@ -50,6 +50,8 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 
 连接器使用接口与管理接口分离：Composer 使用 `/api/connectors` 和 `/api/agents/connectors` 的精简响应，平台预置不进入候选；管理端保留完整目录和挂载来源，预置只读。契约与生效边界见 [连接器](docs/连接器.md#使用目录与管理目录)。
 
+连接器使用目录、挂载读取与单项切换同时支持 HTTP 和主 WebSocket，共用业务校验与响应投影；WebClient 在 Platform 模式复用既有主 WS，管理和认证仍用 HTTP。
+
 返回格式约定：
 
 - `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，Native Host Bash 还能在退出前发送临时 `tool.output`；每个工具仍由唯一 `tool.result` 收口。请求体传 `stream:false` 时返回普通 JSON，默认 `data` 只包含 `content`，可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`，错拼字段 `steam` 不会被识别。

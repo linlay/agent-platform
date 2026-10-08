@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"slices"
@@ -40,45 +41,59 @@ func (s *Server) handleAgentConnectorSelection(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusMethodNotAllowed, api.Failure(http.StatusMethodNotAllowed, "method not allowed"))
 		return
 	}
-	editor, ok := s.deps.Registry.(adminsource.AgentConnectorEditor)
-	if !ok {
-		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "agent connector editor is not configured"))
-		return
-	}
-	key := strings.TrimSpace(r.URL.Query().Get("agentKey"))
 	var req api.SetAgentConnectorRequest
 	if r.Method == http.MethodPut {
-		if err := decodeStrictJSON(r, &req); err != nil || req.Enabled == nil || strings.TrimSpace(req.ConnectorID) == "" {
+		if err := decodeStrictJSON(r, &req); err != nil {
 			s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey, connectorId and enabled are required"))
 			return
 		}
-		key = strings.TrimSpace(req.AgentKey)
+	} else {
+		req.AgentKey = r.URL.Query().Get("agentKey")
 	}
-	if key == "" {
-		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey is required"))
+	state, err := s.agentConnectorSelection(r.Context(), req, r.Method == http.MethodPut)
+	if err != nil {
+		s.writeAgentHTTPResponse(w, nil, err)
 		return
 	}
-	if r.Method == http.MethodPut {
+	if management {
+		s.writeAgentHTTPResponse(w, state, nil)
+		return
+	}
+	s.writeAgentHTTPResponse(w, agentConnectorUsageResponse(state), nil)
+}
+
+// HTTP usage, HTTP management and WS usage share source mutation, publication
+// tracking and preset validation; only their outward projections differ.
+func (s *Server) agentConnectorSelection(ctx context.Context, req api.SetAgentConnectorRequest, write bool) (api.AdminAgentConnectorsResponse, error) {
+	editor, ok := s.deps.Registry.(adminsource.AgentConnectorEditor)
+	if !ok {
+		return api.AdminAgentConnectorsResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "agent connector editor is not configured")
+	}
+	key := strings.TrimSpace(req.AgentKey)
+	if write && (req.Enabled == nil || strings.TrimSpace(req.ConnectorID) == "") {
+		return api.AdminAgentConnectorsResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey, connectorId and enabled are required")
+	}
+	if key == "" {
+		return api.AdminAgentConnectorsResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey is required")
+	}
+	if write {
 		if def, found := s.deps.Registry.AgentDefinition(key); found && !def.Interaction().Connectors {
-			s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusBadRequest, "interaction_disabled", "interactionConfig.connectors is disabled"))
-			return
+			return api.AdminAgentConnectorsResponse{}, newAgentStatusError(http.StatusBadRequest, "interaction_disabled", "interactionConfig.connectors is disabled")
 		}
 	}
 	var ids []string
 	var err error
-	if r.Method == http.MethodGet {
+	if !write {
 		ids, err = editor.ReadAgentConnectors(key)
 	} else {
-		ids, err = s.adminSources.SetAgentConnector(r.Context(), editor, key, strings.TrimSpace(req.ConnectorID), *req.Enabled, s.reloadAgentCatalog)
+		ids, err = s.adminSources.SetAgentConnector(ctx, editor, key, strings.TrimSpace(req.ConnectorID), *req.Enabled, s.reloadAgentCatalog)
 	}
 	if err != nil {
 		var reloadErr *adminsource.AgentConnectorReloadError
 		if errors.As(err, &reloadErr) {
-			s.writeAgentHTTPResponse(w, nil, reloadErr)
-		} else {
-			s.writeAgentHTTPResponse(w, nil, mapAdminSourceAgentError(err))
+			return api.AdminAgentConnectorsResponse{}, reloadErr
 		}
-		return
+		return api.AdminAgentConnectorsResponse{}, mapAdminSourceAgentError(err)
 	}
 	active := []string{}
 	if def, found := s.deps.Registry.AgentDefinition(key); found {
@@ -91,8 +106,7 @@ func (s *Server) handleAgentConnectorSelection(w http.ResponseWriter, r *http.Re
 	}); ok {
 		presets, err = provider.PresetConnectorIDs(key)
 		if err != nil {
-			s.writeAgentHTTPResponse(w, nil, mapAdminSourceAgentError(err))
-			return
+			return api.AdminAgentConnectorsResponse{}, mapAdminSourceAgentError(err)
 		}
 	}
 	for _, id := range presets {
@@ -104,14 +118,14 @@ func (s *Server) handleAgentConnectorSelection(w http.ResponseWriter, r *http.Re
 	slices.Sort(configuredSet)
 	slices.Sort(activeSet)
 	reloadPending := !slices.Equal(configuredSet, activeSet)
-	if !management {
-		s.writeAgentHTTPResponse(w, api.AgentConnectorsResponse{
-			AgentKey: key, ConnectorIDs: catalog.SelectableConnectorIDs(ids, presets), ReloadPending: reloadPending,
-		}, nil)
-		return
-	}
-	s.writeAgentHTTPResponse(w, api.AdminAgentConnectorsResponse{
+	return api.AdminAgentConnectorsResponse{
 		AgentKey: key, ConnectorIDs: ids, ActiveConnectorIDs: active, PresetConnectorIDs: presets, DeclaredConnectorIDs: declared,
 		ReloadPending: reloadPending,
-	}, nil)
+	}, nil
+}
+
+func agentConnectorUsageResponse(state api.AdminAgentConnectorsResponse) api.AgentConnectorsResponse {
+	return api.AgentConnectorsResponse{
+		AgentKey: state.AgentKey, ConnectorIDs: catalog.SelectableConnectorIDs(state.ConnectorIDs, state.PresetConnectorIDs), ReloadPending: state.ReloadPending,
+	}
 }

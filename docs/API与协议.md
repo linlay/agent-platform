@@ -987,6 +987,8 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/agents` | `includeChats`、`chatsPinned`、`includeTeam`、`scope`、`mode`、`hasWorkspace` | `response` |
 | `/api/agent` | `agentKey` | `response` |
 | `/api/skills` | 可选 `agentKey` 读取；`id/pinned` 写入 | `response`；data 与 HTTP `/api/skills` 完全一致 |
+| `/api/connectors` | 可选 `agentKey` 读取 | `response`；与 HTTP 使用目录相同的精简 DTO，展示文本使用连接语言 |
+| `/api/agents/connectors` | `agentKey` 读取；`agentKey/connectorId/enabled` 写入 | `response`；data 与 HTTP 使用挂载一致，失败返回原业务 error |
 | `/api/agent/model-config` | `agentKey`、可选 `modelKey/reasoningEffort/serviceTier` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |

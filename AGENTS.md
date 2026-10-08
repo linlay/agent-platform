@@ -181,6 +181,8 @@ make test
 
 连接器使用与管理接口分离：使用接口仅返回前端展示和选择所需字段，并过滤平台预置；管理接口保留完整信息，预置挂载只读。隐藏目录不改变运行时自动挂载，非预置 builtin 仍可选择。接口和错误契约见 [连接器](docs/连接器.md#使用目录与管理目录)。
 
+连接器使用目录、挂载读取与单项切换共用 HTTP/主 WS 业务逻辑和精简 DTO；WS 展示使用连接语言，写入字段出现即按 mutation 校验，不将 false/null 或不完整写入当成读取。管理和认证接口保持 HTTP。
+
 原生连接器仅通过 `connector.json` 的 `type: native` 与已注册 ID 识别，工具归属以 `internal/connector/native.go` 为唯一事实源；不再维护 `native.json` capabilities 声明，旧文件明确拒绝。
 
 Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。
