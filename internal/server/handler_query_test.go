@@ -304,8 +304,8 @@ func TestPrepareQueryAllowsRuntimeEnvWithoutContainerHub(t *testing.T) {
 	if got := prepared.Session.StaticRuntimeEnv["HTTP_PROXY"]; got != "http://127.0.0.1:8001" {
 		t.Fatalf("StaticRuntimeEnv[HTTP_PROXY] = %q", got)
 	}
-	if !containsString(prepared.Session.ToolNames, "bash") {
-		t.Fatalf("expected bash tool for runtime env overrides, got %#v", prepared.Session.ToolNames)
+	if containsString(prepared.Session.ToolNames, "bash") {
+		t.Fatalf("runtime env must not grant bash, got %#v", prepared.Session.ToolNames)
 	}
 }
 
@@ -346,7 +346,7 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 	if containsString(prepared.Session.ToolNames, "desktop_action") || containsString(prepared.Session.ToolNames, "surface_cdp") {
 		t.Fatalf("did not expect desktop tools from params.desktop, got %#v", prepared.Session.ToolNames)
 	}
-	if !reflect.DeepEqual(prepared.Session.ToolNames, []string{"datetime", "bash"}) {
+	if !reflect.DeepEqual(prepared.Session.ToolNames, []string{"datetime"}) {
 		t.Fatalf("unexpected tool names: %#v", prepared.Session.ToolNames)
 	}
 	expectedRuntimeEnv := map[string]string{

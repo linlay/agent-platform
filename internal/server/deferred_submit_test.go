@@ -112,7 +112,7 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 				t.Fatalf("mkdir workspace: %v", err)
 			}
 			// Production mounts these through agent-settings presets.
-			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex", "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
 				"key: coder-app",
 				"name: Coder App",

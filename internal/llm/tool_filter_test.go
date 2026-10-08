@@ -136,13 +136,12 @@ func TestResolveAllowedToolNamesDistinguishesInheritedAndExplicitEmpty(t *testin
 		ToolNames: []string{"bash"},
 	}
 
-	inherited := resolveAllowedToolNames(session, "coder", nil)
-	for _, name := range []string{"bash", "plan_add_tasks", "plan_get_tasks", "plan_update_task"} {
-		if !containsToolName(inherited, name) {
-			t.Fatalf("inherited CODER tools missing %q: %#v", name, inherited)
-		}
+	inherited := resolveAllowedToolNames(session, nil)
+	if len(inherited) != 1 || inherited[0] != "bash" {
+		t.Fatalf("inherited tools expanded: %v", inherited)
 	}
-	if explicitEmpty := resolveAllowedToolNames(session, "coder", []string{}); len(explicitEmpty) != 0 {
+
+	if explicitEmpty := resolveAllowedToolNames(session, []string{}); len(explicitEmpty) != 0 {
 		t.Fatalf("explicit empty stage allowlist must disable all tools, got %#v", explicitEmpty)
 	}
 }

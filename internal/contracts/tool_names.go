@@ -25,25 +25,3 @@ func IsPlanTaskToolName(name string) bool {
 	}
 	return false
 }
-
-func AppendPlanTaskToolNames(base []string) []string {
-	return appendUniqueToolNames(base, PlanTaskToolNames...)
-}
-
-func appendUniqueToolNames(base []string, extra ...string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(base)+len(extra))
-	for _, name := range append(base, extra...) {
-		trimmed := strings.TrimSpace(name)
-		if trimmed == "" {
-			continue
-		}
-		key := strings.ToLower(trimmed)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, trimmed)
-	}
-	return out
-}

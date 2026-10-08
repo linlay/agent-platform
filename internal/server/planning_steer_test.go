@@ -124,7 +124,7 @@ func TestCoderPlanningSteerReplacesProposal(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
+				cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex", "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 				definition := "key: coder-app\nname: Coder App\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 				if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(definition), 0644); err != nil {
 					t.Fatal(err)

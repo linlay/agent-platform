@@ -8,7 +8,7 @@ import (
 )
 
 func NormalizedAgentTools(def catalog.AgentDefinition) []string {
-	tools := make([]string, 0, len(def.Tools)+1)
+	tools := make([]string, 0, len(def.Tools))
 	seen := map[string]struct{}{}
 	for _, tool := range def.Tools {
 		name := strings.TrimSpace(tool)
@@ -22,12 +22,7 @@ func NormalizedAgentTools(def catalog.AgentDefinition) []string {
 		seen[key] = struct{}{}
 		tools = append(tools, name)
 	}
-	if len(def.Skills) > 0 || HasRuntimeSandbox(def.Runtime) || HasStaticRuntimeEnv(def.Runtime) {
-		if _, ok := seen["bash"]; !ok {
-			tools = append(tools, "bash")
-			seen["bash"] = struct{}{}
-		}
-	}
+
 	return tools
 }
 
@@ -40,14 +35,6 @@ func HasRuntimeSandbox(runtime map[string]any) bool {
 		return false
 	}
 	return strings.TrimSpace(StringValue(runtime["environmentId"])) != ""
-}
-
-func HasStaticRuntimeEnv(runtime map[string]any) bool {
-	if len(runtime) == 0 {
-		return false
-	}
-	env, ok := runtime["env"].(map[string]string)
-	return ok && len(env) > 0
 }
 
 func NormalizeRuntimeMounts(value any) []map[string]any {

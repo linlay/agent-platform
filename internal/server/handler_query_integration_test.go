@@ -164,50 +164,76 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	}
 }
 
-func TestReactEmptyToolAllowlistExposesOnlyAlwaysMountedRunEnv(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		toolConfig string
-	}{
-		{name: "omitted"},
-		{name: "explicit empty", toolConfig: "toolConfig:\n  tools: []\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-				var payload map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-					t.Fatalf("decode model request: %v", err)
-				}
-				if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"run_env"}) {
-					t.Fatalf("empty REACT allowlist exposed tools: %#v", toolNames)
-				}
-				writeProviderSSE(t, w,
-					`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
-					`[DONE]`,
-				)
-			}, testFixtureOptions{
-				mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{{
-					Key:  "remote_mcp_tool",
-					Name: "remote_mcp_tool",
-					Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
-				}}},
-				setupRuntime: func(_ string, cfg *config.Config) {
-					definition := "key: mock-agent\nname: Mock Agent\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig
-					if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
-						t.Fatalf("write REACT agent: %v", err)
-					}
-				},
-			})
+func TestNativeEmptyToolAllowlistExposesNoTools(t *testing.T) {
+	excludedTools := []string{"run_env", "bash", "file_read", "memory_read", "memory_write", "memory_search", "memory_update", "kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	exclusionConfig := "toolConfig:\n  tools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n  excludeTools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n"
 
-			body := bytes.NewBufferString(`{"chatId":"chat-empty-tools","message":"hello","agentKey":"mock-agent"}`)
-			req := httptest.NewRequest(http.MethodPost, "/api/query", body)
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			fixture.server.ServeHTTP(rec, req)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-			}
-		})
+	for _, mode := range []string{"GENERAL", "CODER", "KBASE"} {
+		for _, tc := range []struct {
+			name       string
+			toolConfig string
+		}{
+			{name: "omitted"},
+			{name: "explicit empty", toolConfig: "toolConfig:\n  tools: []\n"},
+			{name: "excluded", toolConfig: exclusionConfig},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				var calls atomic.Int32
+				fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					var payload map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Fatalf("decode model request: %v", err)
+					}
+					if toolNames := providerRequestToolNames(payload["tools"]); len(toolNames) != 0 {
+						t.Fatalf("empty native allowlist exposed tools: %#v", toolNames)
+					}
+					writeProviderSSE(t, w,
+						`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+						`[DONE]`,
+					)
+				}, testFixtureOptions{
+					mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{{
+						Key:  "remote_mcp_tool",
+						Name: "remote_mcp_tool",
+						Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
+					}}},
+					setupRuntime: func(_ string, cfg *config.Config) {
+						definition := "key: mock-agent\nname: Mock Agent\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig + "runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(t.TempDir()) + "\n  env:\n    LANG: en_US\nskillConfig:\n  skills:\n    - mock-skill\nmemoryConfig:\n  enabled: true\nkbaseConfig:\n  enabled: true\n"
+						cfg.ModePresets = nil
+						cfg.Memory.Enabled = true
+						if tc.name == "excluded" {
+							cfg.PresetTools = excludedTools
+						}
+						if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
+							t.Fatalf("write native agent: %v", err)
+						}
+					},
+				})
+
+				def, ok := fixture.registry.AgentDefinition("mock-agent")
+				if !ok || len(def.Tools) != 0 {
+					t.Fatalf("catalog tools differ from empty model allowlist: %v", def.Tools)
+				}
+				for _, binding := range def.EffectiveToolBindings() {
+					if binding.Active {
+						t.Fatalf("excluded binding active: %#v", binding)
+					}
+				}
+
+				body := bytes.NewBufferString(`{"chatId":"chat-empty-tools","message":"hello","agentKey":"mock-agent"}`)
+				req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				fixture.server.ServeHTTP(rec, req)
+				if calls.Load() != 1 {
+					t.Fatalf("expected model request, got %d: %s", calls.Load(), rec.Body.String())
+				}
+				if rec.Code != http.StatusOK {
+					t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+				}
+			})
+		}
 	}
 }
 
@@ -217,8 +243,8 @@ func TestReactExplicitToolAllowlistExposesOnlyConfiguredTool(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode model request: %v", err)
 		}
-		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"run_env", "web_fetch"}) {
-			t.Fatalf("explicit REACT allowlist = %#v, want run_env and web_fetch only", toolNames)
+		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"web_fetch"}) {
+			t.Fatalf("explicit REACT allowlist = %#v, want web_fetch only", toolNames)
 		}
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
@@ -255,7 +281,7 @@ func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode model request: %v", err)
 		}
-		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"run_env", "web_fetch", "flow_start"}) {
+		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"web_fetch", "flow_start"}) {
 			t.Fatalf("MCP server allowlist = %#v", toolNames)
 		}
 		writeProviderSSE(t, w,
@@ -2093,7 +2119,7 @@ Plan first, then check the current time before reporting.
 				t.Fatalf("mkdir workspace: %v", err)
 			}
 			// Production mounts these through agent-settings presets.
-			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex", "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
 				"key: coder-app",
 				"name: Coder App",
@@ -2272,7 +2298,7 @@ func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 				t.Fatalf("mkdir workspace: %v", err)
 			}
 			// Production mounts these through agent-settings presets.
-			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex", "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 			lines := []string{
 				"key: coder-app",
 				"name: Coder App",
@@ -2412,7 +2438,7 @@ Plan should be canceled before execution.
 				t.Fatalf("mkdir workspace: %v", err)
 			}
 			// Production mounts these through agent-settings presets.
-			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex", "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
 				"key: coder-app",
 				"name: Coder App",
@@ -2567,7 +2593,7 @@ Revised plan with explicit test coverage.
 				t.Fatalf("mkdir workspace: %v", err)
 			}
 			// Production mounts these through agent-settings presets.
-			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex")
+			cfg.PresetTools = append(cfg.PresetTools, "ask_user_question", "regex", "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
 				"key: coder-app",
 				"name: Coder App",

@@ -802,31 +802,18 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		}
 	}
 	def = applyAgentModeProfileDefaults(def)
-	def = applyKBaseCapabilityTools(def)
 	if err := ValidateOrdinaryAgentTools(def.Tools); err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	if err := validateReservedBashToolNames(def.Tools); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
-		def.Tools = append(def.Tools, "bash")
+
+	def.MemoryConfig, err = parseAgentMemoryConfig(path, root["memoryConfig"])
+	if err != nil {
+		return AgentDefinition{}, nil, err
 	}
-	{
-		memoryConfig, err := parseAgentMemoryConfig(path, root["memoryConfig"])
-		if err != nil {
-			return AgentDefinition{}, nil, err
-		}
-		def.MemoryConfig = memoryConfig
-		def.MemoryEnabled = def.MemoryConfig.Enabled
-		if def.MemoryConfig.Enabled {
-			for _, memTool := range []string{"memory_write", "memory_read", "memory_search", "memory_update"} {
-				if !containsString(def.Tools, memTool) {
-					def.Tools = append(def.Tools, memTool)
-				}
-			}
-		}
-	}
+	def.MemoryEnabled = def.MemoryConfig.Enabled
 
 	if def.Key == "" {
 		return AgentDefinition{}, nil, fmt.Errorf("agent key is required")
@@ -1044,18 +1031,6 @@ func kbaseAgentHasFileTool(tools []string) bool {
 	return false
 }
 
-func applyKBaseCapabilityTools(def AgentDefinition) AgentDefinition {
-	if !def.KBaseConfig.Enabled {
-		return def
-	}
-	for _, toolName := range kbase.CapabilityToolNames() {
-		if !containsString(def.Tools, toolName) {
-			def.Tools = append(def.Tools, toolName)
-		}
-	}
-	return def
-}
-
 func filterTools(tools []string, keep func(string) bool) []string {
 	if len(tools) == 0 {
 		return nil
@@ -1097,17 +1072,6 @@ func validateReservedBashToolName(value string, field string) error {
 	default:
 		return nil
 	}
-}
-
-func runtimeRequiresBash(runtime map[string]any) bool {
-	if len(runtime) == 0 {
-		return false
-	}
-	if strings.TrimSpace(stringNode(runtime["environmentId"])) != "" {
-		return true
-	}
-	env, ok := runtime["env"].(map[string]string)
-	return ok && len(env) > 0
 }
 
 func validateAgentSamplingConfig(path string, root map[string]any) error {

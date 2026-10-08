@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 
-	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
@@ -440,15 +439,13 @@ func AgentUsesACPCoderBackend(def AgentDefinition) bool {
 }
 
 func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {
-	profile, ok := agentModeProfileFor(def.Mode, def.ACPBridgeID)
+	descriptor, ok := agentbuiltin.Lookup(def.Mode)
 	if !ok {
 		return def
 	}
+	profile := descriptor.Profile
 	if agentIconEmpty(def.Icon) && strings.TrimSpace(profile.IconName) != "" {
 		def.Icon = map[string]any{"name": profile.IconName}
-	}
-	if len(def.Tools) == 0 && len(profile.ToolNames) > 0 {
-		def.Tools = append([]string(nil), profile.ToolNames...)
 	}
 	if len(def.ContextTags) == 0 && len(profile.ContextTags) > 0 {
 		def.ContextTags = normalizeContextTags(profile.ContextTags)
@@ -465,10 +462,6 @@ func agentIconEmpty(value any) bool {
 	}
 	text, ok := value.(string)
 	return ok && strings.TrimSpace(text) == ""
-}
-
-func agentModeProfileFor(mode string, acpBridgeID string) (agentcontract.ModeProfile, bool) {
-	return agentbuiltin.ProfileForAgent(mode, acpBridgeID)
 }
 
 func cloneAgentProfileMap(src map[string]any) map[string]any {

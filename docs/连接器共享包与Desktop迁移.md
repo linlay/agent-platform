@@ -30,7 +30,7 @@ MCP 绑定按挂载来源区分校验：当前 Agent 和活动运行的挂载包
 
 内嵌 native/no_auth 平台控制连接器提供 catalog_query、catalog_manage、chat_query、chat_manage、platform_inspect 和七个 desktop_* 工具，使用统一 `{action,args}`。工具归属和运行时元数据分别在 internal/connector/native.go 与 control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
 
-它与 builtin.web-control 可同时挂载，互不授予对方工具；都为技能读取加入 file_read，不自动增加 Bash。调用始终检查受信任挂载。Catalog/Chat 限普通 native main root；KBASE 原生根 Run 可以使用平台工具，ACP 不执行这些工具。Standalone 仅显示五个本地平台工具。
+它与 builtin.web-control 可同时挂载，互不授予对方工具；技能读取所需 file_read 和 CLI 执行所需 Bash 均由 preset 或 Agent 显式声明。调用始终检查受信任挂载。Catalog/Chat 限普通 native main root；KBASE 原生根 Run 可以使用平台工具，ACP 不执行这些工具。Standalone 仅显示五个本地平台工具。
 
 启动原子发布内嵌包并持有共享租约，Agent 只保存引用。原来的 builtin.desktop 已退役，历史工具记录不改写；迁移后的 Desktop 动作通过原有反向请求发送，确认规则保持由 Desktop 负责。
 

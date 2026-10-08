@@ -56,6 +56,9 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 1 || len(def.ConnectorMounts) != 1 || filepath.Base(filepath.Dir(def.ConnectorMounts[0].Dir)) != "builtin.dbx" {
 		t.Fatalf("bad mounted definition %#v", def)
 	}
+	if len(def.Tools) != 0 {
+		t.Fatalf("CLI/skill mount granted ordinary tools: %v", def.Tools)
+	}
 	key := def.EffectiveSkills()[0]
 	if key != "builtin-dbx" {
 		t.Fatalf("connector skill ID must retain its original name: %q", key)

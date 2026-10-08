@@ -34,7 +34,7 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	if one.ConnectorMounts[0].Dir != two.ConnectorMounts[0].Dir {
 		t.Fatal("duplicated native package")
 	}
-	if containsString(one.Tools, "bash") || !containsString(one.Tools, "file_read") || !containsString(one.Tools, "desktop_shell") || containsString(one.Tools, "surface_list") || len(one.ConnectorNativeTools) != 9 || len(one.ConnectorSkills) != 1 {
+	if containsString(one.Tools, "bash") || containsString(one.Tools, "file_read") || !containsString(one.Tools, "desktop_shell") || containsString(one.Tools, "surface_list") || len(one.ConnectorNativeTools) != 9 || len(one.ConnectorSkills) != 1 {
 		t.Fatalf("wrong native tools: %#v", one)
 	}
 	if _, ok := r.AgentDefinition("legacy"); ok {
@@ -65,7 +65,7 @@ func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 		t.Fatal(err)
 	}
 	def, ok := r.AgentDefinition("web")
-	if !ok || len(def.ConnectorNativeTools) != 15 || len(def.ConnectorSkills) != 1 || containsString(def.Tools, "bash") || !containsString(def.Tools, "file_read") {
+	if !ok || len(def.ConnectorNativeTools) != 15 || len(def.ConnectorSkills) != 1 || containsString(def.Tools, "bash") || containsString(def.Tools, "file_read") {
 		t.Fatalf("web-control mount: %+v", def)
 	}
 	// Page control alone grants no Desktop shell action.

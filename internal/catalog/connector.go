@@ -78,17 +78,13 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 	presets := (config.Config{PresetTools: a.presetTools, PresetConnectors: a.presetConnectors, ModePresets: a.modePresets}).PresetsForMode(def.Mode)
 	def.applyPresetTools(presets.Tools)
 	def.Connectors = mergePresetConnectors(*def, presets.Connectors)
-	err := resolveConnectorPackages(def, func(id string) (connector.Package, error) {
+	return resolveConnectorPackages(def, func(id string) (connector.Package, error) {
 		pkg, err := a.connectors.Load(id)
 		if err != nil {
 			return pkg, err
 		}
 		return a.connectors.InstallShared(pkg)
 	})
-	if err == nil {
-		def.finishToolBindings()
-	}
-	return err
 }
 
 func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector.Package, error)) error {
@@ -126,8 +122,8 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 				return fmt.Errorf("native capabilities require a trusted builtin source")
 			}
 			def.ConnectorNativeTools = append(def.ConnectorNativeTools, pkg.NativeTools()...)
-			for _, tool := range append(pkg.NativeTools(), "file_read") {
-				def.addAutomaticToolBinding(tool, "connector")
+			for _, tool := range pkg.NativeTools() {
+				def.addConnectorToolBinding(tool)
 				if !containsString(def.Tools, tool) {
 					def.Tools = append(def.Tools, tool)
 				}
@@ -159,12 +155,7 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 			}
 			def.ConnectorEnv[key] = value
 		}
-		if pkg.CLI != nil || len(pkg.Skills) > 0 && pkg.Type != "native" {
-			def.addAutomaticToolBinding("bash", "connector")
-			if !containsString(def.Tools, "bash") {
-				def.Tools = append(def.Tools, "bash")
-			}
-		}
+
 		if pkg.BinDir != "" && (pkg.CLI != nil || len(pkg.MCP) > 0 || len(pkg.Skills) > 0) {
 			def.ConnectorBinDirs = append(def.ConnectorBinDirs, pkg.BinDir)
 		}

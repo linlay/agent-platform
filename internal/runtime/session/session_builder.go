@@ -183,7 +183,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		}
 		toolNames = filtered
 	}
-	toolNames = agentbuiltin.CoderRuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentbuiltin.CoderMainStage, toolNames)
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
 	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
@@ -191,10 +190,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	}
 	resolvedPlanExecuteSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
 	resolvedPlanningSettings := contracts.ResolvePlanningModeSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)
-	if agentDef.KBaseConfig.Enabled {
-		resolvedPlanExecuteSettings.Plan.Tools = AppendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Plan.Tools)
-		resolvedPlanExecuteSettings.Execute.Tools = AppendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Execute.Tools)
-	}
+
 	var scopedFilePolicy *contracts.ScopedFilePolicy
 	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
 		scopedFilePolicy = &contracts.ScopedFilePolicy{
@@ -374,19 +370,6 @@ func SystemTempRoot() string {
 
 func SystemTempRoots() []string {
 	return temppaths.System().Paths()
-}
-
-func AppendKBaseCapabilityToolsToExplicitStage(tools []string) []string {
-	if len(tools) == 0 {
-		return nil
-	}
-	out := append([]string(nil), tools...)
-	for _, toolName := range kbase.CapabilityToolNames() {
-		if !ContainsString(out, toolName) {
-			out = append(out, toolName)
-		}
-	}
-	return out
 }
 
 func ExcludeHistoryRun(messages []map[string]any, runID string) []map[string]any {

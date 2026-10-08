@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"agent-platform/internal/api"
@@ -34,7 +33,7 @@ func (d *AgentDefinition) applyPresetTools(presets []string) {
 	if d.DeclaredTools == nil {
 		d.DeclaredTools = append([]string{}, d.Tools...)
 	}
-	base := applyAgentModeProfileDefaults(AgentDefinition{Mode: d.Mode, ACPBridgeID: d.ACPBridgeID, Tools: append([]string{}, d.DeclaredTools...)})
+
 	d.Tools = nil
 	d.ToolBindings = nil
 	excluded := map[string]bool{}
@@ -45,7 +44,7 @@ func (d *AgentDefinition) applyPresetTools(presets []string) {
 	for _, group := range []struct {
 		names  []string
 		source string
-	}{{presets, "preset"}, {base.Tools, "agent"}} {
+	}{{presets, "preset"}, {d.DeclaredTools, "agent"}} {
 		for _, name := range group.names {
 			if seen[name] {
 				continue
@@ -60,52 +59,20 @@ func (d *AgentDefinition) applyPresetTools(presets []string) {
 	}
 }
 
-// Connector/runtime dependencies can reintroduce an excluded base tool. Excluded
+// Mounted connector tools can reintroduce an excluded declaration. Excluded
 // describes the YAML exclusion; Active describes the effective capability.
-func (d *AgentDefinition) addAutomaticToolBinding(name, source string) {
+func (d *AgentDefinition) addConnectorToolBinding(name string) {
 	for i := range d.ToolBindings {
 		if d.ToolBindings[i].Name == name {
 			d.ToolBindings[i].Active = true
 			d.ToolBindings[i].Removable = false
 			if d.ToolBindings[i].Source != "preset" {
-				d.ToolBindings[i].Source = source
+				d.ToolBindings[i].Source = "connector"
 			}
 			return
 		}
 	}
-	d.ToolBindings = append(d.ToolBindings, api.AgentToolBinding{Name: name, Source: source, Active: true})
-}
-
-func (d *AgentDefinition) finishToolBindings() {
-	if d.Engine == AgentEngineACP || (d.Mode != AgentModeGeneral && d.Mode != AgentModeCoder && d.Mode != AgentModeKBase) {
-		return
-	}
-	derived := applyKBaseCapabilityTools(AgentDefinition{KBaseConfig: d.KBaseConfig})
-	// run_env is mounted by default, independent of declarations and presets,
-	// but still respects excludeTools. Child/Team sessions hide it separately.
-	derived.Tools = append(derived.Tools, "run_env")
-	if len(d.Skills) > 0 || runtimeRequiresBash(d.Runtime) {
-		derived.Tools = append(derived.Tools, "bash")
-	}
-	if d.MemoryEnabled {
-		derived.Tools = append(derived.Tools, "memory_write", "memory_read", "memory_search", "memory_update")
-	}
-	for _, name := range derived.Tools {
-		d.addAutomaticToolBinding(name, "runtime")
-		if name == "run_env" && containsString(d.ExcludedTools, name) {
-			d.Tools = slices.DeleteFunc(d.Tools, func(tool string) bool { return tool == name })
-			for i := range d.ToolBindings {
-				if d.ToolBindings[i].Name == name {
-					d.ToolBindings[i].Active = false
-					d.ToolBindings[i].Excluded = true
-				}
-			}
-			continue
-		}
-		if !containsString(d.Tools, name) {
-			d.Tools = append(d.Tools, name)
-		}
-	}
+	d.ToolBindings = append(d.ToolBindings, api.AgentToolBinding{Name: name, Source: "connector", Active: true})
 }
 
 func (d AgentDefinition) EffectiveToolBindings() []api.AgentToolBinding {
@@ -132,10 +99,7 @@ func stripPresetToolDeclarations(definition map[string]any, presets, existing []
 		return
 	}
 	preset, keep := map[string]bool{}, map[string]bool{}
-	switch strings.ToUpper(strings.TrimSpace(stringNode(definition["mode"]))) {
-	case "", "REACT", AgentModeGeneral, AgentModeCoder, AgentModeKBase:
-		preset["run_env"] = true
-	}
+
 	for _, name := range presets {
 		preset[name] = true
 	}

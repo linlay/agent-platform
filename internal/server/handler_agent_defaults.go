@@ -54,8 +54,8 @@ func (s *Server) buildAgentCreationDefaults(locale string) api.AgentCreationDefa
 	}
 	cfg := s.deps.Config
 	coder := nativeType("coder", catalog.AgentModeCoder, label("编程智能体", "Coding agent"), cfg.CoderSettings.DefaultAgent.ModelKey, cfg.CoderSettings.DefaultAgent.ReasoningEffort)
-	// CODER tools come from its built-in default when agent.yml declares none.
-	coder.BaseTools = agentbuiltin.CoderDefaultToolNames()
+	// Creation recommendations are persisted by the client as explicit tools.
+	coder.BaseTools = agentbuiltin.CoderCreateToolNames()
 
 	bridgeIDs := make([]string, 0, len(cfg.ACP.ACPBridges))
 	for id := range cfg.ACP.ACPBridges {

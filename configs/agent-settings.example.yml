@@ -13,6 +13,7 @@ preset-tools:
   - file_edit
   - file_glob
   - file_grep
+  - run_env
   - web_fetch
   - vision_recognize
   - image_generate
@@ -94,7 +95,12 @@ coder:
     file: AGENTS.md
 
 kbase:
-  preset-tools: []
+  preset-tools:
+    - kbase_search
+    - kbase_files
+    - kbase_read
+    - kbase_status
+    - kbase_refresh
   preset-connectors: []
   default-agent:
     # Optional default modelKey for new KBASE agents; leave empty to require explicit configuration.

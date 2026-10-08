@@ -13,7 +13,7 @@ const (
 	DefaultIconName = "coder"
 )
 
-var defaultToolNames = []string{
+var createToolNames = []string{
 	"bash",
 	"file_read",
 	"file_write",
@@ -38,18 +38,9 @@ var defaultBudget = map[string]any{
 	},
 }
 
-func DefaultToolNames() []string {
-	return append([]string(nil), defaultToolNames...)
-}
-
-// DefaultToolNamesForBackend returns the platform tools that can actually run
-// for a CODER backend. ACP delegates execution to its bridge, so platform
-// tools must not be advertised or passed through for that backend.
-func DefaultToolNamesForBackend(acpBridgeID string) []string {
-	if IsACPBackend(Mode, acpBridgeID) {
-		return nil
-	}
-	return DefaultToolNames()
+// CreateToolNames supplies recommendations for new Agent configuration.
+func CreateToolNames() []string {
+	return append([]string(nil), createToolNames...)
 }
 
 func DefaultContextTags() []string {
@@ -68,7 +59,6 @@ func Descriptor() agentcontract.ModeDescriptor {
 		CreatePrefix: CreatePrefix,
 		Profile: agentcontract.ModeProfile{
 			IconName:    DefaultIconName,
-			ToolNames:   DefaultToolNames(),
 			ContextTags: DefaultContextTags(),
 			Budget:      DefaultBudget(),
 		},

@@ -434,7 +434,7 @@ func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
 	if !strings.Contains(content, "custom coder system prompt") {
 		t.Fatalf("expected coder system prompt in system init, got %q", content)
 	}
-	assertToolNames(t, profiles[0].Tools, []string{"bash", "datetime", "plan_add_tasks", "plan_get_tasks", "plan_update_task"})
+	assertToolNames(t, profiles[0].Tools, []string{"bash", "datetime"})
 }
 
 func planningSystemInitToolDefs() []api.ToolDetailResponse {
@@ -751,9 +751,7 @@ func TestModeAndEnvironmentUseSamePromptLocale(t *testing.T) {
 	}
 }
 
-// CODER normally re-adds its plan task tools when a Run starts. A Run started
-// from a confirmed plan must keep exactly the tools left after the configured
-// execution exclusions, in both the persisted profile and the model request.
+// Both ordinary and confirmed CODER Runs preserve the configured tool set.
 func TestConfirmedPlanRunKeepsExcludedPlanTaskToolsRemovedForCoder(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "CODER"
@@ -764,12 +762,12 @@ func TestConfirmedPlanRunKeepsExcludedPlanTaskToolsRemovedForCoder(t *testing.T)
 		t.Fatalf("expected one profile, got %#v", profiles)
 	}
 	assertToolNames(t, profiles[0].Tools, []string{"bash", "file_read"})
-	if got := resolveAllowedToolNames(session, "coder", nil); !reflect.DeepEqual(got, []string{"bash", "file_read"}) {
+	if got := resolveAllowedToolNames(session, nil); !reflect.DeepEqual(got, []string{"bash", "file_read"}) {
 		t.Fatalf("request tools = %#v, excluded plan task tools must not return", got)
 	}
 
 	session.ConfirmedPlanRun = false
-	if got := resolveAllowedToolNames(session, "coder", nil); len(got) != 5 {
-		t.Fatalf("an ordinary CODER Run still gets its plan task tools, got %#v", got)
+	if got := resolveAllowedToolNames(session, nil); !reflect.DeepEqual(got, session.ToolNames) {
+		t.Fatalf("ordinary CODER Run expanded its tools: %#v", got)
 	}
 }

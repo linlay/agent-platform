@@ -28,9 +28,9 @@ set/unset/update 在 Scope 同一把锁中校验与提交。update 按归一化 
 
 ## 调用范围与生命周期
 
-普通 Native GENERAL/CODER/KBASE 默认自动挂载 run_env，不依赖 preset-tools，但可通过 excludeTools 排除。未排除时进入有效 Tools，排除后不创建 Scope；新建时无需落盘到 Agent YAML，旧显式声明仍可读取。Scope 准入继续使用有效 Tools，不使用 DeclaredTools。平台管理连接器需要显式挂载，创建接口不隐含授予管理权限。
+普通 Native GENERAL/CODER/KBASE 通过全局/mode preset 或 Agent 自身声明获得 run_env；分发示例将其列入全局 preset-tools，可通过 excludeTools 排除。未配置或被排除时不创建 Scope。Scope 准入使用有效 Tools，不使用 DeclaredTools。平台管理连接器需要显式挂载，创建接口不隐含授予管理权限。
 
-固定挂载不扩大执行范围：仅普通 native root Run 获得 Scope。list/explain 可用于该调用者的只读阶段，set/unset/update 仅在执行阶段可用并作为调度屏障，保持模型调用顺序、审批和启动时的环境快照一致。子任务与 Team 模型列表隐藏 run_env，执行入口仍拒绝。chat_start 新 root 不继承父 Scope，符合准入时获得自己的空 Scope。
+配置挂载不扩大执行范围：仅普通 native root Run 获得 Scope。list/explain 可用于该调用者的只读阶段，set/unset/update 仅在执行阶段可用并作为调度屏障，保持模型调用顺序、审批和启动时的环境快照一致。子任务与 Team 模型列表隐藏 run_env，执行入口仍拒绝。chat_start 新 root 不继承父 Scope，符合准入时获得自己的空 Scope。
 
 环境优先级：继承的 Host 环境 < Agent 环境 < 按顺序叠加的 Skill 环境 < 当前动态层 < 调用级环境 < Platform 保留上下文。unset 只移除动态层，后续新进程可能重新看到低层同名值。
 

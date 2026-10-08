@@ -235,6 +235,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"  tools:",
 		"    - datetime",
 		"    - ask_user_question",
+		"    - bash",
 		"skillConfig:",
 		"  skills:",
 		"    - mock-skill",
@@ -289,6 +290,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 
 	cfg := config.Config{
+		ModePresets: map[string]config.AgentPresets{"kbase": {Tools: []string{"kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh"}}},
 		Server: config.ServerConfig{
 			Port: "18080",
 		},

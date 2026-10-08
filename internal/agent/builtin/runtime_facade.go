@@ -39,7 +39,7 @@ func IsCoderMode(mode string) bool     { return coder.IsMode(mode) }
 func IsKBaseMode(mode string) bool     { return kbase.IsMode(mode) }
 func IsGeneralMode(mode string) bool   { return general.IsMode(mode) }
 func GeneralCreateToolNames() []string { return general.CreateToolNames() }
-func CoderDefaultToolNames() []string  { return coder.DefaultToolNames() }
+func CoderCreateToolNames() []string   { return coder.CreateToolNames() }
 
 const GeneralCreatePrefix = general.CreatePrefix
 
@@ -142,9 +142,6 @@ func CoderValidateWorkspaceGit(policy CoderWorkspaceGitPolicy) error {
 }
 func CoderLoadWorkspacePrompt(policy CoderWorkspacePromptPolicy) (string, error) {
 	return coder.LoadWorkspacePrompt(policy)
-}
-func CoderRuntimeToolNamesForAgent(mode, acpBridgeID, stage string, names []string) []string {
-	return coder.RuntimeToolNamesForAgent(mode, acpBridgeID, stage, names)
 }
 func KBaseCreateToolNames() []string         { return kbase.CreateToolNames() }
 func TeamDefaultBudget() map[string]any      { return agentteam.DefaultBudget() }

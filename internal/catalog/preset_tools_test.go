@@ -9,7 +9,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
+	"agent-platform/internal/kbase"
 )
 
 func TestPresetToolsResolveAndExclude(t *testing.T) {
@@ -20,19 +20,6 @@ func TestPresetToolsResolveAndExclude(t *testing.T) {
 	}
 	if len(d.DeclaredTools) != 3 || len(d.ToolBindings) != 4 {
 		t.Fatalf("lost provenance: %#v", d)
-	}
-	// Even an excluded file_read is provided by the native Desktop connector.
-	if err := resolveConnectorPackages(&d, func(string) (connector.Package, error) { return connector.Package{}, nil }); err != nil {
-		t.Fatal(err)
-	}
-	d.addAutomaticToolBinding("file_read", "connector")
-	if d.ToolBindings[2].Removable || !d.ToolBindings[2].Excluded || !d.ToolBindings[2].Active {
-		t.Fatalf("binding=%#v", d.ToolBindings[2])
-	}
-	d.Skills = []string{"skill"}
-	d.finishToolBindings()
-	if !containsString(d.Tools, "bash") {
-		t.Fatal("runtime dependency removed")
 	}
 	clone := cloneAgentDefinitionSnapshot(d)
 	clone.ToolBindings[0].Source = "changed"
@@ -85,7 +72,7 @@ func TestPresetToolsCatalogAndStructuredSave(t *testing.T) {
 	if !ok {
 		t.Fatal("agent missing")
 	}
-	if !reflect.DeepEqual(d.Tools, []string{"datetime", "bash", "run_env"}) || !d.ToolBindings[1].Excluded {
+	if !reflect.DeepEqual(d.Tools, []string{"datetime", "bash"}) || !d.ToolBindings[1].Excluded {
 		t.Fatalf("resolved=%#v", d)
 	}
 	delete(definition, "toolConfig")
@@ -111,19 +98,16 @@ func TestPresetToolsACPRejectsExclusions(t *testing.T) {
 	}
 }
 
-func TestPresetToolsModeDefaultsAndRuntimeDependencies(t *testing.T) {
+func TestPresetToolsDoNotDeriveToolsFromCapabilities(t *testing.T) {
 	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
-		d := AgentDefinition{Mode: mode, Engine: AgentEngineNative, DeclaredTools: []string{}, ExcludedTools: []string{"wait", "bash"}}
+		d := AgentDefinition{Mode: mode, Engine: AgentEngineNative, DeclaredTools: []string{}, ExcludedTools: []string{"wait", "bash"}, Skills: []string{"skill"}, MemoryEnabled: true, KBaseConfig: kbase.Config{Enabled: true}, Runtime: map[string]any{"env": map[string]string{"LANG": "en_US"}}}
 		d.applyPresetTools([]string{"datetime", "wait"})
 		if !containsString(d.Tools, "datetime") || containsString(d.Tools, "wait") || containsString(d.Tools, "bash") {
 			t.Fatalf("mode=%s tools=%v", mode, d.Tools)
 		}
-		d.KBaseConfig.Enabled = true
-		d.MemoryEnabled = true
-		d.finishToolBindings()
 		for _, name := range []string{"kbase_search", "memory_read"} {
-			if !containsString(d.Tools, name) {
-				t.Fatalf("lost %s in %s", name, mode)
+			if containsString(d.Tools, name) {
+				t.Fatalf("implicit %s in %s", name, mode)
 			}
 		}
 	}
@@ -160,7 +144,6 @@ func TestCoderRegexPresetControlsEffectiveToolsAndExclusion(t *testing.T) {
 				def.ExcludedTools = []string{"regex"}
 			}
 			def.applyPresetTools(cfg.PresetsForMode(tc.mode).Tools)
-			def.finishToolBindings()
 			if containsString(def.Tools, "regex") != tc.want {
 				t.Fatalf("effective tools=%v want regex=%v", def.Tools, tc.want)
 			}
@@ -168,7 +151,7 @@ func TestCoderRegexPresetControlsEffectiveToolsAndExclusion(t *testing.T) {
 	}
 }
 
-func TestRunEnvDefaultMountRespectsExclusions(t *testing.T) {
+func TestRunEnvPresetRespectsExclusions(t *testing.T) {
 	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
 		for _, presets := range [][]string{nil, {"run_env"}} {
 			for _, excluded := range []bool{false, true} {
@@ -177,8 +160,7 @@ func TestRunEnvDefaultMountRespectsExclusions(t *testing.T) {
 					d.ExcludedTools = []string{"run_env"}
 				}
 				d.applyPresetTools(presets)
-				d.finishToolBindings()
-				if containsString(d.Tools, "run_env") == excluded || containsString(d.DeclaredTools, "run_env") {
+				if containsString(d.Tools, "run_env") != (len(presets) > 0 && !excluded) || containsString(d.DeclaredTools, "run_env") {
 					t.Fatalf("%s excluded=%v tools=%v declared=%v", mode, excluded, d.Tools, d.DeclaredTools)
 				}
 				count := 0
@@ -190,7 +172,7 @@ func TestRunEnvDefaultMountRespectsExclusions(t *testing.T) {
 						}
 					}
 				}
-				if count != 1 {
+				if count != len(presets) {
 					t.Fatalf("bindings %v", d.ToolBindings)
 				}
 			}
@@ -198,15 +180,14 @@ func TestRunEnvDefaultMountRespectsExclusions(t *testing.T) {
 	}
 	for _, d := range []AgentDefinition{{Mode: AgentModeCoder, Engine: AgentEngineACP}, {Mode: "TEAM"}, {Mode: "CHANNEL"}, {Mode: "PROXY"}} {
 		d.applyPresetTools(nil)
-		d.finishToolBindings()
 		if containsString(d.Tools, "run_env") {
 			t.Fatalf("non-native mount %#v", d)
 		}
 	}
 	definition := map[string]any{"mode": "GENERAL", "toolConfig": map[string]any{"tools": []string{"run_env", "bash"}}}
 	stripPresetToolDeclarations(definition, nil, nil)
-	if got := listStrings(mapNode(definition["toolConfig"])["tools"]); !reflect.DeepEqual(got, []string{"bash"}) {
-		t.Fatalf("automatic tool persisted %v", got)
+	if got := listStrings(mapNode(definition["toolConfig"])["tools"]); !reflect.DeepEqual(got, []string{"run_env", "bash"}) {
+		t.Fatalf("explicit tool lost %v", got)
 	}
 }
 

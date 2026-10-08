@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
@@ -1147,7 +1146,7 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	var wantTools []string
 	if !reflect.DeepEqual(def.Tools, wantTools) {
 		t.Fatalf("tools = %#v, want %#v", def.Tools, wantTools)
 	}
@@ -1304,20 +1303,8 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.Mode != AgentModeKBase {
 		t.Fatalf("mode = %q, want KBASE", def.Mode)
 	}
-	// Without toolConfig a KBASE agent gets only the capability tools every
-	// enabled knowledge base receives; file tools must be declared.
-	for _, tool := range kbase.CapabilityToolNames() {
-		if !containsString(def.Tools, tool) {
-			t.Fatalf("expected KBASE capability tools to include %s, got %#v", tool, def.Tools)
-		}
-	}
-	for _, tool := range append(agentkbase.StructuredFileToolNames(), "bash") {
-		if containsString(def.Tools, tool) {
-			t.Fatalf("KBASE must not receive undeclared tool %s, got %#v", tool, def.Tools)
-		}
-	}
-	if !def.MemoryEnabled || !containsString(def.Tools, "memory_search") {
-		t.Fatalf("KBASE memoryConfig must be honored like any other agent, got %#v tools=%#v", def.MemoryConfig, def.Tools)
+	if len(def.Tools) != 0 || !def.MemoryEnabled {
+		t.Fatalf("capability flags must not grant tools: memory=%v tools=%v", def.MemoryEnabled, def.Tools)
 	}
 	if def.KBaseConfig.Storage.Location != "workspace" {
 		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
@@ -1486,7 +1473,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	}
 	// agent.yml is the single source of a KBASE agent's tools: declared tools
 	// are kept, and nothing undeclared is added except capability tools.
-	for _, tool := range []string{"kbase_search", "kbase_files", "memory_search", "bash", "datetime", "kbase_read"} {
+	for _, tool := range []string{"kbase_search", "kbase_files", "memory_search", "bash", "datetime"} {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected declared/capability tool %s, got %#v", tool, def.Tools)
 		}
@@ -1539,11 +1526,10 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 	if def.Workspace.Root != filepath.Clean(knowledgeDir) {
 		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, knowledgeDir)
 	}
-	for _, tool := range append([]string{"datetime"}, kbase.DefaultToolNames()...) {
-		if !containsString(def.Tools, tool) {
-			t.Fatalf("expected tool %q while preserving ordinary tools, got %#v", tool, def.Tools)
-		}
+	if !reflect.DeepEqual(def.Tools, []string{"datetime"}) {
+		t.Fatalf("capability changed declared tools: %v", def.Tools)
 	}
+
 }
 
 func TestDedicatedKBaseLoadsConfiguredWorkspace(t *testing.T) {
@@ -1759,8 +1745,8 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 				t.Fatalf("unexpected %s capability: %#v", mode, def.KBaseConfig)
 			}
 			for _, tool := range kbase.CapabilityToolNames() {
-				if !containsString(def.Tools, tool) {
-					t.Fatalf("%s missing KBASE tool %q: %#v", mode, tool, def.Tools)
+				if containsString(def.Tools, tool) {
+					t.Fatalf("%s implicitly added KBASE tool %q: %#v", mode, tool, def.Tools)
 				}
 			}
 		})
@@ -2224,7 +2210,7 @@ func TestParseAgentFileKeepsBaseMemoryToolsDisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileMountsMemoryMaintenanceButNotRetiredTools(t *testing.T) {
+func TestParseAgentFileMemoryRequiresToolDeclarations(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -2243,8 +2229,8 @@ func TestParseAgentFileMountsMemoryMaintenanceButNotRetiredTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if !containsString(def.Tools, "memory_update") {
-		t.Fatal("memory maintenance tool missing")
+	if len(def.Tools) != 0 || !def.MemoryEnabled {
+		t.Fatal("memory capability must not grant tools")
 	}
 	for _, tool := range []string{"memory_forget", "memory_timeline", "memory_promote"} {
 		if containsString(def.Tools, tool) {

@@ -181,7 +181,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 		t.Fatalf("build query session: %v", err)
 	}
 
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task", "run_env"}
+	wantTools := []string{}
 	if !reflect.DeepEqual(session.ToolNames, wantTools) {
 		t.Fatalf("tool names = %#v, want %#v", session.ToolNames, wantTools)
 	}
@@ -383,12 +383,13 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	def := catalog.AgentDefinition{
-		Key:       "zenmi",
-		Name:      "Zenmi",
-		Mode:      "REACT",
-		ModelKey:  "mock-model",
-		Tools:     append([]string{"datetime"}, kbase.DefaultToolNames()...),
-		Workspace: catalog.AgentWorkspaceConfig{Root: workspace},
+		StageSettings: map[string]any{"plan": map[string]any{"toolConfig": map[string]any{"tools": []any{"datetime"}}}, "execute": map[string]any{"toolConfig": map[string]any{"tools": []any{"datetime"}}}},
+		Key:           "zenmi",
+		Name:          "Zenmi",
+		Mode:          "REACT",
+		ModelKey:      "mock-model",
+		Tools:         append([]string{"datetime"}, kbase.DefaultToolNames()...),
+		Workspace:     catalog.AgentWorkspaceConfig{Root: workspace},
 		KBaseConfig: kbase.Config{
 			Enabled: true,
 		},
@@ -407,6 +408,11 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 || session.CapabilityPrompts[0] != kbase.DefaultCapabilityPrompt {
 		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
 	}
+	for _, stage := range []contracts.StageSettings{session.ResolvedPlanExecuteSettings.Plan, session.ResolvedPlanExecuteSettings.Execute} {
+		if !reflect.DeepEqual(stage.Tools, []string{"datetime"}) {
+			t.Fatalf("KBASE capability expanded explicit stage tools: %v", stage.Tools)
+		}
+	}
 	if session.ScopedFilePolicy != nil || session.EditingMode {
 		t.Fatalf("ordinary Agent capability must not inherit dedicated KBASE editing policy: %#v", session.ScopedFilePolicy)
 	}
@@ -416,27 +422,6 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	def.KBaseConfig.Enabled = false
 	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 {
 		t.Fatal("mutating the catalog definition changed an existing session snapshot")
-	}
-}
-
-func TestKBaseCapabilityExtendsExplicitStageTools(t *testing.T) {
-	got := appendKBaseCapabilityToolsToExplicitStage([]string{"bash", "kbase_search"})
-	if !containsString(got, "bash") {
-		t.Fatalf("ordinary stage tool was removed: %#v", got)
-	}
-	for _, toolName := range kbase.CapabilityToolNames() {
-		count := 0
-		for _, item := range got {
-			if item == toolName {
-				count++
-			}
-		}
-		if count != 1 {
-			t.Fatalf("stage tool %q count = %d in %#v", toolName, count, got)
-		}
-	}
-	if got := appendKBaseCapabilityToolsToExplicitStage(nil); got != nil {
-		t.Fatalf("implicit stage tools must continue falling back to root tools: %#v", got)
 	}
 }
 
@@ -1022,11 +1007,11 @@ func TestBuildQuerySessionPlanningModeAppliesToNativeAgentsOnRequest(t *testing.
 	}
 }
 
-func TestRunEnvDefaultMountRespectsExclusionWithoutPreset(t *testing.T) {
+func TestRunEnvPresetMountRespectsExclusion(t *testing.T) {
 	for _, excluded := range []bool{false, true} {
 		t.Run(fmt.Sprint(excluded), func(t *testing.T) {
 			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {}, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
-				cfg.PresetTools = nil
+				cfg.PresetTools = []string{"run_env"}
 				if excluded {
 					p := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
 					data, err := os.ReadFile(p)

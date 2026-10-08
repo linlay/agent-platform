@@ -104,7 +104,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		stageSettings.ReasoningEnabled = false
 	}
 	budgetStage := budgetStageForName(session, options.Stage)
-	allowedTools := resolveAllowedToolNames(session, options.Stage, options.ToolNames)
+	allowedTools := resolveAllowedToolNames(session, options.ToolNames)
 	allToolDefs := mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions)
 	effectiveDefs := effectiveToolDefinitions(allToolDefs, allowedTools, session)
 	if session.ToolSetFrozen {
@@ -448,14 +448,14 @@ func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []ap
 	return filtered
 }
 
-func resolveAllowedToolNames(session QuerySession, stage string, override []string) []string {
+func resolveAllowedToolNames(session QuerySession, override []string) []string {
 	if override != nil {
 		if len(override) == 0 {
 			return nil
 		}
-		return coderRuntimeToolNamesForStage(session, stage, override)
+		return append([]string(nil), override...)
 	}
-	return coderRuntimeToolNamesForStage(session, stage, session.ToolNames)
+	return append([]string(nil), session.ToolNames...)
 }
 
 func cachedToolsCompatibleWithStageOverride(override []string, cached []openAIToolSpec) bool {

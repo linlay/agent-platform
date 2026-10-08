@@ -119,14 +119,13 @@ func TestKBaseAgentUsesDeclaredToolsLikeAnyNativeAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse KBASE agent: %v", err)
 	}
-	// Declared tools are kept, a skill brings bash exactly as it does for
-	// other native agents, and the capability tools are always present.
-	for _, tool := range []string{"file_read", "web_fetch", "bash", "kbase_search"} {
+	// Skills and capability flags do not change the declared tool set.
+	for _, tool := range []string{"file_read", "web_fetch"} {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected tool %s, got %#v", tool, def.Tools)
 		}
 	}
-	if containsString(def.Tools, "file_write") {
+	if len(def.Tools) != 2 {
 		t.Fatalf("undeclared tool was added: %#v", def.Tools)
 	}
 	if !kbaseAgentHasFileTool(def.Tools) || kbaseAgentHasFileTool([]string{"kbase_search", "datetime"}) {
