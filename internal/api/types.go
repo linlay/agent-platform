@@ -503,8 +503,29 @@ type AgentDetailResponse struct {
 
 // Admin saves retain editing metadata without expanding the usage detail.
 type AdminAgentSaveResponse struct {
-	AgentDetailResponse
-	ToolBindings []AgentToolBinding `json:"toolBindings,omitempty"`
+	ModelKey          string             `json:"modelKey,omitempty"`
+	ServiceTier       string             `json:"serviceTier,omitempty"`
+	ReasoningEffort   string             `json:"reasoningEffort,omitempty"`
+	InteractionConfig interaction.Config `json:"interactionConfig"`
+	Key               string             `json:"key"`
+	Name              string             `json:"name"`
+	Icon              any                `json:"icon,omitempty"`
+	Description       string             `json:"description,omitempty"`
+	Role              string             `json:"role,omitempty"`
+	Greetings         []string           `json:"greetings,omitempty"`
+	Introductions     []string           `json:"introductions,omitempty"`
+	Wonders           []string           `json:"wonders,omitempty"`
+	Mode              string             `json:"mode"`
+	Engine            string             `json:"engine,omitempty"`
+	Skills            []string           `json:"skills"`
+	Connectors        []string           `json:"connectors"`
+	Controls          []map[string]any   `json:"controls"`
+	Meta              map[string]any     `json:"meta"`
+	Definition        map[string]any     `json:"definition,omitempty"`
+	SoulPrompt        string             `json:"soulPrompt,omitempty"`
+	AgentsPrompt      string             `json:"agentsPrompt,omitempty"`
+	Source            *AgentSource       `json:"source,omitempty"`
+	ToolBindings      []AgentToolBinding `json:"toolBindings,omitempty"`
 }
 
 type AgentSource struct {
@@ -552,26 +573,26 @@ type DeleteAdminSourceResponse struct {
 }
 
 type AdminAgentDetailResponse struct {
-	ConnectorBindings *AdminAgentConnectorsResponse `json:"connectorBindings,omitempty"`
-	ToolBindings      []AgentToolBinding            `json:"toolBindings"`
-	Key               string                        `json:"key"`
-	Name              string                        `json:"name"`
-	Icon              any                           `json:"icon,omitempty"`
-	Description       string                        `json:"description,omitempty"`
-	Role              string                        `json:"role,omitempty"`
-	Model             string                        `json:"model,omitempty"`
-	Mode              string                        `json:"mode,omitempty"`
-	Tools             []string                      `json:"tools"`
-	Skills            []string                      `json:"skills"`
-	Controls          []map[string]any              `json:"controls"`
-	Meta              map[string]any                `json:"meta"`
-	Definition        map[string]any                `json:"definition,omitempty"`
-	SoulPrompt        string                        `json:"soulPrompt,omitempty"`
-	AgentsPrompt      string                        `json:"agentsPrompt,omitempty"`
-	Source            *AgentSource                  `json:"source,omitempty"`
-	Status            string                        `json:"status"`
-	Diagnostics       []AdminAgentDiagnostic        `json:"diagnostics,omitempty"`
-	PrivateSkills     []AdminAgentPrivateSkill      `json:"privateSkills,omitempty"`
+	ConnectorBindings []AdminAgentConnectorBinding `json:"connectorBindings"`
+	ReloadPending     bool                         `json:"reloadPending"`
+	ToolBindings      []AgentToolBinding           `json:"toolBindings"`
+	Key               string                       `json:"key"`
+	Name              string                       `json:"name"`
+	Icon              any                          `json:"icon,omitempty"`
+	Description       string                       `json:"description,omitempty"`
+	Role              string                       `json:"role,omitempty"`
+	Model             string                       `json:"model,omitempty"`
+	Mode              string                       `json:"mode,omitempty"`
+	Skills            []string                     `json:"skills"`
+	Controls          []map[string]any             `json:"controls"`
+	Meta              map[string]any               `json:"meta"`
+	Definition        map[string]any               `json:"definition,omitempty"`
+	SoulPrompt        string                       `json:"soulPrompt,omitempty"`
+	AgentsPrompt      string                       `json:"agentsPrompt,omitempty"`
+	Source            *AgentSource                 `json:"source,omitempty"`
+	Status            string                       `json:"status"`
+	Diagnostics       []AdminAgentDiagnostic       `json:"diagnostics,omitempty"`
+	PrivateSkills     []AdminAgentPrivateSkill     `json:"privateSkills,omitempty"`
 }
 
 type AdminAgentPrivateSkill struct {
@@ -1473,4 +1494,11 @@ type ConnectorOrderResponse struct {
 type UpdateConnectorOrderRequest struct {
 	ID     string `json:"id"`
 	Pinned *bool  `json:"pinned"`
+}
+
+type AdminAgentConnectorBinding struct {
+	ID             string `json:"id"`
+	Source         string `json:"source"`
+	Active         bool   `json:"active"`
+	PendingRemoval bool   `json:"pendingRemoval,omitempty"`
 }

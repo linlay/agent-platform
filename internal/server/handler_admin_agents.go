@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,8 +24,7 @@ type adminAgentRegistry interface {
 }
 
 func (s *Server) writeAdminAgentSaveResponse(w http.ResponseWriter, detail api.AgentDetailResponse, err error) {
-	detail.Tools = s.independentAgentToolNames(detail.Tools)
-	response := api.AdminAgentSaveResponse{AgentDetailResponse: detail}
+	response := api.AdminAgentSaveResponse{ModelKey: detail.ModelKey, ServiceTier: detail.ServiceTier, ReasoningEffort: detail.ReasoningEffort, InteractionConfig: detail.InteractionConfig, Key: detail.Key, Name: detail.Name, Icon: detail.Icon, Description: detail.Description, Role: detail.Role, Greetings: detail.Greetings, Introductions: detail.Introductions, Wonders: detail.Wonders, Mode: detail.Mode, Engine: detail.Engine, Skills: detail.Skills, Connectors: detail.Connectors, Controls: detail.Controls, Meta: detail.Meta, Definition: detail.Definition, SoulPrompt: detail.SoulPrompt, AgentsPrompt: detail.AgentsPrompt, Source: detail.Source}
 	if err == nil {
 		if def, found := s.deps.Registry.AgentDefinition(detail.Key); found {
 			response.ToolBindings = s.independentAgentToolBindings(def.EffectiveToolBindings())
@@ -112,7 +112,6 @@ type adminAgentPrivateSkillReader interface {
 }
 
 func (s *Server) withAdminAgentPrivateSkills(detail api.AdminAgentDetailResponse) (api.AdminAgentDetailResponse, error) {
-	detail.Tools = s.independentAgentToolNames(detail.Tools)
 	detail.ToolBindings = s.independentAgentToolBindings(detail.ToolBindings)
 	registry, ok := s.deps.Registry.(adminAgentPrivateSkillReader)
 	if !ok || registry == nil {
@@ -162,7 +161,6 @@ func adminAgentDetailFromAgentDetail(detail api.AgentDetailResponse, item catalo
 		Role:         detail.Role,
 		Model:        detail.ModelKey,
 		Mode:         detail.Mode,
-		Tools:        append([]string{}, detail.Tools...),
 		Skills:       append([]string{}, detail.Skills...),
 		Controls:     cloneListMaps(detail.Controls),
 		Meta:         cloneMeta(detail.Meta),
@@ -184,7 +182,6 @@ func adminAgentDetailFromAdminAgent(item catalog.AdminAgent) api.AdminAgentDetai
 		Role:         item.Role,
 		Model:        item.ModelKey,
 		Mode:         item.Mode,
-		Tools:        append([]string{}, item.Tools...),
 		Skills:       append([]string{}, item.Skills...),
 		Controls:     cloneListMaps(item.Controls),
 		Meta:         cloneMeta(item.Meta),
@@ -380,10 +377,28 @@ func writeAgentOrderFile(agentsDir string, file catalog.AgentOrderFile) error {
 func (s *Server) withAdminAgentBindings(detail api.AdminAgentDetailResponse) (api.AdminAgentDetailResponse, error) {
 	bindings, err := s.agentConnectorSelection(context.Background(), api.SetAgentConnectorRequest{AgentKey: detail.Key}, false)
 	if err == nil {
-		detail.ConnectorBindings = &bindings
+		detail.ConnectorBindings = adminConnectorBindings(bindings)
+		detail.ReloadPending = bindings.ReloadPending
 	} else if strings.EqualFold(detail.Status, catalog.AdminAgentStatusReady) {
 		return api.AdminAgentDetailResponse{}, err
 	}
 	// Invalid source remains editable even when its connector declarations cannot be read.
 	return s.withAdminAgentPrivateSkills(detail)
+}
+
+func adminConnectorBindings(state api.AdminAgentConnectorsResponse) []api.AdminAgentConnectorBinding {
+	result := []api.AdminAgentConnectorBinding{}
+	seen := map[string]bool{}
+	for _, id := range append(append([]string{}, state.ConnectorIDs...), state.ActiveConnectorIDs...) {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		source := "agent"
+		if slices.Contains(state.PresetConnectorIDs, id) {
+			source = "preset"
+		}
+		result = append(result, api.AdminAgentConnectorBinding{ID: id, Source: source, Active: slices.Contains(state.ActiveConnectorIDs, id), PendingRemoval: !slices.Contains(state.ConnectorIDs, id)})
+	}
+	return result
 }

@@ -207,4 +207,6 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 
 `builtin.kanban-control`（看板控制）独立提供 `desktop_kanban` 的六个看板动作，依赖 Desktop；原 `builtin.platform-control` 挂载不再授予看板能力。需要看板的 Agent 应显式挂载新连接器，详见 [连接器](docs/连接器.md#kanban-control-看板控制)。
 
-管理工具归属：`/api/admin/tools` 与 Agent 管理详情的 `tools/toolBindings` 仅展示独立工具；原生连接器工具及 MCP 工具由 `/api/admin/connectors` 每项的 `tools` 提供名称、说明与路由标识。`catalogVisible:false` 仍限制独立目录，不阻止在所属连接器中查看详情；不改变原始 definition、运行时工具集合及挂载权限。通用 bash/file_read 依赖不视作连接器所属工具。
+管理工具归属：`/api/admin/tools` 与 Agent 管理详情的 `toolBindings` 仅展示独立工具；原生连接器工具及 MCP 工具由 `/api/admin/connectors` 每项的 `tools` 提供名称、说明与路由标识。`catalogVisible:false` 仍限制独立目录，不阻止在所属连接器中查看详情；不改变原始 definition、运行时工具集合及挂载权限。通用 bash/file_read 依赖不视作连接器所属工具。
+
+管理详情及管理端创建、修改、改名响应不返回顶层 tools，独立工具信息统一由 toolBindings 表达；definition.toolConfig 保持原始编辑语义。使用端 /api/agent.tools 继续返回运行时工具 ID 数组。

@@ -29,8 +29,8 @@ func TestManagementIndependentToolsExcludeConnectorOwnership(t *testing.T) {
 	if !reflect.DeepEqual(got, []string{"bash", "file_read", "custom"}) {
 		t.Fatalf("tools: %v", got)
 	}
-	detail, err := s.withAdminAgentPrivateSkills(api.AdminAgentDetailResponse{Tools: names, ToolBindings: []api.AgentToolBinding{{Name: "chat_start"}, {Name: "file_read"}}})
-	if err != nil || !reflect.DeepEqual(detail.Tools, got) || len(detail.ToolBindings) != 1 || detail.ToolBindings[0].Name != "file_read" {
+	detail, err := s.withAdminAgentPrivateSkills(api.AdminAgentDetailResponse{ToolBindings: []api.AgentToolBinding{{Name: "chat_start"}, {Name: "file_read"}}})
+	if err != nil || len(detail.ToolBindings) != 1 || detail.ToolBindings[0].Name != "file_read" {
 		t.Fatalf("detail: %+v, %v", detail, err)
 	}
 	if len(names) != 9 {
@@ -102,8 +102,17 @@ func TestAdminAgentSaveResponseExcludesConnectorTools(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Code != http.StatusOK || !reflect.DeepEqual(body.Data.Tools, []string{"file_read"}) {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("save response: %s", rec.Body.String())
+	}
+	var wire struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := wire.Data["tools"]; exists {
+		t.Fatal("management save leaked tools")
 	}
 	for _, binding := range body.Data.ToolBindings {
 		if _, owned := connector.NativeToolConnector(binding.Name); owned {

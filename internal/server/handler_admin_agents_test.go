@@ -330,11 +330,20 @@ func TestAdminAgentUnifiedDetailIncludesConnectorBindings(t *testing.T) {
 	for _, path := range []string{"/api/admin/agent", "/api/admin/agents/detail"} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?agentKey=mock-agent", nil))
+		var wire struct {
+			Data map[string]json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &wire); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := wire.Data["tools"]; exists {
+			t.Fatal("management detail leaked tools")
+		}
 		var response api.ApiResponse[api.AdminAgentDetailResponse]
 		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || rec.Code != http.StatusOK {
 			t.Fatalf("detail: %s (%v)", rec.Body.String(), err)
 		}
-		if response.Data.ConnectorBindings == nil || response.Data.ConnectorBindings.AgentKey != "mock-agent" {
+		if response.Data.ConnectorBindings == nil {
 			t.Fatalf("missing connector bindings: %s", rec.Body.String())
 		}
 		bindings, _ := json.Marshal(response.Data.ConnectorBindings)
@@ -344,7 +353,7 @@ func TestAdminAgentUnifiedDetailIncludesConnectorBindings(t *testing.T) {
 		if err := json.Unmarshal(selection.Body.Bytes(), &original); err != nil {
 			t.Fatal(err)
 		}
-		want, _ := json.Marshal(original.Data)
+		want, _ := json.Marshal(adminConnectorBindings(original.Data))
 		if string(bindings) != string(want) {
 			t.Fatalf("bindings differ: %s != %s", bindings, want)
 		}
@@ -352,5 +361,18 @@ func TestAdminAgentUnifiedDetailIncludesConnectorBindings(t *testing.T) {
 			t.Fatal("compatibility path differs")
 		}
 		first = rec.Body.String()
+	}
+}
+
+func TestAdminConnectorBindingsLifecycle(t *testing.T) {
+	state := api.AdminAgentConnectorsResponse{ConnectorIDs: []string{"preset", "new"}, PresetConnectorIDs: []string{"preset"}, ActiveConnectorIDs: []string{"preset", "removed"}}
+	got, _ := json.Marshal(adminConnectorBindings(state))
+	want := `[{"id":"preset","source":"preset","active":true},{"id":"new","source":"agent","active":false},{"id":"removed","source":"agent","active":true,"pendingRemoval":true}]`
+	if string(got) != want {
+		t.Fatalf("got %s", got)
+	}
+	empty, _ := json.Marshal(adminConnectorBindings(api.AdminAgentConnectorsResponse{}))
+	if string(empty) != "[]" {
+		t.Fatalf("empty: %s", empty)
 	}
 }
