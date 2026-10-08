@@ -16,14 +16,13 @@ inputSchema:
   type: "object"
   properties:
     action:
-      description: "Required. Exact action owned by this tool; see its mounted skill reference."
       type: "string"
       enum:
         - "runtimeStatus"
         - "securityExplain"
     args:
       type: "object"
-      description: "Action-specific arguments; see the platform-control skill."
+      description: "See its skill."
   required:
     - "action"
   additionalProperties: false

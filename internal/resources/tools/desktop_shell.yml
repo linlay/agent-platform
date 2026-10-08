@@ -21,7 +21,6 @@ inputSchema:
   type: "object"
   properties:
     action:
-      description: "Required. Exact action owned by this tool; see its mounted skill reference."
       type: "string"
       enum:
         - "navigate.toRoute"
@@ -35,7 +34,7 @@ inputSchema:
         - "general.deviceName"
     args:
       type: "object"
-      description: "Action-specific arguments; see the platform-control skill's shell reference."
+      description: "See its skill."
   required:
     - "action"
   additionalProperties: false

@@ -17,7 +17,6 @@ inputSchema:
   properties:
     action:
       type: string
-      description: "Required. Exact action owned by this tool; see its mounted skill reference."
       enum:
         - "list"
         - "get"
@@ -26,7 +25,7 @@ inputSchema:
         - "validate"
     args:
       type: object
-      description: "Action-specific arguments; see the task-control skill's automation reference."
+      description: "See its skill."
       properties:
         limit:
           type: integer

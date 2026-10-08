@@ -33,7 +33,6 @@ inputSchema:
   type: "object"
   properties:
     action:
-      description: "Required. Exact action owned by this tool; see its mounted skill reference."
       type: "string"
       enum:
         - "kanban.listIssues"
@@ -44,7 +43,7 @@ inputSchema:
         - "kanban.moveIssue"
     args:
       type: "object"
-      description: "Action-specific arguments; see the kanban-control skill's kanban reference."
+      description: "See its skill."
   required:
     - "action"
   additionalProperties: false

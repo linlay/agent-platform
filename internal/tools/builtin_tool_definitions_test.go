@@ -8,6 +8,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 )
 
@@ -759,7 +760,18 @@ func TestEmbeddedToolDescriptionsAreEnglishFriendlyAndComplete(t *testing.T) {
 		if strings.TrimSpace(def.Description) == "" {
 			t.Fatalf("expected non-empty top-level description for %s", def.Name)
 		}
-		if err := validateSchemaDescriptions(def.Parameters, ""); err != nil {
+		optionalDescriptionPath := ""
+		if _, native := connector.NativeToolConnector(def.Name); native {
+			properties := contracts.AnyMapNode(def.Parameters["properties"])
+			action := contracts.AnyMapNode(properties["action"])
+			args := contracts.AnyMapNode(properties["args"])
+			if values, ok := action["enum"].([]any); ok && len(values) > 0 && args["type"] == "object" {
+				// The enum and required list describe the action; the tool's
+				// top-level description already names its mounted skill.
+				optionalDescriptionPath = "action"
+			}
+		}
+		if err := validateSchemaDescriptions(def.Parameters, "", optionalDescriptionPath); err != nil {
 			t.Fatalf("validate descriptions for %s: %v", def.Name, err)
 		}
 	}
@@ -792,7 +804,7 @@ func enumContains(t *testing.T, field any, want string) bool {
 	return false
 }
 
-func validateSchemaDescriptions(schema map[string]any, path string) error {
+func validateSchemaDescriptions(schema map[string]any, path string, optionalDescriptionPath string) error {
 	properties, _ := schema["properties"].(map[string]any)
 	if len(properties) == 0 {
 		return nil
@@ -813,25 +825,25 @@ func validateSchemaDescriptions(schema map[string]any, path string) error {
 			return fmt.Errorf("property %s must be an object schema, got %#v", formatSchemaPath(path, name), rawChild)
 		}
 		description := strings.TrimSpace(stringValue(child["description"]))
-		if description == "" {
+		if description == "" && formatSchemaPath(path, name) != optionalDescriptionPath {
 			return fmt.Errorf("property %s is missing description", formatSchemaPath(path, name))
 		}
-		if requiredSet[name] && !strings.HasPrefix(description, "Required.") {
+		if description != "" && requiredSet[name] && !strings.HasPrefix(description, "Required.") {
 			return fmt.Errorf("required property %s must start with \"Required.\", got %q", formatSchemaPath(path, name), description)
 		}
-		if err := validateNestedSchemaDescriptions(child, formatSchemaPath(path, name)); err != nil {
+		if err := validateNestedSchemaDescriptions(child, formatSchemaPath(path, name), optionalDescriptionPath); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateNestedSchemaDescriptions(schema map[string]any, path string) error {
-	if err := validateSchemaDescriptions(schema, path); err != nil {
+func validateNestedSchemaDescriptions(schema map[string]any, path string, optionalDescriptionPath string) error {
+	if err := validateSchemaDescriptions(schema, path, optionalDescriptionPath); err != nil {
 		return err
 	}
 	if items, ok := schema["items"].(map[string]any); ok {
-		if err := validateSchemaDescriptions(items, path+"[]"); err != nil {
+		if err := validateSchemaDescriptions(items, path+"[]", optionalDescriptionPath); err != nil {
 			return err
 		}
 	}

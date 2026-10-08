@@ -57,7 +57,6 @@ inputSchema:
   type: "object"
   properties:
     action:
-      description: "Required. Exact action owned by this tool; see its mounted skill reference."
       type: "string"
       enum:
         - "theme.get"
@@ -79,7 +78,7 @@ inputSchema:
         - "copilot.setPagePreference"
     args:
       type: "object"
-      description: "Action-specific arguments; see the platform-control skill's settings reference."
+      description: "See its skill."
   required:
     - "action"
   additionalProperties: false
