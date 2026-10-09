@@ -107,11 +107,6 @@ func New(ctx context.Context, root, runtimeRoot string, engine Engine, options .
 	if overlaps(root, runtimeRoot) {
 		return nil, fmt.Errorf("knowledge base configuration and runtime roots must not overlap")
 	}
-	if _, err = os.Lstat(filepath.Join(runtimeRoot, "libraries")); err == nil {
-		return nil, fmt.Errorf("legacy ru-kbases/libraries layout: stop Platform, move library directories into ru-kbases, then remove the empty libraries directory")
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
 	cleanupQuarantines(root)
 	cleanupQuarantines(runtimeRoot)
 	if ctx == nil {

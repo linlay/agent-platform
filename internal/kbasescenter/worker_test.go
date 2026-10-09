@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -197,11 +196,55 @@ func TestHeldCreationAndReferencedDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestReservedLayoutAndSourceScope(t *testing.T) {
-	root := t.TempDir()
-	os.Mkdir(filepath.Join(root, "libraries"), 0700)
-	if _, err := New(context.Background(), t.TempDir(), root, &schedulerEngine{}); err == nil || !strings.Contains(err.Error(), "legacy") {
+func TestSchedulerIgnoresLegacyLayoutAndRebuildsCurrentLibrary(t *testing.T) {
+	s := newSchedulerService(t, &schedulerEngine{})
+	d := createFixture(t, s)
+	if err := s.Close(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	legacyRoot := filepath.Join(s.runtimeRoot, "libraries")
+	if err := os.Mkdir(legacyRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacyDir := filepath.Join(legacyRoot, d.ID)
+	if err := os.Rename(filepath.Join(s.runtimeRoot, d.ID), legacyDir); err != nil {
+		t.Fatal(err)
+	}
+	legacyFiles := map[string]string{
+		"index.sqlite": "invalid legacy index",
+		"state.json":   "invalid legacy state",
+	}
+	for name, content := range legacyFiles {
+		if err := os.WriteFile(filepath.Join(legacyDir, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened, err := New(context.Background(), s.root, s.runtimeRoot, &schedulerEngine{}, Options{Debounce: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close(context.Background())
+	if err := reopened.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, reopened, d.ID, "ready")
+	if data, err := os.ReadFile(filepath.Join(s.runtimeRoot, d.ID, "index.sqlite")); err != nil || string(data) != "fixture" {
+		t.Fatalf("current index was not rebuilt: %q %v", data, err)
+	}
+	list, err := reopened.List()
+	if err != nil || len(list) != 1 || list[0].ID != d.ID || list[0].Orphaned || list[0].InvalidID {
+		t.Fatalf("legacy layout appeared in library list: %+v %v", list, err)
+	}
+	for name, content := range legacyFiles {
+		if data, err := os.ReadFile(filepath.Join(legacyDir, name)); err != nil || string(data) != content {
+			t.Fatalf("legacy %s changed: %q %v", name, data, err)
+		}
+	}
+}
+
+func TestReservedIDAndSourceScope(t *testing.T) {
+	if ValidID("libraries") {
+		t.Fatal("legacy layout name must remain a reserved ID")
 	}
 	s := newSchedulerService(t, &schedulerEngine{})
 	for _, c := range []Collection{{Name: "docs", SourcePath: t.TempDir(), Include: []string{}}, {Name: "docs", SourcePath: t.TempDir(), Include: []string{"docs/*.md"}}} {

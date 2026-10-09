@@ -64,7 +64,7 @@ CLI 必须声明维护协议 v1、结构化错误、无扫描注册与文件路�
 
 ## 升级与验证
 
-这是硬切升级。Agent enabled/storage/include/exclude/chunk/tags/embedding 及非支持 retrieval 字段明确拒绝；`AP_RUNTIME_KBASE_DIR` 拒绝加载。检测到旧 `ru-kbases/libraries/` 或非空 runtime/kbase 时启动报错，要求停机、备份、手工整理和重新索引；不会移动或删除已有数据。`libraries` 是保留 ID，runtime 根下非库目录使用点前缀。
+这是硬切升级。Agent enabled/storage/include/exclude/chunk/tags/embedding 及非支持 retrieval 字段明确拒绝；`AP_RUNTIME_KBASE_DIR` 拒绝加载。旧 `ru-kbases/libraries/` 与旧 Agent 索引目录 `runtime/kbase` 完全忽略：不进行旧布局检查、不加载、不迁移，也不移动或删除其中数据。中心按 `kbases/<id>/library.yml` 配置自动在 `ru-kbases/<id>/` 生成索引；Agent 通过 `libraryId` 绑定中心库。`libraries` 是保留 ID，runtime 根下非库目录使用点前缀。
 
 沿用受管 builtin 同步与发布链路，不手工改正式 lock。`internal/kbasescenter` 覆盖监听、增量批次保留、重启、旧布局、并发/故障状态与删除保护；`internal/kbx` 覆盖共享库路径、过滤、图证据与源读取；Server 覆盖授权来源 API。真实 CLI 验证入口：
 

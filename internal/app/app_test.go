@@ -16,7 +16,7 @@ type blockingAutomation struct {
 	done context.Context
 }
 
-func TestAppStartupIgnoresLegacyConnectorSourcesAndState(t *testing.T) {
+func TestAppStartupIgnoresLegacyRuntimeSourcesAndState(t *testing.T) {
 	root := t.TempDir()
 	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_STATE_DIR"} {
 		t.Setenv(key, "")
@@ -59,6 +59,10 @@ func TestAppStartupIgnoresLegacyConnectorSourcesAndState(t *testing.T) {
 	// Conflicting and malformed legacy content must neither block startup nor
 	// overwrite the current package or credentials.
 	files := map[string]string{
+		"ru-kbases/libraries/demo/index.sqlite":             "invalid legacy shared index",
+		"ru-kbases/libraries/demo/state.json":               "invalid legacy shared state",
+		"kbase/demo/index.sqlite":                           "invalid legacy Agent index",
+		"kbase/demo/state.json":                             "invalid legacy Agent state",
 		"connectors-center/demo/connector.json":             `{"id":"demo","name":"Current Demo","version":"2.0.0","type":"cli","auth_mode":"none"}`,
 		"connectors-center/demo/cli.json":                   `{}`,
 		".state/connectors/demo/credentials.json":           `{"TOKEN":"current-state"}`,

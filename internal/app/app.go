@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -293,12 +292,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
-	legacyRoot := filepath.Join(filepath.Dir(cfg.Paths.KBasesDir), "kbase")
-	if entries, readErr := os.ReadDir(legacyRoot); readErr == nil && len(entries) > 0 {
-		return nil, fmt.Errorf("legacy Agent indexes found at %s; stop Platform, back up and move this directory outside runtime, configure libraryId bindings and rebuild shared libraries", legacyRoot)
-	} else if readErr != nil && !os.IsNotExist(readErr) {
-		return nil, readErr
-	}
 	centerEngine := kbx.NewCenterEngineWithSource(kbxConfig)
 	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, centerEngine, kbasescenter.Options{ChatsDir: cfg.Paths.ChatsDir, StateDir: cfg.Paths.StateDir, RuntimeDir: filepath.Dir(cfg.Paths.KBasesDir), References: func(id string) []string {
 		refs := []string{}

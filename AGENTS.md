@@ -83,7 +83,7 @@ cmd/agent-platform/main.go
 
 `docs/` 是特色能力的主说明区；当前项目事实文件 `AGENTS.md` 只保留事实总览、开发入口和专题索引。
 
-知识库中心以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。所有 Native Agent 通过一个 `kbaseConfig.libraryId` 绑定库，Workspace 与来源解耦；中心按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude/chunk 纳入指纹；库删除有引用时 409。旧 Agent enabled/storage 等字段、AP_RUNTIME_KBASE_DIR、旧 libraries 层和 Agent 索引目录硬切，不自动迁移。见 [知识库中心](docs/知识库中心.md) 与 [KBX 接入](docs/KBX接入.md)。
+知识库中心以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。所有 Native Agent 通过一个 `kbaseConfig.libraryId` 绑定库，Workspace 与来源解耦；中心按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude/chunk 纳入指纹；库删除有引用时 409。旧 Agent enabled/storage 等字段与 AP_RUNTIME_KBASE_DIR 硬切；旧 ru-kbases/libraries 层与 runtime/kbase 索引目录完全忽略，不进行旧布局检查、不加载、不迁移，中心按库配置自动在新布局生成索引。见 [知识库中心](docs/知识库中心.md) 与 [KBX 接入](docs/KBX接入.md)。
 
 ## 5. 数据结构
 

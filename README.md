@@ -420,7 +420,7 @@ docker compose logs -f
 
 参见 [完整文档索引](docs/README.md)，按配置、运行时、协议、权限、连接器、知识库、构建和验证分类。历史报告单列，不能作为当前能力或本轮测试通过的依据。
 
-知识库配置位于 `kbases/<id>/library.yml`，索引位于持久的 `ru-kbases/<id>/`，不可随 ru-agents 清空。一个库可含多个 collection、被多个 Agent 共用；来源过滤和切块由库统一配置。有引用的库禁止删除。旧字段和旧布局需停机备份后手工调整，不自动迁移，见 [知识库中心](docs/知识库中心.md)。
+知识库配置位于 `kbases/<id>/library.yml`，索引位于持久的 `ru-kbases/<id>/`，不可随 ru-agents 清空。一个库可含多个 collection、被多个 Agent 共用；来源过滤和切块由库统一配置。有引用的库禁止删除。旧字段明确拒绝；旧 `ru-kbases/libraries/` 和 `runtime/kbase` 完全忽略，不进行旧布局检查或阻止启动。中心按库配置自动在新布局生成索引，不迁移旧索引，见 [知识库中心](docs/知识库中心.md)。
 
 `builtin.task-control`（任务管理）独立提供五个 Chat 工具和两个 Automation 工具；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
