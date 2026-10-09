@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -971,5 +972,37 @@ func TestMemoryPromptFollowsTagSelectionAndOrder(t *testing.T) {
 		if len(tags) == 2 && strings.Index(prompt, "AGENT_FACT") > strings.Index(prompt, "GLOBAL_FACT") {
 			t.Fatal("tag order lost")
 		}
+	}
+}
+
+func TestSystemEnvironmentShowsRuntimeRelativeLocalPaths(t *testing.T) {
+	home := filepath.Join(string(filepath.Separator)+"srv", "runtime")
+	workspace := filepath.Join(string(filepath.Separator)+"srv", "project")
+	lines := []string{}
+	appendLocalContextPaths(&lines, LocalPaths{
+		RuntimeHome:  home,
+		WorkspaceDir: workspace,
+		ChatDir:      filepath.Join(home, "chats", "chat-1"),
+		ChatsDir:     filepath.Join(home, "chats"),
+		PanDir:       filepath.Join(string(filepath.Separator)+"srv", "runtime-pan"),
+	})
+	got := strings.Join(lines, "\n")
+	for _, expected := range []string{
+		"runtime_dir: " + home + " #",
+		"workspace_dir: " + workspace + " #",
+		"chat_dir: @runtime/chats/chat-1 #",
+		"chats_dir: @runtime/chats #",
+		"pan_dir: " + filepath.Join(string(filepath.Separator)+"srv", "runtime-pan") + " #",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("expected %q in:\n%s", expected, got)
+		}
+	}
+
+	lines = lines[:0]
+	chatDir := filepath.Join(home, "chats", "chat-1")
+	appendLocalContextPaths(&lines, LocalPaths{ChatDir: chatDir})
+	if got := strings.Join(lines, "\n"); strings.Contains(got, "@runtime") || !strings.Contains(got, "chat_dir: "+chatDir) {
+		t.Fatalf("expected absolute paths without a runtime root, got:\n%s", got)
 	}
 }

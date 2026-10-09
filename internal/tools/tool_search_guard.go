@@ -10,6 +10,7 @@ import (
 )
 
 var searchGlobSemanticRoots = []string{
+	"@runtime",
 	"@workspace",
 	"@chat",
 	"@agent",

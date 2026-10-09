@@ -92,8 +92,8 @@ func resolveDesktopActionAliasTarget(session QuerySession, raw string) (string, 
 	value = strings.ReplaceAll(value, "\\", "/")
 	alias, suffix, _ := strings.Cut(value, "/")
 	alias = strings.ToLower(alias)
-	if alias != "@chat" && alias != "@workspace" {
-		return "", empty, fmt.Errorf("only @chat and @workspace are supported for this path")
+	if alias != "@chat" && alias != "@workspace" && alias != "@runtime" {
+		return "", empty, fmt.Errorf("only @chat, @workspace and @runtime are supported for this path")
 	}
 	if strings.HasPrefix(suffix, "/") || strings.Contains(suffix, ":") {
 		return "", empty, fmt.Errorf("alias suffix must be a relative path without a drive or URI")
@@ -122,5 +122,22 @@ func resolveDesktopActionAliasTarget(session QuerySession, raw string) (string, 
 	if !pathutil.WithinRoot(candidate, base) {
 		return "", empty, fmt.Errorf("resolved path %q escapes %s", candidate.Host, alias)
 	}
+	if alias == "@runtime" && !withinDesktopActionRoots(session, candidate) {
+		// @runtime is only another spelling: it reaches what @chat and
+		// @workspace already reach, never the rest of the runtime root.
+		return "", empty, fmt.Errorf("@runtime path must be inside the current Chat or Workspace")
+	}
 	return alias, candidate, nil
+}
+
+func withinDesktopActionRoots(session QuerySession, candidate pathutil.Canonical) bool {
+	for _, raw := range []string{accesspolicy.SessionChatDir(session), accesspolicy.SessionWorkspaceRoot(session)} {
+		if raw == "" {
+			continue
+		}
+		if root, err := pathutil.Canonicalize(raw); err == nil && pathutil.WithinRoot(candidate, root) {
+			return true
+		}
+	}
+	return false
 }

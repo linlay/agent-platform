@@ -254,7 +254,7 @@ func TestImageGenerateB64ResponsePersistsArtifact(t *testing.T) {
 		t.Fatalf("expected rawCreated, got %#v", result.Structured)
 	}
 
-	publishedResult := publishArtifacts(chatsRoot, "chat-1", "run-1", "", []any{
+	publishedResult := publishArtifacts(chatsRoot, "chat-1", "run-1", "", "", []any{
 		map[string]any{"path": path},
 	})
 	if publishedResult.Status != "published" || len(publishedResult.PublishedArtifacts) != 1 {

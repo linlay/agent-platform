@@ -35,6 +35,7 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 			execCtx.Session.ChatID,
 			execCtx.Session.RunID,
 			execCtx.Session.WorkspaceRoot,
+			execCtx.Session.RuntimeContext.LocalPaths.RuntimeHome,
 			artifacts,
 			func(path string) error {
 				p, err := accesspolicy.BuildPathPlan(t.cfg.AccessPolicy, t.policySession(execCtx), accesspolicy.ReadAccess, path)
@@ -153,7 +154,7 @@ func coerceArtifactList(raw any) []any {
 	return nil
 }
 
-func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRoot string, raw any, checks ...func(string) error) artifactPublishResult {
+func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRoot string, runtimeHome string, raw any, checks ...func(string) error) artifactPublishResult {
 	result := artifactPublishResult{
 		Status:             "error",
 		Artifacts:          raw,
@@ -189,7 +190,7 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 			continue
 		}
 
-		sourcePath, resolveCode, resolveMessage := resolveArtifactSourcePath(rawPath, workspaceRoot, chatDir)
+		sourcePath, resolveCode, resolveMessage := resolveArtifactSourcePath(rawPath, workspaceRoot, chatDir, runtimeHome)
 		if sourcePath == "" {
 			log.Printf("[artifact-publish] skip: path resolve failed rawPath=%s chatDir=%s", rawPath, chatDir)
 			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, resolveCode, resolveMessage))
@@ -273,8 +274,21 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 	return result
 }
 
-func resolveArtifactSourcePath(rawPath string, workspaceRoot string, chatDir string) (string, string, string) {
+func resolveArtifactSourcePath(rawPath string, workspaceRoot string, chatDir string, runtimeHome string) (string, string, string) {
 	normalized := strings.TrimSpace(rawPath)
+	// @runtime only names an absolute path; the Workspace/Chat/temp publish
+	// scope below still decides whether it may be published.
+	if slashed := filepath.ToSlash(normalized); strings.EqualFold(slashed, "@runtime") || strings.HasPrefix(strings.ToLower(slashed), "@runtime/") {
+		home := strings.TrimSpace(runtimeHome)
+		if home == "" {
+			return "", "path_not_allowed", "path root @runtime is unavailable"
+		}
+		resolved := filepath.Join(home, filepath.FromSlash(slashed[len("@runtime"):]))
+		if rel, err := filepath.Rel(filepath.Clean(home), resolved); err != nil || isPathOutsideBase(rel) {
+			return "", "path_not_allowed", "artifact path escapes @runtime"
+		}
+		normalized = resolved
+	}
 	lower := strings.ToLower(normalized)
 	semanticPath := filepath.ToSlash(normalized)
 	semanticLower := strings.ToLower(semanticPath)

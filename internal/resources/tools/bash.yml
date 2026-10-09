@@ -24,7 +24,7 @@ inputSchema:
       description: Optional. A short Chinese sentence describing the command purpose, shown during human approval. Defaults to a command summary when omitted.
     cwd:
       type: string
-      description: Optional cwd for this invocation. Defaults explicitly to the current Workspace. Supported semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, and @temp. If no Workspace exists, the effective session schema requires cwd; normally use @chat or @temp.
+      description: Optional cwd for this invocation. Defaults explicitly to the current Workspace. Supported semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, @runtime, and @temp. If no Workspace exists, the effective session schema requires cwd; normally use @chat or @temp.
     timeout:
       type: integer
       description: Requested execution timeout in seconds. It defaults to the effective budget.tool.timeout and is capped by that tool budget.

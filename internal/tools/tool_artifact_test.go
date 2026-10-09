@@ -24,7 +24,7 @@ func TestPublishArtifactsUsesSourceBasenameAndIgnoresName(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, "", []any{
 		map[string]any{
 			"path": sourcePath,
 			"name": "服务前端全部迁移为 Webview",
@@ -71,7 +71,7 @@ func TestPublishArtifactsAcceptsTempAliasAndRejectsSymlinkEscape(t *testing.T) {
 	chatsRoot := filepath.Join(t.TempDir(), "chats")
 	aliasPath := "@temp/" + filepath.ToSlash(filepath.Join(filepath.Base(sourceDir), "report.md"))
 	for index, candidate := range []string{aliasPath, sourcePath} {
-		result := publishArtifacts(chatsRoot, "chat-1", "run-"+fmt.Sprint(index), workspace, []any{
+		result := publishArtifacts(chatsRoot, "chat-1", "run-"+fmt.Sprint(index), workspace, "", []any{
 			map[string]any{"path": candidate},
 		})
 		if result.Status != "published" || len(result.PublishedArtifacts) != 1 {
@@ -94,7 +94,7 @@ func TestPublishArtifactsAcceptsTempAliasAndRejectsSymlinkEscape(t *testing.T) {
 		"@temp/" + filepath.ToSlash(filepath.Join(filepath.Base(sourceDir), "escape.md")),
 		linkPath,
 	} {
-		resolved, code, _ := resolveArtifactSourcePath(candidate, workspace, filepath.Join(chatsRoot, "chat-1"))
+		resolved, code, _ := resolveArtifactSourcePath(candidate, workspace, filepath.Join(chatsRoot, "chat-1"), "")
 		if resolved != "" || code != "path_not_allowed" {
 			t.Fatalf("temporary symlink escape %q resolved=%q code=%q", candidate, resolved, code)
 		}
@@ -113,7 +113,7 @@ func TestPublishArtifactsKeepsExtensionlessSourceName(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, "", []any{
 		map[string]any{"path": sourcePath},
 	})
 	published := result.PublishedArtifacts
@@ -148,7 +148,7 @@ func TestPublishArtifactsNormalizesSafeTextAndRejectsUnsafeTextExtensions(t *tes
 		if err := os.WriteFile(sourcePath, test.content, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		result := publishArtifacts(chatsRoot, "chat-1", fmt.Sprintf("run-text-%d", index), workspace, []any{
+		result := publishArtifacts(chatsRoot, "chat-1", fmt.Sprintf("run-text-%d", index), workspace, "", []any{
 			map[string]any{"path": sourcePath},
 		})
 		if result.Status != "published" || len(result.PublishedArtifacts) != 1 {
@@ -169,7 +169,7 @@ func TestPublishArtifactsEncodesSpecialFilenameInChatScopeURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, "", []any{
 		map[string]any{"path": sourcePath},
 	})
 	if result.Status != "published" || len(result.PublishedArtifacts) != 1 {
@@ -228,12 +228,12 @@ func TestResolveArtifactSourcePathSupportsWorkspaceAndChatAliases(t *testing.T) 
 		}
 	}
 
-	workspacePath, code, message := resolveArtifactSourcePath("@workspace/output/report.md", workspace, chatDir)
+	workspacePath, code, message := resolveArtifactSourcePath("@workspace/output/report.md", workspace, chatDir, "")
 	if code != "" || message != "" || workspacePath != realPath(t, filepath.Join(workspace, "output", "report.md")) {
 		t.Fatalf("resolve @workspace: path=%q code=%q message=%q", workspacePath, code, message)
 	}
 
-	chatPath, code, message := resolveArtifactSourcePath("@chat/generated/report.md", workspace, chatDir)
+	chatPath, code, message := resolveArtifactSourcePath("@chat/generated/report.md", workspace, chatDir, "")
 	if code != "" || message != "" || chatPath != realPath(t, filepath.Join(chatDir, "generated", "report.md")) {
 		t.Fatalf("resolve @chat: path=%q code=%q message=%q", chatPath, code, message)
 	}
@@ -321,7 +321,7 @@ func TestPublishArtifactsReportsMissingFile(t *testing.T) {
 	defer restoreCwd()
 
 	chatsRoot := filepath.Join(workspace, "chats")
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, "", []any{
 		map[string]any{"path": "missing.txt"},
 	})
 	if result.Status != "error" {
@@ -347,7 +347,7 @@ func TestPublishArtifactsReportsBatchFailureWhenAnyItemFails(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, "", []any{
 		map[string]any{"path": sourcePath},
 		map[string]any{"path": "/Users/example/Downloads/report.pptx"},
 	})
@@ -419,10 +419,10 @@ func TestPublishArtifactsOverwritesSameRunArtifactFilename(t *testing.T) {
 		t.Fatalf("write second source: %v", err)
 	}
 
-	first := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
+	first := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, "", []any{
 		map[string]any{"path": firstSource},
 	})
-	second := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
+	second := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, "", []any{
 		map[string]any{"path": secondSource},
 	})
 	if first.Status != "published" || second.Status != "published" {

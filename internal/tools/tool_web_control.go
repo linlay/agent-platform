@@ -21,6 +21,7 @@ import (
 const (
 	webControlWorkspaceAlias = "@workspace/"
 	webControlChatAlias      = "@chat/"
+	webControlRuntimeAlias   = "@runtime/"
 )
 
 // CDP methods without a dedicated tool. Methods that have one (navigation,
@@ -196,7 +197,7 @@ func resolveWebControlTarget(session QuerySession, raw string) (webControlTarget
 			return webControlTarget{}, webControlInvalidArgs("url must not contain credentials", "url"), true
 		}
 		return webControlTarget{web: true, url: value}, ToolExecutionResult{}, false
-	case strings.HasPrefix(lower, webControlWorkspaceAlias), strings.HasPrefix(lower, webControlChatAlias):
+	case strings.HasPrefix(lower, webControlWorkspaceAlias), strings.HasPrefix(lower, webControlChatAlias), strings.HasPrefix(lower, webControlRuntimeAlias):
 		_, suffix, _ := strings.Cut(strings.ReplaceAll(value, "\\", "/"), "/")
 		if strings.Trim(suffix, "/") == "" {
 			return webControlTarget{}, webControlInvalidArgs("url must name a file, for example @workspace/report.html", "url"), true

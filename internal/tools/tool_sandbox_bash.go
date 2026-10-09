@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/pathutil"
 )
 
 func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -157,6 +158,9 @@ func resolveSandboxCwd(execCtx *ExecutionContext, raw string) (string, error) {
 			return joinExecutionRoot(item.root, suffix)
 		}
 	}
+	if slashed := filepath.ToSlash(raw); strings.EqualFold(slashed, "@runtime") || strings.HasPrefix(strings.ToLower(slashed), "@runtime/") {
+		return resolveSandboxRuntimeCwd(execCtx.Session, slashed)
+	}
 	if path.IsAbs(raw) || filepath.IsAbs(raw) {
 		if strings.HasPrefix(raw, "/") {
 			return path.Clean(raw), nil
@@ -184,4 +188,48 @@ func joinExecutionRoot(root string, suffix string) (string, error) {
 		return "", fmt.Errorf("cwd escapes its declared root")
 	}
 	return resolved, nil
+}
+
+// resolveSandboxRuntimeCwd maps an @runtime path to an existing container
+// mount. It never passes a Host path through and never adds a mount.
+func resolveSandboxRuntimeCwd(session QuerySession, raw string) (string, error) {
+	host, err := accesspolicy.ResolveSessionPath(session, raw)
+	if err != nil {
+		return "", err
+	}
+	target, err := pathutil.Canonicalize(host)
+	if err != nil {
+		return "", err
+	}
+	local, guest := session.RuntimeContext.LocalPaths, session.RuntimeContext.SandboxPaths
+	best, bestRoot := "", pathutil.Canonical{}
+	for _, mount := range []struct{ host, guest string }{
+		{accesspolicy.SessionWorkspaceRoot(session), guest.WorkspaceDir},
+		{accesspolicy.SessionChatDir(session), guest.ChatDir},
+		{local.SkillsDir, guest.SkillsDir},
+		{local.AgentDir, guest.AgentDir},
+		{local.OwnerDir, guest.OwnerDir},
+		{local.SkillsCenterDir, guest.SkillsCenterDir},
+		{local.PanDir, guest.PanDir},
+	} {
+		if strings.TrimSpace(mount.host) == "" || strings.TrimSpace(mount.guest) == "" {
+			continue
+		}
+		root, err := pathutil.Canonicalize(mount.host)
+		if err != nil || !pathutil.WithinRoot(target, root) {
+			continue
+		}
+		// Prefer the most specific mount when mounts are nested.
+		if len(root.Host) > len(bestRoot.Host) {
+			best, bestRoot = strings.TrimSpace(mount.guest), root
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("runtime_path_not_mounted: %s is not inside a directory mounted into the container", raw)
+	}
+	rel, err := filepath.Rel(bestRoot.Host, target.Host)
+	if err != nil {
+		return "", fmt.Errorf("cwd escapes its declared root")
+	}
+	return joinExecutionRoot(best, filepath.ToSlash(rel))
 }

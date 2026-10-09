@@ -407,7 +407,7 @@ func sessionRoots(session QuerySession) (rootpaths.Roots, error) {
 
 func splitRootQualifiedPath(rawPath string) (string, string, bool) {
 	normalized := filepath.ToSlash(strings.TrimSpace(rawPath))
-	for _, alias := range []string{"@root", "@workspace", "@chat", "@agent", "@skills", "@skills-center", "@connectors", "@owner", "@temp"} {
+	for _, alias := range []string{"@root", "@runtime", "@workspace", "@chat", "@agent", "@skills", "@skills-center", "@connectors", "@owner", "@temp"} {
 		if strings.EqualFold(normalized, alias) {
 			return alias, "", true
 		}
@@ -604,6 +604,10 @@ func expandRootAlias(root string, session QuerySession) string {
 			return ""
 		}
 		return resolved
+	case "@runtime":
+		// Resolution only: the resolved path is still classified by the
+		// ordinary roots, so the alias grants nothing by itself.
+		return cleanAbs(session.RuntimeContext.LocalPaths.RuntimeHome)
 	case "@workspace":
 		return SessionWorkspaceRoot(session)
 	case "@chat":

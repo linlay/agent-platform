@@ -3,6 +3,7 @@ package llm
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -166,7 +167,7 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 		lines = append(lines, `- file_glob and file_grep must pass an explicit path, normally "@chat" or "@temp".`)
 	}
 	if hasTool("file_read", "file_write", "file_edit", "artifact_publish", "vision_recognize") {
-		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, @connectors, @owner, or @temp, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
+		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, @connectors, @owner, @runtime, or @temp, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -361,7 +362,12 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
 }
 
+// appendLocalContextPaths lists the runtime root once as an absolute path and
+// shows directories under it as @runtime paths, which the tools resolve.
 func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
+	local := paths
+	paths = runtimeQualifiedLocalPaths(paths)
+	appendContextDir(lines, "runtime_dir", local.RuntimeHome, "Runtime root; @runtime resolves here (use the absolute path inside shell commands)")
 	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "Relative path base / permission workspace root")
 	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, chatDirDescription)
 	appendContextDir(lines, "root_dir", paths.RootDir, "Root directory")
@@ -380,6 +386,36 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "External connector package sources")
 	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "Mounted connectors resolved to shared read-only packages from the Run snapshot; use full paths listed in the skill catalog")
 	appendContextDir(lines, "pan_dir", paths.PanDir, "User drive directory")
+}
+
+func runtimeQualifiedLocalPaths(paths LocalPaths) LocalPaths {
+	home := strings.TrimSpace(paths.RuntimeHome)
+	if home == "" {
+		return paths
+	}
+	for _, value := range []*string{
+		&paths.ChatDir, &paths.SkillsDir, &paths.AgentDir, &paths.OwnerDir, &paths.SkillsCenterDir,
+		&paths.AgentsDir, &paths.RUAgentsDir, &paths.TeamsDir, &paths.AutomationsDir, &paths.ChatsDir,
+		&paths.MemoryDir, &paths.ModelsDir, &paths.ProvidersDir, &paths.ConnectorsCenterDir,
+		&paths.ConnectorsDir, &paths.PanDir,
+	} {
+		*value = runtimeQualifiedPath(home, *value)
+	}
+	return paths
+}
+
+// runtimeQualifiedPath rewrites a directory strictly under home; anything else
+// (including the Workspace and home itself) keeps its absolute form.
+func runtimeQualifiedPath(home, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	rel, err := filepath.Rel(filepath.Clean(home), filepath.Clean(value))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return value
+	}
+	return "@runtime/" + filepath.ToSlash(rel)
 }
 
 func appendSemanticRoot(lines *[]string, key, value, desc string) {

@@ -958,3 +958,52 @@ func realPathForTest(t *testing.T, path string) string {
 	}
 	return real
 }
+
+func TestRuntimeAliasResolvesWithoutGrantingAccess(t *testing.T) {
+	runtimeHome := t.TempDir()
+	chatsDir := filepath.Join(runtimeHome, "chats")
+	chatDir := filepath.Join(chatsDir, "chat-1")
+	stateDir := filepath.Join(runtimeHome, ".state")
+	otherChatDir := filepath.Join(chatsDir, "chat-2")
+	for _, dir := range []string{chatDir, otherChatDir, stateDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := contracts.QuerySession{
+		ProtectedPaths: []string{stateDir},
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{RuntimeHome: runtimeHome, ChatsDir: chatsDir, ChatDir: chatDir},
+		},
+	}
+
+	resolved, err := ResolveSessionPath(session, "@runtime/chats/chat-1/a.txt")
+	if err != nil || resolved != filepath.Join(chatDir, "a.txt") {
+		t.Fatalf("ResolveSessionPath = %q, %v", resolved, err)
+	}
+	if _, err := ResolveSessionPath(session, "@runtime/../outside"); err == nil {
+		t.Fatal("expected @runtime escape to be rejected")
+	}
+	if _, err := ResolveSessionPath(contracts.QuerySession{}, "@runtime/chats"); err == nil {
+		t.Fatal("expected @runtime to be unavailable without a runtime root")
+	}
+
+	cfg := config.DefaultAccessPolicyConfig()
+	for rawPath, want := range map[string]Decision{
+		"@runtime/chats/chat-1/a.txt": DecisionAllow,
+		"@runtime/chats/chat-2/a.txt": DecisionRequiresApproval,
+		"@runtime/.state/secret":      DecisionBlock,
+	} {
+		plan, err := BuildPathPlan(cfg, session, WriteAccess, rawPath)
+		if err != nil {
+			t.Fatalf("BuildPathPlan(%q): %v", rawPath, err)
+		}
+		absolute, err := BuildPathPlan(cfg, session, WriteAccess, filepath.Join(runtimeHome, filepath.FromSlash(strings.TrimPrefix(rawPath, "@runtime/"))))
+		if err != nil {
+			t.Fatalf("BuildPathPlan absolute for %q: %v", rawPath, err)
+		}
+		if plan.Decision != want || plan.Decision != absolute.Decision {
+			t.Fatalf("%q decision = %v, absolute = %v, want %v", rawPath, plan.Decision, absolute.Decision, want)
+		}
+	}
+}
