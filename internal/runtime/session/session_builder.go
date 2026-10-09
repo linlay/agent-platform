@@ -16,7 +16,6 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/interaction"
-	"agent-platform/internal/knowledge"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
@@ -186,7 +185,17 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
 	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
-		capabilityPrompts = append(capabilityPrompts, knowledge.DefaultCapabilityPrompt)
+		if prompt := strings.TrimSpace(s.deps.Config.KBasePrompts.CapabilityPrompt); prompt != "" {
+			capabilityPrompts = append(capabilityPrompts, prompt)
+		}
+	}
+	kbaseModePrompts := contracts.KBaseModePrompts{}
+	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
+		kbaseModePrompts = contracts.KBaseModePrompts{
+			Capability: s.deps.Config.KBasePrompts.CapabilityPrompt,
+			Workspace:  s.deps.Config.KBasePrompts.WorkspacePrompt,
+			Editing:    s.deps.Config.KBasePrompts.EditingPrompt,
+		}
 	}
 	resolvedPlanExecuteSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
 	resolvedPlanningSettings := contracts.ResolvePlanningModeSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)
@@ -260,6 +269,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		ExecutePrompt:               agentDef.ExecutePrompt,
 		SummaryPrompt:               agentDef.SummaryPrompt,
 		ModeSystemPrompt:            agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
+		KBaseModePrompts:            kbaseModePrompts,
 		RuntimeEnvironmentID:        ExtractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:                ExtractRuntimeField(agentDef.Runtime, "level"),
 		RuntimeExtraMounts:          RuntimeConnectorMounts(RuntimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && HasRuntimeSandbox(agentDef.Runtime)), agentDef),

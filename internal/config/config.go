@@ -217,8 +217,13 @@ type CoderPromptsConfig struct {
 	PlanningPrompt string
 }
 
+// KBasePromptsConfig has no source defaults: an empty part is not appended.
 type KBasePromptsConfig struct {
 	SystemPrompt string
+	// CapabilityPrompt is also given to ordinary Agents with a knowledge base.
+	CapabilityPrompt string
+	WorkspacePrompt  string
+	EditingPrompt    string
 }
 
 type CoderSettingsConfig struct {

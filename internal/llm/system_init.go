@@ -316,6 +316,7 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"executePrompt":                 session.ExecutePrompt,
 		"summaryPrompt":                 session.SummaryPrompt,
 		"modeSystemPrompt":              session.ModeSystemPrompt,
+		"kbaseModePrompts":              session.KBaseModePrompts,
 		"runtimeEnvironmentID":          session.RuntimeEnvironmentID,
 		"runtimeLevel":                  session.RuntimeLevel,
 		"runtimeExtraMounts":            session.RuntimeExtraMounts,
@@ -412,9 +413,6 @@ func buildSummarySystemInitProfile(session contracts.QuerySession, settings cont
 	systemPrompt := strings.TrimSpace(settings.Summary.PrimaryPrompt())
 	if systemPrompt == "" {
 		systemPrompt = strings.TrimSpace(prompts.PlanExecute.SummarySystemPrompt)
-	}
-	if systemPrompt == "" {
-		systemPrompt = defaultPlanSummarySystemPrompt
 	}
 	fingerprintSession := session
 	fingerprintSession.SummaryPrompt = strings.TrimSpace(strings.Join([]string{fingerprintSession.SummaryPrompt, systemPrompt}, "\n"))

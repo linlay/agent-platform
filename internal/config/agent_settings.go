@@ -264,7 +264,7 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err != nil {
 		return err
 	}
-	kbase, err := optionalConfigMap(v, "kbase", path, "system-prompt")
+	kbase, err := optionalConfigMap(v, "kbase", path, "system-prompt", "capability-prompt", "workspace-prompt", "editing-prompt")
 	if err != nil {
 		return err
 	}

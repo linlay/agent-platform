@@ -30,18 +30,28 @@ type ToolAppendConfig struct {
 	AfterCallHintTitle   string
 }
 
+// DefaultPromptAppendConfig holds bare section labels only; the wording lives in
+// agent-prompt.yml.
 func DefaultPromptAppendConfig() PromptAppendConfig {
 	return PromptAppendConfig{
 		Skill: SkillAppendConfig{
-			CatalogHeader:     "Available skills (catalog summary, use on demand, do not fabricate non-existent skills or scripts):",
-			DisclosureHeader:  "以下是你刚刚调用到的 skill 完整说明（仅本轮补充，不要忽略）:",
+			CatalogHeader:     "Available skills:",
+			DisclosureHeader:  "Skill instructions:",
 			InstructionsLabel: "instructions",
 		},
 		Tool: ToolAppendConfig{
-			ToolDescriptionTitle: "工具说明:",
-			AfterCallHintTitle:   "工具调用后推荐指令:",
+			ToolDescriptionTitle: "Tool description:",
+			AfterCallHintTitle:   "After-call hints:",
 		},
 	}
+}
+
+// KBaseModePrompts are the configured parts added around a dedicated KBASE
+// Agent's system prompt. They have no source defaults.
+type KBaseModePrompts struct {
+	Capability string
+	Workspace  string
+	Editing    string
 }
 
 type RuntimeRequestContext struct {

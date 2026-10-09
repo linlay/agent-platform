@@ -722,6 +722,9 @@ func (c *Config) applyCoderPromptsValues(values map[string]any) {
 
 func (c *Config) applyKBasePromptsValues(values map[string]any) {
 	c.KBasePrompts.SystemPrompt = stringValue(anyValue(values["system-prompt"], c.KBasePrompts.SystemPrompt), c.KBasePrompts.SystemPrompt)
+	c.KBasePrompts.CapabilityPrompt = stringValue(anyValue(values["capability-prompt"], c.KBasePrompts.CapabilityPrompt), c.KBasePrompts.CapabilityPrompt)
+	c.KBasePrompts.WorkspacePrompt = stringValue(anyValue(values["workspace-prompt"], c.KBasePrompts.WorkspacePrompt), c.KBasePrompts.WorkspacePrompt)
+	c.KBasePrompts.EditingPrompt = stringValue(anyValue(values["editing-prompt"], c.KBasePrompts.EditingPrompt), c.KBasePrompts.EditingPrompt)
 }
 
 func cloneConfigMap(src map[string]any) map[string]any {

@@ -252,7 +252,10 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 			SystemPrompt: "configured coder system prompt",
 		},
 		KBasePrompts: config.KBasePromptsConfig{
-			SystemPrompt: "configured kbase system prompt",
+			SystemPrompt:     "configured kbase system prompt",
+			CapabilityPrompt: "configured capability",
+			WorkspacePrompt:  "configured workspace",
+			EditingPrompt:    "configured editing",
 		},
 	}
 	registry, err := catalog.NewFileRegistry(cfg, nil)
@@ -283,6 +286,9 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	}
 	if session.ModeSystemPrompt != "configured kbase system prompt" {
 		t.Fatalf("kbase system prompt = %q, want configured prompt", session.ModeSystemPrompt)
+	}
+	if want := (contracts.KBaseModePrompts{Capability: "configured capability", Workspace: "configured workspace", Editing: "configured editing"}); session.KBaseModePrompts != want {
+		t.Fatalf("kbase mode prompts = %#v, want %#v", session.KBaseModePrompts, want)
 	}
 	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 0 {
 		t.Fatalf("dedicated KBASE session capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
@@ -377,7 +383,10 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 
 func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}
+	cfg := config.Config{
+		Paths:        config.PathsConfig{ChatsDir: filepath.Join(root, "chats")},
+		KBasePrompts: config.KBasePromptsConfig{CapabilityPrompt: "configured capability"},
+	}
 	workspace := filepath.Join(root, "knowledge")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -405,7 +414,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build query session: %v", err)
 	}
-	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 || session.CapabilityPrompts[0] != knowledge.DefaultCapabilityPrompt {
+	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 || session.CapabilityPrompts[0] != "configured capability" {
 		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
 	}
 	for _, stage := range []contracts.StageSettings{session.ResolvedPlanExecuteSettings.Plan, session.ResolvedPlanExecuteSettings.Execute} {

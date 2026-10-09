@@ -8,23 +8,6 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-// DefaultPlanningPrompt is used when no planning prompt is configured for the
-// Agent's mode. It is mode neutral; mode-specific prompts replace it.
-const DefaultPlanningPrompt = `You are in planning mode.
-
-Planning rules:
-1. Planning mode does not carry out the request. You may use only these tools: {{planning_stage_tools}}.
-2. Investigate with the available tools before asking. Do not ask questions that the tools can answer.
-3. Do not change files, data, or external systems, even if an available tool could.
-4. When intent, scope, acceptance criteria, or tradeoffs are unclear, ask the user with {{ask_user_question_tool_name}} if it is available.
-5. Do not output the plan as normal assistant text. When the plan is decision-complete, call {{finalize_planning_tool_name}} exactly once with the complete Markdown plan, including one top-level heading.
-6. The plan must state the goal, the concrete steps in order, how the result will be verified, and the assumptions made.
-7. The user must confirm the plan before it is executed. After confirmation the plan is executed without further questions, so resolve open decisions now.
-
-Tools available after confirmation: {{execute_stage_tools}}
-
-{{execute_tool_descriptions}}`
-
 type PromptTemplateData struct {
 	AvailableTools          []string
 	PlanningStageTools      []string

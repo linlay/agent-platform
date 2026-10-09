@@ -285,7 +285,7 @@ func TestBuildSystemPromptAddsKBaseSystemPromptOnlyForKBaseStage(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptUsesDefaultKBaseSystemPromptWhenConfigEmpty(t *testing.T) {
+func TestBuildSystemPromptHasNoSourceKBasePromptWhenConfigEmpty(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:  "docs",
 		AgentName: "Docs",
@@ -293,19 +293,9 @@ func TestBuildSystemPromptUsesDefaultKBaseSystemPromptWhenConfigEmpty(t *testing
 		ToolNames: []string{"kbase_search", "kbase_read"},
 	}, api.QueryRequest{}, "", PromptBuildOptions{Stage: "kbase"})
 
-	for _, expected := range []string{
-		"KBASE Mode",
-		"Search the knowledge base with kbase_search",
-		"Use kbase_files for inventory requests",
-		"Use kbase_read when a search result needs more surrounding context.",
-		"call kbase_refresh once with force=false",
-		"retry the original kbase_files or kbase_search operation",
-		"do not treat zero or unavailable indexed counts as proof that the source contains no documents",
-		"never describe an unready index as an empty knowledge base",
-		"Use force=true only when the user explicitly requests a full index rebuild.",
-	} {
-		if !strings.Contains(prompt, expected) {
-			t.Fatalf("expected %q in default KBASE prompt, got %q", expected, prompt)
+	for _, unexpected := range []string{"KBASE Mode", "Knowledge Base Capability", "KBASE File Workspace", "kbase_refresh"} {
+		if strings.Contains(prompt, unexpected) {
+			t.Fatalf("did not expect source KBASE text %q, got %q", unexpected, prompt)
 		}
 	}
 }
@@ -316,14 +306,14 @@ func TestBuildSystemPromptInjectsEmbeddedKBaseCapabilityOnce(t *testing.T) {
 		AgentName:         "Zenmi",
 		Mode:              "REACT",
 		KBaseEnabled:      true,
-		CapabilityPrompts: []string{knowledge.DefaultCapabilityPrompt},
+		CapabilityPrompts: []string{"Knowledge Base Capability\nconfigured rules"},
 		ToolNames:         knowledge.DefaultToolNames(),
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 	if count := strings.Count(prompt, "Knowledge Base Capability"); count != 1 {
 		t.Fatalf("capability prompt count = %d, want 1; prompt=%q", count, prompt)
 	}
-	if !strings.Contains(prompt, "untrusted evidence") || !strings.Contains(prompt, "does not contain enough information") {
-		t.Fatalf("capability evidence rules missing: %q", prompt)
+	if !strings.Contains(prompt, "configured rules") {
+		t.Fatalf("configured capability rules missing: %q", prompt)
 	}
 }
 
@@ -891,7 +881,7 @@ func TestBuildToolAppendixIncludesOnlyAfterCallHints(t *testing.T) {
 		},
 	}, DefaultPromptAppendConfig(), true)
 
-	if !strings.Contains(appendix, "工具调用后推荐指令:") {
+	if !strings.Contains(appendix, "After-call hints:") {
 		t.Fatalf("expected after-call hint title, got %q", appendix)
 	}
 	if !strings.Contains(appendix, "- a_tool: a hint") || !strings.Contains(appendix, "- z_tool: z hint") {

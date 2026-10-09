@@ -3,7 +3,7 @@
 ## 配置归属
 
 - `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
-- `configs/agent-prompt.yml`：`shared`（runtime/skill/reference/tool-appendix/plan-execute/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。
+- `configs/agent-prompt.yml`：`shared`（runtime/skill/reference/tool-appendix/plan-execute/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW、PLAN-EXECUTE 的指令文本同样只来自本文件：缺失时规划与 BTW 不带指令，PLAN-EXECUTE 模板只保留任务与请求数据；技能目录、披露和工具附录标题仅保留极简标签作为兜底。KBASE 提示词由 `kbase.capability-prompt`（kbase_* 工具的检索规则，挂了知识库的普通 Agent 也使用）、`kbase.system-prompt`、`kbase.workspace-prompt` 和仅在 editing 时追加的 `kbase.editing-prompt` 按此顺序拼接，四项都没有源码兜底。
 - `configs/tools.yml`：访问策略、Bash/FileTools/run-env，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
 
@@ -30,7 +30,7 @@ agent-settings 顶层 `planning-mode` 对原生 GENERAL、CODER、KBASE 统一�
 - `finalize_planning` 由 Platform 管理，写入任一列表会使配置加载失败。
 - 原生 GENERAL、CODER、KBASE 的 `stageSettings.planning.toolConfig.tools` 与 `stageSettings.execute.toolConfig.tools` 都不支持，出现即加载失败，统一改用本节的排除配置。
 - 原生 GENERAL、CODER、KBASE 的 `stageSettings.planning` 与 `stageSettings.execute` 都不允许声明 `modelKey`（`modelConfig.modelKey` 与平铺写法都拒绝）：规划 Run、已确认计划的执行 Run 与普通 Run 一律使用 Agent 自身的 `modelConfig.modelKey`。阶段内 reasoning、sampling 等参数不受影响。
-- 规划提示词：`agent-prompt.yml` 的 `shared.planning-mode.planning-prompt` 供所有原生 mode 使用，`coder.planning-prompt` 对 CODER 优先；都省略时使用内置中立提示词。
+- 规划提示词：`agent-prompt.yml` 的 `shared.planning-mode.planning-prompt` 供所有原生 mode 使用，`coder.planning-prompt` 对 CODER 优先；两者都省略时不追加规划指令（源码不再内置规划提示词）。
 - 普通 Run 不受该配置影响。
 
 `<mode>.default-agent.modelKey/reasoningEffort` 只在创建时补全，已有 Agent 不受动态覆盖。GENERAL/CODER 的 budget 语义不变。kbase 节表示 KBASE Agent，不是知识库引擎。

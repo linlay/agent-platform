@@ -560,6 +560,7 @@ func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
 	session.Mode = "KBASE"
 	session.EditingMode = true
 	session.WorkspaceRoot = "/knowledge"
+	session.KBaseModePrompts.Editing = "KBASE Editing Mode"
 	session.ToolNames = agentkbase.CreateToolNames()
 	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
 		WorkspaceRoot:            "/knowledge",
@@ -590,6 +591,10 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 	session.KBaseEnabled = true
 	session.WorkspaceRoot = "/knowledge"
 	session.ToolNames = agentkbase.CreateToolNames()
+	session.KBaseModePrompts = contracts.KBaseModePrompts{
+		Workspace: "configured workspace part {{chat_dir}}",
+		Editing:   "configured editing part",
+	}
 	session.RuntimeContext.LocalPaths = contracts.LocalPaths{
 		WorkspaceDir: "/knowledge",
 		ChatDir:      "/runtime/chats/chat-1",
@@ -613,9 +618,8 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 	}
 	assertToolNames(t, profile.Tools, agentkbase.CreateToolNames())
 	content, _ := profile.SystemMessage["content"].(string)
-	if !strings.Contains(content, "read-only unless this run explicitly enables editingMode") ||
-		!strings.Contains(content, "/runtime/chats/chat-1") ||
-		strings.Contains(content, "The user explicitly enabled knowledge-source mutation") {
+	if !strings.Contains(content, "configured workspace part /runtime/chats/chat-1") ||
+		strings.Contains(content, "configured editing part") {
 		t.Fatalf("unexpected main KBASE prompt: %s", content)
 	}
 }

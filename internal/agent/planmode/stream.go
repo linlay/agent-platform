@@ -256,9 +256,6 @@ func (s *planningStream) planningPrompt() string {
 	if s.runtime != nil {
 		configured = strings.TrimSpace(s.runtime.Settings().PlanningPrompt)
 	}
-	if configured == "" {
-		configured = DefaultPlanningPrompt
-	}
 	custom := joinNonEmptyPrompts(s.settings.Planning.PrimaryPrompt(), configured)
 	executeToolDescriptions := s.buildExecuteToolDescriptions()
 	hasExecuteToolDescriptionsPlaceholder := promptHasTemplateValue(custom, "execute_tool_descriptions")

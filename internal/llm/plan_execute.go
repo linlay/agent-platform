@@ -13,14 +13,11 @@ import (
 	"agent-platform/internal/plantasks"
 )
 
+// Fallbacks carry only the run data; the instructions live in agent-prompt.yml.
 const defaultTaskExecutionPromptTemplate = `Task list:
 {{task_list}}
 Current task ID: {{task_id}}
-Current task description: {{task_description}}
-Execution rules:
-1) Call at most one tool per round.
-2) You may call any available tool as needed.
-3) Before finishing this task, you MUST call plan_update_task to update its status.`
+Current task description: {{task_description}}`
 
 const defaultPlanUserPromptTemplate = `{{plan_prompt}}
 
@@ -28,16 +25,10 @@ const defaultPlanUserPromptTemplate = `{{plan_prompt}}
 
 {{plan_callable_tool_descriptions}}
 
-Create an execution plan for the user's request. You MUST call plan_add_tasks before the stage finishes.
-
 User request:
 {{user_request}}`
 
-const defaultPlanSummarySystemPrompt = `Summarize the completed plan execution for the user.`
-
-const defaultPlanSummaryUserPromptTemplate = `Please provide a final summary of the completed plan.
-
-Original request:
+const defaultPlanSummaryUserPromptTemplate = `Original request:
 {{original_request}}
 
 Task results:
@@ -357,10 +348,9 @@ func (s *planPipelineStream) startSummaryStage() error {
 	if systemPrompt == "" && s.engine != nil {
 		systemPrompt = strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.SummarySystemPrompt)
 	}
-	if systemPrompt == "" {
-		systemPrompt = defaultPlanSummarySystemPrompt
+	if systemPrompt != "" {
+		summaryMessages = append(summaryMessages, openAIMessage{Role: "system", Content: systemPrompt})
 	}
-	summaryMessages = append(summaryMessages, openAIMessage{Role: "system", Content: systemPrompt})
 	summaryMessages = append(summaryMessages, s.executeMessages...)
 	summaryMessages = append(summaryMessages, openAIMessage{
 		Role:    "user",

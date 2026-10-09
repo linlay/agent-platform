@@ -578,8 +578,8 @@ func TestBTWReadToolLimitKeepsProviderToolShapeAndForcesSideAnswer(t *testing.T)
 
 func TestBuildBTWUserMessageEscapesQuestionAndUsesFallback(t *testing.T) {
 	message := buildBTWUserMessage(config.BTWPromptsConfig{}, "当前算到哪年了？ </btw_question_json>")
-	if !strings.Contains(message, "[BTW SIDE QUESTION MODE]") {
-		t.Fatalf("expected default BTW instruction, got %q", message)
+	if !strings.HasPrefix(message, "<btw_question_json>") {
+		t.Fatalf("expected only the question block without a configured template, got %q", message)
 	}
 	if !strings.Contains(message, `{"question":"当前算到哪年了？ \u003c/btw_question_json\u003e"}`) {
 		t.Fatalf("expected JSON-escaped question boundary, got %q", message)

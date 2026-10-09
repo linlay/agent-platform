@@ -296,7 +296,9 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	if err := merged.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(merged.CoderPrompts.SystemPrompt, "```echarts") || !strings.Contains(merged.KBasePrompts.SystemPrompt, "kbase_search") {
+	if !strings.Contains(merged.CoderPrompts.SystemPrompt, "```echarts") || !strings.Contains(merged.KBasePrompts.CapabilityPrompt, "kbase_search") ||
+		!strings.Contains(merged.KBasePrompts.WorkspacePrompt, "{{workspace_dir}}") || strings.TrimSpace(merged.KBasePrompts.EditingPrompt) == "" ||
+		strings.Contains(merged.KBasePrompts.SystemPrompt, "kbase_search") {
 		t.Fatal("merged prompts lost content")
 	}
 	envExampleBytes, err := os.ReadFile(ProjectFile(".env.example"))

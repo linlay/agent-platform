@@ -97,7 +97,7 @@ func TestPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	}
 }
 
-func TestPlanningPromptFallsBackToNeutralDefaultForAnyMode(t *testing.T) {
+func TestPlanningPromptHasNoSourceDefault(t *testing.T) {
 	for _, mode := range []string{"GENERAL", "KBASE"} {
 		stream := &planningStream{
 			runtime: fakePlanningRuntime{},
@@ -110,17 +110,8 @@ func TestPlanningPromptFallsBackToNeutralDefaultForAnyMode(t *testing.T) {
 			},
 		}
 		prompt := stream.planningPrompt()
-		for _, expected := range []string{
-			"You are in planning mode.",
-			"web_fetch, ask_user_question, finalize_planning",
-			"Tools available after confirmation: bash, web_fetch",
-		} {
-			if !strings.Contains(prompt, expected) {
-				t.Fatalf("%s: expected %q in default planning prompt, got %q", mode, expected, prompt)
-			}
-		}
-		if strings.Contains(prompt, "{{") || strings.Contains(prompt, "CODER") {
-			t.Fatalf("%s: default planning prompt must be rendered and mode neutral, got %q", mode, prompt)
+		if strings.Contains(prompt, "planning mode") || strings.Contains(prompt, "Planning rules") || strings.Contains(prompt, "{{") {
+			t.Fatalf("%s: expected no source planning prompt, got %q", mode, prompt)
 		}
 	}
 }

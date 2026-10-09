@@ -325,6 +325,11 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			ResolvedEngine: "docker",
 		},
 	}
+	// BTW prompts have no source default; tests supply the configured text.
+	cfg.Prompts.BTW = config.BTWPromptsConfig{
+		UserPromptTemplate: "[BTW SIDE QUESTION MODE]\n<btw_question_json>\n{{question_json}}\n</btw_question_json>",
+		FinalAnswerPrompt:  "Stop calling tools. Answer only the current side question.",
+	}
 	if options.configure != nil {
 		options.configure(&cfg)
 	}

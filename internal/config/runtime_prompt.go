@@ -8,6 +8,8 @@ import (
 	"agent-platform/internal/i18n"
 )
 
+// DefaultEnvironmentPromptTemplate is a data header (labels and values only),
+// not instructions, so it stays as the fallback.
 const DefaultEnvironmentPromptTemplate = "Runtime Context: System Environment\nos: {{os}}\narch: {{arch}}\ntimezone: {{timezone}}\nlanguage: {{locale}}"
 
 type RuntimePromptConfig struct {

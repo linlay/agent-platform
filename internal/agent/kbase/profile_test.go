@@ -2,7 +2,6 @@ package kbase
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
@@ -50,59 +49,44 @@ func TestEditingProfileUsesIndependentStageCacheAndExactTools(t *testing.T) {
 	}
 }
 
-func TestEditingPromptUsesAccessPolicyAndAsynchronousIndexing(t *testing.T) {
-	prompt := RenderSystemPrompt(contracts.QuerySession{
-		Mode:          Mode,
-		EditingMode:   true,
-		WorkspaceRoot: "/knowledge",
-		ToolNames:     CreateToolNames(),
+// Every KBASE prompt part comes from agent-prompt.yml; the mode only orders and
+// renders the configured parts.
+func kbasePromptPartsSession() contracts.QuerySession {
+	return contracts.QuerySession{
+		Mode:             Mode,
+		WorkspaceRoot:    "/knowledge",
+		ToolNames:        CreateToolNames(),
+		ModeSystemPrompt: "SYSTEM {{mode}}",
+		KBaseModePrompts: contracts.KBaseModePrompts{
+			Capability: "CAPABILITY",
+			Workspace:  "WORKSPACE {{workspace_dir}} {{chat_dir}}",
+			Editing:    "EDITING",
+		},
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: "/knowledge", ChatDir: "/runtime/chats/chat-1"},
 		},
-	}, api.QueryRequest{Message: "update policy"}, CreateToolNames(), EditingStage)
-	for _, want := range []string{
-		"/knowledge",
-		"/runtime/chats/chat-1",
-		"file_edit",
-		"AccessPolicy",
-		"configured Workspace is the knowledge root",
-		"explicit current chat directory path",
-		"directory watcher",
-		"does not mean the change is immediately searchable",
-		"lineStats",
-		"Do not use shell commands or other tools to change the Workspace while editingMode is off",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("editing prompt missing %q: %s", want, prompt)
-		}
 	}
 }
 
-func TestMainPromptDefinesSourceWorkspaceAndWritableChatDirectory(t *testing.T) {
-	prompt := RenderSystemPrompt(contracts.QuerySession{
-		Mode:          Mode,
-		WorkspaceRoot: "/knowledge",
-		ToolNames:     CreateToolNames(),
-		RuntimeContext: contracts.RuntimeRequestContext{
-			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir: "/knowledge",
-				ChatDir:      "/runtime/chats/chat-1",
-			},
-		},
-	}, api.QueryRequest{Message: "write a report"}, CreateToolNames(), MainStage)
-	for _, want := range []string{
-		"/knowledge",
-		"/runtime/chats/chat-1",
-		"Relative file-tool paths resolve inside this workspace",
-		"Use only the tools declared for this agent",
-		"read-only unless this run explicitly enables editingMode",
-		"Store conversation artifacts and temporary files under the explicit current chat directory path",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("main prompt missing %q: %s", want, prompt)
-		}
+func TestEditingPromptAppendsConfiguredPartsInOrder(t *testing.T) {
+	session := kbasePromptPartsSession()
+	session.EditingMode = true
+	prompt := RenderSystemPrompt(session, api.QueryRequest{Message: "update policy"}, CreateToolNames(), EditingStage)
+	want := "CAPABILITY\n\nSYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1\n\nEDITING"
+	if prompt != want {
+		t.Fatalf("editing prompt = %q, want %q", prompt, want)
 	}
-	if strings.Contains(prompt, "The user explicitly enabled knowledge-source mutation") {
-		t.Fatalf("main prompt must not claim source mutation is enabled: %s", prompt)
+}
+
+func TestMainPromptOmitsEditingPartAndHasNoSourceText(t *testing.T) {
+	session := kbasePromptPartsSession()
+	prompt := RenderSystemPrompt(session, api.QueryRequest{Message: "write a report"}, CreateToolNames(), MainStage)
+	if want := "CAPABILITY\n\nSYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1"; prompt != want {
+		t.Fatalf("main prompt = %q, want %q", prompt, want)
+	}
+	session.ModeSystemPrompt = ""
+	session.KBaseModePrompts = contracts.KBaseModePrompts{}
+	if prompt := RenderSystemPrompt(session, api.QueryRequest{}, CreateToolNames(), MainStage); prompt != "" {
+		t.Fatalf("expected no source KBASE prompt without configuration, got %q", prompt)
 	}
 }

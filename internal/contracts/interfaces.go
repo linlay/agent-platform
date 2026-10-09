@@ -404,6 +404,7 @@ type QuerySession struct {
 	ExecutePrompt         string
 	SummaryPrompt         string
 	ModeSystemPrompt      string
+	KBaseModePrompts      KBaseModePrompts
 
 	RuntimeEnvironmentID string
 	RuntimeLevel         string
