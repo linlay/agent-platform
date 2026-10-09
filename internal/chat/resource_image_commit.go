@@ -117,7 +117,7 @@ func findArtifactManifestItem(manifest ArtifactManifest, resourceID string, rela
 	}
 	for index := range manifest.Items {
 		item := manifest.Items[index]
-		if item.ArtifactID == resourceID && item.URL == resourceURL {
+		if item.ArtifactID == resourceID && BareChatScopeRef(item.URL) == resourceURL {
 			return index, true
 		}
 	}

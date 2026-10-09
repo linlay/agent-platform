@@ -38,7 +38,7 @@ func PrepareSteerReferences(chatID, chatDir string, container bool, references [
 		if ref.Type != "" && ref.Type != "file" {
 			return nil, nil, fmt.Errorf("steer references must be uploaded files")
 		}
-		u, err := url.Parse(strings.TrimSpace(ref.URL))
+		u, err := url.Parse(chat.BareChatScopeRef(strings.TrimSpace(ref.URL)))
 		if err != nil || u.IsAbs() || u.Host != "" || u.RawQuery != "" || u.Fragment != "" || u.Path == "" {
 			return nil, nil, fmt.Errorf("steer attachment requires a current-chat resource URL")
 		}
@@ -79,7 +79,7 @@ func PrepareSteerReferences(chatID, chatDir string, container bool, references [
 			mimeType, size = image.MimeType, image.SizeBytes
 			blocks = append(blocks, multimodal.OpenAIImageBlock(image))
 		}
-		resourceURL, err := chat.BuildChatScopeRef(rel)
+		resourceURL, err := chat.BuildChatAliasRef(rel)
 		if err != nil {
 			return nil, nil, err
 		}

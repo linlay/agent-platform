@@ -264,7 +264,7 @@ func commitNewResourceDocument(chatDir string, request ResourceDocumentCommitReq
 		_ = os.Remove(targetPath)
 		return ResourceDocumentCommitResult{}, err
 	}
-	resourceURL, err := BuildChatScopeRef(relativePath)
+	resourceURL, err := BuildChatAliasRef(relativePath)
 	if err != nil {
 		_ = os.Remove(targetPath)
 		return ResourceDocumentCommitResult{}, err

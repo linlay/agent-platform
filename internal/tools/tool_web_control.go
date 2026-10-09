@@ -4,12 +4,19 @@ import (
 	"agent-platform/internal/toolinput"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
+	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/pathutil"
 )
 
 // builtin.web-control exposes typed, page-oriented tools. Each tool maps to an
@@ -21,7 +28,9 @@ import (
 const (
 	webControlWorkspaceAlias = "@workspace/"
 	webControlChatAlias      = "@chat/"
-	webControlRuntimeAlias   = "@runtime/"
+
+	webControlWorkspaceRoot = "workspace"
+	webControlChatRoot      = "chat"
 )
 
 // CDP methods without a dedicated tool. Methods that have one (navigation,
@@ -180,8 +189,48 @@ type webControlTarget struct {
 	web bool
 	// url is the HTTP(S) address for webpages.
 	url string
-	// relativePath is the Workspace-relative file path for file previews.
+	// root names the tree a file preview is read from: the bound project
+	// Workspace or the current Chat directory.
+	root string
+	// relativePath is the file path relative to root.
 	relativePath string
+}
+
+func (target webControlTarget) fileURL() string {
+	if target.root == webControlChatRoot {
+		return webControlChatAlias + target.relativePath
+	}
+	return webControlWorkspaceAlias + target.relativePath
+}
+
+// resolveWebControlChatFile returns the Chat-relative path of an @chat/ file.
+// The Chat directory is its own root: it does not need a project Workspace.
+func resolveWebControlChatFile(session QuerySession, raw string) (string, error) {
+	chatDir := accesspolicy.SessionChatDir(session)
+	if chatDir == "" {
+		return "", fmt.Errorf("the current Chat directory is unavailable")
+	}
+	_, candidate, err := resolveDesktopActionAliasTarget(session, raw)
+	if err != nil {
+		return "", err
+	}
+	root, err := pathutil.Canonicalize(chatDir)
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(root.Host, candidate.Host)
+	if err != nil || filepath.IsAbs(relative) || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("target is outside the current Chat")
+	}
+	// Reuses the Chat resource rules, so tool-internal files stay private.
+	reference, err := chat.BuildChatAliasRef(filepath.ToSlash(relative))
+	if err != nil {
+		return "", fmt.Errorf("this Chat path cannot be previewed")
+	}
+	if info, statErr := os.Stat(candidate.Host); statErr != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("file_unavailable: %s is missing or is not a regular file", reference)
+	}
+	return strings.TrimPrefix(reference, chat.ChatScopeAlias), nil
 }
 
 func resolveWebControlTarget(session QuerySession, raw string) (webControlTarget, ToolExecutionResult, bool) {
@@ -197,23 +246,30 @@ func resolveWebControlTarget(session QuerySession, raw string) (webControlTarget
 			return webControlTarget{}, webControlInvalidArgs("url must not contain credentials", "url"), true
 		}
 		return webControlTarget{web: true, url: value}, ToolExecutionResult{}, false
-	case strings.HasPrefix(lower, webControlWorkspaceAlias), strings.HasPrefix(lower, webControlChatAlias), strings.HasPrefix(lower, webControlRuntimeAlias):
+	case strings.HasPrefix(lower, webControlWorkspaceAlias), strings.HasPrefix(lower, webControlChatAlias):
 		_, suffix, _ := strings.Cut(strings.ReplaceAll(value, "\\", "/"), "/")
 		if strings.Trim(suffix, "/") == "" {
 			return webControlTarget{}, webControlInvalidArgs("url must name a file, for example @workspace/report.html", "url"), true
 		}
-		relative, err := resolveDesktopActionAlias(session, value)
+		target := webControlTarget{root: webControlWorkspaceRoot}
+		var err error
+		if strings.HasPrefix(lower, webControlChatAlias) {
+			target.root = webControlChatRoot
+			target.relativePath, err = resolveWebControlChatFile(session, value)
+		} else {
+			target.relativePath, err = resolveDesktopActionAlias(session, value)
+		}
 		if err != nil {
 			return webControlTarget{}, desktopActionErrorResult("invalid_args", err.Error(), map[string]any{
 				"category": "validation", "stage": "arguments", "executionState": "not_started", "field": "url",
-				"recovery": map[string]any{"strategy": "fix_input", "message": "Use @workspace/<path> for the bound project or @chat/<path> for the current Chat. The file must be inside the current trusted Workspace; parent traversal is not allowed."},
+				"recovery": map[string]any{"strategy": "fix_input", "message": "Use @workspace/<path> for a file in the bound project and @chat/<path> for a file in the current Chat, such as a published artifact url. Each path must stay inside its own root; parent traversal is not allowed."},
 			}), true
 		}
-		return webControlTarget{relativePath: relative}, ToolExecutionResult{}, false
+		return target, ToolExecutionResult{}, false
 	default:
 		return webControlTarget{}, desktopActionErrorResult("invalid_args", "url must start with http://, https://, @workspace/ or @chat/", map[string]any{
 			"category": "validation", "stage": "arguments", "executionState": "not_started", "field": "url",
-			"recovery": map[string]any{"strategy": "fix_input", "message": "Write webpages with an explicit scheme (http://localhost:3000) and files with an explicit root (@workspace/report.html). Bare paths, host names without a scheme, absolute paths and file:// are not accepted."},
+			"recovery": map[string]any{"strategy": "fix_input", "message": "Write webpages with an explicit scheme (http://localhost:3000) and files with an explicit root (@workspace/report.html, or @chat/artifacts/... for a published artifact). Bare paths, host names without a scheme, absolute paths, @runtime/ and file:// are not accepted."},
 		}), true
 	}
 }
@@ -244,7 +300,10 @@ func (t *RuntimeToolExecutor) webControlPanelOpen(ctx context.Context, args map[
 	if !target.web {
 		// Reopening a file preview activates the existing item and reloads it,
 		// so reload needs no separate request.
-		fileArgs := map[string]any{"path": target.relativePath}
+		fileArgs := map[string]any{"root": target.root, "path": target.relativePath}
+		if artifactID := t.webControlPublishedArtifactID(execCtx.Session.ChatID, target); artifactID != "" {
+			fileArgs["artifactId"] = artifactID
+		}
 		if title != "" {
 			fileArgs["title"] = title
 		}
@@ -311,6 +370,37 @@ func (t *RuntimeToolExecutor) webControlPanelClose(ctx context.Context, args map
 	return projectWebControlPanelResult(result), err
 }
 
+// webControlPublishedArtifactID returns the manifest identity of a published
+// Chat file. Desktop needs the real id, not only the path: saving an edited
+// artifact is checked against the manifest entry.
+func (t *RuntimeToolExecutor) webControlPublishedArtifactID(chatID string, target webControlTarget) string {
+	if target.root != webControlChatRoot || !strings.HasPrefix(target.relativePath, "artifacts/") {
+		return ""
+	}
+	reader, ok := t.chats.(interface {
+		PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
+	})
+	if !ok {
+		return ""
+	}
+	want, err := chat.BuildChatScopeRef(target.relativePath)
+	if err != nil {
+		return ""
+	}
+	items, err := reader.PublishedArtifacts(chatID)
+	if err != nil {
+		return ""
+	}
+	// Republishing a file appends an entry for the same path; the last one is current.
+	artifactID := ""
+	for _, item := range items {
+		if chat.BareChatScopeRef(item.URL) == want {
+			artifactID = item.ArtifactID
+		}
+	}
+	return artifactID
+}
+
 // webControlPanelItems reads the raw items from a getState result.
 func webControlPanelItems(structured map[string]any) []any {
 	response, _ := structured["response"].(map[string]any)
@@ -326,19 +416,57 @@ func findWebControlPanelItem(items []any, target webControlTarget) (string, stri
 		item, _ := raw.(map[string]any)
 		descriptor, _ := item["descriptor"].(map[string]any)
 		itemID, _ := item["itemId"].(string)
-		relative, _ := descriptor["workspaceRelativePath"].(string)
-		if itemID == "" || target.web || descriptor["kind"] != "local-file" || relative == "" || relative != target.relativePath {
+		root, relative := webControlPanelFile(descriptor)
+		if itemID == "" || target.web || root == "" || relative == "" || root != target.root || relative != target.relativePath {
 			continue
 		}
 		if matched != "" {
-			return "", "several open file previews match this Workspace path; no item was closed"
+			return "", "several open file previews match this path; no item was closed"
 		}
 		matched = itemID
 	}
 	if matched != "" {
 		return matched, ""
 	}
-	return "", "no file preview has a recorded Workspace path matching url; call workpanel_state; file names alone cannot identify a preview"
+	return "", "no file preview has a recorded path matching url; call workpanel_state; file names alone cannot identify a preview"
+}
+
+// webControlPanelFile reads the root and root-relative path a WorkPanel item
+// previews. A Workspace file is a local preview. A Chat file is a native
+// HTML/image preview or a WebClient resource page; each records its
+// Chat-relative path under the artifact or reference profile.
+func webControlPanelFile(descriptor map[string]any) (string, string) {
+	context, _ := descriptor["context"].(map[string]any)
+	switch kind, _ := descriptor["kind"].(string); kind {
+	case "local-file":
+		relative, _ := descriptor["workspaceRelativePath"].(string)
+		return webControlWorkspaceRoot, relative
+	case "webclient":
+		module, _ := descriptor["module"].(string)
+		relative, _ := context["relativePath"].(string)
+		return webControlProfileRoot(module), relative
+	case "native":
+		if surface, _ := descriptor["surfaceKey"].(string); surface == "document-html" {
+			profile, _ := context["sourceKind"].(string)
+			display, _ := context["displayUrl"].(string)
+			_, relative, _ := strings.Cut(display, ":///")
+			return webControlProfileRoot(profile), relative
+		}
+		profile, _ := context["profile"].(string)
+		relative, _ := context["relativePath"].(string)
+		return webControlProfileRoot(profile), relative
+	}
+	return "", ""
+}
+
+func webControlProfileRoot(profile string) string {
+	switch profile {
+	case "artifact", "reference":
+		return webControlChatRoot
+	case "workspace-file":
+		return webControlWorkspaceRoot
+	}
+	return ""
 }
 
 // projectWebControlPanelResult replaces raw WorkPanel workspaces with the
@@ -409,14 +537,19 @@ func projectWebControlPanelItem(item map[string]any, activeItemID string) map[st
 		out["url"] = descriptor["url"]
 	case "local-file":
 		out["kind"] = "file"
-		if relative, _ := descriptor["workspaceRelativePath"].(string); relative != "" {
-			out["url"] = webControlWorkspaceAlias + relative
+		if root, relative := webControlPanelFile(descriptor); root != "" && relative != "" {
+			out["url"] = webControlTarget{root: root, relativePath: relative}.fileURL()
 		}
 		if name, _ := descriptor["fileName"].(string); name != "" {
 			out["fileName"] = name
 		}
 	default:
 		out["kind"] = kind
+		if root, relative := webControlPanelFile(descriptor); root != "" && relative != "" {
+			out["kind"] = "file"
+			out["url"] = webControlTarget{root: root, relativePath: relative}.fileURL()
+			out["fileName"] = path.Base(relative)
+		}
 	}
 	for _, key := range []string{"title", "closable", "pinned"} {
 		if value, ok := item[key]; ok {

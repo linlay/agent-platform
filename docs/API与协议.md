@@ -667,7 +667,7 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 
 `artifact_publish` 仅在整个批次文件物化且 `<chatId>/.tools/artifacts.json` 原子写入成功后发布 `artifact.publish`。事件包含合法 epoch-millisecond `timestamp`、`chatId`、`runId`、`toolId`、`artifactCount`、`artifacts`，子任务有明确归属时额外包含 `taskId`；每个 `artifacts[]` 项至少包含 `artifactId/name/mimeType/sizeBytes/sha256/url`。发布器从物化后的真实文件计算 SHA、大小和统一文档 MIME；manifest 未声明或旧逻辑会声明为 `application/octet-stream` 的安全 UTF-8 文本，在新产物写入时即规范化，不批量迁移历史 manifest。JSONL 的对应 `react-tool.artifacts.items[]` 只是该次调用的审计记录；`GET /api/chat` 的 `data.artifact = { items: [...] }` 只从 manifest 恢复，每个 item 返回 `publishedAt`（Unix epoch 毫秒），表示该条产物记录的发布时间；已有 manifest 中的时间直接返回，无需迁移。
 
-`image_generate.images[].path` 与 `artifact_publish.artifacts[].path` 是工具间传递的内部文件系统字段，可以是当前 Host 的绝对路径，但不得进入 Markdown 或用户可见正文。`image_generate.images[].url` 指向 Chat 根目录中的生成文件；发布时复制到 `artifacts/<runId>/<filename>`，成功后的 `publishedArtifacts[].url` 必须指向该发布副本，并优先于生成源 URL。工具若没有返回合法 `url`，模型必须明确报告物化/发布失败，不能伪造图片或下载链接。
+`image_generate.images[].path` 与 `artifact_publish.artifacts[].path` 是工具间传递的内部文件系统字段，可以是当前 Host 的绝对路径，但不得进入 Markdown 或用户可见正文。`image_generate.images[].url` 指向 Chat 根目录中的生成文件；发布时复制到 `artifacts/<runId>/<filename>`，成功后的 `publishedArtifacts[].url` 必须指向该发布副本（形如 `@chat/artifacts/<runId>/<filename>`，字面路径不编码），并优先于生成源 URL。工具若没有返回合法 `url`，模型必须明确报告物化/发布失败，不能伪造图片或下载链接。
 
 路径分类契约如下：
 

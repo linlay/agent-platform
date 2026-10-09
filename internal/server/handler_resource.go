@@ -413,7 +413,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resourceURL, err := chat.BuildChatScopeRef(referenceRelativePath)
+	resourceURL, err := chat.BuildChatAliasRef(referenceRelativePath)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "failed to create upload resource reference"))
 		return

@@ -100,7 +100,7 @@ func (s *Service) findArtifactByRef(chatID, sourceRef string) (chat.ArtifactMani
 	var found chat.ArtifactManifestItem
 	matched := false
 	for _, entry := range entries {
-		if entry.URL == canonicalRef {
+		if chat.BareChatScopeRef(entry.URL) == canonicalRef {
 			found = entry
 			matched = true
 		}
@@ -112,6 +112,9 @@ func (s *Service) findArtifactByRef(chatID, sourceRef string) (chat.ArtifactMani
 }
 
 func canonicalArtifactRef(chatID, sourceRef string) (string, error) {
+	// An @chat/ path is literal, so "?" and "#" are file name characters
+	// there; only the encoded bare form reserves them.
+	sourceRef = chat.BareChatScopeRef(sourceRef)
 	if !chat.ValidChatID(chatID) || sourceRef == "" || sourceRef != strings.TrimSpace(sourceRef) ||
 		strings.ContainsAny(sourceRef, `\?#`) {
 		return "", ErrArtifactNotFound
@@ -152,10 +155,11 @@ func (s *Service) OpenArtifactByRef(chatID, sourceRef string) (*os.File, Artifac
 
 func (s *Service) openArtifact(chatID string, entry chat.ArtifactManifestItem) (*os.File, Artifact, error) {
 	// Only published ChatScope references, never a caller-supplied file or URL.
-	if !strings.HasPrefix(entry.URL, "artifacts/") {
+	ref := chat.BareChatScopeRef(entry.URL)
+	if !strings.HasPrefix(ref, "artifacts/") {
 		return nil, Artifact{}, ErrArtifactNotFound
 	}
-	key := chatID + "/" + entry.URL
+	key := chatID + "/" + ref
 	owner, relative, err := chat.ParseResourceKey(key)
 	if err != nil || owner != chatID || !strings.HasPrefix(relative, "artifacts/") {
 		return nil, Artifact{}, ErrArtifactNotFound

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"agent-platform/internal/chat"
 	"context"
 	"encoding/json"
 	"os"
@@ -137,7 +138,7 @@ func TestWorkPanelOpenRoutesByURLPrefix(t *testing.T) {
 	if invoker.requests[0].Type != "desktop.workpanel.openWeb" || !reflect.DeepEqual(invoker.requests[0].Payload, map[string]any{"url": "http://localhost:3000"}) {
 		t.Fatalf("web request: %#v", invoker.requests[0])
 	}
-	if invoker.requests[1].Type != "desktop.workpanel.openLocalFile" || !reflect.DeepEqual(invoker.requests[1].Payload, map[string]any{"path": "artifacts/report.html", "title": "Report"}) {
+	if invoker.requests[1].Type != "desktop.workpanel.openLocalFile" || !reflect.DeepEqual(invoker.requests[1].Payload, map[string]any{"root": "workspace", "path": "artifacts/report.html", "title": "Report"}) {
 		t.Fatalf("file request: %#v", invoker.requests[1])
 	}
 	if invoker.requests[0].Source == nil || invoker.requests[0].Source.ChatID != execCtx.Session.ChatID {
@@ -602,5 +603,149 @@ func TestSurfaceCloseUsesDiscoveredIdentityRegardlessOfURL(t *testing.T) {
 	}
 	if invoker.requests[1].Payload["method"] != "Surface.close" || invoker.requests[1].Payload["surfaceId"] != "page:2" {
 		t.Fatalf("wrong target: %#v", invoker.requests[1])
+	}
+}
+
+func webControlChatFileItem(id, relative string) map[string]any {
+	descriptor := map[string]any{
+		"kind": "webclient", "module": "artifact", "route": "/resource-viewer/agent",
+		"context": map[string]any{"agentKey": "agent", "chatId": "chat-1", "artifactId": "chat-file:" + relative, "relativePath": relative},
+	}
+	return map[string]any{"itemId": id, "stableKey": "artifact:" + id, "descriptor": descriptor, "title": "Novel", "closable": true, "pinned": false, "createdAt": 1}
+}
+
+// A published artifact lives in the Chat directory. It must open, be listed
+// and close by the url artifact_publish returned, without a project Workspace.
+func TestWorkPanelChatFileNeedsNoProjectWorkspace(t *testing.T) {
+	const relative = "artifacts/run-1/末位 淘汰.md"
+	const url = "@chat/" + relative
+	workspace := webControlWorkspace(webControlChatFileItem("item-1", relative))
+	executor, execCtx, invoker := webControlTestRuntime(t, func(request ClientRequest) map[string]any {
+		switch request.Type {
+		case "desktop.workpanel.getState":
+			return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": workspace}}
+		case "desktop.workpanel.closeTab":
+			return map[string]any{"ok": true, "result": map[string]any{"closedItemId": request.Payload["tabId"], "workspace": webControlWorkspace()}}
+		}
+		return map[string]any{"ok": true, "result": map[string]any{"workspace": workspace}}
+	})
+	chatDir := filepath.Join(t.TempDir(), "chats", "chat-1")
+	execCtx.Session.WorkspaceRoot = ""
+	execCtx.Session.ChatRoot = chatDir
+	execCtx.Session.RuntimeContext.LocalPaths.WorkspaceDir = ""
+	execCtx.Session.RuntimeContext.LocalPaths.ChatDir = chatDir
+	for _, dir := range []string{filepath.Join(chatDir, "artifacts", "run-1"), filepath.Join(chatDir, ".tools")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWriteFile(t, filepath.Join(chatDir, filepath.FromSlash(relative)), "# novel")
+	mustWriteFile(t, filepath.Join(chatDir, ".tools", "artifacts.json"), "{}")
+
+	opened, err := executor.Invoke(context.Background(), "workpanel_open", map[string]any{"url": url, "title": "Novel"}, execCtx)
+	if err != nil || opened.ExitCode != 0 {
+		t.Fatalf("open chat file: %#v %v", opened, err)
+	}
+	assertNoWebControlInternalIdentity(t, opened)
+	if !strings.Contains(opened.Output, `"kind":"file"`) || !strings.Contains(opened.Output, `"url":"`+url+`"`) {
+		t.Fatalf("chat file result: %s", opened.Output)
+	}
+	if got := invoker.requests[0]; got.Type != "desktop.workpanel.openLocalFile" ||
+		!reflect.DeepEqual(got.Payload, map[string]any{"root": "chat", "path": relative, "title": "Novel"}) {
+		t.Fatalf("chat file request: %#v", got)
+	}
+
+	state, err := executor.Invoke(context.Background(), "workpanel_state", map[string]any{}, execCtx)
+	if err != nil || !strings.Contains(state.Output, `"url":"`+url+`"`) {
+		t.Fatalf("chat file state: %#v %v", state, err)
+	}
+
+	closed, err := executor.Invoke(context.Background(), "workpanel_close", map[string]any{"url": url}, execCtx)
+	if err != nil || closed.ExitCode != 0 {
+		t.Fatalf("close chat file: %#v %v", closed, err)
+	}
+	if last := invoker.requests[len(invoker.requests)-1]; last.Type != "desktop.workpanel.closeTab" || last.Payload["tabId"] != "item-1" {
+		t.Fatalf("close request: %#v", last)
+	}
+
+	// HTML and images open in Desktop's native preview; they are the same files.
+	native := webControlWorkspace(
+		map[string]any{"itemId": "item-html", "stableKey": "s1", "title": "Report", "closable": true, "pinned": false, "descriptor": map[string]any{
+			"kind": "native", "surfaceKey": "document-html",
+			"context": map[string]any{"handleId": "h1", "sourceKind": "artifact", "displayUrl": "artifact:///artifacts/run-1/report.html", "fileName": "report.html"},
+		}},
+		map[string]any{"itemId": "item-image", "stableKey": "s2", "title": "Image", "closable": true, "pinned": false, "descriptor": map[string]any{
+			"kind": "native", "surfaceKey": "document-image",
+			"context": map[string]any{"handleId": "h2", "profile": "reference", "relativePath": "image.png", "fileName": "image.png"},
+		}},
+	)
+	projected := projectWebControlPanelResult(structuredResult(map[string]any{"response": map[string]any{"result": map[string]any{"workspace": native}}}))
+	for _, want := range []string{`"url":"@chat/artifacts/run-1/report.html"`, `"url":"@chat/image.png"`} {
+		if !strings.Contains(projected.Output, want) || strings.Contains(projected.Output, `"kind":"native"`) {
+			t.Fatalf("native preview state: %s", projected.Output)
+		}
+	}
+	if id, _ := findWebControlPanelItem(native["items"].([]any), webControlTarget{root: webControlChatRoot, relativePath: "image.png"}); id != "item-image" {
+		t.Fatalf("native image item = %q", id)
+	}
+	if id, _ := findWebControlPanelItem(native["items"].([]any), webControlTarget{root: webControlWorkspaceRoot, relativePath: "image.png"}); id != "" {
+		t.Fatalf("workspace path matched a chat item: %q", id)
+	}
+
+	// The same relative path under the project root is a different file.
+	sent := len(invoker.requests)
+	for name, bad := range map[string]string{
+		"missing":       "@chat/artifacts/run-1/absent.md",
+		"tool internal": "@chat/.tools/artifacts.json",
+		"traversal":     "@chat/../chat-2/secret.md",
+		"bare":          relative,
+		"no workspace":  "@workspace/" + relative,
+	} {
+		result, err := executor.Invoke(context.Background(), "workpanel_open", map[string]any{"url": bad}, execCtx)
+		if err != nil || result.Error != "invalid_args" || len(invoker.requests) != sent {
+			t.Fatalf("%s: %#v %v", name, result, err)
+		}
+	}
+}
+
+// Desktop saves an edited artifact against its manifest entry, so a published
+// Chat file is opened with its real artifactId (the latest one for that path).
+func TestWorkPanelOpenPassesPublishedArtifactIdentity(t *testing.T) {
+	executor, execCtx, invoker := webControlTestRuntime(t, nil)
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	chatID := execCtx.Session.ChatID
+	if _, _, err = store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	executor.chats = store
+	chatDir := store.ChatDir(chatID)
+	execCtx.Session.ChatRoot = chatDir
+	execCtx.Session.RuntimeContext.LocalPaths.ChatDir = chatDir
+	if err = os.MkdirAll(filepath.Join(chatDir, "artifacts", "run-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(chatDir, "artifacts", "run-1", "a b.png"), "png")
+	mustWriteFile(t, filepath.Join(chatDir, "artifacts", "run-1", "draft.html"), "<html></html>")
+	for index, id := range []string{"old", "latest"} {
+		if err = store.AppendArtifactManifest(chatID, "run-1", int64(index+1), []map[string]any{{
+			"artifactId": id, "type": "file", "name": "a b.png", "url": "@chat/artifacts/run-1/a b.png",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for url, want := range map[string]map[string]any{
+		"@chat/artifacts/run-1/a b.png":    {"root": "chat", "path": "artifacts/run-1/a b.png", "artifactId": "latest"},
+		"@chat/artifacts/run-1/draft.html": {"root": "chat", "path": "artifacts/run-1/draft.html"},
+	} {
+		invoker.requests = nil
+		result, err := executor.Invoke(context.Background(), "workpanel_open", map[string]any{"url": url}, execCtx)
+		if err != nil || result.ExitCode != 0 || len(invoker.requests) != 1 || !reflect.DeepEqual(invoker.requests[0].Payload, want) {
+			t.Fatalf("%s: %#v %v %#v", url, result, err, invoker.requests)
+		}
 	}
 }

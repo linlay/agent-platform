@@ -76,6 +76,8 @@ func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem) 
 }
 
 func canonicalSnapshotArtifactRef(chatID, raw string) (string, string, error) {
+	// The manifest stores @chat/ references; Snapshot V1 keeps the bare form.
+	raw = chat.BareChatScopeRef(raw)
 	if raw == "" || raw != strings.TrimSpace(raw) || strings.ContainsAny(raw, `\?#`) {
 		return "", "", fmt.Errorf("invalid published artifact path %q", raw)
 	}

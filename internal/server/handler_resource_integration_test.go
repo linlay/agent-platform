@@ -87,10 +87,10 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if response.Data.Upload.Path != wantUploadPath {
 		t.Fatalf("upload path = %q, want %q", response.Data.Upload.Path, wantUploadPath)
 	}
-	if response.Data.Upload.URL != "notes.txt" {
-		t.Fatalf("upload public URL = %q, want ChatScope relative path", response.Data.Upload.URL)
+	if response.Data.Upload.URL != "@chat/notes.txt" {
+		t.Fatalf("upload public URL = %q, want @chat/ reference", response.Data.Upload.URL)
 	}
-	resourceKey, err := chat.BuildResourceKey(response.Data.ChatID, response.Data.Upload.URL)
+	resourceKey, err := chat.BuildResourceKey(response.Data.ChatID, chat.BareChatScopeRef(response.Data.Upload.URL))
 	if err != nil {
 		t.Fatalf("build resource key: %v", err)
 	}
@@ -499,7 +499,7 @@ func TestUploadReturnsContainerPathWhenAgentUsesContainerRuntime(t *testing.T) {
 	if response.Data.Upload.Path != "/chat/notes.txt" {
 		t.Fatalf("upload path = %q", response.Data.Upload.Path)
 	}
-	if response.Data.Upload.URL != "notes.txt" {
+	if response.Data.Upload.URL != "@chat/notes.txt" {
 		t.Fatalf("upload URL = %q", response.Data.Upload.URL)
 	}
 	if strings.Contains(rec.Body.String(), "sandboxPath") {
@@ -766,7 +766,7 @@ func postTestUpload(t *testing.T, server *Server, chatID string, requestID strin
 
 func uploadResourceRequestURL(t *testing.T, upload api.UploadResponse) string {
 	t.Helper()
-	resourceKey, err := chat.BuildResourceKey(upload.ChatID, upload.Upload.URL)
+	resourceKey, err := chat.BuildResourceKey(upload.ChatID, chat.BareChatScopeRef(upload.Upload.URL))
 	if err != nil {
 		t.Fatalf("build upload resource key: %v", err)
 	}

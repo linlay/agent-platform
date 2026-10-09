@@ -22,6 +22,40 @@ func BuildChatScopeRef(relativePath string) (string, error) {
 	return strings.Join(encoded, "/"), nil
 }
 
+// ChatScopeAlias is the explicit root of a current-Chat file reference. A bare
+// relative reference means the same root.
+const ChatScopeAlias = "@chat/"
+
+// BuildChatAliasRef returns the root-qualified reference for a file stored in
+// the current chat. The path is literal (not percent-encoded) so the same
+// string is a valid path argument for the file tools.
+func BuildChatAliasRef(relativePath string) (string, error) {
+	segments, err := validatedResourceSegments(relativePath)
+	if err != nil {
+		return "", err
+	}
+	return ChatScopeAlias + strings.Join(segments, "/"), nil
+}
+
+// HasChatScopeAlias reports whether ref is written with the explicit @chat root.
+func HasChatScopeAlias(ref string) bool {
+	return len(ref) >= len(ChatScopeAlias) && strings.EqualFold(ref[:len(ChatScopeAlias)], ChatScopeAlias)
+}
+
+// BareChatScopeRef converts an @chat/ reference to the equivalent encoded
+// bare reference. Other values, including invalid aliases, are returned
+// unchanged so the caller's existing validation still rejects them.
+func BareChatScopeRef(ref string) string {
+	if !HasChatScopeAlias(ref) {
+		return ref
+	}
+	bare, err := BuildChatScopeRef(ref[len(ChatScopeAlias):])
+	if err != nil {
+		return ref
+	}
+	return bare
+}
+
 // BuildResourceKey returns the logical key consumed by the HTTP resource data
 // plane. Unlike BuildChatScopeRef, this value is never written into Markdown
 // or public tool/event URL fields.

@@ -20,7 +20,7 @@ Tool definitions only name a capability. Read the reference for a tool before ca
 
 - **url** is what you pass to `workpanel_open`. Only file previews use it with `workpanel_close`; webpages are closed by surfaceId.
   - A webpage starts with `http://` or `https://`.
-  - A file preview starts with `@workspace/` (bound project) or `@chat/` (current Chat) and must be inside the current Workspace.
+  - A file preview starts with `@workspace/` (bound project) or `@chat/` (current Chat, including a published artifact url) and must be inside the root it names.
   - Nothing else is accepted: no bare paths, no host names without a scheme, no absolute paths, no `file://`.
 - **surfaceId** identifies one live webpage. `workpanel_open` returns it for a webpage; `surface_list` rediscovers it. Every webpage is one independent surface. A url is not a page identity: the page keeps its surfaceId while it navigates.
 

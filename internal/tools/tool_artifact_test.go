@@ -175,7 +175,7 @@ func TestPublishArtifactsEncodesSpecialFilenameInChatScopeURL(t *testing.T) {
 	if result.Status != "published" || len(result.PublishedArtifacts) != 1 {
 		t.Fatalf("publish result=%#v", result)
 	}
-	wantURL := "artifacts/run-1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5%20%231%25.png"
+	wantURL := "@chat/artifacts/run-1/夏日 海报 #1%.png"
 	if got := result.PublishedArtifacts[0]["url"]; got != wantURL {
 		t.Fatalf("published URL=%#v want=%q", got, wantURL)
 	}

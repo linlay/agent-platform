@@ -401,7 +401,7 @@ func persistGeneratedImageArtifact(chatsRoot string, execCtx *ExecutionContext, 
 		return nil, fmt.Errorf("generated image escaped chat directory")
 	}
 	relativePath = filepath.ToSlash(relativePath)
-	resourceURL, err := chat.BuildChatScopeRef(relativePath)
+	resourceURL, err := chat.BuildChatAliasRef(relativePath)
 	if err != nil {
 		return nil, err
 	}

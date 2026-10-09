@@ -47,7 +47,7 @@ func TestNormalizeProxyArtifactURLsKeepsOnlyChatScopeURLs(t *testing.T) {
 	if !ok || len(items) != 2 {
 		t.Fatalf("normalized artifacts=%#v", event.Payload["artifacts"])
 	}
-	if items[0]["url"] != "artifacts/run_1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5.png" || items[1]["url"] != "artifacts/run_1/report.pdf" {
+	if items[0]["url"] != "@chat/artifacts/run_1/夏日 海报.png" || items[1]["url"] != "@chat/artifacts/run_1/report.pdf" {
 		t.Fatalf("normalized artifact URLs=%#v", items)
 	}
 	if event.Payload["artifactCount"] != 2 {

@@ -57,7 +57,7 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 [下载夏日海报](artifacts/run_01/generated.png)
 ```
 
-工具结果与 Markdown 使用相对于当前 Chat、不带 `chatId` 的 `url`。浏览器数据层补入当前 `chatId`，再转换为实际的 `GET /api/resource?file=<chatId>/<relativePath>`，查询参数按 HTTP 规则编码。该 HTTP 地址不作为 Markdown 地址；历史 endpoint Markdown 不迁移且不再预览。
+工具结果与 Markdown 使用相对于当前 Chat、不带 `chatId` 的 `url`。上传、Steer 附件、图片生成与发布产物的 `url` 统一写作带根的 `@chat/<relativePath>`（发布产物为 `@chat/artifacts/<runId>/<filename>`），路径为字面值、不做 percent-encode，因此同一字符串既是 Markdown 链接目标，也是 `workpanel_open` 等工具的入参；裸相对引用与 `@chat/` 等价，继续接受。Workspace 文件在 Markdown 中写 `@workspace/<相对路径>`（可带 `:行号`），Workspace 内的 Host 绝对路径继续接受；别名由 WebClient 在渲染时解析，Platform 不改写模型输出。浏览器数据层补入当前 `chatId`，再转换为实际的 `GET /api/resource?file=<chatId>/<relativePath>`，查询参数按 HTTP 规则编码。该 HTTP 地址不作为 Markdown 地址；历史 endpoint Markdown 不迁移且不再预览。
 
 ## WorkPanel 反向动作
 
@@ -69,7 +69,7 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 | --- | --- |
 | `workpanel_state` | `desktop.workpanel.getState` |
 | `workpanel_open`（`http(s)://`） | `desktop.workpanel.openWeb`；`reload: true` 时随后发送 `desktop.workpanel.refreshWeb` |
-| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，路径由 Platform 解析为 Workspace 相对路径 |
+| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，参数 `{root, path, title?, artifactId?}`：`root` 为 `workspace` 或 `chat`，`path` 是相对该根的路径；`artifactId` 仅在该 Chat 文件是已发布产物时由 Platform 从 manifest 取同路径的最新一项填入，Desktop 以它作为产物身份，编辑保存按该身份校验，不得自行构造。`@chat/` 只校验位于当前 Chat 目录内且为普通文件，不要求存在项目 Workspace；Desktop 对 HTML 与图片使用原生隔离预览，其他类型以 WebClient 资源预览页打开，`workpanel_state` / `workpanel_close` 对两类 Tab 都按 `@chat/<相对路径>` 识别。`@runtime/` 不再接受 |
 | `workpanel_close`（文件 `url`） | 先 `desktop.workpanel.getState` 严格匹配已记录的 Workspace 路径，再 `desktop.workpanel.closeTab`；网页使用 `surface_close` |
 | `workpanel_close`（`all: true`） | `desktop.workpanel.closeWorkpanel` |
 

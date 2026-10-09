@@ -126,6 +126,47 @@ func TestOpenArtifactByRefUsesPublishedManifestAndLatestEntry(t *testing.T) {
 	}
 }
 
+// An @chat/ reference is a literal path, so "?" and "#" in a file name are
+// part of the name rather than URL syntax.
+func TestOpenArtifactByRefAcceptsLiteralChatAlias(t *testing.T) {
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, _, err = store.EnsureChat("chat-alias", "agent", "", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	const sourceRef = "@chat/artifacts/run-1/夏日 #1?.txt"
+	path := filepath.Join(store.ChatDir("chat-alias"), "artifacts", "run-1", "夏日 #1?.txt")
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("alias")
+	if err = os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	if err = store.AppendArtifactManifest("chat-alias", "run-1", 1, []map[string]any{{
+		"artifactId": "alias", "type": "file", "url": sourceRef, "name": "夏日 #1?.txt",
+		"mimeType": "text/plain", "sizeBytes": len(data), "sha256": hex.EncodeToString(digest[:]),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store)
+	for _, ref := range []string{sourceRef, "artifacts/run-1/%E5%A4%8F%E6%97%A5%20%231%3F.txt"} {
+		f, artifact, err := service.OpenArtifactByRef("chat-alias", ref)
+		if err != nil || artifact.ArtifactID != "alias" {
+			t.Fatalf("%s: artifact=%#v err=%v", ref, artifact, err)
+		}
+		f.Close()
+	}
+	// The bare form is a URL reference and still reserves these characters.
+	if _, _, err = service.OpenArtifactByRef("chat-alias", "artifacts/run-1/夏日 #1?.txt"); !errors.Is(err, ErrArtifactNotFound) {
+		t.Fatalf("bare literal error=%v", err)
+	}
+}
+
 func TestOpenArtifactByRefRejectsNonCanonicalReferences(t *testing.T) {
 	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
