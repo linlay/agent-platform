@@ -240,8 +240,96 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 		delete(requestBody, "output_config")
 	}
 	modelrequest.ApplyAnthropicSampling(requestBody, stageSettings.Sampling)
+	applyAnthropicCacheBreakpoints(requestBody)
 
 	return requestBody, effectiveToolChoice, nil
+}
+
+func applyAnthropicCacheBreakpoints(body map[string]any) {
+	// Own the wire-only markers after compat. Do not combine automatic caching
+	// with these three explicit breakpoints or retain markers on older turns.
+	delete(body, "cache_control")
+	if text, ok := body["system"].(string); ok && strings.TrimSpace(text) != "" {
+		body["system"] = []map[string]any{{"type": "text", "text": text}}
+	}
+	if blocks, ok := anthropicCacheBlockCopies(body["system"]); ok {
+		body["system"] = blocks
+		for i := len(blocks) - 1; i >= 0; i-- {
+			if blocks[i]["type"] == "text" && strings.TrimSpace(AnyStringNode(blocks[i]["text"])) != "" {
+				blocks[i]["cache_control"] = map[string]any{"type": "ephemeral"}
+				break
+			}
+		}
+	}
+	tools, hasTools := anthropicCacheBlockCopies(body["tools"])
+	if hasTools {
+		body["tools"] = tools
+		if len(tools) > 0 {
+			tools[len(tools)-1]["cache_control"] = map[string]any{"type": "ephemeral"}
+		}
+	}
+	messages, ok := anthropicCacheBlockCopies(body["messages"])
+	if !ok {
+		return
+	}
+	body["messages"] = messages
+	for _, message := range messages {
+		if blocks, ok := anthropicCacheBlockCopies(message["content"]); ok {
+			message["content"] = blocks
+		}
+	}
+	// A one-shot summary has no later turn to reuse a cached message prefix.
+	if len(messages) == 0 || (len(tools) == 0 && len(messages) == 1) {
+		return
+	}
+	last := messages[len(messages)-1]
+	if last["role"] != "user" {
+		return
+	}
+	if text, ok := last["content"].(string); ok && strings.TrimSpace(text) != "" {
+		last["content"] = []map[string]any{{"type": "text", "text": text}}
+	}
+	blocks, ok := last["content"].([]map[string]any)
+	if !ok || len(blocks) == 0 {
+		return
+	}
+	block := blocks[len(blocks)-1]
+	switch block["type"] {
+	case "text":
+		if strings.TrimSpace(AnyStringNode(block["text"])) == "" {
+			return
+		}
+	case "image", "tool_result":
+	default:
+		return
+	}
+	block["cache_control"] = map[string]any{"type": "ephemeral"}
+}
+
+// Detach protocol-level maps, including compat arrays. Nested schemas, tool
+// inputs and tool-result contents remain opaque; their keys are business data.
+func anthropicCacheBlockCopies(value any) ([]map[string]any, bool) {
+	var blocks []map[string]any
+	switch items := value.(type) {
+	case []map[string]any:
+		blocks = items
+	case []any:
+		blocks = make([]map[string]any, len(items))
+		for i, item := range items {
+			blocks[i] = AnyMapNode(item)
+		}
+	default:
+		return nil, false
+	}
+	out := make([]map[string]any, len(blocks))
+	for i, block := range blocks {
+		if block == nil {
+			return nil, false
+		}
+		out[i] = CloneMap(block)
+		delete(out[i], "cache_control")
+	}
+	return out, true
 }
 
 func convertMessagesToAnthropic(messages []openAIMessage) (string, []map[string]any, error) {
