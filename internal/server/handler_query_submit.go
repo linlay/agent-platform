@@ -79,7 +79,7 @@ func runtimeSubmitCommand(req api.SubmitRequest) runtimetypes.SubmitCommand {
 	return runtimetypes.SubmitCommand{
 		RunRef:     runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID},
 		AwaitingID: req.AwaitingID, SubmitID: req.SubmitID, Locale: req.Locale,
-		Params: params, ContinuationRunID: req.ContinuationRunID, ContinuationState: req.ContinuationState,
+		Param: req.Param, Params: params, ContinuationRunID: req.ContinuationRunID, ContinuationState: req.ContinuationState,
 	}
 }
 

@@ -18,10 +18,8 @@ func mustEncodeHITLSubmitParams(t *testing.T, value any) api.SubmitParams {
 func TestNormalizePlanningConfirmationSubmitApprove(t *testing.T) {
 	normalized, err := normalizePlanningConfirmationSubmit(map[string]any{
 		"mode":     "planning",
-		"planning": map[string]any{"id": "confirm", "planningId": "run_1_planning_1"},
-	}, mustEncodeHITLSubmitParams(t, []map[string]any{
-		{"id": "confirm", "decision": "approve"},
-	}))
+		"planning": map[string]any{"planningId": "run_1_planning_1"},
+	}, map[string]any{"decision": "approve"})
 	if err != nil {
 		t.Fatalf("normalizePlanningConfirmationSubmit returned error: %v", err)
 	}
@@ -29,7 +27,7 @@ func TestNormalizePlanningConfirmationSubmitApprove(t *testing.T) {
 	if normalized["mode"] != "planning" || normalized["status"] != "answered" {
 		t.Fatalf("unexpected normalized planning submit %#v", normalized)
 	}
-	if planning["id"] != "confirm" || planning["planningId"] != "run_1_planning_1" || planning["decision"] != "approve" {
+	if planning["id"] != nil || planning["planningId"] != "run_1_planning_1" || planning["decision"] != "approve" {
 		t.Fatalf("unexpected normalized planning %#v", normalized)
 	}
 }
@@ -37,10 +35,8 @@ func TestNormalizePlanningConfirmationSubmitApprove(t *testing.T) {
 func TestNormalizePlanningConfirmationSubmitRejectPreservesReason(t *testing.T) {
 	normalized, err := normalizePlanningConfirmationSubmit(map[string]any{
 		"mode":     "planning",
-		"planning": map[string]any{"id": "confirm", "planningId": "run_1_planning_1"},
-	}, mustEncodeHITLSubmitParams(t, []map[string]any{
-		{"id": "confirm", "decision": "reject", "reason": " 请补充测试范围 "},
-	}))
+		"planning": map[string]any{"planningId": "run_1_planning_1"},
+	}, map[string]any{"decision": "reject", "reason": " 请补充测试范围 "})
 	if err != nil {
 		t.Fatalf("normalizePlanningConfirmationSubmit returned error: %v", err)
 	}
@@ -53,8 +49,8 @@ func TestNormalizePlanningConfirmationSubmitRejectPreservesReason(t *testing.T) 
 func TestNormalizePlanningConfirmationSubmitDismiss(t *testing.T) {
 	normalized, err := normalizePlanningConfirmationSubmit(map[string]any{
 		"mode":     "planning",
-		"planning": map[string]any{"id": "confirm", "planningId": "run_1_planning_1"},
-	}, mustEncodeHITLSubmitParams(t, []map[string]any{}))
+		"planning": map[string]any{"planningId": "run_1_planning_1"},
+	}, map[string]any{"decision": "dismiss"})
 	if err != nil {
 		t.Fatalf("normalizePlanningConfirmationSubmit returned error: %v", err)
 	}
@@ -67,11 +63,9 @@ func TestNormalizePlanningConfirmationSubmitDismiss(t *testing.T) {
 func TestNormalizePlanningConfirmationSubmitRejectsUnknownDecision(t *testing.T) {
 	_, err := normalizePlanningConfirmationSubmit(map[string]any{
 		"mode":     "planning",
-		"planning": map[string]any{"id": "confirm", "planningId": "run_1_planning_1"},
-	}, mustEncodeHITLSubmitParams(t, []map[string]any{
-		{"id": "confirm", "decision": "approve_rule_run"},
-	}))
-	if err == nil || err.Error() != `items[0]: unsupported planning confirmation decision "approve_rule_run"` {
+		"planning": map[string]any{"planningId": "run_1_planning_1"},
+	}, map[string]any{"decision": "approve_rule_run"})
+	if err == nil || err.Error() != `unsupported planning confirmation decision "approve_rule_run"` {
 		t.Fatalf("expected unsupported decision error, got %v", err)
 	}
 }

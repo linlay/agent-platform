@@ -1,13 +1,12 @@
 package hitl
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 
-	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/hitl/planning"
 )
 
@@ -26,7 +25,7 @@ func Normalize(args map[string]any, params any) (map[string]any, error) {
 }
 
 func NormalizeApproval(args map[string]any, params any) (map[string]any, error) {
-	items, err := decodeItems(params)
+	items, err := queryinput.DecodeSubmitItems(params)
 	if err != nil {
 		return nil, fmt.Errorf("bash HITL approval submit params must be an array")
 	}
@@ -91,84 +90,51 @@ func NormalizeApproval(args map[string]any, params any) (map[string]any, error) 
 	}, nil
 }
 
-func NormalizeForm(args map[string]any, params any) (map[string]any, error) {
-	items, err := decodeItems(params)
+func NormalizeForm(args map[string]any, param any) (map[string]any, error) {
+	item, err := queryinput.DecodeSubmitSingle(param)
 	if err != nil {
-		return nil, fmt.Errorf("bash HITL form submit params must be an array")
+		return nil, fmt.Errorf("form submit requires param: %w", err)
 	}
-	if len(items) == 0 {
+	definition := contracts.AnyMapNode(args["form"])
+	entry := map[string]any{}
+	if command := contracts.AnyStringNode(definition["command"]); command != "" {
+		entry["command"] = command
+	}
+	data, hasData := item["data"].(map[string]any)
+	if _, present := item["data"]; present && (!hasData || data == nil) {
+		return nil, fmt.Errorf("param.data must be an object")
+	}
+	switch decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"]))); decision {
+	case "dismiss":
 		return contracts.AwaitingErrorAnswer("form", "user_dismissed", "用户关闭等待项"), nil
-	}
-
-	definitions := cloneAnySlice(args["forms"])
-	if len(items) != len(definitions) {
-		return nil, fmt.Errorf("expected %d forms, got %d", len(definitions), len(items))
-	}
-
-	forms := make([]map[string]any, 0, len(items))
-	for index, item := range items {
-		definition := contracts.AnyMapNode(definitions[index])
-		entryID := contracts.AnyStringNode(definition["id"])
-		entry := map[string]any{
-			"id":      entryID,
-			"command": contracts.AnyStringNode(definition["command"]),
+	case "approve":
+		if !hasData {
+			return nil, fmt.Errorf("param.data is required for approve")
 		}
-		decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
-		if decision == "" {
-			return nil, fmt.Errorf("items[%d]: decision is required", index)
+		entry["decision"] = "approve"
+		entry["data"] = data
+	case "reject":
+		entry["decision"] = "reject"
+		if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
+			entry["reason"] = reason
 		}
-		switch decision {
-		case "approve":
-			form := contracts.AnyMapNode(item["form"])
-			if form == nil {
-				return nil, fmt.Errorf("items[%d]: form is required for approve", index)
-			}
-			entry["decision"] = "approve"
-			entry["form"] = form
-		case "reject":
-			entry["decision"] = "reject"
-			if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
-				entry["reason"] = reason
-			}
-			if form := contracts.AnyMapNode(item["form"]); len(form) > 0 {
-				entry["form"] = form
-			}
-		default:
-			return nil, fmt.Errorf("items[%d]: unsupported decision %q", index, decision)
+		if len(data) > 0 {
+			entry["data"] = data
 		}
-		forms = append(forms, entry)
+	case "":
+		return nil, fmt.Errorf("param.decision is required")
+	default:
+		return nil, fmt.Errorf("unsupported form decision %q", decision)
 	}
-
 	return map[string]any{
 		"mode":   "form",
 		"status": "answered",
-		"forms":  forms,
+		"form":   entry,
 	}, nil
 }
 
 func NormalizePlanningConfirmation(args map[string]any, params any) (map[string]any, error) {
 	return planning.NormalizeConfirmation(args, params)
-}
-
-func decodeItems(params any) ([]map[string]any, error) {
-	switch typed := params.(type) {
-	case api.SubmitParams:
-		return api.DecodeSubmitParams(typed)
-	case []json.RawMessage:
-		return api.DecodeSubmitParams(api.SubmitParams(typed))
-	case []any:
-		items := make([]map[string]any, 0, len(typed))
-		for _, raw := range typed {
-			item := contracts.AnyMapNode(raw)
-			if len(item) == 0 {
-				return nil, fmt.Errorf("submit items must be objects")
-			}
-			items = append(items, item)
-		}
-		return items, nil
-	default:
-		return nil, fmt.Errorf("submit params must be an array")
-	}
 }
 
 func cloneAnySlice(value any) []any {

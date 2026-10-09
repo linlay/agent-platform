@@ -1739,7 +1739,7 @@ Plan should stream over websocket.
 	}
 
 	wantSubmitID := "submit-ws-plan-approve"
-	submitBody := `{"submitId":"` + wantSubmitID + `","agentKey":"coder-ws","runId":"` + runID + `","awaitingId":"` + awaitingID + `","params":[{"id":"confirm","decision":"approve"}]}`
+	submitBody := `{"submitId":"` + wantSubmitID + `","agentKey":"coder-ws","runId":"` + runID + `","awaitingId":"` + awaitingID + `","param":{"decision":"approve"}}`
 	submitBytes := wsTestControlResponse(t, server.URL, "/api/submit", json.RawMessage(submitBody))
 	var submitResponse api.ApiResponse[api.SubmitResponse]
 	if err := json.Unmarshal(submitBytes, &submitResponse); err != nil {

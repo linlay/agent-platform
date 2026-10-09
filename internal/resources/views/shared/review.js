@@ -21,7 +21,7 @@ const Review = (() => {
       if ((message.type === 'awaiting_init' || message.type === 'awaiting_update') && message.data?.mode === 'form') {
         state = null;
         dispose();
-        const data = message.data, form = record(data.form), args = record(form.args);
+        const data = message.data, form = record(record(data.form).data), args = record(form.args);
         // Display helpers never mutate the form returned to the host.
         const current = {...record(form.current)};
         const zh = String(data.locale || navigator.language).startsWith('zh');
@@ -144,8 +144,10 @@ const Review = (() => {
           removeEventListener('resize', measure);
         };
       }
-      if (message.type === 'awaiting_collect' && state && message.data?.runId === state.runId && message.data?.awaitingId === state.awaitingId && message.data?.decision === 'submit') {
-        parent.postMessage({type: 'frontend_awaiting_submit', params: [{id: state.activeFormId, decision: 'approve', form: state.form || {}}]}, '*');
+      if (message.type === 'awaiting_collect' && state && message.data?.runId === state.runId && message.data?.awaitingId === state.awaitingId && (message.data?.decision === 'submit' || message.data?.decision === 'reject')) {
+        // The host asks for the current data on both approve and reject.
+        const decision = message.data.decision === 'reject' ? 'reject' : 'approve';
+        parent.postMessage({type: 'frontend_awaiting_submit', param: {decision, data: record(record(state.form).data)}}, '*');
       }
     });
   }

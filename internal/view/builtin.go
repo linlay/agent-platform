@@ -61,7 +61,7 @@ func ResolveBuiltin(key string) (*Reference, error) {
 		return nil, ErrInvalid
 	}
 	switch key {
-	case "question", "approval", "planning", "confirm_dialog", "team-hitl":
+	case "question", "approval", "planning", "confirm_dialog":
 		return &Reference{Source: "builtin", Key: key, Renderer: "native"}, nil
 	}
 	if _, err := resources.ViewFS.ReadFile("views/" + key + ".html"); err != nil {

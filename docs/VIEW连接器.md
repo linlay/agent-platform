@@ -91,7 +91,7 @@ HTTP：`GET /api/view?source=connector&chatId=<chat>&connectorId=crm-views&key=c
 
 请求没有 Agent、文件路径或远端 URL 选择器，Chat 确定 owner，沿用 Chat 资源鉴权。无 hash 时从该普通 Agent 当前挂载解析；Team 必须提供事件 hash。错误包括 400 `invalid_view`、403 `view_access_denied`、404 `view_not_found`、503 `view_unavailable`；Team 无 hash 为 400 `view_snapshot_required`。
 
-`tool.result`、`awaiting.ask(mode=form)` 增加同形 `view`；失败时携带未解析引用和稳定 `viewError`。客户端保留原结果，表单失败仍允许拒绝，不能自动批准。Team 成员引用在对应 `forms[i].form.view`，错误在同级 `viewError`，外层路由不变。
+`tool.result`、`awaiting.ask(mode=form)` 增加同形 `view`；失败时携带未解析引用和稳定 `viewError`。客户端保留原结果，表单失败仍允许拒绝，不能自动批准。Team 成员的表单作为独立等待项发布，引用和 `viewError` 就在该事件上。
 
 事件发出前，服务端原子写入 `<chatId>/.views/<hash>.json`。同 Session 的同一 view/usage 首次成功后复用引用。工具消息持久化和冷回放保留引用；视图元数据不进入模型上下文。快照随 Chat 归档和恢复，连接器更新、解除挂载或删除后仍可凭 hash 读取。hash 绑定完整文档、版本与身份并在读取时校验，不允许跨 Chat 查找。
 
@@ -101,13 +101,13 @@ HTTP：`GET /api/view?source=connector&chatId=<chat>&connectorId=crm-views&key=c
 
 展示消息由宿主发送：`{type:"view_init" | "view_update",data:{view,payload}}`，payload 是工具结果或 Markdown 数据。展示 iframe 没有提交或执行消息处理器。
 
-表单使用 `awaiting_init/awaiting_update`，data 含 `runId/awaitingId/view/mode/activeFormId/forms/form`。宿主按钮发送 `{type:"awaiting_collect",data:{runId,awaitingId,decision:"submit"}}`，模板读取字段后回复：
+表单使用 `awaiting_init/awaiting_update`，data 含 `runId/awaitingId/view/mode/timeout/form`，其中 `form` 为 `{title, data}`。宿主按钮发送 `{type:"awaiting_collect",data:{runId,awaitingId,decision:"submit"|"reject"}}`，模板读取字段后回复：
 
 ```json
-{"type":"frontend_awaiting_submit","params":[{"id":"<activeFormId>","decision":"approve","form":{"name":"新名称"}}]}
+{"type":"frontend_awaiting_submit","param":{"decision":"approve","data":{"name":"新名称"}}}
 ```
 
-只接受当前 iframe、当前等待项且宿主正在收集的响应；重复或未知表单 id 拒绝。客户端使用宿主保存的 `runId/awaitingId` 调用原 `/api/submit`，不接受模板改写路由。拒绝由宿主直接提交。Team 成员只接收自己的定义，宿主将返回参数包装到外层 `forms[i].form.params` 后沿用汇总提交协议。多表单模板应处理 `forms` 与 `activeFormId`。
+`decision` 与收集请求一致：`submit` 回 `approve`，`reject` 回 `reject`，两者都带当前 `data`。只接受当前 iframe、当前等待项且宿主正在收集的响应；重复或格式不符的回复拒绝。客户端使用宿主保存的 `runId/awaitingId` 调用 `/api/submit` 并提交 `param`，不接受模板改写路由。拒绝也先收集数据，让模型看到用户修改后的内容；视图加载失败或收集超时时，宿主直接提交不带数据的拒绝。一个等待项只有一张表单，模板不需要处理多表单。
 
 QLC 当前采用 JSON 展示与 JSON 表单兜底，尚未实现专有 QLC 控件解释器。HTML 应打包为单入口与已声明资源，不支持隐式目录扫描、远端 CDN、CSS `@import` 或 JS 模块依赖解析。
 
@@ -123,9 +123,9 @@ Markdown 使用完整 fenced block：
 
 ## 来源统一与硬切边界
 
-所有实时事件统一携带 `view`。`source` 为 `builtin` 或 `connector`，`renderer` 为 `native`、`html` 或 `qlc`。配置只声明 `{key}` 或 `{connectorId,key}`，服务端解析来源与渲染器；连接器继续要求显式 `mode: form`。本次保留 `forms[]`、`/api/submit.params[]` 和 Team 合并协议，不新增模型生成 HTML。
+所有实时事件统一携带 `view`。`source` 为 `builtin` 或 `connector`，`renderer` 为 `native`、`html` 或 `qlc`。配置只声明 `{key}` 或 `{connectorId,key}`，服务端解析来源与渲染器；连接器继续要求显式 `mode: form`。`mode=form` 使用单个 `form`，`planning` 与 `form` 提交单个 `param`，Team 成员等待项独立发布，见 [HITL 协议](HITL协议.md)；尚不支持模型生成 HTML。
 
-内置引用示例：`{"source":"builtin","key":"platform_control_review","renderer":"html"}`。question、approval、planning、confirm_dialog 和 team-hitl 是客户端 native 组件，不通过接口获取 HTML。其他内置 HTML 从 `internal/resources/views/*.html` 自动发现，统一内联共享样式、脚本与尺寸桥。
+内置引用示例：`{"source":"builtin","key":"platform_control_review","renderer":"html"}`。question、approval、planning 和 confirm_dialog 是客户端 native 组件，不通过接口获取 HTML。其他内置 HTML 从 `internal/resources/views/*.html` 自动发现，统一内联共享样式、脚本与尺寸桥。
 
 HTTP/WS 统一 `/api/view`：内置请求 `source=builtin&key=<key>`，连接器请求 `source=connector&chatId=<chat>&connectorId=<id>&key=<key>&usage=form[&hash=<hash>]`。响应统一 `{code,msg,data:{view,html?,qlc?,entry?,assets?}}`。来源缺失或非法返回 400；未知内置 key 或请求 native 文档返回 404。内置请求不需要 Chat；连接器继续通过 Chat 鉴权，保留快照和归档读取。
 

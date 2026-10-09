@@ -333,6 +333,8 @@ type SubmitRequest = queryinput.SubmitRequest
 
 type SubmitParams = queryinput.SubmitParams
 
+type SubmitParam = queryinput.SubmitParam
+
 func DecodeSubmitParam(raw json.RawMessage) (map[string]any, error) {
 	return queryinput.DecodeSubmitParam(raw)
 }

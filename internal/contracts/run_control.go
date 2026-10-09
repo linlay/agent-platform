@@ -205,12 +205,15 @@ type RunControl struct {
 	resolvedSubmits map[string]SubmitResult
 	awaitingSubmits map[string]AwaitingSubmitContext
 	awaitingAliases map[string]string
-	interruptInfo   InterruptInfo
-	state           RunLoopState
-	accessLevel     string
-	accessVersion   int64
-	compactPending  *compactControlState
-	compactResults  map[string]*compactControlState
+	// holdSubmitTimeouts defers each submit timer until StartSubmitTimeout.
+	holdSubmitTimeouts  bool
+	submitTimeoutStarts map[string]chan struct{}
+	interruptInfo       InterruptInfo
+	state               RunLoopState
+	accessLevel         string
+	accessVersion       int64
+	compactPending      *compactControlState
+	compactResults      map[string]*compactControlState
 
 	accessLevelChanged chan struct{}
 	compactRequested   chan struct{}
@@ -683,9 +686,12 @@ func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout
 	}()
 
 	var timer *time.Timer
+	var timerStart <-chan struct{}
+	defer func() { stopWaitTimer(timer) }()
 	if timeout != nil && *timeout > 0 && !awaitingCtx.NoTimeout {
-		timer = time.NewTimer(*timeout)
-		defer stopWaitTimer(timer)
+		if timerStart = c.submitTimeoutStart(awaitingID, false); timerStart == nil {
+			timer = time.NewTimer(*timeout)
+		}
 	}
 	var accessChanged <-chan struct{}
 	if breakOnAccessVersion >= 0 {
@@ -727,6 +733,9 @@ func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout
 			if breakOnCompact && c.HasPendingCompact() {
 				return SubmitResult{}, false, true, nil
 			}
+		case <-timerStart:
+			timerStart = nil
+			timer = time.NewTimer(*timeout)
 		case <-waitTimerChan(timer):
 			c.clearTimedOutSubmit(awaitingID, waiter)
 			return SubmitResult{}, false, false, context.DeadlineExceeded
@@ -737,6 +746,50 @@ func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout
 			}
 		}
 	}
+}
+
+// HoldSubmitTimeouts makes submit timers wait for StartSubmitTimeout. A Team
+// uses it for members whose awaitings are published later than they are raised.
+func (c *RunControl) HoldSubmitTimeouts() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.holdSubmitTimeouts = true
+	c.mu.Unlock()
+}
+
+// StartSubmitTimeout releases the held timer of one awaiting. It may be called
+// before or after the waiter starts.
+func (c *RunControl) StartSubmitTimeout(awaitingID string) {
+	if c == nil || awaitingID == "" {
+		return
+	}
+	c.submitTimeoutStart(awaitingID, true)
+}
+
+func (c *RunControl) submitTimeoutStart(awaitingID string, release bool) <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.holdSubmitTimeouts {
+		return nil
+	}
+	if c.submitTimeoutStarts == nil {
+		c.submitTimeoutStarts = map[string]chan struct{}{}
+	}
+	start, exists := c.submitTimeoutStarts[awaitingID]
+	if !exists {
+		start = make(chan struct{})
+		c.submitTimeoutStarts[awaitingID] = start
+	}
+	if release {
+		select {
+		case <-start:
+		default:
+			close(start)
+		}
+	}
+	return start
 }
 
 func (c *RunControl) State() RunLoopState {
@@ -889,7 +942,13 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	if len(awaiting.ExactApprovalIDs) > 0 {
 		items, err := queryinput.DecodeSubmitParams(req.Params)
 		valid := err == nil && len(items) == len(awaiting.ExactApprovalIDs)
-		if valid {
+		if strings.EqualFold(awaiting.Mode, "form") {
+			// A review form answers the single frozen invocation of this awaiting.
+			decision := AnyStringNode(req.Param["decision"])
+			valid = req.Params == nil && len(awaiting.ExactApprovalIDs) == 1 && (decision == "approve" || decision == "reject")
+		} else if req.Param != nil {
+			valid = false
+		} else if valid {
 			for i, item := range items {
 				decision := AnyStringNode(item["decision"])
 				if AnyStringNode(item["id"]) != awaiting.ExactApprovalIDs[i] || decision != "approve" && decision != "reject" {
@@ -1077,13 +1136,6 @@ func (c *RunControl) expectSubmit(ctx AwaitingSubmitContext) bool {
 	// registered the awaiting. Never resurrect a resolved confirmation.
 	if _, resolved := c.lookupResolvedSubmitLocked(ctx.PublicAwaitingID, ctx.AwaitingID); resolved {
 		return false
-	}
-	// The run executor observes the emitted awaiting.ask after the Team
-	// coordinator has registered its reversible child routes. Preserve that
-	// internal routing metadata when the generic lifecycle registration for the
-	// same public awaiting arrives.
-	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && len(ctx.Routes) == 0 && len(existing.Routes) > 0 {
-		ctx.Routes = cloneAwaitingSubmitRoutes(existing.Routes)
 	}
 	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && len(existing.ExactApprovalIDs) > 0 {
 		ctx.ExactApprovalIDs = append([]string(nil), existing.ExactApprovalIDs...)

@@ -13,7 +13,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/stream"
 	"agent-platform/internal/view"
 	"agent-platform/internal/ws"
 )
@@ -124,15 +123,6 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 	}
 	if err := json.Unmarshal(wire, &frame); err != nil || frame.Data.HTML != "<p>original</p>" {
 		t.Fatalf("WS view=%s err=%v", wire, err)
-	}
-}
-
-func TestTeamMergedFormPreservesMemberViewReference(t *testing.T) {
-	ref := &view.Reference{ConnectorID: "member-forms", Key: "edit", Hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Renderer: "html"}
-	forms, _, _ := teamMergedAwaitingDefinition([]*teamChildAwaiting{{PublicID: "task:wait", RawID: "wait", Task: preparedSubTask{TaskID: "task"}, Ask: stream.AwaitAsk{Mode: "form", View: ref, Forms: []any{map[string]any{"id": "form-1", "form": map[string]any{"name": "original"}}}}}})
-	inner := forms[0].(map[string]any)["form"].(map[string]any)
-	if inner["view"].(map[string]any)["hash"] != ref.Hash {
-		t.Fatalf("lost member view: %#v", forms)
 	}
 }
 

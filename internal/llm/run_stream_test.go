@@ -2574,6 +2574,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 		initialCommand           string
 		parsedCommand            hitl.CommandComponents
 		submitParams             api.SubmitParams
+		submitParam              api.SubmitParam
 		expectedCommand          string
 		expectedView             string
 		expectedKey              string
@@ -2616,13 +2617,10 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 				BaseCommand: "mock",
 				Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
 			},
-			submitParams: encodedSubmitParams(t, []map[string]any{
-				{
-					"id":       "form-1",
-					"decision": "approve",
-					"form":     sampleLeavePayload(2),
-				},
-			}),
+			submitParam: api.SubmitParam{
+				"decision": "approve",
+				"data":     sampleLeavePayload(2),
+			},
 			expectedCommand:          sampleLeaveCommand(2),
 			expectedView:             "html",
 			expectedKey:              "platform_control_review",
@@ -2642,29 +2640,26 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 				BaseCommand: "mock",
 				Tokens:      []string{"expense", "add", "--payload", `{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}`},
 			},
-			submitParams: encodedSubmitParams(t, []map[string]any{
-				{
-					"id":       "form-1",
-					"decision": "approve",
-					"form": map[string]any{
-						"employee":     map[string]any{"id": "E1001", "name": "张三"},
-						"department":   map[string]any{"code": "engineering", "name": "工程部"},
-						"expense_type": "travel",
-						"currency":     "CNY",
-						"items": []any{
-							map[string]any{
-								"amount":      640.25,
-								"category":    "transport",
-								"description": "flight",
-								"invoice_id":  "INV-001",
-								"occurred_on": "2026-04-10",
-							},
+			submitParam: api.SubmitParam{
+				"decision": "approve",
+				"data": map[string]any{
+					"employee":     map[string]any{"id": "E1001", "name": "张三"},
+					"department":   map[string]any{"code": "engineering", "name": "工程部"},
+					"expense_type": "travel",
+					"currency":     "CNY",
+					"items": []any{
+						map[string]any{
+							"amount":      640.25,
+							"category":    "transport",
+							"description": "flight",
+							"invoice_id":  "INV-001",
+							"occurred_on": "2026-04-10",
 						},
-						"submitted_at": "2026-04-14T10:30:00+08:00",
-						"total_amount": 640.25,
 					},
+					"submitted_at": "2026-04-14T10:30:00+08:00",
+					"total_amount": 640.25,
 				},
-			}),
+			},
 			expectedCommand: canonicalExpenseCommand(640.25),
 			expectedView:    "html",
 			expectedKey:     "resource_delete_review",
@@ -2716,16 +2711,13 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 				BaseCommand: "mock",
 				Tokens:      []string{"procurement", "create", "--payload", `{"delivery_city":"Shanghai","requester_id":"E1001"}`},
 			},
-			submitParams: encodedSubmitParams(t, []map[string]any{
-				{
-					"id":       "form-1",
-					"decision": "approve",
-					"form": map[string]any{
-						"delivery_city": "Hangzhou",
-						"requester_id":  "E1001",
-					},
+			submitParam: api.SubmitParam{
+				"decision": "approve",
+				"data": map[string]any{
+					"delivery_city": "Hangzhou",
+					"requester_id":  "E1001",
 				},
-			}),
+			},
 			expectedCommand:          sampleProcurementCommand("Hangzhou"),
 			expectedView:             "html",
 			expectedKey:              "installation_review",
@@ -2804,14 +2796,17 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 				t.Fatalf("unexpected await ask %#v", awaitAsk)
 			}
 			if tc.expectedInitialPayload != nil {
-				if len(awaitAsk.Forms) != 1 {
-					t.Fatalf("expected one form awaiting item, got %#v", awaitAsk)
+				form := awaitAsk.Form
+				if len(form) == 0 {
+					t.Fatalf("expected a single form in the await ask, got %#v", awaitAsk)
 				}
-				form := awaitAsk.Forms[0].(map[string]any)
+				if _, ok := form["id"]; ok {
+					t.Fatalf("did not expect a form id, got %#v", form)
+				}
 				if _, ok := form["command"]; ok {
 					t.Fatalf("did not expect form command in awaiting.ask payload, got %#v", form)
 				}
-				formPayload, _ := form["form"].(map[string]any)
+				formPayload, _ := form["data"].(map[string]any)
 				if !reflect.DeepEqual(formPayload, tc.expectedInitialPayload) {
 					t.Fatalf("expected form payload %#v, got %#v", tc.expectedInitialPayload, awaitAsk)
 				}
@@ -2871,6 +2866,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 			ack := runControl.ResolveSubmit(api.SubmitRequest{
 				RunID:      "run_1",
 				AwaitingID: stream.hitlAwaitingID,
+				Param:      tc.submitParam,
 				Params:     tc.submitParams,
 			})
 			if !ack.Accepted {
@@ -2902,8 +2898,8 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 					if typed.AwaitingID == buildHITLAwaitingID("tool_1") {
 						foundAwaitingAnswer = true
 						if tc.expectedAnswerDecision != "" {
-							forms, _ := typed.Answer["forms"].([]map[string]any)
-							if len(forms) == 0 || forms[0]["decision"] != tc.expectedAnswerDecision {
+							form, _ := typed.Answer["form"].(map[string]any)
+							if form["decision"] != tc.expectedAnswerDecision {
 								t.Fatalf("expected awaiting.answer decision %q, got %#v", tc.expectedAnswerDecision, typed.Answer)
 							}
 						}
@@ -5545,9 +5541,7 @@ func TestAwaitHITLSubmitAndExecute_FormRejectWithFeedbackEmitsRetryableResultAnd
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
-		Params: encodedSubmitParams(t, []map[string]any{
-			{"id": "form-1", "decision": "reject", "reason": "风险过高", "form": sampleLeavePayload(1)},
-		}),
+		Param:      api.SubmitParam{"decision": "reject", "reason": "风险过高", "data": sampleLeavePayload(1)},
 	})
 	if !ack.Accepted {
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
@@ -5642,9 +5636,7 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
-		Params: encodedSubmitParams(t, []map[string]any{
-			{"id": "form-1", "decision": "approve", "form": sampleLeavePayload(2)},
-		}),
+		Param:      api.SubmitParam{"decision": "approve", "data": sampleLeavePayload(2)},
 	})
 	if !ack.Accepted {
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
@@ -6960,12 +6952,11 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 		},
 		OriginalCommand: `mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip"}`,
 	})
-	forms, ok := args["forms"].([]any)
-	if !ok || len(forms) != 1 {
-		t.Fatalf("expected forms in form approval args, got %#v", args)
+	form, ok := args["form"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a single form in form approval args, got %#v", args)
 	}
-	form := forms[0].(map[string]any)
-	payload, ok := form["form"].(map[string]any)
+	payload, ok := form["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected form in form approval args, got %#v", args)
 	}

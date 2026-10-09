@@ -47,18 +47,20 @@ func TestExactToolReviewCannotAutoApprove(t *testing.T) {
 			if s.hitlAwaitArgs["approvals"] != nil {
 				t.Fatal("form leaked approval schema")
 			}
-			item := s.hitlAwaitArgs["forms"].([]any)[0].(map[string]any)
-			if item["id"] != "call" || item["form"].(map[string]any)["after"] != "new" {
+			item := s.hitlAwaitArgs["form"].(map[string]any)
+			if item["id"] != nil || item["data"].(map[string]any)["after"] != "new" {
 				t.Fatalf("missing frozen form: %#v", item)
 			}
-			for _, params := range [][]map[string]any{
-				{{"id": "call", "decision": "approve_rule_run"}},
-				{{"id": "another-call", "decision": "approve", "form": map[string]any{}}},
-				{},
+			for _, request := range []api.SubmitRequest{
+				{Param: api.SubmitParam{"decision": "approve_rule_run"}},
+				{Param: api.SubmitParam{"decision": "dismiss"}},
+				{Params: encodedSubmitParams(t, []map[string]any{{"id": "call", "decision": "approve"}})},
+				{Params: api.SubmitParams{}},
 			} {
-				ack := s.runControl.ResolveSubmit(api.SubmitRequest{RunID: "run", AwaitingID: s.hitlAwaitingID, Params: encodedSubmitParams(t, params)})
+				request.RunID, request.AwaitingID = "run", s.hitlAwaitingID
+				ack := s.runControl.ResolveSubmit(request)
 				if ack.Accepted {
-					t.Fatalf("invalid exact approval accepted: %#v", params)
+					t.Fatalf("invalid exact approval accepted: %#v", request)
 				}
 			}
 		})
@@ -76,7 +78,7 @@ func TestExactToolFormExecutesOnlyFrozenArguments(t *testing.T) {
 			if _, err := s.handleToolApprovalBeforeInvoke(call); err != nil {
 				t.Fatal(err)
 			}
-			ack := s.runControl.ResolveSubmit(api.SubmitRequest{RunID: "run", AwaitingID: s.hitlAwaitingID, Params: encodedSubmitParams(t, []map[string]any{{"id": "call", "decision": decision, "reason": "adjust it", "form": map[string]any{"content": "tampered", "command": "do not execute"}}})})
+			ack := s.runControl.ResolveSubmit(api.SubmitRequest{RunID: "run", AwaitingID: s.hitlAwaitingID, Param: api.SubmitParam{"decision": decision, "reason": "adjust it", "data": map[string]any{"content": "tampered", "command": "do not execute"}}})
 			if !ack.Accepted {
 				t.Fatalf("submit rejected: %#v", ack)
 			}

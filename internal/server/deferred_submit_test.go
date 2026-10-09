@@ -159,17 +159,13 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 	}
 	defer restartedRuns.DetachObserver(runID, planningObserver.ID)
 
-	params, err := api.EncodeSubmitParams([]map[string]any{{"id": "confirm", "decision": "approve"}})
-	if err != nil {
-		t.Fatalf("encode submit params: %v", err)
-	}
 	body, err := json.Marshal(api.SubmitRequest{
 		ChatID:     chatID,
 		RunID:      runID,
 		AgentKey:   "coder-app",
 		AwaitingID: awaitingID,
 		SubmitID:   "submit-deferred-planning",
-		Params:     params,
+		Param:      api.SubmitParam{"decision": "approve"},
 	})
 	if err != nil {
 		t.Fatalf("marshal submit request: %v", err)
@@ -772,6 +768,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 		awaitingID string
 		ask        map[string]any
 		params     api.SubmitParams
+		param      api.SubmitParam
 		restorable bool
 	}{
 		{
@@ -808,13 +805,9 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 			awaitingID: "await-form",
 			restorable: false,
 			ask: map[string]any{
-				"forms": []any{
-					map[string]any{"id": "form-1", "command": "mock create-leave", "form": map[string]any{"days": 1}},
-				},
+				"form": map[string]any{"command": "mock create-leave", "data": map[string]any{"days": 1}},
 			},
-			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"id": "form-1", "decision": "reject"},
-			}),
+			param: api.SubmitParam{"decision": "reject"},
 		},
 		{
 			name:       "planning",
@@ -822,11 +815,9 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 			awaitingID: "await-planning",
 			restorable: true,
 			ask: map[string]any{
-				"planning": map[string]any{"id": "confirm", "planningId": "run-planning_planning_1"},
+				"planning": map[string]any{"planningId": "run-planning_planning_1"},
 			},
-			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"id": "confirm", "decision": "approve"},
-			}),
+			param: api.SubmitParam{"decision": "approve"},
 		},
 	}
 
@@ -924,6 +915,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 				AgentKey:   "mock-agent",
 				RunID:      runID,
 				AwaitingID: tc.awaitingID,
+				Param:      tc.param,
 				Params:     tc.params,
 			})
 			if err != nil {
@@ -1177,10 +1169,10 @@ func TestHydrationReconcilesRestartAwaitingModesAndStructuredConflicts(t *testin
 		"approvals": []any{map[string]any{"id": "tool-approval", "command": "touch marker"}},
 	})
 	seedDeferredAwaitingPayload(t, fixture.chats, "chat-expired-form", "run-expired-form", "await-expired-form", "form", 1, nowMs-5_000, map[string]any{
-		"forms": []any{map[string]any{"id": "tool-form", "command": "create record", "form": map[string]any{"name": "demo"}}},
+		"form": map[string]any{"command": "create record", "data": map[string]any{"name": "demo"}},
 	})
 	seedDeferredAwaitingPayload(t, fixture.chats, "chat-old-planning", "run-old-planning", "await-old-planning", "planning", 1, nowMs-7*24*60*60*1000, map[string]any{
-		"planning": map[string]any{"id": "confirm", "planningId": "run-old-planning_planning_1"},
+		"planning": map[string]any{"planningId": "run-old-planning_planning_1"},
 	})
 	seedDeferredAwaiting(t, fixture.chats, "chat-old-question-no-timeout", "run-old-question-no-timeout", "await-old-question-no-timeout", "question", 0, nowMs-7*24*60*60*1000)
 
@@ -1460,11 +1452,6 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 		}
 	} else if strings.EqualFold(mode, "form") {
 		toolName = "bash"
-		if forms, _ := ask["forms"].([]any); len(forms) > 0 {
-			if candidate := strings.TrimSpace(contracts.AnyStringNode(contracts.AnyMapNode(forms[0])["id"])); candidate != "" {
-				toolID = candidate
-			}
-		}
 	} else if strings.EqualFold(mode, "planning") {
 		toolName = "finalize_planning"
 	}

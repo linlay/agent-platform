@@ -40,7 +40,7 @@ func TestQueryGateRejectsPendingAwaitingModes(t *testing.T) {
 			mode:       "form",
 			awaitingID: "await-form",
 			ask: map[string]any{
-				"forms": []any{map[string]any{"id": "form-1", "command": "mock form", "form": map[string]any{"days": 1}}},
+				"form": map[string]any{"command": "mock form", "data": map[string]any{"days": 1}},
 			},
 		},
 		{

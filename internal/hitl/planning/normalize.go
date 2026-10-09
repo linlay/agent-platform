@@ -1,49 +1,37 @@
 package planning
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 )
 
-func NormalizeConfirmation(args map[string]any, params any) (map[string]any, error) {
-	items, err := decodeItems(params)
+func NormalizeConfirmation(args map[string]any, param any) (map[string]any, error) {
+	item, err := queryinput.DecodeSubmitSingle(param)
 	if err != nil {
-		return nil, fmt.Errorf("planning confirmation submit params must be an array")
+		return nil, fmt.Errorf("planning confirmation submit requires param: %w", err)
 	}
-	if len(items) == 0 {
-		return contracts.AwaitingErrorAnswer("planning", "user_dismissed", "用户关闭等待项"), nil
-	}
-	if len(items) != 1 {
-		return nil, fmt.Errorf("expected 1 planning confirmation, got %d", len(items))
-	}
-
 	definition := contracts.AnyMapNode(args["planning"])
 	if len(definition) == 0 {
 		return nil, fmt.Errorf("planning confirmation definition is required")
 	}
-	item := items[0]
-	definitionID := strings.TrimSpace(contracts.AnyStringNode(definition["id"]))
-	submittedID := strings.TrimSpace(contracts.AnyStringNode(item["id"]))
-	if submittedID != "" && definitionID != "" && submittedID != definitionID {
-		log.Printf("[planning][warn] confirmation submit id mismatch expected=%s actual=%s", definitionID, submittedID)
+	if _, hasData := item["data"]; hasData {
+		return nil, fmt.Errorf("planning confirmation does not allow data")
 	}
 	decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
-	if decision == "" {
-		return nil, fmt.Errorf("items[0]: decision is required")
-	}
 	switch decision {
+	case "dismiss":
+		return contracts.AwaitingErrorAnswer("planning", "user_dismissed", "用户关闭等待项"), nil
 	case "approve", "reject":
+	case "":
+		return nil, fmt.Errorf("param.decision is required")
 	default:
-		return nil, fmt.Errorf("items[0]: unsupported planning confirmation decision %q", decision)
+		return nil, fmt.Errorf("unsupported planning confirmation decision %q", decision)
 	}
 
 	entry := map[string]any{
-		"id":           firstNonBlank(definitionID, submittedID),
 		"planningId":   strings.TrimSpace(contracts.AnyStringNode(definition["planningId"])),
 		"planningFile": strings.TrimSpace(contracts.AnyStringNode(definition["planningFile"])),
 		"decision":     decision,
@@ -56,34 +44,4 @@ func NormalizeConfirmation(args map[string]any, params any) (map[string]any, err
 		"status":   "answered",
 		"planning": entry,
 	}, nil
-}
-
-func decodeItems(params any) ([]map[string]any, error) {
-	switch typed := params.(type) {
-	case api.SubmitParams:
-		return api.DecodeSubmitParams(typed)
-	case []json.RawMessage:
-		return api.DecodeSubmitParams(api.SubmitParams(typed))
-	case []any:
-		items := make([]map[string]any, 0, len(typed))
-		for _, raw := range typed {
-			item := contracts.AnyMapNode(raw)
-			if len(item) == 0 {
-				return nil, fmt.Errorf("submit items must be objects")
-			}
-			items = append(items, item)
-		}
-		return items, nil
-	default:
-		return nil, fmt.Errorf("submit params must be an array")
-	}
-}
-
-func firstNonBlank(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }

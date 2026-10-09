@@ -406,11 +406,11 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "request.query":
 		return []string{"requestId", "runId", "chatId", "role", "message", "agentKey", "teamId", "kind", "stage", "btwId", "parentChatId", "hidden", "references", "params", "scene", "stream", "includeUsage", "includeFullText", "planningMode", "editingMode", "accessLevel", "model", "messages", "system"}
 	case "awaiting.ask":
-		return []string{"awaitingId", "mode", "view", "viewError", "timeout", "runId", "taskId", "agentKey", "questions", "approvals", "forms", "planning"}
+		return []string{"awaitingId", "mode", "view", "viewError", "timeout", "runId", "taskId", "agentKey", "questions", "approvals", "form", "planning"}
 	case "awaiting.answer":
-		return []string{"awaitingId", "taskId", "mode", "status", "submitId", "durationMs", "answers", "approvals", "forms", "planning", "error"}
+		return []string{"awaitingId", "taskId", "mode", "status", "submitId", "durationMs", "answers", "approvals", "form", "planning", "error"}
 	case "request.submit":
-		return []string{"requestId", "chatId", "runId", "taskId", "awaitingId", "submitId", "params"}
+		return []string{"requestId", "chatId", "runId", "taskId", "awaitingId", "submitId", "param", "params"}
 	case "request.steer":
 		return []string{"requestId", "chatId", "runId", "steerId", "message", "role"}
 	case "chat.start":

@@ -3073,8 +3073,13 @@ func awaitingQuestionText(payload map[string]any) string {
 }
 
 func awaitingApprovalID(payload map[string]any) string {
+	// A planning confirmation is identified by its awaiting alone; callers
+	// match it with the label "confirm".
 	if planning, _ := payload["planning"].(map[string]any); len(planning) > 0 {
-		return strings.TrimSpace(stringValue(planning["id"]))
+		if _, hasID := planning["id"]; hasID {
+			return ""
+		}
+		return "confirm"
 	}
 	approvals, _ := payload["approvals"].([]any)
 	if len(approvals) == 0 {
@@ -3109,7 +3114,7 @@ func submitFrontendDecision(t *testing.T, server http.Handler, runID string, awa
 
 func submitFrontendDecisionWithReason(t *testing.T, server http.Handler, runID string, awaitingID string, decision string, reason string) {
 	t.Helper()
-	item := map[string]any{"id": "confirm", "decision": decision}
+	item := map[string]any{"decision": decision}
 	if reason != "" {
 		item["reason"] = reason
 	}
@@ -3117,7 +3122,7 @@ func submitFrontendDecisionWithReason(t *testing.T, server http.Handler, runID s
 		"agentKey":   "coder-app",
 		"runId":      runID,
 		"awaitingId": awaitingID,
-		"params":     []map[string]any{item},
+		"param":      item,
 	})
 	if err != nil {
 		t.Fatalf("marshal submit decision: %v", err)

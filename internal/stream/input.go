@@ -287,7 +287,7 @@ type AwaitAsk struct {
 	TaskID     string
 	Questions  []any
 	Approvals  []any
-	Forms      []any
+	Form       map[string]any
 	Planning   map[string]any
 }
 
@@ -300,7 +300,8 @@ type RequestSubmit struct {
 	TaskID     string
 	AwaitingID string
 	SubmitID   string
-	Params     any
+	// Input is one answer object (planning/form) or an item list.
+	Input any
 }
 
 func (RequestSubmit) streamInputTag() {}

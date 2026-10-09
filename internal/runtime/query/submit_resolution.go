@@ -24,7 +24,7 @@ func (s *Service) resolveSubmit(req queryinput.SubmitRequest) (queryinput.Submit
 	}
 
 	if awaiting, ok := s.lookupActiveAwaiting(req); ok {
-		if err := ValidateSubmitParams(awaiting, req.Params); err != nil {
+		if err := ValidateSubmitParams(awaiting, req); err != nil {
 			if strings.EqualFold(strings.TrimSpace(awaiting.Mode), "question") {
 				return invalidQuestionSubmitResponse(req, activeSubmitChatID(s, req), err), 0, "success", nil
 			}
@@ -92,8 +92,8 @@ func (s *Service) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting,
 		"runId":      req.RunID,
 		"awaitingId": req.AwaitingID,
 		"submitId":   req.SubmitID,
-		"params":     req.Params,
 	}
+	req.WriteInput(submitPayload)
 	answerPayload := contracts.CloneMap(normalized)
 	answerPayload["type"] = "awaiting.answer"
 	answerPayload["timestamp"] = resolvedAt
@@ -209,7 +209,7 @@ func (s *Service) resolvePersistedAwaitingSubmit(req queryinput.SubmitRequest) (
 	return queryinput.SubmitResponse{}, true, awaitingSubmitConflictError(req, chatID, "already_resolved", "already_resolved", "Tool interaction submit already resolved")
 }
 
-func (s *Service) normalizeDeferredSubmit(deferred DeferredAwaiting, params queryinput.SubmitParams) (map[string]any, error) {
+func (s *Service) normalizeDeferredSubmit(deferred DeferredAwaiting, params any) (map[string]any, error) {
 	if deferred.Mode == "wait" {
 		return nil, fmt.Errorf("wait is resolved by time, events, or steer")
 	}
@@ -278,7 +278,7 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 		}
 		return queryinput.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "expired", "awaiting_expired", "awaiting has expired")
 	}
-	if err := ValidateDeferredSubmitParams(deferred.Mode, req.Params); err != nil {
+	if err := ValidateDeferredSubmitParams(deferred.Mode, req); err != nil {
 		if strings.EqualFold(strings.TrimSpace(deferred.Mode), "question") {
 			return invalidQuestionSubmitResponse(req, deferred.ChatID, err), nil
 		}
@@ -292,12 +292,13 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
 		Locale:     req.Locale,
+		Param:      req.Param,
 		Params:     req.Params,
 	}); handled || err != nil {
 		return response, err
 	}
 
-	normalized, err := s.normalizeDeferredSubmit(deferred, req.Params)
+	normalized, err := s.normalizeDeferredSubmit(deferred, req.Input())
 	if err != nil {
 		if strings.EqualFold(strings.TrimSpace(deferred.Mode), "question") {
 			return invalidQuestionSubmitResponse(req, deferred.ChatID, err), nil
@@ -350,8 +351,8 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 		"runId":      req.RunID,
 		"awaitingId": req.AwaitingID,
 		"submitId":   req.SubmitID,
-		"params":     req.Params,
 	}
+	req.WriteInput(submitPayload)
 	answerPayload := contracts.CloneMap(normalized)
 	answerPayload["type"] = "awaiting.answer"
 	answerPayload["timestamp"] = resolvedAt
@@ -668,7 +669,7 @@ func (s *Service) prepareActiveSubmitContinuation(req queryinput.SubmitRequest, 
 	if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "planning") {
 		return req, nil
 	}
-	if agentbuiltin.SubmitPlanningDecision(req.Params) != "approve" {
+	if agentbuiltin.SubmitPlanningDecision(req.Param) != "approve" {
 		return req, nil
 	}
 	if s == nil || s.deps.Runs == nil || s.deps.Registry == nil {
@@ -705,7 +706,7 @@ func nonContinuableDeferredSubmitUnlocks(mode string, normalized map[string]any)
 	case "approval":
 		return allNormalizedDecisionsReject(normalized["approvals"])
 	case "form":
-		return allNormalizedDecisionsReject(normalized["forms"])
+		return strings.EqualFold(sessionbuild.StringValue(contracts.AnyMapNode(normalized["form"])["decision"]), "reject")
 	default:
 		return false
 	}

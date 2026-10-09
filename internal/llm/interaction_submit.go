@@ -88,7 +88,7 @@ func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *Execu
 	execCtx.RunLoopState = RunLoopStateToolExecuting
 	execCtx.RunControl.TransitionState(RunLoopStateToolExecuting)
 
-	normalized, normalizeErr := handler.NormalizeSubmit(args, result.Request.Params)
+	normalized, normalizeErr := handler.NormalizeSubmit(args, result.Request.Input())
 	if normalizeErr != nil {
 		payload := apperrors.Payload(
 			apperrors.CodeInteractionSubmitInvalidPayload,
@@ -98,7 +98,7 @@ func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *Execu
 			apperrors.WithDiagnostics(map[string]any{
 				"awaitingId": awaitingID,
 				"toolName":   toolName,
-				"params":     result.Request.Params,
+				"params":     result.Request.Input(),
 			}),
 		)
 		return ToolExecutionResult{
@@ -110,11 +110,11 @@ func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *Execu
 				RunID:      result.Request.RunID,
 				AwaitingID: result.Request.AwaitingID,
 				SubmitID:   result.Request.SubmitID,
-				Params:     result.Request.Params,
+				Input:      result.Request.Input(),
 			},
 		}, nil
 	}
-	rawParams := result.Request.Params
+	rawParams := result.Request.Input()
 	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
 		rawParams = nil
 	}
@@ -127,7 +127,7 @@ func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *Execu
 			RunID:      result.Request.RunID,
 			AwaitingID: result.Request.AwaitingID,
 			SubmitID:   result.Request.SubmitID,
-			Params:     result.Request.Params,
+			Input:      result.Request.Input(),
 		},
 	}
 	toolResult.Output = handler.FormatModelOutput(toolResult)

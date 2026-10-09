@@ -7,8 +7,6 @@ type childTaskResult = orchestration.ChildTaskResult
 type preparedSubTask = orchestration.PreparedSubTask
 type childRunOptions = orchestration.ChildRunOptions
 type childRouteEvent = orchestration.ChildRouteEvent
-type teamChildAwaiting = orchestration.TeamChildAwaiting
-type teamMergedHITLBatch = orchestration.TeamMergedHITLBatch
 
 var firstNonEmpty = orchestration.FirstNonEmpty
 

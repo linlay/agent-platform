@@ -86,8 +86,8 @@ func ConfirmedPlanTools(session contracts.QuerySession, defs []api.ToolDetailRes
 func PlanExecuteSyntheticQueryMessage(locale string) string {
 	return planmode.ExecuteSyntheticQueryMessage(locale)
 }
-func SubmitPlanningDecision(params api.SubmitParams) string {
-	return planmode.SubmitPlanningDecision(params)
+func SubmitPlanningDecision(param api.SubmitParam) string {
+	return planmode.SubmitPlanningDecision(param)
 }
 func StartsNewExecutionRun(mode string, answer map[string]any, agentMode, acpBridgeID string) bool {
 	return planmode.StartsNewExecutionRun(mode, answer, NativePlanning(agentMode, acpBridgeID))

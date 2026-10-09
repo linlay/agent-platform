@@ -1270,7 +1270,7 @@ func (s *llmRunStream) appendInteractionSubmitDeltas(invocation *preparedToolInv
 			RunID:      s.session.RunID,
 			AwaitingID: result.SubmitInfo.AwaitingID,
 			SubmitID:   result.SubmitInfo.SubmitID,
-			Params:     result.SubmitInfo.Params,
+			Input:      result.SubmitInfo.Input,
 		})
 		if answer := interactionSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
 			if result.SubmitInfo.SubmitID != "" {

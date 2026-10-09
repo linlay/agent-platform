@@ -1,7 +1,6 @@
 package orchestration
 
 import (
-	"agent-platform/internal/view"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,7 +41,6 @@ type Coordinator struct {
 	EmitInputs        func(...stream.StreamInput)
 	CurrentLiveSeq    func() int64
 	TaskCounter       int
-	TeamAwaitCounter  int
 }
 
 func (o *Coordinator) Run(mainStream contracts.AgentStream) (bool, bool, error) {
@@ -118,16 +116,20 @@ type TeamChildAwaiting struct {
 	Ask      stream.AwaitAsk
 	RawID    string
 	PublicID string
+	cancel   context.CancelFunc
 }
 
-type TeamMergedHITLBatch struct {
+// TeamHITLQueue publishes member awaitings one at a time, in arrival order.
+// Each member keeps an isolated RunControl; the public submit is accepted on
+// the Team run and forwarded unchanged to the member that asked.
+type TeamHITLQueue struct {
 	Orchestrator *Coordinator
-	Tasks        []PreparedSubTask
 	Enabled      bool
-	WaveSize     int
 	Controls     map[string]*contracts.RunControl
-	Waiting      map[string]*TeamChildAwaiting
-	Completed    map[string]bool
+	pending      []*TeamChildAwaiting
+	active       *TeamChildAwaiting
+	seen         map[string]bool
+	finished     map[string]bool
 }
 
 func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invoke contracts.DeltaInvokeSubAgents) error {
@@ -265,7 +267,7 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 		}
 		teamSem = make(chan struct{}, teamMaxParallel)
 	}
-	hitlBatch := NewTeamMergedHITLBatch(o, prepared, o.Session.TeamRuntime != nil, teamMaxParallel)
+	hitlBatch := NewTeamHITLQueue(o, prepared, o.Session.TeamRuntime != nil)
 	var wg sync.WaitGroup
 
 	for index, task := range prepared {
@@ -283,7 +285,7 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 			}
 			options := ChildRunOptions{RunControl: hitlBatch.ControlFor(task)}
 			routedCh <- ChildRouteEvent{Result: o.RunChildTaskWithOptions(index, task, principal, func(input stream.StreamInput) {
-				if event, captured := hitlBatch.Capture(task, input); captured {
+				if event, captured := hitlBatch.Capture(task, input, nil); captured {
 					routedCh <- event
 					return
 				}
@@ -444,7 +446,7 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 	sem := make(chan struct{}, maxParallel)
 	results := make([]ChildTaskResult, len(prepared))
 	routedCh := make(chan ChildRouteEvent, 32)
-	hitlBatch := NewTeamMergedHITLBatch(o, prepared, true, maxParallel)
+	hitlBatch := NewTeamHITLQueue(o, prepared, true)
 	var wg sync.WaitGroup
 	for index, task := range prepared {
 		wg.Add(1)
@@ -459,11 +461,14 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 			}
 			options := ChildRunOptions{InheritOriginalContext: true, IncludeHistory: true, Presentation: "task", SuppressFinalDuplicate: true, RunControl: hitlBatch.ControlFor(task)}
 			routedCh <- ChildRouteEvent{Result: o.RunChildTaskWithOptions(index, task, principal, func(input stream.StreamInput) {
-				if event, captured := hitlBatch.Capture(task, input); captured {
+				route := func(input stream.StreamInput) stream.StreamInput {
+					return RouteTeamChildStreamInput(o.Session.RunID, o.TeamSnapshot.TeamID, task, input, options)
+				}
+				if event, captured := hitlBatch.Capture(task, input, route); captured {
 					routedCh <- event
 					return
 				}
-				routedCh <- ChildRouteEvent{Input: RouteTeamChildStreamInput(o.Session.RunID, o.TeamSnapshot.TeamID, task, input, options)}
+				routedCh <- ChildRouteEvent{Input: route(input)}
 			}, options)}
 		}(index, task)
 	}
@@ -531,344 +536,182 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 	return false, nil
 }
 
-func NewTeamMergedHITLBatch(o *Coordinator, tasks []PreparedSubTask, enabled bool, maxParallel int) *TeamMergedHITLBatch {
-	if maxParallel < 1 || maxParallel > len(tasks) {
-		maxParallel = len(tasks)
-	}
-	batch := &TeamMergedHITLBatch{
+func NewTeamHITLQueue(o *Coordinator, tasks []PreparedSubTask, enabled bool) *TeamHITLQueue {
+	queue := &TeamHITLQueue{
 		Orchestrator: o,
-		Tasks:        append([]PreparedSubTask(nil), tasks...),
-		WaveSize:     maxParallel,
 		Controls:     map[string]*contracts.RunControl{},
-		Waiting:      map[string]*TeamChildAwaiting{},
-		Completed:    map[string]bool{},
+		seen:         map[string]bool{},
+		finished:     map[string]bool{},
 	}
 	if !enabled || o == nil || contracts.RunControlFromContext(o.RunCtx) == nil {
-		return batch
+		return queue
 	}
-	batch.Enabled = true
+	queue.Enabled = true
 	for _, task := range tasks {
 		control := contracts.NewRunControl(o.RunCtx, task.TaskID)
 		control.SetInitialAccessLevel(o.Session.AccessLevel)
-		batch.Controls[task.TaskID] = control
+		// A queued awaiting is not visible yet; its timeout starts on publication.
+		control.HoldSubmitTimeouts()
+		queue.Controls[task.TaskID] = control
 	}
-	return batch
+	return queue
 }
 
-func (b *TeamMergedHITLBatch) ControlFor(task PreparedSubTask) *contracts.RunControl {
-	if b == nil || !b.Enabled {
+func (q *TeamHITLQueue) ControlFor(task PreparedSubTask) *contracts.RunControl {
+	if q == nil || !q.Enabled {
 		return nil
 	}
-	return b.Controls[task.TaskID]
+	return q.Controls[task.TaskID]
 }
 
-func (b *TeamMergedHITLBatch) Capture(task PreparedSubTask, input stream.StreamInput) (ChildRouteEvent, bool) {
-	if b == nil || !b.Enabled {
+// Capture runs on member goroutines. It withholds awaiting.ask until the queue
+// publishes it and rewrites the member's submit and answer to public IDs.
+func (q *TeamHITLQueue) Capture(task PreparedSubTask, input stream.StreamInput, route func(stream.StreamInput) stream.StreamInput) (ChildRouteEvent, bool) {
+	if q == nil || !q.Enabled {
 		return ChildRouteEvent{}, false
+	}
+	awaiting := func(ask stream.AwaitAsk) *TeamChildAwaiting {
+		rawID := rawAwaitingIDForTask(task.TaskID, ask.AwaitingID)
+		publicID := NamespaceChildID(task.TaskID, rawID)
+		if publicID == "" {
+			return nil
+		}
+		return &TeamChildAwaiting{Task: task, Control: q.Controls[task.TaskID], Ask: ask, RawID: rawID, PublicID: publicID}
 	}
 	switch value := input.(type) {
 	case stream.AwaitAsk:
-		rawID := rawAwaitingIDForTask(task.TaskID, value.AwaitingID)
-		publicID := NamespaceChildID(task.TaskID, rawID)
-		if publicID == "" || rawID == "" {
+		return ChildRouteEvent{Awaiting: awaiting(value)}, true
+	case stream.ToolArgs:
+		if value.AwaitAsk == nil {
 			return ChildRouteEvent{}, false
 		}
-		return ChildRouteEvent{Awaiting: &TeamChildAwaiting{
-			Task:     task,
-			Control:  b.Controls[task.TaskID],
-			Ask:      value,
-			RawID:    rawID,
-			PublicID: publicID,
-		}}, true
+		ask := *value.AwaitAsk
+		value.AwaitAsk = nil
+		event := ChildRouteEvent{Input: value, Awaiting: awaiting(ask)}
+		if route != nil {
+			event.Input = route(value)
+		}
+		return event, true
 	case stream.RequestSubmit:
-		// The Team-level request.submit is the sole public submit event. Child
-		// submits remain local to their isolated controls.
-		return ChildRouteEvent{}, true
+		value.TaskID = task.TaskID
+		value.AwaitingID = NamespaceChildID(task.TaskID, rawAwaitingIDForTask(task.TaskID, value.AwaitingID))
+		return ChildRouteEvent{Input: value}, true
 	case stream.AwaitingAnswer:
-		rawID := rawAwaitingIDForTask(task.TaskID, value.AwaitingID)
-		return ChildRouteEvent{AwaitingDone: NamespaceChildID(task.TaskID, rawID)}, true
+		value.TaskID = task.TaskID
+		value.AwaitingID = NamespaceChildID(task.TaskID, rawAwaitingIDForTask(task.TaskID, value.AwaitingID))
+		return ChildRouteEvent{Input: value, AwaitingDone: value.AwaitingID}, true
 	default:
 		return ChildRouteEvent{}, false
 	}
 }
 
-func (b *TeamMergedHITLBatch) Observe(event ChildRouteEvent) {
-	if b == nil || !b.Enabled {
+// Observe runs on the coordinator loop only, so queue state needs no lock.
+func (q *TeamHITLQueue) Observe(event ChildRouteEvent) {
+	if q == nil || !q.Enabled {
 		return
 	}
-	if event.Awaiting != nil {
-		b.Waiting[event.Awaiting.Task.TaskID] = event.Awaiting
+	if item := event.Awaiting; item != nil && !q.seen[item.PublicID] {
+		q.seen[item.PublicID] = true
+		q.pending = append(q.pending, item)
 	}
-	if doneID := strings.TrimSpace(event.AwaitingDone); doneID != "" {
-		for taskID, pending := range b.Waiting {
-			if pending != nil && pending.PublicID == doneID {
-				delete(b.Waiting, taskID)
-				break
-			}
-		}
+	if doneID := strings.TrimSpace(event.AwaitingDone); doneID != "" && q.active != nil && q.active.PublicID == doneID {
+		q.finishActive()
 	}
 	if event.Result != nil {
-		b.Completed[event.Result.TaskID] = true
-		delete(b.Waiting, event.Result.TaskID)
+		q.finished[event.Result.TaskID] = true
+		if q.active != nil && q.active.Task.TaskID == event.Result.TaskID {
+			q.finishActive()
+		}
 	}
-	readyWave := b.WaveSize > 0 && len(b.Waiting) >= b.WaveSize
-	allSettled := len(b.Completed)+len(b.Waiting) == len(b.Tasks)
-	if len(b.Waiting) == 0 || (!readyWave && !allSettled) {
-		return
-	}
-	b.ResolveWaiting()
+	q.advance()
 }
 
-func (b *TeamMergedHITLBatch) ResolveWaiting() {
-	if b == nil || !b.Enabled || b.Orchestrator == nil {
+func (q *TeamHITLQueue) finishActive() {
+	item := q.active
+	q.active = nil
+	if item == nil {
 		return
 	}
-	pending := make([]*TeamChildAwaiting, 0, len(b.Waiting))
-	for _, task := range b.Tasks {
-		if item := b.Waiting[task.TaskID]; item != nil {
-			pending = append(pending, item)
-		}
+	if item.cancel != nil {
+		item.cancel()
 	}
-	if len(pending) == 0 {
-		return
+	if parent := contracts.RunControlFromContext(q.Orchestrator.RunCtx); parent != nil {
+		parent.ClearExpectedSubmit(item.PublicID)
 	}
-	for _, item := range pending {
-		delete(b.Waiting, item.Task.TaskID)
-	}
-
-	o := b.Orchestrator
-	parentControl := contracts.RunControlFromContext(o.RunCtx)
-	if parentControl == nil {
-		return
-	}
-	o.TeamAwaitCounter++
-	mergedID := fmt.Sprintf("%s_team_await_%d", strings.TrimSpace(o.Session.RunID), o.TeamAwaitCounter)
-	forms, routes, timeoutSeconds := TeamMergedAwaitingDefinition(pending)
-	var approvals []any
-	for _, item := range pending {
-		if item != nil {
-			approvals = append(approvals, item.Ask.Approvals...)
-		}
-	}
-	summaries, truncated := contracts.SummarizeApprovals(approvals)
-	parentControl.ExpectSubmit(contracts.AwaitingSubmitContext{
-		AwaitingID:         mergedID,
-		Summaries:          summaries,
-		SummariesTruncated: truncated,
-		Mode:               "form",
-		ItemCount:          len(routes),
-		Routes:             routes,
-		NoTimeout:          timeoutSeconds == 0,
-		Timeout:            timeoutSeconds,
-	})
-	parentControl.TransitionState(contracts.RunLoopStateWaitingSubmit)
-	if o.EmitInputs != nil {
-		o.EmitInputs(stream.AwaitAsk{
-			AwaitingID: mergedID,
-			Mode:       "form",
-			Timeout:    timeoutSeconds,
-			RunID:      o.Session.RunID,
-			View:       view.Builtin("team-hitl"),
-			Forms:      forms,
-		})
-	}
-
-	startedAt := time.Now()
-	wait := time.Duration(timeoutSeconds) * time.Second
-	result, err := parentControl.AwaitSubmitWithTimeout(o.RunCtx, mergedID, wait)
-	if err != nil {
-		if errors.Is(err, contracts.ErrRunInterrupted) || errors.Is(err, context.Canceled) {
-			return
-		}
-		if o.EmitInputs != nil {
-			o.EmitInputs(stream.AwaitingAnswer{
-				AwaitingID: mergedID,
-				Answer:     contracts.AwaitingTimeoutAnswer("form", timeoutSeconds, int64(time.Since(startedAt).Seconds())),
-			})
-		}
-		TeamDistributeMergedSubmit(pending, nil, queryinput.SubmitRequest{RunID: o.Session.RunID, TeamID: o.Session.TeamID})
-		parentControl.TransitionState(contracts.RunLoopStateToolExecuting)
-		return
-	}
-
-	if o.EmitInputs != nil {
-		o.EmitInputs(stream.RequestSubmit{
-			RequestID:  o.Session.RequestID,
-			ChatID:     o.Session.ChatID,
-			RunID:      o.Session.RunID,
-			AwaitingID: mergedID,
-			SubmitID:   result.Request.SubmitID,
-			Params:     result.Request.Params,
-		})
-		o.EmitInputs(stream.AwaitingAnswer{
-			AwaitingID: mergedID,
-			Answer:     TeamMergedAwaitingAnswer(result.Request.Params, result.Request.SubmitID),
-		})
-	}
-	TeamDistributeMergedSubmit(pending, result.Request.Params, result.Request)
-	parentControl.TransitionState(contracts.RunLoopStateToolExecuting)
 }
 
-func TeamMergedAwaitingDefinition(pending []*TeamChildAwaiting) ([]any, []contracts.AwaitingSubmitRoute, int64) {
-	forms := make([]any, 0, len(pending))
-	routes := make([]contracts.AwaitingSubmitRoute, 0, len(pending))
-	var timeoutSeconds int64
-	for _, item := range pending {
-		if item == nil {
+func (q *TeamHITLQueue) advance() {
+	if q.active != nil {
+		return
+	}
+	parent := contracts.RunControlFromContext(q.Orchestrator.RunCtx)
+	if parent == nil {
+		return
+	}
+	for len(q.pending) > 0 {
+		item := q.pending[0]
+		q.pending = q.pending[1:]
+		if item == nil || item.Control == nil || q.finished[item.Task.TaskID] {
 			continue
 		}
-		definition := map[string]any{
-			"taskId":     item.Task.TaskID,
-			"awaitingId": item.RawID,
-			"mode":       item.Ask.Mode,
-		}
-		if item.Ask.View != nil {
-			definition["view"] = item.Ask.View.Map()
-		}
-		if item.Ask.ViewError != "" {
-			definition["viewError"] = item.Ask.ViewError
-		}
-		if len(item.Ask.Questions) > 0 {
-			definition["questions"] = append([]any(nil), item.Ask.Questions...)
-		}
-		if len(item.Ask.Approvals) > 0 {
-			definition["approvals"] = append([]any(nil), item.Ask.Approvals...)
-		}
-		if len(item.Ask.Forms) > 0 {
-			definition["forms"] = append([]any(nil), item.Ask.Forms...)
-		}
-		if len(item.Ask.Planning) > 0 {
-			definition["planning"] = contracts.CloneMap(item.Ask.Planning)
-		}
-		forms = append(forms, map[string]any{
-			"id":         item.PublicID,
-			"title":      FirstNonEmpty(item.Task.Spec.TaskName, item.Task.Spec.SubAgentKey),
-			"taskId":     item.Task.TaskID,
-			"awaitingId": item.RawID,
-			"mode":       item.Ask.Mode,
-			"form":       definition,
-		})
-		routes = append(routes, contracts.AwaitingSubmitRoute{
-			FieldID:    item.PublicID,
-			TaskID:     item.Task.TaskID,
-			AwaitingID: item.RawID,
-			Mode:       item.Ask.Mode,
-			ItemCount:  TeamAwaitingItemCount(item.Ask),
-			Questions:  append([]any(nil), item.Ask.Questions...),
-		})
-		if item.Ask.Timeout > 0 && (timeoutSeconds == 0 || item.Ask.Timeout < timeoutSeconds) {
-			timeoutSeconds = item.Ask.Timeout
-		}
+		q.publish(parent, item)
+		return
 	}
-	return forms, routes, timeoutSeconds
+	if parent.State() == contracts.RunLoopStateWaitingSubmit {
+		parent.TransitionState(contracts.RunLoopStateToolExecuting)
+	}
 }
 
-func TeamAwaitingItemCount(ask stream.AwaitAsk) int {
+func (q *TeamHITLQueue) publish(parent *contracts.RunControl, item *TeamChildAwaiting) {
+	o := q.Orchestrator
+	summaries, truncated := contracts.SummarizeApprovals(item.Ask.Approvals)
+	// Members may reuse the same raw awaiting ID, so the Team run tracks the
+	// task-namespaced public ID and never the raw one.
+	parent.ExpectSubmit(contracts.AwaitingSubmitContext{
+		AwaitingID:         item.PublicID,
+		TaskID:             item.Task.TaskID,
+		Summaries:          summaries,
+		SummariesTruncated: truncated,
+		Mode:               item.Ask.Mode,
+		ItemCount:          teamAwaitingItemCount(item.Ask),
+		Questions:          append([]any(nil), item.Ask.Questions...),
+		NoTimeout:          true,
+		Timeout:            item.Ask.Timeout,
+	})
+	parent.TransitionState(contracts.RunLoopStateWaitingSubmit)
+	ctx, cancel := context.WithCancel(o.RunCtx)
+	item.cancel = cancel
+	q.active = item
+	if o.EmitInputs != nil {
+		ask := item.Ask
+		ask.TaskID = item.Task.TaskID
+		ask.AwaitingID = item.PublicID
+		o.EmitInputs(ask)
+	}
+	item.Control.StartSubmitTimeout(item.RawID)
+	go func() {
+		// The member owns timeout and normalization; this only relays a submit.
+		result, err := parent.AwaitSubmitIndefinitely(ctx, item.PublicID)
+		if err != nil {
+			return
+		}
+		request := result.Request
+		request.AwaitingID = item.RawID
+		request.AgentKey = item.Task.Spec.SubAgentKey
+		item.Control.ResolveSubmit(request)
+	}()
+}
+
+func teamAwaitingItemCount(ask stream.AwaitAsk) int {
 	switch strings.ToLower(strings.TrimSpace(ask.Mode)) {
 	case "question":
 		return len(ask.Questions)
 	case "approval":
 		return len(ask.Approvals)
-	case "form":
-		return len(ask.Forms)
-	case "planning":
-		if len(ask.Planning) > 0 {
-			return 1
-		}
+	case "form", "planning":
+		return 1
 	}
 	return 0
-}
-
-func TeamDistributeMergedSubmit(pending []*TeamChildAwaiting, merged queryinput.SubmitParams, parent queryinput.SubmitRequest) {
-	items, _ := queryinput.DecodeSubmitParams(merged)
-	for index, child := range pending {
-		if child == nil || child.Control == nil {
-			continue
-		}
-		var params queryinput.SubmitParams
-		if index < len(items) {
-			params = TeamChildSubmitParams(child.Ask, items[index])
-		}
-		child.Control.ResolveSubmit(queryinput.SubmitRequest{
-			ChatID:     parent.ChatID,
-			RunID:      parent.RunID,
-			AgentKey:   child.Task.Spec.SubAgentKey,
-			TeamID:     parent.TeamID,
-			AwaitingID: child.RawID,
-			SubmitID:   parent.SubmitID,
-			Locale:     parent.Locale,
-			Params:     params,
-		})
-	}
-}
-
-func TeamChildSubmitParams(ask stream.AwaitAsk, item map[string]any) queryinput.SubmitParams {
-	decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
-	if decision == "approve" {
-		form := contracts.AnyMapNode(item["form"])
-		params, err := queryinput.EncodeSubmitParams(form["params"])
-		if err == nil {
-			return params
-		}
-		return nil
-	}
-	return TeamRejectedChildParams(ask)
-}
-
-func TeamRejectedChildParams(ask stream.AwaitAsk) queryinput.SubmitParams {
-	var items []map[string]any
-	appendRejected := func(raw []any) {
-		for _, value := range raw {
-			definition := contracts.AnyMapNode(value)
-			item := map[string]any{"decision": "reject"}
-			if id := strings.TrimSpace(contracts.AnyStringNode(definition["id"])); id != "" {
-				item["id"] = id
-			}
-			items = append(items, item)
-		}
-	}
-	switch strings.ToLower(strings.TrimSpace(ask.Mode)) {
-	case "approval":
-		appendRejected(ask.Approvals)
-	case "form":
-		appendRejected(ask.Forms)
-	case "planning":
-		item := map[string]any{"decision": "reject"}
-		if id := strings.TrimSpace(contracts.AnyStringNode(ask.Planning["id"])); id != "" {
-			item["id"] = id
-		}
-		items = append(items, item)
-	default:
-		return nil
-	}
-	params, err := queryinput.EncodeSubmitParams(items)
-	if err != nil {
-		return nil
-	}
-	return params
-}
-
-func TeamMergedAwaitingAnswer(params queryinput.SubmitParams, submitID string) map[string]any {
-	items, _ := queryinput.DecodeSubmitParams(params)
-	if len(items) == 0 {
-		return contracts.AwaitingErrorAnswer("form", "user_dismissed", "用户关闭等待项")
-	}
-	forms := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		entry := map[string]any{
-			"id":       strings.TrimSpace(contracts.AnyStringNode(item["id"])),
-			"decision": strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"]))),
-		}
-		if form := contracts.AnyMapNode(item["form"]); len(form) > 0 {
-			entry["form"] = form
-		}
-		forms = append(forms, entry)
-	}
-	answer := map[string]any{"mode": "form", "status": "answered", "forms": forms}
-	if strings.TrimSpace(submitID) != "" {
-		answer["submitId"] = strings.TrimSpace(submitID)
-	}
-	return answer
 }
 
 func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, principal *contracts.AuthIdentity, route func(stream.StreamInput), options ChildRunOptions) *ChildTaskResult {

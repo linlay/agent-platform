@@ -625,7 +625,7 @@ type SubmitInfo struct {
 	RunID      string
 	AwaitingID string
 	SubmitID   string
-	Params     any
+	Input      any
 }
 
 type AwaitingSubmitContext struct {
@@ -640,24 +640,11 @@ type AwaitingSubmitContext struct {
 	// Questions preserves the question definitions emitted with a question-mode
 	// awaiting event so submit validation can pair each response with its type.
 	Questions []any
-	// Routes is populated only for a Team-level merged form. Each outer form
-	// item maps to one child awaiting and carries enough schema to validate and
-	// reverse the single public submit before waking isolated child controls.
-	Routes    []AwaitingSubmitRoute
 	NoTimeout bool
 	Timeout   int64
 	// SteerReplan lets the native planning producer supersede this confirmation
 	// atomically with steer admission. Generic/recovered waiters do not opt in.
 	SteerReplan bool
-}
-
-type AwaitingSubmitRoute struct {
-	FieldID    string
-	TaskID     string
-	AwaitingID string
-	Mode       string
-	ItemCount  int
-	Questions  []any
 }
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
@@ -671,38 +658,10 @@ func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 		Mode:               c.Mode,
 		ItemCount:          c.ItemCount,
 		Questions:          append([]any(nil), c.Questions...),
-		Routes:             cloneAwaitingSubmitRoutes(c.Routes),
 		NoTimeout:          c.NoTimeout,
 		Timeout:            c.Timeout,
 		SteerReplan:        c.SteerReplan,
 	}
-}
-
-func cloneAwaitingSubmitRoutes(routes []AwaitingSubmitRoute) []AwaitingSubmitRoute {
-	if len(routes) == 0 {
-		return nil
-	}
-	out := make([]AwaitingSubmitRoute, len(routes))
-	for index, route := range routes {
-		out[index] = route
-		out[index].Questions = cloneAwaitingSubmitValues(route.Questions)
-	}
-	return out
-}
-
-func cloneAwaitingSubmitValues(values []any) []any {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make([]any, len(values))
-	for index, value := range values {
-		if mapped, ok := value.(map[string]any); ok {
-			out[index] = CloneMap(mapped)
-			continue
-		}
-		out[index] = value
-	}
-	return out
 }
 
 type SandboxExecutionResult struct {

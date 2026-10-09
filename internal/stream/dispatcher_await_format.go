@@ -71,9 +71,9 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 			payload["approvals"] = formatted
 		}
 	case "form":
-		formatted := formatAwaitingForms(answer["forms"])
+		formatted := formatAwaitingForm(answer["form"])
 		if len(formatted) > 0 {
-			payload["forms"] = formatted
+			payload["form"] = formatted
 		}
 	case "planning":
 		formatted := formatAwaitingPlanning(answer["planning"])
@@ -161,42 +161,23 @@ func formatAwaitingApprovals(raw any) []map[string]any {
 	}
 }
 
-func formatAwaitingForms(raw any) []map[string]any {
-	switch typed := raw.(type) {
-	case []map[string]any:
-		items := make([]any, 0, len(typed))
-		for _, item := range typed {
-			items = append(items, item)
-		}
-		return formatAwaitingForms(items)
-	case []any:
-		formatted := make([]map[string]any, 0, len(typed))
-		for _, item := range typed {
-			form := anyMap(item)
-			id := strings.TrimSpace(anyString(form["id"]))
-			decision := strings.ToLower(strings.TrimSpace(anyString(form["decision"])))
-			if id == "" || decision == "" {
-				continue
-			}
-			entry := map[string]any{
-				"id":       id,
-				"decision": decision,
-			}
-			if submittedForm, ok := form["form"].(map[string]any); ok && len(submittedForm) > 0 {
-				entry["form"] = clonePayload(submittedForm)
-			}
-			if command := strings.TrimSpace(anyString(form["command"])); command != "" {
-				entry["command"] = command
-			}
-			if reason := strings.TrimSpace(anyString(form["reason"])); reason != "" {
-				entry["reason"] = reason
-			}
-			formatted = append(formatted, entry)
-		}
-		return formatted
-	default:
+func formatAwaitingForm(raw any) map[string]any {
+	form := anyMap(raw)
+	decision := strings.ToLower(strings.TrimSpace(anyString(form["decision"])))
+	if decision == "" {
 		return nil
 	}
+	entry := map[string]any{"decision": decision}
+	if data, ok := form["data"].(map[string]any); ok && len(data) > 0 {
+		entry["data"] = clonePayload(data)
+	}
+	if command := strings.TrimSpace(anyString(form["command"])); command != "" {
+		entry["command"] = command
+	}
+	if reason := strings.TrimSpace(anyString(form["reason"])); reason != "" {
+		entry["reason"] = reason
+	}
+	return entry
 }
 
 func formatAwaitingPlanning(raw any) map[string]any {
@@ -210,9 +191,6 @@ func formatAwaitingPlanning(raw any) map[string]any {
 	}
 	entry := map[string]any{
 		"decision": decision,
-	}
-	if id := strings.TrimSpace(anyString(plan["id"])); id != "" {
-		entry["id"] = id
 	}
 	if planningID := strings.TrimSpace(anyString(plan["planningId"])); planningID != "" {
 		entry["planningId"] = planningID
@@ -280,8 +258,8 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	if len(input.Approvals) > 0 {
 		payload["approvals"] = input.Approvals
 	}
-	if len(input.Forms) > 0 {
-		payload["forms"] = input.Forms
+	if len(input.Form) > 0 {
+		payload["form"] = input.Form
 	}
 	if len(input.Planning) > 0 {
 		payload["planning"] = clonePayload(input.Planning)

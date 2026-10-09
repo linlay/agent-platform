@@ -1316,17 +1316,17 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"key":"platform_control_review"`) {
 		t.Fatalf("expected platform_control_review viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"mode":"form"`) || !strings.Contains(body, `"forms":[`) {
+	if !strings.Contains(body, `"mode":"form"`) || !strings.Contains(body, `"form":{`) || strings.Contains(body, `"forms":`) {
 		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"decision":"approve"`) ||
-		!strings.Contains(body, `"id":"form-1"`) ||
-		!strings.Contains(body, `"form":`+expectedSubmitPayload) {
+		strings.Contains(body, `"id":"form-1"`) ||
+		!strings.Contains(body, `"data":`+expectedSubmitPayload) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"form":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"data":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"title":"mock 请假申请"`) {
@@ -1580,8 +1580,7 @@ func TestBashHITLModifyFlow(t *testing.T) {
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"decision":"approve"`) ||
-		!strings.Contains(body, `"id":"form-1"`) ||
-		!strings.Contains(body, `"form":`+string(expectedSubmitPayload)) {
+		!strings.Contains(body, `"data":`+string(expectedSubmitPayload)) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
@@ -1600,8 +1599,7 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"status":"answered"`) ||
-		!strings.Contains(body, `"decision":"reject"`) ||
-		!strings.Contains(body, `"id":"form-1"`) {
+		!strings.Contains(body, `"decision":"reject"`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
@@ -1622,15 +1620,15 @@ func TestBashHITLRejectWithReasonFlow(t *testing.T) {
 	if !strings.Contains(body, `"type":"request.submit"`) ||
 		!strings.Contains(body, `"decision":"reject"`) ||
 		!strings.Contains(body, `"reason":"user_cancelled"`) ||
-		!strings.Contains(body, `"form":{"days":1,"reason":"too_long"}`) {
+		!strings.Contains(body, `"param":{`) ||
+		!strings.Contains(body, `"data":{"days":1,"reason":"too_long"}`) {
 		t.Fatalf("expected reject request.submit payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"decision":"reject"`) ||
-		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"reason":"user_cancelled"`) ||
-		!strings.Contains(body, `"form":{"days":1,"reason":"too_long"}`) {
+		!strings.Contains(body, `"data":{"days":1,"reason":"too_long"}`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
 	}
 	approval, ok := resultPayload["approval"].(map[string]any)
@@ -1733,7 +1731,7 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 	if !strings.Contains(body, `"key":"resource_delete_review"`) {
 		t.Fatalf("expected resource_delete_review viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"form":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"data":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected expense approval payload in stream, got %s", body)
 	}
 }
@@ -1764,7 +1762,7 @@ func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
 	if !strings.Contains(body, `"key":"installation_review"`) {
 		t.Fatalf("expected installation_review viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"form":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"data":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected procurement approval payload in stream, got %s", body)
 	}
 }
@@ -2017,19 +2015,20 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 submit:
 	if !options.skipSubmit {
 		var submitPayload string
+		submitField := "params"
 		if strings.EqualFold(stringValue(awaitAskPayload["mode"]), "form") {
+			submitField = "param"
 			if options.action == "reject" {
 				item := map[string]any{
-					"id":       "form-1",
 					"decision": "reject",
 				}
 				if reason := strings.TrimSpace(options.reason); reason != "" {
 					item["reason"] = reason
 				}
 				if len(options.rejectedForm) > 0 {
-					item["form"] = options.rejectedForm
+					item["data"] = options.rejectedForm
 				}
-				payloadJSON, err := json.Marshal([]map[string]any{item})
+				payloadJSON, err := json.Marshal(item)
 				if err != nil {
 					t.Fatalf("marshal html reject payload: %v", err)
 				}
@@ -2039,11 +2038,10 @@ submit:
 				if options.action == "modify" {
 					submitCommand = options.modifiedCommand
 				}
-				payloadJSON, err := json.Marshal([]map[string]any{{
-					"id":       "form-1",
+				payloadJSON, err := json.Marshal(map[string]any{
 					"decision": "approve",
-					"form":     payloadFromCommandForTest(t, submitCommand),
-				}})
+					"data":     payloadFromCommandForTest(t, submitCommand),
+				})
 				if err != nil {
 					t.Fatalf("marshal html submit payload: %v", err)
 				}
@@ -2056,7 +2054,7 @@ submit:
 			submitPayload = `[{"id":"` + approvalID + `","decision":"` + options.action + `"}]`
 		}
 		submitRec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+awaitingID+`","params":`+submitPayload+`}`)))
+		fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+awaitingID+`","`+submitField+`":`+submitPayload+`}`)))
 		if submitRec.Code != http.StatusOK {
 			t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
 		}
@@ -2315,38 +2313,6 @@ func TestValidateSubmitParamsAllowsOrderedItemsWithoutIDs(t *testing.T) {
 				{"decision": "reject"},
 			}),
 		},
-		{
-			name:      "form",
-			mode:      "form",
-			itemCount: 1,
-			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"decision": "approve", "form": map[string]any{"days": 2}},
-			}),
-		},
-		{
-			name:      "planning approve",
-			mode:      "planning",
-			itemCount: 1,
-			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"decision": "approve"},
-			}),
-		},
-		{
-			name:      "planning reject with empty reason",
-			mode:      "planning",
-			itemCount: 1,
-			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"decision": "reject", "reason": ""},
-			}),
-		},
-		{
-			name:      "planning reject with reason",
-			mode:      "planning",
-			itemCount: 1,
-			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"decision": "reject", "reason": "请补充测试范围"},
-			}),
-		},
 	}
 
 	for _, tt := range tests {
@@ -2385,22 +2351,6 @@ func TestValidateSubmitParamsIgnoresSubmittedIDsWhenCountMatches(t *testing.T) {
 			itemCount: 1,
 			params: mustEncodeSubmitParams(t, []map[string]any{
 				{"id": "wrong-cmd", "decision": "approve"},
-			}),
-		},
-		{
-			name:      "form",
-			mode:      "form",
-			itemCount: 1,
-			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"id": "wrong-form", "decision": "reject"},
-			}),
-		},
-		{
-			name:      "planning",
-			mode:      "planning",
-			itemCount: 1,
-			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"id": "wrong-planning", "decision": "approve"},
 			}),
 		},
 	}
@@ -2464,48 +2414,6 @@ func TestValidateSubmitParamsRejectsInvalidShape(t *testing.T) {
 			mode:       "approval",
 			item:       map[string]any{"reason": "nope"},
 			wantSubstr: "items[0]: approval items require decision",
-		},
-		{
-			name:       "form missing decision",
-			mode:       "form",
-			item:       map[string]any{"form": map[string]any{"days": 2}},
-			wantSubstr: "items[0]: form items require decision",
-		},
-		{
-			name:       "form invalid decision",
-			mode:       "form",
-			item:       map[string]any{"decision": "cancel"},
-			wantSubstr: `items[0]: unsupported form decision "cancel"`,
-		},
-		{
-			name:       "form approve missing form",
-			mode:       "form",
-			item:       map[string]any{"decision": "approve"},
-			wantSubstr: "items[0]: approve decision requires form",
-		},
-		{
-			name:       "form field not object",
-			mode:       "form",
-			item:       map[string]any{"decision": "approve", "form": "bad"},
-			wantSubstr: "items[0]: form field must be an object",
-		},
-		{
-			name:       "planning missing decision",
-			mode:       "planning",
-			item:       map[string]any{"reason": "nope"},
-			wantSubstr: "items[0]: planning items require decision",
-		},
-		{
-			name:       "planning invalid decision",
-			mode:       "planning",
-			item:       map[string]any{"decision": "approve_rule_run"},
-			wantSubstr: `items[0]: unsupported planning decision "approve_rule_run"`,
-		},
-		{
-			name:       "planning rejects form",
-			mode:       "planning",
-			item:       map[string]any{"decision": "reject", "form": map[string]any{}},
-			wantSubstr: "items[0]: planning items do not allow form",
 		},
 	}
 

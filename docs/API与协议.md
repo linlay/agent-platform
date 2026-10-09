@@ -369,7 +369,7 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 |---|---|---|---|
 | POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`btwId`（旁聊续问）、`message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`mustUseSkills`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | GET | `/api/attach` | query: `runId`、`agentKey` 或 `teamId`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
-| POST | `/api/submit` | body: `agentKey` 或 `teamId`、`runId`、`awaitingId`、`params` | HITL submit ack |
+| POST | `/api/submit` | body: `agentKey` 或 `teamId`、`runId`、`awaitingId`，以及 `params`（question/approval 的数组）或 `param`（planning/form 的单个对象），二选一 | HITL submit ack |
 | POST | `/api/steer` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
 | POST | `/api/interrupt` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId` | interrupt ack |
 | POST | `/api/access-level` | body: `agentKey` 或 `teamId`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |

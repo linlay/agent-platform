@@ -218,7 +218,7 @@ func TestCoderPlanningSteerReplacesProposal(t *testing.T) {
 				stale := httptest.NewRecorder()
 				request := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(mustJSONMarshal(t, map[string]any{
 					"agentKey": "coder-app", "chatId": chatID, "runId": runID, "awaitingId": fmt.Sprintf("tool_plan_%d", targetRevision),
-					"submitId": "stale-approve", "params": []any{map[string]any{"id": "confirm", "decision": "approve"}},
+					"submitId": "stale-approve", "param": map[string]any{"decision": "approve"},
 				})))
 				request.Header.Set("Content-Type", "application/json")
 				fixture.server.ServeHTTP(stale, request)

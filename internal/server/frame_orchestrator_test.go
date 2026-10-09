@@ -854,7 +854,7 @@ func TestFrameOrchestratorRoutesSubAgentAwaitingWithParentRunAndTaskID(t *testin
 				RunID:      "run_1",
 				AwaitingID: "raw_await",
 				SubmitID:   "submit_1",
-				Params:     []any{map[string]any{"id": "q1", "answer": "ok"}},
+				Input:      []any{map[string]any{"id": "q1", "answer": "ok"}},
 			},
 			contracts.DeltaAwaitingAnswer{
 				AwaitingID: "raw_await",

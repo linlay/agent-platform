@@ -574,9 +574,7 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.
 			"timestamp":  startedAt + 1,
 			"chatId":     chatID,
 			"awaitingId": "await-planning",
-			"params": []any{
-				map[string]any{"id": "confirm", "decision": "approve"},
-			},
+			"param":      map[string]any{"decision": "approve"},
 		},
 		Answer: map[string]any{
 			"type":       "awaiting.answer",

@@ -1,7 +1,6 @@
 package planmode
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -17,12 +16,11 @@ func TestPlanningContinuationDecisionAndSubmitDecision(t *testing.T) {
 	if got := PlanningContinuationDecision("question", answer); got != "" {
 		t.Fatalf("non-planning decision=%q", got)
 	}
-	raw := json.RawMessage(`{"decision":"reject"}`)
-	if got := SubmitPlanningDecision(api.SubmitParams{raw}); got != "reject" {
+	if got := SubmitPlanningDecision(api.SubmitParam{"decision": " Reject "}); got != "reject" {
 		t.Fatalf("SubmitPlanningDecision=%q", got)
 	}
-	if got := SubmitPlanningDecision(api.SubmitParams{raw, raw}); got != "" {
-		t.Fatalf("multiple submit decisions must be rejected, got %q", got)
+	if got := SubmitPlanningDecision(nil); got != "" {
+		t.Fatalf("missing param must yield no decision, got %q", got)
 	}
 	if !StartsNewExecutionRun("planning", answer, true) {
 		t.Fatal("approved native planning should start a new execution run")

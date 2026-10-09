@@ -4,11 +4,13 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/query"
 )
 
 func TestValidateDeferredSubmitParamsAcceptsDismissAndValidShapes(t *testing.T) {
-	tests := []struct {
+	lists := []struct {
 		name   string
 		mode   string
 		params any
@@ -17,21 +19,63 @@ func TestValidateDeferredSubmitParamsAcceptsDismissAndValidShapes(t *testing.T) 
 		{name: "question answer", mode: "question", params: []map[string]any{{"answer": "Approve"}}},
 		{name: "approval decision", mode: "approval", params: []map[string]any{{"decision": "approve"}}},
 		{name: "approval rule decision", mode: "approval", params: []map[string]any{{"decision": "approve_rule_run"}}},
-		{name: "form approve", mode: "form", params: []map[string]any{{"decision": "approve", "form": map[string]any{"days": 2}}}},
-		{name: "form reject", mode: "form", params: []map[string]any{{"decision": "reject"}}},
-		{name: "form reject with reason", mode: "form", params: []map[string]any{{"decision": "reject", "reason": "不同意"}}},
-		{name: "form reject with form", mode: "form", params: []map[string]any{{"decision": "reject", "reason": "已修改", "form": map[string]any{"days": 1}}}},
-		{name: "planning dismiss", mode: "planning", params: []map[string]any{}},
-		{name: "planning approve", mode: "planning", params: []map[string]any{{"decision": "approve"}}},
-		{name: "planning reject empty reason", mode: "planning", params: []map[string]any{{"decision": "reject", "reason": ""}}},
-		{name: "planning reject reason", mode: "planning", params: []map[string]any{{"decision": "reject", "reason": "请补充测试范围"}}},
 	}
+	for _, tt := range lists {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateDeferredSubmitParams(tt.mode, mustEncodeSubmitParams(t, tt.params)); err != nil {
+				t.Fatalf("validateDeferredSubmitParams returned error: %v", err)
+			}
+		})
+	}
+	singles := []struct {
+		name  string
+		mode  string
+		param api.SubmitParam
+	}{
+		{name: "form approve", mode: "form", param: api.SubmitParam{"decision": "approve", "data": map[string]any{"days": 2}}},
+		{name: "form reject", mode: "form", param: api.SubmitParam{"decision": "reject"}},
+		{name: "form reject with reason", mode: "form", param: api.SubmitParam{"decision": "reject", "reason": "不同意"}},
+		{name: "form reject with data", mode: "form", param: api.SubmitParam{"decision": "reject", "reason": "已修改", "data": map[string]any{"days": 1}}},
+		{name: "form dismiss", mode: "form", param: api.SubmitParam{"decision": "dismiss"}},
+		{name: "planning dismiss", mode: "planning", param: api.SubmitParam{"decision": "dismiss"}},
+		{name: "planning approve", mode: "planning", param: api.SubmitParam{"decision": "approve"}},
+		{name: "planning reject empty reason", mode: "planning", param: api.SubmitParam{"decision": "reject", "reason": ""}},
+		{name: "planning reject reason", mode: "planning", param: api.SubmitParam{"decision": "reject", "reason": "请补充测试范围"}},
+	}
+	for _, tt := range singles {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateDeferredSubmitParam(tt.mode, tt.param); err != nil {
+				t.Fatalf("validateDeferredSubmitParam returned error: %v", err)
+			}
+		})
+	}
+}
 
+// Each awaiting mode accepts exactly one of param and params; a wrong or
+// ambiguous field must be rejected instead of being read as a dismissal.
+func TestValidateSubmitRejectsWrongAnswerField(t *testing.T) {
+	approve := api.SubmitParam{"decision": "approve", "data": map[string]any{}}
+	list := mustEncodeSubmitParams(t, []map[string]any{{"decision": "approve"}})
+	tests := []struct {
+		name       string
+		mode       string
+		request    api.SubmitRequest
+		wantSubstr string
+	}{
+		{name: "form with params", mode: "form", request: api.SubmitRequest{Params: list}, wantSubstr: "form awaiting accepts param, not params"},
+		{name: "form with empty params", mode: "form", request: api.SubmitRequest{Params: api.SubmitParams{}}, wantSubstr: "form awaiting accepts param, not params"},
+		{name: "form with both", mode: "form", request: api.SubmitRequest{Param: approve, Params: list}, wantSubstr: "form awaiting accepts param, not params"},
+		{name: "form without answer", mode: "form", request: api.SubmitRequest{}, wantSubstr: "form awaiting requires a non-empty param object"},
+		{name: "planning with params", mode: "planning", request: api.SubmitRequest{Params: list}, wantSubstr: "planning awaiting accepts param, not params"},
+		{name: "planning without answer", mode: "planning", request: api.SubmitRequest{}, wantSubstr: "planning awaiting requires a non-empty param object"},
+		{name: "question with param", mode: "question", request: api.SubmitRequest{Param: api.SubmitParam{"answer": "x"}}, wantSubstr: "question awaiting accepts params, not param"},
+		{name: "approval with param", mode: "approval", request: api.SubmitRequest{Param: api.SubmitParam{"decision": "approve"}}, wantSubstr: "approval awaiting accepts params, not param"},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDeferredSubmitParams(tt.mode, mustEncodeSubmitParams(t, tt.params))
-			if err != nil {
-				t.Fatalf("validateDeferredSubmitParams returned error: %v", err)
+			err := query.ValidateSubmitParams(contracts.AwaitingSubmitContext{AwaitingID: "await_1", Mode: tt.mode, ItemCount: 1}, tt.request)
+			if err == nil || !strings.Contains(err.Error(), tt.wantSubstr) {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
@@ -48,33 +92,19 @@ func TestValidateDeferredSubmitParamsRejectsInvalidApprovalDecision(t *testing.T
 func TestValidateDeferredSubmitParamsRejectsInvalidPlanningShape(t *testing.T) {
 	tests := []struct {
 		name       string
-		params     any
+		param      api.SubmitParam
 		wantSubstr string
 	}{
-		{
-			name:       "too many items",
-			params:     []map[string]any{{"decision": "approve"}, {"decision": "reject"}},
-			wantSubstr: "expected 1 submit items, got 2",
-		},
-		{
-			name:       "invalid decision",
-			params:     []map[string]any{{"decision": "approve_rule_run"}},
-			wantSubstr: `items[0]: unsupported planning decision "approve_rule_run"`,
-		},
-		{
-			name:       "answer rejected",
-			params:     []map[string]any{{"decision": "reject", "answer": "no"}},
-			wantSubstr: "items[0]: planning items do not allow answer",
-		},
-		{
-			name:       "payload rejected",
-			params:     []map[string]any{{"decision": "reject", "payload": map[string]any{}}},
-			wantSubstr: "items[0]: planning items do not allow payload",
-		},
+		{name: "missing decision", param: api.SubmitParam{"reason": "x"}, wantSubstr: "param.decision is required"},
+		{name: "invalid decision", param: api.SubmitParam{"decision": "approve_rule_run"}, wantSubstr: `param: unsupported planning decision "approve_rule_run"`},
+		{name: "answer rejected", param: api.SubmitParam{"decision": "reject", "answer": "no"}, wantSubstr: "param: planning awaiting does not allow answer"},
+		{name: "payload rejected", param: api.SubmitParam{"decision": "reject", "payload": map[string]any{}}, wantSubstr: "param: planning awaiting does not allow payload"},
+		{name: "data rejected", param: api.SubmitParam{"decision": "approve", "data": map[string]any{}}, wantSubstr: "param: planning awaiting does not allow data"},
+		{name: "id rejected", param: api.SubmitParam{"id": "confirm", "decision": "approve"}, wantSubstr: "param: planning awaiting does not allow id"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDeferredSubmitParams("planning", mustEncodeSubmitParams(t, tt.params))
+			err := validateDeferredSubmitParam("planning", tt.param)
 			if err == nil || !strings.Contains(err.Error(), tt.wantSubstr) {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -89,42 +119,23 @@ func TestValidateDeferredSubmitParamsRejectsLegacyPlanMode(t *testing.T) {
 	}
 }
 
-func TestValidateDeferredSubmitParamsRejectsInvalidShape(t *testing.T) {
+func TestValidateDeferredSubmitParamsRejectsInvalidFormShape(t *testing.T) {
 	tests := []struct {
 		name       string
-		params     any
+		param      api.SubmitParam
 		wantSubstr string
 	}{
-		{
-			name:       "missing decision",
-			params:     []map[string]any{{"form": map[string]any{"days": 2}}},
-			wantSubstr: "items[0]: form items require decision",
-		},
-		{
-			name:       "invalid decision",
-			params:     []map[string]any{{"decision": "cancel", "form": map[string]any{"days": 2}}},
-			wantSubstr: `items[0]: unsupported form decision "cancel"`,
-		},
-		{
-			name:       "approve missing form",
-			params:     []map[string]any{{"decision": "approve"}},
-			wantSubstr: "items[0]: approve decision requires form",
-		},
-		{
-			name:       "form not object",
-			params:     []map[string]any{{"decision": "approve", "form": "bad"}},
-			wantSubstr: "items[0]: form field must be an object",
-		},
-		{
-			name:       "action field rejected",
-			params:     []map[string]any{{"action": "submit", "form": map[string]any{"days": 2}}},
-			wantSubstr: "items[0]: form items no longer use action, use decision instead",
-		},
+		{name: "missing decision", param: api.SubmitParam{"data": map[string]any{"days": 2}}, wantSubstr: "param.decision is required"},
+		{name: "invalid decision", param: api.SubmitParam{"decision": "cancel", "data": map[string]any{"days": 2}}, wantSubstr: `param: unsupported form decision "cancel"`},
+		{name: "approve missing data", param: api.SubmitParam{"decision": "approve"}, wantSubstr: "param.data is required for approve"},
+		{name: "data not object", param: api.SubmitParam{"decision": "approve", "data": "bad"}, wantSubstr: "param.data must be an object"},
+		{name: "dismiss with data", param: api.SubmitParam{"decision": "dismiss", "data": map[string]any{}}, wantSubstr: "param: dismiss does not allow data"},
+		{name: "old form field rejected", param: api.SubmitParam{"decision": "approve", "form": map[string]any{"days": 2}}, wantSubstr: "param: form awaiting does not allow form"},
+		{name: "id rejected", param: api.SubmitParam{"id": "form-1", "decision": "reject"}, wantSubstr: "param: form awaiting does not allow id"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDeferredSubmitParams("form", mustEncodeSubmitParams(t, tt.params))
+			err := validateDeferredSubmitParam("form", tt.param)
 			if err == nil || !strings.Contains(err.Error(), tt.wantSubstr) {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -278,55 +289,5 @@ func TestValidateSubmitParamsValidatesQuestionDefinitions(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
-	}
-}
-
-func TestValidateTeamMergedSubmitParamsUsesReversibleFieldRoutes(t *testing.T) {
-	ctx := contracts.AwaitingSubmitContext{
-		AwaitingID: "run_1_team_await_1",
-		Mode:       "form",
-		ItemCount:  2,
-		Routes: []contracts.AwaitingSubmitRoute{
-			{
-				FieldID: "run_1_team_t_1:raw_await", TaskID: "run_1_team_t_1", AwaitingID: "raw_await",
-				Mode: "question", ItemCount: 1,
-				Questions: []any{map[string]any{"id": "q1", "question": "Pick", "type": "select", "options": []any{map[string]any{"label": "yes"}}}},
-			},
-			{
-				FieldID: "run_1_team_t_2:raw_await", TaskID: "run_1_team_t_2", AwaitingID: "raw_await",
-				Mode: "approval", ItemCount: 1,
-			},
-		},
-	}
-	valid := []map[string]any{
-		{
-			"id": "run_1_team_t_1:raw_await", "decision": "approve",
-			"form": map[string]any{"params": []any{map[string]any{"answer": "yes"}}},
-		},
-		{
-			"id": "run_1_team_t_2:raw_await", "decision": "approve",
-			"form": map[string]any{"params": []any{map[string]any{"decision": "approve"}}},
-		},
-	}
-	if err := validateSubmitParams(ctx, mustEncodeSubmitParams(t, valid)); err != nil {
-		t.Fatalf("valid merged submit rejected: %v", err)
-	}
-
-	wrongID := append([]map[string]any(nil), valid...)
-	wrongID[0] = map[string]any{
-		"id": "raw_await", "decision": "approve",
-		"form": map[string]any{"params": []any{map[string]any{"answer": "yes"}}},
-	}
-	if err := validateSubmitParams(ctx, mustEncodeSubmitParams(t, wrongID)); err == nil || !strings.Contains(err.Error(), "id must be") {
-		t.Fatalf("expected reversible field id validation, got %v", err)
-	}
-
-	invalidChild := append([]map[string]any(nil), valid...)
-	invalidChild[0] = map[string]any{
-		"id": "run_1_team_t_1:raw_await", "decision": "approve",
-		"form": map[string]any{"params": []any{map[string]any{"answer": "no"}}},
-	}
-	if err := validateSubmitParams(ctx, mustEncodeSubmitParams(t, invalidChild)); err == nil || !strings.Contains(err.Error(), "answer is not an allowed option") {
-		t.Fatalf("expected child question validation, got %v", err)
 	}
 }

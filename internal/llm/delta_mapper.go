@@ -345,7 +345,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ViewError:  value.ViewError,
 			Questions:  append([]any(nil), value.Questions...),
 			Approvals:  append([]any(nil), value.Approvals...),
-			Forms:      append([]any(nil), value.Forms...),
+			Form:       CloneMap(value.Form),
 			Planning:   CloneMap(value.Planning),
 		}}
 	case DeltaRequestSubmit:
@@ -355,7 +355,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunID:      value.RunID,
 			AwaitingID: value.AwaitingID,
 			SubmitID:   value.SubmitID,
-			Params:     value.Params,
+			Input:      value.Input,
 		}}
 	case DeltaAwaitingAnswer:
 		return []stream.StreamInput{stream.AwaitingAnswer{

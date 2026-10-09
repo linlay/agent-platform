@@ -86,14 +86,15 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 	}
 	if route.Transport == "sse" {
 		var response api.SubmitResponse
-		statusErr := postProxyRunControl(route, "/api/submit", map[string]any{
+		body := map[string]any{
 			"runId":      req.RunID,
 			"chatId":     route.ChatID,
 			"agentKey":   firstNonBlank(route.UpstreamAgentKey, route.AgentKey),
 			"awaitingId": req.AwaitingID,
 			"submitId":   req.SubmitID,
-			"params":     req.Params,
-		}, &response)
+		}
+		req.WriteInput(body)
+		statusErr := postProxyRunControl(route, "/api/submit", body, &response)
 		return response, statusErr, true
 	}
 	payload := map[string]any{
@@ -102,8 +103,8 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 		"agentKey":   route.AgentKey,
 		"awaitingId": req.AwaitingID,
 		"submitId":   req.SubmitID,
-		"params":     req.Params,
 	}
+	req.WriteInput(payload)
 	if !sendProxyRouteMessage(route, map[string]any{
 		"frame":   "request",
 		"type":    proxyRouteRequestType(route, "submit"),

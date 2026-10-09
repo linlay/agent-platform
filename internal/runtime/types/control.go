@@ -57,6 +57,7 @@ type SubmitCommand struct {
 	AwaitingID        string
 	SubmitID          string
 	Locale            string
+	Param             map[string]any
 	Params            []json.RawMessage
 	ContinuationRunID string
 	ContinuationState any

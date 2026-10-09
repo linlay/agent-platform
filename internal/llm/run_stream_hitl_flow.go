@@ -72,12 +72,12 @@ func (s *llmRunStream) appendHITLRequestSubmit(awaitingID string, submitResult S
 		RunID:      s.session.RunID,
 		AwaitingID: awaitingID,
 		SubmitID:   submitResult.Request.SubmitID,
-		Params:     submitResult.Request.Params,
+		Input:      submitResult.Request.Input(),
 	})
 }
 
 func (s *llmRunStream) normalizeHITLSubmitAndEmitAnswer(awaitingID string, awaitArgs map[string]any, submitResult SubmitResult) (map[string]any, error) {
-	normalized, normalizeErr := s.normalizeHITLSubmit(awaitArgs, submitResult.Request.Params)
+	normalized, normalizeErr := s.normalizeHITLSubmit(awaitArgs, submitResult.Request.Input())
 	if normalizeErr != nil {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,

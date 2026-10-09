@@ -72,7 +72,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	normalized, normalizeErr := s.normalizeHITLSubmitAndEmitAnswer(awaitingID, awaitArgs, submitResult)
 	if normalizeErr != nil {
 		s.applyHITLDecision(invocation, *match, awaitingID, "reject", normalizeErr.Error(), false)
-		s.appendOriginalToolResult(invocation, interactionSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Params, normalizeErr))
+		s.appendOriginalToolResult(invocation, interactionSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Input(), normalizeErr))
 		return nil
 	}
 
@@ -83,7 +83,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	}
 
 	if strings.EqualFold(AnyStringNode(normalized["mode"]), "form") {
-		selectedForm := firstAwaitItem(normalized["forms"])
+		selectedForm := AnyMapNode(normalized["form"])
 		decision := strings.ToLower(strings.TrimSpace(AnyStringNode(selectedForm["decision"])))
 		// Tool review forms approve the frozen invocation. Their return payload
 		// is never used to rewrite tool arguments or grant a broader permission.
@@ -98,7 +98,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			return s.executeApprovedApprovalRequest(*request)
 		}
 		if decision == "approve" {
-			formPayload := AnyMapNode(selectedForm["form"])
+			formPayload := AnyMapNode(selectedForm["data"])
 			rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
 			if rebuildErr != nil {
 				payload := apperrors.Payload(
@@ -128,7 +128,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			return s.executeOriginalBash(invocation)
 		}
 		reason := strings.TrimSpace(AnyStringNode(selectedForm["reason"]))
-		rejectedForm := AnyMapNode(selectedForm["form"])
+		rejectedForm := AnyMapNode(selectedForm["data"])
 		s.applyHITLDecision(invocation, *match, awaitingID, "reject", reason, false)
 		if len(rejectedForm) > 0 {
 			invocation.hitlDecision.FormPayload = rejectedForm
@@ -276,23 +276,22 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 		args["view"] = result.Rule.View.Map()
 	}
 	form := map[string]any{
-		"id":      "form-1",
 		"command": command,
 	}
 	if title := strings.TrimSpace(result.Rule.Title); title != "" {
 		form["title"] = title
 	}
 	if payload := extractCommandPayload(result.ParsedCommand); len(payload) > 0 {
-		form["form"] = payload
-		args["forms"] = []any{form}
+		form["data"] = payload
+		args["form"] = form
 		return args
 	}
 	if payload := extractPayloadFromOriginalCommand(result.OriginalCommand); len(payload) > 0 {
-		form["form"] = payload
-		args["forms"] = []any{form}
+		form["data"] = payload
+		args["form"] = form
 		return args
 	}
-	args["forms"] = []any{form}
+	args["form"] = form
 	log.Printf("[llm][run:%s][hitl][warning] missing html approval payload view=%v command=%q",
 		s.session.RunID,
 		result.Rule.View,

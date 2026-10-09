@@ -405,7 +405,6 @@ func (s *planningStream) planningConfirmationAsk() contracts.DeltaAwaitAsk {
 		RunID:      s.session.RunID,
 		View:       view.Builtin("planning"),
 		Planning: map[string]any{
-			"id":           "confirm",
 			"planningId":   planningID,
 			"planningFile": planningFile,
 			"options": []any{
@@ -461,11 +460,11 @@ func (s *planningStream) awaitPlanningConfirmation() error {
 		RunID:      s.session.RunID,
 		AwaitingID: awaitingID,
 		SubmitID:   submitResult.Request.SubmitID,
-		Params:     submitResult.Request.Params,
+		Input:      submitResult.Request.Input(),
 	})
 
 	args := s.planningConfirmationArgs()
-	normalized, normalizeErr := normalizePlanningConfirmationSubmit(args, submitResult.Request.Params)
+	normalized, normalizeErr := normalizePlanningConfirmationSubmit(args, submitResult.Request.Input())
 	if normalizeErr != nil {
 		s.pending = append(s.pending, contracts.DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
@@ -785,26 +784,8 @@ func awaitingContextFromDeltaAsk(awaitAsk contracts.DeltaAwaitAsk) contracts.Awa
 	return contracts.AwaitingSubmitContext{
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
-		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
+		ItemCount:  1,
 		Questions:  append([]any(nil), awaitAsk.Questions...),
 		Timeout:    awaitAsk.Timeout,
-	}
-}
-
-func awaitItemCount(mode string, questions []any, approvals []any, forms []any, planning map[string]any) int {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "question":
-		return len(questions)
-	case "approval":
-		return len(approvals)
-	case "form":
-		return len(forms)
-	case "planning":
-		if len(planning) > 0 {
-			return 1
-		}
-		return 0
-	default:
-		return 0
 	}
 }

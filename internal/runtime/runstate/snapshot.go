@@ -83,11 +83,11 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 					mode = pending.Mode
 				}
 				awaiting := &contracts.RunAwaiting{AwaitingID: pending.AwaitingID, Mode: mode}
-				key := map[string]string{"question": "questions", "approval": "approvals", "form": "forms"}[mode]
+				key := map[string]string{"question": "questions", "approval": "approvals"}[mode]
 				if items, ok := payload[key].([]any); ok {
 					awaiting.ItemCount = len(items)
 				}
-				if mode == "planning" && payload["planning"] != nil {
+				if (mode == "planning" || mode == "form") && payload[mode] != nil {
 					awaiting.ItemCount = 1
 				}
 				if mode == "question" {

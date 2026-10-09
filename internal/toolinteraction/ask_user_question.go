@@ -2,12 +2,12 @@ package toolinteraction
 
 import (
 	"agent-platform/internal/view"
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/stream"
 )
 
@@ -103,7 +103,7 @@ func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID strin
 }
 
 func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any) (map[string]any, error) {
-	rawAnswers, err := decodeSubmitItems(params)
+	rawAnswers, err := queryinput.DecodeSubmitItems(params)
 	if err != nil {
 		return nil, fmt.Errorf("ask_user_question submit params must be an array")
 	}
@@ -184,27 +184,6 @@ func questionDefinitionID(question map[string]any, index int) string {
 		return id
 	}
 	return fmt.Sprintf("q%d", index+1)
-}
-
-func decodeSubmitItems(params any) ([]map[string]any, error) {
-	switch typed := params.(type) {
-	case api.SubmitParams:
-		return api.DecodeSubmitParams(typed)
-	case []json.RawMessage:
-		return api.DecodeSubmitParams(api.SubmitParams(typed))
-	case []any:
-		items := make([]map[string]any, 0, len(typed))
-		for _, raw := range typed {
-			item, ok := raw.(map[string]any)
-			if !ok || len(item) == 0 {
-				return nil, fmt.Errorf("submit items must be objects")
-			}
-			items = append(items, item)
-		}
-		return items, nil
-	default:
-		return nil, fmt.Errorf("submit params must be an array")
-	}
 }
 
 func normalizeQuestionSubmitValue(definition map[string]any, answerMap map[string]any) (any, error) {

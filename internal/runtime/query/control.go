@@ -17,7 +17,7 @@ func (s *Service) Submit(_ context.Context, command runtimetypes.SubmitCommand) 
 	req := queryinput.SubmitRequest{
 		ChatID: command.ChatID, RunID: command.RunID, AgentKey: command.AgentKey, TeamID: command.TeamID,
 		AwaitingID: command.AwaitingID, SubmitID: command.SubmitID, Locale: command.Locale,
-		Params: queryinput.SubmitParams(command.Params), ContinuationRunID: command.ContinuationRunID,
+		Param: queryinput.SubmitParam(command.Param), Params: queryinput.SubmitParams(command.Params), ContinuationRunID: command.ContinuationRunID,
 		ContinuationState: command.ContinuationState,
 	}
 	req = s.normalizeActiveSubmitRun(req)

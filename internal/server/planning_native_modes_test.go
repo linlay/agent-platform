@@ -98,7 +98,7 @@ func TestGeneralPlanningModeConfirmsThenExecutesInNewRun(t *testing.T) {
 	runID, awaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
 	submitBody, err := json.Marshal(map[string]any{
 		"agentKey": "general-app", "runId": runID, "awaitingId": awaitingID,
-		"params": []map[string]any{{"id": "confirm", "decision": "approve"}},
+		"param": map[string]any{"decision": "approve"},
 	})
 	if err != nil {
 		t.Fatal(err)

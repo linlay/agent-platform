@@ -127,7 +127,7 @@ func TestPlanningApproveContinuationCarriesInMemoryAdmissionState(t *testing.T) 
 	if !stream.preparePlanningApproveContinuation(api.SubmitRequest{
 		ContinuationRunID: "execute-run",
 		SubmitID:          "submit",
-		Params:            api.SubmitParams{[]byte(`{"decision":"approve"}`)},
+		Param:             api.SubmitParam{"decision": "approve"},
 		ContinuationState: state,
 	}, "await", map[string]any{"planning": map[string]any{"decision": "approve"}}) {
 		t.Fatal("expected planning approval continuation")
@@ -158,7 +158,7 @@ func TestPlanningApproveWithoutContinuationRunDoesNotHandOff(t *testing.T) {
 	stream := &planningStream{session: contracts.QuerySession{RunID: "source-run", ChatID: "chat"}}
 	if stream.preparePlanningApproveContinuation(api.SubmitRequest{
 		SubmitID: "submit",
-		Params:   api.SubmitParams{[]byte(`{"decision":"approve"}`)},
+		Param:    api.SubmitParam{"decision": "approve"},
 	}, "await", map[string]any{"planning": map[string]any{"decision": "approve"}}) {
 		t.Fatal("approval without a continuation Run must not hand off")
 	}
@@ -194,7 +194,7 @@ func TestPlanningConfirmationUsesPlanningMode(t *testing.T) {
 	if len(ask.Questions) != 0 || len(ask.Approvals) != 0 || len(ask.Planning) == 0 {
 		t.Fatalf("expected one planning and no questions/approvals, got %#v", ask)
 	}
-	if ask.Planning["id"] != "confirm" || ask.Planning["planningId"] != "run_1_planning_1" ||
+	if ask.Planning["id"] != nil || ask.Planning["planningId"] != "run_1_planning_1" ||
 		ask.Planning["planningFile"] != "/tmp/chat_1/.tools/planning/run_1_planning_1.md" {
 		t.Fatalf("unexpected planning item %#v", ask.Planning)
 	}
@@ -391,14 +391,11 @@ func TestPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) {
 	case <-time.After(80 * time.Millisecond):
 	}
 
-	params, err := api.EncodeSubmitParams([]map[string]any{{"id": "confirm", "decision": "approve"}})
-	if err != nil {
-		t.Fatalf("encode submit params: %v", err)
-	}
+	param := api.SubmitParam{"decision": "approve"}
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: "run_1_coder_planning_confirm_1",
-		Params:     params,
+		Param:      param,
 	})
 	if !ack.Accepted {
 		t.Fatalf("expected planning confirmation submit to be accepted, got %#v", ack)
@@ -433,14 +430,11 @@ func TestPlanningConfirmationPausesRunBudget(t *testing.T) {
 		done <- stream.awaitPlanningConfirmation()
 	}()
 	time.Sleep(25 * time.Millisecond)
-	params, err := api.EncodeSubmitParams([]map[string]any{{"id": "confirm", "decision": "reject"}})
-	if err != nil {
-		t.Fatalf("encode submit params: %v", err)
-	}
+	param := api.SubmitParam{"decision": "reject"}
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: "run_1_coder_planning_confirm_1",
-		Params:     params,
+		Param:      param,
 	})
 	if !ack.Accepted {
 		t.Fatalf("expected planning confirmation submit to be accepted, got %#v", ack)
@@ -450,14 +444,5 @@ func TestPlanningConfirmationPausesRunBudget(t *testing.T) {
 	}
 	if stream.execCtx.BudgetPaused < 20*time.Millisecond {
 		t.Fatalf("expected planning confirmation wait to pause the run budget, got %s", stream.execCtx.BudgetPaused)
-	}
-}
-
-func TestAwaitItemCountPlanning(t *testing.T) {
-	if got := awaitItemCount("planning", nil, nil, nil, map[string]any{"id": "confirm"}); got != 1 {
-		t.Fatalf("planning item count = %d, want 1", got)
-	}
-	if got := awaitItemCount("planning", nil, nil, nil, nil); got != 0 {
-		t.Fatalf("empty planning item count = %d, want 0", got)
 	}
 }

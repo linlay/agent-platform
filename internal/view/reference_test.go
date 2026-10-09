@@ -29,7 +29,7 @@ func TestReferenceSourcesAndConfigBoundary(t *testing.T) {
 			t.Fatalf("reference %#v", ref)
 		}
 	}
-	for _, key := range []string{"question", "approval", "planning", "confirm_dialog", "team-hitl"} {
+	for _, key := range []string{"question", "approval", "planning", "confirm_dialog"} {
 		ref, err := ResolveBuiltin(key)
 		if err != nil || ref.Renderer != "native" {
 			t.Fatalf("%s: %#v %v", key, ref, err)

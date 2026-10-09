@@ -22,7 +22,7 @@ HITL 使用统一 awaiting 协议，保留 `mode` 字段，不引入 `kind`。�
 
 子智能体 HITL 沿用主 run：普通 `agent_invoke` 和 TEAM 成员都不会注册独立 active run，`awaiting.ask.runId` 是主 `runId`，`taskId` 表示子任务归属。对子智能体等待项，前端看到和提交的 public `awaitingId` 形如 `taskId:rawAwaitingId`；后端 submit 时会映射回子工具实际等待的 `rawAwaitingId`。兼容旧前端把 `taskId` 放进 `/api/submit.runId` 的 payload，但推荐提交 `awaiting.ask.runId` 中的主 `runId`。
 
-orchestrated Team 的 `agent_delegate` 沿用成员原有 HITL。同一并发波次出现多个等待项时，后端只发布一个 Team-level `mode=form`：每个外层字段 id 为 `taskId:rawAwaitingId`，并保留原 question / approval / form / planning schema。客户端用 `teamId + runId + Team awaitingId` 一次提交，后端校验外层 id 与内层 `form.params` 后拆分给对应成员；成员数超过 `maxParallel` 时按后续波次再次合并。
+orchestrated Team 的 `agent_delegate` 沿用成员原有 HITL，成员等待项不合并。协调器按到达顺序排队，同一时刻只发布一位成员的 `awaiting.ask`：它保持成员自己的 mode、内容和 `view`，携带 `taskId`，`awaitingId` 为 `taskId:rawAwaitingId`。客户端用 `teamId + runId + awaitingId` 按该 mode 的普通规则提交，后端原样转给对应成员；该项的 `awaiting.answer` 发出后才发布下一项。排队中的等待项不计超时，倒计时从发布时开始；超时或关闭只影响当前项，中断 Run 清空队列。排队中的成员继续占用 `maxParallel` 名额。
 
 ## 核心流程
 
@@ -87,9 +87,12 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 
 约束：
 
-- `params` 顶层永远是数组。
-- `params[i]` 固定对应 `awaiting.ask.questions|approvals|forms` 的第 `i` 项；`mode=planning` 固定只接受 1 项，对应单个 `awaiting.ask.planning`。
-- `params` 每项允许带 `id`，但 `id` 只用于审计或日志，不用于分发。
+- 提交字段按 mode 二选一：`question` / `approval` 使用数组 `params`，`planning` / `form` 使用单个对象 `param`。两者同时出现、用错字段，或 `param` 为 `null`、空对象、非对象，都返回 400 且不解除等待项。
+- `params[i]` 固定对应 `awaiting.ask.questions|approvals` 的第 `i` 项，每项允许带 `id`，但 `id` 只用于审计或日志，不用于分发；`params: []` 表示关闭等待项。
+- `mode=form` 的 `awaiting.ask.form` 为单个对象 `{title, data}`，由 `awaitingId` 标识，不带 `id`。提交 `param: {decision, data?, reason?}`：`approve` 必须带 `data` 对象；`reject` 可带用户修改后的 `data` 与 `reason`；`dismiss` 表示关闭，不带 `data`。`awaiting.answer.form` 为 `{decision, data?, reason?, command?}`。
+- `mode=planning` 的 `awaiting.ask.planning` 不带 `id`，以 `planningId` 标识。提交 `param: {decision, reason?}`，`decision` 为 `approve`、`reject` 或 `dismiss`，不允许 `data`。
+- `param.decision: "dismiss"` 与 `params: []` 都归一化为 `awaiting.answer.error.code: "user_dismissed"`。
+- `request.submit` 原样回显 `param` 或 `params`。
 - `mode=question` 会按对应问题的类型校验答案：多选题只能提交非空 `answers` 数组，其他题型只能提交 `answer`；数量必须匹配，且沿用题型的值与候选项约束。提交无效 question 答案时接口返回 `data.accepted:false`、`data.status:"invalid"`，不会写入 answer 事件或解除等待项，客户端可修正后重新提交。
 - 子智能体 HITL 的 `request.submit` 与 `awaiting.answer` 会继续回显 public `awaitingId`，并携带 `taskId`，用于前端归并到子任务面板；后端内部唤醒的仍是 raw awaiting。
 - run owner 校验是互斥的：Agent-owned run 缺少/错传 `agentKey` 会失败；Team-owned run 缺少/错传 `teamId` 会失败，同时传 `agentKey` 也会失败。
@@ -126,7 +129,7 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 
 ## VIEW 连接器表单
 
-新表单采用显式 `mode: form` 与 `view: {connectorId,key}`，renderer 不决定 HITL 语义。`awaiting.ask.view` 提供版本与快照 hash，失败保留等待和拒绝入口。Team 成员引用在 `forms[i].form.view`。`/api/submit` 不变；旧 viewport 字段已退役，输入出现即报错。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
+新表单采用显式 `mode: form` 与 `view: {connectorId,key}`，renderer 不决定 HITL 语义。`awaiting.ask.view` 提供版本与快照 hash，失败保留等待和拒绝入口。Team 成员的表单是独立的 `awaiting.ask`，引用就在它自己的 `view`。旧 viewport 字段已退役，输入出现即报错。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
 
 ## Steer selection 与控制归属
 
@@ -136,7 +139,7 @@ HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创�
 
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 
-平台控制内置审阅使用 `mode: form` 与内置 `view` 引用；catalog apply 使用 `platform_control_review`，catalog delete 使用 `resource_delete_review`，chat delete 使用独立的 `chat_delete_review`，Desktop 日常管理按业务使用六类专用 HTML 审阅页，不需要挂载 VIEW。业务数据位于 `forms[].form`，通用 approval 无 review 扩展。模板与授权相互独立：仅服务端保存的一次性指纹可授权；客户端超时不能自动提交，HTML form 仅在宿主 collect 后响应，拒绝不依赖 iframe。详见 [平台控制工具](Platform控制工具设计.md#一次性审批与权限档位)。
+平台控制内置审阅使用 `mode: form` 与内置 `view` 引用；catalog apply 使用 `platform_control_review`，catalog delete 使用 `resource_delete_review`，chat delete 使用独立的 `chat_delete_review`，Desktop 日常管理按业务使用六类专用 HTML 审阅页，不需要挂载 VIEW。业务数据位于 `form.data`，通用 approval 无 review 扩展。模板与授权相互独立：仅服务端保存的一次性指纹可授权；客户端超时不能自动提交，HTML form 仅在宿主 collect 后响应；拒绝同样先向 iframe 收集当前数据，视图未加载或未响应时宿主直接提交不带数据的拒绝。详见 [平台控制工具](Platform控制工具设计.md#一次性审批与权限档位)。
 
 
 ### 工具执行前确认界面配置
@@ -155,7 +158,7 @@ confirmationRules:
 - `when` 是非空对象，以 JSON Pointer 读取原始调用参数（如 `/action`、`/args/type`、`/items/0/type`，支持 `~0`/`~1` 转义），多个条件同时满足。值只接受 JSON 标量，比较区分类型；缺失字段不等于显式 null。不支持脚本、正则或表达式。
 - 当前只接受内置 HTML `view: {key: ...}`；未知 key 在加载时失败。配置结构错误在工具定义加载时报错；模板内容仍由现有 viewport 服务解析。
 - 无规则或无匹配且无默认规则时，仍要求普通一次性审批；工具顶层的 `view` 不参与确认界面选择，保留交互工具原有用途。
-- Handler 只提供指纹、标题和 `forms[].form` 业务数据；ToolRouter 从工具定义选择模板，忽略 Handler 的界面值。模型无法通过调用参数指定模板。批准仍执行原始冻结参数，表单回传内容不改写操作。
+- Handler 只提供指纹、标题和 `form.data` 业务数据；ToolRouter 从工具定义选择模板，忽略 Handler 的界面值。模型无法通过调用参数指定模板。批准仍执行原始冻结参数，表单回传内容不改写操作。
 - 内置 HTML 按 `internal/resources/views/<key>.html` 文件名自动解析并嵌入构建，不再逐个在 Go 源码注册模板 key。内置模板优先于运行目录和远端模板。
 
 

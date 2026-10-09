@@ -45,16 +45,101 @@ func QueryRoleVisible(role string) bool {
 }
 
 type SubmitRequest struct {
-	ChatID            string       `json:"chatId,omitempty"`
-	RunID             string       `json:"runId"`
-	AgentKey          string       `json:"agentKey,omitempty"`
-	TeamID            string       `json:"teamId,omitempty"`
-	AwaitingID        string       `json:"awaitingId"`
-	SubmitID          string       `json:"submitId,omitempty"`
-	Locale            string       `json:"locale,omitempty"`
-	Params            SubmitParams `json:"params"`
+	ChatID     string `json:"chatId,omitempty"`
+	RunID      string `json:"runId"`
+	AgentKey   string `json:"agentKey,omitempty"`
+	TeamID     string `json:"teamId,omitempty"`
+	AwaitingID string `json:"awaitingId"`
+	SubmitID   string `json:"submitId,omitempty"`
+	Locale     string `json:"locale,omitempty"`
+	// Param carries the single answer of planning/form awaitings; Params
+	// carries the item list of question/approval awaitings. They are exclusive.
+	Param             SubmitParam  `json:"param,omitempty"`
+	Params            SubmitParams `json:"params,omitempty"`
 	ContinuationRunID string       `json:"-"`
 	ContinuationState any          `json:"-"`
+}
+
+// Input returns the submitted answer in the shape its awaiting mode expects.
+func (r SubmitRequest) Input() any {
+	if r.Param != nil {
+		return map[string]any(r.Param)
+	}
+	return r.Params
+}
+
+// WriteInput records the submitted answer under its wire field name.
+func (r SubmitRequest) WriteInput(payload map[string]any) {
+	WriteSubmitInput(payload, r.Input())
+}
+
+// WriteSubmitInput stores a single answer as param and an item list as params.
+func WriteSubmitInput(payload map[string]any, input any) {
+	switch typed := input.(type) {
+	case SubmitParam:
+		if typed != nil {
+			payload["param"] = map[string]any(typed)
+			return
+		}
+	case map[string]any:
+		if typed != nil {
+			payload["param"] = typed
+			return
+		}
+	}
+	payload["params"] = input
+}
+
+type SubmitParam map[string]any
+
+func (p *SubmitParam) UnmarshalJSON(data []byte) error {
+	var item map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(data), &item); err != nil || len(item) == 0 {
+		return fmt.Errorf("param must be a non-empty object")
+	}
+	*p = SubmitParam(item)
+	return nil
+}
+
+// DecodeSubmitSingle reads the answer of a planning/form awaiting.
+func DecodeSubmitSingle(input any) (map[string]any, error) {
+	switch typed := input.(type) {
+	case SubmitParam:
+		if len(typed) > 0 {
+			return map[string]any(typed), nil
+		}
+	case map[string]any:
+		if len(typed) > 0 {
+			return typed, nil
+		}
+	}
+	return nil, fmt.Errorf("param must be a non-empty object")
+}
+
+// DecodeSubmitItems reads the item list of a question/approval awaiting.
+func DecodeSubmitItems(input any) ([]map[string]any, error) {
+	switch typed := input.(type) {
+	case nil:
+		return nil, nil
+	case SubmitParams:
+		return DecodeSubmitParams(typed)
+	case []json.RawMessage:
+		return DecodeSubmitParams(SubmitParams(typed))
+	case []map[string]any:
+		return typed, nil
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, raw := range typed {
+			item, ok := raw.(map[string]any)
+			if !ok || len(item) == 0 {
+				return nil, fmt.Errorf("submit items must be objects")
+			}
+			items = append(items, item)
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("submit params must be an array")
+	}
 }
 
 type SubmitParams []json.RawMessage

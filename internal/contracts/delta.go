@@ -262,7 +262,7 @@ type DeltaAwaitAsk struct {
 
 	Questions []any
 	Approvals []any
-	Forms     []any
+	Form      map[string]any
 	Planning  map[string]any
 }
 
@@ -274,7 +274,8 @@ type DeltaRequestSubmit struct {
 	RunID      string
 	AwaitingID string
 	SubmitID   string
-	Params     any
+	// Input is one answer object (planning/form) or an item list.
+	Input any
 }
 
 func (DeltaRequestSubmit) agentDeltaTag() {}

@@ -1086,15 +1086,12 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 		Mode:       "form",
 		Timeout:    120,
 		RunID:      "run_1",
-		Forms: []any{
-			map[string]any{
-				"id":    "form-1",
-				"title": "mock 请假申请",
-				"form": map[string]any{
-					"applicant":  "Lin",
-					"days":       3,
-					"leave_type": "年假",
-				},
+		Form: map[string]any{
+			"title": "mock 请假申请",
+			"data": map[string]any{
+				"applicant":  "Lin",
+				"days":       3,
+				"leave_type": "年假",
 			},
 		},
 	})
@@ -1103,15 +1100,17 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 	if payload["view"].(map[string]any)["renderer"] != "html" || payload["view"].(map[string]any)["key"] != "platform_control_review" {
 		t.Fatalf("expected html form view metadata, got %#v", payload)
 	}
-	forms, _ := payload["forms"].([]any)
-	if len(forms) != 1 {
-		t.Fatalf("expected forms in form awaiting.ask, got %#v", payload)
+	form, _ := payload["form"].(map[string]any)
+	if form == nil {
+		t.Fatalf("expected a single form in form awaiting.ask, got %#v", payload)
 	}
-	form := forms[0].(map[string]any)
+	if _, exists := payload["forms"]; exists {
+		t.Fatalf("did not expect a forms list, got %#v", payload)
+	}
 	if _, exists := form["command"]; exists {
 		t.Fatalf("did not expect form command in awaiting.ask payload, got %#v", payload)
 	}
-	formPayload, _ := form["form"].(map[string]any)
+	formPayload, _ := form["data"].(map[string]any)
 	applicant, _ := formPayload["applicant"].(string)
 	if formPayload == nil || applicant != "Lin" || formPayload["days"] != 3 {
 		t.Fatalf("expected form data in form awaiting.ask, got %#v", payload)
@@ -1541,7 +1540,6 @@ func TestDispatcherEmitsAwaitingAnswerForPlanningMode(t *testing.T) {
 			"mode":   "planning",
 			"status": "answered",
 			"planning": map[string]any{
-				"id":         "confirm",
 				"planningId": "run_1_planning_1",
 				"decision":   "reject",
 				"reason":     "请补充测试范围",
@@ -1554,7 +1552,7 @@ func TestDispatcherEmitsAwaitingAnswerForPlanningMode(t *testing.T) {
 		t.Fatalf("unexpected planning awaiting.answer payload %#v", payload)
 	}
 	planning, _ := payload["planning"].(map[string]any)
-	if planning["id"] != "confirm" || planning["planningId"] != "run_1_planning_1" || planning["decision"] != "reject" || planning["reason"] != "请补充测试范围" {
+	if planning["id"] != nil || planning["planningId"] != "run_1_planning_1" || planning["decision"] != "reject" || planning["reason"] != "请补充测试范围" {
 		t.Fatalf("unexpected formatted planning answer %#v", payload)
 	}
 }
@@ -1570,15 +1568,12 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 		Answer: map[string]any{
 			"mode":   "form",
 			"status": "answered",
-			"forms": []any{
-				map[string]any{
-					"id":       "form-1",
-					"decision": "approve",
-					"form": map[string]any{
-						"applicant_id":  "E1001",
-						"department_id": "engineering",
-						"days":          2,
-					},
+			"form": map[string]any{
+				"decision": "approve",
+				"data": map[string]any{
+					"applicant_id":  "E1001",
+					"department_id": "engineering",
+					"days":          2,
 				},
 			},
 		},
@@ -1591,12 +1586,12 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 	if payload["status"] != "answered" {
 		t.Fatalf("expected answered status, got %#v", payload)
 	}
-	forms, _ := payload["forms"].([]map[string]any)
-	if len(forms) != 1 {
-		t.Fatalf("expected one form answer, got %#v", payload)
+	form, _ := payload["form"].(map[string]any)
+	if form == nil {
+		t.Fatalf("expected a single form answer, got %#v", payload)
 	}
-	formPayload, _ := forms[0]["form"].(map[string]any)
-	if forms[0]["decision"] != "approve" || formPayload["applicant_id"] != "E1001" || formPayload["days"] != 2 {
+	formPayload, _ := form["data"].(map[string]any)
+	if form["decision"] != "approve" || formPayload["applicant_id"] != "E1001" || formPayload["days"] != 2 {
 		t.Fatalf("unexpected approval form payload %#v", payload)
 	}
 }

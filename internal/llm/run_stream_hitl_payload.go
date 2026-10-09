@@ -195,8 +195,8 @@ func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]an
 	if approvals := cloneAnySlice(args["approvals"]); len(approvals) > 0 {
 		await.Approvals = approvals
 	}
-	if forms := cloneAnySlice(args["forms"]); len(forms) > 0 {
-		await.Forms = sanitizeAwaitAskForms(forms)
+	if form := AnyMapNode(args["form"]); len(form) > 0 {
+		await.Form = sanitizeAwaitAskForm(form)
 	}
 	if planning := AnyMapNode(args["planning"]); len(planning) > 0 {
 		await.Planning = CloneMap(planning)
@@ -204,18 +204,11 @@ func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]an
 	return await
 }
 
-func sanitizeAwaitAskForms(forms []any) []any {
-	cloned := make([]any, 0, len(forms))
-	for _, item := range forms {
-		form := AnyMapNode(item)
-		if len(form) == 0 {
-			continue
-		}
-		entry := CloneMap(form)
-		delete(entry, "command")
-		cloned = append(cloned, entry)
-	}
-	return cloned
+// The command stays server-side; the client only receives the form title and data.
+func sanitizeAwaitAskForm(form map[string]any) map[string]any {
+	entry := CloneMap(form)
+	delete(entry, "command")
+	return entry
 }
 
 func cloneAnySlice(raw any) []any {
@@ -268,7 +261,7 @@ func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitConte
 		SummariesTruncated: truncated,
 		AwaitingID:         awaitAsk.AwaitingID,
 		Mode:               awaitAsk.Mode,
-		ItemCount:          awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
+		ItemCount:          awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals),
 		Questions:          append([]any(nil), awaitAsk.Questions...),
 		Timeout:            awaitAsk.Timeout,
 	}
@@ -281,25 +274,21 @@ func awaitingContextFromDeltaAsk(awaitAsk DeltaAwaitAsk) AwaitingSubmitContext {
 		SummariesTruncated: truncated,
 		AwaitingID:         awaitAsk.AwaitingID,
 		Mode:               awaitAsk.Mode,
-		ItemCount:          awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
+		ItemCount:          awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals),
 		Questions:          append([]any(nil), awaitAsk.Questions...),
 		Timeout:            awaitAsk.Timeout,
 	}
 }
 
-func awaitItemCount(mode string, questions []any, approvals []any, forms []any, planning map[string]any) int {
+// awaitItemCount is the expected params length; planning and form take one param.
+func awaitItemCount(mode string, questions []any, approvals []any) int {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "question":
 		return len(questions)
 	case "approval":
 		return len(approvals)
-	case "form":
-		return len(forms)
-	case "planning":
-		if len(planning) > 0 {
-			return 1
-		}
-		return 0
+	case "form", "planning":
+		return 1
 	default:
 		return 0
 	}

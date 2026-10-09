@@ -333,7 +333,11 @@ func HandleAwaitingLifecycle(params NativeOptions, data stream.EventData, tracke
 			taskID := strings.TrimSpace(data.String("taskId"))
 			internalAwaitingID := awaitingID
 			publicAwaitingID := ""
-			if rawAwaitingID := RawAwaitingIDForTask(taskID, awaitingID); rawAwaitingID != "" && rawAwaitingID != awaitingID {
+			// A Team already tracks its member awaitings by public ID because
+			// raw IDs can repeat across members; only shared-control children
+			// are aliased to their raw waiter.
+			_, teamOwned := params.RunControl.LookupAwaiting(awaitingID)
+			if rawAwaitingID := RawAwaitingIDForTask(taskID, awaitingID); !teamOwned && rawAwaitingID != "" && rawAwaitingID != awaitingID {
 				internalAwaitingID = rawAwaitingID
 				publicAwaitingID = awaitingID
 			}
@@ -431,13 +435,8 @@ func AwaitingEventItemCount(data stream.EventData) int {
 		return AwaitingPayloadItemCount(data.Value("questions"))
 	case "approval":
 		return AwaitingPayloadItemCount(data.Value("approvals"))
-	case "form":
-		return AwaitingPayloadItemCount(data.Value("forms"))
-	case "planning":
-		if LenAnyMap(data.Value("planning")) > 0 {
-			return 1
-		}
-		return 0
+	case "form", "planning":
+		return 1
 	default:
 		return 0
 	}

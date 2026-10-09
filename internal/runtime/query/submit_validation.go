@@ -12,31 +12,98 @@ import (
 	"agent-platform/internal/toolinteraction"
 )
 
-func ValidateSubmitParams(ctx contracts.AwaitingSubmitContext, params queryinput.SubmitParams) error {
-	if len(params) == 0 {
-		return nil
-	}
-	if len(ctx.Routes) > 0 {
-		return validateTeamMergedSubmitParams(ctx, params)
-	}
-	items, err := queryinput.DecodeSubmitParams(params)
-	if err != nil {
+// ValidateSubmitParams checks the answer shape for the awaiting mode before the
+// waiter is woken: planning/form take one param object, question/approval take
+// a params list. An invalid submit never resolves the awaiting.
+func ValidateSubmitParams(ctx contracts.AwaitingSubmitContext, req queryinput.SubmitRequest) error {
+	items, err := submitItemsForMode(ctx.Mode, req)
+	if err != nil || len(items) == 0 {
 		return err
 	}
 	if len(items) != ctx.ItemCount {
 		return fmt.Errorf("expected %d submit items, got %d", ctx.ItemCount, len(items))
 	}
-	for index, item := range items {
-		if err := validateSubmitItem(ctx.Mode, index, item); err != nil {
-			return err
-		}
+	if err := validateSubmitItems(ctx.Mode, items); err != nil {
+		return err
 	}
 	if strings.EqualFold(strings.TrimSpace(ctx.Mode), "question") && len(ctx.Questions) > 0 {
 		if _, err := toolinteraction.NewAskUserQuestionHandler().NormalizeSubmit(map[string]any{
 			"questions": ctx.Questions,
-		}, params); err != nil {
+		}, req.Params); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func singleAnswerMode(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "planning", "form":
+		return true
+	}
+	return false
+}
+
+// submitItemsForMode validates field exclusivity. A single answer is fully
+// validated here and yields nil; a question/approval list is returned decoded
+// for the caller to count and validate.
+func submitItemsForMode(mode string, req queryinput.SubmitRequest) ([]map[string]any, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if singleAnswerMode(mode) {
+		if req.Params != nil {
+			return nil, fmt.Errorf("%s awaiting accepts param, not params", mode)
+		}
+		if len(req.Param) == 0 {
+			return nil, fmt.Errorf("%s awaiting requires a non-empty param object", mode)
+		}
+		return nil, validateSingleSubmit(mode, req.Param)
+	}
+	if req.Param != nil {
+		return nil, fmt.Errorf("%s awaiting accepts params, not param", mode)
+	}
+	return queryinput.DecodeSubmitParams(req.Params)
+}
+
+func validateSubmitItems(mode string, items []map[string]any) error {
+	for index, item := range items {
+		if err := validateSubmitItem(mode, index, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSingleSubmit(mode string, param map[string]any) error {
+	for _, field := range []string{"answer", "answers", "payload", "form", "action", "id"} {
+		if _, exists := param[field]; exists {
+			return fmt.Errorf("param: %s awaiting does not allow %s", mode, field)
+		}
+	}
+	rawData, hasData := param["data"]
+	if hasData {
+		if data, ok := rawData.(map[string]any); !ok || data == nil {
+			return fmt.Errorf("param.data must be an object")
+		}
+	}
+	decision := strings.ToLower(strings.TrimSpace(sessionbuild.StringValue(param["decision"])))
+	switch decision {
+	case "approve", "reject", "dismiss":
+	case "":
+		return fmt.Errorf("param.decision is required")
+	default:
+		return fmt.Errorf("param: unsupported %s decision %q", mode, decision)
+	}
+	if mode == "planning" {
+		if hasData {
+			return fmt.Errorf("param: planning awaiting does not allow data")
+		}
+		return nil
+	}
+	if decision == "approve" && !hasData {
+		return fmt.Errorf("param.data is required for approve")
+	}
+	if decision == "dismiss" && hasData {
+		return fmt.Errorf("param: dismiss does not allow data")
 	}
 	return nil
 }
@@ -75,83 +142,18 @@ func validateSubmitItem(mode string, index int, item map[string]any) error {
 		if _, hasAnswers := item["answers"]; hasAnswers {
 			return fmt.Errorf("%s: approval items do not allow answers", itemLabel)
 		}
-	case "form":
-		if _, hasAnswer := item["answer"]; hasAnswer {
-			return fmt.Errorf("%s: form items do not allow answer", itemLabel)
-		}
-		if _, hasAnswers := item["answers"]; hasAnswers {
-			return fmt.Errorf("%s: form items do not allow answers", itemLabel)
-		}
-		if _, hasPayload := item["payload"]; hasPayload {
-			return fmt.Errorf("%s: form items do not allow payload", itemLabel)
-		}
-		if _, hasAction := item["action"]; hasAction {
-			return fmt.Errorf("%s: form items no longer use action, use decision instead", itemLabel)
-		}
-		decision := strings.ToLower(strings.TrimSpace(sessionbuild.StringValue(item["decision"])))
-		if decision == "" {
-			return fmt.Errorf("%s: form items require decision", itemLabel)
-		}
-		if rawForm, hasForm := item["form"]; hasForm {
-			form, ok := rawForm.(map[string]any)
-			if !ok || form == nil {
-				return fmt.Errorf("%s: form field must be an object", itemLabel)
-			}
-		}
-		switch decision {
-		case "approve":
-			if _, hasForm := item["form"]; !hasForm {
-				return fmt.Errorf("%s: approve decision requires form", itemLabel)
-			}
-		case "reject":
-		default:
-			return fmt.Errorf("%s: unsupported form decision %q", itemLabel, decision)
-		}
-	case "planning":
-		decision := strings.ToLower(strings.TrimSpace(sessionbuild.StringValue(item["decision"])))
-		if decision == "" {
-			return fmt.Errorf("%s: planning items require decision", itemLabel)
-		}
-		switch decision {
-		case "approve", "reject":
-		default:
-			return fmt.Errorf("%s: unsupported planning decision %q", itemLabel, decision)
-		}
-		if _, hasPayload := item["payload"]; hasPayload {
-			return fmt.Errorf("%s: planning items do not allow payload", itemLabel)
-		}
-		if _, hasAnswer := item["answer"]; hasAnswer {
-			return fmt.Errorf("%s: planning items do not allow answer", itemLabel)
-		}
-		if _, hasAnswers := item["answers"]; hasAnswers {
-			return fmt.Errorf("%s: planning items do not allow answers", itemLabel)
-		}
-		if _, hasForm := item["form"]; hasForm {
-			return fmt.Errorf("%s: planning items do not allow form", itemLabel)
-		}
 	default:
 		return fmt.Errorf("unsupported awaiting mode: %s", mode)
 	}
 	return nil
 }
 
-func ValidateDeferredSubmitParams(mode string, params queryinput.SubmitParams) error {
-	if len(params) == 0 {
-		return nil
-	}
-	items, err := queryinput.DecodeSubmitParams(params)
+func ValidateDeferredSubmitParams(mode string, req queryinput.SubmitRequest) error {
+	items, err := submitItemsForMode(mode, req)
 	if err != nil {
 		return err
 	}
-	if strings.EqualFold(strings.TrimSpace(mode), "planning") && len(items) != 1 {
-		return fmt.Errorf("expected 1 submit items, got %d", len(items))
-	}
-	for index, item := range items {
-		if err := validateSubmitItem(mode, index, item); err != nil {
-			return err
-		}
-	}
-	return nil
+	return validateSubmitItems(mode, items)
 }
 
 func (s *Service) lookupActiveAwaiting(req queryinput.SubmitRequest) (contracts.AwaitingSubmitContext, bool) {
@@ -278,47 +280,4 @@ func (s *Service) ValidateRunOwner(runID string, agentKey string, teamID string)
 		return &statusError{Status: 404, Message: "run not found"}
 	}
 	return validateRunStatusOwner(status, agentKey, teamID)
-}
-
-func validateTeamMergedSubmitParams(ctx contracts.AwaitingSubmitContext, params queryinput.SubmitParams) error {
-	items, err := queryinput.DecodeSubmitParams(params)
-	if err != nil {
-		return err
-	}
-	if len(items) != len(ctx.Routes) {
-		return fmt.Errorf("expected %d submit items, got %d", len(ctx.Routes), len(items))
-	}
-	for index, item := range items {
-		if err := validateSubmitItem("form", index, item); err != nil {
-			return err
-		}
-		route := ctx.Routes[index]
-		fieldID := strings.TrimSpace(sessionbuild.StringValue(item["id"]))
-		if fieldID == "" || fieldID != strings.TrimSpace(route.FieldID) {
-			return fmt.Errorf("items[%d]: id must be %q", index, route.FieldID)
-		}
-		if strings.EqualFold(strings.TrimSpace(sessionbuild.StringValue(item["decision"])), "reject") {
-			continue
-		}
-		form := contracts.AnyMapNode(item["form"])
-		rawParams, ok := form["params"]
-		if !ok {
-			return fmt.Errorf("items[%d]: form.params is required", index)
-		}
-		childParams, encodeErr := queryinput.EncodeSubmitParams(rawParams)
-		if encodeErr != nil {
-			return fmt.Errorf("items[%d]: form.params must be an array", index)
-		}
-		childContext := contracts.AwaitingSubmitContext{
-			AwaitingID: route.AwaitingID,
-			TaskID:     route.TaskID,
-			Mode:       route.Mode,
-			ItemCount:  route.ItemCount,
-			Questions:  append([]any(nil), route.Questions...),
-		}
-		if err := ValidateSubmitParams(childContext, childParams); err != nil {
-			return fmt.Errorf("items[%d].form.params: %w", index, err)
-		}
-	}
-	return nil
 }

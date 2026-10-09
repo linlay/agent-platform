@@ -100,7 +100,11 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"runId":      value.RunID,
 			"awaitingId": value.AwaitingID,
 			"submitId":   value.SubmitID,
-			"params":     value.Params,
+		}
+		if param, ok := value.Input.(map[string]any); ok && param != nil {
+			payload["param"] = param
+		} else {
+			payload["params"] = value.Input
 		}
 		if taskID := strings.TrimSpace(value.TaskID); taskID != "" {
 			payload["taskId"] = taskID

@@ -340,38 +340,34 @@ func TestRunControlResolveSubmitAliasDeliversRawAwaitingID(t *testing.T) {
 	}
 }
 
-func TestRunControlPreservesMergedAwaitingRoutesOnLifecycleRefresh(t *testing.T) {
+func TestRunControlHeldSubmitTimeoutStartsOnRelease(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
-	control.ExpectSubmit(AwaitingSubmitContext{
-		AwaitingID: "run_1_team_await_1",
-		Mode:       "form",
-		ItemCount:  1,
-		Routes: []AwaitingSubmitRoute{{
-			FieldID:    "run_1_team_t_1:raw_await",
-			TaskID:     "run_1_team_t_1",
-			AwaitingID: "raw_await",
-			Mode:       "question",
-			ItemCount:  1,
-			Questions:  []any{map[string]any{"id": "q1"}},
-		}},
-	})
-	// The generic run lifecycle observes the public awaiting event later and
-	// re-registers it without internal routing metadata.
-	control.ExpectSubmit(AwaitingSubmitContext{
-		AwaitingID: "run_1_team_await_1",
-		Mode:       "form",
-		ItemCount:  1,
-	})
-	got, ok := control.LookupAwaiting("run_1_team_await_1")
-	if !ok || len(got.Routes) != 1 {
-		t.Fatalf("merged routes were lost: %#v ok=%v", got, ok)
+	control.HoldSubmitTimeouts()
+	control.ExpectSubmit(AwaitingSubmitContext{AwaitingID: "await_1", Mode: "approval", ItemCount: 1})
+	done := make(chan error, 1)
+	go func() {
+		_, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", 20*time.Millisecond)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("held timeout fired before release: %v", err)
+	case <-time.After(120 * time.Millisecond):
 	}
-	if got.Routes[0].FieldID != "run_1_team_t_1:raw_await" || got.Routes[0].AwaitingID != "raw_await" {
-		t.Fatalf("unexpected merged route %#v", got.Routes[0])
+	control.StartSubmitTimeout("await_1")
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected timeout after release, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("released timeout never fired")
 	}
-	got.Routes[0].Questions[0].(map[string]any)["id"] = "mutated"
-	again, _ := control.LookupAwaiting("run_1_team_await_1")
-	if again.Routes[0].Questions[0].(map[string]any)["id"] != "q1" {
-		t.Fatalf("LookupAwaiting leaked mutable route data: %#v", again.Routes)
+
+	// A release that arrives before the waiter starts must not be lost.
+	control.ExpectSubmit(AwaitingSubmitContext{AwaitingID: "await_2", Mode: "approval", ItemCount: 1})
+	control.StartSubmitTimeout("await_2")
+	if _, err := control.AwaitSubmitWithTimeout(context.Background(), "await_2", 20*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected early release to start the timer, got %v", err)
 	}
 }

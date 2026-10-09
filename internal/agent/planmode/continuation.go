@@ -69,12 +69,8 @@ func PlanningContinuationDecision(mode string, answer map[string]any) string {
 	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(planning["decision"])))
 }
 
-func SubmitPlanningDecision(params api.SubmitParams) string {
-	items, err := api.DecodeSubmitParams(params)
-	if err != nil || len(items) != 1 {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(items[0]["decision"])))
+func SubmitPlanningDecision(param api.SubmitParam) string {
+	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(param["decision"])))
 }
 
 // StartsNewExecutionRun reports whether an awaiting answer approves a plan of
