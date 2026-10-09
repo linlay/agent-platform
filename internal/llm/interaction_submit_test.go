@@ -332,3 +332,21 @@ func TestInteractionSubmitTimeoutUsesDisplayedAwaitingAskTimeout(t *testing.T) {
 		t.Fatalf("expected awaiting.ask.timeout 600 to drive backend wait, got %d", int64(timeout.Seconds()))
 	}
 }
+
+func TestInteractionSubmitCoordinatorFormTimeoutWithoutModeArgument(t *testing.T) {
+	result, err := NewInteractionSubmitCoordinator(toolinteraction.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+		RunControl: contracts.NewRunControl(context.Background(), "run"), CurrentToolID: "tool", CurrentToolName: "ask_user_form",
+		Budget: contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 1}},
+	}, map[string]any{"title": "Profile", "html": `<input name="n">`})
+	if err != nil || result.Error != "tool_interaction_timeout" || result.Structured["mode"] != "form" {
+		t.Fatalf("result %#v err %v", result, err)
+	}
+}
+
+func TestFormInvalidSubmitAnswerKeepsFormMode(t *testing.T) {
+	result := contracts.ToolExecutionResult{Error: "tool_interaction_invalid_payload", Structured: map[string]any{"message": "invalid value"}}
+	answer := interactionSubmitAwaitingAnswer(&preparedToolInvocation{toolName: "ask_user_form", args: map[string]any{}}, result)
+	if answer["mode"] != "form" || answer["status"] != "error" {
+		t.Fatalf("unexpected answer %#v", answer)
+	}
+}

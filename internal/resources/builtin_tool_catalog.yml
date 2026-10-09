@@ -5,6 +5,7 @@ visibleBuiltinTools:
   - agent_invoke
   - artifact_publish
   - ask_user_question
+  - ask_user_form
   - bash
   - bash_sandbox
   - datetime

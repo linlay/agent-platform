@@ -23,6 +23,9 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 		byName[def.Name] = true
 	}
 
+	if !byName["ask_user_form"] {
+		t.Fatal("expected ask_user_form builtin tool definition")
+	}
 	if !byName["ask_user_question"] {
 		t.Fatal("expected ask_user_question builtin tool definition")
 	}
@@ -221,7 +224,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 	}
 
 	visibleNames := map[string]bool{
-		"agent_invoke": true, "artifact_publish": true, "ask_user_question": true,
+		"agent_invoke": true, "artifact_publish": true, "ask_user_question": true, "ask_user_form": true,
 		"bash": true, "bash_sandbox": true, "datetime": true, "wait": true,
 		"desktop_shell": true, "desktop_settings": true, "desktop_site": true, "desktop_webapp": true, "desktop_service": true, "desktop_market": true, "desktop_kanban": true,
 		"workpanel_state": true, "workpanel_open": true, "workpanel_close": true,

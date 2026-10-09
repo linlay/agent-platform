@@ -161,13 +161,12 @@ func (r *ToolRouter) ReloadRuntimeToolDefinitions(root string) error {
 
 func validateRequiredInteractionHandler(defs []api.ToolDetailResponse, interaction interactionSubmitter) error {
 	for _, def := range defs {
-		if !strings.EqualFold(strings.TrimSpace(def.Name), "ask_user_question") {
+		if name := strings.ToLower(strings.TrimSpace(def.Name)); name != "ask_user_question" && name != "ask_user_form" {
 			continue
 		}
 		if interaction == nil || !interaction.Handles(def.Name) {
-			return fmt.Errorf("tool ask_user_question requires a registered interaction handler")
+			return fmt.Errorf("tool %s requires a registered interaction handler", def.Name)
 		}
-		return nil
 	}
 	return nil
 }

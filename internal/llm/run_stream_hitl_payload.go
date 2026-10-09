@@ -71,7 +71,7 @@ func interactionSubmitAwaitingAnswer(invocation *preparedToolInvocation, result 
 	if result.Error == "" {
 		return result.Structured
 	}
-	mode := strings.TrimSpace(AnyStringNode(invocation.args["mode"]))
+	mode := interactionToolMode(invocation.toolName)
 	switch result.Error {
 	case "tool_interaction_timeout":
 		return result.Structured

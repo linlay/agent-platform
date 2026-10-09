@@ -510,3 +510,46 @@ func TestDeltaMapper_SourcePublishPreservesPayload(t *testing.T) {
 		t.Fatalf("unexpected source payload %#v", event.Sources)
 	}
 }
+
+func TestDeltaMapperFormFragmentsWaitForToolEnd(t *testing.T) {
+	for _, name := range []string{"ask_user_form", "ask_user_question"} {
+		t.Run(name, func(t *testing.T) {
+			mapper := NewDeltaMapper("run", "chat", contracts.Budget{}, stubToolLookup{name: {Name: name}}, toolinteraction.NewDefaultRegistry())
+			raw := `{"title":"Profile","html":"<input name=\"n\">"}`
+			if name == "ask_user_question" {
+				raw = `{"mode":"question","questions":[{"question":"Name?","type":"text"}]}`
+			}
+			for i, part := range []string{raw[:15], raw[15:]} {
+				delta := contracts.DeltaToolCall{Index: 0, ArgsDelta: part}
+				if i == 0 {
+					delta.ID = "tool"
+					delta.Name = name
+				}
+				for _, event := range mapper.Map(delta) {
+					if _, ok := event.(stream.AwaitAsk); ok {
+						t.Fatal("early await")
+					}
+					if args, ok := event.(stream.ToolArgs); ok && args.AwaitAsk != nil {
+						t.Fatal("embedded early await")
+					}
+				}
+			}
+			events := mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"tool"}})
+			if len(events) != 2 {
+				t.Fatalf("events %#v", events)
+			}
+			if _, ok := events[0].(stream.ToolEnd); !ok {
+				t.Fatal("end must precede ask")
+			}
+			ask, ok := events[1].(stream.AwaitAsk)
+			if !ok || (name == "ask_user_form" && ask.Mode != "form") {
+				t.Fatalf("ask %#v", events[1])
+			}
+			for _, event := range mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"tool"}}) {
+				if _, ok := event.(stream.AwaitAsk); ok {
+					t.Fatal("duplicate ask")
+				}
+			}
+		})
+	}
+}

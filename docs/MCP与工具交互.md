@@ -301,3 +301,19 @@ i18n:
 | automation_query / automation_manage | 各 action 声明的 args.enabled、args.query.hidden |
 
 字段与适用 action 仍以工具 Schema 和运行时契约为准；Desktop 通用 action 的开放 args、AWCP/CDP 业务参数不依据字段名猜测类型。
+
+## 独立输入表单 ask_user_form
+
+`ask_user_form` 是独立内置交互工具，由 Agent 在 `toolConfig.tools` 显式声明，默认不进入全局 preset。普通问题优先使用 `ask_user_question`；仅在多个字段需要一起填写或需要自定义布局时使用表单。它不属于 confirmationRules 审阅，不授予权限，也不改变 `ask_user_question` 的协议。
+
+输入为 `{title,html,values?}`，没有 mode 参数。title 必须非空；HTML 片段最多 64 KiB；values 是按控件 name 预填的对象，JSON 编码最多 64 KiB，只接受已声明字段。服务器不静默清洗违规 HTML，而是返回工具错误供模型重写；内置壳页面在插入 DOM 前再次白名单校验。
+
+- 标签：`div span p h1 h2 h3 h4 label fieldset legend input textarea select option optgroup ul ol li table thead tbody tr th td br hr strong em b i small code`。
+- input type：`text number email tel url date datetime-local time checkbox radio range color hidden`，缺省 text。密码使用 `ask_user_question`，文件使用上传。
+- 属性：`name id for class style type value placeholder required disabled readonly checked selected multiple min max step minlength maxlength pattern rows cols title colspan rowspan label` 和 `aria-*`。所有控件必须有非空 name；仅同类型 radio/checkbox 可以重名。
+- style 仅接受间距、尺寸、flex/grid 布局、边框和文本颜色等保守属性，具体列表以 `internal/toolinteraction/form_html.go` 为准。值只允许 ASCII 字母、数字、空格及 `# % . , + -`；拒绝定位、CSS 函数、转义、注释和自定义属性。壳页面已提供主题样式，通常无需传 style。
+- 禁止脚本、事件属性、链接、图片、iframe、外部资源和原生提交。HTML 位于 `awaiting.ask.form.data.html`，预填值位于 `.values`，VIEW 为 `builtin/ask_user_form`。
+
+`/api/submit` 使用 `param:{decision:"approve",data}`、`param:{decision:"reject",reason?,data?}` 或 `param:{decision:"dismiss"}`。回答按 HTML 中的 name 裁剪，data JSON 最多 64 KiB；值统一为字符串，单 checkbox 为 `"true"/"false"`，checkbox 组与 select multiple 为字符串数组，未选 radio 省略，disabled 控件不收集。浏览器在提交前校验 required/pattern 等约束，服务器校验声明字段的值类型和大小，不把 HTML 约束当成授权依据。
+
+校验失败后壳页面发送 `frontend_awaiting_invalid {runId,awaitingId}`，宿主立即结束收集忙状态并提示修正；拒绝不校验必填字段，仍可带已填内容。超时走 `hitl.form` 预算，跨进程重启按 form 写入 `runtime_restarted`，不会恢复表单。BTW 只读执行禁止该工具；规划和确认后的执行 Run 默认均排除它。

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Form</title>
+<style>
+:root { color-scheme: light; --fg:#20242c; --bg:#fff; --line:#d8dee8; --muted:#64748b; --accent:#2563eb }
+:root[data-theme="dark"] { color-scheme:dark; --fg:#e8edf5; --bg:#20242c; --line:#475569; --muted:#a3b1c6; --accent:#80aaff }
+* { box-sizing:border-box } body { margin:0; padding:16px; font:14px/1.55 system-ui,sans-serif; color:var(--fg); background:var(--bg); overflow-wrap:anywhere }
+h1 { margin:0 0 16px; font-size:19px } h2,h3,h4 { margin:12px 0 8px } p { margin:8px 0 }
+form { display:grid; gap:12px; min-width:0 } label { display:block; margin-bottom:4px } fieldset { min-width:0; border:1px solid var(--line); border-radius:8px; padding:12px }
+input,textarea,select { max-width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px }
+input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range]),textarea,select { width:100% }
+input[type=checkbox],input[type=radio] { accent-color:var(--accent); margin-right:6px } textarea { resize:vertical; min-height:80px }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px } small { color:var(--muted) } table { width:100%; border-collapse:collapse } td,th { padding:6px; text-align:left } hr { border:0; border-top:1px solid var(--line); width:100% }
+#error { color:#d14343 }
+</style></head><body><h1 id="heading"></h1><form id="fields"></form><p id="error" role="alert" hidden></p>
+<script>
+(() => {
+ 'use strict';
+ const tags = new Set('div span p h1 h2 h3 h4 label fieldset legend input textarea select option optgroup ul ol li table thead tbody tr th td br hr strong em b i small code'.split(' '));
+ const attrs = new Set('name id for class style type value placeholder required disabled readonly checked selected multiple min max step minlength maxlength pattern rows cols title colspan rowspan label'.split(' '));
+ const types = new Set('text number email tel url date datetime-local time checkbox radio range color hidden'.split(' '));
+ const properties = new Set('display flex flex-direction flex-wrap align-items justify-content gap row-gap column-gap grid-template-columns width min-width max-width margin margin-top margin-right margin-bottom margin-left padding padding-top padding-right padding-bottom padding-left color background-color font-size font-weight line-height text-align border border-width border-style border-color border-radius'.split(' '));
+ const record = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+ const form = document.getElementById('fields'), heading = document.getElementById('heading'), error = document.getElementById('error');
+ let state = null, signature = '', ready = false;
+ const t = (cn,en) => document.documentElement.lang.startsWith('zh') ? cn : en;
+ const groups = () => {
+  const result = new Map();
+  for (const control of Element.prototype.querySelectorAll.call(form, 'input,textarea,select')) {
+   const name = control.getAttribute('name');
+   if (!name || !name.trim()) throw Error('Missing name');
+   const group = result.get(name) || [];
+   if (group.length && (!['checkbox','radio'].includes(control.type) || group[0].type !== control.type)) throw Error('Duplicate name');
+   group.push(control); result.set(name, group);
+  }
+  if (!result.size) throw Error('No controls');
+  return result;
+ };
+ function safeStyle(value) {
+  return value.split(';').every(d => {
+   if (!d.trim()) return true;
+   const parts = d.split(':');
+   return parts.length === 2 && properties.has(parts[0].trim().toLowerCase()) && /^[a-zA-Z0-9#%., +\-]+$/.test(parts[1].trim());
+  });
+ }
+ function render(fragment, values) {
+  if (typeof fragment !== 'string' || new TextEncoder().encode(fragment).length > 65536) throw Error('Invalid HTML');
+  const template = document.createElement('template'); template.innerHTML = fragment;
+  // Work in inert template content. Reject unsafe nodes before attaching any DOM.
+  for (const element of template.content.querySelectorAll('*')) {
+   if (element.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !tags.has(element.localName)) throw Error('Unsupported tag');
+   for (const attr of element.attributes) {
+    if ((!attrs.has(attr.name) && !/^aria-[a-z-]+$/.test(attr.name)) || (attr.name === 'style' && !safeStyle(attr.value))) throw Error('Unsupported attribute');
+   }
+   if (element.localName === 'input' && !types.has((element.getAttribute('type') || 'text').toLowerCase())) throw Error('Unsupported type');
+  }
+  Element.prototype.replaceChildren.call(form, template.content);
+  for (const [name, controls] of groups()) {
+   if (!Object.prototype.hasOwnProperty.call(values, name)) continue;
+   const value = values[name];
+   for (const c of controls) {
+    if (c.type === 'checkbox') c.checked = controls.length === 1 ? value === 'true' : Array.isArray(value) && value.includes(c.value);
+    else if (c.type === 'radio') c.checked = value === c.value;
+    else if (c.localName === 'select' && c.multiple) { for (const option of c.options) option.selected = Array.isArray(value) && value.includes(option.value); }
+    else if (typeof value === 'string') c.value = value;
+   }
+  }
+ }
+ function collect() {
+  const data = Object.create(null);
+  for (const [name, controls] of groups()) {
+   const enabled = controls.filter(c => !c.matches(':disabled'));
+   if (!enabled.length) continue;
+   const c = enabled[0];
+   if (c.type === 'checkbox') data[name] = controls.length === 1 ? String(c.checked) : enabled.filter(c => c.checked).map(c => c.value);
+   else if (c.type === 'radio') { const selected = enabled.find(c => c.checked); if (selected) data[name] = selected.value; }
+   else if (c.localName === 'select' && c.multiple) data[name] = Array.from(c.selectedOptions).filter(o => !o.disabled && !o.parentElement.disabled).map(o => o.value);
+   else data[name] = c.value;
+  }
+  return data;
+ }
+ form.addEventListener('submit', event => event.preventDefault());
+ form.addEventListener('keydown', event => { if (event.key === 'Enter' && event.target.localName !== 'textarea') event.preventDefault(); });
+ addEventListener('message', event => {
+  if (event.source !== parent) return;
+  const message = record(event.data), data = record(message.data);
+  if ((message.type === 'awaiting_init' || message.type === 'awaiting_update') && data.mode === 'form') {
+   document.documentElement.lang = String(data.locale || navigator.language).startsWith('zh') ? 'zh-CN' : 'en';
+   document.documentElement.dataset.theme = data.colorScheme === 'dark' ? 'dark' : 'light';
+   const nextSignature = JSON.stringify([data.runId, data.awaitingId, data.form]);
+   state = data;
+   if (ready && nextSignature === signature) return;
+   ready = false; error.hidden = true; Element.prototype.replaceChildren.call(form);
+   heading.textContent = String(record(data.form).title || '');
+   try {
+    const payload = record(record(data.form).data);
+    render(payload.html, record(payload.values)); ready = true; signature = nextSignature;
+   } catch { Element.prototype.replaceChildren.call(form); error.textContent = t('表单内容无效，请选择不填写。','Invalid form. Please decline this form.'); error.hidden = false; }
+  }
+  if (message.type !== 'awaiting_collect' || !state || data.runId !== state.runId || data.awaitingId !== state.awaitingId || !['submit','reject'].includes(data.decision)) return;
+  if (data.decision === 'submit' && (!ready || !HTMLFormElement.prototype.reportValidity.call(form))) {
+   parent.postMessage({type:'frontend_awaiting_invalid', runId:state.runId, awaitingId:state.awaitingId}, '*'); return;
+  }
+  parent.postMessage({type:'frontend_awaiting_submit', param:{decision:data.decision === 'reject' ? 'reject' : 'approve', data:ready ? collect() : {}}}, '*');
+ });
+})();
+</script></body></html>

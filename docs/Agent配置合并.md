@@ -20,7 +20,9 @@ agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase 各
 agent-settings 顶层 `planning-mode` 对原生 GENERAL、CODER、KBASE 统一生效，决定 `planningMode` 产生的两种 Run 相对 Agent 有效工具少了什么，两个列表都是排除清单：
 
 - `exclude-tools`：规划 Run 不可用的工具。规划 Run 的工具 = Agent 有效工具 − 该列表，再由 Platform 追加 `finalize_planning`。
-- `execute-exclude-tools`：由已确认计划启动的执行 Run 不可用的工具，缺省为 `ask_user_question`。执行 Run 的工具 = Agent 有效工具 − 该列表，`finalize_planning` 由 Platform 去掉。
+- `execute-exclude-tools`：由已确认计划启动的执行 Run 不可用的工具，缺省为 `ask_user_question`、`ask_user_form`。执行 Run 的工具 = Agent 有效工具 − 该列表，`finalize_planning` 由 Platform 去掉。
+
+独立表单工具 `ask_user_form` 默认不在 preset-tools，需 Agent 显式声明；`planning-mode.exclude-tools` 默认也排除它，规划交互使用已挂载的 `ask_user_question`。两个列表显式配置时按既有覆盖规则生效，升级部署应同步检查实际配置。
 
 约束：
 

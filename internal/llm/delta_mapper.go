@@ -145,7 +145,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		m.attemptToolIDs[toolID] = true
 		m.lastKind = "tool"
 		awaitAsk, emitAwaitBeforeToolArgs := m.buildInteractionAwaitAsk(toolID, toolName, value.ArgsDelta, chunkIndex)
-		if awaitAsk != nil && strings.EqualFold(strings.TrimSpace(value.Name), "ask_user_question") {
+		if awaitAsk != nil {
 			m.pendingToolAwaitAsks[toolID] = awaitAsk
 			awaitAsk = nil
 			emitAwaitBeforeToolArgs = false

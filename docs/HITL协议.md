@@ -16,7 +16,7 @@ Hook 是技能 `.bash-hooks/*.yml` 声明的执行前业务规则；`&&` 只是 
 
 HITL 使用统一 awaiting 协议，保留 `mode` 字段，不引入 `kind`。当前等待模式为 `question`、`approval`、`form`、`planning`。
 
-`/api/submit` 顶层固定为公开 owner + `runId + awaitingId + params`。普通 Agent 的 owner 是 `agentKey`；Team 的 owner 是 `teamId`，不能提交隐藏协调器 key 或 `agentKey`。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
+`/api/submit` 顶层固定为公开 owner + `runId + awaitingId + param/params`。普通 Agent 的 owner 是 `agentKey`；Team 的 owner 是 `teamId`，不能提交隐藏协调器 key 或 `agentKey`。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
 
 `/api/chats` 摘要、`/api/agents?includeChats=...` 的 `chats[]` 与 `/api/chat` 详情中的 `awaiting` 都来自持久化等待态；当 `awaiting.status == "awaiting"` 时，表示该 chat 当前有可恢复的等待项，`mode` 为 `question`、`approval`、`form` 或 `planning`。完整等待内容仍以 `events` 中的 `awaiting.ask` 为准。
 
@@ -39,7 +39,7 @@ assistant tool_calls[]
 - `question`：来自 `ask_user_question`，`params` 每项提交 `answer` 或 `answers`。
 - `approval`：来自 Bash HITL 或文件工具越权路径审批，用户只能 approve / approve_rule_run / reject，不能修改命令内容。
 - `run_env` 的 set/unset/update 不增加专用 HITL；它们是 operation-aware barrier，执行时校验 key、value、最终状态限额、revision 与有界幂等收据。
-- `form`：用于 HTML 表单。Bash HITL 表单 approve 时用提交的 `form` 重建命令；工具审阅表单只批准后端冻结的调用，不使用返回的 form 改写参数。reject 可带 `reason`。
+- `form`：用于 HTML 表单。独立 `ask_user_form` 仅收集输入，VIEW 为 `builtin/ask_user_form`，回答不授予权限、不重写工具调用；它使用单对象 `param:{decision,data?,reason?}`，approve 必须有 data，跨进程重启同其他 form 一样写入 `runtime_restarted` 而不恢复。Bash HITL 表单 approve 时用提交的 `data` 重建命令；工具审阅表单只批准后端冻结的调用，不使用返回的 data 改写参数。reject 可带 `reason`。
 - `planning`：wire-format 中来自 CODER 的 planning confirmation，`awaiting.ask.planning` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。它不是 `plan_*` / plan-tasks 的执行任务计划。
 
 原生 Agent（GENERAL/CODER/KBASE）planningMode 的 `planning approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；旧 live stream 随后以 `reason:"done"` 正常结束，不再追加新 run 的 `run.start`。旧 run 完成后，服务端启动新的 execute run，并通过 WebSocket push `run.started { runId, chatId, agentKey, startedAt }` 暴露新 `runId`；`startedAt` 等于该 run 注册时捕获的 epoch milliseconds。webclient 应在旧 stream done 后 attach 新 `runId` 获取执行流。新 run 自己的 stream 首部为 execution run bootstrap `request.query`，包含标准 query 字段 `requestId` / `runId` / `chatId` / `role` / `message`，然后是新 run 的 `run.start`。`planning reject` 不启动新 run，仍留在当前 planning run 中生成下一版 planning 或结束。
@@ -56,7 +56,7 @@ Host Bash 同一命令同时命中 access/security 和 builtin 技能 hook 时�
 
 并发调用的 `tool.output` 按各自 `toolID` 和递增 `chunkIndex` 发送，`tool.result` 按实际完成时间实时发布；模型消息和审批摘要仍按原始调用顺序整理，每个调用只有一个最终结果。提交审批和模型一次生成多个调用都不能单独证明命令已并发启动，应以实际过程输出和执行时序验证。
 
-整批取消统一提交 `params: []`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。
+question/approval 取消提交 `params: []`；form/planning 关闭使用 `param:{decision:"dismiss"}`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。
 
 活动普通 Run 的等待项始终由原执行流程收尾，包含等待提交、提交已接收但结果尚未落盘、恢复执行和结束中的阶段。会话详情读取与 Query 准入即使发现持久化等待时间已过期，也不能补写 answer / tool result、清除 pending 或提前记录 Run 完成；`LookupAwaiting` 中已移除等待项不等于执行流程已结束。批次超时只为实际等待审批的调用生成超时结果，无需审批的 sibling 仍按原流程执行。
 

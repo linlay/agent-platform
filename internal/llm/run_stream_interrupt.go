@@ -61,10 +61,7 @@ func (s *llmRunStream) appendInterruptedWaitingResults() {
 		pending = append(pending, interruptedPendingInvocation{invocation: invocation, beforeApproval: true})
 	} else if invocation := s.activeToolCall; s.isWaitingInteractionInvocation(invocation) {
 		awaitingID = strings.TrimSpace(invocation.toolID)
-		mode = strings.TrimSpace(AnyStringNode(invocation.args["mode"]))
-		if mode == "" {
-			mode = "question"
-		}
+		mode = interactionToolMode(invocation.toolName)
 		pending = append(pending, interruptedPendingInvocation{invocation: invocation})
 	} else if invocation := s.activeToolCall; invocation != nil {
 		switch {

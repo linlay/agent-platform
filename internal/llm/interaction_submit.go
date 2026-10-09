@@ -78,7 +78,7 @@ func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *Execu
 			detailedMsg := resolveInteractionTimeoutMessage(toolName, awaitingID, timeoutSec, elapsed)
 			return ToolExecutionResult{
 				Output:     detailedMsg,
-				Structured: AwaitingTimeoutAnswer(strings.TrimSpace(AnyStringNode(args["mode"])), timeoutSec, elapsed),
+				Structured: AwaitingTimeoutAnswer(argsModeFromExecContext(execCtx), timeoutSec, elapsed),
 				Error:      "tool_interaction_timeout",
 				ExitCode:   -1,
 			}, nil
@@ -152,7 +152,11 @@ func argsModeFromExecContext(execCtx *ExecutionContext) string {
 	if execCtx == nil {
 		return ""
 	}
-	if strings.EqualFold(strings.TrimSpace(execCtx.CurrentToolName), "ask_user_question") {
+	return interactionToolMode(execCtx.CurrentToolName)
+}
+
+func interactionToolMode(toolName string) string {
+	if strings.EqualFold(strings.TrimSpace(toolName), "ask_user_question") {
 		return "question"
 	}
 	return "form"

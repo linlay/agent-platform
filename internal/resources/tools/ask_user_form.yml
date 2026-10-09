@@ -1,0 +1,40 @@
+name: ask_user_form
+i18n:
+  en:
+    label: "Ask User (Form)"
+  zh-CN:
+    label: "向用户发起表单"
+description: |
+  Collect related inputs in a custom HTML form only when they need to be filled
+  together or require a custom layout. Prefer ask_user_question for ordinary
+  questions. Do not reconfirm clear instructions or use this to grant permissions.
+  Supply a declarative HTML fragment, at most 64 KiB, with a name on every input,
+  textarea and select. Names must be unique except same-type radio/checkbox groups.
+  Allowed tags: div span p h1-h4 label fieldset legend input textarea select option
+  optgroup ul ol li table thead tbody tr th td br hr strong em b i small code.
+  Input types: text number email tel url date datetime-local time checkbox radio
+  range color hidden. No scripts, handlers, links, images, iframes, file or password
+  inputs. Passwords use ask_user_question; files use upload.
+  The shell supplies themed styles. Optional inline styles allow basic spacing,
+  sizing, flex/grid layout, borders and text colors; no positioning, CSS functions,
+  escapes or comments. Prefer class-free semantic HTML and labels.
+  Values and responses are strings; checkbox groups and multiple selects use
+  string arrays. A single checkbox uses "true" or "false". Unselected radio
+  groups are omitted. The tool waits for submit or decline; no restart recovery.
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    title:
+      type: string
+      description: Required. Form title.
+    html:
+      type: string
+      description: Required. Safe HTML fragment, at most 65536 bytes.
+    values:
+      type: object
+      description: Optional. Initial values keyed by declared control name, using strings or string arrays.
+  required:
+    - title
+    - html
+  additionalProperties: false

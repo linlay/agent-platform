@@ -65,6 +65,7 @@ var requiredBuiltinToolNames = []string{
 	"web_fetch",
 	"bash_sandbox",
 	"ask_user_question",
+	"ask_user_form",
 	"agent_invoke",
 	"chat_start",
 	"chat_get_status",

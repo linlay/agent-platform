@@ -12,7 +12,7 @@
     if (height <= 0 || height === lastHeight) return;
     lastHeight = height;
     parent.postMessage({type: 'awaiting_resize', runId: state.runId,
-      awaitingId: state.awaitingId, formId: state.activeFormId, height}, '*');
+      awaitingId: state.awaitingId, formId: state.activeFormId || state.awaitingId, height}, '*');
   }
   function schedule() {
     if (!pending) pending = requestAnimationFrame(measure);

@@ -55,9 +55,11 @@ planning-mode:
     - automation_manage
     - catalog_manage
     - run_env
+    - ask_user_form
   # Unavailable to the Run started from a confirmed plan.
   execute-exclude-tools:
     - ask_user_question
+    - ask_user_form
 
 general:
   preset-tools: []

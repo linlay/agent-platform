@@ -10,11 +10,7 @@ import (
 func resolveInteractionAwaitTimeout(toolName string, tool api.ToolDetailResponse, args map[string]any, budget Budget) int64 {
 	mode := strings.ToLower(strings.TrimSpace(AnyStringNode(args["mode"])))
 	if mode == "" {
-		if strings.EqualFold(strings.TrimSpace(toolName), "ask_user_question") {
-			mode = "question"
-		} else {
-			mode = "form"
-		}
+		mode = interactionToolMode(toolName)
 	}
 	itemTimeout := int64(0)
 	if mode == "form" {
