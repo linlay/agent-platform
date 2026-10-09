@@ -3,7 +3,7 @@
 ## 配置归属
 
 - `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
-- `configs/agent-prompt.yml`：`shared`（runtime/skill/tool-appendix/plan-execute/btw）、`coder`、`kbase` 提示词。注入时机不变。
+- `configs/agent-prompt.yml`：`shared`（runtime/skill/reference/tool-appendix/plan-execute/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。
 - `configs/tools.yml`：访问策略、Bash/FileTools/run-env，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
 

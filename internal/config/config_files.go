@@ -688,6 +688,11 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 		c.Prompts.Skill.DisclosureHeader = stringValue(anyValue(skill["disclosure-header"], c.Prompts.Skill.DisclosureHeader), c.Prompts.Skill.DisclosureHeader)
 		c.Prompts.Skill.InstructionsLabel = stringValue(anyValue(skill["instructions-label"], c.Prompts.Skill.InstructionsLabel), c.Prompts.Skill.InstructionsLabel)
 	}
+	reference, _ := values["reference"].(map[string]any)
+	if len(reference) > 0 {
+		c.Prompts.Reference.ProtocolPrompt = stringValue(anyValue(reference["protocol-prompt"], c.Prompts.Reference.ProtocolPrompt), c.Prompts.Reference.ProtocolPrompt)
+		c.Prompts.Reference.AdvancedProtocolPrompt = stringValue(anyValue(reference["advanced-protocol-prompt"], c.Prompts.Reference.AdvancedProtocolPrompt), c.Prompts.Reference.AdvancedProtocolPrompt)
+	}
 	toolAppendix, _ := values["tool-appendix"].(map[string]any)
 	if len(toolAppendix) > 0 {
 		c.Prompts.ToolAppendix.ToolDescriptionTitle = stringValue(anyValue(toolAppendix["tool-description-title"], c.Prompts.ToolAppendix.ToolDescriptionTitle), c.Prompts.ToolAppendix.ToolDescriptionTitle)

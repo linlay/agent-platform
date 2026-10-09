@@ -237,12 +237,13 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "tool-appendix", "plan-execute", "btw", "planning-mode")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "reference", "tool-appendix", "plan-execute", "btw", "planning-mode")
 	if err != nil {
 		return err
 	}
 	schemas := map[string][]string{
 		"skill":         {"instructions-prompt", "catalog-header", "disclosure-header", "instructions-label"},
+		"reference":     {"protocol-prompt", "advanced-protocol-prompt"},
 		"tool-appendix": {"tool-description-title", "after-call-hint-title"},
 		"plan-execute":  {"task-execution-prompt-template", "plan-user-prompt-template", "summary-system-prompt", "summary-user-prompt-template"},
 		"btw":           {"user-prompt-template", "final-answer-prompt"},

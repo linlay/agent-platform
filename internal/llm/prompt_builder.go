@@ -15,8 +15,6 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
-	"agent-platform/internal/querymessages"
-	"agent-platform/internal/referenceprompt"
 )
 
 type PromptBuildOptions struct {
@@ -77,9 +75,9 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendSection("agent-soul", "Soul Prompt", "agent.soul", strings.TrimSpace(session.SoulPrompt))
 	appendSection("agent-prompt", "Agent Prompt", "agent.prompt", strings.TrimSpace(session.AgentsPrompt))
 	appendSection("workspace-agents", "Workspace AGENTS.md", "workspace.agents", buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt))
-	appendSection("reference-protocol", "Reference Context Protocol", "references.protocol", referenceprompt.SystemPrompt)
+	appendSection("reference-protocol", "Reference Context Protocol", "references.protocol", appendConfig.Reference.ProtocolPrompt)
 	if session.AdvancedUserPrompt {
-		appendSection("advanced-user-prompt-protocol", "Advanced User Prompt Protocol", "query.advanced_user_prompt", querymessages.AdvancedUserPromptSystemPrompt)
+		appendSection("advanced-user-prompt-protocol", "Advanced User Prompt Protocol", "query.advanced_user_prompt", appendConfig.Reference.AdvancedProtocolPrompt)
 	}
 	appendRuntimeSystemPromptSections(&sections, session)
 	appendSection("runtime-path-policy", "Runtime Context: Path Policy", "runtime.path_policy", buildRuntimePathPolicySection(session, options.ToolDefinitions))
@@ -143,10 +141,6 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 		}
 		return false
 	}
-	hasSkills := strings.TrimSpace(session.SkillCatalogPrompt) != ""
-	if len(tools) == 0 && !hasSkills {
-		return ""
-	}
 	hasPathTools := hasTool(
 		"bash",
 		"file_read",
@@ -157,7 +151,7 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 		"artifact_publish",
 		"vision_recognize",
 	)
-	if !hasPathTools && !hasSkills {
+	if !hasPathTools {
 		return ""
 	}
 
@@ -173,9 +167,6 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 	}
 	if hasTool("file_read", "file_write", "file_edit", "artifact_publish", "vision_recognize") {
 		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, @connectors, @owner, or @temp, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
-	}
-	if hasSkills {
-		lines = append(lines, "- Load an applicable skill with file_read using the exact path in its catalog entry (@skills or @connectors). Do not search or traverse directories to discover its location.")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -246,9 +237,9 @@ func buildWorkspaceAgentsSection(prompt string) string {
 
 func effectivePromptAppendConfig(config PromptAppendConfig) PromptAppendConfig {
 	defaults := DefaultPromptAppendConfig()
-	if strings.TrimSpace(config.Skill.InstructionsPrompt) != "" {
-		defaults.Skill.InstructionsPrompt = strings.TrimSpace(config.Skill.InstructionsPrompt)
-	}
+	defaults.Skill.InstructionsPrompt = strings.TrimSpace(config.Skill.InstructionsPrompt)
+	defaults.Reference.ProtocolPrompt = strings.TrimSpace(config.Reference.ProtocolPrompt)
+	defaults.Reference.AdvancedProtocolPrompt = strings.TrimSpace(config.Reference.AdvancedProtocolPrompt)
 	if strings.TrimSpace(config.Skill.CatalogHeader) != "" {
 		defaults.Skill.CatalogHeader = strings.TrimSpace(config.Skill.CatalogHeader)
 	}

@@ -612,9 +612,8 @@ func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *te
 	if !strings.Contains(prompt, "path: @skills/demo/SKILL.md") {
 		t.Fatalf("expected exact instructions path, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "read its exact path with file_read") ||
-		!strings.Contains(prompt, "Do not use Bash, directory traversal, or filesystem search") {
-		t.Fatalf("expected platform-owned skill loading contract, got %q", prompt)
+	if strings.Contains(prompt, "Skill instructions:") || strings.Contains(prompt, "file_read") {
+		t.Fatalf("expected no source-default skill rules without configured instructions prompt, got %q", prompt)
 	}
 	if !strings.Contains(prompt, "name: Local Skill") {
 		t.Fatalf("expected local front matter name, got %q", prompt)

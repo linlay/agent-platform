@@ -50,16 +50,21 @@ func TestBuildSystemPromptInjectsAgentIdentityWithoutSoulIdentity(t *testing.T) 
 }
 
 func TestBuildSystemPromptIncludesStableReferenceProtocol(t *testing.T) {
-	prompt := buildSystemPrompt(QuerySession{
+	session := QuerySession{
 		AgentKey: "demo",
 		Mode:     "REACT",
 		RuntimeContext: RuntimeRequestContext{
 			References: []api.Reference{{ID: "r01", Name: "dynamic.csv"}},
 		},
-	}, api.QueryRequest{}, "", PromptBuildOptions{})
+	}
+	if prompt := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{}); strings.Contains(prompt, "[References]") {
+		t.Fatalf("expected no reference protocol without configured prompt, got %q", prompt)
+	}
+	session.PromptAppend.Reference.ProtocolPrompt = "configured reference protocol"
+	prompt := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{})
 
-	if !strings.Contains(prompt, "User messages may include a platform-generated [References] block followed by [User message].") {
-		t.Fatalf("expected stable reference protocol in system prompt, got %q", prompt)
+	if !strings.Contains(prompt, "configured reference protocol") {
+		t.Fatalf("expected configured reference protocol in system prompt, got %q", prompt)
 	}
 	if strings.Contains(prompt, "dynamic.csv") || strings.Contains(prompt, "id: r01") {
 		t.Fatalf("expected dynamic references to be excluded from system prompt, got %q", prompt)
@@ -87,12 +92,14 @@ func TestBuildSystemPromptIncludesWorkspaceLessPathPolicy(t *testing.T) {
 		"Workspace is unavailable",
 		`cwd: "@chat"`,
 		`explicit path, normally "@chat"`,
-		"exact path",
-		"Do not search or traverse directories",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected workspace-less prompt to contain %q, got %q", expected, prompt)
 		}
+	}
+	// Skill loading rules come only from shared.skill.instructions-prompt.
+	if strings.Contains(prompt, "Load an applicable skill") || strings.Contains(prompt, "Do not search or traverse directories") {
+		t.Fatalf("did not expect source-owned skill loading rule in path policy, got %q", prompt)
 	}
 }
 
@@ -151,23 +158,25 @@ func TestBuildSystemPromptSkipsCurrentPlanTasksForPlanningStage(t *testing.T) {
 }
 
 func TestBuildSystemPromptIncludesAdvancedUserPromptProtocolWhenEnabled(t *testing.T) {
-	prompt := buildSystemPrompt(QuerySession{
+	session := QuerySession{
 		AgentKey:           "demo",
 		Mode:               "REACT",
 		AdvancedUserPrompt: true,
-	}, api.QueryRequest{}, "", PromptBuildOptions{})
-
-	if !strings.Contains(prompt, `<advanced_user_prompt schema="agent_platform.user_prompt.v1">`) ||
-		!strings.Contains(prompt, "The user's actual request is inside <user_message>.") {
-		t.Fatalf("expected advanced user prompt protocol in system prompt, got %q", prompt)
+	}
+	if prompt := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{}); strings.Contains(prompt, "advanced") {
+		t.Fatalf("expected no advanced protocol without configured prompt, got %q", prompt)
+	}
+	session.PromptAppend.Reference.ProtocolPrompt = "plain reference protocol"
+	session.PromptAppend.Reference.AdvancedProtocolPrompt = "advanced reference protocol"
+	prompt := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{})
+	if !strings.Contains(prompt, "advanced reference protocol") || !strings.Contains(prompt, "plain reference protocol") {
+		t.Fatalf("expected both reference protocols when advanced user prompt is enabled, got %q", prompt)
 	}
 
-	disabled := buildSystemPrompt(QuerySession{
-		AgentKey: "demo",
-		Mode:     "REACT",
-	}, api.QueryRequest{}, "", PromptBuildOptions{})
-	if strings.Contains(disabled, `<advanced_user_prompt schema="agent_platform.user_prompt.v1">`) {
-		t.Fatalf("did not expect advanced user prompt protocol when disabled, got %q", disabled)
+	session.AdvancedUserPrompt = false
+	disabled := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{})
+	if strings.Contains(disabled, "advanced reference protocol") || !strings.Contains(disabled, "plain reference protocol") {
+		t.Fatalf("expected only the plain reference protocol when disabled, got %q", disabled)
 	}
 }
 

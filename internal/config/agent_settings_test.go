@@ -87,11 +87,11 @@ func TestMergedConfigRejectsInvalidAndRetiredFields(t *testing.T) {
 }
 func TestMergedPromptsAndKBX(t *testing.T) {
 	var c Config
-	body := "shared:\n  skill:\n    instructions-prompt: |\n      exact {{placeholder}}\n      second line\ncoder:\n  planning-prompt: plan\nkbase:\n  system-prompt: answer\n"
+	body := "shared:\n  skill:\n    instructions-prompt: |\n      exact {{placeholder}}\n      second line\n  reference:\n    protocol-prompt: ref protocol\n    advanced-protocol-prompt: adv protocol\ncoder:\n  planning-prompt: plan\nkbase:\n  system-prompt: answer\n"
 	if err := c.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(c.Prompts.Skill.InstructionsPrompt, "exact {{placeholder}}\nsecond line") || c.CoderPrompts.PlanningPrompt != "plan" || c.KBasePrompts.SystemPrompt != "answer" {
+	if !strings.Contains(c.Prompts.Skill.InstructionsPrompt, "exact {{placeholder}}\nsecond line") || c.Prompts.Reference.ProtocolPrompt != "ref protocol" || c.Prompts.Reference.AdvancedProtocolPrompt != "adv protocol" || c.CoderPrompts.PlanningPrompt != "plan" || c.KBasePrompts.SystemPrompt != "answer" {
 		t.Fatal(c)
 	}
 	if err := c.applyRuntimeFile(configFixture(t, "runtime.yml", "kbx:\n  embedding:\n    model-key: embed\n    prompt: qwen3\n")); err != nil {

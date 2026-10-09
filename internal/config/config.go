@@ -168,6 +168,7 @@ type QueryConfig struct {
 type PromptsConfig struct {
 	Runtime      RuntimePromptConfig
 	Skill        PromptSkillConfig
+	Reference    PromptReferenceConfig
 	ToolAppendix ToolAppendixPromptsConfig
 	PlanExecute  PlanExecutePromptsConfig
 	BTW          BTWPromptsConfig
@@ -185,6 +186,11 @@ type PromptSkillConfig struct {
 	CatalogHeader      string
 	DisclosureHeader   string
 	InstructionsLabel  string
+}
+
+type PromptReferenceConfig struct {
+	ProtocolPrompt         string
+	AdvancedProtocolPrompt string
 }
 
 type ToolAppendixPromptsConfig struct {
