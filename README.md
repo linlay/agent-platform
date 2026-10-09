@@ -386,6 +386,8 @@ KBASE 是可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用知�
 
 KBASE 模式和普通 Agent 的知识库能力统一由受管 KBX CLI 实现，Platform 负责目录监听、异步刷新回执和重启对账。中立配置、DTO、工具处理器与引用发布位于 `internal/knowledge`；KBASE 工具、REST 和 `/healthz` 的 `kbase.sidecar` JSON 契约由该模块提供。索引范围由 scopeHash 隔离。Poppler 继续随包提供 KBX PDF 抽取及 Agent Bash 的 `pdftotext` 能力。详见 [KBX 接入](./docs/KBX接入.md)。当前检索基于抽取文本，不宣称支持图片、音频或视频语义检索。
 
+`kbase_search` 支持混合 query、纯全文 search、向量 vsearch 和图关系 gsearch，提供复合过滤、词法排除、时效排名与图关系遍历参数，保留可核验证据。Agent 工具仍限定自身 Workspace 索引；向量/图检索需要相应索引，Platform 尚不自动构建图谱，重排模型、中心选库及表格专用工具尚未接入。
+
 KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展名或 UTF-8；删除、重命名、建目录、Bash 和二进制 Office/PDF 通用写入仍不开放。目录权限由 AccessPolicy/HITL 决定，Workspace 写入由 watcher 异步索引。完整约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
 
 ## 5. 运维

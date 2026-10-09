@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
+	"agent-platform/internal/knowledge"
 )
 
 // Runner is the process boundary; arguments are never interpreted by a shell.
@@ -118,6 +119,36 @@ type envelope struct {
 	Status        string          `json:"status"`
 	Data          json.RawMessage `json:"data"`
 	Error         json.RawMessage `json:"error"`
+}
+
+// Inspect even nonzero-exit responses. Return only fixed guidance and the
+// bounded machine code: provider error messages may contain credentials.
+func readerFailure(data []byte, operation string) error {
+	var response envelope
+	if json.Unmarshal(data, &response) != nil || response.SchemaVersion != 2 || response.Type != "kbx.agent.response" || response.Status != "error" {
+		return nil
+	}
+	var detail struct{ Code string }
+	if json.Unmarshal(response.Error, &detail) != nil || len(detail.Code) == 0 || len(detail.Code) > 64 {
+		detail.Code = "EXECUTION_FAILED"
+	}
+	for _, char := range detail.Code {
+		if (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '_' {
+			detail.Code = "EXECUTION_FAILED"
+			break
+		}
+	}
+	message := fmt.Sprintf("KBX %s failed (%s)", operation, detail.Code)
+	switch operation {
+	case "gsearch":
+		message += "; graph retrieval requires a complete graph index; Platform refresh currently maintains text and vectors only"
+	case "vsearch":
+		message += "; vector retrieval requires a complete vector index and matching embedding configuration; choose query explicitly if fallback is acceptable"
+	}
+	if detail.Code == "INVALID_INPUT" {
+		return &knowledge.PolicyError{Kind: knowledge.ErrorInvalid, Message: message + "; check method-specific parameters, configuration, and filter syntax; do not drop scope constraints"}
+	}
+	return unavailable(message)
 }
 
 func decodeEnvelope(data []byte, target any) error {

@@ -685,7 +685,7 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 | `<currentChatId>/relative/path` | 不再生成 | 不作为 `path` | 禁止 | 仅可作为隐藏 HTTP 逻辑键 |
 | 历史 `/api/resource?file=...` | 不再生成 | 不作为 `path` | 不迁移、不预览 | endpoint 本身继续作为内部数据面 |
 
-KBASE 工具读取 KBX 的 active 索引内容。`kbase_search` 支持 pathPrefix/pathGlob/type，过滤在召回前下推；offset 明确拒绝，不返回伪造的 matchCount 或分页完成标志。结果保留实际召回通道、降级和候选预算信息。`kbase_files` 浏览 active 文件清单，支持 path/pattern/type、files/tree、depth/headLimit/offset；`kbase_read` 通过 chunkId 精确回读或 path 与一基行号分页，拒绝跨库、越界和被排除的内容。
+KBASE 工具读取当前 Agent 的 KBX active 索引内容。`kbase_search.method` 为 query（缺省混合）/search（全文）/vsearch（向量）/gsearch（图关系）；支持 pathPrefix/pathGlob/type/filter，过滤在召回前与 Agent 策略取交集。query/search/vsearch 另支持 exclude/intent/minScore/candidateLimit/recencyWeight/recencyHalfLifeDays，query 可用 noGraph 关闭图召回；gsearch 支持 entities/relations/direction/maxHops 并保留 graph 关系路径与边证据。不适用所选方法的参数明确拒绝；offset/cursor 不支持，不返回伪造的 matchCount 或分页完成标志。结果返回 method、实际召回通道和降级；仅有预算 trace 的方法返回 candidateBudgetExhausted。vsearch/gsearch 要求对应能力可用，不自动回退；Platform 尚不自动建图。详细参数见 [KBX 接入](KBX接入.md#状态与读取)。`kbase_files` 浏览 active 文件清单，支持 path/pattern/type、files/tree、depth/headLimit/offset；`kbase_read.chunkId` 接受 chunkId/evidenceId/nextEvidence 精确回读，或使用 path 与一基行号分页，拒绝跨库、越界和被排除的内容。
 
 专用 KBASE 的 main/editing stage 使用 Agent 有效工具集合，没有固定文件工具集。Workspace 固定为本 run 冻结的 runtimeConfig.workspaceRoot，相对路径从 Workspace 解析，当前 Chat 目录通过 @chat 使用。未开启 editing 时 Workspace mutation 返回 kbase_editing_mode_required；hostAccess、writeRoots、approval 和 full_access 不能替代这一 gate。
 

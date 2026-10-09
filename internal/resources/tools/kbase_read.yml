@@ -12,7 +12,7 @@ inputSchema:
   properties:
     chunkId:
       type: string
-      description: Content-addressed chunk id returned by kbase_search. Do not combine with offset or limit.
+      description: Content-addressed chunkId or evidenceId returned by kbase_search, including graph edge evidenceId, or nextEvidence from a previous read. Returns that exact range. Do not combine with offset or limit.
     path:
       type: string
       description: Workspace-relative source path.

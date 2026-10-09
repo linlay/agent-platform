@@ -94,14 +94,28 @@ type EmbeddingSnapshot struct {
 }
 
 type SearchOptions struct {
-	Limit      int
-	Offset     int
-	PathPrefix string
-	PathGlob   string
-	Type       string
+	Method              string   `json:"method"`
+	Limit               int      `json:"limit"`
+	Offset              int      `json:"offset"`
+	PathPrefix          string   `json:"pathPrefix"`
+	PathGlob            string   `json:"pathGlob"`
+	Type                string   `json:"type"`
+	Filter              string   `json:"filter"`
+	Exclude             []string `json:"exclude"`
+	Intent              string   `json:"intent"`
+	MinScore            *float64 `json:"minScore"`
+	CandidateLimit      int      `json:"candidateLimit"`
+	RecencyWeight       *float64 `json:"recencyWeight"`
+	RecencyHalfLifeDays *float64 `json:"recencyHalfLifeDays"`
+	NoGraph             bool     `json:"noGraph"`
+	Entities            []string `json:"entities"`
+	Relations           []string `json:"relations"`
+	Direction           string   `json:"direction"`
+	MaxHops             int      `json:"maxHops"`
 }
 
 type SearchResult struct {
+	Method                   string      `json:"method,omitempty"`
 	RefreshID                string      `json:"refreshId,omitempty"`
 	RetrievalChannels        []string    `json:"retrievalChannels,omitempty"`
 	OptionalUnavailable      []string    `json:"optionalUnavailable,omitempty"`
@@ -121,21 +135,66 @@ type SearchResult struct {
 }
 
 type SearchHit struct {
-	ResultID   string  `json:"resultId,omitempty"`
-	EvidenceID string  `json:"evidenceId,omitempty"`
-	ChunkID    string  `json:"chunkId"`
-	Path       string  `json:"path"`
-	Heading    string  `json:"heading,omitempty"`
-	StartLine  int     `json:"startLine"`
-	EndLine    int     `json:"endLine"`
-	PageStart  int     `json:"pageStart,omitempty"`
-	PageEnd    int     `json:"pageEnd,omitempty"`
-	SlideStart int     `json:"slideStart,omitempty"`
-	SlideEnd   int     `json:"slideEnd,omitempty"`
-	SourceType string  `json:"sourceType,omitempty"`
-	Snippet    string  `json:"snippet"`
-	Score      float64 `json:"score"`
-	MatchType  string  `json:"matchType"`
+	Graph      *GraphExplanation `json:"graph,omitempty"`
+	ResultID   string            `json:"resultId,omitempty"`
+	EvidenceID string            `json:"evidenceId,omitempty"`
+	ChunkID    string            `json:"chunkId"`
+	Path       string            `json:"path"`
+	Heading    string            `json:"heading,omitempty"`
+	StartLine  int               `json:"startLine"`
+	EndLine    int               `json:"endLine"`
+	PageStart  int               `json:"pageStart,omitempty"`
+	PageEnd    int               `json:"pageEnd,omitempty"`
+	SlideStart int               `json:"slideStart,omitempty"`
+	SlideEnd   int               `json:"slideEnd,omitempty"`
+	SourceType string            `json:"sourceType,omitempty"`
+	Snippet    string            `json:"snippet"`
+	Score      float64           `json:"score"`
+	MatchType  string            `json:"matchType"`
+}
+
+// Graph explanations retain the relationship path and independently readable
+// evidence. Scores are KBX ranking values, not confidence in an answer.
+type GraphExplanation struct {
+	Links           []GraphLink        `json:"links"`
+	BestPath        *GraphPath         `json:"bestPath,omitempty"`
+	SupportingPaths int                `json:"supportingPaths"`
+	Score           map[string]float64 `json:"score"`
+}
+
+type GraphLink struct {
+	Mention   string  `json:"mention"`
+	EntityKey string  `json:"entityKey"`
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	Score     float64 `json:"score"`
+	Source    string  `json:"source"`
+}
+
+type GraphPath struct {
+	Score float64     `json:"score"`
+	Nodes []GraphNode `json:"nodes"`
+	Edges []GraphEdge `json:"edges"`
+}
+
+type GraphNode struct {
+	Key  string `json:"key"`
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+type GraphEdge struct {
+	Predicate  string          `json:"predicate"`
+	Confidence float64         `json:"confidence"`
+	Evidence   []GraphEvidence `json:"evidence"`
+}
+
+type GraphEvidence struct {
+	Path       string `json:"path"`
+	EvidenceID string `json:"evidenceId"`
+	StartLine  int    `json:"startLine"`
+	EndLine    int    `json:"endLine"`
+	Content    string `json:"content"`
 }
 
 type ReadOptions struct {

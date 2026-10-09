@@ -4,7 +4,7 @@ i18n:
     label: "Search Knowledge Base"
   zh-CN:
     label: "搜索知识库"
-description: Search the current Agent KBX knowledge base. The limit counts chunks, including multiple chunks from one document. Filters apply before recall; offset is unavailable.
+description: Search the current Agent KBX knowledge base using hybrid, full-text, vector, or graph retrieval. Filters apply before recall and cannot widen the Agent scope. Results include evidence for verification. Vector and graph methods require their indexes; they never silently fall back. Search offset/cursor pagination is unavailable.
 tags: [knowledge-base, search]
 clientVisible: true
 readOnly: true
@@ -14,9 +14,77 @@ inputSchema:
     query:
       type: string
       description: Required. Search query.
+    method:
+      type: string
+      enum:
+        - query
+        - search
+        - vsearch
+        - gsearch
+      default: query
+      description: query combines available lexical, vector, and graph recall with explicit degradation. search is local full-text BM25 for exact terms and identifiers, with no model calls. vsearch is strict vector similarity. gsearch retrieves entity relationships and source evidence from an already-built complete graph; Platform refresh does not build graphs.
     limit:
       type: integer
+      minimum: 1
+      maximum: 50
       description: Maximum number of chunks to return. Defaults to the agent retrieval topK.
+    candidateLimit:
+      type: integer
+      minimum: 1
+      maximum: 2000
+      description: Candidate budget for query/search/vsearch, at least the effective limit and no greater than the Agent candidateMax ceiling (raised to the effective limit if needed). Omit to use the Agent retrieval budget. Not available for gsearch.
+    exclude:
+      type: array
+      items:
+        type: string
+        minLength: 1
+      description: Hard lexical document exclusions for query/search/vsearch. Each entry is a KBX lexical expression; any matching document is excluded. Not a path glob. Not available for gsearch.
+    intent:
+      type: string
+      description: Positive context hint for query/search/vsearch. Does not replace hard exclusions or filters. Not available for gsearch.
+    minScore:
+      type: number
+      description: Minimum KBX ranking score for query/search/vsearch. Scores are method-dependent and are not factual confidence. Not available for gsearch.
+    filter:
+      type: string
+      description: KBX filter expression or JSON string, ANDed with all path filters and Agent include/exclude policy. Examples are 'project = payments and owner exists', 'sys.size >= 1024', or '(ext = md or ext = pdf) and not path ^= deprecated'. Typed metadata fields must already exist in the index. Supported by all four methods.
+    recencyWeight:
+      type: number
+      minimum: 0
+      maximum: 1
+      description: Freshness weight for query/search/vsearch; 0 preserves relevance-only ranking. Not available for gsearch.
+    recencyHalfLifeDays:
+      type: number
+      exclusiveMinimum: 0
+      description: Freshness half-life in days for query/search/vsearch, default 90. Not available for gsearch.
+    noGraph:
+      type: boolean
+      description: query only. Set true to restrict hybrid retrieval to lexical and vector channels. Omitted or false allows recall from an available graph. Reranking remains disabled until deployment model support is added.
+    entities:
+      type: array
+      items:
+        type: string
+        minLength: 1
+      description: gsearch only. Stable entity keys or unique exact entity names/aliases. Omit to link entities from the query.
+    relations:
+      type: array
+      items:
+        type: string
+        minLength: 1
+      description: gsearch only. Allowed graph schema predicate IDs, such as depends_on. Omit to use all available relations.
+    direction:
+      type: string
+      enum:
+        - auto
+        - out
+        - in
+        - both
+      description: gsearch only. Relationship direction relative to linked entities; default auto.
+    maxHops:
+      type: integer
+      minimum: 1
+      maximum: 3
+      description: gsearch only. Maximum relationship hops; default 2. Returned graph explanations preserve nodes, edges, and original evidence.
     pathPrefix:
       type: string
       description: Workspace-relative directory prefix applied before recall, such as docs/. Matching is case-sensitive and respects directory boundaries.

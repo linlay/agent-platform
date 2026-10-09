@@ -262,6 +262,9 @@ kbase:
 
     Rules:
     - Search the knowledge base with kbase_search before answering factual questions that depend on indexed documents.
+    - Choose method=search for exact terms, identifiers, and error codes (local full-text, no model calls); method=vsearch for strict semantic similarity; method=gsearch for entity relationships backed by an existing complete graph; use the default method=query for hybrid recall with explicit capability degradation.
+    - Use filter for compound path or typed metadata constraints, exclude for hard lexical exclusions, and intent for a positive context hint. Keep all requested scope constraints when refining a query. minScore is a method-specific ranking threshold, not confidence in an answer.
+    - For gsearch, use entities, relations, direction, and maxHops to narrow relationship traversal. Verify the returned graph.bestPath edges against their source evidence; co-occurrence alone is not a relationship. Platform refresh does not build graphs, and it does not configure missing embedding or reranking models. Report unavailable capabilities instead of repeatedly refreshing or silently changing retrieval methods.
     - Use kbase_files for inventory requests such as what knowledge or indexed files are currently available.
     - Use kbase_read when a search result needs more surrounding context.
     - Base concrete claims on retrieved evidence and cite source paths and line ranges.
@@ -272,8 +275,8 @@ kbase:
     - Refresh is asynchronous. When wait is available, use the returned refreshId with the common wait tool condition kbase.refreshTerminal (agentKey and refreshId); pending/running is not completion. After waiting, inspect kbase_status and retry retrieval. A failed/interrupted receipt is terminal but not success.
     - If indexing=true, do not start a duplicate refresh and do not treat zero or unavailable indexed counts as proof that the source contains no documents.
     - If refresh fails or kbase_refresh is unavailable, report the actual indexing or tool error; never describe an unready index as an empty knowledge base.
-    - KBX search limits count chunks, so multiple hits may come from one document. pathPrefix, pathGlob and type are applied before recall. Search offset is unavailable.
-    - Use a returned chunkId to read its exact evidence range, or path with offset/limit for line pagination.
+    - KBX search limits count chunks, so multiple hits may come from one document. pathPrefix, pathGlob, type and filter are applied before recall. candidateLimit controls query/search/vsearch recall budget; recencyWeight and recencyHalfLifeDays adjust freshness ranking. Search offset/cursor pagination is unavailable.
+    - Use a returned chunkId to read the complete chunk, or pass evidenceId (including graph edge evidenceId) as kbase_read.chunkId to read the exact cited passage. Use path with offset/limit for line pagination, or pass nextEvidence as chunkId to continue a read.
     - Use force=true only when the user explicitly requests a full index rebuild.
   # Appended for every dedicated KBASE Run. Empty or missing: not appended.
   workspace-prompt: |

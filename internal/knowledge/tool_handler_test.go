@@ -88,7 +88,7 @@ func TestToolHandlerSearchPreservesWireAndPublishesSources(t *testing.T) {
 		},
 	}}
 	result, err := NewToolHandler(service).Invoke(context.Background(), ToolSearch, map[string]any{
-		"query": " policy ", "agentKey": "other-agent", "limit": float64(8), "offset": float64(2), "pathPrefix": " docs/ ", "pathGlob": " **/*.md ", "type": " md ",
+		"query": " policy ", "limit": float64(8), "pathPrefix": " docs/ ", "pathGlob": " **/*.md ", "type": " md ",
 	}, kbaseToolExecutionContext())
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -96,7 +96,7 @@ func TestToolHandlerSearchPreservesWireAndPublishesSources(t *testing.T) {
 	if result.ExitCode != 0 || result.Structured["agentKey"] != "docs" || result.Structured["results"] == nil {
 		t.Fatalf("unexpected search wire %#v", result)
 	}
-	if service.searchOptions.Limit != 8 || service.searchOptions.Offset != 2 || service.searchOptions.PathPrefix != "docs/" || service.searchOptions.PathGlob != "**/*.md" || service.searchOptions.Type != "md" {
+	if service.searchOptions.Limit != 8 || service.searchOptions.Offset != 0 || service.searchOptions.PathPrefix != "docs/" || service.searchOptions.PathGlob != "**/*.md" || service.searchOptions.Type != "md" {
 		t.Fatalf("unexpected search options %#v", service.searchOptions)
 	}
 	if service.agentKey != "docs" {

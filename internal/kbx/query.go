@@ -27,18 +27,8 @@ type evidence struct {
 type searchResponse struct {
 	Type             string `json:"type"`
 	RetrievalVersion int    `json:"retrievalVersion"`
-	Results          []struct {
-		File     string
-		Title    string
-		Score    float64
-		ResultID string `json:"resultId"`
-		Chunk    struct {
-			ID    string
-			Range textRange
-		}
-		Evidence evidence
-	}
-	Trace struct {
+	Results          []searchDocument
+	Trace            struct {
 		Steps []struct {
 			Reason string `json:"reason"`
 		} `json:"steps"`
@@ -52,6 +42,39 @@ type searchResponse struct {
 	} `json:"trace"`
 }
 
+type searchDocument struct {
+	File     string
+	Title    string
+	Score    float64
+	ResultID string `json:"resultId"`
+	Chunk    struct {
+		ID    string
+		Range textRange
+	}
+	Evidence evidence
+	Explain  struct {
+		Graph *graphExplanation `json:"graph"`
+	}
+}
+
+type graphExplanation struct {
+	Links           []knowledge.GraphLink `json:"links"`
+	SupportingPaths int                   `json:"supportingPaths"`
+	Score           map[string]float64    `json:"score"`
+	BestPath        *struct {
+		Score float64
+		Nodes []knowledge.GraphNode
+		Edges []struct {
+			Predicate  string
+			Confidence float64
+			Evidence   []struct {
+				File     string
+				Evidence evidence
+			}
+		}
+	} `json:"bestPath"`
+}
+
 func predicate(op, value string) map[string]any {
 	return map[string]any{"op": op, "key": "sys.path", "value": value}
 }
@@ -60,15 +83,16 @@ func appendFilter(args []string, v any) []string {
 	return append(args, "--filter", string(b))
 }
 func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.SearchOptions) (knowledge.SearchResult, error) {
+	o, err := knowledge.NormalizeSearchOptions(o)
+	if err != nil {
+		return knowledge.SearchResult{}, err
+	}
 	l, err := m.resolve(key)
 	if err != nil {
 		return knowledge.SearchResult{}, err
 	}
 	if strings.TrimSpace(query) == "" {
 		return knowledge.SearchResult{}, fmt.Errorf("query must not be blank")
-	}
-	if o.Offset != 0 {
-		return knowledge.SearchResult{}, fmt.Errorf("KBX chunk search does not support offset")
 	}
 	limit := o.Limit
 	if limit <= 0 {
@@ -97,7 +121,61 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 	if candidate > 2000 {
 		candidate = 2000
 	}
-	args := []string{"query", "--agent", "--no-graph", "--no-rerank", "--full", "-c", "workspace", "-n", strconv.Itoa(limit), "-C", strconv.Itoa(candidate)}
+	if o.CandidateLimit != 0 {
+		candidate = o.CandidateLimit
+		if candidate < limit {
+			return knowledge.SearchResult{}, fmt.Errorf("candidateLimit must be at least the effective limit (%d)", limit)
+		}
+		if ceiling := l.spec.Config.Retrieval.CandidateMax; ceiling > 0 && candidate > max(limit, ceiling) {
+			return knowledge.SearchResult{}, fmt.Errorf("candidateLimit exceeds the Agent candidate budget (%d)", max(limit, ceiling))
+		}
+	}
+	args := []string{o.Method, "--agent", "-c", "workspace", "-n", strconv.Itoa(limit)}
+	if o.Method == "gsearch" {
+		// Graph search has a distinct result envelope and does not accept --full
+		// or a candidate budget. Explanations carry the actual relationship evidence.
+		args = append(args, "--explain")
+		for _, entity := range o.Entities {
+			args = append(args, "--entity="+entity)
+		}
+		for _, relation := range o.Relations {
+			args = append(args, "--relation="+relation)
+		}
+		if o.Direction != "" {
+			args = append(args, "--direction", o.Direction)
+		}
+		if o.MaxHops != 0 {
+			args = append(args, "--max-hops", strconv.Itoa(o.MaxHops))
+		}
+	} else {
+		args = append(args, "--full", "-C", strconv.Itoa(candidate))
+		if o.Method == "query" {
+			// Deployment configuration currently provides embedding only. Graph
+			// recall can use an already-built local graph without an extraction model.
+			args = append(args, "--no-rerank", "--explain")
+			if o.NoGraph {
+				args = append(args, "--no-graph")
+			}
+		}
+		for _, exclude := range o.Exclude {
+			args = append(args, "--exclude="+exclude)
+		}
+		if o.Intent != "" {
+			args = append(args, "--intent="+o.Intent)
+		}
+		for _, field := range []struct {
+			flag  string
+			value *float64
+		}{{"--min-score", o.MinScore}, {"--recency-weight", o.RecencyWeight}, {"--recency-half-life-days", o.RecencyHalfLifeDays}} {
+			if field.value != nil {
+				args = append(args, field.flag+"="+strconv.FormatFloat(*field.value, 'g', -1, 64))
+			}
+		}
+	}
+	if o.Filter != "" {
+		// A separate filter argument intersects (never replaces) Agent policy.
+		args = append(args, "--filter="+o.Filter)
+	}
 	for _, f := range []struct{ op, value string }{{"pathPrefix", o.PathPrefix}, {"pathGlob", o.PathGlob}, {"extension", o.Type}} {
 		if f.value != "" {
 			args = appendFilter(args, predicate(f.op, f.value))
@@ -114,14 +192,22 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 		args = appendFilter(args, map[string]any{"op": "not", "arg": predicate("pathGlob", p)})
 	}
 	args = append(args, "--", query)
-	var response searchResponse
-	if err = m.call(ctx, l, true, &response, args...); err != nil {
+	var raw json.RawMessage
+	if err = m.call(ctx, l, o.Method == "query" || o.Method == "vsearch", &raw, args...); err != nil {
 		return knowledge.SearchResult{}, err
 	}
-	if response.Type != "kbx.search.response" || response.RetrievalVersion != 6 || response.Trace.ResultUnit != "chunk" {
-		return knowledge.SearchResult{}, unavailable("KBX retrieval contract 6 with chunk results is required")
+	var response searchResponse
+	if o.Method == "gsearch" {
+		if err = json.Unmarshal(raw, &response.Results); err != nil || response.Results == nil {
+			return knowledge.SearchResult{}, unavailable("KBX graph search must return a document array")
+		}
+		response.Trace.Coverage.RetrievalUsed = []string{"graph"}
+	} else {
+		if err = json.Unmarshal(raw, &response); err != nil || response.Type != "kbx.search.response" || response.RetrievalVersion != 6 || response.Trace.ResultUnit != "chunk" {
+			return knowledge.SearchResult{}, unavailable("KBX retrieval contract 6 with chunk results is required")
+		}
 	}
-	result := knowledge.SearchResult{AgentKey: key, Query: query, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx", Stale: true, Degraded: response.Trace.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
+	result := knowledge.SearchResult{AgentKey: key, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx", Stale: true, Degraded: response.Trace.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
 	state := knowledge.Status{}
 	if m.workerStatus(l, &state) {
 		result.Stale = state.Stale
@@ -129,19 +215,68 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 		result.RefreshID = state.RefreshID
 	}
 	for _, hit := range response.Results {
-		p, err := documentPath(hit.File)
+		p, err := allowedDocumentPath(l, hit.File)
 		if err != nil {
 			return knowledge.SearchResult{}, err
 		}
 		if hit.Chunk.ID == "" || hit.Evidence.ID == "" {
 			return knowledge.SearchResult{}, unavailable("KBX result has no chunk/evidence locator")
 		}
-		result.Results = append(result.Results, knowledge.SearchHit{ChunkID: hit.Chunk.ID, ResultID: hit.ResultID, EvidenceID: hit.Evidence.ID, Path: p, Heading: hit.Title, StartLine: hit.Chunk.Range.LineStart, EndLine: hit.Chunk.Range.LineEnd, SourceType: strings.TrimPrefix(strings.ToLower(path.Ext(p)), "."), Snippet: hit.Evidence.Text, Score: hit.Score, MatchType: "kbx"})
+		graph, err := mapGraphExplanation(l, hit.Explain.Graph)
+		if err != nil {
+			return knowledge.SearchResult{}, err
+		}
+		lines := hit.Chunk.Range
+		matchType := "kbx"
+		if o.Method == "gsearch" {
+			// Graph snippets may cover only part of the chunk. Cite the returned
+			// evidence range; keep both locators so either range can be read back.
+			lines = hit.Evidence.Range
+			matchType = "graph"
+		}
+		result.Results = append(result.Results, knowledge.SearchHit{ChunkID: hit.Chunk.ID, ResultID: hit.ResultID, EvidenceID: hit.Evidence.ID, Path: p, Heading: hit.Title, StartLine: lines.LineStart, EndLine: lines.LineEnd, SourceType: strings.TrimPrefix(strings.ToLower(path.Ext(p)), "."), Snippet: hit.Evidence.Text, Score: hit.Score, MatchType: matchType, Graph: graph})
 	}
 	result.RetrievalChannels = response.Trace.Coverage.RetrievalUsed
 	result.OptionalUnavailable = response.Trace.Coverage.OptionalUnavailable
 	result.Count = len(result.Results)
 	return result, nil
+}
+
+func allowedDocumentPath(l library, uri string) (string, error) {
+	p, err := documentPath(uri)
+	if err != nil {
+		return "", err
+	}
+	if !knowledge.IndexedPathAllowed(p, l.spec.Config.Include, append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**")) {
+		return "", unavailable("KBX returned a document excluded by the knowledge-base policy")
+	}
+	return p, nil
+}
+
+func mapGraphExplanation(l library, input *graphExplanation) (*knowledge.GraphExplanation, error) {
+	if input == nil {
+		return nil, nil
+	}
+	output := &knowledge.GraphExplanation{Links: input.Links, SupportingPaths: input.SupportingPaths, Score: input.Score}
+	if input.BestPath == nil {
+		return output, nil
+	}
+	output.BestPath = &knowledge.GraphPath{Score: input.BestPath.Score, Nodes: input.BestPath.Nodes, Edges: []knowledge.GraphEdge{}}
+	for _, edge := range input.BestPath.Edges {
+		mapped := knowledge.GraphEdge{Predicate: edge.Predicate, Confidence: edge.Confidence, Evidence: []knowledge.GraphEvidence{}}
+		for _, item := range edge.Evidence {
+			p, err := allowedDocumentPath(l, item.File)
+			if err != nil {
+				return nil, err
+			}
+			if !evidencePattern.MatchString(item.Evidence.ID) {
+				return nil, unavailable("KBX graph evidence has no valid content-addressed locator")
+			}
+			mapped.Evidence = append(mapped.Evidence, knowledge.GraphEvidence{Path: p, EvidenceID: item.Evidence.ID, StartLine: item.Evidence.Range.LineStart, EndLine: item.Evidence.Range.LineEnd, Content: item.Evidence.Text})
+		}
+		output.BestPath.Edges = append(output.BestPath.Edges, mapped)
+	}
+	return output, nil
 }
 func documentPath(uri string) (string, error) {
 	const prefix = "kbx://workspace/"

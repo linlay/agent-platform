@@ -228,7 +228,7 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 	}
 	cfg["chunking"] = map[string]any{"strategy": "window", "max_chars": maxChars, "overlap_chars": overlap}
 	key := m.options.DefaultEmbeddingModelKey
-	if m.options.ConfigSource != nil {
+	if embedding && m.options.ConfigSource != nil {
 		raw, err := m.options.ConfigSource.Snapshot()
 		if err != nil {
 			return nil, err
@@ -293,6 +293,9 @@ func (m *Manager) call(ctx context.Context, l library, embedding bool, out any, 
 		return err
 	}
 	data, err := m.runner.Run(ctx, l.database, cfg, args...)
+	if failure := readerFailure(data, args[0]); failure != nil {
+		return failure
+	}
 	if err != nil {
 		return unavailable(err.Error())
 	}

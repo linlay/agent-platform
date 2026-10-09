@@ -71,13 +71,11 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 	if query == "" {
 		return contracts.ToolExecutionResult{Output: "query must not be blank", Error: "missing_query", ExitCode: -1}, nil
 	}
-	result, err := h.service.Search(ctx, agentKey, query, SearchOptions{
-		Limit:      int(toolInt64Arg(args, "limit")),
-		Offset:     int(toolInt64Arg(args, "offset")),
-		PathPrefix: strings.TrimSpace(toolStringArg(args, "pathPrefix")),
-		PathGlob:   strings.TrimSpace(toolStringArg(args, "pathGlob")),
-		Type:       strings.TrimSpace(toolStringArg(args, "type")),
-	})
+	options, err := searchOptionsFromArgs(args)
+	if err != nil {
+		return kbaseToolFailure(err), nil
+	}
+	result, err := h.service.Search(ctx, agentKey, query, options)
 	if err != nil {
 		return kbaseToolFailure(err), nil
 	}
@@ -99,11 +97,16 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 		delete(toolResult.Structured, "offset")
 		delete(toolResult.Structured, "truncated")
 		toolResult.Structured["engine"] = "kbx"
+		toolResult.Structured["method"] = result.Method
 		toolResult.Structured["resultUnit"] = "chunk"
 		toolResult.Structured["retrievalChannels"] = result.RetrievalChannels
 		toolResult.Structured["optionalUnavailable"] = result.OptionalUnavailable
 		toolResult.Structured["degraded"] = result.Degraded
 		toolResult.Structured["candidateBudgetExhausted"] = result.CandidateBudgetExhausted
+		if result.Method == "gsearch" {
+			// Graph search has no candidate-budget trace in the current CLI contract.
+			delete(toolResult.Structured, "candidateBudgetExhausted")
+		}
 		toolResult.Output = contracts.CompactToolModelOutput(toolResult.Structured, "")
 	}
 	if sources := searchHitSources(result.Results); len(sources) > 0 {
@@ -323,8 +326,36 @@ func searchHitSources(hits []SearchHit) []stream.Source {
 	if len(hits) == 0 {
 		return nil
 	}
-	normalizedHits := make([]SearchHit, 0, len(hits))
+	// A relationship may be supported by a document other than the ranked hit.
+	// Include those sources in the same publication, using the exact edge evidence
+	// locator so a source card can be verified independently of the larger chunk.
+	expanded := append([]SearchHit(nil), hits...)
+	seen := map[string]bool{}
 	for _, hit := range hits {
+		if hit.EvidenceID != "" {
+			seen[hit.Path+"\x00"+hit.EvidenceID] = true
+		}
+	}
+	for _, hit := range hits {
+		if hit.Graph == nil || hit.Graph.BestPath == nil {
+			continue
+		}
+		for _, edge := range hit.Graph.BestPath.Edges {
+			for _, evidence := range edge.Evidence {
+				key := evidence.Path + "\x00" + evidence.EvidenceID
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				expanded = append(expanded, SearchHit{ChunkID: evidence.EvidenceID, EvidenceID: evidence.EvidenceID, Path: evidence.Path, StartLine: evidence.StartLine, EndLine: evidence.EndLine, Snippet: evidence.Content, Score: hit.Graph.BestPath.Score, MatchType: "graph", SourceType: strings.TrimPrefix(strings.ToLower(filepath.Ext(evidence.Path)), ".")})
+			}
+		}
+	}
+	normalizedHits := make([]SearchHit, 0, len(expanded))
+	for _, hit := range expanded {
+		if hit.MatchType == "graph" && hit.EvidenceID != "" {
+			hit.ChunkID = hit.EvidenceID
+		}
 		hit.ChunkID = strings.TrimSpace(hit.ChunkID)
 		hit.Path = strings.TrimSpace(hit.Path)
 		hit.Heading = strings.TrimSpace(hit.Heading)

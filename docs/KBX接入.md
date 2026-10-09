@@ -30,9 +30,13 @@ Platform 的 app 装配、知识库工具、HTTP status/refresh、health 和 wai
 
 `kbase_status` 提供 refreshId、state（unindexed/indexing/ready/refreshing/degraded/error）、indexing/stale、全文及向量 readiness、文件数、最近完成时间和错误。是否与源目录同步由 Platform worker 判断，不能从 KBX 空库或 fullText.ready 推断已扫描。未完成首次扫描的注册空库不可作为空知识库查询。未就绪工具错误提供当前 refreshId/indexing/state，模型可等待后重试。
 
-- `kbase_search` 使用 `query --agent --no-graph --no-rerank --full`，验证 chunk 协议；保留 KBX 的实际召回通道、降级和候选预算信息。向量缺失时允许 KBX 返回有效全文结果；不会把失败伪装成无命中。
-- `pathPrefix`、`pathGlob`、`type` 与 Agent 的 include/exclude 在召回前下推，不是取 top N 后再过滤。搜索不支持 offset；不伪造精确 matchCount 或分页完成标志。
-- `kbase_read` 用 chunkId 精确回读，或用相对路径和一基行号分页，拒绝跨 collection、目录越界和配置排除内容。`kbase_files` 只展示 KBX active 文档清单。
+- `kbase_search.method` 支持 `query`（缺省混合）、`search`（纯全文 BM25）、`vsearch`（严格向量）和 `gsearch`（实体关系图检索）。四种方法均限制当前 Agent 的 `workspace` collection。中心选库、多 collection 授权尚未接入 Agent 工具。
+- `query/search/vsearch` 使用 `--agent --full` 并校验 retrieval contract v6；混合检索允许 KBX 按可用全文、向量与已有图谱召回，并保留真实通道、降级和候选预算信息。`query` 的 `noGraph:true` 可关闭图召回；重排仍由 `--no-rerank` 关闭，部署配置目前只提供 embedding。`search` 不解析模型连接配置、不调用模型；显式 `vsearch/gsearch` 失败时不自动换成其他方法。
+- `gsearch` 使用独立命令和图结果协议，不发送不兼容的 `--full`、`-C` 或全文/向量排名参数。支持 `entities`、`relations`、`direction`（auto/out/in/both）和 `maxHops`（1–3，缺省 2），结果保留 `graph.links`、`graph.bestPath` 的节点、关系及每条边的原文证据。图返回没有候选预算 trace，因此不输出伪造的 candidateBudgetExhausted。要求已有完整图谱；Platform worker 的 update/embed 不构建图谱，不能靠反复 refresh 补齐。
+- 所有方法的 `pathPrefix`、`pathGlob`、`type`、`filter` 与 Agent include/exclude 在召回前取交集，不是取 top N 后再过滤。`filter` 接受 KBX 表达式或 JSON 字符串，例如 `project = payments and owner exists`、`sys.size >= 1024`、`(ext = md or ext = pdf) and not path ^= deprecated`；元数据字段必须已存在于索引。返回正文和嵌套图证据再次检查 collection、路径与 Agent include/exclude，不允许跨范围来源。
+- `query/search/vsearch` 支持 `exclude`（字符串数组，任一词法表达式命中即排除文档）、`intent`（正向提示）、`minScore`（有限数值，方法相关排名分，不是可信度）、`candidateLimit`（最多 2000，至少为实际 limit，并受 Agent candidateMax 限制；candidateMax 小于实际 limit 时按 limit 提升）、`recencyWeight`（0–1）和 `recencyHalfLifeDays`（正数，KBX 缺省 90）。不适用当前 method 的参数及未知字段明确报错，不静默忽略。limit 最多 50；搜索不支持 offset/cursor，也不开放无界 `--all`，不伪造精确 matchCount 或分页完成标志。
+- `kbase_read.chunkId` 可接收 chunkId、evidenceId 或前次读取的 nextEvidence，精确回读对应内容；图命中的 evidence 可能只覆盖 chunk 的一部分，应使用 evidenceId 核验引文。也可用相对路径和一基行号分页，拒绝跨 collection、目录越界和配置排除内容。`kbase_files` 只展示 KBX active 文档清单。`context`、`tsearch` 和 `multi-get` 尚未接入专用工具。
+- 非零退出仍解析合法 KBX 错误 envelope，返回受限机器错误码及固定修复提示，不回显可能含模型凭据的原始 message/hint，也不把失败伪装成空结果。
 - KBX 没有精确 chunk 总数，status 省略 chunks 并返回 chunksKnown=false。向量未配置或未完整时不声称向量可用。
 - health 探测受管 CLI 的维护能力；首次索引未完成不会被解释为 CLI 故障。旧二进制缺少协议或调度器启动失败则明确不可用。
 
@@ -44,7 +48,7 @@ KBX globset 当前允许 `*` / `?` 跨 `/`，与 Platform 原有语义不同。�
 
 ## 存储与配置
 
-模型统一来自 `runtime.yml → kbx.embedding`（model-key、prompt），中心和 Agent 共用部署级连接来源。每个进程传入私有 `--config`，关闭 query expansion、reranker 与 graph，不继承用户的 KBX 配置。CLI 仅从受管 builtin 目录解析，以 argv 调用，不经过 shell；输出上限 16MiB，临时配置权限 0600，用后清理，不回显原始模型 stderr。
+模型统一来自 `runtime.yml → kbx.embedding`（model-key、prompt），中心和 Agent 共用部署级连接来源。每个进程传入私有 `--config`，不配置 query expansion、reranker 与 graph extraction 模型，不继承用户的 KBX 配置；已有图谱的本地召回不需要 extraction 模型。Agent 纯全文、图检索及读取不解析 embedding 配置。CLI 仅从受管 builtin 目录解析，以 argv 调用，不经过 shell；输出上限 16MiB，临时配置权限 0600，用后清理，不回显原始模型 stderr。
 
 索引位置为 `<AP_RUNTIME_KBASE_DIR>/<agentKey>/kbx/<scopeHash>/index.sqlite`；workspace 模式为 `<workspaceRoot>/.kbx-platform/<agentKey>/<scopeHash>/index.sqlite`。scopeHash 含 canonical workspaceRoot、include/exclude、chunk 配置；更换范围时隔离。库目录拒绝符号链接替换。启动和维护不删除其他索引范围的数据或源文档。
 
@@ -58,9 +62,11 @@ KBX globset 当前允许 `*` / `?` 跨 `/`，与 Platform 原有语义不同。�
 
 macOS ARM64 上的 `TestLivePlatformLifecycle` 验证首次自动索引、读取证据、监听新增/删除及异步 refresh；`TestLivePlatformEmbeddingExcludesAndFailure` 用本地模型 mock 验证排除发生在 embedding 前、向量完成、模型失败降级及显式 force。索引和文档均在测试临时目录，不外发用户文档。Windows 锁和 watcher 仍需原生 Windows 验证；KBX 当前未提供 Linux/Windows ARM64 发行目标。
 
+`TestLiveSearchMethodsAndAdvancedFilters` 使用当前受管 KBX 验证全文/混合、过滤表达式、排除、分数与时效参数；`TestLiveVectorPrefilterAndLibraryIsolation` 覆盖严格 vsearch。`TestLiveGraphSearchEvidenceAndHybridRecall` 通过本机模拟 extraction 服务仅在临时库建图，验证图方向、两跳关系与跳数限制、范围过滤、关系证据回读和 query 的图召回；这不代表 Platform 自动建图已接通，也不代表真实模型语义质量。工具单测检查不支持参数拒绝、范围不可扩张和嵌套图来源发布。
+
 ```sh
 KBX_ACCEPTANCE_BIN=/absolute/managed/bin \
-go test ./internal/kbx -run 'TestLivePlatform|TestLiveChunkAndFilterContract|TestLiveVectorPrefilterAndLibraryIsolation' -count=1
+go test ./internal/kbx -run 'TestLivePlatform|TestLiveChunkAndFilterContract|TestLiveVectorPrefilterAndLibraryIsolation|TestLiveSearchMethodsAndAdvancedFilters|TestLiveGraphSearchEvidenceAndHybridRecall' -count=1
 ```
 
 部署级知识库中心使用 `kbases/<id>/library.yml` 与持久的 `ru-kbases/libraries/<id>/`，仍使用独立管理入口，不由 Agent worker 监听；此布局不改变上述 Agent 索引路径。

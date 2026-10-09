@@ -110,6 +110,10 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	if requests.Load() < 2 {
 		t.Fatal("build/query did not contact fixture provider")
 	}
+	vector, e := m.Search(ctx, "docs", "anothersemanticquestion", knowledge.SearchOptions{Method: "vsearch", PathPrefix: "allowed", Filter: "ext = md", Exclude: []string{"building"}})
+	if e != nil || len(vector.Results) != 1 || vector.Results[0].Path != "allowed/a.md" || !strings.Contains(strings.Join(vector.RetrievalChannels, ","), "vector") {
+		t.Fatalf("strict vector search: %+v %v", vector, e)
+	}
 	source := m.agents.(testSource)
 	other := source["docs"]
 	other.Key = "other"
