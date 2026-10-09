@@ -17,8 +17,18 @@ import (
 // a params list. An invalid submit never resolves the awaiting.
 func ValidateSubmitParams(ctx contracts.AwaitingSubmitContext, req queryinput.SubmitRequest) error {
 	items, err := submitItemsForMode(ctx.Mode, req)
-	if err != nil || len(items) == 0 {
+	if err != nil {
 		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(ctx.Mode), "form") && ctx.View != nil && ctx.View.Source == "builtin" && ctx.View.Key == "ask_user_form" {
+		data := contracts.AnyMapNode(ctx.Form["data"])
+		_, err := toolinteraction.NewAskUserFormHandler().NormalizeSubmit(map[string]any{
+			"title": ctx.Form["title"], "html": data["html"], "values": data["values"],
+		}, req.Param)
+		return err
+	}
+	if len(items) == 0 {
+		return nil
 	}
 	if len(items) != ctx.ItemCount {
 		return fmt.Errorf("expected %d submit items, got %d", ctx.ItemCount, len(items))

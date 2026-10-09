@@ -7,6 +7,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/formhtml"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/view"
@@ -24,26 +25,21 @@ func (h *AskUserFormHandler) ValidateArgs(args map[string]any) error {
 		}
 	}
 	title, ok := args["title"].(string)
-	if !ok || strings.TrimSpace(title) == "" || len(title) > maxFormBytes {
+	if !ok || strings.TrimSpace(title) == "" || len(title) > formhtml.MaxBytes {
 		return fmt.Errorf("title must be a non-empty string of at most 65536 bytes")
 	}
 	fragment, ok := args["html"].(string)
 	if !ok {
 		return fmt.Errorf("html must be a string")
 	}
-	controls, err := parseFormHTML(fragment)
+	controls, err := formhtml.Parse(fragment)
 	if err != nil {
 		return err
 	}
-	if value, exists := args["values"]; exists {
-		values, ok := value.(map[string]any)
-		if !ok || values == nil {
-			return fmt.Errorf("values must be an object")
-		}
-		if _, err := validateFormData(values, controls, false); err != nil {
-			return err
-		}
+	if _, err := formhtml.NormalizeValues(args["values"], controls); err != nil {
+		return err
 	}
+
 	return nil
 }
 
@@ -51,6 +47,8 @@ func (h *AskUserFormHandler) BuildInitialAwaitAsk(toolID, runID string, tool api
 	if chunkIndex != 0 || h.ValidateArgs(args) != nil {
 		return nil
 	}
+	controls, _ := formhtml.Parse(args["html"].(string))
+	values, _ := formhtml.NormalizeValues(args["values"], controls)
 	return &stream.AwaitAsk{
 		AwaitingID: toolID,
 		RunID:      runID,
@@ -61,7 +59,7 @@ func (h *AskUserFormHandler) BuildInitialAwaitAsk(toolID, runID string, tool api
 			"title": args["title"],
 			"data": map[string]any{
 				"html":   args["html"],
-				"values": deepCloneAny(args["values"]),
+				"values": values,
 			},
 		},
 	}
@@ -80,15 +78,15 @@ func (h *AskUserFormHandler) NormalizeSubmit(args map[string]any, param any) (ma
 		return normalized, nil
 	}
 	entry["title"] = args["title"]
-	if reason, _ := entry["reason"].(string); len(reason) > maxFormBytes {
+	if reason, _ := entry["reason"].(string); len(reason) > formhtml.MaxBytes {
 		return nil, fmt.Errorf("reason exceeds 65536 bytes")
 	}
 	if data, ok := entry["data"].(map[string]any); ok {
-		controls, err := parseFormHTML(args["html"].(string))
+		controls, err := formhtml.Parse(args["html"].(string))
 		if err != nil {
 			return nil, err
 		}
-		entry["data"], err = validateFormData(data, controls, true)
+		entry["data"], err = formhtml.ValidateData(data, controls, true)
 		if err != nil {
 			return nil, err
 		}

@@ -5,22 +5,26 @@ i18n:
   zh-CN:
     label: "向用户发起表单"
 description: |
-  Collect related inputs in a custom HTML form only when they need to be filled
-  together or require a custom layout. Prefer ask_user_question for ordinary
-  questions. Do not reconfirm clear instructions or use this to grant permissions.
-  Supply a declarative HTML fragment, at most 64 KiB, with a name on every input,
-  textarea and select. Names must be unique except same-type radio/checkbox groups.
-  Allowed tags: div span p h1-h4 label fieldset legend input textarea select option
-  optgroup ul ol li table thead tbody tr th td br hr strong em b i small code.
-  Input types: text number email tel url date datetime-local time checkbox radio
-  range color hidden. No scripts, handlers, links, images, iframes, file or password
-  inputs. Passwords use ask_user_question; files use upload.
-  The shell supplies themed styles. Optional inline styles allow basic spacing,
-  sizing, flex/grid layout, borders and text colors; no positioning, CSS functions,
-  escapes or comments. Prefer class-free semantic HTML and labels.
-  Values and responses are strings; checkbox groups and multiple selects use
-  string arrays. A single checkbox uses "true" or "false". Unselected radio
-  groups are omitted. The tool waits for submit or decline; no restart recovery.
+  Show the user a rich HTML form and wait for their response. Use it when several
+  related inputs belong together, or when the user can decide while looking at
+  something visual: option cards, comparison tables, timelines, route maps and
+  inline SVG diagrams. Use ask_user_question for simple one-line questions.
+  Do not reconfirm clear instructions or use this to grant permissions.
+  Write an HTML fragment (max 64 KiB). Build layouts with flex/grid, inline styles,
+  tables and inline <svg>. Every input, textarea and select needs a name; names
+  are unique except same-type radio/checkbox groups. Use labels for controls.
+  Colors: use var(--fg), var(--bg), var(--muted), var(--line), var(--accent) so the
+  form works in light and dark mode. CSS supports rgb/rgba/hsl/hsla, calc/min/max/
+  clamp, repeat/minmax, var, linear-gradient and translate/rotate/scale functions.
+  Not allowed: scripts, event handlers, links, images, iframes, buttons, external
+  resources, CSS url(), escapes, comments or position:fixed. SVG supports shapes,
+  text and linear gradients with local fill/stroke url(#id), not embedded HTML.
+  No file or password inputs (passwords: ask_user_question; files: upload).
+  Initial values accept strings, numbers or booleans (arrays for grouped inputs);
+  null means no defaults. Results are strings; checkbox groups and multi-selects
+  are string arrays, a single checkbox is "true"/"false". Unselected radio groups
+  are omitted. Waits until the user submits, declines or the configured form
+  timeout expires. No restart recovery.
 clientVisible: false
 inputSchema:
   type: object
@@ -32,8 +36,10 @@ inputSchema:
       type: string
       description: Required. Safe HTML fragment, at most 65536 bytes.
     values:
-      type: object
-      description: Optional. Initial values keyed by declared control name, using strings or string arrays.
+      type:
+        - object
+        - "null"
+      description: Optional defaults keyed by control name. Scalars (string, number, boolean) or scalar arrays; null means no defaults.
   required:
     - title
     - html

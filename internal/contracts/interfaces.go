@@ -640,6 +640,9 @@ type AwaitingSubmitContext struct {
 	// Questions preserves the question definitions emitted with a question-mode
 	// awaiting event so submit validation can pair each response with its type.
 	Questions []any
+	// View and Form freeze the emitted form for validation before accepting a submit.
+	View      *view.Reference
+	Form      map[string]any
 	NoTimeout bool
 	Timeout   int64
 	// SteerReplan lets the native planning producer supersede this confirmation
@@ -658,6 +661,8 @@ func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 		Mode:               c.Mode,
 		ItemCount:          c.ItemCount,
 		Questions:          append([]any(nil), c.Questions...),
+		View:               view.Clone(c.View),
+		Form:               cloneAwaitingForm(c.Form),
 		NoTimeout:          c.NoTimeout,
 		Timeout:            c.Timeout,
 		SteerReplan:        c.SteerReplan,

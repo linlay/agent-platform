@@ -20,6 +20,7 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
+	"agent-platform/internal/view"
 )
 
 type NativeOptions struct {
@@ -342,6 +343,7 @@ func HandleAwaitingLifecycle(params NativeOptions, data stream.EventData, tracke
 				publicAwaitingID = awaitingID
 			}
 			summaries, truncated := contracts.SummarizeApprovals(data.Value("approvals"))
+			viewRef, _ := view.ParseReference(data.Value("view"))
 			params.RunControl.ExpectSubmit(contracts.AwaitingSubmitContext{
 				Summaries:          summaries,
 				SummariesTruncated: truncated,
@@ -351,6 +353,8 @@ func HandleAwaitingLifecycle(params NativeOptions, data stream.EventData, tracke
 				Mode:               mode,
 				ItemCount:          AwaitingEventItemCount(data),
 				Questions:          AwaitingEventQuestions(data),
+				View:               viewRef,
+				Form:               contracts.AnyMapNode(data.Value("form")),
 				NoTimeout:          strings.EqualFold(mode, "planning"),
 				Timeout:            int64(contracts.AnyIntNode(data.Value("timeout"))),
 			})

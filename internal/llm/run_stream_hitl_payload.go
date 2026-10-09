@@ -263,6 +263,8 @@ func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitConte
 		Mode:               awaitAsk.Mode,
 		ItemCount:          awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals),
 		Questions:          append([]any(nil), awaitAsk.Questions...),
+		View:               awaitAsk.View,
+		Form:               awaitAsk.Form,
 		Timeout:            awaitAsk.Timeout,
 	}
 }
@@ -276,6 +278,8 @@ func awaitingContextFromDeltaAsk(awaitAsk DeltaAwaitAsk) AwaitingSubmitContext {
 		Mode:               awaitAsk.Mode,
 		ItemCount:          awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals),
 		Questions:          append([]any(nil), awaitAsk.Questions...),
+		View:               awaitAsk.View,
+		Form:               awaitAsk.Form,
 		Timeout:            awaitAsk.Timeout,
 	}
 }

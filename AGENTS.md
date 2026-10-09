@@ -198,7 +198,7 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 工具 YAML 不再接受顶层 label，仅支持展示用 `i18n.{en,zh-CN}.{label,description}`；内嵌工具仅配置 label 翻译，不配置 i18n.description，原始及 Schema description 保持英文。模型工具定义不带 label/翻译表。Native tool.start/snapshot 冻结内部展示快照，HTTP/WS/回放/导出按查看者语言解析并移除翻译表；旧历史不迁移。Desktop 在建立连接时同步全局语言，设置切换后通过 /api/locale 更新已连接通道；WS 响应与流展示统一读取当前连接语言，不冻结展示语言。Native 模型提示词单独冻结 Run 启动时的语言，配置与恢复规则见 [Agent 配置合并](docs/Agent配置合并.md#runtime-context-语言与模板)。见 [工具展示多语言](docs/MCP与工具交互.md#工具展示多语言)。
 
 
-`ask_user_form` 是按需显式声明的独立 HTML 输入表单工具，不进入全局预设；固定使用 builtin/ask_user_form 的 form 协议，无授权语义、不支持重启恢复，BTW 禁用，planning/execute 默认排除。HTML 白名单与控件取值归 `internal/toolinteraction` 和内置 VIEW，见 [MCP与工具交互](docs/MCP与工具交互.md#独立输入表单-ask_user_form)。
+`ask_user_form` 是按需显式声明的独立 HTML 输入表单工具，不进入全局预设；固定使用 builtin/ask_user_form 的 form 协议，无授权语义、不支持重启恢复，BTW 禁用，planning/execute 默认排除。HTML/CSS/SVG 共享策略归 `internal/formhtml`，由内置 VIEW 注入；工具交互归 `internal/toolinteraction`，提交在唤醒前校验类型与大小，见 [MCP与工具交互](docs/MCP与工具交互.md#独立输入表单-ask_user_form)。
 
 ## 特色功能文档索引
 

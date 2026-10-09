@@ -675,6 +675,8 @@ func (q *TeamHITLQueue) publish(parent *contracts.RunControl, item *TeamChildAwa
 		Mode:               item.Ask.Mode,
 		ItemCount:          teamAwaitingItemCount(item.Ask),
 		Questions:          append([]any(nil), item.Ask.Questions...),
+		View:               item.Ask.View,
+		Form:               item.Ask.Form,
 		NoTimeout:          true,
 		Timeout:            item.Ask.Timeout,
 	})

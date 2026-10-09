@@ -7,6 +7,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/formhtml"
 )
 
 func formArgs(fragment string) map[string]any {
@@ -35,7 +36,7 @@ func TestAskUserFormHTMLValidation(t *testing.T) {
 		`<input name="n" style="background-image:url(https://example.test)">`, `<input name="n" style="width:expression(alert(1))">`,
 		`<input name="n" style="position: fixed">`, `<input name="n" style="color:u\72l(x)">`, `<input name="n" style="color:/**/red">`,
 		`<input name="n" style="color:&#117;rl(x)">`, `<input name="n" formaction="https://example.test">`,
-		strings.Repeat(" ", maxFormBytes) + `<input name="n">`,
+		strings.Repeat(" ", formhtml.MaxBytes) + `<input name="n">`,
 	}
 	for _, fragment := range invalid {
 		if err := h.ValidateArgs(formArgs(fragment)); err == nil {
@@ -43,7 +44,7 @@ func TestAskUserFormHTMLValidation(t *testing.T) {
 		}
 	}
 	args := formArgs(`<input name="n">`)
-	for _, values := range []any{nil, "bad", map[string]any{"missing": "x"}, map[string]any{"n": true}} {
+	for _, values := range []any{"bad", map[string]any{"missing": "x"}, map[string]any{"n": map[string]any{}}} {
 		args["values"] = values
 		if err := h.ValidateArgs(args); err == nil {
 			t.Errorf("accepted values %#v", values)
@@ -92,7 +93,7 @@ func TestAskUserFormNormalizeAndOutput(t *testing.T) {
 		map[string]any{"decision": "approve", "data": map[string]any{"yes": "on"}},
 		map[string]any{"decision": "approve", "data": map[string]any{"many": []any{true}}},
 		map[string]any{"decision": "approve", "data": map[string]any{"s": "one"}},
-		map[string]any{"decision": "reject", "data": map[string]any{"n": strings.Repeat("a", maxFormBytes)}},
+		map[string]any{"decision": "reject", "data": map[string]any{"n": strings.Repeat("a", formhtml.MaxBytes)}},
 	} {
 		if _, err := h.NormalizeSubmit(args, param); err == nil {
 			t.Fatalf("accepted %#v", param)
@@ -116,5 +117,29 @@ func TestAskUserFormAwaitAsk(t *testing.T) {
 	}
 	if h.BuildInitialAwaitAsk("tool", "run", api.ToolDetailResponse{}, args, 1, 23) != nil {
 		t.Fatal("duplicate ask")
+	}
+}
+
+func TestAskUserFormCoercesDefaultsWithoutChangingArgs(t *testing.T) {
+	h := NewAskUserFormHandler()
+	for _, value := range []any{nil, map[string]any{"n": 3, "yes": true}} {
+		args := formArgs(`<input name="n"><input name="yes" type="checkbox">`)
+		args["values"] = value
+		if err := h.ValidateArgs(args); err != nil {
+			t.Fatal(err)
+		}
+		ask := h.BuildInitialAwaitAsk("tool", "run", api.ToolDetailResponse{}, args, 0, 600)
+		if ask == nil {
+			t.Fatal("no form")
+		}
+		if value != nil {
+			values := ask.Form["data"].(map[string]any)["values"].(map[string]any)
+			if values["n"] != "3" || values["yes"] != "true" {
+				t.Fatal(values)
+			}
+			if args["values"].(map[string]any)["n"] != 3 {
+				t.Fatal("args mutated")
+			}
+		}
 	}
 }

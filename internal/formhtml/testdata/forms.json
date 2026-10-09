@@ -1,0 +1,182 @@
+[
+  {
+    "name": "rich CSS",
+    "html": "<section data-kind=\"card\" style=\"background:#fff; color:var(--fg);height:120px;border-left:2px solid var(--line);opacity:.9;box-shadow:0 2px 6px rgba(0,0,0,.2);font-family:'Helvetica Neue',sans-serif;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:clamp(100px,calc(100% - 4px),800px)\"><h5>Options</h5><input name=\"n\" list=\"choices\" autocomplete=\"off\" inputmode=\"numeric\"><datalist id=\"choices\"><option value=\"1\"></datalist></section>",
+    "valid": true
+  },
+  {
+    "name": "semantic HTML",
+    "html": "<header><h6>Title</h6></header><figure><figcaption>Info</figcaption><blockquote><pre>text</pre></blockquote></figure><details open><summary>More</summary><dl><dt>A</dt><dd><mark><u><s><sub>1</sub><sup>2</sup></s></u></mark></dd></dl></details><table><caption>Table</caption><tfoot><tr><td>A</td></tr></tfoot></table><progress value=\"2\" max=\"3\"></progress><meter min=\"0\" max=\"10\" low=\"2\" high=\"8\" optimum=\"5\" value=\"4\"></meter><footer><input name=\"n\"></footer>",
+    "valid": true
+  },
+  {
+    "name": "SVG diagram",
+    "html": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"240\" height=\"120\" viewBox=\"0 0 240 120\" role=\"img\" aria-label=\"Route\"><title>Route</title><desc>Route map</desc><defs><linearGradient id=\"g\" x1=\"0\" x2=\"1\"><stop offset=\"0%\" stop-color=\"red\"/><stop offset=\"100%\" stop-color=\"blue\"/></linearGradient></defs><g transform=\"translate(10,10)\"><rect x=\"0\" y=\"0\" width=\"60\" height=\"30\" rx=\"4\" fill=\"url(#g)\"/><path d=\"M0 0L100 50\" stroke=\"currentColor\"/><circle cx=\"10\" cy=\"10\" r=\"5\"/><ellipse cx=\"30\" cy=\"10\" rx=\"5\" ry=\"3\"/><line x1=\"0\" y1=\"0\" x2=\"40\" y2=\"30\"/><polyline points=\"0,0 10,10 20,0\"/><polygon points=\"0,0 10,10 20,0\"/><text x=\"40\" y=\"80\"><tspan dx=\"2\">Go</tspan></text></g></svg><input name=\"n\">",
+    "valid": true
+  },
+  {
+    "name": "CSS functions",
+    "html": "<input name=\"n\" style=\"background:linear-gradient(90deg,hsl(20,50%,50%),hsla(60,50%,50%,.5));color:rgb(1,2,3);width:max(10px,min(20px,30vw));transform:translate(2px,3px) rotate(20deg) scale(1.2);--gap:12px;position:relative\">",
+    "valid": true
+  },
+  {
+    "name": "textarea raw text",
+    "html": "<textarea name=\"n\"><script>text, not markup</script></textarea>",
+    "valid": true
+  },
+  {
+    "name": "SVG textarea parser mismatch",
+    "html": "<svg><textarea name=\"n\"><script>alert(1)</script></textarea></svg><input name=\"x\">",
+    "valid": false
+  },
+  {
+    "name": "SVG HTML integration point",
+    "html": "<svg><desc><input name=\"n\"></desc></svg>",
+    "valid": false
+  },
+  {
+    "name": "SVG foreignObject",
+    "html": "<svg><foreignObject><input name=\"n\"></foreignObject></svg>",
+    "valid": false
+  },
+  {
+    "name": "SVG animation",
+    "html": "<svg><animate attributeName=\"href\" values=\"evil\"/></svg><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "SVG image",
+    "html": "<svg><image href=\"x\"/></svg><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "SVG use",
+    "html": "<svg><use href=\"#x\"/></svg><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "SVG remote paint",
+    "html": "<svg><rect fill=\"url(https://evil.test)\"/></svg><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "SVG event",
+    "html": "<svg onload=\"alert(1)\"></svg><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "SVG HTML control",
+    "html": "<svg><textarea name=\"n\">x</textarea></svg>",
+    "valid": false
+  },
+  {
+    "name": "SVG tag outside namespace",
+    "html": "<path d=\"M0 0\"/><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "SVG HTML attr",
+    "html": "<svg name=\"n\"></svg><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "HTML SVG attr",
+    "html": "<input name=\"n\" viewBox=\"0 0 1 1\">",
+    "valid": false
+  },
+  {
+    "name": "position:fixed!important",
+    "html": "<input name=\"n\" style=\"position:fixed!important\">",
+    "valid": false
+  },
+  {
+    "name": "position:var(--pos)",
+    "html": "<input name=\"n\" style=\"position:var(--pos)\">",
+    "valid": false
+  },
+  {
+    "name": "color:url(x)",
+    "html": "<input name=\"n\" style=\"color:url(x)\">",
+    "valid": false
+  },
+  {
+    "name": "color:u\\72l(x)",
+    "html": "<input name=\"n\" style=\"color:u\\72l(x)\">",
+    "valid": false
+  },
+  {
+    "name": "color:/**/red",
+    "html": "<input name=\"n\" style=\"color:/**/red\">",
+    "valid": false
+  },
+  {
+    "name": "width:expression(1)",
+    "html": "<input name=\"n\" style=\"width:expression(1)\">",
+    "valid": false
+  },
+  {
+    "name": "background:image-set(\"x\")",
+    "html": "<input name=\"n\" style=\"background:image-set(&quot;x&quot;)\">",
+    "valid": false
+  },
+  {
+    "name": "width:calc(1px",
+    "html": "<input name=\"n\" style=\"width:calc(1px\">",
+    "valid": false
+  },
+  {
+    "name": "color:var(--x))",
+    "html": "<input name=\"n\" style=\"color:var(--x))\">",
+    "valid": false
+  },
+  {
+    "name": "color:var (--x)",
+    "html": "<input name=\"n\" style=\"color:var (--x)\">",
+    "valid": false
+  },
+  {
+    "name": "font-family:\"unterminated",
+    "html": "<input name=\"n\" style=\"font-family:&quot;unterminated\">",
+    "valid": false
+  },
+  {
+    "name": "--x:@import",
+    "html": "<input name=\"n\" style=\"--x:@import\">",
+    "valid": false
+  },
+  {
+    "name": "background:URL(x)",
+    "html": "<input name=\"n\" style=\"background:URL(x)\">",
+    "valid": false
+  },
+  {
+    "name": "script",
+    "html": "<script></script><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "a",
+    "html": "<a></a><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "img",
+    "html": "<img></img><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "iframe",
+    "html": "<iframe></iframe><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "button",
+    "html": "<button></button><input name=\"n\">",
+    "valid": false
+  },
+  {
+    "name": "style",
+    "html": "<style></style><input name=\"n\">",
+    "valid": false
+  }
+]

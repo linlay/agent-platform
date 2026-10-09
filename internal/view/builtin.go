@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"strings"
 
+	"agent-platform/internal/formhtml"
 	"agent-platform/internal/resources"
 )
 
@@ -26,6 +27,9 @@ func BuiltinDocument(key string) (Document, error) {
 		return Document{}, err
 	}
 	page := string(html)
+	if strings.Contains(page, "/* ASK_USER_FORM_POLICY */") {
+		page = strings.ReplaceAll(page, "/* ASK_USER_FORM_POLICY */", formhtml.PolicyJSON())
+	}
 	// Shared assets are embedded inline: review pages remain offline and retain
 	// the existing CSP. Only builtin, fixed markers are expanded.
 	for _, asset := range []struct{ marker, path string }{

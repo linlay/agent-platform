@@ -17,10 +17,11 @@ input[type=checkbox],input[type=radio] { accent-color:var(--accent); margin-righ
 <script>
 (() => {
  'use strict';
- const tags = new Set('div span p h1 h2 h3 h4 label fieldset legend input textarea select option optgroup ul ol li table thead tbody tr th td br hr strong em b i small code'.split(' '));
- const attrs = new Set('name id for class style type value placeholder required disabled readonly checked selected multiple min max step minlength maxlength pattern rows cols title colspan rowspan label'.split(' '));
- const types = new Set('text number email tel url date datetime-local time checkbox radio range color hidden'.split(' '));
- const properties = new Set('display flex flex-direction flex-wrap align-items justify-content gap row-gap column-gap grid-template-columns width min-width max-width margin margin-top margin-right margin-bottom margin-left padding padding-top padding-right padding-bottom padding-left color background-color font-size font-weight line-height text-align border border-width border-style border-color border-radius'.split(' '));
+ const policy = /* ASK_USER_FORM_POLICY */;
+ const tags = new Set(policy.Tags), attrs = new Set(policy.Attrs), types = new Set(policy.Types);
+ const svgTags = new Set(policy.SVGTags), svgAttrs = new Set(policy.SVGAttrs), functions = new Set(policy.Functions), positions = new Set(policy.Positions);
+ const property = new RegExp(policy.Property), extraAttr = new RegExp(policy.ExtraAttr), forbidden = new RegExp(policy.Forbidden, 'i'), paint = new RegExp(policy.Paint);
+ const jsonBytes = value => new TextEncoder().encode(JSON.stringify(value).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')).length;
  const record = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
  const form = document.getElementById('fields'), heading = document.getElementById('heading'), error = document.getElementById('error');
  let state = null, signature = '', ready = false;
@@ -37,21 +38,49 @@ input[type=checkbox],input[type=radio] { accent-color:var(--accent); margin-righ
   if (!result.size) throw Error('No controls');
   return result;
  };
+ function safeValue(value) {
+  if (!value.trim() || forbidden.test(value)) return false;
+  let depth = 0;
+  for (let i = 0; i < value.length;) {
+   const c = value[i];
+   if (c === "'" || c === '"') {
+    const end = value.indexOf(c, i + 1); if (end < 0) return false; i = end + 1; continue;
+   }
+   const match = /^[a-zA-Z_-][a-zA-Z0-9_-]*/.exec(value.slice(i));
+   if (match) {
+    i += match[0].length;
+    if (value[i] === '(') { if (!functions.has(match[0].toLowerCase())) return false; depth++; i++; }
+    continue;
+   }
+   if (c === '(') return false;
+   if (c === ')' && --depth < 0) return false;
+   i++;
+  }
+  return depth === 0;
+ }
  function safeStyle(value) {
   return value.split(';').every(d => {
    if (!d.trim()) return true;
-   const parts = d.split(':');
-   return parts.length === 2 && properties.has(parts[0].trim().toLowerCase()) && /^[a-zA-Z0-9#%., +\-]+$/.test(parts[1].trim());
+   const colon = d.indexOf(':'); if (colon < 0) return false;
+   const key = d.slice(0, colon).trim().toLowerCase(), value = d.slice(colon + 1).trim();
+   return property.test(key) && safeValue(value) && (key !== 'position' || positions.has(value.toLowerCase().replace(/!important$/, '').trim()));
   });
  }
  function render(fragment, values) {
-  if (typeof fragment !== 'string' || new TextEncoder().encode(fragment).length > 65536) throw Error('Invalid HTML');
+  if (typeof fragment !== 'string' || new TextEncoder().encode(fragment).length > policy.maxBytes) throw Error('Invalid HTML');
   const template = document.createElement('template'); template.innerHTML = fragment;
   // Work in inert template content. Reject unsafe nodes before attaching any DOM.
   for (const element of template.content.querySelectorAll('*')) {
-   if (element.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !tags.has(element.localName)) throw Error('Unsupported tag');
+   const svg = element.namespaceURI === 'http://www.w3.org/2000/svg';
+   if (!(svg ? svgTags.has(element.localName.toLowerCase()) : element.namespaceURI === 'http://www.w3.org/1999/xhtml' && tags.has(element.localName))) throw Error('Unsupported tag');
+   if (element.parentElement?.namespaceURI === 'http://www.w3.org/2000/svg' && !svg) throw Error('Invalid namespace');
    for (const attr of element.attributes) {
-    if ((!attrs.has(attr.name) && !/^aria-[a-z-]+$/.test(attr.name)) || (attr.name === 'style' && !safeStyle(attr.value))) throw Error('Unsupported attribute');
+    const key = attr.name.toLowerCase();
+    if (attr.namespaceURI && !(key === 'xmlns' && attr.namespaceURI === 'http://www.w3.org/2000/xmlns/')) throw Error('Unsupported namespace');
+    if (!(svg ? svgAttrs : attrs).has(key) && !extraAttr.test(key)) throw Error('Unsupported attribute');
+    if (key === 'style' && !safeStyle(attr.value)) throw Error('Unsupported style');
+    if (key === 'xmlns' && attr.value !== 'http://www.w3.org/2000/svg') throw Error('Unsupported namespace');
+    if (svg && ['fill','stroke'].includes(key) && !safeValue(attr.value) && !paint.test(attr.value)) throw Error('Unsupported paint');
    }
    if (element.localName === 'input' && !types.has((element.getAttribute('type') || 'text').toLowerCase())) throw Error('Unsupported type');
   }
@@ -102,7 +131,16 @@ input[type=checkbox],input[type=radio] { accent-color:var(--accent); margin-righ
   if (data.decision === 'submit' && (!ready || !HTMLFormElement.prototype.reportValidity.call(form))) {
    parent.postMessage({type:'frontend_awaiting_invalid', runId:state.runId, awaitingId:state.awaitingId}, '*'); return;
   }
-  parent.postMessage({type:'frontend_awaiting_submit', param:{decision:data.decision === 'reject' ? 'reject' : 'approve', data:ready ? collect() : {}}}, '*');
+  const values = ready ? collect() : {};
+  if (jsonBytes(values) > policy.maxBytes && data.decision === 'submit') {
+   error.textContent = t('填写内容超过 64 KiB，请缩短内容后重新提交。', 'Form values exceed 64 KiB. Shorten the content and submit again.'); error.hidden = false;
+   parent.postMessage({type:'frontend_awaiting_invalid', runId:state.runId, awaitingId:state.awaitingId}, '*'); return;
+  }
+  error.hidden = true;
+  // Declining remains possible even when the draft exceeds the submission limit.
+  const param = {decision:data.decision === 'reject' ? 'reject' : 'approve'};
+  if (data.decision === 'submit' || (ready && jsonBytes(values) <= policy.maxBytes)) param.data = values;
+  parent.postMessage({type:'frontend_awaiting_submit', param}, '*');
  });
 })();
 </script></body></html>

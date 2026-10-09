@@ -91,6 +91,10 @@ func TestAskUserFormSubmitProtocolAndSiblingWait(t *testing.T) {
 	}
 	submit("params", []any{map[string]any{"decision": "approve", "data": map[string]any{}}}, 400)
 	submit("param", map[string]any{"decision": "approve"}, 400)
+	for _, invalid := range []any{42, true, map[string]any{}, []any{"x"}, strings.Repeat("x", 65536)} {
+		submit("param", map[string]any{"decision": "approve", "data": map[string]any{"name": invalid}}, 400)
+	}
+	submit("param", map[string]any{"decision": "reject", "reason": strings.Repeat("x", 65537)}, 400)
 	param := map[string]any{"decision": "approve", "data": map[string]any{"name": "Alice", "undeclared": "do not send to model"}}
 	submit("param", param, 200)
 	submit("param", param, 409)
