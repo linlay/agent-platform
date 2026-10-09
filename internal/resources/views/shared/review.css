@@ -2,20 +2,20 @@
 @media(prefers-color-scheme:dark) { :root:not([data-theme=light]) { --fg:#e8eaf0; --muted:#a7aebc; --line:#3d424d; --panel:#20242b; --surface:#282d36; --accent:#b2c6ff; --warn:#f0c685; } }
 :root[data-theme=dark] { --fg:#e8eaf0; --muted:#a7aebc; --line:#3d424d; --panel:#20242b; --surface:#282d36; --accent:#b2c6ff; --warn:#f0c685; }
 * { box-sizing:border-box; } [hidden] { display:none!important; }
-body { margin:0; padding:14px 18px; overflow-wrap:anywhere; }
+body { margin:0; padding:10px 12px; overflow-wrap:anywhere; }
 main { max-width:760px; margin:auto; position:relative; }
-.review-header { display:flex; align-items:start; justify-content:space-between; gap:14px; margin-bottom:14px; }
+.review-header { display:flex; align-items:start; justify-content:space-between; gap:14px; margin-bottom:10px; }
 h1 { font-size:16px; line-height:24px; margin:0; font-weight:600; }
 button { font:inherit; cursor:pointer; }
 .text-button,.details-trigger { padding:2px 0; border:0; background:transparent; color:var(--muted); font-size:12px; }
 .details-trigger { flex-shrink:0; white-space:nowrap; }
 button:hover { color:var(--accent); } button:focus-visible,pre:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
-.target { margin:-6px 0 16px; font-size:13px; color:var(--muted); }
+.target { margin:-4px 0 10px; font-size:13px; color:var(--muted); }
 .target-copy { line-height:21px; }.target-copy.collapsed { -webkit-line-clamp:2; }
 .copy { white-space:pre-wrap; min-width:0; line-height:1.7; }
 .copy.collapsed { -webkit-line-clamp:6; }.collapsed { display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden; }
 .expand-button { color:var(--accent); margin-top:6px; }
-.row { padding:11px 0; border-top:1px solid var(--line); display:grid; grid-template-columns:minmax(80px,22%) minmax(0,1fr); gap:12px; }
+.row { padding:8px 0; border-top:1px solid var(--line); display:grid; grid-template-columns:minmax(80px,22%) minmax(0,1fr); gap:12px; }
 .compare-row { display:grid; grid-template-columns:88px minmax(0,1fr) 18px minmax(0,1fr); gap:12px; align-items:start; }
 .label,.old,.arrow { color:var(--muted); }.label { font-size:13px; }.new { font-weight:500; }.arrow { text-align:center; }
 .legend { font-size:11px; color:var(--muted); padding-bottom:8px; }.compare-row .caption { display:none; }

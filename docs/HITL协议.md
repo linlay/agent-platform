@@ -188,4 +188,6 @@ Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定
 
 ### 审阅 HTML 自适应高度
 
+单表单由 `awaitingId` 标识，`awaiting_init/awaiting_update` 不发送 `form.id` 或 `activeFormId`。尺寸桥接使用 `awaitingId` 作为高度消息的 `formId`，与 WebClient 内部单元素表单列表的 ID 一致。
+
 内置 view 加载入口为所有 HTML 统一注入 `shared/resize.js`，不依赖具体审阅组件，也不需要模板逐一接入；新增内置 HTML 自动覆盖。尺寸桥接通过 `ResizeObserver` 测量自然正文高度，在正文展开、收起、详情浮层开关或宽度变化时向宿主发送 `awaiting_resize`，包含当前 `runId`、`awaitingId`、`formId` 和 `height`（CSS 像素）。WebClient 仅接收当前 iframe 与表单对应的有限正数高度，短内容收缩，长内容受宿主整体最大高度约束并在 iframe 内滚动；不支持上报的模板保留默认尺寸。该消息只影响布局，不参与 collect、批准或拒绝。
