@@ -115,6 +115,16 @@
           "entry": "memx",
           "output": "memx",
           "sha256": "a00ac584af5398e3b55b7c8d78710ec5a911e89895905333a6c581593cbeef72"
+        },
+        "windows-amd64": {
+          "version": "0.2.0",
+          "source": "agent-platform-builtins/memx",
+          "commit": "91a0f156eb1e4d712aa1521d1d3c1a326df0cfff",
+          "path": "dist/v0.2.0/memx_v0.2.0_windows_amd64.zip",
+          "format": "zip",
+          "entry": "memx.exe",
+          "output": "memx.exe",
+          "sha256": "cf2db407d1f960a2d03b3a34aa380d7281825c26e3226a52a0846bb008189d6b"
         }
       }
     },

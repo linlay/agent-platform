@@ -152,6 +152,18 @@ func maintenancePattern(pattern string) (string, error) {
 	return strings.ReplaceAll(pattern, ",", "[,]"), nil
 }
 
+func collectionSourceMatchesWorkspace(sourcePath, workspaceRoot string) bool {
+	if !filepath.IsAbs(sourcePath) {
+		return false
+	}
+	source, err := os.Stat(sourcePath)
+	if err != nil || !source.IsDir() {
+		return false
+	}
+	workspace, err := os.Stat(workspaceRoot)
+	return err == nil && workspace.IsDir() && os.SameFile(source, workspace)
+}
+
 func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refreshJob) error {
 	l := w.library
 	current, rootErr := filepath.EvalSymlinks(l.spec.WorkspaceRoot)
@@ -222,7 +234,7 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 	} else if !os.IsNotExist(statErr) {
 		return statErr
 	}
-	if len(catalog.Collections) > 1 || (len(catalog.Collections) == 1 && (catalog.Collections[0].Name != "workspace" || filepath.Clean(catalog.Collections[0].Path) != l.spec.WorkspaceRoot)) {
+	if len(catalog.Collections) > 1 || (len(catalog.Collections) == 1 && (catalog.Collections[0].Name != "workspace" || !collectionSourceMatchesWorkspace(catalog.Collections[0].Path, l.spec.WorkspaceRoot))) {
 		return fmt.Errorf("KBX collection identity does not match Agent workspace")
 	}
 	if len(catalog.Collections) == 0 {
@@ -249,7 +261,7 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 		return err
 	}
 	var actual collection
-	if json.Unmarshal(r.Data, &actual) != nil || actual.Name != "workspace" || filepath.Clean(actual.Path) != l.spec.WorkspaceRoot || actual.Pattern != pattern || !slices.Equal(actual.Ignore, ignores) || actual.Chunking.Strategy != "window" || actual.Chunking.MaxChars != maxChars || actual.Chunking.OverlapChars != overlap {
+	if json.Unmarshal(r.Data, &actual) != nil || actual.Name != "workspace" || !collectionSourceMatchesWorkspace(actual.Path, l.spec.WorkspaceRoot) || actual.Pattern != pattern || !slices.Equal(actual.Ignore, ignores) || actual.Chunking.Strategy != "window" || actual.Chunking.MaxChars != maxChars || actual.Chunking.OverlapChars != overlap {
 		return fmt.Errorf("KBX source selection configuration was not applied")
 	}
 	args := []string{"update", "-c", "workspace", "--no-commands"}
