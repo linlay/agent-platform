@@ -6,7 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
+	"agent-platform/internal/knowledge"
 )
 
 func runtimeSystemPromptForTest(session QuerySession) string {
@@ -306,8 +306,8 @@ func TestBuildSystemPromptInjectsEmbeddedKBaseCapabilityOnce(t *testing.T) {
 		AgentName:         "Zenmi",
 		Mode:              "REACT",
 		KBaseEnabled:      true,
-		CapabilityPrompts: []string{kbase.DefaultCapabilityPrompt},
-		ToolNames:         kbase.DefaultToolNames(),
+		CapabilityPrompts: []string{knowledge.DefaultCapabilityPrompt},
+		ToolNames:         knowledge.DefaultToolNames(),
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 	if count := strings.Count(prompt, "Knowledge Base Capability"); count != 1 {
 		t.Fatalf("capability prompt count = %d, want 1; prompt=%q", count, prompt)

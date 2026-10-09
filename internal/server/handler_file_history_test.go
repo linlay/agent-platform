@@ -27,7 +27,7 @@ func TestFileHistoryEndpointReturnsRecordedSnapshots(t *testing.T) {
 
 	result, err := fixture.tools.Invoke(context.Background(), "file_write", map[string]any{
 		"filePath": filePath,
-		"content":   "hello\n",
+		"content":  "hello\n",
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invoke file_write: %v", err)
