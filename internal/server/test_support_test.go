@@ -288,7 +288,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 
 	cfg := config.Config{
-		ModePresets: map[string]config.AgentPresets{"kbase": {Tools: []string{"kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh"}}},
+		ModePresets: map[string]config.AgentPresets{"kbase": {Tools: []string{"kbase_search", "kbase_files", "kbase_read", "kbase_status"}}},
 		Server: config.ServerConfig{
 			Port: "18080",
 		},

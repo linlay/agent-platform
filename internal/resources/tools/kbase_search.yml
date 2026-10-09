@@ -87,10 +87,10 @@ inputSchema:
       description: gsearch only. Maximum relationship hops; default 2. Returned graph explanations preserve nodes, edges, and original evidence.
     pathPrefix:
       type: string
-      description: Workspace-relative directory prefix applied before recall, such as docs/. Matching is case-sensitive and respects directory boundaries.
+      description: Collection-prefixed directory prefix applied before recall, such as docs/. Matching is case-sensitive and respects directory boundaries.
     pathGlob:
       type: string
-      description: KBX glob matched against workspace-relative indexed paths. Supports *, ?, and **.
+      description: KBX glob matched against collection/relativePath indexed paths. Supports *, ?, and **.
     type:
       type: string
       description: Case-insensitive final file extension filter such as md or .pdf, applied before recall.

@@ -171,7 +171,7 @@ func TestFailedRefreshCannotExposePartiallyUpdatedIndex(t *testing.T) {
 func TestRefreshRecoversCorruptStateButRejectsSymlink(t *testing.T) {
 	s := newStorageService(t, testEngine{})
 	d := createFixture(t, s)
-	statePath := filepath.Join(s.runtimeRoot, "libraries", d.ID, "state.json")
+	statePath := filepath.Join(s.runtimeRoot, d.ID, "state.json")
 	for _, content := range []string{"{broken", "null", "{}", "{\"state\":\"unknown\"}"} {
 		if err := os.WriteFile(statePath, []byte(content), 0600); err != nil {
 			t.Fatal(err)
@@ -208,7 +208,7 @@ func TestQuarantinedIndexIsUnreadableBeforeCleanup(t *testing.T) {
 	}
 	waitState(t, s, d.ID, "ready")
 	// Simulate process death between rename and recursive cleanup.
-	trash, err := quarantineDirectory(filepath.Join(s.runtimeRoot, "libraries", d.ID))
+	trash, err := quarantineDirectory(filepath.Join(s.runtimeRoot, d.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestQuarantinedIndexIsUnreadableBeforeCleanup(t *testing.T) {
 
 func TestCreateRollsBackWhenRuntimePreparationFails(t *testing.T) {
 	s := newStorageService(t, testEngine{})
-	libraries := filepath.Join(s.runtimeRoot, "libraries")
+	libraries := s.runtimeRoot
 	if err := os.Remove(libraries); err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestPlatformCasePolicyForScopeAndRootChecks(t *testing.T) {
 	if err := validateCollections(collections); err == nil {
 		t.Fatal("case alias accepted as distinct source")
 	}
-	if !overlaps(strings.ToUpper(s.root), s.root) || !overlaps(strings.ToUpper(s.runtimeRoot), filepath.Join(s.runtimeRoot, "libraries")) {
+	if !overlaps(strings.ToUpper(s.root), s.root) || !overlaps(strings.ToUpper(s.runtimeRoot), s.runtimeRoot) {
 		t.Fatal("case alias bypassed overlap")
 	}
 	if scopeFingerprint(collections[:1]) != scopeFingerprint([]Collection{{Name: "docs", SourcePath: strings.ToUpper(source)}}) {
@@ -354,7 +354,7 @@ func TestPreflightFailureRestoresCompletedIndex(t *testing.T) {
 func TestStartupCleansOnlyGeneratedQuarantines(t *testing.T) {
 	s := newStorageService(t, testEngine{})
 	d := createFixture(t, s)
-	for _, root := range []string{s.root, filepath.Join(s.runtimeRoot, "libraries")} {
+	for _, root := range []string{s.root, s.runtimeRoot} {
 		for _, name := range []string{".deleted-docs-0123456789abcdef01234567", ".deleted-manual"} {
 			if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
 				t.Fatal(err)
@@ -367,7 +367,7 @@ func TestStartupCleansOnlyGeneratedQuarantines(t *testing.T) {
 	if _, err := New(context.Background(), s.root, s.runtimeRoot, testEngine{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, root := range []string{s.root, filepath.Join(s.runtimeRoot, "libraries")} {
+	for _, root := range []string{s.root, s.runtimeRoot} {
 		if _, err := os.Stat(filepath.Join(root, ".deleted-docs-0123456789abcdef01234567")); !os.IsNotExist(err) {
 			t.Fatal("quarantine remains", err)
 		}

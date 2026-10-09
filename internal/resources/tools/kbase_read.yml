@@ -15,7 +15,7 @@ inputSchema:
       description: Content-addressed chunkId or evidenceId returned by kbase_search, including graph edge evidenceId, or nextEvidence from a previous read. Returns that exact range. Do not combine with offset or limit.
     path:
       type: string
-      description: Workspace-relative source path.
+      description: Collection-prefixed source path.
     offset:
       type: integer
       description: One-based source line offset when reading by path.

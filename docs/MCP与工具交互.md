@@ -292,7 +292,6 @@ i18n:
 | --- | --- |
 | file_read / file_edit | addLineNumbers / replaceAll |
 | file_grep / regex | caseInsensitive、lineNumbers、multiline / caseInsensitive |
-| kbase_refresh | force |
 | workpanel_open / workpanel_close | reload / all |
 | surface_navigate / surface_screenshot / surface_evaluate | ignoreCache / fullPage / awaitPromise |
 | ask_user_question | questions[].allowFreeText、questions[].options[].recommended |

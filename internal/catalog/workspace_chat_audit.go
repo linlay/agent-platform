@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"agent-platform/internal/config"
-	"agent-platform/internal/knowledge"
 	"agent-platform/internal/rootpaths"
 )
 
@@ -69,12 +68,6 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 				findings = append(findings, workspaceChatFinding(key, "invalid_workspace_chat_config", parseErr, source.Path))
 			}
 			continue
-		}
-		if def.KBaseConfig.Enabled {
-			if separationErr := knowledge.ValidateWorkspaceChatsSeparation(def.Workspace.Root, cfg.Paths.ChatsDir); separationErr != nil {
-				findings = append(findings, workspaceChatFinding(key, "kbase_workspace_chats_overlap", separationErr, source.Path))
-				continue
-			}
 		}
 		if strings.TrimSpace(def.Workspace.Root) == "" {
 			if tools := workspaceLessPathTools(def.Tools); len(tools) > 0 {

@@ -216,7 +216,7 @@ Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 
 根 `.env.example` 现在是面向最终用户的最小启动模板，只保留以下配置：
 
 - `SERVER_PORT`
-- `AP_RUNTIME_DIR` / `AP_RUNTIME_REGISTRIES_DIR` / `AP_RUNTIME_CHATS_DIR` / `AP_RUNTIME_MEMORY_DIR` / `AP_RUNTIME_KBASE_DIR` / `AP_RUNTIME_PAN_DIR` / `AP_RUNTIME_STATE_DIR`
+- `AP_RUNTIME_DIR` / `AP_RUNTIME_REGISTRIES_DIR` / `AP_RUNTIME_CHATS_DIR` / `AP_RUNTIME_MEMORY_DIR` / `AP_RUNTIME_PAN_DIR` / `AP_RUNTIME_STATE_DIR`
 - `AP_CONTAINER_HUB_BASE_URL`
 - `AP_CHAT_RESOURCE_TICKET_SECRET`
 - `AP_DEBUG_LLM_CONSOLE`
@@ -261,7 +261,7 @@ Provider `apiKey` 按明文字符串读取：
 
 **静态配置**：`configs/` 下所有文件都只在进程启动时读取一次；修改 `configs/*.yml` 或 `configs/*.pem` 后必须重启 runtime 才会生效。
 
-KBX 抽取由受管 CLI 负责。Agent 知识库由 Platform 监听目录、后台调用 update/embed，refresh 返回可等待的 refreshId；要求受管 KBX 支持维护 JSON v1，见 [KBX 接入](docs/KBX接入.md)。配置归属与升级步骤见 [Agent 配置合并](docs/Agent配置合并.md)。
+KBX 抽取由受管 CLI 负责。共享库由 Platform 按库 ID 监听来源、后台调用 update/embed；要求受管 KBX 支持维护 JSON v1，见 [KBX 接入](docs/KBX接入.md)。配置归属与升级步骤见 [Agent 配置合并](docs/Agent配置合并.md)。
 
 本地 JWT 公钥规则：
 
@@ -323,7 +323,7 @@ make docker-up
 - 宿主机端口映射为 `${SERVER_PORT}:8080`
 - 容器内应用监听端口固定为 `8080`
 - 宿主机 runtime 根目录来自 `${AP_RUNTIME_DIR:-./runtime}`
-- `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_KBASE_DIR`、`AP_RUNTIME_PAN_DIR`、`AP_RUNTIME_STATE_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${AP_RUNTIME_DIR}` 下
+- `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_PAN_DIR`、`AP_RUNTIME_STATE_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${AP_RUNTIME_DIR}` 下
 - 容器内 runtime 根目录固定为 `/opt/runtime`，应用通过 `AP_RUNTIME_DIR=/opt/runtime` 解析子目录
 - `./configs` 只读挂载到 `/opt/configs`
 
@@ -348,7 +348,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 - `destination + mode`：覆盖非保留的默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 
-发布前运行 `make audit-workspace-chat`，只读列出旧 `working-directory`、无 Workspace 的 CODER/sandbox/KBASE、`workspaceRoot:@chat`、旧 `kbaseConfig.source`、非法 Workspace/Chats 关系和保留挂载冲突；对合法但无 Workspace 且挂载路径工具的普通 Agent，还会输出非阻断诊断，提示必须显式提供 Bash `cwd`、glob/grep `path` 和语义根路径。普通 Workspace 可以包含 ChatsRoot；KBASE Workspace 仍要求完全分离。
+发布前运行 `make audit-workspace-chat`，只读列出旧 `working-directory`、无 Workspace 的 CODER/sandbox/KBASE、`workspaceRoot:@chat`、旧 `kbaseConfig.source`、非法 Workspace/Chats 关系和保留挂载冲突；对合法但无 Workspace 且挂载路径工具的普通 Agent，还会输出非阻断诊断，提示必须显式提供 Bash `cwd`、glob/grep `path` 和语义根路径。Workspace 与库来源独立；库来源要求与 ChatsRoot 完全分离。
 
 `configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。除 `AP_CONTAINER_HUB_BASE_URL` 外，Container Hub token、environment id、超时和 sandbox 策略统一写入 `container-hub.*`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
@@ -382,11 +382,11 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-KBASE 是可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用知识库能力的专用预设，工具、技能、连接器和 memory 与其他内置类型一样完全取自 `agent.yml`，`GENERAL`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。所有 enabled KBASE 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；旧 `kbaseConfig.source` 会硬失败。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
+知识库是所有 Native Agent 可组合的公共能力，通过一个 `kbaseConfig.libraryId` 绑定中心库；Workspace 保持独立，KBASE 的 Workspace 继续用于项目展示与 editing。知识配置不隐式授予工具，详见 [智能体配置](docs/智能体配置说明.md)。
 
-KBASE 模式和普通 Agent 的知识库能力统一由受管 KBX CLI 实现，Platform 负责目录监听、异步刷新回执和重启对账。中立配置、DTO、工具处理器与引用发布位于 `internal/knowledge`；KBASE 工具、REST 和 `/healthz` 的 `kbase.sidecar` JSON 契约由该模块提供。索引范围由 scopeHash 隔离。Poppler 继续随包提供 KBX PDF 抽取及 Agent Bash 的 `pdftotext` 能力。详见 [KBX 接入](./docs/KBX接入.md)。当前检索基于抽取文本，不宣称支持图片、音频或视频语义检索。
+所有索引由库中心自动维护：目录监听、增量更新、重启和周期对账；查询保留过滤和证据协议。正文和源文件通过 Chat 已发布来源授权入口读取。普通更新可读，embedding 失败后全文降级可用。图谱自动构建及多模态语义检索未接入，详见 [KBX 接入](docs/KBX接入.md)。
 
-`kbase_search` 支持混合 query、纯全文 search、向量 vsearch 和图关系 gsearch，提供复合过滤、词法排除、时效排名与图关系遍历参数，保留可核验证据。Agent 工具仍限定自身 Workspace 索引；向量/图检索需要相应索引，Platform 尚不自动构建图谱，重排模型、中心选库及表格专用工具尚未接入。
+`kbase_search` 支持混合 query、纯全文 search、向量 vsearch 和图关系 gsearch，提供复合过滤、词法排除、时效排名与图关系遍历参数，保留可核验证据。Agent 工具限定绑定库的 collection 范围；向量/图检索需要相应索引，Platform 尚不自动构建图谱，重排模型及表格专用工具尚未接入。
 
 KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展名或 UTF-8；删除、重命名、建目录、Bash 和二进制 Office/PDF 通用写入仍不开放。目录权限由 AccessPolicy/HITL 决定，Workspace 写入由 watcher 异步索引。完整约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
 
@@ -420,7 +420,7 @@ docker compose logs -f
 
 参见 [完整文档索引](docs/README.md)，按配置、运行时、协议、权限、连接器、知识库、构建和验证分类。历史报告单列，不能作为当前能力或本轮测试通过的依据。
 
-知识库中心：配置位于 `kbases/<id>/library.yml`，持久索引与状态位于 `ru-kbases/libraries/<id>/`；后者跨重启保留，不随 `ru-agents` 清空，也不可按 `ru-*` 批量清理。旧 `kbases-center` 不再读取，模板目录不进入库操作；来源离线且索引范围仍匹配时可读取完成索引，启动刷新后的失败仍须重新更新成功才能读取。支持部署级独立知识库、多 collection 建库、手动 KBX 索引更新，以及综合/全文/向量/图召回方式选择，图谱构建尚未接通，见 [知识库中心](docs/知识库中心.md)。
+知识库配置位于 `kbases/<id>/library.yml`，索引位于持久的 `ru-kbases/<id>/`，不可随 ru-agents 清空。一个库可含多个 collection、被多个 Agent 共用；来源过滤和切块由库统一配置。有引用的库禁止删除。旧字段和旧布局需停机备份后手工调整，不自动迁移，见 [知识库中心](docs/知识库中心.md)。
 
 `builtin.task-control`（任务管理）独立提供五个 Chat 工具和两个 Automation 工具；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 

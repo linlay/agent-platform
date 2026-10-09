@@ -1261,64 +1261,26 @@ func TestAgentModeWorkspaceAdmissionMatrix(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
-	workspace := t.TempDir()
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: docs\n" +
-		"mode: KBASE\n" +
-		"modelConfig:\n" +
-		"  modelKey: mock-model\n" +
-		"runtimeConfig:\n" +
-		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
-		"kbaseConfig:\n" +
-		"  storage:\n" +
-		"    location: workspace\n" +
-		"  include:\n" +
-		"    - \"**/*.md\"\n" +
-		"  chunk:\n" +
-		"    unit: chars\n" +
-		"    maxChars: 2000\n" +
-		"    overlapChars: 100\n" +
-		"  retrieval:\n" +
-		"    topK: 3\n" +
-		"    fusion: rrf\n" +
-		"    rrfK: 48\n" +
-		"    vectorWeight: 0.6\n" +
-		"    ftsWeight: 0.4\n" +
-		"    candidateFloor: 20\n" +
-		"    candidateMultiplier: 5\n" +
-		"    candidateMax: 200\n" +
-		"memoryConfig:\n" +
-		"  enabled: true\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentDefinitionForTest(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	if def.Mode != AgentModeKBase {
-		t.Fatalf("mode = %q, want KBASE", def.Mode)
-	}
-	if len(def.Tools) != 0 || !def.MemoryEnabled {
-		t.Fatalf("capability flags must not grant tools: memory=%v tools=%v", def.MemoryEnabled, def.Tools)
-	}
-	if def.KBaseConfig.Storage.Location != "workspace" {
-		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
-	}
-	if def.KBaseConfig.Chunk.Unit != knowledge.ChunkUnitChars ||
-		def.KBaseConfig.Chunk.MaxChars != 2000 ||
-		def.KBaseConfig.Chunk.OverlapChars != 100 {
-		t.Fatalf("unexpected chunk config: %#v", def.KBaseConfig.Chunk)
-	}
-	if def.KBaseConfig.Retrieval.TopK != 3 || def.KBaseConfig.Retrieval.Fusion != knowledge.RetrievalFusionRRF ||
-		def.KBaseConfig.Retrieval.RRFK != 48 || def.KBaseConfig.Retrieval.VectorWeight != 0.6 ||
-		def.KBaseConfig.Retrieval.FTSWeight != 0.4 || def.KBaseConfig.Retrieval.CandidateFloor != 20 ||
-		def.KBaseConfig.Retrieval.CandidateMultiplier != 5 || def.KBaseConfig.Retrieval.CandidateMax != 200 {
-		t.Fatalf("unexpected retrieval config: %#v", def.KBaseConfig.Retrieval)
+func TestNativeModesBindOneLibraryWithoutImplicitTools(t *testing.T) {
+	for _, mode := range []string{"GENERAL", "CODER", "KBASE", "PLAN-EXECUTE"} {
+		t.Run(mode, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "agent.yml")
+			workspace := ""
+			if mode != "GENERAL" {
+				workspace = "runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(t.TempDir()) + "\n"
+			}
+			content := "key: docs\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" + workspace + "kbaseConfig:\n  libraryId: research\n  retrieval:\n    topK: 3\n"
+			if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			def, err := parseAgentDefinitionForTest(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !def.KBaseConfig.Enabled || def.KBaseConfig.LibraryID != "research" || def.KBaseConfig.Retrieval.TopK != 3 || len(def.Tools) != 0 {
+				t.Fatalf("%+v", def)
+			}
+		})
 	}
 }
 
@@ -1334,6 +1296,7 @@ func TestParseAgentFileRejectsInvalidKBaseRetrievalConfig(t *testing.T) {
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"kbaseConfig:\n" +
+		"  libraryId: research\n" +
 		"  retrieval:\n" +
 		"    topK: 8\n" +
 		"    vectorWeight: 0\n" +
@@ -1342,7 +1305,7 @@ func TestParseAgentFileRejectsInvalidKBaseRetrievalConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "not both zero") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.retrieval.") {
 		t.Fatalf("expected invalid KBASE retrieval config error, got %v", err)
 	}
 }
@@ -1367,72 +1330,8 @@ func TestParseAgentFileKBaseDefaultChunkUsesEstimatedTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.KBaseConfig.Chunk.Unit != knowledge.ChunkUnitEstimatedTokens ||
-		def.KBaseConfig.Chunk.MaxTokens != 1000 ||
-		def.KBaseConfig.Chunk.OverlapTokens != 100 ||
-		def.KBaseConfig.Chunk.MaxChars != 0 ||
-		def.KBaseConfig.Chunk.OverlapChars != 0 {
-		t.Fatalf("unexpected default chunk config: %#v", def.KBaseConfig.Chunk)
-	}
-}
-
-func TestParseAgentFileKBaseTokenChunkConfig(t *testing.T) {
-	workspace := t.TempDir()
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: docs\n" +
-		"mode: KBASE\n" +
-		"modelConfig:\n" +
-		"  modelKey: mock-model\n" +
-		"runtimeConfig:\n" +
-		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
-		"kbaseConfig:\n" +
-		"  chunk:\n" +
-		"    unit: estimatedTokens\n" +
-		"    maxTokens: 1200\n" +
-		"    overlapTokens: 120\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentDefinitionForTest(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	if def.KBaseConfig.Chunk.Unit != knowledge.ChunkUnitEstimatedTokens ||
-		def.KBaseConfig.Chunk.MaxTokens != 1200 ||
-		def.KBaseConfig.Chunk.OverlapTokens != 120 {
-		t.Fatalf("unexpected token chunk config: %#v", def.KBaseConfig.Chunk)
-	}
-}
-
-func TestParseAgentFileKBaseCapsChunkOverlap(t *testing.T) {
-	workspace := t.TempDir()
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: docs\n" +
-		"mode: KBASE\n" +
-		"modelConfig:\n" +
-		"  modelKey: mock-model\n" +
-		"runtimeConfig:\n" +
-		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
-		"kbaseConfig:\n" +
-		"  chunk:\n" +
-		"    unit: estimatedTokens\n" +
-		"    maxTokens: 100\n" +
-		"    overlapTokens: 100\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentDefinitionForTest(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	if def.KBaseConfig.Chunk.OverlapTokens != 20 {
-		t.Fatalf("expected overlapTokens capped to 20, got %#v", def.KBaseConfig.Chunk)
+	if def.KBaseConfig.Enabled {
+		t.Fatal("KBASE mode must not implicitly enable knowledge without libraryId")
 	}
 }
 
@@ -1484,11 +1383,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	if !def.MemoryEnabled || !def.MemoryConfig.Enabled {
 		t.Fatalf("KBASE memoryConfig must be honored, enabled=%v config=%#v", def.MemoryEnabled, def.MemoryConfig)
 	}
-	for _, include := range []string{"**/*.html", "**/*.htm", "**/*.pdf", "**/*.docx", "**/*.pptx"} {
-		if !containsString(def.KBaseConfig.Include, include) {
-			t.Fatalf("expected KBASE default include to contain %s, got %#v", include, def.KBaseConfig.Include)
-		}
-	}
+
 }
 
 func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
@@ -1506,7 +1401,7 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(knowledgeDir) + "\n" +
 		"toolConfig:\n  tools:\n    - datetime\n" +
 		"kbaseConfig:\n" +
-		"  enabled: true\n" +
+		"  libraryId: research\n" +
 		""
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
@@ -1580,7 +1475,7 @@ func TestParseAgentFileRejectsRemovedKBaseSource(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.source has been removed") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.source was removed") {
 		t.Fatalf("expected removed KBASE source rejection, got %v", err)
 	}
 }
@@ -1622,7 +1517,7 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 		"mode: GENERAL\n" +
 		"modelConfig:\n  modelKey: mock-model\n" +
 		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(chatsDir) + "\n" +
-		"kbaseConfig:\n  enabled: true\n"
+		"kbaseConfig:\n  libraryId: research\n"
 	if err := os.WriteFile(filepath.Join(optionalDir, "agent.yml"), []byte(optionalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1643,7 +1538,7 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 		}
 		invalid := admin[key]
 		if invalid.Status != AdminAgentStatusInvalid || len(invalid.Diagnostics) != 1 ||
-			invalid.Diagnostics[0].Code != "invalid_kbase_workspace_overlap" {
+			invalid.Diagnostics[0].Code != "invalid_workspace_overlap" {
 			t.Fatalf("unexpected overlap diagnostic for %q: %#v", key, invalid)
 		}
 	}
@@ -1683,7 +1578,7 @@ func TestFlatAgentRejectsRelativeKBaseWorkspace(t *testing.T) {
 	agentsDir := t.TempDir()
 	content := "key: flat\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n" +
 		"runtimeConfig:\n  workspaceRoot: ./knowledge\n" +
-		"kbaseConfig:\n  enabled: true\n"
+		"kbaseConfig:\n  libraryId: research\n"
 	if err := os.WriteFile(filepath.Join(agentsDir, "flat.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
@@ -1699,30 +1594,20 @@ func TestFlatAgentRejectsRelativeKBaseWorkspace(t *testing.T) {
 	}
 }
 
-func TestOrdinaryAgentKBaseEnablementIsExplicitAndModeLimited(t *testing.T) {
-	workspaceRoot := filepath.ToSlash(t.TempDir())
-	base := "modelConfig:\n  modelKey: mock-model\n"
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{name: "missing enabled", content: "key: react\nmode: GENERAL\n" + base + "kbaseConfig:\n  tags:\n    - docs\n", want: "enabled must be explicitly configured"},
-		{name: "enabled missing workspace", content: "key: react\nmode: GENERAL\n" + base + "kbaseConfig:\n  enabled: true\n", want: "workspaceRoot is required"},
-		{name: "ACP coder", content: "key: coder\nmode: CODER\nengine: acp\n" + base + "runtimeConfig:\n  acpBridgeId: bridge\n  workspaceRoot: " + workspaceRoot + "\n" + "kbaseConfig:\n  enabled: true\n", want: "not supported for ACP CODER"},
-		{name: "proxy", content: "key: proxy\nmode: PROXY\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for GENERAL"},
-		{name: "channel", content: "key: channel\nmode: CHANNEL\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for GENERAL"},
+func TestLibraryBindingRejectsLegacyFieldsAndNonNative(t *testing.T) {
+	for _, field := range []string{"enabled: true", "enabled: false", "storage: {}", "chunk: {}", "include: []", "embedding: {}", "tags: []"} {
+		path := filepath.Join(t.TempDir(), "agent.yml")
+		os.WriteFile(path, []byte("key: docs\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  "+field+"\n"), 0600)
+		if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "removed") {
+			t.Fatal(field, err)
+		}
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "agent.yml")
-			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("error = %v, want substring %q", err, tt.want)
-			}
-		})
+	for _, mode := range []string{"PROXY", "CHANNEL"} {
+		path := filepath.Join(t.TempDir(), "agent.yml")
+		os.WriteFile(path, []byte("key: docs\nmode: "+mode+"\nkbaseConfig:\n  libraryId: research\n"), 0600)
+		if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "native") {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -1733,7 +1618,7 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "agent.yml")
 			content := "key: attached\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" +
 				"runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n" +
-				"kbaseConfig:\n  enabled: true\n"
+				"kbaseConfig:\n  libraryId: research\n"
 			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -1750,47 +1635,6 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
-	workspaceRoot := filepath.ToSlash(t.TempDir())
-	disabledPath := filepath.Join(t.TempDir(), "disabled.yml")
-	disabled := "key: disabled\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\n" +
-		"toolConfig:\n  tools:\n    - datetime\n" +
-		"kbaseConfig:\n  enabled: false\n  retrieval:\n    topK: 12\n"
-	if err := os.WriteFile(disabledPath, []byte(disabled), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	def, err := parseAgentDefinitionForTest(disabledPath)
-	if err != nil {
-		t.Fatalf("parse disabled capability: %v", err)
-	}
-	if def.KBaseConfig.Enabled || !reflect.DeepEqual(def.Tools, []string{"datetime"}) || def.KBaseConfig.Retrieval.TopK != 12 {
-		t.Fatalf("disabled capability changed ordinary agent: %#v", def)
-	}
-
-	dedicatedPath := filepath.Join(t.TempDir(), "knowledge.yml")
-	dedicated := "key: docs\nmode: KBASE\nmodelConfig:\n  modelKey: mock-model\n" +
-		"runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n" +
-		"kbaseConfig:\n"
-	if err := os.WriteFile(dedicatedPath, []byte(dedicated), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	dedicatedDef, err := parseAgentDefinitionForTest(dedicatedPath)
-	if err != nil {
-		t.Fatalf("parse dedicated KBASE workspace: %v", err)
-	}
-	if !dedicatedDef.KBaseConfig.Enabled || dedicatedDef.KBaseRequirement != knowledge.RequirementRequired || dedicatedDef.Workspace.Root != filepath.Clean(workspaceRoot) {
-		t.Fatalf("unexpected dedicated capability: %#v", dedicatedDef.KBaseConfig)
-	}
-
-	falsePath := filepath.Join(t.TempDir(), "false.yml")
-	if err := os.WriteFile(falsePath, []byte("key: docs\nmode: KBASE\nkbaseConfig:\n  enabled: false\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := parseAgentDefinitionForTest(falsePath); err == nil || !strings.Contains(err.Error(), "cannot be false") {
-		t.Fatalf("mode KBASE enabled:false error = %v", err)
 	}
 }
 
@@ -1812,10 +1656,8 @@ func TestParseAgentFileIgnoresRemovedKBaseEmbeddingFields(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if def, err := parseAgentDefinitionForTest(path); err != nil {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "embedding was removed") {
 		t.Fatal(err)
-	} else if def.KBaseConfig.Embedding.ModelKey != "" {
-		t.Fatal("retired embedding override remained active")
 	}
 }
 
@@ -1840,7 +1682,7 @@ func TestParseAgentFileRejectsLegacyKBaseSource(t *testing.T) {
 	}
 
 	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "kbaseConfig.source has been removed") {
+	if err == nil || !strings.Contains(err.Error(), "kbaseConfig.source was removed") {
 		t.Fatalf("expected legacy KBASE source rejection, got %v", err)
 	}
 }
@@ -1855,6 +1697,7 @@ func TestParseAgentFileRejectsKBaseWithoutModelConfig(t *testing.T) {
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"kbaseConfig:\n" +
+		"  libraryId: research\n" +
 		"  retrieval:\n" +
 		"    topK: 8\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

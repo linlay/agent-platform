@@ -64,7 +64,7 @@ func TestConfigurationRuntimeSeparationAndRebuild(t *testing.T) {
 	if string(original) != string(current) {
 		t.Fatal("refresh changed configuration")
 	}
-	if _, err := os.Stat(filepath.Join(s.runtimeRoot, "libraries", d.ID, "index.sqlite")); err != nil {
+	if _, err := os.Stat(filepath.Join(s.runtimeRoot, d.ID, "index.sqlite")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(s.root, d.ID, "index.sqlite")); !os.IsNotExist(err) {
@@ -215,7 +215,7 @@ func TestOrphansAndExplicitDeletion(t *testing.T) {
 	if err != nil || len(list) != 1 || !list[0].Orphaned || list[0].State != "error" {
 		t.Fatalf("orphan not reported: %+v %v", list, err)
 	}
-	runDir := filepath.Join(s.runtimeRoot, "libraries", d.ID)
+	runDir := filepath.Join(s.runtimeRoot, d.ID)
 	if _, err := os.Stat(filepath.Join(runDir, "index.sqlite")); err != nil {
 		t.Fatal("orphan cleaned automatically", err)
 	}
@@ -238,7 +238,7 @@ func TestBothRootsAndRuntimeSymlinksAreProtected(t *testing.T) {
 		}
 	}
 	d := createFixture(t, s)
-	runDir := filepath.Join(s.runtimeRoot, "libraries", d.ID)
+	runDir := filepath.Join(s.runtimeRoot, d.ID)
 	if err := os.RemoveAll(runDir); err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +303,7 @@ func TestMissingStateAndDatabaseCannotExposeReadyIndex(t *testing.T) {
 			t.Fatal(err)
 		}
 		waitState(t, s, d.ID, "ready")
-		if err := os.Remove(filepath.Join(s.runtimeRoot, "libraries", d.ID, name)); err != nil {
+		if err := os.Remove(filepath.Join(s.runtimeRoot, d.ID, name)); err != nil {
 			t.Fatal(err)
 		}
 		loaded, err := s.Get(d.ID)

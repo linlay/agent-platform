@@ -1,6 +1,7 @@
 package kbx
 
 import (
+	"agent-platform/internal/kbasescenter"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 	"bytes"
@@ -83,9 +84,8 @@ func TestSharedModelSourceIgnoresAgentOverrideAndRetainsChunking(t *testing.T) {
 	source := &ModelConfigSource{File: filepath.Join(root, "state", "index.yml"), Registry: registry, ModelKey: "embed", Prompt: "qwen3"}
 	m := NewManager(Options{ConfigSource: source}, nil, registry)
 	spec := knowledge.DefaultConfig()
-	spec.Embedding.ModelKey = "must-never-resolve"
-	spec.Chunk = knowledge.ChunkConfig{Unit: "chars", MaxChars: 800, OverlapChars: 80}
-	raw, err := m.config(library{spec: knowledge.AgentSpec{Config: spec}}, true)
+	chunk := knowledge.ChunkConfig{Unit: "chars", MaxChars: 800, OverlapChars: 80}
+	raw, err := m.config(library{spec: knowledge.AgentSpec{Config: spec}, source: kbasescenter.Collection{Chunk: chunk}}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

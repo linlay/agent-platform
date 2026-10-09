@@ -745,12 +745,18 @@ type AdminChannelConfigSummary struct {
 	ReconnectMaxSeconds              int64  `json:"reconnectMaxSeconds,omitempty"`
 }
 
+type CreateKnowledgeLibraryRequest struct {
+	Name       string `json:"name"`
+	SourcePath string `json:"sourcePath"`
+}
+
 type CreateAgentRequest struct {
-	Key          string         `json:"key,omitempty"`
-	IsProject    bool           `json:"isProject,omitempty"`
-	Definition   map[string]any `json:"definition"`
-	SoulPrompt   *string        `json:"soulPrompt,omitempty"`
-	AgentsPrompt *string        `json:"agentsPrompt,omitempty"`
+	CreateLibrary *CreateKnowledgeLibraryRequest `json:"createLibrary,omitempty"`
+	Key           string                         `json:"key,omitempty"`
+	IsProject     bool                           `json:"isProject,omitempty"`
+	Definition    map[string]any                 `json:"definition"`
+	SoulPrompt    *string                        `json:"soulPrompt,omitempty"`
+	AgentsPrompt  *string                        `json:"agentsPrompt,omitempty"`
 }
 
 type AgentCreationDefaultsResponse struct {

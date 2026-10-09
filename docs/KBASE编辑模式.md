@@ -70,28 +70,10 @@ AccessPlan 之后按 canonical 实际目标应用 Workspace mutation gate：
 
 `file_glob/file_grep` 在所有获准目录使用相同的通用搜索规则，不对 Workspace 注入 `.md` 过滤。文件是否进入知识库由 `kbaseConfig.include/exclude` 和 extractor 独立决定；可编辑不等于可索引。
 
-## 异步索引
+## 异步索引与共享来源
 
-文件工具写入成功只表示内容已经落盘。工具结果不包含 `kbase-index` hook，也不直接调用 KBASE refresh。
+Workspace 与 library 的来源不要求包含或相等。editing 只授权 Workspace mutation；如果 Workspace 是共享库某个来源，写入会影响所有绑定 Agent，由中心按 500ms 合并及增量策略异步维护。其他 collection 不获得文件工具写授权。
 
-Platform KBX worker 监听知识库 Workspace，在 debounce 后按相对路径批次调用 KBX 维护命令，并在抽取和 embedding 前应用 `include/exclude`。当前 Chat 目录、其他 chatId 和外部目录不在该 watcher 范围内。
+写入成功不等于已进入索引；被 collection include/exclude 排除或 extractor 不支持的文件仍可保存。Agent 没有 kbase_refresh；自动维护失败由周期任务重试，也可在知识库中心手工刷新。源目录与 ChatsRoot/StateDir 的隔离由库校验负责，Workspace 继续遵守通用项目和文件权限校验。
 
-因此：
-
-- Workspace 写入成功后可能存在短暂的“已保存、尚不可检索”窗口；
-- 被索引配置排除或 extractor 不支持的文件仍可成功保存，但 watcher 会跳过；
-- 不应因为写结果没有索引状态而自动调用 `kbase_refresh`；
-- `kbase_refresh` 只在用户明确要求手工刷新，或需要从索引故障中恢复时使用。
-
-## KBASE Workspace 与 Chats 分离
-
-所有 `kbaseConfig.enabled:true` 的 Agent 在 Catalog 加载阶段都会校验 KBASE Workspace 与运行时 chats root。两者相等、互为父子或经 symlink 解析后实际重叠时：
-
-- 该 Agent 不进入运行时 Agent catalog；
-- 管理端保留 `invalid` 条目和 `invalid_kbase_workspace_overlap` 诊断；
-- 引用它的 Team 会把该成员标记为不可用，因而不能正常启动；
-- 其他 Agent 和平台进程继续运行。
-
-修正目录后，Catalog 热重载会重新执行校验并恢复准入。该检查不依赖 `editingMode`，普通 Agent 挂载 KBASE capability 时同样适用。
-
-权限回归入口：`internal/tools/kbase_editing_adversarial_test.go`、`internal/filetools/scoped_test.go`；工具集合以当前 Agent 配置及 Platform 预置为准。
+权限回归入口：`internal/tools/kbase_editing_adversarial_test.go`、`internal/filetools/scoped_test.go`。

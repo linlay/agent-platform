@@ -101,13 +101,6 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 		return err
 	}
 
-	if def.KBaseConfig.Enabled {
-		if err := knowledge.ValidateWorkspaceChatsSeparation(def.Workspace.Root, chatsDir); err != nil {
-			log.Printf("[catalog][agents] skip %s %s: KBASE workspace/chats overlap: %v", source.Kind, name, err)
-			adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_kbase_workspace_overlap", err)
-			return err
-		}
-	}
 	if strings.TrimSpace(def.Workspace.Root) != "" {
 		if err := validateAgentWorkspace(def.Workspace); err != nil {
 			log.Printf("[catalog][agents] skip %s %s: invalid workspace: %v", source.Kind, name, err)
@@ -732,9 +725,10 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		}
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
+	if value, exists := root["kbaseConfig"]; exists && value != nil && mapNode(value) == nil {
+		return def, nil, fmt.Errorf("kbaseConfig must be a mapping with libraryId")
+	}
 	kbaseConfig := mapNode(root["kbaseConfig"])
-	// Embedding is deployment-owned; ignore retired Agent overrides.
-	delete(kbaseConfig, "embedding")
 	def.KBaseConfig, err = knowledge.ParseConfig(kbaseConfig)
 	if err != nil {
 		return AgentDefinition{}, nil, err
@@ -953,30 +947,10 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 	if def == nil {
 		return nil
 	}
-	isKBaseMode := strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase)
-	_, enabledSet := raw["enabled"]
-	if isKBaseMode {
-		if enabledSet && !def.KBaseConfig.Enabled {
-			return fmt.Errorf("kbaseConfig.enabled cannot be false for mode: KBASE")
-		}
-		def.KBaseConfig.Enabled = true
-		def.KBaseRequirement = knowledge.RequirementRequired
-	} else {
-		def.KBaseRequirement = knowledge.RequirementOptional
-		if len(raw) > 0 && !enabledSet {
-			return fmt.Errorf("kbaseConfig.enabled must be explicitly configured for non-KBASE agents")
-		}
-		if def.KBaseConfig.Enabled {
-			switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
-			case AgentModeGeneral, "PLAN_EXECUTE":
-			case AgentModeCoder:
-				if AgentUsesACPCoderBackend(*def) {
-					return fmt.Errorf("kbaseConfig.enabled is not supported for ACP CODER agents")
-				}
-			default:
-				return fmt.Errorf("kbaseConfig.enabled is only supported for GENERAL, PLAN-EXECUTE, native CODER, or KBASE agents")
-			}
-		}
+	def.KBaseConfig.Enabled = def.KBaseConfig.LibraryID != ""
+	def.KBaseRequirement = knowledge.RequirementOptional
+	if def.KBaseConfig.Enabled && (def.Engine == AgentEngineACP || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode)) {
+		return fmt.Errorf("kbaseConfig.libraryId requires a native agent")
 	}
 	return nil
 }

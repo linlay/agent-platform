@@ -1,6 +1,6 @@
 //go:build !windows
 
-package kbx
+package kbasescenter
 
 import (
 	"golang.org/x/sys/unix"

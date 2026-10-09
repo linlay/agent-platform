@@ -152,8 +152,12 @@ func maintenancePattern(pattern string) (string, error) {
 	return strings.ReplaceAll(pattern, ",", "[,]"), nil
 }
 
-func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refreshJob) error {
+func (m *Manager) performRefresh(ctx context.Context, w *collectionUpdate, j *updatePaths) error {
 	l := w.library
+	name := l.collection
+	if name == "" {
+		name = "workspace"
+	}
 	current, rootErr := filepath.EvalSymlinks(l.spec.WorkspaceRoot)
 	if rootErr != nil || current != l.spec.WorkspaceRoot {
 		return fmt.Errorf("KBX source root is missing or its canonical identity changed")
@@ -162,7 +166,7 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 		return err
 	}
 	patterns := []string{}
-	for _, p := range l.spec.Config.Include {
+	for _, p := range l.source.Include {
 		v, e := maintenancePattern(p)
 		if e != nil {
 			return e
@@ -176,7 +180,7 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 		pattern = "{" + strings.Join(patterns, ",") + "}"
 	}
 	ignores := []string{".kbx-platform/**"}
-	for _, p := range l.spec.Config.Exclude {
+	for _, p := range l.source.Exclude {
 		v, e := maintenancePattern(p)
 		if e != nil {
 			return e
@@ -185,6 +189,9 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 	}
 	// Runtime/state directories may be deliberately placed inside the source root.
 	for _, root := range []string{m.options.RuntimeDir, m.options.StateDir} {
+		if root == "" {
+			continue
+		}
 		rel, e := filepath.Rel(l.spec.WorkspaceRoot, root)
 		if e == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			if rel == "." {
@@ -222,38 +229,44 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 	} else if !os.IsNotExist(statErr) {
 		return statErr
 	}
-	if len(catalog.Collections) > 1 || (len(catalog.Collections) == 1 && (catalog.Collections[0].Name != "workspace" || filepath.Clean(catalog.Collections[0].Path) != l.spec.WorkspaceRoot)) {
-		return fmt.Errorf("KBX collection identity does not match Agent workspace")
+	registered := false
+	for _, c := range catalog.Collections {
+		if c.Name == name {
+			if filepath.Clean(c.Path) != l.spec.WorkspaceRoot {
+				return fmt.Errorf("KBX source identity does not match collection")
+			}
+			registered = true
+		}
 	}
-	if len(catalog.Collections) == 0 {
-		if _, err = m.retryMaintenance(ctx, l, cfg, "collection.add", "collection", "add", l.spec.WorkspaceRoot, "--name", "workspace", "--no-index", "--pattern", pattern); err != nil {
+	if !registered {
+		if _, err = m.retryMaintenance(ctx, l, cfg, "collection.add", "collection", "add", l.spec.WorkspaceRoot, "--name", name, "--no-index", "--pattern", pattern); err != nil {
 			return err
 		}
 	}
 	// These setters have no JSON output contract. Only their exit status is used;
 	// query and compare the resulting configuration before reading any source.
-	commands := [][]string{{"collection", "set-pattern", "workspace", pattern}, append([]string{"collection", "set-ignore", "workspace"}, ignores...)}
+	commands := [][]string{{"collection", "set-pattern", name, pattern}, append([]string{"collection", "set-ignore", name}, ignores...)}
 	maxChars, overlap := 3600, 540
-	if l.spec.Config.Chunk.Unit == knowledge.ChunkUnitChars {
-		maxChars = l.spec.Config.Chunk.MaxChars
-		overlap = l.spec.Config.Chunk.OverlapChars
+	if l.source.Chunk.Unit == knowledge.ChunkUnitChars {
+		maxChars = l.source.Chunk.MaxChars
+		overlap = l.source.Chunk.OverlapChars
 	}
-	commands = append(commands, []string{"collection", "set-chunking", "workspace", "--chunk-strategy", "window", "--max-chars", strconv.Itoa(maxChars), "--overlap-chars", strconv.Itoa(overlap)})
+	commands = append(commands, []string{"collection", "set-chunking", name, "--chunk-strategy", "window", "--max-chars", strconv.Itoa(maxChars), "--overlap-chars", strconv.Itoa(overlap)})
 	for _, args := range commands {
 		if _, err = m.runner.Run(ctx, l.database, cfg, args...); err != nil {
 			return err
 		}
 	}
-	r, err = m.retryMaintenance(ctx, l, cfg, "collection.show", "collection", "show", "workspace")
+	r, err = m.retryMaintenance(ctx, l, cfg, "collection.show", "collection", "show", name)
 	if err != nil {
 		return err
 	}
 	var actual collection
-	if json.Unmarshal(r.Data, &actual) != nil || actual.Name != "workspace" || filepath.Clean(actual.Path) != l.spec.WorkspaceRoot || actual.Pattern != pattern || !slices.Equal(actual.Ignore, ignores) || actual.Chunking.Strategy != "window" || actual.Chunking.MaxChars != maxChars || actual.Chunking.OverlapChars != overlap {
+	if json.Unmarshal(r.Data, &actual) != nil || actual.Name != name || filepath.Clean(actual.Path) != l.spec.WorkspaceRoot || actual.Pattern != pattern || !slices.Equal(actual.Ignore, ignores) || actual.Chunking.Strategy != "window" || actual.Chunking.MaxChars != maxChars || actual.Chunking.OverlapChars != overlap {
 		return fmt.Errorf("KBX source selection configuration was not applied")
 	}
-	args := []string{"update", "-c", "workspace", "--no-commands"}
-	if j.receipt.Result.Scope == "paths" {
+	args := []string{"update", "-c", name, "--no-commands"}
+	if j.incremental {
 		dir, err := os.MkdirTemp("", "platform-kbx-paths-")
 		if err != nil {
 			return err
@@ -267,8 +280,6 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 		args = append(args, "--paths-from", file)
 	}
 	r, err = m.retryMaintenance(ctx, l, cfg, "update", args...)
-	applyRun(&j.receipt.Result, r)
-	w.mu.Lock()
 	if r.Index != nil {
 		s := r.Index.Selected
 		w.index = &s
@@ -276,7 +287,6 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 	if err == nil {
 		w.initialized = true
 	}
-	w.mu.Unlock()
 	if err != nil {
 		return err
 	}
@@ -291,18 +301,12 @@ func (m *Manager) performRefresh(ctx context.Context, w *libraryWorker, j *refre
 	}
 	embedding := len(models.Models.Embedding) > 0 && string(models.Models.Embedding) != "null"
 	if embedding && r.Index.Selected.Documents > 0 {
-		args = []string{"embed", "-c", "workspace", "--timeout", "30"}
-		if j.receipt.Force {
-			args = []string{"embed", "--force", "--timeout", "30"}
-		}
+		args = []string{"embed", "-c", name, "--timeout", "30"}
 		r, err = m.retryMaintenance(ctx, l, cfg, "embed", args...)
-		applyRun(&j.receipt.Result, r)
-		w.mu.Lock()
 		if r.Index != nil {
 			s := r.Index.Selected
 			w.index = &s
 		}
-		w.mu.Unlock()
 		if err != nil {
 			return err
 		}
@@ -325,24 +329,6 @@ func literalGlob(s string) string {
 		}
 	}
 	return b.String()
-}
-func applyRun(out *knowledge.RefreshResult, r maintenanceResponse) {
-	if r.Run == nil {
-		return
-	}
-	c := r.Run.Committed
-	out.ScannedFiles += r.Run.AttemptedFiles
-	out.NewFiles += c.Added
-	out.ModifiedFiles += c.Modified
-	out.DeletedFiles += c.Deleted
-	out.UnchangedFiles += c.Unchanged
-	out.ChangedFiles += c.Added + c.Modified + c.Deleted
-	out.EmbeddedChunks += c.Chunks
-	out.FailedFiles += r.Failures.Total
-	out.Failures = append(out.Failures, r.Failures.Items...)
-	if len(out.Failures) > 100 {
-		out.Failures = out.Failures[:100]
-	}
 }
 func (m *Manager) retryMaintenance(ctx context.Context, l library, cfg []byte, op string, args ...string) (maintenanceResponse, error) {
 	var r maintenanceResponse

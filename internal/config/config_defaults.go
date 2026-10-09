@@ -29,7 +29,6 @@ func defaultConfig(options LoadOptions) Config {
 		AutomationsDir:      filepath.Join(runtimeRoot, "automations"),
 		ChatsDir:            filepath.Join(runtimeRoot, "chats"),
 		MemoryDir:           filepath.Join(runtimeRoot, "memory"),
-		KBaseDir:            filepath.Join(runtimeRoot, "kbase"),
 		KBasesDir:           filepath.Join(runtimeRoot, "kbases"),
 		RUKBasesDir:         filepath.Join(runtimeRoot, "ru-kbases"),
 		PanDir:              filepath.Join(runtimeRoot, "pan"),
@@ -345,7 +344,6 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.AutomationsDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Paths.ChatsDir = filepath.Clean(c.Paths.ChatsDir)
 	c.Paths.MemoryDir = filepath.Clean(c.Paths.MemoryDir)
-	c.Paths.KBaseDir = filepath.Clean(c.Paths.KBaseDir)
 	centerDir, err := expandPathHome(c.Paths.KBasesDir, "AP_RUNTIME_DIR")
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -74,6 +75,7 @@ type App struct {
 	lspManager             *lsp.Manager
 	mcpClient              *mcp.Client
 	knowledgeManager       *kbx.Manager
+	knowledgeCenter        *kbasescenter.Service
 	memoryWorker           *memoryworker.Worker
 }
 
@@ -257,28 +259,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if _, err := kbxConfig.Snapshot(); err != nil {
 		return nil, fmt.Errorf("configure KBX: %w", err)
 	}
-	knowledgeManager := kbx.NewManager(kbx.Options{StateDir: cfg.Paths.StateDir, RuntimeDir: cfg.Paths.KBaseDir, ConfigSource: kbxConfig}, kbaseSource, modelRegistry)
+	knowledgeManager := kbx.NewManager(kbx.Options{StateDir: cfg.Paths.StateDir, ConfigSource: kbxConfig}, kbaseSource, modelRegistry)
 	if lspManager != nil {
 		runtimeToolExecutor.WithFileChangeHooks(lspManager)
-	}
-	if err := knowledgeManager.ValidateConfiguration(); err != nil {
-		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
-	}
-	startupKBaseFailures := knowledgeManager.ValidateStartupStorage()
-	startupKBaseKeys := make([]string, 0, len(startupKBaseFailures))
-	for key := range startupKBaseFailures {
-		startupKBaseKeys = append(startupKBaseKeys, key)
-	}
-	sort.Strings(startupKBaseKeys)
-	for _, key := range startupKBaseKeys {
-		cause := startupKBaseFailures[key]
-		spec, _ := kbaseSource.Agent(key)
-		if spec.Requirement == knowledge.RequirementRequired {
-			registry.InvalidateRuntimeAgent(key, "invalid_kbase_storage", cause)
-			log.Printf("[catalog][agents] isolate required KBASE agent=%s: %v", key, cause)
-			continue
-		}
-		log.Printf("[catalog][agents] optional KBASE capability degraded agent=%s: %v", key, cause)
 	}
 	log.Printf(
 		"catalog registry ready in %s (agents=%d teams=%d skills=%d tools=%d)",
@@ -310,16 +293,36 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
+	legacyRoot := filepath.Join(filepath.Dir(cfg.Paths.KBasesDir), "kbase")
+	if entries, readErr := os.ReadDir(legacyRoot); readErr == nil && len(entries) > 0 {
+		return nil, fmt.Errorf("legacy Agent indexes found at %s; stop Platform, back up and move this directory outside runtime, configure libraryId bindings and rebuild shared libraries", legacyRoot)
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		return nil, readErr
+	}
 	centerEngine := kbx.NewCenterEngineWithSource(kbxConfig)
-	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, centerEngine)
+	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, centerEngine, kbasescenter.Options{ChatsDir: cfg.Paths.ChatsDir, StateDir: cfg.Paths.StateDir, RuntimeDir: filepath.Dir(cfg.Paths.KBasesDir), References: func(id string) []string {
+		refs := []string{}
+		for _, a := range registry.AdminAgents() {
+			binding := contracts.AnyMapNode(a.Definition["kbaseConfig"])
+			if binding["libraryId"] == id {
+				refs = append(refs, a.Key)
+			}
+		}
+		sort.Strings(refs)
+		return refs
+	}})
 	if err != nil {
 		return nil, fmt.Errorf("initialize knowledge base center: %w", err)
+	}
+	knowledgeManager.BindCenter(kbasesCenter)
+	if err := kbasesCenter.Start(); err != nil {
+		return nil, err
 	}
 	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry)
 	mcpSyncCoordinator := mcp.NewSyncCoordinator(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second, notifications)
 	mcpReloader := mcp.NewRegistryReloader(mcpRegistry, mcpToolSync, mcpSyncCoordinator)
 	mcpReloader.WatchCredentials(backgroundCtx)
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcpReloader, toolExecutor, cfg.Paths.ToolsDir, notifications, knowledgeManager)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcpReloader, toolExecutor, cfg.Paths.ToolsDir, notifications)
 	registry.SetRuntimeReload(func() {
 		if backgroundCtx.Err() == nil {
 			go func() {
@@ -330,7 +333,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	})
 	reloader.AddObserver(cardReporter)
-	knowledgeManager.Start(backgroundCtx)
 	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
@@ -438,7 +440,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Prompts:                  cfg.Prompts,
 	})
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
-	sessions := runtimesession.New(runtimesession.Dependencies{Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
+	sessions := runtimesession.New(runtimesession.Dependencies{ValidateKnowledge: knowledgeManager.ValidateRun, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
 	memoryClient := memoryworker.Client{Root: cfg.Paths.MemoryDir, Timezone: cfg.Memory.Timezone, ConfigDir: filepath.Join(cfg.Paths.StateDir, "memx")}
 	memoryWorker := memoryworker.New(cfg.Memory, memoryworker.StateRoot(cfg.Paths.StateDir), chatStore,
 		memoryClient,
@@ -504,7 +506,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		DeferredAwaitings: deferredAwaitings, Proxy: server.RuntimeProxyPort{Server: srv}, ResourceTickets: srv.RuntimeResourceTickets(),
 	})
 	runtimeService.Bind(queryService)
-	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), kbase: knowledgeManager, auth: srv})
+	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), auth: srv})
 	if err := queryService.Reconcile(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
 	}
@@ -569,6 +571,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		lspManager:             lspManager,
 		mcpClient:              mcpClient,
 		knowledgeManager:       knowledgeManager,
+		knowledgeCenter:        kbasesCenter,
 		memoryWorker:           memoryWorker,
 	}, nil
 }
@@ -593,9 +596,9 @@ func (a *App) Close() error {
 		}
 		cancel()
 	}
-	if a.knowledgeManager != nil {
+	if a.knowledgeCenter != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-		if err := a.knowledgeManager.Close(ctx); err != nil {
+		if err := a.knowledgeCenter.Close(ctx); err != nil {
 			log.Printf("close KBASE manager: %v", err)
 		}
 		cancel()

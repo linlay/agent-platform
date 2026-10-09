@@ -2,41 +2,10 @@ package knowledge
 
 import "encoding/json"
 
-type RefreshOptions struct {
-	RefreshID string
-	Force     bool
-	Mode      string
-	Scope     string
-	Paths     []string
-}
-
-type RefreshResult struct {
-	FailedFiles       int               `json:"failedFiles,omitempty"`
-	Failures          []json.RawMessage `json:"failures,omitempty"`
-	RefreshID         string            `json:"refreshId"`
-	AgentKey          string            `json:"agentKey"`
-	Mode              string            `json:"mode"`
-	Status            string            `json:"status"`
-	Scope             string            `json:"scope,omitempty"`
-	CandidatePaths    int               `json:"candidatePaths,omitempty"`
-	ScannedFiles      int               `json:"scannedFiles"`
-	ChangedFiles      int               `json:"changedFiles"`
-	NewFiles          int               `json:"newFiles,omitempty"`
-	ModifiedFiles     int               `json:"modifiedFiles,omitempty"`
-	MetadataOnlyFiles int               `json:"metadataOnlyFiles,omitempty"`
-	UnchangedFiles    int               `json:"unchangedFiles,omitempty"`
-	DeletedFiles      int               `json:"deletedFiles"`
-	IndexedChunks     int               `json:"indexedChunks"`
-	EmbeddedChunks    int               `json:"embeddedChunks,omitempty"`
-	ReusedChunks      int               `json:"reusedChunks,omitempty"`
-	PendingChanges    int               `json:"pendingChanges,omitempty"`
-	Error             string            `json:"error,omitempty"`
-}
-
 type Status struct {
+	LibraryID        string            `json:"libraryId,omitempty"`
 	State            string            `json:"state,omitempty"`
 	ChunksKnown      *bool             `json:"chunksKnown,omitempty"`
-	RefreshID        string            `json:"refreshId,omitempty"`
 	AgentKey         string            `json:"agentKey"`
 	Mode             string            `json:"mode"`
 	StorageLocation  string            `json:"storageLocation"`
@@ -115,8 +84,8 @@ type SearchOptions struct {
 }
 
 type SearchResult struct {
+	LibraryID                string      `json:"libraryId,omitempty"`
 	Method                   string      `json:"method,omitempty"`
-	RefreshID                string      `json:"refreshId,omitempty"`
 	RetrievalChannels        []string    `json:"retrievalChannels,omitempty"`
 	OptionalUnavailable      []string    `json:"optionalUnavailable,omitempty"`
 	Engine                   string      `json:"engine,omitempty"`
@@ -135,6 +104,7 @@ type SearchResult struct {
 }
 
 type SearchHit struct {
+	LibraryID  string            `json:"libraryId,omitempty"`
 	Graph      *GraphExplanation `json:"graph,omitempty"`
 	ResultID   string            `json:"resultId,omitempty"`
 	EvidenceID string            `json:"evidenceId,omitempty"`
@@ -205,6 +175,7 @@ type ReadOptions struct {
 }
 
 type ReadResult struct {
+	LibraryID    string `json:"libraryId,omitempty"`
 	HasMore      bool   `json:"hasMore,omitempty"`
 	NextEvidence string `json:"nextEvidence,omitempty"`
 	Found        bool   `json:"found"`
@@ -233,6 +204,7 @@ type FilesOptions struct {
 }
 
 type FilesResult struct {
+	LibraryID  string      `json:"libraryId,omitempty"`
 	Tool       string      `json:"tool"`
 	Mode       string      `json:"mode"`
 	Path       string      `json:"path"`

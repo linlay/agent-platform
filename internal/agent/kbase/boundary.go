@@ -7,7 +7,6 @@ const (
 	ToolFiles    = knowledge.ToolFiles
 	ToolRead     = knowledge.ToolRead
 	ToolStatus   = knowledge.ToolStatus
-	ToolRefresh  = knowledge.ToolRefresh
 	ToolDatetime = knowledge.ToolDatetime
 )
 

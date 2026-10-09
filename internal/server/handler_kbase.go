@@ -9,10 +9,6 @@ import (
 	"agent-platform/internal/timecontract"
 )
 
-type kbaseRefreshRequest struct {
-	Force bool `json:"force,omitempty"`
-}
-
 func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 	agentKey, action, ok := parseKBasePath(r.URL.Path)
 	if !ok {
@@ -46,26 +42,6 @@ func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, api.Success(status))
-	case "refresh":
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
-			writeJSON(w, http.StatusMethodNotAllowed, api.Failure(http.StatusMethodNotAllowed, "method not allowed"))
-			return
-		}
-		var req kbaseRefreshRequest
-		if r.Body != nil && r.ContentLength != 0 {
-			if err := decodeJSON(r, &req); err != nil {
-				writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid request body"))
-				return
-			}
-		}
-		result, err := s.deps.KBase.Refresh(r.Context(), agentKey, knowledge.RefreshOptions{Force: req.Force, Mode: "manual"})
-		if err != nil {
-			statusCode := kbaseErrorStatus(err)
-			writeJSON(w, statusCode, api.Failure(statusCode, kbaseErrorMessage(err)))
-			return
-		}
-		writeJSON(w, http.StatusOK, api.Success(result))
 	default:
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "not found"))
 	}

@@ -37,6 +37,7 @@ type runtimeState struct {
 	RefreshError       string `json:"refreshError,omitempty"`
 	AppliedFingerprint string `json:"appliedFingerprint,omitempty"`
 	TaskFingerprint    string `json:"taskFingerprint,omitempty"`
+	Degraded           bool   `json:"degraded,omitempty"`
 }
 
 func prepareRoot(root string) (string, error) {
@@ -117,7 +118,7 @@ func safeDirectory(root, child string, create bool) (string, error) {
 }
 
 func (s *Service) runtimeDirectory(id string, create bool) (string, error) {
-	if !idPattern.MatchString(id) {
+	if !ValidID(id) {
 		return "", ErrNotFound
 	}
 	root, err := s.librariesDirectory(create)
@@ -132,7 +133,7 @@ func (s *Service) librariesDirectory(create bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return safeDirectory(runtimeRoot, "libraries", create)
+	return runtimeRoot, nil
 }
 
 func readRegular(path string) ([]byte, os.FileInfo, error) {
@@ -233,13 +234,23 @@ func (s *Service) load(id string) (Definition, error) {
 	}
 	d.State, d.Error, d.IndexedAt = state.State, state.Error, state.IndexedAt
 	d.RefreshError = state.RefreshError
-	if (d.State == "error" || d.State == "indexing") && !s.busy[id] && state.TaskFingerprint != "" && state.TaskFingerprint != scopeFingerprint(d.Collections) {
+	d.Indexing = s.isBusy(id)
+	d.Stale = d.Indexing || state.RefreshError != ""
+	d.Degraded = state.Degraded
+	if (d.State == "error" || d.State == "indexing") && !s.isBusy(id) && state.TaskFingerprint != "" && state.TaskFingerprint != s.fingerprint(d.Collections) {
 		d.State, d.Error, d.IndexedAt = "unindexed", "", 0
 		return d, nil
 	}
 	if d.State == "indexing" {
-		if !s.busy[id] {
-			d = diagnostic(d, id, fmt.Errorf("indexing was interrupted; retry updating the index"))
+		if !s.isBusy(id) {
+			d.IndexedAt = 0
+			d.State = "error"
+			d.Error = "indexing was interrupted; automatic reconciliation will retry"
+			d.Stale = true
+			return d, nil
+		}
+		if state.AppliedFingerprint != s.fingerprint(d.Collections) {
+			d.IndexedAt = 0
 		}
 		return d, nil
 	}
@@ -248,7 +259,7 @@ func (s *Service) load(id string) (Definition, error) {
 		return d, nil
 	}
 	// Missing runtime data or changed desired scope cannot masquerade as a ready index.
-	if state.AppliedFingerprint != scopeFingerprint(d.Collections) || state.IndexedAt == 0 {
+	if state.AppliedFingerprint != s.fingerprint(d.Collections) || state.IndexedAt == 0 {
 		d.State, d.Error, d.IndexedAt = "unindexed", "", 0
 		return d, nil
 	}
@@ -277,8 +288,11 @@ func (s *Service) load(id string) (Definition, error) {
 	return d, nil
 }
 
+func (s *Service) fingerprint(collections []Collection) string {
+	return scopeFingerprint(s.effectiveCollections(collections))
+}
 func scopeFingerprint(collections []Collection) string {
-	ordered := append([]Collection(nil), collections...)
+	ordered := effectiveCollections(collections)
 	for i := range ordered {
 		ordered[i].SourcePath = pathutil.CanonicalKey(ordered[i].SourcePath)
 	}
@@ -315,6 +329,29 @@ func (s *Service) saveConfiguration(d Definition) error {
 	fmt.Fprintf(&b, "name: %s\ndescription: %s\ncollections:\n", quote(d.Name), quote(d.Description))
 	for _, c := range d.Collections {
 		fmt.Fprintf(&b, "  - name: %s\n    sourcePath: %s\n", quote(c.Name), quote(c.SourcePath))
+		for _, field := range []struct {
+			name   string
+			values []string
+		}{{"include", c.Include}, {"exclude", c.Exclude}} {
+			if field.values != nil {
+				if len(field.values) == 0 {
+					fmt.Fprintf(&b, "    %s: []\n", field.name)
+				} else {
+					fmt.Fprintf(&b, "    %s:\n", field.name)
+					for _, v := range field.values {
+						fmt.Fprintf(&b, "      - %s\n", quote(v))
+					}
+				}
+			}
+		}
+		if c.Chunk.Unit != "" {
+			fmt.Fprintf(&b, "    chunk:\n      unit: %s\n", quote(c.Chunk.Unit))
+			if c.Chunk.Unit == "chars" {
+				fmt.Fprintf(&b, "      maxChars: %d\n      overlapChars: %d\n", c.Chunk.MaxChars, c.Chunk.OverlapChars)
+			} else {
+				fmt.Fprintf(&b, "      maxTokens: %d\n      overlapTokens: %d\n", c.Chunk.MaxTokens, c.Chunk.OverlapTokens)
+			}
+		}
 	}
 	return atomicWrite(dir, "library.yml", []byte(b.String()))
 }
@@ -377,8 +414,8 @@ func (s *Service) offlineSource(c Collection) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if overlaps(canonical.Host, s.root) || overlaps(canonical.Host, s.runtimeRoot) {
-		return "", fmt.Errorf("source directory must not overlap kbases or ru-kbases")
+	if err := s.validateSource(canonical.Host); err != nil {
+		return "", err
 	}
 	return canonical.Host, nil
 }

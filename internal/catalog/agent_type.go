@@ -314,8 +314,8 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 }
 
 func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, kbaseConfig knowledge.Config, hasRuntimeSandbox bool) error {
-	if kbaseConfig.Enabled && strings.TrimSpace(workspace.Root) == "" {
-		return fmt.Errorf("runtimeConfig.workspaceRoot is required when KBASE is enabled")
+	if strings.EqualFold(mode, "KBASE") && strings.TrimSpace(workspace.Root) == "" {
+		return fmt.Errorf("runtimeConfig.workspaceRoot is required for KBASE agents")
 	}
 	if agentcoder.IsMode(mode) && strings.TrimSpace(workspace.Root) == "" {
 		return fmt.Errorf("runtimeConfig.workspaceRoot is required for CODER agents")
@@ -375,6 +375,8 @@ func ValidateOrdinaryAgentTools(tools []string) error {
 	for _, tool := range tools {
 		normalized := strings.ToLower(strings.TrimSpace(tool))
 		switch normalized {
+		case "kbase_refresh":
+			return fmt.Errorf("kbase_refresh was removed; libraries are maintained automatically; use the knowledge center for manual refresh")
 		case "memory_read", "memory_write", "memory_search", "memory_update":
 			return fmt.Errorf("%s is retired; use memx for reading and file_write/file_edit for changes", normalized)
 		}

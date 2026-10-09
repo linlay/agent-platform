@@ -43,7 +43,6 @@ inputSchema:
               - run.terminal
               - file.exists
               - file.modifiedAfter
-              - kbase.refreshTerminal
               - connector.authorizationTerminal
           runId:
             description: Target Run created by chat_start.
@@ -54,12 +53,6 @@ inputSchema:
           after:
             type: integer
             description: File modification lower bound as Unix milliseconds.
-          agentKey:
-            description: Agent owning the KBASE refresh.
-            type: string
-          refreshId:
-            description: Stable refresh operation ID returned by KBASE.
-            type: string
           connectorId:
             description: Connector mounted for the current Agent.
             type: string

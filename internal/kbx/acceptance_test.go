@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
+	"agent-platform/internal/kbasescenter"
 	"agent-platform/internal/knowledge"
 )
 
@@ -40,16 +41,28 @@ func TestRealKnowledgeBases(t *testing.T) {
 					t.Error("source files changed")
 				}
 			})
-			cfg := knowledge.DefaultConfig()
-			cfg.Enabled = true
-			// KBX supports spreadsheets; explicitly opt in for this fixture.
-			cfg.Include = append(cfg.Include, "**/*.xlsx")
-			m := NewManager(Options{RuntimeDir: t.TempDir()}, testSource{"docs": {Key: "docs", WorkspaceRoot: root, Config: cfg}}, nil)
+			m, initial := newTestManager(t)
+			id := initial.spec.Config.LibraryID
+			include := append(knowledge.DefaultIncludePatterns(), "**/*.xlsx")
+			if _, err := m.options.Center.Edit(id, kbasescenter.Input{Name: name, Collections: []kbasescenter.Collection{{Name: "workspace", SourcePath: root, Include: include}}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.options.Center.Refresh(id); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 300; i++ {
+				d, _ := m.options.Center.Get(id)
+				if d.State == "ready" {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
 			l, err := m.resolve("docs")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = os.MkdirAll(filepath.Dir(l.database), 0700); err != nil {
+			l.release()
+			if err = os.Remove(l.database); err != nil {
 				t.Fatal(err)
 			}
 			config, err := m.config(l, false)
@@ -194,7 +207,7 @@ func TestLiveChunkAndFilterContract(t *testing.T) {
 	if _, e := m.runner.Run(ctx, l.database, cfg, "collection", "add", root, "--name", "workspace"); e != nil {
 		t.Fatal(e)
 	}
-	r, e := m.Search(ctx, "docs", "needle", knowledge.SearchOptions{Limit: 5, PathPrefix: "allowed", Type: ".MD"})
+	r, e := m.Search(ctx, "docs", "needle", knowledge.SearchOptions{Limit: 5, PathPrefix: "workspace/allowed", Type: ".MD"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -203,7 +216,7 @@ func TestLiveChunkAndFilterContract(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, h := range r.Results {
-		if h.Path != "allowed/a.md" {
+		if h.Path != "workspace/allowed/a.md" {
 			t.Fatalf("prefilter escaped: %s", h.Path)
 		}
 		if seen[h.ChunkID] {
@@ -215,11 +228,11 @@ func TestLiveChunkAndFilterContract(t *testing.T) {
 			t.Fatalf("chunk evidence differs: %v", e)
 		}
 	}
-	read, e := m.Read("docs", knowledge.ReadOptions{Path: "allowed/a.md", Offset: 2, Limit: 3})
+	read, e := m.Read("docs", knowledge.ReadOptions{Path: "workspace/allowed/a.md", Offset: 2, Limit: 3})
 	if e != nil || read.StartLine != 2 || read.EndLine != 4 || !read.HasMore {
 		t.Fatalf("line pagination: %v %+v", e, read)
 	}
-	empty, e := m.Search(ctx, "docs", "needle", knowledge.SearchOptions{PathPrefix: "missing"})
+	empty, e := m.Search(ctx, "docs", "needle", knowledge.SearchOptions{PathPrefix: "workspace/missing"})
 	if e != nil || len(empty.Results) != 0 {
 		t.Fatalf("empty filter: %v %+v", e, empty)
 	}

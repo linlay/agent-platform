@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -112,7 +113,6 @@ type PathsConfig struct {
 	AutomationsDir           string
 	ChatsDir                 string
 	MemoryDir                string
-	KBaseDir                 string
 	KBasesDir                string
 	RUKBasesDir              string
 	PanDir                   string
@@ -647,6 +647,9 @@ const (
 )
 
 func Load(optionValues ...LoadOptions) (Config, error) {
+	if _, exists := os.LookupEnv("AP_RUNTIME_KBASE_DIR"); exists {
+		return Config{}, fmt.Errorf("AP_RUNTIME_KBASE_DIR was removed; use kbases/<id>/library.yml and ru-kbases/<id>")
+	}
 	options := LoadOptions{}
 	if len(optionValues) > 0 {
 		options = optionValues[0]
@@ -719,7 +722,6 @@ func validateRUAgentsDir(paths PathsConfig) error {
 		"automations-dir":       paths.AutomationsDir,
 		"chats-dir":             paths.ChatsDir,
 		"memory-dir":            paths.MemoryDir,
-		"kbase-dir":             paths.KBaseDir,
 		"kbases-dir":            paths.KBasesDir,
 		"ru-kbases-dir":         paths.RUKBasesDir,
 		"pan-dir":               paths.PanDir,

@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/kbasescenter"
 	"agent-platform/internal/knowledge"
+	"time"
 )
 
 type testSource map[string]knowledge.AgentSpec
@@ -28,22 +29,47 @@ type runFunc func(context.Context, string, []byte, ...string) ([]byte, error)
 func (f runFunc) Run(c context.Context, p string, b []byte, a ...string) ([]byte, error) {
 	return f(c, p, b, a...)
 }
+
+type readyEngine struct{}
+
+func (readyEngine) Update(_ context.Context, db string, _ []kbasescenter.Collection) error {
+	return os.WriteFile(db, nil, 0600)
+}
+func (readyEngine) Read(context.Context, string, string, string, int, ...string) (json.RawMessage, error) {
+	return nil, nil
+}
 func newTestManager(t *testing.T) (*Manager, library) {
 	t.Helper()
+	root, runtime := t.TempDir(), t.TempDir()
+	center, err := kbasescenter.New(context.Background(), t.TempDir(), runtime, readyEngine{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { center.Close(context.Background()) })
+	d, err := center.Create(kbasescenter.Input{Name: "fixture", SourcePath: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = center.Refresh(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 300; i++ {
+		d, err = center.Get(d.ID)
+		if err == nil && d.State == "ready" {
+			break
+		}
+		time.Sleep(time.Millisecond * 10)
+	}
 	cfg := knowledge.DefaultConfig()
 	cfg.Enabled = true
-	source := testSource{"docs": {Key: "docs", WorkspaceRoot: t.TempDir(), Config: cfg}}
-	m := NewManager(Options{RuntimeDir: t.TempDir()}, source, nil)
-	l, e := m.resolve("docs")
-	if e != nil {
-		t.Fatal(e)
+	cfg.LibraryID = d.ID
+	m := NewManager(Options{Center: center}, testSource{"docs": {Key: "docs", WorkspaceRoot: d.Collections[0].SourcePath, Config: cfg}}, nil)
+	l, err := m.resolve("docs")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if e = os.MkdirAll(filepath.Dir(l.database), 0700); e != nil {
-		t.Fatal(e)
-	}
-	if e = os.WriteFile(l.database, nil, 0600); e != nil {
-		t.Fatal(e)
-	}
+	l.release()
+	l.release = nil
 	return m, l
 }
 func responseJSON(value any) []byte {
@@ -68,7 +94,7 @@ func TestSearchDelegatesFiltersAndKeepsMultipleChunks(t *testing.T) {
 		return responseJSON(map[string]any{"type": "kbx.search.response", "retrievalVersion": 6, "trace": map[string]any{"resultUnit": "chunk", "degraded": true, "candidateBudgetExhausted": true}, "results": []any{map[string]any{"file": "kbx://workspace/docs/a.md", "chunk": map[string]any{"id": locator}, "evidence": map[string]any{"id": locator, "text": "first"}}, map[string]any{"file": "kbx://workspace/docs/a.md", "chunk": map[string]any{"id": strings.Replace(locator, "0-40", "40-80", 1)}, "evidence": map[string]any{"id": locator, "text": "second"}}}}), nil
 	})
 	h := knowledge.NewToolHandler(m)
-	r, e := h.Invoke(context.Background(), knowledge.ToolSearch, map[string]any{"query": "-not-a-flag", "pathPrefix": "docs", "pathGlob": "**/*.md", "type": "MD"}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", KBaseEnabled: true}})
+	r, e := h.Invoke(context.Background(), knowledge.ToolSearch, map[string]any{"query": "-not-a-flag", "pathPrefix": "workspace/docs", "pathGlob": "**/*.md", "type": "MD"}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", KBaseEnabled: true}})
 	if e != nil || r.Error != "" {
 		t.Fatalf("%v %+v", e, r)
 	}
@@ -104,30 +130,24 @@ func TestReadEvidenceAndRejectForeignCollection(t *testing.T) {
 		t.Fatal("foreign collection accepted")
 	}
 }
-func TestScopeChangeGetsDifferentIndexAndDisabledAgentFails(t *testing.T) {
+func TestWorkspaceChangeReusesLibraryAndUnboundAgentFails(t *testing.T) {
 	m, l := newTestManager(t)
-	s := m.agents.(testSource)
-	a := s["docs"]
+	source := m.agents.(testSource)
+	a := source["docs"]
 	a.WorkspaceRoot = t.TempDir()
-	s["docs"] = a
-	next, e := m.resolve("docs")
-	if e != nil || next.database == l.database {
-		t.Fatalf("scope not isolated: %v", e)
+	source["docs"] = a
+	next, err := m.resolve("docs")
+	if err != nil {
+		t.Fatal(err)
 	}
-	a.Config.Enabled = false
-	s["docs"] = a
-	if e = m.ValidateAgent("docs"); knowledge.KindOf(e) != knowledge.ErrorNotFound {
-		t.Fatalf("disabled capability exposed: %v", e)
+	next.release()
+	if next.database != l.database {
+		t.Fatal("Workspace changed library storage")
 	}
-}
-func TestRefreshRequiresStartedScheduler(t *testing.T) {
-	m, _ := newTestManager(t)
-	m.runner = runFunc(func(context.Context, string, []byte, ...string) ([]byte, error) {
-		t.Fatal("unstarted scheduler must not invoke CLI")
-		return nil, nil
-	})
-	if _, e := m.Refresh(context.Background(), "docs", knowledge.RefreshOptions{}); knowledge.KindOf(e) != knowledge.ErrorUnavailable {
-		t.Fatalf("%v", e)
+	a.Config.LibraryID = ""
+	source["docs"] = a
+	if knowledge.KindOf(m.ValidateAgent("docs")) != knowledge.ErrorNotFound {
+		t.Fatal("unbound agent accepted")
 	}
 }
 

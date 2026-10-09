@@ -23,13 +23,14 @@ type ProfileBuilder interface {
 }
 
 type Dependencies struct {
-	Profiles ProfileBuilder
-	Config   config.Config
-	Chats    chat.Store
-	Registry Catalog
-	Models   *models.ModelRegistry
-	Runs     contracts.RunManager
-	Tools    contracts.ToolExecutor
+	ValidateKnowledge func(string) error
+	Profiles          ProfileBuilder
+	Config            config.Config
+	Chats             chat.Store
+	Registry          Catalog
+	Models            *models.ModelRegistry
+	Runs              contracts.RunManager
+	Tools             contracts.ToolExecutor
 }
 
 type Builder struct{ deps Dependencies }

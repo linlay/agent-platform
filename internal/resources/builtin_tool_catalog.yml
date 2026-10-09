@@ -19,7 +19,6 @@ visibleBuiltinTools:
   - image_generate
   - kbase_files
   - kbase_read
-  - kbase_refresh
   - kbase_search
   - kbase_status
   - plan_add_tasks

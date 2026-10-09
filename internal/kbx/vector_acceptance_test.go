@@ -97,11 +97,11 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("fixture embed: %v: %s; requests=%d", err, output, requests.Load())
 	}
-	r, e := m.Search(ctx, "docs", "unseenlexicaltoken", knowledge.SearchOptions{PathPrefix: "allowed", Type: "MD"})
+	r, e := m.Search(ctx, "docs", "unseenlexicaltoken", knowledge.SearchOptions{PathPrefix: "workspace/allowed", Type: "MD"})
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(r.Results) != 1 || r.Results[0].Path != "allowed/a.md" {
+	if len(r.Results) != 1 || r.Results[0].Path != "workspace/allowed/a.md" {
 		t.Fatalf("vector prefilter: %+v", r)
 	}
 	if !strings.Contains(strings.Join(r.RetrievalChannels, ","), "vector") {
@@ -110,8 +110,8 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	if requests.Load() < 2 {
 		t.Fatal("build/query did not contact fixture provider")
 	}
-	vector, e := m.Search(ctx, "docs", "anothersemanticquestion", knowledge.SearchOptions{Method: "vsearch", PathPrefix: "allowed", Filter: "ext = md", Exclude: []string{"building"}})
-	if e != nil || len(vector.Results) != 1 || vector.Results[0].Path != "allowed/a.md" || !strings.Contains(strings.Join(vector.RetrievalChannels, ","), "vector") {
+	vector, e := m.Search(ctx, "docs", "anothersemanticquestion", knowledge.SearchOptions{Method: "vsearch", PathPrefix: "workspace/allowed", Filter: "ext = md", Exclude: []string{"building"}})
+	if e != nil || len(vector.Results) != 1 || vector.Results[0].Path != "workspace/allowed/a.md" || !strings.Contains(strings.Join(vector.RetrievalChannels, ","), "vector") {
 		t.Fatalf("strict vector search: %+v %v", vector, e)
 	}
 	source := m.agents.(testSource)
@@ -123,11 +123,13 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if otherLibrary.database == l.database {
-		t.Fatal("different libraries share storage")
+	otherLibrary.release()
+	if otherLibrary.database != l.database {
+		t.Fatal("same binding did not share storage")
 	}
+	other.Config.LibraryID = "missing"
+	source["other"] = other
 	if _, e = m.Search(ctx, "other", "alpha", knowledge.SearchOptions{}); knowledge.KindOf(e) != knowledge.ErrorUnavailable {
 		t.Fatalf("missing library borrowed another index: %v", e)
 	}
-	t.Log("ACCEPTANCE vector: model credentials/endpoint mapping, vector-only recall, prefix prefilter, and isolated library storage passed")
 }

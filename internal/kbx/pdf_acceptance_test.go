@@ -33,9 +33,9 @@ func TestLivePlatformPDFAndExistingDataPreservation(t *testing.T) {
 	}
 	// Existing unrelated files must remain untouched by maintenance.
 	sentinels := []string{
-		filepath.Join(manager.options.RuntimeDir, "docs", "control.db"),
-		filepath.Join(manager.options.RuntimeDir, "docs", "generations", "legacy", "manifest.json"),
-		filepath.Join(manager.options.RuntimeDir, "docs", "kbx", "previous-scope", "index.sqlite"),
+		filepath.Join(filepath.Dir(filepath.Dir(library.database)), "docs", "control.db"),
+		filepath.Join(filepath.Dir(filepath.Dir(library.database)), "docs", "generations", "legacy", "manifest.json"),
+		filepath.Join(filepath.Dir(filepath.Dir(library.database)), "docs", "kbx", "previous-scope", "index.sqlite"),
 	}
 	for _, path := range sentinels {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -45,23 +45,14 @@ func TestLivePlatformPDFAndExistingDataPreservation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if failures := manager.ValidateStartupStorage(); len(failures) != 0 {
-		t.Fatal(failures)
-	}
-	manager.Start(context.Background())
-	defer stopManager(t, manager)
-	refresh, err := manager.Refresh(context.Background(), "docs", knowledge.RefreshOptions{})
-	if err != nil {
+	if err := NewCenterEngine().Update(context.Background(), library.database, library.definition.Collections); err != nil {
 		t.Fatal(err)
-	}
-	if receipt := awaitRefresh(t, manager, refresh.RefreshID); receipt.Result.Status != "completed" {
-		t.Fatalf("PDF maintenance failed: %+v", receipt)
 	}
 	hits, err := manager.Search(context.Background(), "docs", "OrchardPDF", knowledge.SearchOptions{})
 	if err != nil || len(hits.Results) == 0 {
 		t.Fatalf("PDF search: %+v, %v", hits, err)
 	}
-	evidence, err := manager.Read("docs", knowledge.ReadOptions{Path: "manual.pdf", Limit: 100})
+	evidence, err := manager.Read("docs", knowledge.ReadOptions{Path: "workspace/manual.pdf", Limit: 100})
 	if err != nil || !strings.Contains(evidence.Content, "two reviewers") || !strings.Contains(evidence.Content, "second page retains evidence") {
 		t.Fatalf("PDF page evidence: %+v, %v", evidence, err)
 	}

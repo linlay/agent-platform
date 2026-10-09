@@ -74,7 +74,7 @@ func TestCenterRealSplitStorageLifecycle(t *testing.T) {
 		if err != nil || string(actual) != string(initial) {
 			t.Fatal("KBX changed desired configuration", err)
 		}
-		if _, err := os.Stat(filepath.Join(runtimeRoot, "libraries", d.ID, "index.sqlite")); err != nil {
+		if _, err := os.Stat(filepath.Join(runtimeRoot, d.ID, "index.sqlite")); err != nil {
 			t.Fatal(err)
 		}
 		if pass == 0 {

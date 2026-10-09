@@ -42,6 +42,11 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	planningModeRequested := agentbuiltin.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode)
 	// A planning Run never mutates the Workspace; editing takes effect in the
 	// Run that executes the confirmed plan, which keeps the request's editingMode.
+	if agentDef.KBaseConfig.Enabled && s.deps.ValidateKnowledge != nil {
+		if err := s.deps.ValidateKnowledge(agentDef.Key); err != nil {
+			return contracts.QuerySession{}, err
+		}
+	}
 	editingMode := agentbuiltin.KBaseEditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode) && !planningModeRequested
 	mustUseSkills, err := s.ResolveSkills(agentDef, req.MustUseSkills)
 	if err != nil {

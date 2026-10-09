@@ -153,6 +153,8 @@ func normalizeSources(input []Source) ([]Source, int) {
 
 		sources = append(sources, Source{
 			ID:             source.ID,
+			LibraryID:      source.LibraryID,
+			AgentKey:       source.AgentKey,
 			Name:           source.Name,
 			Title:          source.Title,
 			Icon:           source.Icon,

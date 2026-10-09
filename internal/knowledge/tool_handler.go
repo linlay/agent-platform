@@ -17,7 +17,6 @@ type ToolService interface {
 	Files(agentKey string, options FilesOptions) (FilesResult, error)
 	Read(agentKey string, options ReadOptions) (ReadResult, error)
 	Status(agentKey string) (Status, error)
-	Refresh(ctx context.Context, agentKey string, options RefreshOptions) (RefreshResult, error)
 }
 
 type ToolHandler struct {
@@ -29,7 +28,7 @@ func NewToolHandler(service ToolService) *ToolHandler {
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{ToolSearch, ToolFiles, ToolRead, ToolStatus, ToolRefresh}
+	return []string{ToolSearch, ToolFiles, ToolRead, ToolStatus}
 }
 
 func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
@@ -46,8 +45,6 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 		return h.invokeRead(agentKey, args)
 	case ToolStatus:
 		return h.invokeStatus(agentKey)
-	case ToolRefresh:
-		return h.invokeRefresh(ctx, agentKey, args)
 	default:
 		return contracts.ToolExecutionResult{Output: "tool not registered: " + toolName, Error: "tool_not_registered", ExitCode: -1}, nil
 	}
@@ -81,6 +78,7 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 	}
 	toolResult := kbaseStructuredResult(map[string]any{
 		"agentKey":   result.AgentKey,
+		"libraryId":  result.LibraryID,
 		"query":      result.Query,
 		"count":      result.Count,
 		"matchCount": result.MatchCount,
@@ -90,7 +88,6 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 		"results":    result.Results,
 		"stale":      result.Stale,
 		"indexing":   result.Indexing,
-		"refreshId":  result.RefreshID,
 	})
 	if result.Engine == "kbx" {
 		delete(toolResult.Structured, "matchCount")
@@ -110,6 +107,9 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 		toolResult.Output = contracts.CompactToolModelOutput(toolResult.Structured, "")
 	}
 	if sources := searchHitSources(result.Results); len(sources) > 0 {
+		for i := range sources {
+			sources[i].AgentKey = agentKey
+		}
 		publicationQuery := strings.TrimSpace(result.Query)
 		if publicationQuery == "" {
 			publicationQuery = query
@@ -143,6 +143,7 @@ func (h *ToolHandler) invokeFiles(agentKey string, args map[string]any) (contrac
 	}
 	return kbaseStructuredResult(map[string]any{
 		"tool":       result.Tool,
+		"libraryId":  result.LibraryID,
 		"mode":       result.Mode,
 		"path":       result.Path,
 		"pattern":    result.Pattern,
@@ -170,6 +171,7 @@ func (h *ToolHandler) invokeRead(agentKey string, args map[string]any) (contract
 	}
 	return kbaseStructuredResult(map[string]any{
 		"found":        result.Found,
+		"libraryId":    result.LibraryID,
 		"chunkId":      result.ChunkID,
 		"path":         result.Path,
 		"heading":      result.Heading,
@@ -193,7 +195,7 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 	}
 	payload := map[string]any{
 		"agentKey":         status.AgentKey,
-		"refreshId":        status.RefreshID,
+		"libraryId":        status.LibraryID,
 		"state":            status.State,
 		"mode":             status.Mode,
 		"storageLocation":  status.StorageLocation,
@@ -225,38 +227,6 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 		payload["error"] = status.Error
 	}
 	return kbaseStructuredResult(payload), nil
-}
-
-func (h *ToolHandler) invokeRefresh(ctx context.Context, agentKey string, args map[string]any) (contracts.ToolExecutionResult, error) {
-	result, err := h.service.Refresh(ctx, agentKey, RefreshOptions{
-		Force: toolBoolArg(args, "force"),
-		Mode:  "tool",
-	})
-	if err != nil {
-		return kbaseToolFailure(err), nil
-	}
-	return kbaseStructuredResult(map[string]any{
-		"agentKey":          result.AgentKey,
-		"refreshId":         result.RefreshID,
-		"failedFiles":       result.FailedFiles,
-		"failures":          result.Failures,
-		"mode":              result.Mode,
-		"status":            result.Status,
-		"scope":             result.Scope,
-		"candidatePaths":    result.CandidatePaths,
-		"scannedFiles":      result.ScannedFiles,
-		"changedFiles":      result.ChangedFiles,
-		"newFiles":          result.NewFiles,
-		"modifiedFiles":     result.ModifiedFiles,
-		"metadataOnlyFiles": result.MetadataOnlyFiles,
-		"unchangedFiles":    result.UnchangedFiles,
-		"deletedFiles":      result.DeletedFiles,
-		"indexedChunks":     result.IndexedChunks,
-		"embeddedChunks":    result.EmbeddedChunks,
-		"reusedChunks":      result.ReusedChunks,
-		"pendingChanges":    result.PendingChanges,
-		"error":             result.Error,
-	}), nil
 }
 
 func kbaseToolFailure(err error) contracts.ToolExecutionResult {
@@ -347,7 +317,7 @@ func searchHitSources(hits []SearchHit) []stream.Source {
 					continue
 				}
 				seen[key] = true
-				expanded = append(expanded, SearchHit{ChunkID: evidence.EvidenceID, EvidenceID: evidence.EvidenceID, Path: evidence.Path, StartLine: evidence.StartLine, EndLine: evidence.EndLine, Snippet: evidence.Content, Score: hit.Graph.BestPath.Score, MatchType: "graph", SourceType: strings.TrimPrefix(strings.ToLower(filepath.Ext(evidence.Path)), ".")})
+				expanded = append(expanded, SearchHit{LibraryID: hit.LibraryID, ChunkID: evidence.EvidenceID, EvidenceID: evidence.EvidenceID, Path: evidence.Path, StartLine: evidence.StartLine, EndLine: evidence.EndLine, Snippet: evidence.Content, Score: hit.Graph.BestPath.Score, MatchType: "graph", SourceType: strings.TrimPrefix(strings.ToLower(filepath.Ext(evidence.Path)), ".")})
 			}
 		}
 	}
@@ -375,6 +345,9 @@ func searchHitSources(hits []SearchHit) []stream.Source {
 	sources := make([]stream.Source, 0, len(normalizedHits))
 	for index, hit := range normalizedHits {
 		key := hit.Path
+		if hit.LibraryID != "" {
+			key = hit.LibraryID + "/" + key
+		}
 		if key == "" {
 			key = hit.ChunkID
 		}
@@ -397,7 +370,8 @@ func searchHitSources(hits []SearchHit) []stream.Source {
 				Name:           name,
 				Title:          title,
 				Icon:           DefaultIconName,
-				CollectionName: Mode,
+				CollectionName: strings.SplitN(hit.Path, "/", 2)[0],
+				LibraryID:      hit.LibraryID,
 			})
 			sourceIndex = len(sources) - 1
 			sourceIndexes[key] = sourceIndex

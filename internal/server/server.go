@@ -46,9 +46,7 @@ import (
 type KBaseService interface {
 	ValidateAgent(agentKey string) error
 	Status(agentKey string) (knowledge.Status, error)
-	Refresh(ctx context.Context, agentKey string, options knowledge.RefreshOptions) (knowledge.RefreshResult, error)
 	ProbeRuntime(ctx context.Context) (required bool, state knowledge.RuntimeState, err error)
-	ReconcileWatchers(ctx context.Context)
 }
 
 type MCPToolSyncStatusProvider interface {

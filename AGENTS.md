@@ -8,7 +8,7 @@
 
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
-Memory 由 Platform worker 调用 memx 维护分层 Agent daily/summary 与总体 summary（agents→summarize→consolidate），预算使用 memory.summary.global/agent；旧 worker.summary-max-chars 拒绝，分层管理 API 尚未完成；上下文由 contextConfig.tags 的 memory-global/memory-agent 独立选择，memoryConfig.enabled 仅控制采集，支持定时增量与手工日期范围任务（独立进度、配置模型）；知识库通过受管 KBX CLI 读取和维护，Platform 管理目录监听、异步刷新回执与重启对账。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
+Memory 由 Platform worker 调用 memx 维护分层 Agent daily/summary 与总体 summary（agents→summarize→consolidate），预算使用 memory.summary.global/agent；旧 worker.summary-max-chars 拒绝，分层管理 API 尚未完成；上下文由 contextConfig.tags 的 memory-global/memory-agent 独立选择，memoryConfig.enabled 仅控制采集，支持定时增量与手工日期范围任务（独立进度、配置模型）；知识库通过受管 KBX CLI 读取和维护，Platform 管理目录监听、库级自动维护与重启对账。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
 
 ## 2. 技术栈
 
@@ -49,7 +49,7 @@ cmd/agent-platform/main.go
 - `internal/view` 负责内置与连接器两种来源的 VIEW 定义、声明资源、模板获取与 Chat 快照，无工具执行或 HITL 决策职责；纯 VIEW 不授予 Bash/PATH。
 - `internal/platformcontrol` 维护平台控制操作；`runenvops` 是独立 run_env handler，`runenv` 保存进程内 Scope、revision、限额与幂等收据；`toolpolicy` 提供中立调度属性。
 - `internal/memory` 负责 Markdown 文件、revision 与查询，不持有知识索引；`memoryworker` 调度已完成 Chat、同步模型配置并调用 memx，不自行生成记忆文件，不依赖 Server。参见 [记忆系统](docs/记忆系统.md)。
-- `internal/kbx` 是知识库执行门面，使用受管 CLI 与 chunk/evidence 协议，Platform worker 管理监听、update/embed、刷新回执及重启对账；不运行 kbx watch。`internal/knowledge` 保存中立的 capability 配置、DTO、工具处理器、路径过滤和引用发布契约，不持有索引、存储或进程管理，不得 import agent 或 catalog。`internal/agent/kbase` 保存专用 KBASE mode 规则。对外 KBASE mode、工具、REST 和 sidecar JSON 字段由这些模块提供。参见 [KBX 接入](docs/KBX接入.md)。
+- `internal/kbx` 是知识库执行门面，使用受管 CLI 与 chunk/evidence 协议，Platform worker 按库 ID 管理监听、update/embed 和重启对账；不运行 kbx watch。`internal/knowledge` 保存中立的 capability 配置、DTO、工具处理器、路径过滤和引用发布契约，不持有索引、存储或进程管理，不得 import agent 或 catalog。`internal/agent/kbase` 保存专用 KBASE mode 规则。对外 KBASE mode、工具、REST 和 sidecar JSON 字段由这些模块提供。参见 [KBX 接入](docs/KBX接入.md)。
 - `internal/config` 负责配置装载；`httpclient` 统一出站客户端与代理，不修改全局 Transport 或进程环境，内部服务直连；代理平台限制见 [HTTP 客户端与系统代理](docs/HTTP客户端与系统代理.md)。
 - `internal/stream` 负责中立事件、dispatcher、assembler、normalizer 与 EventBus，SSE writer 归 Server；`sandbox` 负责 Container Hub 执行与挂载；`ws`、`gateway` 负责 WebSocket 控制面与反向 gateway。
 
@@ -83,7 +83,7 @@ cmd/agent-platform/main.go
 
 `docs/` 是特色能力的主说明区；当前项目事实文件 `AGENTS.md` 只保留事实总览、开发入口和专题索引。
 
-知识库中心以固定 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存期望配置，以 `ru-kbases/libraries/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启持久保留，不能跟随 `ru-agents` 启动清空或按 `ru-*` 清理。配置按请求读取，单库错误隔离，模板目录不能经库 API 修改或删除；来源离线但完成索引的范围仍匹配时可读并报告离线，启动原地刷新后的失败或中断仍禁读；刷新冻结集合指纹且只写运行状态，手工删配置保留孤儿索引并在管理端提示，显式删除两侧但保留 source。旧 `kbases-center`/`library.json` 不兼容、不迁移；现有 `kbase/` Agent 索引仍使用原路径。支持多 collection 和 query/search/vsearch/gsearch，图谱构建尚未接通，见 [知识库中心](docs/知识库中心.md)。
+知识库中心以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。所有 Native Agent 通过一个 `kbaseConfig.libraryId` 绑定库，Workspace 与来源解耦；中心按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude/chunk 纳入指纹；库删除有引用时 409。旧 Agent enabled/storage 等字段、AP_RUNTIME_KBASE_DIR、旧 libraries 层和 Agent 索引目录硬切，不自动迁移。见 [知识库中心](docs/知识库中心.md) 与 [KBX 接入](docs/KBX接入.md)。
 
 ## 5. 数据结构
 
@@ -99,7 +99,7 @@ Automation 定义目录中的 `executions.db` 是 schema V2 的旁路执行历�
 
 Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以总体 summary.md、agents/<agentKey>/summary.md 和 agents/<agentKey>/daily/YYYY-MM-DD.md 为当前 memx 内容源（管理端 daily/search 仍为旧布局，分层接入待完成）；用户资料位于 owner/OWNER.md。memx 管理收据及恢复日志，Platform worker 进度位于 `.state/memory-worker`。旧 memory.md 仅在 summary 缺失时复制并保留备份；旧数据库不迁移。
 
-KBX 索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlite`（及 KBX 配套存储）；workspace 模式用 `.kbx-platform/<agentKey>/<scopeHash>/`。启动和配置变更不得删除来源文件或其他索引范围的数据。
+KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Agent 不拥有索引。知识工具路径为 collection/relativePath，引用 ID 包含 libraryId。原文通过已发布来源的专用 Chat API 回读，不扩大 Workspace 文件权限。
 
 核心 DTO 位于 `internal/api`，包括 query、submit、steer、interrupt、chat、upload、automation、Markdown memory 等请求和响应类型。
 
@@ -115,7 +115,7 @@ KBX 索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlite`�
 - 通用运行时配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准；KBASE capability 的配置、索引/检索默认值和工具名以 `internal/knowledge` 为准，专用 KBASE mode 的 profile、prompt、创建策略和边界以 `internal/agent/kbase` 为准；CODER/TEAM 规则分别以 `internal/agent/coder`、`internal/agent/team` 为准，文档只解释和引用。
 - Agent 候选不再注入 prompt；旧 `contextConfig.agents` 与 `agents` context 标签忽略并合并为一条非阻断管理 warning（其他旧配置拒绝规则不变）。显式挂载 builtin.platform-control 后通过 catalog_query.list 发现全部公开 Agent 摘要；invocable 仅描述 agent_invoke 静态目标资格，不改变 chat_start、Automation 或 Team 授权。详见 [智能体配置](docs/智能体配置说明.md#agent-发现与旧候选配置)。
 - 共享 Skill 调度提示按用户目标和技能触发条件判断适用性；用户指令优先，技能工作流不扩大任务范围或改变交付形态。该提示约束不替代工具权限和 HITL。
-- Runtime 目录只接受 `.env` allowlist：`AP_RUNTIME_DIR` 与 `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_KBASE_DIR`、`AP_RUNTIME_PAN_DIR`、`AP_RUNTIME_STATE_DIR`。`AP_RUNTIME_STATE_DIR` 为空时使用 `<AP_RUNTIME_DIR>/.state`；其他子目录固定从 runtime 根派生，`configs/runtime.yml` 的整个 `paths` 节（包括旧迁移来源键）出现即报错。连接器管理命令仅用 `--runtime-dir` 选择部署，状态目录复用 `AP_RUNTIME_STATE_DIR`，不提供其他目录参数。
+- Runtime 目录只接受 `.env` allowlist：`AP_RUNTIME_DIR` 与 `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_PAN_DIR`、`AP_RUNTIME_STATE_DIR`。`AP_RUNTIME_STATE_DIR` 为空时使用 `<AP_RUNTIME_DIR>/.state`；其他子目录固定从 runtime 根派生，`configs/runtime.yml` 的整个 `paths` 节（包括旧迁移来源键）出现即报错。连接器管理命令仅用 `--runtime-dir` 选择部署，状态目录复用 `AP_RUNTIME_STATE_DIR`，不提供其他目录参数。
 - `.env`、真实 `configs/*.yml`、真实 `configs/*.pem`、真实 token 和私钥不得提交。
 - 工具运行时配置以 `configs/tools.yml` 为外部事实源，包含 access policy、bash 和 file tools。全平台发布共用 `configs/tools.example.yml`；工具权限支持 `@root`（Unix/macOS 根目录、Windows 当前驱动器根），full_access 默认引用它。未显式配置 Bash 命令列表时使用平台默认值。
 - `configs/tools.yml` 中的旧 YAML 路径策略键（如 `bash.allowed-paths`、`file-tools.allowed-read-paths`）会在启动阶段硬失败；Go 配置结构中的旧路径字段也已删除，目录权限统一走 `tools.access-policy`。
@@ -135,8 +135,8 @@ KBX 索引使用 `AP_RUNTIME_KBASE_DIR/<agentKey>/kbx/<scopeHash>/index.sqlite`�
 - AWCP 遵循网站手册渐进披露：固定工具 `awcp_manual` 返回目录/章节说明，章节请求携带 `section` 与 `revision`，页面通过 `surfaceId` 在 Run grant 内选择，通用 `awcp_invoke` 接收内联 `revision/action/args` 或互斥的 `paramsFile`；文件仅含这三个字段，复用 CDP 文件权限、审批和大小限制，wire 只发送解析后的 JSON。网站说明只作为工具结果，`internal/llm` 不得加入 AWCP 专属状态、动态 Schema、纠错预算或调度分支；授权页面与业务校验留在工具/Desktop/网站边界。详见 [MCP与工具交互](docs/MCP与工具交互.md)。
 - Desktop 普通 Action 白名单跟随 `desktop/src/shared/desktop-actions.ts`，排除仅限 WebApp page 的动作；相邻仓库存在时工具测试直接核对上游定义，CI 可通过 `DESKTOP_SOURCE` 指定 checkout，见 [MCP与工具交互](docs/MCP与工具交互.md)。
 - 连接器包版本由资源发布方维护；Platform 不根据来源市场或重新打包动作推断版本，不用 CLI 或 Skill 版本替代连接器版本。具体服务适配应留在连接器资源包，项目文档只描述通用契约。
-- KBASE 对外 tool/REST/`source.publish` 契约保持兼容；当前 KBX 通过 scopeHash 隔离 Workspace/include/exclude/chunk 变化，topK 与候选预算调整不得触发新索引范围。
-- `kbase_search` 支持 query/search/vsearch/gsearch，复合过滤与 Agent 范围取交集；纯全文不解析模型配置，严格向量/图检索不静默回退。图关系和边证据保留并检查来源范围；Platform 尚不自动建图，中心选库与重排模型尚未接入 Agent 工具。参数和验证边界见 [KBX 接入](docs/KBX接入.md)。
+- KBASE 只保留 search/files/read/status；Agent refresh REST、kbase_refresh 和 kbase.refreshTerminal 已删除，中心自动维护同批提供。查询预算不改变库索引范围。
+- `kbase_search` 支持 query/search/vsearch/gsearch，复合过滤与 Agent 范围取交集；纯全文不解析模型配置，严格向量/图检索不静默回退。图关系和边证据保留并检查来源范围；Platform 尚不自动建图，中心库绑定已接入，重排模型尚未接入 Agent 工具。参数和验证边界见 [KBX 接入](docs/KBX接入.md)。
 - 专用 KBASE 的 Workspace 始终是最终 canonical `runtimeConfig.workspaceRoot`，当前 Chat 目录只保存在 `ChatDir`；main/editing 两种 stage 使用 `agent.yml` 声明的同一组工具，没有固定工具集。KBASE editing 是 Workspace mutation 的 run 授权，不是 Agent 配置。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路；session 冻结的 `ScopedFilePolicy` 只负责会话工具准入、Workspace 识别、`WorkspaceMutationEnabled`、Workspace 已有文件先读后写和新文件父目录已存在，不覆盖 AccessPlan，也不限制文本扩展名或编码。`accessLevel`、hostAccess 与 HITL 按通用规则作用于 external，但不能替代 `editingMode:true`；工具集由 `agent.yml` 决定，声明了 Bash 也不能绕过未开启 editing 时的 Workspace 只读。
 - 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。
 
@@ -177,7 +177,7 @@ make test
 - `chat_start` / `chat_get_status` / `chat_interrupt` 只允许挂载 `builtin.task-control` 的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run，省略 accessLevel 时继承父 Run 受理当时的当前档位（后续不联动），显式同级或降级直接启动，显式高于父档位必须经父 Chat 的强制人工审批，并由 Runtime 在授权受理点按冻结基线消费一次性收据后才创建 Chat；`runQuery.allowAccessLevelOverride` 已移除，见 [子智能体调度](docs/子智能体调度.md)；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 Chat 工具。
 - chat 创建后 `teamId` 固定。Team 以 `teamId` 为公开 owner，`agentKey` 不得与 Team 请求或控制请求同时出现；隐藏协调器 key 只用于进程内执行，不得作为公共 Agent 身份回显。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
-- `/healthz` 通过受管 KBX CLI 探测维护能力；专用 KBASE capability 为 required，不可用时返回 503，普通 Agent 附加能力为 optional，不可用时仍返回 200 并报告 degraded。`data.kbase.sidecar` 名称及 RuntimeState 的 JSON 字段保持稳定。
+- `/healthz` 报告 KBX 维护能力；单个库或 Agent 绑定失效不使平台返回 503，Run 与工具独立检查库是否就绪。
 - 当前 KBASE 只对文本抽取结果做 embedding/FTS；PDF/DOCX/PPTX/HTML 均是先抽取文本，不得宣称支持图片、音频或视频语义检索。
 - SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。仅在 `app.New` 启动装配期，`chats.db`、`archive.db` 的标记恰为 `0/0`，且表、列语义、约束、索引、触发器和 FTS 对象完整匹配当前 DDL 时，服务才会在事务中写入当前标记；列物理顺序不影响比较。运行期仅验证，绝不认领、迁移、删除或修复。其他标记组合或结构差异拒绝并阻止启动。KBX 数据合同由受管 CLI 校验。
 

@@ -267,7 +267,7 @@ func (s *Server) agentEditor() (editableAgentRegistry, error) {
 	return editor, nil
 }
 
-func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (api.AgentDetailResponse, error) {
+func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (response api.AgentDetailResponse, resultErr error) {
 	unlock := s.adminSources.LockAgentMutation()
 	defer unlock()
 	editor, err := s.agentEditor()
@@ -291,14 +291,28 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 	if err := catalog.NormalizeAgentReasoningConfig("agent definition", definition); err != nil {
 		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
+	committed := false
+	if req.CreateLibrary != nil {
+		var finish func(bool) error
+		definition, finish, err = s.adminSources.PrepareKnowledgeBinding(s.deps.KBasesCenter, definition, req.CreateLibrary.Name, req.CreateLibrary.SourcePath)
+		if err != nil {
+			return api.AgentDetailResponse{}, mapAgentEditError(err)
+		}
+		defer func() {
+			if cleanupErr := finish(committed); cleanupErr != nil {
+				resultErr = errors.Join(resultErr, cleanupErr)
+			}
+		}()
+	}
 	if _, err := editor.CreateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
+	committed = true
 	return s.reloadAndLoadAgent(ctx, key)
 }
 
 func validateCreateAgentDefinition(definition map[string]any) error {
-	mode, engine, err := catalog.ParseAgentModeAndEngine(stringValue(definition["mode"]), stringValue(definition["engine"]))
+	_, engine, err := catalog.ParseAgentModeAndEngine(stringValue(definition["mode"]), stringValue(definition["engine"]))
 	if err != nil {
 		return err
 	}
@@ -319,9 +333,6 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 		}
 	} else if acpBridgeID != "" {
 		return fmt.Errorf("runtimeConfig.acpBridgeId requires engine: acp")
-	}
-	if mode != catalog.AgentModeKBase {
-		return nil
 	}
 	return knowledge.ValidateConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
 }

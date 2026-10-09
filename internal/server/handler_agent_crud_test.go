@@ -17,7 +17,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
-	"agent-platform/internal/knowledge"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -370,7 +369,8 @@ func TestAgentCreateKBaseGeneratesKeyAndName(t *testing.T) {
 		t.Fatalf("KBASE creation must write its tools explicitly, got %#v", created.Definition["toolConfig"])
 	}
 	for _, tool := range []string{"file_read", "file_edit", "kbase_search"} {
-		if !slices.Contains(created.Tools, tool) {
+		loaded, _ := fixture.registry.AgentDefinition(created.Key)
+		if !slices.Contains(loaded.Tools, tool) {
 			t.Fatalf("created KBASE agent is missing %s: %#v", tool, created.Tools)
 		}
 	}
@@ -477,11 +477,10 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected created kbase agent in registry")
 	}
-	if def.KBaseConfig.Chunk.Unit != knowledge.ChunkUnitEstimatedTokens ||
-		def.KBaseConfig.Chunk.MaxTokens != 1000 ||
-		def.KBaseConfig.Chunk.OverlapTokens != 100 {
-		t.Fatalf("expected created kbase to use estimated token chunk defaults, got %#v", def.KBaseConfig.Chunk)
+	if def.KBaseConfig.Enabled {
+		t.Fatal("missing libraryId must not create an Agent index")
 	}
+
 	icon, iconOk := created.Definition["icon"].(map[string]any)
 	if !iconOk || icon["name"] != "kbase" {
 		t.Fatalf("expected kbase default icon kbase, got %#v", created.Definition["icon"])
@@ -493,7 +492,7 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	}
 }
 
-func TestAgentCreateKBasePreservesExplicitModelAndChunkConfig(t *testing.T) {
+func TestAgentCreateKBasePreservesExplicitModelAndLibraryBinding(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
@@ -527,13 +526,7 @@ func TestAgentCreateKBasePreservesExplicitModelAndChunkConfig(t *testing.T) {
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},
-			"kbaseConfig": map[string]any{
-				"chunk": map[string]any{
-					"unit":          "estimatedTokens",
-					"maxTokens":     1200,
-					"overlapTokens": 120,
-				},
-			},
+			"kbaseConfig": map[string]any{"libraryId": "research"},
 		},
 	})
 	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
@@ -552,10 +545,8 @@ func TestAgentCreateKBasePreservesExplicitModelAndChunkConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected created kbase agent in registry")
 	}
-	if def.KBaseConfig.Chunk.Unit != knowledge.ChunkUnitEstimatedTokens ||
-		def.KBaseConfig.Chunk.MaxTokens != 1200 ||
-		def.KBaseConfig.Chunk.OverlapTokens != 120 {
-		t.Fatalf("expected explicit per-agent token chunk config, got %#v", def.KBaseConfig.Chunk)
+	if def.KBaseConfig.LibraryID != "research" || !def.KBaseConfig.Enabled {
+		t.Fatalf("binding: %+v", def.KBaseConfig)
 	}
 }
 
@@ -602,7 +593,7 @@ func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "kbaseConfig.embedding retired") {
+	if !strings.Contains(rec.Body.String(), "kbaseConfig.embedding was removed") {
 		t.Fatalf("expected removed embedding field error, got %s", rec.Body.String())
 	}
 }
@@ -646,7 +637,7 @@ func TestAgentCreateKBaseRejectsInvalidChunkUnit(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "kbaseConfig.chunk.unit must be estimatedTokens or chars") {
+	if !strings.Contains(rec.Body.String(), "kbaseConfig.chunk was removed") {
 		t.Fatalf("expected chunk unit error, got %s", rec.Body.String())
 	}
 }

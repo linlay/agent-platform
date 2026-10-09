@@ -2,6 +2,7 @@ package kbx
 
 import (
 	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/knowledge"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,8 +13,7 @@ import (
 	"strings"
 )
 
-// CenterEngine implements explicit manual indexing for independent libraries.
-// It is separate from the Agent capability's reconnectable-worker contract.
+// CenterEngine maintains shared libraries through the structured KBX protocol.
 type CenterEngine struct {
 	configSource *ModelConfigSource
 	runner       Runner
@@ -24,118 +24,106 @@ func NewCenterEngine() *CenterEngine { return &CenterEngine{runner: cliRunner{}}
 
 var centerConfig = []byte(`{"models":{"embedding":null,"query_expansion":null,"reranker":null,"graph_extraction":null}}`)
 
-func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbasescenter.Collection) (resultErr error) {
-	mutationStarted := false
-	defer func() {
-		if resultErr != nil && !mutationStarted {
-			resultErr = fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, resultErr)
-		}
-	}()
-	mutate := func(args ...string) ([]byte, error) {
-		out, err := e.runner.Run(ctx, db, centerConfig, args...)
-		// A command that failed to launch cannot mutate. Once any mutation command
-		// starts, later preflight/launch failures no longer prove the index untouched.
-		if err == nil || !errors.Is(err, errCommandNotStarted) {
-			mutationStarted = true
-		}
-		return out, err
-	}
+func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbasescenter.Collection) error {
+	return e.UpdatePaths(ctx, db, collections, nil)
+}
 
-	if e.configSource != nil {
-		if _, err := e.configSource.Snapshot(); err != nil {
-			return err
-		}
-	}
+// UpdatePaths uses the same structured maintenance contract as the former Agent
+// worker, now scoped to one shared database and explicit collections.
+func (e *CenterEngine) UpdatePaths(ctx context.Context, db string, collections []kbasescenter.Collection, changes map[string][]string) error {
 	if len(collections) == 0 {
 		return fmt.Errorf("at least one collection is required")
 	}
-	// Verify every source before starting any index mutation.
+	if e.configSource != nil {
+		if _, err := e.configSource.Snapshot(); err != nil {
+			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+		}
+	}
+	m := NewManager(Options{ConfigSource: e.configSource}, nil, nil)
+	m.runner = e.runner
+	if err := m.probeMaintenance(ctx); err != nil {
+		return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+	}
 	for _, c := range collections {
 		actual, err := filepath.EvalSymlinks(c.SourcePath)
 		if err != nil || actual != c.SourcePath {
-			return fmt.Errorf("collection %s: source directory is unavailable or changed identity", c.Name)
+			return fmt.Errorf("%w: collection %s source unavailable or changed", kbasescenter.ErrNotStarted, c.Name)
 		}
 		st, err := os.Stat(c.SourcePath)
 		if err != nil || !st.IsDir() {
-			return fmt.Errorf("collection %s: source directory is unavailable", c.Name)
+			return fmt.Errorf("%w: source must be a directory", kbasescenter.ErrNotStarted)
+		}
+		for _, p := range append(append([]string{}, c.Include...), c.Exclude...) {
+			if err := knowledge.ValidateSourcePattern(p); err != nil {
+				return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+			}
 		}
 	}
-	// Collection registration is checked on every retry: an interrupted initial
-	// scan can leave a valid database with an already registered collection.
-	registered := map[string]bool{}
-	wanted := map[string]bool{}
-	for _, c := range collections {
-		wanted[c.Name] = true
-	}
-	if st, err := os.Lstat(db); err == nil {
-		if !st.Mode().IsRegular() {
-			return fmt.Errorf("invalid KBX index path")
-		}
-		raw, err := e.runner.Run(ctx, db, centerConfig, "ls", "--agent")
+	// Reconcile removals/path changes before registering any collections. The
+	// service has already withdrawn old-scope reads when the fingerprint changed.
+	if _, err := os.Stat(db); err == nil {
+		l := library{database: db, spec: knowledge.AgentSpec{Config: knowledge.DefaultConfig()}}
+		cfg, err := m.config(l, true)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
 		}
-		var inventory struct {
-			Collections []struct {
-				Name string `json:"name"`
-			} `json:"collections"`
+		response, err := m.retryMaintenance(ctx, l, cfg, "collection.list", "collection", "list")
+		if err != nil {
+			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
 		}
-		if err = decodeEnvelope(raw, &inventory); err != nil {
-			return fmt.Errorf("invalid KBX collection response")
+		var old struct{ Collections []struct{ Name, Path string } }
+		if err = json.Unmarshal(response.Data, &old); err != nil {
+			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
 		}
-		for _, c := range inventory.Collections {
-			if !wanted[c.Name] {
-				if _, err := mutate("collection", "remove", c.Name); err != nil {
-					return fmt.Errorf("remove collection %s: %w", c.Name, err)
+		wanted := map[string]string{}
+		for _, c := range collections {
+			wanted[c.Name] = c.SourcePath
+		}
+		for _, c := range old.Collections {
+			if wanted[c.Name] != c.Path {
+				if _, err = e.runner.Run(ctx, db, cfg, "collection", "remove", c.Name); err != nil {
+					return err
 				}
+				changes = nil
+			}
+		}
+	}
+	var degraded error
+	for _, c := range collections {
+		if c.Include == nil {
+			c.Include = knowledge.DefaultIncludePatterns()
+		}
+		if c.Exclude == nil {
+			c.Exclude = knowledge.DefaultExcludePatterns()
+		}
+		if c.Chunk.Unit == "" {
+			c.Chunk = knowledge.DefaultChunkConfig()
+		}
+		l := library{database: db, collection: c.Name, source: c, spec: knowledge.AgentSpec{Key: c.Name, WorkspaceRoot: c.SourcePath, Config: knowledge.DefaultConfig()}}
+		w := &collectionUpdate{library: l}
+		job := &updatePaths{}
+		if changes != nil {
+			if paths, ok := changes[c.Name]; ok {
+				job.paths = paths
+				job.incremental = true
+			} else {
 				continue
 			}
-			registered[c.Name] = true
 		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	names := make([]string, 0, len(collections))
-	for _, c := range collections {
-		names = append(names, c.Name)
-		args := []string{"collection", "add", c.SourcePath, "--name", c.Name}
-		if registered[c.Name] {
-			if _, err := mutate("collection", "set-path", c.Name, c.SourcePath); err != nil {
-				return fmt.Errorf("collection %s: %w", c.Name, err)
-			}
-			args = []string{"update", "-c", c.Name, "--no-commands"}
-		}
-		out, err := mutate(args...)
+		err := m.performRefresh(ctx, w, job)
 		if err != nil {
-			return fmt.Errorf("collection %s: %w", c.Name, err)
-		}
-		if !strings.Contains(string(out), "status=complete") || strings.Contains(string(out), "status=partial") {
-			return fmt.Errorf("collection %s: KBX indexing was incomplete; inspect the source documents and retry", c.Name)
+			if !w.initialized || w.index == nil || !w.index.FullText.Ready {
+				return err
+			}
+			degraded = errors.Join(degraded, fmt.Errorf("collection %s: %w", c.Name, err))
 		}
 	}
-	if e.embedding {
-		for _, c := range collections {
-			if _, err := mutate("embed", "-c", c.Name); err != nil {
-				return fmt.Errorf("collection %s: KBX text index updated, but vector indexing failed: %w", c.Name, err)
-			}
-		}
-		raw, err := e.Read(ctx, db, "status", "", 0, names...)
-		if err != nil {
-			return err
-		}
-		var status struct {
-			Capabilities struct {
-				Vector struct {
-					Complete bool `json:"complete"`
-				} `json:"vector"`
-			} `json:"capabilities"`
-		}
-		if err = json.Unmarshal(raw, &status); err != nil || !status.Capabilities.Vector.Complete {
-			return fmt.Errorf("KBX vector indexing is incomplete")
-		}
+	if degraded != nil {
+		return &kbasescenter.ReadableFailure{Err: degraded}
 	}
 	return nil
 }
+
 func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
 	if e.configSource != nil {
 		if _, err := e.configSource.Snapshot(); err != nil {

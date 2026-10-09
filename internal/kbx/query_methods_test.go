@@ -41,7 +41,7 @@ func TestSearchMethodsRouteAndKeepPolicy(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			m, _ := newTestManager(t)
 			score, weight, days := .1, .25, 30.0
-			o := knowledge.SearchOptions{Method: method, Filter: "project = payments or ext = md", PathPrefix: "docs", Limit: 5}
+			o := knowledge.SearchOptions{Method: method, Filter: "project = payments or ext = md", PathPrefix: "workspace/docs", Limit: 5}
 			if method == "gsearch" {
 				o.Entities, o.Relations, o.Direction, o.MaxHops = []string{"--Payment"}, []string{"depends_on"}, "out", 3
 			} else {
@@ -116,7 +116,7 @@ func TestGraphEvidenceSurvivesToolAndRejectsScopeEscape(t *testing.T) {
 				t.Fatalf("lost graph or evidence range: %+v", hit)
 			}
 			evidence := hit.Graph.BestPath.Edges[0].Evidence[0]
-			if evidence.Path != "docs/a.md" || evidence.EvidenceID != locator || evidence.Content != "Payment depends on Orders" {
+			if evidence.Path != "workspace/docs/a.md" || evidence.EvidenceID != locator || evidence.Content != "Payment depends on Orders" {
 				t.Fatalf("lost graph evidence: %+v", evidence)
 			}
 			if _, ok := r.Structured["candidateBudgetExhausted"]; ok {

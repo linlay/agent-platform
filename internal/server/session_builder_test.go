@@ -239,7 +239,7 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 			"  modelKey: deepseek-v4-flash\n"+
 			"runtimeConfig:\n"+
 			"  workspaceRoot: "+filepath.ToSlash(workspace)+"\n"+
-			"kbaseConfig: {}\n",
+			"kbaseConfig:\n  libraryId: research\n",
 	), 0o644); err != nil {
 		t.Fatalf("write agent config: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	// The session uses exactly the tools the definition declares, in both
 	// main and editing stages; nothing is substituted for a KBASE agent.
 	declaredTools := []string{
-		knowledge.ToolSearch, knowledge.ToolFiles, knowledge.ToolRead, knowledge.ToolStatus, knowledge.ToolRefresh, knowledge.ToolDatetime,
+		knowledge.ToolSearch, knowledge.ToolFiles, knowledge.ToolRead, knowledge.ToolStatus, knowledge.ToolDatetime,
 		"file_read", "file_glob", "file_grep", "file_write", "file_edit", "bash",
 	}
 	def := catalog.AgentDefinition{

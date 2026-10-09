@@ -12,10 +12,7 @@ type authorizationWaitReader interface {
 	AuthorizationWaitStatus(string, string) (string, error)
 }
 type waitEventProvider struct {
-	runs  *runops.ToolHandler
-	kbase interface {
-		RefreshOperationStatus(string, string) (string, error)
-	}
+	runs *runops.ToolHandler
 	auth authorizationWaitReader
 }
 
@@ -26,12 +23,6 @@ func (p waitEventProvider) CheckWaitCondition(ctx context.Context, c contracts.W
 	switch c.Type {
 	case "run.terminal":
 		return p.runs.CheckWaitCondition(ctx, c, e)
-	case "kbase.refreshTerminal":
-		if c.AgentKey != e.Session.AgentKey {
-			return false, "", fmt.Errorf("KBASE target must belong to the current Agent")
-		}
-		status, err := p.kbase.RefreshOperationStatus(c.AgentKey, c.RefreshID)
-		return status == "completed" || status == "failed" || status == "canceled" || status == "interrupted", status, err
 	case "connector.authorizationTerminal":
 		if _, ok := e.Session.ConnectorDirs[c.ConnectorID]; !ok {
 			return false, "", fmt.Errorf("connector is not mounted for the current Agent")

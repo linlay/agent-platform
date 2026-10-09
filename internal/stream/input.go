@@ -246,6 +246,8 @@ type SourcePublish struct {
 func (SourcePublish) streamInputTag() {}
 
 type Source struct {
+	AgentKey       string        `json:"agentKey,omitempty"`
+	LibraryID      string        `json:"libraryId,omitempty"`
 	ID             string        `json:"id"`
 	Name           string        `json:"name"`
 	Title          string        `json:"title,omitempty"`

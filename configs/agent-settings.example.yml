@@ -100,7 +100,6 @@ kbase:
     - kbase_files
     - kbase_read
     - kbase_status
-    - kbase_refresh
   preset-connectors: []
   default-agent:
     # Optional default modelKey for new KBASE agents; leave empty to require explicit configuration.

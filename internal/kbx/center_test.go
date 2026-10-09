@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -54,51 +53,39 @@ func TestCenterRetrievalMethodsAndSources(t *testing.T) {
 	}
 }
 
-func TestCenterPartialRegistrationRetry(t *testing.T) {
+func TestCenterRegistrationUsesStructuredMaintenance(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "index.sqlite")
-	if err := os.WriteFile(db, []byte("fixture"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	docs, _ := filepath.EvalSymlinks(t.TempDir())
-	reports, _ := filepath.EvalSymlinks(t.TempDir())
-	collections := []kbasescenter.Collection{{Name: "docs", SourcePath: docs}, {Name: "reports", SourcePath: reports}}
-	var calls [][]string
+	source, _ := filepath.EvalSymlinks(t.TempDir())
+	f := &maintenanceFake{}
 	e := NewCenterEngine()
-	e.runner = runFunc(func(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
-		calls = append(calls, append([]string(nil), args...))
-		if args[0] == "ls" {
-			return responseJSON(map[string]any{"collections": []any{map[string]any{"name": "docs"}}}), nil
-		}
-		return []byte("status=complete"), nil
-	})
-	if err := e.Update(context.Background(), db, collections); err != nil {
+	e.runner = f
+	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "research", SourcePath: source}}); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) != 4 || !reflect.DeepEqual(calls[1], []string{"collection", "set-path", "docs", docs}) || !reflect.DeepEqual(calls[2], []string{"update", "-c", "docs", "--no-commands"}) || !reflect.DeepEqual(calls[3], []string{"collection", "add", reports, "--name", "reports"}) {
-		t.Fatalf("retry re-registered existing collection: %v", calls)
+	joined := strings.Join(f.calls, "\n")
+	for _, part := range []string{"--name research --no-index", "set-pattern research", "update -c research --no-commands"} {
+		if !strings.Contains(joined, part) {
+			t.Fatalf("missing %s in %s", part, joined)
+		}
 	}
 }
-
 func TestCenterCollectionRemovalFailure(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "index.sqlite")
-	if err := os.WriteFile(db, []byte("fixture"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	os.WriteFile(db, nil, 0600)
 	source, _ := filepath.EvalSymlinks(t.TempDir())
+	f := &maintenanceFake{collection: map[string]any{"name": "removed", "path": source}}
 	e := NewCenterEngine()
-	var calls [][]string
-	e.runner = runFunc(func(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
-		calls = append(calls, append([]string(nil), args...))
-		if args[0] == "ls" {
-			return responseJSON(map[string]any{"collections": []any{map[string]any{"name": "removed"}}}), nil
+	e.runner = runFunc(func(ctx context.Context, db string, cfg []byte, args ...string) ([]byte, error) {
+		if args[0] == "collection" && args[1] == "remove" {
+			return nil, fmt.Errorf("removal failed")
 		}
-		return nil, fmt.Errorf("removal failed")
+		if args[0] == "update" {
+			t.Fatal("continued after removal failure")
+		}
+		return f.Run(ctx, db, cfg, args...)
 	})
-	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: source}}); err == nil || !strings.Contains(err.Error(), "removal failed") {
-		t.Fatal("removal failure ignored", err)
-	}
-	if len(calls) != 2 || !reflect.DeepEqual(calls[1], []string{"collection", "remove", "removed"}) {
-		t.Fatalf("continued after failed removal: %v", calls)
+	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: source}}); err == nil || errors.Is(err, kbasescenter.ErrNotStarted) {
+		t.Fatal(err)
 	}
 }
 
@@ -286,8 +273,14 @@ func TestCenterRealMultipleCollections(t *testing.T) {
 	if err := os.WriteFile(configFile, config, 0600); err != nil {
 		t.Fatal(err)
 	}
-	e.runner, e.embedding = cliRunner{configFile: configFile}, true
+	e.runner, e.embedding = runFunc(func(ctx context.Context, db string, _ []byte, args ...string) ([]byte, error) {
+		return (cliRunner{configFile: configFile}).Run(ctx, db, config, args...)
+	}), true
+	e.configSource = nil
 	if err := e.Update(context.Background(), db, collections); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (cliRunner{configFile: configFile}).Run(context.Background(), db, config, "embed"); err != nil {
 		t.Fatal(err)
 	}
 	for _, method := range []string{"vsearch", "query"} {
@@ -380,49 +373,27 @@ func TestCenterRealCLI(t *testing.T) {
 }
 
 func TestCenterUpdateNotStartedBoundary(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		failAt int
-		launch bool
-		safe   bool
-	}{
-		{"inventory", 0, false, true}, {"first launch", 1, true, true},
-		{"first mutation", 1, false, false}, {"later launch", 2, true, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, stage := range []string{"capabilities", "collection.list", "collection.set-pattern", "update"} {
+		t.Run(stage, func(t *testing.T) {
 			db := filepath.Join(t.TempDir(), "index.sqlite")
-			if err := os.WriteFile(db, []byte("fixture"), 0600); err != nil {
+			os.WriteFile(db, nil, 0600)
+			source, _ := filepath.EvalSymlinks(t.TempDir())
+			f := &maintenanceFake{}
+			e := NewCenterEngine()
+			e.runner = runFunc(func(ctx context.Context, db string, cfg []byte, args ...string) ([]byte, error) {
+				op := args[0]
+				if op == "collection" {
+					op += "." + args[1]
+				}
+				if op == stage {
+					return nil, errors.New("fixture failure")
+				}
+				return f.Run(ctx, db, cfg, args...)
+			})
+			err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "workspace", SourcePath: source}})
+			if err == nil || errors.Is(err, kbasescenter.ErrNotStarted) != (stage == "capabilities" || stage == "collection.list") {
 				t.Fatal(err)
 			}
-			source, _ := filepath.EvalSymlinks(t.TempDir())
-			e := NewCenterEngine()
-			call := 0
-			e.runner = runFunc(func(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
-				n := call
-				call++
-				if n == tc.failAt {
-					if tc.launch {
-						return nil, errCommandNotStarted
-					}
-					return nil, errors.New("failed")
-				}
-				if args[0] == "ls" {
-					return responseJSON(map[string]any{"collections": []any{map[string]any{"name": "docs"}}}), nil
-				}
-				return []byte("status=complete"), nil
-			})
-			err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: source}})
-			if err == nil || errors.Is(err, kbasescenter.ErrNotStarted) != tc.safe {
-				t.Fatalf("boundary: %v", err)
-			}
 		})
-	}
-	e := NewCenterEngineWithSource(&ModelConfigSource{File: "relative"})
-	if err := e.Update(context.Background(), "unused", nil); !errors.Is(err, kbasescenter.ErrNotStarted) {
-		t.Fatal(err)
-	}
-	e = NewCenterEngine()
-	if err := e.Update(context.Background(), "unused", []kbasescenter.Collection{{Name: "missing", SourcePath: "/no-such-kbx-source"}}); !errors.Is(err, kbasescenter.ErrNotStarted) {
-		t.Fatal(err)
 	}
 }

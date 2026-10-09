@@ -48,9 +48,6 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Paths.RUAgentsDir != ProjectFile(filepath.Join("runtime", "ru-agents")) {
 					t.Fatalf("unexpected ru-agents dir: %q", cfg.Paths.RUAgentsDir)
 				}
-				if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
-					t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
-				}
 				if cfg.IdentityFile != ProjectFile(filepath.Join("runtime", ".state", "identity", "access-token")) {
 					t.Fatalf("unexpected default identity file: %q", cfg.IdentityFile)
 				}
@@ -312,7 +309,6 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"AP_RUNTIME_REGISTRIES_DIR":      true,
 		"AP_RUNTIME_CHATS_DIR":           true,
 		"AP_RUNTIME_MEMORY_DIR":          true,
-		"AP_RUNTIME_KBASE_DIR":           true,
 		"AP_RUNTIME_PAN_DIR":             true,
 		"AP_RUNTIME_STATE_DIR":           true,
 		"AP_CONTAINER_HUB_BASE_URL":      true,
@@ -928,7 +924,6 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_RUNTIME_CHATS_DIR":  filepath.Join("var", "custom-chats"),
 		"AP_RUNTIME_MEMORY_DIR": filepath.Join("var", "custom-memory"),
-		"AP_RUNTIME_KBASE_DIR":  filepath.Join("var", "custom-kbase"),
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -939,9 +934,6 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 		}
 		if cfg.Paths.MemoryDir != filepath.Join("var", "custom-memory") {
 			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
-		}
-		if cfg.Paths.KBaseDir != filepath.Join("var", "custom-kbase") {
-			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 		}
 		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "custom-chats") {
 			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
@@ -966,9 +958,6 @@ func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 		}
 		if cfg.Paths.MemoryDir != filepath.Join(runtimeRoot, "memory") {
 			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
-		}
-		if cfg.Paths.KBaseDir != filepath.Join(runtimeRoot, "kbase") {
-			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 		}
 		if cfg.Paths.PanDir != filepath.Join(runtimeRoot, "pan") {
 			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
@@ -1094,7 +1083,6 @@ func TestValidateRUAgentsDirRejectsOverlapAndFilesystemRoot(t *testing.T) {
 		SkillsCenterDir: filepath.Join(root, "skills-center"),
 		ChatsDir:        filepath.Join(root, "chats"),
 		MemoryDir:       filepath.Join(root, "memory"),
-		KBaseDir:        filepath.Join(root, "kbase"),
 	}
 	tests := []struct {
 		name string
@@ -1128,7 +1116,6 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 		"AP_RUNTIME_REGISTRIES_DIR": filepath.Join("var", "custom-registries"),
 		"AP_RUNTIME_CHATS_DIR":      filepath.Join("var", "custom-chats"),
 		"AP_RUNTIME_MEMORY_DIR":     filepath.Join("var", "custom-memory"),
-		"AP_RUNTIME_KBASE_DIR":      filepath.Join("var", "custom-kbase"),
 		"AP_RUNTIME_PAN_DIR":        panDir,
 	}, func() {
 		cfg, err := Load()
@@ -1143,9 +1130,6 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 		}
 		if cfg.Paths.MemoryDir != filepath.Join("var", "custom-memory") {
 			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
-		}
-		if cfg.Paths.KBaseDir != filepath.Join("var", "custom-kbase") {
-			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 		}
 		if cfg.Paths.PanDir != panDir {
 			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
@@ -2018,7 +2002,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AUTOMATIONS_DIR",
 		"AP_RUNTIME_CHATS_DIR",
 		"AP_RUNTIME_MEMORY_DIR",
-		"AP_RUNTIME_KBASE_DIR",
 		"AP_RUNTIME_PAN_DIR",
 		"TOOLS_DIR",
 		"AP_CONTAINER_HUB_BASE_URL",
@@ -2242,4 +2225,11 @@ func TestRunEnvHardCutConfiguration(t *testing.T) {
 			t.Fatalf("independence %#v %v", cfg.RunEnv, err)
 		}
 	})
+}
+
+func TestRejectRemovedAgentIndexRuntimeDirectory(t *testing.T) {
+	t.Setenv("AP_RUNTIME_KBASE_DIR", "")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "AP_RUNTIME_KBASE_DIR was removed") {
+		t.Fatalf("legacy directory must fail even if empty: %v", err)
+	}
 }

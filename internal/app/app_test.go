@@ -18,7 +18,7 @@ type blockingAutomation struct {
 
 func TestAppStartupIgnoresLegacyConnectorSourcesAndState(t *testing.T) {
 	root := t.TempDir()
-	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_KBASE_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_STATE_DIR"} {
+	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_STATE_DIR"} {
 		t.Setenv(key, "")
 	}
 	t.Setenv("AP_RUNTIME_DIR", filepath.Join(root, "runtime"))

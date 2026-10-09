@@ -60,6 +60,8 @@ func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
 			}
 			result, err = service.Edit(parts[0], input)
 		case http.MethodDelete:
+			unlock := s.adminSources.LockAgentMutation()
+			defer unlock()
 			err = service.Delete(parts[0])
 			result = map[string]bool{"deleted": err == nil}
 		default:
@@ -100,6 +102,11 @@ func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
 		status := 400
 		if errors.Is(err, kbasescenter.ErrNotFound) {
 			status = 404
+		}
+		var referenced *kbasescenter.ReferencedError
+		if errors.As(err, &referenced) {
+			writeJSON(w, 409, api.Failure(409, err.Error(), map[string]any{"agents": referenced.Agents}))
+			return
 		}
 		if errors.Is(err, kbasescenter.ErrBusy) {
 			status = 409

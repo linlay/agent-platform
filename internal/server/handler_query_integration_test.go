@@ -165,7 +165,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 }
 
 func TestNativeEmptyToolAllowlistExposesNoTools(t *testing.T) {
-	excludedTools := []string{"run_env", "bash", "file_read", "kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	excludedTools := []string{"run_env", "bash", "file_read", "kbase_search", "kbase_files", "kbase_read", "kbase_status", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	exclusionConfig := "toolConfig:\n  tools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n  excludeTools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n"
 
 	for _, mode := range []string{"GENERAL", "CODER", "KBASE"} {
@@ -199,7 +199,7 @@ func TestNativeEmptyToolAllowlistExposesNoTools(t *testing.T) {
 						Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
 					}}},
 					setupRuntime: func(_ string, cfg *config.Config) {
-						definition := "key: mock-agent\nname: Mock Agent\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig + "runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(t.TempDir()) + "\n  env:\n    LANG: en_US\nskillConfig:\n  skills:\n    - mock-skill\nmemoryConfig:\n  enabled: true\nkbaseConfig:\n  enabled: true\n"
+						definition := "key: mock-agent\nname: Mock Agent\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig + "runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(t.TempDir()) + "\n  env:\n    LANG: en_US\nskillConfig:\n  skills:\n    - mock-skill\nmemoryConfig:\n  enabled: true\nkbaseConfig:\n  libraryId: research\n"
 						cfg.ModePresets = nil
 						cfg.Memory.Enabled = true
 						if tc.name == "excluded" {

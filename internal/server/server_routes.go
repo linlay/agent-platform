@@ -309,6 +309,8 @@ func (s *Server) routes() {
 	for _, action := range []string{"list", "describe", "invoke"} {
 		s.router.HandleFunc("/api/connectors/execution/"+action, s.handleConnectorExecution)
 	}
+	s.router.HandleFunc("/api/chat/sources/read", s.handleKnowledgeSource)
+	s.router.HandleFunc("/api/chat/sources/file", s.handleKnowledgeSource)
 	for _, action := range []string{"list", "get", "read"} {
 		s.router.HandleFunc("/api/chat/artifacts/"+action, s.handleChatArtifact)
 	}
