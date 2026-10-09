@@ -77,6 +77,9 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	if strings.TrimSpace(request.Message) == "" || (agentKey == "") == (teamID == "") {
 		return fail("invalid_request", "message and exactly one of agentKey or teamId are required")
 	}
+	if teamID != "" && (strings.TrimSpace(request.ModelKey) != "" || strings.TrimSpace(request.ReasoningEffort) != "") {
+		return fail("invalid_request", "modelKey and reasoningEffort are not supported for Team runs")
+	}
 	plan := contracts.RunStartPlan{RequestedAccessLevel: strings.TrimSpace(request.AccessLevel)}
 	if agentKey != "" {
 		def, ok := s.deps.Registry.AgentDefinition(agentKey)
@@ -84,6 +87,17 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 			return fail("agent_not_found", "agent not found")
 		}
 		plan.TargetName = strings.TrimSpace(def.Name)
+		// Reject invalid overrides before requesting a human permission review.
+		// Query admission validates again against the definition used to start.
+		if request.ModelKey != "" || request.ReasoningEffort != "" {
+			if err := s.deps.Proxy.Configure(&def); err != nil {
+				return fail("invalid_request", err.Error())
+			}
+			options := &queryinput.QueryModelOptions{Key: strings.TrimSpace(request.ModelKey), ReasoningEffort: strings.TrimSpace(request.ReasoningEffort)}
+			if err := s.ValidateQueryModelOptions(options, def); err != nil {
+				return fail("invalid_request", err.Error())
+			}
+		}
 	} else {
 		team, ok := catalogview.ResolveTeam(s.deps.Registry, teamID)
 		if !ok {
@@ -202,6 +216,9 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 		MustUseSkills:   append([]string(nil), request.MustUseSkills...),
 		InitialChatName: strings.TrimSpace(request.ChatName),
 		ChatSource:      queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
+	}
+	if modelKey, effort := strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort); modelKey != "" || effort != "" {
+		req.Model = &runtimetypes.QueryModelOptions{Key: modelKey, ReasoningEffort: effort}
 	}
 	// The new Run's lifetime is detached from the caller, but it retains the
 	// trusted parent's connection scope. Caller cancellation is still honored

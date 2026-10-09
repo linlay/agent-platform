@@ -30,6 +30,7 @@ var controlActions = []ControlAction{
 	{"chat_query", "search", true},
 	{"chat_query", "read", true},
 	{"chat_query", "artifacts", true},
+	{"chat_query", "models", true},
 	{"chat_manage", "rename", false},
 	{"chat_manage", "setPinned", false},
 	{"chat_manage", "archive", false},

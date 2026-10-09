@@ -42,6 +42,20 @@ inputSchema:
         type: string
         minLength: 1
       description: "Required skill IDs."
+    modelKey:
+      type: string
+      minLength: 1
+      description: "Registered model key for this run. List keys with chat_query models."
+    reasoningEffort:
+      type: string
+      enum:
+        - NONE
+        - LOW
+        - MEDIUM
+        - HIGH
+        - XHIGH
+        - MAX
+      description: "Reasoning effort for this run."
     chatName:
       type: string
       minLength: 1

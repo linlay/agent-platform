@@ -55,6 +55,7 @@ var argumentFields = map[string]map[string]string{
 	"chat_query.search":           {"query": "s!", "scope": "s", "chatId": "s", "archived": "b", "limit": "n", "cursor": "s"},
 	"chat_query.read":             {"chatId": "s!", "archived": "b", "view": "s!", "limit": "n", "cursor": "s"},
 	"chat_query.artifacts":        {"chatId": "s", "runId": "s", "limit": "n", "cursor": "s"},
+	"chat_query.models":           {},
 	"chat_manage.rename":          {"chatId": "s", "chatName": "s!"},
 	"chat_manage.setPinned":       {"chatId": "s", "pinned": "b!"},
 	"chat_manage.archive":         {"chatId": "s", "chatIds": "a"}, "chat_manage.restore": {"chatId": "s", "chatIds": "a"},
@@ -497,6 +498,9 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 	return map[string]any{"items": items[start:end], "nextCursor": next, "total": len(items), "hasMore": next != ""}, nil
 }
 func (h *ToolHandler) chatQuery(action string, p map[string]any, e *contracts.ExecutionContext) (any, error) {
+	if action == "models" {
+		return h.chatStartModels()
+	}
 	if h.conversations == nil {
 		return nil, fmt.Errorf("conversation unavailable")
 	}
@@ -592,6 +596,21 @@ func (h *ToolHandler) inspect(action string, p map[string]any, e *contracts.Exec
 		allowed = allowed && ok && (!contracts.IsReadOnlyToolExecutionPolicy(e.ToolExecutionPolicy) || d.ReadOnly)
 	}
 	return map[string]any{"tool": tool, "mounted": mounted, "allowed": allowed}, nil
+}
+
+// chatStartModels lists the registered chat models a chat_start modelKey may name.
+func (h *ToolHandler) chatStartModels() (any, error) {
+	if h.models == nil {
+		return nil, fmt.Errorf("models unavailable")
+	}
+	items := []map[string]any{}
+	for _, v := range h.models.List() {
+		if !models.IsChatModel(v) {
+			continue
+		}
+		items = append(items, map[string]any{"modelKey": v.Key, "name": v.Name, "provider": v.Provider, "modelId": v.ModelID, "isReasoner": v.IsReasoner, "reasoningEfforts": append([]string{}, v.ReasoningEfforts...), "isVision": v.IsVision, "contextWindow": v.ContextWindow})
+	}
+	return map[string]any{"items": items}, nil
 }
 
 func publicControlModel(v models.ModelDefinition) map[string]any {

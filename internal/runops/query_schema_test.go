@@ -22,7 +22,7 @@ func TestChatStartSchemaKeepsNewArgumentsOptional(t *testing.T) {
 		t.Fatalf("unexpected required fields: %#v", required)
 	}
 	properties := schema["properties"].(map[string]any)
-	for _, key := range []string{"accessLevel", "mustUseSkills", "chatName"} {
+	for _, key := range []string{"accessLevel", "mustUseSkills", "chatName", "modelKey", "reasoningEffort"} {
 		if _, ok := properties[key]; !ok {
 			t.Fatalf("missing %s", key)
 		}

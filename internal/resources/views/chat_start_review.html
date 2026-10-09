@@ -15,6 +15,7 @@ Review.mount(u=>{
  u.field(t('会话目标','Conversation'),f.continuesChat?t('继续已有会话：','Continue conversation: ')+(f.chatName||f.chatId):(f.chatName?t('创建新会话：','Create a new conversation: ')+f.chatName:t('创建新会话','Create a new conversation')));
  u.field(t('任务内容','Task'),f.message);
  if(Array.isArray(f.mustUseSkills)&&f.mustUseSkills.length)u.field(t('指定技能','Required skills'),f.mustUseSkills);
+ if(f.modelKey||f.reasoningEffort)u.field(t('模型','Model'),[f.modelKey,f.reasoningEffort].filter(Boolean).join(' / '));
  u.notice(t('新运行的权限高于发起方当前权限，必须由你确认。','The new run would have higher permissions than the requesting run, so it needs your confirmation.'),true);
  u.notice(t('仅批准这一次启动；发起方自身的权限不变，新运行启动后独立执行。','This approves only this start. The requesting run keeps its own permissions, and the new run continues independently.'));
 });

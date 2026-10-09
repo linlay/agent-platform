@@ -189,6 +189,8 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		"accessLevel":       plan.AccessLevel,
 		"message":           request.Message,
 		"mustUseSkills":     append([]string{}, request.MustUseSkills...),
+		"modelKey":          request.ModelKey,
+		"reasoningEffort":   request.ReasoningEffort,
 	}
 	approval := contracts.ToolApproval{
 		Fingerprint: contracts.ToolApprovalFingerprint(execCtx, StartToolName, startApprovalAction, plan.ApprovalDigest),

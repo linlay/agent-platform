@@ -723,7 +723,10 @@ type RunStartRequest struct {
 	TeamID        string
 	ChatID        string
 	Message       string
-	Origin        RunOrigin
+	// ModelKey and ReasoningEffort override the target's model for this Run only.
+	ModelKey        string
+	ReasoningEffort string
+	Origin          RunOrigin
 	// Review is set only by the trusted chat_start handler; see RunStartReview.
 	Review *RunStartReview `json:"-"`
 }

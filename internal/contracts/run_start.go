@@ -68,7 +68,7 @@ func RunStartRequestDigest(request RunStartRequest) string {
 	return digestStrings("run-start-request",
 		strings.TrimSpace(request.AgentKey), strings.TrimSpace(request.TeamID), strings.TrimSpace(request.ChatID),
 		strings.TrimSpace(request.Message), strings.TrimSpace(request.AccessLevel), strings.TrimSpace(request.ChatName),
-		strings.Join(skills, "\x00"))
+		strings.Join(skills, "\x00"), strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort))
 }
 
 // RunStartApprovalDigest identifies exactly what a reviewer approved: the
