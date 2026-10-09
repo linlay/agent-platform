@@ -5,14 +5,13 @@ import (
 )
 
 type SubcommandRule struct {
-	Mode  string          `yaml:"mode"`
-	View  *view.Reference `yaml:"view"`
-	Match string          `yaml:"match"`
-	Level int             `yaml:"level"`
-	Title string          `yaml:"title"`
-
-	Timeout     int      `yaml:"timeout"`
-	AutoApprove []string `yaml:"autoApprove"`
+	Mode        string          `yaml:"mode"`
+	View        *view.Reference `yaml:"view"`
+	Match       string          `yaml:"match"`
+	Level       int             `yaml:"level"`
+	Title       string          `yaml:"title"`
+	Timeout     int             `yaml:"timeout"`
+	AutoApprove []string        `yaml:"autoApprove"`
 }
 
 type CommandBlock struct {
@@ -40,13 +39,12 @@ type FlatRule struct {
 	PassThroughFlags []string
 	Level            int
 	Title            string
-
-	Timeout     int
-	AutoApprove []string
+	Timeout          int
+	AutoApprove      []string
 }
 
-// Legacy YAML infers form from html only at the compatibility boundary.
-// New definitions declare their interaction mode independently of rendering.
+// Builtin HTML reviews default to form; other rules default to approval.
+// Connector forms must declare their interaction mode explicitly.
 func (r FlatRule) EffectiveMode() string {
 	if r.Mode != "" {
 		return r.Mode

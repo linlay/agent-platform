@@ -28,8 +28,10 @@ func (s *Service) Resolve(ctx context.Context, mounts []Mount, ref Reference, us
 	if err := ref.Validate(); err != nil {
 		return Document{}, err
 	}
+	// This service resolves mounted connector documents; builtin dialogs and
+	// review documents use ResolveBuiltin and BuiltinDocument directly.
 	if ref.ConnectorID == "" {
-		return BuiltinDocument(ref.Key)
+		return Document{}, ErrInvalid
 	}
 	if usage != "display" && usage != "form" {
 		return Document{}, fmt.Errorf("%w: usage", ErrInvalid)

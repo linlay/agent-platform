@@ -81,9 +81,8 @@ type ToolDefinition struct {
 	AfterCallHint string
 	Parameters    map[string]any
 	OutputSchema  map[string]any
-
-	Aliases []string
-	Meta    map[string]any
+	Aliases       []string
+	Meta          map[string]any
 }
 
 func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
@@ -165,6 +164,7 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 	}
 	if t.View != nil {
 		meta["view"] = t.View.ConfigMap()
+		delete(meta, "viewError")
 	}
 	for _, key := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
 		delete(meta, key)

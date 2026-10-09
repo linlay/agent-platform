@@ -18,6 +18,10 @@ func (s *llmRunStream) resolveView(value any, usage string) (*view.Reference, st
 		return nil, ""
 	}
 	if ref.ConnectorID == "" {
+		// Native dialogs and builtin review forms are not tool-result displays.
+		if usage == "display" {
+			return nil, "invalid_view"
+		}
 		resolved, err := view.ResolveBuiltin(ref.Key)
 		if err != nil {
 			return ref, "view_not_found"

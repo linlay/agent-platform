@@ -258,7 +258,7 @@ func TestLoadRuntimeToolDefinitionsRejectsRemovedClassificationFields(t *testing
 	}
 }
 
-func TestToolRouterViewportMetadataDoesNotChangeBackendRouting(t *testing.T) {
+func TestToolRouterViewMetadataDoesNotChangeBackendRouting(t *testing.T) {
 	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{{
 		Name: "ordinary_tool",
 		Meta: map[string]any{
@@ -273,11 +273,11 @@ func TestToolRouterViewportMetadataDoesNotChangeBackendRouting(t *testing.T) {
 		t.Fatalf("invoke ordinary tool: result=%#v err=%v", result, err)
 	}
 	if interaction.hadDeadline || len(backend.calls) != 1 || backend.calls[0] != "ordinary_tool" {
-		t.Fatalf("viewport metadata changed routing: backend=%#v interaction=%#v", backend.calls, interaction)
+		t.Fatalf("view metadata changed routing: backend=%#v interaction=%#v", backend.calls, interaction)
 	}
 }
 
-func TestToolRouterMCPViewportMetadataDoesNotCreateInteractionAwaiting(t *testing.T) {
+func TestToolRouterMCPViewMetadataDoesNotCreateInteractionAwaiting(t *testing.T) {
 	interaction := &captureInteractionSubmitter{}
 	def := api.ToolDetailResponse{
 		Name: "ask_user_question",
@@ -300,26 +300,24 @@ func TestToolRouterMCPViewportMetadataDoesNotCreateInteractionAwaiting(t *testin
 		t.Fatalf("expected MCP invocation, result=%#v err=%v", result, err)
 	}
 	if interaction.hadDeadline {
-		t.Fatal("MCP viewport metadata must not route through the interaction handler")
+		t.Fatal("MCP view metadata must not route through the interaction handler")
 	}
 }
 
-func TestToolRouterRejectsInvalidAskViewportOverlay(t *testing.T) {
-	backend := stubBackendToolExecutor{defs: []api.ToolDetailResponse{{
-		Name: "ask_user_question",
-		Meta: map[string]any{
-			"view": map[string]any{"key": "question"},
-		},
-	}}}
-	_, err := NewToolRouter(backend, nil, nil, nil, api.ToolDetailResponse{
-		Name: "ask_user_question",
-		Meta: map[string]any{
-			"view": map[string]any{"key": "legacy_question_dialog"},
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "builtin view question") {
-		t.Fatalf("expected invalid ask viewport overlay rejection, got %v", err)
+func TestEmbeddedQuestionToolDoesNotRequireViewMetadata(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatal(err)
 	}
+	for _, def := range defs {
+		if def.Name == "ask_user_question" {
+			if def.Meta["view"] != nil {
+				t.Fatalf("question handler owns its view: %#v", def.Meta)
+			}
+			return
+		}
+	}
+	t.Fatal("missing question tool")
 }
 
 func TestToolRouterRequiresRegisteredAskInteractionHandler(t *testing.T) {

@@ -14,7 +14,6 @@ description: |
   Keep questions minimal and batch necessary questions in one prompt. Supports
   text, number, password, date, datetime, select, and multi-select answers; the
   tool blocks until the user submits a response.
-view: {key: question}
 clientVisible: false
 inputSchema:
   type: object

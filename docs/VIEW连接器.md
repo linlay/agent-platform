@@ -51,7 +51,7 @@ view:
   key: card
 ```
 
-实际工具结果保持原样，`tool.result` 单独增加展示引用。配置只允许 `connectorId/key`，`version/hash/renderer` 由服务端解析。HITL 命令规则的 subcommand 改为：
+实际工具结果保持原样，`tool.result` 单独增加展示引用。工具结果展示只接受连接器来源及其 `display` 用途；内置原生组件和审阅页仅用于 HITL，误用时返回 `viewError: invalid_view`，不请求模板。远端 MCP `tools/list` 的错误展示元数据只降级当前工具的展示，并保留工具列表和调用能力；本地 YAML、HITL 规则和部署级覆盖仍严格校验。配置只允许 `connectorId/key`，`version/hash/renderer` 由服务端解析。HITL 命令规则的 subcommand 改为：
 
 ```yaml
 match: update
@@ -62,7 +62,7 @@ view:
   key: edit
 ```
 
-自定义 VIEW 必须显式 `mode: form`，不能混用 `viewportType/viewportKey`。普通批准使用平台 `mode: approval` 对话框。自定义表单不进入自动批准、规则批准或批量批准合并；视图失败不会批准操作或改写结果。
+自定义 VIEW 必须显式 `mode: form`，旧 `viewportType/viewportKey` 已删除，不再接受。普通批准使用平台 `mode: approval` 对话框。自定义表单不进入自动批准、规则批准或批量批准合并；视图失败不会批准操作或改写结果。
 
 ## 远端模板
 

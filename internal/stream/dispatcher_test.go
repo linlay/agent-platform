@@ -942,7 +942,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 		AgentKey: "agent_1",
 	})
 
-	viewportEvents := dispatcher.Dispatch(AwaitAsk{
+	viewEvents := dispatcher.Dispatch(AwaitAsk{
 		AwaitingID: "tool_1",
 		Mode:       "approval",
 		Timeout:    120,
@@ -958,10 +958,10 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 			},
 		},
 	})
-	assertEventTypes(t, viewportEvents, "awaiting.ask")
-	payload := viewportEvents[0].ToData()
+	assertEventTypes(t, viewEvents, "awaiting.ask")
+	payload := viewEvents[0].ToData()
 	if payload["view"].(map[string]any)["renderer"] != "native" || payload["view"].(map[string]any)["key"] != "approval" {
-		t.Fatalf("expected builtin approval viewport metadata, got %#v", payload)
+		t.Fatalf("expected builtin approval view metadata, got %#v", payload)
 	}
 	if payload["agentKey"] != "agent_1" {
 		t.Fatalf("expected agentKey on approval awaiting.ask, got %#v", payload)
@@ -972,7 +972,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	}
 }
 
-func TestDispatcherDoesNotInferQuestionAwaitAskViewport(t *testing.T) {
+func TestDispatcherDoesNotInferQuestionAwaitAskView(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -1017,7 +1017,7 @@ func TestDispatcherEmitsPlanningModeAwaitAsk(t *testing.T) {
 	assertEventTypes(t, events, "awaiting.ask")
 	payload := events[0].ToData()
 	if payload["view"].(map[string]any)["renderer"] != "native" || payload["view"].(map[string]any)["key"] != "planning" {
-		t.Fatalf("expected builtin planning viewport metadata, got %#v", payload)
+		t.Fatalf("expected builtin planning view metadata, got %#v", payload)
 	}
 	if _, ok := payload["approvals"]; ok {
 		t.Fatalf("did not expect approvals for planning awaiting.ask, got %#v", payload)
@@ -1101,7 +1101,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 	assertEventTypes(t, events, "awaiting.ask")
 	payload := events[0].ToData()
 	if payload["view"].(map[string]any)["renderer"] != "html" || payload["view"].(map[string]any)["key"] != "platform_control_review" {
-		t.Fatalf("expected html form viewport metadata, got %#v", payload)
+		t.Fatalf("expected html form view metadata, got %#v", payload)
 	}
 	forms, _ := payload["forms"].([]any)
 	if len(forms) != 1 {

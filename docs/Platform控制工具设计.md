@@ -73,7 +73,7 @@ prepare 生成脱敏前后内容和摘要；执行在 `adminsource` 共用 Agent
 
 服务端以内部冻结的调用上下文接受 approve/reject，严格校验工具 ID，不从公开表单数据推导授权；表单返回值不能改写工具参数，也不进入 Bash 命令重建路径。批准后仍按内容摘要和基准版本复验、消费一次性授权；拒绝反馈回到 Agent 重新生成候选。超时不自动批准，form 仍不跨进程恢复。模型提供的“已确认”字段无效。Desktop 日常管理按业务使用六个专用审阅页：外观/皮肤/桌宠/Copilot 偏好、网站条目增改删、看板写操作、单个 WebApp 启停/重启/打开/偏好/撤销发布、产物导出及敏感诊断读取。default 用业务名称、具体字段和操作影响展示审阅，原始 JSON 默认折叠在技术详情；auto_approve / full_access 自动批准并记录决策；每次仍消费绑定 Run、调用 ID 与原始参数的一次性授权，不发送 permissionMode 提权字段。诊断审批只展示数据类别，批准前不采集敏感值。审阅前通过固定只读动作，在总计 3 秒预算内尽力读取所选对象的名称和当前值；仅保留相关字段与所选名称，不回传整个列表或 WebApp 配置。修改页可显示“当前 → 改为”，读取失败明确标注当前值不可用，不伪造前值。该快照仅用于展示，不是版本锁或新增授权依据；Desktop 执行时继续校验实际状态。auto_approve / full_access 不做展示预读取。
 
-| viewport key | 业务展示 |
+| view key | 业务展示 |
 | --- | --- |
 | `desktop_appearance_review` | 主题、语言、皮肤、桌宠和页面助理偏好，显示名称和选项变化 |
 | `desktop_website_review` | 网站名称、网址和助理的前后对比；移除入口的实际影响 |
@@ -82,9 +82,9 @@ prepare 生成脱敏前后内容和摘要；执行在 `adminsource` 共用 Agent
 | `desktop_export_review` | 页面名称、文件格式、下载目录；文件名由实际导出生成 |
 | `desktop_diagnostics_review` | 将读取的数据类别和提供给当前智能体的范围，不提前读取诊断值 |
 
-六页共用内置 CSS 和宿主 collect 消息协议，viewport 服务将共享资源内联，保持离线 HTML 与原 CSP。对象名称和业务内容只通过 textContent 显示，不执行 HTML 或 Markdown。未知附加字段会提示展开技术详情核对。
+六页共用内置 CSS 和宿主 collect 消息协议，view 服务将共享资源内联，保持离线 HTML 与原 CSP。对象名称和业务内容只通过 textContent 显示，不执行 HTML 或 Markdown。未知附加字段会提示展开技术详情核对。
 
-Desktop 对这些动作仅在可信内部 agentPlatform 调用上下文下豁免自身确认；公开请求自报 source 不获得豁免。原 action confirmation 定义、全局开关与 dialog 保留，将动作移出白名单并撤销对应 Platform 审阅可恢复原确认。导航、打开详情/日志、市场刷新等轻量动作不新增 Platform 审阅。市场资源管理（含安装/升级/卸载与镜像导入导出/删除）、基础服务变更、WebApp 安装/卸载/公开发布继续由 Desktop 确认，不叠加 Platform viewport；原市场及 WebApp 安装前置审批已移除。Platform/Desktop 需配套更新，旧 Desktop 对新 Platform 审阅动作仍可能重复确认。
+Desktop 对这些动作仅在可信内部 agentPlatform 调用上下文下豁免自身确认；公开请求自报 source 不获得豁免。原 action confirmation 定义、全局开关与 dialog 保留，将动作移出白名单并撤销对应 Platform 审阅可恢复原确认。导航、打开详情/日志、市场刷新等轻量动作不新增 Platform 审阅。市场资源管理（含安装/升级/卸载与镜像导入导出/删除）、基础服务变更、WebApp 安装/卸载/公开发布继续由 Desktop 确认，不叠加 Platform view；原市场及 WebApp 安装前置审批已移除。Platform/Desktop 需配套更新，旧 Desktop 对新 Platform 审阅动作仍可能重复确认。
 
 已知 agent/team/skill/connector 的模型候选 content 在事件、历史和 trace 中保留原文，避免下一轮丢失编辑内容。读取的既有 env 值和审批安全副本仍按字段脱敏，服务端 preservePaths 回填值不注入模型参数；未知类型和未完成参数保守脱敏。run_env 参数依旧可观测，不用于 Secret。
 
@@ -118,4 +118,4 @@ Run 准入与 Chat mutation 之间尚无覆盖所有入口的统一并发事务�
 
 ## Automation 独立工具组
 
-新增 `automation_query`（list/get/executions/execution/validate）与 `automation_manage`（create/update/setEnabled/delete/trigger），使用独立 `builtin.task-control` 挂载和 Native 根 Run 准入。它们共用 `internal/automation.Service`，不调用 Server handler 或 Desktop action，也不扩展 Catalog 的 resourceType。三类业务 viewport、版本校验、调用收据与手动执行语义见 [自动化](自动化.md#task-control-管理工具)。
+新增 `automation_query`（list/get/executions/execution/validate）与 `automation_manage`（create/update/setEnabled/delete/trigger），使用独立 `builtin.task-control` 挂载和 Native 根 Run 准入。它们共用 `internal/automation.Service`，不调用 Server handler 或 Desktop action，也不扩展 Catalog 的 resourceType。三类业务 view、版本校验、调用收据与手动执行语义见 [自动化](自动化.md#task-control-管理工具)。

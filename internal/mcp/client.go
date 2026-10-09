@@ -160,17 +160,7 @@ func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinit
 		if tool == nil {
 			continue
 		}
-		meta := map[string]any(tool.Meta)
-		if err := view.RejectLegacy(meta); err != nil {
-			return nil, fmt.Errorf("MCP tool %s: %w", tool.Name, err)
-		}
-		ref, err := view.ParseConfigReference(meta["view"])
-		if err != nil {
-			return nil, fmt.Errorf("MCP tool %s: %w", tool.Name, err)
-		}
-		definition := toolDefinitionFromSDK(tool)
-		definition.View = ref
-		definitions = append(definitions, definition)
+		definitions = append(definitions, toolDefinitionFromSDK(tool))
 	}
 	c.markSuccess(server.Key)
 	observability.Log("mcp.response", map[string]any{"serverKey": server.Key, "method": "tools/list"})
@@ -681,6 +671,20 @@ func toolDefinitionFromSDK(tool *sdkmcp.Tool) ToolDefinition {
 	if meta == nil {
 		meta = map[string]any{}
 	}
+	// Remote presentation metadata is optional: one malformed view must not
+	// remove callable tools or trip the server availability gate.
+	ref, viewErr := view.ParseConfigReference(meta["view"])
+	if legacyErr := view.RejectLegacy(meta); legacyErr != nil {
+		viewErr = legacyErr
+	}
+	delete(meta, "viewportType")
+	delete(meta, "viewportKey")
+	delete(meta, "viewError")
+	if viewErr != nil {
+		ref = nil
+		delete(meta, "view")
+		meta["viewError"] = "invalid_view"
+	}
 	label := strings.TrimSpace(tool.Title)
 	if tool.Annotations != nil {
 		if label == "" {
@@ -691,6 +695,7 @@ func toolDefinitionFromSDK(tool *sdkmcp.Tool) ToolDefinition {
 		}
 	}
 	return ToolDefinition{
+		View:         ref,
 		Key:          tool.Name,
 		Name:         tool.Name,
 		Label:        label,

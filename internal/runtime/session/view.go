@@ -46,13 +46,6 @@ func (s *Builder) ConfigureViews(session *contracts.QuerySession, def catalog.Ag
 	var mu sync.Mutex
 	cache := map[string]view.Reference{}
 	session.ResolveView = func(ctx context.Context, ref view.Reference, usage string) (view.Reference, error) {
-		if ref.ConnectorID == "" {
-			resolved, err := view.ResolveBuiltin(ref.Key)
-			if err != nil {
-				return view.Reference{}, err
-			}
-			return *resolved, nil
-		}
 		mu.Lock()
 		defer mu.Unlock()
 		key := ref.ConnectorID + "\x00" + ref.Key + "\x00" + usage

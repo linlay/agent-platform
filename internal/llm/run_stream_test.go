@@ -2567,7 +2567,7 @@ func TestPrepareToolCall_WriteToolDescriptionNotRequired(t *testing.T) {
 	}
 }
 
-func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
+func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 	tests := []struct {
 		name                     string
 		rule                     hitl.FlatRule
@@ -2604,7 +2604,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			expectedKey:     "confirm_dialog",
 		},
 		{
-			name: "leave html viewport override",
+			name: "leave html view override",
 			rule: hitl.FlatRule{
 				Match: "create-leave",
 				Level: 1,
@@ -2631,7 +2631,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			expectedAnswerDecision:   "approve",
 		},
 		{
-			name: "expense html viewport override",
+			name: "expense html view override",
 			rule: hitl.FlatRule{
 				Match: "expense add",
 				Level: 1,
@@ -2705,7 +2705,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			expectedAnswerDecision: "approve",
 		},
 		{
-			name: "procurement html viewport override",
+			name: "procurement html view override",
 			rule: hitl.FlatRule{
 				Match: "procurement create",
 				Level: 1,
@@ -3839,7 +3839,7 @@ func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 		t.Fatalf("expected approval ask, got %#v", stream.pending)
 	}
 	if ask.View.Renderer != "native" || ask.View.Key != "approval" {
-		t.Fatalf("expected builtin approval viewport, got %#v", ask)
+		t.Fatalf("expected builtin approval view, got %#v", ask)
 	}
 	item, _ := ask.Approvals[0].(map[string]any)
 	expectedOutside, err := filepath.EvalSymlinks(outside)
@@ -6292,7 +6292,7 @@ func TestAwaitHITLApprovalBatchAndContinueUsesLargestRuleTimeout(t *testing.T) {
 	}
 }
 
-func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalAsk(t *testing.T) {
+func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewOutsideMergedApprovalAsk(t *testing.T) {
 	executor := &recordingToolExecutor{
 		defs: []api.ToolDetailResponse{
 			bashToolDefinition(),
@@ -7141,7 +7141,7 @@ func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) 
 	}
 }
 
-func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
+func TestInvokeActiveToolCallDoesNotAutoApproveHTMLView(t *testing.T) {
 	executor := &recordingToolExecutor{
 		defs: []api.ToolDetailResponse{bashToolDefinition()},
 		result: contracts.ToolExecutionResult{
@@ -7200,6 +7200,6 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 		}
 	}
 	if !foundAwaitAsk {
-		t.Fatalf("expected html viewport to keep approval prompt, got %#v", stream.pending)
+		t.Fatalf("expected html view to keep approval prompt, got %#v", stream.pending)
 	}
 }

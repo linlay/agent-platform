@@ -17,8 +17,7 @@ type ToolApproval struct {
 	View             *view.Reference `json:"view,omitempty"`
 	Fingerprint      string          `json:"fingerprint"`
 	Title            string          `json:"title"`
-
-	Form map[string]any `json:"form,omitempty"`
+	Form             map[string]any  `json:"form,omitempty"`
 }
 type ToolApprovalPlanner interface {
 	PrepareToolApproval(context.Context, string, map[string]any, *ExecutionContext) (*ToolApproval, error)

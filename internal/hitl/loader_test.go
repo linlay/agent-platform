@@ -125,7 +125,7 @@ commands:
 	}
 }
 
-func TestLoadRulesRejectsViewportTypeConflict(t *testing.T) {
+func TestLoadRulesRejectsUnknownBuiltinView(t *testing.T) {
 	root := t.TempDir()
 	content := `
 commands:
@@ -145,11 +145,11 @@ commands:
 	}
 
 	if _, err := loadRulesFromDir(root); err == nil {
-		t.Fatalf("expected viewport conflict error")
+		t.Fatalf("expected unknown builtin view error")
 	}
 }
 
-func TestLoadRulesDefaultsViewportToBuiltinConfirmDialog(t *testing.T) {
+func TestLoadRulesDefaultsViewToBuiltinConfirmDialog(t *testing.T) {
 	root := t.TempDir()
 	content := `
 commands:

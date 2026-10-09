@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"agent-platform/internal/view"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -124,27 +123,10 @@ func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {
 			return nil, fmt.Errorf("missing embedded builtin tool definition: %s", name)
 		}
 	}
-	if err := validateRequiredToolInteractionMetadata(defs); err != nil {
-		return nil, err
-	}
 	if err := applyBuiltinToolCatalogVisibility(defs, builtinToolCatalogPath); err != nil {
 		return nil, err
 	}
 	return defs, nil
-}
-
-func validateRequiredToolInteractionMetadata(defs []api.ToolDetailResponse) error {
-	for _, def := range defs {
-		if !strings.EqualFold(strings.TrimSpace(def.Name), "ask_user_question") {
-			continue
-		}
-		ref, err := view.ParseConfigReference(def.Meta["view"])
-		if err != nil || ref == nil || ref.ConnectorID != "" || ref.Key != "question" {
-			return fmt.Errorf("tool ask_user_question requires builtin view question")
-		}
-		return nil
-	}
-	return nil
 }
 
 func applyBuiltinToolCatalogVisibility(defs []api.ToolDetailResponse, path string) error {

@@ -128,9 +128,6 @@ func buildLocalToolDefinitions(base []api.ToolDetailResponse, extraDefs []api.To
 		runtimeDefs = append(runtimeDefs, def)
 	}
 	localDefs := MergeToolDefinitions(baseDefs, runtimeDefs, nil)
-	if err := validateRequiredToolInteractionMetadata(localDefs); err != nil {
-		return nil, nil, err
-	}
 	localByName := make(map[string]api.ToolDetailResponse, len(localDefs)*2)
 	for _, def := range localDefs {
 		localByName[strings.ToLower(strings.TrimSpace(def.Name))] = def

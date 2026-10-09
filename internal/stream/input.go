@@ -285,11 +285,10 @@ type AwaitAsk struct {
 	Timeout    int64
 	RunID      string
 	TaskID     string
-
-	Questions []any
-	Approvals []any
-	Forms     []any
-	Planning  map[string]any
+	Questions  []any
+	Approvals  []any
+	Forms      []any
+	Planning   map[string]any
 }
 
 func (AwaitAsk) streamInputTag() {}

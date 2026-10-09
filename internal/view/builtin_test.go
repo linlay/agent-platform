@@ -49,7 +49,7 @@ func TestServiceRejectsInvalidKeysAndExternalTemplates(t *testing.T) {
 func TestEveryBuiltinViewHasSizingBridge(t *testing.T) {
 	files, err := fs.Glob(resources.ViewFS, "views/*.html")
 	if err != nil || len(files) == 0 {
-		t.Fatalf("enumerate viewports: %v", err)
+		t.Fatalf("enumerate views: %v", err)
 	}
 	for _, file := range files {
 		key := strings.TrimSuffix(filepath.Base(file), ".html")

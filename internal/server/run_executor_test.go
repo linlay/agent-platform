@@ -187,7 +187,7 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 	}
 }
 
-func TestHandleAwaitingLifecycleBroadcastsViewportMetadata(t *testing.T) {
+func TestHandleAwaitingLifecycleBroadcastsViewMetadata(t *testing.T) {
 	notifications := &recordingNotificationSink{}
 	tracker := &awaitingTracker{}
 	handleAwaitingLifecycle(RunExecutorParams{
@@ -218,7 +218,7 @@ func TestHandleAwaitingLifecycleBroadcastsViewportMetadata(t *testing.T) {
 	}
 	payload := payloads[0]
 	if payload["view"].(map[string]any)["renderer"] != "html" || payload["view"].(map[string]any)["key"] != "platform_control_review" {
-		t.Fatalf("expected viewport metadata in awaiting.asking notification, got %#v", payload)
+		t.Fatalf("expected view metadata in awaiting.asking notification, got %#v", payload)
 	}
 }
 

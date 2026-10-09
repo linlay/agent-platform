@@ -17,10 +17,7 @@ func BuiltinDocument(key string) (Document, error) {
 	if ref.Renderer != "html" {
 		return Document{}, ErrNotFound
 	}
-	key = strings.TrimSpace(key)
-	if key == "" || strings.ContainsAny(key, "/\\") || key == "." || key == ".." {
-		return Document{}, fmt.Errorf("invalid view key")
-	}
+
 	html, err := resources.ViewFS.ReadFile("views/" + key + ".html")
 	if errors.Is(err, fs.ErrNotExist) {
 		return Document{}, ErrNotFound

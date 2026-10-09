@@ -1551,6 +1551,9 @@ func (s *llmRunStream) emitToolResult(invocation *preparedToolInvocation, result
 	if !internalOnly && s.engine != nil {
 		if definition, ok := s.lookupToolDefinition(invocation.toolName); ok {
 			delta.View, delta.ViewError = s.resolveView(definition.Meta["view"], "display")
+			if definition.Meta["view"] == nil && definition.Meta["viewError"] == "invalid_view" {
+				delta.ViewError = "invalid_view"
+			}
 		}
 	}
 	s.pending = append(s.pending, delta)
