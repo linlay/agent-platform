@@ -3,7 +3,7 @@ i18n:
   en:
     label: "Desktop Websites"
   zh-CN:
-    label: "桌面网站"
+    label: "桌面站点"
 description: "Manage and open Desktop websites. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true

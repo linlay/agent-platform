@@ -2,6 +2,8 @@
 
 `builtin.platform-control` 是 Platform 内嵌、只读、无需认证的 native 连接器。显式挂载后导入 9 个工具和 `platform-control` 技能，不自动授予 Bash。仅声明工具名不能获得连接器执行授权。`run_env` 保持独立。管理连接器主要由部署者为平台主智能体显式配置；源码不包含主智能体名单，不从业务类型或旧工具声明推导管理授权。
 
+`catalog_*` 工具有两个：`catalog_query`（查询平台资源）和 `catalog_manage`（管理平台资源）。这里的 Catalog 指平台资源清单，包含 Agent、Team、Skill、Connector、Model、Provider、Tool 与 MCP 组件。
+
 | 工具 | action | 执行环境 |
 | --- | --- | --- |
 | catalog_query | resourceTypes/list/get/defaults/validate | 普通 native main root |

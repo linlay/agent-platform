@@ -3,7 +3,7 @@ i18n:
   en:
     label: "Manage Catalog"
   zh-CN:
-    label: "管理目录"
+    label: "管理平台资源"
 description: "Manage Platform resource definitions. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
