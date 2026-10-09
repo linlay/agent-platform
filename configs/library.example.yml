@@ -1,0 +1,140 @@
+# 知识库（library）配置示例。
+#
+# 实际位置：<AP_RUNTIME_DIR>/kbases/<id>/library.yml
+#   - <id> 取自目录名：1–64 位小写字母、数字、下划线或连字符，字母数字开头；`libraries` 为保留名。
+#   - 本文件不由 Platform 从 configs/ 读取，仅作参数参考；复制到上述目录并改名为 library.yml 后生效。
+#   - 配置按请求读盘，修改后无需重启；运行状态和索引在 ru-kbases/<id>/，不要手工编辑。
+#
+# 解析是严格的：出现未知字段或重复键会使该库加载失败（只影响这一个库）。
+# 因此下面分成两部分：
+#   第一部分 = 当前已支持，可直接使用；
+#   第二部分 = 规划中、尚未实现，全部保持注释，取消注释会导致加载失败。
+
+# ============================================================================
+# 第一部分：当前已支持
+# ============================================================================
+
+# 展示名称，必填。修改不触发重建索引。
+name: "研发知识"
+
+# 展示描述，可省略。修改不触发重建索引。
+description: "AI 建设与研发述职资料"
+
+# 来源集合，1–32 个。名称与来源目录在库内都必须唯一。
+# 知识工具中的路径形如 <collection 名>/<相对路径>。
+collections:
+  # ---- 完整写法 ----
+  - # 集合名：1–64 位字母、数字、下划线或连字符（可用中文），字母数字开头。
+    # 改名等同于删除旧集合再新增，会重建该集合。
+    name: "ai"
+
+    # Platform 主机上的绝对目录，必须已存在。
+    # 不能与 Chats 目录重叠，不能位于 StateDir、库配置或运行数据目录内。
+    sourcePath: "/absolute/path/to/AI建设文档"
+
+    # 纳入索引的文件 glob（相对 sourcePath）。
+    # 省略时使用下面这七种默认扩展名；显式写空数组会被拒绝。
+    include:
+      - "**/*.md"
+      - "**/*.txt"
+      - "**/*.html"
+      - "**/*.htm"
+      - "**/*.pdf"
+      - "**/*.docx"
+      - "**/*.pptx"
+
+    # 排除的文件 glob（相对 sourcePath）。
+    # 省略时使用默认值 [".git/**", ".kbase/**", "node_modules/**"]；
+    # 显式空数组只关闭这组默认值，不关闭 KBX 内置的安全排除。
+    exclude:
+      - ".git/**"
+      - ".kbase/**"
+      - "node_modules/**"
+      - "private/**"
+
+    # 切块。整段省略时使用 3600 / 540。
+    # 自定义时 unit 必须是 chars，且 0 <= overlapChars < maxChars。
+    # 按 Unicode 字符计数，不是 token 上限。
+    chunk:
+      unit: "chars"
+      maxChars: 3600
+      overlapChars: 540
+
+  # ---- 最小写法：只需名称和目录，其余取默认值 ----
+  - name: "research"
+    sourcePath: "/absolute/path/to/研发中心各条线述职"
+
+# 以上字段中，name（集合）、sourcePath、include、exclude、chunk 计入来源指纹：
+# 修改后立即撤销旧范围的读取并重新对账。库的 name/description 和集合顺序不计入。
+#
+# embedding 模型目前不在本文件配置，所有库共用 configs/runtime.yml 的
+# kbx.embedding.model-key 与 kbx.embedding.prompt（raw / qwen3），改动需重启 Platform。
+#
+# Agent 侧只写绑定和查询预算（agent.yml）：
+#   kbaseConfig:
+#     libraryId: <id>
+#     retrieval: { topK: 8, candidateFloor: 30, candidateMultiplier: 4, candidateMax: 500 }
+
+# ============================================================================
+# 第二部分：规划中，尚未实现（保持注释）
+# 字段名和取值是设计草案，落地时可能调整。
+# ============================================================================
+
+# ---- 库级模型：只写模型键，URL 与密钥仍由模型 registry 管理 ----
+# 向量合同是全库的，同一个库只能有一个 embedding 模型，所以不放在 collection 上。
+# 更换 embedding 模型或 prompt 会重建全库向量（全文仍可读）。
+# models:
+#   embedding:
+#     modelKey: "qwen3-embedding-8b"
+#     prompt: "qwen3"            # raw | qwen3 | embeddinggemma
+#   reranker:                    # 查询结果重排
+#     modelKey: "qwen3-reranker"
+#   queryExpansion:              # 查询扩展
+#     modelKey: "kbx-query-expansion"
+#   graphExtraction:             # 图谱抽取
+#     modelKey: "kbx-graph-extractor"
+
+# ---- 库级切块默认值：collection 的 chunk 逐字段覆盖 ----
+# chunk:
+#   strategy: "structural"       # window（当前固定值）| regex | structural
+#   maxChars: 3600
+#   overlapChars: 540
+
+# ---- 非 UTF-8 文本的回退编码：仅对无 BOM 且不是合法 UTF-8 的文本生效 ----
+# textEncoding: "gbk"            # gbk | gb18030 | windows-1252 | shift_jis ...
+
+# ---- 库级检索默认值：Agent 的 kbaseConfig.retrieval 覆盖；修改不重建索引 ----
+# retrieval:
+#   topK: 8
+#   candidateFloor: 30
+#   candidateMultiplier: 4
+#   candidateMax: 500
+#   minScore: 0                  # 方法相关的排名分，不是置信度
+#   rerank: true                 # 需要 models.reranker
+#   recencyWeight: 0             # 0 = 只按相关度；大于 0 时混入文档新鲜度
+#   recencyHalfLifeDays: 90
+
+# ---- 图谱 ----
+# graph:
+#   enabled: false               # 需要 models.graphExtraction
+#   schema: "general-v1"         # general-v1 | software-v1
+
+# ---- 元数据字段定义：用于检索过滤 ----
+# metadata:
+#   fields:
+#     - name: "project"
+#       kind: "text"             # text | integer | decimal | boolean | date | datetime
+#       description: "所属项目"
+#       searchable: true
+
+# ---- collection 上的新增字段（写在对应集合内） ----
+# collections:
+#   - name: "ai"
+#     sourcePath: "/absolute/path/to/AI建设文档"
+#     description: "现行技术规范，规范类问题优先查这里"   # 告诉模型这个集合是什么
+#     editable: true             # 专用 KBASE 开启 editingMode 后可写；缺省 false
+#     defaultQuery: true         # false = 照常索引，但未指定集合时默认不查
+#     chunk:
+#       strategy: "structural"   # 覆盖库级默认
+#     metadata:                  # 该集合下所有文档继承的固定标签
+#       project: "ai-platform"
