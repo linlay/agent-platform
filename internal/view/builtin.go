@@ -51,6 +51,15 @@ func BuiltinDocument(key string) (Document, error) {
 		return Document{}, err
 	}
 	bridge := "<script data-view-resize>" + string(resize) + "</script>"
+	// Read-only templates hand keyboard focus back to the host so its shortcuts
+	// keep working. ask_user_form owns real inputs and keeps focus.
+	if key != "ask_user_form" {
+		focus, err := resources.ViewFS.ReadFile("views/shared/focus.js")
+		if err != nil {
+			return Document{}, err
+		}
+		bridge += "<script data-view-focus>" + string(focus) + "</script>"
+	}
 	if end := strings.LastIndex(strings.ToLower(page), "</body>"); end >= 0 {
 		page = page[:end] + bridge + page[end:]
 	} else {

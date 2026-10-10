@@ -62,6 +62,13 @@ func TestEveryBuiltinViewHasSizingBridge(t *testing.T) {
 			if strings.Count(html, "<script data-view-resize>") != 1 || strings.Count(html, "type: 'awaiting_resize'") != 1 {
 				t.Fatal("each builtin must include exactly one shared sizing bridge")
 			}
+			wantFocus := 1
+			if key == "ask_user_form" {
+				wantFocus = 0
+			}
+			if strings.Count(html, "<script data-view-focus>") != wantFocus || strings.Count(html, "type: 'awaiting_focus_release'") != wantFocus {
+				t.Fatal("only read-only builtins include the shared focus bridge")
+			}
 		})
 	}
 }
