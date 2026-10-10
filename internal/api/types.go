@@ -908,9 +908,26 @@ type AgentEditorChannelConfigSchema struct {
 }
 
 type CoderModelOptionsResponse struct {
-	Models           []CoderModelOption      `json:"models"`
+	Models           []ChatModelOption       `json:"models"`
 	ReasoningEfforts []ReasoningEffortOption `json:"reasoningEfforts"`
 	ServiceTiers     []ServiceTierOption     `json:"serviceTiers,omitempty"`
+}
+
+// ChatModelOption is the public model menu entry. ACP entries retain their
+// discovery metadata; native entries only expose presentation and service tiers.
+type ChatModelOption struct {
+	Key              string   `json:"key"`
+	Name             string   `json:"name,omitempty"`
+	Icon             string   `json:"icon,omitempty"`
+	Provider         string   `json:"provider,omitempty"`
+	ModelID          string   `json:"modelId,omitempty"`
+	Protocol         string   `json:"protocol,omitempty"`
+	IsReasoner       *bool    `json:"isReasoner,omitempty"`
+	IsVision         *bool    `json:"isVision,omitempty"`
+	ContextWindow    int      `json:"contextWindow,omitempty"`
+	Timeout          int      `json:"timeout,omitempty"`
+	ReasoningEfforts []string `json:"reasoningEfforts,omitempty"`
+	ServiceTiers     []string `json:"serviceTiers,omitempty"`
 }
 
 type CoderModelOption = queryinput.CoderModelOption

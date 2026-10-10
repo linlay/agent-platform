@@ -129,6 +129,11 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
 	}
+	var wireResponse api.ApiResponse[json.RawMessage]
+	if err := json.Unmarshal(rec.Body.Bytes(), &wireResponse); err != nil {
+		t.Fatalf("decode options wire response: %v", err)
+	}
+	assertNativeModelOptionsJSON(t, wireResponse.Data)
 	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
 		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
 			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
@@ -149,7 +154,7 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	}
 	foundCoderModel := false
 	for _, model := range response.Data.Models {
-		if model.Key == "coder-model" && model.Name == "Coder Model" && model.Icon == "Coder Model Icon" && model.IsReasoner && model.IsVision && model.ContextWindow == 200000 && strings.Join(model.ReasoningEfforts, ",") == "LOW,MEDIUM,HIGH,XHIGH,MAX" {
+		if model.Key == "coder-model" && model.Name == "Coder Model" && model.Icon == "Coder Model Icon" && model.Provider == "mock" {
 			foundCoderModel = true
 		}
 		if model.Key == "embedding-model" || model.Key == "image-model" || model.Key == "vl-model" {
@@ -320,9 +325,14 @@ func TestCoderModelOptionsForACPCoderAgentOnlyShowsACPPassthrough(t *testing.T) 
 }
 
 func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) {
+	var unavailable atomic.Bool
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/models" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if unavailable.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]any{
@@ -417,6 +427,21 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 	}
 	if strings.Join(model.ReasoningEfforts, ",") != "LOW,MEDIUM,HIGH,XHIGH" {
 		t.Fatalf("reasoning efforts = %#v", model.ReasoningEfforts)
+	}
+	if model.IsReasoner == nil || !*model.IsReasoner || model.IsVision == nil || *model.IsVision {
+		t.Fatalf("ACP must retain explicit boolean capabilities: %#v", model)
+	}
+	unavailable.Store(true)
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=codex-agent", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unavailable ACP options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode unavailable ACP options: %v", err)
+	}
+	if response.Data.Models != nil {
+		t.Fatalf("unavailable ACP models must retain null response: %s", rec.Body.String())
 	}
 }
 
@@ -750,6 +775,11 @@ func TestCoderModelOptionsWS(t *testing.T) {
 	if err := conn.ReadJSON(&optionsFrame); err != nil {
 		t.Fatalf("read options response: %v", err)
 	}
+	wireData, err := json.Marshal(optionsFrame.Data)
+	if err != nil {
+		t.Fatalf("encode options wire data: %v", err)
+	}
+	assertNativeModelOptionsJSON(t, wireData)
 	options, err := marshalAgentResponseData[api.CoderModelOptionsResponse](optionsFrame.Data)
 	if err != nil {
 		t.Fatalf("decode options data: %v", err)
@@ -766,6 +796,26 @@ func TestCoderModelOptionsWS(t *testing.T) {
 	}
 	if !foundIcon {
 		t.Fatalf("expected WebSocket model icon, got %#v", options.Models)
+	}
+}
+
+func assertNativeModelOptionsJSON(t *testing.T, data []byte) {
+	t.Helper()
+	var options struct {
+		Models []map[string]json.RawMessage `json:"models"`
+	}
+	if err := json.Unmarshal(data, &options); err != nil {
+		t.Fatalf("decode model options JSON: %v", err)
+	}
+	if len(options.Models) == 0 {
+		t.Fatal("expected native model options")
+	}
+	for _, model := range options.Models {
+		for _, field := range []string{"modelId", "protocol", "isReasoner", "isVision", "contextWindow", "timeout", "reasoningEfforts"} {
+			if _, exists := model[field]; exists {
+				t.Fatalf("native model option must omit %s: %s", field, data)
+			}
+		}
 	}
 }
 
