@@ -75,7 +75,7 @@ func TestSearchMethodsRouteAndKeepPolicy(t *testing.T) {
 							t.Fatalf("missing %s: %v", arg, args)
 						}
 					}
-					if slices.Contains(args, "--no-rerank") != (method == "query") || slices.Contains(args, "--no-graph") {
+					if slices.Contains(args, "--no-rerank") || slices.Contains(args, "--no-graph") {
 						t.Fatalf("wrong hybrid flags: %v", args)
 					}
 				}

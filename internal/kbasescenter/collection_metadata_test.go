@@ -53,7 +53,7 @@ func TestCollectionMetadataStrictParsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, suffix := range []string{"    editable: \"true\"\n", "    description: true\n", "    editable: true\n    editable: false\n", "    futureField: true\n", "models:\n  reranker:\n    modelKey: future\n"} {
+	for _, suffix := range []string{"    editable: \"true\"\n", "    description: true\n", "    editable: true\n    editable: false\n", "    futureField: true\n", "models:\n  graphExtraction:\n    modelKey: future\n"} {
 		if err := os.WriteFile(file, append(append([]byte{}, raw...), []byte(suffix)...), 0600); err != nil {
 			t.Fatal(err)
 		}

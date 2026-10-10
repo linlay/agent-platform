@@ -275,7 +275,7 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		}
 		modelType, ok := models.NormalizeModelType(contracts.FirstNonEmptyString(root["type"]))
 		if !ok {
-			addError("invalid_type", "model type must be chat, embedding, image-generation, or vl")
+			addError("invalid_type", "model type must be chat, embedding, reranker, image-generation, or vl")
 			modelType = models.ModelTypeChat
 		}
 		protocol := strings.TrimSpace(contracts.FirstNonEmptyString(root["protocol"]))
@@ -304,6 +304,10 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 			addError("missing_model_id", "modelId is required")
 		}
 		switch modelType {
+		case models.ModelTypeReranker:
+			if strings.TrimSpace(contracts.FirstNonEmptyString(contracts.AnyMapNode(root["reranker"])["endpointPath"])) == "" {
+				addError("missing_reranker_endpoint", "reranker.endpointPath is required")
+			}
 		case models.ModelTypeEmbedding:
 			embedding := contracts.AnyMapNode(root["embedding"])
 			if contracts.AnyIntNode(embedding["dimension"]) <= 0 {

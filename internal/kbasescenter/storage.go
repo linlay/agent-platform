@@ -22,12 +22,13 @@ import (
 
 // configuration is the only on-disk source of desired state. ID comes from the directory.
 type configuration struct {
-	Chunk        *knowledge.ChunkSettings `json:"chunk,omitempty"`
-	TextEncoding string                   `json:"textEncoding,omitempty"`
-	Models       *ModelsConfig            `json:"models,omitempty"`
-	Name         string                   `json:"name"`
-	Description  string                   `json:"description"`
-	Collections  []Collection             `json:"collections"`
+	Retrieval    *knowledge.RetrievalSettings `json:"retrieval,omitempty"`
+	Chunk        *knowledge.ChunkSettings     `json:"chunk,omitempty"`
+	TextEncoding string                       `json:"textEncoding,omitempty"`
+	Models       *ModelsConfig                `json:"models,omitempty"`
+	Name         string                       `json:"name"`
+	Description  string                       `json:"description"`
+	Collections  []Collection                 `json:"collections"`
 }
 
 var errInvalidRuntimeState = errors.New("invalid runtime state")
@@ -184,6 +185,7 @@ func (s *Service) loadConfiguration(id string, allowUnavailable bool) (Definitio
 	}
 	d.Name, d.Description, d.Collections = desired.Name, desired.Description, desired.Collections
 	d.Chunk, d.TextEncoding, d.Models = desired.Chunk, desired.TextEncoding, desired.Models
+	d.Retrieval = desired.Retrieval
 	if normalized, err := normalizeTextEncoding(d.TextEncoding); err == nil {
 		d.TextEncoding = normalized
 	}
@@ -390,6 +392,9 @@ func (s *Service) saveConfiguration(d Definition) error {
 					}
 				}
 			}
+		}
+		if c.DefaultQuery != nil {
+			fmt.Fprintf(&b, "    defaultQuery: %t\n", *c.DefaultQuery)
 		}
 		writeChunkSettings(&b, "    ", c.Chunk, quote)
 	}

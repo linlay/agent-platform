@@ -12,9 +12,10 @@ const ChunkUnitChars = "chars"
 
 // Config is the effective per-agent KBASE configuration.
 type Config struct {
-	LibraryID string
-	Enabled   bool // Derived from LibraryID, never a YAML field.
-	Retrieval RetrievalConfig
+	LibraryID          string
+	Enabled            bool // Derived from LibraryID, never a YAML field.
+	Retrieval          RetrievalConfig
+	RetrievalOverrides *RetrievalSettings `json:"-"`
 }
 
 type ChunkConfig struct {
@@ -25,10 +26,15 @@ type ChunkConfig struct {
 }
 
 type RetrievalConfig struct {
-	TopK                int `json:"topK"`
-	CandidateFloor      int `json:"candidateFloor"`
-	CandidateMultiplier int `json:"candidateMultiplier"`
-	CandidateMax        int `json:"candidateMax"`
+	MinScore            *float64 `json:"minScore,omitempty"`
+	RecencyWeight       *float64 `json:"recencyWeight,omitempty"`
+	RecencyHalfLifeDays *float64 `json:"recencyHalfLifeDays,omitempty"`
+	Rerank              *bool    `json:"rerank,omitempty"`
+	QueryExpansion      *bool    `json:"queryExpansion,omitempty"`
+	TopK                int      `json:"topK"`
+	CandidateFloor      int      `json:"candidateFloor"`
+	CandidateMultiplier int      `json:"candidateMultiplier"`
+	CandidateMax        int      `json:"candidateMax"`
 }
 
 func DefaultIncludePatterns() []string {
@@ -73,11 +79,12 @@ func ParseConfig(node map[string]any) (Config, error) {
 	cfg.LibraryID = anyString(node["libraryId"])
 	cfg.Enabled = cfg.LibraryID != ""
 
-	retrieval := anyMap(node["retrieval"])
-	applyIntAliases(retrieval, &cfg.Retrieval.TopK, "topK")
-	applyIntAliases(retrieval, &cfg.Retrieval.CandidateFloor, "candidateFloor")
-	applyIntAliases(retrieval, &cfg.Retrieval.CandidateMultiplier, "candidateMultiplier")
-	applyIntAliases(retrieval, &cfg.Retrieval.CandidateMax, "candidateMax")
+	settings, err := ParseRetrievalSettings(anyMap(node["retrieval"]))
+	if err != nil {
+		return cfg, err
+	}
+	cfg.RetrievalOverrides = &settings
+	cfg.Retrieval = settings.Apply(cfg.Retrieval)
 	return cfg, nil
 }
 
@@ -101,33 +108,18 @@ func ValidateConfigSchema(node map[string]any) error {
 			return fmt.Errorf("kbaseConfig.retrieval must be a mapping")
 		}
 	}
-	for key, value := range anyMap(node["retrieval"]) {
-		switch key {
-		case "topK", "candidateFloor", "candidateMultiplier", "candidateMax":
-			if _, ok := parseConfigInt(value); !ok {
-				return fmt.Errorf("kbaseConfig.retrieval.%s must be an integer", key)
-			}
-		default:
-			return fmt.Errorf("kbaseConfig.retrieval.%s is not supported; KBX owns ranking", key)
-		}
+	_, err := ParseRetrievalSettings(anyMap(node["retrieval"]))
+	if err != nil {
+		return fmt.Errorf("kbaseConfig.%w", err)
 	}
 	return nil
 }
 
 func ValidateConfig(cfg Config) error {
-	if cfg.Retrieval.TopK < 1 || cfg.Retrieval.TopK > 50 {
-		return fmt.Errorf("kbaseConfig.retrieval.topK must be between 1 and 50")
+	if cfg.RetrievalOverrides != nil {
+		return ValidateRetrievalSettings(*cfg.RetrievalOverrides)
 	}
-	if cfg.Retrieval.CandidateFloor < cfg.Retrieval.TopK {
-		return fmt.Errorf("kbaseConfig.retrieval.candidateFloor must be at least topK")
-	}
-	if cfg.Retrieval.CandidateMultiplier < 1 {
-		return fmt.Errorf("kbaseConfig.retrieval.candidateMultiplier must be at least 1")
-	}
-	if cfg.Retrieval.CandidateMax < cfg.Retrieval.CandidateFloor || cfg.Retrieval.CandidateMax > 2000 {
-		return fmt.Errorf("kbaseConfig.retrieval.candidateMax must be between candidateFloor and 2000")
-	}
-	return nil
+	return ValidateRetrieval(cfg.Retrieval)
 }
 
 func anyMap(value any) map[string]any {

@@ -39,6 +39,22 @@ chunk:
 #   embedding:
 #     modelKey: "qwen3-embedding-8b"
 #     prompt: "qwen3"           # raw | qwen3 | embeddinggemma
+#   reranker:
+#     modelKey: "qwen3-reranker" # registry type: reranker，配置 reranker.endpointPath
+#   queryExpansion:
+#     modelKey: "kbx-query-expansion" # registry type: chat，protocol: OPENAI
+
+# 检索默认值：平台默认 → 本库 → Agent 显式字段 → 单次调用；不参与索引指纹。
+retrieval:
+  topK: 8
+  candidateFloor: 30
+  candidateMultiplier: 4
+  candidateMax: 500
+  # minScore: 0                  # 方法相关排名分，不是置信度
+  # recencyWeight: 0             # 0 = 保持相关度排序；范围 0–1
+  # recencyHalfLifeDays: 90       # 必须 > 0
+  # rerank: false                # query；省略时启用已配置的 models.reranker
+  # queryExpansion: false        # query/vsearch；省略时启用已配置的 models.queryExpansion
 
 # 来源集合，1–32 个。名称与来源目录在库内都必须唯一。
 # 知识工具中的路径形如 <collection 名>/<相对路径>。
@@ -59,6 +75,10 @@ collections:
     # 与 Workspace 取并集；不扩大 Workspace，不自动挂载到容器。
     # Run 启动时冻结 canonical 目录；修改此开关在下次 Run 生效，不重建索引。
     editable: true
+
+    # 缺省 true。false 仍照常索引；默认检索不选它，显式 collections 可查询。
+    # 修改在下次查询生效，不影响浏览、回读、编辑权限或索引指纹。
+    defaultQuery: true
 
     # 纳入索引的文件 glob（相对 sourcePath）。
     # 省略时使用下面这七种默认扩展名；显式写空数组会被拒绝。
@@ -98,6 +118,7 @@ collections:
 #
 # models.embedding 的有效模型合同计入向量指纹，变化后只重建全库向量，全文仍可读。
 # endpoint/modelId/dimension/prompt 的改变触发向量重建；密钥、超时和 batchSize 下次调用生效。
+# retrieval、models.reranker、models.queryExpansion、defaultQuery 不计入指纹，下次查询生效。
 # 库 YAML 修改无需重启；runtime 默认值修改仍需重启。
 #
 # Agent 侧只写绑定和查询预算（agent.yml）：
@@ -110,25 +131,10 @@ collections:
 # 字段名和取值是设计草案，落地时可能调整。
 # ============================================================================
 
-# ---- 其他模型角色尚未接入（不能加入 models） ----
+# ---- 图谱模型尚未接入 ----
 # models:
-#   reranker:
-#     modelKey: "qwen3-reranker"
-#   queryExpansion:
-#     modelKey: "kbx-query-expansion"
 #   graphExtraction:
 #     modelKey: "kbx-graph-extractor"
-
-# ---- 库级检索默认值：Agent 的 kbaseConfig.retrieval 覆盖；修改不重建索引 ----
-# retrieval:
-#   topK: 8
-#   candidateFloor: 30
-#   candidateMultiplier: 4
-#   candidateMax: 500
-#   minScore: 0                  # 方法相关的排名分，不是置信度
-#   rerank: true                 # 需要 models.reranker
-#   recencyWeight: 0             # 0 = 只按相关度；大于 0 时混入文档新鲜度
-#   recencyHalfLifeDays: 90
 
 # ---- 图谱 ----
 # graph:
@@ -147,6 +153,5 @@ collections:
 # collections:
 #   - name: "ai"
 #     sourcePath: "/absolute/path/to/AI建设文档"
-#     defaultQuery: true         # false = 照常索引，但未指定集合时默认不查
 #     metadata:                  # 该集合下所有文档继承的固定标签
 #       project: "ai-platform"

@@ -63,6 +63,9 @@ type EmbeddingSnapshot struct {
 }
 
 type SearchOptions struct {
+	Collections         []string `json:"collections"`
+	Rerank              *bool    `json:"rerank"`
+	QueryExpansion      *bool    `json:"queryExpansion"`
 	Method              string   `json:"method"`
 	Limit               int      `json:"limit"`
 	Offset              int      `json:"offset"`

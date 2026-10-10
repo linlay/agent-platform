@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -92,12 +93,23 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 		return knowledge.SearchResult{}, err
 	}
 	defer l.release()
+	retrieval, err := knowledge.MergeRetrieval(l.definition.Retrieval, l.spec.Config)
+	if err != nil {
+		return knowledge.SearchResult{}, err
+	}
+	o = retrieval.ApplySearchDefaults(o)
+	l.searchOptions = &o
+	l.definition.Collections, err = selectedCollections(l.definition.Collections, o.Collections)
+	if err != nil {
+		return knowledge.SearchResult{}, err
+	}
+
 	if strings.TrimSpace(query) == "" {
 		return knowledge.SearchResult{}, fmt.Errorf("query must not be blank")
 	}
 	limit := o.Limit
 	if limit <= 0 {
-		limit = l.spec.Config.Retrieval.TopK
+		limit = retrieval.TopK
 	}
 	if limit <= 0 {
 		limit = 8
@@ -105,15 +117,15 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 	if limit > 50 {
 		return knowledge.SearchResult{}, fmt.Errorf("limit must be at most 50")
 	}
-	candidate := l.spec.Config.Retrieval.CandidateFloor
-	multiplier := l.spec.Config.Retrieval.CandidateMultiplier
+	candidate := retrieval.CandidateFloor
+	multiplier := retrieval.CandidateMultiplier
 	if multiplier < 1 {
 		multiplier = 4
 	}
 	if candidate < limit*multiplier {
 		candidate = limit * multiplier
 	}
-	if ceiling := l.spec.Config.Retrieval.CandidateMax; ceiling > 0 && candidate > ceiling {
+	if ceiling := retrieval.CandidateMax; ceiling > 0 && candidate > ceiling {
 		candidate = ceiling
 	}
 	if candidate < limit {
@@ -127,9 +139,12 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 		if candidate < limit {
 			return knowledge.SearchResult{}, fmt.Errorf("candidateLimit must be at least the effective limit (%d)", limit)
 		}
-		if ceiling := l.spec.Config.Retrieval.CandidateMax; ceiling > 0 && candidate > max(limit, ceiling) {
+		if ceiling := retrieval.CandidateMax; ceiling > 0 && candidate > max(limit, ceiling) {
 			return knowledge.SearchResult{}, fmt.Errorf("candidateLimit exceeds the Agent candidate budget (%d)", max(limit, ceiling))
 		}
+	}
+	if len(l.definition.Collections) == 0 {
+		return knowledge.SearchResult{LibraryID: l.definition.ID, AgentKey: key, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx"}, nil
 	}
 	args := []string{o.Method, "--agent", "-n", strconv.Itoa(limit)}
 	for _, c := range l.definition.Collections {
@@ -154,9 +169,11 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 	} else {
 		args = append(args, "--full", "-C", strconv.Itoa(candidate))
 		if o.Method == "query" {
-			// Deployment configuration currently provides embedding only. Graph
-			// recall can use an already-built local graph without an extraction model.
-			args = append(args, "--no-rerank", "--explain")
+			// Graph recall can use an already-built local graph without an extraction model.
+			args = append(args, "--explain")
+			if o.Rerank != nil && !*o.Rerank {
+				args = append(args, "--no-rerank")
+			}
 			if o.NoGraph {
 				args = append(args, "--no-graph")
 			}
@@ -237,6 +254,19 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 	}
 	result.RetrievalChannels = response.Trace.Coverage.RetrievalUsed
 	result.OptionalUnavailable = response.Trace.Coverage.OptionalUnavailable
+	for _, step := range response.Trace.Steps {
+		role := ""
+		switch step.Reason {
+		case "query_expansion_failed":
+			role = "query_expansion"
+		case "reranker_failed":
+			role = "reranker"
+		}
+		if role != "" && !slices.Contains(result.OptionalUnavailable, role) {
+			result.OptionalUnavailable = append(result.OptionalUnavailable, role)
+		}
+	}
+
 	result.Count = len(result.Results)
 	return result, nil
 }

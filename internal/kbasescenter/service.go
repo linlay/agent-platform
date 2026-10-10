@@ -31,24 +31,26 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 var collectionNamePattern = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$`)
 
 type Collection struct {
-	Description string                  `json:"description,omitempty"`
-	Editable    bool                    `json:"editable,omitempty"`
-	Name        string                  `json:"name"`
-	SourcePath  string                  `json:"sourcePath"`
-	Include     []string                `json:"include"`
-	Exclude     []string                `json:"exclude"`
-	Chunk       knowledge.ChunkSettings `json:"chunk,omitempty"`
+	DefaultQuery *bool                   `json:"defaultQuery,omitempty"`
+	Description  string                  `json:"description,omitempty"`
+	Editable     bool                    `json:"editable,omitempty"`
+	Name         string                  `json:"name"`
+	SourcePath   string                  `json:"sourcePath"`
+	Include      []string                `json:"include"`
+	Exclude      []string                `json:"exclude"`
+	Chunk        knowledge.ChunkSettings `json:"chunk,omitempty"`
 }
 
 type Definition struct {
-	VectorsPending bool                     `json:"vectorsPending,omitempty"`
-	Chunk          *knowledge.ChunkSettings `json:"chunk,omitempty"`
-	TextEncoding   string                   `json:"textEncoding,omitempty"`
-	Models         *ModelsConfig            `json:"models,omitempty"`
-	ID             string                   `json:"id"`
-	Name           string                   `json:"name"`
-	Description    string                   `json:"description"`
-	Collections    []Collection             `json:"collections"`
+	Retrieval      *knowledge.RetrievalSettings `json:"retrieval,omitempty"`
+	VectorsPending bool                         `json:"vectorsPending,omitempty"`
+	Chunk          *knowledge.ChunkSettings     `json:"chunk,omitempty"`
+	TextEncoding   string                       `json:"textEncoding,omitempty"`
+	Models         *ModelsConfig                `json:"models,omitempty"`
+	ID             string                       `json:"id"`
+	Name           string                       `json:"name"`
+	Description    string                       `json:"description"`
+	Collections    []Collection                 `json:"collections"`
 	// SourcePath is a convenience field for the HTTP single-source input.
 	SourcePath     string   `json:"sourcePath,omitempty"`
 	CreatedAt      int64    `json:"createdAt"`
@@ -65,13 +67,14 @@ type Definition struct {
 	InvalidID      bool     `json:"invalidId,omitempty"`
 }
 type Input struct {
-	Chunk        *knowledge.ChunkSettings `json:"chunk,omitempty"`
-	TextEncoding *string                  `json:"textEncoding,omitempty"`
-	Models       *ModelsConfig            `json:"models,omitempty"`
-	Name         string                   `json:"name"`
-	Description  string                   `json:"description"`
-	Collections  []Collection             `json:"collections,omitempty"`
-	SourcePath   string                   `json:"sourcePath,omitempty"`
+	Retrieval    *knowledge.RetrievalSettings `json:"retrieval,omitempty"`
+	Chunk        *knowledge.ChunkSettings     `json:"chunk,omitempty"`
+	TextEncoding *string                      `json:"textEncoding,omitempty"`
+	Models       *ModelsConfig                `json:"models,omitempty"`
+	Name         string                       `json:"name"`
+	Description  string                       `json:"description"`
+	Collections  []Collection                 `json:"collections,omitempty"`
+	SourcePath   string                       `json:"sourcePath,omitempty"`
 }
 type SearchInput struct {
 	Query       string   `json:"query"`
@@ -507,9 +510,6 @@ func (s *Service) Search(ctx context.Context, id string, input SearchInput) (jso
 	default:
 		return nil, fmt.Errorf("method must be query, search, vsearch or gsearch")
 	}
-	if input.Limit == 0 {
-		input.Limit = 10
-	}
 	return s.Read(ctx, id, method, input.Query, input.Limit, input.Collections...)
 }
 
@@ -531,6 +531,13 @@ func (s *Service) Read(ctx context.Context, id, operation, arg string, limit int
 		if strings.TrimSpace(arg) == "" || len(arg) > 8000 {
 			return nil, fmt.Errorf("query must contain 1–8000 bytes")
 		}
+		if limit == 0 {
+			settings, err := knowledge.MergeRetrieval(d.Retrieval, knowledge.DefaultConfig())
+			if err != nil {
+				return nil, err
+			}
+			limit = settings.TopK
+		}
 		if limit < 1 || limit > 50 {
 			return nil, fmt.Errorf("limit must be between 1 and 50")
 		}
@@ -539,7 +546,9 @@ func (s *Service) Read(ctx context.Context, id, operation, arg string, limit int
 	names := make([]string, 0, len(d.Collections))
 	for _, c := range d.Collections {
 		allowed[c.Name] = true
-		names = append(names, c.Name)
+		if len(selected) > 0 || (operation != "search" && operation != "query" && operation != "vsearch" && operation != "gsearch") || c.DefaultQuery == nil || *c.DefaultQuery {
+			names = append(names, c.Name)
+		}
 	}
 	if len(selected) > 0 {
 		names = nil
@@ -553,6 +562,9 @@ func (s *Service) Read(ctx context.Context, id, operation, arg string, limit int
 				seen[name] = true
 			}
 		}
+	}
+	if len(names) == 0 && (operation == "search" || operation == "query" || operation == "vsearch" || operation == "gsearch") {
+		return json.RawMessage(`{"results":[],"trace":{"degraded":false}}`), nil
 	}
 	if operation == "read" {
 		collection, _, valid := DocumentReference(arg)

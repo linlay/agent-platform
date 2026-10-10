@@ -87,3 +87,5 @@ Workspace 与 library 来源不要求包含或相等。专用 KBASE 的 Host Run
 ## 与库级索引配置的关系
 
 library.yml 的库级 chunk 与 collection.chunk 逐字段合并，textEncoding 控制 KBX 的文本回退解码；这些字段变化触发来源重新处理，不改变文件工具的编码或编辑权限。models.embedding 使用共享 registry 并可覆盖 runtime 默认，变化只重建向量，全文仍可读。description/editable 在下次 Run 冻结生效，不触发索引重建；正在进行的 Run 写权限不随切块、编码或模型变化。配置与状态细节见 [知识库中心](知识库中心.md#库级配置与模型)。
+
+库级 retrieval、models.reranker/queryExpansion 和 collection.defaultQuery 仅改变下次检索，不改变已冻结的 Workspace/collection 编辑范围，也不触发索引重建。默认检索排除的 collection 仍可显式查询、浏览和回读；是否允许编辑仍取决于 editable 与本 Run editingMode。

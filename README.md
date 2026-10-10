@@ -261,7 +261,7 @@ Provider `apiKey` 按明文字符串读取：
 
 **静态配置**：`configs/` 下所有文件都只在进程启动时读取一次；修改 `configs/*.yml` 或 `configs/*.pem` 后必须重启 runtime 才会生效。
 
-KBX 抽取由受管 CLI 负责。共享库由 Platform 按库 ID 监听来源、后台调用 update/embed；library.yml 支持库级切块默认、textEncoding 和逐库 embedding 模型（引用共享 registry，省略继承 runtime 默认），模型变化仅重建向量；要求受管 KBX 支持维护 JSON v1，见 [KBX 接入](docs/KBX接入.md)。配置归属与升级步骤见 [Agent 配置合并](docs/Agent配置合并.md)。
+KBX 抽取由受管 CLI 负责。共享库由 Platform 按库 ID 监听来源、后台调用 update/embed；library.yml 支持库级切块默认、textEncoding 和逐库 embedding 模型（引用共享 registry，省略继承 runtime 默认），模型变化仅重建向量；库级检索默认、重排/查询扩展和 collection.defaultQuery 下次查询生效；要求受管 KBX 支持维护 JSON v1，见 [KBX 接入](docs/KBX接入.md)。配置归属与升级步骤见 [Agent 配置合并](docs/Agent配置合并.md)。
 
 本地 JWT 公钥规则：
 

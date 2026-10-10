@@ -45,7 +45,7 @@ CLI 必须声明维护协议 v1、结构化错误、无扫描注册与文件路�
 
 ## 查询、路径与引用
 
-- 工具 `kbase_search` 支持 query/search/vsearch/gsearch。纯全文不解析模型配置；严格向量或图检索不静默降级。query 保留真实通道和降级信息，重排仍未接入。图谱构建尚未接入自动维护；仅能使用已有完整图谱。
+- 工具 `kbase_search` 支持 query/search/vsearch/gsearch。纯全文不解析模型配置；严格向量或图检索不静默降级。query 保留真实通道和降级信息，支持逐库重排和查询扩展。图谱构建尚未接入自动维护；仅能使用已有完整图谱。
 - 所有工具路径、`pathPrefix/pathGlob`、来源 chunk 的 Path 统一为 `<collection>/<relativePath>`。例如 `ai/design.md`、`research/design.md` 是不同文档。`pathPrefix: research` 限定集合，`pathGlob: "**/*.md"` 可跨集合匹配。`filter` 仍是原生 KBX 表达式/JSON，`sys.path` 是集合内路径，`sys.collection` 可限定集合。
 - 查询前将过滤条件与每个 collection 的 include/exclude 取交集；结果正文、嵌套图证据和回读再次校验范围。`exclude` 是词法排除表达式，不是文件路径；`minScore` 是方法相关排名分，不是置信度。候选上限 2000、结果最多 50，不支持搜索 offset/cursor。
 - `kbase_read.chunkId` 接收 chunkId/evidenceId/nextEvidence，精确回读证据；按路径读取使用一基行号 offset 和 limit 分页。`kbase_files` 只列 active 索引文件，不列主机任意文件。
@@ -62,7 +62,7 @@ CLI 必须声明维护协议 v1、结构化错误、无扫描注册与文件路�
 
 `library.yml → models.embedding` 可以选择共享 registry 的 embedding 模型和 prompt；省略时继承 `runtime.yml → kbx.embedding`，Agent 不覆盖。每次调用在 StateDir 的库专属目录生成 0600 私有配置快照，携带有效模型、chunking、text_encoding，以 --config 显式传入，子进程结束后删除。CLI 用 argv 调用，输出有界，不继承用户 KBX 配置。模型键、endpoint/modelId/dimension/prompt 进入向量指纹；密钥、超时、batchSize 下次调用生效而不重建。
 
-向量合同变化执行全库 embed --force（无 -c），不重新扫描来源、不改变已发布 chunk。普通内容维护完成全部 collection 的 update 后执行全库 embed，Platform 合同变化或 KBX 报不兼容则使用 force；SESSION_LIMIT 后续跑不重复 force。向量变化/失败期间全文可读，query 使用全文，严格 vsearch 拒绝旧合同；成功后自动恢复。query expansion、reranker 和 graph extraction 未配置。配置继承、PUT 重置规则见 [知识库中心](知识库中心.md#库级配置与模型)。
+向量合同变化执行全库 embed --force（无 -c），不重新扫描来源、不改变已发布 chunk。普通内容维护完成全部 collection 的 update 后执行全库 embed，Platform 合同变化或 KBX 报不兼容则使用 force；SESSION_LIMIT 后续跑不重复 force。向量变化/失败期间全文可读，query 使用全文，严格 vsearch 拒绝旧合同；成功后自动恢复。query expansion 与 reranker 仅注入检索调用；graph extraction 仍未接入。配置继承、PUT 重置规则见 [知识库中心](知识库中心.md#库级配置与模型)。
 
 ## 升级与验证
 
@@ -81,4 +81,14 @@ KBX_ACCEPTANCE_BIN=/absolute/managed/bin KBX_CENTER_TEST_BIN=/absolute/managed/b
 
 collection 支持 `description`（可选文本，最多 4000 字节）和 `editable`（boolean，缺省 false）。二者不计入来源/向量指纹，管理 API 与 WebClient 表单保留这些字段。授权只适用于专用 KBASE 的 Host Run，需 editingMode；不向普通 Agent 授权，也不自动挂载容器。索引 include/exclude 不等于文件编辑范围，详见 [KBASE 编辑模式](KBASE编辑模式.md)。
 
-中心显式投影来源字段；有效 chunk/textEncoding 属于来源指纹，embedding 合同属于向量指纹。只有向量变化时不撤销已提交全文，向量错误/中断独立降级；collection description/editable 不参与指纹。未实现字段继续严格拒绝。
+中心显式投影来源字段；有效 chunk/textEncoding 属于来源指纹，embedding 合同属于向量指纹。只有向量变化时不撤销已提交全文，向量错误/中断独立降级；collection description/editable 不参与指纹。retrieval、models.reranker/queryExpansion 与 defaultQuery 下次查询生效，不计入指纹；graph/metadata 等未实现字段继续严格拒绝。
+
+## 检索配置合并与可选模型
+
+库 retrieval → Agent 显式 retrieval → kbase_search 单次参数逐字段覆盖，平台缺省仍为 topK=8、candidateFloor=30、candidateMultiplier=4、candidateMax=500；零分数/时效权重及 false 开关不会被省略。新增 collections（显式选择）、rerank（query）和 queryExpansion（query/vsearch）参数；不适用方法的显式参数拒绝。search 始终不解析模型；gsearch 不接收文本排序默认值。
+
+reranker 使用 registry type: reranker 和必填 reranker.endpointPath，queryExpansion 使用 type: chat / protocol: OPENAI 的 Chat Completions endpoint；KBX 不承接平台自定义 headers/compat 或其他聊天协议。去掉强制 --no-rerank，仅在有效 rerank=false 时传递。配置或单次开关关闭时不注入对应模型。模型 HTTP 失败保留原查询/原排序并报告 degraded，Agent optionalUnavailable 包含对应角色；错误键/协议直接报配置错误。模型角色不进入维护配置和索引指纹。
+
+defaultQuery 缺省 true。维护时同步 collection include/exclude，检索时按当前默认或显式 collections 传入 -c，全部默认排除返回空数组；过滤不能扩大绑定库范围，files/read 不受默认检索选择影响。详细配置、registry 示例和边界见 [知识库中心](知识库中心.md#检索默认值可选模型和默认集合)。
+
+`TestCenterRealRetrievalModelsDefaultsAndDegradation` 使用当前受管 KBX 和本机 HTTP fixture 验证两种模型调用、禁用/全文零调用、失败回退与 collection 隔离。目标模型部署的延迟与语义质量仍待实测，不将本机 fixture 时间写成生产指标。缓存、扩展向量和重试会改变请求数量。

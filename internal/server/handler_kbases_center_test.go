@@ -78,7 +78,22 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	if !strings.Contains(string(raw), `"modelKey":"selected"`) {
 		t.Fatalf("omitted settings reset: %s", raw)
 	}
-	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","models":{"reranker":{"modelKey":"future"}}}`, 400)
+	raw = request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Query settings","retrieval":{"topK":12,"minScore":0,"rerank":false,"queryExpansion":true},"models":{"reranker":{"modelKey":"rank"},"queryExpansion":{"modelKey":"expand"}}}`, 200)
+	d = kbasescenter.Definition{}
+	if err = json.Unmarshal(raw, &d); err != nil || d.Retrieval == nil || *d.Retrieval.TopK != 12 || d.Retrieval.MinScore == nil || *d.Retrieval.MinScore != 0 || d.Retrieval.Rerank == nil || *d.Retrieval.Rerank || !*d.Retrieval.QueryExpansion || d.Models.Reranker.ModelKey != "rank" || d.Models.QueryExpansion.ModelKey != "expand" {
+		t.Fatalf("query settings lost on PUT: %s %v", raw, err)
+	}
+	disabled := false
+	d.Collections[0].DefaultQuery = &disabled
+	input, _ = json.Marshal(kbasescenter.Input{Name: "Query scope", Collections: d.Collections})
+	request("PUT", "/api/admin/kbases/"+d.ID, string(input), 200)
+	raw = request("GET", "/api/admin/kbases/"+d.ID, "", 200)
+	if !strings.Contains(string(raw), `"defaultQuery":false`) || !strings.Contains(string(raw), `"modelKey":"rank"`) || !strings.Contains(string(raw), `"minScore":0`) {
+		t.Fatalf("query settings not preserved: %s", raw)
+	}
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","retrieval":{"topK":51}}`, 400)
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","retrieval":{"unknown":true}}`, 400)
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","models":{"graphExtraction":{"modelKey":"future"}}}`, 400)
 	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","collections":[]}`, 400)
 	request("POST", "/api/admin/kbases/"+d.ID+"/search", `{"query":"fixture","method":"get"}`, 400)
 }

@@ -59,7 +59,7 @@ func TestLibrarySettingsRoundTripAndSourceFingerprint(t *testing.T) {
 
 func TestLibrarySettingsStrictValidation(t *testing.T) {
 	for _, fields := range []string{
-		`"chunk":{"strategy":"future"}`, `"chunk":{"maxChars":0}`, `"chunk":{"overlapChars":-1}`, `"chunk":{"unit":"estimatedTokens"}`, `"chunk":{"maxTokens":1000}`, `"textEncoding":"unknown"`, `"textEncoding":"replacement"`, `"models":{"embedding":{"modelKey":""}}`, `"models":{"embedding":{"modelKey":"a","prompt":"unknown"}}`, `"models":{"reranker":{"modelKey":"a"}}`,
+		`"chunk":{"strategy":"future"}`, `"chunk":{"maxChars":0}`, `"chunk":{"overlapChars":-1}`, `"chunk":{"unit":"estimatedTokens"}`, `"chunk":{"maxTokens":1000}`, `"textEncoding":"unknown"`, `"textEncoding":"replacement"`, `"models":{"embedding":{"modelKey":""}}`, `"models":{"embedding":{"modelKey":"a","prompt":"unknown"}}`, `"models":{"graphExtraction":{"modelKey":"a"}}`,
 	} {
 		t.Run(fields, func(t *testing.T) {
 			var in Input
@@ -74,5 +74,39 @@ func TestLibrarySettingsStrictValidation(t *testing.T) {
 				t.Fatal("accepted invalid settings")
 			}
 		})
+	}
+}
+
+func TestQuerySettingsRoundTripDoesNotInvalidateIndex(t *testing.T) {
+	s := newStorageService(t, testEngine{})
+	d := createFixture(t, s)
+	if _, err := s.Refresh(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	before := waitState(t, s, d.ID, "ready")
+	fp := s.fingerprints(before)
+	disabled, top, zero := false, 12, 0.0
+	d.Collections[0].DefaultQuery = &disabled
+	d, err := s.Edit(d.ID, Input{Name: d.Name, Collections: d.Collections, Retrieval: &knowledge.RetrievalSettings{TopK: &top, MinScore: &zero, Rerank: &disabled}, Models: &ModelsConfig{Reranker: &QueryModelConfig{ModelKey: "rank"}, QueryExpansion: &QueryModelConfig{ModelKey: "expand"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.IndexedAt != before.IndexedAt || d.State != "ready" || fp != s.fingerprints(d) {
+		t.Fatalf("query metadata invalidated index: %+v", d)
+	}
+	loaded, err := s.Get(d.ID)
+	if err != nil || loaded.Retrieval == nil || *loaded.Retrieval.MinScore != 0 || *loaded.Collections[0].DefaultQuery || loaded.Models.QueryExpansion.ModelKey != "expand" {
+		t.Fatalf("roundtrip: %+v %v", loaded, err)
+	}
+	if _, err = s.Edit(d.ID, Input{Name: d.Name}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ = s.Get(d.ID)
+	if loaded.Retrieval == nil {
+		t.Fatal("omitted query defaults cleared")
+	}
+	loaded, err = s.Edit(d.ID, Input{Name: d.Name, Retrieval: &knowledge.RetrievalSettings{}})
+	if err != nil || loaded.Retrieval != nil {
+		t.Fatalf("reset: %+v %v", loaded, err)
 	}
 }

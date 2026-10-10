@@ -23,16 +23,29 @@ inputSchema:
         - gsearch
       default: query
       description: query combines available lexical, vector, and graph recall with explicit degradation. search is local full-text BM25 for exact terms and identifiers, with no model calls. vsearch is strict vector similarity. gsearch retrieves entity relationships and source evidence from an already-built complete graph; Platform refresh does not build graphs.
+    collections:
+      type: array
+      minItems: 1
+      items:
+        type: string
+        minLength: 1
+      description: Explicit collection names within the bound library. Omit to use defaultQuery collections; explicit selection can include defaultQuery=false collections. Never widens the library binding.
+    rerank:
+      type: boolean
+      description: query only. Override the merged library/Agent rerank setting. Requires a configured library reranker when true; false disables it.
+    queryExpansion:
+      type: boolean
+      description: query/vsearch only. Override the merged expansion setting. Requires a configured library queryExpansion model when true; false disables it.
     limit:
       type: integer
       minimum: 1
       maximum: 50
-      description: Maximum number of chunks to return. Defaults to the agent retrieval topK.
+      description: Maximum number of chunks to return. Defaults to library retrieval topK with explicit Agent overrides.
     candidateLimit:
       type: integer
       minimum: 1
       maximum: 2000
-      description: Candidate budget for query/search/vsearch, at least the effective limit and no greater than the Agent candidateMax ceiling (raised to the effective limit if needed). Omit to use the Agent retrieval budget. Not available for gsearch.
+      description: Candidate budget for query/search/vsearch, at least the effective limit and no greater than the merged library/Agent candidateMax ceiling (raised to the effective limit if needed). Omit to use the merged retrieval budget. Not available for gsearch.
     exclude:
       type: array
       items:
@@ -59,7 +72,7 @@ inputSchema:
       description: Freshness half-life in days for query/search/vsearch, default 90. Not available for gsearch.
     noGraph:
       type: boolean
-      description: query only. Set true to restrict hybrid retrieval to lexical and vector channels. Omitted or false allows recall from an available graph. Reranking remains disabled until deployment model support is added.
+      description: query only. Set true to restrict hybrid retrieval to lexical and vector channels. Omitted or false allows recall from an available graph.
     entities:
       type: array
       items:

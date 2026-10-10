@@ -15,10 +15,12 @@ import (
 
 // CenterEngine maintains shared libraries through the structured KBX protocol.
 type CenterEngine struct {
-	configSource *ModelConfigSource
-	runner       Runner
-	embedding    bool
-	readConfig   []byte
+	configSource   *ModelConfigSource
+	runner         Runner
+	embedding      bool
+	readConfig     []byte
+	searchDefaults knowledge.SearchOptions
+	candidateLimit int
 }
 
 func NewCenterEngine() *CenterEngine { return &CenterEngine{runner: cliRunner{}} }
@@ -155,7 +157,20 @@ func (e *CenterEngine) ReadLibrary(ctx context.Context, db string, definition kb
 		return nil, err
 	}
 	local := *e
+	retrieval, err := knowledge.MergeRetrieval(definition.Retrieval, knowledge.DefaultConfig())
+	if err != nil {
+		return nil, err
+	}
+	o := retrieval.ApplySearchDefaults(knowledge.SearchOptions{Method: operation, Limit: limit})
+	m := NewManager(Options{ConfigSource: e.configSource}, nil, nil)
+	cfg, err = m.queryConfig(cfg, definition, operation, &o)
+	if err != nil {
+		return nil, err
+	}
 	local.readConfig = cfg
+	local.searchDefaults = o
+	local.candidateLimit = min(retrieval.CandidateMax, max(retrieval.CandidateFloor, o.Limit*retrieval.CandidateMultiplier))
+	limit = o.Limit
 	return local.read(ctx, db, operation, arg, limit, collections...)
 }
 func (e *CenterEngine) read(ctx context.Context, db, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
@@ -168,10 +183,21 @@ func (e *CenterEngine) read(ctx context.Context, db, operation, arg string, limi
 	case "search", "query", "vsearch", "gsearch":
 		args = []string{operation, "--agent", "-n", strconv.Itoa(limit)}
 		if operation != "gsearch" {
-			args = append(args, "--full")
+			args = append(args, "--full", "-C", strconv.Itoa(max(limit, e.candidateLimit)))
+			for _, field := range []struct {
+				flag  string
+				value *float64
+			}{{"--min-score", e.searchDefaults.MinScore}, {"--recency-weight", e.searchDefaults.RecencyWeight}, {"--recency-half-life-days", e.searchDefaults.RecencyHalfLifeDays}} {
+				if field.value != nil {
+					args = append(args, field.flag, strconv.FormatFloat(*field.value, 'g', -1, 64))
+				}
+			}
 		}
 		if operation == "query" {
-			args = append(args, "--no-rerank", "--explain")
+			args = append(args, "--explain")
+			if e.searchDefaults.Rerank != nil && !*e.searchDefaults.Rerank {
+				args = append(args, "--no-rerank")
+			}
 		}
 		for _, name := range collections {
 			args = append(args, "-c", name)

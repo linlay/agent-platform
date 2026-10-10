@@ -32,12 +32,13 @@ type Manager struct {
 	skipEmbedding bool
 }
 type library struct {
-	source     kbasescenter.Collection // Only maintenance consumes source configuration.
-	spec       knowledge.AgentSpec
-	database   string
-	collection string
-	definition kbasescenter.Definition
-	release    func()
+	searchOptions *knowledge.SearchOptions
+	source        kbasescenter.Collection // Only maintenance consumes source configuration.
+	spec          knowledge.AgentSpec
+	database      string
+	collection    string
+	definition    kbasescenter.Definition
+	release       func()
 }
 
 func NewManager(options Options, agents knowledge.AgentSource, registry *models.ModelRegistry) *Manager {
@@ -206,6 +207,12 @@ func (m *Manager) call(ctx context.Context, l library, embedding bool, out any, 
 	cfg, err := m.config(l, embedding)
 	if err != nil {
 		return err
+	}
+	if len(args) > 0 {
+		cfg, err = m.queryConfig(cfg, l.definition, args[0], l.searchOptions)
+		if err != nil {
+			return err
+		}
 	}
 	data, err := m.runner.Run(ctx, l.database, cfg, args...)
 	if failure := readerFailure(data, args[0]); failure != nil {

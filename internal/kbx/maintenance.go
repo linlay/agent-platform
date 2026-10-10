@@ -246,6 +246,11 @@ func (m *Manager) performRefresh(ctx context.Context, w *collectionUpdate, j *up
 	// These setters have no JSON output contract. Only their exit status is used;
 	// query and compare the resulting configuration before reading any source.
 	commands := [][]string{{"collection", "set-pattern", name, pattern}, append([]string{"collection", "set-ignore", name}, ignores...)}
+	defaultCommand := "include"
+	if l.source.DefaultQuery != nil && !*l.source.DefaultQuery {
+		defaultCommand = "exclude"
+	}
+	commands = append(commands, []string{"collection", defaultCommand, name})
 	chunk, err := knowledge.ResolveSourceChunk(knowledge.ChunkSettings{}, l.source.Chunk)
 	if err != nil {
 		return err
