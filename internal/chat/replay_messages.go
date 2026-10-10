@@ -10,11 +10,10 @@ import (
 )
 
 type replayMessageOptions struct {
-	HideTeamCoordinatorInternals bool
-	ActorType                    string
-	TeamID                       string
-	AgentKey                     string
-	Presentation                 string
+	ActorType string
+
+	AgentKey     string
+	Presentation string
 }
 
 func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, liveSeq int64, nextSeq func() int64, options replayMessageOptions) ([]stream.EventData, error) {
@@ -28,7 +27,7 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 
 	switch role {
 	case "assistant":
-		if rc, ok := msg["reasoning_content"]; ok && !options.HideTeamCoordinatorInternals {
+		if rc, ok := msg["reasoning_content"]; ok {
 			text := extractTextFromContent(rc)
 			if text != "" {
 				reasoningID, _ := msg["_reasoningId"].(string)
@@ -86,7 +85,7 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 				}
 				callID, _ := tcMap["id"].(string)
 				fnName, _ := fn["name"].(string)
-				if options.HideTeamCoordinatorInternals || agentteam.IsHiddenTool(fnName) {
+				if agentteam.IsHiddenTool(fnName) {
 					continue
 				}
 				fnArgs, _ := fn["arguments"].(string)
@@ -120,7 +119,7 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 		if boolFromAny(msg["_internalOnly"]) {
 			return nil, nil
 		}
-		if options.HideTeamCoordinatorInternals || agentteam.IsHiddenTool(stringFromAny(msg["name"])) {
+		if agentteam.IsHiddenTool(stringFromAny(msg["name"])) {
 			return nil, nil
 		}
 		text := extractTextFromContent(msg["content"])
@@ -160,9 +159,7 @@ func replayMessageActorOptions(msg map[string]any, options replayMessageOptions)
 	if value := strings.TrimSpace(stringFromAny(msg["actorType"])); value != "" {
 		options.ActorType = value
 	}
-	if value := strings.TrimSpace(stringFromAny(msg["teamId"])); value != "" {
-		options.TeamID = value
-	}
+
 	if value := strings.TrimSpace(stringFromAny(msg["agentKey"])); value != "" {
 		options.AgentKey = value
 	}
@@ -177,10 +174,7 @@ func decorateReplayActor(payload map[string]any, options replayMessageOptions) {
 		return
 	}
 	actor := map[string]any{"type": strings.TrimSpace(options.ActorType)}
-	if strings.TrimSpace(options.TeamID) != "" {
-		actor["teamId"] = strings.TrimSpace(options.TeamID)
-		payload["teamId"] = strings.TrimSpace(options.TeamID)
-	}
+
 	if strings.TrimSpace(options.AgentKey) != "" {
 		actor["agentKey"] = strings.TrimSpace(options.AgentKey)
 		payload["agentKey"] = strings.TrimSpace(options.AgentKey)

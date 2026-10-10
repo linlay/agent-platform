@@ -49,7 +49,6 @@ type llmRunStream struct {
 	maxSteps                    int
 	budgetStage                 string
 	toolChoice                  string
-	teamStateMachine            *agentteam.StateMachine
 	postToolHook                func(string, string) PostToolHookResult
 	preserveSteersOnFinish      bool
 	checker                     hitl.Checker

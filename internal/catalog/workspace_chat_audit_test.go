@@ -60,18 +60,18 @@ func TestAuditWorkspaceChatConfigReportsMaskRequirementAndOrphanReferences(t *te
 	}
 	writeAuditAgent(t, agentsDir, "root-agent", "key: root-agent\nmode: GENERAL\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  environmentId: shell\n  workspaceRoot: "+filepath.ToSlash(root)+"\ncontextConfig:\n  agents:\n    - missing-agent\n")
 	writeAuditAgent(t, agentsDir, "workspace-less", "key: workspace-less\nmode: GENERAL\nmodelConfig:\n  modelKey: mock\ntoolConfig:\n  tools:\n    - bash\n    - file_read\n    - file_glob\n")
-	teamDir := filepath.Join(teamsDir, "demo")
+	teamDir := filepath.Join(agentsDir, "demo")
 	if err := os.MkdirAll(teamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(teamDir, "team.yml"), []byte("name: demo\nagentKeys:\n  - root-agent\n  - missing-member\norchestrator:\n  modelConfig:\n    modelKey: mock\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(teamDir, "agent.yml"), []byte("key: demo\nname: demo\nmode: TEAM\nteamConfig:\n  members: [root-agent, missing-member]\nmodelConfig:\n  modelKey: mock\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	findings, err := AuditWorkspaceChatConfig(config.Config{Paths: config.PathsConfig{
 		AgentsDir: agentsDir,
-		TeamsDir:  teamsDir,
-		ChatsDir:  chatsDir,
+
+		ChatsDir: chatsDir,
 	}})
 	if err != nil {
 		t.Fatalf("audit: %v", err)

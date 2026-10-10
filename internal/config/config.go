@@ -25,13 +25,13 @@ type Config struct {
 	Server           ServerConfig
 	Paths            PathsConfig
 	Agents           CatalogConfig
-	Teams            CatalogConfig
 	Skills           SkillCatalogConfig
 	Prompts          PromptsConfig
 	CoderPrompts     CoderPromptsConfig
 	KBasePrompts     KBasePromptsConfig
 	CoderSettings    CoderSettingsConfig
 	GeneralSettings  GeneralSettingsConfig
+	TeamSettings     GeneralSettingsConfig
 	KBase            KBaseConfig
 	VisionRecognize  VisionRecognizeConfig
 	WebFetch         WebFetchConfig
@@ -108,7 +108,6 @@ type PathsConfig struct {
 	OwnerDir                 string
 	AgentsDir                string
 	RUAgentsDir              string
-	TeamsDir                 string
 	RootDir                  string
 	AutomationsDir           string
 	ChatsDir                 string
@@ -726,7 +725,6 @@ func validateRUAgentsDir(paths PathsConfig) error {
 		"tools-dir":             paths.ToolsDir,
 		"owner-dir":             paths.OwnerDir,
 		"agents-dir":            paths.AgentsDir,
-		"teams-dir":             paths.TeamsDir,
 		"root-dir":              paths.RootDir,
 		"automations-dir":       paths.AutomationsDir,
 		"chats-dir":             paths.ChatsDir,

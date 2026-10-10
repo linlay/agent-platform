@@ -102,8 +102,8 @@ func (s *Server) handleAbsoluteResource(w http.ResponseWriter, r *http.Request, 
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}
-	agentKey, teamID, ok := s.resourceChatOwner(chatID)
-	if !ok || strings.TrimSpace(teamID) != "" || strings.TrimSpace(agentKey) == "" {
+	agentKey, _, ok := s.resourceChatOwner(chatID)
+	if !ok || strings.TrimSpace(agentKey) == "" {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "absolute resource paths are unavailable for this chat"))
 		return
 	}
@@ -160,7 +160,7 @@ func (s *Server) handleAbsoluteResource(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) resourceChatOwner(chatID string) (string, string, bool) {
 	if summary, err := s.deps.Chats.Summary(chatID); err == nil && summary != nil {
-		return strings.TrimSpace(summary.AgentKey), strings.TrimSpace(summary.TeamID), true
+		return strings.TrimSpace(summary.AgentKey), "", true
 	}
 	if s.deps.Archives == nil {
 		return "", "", false
@@ -169,7 +169,7 @@ func (s *Server) resourceChatOwner(chatID string) (string, string, bool) {
 	if err != nil || archived == nil {
 		return "", "", false
 	}
-	return strings.TrimSpace(archived.Summary.AgentKey), strings.TrimSpace(archived.Summary.TeamID), true
+	return strings.TrimSpace(archived.Summary.AgentKey), "", true
 }
 
 func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path string, semanticName string) {
@@ -380,7 +380,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if principal := PrincipalFromContext(r.Context()); principal != nil && strings.TrimSpace(principal.Subject) != "" {
 		source = api.ChatSourceQueryPrefix + strings.TrimSpace(principal.Subject)
 	}
-	summary, created, err := s.deps.Chats.EnsureChatWithSource(chatID, agentKey, "", r.FormValue("name"), source)
+	summary, created, err := s.deps.Chats.EnsureChatWithSource(chatID, agentKey, r.FormValue("name"), source)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

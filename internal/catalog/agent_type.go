@@ -87,9 +87,9 @@ func ParsePublicAgentMode(value string) (string, error) {
 	case "ONESHOT":
 		return "", deprecation.New("mode ONESHOT is internal-only and cannot be configured; use GENERAL")
 	case "TEAM":
-		return "", fmt.Errorf("mode TEAM is internal and can only be configured through a Team directory")
+		return "TEAM", nil
 	default:
-		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, PLAN-EXECUTE, PROXY, or CHANNEL")
+		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, PLAN-EXECUTE, PROXY, or CHANNEL")
 	}
 }
 
@@ -356,9 +356,6 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 }
 
 func ValidateAgentModelConfig(def AgentDefinition) error {
-	if strings.EqualFold(strings.TrimSpace(def.Mode), agentteam.Mode) {
-		return fmt.Errorf("mode TEAM is internal and can only be configured through a Team directory")
-	}
 	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
 		return nil
 	}

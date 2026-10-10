@@ -491,7 +491,7 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 		RunID:     "run-1",
 		RequestID: "req-1",
 		RuntimeContext: RuntimeRequestContext{
-			TeamID:    "team-1",
+
 			LocalMode: false,
 			Scene:     &api.Scene{Title: "BrandApp", URL: "https://example.com"},
 			AuthIdentity: &AuthIdentity{
@@ -534,7 +534,7 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 	if strings.Contains(section, "runId:") || strings.Contains(section, "requestId:") {
 		t.Fatalf("expected session section to exclude volatile run identifiers, got %q", section)
 	}
-	if !strings.Contains(section, "teamId: team-1") || !strings.Contains(section, "scene: title=BrandApp, url=https://example.com") {
+	if !strings.Contains(section, "scene: title=BrandApp, url=https://example.com") {
 		t.Fatalf("expected team and scene in session section, got %q", section)
 	}
 	for _, expected := range []string{
@@ -556,7 +556,6 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 	}
 	assertOrderedSubstrings(t, section, []string{
 		"chatId:",
-		"teamId:",
 		"scene:",
 		"subject:",
 		"deviceId:",
@@ -574,16 +573,16 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
 			LocalPaths: LocalPaths{
-				WorkspaceDir:        "/Users/tester/Project/workspaces/demo",
-				ChatDir:             "/Users/tester/Project/app/runtime/chats/chat-1",
-				RootDir:             "/Users/tester/Project/app/runtime/root",
-				SkillsDir:           "/Users/tester/Project/app/runtime/agents/demo-agent/skills",
-				AgentDir:            "/Users/tester/Project/app/runtime/agents/demo-agent",
-				OwnerDir:            "/Users/tester/Project/app/runtime/owner",
-				SkillsCenterDir:     "/Users/tester/Project/app/runtime/skills-center",
-				AgentsDir:           "/Users/tester/Project/app/runtime/agents",
-				RUAgentsDir:         "/Users/tester/Project/app/runtime/ru-agents",
-				TeamsDir:            "/Users/tester/Project/app/runtime/teams",
+				WorkspaceDir:    "/Users/tester/Project/workspaces/demo",
+				ChatDir:         "/Users/tester/Project/app/runtime/chats/chat-1",
+				RootDir:         "/Users/tester/Project/app/runtime/root",
+				SkillsDir:       "/Users/tester/Project/app/runtime/agents/demo-agent/skills",
+				AgentDir:        "/Users/tester/Project/app/runtime/agents/demo-agent",
+				OwnerDir:        "/Users/tester/Project/app/runtime/owner",
+				SkillsCenterDir: "/Users/tester/Project/app/runtime/skills-center",
+				AgentsDir:       "/Users/tester/Project/app/runtime/agents",
+				RUAgentsDir:     "/Users/tester/Project/app/runtime/ru-agents",
+
 				AutomationsDir:      "/Users/tester/Project/app/runtime/automations",
 				ChatsDir:            "/Users/tester/Project/app/runtime/chats",
 				MemoryDir:           "/Users/tester/Project/app/runtime/memory",
@@ -687,15 +686,15 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 				AgentDir: "/Users/tester/Project/app/runtime/agents/demo-agent",
 			},
 			SandboxPaths: SandboxPaths{
-				WorkspaceDir:        "/workspace",
-				ChatDir:             "/chat",
-				RootDir:             "/root",
-				SkillsDir:           "/skills",
-				AgentDir:            "/agent",
-				OwnerDir:            "/owner",
-				SkillsCenterDir:     "/skills-center",
-				RUAgentsDir:         "/agents",
-				TeamsDir:            "/teams",
+				WorkspaceDir:    "/workspace",
+				ChatDir:         "/chat",
+				RootDir:         "/root",
+				SkillsDir:       "/skills",
+				AgentDir:        "/agent",
+				OwnerDir:        "/owner",
+				SkillsCenterDir: "/skills-center",
+				RUAgentsDir:     "/agents",
+
 				AutomationsDir:      "/automations",
 				ChatsDir:            "/chats",
 				MemoryDir:           "/memory",
@@ -805,7 +804,7 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 		ContextTags: []string{"system", "session"},
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
-			TeamID:    "team-1",
+
 			LocalPaths: LocalPaths{
 				WorkspaceDir: "/Users/tester/Project/workspaces/demo",
 				ChatDir:      "/Users/tester/Project/app/runtime/chats/chat-1",

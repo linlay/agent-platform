@@ -15,7 +15,7 @@ import (
 func TestResourceHeadReturnsAuthoritativeDocumentMetadata(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-resource-head"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "resource"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "resource"); err != nil {
 		t.Fatal(err)
 	}
 	relativePath := "artifacts/run-head/page.html"

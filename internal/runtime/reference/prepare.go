@@ -233,9 +233,6 @@ func (s *Service) PrepareChatReference(ctx context.Context, currentChatID string
 	if agentKey := strings.TrimSpace(summary.AgentKey); agentKey != "" {
 		meta["agentKey"] = agentKey
 	}
-	if teamID := strings.TrimSpace(summary.TeamID); teamID != "" {
-		meta["teamId"] = teamID
-	}
 	if contextText := BuildChatReferenceContext(*summary, messages); contextText != "" {
 		meta["context"] = contextText
 	}

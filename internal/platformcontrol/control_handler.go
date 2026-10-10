@@ -256,10 +256,10 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 	}
 	if action == "defaults" {
 		typ := stringValue(p, "type")
-		paths := map[string]string{"general": GeneralCreationPath, "coder": CoderCreationPath, "kbase": KBaseCreationPath}
+		paths := map[string]string{"general": GeneralCreationPath, "coder": CoderCreationPath, "kbase": KBaseCreationPath, "team": TeamCreationPath}
 		path, ok := paths[typ]
 		if !ok {
-			return nil, fmt.Errorf("type must be general, coder or kbase")
+			return nil, fmt.Errorf("type must be general, coder, kbase or team")
 		}
 		result := h.get(path)
 		if h.models != nil {
@@ -405,9 +405,6 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 		if r, ok := h.registry.(interface{ AdminAgents() []catalog.AdminAgent }); ok {
 			for _, v := range r.AdminAgents() {
 				def, valid := h.registry.AgentDefinition(v.Key)
-				if valid && strings.EqualFold(def.Mode, "TEAM") {
-					continue // Internal coordinators are never public discovery targets.
-				}
 				before := len(items)
 				add(v.Key, valid, v.Diagnostics)
 				if len(items) == before {
@@ -419,11 +416,8 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 				item["invocable"] = valid && catalog.AgentInvocationError(def) == nil
 			}
 		}
-	case "team", "skill":
-		base := h.cfg.Paths.TeamsDir
-		if t.ResourceType == "skill" {
-			base = h.cfg.Paths.SkillsCenterDir
-		}
+	case "skill":
+		base := h.cfg.Paths.SkillsCenterDir
 		entries, err := os.ReadDir(base)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
@@ -433,10 +427,7 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 				continue
 			}
 			key := d.Name()
-			if t.ResourceType == "team" {
-				_, ok := h.registry.TeamDefinition(key)
-				add(key, ok, h.sourceDiagnostics(t.ResourceType, key, ok))
-			} else {
+			{
 				if _, err := os.Stat(filepath.Join(base, key, "package.json")); err == nil {
 					b, err := os.ReadFile(filepath.Join(base, key, "package.json"))
 					var manifest struct {
@@ -548,7 +539,7 @@ func (h *ToolHandler) chatQuery(action string, p map[string]any, e *contracts.Ex
 }
 func (h *ToolHandler) inspect(action string, p map[string]any, e *contracts.ExecutionContext) (any, error) {
 	if action == "runtimeStatus" {
-		components := map[string]any{"connectors": h.connectorSnapshots(), "containerHub": map[string]any{"enabled": h.cfg.ContainerHub.Enabled}, "memory": map[string]any{"enabled": h.cfg.Memory.Enabled}, "catalog": map[string]any{"agents": len(h.registry.Agents("")), "teams": len(h.registry.Teams()), "skills": len(h.registry.Skills(""))}}
+		components := map[string]any{"connectors": h.connectorSnapshots(), "containerHub": map[string]any{"enabled": h.cfg.ContainerHub.Enabled}, "memory": map[string]any{"enabled": h.cfg.Memory.Enabled}, "catalog": map[string]any{"agents": len(h.registry.Agents("")), "skills": len(h.registry.Skills(""))}}
 		if h.models != nil {
 			components["models"] = map[string]any{"count": len(h.models.List())}
 		}

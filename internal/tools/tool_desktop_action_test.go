@@ -144,7 +144,7 @@ func (t *RuntimeToolExecutor) dispatchDesktopActionArgs(ctx context.Context, arg
 func desktopActionTestExecutionContext() *ExecutionContext {
 	return &ExecutionContext{Session: QuerySession{
 		RunID: "run-desktop-action-test", ChatID: "chat-desktop-action-test",
-		AgentKey: "agent-desktop-action-test", RunOwner: AgentRunOwner("agent-desktop-action-test", ""),
+		AgentKey: "agent-desktop-action-test", RunOwner: AgentRunOwner("agent-desktop-action-test"),
 		WorkspaceRoot: "/trusted/workspaces/agent-desktop-action-test",
 	}}
 }
@@ -284,7 +284,7 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 func TestDesktopReverseRequestDoesNotUseStaleSessionTargetWhenRunTargetIsMissing(t *testing.T) {
 	runs := runstate.NewManager()
 	runs.Register(context.Background(), QuerySession{
-		RunID: "run-without-reverse-target", ChatID: "chat-1", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+		RunID: "run-without-reverse-target", ChatID: "chat-1", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1"),
 	})
 	invoker := &scriptedClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{
@@ -295,7 +295,7 @@ func TestDesktopReverseRequestDoesNotUseStaleSessionTargetWhenRunTargetIsMissing
 	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.workpanel.getState", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
-		RunID: "run-without-reverse-target", ChatID: "chat-1", RunOwner: AgentRunOwner("agent-1", ""),
+		RunID: "run-without-reverse-target", ChatID: "chat-1", RunOwner: AgentRunOwner("agent-1"),
 		WebClientTarget: ClientTarget{SessionID: "stale-session"},
 	}})
 	if err != nil {
@@ -317,7 +317,7 @@ func TestDesktopReverseRequestUsesLatestRunTarget(t *testing.T) {
 	latest := ClientTarget{SessionID: "ws-latest"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-latest-target", ChatID: "chat-latest-target", AgentKey: "agent-1",
-		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: stale,
+		RunOwner: AgentRunOwner("agent-1"), WebClientTarget: stale,
 	})
 	if !runs.BindClientTarget("run-latest-target", latest) {
 		t.Fatal("bind latest target")
@@ -329,7 +329,7 @@ func TestDesktopReverseRequestUsesLatestRunTarget(t *testing.T) {
 		"requestId": "latest-target", "action": "desktop.workpanel.getState", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
 		RunID: "run-latest-target", ChatID: "chat-latest-target", SubTaskID: "sub-agent-1",
-		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: stale,
+		RunOwner: AgentRunOwner("agent-1"), WebClientTarget: stale,
 	}})
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("invoke latest target: result=%#v err=%v", result, err)
@@ -344,11 +344,11 @@ func TestDesktopReverseRequestDoesNotInheritTargetForIndependentRootRun(t *testi
 	rootTarget := ClientTarget{SessionID: "ws-root"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-root", ChatID: "chat-root", AgentKey: "agent-1",
-		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: rootTarget,
+		RunOwner: AgentRunOwner("agent-1"), WebClientTarget: rootTarget,
 	})
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-independent", ChatID: "chat-independent", AgentKey: "agent-1",
-		RunOwner: AgentRunOwner("agent-1", ""),
+		RunOwner: AgentRunOwner("agent-1"),
 	})
 	invoker := &scriptedClientRequestInvoker{}
 	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-desktop-main"}, state: DesktopMainTargetReady}
@@ -359,7 +359,7 @@ func TestDesktopReverseRequestDoesNotInheritTargetForIndependentRootRun(t *testi
 	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.workpanel.getState", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
-		RunID: "run-independent", ChatID: "chat-independent", RunOwner: AgentRunOwner("agent-1", ""),
+		RunID: "run-independent", ChatID: "chat-independent", RunOwner: AgentRunOwner("agent-1"),
 		// A stale copied context must not bypass the authoritative runtime store.
 		WebClientTarget: rootTarget,
 	}})
@@ -380,12 +380,12 @@ func TestDesktopRuntimeIndependentRunBindsDesktopMainTarget(t *testing.T) {
 	parentTarget := ClientTarget{SessionID: "ws-parent"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-parent", ChatID: "chat-parent", AgentKey: "agent-parent",
-		RunOwner: AgentRunOwner("agent-parent", ""), WebClientTarget: parentTarget,
+		RunOwner: AgentRunOwner("agent-parent"), WebClientTarget: parentTarget,
 	})
 	origin := RunOrigin{AgentKey: "agent-parent", ChatID: "chat-parent", RunID: "run-parent", ToolID: "tool-run-query"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-independent", ChatID: "chat-independent", AgentKey: "agent-child",
-		RunOwner: AgentRunOwner("agent-child", ""), RunOrigin: &origin,
+		RunOwner: AgentRunOwner("agent-child"), RunOrigin: &origin,
 	})
 	runs.Finish("run-parent")
 
@@ -414,7 +414,7 @@ func TestDesktopRuntimeIndependentRunBindsDesktopMainTarget(t *testing.T) {
 			"args":      action.args,
 		}, &ExecutionContext{Session: QuerySession{
 			RunID: "run-independent", ChatID: "chat-independent", AgentKey: "agent-child",
-			RunOwner: AgentRunOwner("agent-child", ""), RunOrigin: &origin,
+			RunOwner: AgentRunOwner("agent-child"), RunOrigin: &origin,
 		}})
 		if err != nil || result.ExitCode != 0 {
 			t.Fatalf("action %s failed: result=%#v err=%v", action.name, result, err)
@@ -450,7 +450,7 @@ func TestDesktopRuntimeKeepsExistingRunTarget(t *testing.T) {
 	existing := ClientTarget{SessionID: "ws-existing"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-existing", ChatID: "chat-existing", AgentKey: "agent-1",
-		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: existing,
+		RunOwner: AgentRunOwner("agent-1"), WebClientTarget: existing,
 	})
 	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-default"}, state: DesktopMainTargetReady}
 	invoker := &routingClientRequestInvoker{}
@@ -487,7 +487,7 @@ func TestDesktopRuntimeRebindsStaleRunTargetBeforeDispatch(t *testing.T) {
 	current := ClientTarget{SessionID: "ws-current"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-stale", ChatID: "chat-stale", AgentKey: "agent-1",
-		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: stale,
+		RunOwner: AgentRunOwner("agent-1"), WebClientTarget: stale,
 	})
 	provider := &desktopMainTargetProviderStub{target: current, state: DesktopMainTargetReady}
 	invoker := &routingClientRequestInvoker{failures: map[string]error{stale.SessionID: ErrClientTargetUnavailable}}
@@ -515,7 +515,7 @@ func TestDesktopRuntimeDoesNotReplayAfterClientDisconnect(t *testing.T) {
 	stale := ClientTarget{SessionID: "ws-inflight"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-inflight", ChatID: "chat-inflight", AgentKey: "agent-1",
-		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: stale,
+		RunOwner: AgentRunOwner("agent-1"), WebClientTarget: stale,
 	})
 	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-replacement"}, state: DesktopMainTargetReady}
 	invoker := &routingClientRequestInvoker{failures: map[string]error{stale.SessionID: ErrClientDisconnected}}
@@ -551,7 +551,7 @@ func TestDesktopRuntimeReportsDesktopMainAvailability(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runs := runstate.NewManager()
 			runs.Register(context.Background(), QuerySession{
-				RunID: "run-no-target", ChatID: "chat-no-target", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+				RunID: "run-no-target", ChatID: "chat-no-target", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1"),
 			})
 			provider := &desktopMainTargetProviderStub{state: test.state}
 			invoker := &routingClientRequestInvoker{}
@@ -581,7 +581,7 @@ func TestDesktopRuntimeDefaultTargetDoesNotGrantWorkPanel(t *testing.T) {
 	runs := runstate.NewManager()
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-without-chat-grant", ChatID: "chat-detached", AgentKey: "agent-child",
-		RunOwner: AgentRunOwner("agent-child", ""),
+		RunOwner: AgentRunOwner("agent-child"),
 	})
 	desktopTarget := ClientTarget{SessionID: "ws-desktop-main"}
 	provider := &desktopMainTargetProviderStub{target: desktopTarget, state: DesktopMainTargetReady}
@@ -619,8 +619,8 @@ func TestDesktopRuntimeDefaultTargetDoesNotGrantWorkPanel(t *testing.T) {
 func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
 	runs := runstate.NewManager()
 	runs.Register(context.Background(), QuerySession{
-		RunID: "run-team", ChatID: "chat-team", TeamID: "research",
-		RunOwner:      TeamRunOwner("research", "__team_coordinator"),
+		RunID: "run-team", ChatID: "chat-team",
+		RunOwner:      AgentRunOwner("research"),
 		WorkspaceRoot: "/trusted/workspaces/research",
 	})
 	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-desktop-main"}, state: DesktopMainTargetReady}
@@ -632,8 +632,8 @@ func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
 	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
 		"requestId": "team-action", "action": "desktop.theme.get", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
-		RunID: "run-team", ChatID: "chat-team", TeamID: "research",
-		RunOwner:      TeamRunOwner("research", "__team_coordinator"),
+		RunID: "run-team", ChatID: "chat-team",
+		RunOwner:      AgentRunOwner("research"),
 		WorkspaceRoot: "/trusted/workspaces/research",
 	}})
 	if err != nil || result.ExitCode != 0 {
@@ -641,10 +641,10 @@ func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
 	}
 	_, requests := invoker.snapshots()
 	source := requests[0].Source
-	if source == nil || source.RunID != "run-team" || source.ChatID != "chat-team" || source.TeamID != "research" || source.WorkspaceRoot != "/trusted/workspaces/research" {
+	if source.AgentKey != "research" {
 		t.Fatalf("team source identity = %#v", source)
 	}
-	if source.AgentKey != "" {
+	if source.AgentKey != "research" {
 		t.Fatalf("team source must not synthesize agent identity: %#v", source)
 	}
 }
@@ -652,7 +652,7 @@ func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
 func TestDesktopRuntimeCDPBindsDesktopMainTarget(t *testing.T) {
 	runs := runstate.NewManager()
 	runs.Register(context.Background(), QuerySession{
-		RunID: "run-cdp-default", ChatID: "chat-cdp-default", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+		RunID: "run-cdp-default", ChatID: "chat-cdp-default", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1"),
 	})
 	desktopTarget := ClientTarget{SessionID: "ws-desktop-main"}
 	provider := &desktopMainTargetProviderStub{target: desktopTarget, state: DesktopMainTargetReady}
@@ -690,7 +690,7 @@ func TestDesktopRuntimeConcurrentRunsKeepReverseRequestsIsolated(t *testing.T) {
 		chatID := fmt.Sprintf("chat-concurrent-%d", index)
 		requestID := fmt.Sprintf("request-concurrent-%d", index)
 		runs.Register(context.Background(), QuerySession{
-			RunID: runID, ChatID: chatID, AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+			RunID: runID, ChatID: chatID, AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1"),
 		})
 		wg.Add(1)
 		go func() {
@@ -1465,7 +1465,7 @@ func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 		if request.Type != actions[index] || request.ID != fmt.Sprintf("direct-action-%d", index) {
 			t.Fatalf("request %d identity = %#v", index, request)
 		}
-		if request.Source == nil || request.Source.RunID != "run-desktop-action-test" || request.Source.ChatID != "chat-desktop-action-test" || request.Source.AgentKey != "agent-desktop-action-test" || request.Source.TeamID != "" || request.Source.WorkspaceRoot != "/trusted/workspaces/agent-desktop-action-test" {
+		if request.Source == nil || request.Source.RunID != "run-desktop-action-test" || request.Source.ChatID != "chat-desktop-action-test" || request.Source.AgentKey != "agent-desktop-action-test" || request.Source.WorkspaceRoot != "/trusted/workspaces/agent-desktop-action-test" {
 			t.Fatalf("request %d source = %#v", index, request.Source)
 		}
 		if len(request.Payload) != 0 {

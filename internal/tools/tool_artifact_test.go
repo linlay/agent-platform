@@ -250,7 +250,7 @@ func TestInvokeArtifactPublishPersistsManifestBeforeReturningSuccess(t *testing.
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-1", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-1", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	sourcePath := filepath.Join(workspace, "report.md")
@@ -286,7 +286,7 @@ func TestInvokeArtifactPublishFailsWhenManifestCannotBeWritten(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-1", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-1", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := os.MkdirAll(store.ChatDir("chat-1"), 0o755); err != nil {

@@ -17,7 +17,7 @@ import (
 
 func seedServerImageArtifact(t *testing.T, fixture testFixture, chatID string) (string, string) {
 	t.Helper()
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "image"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "image"); err != nil {
 		t.Fatal(err)
 	}
 	relativePath := "artifacts/run-1/source.png"

@@ -337,7 +337,7 @@ type QuerySession struct {
 	// is forbidden from calling any run tool.
 	RunOrigin *RunOrigin `json:"-"`
 	// RunOwner is the required public run owner. Session producers must set it
-	// explicitly; AgentKey and TeamID are not fallback ownership fields.
+	// explicitly; the execution AgentKey is not a fallback ownership field.
 	RunOwner RunOwner
 	// TeamRuntime is populated only for an orchestrated Team-owned run.
 	TeamRuntime *TeamRuntimeContext
@@ -365,10 +365,10 @@ type QuerySession struct {
 	PlanExecuteExcludeTools []string
 	// ConfirmedPlanRun marks an ordinary Run that was started from a confirmed
 	// plan; ToolNames already has the execution exclusions applied.
-	ConfirmedPlanRun            bool
-	EditingMode                 bool
-	ScopedFilePolicy            *ScopedFilePolicy
-	TeamID                      string
+	ConfirmedPlanRun bool
+	EditingMode      bool
+	ScopedFilePolicy *ScopedFilePolicy
+
 	Created                     bool
 	Subject                     string
 	SkillIDs                    []string
@@ -683,21 +683,19 @@ type SandboxExecutionResult struct {
 }
 
 type ActiveRun struct {
-	RunID             string
-	ChatID            string
-	AgentKey          string
-	TeamID            string
-	ExecutionAgentKey string
-	ScopeID           string
-	EditingMode       bool
+	RunID    string
+	ChatID   string
+	AgentKey string
+
+	ScopeID     string
+	EditingMode bool
 }
 
 type RunStatusInfo struct {
-	RunID              string
-	ChatID             string
-	AgentKey           string
-	TeamID             string
-	ExecutionAgentKey  string
+	RunID    string
+	ChatID   string
+	AgentKey string
+
 	State              RunLoopState
 	LastSeq            int64
 	OldestSeq          int64
@@ -747,20 +745,20 @@ type RunAwaiting struct {
 }
 
 type RunSnapshot struct {
-	AccessLevel   string         `json:"accessLevel"`
-	AwaitingCount int            `json:"awaitingCount,omitempty"`
-	RunID         string         `json:"runId"`
-	ChatID        string         `json:"chatId"`
-	AgentKey      string         `json:"agentKey,omitempty"`
-	TeamID        string         `json:"teamId,omitempty"`
-	Status        string         `json:"status"`
-	LastSeq       int64          `json:"lastSeq"`
-	StartedAt     int64          `json:"startedAt"`
-	CompletedAt   int64          `json:"completedAt,omitempty"`
-	Awaiting      *RunAwaiting   `json:"awaiting,omitempty"`
-	Content       string         `json:"content,omitempty"`
-	Error         map[string]any `json:"error,omitempty"`
-	Origin        *RunOrigin     `json:"-"`
+	AccessLevel   string `json:"accessLevel"`
+	AwaitingCount int    `json:"awaitingCount,omitempty"`
+	RunID         string `json:"runId"`
+	ChatID        string `json:"chatId"`
+	AgentKey      string `json:"agentKey,omitempty"`
+
+	Status      string         `json:"status"`
+	LastSeq     int64          `json:"lastSeq"`
+	StartedAt   int64          `json:"startedAt"`
+	CompletedAt int64          `json:"completedAt,omitempty"`
+	Awaiting    *RunAwaiting   `json:"awaiting,omitempty"`
+	Content     string         `json:"content,omitempty"`
+	Error       map[string]any `json:"error,omitempty"`
+	Origin      *RunOrigin     `json:"-"`
 }
 
 type RunToolError struct {

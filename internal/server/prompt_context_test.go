@@ -138,9 +138,7 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	if paths.SkillsCenterDir != "" {
 		t.Fatalf("expected no default skills center dir, got %q", paths.SkillsCenterDir)
 	}
-	if paths.TeamsDir != cfg.Paths.TeamsDir {
-		t.Fatalf("teams dir = %q", paths.TeamsDir)
-	}
+
 	if paths.ModelsDir != filepath.Join(cfg.Paths.RegistriesDir, "models") {
 		t.Fatalf("models dir = %q", paths.ModelsDir)
 	}
@@ -300,7 +298,7 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
 		AgentKey: "demo-agent",
-		TeamID:   "team-1",
+
 		Role:     "assistant",
 		ChatID:   "chat-1",
 		ChatName: "Chat 1",
@@ -342,7 +340,7 @@ func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testi
 
 	_, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
 		AgentKey: "demo-agent",
-		TeamID:   "team-1",
+
 		Role:     "assistant",
 		ChatID:   "chat-1",
 		ChatName: "Chat 1",
@@ -383,7 +381,7 @@ func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t
 	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo-agent")
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
 		AgentKey: "demo-agent",
-		TeamID:   "team-1",
+
 		Role:     "assistant",
 		ChatID:   "chat-1",
 		ChatName: "Chat 1",
@@ -431,7 +429,7 @@ func TestBuildRuntimeContextIncludesSkillsCenterOnlyWithExplicitMount(t *testing
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
 		AgentKey: "demo-agent",
-		TeamID:   "team-1",
+
 		Role:     "assistant",
 		ChatID:   "chat-1",
 		ChatName: "Chat 1",
@@ -514,8 +512,8 @@ func TestBuildRuntimeContextUsesChatPathsForContainerResources(t *testing.T) {
 
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
 		AgentKey: "demo-agent",
-		TeamID:   "team-1",
-		ChatID:   "chat-1",
+
+		ChatID: "chat-1",
 		References: []api.Reference{
 			{ID: "ref-name", Name: "report.docx"},
 			{ID: "ref-url", URL: "/api/resource?file=chat-1%2Ffrom-url.docx"},
@@ -810,12 +808,12 @@ func testPromptContextConfig(t *testing.T) config.Config {
 	root := t.TempDir()
 	cfg := config.Config{
 		Paths: config.PathsConfig{
-			RegistriesDir:   filepath.Join(root, "runtime", "registries"),
-			ToolsDir:        filepath.Join(root, "runtime", "tools"),
-			OwnerDir:        filepath.Join(root, "runtime", "owner"),
-			AgentsDir:       filepath.Join(root, "runtime", "agents"),
-			RUAgentsDir:     filepath.Join(root, "runtime", "ru-agents"),
-			TeamsDir:        filepath.Join(root, "runtime", "teams"),
+			RegistriesDir: filepath.Join(root, "runtime", "registries"),
+			ToolsDir:      filepath.Join(root, "runtime", "tools"),
+			OwnerDir:      filepath.Join(root, "runtime", "owner"),
+			AgentsDir:     filepath.Join(root, "runtime", "agents"),
+			RUAgentsDir:   filepath.Join(root, "runtime", "ru-agents"),
+
 			RootDir:         filepath.Join(root, "runtime", "root"),
 			AutomationsDir:  filepath.Join(root, "runtime", "automations"),
 			ChatsDir:        filepath.Join(root, "runtime", "chats"),
@@ -897,7 +895,7 @@ type testCatalogRegistry struct {
 func (r testCatalogRegistry) Agents(string) []api.AgentSummary {
 	return append([]api.AgentSummary(nil), r.agents...)
 }
-func (testCatalogRegistry) Teams() []api.TeamSummary         { return nil }
+
 func (testCatalogRegistry) Skills(string) []api.SkillSummary { return nil }
 func (testCatalogRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
 	return catalog.SkillDefinition{}, false
@@ -910,9 +908,7 @@ func (testCatalogRegistry) DefaultAgentKey() string { return "" }
 func (testCatalogRegistry) AgentDefinition(string) (catalog.AgentDefinition, bool) {
 	return catalog.AgentDefinition{}, false
 }
-func (testCatalogRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
-	return catalog.TeamDefinition{}, false
-}
+
 func (testCatalogRegistry) Reload(context.Context, string) error { return nil }
 
 var _ catalog.Registry = testCatalogRegistry{}

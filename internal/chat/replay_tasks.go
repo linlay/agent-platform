@@ -53,21 +53,21 @@ type replayedSubTask struct {
 }
 
 type replayedSubTaskQuery struct {
-	TaskID       string
-	TaskName     string
-	TaskDesc     string
-	SubAgentKey  string
-	MainToolID   string
-	TeamID       string
+	TaskID      string
+	TaskName    string
+	TaskDesc    string
+	SubAgentKey string
+	MainToolID  string
+
 	Presentation string
 	RootContent  bool
 }
 
-func decorateReplayedTeamTaskEvents(events []stream.EventData, teamID string, agentKey string, presentation string) []stream.EventData {
-	teamID = strings.TrimSpace(teamID)
+func decorateReplayedTeamTaskEvents(events []stream.EventData, agentKey string, presentation string) []stream.EventData {
+
 	agentKey = strings.TrimSpace(agentKey)
 	presentation = strings.TrimSpace(presentation)
-	if teamID == "" {
+	{
 		return events
 	}
 	if presentation == "" {
@@ -77,9 +77,9 @@ func decorateReplayedTeamTaskEvents(events []stream.EventData, teamID string, ag
 		if events[index].Payload == nil {
 			events[index].Payload = map[string]any{}
 		}
-		events[index].Payload["teamId"] = teamID
+
 		events[index].Payload["presentation"] = presentation
-		actor := map[string]any{"type": "agent", "teamId": teamID}
+		actor := map[string]any{"type": "agent"}
 		if agentKey != "" {
 			actor["agentKey"] = agentKey
 		}

@@ -15,7 +15,7 @@ func TestResponsesJSONLCommitAndToolContinuation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err = store.EnsureChat("c", "agent", "", "hello"); err != nil {
+	if _, _, err = store.EnsureChat("c", "agent", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	writer := NewStepWriter(store, "c", "r", "REACT")

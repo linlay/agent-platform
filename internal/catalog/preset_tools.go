@@ -27,7 +27,7 @@ func validatePresetTools(names []string, definitions []api.ToolDetailResponse) e
 }
 
 func (d *AgentDefinition) applyPresetTools(presets []string) {
-	if d.Engine == AgentEngineACP || (d.Mode != AgentModeGeneral && d.Mode != AgentModeCoder && d.Mode != AgentModeKBase) {
+	if d.Engine == AgentEngineACP || (d.Mode != AgentModeGeneral && d.Mode != AgentModeCoder && d.Mode != AgentModeKBase && d.Mode != "TEAM") {
 		return
 	}
 	if d.DeclaredTools == nil {

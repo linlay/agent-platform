@@ -58,7 +58,7 @@ func BuildToolDefinition(base api.ToolDetailResponse, members []MemberSpec) (api
 	if definition.Meta == nil {
 		definition.Meta = map[string]any{}
 	}
-	// Delegation is an implementation detail of the hidden Team coordinator.
+	// Delegation uses task cards rather than a separate tool card.
 	// The user receives task lifecycle and member reply events instead.
 	definition.Meta["clientVisible"] = false
 	properties, ok := definition.Parameters["properties"].(map[string]any)

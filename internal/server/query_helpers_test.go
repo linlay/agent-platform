@@ -30,6 +30,5 @@ func validateDeferredSubmitParam(mode string, param api.SubmitParam) error {
 	return query.ValidateDeferredSubmitParams(mode, api.SubmitRequest{Param: param})
 }
 
-var hiddenTeamAgentKey = query.HiddenTeamAgentKey
 var configureTeamCoordinatorSession = query.ConfigureTeamCoordinatorSession
 var teamDelegateBaseDefinition = query.TeamDelegateBaseDefinition

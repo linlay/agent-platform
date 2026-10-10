@@ -29,7 +29,7 @@ HTTP query
   -> [DONE]
 ```
 
-`GET /api/attach?runId=...&agentKey=...&lastSeq=...` 用于续接 Agent-owned run；orchestrated Team 改传 `teamId`。服务端按公开 owner 校验归属；run 超过 retention 或序号已过期时返回 `SEQ_EXPIRED`。
+`GET /api/attach?runId=...&agentKey=...&lastSeq=...` 用于续接所有 Agent Run，包括 TEAM。服务端按公开 owner 校验归属；run 超过 retention 或序号已过期时返回 `SEQ_EXPIRED`。
 
 从 `/api/chat` 冷启动恢复 active run 时，客户端应使用 `activeRun.lastSeq` 作为 attach 游标。该值来自本次 chat detail 已返回历史 events 的 `liveSeq` 覆盖边界；对于新的 Native / Team run，`liveSeq` 记录对应 JSONL 行处理完成时最近一个已发布的公开序号，内部事件可以复用相同覆盖边界但不能推进它。历史 run 保留原有 `liveSeq`，不迁移。Platform 重启后可恢复的 question/planning 会以原 `runId` 注册 `WAITING_SUBMIT` suspended active run；客户端 replay `/api/chat` 后应立即 attach，即使当前没有新事件也保持 observer。用户后续提交时，Platform 会复用该 EventBus 发布连续 seq 的 submit/answer 和 continuation，不重播 `run.started`；客户端不需要、也不应在 submit 后再补 attach。
 
@@ -40,8 +40,8 @@ Desktop 使用 `main`、`btw`、`explain` 三条独立 WebSocket v2 lane（sourc
 ## 配置与接口
 
 - `POST /api/query`：body `lane` 缺省或 `main` 发起普通 run，`btw` 创建/继续隐藏分支；`explain` 仅支持 Desktop WS，HTTP 返回 403。默认返回 SSE；`stream:false` 返回 JSON。旧 HTTP `/api/btw` 已删除。
-- `GET /api/attach`：按 `runId + (agentKey | teamId) + lastSeq` 续接 backlog。
-- WS `/api/detach`：按 `runId + (agentKey | teamId)` 关闭当前连接上的 run observer。
+- `GET /api/attach`：按 `runId + (agentKey) + lastSeq` 续接 backlog。
+- WS `/api/detach`：按 `runId + (agentKey)` 关闭当前连接上的 run observer。
 - WS `/api/query`：main 执行普通 query，已认证的 btw/explain lane 创建或继续隐藏分支；旧 WS `/api/btw` 已删除。
 - SSE heartbeat 固定为 30 秒。
 - H2A render 默认值在 `internal/stream/defaults.go`，默认不缓冲、heartbeat 透传。

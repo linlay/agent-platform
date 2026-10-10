@@ -14,7 +14,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-jsonl"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	oldSystem := QueryLineSystem{
@@ -132,7 +132,7 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-sources-sidecar"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	system := QueryLineSystem{
@@ -244,7 +244,7 @@ func TestBuildLLMChatFromJSONLIgnoresInputMessagesAfterFailedRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	chatID := "chat-llm-input"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "original"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "original"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
@@ -306,7 +306,7 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-synthetic-query"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	executePrompt := "Execute the confirmed CODER plan.\n\nOriginal request:\nhello\n\nConfirmed plan:\n# Plan"
@@ -420,7 +420,7 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-steer"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	system := QueryLineSystem{
@@ -524,7 +524,7 @@ func TestBuildLLMChatFromJSONLUsesReactToolAuditMessageOnce(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-audit-once"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	system := QueryLineSystem{
@@ -618,7 +618,7 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-request"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := NewStepWriter(store, chatID, "run-1", "REACT")
@@ -713,7 +713,7 @@ func TestStepWriterSkipsSystemAuditInputMessages(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-skip-audit-input"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	auditNotice := `[System audit — HITL approval batch]
@@ -779,7 +779,7 @@ func TestStepWriterPersistsOnlyCompleteSystemRefOnStep(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-step-systems"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := NewStepWriter(store, chatID, "run-1", "REACT")
@@ -830,7 +830,7 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemRef(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-missing-system-ref"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
@@ -878,7 +878,7 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemSnapshot(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-missing-system-snapshot"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
@@ -919,7 +919,7 @@ func TestBuildLLMChatFromJSONLRejectsSystemSnapshotWithoutModelKey(t *testing.T)
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-missing-model-key"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{

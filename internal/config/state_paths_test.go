@@ -37,7 +37,7 @@ func TestStateDirectoryEnvironmentAndFixedRuntimeLayout(t *testing.T) {
 				}
 				for path, child := range map[string]string{
 					cfg.Paths.AgentsDir: "agents", cfg.Paths.RUAgentsDir: "ru-agents",
-					cfg.Paths.TeamsDir: "teams", cfg.Paths.ToolsDir: "tools",
+					cfg.Paths.ToolsDir: "tools",
 					cfg.Paths.OwnerDir: "owner", cfg.Paths.RootDir: "root",
 					cfg.Paths.AutomationsDir: "automations", cfg.Paths.SkillsCenterDir: "skills-center",
 					cfg.Paths.ConnectorsCenterDir: "connectors-center",

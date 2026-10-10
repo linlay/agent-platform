@@ -79,7 +79,6 @@ func (r *RuntimeCatalogReloader) AddObserver(observer CatalogReloadObserver) {
 // Reload dispatches reloads by reason. Reload spec:
 //
 //	agents          → reload agents and rebuild assembled runtime agents
-//	teams           → reload teams
 //	skills          → reload skills + reload agents (cascade for assembled skills)
 //	models          → reload models + reload agents (cascade for affected agents)
 //	providers       → reload providers only (independent)
@@ -111,10 +110,6 @@ func (r *RuntimeCatalogReloader) load(ctx context.Context, reason string) error 
 	switch reason {
 	case "agents":
 		if err := r.reloadCatalog(ctx, "agents"); err != nil {
-			return err
-		}
-	case "teams":
-		if err := r.reloadCatalog(ctx, "teams"); err != nil {
 			return err
 		}
 	case "skills":
@@ -240,7 +235,7 @@ func (r *RuntimeCatalogReloader) reloadCatalog(ctx context.Context, reason strin
 
 func catalogReloadIncludesAgents(reason string) bool {
 	switch strings.ToLower(strings.TrimSpace(reason)) {
-	case "teams", "skills":
+	case "skills":
 		return false
 	default:
 		return true
@@ -255,7 +250,6 @@ type watchEntry struct {
 func backgroundWatchEntries(cfg config.Config) []watchEntry {
 	return []watchEntry{
 		{cfg.Paths.AgentsDir, "agents"},
-		{cfg.Paths.TeamsDir, "teams"},
 		{cfg.Paths.SkillsCenterDir, "skills"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "models"), "models"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "providers"), "providers"},

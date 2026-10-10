@@ -28,7 +28,6 @@ coverage.out
 # 历史根目录布局：保留忽略，避免误提交本地数据
 # 当前默认布局位于 runtime/；internal/resources/connectors 仍纳入版本管理。
 /agents/
-/teams/
 /chats/
 /data/
 /models/

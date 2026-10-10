@@ -170,11 +170,11 @@ func (s *Service) registeredQueryRun(observerCtx context.Context, runCtx context
 	execution := s.resolvedQueryExecution(prepared)
 	if !execution.HiddenRun {
 		start := chat.RunStart{
-			ChatID:          prepared.Req.ChatID,
-			RunID:           runID,
-			AgentKey:        prepared.Req.AgentKey,
-			AgentMode:       chatAgentMode(prepared.AgentDef, contracts.IsTeamRunOwner(prepared.Req.AgentKey, prepared.Req.TeamID)),
-			TeamID:          prepared.Req.TeamID,
+			ChatID:    prepared.Req.ChatID,
+			RunID:     runID,
+			AgentKey:  prepared.Req.AgentKey,
+			AgentMode: chatAgentMode(prepared.AgentDef, false),
+
 			InitialMessage:  prepared.Req.Message,
 			StartedAtMillis: status.StartedAt,
 		}

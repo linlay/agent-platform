@@ -993,13 +993,16 @@ func TestQueryRejectsUnavailableMustUseSkillWithExplicitCode(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsMustUseSkillsForTeam(t *testing.T) {
-	fixture := newTestFixture(t)
-	req := api.QueryRequest{Message: "team", TeamID: "default", MustUseSkills: []string{"mock-skill"}}
-	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
-	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Code != "must_use_skills_unsupported" {
-		t.Fatalf("expected Team mustUseSkills rejection, got %#v", err)
+func TestQuerySupportsMustUseSkillsForTEAM(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: setupOrchestratedTeamRuntime(t)})
+	req := api.QueryRequest{AgentKey: "research", Message: "team", MustUseSkills: []string{"mock-skill"}}
+	admission, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admission.Release()
+	if len(admission.Req.MustUseSkills) != 1 || admission.AgentDef.Mode != "TEAM" {
+		t.Fatalf("admission=%#v", admission)
 	}
 }
 
@@ -3957,7 +3960,7 @@ func TestQueryRejectsAmbiguousLegacyToolHistoryBeforeProviderCall(t *testing.T) 
 	const chatID = "chat-ambiguous-legacy-history"
 	const runID = "run-ambiguous-legacy-history"
 	startedAt := time.Now().UnixMilli()
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "run it"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "run it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if recorder, ok := fixture.chats.(chat.RunStartRecorder); ok {

@@ -327,7 +327,7 @@ func TestChatStartEscalationThroughHandler(t *testing.T) {
 	handler := runopspkg.NewToolHandler(runtimeService, fixture.runs)
 	exec := func(toolID string) *contracts.ExecutionContext {
 		return &contracts.ExecutionContext{
-			Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent", "")},
+			Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent")},
 			RunControl: parent, CurrentToolID: toolID, CurrentToolName: runopspkg.StartToolName,
 		}
 	}
@@ -427,7 +427,7 @@ func TestChatStartReviewedCallCannotBeReplayedWithoutReceipt(t *testing.T) {
 	fixture, parent := chatStartFixture(t, "auto_approve")
 	handler := runopspkg.NewToolHandler(fixture.server.deps.Runtime.(runopspkg.Runtime), fixture.runs)
 	e := &contracts.ExecutionContext{
-		Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent", "")},
+		Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent")},
 		RunControl: parent, CurrentToolID: "same-call", CurrentToolName: runopspkg.StartToolName,
 	}
 	args := map[string]any{"agentKey": "mock-agent", "message": "task", "accessLevel": "full_access"}
@@ -540,7 +540,7 @@ func TestChatStartDefaultAgentReviewStartAndContinuation(t *testing.T) {
 		Consume: func(digest string) bool { consumed++; return consumed == 1 && digest == plan.ApprovalDigest },
 	}
 	started, err := fixture.server.StartRun(context.Background(), req)
-	if err != nil || started.AgentKey != "mock-agent" || started.TeamID != "" || consumed != 1 {
+	if err != nil || started.AgentKey != "mock-agent" || consumed != 1 {
 		t.Fatalf("start=%#v err=%v consumed=%d", started, err, consumed)
 	}
 	waitRunTerminal(t, fixture.server, started.RunID)

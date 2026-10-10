@@ -327,7 +327,7 @@ func synthesizeLegacyInterruptedAwaiting(
 		"_type":     StepLineTypeReactTool,
 		"seq":       group.seq,
 	}
-	for _, key := range []string{"taskId", "taskStatus", "taskSubAgentKey", "teamId", "presentation", "stage"} {
+	for _, key := range []string{"taskId", "taskStatus", "taskSubAgentKey", "presentation", "stage"} {
 		if value, ok := line[key]; ok {
 			toolLine[key] = value
 		}

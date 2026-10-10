@@ -75,7 +75,7 @@ func presetConnectorIDsForTree(tree map[string]any, presets []string) []string {
 
 func mergePresetConnectors(def AgentDefinition, presets []string) []string {
 	result := []string{}
-	if def.Engine != AgentEngineACP && (def.Mode == AgentModeGeneral || def.Mode == AgentModeCoder || def.Mode == AgentModeKBase) {
+	if def.Engine != AgentEngineACP && (def.Mode == AgentModeGeneral || def.Mode == AgentModeCoder || def.Mode == AgentModeKBase || def.Mode == "TEAM") {
 		for _, id := range presets {
 			if !containsString(result, id) {
 				result = append(result, id)

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
@@ -543,35 +542,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.enqueueTerminalRunError(payload)
 		return nil
 	}
-	if s.teamRouteRequired() && len(toolCalls) == 0 {
-		if turn.trace != nil {
-			turn.trace.completeOK(content, turn.reasoning.String(), nil, strings.TrimSpace(turn.finishReason), turn.usage)
-		}
-		s.emitPendingUsageDelta()
-		s.emitDebugLLMChatDelta(turn.trace)
-		s.pending = append(s.pending, DeltaModelTurnDiscard{
-			TaskID: s.modelActivityTaskID(),
-			RunSeq: runSeq,
-			Reason: "team_route_missing",
-		})
-		s.currentTurn = nil
-		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
-		action, routeErr := s.teamStateMachine.RejectPlainText()
-		if action == agentteam.ActionRetryRouting {
-			s.messages = append(s.messages, openAIMessage{
-				Role:    "user",
-				Content: "The previous response did not perform the mandatory Team delegation step. Call agent_delegate now; planning tools alone do not satisfy this requirement, and you must not answer with ordinary text yet.",
-			})
-			return nil
-		}
-		s.modelTerminalError = routeErr
-		return nil
-	}
-	if s.teamRouteRequired() {
-		// A provider may send an explanatory preamble together with a valid
-		// routing call. The routing phase is hidden, so retain only the tool call.
-		content = ""
-	}
+
 	if s.finalTurnAttempted && len(toolCalls) > 0 {
 		if strings.TrimSpace(content) != "" {
 			msg := s.newAssistantTurnMessage(turn, content, nil)
@@ -626,16 +597,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			}
 			return nil
 		}
-		if s.teamStateMachine != nil && s.teamStateMachine.Phase() == agentteam.PhaseCoordinator {
-			action, transitionErr := s.teamStateMachine.RejectPlainText()
-			if transitionErr != nil || action != agentteam.ActionComplete {
-				if transitionErr == nil {
-					transitionErr = agentteam.ErrInvalidTransition
-				}
-				s.modelTerminalError = transitionErr
-				return nil
-			}
-		}
+
 		if strings.TrimSpace(content) == "" {
 			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 		}
@@ -744,10 +706,6 @@ func (s *llmRunStream) finishCurrentTurn() error {
 func isProviderTimeoutError(err error) bool {
 	var appErr *apperrors.Error
 	return errors.As(err, &appErr) && appErr.Code() == apperrors.CodeProviderTimeout
-}
-
-func (s *llmRunStream) teamRouteRequired() bool {
-	return s != nil && s.teamStateMachine != nil && s.teamStateMachine.RequiresDelegation()
 }
 
 func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content string, toolCalls []openAIToolCall) openAIMessage {
@@ -871,14 +829,7 @@ func (s *llmRunStream) InjectToolResult(toolID string, text string, isError bool
 		result.ExitCode = -1
 	}
 	if s.activeToolCall != nil && s.activeToolCall.awaitExternalResult && s.activeToolCall.toolID == strings.TrimSpace(toolID) {
-		if s.activeToolCall.teamDispatch != nil {
-			if s.teamStateMachine == nil {
-				return false
-			}
-			if _, err := s.teamStateMachine.FinishDispatch(); err != nil {
-				return false
-			}
-		}
+
 		s.activeToolCall.queuedResult = &result
 		return true
 	}

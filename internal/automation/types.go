@@ -25,10 +25,10 @@ type Definition struct {
 	Cron          string
 	RemainingRuns *int
 	AgentKey      string
-	TeamID        string
-	Environment   Environment
-	Query         Query
-	SourceFile    string
+
+	Environment Environment
+	Query       Query
+	SourceFile  string
 }
 
 type Execution struct {
@@ -37,20 +37,20 @@ type Execution struct {
 	AutomationName string
 	SourceFile     string
 	AgentKey       string
-	TeamID         string
-	ZoneID         string
-	QueryContent   string
-	ChatID         string
-	RunID          string
-	Status         string
-	FinishReason   string
-	ResultContent  string
-	ResultPreview  string
-	Error          string
-	StartedAt      int64
-	RunStartedAt   *int64
-	CompletedAt    *int64
-	DurationMs     *int64
+
+	ZoneID        string
+	QueryContent  string
+	ChatID        string
+	RunID         string
+	Status        string
+	FinishReason  string
+	ResultContent string
+	ResultPreview string
+	Error         string
+	StartedAt     int64
+	RunStartedAt  *int64
+	CompletedAt   *int64
+	DurationMs    *int64
 }
 
 type QueryRunHooks struct {
@@ -124,14 +124,14 @@ func (d Definition) ToQueryRequest() api.QueryRequest {
 		RequestID:   d.Query.RequestID,
 		ChatID:      d.Query.ChatID,
 		AgentKey:    d.AgentKey,
-		TeamID:      d.TeamID,
-		Role:        EffectiveQueryRole(d.Query.Role),
-		Hidden:      &hidden,
-		Message:     d.Query.Message,
-		References:  append([]api.Reference(nil), d.Query.References...),
-		Params:      params,
-		Scene:       cloneScene(d.Query.Scene),
-		ChatSource:  chatSource,
+
+		Role:       EffectiveQueryRole(d.Query.Role),
+		Hidden:     &hidden,
+		Message:    d.Query.Message,
+		References: append([]api.Reference(nil), d.Query.References...),
+		Params:     params,
+		Scene:      cloneScene(d.Query.Scene),
+		ChatSource: chatSource,
 	}
 }
 

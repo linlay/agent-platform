@@ -832,7 +832,7 @@ func newCompactTestStore(t *testing.T) *FileStore {
 
 func ensureCompactTestChat(t *testing.T, store *FileStore, chatID string) {
 	t.Helper()
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello compact"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello compact"); err != nil {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 }

@@ -117,7 +117,7 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 	defer sseWriter.Close()
 	sseWriter.StartHeartbeat()
 	subscription, err := s.deps.Runtime.AttachRun(ctx, runtimetypes.RunRef{
-		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, TeamID: handle.TeamID,
+		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey,
 	}, 0)
 	if err != nil {
 		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, err.Error()))
@@ -155,7 +155,7 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 
 func runtimeSetupInterrupt(handle runtimetypes.RunHandle, reason, detail string) runtimetypes.InterruptCommand {
 	return runtimetypes.InterruptCommand{
-		RunRef: runtimetypes.RunRef{RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, TeamID: handle.TeamID, Caller: runtimetypes.Caller{Scope: "server"}},
+		RunRef: runtimetypes.RunRef{RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, Caller: runtimetypes.Caller{Scope: "server"}},
 		Source: contracts.InterruptSourceServerSetup, Reason: reason, Detail: detail,
 	}
 }

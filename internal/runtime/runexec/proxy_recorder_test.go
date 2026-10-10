@@ -17,7 +17,7 @@ func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
 		t.Fatalf("new chat store: %v", err)
 	}
 	defer store.Close()
-	if _, _, err := store.EnsureChat("chat-proxy-cost", "proxy-agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-proxy-cost", "proxy-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.OnRunStarted(chat.RunStart{

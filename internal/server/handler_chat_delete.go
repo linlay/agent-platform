@@ -148,10 +148,10 @@ func (s *Server) deriveChat(req api.DeriveChatRequest) (api.DeriveChatResponse, 
 
 func mapDeriveChatResponse(result chat.DeriveChatResult) api.DeriveChatResponse {
 	return api.DeriveChatResponse{
-		ChatID:       result.Summary.ChatID,
-		ChatName:     result.Summary.ChatName,
-		AgentKey:     result.Summary.AgentKey,
-		TeamID:       result.Summary.TeamID,
+		ChatID:   result.Summary.ChatID,
+		ChatName: result.Summary.ChatName,
+		AgentKey: result.Summary.AgentKey,
+
 		Source:       result.Summary.Source,
 		SourceChatID: result.SourceChatID,
 		SourceRunID:  result.SourceRunID,

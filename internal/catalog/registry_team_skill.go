@@ -1,58 +1,11 @@
 package catalog
 
 import (
-	"log"
 	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/skillmeta"
 )
-
-func (r *FileRegistry) Teams() []api.TeamSummary {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	agentKeys := sortedKeys(r.agents)
-	agentsByID := make(map[string]AgentDefinition, len(agentKeys))
-	for _, key := range agentKeys {
-		agentsByID[key] = r.agents[key]
-	}
-
-	keys := sortedKeys(r.teams)
-	items := make([]api.TeamSummary, 0, len(keys))
-	for _, key := range keys {
-		team := r.teams[key]
-		snapshot := resolveTeamSnapshotLocked(team, r.agents)
-		icon := snapshot.Icon
-		for _, agentKey := range snapshot.ValidAgentKeys {
-			agent, ok := agentsByID[agentKey]
-			if !ok {
-				continue
-			}
-			if icon == nil {
-				icon = agent.Icon
-			}
-		}
-		if len(snapshot.InvalidAgentKeys) > 0 {
-			log.Printf("[catalog][teams] team=%s invalidAgentKeys=%v", team.TeamID, snapshot.InvalidAgentKeys)
-		}
-		meta := map[string]any{
-			"validAgentKeys":   append([]string(nil), snapshot.ValidAgentKeys...),
-			"invalidAgentKeys": append([]string(nil), snapshot.InvalidAgentKeys...),
-			"orchestrated":     true,
-			"maxParallel":      snapshot.Orchestrator.MaxParallel,
-		}
-		items = append(items, api.TeamSummary{
-			TeamID:      snapshot.TeamID,
-			Name:        snapshot.Name,
-			Description: snapshot.Description,
-			Icon:        cloneAgentSnapshotValue(icon),
-			AgentKeys:   append([]string(nil), snapshot.AgentKeys...),
-			Meta:        meta,
-		})
-	}
-	return items
-}
 
 func (r *FileRegistry) Skills(tag string) []api.SkillSummary {
 	r.mu.RLock()

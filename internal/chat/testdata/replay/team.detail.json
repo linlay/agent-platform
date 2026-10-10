@@ -121,25 +121,52 @@
       "type": "run.start",
       "runId": "run-1",
       "chatId": "chat-replay",
+      "agentKey": "team-a",
       "timestamp": 1700000000010
     },
     {
       "seq": 4,
+      "type": "reasoning.snapshot",
+      "reasoningId": "r1",
+      "runId": "run-1",
+      "text": "思考",
+      "reasoningLabel": "Computing",
+      "actor": {
+        "agentKey": "team-a",
+        "type": "agent"
+      },
+      "agentKey": "team-a",
+      "liveSeq": 30,
+      "presentation": "reply",
+      "timestamp": 1700000000020
+    },
+    {
+      "seq": 5,
       "type": "content.snapshot",
       "contentId": "c1",
       "runId": "run-1",
       "text": "中间进度",
       "actor": {
-        "teamId": "team-a",
-        "type": "team"
+        "agentKey": "team-a",
+        "type": "agent"
       },
+      "agentKey": "team-a",
       "liveSeq": 30,
       "presentation": "reply",
-      "teamId": "team-a",
       "timestamp": 1700000000020
     },
     {
-      "seq": 5,
+      "seq": 6,
+      "type": "tool.snapshot",
+      "toolId": "tool-1",
+      "runId": "run-1",
+      "toolName": "question",
+      "arguments": "{}",
+      "liveSeq": 30,
+      "timestamp": 1700000000020
+    },
+    {
+      "seq": 7,
       "type": "awaiting.ask",
       "awaitingId": "tool-1",
       "mode": "question",
@@ -153,7 +180,17 @@
       "timestamp": 1700000000025
     },
     {
-      "seq": 6,
+      "seq": 8,
+      "type": "tool.snapshot",
+      "toolId": "tool-2",
+      "runId": "run-1",
+      "toolName": "file_read",
+      "arguments": "{}",
+      "liveSeq": 30,
+      "timestamp": 1700000000020
+    },
+    {
+      "seq": 9,
       "type": "planning.snapshot",
       "planningId": "plan-1",
       "planningFile": "fixture-plan.md",
@@ -163,7 +200,7 @@
       "timestamp": 1700000000026
     },
     {
-      "seq": 7,
+      "seq": 10,
       "type": "awaiting.ask",
       "awaitingId": "unmatched",
       "mode": "planning",
@@ -177,7 +214,7 @@
       "timestamp": 1700000000026
     },
     {
-      "seq": 8,
+      "seq": 11,
       "type": "request.submit",
       "runId": "run-1",
       "awaitingId": "tool-1",
@@ -186,7 +223,7 @@
       "timestamp": 1700000000039
     },
     {
-      "seq": 9,
+      "seq": 12,
       "type": "awaiting.answer",
       "awaitingId": "tool-1",
       "mode": "question",
@@ -202,7 +239,23 @@
       "timestamp": 1700000000040
     },
     {
-      "seq": 10,
+      "seq": 13,
+      "type": "tool.result",
+      "toolId": "tool-1",
+      "result": "3",
+      "liveSeq": 50,
+      "timestamp": 1700000000045
+    },
+    {
+      "seq": 14,
+      "type": "tool.result",
+      "toolId": "tool-2",
+      "result": "file text",
+      "liveSeq": 50,
+      "timestamp": 1700000000046
+    },
+    {
+      "seq": 15,
       "type": "source.publish",
       "runId": "run-1",
       "toolId": "tool-2",
@@ -216,7 +269,7 @@
       "timestamp": 1700000000047
     },
     {
-      "seq": 11,
+      "seq": 16,
       "type": "request.steer",
       "requestId": "request-steer",
       "chatId": "chat-replay",
@@ -228,7 +281,7 @@
       "timestamp": 1700000000060
     },
     {
-      "seq": 12,
+      "seq": 17,
       "type": "task.start",
       "taskId": "task-1",
       "runId": "run-1",
@@ -236,17 +289,10 @@
       "description": "检查子任务",
       "subAgentKey": "member-a",
       "invokingToolId": "delegate-1",
-      "actor": {
-        "agentKey": "member-a",
-        "teamId": "team-a",
-        "type": "agent"
-      },
-      "presentation": "task",
-      "teamId": "team-a",
       "timestamp": 1700000000065
     },
     {
-      "seq": 13,
+      "seq": 18,
       "type": "request.query",
       "chatId": "chat-replay",
       "message": "检查子任务",
@@ -254,7 +300,7 @@
       "timestamp": 1700000000065
     },
     {
-      "seq": 14,
+      "seq": 19,
       "type": "content.snapshot",
       "contentId": "",
       "runId": "run-1",
@@ -262,29 +308,20 @@
       "taskId": "task-1",
       "actor": {
         "agentKey": "member-a",
-        "teamId": "team-a",
         "type": "agent"
       },
       "agentKey": "member-a",
       "presentation": "task",
-      "teamId": "team-a",
       "timestamp": 1700000000068
     },
     {
-      "seq": 15,
+      "seq": 20,
       "type": "task.complete",
       "taskId": "task-1",
-      "actor": {
-        "agentKey": "member-a",
-        "teamId": "team-a",
-        "type": "agent"
-      },
-      "presentation": "task",
-      "teamId": "team-a",
       "timestamp": 1700000000070
     },
     {
-      "seq": 16,
+      "seq": 21,
       "type": "content.snapshot",
       "contentId": "",
       "runId": "run-1",
@@ -292,38 +329,36 @@
       "taskId": "direct",
       "actor": {
         "agentKey": "member-b",
-        "teamId": "team-a",
         "type": "agent"
       },
       "agentKey": "member-b",
       "presentation": "reply",
-      "teamId": "team-a",
       "timestamp": 1700000000072
     },
     {
-      "seq": 17,
+      "seq": 22,
       "type": "content.snapshot",
       "contentId": "final",
       "runId": "run-1",
       "text": "第一轮最终答案",
       "actor": {
-        "teamId": "team-a",
-        "type": "team"
+        "agentKey": "team-a",
+        "type": "agent"
       },
+      "agentKey": "team-a",
       "liveSeq": 80,
       "presentation": "reply",
-      "teamId": "team-a",
       "timestamp": 1700000000078
     },
     {
-      "seq": 18,
+      "seq": 23,
       "type": "run.complete",
       "runId": "run-1",
       "liveSeq": 90,
       "timestamp": 1700000000090
     },
     {
-      "seq": 19,
+      "seq": 24,
       "type": "request.query",
       "chatId": "chat-replay",
       "role": "user",
@@ -331,28 +366,29 @@
       "timestamp": 1700000000210
     },
     {
-      "seq": 20,
+      "seq": 25,
       "type": "run.start",
       "runId": "run-2",
       "chatId": "chat-replay",
+      "agentKey": "team-a",
       "timestamp": 1700000000210
     },
     {
-      "seq": 21,
+      "seq": 26,
       "type": "content.snapshot",
       "contentId": "",
       "runId": "run-2",
       "text": "第2轮答案",
       "actor": {
-        "teamId": "team-a",
-        "type": "team"
+        "agentKey": "team-a",
+        "type": "agent"
       },
+      "agentKey": "team-a",
       "presentation": "reply",
-      "teamId": "team-a",
       "timestamp": 1700000000219
     },
     {
-      "seq": 22,
+      "seq": 27,
       "type": "run.error",
       "runId": "run-2",
       "error": {
@@ -367,7 +403,7 @@
       "timestamp": 1700000000290
     },
     {
-      "seq": 23,
+      "seq": 28,
       "type": "request.query",
       "chatId": "chat-replay",
       "role": "user",
@@ -375,34 +411,35 @@
       "timestamp": 1700000000310
     },
     {
-      "seq": 24,
+      "seq": 29,
       "type": "run.start",
       "runId": "run-3",
       "chatId": "chat-replay",
+      "agentKey": "team-a",
       "timestamp": 1700000000310
     },
     {
-      "seq": 25,
+      "seq": 30,
       "type": "content.snapshot",
       "contentId": "",
       "runId": "run-3",
       "text": "第3轮答案",
       "actor": {
-        "teamId": "team-a",
-        "type": "team"
+        "agentKey": "team-a",
+        "type": "agent"
       },
+      "agentKey": "team-a",
       "presentation": "reply",
-      "teamId": "team-a",
       "timestamp": 1700000000319
     },
     {
-      "seq": 26,
+      "seq": 31,
       "type": "run.cancel",
       "runId": "run-3",
       "timestamp": 1700000000390
     },
     {
-      "seq": 27,
+      "seq": 32,
       "type": "request.query",
       "chatId": "chat-replay",
       "role": "user",
@@ -410,28 +447,29 @@
       "timestamp": 1700000000410
     },
     {
-      "seq": 28,
+      "seq": 33,
       "type": "run.start",
       "runId": "run-4",
       "chatId": "chat-replay",
+      "agentKey": "team-a",
       "timestamp": 1700000000410
     },
     {
-      "seq": 29,
+      "seq": 34,
       "type": "content.snapshot",
       "contentId": "",
       "runId": "run-4",
       "text": "第4轮答案",
       "actor": {
-        "teamId": "team-a",
-        "type": "team"
+        "agentKey": "team-a",
+        "type": "agent"
       },
+      "agentKey": "team-a",
       "presentation": "reply",
-      "teamId": "team-a",
       "timestamp": 1700000000419
     },
     {
-      "seq": 30,
+      "seq": 35,
       "type": "context.compact.complete",
       "chatId": "chat-replay",
       "compactId": "compact-history",
@@ -450,7 +488,7 @@
       "timestamp": 1700000000450
     },
     {
-      "seq": 31,
+      "seq": 36,
       "type": "context.compact.complete",
       "chatId": "chat-replay",
       "compactId": "compact-run",
@@ -467,7 +505,7 @@
       "timestamp": 1700000000460
     },
     {
-      "seq": 32,
+      "seq": 37,
       "type": "context.compact.complete",
       "chatId": "chat-replay",
       "compactId": "compact-tools",
@@ -481,7 +519,7 @@
       "timestamp": 1700000000470
     },
     {
-      "seq": 33,
+      "seq": 38,
       "type": "run.complete",
       "runId": "run-4",
       "finishReason": "stop",

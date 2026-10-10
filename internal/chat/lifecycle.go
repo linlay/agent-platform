@@ -50,14 +50,12 @@ func (s *FileStore) OnRunStarted(start RunStart) error {
 		return err
 	}
 
-	teamID := strings.TrimSpace(start.TeamID)
-	if teamID == "" {
-		teamID = strings.TrimSpace(summary.TeamID)
+	{
+
 	}
 	agentKey := strings.TrimSpace(start.AgentKey)
-	if isTeamOwner(agentKey, teamID) {
-		agentKey = ""
-	} else if agentKey == "" {
+
+	if agentKey == "" {
 		agentKey = strings.TrimSpace(summary.AgentKey)
 	}
 	agentMode := normalizeStoredAgentMode(start.AgentMode)
@@ -66,9 +64,9 @@ func (s *FileStore) OnRunStarted(start RunStart) error {
 	}
 
 	_, err = s.db.Exec(`INSERT INTO RUNS (
-			RUN_ID_, CHAT_ID_, AGENT_KEY_, AGENT_MODE_, TEAM_ID_, INITIAL_MESSAGE_, STARTED_AT_, COMPLETED_AT_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-		start.RunID, start.ChatID, agentKey, agentMode, nilIfEmpty(teamID), truncateRunes(start.InitialMessage, 200), start.StartedAtMillis)
+			RUN_ID_, CHAT_ID_, AGENT_KEY_, AGENT_MODE_, INITIAL_MESSAGE_, STARTED_AT_, COMPLETED_AT_
+		) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+		start.RunID, start.ChatID, agentKey, agentMode, truncateRunes(start.InitialMessage, 200), start.StartedAtMillis)
 	if err != nil {
 		return err
 	}
@@ -157,17 +155,16 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	}
 	assistantText := truncateRunes(completion.AssistantText, 200)
 	initialMessage := truncateRunes(completion.InitialMessage, 200)
-	var chatAgentKey, chatAgentMode, chatTeamID string
-	_ = s.db.QueryRow("SELECT AGENT_KEY_, COALESCE(AGENT_MODE_,''), COALESCE(TEAM_ID_,'') FROM CHATS WHERE CHAT_ID_=?", completion.ChatID).
-		Scan(&chatAgentKey, &chatAgentMode, &chatTeamID)
-	teamID := strings.TrimSpace(completion.TeamID)
-	if teamID == "" {
-		teamID = strings.TrimSpace(chatTeamID)
+	var chatAgentKey, chatAgentMode, _ string
+	_ = s.db.QueryRow("SELECT AGENT_KEY_, COALESCE(AGENT_MODE_,'') FROM CHATS WHERE CHAT_ID_=?", completion.ChatID).
+		Scan(&chatAgentKey, &chatAgentMode)
+
+	{
+
 	}
 	agentKey := strings.TrimSpace(completion.AgentKey)
-	if isTeamOwner(agentKey, teamID) {
-		agentKey = ""
-	} else if agentKey == "" {
+
+	if agentKey == "" {
 		agentKey = strings.TrimSpace(chatAgentKey)
 	}
 	agentMode := normalizeStoredAgentMode(completion.AgentMode)
@@ -210,19 +207,19 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		return err
 	}
 	_, err = s.db.Exec(`INSERT INTO RUNS (
-			RUN_ID_, CHAT_ID_, AGENT_KEY_, AGENT_MODE_, TEAM_ID_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+			RUN_ID_, CHAT_ID_, AGENT_KEY_, AGENT_MODE_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 			STARTED_AT_, COMPLETED_AT_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_, USAGE_MODEL_KEY_,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(RUN_ID_) DO UPDATE SET
 			CHAT_ID_=excluded.CHAT_ID_,
 			AGENT_KEY_=excluded.AGENT_KEY_,
 			AGENT_MODE_=excluded.AGENT_MODE_,
-			TEAM_ID_=excluded.TEAM_ID_,
+
 			INITIAL_MESSAGE_=excluded.INITIAL_MESSAGE_,
 			ASSISTANT_TEXT_=excluded.ASSISTANT_TEXT_,
 			FINISH_REASON_=excluded.FINISH_REASON_,
@@ -246,7 +243,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_=excluded.USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_,
 			USAGE_FIRST_TOKEN_LATENCY_COUNT_=excluded.USAGE_FIRST_TOKEN_LATENCY_COUNT_,
 			USAGE_GENERATION_DURATION_MS_=excluded.USAGE_GENERATION_DURATION_MS_`,
-		completion.RunID, completion.ChatID, agentKey, agentMode, nilIfEmpty(teamID), initialMessage, assistantText, completion.FinishReason,
+		completion.RunID, completion.ChatID, agentKey, agentMode, initialMessage, assistantText, completion.FinishReason,
 		completion.StartedAtMillis, completion.UpdatedAtMillis,
 		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens,
 		completion.Usage.CachedTokens, completion.Usage.ReasoningTokens,
@@ -448,7 +445,7 @@ func (s *FileStore) AgentChatStats() (map[string]AgentChatStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rows, err := s.db.Query(`SELECT AGENT_KEY_, LAST_RUN_ID_, READ_RUN_ID_ FROM CHATS WHERE NOT (AGENT_KEY_='' AND COALESCE(TEAM_ID_,'') <> '')`)
+	rows, err := s.db.Query(`SELECT AGENT_KEY_, LAST_RUN_ID_, READ_RUN_ID_ FROM CHATS`)
 	if err != nil {
 		return nil, err
 	}
@@ -469,37 +466,6 @@ func (s *FileStore) AgentChatStats() (map[string]AgentChatStats, error) {
 			item.LastRunID = lastRunID
 		}
 		stats[agentKey] = item
-	}
-	return stats, rows.Err()
-}
-
-// TeamChatStats aggregates only orchestrated-Team-owned chats, identified by
-// their public owner shape (empty agentKey plus a non-empty teamId).
-func (s *FileStore) TeamChatStats() (map[string]AgentChatStats, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	rows, err := s.db.Query(`SELECT TEAM_ID_, LAST_RUN_ID_, READ_RUN_ID_ FROM CHATS WHERE AGENT_KEY_='' AND COALESCE(TEAM_ID_,'') <> ''`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	stats := map[string]AgentChatStats{}
-	for rows.Next() {
-		var teamID, lastRunID, readRunID string
-		if err := rows.Scan(&teamID, &lastRunID, &readRunID); err != nil {
-			return nil, err
-		}
-		item := stats[teamID]
-		item.TotalCount++
-		if lastRunID != "" && RunIDAfter(lastRunID, readRunID) {
-			item.UnreadCount++
-		}
-		if RunIDAfter(lastRunID, item.LastRunID) {
-			item.LastRunID = lastRunID
-		}
-		stats[teamID] = item
 	}
 	return stats, rows.Err()
 }

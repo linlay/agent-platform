@@ -119,7 +119,7 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 func TestResourceServesEncodedImageInlineAndRejectsUnsafeKeys(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-resource-image"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "image"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "image"); err != nil {
 		t.Fatal(err)
 	}
 	filename := "夏日 海报 #1%.png"
@@ -190,7 +190,7 @@ func TestResourceServesEncodedImageInlineAndRejectsUnsafeKeys(t *testing.T) {
 func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-absolute-resource"
-	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "", "absolute", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "absolute", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	agentDef, ok := fixture.registry.AgentDefinition("mock-agent")
@@ -264,7 +264,7 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 	}
 
 	otherChatID := "chat-absolute-other-owner"
-	if _, _, err := fixture.chats.EnsureChatWithSource(otherChatID, "mock-agent", "", "other", api.ChatSourceQueryPrefix+"bob"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSource(otherChatID, "mock-agent", "other", api.ChatSourceQueryPrefix+"bob"); err != nil {
 		t.Fatal(err)
 	}
 	if wrongChatRec := requestAbsolute("alice", otherChatID, imagePath, ""); wrongChatRec.Code != http.StatusForbidden {
@@ -272,7 +272,7 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 	}
 
 	teamChatID := "chat-team-absolute"
-	if _, _, err := fixture.chats.EnsureChatWithSource(teamChatID, "", "team-1", "team", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSource(teamChatID, "", "team", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	if teamRec := requestAbsolute("alice", teamChatID, imagePath, ""); teamRec.Code != http.StatusForbidden {
@@ -383,7 +383,7 @@ func TestResourceBearerCookieOwnershipAndInvalidBearerPrecedence(t *testing.T) {
 	fixture.cfg.Auth = config.AuthConfig{Enabled: true, LocalPublicKeyFile: publicKeyPath, Issuer: "agent-platform-local"}
 	server := newServerFromFixture(t, fixture)
 	chatID := "chat-owned-resource"
-	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "", "owned", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "owned", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(fixture.chats.ChatDir(chatID), 0o755); err != nil {
@@ -659,7 +659,7 @@ func TestUploadIDSeedsFromExistingRootUploadFiles(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
-	_, _, err := fixture.chats.EnsureChat("chat_root_upload_ids", "", "", "")
+	_, _, err := fixture.chats.EnsureChat("chat_root_upload_ids", "", "")
 	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}

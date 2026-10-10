@@ -34,7 +34,7 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 				systemText, _ = message["content"].(string)
 			}
 		}
-		if strings.Contains(systemText, "hidden coordinator for a Team") {
+		if strings.Contains(systemText, "Agent with member delegation capability") {
 			choice, _ := body["tool_choice"].(string)
 			mu.Lock()
 			coordinatorChoices = append(coordinatorChoices, choice)
@@ -52,12 +52,6 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 				)
 				return
 			case 2:
-				writeProviderSSE(t, w,
-					`{"choices":[{"delta":{"content":"invalid answer after planning only"},"finish_reason":"stop"}]}`,
-					`[DONE]`,
-				)
-				return
-			case 3:
 				writeProviderSSE(t, w,
 					`{"choices":[{"delta":{"reasoning_content":"choose every member"}}]}`,
 					providerToolCallFrame(t, "call-agent-delegate", agentteam.ToolDelegate, map[string]any{"tasks": []any{
@@ -88,7 +82,7 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 		)
 	}, testFixtureOptions{setupRuntime: setupOrchestratedTeamRuntime(t)})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"chat-team-e2e","teamId":"research","message":"Give me every perspective"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"chat-team-e2e","agentKey":"research","message":"Give me every perspective"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -98,14 +92,14 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 
 	messages := decodeSSEMessages(t, rec.Body.String())
 	requestEvent := findSSEMessageByType(t, messages, "request.query")
-	if requestEvent["teamId"] != "research" {
+	if requestEvent["agentKey"] != "research" {
 		t.Fatalf("request.query owner=%#v", requestEvent)
 	}
-	if key, _ := requestEvent["agentKey"].(string); key != "" {
+	if key, _ := requestEvent["agentKey"].(string); key != "research" {
 		t.Fatalf("request.query leaked coordinator key %q", key)
 	}
 	runStart := findSSEMessageByType(t, messages, "run.start")
-	if _, present := runStart["ownerType"]; present || runStart["teamId"] != "research" {
+	if _, present := runStart["ownerType"]; present || runStart["agentKey"] != "research" {
 		t.Fatalf("run.start owner=%#v", runStart)
 	}
 
@@ -114,15 +108,12 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 	teamSummaryActor := false
 	for _, message := range messages {
 		typeName, _ := message["type"].(string)
-		if typeName == "reasoning.delta" {
-			t.Fatalf("hidden Team coordinator reasoning leaked to SSE: %#v", message)
-		}
 		if typeName == "tool.start" && (message["toolName"] == agentteam.ToolDelegate || message["toolName"] == "team_delegate" || message["toolName"] == "team_invoke") {
 			t.Fatalf("hidden or legacy Team tool leaked to SSE: %#v", message)
 		}
 		if typeName == "task.start" {
 			taskStarts++
-			if message["presentation"] != "task" || message["teamId"] != "research" {
+			if message["presentation"] != "task" {
 				t.Fatalf("unexpected member task metadata %#v", message)
 			}
 		}
@@ -131,9 +122,9 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 		}
 		key, _ := message["agentKey"].(string)
 		delta, _ := message["delta"].(string)
-		if message["presentation"] == "reply" && key == "" && delta == "Team summary" {
+		if message["presentation"] == "reply" && key == "research" && delta == "Team summary" {
 			actor, _ := message["actor"].(map[string]any)
-			teamSummaryActor = actor["type"] == "team" && actor["teamId"] == "research" && message["teamId"] == "research"
+			teamSummaryActor = actor["type"] == "agent" && actor["agentKey"] == "research"
 		}
 		if message["presentation"] == "task" && key != "" {
 			memberReplies[key] += delta
@@ -145,8 +136,8 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"delta":"Team summary"`) {
 		t.Fatalf("missing Team summary: %s", rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "invalid answer after planning only") {
-		t.Fatalf("invalid pre-routing coordinator text leaked to SSE: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"delta":"combine member replies"`) {
+		t.Fatalf("root reasoning missing: %s", rec.Body.String())
 	}
 	if !teamSummaryActor {
 		t.Fatalf("Team summary did not carry the Team actor metadata: %#v", messages)
@@ -156,11 +147,11 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 	choices := append([]string(nil), coordinatorChoices...)
 	toolCounts := append([]int(nil), coordinatorToolCounts...)
 	mu.Unlock()
-	if len(choices) != 4 || len(toolCounts) != 4 {
-		t.Fatalf("coordinator tool choices=%#v toolCounts=%#v, want four coordinator turns", choices, toolCounts)
+	if len(choices) != 3 || len(toolCounts) != 3 {
+		t.Fatalf("coordinator tool choices=%#v toolCounts=%#v, want three coordinator turns", choices, toolCounts)
 	}
 	for index := range choices {
-		if choices[index] != "auto" || toolCounts[index] != 4 {
+		if choices[index] != "auto" || toolCounts[index] != 2 {
 			t.Fatalf("coordinator tool choices=%#v toolCounts=%#v, want every upstream Team request to use auto with the full Team toolset", choices, toolCounts)
 		}
 	}
@@ -169,21 +160,21 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 	if err != nil || summary == nil {
 		t.Fatalf("summary=%#v err=%v", summary, err)
 	}
-	if !contracts.IsTeamRunOwner(summary.AgentKey, summary.TeamID) || summary.TeamID != "research" || summary.AgentKey != "" || summary.LastRunContent != "Team summary" {
+	if summary.AgentKey != "research" || summary.AgentMode != "TEAM" {
 		t.Fatalf("unexpected Team chat summary %#v", summary)
 	}
 	runs, err := fixture.chats.ListRuns("chat-team-e2e")
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("runs=%#v err=%v", runs, err)
 	}
-	if !contracts.IsTeamRunOwner(runs[0].AgentKey, runs[0].TeamID) || runs[0].TeamID != "research" || runs[0].AgentKey != "" || runs[0].AssistantText != "Team summary" {
+	if runs[0].AgentKey != "research" {
 		t.Fatalf("unexpected Team run %#v", runs[0])
 	}
 	jsonl, err := fixture.chats.LoadJSONLContent("chat-team-e2e")
 	if err != nil {
 		t.Fatalf("load Team JSONL: %v", err)
 	}
-	if strings.Contains(jsonl, hiddenTeamAgentKey("research")) {
+	if !strings.Contains(jsonl, "research") {
 		t.Fatalf("Team JSONL leaked the hidden coordinator key: %s", jsonl)
 	}
 	if strings.Contains(jsonl, `"name":"agent_invoke"`) {
@@ -201,16 +192,13 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 		if event.Type == "tool.snapshot" && (event.String("toolName") == agentteam.ToolDelegate || event.String("toolName") == "team_delegate" || event.String("toolName") == "team_invoke") {
 			t.Fatalf("replay exposed hidden Team tool: %#v", event)
 		}
-		if event.Type == "reasoning.snapshot" && event.String("taskId") == "" {
-			t.Fatalf("replay exposed coordinator reasoning: %#v", event)
-		}
 		if event.Type != "content.snapshot" {
 			continue
 		}
 		actor, _ := event.Payload["actor"].(map[string]any)
 		replayedActors[event.String("text")] = strings.TrimSpace(contracts.AnyStringNode(actor["type"]))
 	}
-	if replayedActors["writer answer"] != "agent" || replayedActors["reviewer answer"] != "agent" || replayedActors["Team summary"] != "team" {
+	if replayedActors["writer answer"] != "agent" || replayedActors["reviewer answer"] != "agent" || replayedActors["Team summary"] != "agent" {
 		t.Fatalf("replay actor metadata=%#v events=%#v", replayedActors, detail.Events)
 	}
 	hiddenHits, err := fixture.chats.SearchSession("chat-team-e2e", agentteam.ToolDelegate, 10)
@@ -252,23 +240,43 @@ func setupOrchestratedTeamRuntime(t *testing.T) func(string, *config.Config) {
 				t.Fatal(err)
 			}
 		}
-		teamDir := filepath.Join(cfg.Paths.TeamsDir, "research")
+		teamDir := filepath.Join(cfg.Paths.AgentsDir, "research")
 		if err := os.MkdirAll(teamDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		teamYAML := strings.Join([]string{
-			"name: Research",
-			"description: Multi-agent research",
-			"agentKeys:",
-			"  - writer",
-			"  - reviewer",
-			"orchestrator:",
-			"  modelConfig:",
-			"    modelKey: mock-model",
-			"  maxParallel: 2",
-		}, "\n")
-		if err := os.WriteFile(filepath.Join(teamDir, "team.yml"), []byte(teamYAML), 0o644); err != nil {
+		teamYAML := "key: research\nname: Research\nmode: TEAM\ntoolConfig:\n  tools: [plan_add_tasks]\nmodelConfig:\n  modelKey: mock-model\nteamConfig:\n  members: [writer, reviewer]\n  maxParallel: 2\n"
+
+		if err := os.WriteFile(filepath.Join(teamDir, "agent.yml"), []byte(teamYAML), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestTEAMCanAnswerDirectlyWithoutDelegation(t *testing.T) {
+	var calls int
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["tool_choice"] != "auto" {
+			t.Errorf("tool_choice=%v", body["tool_choice"])
+		}
+		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"Direct TEAM answer"},"finish_reason":"stop"}]}`, `[DONE]`)
+	}, testFixtureOptions{setupRuntime: setupOrchestratedTeamRuntime(t)})
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"direct-team","agentKey":"research","message":"Answer directly"}`)))
+	if rec.Code != http.StatusOK || calls != 1 || !strings.Contains(rec.Body.String(), "Direct TEAM answer") {
+		t.Fatalf("status=%d calls=%d body=%s", rec.Code, calls, rec.Body.String())
+	}
+	for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+		if event["type"] == "task.start" {
+			t.Fatalf("unexpected delegation: %#v", event)
+		}
+	}
+	summary, err := fixture.chats.Summary("direct-team")
+	if err != nil || summary == nil || summary.AgentKey != "research" || summary.AgentMode != "TEAM" {
+		t.Fatalf("summary=%#v err=%v", summary, err)
 	}
 }

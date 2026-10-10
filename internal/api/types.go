@@ -250,10 +250,10 @@ type QueryRequest struct {
 	RunID     string `json:"runId,omitempty"`
 	ChatID    string `json:"chatId,omitempty"`
 	AgentKey  string `json:"agentKey,omitempty"`
-	TeamID    string `json:"teamId,omitempty"`
-	Role      string `json:"role,omitempty"`
-	Hidden    *bool  `json:"hidden,omitempty"`
-	Message   string `json:"message"`
+
+	Role    string `json:"role,omitempty"`
+	Hidden  *bool  `json:"hidden,omitempty"`
+	Message string `json:"message"`
 	// Trusted channel hint for the remote actor. Ignored outside gateway
 	// contexts when deriving chat summary source.
 	SourceUser string         `json:"sourceUser,omitempty"`
@@ -368,20 +368,20 @@ type CompactResponse = queryinput.CompactResponse
 type DetachRequest struct {
 	RunID    string `json:"runId"`
 	AgentKey string `json:"agentKey,omitempty"`
-	TeamID   string `json:"teamId,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+
+	Reason string `json:"reason,omitempty"`
 }
 
 // QueryAcceptedResponse acknowledges a detached query. The Run continues in
 // the background; observers use /api/attach and global run.* Push.
 type QueryAcceptedResponse struct {
-	Accepted  bool   `json:"accepted"`
-	Status    string `json:"status"`
-	RunID     string `json:"runId"`
-	ChatID    string `json:"chatId"`
-	AgentKey  string `json:"agentKey,omitempty"`
-	TeamID    string `json:"teamId,omitempty"`
-	StartedAt int64  `json:"startedAt,omitempty"`
+	Accepted bool   `json:"accepted"`
+	Status   string `json:"status"`
+	RunID    string `json:"runId"`
+	ChatID   string `json:"chatId"`
+	AgentKey string `json:"agentKey,omitempty"`
+
+	StartedAt int64 `json:"startedAt,omitempty"`
 }
 
 type DetachResponse struct {
@@ -414,32 +414,6 @@ type AgentSummary struct {
 	Role                   string                     `json:"role,omitempty"`
 	Stats                  AgentChatStats             `json:"stats"`
 	Chats                  []ChatSummaryResponse      `json:"chats,omitempty"`
-}
-
-// AgentCatalogSummary is the opt-in, flat union returned by /api/agents when
-// includeTeam is enabled. Agent items use kind=agent and preserve the public
-// AgentSummary fields. Team items use kind=team and populate the Team-specific
-// fields together with the shared Name, Icon, Stats, and Chats fields.
-type AgentCatalogSummary struct {
-	Kind                   string                     `json:"kind"`
-	Key                    string                     `json:"key,omitempty"`
-	Name                   string                     `json:"name"`
-	Icon                   any                        `json:"icon,omitempty"`
-	Mode                   string                     `json:"mode,omitempty"`
-	Engine                 string                     `json:"engine,omitempty"`
-	WorkspaceDir           string                     `json:"workspaceDir,omitempty"`
-	AgentConfigDir         string                     `json:"agentConfigDir,omitempty"`
-	DefaultModelKey        string                     `json:"defaultModelKey,omitempty"`
-	DefaultReasoningEffort string                     `json:"defaultReasoningEffort,omitempty"`
-	ModelConfig            map[string]any             `json:"modelConfig,omitempty"`
-	ModelOptions           *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
-	Role                   string                     `json:"role,omitempty"`
-	Stats                  AgentChatStats             `json:"stats"`
-	Chats                  []ChatSummaryResponse      `json:"chats,omitempty"`
-	TeamID                 string                     `json:"teamId,omitempty"`
-	Description            string                     `json:"description,omitempty"`
-	AgentKeys              []string                   `json:"agentKeys,omitempty"`
-	Meta                   map[string]any             `json:"meta,omitempty"`
 }
 
 type AgentChatStats struct {
@@ -477,7 +451,13 @@ type AgentToolBinding struct {
 	Active    bool   `json:"active"`
 }
 
+type AgentTeamConfig struct {
+	Members     []string `json:"members"`
+	MaxParallel int      `json:"maxParallel"`
+}
+
 type AgentDetailResponse struct {
+	TeamConfig        *AgentTeamConfig   `json:"teamConfig,omitempty"`
 	ModelKey          string             `json:"modelKey,omitempty"`
 	ServiceTier       string             `json:"serviceTier,omitempty"`
 	ReasoningEffort   string             `json:"reasoningEffort,omitempty"`
@@ -945,15 +925,6 @@ type ServiceTierOption struct {
 	Label string `json:"label"`
 }
 
-type TeamSummary struct {
-	TeamID      string         `json:"teamId"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Icon        any            `json:"icon,omitempty"`
-	AgentKeys   []string       `json:"agentKeys"`
-	Meta        map[string]any `json:"meta,omitempty"`
-}
-
 type SkillSummary struct {
 	skillmeta.Presentation
 	ID          string         `json:"id"`
@@ -1229,13 +1200,13 @@ type ToolSummary struct {
 type ToolDetailResponse = queryinput.ToolDefinition
 
 type ChatSummaryResponse struct {
-	CanContinue    bool           `json:"canContinue"`
-	Pinned         bool           `json:"pinned"`
-	ChatID         string         `json:"chatId"`
-	ChatName       string         `json:"chatName"`
-	AgentKey       string         `json:"agentKey,omitempty"`
-	Mode           string         `json:"mode,omitempty"`
-	TeamID         string         `json:"teamId,omitempty"`
+	CanContinue bool   `json:"canContinue"`
+	Pinned      bool   `json:"pinned"`
+	ChatID      string `json:"chatId"`
+	ChatName    string `json:"chatName"`
+	AgentKey    string `json:"agentKey,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+
 	Source         string         `json:"source,omitempty"`
 	CreatedAt      int64          `json:"createdAt"`
 	UpdatedAt      int64          `json:"updatedAt"`
@@ -1345,13 +1316,13 @@ type MarkChatReadResponse struct {
 }
 
 type ChatDetailResponse struct {
-	CanContinue    bool                `json:"canContinue"`
-	Pinned         bool                `json:"pinned"`
-	ChatID         string              `json:"chatId"`
-	ChatName       string              `json:"chatName"`
-	AgentKey       string              `json:"agentKey,omitempty"`
-	Mode           string              `json:"mode,omitempty"`
-	TeamID         string              `json:"teamId,omitempty"`
+	CanContinue bool   `json:"canContinue"`
+	Pinned      bool   `json:"pinned"`
+	ChatID      string `json:"chatId"`
+	ChatName    string `json:"chatName"`
+	AgentKey    string `json:"agentKey,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+
 	CreatedAt      int64               `json:"createdAt"`
 	UpdatedAt      int64               `json:"updatedAt"`
 	LastRunID      string              `json:"lastRunId,omitempty"`
@@ -1410,11 +1381,11 @@ type ArchivedChatDetailResponse struct {
 }
 
 type RunSummary struct {
-	RunID           string        `json:"runId"`
-	ChatID          string        `json:"chatId"`
-	AgentKey        string        `json:"agentKey,omitempty"`
-	Mode            string        `json:"mode,omitempty"`
-	TeamID          string        `json:"teamId,omitempty"`
+	RunID    string `json:"runId"`
+	ChatID   string `json:"chatId"`
+	AgentKey string `json:"agentKey,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+
 	InitialMessage  string        `json:"initialMessage,omitempty"`
 	AssistantText   string        `json:"assistantText,omitempty"`
 	FinishReason    string        `json:"finishReason,omitempty"`
@@ -1427,9 +1398,9 @@ type RunSummary struct {
 }
 
 type ActiveRunInfo struct {
-	RunID        string `json:"runId"`
-	AgentKey     string `json:"agentKey,omitempty"`
-	TeamID       string `json:"teamId,omitempty"`
+	RunID    string `json:"runId"`
+	AgentKey string `json:"agentKey,omitempty"`
+
 	State        string `json:"state"`
 	LastSeq      int64  `json:"lastSeq"`
 	OldestSeq    int64  `json:"oldestSeq"`
@@ -1469,10 +1440,10 @@ type DeriveChatRequest struct {
 }
 
 type DeriveChatResponse struct {
-	ChatID       string `json:"chatId"`
-	ChatName     string `json:"chatName"`
-	AgentKey     string `json:"agentKey,omitempty"`
-	TeamID       string `json:"teamId,omitempty"`
+	ChatID   string `json:"chatId"`
+	ChatName string `json:"chatName"`
+	AgentKey string `json:"agentKey,omitempty"`
+
 	Source       string `json:"source,omitempty"`
 	SourceChatID string `json:"sourceChatId"`
 	SourceRunID  string `json:"sourceRunId"`

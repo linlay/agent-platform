@@ -17,7 +17,7 @@ func (s *Service) updateAccessLevel(req queryinput.AccessLevelRequest) (queryinp
 		return queryinput.AccessLevelResponse{}, &statusError{Status: 400, Message: "accessLevel must be default, auto_approve, or full_access"}
 	}
 	req.AccessLevel = accessLevel
-	if statusErr := s.ValidateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
+	if statusErr := s.ValidateRunOwner(req.RunID, req.AgentKey); statusErr != nil {
 		return queryinput.AccessLevelResponse{}, statusErr
 	}
 	// Validate before forwarding: ACP must never receive a disallowed change.

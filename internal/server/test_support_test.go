@@ -294,9 +294,9 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			Port: "18080",
 		},
 		Paths: config.PathsConfig{
-			RegistriesDir:   registriesDir,
-			AgentsDir:       agentsDir,
-			TeamsDir:        teamsDir,
+			RegistriesDir: registriesDir,
+			AgentsDir:     agentsDir,
+
 			SkillsCenterDir: skillsDir,
 			ChatsDir:        filepath.Join(root, "custom-chats"),
 			MemoryDir:       filepath.Join(root, "custom-memory"),

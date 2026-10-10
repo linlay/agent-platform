@@ -58,10 +58,6 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	includeTeam, ok := parseIncludeTeam(w, r.URL.Query()["includeTeam"])
-	if !ok {
-		return
-	}
 	pinned, err := parseOptionalBoolQuery(r, "chatsPinned")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
@@ -83,19 +79,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	if includeTeam {
-		items, err := s.listAgentCatalogSummariesWithPinned(includeChats, scope, modes, pinned, hasWorkspace)
-		if err != nil {
-			if isTimeContractViolation(err) {
-				writeTimeContractViolation(w, err)
-				return
-			}
-			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-			return
-		}
-		writeJSON(w, http.StatusOK, api.Success(items))
-		return
-	}
+
 	items, err := s.listAgentSummariesWithPinned(includeChats, scope, modes, pinned, hasWorkspace)
 	if err != nil {
 		if isTimeContractViolation(err) {
@@ -106,19 +90,6 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, api.Success(items))
-}
-
-func parseIncludeTeam(w http.ResponseWriter, values []string) (bool, bool) {
-	if len(values) == 0 {
-		return false, true
-	}
-	raw := strings.TrimSpace(values[0])
-	value, err := strconv.ParseBool(raw)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "includeTeam must be a boolean"))
-		return false, false
-	}
-	return value, true
 }
 
 const maxAgentSummaryIncludeChats = 50
@@ -245,10 +216,6 @@ func (s *Server) handleAgentEditorOptions(w http.ResponseWriter, _ *http.Request
 	writeJSON(w, http.StatusOK, api.Success(s.buildAgentEditorOptions()))
 }
 
-func (s *Server) handleTeams(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Teams()))
-}
-
 func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	response, err := s.adminSkillsCatalog(r.Context())
@@ -369,10 +336,13 @@ func (s *Server) applyGeneralDefaultAgentConfig(definition map[string]any) map[s
 	if definition == nil {
 		return nil
 	}
-	if !agentbuiltin.IsGeneralMode(catalog.DefinitionRuntimeMode(definition)) {
+	if !agentbuiltin.IsGeneralMode(catalog.DefinitionRuntimeMode(definition)) && catalog.DefinitionRuntimeMode(definition) != "TEAM" {
 		return definition
 	}
 	defaults := s.deps.Config.GeneralSettings.DefaultAgent
+	if catalog.DefinitionRuntimeMode(definition) == "TEAM" {
+		defaults = s.deps.Config.TeamSettings.DefaultAgent
+	}
 	return agentbuiltin.ApplyGeneralCreateDefaults(definition, agentbuiltin.GeneralCreateDefaults{
 		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
 	})

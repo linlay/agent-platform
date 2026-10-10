@@ -14,7 +14,7 @@ func (s *ArchiveStore) MemoryChats(ctx context.Context, since, after int64, afte
 	defer s.mu.Unlock()
 	rows, err := s.db.QueryContext(ctx, `SELECT c.CHAT_ID_, MAX(r.COMPLETED_AT_), COUNT(r.RUN_ID_)
  FROM ARCHIVED_CHATS c JOIN ARCHIVED_RUNS r ON r.CHAT_ID_=c.CHAT_ID_
- WHERE COALESCE(c.TEAM_ID_,'')='' AND c.SOURCE_ NOT LIKE 'automation:%' AND c.SOURCE_ NOT LIKE 'run-query:%'
+ WHERE c.SOURCE_ NOT LIKE 'automation:%' AND c.SOURCE_ NOT LIKE 'run-query:%'
  AND NOT EXISTS(SELECT 1 FROM ARCHIVED_RUNS active WHERE active.CHAT_ID_=c.CHAT_ID_ AND active.COMPLETED_AT_=0)
  GROUP BY c.CHAT_ID_ HAVING MAX(r.COMPLETED_AT_)>=? AND (MAX(r.COMPLETED_AT_)>? OR (MAX(r.COMPLETED_AT_)=? AND c.CHAT_ID_>?))
  ORDER BY MAX(r.COMPLETED_AT_),c.CHAT_ID_ LIMIT ?`, since, after, after, afterID, limit)

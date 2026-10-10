@@ -17,7 +17,7 @@ func (s *Server) handleAccessLevel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.deps.Runtime.SetAccessLevel(r.Context(), runtimetypes.AccessLevelCommand{
-		RunRef:    runtimetypes.RunRef{RunID: req.RunID, AgentKey: req.AgentKey, TeamID: req.TeamID},
+		RunRef:    runtimetypes.RunRef{RunID: req.RunID, AgentKey: req.AgentKey},
 		RequestID: req.RequestID, AccessLevel: req.AccessLevel, Reason: req.Reason,
 	})
 	if err != nil {

@@ -111,10 +111,8 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	explicitAgentKey := agentKey != ""
 	var agentDef catalog.AgentDefinition
 	agentOK := false
-	teamID, resolvedAgentKey, teamSnapshot, teamErr := resolveQueryTeam(
-		s.deps.Registry,
-		strings.TrimSpace(chatSummary.TeamID),
-		agentKey,
+	resolvedAgentKey, teamSnapshot, teamErr := resolveAgentTarget(
+		s.deps.Registry, agentKey,
 		chatSummary,
 	)
 	if teamErr != nil {
@@ -148,10 +146,10 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	resolvedReq := req
 	resolvedReq.AgentKey = agentKey
 	resolvedSummary := *chatSummary
-	resolvedSummary.TeamID = teamID
+
 	overhead := 0
 	if estimator, ok := s.deps.Agent.(contracts.ContextEstimator); ok && agentOK {
-		budgetReq := api.QueryRequest{RequestID: requestID, RunID: compactID, ChatID: chatID, AgentKey: agentKey, TeamID: teamID}
+		budgetReq := api.QueryRequest{RequestID: requestID, RunID: compactID, ChatID: chatID, AgentKey: agentKey}
 		budgetSession, err := s.buildCompactSession(ctx, budgetReq, resolvedSummary, agentDef, querySessionBuildOptions{IncludeMemory: false, IncludeHistory: false})
 		if err != nil {
 			return baseResp, err
@@ -283,9 +281,9 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 		RunID:     compactID,
 		ChatID:    strings.TrimSpace(req.ChatID),
 		AgentKey:  agentDef.Key,
-		TeamID:    chatSummary.TeamID,
-		Role:      api.QueryRoleSystem,
-		Message:   prompt,
+
+		Role:    api.QueryRoleSystem,
+		Message: prompt,
 	}
 	if summaryReq.RequestID == "" {
 		summaryReq.RequestID = compactID

@@ -128,7 +128,7 @@ func TestWebSocketRequestFramesAreLogged(t *testing.T) {
 		id        string
 	}{
 		{frameType: "/api/agents", id: "req_agents"},
-		{frameType: "/api/teams", id: "req_teams"},
+		{frameType: "/api/agents", id: "req_agents_catalog"},
 		{frameType: "/api/chats", id: "req_chats"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{
@@ -150,8 +150,8 @@ func TestWebSocketRequestFramesAreLogged(t *testing.T) {
 
 	waitForLogText(t, &buffer, "WS /api/agents id=req_agents (arrived)")
 	waitForLogText(t, &buffer, "WS /api/agents id=req_agents -> done")
-	waitForLogText(t, &buffer, "WS /api/teams id=req_teams (arrived)")
-	waitForLogText(t, &buffer, "WS /api/teams id=req_teams -> done")
+	waitForLogText(t, &buffer, "WS /api/agents id=req_agents_catalog (arrived)")
+	waitForLogText(t, &buffer, "WS /api/agents id=req_agents_catalog -> done")
 	waitForLogText(t, &buffer, "WS /api/chats id=req_chats (arrived)")
 	waitForLogText(t, &buffer, "WS /api/chats id=req_chats -> done")
 	waitForLogText(t, &buffer, `"category":"ws.request"`)
@@ -308,7 +308,7 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 		},
 	})
 
-	if _, _, err := fixture.chats.EnsureChat("chat_ws_conflict", "mock-agent", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat("chat_ws_conflict", "mock-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	runs := fixture.runs
@@ -316,13 +316,13 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 		RunID:    "run_ws_1",
 		ChatID:   "chat_ws_conflict",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run_ws_2",
 		ChatID:   "chat_ws_conflict",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 
 	server := httptest.NewServer(fixture.server)
@@ -387,7 +387,7 @@ func TestWebSocketAgentsKeepsChatWithActiveRunConflictError(t *testing.T) {
 		},
 	})
 
-	if _, _, err := fixture.chats.EnsureChat("chat_ws_agents_conflict", "mock-agent", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat("chat_ws_agents_conflict", "mock-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	runs := fixture.runs
@@ -395,13 +395,13 @@ func TestWebSocketAgentsKeepsChatWithActiveRunConflictError(t *testing.T) {
 		RunID:    "run_ws_agents_1",
 		ChatID:   "chat_ws_agents_conflict",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run_ws_agents_2",
 		ChatID:   "chat_ws_agents_conflict",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 
 	server := httptest.NewServer(fixture.server)
@@ -482,7 +482,7 @@ func TestWebSocketPushesChatReadAfterMarkRead(t *testing.T) {
 		},
 	})
 
-	if _, _, err := fixture.chats.EnsureChat("chat_ws_read", "mock-agent", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat("chat_ws_read", "mock-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startedAt := time.Now().UnixMilli()
@@ -850,7 +850,7 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 		RunID:    runID,
 		ChatID:   "chat_ws_shutdown",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 
 	server := newLoopbackServer(t, fixture.server)
@@ -945,7 +945,7 @@ func TestWebSocketAttachLatestSuccessfulConnectionOwnsWebClientTarget(t *testing
 		RunID:    runID,
 		ChatID:   "chat_ws_latest_target",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 
 	server := newLoopbackServer(t, fixture.server)
@@ -1050,7 +1050,7 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 		RunID:    runID,
 		ChatID:   "chat_ws_detach",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 
 	server := httptest.NewServer(fixture.server)

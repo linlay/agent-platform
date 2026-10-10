@@ -50,7 +50,7 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
@@ -63,13 +63,11 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 			RunID:    "run-1",
 			Message:  "hello",
 			AgentKey: "agent-a",
-			TeamID:   "team-1",
 		},
 		Session: QuerySession{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
 			AgentKey: "agent-a",
-			TeamID:   "team-1",
 		},
 		StartedAtMillis: testEpochMillis,
 		Chats:           chats,
@@ -98,7 +96,7 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
@@ -110,13 +108,11 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 			RunID:    "run-1",
 			Message:  "hello",
 			AgentKey: "agent-a",
-			TeamID:   "team-1",
 		},
 		Session: QuerySession{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
 			AgentKey: "agent-a",
-			TeamID:   "team-1",
 		},
 		StartedAtMillis: testEpochMillis,
 		Chats:           chats,
@@ -141,7 +137,7 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
@@ -152,13 +148,11 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 			RunID:    "run-1",
 			Message:  "hello",
 			AgentKey: "agent-a",
-			TeamID:   "team-1",
 		},
 		Session: QuerySession{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
 			AgentKey: "agent-a",
-			TeamID:   "team-1",
 		},
 		StartedAtMillis: testEpochMillis,
 		Chats:           chats,
@@ -250,7 +244,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 					ChatID:   "chat-1",
 					RunID:    "run-1",
 					AgentKey: "agent-a",
-					RunOwner: AgentRunOwner("agent-a", ""),
+					RunOwner: AgentRunOwner("agent-a"),
 				},
 				Notifications: notifications,
 			}, stream.EventData{
@@ -288,7 +282,7 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
@@ -326,8 +320,8 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 	}
 	runExecutor(RunExecutorParams{
 		RunCtx:          context.Background(),
-		Request:         runtimetypes.QueryCommand{ChatID: "chat-1", RunID: "run-1", Message: "hello", AgentKey: "agent-a", TeamID: "team-1"},
-		Session:         QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a", TeamID: "team-1"},
+		Request:         runtimetypes.QueryCommand{ChatID: "chat-1", RunID: "run-1", Message: "hello", AgentKey: "agent-a"},
+		Session:         QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a"},
 		StartedAtMillis: testEpochMillis,
 		Summary:         chat.Summary{ChatID: "chat-1", AgentKey: "agent-a"},
 		Agent:           adapter.Engine{AgentEngine: agent},
@@ -369,7 +363,7 @@ func TestRunExecutorPublishesArtifactsWithoutObserverAndDoesNotNotifyOnReplay(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)

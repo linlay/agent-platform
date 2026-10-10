@@ -27,7 +27,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	if err := os.WriteFile(path, []byte(base+"connectorConfig:\n  connectors:\n    - builtin.dbx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: agents, BuiltinConnectorsDir: connectorRoot, ConnectorsCenterDir: filepath.Join(root, "connectors"), RUAgentsDir: filepath.Join(root, "ru-agents"), TeamsDir: filepath.Join(root, "teams"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: agents, BuiltinConnectorsDir: connectorRoot, ConnectorsCenterDir: filepath.Join(root, "connectors"), RUAgentsDir: filepath.Join(root, "ru-agents"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	for _, name := range []string{"builtin-dbx", "builtin-httpx"} {
 		legacy := filepath.Join(cfg.Paths.SkillsCenterDir, name)
 		if err := os.MkdirAll(legacy, 0o755); err != nil {

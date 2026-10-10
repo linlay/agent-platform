@@ -98,7 +98,7 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 			})
 		}
 	}
-	teamReferences, teamErr := auditTeamReferences(cfg.Paths.TeamsDir)
+	teamReferences, teamErr := auditTeamReferences(cfg.Paths.AgentsDir)
 	if teamErr != nil {
 		return nil, teamErr
 	}
@@ -164,24 +164,24 @@ func workspaceLessPathTools(tools []string) []string {
 	return found
 }
 
-func auditTeamReferences(teamsDir string) ([]workspaceChatAuditReference, error) {
-	teamsDir = strings.TrimSpace(teamsDir)
-	if teamsDir == "" {
+func auditTeamReferences(agentsDir string) ([]workspaceChatAuditReference, error) {
+	agentsDir = strings.TrimSpace(agentsDir)
+	if agentsDir == "" {
 		return nil, nil
 	}
-	entries, err := os.ReadDir(teamsDir)
+	entries, err := os.ReadDir(agentsDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read teams directory %s: %w", teamsDir, err)
+		return nil, fmt.Errorf("read agents directory %s: %w", agentsDir, err)
 	}
 	references := make([]workspaceChatAuditReference, 0)
 	for _, entry := range entries {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !ShouldLoadRuntimeName(entry.Name()) {
 			continue
 		}
-		sourcePath := resolveDirectoryTeamConfig(filepath.Join(teamsDir, entry.Name()))
+		sourcePath := resolveDirectoryAgentConfig(filepath.Join(agentsDir, entry.Name()))
 		if sourcePath == "" {
 			continue
 		}
@@ -189,7 +189,7 @@ func auditTeamReferences(teamsDir string) ([]workspaceChatAuditReference, error)
 		if err != nil {
 			continue
 		}
-		targets := listStrings(definition["agentKeys"])
+		targets := listStrings(mapNode(definition["teamConfig"])["members"])
 		if len(targets) == 0 {
 			continue
 		}

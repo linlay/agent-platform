@@ -270,7 +270,7 @@ func (w *Worker) run(ctx context.Context, now time.Time) (int, error) {
 			// Oldest first; one malformed chat must not starve later conversations.
 			for i := len(runs) - 1; i >= 0; i-- {
 				r := runs[i]
-				if r.CompletedAt < cp.Since || r.TeamID != "" {
+				if r.CompletedAt < cp.Since {
 					continue
 				}
 				project, allowed := w.eligible(r.AgentKey)

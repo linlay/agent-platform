@@ -34,13 +34,9 @@ var (
 	chatIDMaxLength = 256
 )
 
-type TeamLookup interface {
-	ResolveTeam(teamID string) (catalog.TeamSnapshot, bool)
-}
-
 type Registry struct {
-	root         string
-	teams        TeamLookup
+	root string
+
 	sourceMu     sync.Mutex
 	managementMu sync.Mutex
 }
@@ -65,8 +61,8 @@ type EditableSourceFile struct {
 	UpdatedAt int64
 }
 
-func NewRegistry(root string, teams TeamLookup) *Registry {
-	return &Registry{root: root, teams: teams}
+func NewRegistry(root string) *Registry {
+	return &Registry{root: root}
 }
 
 func (r *Registry) Root() string {
@@ -305,11 +301,11 @@ func (r *Registry) parseDefinitionTree(path string, id string, tree any) (Defini
 	}
 
 	agentKey := stringNode(root["agentKey"])
-	teamID := stringNode(root["teamId"])
-	if agentKey == "" && teamID == "" {
+
+	if agentKey == "" {
 		return Definition{}, fmt.Errorf("agentKey is required")
 	}
-	if err := r.validateTeam(agentKey, teamID); err != nil {
+	if err := r.validateAgent(agentKey); err != nil {
 		return Definition{}, err
 	}
 
@@ -341,34 +337,16 @@ func (r *Registry) parseDefinitionTree(path string, id string, tree any) (Defini
 		Cron:          cronExpr,
 		RemainingRuns: remainingRuns,
 		AgentKey:      agentKey,
-		TeamID:        teamID,
-		Environment:   Environment{ZoneID: zoneID},
-		Query:         query,
-		SourceFile:    path,
+
+		Environment: Environment{ZoneID: zoneID},
+		Query:       query,
+		SourceFile:  path,
 	}, nil
 }
 
-func (r *Registry) validateTeam(agentKey string, teamID string) error {
-	agentKey = strings.TrimSpace(agentKey)
-	teamID = strings.TrimSpace(teamID)
-	if teamID == "" {
-		if agentKey == "" {
-			return fmt.Errorf("agentKey is required")
-		}
-		return nil
-	}
-	if r == nil || r.teams == nil {
-		return fmt.Errorf("team %q cannot be validated", teamID)
-	}
-	team, ok := r.teams.ResolveTeam(teamID)
-	if !ok {
-		return fmt.Errorf("team %q not found", teamID)
-	}
-	if agentKey != "" {
-		return fmt.Errorf("agentKey must be omitted for Team %q", teamID)
-	}
-	if len(team.AgentKeys) == 0 || len(team.InvalidAgentKeys) > 0 || len(team.ValidAgentKeys) != len(team.AgentKeys) {
-		return fmt.Errorf("Team %q has unavailable members: %v", teamID, team.InvalidAgentKeys)
+func (r *Registry) validateAgent(agentKey string) error {
+	if strings.TrimSpace(agentKey) == "" {
+		return fmt.Errorf("agentKey is required")
 	}
 	return nil
 }
@@ -541,10 +519,10 @@ func (r *Registry) Validate(def Definition) error {
 	if def.RemainingRuns != nil && *def.RemainingRuns <= 0 {
 		return fmt.Errorf("remainingRuns must be a positive integer")
 	}
-	if strings.TrimSpace(def.AgentKey) == "" && strings.TrimSpace(def.TeamID) == "" {
+	if strings.TrimSpace(def.AgentKey) == "" {
 		return fmt.Errorf("agentKey is required")
 	}
-	if err := r.validateTeam(strings.TrimSpace(def.AgentKey), strings.TrimSpace(def.TeamID)); err != nil {
+	if err := r.validateAgent(strings.TrimSpace(def.AgentKey)); err != nil {
 		return err
 	}
 	if strings.TrimSpace(def.Environment.ZoneID) != "" {

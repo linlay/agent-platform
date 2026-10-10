@@ -23,23 +23,23 @@ func AcquireTeam(registry catalog.Registry, key string) (catalog.TeamSnapshot, f
 	team, ok := ResolveTeam(registry, key)
 	return team, func() {}, ok
 }
-func ResolveTeam(registry catalog.Registry, teamID string) (catalog.TeamSnapshot, bool) {
-	teamID = strings.TrimSpace(teamID)
-	if teamID == "" || registry == nil {
+func ResolveTeam(registry catalog.Registry, agentKey string) (catalog.TeamSnapshot, bool) {
+
+	if registry == nil || strings.TrimSpace(agentKey) == "" {
 		return catalog.TeamSnapshot{}, false
 	}
 	if resolver, ok := registry.(catalog.TeamResolver); ok {
-		return resolver.ResolveTeam(teamID)
+		return resolver.ResolveTeam(agentKey)
 	}
 
 	// Compatibility path for narrow registries used by embedders and tests.
 	// Production FileRegistry takes the atomic TeamResolver path above.
-	team, ok := registry.TeamDefinition(teamID)
-	if !ok {
+	team, ok := registry.AgentDefinition(agentKey)
+	if !ok || team.Mode != "TEAM" || team.TeamConfig == nil {
 		return catalog.TeamSnapshot{}, false
 	}
-	agents := make(map[string]catalog.AgentDefinition, len(team.AgentKeys))
-	for _, raw := range team.AgentKeys {
+	agents := make(map[string]catalog.AgentDefinition, len(team.TeamConfig.Members))
+	for _, raw := range team.TeamConfig.Members {
 		key := strings.TrimSpace(raw)
 		if key == "" {
 			continue
@@ -66,4 +66,22 @@ func AcquireTeamSnapshot(registry catalog.Registry, team catalog.TeamSnapshot) (
 		return leases.AcquireTeamSnapshot(team)
 	}
 	return team, func() {}, true
+}
+
+func AcquireRun(registry catalog.Registry, key string) (catalog.AgentDefinition, *catalog.TeamSnapshot, func(), bool) {
+	if leaser, ok := registry.(interface {
+		AcquireRunRuntime(string) (catalog.AgentDefinition, *catalog.TeamSnapshot, func(), bool)
+	}); ok {
+		return leaser.AcquireRunRuntime(key)
+	}
+	def, ok := registry.AgentDefinition(key)
+	if !ok {
+		return def, nil, nil, false
+	}
+	if def.Mode == "TEAM" {
+		snapshot, release, ok := AcquireTeam(registry, key)
+		return snapshot.Coordinator, &snapshot, release, ok
+	}
+	def, release, ok := AcquireAgent(registry, key)
+	return def, nil, release, ok
 }

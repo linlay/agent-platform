@@ -62,9 +62,7 @@ func (s *Server) getView(ctx context.Context, req ViewRequest) (view.Document, e
 	if summary == nil {
 		return view.Document{}, view.ErrNotFound
 	}
-	if summary.TeamID != "" {
-		return view.Document{}, newAgentStatusError(http.StatusBadRequest, "view_snapshot_required", "Team views require an event snapshot hash")
-	}
+
 	def, release, ok := acquireAgentRuntime(s.deps.Registry, summary.AgentKey)
 	if !ok {
 		return view.Document{}, view.ErrNotFound

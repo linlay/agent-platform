@@ -1,82 +1,54 @@
 package catalogview
 
 import (
-	"fmt"
-	"strings"
-
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	sessionbuild "agent-platform/internal/runtime/session"
 	runtimetypes "agent-platform/internal/runtime/types"
+	"fmt"
+	"strings"
 )
 
-func ResolveQueryTeam(
-	registry catalog.Registry,
-	requestedTeamID string,
-	requestedAgentKey string,
-	existing *chat.Summary,
-) (string, string, *catalog.TeamSnapshot, *runtimetypes.RequestError) {
-	requestedTeamID = strings.TrimSpace(requestedTeamID)
-	requestedAgentKey = strings.TrimSpace(requestedAgentKey)
-	if requestedTeamID != "" && requestedAgentKey != "" {
-		return "", "", nil, &runtimetypes.RequestError{Status: 400, Code: "invalid_request", Message: "agentKey must be omitted for a Team"}
-	}
-	existingTeamID := ""
-	if existing != nil {
-		if strings.TrimSpace(existing.TeamID) != "" && strings.TrimSpace(existing.AgentKey) != "" {
-			return "", "", nil, &runtimetypes.RequestError{Status: 400, Code: "invalid_request", Message: "historical Team chat cannot be resumed; create a new Team chat using teamId only"}
+func ResolveAgentTarget(registry catalog.Registry, agentKey string, existing *chat.Summary) (string, *catalog.TeamSnapshot, *runtimetypes.RequestError) {
+	agentKey = strings.TrimSpace(agentKey)
+	if existing != nil && (existing.AgentKey != "" || existing.LastRunID != "") {
+		if agentKey != "" && agentKey != existing.AgentKey {
+			return "", nil, &runtimetypes.RequestError{Status: 409, Code: "target_owner_mismatch", Message: "agentKey does not match chat owner"}
 		}
-		existingTeamID = strings.TrimSpace(existing.TeamID)
-		if requestedTeamID != "" && requestedTeamID != existingTeamID {
-			return "", "", nil, &runtimetypes.RequestError{
-				Status:  409,
-				Code:    "team_conflict",
-				Message: "teamId does not match chat",
+		agentKey = existing.AgentKey
+	}
+	if agentKey == "" {
+		agentKey = registry.DefaultAgentKey()
+	}
+	def, ok := registry.AgentDefinition(agentKey)
+	if !ok || def.Mode != "TEAM" {
+		return agentKey, nil, nil
+	}
+	snapshot, ok := ResolveTeam(registry, agentKey)
+	if !ok {
+		return "", nil, &runtimetypes.RequestError{Status: 503, Code: "unavailable", Message: "TEAM runtime is unavailable"}
+	}
+	if err := ValidateTeamSnapshot(snapshot); err != nil {
+		return "", nil, err
+	}
+	return agentKey, &snapshot, nil
+}
+func ValidateTeamSnapshot(snapshot catalog.TeamSnapshot) *runtimetypes.RequestError {
+	unavailable := append([]string(nil), snapshot.InvalidAgentKeys...)
+	for _, key := range snapshot.ValidAgentKeys {
+		def, exists := snapshot.AgentDefinition(key)
+		invalid := !exists || def.Mode == "TEAM" || def.Engine == "acp" || catalog.AgentUsesACPCoderBackend(def) || !sessionbuild.ResolvedModeCapabilities(def).RunAsChild
+		for _, tool := range def.Tools {
+			if tool == "agent_invoke" {
+				invalid = true
 			}
 		}
-	}
-
-	teamID := requestedTeamID
-	if teamID == "" && existing != nil {
-		teamID = existingTeamID
-	}
-	if teamID == "" {
-		if requestedAgentKey == "" && existing != nil {
-			requestedAgentKey = strings.TrimSpace(existing.AgentKey)
-		}
-		return "", requestedAgentKey, nil, nil
-	}
-
-	snapshot, ok := ResolveTeam(registry, teamID)
-	if !ok {
-		status := 400
-		code := "invalid_request"
-		if existing != nil && existingTeamID == teamID {
-			status = 503
-			code = "unavailable"
-		}
-		return "", "", nil, &runtimetypes.RequestError{
-			Status:  status,
-			Code:    code,
-			Message: fmt.Sprintf("team %q not found", teamID),
+		if invalid {
+			unavailable = append(unavailable, key)
 		}
 	}
-	if requestedAgentKey != "" {
-		return "", "", nil, &runtimetypes.RequestError{Status: 400, Code: "invalid_request", Message: "agentKey must be omitted for a Team"}
+	if len(snapshot.AgentKeys) == 0 || len(unavailable) > 0 {
+		return &runtimetypes.RequestError{Status: 503, Code: "unavailable", Message: fmt.Sprintf("TEAM Agent %q has unavailable members: %v", snapshot.AgentKey, unavailable)}
 	}
-	if len(snapshot.AgentKeys) == 0 || len(snapshot.InvalidAgentKeys) > 0 || len(snapshot.ValidAgentKeys) != len(snapshot.AgentKeys) {
-		return "", "", nil, &runtimetypes.RequestError{Status: 503, Code: "unavailable", Message: fmt.Sprintf("Team %q has unavailable members: %v", teamID, snapshot.InvalidAgentKeys)}
-	}
-	var unrunnable []string
-	for _, memberKey := range snapshot.ValidAgentKeys {
-		member, exists := snapshot.AgentDefinition(memberKey)
-		if !exists || catalog.AgentUsesACPCoderBackend(member) || !sessionbuild.ResolvedModeCapabilities(member).RunAsChild {
-			unrunnable = append(unrunnable, memberKey)
-		}
-	}
-	if len(unrunnable) > 0 {
-		return "", "", nil, &runtimetypes.RequestError{Status: 503, Code: "unavailable", Message: fmt.Sprintf("Team %q has members that cannot run as children: %v", teamID, unrunnable)}
-	}
-	copy := snapshot
-	return teamID, "", &copy, nil
+	return nil
 }

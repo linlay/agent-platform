@@ -92,7 +92,7 @@ func TestBuildQuerySessionCreatesOnlyRootNativeRunEnvironment(t *testing.T) {
 		t.Fatal("agent without run_env acquired a run environment")
 	}
 	teamRequest := request
-	teamRequest.TeamID = "team"
+
 	team, err := server.BuildQuerySession(context.Background(), teamRequest, chat.Summary{ChatID: "chat-root"}, definition, querySessionBuildOptions{SubTaskID: "member"})
 	if err != nil || team.RunEnvironment != nil || slices.Contains(team.ToolNames, "run_env") {
 		t.Fatalf("team %#v %v", team, err)
@@ -194,7 +194,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	if session.AccessLevel != contracts.AccessLevelDefault {
 		t.Fatalf("access level = %q, want default", session.AccessLevel)
 	}
-	if owner := contracts.ResolveRunOwner(session.RunOwner); owner.AgentKey != "coder-app" || owner.TeamID != "" || owner.ExecutionAgentKey != "coder-app" {
+	if owner := contracts.ResolveRunOwner(session.RunOwner); owner.AgentKey != "coder-app" {
 		t.Fatalf("unexpected explicit Agent owner %#v", owner)
 	}
 	if session.WorkspaceRoot != absTestPath(t, workspace) {
@@ -517,11 +517,11 @@ func TestBuildQuerySessionAdvancedUserPromptForNativeAgent(t *testing.T) {
 		RequestID: "req-1",
 		RunID:     "run-1",
 		AgentKey:  "native-agent",
-		TeamID:    "team-1",
-		ChatID:    "chat-1",
-		Role:      "user",
-		Message:   "hello",
-		Scene:     &api.Scene{Title: "Desktop", URL: "https://example.com/app"},
+
+		ChatID:  "chat-1",
+		Role:    "user",
+		Message: "hello",
+		Scene:   &api.Scene{Title: "Desktop", URL: "https://example.com/app"},
 	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{})
 	if err != nil {
 		t.Fatalf("build query session: %v", err)
@@ -539,7 +539,6 @@ func TestBuildQuerySessionAdvancedUserPromptForNativeAgent(t *testing.T) {
 		"runId: run-1",
 		"requestId: req-1",
 		"agentKey: native-agent",
-		"teamId: team-1",
 		"role: user",
 		"sceneTitle: Desktop",
 		"sceneUrl: https://example.com/app",

@@ -20,7 +20,7 @@ func TestRunEventProcessorSurfacesInvalidPersistedQueryMessageTime(t *testing.T)
 		runID     = "run-query-message-time"
 		timestamp = int64(1_700_000_000_001)
 	)
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := chat.NewStepWriter(store, chatID, runID, "REACT")

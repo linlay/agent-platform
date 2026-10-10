@@ -9,7 +9,7 @@ import (
 
 func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	// No external builtin cache is required for the embedded native package.
 	cfg.Paths.BuiltinConnectorsDir = ""
 	release, err := cfg.Paths.PrepareNativeConnectors()
@@ -50,7 +50,7 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 
 func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	release, err := cfg.Paths.PrepareNativeConnectors()
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 
 func TestTaskControlMountIsIndependent(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	release, err := cfg.Paths.PrepareNativeConnectors()
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestTaskControlMountIsIndependent(t *testing.T) {
 
 func TestKanbanControlMountIsIndependent(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	release, err := cfg.Paths.PrepareNativeConnectors()
 	if err != nil {
 		t.Fatal(err)

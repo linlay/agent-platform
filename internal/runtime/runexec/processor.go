@@ -322,7 +322,7 @@ func (p *Processor) decorateAggregatedTaskUsageSnapshot(data *stream.EventData, 
 	}
 	key := strings.TrimSpace(data.String("taskId"))
 	if key == "" {
-		key = "__team_coordinator__"
+		key = "root"
 	}
 	accumulated := p.taskRunUsage[key]
 	if UsageEstimatedCostFromData(currentUsage) != nil {

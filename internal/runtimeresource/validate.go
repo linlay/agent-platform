@@ -38,7 +38,6 @@ func validateCandidate(root string) error {
 			ToolsDir:             filepath.Join(root, "tools"),
 			AgentsDir:            filepath.Join(root, "agents"),
 			RUAgentsDir:          filepath.Join(root, ".validation", "ru-agents"),
-			TeamsDir:             filepath.Join(root, "teams"),
 			RootDir:              filepath.Join(root, "root"),
 			ChatsDir:             filepath.Join(root, ".validation", "chats"),
 			MemoryDir:            filepath.Join(root, ".validation", "memory"),

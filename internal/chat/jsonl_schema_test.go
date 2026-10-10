@@ -127,7 +127,7 @@ func TestCurrentJSONLSchemaRejectsInvalidDataAcrossActiveReaders(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	const chatID = "chat-schema-readers"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if err := completeRunForTest(store, RunCompletion{

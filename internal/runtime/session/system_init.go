@@ -47,7 +47,7 @@ func (s *Builder) PrepareSystemInitCacheFrom(req runtimetypes.QueryCommand, sess
 			initialCacheKey = profile.CacheKey
 		}
 		system := QueryLineSystemFromProfile(profile)
-		SanitizeTeamCoordinatorSystemInit(session, &system)
+
 		systemsByCacheKey[profile.CacheKey] = system
 		initLine := systemInits.Lookup(system.AgentKey, profile.CacheKey)
 		if initLine != nil && SameSystemInitPayload(initLine, system) {
@@ -94,21 +94,6 @@ func SameSystemInitPayload(initLine *chat.SystemInitLine, system chat.QueryLineS
 		reflect.DeepEqual(initLine.Model, system.Model) &&
 		initLine.ToolChoice == system.ToolChoice &&
 		reflect.DeepEqual(initLine.RequestOptions, system.RequestOptions)
-}
-
-// The coordinator's AgentKey exists only inside the run so the model and
-// sandbox code can use the ordinary Agent contract. Persisted system-init
-// records use a stable public Team-scoped key instead, never the synthetic
-// execution key.
-func SanitizeTeamCoordinatorSystemInit(session *contracts.QuerySession, line *chat.QueryLineSystem) {
-	if session == nil || line == nil || session.TeamRuntime == nil {
-		return
-	}
-	teamID := strings.TrimSpace(session.TeamID)
-	if teamID == "" {
-		return
-	}
-	line.AgentKey = "team:" + teamID
 }
 
 func QueryLineSystemFromProfile(profile contracts.SystemInitProfile) chat.QueryLineSystem {

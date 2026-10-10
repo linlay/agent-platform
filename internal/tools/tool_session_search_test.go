@@ -14,7 +14,7 @@ func TestSessionSearchToolUsesCurrentChatByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "", "Need rollback notes"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "Need rollback notes"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := chats.AppendQueryLine("chat-1", chat.QueryLine{

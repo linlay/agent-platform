@@ -252,7 +252,7 @@ func getAPIData[T any](t *testing.T, server *Server, method string, path string,
 
 func seedSearchableChat(t *testing.T, store chat.Store, chatID string) {
 	t.Helper()
-	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "rollback plan"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "mock-agent", "rollback plan"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startedAt := testEpochMillis + 1_000

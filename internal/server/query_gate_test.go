@@ -92,7 +92,7 @@ func TestQueryGateCleansInvalidPendingAwaitingAndAllowsQuery(t *testing.T) {
 			name: "dangling",
 			seed: func(t *testing.T, store chat.Store, chatID string) {
 				t.Helper()
-				if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
+				if _, _, err := store.EnsureChat(chatID, "mock-agent", "hello"); err != nil {
 					t.Fatalf("ensure chat: %v", err)
 				}
 				if err := store.SetPendingAwaiting(chatID, chat.PendingAwaiting{
@@ -109,7 +109,7 @@ func TestQueryGateCleansInvalidPendingAwaitingAndAllowsQuery(t *testing.T) {
 			name: "invalid-mode",
 			seed: func(t *testing.T, store chat.Store, chatID string) {
 				t.Helper()
-				if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
+				if _, _, err := store.EnsureChat(chatID, "mock-agent", "hello"); err != nil {
 					t.Fatalf("ensure chat: %v", err)
 				}
 				if err := store.SetPendingAwaiting(chatID, chat.PendingAwaiting{
@@ -158,14 +158,14 @@ func TestQueryGateCleansInvalidPendingAwaitingAndAllowsQuery(t *testing.T) {
 func TestQueryRejectsExistingLiveActiveRun(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-live-active"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "first"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	_, _, _ = fixture.runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-live-active",
 		ChatID:   chatID,
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 
 	rec := httptest.NewRecorder()

@@ -4,7 +4,7 @@
 
 原生 `ANTHROPIC` 模型的显式思考配置统一使用 `thinking.type: adaptive`、`thinking.display: summarized` 与 `output_config.effort`，并读取模型级 `maxOutputTokens` 作为默认输出预算与能力上限，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，配置使用 Go 代码默认值、`configs/*.yml` 和环境变量 allowlist／启动参数，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`chat_start` / `chat_get_status` / `chat_interrupt` Chat 会话工具组、`builtin.platform-control` 平台控制连接器、JWT 鉴权、resource ticket、chat 文件落盘、可配置的 memx Memory、Container Hub sandbox、受管 KBX 知识库读取与 Platform 目录监听维护，以及最小 OpenAI 协议模型与统一 tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，配置使用 Go 代码默认值、`configs/*.yml` 和环境变量 allowlist／启动参数，支持目录驱动的 agents / skills catalog、带成员委派能力的 TEAM Agent、`chat_start` / `chat_get_status` / `chat_interrupt` Chat 会话工具组、`builtin.platform-control` 平台控制连接器、JWT 鉴权、resource ticket、chat 文件落盘、可配置的 memx Memory、Container Hub sandbox、受管 KBX 知识库读取与 Platform 目录监听维护，以及最小 OpenAI 协议模型与统一 tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
@@ -23,7 +23,6 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `GET /api/agent?agentKey=...`
 - `GET /api/skills?agentKey=...`：全局技能目录、当前 Agent 的 `configured` 标记和用户 `pinned`；agentKey 可选；技能显示名称、请求语言与版本规则见 [技能展示元数据](docs/技能展示元数据.md)
 - `PUT /api/skills`：单条 `{id,pinned}` 更新当前用户置顶，`pinned` 必须显式提供布尔值
-- `GET /api/teams`
 - `GET /api/admin/skills`
 - `POST /api/admin/skill-packages/import`
 - `POST /api/admin/skill-packages/delete`
@@ -72,8 +71,8 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `code = 0` 表示成功，失败时 `code` 使用 HTTP 状态码数值。
 - `GET /api/chat` 默认返回 `events`，`includeRawMessages=true` 时追加 `rawMessages`。
 - `GET /api/viewport` 仅提供平台内置审批模板；外部自定义模板使用 [VIEW 连接器](docs/VIEW连接器.md) 与 `/api/view`，不再读取旧本地目录或远端 viewport registry。
-- `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 按公开 run owner 校验：普通 Agent 携带 `agentKey`，Team 只携带 `teamId`，不得提交隐藏协调器 key 或 `agentKey`。
-- `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 `agentKey` 或 `teamId`。
+- `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 统一按根 Run 的 `agentKey` 校验，TEAM 也使用同一契约。
+- `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 根 `agentKey`。
 - Chat 支持跨普通、CODER/KBASE 等 mode 的统一置顶，独立保存到 `chat-pinned.json`；未置顶列表在截断前排除置顶项，展示排序不修改内容时间。协议与存储见 [API与协议](./docs/API与协议.md) 和 [会话存储与回放](./docs/会话存储与回放.md)。
 - Platform 重启会从持久化 pending summary 恢复未超时/无限等待的 question 与永久 planning；approval/form 或已超时等待项会补齐 error answer、未执行 tool result 和 cancel completion，再清除 pending。活动 Run 的等待项由原执行流程收尾，会话读取不提前补写超时结果。
 - 工具执行中取消会先收尾工具结果，再保存 Run 终态；活动异步工具在整批共享 2 秒期限内保留真实返回，无法确认时明确记录副作用未知。旧的缺失结果历史不会自动重写，人工恢复流程见 [会话存储与回放](./docs/会话存储与回放.md)。
@@ -130,7 +129,7 @@ Windows 可用构建环境变量 `BUNDLE_GIT_BASH=false` 排除 Git Bash，默�
 ```bash
 curl http://127.0.0.1:11949/api/agents
 curl "http://127.0.0.1:11949/api/agents?includeChats=5"
-curl "http://127.0.0.1:11949/api/agents?includeTeam=true&includeChats=5"
+curl "http://127.0.0.1:11949/api/agents?includeChats=5"
 curl "http://127.0.0.1:11949/api/agent?agentKey=default_agent"
 curl "http://127.0.0.1:11949/api/skills?agentKey=default_agent"
 curl http://127.0.0.1:11949/api/chats
@@ -276,25 +275,24 @@ KBX 抽取由受管 CLI 负责。共享库由 Platform 按库 ID 监听来源、
 
 详细配置见 [配置化说明](./docs/配置化说明.md)。
 
-### Team 配置
-
-Team 只接受目录式 `runtime/teams/<teamId>/team.yml`，运行时为每个 run 合成内部 `TEAM` 协调器。平铺 `runtime/teams/*.yml|yaml` 和 `defaultAgentKey` 已移除，会使启动失败。
+### TEAM Agent
 
 ```yaml
-name: Research
-description: 多角色研究与复核
-agentKeys:
-  - researcher
-  - reviewer
-orchestrator:
-  modelConfig:
-    modelKey: qwen3-max
-  maxParallel: 2
+# agents/research/agent.yml
+name: Research Team
+mode: TEAM
+modelConfig:
+  modelKey: qwen3-max
+toolConfig:
+  tools: [file_read]
+teamConfig:
+  members: [researcher, writer, reviewer]
+  maxParallel: 3
 ```
 
-目录中可选的 `SOUL.md` 与 `AGENTS.md` 只补充 Team 人格和工作规则，不能覆盖内置调度约束。Team 请求只传 `teamId`，传入 `agentKey` 返回 400；隐藏总控统一通过 embedded builtin `agent_delegate` 委派一个或多个冻结 roster 成员，并用 `plan_add_tasks/plan_get_tasks/plan_update_task` 管理复杂任务。flat plan 按数组顺序且同时最多一个 `in_progress`，当前阶段内部仍可通过一次 `agent_delegate` 并行执行多个成员。成员结果全部回注总控，根回答只由总控生成。协调器 key 和隐藏工具不进入普通 Agent/Tool catalog，也不作为公开 run 身份返回。完整配置和协议见 [智能体配置说明](./docs/智能体配置说明.md)、[子智能体调度](./docs/子智能体调度.md) 与 [API与协议](./docs/API与协议.md)。
+TEAM 是普通 Agent，统一用 `agentKey` 调用，可直接回答、使用工具或委派。总控与成员在准入时一起冻结版本和租约；成员无效时整个请求返回 503。规划、Skills、Workspace 和 Memory 沿普通 Agent 契约，权限按执行者计算。详见 [智能体配置](docs/智能体配置说明.md#team-agent-配置) 和 [子智能体调度](docs/子智能体调度.md)。
 
-普通主 Agent 可通过 `builtin.task-control` 挂载 `chat_start`、`chat_get_status`、`chat_interrupt`，用于发起、查询和中断标准独立 Agent 根 run。它们与 `agent_invoke` 不同：不复用父 `chatId/runId`，query 在目标 run 注册后立即返回，父 run 中断不取消目标；后续控制只允许同一调用 Agent 与 subject 操作自己通过 `chat_start` 创建的 run。目标不使用候选白名单，目标只通过精确 catalog `agentKey` 选择；省略 `agentKey` 时服务端从可信调用上下文使用当前 Agent，`teamId` 按未知参数拒绝。目标 run 禁止再次调用任一 Chat 工具。支持可选 `modelKey/reasoningEffort` 覆盖本次 Agent Run 的模型与推理强度，通过同一连接器的 `chat_query models` 查询本地 chat 模型；支持可选 `accessLevel/mustUseSkills/chatName`；省略时继承父 Run 受理当时的 access level，显式同级或降级直接启动，显式高于父 Run 当前档位必须由用户在父 Chat 中人工批准本次启动（不提供免审开关），显式新 Chat 名称与 `chatId` 互斥；状态返回当前档位与等待摘要。中文“会话”和“对话”都指 Chat；要求新开会话／对话时调用 `chat_start` 并省略 `chatId`，未指定目标时可省略 `agentKey`。完整契约见 [子智能体调度](./docs/子智能体调度.md)。
+普通主 Agent 可通过 `builtin.task-control` 挂载 `chat_start`、`chat_get_status`、`chat_interrupt`，用于发起、查询和中断标准独立 Agent 根 run。它们与 `agent_invoke` 不同：不复用父 `chatId/runId`，query 在目标 run 注册后立即返回，父 run 中断不取消目标；后续控制只允许同一调用 Agent 与 subject 操作自己通过 `chat_start` 创建的 run。目标不使用候选白名单，目标只通过精确 catalog `agentKey` 选择；省略 `agentKey` 时服务端从可信调用上下文使用当前 Agent，目标使用精确 Agent key。目标 run 禁止再次调用任一 Chat 工具。支持可选 `modelKey/reasoningEffort` 覆盖本次 Agent Run 的模型与推理强度，通过同一连接器的 `chat_query models` 查询本地 chat 模型；支持可选 `accessLevel/mustUseSkills/chatName`；省略时继承父 Run 受理当时的 access level，显式同级或降级直接启动，显式高于父 Run 当前档位必须由用户在父 Chat 中人工批准本次启动（不提供免审开关），显式新 Chat 名称与 `chatId` 互斥；状态返回当前档位与等待摘要。中文“会话”和“对话”都指 Chat；要求新开会话／对话时调用 `chat_start` 并省略 `chatId`，未指定目标时可省略 `agentKey`。完整契约见 [子智能体调度](./docs/子智能体调度.md)。
 
 原生连接器由 `connector.json` 的 `type: native` 和连接器 ID 对应的源码工具表装配，不使用 `native.json`。`builtin.platform-control` 提供平台治理能力；`run_env` 独立提供当前普通 native root Run 的 list/set/unset/update/explain，由通过 preset 或 Agent 显式声明挂载，分发示例列入全局 preset-tools，可通过 excludeTools 排除。动态值仅影响后续命令、不继承到子任务或其他 Run。旧 platform-control 配置段已移除。详见 [Run 环境工具](docs/Run环境工具.md)。
 
@@ -374,7 +372,7 @@ powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target
 make release ARCH=amd64
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,kbx,memx,pdftotext}`、`connectors/builtin.{dbx,httpx}/`（清单、bin/libs 与技能）、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。program manifest 声明 `desktop.runtimeResources: "v1"`；`deploy.sh` / `deploy.ps1` 将 Desktop 传入的 env.zip 与稳定设备标识交给统一的 `agent-platform runtime-resource-sync` 子命令，由 Platform 迁移已有 runtime 的 Agent、Skill、Tool、Team、Connector 与 Registry。包内五类一级资源及同路径 Registry 是发行方权威版本，同名目标会覆盖；新版包声明 `provider-register.json` 时，还会重新生成并注入 Provider API key。`release-program` 复验并复制 `build/builtins/<os>-<arch>/` 中的二进制与完整连接器包，不重写清单、技能或包哈希，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。KBX 尚无受支持的 Linux 发行目标，因此当前不能生成完整 Linux/Docker 包；同步脚本会提前拒绝该目标。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,kbx,memx,pdftotext}`、`connectors/builtin.{dbx,httpx}/`（清单、bin/libs 与技能）、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。program manifest 声明 `desktop.runtimeResources: "v1"`；`deploy.sh` / `deploy.ps1` 将 Desktop 传入的 env.zip 与稳定设备标识交给统一的 `agent-platform runtime-resource-sync` 子命令，由 Platform 迁移已有 runtime 的 Agent、Skill、Tool、Connector 与 Registry。包内四类一级资源及同路径 Registry 是发行方权威版本，同名目标会覆盖；新版包声明 `provider-register.json` 时，还会重新生成并注入 Provider API key。`release-program` 复验并复制 `build/builtins/<os>-<arch>/` 中的二进制与完整连接器包，不重写清单、技能或包哈希，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。KBX 尚无受支持的 Linux 发行目标，因此当前不能生成完整 Linux/Docker 包；同步脚本会提前拒绝该目标。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets

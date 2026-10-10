@@ -334,7 +334,7 @@ func (w *Worker) runRange(ctx context.Context, job *RangeStatus) error {
 			}
 			for i := len(runs) - 1; i >= 0; i-- {
 				r := runs[i]
-				if r.CompletedAt < start.UnixMilli() || r.CompletedAt >= job.Until || r.TeamID != "" {
+				if r.CompletedAt < start.UnixMilli() || r.CompletedAt >= job.Until {
 					continue
 				}
 				project, allowed := w.eligible(r.AgentKey)

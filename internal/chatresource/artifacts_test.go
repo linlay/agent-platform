@@ -18,7 +18,7 @@ func TestArtifactsRequireChatResolveAmbiguityAndVerifyContent(t *testing.T) {
 	}
 	defer store.Close()
 	for _, id := range []string{"chat-a", "chat-b"} {
-		if _, _, err = store.EnsureChat(id, "agent", "", "hello"); err != nil {
+		if _, _, err = store.EnsureChat(id, "agent", "hello"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -74,7 +74,7 @@ func TestOpenArtifactByRefUsesPublishedManifestAndLatestEntry(t *testing.T) {
 	}
 	defer store.Close()
 	for _, chatID := range []string{"chat-ref-a", "chat-ref-b"} {
-		if _, _, err = store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		if _, _, err = store.EnsureChat(chatID, "agent", "hello"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -134,7 +134,7 @@ func TestOpenArtifactByRefAcceptsLiteralChatAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err = store.EnsureChat("chat-alias", "agent", "", "hello"); err != nil {
+	if _, _, err = store.EnsureChat("chat-alias", "agent", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	const sourceRef = "@chat/artifacts/run-1/夏日 #1?.txt"
@@ -173,7 +173,7 @@ func TestOpenArtifactByRefRejectsNonCanonicalReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err = store.EnsureChat("chat-ref-invalid", "agent", "", "hello"); err != nil {
+	if _, _, err = store.EnsureChat("chat-ref-invalid", "agent", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(store)

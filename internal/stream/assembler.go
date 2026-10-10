@@ -6,12 +6,12 @@ import (
 )
 
 type StreamRequest struct {
-	RequestID       string
-	RunID           string
-	ChatID          string
-	ChatName        string
-	AgentKey        string
-	TeamID          string
+	RequestID string
+	RunID     string
+	ChatID    string
+	ChatName  string
+	AgentKey  string
+
 	Message         string
 	Role            string
 	Hidden          *bool
@@ -114,9 +114,9 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 		"runId":     a.request.RunID,
 		"chatId":    a.request.ChatID,
 		"agentKey":  a.request.AgentKey,
-		"teamId":    a.request.TeamID,
-		"role":      a.request.Role,
-		"message":   a.request.Message,
+
+		"role":    a.request.Role,
+		"message": a.request.Message,
 	}
 	if a.request.Hidden != nil {
 		queryPayload["hidden"] = *a.request.Hidden
@@ -173,7 +173,6 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 		"runId":    a.request.RunID,
 		"chatId":   a.request.ChatID,
 		"agentKey": a.request.AgentKey,
-		"teamId":   a.request.TeamID,
 	}
 	runStartEvent := NewEvent("run.start", runStart)
 	if a.request.StartedAtMillis != 0 {
@@ -199,9 +198,9 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 		"requestId": requestID,
 		"runId":     request.RunID,
 		"chatId":    chatID,
-		"teamId":    request.TeamID,
-		"role":      value.Role,
-		"message":   value.Message,
+
+		"role":    value.Role,
+		"message": value.Message,
 	}
 	if len(value.Messages) > 0 {
 		payload["messages"] = cloneMessagePayloads(value.Messages)

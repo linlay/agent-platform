@@ -29,9 +29,9 @@ func TestChatOrderHTTPAndWebSocketShareCanonicalState(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
-	seedAgentModeChat(t, store, "chat-old", "loyw3v28", "agent-react", "", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-middle", "loyw3v29", "agent-react", "", "REACT", 2_000)
-	seedAgentModeChat(t, store, "chat-new", "loyw3v2a", "agent-react", "", "REACT", 3_000)
+	seedAgentModeChat(t, store, "chat-old", "loyw3v28", "agent-react", "REACT", 1_000)
+	seedAgentModeChat(t, store, "chat-middle", "loyw3v29", "agent-react", "REACT", 2_000)
+	seedAgentModeChat(t, store, "chat-new", "loyw3v2a", "agent-react", "REACT", 3_000)
 
 	order := readChatOrderHTTP(t, fixture.server)
 	if order.SortMode != "manual" || order.UpdatedAt != nil {

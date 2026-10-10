@@ -14,14 +14,12 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
-func runOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) bool {
+func runOwnerMatchesChat(summary *chat.Summary, agentKey string) bool {
 	if summary == nil {
 		return true
 	}
-	if teamID != "" {
-		return strings.TrimSpace(summary.AgentKey) == "" && strings.TrimSpace(summary.TeamID) == teamID
-	}
-	return strings.TrimSpace(summary.TeamID) == "" && strings.TrimSpace(summary.AgentKey) == agentKey
+
+	return strings.TrimSpace(summary.AgentKey) == agentKey
 }
 
 func mapRunStatusError(err *statusError) error {
@@ -98,7 +96,7 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 		if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
 			return contracts.RunStartPlan{}, runNotStarted(err)
 		}
-		if summary != nil && !runOwnerMatchesChat(summary, agentKey, "") {
+		if summary != nil && !runOwnerMatchesChat(summary, agentKey) {
 			return fail("target_owner_mismatch", "target identity does not match chat owner")
 		}
 		if summary != nil {

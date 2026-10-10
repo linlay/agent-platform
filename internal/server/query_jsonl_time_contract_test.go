@@ -19,7 +19,7 @@ func TestQueryRejectsInvalidPersistedTimeOverHTTPAndWS(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: ws.NewHub()})
 	const chatID = "chat-query-jsonl-time-contract"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first message"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "first message"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	// Bypass the writer contract on purpose. Query preparation must reject the
@@ -59,7 +59,7 @@ func TestQueryRejectsPersistedMessageMissingTsOverHTTPAndWS(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: ws.NewHub()})
 	const chatID = "chat-query-missing-message-ts"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first message"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "first message"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	line := `{"_type":"query","chatId":"` + chatID + `","runId":"run-query-missing-message-ts","updatedAt":1700000000001,"query":{"role":"user","message":"old message"},"messages":[{"role":"user","content":"old message"}]}` + "\n"

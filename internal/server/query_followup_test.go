@@ -33,7 +33,7 @@ func TestReferenceOnlyQueryRequiresMainHistory(t *testing.T) {
 	}
 	for _, existing := range []bool{false, true} {
 		if existing {
-			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", ""); err != nil {
+			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", ""); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -170,7 +170,7 @@ func TestEmptyQueryRequiresFailedOrCanceledLastRun(t *testing.T) {
 		t.Run(reason, func(t *testing.T) {
 			fixture := newTestFixture(t)
 			const chatID = "terminal-query"
-			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "start"); err != nil {
+			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "start"); err != nil {
 				t.Fatal(err)
 			}
 			if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{ChatID: chatID, RunID: "run-last", AgentKey: "mock-agent", FinishReason: reason, UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {

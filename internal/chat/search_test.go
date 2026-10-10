@@ -7,7 +7,7 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-1", "agent-a", "", "Need deploy rollback notes"); err != nil {
+	if _, _, err := store.EnsureChat("chat-1", "agent-a", "Need deploy rollback notes"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-1", QueryLine{
@@ -120,7 +120,7 @@ func TestSearchSessionSkipsAutomationQueryButKeepsAssistantMessages(t *testing.T
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-automation-search", "agent-a", "", "Secret automation prompt"); err != nil {
+	if _, _, err := store.EnsureChat("chat-automation-search", "agent-a", "Secret automation prompt"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-automation-search", QueryLine{
@@ -179,13 +179,13 @@ func TestSearchGlobalFiltersAgentAndIncludesChatMetadata(t *testing.T) {
 	for _, item := range []struct {
 		chatID   string
 		agentKey string
-		teamID   string
-		message  string
+
+		message string
 	}{
-		{"chat-a", "agent-a", "team-a", "rollback deploy"},
-		{"chat-b", "agent-b", "team-b", "rollback billing"},
+		{"chat-a", "agent-a", "rollback deploy"},
+		{"chat-b", "agent-b", "rollback billing"},
 	} {
-		if _, _, err := store.EnsureChat(item.chatID, item.agentKey, item.teamID, item.message); err != nil {
+		if _, _, err := store.EnsureChat(item.chatID, item.agentKey, item.message); err != nil {
 			t.Fatalf("ensure %s: %v", item.chatID, err)
 		}
 		if err := appendQueryLineForTest(store, item.chatID, QueryLine{
@@ -209,7 +209,7 @@ func TestSearchGlobalFiltersAgentAndIncludesChatMetadata(t *testing.T) {
 		}
 	}
 
-	hits, err := store.SearchGlobal("rollback", "agent-a", "", 20)
+	hits, err := store.SearchGlobal("rollback", "agent-a", 20)
 	if err != nil {
 		t.Fatalf("search global: %v", err)
 	}
@@ -222,11 +222,11 @@ func TestSearchGlobalFiltersAgentAndIncludesChatMetadata(t *testing.T) {
 	if hits[0].RunID != "chat-a-run" || hits[0].LastRunContent != "Latest result for chat-a" {
 		t.Fatalf("expected the latest summary alongside an older matching run, got %#v", hits[0])
 	}
-	hits, err = store.SearchGlobal("rollback", "", "team-b", 20)
+	hits, err = store.SearchGlobal("rollback", "agent-b", 20)
 	if err != nil {
 		t.Fatalf("search global by team: %v", err)
 	}
-	if len(hits) != 1 || hits[0].ChatID != "chat-b" || hits[0].TeamID != "team-b" {
+	if len(hits) != 1 || hits[0].AgentKey != "agent-b" {
 		t.Fatalf("expected one team-b hit with team metadata, got %#v", hits)
 	}
 	if hits[0].LastRunContent != "Latest result for chat-b" {

@@ -116,3 +116,9 @@ acp-bridges:
   #   base-url: http://127.0.0.1:17071
   #   timeout-ms: 300000
   #   auth-token: ${CODEX_ACP_BRIDGE_AUTH_TOKEN:}
+
+# TEAM uses ordinary Agent capabilities plus run-scoped member delegation.
+team:
+  preset-tools: []
+  preset-connectors: []
+  default-agent: {}

@@ -253,7 +253,7 @@ func TestAcceptedSubmitRetainsExecutorUntilResultsPersist(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID, runID, awaitingID = "chat-submit-gap", "run-submit-gap", "await-submit-gap"
 	seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 1, time.Now().UnixMilli()-2000)
-	_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: runID, ChatID: chatID, AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", "")})
+	_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: runID, ChatID: chatID, AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent")})
 	defer fixture.runs.Finish(runID)
 	control.ExpectSubmit(contracts.AwaitingSubmitContext{AwaitingID: awaitingID, Mode: "question"})
 	ack := fixture.runs.Submit(api.SubmitRequest{RunID: runID, AwaitingID: awaitingID, SubmitID: "submitted"})

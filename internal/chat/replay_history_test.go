@@ -22,7 +22,7 @@ func TestLoadChatKeepsBodyWhenArtifactManifestIsUnreadable(t *testing.T) {
 	}
 	defer store.Close()
 	const chatID = "chat-damaged-artifacts"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ArtifactManifestFileName)
@@ -55,11 +55,11 @@ func TestHistoryReplayActiveArchiveCompatibility(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer archive.db.Close()
-			agentKey, teamID := "agent-a", ""
+			agentKey := "agent-a"
 			if owner == "team" {
-				agentKey, teamID = "", "team-a"
+				agentKey = "team-a"
 			}
-			if _, _, err := active.EnsureChat("chat-replay", agentKey, teamID, "回放兼容"); err != nil {
+			if _, _, err := active.EnsureChatWithSourceAndMode("chat-replay", agentKey, "回放兼容", "", map[string]string{"agent": "GENERAL", "team": "TEAM"}[owner]); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := active.db.Exec(`UPDATE CHATS SET CREATED_AT_=? WHERE CHAT_ID_=?`, testEpochMillis(0), "chat-replay"); err != nil {
@@ -71,7 +71,7 @@ func TestHistoryReplayActiveArchiveCompatibility(t *testing.T) {
 					started, ended = 10, 90
 				}
 				runID := []string{"run-1", "run-2", "run-3", "run-4"}[i]
-				if err := completeRunForTest(active, RunCompletion{ChatID: "chat-replay", RunID: runID, AgentKey: agentKey, TeamID: teamID, StartedAtMillis: testEpochMillis(started), UpdatedAtMillis: testEpochMillis(ended), FinishReason: reason}); err != nil {
+				if err := completeRunForTest(active, RunCompletion{ChatID: "chat-replay", RunID: runID, AgentKey: agentKey, StartedAtMillis: testEpochMillis(started), UpdatedAtMillis: testEpochMillis(ended), FinishReason: reason}); err != nil {
 					t.Fatal(err)
 				}
 			}

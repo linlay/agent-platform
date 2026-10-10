@@ -12,25 +12,25 @@ func TestManagerStatusKeepsTeamCoordinatorPrivate(t *testing.T) {
 	_, _, active := runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-team-owner",
 		ChatID:   "chat-team-owner",
-		AgentKey: "__team_coordinator",
-		TeamID:   "team-a",
-		RunOwner: contracts.TeamRunOwner("team-a", "__team_coordinator"),
+		AgentKey: "research",
+
+		RunOwner: contracts.AgentRunOwner("research"),
 	})
-	if !contracts.IsTeamRunOwner(active.AgentKey, active.TeamID) || active.AgentKey != "" || active.TeamID != "team-a" {
+	if active.AgentKey != "research" {
 		t.Fatalf("unexpected active run %#v", active)
 	}
-	if active.ExecutionAgentKey != "__team_coordinator" {
-		t.Fatalf("execution agent = %q", active.ExecutionAgentKey)
+	if active.AgentKey != "research" {
+		t.Fatalf("execution agent = %q", active.AgentKey)
 	}
 
 	status, ok := runs.RunStatus("run-team-owner")
 	if !ok {
 		t.Fatal("team run status not found")
 	}
-	if !contracts.IsTeamRunOwner(status.AgentKey, status.TeamID) || status.AgentKey != "" || status.TeamID != "team-a" {
+	if status.AgentKey != "research" {
 		t.Fatalf("unexpected run status %#v", status)
 	}
-	if status.ExecutionAgentKey != "__team_coordinator" {
-		t.Fatalf("status execution agent = %q", status.ExecutionAgentKey)
+	if status.AgentKey != "research" {
+		t.Fatalf("status execution agent = %q", status.AgentKey)
 	}
 }

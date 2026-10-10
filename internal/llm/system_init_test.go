@@ -484,7 +484,7 @@ func TestPlanningModeBuildsOnePlanningSystemInitForEveryNativeMode(t *testing.T)
 }
 
 func TestPlanningModeIsNotBuiltForUnsupportedModes(t *testing.T) {
-	for _, mode := range []string{"TEAM", "PLAN_EXECUTE", "ONESHOT"} {
+	for _, mode := range []string{"PLAN_EXECUTE", "ONESHOT"} {
 		session := fingerprintTestSession()
 		session.Mode = mode
 		session.PlanningMode = true

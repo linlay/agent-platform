@@ -36,7 +36,7 @@ func TestKBaseCatalogSourceExposesOnlyEnabledCapabilities(t *testing.T) {
 	writeAgent("disabled.yml", "key: disabled\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n\n")
 
 	registry, err := catalog.NewFileRegistry(config.Config{Paths: config.PathsConfig{
-		AgentsDir: agentsDir, TeamsDir: teamsDir, SkillsCenterDir: skillsDir,
+		AgentsDir: agentsDir, SkillsCenterDir: skillsDir,
 	}}, nil)
 	if err != nil {
 		t.Fatalf("load catalog: %v", err)

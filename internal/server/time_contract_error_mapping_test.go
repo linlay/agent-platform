@@ -61,11 +61,11 @@ type timeContractEnsureChatStore struct {
 	err error
 }
 
-func (s timeContractEnsureChatStore) EnsureChat(string, string, string, string) (chat.Summary, bool, error) {
+func (s timeContractEnsureChatStore) EnsureChat(string, string, string) (chat.Summary, bool, error) {
 	return chat.Summary{}, false, s.err
 }
 
-func (s timeContractEnsureChatStore) EnsureChatWithSource(string, string, string, string, string) (chat.Summary, bool, error) {
+func (s timeContractEnsureChatStore) EnsureChatWithSource(string, string, string, string) (chat.Summary, bool, error) {
 	return chat.Summary{}, false, s.err
 }
 

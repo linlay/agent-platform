@@ -36,7 +36,7 @@ func TestKnowledgeSourceRequiresOwnedPublishedReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	store.EnsureChatWithSource("owned-chat", "docs", "", "hello", api.ChatSourceQueryPrefix+"alice")
+	store.EnsureChatWithSource("owned-chat", "docs", "hello", api.ChatSourceQueryPrefix+"alice")
 	if err = store.OnRunStarted(chat.RunStart{ChatID: "owned-chat", RunID: "run-1", AgentKey: "docs", StartedAtMillis: testEpochMillis - 1}); err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,7 @@ func TestProxyPublicationEmitsPublishedNotResourcePushed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := chats.EnsureChat("chat-1", "proxy-agent", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-1", "proxy-agent", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	notifications := &recordingNotificationSink{}
@@ -72,7 +72,7 @@ func TestProxyLiveTextOnlyPlanEmitsPlanningSnapshotBeforeAwaiting(t *testing.T) 
 	runID := "run-proxy-plan"
 	planningID := "run-proxy-plan_planning_1"
 	planningText := "# Proxy Plan\n\nBody"
-	if _, _, err := chats.EnsureChat(chatID, "proxy-agent", "", "plan it"); err != nil {
+	if _, _, err := chats.EnsureChat(chatID, "proxy-agent", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, chats, chatID, runID, testEpochMillis)
@@ -193,7 +193,7 @@ func TestProxyEventRecorderFinishKeepsCompletionTimestampWhenPersistenceFails(t 
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-proxy-finish-error", "proxy-agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-proxy-finish-error", "proxy-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, store, "chat-proxy-finish-error", "run-proxy-finish-error", testEpochMillis)

@@ -55,8 +55,8 @@ type KBaseModePrompts struct {
 }
 
 type RuntimeRequestContext struct {
-	AgentKey       string
-	TeamID         string
+	AgentKey string
+
 	Role           string
 	ChatName       string
 	LocalMode      bool
@@ -96,7 +96,6 @@ type LocalPaths struct {
 	AgentDir            string
 	AgentsDir           string
 	RUAgentsDir         string
-	TeamsDir            string
 	ChatsDir            string
 	MemoryDir           string
 	SkillsDir           string
@@ -121,7 +120,6 @@ type SandboxPaths struct {
 	OwnerDir            string
 	AgentsDir           string
 	RUAgentsDir         string
-	TeamsDir            string
 	AutomationsDir      string
 	ChatsDir            string
 	MemoryDir           string

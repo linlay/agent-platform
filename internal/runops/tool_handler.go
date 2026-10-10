@@ -99,8 +99,6 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 	owner := contracts.ResolveRunOwner(session.RunOwner)
 	callerAgentKey := strings.TrimSpace(session.AgentKey)
 	if strings.TrimSpace(session.SubTaskID) != "" ||
-		strings.TrimSpace(session.TeamID) != "" ||
-		owner.IsTeam() ||
 		callerAgentKey == "" ||
 		owner.AgentKey != callerAgentKey {
 		result := errorResult("run_caller_not_allowed", "Chat tools are only available to an ordinary main Agent root run")
@@ -314,7 +312,7 @@ func (h *ToolHandler) interrupt(ctx context.Context, args map[string]any, origin
 	message := strings.TrimSpace(contracts.AnyStringNode(args["message"]))
 	response, err := h.service.Interrupt(ctx, runtimetypes.InterruptCommand{
 		RunRef: runtimetypes.RunRef{
-			RunID: runID, ChatID: snapshot.ChatID, AgentKey: snapshot.AgentKey, TeamID: snapshot.TeamID,
+			RunID: runID, ChatID: snapshot.ChatID, AgentKey: snapshot.AgentKey,
 		},
 		Message: message,
 		Detail:  message,

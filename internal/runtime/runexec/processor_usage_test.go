@@ -459,7 +459,7 @@ func TestRunEventProcessorPersistsDebugLLMChatEstimatedCostToJSONL(t *testing.T)
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-debug-cost", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-debug-cost", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	defer store.Close()

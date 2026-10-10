@@ -111,7 +111,7 @@ func (r *RuntimeCatalogReloader) watchEntries(reason string) []watchEntry {
 		}
 	}
 	switch reason {
-	case "agents", "teams", "skills", "models", "providers", "tools", "connectors":
+	case "agents", "skills", "models", "providers", "tools", "connectors":
 		return nil
 	default:
 		return r.background.entries

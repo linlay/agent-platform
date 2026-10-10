@@ -12,12 +12,12 @@ func TestDeriveChatCopiesHistoryThroughTargetRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChatWithSourceAndMode("chat-source", "agent-a", "", "first user", "", "CODER"); err != nil {
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-source", "agent-a", "first user", "", "CODER"); err != nil {
 		t.Fatalf("ensure source chat: %v", err)
 	}
 	appendDeriveTestRun(t, store, "chat-source", "run-1", "first user", "first assistant", 1000)
-	if err := store.UpdateAgentIdentity("chat-source", "agent-b", "REACT"); err != nil {
-		t.Fatalf("switch source chat owner: %v", err)
+	if err := store.UpdateAgentIdentity("chat-source", "agent-a", "GENERAL"); err != nil {
+		t.Fatalf("update source chat mode: %v", err)
 	}
 	appendDeriveTestRun(t, store, "chat-source", "run-2", "second user", "second assistant", 2000)
 	before, err := store.LoadJSONLContent("chat-source")
@@ -36,7 +36,7 @@ func TestDeriveChatCopiesHistoryThroughTargetRun(t *testing.T) {
 	if result.CopiedRuns != 1 || result.LastRunID == "" || result.LastRunID == "run-1" {
 		t.Fatalf("unexpected derive result: %#v", result)
 	}
-	if result.Summary.ChatID != "chat-derived" || result.Summary.AgentKey != "agent-a" || result.Summary.AgentMode != "CODER" || result.Summary.TeamID != "" {
+	if result.Summary.ChatID != "chat-derived" || result.Summary.AgentKey != "agent-a" || result.Summary.AgentMode != "CODER" {
 		t.Fatalf("unexpected derived summary: %#v", result.Summary)
 	}
 
@@ -82,7 +82,7 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 	}
 	sourceChatID := "chat-source-res"
 	targetChatID := "chat-derived-res"
-	if _, _, err := store.EnsureChat(sourceChatID, "agent-a", "", "inspect upload"); err != nil {
+	if _, _, err := store.EnsureChat(sourceChatID, "agent-a", "inspect upload"); err != nil {
 		t.Fatalf("ensure source chat: %v", err)
 	}
 	sourceUpload := filepath.Join(store.ChatDir(sourceChatID), "notes.txt")

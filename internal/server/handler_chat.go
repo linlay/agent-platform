@@ -130,12 +130,12 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 	response := make([]api.ChatSummaryResponse, 0, len(items))
 	for _, item := range items {
 		resp := api.ChatSummaryResponse{
-			Pinned:         item.Pinned,
-			ChatID:         item.ChatID,
-			ChatName:       item.ChatName,
-			AgentKey:       item.AgentKey,
-			Mode:           chat.PublicAgentMode(item.AgentMode),
-			TeamID:         item.TeamID,
+			Pinned:   item.Pinned,
+			ChatID:   item.ChatID,
+			ChatName: item.ChatName,
+			AgentKey: item.AgentKey,
+			Mode:     chat.PublicAgentMode(item.AgentMode),
+
 			Source:         item.Source,
 			CreatedAt:      item.CreatedAt,
 			UpdatedAt:      item.UpdatedAt,
@@ -209,12 +209,12 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
 
 	response := api.ChatDetailResponse{
-		Pinned:         summary.Pinned,
-		ChatID:         detail.ChatID,
-		ChatName:       detail.ChatName,
-		AgentKey:       summary.AgentKey,
-		Mode:           chat.PublicAgentMode(summary.AgentMode),
-		TeamID:         summary.TeamID,
+		Pinned:   summary.Pinned,
+		ChatID:   detail.ChatID,
+		ChatName: detail.ChatName,
+		AgentKey: summary.AgentKey,
+		Mode:     chat.PublicAgentMode(summary.AgentMode),
+
 		CreatedAt:      summary.CreatedAt,
 		UpdatedAt:      summary.UpdatedAt,
 		LastRunID:      summary.LastRunID,

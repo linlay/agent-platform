@@ -78,6 +78,7 @@ func (s *Server) buildAgentCreationDefaults(locale string) api.AgentCreationDefa
 	return api.AgentCreationDefaultsResponse{
 		Types: []api.AgentCreationTypeOption{
 			nativeType("general", catalog.AgentModeGeneral, label("通用智能体", "General agent"), cfg.GeneralSettings.DefaultAgent.ModelKey, cfg.GeneralSettings.DefaultAgent.ReasoningEffort),
+			nativeType("team", "TEAM", label("团队智能体", "Team agent"), cfg.TeamSettings.DefaultAgent.ModelKey, cfg.TeamSettings.DefaultAgent.ReasoningEffort),
 			coder,
 			nativeType("kbase", catalog.AgentModeKBase, label("知识库智能体", "Knowledge-base agent"), cfg.KBase.DefaultAgent.ModelKey, cfg.KBase.DefaultAgent.ReasoningEffort),
 			acp,

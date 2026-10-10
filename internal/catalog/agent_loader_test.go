@@ -1543,10 +1543,7 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 		}
 	}
 
-	team := NewTeamSnapshot(TeamDefinition{
-		TeamID:    "team",
-		AgentKeys: []string{"valid", "overlap"},
-	}, agents)
+	team := NewTeamSnapshot(AgentDefinition{Key: "research", Mode: "TEAM", TeamConfig: &TeamConfig{Members: []string{"valid", "overlap"}, MaxParallel: 5}}, agents)
 	if !reflect.DeepEqual(team.ValidAgentKeys, []string{"valid"}) ||
 		!reflect.DeepEqual(team.InvalidAgentKeys, []string{"overlap"}) {
 		t.Fatalf("dependent Team did not surface unavailable member: %#v", team)

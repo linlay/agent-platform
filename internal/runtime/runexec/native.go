@@ -428,14 +428,9 @@ func DecorateNotificationRunOwner(payload map[string]any, session contracts.Quer
 		return
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner)
-	if owner.IsTeam() {
-		payload["teamId"] = owner.TeamID
-		return
-	}
+
 	payload["agentKey"] = owner.AgentKey
-	if owner.TeamID != "" {
-		payload["teamId"] = owner.TeamID
-	}
+
 }
 
 func AwaitingEventItemCount(data stream.EventData) int {
@@ -529,11 +524,11 @@ func PersistRunCompletionWithReason(params NativeOptions, assistantText string, 
 	completedAtMillis := time.Now().UnixMilli()
 	owner := contracts.ResolveRunOwner(params.Session.RunOwner)
 	completion := chat.RunCompletion{
-		ChatID:          params.Session.ChatID,
-		RunID:           params.Session.RunID,
-		AgentKey:        owner.AgentKey,
-		AgentMode:       PersistedRunMode(params.Session.Mode),
-		TeamID:          owner.TeamID,
+		ChatID:    params.Session.ChatID,
+		RunID:     params.Session.RunID,
+		AgentKey:  owner.AgentKey,
+		AgentMode: PersistedRunMode(params.Session.Mode),
+
 		AssistantText:   assistantText,
 		InitialMessage:  params.Request.Message,
 		FinishReason:    finishReason,

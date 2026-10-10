@@ -23,7 +23,7 @@ func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: ws.NewHub()})
-	seedAgentModeChat(t, fixture.chats.(*chat.FileStore), "tool-pin", "loyw3v00", "mock-agent", "", "REACT", 1000)
+	seedAgentModeChat(t, fixture.chats.(*chat.FileStore), "tool-pin", "loyw3v00", "mock-agent", "REACT", 1000)
 	httpServer := httptest.NewServer(fixture.server)
 	defer httpServer.Close()
 	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(httpServer.URL, "http")+"/ws", nil)
@@ -35,7 +35,7 @@ func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
 	handler := platformcontrol.NewToolHandler(config.Config{}, nil, fixture.server.conversationService()).ConfigureControl(nil, fixture.server.conversationService(), nil)
 	caller := &contracts.ExecutionContext{Session: contracts.QuerySession{
 		RunID: "run-pin", ChatID: "tool-pin", AgentKey: "mock-agent", Mode: "GENERAL",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""), ToolNames: []string{"chat_manage"}, NativeConnectorTools: map[string]string{"chat_manage": "builtin.task-control"}, ConnectorDirs: map[string]string{"builtin.task-control": "/trusted"},
+		RunOwner: contracts.AgentRunOwner("mock-agent"), ToolNames: []string{"chat_manage"}, NativeConnectorTools: map[string]string{"chat_manage": "builtin.task-control"}, ConnectorDirs: map[string]string{"builtin.task-control": "/trusted"},
 	}}
 	invoke := func(pinned any) {
 		t.Helper()
@@ -84,18 +84,18 @@ func TestChatPinnedHTTPAndWSFilterBeforeLimits(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) { writeProviderSSE(t, w, `[DONE]`) }, testFixtureOptions{notifications: ws.NewHub()})
 	store := fixture.chats.(*chat.FileStore)
 	for i := 0; i < 12; i++ {
-		seedAgentModeChat(t, store, fmt.Sprintf("chat-%02d", i), fmt.Sprintf("loyw3v%02d", i), "mock-agent", "", "REACT", int64(1000+i))
+		seedAgentModeChat(t, store, fmt.Sprintf("chat-%02d", i), fmt.Sprintf("loyw3v%02d", i), "mock-agent", "REACT", int64(1000+i))
 	}
-	seedAgentModeChat(t, store, "chat-kbase", "loyw3w00", "kbase", "", "KBASE", 2000)
-	seedAgentModeChat(t, store, "chat-coder", "loyw3w01", "coder", "", "CODER", 3000)
-	seedAgentModeChat(t, store, "chat-team", "loyw3w02", "", "team-pins", "TEAM", 4000)
+	seedAgentModeChat(t, store, "chat-kbase", "loyw3w00", "kbase", "KBASE", 2000)
+	seedAgentModeChat(t, store, "chat-coder", "loyw3w01", "coder", "CODER", 3000)
+	seedAgentModeChat(t, store, "chat-team", "loyw3w02", "", "TEAM", 4000)
 	yes, no := true, false
 	for _, id := range []string{"chat-11", "chat-10", "chat-09", "chat-kbase", "chat-coder", "chat-team"} {
 		updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{Operation: "set_pinned", ChatID: id, Pinned: &yes}, 200)
 	}
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?pinned=false&mode=GENERAL&limit=8", []string{"chat-08", "chat-07", "chat-06", "chat-05", "chat-04", "chat-03", "chat-02", "chat-01"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?pinned=true", []string{"chat-team", "chat-coder", "chat-kbase", "chat-09", "chat-10", "chat-11"})
-	assertChatsLimitHTTP(t, fixture.server, "/api/chats?mode=KBASE&pinned=true", []string{"chat-team", "chat-kbase"})
+	assertChatsLimitHTTP(t, fixture.server, "/api/chats?mode=KBASE&pinned=true", []string{"chat-kbase"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?limit=2", []string{"chat-team", "chat-coder"})
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest("GET", "/api/agents?includeChats=8&chatsPinned=false", nil))

@@ -96,15 +96,15 @@ type QueryLineSystem struct {
 
 // QueryLine represents a _type:"query" line in chatId.jsonl.
 type QueryLine struct {
-	ChatID       string           `json:"chatId"`
-	RunID        string           `json:"runId"`
-	UpdatedAt    int64            `json:"updatedAt"`
-	LiveSeq      int64            `json:"liveSeq,omitempty"`
-	TaskID       string           `json:"taskId,omitempty"`
-	TaskName     string           `json:"taskName,omitempty"`
-	TaskToolID   string           `json:"taskToolId,omitempty"`
-	SubAgentKey  string           `json:"subAgentKey,omitempty"`
-	TeamID       string           `json:"teamId,omitempty"`
+	ChatID      string `json:"chatId"`
+	RunID       string `json:"runId"`
+	UpdatedAt   int64  `json:"updatedAt"`
+	LiveSeq     int64  `json:"liveSeq,omitempty"`
+	TaskID      string `json:"taskId,omitempty"`
+	TaskName    string `json:"taskName,omitempty"`
+	TaskToolID  string `json:"taskToolId,omitempty"`
+	SubAgentKey string `json:"subAgentKey,omitempty"`
+
 	Presentation string           `json:"presentation,omitempty"`
 	RootContent  bool             `json:"rootContent,omitempty"`
 	Query        map[string]any   `json:"query"`
@@ -207,29 +207,29 @@ type ToolCompactLine struct {
 // line number. Continuation lines such as HITL-split tool results may reuse the
 // same seq as the assistant tool-call step that caused them.
 type StepLine struct {
-	ResponseID      string                    `json:"responseId,omitempty"`
-	ChatID          string                    `json:"chatId"`
-	RunID           string                    `json:"runId"`
-	UpdatedAt       int64                     `json:"updatedAt"`
-	LiveSeq         int64                     `json:"liveSeq,omitempty"`
-	ModelKey        string                    `json:"modelKey,omitempty"`
-	ReasoningEffort string                    `json:"reasoningEffort,omitempty"`
-	TaskID          string                    `json:"taskId,omitempty"`
-	TaskStatus      string                    `json:"taskStatus,omitempty"`
-	TaskSubAgentKey string                    `json:"taskSubAgentKey,omitempty"`
-	TeamID          string                    `json:"teamId,omitempty"`
-	Presentation    string                    `json:"presentation,omitempty"`
-	SystemRef       map[string]any            `json:"systemRef,omitempty"`
-	Debug           map[string]any            `json:"debug,omitempty"`
-	Messages        []StoredMessage           `json:"messages"`
-	Awaiting        []map[string]any          `json:"awaiting,omitempty"`
-	Usage           map[string]any            `json:"usage,omitempty"`
-	ContextWindow   map[string]any            `json:"contextWindow,omitempty"`
-	Type            string                    `json:"_type"`
-	Stage           string                    `json:"stage,omitempty"`
-	Seq             int                       `json:"seq,omitempty"`
-	Artifacts       *ArtifactPublicationState `json:"artifacts,omitempty"`
-	Sources         *SourceState              `json:"sources,omitempty"`
+	ResponseID      string `json:"responseId,omitempty"`
+	ChatID          string `json:"chatId"`
+	RunID           string `json:"runId"`
+	UpdatedAt       int64  `json:"updatedAt"`
+	LiveSeq         int64  `json:"liveSeq,omitempty"`
+	ModelKey        string `json:"modelKey,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	TaskID          string `json:"taskId,omitempty"`
+	TaskStatus      string `json:"taskStatus,omitempty"`
+	TaskSubAgentKey string `json:"taskSubAgentKey,omitempty"`
+
+	Presentation  string                    `json:"presentation,omitempty"`
+	SystemRef     map[string]any            `json:"systemRef,omitempty"`
+	Debug         map[string]any            `json:"debug,omitempty"`
+	Messages      []StoredMessage           `json:"messages"`
+	Awaiting      []map[string]any          `json:"awaiting,omitempty"`
+	Usage         map[string]any            `json:"usage,omitempty"`
+	ContextWindow map[string]any            `json:"contextWindow,omitempty"`
+	Type          string                    `json:"_type"`
+	Stage         string                    `json:"stage,omitempty"`
+	Seq           int                       `json:"seq,omitempty"`
+	Artifacts     *ArtifactPublicationState `json:"artifacts,omitempty"`
+	Sources       *SourceState              `json:"sources,omitempty"`
 }
 
 type StepApproval struct {
@@ -299,10 +299,10 @@ type StoredMessage struct {
 	MsgID            string           `json:"_msgId,omitempty"`
 	ToolID           string           `json:"_toolId,omitempty"`
 	ActorType        string           `json:"actorType,omitempty"`
-	TeamID           string           `json:"teamId,omitempty"`
-	AgentKey         string           `json:"agentKey,omitempty"`
-	Presentation     string           `json:"presentation,omitempty"`
-	InternalOnly     bool             `json:"_internalOnly,omitempty"`
+
+	AgentKey     string `json:"agentKey,omitempty"`
+	Presentation string `json:"presentation,omitempty"`
+	InternalOnly bool   `json:"_internalOnly,omitempty"`
 }
 
 type ContentPart = modelcontent.ReasoningPart
@@ -325,13 +325,13 @@ type StoredFunction struct {
 
 type Summary struct {
 	// CanContinue permits an empty query only after the latest persisted root run failed or was canceled.
-	CanContinue   bool   `json:"canContinue"`
-	Pinned        bool   `json:"pinned"`
-	ChatID        string `json:"chatId"`
-	ChatName      string `json:"chatName"`
-	AgentKey      string `json:"agentKey,omitempty"`
-	AgentMode     string `json:"agentMode,omitempty"`
-	TeamID        string `json:"teamId,omitempty"`
+	CanContinue bool   `json:"canContinue"`
+	Pinned      bool   `json:"pinned"`
+	ChatID      string `json:"chatId"`
+	ChatName    string `json:"chatName"`
+	AgentKey    string `json:"agentKey,omitempty"`
+	AgentMode   string `json:"agentMode,omitempty"`
+
 	Source        string `json:"source,omitempty"`
 	SourceChannel string `json:"sourceChannel,omitempty"`
 	CreatedAt     int64  `json:"createdAt"`
@@ -401,13 +401,13 @@ type PersistedAwaitingStep struct {
 	TaskID          string
 	TaskStatus      string
 	TaskSubAgentKey string
-	TeamID          string
-	Presentation    string
-	Stage           string
-	Seq             int
-	Ask             *PersistedAwaitingAsk
-	ToolCalls       []PersistedAwaitingToolCall
-	ResultToolIDs   map[string]bool
+
+	Presentation  string
+	Stage         string
+	Seq           int
+	Ask           *PersistedAwaitingAsk
+	ToolCalls     []PersistedAwaitingToolCall
+	ResultToolIDs map[string]bool
 }
 
 type PersistedAwaitingToolCall struct {
@@ -457,11 +457,11 @@ type UsageData struct {
 }
 
 type RunCompletion struct {
-	ChatID          string
-	RunID           string
-	AgentKey        string
-	AgentMode       string
-	TeamID          string
+	ChatID    string
+	RunID     string
+	AgentKey  string
+	AgentMode string
+
 	AssistantText   string
 	InitialMessage  string
 	FinishReason    string
@@ -474,21 +474,21 @@ type RunCompletion struct {
 // run manager registers a run. Completion may enrich the row later but may
 // never derive or replace StartedAtMillis.
 type RunStart struct {
-	ChatID          string
-	RunID           string
-	AgentKey        string
-	AgentMode       string
-	TeamID          string
+	ChatID    string
+	RunID     string
+	AgentKey  string
+	AgentMode string
+
 	InitialMessage  string
 	StartedAtMillis int64
 }
 
 type RunSummary struct {
-	RunID           string
-	ChatID          string
-	AgentKey        string
-	AgentMode       string
-	TeamID          string
+	RunID     string
+	ChatID    string
+	AgentKey  string
+	AgentMode string
+
 	InitialMessage  string
 	AssistantText   string
 	FinishReason    string
@@ -501,11 +501,11 @@ type RunSummary struct {
 }
 
 type GlobalSearchHit struct {
-	Kind           string
-	ChatID         string
-	ChatName       string
-	AgentKey       string
-	TeamID         string
+	Kind     string
+	ChatID   string
+	ChatName string
+	AgentKey string
+
 	RunID          string
 	Stage          string
 	Role           string
@@ -516,10 +516,10 @@ type GlobalSearchHit struct {
 }
 
 type RunTrace struct {
-	ChatID        string
-	ChatName      string
-	AgentKey      string
-	TeamID        string
+	ChatID   string
+	ChatName string
+	AgentKey string
+
 	RunID         string
 	Query         *QueryLine
 	Steps         []StepLine

@@ -86,12 +86,12 @@ func (s *Service) persistRestartAwaitingToolResults(
 		TaskID:          step.TaskID,
 		TaskStatus:      step.TaskStatus,
 		TaskSubAgentKey: step.TaskSubAgentKey,
-		TeamID:          step.TeamID,
-		Presentation:    step.Presentation,
-		Stage:           step.Stage,
-		Seq:             step.Seq,
-		Messages:        messages,
-		Type:            chat.StepLineTypeReactTool,
+
+		Presentation: step.Presentation,
+		Stage:        step.Stage,
+		Seq:          step.Seq,
+		Messages:     messages,
+		Type:         chat.StepLineTypeReactTool,
 	}); err != nil {
 		return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: append tool results: %w", item.ChatID, item.AwaitingID, err)
 	}
@@ -135,11 +135,11 @@ func (s *Service) completeRestartAwaitingRun(item chat.PendingAwaitingWithChat, 
 		initialMessage = strings.TrimSpace(contracts.AnyStringNode(query.Query["message"]))
 	}
 	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
-		ChatID:          item.ChatID,
-		RunID:           item.RunID,
-		AgentKey:        summary.AgentKey,
-		AgentMode:       summary.AgentMode,
-		TeamID:          summary.TeamID,
+		ChatID:    item.ChatID,
+		RunID:     item.RunID,
+		AgentKey:  summary.AgentKey,
+		AgentMode: summary.AgentMode,
+
 		InitialMessage:  initialMessage,
 		FinishReason:    "cancel",
 		StartedAtMillis: startedAt,

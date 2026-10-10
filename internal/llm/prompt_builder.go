@@ -209,12 +209,7 @@ func localTimezoneName() string {
 
 func buildAgentIdentitySection(session QuerySession) string {
 	lines := []string{"Agent Identity"}
-	// TEAM executes through a synthetic AgentKey so it can reuse the ordinary
-	// engine contract. That key is deliberately runtime-only and must not enter
-	// persisted prompts or any model-visible/public diagnostics.
-	if session.TeamRuntime == nil {
-		appendKeyValue(&lines, "key", session.AgentKey)
-	}
+	appendKeyValue(&lines, "key", session.AgentKey)
 	appendKeyValue(&lines, "name", session.AgentName)
 	appendKeyValue(&lines, "role", session.AgentRole)
 	appendKeyValue(&lines, "description", session.AgentDescription)
@@ -306,7 +301,6 @@ func buildSystemEnvironmentSection(session QuerySession) string {
 func buildSessionSection(session QuerySession) string {
 	lines := []string{"Runtime Context: Session"}
 	appendKeyValue(&lines, "chatId", session.ChatID)
-	appendKeyValue(&lines, "teamId", session.RuntimeContext.TeamID)
 	if summary := summarizeScene(session.RuntimeContext.Scene); summary != "" {
 		lines = append(lines, "scene: "+summary)
 	}
@@ -351,7 +345,6 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "Shared skills catalog")
 	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Editable Agent source directory")
 	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform-generated Agent execution directory; do not edit manually")
-	appendContextDir(lines, "teams_dir", paths.TeamsDir, "Team configuration directory")
 	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "Automation configuration directory")
 	appendContextDir(lines, "chats_dir", paths.ChatsDir, "Chat records directory")
 	appendContextDir(lines, "memory_dir", paths.MemoryDir, "Memory storage directory")
@@ -377,7 +370,6 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "Shared skills catalog")
 	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Editable Agent source directory")
 	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform-generated Agent execution directory; do not edit manually")
-	appendContextDir(lines, "teams_dir", paths.TeamsDir, "Team configuration directory")
 	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "Automation configuration directory")
 	appendContextDir(lines, "chats_dir", paths.ChatsDir, "Chat records directory")
 	appendContextDir(lines, "memory_dir", paths.MemoryDir, "Memory storage directory")
@@ -394,8 +386,8 @@ func runtimeQualifiedLocalPaths(paths LocalPaths) LocalPaths {
 		return paths
 	}
 	for _, value := range []*string{
+		&paths.AgentsDir, &paths.RUAgentsDir, &paths.AutomationsDir, &paths.ChatsDir,
 		&paths.ChatDir, &paths.SkillsDir, &paths.AgentDir, &paths.OwnerDir, &paths.SkillsCenterDir,
-		&paths.AgentsDir, &paths.RUAgentsDir, &paths.TeamsDir, &paths.AutomationsDir, &paths.ChatsDir,
 		&paths.MemoryDir, &paths.ModelsDir, &paths.ProvidersDir, &paths.ConnectorsCenterDir,
 		&paths.ConnectorsDir, &paths.PanDir,
 	} {

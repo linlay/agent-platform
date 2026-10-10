@@ -91,7 +91,7 @@ func persistIncompleteChatHistory(t *testing.T, store chat.Store, chatID string)
 	t.Helper()
 	runID := chatID + "-run"
 	startedAt := time.Now().UnixMilli()
-	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "run it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "mock-agent", "run it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if recorder, ok := store.(chat.RunStartRecorder); ok {

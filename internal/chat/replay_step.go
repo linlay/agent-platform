@@ -12,7 +12,7 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 	taskStatus, _ := line["taskStatus"].(string)
 	taskSubAgentKey, _ := line["taskSubAgentKey"].(string)
 	taskMainToolID := taskToolIDFromLine(line)
-	teamID := stringFromAny(line["teamId"])
+
 	presentation := stringFromAny(line["presentation"])
 	rootContent := false
 	if meta, ok := r.taskQueries[replayedTaskQueryKey(runID, taskID)]; ok {
@@ -28,15 +28,15 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 		if strings.TrimSpace(taskMainToolID) == "" {
 			taskMainToolID = meta.MainToolID
 		}
-		teamID = firstNonEmptyReplayString(teamID, meta.TeamID)
+
 		presentation = firstNonEmptyReplayString(presentation, meta.Presentation)
 		rootContent = meta.RootContent
 	}
 	ts := int64FromAny(line["updatedAt"])
 	if !rootContent {
 		if events := beginReplayedSubTask(rd, runID, taskID, taskName, taskDescription, taskSubAgentKey, taskMainToolID, ts, r.nextSeq); len(events) > 0 {
-			if r.orchestratedTeam {
-				events = decorateReplayedTeamTaskEvents(events, firstNonEmptyReplayString(teamID, r.summary.TeamID), taskSubAgentKey, presentation)
+			if r.isTeamRun(runID) {
+				events = decorateReplayedTeamTaskEvents(events, taskSubAgentKey, presentation)
 			}
 			rd.events = append(rd.events, events...)
 		}
@@ -48,8 +48,8 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 		r.latestContextWindow = cw
 	}
 	options := replayMessageOptions{}
-	if r.orchestratedTeam {
-		options.TeamID = firstNonEmptyReplayString(teamID, r.summary.TeamID)
+	if r.isTeamRun(runID) {
+
 		options.Presentation = presentation
 		if strings.TrimSpace(taskID) != "" {
 			options.ActorType = "agent"
@@ -58,9 +58,9 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 				options.Presentation = "task"
 			}
 		} else {
-			options.ActorType = "team"
+			options.ActorType = "agent"
+			options.AgentKey = r.ownerForRun(runID).AgentKey
 			options.Presentation = "reply"
-			options.HideTeamCoordinatorInternals = true
 		}
 	}
 	if err := r.replayStepMessages(rd, line, taskID, options); err != nil {
@@ -68,8 +68,8 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 	}
 	r.accumulateStepUsage(rd, stepUsage)
 	if events := finishReplayedSubTaskIfTerminal(rd, taskID, taskStatus, ts, r.nextSeq); len(events) > 0 {
-		if r.orchestratedTeam {
-			events = decorateReplayedTeamTaskEvents(events, firstNonEmptyReplayString(teamID, r.summary.TeamID), taskSubAgentKey, presentation)
+		if r.isTeamRun(runID) {
+			events = decorateReplayedTeamTaskEvents(events, taskSubAgentKey, presentation)
 		}
 		rd.events = append(rd.events, events...)
 	}

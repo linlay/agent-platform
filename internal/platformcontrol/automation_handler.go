@@ -14,7 +14,7 @@ func (h *ToolHandler) ConfigureAutomation(service *automation.Service) *ToolHand
 	return h
 }
 func init() {
-	candidate := map[string]string{"name": "s!", "description": "s", "cron": "s!", "agentKey": "s", "teamId": "s", "enabled": "b", "zoneId": "s", "remainingRuns": "n", "query": "o!"}
+	candidate := map[string]string{"name": "s!", "description": "s", "cron": "s!", "agentKey": "s", "enabled": "b", "zoneId": "s", "remainingRuns": "n", "query": "o!"}
 	argumentFields["automation_manage.create"] = candidate
 	update := map[string]string{"id": "s!", "baseRevision": "s!"}
 	for k, v := range candidate {
@@ -67,9 +67,7 @@ func (h *ToolHandler) prepareAutomationApproval(_ context.Context, tool string, 
 			if a, ok := h.registry.AgentDefinition(d.AgentKey); ok {
 				names[d.AgentKey] = a.Name
 			}
-			if team, ok := h.registry.TeamDefinition(d.TeamID); ok {
-				names[d.TeamID] = team.Name
-			}
+
 		}
 	}
 	return &contracts.ToolApproval{AllowAutoApprove: action != "delete", Fingerprint: contracts.ToolApprovalFingerprint(e, tool, action, plan.Digest), Title: "Automation / " + action, Form: map[string]any{"action": action, "before": plan.Before, "after": plan.After, "preview": plan.Preview, "baseRevision": plan.Revision, "names": names, "executionOptions": plan.ExecutionOptions}}, nil

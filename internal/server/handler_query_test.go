@@ -131,7 +131,7 @@ func TestPrepareQueryPromotesUploadCreatedChatNameAndUpdatesAgentKey(t *testing.
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	createdSummary, _, err := chats.EnsureChat("chat-agent-drift", "", "", "")
+	createdSummary, _, err := chats.EnsureChat("chat-agent-drift", "", "")
 	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}

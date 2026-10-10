@@ -45,10 +45,10 @@ func QueryRoleVisible(role string) bool {
 }
 
 type SubmitRequest struct {
-	ChatID     string `json:"chatId,omitempty"`
-	RunID      string `json:"runId"`
-	AgentKey   string `json:"agentKey,omitempty"`
-	TeamID     string `json:"teamId,omitempty"`
+	ChatID   string `json:"chatId,omitempty"`
+	RunID    string `json:"runId"`
+	AgentKey string `json:"agentKey,omitempty"`
+
 	AwaitingID string `json:"awaitingId"`
 	SubmitID   string `json:"submitId,omitempty"`
 	Locale     string `json:"locale,omitempty"`
@@ -219,12 +219,12 @@ type SubmitResponse struct {
 }
 
 type SteerRequest struct {
-	RequestID  string      `json:"requestId,omitempty"`
-	ChatID     string      `json:"chatId,omitempty"`
-	RunID      string      `json:"runId"`
-	SteerID    string      `json:"steerId,omitempty"`
-	AgentKey   string      `json:"agentKey,omitempty"`
-	TeamID     string      `json:"teamId,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
+	ChatID    string `json:"chatId,omitempty"`
+	RunID     string `json:"runId"`
+	SteerID   string `json:"steerId,omitempty"`
+	AgentKey  string `json:"agentKey,omitempty"`
+
 	Message    string      `json:"message"`
 	References []Reference `json:"references,omitempty"`
 	// PreparedMessages is an immutable, server-prepared input; never accepted from the wire.
@@ -240,11 +240,11 @@ type SteerResponse struct {
 }
 
 type InterruptRequest struct {
-	RequestID       string `json:"requestId,omitempty"`
-	ChatID          string `json:"chatId,omitempty"`
-	RunID           string `json:"runId"`
-	AgentKey        string `json:"agentKey,omitempty"`
-	TeamID          string `json:"teamId,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
+	ChatID    string `json:"chatId,omitempty"`
+	RunID     string `json:"runId"`
+	AgentKey  string `json:"agentKey,omitempty"`
+
 	Message         string `json:"message,omitempty"`
 	InterruptSource string `json:"source,omitempty"`
 	InterruptReason string `json:"reason,omitempty"`
@@ -259,10 +259,10 @@ type InterruptResponse struct {
 }
 
 type AccessLevelRequest struct {
-	RequestID   string `json:"requestId,omitempty"`
-	RunID       string `json:"runId"`
-	AgentKey    string `json:"agentKey,omitempty"`
-	TeamID      string `json:"teamId,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
+	RunID     string `json:"runId"`
+	AgentKey  string `json:"agentKey,omitempty"`
+
 	AccessLevel string `json:"accessLevel"`
 	Reason      string `json:"reason,omitempty"`
 }

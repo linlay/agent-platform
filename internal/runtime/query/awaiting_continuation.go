@@ -106,7 +106,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		return false, fmt.Errorf("continuation admission chatId does not match")
 	}
 	summary := admission.Summary
-	teamID := admission.TeamID
+
 	agentKey := admission.AgentKey
 	teamSnapshot := admission.TeamSnapshot
 	agentDef := admission.AgentDef
@@ -121,16 +121,16 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		} else {
 			agentDef, releaseRuntime, runtimeFound = catalogview.AcquireAgentSnapshot(s.deps.Registry, agentDef)
 		}
-	} else if admission.TeamSnapshot != nil {
-		leasedTeam, release, ok := catalogview.AcquireTeam(s.deps.Registry, admission.TeamSnapshot.TeamID)
-		releaseRuntime, runtimeFound = release, ok
-		if ok {
-			teamSnapshot = &leasedTeam
-			agentDef, runtimeFound = leasedTeam.AgentDefinition(agentDef.Key)
-		}
 	} else {
-		agentDef, releaseRuntime, runtimeFound = catalogview.AcquireAgent(s.deps.Registry, agentDef.Key)
+		agentDef, teamSnapshot, releaseRuntime, runtimeFound = catalogview.AcquireRun(s.deps.Registry, agentKey)
+		if runtimeFound && teamSnapshot != nil {
+			if err := catalogview.ValidateTeamSnapshot(*teamSnapshot); err != nil {
+				releaseRuntime()
+				return false, err
+			}
+		}
 	}
+
 	transferredRuntime := false
 	defer func() {
 		if !transferredRuntime {
@@ -172,7 +172,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	// The chat's team is fixed and the selected member definition was frozen
 	// above. Do not allow persisted query fields to reintroduce a stale team or
 	// agent after admission.
-	req.TeamID = teamID
+
 	req.AgentKey = agentKey
 	// Prefer private state; older Runs may still have a query snapshot.
 	frozen, restoreErr := s.RestoredInteractionPolicy(sourceRunID, agentDef.Mode, originalQuery)
@@ -347,7 +347,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		PrepareSystemInit: s.deps.Sessions.PrepareSystemInitCache,
 		Notifications:     s.deps.Notifications,
 		OnContinuation: func(c contracts.DeltaRunContinuation) (string, error) {
-			c.ContinuationState = &awaitingContinuationAdmission{Summary: summary, TeamID: teamID, AgentKey: agentKey, TeamSnapshot: teamSnapshot, AgentDef: agentDef, Frozen: true}
+			c.ContinuationState = &awaitingContinuationAdmission{Summary: summary, AgentKey: agentKey, TeamSnapshot: teamSnapshot, AgentDef: agentDef, Frozen: true}
 			return s.startRunContinuation(c)
 		},
 		OnUnreadChanged: func(summary chat.Summary) {
@@ -506,10 +506,10 @@ func (s *Service) startRunContinuation(continuation contracts.DeltaRunContinuati
 	}
 	mode := firstNonBlank(continuation.Mode, sessionbuild.StringValue(continuation.Answer["mode"]))
 	submitReq := queryinput.SubmitRequest{
-		ChatID:            chatID,
-		RunID:             sourceRunID,
-		AgentKey:          strings.TrimSpace(continuation.AgentKey),
-		TeamID:            strings.TrimSpace(continuation.TeamID),
+		ChatID:   chatID,
+		RunID:    sourceRunID,
+		AgentKey: strings.TrimSpace(continuation.AgentKey),
+
 		AwaitingID:        strings.TrimSpace(continuation.AwaitingID),
 		SubmitID:          strings.TrimSpace(continuation.SubmitID),
 		Locale:            strings.TrimSpace(continuation.Locale),
@@ -562,11 +562,11 @@ func (s *Service) PersistDeferredAwaitingToolAnswer(chatID string, runID string,
 					TaskID:          step.TaskID,
 					TaskStatus:      step.TaskStatus,
 					TaskSubAgentKey: step.TaskSubAgentKey,
-					TeamID:          step.TeamID,
-					Presentation:    step.Presentation,
-					Stage:           step.Stage,
-					Seq:             step.Seq,
-					Type:            chat.StepLineTypeReactTool,
+
+					Presentation: step.Presentation,
+					Stage:        step.Stage,
+					Seq:          step.Seq,
+					Type:         chat.StepLineTypeReactTool,
 					Messages: []chat.StoredMessage{{
 						Role:       "tool",
 						Name:       call.Name,
@@ -676,9 +676,9 @@ func (s *Service) resolveAwaitingContinuationAdmission(chatID string, requestedA
 	if summary == nil {
 		return awaitingContinuationAdmission{}, chat.ErrChatNotFound
 	}
-	teamID, agentKey, teamSnapshot, teamErr := ResolveQueryTeam(
+	agentKey, teamSnapshot, teamErr := ResolveAgentTarget(
 		s.deps.Registry,
-		strings.TrimSpace(summary.TeamID),
+
 		strings.TrimSpace(requestedAgentKey),
 		summary,
 	)
@@ -697,8 +697,8 @@ func (s *Service) resolveAwaitingContinuationAdmission(chatID string, requestedA
 		return awaitingContinuationAdmission{}, fmt.Errorf("agent not found: %s", agentKey)
 	}
 	return awaitingContinuationAdmission{
-		Summary:      *summary,
-		TeamID:       teamID,
+		Summary: *summary,
+
 		AgentKey:     agentKey,
 		TeamSnapshot: teamSnapshot,
 		AgentDef:     agentDef,
@@ -712,10 +712,10 @@ func planContinuationRequestInput(original *chat.QueryLine, submitReq queryinput
 		_ = json.Unmarshal(data, &originalRequest)
 	}
 	return agentbuiltin.PlanContinuationRequestInput{
-		Original:           adapter.QueryRequest(originalRequest),
-		Submit:             submitReq,
-		SummaryChatID:      summary.ChatID,
-		SummaryTeamID:      summary.TeamID,
+		Original:      adapter.QueryRequest(originalRequest),
+		Submit:        submitReq,
+		SummaryChatID: summary.ChatID,
+
 		SummaryAgentKey:    summary.AgentKey,
 		DefinitionAgentKey: agentDef.Key,
 		Mode:               mode,
@@ -752,9 +752,9 @@ func cloneMessageMapsForSyntheticBootstrap(messages []map[string]any) []map[stri
 }
 
 type awaitingContinuationAdmission struct {
-	Frozen       bool
-	Summary      chat.Summary
-	TeamID       string
+	Frozen  bool
+	Summary chat.Summary
+
 	AgentKey     string
 	TeamSnapshot *catalog.TeamSnapshot
 	AgentDef     catalog.AgentDefinition

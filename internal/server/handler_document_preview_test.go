@@ -38,7 +38,7 @@ func TestDocumentPreviewDefaultsOffAndUsesHTTP(t *testing.T) {
 func TestPreviewResourceResolverPreservesChatReadPermissions(t *testing.T) {
 	f := newTestFixture(t)
 	for _, tc := range []struct{ id, agent, team string }{{"preview-owned", "mock-agent", ""}, {"preview-team", "", "team-1"}} {
-		if _, _, err := f.chats.EnsureChatWithSource(tc.id, tc.agent, tc.team, "preview", api.ChatSourceQueryPrefix+"alice"); err != nil {
+		if _, _, err := f.chats.EnsureChatWithSource(tc.id, tc.agent, "preview", api.ChatSourceQueryPrefix+"alice"); err != nil {
 			t.Fatal(err)
 		}
 		dir := f.chats.ChatDir(tc.id)
@@ -87,7 +87,7 @@ func TestPreviewWorkspaceResolverRejectsSymlinkEscape(t *testing.T) {
 func TestPreviewArchivedResourceRetainsOwnerAuthorization(t *testing.T) {
 	f := newTestFixture(t)
 	const id = "preview-archive"
-	if _, _, err := f.chats.EnsureChatWithSource(id, "mock-agent", "", "preview", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err := f.chats.EnsureChatWithSource(id, "mock-agent", "preview", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	startServerFixtureRun(t, f.chats, id, "preview-archive-run", 1700000000000)

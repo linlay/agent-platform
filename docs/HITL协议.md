@@ -16,13 +16,13 @@ Hook 是技能 `.bash-hooks/*.yml` 声明的执行前业务规则；`&&` 只是 
 
 HITL 使用统一 awaiting 协议，保留 `mode` 字段，不引入 `kind`。当前等待模式为 `question`、`approval`、`form`、`planning`。
 
-`/api/submit` 顶层固定为公开 owner + `runId + awaitingId + param/params`。普通 Agent 的 owner 是 `agentKey`；Team 的 owner 是 `teamId`，不能提交隐藏协调器 key 或 `agentKey`。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
+`/api/submit` 顶层固定为公开 owner + `runId + awaitingId + param/params`。所有 Run（包括 TEAM）的 owner 均为根 `agentKey`。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
 
 `/api/chats` 摘要、`/api/agents?includeChats=...` 的 `chats[]` 与 `/api/chat` 详情中的 `awaiting` 都来自持久化等待态；当 `awaiting.status == "awaiting"` 时，表示该 chat 当前有可恢复的等待项，`mode` 为 `question`、`approval`、`form` 或 `planning`。完整等待内容仍以 `events` 中的 `awaiting.ask` 为准。
 
 子智能体 HITL 沿用主 run：普通 `agent_invoke` 和 TEAM 成员都不会注册独立 active run，`awaiting.ask.runId` 是主 `runId`，`taskId` 表示子任务归属。对子智能体等待项，前端看到和提交的 public `awaitingId` 形如 `taskId:rawAwaitingId`；后端 submit 时会映射回子工具实际等待的 `rawAwaitingId`。兼容旧前端把 `taskId` 放进 `/api/submit.runId` 的 payload，但推荐提交 `awaiting.ask.runId` 中的主 `runId`。
 
-orchestrated Team 的 `agent_delegate` 沿用成员原有 HITL，成员等待项不合并。协调器按到达顺序排队，同一时刻只发布一位成员的 `awaiting.ask`：它保持成员自己的 mode、内容和 `view`，携带 `taskId`，`awaitingId` 为 `taskId:rawAwaitingId`。客户端用 `teamId + runId + awaitingId` 按该 mode 的普通规则提交，后端原样转给对应成员；该项的 `awaiting.answer` 发出后才发布下一项。排队中的等待项不计超时，倒计时从发布时开始；超时或关闭只影响当前项，中断 Run 清空队列。排队中的成员继续占用 `maxParallel` 名额。
+orchestrated Team 的 `agent_delegate` 沿用成员原有 HITL，成员等待项不合并。协调器按到达顺序排队，同一时刻只发布一位成员的 `awaiting.ask`：它保持成员自己的 mode、内容和 `view`，携带 `taskId`，`awaitingId` 为 `taskId:rawAwaitingId`。客户端用 根 `agentKey + runId + awaitingId` 按该 mode 的普通规则提交，后端原样转给对应成员；该项的 `awaiting.answer` 发出后才发布下一项。排队中的等待项不计超时，倒计时从发布时开始；超时或关闭只影响当前项，中断 Run 清空队列。排队中的成员继续占用 `maxParallel` 名额。
 
 ## 核心流程
 
@@ -95,7 +95,7 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 - `request.submit` 原样回显 `param` 或 `params`。
 - `mode=question` 会按对应问题的类型校验答案：多选题只能提交非空 `answers` 数组，其他题型只能提交 `answer`；数量必须匹配，且沿用题型的值与候选项约束。提交无效 question 答案时接口返回 `data.accepted:false`、`data.status:"invalid"`，不会写入 answer 事件或解除等待项，客户端可修正后重新提交。
 - 子智能体 HITL 的 `request.submit` 与 `awaiting.answer` 会继续回显 public `awaitingId`，并携带 `taskId`，用于前端归并到子任务面板；后端内部唤醒的仍是 raw awaiting。
-- run owner 校验是互斥的：Agent-owned run 缺少/错传 `agentKey` 会失败；Team-owned run 缺少/错传 `teamId` 会失败，同时传 `agentKey` 也会失败。
+- run owner 统一校验根 `agentKey`；成员事件 key 不能用于控制总控 Run。
 - `approval.options[]` 与 `planning.options[]` 的内置动作只下发 `decision` code，按钮文案由 webclient 按当前语言本地化。两类选项协议均不含 `description`，Approval 选项说明由 webclient 按 `decision` 本地生成；Platform 在原生、代理和回放的统一流事件边界移除 `approvals[].options[].description` 与 `planning.options[].description`，不改写历史文件。审批项级 `approval.description` 仍用于审批标题；`question.options[].description` 仍用于答案提示，`question.options[].label` 仍是用户可见答案文本与答案匹配值，`form.title/form` 仍是业务或工具内容。
 - Bash 的 `approval.description` 使用工具调用传入的描述，缺省时沿用命令摘要兜底；后端不追加安全检查、路径/脚本审批原因或 cwd 说明。审批项仍保留原始 `command` 和 `ruleKey`，内部冻结的审批要求、审计及授权范围不因描述精简而改变。
 - 对 `question` / `approval` / `form`，`awaiting.ask.timeout == 0` 表示无限等待、不自动超时；`timeout > 0` 表示后端从发出等待项开始按真实时间独立倒计时。planning confirmation 的 `mode:"planning"` 永远省略该字段，含义同样是永久等待；前端不得为它显示倒计时。observer / attach / detach 状态不会暂停或延长后端超时。

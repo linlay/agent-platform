@@ -48,7 +48,7 @@ func TestMissingPersistedMessageTsFailsRawAndReplayReads(t *testing.T) {
 	}
 	defer store.Close()
 	const chatID = "chat-missing-message-ts"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	line := `{"_type":"query","chatId":"` + chatID + `","runId":"run-missing-message-ts","updatedAt":1700000000001,"query":{"role":"user","message":"hello"},"messages":[{"role":"user","content":"hello"}]}` + "\n"
@@ -71,7 +71,7 @@ func TestReplayUsesAuthoritativeRunLifecycleTimes(t *testing.T) {
 	defer store.Close()
 	const chatID, runID = "chat-lifecycle-contract", "run-lifecycle-contract"
 	startedAt := testEpochMillis(100)
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.OnRunStarted(RunStart{ChatID: chatID, RunID: runID, AgentKey: "agent-a", StartedAtMillis: startedAt}); err != nil {
@@ -116,7 +116,7 @@ func TestLoadRunStartedAtRejectsMissingAndInvalidLifecycleRows(t *testing.T) {
 	defer store.Close()
 
 	const chatID, runID = "chat-lifecycle-reader", "run-lifecycle-reader"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.LoadRunStartedAt(chatID, runID); !timecontract.IsViolation(err) {
@@ -145,7 +145,7 @@ func TestWriteAndBTWBoundariesScopeTimeValidationToPlatformFields(t *testing.T) 
 	}
 	defer store.Close()
 	const chatID = "chat-write-contract"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{Type: "query", ChatID: chatID, RunID: "run-bad", UpdatedAt: 0, Query: map[string]any{"role": "user", "message": "hello"}}); !timecontract.IsViolation(err) {

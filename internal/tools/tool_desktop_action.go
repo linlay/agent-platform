@@ -67,7 +67,6 @@ type desktopCDPSource struct {
 	RunID    string `json:"runId,omitempty"`
 	ChatID   string `json:"chatId,omitempty"`
 	AgentKey string `json:"agentKey,omitempty"`
-	TeamID   string `json:"teamId,omitempty"`
 }
 
 func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -800,19 +799,15 @@ func buildDesktopActionSource(execCtx *ExecutionContext) (ClientRequestSource, e
 		WorkspaceRoot: accesspolicy.SessionWorkspaceRoot(execCtx.Session),
 	}
 	owner := ResolveRunOwner(execCtx.Session.RunOwner)
-	if owner.IsTeam() {
-		source.AgentKey = ""
-		source.TeamID = owner.TeamID
-	} else if owner.AgentKey != "" {
+
+	if owner.AgentKey != "" {
 		source.AgentKey = owner.AgentKey
-		source.TeamID = ""
+
 	}
 	if source.RunID == "" || source.ChatID == "" {
 		return ClientRequestSource{}, errors.New("runId and chatId are required for desktop actions")
 	}
-	if source.AgentKey != "" && source.TeamID != "" {
-		return ClientRequestSource{}, errors.New("desktop action source cannot contain both agentKey and teamId")
-	}
+
 	return source, nil
 }
 
@@ -824,7 +819,6 @@ func buildDesktopCDPSource(execCtx *ExecutionContext) desktopCDPSource {
 		RunID:    execCtx.Session.RunID,
 		ChatID:   execCtx.Session.ChatID,
 		AgentKey: execCtx.Session.AgentKey,
-		TeamID:   execCtx.Session.TeamID,
 	}
 }
 

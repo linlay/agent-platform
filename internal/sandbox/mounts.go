@@ -307,7 +307,6 @@ func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey s
 		"providers":     {destination: "/providers", source: func() (string, error) { return r.registryChildSource("providers") }},
 		"automations":   {destination: "/automations", source: func() (string, error) { return hostPath("AUTOMATIONS_DIR", r.paths.AutomationsDir) }},
 		"skills-center": {destination: "/skills-center", source: func() (string, error) { return hostPath("paths.skills-center-dir", r.paths.SkillsCenterDir) }},
-		"teams":         {destination: "/teams", source: func() (string, error) { return hostPath("TEAMS_DIR", r.paths.TeamsDir) }},
 		"tools":         {destination: "/tools", source: func() (string, error) { return r.registryChildSource("tools") }},
 	}
 	def, ok := defs[platform]

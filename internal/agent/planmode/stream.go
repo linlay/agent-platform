@@ -512,11 +512,11 @@ func (s *planningStream) preparePlanningApproveContinuation(submitReq api.Submit
 		return false
 	}
 	s.pending = append(s.pending, contracts.DeltaRunContinuation{
-		SourceRunID:       s.session.RunID,
-		RunID:             continuationRunID,
-		ChatID:            s.session.ChatID,
-		AgentKey:          s.session.AgentKey,
-		TeamID:            s.session.TeamID,
+		SourceRunID: s.session.RunID,
+		RunID:       continuationRunID,
+		ChatID:      s.session.ChatID,
+		AgentKey:    s.session.AgentKey,
+
 		AwaitingID:        awaitingID,
 		SubmitID:          submitReq.SubmitID,
 		Locale:            s.session.Locale,

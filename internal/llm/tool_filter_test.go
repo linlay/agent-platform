@@ -59,7 +59,7 @@ func TestPlatformControlSchemaIsByteIdenticalAcrossAgents(t *testing.T) {
 		session.RunID = "run"
 		session.ChatID = "chat"
 		session.Mode = "GENERAL"
-		session.RunOwner = contracts.AgentRunOwner(session.AgentKey, "")
+		session.RunOwner = contracts.AgentRunOwner(session.AgentKey)
 		session.NativeConnectorTools = map[string]string{"catalog_query": "builtin.platform-control"}
 		session.ConnectorDirs = map[string]string{"builtin.platform-control": "/trusted"}
 		effective := effectiveToolDefinitions(defs, []string{"catalog_query"}, session)
@@ -391,7 +391,7 @@ func schemaRequiredSet(parameters map[string]any) map[string]bool {
 func TestTaskControlDefinitionsRequireMountAndRoot(t *testing.T) {
 	defs := []api.ToolDetailResponse{{Name: "chat_start"}, {Name: "chat_query"}, {Name: "automation_manage"}}
 	allowed := []string{"chat_start", "chat_query", "automation_manage"}
-	session := contracts.QuerySession{AgentKey: "a", RunID: "r", ChatID: "c", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("a", "")}
+	session := contracts.QuerySession{AgentKey: "a", RunID: "r", ChatID: "c", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("a")}
 	if got := effectiveToolDefinitions(defs, allowed, session); len(got) != 0 {
 		t.Fatal("unmounted tools exposed")
 	}

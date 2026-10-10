@@ -116,12 +116,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}
 	log.Printf(
-		"loaded config in %s (registries=%s agents=%s ru-agents=%s teams=%s skills=%s chats=%s memory=%s)",
+		"loaded config in %s (registries=%s agents=%s ru-agents=%s skills=%s chats=%s memory=%s)",
 		startupElapsed(configStartedAt),
 		cfg.Paths.RegistriesDir,
 		cfg.Paths.AgentsDir,
 		cfg.Paths.RUAgentsDir,
-		cfg.Paths.TeamsDir,
 		cfg.Paths.SkillsCenterDir,
 		cfg.Paths.ChatsDir,
 		cfg.Paths.MemoryDir,
@@ -241,10 +240,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		return nil, fmt.Errorf(
-			"load catalog registry (agents=%s ru-agents=%s teams=%s skills=%s): %w",
+			"load catalog registry (agents=%s ru-agents=%s skills=%s): %w",
 			cfg.Paths.AgentsDir,
 			cfg.Paths.RUAgentsDir,
-			cfg.Paths.TeamsDir,
 			cfg.Paths.SkillsCenterDir,
 			err,
 		)
@@ -263,10 +261,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		runtimeToolExecutor.WithFileChangeHooks(lspManager)
 	}
 	log.Printf(
-		"catalog registry ready in %s (agents=%d teams=%d skills=%d tools=%d)",
+		"catalog registry ready in %s (agents=%d skills=%d tools=%d)",
 		startupElapsed(registryStartedAt),
 		len(registry.Agents("")),
-		len(registry.Teams()),
 		len(registry.Skills("")),
 		len(toolExecutor.Definitions()),
 	)
@@ -327,9 +324,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	})
 	reloader.AddObserver(cardReporter)
 	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
-	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
+	log.Printf("background file watchers started (agents=%s skills=%s)",
 		cfg.Paths.AgentsDir,
-		cfg.Paths.TeamsDir,
 		cfg.Paths.SkillsCenterDir,
 	)
 
@@ -344,7 +340,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	var automationRegistry *automation.Registry
 	var automationExecutionHistory *automation.ExecutionHistoryService
 	if cfg.Automation.Enabled {
-		automationRegistry = automation.NewRegistry(cfg.Automation.ExternalDir, registry)
+		automationRegistry = automation.NewRegistry(cfg.Automation.ExternalDir)
 		var automationBroadcaster automation.Broadcaster
 		if hub, ok := notifications.(*ws.Hub); ok {
 			automationBroadcaster = hub
@@ -703,7 +699,7 @@ func runtimeQueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
 		}
 	}
 	return runtimetypes.QueryCommand{
-		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID,
+		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey,
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser, References: references,
 		Params: contracts.CloneMap(req.Params), Scene: scene, Stream: req.Stream, IncludeUsage: req.IncludeUsage,
 		IncludeFullText: req.IncludeFullText, PlanningMode: req.PlanningMode, EditingMode: req.EditingMode,

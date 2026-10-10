@@ -1,7 +1,9 @@
 package stream
 
-import "agent-platform/internal/view"
-import "agent-platform/internal/modelcontent"
+import (
+	"agent-platform/internal/modelcontent"
+	"agent-platform/internal/view"
+)
 
 type StreamInput interface {
 	streamInputTag()
@@ -17,11 +19,11 @@ type ReasoningDelta struct {
 func (ReasoningDelta) streamInputTag() {}
 
 type ContentDelta struct {
-	ContentID    string
-	Delta        string
-	TaskID       string
-	ActorType    string
-	TeamID       string
+	ContentID string
+	Delta     string
+	TaskID    string
+	ActorType string
+
 	AgentKey     string
 	Presentation string
 }
@@ -179,21 +181,21 @@ type PlanningSuperseded struct {
 func (PlanningSuperseded) streamInputTag() {}
 
 type TaskStart struct {
-	TaskID       string
-	RunID        string
-	TaskName     string
-	Description  string
-	SubAgentKey  string
-	MainToolID   string
-	TeamID       string
+	TaskID      string
+	RunID       string
+	TaskName    string
+	Description string
+	SubAgentKey string
+	MainToolID  string
+
 	Presentation string
 }
 
 func (TaskStart) streamInputTag() {}
 
 type TaskComplete struct {
-	TaskID       string
-	TeamID       string
+	TaskID string
+
 	AgentKey     string
 	Presentation string
 }
@@ -201,9 +203,9 @@ type TaskComplete struct {
 func (TaskComplete) streamInputTag() {}
 
 type TaskCancel struct {
-	TaskID       string
-	Reason       string
-	TeamID       string
+	TaskID string
+	Reason string
+
 	AgentKey     string
 	Presentation string
 }
@@ -211,9 +213,9 @@ type TaskCancel struct {
 func (TaskCancel) streamInputTag() {}
 
 type TaskError struct {
-	TaskID       string
-	Error        map[string]any
-	TeamID       string
+	TaskID string
+	Error  map[string]any
+
 	AgentKey     string
 	Presentation string
 }
@@ -371,10 +373,10 @@ type InputDebugLLMChat struct {
 func (InputDebugLLMChat) streamInputTag() {}
 
 type InputLLMRequest struct {
-	TaskID          string
-	ChatID          string
-	ActorType       string
-	TeamID          string
+	TaskID    string
+	ChatID    string
+	ActorType string
+
 	AgentKey        string
 	Presentation    string
 	Model           map[string]any

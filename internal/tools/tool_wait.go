@@ -77,7 +77,7 @@ func (t *RuntimeToolExecutor) invokeWait(ctx context.Context, args map[string]an
 	}
 	checkpoint := &WaitCheckpoint{}
 	if execCtx != nil {
-		checkpoint = &WaitCheckpoint{StartedAt: execCtx.StartedAt.UnixMilli(), Budget: NormalizeBudget(execCtx.Budget), BudgetPausedMs: execCtx.BudgetPaused.Milliseconds(), WaitCount: execCtx.WaitCount, WaitTotalMs: execCtx.WaitTotal.Milliseconds(), ModelCalls: execCtx.ModelCalls, ToolCalls: execCtx.ToolCalls, ToolRounds: execCtx.ToolRounds, Unrecoverable: execCtx.Session.SubTaskID != "" || execCtx.Session.TeamID != ""}
+		checkpoint = &WaitCheckpoint{StartedAt: execCtx.StartedAt.UnixMilli(), Budget: NormalizeBudget(execCtx.Budget), BudgetPausedMs: execCtx.BudgetPaused.Milliseconds(), WaitCount: execCtx.WaitCount, WaitTotalMs: execCtx.WaitTotal.Milliseconds(), ModelCalls: execCtx.ModelCalls, ToolCalls: execCtx.ToolCalls, ToolRounds: execCtx.ToolRounds, Unrecoverable: execCtx.Session.SubTaskID != ""}
 		if execCtx.RunEnvironment != nil {
 			env, _, e := execCtx.RunEnvironment.Snapshot()
 			checkpoint.Unrecoverable = checkpoint.Unrecoverable || e != nil || len(env) > 0

@@ -92,13 +92,13 @@ type ChildRouteEvent struct {
 }
 
 type PreparedSubTask struct {
-	Spec         contracts.SubAgentTaskSpec
-	AgentDef     catalog.AgentDefinition
-	TaskID       string
-	RequestID    string
-	SubTaskID    string
-	MainToolID   string
-	TeamID       string
+	Spec       contracts.SubAgentTaskSpec
+	AgentDef   catalog.AgentDefinition
+	TaskID     string
+	RequestID  string
+	SubTaskID  string
+	MainToolID string
+
 	Presentation string
 }
 
@@ -164,14 +164,7 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 			return nil
 		}
 	}
-	if strings.TrimSpace(o.Session.TeamID) != "" && o.TeamSnapshot == nil {
-		resolved, found := catalogview.ResolveTeam(o.Registry, o.Session.TeamID)
-		if !found {
-			o.InjectMainToolError(main, invoke.MainToolID, fmt.Sprintf("team is unavailable: %s", o.Session.TeamID))
-			return nil
-		}
-		o.TeamSnapshot = &resolved
-	}
+
 	prepared := make([]PreparedSubTask, 0, len(invoke.Tasks))
 	for _, task := range invoke.Tasks {
 		subAgentKey := strings.TrimSpace(task.SubAgentKey)
@@ -184,16 +177,16 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 		var found bool
 		if o.TeamSnapshot != nil {
 			if !o.TeamSnapshot.HasAgent(subAgentKey) {
-				message := fmt.Sprintf("sub-agent %q is not in team %q", subAgentKey, o.TeamSnapshot.TeamID)
+				message := fmt.Sprintf("sub-agent %q is not in team %q", subAgentKey, o.TeamSnapshot.AgentKey)
 				if o.TeamSnapshot.DeclaresAgent(subAgentKey) {
-					message = fmt.Sprintf("sub-agent %q is unavailable in team %q", subAgentKey, o.TeamSnapshot.TeamID)
+					message = fmt.Sprintf("sub-agent %q is unavailable in team %q", subAgentKey, o.TeamSnapshot.AgentKey)
 				}
 				o.InjectMainToolError(main, invoke.MainToolID, message)
 				return nil
 			}
 			agentDef, found = o.TeamSnapshot.AgentDefinition(subAgentKey)
 			if !found {
-				o.InjectMainToolError(main, invoke.MainToolID, fmt.Sprintf("sub-agent %q is unavailable in team %q", subAgentKey, o.TeamSnapshot.TeamID))
+				o.InjectMainToolError(main, invoke.MainToolID, fmt.Sprintf("sub-agent %q is unavailable in team %q", subAgentKey, o.TeamSnapshot.AgentKey))
 				return nil
 			}
 		} else {
@@ -232,21 +225,21 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 	for index := range prepared {
 		prepared[index].MainToolID = invoke.MainToolID
 		if o.Session.TeamRuntime != nil {
-			prepared[index].TeamID = o.Session.TeamID
+
 			prepared[index].Presentation = "task"
 		}
 	}
 
 	for _, task := range prepared {
 		o.EmitDelta(contracts.DeltaTaskLifecycle{
-			Kind:         "start",
-			TaskID:       task.TaskID,
-			RunID:        o.Session.RunID,
-			TaskName:     task.Spec.TaskName,
-			Description:  task.Spec.TaskText,
-			SubAgentKey:  task.Spec.SubAgentKey,
-			MainToolID:   invoke.MainToolID,
-			TeamID:       task.TeamID,
+			Kind:        "start",
+			TaskID:      task.TaskID,
+			RunID:       o.Session.RunID,
+			TaskName:    task.Spec.TaskName,
+			Description: task.Spec.TaskText,
+			SubAgentKey: task.Spec.SubAgentKey,
+			MainToolID:  invoke.MainToolID,
+
 			Presentation: task.Presentation,
 		})
 	}
@@ -315,10 +308,10 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 			terminalKind = "cancel"
 		}
 		lifecycle := contracts.DeltaTaskLifecycle{
-			Kind:         terminalKind,
-			TaskID:       routed.Result.TaskID,
-			SubAgentKey:  routed.Result.SubAgentKey,
-			TeamID:       task.TeamID,
+			Kind:        terminalKind,
+			TaskID:      routed.Result.TaskID,
+			SubAgentKey: routed.Result.SubAgentKey,
+
 			Presentation: task.Presentation,
 		}
 		if terminalKind == "error" {
@@ -378,12 +371,12 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 		}
 		seenMembers[lookupKey] = struct{}{}
 		if !o.TeamSnapshot.HasAgent(memberKey) {
-			o.InjectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q is unavailable in Team %q", memberKey, o.TeamSnapshot.TeamID))
+			o.InjectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q is unavailable in Team %q", memberKey, o.TeamSnapshot.AgentKey))
 			return false, nil
 		}
 		def, found := o.TeamSnapshot.AgentDefinition(memberKey)
 		if !found {
-			o.InjectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q is unavailable in Team %q", memberKey, o.TeamSnapshot.TeamID))
+			o.InjectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q is unavailable in Team %q", memberKey, o.TeamSnapshot.AgentKey))
 			return false, nil
 		}
 		if !catalog.AgentUsesACPCoderBackend(def) && !session.ResolvedModeCapabilities(def).RunAsChild {
@@ -412,25 +405,25 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 				TaskName:    taskName,
 				Files:       append([]string(nil), spec.Files...),
 			},
-			AgentDef:     def,
-			TaskID:       fmt.Sprintf("%s_team_t_%d", strings.TrimSpace(o.Session.RunID), index),
-			RequestID:    requestID,
-			SubTaskID:    fmt.Sprintf("team_%d", index),
-			MainToolID:   dispatch.MainToolID,
-			TeamID:       o.TeamSnapshot.TeamID,
+			AgentDef:   def,
+			TaskID:     fmt.Sprintf("%s_team_t_%d", strings.TrimSpace(o.Session.RunID), index),
+			RequestID:  requestID,
+			SubTaskID:  fmt.Sprintf("team_%d", index),
+			MainToolID: dispatch.MainToolID,
+
 			Presentation: "task",
 		})
 	}
 
 	for _, task := range prepared {
 		o.EmitDelta(contracts.DeltaTaskLifecycle{
-			Kind:         "start",
-			TaskID:       task.TaskID,
-			RunID:        o.Session.RunID,
-			TaskName:     task.Spec.TaskName,
-			SubAgentKey:  task.Spec.SubAgentKey,
-			MainToolID:   dispatch.MainToolID,
-			TeamID:       o.TeamSnapshot.TeamID,
+			Kind:        "start",
+			TaskID:      task.TaskID,
+			RunID:       o.Session.RunID,
+			TaskName:    task.Spec.TaskName,
+			SubAgentKey: task.Spec.SubAgentKey,
+			MainToolID:  dispatch.MainToolID,
+
 			Presentation: "task",
 		})
 	}
@@ -462,7 +455,7 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 			options := ChildRunOptions{InheritOriginalContext: true, IncludeHistory: true, Presentation: "task", SuppressFinalDuplicate: true, RunControl: hitlBatch.ControlFor(task)}
 			routedCh <- ChildRouteEvent{Result: o.RunChildTaskWithOptions(index, task, principal, func(input stream.StreamInput) {
 				route := func(input stream.StreamInput) stream.StreamInput {
-					return RouteTeamChildStreamInput(o.Session.RunID, o.TeamSnapshot.TeamID, task, input, options)
+					return RouteTeamChildStreamInput(o.Session.RunID, task, input, options)
 				}
 				if event, captured := hitlBatch.Capture(task, input, route); captured {
 					routedCh <- event
@@ -492,7 +485,7 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 		} else if routed.Result.Status == "cancelled" {
 			terminalKind = "cancel"
 		}
-		lifecycle := contracts.DeltaTaskLifecycle{Kind: terminalKind, TaskID: routed.Result.TaskID, SubAgentKey: routed.Result.SubAgentKey, TeamID: task.TeamID, Presentation: task.Presentation}
+		lifecycle := contracts.DeltaTaskLifecycle{Kind: terminalKind, TaskID: routed.Result.TaskID, SubAgentKey: routed.Result.SubAgentKey, Presentation: task.Presentation}
 		if terminalKind == "error" {
 			lifecycle.Error = apperrors.Payload(
 				apperrors.Code(FirstNonEmpty(routed.Result.ErrorCode, string(apperrors.CodeTeamMemberFailed))),
@@ -728,7 +721,7 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 	var leasedDef catalog.AgentDefinition
 	var release func()
 	var ok bool
-	if o.Session.TeamID != "" {
+	if o.TeamSnapshot != nil {
 		leasedDef, release, ok = catalogview.AcquireAgentSnapshot(o.Registry, task.AgentDef)
 	} else {
 		leasedDef, release, ok = catalogview.AcquireAgent(o.Registry, task.Spec.SubAgentKey)
@@ -740,7 +733,7 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		return result
 	}
 	defer release()
-	if o.Session.TeamID == "" {
+	if o.TeamSnapshot == nil {
 		task.AgentDef = leasedDef
 	}
 
@@ -752,11 +745,11 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 	}
 
 	subReq := runtimetypes.QueryCommand{
-		RequestID:   task.RequestID,
-		RunID:       o.Session.RunID,
-		ChatID:      o.Session.ChatID,
-		AgentKey:    task.Spec.SubAgentKey,
-		TeamID:      o.Session.TeamID,
+		RequestID: task.RequestID,
+		RunID:     o.Session.RunID,
+		ChatID:    o.Session.ChatID,
+		AgentKey:  task.Spec.SubAgentKey,
+
 		Role:        queryinput.QueryRoleUser,
 		Message:     task.Spec.TaskText,
 		AccessLevel: o.Session.AccessLevel,
@@ -818,6 +811,8 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		result.Error = err.Error()
 		return result
 	}
+	subSession.RunOwner = o.Session.RunOwner
+
 	subSession.WebClientTarget = o.Session.WebClientTarget
 	if len(subSession.RuntimeContext.References) > 0 {
 		subReq.References = subSession.RuntimeContext.References
@@ -933,16 +928,16 @@ func (o *Coordinator) WriteChildTaskQueryAndSystem(subReq runtimetypes.QueryComm
 		liveSeq = o.CurrentLiveSeq()
 	}
 	_ = o.Chats.AppendQueryLine(o.Summary.ChatID, chat.QueryLine{
-		Type:         "query",
-		ChatID:       o.Summary.ChatID,
-		RunID:        o.Session.RunID,
-		UpdatedAt:    time.Now().UnixMilli(),
-		LiveSeq:      liveSeq,
-		TaskID:       task.TaskID,
-		TaskName:     task.Spec.TaskName,
-		TaskToolID:   task.MainToolID,
-		SubAgentKey:  task.Spec.SubAgentKey,
-		TeamID:       task.TeamID,
+		Type:        "query",
+		ChatID:      o.Summary.ChatID,
+		RunID:       o.Session.RunID,
+		UpdatedAt:   time.Now().UnixMilli(),
+		LiveSeq:     liveSeq,
+		TaskID:      task.TaskID,
+		TaskName:    task.Spec.TaskName,
+		TaskToolID:  task.MainToolID,
+		SubAgentKey: task.Spec.SubAgentKey,
+
 		Presentation: task.Presentation,
 		Query: map[string]any{
 			"message":   task.Spec.TaskText,
@@ -1060,7 +1055,7 @@ func RouteChildStreamInput(parentRunID string, taskID string, input stream.Strea
 	}
 }
 
-func RouteTeamChildStreamInput(_ string, teamID string, task PreparedSubTask, input stream.StreamInput, options ChildRunOptions) stream.StreamInput {
+func RouteTeamChildStreamInput(_ string, task PreparedSubTask, input stream.StreamInput, options ChildRunOptions) stream.StreamInput {
 	switch value := input.(type) {
 	case stream.ToolArgs:
 		value.TaskID = task.TaskID
@@ -1088,13 +1083,13 @@ func RouteTeamChildStreamInput(_ string, teamID string, task PreparedSubTask, in
 		return value
 	case stream.ContentDelta:
 		value.ActorType = "agent"
-		value.TeamID = strings.TrimSpace(teamID)
+
 		value.AgentKey = strings.TrimSpace(task.Spec.SubAgentKey)
 		value.Presentation = FirstNonEmpty(options.Presentation, "task")
 		return value
 	case stream.InputLLMRequest:
 		value.ActorType = "agent"
-		value.TeamID = strings.TrimSpace(teamID)
+
 		value.AgentKey = strings.TrimSpace(task.Spec.SubAgentKey)
 		value.Presentation = FirstNonEmpty(options.Presentation, "task")
 		return value

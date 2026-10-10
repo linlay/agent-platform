@@ -40,7 +40,7 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 		AccessLevel: status.AccessLevel,
 		ChatID:      status.ChatID,
 		AgentKey:    status.AgentKey,
-		TeamID:      status.TeamID,
+
 		Status:      PublicStatus(status.State),
 		LastSeq:     status.LastSeq,
 		StartedAt:   status.StartedAt,

@@ -29,10 +29,10 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
-	seedAgentModeChat(t, store, "chat-react", "loyw3v28", "agent-react", "", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "PLAN-EXECUTE", 2_000)
-	seedAgentModeChat(t, store, "chat-team", "loyw3v2a", "", "team-a", "TEAM", 3_000)
-	if _, _, err := store.EnsureChat("chat-history", "agent-history", "", "legacy"); err != nil {
+	seedAgentModeChat(t, store, "chat-react", "loyw3v28", "agent-react", "REACT", 1_000)
+	seedAgentModeChat(t, store, "chat-plan", "loyw3v29", "agent-plan", "PLAN-EXECUTE", 2_000)
+	seedAgentModeChat(t, store, "chat-team", "loyw3v2a", "", "TEAM", 3_000)
+	if _, _, err := store.EnsureChat("chat-history", "agent-history", "legacy"); err != nil {
 		t.Fatalf("ensure historical chat: %v", err)
 	}
 
@@ -45,10 +45,10 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode mode-filtered HTTP response: %v", err)
 	}
-	if got := apiChatIDs(response.Data); strings.Join(got, ",") != "chat-team,chat-plan,chat-react" {
+	if got := apiChatIDs(response.Data); strings.Join(got, ",") != "chat-plan,chat-react" {
 		t.Fatalf("unexpected HTTP order: %v", got)
 	}
-	if response.Data[0].Mode != "TEAM" || response.Data[1].Mode != "PLAN-EXECUTE" || response.Data[2].Mode != "GENERAL" {
+	if response.Data[0].Mode != "PLAN-EXECUTE" || response.Data[1].Mode != "GENERAL" {
 		t.Fatalf("expected normalized summary modes, got %#v", response.Data)
 	}
 	if strings.Contains(rec.Body.String(), `"agentMode"`) {
@@ -69,7 +69,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown mode must fail, status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, mode := range []string{"REACT", "react", "TEAM", "PLAN_EXECUTE", "ONESHOT"} {
+	for _, mode := range []string{"REACT", "react", "PLAN_EXECUTE", "ONESHOT"} {
 		rec = httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode="+mode, nil))
 		if rec.Code != http.StatusBadRequest {
@@ -82,7 +82,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode react-only response: %v", err)
 	}
-	if got := apiChatIDs(response.Data); strings.Join(got, ",") != "chat-team,chat-react" {
+	if got := apiChatIDs(response.Data); strings.Join(got, ",") != "chat-react" {
 		t.Fatalf("team-owned chats should remain alongside matching agents, got %#v", response.Data)
 	}
 	rec = httptest.NewRecorder()
@@ -133,7 +133,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode websocket summaries: %v", err)
 	}
-	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-team,chat-plan,chat-react" || data[0].Mode != "TEAM" || data[1].Mode != "PLAN-EXECUTE" || data[2].Mode != "GENERAL" {
+	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-plan,chat-react" || len(data) != 2 || data[0].Mode != "PLAN-EXECUTE" || data[1].Mode != "GENERAL" {
 		t.Fatalf("unexpected websocket mode filter result: %#v", data)
 	}
 	if err := conn.WriteJSON(ws.RequestFrame{
@@ -168,29 +168,29 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 }
 
-func seedAgentModeChat(t *testing.T, store *chat.FileStore, chatID string, runID string, agentKey string, teamID string, agentMode string, offset int64) {
+func seedAgentModeChat(t *testing.T, store *chat.FileStore, chatID string, runID string, agentKey string, agentMode string, offset int64) {
 	t.Helper()
-	if _, _, err := store.EnsureChatWithSourceAndMode(chatID, agentKey, teamID, "question", "", agentMode); err != nil {
+	if _, _, err := store.EnsureChatWithSourceAndMode(chatID, agentKey, "question", "", agentMode); err != nil {
 		t.Fatalf("ensure %s: %v", chatID, err)
 	}
 	startedAt := int64(1_700_000_000_000 + offset)
 	if err := store.OnRunStarted(chat.RunStart{
-		ChatID:          chatID,
-		RunID:           runID,
-		AgentKey:        agentKey,
-		AgentMode:       agentMode,
-		TeamID:          teamID,
+		ChatID:    chatID,
+		RunID:     runID,
+		AgentKey:  agentKey,
+		AgentMode: agentMode,
+
 		InitialMessage:  "question",
 		StartedAtMillis: startedAt,
 	}); err != nil {
 		t.Fatalf("start %s: %v", chatID, err)
 	}
 	if err := store.OnRunCompleted(chat.RunCompletion{
-		ChatID:          chatID,
-		RunID:           runID,
-		AgentKey:        agentKey,
-		AgentMode:       agentMode,
-		TeamID:          teamID,
+		ChatID:    chatID,
+		RunID:     runID,
+		AgentKey:  agentKey,
+		AgentMode: agentMode,
+
 		InitialMessage:  "question",
 		AssistantText:   "answer",
 		FinishReason:    "complete",

@@ -22,23 +22,21 @@ func TestResolveExportAssistantUsesPublicIdentityAndSafeIcon(t *testing.T) {
 	fixture := newTestFixture(t)
 	fixture.server.deps.Registry = channelTestCatalogRegistry{
 		defs: map[string]catalog.AgentDefinition{
-			"writer": {Name: "Writer", Icon: map[string]any{"name": "chat"}},
-			"custom": {Name: "Custom", Icon: "https://example.com/photo.png"},
-		},
-		teams: map[string]catalog.TeamDefinition{
+			"writer":   {Name: "Writer", Icon: map[string]any{"name": "chat"}},
+			"custom":   {Name: "Custom", Icon: "https://example.com/photo.png"},
 			"team-one": {Name: "Research Team", Icon: map[string]any{"name": "../bad"}},
 		},
 	}
 	bindTestRuntime(fixture.server)
 	for _, tc := range []struct {
-		agentKey, teamID, name, iconName string
+		agentKey, name, iconName string
 	}{
-		{"writer", "", "Writer", "chat"},
-		{"custom", "", "Custom", ""},
-		{"writer", "team-one", "Research Team", ""},
-		{"deleted", "", "", ""},
+		{"writer", "Writer", "chat"},
+		{"custom", "Custom", ""},
+		{"team-one", "Research Team", ""},
+		{"deleted", "", ""},
 	} {
-		assistant := fixture.server.resolveExportAssistant(tc.agentKey, tc.teamID)
+		assistant := fixture.server.resolveExportAssistant(tc.agentKey)
 		if tc.name == "" {
 			if assistant != nil {
 				t.Fatalf("deleted owner returned %#v", assistant)
@@ -46,7 +44,7 @@ func TestResolveExportAssistantUsesPublicIdentityAndSafeIcon(t *testing.T) {
 			continue
 		}
 		if assistant == nil || assistant.Name != tc.name || assistant.IconName != tc.iconName {
-			t.Fatalf("owner %q/%q returned %#v", tc.agentKey, tc.teamID, assistant)
+			t.Fatalf("owner %q/%q returned %#v", tc.agentKey, "", assistant)
 		}
 	}
 }
@@ -142,7 +140,7 @@ func TestHandleChatExportKeepsBodyWhenManifestIsUnreadable(t *testing.T) {
 func TestHandleChatExportSnapshotRetainsJSONSizeLimit(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-snapshot-too-large"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "large"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "large"); err != nil {
 		t.Fatal(err)
 	}
 	startedAt := time.Now().UnixMilli()

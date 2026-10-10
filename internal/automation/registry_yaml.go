@@ -23,9 +23,7 @@ func renderDefinition(def Definition) []byte {
 	if strings.TrimSpace(def.AgentKey) != "" {
 		writeYAMLKeyValue(&b, 0, "agentKey", def.AgentKey)
 	}
-	if strings.TrimSpace(def.TeamID) != "" {
-		writeYAMLKeyValue(&b, 0, "teamId", def.TeamID)
-	}
+
 	if strings.TrimSpace(def.Environment.ZoneID) != "" {
 		writeYAMLKeyValue(&b, 0, "environment", map[string]any{
 			"zoneId": def.Environment.ZoneID,

@@ -16,38 +16,32 @@ import (
 
 type fixedTeamRegistry struct {
 	testCatalogRegistry
-	team   catalog.TeamDefinition
+	team   catalog.AgentDefinition
 	agents map[string]catalog.AgentDefinition
 }
 
 func (r fixedTeamRegistry) DefaultAgentKey() string { return "writer" }
 func (r fixedTeamRegistry) AgentDefinition(key string) (catalog.AgentDefinition, bool) {
+	if key == r.team.Key && key != "" {
+		return r.team, true
+	}
 	def, ok := r.agents[key]
 	return def, ok
 }
-func (r fixedTeamRegistry) TeamDefinition(teamID string) (catalog.TeamDefinition, bool) {
-	if teamID != r.team.TeamID {
-		return catalog.TeamDefinition{}, false
-	}
-	return r.team, true
-}
-func (r fixedTeamRegistry) ResolveTeam(teamID string) (catalog.TeamSnapshot, bool) {
-	if teamID != r.team.TeamID {
-		return catalog.TeamSnapshot{}, false
-	}
+
+func (r fixedTeamRegistry) ResolveTeam(key string) (catalog.TeamSnapshot, bool) {
+
 	return catalog.NewTeamSnapshot(r.team, r.agents), true
 }
 
 func orchestratedTeamTestRegistry() fixedTeamRegistry {
 	return fixedTeamRegistry{
-		team: catalog.TeamDefinition{
-			TeamID: "research", Name: "Research", Description: "Research team",
-			RuntimeMode: catalog.TeamRuntimeModeOrchestrated,
-			AgentKeys:   []string{"writer", "reviewer"},
-			Orchestrator: catalog.TeamOrchestratorConfig{
-				ModelKey: "mock-model", MaxParallel: 2,
-			},
-			SoulPrompt: "Be precise.",
+		team: catalog.AgentDefinition{
+			Name: "Research", Description: "Research team",
+
+			ModelKey: "mock-model",
+
+			SoulPrompt: "Be precise.", Key: "research", Mode: "TEAM", TeamConfig: &catalog.TeamConfig{Members: []string{"writer", "reviewer"}, MaxParallel: 2},
 		},
 		agents: map[string]catalog.AgentDefinition{
 			"writer":   {Key: "writer", Name: "Writer", Role: "draft", Description: "writes drafts", Mode: "REACT"},
@@ -56,73 +50,64 @@ func orchestratedTeamTestRegistry() fixedTeamRegistry {
 	}
 }
 
-func TestResolveQueryTeamOrchestratedNeverSelectsDefaultMember(t *testing.T) {
+func TestResolveTEAMByAgentKeyAndEnforceOwner(t *testing.T) {
 	registry := orchestratedTeamTestRegistry()
-	teamID, agentKey, snapshot, statusErr := resolveQueryTeam(registry, "research", "", nil)
-	if statusErr != nil {
-		t.Fatalf("resolveQueryTeam error: %v", statusErr)
+	key, snapshot, err := resolveAgentTarget(registry, "research", nil)
+	if err != nil || key != "research" || snapshot == nil {
+		t.Fatalf("resolution: %s %#v %v", key, snapshot, err)
 	}
-	if teamID != "research" || agentKey != "" || snapshot == nil || snapshot.RuntimeMode != catalog.TeamRuntimeModeOrchestrated {
-		t.Fatalf("unexpected resolution team=%q agent=%q snapshot=%#v", teamID, agentKey, snapshot)
-	}
-
-	_, _, _, statusErr = resolveQueryTeam(registry, "research", "writer", nil)
-	if statusErr == nil || statusErr.Status != http.StatusBadRequest || !strings.Contains(statusErr.Message, "must be omitted") {
-		t.Fatalf("expected agentKey bypass rejection, got %#v", statusErr)
-	}
-	_, _, _, statusErr = resolveQueryTeam(registry, "", "", &chat.Summary{TeamID: "research", AgentKey: "former-member"})
-	if statusErr == nil || statusErr.Status != http.StatusBadRequest || !strings.Contains(statusErr.Message, "historical Team chat") {
-		t.Fatalf("historical Team chat must not resume, got %#v", statusErr)
+	_, _, err = resolveAgentTarget(registry, "writer", &chat.Summary{AgentKey: "research"})
+	if err == nil || err.Status != 409 {
+		t.Fatalf("owner mismatch: %v", err)
 	}
 }
 
-func TestResolveQueryTeamInheritsExistingNonTeamAgent(t *testing.T) {
+func TestResolveAgentTargetInheritsExistingNonTeamAgent(t *testing.T) {
 	registry := fixedTeamRegistry{
 		agents: map[string]catalog.AgentDefinition{
 			"owner":  {Key: "owner", Mode: "REACT"},
 			"writer": {Key: "writer", Mode: "CHANNEL"},
 		},
 	}
-
-	teamID, agentKey, snapshot, statusErr := resolveQueryTeam(registry, "", "", &chat.Summary{AgentKey: "owner"})
+	agentKey, snapshot, statusErr := resolveAgentTarget(registry, "", &chat.Summary{AgentKey: "owner"})
 	if statusErr != nil {
-		t.Fatalf("resolveQueryTeam error: %v", statusErr)
+		t.Fatalf("resolveAgentTarget error: %v", statusErr)
 	}
-	if teamID != "" || agentKey != "owner" || snapshot != nil {
-		t.Fatalf("expected non-Team chat owner to be inherited, got team=%q agent=%q snapshot=%#v", teamID, agentKey, snapshot)
+	if agentKey != "owner" || snapshot != nil {
+		t.Fatalf("expected non-Team chat owner to be inherited, got team=%q agent=%q snapshot=%#v", "", agentKey, snapshot)
 	}
 }
 
-func TestResolveQueryTeamRejectsUnrunnableMemberBeforeStartingRun(t *testing.T) {
+func TestResolveAgentTargetRejectsUnrunnableMemberBeforeStartingRun(t *testing.T) {
 	registry := orchestratedTeamTestRegistry()
 	member := registry.agents["reviewer"]
 	member.Mode = "UNSUPPORTED"
 	registry.agents["reviewer"] = member
-	_, _, _, statusErr := resolveQueryTeam(registry, "research", "", nil)
+	_, _, statusErr := resolveAgentTarget(registry, "research", nil)
 	if statusErr == nil || statusErr.Status != http.StatusServiceUnavailable || !strings.Contains(statusErr.Message, "reviewer") {
 		t.Fatalf("expected unrunnable member rejection, got %#v", statusErr)
 	}
 }
 
-func TestPrepareQueryAdmissionSynthesizesHiddenTeamCoordinator(t *testing.T) {
+func TestPrepareQueryAdmissionUsesPublicTEAMAgent(t *testing.T) {
 	registry := orchestratedTeamTestRegistry()
 	server := &Server{deps: Dependencies{Registry: registry}}
-	req := api.QueryRequest{TeamID: "research", Message: "compare approaches"}
+	req := api.QueryRequest{AgentKey: "research", Message: "compare approaches"}
 
 	admission, err := server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if err != nil {
 		t.Fatalf("prepareQueryAdmissionRequest: %v", err)
 	}
-	if !admission.OrchestratedTeam || admission.Req.AgentKey != "" || admission.AgentDef.Mode != agentteam.Mode {
+	if !admission.OrchestratedTeam || admission.Req.AgentKey != "research" || admission.AgentDef.Mode != agentteam.Mode {
 		t.Fatalf("unexpected Team admission %#v", admission)
 	}
-	if admission.AgentDef.Key != hiddenTeamAgentKey("research") || admission.AgentDef.ModelKey != "mock-model" {
+	if admission.AgentDef.Key != "research" || admission.AgentDef.ModelKey != "mock-model" {
 		t.Fatalf("unexpected coordinator definition %#v", admission.AgentDef)
 	}
-	if strings.Join(admission.AgentDef.Tools, ",") != strings.Join(agentteam.DefaultToolNames(), ",") {
+	if len(admission.AgentDef.Tools) != 0 {
 		t.Fatalf("unexpected coordinator default tools %#v", admission.AgentDef.Tools)
 	}
-	if _, visible := registry.AgentDefinition(admission.AgentDef.Key); visible {
+	if _, visible := registry.AgentDefinition(admission.AgentDef.Key); !visible {
 		t.Fatal("synthetic coordinator leaked into Agent registry")
 	}
 }
@@ -130,7 +115,7 @@ func TestPrepareQueryAdmissionSynthesizesHiddenTeamCoordinator(t *testing.T) {
 func TestConfigureTeamCoordinatorSessionAddsOwnerPromptAndLocalTools(t *testing.T) {
 	registry := orchestratedTeamTestRegistry()
 	snapshot, _ := registry.ResolveTeam("research")
-	session := contracts.QuerySession{AgentKey: hiddenTeamAgentKey("research"), TeamID: "research", Mode: agentteam.Mode}
+	session := contracts.QuerySession{AgentKey: "research", Mode: agentteam.Mode}
 	definitions, err := toolruntime.LoadEmbeddedToolDefinitions()
 	if err != nil {
 		t.Fatalf("load embedded tools: %v", err)
@@ -144,7 +129,7 @@ func TestConfigureTeamCoordinatorSessionAddsOwnerPromptAndLocalTools(t *testing.
 	}
 
 	owner := contracts.ResolveRunOwner(session.RunOwner)
-	if !owner.IsTeam() || owner.TeamID != "research" || owner.AgentKey != "" || owner.ExecutionAgentKey != hiddenTeamAgentKey("research") {
+	if owner.AgentKey != "research" {
 		t.Fatalf("unexpected owner %#v", owner)
 	}
 	if session.TeamRuntime == nil || len(session.TeamRuntime.Members) != 2 || session.TeamRuntime.MaxParallel != 2 {
@@ -162,7 +147,7 @@ func TestConfigureTeamCoordinatorSessionAddsOwnerPromptAndLocalTools(t *testing.
 	if tasks["maxItems"] != 2 || len(enum) != 2 {
 		t.Fatalf("dynamic delegate schema was not frozen to roster: %#v", parameters)
 	}
-	for _, required := range []string{"agentKey=writer", "agentKey=reviewer", "Be precise."} {
+	for _, required := range []string{"agentKey=writer", "agentKey=reviewer"} {
 		if !strings.Contains(session.ModeSystemPrompt, required) {
 			t.Fatalf("Team prompt missing %q:\n%s", required, session.ModeSystemPrompt)
 		}
@@ -171,3 +156,46 @@ func TestConfigureTeamCoordinatorSessionAddsOwnerPromptAndLocalTools(t *testing.
 
 var _ catalog.Registry = fixedTeamRegistry{}
 var _ catalog.TeamResolver = fixedTeamRegistry{}
+
+func TestTEAMAdmissionValidatesEveryMember(t *testing.T) {
+	for _, kind := range []string{"missing", "team", "acp", "nested-invoke", "unsupported"} {
+		t.Run(kind, func(t *testing.T) {
+			r := orchestratedTeamTestRegistry()
+			member := r.agents["reviewer"]
+			switch kind {
+			case "team":
+				member.Mode = "TEAM"
+			case "acp":
+				member.Engine = "acp"
+			case "nested-invoke":
+				member.Tools = []string{"agent_invoke"}
+			case "unsupported":
+				member.Mode = "CHANNEL"
+			}
+			r.agents["reviewer"] = member
+			if kind == "missing" {
+				delete(r.agents, "reviewer")
+			}
+			_, _, err := resolveAgentTarget(r, "research", nil)
+			if err == nil || err.Status != 503 {
+				t.Fatalf("admission=%v", err)
+			}
+		})
+	}
+}
+func TestTEAMPlanningDoesNotInjectDelegate(t *testing.T) {
+	r := orchestratedTeamTestRegistry()
+	snapshot, _ := r.ResolveTeam("research")
+	definitions, err := toolruntime.LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, _ := teamDelegateBaseDefinition(definitions)
+	session := contracts.QuerySession{AgentKey: "research", Mode: "TEAM", PlanningMode: true, ToolNames: []string{"file_read"}}
+	if err := configureTeamCoordinatorSession(&session, snapshot, base); err != nil {
+		t.Fatal(err)
+	}
+	if len(session.ModeToolDefinitions) != 0 || len(session.ToolNames) != 1 || session.ToolNames[0] != "file_read" {
+		t.Fatalf("planning tools=%#v", session)
+	}
+}

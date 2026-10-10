@@ -30,7 +30,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 			})
 			store := fixture.chats.(*chat.FileStore)
 			const chatID = "historical-chat"
-			seedAgentModeChat(t, store, chatID, "historical-run", "mock-agent", "", "REACT", 1000)
+			seedAgentModeChat(t, store, chatID, "historical-run", "mock-agent", "REACT", 1000)
 			at := int64(1_700_000_001_000)
 			if err := store.AppendStepLine(chatID, chat.StepLine{
 				Type: chat.StepLineTypeReact, ChatID: chatID, RunID: "historical-run", Seq: 1, UpdatedAt: at,

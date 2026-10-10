@@ -67,7 +67,7 @@ func TestReviewPreparationPreservesInputError(t *testing.T) {
 }
 
 func TestRuntimeComponentListsActualAvailableNames(t *testing.T) {
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents"), TeamsDir: filepath.Join(t.TempDir(), "teams"), SkillsCenterDir: filepath.Join(t.TempDir(), "skills")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents"), SkillsCenterDir: filepath.Join(t.TempDir(), "skills")}}
 	t.Cleanup(func() {
 		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
 		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())

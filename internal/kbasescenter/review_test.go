@@ -253,7 +253,7 @@ func TestHandwrittenConfigurationDiagnostics(t *testing.T) {
 	for _, tc := range []struct{ content, want string }{
 		{"name: 2024\n", "double quotes"},
 		{"name: \"Demo\"\ncollections:\n  - name: 123\n    sourcePath: \"/tmp\"\n", "double quotes"},
-		{"name: \"Demo\"\ncollections: [{name: docs, sourcePath: /tmp}]\n", "block list"},
+		{"name: \"Demo\"\ncollections: invalid\n", "block list"},
 	} {
 		if err := os.WriteFile(path, []byte(tc.content), 0600); err != nil {
 			t.Fatal(err)

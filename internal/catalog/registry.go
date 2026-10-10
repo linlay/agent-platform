@@ -24,14 +24,12 @@ var ErrInvalidAgentSummaryScope = errors.New("invalid agent summary scope")
 
 type Registry interface {
 	Agents(tag string) []api.AgentSummary
-	Teams() []api.TeamSummary
 	Skills(tag string) []api.SkillSummary
 	SkillDefinition(key string) (SkillDefinition, bool)
 	Tools(tag string) []api.ToolSummary
 	Tool(name string) (api.ToolDetailResponse, bool)
 	DefaultAgentKey() string
 	AgentDefinition(key string) (AgentDefinition, bool)
-	TeamDefinition(teamID string) (TeamDefinition, bool)
 	Reload(ctx context.Context, reason string) error
 }
 
@@ -39,10 +37,11 @@ type Registry interface {
 // It is kept separate from Registry so narrow test and integration registries
 // that do not participate in team-scoped execution need not implement it.
 type TeamResolver interface {
-	ResolveTeam(teamID string) (TeamSnapshot, bool)
+	ResolveTeam(string) (TeamSnapshot, bool)
 }
 
 type AgentDefinition struct {
+	TeamConfig           *TeamConfig `json:"teamConfig,omitempty"`
 	InteractionConfig    *interaction.Config
 	Key                  string
 	Name                 string
@@ -197,27 +196,14 @@ type ToolAppendixPromptConfig struct {
 	AfterCallHintTitle   string
 }
 
-type TeamDefinition struct {
-	TeamID       string
-	Name         string
-	Description  string
-	Icon         any
-	AgentKeys    []string
-	RuntimeMode  string
-	Orchestrator TeamOrchestratorConfig
-	SoulPrompt   string
-	AgentsPrompt string
-	TeamDir      string
-}
+type TeamConfig = api.AgentTeamConfig
 
 const (
 	TeamRuntimeModeOrchestrated = "orchestrated"
 	TeamDefaultMaxParallel      = 5
 )
 
-// TeamOrchestratorConfig is the catalog-owned, immutable configuration used
-// to synthesize the hidden TEAM runtime agent. It deliberately contains no
-// public agent key and is never registered in the ordinary agent catalog.
+// TeamOrchestratorConfig freezes the root Agent execution settings.
 type TeamOrchestratorConfig struct {
 	ModelKey      string
 	ServiceTier   string
@@ -231,7 +217,8 @@ type TeamOrchestratorConfig struct {
 // snapshot for the lifetime of a run instead of consulting the hot-reloaded
 // registry again.
 type TeamSnapshot struct {
-	TeamID                  string
+	Coordinator             AgentDefinition
+	AgentKey                string
 	Name                    string
 	Description             string
 	Icon                    any
@@ -273,6 +260,9 @@ func (s TeamSnapshot) DeclaresAgent(agentKey string) bool {
 // resolved. The returned value is cloned so callers cannot mutate the
 // run-scoped snapshot through maps, slices, or pointer fields.
 func (s TeamSnapshot) AgentDefinition(agentKey string) (AgentDefinition, bool) {
+	if agentKey == s.Coordinator.Key && agentKey != "" {
+		return cloneAgentDefinitionSnapshot(s.Coordinator), true
+	}
 	def, ok := s.agentDefinitions[strings.TrimSpace(agentKey)]
 	if !ok {
 		return AgentDefinition{}, false
@@ -321,7 +311,6 @@ type FileRegistry struct {
 	// (currently incompatible KBASE control stores). A catalog reload must not
 	// resurrect one of these agents or try to adopt its storage again.
 	runtimeInvalidAgents map[string]AdminAgentDiagnostic
-	teams                map[string]TeamDefinition
 	skills               map[string]SkillDefinition
 }
 
@@ -339,7 +328,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	if err := cleanupEditableSkillImportStaging(cfg.Paths.SkillsCenterDir); err != nil {
 		return nil, fmt.Errorf("cleanup skill import staging: %w", err)
 	}
-	for _, other := range []string{cfg.Paths.AgentsDir, cfg.Paths.SkillsCenterDir, cfg.Paths.TeamsDir, cfg.Paths.ChatsDir, cfg.Paths.MemoryDir, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, cfg.Paths.RegistriesDir, cfg.Paths.ToolsDir, cfg.Paths.OwnerDir, cfg.Paths.RootDir, cfg.Paths.AutomationsDir, cfg.Paths.PanDir} {
+	for _, other := range []string{cfg.Paths.AgentsDir, cfg.Paths.SkillsCenterDir, cfg.Paths.ChatsDir, cfg.Paths.MemoryDir, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, cfg.Paths.RegistriesDir, cfg.Paths.ToolsDir, cfg.Paths.OwnerDir, cfg.Paths.RootDir, cfg.Paths.AutomationsDir, cfg.Paths.PanDir} {
 		if other != "" && connector.RootsOverlap(runtimeskills.Root(cfg.Paths.EffectiveRUAgentsDir()), other) {
 			return nil, fmt.Errorf("ru-skills overlaps runtime source: %s", other)
 		}
@@ -362,7 +351,6 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 		agents:               map[string]AgentDefinition{},
 		adminAgents:          map[string]AdminAgent{},
 		runtimeInvalidAgents: map[string]AdminAgentDiagnostic{},
-		teams:                map[string]TeamDefinition{},
 		skills:               map[string]SkillDefinition{},
 	}
 	if strings.TrimSpace(cfg.Paths.SkillsCenterDir) != "" {
@@ -384,7 +372,6 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 //
 //	"startup" / "" / "config" — reload everything
 //	"agents" — reload only agents
-//	"teams"  — reload only teams
 //	"skills" — reload only skills
 //
 // Other reasons fall through to a full reload.
@@ -422,16 +409,16 @@ func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason strin
 			}
 		}()
 	}
-	if reason != "teams" && reason != "skills" {
+	if reason != "skills" {
 		defer func() { r.reconcileRuntimePending(resultErr == nil) }()
 	}
 	r.mu.RLock()
-	oldAgents, oldAdmin, oldTeams, oldSkills := r.agents, r.adminAgents, r.teams, r.skills
+	oldAgents, oldAdmin, oldSkills := r.agents, r.adminAgents, r.skills
 	r.mu.RUnlock()
 	defer func() {
 		if resultErr != nil {
 			r.mu.Lock()
-			r.agents, r.adminAgents, r.teams, r.skills = oldAgents, oldAdmin, oldTeams, oldSkills
+			r.agents, r.adminAgents, r.skills = oldAgents, oldAdmin, oldSkills
 			r.mu.Unlock()
 			if r.assembler != nil {
 				_ = r.reconcileSharedPins()
@@ -476,15 +463,6 @@ func (r *FileRegistry) reloadLocked(reason string) error {
 		r.adminAgents = adminAgents
 		r.mu.Unlock()
 		return nil
-	case "teams":
-		teams, err := loadTeams(r.cfg.Paths.TeamsDir)
-		if err != nil {
-			return err
-		}
-		r.mu.Lock()
-		r.teams = teams
-		r.mu.Unlock()
-		return nil
 	case "skills":
 		skills, err := loadSkills(r.cfg.Paths.SkillsCenterDir, r.cfg.Skills.MaxPromptChars)
 		if err != nil {
@@ -501,10 +479,6 @@ func (r *FileRegistry) reloadLocked(reason string) error {
 	if err != nil {
 		return err
 	}
-	teams, err := loadTeams(r.cfg.Paths.TeamsDir)
-	if err != nil {
-		return err
-	}
 	skills, err := loadSkills(r.cfg.Paths.SkillsCenterDir, r.cfg.Skills.MaxPromptChars)
 	if err != nil {
 		return err
@@ -514,7 +488,6 @@ func (r *FileRegistry) reloadLocked(reason string) error {
 	r.applyRuntimeInvalidAgentsLocked(agents, adminAgents)
 	r.agents = agents
 	r.adminAgents = adminAgents
-	r.teams = teams
 	r.skills = skills
 	r.mu.Unlock()
 	return nil
@@ -787,44 +760,32 @@ func (r *FileRegistry) AgentDefinition(key string) (AgentDefinition, bool) {
 	return cloneAgentDefinitionSnapshot(def), ok
 }
 
-func (r *FileRegistry) TeamDefinition(teamID string) (TeamDefinition, bool) {
+// ResolveTeam captures the coordinator and roster from a single catalog revision.
+func (r *FileRegistry) ResolveTeam(agentKey string) (TeamSnapshot, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	def, ok := r.teams[teamID]
-	if !ok {
-		return TeamDefinition{}, false
-	}
-	return cloneTeamDefinitionSnapshot(def), true
-}
-
-// ResolveTeam atomically resolves a team definition together with the current
-// agent catalog. Member keys are normalized and de-duplicated while preserving
-// declaration order.
-func (r *FileRegistry) ResolveTeam(teamID string) (TeamSnapshot, bool) {
-	teamID = strings.TrimSpace(teamID)
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	team, ok := r.teams[teamID]
-	if !ok {
+	def, ok := r.agents[strings.TrimSpace(agentKey)]
+	if !ok || def.Mode != "TEAM" || def.TeamConfig == nil {
 		return TeamSnapshot{}, false
 	}
-	return resolveTeamSnapshotLocked(team, r.agents), true
+	return resolveTeamSnapshotLocked(def, r.agents), true
 }
 
-func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefinition) TeamSnapshot {
+func resolveTeamSnapshotLocked(team AgentDefinition, agents map[string]AgentDefinition) TeamSnapshot {
 	snapshot := TeamSnapshot{
-		TeamID:           strings.TrimSpace(team.TeamID),
+		AgentKey:         strings.TrimSpace(team.Key),
+		Coordinator:      cloneAgentDefinitionSnapshot(team),
 		Name:             strings.TrimSpace(team.Name),
 		Description:      strings.TrimSpace(team.Description),
 		Icon:             cloneAgentSnapshotValue(team.Icon),
 		RuntimeMode:      TeamRuntimeModeOrchestrated,
-		Orchestrator:     cloneTeamOrchestratorConfig(team.Orchestrator),
+		Orchestrator:     TeamOrchestratorConfig{ModelKey: team.ModelKey, ServiceTier: team.ServiceTier, Budget: cloneAgentSnapshotMap(team.Budget), StageSettings: cloneAgentSnapshotMap(team.StageSettings), MaxParallel: team.TeamConfig.MaxParallel},
 		SoulPrompt:       strings.TrimSpace(team.SoulPrompt),
 		AgentsPrompt:     strings.TrimSpace(team.AgentsPrompt),
 		agentDefinitions: make(map[string]AgentDefinition),
 	}
-	seen := make(map[string]struct{}, len(team.AgentKeys))
-	for _, raw := range team.AgentKeys {
+	seen := make(map[string]struct{}, len(team.TeamConfig.Members))
+	for _, raw := range team.TeamConfig.Members {
 		key := strings.TrimSpace(raw)
 		if key == "" {
 			continue
@@ -848,11 +809,11 @@ func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefin
 	return snapshot
 }
 
-// NewTeamSnapshot resolves a standalone team definition against an explicit
+// NewTeamSnapshot resolves a TEAM Agent definition against an explicit
 // agent set. FileRegistry.ResolveTeam performs the same operation atomically
 // under its catalog read lock; this constructor is for narrow registry
 // adapters and tests that cannot implement that atomic interface.
-func NewTeamSnapshot(team TeamDefinition, agents map[string]AgentDefinition) TeamSnapshot {
+func NewTeamSnapshot(team AgentDefinition, agents map[string]AgentDefinition) TeamSnapshot {
 	return resolveTeamSnapshotLocked(team, agents)
 }
 
@@ -863,16 +824,13 @@ func cloneTeamOrchestratorConfig(src TeamOrchestratorConfig) TeamOrchestratorCon
 	return dst
 }
 
-func cloneTeamDefinitionSnapshot(src TeamDefinition) TeamDefinition {
-	dst := src
-	dst.Icon = cloneAgentSnapshotValue(src.Icon)
-	dst.AgentKeys = append([]string(nil), src.AgentKeys...)
-	dst.Orchestrator = cloneTeamOrchestratorConfig(src.Orchestrator)
-	return dst
-}
-
 func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst := src
+	if src.TeamConfig != nil {
+		c := *src.TeamConfig
+		c.Members = append([]string(nil), c.Members...)
+		dst.TeamConfig = &c
+	}
 	dst.Icon = cloneAgentSnapshotValue(src.Icon)
 	dst.Greetings = append([]string(nil), src.Greetings...)
 	dst.Introductions = append([]string(nil), src.Introductions...)

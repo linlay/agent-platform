@@ -285,10 +285,10 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 		return queryinput.SubmitResponse{}, err
 	}
 	if response, handled, err := s.resolvePersistedAwaitingSubmit(queryinput.SubmitRequest{
-		ChatID:     firstNonBlank(req.ChatID, deferred.ChatID),
-		RunID:      req.RunID,
-		AgentKey:   req.AgentKey,
-		TeamID:     req.TeamID,
+		ChatID:   firstNonBlank(req.ChatID, deferred.ChatID),
+		RunID:    req.RunID,
+		AgentKey: req.AgentKey,
+
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
 		Locale:     req.Locale,

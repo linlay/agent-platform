@@ -18,6 +18,9 @@ type continuationLeaseRegistry struct {
 	frozen   bool
 }
 
+func (r *continuationLeaseRegistry) AgentDefinition(key string) (catalog.AgentDefinition, bool) {
+	return catalog.AgentDefinition{Key: key, Mode: "GENERAL"}, true
+}
 func (r *continuationLeaseRegistry) AcquireAgentRuntime(key string) (catalog.AgentDefinition, func(), bool) {
 	return catalog.AgentDefinition{Key: key}, func() { r.released++ }, true
 }

@@ -172,7 +172,7 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 			def.ConnectorSkills = append(def.ConnectorSkills, ConnectorSkill{ID: key, ConnectorID: id, Name: skill.Name, RuntimeDir: skill.Dir})
 		}
 	}
-	return nil
+	return validateTeamTools(*def)
 }
 
 func (a *runtimeAgentAssembler) resolveEffectiveSkillSource(source EditableAgentSource, def AgentDefinition, id string) (string, error) {

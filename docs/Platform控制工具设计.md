@@ -2,7 +2,7 @@
 
 `builtin.platform-control` 是 Platform 内嵌、只读、无需认证的 native 连接器。显式挂载后导入 9 个工具和 `platform-control` 技能，不自动授予 Bash。仅声明工具名不能获得连接器执行授权。`run_env` 保持独立。管理连接器主要由部署者为平台主智能体显式配置；源码不包含主智能体名单，不从业务类型或旧工具声明推导管理授权。
 
-`catalog_*` 工具有两个：`catalog_query`（查询平台资源）和 `catalog_manage`（管理平台资源）。这里的 Catalog 指平台资源清单，包含 Agent、Team、Skill、Connector、Model、Provider、Tool 与 MCP 组件。
+`catalog_*` 工具有两个：`catalog_query`（查询平台资源）和 `catalog_manage`（管理平台资源）。这里的 Catalog 指平台资源清单，包含 Agent（含 TEAM）、Skill、Connector、Model、Provider、Tool 与 MCP 组件。
 
 | 工具 | action | 执行环境 |
 | --- | --- | --- |
@@ -20,17 +20,17 @@
 
 平台、任务与看板连接器的 `action/args` 管理工具，`description` 只说明能力和对应 Skill 入口，不重复动作清单、参数表、示例或业务约束；`args.description` 只指向对应 Skill 手册。动作参数、类型、默认值、审批边界和重试规则由 Skill 及其 references 说明，模型应先读技能入口，再读本次操作所需章节。静态 Schema 保留现有枚举与类型校验，服务端继续负责执行准入。
 
-Standalone 隐藏七个 Desktop 工具；Catalog/Chat/Automation 在子任务、Team、BTW/Explain 中隐藏并在执行时再次拒绝。ACP/Proxy/Channel 不经过 native 执行入口。planning/read-only 仅允许平台只读动作；七个 Desktop 管理工具全部禁止 planning，并按顺序屏障执行，包括其只读动作。未知动作按非只读处理。
+Standalone 隐藏七个 Desktop 工具；Catalog/Chat/Automation 在子任务、BTW/Explain 中隐藏并在执行时再次拒绝。ACP/Proxy/Channel 不经过 native 执行入口。planning/read-only 仅允许平台只读动作；七个 Desktop 管理工具全部禁止 planning，并按顺序屏障执行，包括其只读动作。未知动作按非只读处理。
 
 `configs/agent-settings.yml` 支持全局和 mode `preset-connectors`，示例预置 `builtin.web-control` 与 `builtin.task-control`。普通 native GENERAL/CODER/KBASE 合并整包挂载，去重且不回写 Agent 源码；ACP/隐藏 Team 协调器不注入。连接器列表返回 `presetConnectorIds`、`declaredConnectorIds` 和包含两者的 `connectorIds`；预置项不可从单个 Agent 取消。删除连接器也检查全局及所有 mode 预置引用。平台管理连接器仍不进入默认预置。
 
 看板工具 `desktop_kanban` 已迁入独立的 `builtin.kanban-control`。Chat 与 Automation 已迁入独立的 `builtin.task-control`，原有服务和审批实现继续复用；本文相关章节保留协议说明，不代表它们仍由 platform-control 挂载。
 
-Agent 发现复用 `catalog_query.list`（resourceType=agent），条目增加 key/name/role/description/mode/invocable，包含当前 Agent，排除隐藏 TEAM 协调器；不按旧候选配置过滤。invocable 复用 agent_invoke 的静态目标校验，不代表调用者权限，chat_start 的目标契约不变。旧候选字段与标签忽略并提供一条非阻断管理 warning，不再常驻注入 prompt。分页默认 20，公共入口校验 limit 为 1–100 整数，内部切片前另做 1–100 防御夹取。管理诊断沿用现有 SourcePath/错误详情契约，可能暴露 Host 源路径，不应宣称为路径脱敏接口；新弃用告警不携带路径或候选值。完整说明见 [Agent 发现](智能体配置说明.md#agent-发现与旧候选配置)。
+Agent 发现复用 `catalog_query.list`（resourceType=agent），条目增加 key/name/role/description/mode/invocable，包含当前 Agent，包含公开 TEAM Agent；不按旧候选配置过滤。invocable 复用 agent_invoke 的静态目标校验，不代表调用者权限，chat_start 的目标契约不变。旧候选字段与标签忽略并提供一条非阻断管理 warning，不再常驻注入 prompt。分页默认 20，公共入口校验 limit 为 1–100 整数，内部切片前另做 1–100 防御夹取。管理诊断沿用现有 SourcePath/错误详情契约，可能暴露 Host 源路径，不应宣称为路径脱敏接口；新弃用告警不携带路径或候选值。完整说明见 [Agent 发现](智能体配置说明.md#agent-发现与旧候选配置)。
 
 ## Catalog 源文件事务
 
-查询支持 Agent、Team、Skill、Connector、Model、Provider、Tool、MCP 组件；`resourceTypes {}` 返回类型与操作能力矩阵。列表默认 20 条，支持 1–100 条分页，返回 `items/nextCursor/total/hasMore`；total 为当前请求按 status 筛选后的数量，不冻结跨页快照。必须用同一 resourceType/status 跟进 nextCursor 到空才能报告完整清单。可编辑源 get 返回脱敏 content、目录内容摘要 baseRevision、editable 和 redactedPaths；只读资源返回白名单 definition。
+查询支持 Agent（含 TEAM）、Skill、Connector、Model、Provider、Tool、MCP 组件；`resourceTypes {}` 返回类型与操作能力矩阵。列表默认 20 条，支持 1–100 条分页，返回 `items/nextCursor/total/hasMore`；total 为当前请求按 status 筛选后的数量，不冻结跨页快照。必须用同一 resourceType/status 跟进 nextCursor 到空才能报告完整清单。可编辑源 get 返回脱敏 content、目录内容摘要 baseRevision、editable 和 redactedPaths；只读资源返回白名单 definition。
 
 | resourceType | list/get | validate/apply | delete | 边界 |
 | --- | --- | --- | --- | --- |
@@ -55,7 +55,6 @@ Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。
 可修改范围：
 
 - Agent：agent.yml、SOUL.md、AGENTS.md。
-- Team：team.yml / team.yaml；不能删除 Team。
 - Skill：SKILL.md 和相对文本文件；package/member 与 package.json 成员列表一起发布，创建包仍使用现有管理入口。含 package.json 的包根不能作为普通 skill 操作，必须指定 package/member。
 - 外部 Connector：已有包仅编辑 connector.json；新建 HTTP MCP 可额外传 mcpUrl，由平台生成 mcp.json，与清单一起审批、校验及原子发布。不提供 CLI 安装或通用文件写入。需要登录使用 auth_mode=mcp，复用现有 .well-known 发现、PKCE、回调和刷新；公开服务可显式 no_auth。创建候选在审批前复用登录的本地校验：MCP OAuth 地址要求 HTTPS，保留 localhost、127.0.0.1 和 ::1 的 HTTP 例外；no_auth 的 HTTP(S) 范围不变。保存候选不发起远端请求。
 

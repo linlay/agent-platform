@@ -19,7 +19,7 @@ func TestRunConnectorSnapshotRetainsVersionAcrossRestart(t *testing.T) {
 
 func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), StateDir: filepath.Join(root, ".state"), TeamsDir: filepath.Join(root, "teams"), SkillsCenterDir: filepath.Join(root, "skills")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), StateDir: filepath.Join(root, ".state"), SkillsCenterDir: filepath.Join(root, "skills")}}
 	if err := connector.WriteBuiltin(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin."+name), name, ""); err != nil {
 		t.Fatal(err)
 	}

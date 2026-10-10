@@ -104,7 +104,7 @@ Agent runtimeConfig.env
 
 后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启后的续接 run 从空动态层开始。`mustUseSkills` 不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；普通 Host Shell 不自动获得 `AP_ACCESS_TOKEN`；经验证的单条直接 oneid-token CLI 调用在独立子进程中使用该变量，已挂载 oneid-token stdio MCP 也在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
 
-ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子任务 session 时即使复用相同 RunID 也禁止取得 root Scope。`chat_start` 新 root、子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 与长期服务都不继承。
+ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子任务 session 时即使复用相同 RunID 也禁止取得 root Scope。`chat_start` 新 root、子 Agent、TEAM 成员、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 与长期服务都不继承。
 
 ## 发布与热重载
 
@@ -115,7 +115,7 @@ ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子�
 - 配置解析、校验或组装失败时，继续使用最近成功版本，管理端保留来源错误并显示 `runtime_last_good_version`。删除来源阻止新准入，旧租约继续收尾。首次启动无有效版本时仍不可用。
 - 管理 Meta 提供 `runtimeRevision`、`runtimeSynchronized`、`runtimeRetainedVersions`、`runtimeLeaseCount`。这些描述进程内状态，不形成历史记录。全树损坏不允许以最近成功版本为由绕过校验。
 - 发布、引用计数及 GC 使用同一进程内互斥边界。释放租约仅在至少一个版本引用计数归零时触发回收扫描；扫描与删除仍在锁内进行，重载后的回收不变。准入先在锁内冻结定义、捕获可信摘要并保留临时租约，再在锁外做全树校验；临时引用阻止 GC 或修复替换该版本，校验失败释放引用并拒绝准入。准入的版本选择以保留临时租约时为准。目录 watcher 仍串行重载，组装并发上限为 1；reload 的组装与校验仍持锁，会阻塞新的版本选择。本地绑定失败恢复原 Catalog；连接器版本化 MCP、Run pin 与回收仍使用现有机制。
-- 同一进程内冻结 Agent 定义、自有文件、普通 Skill 和已冻结 Team 定义；不新增模型/Provider、独立工具、全局 MCP、Memory、Owner 或知识内容的历史冻结保证。重启后等待 Run 使用当前定义继续，不因本次改造主动终结；原有安全校验和恢复错误仍生效。
+- 同一进程内冻结 Agent 定义、自有文件、普通 Skill 和已冻结 TEAM 总控与成员定义；不新增模型/Provider、独立工具、全局 MCP、Memory、Owner 或知识内容的历史冻结保证。重启后等待 Run 使用当前定义继续，不因本次改造主动终结；原有安全校验和恢复错误仍生效。
 
 `agents/`、`skills-center/`、`connectors-center/` 变化沿用现有级联。生成目录不监听、不提交、不打包。大 Skill 的全树摘要会增加准入及重载 I/O，锁外校验允许并发但不消除磁盘带宽竞争。缺失 Skill 引用元数据或冻结 Agent 路径时直接失败，不回退到旧目录布局。
 

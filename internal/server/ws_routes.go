@@ -182,7 +182,6 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/agent", s.wsAgent)
 	handler.RegisterRoute("/api/agent/model-config", s.wsAgentModelConfig)
 	handler.RegisterRoute("/api/model-options", s.wsModelOptions)
-	handler.RegisterRoute("/api/teams", s.wsTeams)
 	handler.RegisterRoute("/api/skills", s.wsAgentSkills)
 	handler.RegisterRoute("/api/connectors", s.wsConnectors)
 	handler.RegisterRoute("/api/agents/connectors", s.wsAgentConnectors)
@@ -236,7 +235,6 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	payload, err := ws.DecodePayload[struct {
 		IncludeChats int             `json:"includeChats"`
 		ChatsPinned  json.RawMessage `json:"chatsPinned"`
-		IncludeTeam  bool            `json:"includeTeam"`
 		Scope        string          `json:"scope"`
 		Mode         string          `json:"mode"`
 		HasWorkspace json.RawMessage `json:"hasWorkspace"`
@@ -281,22 +279,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if payload.IncludeTeam {
-		items, listErr := s.listAgentCatalogSummariesWithPinned(payload.IncludeChats, scope, modes, pinned, hasWorkspace)
-		if listErr != nil {
-			if isTimeContractViolation(listErr) {
-				sendTimeContractViolation(conn, req.ID, listErr)
-				conn.CompleteRequest(req.ID)
-				return
-			}
-			conn.SendError(req.ID, "internal_error", 500, listErr.Error(), nil)
-			conn.CompleteRequest(req.ID)
-			return
-		}
-		conn.SendResponse(req.Type, req.ID, 0, "success", items)
-		conn.CompleteRequest(req.ID)
-		return
-	}
+
 	items, listErr := s.listAgentSummariesWithPinned(payload.IncludeChats, scope, modes, pinned, hasWorkspace)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
@@ -337,11 +320,6 @@ func (s *Server) wsModelOptions(_ context.Context, conn *ws.Conn, req ws.Request
 	}](req)
 	response := s.buildModelOptionsForAgent(payload.AgentKey)
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
-	conn.CompleteRequest(req.ID)
-}
-
-func (s *Server) wsTeams(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.deps.Registry.Teams())
 	conn.CompleteRequest(req.ID)
 }
 
@@ -803,7 +781,7 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 	if limit <= 0 {
 		limit = 20
 	}
-	hits, searchErr := s.deps.Chats.SearchGlobal(payload.Query, payload.AgentKey, payload.TeamID, limit)
+	hits, searchErr := s.deps.Chats.SearchGlobal(payload.Query, payload.AgentKey, limit)
 	if searchErr != nil {
 		if isTimeContractViolation(searchErr) {
 			sendTimeContractViolation(conn, req.ID, searchErr)
@@ -817,10 +795,10 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 	results := make([]api.GlobalSearchResult, 0, len(hits))
 	for _, hit := range hits {
 		results = append(results, api.GlobalSearchResult{
-			ChatID:         hit.ChatID,
-			ChatName:       hit.ChatName,
-			AgentKey:       hit.AgentKey,
-			TeamID:         hit.TeamID,
+			ChatID:   hit.ChatID,
+			ChatName: hit.ChatName,
+			AgentKey: hit.AgentKey,
+
 			RunID:          hit.RunID,
 			Kind:           hit.Kind,
 			Role:           hit.Role,

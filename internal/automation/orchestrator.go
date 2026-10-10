@@ -255,13 +255,11 @@ func (o *Orchestrator) registerLocked(def Definition) {
 
 	next := sched.Next(time.Now().In(loc))
 	log.Printf(
-		"[automation] registered id=%s name=%s cron=%s agentKey=%s teamId=%s nextFireTime=%s source=%s",
+		"[automation] registered id=%s name=%s cron=%s agentKey=%s nextFireTime=%s source=%s",
 		def.ID,
 		def.Name,
 		def.Cron,
-		def.AgentKey,
-		def.TeamID,
-		next.Format(time.RFC3339),
+		def.AgentKey, next.Format(time.RFC3339),
 		def.SourceFile,
 	)
 

@@ -52,10 +52,10 @@ type AwaitingRecoveryReader interface {
 
 type Store interface {
 	StepLineStore
-	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
-	EnsureChatWithSource(chatID string, agentKey string, teamID string, firstMessage string, source string) (Summary, bool, error)
-	EnsureChatWithSourceAndMode(chatID string, agentKey string, teamID string, firstMessage string, source string, agentMode string) (Summary, bool, error)
-	EnsureChatWithInitialName(chatID, agentKey, teamID, firstMessage, source, agentMode, initialName string) (Summary, bool, error)
+	EnsureChat(chatID string, agentKey string, firstMessage string) (Summary, bool, error)
+	EnsureChatWithSource(chatID string, agentKey string, firstMessage string, source string) (Summary, bool, error)
+	EnsureChatWithSourceAndMode(chatID string, agentKey string, firstMessage string, source string, agentMode string) (Summary, bool, error)
+	EnsureChatWithInitialName(chatID, agentKey, firstMessage, source, agentMode, initialName string) (Summary, bool, error)
 	PromotePendingChatName(chatID string, firstMessage string) (Summary, bool, error)
 	DeriveChat(request DeriveChatRequest) (DeriveChatResult, error)
 	RenameChat(chatID string, chatName string) (Summary, error)
@@ -82,18 +82,17 @@ type Store interface {
 	ListChatsWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]Summary, error)
 	ListChatsWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]Summary, error)
 	RecentChatsByAgent(agentKey string, limit int) ([]Summary, error)
-	RecentChatsByTeam(teamID string, limit int) ([]Summary, error)
+	RecentChatsByTeam(limit int) ([]Summary, error)
 	ListRuns(chatID string) ([]RunSummary, error)
 	LoadChat(chatID string) (Detail, error)
 	LoadRunTrace(chatID string, runID string) (RunTrace, error)
 	SearchSession(chatID string, query string, limit int) ([]SearchHit, error)
-	SearchGlobal(query string, agentKey string, teamID string, limit int) ([]GlobalSearchHit, error)
+	SearchGlobal(query string, agentKey string, limit int) ([]GlobalSearchHit, error)
 	MarkRead(chatID string, runID string) (Summary, error)
 	MarkAllRead(agentKey string) (int, error)
 	SetFeedback(chatID, runID, feedbackType, comment string) (int64, error)
 	DeleteChat(chatID string) error
 	AgentChatStats() (map[string]AgentChatStats, error)
-	TeamChatStats() (map[string]AgentChatStats, error)
 	ResolveResource(file string) (string, error)
 	ChatDir(chatID string) string
 }

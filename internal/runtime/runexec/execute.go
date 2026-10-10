@@ -192,15 +192,6 @@ func Execute(params ExecuteOptions) (result Result) {
 		if processingErr != nil {
 			return
 		}
-		// The TEAM coordinator is a hidden runtime actor. Its reasoning is part of
-		// the routing implementation, not user-visible conversation content.
-		// Child-agent reasoning is routed through emitInputs below and remains
-		// task-scoped, so this only suppresses the coordinator's own reasoning.
-		if params.Session.TeamRuntime != nil {
-			if _, ok := delta.(contracts.DeltaReasoning); ok {
-				return
-			}
-		}
 		if value, ok := delta.(contracts.DeltaRunContinuation); ok {
 			cloned := value
 			cloned.Answer = contracts.CloneMap(value.Answer)
@@ -213,9 +204,9 @@ func Execute(params ExecuteOptions) (result Result) {
 				return
 			}
 			if content, ok := input.(stream.ContentDelta); ok && params.Session.TeamRuntime != nil {
-				content.ActorType = "team"
-				content.TeamID = strings.TrimSpace(params.Session.TeamID)
-				content.AgentKey = ""
+				content.ActorType = "agent"
+
+				content.AgentKey = params.Session.AgentKey
 				content.Presentation = "reply"
 				input = content
 			}

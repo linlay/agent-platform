@@ -65,9 +65,9 @@ func TestStartBackgroundReloadersIgnoresDSStoreChanges(t *testing.T) {
 func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 	cfg := config.Config{
 		Paths: config.PathsConfig{
-			AgentsDir:       filepath.Join("runtime", "agents"),
-			RUAgentsDir:     filepath.Join("runtime", "ru-agents"),
-			TeamsDir:        filepath.Join("runtime", "teams"),
+			AgentsDir:   filepath.Join("runtime", "agents"),
+			RUAgentsDir: filepath.Join("runtime", "ru-agents"),
+
 			SkillsCenterDir: filepath.Join("runtime", "skills-center"),
 			RegistriesDir:   filepath.Join("runtime", "registries"),
 			ToolsDir:        filepath.Join("runtime", "tools"),
@@ -89,7 +89,6 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 
 	wantReasons := []string{
 		"agents",
-		"teams",
 		"skills",
 		"models",
 		"providers",
@@ -144,15 +143,7 @@ func TestRuntimeCatalogReloaderCascadesSkillsToAgents(t *testing.T) {
 	if want := []string{"skills"}; !reflect.DeepEqual(observer.reasons, want) {
 		t.Fatalf("observer reasons = %#v, want %#v", observer.reasons, want)
 	}
-	if err := reloader.Reload(context.Background(), "teams"); err != nil {
-		t.Fatalf("reload teams: %v", err)
-	}
-	if reconciler.calls != 1 {
-		t.Fatalf("team-only reload unexpectedly reconciled agent watchers: %d", reconciler.calls)
-	}
-	if want := []string{"skills", "teams"}; !reflect.DeepEqual(observer.reasons, want) {
-		t.Fatalf("observer reasons = %#v, want %#v", observer.reasons, want)
-	}
+
 }
 
 type recordingCatalogReloadObserver struct {
@@ -176,7 +167,7 @@ type recordingRuntimeRegistry struct {
 }
 
 func (r *recordingRuntimeRegistry) Agents(string) []api.AgentSummary { return nil }
-func (r *recordingRuntimeRegistry) Teams() []api.TeamSummary         { return nil }
+
 func (r *recordingRuntimeRegistry) Skills(string) []api.SkillSummary { return nil }
 func (r *recordingRuntimeRegistry) Tools(string) []api.ToolSummary   { return nil }
 func (r *recordingRuntimeRegistry) Tool(string) (api.ToolDetailResponse, bool) {
@@ -189,9 +180,7 @@ func (r *recordingRuntimeRegistry) DefaultAgentKey() string { return "" }
 func (r *recordingRuntimeRegistry) AgentDefinition(string) (catalog.AgentDefinition, bool) {
 	return catalog.AgentDefinition{}, false
 }
-func (r *recordingRuntimeRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
-	return catalog.TeamDefinition{}, false
-}
+
 func (r *recordingRuntimeRegistry) Reload(_ context.Context, reason string) error {
 	r.reasons = append(r.reasons, reason)
 	return nil

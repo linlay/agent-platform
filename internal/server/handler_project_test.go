@@ -59,7 +59,7 @@ func TestProjectEmptyCollectionsAreJSONArrays(t *testing.T) {
 	}
 
 	chatID := "chat-project-empty-history"
-	if _, _, err := fixture.chats.EnsureChatWithSourceAndMode(chatID, "coder-file", "", "project", "web", "CODER"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSourceAndMode(chatID, "coder-file", "project", "web", "CODER"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	changesRec := httptest.NewRecorder()
@@ -191,7 +191,7 @@ func TestProjectChangesAndDiffUseRunFileHistory(t *testing.T) {
 	fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
 	chatID := "chat-project-history"
 	runID := "run-project-history"
-	if _, _, err := fixture.chats.EnsureChatWithSourceAndMode(chatID, "coder-file", "", "project", "web", "CODER"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSourceAndMode(chatID, "coder-file", "project", "web", "CODER"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := fixture.chats.AppendQueryLine(chatID, chat.QueryLine{

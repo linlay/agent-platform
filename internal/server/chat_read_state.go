@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	"sort"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
@@ -26,9 +25,9 @@ func toAPIAgentStats(state chat.AgentChatStats) api.AgentChatStats {
 
 func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 	return &api.ActiveRunInfo{
-		RunID:       activeRun.RunID,
-		AgentKey:    activeRun.AgentKey,
-		TeamID:      activeRun.TeamID,
+		RunID:    activeRun.RunID,
+		AgentKey: activeRun.AgentKey,
+
 		State:       string(activeRun.State),
 		LastSeq:     activeRun.LastSeq,
 		OldestSeq:   activeRun.OldestSeq,
@@ -49,7 +48,7 @@ func (s *Server) listAgentSummariesWithPinned(includeChats int, scope string, mo
 	for i := range items {
 		items[i].Stats = toAPIAgentStats(stats[items[i].Key])
 		if includeChats > 0 {
-			chats, err := s.conversationService().RecentSummaries(items[i].Key, "", includeChats, pinned)
+			chats, err := s.conversationService().RecentSummaries(items[i].Key, includeChats, pinned)
 			if err != nil {
 				return nil, err
 			}
@@ -88,133 +87,6 @@ func (s *Server) filteredAgentSummaries(scope string, modes []string, hasWorkspa
 		items = filtered
 	}
 	return items
-}
-
-type orderedAgentCatalogSummary struct {
-	item      api.AgentCatalogSummary
-	lastRunID string
-	identity  string
-}
-
-func agentCatalogSummary(agent api.AgentSummary) api.AgentCatalogSummary {
-	return api.AgentCatalogSummary{
-		Kind:                   "agent",
-		Key:                    agent.Key,
-		Name:                   agent.Name,
-		Icon:                   agent.Icon,
-		Mode:                   agent.Mode,
-		Engine:                 agent.Engine,
-		WorkspaceDir:           agent.WorkspaceDir,
-		AgentConfigDir:         agent.AgentConfigDir,
-		DefaultModelKey:        agent.DefaultModelKey,
-		DefaultReasoningEffort: agent.DefaultReasoningEffort,
-		ModelConfig:            agent.ModelConfig,
-		ModelOptions:           agent.ModelOptions,
-		Role:                   agent.Role,
-		Stats:                  agent.Stats,
-		Chats:                  agent.Chats,
-	}
-}
-
-func (s *Server) listAgentCatalogSummariesWithPinned(includeChats int, scope string, modes []string, pinned *bool, hasWorkspace *bool) ([]api.AgentCatalogSummary, error) {
-	agents := s.filteredAgentSummaries(scope, modes, hasWorkspace)
-	teams := s.deps.Registry.Teams()
-	if hasWorkspace != nil && *hasWorkspace {
-		// A Team has no project directory of its own.
-		teams = nil
-	}
-	agentStats := map[string]chat.AgentChatStats{}
-	teamStats := map[string]chat.AgentChatStats{}
-	if s.deps.Chats != nil {
-		var err error
-		agentStats, err = s.deps.Chats.AgentChatStats()
-		if err != nil {
-			return nil, err
-		}
-		teamStats, err = s.deps.Chats.TeamChatStats()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	items := make([]orderedAgentCatalogSummary, 0, len(agents)+len(teams))
-	for i := range agents {
-		agent := agents[i]
-		stats := agentStats[agent.Key]
-		agent.Stats = toAPIAgentStats(stats)
-		if includeChats > 0 && s.deps.Chats != nil {
-			chats, err := s.conversationService().RecentSummaries(agent.Key, "", includeChats, pinned)
-			if err != nil {
-				return nil, err
-			}
-			summaries, err := s.mapAgentChatSummaries(chats)
-			if err != nil {
-				return nil, err
-			}
-			agent.Chats = summaries
-		}
-		items = append(items, orderedAgentCatalogSummary{
-			item:      agentCatalogSummary(agent),
-			lastRunID: stats.LastRunID,
-			identity:  agent.Key,
-		})
-	}
-	for i := range teams {
-		team := teams[i]
-		stats := teamStats[team.TeamID]
-		summary := api.AgentCatalogSummary{
-			Kind:        "team",
-			Name:        team.Name,
-			Icon:        team.Icon,
-			Stats:       toAPIAgentStats(stats),
-			TeamID:      team.TeamID,
-			Description: team.Description,
-			AgentKeys:   append([]string(nil), team.AgentKeys...),
-			Meta:        team.Meta,
-		}
-		if includeChats > 0 && s.deps.Chats != nil {
-			chats, err := s.conversationService().RecentSummaries("", team.TeamID, includeChats, pinned)
-			if err != nil {
-				return nil, err
-			}
-			summaries, err := s.mapAgentChatSummaries(chats)
-			if err != nil {
-				return nil, err
-			}
-			summary.Chats = summaries
-		}
-		items = append(items, orderedAgentCatalogSummary{
-			item:      summary,
-			lastRunID: stats.LastRunID,
-			identity:  team.TeamID,
-		})
-	}
-
-	sort.SliceStable(items, func(i, j int) bool {
-		left, right := items[i], items[j]
-		switch {
-		case left.lastRunID != right.lastRunID:
-			if left.lastRunID == "" {
-				return false
-			}
-			if right.lastRunID == "" {
-				return true
-			}
-			return chat.RunIDAfter(left.lastRunID, right.lastRunID)
-		case left.item.Name != right.item.Name:
-			return left.item.Name < right.item.Name
-		case left.item.Kind != right.item.Kind:
-			return left.item.Kind < right.item.Kind
-		default:
-			return left.identity < right.identity
-		}
-	})
-
-	result := make([]api.AgentCatalogSummary, 0, len(items))
-	for _, item := range items {
-		result = append(result, item.item)
-	}
-	return result, nil
 }
 
 func (s *Server) mapAgentChatSummaries(items []chat.Summary) ([]api.ChatSummaryResponse, error) {

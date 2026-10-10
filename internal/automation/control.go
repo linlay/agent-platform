@@ -117,7 +117,7 @@ func (s *Service) prepareControl(action string, args map[string]any, key string)
 		if req.Enabled != nil {
 			enabled = *req.Enabled
 		}
-		def = Definition{ID: id, Name: strings.TrimSpace(req.Name), Description: strings.TrimSpace(req.Description), Enabled: enabled, Cron: strings.TrimSpace(req.Cron), AgentKey: strings.TrimSpace(req.AgentKey), TeamID: strings.TrimSpace(req.TeamID), Environment: Environment{ZoneID: strings.TrimSpace(req.ZoneID)}, RemainingRuns: cloneIntPtr(req.RemainingRuns), Query: automationQueryFromRequest(req.Query), SourceFile: filepath.Join(s.Registry.Root(), id+".yml")}
+		def = Definition{ID: id, Name: strings.TrimSpace(req.Name), Description: strings.TrimSpace(req.Description), Enabled: enabled, Cron: strings.TrimSpace(req.Cron), AgentKey: strings.TrimSpace(req.AgentKey), Environment: Environment{ZoneID: strings.TrimSpace(req.ZoneID)}, RemainingRuns: cloneIntPtr(req.RemainingRuns), Query: automationQueryFromRequest(req.Query), SourceFile: filepath.Join(s.Registry.Root(), id+".yml")}
 	} else {
 		id, _ := args["id"].(string)
 		revision, _ := args["baseRevision"].(string)

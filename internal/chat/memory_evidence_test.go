@@ -21,7 +21,7 @@ func TestMemoryOnlySettledChats(t *testing.T) {
 		if id == "automatic" {
 			source = "automation:daily"
 		}
-		if _, _, err = s.EnsureChatWithSource(id, "agent", "", "hello", source); err != nil {
+		if _, _, err = s.EnsureChatWithSource(id, "agent", "hello", source); err != nil {
 			t.Fatal(err)
 		}
 		if err = s.OnRunStarted(RunStart{ChatID: id, RunID: id, AgentKey: "agent", StartedAtMillis: at}); err != nil {

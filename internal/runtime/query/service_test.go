@@ -18,7 +18,7 @@ func TestAttachRunUsesRunStateObserver(t *testing.T) {
 	runs := runstate.NewManager()
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID: "run-1", ChatID: "chat-1", AgentKey: "agent-1",
-		RunOwner: contracts.AgentRunOwner("agent-1", ""),
+		RunOwner: contracts.AgentRunOwner("agent-1"),
 	})
 	bus, ok := runs.EventBus("run-1")
 	if !ok {
@@ -141,7 +141,7 @@ func TestSubscriptionCloseAllowsFreezeAndNextChatRun(t *testing.T) {
 func TestSteerAllowsReferencesWithoutText(t *testing.T) {
 
 	runs := runstate.NewManager()
-	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{RunID: "run", ChatID: "chat", AgentKey: "agent", RunOwner: contracts.AgentRunOwner("agent", "")})
+	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{RunID: "run", ChatID: "chat", AgentKey: "agent", RunOwner: contracts.AgentRunOwner("agent")})
 	control.SetSteerPreparer(func(req queryinput.SteerRequest) (queryinput.SteerRequest, error) {
 		req.PreparedMessages = []map[string]any{{"role": "user", "content": "reference"}}
 		return req, nil

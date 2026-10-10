@@ -56,7 +56,7 @@ type MCPToolSyncStatusProvider interface {
 // QueryRuntime is the narrow application boundary used by the transport
 // adapters. Server has no access to runtime assembly or executor internals.
 type QueryRuntime interface {
-	ValidateRunOwner(runID, agentKey, teamID string) *runtimetypes.RequestError
+	ValidateRunOwner(runID, agentKey string) *runtimetypes.RequestError
 	PendingAwaitingInfo(chatID string, pending *chat.PendingAwaiting) (*queryinput.ChatErrorInfo, error)
 	RegisterPreparedQuery(ctx context.Context, prepared runtimetypes.PreparedQuery) (runtimetypes.RegisteredRun, *runtimetypes.RequestError)
 	FinishRegisteredQuery(prepared runtimetypes.PreparedQuery, registered runtimetypes.RegisteredRun)

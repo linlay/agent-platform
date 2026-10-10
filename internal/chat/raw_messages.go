@@ -336,66 +336,10 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 				}
 				continue
 			}
-			if routing := safeTeamRoutingMessageFromStep(line, runID); routing != nil {
-				messages = append(messages, routing)
-			}
-			if final := finalAssistantMessageFromStep(line, runID, ""); final != nil {
-				messages = append(messages, final)
-			}
+			messages = append(messages, normalizedStepMessages(line, runID)...)
 		}
 	}
 	return messages
-}
-
-func safeTeamRoutingMessageFromStep(line map[string]any, runID string) map[string]any {
-	var records []string
-	for _, message := range anyMessageSlice(line["messages"]) {
-		if !strings.EqualFold(strings.TrimSpace(stringValue(message["role"])), "assistant") {
-			continue
-		}
-		for _, call := range anyMessageSlice(message["tool_calls"]) {
-			function := mapValue(call["function"])
-			name := strings.ToLower(strings.TrimSpace(stringValue(function["name"])))
-			if name != "agent_delegate" && name != "team_delegate" && name != "team_invoke" {
-				continue
-			}
-			args := map[string]any{}
-			switch raw := function["arguments"].(type) {
-			case string:
-				_ = json.Unmarshal([]byte(raw), &args)
-			case map[string]any:
-				args = raw
-			}
-			if name == "team_delegate" {
-				memberKey := strings.TrimSpace(stringValue(args["memberKey"]))
-				if memberKey == "" {
-					memberKey = "all"
-				}
-				records = append(records, "agent_delegate agentKeys="+memberKey)
-				continue
-			}
-			var members []string
-			for _, task := range anyMessageSlice(args["tasks"]) {
-				agentKey := strings.TrimSpace(stringValue(task["agentKey"]))
-				if agentKey == "" {
-					agentKey = strings.TrimSpace(stringValue(task["memberKey"]))
-				}
-				if agentKey != "" {
-					members = append(members, agentKey)
-				}
-			}
-			records = append(records, "agent_delegate agentKeys="+strings.Join(members, ","))
-		}
-	}
-	if len(records) == 0 {
-		return nil
-	}
-	return map[string]any{
-		"role":    "assistant",
-		"content": "[Team routing record]\n" + strings.Join(records, "\n"),
-		"runId":   runID,
-		"ts":      line["updatedAt"],
-	}
 }
 
 func mapValue(value any) map[string]any {

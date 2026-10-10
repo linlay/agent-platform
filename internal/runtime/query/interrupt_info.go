@@ -14,7 +14,6 @@ func interruptRequestForQuery(req runtimetypes.QueryCommand, source string, reas
 		ChatID:    req.ChatID,
 		RunID:     req.RunID,
 		AgentKey:  req.AgentKey,
-		TeamID:    req.TeamID,
 	}, source, reason, detail)
 }
 

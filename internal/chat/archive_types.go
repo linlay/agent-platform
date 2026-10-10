@@ -6,11 +6,11 @@ var ErrChatAlreadyArchived = errors.New("chat already archived")
 var ErrChatAlreadyActive = errors.New("active chat already exists")
 
 type ArchivedSummary struct {
-	ChatID         string `json:"chatId"`
-	ChatName       string `json:"chatName"`
-	AgentKey       string `json:"agentKey,omitempty"`
-	AgentMode      string `json:"agentMode,omitempty"`
-	TeamID         string `json:"teamId,omitempty"`
+	ChatID    string `json:"chatId"`
+	ChatName  string `json:"chatName"`
+	AgentKey  string `json:"agentKey,omitempty"`
+	AgentMode string `json:"agentMode,omitempty"`
+
 	Source         string `json:"source,omitempty"`
 	SourceChannel  string `json:"sourceChannel,omitempty"`
 	CreatedAt      int64  `json:"createdAt"`
@@ -34,10 +34,10 @@ type ArchivedChat struct {
 }
 
 type ArchiveSearchHit struct {
-	ChatID         string `json:"chatId"`
-	ChatName       string `json:"chatName"`
-	AgentKey       string `json:"agentKey,omitempty"`
-	TeamID         string `json:"teamId,omitempty"`
+	ChatID   string `json:"chatId"`
+	ChatName string `json:"chatName"`
+	AgentKey string `json:"agentKey,omitempty"`
+
 	CreatedAt      int64  `json:"createdAt"`
 	LastRunAt      int64  `json:"lastRunAt"`
 	LastRunID      string `json:"lastRunId,omitempty"`

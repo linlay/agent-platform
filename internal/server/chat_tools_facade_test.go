@@ -44,7 +44,7 @@ func TestStartRunRegistersIndependentAgentRun(t *testing.T) {
 	}
 	// Once accepted, the run no longer follows the caller's lifetime.
 	cancel()
-	if agentTargetRun.RunID == "" || agentTargetRun.ChatID == "" || agentTargetRun.AgentKey != "mock-agent" || agentTargetRun.TeamID != "" {
+	if agentTargetRun.RunID == "" || agentTargetRun.ChatID == "" || agentTargetRun.AgentKey != "mock-agent" {
 		t.Fatalf("unexpected Agent target run %#v", agentTargetRun)
 	}
 	runStatus, ok := fixture.runs.RunStatus(agentTargetRun.RunID)
@@ -96,11 +96,11 @@ func TestStartRunRegistersIndependentAgentRun(t *testing.T) {
 
 func TestStartRunRejectsUnknownAndChatOwnerMismatch(t *testing.T) {
 	fixture := newTestFixture(t)
-	_, _, err := fixture.chats.EnsureChat("owned-chat", "another-agent", "", "hello")
+	_, _, err := fixture.chats.EnsureChat("owned-chat", "another-agent", "hello")
 	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	_, _, err = fixture.chats.EnsureChat("team-chat", "", "default", "hello")
+	_, _, err = fixture.chats.EnsureChat("team-chat", "", "hello")
 	if err != nil {
 		t.Fatalf("ensure Team chat: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestStartRunIgnoresCatalogVisibility(t *testing.T) {
 
 func TestRunSelfTargetChatRules(t *testing.T) {
 	fixture := newTestFixture(t)
-	_, _, err := fixture.chats.EnsureChat("self-parent-chat", "mock-agent", "", "parent")
+	_, _, err := fixture.chats.EnsureChat("self-parent-chat", "mock-agent", "parent")
 	if err != nil {
 		t.Fatalf("ensure parent chat: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestRunSelfTargetChatRules(t *testing.T) {
 		ChatID:   "self-parent-chat",
 		AgentKey: "mock-agent",
 		Subject:  "alice",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 	t.Cleanup(func() {
 		fixture.runs.Finish("self-parent-run")
@@ -191,7 +191,7 @@ func TestRunSelfTargetChatRules(t *testing.T) {
 				ChatID:   "self-parent-chat",
 				AgentKey: "mock-agent",
 				Subject:  "alice",
-				RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+				RunOwner: contracts.AgentRunOwner("mock-agent"),
 			},
 			RunControl:      parentControl,
 			CurrentToolID:   toolID,
@@ -225,7 +225,7 @@ func TestRunSelfTargetChatRules(t *testing.T) {
 	}
 	waitRunTerminal(t, fixture.server, newRun["runId"].(string))
 
-	_, _, err = fixture.chats.EnsureChat("self-idle-chat", "mock-agent", "", "idle")
+	_, _, err = fixture.chats.EnsureChat("self-idle-chat", "mock-agent", "idle")
 	if err != nil {
 		t.Fatalf("ensure idle chat: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestGetRunStatusReportsQuestionAwaiting(t *testing.T) {
 func TestGetRunStatusReturnsFailedError(t *testing.T) {
 	runs := runstate.NewManager()
 	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{
-		RunID: "failed-run", ChatID: "failed-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunID: "failed-run", ChatID: "failed-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 	eventBus, ok := runs.EventBus("failed-run")
 	if !ok {

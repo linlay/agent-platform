@@ -2066,3 +2066,30 @@ func TestAgentCreateGeneralAppliesDefaultsAndReportsEngine(t *testing.T) {
 		t.Fatalf("general creation defaults not applied: modelConfig=%#v budget=%#v", modelConfig, budget)
 	}
 }
+
+func TestTEAMAgentHTTPCRUD(t *testing.T) {
+	fixture := newTestFixture(t)
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"key": "research-team", "definition": map[string]any{
+			"name": "Research", "mode": "TEAM", "modelConfig": map[string]any{"modelKey": "mock-model"},
+			"teamConfig": map[string]any{"members": []string{"demo"}, "maxParallel": 2},
+		},
+	})
+	if created.Mode != "TEAM" || created.Definition["teamConfig"] == nil {
+		t.Fatalf("create=%#v", created)
+	}
+	definition := created.Definition
+	definition["teamConfig"] = map[string]any{"members": []string{"demo"}, "maxParallel": 3}
+	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update", map[string]any{"key": created.Key, "definition": definition})
+	if updated.Definition["teamConfig"].(map[string]any)["maxParallel"] != float64(3) {
+		t.Fatalf("update=%#v", updated)
+	}
+	renamed := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update-name", map[string]any{"agentKey": created.Key, "name": "Research Team"})
+	if renamed.Name != "Research Team" {
+		t.Fatalf("rename=%#v", renamed)
+	}
+	deleted := postAgentJSON[map[string]any](t, fixture.server, "/api/admin/agents/delete", map[string]any{"key": created.Key})
+	if deleted["deleted"] != true {
+		t.Fatalf("delete=%#v", deleted)
+	}
+}

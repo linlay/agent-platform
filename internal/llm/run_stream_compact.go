@@ -597,9 +597,9 @@ func (s *llmRunStream) generateContextCompactSummaryWithBudget(request CompactCo
 		RunID:     request.CompactID,
 		ChatID:    request.ChatID,
 		AgentKey:  s.session.AgentKey,
-		TeamID:    s.session.TeamID,
-		Role:      api.QueryRoleSystem,
-		Message:   prompt,
+
+		Role:    api.QueryRoleSystem,
+		Message: prompt,
 	}
 	stream, err := s.engine.StreamSummary(s.ctx, summaryReq, s.session, prompt, maxOutputTokens)
 	if err != nil {

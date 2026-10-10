@@ -430,7 +430,14 @@ func validateImportedAgentDefinitionStructure(key string, definition map[string]
 	if err := validateEditableAgentKey(key); err != nil {
 		return err
 	}
-	if _, _, err := ParseAgentModeAndEngine(stringNode(definition["mode"]), stringNode(definition["engine"])); err != nil {
+	mode, _, err := ParseAgentModeAndEngine(stringNode(definition["mode"]), stringNode(definition["engine"]))
+	if err != nil {
+		return err
+	}
+	if _, declared := definition["teamConfig"]; declared && mode != "TEAM" {
+		return fmt.Errorf("teamConfig is only supported for TEAM")
+	}
+	if _, err := parseTeamConfig(mode, key, definition["teamConfig"]); err != nil {
 		return err
 	}
 	toolConfig := mapNode(definition["toolConfig"])

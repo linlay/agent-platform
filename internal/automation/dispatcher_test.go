@@ -71,7 +71,7 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	if got.RequestID != "req-1" || got.ChatID != "123e4567-e89b-12d3-a456-426614174000" {
 		t.Fatalf("unexpected ids %#v", got)
 	}
-	if got.AgentKey != "demo-agent" || got.TeamID != "" {
+	if got.AgentKey != "demo-agent" {
 		t.Fatalf("unexpected target %#v", got)
 	}
 	if got.Role != "automation" || got.Message != "hello" {

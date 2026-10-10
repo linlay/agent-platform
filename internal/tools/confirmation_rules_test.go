@@ -174,7 +174,7 @@ func TestEmbeddedChatStartConfirmationRule(t *testing.T) {
 		if def.Name != "chat_start" {
 			continue
 		}
-		for _, args := range []map[string]any{{"accessLevel": "full_access"}, {"accessLevel": "auto_approve", "teamId": "t"}, {}} {
+		for _, args := range []map[string]any{{"accessLevel": "full_access"}, {"accessLevel": "auto_approve"}, {}} {
 			got, err := selectConfirmationRule(def.Meta["confirmationRules"], args)
 			if err != nil || got == nil || got.view.Key != "chat_start_review" {
 				t.Fatalf("args=%v rule=%#v err=%v", args, got, err)

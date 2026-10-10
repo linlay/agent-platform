@@ -58,11 +58,11 @@ func (a *Archiver) ArchiveChat(chatID string) error {
 
 	archived := ArchivedChat{
 		Summary: ArchivedSummary{
-			ChatID:         summary.ChatID,
-			ChatName:       summary.ChatName,
-			AgentKey:       summary.AgentKey,
-			AgentMode:      summary.AgentMode,
-			TeamID:         summary.TeamID,
+			ChatID:    summary.ChatID,
+			ChatName:  summary.ChatName,
+			AgentKey:  summary.AgentKey,
+			AgentMode: summary.AgentMode,
+
 			Source:         summary.Source,
 			SourceChannel:  summary.SourceChannel,
 			CreatedAt:      summary.CreatedAt,

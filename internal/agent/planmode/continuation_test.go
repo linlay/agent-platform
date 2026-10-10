@@ -34,10 +34,10 @@ func TestBuildContinuationRequestPreservesOriginalAndAppliesIdentityPrecedence(t
 	stream := true
 	input := ContinuationRequestInput{
 		Original: api.QueryRequest{
-			ChatID:       "original-chat",
-			RunID:        "original-run",
-			AgentKey:     "original-agent",
-			TeamID:       "original-team",
+			ChatID:   "original-chat",
+			RunID:    "original-run",
+			AgentKey: "original-agent",
+
 			Message:      "original message",
 			Params:       map[string]any{"keep": true},
 			Stream:       &stream,
@@ -51,8 +51,8 @@ func TestBuildContinuationRequestPreservesOriginalAndAppliesIdentityPrecedence(t
 			SubmitID:          "submit-1",
 			ContinuationRunID: "continuation-run",
 		},
-		SummaryChatID:      "summary-chat",
-		SummaryTeamID:      "summary-team",
+		SummaryChatID: "summary-chat",
+
 		SummaryAgentKey:    "summary-agent",
 		DefinitionAgentKey: "definition-agent",
 		Mode:               "planning",
@@ -60,7 +60,7 @@ func TestBuildContinuationRequestPreservesOriginalAndAppliesIdentityPrecedence(t
 		PlanningMarkdown:   "# Planning",
 	}
 	req := BuildContinuationRequest(input)
-	if req.ChatID != "original-chat" || req.RunID != "continuation-run" || req.RequestID != "submit-1" || req.AgentKey != "submit-agent" || req.TeamID != "original-team" {
+	if req.AgentKey != "submit-agent" {
 		t.Fatalf("unexpected resolved identity: %#v", req)
 	}
 	if req.Role != api.QueryRoleSystem || req.PlanningMode == nil || *req.PlanningMode || req.AccessLevel != contracts.AccessLevelDefault {

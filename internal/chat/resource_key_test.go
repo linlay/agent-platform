@@ -61,7 +61,7 @@ func TestResolveResourceRejectsSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	chatID := "chat_symlink"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(t.TempDir(), "secret.png")

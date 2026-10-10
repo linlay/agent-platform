@@ -219,7 +219,7 @@ func TestHandleArchiveRestoreReportsActiveConflictPerItem(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed archive: %v", err)
 	}
-	if _, _, err := active.EnsureChat("chat-http-restore-conflict", "agent-a", "", "active"); err != nil {
+	if _, _, err := active.EnsureChat("chat-http-restore-conflict", "agent-a", "active"); err != nil {
 		t.Fatalf("ensure active: %v", err)
 	}
 
@@ -271,7 +271,7 @@ func newArchiveHandlerTestServerWithNotifications(t *testing.T, runs contracts.R
 
 func seedArchiveHandlerChat(t *testing.T, store *chat.FileStore, chatID string) {
 	t.Helper()
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startedAt := testEpochMillis + 2_000

@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, error) {
-	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
+	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey); statusErr != nil {
 		return api.InterruptResponse{}, mapRunStatusError(statusErr)
 	}
 	if response, statusErr, forwarded := s.forwardProxyInterrupt(req); forwarded {
@@ -32,17 +32,15 @@ func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, 
 	}, nil
 }
 
-func runOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) bool {
+func runOwnerMatchesChat(summary *chat.Summary, agentKey string) bool {
 	if summary == nil {
 		return true
 	}
-	if teamID != "" {
-		return strings.TrimSpace(summary.AgentKey) == "" && strings.TrimSpace(summary.TeamID) == teamID
-	}
-	return strings.TrimSpace(summary.TeamID) == "" && strings.TrimSpace(summary.AgentKey) == agentKey
+
+	return strings.TrimSpace(summary.AgentKey) == agentKey
 }
 
-func mapRunAdmissionError(err error, agentKey string, teamID string) error {
+func mapRunAdmissionError(err error, agentKey string) error {
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) {
 		return err
@@ -50,9 +48,7 @@ func mapRunAdmissionError(err error, agentKey string, teamID string) error {
 	if strings.Contains(strings.ToLower(statusErr.Message), "agent not found") && agentKey != "" {
 		return runToolError("agent_not_found", statusErr.Message)
 	}
-	if strings.Contains(strings.ToLower(statusErr.Message), "team") && strings.Contains(strings.ToLower(statusErr.Message), "not found") && teamID != "" {
-		return runToolError("team_not_found", statusErr.Message)
-	}
+
 	return mapRunStatusError(statusErr)
 }
 

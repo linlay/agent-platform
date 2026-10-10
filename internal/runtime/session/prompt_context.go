@@ -59,8 +59,8 @@ func BuildPromptAppendConfig(global config.PromptsConfig, def catalog.AgentDefin
 }
 
 type ContextInput struct {
-	AgentKey           string
-	TeamID             string
+	AgentKey string
+
 	Role               string
 	ChatID             string
 	ChatName           string
@@ -100,8 +100,8 @@ func (s *Builder) BuildContext(input ContextInput) (contracts.RuntimeRequestCont
 		}
 	}
 	context := contracts.RuntimeRequestContext{
-		AgentKey:     input.AgentKey,
-		TeamID:       input.TeamID,
+		AgentKey: input.AgentKey,
+
 		Role:         input.Role,
 		ChatName:     input.ChatName,
 		LocalMode:    s.deps.Config.IsLocalMode(),
@@ -728,7 +728,6 @@ func ResolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		AgentDir:            agentDir,
 		AgentsDir:           CleanOrEmpty(paths.AgentsDir),
 		RUAgentsDir:         CleanOrEmpty(ruAgentsDir),
-		TeamsDir:            CleanOrEmpty(paths.TeamsDir),
 		ChatsDir:            CleanOrEmpty(paths.ChatsDir),
 		MemoryDir:           CleanOrEmpty(paths.MemoryDir),
 		SkillsDir:           agentSkillsDir,
@@ -819,7 +818,6 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	var skillsCenterDir string
 	ownerDir := IfNonEmpty(cfg.Paths.OwnerDir, "/owner")
 	var ruAgentsDir string
-	var teamsDir string
 	var automationsDir string
 	var chatsDir string
 	memoryDir := IfNonEmpty(cfg.Paths.MemoryDir, "/memory")
@@ -837,8 +835,6 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 			skillsCenterDir = "/skills-center"
 		case "agents":
 			ruAgentsDir = "/agents"
-		case "teams":
-			teamsDir = "/teams"
 		case "automations":
 			automationsDir = "/automations"
 		case "chats":
@@ -866,7 +862,6 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		AgentDir:            BoolPath(hasAgentDir, "/agent"),
 		OwnerDir:            ownerDir,
 		RUAgentsDir:         ruAgentsDir,
-		TeamsDir:            teamsDir,
 		AutomationsDir:      automationsDir,
 		ChatsDir:            chatsDir,
 		MemoryDir:           memoryDir,
@@ -905,8 +900,6 @@ func ResolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 			paths.SkillsCenterDir = AbsOrEmpty(cfg.Paths.SkillsCenterDir)
 		case "agents":
 			paths.RUAgentsDir = AbsOrEmpty(cfg.Paths.EffectiveRUAgentsDir())
-		case "teams":
-			paths.TeamsDir = AbsOrEmpty(cfg.Paths.TeamsDir)
 		case "automations":
 			paths.AutomationsDir = AbsOrEmpty(cfg.Paths.AutomationsDir)
 		case "chats":

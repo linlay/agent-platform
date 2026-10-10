@@ -718,7 +718,7 @@ func TestWorkPanelOpenPassesPublishedArtifactIdentity(t *testing.T) {
 	}
 	defer store.Close()
 	chatID := execCtx.Session.ChatID
-	if _, _, err = store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err = store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	executor.chats = store

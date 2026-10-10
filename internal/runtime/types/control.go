@@ -13,8 +13,8 @@ type RunRef struct {
 	RunID    string
 	ChatID   string
 	AgentKey string
-	TeamID   string
-	Caller   Caller
+
+	Caller Caller
 }
 
 type RunHandle struct {
@@ -22,11 +22,11 @@ type RunHandle struct {
 	RunID       string
 	ChatID      string
 	AgentKey    string
-	TeamID      string
-	StartedAt   int64
-	LastSeq     int64
-	Status      string
-	Detached    bool
+
+	StartedAt int64
+	LastSeq   int64
+	Status    string
+	Detached  bool
 }
 
 type Subscription struct {

@@ -37,7 +37,7 @@ func (r *FileRegistry) AcquireTeamRuntime(key string) (TeamSnapshot, func(), boo
 		r.executionMu.Unlock()
 		return TeamSnapshot{}, nil, false
 	}
-	var defs []AgentDefinition
+	defs := []AgentDefinition{team.Coordinator}
 	for _, key := range team.ValidAgentKeys {
 		def, _ := team.AgentDefinition(key)
 		defs = append(defs, def)
@@ -267,7 +267,11 @@ func (r *FileRegistry) AcquireAgentSnapshot(def AgentDefinition) (AgentDefinitio
 }
 func (r *FileRegistry) AcquireTeamSnapshot(team TeamSnapshot) (TeamSnapshot, func(), bool) {
 	r.executionMu.Lock()
-	var defs []AgentDefinition
+	if r.runtimeVersions[team.Coordinator.RuntimeDir] == 0 {
+		r.executionMu.Unlock()
+		return TeamSnapshot{}, nil, false
+	}
+	defs := []AgentDefinition{team.Coordinator}
 	for _, key := range team.ValidAgentKeys {
 		def, ok := team.AgentDefinition(key)
 		if !ok || r.runtimeVersions[def.RuntimeDir] == 0 {
@@ -282,4 +286,41 @@ func (r *FileRegistry) AcquireTeamSnapshot(team TeamSnapshot) (TeamSnapshot, fun
 		return TeamSnapshot{}, nil, false
 	}
 	return team, release, true
+}
+
+// AcquireRunRuntime freezes a root Agent and, for TEAM, its complete roster
+// under the same publication lock. Mode changes cannot split admission across
+// two catalog revisions.
+func (r *FileRegistry) AcquireRunRuntime(key string) (AgentDefinition, *TeamSnapshot, func(), bool) {
+	r.executionMu.Lock()
+	r.mu.RLock()
+	def, ok := r.agents[key]
+	if !ok {
+		r.mu.RUnlock()
+		r.executionMu.Unlock()
+		return AgentDefinition{}, nil, nil, false
+	}
+	def = cloneAgentDefinitionSnapshot(def)
+	var snapshot *TeamSnapshot
+	defs := []AgentDefinition{def}
+	if def.Mode == "TEAM" {
+		if def.TeamConfig == nil {
+			r.mu.RUnlock()
+			r.executionMu.Unlock()
+			return AgentDefinition{}, nil, nil, false
+		}
+		team := resolveTeamSnapshotLocked(def, r.agents)
+		snapshot = &team
+		for _, member := range team.ValidAgentKeys {
+			d, _ := team.AgentDefinition(member)
+			defs = append(defs, d)
+		}
+	}
+	r.mu.RUnlock()
+	release, checks := r.retainForVerificationLocked(defs)
+	r.executionMu.Unlock()
+	if !r.verifyRuntimeChecks(checks, release) {
+		return AgentDefinition{}, nil, nil, false
+	}
+	return def, snapshot, release, true
 }

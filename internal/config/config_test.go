@@ -1078,8 +1078,8 @@ func TestRUAgentsDirHasNoDedicatedEnvironmentOverride(t *testing.T) {
 func TestValidateRUAgentsDirRejectsOverlapAndFilesystemRoot(t *testing.T) {
 	root := t.TempDir()
 	base := PathsConfig{
-		AgentsDir:       filepath.Join(root, "agents"),
-		TeamsDir:        filepath.Join(root, "teams"),
+		AgentsDir: filepath.Join(root, "agents"),
+
 		SkillsCenterDir: filepath.Join(root, "skills-center"),
 		ChatsDir:        filepath.Join(root, "chats"),
 		MemoryDir:       filepath.Join(root, "memory"),

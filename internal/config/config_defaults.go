@@ -24,7 +24,6 @@ func defaultConfig(options LoadOptions) Config {
 		OwnerDir:            filepath.Join(runtimeRoot, "owner"),
 		AgentsDir:           filepath.Join(runtimeRoot, "agents"),
 		RUAgentsDir:         filepath.Join(runtimeRoot, "ru-agents"),
-		TeamsDir:            filepath.Join(runtimeRoot, "teams"),
 		RootDir:             filepath.Join(runtimeRoot, "root"),
 		AutomationsDir:      filepath.Join(runtimeRoot, "automations"),
 		ChatsDir:            filepath.Join(runtimeRoot, "chats"),
@@ -42,7 +41,6 @@ func defaultConfig(options LoadOptions) Config {
 		Server:          ServerConfig{Port: "8080"},
 		Paths:           paths,
 		Agents:          CatalogConfig{ExternalDir: paths.AgentsDir},
-		Teams:           CatalogConfig{ExternalDir: paths.TeamsDir},
 		Skills: SkillCatalogConfig{
 			CatalogConfig:  CatalogConfig{ExternalDir: paths.SkillsCenterDir},
 			MaxPromptChars: 8000,
@@ -339,7 +337,6 @@ func (c *Config) normalize(configRoot string) error {
 		return fmt.Errorf("resolve runtime ru-agents directory: %w", err)
 	}
 	c.Paths.RUAgentsDir = ruAgentsDir
-	c.Paths.TeamsDir = filepath.Clean(c.Paths.TeamsDir)
 	c.Paths.RootDir = filepath.Clean(c.Paths.RootDir)
 	c.Paths.AutomationsDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Paths.ChatsDir = filepath.Clean(c.Paths.ChatsDir)
@@ -358,7 +355,6 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.SkillsCenterDir = filepath.Clean(c.Paths.SkillsCenterDir)
 
 	c.Agents.ExternalDir = filepath.Clean(c.Paths.AgentsDir)
-	c.Teams.ExternalDir = filepath.Clean(c.Paths.TeamsDir)
 	c.Skills.ExternalDir = filepath.Clean(c.Paths.SkillsCenterDir)
 	c.Automation.ExternalDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Logging.LLMInteraction.RecordDir = filepath.Clean(c.Paths.ChatsDir)

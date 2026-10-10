@@ -17,7 +17,7 @@ func queryRequestFromRuntime(cmd runtimetypes.QueryCommand) api.QueryRequest {
 		model = &api.QueryModelOptions{Key: cmd.Model.Key, ModelID: cmd.Model.ModelID, ReasoningEffort: cmd.Model.ReasoningEffort, ServiceTier: cmd.Model.ServiceTier}
 	}
 	return api.QueryRequest{
-		RequestID: cmd.RequestID, RunID: cmd.RunID, ChatID: cmd.ChatID, AgentKey: cmd.AgentKey, TeamID: cmd.TeamID,
+		RequestID: cmd.RequestID, RunID: cmd.RunID, ChatID: cmd.ChatID, AgentKey: cmd.AgentKey,
 		Role: cmd.Role, Hidden: cmd.Hidden, Message: cmd.Message, SourceUser: cmd.SourceUser, References: references,
 		Params: contracts.CloneMap(cmd.Params), Scene: scene, Stream: cmd.Stream, IncludeUsage: cmd.IncludeUsage,
 		IncludeFullText: cmd.IncludeFullText, PlanningMode: cmd.PlanningMode, EditingMode: cmd.EditingMode,
@@ -37,7 +37,7 @@ func queryCommandFromAPI(req api.QueryRequest) runtimetypes.QueryCommand {
 		model = &runtimetypes.QueryModelOptions{Key: req.Model.Key, ModelID: req.Model.ModelID, ReasoningEffort: req.Model.ReasoningEffort, ServiceTier: req.Model.ServiceTier}
 	}
 	return runtimetypes.QueryCommand{
-		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID,
+		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey,
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser,
 		References: runtimeReferencesFromAPI(req.References), Params: contracts.CloneMap(req.Params), Scene: scene,
 		Stream: req.Stream, IncludeUsage: req.IncludeUsage, IncludeFullText: req.IncludeFullText,

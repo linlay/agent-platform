@@ -9,19 +9,19 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	summary, created, err := store.EnsureChatWithSourceAndMode("chat-team-owner", "", "team-a", "hello", "", "TEAM")
+	summary, created, err := store.EnsureChatWithSourceAndMode("chat-team-owner", "research", "hello", "", "TEAM")
 	if err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
-	if !created || !isTeamOwner(summary.AgentKey, summary.TeamID) || summary.AgentKey != "" || summary.AgentMode != "TEAM" || summary.TeamID != "team-a" {
+	if !created || summary.AgentKey != "research" || summary.AgentMode != "TEAM" {
 		t.Fatalf("unexpected team summary %#v", summary)
 	}
 
 	if err := completeRunForTest(store, RunCompletion{
-		ChatID:          "chat-team-owner",
-		RunID:           "run-team-owner",
-		AgentKey:        "",
-		TeamID:          "team-a",
+		ChatID:   "chat-team-owner",
+		RunID:    "run-team-owner",
+		AgentKey: "research",
+
 		AssistantText:   "done",
 		FinishReason:    "complete",
 		UpdatedAtMillis: testEpochMillis(1000),
@@ -36,7 +36,7 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("runs = %#v", runs)
 	}
-	if !isTeamOwner(runs[0].AgentKey, runs[0].TeamID) || runs[0].AgentKey != "" || runs[0].AgentMode != "TEAM" || runs[0].TeamID != "team-a" {
+	if runs[0].AgentKey != "research" {
 		t.Fatalf("synthetic agent leaked into persisted run %#v", runs[0])
 	}
 
@@ -44,7 +44,7 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load team summary: %v", err)
 	}
-	if loaded == nil || !isTeamOwner(loaded.AgentKey, loaded.TeamID) || loaded.AgentKey != "" || loaded.AgentMode != "TEAM" || loaded.TeamID != "team-a" {
+	if loaded.AgentKey != "research" {
 		t.Fatalf("unexpected reloaded team summary %#v", loaded)
 	}
 }
@@ -62,13 +62,14 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	}
 	archiver := NewArchiver(active, archives)
 
-	if _, _, err := active.EnsureChatWithSourceAndMode("chat-team-archive", "", "team-a", "hello", "", "TEAM"); err != nil {
+	if _, _, err := active.EnsureChatWithSourceAndMode("chat-team-archive", "research", "hello", "", "TEAM"); err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
 	if err := completeRunForTest(active, RunCompletion{
-		ChatID:          "chat-team-archive",
-		RunID:           "run-team-archive",
-		TeamID:          "team-a",
+		ChatID:   "chat-team-archive",
+		RunID:    "run-team-archive",
+		AgentKey: "research",
+
 		AssistantText:   "done",
 		FinishReason:    "complete",
 		UpdatedAtMillis: testEpochMillis(1000),
@@ -83,10 +84,10 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load archived team chat: %v", err)
 	}
-	if !isTeamOwner(archived.Summary.AgentKey, archived.Summary.TeamID) || archived.Summary.AgentKey != "" || archived.Summary.AgentMode != "TEAM" || archived.Summary.TeamID != "team-a" {
+	if archived.Summary.AgentKey != "research" {
 		t.Fatalf("unexpected archived owner %#v", archived.Summary)
 	}
-	if len(archived.Runs) != 1 || !isTeamOwner(archived.Runs[0].AgentKey, archived.Runs[0].TeamID) || archived.Runs[0].AgentKey != "" || archived.Runs[0].AgentMode != "TEAM" || archived.Runs[0].TeamID != "team-a" {
+	if len(archived.Runs) != 1 || archived.Runs[0].AgentKey != "research" {
 		t.Fatalf("unexpected archived runs %#v", archived.Runs)
 	}
 
@@ -94,14 +95,14 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restore team chat: %v", err)
 	}
-	if !isTeamOwner(restored.AgentKey, restored.TeamID) || restored.AgentKey != "" || restored.AgentMode != "TEAM" || restored.TeamID != "team-a" {
+	if restored.AgentKey != "research" {
 		t.Fatalf("unexpected restored owner %#v", restored)
 	}
 	restoredRuns, err := active.ListRuns("chat-team-archive")
 	if err != nil {
 		t.Fatalf("list restored runs: %v", err)
 	}
-	if len(restoredRuns) != 1 || !isTeamOwner(restoredRuns[0].AgentKey, restoredRuns[0].TeamID) || restoredRuns[0].AgentKey != "" || restoredRuns[0].AgentMode != "TEAM" || restoredRuns[0].TeamID != "team-a" {
+	if len(restoredRuns) != 1 || restoredRuns[0].AgentKey != "research" {
 		t.Fatalf("unexpected restored runs %#v", restoredRuns)
 	}
 }
@@ -119,10 +120,10 @@ func TestArchivePreservesHistoricalAgentMode(t *testing.T) {
 	}
 	archiver := NewArchiver(active, archives)
 
-	if _, _, err := active.EnsureChatWithSourceAndMode("chat-historical-mode", "former-agent", "", "history", "", "ONESHOT"); err != nil {
+	if _, _, err := active.EnsureChatWithSourceAndMode("chat-historical-mode", "former-agent", "history", "", "ONESHOT"); err != nil {
 		t.Fatalf("ensure historical chat: %v", err)
 	}
-	persistAgentModeRun(t, active, "chat-historical-mode", "run-historical-mode", "former-agent", "", "ONESHOT", 1_000)
+	persistAgentModeRun(t, active, "chat-historical-mode", "run-historical-mode", "former-agent", "ONESHOT", 1_000)
 	if err := archiver.ArchiveChat("chat-historical-mode"); err != nil {
 		t.Fatalf("archive historical chat: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,13 +24,18 @@ type teamHITLChildSubmit struct {
 }
 
 type teamHITLTestEngine struct {
-	submits    chan teamHITLChildSubmit
-	interrupts chan string
+	startBarrier *sync.WaitGroup
+	submits      chan teamHITLChildSubmit
+	interrupts   chan string
 	// formView switches members from a question to a connector form awaiting.
 	formView *view.Reference
 }
 
 func (e *teamHITLTestEngine) Stream(ctx context.Context, req api.QueryRequest, _ contracts.QuerySession) (contracts.AgentStream, error) {
+	if e.startBarrier != nil {
+		e.startBarrier.Done()
+		e.startBarrier.Wait()
+	}
 	return &teamHITLTestStream{
 		ctx:        ctx,
 		control:    contracts.RunControlFromContext(ctx),
@@ -149,7 +155,7 @@ func (p *teamHITLQueueProbe) emit(inputs ...stream.StreamInput) {
 			p.outstanding++
 			p.asks = append(p.asks, value)
 			request := p.submit(value)
-			request.ChatID, request.RunID, request.TeamID, request.AwaitingID = "chat_1", "run_1", "research", value.AwaitingID
+			request.ChatID, request.RunID, request.AgentKey, request.AwaitingID = "chat_1", "run_1", "research", value.AwaitingID
 			if ack := p.control.ResolveSubmit(request); !ack.Accepted {
 				p.t.Fatalf("member submit not accepted: %#v", ack)
 			}
@@ -284,6 +290,11 @@ func TestFrameOrchestratorTeamDelegationInterruptCancelsQueuedHITLChildren(t *te
 		"reviewer": {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
 	}
 	engine := &teamHITLTestEngine{submits: make(chan teamHITLChildSubmit, 2), interrupts: make(chan string, 2)}
+	// Both children must be running before the first awaiting triggers interrupt.
+	// Otherwise a worker can be cancelled before Stream starts, which is valid
+	// runtime behavior but cannot send this fixture's stream interrupt signal.
+	engine.startBarrier = &sync.WaitGroup{}
+	engine.startBarrier.Add(2)
 	var routed []stream.StreamInput
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, nil, defs, &routed, &emitted)
@@ -379,10 +390,10 @@ func TestFrameOrchestratorTeamDelegationQueuesHITLAcrossBoundedParallelism(t *te
 	var routed []stream.StreamInput
 	var emitted []contracts.AgentDelta
 	o := newTeamFrameOrchestrator(t, main, nil, defs, &routed, &emitted)
-	snapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
-		TeamID: "research", Name: "Research", RuntimeMode: catalog.TeamRuntimeModeOrchestrated,
-		AgentKeys:    []string{"writer", "reviewer", "analyst"},
-		Orchestrator: catalog.TeamOrchestratorConfig{ModelKey: "mock-model", MaxParallel: 2},
+	snapshot := catalog.NewTeamSnapshot(catalog.AgentDefinition{
+		Name: "Research",
+
+		ModelKey: "mock-model", Key: "research", Mode: "TEAM", TeamConfig: &catalog.TeamConfig{Members: []string{"writer", "reviewer", "analyst"}, MaxParallel: 2},
 	}, defs)
 	o.TeamSnapshot = &snapshot
 	parentControl := contracts.NewRunControl(context.Background(), "run_1")

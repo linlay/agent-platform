@@ -69,7 +69,7 @@ func TestPresetConnectorMountAndSourceIsolation(t *testing.T) {
 	if len(def.Connectors) != 1 || len(def.ConnectorSkills) != 1 {
 		t.Fatal("duplicate mount")
 	}
-	for _, d := range []AgentDefinition{{Engine: AgentEngineACP, Mode: AgentModeCoder}, {Mode: "TEAM"}} {
+	for _, d := range []AgentDefinition{{Engine: AgentEngineACP, Mode: AgentModeCoder}} {
 		if ids := mergePresetConnectors(d, cfg.PresetConnectors); len(ids) != 0 {
 			t.Fatalf("preset injected into %v", d)
 		}
@@ -93,12 +93,12 @@ func TestPresetConnectorCannotBeDeletedWithoutAgents(t *testing.T) {
 }
 
 func TestPresetConnectorScopeDoesNotRequireValidAgent(t *testing.T) {
-	for _, tree := range []map[string]any{{}, {"mode": "CODER"}, {"mode": "KBASE"}} {
+	for _, tree := range []map[string]any{{}, {"mode": "CODER"}, {"mode": "KBASE"}, {"mode": "TEAM"}} {
 		if ids := presetConnectorIDsForTree(tree, []string{"web"}); len(ids) != 1 {
 			t.Fatalf("invalid Agent lost configured presets: %v", tree)
 		}
 	}
-	for _, tree := range []map[string]any{{"engine": "acp"}, {"mode": "TEAM"}, {"engine": "invalid"}} {
+	for _, tree := range []map[string]any{{"engine": "acp"}, {"engine": "invalid"}} {
 		if ids := presetConnectorIDsForTree(tree, []string{"web"}); len(ids) != 0 {
 			t.Fatalf("unexpected presets: %v", tree)
 		}

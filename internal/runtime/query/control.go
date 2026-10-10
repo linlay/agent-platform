@@ -15,7 +15,7 @@ func (s *Service) Submit(_ context.Context, command runtimetypes.SubmitCommand) 
 	}
 
 	req := queryinput.SubmitRequest{
-		ChatID: command.ChatID, RunID: command.RunID, AgentKey: command.AgentKey, TeamID: command.TeamID,
+		ChatID: command.ChatID, RunID: command.RunID, AgentKey: command.AgentKey,
 		AwaitingID: command.AwaitingID, SubmitID: command.SubmitID, Locale: command.Locale,
 		Param: queryinput.SubmitParam(command.Param), Params: queryinput.SubmitParams(command.Params), ContinuationRunID: command.ContinuationRunID,
 		ContinuationState: command.ContinuationState,
@@ -44,10 +44,10 @@ func (s *Service) Steer(_ context.Context, command runtimetypes.SteerCommand) (r
 
 	req := queryinput.SteerRequest{
 		RequestID: command.RequestID, ChatID: command.ChatID, RunID: command.RunID,
-		SteerID: command.SteerID, AgentKey: command.AgentKey, TeamID: command.TeamID, Message: command.Message,
+		SteerID: command.SteerID, AgentKey: command.AgentKey, Message: command.Message,
 		References: command.References,
 	}
-	if statusErr := s.ValidateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
+	if statusErr := s.ValidateRunOwner(req.RunID, req.AgentKey); statusErr != nil {
 		return runtimetypes.SteerResult{}, statusErr
 	}
 	status, _ := s.deps.Runs.RunStatus(req.RunID)
@@ -72,10 +72,10 @@ func (s *Service) Interrupt(_ context.Context, command runtimetypes.InterruptCom
 
 	req := queryinput.InterruptRequest{
 		RequestID: command.RequestID, ChatID: command.ChatID, RunID: command.RunID,
-		AgentKey: command.AgentKey, TeamID: command.TeamID, Message: command.Message,
+		AgentKey: command.AgentKey, Message: command.Message,
 		InterruptSource: command.Source, InterruptReason: command.Reason, InterruptDetail: command.Detail,
 	}
-	if statusErr := s.ValidateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
+	if statusErr := s.ValidateRunOwner(req.RunID, req.AgentKey); statusErr != nil {
 		return runtimetypes.InterruptResult{}, statusErr
 	}
 	if response, statusErr, forwarded := s.deps.Proxy.Interrupt(req); forwarded {
@@ -102,7 +102,7 @@ func (s *Service) SetAccessLevel(_ context.Context, command runtimetypes.AccessL
 
 	response, statusErr := s.updateAccessLevel(queryinput.AccessLevelRequest{
 		RequestID: command.RequestID, RunID: command.RunID, AgentKey: command.AgentKey,
-		TeamID: command.TeamID, AccessLevel: command.AccessLevel, Reason: command.Reason,
+		AccessLevel: command.AccessLevel, Reason: command.Reason,
 	})
 	if statusErr != nil {
 		return runtimetypes.AccessLevelResult{}, statusErr

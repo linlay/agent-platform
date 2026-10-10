@@ -21,7 +21,7 @@ func skillFileEditor(t *testing.T) (*catalog.FileRegistry, string) {
 			t.Fatal(err)
 		}
 	}
-	registry, err := catalog.NewFileRegistry(config.Config{Paths: config.PathsConfig{SkillsCenterDir: skills, AgentsDir: filepath.Join(root, "agents"), TeamsDir: filepath.Join(root, "teams"), StateDir: filepath.Join(root, ".state")}}, nil)
+	registry, err := catalog.NewFileRegistry(config.Config{Paths: config.PathsConfig{SkillsCenterDir: skills, AgentsDir: filepath.Join(root, "agents"), StateDir: filepath.Join(root, ".state")}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

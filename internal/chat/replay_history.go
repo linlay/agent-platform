@@ -10,7 +10,7 @@ import (
 
 // replayChatHistory is shared by active and archived chats. It projects stored
 // records into Detail; export applies its own document filters to Detail.Events.
-func replayChatHistory(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64, runFinishReasons map[string]string) (Detail, error) {
+func replayChatHistory(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64, runFinishReasons map[string]string, owners ...map[string]replayRunOwner) (Detail, error) {
 	for _, m := range rawMessages {
 		delete(m, "_compactSource")
 		delete(m, "_modelKey")
@@ -19,7 +19,10 @@ func replayChatHistory(summary Summary, lines []map[string]any, rawMessages []ma
 	r := &historyReplay{
 		summary: summary, chatDir: chatDir,
 		runs: map[string]*chatRunData{}, taskQueries: collectReplayedTaskQueries(lines),
-		orchestratedTeam: isTeamOwner(summary.AgentKey, summary.TeamID),
+		runOwners: map[string]replayRunOwner{},
+	}
+	if len(owners) > 0 {
+		r.runOwners = owners[0]
 	}
 	for _, line := range lines {
 		if err := r.replayLine(line); err != nil {
@@ -65,7 +68,7 @@ type historyReplay struct {
 	runs                map[string]*chatRunData
 	runOrder            []string
 	taskQueries         map[string]replayedSubTaskQuery
-	orchestratedTeam    bool
+	runOwners           map[string]replayRunOwner
 	seq                 int64
 	planning            *PlanningState
 	latestContextWindow map[string]any
@@ -112,12 +115,12 @@ func collectReplayedTaskQueries(lines []map[string]any) map[string]replayedSubTa
 		}
 		query, _ := line["query"].(map[string]any)
 		taskQueries[replayedTaskQueryKey(runID, taskID)] = replayedSubTaskQuery{
-			TaskID:       taskID,
-			TaskName:     stringFromAny(line["taskName"]),
-			TaskDesc:     stringFromAny(query["message"]),
-			SubAgentKey:  stringFromAny(line["subAgentKey"]),
-			MainToolID:   taskToolIDFromLine(line),
-			TeamID:       stringFromAny(line["teamId"]),
+			TaskID:      taskID,
+			TaskName:    stringFromAny(line["taskName"]),
+			TaskDesc:    stringFromAny(query["message"]),
+			SubAgentKey: stringFromAny(line["subAgentKey"]),
+			MainToolID:  taskToolIDFromLine(line),
+
 			Presentation: stringFromAny(line["presentation"]),
 			RootContent:  boolFromAny(line["rootContent"]),
 		}
@@ -166,8 +169,8 @@ func (r *historyReplay) replayQuery(line map[string]any) error {
 		taskSubAgentKey := stringFromAny(line["subAgentKey"])
 		taskMainToolID := taskToolIDFromLine(line)
 		if events := beginReplayedSubTask(rd, runID, taskID, taskName, taskDescription, taskSubAgentKey, taskMainToolID, ts, r.nextSeq); len(events) > 0 {
-			if r.orchestratedTeam {
-				events = decorateReplayedTeamTaskEvents(events, firstNonEmptyReplayString(stringFromAny(line["teamId"]), r.summary.TeamID), taskSubAgentKey, stringFromAny(line["presentation"]))
+			if r.isTeamRun(runID) {
+				events = decorateReplayedTeamTaskEvents(events, taskSubAgentKey, stringFromAny(line["presentation"]))
 			}
 			rd.events = append(rd.events, events...)
 		}
@@ -243,7 +246,7 @@ func (r *historyReplay) finishRun(rd *chatRunData, runStartedAt, runCompletedAt 
 			Seq:       r.nextSeq(),
 			Type:      "run.start",
 			Timestamp: runStartTimestamp,
-			Payload:   map[string]any{"runId": runID, "chatId": r.summary.ChatID, "agentKey": r.summary.AgentKey},
+			Payload:   map[string]any{"runId": runID, "chatId": r.summary.ChatID, "agentKey": r.ownerForRun(runID).AgentKey},
 		}
 		rd.events = insertReplayRunStart(rd.events, runStart)
 	}
@@ -264,4 +267,33 @@ func (r *historyReplay) finishRun(rd *chatRunData, runStartedAt, runCompletedAt 
 		}
 	}
 	return events, nil
+}
+
+type replayRunOwner struct{ AgentKey, Mode string }
+
+func (r *historyReplay) ownerForRun(runID string) replayRunOwner {
+	if owner, ok := r.runOwners[runID]; ok {
+		return owner
+	}
+	return replayRunOwner{AgentKey: r.summary.AgentKey, Mode: r.summary.AgentMode}
+}
+func (r *historyReplay) isTeamRun(runID string) bool {
+	return strings.EqualFold(r.ownerForRun(runID).Mode, "TEAM")
+}
+func (s *FileStore) replayRunOwnersLocked(chatID string) (map[string]replayRunOwner, error) {
+	rows, err := s.db.Query(`SELECT RUN_ID_, COALESCE(AGENT_KEY_,''), COALESCE(AGENT_MODE_,'') FROM RUNS WHERE CHAT_ID_=?`, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	owners := map[string]replayRunOwner{}
+	for rows.Next() {
+		var id string
+		var owner replayRunOwner
+		if err := rows.Scan(&id, &owner.AgentKey, &owner.Mode); err != nil {
+			return nil, err
+		}
+		owners[id] = owner
+	}
+	return owners, rows.Err()
 }

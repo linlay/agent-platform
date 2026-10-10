@@ -22,7 +22,7 @@ func TestAgentRuntimeLeaseReleaseWithoutReloadKeepsConnectorMount(t *testing.T) 
 	}{{"single", 1}, {"concurrent", 2}} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "platform", "connectors"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams"), StateDir: filepath.Join(root, ".state")}}
+			cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "platform", "connectors"), SkillsCenterDir: filepath.Join(root, "skills-center"), StateDir: filepath.Join(root, ".state")}}
 			if err := connectortest.WriteCLI(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0"); err != nil {
 				t.Fatal(err)
 			}
@@ -80,7 +80,7 @@ func TestAgentRuntimeLeaseReleaseWithoutReloadKeepsConnectorMount(t *testing.T) 
 
 func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "platform", "connectors"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams"), StateDir: filepath.Join(root, ".state")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "platform", "connectors"), SkillsCenterDir: filepath.Join(root, "skills-center"), StateDir: filepath.Join(root, ".state")}}
 	if err := connectortest.WriteCLI(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
@@ -176,15 +176,15 @@ func TestRuntimePublicationValidatesBeforeFilesAndBindsBeforeNewLease(t *testing
 	r := &FileRegistry{agents: map[string]AgentDefinition{"demo": {Key: "demo"}}}
 	invalid := errors.New("invalid connector source")
 	bound := false
-	if err := r.ReloadWithRuntimeBindings(context.Background(), "teams", func() error { return invalid }, func() error { bound = true; return nil }); !errors.Is(err, invalid) || bound {
+	if err := r.ReloadWithRuntimeBindings(context.Background(), "skills", func() error { return invalid }, func() error { bound = true; return nil }); !errors.Is(err, invalid) || bound {
 		t.Fatal("invalid source reached publication")
 	}
 	// teams is sufficient to exercise the same admission/publication mutex
 	// without needing another filesystem fixture.
-	r.cfg.Paths.TeamsDir = t.TempDir()
+
 	entered, finish, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	go func() {
-		done <- r.ReloadWithRuntimeBindings(context.Background(), "teams", nil, func() error { close(entered); <-finish; return nil })
+		done <- r.ReloadWithRuntimeBindings(context.Background(), "skills", nil, func() error { close(entered); <-finish; return nil })
 	}()
 	<-entered
 	leased := make(chan func(), 1)

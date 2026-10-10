@@ -1,10 +1,8 @@
 package catalog
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -124,15 +122,13 @@ func TestLogicalRuntimeBaseNameStripsDemoAndExampleMarkers(t *testing.T) {
 func TestInvalidateRuntimeAgentKeepsAdminDiagnosticAndInvalidatesDependentTeam(t *testing.T) {
 	registry := &FileRegistry{
 		agents: map[string]AgentDefinition{
-			"docs": {Key: "docs", Name: "Docs", Mode: AgentModeKBase},
+			"docs":     {Key: "docs", Name: "Docs", Mode: AgentModeKBase},
+			"research": {Key: "research", Mode: "TEAM", TeamConfig: &TeamConfig{Members: []string{"docs"}, MaxParallel: 5}},
 		},
 		adminAgents: map[string]AdminAgent{
 			"docs": {Key: "docs", Name: "Docs", Mode: AgentModeKBase, Status: AdminAgentStatusReady, Source: EditableAgentSource{Path: "/runtime/agents/docs/agent.yml"}},
 		},
 		runtimeInvalidAgents: map[string]AdminAgentDiagnostic{},
-		teams: map[string]TeamDefinition{
-			"research": {TeamID: "research", AgentKeys: []string{"docs"}},
-		},
 	}
 	cause := errors.New("KBASE storage schema agent=docs: extra table KBASE_MIGRATIONS")
 	if !registry.InvalidateRuntimeAgent("docs", "invalid_kbase_storage", cause) {
@@ -732,44 +728,6 @@ func TestParseAgentFileRejectsInvalidNestedStageSamplingType(t *testing.T) {
 	}
 }
 
-func TestLoadTeamsSupportsYAMLAndSkipsExampleFiles(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "default"), 0o755); err != nil {
-		t.Fatalf("mkdir default team: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "default", "team.yml"), []byte(
-		"name: Default Team\n"+
-			"agentKeys:\n"+
-			"  - default_agent\n"+
-			"orchestrator:\n"+
-			"  modelConfig:\n"+
-			"    modelKey: coordinator\n",
-	), 0o644); err != nil {
-		t.Fatalf("write yaml team: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "example.example.yml"), []byte(
-		"name: Example Team\n"+
-			"agentKeys:\n"+
-			"  - default_agent\n",
-	), 0o644); err != nil {
-		t.Fatalf("write example team: %v", err)
-	}
-
-	teams, err := loadTeams(root)
-	if err != nil {
-		t.Fatalf("load teams: %v", err)
-	}
-	if len(teams) != 1 {
-		t.Fatalf("expected one loadable team, got %#v", teams)
-	}
-	if _, ok := teams["default"]; !ok {
-		t.Fatalf("expected default team to load, got %#v", teams)
-	}
-	if _, ok := teams["example.example"]; ok {
-		t.Fatalf("did not expect example team to load, got %#v", teams)
-	}
-}
-
 func TestLoadSkillsSkipsExampleDirectories(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "mock-skill"), 0o755); err != nil {
@@ -1103,30 +1061,6 @@ func TestLoadSkillsRejectsReservedRuntimeEnvironment(t *testing.T) {
 	}
 }
 
-func TestTeamsLogsInvalidAgentKeys(t *testing.T) {
-	var buf bytes.Buffer
-	previous := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(previous)
-
-	registry := &FileRegistry{
-		agents: map[string]AgentDefinition{
-			"agent_a": {Key: "agent_a"},
-		},
-		teams: map[string]TeamDefinition{
-			"team_a": {TeamID: "team_a", Name: "Team A", AgentKeys: []string{"agent_a", "missing_agent"}},
-		},
-	}
-
-	items := registry.Teams()
-	if len(items) != 1 {
-		t.Fatalf("expected one team summary, got %#v", items)
-	}
-	if !strings.Contains(buf.String(), "invalidAgentKeys=[missing_agent]") {
-		t.Fatalf("expected invalid agent key warning, got %q", buf.String())
-	}
-}
-
 func TestResolveTeamReturnsAtomicDeduplicatedSnapshot(t *testing.T) {
 	registry := &FileRegistry{
 		agents: map[string]AgentDefinition{
@@ -1138,14 +1072,12 @@ func TestResolveTeamReturnsAtomicDeduplicatedSnapshot(t *testing.T) {
 					"sandboxMounts": []map[string]any{{"source": "/old"}},
 				},
 			},
-			"agent-b": {Key: "agent-b"},
-		},
-		teams: map[string]TeamDefinition{
-			"team-a": {TeamID: "team-a", Name: "Team A", AgentKeys: []string{"agent-a", "agent-a", " missing ", "agent-b"}},
+			"agent-b":  {Key: "agent-b"},
+			"research": {Key: "research", Mode: "TEAM", TeamConfig: &TeamConfig{Members: []string{"agent-a", "missing", "agent-b"}, MaxParallel: 5}},
 		},
 	}
 
-	snapshot, ok := registry.ResolveTeam(" team-a ")
+	snapshot, ok := registry.ResolveTeam("research")
 	if !ok {
 		t.Fatal("expected team snapshot")
 	}
@@ -1185,7 +1117,7 @@ func TestResolveTeamReturnsAtomicDeduplicatedSnapshot(t *testing.T) {
 	registry.mu.Lock()
 	delete(registry.agents, "agent-a")
 	registry.mu.Unlock()
-	refreshed, _ := registry.ResolveTeam("team-a")
+	refreshed, _ := registry.ResolveTeam("research")
 	if refreshed.HasAgent("agent-a") {
 		t.Fatalf("expected refreshed snapshot to see catalog drift: %#v", refreshed)
 	}

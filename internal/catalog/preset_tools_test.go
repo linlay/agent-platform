@@ -27,7 +27,7 @@ func TestPresetToolsResolveAndExclude(t *testing.T) {
 	if d.ToolBindings[0].Source != "preset" || d.ExcludedTools[0] != "wait" {
 		t.Fatal("snapshot alias")
 	}
-	for _, isolated := range []AgentDefinition{{Engine: AgentEngineACP}, {Mode: "TEAM"}} {
+	for _, isolated := range []AgentDefinition{{Engine: AgentEngineACP}} {
 		isolated.applyPresetTools([]string{"datetime"})
 		if len(isolated.Tools) != 0 {
 			t.Fatal("injected outside ordinary native Agent")
@@ -99,7 +99,7 @@ func TestPresetToolsACPRejectsExclusions(t *testing.T) {
 }
 
 func TestPresetToolsDoNotDeriveToolsFromCapabilities(t *testing.T) {
-	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
+	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase, "TEAM"} {
 		d := AgentDefinition{Mode: mode, Engine: AgentEngineNative, DeclaredTools: []string{}, ExcludedTools: []string{"wait", "bash"}, Skills: []string{"skill"}, MemoryEnabled: true, KBaseConfig: knowledge.Config{Enabled: true}, Runtime: map[string]any{"env": map[string]string{"LANG": "en_US"}}}
 		d.applyPresetTools([]string{"datetime", "wait"})
 		if !containsString(d.Tools, "datetime") || containsString(d.Tools, "wait") || containsString(d.Tools, "bash") {
@@ -111,7 +111,7 @@ func TestPresetToolsDoNotDeriveToolsFromCapabilities(t *testing.T) {
 			}
 		}
 	}
-	for _, mode := range []string{"TEAM", "PROXY", "CHANNEL"} {
+	for _, mode := range []string{"PROXY", "CHANNEL"} {
 		d := AgentDefinition{Mode: mode}
 		d.applyPresetTools([]string{"datetime"})
 		if len(d.Tools) != 0 {
@@ -152,7 +152,7 @@ func TestCoderRegexPresetControlsEffectiveToolsAndExclusion(t *testing.T) {
 }
 
 func TestRunEnvPresetRespectsExclusions(t *testing.T) {
-	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
+	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase, "TEAM"} {
 		for _, presets := range [][]string{nil, {"run_env"}} {
 			for _, excluded := range []bool{false, true} {
 				d := AgentDefinition{Mode: mode, Engine: AgentEngineNative}
@@ -178,7 +178,7 @@ func TestRunEnvPresetRespectsExclusions(t *testing.T) {
 			}
 		}
 	}
-	for _, d := range []AgentDefinition{{Mode: AgentModeCoder, Engine: AgentEngineACP}, {Mode: "TEAM"}, {Mode: "CHANNEL"}, {Mode: "PROXY"}} {
+	for _, d := range []AgentDefinition{{Mode: AgentModeCoder, Engine: AgentEngineACP}, {Mode: "CHANNEL"}, {Mode: "PROXY"}} {
 		d.applyPresetTools(nil)
 		if containsString(d.Tools, "run_env") {
 			t.Fatalf("non-native mount %#v", d)
@@ -195,7 +195,7 @@ func TestModePresetsAssemblyAndSourceEditing(t *testing.T) {
 	cfg := config.Config{PresetTools: []string{"datetime"}, ModePresets: map[string]config.AgentPresets{
 		"coder": {Tools: []string{"datetime", "file_read"}},
 	}}
-	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase} {
+	for _, mode := range []string{AgentModeGeneral, AgentModeCoder, AgentModeKBase, "TEAM"} {
 		def := AgentDefinition{Mode: mode, Engine: AgentEngineNative, Tools: []string{"wait"}}
 		def.applyPresetTools(cfg.PresetsForMode(mode).Tools)
 		if !containsString(def.Tools, "datetime") || !containsString(def.Tools, "wait") {

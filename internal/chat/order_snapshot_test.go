@@ -15,7 +15,7 @@ func TestChatOrderSnapshotConcurrentPins(t *testing.T) {
 	}
 	defer store.Close()
 	for _, id := range []string{"first", "second"} {
-		if _, _, err := store.EnsureChat(id, "agent", "", id); err != nil {
+		if _, _, err := store.EnsureChat(id, "agent", id); err != nil {
 			t.Fatal(err)
 		}
 	}

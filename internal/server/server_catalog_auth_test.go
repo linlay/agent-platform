@@ -286,7 +286,7 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 			}
 		},
 	})
-	if _, _, err := fixture.chats.EnsureChat("chat-coder", "coder-agent", "", "coder chat"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat("chat-coder", "coder-agent", "coder chat"); err != nil {
 		t.Fatalf("ensure coder chat: %v", err)
 	}
 	if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{ChatID: "chat-coder", RunID: "run-coder", UpdatedAtMillis: 1000}); err != nil {
@@ -413,8 +413,8 @@ func TestAgentEndpointReturnsNotFoundForUnknownAgent(t *testing.T) {
 func TestCatalogEndpoints(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
+	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-agent", "/api/admin/skills", "/api/admin/tools"} {
 
-	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-agent", "/api/teams", "/api/admin/skills", "/api/admin/tools"} {
 		rec := httptest.NewRecorder()
 		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {

@@ -26,15 +26,15 @@ type ClientTarget struct {
 // this value before invoking application behavior.
 type QueryCommand struct {
 	// InitialChatName is internal-only and applies to newly created Chats.
-	InitialChatName            string `json:"-"`
-	SideQuery                  bool
-	SideQueryID                string
-	TrustedGateway             bool
-	RequestID                  string
-	RunID                      string
-	ChatID                     string
-	AgentKey                   string
-	TeamID                     string
+	InitialChatName string `json:"-"`
+	SideQuery       bool
+	SideQueryID     string
+	TrustedGateway  bool
+	RequestID       string
+	RunID           string
+	ChatID          string
+	AgentKey        string
+
 	Role                       string
 	Hidden                     *bool
 	Message                    string

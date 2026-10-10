@@ -163,15 +163,15 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureStep()
 		w.ensureMsgID()
 		ts := event.Timestamp
-		actorType, teamID, agentKey := contentActorFromEvent(event)
+		actorType, _, agentKey := contentActorFromEvent(event)
 		w.appendStoredMessage(event, StoredMessage{
-			Role:         "assistant",
-			Content:      textContent(event.String("text")),
-			ContentID:    event.String("contentId"),
-			MsgID:        w.currentMsgID,
-			Ts:           &ts,
-			ActorType:    actorType,
-			TeamID:       teamID,
+			Role:      "assistant",
+			Content:   textContent(event.String("text")),
+			ContentID: event.String("contentId"),
+			MsgID:     w.currentMsgID,
+			Ts:        &ts,
+			ActorType: actorType,
+
 			AgentKey:     agentKey,
 			Presentation: event.String("presentation"),
 		})
@@ -281,7 +281,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		}
 		buffer.taskStatus = ""
 		buffer.taskSubAgentKey = event.String("subAgentKey")
-		buffer.teamID = event.String("teamId")
+
 		buffer.presentation = event.String("presentation")
 		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
 		buffer.lastTimestamp = event.Timestamp
@@ -619,9 +619,6 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 		if agentKey := strings.TrimSpace(event.String("agentKey")); agentKey != "" {
 			buffer.taskSubAgentKey = agentKey
 		}
-		if teamID := strings.TrimSpace(event.String("teamId")); teamID != "" {
-			buffer.teamID = teamID
-		}
 		if presentation := strings.TrimSpace(event.String("presentation")); presentation != "" {
 			buffer.presentation = presentation
 		}
@@ -640,19 +637,19 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 
 func contentActorFromEvent(event stream.EventData) (string, string, string) {
 	actorType := strings.TrimSpace(event.String("actorType"))
-	teamID := strings.TrimSpace(event.String("teamId"))
+
 	agentKey := strings.TrimSpace(event.String("agentKey"))
 	actor, _ := event.Value("actor").(map[string]any)
 	if actorType == "" {
 		actorType = strings.TrimSpace(stringFromAny(actor["type"]))
 	}
-	if teamID == "" {
-		teamID = strings.TrimSpace(stringFromAny(actor["teamId"]))
+	{
+
 	}
 	if agentKey == "" {
 		agentKey = strings.TrimSpace(stringFromAny(actor["agentKey"]))
 	}
-	return actorType, teamID, agentKey
+	return actorType, "", agentKey
 }
 
 func (w *StepWriter) appendSourceEvent(event stream.EventData) bool {
@@ -828,9 +825,6 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 	}
 	if agentKey := strings.TrimSpace(event.String("agentKey")); agentKey != "" {
 		buffer.taskSubAgentKey = agentKey
-	}
-	if teamID := strings.TrimSpace(event.String("teamId")); teamID != "" {
-		buffer.teamID = teamID
 	}
 	if presentation := strings.TrimSpace(event.String("presentation")); presentation != "" {
 		buffer.presentation = presentation

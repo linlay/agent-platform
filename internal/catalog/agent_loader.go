@@ -627,6 +627,13 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	}
 	def.Mode = mode
 	def.Engine = engine
+	if _, declared := root["teamConfig"]; declared && mode != "TEAM" {
+		return AgentDefinition{}, nil, fmt.Errorf("teamConfig is only supported for TEAM")
+	}
+	def.TeamConfig, err = parseTeamConfig(mode, def.Key, root["teamConfig"])
+	if err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	interactionConfig, err := interaction.Parse(mode, root["interactionConfig"])
 	if err != nil {
 		return AgentDefinition{}, nil, err

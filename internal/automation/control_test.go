@@ -16,7 +16,7 @@ import (
 
 func controlService(t *testing.T) *Service {
 	t.Helper()
-	return &Service{Registry: NewRegistry(t.TempDir(), nil), ReceiptDir: t.TempDir(), DefaultZoneID: "Asia/Shanghai"}
+	return &Service{Registry: NewRegistry(t.TempDir()), ReceiptDir: t.TempDir(), DefaultZoneID: "Asia/Shanghai"}
 }
 func createArgs() map[string]any {
 	return map[string]any{"name": "工作日报", "agentKey": "assistant", "cron": "0 18 * * 1-5", "enabled": false, "query": map[string]any{"message": "  整理工作记录\n保持原文  "}}

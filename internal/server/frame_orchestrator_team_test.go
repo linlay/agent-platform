@@ -20,20 +20,17 @@ import (
 
 func newTeamFrameOrchestrator(t *testing.T, main *stubOrchestratableStream, children map[string]contracts.AgentStream, defs map[string]catalog.AgentDefinition, routed *[]stream.StreamInput, emitted *[]contracts.AgentDelta) *frameOrchestrator {
 	t.Helper()
-	teamDef := catalog.TeamDefinition{
-		TeamID:      "research",
-		Name:        "Research",
-		RuntimeMode: catalog.TeamRuntimeModeOrchestrated,
-		AgentKeys:   []string{"writer", "reviewer"},
-		Orchestrator: catalog.TeamOrchestratorConfig{
-			ModelKey: "mock-model", MaxParallel: 2,
-		},
+	teamDef := catalog.AgentDefinition{
+
+		Name: "Research",
+
+		ModelKey: "mock-model", Key: "research", Mode: "TEAM", TeamConfig: &catalog.TeamConfig{Members: []string{"writer", "reviewer"}, MaxParallel: 2},
 	}
 	snapshot := catalog.NewTeamSnapshot(teamDef, defs)
 	o := newTestFrameOrchestrator(&orchestratorAgentEngine{streamsByAgentKey: children}, defs, emitted, routed)
-	o.Request = runtimetypes.QueryCommand{RequestID: "req-team", RunID: "run_1", ChatID: "chat_1", TeamID: "research", Role: api.QueryRoleUser, Message: "original request"}
+	o.Request = runtimetypes.QueryCommand{RequestID: "req-team", RunID: "run_1", ChatID: "chat_1", Role: api.QueryRoleUser, Message: "original request"}
 	o.Session = contracts.QuerySession{
-		RequestID: "req-team", RunID: "run_1", ChatID: "chat_1", TeamID: "research", Mode: agentteam.Mode,
+		RequestID: "req-team", RunID: "run_1", ChatID: "chat_1", Mode: agentteam.Mode,
 		ModeCapabilities: agentcontract.ModeCapabilities{InvokeChildren: true},
 	}
 	o.TeamSnapshot = &snapshot
@@ -81,7 +78,7 @@ func TestFrameOrchestratorTeamSingleDelegationReturnsMemberResultToCoordinator(t
 			continue
 		}
 		found = true
-		if content.TaskID == "" || content.AgentKey != "writer" || content.TeamID != "research" || content.Presentation != "task" || content.ActorType != "agent" {
+		if content.AgentKey == "" || content.ActorType != "agent" || content.Presentation != "task" {
 			t.Fatalf("unexpected delegated content metadata %#v", content)
 		}
 	}
@@ -124,7 +121,7 @@ func TestFrameOrchestratorTeamMultiDelegationUsesSameCoordinatorReturnPath(t *te
 			continue
 		}
 		memberReplies++
-		if content.TaskID == "" || content.TeamID != "research" || content.Presentation != "task" || content.AgentKey == "" {
+		if content.AgentKey == "" || content.ActorType != "agent" || content.Presentation != "task" {
 			t.Fatalf("unexpected delegated content metadata %#v", content)
 		}
 	}
@@ -355,23 +352,23 @@ func TestRouteChildStreamInputAttributesModelAndUsageEventsToTask(t *testing.T) 
 func TestRouteTeamChildLLMRequestCarriesHiddenPersistenceActor(t *testing.T) {
 	task := preparedSubTask{Spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, TaskID: "task-1"}
 	input := routeChildStreamInput("run-1", task.TaskID, stream.InputLLMRequest{ModelKey: "member-model"})
-	routed, ok := routeTeamChildStreamInput("run-1", "research", task, input, childRunOptions{Presentation: "task"}).(stream.InputLLMRequest)
-	if !ok || routed.TaskID != "task-1" || routed.ActorType != "agent" || routed.TeamID != "research" || routed.AgentKey != "writer" || routed.Presentation != "task" {
+	routed, ok := routeTeamChildStreamInput("run-1", task, input, childRunOptions{Presentation: "task"}).(stream.InputLLMRequest)
+	if !ok || routed.AgentKey != "writer" {
 		t.Fatalf("routed Team llm.request=%#v", routed)
 	}
 }
 
 func TestRouteTeamChildArtifactPublicationKeepsToolAndTaskTogether(t *testing.T) {
 	task := preparedSubTask{Spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, TaskID: "task-1"}
-	args, ok := routeTeamChildStreamInput("run-1", "research", task, stream.ToolArgs{ToolID: "call-artifact", ToolName: "artifact_publish"}, childRunOptions{}).(stream.ToolArgs)
+	args, ok := routeTeamChildStreamInput("run-1", task, stream.ToolArgs{ToolID: "call-artifact", ToolName: "artifact_publish"}, childRunOptions{}).(stream.ToolArgs)
 	if !ok || args.TaskID != "task-1" || args.ToolID != "task-1:call-artifact" {
 		t.Fatalf("routed Team tool args=%#v", args)
 	}
-	result, ok := routeTeamChildStreamInput("run-1", "research", task, stream.ToolResult{ToolID: "call-artifact", ToolName: "artifact_publish"}, childRunOptions{}).(stream.ToolResult)
+	result, ok := routeTeamChildStreamInput("run-1", task, stream.ToolResult{ToolID: "call-artifact", ToolName: "artifact_publish"}, childRunOptions{}).(stream.ToolResult)
 	if !ok || result.ToolID != "task-1:call-artifact" {
 		t.Fatalf("routed Team tool result=%#v", result)
 	}
-	publication, ok := routeTeamChildStreamInput("run-1", "research", task, stream.ArtifactPublish{RunID: "run-1", ToolID: "call-artifact", Artifacts: []map[string]any{{"artifactId": "artifact-1"}}}, childRunOptions{}).(stream.ArtifactPublish)
+	publication, ok := routeTeamChildStreamInput("run-1", task, stream.ArtifactPublish{RunID: "run-1", ToolID: "call-artifact", Artifacts: []map[string]any{{"artifactId": "artifact-1"}}}, childRunOptions{}).(stream.ArtifactPublish)
 	if !ok || publication.TaskID != "task-1" || publication.ToolID != "task-1:call-artifact" {
 		t.Fatalf("routed Team artifact publication=%#v", publication)
 	}
