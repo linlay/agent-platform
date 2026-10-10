@@ -8,10 +8,7 @@ import (
 	"strings"
 )
 
-const (
-	ChunkUnitChars           = "chars"
-	ChunkUnitEstimatedTokens = "estimatedTokens"
-)
+const ChunkUnitChars = "chars"
 
 // Config is the effective per-agent KBASE configuration.
 type Config struct {
@@ -21,11 +18,10 @@ type Config struct {
 }
 
 type ChunkConfig struct {
-	Unit          string `json:"unit,omitempty"`
-	MaxChars      int    `json:"maxChars,omitempty"`
-	OverlapChars  int    `json:"overlapChars,omitempty"`
-	MaxTokens     int    `json:"maxTokens,omitempty"`
-	OverlapTokens int    `json:"overlapTokens,omitempty"`
+	Strategy     string `json:"strategy,omitempty"`
+	Unit         string `json:"unit,omitempty"`
+	MaxChars     int    `json:"maxChars,omitempty"`
+	OverlapChars int    `json:"overlapChars,omitempty"`
 }
 
 type RetrievalConfig struct {
@@ -52,11 +48,7 @@ func DefaultExcludePatterns() []string {
 }
 
 func DefaultChunkConfig() ChunkConfig {
-	return ChunkConfig{
-		Unit:          ChunkUnitEstimatedTokens,
-		MaxTokens:     1000,
-		OverlapTokens: 100,
-	}
+	return ChunkConfig{Unit: ChunkUnitChars, Strategy: "window", MaxChars: 3600, OverlapChars: 540}
 }
 
 func DefaultConfig() Config {
@@ -94,7 +86,7 @@ var libraryIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 func ValidateConfigSchema(node map[string]any) error {
 	for key := range node {
 		if key != "libraryId" && key != "retrieval" {
-			return fmt.Errorf("kbaseConfig.%s was removed; bind libraryId and configure source filters/chunking in kbases/<id>/library.yml, embedding in runtime.kbx", key)
+			return fmt.Errorf("kbaseConfig.%s was removed; bind libraryId and configure source filters/chunking in kbases/<id>/library.yml, embedding in library models (runtime.kbx supplies defaults)", key)
 		}
 	}
 	if len(node) == 0 {

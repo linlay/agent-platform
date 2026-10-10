@@ -31,20 +31,24 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 var collectionNamePattern = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$`)
 
 type Collection struct {
-	Description string                `json:"description,omitempty"`
-	Editable    bool                  `json:"editable,omitempty"`
-	Name        string                `json:"name"`
-	SourcePath  string                `json:"sourcePath"`
-	Include     []string              `json:"include"`
-	Exclude     []string              `json:"exclude"`
-	Chunk       knowledge.ChunkConfig `json:"chunk,omitempty"`
+	Description string                  `json:"description,omitempty"`
+	Editable    bool                    `json:"editable,omitempty"`
+	Name        string                  `json:"name"`
+	SourcePath  string                  `json:"sourcePath"`
+	Include     []string                `json:"include"`
+	Exclude     []string                `json:"exclude"`
+	Chunk       knowledge.ChunkSettings `json:"chunk,omitempty"`
 }
 
 type Definition struct {
-	ID          string       `json:"id"`
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Collections []Collection `json:"collections"`
+	VectorsPending bool                     `json:"vectorsPending,omitempty"`
+	Chunk          *knowledge.ChunkSettings `json:"chunk,omitempty"`
+	TextEncoding   string                   `json:"textEncoding,omitempty"`
+	Models         *ModelsConfig            `json:"models,omitempty"`
+	ID             string                   `json:"id"`
+	Name           string                   `json:"name"`
+	Description    string                   `json:"description"`
+	Collections    []Collection             `json:"collections"`
 	// SourcePath is a convenience field for the HTTP single-source input.
 	SourcePath     string   `json:"sourcePath,omitempty"`
 	CreatedAt      int64    `json:"createdAt"`
@@ -61,10 +65,13 @@ type Definition struct {
 	InvalidID      bool     `json:"invalidId,omitempty"`
 }
 type Input struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Collections []Collection `json:"collections,omitempty"`
-	SourcePath  string       `json:"sourcePath,omitempty"`
+	Chunk        *knowledge.ChunkSettings `json:"chunk,omitempty"`
+	TextEncoding *string                  `json:"textEncoding,omitempty"`
+	Models       *ModelsConfig            `json:"models,omitempty"`
+	Name         string                   `json:"name"`
+	Description  string                   `json:"description"`
+	Collections  []Collection             `json:"collections,omitempty"`
+	SourcePath   string                   `json:"sourcePath,omitempty"`
 }
 type SearchInput struct {
 	Query       string   `json:"query"`
@@ -185,7 +192,7 @@ func validateCollections(collections []Collection) error {
 		if c.Include != nil && len(c.Include) == 0 {
 			return fmt.Errorf("collection include must not be empty")
 		}
-		if err := knowledge.ValidateSourceChunk(c.Chunk); err != nil {
+		if err := knowledge.ValidateChunkSettings(c.Chunk); err != nil {
 			return err
 		}
 		names[c.Name], paths[pathutil.CanonicalKey(c.SourcePath)] = true, true
@@ -343,6 +350,9 @@ func (s *Service) create(in Input, held bool) (Definition, error) {
 	}
 	now := time.Now().UnixMilli()
 	d := Definition{ID: hex.EncodeToString(b), Name: strings.TrimSpace(in.Name), Description: in.Description, Collections: collections, CreatedAt: now, UpdatedAt: now, State: "unindexed"}
+	if err := applyLibrarySettings(&d, in); err != nil {
+		return Definition{}, err
+	}
 	if in.SourcePath != "" {
 		d.SourcePath = collections[0].SourcePath
 	}
@@ -435,6 +445,9 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 		if len(collections) == 1 && collections[0].Name == "workspace" {
 			d.SourcePath = collections[0].SourcePath
 		}
+	}
+	if err := applyLibrarySettings(&d, in); err != nil {
+		return d, err
 	}
 	d.Name = strings.TrimSpace(in.Name)
 	d.Description = in.Description
@@ -557,5 +570,8 @@ func (s *Service) Read(ctx context.Context, id, operation, arg string, limit int
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if engine, ok := s.engine.(ConfiguredEngine); ok {
+		return engine.ReadLibrary(ctx, db, s.effectiveDefinition(d), operation, arg, limit, names...)
+	}
 	return s.engine.Read(ctx, db, operation, arg, limit, names...)
 }

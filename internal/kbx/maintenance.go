@@ -246,12 +246,12 @@ func (m *Manager) performRefresh(ctx context.Context, w *collectionUpdate, j *up
 	// These setters have no JSON output contract. Only their exit status is used;
 	// query and compare the resulting configuration before reading any source.
 	commands := [][]string{{"collection", "set-pattern", name, pattern}, append([]string{"collection", "set-ignore", name}, ignores...)}
-	maxChars, overlap := 3600, 540
-	if l.source.Chunk.Unit == knowledge.ChunkUnitChars {
-		maxChars = l.source.Chunk.MaxChars
-		overlap = l.source.Chunk.OverlapChars
+	chunk, err := knowledge.ResolveSourceChunk(knowledge.ChunkSettings{}, l.source.Chunk)
+	if err != nil {
+		return err
 	}
-	commands = append(commands, []string{"collection", "set-chunking", name, "--chunk-strategy", "window", "--max-chars", strconv.Itoa(maxChars), "--overlap-chars", strconv.Itoa(overlap)})
+	maxChars, overlap := chunk.MaxChars, chunk.OverlapChars
+	commands = append(commands, []string{"collection", "set-chunking", name, "--chunk-strategy", chunk.Strategy, "--max-chars", strconv.Itoa(maxChars), "--overlap-chars", strconv.Itoa(overlap)})
 	for _, args := range commands {
 		if _, err = m.runner.Run(ctx, l.database, cfg, args...); err != nil {
 			return err
@@ -262,7 +262,7 @@ func (m *Manager) performRefresh(ctx context.Context, w *collectionUpdate, j *up
 		return err
 	}
 	var actual collection
-	if json.Unmarshal(r.Data, &actual) != nil || actual.Name != name || filepath.Clean(actual.Path) != l.spec.WorkspaceRoot || actual.Pattern != pattern || !slices.Equal(actual.Ignore, ignores) || actual.Chunking.Strategy != "window" || actual.Chunking.MaxChars != maxChars || actual.Chunking.OverlapChars != overlap {
+	if json.Unmarshal(r.Data, &actual) != nil || actual.Name != name || filepath.Clean(actual.Path) != l.spec.WorkspaceRoot || actual.Pattern != pattern || !slices.Equal(actual.Ignore, ignores) || actual.Chunking.Strategy != chunk.Strategy || actual.Chunking.MaxChars != maxChars || actual.Chunking.OverlapChars != overlap {
 		return fmt.Errorf("KBX source selection configuration was not applied")
 	}
 	args := []string{"update", "-c", name, "--no-commands"}
@@ -292,6 +292,9 @@ func (m *Manager) performRefresh(ctx context.Context, w *collectionUpdate, j *up
 	}
 	if r.Index == nil || !r.Index.Selected.FullText.Ready {
 		return fmt.Errorf("KBX update did not confirm readable full-text index")
+	}
+	if m.skipEmbedding {
+		return nil
 	}
 	var models struct {
 		Models struct{ Embedding json.RawMessage }

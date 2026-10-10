@@ -20,7 +20,13 @@ func (m *Manager) Status(key string) (knowledge.Status, error) {
 	if d.IndexedAt > 0 {
 		status.LastIndexedAt = &d.IndexedAt
 	}
-	status.Indexes = &knowledge.IndexesStatus{FTS: knowledge.IndexStatus{Type: "fts", Ready: d.IndexedAt > 0}, Vector: knowledge.VectorIndexStatus{Type: "vector", Ready: d.IndexedAt > 0 && !d.Degraded && m.options.ConfigSource != nil && m.options.ConfigSource.ModelKey != ""}}
+	modelKey := m.options.DefaultEmbeddingModelKey
+	if m.options.ConfigSource != nil {
+		modelKey, _ = m.options.ConfigSource.selection(d)
+	} else if d.Models != nil && d.Models.Embedding != nil {
+		modelKey = d.Models.Embedding.ModelKey
+	}
+	status.Indexes = &knowledge.IndexesStatus{FTS: knowledge.IndexStatus{Type: "fts", Ready: d.IndexedAt > 0}, Vector: knowledge.VectorIndexStatus{Type: "vector", Ready: d.IndexedAt > 0 && !d.Degraded && modelKey != "" && !d.VectorsPending}}
 	if d.IndexedAt > 0 {
 		l, e := m.resolve(key)
 		if e != nil {

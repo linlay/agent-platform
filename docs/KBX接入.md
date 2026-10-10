@@ -56,11 +56,13 @@ CLI 必须声明维护协议 v1、结构化错误、无扫描注册与文件路�
 
 ## 源过滤、存储和模型
 
-配置位于 `kbases/<id>/library.yml`，索引固定在 `ru-kbases/<id>/index.sqlite`。collection 的 sourcePath、include/exclude/chunk 和部署强制排除目录进入指纹。默认包含 MD/TXT/HTML/HTM/PDF/DOCX/PPTX。源目录不得位于库配置、运行数据或 StateDir 内，必须与 ChatsRoot 分离；来源中的 runtime/state 子目录强制排除。隐藏文件、node_modules/vendor/dist/build 及符号链接不进入索引。include 无法覆盖这些排除。
+配置位于 `kbases/<id>/library.yml`，索引固定在 `ru-kbases/<id>/index.sqlite`。collection 的 sourcePath、include/exclude、逐字段合并后的 chunk、库级 textEncoding 和部署强制排除目录进入来源指纹。默认包含 MD/TXT/HTML/HTM/PDF/DOCX/PPTX。源目录不得位于库配置、运行数据或 StateDir 内，必须与 ChatsRoot 分离；来源中的 runtime/state 子目录强制排除。隐藏文件、node_modules/vendor/dist/build 及符号链接不进入索引。include 无法覆盖这些排除。
 
-维护规则只接受与 KBX globset 可证明等价的形式：明确相对路径、`dir/**`、`**/*.ext`、`docs/**/*.ext`；`docs/*.md`、`a?b.md` 等明确拒绝。自定义 chunk 使用 `unit: chars`、maxChars 和 overlapChars；修改后全量 update 重新发布分块。默认 1000 estimatedTokens / 100 overlap 映射为 3600 / 540 字符。
+维护规则只接受与 KBX globset 可证明等价的形式：明确相对路径、`dir/**`、`**/*.ext`、`docs/**/*.ext`；`docs/*.md`、`a?b.md` 等明确拒绝。chunk 按平台默认 → 库级 → collection 逐字段合并，unit 仅为 chars，strategy 为 window/regex/structural；默认值统一由 `knowledge.DefaultChunkConfig()` 提供 chars/window/3600/540，显式 overlapChars: 0 保留。有效切块或 textEncoding 变化后全量 update 重新抽取、发布分块；不再使用 token 默认值映射。
 
-模型只来自 `runtime.yml → kbx.embedding` 和模型 registry，连接快照位于 StateDir 私有文件。CLI 用 argv 调用，配置权限 0600，输出有界，不继承用户 KBX 配置。query expansion、reranker 和 graph extraction 模型未配置。向量合同不兼容时 KBX 返回错误，管理员需处理模型合同或停机备份运行目录后重建，不能用不存在的 Agent force 工具。
+`library.yml → models.embedding` 可以选择共享 registry 的 embedding 模型和 prompt；省略时继承 `runtime.yml → kbx.embedding`，Agent 不覆盖。每次调用在 StateDir 的库专属目录生成 0600 私有配置快照，携带有效模型、chunking、text_encoding，以 --config 显式传入，子进程结束后删除。CLI 用 argv 调用，输出有界，不继承用户 KBX 配置。模型键、endpoint/modelId/dimension/prompt 进入向量指纹；密钥、超时、batchSize 下次调用生效而不重建。
+
+向量合同变化执行全库 embed --force（无 -c），不重新扫描来源、不改变已发布 chunk。普通内容维护完成全部 collection 的 update 后执行全库 embed，Platform 合同变化或 KBX 报不兼容则使用 force；SESSION_LIMIT 后续跑不重复 force。向量变化/失败期间全文可读，query 使用全文，严格 vsearch 拒绝旧合同；成功后自动恢复。query expansion、reranker 和 graph extraction 未配置。配置继承、PUT 重置规则见 [知识库中心](知识库中心.md#库级配置与模型)。
 
 ## 升级与验证
 
@@ -73,10 +75,10 @@ KBX_ACCEPTANCE_BIN=/absolute/managed/bin KBX_CENTER_TEST_BIN=/absolute/managed/b
   go test ./internal/kbx -count=1
 ```
 
-`TestLiveSharedLibraryLifecycle` 在临时库和本机 embedding fixture 验证同名文档、自动监听、排除、模型故障保持全文可读和恢复。测试不代表模型的真实语义质量。Windows 锁和 watcher 尚需原生 Windows 验证。
+`TestLiveSharedLibraryLifecycle` 在临时库和本机 embedding fixture 验证同名文档、自动监听、排除、模型故障保持全文可读和恢复。`TestCenterRealLibraryChunkAndEncoding` 与 `TestCenterRealLibraryModelSwitchDoesNotScanSources` 覆盖库级策略、编码变更、两库模型隔离和向量切换失败/恢复。测试不代表模型的真实语义质量。Windows 锁和 watcher 尚需原生 Windows 验证。
 
 ## Collection 元数据与指纹分类
 
 collection 支持 `description`（可选文本，最多 4000 字节）和 `editable`（boolean，缺省 false）。二者不计入来源/向量指纹，管理 API 与 WebClient 表单保留这些字段。授权只适用于专用 KBASE 的 Host Run，需 editingMode；不向普通 Agent 授权，也不自动挂载容器。索引 include/exclude 不等于文件编辑范围，详见 [KBASE 编辑模式](KBASE编辑模式.md)。
 
-中心显式投影来源字段以保持原有来源指纹；向量合同使用独立维护接口，只有向量变化时不撤销已提交全文，向量错误/中断独立降级。当前生产 CenterEngine 的向量指纹仍为空，逐库模型在后续阶段接入；全局 runtime.kbx 模型配置行为不变，未实现字段继续严格拒绝。
+中心显式投影来源字段；有效 chunk/textEncoding 属于来源指纹，embedding 合同属于向量指纹。只有向量变化时不撤销已提交全文，向量错误/中断独立降级；collection description/editable 不参与指纹。未实现字段继续严格拒绝。

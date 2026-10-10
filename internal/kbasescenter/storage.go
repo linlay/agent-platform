@@ -22,9 +22,12 @@ import (
 
 // configuration is the only on-disk source of desired state. ID comes from the directory.
 type configuration struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Collections []Collection `json:"collections"`
+	Chunk        *knowledge.ChunkSettings `json:"chunk,omitempty"`
+	TextEncoding string                   `json:"textEncoding,omitempty"`
+	Models       *ModelsConfig            `json:"models,omitempty"`
+	Name         string                   `json:"name"`
+	Description  string                   `json:"description"`
+	Collections  []Collection             `json:"collections"`
 }
 
 var errInvalidRuntimeState = errors.New("invalid runtime state")
@@ -180,6 +183,13 @@ func (s *Service) loadConfiguration(id string, allowUnavailable bool) (Definitio
 		return d, yamlConfigurationError(err)
 	}
 	d.Name, d.Description, d.Collections = desired.Name, desired.Description, desired.Collections
+	d.Chunk, d.TextEncoding, d.Models = desired.Chunk, desired.TextEncoding, desired.Models
+	if normalized, err := normalizeTextEncoding(d.TextEncoding); err == nil {
+		d.TextEncoding = normalized
+	}
+	if err := validateLibrarySettings(d); err != nil {
+		return d, err
+	}
 	if err := validate(Input{Name: d.Name, Description: d.Description}); err != nil {
 		return d, err
 	}
@@ -241,7 +251,8 @@ func (s *Service) load(id string) (Definition, error) {
 	d.Indexing = s.isBusy(id)
 	d.Stale = d.Indexing || state.RefreshError != ""
 	fingerprints := s.fingerprints(d)
-	d.Degraded = state.Degraded || fingerprints.Vector != state.AppliedVectorFingerprint
+	d.VectorsPending = fingerprints.Vector != state.AppliedVectorFingerprint || state.VectorOnlyTask
+	d.Degraded = state.Degraded || d.VectorsPending
 	if state.VectorOnlyTask && state.AppliedFingerprint == fingerprints.Source && state.IndexedAt > 0 {
 		// A vector task never withdraws the committed full-text index, including
 		// after interruption. The scheduler will reconcile it after restart.
@@ -311,11 +322,11 @@ func scopeFingerprint(collections []Collection) string {
 	// Explicit projection preserves the existing fingerprint encoding and excludes
 	// Run-only metadata. New fields must choose a fingerprint category deliberately.
 	type sourceCollection struct {
-		Name       string                `json:"name"`
-		SourcePath string                `json:"sourcePath"`
-		Include    []string              `json:"include"`
-		Exclude    []string              `json:"exclude"`
-		Chunk      knowledge.ChunkConfig `json:"chunk,omitempty"`
+		Name       string                  `json:"name"`
+		SourcePath string                  `json:"sourcePath"`
+		Include    []string                `json:"include"`
+		Exclude    []string                `json:"exclude"`
+		Chunk      knowledge.ChunkSettings `json:"chunk,omitempty"`
 	}
 	ordered := make([]sourceCollection, 0, len(collections))
 	for _, c := range effectiveCollections(collections) {
@@ -354,7 +365,9 @@ func (s *Service) saveConfiguration(d Definition) error {
 	// JSON quoting is a YAML-compatible scalar encoding, including paths and multiline text.
 	quote := func(s string) string { b, _ := json.Marshal(s); return string(b) }
 	var b strings.Builder
-	fmt.Fprintf(&b, "name: %s\ndescription: %s\ncollections:\n", quote(d.Name), quote(d.Description))
+	fmt.Fprintf(&b, "name: %s\ndescription: %s\n", quote(d.Name), quote(d.Description))
+	writeLibrarySettings(&b, d, quote)
+	fmt.Fprintln(&b, "collections:")
 	for _, c := range d.Collections {
 		fmt.Fprintf(&b, "  - name: %s\n    sourcePath: %s\n", quote(c.Name), quote(c.SourcePath))
 		if c.Description != "" {
@@ -378,14 +391,7 @@ func (s *Service) saveConfiguration(d Definition) error {
 				}
 			}
 		}
-		if c.Chunk.Unit != "" {
-			fmt.Fprintf(&b, "    chunk:\n      unit: %s\n", quote(c.Chunk.Unit))
-			if c.Chunk.Unit == "chars" {
-				fmt.Fprintf(&b, "      maxChars: %d\n      overlapChars: %d\n", c.Chunk.MaxChars, c.Chunk.OverlapChars)
-			} else {
-				fmt.Fprintf(&b, "      maxTokens: %d\n      overlapTokens: %d\n", c.Chunk.MaxTokens, c.Chunk.OverlapTokens)
-			}
-		}
+		writeChunkSettings(&b, "    ", c.Chunk, quote)
 	}
 	return atomicWrite(dir, "library.yml", []byte(b.String()))
 }

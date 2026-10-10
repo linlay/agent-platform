@@ -18,6 +18,7 @@ type CenterEngine struct {
 	configSource *ModelConfigSource
 	runner       Runner
 	embedding    bool
+	readConfig   []byte
 }
 
 func NewCenterEngine() *CenterEngine { return &CenterEngine{runner: cliRunner{}} }
@@ -31,16 +32,21 @@ func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbas
 // UpdatePaths uses the same structured maintenance contract as the former Agent
 // worker, now scoped to one shared database and explicit collections.
 func (e *CenterEngine) UpdatePaths(ctx context.Context, db string, collections []kbasescenter.Collection, changes map[string][]string) error {
+	return e.UpdateLibrary(ctx, db, kbasescenter.Definition{Collections: collections}, changes)
+}
+func (e *CenterEngine) UpdateLibrary(ctx context.Context, db string, definition kbasescenter.Definition, changes map[string][]string) error {
+	collections := definition.Collections
 	if len(collections) == 0 {
 		return fmt.Errorf("at least one collection is required")
 	}
-	if e.configSource != nil {
-		if _, err := e.configSource.Snapshot(); err != nil {
-			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
-		}
+	cfg, err := e.libraryConfig(definition, true)
+	if err != nil {
+		return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
 	}
-	m := NewManager(Options{ConfigSource: e.configSource}, nil, nil)
+	m := NewManager(Options{}, nil, nil)
 	m.runner = e.runner
+	m.frozenConfig = cfg
+	m.skipEmbedding = true
 	if err := m.probeMaintenance(ctx); err != nil {
 		return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
 	}
@@ -62,7 +68,7 @@ func (e *CenterEngine) UpdatePaths(ctx context.Context, db string, collections [
 	// Reconcile removals/path changes before registering any collections. The
 	// service has already withdrawn old-scope reads when the fingerprint changed.
 	if _, err := os.Stat(db); err == nil {
-		l := library{database: db, spec: knowledge.AgentSpec{Config: knowledge.DefaultConfig()}}
+		l := library{definition: definition, database: db, spec: knowledge.AgentSpec{Config: knowledge.DefaultConfig()}}
 		cfg, err := m.config(l, true)
 		if err != nil {
 			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
@@ -96,10 +102,16 @@ func (e *CenterEngine) UpdatePaths(ctx context.Context, db string, collections [
 		if c.Exclude == nil {
 			c.Exclude = knowledge.DefaultExcludePatterns()
 		}
-		if c.Chunk.Unit == "" {
-			c.Chunk = knowledge.DefaultChunkConfig()
+		defaults := knowledge.ChunkSettings{}
+		if definition.Chunk != nil {
+			defaults = *definition.Chunk
 		}
-		l := library{database: db, collection: c.Name, source: c, spec: knowledge.AgentSpec{Key: c.Name, WorkspaceRoot: c.SourcePath, Config: knowledge.DefaultConfig()}}
+		chunk, err := knowledge.ResolveSourceChunk(defaults, c.Chunk)
+		if err != nil {
+			return err
+		}
+		c.Chunk = knowledge.ChunkSettingsFrom(chunk)
+		l := library{definition: definition, database: db, collection: c.Name, source: c, spec: knowledge.AgentSpec{Key: c.Name, WorkspaceRoot: c.SourcePath, Config: knowledge.DefaultConfig()}}
 		w := &collectionUpdate{library: l}
 		job := &updatePaths{}
 		if changes != nil {
@@ -110,7 +122,7 @@ func (e *CenterEngine) UpdatePaths(ctx context.Context, db string, collections [
 				continue
 			}
 		}
-		err := m.performRefresh(ctx, w, job)
+		err = m.performRefresh(ctx, w, job)
 		if err != nil {
 			if !w.initialized || w.index == nil || !w.index.FullText.Ready {
 				return err
@@ -121,15 +133,32 @@ func (e *CenterEngine) UpdatePaths(ctx context.Context, db string, collections [
 	if degraded != nil {
 		return &kbasescenter.ReadableFailure{Err: degraded}
 	}
+	if err := e.embedLibrary(ctx, db, cfg, definition.VectorsPending); err != nil {
+		return &kbasescenter.ReadableFailure{Err: err}
+	}
 	return nil
 }
 
 func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
-	if e.configSource != nil {
-		if _, err := e.configSource.Snapshot(); err != nil {
-			return nil, err
+	return e.ReadLibrary(ctx, db, kbasescenter.Definition{}, operation, arg, limit, collections...)
+}
+func (e *CenterEngine) ReadLibrary(ctx context.Context, db string, definition kbasescenter.Definition, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
+	embedding := operation == "query" || operation == "vsearch" || operation == "status"
+	if definition.VectorsPending {
+		if operation == "vsearch" {
+			return nil, unavailable("knowledge vectors are rebuilding for the current embedding configuration")
 		}
+		embedding = false
 	}
+	cfg, err := e.libraryConfig(definition, embedding)
+	if err != nil {
+		return nil, err
+	}
+	local := *e
+	local.readConfig = cfg
+	return local.read(ctx, db, operation, arg, limit, collections...)
+}
+func (e *CenterEngine) read(ctx context.Context, db, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
 	var args []string
 	switch operation {
 	case "status":
@@ -153,7 +182,7 @@ func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limi
 	default:
 		return nil, fmt.Errorf("unknown KBX operation")
 	}
-	raw, err := e.runner.Run(ctx, db, centerConfig, args...)
+	raw, err := e.runner.Run(ctx, db, e.readConfig, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +211,7 @@ func (e *CenterEngine) files(ctx context.Context, db string, collections []strin
 	var documents []json.RawMessage
 	complete := true
 	for _, name := range collections {
-		raw, err := e.runner.Run(ctx, db, centerConfig, "ls", "kbx://"+name, "--agent")
+		raw, err := e.runner.Run(ctx, db, e.readConfig, "ls", "kbx://"+name, "--agent")
 		if err != nil {
 			return nil, err
 		}

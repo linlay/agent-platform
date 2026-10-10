@@ -27,7 +27,7 @@ func TestGlobalCenterConfigUsesSelectedRegistryModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !engine.embedding || engine.runner.(cliRunner).configFile != file {
+	if !engine.embedding || engine.runner.(libraryConfigRunner).source.File != file {
 		t.Fatal("global file not wired")
 	}
 	raw, err := os.ReadFile(file)
@@ -85,7 +85,7 @@ func TestSharedModelSourceIgnoresAgentOverrideAndRetainsChunking(t *testing.T) {
 	m := NewManager(Options{ConfigSource: source}, nil, registry)
 	spec := knowledge.DefaultConfig()
 	chunk := knowledge.ChunkConfig{Unit: "chars", MaxChars: 800, OverlapChars: 80}
-	raw, err := m.config(library{spec: knowledge.AgentSpec{Config: spec}, source: kbasescenter.Collection{Chunk: chunk}}, true)
+	raw, err := m.config(library{spec: knowledge.AgentSpec{Config: spec}, source: kbasescenter.Collection{Chunk: knowledge.ChunkSettingsFrom(chunk)}}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +96,9 @@ func TestSharedModelSourceIgnoresAgentOverrideAndRetainsChunking(t *testing.T) {
 	role := cfg["models"].(map[string]any)["embedding"].(map[string]any)
 	if role["model"] != "embedding-fixture" || role["prompt"] != "qwen3" || cfg["chunking"].(map[string]any)["max_chars"] != float64(800) {
 		t.Fatal("source or chunking changed")
+	}
+	if _, err = source.Snapshot(); err != nil {
+		t.Fatal(err)
 	}
 	before, _ := os.Stat(source.File)
 	if _, err = source.Snapshot(); err != nil {

@@ -50,11 +50,11 @@ kbx:
     prompt: raw # raw 或 qwen3
 ```
 
-Platform 从 runtime.yml 选择模型并解析模型注册表。知识库中心与 Agent capability 共用部署级 ModelConfigSource，受管快照位于 `<AP_RUNTIME_STATE_DIR>/kbx/index.yml`，通过显式 --config 选择，不依赖 KBX_CONFIG_FILE。Agent 调用保留内容范围、过滤和切块参数，派生配置的模型段只能来自该快照。普通工具不能读取受管 StateDir。
+Platform 从 runtime.yml 读取默认模型选择，并允许 library.yml 的 models.embedding 覆盖，连接仍解析共享模型注册表。中心与 Agent capability 共用 ModelConfigSource；启动时校验默认配置并保存 `<AP_RUNTIME_STATE_DIR>/kbx/index.yml`，实际调用使用同目录 libraries 下的库专属私有配置快照，通过显式 --config 选择。快照携带库级切块和编码，执行后删除；普通工具不能读取受管 StateDir。
 
-空 model-key 关闭向量配置，不回退聊天模型；非空无效模型明确失败。每次同步重新解析注册表，仅连接快照变化才写入文件。KBX 负责模型/prompt 与索引契约检查；不可用或维度不匹配显式报告，不自动执行 embed --force，也不自动迁移已有索引。配置同步不意味着索引已经兼容新模型。
+默认 model-key 为空且库未覆盖时关闭向量配置，不回退聊天模型；非空无效模型明确失败，纯全文读取不解析模型。每次调用重新解析 registry，密钥和连接参数无需写进 library.yml。有效模型合同变更由中心执行全库 embed --force，不扫描来源或重划 chunk；重建失败/中断保持全文可读，严格向量检索在新合同完成前报未就绪。KBX 不迁移旧布局，维度不匹配明确报告。
 
-知识库模型只来自 runtime.kbx.embedding，Agent YAML 不配置 embedding。Agent capability 的维护由 Platform KBX worker 调度，详见 [KBX 接入](KBX接入.md)。
+知识库 embedding 由 library.yml 的 models.embedding 覆盖 runtime.kbx.embedding 默认，连接与密钥来自共享模型 registry；Agent YAML 不配置 embedding。Agent capability 的维护由 Platform KBX worker 调度，详见 [KBX 接入](KBX接入.md)。
 
 ## 离线迁移
 

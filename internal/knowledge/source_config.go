@@ -29,10 +29,10 @@ func ValidateSourceChunk(c ChunkConfig) error {
 	if c == (ChunkConfig{}) {
 		return nil
 	}
-	if c.Unit == ChunkUnitChars && c.MaxChars > 0 && c.OverlapChars >= 0 && c.OverlapChars < c.MaxChars && c.MaxTokens == 0 && c.OverlapTokens == 0 {
-		return nil
+	if c.Strategy != "" && c.Strategy != "window" && c.Strategy != "regex" && c.Strategy != "structural" {
+		return fmt.Errorf("chunk.strategy must be window, regex or structural")
 	}
-	if c == DefaultChunkConfig() {
+	if c.Unit == ChunkUnitChars && c.MaxChars > 0 && c.OverlapChars >= 0 && c.OverlapChars < c.MaxChars {
 		return nil
 	}
 	return fmt.Errorf("custom collection chunking requires unit: chars, positive maxChars and 0 <= overlapChars < maxChars")

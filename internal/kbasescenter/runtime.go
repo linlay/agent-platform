@@ -63,9 +63,8 @@ func effectiveCollections(input []Collection) []Collection {
 		if c.Exclude == nil {
 			c.Exclude = knowledge.DefaultExcludePatterns()
 		}
-		if c.Chunk.Unit == "" {
-			c.Chunk = knowledge.DefaultChunkConfig()
-		}
+		resolved, _ := knowledge.ResolveSourceChunk(knowledge.ChunkSettings{}, c.Chunk)
+		c.Chunk = knowledge.ChunkSettingsFrom(resolved)
 	}
 	return out
 }
@@ -111,7 +110,7 @@ func (s *Service) Acquire(id string) (Definition, string, func(), error) {
 	if st, err := os.Lstat(db); err != nil || !st.Mode().IsRegular() {
 		return fail(d, fmt.Errorf("knowledge index is unavailable"))
 	}
-	d.Collections = s.effectiveCollections(d.Collections)
+	d = s.effectiveDefinition(d)
 	return d, db, lock.RUnlock, nil
 }
 
@@ -126,7 +125,7 @@ type IncrementalEngine interface {
 	UpdatePaths(context.Context, string, []Collection, map[string][]string) error
 }
 
-func (s *Service) Refresh(id string) (Definition, error) { return s.refresh(id, nil) }
+func (s *Service) Refresh(id string) (Definition, error) { return s.refreshWithMode(id, nil, true) }
 func (s *Service) refresh(id string, changes map[string][]string) (Definition, error) {
 	return s.refreshWithMode(id, changes, false)
 }
@@ -147,7 +146,7 @@ func (s *Service) refreshWithMode(id string, changes map[string][]string, vector
 	if s.isBusy(id) {
 		return Definition{}, ErrBusy
 	}
-	d, err := s.loadConfiguration(id, false)
+	d, err := s.loadConfiguration(id, vectorsOnly)
 	if err != nil {
 		return d, err
 	}
@@ -171,7 +170,10 @@ func (s *Service) refreshWithMode(id string, changes map[string][]string, vector
 	change := fingerprints.changeFrom(indexFingerprints{Source: state.AppliedFingerprint, Vector: state.AppliedVectorFingerprint})
 	same := change != indexSourcesChanged && state.IndexedAt > 0 && (state.State != "indexing" || state.VectorOnlyTask)
 	vectorEngine, hasVectorEngine := s.engine.(VectorEngine)
-	vectorsOnly = vectorsOnly && same && hasVectorEngine
+	vectorsOnly = vectorsOnly && change == indexVectorsChanged && same && hasVectorEngine
+	if !vectorsOnly && len(d.SourceWarnings) > 0 {
+		return d, fmt.Errorf("source maintenance requires online sources: %s", strings.Join(d.SourceWarnings, "; "))
+	}
 	// A previous embedding failure may belong to a different collection from
 	// this path batch. Reconcile every collection before clearing degraded.
 	if state.Degraded {
@@ -200,6 +202,7 @@ func (s *Service) refreshWithMode(id string, changes map[string][]string, vector
 	d.Indexing = true
 	d.Stale = true
 	d.IndexedAt = state.IndexedAt
+	d.VectorsPending = fingerprints.Vector != previous.AppliedVectorFingerprint || previous.VectorOnlyTask
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -214,9 +217,12 @@ func (s *Service) refreshWithMode(id string, changes map[string][]string, vector
 		}
 		// read lease permits queries but protects paths from Edit/Delete.
 		lock.RLock()
-		collections := s.effectiveCollections(d.Collections)
+		effective := s.effectiveDefinition(d)
+		collections := effective.Collections
 		if vectorsOnly {
 			err = vectorEngine.RebuildVectors(ctx, filepath.Join(dir, "index.sqlite"), d)
+		} else if engine, ok := s.engine.(ConfiguredEngine); ok {
+			err = engine.UpdateLibrary(ctx, filepath.Join(dir, "index.sqlite"), effective, changes)
 		} else if engine, ok := s.engine.(IncrementalEngine); ok {
 			err = engine.UpdatePaths(ctx, filepath.Join(dir, "index.sqlite"), collections, changes)
 		} else {

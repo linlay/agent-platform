@@ -20,7 +20,7 @@ func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
 	var err error
 	decode := func(v any) bool {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
-		if e := decodeJSON(r, v); e != nil {
+		if e := decodeStrictJSON(r, v); e != nil {
 			writeJSON(w, 400, api.Failure(400, "invalid request body"))
 			return false
 		}

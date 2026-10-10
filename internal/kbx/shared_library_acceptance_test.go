@@ -140,7 +140,7 @@ func TestLiveSharedLibraryLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	lastIndexed := d.IndexedAt
-	d.Collections[0].Chunk = knowledge.ChunkConfig{Unit: "chars", MaxChars: 800, OverlapChars: 80}
+	d.Collections[0].Chunk = knowledge.ChunkSettingsFrom(knowledge.ChunkConfig{Unit: "chars", MaxChars: 800, OverlapChars: 80})
 	if _, err = center.Edit(d.ID, kbasescenter.Input{Name: d.Name, Collections: d.Collections}); err != nil {
 		t.Fatal(err)
 	}

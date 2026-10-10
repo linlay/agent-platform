@@ -12,9 +12,8 @@ import (
 	"agent-platform/internal/models"
 )
 
-// NewConfiguredCenterEngine publishes one deployment-wide connection snapshot.
-// FILE is injected into each child; --config bridges CLI versions that only
-// recognize --config / CONFIG_DIR. No per-library model settings are stored.
+// NewConfiguredCenterEngine validates deployment defaults. Each child receives
+// a private library-specific configuration snapshot via --config.
 func NewConfiguredCenterEngine(file string, registry *models.ModelRegistry, modelKey, prompt string) (*CenterEngine, error) {
 	source := &ModelConfigSource{File: file, Registry: registry, ModelKey: modelKey, Prompt: prompt}
 	if _, err := source.Snapshot(); err != nil {
@@ -23,8 +22,8 @@ func NewConfiguredCenterEngine(file string, registry *models.ModelRegistry, mode
 	return NewCenterEngineWithSource(source), nil
 }
 
-// ModelConfigSource is the sole deployment-level model selection for both KBX paths.
-// Registry connection changes are resolved before calls; no Agent may override them.
+// ModelConfigSource supplies shared registry connections and deployment defaults.
+// Libraries may select their embedding model; Agents cannot override it.
 type ModelConfigSource struct {
 	File             string
 	Registry         *models.ModelRegistry
@@ -34,7 +33,7 @@ type ModelConfigSource struct {
 }
 
 func NewCenterEngineWithSource(source *ModelConfigSource) *CenterEngine {
-	return &CenterEngine{runner: cliRunner{configFile: source.File}, embedding: source.ModelKey != "", configSource: source}
+	return &CenterEngine{runner: libraryConfigRunner{source: source}, embedding: source.ModelKey != "", configSource: source}
 }
 func (s *ModelConfigSource) Snapshot() ([]byte, error) {
 	s.mu.Lock()
@@ -46,7 +45,7 @@ func (s *ModelConfigSource) Snapshot() ([]byte, error) {
 	if prompt == "" {
 		prompt = "raw"
 	}
-	if prompt != "raw" && prompt != "qwen3" {
+	if prompt != "raw" && prompt != "qwen3" && prompt != "embeddinggemma" {
 		return nil, fmt.Errorf("invalid KBX embedding prompt")
 	}
 	m := NewManager(Options{DefaultEmbeddingModelKey: modelKey, EmbeddingPrompt: prompt}, nil, registry)

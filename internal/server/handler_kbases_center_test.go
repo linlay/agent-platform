@@ -68,6 +68,17 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	if d.Collections[0].Editable || d.Collections[0].Description != "Read-only docs" {
 		t.Fatalf("metadata lost on edit: %s", raw)
 	}
+
+	raw = request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Settings","chunk":{"strategy":"regex","maxChars":900,"overlapChars":0},"textEncoding":"GBK","models":{"embedding":{"modelKey":"selected","prompt":"qwen3"}}}`, 200)
+	d = kbasescenter.Definition{}
+	if err = json.Unmarshal(raw, &d); err != nil || d.Chunk == nil || *d.Chunk.OverlapChars != 0 || d.TextEncoding != "gbk" || d.Models.Embedding.ModelKey != "selected" {
+		t.Fatalf("settings lost on PUT: %s %v", raw, err)
+	}
+	raw = request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Metadata only"}`, 200)
+	if !strings.Contains(string(raw), `"modelKey":"selected"`) {
+		t.Fatalf("omitted settings reset: %s", raw)
+	}
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","models":{"reranker":{"modelKey":"future"}}}`, 400)
 	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","collections":[]}`, 400)
 	request("POST", "/api/admin/kbases/"+d.ID+"/search", `{"query":"fixture","method":"get"}`, 400)
 }

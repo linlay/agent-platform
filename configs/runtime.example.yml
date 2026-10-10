@@ -72,7 +72,8 @@ memory:
 
 kbx:
   embedding:
-    # Empty disables vector operations; must reference an embedding model.
+    # Deployment default; library.yml models.embedding may override it.
+    # Empty disables vectors for libraries without an override; reference an embedding model.
     model-key:
     prompt: raw # raw or qwen3
 

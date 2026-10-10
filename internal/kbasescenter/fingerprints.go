@@ -1,10 +1,13 @@
 package kbasescenter
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+)
 
 // indexFingerprints separates source scope from the vector contract. Display,
-// query and Run metadata is deliberately absent. An unchanged source hash keeps
-// its old encoding so upgrading alone never invalidates a completed index.
+// query and Run metadata is deliberately absent.
 type indexFingerprints struct{ Source, Vector string }
 
 type indexChange uint8
@@ -25,9 +28,7 @@ func (next indexFingerprints) changeFrom(previous indexFingerprints) indexChange
 	return indexUnchanged
 }
 
-// VectorEngine is the separate maintenance boundary for future library-level
-// embedding settings. Current CenterEngine uses deployment-wide configuration
-// and does not implement this interface; its vector fingerprint stays empty.
+// VectorEngine is the separate maintenance boundary for library-level embedding.
 // RebuildVectors must never mutate sources, chunks or the full-text index.
 type VectorEngine interface {
 	VectorFingerprint(Definition) string
@@ -35,7 +36,12 @@ type VectorEngine interface {
 }
 
 func (s *Service) fingerprints(d Definition) indexFingerprints {
-	fp := indexFingerprints{Source: s.fingerprint(d.Collections)}
+	effective := s.effectiveDefinition(d)
+	fp := indexFingerprints{Source: scopeFingerprint(effective.Collections)}
+	if d.TextEncoding != "" {
+		sum := sha256.Sum256([]byte(fp.Source + "\x00" + d.TextEncoding))
+		fp.Source = hex.EncodeToString(sum[:])
+	}
 	if engine, ok := s.engine.(VectorEngine); ok {
 		fp.Vector = engine.VectorFingerprint(d)
 	}

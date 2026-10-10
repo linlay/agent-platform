@@ -20,6 +20,26 @@ name: "研发知识"
 # 展示描述，可省略。修改不触发重建索引。
 description: "AI 建设与研发述职资料"
 
+# 库级切块默认值，collection.chunk 逐字段覆盖。唯一代码事实源：knowledge.DefaultChunkConfig()。
+# unit 仅支持 chars；strategy 支持 window / regex / structural。
+# 0 <= overlapChars < maxChars；显式 overlapChars: 0 不会继承默认值。
+chunk:
+  unit: "chars"
+  strategy: "window"
+  maxChars: 3600
+  overlapChars: 540
+
+# 非 UTF-8 文本的回退编码，仅对无 BOM 且不是合法 UTF-8 的文本生效。
+# 支持 WHATWG 编码标签（不接受 replacement）；省略时 KBX 使用严格 UTF-8/BOM 解码。
+# textEncoding: "gbk"
+
+# 可选逐库 embedding：省略时继承 runtime.kbx.embedding，URL/密钥来自共享模型 registry。
+# modelKey 必须指向 embedding 模型；prompt 省略时继承 runtime 默认。
+# models:
+#   embedding:
+#     modelKey: "qwen3-embedding-8b"
+#     prompt: "qwen3"           # raw | qwen3 | embeddinggemma
+
 # 来源集合，1–32 个。名称与来源目录在库内都必须唯一。
 # 知识工具中的路径形如 <collection 名>/<相对路径>。
 collections:
@@ -60,11 +80,12 @@ collections:
       - "node_modules/**"
       - "private/**"
 
-    # 切块。整段省略时使用 3600 / 540。
+    # 切块。整段省略继承库级默认，逐字段覆盖。
     # 自定义时 unit 必须是 chars，且 0 <= overlapChars < maxChars。
     # 按 Unicode 字符计数，不是 token 上限。
     chunk:
       unit: "chars"
+      strategy: "structural"
       maxChars: 3600
       overlapChars: 540
 
@@ -72,11 +93,12 @@ collections:
   - name: "research"
     sourcePath: "/absolute/path/to/研发中心各条线述职"
 
-# 以上字段中，name（集合）、sourcePath、include、exclude、chunk 计入来源指纹：
+# 以上字段中，name（集合）、sourcePath、include、exclude、有效 chunk 和 textEncoding 计入来源指纹：
 # 修改后立即撤销旧范围的读取并重新对账。库与集合的 description、库的 name、collection editable 和集合顺序不计入。
 #
-# embedding 模型目前不在本文件配置，所有库共用 configs/runtime.yml 的
-# kbx.embedding.model-key 与 kbx.embedding.prompt（raw / qwen3），改动需重启 Platform。
+# models.embedding 的有效模型合同计入向量指纹，变化后只重建全库向量，全文仍可读。
+# endpoint/modelId/dimension/prompt 的改变触发向量重建；密钥、超时和 batchSize 下次调用生效。
+# 库 YAML 修改无需重启；runtime 默认值修改仍需重启。
 #
 # Agent 侧只写绑定和查询预算（agent.yml）：
 #   kbaseConfig:
@@ -88,28 +110,14 @@ collections:
 # 字段名和取值是设计草案，落地时可能调整。
 # ============================================================================
 
-# ---- 库级模型：只写模型键，URL 与密钥仍由模型 registry 管理 ----
-# 向量合同是全库的，同一个库只能有一个 embedding 模型，所以不放在 collection 上。
-# 更换 embedding 模型或 prompt 会重建全库向量（全文仍可读）。
+# ---- 其他模型角色尚未接入（不能加入 models） ----
 # models:
-#   embedding:
-#     modelKey: "qwen3-embedding-8b"
-#     prompt: "qwen3"            # raw | qwen3 | embeddinggemma
-#   reranker:                    # 查询结果重排
+#   reranker:
 #     modelKey: "qwen3-reranker"
-#   queryExpansion:              # 查询扩展
+#   queryExpansion:
 #     modelKey: "kbx-query-expansion"
-#   graphExtraction:             # 图谱抽取
+#   graphExtraction:
 #     modelKey: "kbx-graph-extractor"
-
-# ---- 库级切块默认值：collection 的 chunk 逐字段覆盖 ----
-# chunk:
-#   strategy: "structural"       # window（当前固定值）| regex | structural
-#   maxChars: 3600
-#   overlapChars: 540
-
-# ---- 非 UTF-8 文本的回退编码：仅对无 BOM 且不是合法 UTF-8 的文本生效 ----
-# textEncoding: "gbk"            # gbk | gb18030 | windows-1252 | shift_jis ...
 
 # ---- 库级检索默认值：Agent 的 kbaseConfig.retrieval 覆盖；修改不重建索引 ----
 # retrieval:
@@ -140,7 +148,5 @@ collections:
 #   - name: "ai"
 #     sourcePath: "/absolute/path/to/AI建设文档"
 #     defaultQuery: true         # false = 照常索引，但未指定集合时默认不查
-#     chunk:
-#       strategy: "structural"   # 覆盖库级默认
 #     metadata:                  # 该集合下所有文档继承的固定标签
 #       project: "ai-platform"

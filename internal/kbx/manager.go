@@ -3,7 +3,6 @@ package kbx
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -25,10 +24,12 @@ type embeddingModels interface {
 }
 
 type Manager struct {
-	options Options
-	agents  knowledge.AgentSource
-	models  embeddingModels
-	runner  Runner
+	options       Options
+	agents        knowledge.AgentSource
+	models        embeddingModels
+	runner        Runner
+	frozenConfig  []byte
+	skipEmbedding bool
 }
 type library struct {
 	source     kbasescenter.Collection // Only maintenance consumes source configuration.
@@ -41,6 +42,9 @@ type library struct {
 
 func NewManager(options Options, agents knowledge.AgentSource, registry *models.ModelRegistry) *Manager {
 	m := &Manager{options: options, agents: agents, runner: cliRunner{}}
+	if options.ConfigSource != nil {
+		m.runner = libraryConfigRunner{source: options.ConfigSource}
+	}
 	if registry != nil {
 		m.models = registry
 	}
@@ -121,27 +125,37 @@ func (m *Manager) ProbeRuntime(ctx context.Context) (bool, knowledge.RuntimeStat
 	return required, s, err
 }
 func (m *Manager) config(l library, embedding bool) ([]byte, error) {
-	cfg := map[string]any{"models": map[string]any{"embedding": nil, "query_expansion": nil, "reranker": nil, "graph_extraction": nil}}
-	chunk := l.source.Chunk
-	maxChars, overlap := 3600, 540
-	if chunk.Unit == knowledge.ChunkUnitChars {
-		maxChars, overlap = chunk.MaxChars, chunk.OverlapChars
-	} else if chunk.MaxTokens != 0 && (chunk.MaxTokens != 1000 || chunk.OverlapTokens != 100) {
-		return nil, fmt.Errorf("KBX requires character chunking for custom sizes; configure unit: chars")
+	if m.frozenConfig != nil {
+		return append([]byte(nil), m.frozenConfig...), nil
 	}
-	cfg["chunking"] = map[string]any{"strategy": "window", "max_chars": maxChars, "overlap_chars": overlap}
+	if m.options.ConfigSource != nil {
+		copy := *m
+		copy.options.ConfigSource = nil
+		copy.options.DefaultEmbeddingModelKey, copy.options.EmbeddingPrompt = m.options.ConfigSource.selection(l.definition)
+		copy.models = nil
+		if m.options.ConfigSource.Registry != nil {
+			copy.models = m.options.ConfigSource.Registry
+		}
+		return copy.config(l, embedding)
+	}
+	cfg := map[string]any{"models": map[string]any{"embedding": nil, "query_expansion": nil, "reranker": nil, "graph_extraction": nil}}
+	defaults := knowledge.ChunkSettings{}
+	if l.definition.Chunk != nil {
+		defaults = *l.definition.Chunk
+	}
+	chunk, err := knowledge.ResolveSourceChunk(defaults, l.source.Chunk)
+	if err != nil {
+		return nil, err
+	}
+	cfg["chunking"] = map[string]any{"strategy": chunk.Strategy, "max_chars": chunk.MaxChars, "overlap_chars": chunk.OverlapChars}
+	if l.definition.TextEncoding != "" {
+		cfg["text_encoding"] = l.definition.TextEncoding
+	}
 	key := m.options.DefaultEmbeddingModelKey
-	if embedding && m.options.ConfigSource != nil {
-		raw, err := m.options.ConfigSource.Snapshot()
-		if err != nil {
-			return nil, err
-		}
-		var shared map[string]any
-		if err = json.Unmarshal(raw, &shared); err != nil {
-			return nil, err
-		}
-		cfg["models"] = shared["models"]
-	} else if embedding && key != "" {
+	if l.definition.Models != nil && l.definition.Models.Embedding != nil {
+		key = l.definition.Models.Embedding.ModelKey
+	}
+	if embedding && key != "" {
 		if m.models == nil {
 			return nil, unavailable("KBX embedding registry unavailable")
 		}
@@ -167,6 +181,9 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 		if m.options.EmbeddingPrompt != "" {
 			role["prompt"] = m.options.EmbeddingPrompt
 		}
+		if l.definition.Models != nil && l.definition.Models.Embedding != nil && l.definition.Models.Embedding.Prompt != "" {
+			role["prompt"] = l.definition.Models.Embedding.Prompt
+		}
 		if model.Embedding.BatchSize > 0 {
 			role["batch_size"] = model.Embedding.BatchSize
 		}
@@ -178,6 +195,14 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 	return json.Marshal(cfg)
 }
 func (m *Manager) call(ctx context.Context, l library, embedding bool, out any, args ...string) error {
+	if l.definition.VectorsPending && len(args) > 0 {
+		if args[0] == "vsearch" {
+			return unavailable("knowledge vectors are rebuilding for the current embedding configuration")
+		}
+		if args[0] == "query" {
+			embedding = false
+		}
+	}
 	cfg, err := m.config(l, embedding)
 	if err != nil {
 		return err

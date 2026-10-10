@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type vectorTestEngine struct {
@@ -101,5 +102,32 @@ func TestVectorOnlyRebuildKeepsFullTextReadable(t *testing.T) {
 				t.Fatalf("interrupted vectors: %+v %v", restored, err)
 			}
 		})
+	}
+}
+
+func TestSchedulerDetectsVectorContractChanges(t *testing.T) {
+	engine := &vectorTestEngine{started: make(chan struct{}), release: make(chan struct{})}
+	engine.version.Store("v1")
+	s := newStorageService(t, engine)
+	defer s.Close(context.Background())
+	d := createFixture(t, s)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, s, d.ID, "ready")
+	engine.version.Store("v2")
+	select {
+	case <-engine.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("scheduler did not rebuild changed model")
+	}
+	if engine.updates.Load() != 1 {
+		t.Fatal("model-only scheduler change scanned sources")
+	}
+	close(engine.release)
+	waitIdle(t, s, d.ID)
+	after, err := s.Get(d.ID)
+	if err != nil || after.VectorsPending || after.Degraded {
+		t.Fatalf("vectors not committed: %+v %v", after, err)
 	}
 }
