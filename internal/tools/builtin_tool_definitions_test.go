@@ -151,13 +151,16 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 				t.Fatalf("chat_start schema must not use oneOf: %#v", def.Parameters)
 			}
 			properties := mapChild(t, def.Parameters, "properties")
-			for _, field := range []string{"message", "agentKey", "teamId", "chatId"} {
+			for _, field := range []string{"message", "agentKey", "chatId"} {
 				if _, exists := properties[field]; !exists {
 					t.Fatalf("chat_start schema is missing %s: %#v", field, properties)
 				}
 			}
 			if _, exists := properties["action"]; exists {
 				t.Fatalf("chat_start schema still exposes action: %#v", properties)
+			}
+			if _, exists := properties["teamId"]; exists {
+				t.Fatalf("chat_start schema still exposes teamId: %#v", properties)
 			}
 			if required, _ := def.Parameters["required"].([]any); !reflect.DeepEqual(required, []any{"message"}) {
 				t.Fatalf("chat_start required = %#v, want [message]", required)

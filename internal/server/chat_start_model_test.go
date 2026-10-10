@@ -69,9 +69,8 @@ func TestChatStartModelOverridesReachProviderAndDoNotPersist(t *testing.T) {
 }
 
 func TestChatStartModelRejectionsDoNotConsumeApproval(t *testing.T) {
-	for _, tc := range []struct{ name, key, effort, team string }{
-		{"unknown model", "missing", "", ""}, {"non-chat model", "embed", "", ""}, {"invalid effort", "", "invalid", ""},
-		{"team model", "mock-model", "", "default"}, {"team effort", "", "HIGH", "default"},
+	for _, tc := range []struct{ name, key, effort string }{
+		{"unknown model", "missing", ""}, {"non-chat model", "embed", ""}, {"invalid effort", "", "invalid"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture, _ := chatStartFixture(t, "default")
@@ -83,10 +82,6 @@ func TestChatStartModelRejectionsDoNotConsumeApproval(t *testing.T) {
 			}
 			consumed := false
 			req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", ModelKey: tc.key, ReasoningEffort: tc.effort, AccessLevel: "full_access", Origin: contracts.RunOrigin{RunID: "parent"}, Review: &contracts.RunStartReview{Consume: func(string) bool { consumed = true; return true }}}
-			if tc.team != "" {
-				req.AgentKey = ""
-				req.TeamID = tc.team
-			}
 			_, err := fixture.server.StartRun(context.Background(), req)
 			requireNoChatStarted(t, fixture, err, "invalid_request")
 			if consumed {

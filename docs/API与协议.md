@@ -1268,7 +1268,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 `/api/submit` 不要求创建与提交的 transport、device boundary 或 lane 相同，允许桌面创建、手机审批及 HTTP/WS 交叉提交。HTTP/WS 的既有认证、Agent/Team owner、等待项和提交参数校验及重复提交仲裁保持不变；其他 Run 控制入口仍执行原通道归属检查。
 
-`chat_start` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 `runOrigin`；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
+`chat_start` 工具只接受 `agentKey` 作为目标字段，省略时从可信调用上下文补齐当前 Agent；`teamId` 按未知参数拒绝。显式 `agentKey` 必须为非空字符串，续聊仍校验 Chat owner，审批与幂等使用补齐后的目标。`chat_start` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 `runOrigin`；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
 
 ## 通用智能体根目录与项目目录
 

@@ -27,7 +27,7 @@ func TestRunStartDigestsSeparateIdempotencyFromApproval(t *testing.T) {
 	request := RunStartRequestDigest(base)
 	for name, changed := range map[string]RunStartRequest{
 		"message":          {AgentKey: "a", Message: "other", MustUseSkills: []string{"s"}},
-		"target":           {TeamID: "a", Message: "m", MustUseSkills: []string{"s"}},
+		"target":           {AgentKey: "b", Message: "m", MustUseSkills: []string{"s"}},
 		"explicit default": {AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}, AccessLevel: AccessLevelDefault},
 		"chat":             {AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}, ChatID: "c"},
 		"skills":           {AgentKey: "a", Message: "m"},

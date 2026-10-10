@@ -18,6 +18,10 @@ func TestChatStartOptionalArgumentsAndStrictValidation(t *testing.T) {
 		{"model", map[string]any{"modelKey": " fast ", "reasoningEffort": "high"}, ""},
 		{"effort only", map[string]any{"reasoningEffort": "NONE"}, ""},
 		{"wrong effort", map[string]any{"reasoningEffort": "extreme"}, "invalid_request"},
+		{"empty agent", map[string]any{"agentKey": ""}, "invalid_request"},
+		{"blank agent", map[string]any{"agentKey": " "}, "invalid_request"},
+		{"null agent", map[string]any{"agentKey": nil}, "invalid_request"},
+		{"wrong agent type", map[string]any{"agentKey": 1}, "invalid_request"},
 		{"empty model", map[string]any{"modelKey": " "}, "invalid_request"},
 		{"wrong model type", map[string]any{"modelKey": 1}, "invalid_request"},
 		{"provider model ID", map[string]any{"modelId": "gpt"}, "unknown_argument"},
@@ -68,13 +72,25 @@ func TestChatStartOptionalArgumentsAndStrictValidation(t *testing.T) {
 	}
 }
 
-func TestChatStartRejectsModelOptionsForTeam(t *testing.T) {
-	service := newFakeRunToolService()
-	handler := NewToolHandler(service, nil)
-	args := map[string]any{"teamId": "research", "message": "hello", "modelKey": "fast"}
-	result, err := handler.Invoke(context.Background(), StartToolName, args, runToolExecContext("alice", "tool"))
-	if err != nil || result.Error != "invalid_request" || service.starts != 0 {
-		t.Fatalf("result=%#v err=%v starts=%d", result, err, service.starts)
+func TestChatStartRejectsTeamID(t *testing.T) {
+	for _, args := range []map[string]any{
+		{"teamId": "research", "message": "hello"},
+		{"teamId": "research", "agentKey": "worker", "message": "hello"},
+		{"teamId": "research", "message": "hello", "modelKey": "fast"},
+		{"teamId": "", "message": "hello"},
+		{"teamId": nil, "message": "hello"},
+	} {
+		service := newFakeRunToolService()
+		handler := NewToolHandler(service, nil)
+		exec := runToolExecContext("alice", "tool")
+		approval, err := handler.PrepareToolApproval(context.Background(), StartToolName, args, exec)
+		if err != nil || approval != nil {
+			t.Fatalf("removed argument requested approval: %#v %v", approval, err)
+		}
+		result, err := handler.Invoke(context.Background(), StartToolName, args, exec)
+		if err != nil || result.Error != "unknown_argument" || service.starts != 0 {
+			t.Fatalf("args=%#v result=%#v err=%v starts=%d", args, result, err, service.starts)
+		}
 	}
 }
 
@@ -107,5 +123,42 @@ func TestChatStartModelOptionsReviewAndIdempotency(t *testing.T) {
 				t.Fatalf("%#v %v starts=%d", result, err, service.starts)
 			}
 		})
+	}
+}
+
+func TestChatStartDefaultsTargetBeforeReviewAndIdempotency(t *testing.T) {
+	service := newFakeRunToolService()
+	handler := NewToolHandler(service, nil)
+	exec := runToolExecContext("alice", "default-agent")
+	args := map[string]any{"chatName": "冒烟-A1-创建编程智能体", "message": "创建编程智能体", "accessLevel": "full_access"}
+	approval, err := handler.PrepareToolApproval(context.Background(), StartToolName, args, exec)
+	if err != nil || approval == nil {
+		t.Fatalf("approval=%#v err=%v", approval, err)
+	}
+	target := approval.Form["target"].(map[string]any)
+	if target["key"] != "zenmi" || target["type"] != "agent" || service.starts != 0 {
+		t.Fatalf("wrong review target or premature start: %#v starts=%d", target, service.starts)
+	}
+	exec.ToolApprovals = map[string]bool{approval.Fingerprint: true}
+	result, err := handler.Invoke(context.Background(), StartToolName, args, exec)
+	if err != nil || result.Error != "" || service.starts != 1 {
+		t.Fatalf("result=%#v err=%v starts=%d", result, err, service.starts)
+	}
+	req := service.requests[0]
+	if req.AgentKey != "zenmi" || req.ChatID != "" || req.ChatName != args["chatName"] || req.Review == nil {
+		t.Fatalf("wrong effective request: %#v", req)
+	}
+	if !req.Review.Consume(req.Review.ApprovalDigest) || req.Review.Consume(req.Review.ApprovalDigest) {
+		t.Fatal("default target approval must be consumable exactly once")
+	}
+	args["agentKey"] = "zenmi"
+	result, err = handler.Invoke(context.Background(), StartToolName, args, exec)
+	if err != nil || result.Error != "" || service.starts != 1 {
+		t.Fatalf("explicit current Agent replay was not idempotent: %#v %v starts=%d", result, err, service.starts)
+	}
+	args["agentKey"] = "another"
+	result, err = handler.Invoke(context.Background(), StartToolName, args, exec)
+	if err != nil || result.Error != "idempotency_conflict" || service.starts != 1 {
+		t.Fatalf("changed target was accepted: %#v %v starts=%d", result, err, service.starts)
 	}
 }

@@ -4,7 +4,7 @@ i18n:
     label: "Start Chat Run"
   zh-CN:
     label: "发起会话运行"
-description: "Start an independent run for an Agent or Team in a new or existing Chat. Read the task-control skill before use."
+description: "Start an independent Agent run in a new or existing Chat. Omit agentKey to use the current calling Agent. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -20,11 +20,7 @@ inputSchema:
     agentKey:
       type: string
       minLength: 1
-      description: "Target Agent key."
-    teamId:
-      type: string
-      minLength: 1
-      description: "Target Team ID."
+      description: "Target Agent key. Optional; defaults to the current calling Agent."
     chatId:
       type: string
       minLength: 1

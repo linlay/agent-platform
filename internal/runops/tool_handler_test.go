@@ -55,7 +55,6 @@ func (f *fakeRunToolService) StartRun(_ context.Context, req contracts.RunStartR
 		RunID:     runID,
 		ChatID:    "chat-" + runID,
 		AgentKey:  req.AgentKey,
-		TeamID:    req.TeamID,
 		Status:    "running",
 		StartedAt: 1700000000000,
 		Origin:    &req.Origin,
@@ -212,9 +211,8 @@ func TestChatStartValidatesTargetAndMessage(t *testing.T) {
 	execCtx := runToolExecContext("alice", "tool-query")
 
 	for _, args := range []map[string]any{
-		{"message": "missing target"},
+		{"agentKey": " ", "message": "task"},
 		{"agentKey": "writer"},
-		{"agentKey": "writer", "teamId": "research", "message": "ambiguous"},
 	} {
 		result, _ := handler.Invoke(context.Background(), StartToolName, args, execCtx)
 		if result.Error != "invalid_request" {
@@ -222,12 +220,6 @@ func TestChatStartValidatesTargetAndMessage(t *testing.T) {
 		}
 	}
 
-	team, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{
-		"teamId": "research", "message": "review",
-	}, execCtx)
-	if team.Error != "" || team.Structured["action"] != "query" {
-		t.Fatalf("team query failed: %#v", team)
-	}
 }
 
 func TestGetRunStatusAndInterrupt(t *testing.T) {

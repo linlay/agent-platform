@@ -126,16 +126,12 @@ func startRequest(args map[string]any, origin contracts.RunOrigin) (contracts.Ru
 	}
 	request.Message = strings.TrimSpace(contracts.AnyStringNode(args["message"]))
 	request.AgentKey = strings.TrimSpace(contracts.AnyStringNode(args["agentKey"]))
-	request.TeamID = strings.TrimSpace(contracts.AnyStringNode(args["teamId"]))
 	request.ChatID = strings.TrimSpace(contracts.AnyStringNode(args["chatId"]))
 	request.Origin = origin
-	if request.Message == "" || (request.AgentKey == "") == (request.TeamID == "") {
-		return request, &contracts.RunToolError{Code: "invalid_request", Message: "message and exactly one of agentKey or teamId are required"}
-	}
 	if origin.RunID == "" || origin.ToolID == "" {
 		return request, &contracts.RunToolError{Code: "run_context_required", Message: "query requires parent runId and toolId"}
 	}
-	return request, nil
+	return contracts.NormalizeRunStartRequest(request)
 }
 
 // PrepareToolApproval requires human review whenever chat_start asks for a
@@ -175,9 +171,6 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		return nil, nil
 	}
 	target := map[string]any{"type": "agent", "key": request.AgentKey, "name": plan.TargetName}
-	if request.TeamID != "" {
-		target = map[string]any{"type": "team", "key": request.TeamID, "name": plan.TargetName}
-	}
 	form := map[string]any{
 		"action":            startApprovalAction,
 		"caller":            map[string]any{"agentKey": origin.AgentKey, "chatId": origin.ChatID, "runId": origin.RunID},

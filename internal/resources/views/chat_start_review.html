@@ -8,7 +8,7 @@ Review.mount(u=>{
  const access=v=>({default:t('默认','Default'),auto_approve:t('自动批准','Auto approve'),full_access:t('完全访问','Full access')})[v||'default']||v;
  const target=u.record(f.target),caller=u.record(f.caller);
  u.title(t('以更高权限发起会话运行','Start a run with higher permissions'));
- u.target((target.type==='team'?t('团队：','Team: '):t('智能体：','Agent: '))+(target.name||target.key||''),'',target.key);
+ u.target(t('智能体：','Agent: ')+(target.name||target.key||''),'',target.key);
  u.required(target.key,t('目标','target'));
  u.field(t('运行权限','Run permissions'),access(f.parentAccessLevel)+' → '+access(f.accessLevel),{critical:true});
  u.field(t('发起方','Requested by'),t('智能体：','Agent: ')+(caller.agentKey||''));

@@ -21,7 +21,7 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
+func TestStartRunRegistersIndependentAgentRun(t *testing.T) {
 	fixture := newTestFixture(t)
 	callerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -92,50 +92,11 @@ func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 		}
 	}
 
-	teamRun, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
-		TeamID:  "default",
-		Message: "detached team",
-		Origin: contracts.RunOrigin{
-			AgentKey: "zenmi",
-			ChatID:   "parent-chat",
-			RunID:    "parent-run",
-			ToolID:   "tool-team",
-		},
-	})
-	if err != nil {
-		t.Fatalf("start detached team: %v", err)
-	}
-	if teamRun.RunID == agentTargetRun.RunID || teamRun.ChatID == agentTargetRun.ChatID || teamRun.AgentKey != "" || teamRun.TeamID != "default" {
-		t.Fatalf("unexpected team run %#v", teamRun)
-	}
-	if _, ok := fixture.runs.RunStatus(teamRun.RunID); !ok {
-		t.Fatal("team run was returned before registration")
-	}
 }
 
 func TestStartRunRejectsUnknownAndChatOwnerMismatch(t *testing.T) {
-	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-		writeProviderSSE(t, w, `[DONE]`)
-	}, testFixtureOptions{
-		setupRuntime: func(_ string, cfg *config.Config) {
-			alternateDir := filepath.Join(cfg.Paths.TeamsDir, "alternate")
-			if err := os.MkdirAll(alternateDir, 0o755); err != nil {
-				t.Fatalf("mkdir alternate team: %v", err)
-			}
-			content := strings.Join([]string{
-				"name: Alternate Team",
-				"agentKeys:",
-				"  - mock-agent",
-				"orchestrator:",
-				"  modelConfig:",
-				"    modelKey: mock-model",
-			}, "\n")
-			if err := os.WriteFile(filepath.Join(alternateDir, "team.yml"), []byte(content), 0o644); err != nil {
-				t.Fatalf("write alternate team: %v", err)
-			}
-		},
-	})
-	_, _, err := fixture.chats.EnsureChat("owned-chat", "mock-agent", "", "hello")
+	fixture := newTestFixture(t)
+	_, _, err := fixture.chats.EnsureChat("owned-chat", "another-agent", "", "hello")
 	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
@@ -150,9 +111,12 @@ func TestStartRunRejectsUnknownAndChatOwnerMismatch(t *testing.T) {
 		code string
 	}{
 		{name: "unknown agent", req: contracts.RunStartRequest{AgentKey: "missing", Message: "x"}, code: "agent_not_found"},
-		{name: "unknown team", req: contracts.RunStartRequest{TeamID: "missing", Message: "x"}, code: "team_not_found"},
-		{name: "agent chat rebound to team", req: contracts.RunStartRequest{TeamID: "default", ChatID: "owned-chat", Message: "x"}, code: "target_owner_mismatch"},
-		{name: "team chat rebound to another team", req: contracts.RunStartRequest{TeamID: "alternate", ChatID: "team-chat", Message: "x"}, code: "target_owner_mismatch"},
+		{name: "no caller for default", req: contracts.RunStartRequest{Message: "x"}, code: "run_context_required"},
+		{name: "default target missing", req: contracts.RunStartRequest{Message: "x", Origin: contracts.RunOrigin{AgentKey: "missing"}}, code: "agent_not_found"},
+		{name: "agent chat owner mismatch", req: contracts.RunStartRequest{AgentKey: "mock-agent", ChatID: "owned-chat", Message: "x"}, code: "target_owner_mismatch"},
+		{name: "default agent chat owner mismatch", req: contracts.RunStartRequest{ChatID: "owned-chat", Message: "x", Origin: contracts.RunOrigin{AgentKey: "mock-agent"}}, code: "target_owner_mismatch"},
+		{name: "team chat rejects agent", req: contracts.RunStartRequest{AgentKey: "mock-agent", ChatID: "team-chat", Message: "x"}, code: "target_owner_mismatch"},
+		{name: "team chat rejects default agent", req: contracts.RunStartRequest{ChatID: "team-chat", Message: "x", Origin: contracts.RunOrigin{AgentKey: "mock-agent"}}, code: "target_owner_mismatch"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

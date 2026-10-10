@@ -22,6 +22,13 @@ func TestChatStartSchemaKeepsNewArgumentsOptional(t *testing.T) {
 		t.Fatalf("unexpected required fields: %#v", required)
 	}
 	properties := schema["properties"].(map[string]any)
+	if _, ok := properties["teamId"]; ok {
+		t.Fatal("chat_start still advertises teamId")
+	}
+	if _, ok := properties["agentKey"]; !ok {
+		t.Fatal("chat_start is missing optional agentKey")
+	}
+
 	for _, key := range []string{"accessLevel", "mustUseSkills", "chatName", "modelKey", "reasoningEffort"} {
 		if _, ok := properties[key]; !ok {
 			t.Fatalf("missing %s", key)

@@ -17,7 +17,7 @@ Tool definitions only name a capability. Read the reference for a tool before ca
 | chat_query, chat_manage | [conversations](references/chat.md) |
 | automation_query, automation_manage | [automation](references/automation.md) |
 
-- chat_start starts an independent root run and returns chatId/runId immediately. Omit chatId for a new Chat; provide it only to continue an existing target-owned Chat. If no target is specified, use Agent Identity.key. Exactly one of agentKey/teamId is required. The target continues when the caller is interrupted.
+- chat_start starts an independent root run and returns chatId/runId immediately. Omit chatId for a new Chat; provide it only to continue an existing target-owned Chat. Omit agentKey to use the current calling Agent; an explicit agentKey selects that exact catalog Agent. teamId is not supported. The target continues when the caller is interrupted.
 - chat_get_status reads the status/result of a run previously created by chat_start for this calling Agent and subject; chat_interrupt interrupts that run. Both take runId, not chatId. They cannot control arbitrary or current runs, or agent_invoke/agent_delegate children. Runs created by chat_start cannot chain these three execution tools.
 - chat_start accepts an optional per-run modelKey and reasoningEffort for Agent targets; list valid keys with chat_query `models`.
 - chat_query reads conversations, visible history and artifacts, and lists selectable models. Its current action reads the current Chat; use chat_get_status to follow a launched run.

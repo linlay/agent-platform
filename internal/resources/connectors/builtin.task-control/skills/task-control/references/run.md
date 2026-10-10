@@ -6,26 +6,26 @@ In user requests, conversation, dialogue and chat are synonyms for Chat, includi
 
 ## chat_start
 
-`{message, agentKey?, teamId?, chatId?, accessLevel?, mustUseSkills?, chatName?, modelKey?, reasoningEffort?}` starts an independent root run for exactly one catalog Agent or Team and returns chatId and runId immediately. It does not wait for the target result, and the target continues if the caller run is interrupted.
+`{message, agentKey?, chatId?, accessLevel?, mustUseSkills?, chatName?, modelKey?, reasoningEffort?}` starts an independent root run for a catalog Agent and returns chatId and runId immediately. It does not wait for the target result, and the target continues if the caller run is interrupted.
 
 - message: required non-empty string. The task message sent to the target.
-- agentKey / teamId: non-empty strings holding the exact catalog key or ID. Provide exactly one. If the user names no target, use the current Agent.
-- Current Agent: set agentKey to the exact Agent Identity.key from the current system prompt. References to the current Agent, this Agent or yourself in any language always mean that Agent; never substitute another Agent’s key from catalog discovery.
-- chatId: non-empty string. Omit it to create a new Chat. Provide it only when the user asks to continue a specific existing Chat owned by the selected target. Never reuse the current chatId for a request to open a new Chat.
+- agentKey: optional non-empty string holding the exact catalog Agent key. Omission uses the current calling Agent from trusted runtime context. Explicit empty, null or non-string values are rejected. teamId is not supported and is rejected as an unknown argument.
+- Current Agent: omit agentKey, or set it to the exact Agent Identity.key from the current system prompt. References to the current Agent, this Agent or yourself in any language always mean that Agent; never substitute another Agent’s key from catalog discovery.
+- chatId: non-empty string. Omit it to create a new Chat. Provide it only when the user asks to continue a specific existing Chat owned by the selected target. Omitting agentKey still selects the current calling Agent and requires that Chat to have the same owner. Never reuse the current chatId for a request to open a new Chat.
 - chatName: non-empty string naming a new Chat. Pass it only when the user specifies a name; otherwise normal naming applies. Cannot be combined with chatId. taskName is not supported.
 - accessLevel: `"default"`, `"auto_approve"` or `"full_access"`, for this run only. Pass it only when the user explicitly requests a permission level. Omission inherits the parent Run's current level at invocation time and does not follow later changes. Automatic approval means auto_approve, not full_access; destructive operations may still require approval. Target admission applies to all levels. See Permission review below.
-- mustUseSkills: array of non-empty skill ID strings required for an ordinary Agent run. Empty or omitted means none. Team runs and connector skills do not support this selection.
-- modelKey: non-empty string holding a registered model key, for this run only. Pass it only when the user asks for a specific model; omission uses the target Agent's configured model. It is the `modelKey` returned by chat_query `models`, not a provider model ID; never guess a key. Separate calls may use different models, and continuing a Chat with chatId may use a different model than its earlier runs. Not supported for Team runs.
-- reasoningEffort: `"NONE"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"XHIGH"` or `"MAX"`, for this run only. `"NONE"` disables reasoning. Pass it only when the user asks for it; omission keeps the target's setting. Can be used without modelKey. Not supported for Team runs.
+- mustUseSkills: array of non-empty skill ID strings required for an ordinary Agent run. Empty or omitted means none. Connector skills do not support this selection.
+- modelKey: non-empty string holding a registered model key, for this run only. Pass it only when the user asks for a specific model; omission uses the target Agent's configured model. It is the `modelKey` returned by chat_query `models`, not a provider model ID; never guess a key. Separate calls may use different models, and continuing a Chat with chatId may use a different model than its earlier runs.
+- reasoningEffort: `"NONE"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"XHIGH"` or `"MAX"`, for this run only. `"NONE"` disables reasoning. Pass it only when the user asks for it; omission keeps the target's setting. Can be used without modelKey.
 
 Examples:
 
 ```json
-{"message": "Summarize yesterday's incidents", "agentKey": "<Agent Identity.key>"}
+{"message": "Summarize yesterday's incidents"}
 ```
 
 ```json
-{"message": "Review this design", "agentKey": "<Agent Identity.key>", "modelKey": "<modelKey from chat_query models>", "reasoningEffort": "HIGH"}
+{"message": "Review this design", "modelKey": "<modelKey from chat_query models>", "reasoningEffort": "HIGH"}
 ```
 
 ```json

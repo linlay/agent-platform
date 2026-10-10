@@ -34,6 +34,24 @@ type RunStartPlan struct {
 	ChatName             string // existing Chat name when continuing
 }
 
+// NormalizeRunStartRequest resolves an omitted target from the trusted caller
+// before idempotency, permission review or admission. It never selects a global
+// default Agent or infers a target from the requested Chat.
+func NormalizeRunStartRequest(request RunStartRequest) (RunStartRequest, error) {
+	request.Message = strings.TrimSpace(request.Message)
+	if request.Message == "" {
+		return request, &RunToolError{Code: "invalid_request", Message: "message is required"}
+	}
+	request.AgentKey = strings.TrimSpace(request.AgentKey)
+	if request.AgentKey == "" {
+		request.AgentKey = strings.TrimSpace(request.Origin.AgentKey)
+	}
+	if request.AgentKey == "" {
+		return request, &RunToolError{Code: "run_context_required", Message: "chat_start requires a caller Agent when agentKey is omitted"}
+	}
+	return request, nil
+}
+
 // AccessLevelRank orders default < auto_approve < full_access.
 func AccessLevelRank(level string) int {
 	switch normalized, _ := NormalizeAccessLevel(level); normalized {
@@ -66,7 +84,7 @@ func RunStartRequestDigest(request RunStartRequest) string {
 		skills = append(skills, strings.TrimSpace(id))
 	}
 	return digestStrings("run-start-request",
-		strings.TrimSpace(request.AgentKey), strings.TrimSpace(request.TeamID), strings.TrimSpace(request.ChatID),
+		strings.TrimSpace(request.AgentKey), strings.TrimSpace(request.ChatID),
 		strings.TrimSpace(request.Message), strings.TrimSpace(request.AccessLevel), strings.TrimSpace(request.ChatName),
 		strings.Join(skills, "\x00"), strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort))
 }

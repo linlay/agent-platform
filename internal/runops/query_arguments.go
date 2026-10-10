@@ -15,7 +15,7 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 	}
 	for key, value := range args {
 		switch key {
-		case "message", "agentKey", "teamId", "chatId", "chatName", "accessLevel", "modelKey", "reasoningEffort":
+		case "message", "agentKey", "chatId", "chatName", "accessLevel", "modelKey", "reasoningEffort":
 			text, ok := value.(string)
 			if !ok || strings.TrimSpace(text) == "" {
 				return invalid(key + " must be a non-empty string")
@@ -65,9 +65,6 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 			}
 			return request, &contracts.RunToolError{Code: "unknown_argument", Message: message}
 		}
-	}
-	if _, team := args["teamId"]; team && (request.ModelKey != "" || request.ReasoningEffort != "") {
-		return invalid("modelKey and reasoningEffort are not supported for Team runs")
 	}
 	if request.ChatName != "" {
 		if _, exists := args["chatId"]; exists {

@@ -720,7 +720,6 @@ type RunStartRequest struct {
 	MustUseSkills []string
 	ChatName      string
 	AgentKey      string
-	TeamID        string
 	ChatID        string
 	Message       string
 	// ModelKey and ReasoningEffort override the target's model for this Run only.
