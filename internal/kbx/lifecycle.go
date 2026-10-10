@@ -1,7 +1,7 @@
 package kbx
 
 // collectionUpdate tracks only the current library maintenance operation.
-// Scheduling, persistence and restart recovery belong to kbasescenter.
+// Scheduling, persistence and restart recovery belong to kbases.
 type collectionUpdate struct {
 	library     library
 	initialized bool

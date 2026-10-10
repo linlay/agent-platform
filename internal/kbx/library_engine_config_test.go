@@ -1,7 +1,7 @@
 package kbx
 
 import (
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestGlobalCenterConfigUsesSelectedRegistryModel(t *testing.T) {
+func TestGlobalLibraryConfigUsesSelectedRegistryModel(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"models", "providers"} {
 		os.Mkdir(filepath.Join(root, dir), 0700)
@@ -23,7 +23,7 @@ func TestGlobalCenterConfigUsesSelectedRegistryModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(root, "state", "kbx", "index.yml")
-	engine, err := NewConfiguredCenterEngine(file, registry, "embed", "raw")
+	engine, err := NewConfiguredLibraryEngine(file, registry, "embed", "raw")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestGlobalCenterConfigUsesSelectedRegistryModel(t *testing.T) {
 	if st.Mode().Perm() != 0600 {
 		t.Fatal("config permissions")
 	}
-	if _, err = NewConfiguredCenterEngine(file, registry, "missing", "raw"); err == nil {
+	if _, err = NewConfiguredLibraryEngine(file, registry, "missing", "raw"); err == nil {
 		t.Fatal("missing model accepted")
 	}
 	after, _ := os.ReadFile(file)
@@ -85,7 +85,7 @@ func TestSharedModelSourceIgnoresAgentOverrideAndRetainsChunking(t *testing.T) {
 	m := NewManager(Options{ConfigSource: source}, nil, registry)
 	spec := knowledge.DefaultConfig()
 	chunk := knowledge.ChunkConfig{Unit: "chars", MaxChars: 800, OverlapChars: 80}
-	raw, err := m.config(library{spec: knowledge.AgentSpec{Config: spec}, source: kbasescenter.Collection{Chunk: knowledge.ChunkSettingsFrom(chunk)}}, true)
+	raw, err := m.config(library{spec: knowledge.AgentSpec{Config: spec}, source: kbases.Collection{Chunk: knowledge.ChunkSettingsFrom(chunk)}}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

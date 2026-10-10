@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 )
 
-func TestCenterRealSplitStorageLifecycle(t *testing.T) {
-	bin := os.Getenv("KBX_CENTER_TEST_BIN")
+func TestLibraryRealSplitStorageLifecycle(t *testing.T) {
+	bin := os.Getenv("KBX_KBASES_TEST_BIN")
 	if bin == "" {
-		t.Skip("set KBX_CENTER_TEST_BIN to managed bin directory")
+		t.Skip("set KBX_KBASES_TEST_BIN to managed bin directory")
 	}
 	t.Setenv("AP_BUILTINS_BIN", bin)
 	if _, err := builtins.ConfigureProcessPath(); err != nil {
@@ -32,11 +32,11 @@ func TestCenterRealSplitStorageLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runtimeRoot := filepath.Join(root, "ru-kbases")
-	service, err := kbasescenter.New(ctx, filepath.Join(root, "kbases"), runtimeRoot, NewCenterEngine())
+	service, err := kbases.New(ctx, filepath.Join(root, "kbases"), runtimeRoot, NewLibraryEngine())
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := service.Create(kbasescenter.Input{Name: "Fixture", Collections: []kbasescenter.Collection{{Name: "docs", SourcePath: source}}})
+	d, err := service.Create(kbases.Input{Name: "Fixture", Collections: []kbases.Collection{{Name: "docs", SourcePath: source}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestCenterRealSplitStorageLifecycle(t *testing.T) {
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
-		result, err := service.Search(ctx, d.ID, kbasescenter.SearchInput{Query: "quartzorchid", Method: "search"})
+		result, err := service.Search(ctx, d.ID, kbases.SearchInput{Query: "quartzorchid", Method: "search"})
 		if err != nil || !strings.Contains(string(result), "quartzorchid") {
 			t.Fatalf("search: %s %v", result, err)
 		}
@@ -85,7 +85,7 @@ func TestCenterRealSplitStorageLifecycle(t *testing.T) {
 			if err != nil || offline.State != "ready" || len(offline.SourceWarnings) == 0 {
 				t.Fatalf("offline status: %+v %v", offline, err)
 			}
-			result, err := service.Search(ctx, d.ID, kbasescenter.SearchInput{Query: "quartzorchid", Method: "search"})
+			result, err := service.Search(ctx, d.ID, kbases.SearchInput{Query: "quartzorchid", Method: "search"})
 			if err != nil || !strings.Contains(string(result), "quartzorchid") {
 				t.Fatalf("offline search: %s %v", result, err)
 			}

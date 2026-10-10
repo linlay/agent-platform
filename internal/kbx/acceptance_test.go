@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 )
 
@@ -44,14 +44,14 @@ func TestRealKnowledgeBases(t *testing.T) {
 			m, initial := newTestManager(t)
 			id := initial.spec.Config.LibraryID
 			include := append(knowledge.DefaultIncludePatterns(), "**/*.xlsx")
-			if _, err := m.options.Center.Edit(id, kbasescenter.Input{Name: name, Collections: []kbasescenter.Collection{{Name: "workspace", SourcePath: root, Include: include}}}); err != nil {
+			if _, err := m.options.KBases.Edit(id, kbases.Input{Name: name, Collections: []kbases.Collection{{Name: "workspace", SourcePath: root, Include: include}}}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := m.options.Center.Refresh(id); err != nil {
+			if _, err := m.options.KBases.Refresh(id); err != nil {
 				t.Fatal(err)
 			}
 			for i := 0; i < 300; i++ {
-				d, _ := m.options.Center.Get(id)
+				d, _ := m.options.KBases.Get(id)
 				if d.State == "ready" {
 					break
 				}

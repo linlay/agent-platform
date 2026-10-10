@@ -2,7 +2,7 @@ package kbx
 
 import (
 	"agent-platform/internal/builtins"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,10 +15,10 @@ import (
 	"testing"
 )
 
-func TestCenterRetrievalMethodsAndSources(t *testing.T) {
+func TestLibraryRetrievalMethodsAndSources(t *testing.T) {
 	for _, method := range []string{"query", "search", "vsearch", "gsearch"} {
 		t.Run(method, func(t *testing.T) {
-			e := NewCenterEngine()
+			e := NewLibraryEngine()
 			e.runner = runFunc(func(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
 				if args[0] != method || !strings.Contains(strings.Join(args, " "), "-c docs -c reports") || args[len(args)-1] != "--fixture" {
 					t.Fatalf("argv: %v", args)
@@ -53,13 +53,13 @@ func TestCenterRetrievalMethodsAndSources(t *testing.T) {
 	}
 }
 
-func TestCenterRegistrationUsesStructuredMaintenance(t *testing.T) {
+func TestLibraryRegistrationUsesStructuredMaintenance(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "index.sqlite")
 	source, _ := filepath.EvalSymlinks(t.TempDir())
 	f := &maintenanceFake{}
-	e := NewCenterEngine()
+	e := NewLibraryEngine()
 	e.runner = f
-	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "research", SourcePath: source}}); err != nil {
+	if err := e.Update(context.Background(), db, []kbases.Collection{{Name: "research", SourcePath: source}}); err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(f.calls, "\n")
@@ -69,12 +69,12 @@ func TestCenterRegistrationUsesStructuredMaintenance(t *testing.T) {
 		}
 	}
 }
-func TestCenterCollectionRemovalFailure(t *testing.T) {
+func TestLibraryCollectionRemovalFailure(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "index.sqlite")
 	os.WriteFile(db, nil, 0600)
 	source, _ := filepath.EvalSymlinks(t.TempDir())
 	f := &maintenanceFake{collection: map[string]any{"name": "removed", "path": source}}
-	e := NewCenterEngine()
+	e := NewLibraryEngine()
 	e.runner = runFunc(func(ctx context.Context, db string, cfg []byte, args ...string) ([]byte, error) {
 		if args[0] == "collection" && args[1] == "remove" {
 			return nil, fmt.Errorf("removal failed")
@@ -84,15 +84,15 @@ func TestCenterCollectionRemovalFailure(t *testing.T) {
 		}
 		return f.Run(ctx, db, cfg, args...)
 	})
-	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: source}}); err == nil || errors.Is(err, kbasescenter.ErrNotStarted) {
+	if err := e.Update(context.Background(), db, []kbases.Collection{{Name: "docs", SourcePath: source}}); err == nil || errors.Is(err, kbases.ErrNotStarted) {
 		t.Fatal(err)
 	}
 }
 
-func TestCenterRealCollectionChanges(t *testing.T) {
-	bin := os.Getenv("KBX_CENTER_TEST_BIN")
+func TestLibraryRealCollectionChanges(t *testing.T) {
+	bin := os.Getenv("KBX_KBASES_TEST_BIN")
 	if bin == "" {
-		t.Skip("set KBX_CENTER_TEST_BIN to managed bin directory")
+		t.Skip("set KBX_KBASES_TEST_BIN to managed bin directory")
 	}
 	t.Setenv("AP_BUILTINS_BIN", bin)
 	if _, err := builtins.ConfigureProcessPath(); err != nil {
@@ -114,11 +114,11 @@ func TestCenterRealCollectionChanges(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(db), 0700); err != nil {
 		t.Fatal(err)
 	}
-	e := NewCenterEngine()
-	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: sources[0]}, {Name: "reports", SourcePath: sources[1]}}); err != nil {
+	e := NewLibraryEngine()
+	if err := e.Update(context.Background(), db, []kbases.Collection{{Name: "docs", SourcePath: sources[0]}, {Name: "reports", SourcePath: sources[1]}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "docs", SourcePath: sources[2]}, {Name: "notes", SourcePath: sources[3]}}); err != nil {
+	if err := e.Update(context.Background(), db, []kbases.Collection{{Name: "docs", SourcePath: sources[2]}, {Name: "notes", SourcePath: sources[3]}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := e.Read(context.Background(), db, "files", "", 0, "docs", "notes")
@@ -142,7 +142,7 @@ func TestCenterRealCollectionChanges(t *testing.T) {
 			t.Fatal("source removed", err)
 		}
 	}
-	raw, err = e.runner.Run(context.Background(), db, centerConfig, "ls", "--agent")
+	raw, err = e.runner.Run(context.Background(), db, defaultLibraryConfig, "ls", "--agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,17 +160,17 @@ func TestCenterRealCollectionChanges(t *testing.T) {
 	}
 }
 
-func TestCenterRealMultipleCollections(t *testing.T) {
-	bin := os.Getenv("KBX_CENTER_TEST_BIN")
+func TestLibraryRealMultipleCollections(t *testing.T) {
+	bin := os.Getenv("KBX_KBASES_TEST_BIN")
 	if bin == "" {
-		t.Skip("set KBX_CENTER_TEST_BIN to managed bin directory")
+		t.Skip("set KBX_KBASES_TEST_BIN to managed bin directory")
 	}
 	t.Setenv("AP_BUILTINS_BIN", bin)
 	if _, err := builtins.ConfigureProcessPath(); err != nil {
 		t.Fatal(err)
 	}
 	root, _ := filepath.EvalSymlinks(t.TempDir())
-	collections := []kbasescenter.Collection{}
+	collections := []kbases.Collection{}
 	for _, name := range []string{"docs", "reports"} {
 		source := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Join(source, "2026"), 0700); err != nil {
@@ -179,13 +179,13 @@ func TestCenterRealMultipleCollections(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(source, "2026", "manual.md"), []byte("# "+name+"\nquartzorchid collection fixture."), 0600); err != nil {
 			t.Fatal(err)
 		}
-		collections = append(collections, kbasescenter.Collection{Name: name, SourcePath: source})
+		collections = append(collections, kbases.Collection{Name: name, SourcePath: source})
 	}
 	db := filepath.Join(root, "library", "index.sqlite")
 	if err := os.MkdirAll(filepath.Dir(db), 0700); err != nil {
 		t.Fatal(err)
 	}
-	e := NewCenterEngine()
+	e := NewLibraryEngine()
 	for i := 0; i < 2; i++ {
 		if err := e.Update(context.Background(), db, collections); err != nil {
 			t.Fatal(err)
@@ -303,16 +303,16 @@ func TestCenterRealMultipleCollections(t *testing.T) {
 	}
 }
 
-func TestCenterRealCLI(t *testing.T) {
-	bin := os.Getenv("KBX_CENTER_TEST_BIN")
+func TestLibraryRealCLI(t *testing.T) {
+	bin := os.Getenv("KBX_KBASES_TEST_BIN")
 	if bin == "" {
-		t.Skip("set KBX_CENTER_TEST_BIN to managed bin directory")
+		t.Skip("set KBX_KBASES_TEST_BIN to managed bin directory")
 	}
 	t.Setenv("AP_BUILTINS_BIN", bin)
 	if _, err := builtins.ConfigureProcessPath(); err != nil {
 		t.Fatal(err)
 	}
-	e := NewCenterEngine()
+	e := NewLibraryEngine()
 	ctx := context.Background()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
@@ -322,7 +322,7 @@ func TestCenterRealCLI(t *testing.T) {
 	os.WriteFile(doc, []byte("The zebra retrieval fixture."), 0600)
 	db := filepath.Join(root, "library", "index.sqlite")
 	os.Mkdir(filepath.Dir(db), 0700)
-	collections := []kbasescenter.Collection{{Name: "workspace", SourcePath: source}}
+	collections := []kbases.Collection{{Name: "workspace", SourcePath: source}}
 	for i := 0; i < 2; i++ {
 		if err := e.Update(ctx, db, collections); err != nil {
 			t.Fatalf("update %d: %v", i, err)
@@ -372,14 +372,14 @@ func TestCenterRealCLI(t *testing.T) {
 	}
 }
 
-func TestCenterUpdateNotStartedBoundary(t *testing.T) {
+func TestLibraryUpdateNotStartedBoundary(t *testing.T) {
 	for _, stage := range []string{"capabilities", "collection.list", "collection.set-pattern", "update"} {
 		t.Run(stage, func(t *testing.T) {
 			db := filepath.Join(t.TempDir(), "index.sqlite")
 			os.WriteFile(db, nil, 0600)
 			source, _ := filepath.EvalSymlinks(t.TempDir())
 			f := &maintenanceFake{}
-			e := NewCenterEngine()
+			e := NewLibraryEngine()
 			e.runner = runFunc(func(ctx context.Context, db string, cfg []byte, args ...string) ([]byte, error) {
 				op := args[0]
 				if op == "collection" {
@@ -390,8 +390,8 @@ func TestCenterUpdateNotStartedBoundary(t *testing.T) {
 				}
 				return f.Run(ctx, db, cfg, args...)
 			})
-			err := e.Update(context.Background(), db, []kbasescenter.Collection{{Name: "workspace", SourcePath: source}})
-			if err == nil || errors.Is(err, kbasescenter.ErrNotStarted) != (stage == "capabilities" || stage == "collection.list") {
+			err := e.Update(context.Background(), db, []kbases.Collection{{Name: "workspace", SourcePath: source}})
+			if err == nil || errors.Is(err, kbases.ErrNotStarted) != (stage == "capabilities" || stage == "collection.list") {
 				t.Fatal(err)
 			}
 		})

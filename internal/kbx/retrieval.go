@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 )
 
-func selectedCollections(all []kbasescenter.Collection, selected []string) ([]kbasescenter.Collection, error) {
-	out := []kbasescenter.Collection{}
+func selectedCollections(all []kbases.Collection, selected []string) ([]kbases.Collection, error) {
+	out := []kbases.Collection{}
 	if len(selected) == 0 {
 		for _, c := range all {
 			if c.DefaultQuery == nil || *c.DefaultQuery {
@@ -41,7 +41,7 @@ func selectedCollections(all []kbasescenter.Collection, selected []string) ([]kb
 }
 
 // Optional retrieval models never enter maintenance configuration or fingerprints.
-func (m *Manager) queryConfig(raw []byte, d kbasescenter.Definition, method string, o *knowledge.SearchOptions) ([]byte, error) {
+func (m *Manager) queryConfig(raw []byte, d kbases.Definition, method string, o *knowledge.SearchOptions) ([]byte, error) {
 	if method != "query" && method != "vsearch" {
 		return raw, nil
 	}
@@ -69,7 +69,7 @@ func (m *Manager) queryConfig(raw []byte, d kbasescenter.Definition, method stri
 	}
 	for _, role := range []struct {
 		name, kind string
-		selected   *kbasescenter.QueryModelConfig
+		selected   *kbases.QueryModelConfig
 		enabled    bool
 	}{
 		{"reranker", models.ModelTypeReranker, d.Models.Reranker, method == "query" && (o == nil || o.Rerank == nil || *o.Rerank)},

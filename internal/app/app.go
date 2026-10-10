@@ -27,7 +27,7 @@ import (
 	"agent-platform/internal/gateway"
 	"agent-platform/internal/hostshell"
 	"agent-platform/internal/httpclient"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/kbx"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/llm"
@@ -74,7 +74,7 @@ type App struct {
 	lspManager             *lsp.Manager
 	mcpClient              *mcp.Client
 	knowledgeManager       *kbx.Manager
-	knowledgeCenter        *kbasescenter.Service
+	kbasesService          *kbases.Service
 	memoryWorker           *memoryworker.Worker
 }
 
@@ -289,8 +289,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
-	centerEngine := kbx.NewCenterEngineWithSource(kbxConfig)
-	kbasesCenter, err := kbasescenter.New(backgroundCtx, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, centerEngine, kbasescenter.Options{ChatsDir: cfg.Paths.ChatsDir, StateDir: cfg.Paths.StateDir, RuntimeDir: filepath.Dir(cfg.Paths.KBasesDir), References: func(id string) []string {
+	libraryEngine := kbx.NewLibraryEngineWithSource(kbxConfig)
+	kbasesService, err := kbases.New(backgroundCtx, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, libraryEngine, kbases.Options{ChatsDir: cfg.Paths.ChatsDir, StateDir: cfg.Paths.StateDir, RuntimeDir: filepath.Dir(cfg.Paths.KBasesDir), References: func(id string) []string {
 		refs := []string{}
 		for _, a := range registry.AdminAgents() {
 			binding := contracts.AnyMapNode(a.Definition["kbaseConfig"])
@@ -302,10 +302,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return refs
 	}})
 	if err != nil {
-		return nil, fmt.Errorf("initialize knowledge base center: %w", err)
+		return nil, fmt.Errorf("initialize knowledge libraries: %w", err)
 	}
-	knowledgeManager.BindCenter(kbasesCenter)
-	if err := kbasesCenter.Start(); err != nil {
+	knowledgeManager.BindKBases(kbasesService)
+	if err := kbasesService.Start(); err != nil {
 		return nil, err
 	}
 	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry)
@@ -429,7 +429,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Prompts:                  cfg.Prompts,
 	})
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
-	sessions := runtimesession.New(runtimesession.Dependencies{ValidateKnowledge: knowledgeManager.ValidateRun, KnowledgeCollections: kbasesCenter.RunCollections, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
+	sessions := runtimesession.New(runtimesession.Dependencies{ValidateKnowledge: knowledgeManager.ValidateRun, KnowledgeCollections: kbasesService.RunCollections, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
 	memoryClient := memoryworker.Client{Root: cfg.Paths.MemoryDir, Timezone: cfg.Memory.Timezone, ConfigDir: filepath.Join(cfg.Paths.StateDir, "memx")}
 	memoryWorker := memoryworker.New(cfg.Memory, memoryworker.StateRoot(cfg.Paths.StateDir), chatStore,
 		memoryClient,
@@ -447,7 +447,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Memory:                 memoryStore,
 		MemoryMaintenance:      memoryWorker,
 		KBase:                  knowledgeManager,
-		KBasesCenter:           kbasesCenter,
+		KBases:                 kbasesService,
 		Registry:               registry,
 		Models:                 modelRegistry,
 		Runs:                   runManager,
@@ -560,7 +560,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		lspManager:             lspManager,
 		mcpClient:              mcpClient,
 		knowledgeManager:       knowledgeManager,
-		knowledgeCenter:        kbasesCenter,
+		kbasesService:          kbasesService,
 		memoryWorker:           memoryWorker,
 	}, nil
 }
@@ -585,9 +585,9 @@ func (a *App) Close() error {
 		}
 		cancel()
 	}
-	if a.knowledgeCenter != nil {
+	if a.kbasesService != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-		if err := a.knowledgeCenter.Close(ctx); err != nil {
+		if err := a.kbasesService.Close(ctx); err != nil {
 			log.Printf("close KBASE manager: %v", err)
 		}
 		cancel()

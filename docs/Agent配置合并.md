@@ -50,11 +50,11 @@ kbx:
     prompt: raw # raw 或 qwen3
 ```
 
-Platform 从 runtime.yml 读取默认模型选择，并允许 library.yml 的 models.embedding 覆盖，连接仍解析共享模型注册表。中心与 Agent capability 共用 ModelConfigSource；启动时校验默认配置并保存 `<AP_RUNTIME_STATE_DIR>/kbx/index.yml`，实际调用使用同目录 libraries 下的库专属私有配置快照，通过显式 --config 选择。快照携带库级切块和编码，执行后删除；普通工具不能读取受管 StateDir。
+Platform 从 runtime.yml 读取默认模型选择，并允许 library.yml 的 models.embedding 覆盖，连接仍解析共享模型注册表。知识库服务与 Agent capability 共用 ModelConfigSource；启动时校验默认配置并保存 `<AP_RUNTIME_STATE_DIR>/kbx/index.yml`，实际调用使用同目录 libraries 下的库专属私有配置快照，通过显式 --config 选择。快照携带库级切块和编码，执行后删除；普通工具不能读取受管 StateDir。
 
-默认 model-key 为空且库未覆盖时关闭向量配置，不回退聊天模型；非空无效模型明确失败，纯全文读取不解析模型。每次调用重新解析 registry，密钥和连接参数无需写进 library.yml。有效模型合同变更由中心执行全库 embed --force，不扫描来源或重划 chunk；重建失败/中断保持全文可读，严格向量检索在新合同完成前报未就绪。KBX 不迁移旧布局，维度不匹配明确报告。
+默认 model-key 为空且库未覆盖时关闭向量配置，不回退聊天模型；非空无效模型明确失败，纯全文读取不解析模型。每次调用重新解析 registry，密钥和连接参数无需写进 library.yml。有效模型合同变更由知识库服务执行全库 embed --force，不扫描来源或重划 chunk；重建失败/中断保持全文可读，严格向量检索在新合同完成前报未就绪。KBX 不迁移旧布局，维度不匹配明确报告。
 
-知识库 embedding 由 library.yml 的 models.embedding 覆盖 runtime.kbx.embedding 默认，连接与密钥来自共享模型 registry；Agent YAML 不配置 embedding 或检索模型；kbaseConfig.retrieval 只对显式字段覆盖库默认，单次调用参数再覆盖。库模型角色和 defaultQuery 规则见 [知识库中心](知识库中心.md#检索默认值可选模型和默认集合)。Agent capability 的维护由 Platform KBX worker 调度，详见 [KBX 接入](KBX接入.md)。
+知识库 embedding 由 library.yml 的 models.embedding 覆盖 runtime.kbx.embedding 默认，连接与密钥来自共享模型 registry；Agent YAML 不配置 embedding 或检索模型；kbaseConfig.retrieval 只对显式字段覆盖库默认，单次调用参数再覆盖。库模型角色和 defaultQuery 规则见 [知识库](知识库.md#检索默认值可选模型和默认集合)。Agent capability 的维护由 Platform KBX worker 调度，详见 [KBX 接入](KBX接入.md)。
 
 ## 离线迁移
 

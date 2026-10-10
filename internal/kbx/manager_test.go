@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 	"time"
 )
@@ -32,7 +32,7 @@ func (f runFunc) Run(c context.Context, p string, b []byte, a ...string) ([]byte
 
 type readyEngine struct{}
 
-func (readyEngine) Update(_ context.Context, db string, _ []kbasescenter.Collection) error {
+func (readyEngine) Update(_ context.Context, db string, _ []kbases.Collection) error {
 	return os.WriteFile(db, nil, 0600)
 }
 func (readyEngine) Read(context.Context, string, string, string, int, ...string) (json.RawMessage, error) {
@@ -41,20 +41,20 @@ func (readyEngine) Read(context.Context, string, string, string, int, ...string)
 func newTestManager(t *testing.T) (*Manager, library) {
 	t.Helper()
 	root, runtime := t.TempDir(), t.TempDir()
-	center, err := kbasescenter.New(context.Background(), t.TempDir(), runtime, readyEngine{})
+	libraryService, err := kbases.New(context.Background(), t.TempDir(), runtime, readyEngine{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { center.Close(context.Background()) })
-	d, err := center.Create(kbasescenter.Input{Name: "fixture", SourcePath: root})
+	t.Cleanup(func() { libraryService.Close(context.Background()) })
+	d, err := libraryService.Create(kbases.Input{Name: "fixture", SourcePath: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = center.Refresh(d.ID); err != nil {
+	if _, err = libraryService.Refresh(d.ID); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 300; i++ {
-		d, err = center.Get(d.ID)
+		d, err = libraryService.Get(d.ID)
 		if err == nil && d.State == "ready" {
 			break
 		}
@@ -63,7 +63,7 @@ func newTestManager(t *testing.T) (*Manager, library) {
 	cfg := knowledge.DefaultConfig()
 	cfg.Enabled = true
 	cfg.LibraryID = d.ID
-	m := NewManager(Options{Center: center}, testSource{"docs": {Key: "docs", WorkspaceRoot: d.Collections[0].SourcePath, Config: cfg}}, nil)
+	m := NewManager(Options{KBases: libraryService}, testSource{"docs": {Key: "docs", WorkspaceRoot: d.Collections[0].SourcePath, Config: cfg}}, nil)
 	l, err := m.resolve("docs")
 	if err != nil {
 		t.Fatal(err)

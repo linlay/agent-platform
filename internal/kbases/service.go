@@ -1,5 +1,5 @@
-// Package kbasescenter owns deployment-level knowledge libraries independently of Agents.
-package kbasescenter
+// Package kbases owns deployment-level knowledge libraries independently of Agents.
+package kbases
 
 import (
 	"context"

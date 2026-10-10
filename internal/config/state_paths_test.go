@@ -62,17 +62,17 @@ func TestStateEnvironmentCannotOverlapRuntimeSources(t *testing.T) {
 	})
 }
 
-func TestKBasesCenterExpandsRuntimeHome(t *testing.T) {
+func TestKBasesExpandsRuntimeHome(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": "~/knowledge-center-layout-test"}, func() {
+	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": "~/kbases-layout-test"}, func() {
 		cfg, err := Load(LoadOptions{ConfigDir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.Paths.KBasesDir != filepath.Join(home, "knowledge-center-layout-test", "kbases") {
+		if cfg.Paths.KBasesDir != filepath.Join(home, "kbases-layout-test", "kbases") {
 			t.Fatal(cfg.Paths.KBasesDir)
 		}
 	})

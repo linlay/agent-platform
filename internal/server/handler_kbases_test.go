@@ -1,7 +1,7 @@
 package server
 
 import (
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -11,16 +11,16 @@ import (
 	"testing"
 )
 
-func TestKBasesCenterHTTP(t *testing.T) {
-	service, err := kbasescenter.New(context.Background(), t.TempDir(), t.TempDir(), nil)
+func TestKBasesHTTP(t *testing.T) {
+	service, err := kbases.New(context.Background(), t.TempDir(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{deps: Dependencies{KBasesCenter: service}}
+	s := &Server{deps: Dependencies{KBases: service}}
 	request := func(method, path, body string, want int) json.RawMessage {
 		t.Helper()
 		r := httptest.NewRecorder()
-		s.handleKBasesCenter(r, httptest.NewRequest(method, path, strings.NewReader(body)))
+		s.handleKBases(r, httptest.NewRequest(method, path, strings.NewReader(body)))
 		if r.Code != want {
 			t.Fatalf("%s %s: %d %s", method, path, r.Code, r.Body.String())
 		}
@@ -36,9 +36,9 @@ func TestKBasesCenterHTTP(t *testing.T) {
 		}
 		return e.Data
 	}
-	input, _ := json.Marshal(kbasescenter.Input{Name: "Docs", SourcePath: t.TempDir()})
+	input, _ := json.Marshal(kbases.Input{Name: "Docs", SourcePath: t.TempDir()})
 	raw := request("POST", "/api/admin/kbases", string(input), 200)
-	var d kbasescenter.Definition
+	var d kbases.Definition
 	if err = json.Unmarshal(raw, &d); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	request("GET", "/api/admin/kbases/missing", "", 404)
 	request("DELETE", "/api/admin/kbases/"+d.ID, "", 200)
 	request("GET", "/api/admin/kbases/"+d.ID, "", 404)
-	input, _ = json.Marshal(kbasescenter.Input{Name: "Combined", Collections: []kbasescenter.Collection{{Name: "docs", SourcePath: t.TempDir(), Description: "Editable docs", Editable: true}, {Name: "reports", SourcePath: t.TempDir()}}})
+	input, _ = json.Marshal(kbases.Input{Name: "Combined", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Description: "Editable docs", Editable: true}, {Name: "reports", SourcePath: t.TempDir()}}})
 	raw = request("POST", "/api/admin/kbases", string(input), 200)
 	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 {
 		t.Fatalf("multiple collections: %s %v", raw, err)
@@ -60,7 +60,7 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	}
 	d.Collections[0].Editable = false
 	d.Collections[0].Description = "Read-only docs"
-	input, _ = json.Marshal(kbasescenter.Input{Name: "Edited", Collections: []kbasescenter.Collection{d.Collections[0], {Name: "notes", SourcePath: t.TempDir()}}})
+	input, _ = json.Marshal(kbases.Input{Name: "Edited", Collections: []kbases.Collection{d.Collections[0], {Name: "notes", SourcePath: t.TempDir()}}})
 	raw = request("PUT", "/api/admin/kbases/"+d.ID, string(input), 200)
 	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 || d.Collections[1].Name != "notes" || d.State != "unindexed" {
 		t.Fatalf("edited collections: %s %v", raw, err)
@@ -70,7 +70,7 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	}
 
 	raw = request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Settings","chunk":{"strategy":"regex","maxChars":900,"overlapChars":0},"textEncoding":"GBK","models":{"embedding":{"modelKey":"selected","prompt":"qwen3"}}}`, 200)
-	d = kbasescenter.Definition{}
+	d = kbases.Definition{}
 	if err = json.Unmarshal(raw, &d); err != nil || d.Chunk == nil || *d.Chunk.OverlapChars != 0 || d.TextEncoding != "gbk" || d.Models.Embedding.ModelKey != "selected" {
 		t.Fatalf("settings lost on PUT: %s %v", raw, err)
 	}
@@ -79,13 +79,13 @@ func TestKBasesCenterHTTP(t *testing.T) {
 		t.Fatalf("omitted settings reset: %s", raw)
 	}
 	raw = request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Query settings","retrieval":{"topK":12,"minScore":0,"rerank":false,"queryExpansion":true},"models":{"reranker":{"modelKey":"rank"},"queryExpansion":{"modelKey":"expand"}}}`, 200)
-	d = kbasescenter.Definition{}
+	d = kbases.Definition{}
 	if err = json.Unmarshal(raw, &d); err != nil || d.Retrieval == nil || *d.Retrieval.TopK != 12 || d.Retrieval.MinScore == nil || *d.Retrieval.MinScore != 0 || d.Retrieval.Rerank == nil || *d.Retrieval.Rerank || !*d.Retrieval.QueryExpansion || d.Models.Reranker.ModelKey != "rank" || d.Models.QueryExpansion.ModelKey != "expand" {
 		t.Fatalf("query settings lost on PUT: %s %v", raw, err)
 	}
 	disabled := false
 	d.Collections[0].DefaultQuery = &disabled
-	input, _ = json.Marshal(kbasescenter.Input{Name: "Query scope", Collections: d.Collections})
+	input, _ = json.Marshal(kbases.Input{Name: "Query scope", Collections: d.Collections})
 	request("PUT", "/api/admin/kbases/"+d.ID, string(input), 200)
 	raw = request("GET", "/api/admin/kbases/"+d.ID, "", 200)
 	if !strings.Contains(string(raw), `"defaultQuery":false`) || !strings.Contains(string(raw), `"modelKey":"rank"`) || !strings.Contains(string(raw), `"minScore":0`) {
@@ -98,39 +98,39 @@ func TestKBasesCenterHTTP(t *testing.T) {
 	request("POST", "/api/admin/kbases/"+d.ID+"/search", `{"query":"fixture","method":"get"}`, 400)
 }
 
-func TestKBasesCenterHTTPDiagnosticsAndDeletion(t *testing.T) {
+func TestKBasesHTTPDiagnosticsAndDeletion(t *testing.T) {
 	root, runtimeRoot := t.TempDir(), t.TempDir()
-	service, err := kbasescenter.New(context.Background(), root, runtimeRoot, nil)
+	service, err := kbases.New(context.Background(), root, runtimeRoot, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	good, err := service.Create(kbasescenter.Input{Name: "Good", SourcePath: t.TempDir()})
+	good, err := service.Create(kbases.Input{Name: "Good", SourcePath: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	bad, err := service.Create(kbasescenter.Input{Name: "Bad", SourcePath: t.TempDir()})
+	bad, err := service.Create(kbases.Input{Name: "Bad", SourcePath: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, bad.ID, "library.yml"), []byte("state: ready\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	orphan, err := service.Create(kbasescenter.Input{Name: "Orphan", SourcePath: t.TempDir()})
+	orphan, err := service.Create(kbases.Input{Name: "Orphan", SourcePath: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(filepath.Join(root, orphan.ID)); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{deps: Dependencies{KBasesCenter: service}}
+	server := &Server{deps: Dependencies{KBases: service}}
 	recorder := httptest.NewRecorder()
-	server.handleKBasesCenter(recorder, httptest.NewRequest("GET", "/api/admin/kbases", nil))
+	server.handleKBases(recorder, httptest.NewRequest("GET", "/api/admin/kbases", nil))
 	if recorder.Code != 200 {
 		t.Fatal(recorder.Body.String())
 	}
 	var response struct {
 		Code int
-		Data []kbasescenter.Definition
+		Data []kbases.Definition
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestKBasesCenterHTTPDiagnosticsAndDeletion(t *testing.T) {
 	}
 	for _, id := range []string{bad.ID, orphan.ID} {
 		recorder = httptest.NewRecorder()
-		server.handleKBasesCenter(recorder, httptest.NewRequest("DELETE", "/api/admin/kbases/"+id, nil))
+		server.handleKBases(recorder, httptest.NewRequest("DELETE", "/api/admin/kbases/"+id, nil))
 		if recorder.Code != 200 {
 			t.Fatal(recorder.Body.String())
 		}
@@ -163,7 +163,7 @@ func TestKBasesCenterHTTPDiagnosticsAndDeletion(t *testing.T) {
 
 func TestKBasesTemplateEndpointsReturnNotFound(t *testing.T) {
 	root := t.TempDir()
-	service, err := kbasescenter.New(context.Background(), root, t.TempDir(), nil)
+	service, err := kbases.New(context.Background(), root, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +175,8 @@ func TestKBasesTemplateEndpointsReturnNotFound(t *testing.T) {
 	if err := os.WriteFile(template, []byte("name: \"Example\"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{deps: Dependencies{KBasesCenter: service}}
-	input, _ := json.Marshal(kbasescenter.Input{Name: "Attempt", SourcePath: t.TempDir()})
+	server := &Server{deps: Dependencies{KBases: service}}
+	input, _ := json.Marshal(kbases.Input{Name: "Attempt", SourcePath: t.TempDir()})
 	for _, request := range []struct{ method, path string }{
 		{"GET", "/api/admin/kbases/example"},
 		{"PUT", "/api/admin/kbases/example"},
@@ -184,7 +184,7 @@ func TestKBasesTemplateEndpointsReturnNotFound(t *testing.T) {
 		{"DELETE", "/api/admin/kbases/example"},
 	} {
 		recorder := httptest.NewRecorder()
-		server.handleKBasesCenter(recorder, httptest.NewRequest(request.method, request.path, strings.NewReader(string(input))))
+		server.handleKBases(recorder, httptest.NewRequest(request.method, request.path, strings.NewReader(string(input))))
 		if recorder.Code != 404 {
 			t.Fatalf("%s template: %d %s", request.method, recorder.Code, recorder.Body.String())
 		}

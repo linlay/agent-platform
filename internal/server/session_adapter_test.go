@@ -74,10 +74,10 @@ func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, input *contrac
 	return testSessionBuilder(s).PrepareSystemInitCacheFrom(queryCommandFromAPI(req), input, index)
 }
 
-// Tests without a center intentionally isolate prompt/tool assembly from storage.
+// Tests without a library service intentionally isolate prompt/tool assembly from storage.
 func testKnowledgeCollections(d Dependencies) func(string) ([]knowledge.CollectionScope, error) {
-	if d.KBasesCenter != nil {
-		return d.KBasesCenter.RunCollections
+	if d.KBases != nil {
+		return d.KBases.RunCollections
 	}
 	return func(string) ([]knowledge.CollectionScope, error) { return nil, nil }
 }

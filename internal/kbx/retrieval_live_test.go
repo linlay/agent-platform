@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 )
@@ -26,7 +26,7 @@ func TestLiveRetrievalDeployment(t *testing.T) {
 	if registryRoot == "" || expansionKey == "" {
 		t.Skip("set KBX_LIVE_REGISTRY and KBX_LIVE_EXPANSION_MODEL to opt in to real model calls")
 	}
-	setupCenterBinary(t)
+	setupLibraryBinary(t)
 	registry, err := models.LoadModelRegistry(registryRoot)
 	if err != nil {
 		t.Fatal("cannot load deployment model registry")
@@ -34,24 +34,24 @@ func TestLiveRetrievalDeployment(t *testing.T) {
 	root := t.TempDir()
 	source := &ModelConfigSource{File: filepath.Join(root, "state", "kbx", "index.yml"), Registry: registry, ModelKey: os.Getenv("KBX_LIVE_EMBEDDING_MODEL")}
 	t.Logf("deployment selection: expansion=%s embedding=%s", expansionKey, source.ModelKey)
-	roles := &kbasescenter.ModelsConfig{QueryExpansion: &kbasescenter.QueryModelConfig{ModelKey: expansionKey}}
+	roles := &kbases.ModelsConfig{QueryExpansion: &kbases.QueryModelConfig{ModelKey: expansionKey}}
 	if key := os.Getenv("KBX_LIVE_RERANKER_MODEL"); key != "" {
-		roles.Reranker = &kbasescenter.QueryModelConfig{ModelKey: key}
+		roles.Reranker = &kbases.QueryModelConfig{ModelKey: key}
 	} else {
 		t.Log("NOT TESTED: real reranker (KBX_LIVE_RERANKER_MODEL unset)")
 	}
 	preflight := NewManager(Options{ConfigSource: source}, nil, nil)
-	if _, err = preflight.queryConfig(centerConfig, kbasescenter.Definition{Models: roles}, "query", nil); err != nil {
+	if _, err = preflight.queryConfig(defaultLibraryConfig, kbases.Definition{Models: roles}, "query", nil); err != nil {
 		t.Fatal(err)
 	}
-	engine := NewCenterEngineWithSource(source)
-	center, err := kbasescenter.New(context.Background(), filepath.Join(root, "kbases"), filepath.Join(root, "ru-kbases"), engine)
+	engine := NewLibraryEngineWithSource(source)
+	libraryService, err := kbases.New(context.Background(), filepath.Join(root, "kbases"), filepath.Join(root, "ru-kbases"), engine)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer center.Close(context.Background())
+	defer libraryService.Close(context.Background())
 	no, top := false, 3
-	collections := []kbasescenter.Collection{}
+	collections := []kbases.Collection{}
 	for _, name := range []string{"docs", "excluded"} {
 		dir, err := filepath.EvalSymlinks(t.TempDir())
 		if err != nil {
@@ -73,22 +73,22 @@ func TestLiveRetrievalDeployment(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		c := kbasescenter.Collection{Name: name, SourcePath: dir}
+		c := kbases.Collection{Name: name, SourcePath: dir}
 		if name == "excluded" {
 			c.DefaultQuery = &no
 		}
 		collections = append(collections, c)
 	}
-	d, err := center.Create(kbasescenter.Input{Name: "Synthetic live retrieval acceptance", Collections: collections, Models: roles, Retrieval: &knowledge.RetrievalSettings{TopK: &top}})
+	d, err := libraryService.Create(kbases.Input{Name: "Synthetic live retrieval acceptance", Collections: collections, Models: roles, Retrieval: &knowledge.RetrievalSettings{TopK: &top}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = center.Refresh(d.ID); err != nil {
+	if _, err = libraryService.Refresh(d.ID); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
-		d, err = center.Get(d.ID)
+		d, err = libraryService.Get(d.ID)
 		if err == nil && d.State == "ready" && !d.Indexing {
 			break
 		}
@@ -98,7 +98,7 @@ func TestLiveRetrievalDeployment(t *testing.T) {
 		t.Fatal("synthetic library did not become ready")
 	}
 	agentConfig, _ := knowledge.ParseConfig(map[string]any{"libraryId": d.ID})
-	m := NewManager(Options{ConfigSource: source, Center: center}, testSource{"live": {Key: "live", Config: agentConfig}}, nil)
+	m := NewManager(Options{ConfigSource: source, KBases: libraryService}, testSource{"live": {Key: "live", Config: agentConfig}}, nil)
 	baseRunner := m.runner
 	type step struct {
 		Backend, Status, Reason string

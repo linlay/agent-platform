@@ -45,7 +45,7 @@ func TestLivePlatformPDFAndExistingDataPreservation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := NewCenterEngine().Update(context.Background(), library.database, library.definition.Collections); err != nil {
+	if err := NewLibraryEngine().Update(context.Background(), library.database, library.definition.Collections); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := manager.Search(context.Background(), "docs", "OrchardPDF", knowledge.SearchOptions{})

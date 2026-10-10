@@ -14,15 +14,15 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 )
 
-func setupCenterBinary(t *testing.T) {
+func setupLibraryBinary(t *testing.T) {
 	t.Helper()
-	bin := os.Getenv("KBX_CENTER_TEST_BIN")
+	bin := os.Getenv("KBX_KBASES_TEST_BIN")
 	if bin == "" {
-		t.Skip("set KBX_CENTER_TEST_BIN to managed bin directory")
+		t.Skip("set KBX_KBASES_TEST_BIN to managed bin directory")
 	}
 	t.Setenv("AP_BUILTINS_BIN", bin)
 	if _, err := builtins.ConfigureProcessPath(); err != nil {
@@ -32,8 +32,8 @@ func setupCenterBinary(t *testing.T) {
 	t.Setenv("no_proxy", "localhost,127.0.0.1,::1")
 }
 
-func TestCenterRealLibraryChunkAndEncoding(t *testing.T) {
-	setupCenterBinary(t)
+func TestLibraryRealLibraryChunkAndEncoding(t *testing.T) {
+	setupLibraryBinary(t)
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	source := filepath.Join(root, "docs")
 	if err := os.Mkdir(source, 0700); err != nil {
@@ -46,8 +46,8 @@ func TestCenterRealLibraryChunkAndEncoding(t *testing.T) {
 		t.Fatal(err)
 	}
 	max, overlap, zero := 900, 90, 0
-	d := kbasescenter.Definition{TextEncoding: "windows-1252", Chunk: &knowledge.ChunkSettings{Strategy: "structural", MaxChars: &max, OverlapChars: &overlap}, Collections: []kbasescenter.Collection{{Name: "docs", SourcePath: source, Chunk: knowledge.ChunkSettings{OverlapChars: &zero}}}}
-	e := NewCenterEngine()
+	d := kbases.Definition{TextEncoding: "windows-1252", Chunk: &knowledge.ChunkSettings{Strategy: "structural", MaxChars: &max, OverlapChars: &overlap}, Collections: []kbases.Collection{{Name: "docs", SourcePath: source, Chunk: knowledge.ChunkSettings{OverlapChars: &zero}}}}
+	e := NewLibraryEngine()
 	db := filepath.Join(root, "index.sqlite")
 	for _, strategy := range []string{"structural", "regex", "window"} {
 		d.Chunk.Strategy = strategy
@@ -70,8 +70,8 @@ func TestCenterRealLibraryChunkAndEncoding(t *testing.T) {
 	}
 }
 
-func TestCenterRealLibraryModelSwitchDoesNotScanSources(t *testing.T) {
-	setupCenterBinary(t)
+func TestLibraryRealLibraryModelSwitchDoesNotScanSources(t *testing.T) {
+	setupLibraryBinary(t)
 	var broken atomic.Bool
 	var mu sync.Mutex
 	seen := map[string]int{}
@@ -105,38 +105,38 @@ func TestCenterRealLibraryModelSwitchDoesNotScanSources(t *testing.T) {
 	}))
 	defer provider.Close()
 	modelSource, _ := libraryModelFixture(t, provider.URL)
-	engine := NewCenterEngineWithSource(modelSource)
+	engine := NewLibraryEngineWithSource(modelSource)
 	root := t.TempDir()
-	center, err := kbasescenter.New(context.Background(), filepath.Join(root, "kbases"), filepath.Join(root, "ru-kbases"), engine)
+	libraryService, err := kbases.New(context.Background(), filepath.Join(root, "kbases"), filepath.Join(root, "ru-kbases"), engine)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer center.Close(context.Background())
-	wait := func(id string, degraded bool) kbasescenter.Definition {
+	defer libraryService.Close(context.Background())
+	wait := func(id string, degraded bool) kbases.Definition {
 		t.Helper()
 		deadline := time.Now().Add(20 * time.Second)
 		for time.Now().Before(deadline) {
-			d, err := center.Get(id)
+			d, err := libraryService.Get(id)
 			if err == nil && !d.Indexing && d.State == "ready" && d.Degraded == degraded {
 				return d
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
-		d, _ := center.Get(id)
+		d, _ := libraryService.Get(id)
 		t.Fatalf("maintenance deadline: %+v", d)
 		return d
 	}
-	libs := []kbasescenter.Definition{}
+	libs := []kbases.Definition{}
 	for _, key := range []string{"a", "b"} {
 		source := t.TempDir()
 		if err := os.WriteFile(filepath.Join(source, "doc.md"), []byte("quartzorchid original publication."), 0600); err != nil {
 			t.Fatal(err)
 		}
-		d, err := center.Create(kbasescenter.Input{Name: key, Models: &kbasescenter.ModelsConfig{Embedding: &kbasescenter.EmbeddingConfig{ModelKey: key}}, Collections: []kbasescenter.Collection{{Name: "docs", SourcePath: source}}})
+		d, err := libraryService.Create(kbases.Input{Name: key, Models: &kbases.ModelsConfig{Embedding: &kbases.EmbeddingConfig{ModelKey: key}}, Collections: []kbases.Collection{{Name: "docs", SourcePath: source}}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = center.Refresh(d.ID); err != nil {
+		if _, err = libraryService.Refresh(d.ID); err != nil {
 			t.Fatal(err)
 		}
 		libs = append(libs, wait(d.ID, false))
@@ -151,37 +151,37 @@ func TestCenterRealLibraryModelSwitchDoesNotScanSources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d.Collections[0].SourcePath, "doc.md"), []byte("neverindexed replacement."), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = center.Edit(d.ID, kbasescenter.Input{Name: d.Name, Models: &kbasescenter.ModelsConfig{Embedding: &kbasescenter.EmbeddingConfig{ModelKey: "b"}}}); err != nil {
+	if _, err = libraryService.Edit(d.ID, kbases.Input{Name: d.Name, Models: &kbases.ModelsConfig{Embedding: &kbases.EmbeddingConfig{ModelKey: "b"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = center.Refresh(d.ID); err != nil {
+	if _, err = libraryService.Refresh(d.ID); err != nil {
 		t.Fatal(err)
 	}
 	wait(d.ID, false)
-	raw, err := center.Read(context.Background(), d.ID, "search", "quartzorchid", 10)
+	raw, err := libraryService.Read(context.Background(), d.ID, "search", "quartzorchid", 10)
 	if err != nil || !strings.Contains(string(raw), "original publication") {
 		t.Fatalf("vector switch rescanned sources: %s %v", raw, err)
 	}
 	broken.Store(true)
-	if _, err = center.Edit(d.ID, kbasescenter.Input{Name: d.Name, Models: &kbasescenter.ModelsConfig{Embedding: &kbasescenter.EmbeddingConfig{ModelKey: "a"}}}); err != nil {
+	if _, err = libraryService.Edit(d.ID, kbases.Input{Name: d.Name, Models: &kbases.ModelsConfig{Embedding: &kbases.EmbeddingConfig{ModelKey: "a"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = center.Refresh(d.ID); err != nil {
+	if _, err = libraryService.Refresh(d.ID); err != nil {
 		t.Fatal(err)
 	}
 	wait(d.ID, true)
-	if _, err = center.Read(context.Background(), d.ID, "search", "quartzorchid", 10); err != nil {
+	if _, err = libraryService.Read(context.Background(), d.ID, "search", "quartzorchid", 10); err != nil {
 		t.Fatal("full text lost after vector failure", err)
 	}
-	if _, err = center.Read(context.Background(), d.ID, "vsearch", "quartzorchid", 10); err == nil {
+	if _, err = libraryService.Read(context.Background(), d.ID, "vsearch", "quartzorchid", 10); err == nil {
 		t.Fatal("strict vector read accepted after failed model switch")
 	}
 	broken.Store(false)
-	if _, err = center.Refresh(d.ID); err != nil {
+	if _, err = libraryService.Refresh(d.ID); err != nil {
 		t.Fatal(err)
 	}
 	wait(d.ID, false)
-	if _, err = center.Read(context.Background(), d.ID, "vsearch", "quartzorchid", 10); err != nil {
+	if _, err = libraryService.Read(context.Background(), d.ID, "vsearch", "quartzorchid", 10); err != nil {
 		t.Fatal("vector recovery failed", err)
 	}
 }

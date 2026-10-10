@@ -2,16 +2,16 @@ package server
 
 import (
 	"agent-platform/internal/api"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"errors"
 	"net/http"
 	"strings"
 )
 
-func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
-	service := s.deps.KBasesCenter
+func (s *Server) handleKBases(w http.ResponseWriter, r *http.Request) {
+	service := s.deps.KBases
 	if service == nil {
-		writeJSON(w, 503, api.Failure(503, "knowledge base center unavailable"))
+		writeJSON(w, 503, api.Failure(503, "knowledge library service unavailable"))
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/kbases")
@@ -39,7 +39,7 @@ func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
 		case http.MethodGet:
 			result, err = service.List()
 		case http.MethodPost:
-			var input kbasescenter.Input
+			var input kbases.Input
 			if !decode(&input) {
 				return
 			}
@@ -54,7 +54,7 @@ func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
 		case http.MethodGet:
 			result, err = service.Get(parts[0])
 		case http.MethodPut:
-			var input kbasescenter.Input
+			var input kbases.Input
 			if !decode(&input) {
 				return
 			}
@@ -80,7 +80,7 @@ func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
 			if !method(http.MethodPost) {
 				return
 			}
-			var input kbasescenter.SearchInput
+			var input kbases.SearchInput
 			if !decode(&input) {
 				return
 			}
@@ -100,15 +100,15 @@ func (s *Server) handleKBasesCenter(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		status := 400
-		if errors.Is(err, kbasescenter.ErrNotFound) {
+		if errors.Is(err, kbases.ErrNotFound) {
 			status = 404
 		}
-		var referenced *kbasescenter.ReferencedError
+		var referenced *kbases.ReferencedError
 		if errors.As(err, &referenced) {
 			writeJSON(w, 409, api.Failure(409, err.Error(), map[string]any{"agents": referenced.Agents}))
 			return
 		}
-		if errors.Is(err, kbasescenter.ErrBusy) {
+		if errors.Is(err, kbases.ErrBusy) {
 			status = 409
 		}
 		writeJSON(w, status, api.Failure(status, err.Error()))

@@ -1,6 +1,6 @@
 //go:build windows
 
-package kbasescenter
+package kbases
 
 import (
 	"golang.org/x/sys/windows"

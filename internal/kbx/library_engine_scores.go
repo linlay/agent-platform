@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Center score is query-to-chunk vector similarity, never reciprocal rank or
+// Library score is query-to-chunk vector similarity, never reciprocal rank or
 // BM25/graph relevance. Keep the original ranking score and row order separately.
 func withSimilarityScores(raw json.RawMessage, method string) (json.RawMessage, error) {
 	var data map[string]json.RawMessage

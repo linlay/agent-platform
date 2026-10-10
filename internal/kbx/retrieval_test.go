@@ -6,19 +6,19 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 )
 
 func TestQueryDefaultsAndCollectionSelection(t *testing.T) {
 	m, l := newTestManager(t)
-	d, err := m.options.Center.Get(l.definition.ID)
+	d, err := m.options.KBases.Get(l.definition.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	disabled, top, score := false, 12, .4
 	d.Collections[0].DefaultQuery = &disabled
-	if _, err = m.options.Center.Edit(d.ID, kbasescenter.Input{Name: d.Name, Collections: d.Collections, Retrieval: &knowledge.RetrievalSettings{TopK: &top, MinScore: &score}}); err != nil {
+	if _, err = m.options.KBases.Edit(d.ID, kbases.Input{Name: d.Name, Collections: d.Collections, Retrieval: &knowledge.RetrievalSettings{TopK: &top, MinScore: &score}}); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -46,10 +46,10 @@ func TestQueryDefaultsAndCollectionSelection(t *testing.T) {
 }
 func TestQueryModelConfigNeverAffectsMaintenanceOrVectorFingerprint(t *testing.T) {
 	source, _ := libraryModelFixture(t, "https://example.test")
-	e := NewCenterEngineWithSource(source)
-	d := kbasescenter.Definition{}
+	e := NewLibraryEngineWithSource(source)
+	d := kbases.Definition{}
 	fp := e.VectorFingerprint(d)
-	d.Models = &kbasescenter.ModelsConfig{Reranker: &kbasescenter.QueryModelConfig{ModelKey: "unavailable"}, QueryExpansion: &kbasescenter.QueryModelConfig{ModelKey: "unavailable"}}
+	d.Models = &kbases.ModelsConfig{Reranker: &kbases.QueryModelConfig{ModelKey: "unavailable"}, QueryExpansion: &kbases.QueryModelConfig{ModelKey: "unavailable"}}
 	if fp != e.VectorFingerprint(d) {
 		t.Fatal("query role changed vector fingerprint")
 	}

@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-func TestCenterDisplaysSimilarityWithoutChangingRank(t *testing.T) {
-	e := NewCenterEngine()
+func TestLibraryDisplaysSimilarityWithoutChangingRank(t *testing.T) {
+	e := NewLibraryEngine()
 	e.runner = runFunc(func(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
 		if !slices.Contains(args, "--explain") {
 			t.Fatal("original vector scores were not requested")
@@ -37,7 +37,7 @@ func TestCenterDisplaysSimilarityWithoutChangingRank(t *testing.T) {
 		t.Fatalf("wrong score/order: %s", raw)
 	}
 }
-func TestCenterSimilarityAvailability(t *testing.T) {
+func TestLibrarySimilarityAvailability(t *testing.T) {
 	for _, tc := range []struct {
 		name, method, row string
 		want              *float64
@@ -76,7 +76,7 @@ func ptrScore(v float64) *float64 { return &v }
 
 // Opt-in read-only verification against an existing library using its deployed
 // configuration. This performs queries only, never update/embed or source writes.
-func TestLiveCenterSimilarity(t *testing.T) {
+func TestLiveLibrarySimilarity(t *testing.T) {
 	bin, db, cfg := os.Getenv("KBX_SCORE_TEST_BIN"), os.Getenv("KBX_SCORE_TEST_DB"), os.Getenv("KBX_SCORE_TEST_CONFIG")
 	if bin == "" || db == "" || cfg == "" {
 		t.Skip("set KBX_SCORE_TEST_BIN/DB/CONFIG")
@@ -85,7 +85,7 @@ func TestLiveCenterSimilarity(t *testing.T) {
 	if _, err := builtins.ConfigureProcessPath(); err != nil {
 		t.Fatal(err)
 	}
-	e := NewCenterEngine()
+	e := NewLibraryEngine()
 	e.runner = cliRunner{configFile: cfg}
 	for _, q := range []string{"曾万元最近的工作是什么", "曾念美负责了什么", "张倩做了什么事情"} {
 		raw, err := e.Read(context.Background(), db, "query", q, 5, "AI", "shuzhi")

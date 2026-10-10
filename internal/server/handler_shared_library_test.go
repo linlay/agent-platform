@@ -12,12 +12,12 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 )
 
 func TestCreateAgentWithLibraryAndReferencedDelete(t *testing.T) {
 	f := newTestFixture(t)
-	center, err := kbasescenter.New(context.Background(), t.TempDir(), t.TempDir(), nil, kbasescenter.Options{References: func(id string) []string {
+	libraryService, err := kbases.New(context.Background(), t.TempDir(), t.TempDir(), nil, kbases.Options{References: func(id string) []string {
 		refs := []string{}
 		for _, a := range f.registry.(interface{ AdminAgents() []catalog.AdminAgent }).AdminAgents() {
 			if contracts.AnyMapNode(a.Definition["kbaseConfig"])["libraryId"] == id {
@@ -29,8 +29,8 @@ func TestCreateAgentWithLibraryAndReferencedDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer center.Close(context.Background())
-	f.server.deps.KBasesCenter = center
+	defer libraryService.Close(context.Background())
+	f.server.deps.KBases = libraryService
 	source, workspace := t.TempDir(), t.TempDir()
 	source, err = filepath.EvalSymlinks(source)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestCreateAgentWithLibraryAndReferencedDelete(t *testing.T) {
 	request := map[string]any{"key": "library-owner", "isProject": true, "createLibrary": map[string]any{"name": "Shared", "sourcePath": source}, "definition": map[string]any{"key": "library-owner", "mode": "GENERAL", "modelConfig": map[string]any{"modelKey": "mock-model"}, "runtimeConfig": map[string]any{"workspaceRoot": workspace}}}
 	created := postAgentJSON[api.AgentDetailResponse](t, f.server, "/api/admin/agents/create", request)
 	id := contracts.AnyStringNode(contracts.AnyMapNode(created.Definition["kbaseConfig"])["libraryId"])
-	d, err := center.Get(id)
+	d, err := libraryService.Get(id)
 	if err != nil || d.Collections[0].SourcePath != source {
 		t.Fatalf("binding: %+v %v", d, err)
 	}
@@ -50,7 +50,7 @@ func TestCreateAgentWithLibraryAndReferencedDelete(t *testing.T) {
 	if w.Code == 200 {
 		t.Fatal("duplicate Agent accepted")
 	}
-	libraries, err := center.List()
+	libraries, err := libraryService.List()
 	if err != nil || len(libraries) != 1 {
 		t.Fatalf("creation rollback: %+v %v", libraries, err)
 	}

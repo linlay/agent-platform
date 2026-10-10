@@ -1,7 +1,7 @@
 package kbx
 
 import (
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 	"context"
 	"encoding/json"
@@ -13,8 +13,8 @@ import (
 	"strings"
 )
 
-// CenterEngine maintains shared libraries through the structured KBX protocol.
-type CenterEngine struct {
+// LibraryEngine maintains shared libraries through the structured KBX protocol.
+type LibraryEngine struct {
 	configSource   *ModelConfigSource
 	runner         Runner
 	embedding      bool
@@ -23,47 +23,47 @@ type CenterEngine struct {
 	candidateLimit int
 }
 
-func NewCenterEngine() *CenterEngine { return &CenterEngine{runner: cliRunner{}} }
+func NewLibraryEngine() *LibraryEngine { return &LibraryEngine{runner: cliRunner{}} }
 
-var centerConfig = []byte(`{"models":{"embedding":null,"query_expansion":null,"reranker":null,"graph_extraction":null}}`)
+var defaultLibraryConfig = []byte(`{"models":{"embedding":null,"query_expansion":null,"reranker":null,"graph_extraction":null}}`)
 
-func (e *CenterEngine) Update(ctx context.Context, db string, collections []kbasescenter.Collection) error {
+func (e *LibraryEngine) Update(ctx context.Context, db string, collections []kbases.Collection) error {
 	return e.UpdatePaths(ctx, db, collections, nil)
 }
 
 // UpdatePaths uses the same structured maintenance contract as the former Agent
 // worker, now scoped to one shared database and explicit collections.
-func (e *CenterEngine) UpdatePaths(ctx context.Context, db string, collections []kbasescenter.Collection, changes map[string][]string) error {
-	return e.UpdateLibrary(ctx, db, kbasescenter.Definition{Collections: collections}, changes)
+func (e *LibraryEngine) UpdatePaths(ctx context.Context, db string, collections []kbases.Collection, changes map[string][]string) error {
+	return e.UpdateLibrary(ctx, db, kbases.Definition{Collections: collections}, changes)
 }
-func (e *CenterEngine) UpdateLibrary(ctx context.Context, db string, definition kbasescenter.Definition, changes map[string][]string) error {
+func (e *LibraryEngine) UpdateLibrary(ctx context.Context, db string, definition kbases.Definition, changes map[string][]string) error {
 	collections := definition.Collections
 	if len(collections) == 0 {
 		return fmt.Errorf("at least one collection is required")
 	}
 	cfg, err := e.libraryConfig(definition, true)
 	if err != nil {
-		return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+		return fmt.Errorf("%w: %w", kbases.ErrNotStarted, err)
 	}
 	m := NewManager(Options{}, nil, nil)
 	m.runner = e.runner
 	m.frozenConfig = cfg
 	m.skipEmbedding = true
 	if err := m.probeMaintenance(ctx); err != nil {
-		return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+		return fmt.Errorf("%w: %w", kbases.ErrNotStarted, err)
 	}
 	for _, c := range collections {
 		actual, err := filepath.EvalSymlinks(c.SourcePath)
 		if err != nil || actual != c.SourcePath {
-			return fmt.Errorf("%w: collection %s source unavailable or changed", kbasescenter.ErrNotStarted, c.Name)
+			return fmt.Errorf("%w: collection %s source unavailable or changed", kbases.ErrNotStarted, c.Name)
 		}
 		st, err := os.Stat(c.SourcePath)
 		if err != nil || !st.IsDir() {
-			return fmt.Errorf("%w: source must be a directory", kbasescenter.ErrNotStarted)
+			return fmt.Errorf("%w: source must be a directory", kbases.ErrNotStarted)
 		}
 		for _, p := range append(append([]string{}, c.Include...), c.Exclude...) {
 			if err := knowledge.ValidateSourcePattern(p); err != nil {
-				return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+				return fmt.Errorf("%w: %w", kbases.ErrNotStarted, err)
 			}
 		}
 	}
@@ -73,15 +73,15 @@ func (e *CenterEngine) UpdateLibrary(ctx context.Context, db string, definition 
 		l := library{definition: definition, database: db, spec: knowledge.AgentSpec{Config: knowledge.DefaultConfig()}}
 		cfg, err := m.config(l, true)
 		if err != nil {
-			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+			return fmt.Errorf("%w: %w", kbases.ErrNotStarted, err)
 		}
 		response, err := m.retryMaintenance(ctx, l, cfg, "collection.list", "collection", "list")
 		if err != nil {
-			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+			return fmt.Errorf("%w: %w", kbases.ErrNotStarted, err)
 		}
 		var old struct{ Collections []struct{ Name, Path string } }
 		if err = json.Unmarshal(response.Data, &old); err != nil {
-			return fmt.Errorf("%w: %w", kbasescenter.ErrNotStarted, err)
+			return fmt.Errorf("%w: %w", kbases.ErrNotStarted, err)
 		}
 		wanted := map[string]string{}
 		for _, c := range collections {
@@ -133,18 +133,18 @@ func (e *CenterEngine) UpdateLibrary(ctx context.Context, db string, definition 
 		}
 	}
 	if degraded != nil {
-		return &kbasescenter.ReadableFailure{Err: degraded}
+		return &kbases.ReadableFailure{Err: degraded}
 	}
 	if err := e.embedLibrary(ctx, db, cfg, definition.VectorsPending); err != nil {
-		return &kbasescenter.ReadableFailure{Err: err}
+		return &kbases.ReadableFailure{Err: err}
 	}
 	return nil
 }
 
-func (e *CenterEngine) Read(ctx context.Context, db, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
-	return e.ReadLibrary(ctx, db, kbasescenter.Definition{}, operation, arg, limit, collections...)
+func (e *LibraryEngine) Read(ctx context.Context, db, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
+	return e.ReadLibrary(ctx, db, kbases.Definition{}, operation, arg, limit, collections...)
 }
-func (e *CenterEngine) ReadLibrary(ctx context.Context, db string, definition kbasescenter.Definition, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
+func (e *LibraryEngine) ReadLibrary(ctx context.Context, db string, definition kbases.Definition, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
 	embedding := operation == "query" || operation == "vsearch" || operation == "status"
 	if definition.VectorsPending {
 		if operation == "vsearch" {
@@ -173,7 +173,7 @@ func (e *CenterEngine) ReadLibrary(ctx context.Context, db string, definition kb
 	limit = o.Limit
 	return local.read(ctx, db, operation, arg, limit, collections...)
 }
-func (e *CenterEngine) read(ctx context.Context, db, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
+func (e *LibraryEngine) read(ctx context.Context, db, operation, arg string, limit int, collections ...string) (json.RawMessage, error) {
 	var args []string
 	switch operation {
 	case "status":
@@ -233,7 +233,7 @@ func (e *CenterEngine) read(ctx context.Context, db, operation, arg string, limi
 	return result, nil
 }
 
-func (e *CenterEngine) files(ctx context.Context, db string, collections []string) (json.RawMessage, error) {
+func (e *LibraryEngine) files(ctx context.Context, db string, collections []string) (json.RawMessage, error) {
 	var documents []json.RawMessage
 	complete := true
 	for _, name := range collections {
@@ -280,7 +280,7 @@ func withDocumentSources(raw json.RawMessage, key string, allowed []string) (jso
 		if err := json.Unmarshal(row["file"], &ref); err != nil {
 			return nil, fmt.Errorf("invalid KBX document reference")
 		}
-		collection, path, ok := kbasescenter.DocumentReference(ref)
+		collection, path, ok := kbases.DocumentReference(ref)
 		if !ok || (len(allowed) > 0 && !names[collection]) {
 			return nil, fmt.Errorf("KBX returned a document outside the selected collections")
 		}

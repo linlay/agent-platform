@@ -19,10 +19,9 @@ coverage.out
 /ru-connectors/
 /run/
 /connectors-center/
-/kbases/
+# Knowledge library data stays private.
+/kbases*/
 /ru-kbases/
-# Retired knowledge center data stays private.
-/kbases-center/
 /.lock/
 
 # 历史根目录布局：保留忽略，避免误提交本地数据

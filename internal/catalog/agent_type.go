@@ -373,7 +373,7 @@ func ValidateOrdinaryAgentTools(tools []string) error {
 		normalized := strings.ToLower(strings.TrimSpace(tool))
 		switch normalized {
 		case "kbase_refresh":
-			return fmt.Errorf("kbase_refresh was removed; libraries are maintained automatically; use the knowledge center for manual refresh")
+			return fmt.Errorf("kbase_refresh was removed; libraries are maintained automatically; use knowledge library management for manual refresh")
 		case "memory_read", "memory_write", "memory_search", "memory_update":
 			return fmt.Errorf("%s is retired; use memx for reading and file_write/file_edit for changes", normalized)
 		}

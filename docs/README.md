@@ -57,7 +57,7 @@
 
 - [KBX 接入](KBX接入.md)：当前受管 CLI、检索、证据回读、维护 worker 和中立知识库契约。
 - [KBASE 编辑模式](KBASE编辑模式.md)：Workspace mutation 授权与目录隔离。
-- [知识库中心](知识库中心.md)：多 collection 独立库管理、KBX 手动更新、片段来源与多种召回测试。
+- [知识库](知识库.md)：多 collection 独立库管理、KBX 手动更新、片段来源与多种召回测试。
 
 ## 构建、部署与验证
 

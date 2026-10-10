@@ -1,4 +1,4 @@
-package kbasescenter
+package kbases
 
 import "agent-platform/internal/knowledge"
 

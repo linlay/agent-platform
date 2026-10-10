@@ -12,14 +12,14 @@ import (
 	"agent-platform/internal/models"
 )
 
-// NewConfiguredCenterEngine validates deployment defaults. Each child receives
+// NewConfiguredLibraryEngine validates deployment defaults. Each child receives
 // a private library-specific configuration snapshot via --config.
-func NewConfiguredCenterEngine(file string, registry *models.ModelRegistry, modelKey, prompt string) (*CenterEngine, error) {
+func NewConfiguredLibraryEngine(file string, registry *models.ModelRegistry, modelKey, prompt string) (*LibraryEngine, error) {
 	source := &ModelConfigSource{File: file, Registry: registry, ModelKey: modelKey, Prompt: prompt}
 	if _, err := source.Snapshot(); err != nil {
 		return nil, err
 	}
-	return NewCenterEngineWithSource(source), nil
+	return NewLibraryEngineWithSource(source), nil
 }
 
 // ModelConfigSource supplies shared registry connections and deployment defaults.
@@ -32,8 +32,8 @@ type ModelConfigSource struct {
 	last             []byte
 }
 
-func NewCenterEngineWithSource(source *ModelConfigSource) *CenterEngine {
-	return &CenterEngine{runner: libraryConfigRunner{source: source}, embedding: source.ModelKey != "", configSource: source}
+func NewLibraryEngineWithSource(source *ModelConfigSource) *LibraryEngine {
+	return &LibraryEngine{runner: libraryConfigRunner{source: source}, embedding: source.ModelKey != "", configSource: source}
 }
 func (s *ModelConfigSource) Snapshot() ([]byte, error) {
 	s.mu.Lock()

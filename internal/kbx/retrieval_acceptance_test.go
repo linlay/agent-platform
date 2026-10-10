@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 )
 
-func TestCenterRealRetrievalModelsDefaultsAndDegradation(t *testing.T) {
-	setupCenterBinary(t)
+func TestLibraryRealRetrievalModelsDefaultsAndDegradation(t *testing.T) {
+	setupLibraryBinary(t)
 	var expansions, ranks atomic.Int32
 	var broken, leaked atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,14 +79,14 @@ func TestCenterRealRetrievalModelsDefaultsAndDegradation(t *testing.T) {
 	if err := source.Registry.ReloadModels(); err != nil {
 		t.Fatal(err)
 	}
-	engine := NewCenterEngineWithSource(source)
-	center, err := kbasescenter.New(context.Background(), filepath.Join(root, "kbases"), filepath.Join(root, "ru-kbases"), engine)
+	engine := NewLibraryEngineWithSource(source)
+	libraryService, err := kbases.New(context.Background(), filepath.Join(root, "kbases"), filepath.Join(root, "ru-kbases"), engine)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer center.Close(context.Background())
+	defer libraryService.Close(context.Background())
 	yes, no, top, floor := true, false, 2, 20
-	collections := []kbasescenter.Collection{}
+	collections := []kbases.Collection{}
 	for _, name := range []string{"docs", "hidden"} {
 		dir := t.TempDir()
 		body := "quartzorchid original policy."
@@ -96,22 +96,22 @@ func TestCenterRealRetrievalModelsDefaultsAndDegradation(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte(body), 0600); err != nil {
 			t.Fatal(err)
 		}
-		c := kbasescenter.Collection{Name: name, SourcePath: dir}
+		c := kbases.Collection{Name: name, SourcePath: dir}
 		if name == "hidden" {
 			c.DefaultQuery = &no
 		}
 		collections = append(collections, c)
 	}
-	d, err := center.Create(kbasescenter.Input{Name: "retrieval", Collections: collections, Retrieval: &knowledge.RetrievalSettings{TopK: &top, CandidateFloor: &floor, Rerank: &yes, QueryExpansion: &yes}, Models: &kbasescenter.ModelsConfig{Reranker: &kbasescenter.QueryModelConfig{ModelKey: "rank"}, QueryExpansion: &kbasescenter.QueryModelConfig{ModelKey: "expand"}}})
+	d, err := libraryService.Create(kbases.Input{Name: "retrieval", Collections: collections, Retrieval: &knowledge.RetrievalSettings{TopK: &top, CandidateFloor: &floor, Rerank: &yes, QueryExpansion: &yes}, Models: &kbases.ModelsConfig{Reranker: &kbases.QueryModelConfig{ModelKey: "rank"}, QueryExpansion: &kbases.QueryModelConfig{ModelKey: "expand"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = center.Refresh(d.ID); err != nil {
+	if _, err = libraryService.Refresh(d.ID); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		d, err = center.Get(d.ID)
+		d, err = libraryService.Get(d.ID)
 		if err == nil && d.State == "ready" && !d.Indexing {
 			break
 		}
@@ -127,7 +127,7 @@ func TestCenterRealRetrievalModelsDefaultsAndDegradation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := NewManager(Options{Center: center, ConfigSource: source}, testSource{"agent": {Key: "agent", Config: cfg}}, nil)
+	m := NewManager(Options{KBases: libraryService, ConfigSource: source}, testSource{"agent": {Key: "agent", Config: cfg}}, nil)
 	start := time.Now()
 	result, err := m.Search(context.Background(), "agent", "quartzorchid", knowledge.SearchOptions{NoGraph: true})
 	if err != nil || result.Limit != 2 || len(result.Results) != 1 || result.Results[0].Path != "docs/a.md" || expansions.Load() != 1 || ranks.Load() != 1 || leaked.Load() {
@@ -159,11 +159,11 @@ func TestCenterRealRetrievalModelsDefaultsAndDegradation(t *testing.T) {
 	for i := range d.Collections {
 		d.Collections[i].DefaultQuery = &no
 	}
-	edited, err := center.Edit(d.ID, kbasescenter.Input{Name: d.Name, Collections: d.Collections})
+	edited, err := libraryService.Edit(d.ID, kbases.Input{Name: d.Name, Collections: d.Collections})
 	if err != nil || edited.IndexedAt != before {
 		t.Fatalf("default selection rebuilt index: %+v %v", edited, err)
 	}
-	raw, err := center.Search(context.Background(), d.ID, kbasescenter.SearchInput{Query: "quartzorchid"})
+	raw, err := libraryService.Search(context.Background(), d.ID, kbases.SearchInput{Query: "quartzorchid"})
 	if err != nil || !strings.Contains(string(raw), `"results":[]`) {
 		t.Fatalf("admin empty defaults widened: %s %v", raw, err)
 	}

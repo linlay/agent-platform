@@ -9,10 +9,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 )
 
-func (s *ModelConfigSource) selection(d kbasescenter.Definition) (key, prompt string) {
+func (s *ModelConfigSource) selection(d kbases.Definition) (key, prompt string) {
 	key, prompt = s.ModelKey, s.Prompt
 	if d.Models != nil && d.Models.Embedding != nil {
 		key = d.Models.Embedding.ModelKey
@@ -60,14 +60,14 @@ func (r libraryConfigRunner) Run(ctx context.Context, db string, cfg []byte, arg
 	return (cliRunner{configFile: f.Name()}).Run(ctx, db, cfg, args...)
 }
 
-func (e *CenterEngine) libraryConfig(d kbasescenter.Definition, embedding bool) ([]byte, error) {
+func (e *LibraryEngine) libraryConfig(d kbases.Definition, embedding bool) ([]byte, error) {
 	m := NewManager(Options{ConfigSource: e.configSource}, nil, nil)
 	return m.config(library{definition: d}, embedding)
 }
 
 // The contract excludes credentials and transport tuning. Those take effect on
 // the next invocation without rebuilding the vectors.
-func (e *CenterEngine) VectorFingerprint(d kbasescenter.Definition) string {
+func (e *LibraryEngine) VectorFingerprint(d kbases.Definition) string {
 	if e.configSource == nil {
 		return ""
 	}
@@ -92,14 +92,14 @@ func (e *CenterEngine) VectorFingerprint(d kbasescenter.Definition) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
-func (e *CenterEngine) RebuildVectors(ctx context.Context, db string, d kbasescenter.Definition) error {
+func (e *LibraryEngine) RebuildVectors(ctx context.Context, db string, d kbases.Definition) error {
 	cfg, err := e.libraryConfig(d, true)
 	if err != nil {
 		return err
 	}
 	return e.embedLibrary(ctx, db, cfg, true)
 }
-func (e *CenterEngine) embedLibrary(ctx context.Context, db string, cfg []byte, force bool) error {
+func (e *LibraryEngine) embedLibrary(ctx context.Context, db string, cfg []byte, force bool) error {
 	var settings struct {
 		Models struct{ Embedding json.RawMessage }
 	}

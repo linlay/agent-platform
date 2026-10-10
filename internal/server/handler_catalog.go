@@ -261,7 +261,7 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (r
 	committed := false
 	if req.CreateLibrary != nil {
 		var finish func(bool) error
-		definition, finish, err = s.adminSources.PrepareKnowledgeBinding(s.deps.KBasesCenter, definition, req.CreateLibrary.Name, req.CreateLibrary.SourcePath)
+		definition, finish, err = s.adminSources.PrepareKnowledgeBinding(s.deps.KBases, definition, req.CreateLibrary.Name, req.CreateLibrary.SourcePath)
 		if err != nil {
 			return api.AgentDetailResponse{}, mapAgentEditError(err)
 		}

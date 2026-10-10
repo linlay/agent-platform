@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"agent-platform/internal/builtins"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 )
@@ -17,7 +17,7 @@ type Options struct {
 	RuntimeDir, DefaultEmbeddingModelKey, EmbeddingPrompt string
 	StateDir                                              string
 	ConfigSource                                          *ModelConfigSource
-	Center                                                *kbasescenter.Service
+	KBases                                                *kbases.Service
 }
 type embeddingModels interface {
 	GetEmbedding(string) (models.ModelDefinition, models.ProviderDefinition, error)
@@ -33,11 +33,11 @@ type Manager struct {
 }
 type library struct {
 	searchOptions *knowledge.SearchOptions
-	source        kbasescenter.Collection // Only maintenance consumes source configuration.
+	source        kbases.Collection // Only maintenance consumes source configuration.
 	spec          knowledge.AgentSpec
 	database      string
 	collection    string
-	definition    kbasescenter.Definition
+	definition    kbases.Definition
 	release       func()
 }
 
@@ -62,8 +62,8 @@ func (m *Manager) boundAgent(key string) (knowledge.AgentSpec, error) {
 	if !ok || spec.Config.LibraryID == "" {
 		return spec, &knowledge.PolicyError{Kind: knowledge.ErrorNotFound, Message: "Agent has no library binding"}
 	}
-	if m.options.Center == nil {
-		return spec, unavailable("knowledge center unavailable")
+	if m.options.KBases == nil {
+		return spec, unavailable("knowledge library service unavailable")
 	}
 	return spec, nil
 }
@@ -72,19 +72,19 @@ func (m *Manager) resolve(key string) (library, error) {
 	if err != nil {
 		return library{}, err
 	}
-	d, db, release, err := m.options.Center.Acquire(spec.Config.LibraryID)
+	d, db, release, err := m.options.KBases.Acquire(spec.Config.LibraryID)
 	if err != nil {
 		return library{}, unavailable(err.Error())
 	}
 	return library{spec: spec, database: db, definition: d, release: release}, nil
 }
-func (m *Manager) BindCenter(center *kbasescenter.Service) { m.options.Center = center }
+func (m *Manager) BindKBases(libraryService *kbases.Service) { m.options.KBases = libraryService }
 func (m *Manager) ValidateAgent(key string) error {
 	spec, err := m.boundAgent(key)
 	if err != nil {
 		return err
 	}
-	d, err := m.options.Center.Get(spec.Config.LibraryID)
+	d, err := m.options.KBases.Get(spec.Config.LibraryID)
 	if err != nil {
 		return unavailable(err.Error())
 	}

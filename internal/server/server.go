@@ -26,7 +26,7 @@ import (
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/documentpreview"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
@@ -84,7 +84,7 @@ type Dependencies struct {
 	Memory                 *memory.Store
 	MemoryMaintenance      MemoryMaintenance
 	KBase                  KBaseService
-	KBasesCenter           *kbasescenter.Service
+	KBases                 *kbases.Service
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry
 	Runs                   contracts.RunManager

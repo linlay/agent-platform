@@ -5,12 +5,12 @@ import (
 	"path"
 	"strings"
 
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 )
 
 func allowedDocumentPath(l library, uri string) (string, error) {
-	collection, relative, ok := kbasescenter.DocumentReference(uri)
+	collection, relative, ok := kbases.DocumentReference(uri)
 	if !ok {
 		return "", fmt.Errorf("invalid KBX document reference")
 	}

@@ -78,14 +78,14 @@ Workspace 与 library 来源不要求包含或相等。专用 KBASE 的 Host Run
 
 库在 Run 中途改目录、开关或说明不修改当前 Run 的文件授权和提示词；检索工具仍检查当前库范围。普通 GENERAL/CODER 绑定同库不获得 collection 文件权限。容器沙箱不自动挂载 collection、不继承 Host collection 授权；现有 Workspace 权限保持原契约。
 
-写入共享来源会影响所有绑定 Agent，由中心按 500ms 合并及增量策略异步维护。
+写入共享来源会影响所有绑定 Agent，由知识库服务按 500ms 合并及增量策略异步维护。
 
-写入成功不等于已进入索引；被 collection include/exclude 排除或 extractor 不支持的文件仍可保存。Agent 没有 kbase_refresh；自动维护失败由周期任务重试，也可在知识库中心手工刷新。源目录与 ChatsRoot/StateDir 的隔离由库校验负责，Workspace 继续遵守通用项目和文件权限校验。
+写入成功不等于已进入索引；被 collection include/exclude 排除或 extractor 不支持的文件仍可保存。Agent 没有 kbase_refresh；自动维护失败由周期任务重试，也可在知识库手工刷新。源目录与 ChatsRoot/StateDir 的隔离由库校验负责，Workspace 继续遵守通用项目和文件权限校验。
 
 权限回归入口：`internal/tools/kbase_editing_adversarial_test.go`、`internal/filetools/scoped_test.go`。
 
 ## 与库级索引配置的关系
 
-library.yml 的库级 chunk 与 collection.chunk 逐字段合并，textEncoding 控制 KBX 的文本回退解码；这些字段变化触发来源重新处理，不改变文件工具的编码或编辑权限。models.embedding 使用共享 registry 并可覆盖 runtime 默认，变化只重建向量，全文仍可读。description/editable 在下次 Run 冻结生效，不触发索引重建；正在进行的 Run 写权限不随切块、编码或模型变化。配置与状态细节见 [知识库中心](知识库中心.md#库级配置与模型)。
+library.yml 的库级 chunk 与 collection.chunk 逐字段合并，textEncoding 控制 KBX 的文本回退解码；这些字段变化触发来源重新处理，不改变文件工具的编码或编辑权限。models.embedding 使用共享 registry 并可覆盖 runtime 默认，变化只重建向量，全文仍可读。description/editable 在下次 Run 冻结生效，不触发索引重建；正在进行的 Run 写权限不随切块、编码或模型变化。配置与状态细节见 [知识库](知识库.md#库级配置与模型)。
 
 库级 retrieval、models.reranker/queryExpansion 和 collection.defaultQuery 仅改变下次检索，不改变已冻结的 Workspace/collection 编辑范围，也不触发索引重建。默认检索排除的 collection 仍可显式查询、浏览和回读；是否允许编辑仍取决于 editable 与本 Run editingMode。

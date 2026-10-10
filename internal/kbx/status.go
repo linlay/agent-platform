@@ -9,7 +9,7 @@ func (m *Manager) Status(key string) (knowledge.Status, error) {
 	if err != nil {
 		return knowledge.Status{}, err
 	}
-	d, err := m.options.Center.Get(spec.Config.LibraryID)
+	d, err := m.options.KBases.Get(spec.Config.LibraryID)
 	if err != nil {
 		return knowledge.Status{}, unavailable(err.Error())
 	}
