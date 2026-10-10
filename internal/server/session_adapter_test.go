@@ -7,6 +7,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/runtime/adapter"
 	"agent-platform/internal/runtime/session"
@@ -24,7 +25,7 @@ func (s *Server) normalizeReferencePathsForAgent(refs []api.Reference, chatID st
 
 func testSessionBuilder(s *Server) *session.Builder {
 	d := s.deps
-	return session.New(session.Dependencies{Config: d.Config, Chats: d.Chats, Registry: adapter.Catalog{Registry: d.Registry}, Models: d.Models, Runs: d.Runs, Tools: d.Tools, Profiles: adapter.Profiles{Builder: d.SystemInits, Tools: d.Tools}})
+	return session.New(session.Dependencies{KnowledgeCollections: testKnowledgeCollections(d), Config: d.Config, Chats: d.Chats, Registry: adapter.Catalog{Registry: d.Registry}, Models: d.Models, Runs: d.Runs, Tools: d.Tools, Profiles: adapter.Profiles{Builder: d.SystemInits, Tools: d.Tools}})
 }
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 	s.deps.Sessions = testSessionBuilder(s)
@@ -71,4 +72,12 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, input *contracts.Q
 
 func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, input *contracts.QuerySession, index chat.SystemInitIndex) (*chat.QueryLineSystem, error) {
 	return testSessionBuilder(s).PrepareSystemInitCacheFrom(queryCommandFromAPI(req), input, index)
+}
+
+// Tests without a center intentionally isolate prompt/tool assembly from storage.
+func testKnowledgeCollections(d Dependencies) func(string) ([]knowledge.CollectionScope, error) {
+	if d.KBasesCenter != nil {
+		return d.KBasesCenter.RunCollections
+	}
+	return func(string) ([]knowledge.CollectionScope, error) { return nil, nil }
 }

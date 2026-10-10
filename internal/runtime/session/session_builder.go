@@ -206,8 +206,15 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	resolvedPlanningSettings := contracts.ResolvePlanningModeSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)
 
 	var scopedFilePolicy *contracts.ScopedFilePolicy
+	var kbaseCollectionsPrompt string
 	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
+		roots, prompt, err := s.knowledgeScope(agentDef)
+		if err != nil {
+			return contracts.QuerySession{}, err
+		}
+		kbaseCollectionsPrompt = prompt
 		scopedFilePolicy = &contracts.ScopedFilePolicy{
+			EditableCollectionRoots:  roots,
 			WorkspaceRoot:            resolvedWorkspaceRoot,
 			WorkspaceMutationEnabled: editingMode,
 			RequireExistingParent:    true,
@@ -277,6 +284,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		KBaseModePrompts:            kbaseModePrompts,
 		RuntimeEnvironmentID:        ExtractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:                ExtractRuntimeField(agentDef.Runtime, "level"),
+		KBaseCollectionsPrompt:      kbaseCollectionsPrompt,
 		RuntimeExtraMounts:          RuntimeConnectorMounts(RuntimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && HasRuntimeSandbox(agentDef.Runtime)), agentDef),
 		RuntimeHostAccess:           RuntimeHostAccess(agentDef.HostAccess),
 		RunAccessRoots:              runAccessRoots,

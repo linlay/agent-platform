@@ -4,7 +4,7 @@
 
 知识库中心是唯一索引所有者。`internal/kbasescenter` 按 library ID 管理配置、目录监听、维护调度和状态；`internal/kbx.CenterEngine` 调用受管 CLI 维护；`internal/kbx.Manager` 把 Agent 绑定解析为数据库和允许的 collection 集合，保留过滤、chunk/evidence 分页与图证据查询。`internal/knowledge` 只保存中立配置、DTO、工具和引用发布契约，不依赖 catalog、不持有索引或进程。
 
-所有 Native GENERAL/CODER/KBASE（及 PLAN-EXECUTE）使用相同的 `kbaseConfig.libraryId` 契约。省略绑定即不开启知识库能力；配置不能隐式授予工具。一个 Agent 绑定一个库，一个库可包含 1–32 个 collection，并被多个 Agent 共用。Workspace 与知识范围无关；KBASE 的 Workspace 仍是项目展示和 editing 的目录。
+所有 Native GENERAL/CODER/KBASE（及 PLAN-EXECUTE）使用相同的 `kbaseConfig.libraryId` 契约。省略绑定即不开启知识库能力；配置不能隐式授予工具。一个 Agent 绑定一个库，一个库可包含 1–32 个 collection，并被多个 Agent 共用。Workspace 与知识范围无关；KBASE 的 Workspace 仍决定项目展示和相对路径；专用 Host KBASE 可在 Run 启动时额外冻结 editable collection 目录，editingMode 控制两者的 mutation。
 
 ```yaml
 key: kbase-tmmsin
@@ -29,7 +29,7 @@ toolConfig:
     - kbase_status
 ```
 
-示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；Run 开始检查库就绪状态，工具每次调用重新检查当前绑定与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。运行中变更来源不冻结到旧 Run；下一次调用按当前配置重新授权。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
+示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；Run 开始检查库就绪状态，工具每次调用重新检查当前绑定与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。知识检索的来源范围不冻结到旧 Run；下一次查询按当前配置重新授权。文件编辑是独立边界：专用 Host KBASE 的 editable collection canonical 目录与说明在 Run 启动时冻结，库修改仅影响下次 Run，不能中途扩大文件授权。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
 
 ## 维护生命周期
 
@@ -74,3 +74,9 @@ KBX_ACCEPTANCE_BIN=/absolute/managed/bin KBX_CENTER_TEST_BIN=/absolute/managed/b
 ```
 
 `TestLiveSharedLibraryLifecycle` 在临时库和本机 embedding fixture 验证同名文档、自动监听、排除、模型故障保持全文可读和恢复。测试不代表模型的真实语义质量。Windows 锁和 watcher 尚需原生 Windows 验证。
+
+## Collection 元数据与指纹分类
+
+collection 支持 `description`（可选文本，最多 4000 字节）和 `editable`（boolean，缺省 false）。二者不计入来源/向量指纹，管理 API 与 WebClient 表单保留这些字段。授权只适用于专用 KBASE 的 Host Run，需 editingMode；不向普通 Agent 授权，也不自动挂载容器。索引 include/exclude 不等于文件编辑范围，详见 [KBASE 编辑模式](KBASE编辑模式.md)。
+
+中心显式投影来源字段以保持原有来源指纹；向量合同使用独立维护接口，只有向量变化时不撤销已提交全文，向量错误/中断独立降级。当前生产 CenterEngine 的向量指纹仍为空，逐库模型在后续阶段接入；全局 runtime.kbx 模型配置行为不变，未实现字段继续严格拒绝。

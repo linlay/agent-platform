@@ -83,7 +83,7 @@ cmd/agent-platform/main.go
 
 `docs/` 是特色能力的主说明区；当前项目事实文件 `AGENTS.md` 只保留事实总览、开发入口和专题索引。
 
-知识库中心以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。所有 Native Agent 通过一个 `kbaseConfig.libraryId` 绑定库，Workspace 与来源解耦；中心按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude/chunk 纳入指纹；库删除有引用时 409。旧 Agent enabled/storage 等字段与 AP_RUNTIME_KBASE_DIR 硬切；旧 ru-kbases/libraries 层与 runtime/kbase 索引目录完全忽略，不进行旧布局检查、不加载、不迁移，中心按库配置自动在新布局生成索引。见 [知识库中心](docs/知识库中心.md) 与 [KBX 接入](docs/KBX接入.md)。
+知识库中心以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。所有 Native Agent 通过一个 `kbaseConfig.libraryId` 绑定库，Workspace 与来源解耦；中心按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude/chunk 纳入来源指纹；description/editable 不计入，向量合同预留独立维护接口（生产逐库模型尚未接入）；库删除有引用时 409。旧 Agent enabled/storage 等字段与 AP_RUNTIME_KBASE_DIR 硬切；旧 ru-kbases/libraries 层与 runtime/kbase 索引目录完全忽略，不进行旧布局检查、不加载、不迁移，中心按库配置自动在新布局生成索引。见 [知识库中心](docs/知识库中心.md) 与 [KBX 接入](docs/KBX接入.md)。
 
 ## 5. 数据结构
 
@@ -137,7 +137,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 - 连接器包版本由资源发布方维护；Platform 不根据来源市场或重新打包动作推断版本，不用 CLI 或 Skill 版本替代连接器版本。具体服务适配应留在连接器资源包，项目文档只描述通用契约。
 - KBASE 只保留 search/files/read/status；Agent refresh REST、kbase_refresh 和 kbase.refreshTerminal 已删除，中心自动维护同批提供。查询预算不改变库索引范围。
 - `kbase_search` 支持 query/search/vsearch/gsearch，复合过滤与 Agent 范围取交集；纯全文不解析模型配置，严格向量/图检索不静默回退。图关系和边证据保留并检查来源范围；Platform 尚不自动建图，中心库绑定已接入，重排模型尚未接入 Agent 工具。参数和验证边界见 [KBX 接入](docs/KBX接入.md)。
-- 专用 KBASE 的 Workspace 始终是最终 canonical `runtimeConfig.workspaceRoot`，当前 Chat 目录只保存在 `ChatDir`；main/editing 两种 stage 使用 `agent.yml` 声明的同一组工具，没有固定工具集。KBASE editing 是 Workspace mutation 的 run 授权，不是 Agent 配置。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路；session 冻结的 `ScopedFilePolicy` 只负责会话工具准入、Workspace 识别、`WorkspaceMutationEnabled`、Workspace 已有文件先读后写和新文件父目录已存在，不覆盖 AccessPlan，也不限制文本扩展名或编码。`accessLevel`、hostAccess 与 HITL 按通用规则作用于 external，但不能替代 `editingMode:true`；工具集由 `agent.yml` 决定，声明了 Bash 也不能绕过未开启 editing 时的 Workspace 只读。
+- 专用 KBASE 的 Workspace 始终是最终 canonical `runtimeConfig.workspaceRoot`，当前 Chat 目录只保存在 `ChatDir`；main/editing 两种 stage 使用 `agent.yml` 声明的同一组工具，没有固定工具集。KBASE editing 是 Workspace 与可编辑 collection mutation 的 Run 授权，不是 Agent 配置。仅专用 Host KBASE 在 Run 启动时冻结绑定库 editable（缺省 false）collection 的 canonical 目录和 description；与 Workspace 取并集，库修改下次 Run 生效，普通 Agent 不获额外权限，容器不自动挂载。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路；session 冻结的 `ScopedFilePolicy` 只负责会话工具准入、Workspace 识别、`WorkspaceMutationEnabled`、Workspace/可编辑 collection 已有文件先读后写和新文件父目录已存在，不覆盖 AccessPlan，也不限制文本扩展名或编码。`accessLevel`、hostAccess 与 HITL 按通用规则作用于 external，但不能替代 `editingMode:true`；工具集由 `agent.yml` 决定，声明了 Bash 也不能绕过未开启 editing 时的 Workspace 只读。
 - 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。
 
 ## 8. 开发流程

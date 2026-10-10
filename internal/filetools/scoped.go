@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
 )
@@ -47,7 +48,8 @@ func ValidateScopedWrite(session contracts.QuerySession, path string) error {
 	if err != nil {
 		return scopedError("kbase_editing_path_outside_workspace", err.Error())
 	}
-	if !inWorkspace {
+	_, inCollection := accesspolicy.SessionEditableCollectionRoot(session, path)
+	if !inWorkspace && !inCollection {
 		return nil
 	}
 	if !policy.WorkspaceMutationEnabled {
@@ -78,7 +80,8 @@ func ScopedPathInSource(session contracts.QuerySession, path string) bool {
 		return false
 	}
 	inside, err := scopedPathWithinRoot(policy.WorkspaceRoot, path)
-	return err == nil && inside
+	_, inCollection := accesspolicy.SessionEditableCollectionRoot(session, path)
+	return (err == nil && inside) || inCollection
 }
 
 func scopedPathWithinRoot(root string, path string) (bool, error) {

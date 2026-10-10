@@ -16,14 +16,15 @@ import (
 )
 
 type sourceTask struct {
-	mu          sync.Mutex
-	fingerprint string
-	cancel      context.CancelFunc
-	watcher     *watch.Watcher
-	paths       map[string]map[string]bool
-	full        bool
-	dirty       time.Time
-	last        time.Time
+	mu                sync.Mutex
+	fingerprint       string
+	vectorFingerprint string
+	cancel            context.CancelFunc
+	watcher           *watch.Watcher
+	paths             map[string]map[string]bool
+	full              bool
+	dirty             time.Time
+	last              time.Time
 }
 
 func (t *sourceTask) changed(collection, p string, full bool) {
@@ -123,7 +124,8 @@ func (s *Service) scanTasks(debounce, interval time.Duration) {
 		}
 		d = desired
 		seen[d.ID] = true
-		fingerprint := s.fingerprint(d.Collections)
+		fingerprints := s.fingerprints(d)
+		fingerprint := fingerprints.Source
 		existing, ok := s.tasks.Load(d.ID)
 		if ok && existing.(*sourceTask).fingerprint != fingerprint {
 			old := existing.(*sourceTask)
@@ -137,11 +139,19 @@ func (s *Service) scanTasks(debounce, interval time.Duration) {
 		var task *sourceTask
 		if !ok {
 			task = s.newTask(d, fingerprint)
+			task.vectorFingerprint = fingerprints.Vector
 			s.tasks.Store(d.ID, task)
 		} else {
 			task = existing.(*sourceTask)
 		}
 		task.mu.Lock()
+		if task.vectorFingerprint != fingerprints.Vector && task.dirty.IsZero() && !s.isBusy(d.ID) {
+			if _, err := s.refreshWithMode(d.ID, nil, true); err == nil {
+				task.vectorFingerprint = fingerprints.Vector
+			}
+			task.mu.Unlock()
+			continue
+		}
 		if time.Since(task.last) >= interval && task.dirty.IsZero() {
 			task.dirty = time.Now()
 			task.full = true
@@ -167,6 +177,7 @@ func (s *Service) scanTasks(debounce, interval time.Duration) {
 			task.full = false
 			task.dirty = time.Time{}
 			task.last = time.Now()
+			task.vectorFingerprint = fingerprints.Vector
 		} else if err != ErrBusy {
 			task.last = time.Now()
 			task.dirty = time.Time{}

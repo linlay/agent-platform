@@ -128,6 +128,9 @@ type IncrementalEngine interface {
 
 func (s *Service) Refresh(id string) (Definition, error) { return s.refresh(id, nil) }
 func (s *Service) refresh(id string, changes map[string][]string) (Definition, error) {
+	return s.refreshWithMode(id, changes, false)
+}
+func (s *Service) refreshWithMode(id string, changes map[string][]string, vectorsOnly bool) (Definition, error) {
 	s.admission.Lock()
 	defer s.admission.Unlock()
 	lock := s.libraryLock(id)
@@ -163,8 +166,12 @@ func (s *Service) refresh(id string, changes map[string][]string) (Definition, e
 		return d, err
 	}
 	previous := state
-	fingerprint := s.fingerprint(d.Collections)
-	same := state.AppliedFingerprint == fingerprint && state.IndexedAt > 0 && state.State != "indexing"
+	fingerprints := s.fingerprints(d)
+	fingerprint := fingerprints.Source
+	change := fingerprints.changeFrom(indexFingerprints{Source: state.AppliedFingerprint, Vector: state.AppliedVectorFingerprint})
+	same := change != indexSourcesChanged && state.IndexedAt > 0 && (state.State != "indexing" || state.VectorOnlyTask)
+	vectorEngine, hasVectorEngine := s.engine.(VectorEngine)
+	vectorsOnly = vectorsOnly && same && hasVectorEngine
 	// A previous embedding failure may belong to a different collection from
 	// this path batch. Reconcile every collection before clearing degraded.
 	if state.Degraded {
@@ -176,6 +183,8 @@ func (s *Service) refresh(id string, changes map[string][]string) (Definition, e
 		changes = nil
 	}
 	state.TaskFingerprint = fingerprint
+	state.TaskVectorFingerprint = fingerprints.Vector
+	state.VectorOnlyTask = vectorsOnly
 	state.State = "indexing"
 	state.Error = ""
 	state.RefreshError = ""
@@ -206,7 +215,9 @@ func (s *Service) refresh(id string, changes map[string][]string) (Definition, e
 		// read lease permits queries but protects paths from Edit/Delete.
 		lock.RLock()
 		collections := s.effectiveCollections(d.Collections)
-		if engine, ok := s.engine.(IncrementalEngine); ok {
+		if vectorsOnly {
+			err = vectorEngine.RebuildVectors(ctx, filepath.Join(dir, "index.sqlite"), d)
+		} else if engine, ok := s.engine.(IncrementalEngine); ok {
 			err = engine.UpdatePaths(ctx, filepath.Join(dir, "index.sqlite"), collections, changes)
 		} else {
 			err = s.engine.Update(ctx, filepath.Join(dir, "index.sqlite"), collections)
@@ -225,6 +236,10 @@ func (s *Service) refresh(id string, changes map[string][]string) (Definition, e
 			}
 			state.UpdatedAt = time.Now().UnixMilli()
 			state.RefreshError = err.Error()
+		case vectorsOnly && err != nil:
+			state.State = "ready"
+			state.Degraded = true
+			state.RefreshError = err.Error()
 		case errors.As(err, &readable):
 			state.State = "ready"
 			state.IndexedAt = state.UpdatedAt
@@ -241,7 +256,9 @@ func (s *Service) refresh(id string, changes map[string][]string) (Definition, e
 			state.IndexedAt = state.UpdatedAt
 			state.AppliedFingerprint = fingerprint
 			state.Degraded = false
+			state.AppliedVectorFingerprint = fingerprints.Vector
 		}
+		state.VectorOnlyTask = false
 		if saveErr := s.saveState(id, state); saveErr != nil {
 			log.Printf("[kbases] persist %s: %v", id, saveErr)
 		}

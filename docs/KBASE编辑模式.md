@@ -2,7 +2,7 @@
 
 ## 范围
 
-KBASE Editing 是专用 `mode: KBASE` 的单次 Workspace mutation 授权。专用 KBASE 没有固定工具集：main 与 editing 两种 stage 都使用 `agent.yml` 声明的同一组工具（可以包含 Bash、技能和连接器带来的工具）。新建 KBASE 时默认写入以下结构化文件工具：
+KBASE Editing 是专用 `mode: KBASE` 的单次 Workspace 与可编辑 collection mutation 授权（collection 仅支持 Host）。专用 KBASE 没有固定工具集：main 与 editing 两种 stage 都使用 `agent.yml` 声明的同一组工具（可以包含 Bash、技能和连接器带来的工具）。新建 KBASE 时默认写入以下结构化文件工具：
 
 ```text
 file_read file_glob file_grep file_write file_edit
@@ -15,11 +15,11 @@ file_read file_glob file_grep file_write file_edit
 | 未开启 editing | 可读，不可 mutation | 可读写 |
 | 开启 editing | 可读写 | 可读写 |
 
-`editingMode` 不控制文件工具是否存在，也不改变 Workspace；它只允许本 run 修改 KBASE Workspace。它与 `planningMode` 相互独立，自身不产生第二个 execute run；二者同时出现时规划 Run 保持只读，`editingMode` 在已确认计划的执行 Run 生效。普通 Agent 附加的 KBASE capability、Team 和其他 mode 不支持该字段。
+`editingMode` 不控制文件工具是否存在，也不改变 Workspace；它允许本 Run 修改 KBASE Workspace，以及启动时冻结的 editable collection 目录。它与 `planningMode` 相互独立，自身不产生第二个 execute run；二者同时出现时规划 Run 保持只读，`editingMode` 在已确认计划的执行 Run 生效。普通 Agent 附加的 KBASE capability、Team 和其他 mode 不支持该字段。
 
 这些工具处理普通文本文件，不按知识库索引格式限制扩展名或编码。`.md`、`.txt`、`.json`、`.csv`、`.html` 以及其他可被通用文本工具识别的格式均可读写；支持的非 UTF-8 编码沿用通用检测、显式编码和写回保留规则。DOCX、PPTX、PDF、图片等二进制格式仍需格式专用工具。
 
-删除、重命名、创建目录和 Bash 不在 editing 工具集中。Workspace 新文件仍要求父目录已存在。
+editing 不额外注入删除、重命名、创建目录或 Bash 工具；显式声明的 Bash 仍走通用策略。Workspace 和可编辑 collection 的结构化文件工具新建文件均要求父目录已存在。
 
 ## 协议
 
@@ -68,11 +68,17 @@ AccessPlan 之后按 canonical 实际目标应用 Workspace mutation gate：
 - KBASE Workspace 新文件的父目录必须已存在；
 - 写入继续使用 SHA/mtime/size 并发检测、大小限制、原子替换和 file history。
 
-`file_glob/file_grep` 在所有获准目录使用相同的通用搜索规则，不对 Workspace 注入 `.md` 过滤。文件是否进入知识库由 `kbaseConfig.include/exclude` 和 extractor 独立决定；可编辑不等于可索引。
+`file_glob/file_grep` 在所有获准目录使用相同的通用搜索规则，不对 Workspace 注入 `.md` 过滤。文件是否进入知识库由 `library.yml` 中 collection 的 `include/exclude` 和 extractor 独立决定；可编辑不等于可索引。
 
-## 异步索引与共享来源
+## 多目录授权与异步索引
 
-Workspace 与 library 的来源不要求包含或相等。editing 只授权 Workspace mutation；如果 Workspace 是共享库某个来源，写入会影响所有绑定 Agent，由中心按 500ms 合并及增量策略异步维护。其他 collection 不获得文件工具写授权。
+Workspace 与 library 来源不要求包含或相等。专用 KBASE 的 Host Run 在启动时将 `editable:true` collection 的现存 canonical 路径冻结进 `ScopedFilePolicy.EditableCollectionRoots`，与 Workspace 取并集；相对路径仍基于 Workspace，collection 使用提示词列出的绝对目录。`description` 和 editable 开关均在下次 Run 生效，不重建索引。
+
+该并集复用上文 editing 硬门禁、已有文件先读后写、新文件父目录已存在，以及 Bash 的写入/不透明执行检查；未开 editing 时即使 full_access 也不能写，不产生 HITL。readonly、平台保护目录和管理员 block 仍优先。符号链接以当前实际目标判定，不能借 collection 内的链接获得外部写授权，冻结根也不会因后续链接改向而跟随。Workspace 与 collection 重叠只产生一份有效范围，editable=false 不撤销已有 Workspace 权限。
+
+库在 Run 中途改目录、开关或说明不修改当前 Run 的文件授权和提示词；检索工具仍检查当前库范围。普通 GENERAL/CODER 绑定同库不获得 collection 文件权限。容器沙箱不自动挂载 collection、不继承 Host collection 授权；现有 Workspace 权限保持原契约。
+
+写入共享来源会影响所有绑定 Agent，由中心按 500ms 合并及增量策略异步维护。
 
 写入成功不等于已进入索引；被 collection include/exclude 排除或 extractor 不支持的文件仍可保存。Agent 没有 kbase_refresh；自动维护失败由周期任务重试，也可在知识库中心手工刷新。源目录与 ChatsRoot/StateDir 的隔离由库校验负责，Workspace 继续遵守通用项目和文件权限校验。
 

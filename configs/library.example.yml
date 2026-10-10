@@ -32,6 +32,14 @@ collections:
     # 不能与 Chats 目录重叠，不能位于 StateDir、库配置或运行数据目录内。
     sourcePath: "/absolute/path/to/AI建设文档"
 
+    # 集合说明：供专用 KBASE 的 Run 提示词使用；修改不重建索引。
+    description: "现行技术规范，规范类问题优先查这里"
+
+    # 缺省 false。仅专用 KBASE 的 Host Run 开启 editingMode 后授予此目录写权限。
+    # 与 Workspace 取并集；不扩大 Workspace，不自动挂载到容器。
+    # Run 启动时冻结 canonical 目录；修改此开关在下次 Run 生效，不重建索引。
+    editable: true
+
     # 纳入索引的文件 glob（相对 sourcePath）。
     # 省略时使用下面这七种默认扩展名；显式写空数组会被拒绝。
     include:
@@ -65,7 +73,7 @@ collections:
     sourcePath: "/absolute/path/to/研发中心各条线述职"
 
 # 以上字段中，name（集合）、sourcePath、include、exclude、chunk 计入来源指纹：
-# 修改后立即撤销旧范围的读取并重新对账。库的 name/description 和集合顺序不计入。
+# 修改后立即撤销旧范围的读取并重新对账。库与集合的 description、库的 name、collection editable 和集合顺序不计入。
 #
 # embedding 模型目前不在本文件配置，所有库共用 configs/runtime.yml 的
 # kbx.embedding.model-key 与 kbx.embedding.prompt（raw / qwen3），改动需重启 Platform。
@@ -131,8 +139,6 @@ collections:
 # collections:
 #   - name: "ai"
 #     sourcePath: "/absolute/path/to/AI建设文档"
-#     description: "现行技术规范，规范类问题优先查这里"   # 告诉模型这个集合是什么
-#     editable: true             # 专用 KBASE 开启 editingMode 后可写；缺省 false
 #     defaultQuery: true         # false = 照常索引，但未指定集合时默认不查
 #     chunk:
 #       strategy: "structural"   # 覆盖库级默认

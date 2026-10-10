@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/pathutil"
 )
 
@@ -29,15 +30,18 @@ type configuration struct {
 var errInvalidRuntimeState = errors.New("invalid runtime state")
 
 type runtimeState struct {
-	CreatedAt          int64  `json:"createdAt"`
-	UpdatedAt          int64  `json:"updatedAt"`
-	IndexedAt          int64  `json:"indexedAt"`
-	State              string `json:"state"`
-	Error              string `json:"error,omitempty"`
-	RefreshError       string `json:"refreshError,omitempty"`
-	AppliedFingerprint string `json:"appliedFingerprint,omitempty"`
-	TaskFingerprint    string `json:"taskFingerprint,omitempty"`
-	Degraded           bool   `json:"degraded,omitempty"`
+	CreatedAt                int64  `json:"createdAt"`
+	UpdatedAt                int64  `json:"updatedAt"`
+	IndexedAt                int64  `json:"indexedAt"`
+	State                    string `json:"state"`
+	Error                    string `json:"error,omitempty"`
+	RefreshError             string `json:"refreshError,omitempty"`
+	AppliedVectorFingerprint string `json:"appliedVectorFingerprint,omitempty"`
+	TaskVectorFingerprint    string `json:"taskVectorFingerprint,omitempty"`
+	VectorOnlyTask           bool   `json:"vectorOnlyTask,omitempty"`
+	AppliedFingerprint       string `json:"appliedFingerprint,omitempty"`
+	TaskFingerprint          string `json:"taskFingerprint,omitempty"`
+	Degraded                 bool   `json:"degraded,omitempty"`
 }
 
 func prepareRoot(root string) (string, error) {
@@ -236,8 +240,20 @@ func (s *Service) load(id string) (Definition, error) {
 	d.RefreshError = state.RefreshError
 	d.Indexing = s.isBusy(id)
 	d.Stale = d.Indexing || state.RefreshError != ""
-	d.Degraded = state.Degraded
-	if (d.State == "error" || d.State == "indexing") && !s.isBusy(id) && state.TaskFingerprint != "" && state.TaskFingerprint != s.fingerprint(d.Collections) {
+	fingerprints := s.fingerprints(d)
+	d.Degraded = state.Degraded || fingerprints.Vector != state.AppliedVectorFingerprint
+	if state.VectorOnlyTask && state.AppliedFingerprint == fingerprints.Source && state.IndexedAt > 0 {
+		// A vector task never withdraws the committed full-text index, including
+		// after interruption. The scheduler will reconcile it after restart.
+		if !s.isBusy(id) && state.State == "indexing" {
+			d.RefreshError = "vector rebuild was interrupted; automatic reconciliation will retry"
+			d.Degraded = true
+		}
+		d.State = "ready"
+		d.Stale = d.Stale || d.Degraded
+	}
+
+	if (d.State == "error" || d.State == "indexing") && !s.isBusy(id) && state.TaskFingerprint != "" && state.TaskFingerprint != fingerprints.Source {
 		d.State, d.Error, d.IndexedAt = "unindexed", "", 0
 		return d, nil
 	}
@@ -249,7 +265,7 @@ func (s *Service) load(id string) (Definition, error) {
 			d.Stale = true
 			return d, nil
 		}
-		if state.AppliedFingerprint != s.fingerprint(d.Collections) {
+		if state.AppliedFingerprint != fingerprints.Source {
 			d.IndexedAt = 0
 		}
 		return d, nil
@@ -259,7 +275,7 @@ func (s *Service) load(id string) (Definition, error) {
 		return d, nil
 	}
 	// Missing runtime data or changed desired scope cannot masquerade as a ready index.
-	if state.AppliedFingerprint != s.fingerprint(d.Collections) || state.IndexedAt == 0 {
+	if state.AppliedFingerprint != fingerprints.Source || state.IndexedAt == 0 {
 		d.State, d.Error, d.IndexedAt = "unindexed", "", 0
 		return d, nil
 	}
@@ -292,7 +308,19 @@ func (s *Service) fingerprint(collections []Collection) string {
 	return scopeFingerprint(s.effectiveCollections(collections))
 }
 func scopeFingerprint(collections []Collection) string {
-	ordered := effectiveCollections(collections)
+	// Explicit projection preserves the existing fingerprint encoding and excludes
+	// Run-only metadata. New fields must choose a fingerprint category deliberately.
+	type sourceCollection struct {
+		Name       string                `json:"name"`
+		SourcePath string                `json:"sourcePath"`
+		Include    []string              `json:"include"`
+		Exclude    []string              `json:"exclude"`
+		Chunk      knowledge.ChunkConfig `json:"chunk,omitempty"`
+	}
+	ordered := make([]sourceCollection, 0, len(collections))
+	for _, c := range effectiveCollections(collections) {
+		ordered = append(ordered, sourceCollection{c.Name, c.SourcePath, c.Include, c.Exclude, c.Chunk})
+	}
 	for i := range ordered {
 		ordered[i].SourcePath = pathutil.CanonicalKey(ordered[i].SourcePath)
 	}
@@ -329,6 +357,12 @@ func (s *Service) saveConfiguration(d Definition) error {
 	fmt.Fprintf(&b, "name: %s\ndescription: %s\ncollections:\n", quote(d.Name), quote(d.Description))
 	for _, c := range d.Collections {
 		fmt.Fprintf(&b, "  - name: %s\n    sourcePath: %s\n", quote(c.Name), quote(c.SourcePath))
+		if c.Description != "" {
+			fmt.Fprintf(&b, "    description: %s\n", quote(c.Description))
+		}
+		if c.Editable {
+			fmt.Fprintln(&b, "    editable: true")
+		}
 		for _, field := range []struct {
 			name   string
 			values []string
@@ -400,6 +434,9 @@ func yamlConfigurationError(err error) error {
 	if errors.As(err, &typeErr) {
 		if typeErr.Field == "collections" && typeErr.Type.Kind().String() == "slice" {
 			return fmt.Errorf("invalid library.yml: collections must use a block list (one '- name:' entry per collection); inline collections: [{...}] is unsupported")
+		}
+		if typeErr.Type.Kind().String() != "string" {
+			return fmt.Errorf("invalid library.yml: %s must be %s", typeErr.Field, typeErr.Type)
 		}
 		return fmt.Errorf("invalid library.yml: %s must be text; enclose the value in double quotes (for example name: \"2024\")", typeErr.Field)
 	}

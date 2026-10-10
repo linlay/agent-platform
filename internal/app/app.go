@@ -433,7 +433,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Prompts:                  cfg.Prompts,
 	})
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
-	sessions := runtimesession.New(runtimesession.Dependencies{ValidateKnowledge: knowledgeManager.ValidateRun, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
+	sessions := runtimesession.New(runtimesession.Dependencies{ValidateKnowledge: knowledgeManager.ValidateRun, KnowledgeCollections: kbasesCenter.RunCollections, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
 	memoryClient := memoryworker.Client{Root: cfg.Paths.MemoryDir, Timezone: cfg.Memory.Timezone, ConfigDir: filepath.Join(cfg.Paths.StateDir, "memx")}
 	memoryWorker := memoryworker.New(cfg.Memory, memoryworker.StateRoot(cfg.Paths.StateDir), chatStore,
 		memoryClient,

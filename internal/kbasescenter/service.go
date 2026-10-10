@@ -31,11 +31,13 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 var collectionNamePattern = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$`)
 
 type Collection struct {
-	Name       string                `json:"name"`
-	SourcePath string                `json:"sourcePath"`
-	Include    []string              `json:"include"`
-	Exclude    []string              `json:"exclude"`
-	Chunk      knowledge.ChunkConfig `json:"chunk,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Editable    bool                  `json:"editable,omitempty"`
+	Name        string                `json:"name"`
+	SourcePath  string                `json:"sourcePath"`
+	Include     []string              `json:"include"`
+	Exclude     []string              `json:"exclude"`
+	Chunk       knowledge.ChunkConfig `json:"chunk,omitempty"`
 }
 
 type Definition struct {
@@ -160,6 +162,9 @@ func validateCollections(collections []Collection) error {
 	}
 	names, paths := map[string]bool{}, map[string]bool{}
 	for _, c := range collections {
+		if len(c.Description) > 4000 {
+			return fmt.Errorf("collection description must be at most 4000 bytes")
+		}
 		if !collectionNamePattern.MatchString(c.Name) {
 			return fmt.Errorf("collection names must contain 1–64 letters, digits, underscores or hyphens, starting with a letter or digit")
 		}

@@ -95,7 +95,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 	editingDisabled := sessionWorkspaceEditingDisabled(session)
 	if parsed.Kind != bashast.Simple {
 		pathReview(ReadAccess, workingDir)
-		if editingDisabled && PathInSessionWorkspace(session, workingDir) {
+		if editingDisabled && PathInSessionMutationScope(session, workingDir) {
 			add(bashPlan(command, accessLevel, DecisionBlock, workspaceReadOnlyExecutionReason, "bash-access:workspace-readonly", workingDir))
 		}
 		add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash command is too complex for access-policy path analysis", "bash-access:complex"))
@@ -212,7 +212,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				}
 				sshAgent = sshAgent || effects.SSHAgent
 			}
-			if executes && editingDisabled && PathInSessionWorkspace(session, x.Cwd) {
+			if executes && editingDisabled && PathInSessionMutationScope(session, x.Cwd) {
 				add(bashPlan(command, accessLevel, DecisionBlock, workspaceReadOnlyExecutionReason, "bash-access:workspace-readonly", x.Cwd))
 			}
 			for _, redirect := range cmd.Redirects {

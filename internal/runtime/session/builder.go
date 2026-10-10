@@ -7,6 +7,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
@@ -23,14 +24,15 @@ type ProfileBuilder interface {
 }
 
 type Dependencies struct {
-	ValidateKnowledge func(string) error
-	Profiles          ProfileBuilder
-	Config            config.Config
-	Chats             chat.Store
-	Registry          Catalog
-	Models            *models.ModelRegistry
-	Runs              contracts.RunManager
-	Tools             contracts.ToolExecutor
+	ValidateKnowledge    func(string) error
+	KnowledgeCollections func(string) ([]knowledge.CollectionScope, error)
+	Profiles             ProfileBuilder
+	Config               config.Config
+	Chats                chat.Store
+	Registry             Catalog
+	Models               *models.ModelRegistry
+	Runs                 contracts.RunManager
+	Tools                contracts.ToolExecutor
 }
 
 type Builder struct{ deps Dependencies }

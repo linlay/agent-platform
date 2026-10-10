@@ -142,14 +142,14 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	}
 	if mode == WriteAccess && IsExecutableConfigPath(realCandidate) {
 		decision := decisionForAction(level.Approvals.ExecutableConfig)
-		if decision == DecisionAllow && sessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
+		if decision == DecisionAllow && sessionWorkspaceEditingDisabled(session) && PathInSessionMutationScope(session, realCandidate.Host) {
 			decision = DecisionBlock
 		}
 		if decision != DecisionAllow {
 			return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, decision, "Git hooks and configuration are executed by later Git commands"), nil
 		}
 	}
-	if mode == WriteAccess && PathInSessionWorkspace(session, realCandidate.Host) {
+	if mode == WriteAccess && PathInSessionMutationScope(session, realCandidate.Host) {
 		// Workspace mutation is a resolved session capability (editing), not an
 		// access-level root: approvals and full_access cannot enable it.
 		if sessionWorkspaceEditingDisabled(session) {
@@ -162,6 +162,9 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 		return buildPathPlan(mode, rawPath, realCandidate, workspace, accessLevel, DecisionAllow, ""), nil
 	}
 	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
+	if mode == WriteAccess && sessionWorkspaceEditingDisabled(session) && PathInSessionMutationScope(session, realCandidate.Host) {
+		return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionBlock, WorkspaceEditingDisabledReason), nil
+	}
 	if ok {
 		return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionAllow, ""), nil
 	}
@@ -181,8 +184,16 @@ func EffectiveLevel(cfg config.AccessPolicyConfig, accessLevel string) Level {
 		raw.ReadRoots = appendRequiredRoot(raw.ReadRoots, "@temp")
 		raw.WriteRoots = appendRequiredRoot(raw.WriteRoots, "@temp")
 	}
+		if root, ok := SessionEditableCollectionRoot(session, realCandidate.Host); ok {
+			workspace = pathutil.Canonical{Host: root, Key: pathutil.CanonicalKey(root)}
+		}
 	return Level{
 		Name:          normalized,
+	if mode == ReadAccess {
+		if root, ok := SessionEditableCollectionRoot(session, realCandidate.Host); ok {
+			return buildPathPlan(mode, rawPath, realCandidate, pathutil.Canonical{Host: root, Key: pathutil.CanonicalKey(root)}, accessLevel, DecisionAllow, ""), nil
+		}
+	}
 		ReadRoots:     raw.ReadRoots,
 		WriteRoots:    raw.WriteRoots,
 		ReadonlyRoots: raw.ReadonlyRoots,

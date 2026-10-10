@@ -84,7 +84,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - Skill 调度遵守用户任务范围与交付形态，见 [Skill 调度范围](docs/Agent运行时组装.md#skill-调度范围)。
 - `mustUseSkills` 为本次 run 选中的每个 Skill 目录追加 trusted read + readonly roots：完整目录免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，任何 `accessLevel`、hostAccess 或 approval 都不能写入这些选中目录。Container 仍只读挂载整个 `/skills-center`，mount 可见性不等同于 AccessPolicy 授权。
 - Agent YAML 已配置普通 Skill 与本次 `mustUseSkills` 选中 Skill 的 `scripts/**` 入口，经本 Run 内存凭据（canonical 路径与 SHA-256）及执行前复验匹配后免入口 HITL；凭据不落盘、不跨 Run 继承，外围 Shell 和写入限制保持独立。见 [工具目录权限](docs/工具目录权限.md#技能脚本入口执行凭据)。
-- 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 的 main/editing 两种 stage 使用同一组配置工具，工具由 Platform 预置与 Agent 声明合并并应用排除项，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
+- 专用 `mode: KBASE` 与普通 KBASE capability 都通过 `kbaseConfig.libraryId` 绑定共享库，Workspace 与库来源独立；专用 mode 的 main/editing 两种 stage 使用同一组配置工具，工具由 Platform 预置与 Agent 声明合并并应用排除项，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 允许 KBASE Workspace mutation，并允许专用 Host KBASE 修改 Run 启动时冻结的 editable collection 目录；未开启时这些范围可读但不可 write/edit，容器不自动挂载 collection；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 - `builtin.platform-control` 显式挂载后提供 Catalog、Chat、诊断和七个 Desktop 域工具；Catalog 支持资源能力枚举及 Provider/MCP 组件只读发现，连接器与 MCP 分开表示，列表需跟进 nextCursor；配置修改及删除 Chat 必须一次性人工审批。`run_env` 由全局 preset 示例提供，动态值只作用于当前普通 native root Run 的后续命令。详见 [平台控制连接器](docs/Platform控制工具设计.md)。
 
 Native 模型流式正文与推理各自达到 4,000 Unicode 字符后检测持续精确复读，命中会取消请求且不自动重试；详见 [流式复读取消](docs/配置化说明.md#流式复读取消)。
@@ -388,7 +388,7 @@ npm run sync:assets
 
 `kbase_search` 支持混合 query、纯全文 search、向量 vsearch 和图关系 gsearch，提供复合过滤、词法排除、时效排名与图关系遍历参数，保留可核验证据。Agent 工具限定绑定库的 collection 范围；向量/图检索需要相应索引，Platform 尚不自动构建图谱，重排模型及表格专用工具尚未接入。
 
-KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展名或 UTF-8；删除、重命名、建目录、Bash 和二进制 Office/PDF 通用写入仍不开放。目录权限由 AccessPolicy/HITL 决定，Workspace 写入由 watcher 异步索引。完整约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
+KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展名或 UTF-8；editing 不额外授予删除、重命名、建目录或 Bash 工具；显式声明的 Bash 仍受通用权限约束，二进制 Office/PDF 需格式专用工具。目录权限由 AccessPolicy/HITL 决定，Workspace 写入由 watcher 异步索引。完整约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
 
 ## 5. 运维
 
@@ -420,7 +420,7 @@ docker compose logs -f
 
 参见 [完整文档索引](docs/README.md)，按配置、运行时、协议、权限、连接器、知识库、构建和验证分类。历史报告单列，不能作为当前能力或本轮测试通过的依据。
 
-知识库配置位于 `kbases/<id>/library.yml`，索引位于持久的 `ru-kbases/<id>/`，不可随 ru-agents 清空。一个库可含多个 collection、被多个 Agent 共用；来源过滤和切块由库统一配置。有引用的库禁止删除。旧字段明确拒绝；旧 `ru-kbases/libraries/` 和 `runtime/kbase` 完全忽略，不进行旧布局检查或阻止启动。中心按库配置自动在新布局生成索引，不迁移旧索引，见 [知识库中心](docs/知识库中心.md)。
+知识库配置位于 `kbases/<id>/library.yml`，索引位于持久的 `ru-kbases/<id>/`，不可随 ru-agents 清空。一个库可含多个 collection、被多个 Agent 共用；来源过滤和切块由库统一配置。collection 的 description 和 editable（缺省 false）在下次 Run 生效、不触发索引重建；仅专用 Host KBASE 开启 editingMode 后获得额外目录写权限。有引用的库禁止删除。旧字段明确拒绝；旧 `ru-kbases/libraries/` 和 `runtime/kbase` 完全忽略，不进行旧布局检查或阻止启动。中心按库配置自动在新布局生成索引，不迁移旧索引，见 [知识库中心](docs/知识库中心.md)。
 
 `builtin.task-control`（任务管理）独立提供五个 Chat 工具和两个 Automation 工具；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
