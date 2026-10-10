@@ -247,10 +247,6 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 		return err
 	}
 	for _, run := range chat.Runs {
-		{
-
-		}
-
 		_, err = tx.Exec(`INSERT INTO ARCHIVED_RUNS (
 				RUN_ID_, CHAT_ID_, AGENT_KEY_, AGENT_MODE_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 				STARTED_AT_, COMPLETED_AT_,

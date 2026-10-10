@@ -427,33 +427,31 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 				continue
 			}
 			key := d.Name()
-			{
-				if _, err := os.Stat(filepath.Join(base, key, "package.json")); err == nil {
-					b, err := os.ReadFile(filepath.Join(base, key, "package.json"))
-					var manifest struct {
-						Skills []struct {
-							ID string `json:"id"`
-						} `json:"skills"`
-					}
-					if err != nil || json.Unmarshal(b, &manifest) != nil {
-						add(key, false, []map[string]any{diagnostic("error", "invalid_package", "invalid package.json")})
+			if _, err := os.Stat(filepath.Join(base, key, "package.json")); err == nil {
+				b, err := os.ReadFile(filepath.Join(base, key, "package.json"))
+				var manifest struct {
+					Skills []struct {
+						ID string `json:"id"`
+					} `json:"skills"`
+				}
+				if err != nil || json.Unmarshal(b, &manifest) != nil {
+					add(key, false, []map[string]any{diagnostic("error", "invalid_package", "invalid package.json")})
+					continue
+				}
+				seen := map[string]bool{}
+				for _, member := range manifest.Skills {
+					id := key + "/" + member.ID
+					if seen[id] {
 						continue
 					}
-					seen := map[string]bool{}
-					for _, member := range manifest.Skills {
-						id := key + "/" + member.ID
-						if seen[id] {
-							continue
-						}
-						seen[id] = true
-						_, ok := h.registry.SkillDefinition(id)
-						add(id, ok, h.sourceDiagnostics("skill", id, ok))
-					}
-
-				} else {
-					_, ok := h.registry.SkillDefinition(key)
-					add(key, ok, h.sourceDiagnostics(t.ResourceType, key, ok))
+					seen[id] = true
+					_, ok := h.registry.SkillDefinition(id)
+					add(id, ok, h.sourceDiagnostics("skill", id, ok))
 				}
+
+			} else {
+				_, ok := h.registry.SkillDefinition(key)
+				add(key, ok, h.sourceDiagnostics(t.ResourceType, key, ok))
 			}
 		}
 	default:

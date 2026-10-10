@@ -50,9 +50,6 @@ func (s *FileStore) OnRunStarted(start RunStart) error {
 		return err
 	}
 
-	{
-
-	}
 	agentKey := strings.TrimSpace(start.AgentKey)
 
 	if agentKey == "" {
@@ -155,13 +152,10 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	}
 	assistantText := truncateRunes(completion.AssistantText, 200)
 	initialMessage := truncateRunes(completion.InitialMessage, 200)
-	var chatAgentKey, chatAgentMode, _ string
+	var chatAgentKey, chatAgentMode string
 	_ = s.db.QueryRow("SELECT AGENT_KEY_, COALESCE(AGENT_MODE_,'') FROM CHATS WHERE CHAT_ID_=?", completion.ChatID).
 		Scan(&chatAgentKey, &chatAgentMode)
 
-	{
-
-	}
 	agentKey := strings.TrimSpace(completion.AgentKey)
 
 	if agentKey == "" {

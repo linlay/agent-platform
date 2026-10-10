@@ -163,7 +163,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureStep()
 		w.ensureMsgID()
 		ts := event.Timestamp
-		actorType, _, agentKey := contentActorFromEvent(event)
+		actorType, agentKey := contentActorFromEvent(event)
 		w.appendStoredMessage(event, StoredMessage{
 			Role:      "assistant",
 			Content:   textContent(event.String("text")),
@@ -635,21 +635,17 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 	w.lastTimestamp = event.Timestamp
 }
 
-func contentActorFromEvent(event stream.EventData) (string, string, string) {
+func contentActorFromEvent(event stream.EventData) (string, string) {
 	actorType := strings.TrimSpace(event.String("actorType"))
-
 	agentKey := strings.TrimSpace(event.String("agentKey"))
 	actor, _ := event.Value("actor").(map[string]any)
 	if actorType == "" {
 		actorType = strings.TrimSpace(stringFromAny(actor["type"]))
 	}
-	{
-
-	}
 	if agentKey == "" {
 		agentKey = strings.TrimSpace(stringFromAny(actor["agentKey"]))
 	}
-	return actorType, "", agentKey
+	return actorType, agentKey
 }
 
 func (w *StepWriter) appendSourceEvent(event stream.EventData) bool {

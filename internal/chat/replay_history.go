@@ -215,7 +215,7 @@ func (r *historyReplay) finishEvents(runStartedAt, runCompletedAt map[string]int
 // messages. An unfinished run or a pending wait must not gain a terminal event.
 func (r *historyReplay) finishRun(rd *chatRunData, runStartedAt, runCompletedAt map[string]int64, runFinishReasons map[string]string) ([]stream.EventData, error) {
 	runID := rd.runID
-	if events := flushReplayedSubTask(rd, r.nextSeq); len(events) > 0 {
+	if events := flushReplayedSubTask(rd, r.isTeamRun(runID), r.nextSeq); len(events) > 0 {
 		rd.events = append(rd.events, events...)
 	}
 	hasRunStart := false

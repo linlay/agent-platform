@@ -64,10 +64,9 @@ type replayedSubTaskQuery struct {
 }
 
 func decorateReplayedTeamTaskEvents(events []stream.EventData, agentKey string, presentation string) []stream.EventData {
-
 	agentKey = strings.TrimSpace(agentKey)
 	presentation = strings.TrimSpace(presentation)
-	{
+	if agentKey == "" {
 		return events
 	}
 	if presentation == "" {
@@ -77,13 +76,9 @@ func decorateReplayedTeamTaskEvents(events []stream.EventData, agentKey string, 
 		if events[index].Payload == nil {
 			events[index].Payload = map[string]any{}
 		}
-
-		events[index].Payload["presentation"] = presentation
-		actor := map[string]any{"type": "agent"}
-		if agentKey != "" {
-			actor["agentKey"] = agentKey
-		}
-		events[index].Payload["actor"] = actor
+		decorateReplayActor(events[index].Payload, replayMessageOptions{
+			ActorType: "agent", AgentKey: agentKey, Presentation: presentation,
+		})
 	}
 	return events
 }
@@ -177,7 +172,7 @@ func finishReplayedSubTaskIfTerminal(rd *chatRunData, taskID string, taskStatus 
 	return nil
 }
 
-func flushReplayedSubTask(rd *chatRunData, nextSeq func() int64) []stream.EventData {
+func flushReplayedSubTask(rd *chatRunData, teamRun bool, nextSeq func() int64) []stream.EventData {
 	if rd == nil || len(rd.activeSubTasks) == 0 {
 		return nil
 	}
@@ -188,7 +183,12 @@ func flushReplayedSubTask(rd *chatRunData, nextSeq func() int64) []stream.EventD
 	sort.Strings(taskIDs)
 	events := make([]stream.EventData, 0, len(taskIDs))
 	for _, taskID := range taskIDs {
-		events = append(events, synthesizeReplayedSubTaskTerminal(rd.activeSubTasks[taskID], nextSeq)...)
+		task := rd.activeSubTasks[taskID]
+		terminal := synthesizeReplayedSubTaskTerminal(task, nextSeq)
+		if teamRun {
+			terminal = decorateReplayedTeamTaskEvents(terminal, task.SubAgentKey, "task")
+		}
+		events = append(events, terminal...)
 		delete(rd.activeSubTasks, taskID)
 	}
 	return events
