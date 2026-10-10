@@ -126,6 +126,38 @@ func TestRuntimeVersionsShareSkillsAndReleaseIndependently(t *testing.T) {
 	}
 }
 
+func TestRuntimeReleaseCollectsOnlyWhenVersionBecomesIdle(t *testing.T) {
+	r, cfg, _ := runtimePendingFixture(t)
+	def, first, ok := r.AcquireAgentRuntime("first")
+	if !ok {
+		t.Fatal("missing first lease")
+	}
+	defer first()
+	_, second, ok := r.AcquireAgentRuntime("first")
+	if !ok {
+		t.Fatal("missing second lease")
+	}
+	defer second()
+	// An unreferenced cache directory makes a GC pass observable without
+	// adding test hooks to the production filesystem path.
+	orphan := filepath.Join(cfg.Paths.EffectiveRUSkillsDir(), strings.Repeat("a", 64))
+	if err := os.Mkdir(orphan, 0700); err != nil {
+		t.Fatal(err)
+	}
+	first()
+	first() // Duplicate release must neither decrement again nor trigger GC.
+	if _, err := os.Stat(orphan); err != nil {
+		t.Fatal("non-final release scanned the shared Skill cache", err)
+	}
+	second()
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Fatal("last release did not collect unreferenced Skill", err)
+	}
+	if _, err := os.Stat(def.RuntimeDir); err != nil {
+		t.Fatal("published version was collected", err)
+	}
+}
+
 func TestCorruptSkillBlocksNewLeasesUntilUnusedAndRebuilt(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), SkillsCenterDir: filepath.Join(root, "skills-center")}}

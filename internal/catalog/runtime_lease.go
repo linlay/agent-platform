@@ -157,14 +157,20 @@ func (r *FileRegistry) retainDefinitionsLocked(defs []AgentDefinition) func() {
 				}
 			}
 			r.mu.Unlock()
+			versionBecameIdle := false
 			for _, dir := range versions {
 				r.runtimeVersions[dir]--
 				if r.runtimeVersions[dir] == 0 {
 					delete(r.runtimeVersions, dir)
+					versionBecameIdle = true
 				}
 			}
 			r.updateRuntimeDiagnostics()
-			r.collectRuntimeVersions()
+			// Remaining leases keep the same GC roots; avoid filesystem scans
+			// until a version loses its last lease.
+			if versionBecameIdle {
+				r.collectRuntimeVersions()
+			}
 			callback := r.onRuntimeIdle
 			r.executionMu.Unlock()
 			if refresh && callback != nil {
