@@ -31,16 +31,17 @@ func (s *FileStore) SearchGlobal(query string, agentKey string, teamID string, l
 	}
 
 	type chatIndexRow struct {
-		chatID   string
-		chatName string
-		agentKey string
-		teamID   string
+		chatID         string
+		chatName       string
+		agentKey       string
+		teamID         string
+		lastRunContent string
 	}
 	rows, err := func() ([]chatIndexRow, error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		sqlQuery := `SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,'') FROM CHATS WHERE 1=1`
+		sqlQuery := `SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), LAST_RUN_CONTENT_ FROM CHATS WHERE 1=1`
 		var args []any
 		if strings.TrimSpace(agentKey) != "" {
 			sqlQuery += ` AND AGENT_KEY_=?`
@@ -60,7 +61,7 @@ func (s *FileStore) SearchGlobal(query string, agentKey string, teamID string, l
 		items := []chatIndexRow{}
 		for dbRows.Next() {
 			var item chatIndexRow
-			if err := dbRows.Scan(&item.chatID, &item.chatName, &item.agentKey, &item.teamID); err != nil {
+			if err := dbRows.Scan(&item.chatID, &item.chatName, &item.agentKey, &item.teamID, &item.lastRunContent); err != nil {
 				return nil, err
 			}
 			items = append(items, item)
@@ -82,17 +83,18 @@ func (s *FileStore) SearchGlobal(query string, agentKey string, teamID string, l
 		}
 		for _, hit := range hits {
 			results = append(results, GlobalSearchHit{
-				Kind:      hit.Kind,
-				ChatID:    item.chatID,
-				ChatName:  item.chatName,
-				AgentKey:  item.agentKey,
-				TeamID:    item.teamID,
-				RunID:     hit.RunID,
-				Stage:     hit.Stage,
-				Role:      hit.Role,
-				Timestamp: hit.Timestamp,
-				Snippet:   hit.Snippet,
-				Score:     hit.Score,
+				Kind:           hit.Kind,
+				ChatID:         item.chatID,
+				ChatName:       item.chatName,
+				AgentKey:       item.agentKey,
+				TeamID:         item.teamID,
+				RunID:          hit.RunID,
+				Stage:          hit.Stage,
+				Role:           hit.Role,
+				Timestamp:      hit.Timestamp,
+				Snippet:        hit.Snippet,
+				LastRunContent: item.lastRunContent,
+				Score:          hit.Score,
 			})
 		}
 	}

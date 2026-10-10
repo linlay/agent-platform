@@ -817,16 +817,17 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 	results := make([]api.GlobalSearchResult, 0, len(hits))
 	for _, hit := range hits {
 		results = append(results, api.GlobalSearchResult{
-			ChatID:    hit.ChatID,
-			ChatName:  hit.ChatName,
-			AgentKey:  hit.AgentKey,
-			TeamID:    hit.TeamID,
-			RunID:     hit.RunID,
-			Kind:      hit.Kind,
-			Role:      hit.Role,
-			Timestamp: hit.Timestamp,
-			Snippet:   hit.Snippet,
-			Score:     hit.Score,
+			ChatID:         hit.ChatID,
+			ChatName:       hit.ChatName,
+			AgentKey:       hit.AgentKey,
+			TeamID:         hit.TeamID,
+			RunID:          hit.RunID,
+			Kind:           hit.Kind,
+			Role:           hit.Role,
+			Timestamp:      hit.Timestamp,
+			Snippet:        hit.Snippet,
+			LastRunContent: hit.LastRunContent,
+			Score:          hit.Score,
 		})
 	}
 	response := api.GlobalSearchResponse{

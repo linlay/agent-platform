@@ -200,6 +200,13 @@ func TestSearchGlobalFiltersAgentAndIncludesChatMetadata(t *testing.T) {
 		if err := completeRunForTest(store, RunCompletion{ChatID: item.chatID, RunID: item.chatID + "-run", UpdatedAtMillis: testEpochMillis(100)}); err != nil {
 			t.Fatalf("complete %s: %v", item.chatID, err)
 		}
+		if err := completeRunForTest(store, RunCompletion{
+			ChatID: item.chatID, RunID: item.chatID + "-latest-run",
+			AssistantText:   "Latest result for " + item.chatID,
+			UpdatedAtMillis: testEpochMillis(200),
+		}); err != nil {
+			t.Fatalf("complete latest run for %s: %v", item.chatID, err)
+		}
 	}
 
 	hits, err := store.SearchGlobal("rollback", "agent-a", "", 20)
@@ -212,12 +219,18 @@ func TestSearchGlobalFiltersAgentAndIncludesChatMetadata(t *testing.T) {
 	if hits[0].ChatID != "chat-a" || hits[0].ChatName == "" || hits[0].AgentKey != "agent-a" {
 		t.Fatalf("expected chat metadata on hit, got %#v", hits[0])
 	}
+	if hits[0].RunID != "chat-a-run" || hits[0].LastRunContent != "Latest result for chat-a" {
+		t.Fatalf("expected the latest summary alongside an older matching run, got %#v", hits[0])
+	}
 	hits, err = store.SearchGlobal("rollback", "", "team-b", 20)
 	if err != nil {
 		t.Fatalf("search global by team: %v", err)
 	}
 	if len(hits) != 1 || hits[0].ChatID != "chat-b" || hits[0].TeamID != "team-b" {
 		t.Fatalf("expected one team-b hit with team metadata, got %#v", hits)
+	}
+	if hits[0].LastRunContent != "Latest result for chat-b" {
+		t.Fatalf("expected latest team chat content, got %#v", hits[0])
 	}
 }
 

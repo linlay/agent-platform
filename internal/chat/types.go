@@ -501,17 +501,18 @@ type RunSummary struct {
 }
 
 type GlobalSearchHit struct {
-	Kind      string
-	ChatID    string
-	ChatName  string
-	AgentKey  string
-	TeamID    string
-	RunID     string
-	Stage     string
-	Role      string
-	Timestamp int64
-	Snippet   string
-	Score     int
+	Kind           string
+	ChatID         string
+	ChatName       string
+	AgentKey       string
+	TeamID         string
+	RunID          string
+	Stage          string
+	Role           string
+	Timestamp      int64
+	Snippet        string
+	LastRunContent string
+	Score          int
 }
 
 type RunTrace struct {

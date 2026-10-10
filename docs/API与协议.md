@@ -250,6 +250,8 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
+`/api/chats/search` 的 HTTP 与 WebSocket 结果同时提供搜索命中的 `snippet` 和 Chat 摘要中的 `lastRunContent`。后者用于展示最新 Run 内容，即使命中来自较早的 Run；没有最新内容时返回空字符串，不用命中片段或对话标题替代。
+
 `/api/chats` 和 `/api/chat` 的历史发现、owner 和回放不要求当前 Agent 配置有效；Agent 详情的 404 不代表 Chat 不存在。客户端应独立加载历史与当前执行配置，保留 Chat 自身的认证、缺失及损坏错误，不能通过历史读取恢复无效 Agent 的 query 能力。详见 [历史读取与当前 Agent 可用性](会话存储与回放.md#历史读取与当前-agent-可用性)。
 
 `/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。通用类型的筛选输入只接受 `GENERAL`，传入 `REACT` 返回 400；`GENERAL` 同时匹配历史保存的 `REACT` 和新的 `GENERAL` chat。可选布尔 `hasWorkspace` 按 chat 所属 Agent 当前是否配置了具体项目目录筛选（未配置 Workspace 或使用 `@root` 都视为没有）：`true` 只返回项目型 Agent 的 chat；`false` 排除它们，同时保留 Team chat 以及 Agent 已不在 catalog 中的 chat。它与 `mode`、`pinned` 为 AND 关系，并在 `limit` 截断之前生效。HTTP 只接受单个 `true` 或 `false` 字符串，WebSocket 使用同名 JSON boolean，其他值返回 400；旧 `agentType` 参数或 payload 返回 400，调用方应改用 `hasWorkspace`。`pinned=true` 按置顶 ID 直接读取；`pinned=false` 且实例排序为 `recent` 时，`limit` 在读取阶段生效，只为返回的 chat 计算完整摘要。旧别名、`TEAM` 和未知值均返回 400。它筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受合法 `mode` 影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。

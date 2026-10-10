@@ -61,6 +61,15 @@ func TestRenamedHTTPAPIRoutes(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s %s expected 200, got %d: %s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
+		if tc.path == "/api/chats/search" {
+			var response api.ApiResponse[api.GlobalSearchResponse]
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode search response: %v", err)
+			}
+			if len(response.Data.Results) == 0 || response.Data.Results[0].LastRunContent != "rollback completed" {
+				t.Fatalf("expected latest chat content in HTTP search response, got %#v", response.Data)
+			}
+		}
 	}
 
 	archiveServer, active, _ := newArchiveHandlerTestServer(t, nil)
@@ -117,6 +126,7 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 			cfg.WebSocket.WriteQueueSize = 4
 		},
 	})
+	seedSearchableChat(t, fixture.chats, "chat-route-ws-search")
 	if fixture.server.wsHandler == nil {
 		t.Fatal("expected websocket handler")
 	}
@@ -153,6 +163,19 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 		}
 		if frame.ID != tc.id || strings.Contains(frame.Msg, "unknown type") {
 			t.Fatalf("expected %s to be registered, got %#v", tc.route, frame)
+		}
+		if tc.route == "/api/chats/search" {
+			data, err := json.Marshal(frame.Data)
+			if err != nil {
+				t.Fatalf("encode search response: %v", err)
+			}
+			var response api.GlobalSearchResponse
+			if err := json.Unmarshal(data, &response); err != nil {
+				t.Fatalf("decode search response: %v", err)
+			}
+			if len(response.Results) == 0 || response.Results[0].LastRunContent != "rollback completed" {
+				t.Fatalf("expected latest chat content in WS search response, got %#v", response)
+			}
 		}
 	}
 
