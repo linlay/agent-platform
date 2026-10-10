@@ -91,4 +91,34 @@ reranker 使用 registry type: reranker 和必填 reranker.endpointPath，queryE
 
 defaultQuery 缺省 true。维护时同步 collection include/exclude，检索时按当前默认或显式 collections 传入 -c，全部默认排除返回空数组；过滤不能扩大绑定库范围，files/read 不受默认检索选择影响。详细配置、registry 示例和边界见 [知识库中心](知识库中心.md#检索默认值可选模型和默认集合)。
 
-`TestCenterRealRetrievalModelsDefaultsAndDegradation` 使用当前受管 KBX 和本机 HTTP fixture 验证两种模型调用、禁用/全文零调用、失败回退与 collection 隔离。目标模型部署的延迟与语义质量仍待实测，不将本机 fixture 时间写成生产指标。缓存、扩展向量和重试会改变请求数量。
+`TestCenterRealRetrievalModelsDefaultsAndDegradation` 使用当前受管 KBX 和本机 HTTP fixture 验证两种模型调用、禁用/全文零调用、失败回退与 collection 隔离。真实部署配置的小样本记录见下节；不将 fixture 时间或小样本时间写成生产指标。缓存、扩展向量和重试会改变请求数量。
+
+### 2026-10-10 本机真实模型实测
+
+使用当前部署 registry、受管 `kbx 0.1.0`，通过 Platform CenterEngine / Manager 运行临时库。扩展模型为 `th-gpt-5_6-luna`，embedding 为 `th-text-embedding-v4`。测试库含六篇合成短文，另一个默认排除的 collection 放一篇冲突文档；模型仅接收这些合成资料与三条测试问题。未修改真实库、模型配置或开关，也未测试图谱与元数据。
+
+以下为每条问题的一次对照，结果数量 3，图谱和重排关闭。基线先执行，随后开启查询扩展，因此原问题的向量可能复用缓存；扩展步骤的 trace 均确认首次调用未命中缓存。时间包含 Platform / CLI / 模型调用，不是模型服务的独立耗时，也不是 P95 或负载测试结果。
+
+| 测试问题 | 基线耗时 | 开启扩展耗时 | 基线 / 扩展命中 |
+| --- | ---: | ---: | --- |
+| QuartzOrchid（精确标识） | 1.001 秒 | 3.373 秒 | 均第 1 条命中审计日志文档 |
+| 电脑不见了该找谁处理 | 1.016 秒 | 4.987 秒 | 均第 1 条命中终端遗失文档 |
+| 上线后出问题怎么恢复旧版 | 1.013 秒 | 4.086 秒 | 均第 1 条命中发布回退文档 |
+
+三条问题的前 3 条结果及顺序在扩展前后相同；再次运行精确标识查询，扩展缓存命中，整次查询 0.148 秒。另一次不配置 embedding 的全文对照中，扩展调用成功但没有改善命中：精确标识命中，两条中文改写均未命中，扩展开启后的耗时为 3.003–4.226 秒。这个小样本未显示扩展带来的召回收益，因此尚无依据默认开启；需要业务评测集才能判断其他文档和问题上的质量。
+
+故障测试只替换单次调用的扩展 endpoint，移除真实凭据并注入本机 503、超时、空 choices。为缩短故障实验，将扩展 timeout 临时设为 100ms，三种故障均保留正确文档、标记 degraded，并在 optionalUnavailable 返回 query_expansion。有 embedding 时整次查询为 0.912–0.990 秒，无 embedding 时为 0.126–0.267 秒；这些时间不代表真实部署默认超时下的等待上限。所有查询均未返回默认排除集合的文档。
+
+当前部署未配置 `type: reranker`，真实重排的服务兼容性、耗时和质量仍未验证；已有模拟服务验收不能替代该项。部分聊天模型含自定义 compat，Platform 会明确拒绝把这类配置直接交给 KBX，不能通过忽略这些字段声称已兼容。
+
+可复现入口（显式启用后会调用真实模型，普通测试默认跳过）：
+
+```sh
+KBX_CENTER_TEST_BIN=/absolute/managed/bin \
+KBX_LIVE_REGISTRY=/absolute/runtime/registries \
+KBX_LIVE_EXPANSION_MODEL=your-expansion-model \
+KBX_LIVE_EMBEDDING_MODEL=your-embedding-model \
+  go test ./internal/kbx -run '^TestLiveRetrievalDeployment$' -count=1 -v
+```
+
+省略 `KBX_LIVE_EMBEDDING_MODEL` 测试全文加扩展；配置真实重排后追加 `KBX_LIVE_RERANKER_MODEL`。测试仅在临时目录创建来源、库及配置快照，结束自动清理；输出合成文档路径、命中情况、耗时和有限 trace 字段，不输出 endpoint 或凭据。质量命中是观测数据，不作为保证模型改善的断言；模型调用成功、默认集合隔离和故障降级有独立断言。
