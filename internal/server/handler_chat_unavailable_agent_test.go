@@ -67,7 +67,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantStatus := http.StatusNotFound
-			if state == "valid" {
+			if state != "deleted" {
 				wantStatus = http.StatusOK
 			}
 			if got := read("/api/agent?agentKey=mock-agent"); got.Code != wantStatus {
@@ -80,7 +80,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 					t.Fatalf("history discovery %s: %d %s (%v)", path, got.Code, got.Body.String(), err)
 				}
 			}
-			if state != "valid" {
+			if state == "deleted" {
 				code, status := apperrors.CodeAgentNotFound, http.StatusNotFound
 				if state == "invalid" || state == "legacy-mode" {
 					code, status = apperrors.CodeAgentConfigurationInvalid, http.StatusUnprocessableEntity

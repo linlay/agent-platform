@@ -28,6 +28,7 @@ import (
 	"agent-platform/internal/models"
 	"agent-platform/internal/reload"
 	"agent-platform/internal/runtime/runstate"
+	"agent-platform/internal/runtimeskills"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/testutil"
 	"agent-platform/internal/toolinteraction"
@@ -376,6 +377,10 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if err != nil {
 		t.Fatalf("new tool router: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+		_ = runtimeskills.Remove(runtimeskills.Root(cfg.Paths.EffectiveRUAgentsDir()))
+	})
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
@@ -864,4 +869,68 @@ func assertStringSliceExcludes(t *testing.T, got []string, blocked ...string) {
 			}
 		}
 	}
+}
+
+func runtimeSkillTestPath(t *testing.T, agent, id string, parts ...string) string {
+	t.Helper()
+	root, err := runtimeskills.Resolve(agent, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(append([]string{root}, parts...)...)
+}
+func corruptRemoveSkillFile(t *testing.T, p string) error {
+	t.Helper()
+	if err := os.Chmod(filepath.Dir(p), 0700); err != nil {
+		return err
+	}
+	return os.Remove(p)
+}
+
+func mustCanonicalTestPath(t *testing.T, p string) string {
+	t.Helper()
+	canonical, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonical
+}
+
+func newRuntimeTestRegistry(t *testing.T, cfg config.Config, defs []api.ToolDetailResponse) (*catalog.FileRegistry, error) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir()); err != nil {
+			t.Error(err)
+		}
+		if err := runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir()); err != nil {
+			t.Error(err)
+		}
+	})
+	return catalog.NewFileRegistry(cfg, defs)
+}
+
+func installRuntimeSkillFixture(t *testing.T, runtimeDir, id string) string {
+	t.Helper()
+	source := filepath.Join(runtimeDir, "skills", id)
+	digest, err := runtimeskills.Digest(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := runtimeskills.Root(filepath.Dir(filepath.Dir(runtimeDir)))
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	target, _ := runtimeskills.Path(root, digest)
+	if err := os.Rename(source, target); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := runtimeskills.References(runtimeDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	refs = append(refs, runtimeskills.Reference{ID: id, Digest: digest})
+	if err := runtimeskills.WriteReferences(runtimeDir, refs); err != nil {
+		t.Fatal(err)
+	}
+	return target
 }

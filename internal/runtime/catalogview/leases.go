@@ -50,3 +50,20 @@ func ResolveTeam(registry catalog.Registry, teamID string) (catalog.TeamSnapshot
 	}
 	return catalog.NewTeamSnapshot(team, agents), true
 }
+
+func AcquireAgentSnapshot(registry catalog.Registry, def catalog.AgentDefinition) (catalog.AgentDefinition, func(), bool) {
+	if leases, ok := registry.(interface {
+		AcquireAgentSnapshot(catalog.AgentDefinition) (catalog.AgentDefinition, func(), bool)
+	}); ok {
+		return leases.AcquireAgentSnapshot(def)
+	}
+	return def, func() {}, true
+}
+func AcquireTeamSnapshot(registry catalog.Registry, team catalog.TeamSnapshot) (catalog.TeamSnapshot, func(), bool) {
+	if leases, ok := registry.(interface {
+		AcquireTeamSnapshot(catalog.TeamSnapshot) (catalog.TeamSnapshot, func(), bool)
+	}); ok {
+		return leases.AcquireTeamSnapshot(team)
+	}
+	return team, func() {}, true
+}

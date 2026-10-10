@@ -216,7 +216,25 @@ planningComplete:
 	if got := providerCallCount.Load(); got != 1 {
 		t.Fatalf("expected one provider call, got %d", got)
 	}
-	waitForRecordedNotificationType(t, notifications, "run.finished")
+	// The recovered planning Run finishes first. Wait for the execution Run,
+	// whose model response and persisted assistant turn are asserted below.
+	executeFinished := false
+	deadline = time.Now().Add(2 * time.Second)
+	for !executeFinished && time.Now().Before(deadline) {
+		for i, eventType := range notifications.EventTypes() {
+			payload := notifications.Payloads()[i]
+			if eventType == "run.finished" && payload["chatId"] == chatID && payload["runId"] != runID {
+				executeFinished = true
+				break
+			}
+		}
+		if !executeFinished {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !executeFinished {
+		t.Fatal("execution Run did not finish")
+	}
 	assertDeferredPlanningApproveJSONL(t, fixture.chats, chatID, runID, awaitingID, "submit-deferred-planning")
 }
 

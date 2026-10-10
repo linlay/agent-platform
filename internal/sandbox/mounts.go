@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"agent-platform/internal/chat"
@@ -34,12 +35,8 @@ func NewContainerHubMountResolver(paths config.PathsConfig) *ContainerHubMountRe
 	return &ContainerHubMountResolver{paths: paths}
 }
 
-func (r *ContainerHubMountResolver) Resolve(workspaceRoot string, chatID string, agentKey string, level string, sandboxMounts []contracts.SandboxExtraMount) ([]MountSpec, error) {
-	layout, err := r.ResolveLayout(workspaceRoot, chatID, agentKey, level, sandboxMounts)
-	return layout.Mounts, err
-}
-
-func (r *ContainerHubMountResolver) ResolveLayout(workspaceRoot string, chatID string, agentKey string, level string, sandboxMounts []contracts.SandboxExtraMount) (SessionMountLayout, error) {
+// ResolveRuntimeLayout consumes the frozen Run paths rather than re-resolving an Agent key.
+func (r *ContainerHubMountResolver) ResolveRuntimeLayout(workspaceRoot, chatID, agentKey, level string, sandboxMounts []contracts.SandboxExtraMount, runtimeDir string, skills map[string]string) (SessionMountLayout, error) {
 	workspaceRoot = strings.TrimSpace(workspaceRoot)
 	if workspaceRoot == "" {
 		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for workspace: workspace is required")
@@ -95,18 +92,33 @@ func (r *ContainerHubMountResolver) ResolveLayout(workspaceRoot string, chatID s
 	} else if err != nil {
 		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for pan-dir: %w", err)
 	}
-	if agentDir, err := r.agentSource(agentKey); err == nil && agentDir != "" {
-		mounts = append(mounts, MountSpec{Name: "agent-self", Source: agentDir, Destination: "/agent", ReadOnly: true})
-	} else if err != nil {
+	if strings.TrimSpace(runtimeDir) == "" {
+		return SessionMountLayout{}, fmt.Errorf("frozen Agent runtime directory is required")
+	}
+	if err := validateMountDirectory("agent-self", runtimeDir, "/agent"); err != nil {
 		return SessionMountLayout{}, err
 	}
-
-	skillsSource, err := r.skillsSource(agentKey, level)
-	if err != nil {
-		return SessionMountLayout{}, err
-	}
-	if skillsSource != "" {
+	mounts = append(mounts, MountSpec{Name: "agent-self", Source: runtimeDir, Destination: "/agent", ReadOnly: true})
+	if level != "global" {
+		skillsSource := filepath.Join(runtimeDir, "skills")
+		if err := validateMountDirectory("skills-dir", skillsSource, "/skills"); err != nil {
+			return SessionMountLayout{}, err
+		}
 		mounts = append(mounts, MountSpec{Name: "skills-dir", Source: skillsSource, Destination: "/skills", ReadOnly: true})
+	}
+	if level != "global" {
+		ids := make([]string, 0, len(skills))
+		for id := range skills {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			destination := "/skills/" + id
+			if err := validateMountDirectory("skill", skills[id], destination); err != nil {
+				return SessionMountLayout{}, err
+			}
+			mounts = append(mounts, MountSpec{Name: "skill-" + strings.ReplaceAll(id, "/", "-"), Source: skills[id], Destination: destination, ReadOnly: true})
+		}
 	}
 	if ownerDir, err := r.ownerSource(); err == nil && ownerDir != "" {
 		mounts = append(mounts, MountSpec{Name: "owner-dir", Source: ownerDir, Destination: "/owner", ReadOnly: true})
@@ -118,14 +130,33 @@ func (r *ContainerHubMountResolver) ResolveLayout(workspaceRoot string, chatID s
 	} else if err != nil {
 		return SessionMountLayout{}, err
 	}
-	if err := r.applySandboxMounts(&mounts, agentKey, sandboxMounts); err != nil {
+	if err := r.applySandboxMounts(&mounts, agentKey, sandboxMounts, runtimeDir); err != nil {
 		return SessionMountLayout{}, err
 	}
 
+	if runtimeDir != "" {
+		for i := range mounts {
+			m := &mounts[i]
+			if m.Destination == "/agent" {
+				if m.Source != runtimeDir {
+					return SessionMountLayout{}, fmt.Errorf("frozen Agent mount cannot be replaced")
+				}
+				m.ReadOnly = true
+			}
+			for id, source := range skills {
+				if m.Destination == "/skills/"+id {
+					if m.Source != source {
+						return SessionMountLayout{}, fmt.Errorf("frozen Skill mount cannot be replaced")
+					}
+					m.ReadOnly = true
+				}
+			}
+		}
+	}
 	return SessionMountLayout{Mounts: mounts, MaskedPaths: maskedPaths}, nil
 }
 
-func (r *ContainerHubMountResolver) applySandboxMounts(mounts *[]MountSpec, agentKey string, sandboxMounts []contracts.SandboxExtraMount) error {
+func (r *ContainerHubMountResolver) applySandboxMounts(mounts *[]MountSpec, agentKey string, sandboxMounts []contracts.SandboxExtraMount, runtimeDir string) error {
 	for _, sandboxMount := range sandboxMounts {
 		if isZeroSandboxMount(sandboxMount) {
 			continue
@@ -145,7 +176,7 @@ func (r *ContainerHubMountResolver) applySandboxMounts(mounts *[]MountSpec, agen
 			continue
 		}
 		if strings.TrimSpace(sandboxMount.Platform) != "" {
-			if err := r.resolvePlatformMount(mounts, agentKey, sandboxMount); err != nil {
+			if err := r.resolvePlatformMount(mounts, agentKey, sandboxMount, runtimeDir); err != nil {
 				return err
 			}
 			continue
@@ -194,12 +225,15 @@ func applyMountOverride(mounts *[]MountSpec, destination string, readOnly bool) 
 	return nil
 }
 
-func (r *ContainerHubMountResolver) resolvePlatformMount(mounts *[]MountSpec, agentKey string, sandboxMount contracts.SandboxExtraMount) error {
+func (r *ContainerHubMountResolver) resolvePlatformMount(mounts *[]MountSpec, agentKey string, sandboxMount contracts.SandboxExtraMount, runtimeDir string) error {
 	platform := strings.ToLower(strings.TrimSpace(sandboxMount.Platform))
 	def, ok := r.platformMountDef(platform, agentKey)
 	if !ok {
 		log.Printf("[container-hub] skip unknown runtimeConfig.sandboxMounts platform %q", sandboxMount.Platform)
 		return nil
+	}
+	if platform == "connectors" && runtimeDir != "" {
+		def.source = func() (string, error) { return filepath.Join(runtimeDir, "connectors"), nil }
 	}
 	readOnly, err := parseMountMode(sandboxMount.Mode, "sandbox-mount:"+platform, def.destination)
 	if err != nil {
@@ -267,7 +301,7 @@ func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey s
 		"connectors-center": {destination: "/connectors-center", source: func() (string, error) {
 			return hostPath("paths.connectors-center-dir", r.paths.EffectiveConnectorsCenterDir())
 		}},
-		"connectors":    {destination: "/connectors", source: func() (string, error) { return r.agentConnectorsSource(agentKey) }},
+		"connectors":    {destination: "/connectors"},
 		"models":        {destination: "/models", source: func() (string, error) { return r.registryChildSource("models") }},
 		"owner":         {destination: "/owner", overrideOnly: true},
 		"providers":     {destination: "/providers", source: func() (string, error) { return r.registryChildSource("providers") }},
@@ -348,39 +382,6 @@ func validateMountDirectory(mountName string, source string, destination string)
 	return nil
 }
 
-func (r *ContainerHubMountResolver) skillsSource(agentKey string, level string) (string, error) {
-	if strings.EqualFold(level, "global") {
-		return "", nil
-	}
-	agentDir, err := hostPath("RU_AGENTS_DIR", r.paths.EffectiveRUAgentsDir())
-	if err != nil {
-		return "", fmt.Errorf("container-hub mount validation failed for skills-dir: %w", err)
-	}
-	if agentKey != "" {
-		localSkills := filepath.Join(agentDir, agentKey, "skills")
-		if err := validateMountDirectory("skills-dir", localSkills, "/skills"); err != nil {
-			return "", err
-		}
-		return localSkills, nil
-	}
-	return "", nil
-}
-
-func (r *ContainerHubMountResolver) agentSource(agentKey string) (string, error) {
-	agentsRoot, err := hostPath("RU_AGENTS_DIR", r.paths.EffectiveRUAgentsDir())
-	if err != nil {
-		return "", fmt.Errorf("container-hub mount validation failed for agent-self: %w", err)
-	}
-	if agentsRoot == "" {
-		return "", fmt.Errorf("container-hub mount validation failed for agent-self: RUAgentsDir is required")
-	}
-	agentDir := filepath.Join(agentsRoot, agentKey)
-	if stat, err := os.Stat(agentDir); err == nil && stat.IsDir() {
-		return agentDir, nil
-	}
-	return "", fmt.Errorf("container-hub mount validation failed for agent-self: missing agent directory %s", agentDir)
-}
-
 func (r *ContainerHubMountResolver) ownerSource() (string, error) {
 	ownerDir, err := hostPath("OWNER_DIR", r.paths.OwnerDir)
 	if err != nil {
@@ -435,11 +436,4 @@ func allowHostPathEnv(envKey string) bool {
 	default:
 		return false
 	}
-}
-
-func (r *ContainerHubMountResolver) agentConnectorsSource(agentKey string) (string, error) {
-	if agentKey == "" || filepath.Base(agentKey) != agentKey || strings.ContainsAny(agentKey, `/\`) || agentKey == "." || agentKey == ".." {
-		return "", fmt.Errorf("invalid connector Agent key")
-	}
-	return hostPath("AGENT_CONNECTORS_DIR", filepath.Join(r.paths.EffectiveRUAgentsDir(), agentKey, "connectors"))
 }

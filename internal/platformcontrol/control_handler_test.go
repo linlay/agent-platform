@@ -6,6 +6,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtimeskills"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +26,10 @@ func controlExecution() *contracts.ExecutionContext {
 }
 func TestControlAdmissionAndExactApproval(t *testing.T) {
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents"), TeamsDir: filepath.Join(t.TempDir(), "teams"), SkillsCenterDir: filepath.Join(t.TempDir(), "skills")}}
+	t.Cleanup(func() {
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())
+	})
 	registry, e := catalog.NewFileRegistry(cfg, nil)
 	if e != nil {
 		t.Fatal(e)
@@ -70,6 +75,10 @@ func TestControlAdmissionAndExactApproval(t *testing.T) {
 
 func TestControlProjectValidationAndPublication(t *testing.T) {
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents")}}
+	t.Cleanup(func() {
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())
+	})
 	registry, err := catalog.NewFileRegistry(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -142,6 +151,10 @@ func TestControlRollbackReturnsFailure(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents")}}
+			t.Cleanup(func() {
+				_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+				_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())
+			})
 			registry, err := catalog.NewFileRegistry(cfg, nil)
 			if err != nil {
 				t.Fatal(err)

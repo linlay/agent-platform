@@ -40,7 +40,10 @@ func (s *Service) LocalRunExecutorParams(
 			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
 		}
 
-		onContinuation = s.startRunContinuation
+		onContinuation = func(c contracts.DeltaRunContinuation) (string, error) {
+			c.ContinuationState = &awaitingContinuationAdmission{Summary: prepared.Summary, TeamID: prepared.Req.TeamID, AgentKey: prepared.AgentDef.Key, TeamSnapshot: prepared.TeamSnapshot, AgentDef: prepared.AgentDef, Frozen: true}
+			return s.startRunContinuation(c)
+		}
 	}
 
 	return runexec.NativeOptions{
@@ -67,9 +70,9 @@ func (s *Service) LocalRunExecutorParams(
 		Notifications:     notifications,
 		OnUnreadChanged:   onUnreadChanged,
 		OnContinuation:    onContinuation,
+		Release:           prepared.Release,
 		OnComplete: func(completion chat.RunCompletion) {
 			s.finishRunConnectorPins(completion.RunID, prepared.Req.ChatID)
-			releaseQuery(prepared.Release)
 			s.FinishRegisteredQuery(prepared, registered)
 			if !execution.HiddenRun {
 				s.broadcast("run.finished", runFinishedPushPayload(

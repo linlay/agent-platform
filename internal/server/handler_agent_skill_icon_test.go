@@ -60,8 +60,8 @@ func TestAgentSkillIconUsesRuntimeOrCenterWithoutMixingPrivateSkills(t *testing.
 		}
 	}
 	// A same-named center skill must never supply a missing private icon.
-	privateIcon := filepath.Join(def.RuntimeDir, "skills", "private-skill", "assets", "private-skill.png")
-	if err := os.Remove(privateIcon); err != nil {
+	privateIcon := runtimeSkillTestPath(t, def.RuntimeDir, "private-skill", "assets", "private-skill.png")
+	if err := corruptRemoveSkillFile(t, privateIcon); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
@@ -82,7 +82,7 @@ func TestAgentSkillIconUsesRuntimeOrCenterWithoutMixingPrivateSkills(t *testing.
 func TestAgentSkillIconMissingAndInvalidInputs(t *testing.T) {
 	f := newTestFixture(t)
 	def, _ := f.registry.AgentDefinition("mock-agent")
-	if err := os.Remove(filepath.Join(def.RuntimeDir, "skills", "mock-skill", "assets", "mock-skill.png")); err != nil {
+	if err := corruptRemoveSkillFile(t, runtimeSkillTestPath(t, def.RuntimeDir, "mock-skill", "assets", "mock-skill.png")); err != nil {
 		t.Fatal(err)
 	}
 	response := getAPIData[api.AgentSkillsResponse](t, f.server, http.MethodGet, "/api/skills?agentKey=mock-agent", nil)

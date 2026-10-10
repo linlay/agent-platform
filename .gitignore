@@ -15,6 +15,7 @@ coverage.out
 # 本地运行数据、生成目录与进程锁
 /runtime/
 /ru-agents/
+/ru-skills/
 /ru-connectors/
 /run/
 /connectors-center/

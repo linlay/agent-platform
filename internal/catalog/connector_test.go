@@ -42,7 +42,7 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	sourceSkill := filepath.Join(connectorRoot, "builtin.dbx", "skills", "builtin-dbx")
 	writeRuntimeAssemblerFile(t, filepath.Join(sourceSkill, ".config", "dbx", "default.json"), "default")
 	writeRuntimeAssemblerFile(t, filepath.Join(agents, "demo", ".config", "dbx", "default.json"), "demo override")
-	registry, err := NewFileRegistry(cfg, nil)
+	registry, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

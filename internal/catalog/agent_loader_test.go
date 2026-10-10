@@ -741,7 +741,7 @@ func TestLoadAgentsWithAdminSkipsInvalidDefinitions(t *testing.T) {
 		}
 	}
 
-	agents, admin, err := loadAgentsWithAdmin(root, centerDir, filepath.Join(root, "chats"), true)
+	agents, admin, err := loadAgentsWithAdmin(t, root, centerDir, filepath.Join(root, "chats"), true)
 	if err != nil {
 		t.Fatalf("load agents with invalid definitions: %v", err)
 	}
@@ -1407,7 +1407,7 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 		t.Fatalf("write agent: %v", err)
 	}
 
-	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", filepath.Join(agentsDir, "chats"), true)
+	agents, admin, err := loadAgentsWithAdmin(t, agentsDir, "", filepath.Join(agentsDir, "chats"), true)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -1448,7 +1448,7 @@ func TestDedicatedKBaseLoadsConfiguredWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", chatsDir, true)
+	agents, admin, err := loadAgentsWithAdmin(t, agentsDir, "", chatsDir, true)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -1522,7 +1522,7 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", chatsDir, true)
+	agents, admin, err := loadAgentsWithAdmin(t, agentsDir, "", chatsDir, true)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -1565,7 +1565,7 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(agentsDir, "overlap", "agent.yml"), []byte(recoveredContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	reloadedAgents, reloadedAdmin, err := loadAgentsWithAdmin(agentsDir, "", chatsDir, true)
+	reloadedAgents, reloadedAdmin, err := loadAgentsWithAdmin(t, agentsDir, "", chatsDir, true)
 	if err != nil {
 		t.Fatalf("reload fixed Agent: %v", err)
 	}
@@ -1582,7 +1582,7 @@ func TestFlatAgentRejectsRelativeKBaseWorkspace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(agentsDir, "flat.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
-	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", filepath.Join(agentsDir, "chats"), true)
+	agents, admin, err := loadAgentsWithAdmin(t, agentsDir, "", filepath.Join(agentsDir, "chats"), true)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}

@@ -48,7 +48,7 @@ func TestPresetToolsValidateRegistration(t *testing.T) {
 func TestPresetToolsCatalogAndStructuredSave(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{PresetTools: []string{"datetime", "wait"}, Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), SkillsCenterDir: filepath.Join(root, "skills"), ChatsDir: filepath.Join(root, "chats")}}
-	r, err := NewFileRegistry(cfg, []api.ToolDetailResponse{{Name: "datetime"}, {Name: "wait"}, {Name: "bash"}})
+	r, err := newVersionTestRegistry(t, cfg, []api.ToolDetailResponse{{Name: "datetime"}, {Name: "wait"}, {Name: "bash"}})
 	if err != nil {
 		t.Fatal(err)
 	}

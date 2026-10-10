@@ -26,7 +26,7 @@ func runtimePendingFixture(t *testing.T) (*FileRegistry, config.Config, string) 
 	body := "key: first\nname: Original\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.dbx\n"
 	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "first", "agent.yml"), body)
 	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "second", "agent.yml"), strings.ReplaceAll(body, "first", "second"))
-	r, err := NewFileRegistry(cfg, nil)
+	r, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,6 @@ func TestRuntimePendingTracksAgentLoadOutcome(t *testing.T) {
 				reason = scenario
 			case "changed", "reverted":
 				writeRuntimeAssemblerFile(t, path, strings.ReplaceAll(body, "Original", "Changed"))
-				want = 1
 			case "deleted":
 				if err := os.RemoveAll(filepath.Dir(path)); err != nil {
 					t.Fatal(err)
@@ -81,8 +80,21 @@ func TestRuntimePendingTracksAgentLoadOutcome(t *testing.T) {
 				t.Fatal(err)
 			}
 			current, ok := r.AgentDefinition("first")
-			if !ok || current.Name != before.Name {
-				t.Fatal("active Agent definition was replaced")
+			if scenario == "deleted" {
+				if ok {
+					t.Fatal("deleted source admitted new runs")
+				}
+			} else {
+				expected := before.Name
+				if scenario == "changed" {
+					expected = "Changed"
+				}
+				if !ok || current.Name != expected {
+					t.Fatalf("published definition = %#v", current)
+				}
+			}
+			if _, err := os.Stat(before.RuntimeDir); err != nil {
+				t.Fatal("leased old version disappeared", err)
 			}
 			release()
 			if called != want {
@@ -99,8 +111,8 @@ func TestRuntimePendingTracksAgentLoadOutcome(t *testing.T) {
 				if !ok || current.Name != "Changed" {
 					t.Fatal("deferred definition was not published")
 				}
-			} else if ok {
-				t.Fatal("deleted or invalid Agent remained executable after release")
+			} else if scenario == "deleted" && ok {
+				t.Fatal("deleted Agent remained executable after release")
 			}
 			if scenario == "deleted" {
 				if _, err := os.Stat(before.RuntimeDir); !os.IsNotExist(err) {
@@ -181,12 +193,12 @@ func TestRuntimePendingDeferredReloadDoesNotMarkOtherActiveAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	releaseFirst()
-	if called != 1 {
-		t.Fatalf("changed Agent release callbacks = %d, want 1", called)
+	if called != 0 {
+		t.Fatalf("successfully published Agent retriggered reload: %d", called)
 	}
 	releaseSecond()
-	if called != 1 {
-		t.Fatalf("deferred reload propagated to an unchanged Agent: callbacks = %d", called)
+	if called != 0 {
+		t.Fatalf("reload propagated to an unchanged Agent: callbacks = %d", called)
 	}
 }
 
@@ -242,7 +254,6 @@ func TestRuntimePendingPreflightFailurePreservesExistingState(t *testing.T) {
 				if err := r.Reload(context.Background(), "agents"); err != nil {
 					t.Fatal(err)
 				}
-				want = 1
 			}
 			failure := errors.New("source preflight failed")
 			err := r.ReloadWithRuntimeBindings(context.Background(), "agents", func() error { return failure }, func() error {

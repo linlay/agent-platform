@@ -3,11 +3,12 @@ package catalog
 import (
 	"path/filepath"
 	"strings"
+	"testing"
 )
 
-func loadAgentsWithAdmin(root, centerDir, chatsDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
+func loadAgentsWithAdmin(t *testing.T, root, centerDir, chatsDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	ruAgentsDir := filepath.Join(filepath.Dir(filepath.Clean(root)), "ru-agents")
-	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, centerDir)
+	assembler, err := newVersionTestAssembler(t, ruAgentsDir, centerDir)
 	if err != nil {
 		return nil, nil, err
 	}

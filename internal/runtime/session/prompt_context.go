@@ -16,6 +16,7 @@ import (
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/rootpaths"
 	runtimetypes "agent-platform/internal/runtime/types"
+	"agent-platform/internal/runtimeskills"
 	"agent-platform/internal/sandbox"
 )
 
@@ -444,7 +445,16 @@ func BuildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 		if !ok {
 			continue
 		}
-		blocks = append(blocks, SkillCatalogBlock(definition, def.SkillInstructionsPath(definition.ID)))
+		block := SkillCatalogBlock(definition, def.SkillInstructionsPath(definition.ID))
+		if def.RuntimeRevision != "" && !def.IsConnectorSkill(definition.ID) {
+			if dir, err := runtimeskills.Resolve(def.RuntimeDir, definition.ID); err == nil {
+				block += "\nhostDirectory: " + dir
+				if HasRuntimeSandbox(def.Runtime) {
+					block += "\ncontainerDirectory: /skills/" + definition.ID
+				}
+			}
+		}
+		blocks = append(blocks, block)
 	}
 	for _, skill := range mustUseSkills {
 		normalized := strings.ToLower(strings.TrimSpace(skill.ID))
@@ -531,7 +541,7 @@ func ResolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 		}
 		normalized := strings.ToLower(requestedKey)
 		if configuredKey, ok := configured[normalized]; ok {
-			rootPath, err := ResolveMustUseSkillRoot(filepath.Join(def.RuntimeDir, "skills"), configuredKey)
+			rootPath, err := ResolveConfiguredSkillRoot(def.RuntimeDir, configuredKey)
 			if err != nil {
 				return SkillResolution{}, fmt.Errorf("resolve must-use skill %q root: %w", configuredKey, err)
 			}

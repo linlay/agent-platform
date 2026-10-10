@@ -1,6 +1,7 @@
 package app
 
 import (
+	"agent-platform/internal/runtimeskills"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,11 @@ import (
 
 func TestKBaseCatalogSourceExposesOnlyEnabledCapabilities(t *testing.T) {
 	root := t.TempDir()
+	t.Cleanup(func() {
+		if err := runtimeskills.Remove(root); err != nil {
+			t.Error(err)
+		}
+	})
 	agentsDir := filepath.Join(root, "agents")
 	teamsDir := filepath.Join(root, "teams")
 	skillsDir := filepath.Join(root, "skills")

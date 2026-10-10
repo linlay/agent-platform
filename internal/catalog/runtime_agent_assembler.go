@@ -2,13 +2,16 @@ package catalog
 
 import (
 	"agent-platform/internal/config"
+	"agent-platform/internal/runtimeskills"
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -47,12 +50,14 @@ type runtimeAgentAssembler struct {
 	modePresets      map[string]config.AgentPresets
 	presetTools      []string
 	presetConnectors []string
-	frozenAgents     map[string]AgentDefinition
-	frozenAdmin      map[string]AdminAgent
+	previousAgents   map[string]AgentDefinition
+	previousAdmin    map[string]AdminAgent
 	// refreshedAgents contains only sources fully validated and published (or
-	// verified unchanged) by the latest Agent load. Missing frozen keys still
-	// need reconciliation after their active users leave.
+	// verified unchanged) by the latest Agent load. Failures retain the last
+	// published definition and remain visible as unsynchronized source updates.
 	refreshedAgents map[string]bool
+	contentDigests  map[string]string
+	versionSkills   map[string][]runtimeskills.Reference
 	root            string
 	centerDir       string
 	connectors      connector.Sources
@@ -70,15 +75,20 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 	if err != nil {
 		return nil, fmt.Errorf("resolve ru-agents directory: %w", err)
 	}
+	if filepath.Dir(absolute) == absolute || connector.RootsOverlap(absolute, runtimeskills.Root(absolute)) {
+		return nil, fmt.Errorf("invalid generated Agent/Skill roots")
+	}
 	connectorsDir := filepath.Join(filepath.Dir(absolute), "connectors-center")
 	if len(connectorsDirs) > 0 {
 		connectorsDir = connectorsDirs[0]
 	}
 	assembler := &runtimeAgentAssembler{
-		root:       filepath.Clean(absolute),
-		centerDir:  strings.TrimSpace(centerDir),
-		connectors: connector.Sources{ExternalRoot: connectorsDir},
-		locks:      map[string]*sync.Mutex{},
+		root:           filepath.Clean(absolute),
+		centerDir:      strings.TrimSpace(centerDir),
+		connectors:     connector.Sources{ExternalRoot: connectorsDir},
+		locks:          map[string]*sync.Mutex{},
+		contentDigests: map[string]string{},
+		versionSkills:  map[string][]runtimeskills.Reference{},
 	}
 	if len(connectorsDirs) > 1 {
 		assembler.connectors.BuiltinRoot = connectorsDirs[1]
@@ -87,7 +97,7 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 		assembler.connectors.StateRoot = connectorsDirs[2]
 	}
 	for _, other := range []string{assembler.centerDir, assembler.connectors.ExternalRoot, assembler.connectors.BuiltinRoot, assembler.connectors.StateRoot, assembler.connectors.SharedRoot()} {
-		if connector.RootsOverlap(assembler.root, other) {
+		if connector.RootsOverlap(assembler.root, other) || connector.RootsOverlap(runtimeskills.Root(assembler.root), other) {
 			return nil, fmt.Errorf("ru-agents directory overlaps a skill or connector root: %s", other)
 		}
 	}
@@ -98,7 +108,7 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 		if !info.IsDir() {
 			return nil, fmt.Errorf("ru-agents path must be a directory: %s", assembler.root)
 		}
-		if err := os.RemoveAll(assembler.root); err != nil {
+		if err := runtimeskills.Remove(assembler.root); err != nil {
 			return nil, fmt.Errorf("reset ru-agents directory: %w", err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -110,6 +120,16 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 	if err := os.Chmod(assembler.root, 0o700); err != nil {
 		return nil, fmt.Errorf("protect ru-agents directory: %w", err)
 	}
+	skillRoot := runtimeskills.Root(assembler.root)
+	if info, err := os.Lstat(skillRoot); err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.IsDir()) {
+		return nil, fmt.Errorf("ru-skills must be a real directory")
+	}
+	if err := runtimeskills.Remove(skillRoot); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(skillRoot, 0700); err != nil {
+		return nil, err
+	}
 	staging := filepath.Join(assembler.root, ".staging")
 	if err := os.MkdirAll(staging, 0o700); err != nil {
 		return nil, fmt.Errorf("create ru-agents staging directory: %w", err)
@@ -117,7 +137,7 @@ func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) 
 	return assembler, nil
 }
 
-func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDefinition) (string, error) {
+func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDefinition, sourceDefinitions ...map[string]any) (string, error) {
 	if a == nil {
 		return "", fmt.Errorf("runtime agent assembler is not configured")
 	}
@@ -132,12 +152,16 @@ func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDe
 	lock.Lock()
 	defer lock.Unlock()
 
+	beforeSource, err := runtimeSourceDigest(source)
+	if err != nil {
+		return "", err
+	}
 	stagingRoot := filepath.Join(a.root, ".staging")
 	candidate, err := os.MkdirTemp(stagingRoot, key+"-")
 	if err != nil {
 		return "", fmt.Errorf("create runtime agent candidate: %w", err)
 	}
-	defer os.RemoveAll(candidate)
+	defer runtimeskills.Remove(candidate)
 	if err := os.Chmod(candidate, 0o700); err != nil {
 		return "", fmt.Errorf("protect runtime agent candidate: %w", err)
 	}
@@ -183,23 +207,73 @@ func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDe
 		return "", err
 	}
 
-	stable := filepath.Join(a.root, key)
-	if !insideDir(a.root, stable) {
-		return "", fmt.Errorf("runtime agent target escapes ru-agents: %s", stable)
-	}
-	if _, active := a.frozenAgents[key]; active {
-		same, err := sameAgentContent(candidate, stable)
+	if len(sourceDefinitions) > 0 {
+		copied, err := readAdminAgentDefinitionMap(resolveDirectoryAgentConfig(candidate))
 		if err != nil {
 			return "", err
 		}
-		if !same {
-			return "", errAgentRuntimeBusy
+		if !reflect.DeepEqual(copied, sourceDefinitions[0]) {
+			return "", fmt.Errorf("Agent definition changed during assembly")
+		}
+	}
+	afterSource, err := runtimeSourceDigest(source)
+	if err != nil {
+		return "", err
+	}
+	if afterSource != beforeSource {
+		return "", fmt.Errorf("Agent source changed during assembly")
+	}
+	treeDigest, err := runtimeskills.Digest(candidate)
+	if err != nil {
+		return "", err
+	}
+	// Hash the resolved definition as well as bytes. Do not hash staging paths.
+	hashDef := cloneAgentDefinitionSnapshot(def)
+	hashDef.RuntimeDir = ""
+	hashDef.AgentDir = ""
+	for i := range hashDef.ConnectorSkills {
+		hashDef.ConnectorSkills[i].RuntimeDir = ""
+	}
+	definition, err := json.Marshal(hashDef)
+	if err != nil {
+		return "", err
+	}
+	revision := fmt.Sprintf("%x", sha256.Sum256(append([]byte(treeDigest), definition...)))
+	stable := filepath.Join(a.root, key, revision[:24])
+	if data, err := os.ReadFile(filepath.Join(stable, ".revision")); err == nil {
+		if string(data) != revision {
+			return "", fmt.Errorf("Agent revision prefix collision")
+		}
+		if err := a.verifyVersion(stable); err != nil {
+			return "", err
 		}
 		return stable, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
 	}
-	if err := publishAgentCandidate(candidate, stable, len(def.Connectors) > 0); err != nil {
-		return "", fmt.Errorf("publish runtime agent %s: %w", key, err)
+	if err := os.WriteFile(filepath.Join(candidate, ".revision"), []byte(revision), 0600); err != nil {
+		return "", err
 	}
+	if err := os.WriteFile(filepath.Join(candidate, ".content-digest"), []byte(treeDigest), 0600); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(stable), 0700); err != nil {
+		return "", err
+	}
+	if err := os.Rename(candidate, stable); err != nil {
+		return "", err
+	}
+	if err := runtimeskills.Seal(stable); err != nil {
+		_ = runtimeskills.Remove(stable)
+		return "", err
+	}
+	refs, err := runtimeskills.References(stable)
+	if err != nil {
+		_ = runtimeskills.Remove(stable)
+		return "", err
+	}
+	a.contentDigests[stable] = treeDigest
+	a.versionSkills[stable] = refs
 	return stable, nil
 }
 
@@ -214,36 +288,6 @@ func (a *runtimeAgentAssembler) agentLock(key string) *sync.Mutex {
 	return lock
 }
 
-func (a *runtimeAgentAssembler) cleanupDeleted(expected map[string]struct{}) error {
-	if a == nil {
-		return nil
-	}
-	entries, err := os.ReadDir(a.root)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") || !entry.IsDir() {
-			continue
-		}
-		if _, ok := expected[name]; ok {
-			continue
-		}
-		lock := a.agentLock(name)
-		lock.Lock()
-		target := filepath.Join(a.root, name)
-		if insideDir(a.root, target) {
-			err = os.RemoveAll(target)
-		}
-		lock.Unlock()
-		if err != nil {
-			return fmt.Errorf("remove deleted runtime agent %s: %w", name, err)
-		}
-	}
-	return nil
-}
-
 func copyRuntimeAgentSource(source EditableAgentSource, candidate string) error {
 	switch source.Kind {
 	case "directory":
@@ -252,6 +296,9 @@ func copyRuntimeAgentSource(source EditableAgentSource, candidate string) error 
 			return fmt.Errorf("read agent directory: %w", err)
 		}
 		for _, entry := range entries {
+			if entry.Name() == ".revision" || entry.Name() == ".content-digest" {
+				return fmt.Errorf("reserved runtime resource name: %s", entry.Name())
+			}
 			if entry.Name() == "skills" || entry.Name() == ".config" || entry.Name() == "connectors" {
 				continue
 			}
@@ -300,20 +347,26 @@ func (a *runtimeAgentAssembler) materializeSkills(source EditableAgentSource, ca
 		}
 	}
 	configEntries := map[string]runtimeConfigEntry{}
+	var refs []runtimeskills.Reference
 	for _, skillID := range ordered {
 		skillSource, err := a.resolveEffectiveSkillSource(source, def, skillID)
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(candidate, "skills", skillID)
 		if !def.IsConnectorSkill(skillID) {
-			if err := copyRuntimePath(skillSource, target); err != nil {
-				return fmt.Errorf("copy skill %q: %w", skillID, err)
+			digest, err := a.installSkill(skillSource)
+			if err != nil {
+				return fmt.Errorf("snapshot skill %q: %w", skillID, err)
 			}
+			refs = append(refs, runtimeskills.Reference{ID: skillID, Digest: digest})
+			skillSource, _ = runtimeskills.Path(runtimeskills.Root(a.root), digest)
 		}
 		if err := collectSkillConfig(skillID, filepath.Join(skillSource, ".config"), configEntries); err != nil {
 			return err
 		}
+	}
+	if err := runtimeskills.WriteReferences(candidate, refs); err != nil {
+		return err
 	}
 	return writeSkillConfigEntries(filepath.Join(candidate, ".config"), configEntries)
 }
@@ -688,7 +741,10 @@ func validateRuntimeAgentCandidate(candidate string, expected AgentDefinition) e
 		return err
 	}
 	for _, skillID := range ordered {
-		dir := filepath.Join(candidate, "skills", skillID)
+		dir, resolveErr := runtimeskills.Resolve(candidate, skillID)
+		if resolveErr != nil && !expected.IsConnectorSkill(skillID) {
+			return resolveErr
+		}
 		for _, skill := range expected.ConnectorSkills {
 			if skill.ID == skillID {
 				dir = skill.RuntimeDir
@@ -770,7 +826,10 @@ func copyRuntimeFile(source, target string, mode os.FileMode) error {
 }
 
 func privateFileMode(source os.FileMode) os.FileMode {
-	return 0o600 | (source.Perm() & 0o100)
+	if source.Perm()&0o111 != 0 {
+		return 0o700
+	}
+	return 0o600
 }
 
 func syncRuntimeTree(candidate, stable string) error {
@@ -902,49 +961,4 @@ func atomicCopyRuntimeFile(source, target string, mode os.FileMode) error {
 		}
 	}
 	return os.Chmod(target, privateFileMode(mode))
-}
-
-var errAgentRuntimeBusy = errors.New("Agent content update deferred until active users release")
-
-// Connector references may change while Agent files and merged configuration stay frozen.
-func sameAgentContent(a, b string) (bool, error) {
-	collect := func(root string) (map[string]string, error) {
-		result := map[string]string{}
-		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			rel, _ := filepath.Rel(root, path)
-			if rel == "connectors" {
-				return filepath.SkipDir
-			}
-			if entry.IsDir() {
-				return nil
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			result[rel] = string(data)
-			return nil
-		})
-		return result, err
-	}
-	left, err := collect(a)
-	if err != nil {
-		return false, err
-	}
-	right, err := collect(b)
-	if err != nil {
-		return false, err
-	}
-	if len(left) != len(right) {
-		return false, nil
-	}
-	for key, value := range left {
-		if other, ok := right[key]; !ok || other != value {
-			return false, nil
-		}
-	}
-	return true, nil
 }

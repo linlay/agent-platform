@@ -574,7 +574,7 @@ func TestTranslateReferencePathForHostUsesStrictDualRoots(t *testing.T) {
 func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *testing.T) {
 	t.Parallel()
 
-	agentDir := t.TempDir()
+	agentDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	centerDir := t.TempDir()
 	localSkillDir := filepath.Join(agentDir, "skills", "demo")
 	centerSkillDir := filepath.Join(centerDir, "demo")
@@ -601,6 +601,7 @@ func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *te
 		t.Fatalf("write center skill: %v", err)
 	}
 
+	installRuntimeSkillFixture(t, agentDir, "demo")
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
 		RuntimeDir: agentDir,
 		Skills:     []string{"demo"},
@@ -723,7 +724,7 @@ func TestBuildPromptAppendConfigAgentRuntimePromptsOverrideGlobal(t *testing.T) 
 func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testing.T) {
 	t.Parallel()
 
-	agentDir := t.TempDir()
+	agentDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	centerDir := t.TempDir()
 	skillDir := filepath.Join(agentDir, "skills", "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -738,6 +739,7 @@ func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testi
 	appendConfig.Skill.InstructionsLabel = "instructions"
 	appendConfig.Skill.CatalogHeader = "skills header"
 
+	installRuntimeSkillFixture(t, agentDir, "demo")
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
 		RuntimeDir: agentDir,
 		Skills:     []string{"demo"},
@@ -758,7 +760,7 @@ func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testi
 func TestBuildSkillCatalogPromptLeavesInstructionsUnlabeledWhenLabelEmpty(t *testing.T) {
 	t.Parallel()
 
-	agentDir := t.TempDir()
+	agentDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	centerDir := t.TempDir()
 	skillDir := filepath.Join(agentDir, "skills", "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -773,6 +775,7 @@ func TestBuildSkillCatalogPromptLeavesInstructionsUnlabeledWhenLabelEmpty(t *tes
 	appendConfig.Skill.InstructionsLabel = ""
 	appendConfig.Skill.CatalogHeader = "skills header"
 
+	installRuntimeSkillFixture(t, agentDir, "demo")
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
 		RuntimeDir: agentDir,
 		Skills:     []string{"demo"},

@@ -27,7 +27,7 @@ func TestAgentRuntimeLeaseReleaseWithoutReloadKeepsConnectorMount(t *testing.T) 
 				t.Fatal(err)
 			}
 			writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "demo", "agent.yml"), "key: demo\nname: Test\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.dbx\n")
-			r, err := NewFileRegistry(cfg, nil)
+			r, err := newVersionTestRegistry(t, cfg, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +91,7 @@ func TestAgentRuntimeLeaseDefersOnlyActiveAgentsAndKeepsCredentialState(t *testi
 	linked := os.Symlink(filepath.Join("references", "commands.md"), filepath.Join(sourceSkill, "commands-link.md")) == nil
 	state := filepath.Join(cfg.Paths.StateDir, "connectors", "external", "oauth.json")
 	writeRuntimeAssemblerFile(t, state, "private credential")
-	r, err := NewFileRegistry(cfg, nil)
+	r, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -112,7 +112,16 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	agentDef := admission.AgentDef
 	var releaseRuntime func()
 	var runtimeFound bool
-	if admission.TeamSnapshot != nil {
+	if admission.Frozen {
+		if admission.TeamSnapshot != nil {
+			frozen, release, ok := catalogview.AcquireTeamSnapshot(s.deps.Registry, *admission.TeamSnapshot)
+			teamSnapshot = &frozen
+			releaseRuntime = release
+			runtimeFound = ok
+		} else {
+			agentDef, releaseRuntime, runtimeFound = catalogview.AcquireAgentSnapshot(s.deps.Registry, agentDef)
+		}
+	} else if admission.TeamSnapshot != nil {
 		leasedTeam, release, ok := catalogview.AcquireTeam(s.deps.Registry, admission.TeamSnapshot.TeamID)
 		releaseRuntime, runtimeFound = release, ok
 		if ok {
@@ -337,7 +346,10 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		BuildQuerySession: s.deps.Sessions.BuildQuerySession,
 		PrepareSystemInit: s.deps.Sessions.PrepareSystemInitCache,
 		Notifications:     s.deps.Notifications,
-		OnContinuation:    s.startRunContinuation,
+		OnContinuation: func(c contracts.DeltaRunContinuation) (string, error) {
+			c.ContinuationState = &awaitingContinuationAdmission{Summary: summary, TeamID: teamID, AgentKey: agentKey, TeamSnapshot: teamSnapshot, AgentDef: agentDef, Frozen: true}
+			return s.startRunContinuation(c)
+		},
 		OnUnreadChanged: func(summary chat.Summary) {
 			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
 			if err != nil {
@@ -345,9 +357,9 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 			}
 			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
 		},
+		Release: releaseRuntime,
 		OnComplete: func(completion chat.RunCompletion) {
 			s.finishRunConnectorPins(completion.RunID, chatID)
-			releaseQuery(releaseRuntime)
 			s.deps.Runs.Finish(completion.RunID)
 			s.broadcast("run.finished", runFinishedPushPayload(
 				completion.RunID,
@@ -740,6 +752,7 @@ func cloneMessageMapsForSyntheticBootstrap(messages []map[string]any) []map[stri
 }
 
 type awaitingContinuationAdmission struct {
+	Frozen       bool
 	Summary      chat.Summary
 	TeamID       string
 	AgentKey     string

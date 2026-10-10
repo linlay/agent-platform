@@ -255,6 +255,8 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		TeamID:                      req.TeamID,
 		Created:                     options.Created,
 		ConnectorDirs:               RuntimeConnectorDirs(agentDef),
+		SkillDirs:                   RuntimeSkillDirs(agentDef),
+		SharedSkillsRoot:            s.deps.Config.Paths.EffectiveRUSkillsDir(),
 		SharedConnectorsRoot:        s.deps.Config.Paths.ConnectorSources().SharedRoot(),
 		NativeConnectorTools:        RuntimeNativeConnectorTools(agentDef),
 		ConnectorCLIEntries:         append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),

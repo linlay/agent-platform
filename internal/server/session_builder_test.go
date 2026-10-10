@@ -161,7 +161,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 			SystemPrompt: "configured coder system prompt",
 		},
 	}
-	registry, err := catalog.NewFileRegistry(cfg, nil)
+	registry, err := newRuntimeTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 			EditingPrompt:    "configured editing",
 		},
 	}
-	registry, err := catalog.NewFileRegistry(cfg, nil)
+	registry, err := newRuntimeTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -935,7 +935,7 @@ func TestBuildQuerySessionPlanningModeAppliesToNativeAgentsOnRequest(t *testing.
 			ChatsDir:  filepath.Join(root, "chats"),
 		},
 	}
-	registry, err := catalog.NewFileRegistry(cfg, nil)
+	registry, err := newRuntimeTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}

@@ -24,7 +24,7 @@ func TestLegacyContextAgentsIgnoredWithOneWarning(t *testing.T) {
 			cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents")}}
 			path := filepath.Join(cfg.Paths.AgentsDir, "parent", "agent.yml")
 			writeRuntimeAssemblerFile(t, path, "key: parent\nmode: GENERAL\nmodelConfig: {modelKey: test}\ncontextConfig:\n"+legacy)
-			r, err := NewFileRegistry(cfg, nil)
+			r, err := newVersionTestRegistry(t, cfg, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

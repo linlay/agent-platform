@@ -47,9 +47,10 @@ func writeTestSkill(t *testing.T, root string, id string) {
 
 func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 	centerDir := t.TempDir()
-	runtimeDir := t.TempDir()
+	runtimeDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	writeTestSkill(t, filepath.Join(runtimeDir, "skills"), "design")
 	writeTestSkill(t, centerDir, "pdf")
+	designDir := installRuntimeSkillFixture(t, runtimeDir, "design")
 	def := catalog.AgentDefinition{
 		Key:        "coder",
 		RuntimeDir: runtimeDir,
@@ -75,7 +76,7 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 	if got.Skills[1].InstructionsPath != "@skills-center/pdf/SKILL.md" || !got.Skills[1].Extra {
 		t.Fatalf("center skill = %#v", got.Skills[1])
 	}
-	designRoot, err := pathutil.Canonicalize(filepath.Join(runtimeDir, "skills", "design"))
+	designRoot, err := pathutil.Canonicalize(designDir)
 	if err != nil {
 		t.Fatal(err)
 	}

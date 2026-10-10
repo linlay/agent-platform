@@ -93,6 +93,11 @@ func (e *ProxyExecutor) launch(prepared runtimetypes.PreparedQuery, registered r
 }
 
 func (e *ProxyExecutor) execute(ctx context.Context, prepared runtimetypes.PreparedQuery, route *proxy.Route, bus *stream.RunEventBus, recorder *ProxyEventRecorder, startup chan<- error, onCompletion func(runtimetypes.QueryResult)) {
+	// Runtime collection may touch the filesystem. Keep the lease through
+	// completion callbacks without delaying terminal state/notifications on GC.
+	if prepared.Release != nil {
+		defer prepared.Release()
+	}
 	defer func() {
 		if route != nil {
 			e.Routes.Unregister(prepared.Req.RunID, route)
@@ -118,9 +123,6 @@ func (e *ProxyExecutor) execute(ctx context.Context, prepared runtimetypes.Prepa
 		}
 		if bus != nil {
 			bus.FreezeAndWait()
-		}
-		if prepared.Release != nil {
-			prepared.Release()
 		}
 		e.Runs.Finish(prepared.Req.RunID)
 		status := "failed"

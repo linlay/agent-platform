@@ -158,6 +158,12 @@ func resolveSandboxCwd(execCtx *ExecutionContext, raw string) (string, error) {
 			return joinExecutionRoot(item.root, suffix)
 		}
 	}
+	if strings.HasPrefix(raw, "@skills/") && execCtx.Session.SkillDirs != nil {
+		if _, err := accesspolicy.ResolveSessionPath(execCtx.Session, raw); err != nil {
+			return "", err
+		}
+		return "/skills/" + strings.TrimPrefix(raw, "@skills/"), nil
+	}
 	if slashed := filepath.ToSlash(raw); strings.EqualFold(slashed, "@runtime") || strings.HasPrefix(strings.ToLower(slashed), "@runtime/") {
 		return resolveSandboxRuntimeCwd(execCtx.Session, slashed)
 	}

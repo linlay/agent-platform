@@ -91,8 +91,8 @@ func TestConnectorDeleteChecksFreshInvalidSourcesAndLeasedRuntimes(t *testing.T)
 	}
 	t.Cleanup(release)
 	response := agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "docs", "enabled": false}))
-	if !response.ReloadPending {
-		t.Fatal("expected pending runtime reload")
+	if response.ReloadPending {
+		t.Fatal("new runtime must publish while old lease retains connector")
 	}
 	if rec := deleteConnectorRequest(f.server, "docs"); rec.Code != 409 {
 		t.Fatalf("leased: %d %s", rec.Code, rec.Body.String())

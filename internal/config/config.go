@@ -139,6 +139,15 @@ func (p PathsConfig) EffectiveRUAgentsDir() string {
 	return ""
 }
 
+// EffectiveRUSkillsDir is the process-lifetime shared ordinary Skill cache.
+func (p PathsConfig) EffectiveRUSkillsDir() string {
+	root := p.EffectiveRUAgentsDir()
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(root), "ru-skills")
+}
+
 func (p PathsConfig) EffectiveConnectorsCenterDir() string {
 	if value := strings.TrimSpace(p.ConnectorsCenterDir); value != "" {
 		return value

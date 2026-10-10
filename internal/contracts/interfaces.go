@@ -303,7 +303,9 @@ type QuerySession struct {
 	ResolveView          func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
 	SharedConnectorsRoot string                                                                `json:"-"`
 	NativeConnectorTools map[string]string                                                     `json:"-"` // Trusted platform capability bindings, never model input.
-	ConnectorDirs        map[string]string                                                     `json:"-"` // Frozen mounted connector runtime paths.
+	SharedSkillsRoot     string
+	SkillDirs            map[string]string
+	ConnectorDirs        map[string]string `json:"-"` // Frozen mounted connector runtime paths.
 	RequestID            string
 	RunID                string
 	// TempRoot and TempRoots are the process-start temporary-directory snapshot

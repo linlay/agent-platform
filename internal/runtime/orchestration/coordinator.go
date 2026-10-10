@@ -725,7 +725,14 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		Status:      "completed",
 	}
 
-	leasedDef, release, ok := catalogview.AcquireAgent(o.Registry, task.Spec.SubAgentKey)
+	var leasedDef catalog.AgentDefinition
+	var release func()
+	var ok bool
+	if o.Session.TeamID != "" {
+		leasedDef, release, ok = catalogview.AcquireAgentSnapshot(o.Registry, task.AgentDef)
+	} else {
+		leasedDef, release, ok = catalogview.AcquireAgent(o.Registry, task.Spec.SubAgentKey)
+	}
 	if !ok {
 		result.Status = "failed"
 		result.Error = "Agent runtime is unavailable"

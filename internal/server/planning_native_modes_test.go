@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 )
@@ -173,7 +172,7 @@ func TestKBasePlanningRunDoesNotEnableWorkspaceEditing(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: agentsDir, ChatsDir: filepath.Join(root, "chats")}}
-	registry, err := catalog.NewFileRegistry(cfg, nil)
+	registry, err := newRuntimeTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}

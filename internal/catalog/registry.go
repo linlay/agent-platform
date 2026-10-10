@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/knowledge"
+	"agent-platform/internal/runtimeskills"
 
 	"agent-platform/internal/interaction"
 )
@@ -85,6 +86,7 @@ type AgentDefinition struct {
 	RuntimePrompts       AgentRuntimePrompts
 	AgentDir             string
 	RuntimeDir           string `json:"-"`
+	RuntimeRevision      string `json:"-"`
 
 	// PROXY mode: forward /api/query to a remote AGW-compatible service.
 	ProxyConfig *ProxyConfig
@@ -299,6 +301,7 @@ type SkillDefinition struct {
 type FileRegistry struct {
 	executionMu         sync.Mutex
 	runtimeUsers        map[string]int
+	runtimeVersions     map[string]int
 	liveConnectorMounts map[string]connector.AgentRuntime
 	liveConnectorUsers  map[string]int
 	sharedPins          map[string]func()
@@ -335,6 +338,11 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	}
 	if err := cleanupEditableSkillImportStaging(cfg.Paths.SkillsCenterDir); err != nil {
 		return nil, fmt.Errorf("cleanup skill import staging: %w", err)
+	}
+	for _, other := range []string{cfg.Paths.AgentsDir, cfg.Paths.SkillsCenterDir, cfg.Paths.TeamsDir, cfg.Paths.ChatsDir, cfg.Paths.MemoryDir, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, cfg.Paths.RegistriesDir, cfg.Paths.ToolsDir, cfg.Paths.OwnerDir, cfg.Paths.RootDir, cfg.Paths.AutomationsDir, cfg.Paths.PanDir} {
+		if other != "" && connector.RootsOverlap(runtimeskills.Root(cfg.Paths.EffectiveRUAgentsDir()), other) {
+			return nil, fmt.Errorf("ru-skills overlaps runtime source: %s", other)
+		}
 	}
 	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsCenterDir(), cfg.Paths.BuiltinConnectorsDir, cfg.Paths.EffectiveConnectorStateDir())
 	if err != nil {
@@ -390,6 +398,8 @@ func (r *FileRegistry) Reload(ctx context.Context, reason string) error {
 func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason string, validate, bind func() error) (resultErr error) {
 	r.executionMu.Lock()
 	defer r.executionMu.Unlock()
+	defer r.collectRuntimeVersions()
+	defer r.updateRuntimeDiagnostics()
 	if validate != nil {
 		if err := validate(); err != nil {
 			return err
@@ -415,6 +425,20 @@ func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason strin
 	if reason != "teams" && reason != "skills" {
 		defer func() { r.reconcileRuntimePending(resultErr == nil) }()
 	}
+	r.mu.RLock()
+	oldAgents, oldAdmin, oldTeams, oldSkills := r.agents, r.adminAgents, r.teams, r.skills
+	r.mu.RUnlock()
+	defer func() {
+		if resultErr != nil {
+			r.mu.Lock()
+			r.agents, r.adminAgents, r.teams, r.skills = oldAgents, oldAdmin, oldTeams, oldSkills
+			r.mu.Unlock()
+			if r.assembler != nil {
+				_ = r.reconcileSharedPins()
+			}
+		}
+	}()
+	r.discardUnusedCorruptResources()
 	if err := r.reloadLocked(reason); err != nil {
 		return err
 	}
@@ -439,7 +463,7 @@ func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason strin
 }
 
 func (r *FileRegistry) reloadLocked(reason string) error {
-	r.freezeActiveRuntimes()
+	r.snapshotPublishedRuntimes()
 	switch reason {
 	case "agents":
 		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
@@ -760,7 +784,7 @@ func (r *FileRegistry) AgentDefinition(key string) (AgentDefinition, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	def, ok := r.agents[key]
-	return def, ok
+	return cloneAgentDefinitionSnapshot(def), ok
 }
 
 func (r *FileRegistry) TeamDefinition(teamID string) (TeamDefinition, bool) {

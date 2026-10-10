@@ -75,8 +75,8 @@ func TestAgentUsageHTTPAndWSKeepAssociationsMinimalDuringPendingPublication(t *t
 	read("pending", []string{})
 	catalogRec := connectorUsageRequest(f.server, http.MethodGet, "/api/connectors?agentKey=mock-agent", nil)
 	var catalogBody api.ApiResponse[api.ConnectorOptionsResponse]
-	if err := json.Unmarshal(catalogRec.Body.Bytes(), &catalogBody); err != nil || catalogBody.Data.ReloadPending == nil || !*catalogBody.Data.ReloadPending {
-		t.Fatalf("pending state missing from directory: %s (%v)", catalogRec.Body.String(), err)
+	if err := json.Unmarshal(catalogRec.Body.Bytes(), &catalogBody); err != nil || catalogBody.Data.ReloadPending == nil || *catalogBody.Data.ReloadPending {
+		t.Fatalf("new version was not published: %s (%v)", catalogRec.Body.String(), err)
 	}
 	release()
 	read("published", []string{})

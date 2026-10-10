@@ -92,6 +92,28 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 			return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionBlock, "platform state or credentials require dedicated sensitive access"), nil
 		}
 	}
+	if session.SharedSkillsRoot != "" {
+		shared, err := pathutil.Canonicalize(session.SharedSkillsRoot)
+		if err != nil {
+			return PathPlan{}, err
+		}
+		if pathutil.WithinRoot(realCandidate, shared) {
+			if mode == WriteAccess {
+				return buildPathPlan(mode, rawPath, realCandidate, shared, accessLevel, DecisionBlock, "shared Skill snapshots are read-only"), nil
+			}
+			mounted := false
+			for _, dir := range session.SkillDirs {
+				root, err := pathutil.Canonicalize(dir)
+				if err == nil && pathutil.WithinRoot(realCandidate, root) {
+					mounted = true
+					break
+				}
+			}
+			if !mounted {
+				return buildPathPlan(mode, rawPath, realCandidate, shared, accessLevel, DecisionBlock, "Skill snapshot is not mounted in this run"), nil
+			}
+		}
+	}
 	if session.SharedConnectorsRoot != "" {
 		shared, err := pathutil.Canonicalize(session.SharedConnectorsRoot)
 		if err != nil {
@@ -140,6 +162,9 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if mode == ReadAccess {
 		roots = append(roots, session.RunAccessRoots.ReadRoots...)
 	}
+	if mode == WriteAccess && sessionWorkspaceEditingDisabled(session) && PathInSessionMutationScope(session, realCandidate.Host) {
+		return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionBlock, WorkspaceEditingDisabledReason), nil
+	}
 	if mode == WriteAccess && IsExecutableConfigPath(realCandidate) {
 		decision := decisionForAction(level.Approvals.ExecutableConfig)
 		if decision == DecisionAllow && sessionWorkspaceEditingDisabled(session) && PathInSessionMutationScope(session, realCandidate.Host) {
@@ -159,12 +184,17 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 		if err != nil {
 			return PathPlan{}, err
 		}
+		if root, ok := SessionEditableCollectionRoot(session, realCandidate.Host); ok {
+			workspace = pathutil.Canonical{Host: root, Key: pathutil.CanonicalKey(root)}
+		}
 		return buildPathPlan(mode, rawPath, realCandidate, workspace, accessLevel, DecisionAllow, ""), nil
 	}
-	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
-	if mode == WriteAccess && sessionWorkspaceEditingDisabled(session) && PathInSessionMutationScope(session, realCandidate.Host) {
-		return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionBlock, WorkspaceEditingDisabledReason), nil
+	if mode == ReadAccess {
+		if root, ok := SessionEditableCollectionRoot(session, realCandidate.Host); ok {
+			return buildPathPlan(mode, rawPath, realCandidate, pathutil.Canonical{Host: root, Key: pathutil.CanonicalKey(root)}, accessLevel, DecisionAllow, ""), nil
+		}
 	}
+	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
 	if ok {
 		return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionAllow, ""), nil
 	}
@@ -184,16 +214,8 @@ func EffectiveLevel(cfg config.AccessPolicyConfig, accessLevel string) Level {
 		raw.ReadRoots = appendRequiredRoot(raw.ReadRoots, "@temp")
 		raw.WriteRoots = appendRequiredRoot(raw.WriteRoots, "@temp")
 	}
-		if root, ok := SessionEditableCollectionRoot(session, realCandidate.Host); ok {
-			workspace = pathutil.Canonical{Host: root, Key: pathutil.CanonicalKey(root)}
-		}
 	return Level{
 		Name:          normalized,
-	if mode == ReadAccess {
-		if root, ok := SessionEditableCollectionRoot(session, realCandidate.Host); ok {
-			return buildPathPlan(mode, rawPath, realCandidate, pathutil.Canonical{Host: root, Key: pathutil.CanonicalKey(root)}, accessLevel, DecisionAllow, ""), nil
-		}
-	}
 		ReadRoots:     raw.ReadRoots,
 		WriteRoots:    raw.WriteRoots,
 		ReadonlyRoots: raw.ReadonlyRoots,
@@ -296,6 +318,21 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 	}
 	if alias, suffix, ok := splitRootQualifiedPath(rawPath); ok {
 		root := expandRootAlias(alias, session)
+		if alias == "@skills" && session.SkillDirs != nil && suffix != "" {
+			matched := ""
+			for id, dir := range session.SkillDirs {
+				if suffix == id || strings.HasPrefix(suffix, id+"/") {
+					if len(id) > len(matched) {
+						matched = id
+						root = dir
+					}
+				}
+			}
+			if matched == "" {
+				return "", fmt.Errorf("skill is not mounted: %s", suffix)
+			}
+			suffix = strings.TrimPrefix(strings.TrimPrefix(suffix, matched), "/")
+		}
 		if alias == "@connectors" {
 			id, remaining, _ := strings.Cut(suffix, "/")
 			root = session.ConnectorDirs[id]
@@ -325,7 +362,7 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 		if strings.EqualFold(alias, "@workspace") {
 			return requireSessionWorkspacePath(session, resolved)
 		}
-		if alias == "@connectors" {
+		if alias == "@connectors" || (alias == "@skills" && session.SkillDirs != nil) {
 			base, baseErr := pathutil.Canonicalize(root)
 			target, targetErr := pathutil.Canonicalize(resolved)
 			if baseErr != nil || targetErr != nil || !pathutil.WithinRoot(target, base) {
@@ -356,6 +393,10 @@ func translateExecutionPath(session QuerySession, rawPath string) (string, bool,
 	// host path policy (including readonly and selected-skill read roots).
 	if host, ok := session.SkillScripts.HostPath(rawPath); ok {
 		return host, true, nil
+	}
+	if session.SkillDirs != nil && strings.HasPrefix(rawPath, "/skills/") {
+		resolved, err := ResolveSessionPath(session, "@skills"+strings.TrimPrefix(rawPath, "/skills"))
+		return resolved, true, err
 	}
 	if rawPath == "/connectors" || strings.HasPrefix(rawPath, "/connectors/") {
 		resolved, err := ResolveSessionPath(session, "@connectors"+strings.TrimPrefix(rawPath, "/connectors"))

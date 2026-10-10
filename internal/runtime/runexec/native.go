@@ -53,6 +53,8 @@ type NativeOptions struct {
 	// OnComplete receives the same terminal record used for persistence. Callers
 	// use it for run.finished so its time and status cannot drift from the run.
 	OnComplete func(chat.RunCompletion)
+	// Release runs after continuation admission has retained any inherited runtime.
+	Release func()
 }
 
 type AwaitingTracker struct {
@@ -142,6 +144,9 @@ func StartNative(params NativeOptions) {
 }
 
 func ExecuteNative(params NativeOptions) Result {
+	if params.Release != nil {
+		defer params.Release()
+	}
 	tracker := &AwaitingTracker{}
 	result := Execute(ExecuteOptions{
 		RunCtx: params.RunCtx, Session: params.Session,

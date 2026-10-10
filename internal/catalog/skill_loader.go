@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/agentconfig"
+	"agent-platform/internal/runtimeskills"
 )
 
 // ResolveSkillDefinition loads a declared skill from real host paths.
@@ -37,7 +38,11 @@ func ResolveRuntimeSkillDefinition(runtimeDir, skillID string) (SkillDefinition,
 	if !validSkillPathID(skillID) {
 		return SkillDefinition{}, false, ErrInvalidSkillID
 	}
-	return loadSkillDefinitionFromDir(filepath.Join(runtimeDir, "skills", filepath.FromSlash(skillID)), skillID, 0)
+	root, err := runtimeskills.Resolve(runtimeDir, skillID)
+	if err != nil {
+		return SkillDefinition{}, false, err
+	}
+	return loadSkillDefinitionFromDir(root, skillID, 0)
 }
 
 func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, error) {

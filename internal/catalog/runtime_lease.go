@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"fmt"
+	"log"
 	"sync"
 
 	"agent-platform/internal/connector"
@@ -15,30 +17,104 @@ type RuntimeLeaser interface {
 
 func (r *FileRegistry) AcquireAgentRuntime(key string) (AgentDefinition, func(), bool) {
 	r.executionMu.Lock()
-	defer r.executionMu.Unlock()
 	def, ok := r.AgentDefinition(key)
 	if !ok {
+		r.executionMu.Unlock()
 		return AgentDefinition{}, nil, false
 	}
-	return def, r.retainRuntimeLocked([]string{def.Key}), true
+	release, checks := r.retainForVerificationLocked([]AgentDefinition{def})
+	r.executionMu.Unlock()
+	if !r.verifyRuntimeChecks(checks, release) {
+		return AgentDefinition{}, nil, false
+	}
+	return def, release, true
 }
 
 func (r *FileRegistry) AcquireTeamRuntime(key string) (TeamSnapshot, func(), bool) {
 	r.executionMu.Lock()
-	defer r.executionMu.Unlock()
 	team, ok := r.ResolveTeam(key)
 	if !ok {
+		r.executionMu.Unlock()
 		return TeamSnapshot{}, nil, false
 	}
-	return team, r.retainRuntimeLocked(team.ValidAgentKeys), true
+	var defs []AgentDefinition
+	for _, key := range team.ValidAgentKeys {
+		def, _ := team.AgentDefinition(key)
+		defs = append(defs, def)
+	}
+	release, checks := r.retainForVerificationLocked(defs)
+	r.executionMu.Unlock()
+	if !r.verifyRuntimeChecks(checks, release) {
+		return TeamSnapshot{}, nil, false
+	}
+	return team, release, true
 }
 
-func (r *FileRegistry) retainRuntimeLocked(keys []string) func() {
+// Capture trusted digests and retain all resources under the publication lock.
+// Hashing then runs without executionMu; the provisional lease prevents GC and
+// repair from removing or replacing these paths. Admission linearizes here.
+type runtimeVersionCheck struct {
+	def      AgentDefinition
+	expected string
+}
+
+func (r *FileRegistry) retainForVerificationLocked(defs []AgentDefinition) (func(), []runtimeVersionCheck) {
+	var checks []runtimeVersionCheck
+	for _, def := range defs {
+		if r.assembler != nil && def.RuntimeRevision != "" {
+			checks = append(checks, runtimeVersionCheck{def, r.assembler.contentDigests[def.RuntimeDir]})
+		}
+	}
+	return r.retainDefinitionsLocked(defs), checks
+}
+
+func (r *FileRegistry) verifyRuntimeChecks(checks []runtimeVersionCheck, release func()) bool {
+	for _, check := range checks {
+		var err error
+		if check.expected == "" {
+			err = fmt.Errorf("unknown runtime version")
+		} else {
+			err = verifyRuntimeVersionContent(check.def.RuntimeDir, check.expected)
+		}
+		if err != nil {
+			r.executionMu.Lock()
+			alreadyPending := r.runtimePending[check.def.Key]
+			r.markRuntimeUnavailable(check.def, err)
+			r.executionMu.Unlock()
+			release()
+			// A last-user release already requests reload. Otherwise request it
+			// once now while the old active users continue retaining their paths.
+			r.executionMu.Lock()
+			callback := r.onRuntimeIdle
+			request := !alreadyPending && r.runtimePending[check.def.Key]
+			r.executionMu.Unlock()
+			if request && callback != nil {
+				go callback()
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func (r *FileRegistry) retainDefinitionsLocked(defs []AgentDefinition) func() {
+	keys := make([]string, 0, len(defs))
+	for _, def := range defs {
+		keys = append(keys, def.Key)
+	}
 	if r.runtimeUsers == nil {
 		r.runtimeUsers = map[string]int{}
 	}
-	for _, key := range keys {
+	if r.runtimeVersions == nil {
+		r.runtimeVersions = map[string]int{}
+	}
+	var versions []string
+	for _, def := range defs {
+		key := def.Key
 		r.runtimeUsers[key]++
+		dir := def.RuntimeDir
+		r.runtimeVersions[dir]++
+		versions = append(versions, dir)
 	}
 	r.mu.Lock()
 	if r.liveConnectorMounts == nil {
@@ -46,8 +122,9 @@ func (r *FileRegistry) retainRuntimeLocked(keys []string) func() {
 		r.liveConnectorUsers = map[string]int{}
 	}
 	var mountKeys []string
-	for _, key := range keys {
-		for _, mount := range r.agents[key].ConnectorMounts {
+	for _, def := range defs {
+		key := def.Key
+		for _, mount := range def.ConnectorMounts {
 			identity := key + "\x00" + mount.Dir
 			r.liveConnectorMounts[identity] = connector.AgentRuntime{AgentKey: key, ID: mount.ID, Dir: mount.Dir, Digest: mount.Digest}
 			r.liveConnectorUsers[identity]++
@@ -55,6 +132,7 @@ func (r *FileRegistry) retainRuntimeLocked(keys []string) func() {
 		}
 	}
 	r.mu.Unlock()
+	r.updateRuntimeDiagnostics()
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -79,6 +157,14 @@ func (r *FileRegistry) retainRuntimeLocked(keys []string) func() {
 				}
 			}
 			r.mu.Unlock()
+			for _, dir := range versions {
+				r.runtimeVersions[dir]--
+				if r.runtimeVersions[dir] == 0 {
+					delete(r.runtimeVersions, dir)
+				}
+			}
+			r.updateRuntimeDiagnostics()
+			r.collectRuntimeVersions()
 			callback := r.onRuntimeIdle
 			r.executionMu.Unlock()
 			if refresh && callback != nil {
@@ -88,31 +174,30 @@ func (r *FileRegistry) retainRuntimeLocked(keys []string) func() {
 	}
 }
 
-// SetRuntimeReload connects deferred publication to the normal reload cascade.
+// SetRuntimeReload reconciles failed source updates and old connector bindings.
 func (r *FileRegistry) SetRuntimeReload(callback func()) {
 	r.executionMu.Lock()
 	r.onRuntimeIdle = callback
 	r.executionMu.Unlock()
 }
 
-func (r *FileRegistry) freezeActiveRuntimes() {
+func (r *FileRegistry) snapshotPublishedRuntimes() {
 	if r.assembler == nil {
 		return
 	}
-	r.assembler.frozenAgents = map[string]AgentDefinition{}
-	r.assembler.frozenAdmin = map[string]AdminAgent{}
+	r.assembler.previousAgents = map[string]AgentDefinition{}
+	r.assembler.previousAdmin = map[string]AdminAgent{}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for key, count := range r.runtimeUsers {
-		if def, ok := r.agents[key]; ok && count > 0 {
-			r.assembler.frozenAgents[key] = def
-			r.assembler.frozenAdmin[key] = r.adminAgents[key]
-		}
+	for key, def := range r.agents {
+		r.assembler.previousAgents[key] = def
+		r.assembler.previousAdmin[key] = r.adminAgents[key]
 	}
 }
 
 // reconcileRuntimePending runs under executionMu after an Agent reload cascade.
-// Freezing protects active files; pending records actual work left for release.
+// Successful Agent updates publish immediately; pending tracks failures and
+// connector cleanup only.
 func (r *FileRegistry) reconcileRuntimePending(succeeded bool) {
 	if r.assembler == nil {
 		return
@@ -122,7 +207,7 @@ func (r *FileRegistry) reconcileRuntimePending(succeeded bool) {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for key := range r.assembler.frozenAgents {
+	for key := range r.assembler.previousAgents {
 		if !succeeded || !r.assembler.refreshedAgents[key] {
 			// Includes deferred content, missing/deleted sources and validation
 			// failures. A failed cascade must not clear earlier pending work.
@@ -146,4 +231,49 @@ func (r *FileRegistry) reconcileRuntimePending(succeeded bool) {
 			r.runtimePending[live.AgentKey] = true
 		}
 	}
+}
+
+// Called under executionMu after an out-of-lock integrity check failed.
+func (r *FileRegistry) markRuntimeUnavailable(def AgentDefinition, err error) {
+	log.Printf("[catalog][runtime] agent=%s revision=%s unavailable: %v", def.Key, def.RuntimeRevision, err)
+	if r.runtimePending == nil {
+		r.runtimePending = map[string]bool{}
+	}
+	if !r.runtimePending[def.Key] {
+		r.runtimePending[def.Key] = true
+	}
+}
+
+// AcquireAgentSnapshot extends an existing process-local lease, never reloads a source.
+func (r *FileRegistry) AcquireAgentSnapshot(def AgentDefinition) (AgentDefinition, func(), bool) {
+	r.executionMu.Lock()
+	if r.runtimeVersions[def.RuntimeDir] == 0 {
+		r.executionMu.Unlock()
+		return AgentDefinition{}, nil, false
+	}
+	def = cloneAgentDefinitionSnapshot(def)
+	release, checks := r.retainForVerificationLocked([]AgentDefinition{def})
+	r.executionMu.Unlock()
+	if !r.verifyRuntimeChecks(checks, release) {
+		return AgentDefinition{}, nil, false
+	}
+	return def, release, true
+}
+func (r *FileRegistry) AcquireTeamSnapshot(team TeamSnapshot) (TeamSnapshot, func(), bool) {
+	r.executionMu.Lock()
+	var defs []AgentDefinition
+	for _, key := range team.ValidAgentKeys {
+		def, ok := team.AgentDefinition(key)
+		if !ok || r.runtimeVersions[def.RuntimeDir] == 0 {
+			r.executionMu.Unlock()
+			return TeamSnapshot{}, nil, false
+		}
+		defs = append(defs, def)
+	}
+	release, checks := r.retainForVerificationLocked(defs)
+	r.executionMu.Unlock()
+	if !r.verifyRuntimeChecks(checks, release) {
+		return TeamSnapshot{}, nil, false
+	}
+	return team, release, true
 }

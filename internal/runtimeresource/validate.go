@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/mcp"
 	"agent-platform/internal/models"
+	"agent-platform/internal/runtimeskills"
 	"agent-platform/internal/tools"
 )
 
@@ -38,7 +39,7 @@ func validateCandidate(root string) error {
 			AgentsDir:            filepath.Join(root, "agents"),
 			RUAgentsDir:          filepath.Join(root, ".validation", "ru-agents"),
 			TeamsDir:             filepath.Join(root, "teams"),
-			RootDir:              root,
+			RootDir:              filepath.Join(root, "root"),
 			ChatsDir:             filepath.Join(root, ".validation", "chats"),
 			MemoryDir:            filepath.Join(root, ".validation", "memory"),
 			SkillsCenterDir:      filepath.Join(root, "skills-center"),
@@ -50,6 +51,7 @@ func validateCandidate(root string) error {
 		return fmt.Errorf("validate embedded Desktop connector: %w", err)
 	}
 	defer release()
+	defer runtimeskills.Remove(filepath.Join(root, ".validation"))
 	if _, err := catalog.NewFileRegistry(cfg, toolDefinitions); err != nil {
 		return fmt.Errorf("validate Agent/Team/Skill resources: %w", err)
 	}

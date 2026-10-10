@@ -241,6 +241,7 @@ func TestContainerHubCreateUsesDualRootV2AndMaskedPaths(t *testing.T) {
 		Enabled: true, BaseURL: server.URL, DefaultEnvironmentID: "daily-office-pro", RequestTimeout: 1,
 	}, paths)
 	execCtx := sandboxTestExecutionContext("run-mask", "req-mask", filepath.Dir(paths.ChatsDir))
+	execCtx.Session.RuntimeContext.LocalPaths.AgentDir = filepath.Join(paths.RUAgentsDir, "reader", "test-revision")
 	execCtx.Session.ChatID = "chat-mask"
 	if err := service.OpenIfNeeded(context.Background(), execCtx); err != nil {
 		t.Fatalf("OpenIfNeeded() error = %v", err)
@@ -278,6 +279,7 @@ func TestContainerHubCreateRejectsMaskWhenHubDoesNotDeclareDualRootV2(t *testing
 		Enabled: true, BaseURL: server.URL, DefaultEnvironmentID: "daily-office-pro", RequestTimeout: 1,
 	}, paths)
 	execCtx := sandboxTestExecutionContext("run-old-hub", "req-old-hub", filepath.Dir(paths.ChatsDir))
+	execCtx.Session.RuntimeContext.LocalPaths.AgentDir = filepath.Join(paths.RUAgentsDir, "reader", "test-revision")
 	if err := service.OpenIfNeeded(context.Background(), execCtx); err == nil ||
 		!strings.Contains(err.Error(), "does not support required workspace protocol") {
 		t.Fatalf("OpenIfNeeded() error = %v", err)
@@ -475,6 +477,7 @@ func sandboxTestExecutionContextWithSubTaskID(runID string, requestID string, su
 			RuntimeExtraMounts:     nil,
 			AgentHasRuntimeSandbox: true,
 			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{AgentDir: filepath.Join(filepath.Dir(workspaceRoot), "ru-agents", "reader", "test-revision")},
 				SandboxPaths: contracts.SandboxPaths{
 					AgentDir:     "/agent",
 					WorkspaceDir: "/workspace",
@@ -499,7 +502,7 @@ func sandboxTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 		OwnerDir:    filepath.Join(root, "owner"),
 		MemoryDir:   filepath.Join(root, "memory"),
 	}
-	if err := os.MkdirAll(filepath.Join(paths.RUAgentsDir, agentKey, "skills"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(paths.RUAgentsDir, agentKey, "test-revision", "skills"), 0o755); err != nil {
 		t.Fatalf("create test agent dir: %v", err)
 	}
 	if err := os.MkdirAll(sandboxWorkspace(paths), 0o755); err != nil {

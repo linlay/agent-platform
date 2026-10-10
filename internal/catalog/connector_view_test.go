@@ -20,7 +20,7 @@ func TestPureViewMountDoesNotGrantExecution(t *testing.T) {
 	} {
 		writeRuntimeAssemblerFile(t, filepath.Join(dir, path), data)
 	}
-	registry, err := NewFileRegistry(cfg, nil)
+	registry, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

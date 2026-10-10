@@ -1,6 +1,8 @@
 package session
 
 import (
+	"agent-platform/internal/runtimeskills"
+	"os"
 	"path/filepath"
 
 	"agent-platform/internal/catalog"
@@ -10,6 +12,16 @@ import (
 
 func AddConnectorAccessRoots(roots *contracts.RunAccessRoots, def catalog.AgentDefinition) error {
 	paths := def.ConnectorRuntimeSkillDirs()
+	if def.RuntimeRevision != "" {
+		paths = append(paths, def.RuntimeDir)
+	}
+	skills, err := runtimeskills.Dirs(def.RuntimeDir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, dir := range skills {
+		paths = append(paths, dir)
+	}
 	for _, mount := range def.ConnectorMounts {
 		paths = append(paths, mount.Dir)
 	}
@@ -22,8 +34,12 @@ func AddConnectorAccessRoots(roots *contracts.RunAccessRoots, def catalog.AgentD
 		if err != nil {
 			return err
 		}
-		roots.ReadRoots = append(roots.ReadRoots, canonical)
-		roots.ReadonlyRoots = append(roots.ReadonlyRoots, canonical)
+		if !containsRuntimeRoot(roots.ReadRoots, canonical) {
+			roots.ReadRoots = append(roots.ReadRoots, canonical)
+		}
+		if !containsRuntimeRoot(roots.ReadonlyRoots, canonical) {
+			roots.ReadonlyRoots = append(roots.ReadonlyRoots, canonical)
+		}
 	}
 	return nil
 }
@@ -58,4 +74,18 @@ func RuntimeNativeConnectorTools(def catalog.AgentDefinition) map[string]string 
 		}
 	}
 	return result
+}
+
+func RuntimeSkillDirs(def catalog.AgentDefinition) map[string]string {
+	dirs, _ := runtimeskills.Dirs(def.RuntimeDir)
+	return dirs
+}
+
+func containsRuntimeRoot(roots []string, p string) bool {
+	for _, root := range roots {
+		if root == p {
+			return true
+		}
+	}
+	return false
 }

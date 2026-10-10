@@ -8,6 +8,7 @@ import (
 
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtimeskills"
 	"agent-platform/internal/skillsexec"
 )
 
@@ -17,7 +18,7 @@ func BuildSkillScriptScope(session contracts.QuerySession, def catalog.AgentDefi
 		if def.IsConnectorSkill(key) || strings.TrimSpace(def.RuntimeDir) == "" {
 			continue
 		}
-		root, err := ResolveMustUseSkillRoot(filepath.Join(def.RuntimeDir, "skills"), key)
+		root, err := ResolveConfiguredSkillRoot(def.RuntimeDir, key)
 		if err != nil {
 			log.Printf("[server][skill-execution] agent=%s skill=%s: execution grant unavailable: %v", def.Key, key, err)
 			continue
@@ -43,4 +44,12 @@ func BuildSkillScriptScope(session contracts.QuerySession, def catalog.AgentDefi
 	}
 	ctx := contracts.ExecutionContext{Session: session}
 	return skillsexec.New(ctx.ScriptOwner(), roots)
+}
+
+func ResolveConfiguredSkillRoot(runtimeDir, id string) (string, error) {
+	dir, err := runtimeskills.Resolve(runtimeDir, id)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(dir)
 }

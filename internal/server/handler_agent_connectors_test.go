@@ -111,7 +111,7 @@ func TestAgentConnectorsReportConfiguredStateWhileRuntimeLeased(t *testing.T) {
 	}
 	t.Cleanup(release)
 	updated := agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "mock-agent", "connectorId": "docs", "enabled": false}))
-	if !updated.ReloadPending || !reflect.DeepEqual(updated.ConnectorIDs, []string{"meeting"}) || !reflect.DeepEqual(updated.ActiveConnectorIDs, []string{"docs", "meeting"}) {
+	if updated.ReloadPending || !reflect.DeepEqual(updated.ConnectorIDs, []string{"meeting"}) || !reflect.DeepEqual(updated.ActiveConnectorIDs, []string{"meeting"}) {
 		t.Fatalf("leased update: %#v", updated)
 	}
 	read := agentConnectorResponse(t, agentConnectorRequest(f.server, "GET", "mock-agent", nil))

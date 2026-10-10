@@ -27,7 +27,7 @@ func TestPresetConnectorMountAndSourceIsolation(t *testing.T) {
 		source += "runtimeConfig:\n  workspaceRoot: " + t.TempDir() + "\n"
 		writeRuntimeAssemblerFile(t, path, source)
 	}
-	r, err := NewFileRegistry(cfg, nil)
+	r, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,7 +24,7 @@ func TestMountResolverUsesAgentLocalSkillsForRunAndAgentLevels(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected /skills mount, got %#v", mounts)
 			}
-			want := filepath.Join(paths.RUAgentsDir, "reader", "skills")
+			want := filepath.Join(paths.RUAgentsDir, "reader", "test-revision", "skills")
 			if mount.Source != want {
 				t.Fatalf("skills source = %q, want %q", mount.Source, want)
 			}
@@ -84,10 +84,10 @@ func TestMountResolverRejectsWorkspaceEqualToOrInsideChatsRoot(t *testing.T) {
 
 func TestMountResolverDoesNotFallbackToSkillsCenterWhenAgentSkillsUnavailable(t *testing.T) {
 	paths := mountResolverTestPaths(t, "reader")
-	if err := os.RemoveAll(filepath.Join(paths.RUAgentsDir, "reader", "skills")); err != nil {
+	if err := os.RemoveAll(filepath.Join(paths.RUAgentsDir, "reader", "test-revision", "skills")); err != nil {
 		t.Fatalf("remove skills fixture: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(paths.RUAgentsDir, "reader", "skills"), []byte("not a dir"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(paths.RUAgentsDir, "reader", "test-revision", "skills"), []byte("not a dir"), 0o644); err != nil {
 		t.Fatalf("write skills file fixture: %v", err)
 	}
 	resolver := NewContainerHubMountResolver(paths)
@@ -175,14 +175,14 @@ func TestMountResolverIgnoresNonAllowlistedPathEnv(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected /agent mount, got %#v", mounts)
 	}
-	if want := filepath.Join(paths.RUAgentsDir, "reader"); agentMount.Source != want {
+	if want := filepath.Join(paths.RUAgentsDir, "reader", "test-revision"); agentMount.Source != want {
 		t.Fatalf("agent source = %q, want %q", agentMount.Source, want)
 	}
 	skillsMount, ok := mountByDestination(mounts, "/skills")
 	if !ok {
 		t.Fatalf("expected /skills mount, got %#v", mounts)
 	}
-	if want := filepath.Join(paths.RUAgentsDir, "reader", "skills"); skillsMount.Source != want {
+	if want := filepath.Join(paths.RUAgentsDir, "reader", "test-revision", "skills"); skillsMount.Source != want {
 		t.Fatalf("skills source = %q, want %q", skillsMount.Source, want)
 	}
 }
@@ -272,7 +272,7 @@ func mountResolverTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 	}
 	for _, dir := range []string{
 		paths.ChatsDir,
-		filepath.Join(paths.RUAgentsDir, agentKey, "skills"),
+		filepath.Join(paths.RUAgentsDir, agentKey, "test-revision", "skills"),
 		paths.OwnerDir,
 		paths.MemoryDir,
 		paths.SkillsCenterDir,
@@ -309,4 +309,48 @@ func realMountPath(t *testing.T, rawPath string) string {
 		t.Fatal(err)
 	}
 	return resolved
+}
+
+func TestFrozenRuntimeMountsUseVersionAndQualifiedSkill(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	version := filepath.Join(paths.RUAgentsDir, "reader", "revision")
+	skill := filepath.Join(filepath.Dir(paths.RUAgentsDir), "ru-skills", "digest")
+	for _, dir := range []string{filepath.Join(version, "skills"), filepath.Join(version, "connectors"), skill} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resolver := NewContainerHubMountResolver(paths)
+	layout, err := resolver.ResolveRuntimeLayout(mountResolverWorkspace(t, paths), "chat-1", "reader", "agent", []contracts.SandboxExtraMount{{Platform: "connectors", Mode: "ro"}}, version, map[string]string{"office/pdf": skill})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for destination, source := range map[string]string{"/agent": version, "/skills/office/pdf": skill, "/connectors": filepath.Join(version, "connectors")} {
+		m, ok := mountByDestination(layout.Mounts, destination)
+		if !ok || m.Source != source || !m.ReadOnly {
+			t.Fatalf("frozen mount %s = %#v", destination, m)
+		}
+	}
+	_, err = resolver.ResolveRuntimeLayout(mountResolverWorkspace(t, paths), "chat-1", "reader", "agent", []contracts.SandboxExtraMount{{Source: paths.SkillsCenterDir, Destination: "/skills/office/pdf", Mode: "ro"}}, version, map[string]string{"office/pdf": skill})
+	if err == nil {
+		t.Fatal("frozen Skill mount replaced by source override")
+	}
+}
+
+func TestRuntimeMountsRequireFrozenDirectory(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	_, err := NewContainerHubMountResolver(paths).ResolveRuntimeLayout(mountResolverWorkspace(t, paths), "chat-1", "reader", "agent", nil, "", nil)
+	if err == nil || !strings.Contains(err.Error(), "frozen Agent runtime directory is required") {
+		t.Fatalf("missing version accepted: %v", err)
+	}
+}
+
+// These fixture helpers always supply a frozen version path. Production callers
+// must use ResolveRuntimeLayout with the path held by their lease.
+func (r *ContainerHubMountResolver) Resolve(workspace, chatID, agentKey, level string, mounts []contracts.SandboxExtraMount) ([]MountSpec, error) {
+	layout, err := r.ResolveLayout(workspace, chatID, agentKey, level, mounts)
+	return layout.Mounts, err
+}
+func (r *ContainerHubMountResolver) ResolveLayout(workspace, chatID, agentKey, level string, mounts []contracts.SandboxExtraMount) (SessionMountLayout, error) {
+	return r.ResolveRuntimeLayout(workspace, chatID, agentKey, level, mounts, filepath.Join(r.paths.RUAgentsDir, agentKey, "test-revision"), nil)
 }

@@ -167,11 +167,11 @@ func TestAgentConnectorUsageSelectionAndPendingPublication(t *testing.T) {
 	}
 	t.Cleanup(release)
 	updated := read(connectorUsageRequest(f.server, http.MethodPut, "/api/agents/connectors", map[string]any{"agentKey": "mock-agent", "connectorId": "meeting", "enabled": false}))
-	if len(updated.ConnectorIDs) != 0 || updated.ConnectorIDs == nil || !updated.ReloadPending {
+	if len(updated.ConnectorIDs) != 0 || updated.ConnectorIDs == nil || updated.ReloadPending {
 		t.Fatalf("pending publication lost: %+v", updated)
 	}
 	managed := agentConnectorResponse(t, agentConnectorRequest(f.server, http.MethodGet, "mock-agent", nil))
-	if !managed.ReloadPending || !slices.Contains(managed.ActiveConnectorIDs, "meeting") || !slices.Contains(managed.PresetConnectorIDs, connector.WebControlConnectorID) {
+	if managed.ReloadPending || slices.Contains(managed.ActiveConnectorIDs, "meeting") || !slices.Contains(managed.PresetConnectorIDs, connector.WebControlConnectorID) {
 		t.Fatalf("management state lost: %+v", managed)
 	}
 	release()

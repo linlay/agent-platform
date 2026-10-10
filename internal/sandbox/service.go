@@ -266,12 +266,13 @@ func agentChatSessionKey(session contracts.QuerySession, fingerprint string) str
 }
 
 func (s *ContainerHubSandboxService) resolveSessionMountIdentity(execCtx *contracts.ExecutionContext, level string) ([]MountSpec, []string, string, error) {
-	layout, err := s.mounts.ResolveLayout(
+	layout, err := s.mounts.ResolveRuntimeLayout(
 		execCtx.Session.WorkspaceRoot,
 		execCtx.Session.ChatID,
 		execCtx.Session.AgentKey,
 		level,
 		execCtx.Session.RuntimeExtraMounts,
+		execCtx.Session.RuntimeContext.LocalPaths.AgentDir, execCtx.Session.SkillDirs,
 	)
 	if err != nil {
 		return nil, nil, "", err

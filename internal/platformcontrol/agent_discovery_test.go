@@ -3,6 +3,7 @@ package platformcontrol
 import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/runtimeskills"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -104,6 +105,10 @@ func TestAgentDiscoveryWarningRemainsValid(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents")}}
 	discoveryWrite(t, filepath.Join(cfg.Paths.AgentsDir, "caller", "agent.yml"), "key: caller\nmode: GENERAL\nmodelConfig: {modelKey: test}\ncontextConfig:\n  tags:\n    - agents\n  agents:\n    invalid: type\n")
+	t.Cleanup(func() {
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())
+	})
 	registry, err := catalog.NewFileRegistry(cfg, nil)
 	if err != nil {
 		t.Fatal(err)

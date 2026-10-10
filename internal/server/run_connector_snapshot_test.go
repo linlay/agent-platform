@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 )
@@ -27,7 +26,7 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo")
 	os.MkdirAll(agentDir, 0700)
 	os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin."+name+"\n"), 0600)
-	registry, err := catalog.NewFileRegistry(cfg, nil)
+	registry, err := newRuntimeTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +54,7 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	if current.ConnectorMounts[0].Dir == old.ConnectorMounts[0].Dir {
 		t.Fatal("new run kept old version")
 	}
-	fresh, err := catalog.NewFileRegistry(cfg, nil)
+	fresh, err := newRuntimeTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
