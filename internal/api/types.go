@@ -1200,12 +1200,11 @@ type ToolSummary struct {
 type ToolDetailResponse = queryinput.ToolDefinition
 
 type ChatSummaryResponse struct {
-	CanContinue bool   `json:"canContinue"`
-	Pinned      bool   `json:"pinned"`
-	ChatID      string `json:"chatId"`
-	ChatName    string `json:"chatName"`
-	AgentKey    string `json:"agentKey,omitempty"`
-	Mode        string `json:"mode,omitempty"`
+	Pinned   bool   `json:"pinned"`
+	ChatID   string `json:"chatId"`
+	ChatName string `json:"chatName"`
+	AgentKey string `json:"agentKey,omitempty"`
+	Mode     string `json:"mode,omitempty"`
 
 	Source         string         `json:"source,omitempty"`
 	CreatedAt      int64          `json:"createdAt"`

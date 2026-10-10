@@ -251,6 +251,8 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 
 `/api/chats/search` 的 HTTP 与 WebSocket 结果同时提供搜索命中的 `snippet` 和 Chat 摘要中的 `lastRunContent`。后者用于展示最新 Run 内容，即使命中来自较早的 Run；没有最新内容时返回空字符串，不用命中片段或对话标题替代。
 
+`/api/chats`、`/api/agents?includeChats=...` 的 `chats[]` 和 `/api/chats/order` 的 `pinnedChats[]` 均省略 `usage` 与 `canContinue`，HTTP 与 WebSocket 一致。列表查询不计算续执行资格；`/api/chat` 详情提供 `canContinue`，用量仍持久化并通过详情读取完整统计。
+
 `/api/chats` 和 `/api/chat` 的历史发现、owner 和回放不要求当前 Agent 配置有效；Agent 详情的 404 不代表 Chat 不存在。客户端应独立加载历史与当前执行配置，保留 Chat 自身的认证、缺失及损坏错误，不能通过历史读取恢复无效 Agent 的 query 能力。详见 [历史读取与当前 Agent 可用性](会话存储与回放.md#历史读取与当前-agent-可用性)。
 
 `/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。通用类型的筛选输入只接受 `GENERAL`，传入 `REACT` 返回 400；`GENERAL` 同时匹配历史保存的 `REACT` 和新的 `GENERAL` chat。可选布尔 `hasWorkspace` 按 chat 所属 Agent 当前是否配置了具体项目目录筛选（未配置 Workspace 或使用 `@root` 都视为没有）：`true` 只返回项目型 Agent 的 chat；`false` 排除它们，同时保留 Agent 已不在 catalog 中的 chat。它与 `mode`、`pinned` 为 AND 关系，并在 `limit` 截断之前生效。HTTP 只接受单个 `true` 或 `false` 字符串，WebSocket 使用同名 JSON boolean，其他值返回 400；旧 `agentType` 参数或 payload 返回 400，调用方应改用 `hasWorkspace`。`pinned=true` 按置顶 ID 直接读取；`pinned=false` 且实例排序为 `recent` 时，`limit` 在读取阶段生效，只为返回的 chat 计算完整摘要。旧别名和未知值均返回 400。筛选与 agentKey、lastRunId 为 AND 关系，TEAM Chat 也遵循这些筛选。显式 agentKey 只返回该根 Agent 的 Chat。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
@@ -1250,7 +1252,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；chat_start 工具入口仍要求文字。
 
-完全空 query 额外要求服务端 `canContinue:true`。`/api/chat` 与 `/api/chats` 返回该布尔值，由最后一次持久化主 Run 计算：只允许已结束的 `error/cancel`，兼容 `cancelled/canceled/interrupted`；正常完成、未知终态、新 Run 已启动但尚未结束、等待人工交互以及无历史均为 false。不能回退到更早一次失败或取消，也不因浏览器断线推断异常中断。已有历史但不满足该条件时返回 HTTP 400、`empty_query_not_allowed`。原始 message 保持为空，模型输入补充 `Continue based on the current conversation context.`，纯附件 query 不受该额外限制。
+完全空 query 额外要求服务端 `canContinue:true`。该布尔值仅由 `/api/chat` 详情返回，导航列表省略；客户端从详情与运行事件维护当前会话的续执行资格。服务端由最后一次持久化主 Run 计算：只允许已结束的 `error/cancel`，兼容 `cancelled/canceled/interrupted`；正常完成、未知终态、新 Run 已启动但尚未结束、等待人工交互以及无历史均为 false。不能回退到更早一次失败或取消，也不因浏览器断线推断异常中断。已有历史但不满足该条件时返回 HTTP 400、`empty_query_not_allowed`。原始 message 保持为空，模型输入补充 `Continue based on the current conversation context.`，纯附件 query 不受该额外限制。
 
 
 ### HITL 提交与创建通道分离

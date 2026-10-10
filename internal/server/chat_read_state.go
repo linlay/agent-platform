@@ -90,15 +90,14 @@ func (s *Server) filteredAgentSummaries(scope string, modes []string, hasWorkspa
 }
 
 func (s *Server) mapAgentChatSummaries(items []chat.Summary) ([]api.ChatSummaryResponse, error) {
-	return s.mapChatSummariesWithActiveRuns(items, false)
+	return s.mapChatSummariesWithActiveRuns(items)
 }
 
 // mapChatSummariesWithActiveRuns enriches persisted chat summaries with the
-// in-memory run state shared by /api/chats and /api/agents?includeChats.
-// The two callers intentionally differ only in whether summary usage is
-// included; active-run and conflict semantics must remain identical.
-func (s *Server) mapChatSummariesWithActiveRuns(items []chat.Summary, includeUsage bool) ([]api.ChatSummaryResponse, error) {
-	response := mapChatSummariesWithUsage(items, includeUsage)
+// in-memory run state shared by Chat navigation lists. Usage and continuation
+// eligibility are omitted; active-run and conflict semantics remain identical.
+func (s *Server) mapChatSummariesWithActiveRuns(items []chat.Summary) ([]api.ChatSummaryResponse, error) {
+	response := mapChatSummariesWithUsage(items, false)
 	if s.deps.Runs == nil {
 		return response, nil
 	}
@@ -114,7 +113,6 @@ func (s *Server) mapChatSummariesWithActiveRuns(items []chat.Summary, includeUsa
 		}
 		if ok {
 			response[i].ActiveRun = toAPIActiveRunInfo(activeRun)
-			response[i].CanContinue = false
 		}
 	}
 	return response, nil

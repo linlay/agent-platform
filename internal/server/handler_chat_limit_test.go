@@ -121,13 +121,18 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("HTTP /api/chats status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	for _, field := range []string{`"usage"`, `"canContinue"`} {
+		if strings.Contains(rec.Body.String(), field) {
+			t.Fatalf("HTTP /api/chats should omit %s: %s", field, rec.Body.String())
+		}
+	}
 	var httpResponse api.ApiResponse[[]api.ChatSummaryResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &httpResponse); err != nil {
 		t.Fatalf("decode HTTP /api/chats response: %v", err)
 	}
 	httpSummary := chatSummaryByID(t, httpResponse.Data, chatID)
-	if httpSummary.Usage == nil || httpSummary.Usage.TotalTokens != 10 {
-		t.Fatalf("HTTP /api/chats should retain usage, got %#v", httpSummary.Usage)
+	if httpSummary.Usage != nil {
+		t.Fatalf("HTTP /api/chats should omit usage, got %#v", httpSummary.Usage)
 	}
 	assertSummaryActiveRun(t, httpSummary, activeRunID, activeStartedAt)
 
@@ -140,9 +145,18 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 	defer conn.Close()
 	readConnectedPush(t, conn)
 	writeChatsLimitWSRequest(t, conn, "chats_active_run", nil)
-	var frame ws.ResponseFrame
-	if err := conn.ReadJSON(&frame); err != nil {
+	_, payload, err := conn.ReadMessage()
+	if err != nil {
 		t.Fatalf("read websocket active-run response: %v", err)
+	}
+	for _, field := range []string{`"usage"`, `"canContinue"`} {
+		if strings.Contains(string(payload), field) {
+			t.Fatalf("WebSocket /api/chats should omit %s: %s", field, payload)
+		}
+	}
+	var frame ws.ResponseFrame
+	if err := json.Unmarshal(payload, &frame); err != nil {
+		t.Fatalf("decode websocket active-run response: %v", err)
 	}
 	if frame.Frame != ws.FrameResponse || frame.Type != "/api/chats" || frame.ID != "chats_active_run" || frame.Code != 0 {
 		t.Fatalf("unexpected websocket active-run response: %#v", frame)
@@ -153,8 +167,8 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 	}
 	wsSummary := chatSummaryByID(t, wsSummaries, chatID)
 	assertSummaryActiveRun(t, wsSummary, activeRunID, activeStartedAt)
-	if wsSummary.Usage == nil || wsSummary.Usage.TotalTokens != 10 {
-		t.Fatalf("WebSocket /api/chats should retain usage, got %#v", wsSummary.Usage)
+	if wsSummary.Usage != nil {
+		t.Fatalf("WebSocket /api/chats should omit usage, got %#v", wsSummary.Usage)
 	}
 	if *wsSummary.ActiveRun != *httpSummary.ActiveRun {
 		t.Fatalf("HTTP and WebSocket activeRun differ: http=%#v ws=%#v", httpSummary.ActiveRun, wsSummary.ActiveRun)

@@ -86,14 +86,11 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	if len(summaries) != 1 {
 		t.Fatalf("expected one chat summary, got %#v", summaries)
 	}
-	if summaries[0].LastRunID != "run-1" || summaries[0].Usage == nil || summaries[0].Usage.TotalTokens != 8 {
+	if summaries[0].LastRunID != "run-1" {
 		t.Fatalf("unexpected chat summary %#v", summaries[0])
 	}
-	if summaries[0].Usage.PromptTokensDetails == nil || summaries[0].Usage.PromptTokensDetails.CacheHitTokens != 2 ||
-		summaries[0].Usage.PromptTokensDetails.CacheMissTokens != 1 ||
-		summaries[0].Usage.CompletionTokensDetails == nil || summaries[0].Usage.CompletionTokensDetails.ReasoningTokens != 4 ||
-		summaries[0].Usage.LlmChatCompletionCount != 1 {
-		t.Fatalf("expected detailed chat summary usage, got %#v", summaries[0].Usage)
+	if summaries[0].Usage != nil {
+		t.Fatalf("chat list summary should omit usage, got %#v", summaries[0].Usage)
 	}
 	if summaries[0].Read.IsRead {
 		t.Fatalf("expected completed chat to be unread, got %#v", summaries[0].Read)
@@ -114,6 +111,9 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	}
 	if detail.Usage == nil || detail.Usage.LastRun == nil || detail.Usage.Chat == nil {
 		t.Fatalf("expected detailed chat detail usage breakdown, got %#v", detail.Usage)
+	}
+	if detail.Usage.LastRun.TotalTokens != 8 || detail.Usage.Chat.TotalTokens != 8 {
+		t.Fatalf("expected persisted run and chat usage totals, got %#v", detail.Usage)
 	}
 	if detail.Usage.LastRun.PromptTokensDetails == nil || detail.Usage.LastRun.PromptTokensDetails.CacheHitTokens != 2 ||
 		detail.Usage.LastRun.PromptTokensDetails.CacheMissTokens != 1 ||
@@ -915,8 +915,8 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 			break
 		}
 	}
-	if chatA1.ChatID == "" || chatA1.Usage == nil || chatA1.Usage.TotalTokens != 10 {
-		t.Fatalf("/api/chats summaries should still include usage, got %#v", chatA1)
+	if chatA1.ChatID == "" || chatA1.Usage != nil {
+		t.Fatalf("/api/chats summaries should omit usage, got %#v", chatA1)
 	}
 	if chatA1.ActiveRun == nil ||
 		chatA1.ActiveRun.RunID != "run-active-a1" ||

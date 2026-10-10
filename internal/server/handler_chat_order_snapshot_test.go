@@ -28,6 +28,11 @@ func TestChatOrderSnapshotHTTPAndWS(t *testing.T) {
 		if rec.Code != 200 {
 			t.Fatalf("read order: %d %s", rec.Code, rec.Body.String())
 		}
+		for _, field := range []string{`"usage"`, `"canContinue"`} {
+			if strings.Contains(rec.Body.String(), field) {
+				t.Fatalf("chat order snapshot should omit %s: %s", field, rec.Body.String())
+			}
+		}
 		var response api.ApiResponse[api.ChatOrderSnapshotResponse]
 		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 			t.Fatal(err)
@@ -55,6 +60,13 @@ func TestChatOrderSnapshotHTTPAndWS(t *testing.T) {
 		}
 	}
 	seedAgentModeChat(t, store, "ordinary", "loyw3w00", "mock-agent", "REACT", 9000)
+	if err := completeServerFixtureRun(t, store, chat.RunCompletion{
+		ChatID: "pin-00", RunID: "loyw3w01", AgentKey: "mock-agent",
+		UpdatedAtMillis: testEpochMillis + 9500,
+		Usage:           chat.UsageData{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
 		RunID: "active-pin", ChatID: "pin-00", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent"), StartedAtMillis: testEpochMillis + 10000,
 	})

@@ -180,8 +180,15 @@ func TestEmptyQueryRequiresFailedOrCanceledLastRun(t *testing.T) {
 			for _, path := range []string{"/api/chats", "/api/chat?chatId=" + chatID} {
 				rec := httptest.NewRecorder()
 				fixture.server.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
-				if rec.Code != 200 || !strings.Contains(rec.Body.String(), fmt.Sprintf(`"canContinue":%t`, want)) {
+				if rec.Code != 200 {
 					t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
+				}
+				if path == "/api/chats" {
+					if strings.Contains(rec.Body.String(), `"canContinue"`) {
+						t.Fatalf("chat list should omit canContinue: %s", rec.Body.String())
+					}
+				} else if !strings.Contains(rec.Body.String(), fmt.Sprintf(`"canContinue":%t`, want)) {
+					t.Fatalf("chat detail continuation eligibility: %s", rec.Body.String())
 				}
 			}
 

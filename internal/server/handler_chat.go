@@ -60,7 +60,7 @@ func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, 
 	if err != nil {
 		return nil, err
 	}
-	return s.mapChatSummariesWithActiveRuns(items, true)
+	return s.mapChatSummariesWithActiveRuns(items)
 }
 
 func requestedModes(values []string) ([]string, error) {
@@ -141,7 +141,6 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 			UpdatedAt:      item.UpdatedAt,
 			LastRunID:      item.LastRunID,
 			LastRunContent: item.LastRunContent,
-			CanContinue:    item.CanContinue,
 			Read:           toAPIReadState(item.Read),
 		}
 		resp.Awaiting = toAPIAwaiting(item.PendingAwaiting)

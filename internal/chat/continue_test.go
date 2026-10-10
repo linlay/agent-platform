@@ -23,7 +23,7 @@ func TestCanContinueRequiresLatestFailedOrCanceledRun(t *testing.T) {
 					t.Fatalf("canContinue=%v want %v", summary.CanContinue, want)
 				}
 				list, err := store.ListChats("", "")
-				if err != nil || len(list) != 1 || list[0].CanContinue != want {
+				if err != nil || len(list) != 1 || list[0].CanContinue {
 					t.Fatalf("list=%+v err=%v", list, err)
 				}
 			}
