@@ -246,3 +246,97 @@ func TestConnectorCheckSeparatesDiscoveryFailureFromInitialization(t *testing.T)
 		t.Fatalf("discovery failure: %s, %v", data, err)
 	}
 }
+
+func saveConnectorCheckGrant(t *testing.T, pkg connector.Package, endpoint, tokenEndpoint string) {
+	t.Helper()
+	if _, err := pkg.SetConfigured(true); err != nil {
+		t.Fatal(err)
+	}
+	state, err := pkg.ConnectorStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(map[string]any{
+		"resource": endpoint,
+		"config":   oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: tokenEndpoint, AuthStyle: oauth2.AuthStyleInParams}},
+		"token":    &oauth2.Token{AccessToken: "private-check-token", RefreshToken: "private-refresh-token", TokenType: "Bearer", Expiry: time.Now().Add(time.Hour)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "oauth.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConnectorCheckDistinguishesPermissionDenialFromMissingAuthorization(t *testing.T) {
+	for _, tc := range []struct {
+		name, challenge, status, code string
+	}{
+		{"permission", "", "failed", "permission_denied"},
+		{"scope", `Bearer error="insufficient_scope", scope="read"`, "authorization_required", "authorization_required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.challenge != "" {
+					w.Header().Set("WWW-Authenticate", tc.challenge)
+				}
+				http.Error(w, "private-forbidden-message", http.StatusForbidden)
+			}))
+			defer server.Close()
+			sources, pkg := connectorCheckFixture(t, server.URL, "mcp")
+			saveConnectorCheckGrant(t, pkg, server.URL, server.URL+"/token")
+			result, err := NewConnectorChecker(sources).CheckConnector(t.Context(), "demo", "main")
+			if err != nil || result.Status != tc.status || result.Initialize.Code != tc.code {
+				t.Fatalf("forbidden classification: %+v, %v", result, err)
+			}
+		})
+	}
+}
+
+func TestConnectorCheckRecoveredRejectionDoesNotMaskLaterFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, code string
+		timeout    bool
+	}{
+		{"server-error", "mcp_check_failed", false},
+		{"timeout", "timeout", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts, refreshes atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/token" {
+					refreshes.Add(1)
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"access_token":"private-new-token","token_type":"Bearer","expires_in":3600}`)
+					return
+				}
+				if attempts.Add(1) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if tc.timeout {
+					select {
+					case <-r.Context().Done():
+					case <-time.After(500 * time.Millisecond):
+					}
+					return
+				}
+				http.Error(w, "private-after-refresh-error", http.StatusServiceUnavailable)
+			}))
+			defer server.Close()
+			sources, pkg := connectorCheckFixture(t, server.URL, "mcp")
+			saveConnectorCheckGrant(t, pkg, server.URL, server.URL+"/token")
+			ctx := t.Context()
+			if tc.timeout {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 200*time.Millisecond)
+				defer cancel()
+			}
+			result, err := NewConnectorChecker(sources).CheckConnector(ctx, "demo", "main")
+			if err != nil || attempts.Load() < 2 || refreshes.Load() != 1 || result.Status != "failed" || result.Initialize.Code != tc.code {
+				t.Fatalf("recovered 401 masked failure: %+v, %v; attempts=%d refreshes=%d", result, err, attempts.Load(), refreshes.Load())
+			}
+		})
+	}
+}

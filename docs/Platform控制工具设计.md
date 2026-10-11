@@ -60,9 +60,13 @@ Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。
 
 用户只提供 HTTP MCP 地址并要求创建连接器时，入口归 `platform-control` Skill：技能描述声明按服务地址创建并检查 HTTP MCP，正文指向随包 `references/catalog.md` 的候选准备、校验、发布、回读和授权工作流。`mcpUrl` 快捷创建入口在 `Prepare` 中将缺失的 `auth_mode` 补为 `mcp`，归一化内容同时进入审批展示、摘要和 connector.json 落盘；显式 `null` 拒绝，显式 `no_auth` 保留，其他模式使用既有授权的包管理流程。无 `mcpUrl` 的通用包省略或 `null` 仍为委托认证。网页访问和截图不是创建前置条件。
 
-连接器 `catalog_manage.apply` 成功后及 `catalog_query.get` 追加 `authMode`、本地 `connection` 快照和可用的 `nextAction`。快照由 App 注入的 `connectorauth.Manager.Connection` 窄接口读取，与客户端共享同一授权服务，不发起远端请求；不返回票据、登录 URL 或原始授权错误。需要授权时 nextAction 包含 `authorize` 和 `/connectors/<id>`；无需授权或已就绪的 main MCP 组件提示 `checkConnector`。快照失败保留已完成的创建结果，并以 unknown 和诊断报告状态。智能体打开授权页后结束本轮，用户完成登录并续问时回读状态及重新检查，不原地等待登录。
+连接器 `catalog_manage.apply` 成功后及 `catalog_query.get` 追加 `authMode`、本地 `connection` 快照和可用的 `nextAction`。快照由 App 注入的 `connectorauth.Manager.Connection` 窄接口读取，与客户端共享同一授权服务，不发起远端请求；不返回票据、登录 URL 或原始授权错误。需要授权时 nextAction 包含 `authorize` 和 `/connectors/<id>`；仅启用且检查器支持的 main HTTP MCP 组件在无需授权或已就绪时提示 `checkConnector`，stdio、oneid-token 和禁用组件不推荐此动作。快照失败保留已完成的创建结果，并以 unknown 和诊断报告状态。智能体打开授权页后结束本轮，用户完成登录并续问时回读状态及重新检查，不原地等待登录。
 
 `platform_inspect.checkConnector {connectorId,component?}` 默认组件 main，只检查保存的 HTTP MCP，支持 `no_auth/mcp/oauth/token`，无需目标连接器挂载到 Agent。它复用 MCP SDK 创建独立短期会话，校验包、初始化及实际协商版本，再分页读取工具列表并关闭会话；不启动 stdio/CLI、不发起登录、不修改挂载、不注册运行时工具、不调用业务工具。复用已有凭据与 OAuth 刷新，远端阶段限时 30 秒并响应取消。结果区分 passed、authorization_required、failed，并逐阶段标明 passed/failed/not_run；工具摘要最多 100 个名称、每名最多 256 字符，总数和 truncated 分别报告。原始远端错误、地址和凭据不进入返回值。创建并测试的任务止于协议与工具发现验证，Agent 挂载及业务工具测试是独立事项；runtimeStatus.mcp 仍只返回已挂载实例的缓存同步状态。
+
+远端失败只根据当前 POST 的拒绝细化分类：需授权模式下的 401 或明确的 Bearer `insufficient_scope` 引导授权，no_auth 下的认证拒绝返回 `authentication_mismatch`；普通 403 返回 `permission_denied`，不提示重新登录。后续非授权 HTTP 错误、网络错误、超时、取消和协议错误不会被之前的拒绝覆盖，独立 SSE GET 与会话关闭 DELETE 不参与此分类。
+
+检查动作有意声明 readOnly 且不要求人工审批，含义限于不调用业务工具。它会向已保存的 HTTP(S) 地址发送协议请求并使用该连接器的凭据；没有额外的网络目标白名单或内网隔离。持有平台控制权限的主 Run 可检查内网连接器，auto_approve 下也可按既有目录写入规则创建地址后检查；保存地址和凭据绑定仍遵守原有校验。这项权限边界不能从 readOnly 推导为“不会联网”。
 
 apply 提交完整 UTF-8 文本，最多 1 MiB；目录版本覆盖整个资源（最多 64 MiB），现有对象必须带 get 得到的版本，新建必须满足不存在。禁止绝对路径、点段、符号链接和非普通文件；内置对象、调用者自身以及受引用对象受保护。Agent env 查询脱敏，保留旧值必须使用 preservePaths；连接器行内凭据不通过此工具编辑。
 

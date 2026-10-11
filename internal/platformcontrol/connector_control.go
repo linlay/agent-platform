@@ -66,7 +66,7 @@ func (h *ToolHandler) addConnectorConnection(ctx context.Context, id string, res
 		result["nextAction"] = connectorNextAction("authorize", id, component)
 		return
 	}
-	if pkgErr == nil && pkg.MCP["main"] != nil && (connection.Capabilities.AuthMode == connector.AuthNoAuth || connection.Readiness == "ready") {
+	if pkgErr == nil && mcp.SupportsConnectorCheck(pkg, "main") && (connection.Capabilities.AuthMode == connector.AuthNoAuth || connection.Readiness == "ready") {
 		result["nextAction"] = connectorNextAction("checkConnector", id, "main")
 	}
 }

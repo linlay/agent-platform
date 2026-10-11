@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/httpclient"
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
 
 type ConnectorCheckStage struct {
@@ -51,6 +53,40 @@ func NewConnectorChecker(sources connector.Sources) *ConnectorChecker {
 	return &ConnectorChecker{sources: sources, httpClient: httpclient.NewClient(0)}
 }
 
+// SupportsConnectorCheck reads only the declared transport, authentication and
+// enabled flags. It does not read credentials, validate the package or connect.
+func SupportsConnectorCheck(pkg connector.Package, component string) bool {
+	if pkg.AuthMode != connector.AuthNoAuth && pkg.AuthMode != connector.AuthMCP && pkg.AuthMode != connector.AuthOAuth && pkg.AuthMode != connector.AuthToken {
+		return false
+	}
+	definition := pkg.MCP[component]
+	if definition == nil || (definition["type"] != "http" && definition["type"] != "streamableHttp") {
+		return false
+	}
+	enabled := true
+	if platform, ok := definition["platform"].(map[string]any); ok {
+		if source, _ := platform["authSource"].(string); strings.TrimSpace(source) != "" {
+			return false
+		}
+		if value, exists := platform["enabled"]; exists {
+			var valid bool
+			enabled, valid = value.(bool)
+			if !valid {
+				return false
+			}
+		}
+	}
+	// The component flag overrides platform.enabled, as in connectorServer.
+	if value, exists := definition["disabled"]; exists {
+		disabled, valid := value.(bool)
+		if !valid {
+			return false
+		}
+		enabled = !disabled
+	}
+	return enabled
+}
+
 func (c *ConnectorChecker) CheckConnector(ctx context.Context, id, component string) (ConnectorCheckResult, error) {
 	if component == "" {
 		component = "main"
@@ -84,7 +120,7 @@ func (c *ConnectorChecker) CheckConnector(ctx context.Context, id, component str
 		r.Initialize.Code, r.Initialize.Message = "component_disabled", "Enable the selected MCP component before checking it."
 		return r, nil
 	}
-	if server.Transport != TransportStreamableHTTP || server.AuthSource == AuthSourceIdentityFile || (pkg.AuthMode != connector.AuthNoAuth && pkg.AuthMode != connector.AuthMCP && pkg.AuthMode != connector.AuthOAuth && pkg.AuthMode != connector.AuthToken) {
+	if !SupportsConnectorCheck(pkg, component) {
 		r.Package = ConnectorCheckStage{Status: "failed", Code: "unsupported_component", Message: "This check supports HTTP MCP with no_auth, mcp, oauth or token authentication."}
 		return r, nil
 	}
@@ -156,9 +192,9 @@ func (c *ConnectorChecker) CheckConnector(ctx context.Context, id, component str
 func connectorProbeFailure(ctx context.Context, err error) ConnectorCheckStage {
 	stage := ConnectorCheckStage{Status: "failed", Code: "mcp_check_failed", Message: "The remote MCP check failed; no business tools were called."}
 	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+	case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || isConnectorProbeTimeout(err):
 		stage.Code, stage.Message = "timeout", "The MCP check exceeded its time limit."
-	case errors.Is(ctx.Err(), context.Canceled):
+	case errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled):
 		stage.Code, stage.Message = "canceled", "The MCP check was canceled."
 	case strings.Contains(err.Error(), "unsupported protocol version"):
 		stage.Code, stage.Message = "unsupported_protocol", "The remote MCP protocol version is unsupported."
@@ -167,13 +203,25 @@ func connectorProbeFailure(ctx context.Context, err error) ConnectorCheckStage {
 	return stage
 }
 
+func isConnectorProbeTimeout(err error) bool {
+	var timeout net.Error
+	return errors.As(err, &timeout) && timeout.Timeout()
+}
+
 func setConnectorProbeAuth(r *ConnectorCheckResult, transport *connectorCheckTransport) {
-	if transport.authStatus.Load() == 0 {
-		return
-	}
 	stage := &r.Initialize
 	if r.Initialize.Status == "passed" {
 		stage = &r.ToolDiscovery.ConnectorCheckStage
+	}
+	// A previous HTTP rejection is not the cause of a later timeout, cancellation
+	// or protocol failure. Only refine an otherwise unclassified remote failure.
+	status := transport.authStatus.Load()
+	if status == 0 || stage.Code != "mcp_check_failed" {
+		return
+	}
+	if status == http.StatusForbidden {
+		stage.Code, stage.Message = "permission_denied", "The endpoint denied access; review its access policy and connector permissions."
+		return
 	}
 	if r.AuthMode == connector.AuthNoAuth {
 		stage.Code, stage.Message = "authentication_mismatch", "The endpoint rejected unauthenticated access; review the connector authentication mode."
@@ -190,8 +238,28 @@ type connectorCheckTransport struct {
 
 func (t *connectorCheckTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	response, err := t.base.RoundTrip(req)
-	if response != nil && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
-		t.authStatus.Store(int32(response.StatusCode))
+	// GET is the independent SSE stream and DELETE closes the session. Neither
+	// can classify an initialize/tools-list POST failure. Record the latest POST
+	// outcome, including network errors and successful recovery from a rejection.
+	if req.Method == http.MethodPost {
+		status := int32(0)
+		if err == nil && response != nil {
+			switch response.StatusCode {
+			case http.StatusUnauthorized:
+				status = http.StatusUnauthorized
+			case http.StatusForbidden:
+				status = http.StatusForbidden
+				challenges, _ := oauthex.ParseWWWAuthenticate(response.Header.Values("WWW-Authenticate"))
+				for _, challenge := range challenges {
+					if strings.EqualFold(challenge.Scheme, "Bearer") && challenge.Params["error"] == "insufficient_scope" {
+						status = connectorProbeInsufficientScope
+					}
+				}
+			}
+		}
+		t.authStatus.Store(status)
 	}
 	return response, err
 }
+
+const connectorProbeInsufficientScope = 1003

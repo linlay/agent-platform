@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -161,5 +162,52 @@ func TestConnectorSnapshotDoesNotExposeLoginURLsOrMessages(t *testing.T) {
 	data, _ := json.Marshal(result)
 	if strings.Contains(string(data), "private-") || result["nextAction"].(map[string]any)["route"] != "/connectors/remote" {
 		t.Fatalf("unsafe authorization snapshot: %s", data)
+	}
+}
+
+type readyConnectorConnectionReader struct{ mode connector.AuthMode }
+
+func (r readyConnectorConnectionReader) Connection(context.Context, string) (connectorauth.Connection, error) {
+	return connectorauth.Connection{ConnectionState: connector.ConnectionState{Configured: true}, Capabilities: connectorauth.Capabilities{AuthMode: r.mode}, Readiness: "ready"}, nil
+}
+
+func TestConnectorReadbackRecommendsOnlySupportedChecks(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, component string
+		check                 bool
+	}{
+		{"HTTP", "no_auth", `{"type":"http","url":"https://example.test/mcp"}`, true},
+		{"OAuth", "mcp", `{"type":"streamableHttp","url":"https://example.test/mcp"}`, true},
+		{"stdio", "no_auth", `{"type":"stdio","command":"must-never-run"}`, false},
+		{"OneID", "oneid-token", `{"type":"http","url":"https://example.test/mcp"}`, false},
+		{"disabled", "no_auth", `{"type":"http","url":"https://example.test/mcp","disabled":true}`, false},
+		{"platform-disabled", "no_auth", `{"type":"http","url":"https://example.test/mcp","platform":{"enabled":false}}`, false},
+		{"enabled-override", "no_auth", `{"type":"http","url":"https://example.test/mcp","disabled":false,"platform":{"enabled":false}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := connectorControlFixture(t)
+			h.connectorConnections = readyConnectorConnectionReader{connector.AuthMode(tc.mode)}
+			dir := filepath.Join(h.cfg.Paths.ConnectorsCenterDir, "remote")
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			for name, data := range map[string]string{
+				"connector.json": `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"` + tc.mode + `"}`,
+				"mcp.json":       `{"mcpServers":{"main":` + tc.component + `}}`,
+			} {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := h.cfg.Paths.ConnectorSources().Load("remote"); err != nil {
+				t.Fatal(err)
+			}
+			result := map[string]any{}
+			h.addConnectorConnection(t.Context(), "remote", result)
+			next, exists := result["nextAction"]
+			if exists != tc.check || (exists && next.(map[string]any)["action"] != "checkConnector") {
+				t.Fatalf("unsupported check guidance: %#v", result)
+			}
+		})
 	}
 }
