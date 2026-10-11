@@ -331,6 +331,19 @@ func splitYAMLKeyValue(line string) (string, string, bool) {
 
 func parseYAMLScalar(raw string) any {
 	value := strings.TrimSpace(raw)
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		inner := strings.TrimSpace(value[1 : len(value)-1])
+		if inner == "" {
+			return []any{}
+		}
+		if parts, err := splitYAMLFlowEntries(inner); err == nil {
+			items := make([]any, len(parts))
+			for i, part := range parts {
+				items[i] = parseYAMLScalar(part)
+			}
+			return items
+		}
+	}
 	if isYAMLFlowMap(value) {
 		if mapped, err := parseYAMLFlowMap(value); err == nil {
 			return mapped

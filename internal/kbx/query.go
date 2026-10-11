@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -91,12 +92,24 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 	if err != nil {
 		return knowledge.SearchResult{}, err
 	}
+	defer l.release()
+	retrieval, err := knowledge.MergeRetrieval(l.definition.Retrieval, l.spec.Config)
+	if err != nil {
+		return knowledge.SearchResult{}, err
+	}
+	o = retrieval.ApplySearchDefaults(o)
+	l.searchOptions = &o
+	l.definition.Collections, err = selectedCollections(l.definition.Collections, o.Collections)
+	if err != nil {
+		return knowledge.SearchResult{}, err
+	}
+
 	if strings.TrimSpace(query) == "" {
 		return knowledge.SearchResult{}, fmt.Errorf("query must not be blank")
 	}
 	limit := o.Limit
 	if limit <= 0 {
-		limit = l.spec.Config.Retrieval.TopK
+		limit = retrieval.TopK
 	}
 	if limit <= 0 {
 		limit = 8
@@ -104,15 +117,15 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 	if limit > 50 {
 		return knowledge.SearchResult{}, fmt.Errorf("limit must be at most 50")
 	}
-	candidate := l.spec.Config.Retrieval.CandidateFloor
-	multiplier := l.spec.Config.Retrieval.CandidateMultiplier
+	candidate := retrieval.CandidateFloor
+	multiplier := retrieval.CandidateMultiplier
 	if multiplier < 1 {
 		multiplier = 4
 	}
 	if candidate < limit*multiplier {
 		candidate = limit * multiplier
 	}
-	if ceiling := l.spec.Config.Retrieval.CandidateMax; ceiling > 0 && candidate > ceiling {
+	if ceiling := retrieval.CandidateMax; ceiling > 0 && candidate > ceiling {
 		candidate = ceiling
 	}
 	if candidate < limit {
@@ -126,11 +139,17 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 		if candidate < limit {
 			return knowledge.SearchResult{}, fmt.Errorf("candidateLimit must be at least the effective limit (%d)", limit)
 		}
-		if ceiling := l.spec.Config.Retrieval.CandidateMax; ceiling > 0 && candidate > max(limit, ceiling) {
+		if ceiling := retrieval.CandidateMax; ceiling > 0 && candidate > max(limit, ceiling) {
 			return knowledge.SearchResult{}, fmt.Errorf("candidateLimit exceeds the Agent candidate budget (%d)", max(limit, ceiling))
 		}
 	}
-	args := []string{o.Method, "--agent", "-c", "workspace", "-n", strconv.Itoa(limit)}
+	if len(l.definition.Collections) == 0 {
+		return knowledge.SearchResult{LibraryID: l.definition.ID, AgentKey: key, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx"}, nil
+	}
+	args := []string{o.Method, "--agent", "-n", strconv.Itoa(limit)}
+	for _, c := range l.definition.Collections {
+		args = append(args, "-c", c.Name)
+	}
 	if o.Method == "gsearch" {
 		// Graph search has a distinct result envelope and does not accept --full
 		// or a candidate budget. Explanations carry the actual relationship evidence.
@@ -150,9 +169,11 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 	} else {
 		args = append(args, "--full", "-C", strconv.Itoa(candidate))
 		if o.Method == "query" {
-			// Deployment configuration currently provides embedding only. Graph
-			// recall can use an already-built local graph without an extraction model.
-			args = append(args, "--no-rerank", "--explain")
+			// Graph recall can use an already-built local graph without an extraction model.
+			args = append(args, "--explain")
+			if o.Rerank != nil && !*o.Rerank {
+				args = append(args, "--no-rerank")
+			}
 			if o.NoGraph {
 				args = append(args, "--no-graph")
 			}
@@ -176,21 +197,19 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 		// A separate filter argument intersects (never replaces) Agent policy.
 		args = append(args, "--filter="+o.Filter)
 	}
-	for _, f := range []struct{ op, value string }{{"pathPrefix", o.PathPrefix}, {"pathGlob", o.PathGlob}, {"extension", o.Type}} {
+	for _, f := range []struct{ op, value string }{{"pathPrefix", o.PathPrefix}, {"pathGlob", o.PathGlob}} {
 		if f.value != "" {
-			args = appendFilter(args, predicate(f.op, f.value))
+			p, err := scopedPathPredicate(l, f.op, f.value)
+			if err != nil {
+				return knowledge.SearchResult{}, err
+			}
+			args = appendFilter(args, p)
 		}
 	}
-	if len(l.spec.Config.Include) > 0 {
-		items := []any{}
-		for _, p := range l.spec.Config.Include {
-			items = append(items, predicate("pathGlob", p))
-		}
-		args = appendFilter(args, map[string]any{"op": "or", "args": items})
+	if o.Type != "" {
+		args = appendFilter(args, predicate("extension", o.Type))
 	}
-	for _, p := range append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**") {
-		args = appendFilter(args, map[string]any{"op": "not", "arg": predicate("pathGlob", p)})
-	}
+	args = appendFilter(args, libraryPolicy(l))
 	args = append(args, "--", query)
 	var raw json.RawMessage
 	if err = m.call(ctx, l, o.Method == "query" || o.Method == "vsearch", &raw, args...); err != nil {
@@ -207,13 +226,10 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 			return knowledge.SearchResult{}, unavailable("KBX retrieval contract 6 with chunk results is required")
 		}
 	}
-	result := knowledge.SearchResult{AgentKey: key, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx", Stale: true, Degraded: response.Trace.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
-	state := knowledge.Status{}
-	if m.workerStatus(l, &state) {
-		result.Stale = state.Stale
-		result.Indexing = state.Indexing
-		result.RefreshID = state.RefreshID
-	}
+	result := knowledge.SearchResult{LibraryID: l.spec.Config.LibraryID, AgentKey: key, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx", Stale: l.definition.Stale, Degraded: response.Trace.Degraded || l.definition.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
+	result.Stale = l.definition.Stale
+	result.Indexing = l.definition.Indexing
+	result.Degraded = result.Degraded || l.definition.Degraded
 	for _, hit := range response.Results {
 		p, err := allowedDocumentPath(l, hit.File)
 		if err != nil {
@@ -234,23 +250,25 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 			lines = hit.Evidence.Range
 			matchType = "graph"
 		}
-		result.Results = append(result.Results, knowledge.SearchHit{ChunkID: hit.Chunk.ID, ResultID: hit.ResultID, EvidenceID: hit.Evidence.ID, Path: p, Heading: hit.Title, StartLine: lines.LineStart, EndLine: lines.LineEnd, SourceType: strings.TrimPrefix(strings.ToLower(path.Ext(p)), "."), Snippet: hit.Evidence.Text, Score: hit.Score, MatchType: matchType, Graph: graph})
+		result.Results = append(result.Results, knowledge.SearchHit{LibraryID: l.spec.Config.LibraryID, ChunkID: hit.Chunk.ID, ResultID: hit.ResultID, EvidenceID: hit.Evidence.ID, Path: p, Heading: hit.Title, StartLine: lines.LineStart, EndLine: lines.LineEnd, SourceType: strings.TrimPrefix(strings.ToLower(path.Ext(p)), "."), Snippet: hit.Evidence.Text, Score: hit.Score, MatchType: matchType, Graph: graph})
 	}
 	result.RetrievalChannels = response.Trace.Coverage.RetrievalUsed
 	result.OptionalUnavailable = response.Trace.Coverage.OptionalUnavailable
+	for _, step := range response.Trace.Steps {
+		role := ""
+		switch step.Reason {
+		case "query_expansion_failed":
+			role = "query_expansion"
+		case "reranker_failed":
+			role = "reranker"
+		}
+		if role != "" && !slices.Contains(result.OptionalUnavailable, role) {
+			result.OptionalUnavailable = append(result.OptionalUnavailable, role)
+		}
+	}
+
 	result.Count = len(result.Results)
 	return result, nil
-}
-
-func allowedDocumentPath(l library, uri string) (string, error) {
-	p, err := documentPath(uri)
-	if err != nil {
-		return "", err
-	}
-	if !knowledge.IndexedPathAllowed(p, l.spec.Config.Include, append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**")) {
-		return "", unavailable("KBX returned a document excluded by the knowledge-base policy")
-	}
-	return p, nil
 }
 
 func mapGraphExplanation(l library, input *graphExplanation) (*knowledge.GraphExplanation, error) {
@@ -279,15 +297,15 @@ func mapGraphExplanation(l library, input *graphExplanation) (*knowledge.GraphEx
 	return output, nil
 }
 func documentPath(uri string) (string, error) {
-	const prefix = "kbx://workspace/"
+	const prefix = "kbx://"
 	if !strings.HasPrefix(uri, prefix) {
-		return "", unavailable("KBX returned a document outside the workspace collection")
+		return "", unavailable("KBX returned a document outside the library")
 	}
 	return relativePath(strings.TrimPrefix(uri, prefix))
 }
 func relativePath(p string) (string, error) {
 	if p == "" || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\\\x00") || strings.Contains(p, ":") {
-		return "", fmt.Errorf("path must be workspace-relative")
+		return "", fmt.Errorf("path must be collection-relative")
 	}
 	for _, s := range strings.Split(p, "/") {
 		if s == ".." {
@@ -304,9 +322,16 @@ func relativePath(p string) (string, error) {
 var evidencePattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}#bytes=[0-9]+-[0-9]+$`)
 
 func (m *Manager) Read(key string, o knowledge.ReadOptions) (knowledge.ReadResult, error) {
+	return m.readBound(key, "", o)
+}
+func (m *Manager) readBound(key, expectedLibrary string, o knowledge.ReadOptions) (knowledge.ReadResult, error) {
 	l, err := m.resolve(key)
 	if err != nil {
 		return knowledge.ReadResult{}, err
+	}
+	defer l.release()
+	if expectedLibrary != "" && expectedLibrary != l.spec.Config.LibraryID {
+		return knowledge.ReadResult{}, fmt.Errorf("Agent library binding changed")
 	}
 	ctx, cancel := readerContext()
 	defer cancel()
@@ -334,7 +359,10 @@ func (m *Manager) Read(key string, o knowledge.ReadOptions) (knowledge.ReadResul
 		if o.Offset < 0 {
 			return knowledge.ReadResult{}, fmt.Errorf("offset must not be negative")
 		}
-		args = append(args, "--from", strconv.Itoa(max(1, o.Offset)), "--lines", strconv.Itoa(n), "--", "kbx://workspace/"+p)
+		if _, e := allowedDocumentPath(l, "kbx://"+p); e != nil {
+			return knowledge.ReadResult{}, e
+		}
+		args = append(args, "--from", strconv.Itoa(max(1, o.Offset)), "--lines", strconv.Itoa(n), "--", "kbx://"+p)
 	}
 	var r struct {
 		File, Title, Body string
@@ -348,48 +376,51 @@ func (m *Manager) Read(key string, o knowledge.ReadOptions) (knowledge.ReadResul
 	if err = m.call(ctx, l, false, &r, args...); err != nil {
 		return knowledge.ReadResult{}, err
 	}
-	p, err := documentPath(r.File)
+	p, err := allowedDocumentPath(l, r.File)
 	if err != nil {
 		return knowledge.ReadResult{}, err
 	}
-	if !knowledge.IndexedPathAllowed(p, l.spec.Config.Include, append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**")) {
-		return knowledge.ReadResult{}, fmt.Errorf("document is excluded by the knowledge-base policy")
+	if o.Path != "" && p != o.Path {
+		return knowledge.ReadResult{}, fmt.Errorf("evidence does not belong to requested path")
 	}
 	content := r.Evidence.Text
 	if content == "" {
 		content = r.Body
 	}
-	return knowledge.ReadResult{Found: true, ChunkID: o.ChunkID, Path: p, Heading: r.Title, StartLine: r.ReadRange.From, EndLine: r.ReadRange.Through, Content: content, HasMore: r.ReadRange.HasMore, NextEvidence: r.ReadRange.NextEvidence}, nil
+	return knowledge.ReadResult{LibraryID: l.spec.Config.LibraryID, Found: true, ChunkID: o.ChunkID, Path: p, Heading: r.Title, StartLine: r.ReadRange.From, EndLine: r.ReadRange.Through, Content: content, HasMore: r.ReadRange.HasMore, NextEvidence: r.ReadRange.NextEvidence}, nil
 }
 func (m *Manager) Files(key string, o knowledge.FilesOptions) (knowledge.FilesResult, error) {
 	l, err := m.resolve(key)
 	if err != nil {
 		return knowledge.FilesResult{}, err
 	}
+	defer l.release()
 	if o.Status != "" && o.Status != "active" {
 		return knowledge.FilesResult{}, fmt.Errorf("KBX exposes active indexed files only")
 	}
 	ctx, cancel := readerContext()
 	defer cancel()
-	var r struct {
-		Complete  bool
-		Documents []struct{ File string }
-	}
-	if err = m.call(ctx, l, false, &r, "ls", "kbx://workspace", "--agent"); err != nil {
-		return knowledge.FilesResult{}, err
-	}
-	if !r.Complete {
-		return knowledge.FilesResult{}, unavailable("KBX file inventory is incomplete")
-	}
 	entries := []knowledge.FileEntry{}
-	for _, d := range r.Documents {
-		p, e := documentPath(d.File)
-		if e != nil {
-			return knowledge.FilesResult{}, e
+	for _, c := range l.definition.Collections {
+		var r struct {
+			Complete  bool
+			Documents []struct{ File string }
 		}
-		if knowledge.IndexedPathAllowed(p, l.spec.Config.Include, append(append([]string{}, l.spec.Config.Exclude...), ".kbx-platform/**")) {
+		if err = m.call(ctx, l, false, &r, "ls", "kbx://"+c.Name, "--agent"); err != nil {
+			return knowledge.FilesResult{}, err
+		}
+		if !r.Complete {
+			return knowledge.FilesResult{}, unavailable("KBX file inventory is incomplete")
+		}
+		for _, d := range r.Documents {
+			p, e := allowedDocumentPath(l, d.File)
+			if e != nil {
+				return knowledge.FilesResult{}, e
+			}
 			entries = append(entries, knowledge.FileEntry{Path: p, Ext: strings.ToLower(path.Ext(p)), Status: "active"})
 		}
 	}
-	return knowledge.FormatIndexedFiles(entries, o)
+	result, err := knowledge.FormatIndexedFiles(entries, o)
+	result.LibraryID = l.spec.Config.LibraryID
+	return result, err
 }

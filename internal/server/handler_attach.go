@@ -13,11 +13,11 @@ import (
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	runID := strings.TrimSpace(r.URL.Query().Get("runId"))
 	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
-	teamID := strings.TrimSpace(r.URL.Query().Get("teamId"))
+
 	if !s.validateHTTPRunControl(w, r, runID) {
 		return
 	}
-	if statusErr := s.validateRunOwner(runID, agentKey, teamID); statusErr != nil {
+	if statusErr := s.validateRunOwner(runID, agentKey); statusErr != nil {
 		writeJSON(w, statusErr.Status, api.Failure(statusErr.Status, statusErr.Message))
 		return
 	}
@@ -94,7 +94,6 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 							RunID:    runID,
 							ChatID:   status.ChatID,
 							AgentKey: status.AgentKey,
-							TeamID:   status.TeamID,
 						},
 						err,
 					)

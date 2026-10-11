@@ -207,7 +207,7 @@ func (s *Server) commitResourceDocument(w http.ResponseWriter, r *http.Request, 
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat resource not found"))
 		return
 	}
-	if strings.TrimSpace(summary.TeamID) != "" || strings.TrimSpace(summary.AgentKey) != request.Source.AgentKey {
+	if strings.TrimSpace(summary.AgentKey) != request.Source.AgentKey {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource owner mismatch"))
 		return
 	}

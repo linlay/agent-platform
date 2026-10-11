@@ -41,7 +41,11 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 		delete(m, "_compactRound")
 	}
 
-	detail, err := replayChatHistory(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons)
+	owners, err := s.replayRunOwnersLocked(chatID)
+	if err != nil {
+		return Detail{}, err
+	}
+	detail, err := replayChatHistory(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons, owners)
 	if err != nil {
 		return Detail{}, err
 	}
@@ -119,8 +123,8 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 		ChatID:   chatID,
 		ChatName: sum.ChatName,
 		AgentKey: sum.AgentKey,
-		TeamID:   sum.TeamID,
-		RunID:    runID,
+
+		RunID: runID,
 	}
 	for _, line := range lines {
 		lineRunID, _ := line["runId"].(string)

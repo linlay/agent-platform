@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -73,39 +74,32 @@ func TestTeamMemberHistoryKeepsOwnChainAndOnlyOtherFinalBodies(t *testing.T) {
 	}
 }
 
-func TestTeamCoordinatorHistoryKeepsFinalMemberBodiesWithoutHiddenChains(t *testing.T) {
+func TestTeamCoordinatorHistoryPreservesOwnToolPairsAndMemberFinals(t *testing.T) {
 	lines := []map[string]any{
-		{"_type": "query", "runId": "run-1", "updatedAt": float64(1), "messages": []any{map[string]any{"role": "user", "content": "continue the draft"}}},
+		{"_type": "query", "runId": "run-1", "messages": []any{map[string]any{"role": "user", "content": "request"}}},
 		{"_type": StepLineTypeReact, "runId": "run-1", "messages": []any{
-			map[string]any{"role": "assistant", "reasoning_content": "private routing thought", "tool_calls": []any{
-				map[string]any{"id": "delegate", "function": map[string]any{"name": "agent_delegate", "arguments": `{"tasks":[{"agentKey":"editor","task":"private edit"}]}`}},
-				map[string]any{"id": "route", "function": map[string]any{"name": "team_delegate", "arguments": `{"mode":"direct","memberKey":"writer"}`}},
-				map[string]any{"id": "invoke", "function": map[string]any{"name": "team_invoke", "arguments": `{"tasks":[{"memberKey":"reviewer","task":"secret internal instruction"}]}`}},
-			}},
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"id": "read", "function": map[string]any{"name": "file_read", "arguments": "{}"}}}},
+			map[string]any{"role": "tool", "tool_call_id": "read", "content": "coordinator private result"},
+			map[string]any{"role": "assistant", "content": "root final"},
 		}},
 		{"_type": StepLineTypeReact, "runId": "run-1", "taskSubAgentKey": "writer", "messages": []any{
-			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"id": "bash", "function": map[string]any{"name": "bash"}}}},
-			map[string]any{"role": "tool", "tool_call_id": "bash", "content": "private file contents"},
-			map[string]any{"role": "assistant", "content": "writer final answer"},
-		}},
-		{"_type": StepLineTypeReact, "runId": "run-2", "messages": []any{
-			map[string]any{"role": "assistant", "actorType": "agent", "agentKey": "editor", "teamId": "research", "presentation": "reply", "content": "direct editor answer"},
+			map[string]any{"role": "tool", "tool_call_id": "member-read", "content": "member private result"},
+			map[string]any{"role": "assistant", "content": "member final"},
 		}},
 	}
-
 	messages := teamCoordinatorRawMessagesFromJSONLLines(lines)
-	serialized := ""
-	for _, message := range messages {
-		serialized += stringValue(message["content"]) + "\n"
-	}
-	for _, required := range []string{"continue the draft", "[Team routing record]\nagent_delegate agentKeys=editor\nagent_delegate agentKeys=writer\nagent_delegate agentKeys=reviewer", "[Team member writer]\nwriter final answer", "[Team member editor]\ndirect editor answer"} {
-		if !strings.Contains(serialized, required) {
-			t.Fatalf("coordinator history missing %q: %#v", required, messages)
+	data, _ := json.Marshal(messages)
+	text := string(data)
+	for _, want := range []string{"coordinator private result", "tool_calls", "tool_call_id", "root final", "member final"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %s: %s", want, text)
 		}
 	}
-	for _, forbidden := range []string{"private routing thought", "private edit", "secret internal instruction", "private file contents", "bash", "team_delegate", "team_invoke"} {
-		if strings.Contains(serialized, forbidden) {
-			t.Fatalf("coordinator history leaked %q: %#v", forbidden, messages)
-		}
+	if strings.Contains(text, "member private result") {
+		t.Fatalf("member private chain leaked: %s", text)
+	}
+	member, _ := json.Marshal(teamMemberRawMessagesFromJSONLLines(lines, "writer"))
+	if strings.Contains(string(member), "coordinator private result") || !strings.Contains(string(member), "member private result") {
+		t.Fatalf("member history: %s", member)
 	}
 }

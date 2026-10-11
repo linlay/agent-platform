@@ -30,10 +30,10 @@ func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
 		AutomationName: "Daily",
 		SourceFile:     "/tmp/daily.yml",
 		AgentKey:       "agent-a",
-		TeamID:         "team-a",
-		ZoneID:         "Asia/Shanghai",
-		Status:         ExecutionStatusRunning,
-		StartedAt:      startedAt,
+
+		ZoneID:    "Asia/Shanghai",
+		Status:    ExecutionStatusRunning,
+		StartedAt: startedAt,
 	}
 	if err := store.Upsert(first); err != nil {
 		t.Fatalf("record first start: %v", err)
@@ -78,14 +78,14 @@ func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
 		AutomationName: "Daily",
 		SourceFile:     "/tmp/daily.yml",
 		AgentKey:       "agent-a",
-		TeamID:         "team-a",
-		ZoneID:         "UTC",
-		Status:         ExecutionStatusFailed,
-		FinishReason:   "error",
-		Error:          "boom",
-		StartedAt:      startedAt + 2,
-		CompletedAt:    &secondCompletedAt,
-		DurationMs:     &secondDuration,
+
+		ZoneID:       "UTC",
+		Status:       ExecutionStatusFailed,
+		FinishReason: "error",
+		Error:        "boom",
+		StartedAt:    startedAt + 2,
+		CompletedAt:  &secondCompletedAt,
+		DurationMs:   &secondDuration,
 	}
 	if err := store.Upsert(second); err != nil {
 		t.Fatalf("record second start: %v", err)

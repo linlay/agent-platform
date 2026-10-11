@@ -22,9 +22,6 @@ func (s *Server) reloadAgentCatalog(ctx context.Context) error {
 			return err
 		}
 	}
-	if s.deps.KBase != nil {
-		s.deps.KBase.ReconcileWatchers(ctx)
-	}
 	if s.deps.AgentCardRefresh != nil {
 		s.deps.AgentCardRefresh.ScheduleRefresh()
 	}

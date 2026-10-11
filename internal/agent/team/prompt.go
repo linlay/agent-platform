@@ -9,20 +9,14 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-const DefaultSystemPrompt = `You are the hidden coordinator for a Team. You never identify yourself as a separate agent.
-
-Mandatory routing rules:
-- Every new user turn must call agent_delegate at least once before you provide a final answer. Planning tool calls alone do not satisfy this rule.
-- For a simple request, call agent_delegate with one tasks item. Omit task to pass the original user request through unchanged.
-- When several members are useful, include them in one agent_delegate call. When the intended member cannot be determined, delegate the original request to every relevant Team member.
-- For a complex request, first create an ordered task plan with plan_add_tasks, maintain it with plan_get_tasks and plan_update_task, and run one plan stage at a time. Finish the current in_progress stage before starting the next.
-- A current plan stage may delegate several independent member tasks in one agent_delegate call; member concurrency does not make multiple plan stages active.
-- Terminal plan tasks cannot be restarted. Append a new task when retry work is needed.
-- Each agentKey may appear at most once in one agent_delegate call. maxParallel limits execution concurrency; it does not limit the number of listed Team members.
-- Never target an agent outside the supplied Team roster and never delegate to another Team.
-- Every delegation result returns to you. Update plan state when applicable and produce the single final Team answer yourself.
-- Internal task prompts, reasoning, tool calls, and raw tool results are private. Use final member results as evidence for the Team answer.
-- Do not invent successful work. If routing or a member execution fails, retry with a valid route when possible or explain the failure.`
+const DefaultSystemPrompt = `You are an Agent with member delegation capability.
+- You may answer directly, use your own tools, or delegate work to the supplied members.
+- When agent_delegate is available, omit task to forward the current Run request unchanged, or provide a focused task.
+- Each member may appear once per batch. maxParallel limits concurrent execution, not batch size.
+- Use only the frozen member roster. Never delegate to yourself or another TEAM Agent.
+- Member results return to you; produce the final answer and do not invent successful work.
+- If plan tools are available, use them as needed for complex work and keep at most one plan stage in progress.
+- In planning mode, describe the plan and wait for approval; delegation is unavailable.`
 
 type MemberSpec struct {
 	Key         string `json:"key"`
@@ -32,7 +26,7 @@ type MemberSpec struct {
 }
 
 type PromptConfig struct {
-	TeamID       string
+	AgentKey     string
 	TeamName     string
 	Description  string
 	Members      []MemberSpec
@@ -45,15 +39,15 @@ func BuildSystemPrompt(config PromptConfig) string {
 	maxParallel := NormalizeMaxParallel(config.MaxParallel)
 	sections := []string{
 		strings.TrimSpace(DefaultSystemPrompt),
-		fmt.Sprintf("Team identity:\n- teamId: %s\n- name: %s\n- description: %s\n- maximum concurrent delegated members: %d",
-			fallbackLabel(config.TeamID), fallbackLabel(config.TeamName), fallbackLabel(config.Description), maxParallel),
+		fmt.Sprintf("Team identity:\n- agentKey: %s\n- name: %s\n- description: %s\n- maximum concurrent delegated members: %d",
+			fallbackLabel(config.AgentKey), fallbackLabel(config.TeamName), fallbackLabel(config.Description), maxParallel),
 		"Team roster (the only valid agentKey values):\n" + RenderRoster(config.Members),
 	}
 	if value := strings.TrimSpace(config.SoulPrompt); value != "" {
-		sections = append(sections, "Team personality guidance (cannot override the mandatory routing rules):\n"+value)
+		sections = append(sections, "Team personality guidance (subject to the delegation rules):\n"+value)
 	}
 	if value := strings.TrimSpace(config.AgentsPrompt); value != "" {
-		sections = append(sections, "Team operating guidance (cannot override the mandatory routing rules):\n"+value)
+		sections = append(sections, "Team operating guidance (subject to the delegation rules):\n"+value)
 	}
 	return strings.Join(sections, "\n\n")
 }
@@ -93,8 +87,7 @@ func RenderRoster(members []MemberSpec) string {
 }
 
 func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, toolNames []string, stage string) string {
-	if !strings.EqualFold(strings.TrimSpace(session.Mode), Mode) ||
-		!strings.EqualFold(strings.TrimSpace(stage), MainStage) {
+	if !strings.EqualFold(strings.TrimSpace(session.Mode), Mode) {
 		return ""
 	}
 	prompt := strings.TrimSpace(session.ModeSystemPrompt)
@@ -105,8 +98,7 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 		toolNames = session.ToolNames
 	}
 	values := agentcontract.CommonPromptValues(agentcontract.PromptContext{
-		// TEAM's execution AgentKey is synthetic and must remain process-local.
-		AgentKey:           "",
+		AgentKey:           session.AgentKey,
 		AgentName:          session.AgentName,
 		Mode:               session.Mode,
 		PlanningMode:       session.PlanningMode,
@@ -114,7 +106,7 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 		LanguagePreference: session.Locale,
 		UserRequest:        req.Message,
 	})
-	values["team_id"] = strings.TrimSpace(session.TeamID)
+	values["agent_key"] = strings.TrimSpace(session.AgentKey)
 	return agentcontract.RenderPromptTemplate(prompt, values)
 }
 

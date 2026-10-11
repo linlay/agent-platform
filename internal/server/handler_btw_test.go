@@ -405,7 +405,7 @@ func TestBTWRejectsWhenNonTeamParentAgentUsesChannelBackend(t *testing.T) {
 		},
 	})
 	const chatID = "chat-btw-channel-parent"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "channel-parent", "", "parent"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "channel-parent", "parent"); err != nil {
 		t.Fatalf("ensure channel parent: %v", err)
 	}
 
@@ -597,7 +597,7 @@ func TestBTWRequiresExistingParentAndExistingContinuation(t *testing.T) {
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "chat_not_found") {
 		t.Fatalf("expected missing parent error, got %d %s", rec.Code, rec.Body.String())
 	}
-	if _, _, err := fixture.chats.EnsureChat("chat-btw-missing", "mock-agent", "", "parent"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat("chat-btw-missing", "mock-agent", "parent"); err != nil {
 		t.Fatalf("ensure parent: %v", err)
 	}
 	rec = serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"chat-btw-missing","btwId":"btw_missing","message":"side"}`)

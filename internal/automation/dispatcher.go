@@ -42,8 +42,8 @@ func (d *Dispatcher) prepareExecution(def Definition, zoneID string) Execution {
 	startedAt := time.Now()
 	triggeredAt := startedAt.Format(time.RFC3339)
 	log.Printf(
-		"[automation] dispatch start id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s",
-		def.ID, def.Name, def.AgentKey, def.TeamID, def.SourceFile, triggeredAt,
+		"[automation] dispatch start id=%s name=%s agentKey=%s source=%s triggeredAt=%s",
+		def.ID, def.Name, def.AgentKey, def.SourceFile, triggeredAt,
 	)
 
 	execution := Execution{
@@ -52,11 +52,11 @@ func (d *Dispatcher) prepareExecution(def Definition, zoneID string) Execution {
 		AutomationName: strings.TrimSpace(def.Name),
 		SourceFile:     strings.TrimSpace(def.SourceFile),
 		AgentKey:       strings.TrimSpace(def.AgentKey),
-		TeamID:         strings.TrimSpace(def.TeamID),
-		ZoneID:         strings.TrimSpace(zoneID),
-		QueryContent:   def.Query.Message,
-		Status:         ExecutionStatusRunning,
-		StartedAt:      startedAt.UnixMilli(),
+
+		ZoneID:       strings.TrimSpace(zoneID),
+		QueryContent: def.Query.Message,
+		Status:       ExecutionStatusRunning,
+		StartedAt:    startedAt.UnixMilli(),
 	}
 	d.submitExecution(execution)
 	return execution
@@ -75,8 +75,8 @@ func (d *Dispatcher) dispatchPrepared(ctx context.Context, def Definition, execu
 		completed := completeExecution(execution, nil, "", ctxErr)
 		d.submitExecution(completed)
 		log.Printf(
-			"[automation] dispatch canceled id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s err=%v",
-			def.ID, def.Name, def.AgentKey, def.TeamID, def.SourceFile, triggeredAt,
+			"[automation] dispatch canceled id=%s name=%s agentKey=%s source=%s triggeredAt=%s duration=%s err=%v",
+			def.ID, def.Name, def.AgentKey, def.SourceFile, triggeredAt,
 			time.Since(time.UnixMilli(execution.StartedAt)).Round(time.Millisecond), ctxErr,
 		)
 		return ctxErr
@@ -114,15 +114,15 @@ func (d *Dispatcher) dispatchPrepared(ctx context.Context, def Definition, execu
 	}
 	if returnedErr != nil {
 		log.Printf(
-			"[automation] dispatch failed id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s err=%v",
-			def.ID, def.Name, def.AgentKey, def.TeamID, def.SourceFile, triggeredAt,
+			"[automation] dispatch failed id=%s name=%s agentKey=%s source=%s triggeredAt=%s duration=%s err=%v",
+			def.ID, def.Name, def.AgentKey, def.SourceFile, triggeredAt,
 			time.Since(startedAt).Round(time.Millisecond), returnedErr,
 		)
 		return returnedErr
 	}
 	log.Printf(
-		"[automation] dispatch success id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s",
-		def.ID, def.Name, def.AgentKey, def.TeamID, def.SourceFile, triggeredAt,
+		"[automation] dispatch success id=%s name=%s agentKey=%s source=%s triggeredAt=%s duration=%s",
+		def.ID, def.Name, def.AgentKey, def.SourceFile, triggeredAt,
 		time.Since(startedAt).Round(time.Millisecond),
 	)
 	return nil

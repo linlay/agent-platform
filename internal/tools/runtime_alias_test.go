@@ -113,9 +113,9 @@ func TestDesktopAndWebControlRuntimeAliasKeepBoundaries(t *testing.T) {
 	if err != nil || viaRuntime != viaChat {
 		t.Fatalf("@runtime = %q, @chat = %q, %v", viaRuntime, viaChat, err)
 	}
-	target, _, failed := resolveWebControlTarget(session, "@runtime/chats/chat-1/report.html")
-	if failed || target.relativePath != "runtime/chats/chat-1/report.html" {
-		t.Fatalf("web control @runtime target = %#v, failed=%v", target, failed)
+	// The WorkPanel names files by their own root only.
+	if target, _, failed := resolveWebControlTarget(session, "@runtime/chats/chat-1/report.html"); !failed {
+		t.Fatalf("web control accepted @runtime: %#v", target)
 	}
 
 	// Installation has no Workspace check of its own, so @runtime must not

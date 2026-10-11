@@ -684,7 +684,6 @@ program_prepare_runtime_dirs() {
     "$RUNTIME_ROOT/tools" \
     "$RUNTIME_ROOT/owner" \
     "$RUNTIME_ROOT/agents" \
-    "$RUNTIME_ROOT/teams" \
     "$RUNTIME_ROOT/root" \
     "$RUNTIME_ROOT/automations" \
     "$RUNTIME_ROOT/chats" \

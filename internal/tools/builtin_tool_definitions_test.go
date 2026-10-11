@@ -23,6 +23,9 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 		byName[def.Name] = true
 	}
 
+	if !byName["ask_user_form"] {
+		t.Fatal("expected ask_user_form builtin tool definition")
+	}
 	if !byName["ask_user_question"] {
 		t.Fatal("expected ask_user_question builtin tool definition")
 	}
@@ -148,13 +151,16 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 				t.Fatalf("chat_start schema must not use oneOf: %#v", def.Parameters)
 			}
 			properties := mapChild(t, def.Parameters, "properties")
-			for _, field := range []string{"message", "agentKey", "teamId", "chatId"} {
+			for _, field := range []string{"message", "agentKey", "chatId"} {
 				if _, exists := properties[field]; !exists {
 					t.Fatalf("chat_start schema is missing %s: %#v", field, properties)
 				}
 			}
 			if _, exists := properties["action"]; exists {
 				t.Fatalf("chat_start schema still exposes action: %#v", properties)
+			}
+			if _, exists := properties["teamId"]; exists {
+				t.Fatalf("chat_start schema still exposes teamId: %#v", properties)
 			}
 			if required, _ := def.Parameters["required"].([]any); !reflect.DeepEqual(required, []any{"message"}) {
 				t.Fatalf("chat_start required = %#v, want [message]", required)
@@ -221,7 +227,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 	}
 
 	visibleNames := map[string]bool{
-		"agent_invoke": true, "artifact_publish": true, "ask_user_question": true,
+		"agent_invoke": true, "artifact_publish": true, "ask_user_question": true, "ask_user_form": true,
 		"bash": true, "bash_sandbox": true, "datetime": true, "wait": true,
 		"desktop_shell": true, "desktop_settings": true, "desktop_site": true, "desktop_webapp": true, "desktop_service": true, "desktop_market": true, "desktop_kanban": true,
 		"workpanel_state": true, "workpanel_open": true, "workpanel_close": true,
@@ -230,7 +236,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"awcp_manual": true, "awcp_invoke": true,
 		"file_edit": true, "file_glob": true, "file_grep": true, "file_read": true, "file_write": true,
 		"finalize_planning": true, "image_generate": true,
-		"kbase_files": true, "kbase_read": true, "kbase_refresh": true, "kbase_search": true, "kbase_status": true,
+		"kbase_files": true, "kbase_read": true, "kbase_search": true, "kbase_status": true,
 		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
 		"automation_query": true, "automation_manage": true, "catalog_query": true, "catalog_manage": true, "chat_query": true, "chat_manage": true, "platform_inspect": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true,
 	}
@@ -688,11 +694,10 @@ func TestKBaseToolReadOnlyMetadata(t *testing.T) {
 		t.Fatalf("load embedded tool definitions: %v", err)
 	}
 	want := map[string]bool{
-		"kbase_search":  true,
-		"kbase_files":   true,
-		"kbase_read":    true,
-		"kbase_status":  true,
-		"kbase_refresh": false,
+		"kbase_search": true,
+		"kbase_files":  true,
+		"kbase_read":   true,
+		"kbase_status": true,
 	}
 	seen := map[string]bool{}
 	for _, def := range defs {

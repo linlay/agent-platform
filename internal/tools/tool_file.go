@@ -589,7 +589,8 @@ func writeAllowedBySessionWorkspace(execCtx *ExecutionContext, path string) bool
 	if execCtx == nil {
 		return false
 	}
-	return filetools.PathInSessionWorkspace(execCtx.Session, path) ||
+	return filetools.ScopedPathInSource(execCtx.Session, path) ||
+		filetools.PathInSessionWorkspace(execCtx.Session, path) ||
 		filetools.PathInSessionChat(execCtx.Session, path)
 }
 

@@ -2,7 +2,7 @@
 
 ## 范围
 
-KBASE Editing 是专用 `mode: KBASE` 的单次 Workspace mutation 授权。专用 KBASE 没有固定工具集：main 与 editing 两种 stage 都使用 `agent.yml` 声明的同一组工具（可以包含 Bash、技能和连接器带来的工具）。新建 KBASE 时默认写入以下结构化文件工具：
+KBASE Editing 是专用 `mode: KBASE` 的单次 Workspace 与可编辑 collection mutation 授权（collection 仅支持 Host）。专用 KBASE 没有固定工具集：main 与 editing 两种 stage 都使用 `agent.yml` 声明的同一组工具（可以包含 Bash、技能和连接器带来的工具）。新建 KBASE 时默认写入以下结构化文件工具：
 
 ```text
 file_read file_glob file_grep file_write file_edit
@@ -15,11 +15,11 @@ file_read file_glob file_grep file_write file_edit
 | 未开启 editing | 可读，不可 mutation | 可读写 |
 | 开启 editing | 可读写 | 可读写 |
 
-`editingMode` 不控制文件工具是否存在，也不改变 Workspace；它只允许本 run 修改 KBASE Workspace。它与 `planningMode` 相互独立，自身不产生第二个 execute run；二者同时出现时规划 Run 保持只读，`editingMode` 在已确认计划的执行 Run 生效。普通 Agent 附加的 KBASE capability、Team 和其他 mode 不支持该字段。
+`editingMode` 不控制文件工具是否存在，也不改变 Workspace；它允许本 Run 修改 KBASE Workspace，以及启动时冻结的 editable collection 目录。它与 `planningMode` 相互独立，自身不产生第二个 execute run；二者同时出现时规划 Run 保持只读，`editingMode` 在已确认计划的执行 Run 生效。普通 Agent 附加的 KBASE capability、Team 和其他 mode 不支持该字段。
 
 这些工具处理普通文本文件，不按知识库索引格式限制扩展名或编码。`.md`、`.txt`、`.json`、`.csv`、`.html` 以及其他可被通用文本工具识别的格式均可读写；支持的非 UTF-8 编码沿用通用检测、显式编码和写回保留规则。DOCX、PPTX、PDF、图片等二进制格式仍需格式专用工具。
 
-删除、重命名、创建目录和 Bash 不在 editing 工具集中。Workspace 新文件仍要求父目录已存在。
+editing 不额外注入删除、重命名、创建目录或 Bash 工具；显式声明的 Bash 仍走通用策略。Workspace 和可编辑 collection 的结构化文件工具新建文件均要求父目录已存在。
 
 ## 协议
 
@@ -68,30 +68,24 @@ AccessPlan 之后按 canonical 实际目标应用 Workspace mutation gate：
 - KBASE Workspace 新文件的父目录必须已存在；
 - 写入继续使用 SHA/mtime/size 并发检测、大小限制、原子替换和 file history。
 
-`file_glob/file_grep` 在所有获准目录使用相同的通用搜索规则，不对 Workspace 注入 `.md` 过滤。文件是否进入知识库由 `kbaseConfig.include/exclude` 和 extractor 独立决定；可编辑不等于可索引。
+`file_glob/file_grep` 在所有获准目录使用相同的通用搜索规则，不对 Workspace 注入 `.md` 过滤。文件是否进入知识库由 `library.yml` 中 collection 的 `include/exclude` 和 extractor 独立决定；可编辑不等于可索引。
 
-## 异步索引
+## 多目录授权与异步索引
 
-文件工具写入成功只表示内容已经落盘。工具结果不包含 `kbase-index` hook，也不直接调用 KBASE refresh。
+Workspace 与 library 来源不要求包含或相等。专用 KBASE 的 Host Run 在启动时将 `editable:true` collection 的现存 canonical 路径冻结进 `ScopedFilePolicy.EditableCollectionRoots`，与 Workspace 取并集；相对路径仍基于 Workspace，collection 使用提示词列出的绝对目录。`description` 和 editable 开关均在下次 Run 生效，不重建索引。
 
-Platform KBX worker 监听知识库 Workspace，在 debounce 后按相对路径批次调用 KBX 维护命令，并在抽取和 embedding 前应用 `include/exclude`。当前 Chat 目录、其他 chatId 和外部目录不在该 watcher 范围内。
+该并集复用上文 editing 硬门禁、已有文件先读后写、新文件父目录已存在，以及 Bash 的写入/不透明执行检查；未开 editing 时即使 full_access 也不能写，不产生 HITL。readonly、平台保护目录和管理员 block 仍优先。符号链接以当前实际目标判定，不能借 collection 内的链接获得外部写授权，冻结根也不会因后续链接改向而跟随。Workspace 与 collection 重叠只产生一份有效范围，editable=false 不撤销已有 Workspace 权限。
 
-因此：
+库在 Run 中途改目录、开关或说明不修改当前 Run 的文件授权和提示词；检索工具仍检查当前库范围。普通 GENERAL/CODER 绑定同库不获得 collection 文件权限。容器沙箱不自动挂载 collection、不继承 Host collection 授权；现有 Workspace 权限保持原契约。
 
-- Workspace 写入成功后可能存在短暂的“已保存、尚不可检索”窗口；
-- 被索引配置排除或 extractor 不支持的文件仍可成功保存，但 watcher 会跳过；
-- 不应因为写结果没有索引状态而自动调用 `kbase_refresh`；
-- `kbase_refresh` 只在用户明确要求手工刷新，或需要从索引故障中恢复时使用。
+写入共享来源会影响所有绑定 Agent，由知识库服务按 500ms 合并及增量策略异步维护。
 
-## KBASE Workspace 与 Chats 分离
+写入成功不等于已进入索引；被 collection include/exclude 排除或 extractor 不支持的文件仍可保存。Agent 没有 kbase_refresh；自动维护失败由周期任务重试，也可在知识库手工刷新。源目录与 ChatsRoot/StateDir 的隔离由库校验负责，Workspace 继续遵守通用项目和文件权限校验。
 
-所有 `kbaseConfig.enabled:true` 的 Agent 在 Catalog 加载阶段都会校验 KBASE Workspace 与运行时 chats root。两者相等、互为父子或经 symlink 解析后实际重叠时：
+权限回归入口：`internal/tools/kbase_editing_adversarial_test.go`、`internal/filetools/scoped_test.go`。
 
-- 该 Agent 不进入运行时 Agent catalog；
-- 管理端保留 `invalid` 条目和 `invalid_kbase_workspace_overlap` 诊断；
-- 引用它的 Team 会把该成员标记为不可用，因而不能正常启动；
-- 其他 Agent 和平台进程继续运行。
+## 与库级索引配置的关系
 
-修正目录后，Catalog 热重载会重新执行校验并恢复准入。该检查不依赖 `editingMode`，普通 Agent 挂载 KBASE capability 时同样适用。
+library.yml 的库级 chunk 与 collection.chunk 逐字段合并，textEncoding 控制 KBX 的文本回退解码；这些字段变化触发来源重新处理，不改变文件工具的编码或编辑权限。models.embedding 使用共享 registry 并可覆盖 runtime 默认，变化只重建向量，全文仍可读。description/editable 在下次 Run 冻结生效，不触发索引重建；正在进行的 Run 写权限不随切块、编码或模型变化。配置与状态细节见 [知识库](知识库.md#库级配置与模型)。
 
-权限回归入口：`internal/tools/kbase_editing_adversarial_test.go`、`internal/filetools/scoped_test.go`；工具集合以当前 Agent 配置及 Platform 预置为准。
+库级 retrieval、models.reranker/queryExpansion 和 collection.defaultQuery 仅改变下次检索，不改变已冻结的 Workspace/collection 编辑范围，也不触发索引重建。默认检索排除的 collection 仍可显式查询、浏览和回读；是否允许编辑仍取决于 editable 与本 Run editingMode。

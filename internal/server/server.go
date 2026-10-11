@@ -26,7 +26,7 @@ import (
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/documentpreview"
-	"agent-platform/internal/kbasescenter"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
@@ -46,9 +46,7 @@ import (
 type KBaseService interface {
 	ValidateAgent(agentKey string) error
 	Status(agentKey string) (knowledge.Status, error)
-	Refresh(ctx context.Context, agentKey string, options knowledge.RefreshOptions) (knowledge.RefreshResult, error)
 	ProbeRuntime(ctx context.Context) (required bool, state knowledge.RuntimeState, err error)
-	ReconcileWatchers(ctx context.Context)
 }
 
 type MCPToolSyncStatusProvider interface {
@@ -58,7 +56,7 @@ type MCPToolSyncStatusProvider interface {
 // QueryRuntime is the narrow application boundary used by the transport
 // adapters. Server has no access to runtime assembly or executor internals.
 type QueryRuntime interface {
-	ValidateRunOwner(runID, agentKey, teamID string) *runtimetypes.RequestError
+	ValidateRunOwner(runID, agentKey string) *runtimetypes.RequestError
 	PendingAwaitingInfo(chatID string, pending *chat.PendingAwaiting) (*queryinput.ChatErrorInfo, error)
 	RegisterPreparedQuery(ctx context.Context, prepared runtimetypes.PreparedQuery) (runtimetypes.RegisteredRun, *runtimetypes.RequestError)
 	FinishRegisteredQuery(prepared runtimetypes.PreparedQuery, registered runtimetypes.RegisteredRun)
@@ -86,7 +84,7 @@ type Dependencies struct {
 	Memory                 *memory.Store
 	MemoryMaintenance      MemoryMaintenance
 	KBase                  KBaseService
-	KBasesCenter           *kbasescenter.Service
+	KBases                 *kbases.Service
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry
 	Runs                   contracts.RunManager

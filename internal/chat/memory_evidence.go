@@ -24,7 +24,7 @@ func (s *FileStore) MemoryChats(ctx context.Context, since, after int64, afterID
 	defer s.mu.Unlock()
 	rows, err := s.db.QueryContext(ctx, `SELECT c.CHAT_ID_, MAX(r.COMPLETED_AT_) AS completed, COUNT(r.RUN_ID_)
  FROM CHATS c JOIN RUNS r ON r.CHAT_ID_=c.CHAT_ID_
- WHERE COALESCE(c.TEAM_ID_,'')='' AND COALESCE(c.AWAITING_ID_,'')='' AND c.SOURCE_ NOT LIKE 'automation:%' AND c.SOURCE_ NOT LIKE 'run-query:%'
+ WHERE COALESCE(c.AWAITING_ID_,'')='' AND c.SOURCE_ NOT LIKE 'automation:%' AND c.SOURCE_ NOT LIKE 'run-query:%'
  AND NOT EXISTS(SELECT 1 FROM RUNS active WHERE active.CHAT_ID_=c.CHAT_ID_ AND active.COMPLETED_AT_=0)
  GROUP BY c.CHAT_ID_ HAVING completed>=? AND (completed>? OR (completed=? AND c.CHAT_ID_>?))
  ORDER BY completed,c.CHAT_ID_ LIMIT ?`, since, after, after, afterID, limit)
@@ -74,7 +74,7 @@ func (s *FileStore) MemoryMessages(chatID, runID string) ([]MemoryMessage, error
 func memoryMessagesFromLines(lines []map[string]any, runID string) []MemoryMessage {
 	var out []MemoryMessage
 	for _, line := range lines {
-		if stringValue(line["runId"]) != runID || stringValue(line["taskId"]) != "" || stringValue(line["subAgentKey"]) != "" || stringValue(line["taskSubAgentKey"]) != "" || stringValue(line["teamId"]) != "" {
+		if stringValue(line["runId"]) != runID || stringValue(line["taskId"]) != "" || stringValue(line["subAgentKey"]) != "" || stringValue(line["taskSubAgentKey"]) != "" {
 			continue
 		}
 		at := int64FromAny(line["updatedAt"])

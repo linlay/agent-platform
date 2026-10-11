@@ -4,7 +4,7 @@ Use Runtime Context's automations_dir for editable definitions. Existing files m
 
 ## Definition
 
-Required fields are name, cron, exactly one of agentKey/teamId, and query.message. Description is optional; the loader imposes no fixed first-two-lines order or single-line description rule. Unless the user specifies another executor, populate agentKey with the current Agent's exact key.
+Required fields are name, cron, agentKey, and query.message. Description is optional; the loader imposes no fixed first-two-lines order or single-line description rule. Unless the user specifies another executor, populate agentKey with the current Agent's exact key.
 
 | Field | Contract |
 | --- | --- |
@@ -13,7 +13,7 @@ Required fields are name, cron, exactly one of agentKey/teamId, and query.messag
 | enabled | Boolean; omitted means true |
 | cron | Traditional five-field Cron; see the [time rules](automation-workflow.md) |
 | remainingRuns | Positive integer; omitted means unlimited; one-time execution uses 1 |
-| agentKey / teamId | Exact executor identity, mutually exclusive |
+| agentKey | Exact root Agent identity, including TEAM |
 | environment.zoneId | Optional IANA zone; omitted follows platform automation.default-zone-id, then process time.Local |
 | query.message | Non-empty self-contained instruction; preserve its actual text, including newlines and whitespace |
 | query.accessLevel | default, auto_approve or full_access; omitted means default, without Chat permission inheritance |

@@ -15,7 +15,7 @@ import (
 
 func TestHandleChatRenameRenamesChat(t *testing.T) {
 	store, server := newChatRenameTestServer(t)
-	if _, _, err := store.EnsureChat("chat-rename", "agent-a", "", "old name"); err != nil {
+	if _, _, err := store.EnsureChat("chat-rename", "agent-a", "old name"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 

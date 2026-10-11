@@ -213,6 +213,7 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		delete(meta, key)
 	}
 	response := api.AgentDetailResponse{
+		TeamConfig:        def.TeamConfig,
 		InteractionConfig: def.Interaction(),
 		Key:               def.Key,
 		Name:              def.Name,

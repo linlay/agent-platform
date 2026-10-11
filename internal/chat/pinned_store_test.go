@@ -25,7 +25,7 @@ func TestChatPinsIndependentOrderAndFiltersBeforeLimit(t *testing.T) {
 		if i == 1 {
 			mode = "CODER"
 		}
-		if _, _, err := s.EnsureChatWithSourceAndMode(id, "agent-a", "", id, "", mode); err != nil {
+		if _, _, err := s.EnsureChatWithSourceAndMode(id, "agent-a", id, "", mode); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.db.Exec("UPDATE CHATS SET UPDATED_AT_=? WHERE CHAT_ID_=?", int64(1_780_000_000_000+i), id); err != nil {
@@ -75,7 +75,7 @@ func TestChatPinsIndependentOrderAndFiltersBeforeLimit(t *testing.T) {
 			t.Fatal("pinned item consumed ordinary limit")
 		}
 	}
-	items, err = s.RecentChatsByOwner("agent-a", "", 50, &no)
+	items, err = s.RecentChatsByOwner("agent-a", 50, &no)
 	if err != nil || len(items) != 50 || items[0].ChatID != "chat-57" {
 		t.Fatalf("owner preview: %v %v", summaryIDs(items), err)
 	}
@@ -105,7 +105,7 @@ func TestChatPinsConcurrentWritesAndLifecycle(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		id := fmt.Sprintf("chat-%02d", i)
-		if _, _, err := s.EnsureChat(id, "agent", "", id); err != nil {
+		if _, _, err := s.EnsureChat(id, "agent", id); err != nil {
 			t.Fatal(err)
 		}
 		wg.Add(1)
@@ -124,7 +124,7 @@ func TestChatPinsConcurrentWritesAndLifecycle(t *testing.T) {
 	if err := s.DeleteChat("chat-00"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.EnsureChat("chat-00", "agent", "", "recreated"); err != nil {
+	if _, _, err := s.EnsureChat("chat-00", "agent", "recreated"); err != nil {
 		t.Fatal(err)
 	}
 	summary, _ := s.Summary("chat-00")
@@ -137,7 +137,7 @@ func TestChatPinsConcurrentWritesAndLifecycle(t *testing.T) {
 	if _, _, err := s.SetChatPinned("missing", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.EnsureChat("pending", "agent", "", ""); err != nil {
+	if _, _, err := s.EnsureChat("pending", "agent", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.SetChatPinned("pending", true); err == nil {
@@ -167,7 +167,7 @@ func TestChatPinsArchiveRestoreClearsResidualPreferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := active.EnsureChat("chat-archive-pin", "agent", "", "archive"); err != nil {
+	if _, _, err := active.EnsureChat("chat-archive-pin", "agent", "archive"); err != nil {
 		t.Fatal(err)
 	}
 	if err := completeRunForTest(active, RunCompletion{

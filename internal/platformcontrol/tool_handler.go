@@ -20,6 +20,7 @@ import (
 )
 
 const (
+	TeamCreationPath    = "agents.creation.team"
 	GeneralCreationPath = "agents.creation.general"
 	CoderCreationPath   = "agents.creation.coder"
 	KBaseCreationPath   = "agents.creation.kbase"
@@ -51,9 +52,14 @@ func (h *ToolHandler) ToolNames() []string {
 
 func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
 	switch path {
-	case GeneralCreationPath:
+	case GeneralCreationPath, TeamCreationPath:
 		defaults := h.cfg.GeneralSettings.DefaultAgent
-		definition := agentgeneral.ApplyCreateDefaults(map[string]any{"mode": agentgeneral.Mode}, agentgeneral.CreateDefaults{
+		mode := agentgeneral.Mode
+		if path == TeamCreationPath {
+			defaults = h.cfg.TeamSettings.DefaultAgent
+			mode = "TEAM"
+		}
+		definition := agentgeneral.ApplyCreateDefaults(map[string]any{"mode": mode}, agentgeneral.CreateDefaults{
 			ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
 		})
 		missing := missingDefinitionFields(definition, "modelConfig.modelKey")
@@ -91,7 +97,7 @@ func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
 			"missingFields":      missing,
 		})
 	default:
-		return errorResult("unsupported_config_path", "path must be agents.creation.general, agents.creation.coder or agents.creation.kbase")
+		return errorResult("unsupported_config_path", "path must be agents.creation.general, agents.creation.coder, agents.creation.kbase or agents.creation.team")
 	}
 }
 
@@ -114,13 +120,6 @@ func (h *ToolHandler) validate(resourceType string, resourceKey string, content 
 	case "agent":
 		if err := catalog.ValidateAgentCandidate(resourceKey, []byte(content)); err != nil {
 			diagnostics = append(diagnostics, candidateError("invalid_agent_config", err))
-		}
-	case "team":
-		team, err := catalog.ValidateTeamCandidate(resourceKey, []byte(content))
-		if err != nil {
-			diagnostics = append(diagnostics, candidateError("invalid_team_config", err))
-		} else {
-			diagnostics = append(diagnostics, h.teamMemberDiagnostics(team.AgentKeys)...)
 		}
 	case "skill":
 		for _, item := range catalog.ValidateSkillCandidate(resourceKey, []byte(content), h.cfg.Skills.MaxPromptChars) {

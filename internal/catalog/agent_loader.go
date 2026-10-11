@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -35,12 +34,7 @@ func loadAgentsWithAdminAssembler(root, chatsDir string, globalMemoryEnabled boo
 	assembler.refreshedAgents = map[string]bool{}
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
-	expectedRuntimeAgents := map[string]struct{}{}
-	for key, def := range assembler.frozenAgents {
-		items[key] = def
-		adminItems[key] = assembler.frozenAdmin[key]
-		expectedRuntimeAgents[key] = struct{}{}
-	}
+
 	err := visitRuntimeEntries(
 		root,
 		func(root string) {
@@ -50,28 +44,45 @@ func loadAgentsWithAdminAssembler(root, chatsDir string, globalMemoryEnabled boo
 			return !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
 		},
 		func(name string, entry os.DirEntry) {
-			if source, ok := runtimeAgentSource(root, name, entry); ok {
-				key := adminAgentFallbackKey(source)
-				if definition, err := readAdminAgentDefinitionMap(source.Path); err == nil {
-					key = adminAgentKey(source, key, definition)
-				}
-				if validRuntimeComponent(key) {
-					expectedRuntimeAgents[key] = struct{}{}
-				}
-			}
+
 			// Individual Agent definitions are isolated: loadAgentSourceIntoMaps
 			// records diagnostics and preserves an invalid AdminAgent entry when
 			// parsing or validation fails, while valid Agents remain available.
 			// Root traversal failures are still returned by visitRuntimeEntries.
-			_ = loadAgentSourceIntoMaps(root, name, entry, chatsDir, globalMemoryEnabled, assembler, items, adminItems)
+			if err := loadAgentSourceIntoMaps(root, name, entry, chatsDir, globalMemoryEnabled, assembler, items, adminItems); err != nil {
+				if source, ok := runtimeAgentSource(root, name, entry); ok {
+					key := adminAgentFallbackKey(source)
+					diagnosticKey := key
+					for priorKey, prior := range assembler.previousAdmin {
+						if prior.Source.Path == source.Path {
+							key = priorKey
+							break
+						}
+					}
+					if old, ok := assembler.previousAgents[key]; ok {
+						items[key] = old
+						item, found := adminItems[key]
+						if !found {
+							item = adminItems[diagnosticKey]
+							delete(adminItems, diagnosticKey)
+							item.Key = key
+						}
+						if item.Meta == nil {
+							item.Meta = map[string]any{}
+						}
+						item.Meta["runtimeRevision"] = old.RuntimeRevision
+						item.Meta["runtimeSynchronized"] = false
+						item.Diagnostics = append(item.Diagnostics, AdminAgentDiagnostic{Severity: "warning", Code: "runtime_last_good_version", Message: "Source update failed; new runs continue using the last successfully published version"})
+						adminItems[key] = item
+					}
+				}
+			}
 		},
 	)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := assembler.cleanupDeleted(expectedRuntimeAgents); err != nil {
-		log.Printf("[catalog][agents] cleanup deleted runtime agents: %v", err)
-	}
+
 	return items, adminItems, nil
 }
 
@@ -88,7 +99,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 		return err
 	}
 	adminKey := adminAgentKey(source, fallbackKey, definition)
-	def, _, err := parseAgentFileRaw(source.Path)
+	def, _, err := parseAgentTree(source.Path, cloneAgentSnapshotMap(definition))
 	if err != nil {
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
@@ -101,13 +112,6 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 		return err
 	}
 
-	if def.KBaseConfig.Enabled {
-		if err := knowledge.ValidateWorkspaceChatsSeparation(def.Workspace.Root, chatsDir); err != nil {
-			log.Printf("[catalog][agents] skip %s %s: KBASE workspace/chats overlap: %v", source.Kind, name, err)
-			adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_kbase_workspace_overlap", err)
-			return err
-		}
-	}
 	if strings.TrimSpace(def.Workspace.Root) != "" {
 		if err := validateAgentWorkspace(def.Workspace); err != nil {
 			log.Printf("[catalog][agents] skip %s %s: invalid workspace: %v", source.Kind, name, err)
@@ -127,10 +131,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 	if strings.EqualFold(def.Mode, AgentModeKBase) && !kbaseAgentHasFileTool(def.Tools) {
 		log.Printf("[catalog][agents] warning code=kbase_file_tools_missing agent=%q message=KBASE effective tools contain none of %v; check preset-tools, toolConfig.tools and excludeTools", def.Key, agentkbase.StructuredFileToolNames())
 	}
-	runtimeDir, err := assembler.assemble(source, def)
-	if errors.Is(err, errAgentRuntimeBusy) {
-		return nil
-	}
+	runtimeDir, err := assembler.assemble(source, def, definition)
 	if err != nil {
 		code := runtimeAgentAssemblyDiagnosticCode(err)
 		log.Printf("[catalog][agents] skip %s %s: runtime assembly failed: %v", source.Kind, name, err)
@@ -139,6 +140,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 	}
 	def.AgentDir = source.AgentDir
 	def.RuntimeDir = runtimeDir
+	def.RuntimeRevision = filepath.Base(runtimeDir)
 	if err := def.bindConnectorRuntime(); err != nil {
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_connector", err)
 		return err
@@ -146,7 +148,10 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 	loadAgentPrompts(runtimeDir, &def, definition)
 	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
 	items[def.Key] = def
-	adminItems[def.Key] = readyAdminAgent(def, source, definition)
+	item := readyAdminAgent(def, source, definition)
+	item.Meta["runtimeRevision"] = def.RuntimeRevision
+	item.Meta["runtimeSynchronized"] = true
+	adminItems[def.Key] = item
 	assembler.refreshedAgents[def.Key] = true
 	return nil
 }
@@ -622,6 +627,13 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	}
 	def.Mode = mode
 	def.Engine = engine
+	if _, declared := root["teamConfig"]; declared && mode != "TEAM" {
+		return AgentDefinition{}, nil, fmt.Errorf("teamConfig is only supported for TEAM")
+	}
+	def.TeamConfig, err = parseTeamConfig(mode, def.Key, root["teamConfig"])
+	if err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	interactionConfig, err := interaction.Parse(mode, root["interactionConfig"])
 	if err != nil {
 		return AgentDefinition{}, nil, err
@@ -732,9 +744,10 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		}
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
+	if value, exists := root["kbaseConfig"]; exists && value != nil && mapNode(value) == nil {
+		return def, nil, fmt.Errorf("kbaseConfig must be a mapping with libraryId")
+	}
 	kbaseConfig := mapNode(root["kbaseConfig"])
-	// Embedding is deployment-owned; ignore retired Agent overrides.
-	delete(kbaseConfig, "embedding")
 	def.KBaseConfig, err = knowledge.ParseConfig(kbaseConfig)
 	if err != nil {
 		return AgentDefinition{}, nil, err
@@ -953,30 +966,10 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 	if def == nil {
 		return nil
 	}
-	isKBaseMode := strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase)
-	_, enabledSet := raw["enabled"]
-	if isKBaseMode {
-		if enabledSet && !def.KBaseConfig.Enabled {
-			return fmt.Errorf("kbaseConfig.enabled cannot be false for mode: KBASE")
-		}
-		def.KBaseConfig.Enabled = true
-		def.KBaseRequirement = knowledge.RequirementRequired
-	} else {
-		def.KBaseRequirement = knowledge.RequirementOptional
-		if len(raw) > 0 && !enabledSet {
-			return fmt.Errorf("kbaseConfig.enabled must be explicitly configured for non-KBASE agents")
-		}
-		if def.KBaseConfig.Enabled {
-			switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
-			case AgentModeGeneral, "PLAN_EXECUTE":
-			case AgentModeCoder:
-				if AgentUsesACPCoderBackend(*def) {
-					return fmt.Errorf("kbaseConfig.enabled is not supported for ACP CODER agents")
-				}
-			default:
-				return fmt.Errorf("kbaseConfig.enabled is only supported for GENERAL, PLAN-EXECUTE, native CODER, or KBASE agents")
-			}
-		}
+	def.KBaseConfig.Enabled = def.KBaseConfig.LibraryID != ""
+	def.KBaseRequirement = knowledge.RequirementOptional
+	if def.KBaseConfig.Enabled && (def.Engine == AgentEngineACP || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode)) {
+		return fmt.Errorf("kbaseConfig.libraryId requires a native agent")
 	}
 	return nil
 }

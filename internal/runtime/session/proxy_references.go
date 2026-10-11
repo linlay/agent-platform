@@ -32,7 +32,9 @@ func ResourceFileParam(rawURL string) string {
 }
 
 func ResourceFileParamForChat(chatID string, rawURL string) string {
-	raw := strings.TrimSpace(rawURL)
+	// "@chat/<path>" is the root-qualified spelling of a current-Chat reference.
+	// An invalid alias stays as written and is rejected below.
+	raw := chat.BareChatScopeRef(strings.TrimSpace(rawURL))
 	parsed, err := url.Parse(raw)
 	if err != nil || raw == "" {
 		return ""

@@ -75,7 +75,7 @@ func TestQueryExecutionEntryPointParity(t *testing.T) {
 					main.deltas = append([]contracts.AgentDelta{contracts.DeltaInvokeSubAgents{MainToolID: "invoke", Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", TaskText: "child task"}}}}, main.deltas...)
 					engine.streams = append(engine.streams, &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaContent{Text: "child answer"}}, finalText: "child answer"})
 				case "team":
-					req.AgentKey, req.TeamID = "", "research"
+					req.AgentKey = "research"
 					main.deltas = append([]contracts.AgentDelta{contracts.DeltaTeamDispatch{MainToolID: "delegate", Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}}}}, main.deltas...)
 					engine.streams = append(engine.streams, &stubOrchestratableStream{deltas: []contracts.AgentDelta{
 						contracts.DeltaContent{Text: "child answer"},

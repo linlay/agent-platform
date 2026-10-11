@@ -11,7 +11,7 @@ import (
 )
 
 var searchArgumentNames = []string{
-	"query", "method", "limit", "offset", "pathPrefix", "pathGlob", "type", "filter",
+	"collections", "rerank", "queryExpansion", "query", "method", "limit", "offset", "pathPrefix", "pathGlob", "type", "filter",
 	"exclude", "intent", "minScore", "candidateLimit", "recencyWeight", "recencyHalfLifeDays",
 	"noGraph", "entities", "relations", "direction", "maxHops",
 }
@@ -28,12 +28,14 @@ func searchOptionsFromArgs(args map[string]any) (SearchOptions, error) {
 		}
 		values[k] = v
 	}
-	if v, present := values["noGraph"]; present {
-		b, ok := toolinput.ParseBool(v)
-		if !ok {
-			return SearchOptions{}, fmt.Errorf("noGraph must be a boolean")
+	for _, key := range []string{"noGraph", "rerank", "queryExpansion"} {
+		if v, present := values[key]; present {
+			b, ok := toolinput.ParseBool(v)
+			if !ok {
+				return SearchOptions{}, fmt.Errorf("%s must be a boolean", key)
+			}
+			values[key] = b
 		}
-		values["noGraph"] = b
 	}
 	b, err := json.Marshal(values)
 	if err != nil {
@@ -57,6 +59,9 @@ func searchOptionsFromArgs(args map[string]any) (SearchOptions, error) {
 // NormalizeSearchOptions is shared by tool and service callers. CLI-only flags
 // must never silently disappear when a caller chooses another retrieval method.
 func NormalizeSearchOptions(o SearchOptions) (SearchOptions, error) {
+	if o.Collections != nil && len(o.Collections) == 0 {
+		return o, fmt.Errorf("collections must not be empty when specified")
+	}
 	o.Method = strings.TrimSpace(o.Method)
 	if o.Method == "" {
 		o.Method = "query"
@@ -92,7 +97,7 @@ func NormalizeSearchOptions(o SearchOptions) (SearchOptions, error) {
 	for _, field := range []struct {
 		name   string
 		values []string
-	}{{"exclude", o.Exclude}, {"entities", o.Entities}, {"relations", o.Relations}} {
+	}{{"collections", o.Collections}, {"exclude", o.Exclude}, {"entities", o.Entities}, {"relations", o.Relations}} {
 		for _, value := range field.values {
 			if strings.TrimSpace(value) == "" {
 				return o, fmt.Errorf("%s entries must not be blank", field.name)
@@ -119,6 +124,12 @@ func NormalizeSearchOptions(o SearchOptions) (SearchOptions, error) {
 		}
 	} else if len(o.Entities) > 0 || len(o.Relations) > 0 || o.Direction != "" || o.MaxHops != 0 {
 		return o, fmt.Errorf("entities, relations, direction, and maxHops require method gsearch")
+	}
+	if o.Rerank != nil && o.Method != "query" {
+		return o, fmt.Errorf("rerank requires method query")
+	}
+	if o.QueryExpansion != nil && o.Method != "query" && o.Method != "vsearch" {
+		return o, fmt.Errorf("queryExpansion requires query or vsearch")
 	}
 	if o.NoGraph && o.Method != "query" {
 		return o, fmt.Errorf("noGraph requires method query")

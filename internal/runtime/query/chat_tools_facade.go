@@ -8,21 +8,18 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/runtime/catalogview"
 	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/runtime/runstate"
 	sessionbuild "agent-platform/internal/runtime/session"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
-func runOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) bool {
+func runOwnerMatchesChat(summary *chat.Summary, agentKey string) bool {
 	if summary == nil {
 		return true
 	}
-	if teamID != "" {
-		return strings.TrimSpace(summary.AgentKey) == "" && strings.TrimSpace(summary.TeamID) == teamID
-	}
-	return strings.TrimSpace(summary.TeamID) == "" && strings.TrimSpace(summary.AgentKey) == agentKey
+
+	return strings.TrimSpace(summary.AgentKey) == agentKey
 }
 
 func mapRunStatusError(err *statusError) error {
@@ -72,31 +69,34 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	if strings.TrimSpace(request.ChatName) != "" && chatID != "" {
 		return fail("invalid_request", "chatName cannot be combined with chatId")
 	}
-	agentKey := strings.TrimSpace(request.AgentKey)
-	teamID := strings.TrimSpace(request.TeamID)
-	if strings.TrimSpace(request.Message) == "" || (agentKey == "") == (teamID == "") {
-		return fail("invalid_request", "message and exactly one of agentKey or teamId are required")
+	request, err := contracts.NormalizeRunStartRequest(request)
+	if err != nil {
+		return contracts.RunStartPlan{}, runNotStarted(err)
 	}
+	agentKey := request.AgentKey
 	plan := contracts.RunStartPlan{RequestedAccessLevel: strings.TrimSpace(request.AccessLevel)}
-	if agentKey != "" {
-		def, ok := s.deps.Registry.AgentDefinition(agentKey)
-		if !ok {
-			return fail("agent_not_found", "agent not found")
+	def, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok {
+		return fail("agent_not_found", "agent not found")
+	}
+	plan.TargetName = strings.TrimSpace(def.Name)
+	// Reject invalid overrides before requesting a human permission review.
+	// Query admission validates again against the definition used to start.
+	if request.ModelKey != "" || request.ReasoningEffort != "" {
+		if err := s.deps.Proxy.Configure(&def); err != nil {
+			return fail("invalid_request", err.Error())
 		}
-		plan.TargetName = strings.TrimSpace(def.Name)
-	} else {
-		team, ok := catalogview.ResolveTeam(s.deps.Registry, teamID)
-		if !ok {
-			return fail("team_not_found", "team not found")
+		options := &queryinput.QueryModelOptions{Key: strings.TrimSpace(request.ModelKey), ReasoningEffort: strings.TrimSpace(request.ReasoningEffort)}
+		if err := s.ValidateQueryModelOptions(options, def); err != nil {
+			return fail("invalid_request", err.Error())
 		}
-		plan.TargetName = strings.TrimSpace(team.Name)
 	}
 	if chatID != "" {
 		summary, err := s.deps.Chats.Summary(chatID)
 		if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
 			return contracts.RunStartPlan{}, runNotStarted(err)
 		}
-		if summary != nil && !runOwnerMatchesChat(summary, agentKey, teamID) {
+		if summary != nil && !runOwnerMatchesChat(summary, agentKey) {
 			return fail("target_owner_mismatch", "target identity does not match chat owner")
 		}
 		if summary != nil {
@@ -185,23 +185,28 @@ type acceptedRunStart struct {
 }
 
 func (s *Service) StartRun(ctx context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
+	request, err := contracts.NormalizeRunStartRequest(request)
+	if err != nil {
+		return contracts.RunSnapshot{}, runNotStarted(err)
+	}
 	plan, err := s.PrepareRunStart(ctx, request)
 	if err != nil {
 		return contracts.RunSnapshot{}, err
 	}
 	agentKey := strings.TrimSpace(request.AgentKey)
-	teamID := strings.TrimSpace(request.TeamID)
 	parentRunID := strings.TrimSpace(request.Origin.RunID)
 	req := runtimetypes.QueryCommand{
 		ChatID:          strings.TrimSpace(request.ChatID),
 		AgentKey:        agentKey,
-		TeamID:          teamID,
 		Role:            queryinput.QueryRoleUser,
 		Message:         strings.TrimSpace(request.Message),
 		AccessLevel:     plan.AccessLevel,
 		MustUseSkills:   append([]string(nil), request.MustUseSkills...),
 		InitialChatName: strings.TrimSpace(request.ChatName),
 		ChatSource:      queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
+	}
+	if modelKey, effort := strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort); modelKey != "" || effort != "" {
+		req.Model = &runtimetypes.QueryModelOptions{Key: modelKey, ReasoningEffort: effort}
 	}
 	// The new Run's lifetime is detached from the caller, but it retains the
 	// trusted parent's connection scope. Caller cancellation is still honored
@@ -225,7 +230,7 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 	// never burns a human approval. It creates no Chat.
 	admission, err := s.PrepareQueryAdmissionRequest(runCtx, req, true, locale, "")
 	if err != nil {
-		return contracts.RunSnapshot{}, runNotStarted(mapRunAdmissionError(err, agentKey, teamID))
+		return contracts.RunSnapshot{}, runNotStarted(mapRunAdmissionError(err, agentKey))
 	}
 	admission.StrictOwner = true
 	accepted, err := s.acceptRunStart(ctx, request, plan)
@@ -236,7 +241,7 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 	// Accepted: from here the approval is spent and is never restored.
 	prepared, err := s.CompleteQueryPreparation(runCtx, admission, nil)
 	if err != nil {
-		return contracts.RunSnapshot{}, runNotStarted(mapRunAdmissionError(err, agentKey, teamID))
+		return contracts.RunSnapshot{}, runNotStarted(mapRunAdmissionError(err, agentKey))
 	}
 	origin := request.Origin
 	prepared.Session.RunOrigin = &origin
@@ -314,16 +319,13 @@ func runNotStarted(err error) error {
 	return typed
 }
 
-func mapRunAdmissionError(err error, agentKey string, teamID string) error {
+func mapRunAdmissionError(err error, agentKey string) error {
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) {
 		return err
 	}
 	if strings.Contains(strings.ToLower(statusErr.Message), "agent not found") && agentKey != "" {
 		return runToolError("agent_not_found", statusErr.Message)
-	}
-	if strings.Contains(strings.ToLower(statusErr.Message), "team") && strings.Contains(strings.ToLower(statusErr.Message), "not found") && teamID != "" {
-		return runToolError("team_not_found", statusErr.Message)
 	}
 	return mapRunStatusError(statusErr)
 }

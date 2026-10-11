@@ -101,9 +101,6 @@ func (s *ControlService) resolve(t ControlTarget) (root, rel string, err error) 
 	case "agent":
 		base = s.Config.Paths.AgentsDir
 		primary = "agent.yml"
-	case "team":
-		base = s.Config.Paths.TeamsDir
-		primary = "team.yml"
 	case "skill":
 		base = s.Config.Paths.SkillsCenterDir
 		primary = "SKILL.md"
@@ -132,11 +129,7 @@ func (s *ControlService) resolve(t ControlTarget) (root, rel string, err error) 
 	rel = t.Path
 	if rel == "" {
 		rel = primary
-		if t.ResourceType == "team" {
-			if _, e := os.Lstat(filepath.Join(root, "team.yaml")); e == nil {
-				rel = "team.yaml"
-			}
-		}
+
 	}
 	if filepath.IsAbs(rel) || strings.Contains(rel, "\\") || strings.Contains(rel, "\x00") {
 		return "", "", fmt.Errorf("invalid path")
@@ -150,10 +143,6 @@ func (s *ControlService) resolve(t ControlTarget) (root, rel string, err error) 
 	case "agent":
 		if rel != "agent.yml" && rel != "SOUL.md" && rel != "AGENTS.md" {
 			return "", "", fmt.Errorf("unsupported agent path")
-		}
-	case "team":
-		if rel != "team.yml" && rel != "team.yaml" {
-			return "", "", fmt.Errorf("unsupported team path")
 		}
 	case "connector":
 		if rel != "connector.json" {
@@ -373,18 +362,6 @@ func (s *ControlService) Validate(t ControlTarget, content string) error {
 				return fmt.Errorf("unavailable model %s", key)
 			}
 		}
-	case "team":
-		team, e := catalog.ValidateTeamCandidate(t.ResourceKey, []byte(content))
-		if e != nil {
-			return e
-		}
-		if s.Registry != nil {
-			for _, key := range team.AgentKeys {
-				if _, ok := s.Registry.AgentDefinition(key); !ok {
-					return fmt.Errorf("unavailable team member %s", key)
-				}
-			}
-		}
 	case "skill":
 		if filepath.Base(rel) == "SKILL.md" {
 			for _, d := range catalog.ValidateSkillCandidate(t.ResourceKey, []byte(content), s.Config.Skills.MaxPromptChars) {
@@ -422,9 +399,7 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 	if connector.IsBuiltin(c.ResourceKey) || c.ResourceType == "agent" && strings.EqualFold(c.ResourceKey, caller) {
 		return nil, fmt.Errorf("protected resource")
 	}
-	if c.Action == "delete" && c.ResourceType == "team" {
-		return nil, fmt.Errorf("team deletion is not supported")
-	}
+
 	root, rel, e := s.resolve(c.ControlTarget)
 	if e != nil {
 		return nil, e
@@ -470,7 +445,7 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 	}
 	if c.Action == "apply" {
 		if !exists {
-			primary := map[string]string{"agent": "agent.yml", "team": "team.yml", "skill": "SKILL.md", "connector": "connector.json"}[c.ResourceType]
+			primary := map[string]string{"agent": "agent.yml", "skill": "SKILL.md", "connector": "connector.json"}[c.ResourceType]
 			if filepath.Base(rel) != primary {
 				return nil, fmt.Errorf("create the primary definition first")
 			}
@@ -529,39 +504,7 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 	return p, nil
 }
 func (s *ControlService) checkReferences(t ControlTarget) error {
-	if t.ResourceType == "agent" {
-		err := filepath.WalkDir(s.Config.Paths.TeamsDir, func(path string, d fs.DirEntry, e error) error {
-			if os.IsNotExist(e) {
-				return nil
-			}
-			if e != nil {
-				return e
-			}
-			if d.Type()&os.ModeSymlink != 0 {
-				return fmt.Errorf("cannot verify symlinked team source")
-			}
-			if d.IsDir() || d.Name() != "team.yml" && d.Name() != "team.yaml" {
-				return nil
-			}
-			b, e := os.ReadFile(path)
-			if e != nil {
-				return e
-			}
-			team, e := catalog.ValidateTeamCandidate(filepath.Base(filepath.Dir(path)), b)
-			if e != nil {
-				return fmt.Errorf("cannot verify invalid team source")
-			}
-			for _, key := range team.AgentKeys {
-				if strings.EqualFold(key, t.ResourceKey) {
-					return fmt.Errorf("agent is referenced by team %s", filepath.Base(filepath.Dir(path)))
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
+
 	if t.ResourceType == "connector" {
 		r, ok := s.Registry.(ConnectorUsageReader)
 		if !ok {
@@ -615,7 +558,7 @@ func (s *ControlService) Apply(ctx context.Context, c ControlChange, caller, dig
 	sourceUnlock := s.Mutations.LockSourceMutation()
 	defer sourceUnlock()
 	var result map[string]any
-	reason := map[string]string{"agent": "agents", "team": "teams", "skill": "skills", "connector": "connectors"}[c.ResourceType]
+	reason := map[string]string{"agent": "agents", "skill": "skills", "connector": "connectors"}[c.ResourceType]
 	mutate := func(ctx context.Context) error {
 		var err error
 		result, err = s.applyLocked(ctx, c, caller, digest)
@@ -630,7 +573,7 @@ func (s *ControlService) Apply(ctx context.Context, c ControlChange, caller, dig
 	return result, err
 }
 func (s *ControlService) reload(ctx context.Context, kind string) error {
-	reason := map[string]string{"agent": "agents", "team": "teams", "skill": "skills", "connector": "connectors"}[kind]
+	reason := map[string]string{"agent": "agents", "skill": "skills", "connector": "connectors"}[kind]
 	if s.Reload != nil {
 		return s.Reload(ctx, reason)
 	}

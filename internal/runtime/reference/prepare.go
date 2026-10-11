@@ -82,7 +82,8 @@ func (s *Service) prepareFileResourceReference(ctx context.Context, currentChatI
 	if fileParam == "" {
 		return reference, nil
 	}
-	parsed, err := url.Parse(rawURL)
+	// The literal @chat/ path may hold characters that are not URL syntax.
+	parsed, err := url.Parse(chat.BareChatScopeRef(rawURL))
 	if err != nil {
 		return runtimetypes.Reference{}, queryReferenceStatusError(http.StatusBadRequest, "resource_reference_unavailable", "invalid resource reference URL")
 	}
@@ -231,9 +232,6 @@ func (s *Service) PrepareChatReference(ctx context.Context, currentChatID string
 	}
 	if agentKey := strings.TrimSpace(summary.AgentKey); agentKey != "" {
 		meta["agentKey"] = agentKey
-	}
-	if teamID := strings.TrimSpace(summary.TeamID); teamID != "" {
-		meta["teamId"] = teamID
 	}
 	if contextText := BuildChatReferenceContext(*summary, messages); contextText != "" {
 		meta["context"] = contextText

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"agent-platform/internal/runtimeskills"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -16,9 +17,14 @@ type blockingAutomation struct {
 	done context.Context
 }
 
-func TestAppStartupIgnoresLegacyConnectorSourcesAndState(t *testing.T) {
+func TestAppStartupIgnoresLegacyRuntimeSourcesAndState(t *testing.T) {
 	root := t.TempDir()
-	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_KBASE_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_STATE_DIR"} {
+	t.Cleanup(func() {
+		if err := runtimeskills.Remove(root); err != nil {
+			t.Error(err)
+		}
+	})
+	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_STATE_DIR"} {
 		t.Setenv(key, "")
 	}
 	t.Setenv("AP_RUNTIME_DIR", filepath.Join(root, "runtime"))
@@ -59,6 +65,10 @@ func TestAppStartupIgnoresLegacyConnectorSourcesAndState(t *testing.T) {
 	// Conflicting and malformed legacy content must neither block startup nor
 	// overwrite the current package or credentials.
 	files := map[string]string{
+		"ru-kbases/libraries/demo/index.sqlite":             "invalid legacy shared index",
+		"ru-kbases/libraries/demo/state.json":               "invalid legacy shared state",
+		"kbase/demo/index.sqlite":                           "invalid legacy Agent index",
+		"kbase/demo/state.json":                             "invalid legacy Agent state",
 		"connectors-center/demo/connector.json":             `{"id":"demo","name":"Current Demo","version":"2.0.0","type":"cli","auth_mode":"none"}`,
 		"connectors-center/demo/cli.json":                   `{}`,
 		".state/connectors/demo/credentials.json":           `{"TOKEN":"current-state"}`,
@@ -97,10 +107,14 @@ func TestAppStartupIgnoresLegacyConnectorSourcesAndState(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("health: %d %s", recorder.Code, recorder.Body.String())
 	}
-	for _, path := range []string{"connectors-center/demo/connector.json", "ru-agents/demo/connectors/demo.json", ".state/connectors/demo/credentials.json"} {
+	for _, path := range []string{"connectors-center/demo/connector.json", ".state/connectors/demo/credentials.json"} {
 		if _, err := os.Stat(filepath.Join(root, "runtime", path)); err != nil {
 			t.Fatalf("startup did not prepare %s: %v", path, err)
 		}
+	}
+	matches, err := filepath.Glob(filepath.Join(root, "runtime", "ru-agents", "demo", "*", "connectors", "demo.json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("versioned connector reference missing: %v %v", matches, err)
 	}
 	for relative, want := range files {
 		if data, err := os.ReadFile(filepath.Join(root, "runtime", relative)); err != nil || string(data) != want {

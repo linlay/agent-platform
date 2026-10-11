@@ -27,8 +27,31 @@ func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOption
 	if len(serviceTiers) == 1 && serviceTiers[0].Key == "STANDARD" {
 		serviceTiers = nil
 	}
+	var responseModels []api.ChatModelOption
+	if modelOptions != nil {
+		responseModels = make([]api.ChatModelOption, 0, len(modelOptions))
+	}
+	for _, model := range modelOptions {
+		option := api.ChatModelOption{
+			Key:          model.Key,
+			Name:         model.Name,
+			Icon:         model.Icon,
+			Provider:     model.Provider,
+			ServiceTiers: model.ServiceTiers,
+		}
+		if model.Protocol == models.ProtocolACPPassthrough {
+			option.ModelID = model.ModelID
+			option.Protocol = model.Protocol
+			option.IsReasoner = &model.IsReasoner
+			option.IsVision = &model.IsVision
+			option.ContextWindow = model.ContextWindow
+			option.Timeout = model.Timeout
+			option.ReasoningEfforts = model.ReasoningEfforts
+		}
+		responseModels = append(responseModels, option)
+	}
 	return api.CoderModelOptionsResponse{
-		Models:           modelOptions,
+		Models:           responseModels,
 		ReasoningEfforts: reasoningEfforts,
 		ServiceTiers:     serviceTiers,
 	}

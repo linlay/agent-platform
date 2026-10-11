@@ -12,21 +12,13 @@ func TestParseConfigCapabilityFields(t *testing.T) {
 	}
 
 	cfg, err := ParseConfig(map[string]any{
-		"enabled": true,
+		"libraryId": "research",
 	})
 	if err != nil {
 		t.Fatalf("parse capability config: %v", err)
 	}
 	if !cfg.Enabled {
 		t.Fatalf("unexpected capability fields: %#v", cfg)
-	}
-
-	disabled, err := ParseConfig(map[string]any{"enabled": false})
-	if err != nil {
-		t.Fatalf("parse disabled config: %v", err)
-	}
-	if disabled.Enabled {
-		t.Fatalf("explicit false was not retained: %#v", disabled)
 	}
 
 	for _, raw := range []map[string]any{

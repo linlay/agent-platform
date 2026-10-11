@@ -8,6 +8,26 @@ import (
 	"testing"
 )
 
+func TestRerankerModelIsNotANativeChatModel(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: fixture", "type: reranker", "reranker:", "  endpointPath: /v1/rerank")
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, _, err := registry.GetTyped("mock-model", ModelTypeReranker)
+	if err != nil || model.Reranker.EndpointPath != "/v1/rerank" {
+		t.Fatalf("reranker config: %+v %v", model, err)
+	}
+	if _, _, err = registry.Get("mock-model"); err == nil {
+		t.Fatal("reranker accepted as native chat model")
+	}
+	model.Reranker.EndpointPath = ""
+	if err = validateModelForRuntime(model, ModelTypeReranker); err == nil {
+		t.Fatal("missing reranker endpoint accepted")
+	}
+}
+
 func TestLoadModelRegistryKeepsPlaintextProviderAPIKey(t *testing.T) {
 	root := t.TempDir()
 	writeTestProviderAndModel(t, root, "apiKey: plain-text")

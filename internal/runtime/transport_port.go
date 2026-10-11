@@ -8,12 +8,12 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
-func (s *Service) ValidateRunOwner(runID, agentKey, teamID string) *runtimetypes.RequestError {
+func (s *Service) ValidateRunOwner(runID, agentKey string) *runtimetypes.RequestError {
 	backend, err := s.current()
 	if err != nil {
 		return &runtimetypes.RequestError{Status: 500, Message: err.Error()}
 	}
-	return backend.ValidateRunOwner(runID, agentKey, teamID)
+	return backend.ValidateRunOwner(runID, agentKey)
 }
 func (s *Service) PendingAwaitingInfo(chatID string, pending *chat.PendingAwaiting) (*queryinput.ChatErrorInfo, error) {
 	backend, err := s.current()

@@ -12,7 +12,6 @@ import (
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/agent/planmode"
-	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
@@ -246,10 +245,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if toolChoice == "" {
 		toolChoice = "auto"
 	}
-	var teamStateMachine *agentteam.StateMachine
-	if session.TeamRuntime != nil {
-		teamStateMachine = agentteam.NewStateMachine()
-	}
+
 	promptBuildOptions := PromptBuildOptions{
 		Stage:                   options.Stage,
 		StageInstructionsPrompt: "",
@@ -279,7 +275,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		maxSteps:               maxSteps,
 		budgetStage:            budgetStage,
 		toolChoice:             toolChoice,
-		teamStateMachine:       teamStateMachine,
 		postToolHook:           options.PostToolHook,
 		preserveSteersOnFinish: options.PreserveSteersOnFinish,
 		allowToolUse:           allowToolUse,
@@ -345,8 +340,8 @@ func (e *LLMAgentEngine) buildCurrentMessagesForRequest(req api.QueryRequest, se
 		RunID:              session.RunID,
 		RequestID:          session.RequestID,
 		AgentKey:           session.AgentKey,
-		TeamID:             session.TeamID,
-		Scene:              req.Scene,
+
+		Scene: req.Scene,
 	})
 }
 

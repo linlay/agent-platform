@@ -28,6 +28,11 @@ func TestChatOrderSnapshotHTTPAndWS(t *testing.T) {
 		if rec.Code != 200 {
 			t.Fatalf("read order: %d %s", rec.Code, rec.Body.String())
 		}
+		for _, field := range []string{`"usage"`, `"canContinue"`} {
+			if strings.Contains(rec.Body.String(), field) {
+				t.Fatalf("chat order snapshot should omit %s: %s", field, rec.Body.String())
+			}
+		}
 		var response api.ApiResponse[api.ChatOrderSnapshotResponse]
 		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 			t.Fatal(err)
@@ -42,21 +47,28 @@ func TestChatOrderSnapshotHTTPAndWS(t *testing.T) {
 	}
 	for i := 0; i < 30; i++ {
 		id := fmt.Sprintf("pin-%02d", i)
-		agentKey, teamID, mode := "mock-agent", "", "REACT"
+		agentKey, _, mode := "mock-agent", "", "REACT"
 		if i%3 == 1 {
 			agentKey, mode = "coder", "CODER"
 		}
 		if i%3 == 2 {
-			agentKey, teamID, mode = "", "team", "TEAM"
+			agentKey, _, mode = "", "team", "TEAM"
 		}
-		seedAgentModeChat(t, store, id, fmt.Sprintf("loyw3v%02d", i), agentKey, teamID, mode, int64(1000+i))
+		seedAgentModeChat(t, store, id, fmt.Sprintf("loyw3v%02d", i), agentKey, mode, int64(1000+i))
 		if _, _, err := store.SetChatPinned(id, true); err != nil {
 			t.Fatal(err)
 		}
 	}
-	seedAgentModeChat(t, store, "ordinary", "loyw3w00", "mock-agent", "", "REACT", 9000)
+	seedAgentModeChat(t, store, "ordinary", "loyw3w00", "mock-agent", "REACT", 9000)
+	if err := completeServerFixtureRun(t, store, chat.RunCompletion{
+		ChatID: "pin-00", RunID: "loyw3w01", AgentKey: "mock-agent",
+		UpdatedAtMillis: testEpochMillis + 9500,
+		Usage:           chat.UsageData{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
-		RunID: "active-pin", ChatID: "pin-00", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", ""), StartedAtMillis: testEpochMillis + 10000,
+		RunID: "active-pin", ChatID: "pin-00", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent"), StartedAtMillis: testEpochMillis + 10000,
 	})
 	control.TransitionState(contracts.RunLoopStateWaitingSubmit)
 	snapshot := read()
@@ -71,9 +83,6 @@ func TestChatOrderSnapshotHTTPAndWS(t *testing.T) {
 	}
 	if !reflect.DeepEqual(snapshot.PinnedOrder, apiChatIDs(snapshot.PinnedChats)) {
 		t.Fatal("legacy IDs diverged from snapshot")
-	}
-	if snapshot.PinnedChats[0].TeamID != "team" {
-		t.Fatal("team owner missing")
 	}
 	assertSummaryActiveRun(t, chatSummaryByID(t, snapshot.PinnedChats, "pin-00"), "active-pin", testEpochMillis+10000)
 

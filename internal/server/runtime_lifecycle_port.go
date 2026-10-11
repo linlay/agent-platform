@@ -17,8 +17,8 @@ func (s *Server) registerQueryRun(ctx context.Context, p preparedQuery) (registe
 func (s *Server) finishRegisteredQueryRun(p preparedQuery, r registeredQueryRun) {
 	s.deps.Runtime.FinishRegisteredQuery(runtimePreparedQuery(p), runtimetypes.RegisteredRun(r))
 }
-func (s *Server) validateRunOwner(runID, agentKey, teamID string) *statusError {
-	return s.deps.Runtime.ValidateRunOwner(runID, agentKey, teamID)
+func (s *Server) validateRunOwner(runID, agentKey string) *statusError {
+	return s.deps.Runtime.ValidateRunOwner(runID, agentKey)
 }
 func (s *Server) validPendingAwaitingInfo(chatID string, pending *chat.PendingAwaiting) (*api.ChatErrorInfo, error) {
 	return s.deps.Runtime.PendingAwaitingInfo(chatID, pending)

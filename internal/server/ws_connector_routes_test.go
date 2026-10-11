@@ -132,7 +132,7 @@ func TestWSAgentConnectorUsageSharesSourceAndPendingPublication(t *testing.T) {
 	}
 	t.Cleanup(release)
 	disabled := read("disable", map[string]any{"agentKey": "mock-agent", "connectorId": "meeting", "enabled": false})
-	if disabled.ConnectorIDs == nil || len(disabled.ConnectorIDs) != 0 || !disabled.ReloadPending {
+	if disabled.ConnectorIDs == nil || len(disabled.ConnectorIDs) != 0 || disabled.ReloadPending {
 		t.Fatalf("false write or pending state lost: %+v", disabled)
 	}
 	read("pending", map[string]any{"agentKey": "mock-agent"})

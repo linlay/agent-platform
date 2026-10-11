@@ -69,7 +69,7 @@ func TestMustUsePackageMembersKeepExactKeysAndIndependentRoots(t *testing.T) {
 }
 
 func TestConfiguredPackageMemberUsesRuntimeCopy(t *testing.T) {
-	runtime := t.TempDir()
+	runtime := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	dir := filepath.Join(runtime, "skills", "suite", "demo")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -77,6 +77,7 @@ func TestConfiguredPackageMemberUsesRuntimeCopy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: demo\ndescription: runtime\n---\nRuntime body"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	installRuntimeSkillFixture(t, runtime, "suite/demo")
 	result, err := ResolveMustUseSkills(catalog.AgentDefinition{RuntimeDir: runtime, Skills: []string{"suite/demo"}}, "", nil, []string{"suite/demo"})
 	if err != nil || len(result.Skills) != 1 {
 		t.Fatalf("%+v %v", result, err)

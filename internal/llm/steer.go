@@ -22,7 +22,7 @@ func (e *LLMAgentEngine) steerPreparer(session contracts.QuerySession, vision bo
 	container := !e.cfg.IsLocalMode() && session.AgentHasRuntimeSandbox
 	options := querymessages.BuildOptions{
 		AdvancedUserPrompt: session.AdvancedUserPrompt, WorkspaceDir: session.WorkspaceRoot,
-		ChatDir: chatDir, RunID: session.RunID, AgentKey: session.AgentKey, TeamID: session.TeamID, Role: "user",
+		ChatDir: chatDir, RunID: session.RunID, AgentKey: session.AgentKey, Role: "user",
 	}
 	chatID, runID := session.ChatID, session.RunID
 	return func(req api.SteerRequest) (api.SteerRequest, error) {
@@ -109,7 +109,7 @@ func (e *LLMAgentEngine) materializeHistorySteer(raw map[string]any, session con
 	options := querymessages.BuildOptions{
 		AdvancedUserPrompt: session.AdvancedUserPrompt, WorkspaceDir: session.WorkspaceRoot,
 		ChatDir: chatDir, RunID: steer.RunID, RequestID: steer.RequestID,
-		AgentKey: session.AgentKey, TeamID: session.TeamID, Role: "user",
+		AgentKey: session.AgentKey, Role: "user",
 	}
 	// Preserve the historical event time rather than inventing a new input time.
 	switch ts := raw["ts"].(type) {

@@ -20,7 +20,7 @@ func TestEnsureChatDoesNotCreateChatDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	summary, created, err := store.EnsureChat("chat-no-dir", "agent", "", "hello")
+	summary, created, err := store.EnsureChat("chat-no-dir", "agent", "hello")
 	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestPromotePendingChatNameUsesFirstQueryOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	summary, created, err := store.EnsureChat("chat-upload-first", "", "", "")
+	summary, created, err := store.EnsureChat("chat-upload-first", "", "")
 	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestPromotePendingChatNameDoesNotRenameChatWithHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-pending-history", "agent", "", ""); err != nil {
+	if _, _, err := store.EnsureChat("chat-pending-history", "agent", ""); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if _, err := store.db.Exec("UPDATE CHATS SET LAST_RUN_ID_='run-existing' WHERE CHAT_ID_='chat-pending-history'"); err != nil {
@@ -96,7 +96,7 @@ func TestPromotePendingChatNameReplacesLegacyPlaceholders(t *testing.T) {
 			if err != nil {
 				t.Fatalf("new chat store: %v", err)
 			}
-			if _, _, err := store.EnsureChat("chat-legacy-default", "agent", "", ""); err != nil {
+			if _, _, err := store.EnsureChat("chat-legacy-default", "agent", ""); err != nil {
 				t.Fatalf("ensure chat: %v", err)
 			}
 			if _, err := store.db.Exec("UPDATE CHATS SET CHAT_NAME_=? WHERE CHAT_ID_='chat-legacy-default'", legacyName); err != nil {
@@ -119,7 +119,7 @@ func TestListChatsOmitsPendingUploadAllocationUntilFirstQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	pending, created, err := store.EnsureChat("chat-upload-pending", "", "", "")
+	pending, created, err := store.EnsureChat("chat-upload-pending", "", "")
 	if err != nil {
 		t.Fatalf("ensure pending upload chat: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestFileStoreSetPendingAwaitingPersistsIntoSummaryAndListChats(t *testing.T
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-pending", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-pending", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -200,7 +200,7 @@ func TestLoadChatReplaysPersistedRunErrorWithoutSynthesizingComplete(t *testing.
 	const chatID = "chat-persisted-run-error"
 	const runID = "run-persisted-run-error"
 	startedAt := testEpochMillis(100)
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, chatID, QueryLine{
@@ -297,7 +297,7 @@ func TestLoadChatSynthesizesLegacyTerminalFromFinishReason(t *testing.T) {
 		chatID := "chat-legacy-terminal-" + tc.finishReason
 		runID := "run-legacy-terminal-" + tc.finishReason
 		startedAt := testEpochMillis(200 + int64(index*10))
-		if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 			t.Fatalf("%s: ensure chat: %v", tc.finishReason, err)
 		}
 		if err := appendQueryLineForTest(store, chatID, QueryLine{
@@ -352,7 +352,7 @@ func TestFileStoreUpdateAgentKeyPersistsIntoSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-agent-key", "", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-agent-key", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -379,35 +379,35 @@ func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-history", "agent-history", "", "history"); err != nil {
+	if _, _, err := store.EnsureChat("chat-history", "agent-history", "history"); err != nil {
 		t.Fatalf("ensure historical chat: %v", err)
 	}
-	if _, _, err := store.EnsureChatWithSourceAndMode("chat-react", "agent-react", "", "react", "", "oneshot"); err != nil {
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-react", "agent-react", "react", "", "oneshot"); err != nil {
 		t.Fatalf("ensure react chat: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-react", "loyw3v28", "agent-react", "", "REACT", 1_000)
-	if _, _, err := store.EnsureChatWithSourceAndMode("chat-plan", "agent-plan", "", "plan", "", "PLAN_EXECUTE"); err != nil {
+	persistAgentModeRun(t, store, "chat-react", "loyw3v28", "agent-react", "REACT", 1_000)
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-plan", "agent-plan", "plan", "", "PLAN_EXECUTE"); err != nil {
 		t.Fatalf("ensure plan chat: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "PLAN-EXECUTE", 3_000)
-	if _, _, err := store.EnsureChatWithSourceAndMode("chat-team", "", "team-a", "team", "", "TEAM"); err != nil {
+	persistAgentModeRun(t, store, "chat-plan", "loyw3v29", "agent-plan", "PLAN-EXECUTE", 3_000)
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-team", "research", "team", "", "TEAM"); err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-team", "loyw3v2a", "", "team-a", "TEAM", 2_000)
+	persistAgentModeRun(t, store, "chat-team", "loyw3v2a", "research", "TEAM", 2_000)
 
 	history, err := store.Summary("chat-history")
 	if err != nil || history == nil || history.AgentMode != "" {
 		t.Fatalf("historical chat should keep empty mode, summary=%#v err=%v", history, err)
 	}
 	team, err := store.Summary("chat-team")
-	if err != nil || team == nil || team.AgentMode != "TEAM" || team.AgentKey != "" {
+	if err != nil || team == nil || team.AgentMode != "TEAM" || team.AgentKey != "research" {
 		t.Fatalf("team summary should persist public TEAM mode, summary=%#v err=%v", team, err)
 	}
 	items, err := store.ListChatsWithAgentModes("", "", []string{"REACT", "PLAN-EXECUTE"})
 	if err != nil {
 		t.Fatalf("list filtered chats: %v", err)
 	}
-	if got := summaryChatIDs(items); strings.Join(got, ",") != "chat-plan,chat-team,chat-react" {
+	if got := summaryChatIDs(items); strings.Join(got, ",") != "chat-plan,chat-react" {
 		t.Fatalf("unexpected mode-filtered ordering: %v", got)
 	}
 	items, err = store.ListChatsWithAgentModes("", "agent-plan", []string{"REACT", "PLAN-EXECUTE"})
@@ -415,32 +415,12 @@ func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
 		t.Fatalf("agent key and mode should combine with AND, items=%#v err=%v", items, err)
 	}
 	items, err = store.ListChatsWithAgentModes("loyw3v28", "", []string{"REACT"})
-	if err != nil || len(items) != 1 || items[0].ChatID != "chat-team" {
+	if err != nil || len(items) != 0 {
 		t.Fatalf("lastRunId and mode should combine with AND, items=%#v err=%v", items, err)
 	}
 	items, err = store.ListChatsWithAgentModes("", "", []string{"UNKNOWN"})
-	if err != nil || len(items) != 1 || items[0].ChatID != "chat-team" {
+	if err != nil || len(items) != 0 {
 		t.Fatalf("team-owned chats should bypass mode filtering, items=%#v err=%v", items, err)
-	}
-}
-
-func TestHistoricalTeamChatRemainsReadableButOwnerCannotChange(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	if _, _, err := store.EnsureChatWithSourceAndMode("chat-historical-team", "former-member", "former-team", "history", "", "REACT"); err != nil {
-		t.Fatalf("seed historical chat: %v", err)
-	}
-	if _, err := store.LoadChat("chat-historical-team"); err != nil {
-		t.Fatalf("historical chat must remain readable: %v", err)
-	}
-	if err := store.UpdateAgentIdentity("chat-historical-team", "new-member", "CODER"); err == nil {
-		t.Fatal("historical Team owner must not be changed")
-	}
-	summary, err := store.Summary("chat-historical-team")
-	if err != nil || summary == nil || summary.AgentKey != "former-member" || summary.TeamID != "former-team" || summary.AgentMode != "REACT" {
-		t.Fatalf("historical owner was changed: summary=%#v err=%v", summary, err)
 	}
 }
 
@@ -451,7 +431,7 @@ func TestHistoricalAgentModeRemainsRaw(t *testing.T) {
 	}
 	for _, mode := range []string{"ACP-PROXY", "PLAN_EXECUTE", "ONESHOT"} {
 		chatID := "chat-history-" + strings.ToLower(strings.ReplaceAll(mode, "_", "-"))
-		if _, _, err := store.EnsureChatWithSourceAndMode(chatID, "former-agent", "", "history", "", mode); err != nil {
+		if _, _, err := store.EnsureChatWithSourceAndMode(chatID, "former-agent", "history", "", mode); err != nil {
 			t.Fatalf("seed %q historical chat: %v", mode, err)
 		}
 		summary, err := store.Summary(chatID)
@@ -461,26 +441,26 @@ func TestHistoricalAgentModeRemainsRaw(t *testing.T) {
 	}
 }
 
-func persistAgentModeRun(t *testing.T, store *FileStore, chatID string, runID string, agentKey string, teamID string, agentMode string, offset int64) {
+func persistAgentModeRun(t *testing.T, store *FileStore, chatID string, runID string, agentKey string, agentMode string, offset int64) {
 	t.Helper()
 	startedAt := testEpochMillis(offset)
 	if err := store.OnRunStarted(RunStart{
-		ChatID:          chatID,
-		RunID:           runID,
-		AgentKey:        agentKey,
-		AgentMode:       agentMode,
-		TeamID:          teamID,
+		ChatID:    chatID,
+		RunID:     runID,
+		AgentKey:  agentKey,
+		AgentMode: agentMode,
+
 		InitialMessage:  "question",
 		StartedAtMillis: startedAt,
 	}); err != nil {
 		t.Fatalf("start run %s: %v", runID, err)
 	}
 	if err := store.OnRunCompleted(RunCompletion{
-		ChatID:          chatID,
-		RunID:           runID,
-		AgentKey:        agentKey,
-		AgentMode:       agentMode,
-		TeamID:          teamID,
+		ChatID:    chatID,
+		RunID:     runID,
+		AgentKey:  agentKey,
+		AgentMode: agentMode,
+
 		InitialMessage:  "question",
 		AssistantText:   "answer",
 		FinishReason:    "complete",
@@ -504,7 +484,7 @@ func TestFileStoreSetSourceChannelPersistsIntoSummaryAndListChats(t *testing.T) 
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("wecom#single#u1#1", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("wecom#single#u1#1", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -539,7 +519,7 @@ func TestFileStoreEnsureChatWithSourcePersistsIntoSummaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	summary, created, err := store.EnsureChatWithSource("chat-source", "agent", "", "hello", "automation:daily")
+	summary, created, err := store.EnsureChatWithSource("chat-source", "agent", "hello", "automation:daily")
 	if err != nil {
 		t.Fatalf("ensure chat with source: %v", err)
 	}
@@ -547,7 +527,7 @@ func TestFileStoreEnsureChatWithSourcePersistsIntoSummaries(t *testing.T) {
 		t.Fatalf("expected source on created summary, created=%v summary=%#v", created, summary)
 	}
 
-	summary, created, err = store.EnsureChatWithSource("chat-source", "agent", "", "ignored", "query:alice")
+	summary, created, err = store.EnsureChatWithSource("chat-source", "agent", "ignored", "query:alice")
 	if err != nil {
 		t.Fatalf("ensure existing chat with source: %v", err)
 	}
@@ -582,7 +562,7 @@ func TestFileStoreClearPendingAwaitingClearsMatchingAwaitingID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-clear", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-clear", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.SetPendingAwaiting("chat-clear", PendingAwaiting{
@@ -612,7 +592,7 @@ func TestFileStoreClearPendingAwaitingIgnoresStaleAwaitingID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-stale", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-stale", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -644,10 +624,10 @@ func TestFileStoreLoadAllPendingAwaitingsReturnsPersistedRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-pending-a", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-pending-a", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat a: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-pending-b", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-pending-b", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat b: %v", err)
 	}
 	if err := store.SetPendingAwaiting("chat-pending-a", PendingAwaiting{
@@ -685,7 +665,7 @@ func TestFileStoreLoadAwaitingAskUsesCanonicalStepOnly(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-awaiting-step", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-awaiting-step", "agent", "hello"); err != nil {
 		t.Fatalf("ensure step chat: %v", err)
 	}
 	if err := appendStepLineForTest(store, "chat-awaiting-step", StepLine{
@@ -735,7 +715,7 @@ func TestFileStoreLoadAwaitingAskUsesCanonicalStepOnly(t *testing.T) {
 		t.Fatalf("expected answered awaiting ask to be unresolved, got %#v", ask)
 	}
 
-	if _, _, err := store.EnsureChat("chat-awaiting-event", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-awaiting-event", "agent", "hello"); err != nil {
 		t.Fatalf("ensure event chat: %v", err)
 	}
 	err = appendEventLineForTest(store, "chat-awaiting-event", EventLine{
@@ -762,7 +742,7 @@ func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-read", "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-read", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	run1 := "loyw3v28"
@@ -971,7 +951,7 @@ func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-runs", "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-runs", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	longText := strings.Repeat("界", 250)
@@ -1078,7 +1058,7 @@ func TestFileStoreMarkAllReadFiltersAgent(t *testing.T) {
 		{"chat-a2", "agent-a", "loyw3v2s"},
 		{"chat-b1", "agent-b", "loyw3v34"},
 	} {
-		if _, _, err := store.EnsureChat(item.chatID, item.agentKey, "", "hello"); err != nil {
+		if _, _, err := store.EnsureChat(item.chatID, item.agentKey, "hello"); err != nil {
 			t.Fatalf("ensure %s: %v", item.chatID, err)
 		}
 		if err := completeRunForTest(store, RunCompletion{ChatID: item.chatID, RunID: item.runID, UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
@@ -1107,7 +1087,7 @@ func TestFileStoreDeleteChatRemovesRowsAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-delete", "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-delete", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-delete", QueryLine{
@@ -1154,13 +1134,13 @@ func TestFileStoreAgentChatStatsAggregatesUnreadCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-a1", "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-a1", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat-a1: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-a2", "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-a2", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat-a2: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-b1", "agent-b", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-b1", "agent-b", "hello"); err != nil {
 		t.Fatalf("ensure chat-b1: %v", err)
 	}
 	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-a1", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
@@ -1204,7 +1184,7 @@ func TestFileStoreRecentChatsByAgentFiltersLimitsAndSorts(t *testing.T) {
 		{chatID: "chat-a-mid", agent: "agent-a", runID: "loyw3v24", updated: 2000},
 		{chatID: "chat-b-new", agent: "agent-b", runID: "loyw3v2s", updated: 4000},
 	} {
-		if _, _, err := store.EnsureChat(seed.chatID, seed.agent, "", seed.chatID); err != nil {
+		if _, _, err := store.EnsureChat(seed.chatID, seed.agent, seed.chatID); err != nil {
 			t.Fatalf("ensure %s: %v", seed.chatID, err)
 		}
 		if err := completeRunForTest(store, RunCompletion{ChatID: seed.chatID, RunID: seed.runID, UpdatedAtMillis: seed.updated}); err != nil {
@@ -1238,10 +1218,10 @@ func TestFileStoreListChatsUsesParsedRunIDCursor(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-new", "agent", "", "new"); err != nil {
+	if _, _, err := store.EnsureChat("chat-new", "agent", "new"); err != nil {
 		t.Fatalf("ensure new chat: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-old", "agent", "", "old"); err != nil {
+	if _, _, err := store.EnsureChat("chat-old", "agent", "old"); err != nil {
 		t.Fatalf("ensure old chat: %v", err)
 	}
 
@@ -1433,7 +1413,7 @@ func TestLoadChatSynthesizesRunBoundaryTimestamps(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-ts", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-ts", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -1500,7 +1480,7 @@ func TestLoadChatSynthesizedRunStartContainsAgentKey(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-ak", "my-agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-ak", "my-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -1567,7 +1547,7 @@ func TestStepWriterPersistsLiveSeqAndReplaysIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-live-seq", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-live-seq", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -2575,7 +2555,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-system-snapshot", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-system-snapshot", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -2674,7 +2654,7 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-llm-call", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-llm-call", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -3044,7 +3024,7 @@ func TestStepWriterPlanningDeltasAreLiveOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-planning-live-only", "coder", "", "plan it"); err != nil {
+	if _, _, err := store.EnsureChat("chat-planning-live-only", "coder", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := NewStepWriter(store, "chat-planning-live-only", "run-planning", "coder")
@@ -3130,7 +3110,7 @@ func TestLoadChatPlanUsesPlanTaskSnapshot(t *testing.T) {
 	}
 	chatID := "chat-plan-task-snapshot"
 	runID := "run-jsonl"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "coder", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	snapshotDir := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanTasksDirName)
@@ -3157,7 +3137,7 @@ func TestLoadChatPlanUsesLatestNewPlanSnapshot(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-plan-task-latest-new"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "coder", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	snapshotDir := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanTasksDirName)
@@ -3190,7 +3170,7 @@ func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 	}
 	chatID := "chat-awaiting-plan"
 	runID := "run-planning"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "coder", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanningDirName, "run-planning_planning_1.md")
@@ -3259,7 +3239,7 @@ func TestWriterRejectsPlanAwaitingMode(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-invalid-planning-mode"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "coder", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	err = appendStepLineForTest(store, chatID, StepLine{
@@ -3285,7 +3265,7 @@ func TestWriterRejectsPlanningWithoutPlanningFile(t *testing.T) {
 	runID := "run-planning"
 	planningID := "run-planning_planning_1"
 	planningText := "# Text Only Plan\n\nBody"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "coder", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	err = appendStepLineForTest(store, chatID, StepLine{
@@ -3320,7 +3300,7 @@ func TestLoadChatSynthesizesPlanningSnapshotsForMultipleAwaitingPlans(t *testing
 	}
 	chatID := "chat-awaiting-plan-replan"
 	runID := "run-planning"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "coder", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -3696,7 +3676,7 @@ func TestLoadRunTraceKeepsMainQueryWhenSubTaskQueriesExist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-run-trace-query", "agent", "", "main prompt"); err != nil {
+	if _, _, err := store.EnsureChat("chat-run-trace-query", "agent", "main prompt"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-run-trace-query", QueryLine{
@@ -3739,7 +3719,7 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-system-init", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-system-init", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	first := QueryLineSystem{
@@ -3851,7 +3831,7 @@ func TestLoadSystemInitsParsesCacheKeyToModeStage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-system-cache-key", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-system-cache-key", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	for _, system := range []QueryLineSystem{
@@ -3898,7 +3878,7 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-system-init-raw", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-system-init-raw", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-system-init-raw", QueryLine{
@@ -3932,7 +3912,7 @@ func TestRawMessagesPreferQueryMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-query-messages", "agent", "", "raw"); err != nil {
+	if _, _, err := store.EnsureChat("chat-query-messages", "agent", "raw"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-query-messages", QueryLine{
@@ -3972,7 +3952,7 @@ func TestLoadRawMessagesMapsAutomationAndSystemQueryRolesToUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-role-raw", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-role-raw", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	for idx, item := range []struct {
@@ -4020,7 +4000,7 @@ func TestStepWriterPersistsQueryMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-query-current-messages", "agent", "", "raw user text"); err != nil {
+	if _, _, err := store.EnsureChat("chat-query-current-messages", "agent", "raw user text"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -4071,7 +4051,7 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-synthetic-query"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "raw user text"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "raw user text"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -4158,7 +4138,7 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-query-system-init", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-query-system-init", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -4205,7 +4185,7 @@ func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-query-system-init-no-hidden", "agent", "", "system hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-query-system-init-no-hidden", "agent", "system hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -4282,7 +4262,7 @@ func TestStepWriterOmitsSystemWhenNoPendingSystemInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-query-no-system-init", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-query-no-system-init", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -4591,7 +4571,7 @@ func TestLoadRawMessagesReplaysInlineApprovalMessage(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-approval-raw", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-approval-raw", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -4689,7 +4669,7 @@ func TestLoadRawMessagesReplaysAutoApprovalSummaryFromStepLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-auto-approval-raw", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-auto-approval-raw", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -4781,7 +4761,7 @@ func TestLoadRawMessagesReplaysSplitApprovalSummaryAfterToolResult(t *testing.T)
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-approval-split", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-approval-split", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -4879,7 +4859,7 @@ func TestReactToolResultLinesReplay(t *testing.T) {
 			}
 			chatID := "chat-" + tc.name
 			runID := "run-" + tc.name
-			if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+			if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 				t.Fatalf("ensure chat: %v", err)
 			}
 
@@ -4970,7 +4950,7 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-approval-multirun", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-approval-multirun", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5056,7 +5036,7 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-subagent-raw", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-subagent-raw", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5140,7 +5120,7 @@ func TestStepWriterTaskSnapshotsUpsertAfterComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-task-upsert", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-task-upsert", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5249,7 +5229,7 @@ func TestStepWriterDoesNotInferTaskForUntargetedContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-subagent-no-infer", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-subagent-no-infer", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5314,7 +5294,7 @@ func TestLoadChatSynthesizesTaskLifecycleFromSubAgentSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-subagent-replay", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-subagent-replay", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5440,7 +5420,7 @@ func TestReplayedSubQueryTaskStartPrecedesRequestQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-sub-query-order", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-sub-query-order", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5513,7 +5493,7 @@ func TestReplayedSubQueryWithoutTaskIDUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-root-query-no-task", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-root-query-no-task", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5562,7 +5542,7 @@ func TestWriterRejectsQuestionAwaitingAskEventLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-1", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-1", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5699,7 +5679,7 @@ func TestLoadChatReplaysSubmitLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-submit-replay", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-submit-replay", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5780,7 +5760,7 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-awaiting-replay", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-awaiting-replay", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -5883,7 +5863,7 @@ func TestWriterRejectsAwaitingAskEventLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-awaiting-event-ignored", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-awaiting-event-ignored", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-awaiting-event-ignored", QueryLine{
@@ -5924,7 +5904,7 @@ func TestLoadChatDoesNotSynthesizeRunCompleteForPendingAwaiting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-awaiting-pending", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-awaiting-pending", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-awaiting-pending", QueryLine{
@@ -5992,7 +5972,7 @@ func TestLoadChatReplaysAwaitingAfterMatchingToolSnapshotInMultiToolStep(t *test
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-awaiting-multi", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-awaiting-multi", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -6103,7 +6083,7 @@ func TestLoadChatReplaysUnmatchedAwaitingAtStepEnd(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-awaiting-fallback", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-awaiting-fallback", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -6183,7 +6163,7 @@ func TestLoadChatReplaysSteerLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-steer", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-steer", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -6251,7 +6231,7 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-step-usage", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-step-usage", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -6356,7 +6336,7 @@ func TestLoadChatDoesNotSynthesizeEmptyUsageSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-empty-step-usage", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-empty-step-usage", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-empty-step-usage", QueryLine{
@@ -6430,7 +6410,7 @@ func TestLoadChatReadsEstimatedCostFromStepLevel(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-step-cost", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-step-cost", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -6511,7 +6491,7 @@ func TestLoadChatAccumulatesMultipleStepEstimatedCosts(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-multi-cost", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-multi-cost", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -6588,7 +6568,7 @@ func TestLoadChatAccumulatesEstimatedCostWithoutTokens(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-cost-only", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-cost-only", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -6663,7 +6643,7 @@ func TestWriterRejectsApprovalAwaitingAskEventLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-approval", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-approval", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -6777,7 +6757,7 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-source-current", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-source-current", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.OnRunStarted(RunStart{ChatID: "chat-source-current", RunID: "run-source-current", StartedAtMillis: testEpochMillis(1002)}); err != nil {
@@ -6902,7 +6882,7 @@ func TestStepWriterPersistsSourcePublishOnReactToolStep(t *testing.T) {
 
 	chatID := "chat-source-writer"
 	runID := "run-source-writer"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
@@ -7023,7 +7003,7 @@ func TestLoadChatReplaysMultipleStepSourcesAfterMatchingToolResults(t *testing.T
 	}
 	chatID := "chat-source-multi"
 	runID := "run-source-multi"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := appendStepLineForTest(store, chatID, StepLine{
@@ -7114,7 +7094,7 @@ func TestStepWriterWritesArtifactPublicationSidecarAndLoadsManifestState(t *test
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-artifact-batch", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-artifact-batch", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 

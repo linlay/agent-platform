@@ -216,7 +216,25 @@ planningComplete:
 	if got := providerCallCount.Load(); got != 1 {
 		t.Fatalf("expected one provider call, got %d", got)
 	}
-	waitForRecordedNotificationType(t, notifications, "run.finished")
+	// The recovered planning Run finishes first. Wait for the execution Run,
+	// whose model response and persisted assistant turn are asserted below.
+	executeFinished := false
+	deadline = time.Now().Add(2 * time.Second)
+	for !executeFinished && time.Now().Before(deadline) {
+		for i, eventType := range notifications.EventTypes() {
+			payload := notifications.Payloads()[i]
+			if eventType == "run.finished" && payload["chatId"] == chatID && payload["runId"] != runID {
+				executeFinished = true
+				break
+			}
+		}
+		if !executeFinished {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !executeFinished {
+		t.Fatal("execution Run did not finish")
+	}
 	assertDeferredPlanningApproveJSONL(t, fixture.chats, chatID, runID, awaitingID, "submit-deferred-planning")
 }
 
@@ -472,7 +490,7 @@ func TestPersistDeferredAwaitingToolAnswerWritesReactToolLine(t *testing.T) {
 	chatID := "chat-react-tool"
 	runID := "run-react-tool"
 	awaitingID := "await-react-tool"
-	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "mock-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	assistantTs := int64(1700000001701)
@@ -1259,7 +1277,7 @@ func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
 	})
 
 	nowMs := time.Now().UnixMilli()
-	if _, _, err := fixture.chats.EnsureChat("chat-dangling", "mock-agent", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat("chat-dangling", "mock-agent", "hello"); err != nil {
 		t.Fatalf("ensure dangling chat: %v", err)
 	}
 	if err := fixture.chats.SetPendingAwaiting("chat-dangling", chat.PendingAwaiting{
@@ -1409,7 +1427,7 @@ func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID s
 
 func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64, askPayload map[string]any, scopes ...controlscope.Scope) {
 	t.Helper()
-	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "mock-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, store, chatID, runID, createdAt, scopes...)
@@ -1646,7 +1664,7 @@ func decodeDeferredChatJSONL(t *testing.T, store chat.Store, chatID string) []ma
 func seedCoderPlanningAwaitingForDeferredSubmit(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, chatsDir string) {
 	t.Helper()
 	queryTs := time.Now().UnixMilli()
-	if _, _, err := store.EnsureChat(chatID, "coder-app", "", "please plan first"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "coder-app", "please plan first"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, store, chatID, runID, queryTs)

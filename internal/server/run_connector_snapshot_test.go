@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 )
@@ -20,14 +19,14 @@ func TestRunConnectorSnapshotRetainsVersionAcrossRestart(t *testing.T) {
 
 func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), StateDir: filepath.Join(root, ".state"), TeamsDir: filepath.Join(root, "teams"), SkillsCenterDir: filepath.Join(root, "skills")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), StateDir: filepath.Join(root, ".state"), SkillsCenterDir: filepath.Join(root, "skills")}}
 	if err := connector.WriteBuiltin(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin."+name), name, ""); err != nil {
 		t.Fatal(err)
 	}
 	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo")
 	os.MkdirAll(agentDir, 0700)
 	os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte("key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin."+name+"\n"), 0600)
-	registry, err := catalog.NewFileRegistry(cfg, nil)
+	registry, err := newRuntimeTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +54,7 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	if current.ConnectorMounts[0].Dir == old.ConnectorMounts[0].Dir {
 		t.Fatal("new run kept old version")
 	}
-	fresh, err := catalog.NewFileRegistry(cfg, nil)
+	fresh, err := newRuntimeTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

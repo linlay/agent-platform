@@ -18,9 +18,12 @@ description: |
   must never be shown to the user or placed in Markdown. After publication,
   use only the exact publishedArtifacts[n].url for preview and download links,
   and prefer that published-copy url over any source image url. The returned
-  url is relative to the current Chat and never contains chatId or the internal
-  /api/resource transport endpoint. Never hand build or encode transport URLs,
-  and never output the source path, file://, @chat, /chat, or chat_dir. If no
+  url is @chat/artifacts/<runId>/<filename>: a literal path in the current
+  Chat that is valid both as a Markdown link target and as the url or path
+  argument of other tools such as workpanel_open. It never contains chatId or
+  the internal /api/resource transport endpoint. Never hand build or encode
+  transport URLs, and never output the source path, file://, /chat, or
+  chat_dir. If no
   valid published url is returned, do not fabricate a Markdown link; report
   that publication failed. Inline Markdown, ECharts, HTML, code, or other text
   shown directly in the response is not a file deliverable: do not create or

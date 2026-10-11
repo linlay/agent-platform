@@ -16,13 +16,13 @@ Hook 是技能 `.bash-hooks/*.yml` 声明的执行前业务规则；`&&` 只是 
 
 HITL 使用统一 awaiting 协议，保留 `mode` 字段，不引入 `kind`。当前等待模式为 `question`、`approval`、`form`、`planning`。
 
-`/api/submit` 顶层固定为公开 owner + `runId + awaitingId + params`。普通 Agent 的 owner 是 `agentKey`；Team 的 owner 是 `teamId`，不能提交隐藏协调器 key 或 `agentKey`。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
+`/api/submit` 顶层固定为公开 owner + `runId + awaitingId + param/params`。所有 Run（包括 TEAM）的 owner 均为根 `agentKey`。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
 
 `/api/chats` 摘要、`/api/agents?includeChats=...` 的 `chats[]` 与 `/api/chat` 详情中的 `awaiting` 都来自持久化等待态；当 `awaiting.status == "awaiting"` 时，表示该 chat 当前有可恢复的等待项，`mode` 为 `question`、`approval`、`form` 或 `planning`。完整等待内容仍以 `events` 中的 `awaiting.ask` 为准。
 
 子智能体 HITL 沿用主 run：普通 `agent_invoke` 和 TEAM 成员都不会注册独立 active run，`awaiting.ask.runId` 是主 `runId`，`taskId` 表示子任务归属。对子智能体等待项，前端看到和提交的 public `awaitingId` 形如 `taskId:rawAwaitingId`；后端 submit 时会映射回子工具实际等待的 `rawAwaitingId`。兼容旧前端把 `taskId` 放进 `/api/submit.runId` 的 payload，但推荐提交 `awaiting.ask.runId` 中的主 `runId`。
 
-orchestrated Team 的 `agent_delegate` 沿用成员原有 HITL，成员等待项不合并。协调器按到达顺序排队，同一时刻只发布一位成员的 `awaiting.ask`：它保持成员自己的 mode、内容和 `view`，携带 `taskId`，`awaitingId` 为 `taskId:rawAwaitingId`。客户端用 `teamId + runId + awaitingId` 按该 mode 的普通规则提交，后端原样转给对应成员；该项的 `awaiting.answer` 发出后才发布下一项。排队中的等待项不计超时，倒计时从发布时开始；超时或关闭只影响当前项，中断 Run 清空队列。排队中的成员继续占用 `maxParallel` 名额。
+orchestrated Team 的 `agent_delegate` 沿用成员原有 HITL，成员等待项不合并。协调器按到达顺序排队，同一时刻只发布一位成员的 `awaiting.ask`：它保持成员自己的 mode、内容和 `view`，携带 `taskId`，`awaitingId` 为 `taskId:rawAwaitingId`。客户端用 根 `agentKey + runId + awaitingId` 按该 mode 的普通规则提交，后端原样转给对应成员；该项的 `awaiting.answer` 发出后才发布下一项。排队中的等待项不计超时，倒计时从发布时开始；超时或关闭只影响当前项，中断 Run 清空队列。排队中的成员继续占用 `maxParallel` 名额。
 
 ## 核心流程
 
@@ -39,7 +39,7 @@ assistant tool_calls[]
 - `question`：来自 `ask_user_question`，`params` 每项提交 `answer` 或 `answers`。
 - `approval`：来自 Bash HITL 或文件工具越权路径审批，用户只能 approve / approve_rule_run / reject，不能修改命令内容。
 - `run_env` 的 set/unset/update 不增加专用 HITL；它们是 operation-aware barrier，执行时校验 key、value、最终状态限额、revision 与有界幂等收据。
-- `form`：用于 HTML 表单。Bash HITL 表单 approve 时用提交的 `form` 重建命令；工具审阅表单只批准后端冻结的调用，不使用返回的 form 改写参数。reject 可带 `reason`。
+- `form`：用于 HTML 表单。独立 `ask_user_form` 仅收集输入，VIEW 为 `builtin/ask_user_form`，回答不授予权限、不重写工具调用；它使用单对象 `param:{decision,data?,reason?}`，approve 必须有 data，跨进程重启同其他 form 一样写入 `runtime_restarted` 而不恢复。Bash HITL 表单 approve 时用提交的 `data` 重建命令；工具审阅表单只批准后端冻结的调用，不使用返回的 data 改写参数。reject 可带 `reason`。
 - `planning`：wire-format 中来自 CODER 的 planning confirmation，`awaiting.ask.planning` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。它不是 `plan_*` / plan-tasks 的执行任务计划。
 
 原生 Agent（GENERAL/CODER/KBASE）planningMode 的 `planning approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；旧 live stream 随后以 `reason:"done"` 正常结束，不再追加新 run 的 `run.start`。旧 run 完成后，服务端启动新的 execute run，并通过 WebSocket push `run.started { runId, chatId, agentKey, startedAt }` 暴露新 `runId`；`startedAt` 等于该 run 注册时捕获的 epoch milliseconds。webclient 应在旧 stream done 后 attach 新 `runId` 获取执行流。新 run 自己的 stream 首部为 execution run bootstrap `request.query`，包含标准 query 字段 `requestId` / `runId` / `chatId` / `role` / `message`，然后是新 run 的 `run.start`。`planning reject` 不启动新 run，仍留在当前 planning run 中生成下一版 planning 或结束。
@@ -56,7 +56,7 @@ Host Bash 同一命令同时命中 access/security 和 builtin 技能 hook 时�
 
 并发调用的 `tool.output` 按各自 `toolID` 和递增 `chunkIndex` 发送，`tool.result` 按实际完成时间实时发布；模型消息和审批摘要仍按原始调用顺序整理，每个调用只有一个最终结果。提交审批和模型一次生成多个调用都不能单独证明命令已并发启动，应以实际过程输出和执行时序验证。
 
-整批取消统一提交 `params: []`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。
+question/approval 取消提交 `params: []`；form/planning 关闭使用 `param:{decision:"dismiss"}`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。
 
 活动普通 Run 的等待项始终由原执行流程收尾，包含等待提交、提交已接收但结果尚未落盘、恢复执行和结束中的阶段。会话详情读取与 Query 准入即使发现持久化等待时间已过期，也不能补写 answer / tool result、清除 pending 或提前记录 Run 完成；`LookupAwaiting` 中已移除等待项不等于执行流程已结束。批次超时只为实际等待审批的调用生成超时结果，无需审批的 sibling 仍按原流程执行。
 
@@ -95,7 +95,7 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 - `request.submit` 原样回显 `param` 或 `params`。
 - `mode=question` 会按对应问题的类型校验答案：多选题只能提交非空 `answers` 数组，其他题型只能提交 `answer`；数量必须匹配，且沿用题型的值与候选项约束。提交无效 question 答案时接口返回 `data.accepted:false`、`data.status:"invalid"`，不会写入 answer 事件或解除等待项，客户端可修正后重新提交。
 - 子智能体 HITL 的 `request.submit` 与 `awaiting.answer` 会继续回显 public `awaitingId`，并携带 `taskId`，用于前端归并到子任务面板；后端内部唤醒的仍是 raw awaiting。
-- run owner 校验是互斥的：Agent-owned run 缺少/错传 `agentKey` 会失败；Team-owned run 缺少/错传 `teamId` 会失败，同时传 `agentKey` 也会失败。
+- run owner 统一校验根 `agentKey`；成员事件 key 不能用于控制总控 Run。
 - `approval.options[]` 与 `planning.options[]` 的内置动作只下发 `decision` code，按钮文案由 webclient 按当前语言本地化。两类选项协议均不含 `description`，Approval 选项说明由 webclient 按 `decision` 本地生成；Platform 在原生、代理和回放的统一流事件边界移除 `approvals[].options[].description` 与 `planning.options[].description`，不改写历史文件。审批项级 `approval.description` 仍用于审批标题；`question.options[].description` 仍用于答案提示，`question.options[].label` 仍是用户可见答案文本与答案匹配值，`form.title/form` 仍是业务或工具内容。
 - Bash 的 `approval.description` 使用工具调用传入的描述，缺省时沿用命令摘要兜底；后端不追加安全检查、路径/脚本审批原因或 cwd 说明。审批项仍保留原始 `command` 和 `ruleKey`，内部冻结的审批要求、审计及授权范围不因描述精简而改变。
 - 对 `question` / `approval` / `form`，`awaiting.ask.timeout == 0` 表示无限等待、不自动超时；`timeout > 0` 表示后端从发出等待项开始按真实时间独立倒计时。planning confirmation 的 `mode:"planning"` 永远省略该字段，含义同样是永久等待；前端不得为它显示倒计时。observer / attach / detach 状态不会暂停或延长后端超时。
@@ -188,4 +188,8 @@ Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定
 
 ### 审阅 HTML 自适应高度
 
+单表单由 `awaitingId` 标识，`awaiting_init/awaiting_update` 不发送 `form.id` 或 `activeFormId`。尺寸桥接使用 `awaitingId` 作为高度消息的 `formId`，与 WebClient 内部单元素表单列表的 ID 一致。
+
 内置 view 加载入口为所有 HTML 统一注入 `shared/resize.js`，不依赖具体审阅组件，也不需要模板逐一接入；新增内置 HTML 自动覆盖。尺寸桥接通过 `ResizeObserver` 测量自然正文高度，在正文展开、收起、详情浮层开关或宽度变化时向宿主发送 `awaiting_resize`，包含当前 `runId`、`awaitingId`、`formId` 和 `height`（CSS 像素）。WebClient 仅接收当前 iframe 与表单对应的有限正数高度，短内容收缩，长内容受宿主整体最大高度约束并在 iframe 内滚动；不支持上报的模板保留默认尺寸。该消息只影响布局，不参与 collect、批准或拒绝。
+
+同一入口为只读内置 HTML 注入 `shared/focus.js`，`ask_user_form` 含真实输入控件，不注入。用户点击非交互区域且没有选中文本时，页面向宿主发送 `awaiting_focus_release`，包含当前 `runId` 与 `awaitingId`；点击按钮、链接和可聚焦元素不发送，选中文本时保留焦点以便复制。宿主收到后取回键盘焦点，使“提交 / 拒绝”的数字快捷键继续生效。该消息只移动焦点，不参与 collect、批准或拒绝。

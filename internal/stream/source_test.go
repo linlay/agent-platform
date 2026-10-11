@@ -24,6 +24,8 @@ func TestDispatcherEmitsSourcePublishWithComputedFields(t *testing.T) {
 		Sources: []Source{
 			{
 				ID:             "doc_1",
+				LibraryID:      "research",
+				AgentKey:       "docs-agent",
 				Name:           "guide.pdf",
 				Title:          "Guide",
 				Icon:           "ragflow",
@@ -61,6 +63,9 @@ func TestDispatcherEmitsSourcePublishWithComputedFields(t *testing.T) {
 	}
 	if sources[0].MinIndex != 1 {
 		t.Fatalf("expected computed minIndex=1, got %#v", sources[0])
+	}
+	if sources[0].LibraryID != "research" || sources[0].AgentKey != "docs-agent" {
+		t.Fatalf("lost knowledge authorization identity: %+v", sources[0])
 	}
 	if len(sources[0].ChunkIndexes) != 2 || sources[0].ChunkIndexes[0] != 1 || sources[0].ChunkIndexes[1] != 4 {
 		t.Fatalf("expected sorted chunkIndexes, got %#v", sources[0].ChunkIndexes)

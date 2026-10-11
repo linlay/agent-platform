@@ -24,6 +24,7 @@ func TestAllowsReadOnlyUsesBuiltinAllowlistAndExplicitMetadata(t *testing.T) {
 		{name: "run interrupt remains denied", def: api.ToolDetailResponse{Name: "chat_interrupt", Meta: map[string]any{"sourceCategory": "platform", "readOnly": true}}, found: true, want: false},
 		{name: "known write cannot opt in", def: api.ToolDetailResponse{Name: "file_write", Meta: map[string]any{"kind": "external", "readOnly": true}}, found: true, want: false},
 		{name: "custom read-only tool uses metadata", def: api.ToolDetailResponse{Name: "read_form", Meta: map[string]any{"readOnly": true}}, found: true, want: true},
+		{name: "form cannot opt in", def: api.ToolDetailResponse{Name: "ask_user_form", Meta: map[string]any{"readOnly": true}}, found: true, want: false},
 		{name: "unknown", found: false, want: false},
 	}
 	for _, tc := range tests {

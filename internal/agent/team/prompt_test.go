@@ -10,7 +10,7 @@ import (
 
 func TestBuildSystemPromptKeepsHardCodedRulesAheadOfCustomGuidance(t *testing.T) {
 	prompt := BuildSystemPrompt(PromptConfig{
-		TeamID:       "support",
+
 		TeamName:     "Support",
 		Description:  "Customer support team",
 		MaxParallel:  99,
@@ -23,10 +23,7 @@ func TestBuildSystemPromptKeepsHardCodedRulesAheadOfCustomGuidance(t *testing.T)
 		},
 	})
 	for _, required := range []string{
-		"Every new user turn must call agent_delegate",
-		"first create an ordered task plan with plan_add_tasks",
-		"Finish the current in_progress stage before starting the next",
-		"member concurrency does not make multiple plan stages active",
+		"You may answer directly",
 		"maximum concurrent delegated members: 5",
 		"agentKey=billing; name=Billing; role=invoice specialist",
 		"agentKey=tech; name=Technical; description=debugs products",
@@ -40,26 +37,27 @@ func TestBuildSystemPromptKeepsHardCodedRulesAheadOfCustomGuidance(t *testing.T)
 	if strings.Count(prompt, "agentKey=billing") != 1 {
 		t.Fatalf("duplicate roster member was not removed:\n%s", prompt)
 	}
-	if strings.Index(prompt, "Mandatory routing rules:") > strings.Index(prompt, "Always answer warmly.") {
+	if strings.Index(prompt, "You may answer directly") > strings.Index(prompt, "Always answer warmly.") {
 		t.Fatalf("custom guidance appeared before invariant rules:\n%s", prompt)
 	}
 }
 
 func TestRenderSystemPromptUsesTeamTemplateValues(t *testing.T) {
 	session := contracts.QuerySession{
-		Mode:             Mode,
-		TeamID:           "writers",
+		Mode: Mode, AgentKey: "writers",
+
 		AgentName:        "Writer Team",
 		Locale:           "English",
 		ToolNames:        DefaultToolNames(),
-		ModeSystemPrompt: "{{mode}} {{team_id}} {{agent_name}} {{available_tools}} {{user_request}} {{language_preference}}",
+		ModeSystemPrompt: "{{mode}} {{agent_key}} {{agent_name}} {{available_tools}} {{user_request}} {{language_preference}}",
 	}
 	got := RenderSystemPrompt(session, api.QueryRequest{Message: "draft"}, nil, MainStage)
-	for _, value := range []string{Mode, "writers", "Writer Team", ToolDelegate, contracts.PlanAddTasksToolName, "draft", "English"} {
+	for _, value := range []string{Mode, "writers", "Writer Team", ToolDelegate, "draft", "English"} {
 		if !strings.Contains(got, value) {
 			t.Fatalf("rendered prompt %q missing %q", got, value)
 		}
 	}
+	session.Mode = "GENERAL"
 	if got := RenderSystemPrompt(session, api.QueryRequest{}, nil, "other"); got != "" {
 		t.Fatalf("unexpected prompt for non-Team stage %q", got)
 	}

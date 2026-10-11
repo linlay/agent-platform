@@ -60,11 +60,11 @@ func TestLiveSearchMethodsAndAdvancedFilters(t *testing.T) {
 	zero, weight, days := 0.0, .1, 30.0
 	for _, method := range []string{"search", "query"} {
 		r, err := m.Search(ctx, "docs", "OrchardFault", knowledge.SearchOptions{
-			Method: method, Limit: 5, CandidateLimit: 40, PathPrefix: "docs",
+			Method: method, Limit: 5, CandidateLimit: 40, PathPrefix: "workspace/docs",
 			Filter: "ext = md and sys.size > 0", Exclude: []string{"deprecated"}, Intent: "deployment",
 			MinScore: &zero, RecencyWeight: &weight, RecencyHalfLifeDays: &days,
 		})
-		if err != nil || len(r.Results) != 1 || r.Results[0].Path != "docs/current.md" {
+		if err != nil || len(r.Results) != 1 || r.Results[0].Path != "workspace/docs/current.md" {
 			t.Fatalf("%s filtered search: %+v %v", method, r, err)
 		}
 		read, err := m.Read("docs", knowledge.ReadOptions{ChunkID: r.Results[0].EvidenceID})
@@ -143,14 +143,14 @@ func TestLiveGraphSearchEvidenceAndHybridRecall(t *testing.T) {
 	for _, edge := range hit.Graph.BestPath.Edges {
 		for _, evidence := range edge.Evidence {
 			read, err := m.Read("docs", knowledge.ReadOptions{ChunkID: evidence.EvidenceID})
-			if err != nil || evidence.Path != "architecture.md" || read.Content != evidence.Content || !strings.Contains(read.Content, "depends on") {
+			if err != nil || evidence.Path != "workspace/architecture.md" || read.Content != evidence.Content || !strings.Contains(read.Content, "depends on") {
 				t.Fatalf("graph evidence readback: %+v %+v %v", evidence, read, err)
 			}
 		}
 	}
 	foundSecondHop := false
 	for _, hit := range r.Results {
-		if hit.Path == "storage.md" && hit.Graph != nil && hit.Graph.BestPath != nil && len(hit.Graph.BestPath.Edges) == 2 {
+		if hit.Path == "workspace/storage.md" && hit.Graph != nil && hit.Graph.BestPath != nil && len(hit.Graph.BestPath.Edges) == 2 {
 			foundSecondHop = true
 		}
 	}
@@ -159,7 +159,7 @@ func TestLiveGraphSearchEvidenceAndHybridRecall(t *testing.T) {
 	}
 	o.MaxHops = 1
 	oneHop, err := m.Search(ctx, "docs", "Payment Service", o)
-	if err != nil || len(oneHop.Results) != 1 || oneHop.Results[0].Path != "architecture.md" {
+	if err != nil || len(oneHop.Results) != 1 || oneHop.Results[0].Path != "workspace/architecture.md" {
 		t.Fatalf("maxHops was not enforced: %+v %v", oneHop, err)
 	}
 	o.MaxHops = 3

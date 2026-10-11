@@ -44,7 +44,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 		}
 	}})
 	const chatID = "view-test-chat"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "test"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "test"); err != nil {
 		t.Fatal(err)
 	}
 	startServerFixtureRun(t, fixture.chats.(*chat.FileStore), chatID, "view-run", 1700000000000)

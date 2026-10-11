@@ -33,7 +33,7 @@ func TestReferenceOnlyQueryRequiresMainHistory(t *testing.T) {
 	}
 	for _, existing := range []bool{false, true} {
 		if existing {
-			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", ""); err != nil {
+			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", ""); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -170,7 +170,7 @@ func TestEmptyQueryRequiresFailedOrCanceledLastRun(t *testing.T) {
 		t.Run(reason, func(t *testing.T) {
 			fixture := newTestFixture(t)
 			const chatID = "terminal-query"
-			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "start"); err != nil {
+			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "start"); err != nil {
 				t.Fatal(err)
 			}
 			if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{ChatID: chatID, RunID: "run-last", AgentKey: "mock-agent", FinishReason: reason, UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
@@ -180,8 +180,15 @@ func TestEmptyQueryRequiresFailedOrCanceledLastRun(t *testing.T) {
 			for _, path := range []string{"/api/chats", "/api/chat?chatId=" + chatID} {
 				rec := httptest.NewRecorder()
 				fixture.server.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
-				if rec.Code != 200 || !strings.Contains(rec.Body.String(), fmt.Sprintf(`"canContinue":%t`, want)) {
+				if rec.Code != 200 {
 					t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
+				}
+				if path == "/api/chats" {
+					if strings.Contains(rec.Body.String(), `"canContinue"`) {
+						t.Fatalf("chat list should omit canContinue: %s", rec.Body.String())
+					}
+				} else if !strings.Contains(rec.Body.String(), fmt.Sprintf(`"canContinue":%t`, want)) {
+					t.Fatalf("chat detail continuation eligibility: %s", rec.Body.String())
 				}
 			}
 

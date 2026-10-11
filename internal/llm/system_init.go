@@ -326,6 +326,9 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"toolDefinitions":               stableToolDefinitions(toolDefs),
 		"teamRuntime":                   session.TeamRuntime,
 	}
+	if session.KBaseCollectionsPrompt != "" {
+		payload["kbaseCollectionsPrompt"] = session.KBaseCollectionsPrompt
+	}
 	if session.EditingMode {
 		payload["editingMode"] = true
 		payload["scopedFilePolicy"] = session.ScopedFilePolicy

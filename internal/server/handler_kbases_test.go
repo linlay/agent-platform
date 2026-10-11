@@ -1,0 +1,198 @@
+package server
+
+import (
+	"agent-platform/internal/kbases"
+	"context"
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestKBasesHTTP(t *testing.T) {
+	service, err := kbases.New(context.Background(), t.TempDir(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{deps: Dependencies{KBases: service}}
+	request := func(method, path, body string, want int) json.RawMessage {
+		t.Helper()
+		r := httptest.NewRecorder()
+		s.handleKBases(r, httptest.NewRequest(method, path, strings.NewReader(body)))
+		if r.Code != want {
+			t.Fatalf("%s %s: %d %s", method, path, r.Code, r.Body.String())
+		}
+		var e struct {
+			Code int
+			Data json.RawMessage
+		}
+		if err := json.Unmarshal(r.Body.Bytes(), &e); err != nil {
+			t.Fatal(err)
+		}
+		if want == 200 && e.Code != 0 {
+			t.Fatal("nonzero success code")
+		}
+		return e.Data
+	}
+	input, _ := json.Marshal(kbases.Input{Name: "Docs", SourcePath: t.TempDir()})
+	raw := request("POST", "/api/admin/kbases", string(input), 200)
+	var d kbases.Definition
+	if err = json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	request("GET", "/api/admin/kbases", "", 200)
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Renamed","description":"Reference"}`, 200)
+	request("GET", "/api/admin/kbases/"+d.ID, "", 200)
+	request("GET", "/api/admin/kbases/"+d.ID+"/search", "", 405)
+	request("POST", "/api/admin/kbases/"+d.ID+"/search", "broken", 400)
+	request("GET", "/api/admin/kbases/missing", "", 404)
+	request("DELETE", "/api/admin/kbases/"+d.ID, "", 200)
+	request("GET", "/api/admin/kbases/"+d.ID, "", 404)
+	input, _ = json.Marshal(kbases.Input{Name: "Combined", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Description: "Editable docs", Editable: true}, {Name: "reports", SourcePath: t.TempDir()}}})
+	raw = request("POST", "/api/admin/kbases", string(input), 200)
+	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 {
+		t.Fatalf("multiple collections: %s %v", raw, err)
+	}
+	if !d.Collections[0].Editable || d.Collections[0].Description != "Editable docs" {
+		t.Fatalf("metadata lost on create: %s", raw)
+	}
+	d.Collections[0].Editable = false
+	d.Collections[0].Description = "Read-only docs"
+	input, _ = json.Marshal(kbases.Input{Name: "Edited", Collections: []kbases.Collection{d.Collections[0], {Name: "notes", SourcePath: t.TempDir()}}})
+	raw = request("PUT", "/api/admin/kbases/"+d.ID, string(input), 200)
+	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 || d.Collections[1].Name != "notes" || d.State != "unindexed" {
+		t.Fatalf("edited collections: %s %v", raw, err)
+	}
+	if d.Collections[0].Editable || d.Collections[0].Description != "Read-only docs" {
+		t.Fatalf("metadata lost on edit: %s", raw)
+	}
+
+	raw = request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Settings","chunk":{"strategy":"regex","maxChars":900,"overlapChars":0},"textEncoding":"GBK","models":{"embedding":{"modelKey":"selected","prompt":"qwen3"}}}`, 200)
+	d = kbases.Definition{}
+	if err = json.Unmarshal(raw, &d); err != nil || d.Chunk == nil || *d.Chunk.OverlapChars != 0 || d.TextEncoding != "gbk" || d.Models.Embedding.ModelKey != "selected" {
+		t.Fatalf("settings lost on PUT: %s %v", raw, err)
+	}
+	raw = request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Metadata only"}`, 200)
+	if !strings.Contains(string(raw), `"modelKey":"selected"`) {
+		t.Fatalf("omitted settings reset: %s", raw)
+	}
+	raw = request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Query settings","retrieval":{"topK":12,"minScore":0,"rerank":false,"queryExpansion":true},"models":{"reranker":{"modelKey":"rank"},"queryExpansion":{"modelKey":"expand"}}}`, 200)
+	d = kbases.Definition{}
+	if err = json.Unmarshal(raw, &d); err != nil || d.Retrieval == nil || *d.Retrieval.TopK != 12 || d.Retrieval.MinScore == nil || *d.Retrieval.MinScore != 0 || d.Retrieval.Rerank == nil || *d.Retrieval.Rerank || !*d.Retrieval.QueryExpansion || d.Models.Reranker.ModelKey != "rank" || d.Models.QueryExpansion.ModelKey != "expand" {
+		t.Fatalf("query settings lost on PUT: %s %v", raw, err)
+	}
+	disabled := false
+	d.Collections[0].DefaultQuery = &disabled
+	input, _ = json.Marshal(kbases.Input{Name: "Query scope", Collections: d.Collections})
+	request("PUT", "/api/admin/kbases/"+d.ID, string(input), 200)
+	raw = request("GET", "/api/admin/kbases/"+d.ID, "", 200)
+	if !strings.Contains(string(raw), `"defaultQuery":false`) || !strings.Contains(string(raw), `"modelKey":"rank"`) || !strings.Contains(string(raw), `"minScore":0`) {
+		t.Fatalf("query settings not preserved: %s", raw)
+	}
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","retrieval":{"topK":51}}`, 400)
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","retrieval":{"unknown":true}}`, 400)
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","models":{"graphExtraction":{"modelKey":"future"}}}`, 400)
+	request("PUT", "/api/admin/kbases/"+d.ID, `{"name":"Invalid","collections":[]}`, 400)
+	request("POST", "/api/admin/kbases/"+d.ID+"/search", `{"query":"fixture","method":"get"}`, 400)
+}
+
+func TestKBasesHTTPDiagnosticsAndDeletion(t *testing.T) {
+	root, runtimeRoot := t.TempDir(), t.TempDir()
+	service, err := kbases.New(context.Background(), root, runtimeRoot, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good, err := service.Create(kbases.Input{Name: "Good", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, err := service.Create(kbases.Input{Name: "Bad", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, bad.ID, "library.yml"), []byte("state: ready\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	orphan, err := service.Create(kbases.Input{Name: "Orphan", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, orphan.ID)); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{deps: Dependencies{KBases: service}}
+	recorder := httptest.NewRecorder()
+	server.handleKBases(recorder, httptest.NewRequest("GET", "/api/admin/kbases", nil))
+	if recorder.Code != 200 {
+		t.Fatal(recorder.Body.String())
+	}
+	var response struct {
+		Code int
+		Data []kbases.Definition
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Data) != 3 {
+		t.Fatal(recorder.Body.String())
+	}
+	for _, d := range response.Data {
+		if d.ID == good.ID && d.State != "unindexed" {
+			t.Fatal(d)
+		}
+		if d.ID == bad.ID && (d.State != "error" || d.Error == "") {
+			t.Fatal(d)
+		}
+		if d.ID == orphan.ID && (!d.Orphaned || d.State != "error") {
+			t.Fatal(d)
+		}
+	}
+	for _, id := range []string{bad.ID, orphan.ID} {
+		recorder = httptest.NewRecorder()
+		server.handleKBases(recorder, httptest.NewRequest("DELETE", "/api/admin/kbases/"+id, nil))
+		if recorder.Code != 200 {
+			t.Fatal(recorder.Body.String())
+		}
+		if _, err := os.Stat(filepath.Join(runtimeRoot, "libraries", id)); !os.IsNotExist(err) {
+			t.Fatal("runtime retained", err)
+		}
+	}
+}
+
+func TestKBasesTemplateEndpointsReturnNotFound(t *testing.T) {
+	root := t.TempDir()
+	service, err := kbases.New(context.Background(), root, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateDir := filepath.Join(root, "example")
+	if err := os.Mkdir(templateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	template := filepath.Join(templateDir, "library.example.yml")
+	if err := os.WriteFile(template, []byte("name: \"Example\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{deps: Dependencies{KBases: service}}
+	input, _ := json.Marshal(kbases.Input{Name: "Attempt", SourcePath: t.TempDir()})
+	for _, request := range []struct{ method, path string }{
+		{"GET", "/api/admin/kbases/example"},
+		{"PUT", "/api/admin/kbases/example"},
+		{"POST", "/api/admin/kbases/example/refresh"},
+		{"DELETE", "/api/admin/kbases/example"},
+	} {
+		recorder := httptest.NewRecorder()
+		server.handleKBases(recorder, httptest.NewRequest(request.method, request.path, strings.NewReader(string(input))))
+		if recorder.Code != 404 {
+			t.Fatalf("%s template: %d %s", request.method, recorder.Code, recorder.Body.String())
+		}
+	}
+	if _, err := os.Stat(template); err != nil {
+		t.Fatal("template removed", err)
+	}
+	if _, err := os.Stat(filepath.Join(templateDir, "library.yml")); !os.IsNotExist(err) {
+		t.Fatal("template became live")
+	}
+}

@@ -43,9 +43,9 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 	if summary == nil {
 		return preparedQuery{}, btwStatusError(404, "chat_not_found", "parent chat not found")
 	}
-	teamID, agentKey, teamSnapshot, teamErr := ResolveQueryTeam(
+	agentKey, teamSnapshot, teamErr := ResolveAgentTarget(
 		s.deps.Registry,
-		strings.TrimSpace(summary.TeamID),
+
 		"",
 		summary,
 	)
@@ -61,7 +61,7 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 		}
 	}()
 	if teamSnapshot != nil {
-		leasedTeam, release, found := catalogview.AcquireTeam(s.deps.Registry, teamID)
+		leasedTeam, release, found := catalogview.AcquireTeam(s.deps.Registry, "")
 		releaseRuntime, ok = release, found
 		if found {
 			teamSnapshot = &leasedTeam
@@ -128,11 +128,11 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 		requestID = runID
 	}
 	req := runtimetypes.QueryCommand{
-		RequestID:       requestID,
-		RunID:           runID,
-		ChatID:          input.ChatID,
-		AgentKey:        agentKey,
-		TeamID:          teamID,
+		RequestID: requestID,
+		RunID:     runID,
+		ChatID:    input.ChatID,
+		AgentKey:  agentKey,
+
 		Role:            queryinput.QueryRoleUser,
 		Message:         input.Message,
 		References:      input.References,

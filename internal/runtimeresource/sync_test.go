@@ -234,7 +234,6 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 		"agents/existing", "agents/new",
 		"skills-center/existing", "skills-center/new",
 		"tools/existing", "tools/new",
-		"teams/existing", "teams/new",
 	} {
 		if !slices.Contains(state.ManagedUnits, wanted) {
 			t.Fatalf("state did not record %s: %#v", wanted, state.ManagedUnits)
@@ -250,14 +249,14 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 func TestSyncReplacesBundledUnitsAcrossFileAndDirectoryTypes(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	writeTestFile(t, filepath.Join(runtimeRoot, "tools", "conflict", "user.txt"), "user-directory")
-	writeTestFile(t, filepath.Join(runtimeRoot, "teams", "conflict"), "user-file")
+	writeTestFile(t, filepath.Join(runtimeRoot, "agents", "conflict"), "user-file")
 
 	result, err := Sync(Options{
 		RuntimeDir: runtimeRoot,
 		Source: writeTestZip(t, map[string]string{
-			"env/VERSION":                    "v2\n",
-			"env/tools/conflict":             "package-file",
-			"env/teams/conflict/content.txt": "package-directory",
+			"env/VERSION":                     "v2\n",
+			"env/tools/conflict":              "package-file",
+			"env/agents/conflict/content.txt": "package-directory",
 		}),
 		DesktopFrom: "1",
 		DesktopTo:   "2",
@@ -270,9 +269,9 @@ func TestSyncReplacesBundledUnitsAcrossFileAndDirectoryTypes(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	assertTestFile(t, filepath.Join(runtimeRoot, "tools", "conflict"), "package-file")
-	assertTestFile(t, filepath.Join(runtimeRoot, "teams", "conflict", "content.txt"), "package-directory")
+	assertTestFile(t, filepath.Join(runtimeRoot, "agents", "conflict", "content.txt"), "package-directory")
 	state := readTestState(t, runtimeRoot)
-	for _, wanted := range []string{"tools/conflict", "teams/conflict"} {
+	for _, wanted := range []string{"tools/conflict", "agents/conflict"} {
 		if !slices.Contains(state.ManagedUnits, wanted) {
 			t.Fatalf("state did not record %s: %#v", wanted, state.ManagedUnits)
 		}
@@ -397,11 +396,11 @@ func TestVersionChangeIdempotencyIgnoresSourceSHA(t *testing.T) {
 		t.Fatalf("same version unexpectedly changed resources: %#v", result)
 	}
 
-	writeTestFile(t, filepath.Join(runtimeRoot, "teams", "manual", "content.txt"), "old-manual")
-	writeTestFile(t, filepath.Join(runtimeRoot, "teams", "manual", "local-only.txt"), "remove-me")
+	writeTestFile(t, filepath.Join(runtimeRoot, "agents", "manual", "content.txt"), "old-manual")
+	writeTestFile(t, filepath.Join(runtimeRoot, "agents", "manual", "local-only.txt"), "remove-me")
 	manual := writeTestZip(t, map[string]string{
-		"env/VERSION":                  "v2.0.0\n",
-		"env/teams/manual/content.txt": "manual",
+		"env/VERSION":                   "v2.0.0\n",
+		"env/agents/manual/content.txt": "manual",
 	})
 	manualResult, err := Sync(Options{RuntimeDir: runtimeRoot, Source: manual, DesktopFrom: "2.0.0", DesktopTo: "2.0.0", Mode: ModeManualImport})
 	if err != nil {
@@ -413,8 +412,8 @@ func TestVersionChangeIdempotencyIgnoresSourceSHA(t *testing.T) {
 	if manualResult.Stats.OverwrittenUnits != 1 {
 		t.Fatalf("manual import did not overwrite the packaged unit: %#v", manualResult)
 	}
-	assertTestFile(t, filepath.Join(runtimeRoot, "teams", "manual", "content.txt"), "manual")
-	assertMissing(t, filepath.Join(runtimeRoot, "teams", "manual", "local-only.txt"))
+	assertTestFile(t, filepath.Join(runtimeRoot, "agents", "manual", "content.txt"), "manual")
+	assertMissing(t, filepath.Join(runtimeRoot, "agents", "manual", "local-only.txt"))
 }
 
 func TestRegistryImageSchemaUsesActualModelLoader(t *testing.T) {

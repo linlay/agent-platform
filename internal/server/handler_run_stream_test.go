@@ -19,7 +19,7 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 		RunID:    "run_1",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	}
 	_, _, _ = runs.Register(context.Background(), session)
 	eventBus, ok := runs.EventBus(session.RunID)
@@ -94,7 +94,7 @@ func TestHandleAttachBindsLatestWebClientTargetAfterSuccess(t *testing.T) {
 		RunID:           "run_attach_target",
 		ChatID:          "chat_attach_target",
 		AgentKey:        "agent_1",
-		RunOwner:        contracts.AgentRunOwner("agent_1", ""),
+		RunOwner:        contracts.AgentRunOwner("agent_1"),
 		WebClientTarget: initial,
 	}
 	_, _, _ = runs.Register(context.Background(), session)
@@ -129,7 +129,7 @@ func TestHandleAttachWithoutTargetOrWithInvalidOwnerDoesNotReplaceBinding(t *tes
 		RunID:           "run_attach_keep_target",
 		ChatID:          "chat_attach_keep_target",
 		AgentKey:        "agent_1",
-		RunOwner:        contracts.AgentRunOwner("agent_1", ""),
+		RunOwner:        contracts.AgentRunOwner("agent_1"),
 		WebClientTarget: initial,
 	}
 	_, _, _ = runs.Register(context.Background(), session)
@@ -172,7 +172,7 @@ func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t 
 		RunID:    "run_attach_time_contract",
 		ChatID:   "chat_attach_time_contract",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	}
 	_, _, _ = runs.Register(context.Background(), session)
 	eventBus, ok := runs.EventBus(session.RunID)
@@ -260,7 +260,7 @@ func TestHandleAttachInvalidCompletedReplayDoesNotCancelHistoricalRun(t *testing
 		RunID:    "run_attach_completed_time_contract",
 		ChatID:   "chat_attach_completed_time_contract",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	}
 	_, _, _ = runs.Register(context.Background(), session)
 	eventBus, ok := runs.EventBus(session.RunID)

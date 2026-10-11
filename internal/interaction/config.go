@@ -26,8 +26,6 @@ func Defaults(mode string) Config {
 		c.Model, c.AccessLevel, c.Connectors, c.Attachment.ChatRecords = false, false, false, false
 	case "CODER":
 		c.Attachment.ChatRecords = false
-	case "TEAM":
-		c.Model, c.MustUseSkills, c.Connectors = false, false, false
 	case "PROXY", "CHANNEL":
 		c.Model = false
 	}

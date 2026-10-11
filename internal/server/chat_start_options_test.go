@@ -260,7 +260,6 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 		{contracts.RunStartRequest{AgentKey: "mock-agent"}, "interaction_disabled"},
 		{contracts.RunStartRequest{AgentKey: "mock-agent", AccessLevel: "full_access"}, "interaction_disabled"},
 		{contracts.RunStartRequest{AgentKey: "mock-agent", MustUseSkills: []string{"demo"}}, "interaction_disabled"},
-		{contracts.RunStartRequest{TeamID: "default", MustUseSkills: []string{"demo"}}, "must_use_skills_unsupported"},
 		{contracts.RunStartRequest{AgentKey: "mock-agent", ChatID: "existing", ChatName: "name"}, "invalid_request"},
 	} {
 		tc.request.Message = "test"
@@ -328,7 +327,7 @@ func TestChatStartEscalationThroughHandler(t *testing.T) {
 	handler := runopspkg.NewToolHandler(runtimeService, fixture.runs)
 	exec := func(toolID string) *contracts.ExecutionContext {
 		return &contracts.ExecutionContext{
-			Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent", "")},
+			Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent")},
 			RunControl: parent, CurrentToolID: toolID, CurrentToolName: runopspkg.StartToolName,
 		}
 	}
@@ -428,7 +427,7 @@ func TestChatStartReviewedCallCannotBeReplayedWithoutReceipt(t *testing.T) {
 	fixture, parent := chatStartFixture(t, "auto_approve")
 	handler := runopspkg.NewToolHandler(fixture.server.deps.Runtime.(runopspkg.Runtime), fixture.runs)
 	e := &contracts.ExecutionContext{
-		Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent", "")},
+		Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent")},
 		RunControl: parent, CurrentToolID: "same-call", CurrentToolName: runopspkg.StartToolName,
 	}
 	args := map[string]any{"agentKey": "mock-agent", "message": "task", "accessLevel": "full_access"}
@@ -515,4 +514,45 @@ func TestChatStartRefusesRunManagerWithoutAtomicAcceptance(t *testing.T) {
 		_, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: level, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "narrow-" + level}})
 		requireNoChatStarted(t, fixture, err, "run_start_authorization_unavailable")
 	}
+}
+
+func TestChatStartDefaultAgentReviewStartAndContinuation(t *testing.T) {
+	fixture, _ := chatStartFixture(t, "default")
+	req := contracts.RunStartRequest{
+		Message: "create coding agents", ChatName: "冒烟-A1-创建编程智能体", AccessLevel: "full_access",
+		Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "default-target"},
+	}
+	plan, err := fixture.server.PrepareRunStart(context.Background(), req)
+	if err != nil || !plan.RequiresApproval {
+		t.Fatalf("plan=%#v err=%v", plan, err)
+	}
+	explicit := req
+	explicit.AgentKey = "mock-agent"
+	explicitPlan, err := fixture.server.PrepareRunStart(context.Background(), explicit)
+	if err != nil || explicitPlan.RequestDigest != plan.RequestDigest || explicitPlan.ApprovalDigest != plan.ApprovalDigest {
+		t.Fatalf("default and explicit targets differ: %#v %#v %v", plan, explicitPlan, err)
+	}
+	_, err = fixture.server.StartRun(context.Background(), req)
+	requireNoChatStarted(t, fixture, err, "run_start_approval_required")
+	consumed := 0
+	req.Review = &contracts.RunStartReview{
+		ParentAccessLevel: plan.ParentAccessLevel, ParentAccessVersion: plan.ParentAccessVersion, ApprovalDigest: plan.ApprovalDigest,
+		Consume: func(digest string) bool { consumed++; return consumed == 1 && digest == plan.ApprovalDigest },
+	}
+	started, err := fixture.server.StartRun(context.Background(), req)
+	if err != nil || started.AgentKey != "mock-agent" || consumed != 1 {
+		t.Fatalf("start=%#v err=%v consumed=%d", started, err, consumed)
+	}
+	waitRunTerminal(t, fixture.server, started.RunID)
+	summary, err := fixture.chats.Summary(started.ChatID)
+	if err != nil || summary.ChatName != req.ChatName || summary.AgentKey != "mock-agent" {
+		t.Fatalf("summary=%#v err=%v", summary, err)
+	}
+	continued, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
+		Message: "continue", ChatID: started.ChatID, Origin: req.Origin,
+	})
+	if err != nil || continued.ChatID != started.ChatID || continued.AgentKey != "mock-agent" || continued.RunID == started.RunID {
+		t.Fatalf("continuation=%#v err=%v", continued, err)
+	}
+	waitRunTerminal(t, fixture.server, continued.RunID)
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/models"
 )
 
 func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error) {
@@ -14,7 +15,7 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 	}
 	for key, value := range args {
 		switch key {
-		case "message", "agentKey", "teamId", "chatId", "chatName", "accessLevel":
+		case "message", "agentKey", "chatId", "chatName", "accessLevel", "modelKey", "reasoningEffort":
 			text, ok := value.(string)
 			if !ok || strings.TrimSpace(text) == "" {
 				return invalid(key + " must be a non-empty string")
@@ -29,6 +30,14 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 					return invalid("accessLevel must be default, auto_approve, or full_access")
 				}
 				request.AccessLevel = level
+			case "modelKey":
+				request.ModelKey = text
+			case "reasoningEffort":
+				effort, ok := models.NormalizeReasoningEffort(text)
+				if !ok {
+					return invalid("reasoningEffort must be NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX")
+				}
+				request.ReasoningEffort = effort
 			}
 		case "mustUseSkills":
 			var items []any

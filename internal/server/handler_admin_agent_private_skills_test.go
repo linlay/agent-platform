@@ -108,7 +108,7 @@ func TestAdminAgentPrivateSkillOverrideDoesNotRequireCenterConfirmationOrBlockCe
 	if !found {
 		t.Fatal("reloaded agent definition is missing")
 	}
-	runtimeSkill, err := os.ReadFile(filepath.Join(definition.RuntimeDir, "skills", "mock-skill", "SKILL.md"))
+	runtimeSkill, err := os.ReadFile(runtimeSkillTestPath(t, definition.RuntimeDir, "mock-skill", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("read assembled private override: %v", err)
 	}

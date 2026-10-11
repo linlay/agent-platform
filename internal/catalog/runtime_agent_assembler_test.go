@@ -17,7 +17,7 @@ func TestRuntimeAgentAssemblerClearsRuntimeRootAtStartup(t *testing.T) {
 	writeRuntimeAssemblerFile(t, filepath.Join(ruAgentsDir, ".staging", "abandoned", "partial"), "stale")
 	writeRuntimeAssemblerFile(t, filepath.Join(ruAgentsDir, "unexpected.txt"), "stale")
 
-	if _, err := newRuntimeAgentAssembler(ruAgentsDir, filepath.Join(root, "skills-center")); err != nil {
+	if _, err := newVersionTestAssembler(t, ruAgentsDir, filepath.Join(root, "skills-center")); err != nil {
 		t.Fatalf("new assembler: %v", err)
 	}
 	entries, err := os.ReadDir(ruAgentsDir)
@@ -37,7 +37,7 @@ func TestRuntimeAgentAssemblerRejectsNonDirectoryRootWithoutDeletingIt(t *testin
 	ruAgentsPath := filepath.Join(root, "ru-agents")
 	writeRuntimeAssemblerFile(t, ruAgentsPath, "preserve")
 
-	if _, err := newRuntimeAgentAssembler(ruAgentsPath, filepath.Join(root, "skills-center")); err == nil ||
+	if _, err := newVersionTestAssembler(t, ruAgentsPath, filepath.Join(root, "skills-center")); err == nil ||
 		!strings.Contains(err.Error(), "must be a directory") {
 		t.Fatalf("expected non-directory root rejection, got %v", err)
 	}
@@ -67,7 +67,7 @@ func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 	writeRuntimeAssemblerFile(t, filepath.Join(agentsDir, "writer", "AGENTS.md"), "runtime agents")
 	writeRuntimeAssemblerFile(t, filepath.Join(agentsDir, "writer", "templates", "prompt.md"), "template")
 
-	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, centerDir)
+	assembler, err := newVersionTestAssembler(t, ruAgentsDir, centerDir)
 	if err != nil {
 		t.Fatalf("new assembler: %v", err)
 	}
@@ -87,13 +87,13 @@ func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 	if def.AgentDir != filepath.Join(agentsDir, "writer") {
 		t.Fatalf("source AgentDir = %q", def.AgentDir)
 	}
-	if def.RuntimeDir != filepath.Join(ruAgentsDir, "writer") {
+	if filepath.Dir(def.RuntimeDir) != filepath.Join(ruAgentsDir, "writer") {
 		t.Fatalf("RuntimeDir = %q", def.RuntimeDir)
 	}
 	if def.SoulPrompt != "runtime soul" || def.AgentsPrompt != "runtime agents" {
 		t.Fatalf("runtime prompts = soul:%q agents:%q", def.SoulPrompt, def.AgentsPrompt)
 	}
-	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, "skills", "office", "SKILL.md"), "# Local Office\n\nInstructions")
+	assertRuntimeAssemblerContent(t, runtimeSkillTestPath(t, def.RuntimeDir, "office", "SKILL.md"), "# Local Office\n\nInstructions")
 	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, ".config", "httpx", "bridge.toml"), "agent-override")
 	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, ".config", "httpx", "other.toml"), "skill-other")
 	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, ".config", "httpx", "tree"), "agent-file")
@@ -104,7 +104,7 @@ func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 		"skills/office/assets/icon.txt",
 		"templates/prompt.md",
 	} {
-		if _, err := os.Stat(filepath.Join(def.RuntimeDir, filepath.FromSlash(relative))); err != nil {
+		if _, err := os.Stat(runtimeResourceTestPath(t, def.RuntimeDir, relative)); err != nil {
 			t.Fatalf("runtime resource %s missing: %v", relative, err)
 		}
 	}
@@ -158,7 +158,7 @@ func TestRuntimeAgentAssemblerRejectsSkillConfigConflictsButAllowsIdenticalFiles
 	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "same-a", ".config", "httpx", "bridge.toml"), "same")
 	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "same-b", ".config", "httpx", "bridge.toml"), "same")
 
-	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, centerDir)
+	assembler, err := newVersionTestAssembler(t, ruAgentsDir, centerDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestRuntimeAgentAssemblerRejectsCaseFoldAndStructuralConflicts(t *testing.T
 			writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "alpha", ".config", filepath.FromSlash(tc.alphaRel)), "alpha")
 			writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "beta", ".config", filepath.FromSlash(tc.betaRel)), "beta")
 
-			assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), centerDir)
+			assembler, err := newVersionTestAssembler(t, filepath.Join(root, "ru-agents"), centerDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -231,7 +231,7 @@ func TestRuntimeAgentAssemblerDoesNotFallbackWhenLocalSkillIsInvalid(t *testing.
 		t.Fatal(err)
 	}
 
-	assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), centerDir)
+	assembler, err := newVersionTestAssembler(t, filepath.Join(root, "ru-agents"), centerDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testi
 			ChatsDir:        filepath.Join(root, "chats"),
 		},
 	}
-	registry, err := NewFileRegistry(cfg, nil)
+	registry, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -283,38 +283,35 @@ func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testi
 	if !ok {
 		t.Fatal("standalone Agent was not assembled")
 	}
-	if def.AgentDir != "" || def.RuntimeDir != filepath.Join(ruAgentsDir, "flat") {
+	if def.AgentDir != "" || filepath.Dir(def.RuntimeDir) != filepath.Join(ruAgentsDir, "flat") {
 		t.Fatalf("standalone paths = source:%q runtime:%q", def.AgentDir, def.RuntimeDir)
 	}
 	if _, err := os.Stat(filepath.Join(def.RuntimeDir, "agent.yml")); err != nil {
 		t.Fatalf("canonical standalone entry missing: %v", err)
 	}
-	before, err := os.Stat(def.RuntimeDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	old := def.RuntimeDir
 	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "office", "SKILL.md"), "# Office v2\n")
 	if err := registry.Reload(nil, "agents"); err != nil {
-		t.Fatalf("reload agents: %v", err)
-	}
-	after, err := os.Stat(def.RuntimeDir)
-	if err != nil {
 		t.Fatal(err)
 	}
-	if !os.SameFile(before, after) {
-		t.Fatal("stable runtime Agent directory was replaced during hot reload")
+	def, _ = registry.AgentDefinition("flat")
+	if def.RuntimeDir == old {
+		t.Fatal("changed content reused version")
 	}
-	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, "skills", "office", "SKILL.md"), "# Office v2")
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatal("unleased old version retained")
+	}
+	assertRuntimeAssemblerContent(t, runtimeSkillTestPath(t, def.RuntimeDir, "office", "SKILL.md"), "# Office v2")
 	if err := os.Remove(filepath.Join(centerDir, "office", "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.Reload(nil, "agents"); err != nil {
 		t.Fatalf("reload invalid candidate: %v", err)
 	}
-	if _, ok := registry.AgentDefinition("flat"); ok {
-		t.Fatal("invalid candidate Agent remains published")
+	if _, ok := registry.AgentDefinition("flat"); !ok {
+		t.Fatal("invalid candidate discarded last successful version")
 	}
-	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, "skills", "office", "SKILL.md"), "# Office v2")
+	assertRuntimeAssemblerContent(t, runtimeSkillTestPath(t, def.RuntimeDir, "office", "SKILL.md"), "# Office v2")
 	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "office", "SKILL.md"), "# Office v3\n")
 	if err := registry.Reload(nil, "agents"); err != nil {
 		t.Fatalf("reload repaired candidate: %v", err)
@@ -322,7 +319,8 @@ func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testi
 	if _, ok := registry.AgentDefinition("flat"); !ok {
 		t.Fatal("repaired Agent was not republished")
 	}
-	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, "skills", "office", "SKILL.md"), "# Office v3")
+	def, _ = registry.AgentDefinition("flat")
+	assertRuntimeAssemblerContent(t, runtimeSkillTestPath(t, def.RuntimeDir, "office", "SKILL.md"), "# Office v3")
 	if err := os.Remove(filepath.Join(agentsDir, "flat.yml")); err != nil {
 		t.Fatal(err)
 	}

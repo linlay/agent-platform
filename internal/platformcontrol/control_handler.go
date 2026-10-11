@@ -55,6 +55,7 @@ var argumentFields = map[string]map[string]string{
 	"chat_query.search":           {"query": "s!", "scope": "s", "chatId": "s", "archived": "b", "limit": "n", "cursor": "s"},
 	"chat_query.read":             {"chatId": "s!", "archived": "b", "view": "s!", "limit": "n", "cursor": "s"},
 	"chat_query.artifacts":        {"chatId": "s", "runId": "s", "limit": "n", "cursor": "s"},
+	"chat_query.models":           {},
 	"chat_manage.rename":          {"chatId": "s", "chatName": "s!"},
 	"chat_manage.setPinned":       {"chatId": "s", "pinned": "b!"},
 	"chat_manage.archive":         {"chatId": "s", "chatIds": "a"}, "chat_manage.restore": {"chatId": "s", "chatIds": "a"},
@@ -255,10 +256,10 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 	}
 	if action == "defaults" {
 		typ := stringValue(p, "type")
-		paths := map[string]string{"general": GeneralCreationPath, "coder": CoderCreationPath, "kbase": KBaseCreationPath}
+		paths := map[string]string{"general": GeneralCreationPath, "coder": CoderCreationPath, "kbase": KBaseCreationPath, "team": TeamCreationPath}
 		path, ok := paths[typ]
 		if !ok {
-			return nil, fmt.Errorf("type must be general, coder or kbase")
+			return nil, fmt.Errorf("type must be general, coder, kbase or team")
 		}
 		result := h.get(path)
 		if h.models != nil {
@@ -404,9 +405,6 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 		if r, ok := h.registry.(interface{ AdminAgents() []catalog.AdminAgent }); ok {
 			for _, v := range r.AdminAgents() {
 				def, valid := h.registry.AgentDefinition(v.Key)
-				if valid && strings.EqualFold(def.Mode, "TEAM") {
-					continue // Internal coordinators are never public discovery targets.
-				}
 				before := len(items)
 				add(v.Key, valid, v.Diagnostics)
 				if len(items) == before {
@@ -418,11 +416,8 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 				item["invocable"] = valid && catalog.AgentInvocationError(def) == nil
 			}
 		}
-	case "team", "skill":
-		base := h.cfg.Paths.TeamsDir
-		if t.ResourceType == "skill" {
-			base = h.cfg.Paths.SkillsCenterDir
-		}
+	case "skill":
+		base := h.cfg.Paths.SkillsCenterDir
 		entries, err := os.ReadDir(base)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
@@ -432,36 +427,31 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 				continue
 			}
 			key := d.Name()
-			if t.ResourceType == "team" {
-				_, ok := h.registry.TeamDefinition(key)
-				add(key, ok, h.sourceDiagnostics(t.ResourceType, key, ok))
-			} else {
-				if _, err := os.Stat(filepath.Join(base, key, "package.json")); err == nil {
-					b, err := os.ReadFile(filepath.Join(base, key, "package.json"))
-					var manifest struct {
-						Skills []struct {
-							ID string `json:"id"`
-						} `json:"skills"`
-					}
-					if err != nil || json.Unmarshal(b, &manifest) != nil {
-						add(key, false, []map[string]any{diagnostic("error", "invalid_package", "invalid package.json")})
+			if _, err := os.Stat(filepath.Join(base, key, "package.json")); err == nil {
+				b, err := os.ReadFile(filepath.Join(base, key, "package.json"))
+				var manifest struct {
+					Skills []struct {
+						ID string `json:"id"`
+					} `json:"skills"`
+				}
+				if err != nil || json.Unmarshal(b, &manifest) != nil {
+					add(key, false, []map[string]any{diagnostic("error", "invalid_package", "invalid package.json")})
+					continue
+				}
+				seen := map[string]bool{}
+				for _, member := range manifest.Skills {
+					id := key + "/" + member.ID
+					if seen[id] {
 						continue
 					}
-					seen := map[string]bool{}
-					for _, member := range manifest.Skills {
-						id := key + "/" + member.ID
-						if seen[id] {
-							continue
-						}
-						seen[id] = true
-						_, ok := h.registry.SkillDefinition(id)
-						add(id, ok, h.sourceDiagnostics("skill", id, ok))
-					}
-
-				} else {
-					_, ok := h.registry.SkillDefinition(key)
-					add(key, ok, h.sourceDiagnostics(t.ResourceType, key, ok))
+					seen[id] = true
+					_, ok := h.registry.SkillDefinition(id)
+					add(id, ok, h.sourceDiagnostics("skill", id, ok))
 				}
+
+			} else {
+				_, ok := h.registry.SkillDefinition(key)
+				add(key, ok, h.sourceDiagnostics(t.ResourceType, key, ok))
 			}
 		}
 	default:
@@ -497,6 +487,9 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 	return map[string]any{"items": items[start:end], "nextCursor": next, "total": len(items), "hasMore": next != ""}, nil
 }
 func (h *ToolHandler) chatQuery(action string, p map[string]any, e *contracts.ExecutionContext) (any, error) {
+	if action == "models" {
+		return h.chatStartModels()
+	}
 	if h.conversations == nil {
 		return nil, fmt.Errorf("conversation unavailable")
 	}
@@ -544,7 +537,7 @@ func (h *ToolHandler) chatQuery(action string, p map[string]any, e *contracts.Ex
 }
 func (h *ToolHandler) inspect(action string, p map[string]any, e *contracts.ExecutionContext) (any, error) {
 	if action == "runtimeStatus" {
-		components := map[string]any{"connectors": h.connectorSnapshots(), "containerHub": map[string]any{"enabled": h.cfg.ContainerHub.Enabled}, "memory": map[string]any{"enabled": h.cfg.Memory.Enabled}, "catalog": map[string]any{"agents": len(h.registry.Agents("")), "teams": len(h.registry.Teams()), "skills": len(h.registry.Skills(""))}}
+		components := map[string]any{"connectors": h.connectorSnapshots(), "containerHub": map[string]any{"enabled": h.cfg.ContainerHub.Enabled}, "memory": map[string]any{"enabled": h.cfg.Memory.Enabled}, "catalog": map[string]any{"agents": len(h.registry.Agents("")), "skills": len(h.registry.Skills(""))}}
 		if h.models != nil {
 			components["models"] = map[string]any{"count": len(h.models.List())}
 		}
@@ -592,6 +585,21 @@ func (h *ToolHandler) inspect(action string, p map[string]any, e *contracts.Exec
 		allowed = allowed && ok && (!contracts.IsReadOnlyToolExecutionPolicy(e.ToolExecutionPolicy) || d.ReadOnly)
 	}
 	return map[string]any{"tool": tool, "mounted": mounted, "allowed": allowed}, nil
+}
+
+// chatStartModels lists the registered chat models a chat_start modelKey may name.
+func (h *ToolHandler) chatStartModels() (any, error) {
+	if h.models == nil {
+		return nil, fmt.Errorf("models unavailable")
+	}
+	items := []map[string]any{}
+	for _, v := range h.models.List() {
+		if !models.IsChatModel(v) {
+			continue
+		}
+		items = append(items, map[string]any{"modelKey": v.Key, "name": v.Name, "provider": v.Provider, "modelId": v.ModelID, "isReasoner": v.IsReasoner, "reasoningEfforts": append([]string{}, v.ReasoningEfforts...), "isVision": v.IsVision, "contextWindow": v.ContextWindow})
+	}
+	return map[string]any{"items": items}, nil
 }
 
 func publicControlModel(v models.ModelDefinition) map[string]any {

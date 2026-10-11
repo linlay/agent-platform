@@ -23,11 +23,11 @@ func TestAgentDefaultsExposeRuntimeFacts(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Data.Types) != 4 {
+	if len(response.Data.Types) != 5 {
 		t.Fatalf("types: %#v", response.Data.Types)
 	}
 	for _, typ := range response.Data.Types {
-		if typ.Engine == "native" && len(typ.BaseTools) == 0 {
+		if typ.Engine == "native" && typ.Mode != "TEAM" && len(typ.BaseTools) == 0 {
 			t.Fatalf("missing tools: %#v", typ)
 		}
 		if typ.Engine == "acp" && len(typ.BaseTools) != 0 {

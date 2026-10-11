@@ -55,7 +55,6 @@ func (f *fakeRunToolService) StartRun(_ context.Context, req contracts.RunStartR
 		RunID:     runID,
 		ChatID:    "chat-" + runID,
 		AgentKey:  req.AgentKey,
-		TeamID:    req.TeamID,
 		Status:    "running",
 		StartedAt: 1700000000000,
 		Origin:    &req.Origin,
@@ -90,7 +89,7 @@ func runToolExecContext(subject string, toolID string) *contracts.ExecutionConte
 		ChatID:   "parent-chat",
 		AgentKey: "zenmi",
 		Subject:  subject,
-		RunOwner: contracts.AgentRunOwner("zenmi", ""),
+		RunOwner: contracts.AgentRunOwner("zenmi"),
 	}
 	return &contracts.ExecutionContext{Session: session, CurrentToolID: toolID, CurrentToolName: StartToolName}
 }
@@ -99,7 +98,7 @@ func TestChatStartIsIdempotentPerParentRunAndToolID(t *testing.T) {
 	service := newFakeRunToolService()
 	runs := runstate.NewManager()
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
-		RunID: "parent-run", ChatID: "parent-chat", AgentKey: "zenmi", RunOwner: contracts.AgentRunOwner("zenmi", ""),
+		RunID: "parent-run", ChatID: "parent-chat", AgentKey: "zenmi", RunOwner: contracts.AgentRunOwner("zenmi"),
 	})
 	handler := NewToolHandler(service, runs)
 	args := map[string]any{"agentKey": "webOperator", "message": "search"}
@@ -173,19 +172,20 @@ func TestRunToolsRejectUnsupportedCallers(t *testing.T) {
 	}
 
 	teamMember := runToolExecContext("alice", "tool-team-member")
-	teamMember.Session.TeamID = "research"
-	teamMember.Session.RunOwner = contracts.TeamRunOwner("research", "member")
+
+	teamMember.Session.RunOwner = contracts.AgentRunOwner("member")
 	teamMemberResult, _ := handler.Invoke(context.Background(), StartToolName, args, teamMember)
 	if teamMemberResult.Error != "run_caller_not_allowed" {
 		t.Fatalf("Team member caller error = %q", teamMemberResult.Error)
 	}
 
 	coordinator := runToolExecContext("alice", "tool-coordinator")
-	coordinator.Session.AgentKey = "__team_coordinator"
-	coordinator.Session.TeamID = "research"
-	coordinator.Session.RunOwner = contracts.TeamRunOwner("research", "__team_coordinator")
+	coordinator.Session.AgentKey = "research"
+	coordinator.Session.Mode = "TEAM"
+
+	coordinator.Session.RunOwner = contracts.AgentRunOwner("research")
 	coordinatorResult, _ := handler.Invoke(context.Background(), StartToolName, args, coordinator)
-	if coordinatorResult.Error != "run_caller_not_allowed" {
+	if coordinatorResult.Error != "" {
 		t.Fatalf("Team coordinator caller error = %q", coordinatorResult.Error)
 	}
 }
@@ -212,9 +212,8 @@ func TestChatStartValidatesTargetAndMessage(t *testing.T) {
 	execCtx := runToolExecContext("alice", "tool-query")
 
 	for _, args := range []map[string]any{
-		{"message": "missing target"},
+		{"agentKey": " ", "message": "task"},
 		{"agentKey": "writer"},
-		{"agentKey": "writer", "teamId": "research", "message": "ambiguous"},
 	} {
 		result, _ := handler.Invoke(context.Background(), StartToolName, args, execCtx)
 		if result.Error != "invalid_request" {
@@ -222,12 +221,6 @@ func TestChatStartValidatesTargetAndMessage(t *testing.T) {
 		}
 	}
 
-	team, _ := handler.Invoke(context.Background(), StartToolName, map[string]any{
-		"teamId": "research", "message": "review",
-	}, execCtx)
-	if team.Error != "" || team.Structured["action"] != "query" {
-		t.Fatalf("team query failed: %#v", team)
-	}
 }
 
 func TestGetRunStatusAndInterrupt(t *testing.T) {

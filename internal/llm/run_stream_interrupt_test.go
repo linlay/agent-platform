@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/toolinteraction"
 )
 
 func TestRunStreamInterruptClosesWaitingApprovalBeforeCancel(t *testing.T) {
@@ -189,5 +191,22 @@ func assertInterruptedToolResult(t *testing.T, delta contracts.AgentDelta, toolI
 		payload["executed"] != false ||
 		contracts.AnyStringNode(payload["awaitingId"]) != awaitingID {
 		t.Fatalf("unexpected interrupted payload %#v", payload)
+	}
+}
+
+func TestRunStreamInterruptClosesWaitingFormWithoutModeArgument(t *testing.T) {
+	control := contracts.NewRunControl(context.Background(), "run-form")
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run-form"}, runControl: control,
+		engine:         &LLMAgentEngine{tools: &recordingToolExecutor{defs: []api.ToolDetailResponse{{Name: "ask_user_form"}}}, interactions: toolinteraction.NewDefaultRegistry()},
+		activeToolCall: &preparedToolInvocation{toolID: "form", toolName: "ask_user_form", args: map[string]any{"title": "Profile", "html": `<input name="n">`}},
+	}
+	control.Interrupt(contracts.InterruptInfo{Source: contracts.InterruptSourceHTTPAPI, Reason: contracts.InterruptReasonUserCancelled})
+	if err := stream.handleInterruptIfNeeded(); err != nil {
+		t.Fatal(err)
+	}
+	answer, ok := stream.pending[0].(contracts.DeltaAwaitingAnswer)
+	if !ok || answer.Answer["mode"] != "form" {
+		t.Fatalf("unexpected interrupt %#v", stream.pending)
 	}
 }

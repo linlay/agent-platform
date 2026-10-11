@@ -249,10 +249,10 @@ func (s *Server) searchArchives(req api.ArchiveSearchRequest) (api.ArchiveSearch
 	results := make([]api.ArchiveSearchResult, 0, len(hits))
 	for _, hit := range hits {
 		results = append(results, api.ArchiveSearchResult{
-			ChatID:         hit.ChatID,
-			ChatName:       hit.ChatName,
-			AgentKey:       hit.AgentKey,
-			TeamID:         hit.TeamID,
+			ChatID:   hit.ChatID,
+			ChatName: hit.ChatName,
+			AgentKey: hit.AgentKey,
+
 			CreatedAt:      hit.CreatedAt,
 			LastRunAt:      hit.LastRunAt,
 			LastRunID:      hit.LastRunID,
@@ -276,10 +276,10 @@ func (s *Server) deleteArchive(chatID string) (api.ArchiveDeleteResponse, error)
 
 func mapArchivedSummary(item chat.ArchivedSummary) api.ArchivedSummaryResponse {
 	resp := api.ArchivedSummaryResponse{
-		ChatID:         item.ChatID,
-		ChatName:       item.ChatName,
-		AgentKey:       item.AgentKey,
-		TeamID:         item.TeamID,
+		ChatID:   item.ChatID,
+		ChatName: item.ChatName,
+		AgentKey: item.AgentKey,
+
 		Source:         item.Source,
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
@@ -299,11 +299,11 @@ func mapRunSummary(run chat.RunSummary) api.RunSummary {
 	usage := run.Usage
 	usage.ModelKey = ""
 	response := api.RunSummary{
-		RunID:           run.RunID,
-		ChatID:          run.ChatID,
-		AgentKey:        run.AgentKey,
-		Mode:            chat.PublicAgentMode(run.AgentMode),
-		TeamID:          run.TeamID,
+		RunID:    run.RunID,
+		ChatID:   run.ChatID,
+		AgentKey: run.AgentKey,
+		Mode:     chat.PublicAgentMode(run.AgentMode),
+
 		InitialMessage:  run.InitialMessage,
 		AssistantText:   run.AssistantText,
 		FinishReason:    run.FinishReason,

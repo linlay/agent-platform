@@ -31,7 +31,7 @@ func newRuntimeServer(deps Dependencies) (*Server, error) {
 func bindTestRuntime(s *Server) *query.Service {
 	d := s.deps
 	profiles := adapter.Profiles{Builder: d.SystemInits, Tools: d.Tools}
-	sessions := session.New(session.Dependencies{Config: d.Config, Chats: d.Chats, Registry: adapter.Catalog{Registry: d.Registry}, Models: d.Models, Runs: d.Runs, Tools: d.Tools, Profiles: profiles})
+	sessions := session.New(session.Dependencies{KnowledgeCollections: testKnowledgeCollections(d), Config: d.Config, Chats: d.Chats, Registry: adapter.Catalog{Registry: d.Registry}, Models: d.Models, Runs: d.Runs, Tools: d.Tools, Profiles: profiles})
 	s.deps.Sessions = sessions
 	app := query.NewService(query.Dependencies{BackgroundContext: s.backgroundCtx, Config: d.Config, Runs: d.Runs, Chats: d.Chats, Registry: d.Registry, Models: d.Models, Tools: d.Tools, Agent: adapter.Engine{AgentEngine: d.Agent}, Profiles: profiles, Sessions: sessions, Notifications: d.Notifications, ToolInteractions: d.ToolInteractions, DeltaMappers: d.DeltaMappers, DeferredAwaitings: s.deferredAwaitings, Proxy: RuntimeProxyPort{Server: s}, ResourceTickets: s.ticketService})
 	facade, ok := s.deps.Runtime.(*agentruntime.Service)

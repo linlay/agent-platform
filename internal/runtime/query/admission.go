@@ -95,12 +95,12 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		}
 	}
 	assembler := stream.NewAssembler(stream.StreamRequest{
-		RequestID:          prepared.Req.RequestID,
-		RunID:              prepared.Req.RunID,
-		ChatID:             prepared.Req.ChatID,
-		ChatName:           prepared.Summary.ChatName,
-		AgentKey:           prepared.Req.AgentKey,
-		TeamID:             prepared.Req.TeamID,
+		RequestID: prepared.Req.RequestID,
+		RunID:     prepared.Req.RunID,
+		ChatID:    prepared.Req.ChatID,
+		ChatName:  prepared.Summary.ChatName,
+		AgentKey:  prepared.Req.AgentKey,
+
 		Message:            prepared.Req.Message,
 		Role:               role,
 		Hidden:             prepared.Req.Hidden,
@@ -430,11 +430,8 @@ func (s *Service) PrepareQueryAdmissionRequest(
 		(existingSummary == nil || !existingSummary.CanContinue) {
 		return queryAdmission{}, &statusError{Status: 400, Code: "empty_query_not_allowed", Message: "empty query requires the last run to have failed or been canceled"}
 	}
-
-	teamID, agentKey, teamSnapshot, teamErr := ResolveQueryTeam(
-		s.deps.Registry,
-		req.TeamID,
-		req.AgentKey,
+	agentKey, teamSnapshot, teamErr := ResolveAgentTarget(
+		s.deps.Registry, req.AgentKey,
 		existingSummary,
 	)
 	if teamErr != nil {
@@ -447,32 +444,29 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if !orchestratedTeam && agentKey == "" {
 		agentKey = s.deps.Registry.DefaultAgentKey()
 	}
-	var agentDef catalog.AgentDefinition
-	var found bool
-	if orchestratedTeam {
-		leasedTeam, release, ok := catalogview.AcquireTeam(s.deps.Registry, teamID)
-		if !ok {
-			return queryAdmission{}, fmt.Errorf("team runtime is unavailable")
+	agentDef, frozenTeam, release, found := catalogview.AcquireRun(s.deps.Registry, agentKey)
+	admissionRelease = combineQueryReleases(admissionRelease, release)
+	if !found {
+		if orchestratedTeam {
+			return queryAdmission{}, &statusError{Status: 503, Code: "unavailable", Message: "TEAM runtime is unavailable"}
 		}
-		admissionRelease = combineQueryReleases(admissionRelease, release)
-		teamSnapshot = &leasedTeam
-		agentDef = buildTeamCoordinatorDefinition(*teamSnapshot)
-		found = true
-	} else {
-		var release func()
-		agentDef, release, found = catalogview.AcquireAgent(s.deps.Registry, agentKey)
-		admissionRelease = combineQueryReleases(admissionRelease, release)
-		if !found {
-			if registry, ok := s.deps.Registry.(interface {
-				AdminAgent(string) (catalog.AdminAgent, bool)
-			}); ok {
-				if agent, exists := registry.AdminAgent(agentKey); exists && agent.Status == catalog.AdminAgentStatusInvalid {
-					return queryAdmission{}, apperrors.New(apperrors.CodeAgentConfigurationInvalid, "The agent configuration is invalid. Fix it in agent management before sending again.")
-				}
+		if registry, ok := s.deps.Registry.(interface {
+			AdminAgent(string) (catalog.AdminAgent, bool)
+		}); ok {
+			if agent, exists := registry.AdminAgent(agentKey); exists && agent.Status == catalog.AdminAgentStatusInvalid {
+				return queryAdmission{}, apperrors.New(apperrors.CodeAgentConfigurationInvalid, "The agent configuration is invalid. Fix it in agent management before sending again.")
 			}
-			return queryAdmission{}, apperrors.New(apperrors.CodeAgentNotFound, "The agent is unavailable. Select an available agent.")
+		}
+		return queryAdmission{}, apperrors.New(apperrors.CodeAgentNotFound, "The agent is unavailable. Select an available agent.")
+	}
+	teamSnapshot = frozenTeam
+	orchestratedTeam = teamSnapshot != nil
+	if teamSnapshot != nil {
+		if err := catalogview.ValidateTeamSnapshot(*teamSnapshot); err != nil {
+			return queryAdmission{}, err
 		}
 	}
+
 	if sessionbuild.IsProxyRoutedAgent(agentDef) && proxy.RequestHasReservedCWD(req.Params) {
 		return queryAdmission{}, &statusError{
 			Status:  400,
@@ -482,7 +476,7 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if statusErr := s.deps.Proxy.Configure(&agentDef); statusErr != nil {
 		return queryAdmission{}, statusErr
 	}
-	if !orchestratedTeam && !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
+	if !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
 		if err := ValidateInteractionInput(agentDef.Interaction(), req); err != nil {
 			return queryAdmission{}, err
 		}
@@ -490,8 +484,8 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if err := s.ValidateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
 	}
-	if req.PlanningMode != nil && *req.PlanningMode && (orchestratedTeam || !agentbuiltin.PlanningModeSupported(agentDef.Mode)) {
-		return queryAdmission{}, &statusError{Status: 400, Message: "planningMode is only supported for GENERAL, CODER and KBASE agents"}
+	if req.PlanningMode != nil && *req.PlanningMode && !agentbuiltin.PlanningModeSupported(agentDef.Mode) {
+		return queryAdmission{}, &statusError{Status: 400, Message: "planningMode is only supported for GENERAL, CODER, KBASE and TEAM agents"}
 	}
 	if req.EditingMode != nil && *req.EditingMode && !agentbuiltin.IsKBaseMode(agentDef.Mode) {
 		const code = "editing_mode_unsupported"
@@ -506,18 +500,6 @@ func (s *Service) PrepareQueryAdmissionRequest(
 		}
 	}
 	req.MustUseSkills = sessionbuild.NormalizeMustUseSkills(req.MustUseSkills)
-	if orchestratedTeam && len(req.MustUseSkills) > 0 {
-		const code = "must_use_skills_unsupported"
-		const message = "mustUseSkills is not supported for Team runs"
-		return queryAdmission{}, &statusError{
-			Status:  400,
-			Code:    code,
-			Message: message,
-			Data: map[string]any{
-				"error": map[string]any{"code": code, "message": message},
-			},
-		}
-	}
 	mustUseSkills, err := s.deps.Sessions.ResolveSkills(agentDef, req.MustUseSkills)
 	if err != nil {
 		return queryAdmission{}, sessionbuild.MustUseSkillUnavailableStatus(err)
@@ -533,7 +515,6 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	req.AgentKey = agentKey
 	req.RequestID = requestID
 	req.RunID = runID
-	req.TeamID = teamID
 
 	return queryAdmission{
 		Req:              req,
@@ -625,25 +606,19 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	agentKey := req.AgentKey
 	chatSource := queryChatSource(ctx, req)
 	persistedAgentMode := chatAgentMode(agentDef, admission.OrchestratedTeam)
-	summary, created, err := s.deps.Chats.EnsureChatWithInitialName(chatID, agentKey, req.TeamID, req.Message, chatSource, persistedAgentMode, req.InitialChatName)
+	summary, created, err := s.deps.Chats.EnsureChatWithInitialName(chatID, agentKey, req.Message, chatSource, persistedAgentMode, req.InitialChatName)
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	if admission.StrictOwner && !created && !runOwnerMatchesChat(&summary, agentKey, req.TeamID) {
+	if !created && !(summary.AgentKey == "" && summary.LastRunID == "") && !runOwnerMatchesChat(&summary, agentKey) {
 		return preparedQuery{}, &statusError{
 			Status:  409,
 			Code:    "target_owner_mismatch",
 			Message: "target identity does not match chat owner",
 		}
 	}
-	if !created && strings.TrimSpace(summary.TeamID) != strings.TrimSpace(req.TeamID) {
-		return preparedQuery{}, &statusError{
-			Status:  409,
-			Code:    "team_conflict",
-			Message: "teamId does not match chat",
-		}
-	}
-	if !admission.OrchestratedTeam && !created && agentKey != "" {
+
+	if !created && agentKey != "" {
 		if err := s.deps.Chats.UpdateAgentIdentity(chatID, agentKey, persistedAgentMode); err != nil {
 			return preparedQuery{}, err
 		}

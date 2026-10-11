@@ -22,7 +22,6 @@ services:
       AP_RUNTIME_REGISTRIES_DIR: /opt/runtime/registries
       AP_RUNTIME_CHATS_DIR: /opt/runtime/chats
       AP_RUNTIME_MEMORY_DIR: /opt/runtime/memory
-      AP_RUNTIME_KBASE_DIR: /opt/runtime/kbase
       AP_RUNTIME_PAN_DIR: /opt/runtime/pan
       AP_RUNTIME_STATE_DIR: /opt/runtime/.state
     volumes:
@@ -42,9 +41,6 @@ services:
       - type: bind
         source: ${AP_RUNTIME_MEMORY_DIR:-${AP_RUNTIME_DIR:-./runtime}/memory}
         target: /opt/runtime/memory
-      - type: bind
-        source: ${AP_RUNTIME_KBASE_DIR:-${AP_RUNTIME_DIR:-./runtime}/kbase}
-        target: /opt/runtime/kbase
       - type: bind
         source: ${AP_RUNTIME_PAN_DIR:-${AP_RUNTIME_DIR:-./runtime}/pan}
         target: /opt/runtime/pan

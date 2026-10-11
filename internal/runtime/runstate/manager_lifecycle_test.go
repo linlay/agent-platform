@@ -23,7 +23,7 @@ func TestManagerRegisterDetachesFromParentContext(t *testing.T) {
 		RunID:    "run_1",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	})
 
 	cancel()
@@ -47,7 +47,7 @@ func TestManagerFinishDestroysRunEnvironment(t *testing.T) {
 	manager := newTestManager(t)
 	manager.Register(context.Background(), contracts.QuerySession{
 		RunID: "run_env_cleanup", ChatID: "chat_env_cleanup", AgentKey: "office",
-		RunOwner: contracts.AgentRunOwner("office", ""), RunEnvironment: scope,
+		RunOwner: contracts.AgentRunOwner("office"), RunEnvironment: scope,
 	})
 	if _, ok := manager.RunEnvironment("run_env_cleanup"); !ok {
 		t.Fatal("active run environment is unavailable")
@@ -68,7 +68,7 @@ func TestManagerWebClientTargetIsLastWriterWins(t *testing.T) {
 		RunID:           "run_target",
 		ChatID:          "chat_target",
 		AgentKey:        "agent_1",
-		RunOwner:        contracts.AgentRunOwner("agent_1", ""),
+		RunOwner:        contracts.AgentRunOwner("agent_1"),
 		WebClientTarget: initial,
 	})
 
@@ -103,7 +103,7 @@ func TestManagerWebClientTargetConcurrentBindsRemainAtomic(t *testing.T) {
 		RunID:    "run_concurrent_target",
 		ChatID:   "chat_concurrent_target",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	})
 
 	var wg sync.WaitGroup
@@ -133,7 +133,7 @@ func TestManagerActiveRunForChatReturnsSingleActiveRun(t *testing.T) {
 		RunID:       "run_1",
 		ChatID:      "chat_1",
 		AgentKey:    "agent_1",
-		RunOwner:    contracts.AgentRunOwner("agent_1", ""),
+		RunOwner:    contracts.AgentRunOwner("agent_1"),
 		EditingMode: true,
 	})
 
@@ -156,7 +156,7 @@ func TestManagerRunScopeDoesNotBlockParentChat(t *testing.T) {
 		ChatID:     "chat_1",
 		RunScopeID: "btw:chat_1:btw_1",
 		AgentKey:   "agent_1",
-		RunOwner:   contracts.AgentRunOwner("agent_1", ""),
+		RunOwner:   contracts.AgentRunOwner("agent_1"),
 	})
 	if err != nil || !btw.Registered {
 		t.Fatalf("register BTW run: %#v err=%v", btw, err)
@@ -165,7 +165,7 @@ func TestManagerRunScopeDoesNotBlockParentChat(t *testing.T) {
 		RunID:    "run_main",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	})
 	if err != nil || !main.Registered {
 		t.Fatalf("register parent run: %#v err=%v", main, err)
@@ -175,7 +175,7 @@ func TestManagerRunScopeDoesNotBlockParentChat(t *testing.T) {
 		ChatID:     "chat_1",
 		RunScopeID: "btw:chat_1:btw_1",
 		AgentKey:   "agent_1",
-		RunOwner:   contracts.AgentRunOwner("agent_1", ""),
+		RunOwner:   contracts.AgentRunOwner("agent_1"),
 	})
 	if err != nil {
 		t.Fatalf("register duplicate BTW: %v", err)
@@ -191,13 +191,13 @@ func TestManagerActiveRunForChatReturnsConflictForMultipleRuns(t *testing.T) {
 		RunID:    "run_1",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	})
 	_, _, _ = manager.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run_2",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	})
 
 	_, ok, err := manager.ActiveRunForChat("chat_1")
@@ -230,7 +230,7 @@ func TestManagerRegisterExclusiveForChatAllowsOnlyOneActiveRun(t *testing.T) {
 				RunID:    "run_exclusive_" + string(rune('a'+index)),
 				ChatID:   "chat_exclusive",
 				AgentKey: "agent_1",
-				RunOwner: contracts.AgentRunOwner("agent_1", ""),
+				RunOwner: contracts.AgentRunOwner("agent_1"),
 			})
 			results <- result
 			errs <- err
@@ -269,7 +269,7 @@ func TestManagerUpdateAccessLevelPublishesEventAndStatus(t *testing.T) {
 		RunID:       "run_access",
 		ChatID:      "chat_1",
 		AgentKey:    "agent_1",
-		RunOwner:    contracts.AgentRunOwner("agent_1", ""),
+		RunOwner:    contracts.AgentRunOwner("agent_1"),
 		AccessLevel: contracts.AccessLevelDefault,
 	})
 	observer, err := manager.AttachObserver("run_access", 0)
@@ -325,7 +325,7 @@ func TestManagerReaperPublishesExpiredRunErrorBeforeInterrupt(t *testing.T) {
 		RunID:    "run_expired",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	})
 	eventBus, ok := manager.EventBus("run_expired")
 	if !ok {
@@ -386,7 +386,7 @@ func TestManagerReaperTreatsMaxBackgroundDurationAsGlobalLimit(t *testing.T) {
 		RunID:    "run_no_timeout",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""),
+		RunOwner: contracts.AgentRunOwner("agent_1"),
 	})
 	control.ExpectSubmit(contracts.AwaitingSubmitContext{
 		AwaitingID: "await_plan",
@@ -436,7 +436,7 @@ func TestManagerRecoveredAwaitingIsAttachableAndClaimedOnce(t *testing.T) {
 	startedAt := time.Now().Add(-48 * time.Hour).UnixMilli()
 	recovered, err := manager.RegisterRecoveredAwaiting(context.Background(), contracts.QuerySession{
 		RunID: "run_recovered", ChatID: "chat_recovered", AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""), StartedAtMillis: startedAt,
+		RunOwner: contracts.AgentRunOwner("agent_1"), StartedAtMillis: startedAt,
 	}, "await_1", 29)
 	if err != nil {
 		t.Fatalf("register recovered awaiting: %v", err)
@@ -477,7 +477,7 @@ func TestManagerRecoveredAwaitingReaperStartsAtHydration(t *testing.T) {
 	manager.maxBackgroundDuration = time.Hour
 	_, err := manager.RegisterRecoveredAwaiting(context.Background(), contracts.QuerySession{
 		RunID: "run_old_recovered", ChatID: "chat_old_recovered", AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1", ""), StartedAtMillis: time.Now().Add(-7 * 24 * time.Hour).UnixMilli(),
+		RunOwner: contracts.AgentRunOwner("agent_1"), StartedAtMillis: time.Now().Add(-7 * 24 * time.Hour).UnixMilli(),
 	}, "await_old", 7)
 	if err != nil {
 		t.Fatalf("register recovered awaiting: %v", err)

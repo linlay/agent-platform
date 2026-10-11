@@ -139,7 +139,7 @@ func TestNestedSkillsRuntimeKeepsQualifiedIdentity(t *testing.T) {
 	// The package key must not silently resolve to an Agent-private short-name
 	// or nested lookalike directory.
 	writeRuntimeAssemblerSkill(t, filepath.Join(agents, "writer", "skills", "suite", "demo"), "Wrong private")
-	assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), center)
+	assembler, err := newVersionTestAssembler(t, filepath.Join(root, "ru-agents"), center)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestRegistryStartupMigratesLegacyPackagesBeforeLoadingSkills(t *testing.T) 
 	writeRuntimeAssemblerFile(t, filepath.Join(center, ".package", "suite.json"), `{"schemaVersion":1,"id":"suite","name":"Suite","version":"1","sha256":"old","installedAt":1,"skills":[{"id":"demo","version":"1"}]}`)
 	writeRuntimeAssemblerAgent(t, agents, "writer", []string{"demo", "suite/demo"})
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: agents, SkillsCenterDir: center, RUAgentsDir: filepath.Join(root, "ru-agents"), ChatsDir: filepath.Join(root, "chats")}}
-	r, err := NewFileRegistry(cfg, nil)
+	r, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestRegistryStartupMigratesLegacyPackagesBeforeLoadingSkills(t *testing.T) 
 	if err != nil || len(backups) != 1 {
 		t.Fatalf("backups=%v err=%v", backups, err)
 	}
-	if _, err := NewFileRegistry(cfg, nil); err != nil {
+	if _, err := newVersionTestRegistry(t, cfg, nil); err != nil {
 		t.Fatalf("second startup: %v", err)
 	}
 	again, _ := filepath.Glob(filepath.Join(root, ".skill-package-backup-*"))

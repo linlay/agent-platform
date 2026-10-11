@@ -75,7 +75,7 @@ func TestCLIRunnerNotStartedBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		_, err := (cliRunner{}).Run(context.Background(), filepath.Join(t.TempDir(), "index.sqlite"), centerConfig, "update")
+		_, err := (cliRunner{}).Run(context.Background(), filepath.Join(t.TempDir(), "index.sqlite"), defaultLibraryConfig, "update")
 		if err == nil || errors.Is(err, errCommandNotStarted) != (stage != "started") {
 			t.Fatalf("%s: %v", stage, err)
 		}

@@ -27,7 +27,7 @@ func TestRuntimeSkillPathConflictPreservesPublishedAgent(t *testing.T) {
 				writeRuntimeAssemblerSkill(t, filepath.Join(center, "suite", "demo"), "Shared demo")
 				writeRuntimeAssemblerFile(t, filepath.Join(center, "suite", "demo", "README.md"), "shared resource")
 				writeRuntimeAssemblerAgent(t, agentsDir, "writer", []string{standalone})
-				assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), center)
+				assembler, err := newVersionTestAssembler(t, filepath.Join(root, "ru-agents"), center)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -79,7 +79,7 @@ func TestRuntimeSkillPathsAllowStandaloneAndPackageMembers(t *testing.T) {
 				writeRuntimeAssemblerSkill(t, filepath.Join(center, filepath.FromSlash(key)), key)
 			}
 			writeRuntimeAssemblerAgent(t, agentsDir, "writer", keys)
-			assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), center)
+			assembler, err := newVersionTestAssembler(t, filepath.Join(root, "ru-agents"), center)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,7 +92,7 @@ func TestRuntimeSkillPathsAllowStandaloneAndPackageMembers(t *testing.T) {
 				t.Fatalf("non-overlapping skills rejected: %+v", admin["writer"])
 			}
 			for _, key := range keys {
-				assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, "skills", filepath.FromSlash(key), "SKILL.md"), "# "+key+"\n\nInstructions")
+				assertRuntimeAssemblerContent(t, runtimeSkillTestPath(t, def.RuntimeDir, key, "SKILL.md"), "# "+key+"\n\nInstructions")
 			}
 		})
 	}

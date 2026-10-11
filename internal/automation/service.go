@@ -129,10 +129,10 @@ func (s *Service) createAutomation(req api.CreateAutomationRequest) (api.Automat
 		Cron:          strings.TrimSpace(req.Cron),
 		RemainingRuns: cloneIntPtr(req.RemainingRuns),
 		AgentKey:      strings.TrimSpace(req.AgentKey),
-		TeamID:        strings.TrimSpace(req.TeamID),
-		Environment:   Environment{ZoneID: strings.TrimSpace(req.ZoneID)},
-		Query:         automationQueryFromRequest(req.Query),
-		SourceFile:    filepath.Join(s.Registry.Root(), id+".yml"),
+
+		Environment: Environment{ZoneID: strings.TrimSpace(req.ZoneID)},
+		Query:       automationQueryFromRequest(req.Query),
+		SourceFile:  filepath.Join(s.Registry.Root(), id+".yml"),
 	}
 	if err := s.Registry.applyControlDefinition(def, "", false); err != nil {
 		return api.AutomationDetailResponse{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", err.Error())
@@ -310,13 +310,13 @@ func (s *Service) ReloadAutomations() error {
 
 func (s *Service) MapAutomationSummary(def Definition, next *time.Time) (api.AutomationSummaryResponse, error) {
 	resp := api.AutomationSummaryResponse{
-		ID:            def.ID,
-		Name:          def.Name,
-		Description:   def.Description,
-		Cron:          def.Cron,
-		AgentKey:      def.AgentKey,
-		Enabled:       def.Enabled,
-		TeamID:        def.TeamID,
+		ID:          def.ID,
+		Name:        def.Name,
+		Description: def.Description,
+		Cron:        def.Cron,
+		AgentKey:    def.AgentKey,
+		Enabled:     def.Enabled,
+
 		ZoneID:        def.Environment.ZoneID,
 		SourceFile:    def.SourceFile,
 		RemainingRuns: cloneIntPtr(def.RemainingRuns),
@@ -381,9 +381,7 @@ func applyAutomationUpdate(def *Definition, req api.UpdateAutomationRequest) {
 	if req.AgentKey != nil {
 		def.AgentKey = strings.TrimSpace(*req.AgentKey)
 	}
-	if req.TeamID != nil {
-		def.TeamID = strings.TrimSpace(*req.TeamID)
-	}
+
 	if req.ZoneID != nil {
 		def.Environment.ZoneID = strings.TrimSpace(*req.ZoneID)
 	}
@@ -441,20 +439,20 @@ func mapAutomationExecution(item Execution, loc *time.Location) api.AutomationEx
 		AutomationName: item.AutomationName,
 		SourceFile:     item.SourceFile,
 		AgentKey:       item.AgentKey,
-		TeamID:         item.TeamID,
-		Status:         item.Status,
-		Error:          item.Error,
-		ZoneID:         item.ZoneID,
-		ChatID:         item.ChatID,
-		RunID:          item.RunID,
-		FinishReason:   item.FinishReason,
-		HasResult:      strings.TrimSpace(firstNonBlank(item.ResultContent, item.ResultPreview)) != "",
-		ResultPreview:  item.ResultPreview,
-		StartedAt:      item.StartedAt,
-		StartedTime:    automationReadableTimeMillis(item.StartedAt, loc),
-		RunStartedAt:   cloneInt64Ptr(item.RunStartedAt),
-		CompletedAt:    cloneInt64Ptr(item.CompletedAt),
-		DurationMs:     cloneInt64Ptr(item.DurationMs),
+
+		Status:        item.Status,
+		Error:         item.Error,
+		ZoneID:        item.ZoneID,
+		ChatID:        item.ChatID,
+		RunID:         item.RunID,
+		FinishReason:  item.FinishReason,
+		HasResult:     strings.TrimSpace(firstNonBlank(item.ResultContent, item.ResultPreview)) != "",
+		ResultPreview: item.ResultPreview,
+		StartedAt:     item.StartedAt,
+		StartedTime:   automationReadableTimeMillis(item.StartedAt, loc),
+		RunStartedAt:  cloneInt64Ptr(item.RunStartedAt),
+		CompletedAt:   cloneInt64Ptr(item.CompletedAt),
+		DurationMs:    cloneInt64Ptr(item.DurationMs),
 	}
 	if item.CompletedAt != nil {
 		resp.CompletedTime = automationReadableTimeMillis(*item.CompletedAt, loc)

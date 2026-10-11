@@ -34,7 +34,7 @@ func TestFileRegistryAgentsUseAgentOrderFile(t *testing.T) {
 	for _, key := range []string{"alpha", "bravo", "charlie", "delta"} {
 		writeOrderTestAgent(t, agentsDir, key)
 	}
-	registry, err := NewFileRegistry(config.Config{
+	registry, err := newVersionTestRegistry(t, config.Config{
 		Paths: config.PathsConfig{AgentsDir: agentsDir},
 	}, nil)
 	if err != nil {

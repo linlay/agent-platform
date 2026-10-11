@@ -8,47 +8,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/runtime/orchestration"
 )
-
-func mergeTeamConfigMap(base map[string]any, overlay map[string]any) map[string]any {
-	out := contracts.CloneMap(base)
-	if out == nil {
-		out = map[string]any{}
-	}
-	for key, value := range overlay {
-		if nested, ok := value.(map[string]any); ok {
-			baseNested, _ := out[key].(map[string]any)
-			out[key] = mergeTeamConfigMap(baseNested, nested)
-			continue
-		}
-		out[key] = value
-	}
-	return out
-}
-
-func buildTeamCoordinatorDefinition(snapshot catalog.TeamSnapshot) catalog.AgentDefinition {
-	budget := mergeTeamConfigMap(agentbuiltin.TeamDefaultBudget(), snapshot.Orchestrator.Budget)
-	return catalog.AgentDefinition{
-		Key:              HiddenTeamAgentKey(snapshot.TeamID),
-		Name:             orchestration.FirstNonEmpty(snapshot.Name, snapshot.TeamID),
-		Icon:             snapshot.Icon,
-		Description:      snapshot.Description,
-		Role:             "hidden Team coordinator",
-		ModelKey:         snapshot.Orchestrator.ModelKey,
-		ServiceTier:      snapshot.Orchestrator.ServiceTier,
-		Mode:             agentbuiltin.TeamMode,
-		VisibilityScopes: []string{"internal"},
-		Tools:            agentbuiltin.TeamDefaultToolNames(),
-		ContextTags:      agentbuiltin.TeamDefaultContextTags(),
-		Budget:           budget,
-		StageSettings:    contracts.CloneMap(snapshot.Orchestrator.StageSettings),
-	}
-}
-
-func HiddenTeamAgentKey(teamID string) string {
-	return hiddenTeamAgentPrefix + strings.TrimSpace(teamID)
-}
 
 func TeamDelegateBaseDefinition(definitions []queryinput.ToolDefinition) (queryinput.ToolDefinition, bool) {
 	for _, definition := range definitions {
@@ -76,7 +36,7 @@ func ConfigureTeamCoordinatorSession(session *contracts.QuerySession, snapshot c
 		promptMembers = append(promptMembers, agentbuiltin.TeamMemberSpec{Key: key, Name: def.Name, Role: def.Role, Description: def.Description})
 	}
 	maxParallel := agentbuiltin.TeamNormalizeMaxParallel(snapshot.Orchestrator.MaxParallel)
-	session.RunOwner = contracts.TeamRunOwner(snapshot.TeamID, session.AgentKey)
+	session.RunOwner = contracts.AgentRunOwner(session.AgentKey)
 	session.TeamRuntime = &contracts.TeamRuntimeContext{
 		RuntimeMode:             snapshot.RuntimeMode,
 		MaxParallel:             maxParallel,
@@ -89,17 +49,16 @@ func ConfigureTeamCoordinatorSession(session *contracts.QuerySession, snapshot c
 	if err != nil {
 		return fmt.Errorf("configure Team coordinator tool: %w", err)
 	}
-	session.ModeToolDefinitions = []queryinput.ToolDefinition{toolDefinition}
+	if !session.PlanningMode {
+		session.ModeToolDefinitions = []queryinput.ToolDefinition{toolDefinition}
+		session.ToolNames = append(session.ToolNames, agentbuiltin.TeamToolDelegate)
+	}
 	session.ModeSystemPrompt = agentbuiltin.TeamBuildSystemPrompt(agentbuiltin.TeamPromptConfig{
-		TeamID:       snapshot.TeamID,
-		TeamName:     snapshot.Name,
-		Description:  snapshot.Description,
-		Members:      promptMembers,
-		SoulPrompt:   snapshot.SoulPrompt,
-		AgentsPrompt: snapshot.AgentsPrompt,
-		MaxParallel:  maxParallel,
+		AgentKey:    snapshot.AgentKey,
+		TeamName:    snapshot.Name,
+		Description: snapshot.Description,
+		Members:     promptMembers,
+		MaxParallel: maxParallel,
 	})
 	return nil
 }
-
-const hiddenTeamAgentPrefix = "__team__:"

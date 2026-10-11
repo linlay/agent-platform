@@ -60,7 +60,7 @@ func (s *Service) CommitImage(command ImageCommitCommand) (chat.ResourceDocument
 	if summary == nil {
 		return chat.ResourceDocumentCommitResult{}, chat.ErrChatNotFound
 	}
-	if strings.TrimSpace(summary.TeamID) != "" || strings.TrimSpace(summary.AgentKey) == "" || strings.TrimSpace(summary.AgentKey) != strings.TrimSpace(command.AgentKey) {
+	if strings.TrimSpace(summary.AgentKey) == "" || strings.TrimSpace(summary.AgentKey) != strings.TrimSpace(command.AgentKey) {
 		return chat.ResourceDocumentCommitResult{}, ErrOwnerMismatch
 	}
 	committer, ok := s.chats.(chat.ResourceDocumentCommitter)

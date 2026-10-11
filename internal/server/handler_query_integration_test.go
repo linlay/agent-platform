@@ -165,7 +165,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 }
 
 func TestNativeEmptyToolAllowlistExposesNoTools(t *testing.T) {
-	excludedTools := []string{"run_env", "bash", "file_read", "kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	excludedTools := []string{"run_env", "bash", "file_read", "kbase_search", "kbase_files", "kbase_read", "kbase_status", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	exclusionConfig := "toolConfig:\n  tools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n  excludeTools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n"
 
 	for _, mode := range []string{"GENERAL", "CODER", "KBASE"} {
@@ -199,7 +199,7 @@ func TestNativeEmptyToolAllowlistExposesNoTools(t *testing.T) {
 						Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
 					}}},
 					setupRuntime: func(_ string, cfg *config.Config) {
-						definition := "key: mock-agent\nname: Mock Agent\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig + "runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(t.TempDir()) + "\n  env:\n    LANG: en_US\nskillConfig:\n  skills:\n    - mock-skill\nmemoryConfig:\n  enabled: true\nkbaseConfig:\n  enabled: true\n"
+						definition := "key: mock-agent\nname: Mock Agent\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig + "runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(t.TempDir()) + "\n  env:\n    LANG: en_US\nskillConfig:\n  skills:\n    - mock-skill\nmemoryConfig:\n  enabled: true\nkbaseConfig:\n  libraryId: research\n"
 						cfg.ModePresets = nil
 						cfg.Memory.Enabled = true
 						if tc.name == "excluded" {
@@ -993,13 +993,16 @@ func TestQueryRejectsUnavailableMustUseSkillWithExplicitCode(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsMustUseSkillsForTeam(t *testing.T) {
-	fixture := newTestFixture(t)
-	req := api.QueryRequest{Message: "team", TeamID: "default", MustUseSkills: []string{"mock-skill"}}
-	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
-	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Code != "must_use_skills_unsupported" {
-		t.Fatalf("expected Team mustUseSkills rejection, got %#v", err)
+func TestQuerySupportsMustUseSkillsForTEAM(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: setupOrchestratedTeamRuntime(t)})
+	req := api.QueryRequest{AgentKey: "research", Message: "team", MustUseSkills: []string{"mock-skill"}}
+	admission, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admission.Release()
+	if len(admission.Req.MustUseSkills) != 1 || admission.AgentDef.Mode != "TEAM" {
+		t.Fatalf("admission=%#v", admission)
 	}
 }
 
@@ -1029,8 +1032,9 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 		t.Fatalf("mustUseSkills = %#v", prepared.Session.MustUseSkills)
 	}
 	wantRunRoots := []string{
-		absTestPath(t, filepath.Join(prepared.AgentDef.RuntimeDir, "skills", "mock-skill")),
+		mustCanonicalTestPath(t, runtimeSkillTestPath(t, prepared.AgentDef.RuntimeDir, "mock-skill")),
 		absTestPath(t, filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "center-extra")),
+		mustCanonicalTestPath(t, prepared.AgentDef.RuntimeDir),
 	}
 	if !reflect.DeepEqual(prepared.Session.RunAccessRoots.ReadRoots, wantRunRoots) ||
 		!reflect.DeepEqual(prepared.Session.RunAccessRoots.ReadonlyRoots, wantRunRoots) {
@@ -3956,7 +3960,7 @@ func TestQueryRejectsAmbiguousLegacyToolHistoryBeforeProviderCall(t *testing.T) 
 	const chatID = "chat-ambiguous-legacy-history"
 	const runID = "run-ambiguous-legacy-history"
 	startedAt := time.Now().UnixMilli()
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "run it"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "run it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if recorder, ok := fixture.chats.(chat.RunStartRecorder); ok {

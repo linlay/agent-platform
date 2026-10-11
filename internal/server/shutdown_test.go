@@ -123,7 +123,7 @@ func TestHTTPRunStreamDetachesObserverDuringRootContextShutdown(t *testing.T) {
 		RunID:    runID,
 		ChatID:   "chat_http_shutdown",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 
 	httpServer := newLoopbackServerWithBaseContext(t, fixture.server, rootCtx)

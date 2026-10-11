@@ -58,7 +58,7 @@ func TestAutomationRemainingRunsNullAdmissionOnlyOnUpdate(t *testing.T) {
 }
 
 func TestAutomationToolAdmissionApprovalAndPolicy(t *testing.T) {
-	h := NewToolHandler(config.Config{}, nil, nil).ConfigureAutomation(&automation.Service{Registry: automation.NewRegistry(t.TempDir(), nil), ReceiptDir: t.TempDir(), DefaultZoneID: "UTC"})
+	h := NewToolHandler(config.Config{}, nil, nil).ConfigureAutomation(&automation.Service{Registry: automation.NewRegistry(t.TempDir()), ReceiptDir: t.TempDir(), DefaultZoneID: "UTC"})
 	args := map[string]any{"action": "create", "args": map[string]any{"name": "Task", "agentKey": "agent", "cron": "0 9 * * *", "enabled": "false", "query": map[string]any{"message": "hello", "hidden": "false"}}}
 	e := controlExecution()
 	ctx := context.Background()
@@ -104,7 +104,7 @@ func TestAutomationToolAdmissionApprovalAndPolicy(t *testing.T) {
 	for _, alter := range []func(*contracts.ExecutionContext){
 		func(e *contracts.ExecutionContext) { e.Session.NativeConnectorTools = nil },
 		func(e *contracts.ExecutionContext) { e.Session.SubTaskID = "child" },
-		func(e *contracts.ExecutionContext) { e.Session.TeamID = "team" },
+
 		func(e *contracts.ExecutionContext) { e.ToolExecutionPolicy = contracts.ToolExecutionPolicyReadOnly },
 	} {
 		e := controlExecution()

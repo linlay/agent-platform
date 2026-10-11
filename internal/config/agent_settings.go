@@ -146,7 +146,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "acp-bridges")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "acp-bridges")
 	if err != nil {
 		return err
 	}
@@ -164,7 +164,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
-	for _, mode := range []string{"general", "coder", "kbase"} {
+	for _, mode := range []string{"general", "coder", "kbase", "team"} {
 		keys := []string{"preset-tools", "preset-connectors", "default-agent"}
 		if mode != "kbase" {
 			keys = append(keys, "workspace-agents")
@@ -187,6 +187,8 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 			return err
 		}
 		switch mode {
+		case "team":
+			c.TeamSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
 		case "general":
 			c.GeneralSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
 		case "coder":

@@ -77,7 +77,7 @@ func runtimeSubmitCommand(req api.SubmitRequest) runtimetypes.SubmitCommand {
 		copy(params, req.Params)
 	}
 	return runtimetypes.SubmitCommand{
-		RunRef:     runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID},
+		RunRef:     runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey},
 		AwaitingID: req.AwaitingID, SubmitID: req.SubmitID, Locale: req.Locale,
 		Param: req.Param, Params: params, ContinuationRunID: req.ContinuationRunID, ContinuationState: req.ContinuationState,
 	}
@@ -85,7 +85,7 @@ func runtimeSubmitCommand(req api.SubmitRequest) runtimetypes.SubmitCommand {
 
 func runtimeSteerCommand(req api.SteerRequest) runtimetypes.SteerCommand {
 	return runtimetypes.SteerCommand{
-		RunRef:    runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID},
+		RunRef:    runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey},
 		RequestID: req.RequestID, SteerID: req.SteerID, Message: req.Message,
 		References: runtimeReferencesFromAPI(req.References),
 	}
@@ -93,7 +93,7 @@ func runtimeSteerCommand(req api.SteerRequest) runtimetypes.SteerCommand {
 
 func runtimeInterruptCommand(req api.InterruptRequest) runtimetypes.InterruptCommand {
 	return runtimetypes.InterruptCommand{
-		RunRef:    runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID},
+		RunRef:    runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey},
 		RequestID: req.RequestID, Message: req.Message, Source: req.InterruptSource,
 		Reason: req.InterruptReason, Detail: req.InterruptDetail,
 	}

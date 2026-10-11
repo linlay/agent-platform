@@ -30,10 +30,10 @@ type PinnedStore interface {
 }
 
 type ListOptions struct {
-	OwnerOnly  bool
-	LastRunID  string
-	AgentKey   string
-	TeamID     string
+	OwnerOnly bool
+	LastRunID string
+	AgentKey  string
+
 	AgentModes []string
 	Pinned     *bool
 	Limit      int
@@ -51,7 +51,7 @@ type AgentKeyFilter struct {
 
 type PinnedListStore interface {
 	ListChatsWithOptions(ListOptions) ([]Summary, error)
-	RecentChatsByOwner(agentKey, teamID string, limit int, pinned *bool) ([]Summary, error)
+	RecentChatsByOwner(agentKey string, limit int, pinned *bool) ([]Summary, error)
 }
 
 func defaultPinnedState() PinnedState {

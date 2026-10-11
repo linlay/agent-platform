@@ -6,6 +6,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtimeskills"
 	"context"
 	"errors"
 	"fmt"
@@ -16,7 +17,7 @@ import (
 )
 
 func controlExecution() *contracts.ExecutionContext {
-	s := contracts.QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("caller", ""), NativeConnectorTools: map[string]string{}, ConnectorDirs: map[string]string{connector.PlatformControlConnectorID: "/mounted", connector.TaskControlConnectorID: "/task"}}
+	s := contracts.QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("caller"), NativeConnectorTools: map[string]string{}, ConnectorDirs: map[string]string{connector.PlatformControlConnectorID: "/mounted", connector.TaskControlConnectorID: "/task"}}
 	for _, a := range connector.ControlActions() {
 		s.NativeConnectorTools[a.Tool], _ = connector.NativeToolConnector(a.Tool)
 		s.ToolNames = append(s.ToolNames, a.Tool)
@@ -24,7 +25,11 @@ func controlExecution() *contracts.ExecutionContext {
 	return &contracts.ExecutionContext{Session: s, CurrentToolID: "call", AccessLevel: "full_access"}
 }
 func TestControlAdmissionAndExactApproval(t *testing.T) {
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents"), TeamsDir: filepath.Join(t.TempDir(), "teams"), SkillsCenterDir: filepath.Join(t.TempDir(), "skills")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents"), SkillsCenterDir: filepath.Join(t.TempDir(), "skills")}}
+	t.Cleanup(func() {
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())
+	})
 	registry, e := catalog.NewFileRegistry(cfg, nil)
 	if e != nil {
 		t.Fatal(e)
@@ -58,7 +63,7 @@ func TestControlAdmissionAndExactApproval(t *testing.T) {
 	if execution.ToolApprovals[plan.Fingerprint] {
 		t.Fatal("grant not consumed")
 	}
-	for _, alter := range []func(*contracts.ExecutionContext){func(e *contracts.ExecutionContext) { e.Session.SubTaskID = "child" }, func(e *contracts.ExecutionContext) { e.Session.TeamID = "team" }, func(e *contracts.ExecutionContext) { e.Session.NativeConnectorTools = nil }, func(e *contracts.ExecutionContext) { e.Session.Mode = "ACP" }} {
+	for _, alter := range []func(*contracts.ExecutionContext){func(e *contracts.ExecutionContext) { e.Session.SubTaskID = "child" }, func(e *contracts.ExecutionContext) { e.Session.NativeConnectorTools = nil }, func(e *contracts.ExecutionContext) { e.Session.Mode = "ACP" }} {
 		exec := controlExecution()
 		alter(exec)
 		result, _ := h.Invoke(context.Background(), "catalog_query", map[string]any{"action": "defaults", "args": map[string]any{"type": "general"}}, exec)
@@ -70,6 +75,10 @@ func TestControlAdmissionAndExactApproval(t *testing.T) {
 
 func TestControlProjectValidationAndPublication(t *testing.T) {
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents")}}
+	t.Cleanup(func() {
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())
+	})
 	registry, err := catalog.NewFileRegistry(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -142,6 +151,10 @@ func TestControlRollbackReturnsFailure(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents")}}
+			t.Cleanup(func() {
+				_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+				_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())
+			})
 			registry, err := catalog.NewFileRegistry(cfg, nil)
 			if err != nil {
 				t.Fatal(err)

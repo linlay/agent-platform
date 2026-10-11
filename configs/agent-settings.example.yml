@@ -55,9 +55,11 @@ planning-mode:
     - automation_manage
     - catalog_manage
     - run_env
+    - ask_user_form
   # Unavailable to the Run started from a confirmed plan.
   execute-exclude-tools:
     - ask_user_question
+    - ask_user_form
 
 general:
   preset-tools: []
@@ -98,7 +100,6 @@ kbase:
     - kbase_files
     - kbase_read
     - kbase_status
-    - kbase_refresh
   preset-connectors: []
   default-agent:
     # Optional default modelKey for new KBASE agents; leave empty to require explicit configuration.
@@ -115,3 +116,9 @@ acp-bridges:
   #   base-url: http://127.0.0.1:17071
   #   timeout-ms: 300000
   #   auth-token: ${CODEX_ACP_BRIDGE_AUTH_TOKEN:}
+
+# TEAM uses ordinary Agent capabilities plus run-scoped member delegation.
+team:
+  preset-tools: []
+  preset-connectors: []
+  default-agent: {}

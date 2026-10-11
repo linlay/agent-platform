@@ -17,7 +17,7 @@ func TestCompactAndBTWRejectInvalidHistoricalJSONLWith422(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: ws.NewHub()})
 	const chatID = "chat-maintenance-time-contract"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl"), []byte(`{"_type":"compact.checkpoint","chatId":"`+chatID+`","compactId":"bad","updatedAt":0}`+"\n"), 0o644); err != nil {

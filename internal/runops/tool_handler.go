@@ -99,8 +99,6 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 	owner := contracts.ResolveRunOwner(session.RunOwner)
 	callerAgentKey := strings.TrimSpace(session.AgentKey)
 	if strings.TrimSpace(session.SubTaskID) != "" ||
-		strings.TrimSpace(session.TeamID) != "" ||
-		owner.IsTeam() ||
 		callerAgentKey == "" ||
 		owner.AgentKey != callerAgentKey {
 		result := errorResult("run_caller_not_allowed", "Chat tools are only available to an ordinary main Agent root run")
@@ -126,16 +124,12 @@ func startRequest(args map[string]any, origin contracts.RunOrigin) (contracts.Ru
 	}
 	request.Message = strings.TrimSpace(contracts.AnyStringNode(args["message"]))
 	request.AgentKey = strings.TrimSpace(contracts.AnyStringNode(args["agentKey"]))
-	request.TeamID = strings.TrimSpace(contracts.AnyStringNode(args["teamId"]))
 	request.ChatID = strings.TrimSpace(contracts.AnyStringNode(args["chatId"]))
 	request.Origin = origin
-	if request.Message == "" || (request.AgentKey == "") == (request.TeamID == "") {
-		return request, &contracts.RunToolError{Code: "invalid_request", Message: "message and exactly one of agentKey or teamId are required"}
-	}
 	if origin.RunID == "" || origin.ToolID == "" {
 		return request, &contracts.RunToolError{Code: "run_context_required", Message: "query requires parent runId and toolId"}
 	}
-	return request, nil
+	return contracts.NormalizeRunStartRequest(request)
 }
 
 // PrepareToolApproval requires human review whenever chat_start asks for a
@@ -175,9 +169,6 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		return nil, nil
 	}
 	target := map[string]any{"type": "agent", "key": request.AgentKey, "name": plan.TargetName}
-	if request.TeamID != "" {
-		target = map[string]any{"type": "team", "key": request.TeamID, "name": plan.TargetName}
-	}
 	form := map[string]any{
 		"action":            startApprovalAction,
 		"caller":            map[string]any{"agentKey": origin.AgentKey, "chatId": origin.ChatID, "runId": origin.RunID},
@@ -189,6 +180,8 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		"accessLevel":       plan.AccessLevel,
 		"message":           request.Message,
 		"mustUseSkills":     append([]string{}, request.MustUseSkills...),
+		"modelKey":          request.ModelKey,
+		"reasoningEffort":   request.ReasoningEffort,
 	}
 	approval := contracts.ToolApproval{
 		Fingerprint: contracts.ToolApprovalFingerprint(execCtx, StartToolName, startApprovalAction, plan.ApprovalDigest),
@@ -319,7 +312,7 @@ func (h *ToolHandler) interrupt(ctx context.Context, args map[string]any, origin
 	message := strings.TrimSpace(contracts.AnyStringNode(args["message"]))
 	response, err := h.service.Interrupt(ctx, runtimetypes.InterruptCommand{
 		RunRef: runtimetypes.RunRef{
-			RunID: runID, ChatID: snapshot.ChatID, AgentKey: snapshot.AgentKey, TeamID: snapshot.TeamID,
+			RunID: runID, ChatID: snapshot.ChatID, AgentKey: snapshot.AgentKey,
 		},
 		Message: message,
 		Detail:  message,

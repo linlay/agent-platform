@@ -33,7 +33,7 @@ func IsPlanningStage(stage string) bool {
 // lifecycle tool. Definitions let an exclusion match a tool listed by its key.
 func PlanningTools(session contracts.QuerySession, defs []api.ToolDetailResponse) []string {
 	tools := removeToolNames(session.ToolNames, excludedToolNames(session.PlanningExcludeTools, defs)...)
-	tools = removeToolNames(tools, contracts.FinalizePlanningToolName)
+	tools = removeToolNames(tools, contracts.FinalizePlanningToolName, "agent_delegate")
 	return append(tools, contracts.FinalizePlanningToolName)
 }
 

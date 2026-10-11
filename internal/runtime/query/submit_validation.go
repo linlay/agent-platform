@@ -17,8 +17,18 @@ import (
 // a params list. An invalid submit never resolves the awaiting.
 func ValidateSubmitParams(ctx contracts.AwaitingSubmitContext, req queryinput.SubmitRequest) error {
 	items, err := submitItemsForMode(ctx.Mode, req)
-	if err != nil || len(items) == 0 {
+	if err != nil {
 		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(ctx.Mode), "form") && ctx.View != nil && ctx.View.Source == "builtin" && ctx.View.Key == "ask_user_form" {
+		data := contracts.AnyMapNode(ctx.Form["data"])
+		_, err := toolinteraction.NewAskUserFormHandler().NormalizeSubmit(map[string]any{
+			"title": ctx.Form["title"], "html": data["html"], "values": data["values"],
+		}, req.Param)
+		return err
+	}
+	if len(items) == 0 {
+		return nil
 	}
 	if len(items) != ctx.ItemCount {
 		return fmt.Errorf("expected %d submit items, got %d", ctx.ItemCount, len(items))
@@ -170,7 +180,7 @@ func (s *Service) ValidateSubmitOwner(req queryinput.SubmitRequest) *statusError
 	if s.deps.Runs != nil {
 		status, ok := s.deps.Runs.RunStatus(req.RunID)
 		if ok {
-			return validateRunStatusOwner(status, req.AgentKey, req.TeamID)
+			return validateRunStatusOwner(status, req.AgentKey)
 		}
 	}
 	if s.deferredAwaitings != nil {
@@ -178,7 +188,7 @@ func (s *Service) ValidateSubmitOwner(req queryinput.SubmitRequest) *statusError
 		if ok && strings.TrimSpace(deferred.RunID) == strings.TrimSpace(req.RunID) {
 			summary, err := s.deps.Chats.Summary(deferred.ChatID)
 			if err == nil && summary != nil {
-				return validateRunStatusOwner(runStatusOwnerFromChatSummary(summary), req.AgentKey, req.TeamID)
+				return validateRunStatusOwner(runStatusOwnerFromChatSummary(summary), req.AgentKey)
 			}
 			if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
 				if isTimeContractViolation(err) {
@@ -191,7 +201,7 @@ func (s *Service) ValidateSubmitOwner(req queryinput.SubmitRequest) *statusError
 	if strings.TrimSpace(req.ChatID) != "" && s.deps.Chats != nil {
 		summary, err := s.deps.Chats.Summary(req.ChatID)
 		if err == nil && summary != nil {
-			return validateRunStatusOwner(runStatusOwnerFromChatSummary(summary), req.AgentKey, req.TeamID)
+			return validateRunStatusOwner(runStatusOwnerFromChatSummary(summary), req.AgentKey)
 		}
 		if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
 			if isTimeContractViolation(err) {
@@ -200,12 +210,10 @@ func (s *Service) ValidateSubmitOwner(req queryinput.SubmitRequest) *statusError
 			return &statusError{Status: 500, Message: err.Error()}
 		}
 	}
-	if strings.TrimSpace(req.AgentKey) == "" && strings.TrimSpace(req.TeamID) == "" {
-		return &statusError{Status: 400, Message: "agentKey or teamId is required"}
+	if strings.TrimSpace(req.AgentKey) == "" {
+		return &statusError{Status: 400, Message: "agentKey is required"}
 	}
-	if strings.TrimSpace(req.AgentKey) != "" && strings.TrimSpace(req.TeamID) != "" {
-		return &statusError{Status: 400, Message: "agentKey must be omitted for a Team"}
-	}
+
 	return nil
 }
 
@@ -215,11 +223,8 @@ func runStatusOwnerFromChatSummary(summary *chat.Summary) contracts.RunStatusInf
 	}
 	status := contracts.RunStatusInfo{
 		AgentKey: strings.TrimSpace(summary.AgentKey),
-		TeamID:   strings.TrimSpace(summary.TeamID),
 	}
-	if contracts.IsTeamRunOwner(status.AgentKey, status.TeamID) {
-		status.AgentKey = ""
-	}
+
 	return status
 }
 
@@ -227,33 +232,15 @@ func validateSubmitIdentity(req queryinput.SubmitRequest) error {
 	if strings.TrimSpace(req.RunID) == "" || strings.TrimSpace(req.AwaitingID) == "" {
 		return fmt.Errorf("runId and awaitingId are required")
 	}
-	if strings.TrimSpace(req.AgentKey) == "" && strings.TrimSpace(req.TeamID) == "" {
-		return fmt.Errorf("agentKey or teamId is required")
+	if strings.TrimSpace(req.AgentKey) == "" {
+		return fmt.Errorf("agentKey is required")
 	}
-	if strings.TrimSpace(req.AgentKey) != "" && strings.TrimSpace(req.TeamID) != "" {
-		return fmt.Errorf("agentKey must be omitted for a Team")
-	}
+
 	return nil
 }
 
-func validateRunStatusOwner(status contracts.RunStatusInfo, agentKey string, teamID string) *statusError {
+func validateRunStatusOwner(status contracts.RunStatusInfo, agentKey string) *statusError {
 	agentKey = strings.TrimSpace(agentKey)
-	teamID = strings.TrimSpace(teamID)
-	if agentKey != "" && teamID != "" {
-		return &statusError{Status: 400, Message: "historical Team runs are no longer supported; use teamId only for a Team"}
-	}
-	if contracts.IsTeamRunOwner(status.AgentKey, status.TeamID) {
-		if teamID == "" {
-			return &statusError{Status: 400, Message: "teamId is required"}
-		}
-		if agentKey != "" {
-			return &statusError{Status: 400, Message: "agentKey is not allowed for team run"}
-		}
-		if strings.TrimSpace(status.TeamID) != teamID {
-			return &statusError{Status: 403, Message: "teamId does not match run"}
-		}
-		return nil
-	}
 
 	if agentKey == "" {
 		return &statusError{Status: 400, Message: "agentKey is required"}
@@ -261,13 +248,11 @@ func validateRunStatusOwner(status contracts.RunStatusInfo, agentKey string, tea
 	if strings.TrimSpace(status.AgentKey) != agentKey {
 		return &statusError{Status: 403, Message: "agentKey does not match run"}
 	}
-	if teamID != "" && strings.TrimSpace(status.TeamID) != teamID {
-		return &statusError{Status: 403, Message: "teamId does not match run"}
-	}
+
 	return nil
 }
 
-func (s *Service) ValidateRunOwner(runID string, agentKey string, teamID string) *statusError {
+func (s *Service) ValidateRunOwner(runID string, agentKey string) *statusError {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return &statusError{Status: 400, Message: "runId is required"}
@@ -279,5 +264,5 @@ func (s *Service) ValidateRunOwner(runID string, agentKey string, teamID string)
 	if !ok {
 		return &statusError{Status: 404, Message: "run not found"}
 	}
-	return validateRunStatusOwner(status, agentKey, teamID)
+	return validateRunStatusOwner(status, agentKey)
 }

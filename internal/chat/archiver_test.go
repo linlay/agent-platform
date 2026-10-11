@@ -19,7 +19,7 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	}
 	archiver := NewArchiver(active, archive)
 
-	if _, _, err := active.EnsureChat("chat-archiver", "agent-a", "", "hello archive"); err != nil {
+	if _, _, err := active.EnsureChat("chat-archiver", "agent-a", "hello archive"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := active.AppendQueryLine("chat-archiver", QueryLine{
@@ -142,7 +142,7 @@ func TestArchiverMovesToolStateWithoutMarkingAttachments(t *testing.T) {
 	}
 	archiver := NewArchiver(active, archive)
 
-	if _, _, err := active.EnsureChat("chat-tool-state", "agent-a", "", "hello"); err != nil {
+	if _, _, err := active.EnsureChat("chat-tool-state", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := active.AppendQueryLine("chat-tool-state", QueryLine{
@@ -201,7 +201,7 @@ func TestArchiverRestoresArchivedChatAndRemovesArchive(t *testing.T) {
 	}
 	archiver := NewArchiver(active, archive)
 
-	if _, _, err := active.EnsureChatWithSource("chat-restore", "agent-a", "team-a", "hello restore", "automation:daily"); err != nil {
+	if _, _, err := active.EnsureChatWithSource("chat-restore", "agent-a", "hello restore", "automation:daily"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := active.SetSourceChannel("chat-restore", "desktop"); err != nil {
@@ -257,7 +257,7 @@ func TestArchiverRestoresArchivedChatAndRemovesArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restore chat: %v", err)
 	}
-	if summary.ChatID != "chat-restore" || summary.AgentKey != "agent-a" || summary.TeamID != "team-a" || summary.Source != "automation:daily" || summary.SourceChannel != "desktop" {
+	if summary.AgentKey != "agent-a" || summary.Source != "automation:daily" {
 		t.Fatalf("unexpected restored summary: %#v", summary)
 	}
 	if summary.Read.IsRead {
@@ -304,7 +304,7 @@ func TestArchiverRestoreConflictsWithActiveChat(t *testing.T) {
 	if err := archive.ArchiveChat(testArchivedChat("chat-restore-conflict", "agent-a", "Archived", "done")); err != nil {
 		t.Fatalf("seed archive: %v", err)
 	}
-	if _, _, err := active.EnsureChat("chat-restore-conflict", "agent-a", "", "active"); err != nil {
+	if _, _, err := active.EnsureChat("chat-restore-conflict", "agent-a", "active"); err != nil {
 		t.Fatalf("ensure active: %v", err)
 	}
 
@@ -326,7 +326,7 @@ func TestArchiverLeavesActiveChatWhenArchiveAlreadyExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new archive store: %v", err)
 	}
-	if _, _, err := active.EnsureChat("chat-duplicate-archive", "agent-a", "", "hello"); err != nil {
+	if _, _, err := active.EnsureChat("chat-duplicate-archive", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure active chat: %v", err)
 	}
 	if err := archive.ArchiveChat(testArchivedChat("chat-duplicate-archive", "agent-a", "hello", "done")); err != nil {

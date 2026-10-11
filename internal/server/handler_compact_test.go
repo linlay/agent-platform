@@ -138,7 +138,7 @@ func testActiveRunManualCompactPersistence(t *testing.T, withReasoning bool) {
 func TestHandleCompactRoutesActiveRunAndBlocksForPersistedResult(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-active-compact"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "active compact"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "active compact"); err != nil {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 	_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
@@ -194,7 +194,7 @@ func TestHandleCompactWritesCheckpointAndReloadsRawMessages(t *testing.T) {
 		)
 	})
 	chatID := "chat-api-compact"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first compact message"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "first compact message"); err != nil {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 	appendServerCompactRun(t, fixture.chats, chatID, "r1", "user r1", "assistant r1")
@@ -248,7 +248,7 @@ func TestHandleCompactSummaryEmptyFailsWithoutCheckpoint(t *testing.T) {
 		writeProviderSSE(t, w, `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, `[DONE]`)
 	})
 	chatID := "chat-api-compact-empty-summary"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "empty summary"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "empty summary"); err != nil {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 	appendServerCompactRun(t, fixture.chats, chatID, "r1", "early anchor", strings.Repeat("history ", 500))
@@ -284,7 +284,7 @@ func TestHandleCompactLevelL1ToolsClearsToolResultsWithoutModel(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
 	chatID := "chat-api-compact-l1-tools"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first compact message"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "first compact message"); err != nil {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 	for i := 1; i <= 7; i++ {
@@ -337,7 +337,7 @@ func TestHandleCompactRejectsInvalidLevel(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
 	chatID := "chat-api-compact-invalid-level"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first compact message"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "first compact message"); err != nil {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 
@@ -361,7 +361,7 @@ func TestWSCompactWritesCheckpointAndReloadsRawMessages(t *testing.T) {
 		)
 	}, testFixtureOptions{notifications: ws.NewHub()})
 	chatID := "chat-ws-compact"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first compact message"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "first compact message"); err != nil {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 	appendServerCompactRun(t, fixture.chats, chatID, "r1", "user r1", "assistant r1")
@@ -422,7 +422,7 @@ func TestWSCompactLevelL1Tools(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: ws.NewHub()})
 	chatID := "chat-ws-compact-l1-tools"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first compact message"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "first compact message"); err != nil {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 	for i := 1; i <= 7; i++ {

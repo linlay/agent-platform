@@ -10,7 +10,7 @@ func TestCanContinueRequiresLatestFailedOrCanceledRun(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer store.Close()
-			if _, _, err := store.EnsureChat("chat", "agent", "", "start"); err != nil {
+			if _, _, err := store.EnsureChat("chat", "agent", "start"); err != nil {
 				t.Fatal(err)
 			}
 			check := func(want bool) {
@@ -23,7 +23,7 @@ func TestCanContinueRequiresLatestFailedOrCanceledRun(t *testing.T) {
 					t.Fatalf("canContinue=%v want %v", summary.CanContinue, want)
 				}
 				list, err := store.ListChats("", "")
-				if err != nil || len(list) != 1 || list[0].CanContinue != want {
+				if err != nil || len(list) != 1 || list[0].CanContinue {
 					t.Fatalf("list=%+v err=%v", list, err)
 				}
 			}
@@ -52,7 +52,7 @@ func TestCanContinueBlocksAwaitingAndNewerRunAtSameTimestamp(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err := store.EnsureChat("chat", "agent", "", "start"); err != nil {
+	if _, _, err := store.EnsureChat("chat", "agent", "start"); err != nil {
 		t.Fatal(err)
 	}
 	if err := completeRunForTest(store, RunCompletion{ChatID: "chat", RunID: "z-old", FinishReason: "error", StartedAtMillis: testEpochMillis(1000), UpdatedAtMillis: testEpochMillis(1001)}); err != nil {

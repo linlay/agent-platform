@@ -303,7 +303,9 @@ type QuerySession struct {
 	ResolveView          func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
 	SharedConnectorsRoot string                                                                `json:"-"`
 	NativeConnectorTools map[string]string                                                     `json:"-"` // Trusted platform capability bindings, never model input.
-	ConnectorDirs        map[string]string                                                     `json:"-"` // Frozen mounted connector runtime paths.
+	SharedSkillsRoot     string
+	SkillDirs            map[string]string
+	ConnectorDirs        map[string]string `json:"-"` // Frozen mounted connector runtime paths.
 	RequestID            string
 	RunID                string
 	// TempRoot and TempRoots are the process-start temporary-directory snapshot
@@ -335,7 +337,7 @@ type QuerySession struct {
 	// is forbidden from calling any run tool.
 	RunOrigin *RunOrigin `json:"-"`
 	// RunOwner is the required public run owner. Session producers must set it
-	// explicitly; AgentKey and TeamID are not fallback ownership fields.
+	// explicitly; the execution AgentKey is not a fallback ownership field.
 	RunOwner RunOwner
 	// TeamRuntime is populated only for an orchestrated Team-owned run.
 	TeamRuntime *TeamRuntimeContext
@@ -363,10 +365,10 @@ type QuerySession struct {
 	PlanExecuteExcludeTools []string
 	// ConfirmedPlanRun marks an ordinary Run that was started from a confirmed
 	// plan; ToolNames already has the execution exclusions applied.
-	ConfirmedPlanRun            bool
-	EditingMode                 bool
-	ScopedFilePolicy            *ScopedFilePolicy
-	TeamID                      string
+	ConfirmedPlanRun bool
+	EditingMode      bool
+	ScopedFilePolicy *ScopedFilePolicy
+
 	Created                     bool
 	Subject                     string
 	SkillIDs                    []string
@@ -397,14 +399,15 @@ type QuerySession struct {
 	PendingSystemInitKeys       map[string]bool
 
 	// Prompt files loaded from agent directory.
-	SoulPrompt            string
-	AgentsPrompt          string
-	WorkspaceAgentsPrompt string
-	PlanPrompt            string
-	ExecutePrompt         string
-	SummaryPrompt         string
-	ModeSystemPrompt      string
-	KBaseModePrompts      KBaseModePrompts
+	SoulPrompt             string
+	AgentsPrompt           string
+	WorkspaceAgentsPrompt  string
+	PlanPrompt             string
+	ExecutePrompt          string
+	SummaryPrompt          string
+	ModeSystemPrompt       string
+	KBaseModePrompts       KBaseModePrompts
+	KBaseCollectionsPrompt string
 
 	RuntimeEnvironmentID string
 	RuntimeLevel         string
@@ -460,7 +463,10 @@ type SandboxExtraMount struct {
 // Path authorization remains owned by AccessPolicy. WorkspaceRoot identifies
 // the dedicated KBASE workspace for workspace-specific mutation safeguards.
 type ScopedFilePolicy struct {
-	WorkspaceRoot            string
+	WorkspaceRoot string
+	// EditableCollectionRoots are canonical Host paths frozen at Run admission.
+	// Never re-resolve these roots after admission (a replaced symlink is not a grant).
+	EditableCollectionRoots  []string
 	WorkspaceMutationEnabled bool
 	RequireExistingParent    bool
 }
@@ -640,6 +646,9 @@ type AwaitingSubmitContext struct {
 	// Questions preserves the question definitions emitted with a question-mode
 	// awaiting event so submit validation can pair each response with its type.
 	Questions []any
+	// View and Form freeze the emitted form for validation before accepting a submit.
+	View      *view.Reference
+	Form      map[string]any
 	NoTimeout bool
 	Timeout   int64
 	// SteerReplan lets the native planning producer supersede this confirmation
@@ -658,6 +667,8 @@ func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 		Mode:               c.Mode,
 		ItemCount:          c.ItemCount,
 		Questions:          append([]any(nil), c.Questions...),
+		View:               view.Clone(c.View),
+		Form:               cloneAwaitingForm(c.Form),
 		NoTimeout:          c.NoTimeout,
 		Timeout:            c.Timeout,
 		SteerReplan:        c.SteerReplan,
@@ -672,21 +683,19 @@ type SandboxExecutionResult struct {
 }
 
 type ActiveRun struct {
-	RunID             string
-	ChatID            string
-	AgentKey          string
-	TeamID            string
-	ExecutionAgentKey string
-	ScopeID           string
-	EditingMode       bool
+	RunID    string
+	ChatID   string
+	AgentKey string
+
+	ScopeID     string
+	EditingMode bool
 }
 
 type RunStatusInfo struct {
-	RunID              string
-	ChatID             string
-	AgentKey           string
-	TeamID             string
-	ExecutionAgentKey  string
+	RunID    string
+	ChatID   string
+	AgentKey string
+
 	State              RunLoopState
 	LastSeq            int64
 	OldestSeq          int64
@@ -715,10 +724,12 @@ type RunStartRequest struct {
 	MustUseSkills []string
 	ChatName      string
 	AgentKey      string
-	TeamID        string
 	ChatID        string
 	Message       string
-	Origin        RunOrigin
+	// ModelKey and ReasoningEffort override the target's model for this Run only.
+	ModelKey        string
+	ReasoningEffort string
+	Origin          RunOrigin
 	// Review is set only by the trusted chat_start handler; see RunStartReview.
 	Review *RunStartReview `json:"-"`
 }
@@ -734,20 +745,20 @@ type RunAwaiting struct {
 }
 
 type RunSnapshot struct {
-	AccessLevel   string         `json:"accessLevel"`
-	AwaitingCount int            `json:"awaitingCount,omitempty"`
-	RunID         string         `json:"runId"`
-	ChatID        string         `json:"chatId"`
-	AgentKey      string         `json:"agentKey,omitempty"`
-	TeamID        string         `json:"teamId,omitempty"`
-	Status        string         `json:"status"`
-	LastSeq       int64          `json:"lastSeq"`
-	StartedAt     int64          `json:"startedAt"`
-	CompletedAt   int64          `json:"completedAt,omitempty"`
-	Awaiting      *RunAwaiting   `json:"awaiting,omitempty"`
-	Content       string         `json:"content,omitempty"`
-	Error         map[string]any `json:"error,omitempty"`
-	Origin        *RunOrigin     `json:"-"`
+	AccessLevel   string `json:"accessLevel"`
+	AwaitingCount int    `json:"awaitingCount,omitempty"`
+	RunID         string `json:"runId"`
+	ChatID        string `json:"chatId"`
+	AgentKey      string `json:"agentKey,omitempty"`
+
+	Status      string         `json:"status"`
+	LastSeq     int64          `json:"lastSeq"`
+	StartedAt   int64          `json:"startedAt"`
+	CompletedAt int64          `json:"completedAt,omitempty"`
+	Awaiting    *RunAwaiting   `json:"awaiting,omitempty"`
+	Content     string         `json:"content,omitempty"`
+	Error       map[string]any `json:"error,omitempty"`
+	Origin      *RunOrigin     `json:"-"`
 }
 
 type RunToolError struct {

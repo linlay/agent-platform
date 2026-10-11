@@ -31,16 +31,16 @@ func TestChatsLimitHTTPAndWebSocket(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
-	seedAgentModeChat(t, store, "chat-react-limit", "loyw3v28", "agent-react", "", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-plan-limit", "loyw3v29", "agent-plan", "", "PLAN-EXECUTE", 2_000)
-	seedAgentModeChat(t, store, "chat-team-limit", "loyw3v2a", "", "team-a", "TEAM", 3_000)
-	if _, _, err := store.EnsureChat("chat-pending-upload", "", "", ""); err != nil {
+	seedAgentModeChat(t, store, "chat-react-limit", "loyw3v28", "agent-react", "REACT", 1_000)
+	seedAgentModeChat(t, store, "chat-plan-limit", "loyw3v29", "agent-plan", "PLAN-EXECUTE", 2_000)
+	seedAgentModeChat(t, store, "chat-team-limit", "loyw3v2a", "", "TEAM", 3_000)
+	if _, _, err := store.EnsureChat("chat-pending-upload", "", ""); err != nil {
 		t.Fatalf("ensure pending upload chat: %v", err)
 	}
 
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats", []string{"chat-team-limit", "chat-plan-limit", "chat-react-limit"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?limit=2", []string{"chat-team-limit", "chat-plan-limit"})
-	assertChatsLimitHTTP(t, fixture.server, "/api/chats?mode=GENERAL&lastRunId=loyw3v27&limit=1", []string{"chat-team-limit"})
+	assertChatsLimitHTTP(t, fixture.server, "/api/chats?mode=GENERAL&lastRunId=loyw3v27&limit=1", []string{"chat-react-limit"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?agentKey=agent-react&mode=GENERAL&lastRunId=loyw3v27&limit=1", []string{"chat-react-limit"})
 
 	for _, rawLimit := range []string{"", "0", "-1", "abc"} {
@@ -61,9 +61,9 @@ func TestChatsLimitHTTPAndWebSocket(t *testing.T) {
 	readConnectedPush(t, conn)
 
 	writeChatsLimitWSRequest(t, conn, "chats_default_limit", map[string]any{"mode": "GENERAL"})
-	assertChatsLimitWSResponse(t, conn, "chats_default_limit", []string{"chat-team-limit", "chat-react-limit"})
+	assertChatsLimitWSResponse(t, conn, "chats_default_limit", []string{"chat-react-limit"})
 	writeChatsLimitWSRequest(t, conn, "chats_limited", map[string]any{"mode": "GENERAL", "limit": 1})
-	assertChatsLimitWSResponse(t, conn, "chats_limited", []string{"chat-team-limit"})
+	assertChatsLimitWSResponse(t, conn, "chats_limited", []string{"chat-react-limit"})
 	writeChatsLimitWSRequest(t, conn, "chats_invalid_limit", map[string]any{"limit": 0})
 	var invalid ws.ErrorFrame
 	if err := conn.ReadJSON(&invalid); err != nil {
@@ -91,7 +91,7 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 	)
 	persistedStartedAt := testEpochMillis + 1_000
 	activeStartedAt := testEpochMillis + 2_000
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{
@@ -111,7 +111,7 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 		RunID:           activeRunID,
 		ChatID:          chatID,
 		AgentKey:        "mock-agent",
-		RunOwner:        contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner:        contracts.AgentRunOwner("mock-agent"),
 		StartedAtMillis: activeStartedAt,
 	})
 	control.TransitionState(contracts.RunLoopStateWaitingSubmit)
@@ -121,13 +121,18 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("HTTP /api/chats status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	for _, field := range []string{`"usage"`, `"canContinue"`} {
+		if strings.Contains(rec.Body.String(), field) {
+			t.Fatalf("HTTP /api/chats should omit %s: %s", field, rec.Body.String())
+		}
+	}
 	var httpResponse api.ApiResponse[[]api.ChatSummaryResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &httpResponse); err != nil {
 		t.Fatalf("decode HTTP /api/chats response: %v", err)
 	}
 	httpSummary := chatSummaryByID(t, httpResponse.Data, chatID)
-	if httpSummary.Usage == nil || httpSummary.Usage.TotalTokens != 10 {
-		t.Fatalf("HTTP /api/chats should retain usage, got %#v", httpSummary.Usage)
+	if httpSummary.Usage != nil {
+		t.Fatalf("HTTP /api/chats should omit usage, got %#v", httpSummary.Usage)
 	}
 	assertSummaryActiveRun(t, httpSummary, activeRunID, activeStartedAt)
 
@@ -140,9 +145,18 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 	defer conn.Close()
 	readConnectedPush(t, conn)
 	writeChatsLimitWSRequest(t, conn, "chats_active_run", nil)
-	var frame ws.ResponseFrame
-	if err := conn.ReadJSON(&frame); err != nil {
+	_, payload, err := conn.ReadMessage()
+	if err != nil {
 		t.Fatalf("read websocket active-run response: %v", err)
+	}
+	for _, field := range []string{`"usage"`, `"canContinue"`} {
+		if strings.Contains(string(payload), field) {
+			t.Fatalf("WebSocket /api/chats should omit %s: %s", field, payload)
+		}
+	}
+	var frame ws.ResponseFrame
+	if err := json.Unmarshal(payload, &frame); err != nil {
+		t.Fatalf("decode websocket active-run response: %v", err)
 	}
 	if frame.Frame != ws.FrameResponse || frame.Type != "/api/chats" || frame.ID != "chats_active_run" || frame.Code != 0 {
 		t.Fatalf("unexpected websocket active-run response: %#v", frame)
@@ -153,8 +167,8 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 	}
 	wsSummary := chatSummaryByID(t, wsSummaries, chatID)
 	assertSummaryActiveRun(t, wsSummary, activeRunID, activeStartedAt)
-	if wsSummary.Usage == nil || wsSummary.Usage.TotalTokens != 10 {
-		t.Fatalf("WebSocket /api/chats should retain usage, got %#v", wsSummary.Usage)
+	if wsSummary.Usage != nil {
+		t.Fatalf("WebSocket /api/chats should omit usage, got %#v", wsSummary.Usage)
 	}
 	if *wsSummary.ActiveRun != *httpSummary.ActiveRun {
 		t.Fatalf("HTTP and WebSocket activeRun differ: http=%#v ws=%#v", httpSummary.ActiveRun, wsSummary.ActiveRun)

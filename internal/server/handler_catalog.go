@@ -58,10 +58,6 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	includeTeam, ok := parseIncludeTeam(w, r.URL.Query()["includeTeam"])
-	if !ok {
-		return
-	}
 	pinned, err := parseOptionalBoolQuery(r, "chatsPinned")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
@@ -83,19 +79,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	if includeTeam {
-		items, err := s.listAgentCatalogSummariesWithPinned(includeChats, scope, modes, pinned, hasWorkspace)
-		if err != nil {
-			if isTimeContractViolation(err) {
-				writeTimeContractViolation(w, err)
-				return
-			}
-			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-			return
-		}
-		writeJSON(w, http.StatusOK, api.Success(items))
-		return
-	}
+
 	items, err := s.listAgentSummariesWithPinned(includeChats, scope, modes, pinned, hasWorkspace)
 	if err != nil {
 		if isTimeContractViolation(err) {
@@ -106,19 +90,6 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, api.Success(items))
-}
-
-func parseIncludeTeam(w http.ResponseWriter, values []string) (bool, bool) {
-	if len(values) == 0 {
-		return false, true
-	}
-	raw := strings.TrimSpace(values[0])
-	value, err := strconv.ParseBool(raw)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "includeTeam must be a boolean"))
-		return false, false
-	}
-	return value, true
 }
 
 const maxAgentSummaryIncludeChats = 50
@@ -245,10 +216,6 @@ func (s *Server) handleAgentEditorOptions(w http.ResponseWriter, _ *http.Request
 	writeJSON(w, http.StatusOK, api.Success(s.buildAgentEditorOptions()))
 }
 
-func (s *Server) handleTeams(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Teams()))
-}
-
 func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	response, err := s.adminSkillsCatalog(r.Context())
@@ -267,7 +234,7 @@ func (s *Server) agentEditor() (editableAgentRegistry, error) {
 	return editor, nil
 }
 
-func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (api.AgentDetailResponse, error) {
+func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (response api.AgentDetailResponse, resultErr error) {
 	unlock := s.adminSources.LockAgentMutation()
 	defer unlock()
 	editor, err := s.agentEditor()
@@ -291,14 +258,28 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 	if err := catalog.NormalizeAgentReasoningConfig("agent definition", definition); err != nil {
 		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
+	committed := false
+	if req.CreateLibrary != nil {
+		var finish func(bool) error
+		definition, finish, err = s.adminSources.PrepareKnowledgeBinding(s.deps.KBases, definition, req.CreateLibrary.Name, req.CreateLibrary.SourcePath)
+		if err != nil {
+			return api.AgentDetailResponse{}, mapAgentEditError(err)
+		}
+		defer func() {
+			if cleanupErr := finish(committed); cleanupErr != nil {
+				resultErr = errors.Join(resultErr, cleanupErr)
+			}
+		}()
+	}
 	if _, err := editor.CreateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
+	committed = true
 	return s.reloadAndLoadAgent(ctx, key)
 }
 
 func validateCreateAgentDefinition(definition map[string]any) error {
-	mode, engine, err := catalog.ParseAgentModeAndEngine(stringValue(definition["mode"]), stringValue(definition["engine"]))
+	_, engine, err := catalog.ParseAgentModeAndEngine(stringValue(definition["mode"]), stringValue(definition["engine"]))
 	if err != nil {
 		return err
 	}
@@ -319,9 +300,6 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 		}
 	} else if acpBridgeID != "" {
 		return fmt.Errorf("runtimeConfig.acpBridgeId requires engine: acp")
-	}
-	if mode != catalog.AgentModeKBase {
-		return nil
 	}
 	return knowledge.ValidateConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
 }
@@ -358,10 +336,13 @@ func (s *Server) applyGeneralDefaultAgentConfig(definition map[string]any) map[s
 	if definition == nil {
 		return nil
 	}
-	if !agentbuiltin.IsGeneralMode(catalog.DefinitionRuntimeMode(definition)) {
+	if !agentbuiltin.IsGeneralMode(catalog.DefinitionRuntimeMode(definition)) && catalog.DefinitionRuntimeMode(definition) != "TEAM" {
 		return definition
 	}
 	defaults := s.deps.Config.GeneralSettings.DefaultAgent
+	if catalog.DefinitionRuntimeMode(definition) == "TEAM" {
+		defaults = s.deps.Config.TeamSettings.DefaultAgent
+	}
 	return agentbuiltin.ApplyGeneralCreateDefaults(definition, agentbuiltin.GeneralCreateDefaults{
 		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
 	})

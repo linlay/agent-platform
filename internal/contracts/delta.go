@@ -135,13 +135,13 @@ type DeltaRunContinuation struct {
 	RunID       string
 	ChatID      string
 	AgentKey    string
-	TeamID      string
-	AwaitingID  string
-	SubmitID    string
-	Locale      string
-	Mode        string
-	Params      api.SubmitParams
-	Answer      map[string]any
+
+	AwaitingID string
+	SubmitID   string
+	Locale     string
+	Mode       string
+	Params     api.SubmitParams
+	Answer     map[string]any
 	// ContinuationState carries server-owned, in-memory admission state from
 	// submit to the asynchronous continuation callback. It is never serialized.
 	ContinuationState any
@@ -191,14 +191,14 @@ type DeltaPlanningSuperseded struct {
 func (DeltaPlanningSuperseded) agentDeltaTag() {}
 
 type DeltaTaskLifecycle struct {
-	Kind         string
-	TaskID       string
-	RunID        string
-	TaskName     string
-	Description  string
-	SubAgentKey  string
-	MainToolID   string
-	TeamID       string
+	Kind        string
+	TaskID      string
+	RunID       string
+	TaskName    string
+	Description string
+	SubAgentKey string
+	MainToolID  string
+
 	Presentation string
 	Reason       string
 	Error        map[string]any
@@ -220,7 +220,7 @@ type DeltaInvokeSubAgents struct {
 
 func (DeltaInvokeSubAgents) agentDeltaTag() {}
 
-// DeltaTeamDispatch is emitted only by the hidden TEAM coordinator tools.
+// DeltaTeamDispatch is emitted by the TEAM Agent delegation tool.
 // Runtime orchestration owns member dispatch; concrete session, persistence,
 // and event ports are supplied by the application assembly.
 type DeltaTeamDispatch struct {

@@ -25,7 +25,7 @@ func TestSnapshotAssistantUsesRootRunIdentityAndFallsBackOnlyWhenMissing(t *test
 		{Type: "run.start", Timestamp: testEpoch + 11, Payload: map[string]any{"runId": "run-1", "agentKey": "writer"}},
 		{Type: "run.complete", Timestamp: testEpoch + 12, Payload: map[string]any{"runId": "run-1"}},
 		{Type: "request.query", Timestamp: testEpoch + 20, Payload: map[string]any{"role": "user", "message": "two", "runId": "run-2"}},
-		{Type: "run.start", Timestamp: testEpoch + 21, Payload: map[string]any{"runId": "run-2", "teamId": "team-one"}},
+		{Type: "run.start", Timestamp: testEpoch + 21, Payload: map[string]any{"runId": "run-2", "agentKey": "team-one"}},
 		{Type: "run.complete", Timestamp: testEpoch + 22, Payload: map[string]any{"runId": "run-2"}},
 		{Type: "request.query", Timestamp: testEpoch + 30, Payload: map[string]any{"role": "user", "message": "three", "runId": "run-3"}},
 		{Type: "run.start", Timestamp: testEpoch + 31, Payload: map[string]any{"runId": "run-3", "agentKey": "deleted"}},
@@ -34,9 +34,9 @@ func TestSnapshotAssistantUsesRootRunIdentityAndFallsBackOnlyWhenMissing(t *test
 		{Type: "run.start", Timestamp: testEpoch + 41, Payload: map[string]any{"runId": "run-4"}},
 		{Type: "run.complete", Timestamp: testEpoch + 42, Payload: map[string]any{"runId": "run-4"}},
 	}
-	resolve := func(agentKey, teamID string) *AssistantV1 {
+	resolve := func(agentKey string) *AssistantV1 {
 		switch {
-		case teamID == "team-one":
+		case agentKey == "team-one":
 			return &AssistantV1{Name: "Team One"}
 		case agentKey == "writer":
 			return &AssistantV1{Name: "Writer", IconName: "chat"}

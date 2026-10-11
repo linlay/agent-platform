@@ -29,10 +29,10 @@ func TestBuildContentAdvancedUserPrompt(t *testing.T) {
 		RunID:              "run_xxx",
 		RequestID:          "req_xxx",
 		AgentKey:           "assistant",
-		TeamID:             "team_xxx",
-		Role:               "user",
-		Scene:              &api.Scene{Title: "Sales\nDashboard", URL: "https://example.com/app"},
-		Now:                time.Date(2026, 6, 24, 15, 4, 5, 0, location),
+
+		Role:  "user",
+		Scene: &api.Scene{Title: "Sales\nDashboard", URL: "https://example.com/app"},
+		Now:   time.Date(2026, 6, 24, 15, 4, 5, 0, location),
 	})
 
 	text, ok := content.(string)
@@ -45,7 +45,6 @@ func TestBuildContentAdvancedUserPrompt(t *testing.T) {
 		"runId: run_xxx",
 		"requestId: req_xxx",
 		"agentKey: assistant",
-		"teamId: team_xxx",
 		"role: user",
 		"currentDateTime: 2026-06-24T15:04:05+08:00",
 		"timezone: Asia/Shanghai",

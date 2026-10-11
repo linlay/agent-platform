@@ -28,7 +28,7 @@ func wsRegressionEpochMillis(value int64) *int64 {
 func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	server, chats, memories := newServerForHelperTests(t)
 
-	if _, _, err := chats.EnsureChat("chat-1", "agent-1", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-1", "agent-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startedAt := testEpochMillis + 1_001
@@ -86,14 +86,11 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	if len(summaries) != 1 {
 		t.Fatalf("expected one chat summary, got %#v", summaries)
 	}
-	if summaries[0].LastRunID != "run-1" || summaries[0].Usage == nil || summaries[0].Usage.TotalTokens != 8 {
+	if summaries[0].LastRunID != "run-1" {
 		t.Fatalf("unexpected chat summary %#v", summaries[0])
 	}
-	if summaries[0].Usage.PromptTokensDetails == nil || summaries[0].Usage.PromptTokensDetails.CacheHitTokens != 2 ||
-		summaries[0].Usage.PromptTokensDetails.CacheMissTokens != 1 ||
-		summaries[0].Usage.CompletionTokensDetails == nil || summaries[0].Usage.CompletionTokensDetails.ReasoningTokens != 4 ||
-		summaries[0].Usage.LlmChatCompletionCount != 1 {
-		t.Fatalf("expected detailed chat summary usage, got %#v", summaries[0].Usage)
+	if summaries[0].Usage != nil {
+		t.Fatalf("chat list summary should omit usage, got %#v", summaries[0].Usage)
 	}
 	if summaries[0].Read.IsRead {
 		t.Fatalf("expected completed chat to be unread, got %#v", summaries[0].Read)
@@ -114,6 +111,9 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	}
 	if detail.Usage == nil || detail.Usage.LastRun == nil || detail.Usage.Chat == nil {
 		t.Fatalf("expected detailed chat detail usage breakdown, got %#v", detail.Usage)
+	}
+	if detail.Usage.LastRun.TotalTokens != 8 || detail.Usage.Chat.TotalTokens != 8 {
+		t.Fatalf("expected persisted run and chat usage totals, got %#v", detail.Usage)
 	}
 	if detail.Usage.LastRun.PromptTokensDetails == nil || detail.Usage.LastRun.PromptTokensDetails.CacheHitTokens != 2 ||
 		detail.Usage.LastRun.PromptTokensDetails.CacheMissTokens != 1 ||
@@ -177,7 +177,7 @@ func TestBroadcastChatUnreadRechecksPersistedReadState(t *testing.T) {
 	notifications := &recordingNotificationSink{}
 	server.deps.Notifications = notifications
 	bindTestRuntime(server)
-	if _, _, err := chats.EnsureChat("chat-read-race", "agent-1", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-read-race", "agent-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, chats, "chat-read-race", "loyw3v28", testEpochMillis)
@@ -208,7 +208,7 @@ func TestBroadcastChatUnreadRechecksPersistedReadState(t *testing.T) {
 func TestLoadChatDetailUsageBreakdownSeparatesLastRunFromChatTotal(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
 
-	if _, _, err := chats.EnsureChat("chat-usage-breakdown", "agent-1", "", "first"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-usage-breakdown", "agent-1", "first"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := completeServerFixtureRun(t, chats, chat.RunCompletion{
@@ -286,7 +286,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	server.deps.Runs = runs
 	bindTestRuntime(server)
 
-	if _, _, err := chats.EnsureChat("chat-live", "agent-1", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-live", "agent-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	doneStartedAt := testEpochMillis + 10_001
@@ -356,7 +356,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		RunID:    "run-live",
 		ChatID:   "chat-live",
 		AgentKey: "agent-1",
-		RunOwner: contracts.AgentRunOwner("agent-1", ""),
+		RunOwner: contracts.AgentRunOwner("agent-1"),
 	})
 
 	detail, err := server.loadChatDetail(context.Background(), "chat-live", false)
@@ -383,7 +383,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		t.Fatalf("expected completed run.complete to remain, got %#v", detail.Events)
 	}
 
-	if _, _, err := chats.EnsureChat("chat-live-plain", "agent-1", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-live-plain", "agent-1", "hello"); err != nil {
 		t.Fatalf("ensure plain chat: %v", err)
 	}
 	plainStartedAt := testEpochMillis + 10_005
@@ -404,7 +404,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		RunID:    "run-live-plain",
 		ChatID:   "chat-live-plain",
 		AgentKey: "agent-1",
-		RunOwner: contracts.AgentRunOwner("agent-1", ""),
+		RunOwner: contracts.AgentRunOwner("agent-1"),
 	})
 	plainDetail, err := server.loadChatDetail(context.Background(), "chat-live-plain", false)
 	if err != nil {
@@ -425,7 +425,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		RunID:    "run-live-2",
 		ChatID:   "chat-live",
 		AgentKey: "agent-1",
-		RunOwner: contracts.AgentRunOwner("agent-1", ""),
+		RunOwner: contracts.AgentRunOwner("agent-1"),
 	})
 
 	rec := httptest.NewRecorder()
@@ -546,7 +546,7 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.
 
 	chatID := "chat-live-plan-approved"
 	runID := "run-live-plan-approved"
-	if _, _, err := chats.EnsureChat(chatID, "agent-1", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat(chatID, "agent-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startedAt := testEpochMillis + 20_001
@@ -594,7 +594,7 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.
 		RunID:    runID,
 		ChatID:   chatID,
 		AgentKey: "agent-1",
-		RunOwner: contracts.AgentRunOwner("agent-1", ""),
+		RunOwner: contracts.AgentRunOwner("agent-1"),
 	})
 
 	detail, err := server.loadChatDetail(context.Background(), chatID, false)
@@ -622,7 +622,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 	server.deps.Runs = runs
 	bindTestRuntime(server)
 
-	if _, _, err := chats.EnsureChat("chat-live-cursor", "agent-1", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-live-cursor", "agent-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	cursorStartedAt := testEpochMillis + 30_001
@@ -661,7 +661,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 		RunID:    "run-live-cursor",
 		ChatID:   "chat-live-cursor",
 		AgentKey: "agent-1",
-		RunOwner: contracts.AgentRunOwner("agent-1", ""),
+		RunOwner: contracts.AgentRunOwner("agent-1"),
 	})
 	bus, ok := runs.EventBus("run-live-cursor")
 	if !ok {
@@ -709,7 +709,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 		t.Fatal("timed out waiting for replay event")
 	}
 
-	if _, _, err := chats.EnsureChat("chat-old-live-cursor", "agent-1", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-old-live-cursor", "agent-1", "hello"); err != nil {
 		t.Fatalf("ensure old chat: %v", err)
 	}
 	oldCursorStartedAt := testEpochMillis + 33_001
@@ -730,7 +730,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 		RunID:    "run-old-live-cursor",
 		ChatID:   "chat-old-live-cursor",
 		AgentKey: "agent-1",
-		RunOwner: contracts.AgentRunOwner("agent-1", ""),
+		RunOwner: contracts.AgentRunOwner("agent-1"),
 	})
 	oldBus, ok := runs.EventBus("run-old-live-cursor")
 	if !ok {
@@ -815,13 +815,13 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	}
 	bindTestRuntime(server)
 
-	if _, _, err := chats.EnsureChat("chat-a1", "agent-a", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-a1", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat-a1: %v", err)
 	}
-	if _, _, err := chats.EnsureChat("chat-a2", "agent-a", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-a2", "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat-a2: %v", err)
 	}
-	if _, _, err := chats.EnsureChat("chat-b1", "agent-b", "", "hello"); err != nil {
+	if _, _, err := chats.EnsureChat("chat-b1", "agent-b", "hello"); err != nil {
 		t.Fatalf("ensure chat-b1: %v", err)
 	}
 	if err := completeServerFixtureRun(t, chats, chat.RunCompletion{ChatID: "chat-a2", RunID: "loyw3v20", UpdatedAtMillis: testEpochMillis + 40_001}); err != nil {
@@ -852,7 +852,7 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 		RunID:    "run-active-a1",
 		ChatID:   "chat-a1",
 		AgentKey: "agent-a",
-		RunOwner: contracts.AgentRunOwner("agent-a", ""),
+		RunOwner: contracts.AgentRunOwner("agent-a"),
 	})
 	control.TransitionState(contracts.RunLoopStateWaitingSubmit)
 
@@ -915,8 +915,8 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 			break
 		}
 	}
-	if chatA1.ChatID == "" || chatA1.Usage == nil || chatA1.Usage.TotalTokens != 10 {
-		t.Fatalf("/api/chats summaries should still include usage, got %#v", chatA1)
+	if chatA1.ChatID == "" || chatA1.Usage != nil {
+		t.Fatalf("/api/chats summaries should omit usage, got %#v", chatA1)
 	}
 	if chatA1.ActiveRun == nil ||
 		chatA1.ActiveRun.RunID != "run-active-a1" ||
@@ -942,7 +942,7 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 		RunID:    "run-active-a1-duplicate",
 		ChatID:   "chat-a1",
 		AgentKey: "agent-a",
-		RunOwner: contracts.AgentRunOwner("agent-a", ""),
+		RunOwner: contracts.AgentRunOwner("agent-a"),
 	})
 	items, err = server.listAgentSummaries(1, "")
 	if err != nil {
@@ -991,8 +991,6 @@ func (r wsRegressionCatalogRegistry) Agents(string) []api.AgentSummary {
 	return append([]api.AgentSummary(nil), r.items...)
 }
 
-func (wsRegressionCatalogRegistry) Teams() []api.TeamSummary { return nil }
-
 func (wsRegressionCatalogRegistry) Skills(string) []api.SkillSummary { return nil }
 
 func (wsRegressionCatalogRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
@@ -1017,10 +1015,6 @@ func (wsRegressionCatalogRegistry) AgentDefinition(key string) (catalog.AgentDef
 		ModelKey:      "mock-model",
 		MemoryEnabled: true,
 	}, true
-}
-
-func (wsRegressionCatalogRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
-	return catalog.TeamDefinition{}, false
 }
 
 func (wsRegressionCatalogRegistry) Reload(context.Context, string) error { return nil }

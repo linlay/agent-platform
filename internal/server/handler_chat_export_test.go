@@ -93,7 +93,7 @@ func TestHandleChatJSONLValidationAndNotFound(t *testing.T) {
 func TestHandleChatJSONLRejectsTimeContractViolation(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-jsonl-invalid-time"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	path := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl")
@@ -114,7 +114,7 @@ func TestHandleChatJSONLRejectsTimeContractViolation(t *testing.T) {
 func TestHandleChatSystemPromptResolvesRunSnapshot(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-system-prompt"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	for index, snapshot := range []struct {
@@ -155,7 +155,7 @@ func TestHandleChatSystemPromptResolvesRunSnapshot(t *testing.T) {
 func TestHandleChatSystemPromptResolvesPriorRunSnapshotFromStepRef(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-system-prompt-reused"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := fixture.chats.AppendQueryLine(chatID, chat.QueryLine{
@@ -384,7 +384,7 @@ func TestChatJSONLReturnsSchemaViolationOverHTTPAndWebSocket(t *testing.T) {
 	fixture := newChatExportWSTestFixture(t)
 	const chatID = "chat-jsonl-schema-violation"
 	const secret = "system-prompt-must-not-leak"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	path := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl")
@@ -434,7 +434,7 @@ func TestWSChatSystemPromptReturnsPersistedSnapshot(t *testing.T) {
 	const chatID = "chat-system-prompt-ws"
 	const runID = "run-system-prompt-ws"
 	const agentKey = "agent-ws"
-	if _, _, err := fixture.chats.EnsureChat(chatID, agentKey, "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, agentKey, "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := fixture.chats.AppendQueryLine(chatID, chat.QueryLine{
@@ -491,7 +491,7 @@ func TestWSChatSystemPromptReturnsPersistedSnapshot(t *testing.T) {
 func TestWSChatSystemPromptValidationAndNotFound(t *testing.T) {
 	fixture := newChatExportWSTestFixture(t)
 	const noSnapshotChatID = "chat-system-prompt-ws-no-snapshot"
-	if _, _, err := fixture.chats.EnsureChat(noSnapshotChatID, "agent-ws", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(noSnapshotChatID, "agent-ws", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	conn := dialTestWS(t, fixture.server)
@@ -533,7 +533,7 @@ func TestWSChatSystemPromptValidationAndNotFound(t *testing.T) {
 func TestWSChatSystemPromptTimeContractViolation(t *testing.T) {
 	fixture := newChatExportWSTestFixture(t)
 	const chatID = "chat-system-prompt-ws-invalid-time"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-ws", "", "hello"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-ws", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	path := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl")

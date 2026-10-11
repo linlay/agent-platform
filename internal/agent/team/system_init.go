@@ -9,9 +9,9 @@ func MainSystemInitSpec() agentcontract.SystemInitSpec {
 		PromptStage:           MainStage,
 		Mode:                  MainStage,
 		Stage:                 "main",
-		ToolNames:             DefaultToolNames(),
+		ToolNames:             nil,
 		UseSharedSystemPrompt: true,
-		IncludeAfterCallHints: false,
+		IncludeAfterCallHints: true,
 		Initial:               true,
 	}
 }

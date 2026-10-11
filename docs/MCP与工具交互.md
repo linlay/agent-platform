@@ -57,7 +57,7 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 [下载夏日海报](artifacts/run_01/generated.png)
 ```
 
-工具结果与 Markdown 使用相对于当前 Chat、不带 `chatId` 的 `url`。浏览器数据层补入当前 `chatId`，再转换为实际的 `GET /api/resource?file=<chatId>/<relativePath>`，查询参数按 HTTP 规则编码。该 HTTP 地址不作为 Markdown 地址；历史 endpoint Markdown 不迁移且不再预览。
+工具结果与 Markdown 使用相对于当前 Chat、不带 `chatId` 的 `url`。上传、Steer 附件、图片生成与发布产物的 `url` 统一写作带根的 `@chat/<relativePath>`（发布产物为 `@chat/artifacts/<runId>/<filename>`），路径为字面值、不做 percent-encode，因此同一字符串既是 Markdown 链接目标，也是 `workpanel_open` 等工具的入参；裸相对引用与 `@chat/` 等价，继续接受。Workspace 文件在 Markdown 中写 `@workspace/<相对路径>`（可带 `:行号`），Workspace 内的 Host 绝对路径继续接受；别名由 WebClient 在渲染时解析，Platform 不改写模型输出。浏览器数据层补入当前 `chatId`，再转换为实际的 `GET /api/resource?file=<chatId>/<relativePath>`，查询参数按 HTTP 规则编码。该 HTTP 地址不作为 Markdown 地址；历史 endpoint Markdown 不迁移且不再预览。
 
 ## WorkPanel 反向动作
 
@@ -69,7 +69,7 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 | --- | --- |
 | `workpanel_state` | `desktop.workpanel.getState` |
 | `workpanel_open`（`http(s)://`） | `desktop.workpanel.openWeb`；`reload: true` 时随后发送 `desktop.workpanel.refreshWeb` |
-| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，路径由 Platform 解析为 Workspace 相对路径 |
+| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，参数 `{root, path, title?, artifactId?}`：`root` 为 `workspace` 或 `chat`，`path` 是相对该根的路径；`artifactId` 仅在该 Chat 文件是已发布产物时由 Platform 从 manifest 取同路径的最新一项填入，Desktop 以它作为产物身份，编辑保存按该身份校验，不得自行构造。`@chat/` 只校验位于当前 Chat 目录内且为普通文件，不要求存在项目 Workspace；Desktop 对 HTML 与图片使用原生隔离预览，其他类型以 WebClient 资源预览页打开，`workpanel_state` / `workpanel_close` 对两类 Tab 都按 `@chat/<相对路径>` 识别。`@runtime/` 不再接受 |
 | `workpanel_close`（文件 `url`） | 先 `desktop.workpanel.getState` 严格匹配已记录的 Workspace 路径，再 `desktop.workpanel.closeTab`；网页使用 `surface_close` |
 | `workpanel_close`（`all: true`） | `desktop.workpanel.closeWorkpanel` |
 
@@ -121,7 +121,7 @@ Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符�
 
 本地存在相邻 `desktop` checkout 时，`go test ./internal/tools -run TestDesktopActionContractMatchesDesktopSource -count=1` 会直接核对上游定义。CI 或非相邻 checkout 可设置 `DESKTOP_SOURCE` 为 Desktop 仓库路径；显式配置路径缺失会失败，未配置且无相邻仓库时跳过这项跨仓检查。更新 Desktop 动作后需同步内部白名单、技能目录和契约测试；新增动作不需要向模型 Schema 添加枚举或业务域；契约测试同时核对归网页控制连接器所有的动作仍存在于 Desktop 定义中。Skill 负责操作帮助，不能授予权限；Standalone 限制、Run 来源校验、WebApp-page-only 排除及 Desktop 确认机制不变。内部白名单或内嵌工具 Schema 的变更需要重新构建并重启 Platform。
 
-Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey/teamId`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
+Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
 
 AWCP 按网站操作手册渐进披露，`awcp_manual` 与 `awcp_invoke` 的工具定义始终固定。模型先读取 `site.description` 中整个页面的纯文本操作说明和动作目录；页面说明包含 Action 样例。模型再按任务读取某个动作的详细参数约束及示例，最后使用通用 `awcp_invoke`。页面说明是普通工具结果，不注册成工具，不注入 system prompt，也不改写下一轮模型请求的 Schema。网站新增动作无需修改 Platform 核心。
 
@@ -292,7 +292,6 @@ i18n:
 | --- | --- |
 | file_read / file_edit | addLineNumbers / replaceAll |
 | file_grep / regex | caseInsensitive、lineNumbers、multiline / caseInsensitive |
-| kbase_refresh | force |
 | workpanel_open / workpanel_close | reload / all |
 | surface_navigate / surface_screenshot / surface_evaluate | ignoreCache / fullPage / awaitPromise |
 | ask_user_question | questions[].allowFreeText、questions[].options[].recommended |
@@ -301,3 +300,20 @@ i18n:
 | automation_query / automation_manage | 各 action 声明的 args.enabled、args.query.hidden |
 
 字段与适用 action 仍以工具 Schema 和运行时契约为准；Desktop 通用 action 的开放 args、AWCP/CDP 业务参数不依据字段名猜测类型。
+
+## 独立输入表单 ask_user_form
+
+`ask_user_form` 是独立内置交互工具，由 Agent 在 `toolConfig.tools` 显式声明，默认不进入全局 preset。多个相关字段一起填写，或需要结合选项卡、对比表、时间线、路线图、内联 SVG 图示做决定时，使用富表单；简单单行问题使用 `ask_user_question`。它不属于 confirmationRules 审阅，不授予权限，也不改变 `ask_user_question` 的协议。
+
+输入为 `{title,html,values?}`，没有 mode 参数。title 必须非空；HTML 片段最多 64 KiB；values 是按控件 name 预填的对象，数字和布尔值（含数组成员）自动转为字符串，null 视为未传；规范化后 JSON 编码最多 64 KiB，只接受已声明字段。服务器不静默清洗违规 HTML，而是返回工具错误供模型重写；内置壳页面在插入 DOM 前再次白名单校验。
+
+- HTML 支持常用语义标签、h1–h6、表格、details/summary、datalist、progress/meter；SVG 支持基本形状、路径、文字与线性渐变，不支持 script、foreignObject、use、image、a、animate、set、style。表单控件只允许 HTML 命名空间，SVG 元素只允许 SVG 命名空间，SVG 内不能嵌入 HTML。分词检查与解析树检查同时保留，防止 textarea 等原始文本在 SVG 中被重新解释。
+- input type：`text number email tel url date datetime-local time checkbox radio range color hidden`，缺省 text。密码使用 `ask_user_question`，文件使用上传。
+- 属性支持常规控件属性、list/autocomplete/inputmode、width/height、aria-*、data-* 和 SVG 几何、描边属性。所有控件必须有非空 name；仅同类型 radio/checkbox 可以重名。
+- CSS 属性名接受 `[a-z-]+`，支持常见尺寸、布局、背景、阴影、字体和变换。函数支持 rgb/rgba/hsl/hsla、calc/min/max/clamp、repeat/minmax、var、linear-gradient、translate/rotate/scale。继续拒绝 url()、expression、@、反斜杠转义、注释及 position:fixed；position 只接受明确的安全关键字，不接受变量间接指定 fixed。SVG fill/stroke 额外允许严格的本地 `url(#id)` 渐变引用。
+- 用 `var(--fg)`、`var(--bg)`、`var(--muted)`、`var(--line)`、`var(--accent)` 适配明暗主题。完整策略事实源是 `internal/formhtml/form.go`，内置 VIEW 加载时注入同一份名单和大小限制，不在 JavaScript 重复维护。
+- 禁止脚本、事件属性、链接、图片、iframe、外部资源和原生提交。HTML 位于 `awaiting.ask.form.data.html`，预填值位于 `.values`，VIEW 为 `builtin/ask_user_form`。
+
+`/api/submit` 使用 `param:{decision:"approve",data}`、`param:{decision:"reject",reason?,data?}` 或 `param:{decision:"dismiss"}`。回答按 HTML 中的 name 裁剪，data JSON 最多 64 KiB；值统一为字符串，单 checkbox 为 `"true"/"false"`，checkbox 组与 select multiple 为字符串数组，未选 radio 省略，disabled 控件不收集。浏览器在提交前校验 required/pattern 等约束和 UTF-8 JSON 大小；服务器在受理、唤醒等待项之前校验声明字段的值类型、大小及原因长度。非法提交返回 400，等待项保持有效，可以修改重试；该检查覆盖普通 Run 和 Team 转发。HTML 约束不作为授权依据。
+
+校验失败后壳页面发送 `frontend_awaiting_invalid {runId,awaitingId}`，宿主立即结束收集忙状态并提示修正；拒绝不校验必填字段，仍可带已填内容；超限草稿在页面保留，拒绝时省略超限数据。超时走 `budget.hitl.form.timeout`（秒），未配置时通用回退为 600 秒；复杂看图表单可在 Agent budget 中显式设为 1800 等更长值。跨进程重启按 form 写入 `runtime_restarted`，不会恢复表单。BTW 只读执行禁止该工具；规划和确认后的执行 Run 默认均排除它。

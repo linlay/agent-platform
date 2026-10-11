@@ -21,7 +21,7 @@ func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 		RunID:    "run-agent-check",
 		ChatID:   "chat-agent-check",
 		AgentKey: "mock-agent",
-		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner: contracts.AgentRunOwner("mock-agent"),
 	})
 
 	tests := []struct {
@@ -132,7 +132,7 @@ func TestAccessLevelHTTPUpdatesRunAccessLevel(t *testing.T) {
 		RunID:       "run-access-http",
 		ChatID:      "chat-access-http",
 		AgentKey:    "mock-agent",
-		RunOwner:    contracts.AgentRunOwner("mock-agent", ""),
+		RunOwner:    contracts.AgentRunOwner("mock-agent"),
 		AccessLevel: contracts.AccessLevelDefault,
 	})
 
@@ -157,7 +157,7 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 		RunID:    "run-proxy-agent-check",
 		ChatID:   "chat-proxy-agent-check",
 		AgentKey: "proxy-agent",
-		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
+		RunOwner: contracts.AgentRunOwner("proxy-agent"),
 	})
 	route := runtimeproxy.NewRoute("run-proxy-agent-check", "chat-proxy-agent-check", "proxy-agent")
 	fixture.server.registerProxyRun(route)
@@ -217,7 +217,7 @@ func TestAccessLevelHTTPForwardsForProxyRun(t *testing.T) {
 		RunID:    "run-proxy-access-level",
 		ChatID:   "chat-proxy-access-level",
 		AgentKey: "proxy-agent",
-		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
+		RunOwner: contracts.AgentRunOwner("proxy-agent"),
 	})
 	route := runtimeproxy.NewRoute("run-proxy-access-level", "chat-proxy-access-level", "proxy-agent")
 	fixture.server.registerProxyRun(route)
@@ -258,7 +258,7 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 		RunID:    "run-proxy-forward",
 		ChatID:   "chat-proxy-forward",
 		AgentKey: "proxy-agent",
-		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
+		RunOwner: contracts.AgentRunOwner("proxy-agent"),
 	})
 	route := runtimeproxy.NewRoute("run-proxy-forward", "chat-proxy-forward", "proxy-agent")
 	fixture.server.registerProxyRun(route)
@@ -322,7 +322,7 @@ func TestAccessLevelDisabledBeforeACPForward(t *testing.T) {
 	config := interaction.Defaults("CODER")
 	config.AccessLevel = false
 	registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
-		RunID: "acp-interaction", ChatID: "acp-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", ""), InteractionConfig: &config,
+		RunID: "acp-interaction", ChatID: "acp-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent"), InteractionConfig: &config,
 	})
 	route := runtimeproxy.NewRoute("acp-interaction", "acp-chat", "mock-agent")
 	fixture.server.registerProxyRun(route)

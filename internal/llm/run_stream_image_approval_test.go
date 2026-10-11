@@ -63,7 +63,9 @@ func newImageApprovalStream(t *testing.T, tool string, args map[string]any) (*ll
 // The router requires an interaction handler for its unrelated question tool.
 type stubInteractionSubmitter struct{}
 
-func (stubInteractionSubmitter) Handles(name string) bool { return name == "ask_user_question" }
+func (stubInteractionSubmitter) Handles(name string) bool {
+	return name == "ask_user_question" || name == "ask_user_form"
+}
 func (stubInteractionSubmitter) Await(context.Context, *ExecutionContext, map[string]any) (ToolExecutionResult, error) {
 	return ToolExecutionResult{}, nil
 }

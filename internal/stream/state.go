@@ -53,9 +53,9 @@ type activeReasoningState struct {
 }
 
 type contentBlockState struct {
-	TaskID       string
-	ActorType    string
-	TeamID       string
+	TaskID    string
+	ActorType string
+
 	AgentKey     string
 	Presentation string
 }

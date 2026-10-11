@@ -302,13 +302,14 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/monitor/channels", s.method(http.MethodGet, s.handleMonitorChannels))
 	s.router.HandleFunc("/api/monitor/ws/connections", s.method(http.MethodGet, s.handleMonitorWSConnections))
 	s.router.HandleFunc("/api/monitor/ws/messages", s.method(http.MethodGet, s.handleMonitorWSMessages))
-	s.router.HandleFunc("/api/teams", s.method(http.MethodGet, s.handleTeams))
 	s.router.HandleFunc("/api/connectors/execution/grants", s.handleConnectorExecutionGrant)
 	s.router.HandleFunc("/api/connectors/auth", s.handleTrustedConnectorAuth)
 	s.router.HandleFunc("/api/connectors/auth/cancel", s.handleTrustedConnectorAuth)
 	for _, action := range []string{"list", "describe", "invoke"} {
 		s.router.HandleFunc("/api/connectors/execution/"+action, s.handleConnectorExecution)
 	}
+	s.router.HandleFunc("/api/chat/sources/read", s.handleKnowledgeSource)
+	s.router.HandleFunc("/api/chat/sources/file", s.handleKnowledgeSource)
 	for _, action := range []string{"list", "get", "read"} {
 		s.router.HandleFunc("/api/chat/artifacts/"+action, s.handleChatArtifact)
 	}
@@ -330,8 +331,8 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/skills", s.handleAgentSkills)
 	s.router.HandleFunc("/api/skill-packages/icon", s.method(http.MethodGet, s.handleSkillPackageIcon))
 	s.router.HandleFunc("/api/skills/icon", s.method(http.MethodGet, s.handleAgentSkillIcon))
-	s.router.HandleFunc("/api/admin/kbases", s.handleKBasesCenter)
-	s.router.HandleFunc("/api/admin/kbases/", s.handleKBasesCenter)
+	s.router.HandleFunc("/api/admin/kbases", s.handleKBases)
+	s.router.HandleFunc("/api/admin/kbases/", s.handleKBases)
 	s.router.HandleFunc("/api/admin/skills", s.method(http.MethodGet, s.handleSkills))
 	s.router.HandleFunc("/api/admin/skills/pin", s.method(http.MethodPut, s.handleAdminSkillPin))
 	s.router.HandleFunc("/api/admin/skills/detail", s.method(http.MethodGet, s.handleAdminSkillDetail))

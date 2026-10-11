@@ -79,7 +79,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 
 	if agentteam.IsHiddenTool(toolCall.Function.Name) {
-		if s.session.TeamRuntime == nil || !strings.EqualFold(strings.TrimSpace(s.session.Mode), agentteam.Mode) {
+		if s.session.PlanningMode || s.session.TeamRuntime == nil || !strings.EqualFold(strings.TrimSpace(s.session.Mode), agentteam.Mode) {
 			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "agent_delegate is only available to an orchestrated Team coordinator", "internal_tool_only")
 			return nil, deltas, message
 		}
@@ -194,14 +194,7 @@ func (s *llmRunStream) activateNextToolCall() error {
 		return nil
 	}
 	next := s.queuedToolCalls[0]
-	if next.teamDispatch != nil {
-		if s.teamStateMachine == nil {
-			return errors.New("TEAM dispatch is missing its coordinator state machine")
-		}
-		if err := s.teamStateMachine.BeginDispatch(*next.teamDispatch); err != nil {
-			return err
-		}
-	}
+
 	s.activeToolCall = next
 	s.queuedToolCalls = s.queuedToolCalls[1:]
 	if len(s.activeToolCall.prelude) > 0 {

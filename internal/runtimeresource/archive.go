@@ -23,9 +23,9 @@ const (
 	maxArchiveContentBytes = int64(8 << 30)
 )
 
-var resourceScopes = []string{"agents", "skills-center", "tools", "teams", "connectors-center", "registries"}
+var resourceScopes = []string{"agents", "skills-center", "tools", "connectors-center", "registries"}
 
-var unitScopes = []string{"agents", "skills-center", "tools", "teams", "connectors-center"}
+var unitScopes = []string{"agents", "skills-center", "tools", "connectors-center"}
 
 type archiveInventory struct {
 	version              string

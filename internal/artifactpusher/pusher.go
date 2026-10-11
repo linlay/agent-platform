@@ -244,7 +244,7 @@ func (p *Pusher) resolveLocalPath(relative string) string {
 // extractResourceFileParam accepts both the new logical resource reference
 // and the legacy /api/resource?file= transport URL.
 func extractResourceFileParam(rawURL string, chatID string) string {
-	raw := strings.TrimSpace(rawURL)
+	raw := chat.BareChatScopeRef(strings.TrimSpace(rawURL))
 	if raw == "" {
 		return ""
 	}

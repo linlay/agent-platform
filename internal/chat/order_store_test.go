@@ -21,7 +21,7 @@ func TestChatOrderMoveFromRecentAppliesBeforeLimitAndRestoresManual(t *testing.T
 
 	for index := 0; index < 20; index++ {
 		id := fmt.Sprintf("chat-%02d", index)
-		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent-a", "", id, "", "REACT"); err != nil {
+		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent-a", id, "", "REACT"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := store.db.Exec("UPDATE CHATS SET UPDATED_AT_=? WHERE CHAT_ID_=?", int64(1_780_000_000_000+index), id); err != nil {
@@ -81,7 +81,7 @@ func TestChatOrderManualKeepsNewChatsAtRecentFrontAndCompactsDeletedIDs(t *testi
 	}
 	defer store.Close()
 	for index, id := range []string{"chat-a", "chat-b", "chat-c"} {
-		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent-a", "", id, "", "REACT"); err != nil {
+		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent-a", id, "", "REACT"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := store.db.Exec("UPDATE CHATS SET UPDATED_AT_=? WHERE CHAT_ID_=?", int64(1_780_000_000_000+index), id); err != nil {
@@ -91,7 +91,7 @@ func TestChatOrderManualKeepsNewChatsAtRecentFrontAndCompactsDeletedIDs(t *testi
 	if _, err := store.MoveChat("chat-a", "chat-c", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.EnsureChatWithSourceAndMode("chat-new", "agent-a", "", "new", "", "REACT"); err != nil {
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-new", "agent-a", "new", "", "REACT"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.Exec("UPDATE CHATS SET UPDATED_AT_=? WHERE CHAT_ID_=?", int64(1_790_000_000_000), "chat-new"); err != nil {
@@ -151,10 +151,10 @@ func TestChatOrderMoveValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err := store.EnsureChat("chat-a", "agent-a", "", "a"); err != nil {
+	if _, _, err := store.EnsureChat("chat-a", "agent-a", "a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.EnsureChat("chat-b", "agent-a", "", "b"); err != nil {
+	if _, _, err := store.EnsureChat("chat-b", "agent-a", "b"); err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -195,7 +195,7 @@ func TestChatOrderManualUsesCreationTimeAcrossActivityAndRestart(t *testing.T) {
 	defer func() { _ = store.Close() }()
 	add := func(id string, created, updated int64) {
 		t.Helper()
-		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent-a", "", id, "", "REACT"); err != nil {
+		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent-a", id, "", "REACT"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := store.db.Exec("UPDATE CHATS SET CREATED_AT_=?, UPDATED_AT_=? WHERE CHAT_ID_=?", created, updated, id); err != nil {

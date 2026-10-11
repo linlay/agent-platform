@@ -85,7 +85,7 @@ func TestProviderDiscoveryAndPagination(t *testing.T) {
 		t.Fatal("missing provider accepted")
 	}
 	matrix := discoveryQuery(t, h, "resourceTypes", map[string]any{})
-	if len(matrix["items"].([]any)) != 8 {
+	if len(matrix["items"].([]any)) != 7 {
 		t.Fatal(matrix)
 	}
 }

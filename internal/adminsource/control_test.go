@@ -32,7 +32,7 @@ func (r *controlRegistry) AgentDefinition(string) (catalog.AgentDefinition, bool
 func controlFixture(t *testing.T) *ControlService {
 	t.Helper()
 	root := t.TempDir()
-	return &ControlService{Mutations: NewService(), Config: config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), TeamsDir: filepath.Join(root, "teams"), SkillsCenterDir: filepath.Join(root, "skills"), ConnectorsCenterDir: filepath.Join(root, "connectors")}}, Registry: &controlRegistry{}}
+	return &ControlService{Mutations: NewService(), Config: config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), SkillsCenterDir: filepath.Join(root, "skills"), ConnectorsCenterDir: filepath.Join(root, "connectors")}}, Registry: &controlRegistry{}}
 }
 func putControlFile(t *testing.T, path, content string) {
 	t.Helper()

@@ -63,7 +63,7 @@ func TestPrepareQueryReferencesResolvesCurrentChatScopeURLs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	const chatID = "chat-current"
-	if _, _, err := store.EnsureChat(chatID, "agent-1", "", "attachments"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-1", "attachments"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	for relativePath, content := range map[string]string{
@@ -190,7 +190,7 @@ func TestPrepareChatReferenceReloadsTrustedHistory(t *testing.T) {
 	if _, _, err := store.EnsureChatWithSource(
 		"chat-source",
 		"coder",
-		"",
+
 		"original request",
 		"query:alice",
 	); err != nil {
@@ -247,7 +247,7 @@ func TestPrepareChatReferenceRejectsAnotherQueryPrincipal(t *testing.T) {
 	if _, _, err := store.EnsureChatWithSource(
 		"chat-source",
 		"coder",
-		"",
+
 		"original request",
 		"query:alice",
 	); err != nil {

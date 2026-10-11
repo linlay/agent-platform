@@ -224,7 +224,7 @@ func NormalizeProxyReferenceURL(ref runtimetypes.Reference, ticketService Ticket
 	if fileParam == "" {
 		return ref
 	}
-	parsed, err := url.Parse(rawURL)
+	parsed, err := url.Parse(chat.BareChatScopeRef(rawURL))
 	if err != nil {
 		return ref
 	}

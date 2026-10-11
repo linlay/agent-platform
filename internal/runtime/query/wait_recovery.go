@@ -30,7 +30,7 @@ func (s *Service) hydrateWait(item chat.PendingAwaitingWithChat, step *chat.Pers
 		return fmt.Errorf("missing wait checkpoint for %s", item.AwaitingID)
 	}
 	checkpoint, err := decodeWaitCheckpoint(step.Ask.Payload["waitCheckpoint"])
-	if err != nil || checkpoint.Unrecoverable || step.TaskID != "" || step.TeamID != "" {
+	if err != nil || checkpoint.Unrecoverable || step.TaskID != "" {
 		answer := contracts.AwaitingErrorAnswer("wait", "runtime_restarted", "This wait cannot safely recover its execution context")
 		_, err = s.FinishTerminalAwaiting(item, answer, time.Now().UnixMilli())
 		return err

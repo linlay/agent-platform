@@ -59,7 +59,7 @@ func TestDocumentCommitEndpointOverwritesWorkspaceWithRevision(t *testing.T) {
 
 func seedServerMarkdownArtifact(t *testing.T, fixture testFixture, chatID string) (string, string) {
 	t.Helper()
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "document"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "document"); err != nil {
 		t.Fatal(err)
 	}
 	relativePath := "artifacts/run-doc/notes.md"

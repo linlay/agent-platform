@@ -77,3 +77,12 @@ func TestToolSelectionIsTheSameForEveryMode(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanningAlwaysRemovesDelegate(t *testing.T) {
+	session := contracts.QuerySession{Mode: "TEAM", ToolNames: []string{"file_read", "agent_delegate"}}
+	for _, name := range PlanningTools(session, nil) {
+		if name == "agent_delegate" {
+			t.Fatal("delegate restored into planning")
+		}
+	}
+}

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,13 +25,13 @@ type Config struct {
 	Server           ServerConfig
 	Paths            PathsConfig
 	Agents           CatalogConfig
-	Teams            CatalogConfig
 	Skills           SkillCatalogConfig
 	Prompts          PromptsConfig
 	CoderPrompts     CoderPromptsConfig
 	KBasePrompts     KBasePromptsConfig
 	CoderSettings    CoderSettingsConfig
 	GeneralSettings  GeneralSettingsConfig
+	TeamSettings     GeneralSettingsConfig
 	KBase            KBaseConfig
 	VisionRecognize  VisionRecognizeConfig
 	WebFetch         WebFetchConfig
@@ -107,12 +108,10 @@ type PathsConfig struct {
 	OwnerDir                 string
 	AgentsDir                string
 	RUAgentsDir              string
-	TeamsDir                 string
 	RootDir                  string
 	AutomationsDir           string
 	ChatsDir                 string
 	MemoryDir                string
-	KBaseDir                 string
 	KBasesDir                string
 	RUKBasesDir              string
 	PanDir                   string
@@ -137,6 +136,15 @@ func (p PathsConfig) EffectiveRUAgentsDir() string {
 		return filepath.Join(filepath.Dir(filepath.Clean(agentsDir)), "ru-agents")
 	}
 	return ""
+}
+
+// EffectiveRUSkillsDir is the process-lifetime shared ordinary Skill cache.
+func (p PathsConfig) EffectiveRUSkillsDir() string {
+	root := p.EffectiveRUAgentsDir()
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(root), "ru-skills")
 }
 
 func (p PathsConfig) EffectiveConnectorsCenterDir() string {
@@ -647,6 +655,9 @@ const (
 )
 
 func Load(optionValues ...LoadOptions) (Config, error) {
+	if _, exists := os.LookupEnv("AP_RUNTIME_KBASE_DIR"); exists {
+		return Config{}, fmt.Errorf("AP_RUNTIME_KBASE_DIR was removed; use kbases/<id>/library.yml and ru-kbases/<id>")
+	}
 	options := LoadOptions{}
 	if len(optionValues) > 0 {
 		options = optionValues[0]
@@ -714,12 +725,10 @@ func validateRUAgentsDir(paths PathsConfig) error {
 		"tools-dir":             paths.ToolsDir,
 		"owner-dir":             paths.OwnerDir,
 		"agents-dir":            paths.AgentsDir,
-		"teams-dir":             paths.TeamsDir,
 		"root-dir":              paths.RootDir,
 		"automations-dir":       paths.AutomationsDir,
 		"chats-dir":             paths.ChatsDir,
 		"memory-dir":            paths.MemoryDir,
-		"kbase-dir":             paths.KBaseDir,
 		"kbases-dir":            paths.KBasesDir,
 		"ru-kbases-dir":         paths.RUKBasesDir,
 		"pan-dir":               paths.PanDir,
@@ -804,9 +813,9 @@ func DefaultPlanningModeConfig() PlanningModeConfig {
 			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate",
 			"plan_add_tasks", "plan_update_task",
 			"agent_invoke", "chat_start", "chat_interrupt", "chat_manage",
-			"automation_manage", "catalog_manage", "run_env",
+			"automation_manage", "catalog_manage", "run_env", "ask_user_form",
 		},
-		ExecuteExcludeTools: []string{"ask_user_question"},
+		ExecuteExcludeTools: []string{"ask_user_question", "ask_user_form"},
 	}
 }
 

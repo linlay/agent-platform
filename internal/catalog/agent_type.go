@@ -87,9 +87,9 @@ func ParsePublicAgentMode(value string) (string, error) {
 	case "ONESHOT":
 		return "", deprecation.New("mode ONESHOT is internal-only and cannot be configured; use GENERAL")
 	case "TEAM":
-		return "", fmt.Errorf("mode TEAM is internal and can only be configured through a Team directory")
+		return "TEAM", nil
 	default:
-		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, PLAN-EXECUTE, PROXY, or CHANNEL")
+		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, PLAN-EXECUTE, PROXY, or CHANNEL")
 	}
 }
 
@@ -314,8 +314,8 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 }
 
 func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, kbaseConfig knowledge.Config, hasRuntimeSandbox bool) error {
-	if kbaseConfig.Enabled && strings.TrimSpace(workspace.Root) == "" {
-		return fmt.Errorf("runtimeConfig.workspaceRoot is required when KBASE is enabled")
+	if strings.EqualFold(mode, "KBASE") && strings.TrimSpace(workspace.Root) == "" {
+		return fmt.Errorf("runtimeConfig.workspaceRoot is required for KBASE agents")
 	}
 	if agentcoder.IsMode(mode) && strings.TrimSpace(workspace.Root) == "" {
 		return fmt.Errorf("runtimeConfig.workspaceRoot is required for CODER agents")
@@ -356,9 +356,6 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 }
 
 func ValidateAgentModelConfig(def AgentDefinition) error {
-	if strings.EqualFold(strings.TrimSpace(def.Mode), agentteam.Mode) {
-		return fmt.Errorf("mode TEAM is internal and can only be configured through a Team directory")
-	}
 	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
 		return nil
 	}
@@ -375,6 +372,8 @@ func ValidateOrdinaryAgentTools(tools []string) error {
 	for _, tool := range tools {
 		normalized := strings.ToLower(strings.TrimSpace(tool))
 		switch normalized {
+		case "kbase_refresh":
+			return fmt.Errorf("kbase_refresh was removed; libraries are maintained automatically; use knowledge library management for manual refresh")
 		case "memory_read", "memory_write", "memory_search", "memory_update":
 			return fmt.Errorf("%s is retired; use memx for reading and file_write/file_edit for changes", normalized)
 		}

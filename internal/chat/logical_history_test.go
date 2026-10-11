@@ -18,7 +18,7 @@ func TestLegacyFailedRunDropsLastMalformedUnmatchedToolTurn(t *testing.T) {
 
 	const chatID = "chat-legacy-truncated-tool"
 	const runID = "run-legacy-truncated-tool"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "write it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "write it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startedAt := testEpochMillis(1)
@@ -90,7 +90,7 @@ func TestLegacyFailedRunRejectsValidUnmatchedToolCall(t *testing.T) {
 
 	const chatID = "chat-legacy-ambiguous-tool"
 	const runID = "run-legacy-ambiguous-tool"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "run it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "run it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startedAt := testEpochMillis(10)
@@ -221,7 +221,7 @@ func TestLoadChatRecoversKnownCancelledApprovalRegressionWithoutRewritingJSONL(t
 		awaitingAt  int64 = 1785472691381
 		completedAt int64 = 1785472821266
 	)
-	if _, _, err := store.EnsureChat(chatID, "zenmi", "", "scan agents"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "zenmi", "scan agents"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.OnRunStarted(RunStart{
@@ -462,7 +462,7 @@ func TestStepWriterPersistsInterruptedAwaitingBeforeFlatToolResult(t *testing.T)
 		toolID     = "call-interrupted"
 		awaitingID = "await-batch-interrupted"
 	)
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "run it"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "run it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := NewStepWriter(store, chatID, runID, "REACT")
@@ -707,7 +707,7 @@ func TestStepWriterRetriesWithoutPersistingDiscardedAttempt(t *testing.T) {
 	defer store.Close()
 	const chatID = "chat-model-turn-retry"
 	const runID = "run-model-turn-retry"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := ensureRunStartedForTest(store, chatID, runID, testEpochMillis(20)); err != nil {
@@ -743,7 +743,7 @@ func TestStepWriterRequiresCommitForReplacementAfterTerminalDiscard(t *testing.T
 	defer store.Close()
 	const chatID = "chat-model-turn-replacement"
 	const runID = "run-model-turn-replacement"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := ensureRunStartedForTest(store, chatID, runID, testEpochMillis(30)); err != nil {
@@ -779,7 +779,7 @@ func TestStepWriterTerminalDiscardDoesNotPersistReact(t *testing.T) {
 	defer store.Close()
 	const chatID = "chat-model-turn-exhausted"
 	const runID = "run-model-turn-exhausted"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := ensureRunStartedForTest(store, chatID, runID, testEpochMillis(40)); err != nil {
@@ -822,7 +822,7 @@ func TestFailedStreamEndIsDisplayOnlyHistory(t *testing.T) {
 	}
 	defer store.Close()
 	const chatID, runID = "failed-display", "run-display"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureRunStartedForTest(store, chatID, runID, testEpochMillis(20)); err != nil {
@@ -884,7 +884,7 @@ func TestStepWriterRestoresCallForResultWithoutSnapshot(t *testing.T) {
 	defer store.Close()
 	const chatID = "chat-result-without-snapshot"
 	const runID = "run-result-without-snapshot"
-	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := ensureRunStartedForTest(store, chatID, runID, testEpochMillis(20)); err != nil {

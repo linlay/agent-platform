@@ -9,9 +9,9 @@ import (
 
 func catalogResourceTypes() map[string]any {
 	items := []map[string]any{}
-	for _, typ := range []string{"agent", "team", "skill", "connector", "model", "provider", "tool", "mcp"} {
-		editable := typ == "agent" || typ == "team" || typ == "skill" || typ == "connector"
-		items = append(items, map[string]any{"resourceType": typ, "list": true, "get": true, "validate": editable, "apply": editable, "delete": editable && typ != "team"})
+	for _, typ := range []string{"agent", "skill", "connector", "model", "provider", "tool", "mcp"} {
+		editable := typ == "agent" || typ == "skill" || typ == "connector"
+		items = append(items, map[string]any{"resourceType": typ, "list": true, "get": true, "validate": editable, "apply": editable, "delete": editable})
 	}
 	return map[string]any{"items": items, "limitations": []string{"Capabilities describe resource types; built-ins, calling Agent, references and source revisions further restrict writes.", "provider/model list valid means loaded locally, not credential verification or remote availability.", "mcp lists locally declared connector components, not Agent sessions or remotely discovered tools/resources/prompts; invalid connector packages fail enumeration.", "skill lists skill-center members; package metadata and Agent-local/connector-owned skills have no independent catalog target."}}
 }

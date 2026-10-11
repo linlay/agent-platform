@@ -70,14 +70,11 @@ func (s *gatedTeamMemberStream) FinalAssistantContent() (string, bool) {
 }
 
 func replaceTeamRuntimeSnapshot(o *frameOrchestrator, keys []string, maxParallel int, defs map[string]catalog.AgentDefinition) {
-	snapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
-		TeamID:      "research",
-		Name:        "Research",
-		RuntimeMode: catalog.TeamRuntimeModeOrchestrated,
-		AgentKeys:   append([]string(nil), keys...),
-		Orchestrator: catalog.TeamOrchestratorConfig{
-			ModelKey: "mock-model", MaxParallel: maxParallel,
-		},
+	snapshot := catalog.NewTeamSnapshot(catalog.AgentDefinition{
+
+		Name: "Research",
+
+		ModelKey: "mock-model", Key: "research", Mode: "TEAM", TeamConfig: &catalog.TeamConfig{Members: append([]string(nil), keys...), MaxParallel: maxParallel},
 	}, defs)
 	o.TeamSnapshot = &snapshot
 }

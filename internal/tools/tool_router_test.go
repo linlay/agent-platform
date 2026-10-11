@@ -486,3 +486,18 @@ func TestRuntimeCompactModelOutputPolicyIsCodeOwned(t *testing.T) {
 		}
 	}
 }
+
+func TestToolRouterRequiresFormHandlerAfterQuestionHandler(t *testing.T) {
+	backend := stubBackendToolExecutor{defs: []api.ToolDetailResponse{{Name: "ask_user_question"}, {Name: "ask_user_form"}}}
+	_, err := NewToolRouter(backend, nil, nil, &questionOnlyInteraction{})
+	if err == nil || !strings.Contains(err.Error(), "ask_user_form requires") {
+		t.Fatalf("expected missing form handler: %v", err)
+	}
+}
+
+type questionOnlyInteraction struct{}
+
+func (*questionOnlyInteraction) Handles(name string) bool { return name == "ask_user_question" }
+func (*questionOnlyInteraction) Await(context.Context, *ExecutionContext, map[string]any) (ToolExecutionResult, error) {
+	return ToolExecutionResult{}, nil
+}

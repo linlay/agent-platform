@@ -24,7 +24,7 @@ func controlChatFixture(t *testing.T) (*Service, *chat.FileStore, ControlCaller)
 		if id == "foreign" {
 			owner = "other"
 		}
-		if _, _, e = store.EnsureChatWithSourceAndMode(id, "agent", "", id, "query:"+owner, "GENERAL"); e != nil {
+		if _, _, e = store.EnsureChatWithSourceAndMode(id, "agent", id, "query:"+owner, "GENERAL"); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -122,7 +122,7 @@ func TestControlBoundedListAndSearch(t *testing.T) {
 	s, store, c := controlChatFixture(t)
 	for i := 0; i < 120; i++ {
 		id := fmt.Sprintf("page-%03d", i)
-		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent", "", id, "query:user", "GENERAL"); err != nil {
+		if _, _, err := store.EnsureChatWithSourceAndMode(id, "agent", id, "query:user", "GENERAL"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -176,7 +176,7 @@ func TestControlForkRejectsUnprovenExistingTarget(t *testing.T) {
 	s, store, c := controlChatFixture(t)
 	controlAppendRun(t, store, "target", "run-1", "answer")
 	stem := "control-" + controlDigest([]string{c.RunID, c.ToolID})[:32]
-	if _, _, err := store.EnsureChatWithSourceAndMode(stem, "agent", "", "unrelated", "query:user", "GENERAL"); err != nil {
+	if _, _, err := store.EnsureChatWithSourceAndMode(stem, "agent", "unrelated", "query:user", "GENERAL"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ControlManage(c, "fork", map[string]any{"sourceChatId": "target"}, ""); err == nil || !strings.Contains(err.Error(), "idempotency_conflict") {

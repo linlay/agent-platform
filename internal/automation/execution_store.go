@@ -625,15 +625,15 @@ func (s *ExecutionStore) Upsert(item Execution) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.Exec(`INSERT INTO AUTOMATION_EXECUTIONS (
-			ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, ZONE_ID_,
+			ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, ZONE_ID_,
 			QUERY_CONTENT_, CHAT_ID_, RUN_ID_, STATUS_, FINISH_REASON_, RESULT_CONTENT_, ERROR_,
 			STARTED_AT_, RUN_STARTED_AT_, COMPLETED_AT_, DURATION_MS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ID_) DO UPDATE SET
 			AUTOMATION_NAME_=excluded.AUTOMATION_NAME_,
 			SOURCE_FILE_=excluded.SOURCE_FILE_,
 			AGENT_KEY_=excluded.AGENT_KEY_,
-			TEAM_ID_=excluded.TEAM_ID_,
+
 			ZONE_ID_=excluded.ZONE_ID_,
 			QUERY_CONTENT_=excluded.QUERY_CONTENT_,
 			CHAT_ID_=CASE WHEN excluded.CHAT_ID_ <> '' THEN excluded.CHAT_ID_ ELSE AUTOMATION_EXECUTIONS.CHAT_ID_ END,
@@ -646,7 +646,7 @@ func (s *ExecutionStore) Upsert(item Execution) error {
 			COMPLETED_AT_=excluded.COMPLETED_AT_,
 			DURATION_MS_=excluded.DURATION_MS_
 		WHERE AUTOMATION_EXECUTIONS.STATUS_ = 'running'`,
-		item.ID, item.AutomationID, item.AutomationName, item.SourceFile, item.AgentKey, item.TeamID, item.ZoneID,
+		item.ID, item.AutomationID, item.AutomationName, item.SourceFile, item.AgentKey, item.ZoneID,
 		item.QueryContent, item.ChatID, item.RunID, item.Status, item.FinishReason, item.ResultContent, item.Error,
 		item.StartedAt, nullableInt64(item.RunStartedAt), nullableInt64(item.CompletedAt), nullableInt64(item.DurationMs),
 	)
@@ -659,7 +659,7 @@ func normalizeExecution(item Execution) Execution {
 	item.AutomationName = strings.TrimSpace(item.AutomationName)
 	item.SourceFile = strings.TrimSpace(item.SourceFile)
 	item.AgentKey = strings.TrimSpace(item.AgentKey)
-	item.TeamID = strings.TrimSpace(item.TeamID)
+
 	item.ZoneID = strings.TrimSpace(item.ZoneID)
 	item.ChatID = strings.TrimSpace(item.ChatID)
 	item.RunID = strings.TrimSpace(item.RunID)
@@ -711,7 +711,7 @@ func nullableInt64(value *int64) any {
 	return *value
 }
 
-const executionBriefSelect = `SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, ZONE_ID_,
+const executionBriefSelect = `SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, ZONE_ID_,
 	CHAT_ID_, RUN_ID_, STATUS_, FINISH_REASON_, ERROR_, STARTED_AT_, RUN_STARTED_AT_, COMPLETED_AT_, DURATION_MS_,
 	substr(RESULT_CONTENT_, 1, 1000)
 	FROM AUTOMATION_EXECUTIONS`
@@ -763,7 +763,7 @@ func (s *ExecutionStore) GetExecution(executionID string) (*Execution, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	row := s.db.QueryRow(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, ZONE_ID_,
+	row := s.db.QueryRow(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, ZONE_ID_,
 		QUERY_CONTENT_, CHAT_ID_, RUN_ID_, STATUS_, FINISH_REASON_, RESULT_CONTENT_, ERROR_,
 		STARTED_AT_, RUN_STARTED_AT_, COMPLETED_AT_, DURATION_MS_
 		FROM AUTOMATION_EXECUTIONS WHERE ID_=?`, strings.TrimSpace(executionID))
@@ -823,7 +823,7 @@ func scanExecutionBrief(scanner executionScanner) (Execution, error) {
 	var runStartedAt, completedAt, durationMs sql.NullInt64
 	var preview string
 	if err := scanner.Scan(
-		&item.ID, &item.AutomationID, &item.AutomationName, &item.SourceFile, &item.AgentKey, &item.TeamID, &item.ZoneID,
+		&item.ID, &item.AutomationID, &item.AutomationName, &item.SourceFile, &item.AgentKey, &item.ZoneID,
 		&item.ChatID, &item.RunID, &item.Status, &item.FinishReason, &item.Error, &item.StartedAt,
 		&runStartedAt, &completedAt, &durationMs, &preview,
 	); err != nil {
@@ -841,7 +841,7 @@ func scanExecutionFull(scanner executionScanner) (Execution, error) {
 	var item Execution
 	var runStartedAt, completedAt, durationMs sql.NullInt64
 	if err := scanner.Scan(
-		&item.ID, &item.AutomationID, &item.AutomationName, &item.SourceFile, &item.AgentKey, &item.TeamID, &item.ZoneID,
+		&item.ID, &item.AutomationID, &item.AutomationName, &item.SourceFile, &item.AgentKey, &item.ZoneID,
 		&item.QueryContent, &item.ChatID, &item.RunID, &item.Status, &item.FinishReason, &item.ResultContent, &item.Error,
 		&item.StartedAt, &runStartedAt, &completedAt, &durationMs,
 	); err != nil {

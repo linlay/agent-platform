@@ -102,7 +102,7 @@ func seedStrictArchiveContractChat(t *testing.T, store *chat.FileStore, chatID s
 		started   = int64(1_700_000_000_000)
 		completed = int64(1_700_000_000_250)
 	)
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "strict archive"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "strict archive"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, store, chatID, "run-"+chatID, started)

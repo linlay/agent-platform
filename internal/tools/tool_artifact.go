@@ -255,7 +255,7 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 			continue
 		}
 		relativePath = filepath.ToSlash(relativePath)
-		resourceURL, resourceErr := chat.BuildChatScopeRef(relativePath)
+		resourceURL, resourceErr := chat.BuildChatAliasRef(relativePath)
 		if resourceErr != nil {
 			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "resource_url_failed", "failed to create published artifact URL: "+resourceErr.Error()))
 			continue

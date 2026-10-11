@@ -11,7 +11,7 @@ func TestSystemInitReadersUseSingularAgentScopedIdentity(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	const chatID = "chat-system-singular"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	agentSystem := QueryLineSystem{
@@ -60,7 +60,7 @@ func TestSystemInitReadersRejectUnsupportedAndIncompleteSchema(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	const chatID = "chat-system-invalid"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	validSystem := map[string]any{
@@ -157,7 +157,7 @@ func TestBuildLLMChatRejectsNonExactSystemRefAgent(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	const chatID = "chat-system-nonexact"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	system := QueryLineSystem{AgentKey: "agent-a", CacheKey: "react:main", Fingerprint: "sha256:shared", SystemMessage: map[string]any{"role": "system", "content": "private"}, Tools: []any{}, Model: map[string]any{"key": "mock-model"}}
@@ -179,7 +179,7 @@ func TestSystemInitQueryIsStorageOnly(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 	const chatID = "chat-system-hidden"
-	if _, _, err := store.EnsureChat(chatID, "planner", "", "plan work"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "planner", "plan work"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	planSystem := QueryLineSystem{

@@ -50,6 +50,7 @@ func (s *Server) handleAdminAgents(w http.ResponseWriter, _ *http.Request) {
 	items := registry.AdminAgents()
 	response := make([]api.AdminAgentSummary, 0, len(items))
 	for _, item := range items {
+		item = s.withKnowledgeWarning(item)
 		response = append(response, buildAdminAgentSummary(item))
 	}
 	writeJSON(w, http.StatusOK, api.Success(response))
@@ -90,6 +91,7 @@ func (s *Server) adminAgentDetail(agentKey string) (api.AdminAgentDetailResponse
 		return api.AdminAgentDetailResponse{}, err
 	}
 	item, ok := registry.AdminAgent(agentKey)
+	item = s.withKnowledgeWarning(item)
 	if !ok {
 		return api.AdminAgentDetailResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
 	}
@@ -401,4 +403,15 @@ func adminConnectorBindings(state api.AdminAgentConnectorsResponse) []api.AdminA
 		result = append(result, api.AdminAgentConnectorBinding{ID: id, Source: source, Active: slices.Contains(state.ActiveConnectorIDs, id), PendingRemoval: !slices.Contains(state.ConnectorIDs, id)})
 	}
 	return result
+}
+
+func (s *Server) withKnowledgeWarning(item catalog.AdminAgent) catalog.AdminAgent {
+	binding := contracts.AnyMapNode(item.Definition["kbaseConfig"])
+	id, _ := binding["libraryId"].(string)
+	if id != "" && s.deps.KBase != nil {
+		if err := s.deps.KBase.ValidateAgent(item.Key); err != nil {
+			item.Diagnostics = append(item.Diagnostics, catalog.AdminAgentDiagnostic{Severity: "warning", Code: "knowledge_binding_unavailable", Message: err.Error()})
+		}
+	}
+	return item
 }

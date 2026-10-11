@@ -21,10 +21,10 @@ type ArchivesRequest struct {
 }
 
 type ArchivedSummaryResponse struct {
-	ChatID         string         `json:"chatId"`
-	ChatName       string         `json:"chatName"`
-	AgentKey       string         `json:"agentKey,omitempty"`
-	TeamID         string         `json:"teamId,omitempty"`
+	ChatID   string `json:"chatId"`
+	ChatName string `json:"chatName"`
+	AgentKey string `json:"agentKey,omitempty"`
+
 	Source         string         `json:"source,omitempty"`
 	CreatedAt      int64          `json:"createdAt"`
 	UpdatedAt      int64          `json:"updatedAt"`
@@ -48,10 +48,10 @@ type ArchiveSearchRequest struct {
 }
 
 type ArchiveSearchResult struct {
-	ChatID         string `json:"chatId"`
-	ChatName       string `json:"chatName"`
-	AgentKey       string `json:"agentKey,omitempty"`
-	TeamID         string `json:"teamId,omitempty"`
+	ChatID   string `json:"chatId"`
+	ChatName string `json:"chatName"`
+	AgentKey string `json:"agentKey,omitempty"`
+
 	CreatedAt      int64  `json:"createdAt"`
 	LastRunAt      int64  `json:"lastRunAt"`
 	LastRunID      string `json:"lastRunId,omitempty"`

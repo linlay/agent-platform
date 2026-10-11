@@ -284,24 +284,25 @@ func PublicArtifactURL(raw string, chatID string) (string, bool) {
 	if raw == "" || chatID == "" {
 		return "", false
 	}
+	raw = chat.BareChatScopeRef(raw)
 	parsed, err := url.Parse(raw)
 	if err == nil && isResourceURL(parsed, raw) {
 		resourceChatID, relativePath, parseErr := chat.ParseResourceKey(strings.TrimSpace(parsed.Query().Get("file")))
 		if parseErr != nil || resourceChatID != chatID {
 			return "", false
 		}
-		publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
+		publicURL, buildErr := chat.BuildChatAliasRef(relativePath)
 		return publicURL, buildErr == nil
 	}
 	if resourceChatID, relativePath, parseErr := chat.ParseResourceKey(raw); parseErr == nil && resourceChatID == chatID {
-		publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
+		publicURL, buildErr := chat.BuildChatAliasRef(relativePath)
 		return publicURL, buildErr == nil
 	}
 	resourceChatID, relativePath, parseErr := chat.ParseResourceKey(chatID + "/" + raw)
 	if parseErr != nil || resourceChatID != chatID {
 		return "", false
 	}
-	publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
+	publicURL, buildErr := chat.BuildChatAliasRef(relativePath)
 	return publicURL, buildErr == nil
 }
 

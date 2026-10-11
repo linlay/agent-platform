@@ -18,7 +18,7 @@ func TestHandleL1ReasoningOnlyWithoutModel(t *testing.T) {
 	modelCalls := 0
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) { modelCalls++; writeProviderSSE(t, w, `[DONE]`) })
 	id := "chat-l1-reasoning"
-	if _, _, err := fixture.chats.EnsureChat(id, "mock-agent", "", "reasoning"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(id, "mock-agent", "reasoning"); err != nil {
 		t.Fatal(err)
 	}
 	appendServerCompactRun(t, fixture.chats, id, "r", "question", "answer")

@@ -25,7 +25,7 @@ func (m *Manager) saveRunRecord(state *managedRun) {
 		return
 	}
 	status := runStatusInfoFromManagedRun(state)
-	snapshot := contracts.RunSnapshot{RunID: status.RunID, ChatID: status.ChatID, AgentKey: status.AgentKey, TeamID: status.TeamID, Status: PublicStatus(status.State), AccessLevel: status.AccessLevel, StartedAt: status.StartedAt, CompletedAt: status.CompletedAt, Origin: cloneRunOrigin(state.runOrigin)}
+	snapshot := contracts.RunSnapshot{RunID: status.RunID, ChatID: status.ChatID, AgentKey: status.AgentKey, Status: PublicStatus(status.State), AccessLevel: status.AccessLevel, StartedAt: status.StartedAt, CompletedAt: status.CompletedAt, Origin: cloneRunOrigin(state.runOrigin)}
 	if state.eventBus != nil {
 		ApplyEventSnapshot(&snapshot, state.eventBus.Snapshot())
 	}

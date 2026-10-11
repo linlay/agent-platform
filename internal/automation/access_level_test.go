@@ -12,7 +12,7 @@ import (
 func TestAutomationAccessLevelPersistReloadAndDispatch(t *testing.T) {
 	for _, level := range []string{"", "default", "auto_approve", "full_access"} {
 		t.Run("level="+level, func(t *testing.T) {
-			registry := NewRegistry(t.TempDir(), nil)
+			registry := NewRegistry(t.TempDir())
 			def := Definition{ID: "daily", Name: "Daily", Enabled: true, Cron: "0 9 * * *", AgentKey: "agent", Query: Query{Message: "run", AccessLevel: level}}
 			if err := registry.Persist(def); err != nil {
 				t.Fatal(err)
@@ -52,7 +52,7 @@ func TestAutomationAccessLevelPersistReloadAndDispatch(t *testing.T) {
 }
 
 func TestAutomationAccessLevelValidationAndSourceEditing(t *testing.T) {
-	registry := NewRegistry(t.TempDir(), nil)
+	registry := NewRegistry(t.TempDir())
 	def := Definition{ID: "daily", Name: "Daily", Enabled: true, Cron: "0 9 * * *", AgentKey: "agent", Query: Query{Message: "run", AccessLevel: "full_access"}}
 	if err := registry.Persist(def); err != nil {
 		t.Fatal(err)

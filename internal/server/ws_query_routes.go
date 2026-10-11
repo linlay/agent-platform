@@ -85,7 +85,7 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 		return
 	}
 	subscription, err := s.deps.Runtime.AttachRun(ctx, runtimetypes.RunRef{
-		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, TeamID: handle.TeamID,
+		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey,
 		Caller: command.Caller,
 	}, 0)
 	if err != nil {
@@ -148,7 +148,7 @@ func (s *Server) wsQueryDetached(ctx context.Context, conn *ws.Conn, req ws.Requ
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", api.QueryAcceptedResponse{
 		Accepted: true, Status: "running", RunID: handle.RunID, ChatID: handle.ChatID,
-		AgentKey: handle.AgentKey, TeamID: handle.TeamID, StartedAt: handle.StartedAt,
+		AgentKey: handle.AgentKey, StartedAt: handle.StartedAt,
 	})
 }
 
@@ -184,8 +184,8 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	payload, err := ws.DecodePayload[struct {
 		RunID    string `json:"runId"`
 		AgentKey string `json:"agentKey,omitempty"`
-		TeamID   string `json:"teamId,omitempty"`
-		LastSeq  int64  `json:"lastSeq"`
+
+		LastSeq int64 `json:"lastSeq"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid attach payload", nil)
@@ -195,7 +195,7 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
 		return
 	}
-	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
+	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)
 		return
@@ -238,7 +238,7 @@ func (s *Server) wsDetach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
 		return
 	}
-	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
+	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)
 		return
@@ -365,7 +365,7 @@ func (s *Server) wsAccessLevel(_ context.Context, conn *ws.Conn, req ws.RequestF
 	if !s.validateWSRunControl(conn, req.ID, payload.RunID) {
 		return
 	}
-	result, err := s.deps.Runtime.SetAccessLevel(conn.Context(), runtimetypes.AccessLevelCommand{RunRef: runtimetypes.RunRef{RunID: payload.RunID, AgentKey: payload.AgentKey, TeamID: payload.TeamID}, RequestID: payload.RequestID, AccessLevel: payload.AccessLevel, Reason: payload.Reason})
+	result, err := s.deps.Runtime.SetAccessLevel(conn.Context(), runtimetypes.AccessLevelCommand{RunRef: runtimetypes.RunRef{RunID: payload.RunID, AgentKey: payload.AgentKey}, RequestID: payload.RequestID, AccessLevel: payload.AccessLevel, Reason: payload.Reason})
 	if err != nil {
 		s.sendWSRuntimeError(conn, req.ID, err)
 		return

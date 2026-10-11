@@ -145,7 +145,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		m.attemptToolIDs[toolID] = true
 		m.lastKind = "tool"
 		awaitAsk, emitAwaitBeforeToolArgs := m.buildInteractionAwaitAsk(toolID, toolName, value.ArgsDelta, chunkIndex)
-		if awaitAsk != nil && strings.EqualFold(strings.TrimSpace(value.Name), "ask_user_question") {
+		if awaitAsk != nil {
 			m.pendingToolAwaitAsks[toolID] = awaitAsk
 			awaitAsk = nil
 			emitAwaitBeforeToolArgs = false
@@ -299,21 +299,21 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		switch strings.ToLower(value.Kind) {
 		case "start":
 			return []stream.StreamInput{stream.TaskStart{
-				TaskID:       value.TaskID,
-				RunID:        value.RunID,
-				TaskName:     value.TaskName,
-				Description:  value.Description,
-				SubAgentKey:  value.SubAgentKey,
-				MainToolID:   value.MainToolID,
-				TeamID:       value.TeamID,
+				TaskID:      value.TaskID,
+				RunID:       value.RunID,
+				TaskName:    value.TaskName,
+				Description: value.Description,
+				SubAgentKey: value.SubAgentKey,
+				MainToolID:  value.MainToolID,
+
 				Presentation: value.Presentation,
 			}}
 		case "complete":
-			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID, TeamID: value.TeamID, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
+			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
 		case "cancel":
-			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID, Reason: value.Reason, TeamID: value.TeamID, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
+			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID, Reason: value.Reason, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
 		case "error":
-			return []stream.StreamInput{stream.TaskError{TaskID: value.TaskID, Error: value.Error, TeamID: value.TeamID, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
+			return []stream.StreamInput{stream.TaskError{TaskID: value.TaskID, Error: value.Error, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
 		default:
 			return nil
 		}

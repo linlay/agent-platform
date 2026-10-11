@@ -37,6 +37,13 @@ func TestChatStartSchemaOptionalFieldsSurviveProtocols(t *testing.T) {
 			t.Fatalf("optional fields became required: %s", raw)
 		}
 		properties := result["properties"].(map[string]any)
+		if _, ok := properties["teamId"]; ok {
+			t.Fatal("chat_start still advertises teamId")
+		}
+		if _, ok := properties["agentKey"]; !ok {
+			t.Fatal("chat_start is missing optional agentKey")
+		}
+
 		enum, ok := properties["accessLevel"].(map[string]any)["enum"].([]any)
 		if !ok || len(enum) != 3 {
 			t.Fatalf("enum changed: %s", raw)

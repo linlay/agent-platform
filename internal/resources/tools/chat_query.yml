@@ -23,6 +23,7 @@ inputSchema:
         - "search"
         - "read"
         - "artifacts"
+        - "models"
     args:
       type: "object"
       description: "See its skill."

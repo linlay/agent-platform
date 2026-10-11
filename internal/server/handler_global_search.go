@@ -17,7 +17,7 @@ func (s *Server) handleGlobalSearch(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 {
 		limit = 20
 	}
-	hits, err := s.deps.Chats.SearchGlobal(req.Query, req.AgentKey, req.TeamID, limit)
+	hits, err := s.deps.Chats.SearchGlobal(req.Query, req.AgentKey, limit)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)
@@ -29,16 +29,17 @@ func (s *Server) handleGlobalSearch(w http.ResponseWriter, r *http.Request) {
 	results := make([]api.GlobalSearchResult, 0, len(hits))
 	for _, hit := range hits {
 		results = append(results, api.GlobalSearchResult{
-			ChatID:    hit.ChatID,
-			ChatName:  hit.ChatName,
-			AgentKey:  hit.AgentKey,
-			TeamID:    hit.TeamID,
-			RunID:     hit.RunID,
-			Kind:      hit.Kind,
-			Role:      hit.Role,
-			Timestamp: hit.Timestamp,
-			Snippet:   hit.Snippet,
-			Score:     hit.Score,
+			ChatID:   hit.ChatID,
+			ChatName: hit.ChatName,
+			AgentKey: hit.AgentKey,
+
+			RunID:          hit.RunID,
+			Kind:           hit.Kind,
+			Role:           hit.Role,
+			Timestamp:      hit.Timestamp,
+			Snippet:        hit.Snippet,
+			LastRunContent: hit.LastRunContent,
+			Score:          hit.Score,
 		})
 	}
 	writeJSON(w, http.StatusOK, api.Success(api.GlobalSearchResponse{

@@ -16,6 +16,7 @@ import (
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/rootpaths"
 	runtimetypes "agent-platform/internal/runtime/types"
+	"agent-platform/internal/runtimeskills"
 	"agent-platform/internal/sandbox"
 )
 
@@ -58,8 +59,8 @@ func BuildPromptAppendConfig(global config.PromptsConfig, def catalog.AgentDefin
 }
 
 type ContextInput struct {
-	AgentKey           string
-	TeamID             string
+	AgentKey string
+
 	Role               string
 	ChatID             string
 	ChatName           string
@@ -99,8 +100,8 @@ func (s *Builder) BuildContext(input ContextInput) (contracts.RuntimeRequestCont
 		}
 	}
 	context := contracts.RuntimeRequestContext{
-		AgentKey:     input.AgentKey,
-		TeamID:       input.TeamID,
+		AgentKey: input.AgentKey,
+
 		Role:         input.Role,
 		ChatName:     input.ChatName,
 		LocalMode:    s.deps.Config.IsLocalMode(),
@@ -444,7 +445,16 @@ func BuildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 		if !ok {
 			continue
 		}
-		blocks = append(blocks, SkillCatalogBlock(definition, def.SkillInstructionsPath(definition.ID)))
+		block := SkillCatalogBlock(definition, def.SkillInstructionsPath(definition.ID))
+		if def.RuntimeRevision != "" && !def.IsConnectorSkill(definition.ID) {
+			if dir, err := runtimeskills.Resolve(def.RuntimeDir, definition.ID); err == nil {
+				block += "\nhostDirectory: " + dir
+				if HasRuntimeSandbox(def.Runtime) {
+					block += "\ncontainerDirectory: /skills/" + definition.ID
+				}
+			}
+		}
+		blocks = append(blocks, block)
 	}
 	for _, skill := range mustUseSkills {
 		normalized := strings.ToLower(strings.TrimSpace(skill.ID))
@@ -531,7 +541,7 @@ func ResolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 		}
 		normalized := strings.ToLower(requestedKey)
 		if configuredKey, ok := configured[normalized]; ok {
-			rootPath, err := ResolveMustUseSkillRoot(filepath.Join(def.RuntimeDir, "skills"), configuredKey)
+			rootPath, err := ResolveConfiguredSkillRoot(def.RuntimeDir, configuredKey)
 			if err != nil {
 				return SkillResolution{}, fmt.Errorf("resolve must-use skill %q root: %w", configuredKey, err)
 			}
@@ -718,7 +728,6 @@ func ResolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		AgentDir:            agentDir,
 		AgentsDir:           CleanOrEmpty(paths.AgentsDir),
 		RUAgentsDir:         CleanOrEmpty(ruAgentsDir),
-		TeamsDir:            CleanOrEmpty(paths.TeamsDir),
 		ChatsDir:            CleanOrEmpty(paths.ChatsDir),
 		MemoryDir:           CleanOrEmpty(paths.MemoryDir),
 		SkillsDir:           agentSkillsDir,
@@ -809,7 +818,6 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	var skillsCenterDir string
 	ownerDir := IfNonEmpty(cfg.Paths.OwnerDir, "/owner")
 	var ruAgentsDir string
-	var teamsDir string
 	var automationsDir string
 	var chatsDir string
 	memoryDir := IfNonEmpty(cfg.Paths.MemoryDir, "/memory")
@@ -827,8 +835,6 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 			skillsCenterDir = "/skills-center"
 		case "agents":
 			ruAgentsDir = "/agents"
-		case "teams":
-			teamsDir = "/teams"
 		case "automations":
 			automationsDir = "/automations"
 		case "chats":
@@ -856,7 +862,6 @@ func ResolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		AgentDir:            BoolPath(hasAgentDir, "/agent"),
 		OwnerDir:            ownerDir,
 		RUAgentsDir:         ruAgentsDir,
-		TeamsDir:            teamsDir,
 		AutomationsDir:      automationsDir,
 		ChatsDir:            chatsDir,
 		MemoryDir:           memoryDir,
@@ -895,8 +900,6 @@ func ResolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 			paths.SkillsCenterDir = AbsOrEmpty(cfg.Paths.SkillsCenterDir)
 		case "agents":
 			paths.RUAgentsDir = AbsOrEmpty(cfg.Paths.EffectiveRUAgentsDir())
-		case "teams":
-			paths.TeamsDir = AbsOrEmpty(cfg.Paths.TeamsDir)
 		case "automations":
 			paths.AutomationsDir = AbsOrEmpty(cfg.Paths.AutomationsDir)
 		case "chats":

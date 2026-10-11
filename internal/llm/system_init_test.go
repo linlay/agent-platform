@@ -33,6 +33,21 @@ func TestSystemInitFingerprintStableAndToolOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestCollectionDescriptionInvalidatesKBasePromptCache(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = agentkbase.Mode
+	session.KBaseCollectionsPrompt = "Collection docs: old description"
+	first := ComputeSystemInitFingerprint(session, "main", nil)
+	session.KBaseCollectionsPrompt = "Collection docs: new description"
+	if first == ComputeSystemInitFingerprint(session, "main", nil) {
+		t.Fatal("collection metadata retained stale system-init cache")
+	}
+	prompt := agentkbase.RenderSystemPrompt(session, api.QueryRequest{}, nil, agentkbase.MainStage)
+	if !strings.Contains(prompt, session.KBaseCollectionsPrompt) {
+		t.Fatalf("missing frozen collections: %s", prompt)
+	}
+}
+
 func TestSystemInitFingerprintIgnoresRequestDynamicContext(t *testing.T) {
 	session := fingerprintTestSession()
 	changed := session
@@ -469,7 +484,7 @@ func TestPlanningModeBuildsOnePlanningSystemInitForEveryNativeMode(t *testing.T)
 }
 
 func TestPlanningModeIsNotBuiltForUnsupportedModes(t *testing.T) {
-	for _, mode := range []string{"TEAM", "PLAN_EXECUTE", "ONESHOT"} {
+	for _, mode := range []string{"PLAN_EXECUTE", "ONESHOT"} {
 		session := fingerprintTestSession()
 		session.Mode = mode
 		session.PlanningMode = true

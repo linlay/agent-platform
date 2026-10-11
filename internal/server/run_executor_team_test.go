@@ -11,8 +11,8 @@ func TestTeamAwaitingNotificationUsesPublicOwner(t *testing.T) {
 	notifications := &recordingNotificationSink{}
 	handleAwaitingLifecycle(RunExecutorParams{
 		Session: contracts.QuerySession{
-			ChatID: "chat-team", RunID: "run-team", AgentKey: hiddenTeamAgentKey("research"), TeamID: "research",
-			RunOwner: contracts.TeamRunOwner("research", hiddenTeamAgentKey("research")),
+			ChatID: "chat-team", RunID: "run-team", AgentKey: "research",
+			RunOwner: contracts.AgentRunOwner("research"),
 		},
 		Notifications: notifications,
 	}, stream.EventData{Type: "awaiting.ask", Timestamp: testEpochMillis + 1, Payload: map[string]any{
@@ -23,10 +23,10 @@ func TestTeamAwaitingNotificationUsesPublicOwner(t *testing.T) {
 		t.Fatalf("notifications=%#v", payloads)
 	}
 	payload := payloads[0]
-	if _, present := payload["ownerType"]; present || payload["teamId"] != "research" {
+	if _, present := payload["ownerType"]; present || payload["agentKey"] != "research" {
 		t.Fatalf("Team awaiting owner=%#v", payload)
 	}
-	if _, leaked := payload["agentKey"]; leaked {
+	if _, leaked := payload["teamId"]; leaked {
 		t.Fatalf("Team awaiting leaked coordinator identity: %#v", payload)
 	}
 }

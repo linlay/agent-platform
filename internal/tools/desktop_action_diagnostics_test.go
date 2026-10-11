@@ -74,7 +74,7 @@ func TestDesktopActionWorkerDiagnosticsSurviveTransport(t *testing.T) {
 func TestDesktopActionSourceUsesFileToolsWorkspace(t *testing.T) {
 	root := t.TempDir()
 	chat := t.TempDir()
-	session := QuerySession{RunID: "run-1", ChatID: "chat-1", RunOwner: AgentRunOwner("agent-1", "agent-1"), RuntimeContext: RuntimeRequestContext{LocalPaths: LocalPaths{WorkspaceDir: root, ChatDir: chat}}}
+	session := QuerySession{RunID: "run-1", ChatID: "chat-1", RunOwner: AgentRunOwner("agent-1"), RuntimeContext: RuntimeRequestContext{LocalPaths: LocalPaths{WorkspaceDir: root, ChatDir: chat}}}
 	source, err := buildDesktopActionSource(&ExecutionContext{Session: session})
 	if err != nil || source.WorkspaceRoot != root {
 		t.Fatalf("workspace mismatch: %#v %v", source, err)

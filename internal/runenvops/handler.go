@@ -29,11 +29,11 @@ func callerAllowed(ctx *contracts.ExecutionContext) bool {
 	}
 	s := ctx.Session
 	owner := contracts.ResolveRunOwner(s.RunOwner)
-	if strings.TrimSpace(s.RunID) == "" || strings.TrimSpace(s.AgentKey) == "" || s.SubTaskID != "" || s.TeamID != "" || s.TeamRuntime != nil || owner.IsTeam() || owner.AgentKey != s.AgentKey || !slices.Contains(s.ToolNames, ToolName) {
+	if strings.TrimSpace(s.RunID) == "" || strings.TrimSpace(s.AgentKey) == "" || s.SubTaskID != "" || owner.AgentKey != s.AgentKey || !slices.Contains(s.ToolNames, ToolName) {
 		return false
 	}
 	switch strings.ToUpper(strings.TrimSpace(s.Mode)) {
-	case "GENERAL", "REACT", "CODER", "KBASE":
+	case "GENERAL", "REACT", "CODER", "KBASE", "TEAM":
 		return true
 	}
 	return false

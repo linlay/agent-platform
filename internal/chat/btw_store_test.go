@@ -13,7 +13,7 @@ func TestBTWBranchRejectsUnsupportedParentSystemSchema(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	const chatID = "chat-btw-invalid-system"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "question"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "question"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	invalidJSONL := `{"_type":"query","chatId":"` + chatID + `","runId":"run-parent","updatedAt":1700000001000,"systems":[]}` + "\n"
@@ -32,7 +32,7 @@ func TestBTWBranchCopiesParentAndAppendsIndependently(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	const chatID = "chat-btw-copy"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "parent question"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "parent question"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
@@ -122,7 +122,7 @@ func TestBTWBranchAppendDoesNotRecreateDeletedParentDirectory(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	const chatID = "chat-btw-deleted"
-	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "question"); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "question"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	branch, err := store.CreateBTWBranch(chatID, "btw_deleted")

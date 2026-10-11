@@ -13,18 +13,8 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 )
-
-type fakeTeamLookup struct {
-	teams map[string]catalog.TeamSnapshot
-}
-
-func (f fakeTeamLookup) ResolveTeam(teamID string) (catalog.TeamSnapshot, bool) {
-	def, ok := f.teams[teamID]
-	return def, ok
-}
 
 func TestParseCronAutomationAcceptsTraditionalFiveField(t *testing.T) {
 	valid := []string{"0 9 * * *", "17 9 * * *", "*/5 * * * *"}
@@ -74,7 +64,7 @@ func TestRegistryLoadsStructuredAutomationDefinition(t *testing.T) {
 		t.Fatalf("write automation file: %v", err)
 	}
 
-	defs, err := NewRegistry(root, nil).Load()
+	defs, err := NewRegistry(root).Load()
 	if err != nil {
 		t.Fatalf("load automations: %v", err)
 	}
@@ -134,7 +124,7 @@ func TestRegistrySkipsExampleAutomationDefinition(t *testing.T) {
 		t.Fatalf("write example automation file: %v", err)
 	}
 
-	defs, err := NewRegistry(root, nil).Load()
+	defs, err := NewRegistry(root).Load()
 	if err != nil {
 		t.Fatalf("load automations: %v", err)
 	}
@@ -152,7 +142,7 @@ func TestRegistryKeepsOmittedQueryDefaultsOutOfDefinition(t *testing.T) {
 		"query:\n"+
 		"  message: hello\n")
 
-	defs, err := NewRegistry(root, nil).Load()
+	defs, err := NewRegistry(root).Load()
 	if err != nil {
 		t.Fatalf("load automations: %v", err)
 	}
@@ -176,7 +166,7 @@ func TestRegistryLoadsNestedAutomationDefinition(t *testing.T) {
 	}
 	writeAutomation(t, filepath.Join(nested, "demo.yml"), automationBody("hello", "17 9 * * *", ""))
 
-	defs, err := NewRegistry(root, nil).Load()
+	defs, err := NewRegistry(root).Load()
 	if err != nil {
 		t.Fatalf("load automations: %v", err)
 	}
@@ -198,7 +188,7 @@ func TestRegistryKeepsLexicallyFirstDuplicateAutomationID(t *testing.T) {
 	writeAutomation(t, filepath.Join(firstDir, "daily.yml"), automationBodyWithDescription("first", "17 9 * * *", "", "first"))
 	writeAutomation(t, filepath.Join(secondDir, "daily.demo.yml"), automationBodyWithDescription("second", "17 9 * * *", "", "second"))
 
-	defs, err := NewRegistry(root, nil).Load()
+	defs, err := NewRegistry(root).Load()
 	if err != nil {
 		t.Fatalf("load automations: %v", err)
 	}
@@ -230,7 +220,7 @@ func TestRegistrySkipsInvalidAutomations(t *testing.T) {
 		}
 	}
 
-	defs, err := NewRegistry(root, nil).Load()
+	defs, err := NewRegistry(root).Load()
 	if err != nil {
 		t.Fatalf("load automations: %v", err)
 	}
@@ -247,52 +237,12 @@ func TestRegistryRejectsSixFieldCronWithHelpfulError(t *testing.T) {
 	path := filepath.Join(root, "invalid.yml")
 	writeAutomation(t, path, automationBody("hello", "0 0 9 * * *", ""))
 
-	_, err := NewRegistry(root, nil).parseDefinition(path)
+	_, err := NewRegistry(root).parseDefinition(path)
 	if err == nil {
 		t.Fatal("expected six-field cron to fail")
 	}
 	if !strings.Contains(err.Error(), "only traditional 5-field cron") {
 		t.Fatalf("expected helpful error, got %v", err)
-	}
-}
-
-func TestRegistryValidatesTeamScopedAutomation(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "valid.yml"), []byte(
-		"name: Team Valid\n"+
-			"description: ok\n"+
-			"cron: \"17 9 * * *\"\n"+
-			"teamId: team-a\n"+
-			"query:\n"+
-			"  message: hello\n",
-	), 0o644); err != nil {
-		t.Fatalf("write valid automation: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "invalid.yml"), []byte(
-		"name: Team Invalid\n"+
-			"description: bad\n"+
-			"cron: \"17 9 * * *\"\n"+
-			"agentKey: other-agent\n"+
-			"teamId: team-a\n"+
-			"query:\n"+
-			"  message: hello\n",
-	), 0o644); err != nil {
-		t.Fatalf("write invalid automation: %v", err)
-	}
-
-	teams := fakeTeamLookup{teams: map[string]catalog.TeamSnapshot{
-		"team-a": {
-			TeamID:         "team-a",
-			AgentKeys:      []string{"demo-agent"},
-			ValidAgentKeys: []string{"demo-agent"},
-		},
-	}}
-	defs, err := NewRegistry(root, teams).Load()
-	if err != nil {
-		t.Fatalf("load automations: %v", err)
-	}
-	if len(defs) != 1 || defs[0].ID != "valid" {
-		t.Fatalf("expected only valid team-scoped automation, got %#v", defs)
 	}
 }
 
@@ -321,7 +271,7 @@ func TestOrchestratorRegistersEnabledCronAutomation(t *testing.T) {
 		t.Fatalf("write disabled automation file: %v", err)
 	}
 
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+	orchestrator := NewOrchestrator(NewRegistry(root), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		return successfulTestQuery(req, hooks), nil
 	}, nil, nil), config.AutomationConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -342,7 +292,7 @@ func TestOrchestratorConsumesRemainingRunsAndDeletesFile(t *testing.T) {
 	writeAutomation(t, path, automationBody("hello", "17 9 * * *", "remainingRuns: 2\n"))
 
 	dispatched := make(chan api.QueryRequest, 4)
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+	orchestrator := NewOrchestrator(NewRegistry(root), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		dispatched <- req
 		return successfulTestQuery(req, hooks), nil
 	}, nil, nil), config.AutomationConfig{})
@@ -395,7 +345,7 @@ func TestOrchestratorConsumesRunOnDispatchFailure(t *testing.T) {
 
 	expectedErr := errors.New("dispatch failed")
 	attempts := make(chan api.QueryRequest, 2)
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest, _ QueryRunHooks) (QueryRunResult, error) {
+	orchestrator := NewOrchestrator(NewRegistry(root), NewDispatcher(func(_ context.Context, req api.QueryRequest, _ QueryRunHooks) (QueryRunResult, error) {
 		attempts <- req
 		return QueryRunResult{}, expectedErr
 	}, nil, nil), config.AutomationConfig{})
@@ -421,7 +371,7 @@ func TestOrchestratorConsumesRunOnDispatchFailure(t *testing.T) {
 
 func TestOrchestratorWatchesAutomationDirectory(t *testing.T) {
 	root := t.TempDir()
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+	orchestrator := NewOrchestrator(NewRegistry(root), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		return successfulTestQuery(req, hooks), nil
 	}, nil, nil), config.AutomationConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -474,7 +424,7 @@ func TestOrchestratorUsesDefaultZoneIDWhenAutomationZoneMissing(t *testing.T) {
 	writeAutomation(t, filepath.Join(root, "demo.yml"), automationBody("hello", "17 9 * * *", ""))
 
 	orchestrator := NewOrchestrator(
-		NewRegistry(root, nil),
+		NewRegistry(root),
 		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 			return successfulTestQuery(req, hooks), nil
 		}, nil, nil),
@@ -503,7 +453,7 @@ func TestOrchestratorAutomationZoneOverridesDefaultZoneID(t *testing.T) {
 	writeAutomation(t, filepath.Join(root, "demo.yml"), automationBody("hello", "17 9 * * *", "environment:\n  zoneId: UTC\n"))
 
 	orchestrator := NewOrchestrator(
-		NewRegistry(root, nil),
+		NewRegistry(root),
 		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 			return successfulTestQuery(req, hooks), nil
 		}, nil, nil),
@@ -525,7 +475,7 @@ func TestOrchestratorFallsBackToLocalWhenZonesMissing(t *testing.T) {
 	writeAutomation(t, filepath.Join(root, "demo.yml"), automationBody("hello", "17 9 * * *", ""))
 
 	orchestrator := NewOrchestrator(
-		NewRegistry(root, nil),
+		NewRegistry(root),
 		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 			return successfulTestQuery(req, hooks), nil
 		}, nil, nil),
@@ -603,7 +553,7 @@ func TestOrchestratorAutomationsReturnsActiveRegistrations(t *testing.T) {
 	writeAutomation(t, filepath.Join(root, "a.yml"), automationBody("first", "23 10 * * *", ""))
 
 	orchestrator := NewOrchestrator(
-		NewRegistry(root, nil),
+		NewRegistry(root),
 		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 			return successfulTestQuery(req, hooks), nil
 		}, nil, nil),
@@ -631,7 +581,7 @@ func TestOrchestratorAutomationsReturnsActiveRegistrations(t *testing.T) {
 func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(
-		NewRegistry(root, nil),
+		NewRegistry(root),
 		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 			return successfulTestQuery(req, hooks), nil
 		}, nil, nil),
@@ -719,7 +669,7 @@ func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 
 func TestOrchestratorManualTriggerRunsPausedWithoutMutatingScheduleState(t *testing.T) {
 	root := t.TempDir()
-	registry := NewRegistry(root, nil)
+	registry := NewRegistry(root)
 	remainingRuns := 2
 	hidden := false
 	definition := Definition{
@@ -808,7 +758,7 @@ func TestOrchestratorManualTriggerRunsPausedWithoutMutatingScheduleState(t *test
 
 func TestOrchestratorManualTriggerRunsEnabledWithoutChangingNextFire(t *testing.T) {
 	root := t.TempDir()
-	registry := NewRegistry(root, nil)
+	registry := NewRegistry(root)
 	remainingRuns := 3
 	definition := Definition{
 		ID:            "enabled-manual",
@@ -863,14 +813,7 @@ func TestOrchestratorManualTriggerRunsEnabledWithoutChangingNextFire(t *testing.
 
 func TestOrchestratorManualTriggerKeepsQueuedTeamDefinitionSnapshot(t *testing.T) {
 	root := t.TempDir()
-	teams := fakeTeamLookup{teams: map[string]catalog.TeamSnapshot{
-		"research": {
-			TeamID:         "research",
-			AgentKeys:      []string{"writer", "reviewer"},
-			ValidAgentKeys: []string{"writer", "reviewer"},
-		},
-	}}
-	registry := NewRegistry(root, teams)
+	registry := NewRegistry(root)
 	blocker := Definition{
 		ID:       "manual-blocker",
 		Name:     "Manual Blocker",
@@ -881,12 +824,12 @@ func TestOrchestratorManualTriggerKeepsQueuedTeamDefinitionSnapshot(t *testing.T
 	}
 	hidden := false
 	target := Definition{
-		ID:          "team-snapshot",
+		ID: "team-snapshot", AgentKey: "research",
 		Name:        "Team Snapshot",
 		Description: "accepted definition",
 		Enabled:     false,
 		Cron:        "0 9 * * *",
-		TeamID:      "research",
+
 		Environment: Environment{ZoneID: "Asia/Shanghai"},
 		Query: Query{
 			ChatID:  "chat-team",
@@ -938,7 +881,7 @@ func TestOrchestratorManualTriggerKeepsQueuedTeamDefinitionSnapshot(t *testing.T
 
 	release <- struct{}{}
 	request := waitForQueryRequest(t, entered, time.Second)
-	if request.AgentKey != "" || request.TeamID != target.TeamID || request.ChatID != target.Query.ChatID || request.Role != target.Query.Role || request.Message != target.Query.Message {
+	if request.AgentKey != "research" || request.ChatID != target.Query.ChatID || request.Role != target.Query.Role || request.Message != target.Query.Message {
 		t.Fatalf("queued trigger lost accepted Team definition: %#v", request)
 	}
 	if request.Hidden == nil || *request.Hidden || request.Params["snapshot"] != "accepted" || request.ChatSource != api.ChatSourceAutomationPrefix+target.ID {
@@ -951,7 +894,7 @@ func TestOrchestratorManualTriggerKeepsQueuedTeamDefinitionSnapshot(t *testing.T
 
 func TestOrchestratorManualTriggerStopCancelsRunningAndQueuedExecutions(t *testing.T) {
 	root := t.TempDir()
-	registry := NewRegistry(root, nil)
+	registry := NewRegistry(root)
 	if err := registry.Persist(Definition{
 		ID:       "manual-stop",
 		Name:     "Manual Stop",
@@ -1042,7 +985,7 @@ func waitForExecutionStatus(t *testing.T, store *ExecutionStore, executionID str
 func TestOrchestratorReleasesDispatchSlotAfterDispatchFailure(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(
-		NewRegistry(root, nil),
+		NewRegistry(root),
 		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 			return successfulTestQuery(req, hooks), nil
 		}, nil, nil),
@@ -1097,7 +1040,7 @@ func TestOrchestratorReleasesDispatchSlotAfterDispatchFailure(t *testing.T) {
 
 func TestAcquireDispatchSlotContextCancellationDoesNotLeak(t *testing.T) {
 	orchestrator := NewOrchestrator(
-		NewRegistry(t.TempDir(), nil),
+		NewRegistry(t.TempDir()),
 		nil,
 		config.AutomationConfig{PoolSize: 1},
 	)
@@ -1124,7 +1067,7 @@ func TestWatcherIgnoresDSStoreChangesButReloadsRuntimeFiles(t *testing.T) {
 	defer log.SetOutput(previous)
 
 	orchestrator := NewOrchestrator(
-		NewRegistry(root, nil),
+		NewRegistry(root),
 		nil,
 		config.AutomationConfig{PoolSize: 1},
 	)

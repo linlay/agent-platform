@@ -31,10 +31,10 @@ func completeRunForTest(store *FileStore, completion RunCompletion) error {
 	} else if ok {
 		completion.StartedAtMillis = startedAt
 	} else if err := store.OnRunStarted(RunStart{
-		ChatID:          completion.ChatID,
-		RunID:           completion.RunID,
-		AgentKey:        completion.AgentKey,
-		TeamID:          completion.TeamID,
+		ChatID:   completion.ChatID,
+		RunID:    completion.RunID,
+		AgentKey: completion.AgentKey,
+
 		InitialMessage:  completion.InitialMessage,
 		StartedAtMillis: completion.StartedAtMillis,
 	}); err != nil {

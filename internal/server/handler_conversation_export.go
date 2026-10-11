@@ -121,19 +121,13 @@ func parseConversationExportFormat(r *http.Request) (string, error) {
 	}
 }
 
-func (s *Server) resolveExportAssistant(agentKey, teamID string) *conversationexport.AssistantV1 {
+func (s *Server) resolveExportAssistant(agentKey string) *conversationexport.AssistantV1 {
 	if s.deps.Registry == nil {
 		return nil
 	}
 	var name string
 	var icon any
-	if teamID != "" {
-		definition, ok := s.deps.Registry.TeamDefinition(teamID)
-		if !ok {
-			return nil
-		}
-		name, icon = definition.Name, definition.Icon
-	} else if agentKey != "" {
+	if agentKey != "" {
 		definition, ok := s.deps.Registry.AgentDefinition(agentKey)
 		if !ok {
 			return nil

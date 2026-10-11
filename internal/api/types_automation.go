@@ -16,13 +16,13 @@ type AutomationExecutionListResponse struct {
 }
 
 type AutomationSummaryResponse struct {
-	ID            string                    `json:"id"`
-	Name          string                    `json:"name"`
-	Description   string                    `json:"description,omitempty"`
-	Cron          string                    `json:"cron"`
-	AgentKey      string                    `json:"agentKey,omitempty"`
-	Enabled       bool                      `json:"enabled"`
-	TeamID        string                    `json:"teamId,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Cron        string `json:"cron"`
+	AgentKey    string `json:"agentKey,omitempty"`
+	Enabled     bool   `json:"enabled"`
+
 	ZoneID        string                    `json:"zoneId,omitempty"`
 	SourceFile    string                    `json:"sourceFile,omitempty"`
 	RemainingRuns *int                      `json:"remainingRuns,omitempty"`
@@ -76,21 +76,21 @@ type AutomationExecutionResponse struct {
 	AutomationName string `json:"automationName"`
 	SourceFile     string `json:"sourceFile"`
 	AgentKey       string `json:"agentKey,omitempty"`
-	TeamID         string `json:"teamId,omitempty"`
-	Status         string `json:"status"`
-	Error          string `json:"error"`
-	ZoneID         string `json:"zoneId"`
-	ChatID         string `json:"chatId,omitempty"`
-	RunID          string `json:"runId,omitempty"`
-	FinishReason   string `json:"finishReason,omitempty"`
-	HasResult      bool   `json:"hasResult"`
-	ResultPreview  string `json:"resultPreview,omitempty"`
-	StartedAt      int64  `json:"startedAt"`
-	StartedTime    string `json:"startedTime"`
-	RunStartedAt   *int64 `json:"runStartedAt,omitempty"`
-	CompletedAt    *int64 `json:"completedAt,omitempty"`
-	CompletedTime  string `json:"completedTime,omitempty"`
-	DurationMs     *int64 `json:"durationMs,omitempty"`
+
+	Status        string `json:"status"`
+	Error         string `json:"error"`
+	ZoneID        string `json:"zoneId"`
+	ChatID        string `json:"chatId,omitempty"`
+	RunID         string `json:"runId,omitempty"`
+	FinishReason  string `json:"finishReason,omitempty"`
+	HasResult     bool   `json:"hasResult"`
+	ResultPreview string `json:"resultPreview,omitempty"`
+	StartedAt     int64  `json:"startedAt"`
+	StartedTime   string `json:"startedTime"`
+	RunStartedAt  *int64 `json:"runStartedAt,omitempty"`
+	CompletedAt   *int64 `json:"completedAt,omitempty"`
+	CompletedTime string `json:"completedTime,omitempty"`
+	DurationMs    *int64 `json:"durationMs,omitempty"`
 }
 
 type AutomationExecutionDetailResponse struct {
@@ -100,12 +100,12 @@ type AutomationExecutionDetailResponse struct {
 }
 
 type CreateAutomationRequest struct {
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description,omitempty"`
-	Cron          string                 `json:"cron"`
-	AgentKey      string                 `json:"agentKey,omitempty"`
-	Enabled       *bool                  `json:"enabled,omitempty"`
-	TeamID        string                 `json:"teamId,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Cron        string `json:"cron"`
+	AgentKey    string `json:"agentKey,omitempty"`
+	Enabled     *bool  `json:"enabled,omitempty"`
+
 	ZoneID        string                 `json:"zoneId,omitempty"`
 	RemainingRuns *int                   `json:"remainingRuns,omitempty"`
 	Query         AutomationQueryRequest `json:"query"`
@@ -121,13 +121,13 @@ type AutomationQueryRequest struct {
 }
 
 type UpdateAutomationRequest struct {
-	ID            string                  `json:"id"`
-	AutomationID  string                  `json:"automationId,omitempty"`
-	Name          *string                 `json:"name,omitempty"`
-	Description   *string                 `json:"description,omitempty"`
-	Cron          *string                 `json:"cron,omitempty"`
-	AgentKey      *string                 `json:"agentKey,omitempty"`
-	TeamID        *string                 `json:"teamId,omitempty"`
+	ID           string  `json:"id"`
+	AutomationID string  `json:"automationId,omitempty"`
+	Name         *string `json:"name,omitempty"`
+	Description  *string `json:"description,omitempty"`
+	Cron         *string `json:"cron,omitempty"`
+	AgentKey     *string `json:"agentKey,omitempty"`
+
 	ZoneID        *string                 `json:"zoneId,omitempty"`
 	Enabled       *bool                   `json:"enabled,omitempty"`
 	RemainingRuns *int                    `json:"remainingRuns,omitempty"`

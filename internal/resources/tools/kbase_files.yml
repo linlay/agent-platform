@@ -19,7 +19,7 @@ inputSchema:
       description: files returns a flat path list; tree returns compact directory and file entries.
     path:
       type: string
-      description: Workspace-relative directory or path prefix. Defaults to the knowledge base root.
+      description: Collection-prefixed directory or path prefix. Defaults to the knowledge base root.
     pattern:
       type: string
       description: KBASE glob matched relative to path. Defaults to **. Supports *, ?, and **.

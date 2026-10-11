@@ -1,0 +1,157 @@
+# 知识库（library）配置示例。
+#
+# 实际位置：<AP_RUNTIME_DIR>/kbases/<id>/library.yml
+#   - <id> 取自目录名：1–64 位小写字母、数字、下划线或连字符，字母数字开头；`libraries` 为保留名。
+#   - 本文件不由 Platform 从 configs/ 读取，仅作参数参考；复制到上述目录并改名为 library.yml 后生效。
+#   - 配置按请求读盘，修改后无需重启；运行状态和索引在 ru-kbases/<id>/，不要手工编辑。
+#
+# 解析是严格的：出现未知字段或重复键会使该库加载失败（只影响这一个库）。
+# 因此下面分成两部分：
+#   第一部分 = 当前已支持，可直接使用；
+#   第二部分 = 规划中、尚未实现，全部保持注释，取消注释会导致加载失败。
+
+# ============================================================================
+# 第一部分：当前已支持
+# ============================================================================
+
+# 展示名称，必填。修改不触发重建索引。
+name: "研发知识"
+
+# 展示描述，可省略。修改不触发重建索引。
+description: "AI 建设与研发述职资料"
+
+# 库级切块默认值，collection.chunk 逐字段覆盖。唯一代码事实源：knowledge.DefaultChunkConfig()。
+# unit 仅支持 chars；strategy 支持 window / regex / structural。
+# 0 <= overlapChars < maxChars；显式 overlapChars: 0 不会继承默认值。
+chunk:
+  unit: "chars"
+  strategy: "window"
+  maxChars: 3600
+  overlapChars: 540
+
+# 非 UTF-8 文本的回退编码，仅对无 BOM 且不是合法 UTF-8 的文本生效。
+# 支持 WHATWG 编码标签（不接受 replacement）；省略时 KBX 使用严格 UTF-8/BOM 解码。
+# textEncoding: "gbk"
+
+# 可选逐库 embedding：省略时继承 runtime.kbx.embedding，URL/密钥来自共享模型 registry。
+# modelKey 必须指向 embedding 模型；prompt 省略时继承 runtime 默认。
+# models:
+#   embedding:
+#     modelKey: "qwen3-embedding-8b"
+#     prompt: "qwen3"           # raw | qwen3 | embeddinggemma
+#   reranker:
+#     modelKey: "qwen3-reranker" # registry type: reranker，配置 reranker.endpointPath
+#   queryExpansion:
+#     modelKey: "kbx-query-expansion" # registry type: chat，protocol: OPENAI
+
+# 检索默认值：平台默认 → 本库 → Agent 显式字段 → 单次调用；不参与索引指纹。
+retrieval:
+  topK: 8
+  candidateFloor: 30
+  candidateMultiplier: 4
+  candidateMax: 500
+  # minScore: 0                  # 方法相关排名分，不是置信度
+  # recencyWeight: 0             # 0 = 保持相关度排序；范围 0–1
+  # recencyHalfLifeDays: 90       # 必须 > 0
+  # rerank: false                # query；省略时启用已配置的 models.reranker
+  # queryExpansion: false        # query/vsearch；省略时启用已配置的 models.queryExpansion
+
+# 来源集合，1–32 个。名称与来源目录在库内都必须唯一。
+# 知识工具中的路径形如 <collection 名>/<相对路径>。
+collections:
+  # ---- 完整写法 ----
+  - # 集合名：1–64 位字母、数字、下划线或连字符（可用中文），字母数字开头。
+    # 改名等同于删除旧集合再新增，会重建该集合。
+    name: "ai"
+
+    # Platform 主机上的绝对目录，必须已存在。
+    # 不能与 Chats 目录重叠，不能位于 StateDir、库配置或运行数据目录内。
+    sourcePath: "/absolute/path/to/AI建设文档"
+
+    # 集合说明：供专用 KBASE 的 Run 提示词使用；修改不重建索引。
+    description: "现行技术规范，规范类问题优先查这里"
+
+    # 缺省 false。仅专用 KBASE 的 Host Run 开启 editingMode 后授予此目录写权限。
+    # 与 Workspace 取并集；不扩大 Workspace，不自动挂载到容器。
+    # Run 启动时冻结 canonical 目录；修改此开关在下次 Run 生效，不重建索引。
+    editable: true
+
+    # 缺省 true。false 仍照常索引；默认检索不选它，显式 collections 可查询。
+    # 修改在下次查询生效，不影响浏览、回读、编辑权限或索引指纹。
+    defaultQuery: true
+
+    # 纳入索引的文件 glob（相对 sourcePath）。
+    # 省略时使用下面这七种默认扩展名；显式写空数组会被拒绝。
+    include:
+      - "**/*.md"
+      - "**/*.txt"
+      - "**/*.html"
+      - "**/*.htm"
+      - "**/*.pdf"
+      - "**/*.docx"
+      - "**/*.pptx"
+
+    # 排除的文件 glob（相对 sourcePath）。
+    # 省略时使用默认值 [".git/**", ".kbase/**", "node_modules/**"]；
+    # 显式空数组只关闭这组默认值，不关闭 KBX 内置的安全排除。
+    exclude:
+      - ".git/**"
+      - ".kbase/**"
+      - "node_modules/**"
+      - "private/**"
+
+    # 切块。整段省略继承库级默认，逐字段覆盖。
+    # 自定义时 unit 必须是 chars，且 0 <= overlapChars < maxChars。
+    # 按 Unicode 字符计数，不是 token 上限。
+    chunk:
+      unit: "chars"
+      strategy: "structural"
+      maxChars: 3600
+      overlapChars: 540
+
+  # ---- 最小写法：只需名称和目录，其余取默认值 ----
+  - name: "research"
+    sourcePath: "/absolute/path/to/研发中心各条线述职"
+
+# 以上字段中，name（集合）、sourcePath、include、exclude、有效 chunk 和 textEncoding 计入来源指纹：
+# 修改后立即撤销旧范围的读取并重新对账。库与集合的 description、库的 name、collection editable 和集合顺序不计入。
+#
+# models.embedding 的有效模型合同计入向量指纹，变化后只重建全库向量，全文仍可读。
+# endpoint/modelId/dimension/prompt 的改变触发向量重建；密钥、超时和 batchSize 下次调用生效。
+# retrieval、models.reranker、models.queryExpansion、defaultQuery 不计入指纹，下次查询生效。
+# 库 YAML 修改无需重启；runtime 默认值修改仍需重启。
+#
+# Agent 侧只写绑定和查询预算（agent.yml）：
+#   kbaseConfig:
+#     libraryId: <id>
+#     retrieval: { topK: 8, candidateFloor: 30, candidateMultiplier: 4, candidateMax: 500 }
+
+# ============================================================================
+# 第二部分：规划中，尚未实现（保持注释）
+# 字段名和取值是设计草案，落地时可能调整。
+# ============================================================================
+
+# ---- 图谱模型尚未接入 ----
+# models:
+#   graphExtraction:
+#     modelKey: "kbx-graph-extractor"
+
+# ---- 图谱 ----
+# graph:
+#   enabled: false               # 需要 models.graphExtraction
+#   schema: "general-v1"         # general-v1 | software-v1
+
+# ---- 元数据字段定义：用于检索过滤 ----
+# metadata:
+#   fields:
+#     - name: "project"
+#       kind: "text"             # text | integer | decimal | boolean | date | datetime
+#       description: "所属项目"
+#       searchable: true
+
+# ---- collection 上的新增字段（写在对应集合内） ----
+# collections:
+#   - name: "ai"
+#     sourcePath: "/absolute/path/to/AI建设文档"
+#     metadata:                  # 该集合下所有文档继承的固定标签
+#       project: "ai-platform"

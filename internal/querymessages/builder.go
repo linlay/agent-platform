@@ -31,11 +31,11 @@ type BuildOptions struct {
 	RunID              string
 	RequestID          string
 	AgentKey           string
-	TeamID             string
-	Role               string
-	Scene              *api.Scene
-	Now                time.Time
-	Timezone           string
+
+	Role     string
+	Scene    *api.Scene
+	Now      time.Time
+	Timezone string
 }
 
 func BuildMessagesWithOptions(chatsDir string, chatID string, role string, text string, references []api.Reference, isVision bool, logMedia bool, options BuildOptions) []map[string]any {
@@ -114,7 +114,6 @@ func formatRunContext(options BuildOptions) string {
 	appendRunContextField(&lines, "runId", options.RunID)
 	appendRunContextField(&lines, "requestId", options.RequestID)
 	appendRunContextField(&lines, "agentKey", options.AgentKey)
-	appendRunContextField(&lines, "teamId", options.TeamID)
 	appendRunContextField(&lines, "role", role)
 	appendRunContextField(&lines, "currentDateTime", now.Format(time.RFC3339))
 	appendRunContextField(&lines, "timezone", resolveTimezoneName(now, options.Timezone))

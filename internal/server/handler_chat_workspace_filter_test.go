@@ -19,10 +19,10 @@ func TestChatsHasWorkspaceSeparatesChatAndProjectAgents(t *testing.T) {
 	}
 	// mock-agent has a specific Workspace in the fixture, so it is a project
 	// agent. An agent that is not in the catalog cannot be a project agent.
-	seedAgentModeChat(t, store, "chat-project-old", "loyw3v21", "mock-agent", "", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-general", "loyw3v22", "chat-only-agent", "", "GENERAL", 2_000)
-	seedAgentModeChat(t, store, "chat-project-new", "loyw3v23", "mock-agent", "", "GENERAL", 3_000)
-	seedAgentModeChat(t, store, "chat-team", "loyw3v24", "", "team-a", "TEAM", 4_000)
+	seedAgentModeChat(t, store, "chat-project-old", "loyw3v21", "mock-agent", "REACT", 1_000)
+	seedAgentModeChat(t, store, "chat-general", "loyw3v22", "chat-only-agent", "GENERAL", 2_000)
+	seedAgentModeChat(t, store, "chat-project-new", "loyw3v23", "mock-agent", "GENERAL", 3_000)
+	seedAgentModeChat(t, store, "chat-team", "loyw3v24", "", "TEAM", 4_000)
 
 	list := func(query string) (int, string) {
 		rec := httptest.NewRecorder()
@@ -35,7 +35,7 @@ func TestChatsHasWorkspaceSeparatesChatAndProjectAgents(t *testing.T) {
 		"":                                        "chat-team,chat-project-new,chat-general,chat-project-old",
 		"hasWorkspace=false":                      "chat-team,chat-general",
 		"hasWorkspace=true":                       "chat-project-new,chat-project-old",
-		"hasWorkspace=false&mode=GENERAL":         "chat-team,chat-general",
+		"hasWorkspace=false&mode=GENERAL":         "chat-general",
 		"hasWorkspace=true&limit=1":               "chat-project-new",
 		"hasWorkspace=false&limit=1":              "chat-team",
 		"hasWorkspace=true&mode=GENERAL":          "chat-project-new,chat-project-old",
@@ -59,10 +59,10 @@ func TestChatsPinnedFilterReadsPinsAndSkipsThemFromRecentPage(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
-	seedAgentModeChat(t, store, "chat-a", "loyw3v21", "chat-only-agent", "", "GENERAL", 1_000)
-	seedAgentModeChat(t, store, "chat-b", "loyw3v22", "chat-only-agent", "", "GENERAL", 2_000)
-	seedAgentModeChat(t, store, "chat-c", "loyw3v23", "chat-only-agent", "", "GENERAL", 3_000)
-	seedAgentModeChat(t, store, "chat-d", "loyw3v24", "chat-only-agent", "", "GENERAL", 4_000)
+	seedAgentModeChat(t, store, "chat-a", "loyw3v21", "chat-only-agent", "GENERAL", 1_000)
+	seedAgentModeChat(t, store, "chat-b", "loyw3v22", "chat-only-agent", "GENERAL", 2_000)
+	seedAgentModeChat(t, store, "chat-c", "loyw3v23", "chat-only-agent", "GENERAL", 3_000)
+	seedAgentModeChat(t, store, "chat-d", "loyw3v24", "chat-only-agent", "GENERAL", 4_000)
 	for _, chatID := range []string{"chat-a", "chat-d"} {
 		if _, _, err := store.SetChatPinned(chatID, true); err != nil {
 			t.Fatalf("pin %s: %v", chatID, err)

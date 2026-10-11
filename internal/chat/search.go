@@ -1,6 +1,7 @@
 package chat
 
 import (
+	agentteam "agent-platform/internal/agent/team"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -21,7 +22,7 @@ type SearchHit struct {
 	Meta      map[string]any `json:"meta,omitempty"`
 }
 
-func (s *FileStore) SearchGlobal(query string, agentKey string, teamID string, limit int) ([]GlobalSearchHit, error) {
+func (s *FileStore) SearchGlobal(query string, agentKey string, limit int) ([]GlobalSearchHit, error) {
 	needle := strings.TrimSpace(query)
 	if needle == "" {
 		return nil, nil
@@ -34,22 +35,20 @@ func (s *FileStore) SearchGlobal(query string, agentKey string, teamID string, l
 		chatID   string
 		chatName string
 		agentKey string
-		teamID   string
+
+		lastRunContent string
 	}
 	rows, err := func() ([]chatIndexRow, error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		sqlQuery := `SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,'') FROM CHATS WHERE 1=1`
+		sqlQuery := `SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, LAST_RUN_CONTENT_ FROM CHATS WHERE 1=1`
 		var args []any
 		if strings.TrimSpace(agentKey) != "" {
 			sqlQuery += ` AND AGENT_KEY_=?`
 			args = append(args, strings.TrimSpace(agentKey))
 		}
-		if strings.TrimSpace(teamID) != "" {
-			sqlQuery += ` AND TEAM_ID_=?`
-			args = append(args, strings.TrimSpace(teamID))
-		}
+
 		sqlQuery += ` ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC LIMIT 100`
 		dbRows, err := s.db.Query(sqlQuery, args...)
 		if err != nil {
@@ -60,7 +59,7 @@ func (s *FileStore) SearchGlobal(query string, agentKey string, teamID string, l
 		items := []chatIndexRow{}
 		for dbRows.Next() {
 			var item chatIndexRow
-			if err := dbRows.Scan(&item.chatID, &item.chatName, &item.agentKey, &item.teamID); err != nil {
+			if err := dbRows.Scan(&item.chatID, &item.chatName, &item.agentKey, &item.lastRunContent); err != nil {
 				return nil, err
 			}
 			items = append(items, item)
@@ -82,17 +81,18 @@ func (s *FileStore) SearchGlobal(query string, agentKey string, teamID string, l
 		}
 		for _, hit := range hits {
 			results = append(results, GlobalSearchHit{
-				Kind:      hit.Kind,
-				ChatID:    item.chatID,
-				ChatName:  item.chatName,
-				AgentKey:  item.agentKey,
-				TeamID:    item.teamID,
-				RunID:     hit.RunID,
-				Stage:     hit.Stage,
-				Role:      hit.Role,
-				Timestamp: hit.Timestamp,
-				Snippet:   hit.Snippet,
-				Score:     hit.Score,
+				Kind:     hit.Kind,
+				ChatID:   item.chatID,
+				ChatName: item.chatName,
+				AgentKey: item.agentKey,
+
+				RunID:          hit.RunID,
+				Stage:          hit.Stage,
+				Role:           hit.Role,
+				Timestamp:      hit.Timestamp,
+				Snippet:        hit.Snippet,
+				LastRunContent: item.lastRunContent,
+				Score:          hit.Score,
 			})
 		}
 	}
@@ -126,7 +126,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 	if limit <= 0 {
 		limit = 10
 	}
-	orchestratedTeam := isTeamOwner(sum.AgentKey, sum.TeamID)
 
 	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
@@ -175,7 +174,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 			}
 		case StepLineTypeReact, StepLineTypeReactTool:
 			stage := stringValue(line["stage"])
-			rootTeamCoordinator := orchestratedTeam && strings.TrimSpace(stringValue(line["taskId"])) == "" && strings.TrimSpace(stringValue(line["taskSubAgentKey"])) == ""
 			messages, _ := line["messages"].([]any)
 			for _, raw := range messages {
 				msg, _ := raw.(map[string]any)
@@ -184,9 +182,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 				}
 				role := stringValue(msg["role"])
 				text := searchMessageText(msg)
-				if rootTeamCoordinator {
-					text = teamVisibleSearchMessageText(msg)
-				}
 				if approval, ok := msg["approval"].(map[string]any); ok {
 					approvalText := strings.TrimSpace(strings.Join([]string{
 						text,
@@ -314,14 +309,10 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 	return hits, nil
 }
 
-func teamVisibleSearchMessageText(msg map[string]any) string {
-	if !strings.EqualFold(strings.TrimSpace(stringValue(msg["role"])), "assistant") {
+func searchMessageText(msg map[string]any) string {
+	if agentteam.IsHiddenTool(stringValue(msg["name"])) {
 		return ""
 	}
-	return strings.TrimSpace(extractTextFromContent(msg["content"]))
-}
-
-func searchMessageText(msg map[string]any) string {
 	parts := []string{
 		extractTextFromContent(msg["content"]),
 		extractTextFromContent(msg["reasoning_content"]),
@@ -335,6 +326,9 @@ func searchMessageText(msg map[string]any) string {
 				continue
 			}
 			function, _ := call["function"].(map[string]any)
+			if agentteam.IsHiddenTool(stringValue(function["name"])) {
+				continue
+			}
 			parts = append(parts,
 				stringValue(call["id"]),
 				stringValue(call["_toolId"]),

@@ -9,10 +9,10 @@ import (
 )
 
 type ContinuationRequestInput struct {
-	Original           api.QueryRequest
-	Submit             api.SubmitRequest
-	SummaryChatID      string
-	SummaryTeamID      string
+	Original      api.QueryRequest
+	Submit        api.SubmitRequest
+	SummaryChatID string
+
 	SummaryAgentKey    string
 	DefinitionAgentKey string
 	Mode               string
@@ -26,7 +26,7 @@ func BuildContinuationRequest(input ContinuationRequestInput) api.QueryRequest {
 	req.RunID = firstNonBlank(input.Submit.ContinuationRunID, input.Submit.RunID, req.RunID)
 	req.RequestID = firstNonBlank(input.Submit.SubmitID, req.RunID)
 	req.AgentKey = firstNonBlank(input.Submit.AgentKey, req.AgentKey, input.SummaryAgentKey, input.DefinitionAgentKey)
-	req.TeamID = firstNonBlank(req.TeamID, input.SummaryTeamID)
+
 	req.Role = api.QueryRoleSystem
 	if strings.EqualFold(input.Mode, "planning") {
 		planningMode := false
@@ -49,7 +49,7 @@ func BuildConfirmedPlanRequest(input ContinuationRequestInput) api.QueryRequest 
 	req.RunID = firstNonBlank(input.Submit.ContinuationRunID, input.Submit.RunID, req.RunID)
 	req.RequestID = firstNonBlank(input.Submit.SubmitID, req.RunID)
 	req.AgentKey = firstNonBlank(input.Submit.AgentKey, req.AgentKey, input.SummaryAgentKey, input.DefinitionAgentKey)
-	req.TeamID = firstNonBlank(req.TeamID, input.SummaryTeamID)
+
 	req.Role = api.QueryRoleSystem
 	planningMode := false
 	req.PlanningMode = &planningMode

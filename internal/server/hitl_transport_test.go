@@ -66,7 +66,7 @@ func TestHITLSubmitAcrossCreationScopes(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
-					RunID: runID, ChatID: "cross-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+					RunID: runID, ChatID: "cross-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent"),
 				})
 				control.ExpectSubmit(contracts.AwaitingSubmitContext{AwaitingID: "approval", Mode: "approval", ItemCount: 1})
 				server := httptest.NewServer(fixture.server)

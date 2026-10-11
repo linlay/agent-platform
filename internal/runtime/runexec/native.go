@@ -20,6 +20,7 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
+	"agent-platform/internal/view"
 )
 
 type NativeOptions struct {
@@ -52,6 +53,8 @@ type NativeOptions struct {
 	// OnComplete receives the same terminal record used for persistence. Callers
 	// use it for run.finished so its time and status cannot drift from the run.
 	OnComplete func(chat.RunCompletion)
+	// Release runs after continuation admission has retained any inherited runtime.
+	Release func()
 }
 
 type AwaitingTracker struct {
@@ -141,6 +144,9 @@ func StartNative(params NativeOptions) {
 }
 
 func ExecuteNative(params NativeOptions) Result {
+	if params.Release != nil {
+		defer params.Release()
+	}
 	tracker := &AwaitingTracker{}
 	result := Execute(ExecuteOptions{
 		RunCtx: params.RunCtx, Session: params.Session,
@@ -342,6 +348,7 @@ func HandleAwaitingLifecycle(params NativeOptions, data stream.EventData, tracke
 				publicAwaitingID = awaitingID
 			}
 			summaries, truncated := contracts.SummarizeApprovals(data.Value("approvals"))
+			viewRef, _ := view.ParseReference(data.Value("view"))
 			params.RunControl.ExpectSubmit(contracts.AwaitingSubmitContext{
 				Summaries:          summaries,
 				SummariesTruncated: truncated,
@@ -351,6 +358,8 @@ func HandleAwaitingLifecycle(params NativeOptions, data stream.EventData, tracke
 				Mode:               mode,
 				ItemCount:          AwaitingEventItemCount(data),
 				Questions:          AwaitingEventQuestions(data),
+				View:               viewRef,
+				Form:               contracts.AnyMapNode(data.Value("form")),
 				NoTimeout:          strings.EqualFold(mode, "planning"),
 				Timeout:            int64(contracts.AnyIntNode(data.Value("timeout"))),
 			})
@@ -419,14 +428,9 @@ func DecorateNotificationRunOwner(payload map[string]any, session contracts.Quer
 		return
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner)
-	if owner.IsTeam() {
-		payload["teamId"] = owner.TeamID
-		return
-	}
+
 	payload["agentKey"] = owner.AgentKey
-	if owner.TeamID != "" {
-		payload["teamId"] = owner.TeamID
-	}
+
 }
 
 func AwaitingEventItemCount(data stream.EventData) int {
@@ -520,11 +524,11 @@ func PersistRunCompletionWithReason(params NativeOptions, assistantText string, 
 	completedAtMillis := time.Now().UnixMilli()
 	owner := contracts.ResolveRunOwner(params.Session.RunOwner)
 	completion := chat.RunCompletion{
-		ChatID:          params.Session.ChatID,
-		RunID:           params.Session.RunID,
-		AgentKey:        owner.AgentKey,
-		AgentMode:       PersistedRunMode(params.Session.Mode),
-		TeamID:          owner.TeamID,
+		ChatID:    params.Session.ChatID,
+		RunID:     params.Session.RunID,
+		AgentKey:  owner.AgentKey,
+		AgentMode: PersistedRunMode(params.Session.Mode),
+
 		AssistantText:   assistantText,
 		InitialMessage:  params.Request.Message,
 		FinishReason:    finishReason,

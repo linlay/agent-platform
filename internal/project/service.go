@@ -298,7 +298,7 @@ func (s Service) validateChat(agentKey string, chatID string, runID string) erro
 		}
 		return Error{Status: http.StatusInternalServerError, Code: "internal_error", Message: err.Error()}
 	}
-	if strings.TrimSpace(summary.TeamID) != "" || strings.TrimSpace(summary.AgentKey) != strings.TrimSpace(agentKey) {
+	if strings.TrimSpace(summary.AgentKey) != strings.TrimSpace(agentKey) {
 		return Error{Status: http.StatusForbidden, Code: "forbidden", Message: "chat does not belong to the requested agent"}
 	}
 	runID = strings.TrimSpace(runID)

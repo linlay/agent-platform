@@ -187,7 +187,7 @@ func testInvocableAgentRegistry(registry map[string]catalog.AgentDefinition) map
 func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts.AgentEngine, registry map[string]catalog.AgentDefinition, emitted *[]contracts.AgentDelta, routed *[]stream.StreamInput) *frameOrchestrator {
 	return &frameOrchestrator{
 		RunCtx:  runCtx,
-		Request: runtimetypes.QueryCommand{RunID: "run_1", ChatID: "chat_1", TeamID: "team_1"},
+		Request: runtimetypes.QueryCommand{RunID: "run_1", ChatID: "chat_1"},
 		Session: contracts.QuerySession{
 			RunID: "run_1", ChatID: "chat_1", Mode: "REACT",
 			ModeCapabilities: agentcontract.ModeCapabilities{InvokeChildren: true, RunAsChild: true},
@@ -989,11 +989,11 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 	streamFlag := true
 	planningFlag := true
 	orchestrator.Request = runtimetypes.QueryCommand{
-		RequestID:                  "parent-request",
-		RunID:                      "parent-run",
-		ChatID:                     "parent-chat",
-		AgentKey:                   "parent-agent",
-		TeamID:                     "parent-team",
+		RequestID: "parent-request",
+		RunID:     "parent-run",
+		ChatID:    "parent-chat",
+		AgentKey:  "parent-agent",
+
 		Role:                       api.QueryRoleAutomation,
 		Message:                    "parent message",
 		References:                 []api.Reference{{ID: "parent-ref"}},
@@ -1011,12 +1011,9 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 	orchestrator.Session.RequestID = "parent-request"
 	orchestrator.Session.RunID = "fixed-run"
 	orchestrator.Session.ChatID = "fixed-chat"
-	orchestrator.Session.TeamID = "fixed-team"
+
 	orchestrator.Session.AccessLevel = contracts.AccessLevelFullAccess
-	teamSnapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
-		TeamID:    "fixed-team",
-		AgentKeys: []string{"writer"},
-	}, map[string]catalog.AgentDefinition{
+	teamSnapshot := catalog.NewTeamSnapshot(catalog.AgentDefinition{Key: "research", Mode: "TEAM", TeamConfig: &catalog.TeamConfig{Members: []string{"writer"}, MaxParallel: 5}}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
 	})
 	orchestrator.TeamSnapshot = &teamSnapshot
@@ -1035,7 +1032,7 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 	if childRequest.RequestID != "parent-request_sub_1" || childRequest.RunID != "fixed-run" || childRequest.ChatID != "fixed-chat" {
 		t.Fatalf("child identity fields = %#v", childRequest)
 	}
-	if childRequest.AgentKey != "writer" || childRequest.TeamID != "fixed-team" || childRequest.Role != api.QueryRoleUser || childRequest.Message != "write" {
+	if childRequest.AgentKey != "writer" {
 		t.Fatalf("child routing fields = %#v", childRequest)
 	}
 	if childRequest.AccessLevel != contracts.AccessLevelFullAccess {
@@ -1056,11 +1053,8 @@ func TestFrameOrchestratorRejectsChildOutsideFixedTeamSnapshot(t *testing.T) {
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
 		"reviewer": {Key: "reviewer", Mode: "REACT"},
 	}, nil, nil)
-	orchestrator.Session.TeamID = "team-a"
-	teamSnapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
-		TeamID:    "team-a",
-		AgentKeys: []string{"writer"},
-	}, map[string]catalog.AgentDefinition{
+
+	teamSnapshot := catalog.NewTeamSnapshot(catalog.AgentDefinition{Key: "research", Mode: "TEAM", TeamConfig: &catalog.TeamConfig{Members: []string{"writer"}, MaxParallel: 5}}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
 	})
 	orchestrator.TeamSnapshot = &teamSnapshot
@@ -1104,7 +1098,7 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat_1", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat_1", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, store, "chat_1", "run_1", testEpochMillis)
@@ -1214,7 +1208,7 @@ func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat_1", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat_1", "agent", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startServerFixtureRun(t, store, "chat_1", "run_1", testEpochMillis)

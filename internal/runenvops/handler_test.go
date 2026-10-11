@@ -9,7 +9,7 @@ import (
 )
 
 func root() *contracts.ExecutionContext {
-	return &contracts.ExecutionContext{CurrentToolID: "tool-1", RunEnvironment: runenv.NewScope(runenv.Limits{}), Session: contracts.QuerySession{RunID: "run-1", AgentKey: "agent", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("agent", ""), ToolNames: []string{ToolName}}}
+	return &contracts.ExecutionContext{CurrentToolID: "tool-1", RunEnvironment: runenv.NewScope(runenv.Limits{}), Session: contracts.QuerySession{RunID: "run-1", AgentKey: "agent", Mode: "GENERAL", RunOwner: contracts.AgentRunOwner("agent"), ToolNames: []string{ToolName}}}
 }
 func call(t *testing.T, h *ToolHandler, c *contracts.ExecutionContext, op string, p map[string]any) contracts.ToolExecutionResult {
 	t.Helper()
@@ -48,10 +48,9 @@ func TestOperationsAndCallerBoundaries(t *testing.T) {
 	}
 	for _, mutate := range []func(*contracts.ExecutionContext){
 		func(c *contracts.ExecutionContext) { c.Session.SubTaskID = "child" },
-		func(c *contracts.ExecutionContext) { c.Session.TeamID = "team" },
 		func(c *contracts.ExecutionContext) { c.Session.ToolNames = nil },
 		func(c *contracts.ExecutionContext) { c.Session.Mode = "ACP" },
-		func(c *contracts.ExecutionContext) { c.Session.RunOwner = contracts.AgentRunOwner("other", "") },
+		func(c *contracts.ExecutionContext) { c.Session.RunOwner = contracts.AgentRunOwner("other") },
 		func(c *contracts.ExecutionContext) { c.RunEnvironment = nil },
 	} {
 		c := root()
@@ -83,6 +82,19 @@ func TestStrictUpdateParams(t *testing.T) {
 	}
 	c.CurrentToolID = "unset"
 	if r := call(t, h, c, "update", map[string]any{"unset": []any{"a"}}); r.Error != "" || r.Structured["revision"] != uint64(2) {
+		t.Fatal(r)
+	}
+}
+
+func TestTEAMRootCanUseOwnRunEnvironment(t *testing.T) {
+	h := NewToolHandler(config.RunEnvConfig{})
+	c := root()
+	c.Session.Mode = "TEAM"
+	if r := call(t, h, c, "list", map[string]any{}); r.Error != "" {
+		t.Fatal(r)
+	}
+	c.Session.SubTaskID = "member"
+	if r := call(t, h, c, "list", map[string]any{}); r.Error != "run_env_unavailable" {
 		t.Fatal(r)
 	}
 }

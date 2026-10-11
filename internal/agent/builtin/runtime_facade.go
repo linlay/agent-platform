@@ -54,7 +54,7 @@ func IsCoderNativeBackend(mode, acpBridgeID string) bool {
 // mode. Planning is a capability of ordinary native Agents, not of one mode;
 // TEAM coordinators and pipeline modes do not offer it.
 func PlanningModeSupported(mode string) bool {
-	return general.IsMode(mode) || coder.IsMode(mode) || kbase.IsMode(mode)
+	return general.IsMode(mode) || coder.IsMode(mode) || kbase.IsMode(mode) || strings.EqualFold(mode, "TEAM")
 }
 
 // NativePlanning reports whether the platform itself runs the Agent's planning

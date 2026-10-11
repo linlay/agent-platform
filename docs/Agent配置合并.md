@@ -20,7 +20,9 @@ agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase 各
 agent-settings 顶层 `planning-mode` 对原生 GENERAL、CODER、KBASE 统一生效，决定 `planningMode` 产生的两种 Run 相对 Agent 有效工具少了什么，两个列表都是排除清单：
 
 - `exclude-tools`：规划 Run 不可用的工具。规划 Run 的工具 = Agent 有效工具 − 该列表，再由 Platform 追加 `finalize_planning`。
-- `execute-exclude-tools`：由已确认计划启动的执行 Run 不可用的工具，缺省为 `ask_user_question`。执行 Run 的工具 = Agent 有效工具 − 该列表，`finalize_planning` 由 Platform 去掉。
+- `execute-exclude-tools`：由已确认计划启动的执行 Run 不可用的工具，缺省为 `ask_user_question`、`ask_user_form`。执行 Run 的工具 = Agent 有效工具 − 该列表，`finalize_planning` 由 Platform 去掉。
+
+独立表单工具 `ask_user_form` 默认不在 preset-tools，需 Agent 显式声明；`planning-mode.exclude-tools` 默认也排除它，规划交互使用已挂载的 `ask_user_question`。两个列表显式配置时按既有覆盖规则生效，升级部署应同步检查实际配置。
 
 约束：
 
@@ -48,11 +50,11 @@ kbx:
     prompt: raw # raw 或 qwen3
 ```
 
-Platform 从 runtime.yml 选择模型并解析模型注册表。知识库中心与 Agent capability 共用部署级 ModelConfigSource，受管快照位于 `<AP_RUNTIME_STATE_DIR>/kbx/index.yml`，通过显式 --config 选择，不依赖 KBX_CONFIG_FILE。Agent 调用保留内容范围、过滤和切块参数，派生配置的模型段只能来自该快照。普通工具不能读取受管 StateDir。
+Platform 从 runtime.yml 读取默认模型选择，并允许 library.yml 的 models.embedding 覆盖，连接仍解析共享模型注册表。知识库服务与 Agent capability 共用 ModelConfigSource；启动时校验默认配置并保存 `<AP_RUNTIME_STATE_DIR>/kbx/index.yml`，实际调用使用同目录 libraries 下的库专属私有配置快照，通过显式 --config 选择。快照携带库级切块和编码，执行后删除；普通工具不能读取受管 StateDir。
 
-空 model-key 关闭向量配置，不回退聊天模型；非空无效模型明确失败。每次同步重新解析注册表，仅连接快照变化才写入文件。KBX 负责模型/prompt 与索引契约检查；不可用或维度不匹配显式报告，不自动执行 embed --force，也不自动迁移已有索引。配置同步不意味着索引已经兼容新模型。
+默认 model-key 为空且库未覆盖时关闭向量配置，不回退聊天模型；非空无效模型明确失败，纯全文读取不解析模型。每次调用重新解析 registry，密钥和连接参数无需写进 library.yml。有效模型合同变更由知识库服务执行全库 embed --force，不扫描来源或重划 chunk；重建失败/中断保持全文可读，严格向量检索在新合同完成前报未就绪。KBX 不迁移旧布局，维度不匹配明确报告。
 
-知识库模型只来自 runtime.kbx.embedding，Agent YAML 不配置 embedding。Agent capability 的维护由 Platform KBX worker 调度，详见 [KBX 接入](KBX接入.md)。
+知识库 embedding 由 library.yml 的 models.embedding 覆盖 runtime.kbx.embedding 默认，连接与密钥来自共享模型 registry；Agent YAML 不配置 embedding 或检索模型；kbaseConfig.retrieval 只对显式字段覆盖库默认，单次调用参数再覆盖。库模型角色和 defaultQuery 规则见 [知识库](知识库.md#检索默认值可选模型和默认集合)。Agent capability 的维护由 Platform KBX worker 调度，详见 [KBX 接入](KBX接入.md)。
 
 ## 离线迁移
 

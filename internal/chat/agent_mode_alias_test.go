@@ -23,7 +23,7 @@ func TestGeneralFilterMatchesRowsStoredBeforeAndAfterRename(t *testing.T) {
 	}
 	defer s.Close()
 	for id, mode := range map[string]string{"chat-old": "REACT", "chat-new": "GENERAL", "chat-coder": "CODER"} {
-		if _, _, err := s.EnsureChatWithSourceAndMode(id, "agent-a", "", id, "", mode); err != nil {
+		if _, _, err := s.EnsureChatWithSourceAndMode(id, "agent-a", id, "", mode); err != nil {
 			t.Fatal(err)
 		}
 	}

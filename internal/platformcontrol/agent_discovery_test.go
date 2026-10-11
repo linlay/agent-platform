@@ -3,6 +3,7 @@ package platformcontrol
 import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/runtimeskills"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,8 +35,8 @@ func TestAgentDiscoverySummariesEligibilityAndPagination(t *testing.T) {
 	r.items = append(r.items, catalog.AdminAgent{Key: "caller", Name: "Current", Mode: "GENERAL", Diagnostics: []catalog.AdminAgentDiagnostic{{Severity: "warning", Code: "context_agents_ignored"}}})
 	r.definitions["caller"] = catalog.AgentDefinition{Key: "caller", Mode: "GENERAL"}
 	r.items = append(r.items, catalog.AdminAgent{Key: "invalid", Name: "Broken", Role: "worker", Description: "Broken summary", Mode: "GENERAL"})
-	r.items = append(r.items, catalog.AdminAgent{Key: "hidden", Mode: "TEAM"})
-	r.definitions["hidden"] = catalog.AgentDefinition{Key: "hidden", Mode: "TEAM"}
+	r.items = append(r.items, catalog.AdminAgent{Key: "team", Mode: "TEAM"})
+	r.definitions["team"] = catalog.AgentDefinition{Key: "team", Mode: "TEAM"}
 	d := r.definitions["a001"]
 	d.Tools = []string{"agent_invoke"}
 	r.definitions["a001"] = d
@@ -45,7 +46,7 @@ func TestAgentDiscoverySummariesEligibilityAndPagination(t *testing.T) {
 	h := NewToolHandler(config.Config{}, r, nil)
 	first := discoveryQuery(t, h, "list", map[string]any{"resourceType": "agent", "limit": float64(100)})
 	items := discoveredAgents(first)
-	if len(items) != 100 || first["total"] != float64(107) || first["hasMore"] != true {
+	if len(items) != 100 || first["total"] != float64(108) || first["hasMore"] != true {
 		t.Fatalf("page=%#v", first)
 	}
 	if items[0]["key"] != "a000" || items[0]["name"] != "Name a000" || items[0]["role"] != "developer" || items[0]["description"] != "Summary" || items[0]["mode"] != "GENERAL" || items[0]["invocable"] != true {
@@ -56,7 +57,7 @@ func TestAgentDiscoverySummariesEligibilityAndPagination(t *testing.T) {
 	}
 	second := discoveryQuery(t, h, "list", map[string]any{"resourceType": "agent", "cursor": first["nextCursor"], "limit": float64(100)})
 	rest := discoveredAgents(second)
-	if len(rest) != 7 || second["hasMore"] != false {
+	if len(rest) != 8 || second["hasMore"] != false {
 		t.Fatalf("last page=%#v", second)
 	}
 	if rest[5]["key"] != "caller" || rest[5]["valid"] != true || rest[5]["invocable"] != false {
@@ -65,8 +66,11 @@ func TestAgentDiscoverySummariesEligibilityAndPagination(t *testing.T) {
 	if rest[6]["key"] != "invalid" || rest[6]["name"] != "Broken" || rest[6]["valid"] != false || rest[6]["invocable"] != false {
 		t.Fatalf("invalid=%#v", rest[6])
 	}
+	if rest[7]["key"] != "team" || rest[7]["mode"] != "TEAM" || rest[7]["invocable"] != false {
+		t.Fatalf("TEAM discovery=%#v", rest[7])
+	}
 	valid := discoveryQuery(t, h, "list", map[string]any{"resourceType": "agent", "status": "valid"})
-	if valid["total"] != float64(106) {
+	if valid["total"] != float64(107) {
 		t.Fatalf("valid=%#v", valid)
 	}
 	internalQuery := func(p map[string]any) map[string]any {
@@ -104,6 +108,10 @@ func TestAgentDiscoveryWarningRemainsValid(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents")}}
 	discoveryWrite(t, filepath.Join(cfg.Paths.AgentsDir, "caller", "agent.yml"), "key: caller\nmode: GENERAL\nmodelConfig: {modelKey: test}\ncontextConfig:\n  tags:\n    - agents\n  agents:\n    invalid: type\n")
+	t.Cleanup(func() {
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUAgentsDir())
+		_ = runtimeskills.Remove(cfg.Paths.EffectiveRUSkillsDir())
+	})
 	registry, err := catalog.NewFileRegistry(cfg, nil)
 	if err != nil {
 		t.Fatal(err)

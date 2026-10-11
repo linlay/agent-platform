@@ -13,7 +13,7 @@ import (
 
 func TestAwaitingResolutionClaimHasSingleOwnerAcrossActivation(t *testing.T) {
 	runs := runstate.NewManager()
-	session := contracts.QuerySession{RunID: "run", ChatID: "chat", AgentKey: "agent", StartedAtMillis: time.Now().UnixMilli(), RunOwner: contracts.AgentRunOwner("agent", "")}
+	session := contracts.QuerySession{RunID: "run", ChatID: "chat", AgentKey: "agent", StartedAtMillis: time.Now().UnixMilli(), RunOwner: contracts.AgentRunOwner("agent")}
 	_, err := runs.RegisterRecoveredAwaiting(context.Background(), session, "await", 0)
 	if err != nil {
 		t.Fatal(err)

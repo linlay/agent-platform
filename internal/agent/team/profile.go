@@ -6,9 +6,7 @@ import (
 )
 
 const (
-	// Mode is an internal-only mode. Catalog adapters must not accept it as an
-	// ordinary AgentDefinition mode; a Team runtime creates the coordinator
-	// session from a frozen Team snapshot.
+	// Mode is a public Agent mode with run-local member delegation.
 	Mode            = "TEAM"
 	MainStage       = "team"
 	MainCacheKey    = "team:main"
@@ -22,17 +20,10 @@ const (
 
 	DefaultMaxParallel = 5
 	MaxParallel        = 5
-	MaxRoutingRetries  = 1
 )
 
-var defaultToolNames = []string{
-	ToolDelegate,
-	contracts.PlanAddTasksToolName,
-	contracts.PlanGetTasksToolName,
-	contracts.PlanUpdateTaskToolName,
-}
-
-var defaultContextTags = []string{"system", "session"}
+var defaultToolNames = []string{ToolDelegate}
+var defaultContextTags = []string{}
 
 var defaultBudget = map[string]any{
 	"timeout":  3600,
@@ -59,13 +50,11 @@ func Descriptor() agentcontract.ModeDescriptor {
 		Mode:         Mode,
 		MainStage:    MainStage,
 		MainCacheKey: MainCacheKey,
-		// TEAM cannot be created through the ordinary Agent create endpoint.
-		CreatePrefix: "",
+		CreatePrefix: "team",
 		Profile: agentcontract.ModeProfile{
-			IconName:    DefaultIconName,
-			ToolNames:   DefaultToolNames(),
-			ContextTags: DefaultContextTags(),
-			Budget:      DefaultBudget(),
+			IconName: DefaultIconName,
+
+			Budget: DefaultBudget(),
 		},
 		Capabilities: agentcontract.ModeCapabilities{
 			InvokeChildren: true,

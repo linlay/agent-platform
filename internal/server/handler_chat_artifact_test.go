@@ -21,7 +21,7 @@ import (
 func TestChatDetailArtifactPublishedAt(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-artifact-time"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "Artifacts"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "Artifacts"); err != nil {
 		t.Fatal(err)
 	}
 	writer := fixture.chats.(chat.ArtifactManifestWriter)
@@ -59,7 +59,7 @@ func TestChatArtifactChecksPrincipalWithoutConnectorGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err = store.EnsureChatWithSource("owned-chat", "agent", "", "hello", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err = store.EnsureChatWithSource("owned-chat", "agent", "hello", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{deps: Dependencies{Chats: store}, chatResources: chatresource.NewService(store)}
@@ -87,7 +87,7 @@ func TestChatArtifactSourceRefReadHasNarrowDesktopAuthority(t *testing.T) {
 	defer store.Close()
 	const chatID = "owned-chat-source-ref"
 	const sourceRef = "artifacts/run-1/report.pdf"
-	if _, _, err = store.EnsureChatWithSource(chatID, "agent", "", "hello", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err = store.EnsureChatWithSource(chatID, "agent", "hello", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	data := []byte("%PDF-1.7\nreport")
@@ -155,7 +155,7 @@ func TestChatArtifactReadRequiresExactlyOneLocator(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err = store.EnsureChat("chat-artifact-locator", "agent", "", "hello"); err != nil {
+	if _, _, err = store.EnsureChat("chat-artifact-locator", "agent", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{deps: Dependencies{Chats: store}, chatResources: chatresource.NewService(store)}

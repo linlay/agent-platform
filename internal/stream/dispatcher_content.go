@@ -14,9 +14,9 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 		d.state.activeContents[scope] = activeContentState{
 			ID: input.ContentID,
 			Block: contentBlockState{
-				TaskID:       taskID,
-				ActorType:    input.ActorType,
-				TeamID:       input.TeamID,
+				TaskID:    taskID,
+				ActorType: input.ActorType,
+
 				AgentKey:     input.AgentKey,
 				Presentation: input.Presentation,
 			},
@@ -28,7 +28,7 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 			"runId":     d.request.RunID,
 			"taskId":    taskID,
 		}
-		appendContentActorPayload(payload, input.ActorType, input.TeamID, input.AgentKey, input.Presentation)
+		appendContentActorPayload(payload, input.ActorType, input.AgentKey, input.Presentation)
 		events = append(events, NewEvent("content.start", payload))
 	}
 	for _, event := range events {
@@ -56,7 +56,7 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 	if taskID != "" {
 		payload["taskId"] = taskID
 	}
-	appendContentActorPayload(payload, input.ActorType, input.TeamID, input.AgentKey, input.Presentation)
+	appendContentActorPayload(payload, input.ActorType, input.AgentKey, input.Presentation)
 	events = append(events, NewEvent("content.delta", payload))
 	return events
 }
@@ -90,7 +90,7 @@ func (d *StreamEventDispatcher) closeContentScope(scope string) []StreamEvent {
 			if block.TaskID != "" {
 				payload["taskId"] = block.TaskID
 			}
-			appendContentActorPayload(payload, block.ActorType, block.TeamID, block.AgentKey, block.Presentation)
+			appendContentActorPayload(payload, block.ActorType, block.AgentKey, block.Presentation)
 			events = append(events, NewEvent("content.delta", payload))
 		}
 	}
@@ -98,7 +98,7 @@ func (d *StreamEventDispatcher) closeContentScope(scope string) []StreamEvent {
 	endPayload := map[string]any{
 		"contentId": contentID,
 	}
-	appendContentActorPayload(endPayload, block.ActorType, block.TeamID, block.AgentKey, block.Presentation)
+	appendContentActorPayload(endPayload, block.ActorType, block.AgentKey, block.Presentation)
 	events = append(events, NewEvent("content.end", endPayload))
 	if d.state.contentSeen {
 		payload := map[string]any{
@@ -107,13 +107,13 @@ func (d *StreamEventDispatcher) closeContentScope(scope string) []StreamEvent {
 			"text":      d.state.contentBuffer[contentID],
 			"taskId":    block.TaskID,
 		}
-		appendContentActorPayload(payload, block.ActorType, block.TeamID, block.AgentKey, block.Presentation)
+		appendContentActorPayload(payload, block.ActorType, block.AgentKey, block.Presentation)
 		events = append(events, NewEvent("content.snapshot", payload))
 	}
 	return events
 }
 
-func appendContentActorPayload(payload map[string]any, actorType string, teamID string, agentKey string, presentation string) {
+func appendContentActorPayload(payload map[string]any, actorType string, agentKey string, presentation string) {
 	if payload == nil {
 		return
 	}
@@ -121,10 +121,7 @@ func appendContentActorPayload(payload map[string]any, actorType string, teamID 
 	if actorType != "" {
 		actor["type"] = actorType
 	}
-	if teamID != "" {
-		payload["teamId"] = teamID
-		actor["teamId"] = teamID
-	}
+
 	if agentKey != "" {
 		payload["agentKey"] = agentKey
 		actor["agentKey"] = agentKey

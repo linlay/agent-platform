@@ -87,10 +87,10 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if response.Data.Upload.Path != wantUploadPath {
 		t.Fatalf("upload path = %q, want %q", response.Data.Upload.Path, wantUploadPath)
 	}
-	if response.Data.Upload.URL != "notes.txt" {
-		t.Fatalf("upload public URL = %q, want ChatScope relative path", response.Data.Upload.URL)
+	if response.Data.Upload.URL != "@chat/notes.txt" {
+		t.Fatalf("upload public URL = %q, want @chat/ reference", response.Data.Upload.URL)
 	}
-	resourceKey, err := chat.BuildResourceKey(response.Data.ChatID, response.Data.Upload.URL)
+	resourceKey, err := chat.BuildResourceKey(response.Data.ChatID, chat.BareChatScopeRef(response.Data.Upload.URL))
 	if err != nil {
 		t.Fatalf("build resource key: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 func TestResourceServesEncodedImageInlineAndRejectsUnsafeKeys(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-resource-image"
-	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "image"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "image"); err != nil {
 		t.Fatal(err)
 	}
 	filename := "夏日 海报 #1%.png"
@@ -190,7 +190,7 @@ func TestResourceServesEncodedImageInlineAndRejectsUnsafeKeys(t *testing.T) {
 func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-absolute-resource"
-	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "", "absolute", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "absolute", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	agentDef, ok := fixture.registry.AgentDefinition("mock-agent")
@@ -264,7 +264,7 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 	}
 
 	otherChatID := "chat-absolute-other-owner"
-	if _, _, err := fixture.chats.EnsureChatWithSource(otherChatID, "mock-agent", "", "other", api.ChatSourceQueryPrefix+"bob"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSource(otherChatID, "mock-agent", "other", api.ChatSourceQueryPrefix+"bob"); err != nil {
 		t.Fatal(err)
 	}
 	if wrongChatRec := requestAbsolute("alice", otherChatID, imagePath, ""); wrongChatRec.Code != http.StatusForbidden {
@@ -272,7 +272,7 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 	}
 
 	teamChatID := "chat-team-absolute"
-	if _, _, err := fixture.chats.EnsureChatWithSource(teamChatID, "", "team-1", "team", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSource(teamChatID, "", "team", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	if teamRec := requestAbsolute("alice", teamChatID, imagePath, ""); teamRec.Code != http.StatusForbidden {
@@ -383,7 +383,7 @@ func TestResourceBearerCookieOwnershipAndInvalidBearerPrecedence(t *testing.T) {
 	fixture.cfg.Auth = config.AuthConfig{Enabled: true, LocalPublicKeyFile: publicKeyPath, Issuer: "agent-platform-local"}
 	server := newServerFromFixture(t, fixture)
 	chatID := "chat-owned-resource"
-	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "", "owned", api.ChatSourceQueryPrefix+"alice"); err != nil {
+	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "owned", api.ChatSourceQueryPrefix+"alice"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(fixture.chats.ChatDir(chatID), 0o755); err != nil {
@@ -499,7 +499,7 @@ func TestUploadReturnsContainerPathWhenAgentUsesContainerRuntime(t *testing.T) {
 	if response.Data.Upload.Path != "/chat/notes.txt" {
 		t.Fatalf("upload path = %q", response.Data.Upload.Path)
 	}
-	if response.Data.Upload.URL != "notes.txt" {
+	if response.Data.Upload.URL != "@chat/notes.txt" {
 		t.Fatalf("upload URL = %q", response.Data.Upload.URL)
 	}
 	if strings.Contains(rec.Body.String(), "sandboxPath") {
@@ -659,7 +659,7 @@ func TestUploadIDSeedsFromExistingRootUploadFiles(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
-	_, _, err := fixture.chats.EnsureChat("chat_root_upload_ids", "", "", "")
+	_, _, err := fixture.chats.EnsureChat("chat_root_upload_ids", "", "")
 	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
@@ -766,7 +766,7 @@ func postTestUpload(t *testing.T, server *Server, chatID string, requestID strin
 
 func uploadResourceRequestURL(t *testing.T, upload api.UploadResponse) string {
 	t.Helper()
-	resourceKey, err := chat.BuildResourceKey(upload.ChatID, upload.Upload.URL)
+	resourceKey, err := chat.BuildResourceKey(upload.ChatID, chat.BareChatScopeRef(upload.Upload.URL))
 	if err != nil {
 		t.Fatalf("build upload resource key: %v", err)
 	}

@@ -55,7 +55,7 @@ func (s *ArchiveStore) ControlSummary(id string) (*Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var sum Summary
-	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), COALESCE(SOURCE_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_ FROM ARCHIVED_CHATS WHERE CHAT_ID_=?", id).Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID)
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(SOURCE_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_ FROM ARCHIVED_CHATS WHERE CHAT_ID_=?", id).Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.Source, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID)
 	if err == sql.ErrNoRows {
 		return nil, ErrChatNotFound
 	}

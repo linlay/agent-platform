@@ -105,7 +105,7 @@ func parseWaitArguments(args map[string]any, now time.Time) (waitArguments, erro
 		for _, object := range objects {
 			for key := range object {
 				switch key {
-				case "type", "runId", "filePath", "after", "agentKey", "refreshId", "connectorId", "authorizationId":
+				case "type", "runId", "filePath", "after", "connectorId", "authorizationId":
 				default:
 					return a, fmt.Errorf("unknown condition field %q; use camelCase parameter names", key)
 				}
@@ -133,10 +133,6 @@ func parseWaitArguments(args map[string]any, now time.Time) (waitArguments, erro
 				valid = strings.TrimSpace(c.FilePath) != "" && c.After > 0
 				allowed.FilePath = c.FilePath
 				allowed.After = c.After
-			case "kbase.refreshTerminal":
-				valid = strings.TrimSpace(c.AgentKey) != "" && strings.TrimSpace(c.RefreshID) != ""
-				allowed.AgentKey = c.AgentKey
-				allowed.RefreshID = c.RefreshID
 			case "connector.authorizationTerminal":
 				valid = strings.TrimSpace(c.ConnectorID) != "" && strings.TrimSpace(c.AuthorizationID) != ""
 				allowed.ConnectorID = c.ConnectorID

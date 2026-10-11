@@ -19,7 +19,7 @@ Review.mount(u=>{
  };
  const when=value=>{try{return new Intl.DateTimeFormat(document.documentElement.lang,{timeZone:d.zoneId,year:'numeric',month:'long',day:'numeric',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(value));}catch{return value;}};
  const zone=value=>{if(value==='Asia/Shanghai')return t('北京时间（Asia/Shanghai）','China Standard Time (Asia/Shanghai)');return value;};
- const target=d=>d.teamId?t('团队：','Team: ')+(u.record(f.names)[d.teamId]||d.teamId):t('智能体：','Agent: ')+(u.record(f.names)[d.agentKey]||d.agentKey);
+ const target=d=>t('智能体：','Agent: ')+(u.record(f.names)[d.agentKey]||d.agentKey);
 
 
  u.title(t('删除这个自动化任务？','Delete this automation?'));

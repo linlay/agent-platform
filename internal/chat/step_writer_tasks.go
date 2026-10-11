@@ -8,11 +8,11 @@ import (
 )
 
 type taskStepBuffer struct {
-	taskID                  string
-	taskStage               string
-	taskStatus              string
-	taskSubAgentKey         string
-	teamID                  string
+	taskID          string
+	taskStage       string
+	taskStatus      string
+	taskSubAgentKey string
+
 	presentation            string
 	messages                []StoredMessage
 	artifacts               *ArtifactPublicationState
@@ -85,9 +85,9 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		TaskID:          buffer.taskID,
 		TaskStatus:      buffer.taskStatus,
 		TaskSubAgentKey: buffer.taskSubAgentKey,
-		TeamID:          buffer.teamID,
-		Presentation:    buffer.presentation,
-		Messages:        canonicalizeStoredToolResultOrder(attachResponseReasoning(buffer.messages, buffer.encryptedReasoning, buffer.responseID, buffer.lastTimestamp)),
+
+		Presentation: buffer.presentation,
+		Messages:     canonicalizeStoredToolResultOrder(attachResponseReasoning(buffer.messages, buffer.encryptedReasoning, buffer.responseID, buffer.lastTimestamp)),
 	}
 	if buffer.pendingUsage != nil {
 		line.Usage = buffer.pendingUsage

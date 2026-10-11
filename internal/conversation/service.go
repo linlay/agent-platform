@@ -64,21 +64,19 @@ func (s *Service) ListSummariesWithPinned(lastRunID, agentKey string, modes []st
 	return store.ListChatsWithOptions(chat.ListOptions{LastRunID: lastRunID, AgentKey: agentKey, AgentModes: modes, Limit: limit, Pinned: pinned})
 }
 
-func (s *Service) RecentSummaries(agentKey, teamID string, limit int, pinned *bool) ([]chat.Summary, error) {
+func (s *Service) RecentSummaries(agentKey string, limit int, pinned *bool) ([]chat.Summary, error) {
 	if s == nil || s.Chats == nil {
 		return nil, ErrNotConfigured
 	}
 	if pinned == nil {
-		if teamID != "" {
-			return s.Chats.RecentChatsByTeam(teamID, limit)
-		}
+
 		return s.Chats.RecentChatsByAgent(agentKey, limit)
 	}
 	store, ok := s.Chats.(chat.PinnedListStore)
 	if !ok {
 		return nil, errors.New("chat pin filtering is not supported")
 	}
-	return store.RecentChatsByOwner(agentKey, teamID, limit, pinned)
+	return store.RecentChatsByOwner(agentKey, limit, pinned)
 }
 
 func (s *Service) ActiveRun(chatID string) (contracts.RunStatusInfo, bool, error) {

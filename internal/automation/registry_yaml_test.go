@@ -12,7 +12,7 @@ import (
 
 func TestRegistryPersistLoadPreservesQueryMessageExactly(t *testing.T) {
 	root := t.TempDir()
-	registry := NewRegistry(root, nil)
+	registry := NewRegistry(root)
 	message := "  第一行\n第二行\t\\n 'single' \"double\" # hash\r\n结尾  "
 	definition := Definition{
 		ID:          "escaped-message",
@@ -53,7 +53,7 @@ func TestRegistryPersistLoadPreservesQueryMessageExactly(t *testing.T) {
 
 func TestRegistryPersistOmitsEmptyAutomationDefaults(t *testing.T) {
 	root := t.TempDir()
-	registry := NewRegistry(root, nil)
+	registry := NewRegistry(root)
 	definition := Definition{
 		ID:       "minimal",
 		Name:     "Minimal",
@@ -89,7 +89,7 @@ func TestRegistryPersistOmitsEmptyAutomationDefaults(t *testing.T) {
 
 func TestRegistryPersistPreservesExplicitVisibleAutomationQuery(t *testing.T) {
 	root := t.TempDir()
-	registry := NewRegistry(root, nil)
+	registry := NewRegistry(root)
 	hidden := false
 	definition := Definition{
 		ID:       "visible",
@@ -127,7 +127,7 @@ func TestRegistryPersistPreservesExplicitVisibleAutomationQuery(t *testing.T) {
 }
 
 func TestRegistryDoesNotDecodeLegacyPlainOrSingleQuotedMessageEscapes(t *testing.T) {
-	registry := NewRegistry(t.TempDir(), nil)
+	registry := NewRegistry(t.TempDir())
 	want := `first\nsecond`
 	for _, test := range []struct {
 		name        string
@@ -158,7 +158,7 @@ func TestRegistryDoesNotDecodeLegacyPlainOrSingleQuotedMessageEscapes(t *testing
 func TestRegistryPreservesEnvironmentExpressionQueryMessage(t *testing.T) {
 	t.Setenv("AUTOMATION_MESSAGE_LITERAL", "expanded")
 	root := t.TempDir()
-	registry := NewRegistry(root, nil)
+	registry := NewRegistry(root)
 	message := "${AUTOMATION_MESSAGE_LITERAL}"
 	definition := Definition{
 		ID:          "environment-expression",

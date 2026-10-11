@@ -8,16 +8,14 @@ import (
 )
 
 type stubToolService struct {
-	agentKey       string
-	searchOptions  SearchOptions
-	filesOptions   FilesOptions
-	readOptions    ReadOptions
-	refreshOptions RefreshOptions
-	searchResult   SearchResult
-	filesResult    FilesResult
-	readResult     ReadResult
-	statusResult   Status
-	refreshResult  RefreshResult
+	agentKey      string
+	searchOptions SearchOptions
+	filesOptions  FilesOptions
+	readOptions   ReadOptions
+	searchResult  SearchResult
+	filesResult   FilesResult
+	readResult    ReadResult
+	statusResult  Status
 }
 
 func (s *stubToolService) Search(_ context.Context, agentKey string, _ string, options SearchOptions) (SearchResult, error) {
@@ -38,11 +36,6 @@ func (s *stubToolService) Read(_ string, options ReadOptions) (ReadResult, error
 
 func (s *stubToolService) Status(_ string) (Status, error) {
 	return s.statusResult, nil
-}
-
-func (s *stubToolService) Refresh(_ context.Context, _ string, options RefreshOptions) (RefreshResult, error) {
-	s.refreshOptions = options
-	return s.refreshResult, nil
 }
 
 func kbaseToolExecutionContext() *contracts.ExecutionContext {
@@ -117,10 +110,9 @@ func TestToolHandlerSearchPreservesWireAndPublishesSources(t *testing.T) {
 
 func TestToolHandlerFilesReadStatusAndRefresh(t *testing.T) {
 	service := &stubToolService{
-		filesResult:   FilesResult{Tool: ToolFiles, Mode: "tree", HeadLimit: 25, Results: []FileEntry{{Type: "file", Path: "docs/a.md"}}},
-		readResult:    ReadResult{Found: true, ChunkID: "chunk_1", Path: "docs/a.md", Content: "text"},
-		statusResult:  Status{AgentKey: "docs", Mode: Mode, Files: 1, Chunks: 2},
-		refreshResult: RefreshResult{AgentKey: "docs", Mode: "tool", Status: "completed", ScannedFiles: 1},
+		filesResult:  FilesResult{LibraryID: "research", Tool: ToolFiles, Mode: "tree", HeadLimit: 25, Results: []FileEntry{{Type: "file", Path: "docs/a.md"}}},
+		readResult:   ReadResult{LibraryID: "research", Found: true, ChunkID: "chunk_1", Path: "docs/a.md", Content: "text"},
+		statusResult: Status{LibraryID: "research", AgentKey: "docs", Mode: Mode, Files: 1, Chunks: 2},
 	}
 	handler := NewToolHandler(service)
 	execCtx := kbaseToolExecutionContext()
@@ -145,9 +137,15 @@ func TestToolHandlerFilesReadStatusAndRefresh(t *testing.T) {
 		t.Fatalf("unexpected status result=%#v err=%v", status, err)
 	}
 
-	refresh, err := handler.Invoke(context.Background(), ToolRefresh, map[string]any{"force": true}, execCtx)
-	if err != nil || refresh.Structured["status"] != "completed" || !service.refreshOptions.Force || service.refreshOptions.Mode != "tool" {
-		t.Fatalf("unexpected refresh result=%#v options=%#v err=%v", refresh, service.refreshOptions, err)
+	for _, result := range []contracts.ToolExecutionResult{files, read, status} {
+		if result.Structured["libraryId"] != "research" {
+			t.Fatalf("lost library identity: %+v", result)
+		}
+	}
+
+	refresh, err := handler.Invoke(context.Background(), "kbase_refresh", map[string]any{"force": true}, execCtx)
+	if err != nil || refresh.Error != "tool_not_registered" {
+		t.Fatalf("removed refresh result=%#v err=%v", refresh, err)
 	}
 }
 

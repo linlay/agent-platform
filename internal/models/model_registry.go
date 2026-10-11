@@ -57,6 +57,7 @@ type ModelDefinition struct {
 	ReasoningEfforts       []string
 	ReasoningEffortMapping map[string]string
 	ServiceTiers           []string
+	Reranker               ModelRerankerConfig
 	Embedding              ModelEmbeddingConfig
 	Image                  ModelImageConfig
 }
@@ -66,9 +67,12 @@ const (
 
 	ModelTypeChat            = "chat"
 	ModelTypeEmbedding       = "embedding"
+	ModelTypeReranker        = "reranker"
 	ModelTypeImageGeneration = "image-generation"
 	ModelTypeVL              = "vl"
 )
+
+type ModelRerankerConfig struct{ EndpointPath string }
 
 type ModelEmbeddingConfig struct {
 	Dimension    int
@@ -154,6 +158,8 @@ func NormalizeModelType(value string) (string, bool) {
 		return ModelTypeChat, true
 	case ModelTypeEmbedding:
 		return ModelTypeEmbedding, true
+	case ModelTypeReranker:
+		return ModelTypeReranker, true
 	case ModelTypeImageGeneration:
 		return ModelTypeImageGeneration, true
 	case ModelTypeVL:
@@ -271,6 +277,9 @@ func (r *ModelRegistry) GetTyped(key string, modelType string) (ModelDefinition,
 func validateModelForRuntime(model ModelDefinition, modelType string) error {
 	if strings.TrimSpace(model.ModelID) == "" {
 		return fmt.Errorf("model %s modelId is required", model.Key)
+	}
+	if modelType == ModelTypeReranker && strings.TrimSpace(model.Reranker.EndpointPath) == "" {
+		return fmt.Errorf("model %s reranker.endpointPath is required", model.Key)
 	}
 	if modelType == ModelTypeEmbedding && model.Embedding.Dimension <= 0 {
 		return fmt.Errorf("model %s embedding.dimension is required", model.Key)
@@ -708,6 +717,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			ReasoningEffortMapping: reasoningEffortMapping,
 			ServiceTiers:           stringSliceNode(values["serviceTiers"]),
 			Embedding:              loadModelEmbedding(values["embedding"]),
+			Reranker:               ModelRerankerConfig{EndpointPath: strings.TrimSpace(stringNode(contracts.AnyMapNode(values["reranker"])["endpointPath"]))},
 			Image:                  loadModelImage(values["image"]),
 		}
 		if modelType == ModelTypeImageGeneration {

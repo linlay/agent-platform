@@ -44,7 +44,7 @@ func TestSummaryCompactSingleCallBudgetAndFailure(t *testing.T) {
 				writeProviderSSE(t, w, `{"choices":[{"delta":{"content":`+string(quoted)+`},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110}}`, "[DONE]")
 			})
 			id := "single-summary-" + name
-			if _, _, err := fixture.chats.EnsureChat(id, "mock-agent", "", "summary"); err != nil {
+			if _, _, err := fixture.chats.EnsureChat(id, "mock-agent", "summary"); err != nil {
 				t.Fatal(err)
 			}
 			appendServerCompactRun(t, fixture.chats, id, "r1", "early-anchor", strings.Repeat("history ", 500)+" middle-anchor")

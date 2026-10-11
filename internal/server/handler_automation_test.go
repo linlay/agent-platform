@@ -67,7 +67,7 @@ func (r automationStoreRecorder) Submit(item automation.Execution) {
 func newAutomationTestServer(t *testing.T, websocket bool) automationTestServer {
 	t.Helper()
 	root := t.TempDir()
-	registry := automation.NewRegistry(root, nil)
+	registry := automation.NewRegistry(root)
 	executions, err := automation.NewExecutionStore(root, "executions.db")
 	if err != nil {
 		t.Fatalf("new execution store: %v", err)
@@ -154,10 +154,10 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 		AutomationName: create.Name,
 		SourceFile:     create.SourceFile,
 		AgentKey:       create.AgentKey,
-		TeamID:         create.TeamID,
-		ZoneID:         "Asia/Shanghai",
-		Status:         automation.ExecutionStatusRunning,
-		StartedAt:      time.Now().UnixMilli(),
+
+		ZoneID:    "Asia/Shanghai",
+		Status:    automation.ExecutionStatusRunning,
+		StartedAt: time.Now().UnixMilli(),
 	}); err != nil {
 		t.Fatalf("record start: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestAutomationHTTPTriggerAcceptsIDAndAliasWithoutMutatingPausedDefinition(t
 
 func TestAutomationHTTPTriggerDoesNotDependOnExecutionHistory(t *testing.T) {
 	root := t.TempDir()
-	registry := automation.NewRegistry(root, nil)
+	registry := automation.NewRegistry(root)
 	if err := registry.Persist(automation.Definition{
 		ID:       "history-free",
 		Name:     "History Free",
@@ -365,7 +365,7 @@ func TestAutomationHTTPTriggerRejectsMalformedAndUnavailableRequests(t *testing.
 	}
 
 	root := t.TempDir()
-	registry := automation.NewRegistry(root, nil)
+	registry := automation.NewRegistry(root)
 	if err := registry.Persist(automation.Definition{
 		ID:       "not-started",
 		Name:     "Not Started",
@@ -399,7 +399,7 @@ func TestAutomationHTTPTriggerRejectsMalformedAndUnavailableRequests(t *testing.
 
 func TestAutomationHistoryUnavailableDoesNotBreakConfigurationAPI(t *testing.T) {
 	root := t.TempDir()
-	registry := automation.NewRegistry(root, nil)
+	registry := automation.NewRegistry(root)
 	if err := registry.Persist(automation.Definition{
 		ID:       "daily",
 		Name:     "Daily",

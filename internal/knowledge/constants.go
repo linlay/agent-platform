@@ -8,7 +8,6 @@ const (
 	ToolFiles       = "kbase_files"
 	ToolRead        = "kbase_read"
 	ToolStatus      = "kbase_status"
-	ToolRefresh     = "kbase_refresh"
 	ToolDatetime    = "datetime"
 )
 
@@ -17,7 +16,6 @@ var capabilityToolNames = []string{
 	ToolFiles,
 	ToolRead,
 	ToolStatus,
-	ToolRefresh,
 }
 
 func CapabilityToolNames() []string {

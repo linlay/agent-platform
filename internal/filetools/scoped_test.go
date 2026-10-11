@@ -121,3 +121,30 @@ func scopedTestSession(root string, editing bool) contracts.QuerySession {
 		},
 	}
 }
+
+func TestEditableCollectionsKeepStructuredWriteGuards(t *testing.T) {
+	workspace, source := t.TempDir(), t.TempDir()
+	canonical, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := scopedTestSession(workspace, false)
+	session.ScopedFilePolicy.EditableCollectionRoots = []string{canonical}
+	target := filepath.Join(source, "new.md")
+	if !ScopedPathInSource(session, target) {
+		t.Fatal("collection not recognized")
+	}
+	if err := ValidateScopedWrite(session, target); ScopedPolicyErrorCode(err) != "kbase_editing_mode_required" {
+		t.Fatalf("editing gate: %v", err)
+	}
+	session.ScopedFilePolicy.WorkspaceMutationEnabled = true
+	if err := ValidateScopedWrite(session, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateScopedWrite(session, filepath.Join(source, "missing", "file.md")); ScopedPolicyErrorCode(err) != "kbase_editing_parent_missing" {
+		t.Fatalf("missing parent: %v", err)
+	}
+	if err := ValidateScopedWrite(session, source); ScopedPolicyErrorCode(err) != "kbase_editing_invalid_file" {
+		t.Fatalf("directory write: %v", err)
+	}
+}

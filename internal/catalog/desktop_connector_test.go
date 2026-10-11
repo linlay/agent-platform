@@ -9,7 +9,7 @@ import (
 
 func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), BuiltinConnectorsDir: filepath.Join(root, "builtins"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	// No external builtin cache is required for the embedded native package.
 	cfg.Paths.BuiltinConnectorsDir = ""
 	release, err := cfg.Paths.PrepareNativeConnectors()
@@ -22,7 +22,7 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Desktop\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.platform-control\n")
 	}
 	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "legacy", "agent.yml"), "key: legacy\nname: Legacy\nmode: GENERAL\nmodelConfig:\n  modelKey: test\ntoolConfig:\n  tools:\n    - desktop_action\n")
-	r, err := NewFileRegistry(cfg, nil)
+	r, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestDesktopMountProvidesNativeToolsWithoutBash(t *testing.T) {
 
 func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	release, err := cfg.Paths.PrepareNativeConnectors()
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "web", "agent.yml"), source)
 	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "both", "agent.yml"), "key: both\nname: Both\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.platform-control\n    - builtin.web-control\n")
 	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "retired", "agent.yml"), "key: retired\nname: Retired\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin.desktop-web\n")
-	r, err := NewFileRegistry(cfg, nil)
+	r, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 
 func TestTaskControlMountIsIndependent(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	release, err := cfg.Paths.PrepareNativeConnectors()
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestTaskControlMountIsIndependent(t *testing.T) {
 	for _, key := range []string{"task", "platform"} {
 		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Test\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin."+key+"-control\n")
 	}
-	r, err := NewFileRegistry(cfg, nil)
+	r, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestTaskControlMountIsIndependent(t *testing.T) {
 
 func TestKanbanControlMountIsIndependent(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center"), TeamsDir: filepath.Join(root, "teams")}}
+	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center")}}
 	release, err := cfg.Paths.PrepareNativeConnectors()
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestKanbanControlMountIsIndependent(t *testing.T) {
 	for _, key := range []string{"kanban", "platform"} {
 		writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml"), "key: "+key+"\nname: Test\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - builtin."+key+"-control\n")
 	}
-	r, err := NewFileRegistry(cfg, nil)
+	r, err := newVersionTestRegistry(t, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

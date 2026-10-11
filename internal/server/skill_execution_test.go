@@ -28,12 +28,13 @@ func writeSkillScript(t *testing.T, parent, id string) string {
 	return p
 }
 func TestSkillExecutionConfiguredAndSelectedOnly(t *testing.T) {
-	runtimeDir := t.TempDir()
+	runtimeDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	center := t.TempDir()
 	configured := writeSkillScript(t, filepath.Join(runtimeDir, "skills"), "configured")
 	extra := writeSkillScript(t, center, "extra")
 	unselected := writeSkillScript(t, center, "unselected")
 	unconfigured := writeSkillScript(t, filepath.Join(runtimeDir, "skills"), "unconfigured")
+	configured = filepath.Join(installRuntimeSkillFixture(t, runtimeDir, "configured"), "scripts", "task.sh")
 	def := catalog.AgentDefinition{Key: "a", RuntimeDir: runtimeDir, Skills: []string{"configured"}}
 	session := contracts.QuerySession{AgentKey: "a", RunID: "r"}
 	selected := []resolvedMustUseSkill{{ID: "extra", RootPath: filepath.Dir(filepath.Dir(extra)), Extra: true}, {ID: "configured", RootPath: filepath.Dir(filepath.Dir(configured))}}
@@ -68,8 +69,9 @@ func TestSkillExecutionConfiguredAndSelectedOnly(t *testing.T) {
 	}
 }
 func TestBuildQuerySessionSkillExecutionAndRecovery(t *testing.T) {
-	runtimeDir := t.TempDir()
+	runtimeDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	file := writeSkillScript(t, filepath.Join(runtimeDir, "skills"), "configured")
+	file = filepath.Join(installRuntimeSkillFixture(t, runtimeDir, "configured"), "scripts", "task.sh")
 	def := catalog.AgentDefinition{Key: "a", Mode: "REACT", RuntimeDir: runtimeDir, Skills: []string{"configured"}}
 	s := &Server{}
 	req := api.QueryRequest{AgentKey: "a", RunID: "r", ChatID: "c", Role: "user"}

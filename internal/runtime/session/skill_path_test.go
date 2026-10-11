@@ -9,7 +9,7 @@ import (
 )
 
 func TestResolveSkillPathAppendFiltersByOwnershipAndAdminRoots(t *testing.T) {
-	runtimeDir := t.TempDir()
+	runtimeDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	skillDir := filepath.Join(runtimeDir, "skills", "tool")
 	own := filepath.Join(skillDir, "bin")
 	admin := filepath.Join(t.TempDir(), "approved", "bin")
@@ -26,6 +26,7 @@ func TestResolveSkillPathAppendFiltersByOwnershipAndAdminRoots(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, ".runtime-env.json"), []byte(env), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	installRuntimeSkillFixture(t, runtimeDir, "tool")
 	def := catalog.AgentDefinition{Key: "a", RuntimeDir: runtimeDir, Skills: []string{"tool"}}
 	got := ResolveSkillPathAppend(def, []string{"tool", "tool"}, []string{filepath.Dir(admin)})
 	if len(got) != 2 {

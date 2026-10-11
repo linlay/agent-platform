@@ -38,6 +38,7 @@ func NewRegistry(handlers ...Handler) *Registry {
 func NewDefaultRegistry() *Registry {
 	return NewRegistry(
 		NewAskUserQuestionHandler(),
+		NewAskUserFormHandler(),
 	)
 }
 

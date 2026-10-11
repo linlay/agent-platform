@@ -54,7 +54,7 @@ func (s *Server) readChatOrder() (api.ChatOrderSnapshotResponse, error) {
 	if err != nil {
 		return api.ChatOrderSnapshotResponse{}, err
 	}
-	chats, err := s.mapChatSummariesWithActiveRuns(snapshot.Chats, true)
+	chats, err := s.mapChatSummariesWithActiveRuns(snapshot.Chats)
 	if err != nil {
 		return api.ChatOrderSnapshotResponse{}, err
 	}

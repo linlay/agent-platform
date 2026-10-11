@@ -169,13 +169,12 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner)
 	run := contracts.ActiveRun{
-		RunID:             session.RunID,
-		ChatID:            session.ChatID,
-		AgentKey:          owner.AgentKey,
-		TeamID:            owner.TeamID,
-		ExecutionAgentKey: owner.ExecutionAgentKey,
-		ScopeID:           strings.TrimSpace(session.RunScopeID),
-		EditingMode:       session.EditingMode,
+		RunID:    session.RunID,
+		ChatID:   session.ChatID,
+		AgentKey: owner.AgentKey,
+
+		ScopeID:     strings.TrimSpace(session.RunScopeID),
+		EditingMode: session.EditingMode,
 	}
 	startedAt := time.Now()
 	if session.StartedAtMillis != 0 {
@@ -552,18 +551,17 @@ func (m *Manager) RunStatus(runID string) (contracts.RunStatusInfo, bool) {
 	runOrigin := cloneRunOrigin(state.runOrigin)
 	m.mu.Unlock()
 	info := contracts.RunStatusInfo{
-		RunID:             run.RunID,
-		ChatID:            run.ChatID,
-		AgentKey:          run.AgentKey,
-		TeamID:            run.TeamID,
-		ExecutionAgentKey: run.ExecutionAgentKey,
-		State:             control.State(),
-		LastSeq:           eventBus.LatestSeq(),
-		OldestSeq:         eventBus.OldestSeq(),
-		ObserverCount:     eventBus.ObserverCount(),
-		StartedAt:         startedAt.UnixMilli(),
-		RunOrigin:         runOrigin,
-		EditingMode:       run.EditingMode,
+		RunID:    run.RunID,
+		ChatID:   run.ChatID,
+		AgentKey: run.AgentKey,
+
+		State:         control.State(),
+		LastSeq:       eventBus.LatestSeq(),
+		OldestSeq:     eventBus.OldestSeq(),
+		ObserverCount: eventBus.ObserverCount(),
+		StartedAt:     startedAt.UnixMilli(),
+		RunOrigin:     runOrigin,
+		EditingMode:   run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = control.AccessLevelSnapshot()
 	if !completedAt.IsZero() {
@@ -717,18 +715,17 @@ func runStatusInfoFromManagedRun(state *managedRun) contracts.RunStatusInfo {
 		return contracts.RunStatusInfo{}
 	}
 	info := contracts.RunStatusInfo{
-		RunID:             state.run.RunID,
-		ChatID:            state.run.ChatID,
-		AgentKey:          state.run.AgentKey,
-		TeamID:            state.run.TeamID,
-		ExecutionAgentKey: state.run.ExecutionAgentKey,
-		State:             state.control.State(),
-		LastSeq:           state.eventBus.LatestSeq(),
-		OldestSeq:         state.eventBus.OldestSeq(),
-		ObserverCount:     state.eventBus.ObserverCount(),
-		StartedAt:         state.startedAt.UnixMilli(),
-		RunOrigin:         cloneRunOrigin(state.runOrigin),
-		EditingMode:       state.run.EditingMode,
+		RunID:    state.run.RunID,
+		ChatID:   state.run.ChatID,
+		AgentKey: state.run.AgentKey,
+
+		State:         state.control.State(),
+		LastSeq:       state.eventBus.LatestSeq(),
+		OldestSeq:     state.eventBus.OldestSeq(),
+		ObserverCount: state.eventBus.ObserverCount(),
+		StartedAt:     state.startedAt.UnixMilli(),
+		RunOrigin:     cloneRunOrigin(state.runOrigin),
+		EditingMode:   state.run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
 	if !state.completedAt.IsZero() {

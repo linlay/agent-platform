@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -16,12 +15,10 @@ import (
 // The handler tests the service contract, independently of the knowledge engine.
 // KBX execution and maintenance availability are covered in internal/kbx.
 type handlerKBaseService struct {
-	calls          []string
-	validateErr    error
-	statusResult   knowledge.Status
-	statusErr      error
-	refreshErr     error
-	refreshOptions knowledge.RefreshOptions
+	calls        []string
+	validateErr  error
+	statusResult knowledge.Status
+	statusErr    error
 }
 
 var _ KBaseService = (*handlerKBaseService)(nil)
@@ -37,12 +34,6 @@ func (s *handlerKBaseService) ValidateAgent(agentKey string) error {
 func (s *handlerKBaseService) Status(agentKey string) (knowledge.Status, error) {
 	s.calls = append(s.calls, "status:"+agentKey)
 	return s.statusResult, s.statusErr
-}
-
-func (s *handlerKBaseService) Refresh(_ context.Context, agentKey string, options knowledge.RefreshOptions) (knowledge.RefreshResult, error) {
-	s.calls = append(s.calls, "refresh:"+agentKey)
-	s.refreshOptions = options
-	return knowledge.RefreshResult{AgentKey: agentKey, Mode: options.Mode, Status: "success"}, s.refreshErr
 }
 
 func (*handlerKBaseService) ProbeRuntime(context.Context) (bool, knowledge.RuntimeState, error) {
@@ -65,9 +56,9 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 		wantForce bool
 	}{
 		{name: "status", method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusOK, wantCalls: "validate:docs,status:docs"},
-		{name: "refresh", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{}`, want: http.StatusOK, wantCalls: "validate:docs,refresh:docs"},
-		{name: "forced refresh", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{"force":true}`, want: http.StatusOK, wantCalls: "validate:docs,refresh:docs", wantForce: true},
-		{name: "empty refresh body", method: http.MethodPost, path: "/api/kbase/docs/refresh", want: http.StatusOK, wantCalls: "validate:docs,refresh:docs"},
+		{name: "refresh", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{}`, want: http.StatusNotFound, wantCalls: "validate:docs"},
+		{name: "forced refresh", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{"force":true}`, want: http.StatusNotFound, wantCalls: "validate:docs", wantForce: true},
+		{name: "empty refresh body", method: http.MethodPost, path: "/api/kbase/docs/refresh", want: http.StatusNotFound, wantCalls: "validate:docs"},
 		{name: "unknown agent", method: http.MethodGet, path: "/api/kbase/missing/status", want: http.StatusNotFound, wantCalls: "validate:missing"},
 		{name: "disabled capability", method: http.MethodGet, path: "/api/kbase/disabled/status", want: http.StatusNotFound, wantCalls: "validate:disabled"},
 		{name: "unknown agent precedes method", method: http.MethodPost, path: "/api/kbase/missing/status", want: http.StatusNotFound, wantCalls: "validate:missing"},
@@ -75,9 +66,9 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 		{name: "bad path", method: http.MethodGet, path: "/api/kbase/docs", want: http.StatusNotFound},
 		{name: "unknown action", method: http.MethodGet, path: "/api/kbase/docs/unknown", want: http.StatusNotFound, wantCalls: "validate:docs"},
 		{name: "status method", method: http.MethodPost, path: "/api/kbase/docs/status", want: http.StatusMethodNotAllowed, allow: http.MethodGet, wantCalls: "validate:docs"},
-		{name: "refresh method", method: http.MethodGet, path: "/api/kbase/docs/refresh", want: http.StatusMethodNotAllowed, allow: http.MethodPost, wantCalls: "validate:docs"},
-		{name: "invalid body", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{`, want: http.StatusBadRequest, wantCalls: "validate:docs"},
-		{name: "invalid force type", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{"force":"yes"}`, want: http.StatusBadRequest, wantCalls: "validate:docs"},
+		{name: "refresh method", method: http.MethodGet, path: "/api/kbase/docs/refresh", want: http.StatusNotFound, wantCalls: "validate:docs"},
+		{name: "invalid body", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{`, want: http.StatusNotFound, wantCalls: "validate:docs"},
+		{name: "invalid force type", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{"force":"yes"}`, want: http.StatusNotFound, wantCalls: "validate:docs"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,19 +106,8 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 				if string(response.Data) != string(want) {
 					t.Fatalf("status payload=%s want=%s", response.Data, want)
 				}
-			} else {
-				want := knowledge.RefreshOptions{Mode: "manual", Force: tt.wantForce}
-				if !reflect.DeepEqual(service.refreshOptions, want) {
-					t.Fatalf("refresh options=%#v want=%#v", service.refreshOptions, want)
-				}
-				var result knowledge.RefreshResult
-				if err := json.Unmarshal(response.Data, &result); err != nil {
-					t.Fatal(err)
-				}
-				if result.AgentKey != "docs" || result.Mode != "manual" || result.Status != "success" {
-					t.Fatalf("refresh payload=%#v", result)
-				}
 			}
+
 		})
 	}
 
@@ -152,9 +132,7 @@ func TestHandleKBaseServiceErrors(t *testing.T) {
 	}{
 		{name: "validation unavailable", service: handlerKBaseService{validateErr: unavailable}, method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusServiceUnavailable, wantMsg: unavailable.Message, wantCalls: "validate:docs"},
 		{name: "status unavailable", service: handlerKBaseService{statusErr: unavailable}, method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusServiceUnavailable, wantMsg: unavailable.Message, wantCalls: "validate:docs,status:docs"},
-		{name: "KBX refresh unavailable", service: handlerKBaseService{refreshErr: unavailable}, method: http.MethodPost, path: "/api/kbase/docs/refresh", want: http.StatusServiceUnavailable, wantMsg: unavailable.Message, wantCalls: "validate:docs,refresh:docs"},
 		{name: "agent disappears after validation", service: handlerKBaseService{statusErr: &knowledge.PolicyError{Kind: knowledge.ErrorNotFound, Message: "private catalog diagnostic"}}, method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusNotFound, wantMsg: "agent not found", wantCalls: "validate:docs,status:docs"},
-		{name: "invalid refresh", service: handlerKBaseService{refreshErr: &knowledge.PolicyError{Kind: knowledge.ErrorInvalid, Message: "invalid refresh options"}}, method: http.MethodPost, path: "/api/kbase/docs/refresh", want: http.StatusBadRequest, wantMsg: "invalid refresh options", wantCalls: "validate:docs,refresh:docs"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

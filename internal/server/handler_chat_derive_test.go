@@ -150,17 +150,17 @@ func TestHandleChatDeriveThenQueryUsesDerivedHistoryOnly(t *testing.T) {
 func TestHandleChatDeriveErrors(t *testing.T) {
 	fixture := newTestFixture(t)
 	seedDeriveServerChat(t, fixture.chats, "chat-error-source", "run-error-source", "hello", "done")
-	if _, _, err := fixture.chats.EnsureChat("chat-error-target", "mock-agent", "", "target"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat("chat-error-target", "mock-agent", "target"); err != nil {
 		t.Fatalf("ensure target: %v", err)
 	}
-	if _, _, err := fixture.chats.EnsureChat("chat-error-pending", "mock-agent", "", "pending"); err != nil {
+	if _, _, err := fixture.chats.EnsureChat("chat-error-pending", "mock-agent", "pending"); err != nil {
 		t.Fatalf("ensure pending: %v", err)
 	}
 	if err := fixture.chats.SetPendingAwaiting("chat-error-pending", chat.PendingAwaiting{AwaitingID: "await-1", RunID: "run-pending", Mode: "question", CreatedAt: testEpochMillis + 1}); err != nil {
 		t.Fatalf("set pending: %v", err)
 	}
 	seedDeriveServerChat(t, fixture.chats, "chat-error-active", "run-error-active", "active", "done")
-	fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "run-active-live", ChatID: "chat-error-active", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", "")})
+	fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "run-active-live", ChatID: "chat-error-active", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent")})
 
 	tests := []struct {
 		name string
@@ -246,7 +246,7 @@ func TestWebSocketChatDeriveRoute(t *testing.T) {
 
 func seedDeriveServerChat(t *testing.T, store chat.Store, chatID string, runID string, userText string, assistantText string) {
 	t.Helper()
-	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", userText); err != nil {
+	if _, _, err := store.EnsureChat(chatID, "mock-agent", userText); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	startedAt := testEpochMillis + 1_000

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"agent-platform/internal/runtimeskills"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,11 @@ import (
 
 func TestKBaseCatalogSourceExposesOnlyEnabledCapabilities(t *testing.T) {
 	root := t.TempDir()
+	t.Cleanup(func() {
+		if err := runtimeskills.Remove(root); err != nil {
+			t.Error(err)
+		}
+	})
 	agentsDir := filepath.Join(root, "agents")
 	teamsDir := filepath.Join(root, "teams")
 	skillsDir := filepath.Join(root, "skills")
@@ -26,11 +32,11 @@ func TestKBaseCatalogSourceExposesOnlyEnabledCapabilities(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeAgent("active.yml", "key: active\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(knowledgeDir)+"\nkbaseConfig:\n  enabled: true\n")
-	writeAgent("disabled.yml", "key: disabled\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  enabled: false\n")
+	writeAgent("active.yml", "key: active\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(knowledgeDir)+"\nkbaseConfig:\n  libraryId: research\n")
+	writeAgent("disabled.yml", "key: disabled\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n\n")
 
 	registry, err := catalog.NewFileRegistry(config.Config{Paths: config.PathsConfig{
-		AgentsDir: agentsDir, TeamsDir: teamsDir, SkillsCenterDir: skillsDir,
+		AgentsDir: agentsDir, SkillsCenterDir: skillsDir,
 	}}, nil)
 	if err != nil {
 		t.Fatalf("load catalog: %v", err)

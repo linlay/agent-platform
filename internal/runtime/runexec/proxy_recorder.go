@@ -473,8 +473,8 @@ func (r *ProxyEventRecorder) handleLiveLifecycle(event stream.EventData) {
 			ChatID:   r.req.ChatID,
 			RunID:    r.req.RunID,
 			AgentKey: r.req.AgentKey,
-			TeamID:   r.req.TeamID,
-			RunOwner: contracts.AgentRunOwner(r.req.AgentKey, r.req.TeamID),
+
+			RunOwner: contracts.AgentRunOwner(r.req.AgentKey),
 		},
 		Chats:         r.chatStore,
 		RunControl:    r.control,
@@ -491,8 +491,8 @@ func (r *ProxyEventRecorder) maybeResolvePendingAwaiting() {
 			ChatID:   r.req.ChatID,
 			RunID:    r.req.RunID,
 			AgentKey: r.req.AgentKey,
-			TeamID:   r.req.TeamID,
-			RunOwner: contracts.AgentRunOwner(r.req.AgentKey, r.req.TeamID),
+
+			RunOwner: contracts.AgentRunOwner(r.req.AgentKey),
 		},
 		Chats:         r.chatStore,
 		Notifications: r.notifications,

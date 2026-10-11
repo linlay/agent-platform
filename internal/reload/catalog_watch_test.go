@@ -34,7 +34,7 @@ func newCatalogWatchTest(t *testing.T) (context.Context, *RuntimeCatalogReloader
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{
 		AgentsDir: filepath.Join(root, "agents"), SkillsCenterDir: filepath.Join(root, "skills-center"),
-		TeamsDir: filepath.Join(root, "teams"), RegistriesDir: filepath.Join(root, "registries"), ToolsDir: filepath.Join(root, "tools"), RootDir: root,
+		RegistriesDir: filepath.Join(root, "registries"), ToolsDir: filepath.Join(root, "tools"), RootDir: root,
 	}}
 	for _, entry := range backgroundWatchEntries(cfg) {
 		if err := os.MkdirAll(entry.path, 0755); err != nil {
@@ -244,7 +244,7 @@ func TestCatalogFailedReloadDoesNotAcknowledgeSource(t *testing.T) {
 
 func TestCatalogWatchGroupsMergeOverlappingRoots(t *testing.T) {
 	root := t.TempDir()
-	groups := groupWatchEntries([]watchEntry{{filepath.Join(root, "skills"), "skills"}, {root, "agents"}, {root + "-sibling", "teams"}})
+	groups := groupWatchEntries([]watchEntry{{filepath.Join(root, "skills"), "skills"}, {root, "agents"}, {root + "-sibling", "tools"}})
 	if len(groups) != 2 {
 		t.Fatalf("groups=%d", len(groups))
 	}

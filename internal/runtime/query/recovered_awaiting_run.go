@@ -155,7 +155,7 @@ func (s *Service) completeRecoveredPlanningRun(deferred DeferredAwaiting, recove
 	}
 	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
 		ChatID: deferred.ChatID, RunID: deferred.RunID, AgentKey: summary.AgentKey,
-		AgentMode: summary.AgentMode, TeamID: summary.TeamID, InitialMessage: initialMessage,
+		AgentMode: summary.AgentMode, InitialMessage: initialMessage,
 		FinishReason: "complete", StartedAtMillis: status.StartedAt, UpdatedAtMillis: completedAt,
 	}); err != nil {
 		return err
@@ -199,10 +199,8 @@ func (s *Service) RegisterRecoveredAwaitingRun(item chat.PendingAwaitingWithChat
 	if err != nil {
 		return contracts.RecoveredAwaitingRun{}, err
 	}
-	owner := contracts.AgentRunOwner(admission.AgentKey, "")
-	if admission.TeamID != "" {
-		owner = contracts.TeamRunOwner(admission.TeamID, admission.AgentKey)
-	}
+	owner := contracts.AgentRunOwner(admission.AgentKey)
+
 	editingMode := original.EditingMode != nil && *original.EditingMode
 	session := contracts.QuerySession{
 		RequestID:       original.RequestID,
@@ -211,12 +209,12 @@ func (s *Service) RegisterRecoveredAwaitingRun(item chat.PendingAwaitingWithChat
 		RunScopeID:      item.ChatID,
 		ChatID:          item.ChatID,
 		AgentKey:        admission.AgentKey,
-		TeamID:          admission.TeamID,
-		RunOwner:        owner,
-		AccessLevel:     sessionbuild.NormalizedAccessLevel(original.AccessLevel),
-		EditingMode:     editingMode,
+
+		RunOwner:    owner,
+		AccessLevel: sessionbuild.NormalizedAccessLevel(original.AccessLevel),
+		EditingMode: editingMode,
 	}
-	if admission.TeamID == "" && !sessionbuild.IsProxyRoutedAgent(admission.AgentDef) && sessionbuild.ContainsTool(admission.AgentDef.Tools, "run_env") {
+	if !sessionbuild.IsProxyRoutedAgent(admission.AgentDef) && sessionbuild.ContainsTool(admission.AgentDef.Tools, "run_env") {
 		session.RunEnvironment = s.deps.Sessions.NewRunEnvironmentScope()
 	}
 	if item.Mode == "wait" {

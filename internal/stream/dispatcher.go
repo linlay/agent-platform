@@ -6,18 +6,28 @@ import (
 )
 
 type StreamEventDispatcher struct {
-	request StreamRequest
-	state   *StreamEventStateData
+	request    StreamRequest
+	state      *StreamEventStateData
+	taskAgents map[string]string
 }
 
 func NewDispatcher(request StreamRequest) *StreamEventDispatcher {
 	return &StreamEventDispatcher{
-		request: request,
-		state:   NewStateData(),
+		request:    request,
+		state:      NewStateData(),
+		taskAgents: map[string]string{},
 	}
 }
 
-func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
+func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEvent) {
+	defer func() {
+		for _, event := range events {
+			if key := d.taskAgents[anyString(event.Payload["taskId"])]; key != "" {
+				event.Payload["agentKey"] = key
+				event.Payload["actor"] = map[string]any{"type": "agent", "agentKey": key}
+			}
+		}
+	}()
 	if d.state.terminated {
 		return nil
 	}
@@ -151,9 +161,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if value.ActorType != "" {
 			payload["actorType"] = value.ActorType
 		}
-		if value.TeamID != "" {
-			payload["teamId"] = value.TeamID
-		}
+
 		if value.AgentKey != "" {
 			payload["agentKey"] = value.AgentKey
 		}

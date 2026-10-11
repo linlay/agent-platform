@@ -49,7 +49,7 @@ type AssistantV1 struct {
 	IconName string `json:"iconName,omitempty"`
 }
 
-type ResolveAssistant func(agentKey, teamID string) *AssistantV1
+type ResolveAssistant func(agentKey string) *AssistantV1
 
 type Outcome string
 
@@ -341,7 +341,7 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 		if event.Type == "run.start" {
 			turn.StartedAt = event.Timestamp
 			if resolveAssistant != nil {
-				turn.Assistant = resolveAssistant(event.String("agentKey"), event.String("teamId"))
+				turn.Assistant = resolveAssistant(event.String("agentKey"))
 			}
 			continue
 		}
@@ -479,7 +479,7 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 			}
 			task := TaskV1{ID: taskID, Name: event.String("taskName"), SubAgentKey: event.String("subAgentKey"), Status: "running"}
 			if resolveAssistant != nil && task.SubAgentKey != "" {
-				if agent := resolveAssistant(task.SubAgentKey, ""); agent != nil {
+				if agent := resolveAssistant(task.SubAgentKey); agent != nil {
 					task.SubAgentName, task.SubAgentIconName = agent.Name, agent.IconName
 				}
 			}
@@ -522,7 +522,7 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 			continue
 		}
 		if turn.Assistant == nil && resolveAssistant != nil {
-			turn.Assistant = resolveAssistant(summary.AgentKey, summary.TeamID)
+			turn.Assistant = resolveAssistant(summary.AgentKey)
 		}
 		filtered = append(filtered, turn)
 	}

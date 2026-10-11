@@ -412,7 +412,7 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 	}
 
 	artifactPublished := pushFrameDataMap(t, waitForPushFrameType(t, conn, "artifact.published"))
-	if artifactPublished["chatId"] != chatID || artifactPublished["runId"] != runID || artifactPublished["url"] != "report.md" || artifactPublished["artifactId"] != "artifact-channel" ||
+	if artifactPublished["chatId"] != chatID || artifactPublished["runId"] != runID || artifactPublished["url"] != "@chat/report.md" || artifactPublished["artifactId"] != "artifact-channel" ||
 		artifactPublished["name"] != "report.md" || artifactPublished["mimeType"] != "text/markdown" ||
 		artifactPublished["sha256"] != "abc123" {
 		t.Fatalf("unexpected artifact.published push %#v", artifactPublished)

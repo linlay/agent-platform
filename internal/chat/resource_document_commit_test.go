@@ -46,7 +46,7 @@ func TestCommitResourceDocumentOverwriteAndRevisionConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err := store.EnsureChat("chat-document", "agent-1", "", "document"); err != nil {
+	if _, _, err := store.EnsureChat("chat-document", "agent-1", "document"); err != nil {
 		t.Fatal(err)
 	}
 	relativePath, targetPath, revision := seedMarkdownArtifact(t, store, "chat-document")
@@ -81,7 +81,7 @@ func TestCommitResourceDocumentReferenceOnlyCreatesArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err := store.EnsureChat("chat-reference-document", "agent-1", "", "document"); err != nil {
+	if _, _, err := store.EnsureChat("chat-reference-document", "agent-1", "document"); err != nil {
 		t.Fatal(err)
 	}
 	targetPath := filepath.Join(store.ChatDir("chat-reference-document"), "source.txt")
@@ -123,7 +123,7 @@ func TestCommitResourceDocumentRejectsKindThatConflictsWithPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err := store.EnsureChat("chat-document-kind", "agent-1", "", "document"); err != nil {
+	if _, _, err := store.EnsureChat("chat-document-kind", "agent-1", "document"); err != nil {
 		t.Fatal(err)
 	}
 	relativePath, _, revision := seedMarkdownArtifact(t, store, "chat-document-kind")
@@ -179,7 +179,7 @@ func TestCommitResourceDocumentImageOverwritesExpectedArtifactRevision(t *testin
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err := store.EnsureChat("chat-image", "agent-1", "", "image"); err != nil {
+	if _, _, err := store.EnsureChat("chat-image", "agent-1", "image"); err != nil {
 		t.Fatal(err)
 	}
 	relativePath, targetPath, revision := seedResourceImageArtifact(t, store, "chat-image")
@@ -228,7 +228,7 @@ func TestCommitResourceDocumentImageCreatesArtifactFromArtifactOrReference(t *te
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, _, err := store.EnsureChat("chat-image-new", "agent-1", "", "image"); err != nil {
+	if _, _, err := store.EnsureChat("chat-image-new", "agent-1", "image"); err != nil {
 		t.Fatal(err)
 	}
 	relativePath, sourcePath, revision := seedResourceImageArtifact(t, store, "chat-image-new")
@@ -294,7 +294,7 @@ func newImageDocumentCommitTest(t *testing.T) (*FileStore, ResourceDocumentCommi
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	if _, _, err := store.EnsureChat("chat-image", "agent-1", "", "image"); err != nil {
+	if _, _, err := store.EnsureChat("chat-image", "agent-1", "image"); err != nil {
 		t.Fatal(err)
 	}
 	relativePath, _, revision := seedResourceImageArtifact(t, store, "chat-image")
