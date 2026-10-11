@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,28 @@ type maintenanceFake struct {
 	calls            []string
 	started, release chan struct{}
 	once             sync.Once
+}
+
+func TestRefreshAcceptsKBXWindowsCollectionPath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("KBX uses Windows verbatim paths on Windows")
+	}
+	m, l := newTestManager(t)
+	f := &maintenanceFake{collection: map[string]any{
+		"name": "workspace", "path": `\\?\` + l.spec.WorkspaceRoot,
+		"pattern": "**/*", "ignore": []string{".kbx-platform/**"},
+		"chunking": map[string]any{"strategy": "window", "max_chars": 3600, "overlap_chars": 540},
+	}}
+	m.runner = f
+	w := &collectionUpdate{library: l}
+	j := &updatePaths{}
+	if err := m.performRefresh(context.Background(), w, j); err != nil {
+		t.Fatal(err)
+	}
+	f.collection["path"] = t.TempDir()
+	if err := m.performRefresh(context.Background(), w, j); err == nil || err.Error() != "KBX source identity does not match collection" {
+		t.Fatalf("foreign collection was accepted: %v", err)
+	}
 }
 
 func (f *maintenanceFake) Run(ctx context.Context, db string, cfg []byte, args ...string) ([]byte, error) {

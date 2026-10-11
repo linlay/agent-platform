@@ -152,6 +152,18 @@ func maintenancePattern(pattern string) (string, error) {
 	return strings.ReplaceAll(pattern, ",", "[,]"), nil
 }
 
+func collectionSourceMatchesWorkspace(sourcePath, workspaceRoot string) bool {
+	if !filepath.IsAbs(sourcePath) {
+		return false
+	}
+	source, err := os.Stat(sourcePath)
+	if err != nil || !source.IsDir() {
+		return false
+	}
+	workspace, err := os.Stat(workspaceRoot)
+	return err == nil && workspace.IsDir() && os.SameFile(source, workspace)
+}
+
 func (m *Manager) performRefresh(ctx context.Context, w *collectionUpdate, j *updatePaths) error {
 	l := w.library
 	name := l.collection
@@ -232,7 +244,7 @@ func (m *Manager) performRefresh(ctx context.Context, w *collectionUpdate, j *up
 	registered := false
 	for _, c := range catalog.Collections {
 		if c.Name == name {
-			if filepath.Clean(c.Path) != l.spec.WorkspaceRoot {
+			if !collectionSourceMatchesWorkspace(c.Path, l.spec.WorkspaceRoot) {
 				return fmt.Errorf("KBX source identity does not match collection")
 			}
 			registered = true
@@ -267,7 +279,7 @@ func (m *Manager) performRefresh(ctx context.Context, w *collectionUpdate, j *up
 		return err
 	}
 	var actual collection
-	if json.Unmarshal(r.Data, &actual) != nil || actual.Name != name || filepath.Clean(actual.Path) != l.spec.WorkspaceRoot || actual.Pattern != pattern || !slices.Equal(actual.Ignore, ignores) || actual.Chunking.Strategy != chunk.Strategy || actual.Chunking.MaxChars != maxChars || actual.Chunking.OverlapChars != overlap {
+	if json.Unmarshal(r.Data, &actual) != nil || actual.Name != name || !collectionSourceMatchesWorkspace(actual.Path, l.spec.WorkspaceRoot) || actual.Pattern != pattern || !slices.Equal(actual.Ignore, ignores) || actual.Chunking.Strategy != chunk.Strategy || actual.Chunking.MaxChars != maxChars || actual.Chunking.OverlapChars != overlap {
 		return fmt.Errorf("KBX source selection configuration was not applied")
 	}
 	args := []string{"update", "-c", name, "--no-commands"}
