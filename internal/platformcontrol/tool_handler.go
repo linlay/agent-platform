@@ -29,15 +29,17 @@ const (
 )
 
 type ToolHandler struct {
-	libraries       *kbases.Service
-	automations     *automation.Service
-	RuntimeSnapshot func() map[string]any
-	cfg             config.Config
-	registry        catalog.Registry
-	chats           ChatPinService
-	sources         *adminsource.ControlService
-	conversations   *conversation.Service
-	models          *models.ModelRegistry
+	libraries            *kbases.Service
+	automations          *automation.Service
+	RuntimeSnapshot      func() map[string]any
+	cfg                  config.Config
+	registry             catalog.Registry
+	chats                ChatPinService
+	sources              *adminsource.ControlService
+	conversations        *conversation.Service
+	models               *models.ModelRegistry
+	connectorConnections ConnectorConnectionReader
+	connectorChecker     ConnectorChecker
 }
 
 type ChatPinService interface {

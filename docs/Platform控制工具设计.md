@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | catalog_query | resourceTypes/list/get/defaults/validate | 普通 native main root |
 | catalog_manage | apply/delete | 普通 native main root |
-| platform_inspect | runtimeStatus/securityExplain | native，支持受信任子任务/Team |
+| platform_inspect | runtimeStatus/securityExplain/checkConnector | 前两项支持受信任子任务/Team；checkConnector 仅普通 native main root |
 | desktop_shell | 9 个外壳动作 | Desktop |
 | desktop_settings | 16 个设置动作 | Desktop |
 | desktop_site | 6 个网站条目动作 | Desktop |
@@ -58,7 +58,11 @@ Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。
 - Skill：SKILL.md 和相对文本文件；package/member 与 package.json 成员列表一起发布，创建包仍使用现有管理入口。含 package.json 的包根不能作为普通 skill 操作，必须指定 package/member。
 - 外部 Connector：已有包仅编辑 connector.json；新建 HTTP MCP 可额外传 mcpUrl，由平台生成 mcp.json，与清单一起审批、校验及原子发布。不提供 CLI 安装或通用文件写入。需要登录使用 auth_mode=mcp，复用现有 .well-known 发现、PKCE、回调和刷新；公开服务可显式 no_auth。创建候选在审批前复用登录的本地校验：MCP OAuth 地址要求 HTTPS，保留 localhost、127.0.0.1 和 ::1 的 HTTP 例外；no_auth 的 HTTP(S) 范围不变。保存候选不发起远端请求。
 
-用户只提供 HTTP MCP 地址并要求创建连接器时，入口归 `platform-control` Skill：技能描述声明按服务地址创建 HTTP MCP，正文指向随包 `references/catalog.md` 的候选准备、校验、发布、回读和授权工作流。技能生成候选时默认显式写入 `auth_mode:mcp`，仅按用户明确选择改变认证方式；当前 `mcpUrl` 快捷创建入口接受 `mcp/no_auth`，其他模式使用既有授权的包管理流程。该技能默认值不改变通用包省略或 `null` 的委托认证语义。创建、授权、Agent 挂载与工具可用性分别核验；网页访问和截图不是创建前置条件。
+用户只提供 HTTP MCP 地址并要求创建连接器时，入口归 `platform-control` Skill：技能描述声明按服务地址创建并检查 HTTP MCP，正文指向随包 `references/catalog.md` 的候选准备、校验、发布、回读和授权工作流。`mcpUrl` 快捷创建入口在 `Prepare` 中将缺失的 `auth_mode` 补为 `mcp`，归一化内容同时进入审批展示、摘要和 connector.json 落盘；显式 `null` 拒绝，显式 `no_auth` 保留，其他模式使用既有授权的包管理流程。无 `mcpUrl` 的通用包省略或 `null` 仍为委托认证。网页访问和截图不是创建前置条件。
+
+连接器 `catalog_manage.apply` 成功后及 `catalog_query.get` 追加 `authMode`、本地 `connection` 快照和可用的 `nextAction`。快照由 App 注入的 `connectorauth.Manager.Connection` 窄接口读取，与客户端共享同一授权服务，不发起远端请求；不返回票据、登录 URL 或原始授权错误。需要授权时 nextAction 包含 `authorize` 和 `/connectors/<id>`；无需授权或已就绪的 main MCP 组件提示 `checkConnector`。快照失败保留已完成的创建结果，并以 unknown 和诊断报告状态。智能体打开授权页后结束本轮，用户完成登录并续问时回读状态及重新检查，不原地等待登录。
+
+`platform_inspect.checkConnector {connectorId,component?}` 默认组件 main，只检查保存的 HTTP MCP，支持 `no_auth/mcp/oauth/token`，无需目标连接器挂载到 Agent。它复用 MCP SDK 创建独立短期会话，校验包、初始化及实际协商版本，再分页读取工具列表并关闭会话；不启动 stdio/CLI、不发起登录、不修改挂载、不注册运行时工具、不调用业务工具。复用已有凭据与 OAuth 刷新，远端阶段限时 30 秒并响应取消。结果区分 passed、authorization_required、failed，并逐阶段标明 passed/failed/not_run；工具摘要最多 100 个名称、每名最多 256 字符，总数和 truncated 分别报告。原始远端错误、地址和凭据不进入返回值。创建并测试的任务止于协议与工具发现验证，Agent 挂载及业务工具测试是独立事项；runtimeStatus.mcp 仍只返回已挂载实例的缓存同步状态。
 
 apply 提交完整 UTF-8 文本，最多 1 MiB；目录版本覆盖整个资源（最多 64 MiB），现有对象必须带 get 得到的版本，新建必须满足不存在。禁止绝对路径、点段、符号链接和非普通文件；内置对象、调用者自身以及受引用对象受保护。Agent env 查询脱敏，保留旧值必须使用 preservePaths；连接器行内凭据不通过此工具编辑。
 

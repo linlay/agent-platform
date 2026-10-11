@@ -47,6 +47,7 @@ var controlActions = []ControlAction{
 	{"chat_manage", "delete", false},
 	{"platform_inspect", "runtimeStatus", true},
 	{"platform_inspect", "securityExplain", true},
+	{"platform_inspect", "checkConnector", true},
 	{"desktop_shell", "navigate.toRoute", false},
 	{"desktop_shell", "help.openTopic", false},
 	{"desktop_shell", "agent.open", false},

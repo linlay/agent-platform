@@ -92,6 +92,7 @@ type Dependencies struct {
 	Tools                  contracts.ToolExecutor
 	Sandbox                contracts.SandboxClient
 	MCP                    contracts.McpClient
+	ConnectorAuth          *connectorauth.Manager
 	MCPToolSyncStatus      MCPToolSyncStatusProvider
 	ToolInteractions       *toolinteraction.Registry
 	CatalogReloader        contracts.CatalogReloader
@@ -278,15 +279,18 @@ func New(deps Dependencies) (*Server, error) {
 	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
 	s.connectorOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.EffectiveConnectorsCenterDir())
 	s.connectorGrants = connectorops.NewGrants(backgroundCtx)
-	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), nil).WithIdentityFile(s.deps.Config.IdentityFile).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {
-		validator, ok := s.deps.MCP.(interface {
-			ValidateConnectorCredentials(context.Context, connector.Package, map[string]string) error
+	s.connectorAuth = deps.ConnectorAuth
+	if s.connectorAuth == nil {
+		s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), nil).WithIdentityFile(s.deps.Config.IdentityFile).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {
+			validator, ok := s.deps.MCP.(interface {
+				ValidateConnectorCredentials(context.Context, connector.Package, map[string]string) error
+			})
+			if !ok {
+				return connectorauth.ErrCredentialValidatorUnavailable
+			}
+			return validator.ValidateConnectorCredentials(ctx, pkg, values)
 		})
-		if !ok {
-			return connectorauth.ErrCredentialValidatorUnavailable
-		}
-		return validator.ValidateConnectorCredentials(ctx, pkg, values)
-	})
+	}
 	if s.deps.Runtime == nil {
 		return nil, fmt.Errorf("query runtime is not configured")
 	}

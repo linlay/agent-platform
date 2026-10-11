@@ -22,6 +22,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/credentialview"
@@ -403,6 +404,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID, ReceiptDir: filepath.Join(cfg.Paths.EffectiveStateDir(), "automation-control")}
 	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation, ValidateLibrary: kbasesService.ValidateBinding, LibraryDefinition: kbasesService.BindingDefinition}, conversationService, modelRegistry).ConfigureAutomation(automationService).ConfigureLibraries(kbasesService)
+	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithIdentityFile(cfg.IdentityFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
+	controlHandler.ConfigureConnectors(connectorAuth, mcp.NewConnectorChecker(cfg.Paths.ConnectorSources()))
 	controlHandler.RuntimeSnapshot = func() map[string]any {
 		statuses := []map[string]any{}
 		for _, server := range mcpRegistry.Servers() {
@@ -456,6 +459,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Tools:                  toolExecutor,
 		Sandbox:                sandboxClient,
 		MCP:                    mcpClient,
+		ConnectorAuth:          connectorAuth,
 		MCPToolSyncStatus:      mcpToolSync,
 		ToolInteractions:       interactionRegistry,
 		CatalogReloader:        reloader,

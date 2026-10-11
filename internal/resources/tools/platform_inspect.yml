@@ -4,7 +4,7 @@ i18n:
     label: "Platform Diagnostics"
   zh-CN:
     label: "平台诊断"
-description: "Inspect Platform runtime health and access policies. Read the platform-control skill before use."
+description: "Inspect Platform runtime health, access policies, and HTTP MCP connector connectivity. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: true
@@ -20,6 +20,7 @@ inputSchema:
       enum:
         - "runtimeStatus"
         - "securityExplain"
+        - "checkConnector"
     args:
       type: "object"
       description: "See its skill."

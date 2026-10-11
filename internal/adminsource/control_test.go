@@ -283,15 +283,25 @@ func TestControlPreservesSourcePermissions(t *testing.T) {
 }
 
 func TestControlCreatesCompleteHTTPMCPPackage(t *testing.T) {
-	for _, mode := range []string{"mcp", "no_auth"} {
+	for _, mode := range []string{"", "mcp", "no_auth"} {
 		s := controlFixture(t)
-		c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: "https://example.com/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"` + mode + `"}`}
+		auth := ""
+		if mode != "" {
+			auth = `,"auth_mode":"` + mode + `"`
+		}
+		c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: "https://example.com/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp"` + auth + `}`}
 		plan, err := s.Prepare(c, "caller")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(plan.GeneratedFiles["mcp.json"], c.MCPURL) || !strings.Contains(plan.After, "--- generated mcp.json ---") {
 			t.Fatal("generated component missing from review")
+		}
+		if mode == "" && !strings.Contains(plan.Change.Content, `"auth_mode": "mcp"`) {
+			t.Fatal("default did not enter the reviewed source")
+		}
+		if !strings.HasPrefix(plan.After, plan.Change.Content) {
+			t.Fatal("approval content differs from normalized source")
 		}
 		changed := c
 		changed.MCPURL = "https://example.com/other"
@@ -305,9 +315,31 @@ func TestControlCreatesCompleteHTTPMCPPackage(t *testing.T) {
 		if err != nil || !strings.Contains(string(b), c.MCPURL) {
 			t.Fatalf("%s %v", b, err)
 		}
+		manifest, err := os.ReadFile(filepath.Join(s.Config.Paths.ConnectorsCenterDir, "remote", "connector.json"))
+		if err != nil || string(manifest) != plan.Change.Content {
+			t.Fatalf("published manifest differs from approval: %s, %v", manifest, err)
+		}
 		if _, err := s.Prepare(c, "caller"); err == nil {
 			t.Fatal("creation overwritten")
 		}
+	}
+}
+
+func TestControlHTTPMCPDefaultRejectsExplicitUnsupportedModes(t *testing.T) {
+	for _, auth := range []string{`null`, `"token"`, `"oauth"`, `"delegated"`, `""`, `false`} {
+		t.Run(auth, func(t *testing.T) {
+			s := controlFixture(t)
+			c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: "https://example.com/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":` + auth + `}`}
+			if _, err := s.Prepare(c, "caller"); err == nil {
+				t.Fatal("explicit unsupported authentication was defaulted")
+			}
+		})
+	}
+	s := controlFixture(t)
+	c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp"}`}
+	p, err := s.Prepare(c, "caller")
+	if err != nil || p.Change.Content != c.Content {
+		t.Fatalf("ordinary package omission semantics changed: %v", err)
 	}
 }
 

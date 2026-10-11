@@ -65,6 +65,7 @@ var argumentFields = map[string]map[string]string{
 	"chat_manage.delete":               {"chatId": "s!", "archived": "b"},
 	"platform_inspect.runtimeStatus":   {"component": "s"},
 	"platform_inspect.securityExplain": {"path": "s", "access": "s", "tool": "s", "action": "s"},
+	"platform_inspect.checkConnector":  {"connectorId": "s!", "component": "s"},
 }
 
 func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.ExecutionContext) (string, map[string]any, error) {
@@ -72,7 +73,7 @@ func (h *ToolHandler) admitted(tool string, args map[string]any, e *contracts.Ex
 	if !registered || e == nil || e.Session.NativeConnectorTools[tool] != owner || e.Session.ConnectorDirs[owner] == "" {
 		return "", nil, fmt.Errorf("connector_not_mounted: configure %s for this Agent through an authorized configuration change, then start a new Run", owner)
 	}
-	if connector.IsPlatformRootTool(tool) && !rootCaller(e) {
+	if (connector.IsPlatformRootTool(tool) || tool == "platform_inspect" && args["action"] == "checkConnector") && !rootCaller(e) {
 		return "", nil, fmt.Errorf("caller_forbidden: ordinary native main root Run required; invoke this tool from the owning Agent main Run, outside Team, subtask or side-chat execution")
 	}
 	if err := toolinput.Validate(args, map[string]string{"action": "s!", "args": "o"}, ""); err != nil {
@@ -216,6 +217,9 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 			return controlFail("approval_required", "explicit approval of this exact invocation and baseline is required", "authorization"), nil
 		}
 		value, err = h.sources.Apply(ctx, controlChange(action, p), e.Session.AgentKey, plan.Digest)
+		if err == nil && action == "apply" && plan.Change.ResourceType == "connector" {
+			h.addConnectorConnection(ctx, plan.Change.ResourceKey, value.(map[string]any))
+		}
 	case "chat_query":
 		value, err = h.chatQuery(action, p, e)
 	case "chat_manage":
@@ -236,7 +240,11 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 		}
 		value, err = h.conversations.ControlManage(controlCaller(e), action, p, revision)
 	case "platform_inspect":
-		value, err = h.inspect(action, p, e)
+		if action == "checkConnector" {
+			value, err = h.checkConnector(ctx, p)
+		} else {
+			value, err = h.inspect(action, p, e)
+		}
 	}
 	if err != nil {
 		failure := controlInputFailure("control_failed", err, "execution")
@@ -293,12 +301,14 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 		if h.sources == nil {
 			return nil, fmt.Errorf("catalog unavailable")
 		}
-		err := h.sources.Validate(t, stringValue(p, "content"))
+		var err error
+		if stringValue(p, "mcpUrl") != "" {
+			_, err = h.sources.Prepare(controlChange("apply", p), "")
+		} else {
+			err = h.sources.Validate(t, stringValue(p, "content"))
+		}
 		if isProject, _ := p["isProject"].(bool); err == nil && isProject {
 			err = h.sources.ValidateProject(t, stringValue(p, "content"))
-		}
-		if err == nil && stringValue(p, "mcpUrl") != "" {
-			_, err = h.sources.Prepare(controlChange("apply", p), "")
 		}
 		diagnostics := []map[string]any{}
 		if err != nil {
@@ -330,7 +340,15 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 		if h.sources == nil {
 			return nil, fmt.Errorf("catalog unavailable")
 		}
-		return h.sources.Read(t)
+		view, err := h.sources.Read(t)
+		if err != nil || t.ResourceType != "connector" {
+			return view, err
+		}
+		data, _ := json.Marshal(view)
+		var result map[string]any
+		_ = json.Unmarshal(data, &result)
+		h.addConnectorConnection(ctx, t.ResourceKey, result)
+		return result, nil
 	}
 	status := stringValue(p, "status")
 	if status == "" {
