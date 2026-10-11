@@ -7,6 +7,9 @@ type RequestError struct {
 	Code    string
 	Message string
 	Data    any
+	// OutcomeUnknown is internal transport metadata, never a public request
+	// field. A control request may have reached the upstream without an ack.
+	OutcomeUnknown bool `json:"-"`
 }
 
 func (e *RequestError) Error() string {

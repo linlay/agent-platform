@@ -208,7 +208,7 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 
 开发常用：[Runtime 模块边界](docs/Runtime模块边界.md)、[智能体配置](docs/智能体配置说明.md)、[工具目录权限](docs/工具目录权限.md)、[API 与协议](docs/API与协议.md)、[版本化打包](docs/版本化打包方案.md)。
 
-`builtin.task-control`（任务管理）独立提供六个 Chat 工具和两个 Automation 工具；`chat_steer` 不审批、不比较双方档位，同进程同调用冻结首次结果（含未受理与 unknown），由调用身份派生 steerId；Runtime 写入可选 request.steer.source，来源不进入模型输入、不传上游。`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
+`builtin.task-control`（任务管理）独立提供六个 Chat 工具和两个 Automation 工具；`chat_steer` 不审批、不比较双方档位，同进程同调用冻结首次结果（含未受理与 unknown），收据随调用方 Run 结束清理（在途调用完成后释放）；确定未发送/明确拒绝为 not_started，SSE 传输或响应不确定为 unknown；由调用身份派生 steerId；Runtime 写入可选 request.steer.source，来源不进入模型输入、不传上游。`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
 自动化行为、自然语言时间/Cron 与 YAML 契约归 task-control 的按需 references；Provider/Model 和外部连接器组件配置维护参考归 platform-control。Skill 不增加工具或文件权限，不应恢复外部 platform-admin/platform-automation 的重复路由。具体自动化更新与时区语义见 [自动化](docs/自动化.md#task-control-管理工具)。
 

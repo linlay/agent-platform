@@ -92,6 +92,11 @@ func (r *Route) Send(payload map[string]any) bool {
 		return false
 	}
 	select {
+	case <-r.Done:
+		return false
+	default:
+	}
+	select {
 	case r.SendQueue <- payload:
 		return true
 	case <-r.Done:
@@ -101,13 +106,24 @@ func (r *Route) Send(payload map[string]any) bool {
 	}
 }
 
+// ControlError distinguishes a definite rejection before sending (or by the
+// upstream) from an HTTP request whose handling cannot be confirmed. Unwrap
+// preserves the existing application error codes used by human controls.
+type ControlError struct {
+	Err            error
+	OutcomeUnknown bool
+}
+
+func (e *ControlError) Error() string { return e.Err.Error() }
+func (e *ControlError) Unwrap() error { return e.Err }
+
 func (r *Route) PostControl(path string, payload map[string]any, target any) error {
 	if r == nil || strings.TrimSpace(r.BaseURL) == "" {
-		return apperrors.New(apperrors.CodeProxyRequestFailed, "proxy control endpoint is unavailable")
+		return &ControlError{Err: apperrors.New(apperrors.CodeProxyRequestFailed, "proxy control endpoint is unavailable")}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return apperrors.Wrap(apperrors.CodeInternalError, err)
+		return &ControlError{Err: apperrors.Wrap(apperrors.CodeInternalError, err)}
 	}
 	timeout := r.Timeout
 	if timeout <= 0 || timeout > 30*time.Second {
@@ -115,7 +131,7 @@ func (r *Route) PostControl(path string, payload map[string]any, target any) err
 	}
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(r.BaseURL, "/")+path, bytes.NewReader(body))
 	if err != nil {
-		return apperrors.Wrap(apperrors.CodeProxyRequestFailed, err)
+		return &ControlError{Err: apperrors.Wrap(apperrors.CodeProxyRequestFailed, err)}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if r.Token != "" {
@@ -123,7 +139,7 @@ func (r *Route) PostControl(path string, payload map[string]any, target any) err
 	}
 	resp, err := (httpclient.NewClient(timeout)).Do(req)
 	if err != nil {
-		return apperrors.Wrap(apperrors.CodeProxyRequestFailed, err)
+		return &ControlError{Err: apperrors.Wrap(apperrors.CodeProxyRequestFailed, err), OutcomeUnknown: true}
 	}
 	defer resp.Body.Close()
 	var envelope struct {
@@ -131,19 +147,20 @@ func (r *Route) PostControl(path string, payload map[string]any, target any) err
 		Msg  string          `json:"msg"`
 		Data json.RawMessage `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
-		return apperrors.Wrap(apperrors.CodeProxyBadResponse, err)
-	}
-	if resp.StatusCode != http.StatusOK || envelope.Code != 0 {
+	decodeErr := json.NewDecoder(resp.Body).Decode(&envelope)
+	if resp.StatusCode != http.StatusOK || (decodeErr == nil && envelope.Code != 0) {
 		message := strings.TrimSpace(envelope.Msg)
 		if message == "" {
 			message = "proxy control request failed"
 		}
-		return apperrors.New(apperrors.CodeProxyUpstreamError, message)
+		return &ControlError{Err: apperrors.New(apperrors.CodeProxyUpstreamError, message)}
+	}
+	if decodeErr != nil {
+		return &ControlError{Err: apperrors.Wrap(apperrors.CodeProxyBadResponse, decodeErr), OutcomeUnknown: true}
 	}
 	if target != nil && len(envelope.Data) > 0 {
 		if err := json.Unmarshal(envelope.Data, target); err != nil {
-			return apperrors.Wrap(apperrors.CodeProxyBadResponse, err)
+			return &ControlError{Err: apperrors.Wrap(apperrors.CodeProxyBadResponse, err), OutcomeUnknown: true}
 		}
 	}
 	return nil

@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/runtime/runstate"
@@ -46,6 +47,12 @@ func TestChatSteerFreezesEveryFirstOutcome(t *testing.T) {
 			if third.Structured["steerId"] == "tampered" {
 				t.Fatal("caller mutated frozen result")
 			}
+			cancelled, cancel := context.WithCancel(context.Background())
+			cancel()
+			completed, _ := h.Invoke(cancelled, SteerToolName, args, runToolExecContext("alice", "call"))
+			if !reflect.DeepEqual(completed, third) {
+				t.Fatal("cancellation hid an already completed outcome")
+			}
 			changed, _ := h.Invoke(context.Background(), SteerToolName, map[string]any{"runId": "target", "message": "different"}, runToolExecContext("alice", "call"))
 			if changed.Error != "idempotency_conflict" || len(service.steerCalls) != calls {
 				t.Fatalf("changed call: %#v", changed)
@@ -54,21 +61,123 @@ func TestChatSteerFreezesEveryFirstOutcome(t *testing.T) {
 	}
 }
 
-func TestChatSteerRetainsFirstRejectionAfterCallerEnds(t *testing.T) {
-	service := ownedSteerService()
-	service.steerResult = runtimetypes.SteerResult{Status: "unmatched"}
-	runs := runstate.NewManager()
-	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{RunID: "parent-run", ChatID: "parent-chat", AgentKey: "zenmi"})
-	h := NewToolHandler(service, runs)
-	exec := runToolExecContext("alice", "call")
-	exec.RunControl = control
-	args := map[string]any{"runId": "target", "message": "change"}
-	first, _ := h.Invoke(context.Background(), SteerToolName, args, exec)
-	runs.Finish("parent-run")
-	service.steerResult = runtimetypes.SteerResult{Accepted: true, Status: "accepted"}
-	second, _ := h.Invoke(context.Background(), SteerToolName, args, exec)
-	if !reflect.DeepEqual(first, second) || len(service.steerCalls) != 1 {
-		t.Fatalf("replayed after caller ended: %#v %#v sends=%d", first, second, len(service.steerCalls))
+func TestChatSteerReleasesReceiptAfterCallerEnds(t *testing.T) {
+	for _, cleanup := range []string{"run_control", "sweep"} {
+		t.Run(cleanup, func(t *testing.T) {
+			service := ownedSteerService()
+			service.steerResult = runtimetypes.SteerResult{Status: "unmatched"}
+			runs := runstate.NewManager()
+			_, control, _ := runs.Register(context.Background(), contracts.QuerySession{RunID: "parent-run", ChatID: "parent-chat", AgentKey: "zenmi"})
+			defer runs.Finish("parent-run")
+			h := NewToolHandler(service, runs)
+			exec := runToolExecContext("alice", "call")
+			if cleanup == "run_control" {
+				exec.RunControl = control
+			}
+			args := map[string]any{"runId": "target", "message": "change"}
+			first, _ := h.Invoke(context.Background(), SteerToolName, args, exec)
+			service.steerResult = runtimetypes.SteerResult{Accepted: true, Status: "accepted"}
+			second, _ := h.Invoke(context.Background(), SteerToolName, args, exec)
+			if !reflect.DeepEqual(first, second) || len(service.steerCalls) != 1 {
+				t.Fatal("active caller did not retain its first rejection")
+			}
+			runs.Finish("parent-run")
+			deadline := time.Now().Add(time.Second)
+			for {
+				h.mu.Lock()
+				if cleanup == "sweep" {
+					h.cleanupIdempotencyLocked()
+				}
+				count := len(h.steers)
+				h.mu.Unlock()
+				if count == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("ended caller retained steer receipt")
+				}
+				time.Sleep(time.Millisecond)
+			}
+		})
+	}
+}
+
+type blockingSteerService struct {
+	*fakeRunToolService
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingSteerService) Steer(ctx context.Context, command runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
+	close(s.started)
+	<-s.release
+	return s.fakeRunToolService.Steer(ctx, command)
+}
+
+func TestChatSteerReplayCancellationPreservesInFlightReceipt(t *testing.T) {
+	for _, callerEnded := range []bool{false, true} {
+		t.Run(map[bool]string{false: "active", true: "ended"}[callerEnded], func(t *testing.T) {
+			service := &blockingSteerService{fakeRunToolService: ownedSteerService(), started: make(chan struct{}), release: make(chan struct{})}
+			release := sync.OnceFunc(func() { close(service.release) })
+			defer release()
+			runs := runstate.NewManager()
+			_, parent, _ := runs.Register(context.Background(), runToolExecContext("alice", "call").Session)
+			defer runs.Finish("parent-run")
+			h := NewToolHandler(service, runs)
+			exec := runToolExecContext("alice", "call")
+			exec.RunControl = parent
+			args := map[string]any{"runId": "target", "message": "change"}
+			firstDone := make(chan contracts.ToolExecutionResult, 1)
+			go func() { result, _ := h.Invoke(context.Background(), SteerToolName, args, exec); firstDone <- result }()
+			select {
+			case <-service.started:
+			case <-time.After(time.Second):
+				t.Fatal("first call did not enter transport")
+			}
+			if callerEnded {
+				runs.Finish("parent-run")
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			replayDone := make(chan contracts.ToolExecutionResult, 1)
+			go func() { result, _ := h.Invoke(ctx, SteerToolName, args, exec); replayDone <- result }()
+			select {
+			case result := <-replayDone:
+				if result.Error != "chat_steer_cancelled" || result.Structured["executionState"] != "unknown" || result.Structured["steerId"] != steerID(contracts.RunOrigin{RunID: "parent-run", ToolID: "call"}) {
+					t.Fatal(result.Output)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("cancelled replay kept waiting for transport")
+			}
+			h.mu.Lock()
+			count := len(h.steers)
+			h.mu.Unlock()
+			if count != 1 {
+				t.Fatal("in-flight receipt was removed")
+			}
+			release()
+			var first contracts.ToolExecutionResult
+			select {
+			case first = <-firstDone:
+			case <-time.After(time.Second):
+				t.Fatal("first call did not finish")
+			}
+			if first.Error != "" || first.Structured["accepted"] != true {
+				t.Fatal(first.Output)
+			}
+			if !callerEnded {
+				replayed, _ := h.Invoke(context.Background(), SteerToolName, args, exec)
+				if !reflect.DeepEqual(first, replayed) || len(service.steerCalls) != 1 {
+					t.Fatal("cancelled observer replaced the original outcome")
+				}
+			} else {
+				h.mu.Lock()
+				defer h.mu.Unlock()
+				if len(h.steers) != 0 {
+					t.Fatal("completed transport retained the ended caller receipt")
+				}
+			}
+		})
 	}
 }
 

@@ -86,7 +86,7 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 	case InterruptToolName:
 		return h.interrupt(ctx, args, origin)
 	case SteerToolName:
-		return h.steer(ctx, args, origin)
+		return h.steer(ctx, args, origin, execCtx.RunControl)
 	default:
 		return errorResult("invalid_tool", "tool must be chat_start, chat_get_status, chat_interrupt, or chat_steer"), nil
 	}
@@ -400,6 +400,17 @@ func (h *ToolHandler) cleanupIdempotencyLocked() {
 	for key := range h.reviews {
 		if parentDone(key) {
 			delete(h.reviews, key)
+		}
+	}
+	for key, receipt := range h.steers {
+		// Keep an in-flight receipt until its result is published so concurrent
+		// replays cannot become a second send during caller shutdown.
+		select {
+		case <-receipt.done:
+			if parentDone(key) {
+				delete(h.steers, key)
+			}
+		default:
 		}
 	}
 }

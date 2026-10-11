@@ -1205,7 +1205,7 @@ builtin.task-control 的 chat_steer 接收 `{runId,message}`。公开 request.st
 }
 ```
 
-chat_steer 不审批、不比较双方权限档位，保留目标原有工具授权。调用身份派生的 steerId 与目标事件相同；首次结果（含未受理）在同进程同调用内冻结，参数变化返回 idempotency_conflict。远端出错或超时返回 executionState:unknown，来源不传上游，不自动重发。完整所有权、等待和调用边界见 [子智能体调度](子智能体调度.md#chat_steer)。
+chat_steer 不审批、不比较双方权限档位，保留目标原有工具授权。调用身份派生的 steerId 与目标事件相同；首次结果（含未受理）在同进程同调用内冻结，参数变化返回 idempotency_conflict。收据随调用方 Run 结束清理，在途调用完成后释放；重放等待可取消，且不覆盖首个调用结果。WS 未入队、发送前校验失败与上游明确拒绝返回 executionState:not_started；SSE 传输失败、超时或响应无法解析返回 executionState:unknown。来源不传上游，同次调用不重发，未知结果不自动补发。完整所有权、等待和调用边界见 [子智能体调度](子智能体调度.md#chat_steer)。
 
 ### planning 期间的 steer
 

@@ -254,6 +254,9 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 			"steerId":   steerID,
 			"message":   req.Message,
 		}, &response)
+		if statusErr == nil && req.Source != nil && strings.TrimSpace(response.Status) == "" {
+			statusErr = &statusError{Status: http.StatusBadGateway, Code: "proxy_invalid_response", Message: "Proxy steer response is missing its acknowledgment", OutcomeUnknown: true}
+		}
 		return response, statusErr, true
 	}
 	payload := map[string]any{
@@ -271,7 +274,7 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 		"payload": payload,
 	}) {
 		if req.Source != nil {
-			return api.SteerResponse{}, &statusError{Status: http.StatusBadGateway, Code: "run_steer_outcome_unknown", Message: "Proxy steer forwarding could not be confirmed"}, true
+			return api.SteerResponse{}, &statusError{Status: http.StatusBadGateway, Code: "run_steer_not_sent", Message: "Proxy steer was not queued for sending"}, true
 		}
 		return api.SteerResponse{
 			Accepted: false,
@@ -299,6 +302,10 @@ func postProxyRunControl(route *proxyRunRoute, path string, payload map[string]a
 		return nil
 	}
 	statusErr := &statusError{Status: http.StatusBadGateway, Code: "proxy_unavailable", Message: err.Error()}
+	var controlErr *runtimeproxy.ControlError
+	if errors.As(err, &controlErr) {
+		statusErr.OutcomeUnknown = controlErr.OutcomeUnknown
+	}
 	var appErr *apperrors.Error
 	if errors.As(err, &appErr) {
 		switch appErr.Code() {

@@ -73,7 +73,13 @@ func (s *Service) Steer(ctx context.Context, command runtimetypes.SteerCommand) 
 	if response, statusErr, ok := s.deps.Proxy.Steer(req); ok {
 		if statusErr != nil {
 			if command.AgentCaller != nil {
-				return runtimetypes.SteerResult{}, &contracts.RunToolError{Code: "run_steer_outcome_unknown", Message: statusErr.Error(), ExecutionState: "unknown", RunID: req.RunID, ChatID: req.ChatID}
+				code, state := statusErr.Code, "not_started"
+				if statusErr.OutcomeUnknown {
+					code, state = "run_steer_outcome_unknown", "unknown"
+				} else if code == "" {
+					code = "run_steer_rejected"
+				}
+				return runtimetypes.SteerResult{}, &contracts.RunToolError{Code: code, Message: statusErr.Error(), ExecutionState: state, RunID: req.RunID, ChatID: req.ChatID}
 			}
 			return runtimetypes.SteerResult{}, statusErr
 		}

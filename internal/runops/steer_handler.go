@@ -28,7 +28,17 @@ func cloneSteerResult(result contracts.ToolExecutionResult) contracts.ToolExecut
 	return result
 }
 
-func (h *ToolHandler) steer(ctx context.Context, args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
+func completeSteerResult(result contracts.ToolExecutionResult, id string) contracts.ToolExecutionResult {
+	result.Structured["steerId"] = id
+	if result.Error != "" && result.Structured["executionState"] == nil {
+		result.Structured["executionState"] = "not_started"
+	}
+	data, _ := json.Marshal(result.Structured)
+	result.Output = string(data)
+	return result
+}
+
+func (h *ToolHandler) steer(ctx context.Context, args map[string]any, origin contracts.RunOrigin, parentControl *contracts.RunControl) (contracts.ToolExecutionResult, error) {
 	if origin.RunID == "" || origin.ToolID == "" || origin.ChatID == "" {
 		return errorResult("run_context_required", "chat_steer requires caller runId, chatId and toolId"), nil
 	}
@@ -53,23 +63,49 @@ func (h *ToolHandler) steer(ctx context.Context, args map[string]any, origin con
 	if exists {
 		// Unlike chat_start, even a definite rejection is frozen. A replay is
 		// never a new enqueue attempt; only a new tool invocation may send again.
-		<-receipt.done
-		return cloneSteerResult(receipt.result), nil
+		select {
+		case <-receipt.done:
+			return cloneSteerResult(receipt.result), nil
+		case <-ctx.Done():
+			select {
+			case <-receipt.done:
+				return cloneSteerResult(receipt.result), nil
+			default:
+			}
+			// Cancelling this observer says nothing about the first send. It must
+			// not replace the receipt or claim that the operation never started.
+			result := resultFromError(&contracts.RunToolError{
+				Code: "chat_steer_cancelled", ExecutionState: "unknown",
+				Message: "waiting for the original chat_steer result was cancelled; its outcome is still pending",
+				RunID:   contracts.AnyStringNode(args["runId"]),
+			})
+			return completeSteerResult(result, steerID(origin)), nil
+		}
 	}
-	result := h.invokeSteer(ctx, args, origin)
-	result.Structured["steerId"] = steerID(origin)
-	if result.Error != "" && result.Structured["executionState"] == nil {
-		result.Structured["executionState"] = "not_started"
-	}
-	data, _ := json.Marshal(result.Structured)
-	result.Output = string(data)
+	result := completeSteerResult(h.invokeSteer(ctx, args, origin), steerID(origin))
 	h.mu.Lock()
 	receipt.result = cloneSteerResult(result)
 	close(receipt.done)
+	h.cleanupIdempotencyLocked()
 	h.mu.Unlock()
-	// Retain the first outcome for this process, even after the caller ends.
-	// Replaying an old invocation must not turn a rejection into a new send.
+	h.cleanupSteerWithParent(key, receipt, parentControl)
+	// Freeze even definite rejections while the caller Run is active. Once it
+	// ends there can be no legitimate replay, so release the stored snapshot.
 	return cloneSteerResult(result), nil
+}
+
+func (h *ToolHandler) cleanupSteerWithParent(key string, receipt *idempotentSteer, parentControl *contracts.RunControl) {
+	if parentControl == nil {
+		return
+	}
+	go func() {
+		<-parentControl.Context().Done()
+		h.mu.Lock()
+		if h.steers[key] == receipt {
+			delete(h.steers, key)
+		}
+		h.mu.Unlock()
+	}()
 }
 
 func (h *ToolHandler) invokeSteer(ctx context.Context, args map[string]any, origin contracts.RunOrigin) contracts.ToolExecutionResult {
