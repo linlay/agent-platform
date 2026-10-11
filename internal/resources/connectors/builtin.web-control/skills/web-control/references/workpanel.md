@@ -30,16 +30,18 @@ The same shape on Windows can contain `"path":"C:\\Users\\alice\\Desktop\\report
 
 Use `surface_list` for live webpages and their surfaceId.
 
-## Editing a local original
+## Accessing the selected file
 
-When the user asks about the right-side file or current local preview:
+When the user's task refers to the current WorkPanel selection:
 
-1. Call `workpanel_state` with `{}` for the current selection. Do not supply a Chat ID, file name or path to this lookup.
-2. If `activeFile` exists, call `file_read` using its exact `path`. This identifies and reads the original; the preview's isolated URL cannot be used with AWCP, CDP or file tools.
-3. Only when the user has requested a specific edit, call `file_edit` on the same original and preserve unrelated content. The lookup and preview themselves are not editing instructions or write authorization.
-4. Read back the expected change. Desktop refreshes the preview when the original changes.
+1. Call `workpanel_state` with `{}` and identify the active item. Do not supply a Chat ID, file name or path to this lookup.
+2. If `activeFile` is non-null, use its exact `path` for the local original. The preview's isolated URL cannot be used with AWCP, CDP or file tools.
+3. Otherwise, if the active file item has a recorded `@workspace/...` or `@chat/...` URL, use that reference with the file tools. `activeFile: null` does not make an existing Workspace or Chat preview unavailable.
+4. If neither source identifies the intended file, ask the user to open or activate it. Do not search directories, infer a path from a file name, or substitute an inactive file or a file from another Chat.
 
-Do not search directories or an address catalog to guess the selected file. Do not create a replacement copy, upload the file, or execute its contents while editing the preview. If `activeFile` is null or the lookup reports stale/unavailable state, ask the user to open or activate the intended file before proceeding. A contract mismatch requires updating Desktop and Platform together, not another file selection or directory search. For a later request about the current preview, look up the selection again rather than reusing an earlier path.
+Read the selected file with `file_read` before a requested edit. Use `file_edit` on that same file, preserve unrelated content and read back the expected change. A request to edit an original must not be implemented by editing a replacement copy. Copying, uploading or executing a file is a separate action and must follow the user's task; do not add it merely to read or edit a preview. Desktop refreshes a local original's preview when the file changes.
+
+For a later task that depends on the current selection, read the state again rather than reusing an earlier path. Follow the reported recovery guidance for a stale or unavailable selection. A contract mismatch requires updating Desktop and Platform together, not another file selection or directory search.
 
 Workspace and Chat files retain their recorded `@workspace/` and `@chat/` URLs and existing file-tool permissions. Reading original-file metadata does not grant additional file roots, suppress approvals, or turn a preview into a webpage Surface. This lookup never reads file contents, starts a Run, copies/uploads a file, or adds file references to a user message.
 

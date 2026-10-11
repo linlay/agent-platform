@@ -4,7 +4,7 @@ i18n:
     label: "WorkPanel State"
   zh-CN:
     label: "工作面板状态"
-description: "Read this Chat's active HTML/MD path for right-side/current-preview requests; don't search/guess; null means activate. Requires matching Desktop; contract errors require paired updates. Read the web-control skill before use."
+description: "Read the current Chat's WorkPanel state, including active file metadata when available. Read the web-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:

@@ -26,13 +26,11 @@ Tool definitions only name a capability. Read the reference for a tool before ca
 
 A file preview has no surfaceId. It cannot be scripted, clicked or read through AWCP; reopen it with `workpanel_open` to activate and reload it.
 
-## Editing the current file preview
+## Choosing a file preview
 
-When the user refers to the right-side file or current preview, call `workpanel_state` to identify the current Chat's active file before reading or editing it. A matching Desktop returns `activeFile` for a local HTML or Markdown original opened by the user, or null when no local original is active. Use its exact `path` with `file_read`, then use `file_edit` on that same original only for the user's explicit requested change. Preserve unrelated content; do not copy the file elsewhere, upload it, or execute its contents as part of preview editing. The state lookup provides file context, not permission to write.
+When a task refers to the current WorkPanel selection, call `workpanel_state` to identify it before reading or editing a file. Use `activeFile.path` for a local original, or the active item's recorded `@workspace/...` or `@chat/...` URL for an existing file preview. Follow the user's requested change; identifying a file does not grant read or write permission.
 
-Read the state again for a later request about the current preview; selecting another tab changes the target. Do not search directories, infer an absolute path from a file name, or use an earlier file as a fallback. If `activeFile` is null, or the state is stale/unavailable, ask the user to open or activate the intended local original. `desktop_workpanel_contract_mismatch` means the Desktop reply lacks the required current contract: report that Desktop and Platform must be updated together, without retrying unchanged input or guessing the file. Existing Workspace and Chat previews still use the recorded `@workspace/...` or `@chat/...` url; those roots are unchanged.
-
-Read [WorkPanel](references/workpanel.md) for the state fields and editing limits.
+Read [WorkPanel](references/workpanel.md) for file metadata, access and recovery.
 
 ## Opening and closing
 
