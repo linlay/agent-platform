@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path"
@@ -14,6 +15,7 @@ import (
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
@@ -182,7 +184,7 @@ func (t *RuntimeToolExecutor) webControlPanelState(ctx context.Context, args map
 		return failure, nil
 	}
 	result, err := t.webControlAction(ctx, "desktop.workpanel.getState", nil, execCtx)
-	return projectWebControlPanelResult(result), err
+	return projectWebControlPanelStateResult(result, t.cfg.RuntimeMode == config.RuntimeModeDesktop), err
 }
 
 type webControlTarget struct {
@@ -491,7 +493,75 @@ func webControlRestructured(result ToolExecutionResult, structured map[string]an
 
 var webControlPanelHiddenKeys = map[string]bool{
 	"containerId": true, "workspaceId": true, "ownerChatId": true, "closedItemId": true,
-	"itemId": true, "stableKey": true, "activeItemId": true,
+	"itemId": true, "stableKey": true, "activeItemId": true, "activeFile": true,
+}
+
+// Only workpanel_state in the Desktop runtime returns original-file metadata.
+// Desktop Main resolves it from the trusted Run's current active item, never
+// from renderer path data. Generic panel results and Standalone replies keep
+// this extension hidden, even when a caller includes a similarly named field.
+func projectWebControlPanelStateResult(result ToolExecutionResult, allowActiveFile bool) ToolExecutionResult {
+	projected := projectWebControlPanelResult(result)
+	if !allowActiveFile || result.ExitCode != 0 {
+		return projected
+	}
+	response, _ := result.Structured["response"].(map[string]any)
+	actionResult, _ := response["result"].(map[string]any)
+	activeFile, present := actionResult["activeFile"]
+	projectedResponse, _ := projected.Structured["response"].(map[string]any)
+	projectedActionResult, _ := projectedResponse["result"].(map[string]any)
+	if !present || projectedActionResult == nil {
+		return desktopActionErrorResult("desktop_workpanel_contract_mismatch",
+			"Desktop WorkPanel state reply must include activeFile. Update Desktop and Agent Platform together.",
+			map[string]any{"category": "validation", "stage": "desktop_response", "requiredField": "activeFile"})
+	}
+	projectedActionResult["activeFile"] = projectWebControlActiveFile(activeFile)
+	return webControlRestructured(projected, projected.Structured)
+}
+
+func projectWebControlActiveFile(value any) any {
+	file, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	name, nameOK := file["fileName"].(string)
+	kind, kindOK := file["kind"].(string)
+	filePath, pathOK := file["path"].(string)
+	mimeType, mimeOK := file["mimeType"].(string)
+	if !nameOK || name == "" || !utf8.ValidString(name) || !kindOK ||
+		!pathOK || !utf8.ValidString(filePath) || strings.ContainsRune(filePath, '\x00') ||
+		!webControlOriginalFileAbsolutePath(filePath) || !mimeOK ||
+		(kind != "html" && kind != "markdown") ||
+		(kind == "html" && mimeType != "text/html") || (kind == "markdown" && mimeType != "text/markdown") {
+		return nil
+	}
+	// JSON numbers arrive as float64. Do not coerce strings or truncate a
+	// fractional value; Desktop file sizes must be nonnegative safe integers.
+	size, ok := file["sizeBytes"].(float64)
+	if !ok || math.IsNaN(size) || math.IsInf(size, 0) || size < 0 || size > (1<<53)-1 || math.Trunc(size) != size {
+		return nil
+	}
+	return map[string]any{
+		"fileName": name, "kind": kind, "path": filePath,
+		"mimeType": mimeType, "sizeBytes": size,
+	}
+}
+
+// The path is Desktop host data, not a Platform-local file to canonicalize.
+// Preserve native macOS/POSIX paths and Windows drive/UNC paths byte-for-byte.
+func webControlOriginalFileAbsolutePath(value string) bool {
+	if strings.HasPrefix(value, "/") {
+		return true
+	}
+	if len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) &&
+		value[1] == ':' && (value[2] == '\\' || value[2] == '/') {
+		return true
+	}
+	if strings.HasPrefix(value, `\\`) {
+		parts := strings.Split(value[2:], `\`)
+		return len(parts) >= 2 && parts[0] != "" && parts[1] != ""
+	}
+	return false
 }
 
 func projectWebControlPanelValue(value any) any {

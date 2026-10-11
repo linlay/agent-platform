@@ -18,7 +18,30 @@ Booleans are native JSON values, never strings. Unknown fields are rejected.
 - `url`: the address it was opened with, when known.
 - `title`, `active`, and whether it is `pinned` or `closable`.
 
+In the Desktop runtime, the action result also includes `activeFile`: null, or exactly `{fileName, kind, path, mimeType, sizeBytes}`. `kind` is `html` or `markdown`. This describes only the currently active local original in the Run's own Chat, not every open file or the last file opened globally. `path` is the exact absolute path of the original on the Desktop host, including native Windows drive or UNC paths. Treat it as path data and preserve it exactly when passing it to file tools; it is not a preview URL or a new `workpanel_open` argument.
+
+For example, an eligible original can report:
+
+```json
+{"fileName":"report.html","kind":"html","path":"/Users/alice/Desktop/report.html","mimeType":"text/html","sizeBytes":2048}
+```
+
+The same shape on Windows can contain `"path":"C:\\Users\\alice\\Desktop\\report.html"`. No document, item, workspace or container identifier is exposed. Overview, webpages and other preview kinds return null. A successful Desktop reply must include `activeFile`, even when it is null; missing fields produce `desktop_workpanel_contract_mismatch` instead of a legacy success. Standalone has no original-file extension. A closed, switched or unavailable original cannot be replaced by another file as a fallback.
+
 Use `surface_list` for live webpages and their surfaceId.
+
+## Editing a local original
+
+When the user asks about the right-side file or current local preview:
+
+1. Call `workpanel_state` with `{}` for the current selection. Do not supply a Chat ID, file name or path to this lookup.
+2. If `activeFile` exists, call `file_read` using its exact `path`. This identifies and reads the original; the preview's isolated URL cannot be used with AWCP, CDP or file tools.
+3. Only when the user has requested a specific edit, call `file_edit` on the same original and preserve unrelated content. The lookup and preview themselves are not editing instructions or write authorization.
+4. Read back the expected change. Desktop refreshes the preview when the original changes.
+
+Do not search directories or an address catalog to guess the selected file. Do not create a replacement copy, upload the file, or execute its contents while editing the preview. If `activeFile` is null or the lookup reports stale/unavailable state, ask the user to open or activate the intended file before proceeding. A contract mismatch requires updating Desktop and Platform together, not another file selection or directory search. For a later request about the current preview, look up the selection again rather than reusing an earlier path.
+
+Workspace and Chat files retain their recorded `@workspace/` and `@chat/` URLs and existing file-tool permissions. Reading original-file metadata does not grant additional file roots, suppress approvals, or turn a preview into a webpage Surface. This lookup never reads file contents, starts a Run, copies/uploads a file, or adds file references to a user message.
 
 ## Webpages
 
@@ -44,6 +67,7 @@ To close a webpage, call `surface_list` and pass the selected surfaceId to `surf
 
 ## Failure codes
 
+- `desktop_workpanel_contract_mismatch`: the Desktop state reply lacks the required `activeFile` field. Update Desktop and Platform together; do not retry unchanged input or guess a file path.
 - `source_chat_not_ready`: the Run's Chat binding is not ready, failed or ended. Follow the reported recovery condition; do not use another Chat or retry unchanged input.
 - `source_chat_required`: the Run has no trusted Chat binding. Report the limitation.
 - `invalid_url`: the address is not credential-free HTTP(S). Do not rewrite it to another scheme or guess a host.

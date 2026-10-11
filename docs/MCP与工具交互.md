@@ -154,6 +154,10 @@ Desktop 模式只将 `scope=app` 且 JWT `device_id` 与握手 `deviceId` 完全
 
 默认 Desktop target 只决定反向请求送达位置，不扩大 WorkPanel 或页面权限。`desktop.workpanel.*` 到达 Desktop 后仍必须通过该 run 的 canonical Chat/grant；没有 grant 的独立 run 返回 `source_chat_not_ready`，不能借用当前可见 Chat。Team WorkPanel 的现有限制同样不变。
 
+`workpanel_state` 保持空入参 `{}` 与只读语义，继续调用已有 `desktop.workpanel.getState`。Desktop 的可信 Agent Platform 成功回复必须在原 action result 中包含 `activeFile`：`null` 或当前激活本地 HTML/Markdown 原件的 `fileName/kind/path/mimeType/sizeBytes`。缺少该字段的旧客户端回复返回 `desktop_workpanel_contract_mismatch`，明确要求 Desktop 与 Platform 配套更新，不降级为成功状态。原件由 Desktop Main 按该 Run 的 canonical Chat、Agent 与当前 opaque documentId 解析并复验，不能从页面 DTO、文件名、最后打开的文件或其他 Chat 推断；普通公开 Action 调用不暴露原件路径。Platform 仅在 Desktop `workpanel_state` 成功结果中按固定字段白名单保留这份元数据，不透传 descriptor/context、opaque ID 或任意附加字段，也不把该路径带入 Standalone 或其他 WorkPanel 工具结果。macOS 与 Windows 的宿主绝对路径均作为数据原样保留。
+
+预览和普通 Query 不自动附加文件路径、正文提示词或文件引用。用户指向“右侧文件／当前预览”时，智能体按网页控制技能先查询选择，再用 `file_read` 读取精确原路径，并仅按明确修改要求用 `file_edit` 修改同一原件、保留无关内容；不扫描目录猜路径、不创建替代副本、不上传或执行文件内容。`activeFile: null` 表示当前没有激活的本地原件；原件过期或不可用时，要求用户打开或激活目标文件。契约不匹配应提示配套更新，不以重新选择文件、扫描目录或换用其他 Chat 绕过。既有 Workspace/Chat 文件的 recorded URL 与根权限保持原契约。状态读取不授予文件写入或 HITL 豁免；文件工具继续校验路径、访问权限、读取版本和写入审批。
+
 ## 旧 external stdio 配置已删除
 
 私有 external stdio JSON-RPC 协议、`ExternalToolManager`、私有 `initialize/shutdown/tools/call` 和 `kind: external` 调用分支均已删除，不提供兼容期。`<AP_RUNTIME_DIR>/tools` 中出现以下任一内容时，启动和热重载都会返回带迁移提示的硬错误：
