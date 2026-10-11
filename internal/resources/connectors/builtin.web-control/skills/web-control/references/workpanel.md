@@ -18,7 +18,32 @@ Booleans are native JSON values, never strings. Unknown fields are rejected.
 - `url`: the address it was opened with, when known.
 - `title`, `active`, and whether it is `pinned` or `closable`.
 
+In the Desktop runtime, the action result also includes `activeFile`: null, or exactly `{fileName, kind, path, mimeType, sizeBytes}`. `kind` is `html` or `markdown`. This describes only the currently active local original in the Run's own Chat, not every open file or the last file opened globally. `path` is the exact absolute path of the original on the Desktop host, including native Windows drive or UNC paths. Treat it as path data and preserve it exactly when passing it to file tools; it is not a preview URL or a new `workpanel_open` argument.
+
+For example, an eligible original can report:
+
+```json
+{"fileName":"report.html","kind":"html","path":"/Users/alice/Desktop/report.html","mimeType":"text/html","sizeBytes":2048}
+```
+
+The same shape on Windows can contain `"path":"C:\\Users\\alice\\Desktop\\report.html"`. No document, item, workspace or container identifier is exposed. Overview, webpages and other preview kinds return null. A successful Desktop reply must include `activeFile`, even when it is null; missing fields produce `desktop_workpanel_contract_mismatch` instead of a legacy success. Standalone has no original-file extension. A closed, switched or unavailable original cannot be replaced by another file as a fallback.
+
 Use `surface_list` for live webpages and their surfaceId.
+
+## Accessing the selected file
+
+When the user's task refers to the current WorkPanel selection:
+
+1. Call `workpanel_state` with `{}` and identify the active item. Do not supply a Chat ID, file name or path to this lookup.
+2. If `activeFile` is non-null, use its exact `path` for the local original. The preview's isolated URL cannot be used with AWCP, CDP or file tools.
+3. Otherwise, if the active file item has a recorded `@workspace/...` or `@chat/...` URL, use that reference with the file tools. `activeFile: null` does not make an existing Workspace or Chat preview unavailable.
+4. If neither source identifies the intended file, ask the user to open or activate it. Do not search directories, infer a path from a file name, or substitute an inactive file or a file from another Chat.
+
+Read the selected file with `file_read` before a requested edit. Use `file_edit` on that same file, preserve unrelated content and read back the expected change. A request to edit an original must not be implemented by editing a replacement copy. Copying, uploading or executing a file is a separate action and must follow the user's task; do not add it merely to read or edit a preview. Desktop refreshes a local original's preview when the file changes.
+
+For a later task that depends on the current selection, read the state again rather than reusing an earlier path. Follow the reported recovery guidance for a stale or unavailable selection. A contract mismatch requires updating Desktop and Platform together, not another file selection or directory search.
+
+Workspace and Chat files retain their recorded `@workspace/` and `@chat/` URLs and existing file-tool permissions. Reading original-file metadata does not grant additional file roots, suppress approvals, or turn a preview into a webpage Surface. This lookup never reads file contents, starts a Run, copies/uploads a file, or adds file references to a user message.
 
 ## Webpages
 
@@ -44,6 +69,7 @@ To close a webpage, call `surface_list` and pass the selected surfaceId to `surf
 
 ## Failure codes
 
+- `desktop_workpanel_contract_mismatch`: the Desktop state reply lacks the required `activeFile` field. Update Desktop and Platform together; do not retry unchanged input or guess a file path.
 - `source_chat_not_ready`: the Run's Chat binding is not ready, failed or ended. Follow the reported recovery condition; do not use another Chat or retry unchanged input.
 - `source_chat_required`: the Run has no trusted Chat binding. Report the limitation.
 - `invalid_url`: the address is not credential-free HTTP(S). Do not rewrite it to another scheme or guess a host.

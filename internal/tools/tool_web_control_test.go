@@ -4,6 +4,7 @@ import (
 	"agent-platform/internal/chat"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -215,7 +216,7 @@ func TestWorkPanelStateHidesItemAndContainerIdentity(t *testing.T) {
 			webControlWebItem("item-1", "https://example.com/"),
 			webControlFileItem("item-2", "notes.pdf", ""),
 			webControlFileItem("item-3", "report.html", "artifacts/report.html"),
-		)}}
+		), "activeFile": nil}}
 	})
 	result, err := executor.Invoke(context.Background(), "workpanel_state", map[string]any{}, execCtx)
 	if err != nil || result.ExitCode != 0 {
@@ -231,6 +232,192 @@ func TestWorkPanelStateHidesItemAndContainerIdentity(t *testing.T) {
 	if !reflect.DeepEqual(state["items"], want) {
 		t.Fatalf("items: %#v", state["items"])
 	}
+	if value, present := result.Structured["response"].(map[string]any)["result"].(map[string]any)["activeFile"]; !present || value != nil {
+		t.Fatal("a current state reply without an active original must preserve explicit null")
+	}
+}
+
+func TestWorkPanelStateRejectsMissingActiveFileContract(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply map[string]any
+	}{
+		{"old workspace reply", map[string]any{"ok": true, "result": map[string]any{"state": webControlWorkspace()}}},
+		{"empty result", map[string]any{"ok": true, "result": map[string]any{}}},
+		{"missing result", map[string]any{"ok": true}},
+		{"null result", map[string]any{"ok": true, "result": nil}},
+		{"misplaced field", map[string]any{"ok": true, "activeFile": nil, "result": map[string]any{"state": webControlWorkspace()}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			executor, execCtx, invoker := webControlTestRuntime(t, func(ClientRequest) map[string]any { return tc.reply })
+			result, err := executor.Invoke(context.Background(), "workpanel_state", map[string]any{}, execCtx)
+			if err != nil || result.ExitCode != -1 || result.Error != "desktop_workpanel_contract_mismatch" {
+				t.Fatalf("missing current Desktop contract accepted: %#v %v", result, err)
+			}
+			if !strings.Contains(result.Output, "Update Desktop and Agent Platform together") {
+				t.Fatalf("missing upgrade guidance: %s", result.Output)
+			}
+			if len(invoker.requests) != 1 {
+				t.Fatalf("contract failure retried or sent a replacement action: %#v", invoker.requests)
+			}
+			assertNoWebControlInternalIdentity(t, result)
+		})
+	}
+}
+
+func TestWorkPanelStateRejectsUnstructuredSuccessAndPreservesActionErrors(t *testing.T) {
+	legacy := projectWebControlPanelStateResult(ToolExecutionResult{ExitCode: 0, Output: "legacy reply"}, true)
+	if legacy.Error != "desktop_workpanel_contract_mismatch" || legacy.ExitCode != -1 {
+		t.Fatalf("unstructured success accepted: %#v", legacy)
+	}
+	failure := desktopActionErrorResult("source_chat_not_ready", "Chat is not ready", nil)
+	if got := projectWebControlPanelStateResult(failure, true); !reflect.DeepEqual(got, failure) {
+		t.Fatalf("upstream action failure was replaced: got=%#v want=%#v", got, failure)
+	}
+}
+
+func TestWorkPanelStateProjectsOnlySelectedOriginalFileMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, path, mimeType string
+	}{
+		{"report.html", "html", "/Users/alice/Desktop/报告.html", "text/html"},
+		{"notes.md", "markdown", `C:\Users\alice\Desktop\notes.md`, "text/markdown"},
+		{"report.html", "html", `\\server\share\report.html`, "text/html"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			file := map[string]any{
+				"fileName": tc.name, "kind": tc.kind, "path": tc.path, "mimeType": tc.mimeType, "sizeBytes": 675,
+				"documentId": "opaque-document-secret", "ownerChatId": "other-chat-secret",
+				"url":     "cutej-local-file://opaque-preview-secret/report.html",
+				"context": map[string]any{"path": "/private/extra-secret.html"},
+			}
+			native := map[string]any{
+				"itemId": "item-native", "stableKey": "opaque-native-secret",
+				"descriptor": map[string]any{"kind": "native", "surfaceKey": "local-document", "context": file},
+				"title":      tc.name, "pinned": false, "closable": true,
+			}
+			executor, execCtx, invoker := webControlTestRuntime(t, func(ClientRequest) map[string]any {
+				return map[string]any{"ok": true, "result": map[string]any{
+					"state": webControlWorkspace(native), "activeFile": file,
+				}}
+			})
+			result, err := executor.Invoke(context.Background(), "workpanel_state", map[string]any{}, execCtx)
+			if err != nil || result.ExitCode != 0 {
+				t.Fatalf("state: %#v %v", result, err)
+			}
+			assertNoWebControlInternalIdentity(t, result)
+			for _, hidden := range []string{"opaque-document-secret", "opaque-preview-secret", "opaque-native-secret", "other-chat-secret", "/private/extra-secret.html", "descriptor", "context"} {
+				if strings.Contains(result.Output, hidden) {
+					t.Fatalf("state exposes extra original-file field %s: %s", hidden, result.Output)
+				}
+			}
+			actionResult := result.Structured["response"].(map[string]any)["result"].(map[string]any)
+			want := map[string]any{"fileName": tc.name, "kind": tc.kind, "path": tc.path, "mimeType": tc.mimeType, "sizeBytes": float64(675)}
+			if !reflect.DeepEqual(actionResult["activeFile"], want) {
+				t.Fatalf("active original: %#v, want %#v", actionResult["activeFile"], want)
+			}
+			if len(invoker.requests) != 1 || invoker.requests[0].Type != "desktop.workpanel.getState" || len(invoker.requests[0].Payload) != 0 {
+				t.Fatalf("state changed its argument-free reverse action: %#v", invoker.requests)
+			}
+		})
+	}
+}
+
+func TestWorkPanelStatePreservesNullAndRejectsMalformedOriginalMetadata(t *testing.T) {
+	valid := func() map[string]any {
+		return map[string]any{"fileName": "report.html", "kind": "html", "path": "/Users/alice/Desktop/report.html", "mimeType": "text/html", "sizeBytes": 123}
+	}
+	cases := []struct {
+		name  string
+		value any
+	}{
+		{"no active original", nil}, {"string", "/private/report.html"}, {"array", []any{valid()}}, {"empty", map[string]any{}},
+	}
+	for _, replacement := range []struct {
+		field string
+		value any
+	}{
+		{"fileName", ""}, {"fileName", 1}, {"kind", "pdf"}, {"kind", nil},
+		{"path", "report.html"}, {"path", "C:report.html"}, {"path", `\report.html`}, {"path", `\\server`},
+		{"path", "cutej-local-file://opaque/report.html"}, {"path", "/private/\x00report.html"}, {"path", 1},
+		{"mimeType", "text/markdown"}, {"mimeType", nil},
+		{"sizeBytes", -1}, {"sizeBytes", 1.5}, {"sizeBytes", "123"}, {"sizeBytes", float64(1 << 53)},
+	} {
+		file := valid()
+		file[replacement.field] = replacement.value
+		cases = append(cases, struct {
+			name  string
+			value any
+		}{replacement.field + ":" + fmt.Sprint(replacement.value), file})
+	}
+	for _, field := range []string{"fileName", "kind", "path", "mimeType", "sizeBytes"} {
+		file := valid()
+		delete(file, field)
+		cases = append(cases, struct {
+			name  string
+			value any
+		}{"missing " + field, file})
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			executor, execCtx, _ := webControlTestRuntime(t, func(ClientRequest) map[string]any {
+				return map[string]any{"ok": true, "result": map[string]any{"state": webControlWorkspace(), "activeFile": tc.value}}
+			})
+			result, err := executor.Invoke(context.Background(), "workpanel_state", map[string]any{}, execCtx)
+			if err != nil || result.ExitCode != 0 {
+				t.Fatalf("state: %#v %v", result, err)
+			}
+			actionResult := result.Structured["response"].(map[string]any)["result"].(map[string]any)
+			value, present := actionResult["activeFile"]
+			if !present || value != nil {
+				t.Fatalf("invalid original metadata must become null: %#v", actionResult)
+			}
+			assertNoWebControlInternalIdentity(t, result)
+		})
+	}
+}
+
+func TestWorkPanelOriginalMetadataIsHiddenOutsideDesktopStateLookup(t *testing.T) {
+	file := map[string]any{"fileName": "report.html", "kind": "html", "path": "/private/state-only-report.html", "mimeType": "text/html", "sizeBytes": 123}
+	for _, tc := range []struct {
+		name, tool string
+		standalone bool
+		args       map[string]any
+	}{
+		{"Standalone state", "workpanel_state", true, map[string]any{}},
+		{"open result", "workpanel_open", false, map[string]any{"url": "https://example.com/"}},
+		{"close result", "workpanel_close", false, map[string]any{"all": true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			executor, execCtx, _ := webControlTestRuntime(t, func(ClientRequest) map[string]any {
+				return map[string]any{"ok": true, "activeFile": file, "result": map[string]any{"state": webControlWorkspace(), "activeFile": file}}
+			})
+			if tc.standalone {
+				executor.cfg.RuntimeMode = config.RuntimeModeStandalone
+				execCtx.Session.WebClientTarget = ClientTarget{SessionID: "webclient"}
+			}
+			result, err := executor.Invoke(context.Background(), tc.tool, tc.args, execCtx)
+			if err != nil || result.ExitCode != 0 {
+				t.Fatalf("%s: %#v %v", tc.tool, result, err)
+			}
+			if strings.Contains(result.Output, "activeFile") || strings.Contains(result.Output, file["path"].(string)) {
+				t.Fatalf("original metadata escaped the Desktop state lookup: %s", result.Output)
+			}
+		})
+	}
+}
+
+func TestWorkPanelStateRejectsCallerSelectedChatOrFile(t *testing.T) {
+	for _, args := range []map[string]any{
+		{"chatId": "another-chat"}, {"agentKey": "another-agent"},
+		{"documentId": "opaque-document"}, {"path": "/private/requested.html"}, {"fileName": "requested.html"},
+	} {
+		executor, execCtx, invoker := webControlTestRuntime(t, nil)
+		result, err := executor.Invoke(context.Background(), "workpanel_state", args, execCtx)
+		if err != nil || result.Error != "invalid_args" || len(invoker.requests) != 0 {
+			t.Fatalf("caller selected a file or Chat: %#v %#v %v requests=%#v", args, result, err, invoker.requests)
+		}
+	}
 }
 
 func TestWorkPanelCloseRequiresRecordedFilePath(t *testing.T) {
@@ -241,7 +428,7 @@ func TestWorkPanelCloseRequiresRecordedFilePath(t *testing.T) {
 	)
 	respond := func(request ClientRequest) map[string]any {
 		if request.Type == "desktop.workpanel.getState" {
-			return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": workspace}}
+			return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": workspace, "activeFile": nil}}
 		}
 		return map[string]any{"ok": true, "result": map[string]any{"closedItemId": request.Payload["tabId"], "workspace": webControlWorkspace()}}
 	}
@@ -623,7 +810,7 @@ func TestWorkPanelChatFileNeedsNoProjectWorkspace(t *testing.T) {
 	executor, execCtx, invoker := webControlTestRuntime(t, func(request ClientRequest) map[string]any {
 		switch request.Type {
 		case "desktop.workpanel.getState":
-			return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": workspace}}
+			return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": workspace, "activeFile": nil}}
 		case "desktop.workpanel.closeTab":
 			return map[string]any{"ok": true, "result": map[string]any{"closedItemId": request.Payload["tabId"], "workspace": webControlWorkspace()}}
 		}

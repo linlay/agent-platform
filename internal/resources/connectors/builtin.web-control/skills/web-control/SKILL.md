@@ -26,6 +26,12 @@ Tool definitions only name a capability. Read the reference for a tool before ca
 
 A file preview has no surfaceId. It cannot be scripted, clicked or read through AWCP; reopen it with `workpanel_open` to activate and reload it.
 
+## Choosing a file preview
+
+When a task refers to the current WorkPanel selection, call `workpanel_state` to identify it before reading or editing a file. Use `activeFile.path` for a local original, or the active item's recorded `@workspace/...` or `@chat/...` URL for an existing file preview. Follow the user's requested change; identifying a file does not grant read or write permission.
+
+Read [WorkPanel](references/workpanel.md) for file metadata, access and recovery.
+
 ## Opening and closing
 
 - `workpanel_open` is the only way to open a new page. An item that is already open is activated, not duplicated. Opening does not prove the page finished loading.
