@@ -31,3 +31,23 @@ func TestRejectMalformedInteractionConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestMustUseKbasesDefaultsAndBooleanOverride(t *testing.T) {
+	for _, mode := range []string{"GENERAL", "CODER", "KBASE", "TEAM", "PROXY", "CHANNEL"} {
+		c, err := Parse(mode, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := mode == "GENERAL" || mode == "CODER"
+		if c.MustUseKbases != want {
+			t.Fatalf("%s default: %+v", mode, c)
+		}
+		c, err = Parse(mode, map[string]any{"mustUseKbases": true})
+		if err != nil || !c.MustUseKbases {
+			t.Fatalf("override %s: %+v %v", mode, c, err)
+		}
+	}
+	if _, err := Parse("GENERAL", map[string]any{"mustUseKbases": "true"}); err == nil {
+		t.Fatal("nonboolean switch accepted")
+	}
+}

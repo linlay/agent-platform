@@ -6,7 +6,10 @@ In user requests, conversation, dialogue and chat are synonyms for Chat, includi
 
 ## chat_start
 
-`{message, agentKey?, chatId?, accessLevel?, mustUseSkills?, chatName?, modelKey?, reasoningEffort?}` starts an independent root run for a catalog Agent and returns chatId and runId immediately. It does not wait for the target result, and the target continues if the caller run is interrupted.
+- mustUseKbases: optional required library IDs for the new Run. Empty or omitted means no temporary requirement. The target Agent must enable interactionConfig.mustUseKbases and mount builtin.kbase-control; all selected libraries are revalidated at admission. This selection is independent of the parent Run.
+
+
+`{message, agentKey?, chatId?, accessLevel?, mustUseSkills?, mustUseKbases?, chatName?, modelKey?, reasoningEffort?}` starts an independent root run for a catalog Agent and returns chatId and runId immediately. It does not wait for the target result, and the target continues if the caller run is interrupted.
 
 - message: required non-empty string. The task message sent to the target.
 - agentKey: optional non-empty string holding the exact catalog Agent key. Omission uses the current calling Agent from trusted runtime context. Explicit empty, null or non-string values are rejected.

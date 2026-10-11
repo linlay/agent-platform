@@ -290,8 +290,8 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	if want := (contracts.KBaseModePrompts{Capability: "configured capability", Workspace: "configured workspace", Editing: "configured editing"}); session.KBaseModePrompts != want {
 		t.Fatalf("kbase mode prompts = %#v, want %#v", session.KBaseModePrompts, want)
 	}
-	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 0 {
-		t.Fatalf("dedicated KBASE session capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
+	if session.KBaseBindingLibraryID != "research" || len(session.CapabilityPrompts) != 1 {
+		t.Fatalf("dedicated KBASE session capability snapshot = enabled:%v prompts:%#v", session.KBaseBindingLibraryID, session.CapabilityPrompts)
 	}
 }
 
@@ -397,10 +397,11 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		Name:          "Zenmi",
 		Mode:          "REACT",
 		ModelKey:      "mock-model",
+		Connectors:    []string{"builtin.kbase-control"},
 		Tools:         append([]string{"datetime"}, knowledge.DefaultToolNames()...),
 		Workspace:     catalog.AgentWorkspaceConfig{Root: workspace},
 		KBaseConfig: knowledge.Config{
-			Enabled: true,
+			Enabled: true, LibraryID: "research",
 		},
 		KBaseRequirement: knowledge.RequirementOptional,
 	}
@@ -414,8 +415,8 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build query session: %v", err)
 	}
-	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 || session.CapabilityPrompts[0] != "configured capability" {
-		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
+	if session.KBaseBindingLibraryID == "" || len(session.CapabilityPrompts) != 2 || session.CapabilityPrompts[0] != "configured capability" {
+		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseBindingLibraryID, session.CapabilityPrompts)
 	}
 	for _, stage := range []contracts.StageSettings{session.ResolvedPlanExecuteSettings.Plan, session.ResolvedPlanExecuteSettings.Execute} {
 		if !reflect.DeepEqual(stage.Tools, []string{"datetime"}) {
@@ -429,7 +430,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		t.Fatalf("ordinary Agent KBASE capability workspace = %q, want %q", got, workspace)
 	}
 	def.KBaseConfig.Enabled = false
-	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 {
+	if session.KBaseBindingLibraryID == "" || len(session.CapabilityPrompts) != 2 {
 		t.Fatal("mutating the catalog definition changed an existing session snapshot")
 	}
 }

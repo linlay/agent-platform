@@ -4,6 +4,7 @@ const (
 	Mode            = "KBASE"
 	SourceKind      = "kbase"
 	DefaultIconName = "kbase"
+	ToolList        = "kbase_list"
 	ToolSearch      = "kbase_search"
 	ToolFiles       = "kbase_files"
 	ToolRead        = "kbase_read"
@@ -12,6 +13,7 @@ const (
 )
 
 var capabilityToolNames = []string{
+	ToolList,
 	ToolSearch,
 	ToolFiles,
 	ToolRead,

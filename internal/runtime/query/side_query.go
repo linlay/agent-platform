@@ -16,6 +16,9 @@ import (
 )
 
 func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.QueryCommand) (preparedQuery, *statusError) {
+	if len(sessionbuild.NormalizeMustUseKbases(input.MustUseKbases)) > 0 {
+		return preparedQuery{}, btwStatusError(400, "btw_kbases_unsupported", "BTW does not accept mustUseKbases")
+	}
 	input.ChatID = strings.TrimSpace(input.ChatID)
 	input.SideQueryID = strings.TrimSpace(input.SideQueryID)
 	input.Message = strings.TrimSpace(input.Message)

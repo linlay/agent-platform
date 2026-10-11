@@ -14,13 +14,14 @@ type Attachment struct {
 type Config struct {
 	Model         bool       `json:"model"`
 	AccessLevel   bool       `json:"accessLevel"`
+	MustUseKbases bool       `json:"mustUseKbases"`
 	MustUseSkills bool       `json:"mustUseSkills"`
 	Connectors    bool       `json:"connectors"`
 	Attachment    Attachment `json:"attachment"`
 }
 
 func Defaults(mode string) Config {
-	c := Config{Model: true, AccessLevel: true, MustUseSkills: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true}}
+	c := Config{Model: true, AccessLevel: true, MustUseSkills: true, MustUseKbases: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true}}
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "KBASE":
 		c.Model, c.AccessLevel, c.Connectors, c.Attachment.ChatRecords = false, false, false, false
@@ -28,6 +29,9 @@ func Defaults(mode string) Config {
 		c.Attachment.ChatRecords = false
 	case "PROXY", "CHANNEL":
 		c.Model = false
+	}
+	if mode := strings.ToUpper(strings.TrimSpace(mode)); mode == "KBASE" || mode == "TEAM" || mode == "PROXY" || mode == "CHANNEL" {
+		c.MustUseKbases = false
 	}
 	return c
 }
@@ -41,7 +45,7 @@ func Parse(mode string, raw any) (Config, error) {
 	if !ok {
 		return c, fmt.Errorf("interactionConfig must be an object")
 	}
-	fields := map[string]*bool{"model": &c.Model, "accessLevel": &c.AccessLevel, "mustUseSkills": &c.MustUseSkills, "connectors": &c.Connectors}
+	fields := map[string]*bool{"model": &c.Model, "accessLevel": &c.AccessLevel, "mustUseSkills": &c.MustUseSkills, "mustUseKbases": &c.MustUseKbases, "connectors": &c.Connectors}
 	for key, value := range node {
 		if key == "attachment" {
 			attachment, ok := value.(map[string]any)

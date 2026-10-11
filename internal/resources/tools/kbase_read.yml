@@ -10,6 +10,10 @@ readOnly: true
 inputSchema:
   type: object
   properties:
+    libraryId:
+      type: string
+      minLength: 1
+      description: "Required. Knowledge library ID."
     chunkId:
       type: string
       description: "Evidence locator from a search hit or a previous read."
@@ -22,4 +26,5 @@ inputSchema:
     limit:
       type: integer
       description: "Maximum lines."
+  required: [libraryId]
   additionalProperties: false

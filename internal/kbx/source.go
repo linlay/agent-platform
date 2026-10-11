@@ -9,21 +9,20 @@ import (
 	"agent-platform/internal/knowledge"
 )
 
-func (m *Manager) ReadBound(agentKey, libraryID string, options knowledge.ReadOptions) (knowledge.ReadResult, error) {
-	return m.readBound(agentKey, libraryID, options)
+func (m *Manager) ReadBound(_ string, libraryID string, options knowledge.ReadOptions) (knowledge.ReadResult, error) {
+	return m.readLibrary(libraryID, options)
 }
 
+// The legacy method name is retained for the Chat API port. Agent binding is
+// not an authorization source: the caller verifies Chat access and publication.
 // OpenBoundSource opens a published document in the selected library, never an
 // arbitrary host path. os.Root enforces the source boundary while opening links.
-func (m *Manager) OpenBoundSource(agentKey, libraryID, p string) (*os.File, error) {
-	l, err := m.resolve(agentKey)
+func (m *Manager) OpenBoundSource(_ string, libraryID, p string) (*os.File, error) {
+	l, err := m.resolveLibrary(libraryID)
 	if err != nil {
 		return nil, err
 	}
 	defer l.release()
-	if libraryID != l.spec.Config.LibraryID {
-		return nil, fmt.Errorf("Agent library binding changed")
-	}
 	if _, err = allowedDocumentPath(l, "kbx://"+p); err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ visibleBuiltinTools:
   - file_write
   - finalize_planning
   - image_generate
+  - kbase_list
   - kbase_files
   - kbase_read
   - kbase_search

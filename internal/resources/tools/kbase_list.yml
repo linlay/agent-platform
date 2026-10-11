@@ -1,0 +1,13 @@
+name: kbase_list
+i18n:
+  en:
+    label: "List Knowledge Libraries"
+  zh-CN:
+    label: "列出知识库"
+description: "List knowledge libraries and their collections and readiness. Read the kbase-control skill before use."
+clientVisible: true
+readOnly: true
+inputSchema:
+  type: object
+  properties: {}
+  additionalProperties: false

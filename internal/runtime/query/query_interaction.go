@@ -1,6 +1,7 @@
 package query
 
 import (
+	"fmt"
 	"strings"
 
 	"agent-platform/internal/interaction"
@@ -11,6 +12,9 @@ import (
 func ValidateInteractionInput(config interaction.Config, req runtimetypes.QueryCommand) error {
 	model := req.Model != nil && (strings.TrimSpace(req.Model.Key) != "" || strings.TrimSpace(req.Model.ReasoningEffort) != "" || strings.TrimSpace(req.Model.ServiceTier) != "")
 	err := config.Validate(model, strings.TrimSpace(req.AccessLevel), len(sessionbuild.NormalizeMustUseSkills(req.MustUseSkills)) > 0)
+	if err == nil && len(sessionbuild.NormalizeMustUseKbases(req.MustUseKbases)) > 0 && !config.MustUseKbases {
+		err = fmt.Errorf("interactionConfig.mustUseKbases is disabled")
+	}
 	if err == nil {
 		for _, ref := range req.References {
 			if err = config.ValidateReference(ref.Type); err != nil {

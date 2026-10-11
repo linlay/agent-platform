@@ -745,14 +745,14 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 	}
 
 	subReq := runtimetypes.QueryCommand{
-		RequestID: task.RequestID,
-		RunID:     o.Session.RunID,
-		ChatID:    o.Session.ChatID,
-		AgentKey:  task.Spec.SubAgentKey,
-
-		Role:        queryinput.QueryRoleUser,
-		Message:     task.Spec.TaskText,
-		AccessLevel: o.Session.AccessLevel,
+		RequestID:     task.RequestID,
+		RunID:         o.Session.RunID,
+		ChatID:        o.Session.ChatID,
+		AgentKey:      task.Spec.SubAgentKey,
+		MustUseKbases: append([]string(nil), task.Spec.MustUseKbases...),
+		Role:          queryinput.QueryRoleUser,
+		Message:       task.Spec.TaskText,
+		AccessLevel:   o.Session.AccessLevel,
 	}
 	if options.InheritOriginalContext {
 		subReq.Role = o.Request.Role

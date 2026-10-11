@@ -27,3 +27,5 @@ Saving/pause/delete updates scheduling registrations and can cancel an in-progre
 ## Conflicts and retries
 
 A changed or removed definition causes revision_conflict. Read again and obtain new approval. Do not change parameters within the same tool invocation. Completed invocation receipts return the prior result without repeating creation or execution, including after a process restart. An interrupted intent has an unknown outcome and is not automatically retried: inspect the task and history before authorizing a new invocation. Receipts are stored in runtime state, not the automation definitions directory. Never bypass a rejected operation via Bash or file tools.
+
+query.mustUseKbases is an optional list of required library IDs, saved with the automation query and revalidated against the current target Agent and library readability at each execution. It does not inherit the creating Chat's choices.

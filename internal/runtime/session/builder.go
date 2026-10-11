@@ -8,6 +8,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/knowledge"
+	"agent-platform/internal/knowledge/libraryinfo"
 	"agent-platform/internal/models"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
@@ -24,6 +25,7 @@ type ProfileBuilder interface {
 }
 
 type Dependencies struct {
+	KnowledgeLibrary     func(string) (libraryinfo.LibraryOption, error)
 	ValidateKnowledge    func(string) error
 	KnowledgeCollections func(string) ([]knowledge.CollectionScope, error)
 	Profiles             ProfileBuilder

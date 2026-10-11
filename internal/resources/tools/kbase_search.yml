@@ -4,13 +4,17 @@ i18n:
     label: "Search Knowledge Base"
   zh-CN:
     label: "搜索知识库"
-description: "Search the bound knowledge library by hybrid, full-text, vector or graph retrieval. Read the kbase-control skill before use."
+description: "Search a knowledge library by hybrid, full-text, vector or graph retrieval. Read the kbase-control skill before use."
 tags: [knowledge-base, search]
 clientVisible: true
 readOnly: true
 inputSchema:
   type: object
   properties:
+    libraryId:
+      type: string
+      minLength: 1
+      description: "Required. Knowledge library ID."
     query:
       type: string
       description: "Required. Search query."
@@ -108,5 +112,6 @@ inputSchema:
       type: string
       description: "File extension filter."
   required:
+    - libraryId
     - query
   additionalProperties: false

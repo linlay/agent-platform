@@ -44,12 +44,13 @@ type AutomationExecutionHistoryStatus struct {
 }
 
 type AutomationQueryResponse struct {
-	AccessLevel string         `json:"accessLevel,omitempty"`
-	Message     string         `json:"message"`
-	ChatID      string         `json:"chatId,omitempty"`
-	Role        string         `json:"role,omitempty"`
-	Hidden      *bool          `json:"hidden,omitempty"`
-	Params      map[string]any `json:"params,omitempty"`
+	MustUseKbases []string       `json:"mustUseKbases,omitempty"`
+	AccessLevel   string         `json:"accessLevel,omitempty"`
+	Message       string         `json:"message"`
+	ChatID        string         `json:"chatId,omitempty"`
+	Role          string         `json:"role,omitempty"`
+	Hidden        *bool          `json:"hidden,omitempty"`
+	Params        map[string]any `json:"params,omitempty"`
 }
 
 type AutomationExecutionBrief struct {
@@ -112,12 +113,13 @@ type CreateAutomationRequest struct {
 }
 
 type AutomationQueryRequest struct {
-	AccessLevel string         `json:"accessLevel,omitempty"`
-	Message     string         `json:"message"`
-	ChatID      string         `json:"chatId,omitempty"`
-	Role        string         `json:"role,omitempty"`
-	Hidden      *bool          `json:"hidden,omitempty"`
-	Params      map[string]any `json:"params,omitempty"`
+	MustUseKbases []string       `json:"mustUseKbases,omitempty"`
+	AccessLevel   string         `json:"accessLevel,omitempty"`
+	Message       string         `json:"message"`
+	ChatID        string         `json:"chatId,omitempty"`
+	Role          string         `json:"role,omitempty"`
+	Hidden        *bool          `json:"hidden,omitempty"`
+	Params        map[string]any `json:"params,omitempty"`
 }
 
 type UpdateAutomationRequest struct {

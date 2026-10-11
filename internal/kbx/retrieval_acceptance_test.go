@@ -129,27 +129,27 @@ func TestLibraryRealRetrievalModelsDefaultsAndDegradation(t *testing.T) {
 	}
 	m := NewManager(Options{KBases: libraryService, ConfigSource: source}, testSource{"agent": {Key: "agent", Config: cfg}}, nil)
 	start := time.Now()
-	result, err := m.Search(context.Background(), "agent", "quartzorchid", knowledge.SearchOptions{NoGraph: true})
+	result, err := m.Search(context.Background(), fixtureLibraryID(m, "agent"), "quartzorchid", knowledge.SearchOptions{NoGraph: true})
 	if err != nil || result.Limit != 2 || len(result.Results) != 1 || result.Results[0].Path != "docs/a.md" || expansions.Load() != 1 || ranks.Load() != 1 || leaked.Load() {
 		t.Fatalf("retrieval pipeline: %+v %v calls=%d/%d leaked=%v", result, err, expansions.Load(), ranks.Load(), leaked.Load())
 	}
 	t.Logf("local fixture query with expansion and rerank: %s", time.Since(start))
 	// Pure full-text and explicitly disabled query roles perform no model I/O.
 	for _, options := range []knowledge.SearchOptions{{Method: "search"}, {Method: "query", Rerank: &no, QueryExpansion: &no, NoGraph: true}} {
-		if _, err = m.Search(context.Background(), "agent", "quartzorchid", options); err != nil {
+		if _, err = m.Search(context.Background(), fixtureLibraryID(m, "agent"), "quartzorchid", options); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if expansions.Load() != 1 || ranks.Load() != 1 {
 		t.Fatal("disabled models were called")
 	}
-	hidden, err := m.Search(context.Background(), "agent", "quartzorchid", knowledge.SearchOptions{Method: "search", Collections: []string{"hidden"}})
+	hidden, err := m.Search(context.Background(), fixtureLibraryID(m, "agent"), "quartzorchid", knowledge.SearchOptions{Method: "search", Collections: []string{"hidden"}})
 	if err != nil || len(hidden.Results) != 1 || hidden.Results[0].Path != "hidden/a.md" {
 		t.Fatalf("explicit collection unavailable: %+v %v", hidden, err)
 	}
 	broken.Store(true)
 	start = time.Now()
-	failed, err := m.Search(context.Background(), "agent", "quartzorchid", knowledge.SearchOptions{NoGraph: true, Intent: "recovery"})
+	failed, err := m.Search(context.Background(), fixtureLibraryID(m, "agent"), "quartzorchid", knowledge.SearchOptions{NoGraph: true, Intent: "recovery"})
 	if err != nil || len(failed.Results) == 0 || !failed.Degraded || !slices.Contains(failed.OptionalUnavailable, "query_expansion") || !slices.Contains(failed.OptionalUnavailable, "reranker") {
 		t.Fatalf("optional failure lost fallback/trace: %+v %v", failed, err)
 	}
@@ -167,7 +167,7 @@ func TestLibraryRealRetrievalModelsDefaultsAndDegradation(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), `"results":[]`) {
 		t.Fatalf("admin empty defaults widened: %s %v", raw, err)
 	}
-	empty, err := m.Search(context.Background(), "agent", "quartzorchid", knowledge.SearchOptions{})
+	empty, err := m.Search(context.Background(), fixtureLibraryID(m, "agent"), "quartzorchid", knowledge.SearchOptions{})
 	if err != nil || len(empty.Results) != 0 {
 		t.Fatalf("Agent empty defaults widened: %+v %v", empty, err)
 	}

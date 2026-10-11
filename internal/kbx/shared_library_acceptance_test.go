@@ -101,7 +101,7 @@ func TestLiveSharedLibraryLifecycle(t *testing.T) {
 		t.Fatalf("deadline: %+v", state)
 	}
 	wait(func(s kbases.Definition) bool { return s.State == "ready" && !s.Degraded })
-	hits, err := m.Search(context.Background(), "docs", "Orchard", knowledge.SearchOptions{Method: "search"})
+	hits, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "Orchard", knowledge.SearchOptions{Method: "search"})
 	if err != nil || len(hits.Results) != 2 {
 		t.Fatalf("multi collection: %+v %v", hits, err)
 	}
@@ -111,7 +111,7 @@ func TestLiveSharedLibraryLifecycle(t *testing.T) {
 	broken.Store(true)
 	os.WriteFile(filepath.Join(second, "same.md"), []byte("Orchard now requires three reviewers."), 0600)
 	wait(func(s kbases.Definition) bool { return s.State == "ready" && s.Degraded })
-	hits, err = m.Search(context.Background(), "docs", "three", knowledge.SearchOptions{Method: "search", PathPrefix: "research"})
+	hits, err = m.Search(context.Background(), fixtureLibraryID(m, "docs"), "three", knowledge.SearchOptions{Method: "search", PathPrefix: "research"})
 	if err != nil || len(hits.Results) != 1 {
 		t.Fatalf("text after embedding failure: %+v %v", hits, err)
 	}
@@ -122,16 +122,16 @@ func TestLiveSharedLibraryLifecycle(t *testing.T) {
 	wait(func(s kbases.Definition) bool { return s.State == "ready" && !s.Degraded })
 	os.Remove(filepath.Join(second, "same.md"))
 	wait(func(s kbases.Definition) bool {
-		files, e := m.Files("docs", knowledge.FilesOptions{HeadLimit: 50})
+		files, e := m.Files(fixtureLibraryID(m, "docs"), knowledge.FilesOptions{HeadLimit: 50})
 		return e == nil && !s.Indexing && len(files.Results) == 1
 	})
 	// Rechunk unchanged source bytes after a configuration-only update.
 	os.WriteFile(filepath.Join(first, "same.md"), []byte(strings.Repeat("Orchard policy requires review before approval. ", 180)), 0600)
 	wait(func(s kbases.Definition) bool {
-		hits, e := m.Search(context.Background(), "docs", "Orchard", knowledge.SearchOptions{Method: "search", Limit: 50})
+		hits, e := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "Orchard", knowledge.SearchOptions{Method: "search", Limit: 50})
 		return e == nil && !s.Indexing && len(hits.Results) > 1
 	})
-	before, err := m.Search(context.Background(), "docs", "Orchard", knowledge.SearchOptions{Method: "search", Limit: 50})
+	before, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "Orchard", knowledge.SearchOptions{Method: "search", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestLiveSharedLibraryLifecycle(t *testing.T) {
 	wait(func(s kbases.Definition) bool {
 		return s.State == "ready" && !s.Degraded && s.IndexedAt > lastIndexed
 	})
-	after, err := m.Search(context.Background(), "docs", "Orchard", knowledge.SearchOptions{Method: "search", Limit: 50})
+	after, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "Orchard", knowledge.SearchOptions{Method: "search", Limit: 50})
 	if err != nil || len(after.Results) <= len(before.Results) {
 		t.Fatalf("configuration-only rechunk did not publish: before=%d after=%d error=%v", len(before.Results), len(after.Results), err)
 	}

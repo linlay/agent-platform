@@ -8,6 +8,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/knowledge/libraryinfo"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/scriptstate"
 	"agent-platform/internal/skillsexec"
@@ -356,7 +357,9 @@ type QuerySession struct {
 	Mode                      string
 	ModeCapabilities          agentcontract.ModeCapabilities
 	SupportsContextCompaction bool `json:"-"`
-	KBaseEnabled              bool
+	KBaseBindingLibraryID     string
+	KBaseRetrievalConfig      string
+	KnowledgeLibraries        []libraryinfo.LibraryOption
 	CapabilityPrompts         []string
 	PlanningMode              bool
 	// PlanningExcludeTools and PlanExecuteExcludeTools are the configured tools
@@ -373,6 +376,7 @@ type QuerySession struct {
 	Subject                     string
 	SkillIDs                    []string
 	MustUseSkills               []string
+	MustUseKbases               []string
 	ConnectorCLIEntries         []connector.CLIEntry `json:"-"`
 	ConnectorBinDirs            []string
 	ConnectorEnv                map[string]string                 `json:"-"`
@@ -722,6 +726,7 @@ type RunOrigin struct {
 type RunStartRequest struct {
 	AccessLevel   string
 	MustUseSkills []string
+	MustUseKbases []string
 	ChatName      string
 	AgentKey      string
 	ChatID        string

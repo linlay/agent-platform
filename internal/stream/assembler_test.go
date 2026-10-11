@@ -1,6 +1,9 @@
 package stream
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAssemblerBootstrapAndComplete(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
@@ -490,4 +493,16 @@ func assertEmissionTypes(t *testing.T, emissions []EventEmission, want ...string
 		events = append(events, emission.Event)
 	}
 	assertEventTypes(t, events, want...)
+}
+
+func TestAssemblerCarriesRequiredLibrariesAcrossBootstrapAndSyntheticQuery(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{RequestID: "r", RunID: "run", ChatID: "chat", MustUseKbases: []string{"a", "b"}})
+	bootstrap := assembler.Bootstrap()
+	if ids, ok := bootstrap[0].ToData()["mustUseKbases"].([]string); !ok || strings.Join(ids, ",") != "a,b" {
+		t.Fatalf("bootstrap: %+v", bootstrap[0])
+	}
+	synthetic := assembler.Consume(SyntheticQuery{Role: "user", Message: "continue"})
+	if ids, ok := synthetic[0].Payload["mustUseKbases"].([]string); !ok || strings.Join(ids, ",") != "a,b" {
+		t.Fatalf("synthetic: %+v", synthetic)
+	}
 }

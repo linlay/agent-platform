@@ -48,11 +48,11 @@ func TestLivePlatformPDFAndExistingDataPreservation(t *testing.T) {
 	if err := NewLibraryEngine().Update(context.Background(), library.database, library.definition.Collections); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := manager.Search(context.Background(), "docs", "OrchardPDF", knowledge.SearchOptions{})
+	hits, err := manager.Search(context.Background(), fixtureLibraryID(manager, "docs"), "OrchardPDF", knowledge.SearchOptions{})
 	if err != nil || len(hits.Results) == 0 {
 		t.Fatalf("PDF search: %+v, %v", hits, err)
 	}
-	evidence, err := manager.Read("docs", knowledge.ReadOptions{Path: "workspace/manual.pdf", Limit: 100})
+	evidence, err := manager.Read(fixtureLibraryID(manager, "docs"), knowledge.ReadOptions{Path: "workspace/manual.pdf", Limit: 100})
 	if err != nil || !strings.Contains(evidence.Content, "two reviewers") || !strings.Contains(evidence.Content, "second page retains evidence") {
 		t.Fatalf("PDF page evidence: %+v, %v", evidence, err)
 	}

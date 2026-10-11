@@ -94,7 +94,7 @@ func TestSearchDelegatesFiltersAndKeepsMultipleChunks(t *testing.T) {
 		return responseJSON(map[string]any{"type": "kbx.search.response", "retrievalVersion": 6, "trace": map[string]any{"resultUnit": "chunk", "degraded": true, "candidateBudgetExhausted": true}, "results": []any{map[string]any{"file": "kbx://workspace/docs/a.md", "chunk": map[string]any{"id": locator}, "evidence": map[string]any{"id": locator, "text": "first"}}, map[string]any{"file": "kbx://workspace/docs/a.md", "chunk": map[string]any{"id": strings.Replace(locator, "0-40", "40-80", 1)}, "evidence": map[string]any{"id": locator, "text": "second"}}}}), nil
 	})
 	h := knowledge.NewToolHandler(m)
-	r, e := h.Invoke(context.Background(), knowledge.ToolSearch, map[string]any{"query": "-not-a-flag", "pathPrefix": "workspace/docs", "pathGlob": "**/*.md", "type": "MD"}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", KBaseEnabled: true}})
+	r, e := h.Invoke(context.Background(), knowledge.ToolSearch, map[string]any{"libraryId": fixtureLibraryID(m, "docs"), "query": "-not-a-flag", "pathPrefix": "workspace/docs", "pathGlob": "**/*.md", "type": "MD"}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", KBaseBindingLibraryID: "docs"}})
 	if e != nil || r.Error != "" {
 		t.Fatalf("%v %+v", e, r)
 	}
@@ -114,7 +114,7 @@ func TestRejectSearchOffsetBeforeCLI(t *testing.T) {
 		t.Fatal("CLI must not run")
 		return nil, nil
 	})
-	if _, e := m.Search(context.Background(), "docs", "x", knowledge.SearchOptions{Offset: 1}); e == nil {
+	if _, e := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "x", knowledge.SearchOptions{Offset: 1}); e == nil {
 		t.Fatal("offset accepted")
 	}
 }
@@ -126,7 +126,7 @@ func TestReadEvidenceAndRejectForeignCollection(t *testing.T) {
 		}
 		return responseJSON(map[string]any{"file": "kbx://other/secret.md", "evidence": map[string]any{"text": "secret"}}), nil
 	})
-	if _, e := m.Read("docs", knowledge.ReadOptions{ChunkID: locator}); e == nil {
+	if _, e := m.Read(fixtureLibraryID(m, "docs"), knowledge.ReadOptions{ChunkID: locator}); e == nil {
 		t.Fatal("foreign collection accepted")
 	}
 }
@@ -170,4 +170,11 @@ func TestIndexedFilesUnicodeGlobAndUnknownCounts(t *testing.T) {
 	if fields["chunksKnown"] != false {
 		t.Fatal("unknown count not explicit")
 	}
+}
+
+func fixtureLibraryID(m *Manager, agentKey string) string {
+	if spec, ok := m.agents.Agent(agentKey); ok {
+		return spec.Config.LibraryID
+	}
+	return agentKey
 }

@@ -352,6 +352,10 @@ func (r *Registry) validateAgent(agentKey string) error {
 }
 
 func parseQuery(node map[string]any) (Query, error) {
+	libraries, err := requiredLibrariesNode(node["mustUseKbases"])
+	if err != nil {
+		return Query{}, err
+	}
 	message := automationMessageNode(node["message"])
 	if strings.TrimSpace(message) == "" {
 		return Query{}, fmt.Errorf("query.message is required")
@@ -406,15 +410,16 @@ func parseQuery(node map[string]any) (Query, error) {
 	}
 
 	return Query{
-		AccessLevel: accessLevel,
-		RequestID:   requestID,
-		ChatID:      chatID,
-		Role:        role,
-		Hidden:      hidden,
-		Message:     message,
-		References:  references,
-		Params:      params,
-		Scene:       scene,
+		AccessLevel:   accessLevel,
+		MustUseKbases: libraries,
+		RequestID:     requestID,
+		ChatID:        chatID,
+		Role:          role,
+		Hidden:        hidden,
+		Message:       message,
+		References:    references,
+		Params:        params,
+		Scene:         scene,
 	}, nil
 }
 
@@ -777,4 +782,26 @@ func normalizeAutomationAccessLevel(value string) (string, error) {
 		return "", fmt.Errorf("invalid query.accessLevel: must be default, auto_approve, or full_access")
 	}
 	return level, nil
+}
+
+func requiredLibrariesNode(value any) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	var ids []string
+	switch values := value.(type) {
+	case []string:
+		ids = values
+	case []any:
+		for _, item := range values {
+			id, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("query.mustUseKbases must contain strings")
+			}
+			ids = append(ids, id)
+		}
+	default:
+		return nil, fmt.Errorf("query.mustUseKbases must be an array of strings")
+	}
+	return contracts.NormalizeRequiredLibraries(ids), nil
 }

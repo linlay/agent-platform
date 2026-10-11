@@ -125,7 +125,7 @@ func TestLiveRetrievalDeployment(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		start := time.Now()
-		r, err := m.Search(ctx, "live", query, o)
+		r, err := m.Search(ctx, fixtureLibraryID(m, "live"), query, o)
 		if err != nil {
 			t.Fatal("query execution failed:", err)
 		}

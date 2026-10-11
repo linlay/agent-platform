@@ -2,9 +2,9 @@
 
 ## 所有权与绑定
 
-知识库是唯一索引所有者。`internal/kbases` 按 library ID 管理配置、目录监听、维护调度和状态；`internal/kbx.LibraryEngine` 调用受管 CLI 维护；`internal/kbx.Manager` 把 Agent 绑定解析为数据库和允许的 collection 集合，保留过滤、chunk/evidence 分页与图证据查询。`internal/knowledge` 只保存中立配置、DTO、工具和引用发布契约，不依赖 catalog、不持有索引或进程。
+知识库是唯一索引所有者。`internal/kbases` 按 library ID 管理配置、目录监听、维护调度和状态；`internal/kbx.LibraryEngine` 调用受管 CLI 维护；`internal/kbx.Manager` 把显式 libraryId 解析为数据库和允许的 collection 集合，保留过滤、chunk/evidence 分页与图证据查询。`internal/knowledge` 只保存中立配置、DTO、工具和引用发布契约，不依赖 catalog、不持有索引或进程。
 
-所有 Native GENERAL/CODER/KBASE（及 PLAN-EXECUTE）使用相同的 `kbaseConfig.libraryId` 契约。省略绑定即不开启知识库能力；配置不能隐式授予工具。一个 Agent 绑定一个库，一个库可包含 1–32 个 collection，并被多个 Agent 共用。Workspace 与知识范围无关；KBASE 的 Workspace 仍决定项目展示和相对路径；专用 Host KBASE 可在 Run 启动时额外冻结 editable collection 目录，editingMode 控制两者的 mutation。
+Native GENERAL/CODER/KBASE（及 PLAN-EXECUTE）通过 builtin.kbase-control 使用知识工具，普通 Agent 省略固定绑定仍可按 libraryId 检索。专用 KBASE 必须配置 kbaseConfig.libraryId；配置不能隐式授予工具。固定绑定至多一个库，一个库可包含 1–32 个 collection，并被多个 Agent 共用。Workspace 与知识范围无关；KBASE 的 Workspace 仍决定项目展示和相对路径；专用 Host KBASE 可在 Run 启动时额外冻结 editable collection 目录，editingMode 控制两者的 mutation。
 
 ```yaml
 key: kbase-tmmsin
@@ -28,7 +28,7 @@ connectorConfig:
 
 四个知识检索工具由 `builtin.kbase-control` 提供；专用 KBASE 在分发示例中经 `kbase.preset-connectors` 自动挂载，可省略上面的 `connectorConfig`。
 
-示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；Run 开始检查库就绪状态，工具每次调用重新检查当前绑定与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。知识检索的来源范围不冻结到旧 Run；下一次查询按当前配置重新授权。文件编辑是独立边界：专用 Host KBASE 的 editable collection canonical 目录与说明在 Run 启动时冻结，库修改仅影响下次 Run，不能中途扩大文件授权。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
+示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；专用 KBASE 在 Run 开始检查绑定库就绪状态，mustUseKbases 的选择逐库检查可读性；工具每次调用重新检查指定库与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。知识检索的来源范围不冻结到旧 Run；下一次查询按当前配置重新授权。文件编辑是独立边界：专用 Host KBASE 的 editable collection canonical 目录与说明在 Run 启动时冻结，库修改仅影响下次 Run，不能中途扩大文件授权。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
 
 ## 维护生命周期
 
@@ -40,7 +40,7 @@ CLI 必须声明维护协议 v1、结构化错误、无扫描注册与文件路�
 
 普通内容更新保持已有索引可读，状态为 `indexing/stale`。KBX 原地提交，读取可能看到已经提交的新内容，**不承诺更新前的固定快照**。全文更新已确认完整而 embedding 失败时，保持全文可读并报告 degraded/refreshError；未知 partial 或中断禁读，等待自动重新对账。首次扫描、集合增删、来源或过滤/切块变更会撤销旧范围的读取。`ErrNotStarted` 仅用于尚未进行索引写入的失败，可保留刷新前状态。
 
-`kbase_refresh`、`POST /api/kbase/{agentKey}/refresh`、`kbase.refreshTerminal` 和 Agent 刷新回执已删除。Agent 可用 `kbase_status` 查看绑定库状态；管理员仍可在知识库管理界面手工刷新。没有 force 工具或自动旧索引迁移。
+`kbase_refresh`、`POST /api/kbase/{agentKey}/refresh`、`kbase.refreshTerminal` 和 Agent 刷新回执已删除。Agent 可用 `kbase_status` 和显式 libraryId 查看库状态；管理员仍可在知识库管理界面手工刷新。没有 force 工具或自动旧索引迁移。
 
 ## 查询、路径与引用
 
@@ -49,7 +49,7 @@ CLI 必须声明维护协议 v1、结构化错误、无扫描注册与文件路�
 - 查询前将过滤条件与每个 collection 的 include/exclude 取交集；结果正文、嵌套图证据和回读再次校验范围。`exclude` 是词法排除表达式，不是文件路径；`minScore` 是方法相关排名分，不是置信度。候选上限 2000、结果最多 50，不支持搜索 offset/cursor。
 - `kbase_read.chunkId` 接收 chunkId/evidenceId/nextEvidence，精确回读证据；按路径读取使用一基行号 offset 和 limit 分页。`kbase_files` 只列 active 索引文件，不列主机任意文件。
 - 发布来源 ID 为 `kbase:<libraryId>/<collection>/<relativePath>`，来源事件携带 libraryId 与 AgentKey，持久化/回放保留这些字段。
-- `POST /api/chat/sources/read` 接收 chatId/sourceId/offset/limit，返回授权后的正文；`POST /api/chat/sources/file` 接收 chatId/sourceId，下载当前源文件。两者先核验身份和 Chat 权限，再查 Chat 已发布来源及 Agent 当前库绑定，不借 `/api/resource`，不把共享库来源加入 Workspace 的文件工具授权。重新绑定后旧来源不可回读，历史片段仍保留。正文是当前索引内容，下载是当前源文件，并非历史内容快照。
+- `POST /api/chat/sources/read` 接收 chatId/sourceId/offset/limit，返回授权后的正文；`POST /api/chat/sources/file` 接收 chatId/sourceId，下载当前源文件。两者先核验身份和 Chat 权限，再查 Chat 已发布来源及其 libraryId 的当前来源范围，不借 `/api/resource`，不把共享库来源加入 Workspace 的文件工具授权。Agent 解绑或重新绑定不撤销已发布来源回读；库删除或来源范围缩小可能使回读失败，历史片段仍保留。正文是当前索引内容，下载是当前源文件，并非历史内容快照。
 
 读取要求 Agent envelope v2 / retrieval contract v6；结构化失败保留有限机器码和固定提示，不泄露模型 stderr。KBX 不提供精确 chunk 数，status 返回 chunksKnown=false。
 
@@ -88,7 +88,7 @@ collection 支持 `description`（可选文本，最多 4000 字节）和 `edita
 
 reranker 使用 registry type: reranker 和必填 reranker.endpointPath，queryExpansion 使用 type: chat / protocol: OPENAI 的 Chat Completions endpoint；KBX 不承接平台自定义 headers/compat 或其他聊天协议。去掉强制 --no-rerank，仅在有效 rerank=false 时传递。配置或单次开关关闭时不注入对应模型。模型 HTTP 失败保留原查询/原排序并报告 degraded，Agent optionalUnavailable 包含对应角色；错误键/协议直接报配置错误。模型角色不进入维护配置和索引指纹。
 
-defaultQuery 缺省 true。维护时同步 collection include/exclude，检索时按当前默认或显式 collections 传入 -c，全部默认排除返回空数组；过滤不能扩大绑定库范围，files/read 不受默认检索选择影响。详细配置、registry 示例和边界见 [知识库](知识库.md#检索默认值可选模型和默认集合)。
+defaultQuery 缺省 true。维护时同步 collection include/exclude，检索时按当前默认或显式 collections 传入 -c，全部默认排除返回空数组；过滤不能扩大指定库范围，files/read 不受默认检索选择影响。详细配置、registry 示例和边界见 [知识库](知识库.md#检索默认值可选模型和默认集合)。
 
 `TestLibraryRealRetrievalModelsDefaultsAndDegradation` 使用当前受管 KBX 和本机 HTTP fixture 验证两种模型调用、禁用/全文零调用、失败回退与 collection 隔离。真实部署配置的小样本记录见下节；不将 fixture 时间或小样本时间写成生产指标。缓存、扩展向量和重试会改变请求数量。
 
@@ -121,3 +121,7 @@ KBX_LIVE_EMBEDDING_MODEL=your-embedding-model \
 ```
 
 省略 `KBX_LIVE_EMBEDDING_MODEL` 测试全文加扩展；配置真实重排后追加 `KBX_LIVE_RERANKER_MODEL`。测试仅在临时目录创建来源、库及配置快照，结束自动清理；输出合成文档路径、命中情况、耗时和有限 trace 字段，不输出 endpoint 或凭据。质量命中是观测数据，不作为保证模型改善的断言；模型调用成功、默认集合隔离和故障降级有独立断言。
+
+## 按库 ID 检索
+
+ToolService 的 search/files/read/status 直接接收 libraryId，Manager 不再经 agentKey 解析固定绑定；kbase_list 提供轻量目录。Agent 的固定绑定和显式 retrieval 在 Session 冻结，仅该 ID 的查询合并 Agent 覆盖。已发布 Chat 来源按自身 libraryId 回读，仍执行当前 collection 来源过滤。普通 Agent 无须配置 kbaseConfig，临时选库不加入专用 KBASE editing 的可写范围。详见 [知识库](知识库.md#通用-agent-本次选库)。

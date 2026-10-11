@@ -208,10 +208,11 @@ type DeltaTaskLifecycle struct {
 func (DeltaTaskLifecycle) agentDeltaTag() {}
 
 type SubAgentTaskSpec struct {
-	SubAgentKey string
-	TaskText    string
-	TaskName    string
-	Files       []string
+	MustUseKbases []string
+	SubAgentKey   string
+	TaskText      string
+	TaskName      string
+	Files         []string
 }
 
 type DeltaInvokeSubAgents struct {

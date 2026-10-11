@@ -63,6 +63,8 @@ type EmbeddingSnapshot struct {
 }
 
 type SearchOptions struct {
+	// AgentConfig is a frozen override, applied only to its bound library.
+	AgentConfig         *Config  `json:"-"`
 	Collections         []string `json:"collections"`
 	Rerank              *bool    `json:"rerank"`
 	QueryExpansion      *bool    `json:"queryExpansion"`

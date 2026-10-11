@@ -100,15 +100,16 @@ type Environment struct {
 }
 
 type Query struct {
-	AccessLevel string
-	RequestID   string
-	ChatID      string
-	Role        string
-	Hidden      *bool
-	Message     string
-	References  []api.Reference
-	Params      map[string]any
-	Scene       *api.Scene
+	MustUseKbases []string
+	AccessLevel   string
+	RequestID     string
+	ChatID        string
+	Role          string
+	Hidden        *bool
+	Message       string
+	References    []api.Reference
+	Params        map[string]any
+	Scene         *api.Scene
 }
 
 func (d Definition) ToQueryRequest() api.QueryRequest {
@@ -120,10 +121,11 @@ func (d Definition) ToQueryRequest() api.QueryRequest {
 	}
 
 	return api.QueryRequest{
-		AccessLevel: d.Query.AccessLevel,
-		RequestID:   d.Query.RequestID,
-		ChatID:      d.Query.ChatID,
-		AgentKey:    d.AgentKey,
+		AccessLevel:   d.Query.AccessLevel,
+		MustUseKbases: append([]string(nil), d.Query.MustUseKbases...),
+		RequestID:     d.Query.RequestID,
+		ChatID:        d.Query.ChatID,
+		AgentKey:      d.AgentKey,
 
 		Role:       EffectiveQueryRole(d.Query.Role),
 		Hidden:     &hidden,

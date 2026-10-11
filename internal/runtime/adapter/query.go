@@ -21,7 +21,8 @@ func QueryRequest(cmd runtimetypes.QueryCommand) api.QueryRequest {
 		Role: cmd.Role, Hidden: cmd.Hidden, Message: cmd.Message, SourceUser: cmd.SourceUser, References: references,
 		Params: contracts.CloneMap(cmd.Params), Scene: scene, Stream: cmd.Stream, IncludeUsage: cmd.IncludeUsage,
 		IncludeFullText: cmd.IncludeFullText, PlanningMode: cmd.PlanningMode, EditingMode: cmd.EditingMode,
-		MustUseSkills: append([]string(nil), cmd.MustUseSkills...), AccessLevel: cmd.AccessLevel, Model: model,
+		MustUseSkills: append([]string(nil), cmd.MustUseSkills...),
+		MustUseKbases: append([]string(nil), cmd.MustUseKbases...), AccessLevel: cmd.AccessLevel, Model: model,
 		SyntheticQueryBootstrapped: cmd.SyntheticQueryBootstrapped, ChatSource: cmd.ChatSource,
 		TrustedQueryMetadata: contracts.CloneMap(cmd.TrustedQueryMetadata),
 	}
@@ -42,7 +43,8 @@ func QueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
 		References: References(req.References), Params: contracts.CloneMap(req.Params), Scene: scene,
 		Stream: req.Stream, IncludeUsage: req.IncludeUsage, IncludeFullText: req.IncludeFullText,
 		PlanningMode: req.PlanningMode, EditingMode: req.EditingMode, MustUseSkills: append([]string(nil), req.MustUseSkills...),
-		AccessLevel: req.AccessLevel, Model: model, SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped,
+		MustUseKbases: append([]string(nil), req.MustUseKbases...),
+		AccessLevel:   req.AccessLevel, Model: model, SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped,
 		ChatSource: req.ChatSource, TrustedQueryMetadata: contracts.CloneMap(req.TrustedQueryMetadata),
 	}
 }

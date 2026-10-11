@@ -84,16 +84,21 @@ func appendFilter(args []string, v any) []string {
 	return append(args, "--filter", string(b))
 }
 func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.SearchOptions) (knowledge.SearchResult, error) {
+	key = strings.TrimSpace(key)
 	o, err := knowledge.NormalizeSearchOptions(o)
 	if err != nil {
 		return knowledge.SearchResult{}, err
 	}
-	l, err := m.resolve(key)
+	l, err := m.resolveLibrary(key)
 	if err != nil {
 		return knowledge.SearchResult{}, err
 	}
 	defer l.release()
-	retrieval, err := knowledge.MergeRetrieval(l.definition.Retrieval, l.spec.Config)
+	config := knowledge.DefaultConfig()
+	if o.AgentConfig != nil && o.AgentConfig.LibraryID == key {
+		config = *o.AgentConfig
+	}
+	retrieval, err := knowledge.MergeRetrieval(l.definition.Retrieval, config)
 	if err != nil {
 		return knowledge.SearchResult{}, err
 	}
@@ -144,7 +149,7 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 		}
 	}
 	if len(l.definition.Collections) == 0 {
-		return knowledge.SearchResult{LibraryID: l.definition.ID, AgentKey: key, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx"}, nil
+		return knowledge.SearchResult{LibraryID: l.definition.ID, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx"}, nil
 	}
 	args := []string{o.Method, "--agent", "-n", strconv.Itoa(limit)}
 	for _, c := range l.definition.Collections {
@@ -226,7 +231,7 @@ func (m *Manager) Search(ctx context.Context, key, query string, o knowledge.Sea
 			return knowledge.SearchResult{}, unavailable("KBX retrieval contract 6 with chunk results is required")
 		}
 	}
-	result := knowledge.SearchResult{LibraryID: l.spec.Config.LibraryID, AgentKey: key, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx", Stale: l.definition.Stale, Degraded: response.Trace.Degraded || l.definition.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
+	result := knowledge.SearchResult{LibraryID: l.spec.Config.LibraryID, Query: query, Method: o.Method, Limit: limit, Results: []knowledge.SearchHit{}, Engine: "kbx", Stale: l.definition.Stale, Degraded: response.Trace.Degraded || l.definition.Degraded, CandidateBudgetExhausted: response.Trace.CandidateBudgetExhausted}
 	result.Stale = l.definition.Stale
 	result.Indexing = l.definition.Indexing
 	result.Degraded = result.Degraded || l.definition.Degraded
@@ -322,17 +327,14 @@ func relativePath(p string) (string, error) {
 var evidencePattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}#bytes=[0-9]+-[0-9]+$`)
 
 func (m *Manager) Read(key string, o knowledge.ReadOptions) (knowledge.ReadResult, error) {
-	return m.readBound(key, "", o)
+	return m.readLibrary(key, o)
 }
-func (m *Manager) readBound(key, expectedLibrary string, o knowledge.ReadOptions) (knowledge.ReadResult, error) {
-	l, err := m.resolve(key)
+func (m *Manager) readLibrary(key string, o knowledge.ReadOptions) (knowledge.ReadResult, error) {
+	l, err := m.resolveLibrary(key)
 	if err != nil {
 		return knowledge.ReadResult{}, err
 	}
 	defer l.release()
-	if expectedLibrary != "" && expectedLibrary != l.spec.Config.LibraryID {
-		return knowledge.ReadResult{}, fmt.Errorf("Agent library binding changed")
-	}
 	ctx, cancel := readerContext()
 	defer cancel()
 	args := []string{"get", "--agent", "--no-line-numbers"}
@@ -390,7 +392,8 @@ func (m *Manager) readBound(key, expectedLibrary string, o knowledge.ReadOptions
 	return knowledge.ReadResult{LibraryID: l.spec.Config.LibraryID, Found: true, ChunkID: o.ChunkID, Path: p, Heading: r.Title, StartLine: r.ReadRange.From, EndLine: r.ReadRange.Through, Content: content, HasMore: r.ReadRange.HasMore, NextEvidence: r.ReadRange.NextEvidence}, nil
 }
 func (m *Manager) Files(key string, o knowledge.FilesOptions) (knowledge.FilesResult, error) {
-	l, err := m.resolve(key)
+	key = strings.TrimSpace(key)
+	l, err := m.resolveLibrary(key)
 	if err != nil {
 		return knowledge.FilesResult{}, err
 	}

@@ -390,6 +390,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/steer", s.method(http.MethodPost, s.handleSteer))
 	s.router.HandleFunc("/api/interrupt", s.method(http.MethodPost, s.handleInterrupt))
 	s.router.HandleFunc("/api/access-level", s.method(http.MethodPost, s.handleAccessLevel))
+	s.router.HandleFunc("/api/kbases", s.method(http.MethodGet, s.handleKBaseOptions))
 	s.router.HandleFunc("/api/kbase/", s.handleKBase)
 	s.router.HandleFunc("/api/file", s.method(http.MethodGet, s.handleAgentFile))
 	s.router.HandleFunc("/api/document/preview/capabilities", s.method(http.MethodGet, s.handleDocumentPreviewCapabilities))

@@ -269,6 +269,7 @@ type QueryRequest struct {
 	PlanningMode    *bool              `json:"planningMode,omitempty"`
 	EditingMode     *bool              `json:"editingMode,omitempty"`
 	MustUseSkills   []string           `json:"mustUseSkills,omitempty"`
+	MustUseKbases   []string           `json:"mustUseKbases,omitempty"`
 	AccessLevel     string             `json:"accessLevel,omitempty"`
 	Model           *QueryModelOptions `json:"model,omitempty"`
 

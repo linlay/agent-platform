@@ -29,6 +29,13 @@ inputSchema:
           taskName:
             type: string
             description: Optional. Short title shown in the task panel while the sub-agent is active.
+          mustUseKbases:
+            type: array
+            maxItems: 8
+            items:
+              type: string
+              minLength: 1
+            description: Optional. Knowledge library IDs required by this task; parent selections are not inherited.
           files:
             type: array
             description: Optional. Local files the sub-agent must inspect. Cross-agent files are materialized through the current Chat; PROXY/CHANNEL adapters receive ticketed resource URLs.

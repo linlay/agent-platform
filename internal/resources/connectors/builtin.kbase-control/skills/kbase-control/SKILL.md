@@ -1,14 +1,15 @@
 ---
 name: kbase-control
-description: Search, browse and read the knowledge library bound to this Agent, and cite the evidence it returns.
+description: Search, browse and read knowledge libraries by ID, and cite the evidence it returns.
 ---
 
 # Knowledge Base
 
-Requires builtin.kbase-control mounted and an Agent with kbaseConfig.libraryId. The four tools are read-only and operate on the bound library's KBX index, never on the host filesystem.
+Requires builtin.kbase-control mounted. The five tools are read-only and operate on library KBX indexes, never on the host filesystem. An Agent does not need a fixed library binding. Each retrieval call must specify libraryId, even when only one library is selected. Required libraries in the Run context must each be used; other open libraries may be read as needed.
 
 | Tool | Use it to | Reference |
 | --- | --- | --- |
+| `kbase_list` | Discover library IDs, names, collection summaries and readability | [kbase_list](references/retrieval.md) |
 | `kbase_status` | Check readiness, stale/degraded flags and file count before relying on results, or when a search unexpectedly returns nothing | [kbase_status](references/retrieval.md) |
 | `kbase_search` | Find evidence by hybrid, full-text, vector or graph retrieval | [kbase_search](references/retrieval.md) |
 | `kbase_files` | See which files and directories are indexed | [kbase_files](references/retrieval.md) |

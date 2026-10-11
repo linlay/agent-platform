@@ -370,7 +370,7 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`btwId`（旁聊续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`role`、`references`、`mustUseSkills`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`btwId`（旁聊续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`role`、`references`、`mustUseSkills`、`mustUseKbases`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: 根 `agentKey`、`runId`、`awaitingId`，以及 `params`（question/approval 的数组）或 `param`（planning/form 的单个对象），二选一 | HITL submit ack |
 | POST | `/api/steer` | body: 根 `agentKey`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
@@ -383,6 +383,10 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 
 `editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。专用 KBASE 在 true/false 两种状态下都以最终 `runtimeConfig.workspaceRoot` 作为 Workspace，并提供相同的五个文件工具；`false` 或省略只表示 Workspace mutation 未授权，Workspace 仍可读，当前 Chat 目录仍可读写。`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
+
+`mustUseKbases` 是本次 Run 必须使用的知识库 ID 数组，trim、忽略空值并按精确 ID 去重，最多 8 个。`interactionConfig.mustUseKbases:false` 只拒绝规范化后的非空选择；空数组与省略均接受。目标需挂载 `builtin.kbase-control`，每个选中库需存在且可读，否则整个请求 HTTP 400、`kbase_selection_unavailable`，不部分放行。选择不限制工具读取其他开放库，不自动挂载连接器或授予文件权限；四个检索工具每次必填 `libraryId`。TEAM/ACP/PROXY/CHANNEL 和 BTW 暂不支持非空选择。选择进入 Session、system-init fingerprint、request.query 持久化/回放和 synthetic query；规划批准后的执行沿用原选择。`chat_start`、Automation `query` 和 `agent_invoke.tasks[]` 均可显式传入，子 Run 不自动继承父选择。
+
+`GET /api/kbases?agentKey=...` 与主 WS `/api/kbases`（payload `{agentKey}`）返回统一包裹的数据 `{agentKey, capability:{available,reason?}, boundLibraryId?, libraries:[{id,name,description?,collections:[{name,description?}],readable,indexing,degraded,unavailableReason?}]}`。空列表为 `[]`，状态布尔值不省略，目录不包含 sourcePath/editable/baseRevision。与 `/api/agent` 的输入开关一起供 WebClient 决定选库入口。细节见 [知识库](知识库.md#通用-agent-本次选库)。
 
 `mustUseSkills` 是单次 run 的强制 Skill 数组。服务端对各项 trim、忽略空值、按大小写不敏感去重并保留首次出现顺序，不设置额外数量上限。已经配置在目标 Agent 的 Skill 从当前 Agent 版本的引用解析至 `ru-skills/<digest>`，模型看到的指令路径为 `@skills/<key>/SKILL.md`；未配置的额外 Skill 必须存在于当前有效 skills-center catalog，并从共享技能中心解析为 `@skills-center/<key>/SKILL.md`。任一项缺失、无合法 `SKILL.md` 或当前无法解析时，整个请求在 run 启动前以 HTTP 400、`msg=must_use_skill_unavailable` 失败，不会部分执行或静默降级。
 

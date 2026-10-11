@@ -202,6 +202,7 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 		Message:         strings.TrimSpace(request.Message),
 		AccessLevel:     plan.AccessLevel,
 		MustUseSkills:   append([]string(nil), request.MustUseSkills...),
+		MustUseKbases:   append([]string(nil), request.MustUseKbases...),
 		InitialChatName: strings.TrimSpace(request.ChatName),
 		ChatSource:      queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
 	}

@@ -76,11 +76,11 @@ func TestRealKnowledgeBases(t *testing.T) {
 				t.Fatalf("build: %v", err)
 			}
 			build := string(out)
-			status, err := m.Status("docs")
+			status, err := m.Status(fixtureLibraryID(m, "docs"))
 			if err != nil || status.Files == 0 {
 				t.Fatalf("status: %v %+v", err, status)
 			}
-			files, err := m.Files("docs", knowledge.FilesOptions{HeadLimit: 0})
+			files, err := m.Files(fixtureLibraryID(m, "docs"), knowledge.FilesOptions{HeadLimit: 0})
 			if err != nil || len(files.Results) == 0 {
 				t.Fatalf("files: %v %+v", err, files)
 			}
@@ -91,12 +91,12 @@ func TestRealKnowledgeBases(t *testing.T) {
 				types[f.Ext]++
 			}
 			for _, q := range queries {
-				r, err := m.Search(ctx, "docs", q, knowledge.SearchOptions{Limit: 5})
+				r, err := m.Search(ctx, fixtureLibraryID(m, "docs"), q, knowledge.SearchOptions{Limit: 5})
 				if err != nil {
 					t.Fatalf("search %s: %v", q, err)
 				}
 				for _, hit := range r.Results {
-					read, err := m.Read("docs", knowledge.ReadOptions{ChunkID: hit.ChunkID})
+					read, err := m.Read(fixtureLibraryID(m, "docs"), knowledge.ReadOptions{ChunkID: hit.ChunkID})
 					if err != nil {
 						t.Fatalf("evidence: %v", err)
 					}
@@ -108,7 +108,7 @@ func TestRealKnowledgeBases(t *testing.T) {
 				if len(r.Results) > 0 {
 					h := r.Results[0]
 					ext := path.Ext(h.Path)
-					narrow, err := m.Search(ctx, "docs", q, knowledge.SearchOptions{Limit: 5, PathGlob: h.Path, Type: strings.ToUpper(ext)})
+					narrow, err := m.Search(ctx, fixtureLibraryID(m, "docs"), q, knowledge.SearchOptions{Limit: 5, PathGlob: h.Path, Type: strings.ToUpper(ext)})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -122,7 +122,7 @@ func TestRealKnowledgeBases(t *testing.T) {
 					}
 					dir := path.Dir(h.Path)
 					if dir != "." {
-						narrow, err = m.Search(ctx, "docs", q, knowledge.SearchOptions{Limit: 5, PathPrefix: dir, Type: ext})
+						narrow, err = m.Search(ctx, fixtureLibraryID(m, "docs"), q, knowledge.SearchOptions{Limit: 5, PathPrefix: dir, Type: ext})
 						if err != nil || len(narrow.Results) == 0 {
 							t.Fatalf("prefix recall failed: %v", err)
 						}
@@ -207,7 +207,7 @@ func TestLiveChunkAndFilterContract(t *testing.T) {
 	if _, e := m.runner.Run(ctx, l.database, cfg, "collection", "add", root, "--name", "workspace"); e != nil {
 		t.Fatal(e)
 	}
-	r, e := m.Search(ctx, "docs", "needle", knowledge.SearchOptions{Limit: 5, PathPrefix: "workspace/allowed", Type: ".MD"})
+	r, e := m.Search(ctx, fixtureLibraryID(m, "docs"), "needle", knowledge.SearchOptions{Limit: 5, PathPrefix: "workspace/allowed", Type: ".MD"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -223,21 +223,21 @@ func TestLiveChunkAndFilterContract(t *testing.T) {
 			t.Fatal("duplicate chunk")
 		}
 		seen[h.ChunkID] = true
-		read, e := m.Read("docs", knowledge.ReadOptions{ChunkID: h.ChunkID})
+		read, e := m.Read(fixtureLibraryID(m, "docs"), knowledge.ReadOptions{ChunkID: h.ChunkID})
 		if e != nil || read.Content != h.Snippet {
 			t.Fatalf("chunk evidence differs: %v", e)
 		}
 	}
-	read, e := m.Read("docs", knowledge.ReadOptions{Path: "workspace/allowed/a.md", Offset: 2, Limit: 3})
+	read, e := m.Read(fixtureLibraryID(m, "docs"), knowledge.ReadOptions{Path: "workspace/allowed/a.md", Offset: 2, Limit: 3})
 	if e != nil || read.StartLine != 2 || read.EndLine != 4 || !read.HasMore {
 		t.Fatalf("line pagination: %v %+v", e, read)
 	}
-	empty, e := m.Search(ctx, "docs", "needle", knowledge.SearchOptions{PathPrefix: "workspace/missing"})
+	empty, e := m.Search(ctx, fixtureLibraryID(m, "docs"), "needle", knowledge.SearchOptions{PathPrefix: "workspace/missing"})
 	if e != nil || len(empty.Results) != 0 {
 		t.Fatalf("empty filter: %v %+v", e, empty)
 	}
 	for _, bad := range []string{"../secret", "/tmp/secret", "kbx://other/secret"} {
-		if _, e := m.Read("docs", knowledge.ReadOptions{Path: bad}); e == nil {
+		if _, e := m.Read(fixtureLibraryID(m, "docs"), knowledge.ReadOptions{Path: bad}); e == nil {
 			t.Fatalf("accepted unsafe path %s", bad)
 		}
 	}

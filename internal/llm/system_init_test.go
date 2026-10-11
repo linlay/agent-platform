@@ -79,7 +79,7 @@ func TestSystemInitFingerprintChangesWithRequiredSkills(t *testing.T) {
 func TestKBaseReadOnlyFingerprintIgnoresEditingPolicySnapshot(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = agentkbase.Mode
-	session.KBaseEnabled = true
+	session.KBaseBindingLibraryID = "docs"
 	changed := session
 	changed.ScopedFilePolicy = &contracts.ScopedFilePolicy{
 		WorkspaceRoot:         "/knowledge",
@@ -603,7 +603,7 @@ func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
 func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = agentkbase.Mode
-	session.KBaseEnabled = true
+	session.KBaseBindingLibraryID = "docs"
 	session.WorkspaceRoot = "/knowledge"
 	session.ToolNames = agentkbase.CreateToolNames()
 	session.KBaseModePrompts = contracts.KBaseModePrompts{

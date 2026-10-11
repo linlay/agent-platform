@@ -141,11 +141,28 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 				deltas, openAIMessage := preparedToolErrorResult(toolID, toolCall.Function.Name, message, "invalid_tool_arguments")
 				return nil, deltas, openAIMessage
 			}
+			libraries := []string(nil)
+			if raw, exists := taskMap["mustUseKbases"]; exists {
+				items, ok := raw.([]any)
+				if !ok {
+					deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "mustUseKbases must be an array of strings", "invalid_tool_arguments")
+					return nil, deltas, message
+				}
+				for _, item := range items {
+					id, ok := item.(string)
+					if !ok {
+						deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "mustUseKbases must contain strings", "invalid_tool_arguments")
+						return nil, deltas, message
+					}
+					libraries = append(libraries, id)
+				}
+			}
 			tasks = append(tasks, SubAgentTaskSpec{
-				SubAgentKey: subAgentKey,
-				TaskText:    taskText,
-				TaskName:    taskName,
-				Files:       mapStringListArg(taskMap, "files"),
+				MustUseKbases: NormalizeRequiredLibraries(libraries),
+				SubAgentKey:   subAgentKey,
+				TaskText:      taskText,
+				TaskName:      taskName,
+				Files:         mapStringListArg(taskMap, "files"),
 			})
 		}
 		return &preparedToolInvocation{

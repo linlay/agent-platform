@@ -24,6 +24,7 @@ var nativeToolManualChapters = map[string]nativeToolManualChapter{
 	"desktop_kanban":       {file: "references/kanban.md"},
 	"catalog_query":        {file: "references/catalog.md"},
 	"catalog_manage":       {file: "references/catalog.md"},
+	"kbase_list":           {file: "references/retrieval.md", marker: "## kbase_list"},
 	"kbase_search":         {file: "references/retrieval.md", marker: "## kbase_search"},
 	"kbase_files":          {file: "references/retrieval.md", marker: "## kbase_files"},
 	"kbase_read":           {file: "references/retrieval.md", marker: "## kbase_read"},

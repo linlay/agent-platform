@@ -97,7 +97,7 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("fixture embed: %v: %s; requests=%d", err, output, requests.Load())
 	}
-	r, e := m.Search(ctx, "docs", "unseenlexicaltoken", knowledge.SearchOptions{PathPrefix: "workspace/allowed", Type: "MD"})
+	r, e := m.Search(ctx, fixtureLibraryID(m, "docs"), "unseenlexicaltoken", knowledge.SearchOptions{PathPrefix: "workspace/allowed", Type: "MD"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -110,7 +110,7 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	if requests.Load() < 2 {
 		t.Fatal("build/query did not contact fixture provider")
 	}
-	vector, e := m.Search(ctx, "docs", "anothersemanticquestion", knowledge.SearchOptions{Method: "vsearch", PathPrefix: "workspace/allowed", Filter: "ext = md", Exclude: []string{"building"}})
+	vector, e := m.Search(ctx, fixtureLibraryID(m, "docs"), "anothersemanticquestion", knowledge.SearchOptions{Method: "vsearch", PathPrefix: "workspace/allowed", Filter: "ext = md", Exclude: []string{"building"}})
 	if e != nil || len(vector.Results) != 1 || vector.Results[0].Path != "workspace/allowed/a.md" || !strings.Contains(strings.Join(vector.RetrievalChannels, ","), "vector") {
 		t.Fatalf("strict vector search: %+v %v", vector, e)
 	}
@@ -129,7 +129,7 @@ func TestLiveVectorPrefilterAndLibraryIsolation(t *testing.T) {
 	}
 	other.Config.LibraryID = "missing"
 	source["other"] = other
-	if _, e = m.Search(ctx, "other", "alpha", knowledge.SearchOptions{}); knowledge.KindOf(e) != knowledge.ErrorUnavailable {
+	if _, e = m.Search(ctx, fixtureLibraryID(m, "other"), "alpha", knowledge.SearchOptions{}); knowledge.KindOf(e) != knowledge.ErrorUnavailable {
 		t.Fatalf("missing library borrowed another index: %v", e)
 	}
 }

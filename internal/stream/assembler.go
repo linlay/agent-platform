@@ -22,6 +22,7 @@ type StreamRequest struct {
 	PlanningMode    bool
 	EditingMode     bool
 	MustUseSkills   []string
+	MustUseKbases   []string
 	IncludeUsage    bool
 	IncludeFullText bool
 	AccessLevel     string
@@ -142,6 +143,9 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 	if len(a.request.MustUseSkills) > 0 {
 		queryPayload["mustUseSkills"] = append([]string(nil), a.request.MustUseSkills...)
 	}
+	if len(a.request.MustUseKbases) > 0 {
+		queryPayload["mustUseKbases"] = append([]string(nil), a.request.MustUseKbases...)
+	}
 	if a.request.IncludeUsage {
 		queryPayload["includeUsage"] = true
 	}
@@ -219,6 +223,9 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 	}
 	if len(request.MustUseSkills) > 0 {
 		payload["mustUseSkills"] = append([]string(nil), request.MustUseSkills...)
+	}
+	if len(request.MustUseKbases) > 0 {
+		payload["mustUseKbases"] = append([]string(nil), request.MustUseKbases...)
 	}
 	for key, item := range request.QueryMetadata {
 		if _, reserved := payload[key]; reserved {

@@ -111,6 +111,7 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		PlanningMode:       prepared.Session.PlanningMode,
 		EditingMode:        prepared.Session.EditingMode,
 		MustUseSkills:      prepared.Session.MustUseSkills,
+		MustUseKbases:      prepared.Session.MustUseKbases,
 		IncludeUsage:       prepared.Req.IncludeUsage,
 		IncludeFullText:    prepared.Req.IncludeFullText,
 		AccessLevel:        prepared.Session.AccessLevel,
@@ -498,6 +499,10 @@ func (s *Service) PrepareQueryAdmissionRequest(
 				"error": map[string]any{"code": code, "message": message},
 			},
 		}
+	}
+	req.MustUseKbases = sessionbuild.NormalizeMustUseKbases(req.MustUseKbases)
+	if _, err := s.deps.Sessions.ResolveKbases(agentDef, req.MustUseKbases); err != nil {
+		return queryAdmission{}, err
 	}
 	req.MustUseSkills = sessionbuild.NormalizeMustUseSkills(req.MustUseSkills)
 	mustUseSkills, err := s.deps.Sessions.ResolveSkills(agentDef, req.MustUseSkills)

@@ -256,7 +256,7 @@ func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 		engine: &LLMAgentEngine{
 			tools: executor,
 		},
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", MustUseKbases: []string{"parent"}},
 		execCtx: &contracts.ExecutionContext{
 			StartedAt: time.Now(),
 		},
@@ -2266,6 +2266,9 @@ func TestPrepareToolCall_InvokeAgentsReturnsBatchPrelude(t *testing.T) {
 	}
 	if invoke.MainToolID != "tool_1" || len(invoke.Tasks) != 1 || invoke.Tasks[0].SubAgentKey != "writer" || invoke.Tasks[0].TaskText != "Write a short summary" || invoke.Tasks[0].TaskName != "总结" {
 		t.Fatalf("unexpected invoke delta %#v", invoke)
+	}
+	if len(invoke.Tasks[0].MustUseKbases) != 0 {
+		t.Fatal("omitted libraries inherited from parent")
 	}
 }
 
@@ -7192,5 +7195,47 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLView(t *testing.T) {
 	}
 	if !foundAwaitAsk {
 		t.Fatalf("expected html view to keep approval prompt, got %#v", stream.pending)
+	}
+}
+
+func TestPrepareToolCall_InvokeAgentsCarriesExplicitRequiredLibraries(t *testing.T) {
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1", MustUseKbases: []string{"parent"}},
+		execCtx: &contracts.ExecutionContext{},
+	}
+
+	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
+		ID:   "tool_1",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      contracts.InvokeAgentsToolName,
+			Arguments: `{"tasks":[{"subAgentKey":"writer","task":"Write a short summary","taskName":"总结","mustUseKbases":[" a ","b","a"]}]}`,
+		},
+	})
+	if toolMsg != nil {
+		t.Fatalf("expected no immediate tool message, got %#v", toolMsg)
+	}
+	if len(deltas) != 0 {
+		t.Fatalf("expected no immediate error deltas, got %#v", deltas)
+	}
+	if invocation == nil || !invocation.awaitExternalResult {
+		t.Fatalf("expected external-result invocation, got %#v", invocation)
+	}
+	if len(invocation.prelude) != 1 {
+		t.Fatalf("expected one prelude delta, got %#v", invocation.prelude)
+	}
+	invoke, ok := invocation.prelude[0].(contracts.DeltaInvokeSubAgents)
+	if !ok {
+		t.Fatalf("expected DeltaInvokeSubAgents prelude, got %#v", invocation.prelude[0])
+	}
+	if invoke.MainToolID != "tool_1" || len(invoke.Tasks) != 1 || invoke.Tasks[0].SubAgentKey != "writer" || invoke.Tasks[0].TaskText != "Write a short summary" || invoke.Tasks[0].TaskName != "总结" {
+		t.Fatalf("unexpected invoke delta %#v", invoke)
+	}
+	if strings.Join(invoke.Tasks[0].MustUseKbases, ",") != "a,b" {
+		t.Fatalf("explicit libraries lost: %+v", invoke.Tasks[0])
 	}
 }

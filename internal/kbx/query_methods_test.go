@@ -81,7 +81,7 @@ func TestSearchMethodsRouteAndKeepPolicy(t *testing.T) {
 				}
 				return searchFixtureResponse(method, searchFixture()), nil
 			})
-			r, err := m.Search(context.Background(), "docs", "--query", o)
+			r, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "--query", o)
 			if err != nil || r.Method != method || len(r.Results) != 1 {
 				t.Fatalf("%+v %v", r, err)
 			}
@@ -98,7 +98,7 @@ func TestGraphEvidenceSurvivesToolAndRejectsScopeEscape(t *testing.T) {
 				fixture["explain"] = graphFixture(file)
 				return searchFixtureResponse("gsearch", fixture), nil
 			})
-			r, err := knowledge.NewToolHandler(m).Invoke(context.Background(), knowledge.ToolSearch, map[string]any{"query": "Payment", "method": "gsearch"}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", KBaseEnabled: true}})
+			r, err := knowledge.NewToolHandler(m).Invoke(context.Background(), knowledge.ToolSearch, map[string]any{"libraryId": fixtureLibraryID(m, "docs"), "query": "Payment", "method": "gsearch"}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", KBaseBindingLibraryID: "docs"}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -136,7 +136,7 @@ func TestLocalSearchDoesNotResolveModelAndHybridCanDisableGraph(t *testing.T) {
 			}
 			return searchFixtureResponse(method, searchFixture()), nil
 		})
-		if _, err := m.Search(context.Background(), "docs", "Payment", knowledge.SearchOptions{Method: method}); err != nil {
+		if _, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "Payment", knowledge.SearchOptions{Method: method}); err != nil {
 			t.Fatalf("local %s depended on model config: %v", method, err)
 		}
 	}
@@ -147,7 +147,7 @@ func TestLocalSearchDoesNotResolveModelAndHybridCanDisableGraph(t *testing.T) {
 		}
 		return searchFixtureResponse("query", searchFixture()), nil
 	})
-	if _, err := m.Search(context.Background(), "docs", "Payment", knowledge.SearchOptions{NoGraph: true}); err != nil {
+	if _, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "Payment", knowledge.SearchOptions{NoGraph: true}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -164,7 +164,7 @@ func TestSearchFailureRetainsSafeCodeAndNeverFallsBack(t *testing.T) {
 			raw, _ := json.Marshal(map[string]any{"schemaVersion": 2, "type": "kbx.agent.response", "status": "error", "error": map[string]any{"code": "EXECUTION_FAILED", "message": "private-provider-token", "hint": "private-provider-url"}})
 			return raw, errors.New("exit status 1")
 		})
-		_, err := m.Search(context.Background(), "docs", "Payment", knowledge.SearchOptions{Method: method})
+		_, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "Payment", knowledge.SearchOptions{Method: method})
 		if knowledge.KindOf(err) != knowledge.ErrorUnavailable || !strings.Contains(err.Error(), "EXECUTION_FAILED") || strings.Contains(err.Error(), "private-provider") || calls != 1 {
 			t.Fatalf("calls=%d error=%v", calls, err)
 		}
@@ -178,7 +178,7 @@ func TestSearchRejectsBudgetOutsideAgentLimits(t *testing.T) {
 		return nil, nil
 	})
 	for _, candidate := range []int{1, 501} {
-		if _, err := m.Search(context.Background(), "docs", "policy", knowledge.SearchOptions{CandidateLimit: candidate}); err == nil {
+		if _, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "policy", knowledge.SearchOptions{CandidateLimit: candidate}); err == nil {
 			t.Fatalf("accepted candidate budget %d", candidate)
 		}
 	}

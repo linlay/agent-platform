@@ -348,23 +348,25 @@ func (s *Service) MapAutomationSummary(def Definition, next *time.Time) (api.Aut
 
 func mapAutomationQuery(query Query) api.AutomationQueryResponse {
 	return api.AutomationQueryResponse{
-		AccessLevel: query.AccessLevel,
-		Message:     query.Message,
-		ChatID:      query.ChatID,
-		Role:        query.Role,
-		Hidden:      cloneAutomationBoolPtr(query.Hidden),
-		Params:      contracts.CloneAnyMap(query.Params),
+		AccessLevel:   query.AccessLevel,
+		MustUseKbases: append([]string(nil), query.MustUseKbases...),
+		Message:       query.Message,
+		ChatID:        query.ChatID,
+		Role:          query.Role,
+		Hidden:        cloneAutomationBoolPtr(query.Hidden),
+		Params:        contracts.CloneAnyMap(query.Params),
 	}
 }
 
 func automationQueryFromRequest(req api.AutomationQueryRequest) Query {
 	return Query{
-		AccessLevel: strings.TrimSpace(req.AccessLevel),
-		ChatID:      strings.TrimSpace(req.ChatID),
-		Role:        strings.TrimSpace(req.Role),
-		Hidden:      cloneAutomationBoolPtr(req.Hidden),
-		Message:     req.Message,
-		Params:      contracts.CloneAnyMap(req.Params),
+		AccessLevel:   strings.TrimSpace(req.AccessLevel),
+		MustUseKbases: contracts.NormalizeRequiredLibraries(req.MustUseKbases),
+		ChatID:        strings.TrimSpace(req.ChatID),
+		Role:          strings.TrimSpace(req.Role),
+		Hidden:        cloneAutomationBoolPtr(req.Hidden),
+		Message:       req.Message,
+		Params:        contracts.CloneAnyMap(req.Params),
 	}
 }
 
@@ -392,6 +394,7 @@ func applyAutomationUpdate(def *Definition, req api.UpdateAutomationRequest) {
 		def.RemainingRuns = cloneIntPtr(req.RemainingRuns)
 	}
 	if req.Query != nil {
+		def.Query.MustUseKbases = contracts.NormalizeRequiredLibraries(req.Query.MustUseKbases)
 		def.Query.AccessLevel = strings.TrimSpace(req.Query.AccessLevel)
 		def.Query.ChatID = strings.TrimSpace(req.Query.ChatID)
 		def.Query.Role = strings.TrimSpace(req.Query.Role)

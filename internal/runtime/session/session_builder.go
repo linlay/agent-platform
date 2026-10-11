@@ -3,6 +3,7 @@ package session
 import (
 	"agent-platform/internal/accesspolicy"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/interaction"
+	"agent-platform/internal/knowledge"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
@@ -42,12 +44,17 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	planningModeRequested := agentbuiltin.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode)
 	// A planning Run never mutates the Workspace; editing takes effect in the
 	// Run that executes the confirmed plan, which keeps the request's editingMode.
-	if agentDef.KBaseConfig.Enabled && s.deps.ValidateKnowledge != nil {
+	if agentbuiltin.IsKBaseMode(agentDef.Mode) && s.deps.ValidateKnowledge != nil {
 		if err := s.deps.ValidateKnowledge(agentDef.Key); err != nil {
 			return contracts.QuerySession{}, err
 		}
 	}
 	editingMode := agentbuiltin.KBaseEditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode) && !planningModeRequested
+	libraries, err := s.ResolveKbases(agentDef, req.MustUseKbases)
+	if err != nil {
+		return contracts.QuerySession{}, err
+	}
+	req.MustUseKbases = NormalizeMustUseKbases(req.MustUseKbases)
 	mustUseSkills, err := s.ResolveSkills(agentDef, req.MustUseSkills)
 	if err != nil {
 		return contracts.QuerySession{}, MustUseSkillUnavailableStatus(err)
@@ -187,10 +194,20 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	}
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
-	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
+	if KBaseCapability(agentDef).Available && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
 		if prompt := strings.TrimSpace(s.deps.Config.KBasePrompts.CapabilityPrompt); prompt != "" {
 			capabilityPrompts = append(capabilityPrompts, prompt)
 		}
+	}
+	if prompt := knowledgeSelectionPrompt(agentDef.KBaseConfig.LibraryID, libraries); prompt != "" {
+		capabilityPrompts = append(capabilityPrompts, prompt)
+	}
+	retrievalConfig, err := json.Marshal(struct {
+		Config    knowledge.Config
+		Overrides *knowledge.RetrievalSettings
+	}{agentDef.KBaseConfig, agentDef.KBaseConfig.RetrievalOverrides})
+	if err != nil {
+		return contracts.QuerySession{}, err
 	}
 	kbaseModePrompts := contracts.KBaseModePrompts{}
 	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
@@ -243,7 +260,8 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		Mode:                      agentDef.Mode,
 		ModeCapabilities:          ResolvedModeCapabilities(agentDef),
 		SupportsContextCompaction: !IsProxyRoutedAgent(agentDef),
-		KBaseEnabled:              agentDef.KBaseConfig.Enabled,
+		KBaseBindingLibraryID:     agentDef.KBaseConfig.LibraryID,
+		KBaseRetrievalConfig:      string(retrievalConfig),
 		CapabilityPrompts:         capabilityPrompts,
 		PlanningMode:              planningModeRequested,
 		PlanningExcludeTools:      append([]string(nil), planningMode.ExcludeTools...),
@@ -260,6 +278,8 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		ConnectorCLIEntries:         append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
 		SkillIDs:                    append([]string(nil), agentDef.EffectiveSkills()...),
 		MustUseSkills:               append([]string(nil), req.MustUseSkills...),
+		MustUseKbases:               append([]string(nil), req.MustUseKbases...),
+		KnowledgeLibraries:          libraries,
 		ConnectorBinDirs:            append([]string(nil), agentDef.ConnectorBinDirs...),
 		ConnectorEnv:                agentconfig.Merge(agentDef.ConnectorEnv),
 		ConnectorCredentials:        agentDef.ConnectorCredentials,

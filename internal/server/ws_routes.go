@@ -180,6 +180,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/locale", s.wsLocale)
 	handler.RegisterRoute("/api/agents", s.wsAgents)
 	handler.RegisterRoute("/api/agent", s.wsAgent)
+	handler.RegisterRoute("/api/kbases", s.wsKBaseOptions)
 	handler.RegisterRoute("/api/agent/model-config", s.wsAgentModelConfig)
 	handler.RegisterRoute("/api/model-options", s.wsModelOptions)
 	handler.RegisterRoute("/api/skills", s.wsAgentSkills)

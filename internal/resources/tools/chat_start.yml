@@ -32,6 +32,12 @@ inputSchema:
         - auto_approve
         - full_access
       description: "Permission level for this run. Above the caller Run level requires human approval."
+    mustUseKbases:
+      type: array
+      items:
+        type: string
+        minLength: 1
+      description: "Required knowledge library IDs."
     mustUseSkills:
       type: array
       items:

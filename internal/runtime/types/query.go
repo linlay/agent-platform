@@ -48,6 +48,7 @@ type QueryCommand struct {
 	PlanningMode               *bool
 	EditingMode                *bool
 	MustUseSkills              []string
+	MustUseKbases              []string
 	AccessLevel                string
 	Model                      *QueryModelOptions
 	SyntheticQueryBootstrapped bool

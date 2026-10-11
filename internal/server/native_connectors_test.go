@@ -62,7 +62,7 @@ func TestNativeConnectorCatalogLocalized(t *testing.T) {
 					}
 				}
 				if item.ID == connector.KBaseControlConnectorID {
-					tools, want = 4, "Knowledge Base"
+					tools, want = 5, "Knowledge Base"
 					if tc.desktop == "平台控制" {
 						want = "知识库检索"
 					}

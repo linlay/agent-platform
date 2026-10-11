@@ -181,3 +181,23 @@ func TestRegistryPreservesEnvironmentExpressionQueryMessage(t *testing.T) {
 		t.Fatalf("environment expression message changed, want %q got %#v", message, definitions)
 	}
 }
+
+func TestAutomationRequiredLibrariesPersistAndExecute(t *testing.T) {
+	registry := NewRegistry(t.TempDir())
+	def := Definition{ID: "kb-run", Name: "KB Run", Enabled: true, Cron: "0 17 * * 5", AgentKey: "general", Query: automationQueryFromRequest(api.AutomationQueryRequest{Message: "retrieve", MustUseKbases: []string{" a ", "b", "a", " "}})}
+	if err := registry.Persist(def); err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := registry.Load()
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("load: %+v %v", definitions, err)
+	}
+	got := definitions[0]
+	if strings.Join(got.Query.MustUseKbases, ",") != "a,b" || strings.Join(got.ToQueryRequest().MustUseKbases, ",") != "a,b" || strings.Join(mapAutomationQuery(got.Query).MustUseKbases, ",") != "a,b" {
+		t.Fatalf("selection was lost: %+v", got.Query)
+	}
+	applyAutomationUpdate(&got, api.UpdateAutomationRequest{Query: &api.AutomationQueryRequest{Message: "clear", MustUseKbases: []string{}}})
+	if len(got.Query.MustUseKbases) != 0 {
+		t.Fatal("empty update did not clear libraries")
+	}
+}

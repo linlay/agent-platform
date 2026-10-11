@@ -31,7 +31,13 @@ func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusMethodNotAllowed, api.Failure(http.StatusMethodNotAllowed, "method not allowed"))
 			return
 		}
-		status, err := s.deps.KBase.Status(agentKey)
+		statusForAgent := s.deps.KBase.Status
+		if reader, ok := s.deps.KBase.(interface {
+			AgentStatus(string) (knowledge.Status, error)
+		}); ok {
+			statusForAgent = reader.AgentStatus
+		}
+		status, err := statusForAgent(agentKey)
 		if err != nil {
 			if timecontract.IsViolation(err) {
 				writeTimeContractViolation(w, err)

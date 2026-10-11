@@ -59,7 +59,7 @@ func TestLiveSearchMethodsAndAdvancedFilters(t *testing.T) {
 	})
 	zero, weight, days := 0.0, .1, 30.0
 	for _, method := range []string{"search", "query"} {
-		r, err := m.Search(ctx, "docs", "OrchardFault", knowledge.SearchOptions{
+		r, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "OrchardFault", knowledge.SearchOptions{
 			Method: method, Limit: 5, CandidateLimit: 40, PathPrefix: "workspace/docs",
 			Filter: "ext = md and sys.size > 0", Exclude: []string{"deprecated"}, Intent: "deployment",
 			MinScore: &zero, RecencyWeight: &weight, RecencyHalfLifeDays: &days,
@@ -67,7 +67,7 @@ func TestLiveSearchMethodsAndAdvancedFilters(t *testing.T) {
 		if err != nil || len(r.Results) != 1 || r.Results[0].Path != "workspace/docs/current.md" {
 			t.Fatalf("%s filtered search: %+v %v", method, r, err)
 		}
-		read, err := m.Read("docs", knowledge.ReadOptions{ChunkID: r.Results[0].EvidenceID})
+		read, err := m.Read(fixtureLibraryID(m, "docs"), knowledge.ReadOptions{ChunkID: r.Results[0].EvidenceID})
 		if err != nil || read.Content != r.Results[0].Snippet {
 			t.Fatalf("%s evidence: %+v %v", method, read, err)
 		}
@@ -76,16 +76,16 @@ func TestLiveSearchMethodsAndAdvancedFilters(t *testing.T) {
 		}
 	}
 	high := 1e12
-	r, err := m.Search(ctx, "docs", "OrchardFault", knowledge.SearchOptions{Method: "search", MinScore: &high})
+	r, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "OrchardFault", knowledge.SearchOptions{Method: "search", MinScore: &high})
 	if err != nil || len(r.Results) != 0 {
 		t.Fatalf("score threshold: %+v %v", r, err)
 	}
 	for _, method := range []string{"vsearch", "gsearch"} {
-		if _, err := m.Search(ctx, "docs", "OrchardFault", knowledge.SearchOptions{Method: method}); err == nil || !strings.Contains(err.Error(), "requires a complete") {
+		if _, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "OrchardFault", knowledge.SearchOptions{Method: method}); err == nil || !strings.Contains(err.Error(), "requires a complete") {
 			t.Fatalf("unavailable %s did not fail explicitly: %v", method, err)
 		}
 	}
-	if _, err := m.Search(ctx, "docs", "OrchardFault", knowledge.SearchOptions{Method: "search", Filter: "ext ="}); err == nil {
+	if _, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "OrchardFault", knowledge.SearchOptions{Method: "search", Filter: "ext ="}); err == nil {
 		t.Fatal("invalid filter was silently discarded")
 	}
 }
@@ -132,7 +132,7 @@ func TestLiveGraphSearchEvidenceAndHybridRecall(t *testing.T) {
 		t.Fatalf("fixture graph: %v %s", err, out)
 	}
 	o := knowledge.SearchOptions{Method: "gsearch", Entities: []string{"Payment Service"}, Relations: []string{"depends_on"}, Direction: "out", MaxHops: 3, Filter: "ext = md"}
-	r, err := m.Search(ctx, "docs", "Payment Service", o)
+	r, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "Payment Service", o)
 	if err != nil || len(r.Results) == 0 || !slices.Contains(r.RetrievalChannels, "graph") {
 		t.Fatalf("graph retrieval: %+v %v", r, err)
 	}
@@ -142,7 +142,7 @@ func TestLiveGraphSearchEvidenceAndHybridRecall(t *testing.T) {
 	}
 	for _, edge := range hit.Graph.BestPath.Edges {
 		for _, evidence := range edge.Evidence {
-			read, err := m.Read("docs", knowledge.ReadOptions{ChunkID: evidence.EvidenceID})
+			read, err := m.Read(fixtureLibraryID(m, "docs"), knowledge.ReadOptions{ChunkID: evidence.EvidenceID})
 			if err != nil || evidence.Path != "workspace/architecture.md" || read.Content != evidence.Content || !strings.Contains(read.Content, "depends on") {
 				t.Fatalf("graph evidence readback: %+v %+v %v", evidence, read, err)
 			}
@@ -158,26 +158,26 @@ func TestLiveGraphSearchEvidenceAndHybridRecall(t *testing.T) {
 		t.Fatalf("two-hop relationship was lost: %+v", r)
 	}
 	o.MaxHops = 1
-	oneHop, err := m.Search(ctx, "docs", "Payment Service", o)
+	oneHop, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "Payment Service", o)
 	if err != nil || len(oneHop.Results) != 1 || oneHop.Results[0].Path != "workspace/architecture.md" {
 		t.Fatalf("maxHops was not enforced: %+v %v", oneHop, err)
 	}
 	o.MaxHops = 3
 	o.Direction = "in"
-	empty, err := m.Search(ctx, "docs", "Payment Service", o)
+	empty, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "Payment Service", o)
 	if err != nil || len(empty.Results) != 0 {
 		t.Fatalf("direction was not enforced: %+v %v", empty, err)
 	}
 	o.Direction, o.Filter = "out", `path ^= "missing"`
-	empty, err = m.Search(ctx, "docs", "Payment Service", o)
+	empty, err = m.Search(ctx, fixtureLibraryID(m, "docs"), "Payment Service", o)
 	if err != nil || len(empty.Results) != 0 {
 		t.Fatalf("graph filter was not enforced: %+v %v", empty, err)
 	}
-	hybrid, err := m.Search(ctx, "docs", "支付服务依赖什么", knowledge.SearchOptions{})
+	hybrid, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "支付服务依赖什么", knowledge.SearchOptions{})
 	if err != nil || len(hybrid.Results) == 0 || !slices.Contains(hybrid.RetrievalChannels, "graph") {
 		t.Fatalf("hybrid graph recall: %+v %v", hybrid, err)
 	}
-	lexical, err := m.Search(ctx, "docs", "支付服务依赖什么", knowledge.SearchOptions{NoGraph: true})
+	lexical, err := m.Search(ctx, fixtureLibraryID(m, "docs"), "支付服务依赖什么", knowledge.SearchOptions{NoGraph: true})
 	if err != nil || slices.Contains(lexical.RetrievalChannels, "graph") {
 		t.Fatalf("noGraph failed: %+v %v", lexical, err)
 	}

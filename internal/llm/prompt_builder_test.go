@@ -302,12 +302,12 @@ func TestBuildSystemPromptHasNoSourceKBasePromptWhenConfigEmpty(t *testing.T) {
 
 func TestBuildSystemPromptInjectsEmbeddedKBaseCapabilityOnce(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
-		AgentKey:          "zenmi",
-		AgentName:         "Zenmi",
-		Mode:              "REACT",
-		KBaseEnabled:      true,
-		CapabilityPrompts: []string{"Knowledge Base Capability\nconfigured rules"},
-		ToolNames:         knowledge.DefaultToolNames(),
+		AgentKey:              "zenmi",
+		AgentName:             "Zenmi",
+		Mode:                  "REACT",
+		KBaseBindingLibraryID: "docs",
+		CapabilityPrompts:     []string{"Knowledge Base Capability\nconfigured rules"},
+		ToolNames:             knowledge.DefaultToolNames(),
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 	if count := strings.Count(prompt, "Knowledge Base Capability"); count != 1 {
 		t.Fatalf("capability prompt count = %d, want 1; prompt=%q", count, prompt)

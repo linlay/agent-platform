@@ -25,7 +25,7 @@ func (s *Server) normalizeReferencePathsForAgent(refs []api.Reference, chatID st
 
 func testSessionBuilder(s *Server) *session.Builder {
 	d := s.deps
-	return session.New(session.Dependencies{KnowledgeCollections: testKnowledgeCollections(d), Config: d.Config, Chats: d.Chats, Registry: adapter.Catalog{Registry: d.Registry}, Models: d.Models, Runs: d.Runs, Tools: d.Tools, Profiles: adapter.Profiles{Builder: d.SystemInits, Tools: d.Tools}})
+	return session.New(session.Dependencies{KnowledgeLibrary: testKnowledgeLibrary(d), KnowledgeCollections: testKnowledgeCollections(d), Config: d.Config, Chats: d.Chats, Registry: adapter.Catalog{Registry: d.Registry}, Models: d.Models, Runs: d.Runs, Tools: d.Tools, Profiles: adapter.Profiles{Builder: d.SystemInits, Tools: d.Tools}})
 }
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 	s.deps.Sessions = testSessionBuilder(s)
@@ -80,4 +80,11 @@ func testKnowledgeCollections(d Dependencies) func(string) ([]knowledge.Collecti
 		return d.KBases.RunCollections
 	}
 	return func(string) ([]knowledge.CollectionScope, error) { return nil, nil }
+}
+
+func testKnowledgeLibrary(d Dependencies) func(string) (api.KBaseOption, error) {
+	if d.KBases == nil {
+		return nil
+	}
+	return d.KBases.LibraryOption
 }

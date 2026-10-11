@@ -184,10 +184,10 @@ func TestKBaseControlMountAndExclusion(t *testing.T) {
 		t.Fatal(err)
 	}
 	preset, ok := r.AgentDefinition("preset")
-	if !ok || len(preset.ConnectorNativeTools) != 4 {
+	if !ok || len(preset.ConnectorNativeTools) != 5 {
 		t.Fatalf("preset mount: %v %v", ok, preset.ConnectorNativeTools)
 	}
-	for _, name := range []string{"kbase_search", "kbase_files", "kbase_read", "kbase_status"} {
+	for _, name := range []string{"kbase_list", "kbase_search", "kbase_files", "kbase_read", "kbase_status"} {
 		if !containsString(preset.Tools, name) {
 			t.Fatalf("preset is missing %s: %v", name, preset.Tools)
 		}
@@ -196,7 +196,7 @@ func TestKBaseControlMountAndExclusion(t *testing.T) {
 		t.Fatal("missing kbase-control skill")
 	}
 	partial, ok := r.AgentDefinition("partial")
-	if !ok || len(partial.ConnectorNativeTools) != 3 || containsString(partial.Tools, "kbase_status") || containsString(partial.ConnectorNativeTools, "kbase_status") || !containsString(partial.Tools, "kbase_search") {
+	if !ok || len(partial.ConnectorNativeTools) != 4 || containsString(partial.Tools, "kbase_status") || containsString(partial.ConnectorNativeTools, "kbase_status") || !containsString(partial.Tools, "kbase_search") {
 		t.Fatalf("exclusion must remove the connector tool: %v %v", partial.Tools, partial.ConnectorNativeTools)
 	}
 	found := false

@@ -12,6 +12,7 @@ func TestSearchToolDecodesAdvancedOptions(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"query":"policy","method":"query","limit":5,"candidateLimit":80,"exclude":["legacy","deprecated"],"intent":"deployment","filter":"project = payments and owner exists","minScore":0,"recencyWeight":0.25,"recencyHalfLifeDays":30,"noGraph":"true"}`), &args); err != nil {
 		t.Fatal(err)
 	}
+	args["libraryId"] = "docs"
 	s := &stubToolService{searchResult: SearchResult{Engine: "kbx", Method: "query"}}
 	r, err := NewToolHandler(s).Invoke(context.Background(), ToolSearch, args, kbaseToolExecutionContext())
 	o := s.searchOptions
@@ -21,7 +22,7 @@ func TestSearchToolDecodesAdvancedOptions(t *testing.T) {
 	if args["noGraph"] != "true" {
 		t.Fatal("input was mutated")
 	}
-	_, err = NewToolHandler(s).Invoke(context.Background(), ToolSearch, map[string]any{"query": "dependencies", "method": "gsearch", "entities": []any{"Payment"}, "relations": []any{"depends_on"}, "direction": "out", "maxHops": float64(3)}, kbaseToolExecutionContext())
+	_, err = NewToolHandler(s).Invoke(context.Background(), ToolSearch, map[string]any{"libraryId": "docs", "query": "dependencies", "method": "gsearch", "entities": []any{"Payment"}, "relations": []any{"depends_on"}, "direction": "out", "maxHops": float64(3)}, kbaseToolExecutionContext())
 	if err != nil || len(s.searchOptions.Entities) != 1 || len(s.searchOptions.Relations) != 1 || s.searchOptions.Direction != "out" || s.searchOptions.MaxHops != 3 {
 		t.Fatalf("graph options=%+v err=%v", s.searchOptions, err)
 	}
@@ -29,7 +30,7 @@ func TestSearchToolDecodesAdvancedOptions(t *testing.T) {
 
 func TestSearchToolRejectsInvalidParametersBeforeService(t *testing.T) {
 	for _, raw := range []string{
-		`{"agentKey":"other-agent"}`, `{"libraryId":"other-library"}`, `{"Method":"gsearch"}`, `{"min_score":0.8}`, `{"method":null}`, `{"exclude":null}`,
+		`{"agentKey":"other-agent"}`, `{"Method":"gsearch"}`, `{"min_score":0.8}`, `{"method":null}`, `{"exclude":null}`,
 		`{"method":"unknown"}`, `{"method":4}`, `{"limit":1.5}`, `{"limit":51}`, `{"offset":1}`,
 		`{"exclude":"legacy"}`, `{"exclude":[42]}`, `{"exclude":[""]}`,
 		`{"filter":{}}`, `{"minScore":"0.1"}`, `{"noGraph":"TRUE"}`,
@@ -46,6 +47,7 @@ func TestSearchToolRejectsInvalidParametersBeforeService(t *testing.T) {
 				t.Fatal(err)
 			}
 			args["query"] = "policy"
+			args["libraryId"] = "docs"
 			s := &stubToolService{}
 			r, err := NewToolHandler(s).Invoke(context.Background(), ToolSearch, args, kbaseToolExecutionContext())
 			if err != nil || r.Error != "kbase_invalid_request" || s.agentKey != "" {

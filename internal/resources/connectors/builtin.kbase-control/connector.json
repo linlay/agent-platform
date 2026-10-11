@@ -2,18 +2,18 @@
   "id": "builtin.kbase-control",
   "name": "Knowledge Base",
   "icon": "assets/icon.svg",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "native",
   "auth_mode": "no_auth",
-  "description": "Search, browse and read the Agent's bound knowledge library",
+  "description": "Search, browse and read knowledge libraries by ID",
   "i18n": {
     "en": {
       "name": "Knowledge Base",
-      "description": "Search, browse and read the Agent's bound knowledge library"
+      "description": "Search, browse and read knowledge libraries by ID"
     },
     "zh-CN": {
       "name": "知识库检索",
-      "description": "检索、浏览并回读 Agent 绑定的知识库"
+      "description": "检索、浏览并回读 按 ID 指定的知识库"
     }
   }
 }

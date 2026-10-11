@@ -1,10 +1,16 @@
 # Retrieval
 
-All tools read the library bound to the current Agent. Every tool rejects fields it does not declare, before the library is read. Booleans are native JSON values.
+kbase_list discovers all libraries. The other four tools require an explicit libraryId and may read any existing readable library. mustUseKbases specifies the libraries required for the current Run; it is not an allowlist. Every tool rejects fields it does not declare, before the library is read. Booleans are native JSON values.
+
+## kbase_list
+
+Takes no arguments: {}. Returns libraries with id, name, description, collections (name and description), readable, indexing, degraded and an optional unavailableReason. It exposes no source directories. Discover IDs before calling retrieval tools; a fixed Agent binding is unnecessary. Libraries with a readable committed index remain readable while indexing or degraded.
 
 ## kbase_search
 
-Searches the bound library. Filters apply before recall and can never widen the library scope. Results include evidence for verification. Offset or cursor pagination is unavailable; raise limit or narrow the query instead.
+- libraryId (required string): exact library ID from kbase_list or the Run context. Never omitted and never inferred from chunkId.
+
+Searches the specified library. Filters apply before recall and can never widen the library scope. Results include evidence for verification. Offset or cursor pagination is unavailable; raise limit or narrow the query instead.
 
 Required:
 
@@ -21,7 +27,7 @@ Method:
 
 Scope, supported by all four methods:
 
-- collections (string array, at least one): explicit collection names within the bound library. Omit to use the defaultQuery collections; an explicit selection may include defaultQuery=false collections.
+- collections (string array, at least one): explicit collection names within the specified library. Omit to use the defaultQuery collections; an explicit selection may include defaultQuery=false collections.
 - pathPrefix (string): collection-prefixed directory prefix such as docs/. Case-sensitive and respects directory boundaries.
 - pathGlob (string): KBX glob matched against collection/relativePath. Supports *, ? and **.
 - type (string): case-insensitive final file extension such as md or .pdf.
@@ -50,9 +56,11 @@ Graph options, gsearch only:
 - direction (string): auto (default), out, in or both, relative to the linked entities.
 - maxHops (integer 1-3): maximum relationship hops, default 2. Returned graph explanations preserve nodes, edges and original evidence.
 
-Example: {"query": "release acceptance checklist", "method": "search", "collections": ["docs"], "type": "md", "limit": 10}
+Example: {"libraryId":"product-docs", "query": "release acceptance checklist", "method": "search", "collections": ["docs"], "type": "md", "limit": 10}
 
 ## kbase_files
+
+- libraryId (required string): exact library ID from kbase_list or the Run context. Never omitted and never inferred from chunkId.
 
 Lists files and compact directory tree entries from the KBX index. It reads indexed metadata only, not the host filesystem.
 
@@ -65,9 +73,11 @@ Lists files and compact directory tree entries from the KBX index. It reads inde
 - headLimit (integer): maximum entries returned after offset. Omitted or negative uses 100; 0 means unlimited.
 - offset (integer): entries to skip before applying headLimit. Omitted or negative skips nothing; an offset past the end returns no entries.
 
-Example: {"mode": "tree", "path": "docs/", "depth": 3}
+Example: {"libraryId":"product-docs", "mode": "tree", "path": "docs/", "depth": 3}
 
 ## kbase_read
+
+- libraryId (required string): exact library ID from kbase_list or the Run context. Never omitted and never inferred from chunkId.
 
 Reads an exact evidence range, or indexed extracted text by source path. Line numbers refer to extracted text, not the original file layout.
 
@@ -76,8 +86,12 @@ Reads an exact evidence range, or indexed extracted text by source path. Line nu
 - offset (integer): one-based source line offset when reading by path. Omitted or 0 starts at line 1; a negative value is rejected.
 - limit (integer): maximum source lines when reading by path. Omitted, 0 or negative reads 80 lines; values above 2000 are capped at 2000. Continue with nextEvidence or a later offset when hasMore is true.
 
-Examples: {"chunkId": "sha256:<64 hex>#bytes=0-3600"} or {"path": "docs/release.md", "offset": 1, "limit": 200}
+Examples: {"libraryId":"product-docs", "chunkId": "sha256:<64 hex>#bytes=0-3600"} or {"libraryId":"product-docs", "path": "docs/release.md", "offset": 1, "limit": 200}
 
 ## kbase_status
 
-Takes no arguments: {}. Returns the bound library ID, KBX readiness, automatic maintenance state, stale/degraded flags and file count. An unavailable chunk count is omitted and marked chunksKnown=false.
+- libraryId (required string): exact library ID from kbase_list or the Run context. Never omitted and never inferred from chunkId.
+
+Example: {"libraryId":"product-docs"}. Returns the specified library ID, KBX readiness, automatic maintenance state, stale/degraded flags and file count. An unavailable chunk count is omitted and marked chunksKnown=false.
+
+Agent retrieval overrides apply only to its fixed bound library. Other libraries use their own defaults plus this call's options. Run selections add no source directory read/write permissions. Across turns, nextEvidence remains readable by explicit libraryId while that library and its source scope remain readable.

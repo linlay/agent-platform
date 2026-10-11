@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/knowledge/libraryinfo"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinput"
 )
@@ -15,10 +16,11 @@ import (
 // ToolService is the narrow KBASE operation surface required by the five
 // built-in tools. The KBX manager satisfies this interface.
 type ToolService interface {
-	Search(ctx context.Context, agentKey string, query string, options SearchOptions) (SearchResult, error)
-	Files(agentKey string, options FilesOptions) (FilesResult, error)
-	Read(agentKey string, options ReadOptions) (ReadResult, error)
-	Status(agentKey string) (Status, error)
+	List() ([]libraryinfo.LibraryOption, error)
+	Search(ctx context.Context, libraryID string, query string, options SearchOptions) (SearchResult, error)
+	Files(libraryID string, options FilesOptions) (FilesResult, error)
+	Read(libraryID string, options ReadOptions) (ReadResult, error)
+	Status(libraryID string) (Status, error)
 }
 
 type ToolHandler struct {
@@ -30,7 +32,7 @@ func NewToolHandler(service ToolService) *ToolHandler {
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{ToolSearch, ToolFiles, ToolRead, ToolStatus}
+	return []string{ToolList, ToolSearch, ToolFiles, ToolRead, ToolStatus}
 }
 
 func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
@@ -38,24 +40,44 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 	if contextErr != nil {
 		return *contextErr, nil
 	}
+	if strings.EqualFold(strings.TrimSpace(toolName), ToolList) {
+		if err := rejectUnknownArguments(args, nil); err != nil {
+			return kbaseToolFailure(err), nil
+		}
+		libraries, err := h.service.List()
+		if err != nil {
+			return kbaseToolFailure(err), nil
+		}
+		return kbaseStructuredResult(map[string]any{"libraries": libraries}), nil
+	}
+	if !slices.Contains(h.ToolNames(), strings.ToLower(strings.TrimSpace(toolName))) {
+		return contracts.ToolExecutionResult{Output: "tool not registered: " + toolName, Error: "tool_not_registered", ExitCode: -1}, nil
+	}
+	libraryID, ok := args["libraryId"].(string)
+	libraryID = strings.TrimSpace(libraryID)
+	if !ok || libraryID == "" {
+		return contracts.ToolExecutionResult{Output: "libraryId must be a non-empty string", Error: "missing_library_id", ExitCode: -1}, nil
+	}
+	args = contracts.CloneMap(args)
+	delete(args, "libraryId")
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case ToolSearch:
-		return h.invokeSearch(ctx, agentKey, args)
+		return h.invokeSearch(ctx, agentKey, libraryID, args, execCtx.Session)
 	case ToolFiles:
 		if err := rejectUnknownArguments(args, filesArgumentNames); err != nil {
 			return kbaseToolFailure(err), nil
 		}
-		return h.invokeFiles(agentKey, args)
+		return h.invokeFiles(libraryID, args)
 	case ToolRead:
 		if err := rejectUnknownArguments(args, readArgumentNames); err != nil {
 			return kbaseToolFailure(err), nil
 		}
-		return h.invokeRead(agentKey, args)
+		return h.invokeRead(libraryID, args)
 	case ToolStatus:
 		if err := rejectUnknownArguments(args, nil); err != nil {
 			return kbaseToolFailure(err), nil
 		}
-		return h.invokeStatus(agentKey)
+		return h.invokeStatus(agentKey, libraryID)
 	default:
 		return contracts.ToolExecutionResult{Output: "tool not registered: " + toolName, Error: "tool_not_registered", ExitCode: -1}, nil
 	}
@@ -84,13 +106,10 @@ func (h *ToolHandler) requireContext(toolName string, execCtx *contracts.Executi
 	if execCtx == nil || strings.TrimSpace(execCtx.Session.AgentKey) == "" {
 		return "", &contracts.ToolExecutionResult{Output: toolName + " requires an active agent execution context", Error: "kbase_context_required", ExitCode: -1}
 	}
-	if !execCtx.Session.KBaseEnabled {
-		return "", &contracts.ToolExecutionResult{Output: "KBASE capability not found for this agent", Error: "kbase_agent_not_found", ExitCode: -1}
-	}
 	return strings.TrimSpace(execCtx.Session.AgentKey), nil
 }
 
-func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args map[string]any) (contracts.ToolExecutionResult, error) {
+func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey, libraryID string, args map[string]any, session contracts.QuerySession) (contracts.ToolExecutionResult, error) {
 	query := strings.TrimSpace(toolStringArg(args, "query"))
 	if query == "" {
 		return contracts.ToolExecutionResult{Output: "query must not be blank", Error: "missing_query", ExitCode: -1}, nil
@@ -99,7 +118,19 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 	if err != nil {
 		return kbaseToolFailure(err), nil
 	}
-	result, err := h.service.Search(ctx, agentKey, query, options)
+	if libraryID == session.KBaseBindingLibraryID && session.KBaseRetrievalConfig != "" {
+		var snapshot struct {
+			Config    Config
+			Overrides *RetrievalSettings
+		}
+		if err := json.Unmarshal([]byte(session.KBaseRetrievalConfig), &snapshot); err != nil {
+			return kbaseToolFailure(err), nil
+		}
+		snapshot.Config.RetrievalOverrides = snapshot.Overrides
+		options.AgentConfig = &snapshot.Config
+	}
+	result, err := h.service.Search(ctx, libraryID, query, options)
+	result.AgentKey = agentKey
 	if err != nil {
 		return kbaseToolFailure(err), nil
 	}
@@ -150,12 +181,12 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 	return toolResult, nil
 }
 
-func (h *ToolHandler) invokeFiles(agentKey string, args map[string]any) (contracts.ToolExecutionResult, error) {
+func (h *ToolHandler) invokeFiles(libraryID string, args map[string]any) (contracts.ToolExecutionResult, error) {
 	headLimit := -1
 	if _, ok := args["headLimit"]; ok {
 		headLimit = int(toolInt64Arg(args, "headLimit"))
 	}
-	result, err := h.service.Files(agentKey, FilesOptions{
+	result, err := h.service.Files(libraryID, FilesOptions{
 		Mode:      strings.TrimSpace(toolStringArg(args, "mode")),
 		Path:      strings.TrimSpace(toolStringArg(args, "path")),
 		Pattern:   strings.TrimSpace(toolStringArg(args, "pattern")),
@@ -186,8 +217,8 @@ func (h *ToolHandler) invokeFiles(agentKey string, args map[string]any) (contrac
 	}), nil
 }
 
-func (h *ToolHandler) invokeRead(agentKey string, args map[string]any) (contracts.ToolExecutionResult, error) {
-	result, err := h.service.Read(agentKey, ReadOptions{
+func (h *ToolHandler) invokeRead(libraryID string, args map[string]any) (contracts.ToolExecutionResult, error) {
+	result, err := h.service.Read(libraryID, ReadOptions{
 		ChunkID: strings.TrimSpace(toolStringArg(args, "chunkId")),
 		Path:    strings.TrimSpace(toolStringArg(args, "path")),
 		Offset:  int(toolInt64Arg(args, "offset")),
@@ -215,13 +246,13 @@ func (h *ToolHandler) invokeRead(agentKey string, args map[string]any) (contract
 	}), nil
 }
 
-func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResult, error) {
-	status, err := h.service.Status(agentKey)
+func (h *ToolHandler) invokeStatus(agentKey, libraryID string) (contracts.ToolExecutionResult, error) {
+	status, err := h.service.Status(libraryID)
 	if err != nil {
 		return kbaseToolFailure(err), nil
 	}
 	payload := map[string]any{
-		"agentKey":         status.AgentKey,
+		"agentKey":         agentKey,
 		"libraryId":        status.LibraryID,
 		"state":            status.State,
 		"mode":             status.Mode,
@@ -263,7 +294,7 @@ func kbaseToolFailure(err error) contracts.ToolExecutionResult {
 	case ErrorUnavailable:
 		code = "kbase_unavailable"
 	case ErrorNotFound:
-		code = "kbase_agent_not_found"
+		code = "kbase_library_not_found"
 	}
 	structured := map[string]any{"error": code, "message": strings.TrimSpace(err.Error())}
 	if kind == ErrorUnavailable {

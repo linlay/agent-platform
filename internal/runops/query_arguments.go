@@ -39,7 +39,7 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 				}
 				request.ReasoningEffort = effort
 			}
-		case "mustUseSkills":
+		case "mustUseSkills", "mustUseKbases":
 			var items []any
 			switch values := value.(type) {
 			case []any:
@@ -49,14 +49,18 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 					items = append(items, id)
 				}
 			default:
-				return invalid("mustUseSkills must be an array of non-empty skill IDs")
+				return invalid(key + " must be an array of non-empty IDs")
 			}
 			for _, item := range items {
 				id, ok := item.(string)
 				if !ok || strings.TrimSpace(id) == "" {
-					return invalid("mustUseSkills must contain non-empty strings")
+					return invalid(key + " must contain non-empty strings")
 				}
-				request.MustUseSkills = append(request.MustUseSkills, strings.TrimSpace(id))
+				if key == "mustUseKbases" {
+					request.MustUseKbases = append(request.MustUseKbases, strings.TrimSpace(id))
+				} else {
+					request.MustUseSkills = append(request.MustUseSkills, strings.TrimSpace(id))
+				}
 			}
 		default:
 			message := fmt.Sprintf("unknown chat_start argument %q", key)

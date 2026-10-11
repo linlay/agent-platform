@@ -186,6 +186,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		"accessLevel":       plan.AccessLevel,
 		"message":           request.Message,
 		"mustUseSkills":     append([]string{}, request.MustUseSkills...),
+		"mustUseKbases":     append([]string{}, request.MustUseKbases...),
 		"modelKey":          request.ModelKey,
 		"reasoningEffort":   request.ReasoningEffort,
 	}

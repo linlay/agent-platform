@@ -1,19 +1,25 @@
 package kbx
 
 import (
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
+	"errors"
+	"strings"
 )
 
 func (m *Manager) Status(key string) (knowledge.Status, error) {
-	spec, err := m.boundAgent(key)
-	if err != nil {
-		return knowledge.Status{}, err
+	key = strings.TrimSpace(key)
+	if m.options.KBases == nil {
+		return knowledge.Status{}, unavailable("knowledge library service unavailable")
 	}
-	d, err := m.options.KBases.Get(spec.Config.LibraryID)
+	d, err := m.options.KBases.Get(key)
 	if err != nil {
+		if errors.Is(err, kbases.ErrNotFound) {
+			return knowledge.Status{}, &knowledge.PolicyError{Kind: knowledge.ErrorNotFound, Message: "knowledge library not found: " + key}
+		}
 		return knowledge.Status{}, unavailable(err.Error())
 	}
-	status := knowledge.Status{AgentKey: key, LibraryID: spec.Config.LibraryID, Mode: knowledge.Mode, Engine: "kbx", State: d.State, Indexing: d.Indexing, Stale: d.Stale, Degraded: d.Degraded, Error: d.Error, StorageLocation: "library", WorkspaceRoot: spec.WorkspaceRoot}
+	status := knowledge.Status{LibraryID: key, Mode: knowledge.Mode, Engine: "kbx", State: d.State, Indexing: d.Indexing, Stale: d.Stale, Degraded: d.Degraded, Error: d.Error, StorageLocation: "library"}
 	if d.RefreshError != "" {
 		status.Error = d.RefreshError
 	}
@@ -28,7 +34,7 @@ func (m *Manager) Status(key string) (knowledge.Status, error) {
 	}
 	status.Indexes = &knowledge.IndexesStatus{FTS: knowledge.IndexStatus{Type: "fts", Ready: d.IndexedAt > 0}, Vector: knowledge.VectorIndexStatus{Type: "vector", Ready: d.IndexedAt > 0 && !d.Degraded && modelKey != "" && !d.VectorsPending}}
 	if d.IndexedAt > 0 {
-		l, e := m.resolve(key)
+		l, e := m.resolveLibrary(key)
 		if e != nil {
 			return status, e
 		}
@@ -57,4 +63,15 @@ func (m *Manager) Status(key string) (knowledge.Status, error) {
 		}
 	}
 	return status, nil
+}
+
+// AgentStatus preserves the existing Agent status REST contract.
+func (m *Manager) AgentStatus(key string) (knowledge.Status, error) {
+	spec, err := m.boundAgent(key)
+	if err != nil {
+		return knowledge.Status{}, err
+	}
+	status, err := m.Status(spec.Config.LibraryID)
+	status.AgentKey, status.WorkspaceRoot = key, spec.WorkspaceRoot
+	return status, err
 }

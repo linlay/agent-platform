@@ -83,10 +83,11 @@ func RunStartRequestDigest(request RunStartRequest) string {
 	for _, id := range request.MustUseSkills {
 		skills = append(skills, strings.TrimSpace(id))
 	}
+	libraries := NormalizeRequiredLibraries(request.MustUseKbases)
 	return digestStrings("run-start-request",
 		strings.TrimSpace(request.AgentKey), strings.TrimSpace(request.ChatID),
 		strings.TrimSpace(request.Message), strings.TrimSpace(request.AccessLevel), strings.TrimSpace(request.ChatName),
-		strings.Join(skills, "\x00"), strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort))
+		strings.Join(skills, "\x00"), strings.Join(libraries, "\x00"), strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort))
 }
 
 // RunStartApprovalDigest identifies exactly what a reviewer approved: the
@@ -100,4 +101,18 @@ func digestStrings(parts ...string) string {
 	data, _ := json.Marshal(parts)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// NormalizeRequiredLibraries preserves first-selection order for prompt and replay.
+func NormalizeRequiredLibraries(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id != "" && !seen[id] {
+			out = append(out, id)
+			seen[id] = true
+		}
+	}
+	return out
 }

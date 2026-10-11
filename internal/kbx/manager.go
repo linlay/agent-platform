@@ -1,8 +1,10 @@
 package kbx
 
 import (
+	"agent-platform/internal/knowledge/libraryinfo"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -228,4 +230,27 @@ func (m *Manager) call(ctx context.Context, l library, embedding bool, out any, 
 }
 func readerContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
+// resolveLibrary reads a library directly; retrieval is independent of Agent binding.
+func (m *Manager) resolveLibrary(id string) (library, error) {
+	if m.options.KBases == nil {
+		return library{}, unavailable("knowledge library service unavailable")
+	}
+	d, db, release, err := m.options.KBases.Acquire(strings.TrimSpace(id))
+	if err != nil {
+		if errors.Is(err, kbases.ErrNotFound) {
+			return library{}, &knowledge.PolicyError{Kind: knowledge.ErrorNotFound, Message: "knowledge library not found: " + id}
+		}
+		return library{}, unavailable(err.Error())
+	}
+	config := knowledge.DefaultConfig()
+	config.LibraryID = d.ID
+	return library{spec: knowledge.AgentSpec{Config: config}, database: db, definition: d, release: release}, nil
+}
+func (m *Manager) List() ([]libraryinfo.LibraryOption, error) {
+	if m.options.KBases == nil {
+		return nil, unavailable("knowledge library service unavailable")
+	}
+	return m.options.KBases.LibraryOptions()
 }

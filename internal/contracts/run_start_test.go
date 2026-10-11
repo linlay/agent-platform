@@ -31,6 +31,7 @@ func TestRunStartDigestsSeparateIdempotencyFromApproval(t *testing.T) {
 		"explicit default": {AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}, AccessLevel: AccessLevelDefault},
 		"chat":             {AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}, ChatID: "c"},
 		"skills":           {AgentKey: "a", Message: "m"},
+		"libraries":        {AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}, MustUseKbases: []string{"kb"}},
 	} {
 		if RunStartRequestDigest(changed) == request {
 			t.Fatalf("%s did not change the request digest", name)

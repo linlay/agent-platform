@@ -433,7 +433,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Prompts:                  cfg.Prompts,
 	})
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
-	sessions := runtimesession.New(runtimesession.Dependencies{ValidateKnowledge: knowledgeManager.ValidateRun, KnowledgeCollections: kbasesService.RunCollections, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
+	sessions := runtimesession.New(runtimesession.Dependencies{KnowledgeLibrary: kbasesService.LibraryOption, ValidateKnowledge: knowledgeManager.ValidateRun, KnowledgeCollections: kbasesService.RunCollections, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
 	memoryClient := memoryworker.Client{Root: cfg.Paths.MemoryDir, Timezone: cfg.Memory.Timezone, ConfigDir: filepath.Join(cfg.Paths.StateDir, "memx")}
 	memoryWorker := memoryworker.New(cfg.Memory, memoryworker.StateRoot(cfg.Paths.StateDir), chatStore,
 		memoryClient,
@@ -708,7 +708,8 @@ func runtimeQueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser, References: references,
 		Params: contracts.CloneMap(req.Params), Scene: scene, Stream: req.Stream, IncludeUsage: req.IncludeUsage,
 		IncludeFullText: req.IncludeFullText, PlanningMode: req.PlanningMode, EditingMode: req.EditingMode,
-		MustUseSkills: append([]string(nil), req.MustUseSkills...), AccessLevel: req.AccessLevel, Model: model,
+		MustUseSkills: append([]string(nil), req.MustUseSkills...),
+		MustUseKbases: append([]string(nil), req.MustUseKbases...), AccessLevel: req.AccessLevel, Model: model,
 		SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped, ChatSource: req.ChatSource,
 		TrustedQueryMetadata: contracts.CloneMap(req.TrustedQueryMetadata),
 	}

@@ -30,17 +30,17 @@ func TestQueryDefaultsAndCollectionSelection(t *testing.T) {
 		}
 		return searchFixtureResponse("search", searchFixture()), nil
 	})
-	r, err := m.Search(context.Background(), "docs", "fixture", knowledge.SearchOptions{Method: "search"})
+	r, err := m.Search(context.Background(), fixtureLibraryID(m, "docs"), "fixture", knowledge.SearchOptions{Method: "search"})
 	if err != nil || len(r.Results) != 0 || calls != 0 {
 		t.Fatalf("empty defaults searched all: %+v %v calls=%d", r, err, calls)
 	}
-	if _, err = m.Search(context.Background(), "docs", "fixture", knowledge.SearchOptions{Method: "search", Collections: []string{"workspace"}}); err != nil {
+	if _, err = m.Search(context.Background(), fixtureLibraryID(m, "docs"), "fixture", knowledge.SearchOptions{Method: "search", Collections: []string{"workspace"}}); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {
 		t.Fatal("explicit excluded collection not searched")
 	}
-	if _, err = m.Search(context.Background(), "docs", "fixture", knowledge.SearchOptions{Method: "search", Collections: []string{"outside"}}); err == nil {
+	if _, err = m.Search(context.Background(), fixtureLibraryID(m, "docs"), "fixture", knowledge.SearchOptions{Method: "search", Collections: []string{"outside"}}); err == nil {
 		t.Fatal("scope widened")
 	}
 }

@@ -83,7 +83,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - Skill 调度遵守用户任务范围与交付形态，见 [Skill 调度范围](docs/Agent运行时组装.md#skill-调度范围)。
 - `mustUseSkills` 为本次 run 选中的每个 Skill 目录追加 trusted read + readonly roots：完整目录免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，任何 `accessLevel`、hostAccess 或 approval 都不能写入这些选中目录。Container 仍只读挂载整个 `/skills-center`，mount 可见性不等同于 AccessPolicy 授权。
 - Agent YAML 已配置普通 Skill 与本次 `mustUseSkills` 选中 Skill 的 `scripts/**` 入口，经本 Run 内存凭据（canonical 路径与 SHA-256）及执行前复验匹配后免入口 HITL；凭据不落盘、不跨 Run 继承，外围 Shell 和写入限制保持独立。见 [工具目录权限](docs/工具目录权限.md#技能脚本入口执行凭据)。
-- 专用 `mode: KBASE` 与普通 KBASE capability 都通过 `kbaseConfig.libraryId` 绑定共享库，Workspace 与库来源独立；专用 mode 的 main/editing 两种 stage 使用同一组配置工具，工具由 Platform 预置与 Agent 声明合并并应用排除项，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 允许 KBASE Workspace mutation，并允许专用 Host KBASE 修改 Run 启动时冻结的 editable collection 目录；未开启时这些范围可读但不可 write/edit，容器不自动挂载 collection；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
+- 专用 `mode: KBASE` 通过 `kbaseConfig.libraryId` 固定绑定共享库；普通 Native Agent 挂载 `builtin.kbase-control` 后可按 ID 检索任意可读库，单次 `mustUseKbases` 指定本 Run 必须使用的库，Workspace 与库来源独立；专用 mode 的 main/editing 两种 stage 使用同一组配置工具，工具由 Platform 预置与 Agent 声明合并并应用排除项，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 允许 KBASE Workspace mutation，并允许专用 Host KBASE 修改 Run 启动时冻结的 editable collection 目录；未开启时这些范围可读但不可 write/edit，容器不自动挂载 collection；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 - `builtin.platform-control` 显式挂载后提供 Catalog、Chat、诊断和七个 Desktop 域工具；Catalog 支持资源能力枚举及 Provider/MCP 组件只读发现，连接器与 MCP 分开表示，列表需跟进 nextCursor；按地址创建 HTTP MCP 后可通过 checkConnector 独立验证协议及工具发现，无需挂载目标连接器到 Agent；配置修改及删除 Chat 必须一次性人工审批。`run_env` 由全局 preset 示例提供，动态值只作用于当前普通 native root Run 的后续命令。详见 [平台控制连接器](docs/Platform控制工具设计.md)。
 
 Native 模型流式正文与推理各自达到 4,000 Unicode 字符后检测持续精确复读，命中会取消请求且不自动重试；详见 [流式复读取消](docs/配置化说明.md#流式复读取消)。
@@ -380,11 +380,11 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-知识库是所有 Native Agent 可组合的公共能力，通过一个 `kbaseConfig.libraryId` 绑定共享库；专用 Native KBASE 必须绑定，GENERAL/CODER 等保持可选，管理入口核验库定义存在且有效。Workspace 保持独立，KBASE 的 Workspace 继续用于项目展示与 editing。显式挂载 builtin.platform-control 后可通过 kbase_library_query/manage 创建、复用、编辑、删除库及核验索引状态；工具具备来源审批、修订校验和调用幂等，详见 [知识库](docs/知识库.md)。知识配置不隐式授予工具，详见 [智能体配置](docs/智能体配置说明.md)。
+知识库是 Native Agent 可组合的公共检索能力，挂载 `builtin.kbase-control` 后通过 `kbase_list` 发现库，四个检索工具均必填 `libraryId`；普通 Agent 可用 `mustUseKbases` 选择本 Run 必须使用的库（最多 8 个），无须固定绑定；专用 Native KBASE 必须绑定，GENERAL/CODER 等保持可选，管理入口核验库定义存在且有效。Workspace 保持独立，KBASE 的 Workspace 继续用于项目展示与 editing。显式挂载 builtin.platform-control 后可通过 kbase_library_query/manage 创建、复用、编辑、删除库及核验索引状态；工具具备来源审批、修订校验和调用幂等，详见 [知识库](docs/知识库.md)。知识配置不隐式授予工具，详见 [智能体配置](docs/智能体配置说明.md)。
 
 所有索引由知识库服务自动维护：目录监听、增量更新、重启和周期对账；查询保留过滤和证据协议。正文和源文件通过 Chat 已发布来源授权入口读取。普通更新可读，embedding 失败后全文降级可用。图谱自动构建及多模态语义检索未接入，详见 [KBX 接入](docs/KBX接入.md)。
 
-`kbase_search` 支持混合 query、纯全文 search、向量 vsearch 和图关系 gsearch，提供复合过滤、词法排除、时效排名与图关系遍历参数，保留可核验证据。Agent 工具限定绑定库的 collection 范围；向量/图检索需要相应索引，Platform 尚不自动构建图谱，重排模型及表格专用工具尚未接入。
+`kbase_search` 支持混合 query、纯全文 search、向量 vsearch 和图关系 gsearch，提供复合过滤、词法排除、时效排名与图关系遍历参数，保留可核验证据。检索按指定 libraryId 的来源范围过滤，单次 collection/include 路径过滤只缩小范围；向量/图检索需要相应索引，Platform 尚不自动构建图谱，重排模型及表格专用工具尚未接入。
 
 KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展名或 UTF-8；editing 不额外授予删除、重命名、建目录或 Bash 工具；显式声明的 Bash 仍受通用权限约束，二进制 Office/PDF 需格式专用工具。目录权限由 AccessPolicy/HITL 决定，Workspace 写入由 watcher 异步索引。完整约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
 
