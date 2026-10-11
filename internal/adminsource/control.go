@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/models"
 	"agent-platform/internal/pathutil"
 )
@@ -53,17 +54,19 @@ type ControlPlan struct {
 	After               string
 	GeneratedFiles      map[string]string
 	Digest              string
+	KnowledgeBinding    *KnowledgeBindingReview
 	root, rel, revision string
 	exists              bool
 }
 type ControlService struct {
-	Reload          func(context.Context, string) error
-	Coordinate      func(context.Context, string, func(context.Context) error) error
-	Mutations       *Service
-	Config          config.Config
-	Registry        catalog.Registry
-	Models          *models.ModelRegistry
-	ValidateLibrary func(string) error
+	Reload            func(context.Context, string) error
+	Coordinate        func(context.Context, string, func(context.Context) error) error
+	Mutations         *Service
+	Config            config.Config
+	Registry          catalog.Registry
+	Models            *models.ModelRegistry
+	ValidateLibrary   func(string) error
+	LibraryDefinition func(string) (kbases.Definition, error)
 }
 
 func controlHash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
@@ -481,6 +484,10 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 			if e != nil {
 				return nil, e
 			}
+			p.KnowledgeBinding, e = s.prepareKnowledgeBindingReview(c.Content, string(old))
+			if e != nil {
+				return nil, e
+			}
 		}
 		if c.ResourceType == "connector" {
 			var definition map[string]any
@@ -500,10 +507,11 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 		p.After += "\n\n--- generated mcp.json ---\n" + generated
 	}
 	encoded, _ := json.Marshal(struct {
-		Change ControlChange
-		Caller string
-		Files  map[string]string
-	}{c, caller, p.GeneratedFiles})
+		Change           ControlChange
+		Caller           string
+		Files            map[string]string
+		KnowledgeBinding *KnowledgeBindingReview `json:",omitempty"`
+	}{c, caller, p.GeneratedFiles, p.KnowledgeBinding})
 	p.Digest = controlHash(encoded)
 	return p, nil
 }
@@ -666,6 +674,17 @@ func (s *ControlService) applyLocked(ctx context.Context, c ControlChange, calle
 	}
 	if latest != p.revision {
 		return nil, fmt.Errorf("revision_conflict")
+	}
+	if p.KnowledgeBinding != nil {
+		binding, err := s.prepareKnowledgeBindingReview(p.Change.Content, p.Before)
+		if err != nil {
+			return nil, err
+		}
+		before, _ := json.Marshal(p.KnowledgeBinding)
+		after, _ := json.Marshal(binding)
+		if string(before) != string(after) {
+			return nil, fmt.Errorf("approval_stale: bound library definition or source permissions changed")
+		}
 	}
 	backup := stage + "-backup"
 	state = "unknown"

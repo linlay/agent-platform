@@ -152,6 +152,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 	}
 	var digest string
 	var form map[string]any
+	allowAutoApprove := tool == "catalog_manage" && action == "apply"
 	if tool == "catalog_manage" {
 		if h.sources == nil {
 			return nil, fmt.Errorf("catalog service unavailable")
@@ -164,6 +165,10 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		form = map[string]any{"action": action, "resourceType": plan.Change.ResourceType, "resourceKey": plan.Change.ResourceKey, "path": plan.Change.Path, "baseRevision": plan.Change.BaseRevision, "before": plan.Before, "after": plan.After}
 		if plan.Change.IsProject {
 			form["isProject"] = true
+		}
+		if plan.KnowledgeBinding != nil {
+			form["knowledgeBinding"] = plan.KnowledgeBinding
+			allowAutoApprove = allowAutoApprove && !plan.KnowledgeBinding.RequiresHuman
 		}
 		if action == "apply" && plan.Change.ResourceType == "agent" && (plan.Change.Path == "" || plan.Change.Path == "agent.yml") {
 			form["permissionFields"] = []string{"toolConfig", "connectorConfig", "skillConfig", "hostAccess", "accessLevel"}
@@ -182,7 +187,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		}
 		form = map[string]any{"action": action, "resourceType": "chat", "resourceKey": p["chatId"], "archived": archived, "baseRevision": digest}
 	}
-	return &contracts.ToolApproval{AllowAutoApprove: tool == "catalog_manage" && action == "apply", Fingerprint: contracts.ToolApprovalFingerprint(e, tool, action, digest), Title: tool + " / " + action, Form: form}, nil
+	return &contracts.ToolApproval{AllowAutoApprove: allowAutoApprove, Fingerprint: contracts.ToolApprovalFingerprint(e, tool, action, digest), Title: tool + " / " + action, Form: form}, nil
 }
 func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]any, e *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
 	action, p, err := h.admitted(tool, args, e)

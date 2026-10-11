@@ -133,11 +133,21 @@ func (s *Service) checkRevision(id, expected string) error {
 
 // ValidateBinding checks the persisted definition, not index readiness or diagnostic Get results.
 func (s *Service) ValidateBinding(id string) error {
+	_, err := s.BindingDefinition(id)
+	return err
+}
+
+// BindingDefinition returns a valid configuration and its canonical effective
+// sources from one read lease, independent of index readiness or diagnostics.
+func (s *Service) BindingDefinition(id string) (Definition, error) {
 	lock := s.libraryLock(id)
 	lock.RLock()
 	defer lock.RUnlock()
-	_, err := s.loadConfiguration(id, true)
-	return err
+	d, err := s.loadConfiguration(id, true)
+	if err != nil {
+		return Definition{}, err
+	}
+	return s.effectiveDefinition(d), nil
 }
 
 func (s *Service) normalizeCandidate(in Input) (Input, Definition, error) {

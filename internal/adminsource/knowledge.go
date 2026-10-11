@@ -11,6 +11,52 @@ import (
 	"agent-platform/internal/knowledge"
 )
 
+// KnowledgeBindingReview freezes library grants when a catalog change attaches
+// a library or enables the dedicated KBASE mode for an existing binding.
+type KnowledgeBindingReview struct {
+	LibraryID         string              `json:"libraryId"`
+	BaseRevision      string              `json:"baseRevision"`
+	RequiresHuman     bool                `json:"requiresHuman"`
+	SourcePermissions []kbases.Collection `json:"sourcePermissions"`
+}
+
+func (s *ControlService) prepareKnowledgeBindingReview(after, before string) (*KnowledgeBindingReview, error) {
+	definition, err := parseDefinition(after)
+	if err != nil {
+		return nil, err
+	}
+	config, err := knowledge.ParseConfig(node(definition, "kbaseConfig"))
+	if err != nil || config.LibraryID == "" {
+		return nil, err
+	}
+	mode, _, err := catalog.ParseAgentModeAndEngine(contracts.AnyStringNode(definition["mode"]), contracts.AnyStringNode(definition["engine"]))
+	if err != nil {
+		return nil, err
+	}
+	previous, _ := parseDefinition(before)
+	previousConfig, previousErr := knowledge.ParseConfig(node(previous, "kbaseConfig"))
+	previousMode, previousEngine, _ := catalog.ParseAgentModeAndEngine(contracts.AnyStringNode(previous["mode"]), contracts.AnyStringNode(previous["engine"]))
+	activatesKBASE := mode == agentkbase.Mode && (previousMode != agentkbase.Mode || previousEngine == catalog.AgentEngineACP)
+	if previousErr == nil && config.LibraryID == previousConfig.LibraryID && !activatesKBASE {
+		return nil, nil
+	}
+	if s.LibraryDefinition == nil {
+		return nil, fmt.Errorf("knowledge library binding review unavailable")
+	}
+	library, err := s.LibraryDefinition(config.LibraryID)
+	if err != nil {
+		return nil, err
+	}
+	if library.ID != config.LibraryID || library.BaseRevision == "" {
+		return nil, fmt.Errorf("knowledge library binding review requires a valid definition baseline")
+	}
+	review := &KnowledgeBindingReview{LibraryID: library.ID, BaseRevision: library.BaseRevision, SourcePermissions: library.Collections}
+	for _, collection := range library.Collections {
+		review.RequiresHuman = review.RequiresHuman || collection.Editable
+	}
+	return review, nil
+}
+
 // ValidateKnowledgeBinding belongs at management entry points. Catalog loading
 // checks the mode requirement without depending on the library service.
 func ValidateKnowledgeBinding(definition map[string]any, validate func(string) error) error {

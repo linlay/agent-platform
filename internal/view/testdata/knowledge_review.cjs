@@ -35,4 +35,24 @@ for (const action of ['create', 'update', 'delete']) {
  assert.deepEqual(JSON.parse(JSON.stringify(replies.at(-1).param.data)),form);
  dom.window.close();
 }
-console.log('Library creation/update/deletion reviews show canonical grants, boolean values, safe text and immutable approval data.');
+{
+ const dom = new JSDOM(pages.platform_control_review, {runScripts:'dangerously',pretendToBeVisual:true,
+  beforeParse(w) {w.ResizeObserver=class {observe(){} disconnect(){}};}});
+ const w=dom.window,doc=w.document,replies=[];
+ w.postMessage=value=>replies.push(value);
+ const form={action:'apply',resourceType:'agent',resourceKey:'candidate',before:'',after:'key: candidate\nmode: KBASE\nkbaseConfig:\n  libraryId: shared-library\n',
+  knowledgeBinding:{libraryId:'shared-library',baseRevision:'library-revision',requiresHuman:true,
+   sourcePermissions:[{name:'documents',sourcePath:'/host/canonical-documents',include:['**/*.md'],exclude:['private/**'],editable:true}]}};
+ const send=(type,data)=>w.dispatchEvent(new w.MessageEvent('message',{source:w,data:{type,data}}));
+ send('awaiting_init',{mode:'form',runId:'run',awaitingId:'wait',locale:'en-US',form:{data:form}});
+ const text=doc.querySelector('.fields').textContent+doc.querySelector('.notes').textContent;
+ for(const expected of ['shared-library','library-revision','/host/canonical-documents','**/*.md','private/**','human approval','editing Run']) assert.ok(text.includes(expected),expected);
+ for(const row of doc.querySelectorAll('.fields .row')){
+  const label=row.querySelector('.label')?.textContent||'';
+  if(/Bound knowledge library|Library configuration revision|Source directory|^include$|^exclude$|^Editable$/.test(label)) assert.equal(row.querySelector('.copy').classList.contains('collapsed'),false);
+ }
+ send('awaiting_collect',{runId:'run',awaitingId:'wait',decision:'submit'});
+ assert.deepEqual(JSON.parse(JSON.stringify(replies.at(-1).param.data)),form);
+ dom.window.close();
+}
+console.log('Library management and Agent binding reviews show canonical grants, safe text and immutable approval data.');

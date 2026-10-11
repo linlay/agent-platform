@@ -45,6 +45,12 @@ Review.mount(u=>{
   Review.librarySources(u,f.sourcePermissions);
   u.notice(t('include/exclude 控制索引范围；editable 授予整个来源目录的编辑范围，仅在 Host KBASE 编辑 Run 生效。','include/exclude control indexing; editable grants the source directory scope only during a Host KBASE editing Run.'));
  }
+ if(f.knowledgeBinding){
+  u.field(t('绑定知识库','Bound knowledge library'),f.knowledgeBinding.libraryId,{critical:true});
+  u.field(t('知识库配置修订','Library configuration revision'),f.knowledgeBinding.baseRevision,{critical:true});
+  Review.librarySources(u,f.knowledgeBinding.sourcePermissions);
+  if(f.knowledgeBinding.requiresHuman)u.notice(t('绑定包含可编辑来源的知识库需要人工确认；仅 Host KBASE 显式开启编辑 Run 后获得这些目录的写权限，include/exclude 不限制目录写权限。','Binding a library with editable sources requires human approval. These directory write permissions apply only to an explicitly enabled Host KBASE editing Run; include/exclude do not restrict directory writes.'));
+ }
  if(f.isProject)u.field(t('项目类型','Project type'),t('项目智能体','Project agent'));
  if(f.path&&!['agent.yml','team.yml'].includes(f.path))u.field(t('文件','File'),f.path);
  if(old&&next){
