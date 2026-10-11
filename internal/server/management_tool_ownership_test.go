@@ -24,7 +24,7 @@ func TestManagementIndependentToolsExcludeConnectorOwnership(t *testing.T) {
 			t.Fatalf("connector tool leaked: %+v", tool)
 		}
 	}
-	names := []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_query", "desktop_shell", "mcp_demo_read", "bash", "file_read", "custom"}
+	names := []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_steer", "chat_query", "desktop_shell", "mcp_demo_read", "bash", "file_read", "custom"}
 	got := s.independentAgentToolNames(names)
 	if !reflect.DeepEqual(got, []string{"bash", "file_read", "custom"}) {
 		t.Fatalf("tools: %v", got)
@@ -33,7 +33,7 @@ func TestManagementIndependentToolsExcludeConnectorOwnership(t *testing.T) {
 	if err != nil || len(detail.ToolBindings) != 1 || detail.ToolBindings[0].Name != "file_read" {
 		t.Fatalf("detail: %+v, %v", detail, err)
 	}
-	if len(names) != 9 {
+	if len(names) != 10 {
 		t.Fatal("input was mutated")
 	}
 }
@@ -76,7 +76,7 @@ func TestConnectorCatalogIncludesHiddenChatToolDescriptions(t *testing.T) {
 				continue
 			}
 			found = true
-			if len(c.Tools) != 7 {
+			if len(c.Tools) != 8 {
 				t.Fatalf("task tools: %+v", c.Tools)
 			}
 			for _, tool := range c.Tools {

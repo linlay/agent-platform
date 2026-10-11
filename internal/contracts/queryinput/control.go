@@ -227,8 +227,34 @@ type SteerRequest struct {
 
 	Message    string      `json:"message"`
 	References []Reference `json:"references,omitempty"`
+	// Source is constructed by Runtime from a trusted Agent caller, never from wire input.
+	Source *SteerSource `json:"-"`
 	// PreparedMessages is an immutable, server-prepared input; never accepted from the wire.
 	PreparedMessages []map[string]any `json:"-"`
+}
+
+// SteerSource records provenance without changing the user role or model input.
+type SteerSource struct {
+	Type     string `json:"type"`
+	AgentKey string `json:"agentKey"`
+	ChatID   string `json:"chatId"`
+	RunID    string `json:"runId"`
+	ToolID   string `json:"toolId"`
+}
+
+func (s *SteerSource) Clone() *SteerSource {
+	if s == nil {
+		return nil
+	}
+	copy := *s
+	return &copy
+}
+
+func (s *SteerSource) Payload() map[string]any {
+	if s == nil {
+		return nil
+	}
+	return map[string]any{"type": s.Type, "agentKey": s.AgentKey, "chatId": s.ChatID, "runId": s.RunID, "toolId": s.ToolID}
 }
 
 type SteerResponse struct {

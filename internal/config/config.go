@@ -813,7 +813,7 @@ func DefaultPlanningModeConfig() PlanningModeConfig {
 		ExcludeTools: []string{
 			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate",
 			"plan_add_tasks", "plan_update_task",
-			"agent_invoke", "chat_start", "chat_interrupt", "chat_manage",
+			"agent_invoke", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
 			"automation_manage", "catalog_manage", "run_env", "ask_user_form",
 		},
 		ExecuteExcludeTools: []string{"ask_user_question", "ask_user_form"},

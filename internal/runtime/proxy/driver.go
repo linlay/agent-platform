@@ -45,7 +45,7 @@ type Driver struct {
 
 func (d *Driver) Stream(runCtx context.Context, prepared runtimetypes.PreparedQuery, route *Route, events EventSink, startup chan<- error) {
 	if UpstreamTransport(prepared.AgentDef.ProxyConfig) == "sse" {
-		d.runSSE(runCtx, prepared, events, startup)
+		d.runSSE(runCtx, prepared, route, events, startup)
 		return
 	}
 	if startup != nil {
@@ -151,7 +151,7 @@ func (d *Driver) Stream(runCtx context.Context, prepared runtimetypes.PreparedQu
 			}
 			continue
 		}
-		event, publishErr := events.Publish(&seq, frame.Event)
+		event, publishErr := events.Publish(&seq, route.DecorateSteerEvent(frame.Event))
 		if publishErr != nil {
 			terminalSeen = true
 			events.Error(publishErr)
@@ -268,7 +268,7 @@ func (d *Driver) runInboundChannel(
 				}
 				continue
 			}
-			event, publishErr := events.Publish(&seq, frame.Event)
+			event, publishErr := events.Publish(&seq, route.DecorateSteerEvent(frame.Event))
 			if publishErr != nil {
 				terminalSeen = true
 				events.Error(publishErr)
@@ -286,6 +286,7 @@ func (d *Driver) runInboundChannel(
 func (d *Driver) runSSE(
 	runCtx context.Context,
 	prepared runtimetypes.PreparedQuery,
+	route *Route,
 	events EventSink,
 	startup chan<- error,
 ) {
@@ -407,7 +408,7 @@ func (d *Driver) runSSE(
 			continue
 		}
 		resolveStartup(nil)
-		event, err = events.Publish(&seq, event)
+		event, err = events.Publish(&seq, route.DecorateSteerEvent(event))
 		if err != nil {
 			terminalSeen = true
 			resolveStartup(err)

@@ -20,6 +20,9 @@ type fakeRunToolService struct {
 	requests    []contracts.RunStartRequest
 	snapshots   map[string]contracts.RunSnapshot
 	interrupts  []runtimetypes.InterruptCommand
+	steerCalls  []runtimetypes.SteerCommand
+	steerResult runtimetypes.SteerResult
+	steerErr    error
 }
 
 func newFakeRunToolService() *fakeRunToolService {
@@ -81,6 +84,15 @@ func (f *fakeRunToolService) Interrupt(_ context.Context, req runtimetypes.Inter
 	snapshot.Status = "interrupted"
 	f.snapshots[req.RunID] = snapshot
 	return runtimetypes.InterruptResult{Accepted: true, Status: "accepted", RunID: req.RunID}, nil
+}
+
+func (f *fakeRunToolService) Steer(_ context.Context, req runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.steerCalls = append(f.steerCalls, req)
+	result := f.steerResult
+	result.RunID, result.SteerID = req.RunID, req.SteerID
+	return result, f.steerErr
 }
 
 func runToolExecContext(subject string, toolID string) *contracts.ExecutionContext {

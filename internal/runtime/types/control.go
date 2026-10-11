@@ -81,6 +81,16 @@ type SteerCommand struct {
 	SteerID    string
 	Message    string
 	References []Reference
+	// AgentCaller is internal trusted context. Runtime alone constructs event source.
+	AgentCaller *SteerCaller
+}
+
+type SteerCaller struct {
+	AgentKey string
+	Subject  string
+	ChatID   string
+	RunID    string
+	ToolID   string
 }
 
 type SteerResult struct {

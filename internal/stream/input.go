@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/modelcontent"
 	"agent-platform/internal/view"
 )
@@ -319,6 +320,7 @@ type AwaitingAnswer struct {
 func (AwaitingAnswer) streamInputTag() {}
 
 type RequestSteer struct {
+	Source     *queryinput.SteerSource
 	RequestID  string
 	ChatID     string
 	RunID      string

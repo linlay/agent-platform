@@ -217,6 +217,10 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	}
 	if newExecutionRun {
 		session.WebClientTarget = resolveRunWebClientTarget(s.deps.Runs, sourceRunID)
+		if status, ok := s.deps.Runs.RunStatus(sourceRunID); ok && status.RunOrigin != nil {
+			origin := *status.RunOrigin
+			session.RunOrigin = &origin
+		}
 	}
 	var continuationSystem *chat.QueryLineSystem
 	var confirmedPlanBootstrap *stream.SyntheticQuery

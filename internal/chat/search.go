@@ -258,6 +258,11 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 			steer, _ := line["steer"].(map[string]any)
 			text := searchEventText(steer)
 			if score := sessionSearchScore(text, needle); score > 0 {
+				meta := map[string]any{"type": "request.steer"}
+				if source := steer["source"]; source != nil {
+					meta["source"] = source
+				}
+				meta["steerId"] = steer["steerId"]
 				appendHit(SearchHit{
 					Kind:      "event",
 					ChatID:    chatID,
@@ -265,9 +270,7 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 					Timestamp: ts,
 					Snippet:   buildSnippet(text, needle),
 					Score:     score,
-					Meta: map[string]any{
-						"type": "request.steer",
-					},
+					Meta:      meta,
 				})
 			}
 		case "submit":

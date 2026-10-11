@@ -32,6 +32,7 @@ func (s *planningStream) prepareSteeredPlanning(steers []api.SteerRequest) {
 			steer.PreparedMessages = []map[string]any{{"role": "user", "content": steer.Message}}
 		}
 		s.pending = append(s.pending, contracts.DeltaRequestSteer{
+			Source:    steer.Source.Clone(),
 			RequestID: steer.RequestID, ChatID: steer.ChatID, RunID: steer.RunID,
 			SteerID: steer.SteerID, Message: steer.Message, References: steer.References,
 		})

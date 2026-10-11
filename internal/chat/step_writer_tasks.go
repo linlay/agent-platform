@@ -277,6 +277,9 @@ func (w *StepWriter) appendSteerLine(event stream.EventData) {
 	if requestID := strings.TrimSpace(event.String("requestId")); requestID != "" {
 		steer["requestId"] = requestID
 	}
+	if source := event.Value("source"); source != nil {
+		steer["source"] = source
+	}
 	if references := event.Value("references"); references != nil {
 		steer["references"] = references
 	}

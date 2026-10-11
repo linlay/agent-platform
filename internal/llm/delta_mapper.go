@@ -364,6 +364,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaRequestSteer:
 		return []stream.StreamInput{stream.RequestSteer{
+			Source:     value.Source.Clone(),
 			RequestID:  value.RequestID,
 			ChatID:     value.ChatID,
 			RunID:      value.RunID,

@@ -150,7 +150,7 @@ func ControlActionOwner(action string) string {
 }
 func IsPlatformRootTool(tool string) bool {
 	switch tool {
-	case "chat_start", "chat_get_status", "chat_interrupt", "automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage", "kbase_library_query", "kbase_library_manage":
+	case "chat_start", "chat_get_status", "chat_interrupt", "chat_steer", "automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage", "kbase_library_query", "kbase_library_manage":
 		return true
 	}
 	return false

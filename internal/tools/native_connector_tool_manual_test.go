@@ -40,6 +40,7 @@ var nativeToolManualChapters = map[string]nativeToolManualChapter{
 	"chat_start":           {file: "references/run.md", marker: "## chat_start"},
 	"chat_get_status":      {file: "references/run.md", marker: "## chat_get_status"},
 	"chat_interrupt":       {file: "references/run.md", marker: "## chat_interrupt"},
+	"chat_steer":           {file: "references/run.md", marker: "## chat_steer"},
 	"chat_query":           {file: "references/chat.md"},
 	"chat_manage":          {file: "references/chat.md"},
 	"automation_query":     {file: "references/automation.md"},
@@ -128,8 +129,8 @@ func TestNativeConnectorToolsDeferToTheirSkill(t *testing.T) {
 			t.Errorf("%s schema field %s is missing from %s (%s)", def.Name, field, chapter.file, chapter.marker)
 		}
 	}
-	if checked != 38 {
-		t.Fatalf("checked %d native connector tools, want 38", checked)
+	if checked != len(nativeToolManualChapters) {
+		t.Fatalf("checked %d native connector tools, want %d manual chapters", checked, len(nativeToolManualChapters))
 	}
 }
 

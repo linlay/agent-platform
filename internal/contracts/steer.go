@@ -39,6 +39,7 @@ func (c *RunControl) supersedePlanningLocked(awaiting AwaitingSubmitContext) {
 }
 
 func cloneSteerInput(req api.SteerRequest) api.SteerRequest {
+	req.Source = req.Source.Clone()
 	refs := make([]api.Reference, len(req.References))
 	for i, ref := range req.References {
 		refs[i] = ref

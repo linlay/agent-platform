@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"agent-platform/internal/api"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/view"
 )
@@ -295,6 +296,7 @@ type DeltaRequestSteer struct {
 	SteerID    string
 	Message    string
 	References []api.Reference
+	Source     *queryinput.SteerSource
 }
 
 func (DeltaRequestSteer) agentDeltaTag() {}

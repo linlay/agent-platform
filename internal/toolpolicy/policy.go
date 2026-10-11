@@ -38,6 +38,7 @@ var alwaysDeniedTools = map[string]struct{}{
 	"agent_invoke":            {},
 	"chat_start":              {},
 	"chat_interrupt":          {},
+	"chat_steer":              {},
 	"artifact_publish":        {},
 	"image_generate":          {},
 	"ask_user_question":       {},

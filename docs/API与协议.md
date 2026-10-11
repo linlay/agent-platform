@@ -1178,6 +1178,30 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
 
 技能中心列表也读取 `/api/skills` 的 `pinned`，与 Composer 共用用户置顶顺序；已安装但无效或禁用的技能可在管理列表置顶，置顶不会改变其可运行状态或令其进入 Composer 可用候选。
 
+### Agent 发起的 steer 来源
+
+builtin.task-control 的 chat_steer 接收 `{runId,message}`。公开 request.steer 在 SSE、WS 与 `/api/chat` events 中新增可选 `source:{type:"agent",agentKey,chatId,runId,toolId}`；这些是发起方身份，事件顶层 chatId/runId 是目标身份。role 仍为 user，message 与模型输入不添加来源标注。HTTP/WS `/api/steer` 的 Source 为内部不可解码字段，客户端传入会被忽略；普通人类 steer 不产生 source。JSONL 将 source 保存在 steer 对象中，不含 source 的现有记录继续读取。
+
+```json
+{
+  "type": "request.steer",
+  "timestamp": 1791700000000,
+  "chatId": "chat_A",
+  "runId": "run_A",
+  "steerId": "steer_3f9a1c7e2b4d",
+  "message": "优先完成后端权限校验和越权测试；暂缓管理界面。",
+  "role": "user",
+  "source": {
+    "type": "agent",
+    "agentKey": "initiator-agent",
+    "chatId": "chat_P",
+    "runId": "run_P",
+    "toolId": "call_7"
+  }
+}
+```
+
+chat_steer 不审批、不比较双方权限档位，保留目标原有工具授权。调用身份派生的 steerId 与目标事件相同；首次结果（含未受理）在同进程同调用内冻结，参数变化返回 idempotency_conflict。远端出错或超时返回 executionState:unknown，来源不传上游，不自动重发。完整所有权、等待和调用边界见 [子智能体调度](子智能体调度.md#chat_steer)。
 
 ### planning 期间的 steer
 
@@ -1191,7 +1215,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 
-公开 `request.steer` 携带 `references`，不携带图片 Base64。新 steer JSONL 仅保存 message/references，不产生内部 `request.steer.snapshot`，不写 `messages`，不重复进入后续 step 的 `inputMessages`。续聊按当前模型能力从 Chat 资源重建附件输入；图片不保留历史版本，失效附件提示不可用，不阻断续聊。旧纯文本与已有 messages 快照继续读取。公开协议保持不变。
+公开 `request.steer` 携带 `references`，不携带图片 Base64。新 steer JSONL 保存 message/references 及 Agent 调用的可选 source，不产生内部 `request.steer.snapshot`，不写 `messages`，不重复进入后续 step 的 `inputMessages`。续聊按当前模型能力从 Chat 资源重建附件输入；图片不保留历史版本，失效附件提示不可用，不阻断续聊。旧纯文本与已有 messages 快照继续读取。公开协议保持不变。
 
 
 ## Office 在线预览 HTTP API

@@ -41,7 +41,7 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["agent_invoke"] {
 		t.Fatal("expected agent_invoke builtin tool definition")
 	}
-	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt"} {
+	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_steer"} {
 		if !byName[name] {
 			t.Fatalf("expected %s builtin tool definition", name)
 		}
@@ -127,9 +127,10 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 		"chat_start":      "发起会话运行",
 		"chat_get_status": "查询会话运行状态",
 		"chat_interrupt":  "中断会话运行",
+		"chat_steer":      "调整会话运行目标",
 	}
 	for _, def := range defs {
-		if def.Name != "chat_start" && def.Name != "chat_get_status" && def.Name != "chat_interrupt" {
+		if def.Name != "chat_start" && def.Name != "chat_get_status" && def.Name != "chat_interrupt" && def.Name != "chat_steer" {
 			continue
 		}
 		found[def.Name] = true
@@ -171,11 +172,15 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 			t.Fatalf("%s schema is not a closed object: %#v", def.Name, def.Parameters)
 		}
 		required, _ := def.Parameters["required"].([]any)
-		if !reflect.DeepEqual(required, []any{"runId"}) {
+		wantRequired := []any{"runId"}
+		if def.Name == "chat_steer" {
+			wantRequired = append(wantRequired, "message")
+		}
+		if !reflect.DeepEqual(required, wantRequired) {
 			t.Fatalf("%s required = %#v, want [runId]", def.Name, required)
 		}
 	}
-	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt"} {
+	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_steer"} {
 		if !found[name] {
 			t.Fatalf("embedded %s definition is unavailable", name)
 		}
@@ -250,7 +255,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		}
 	}
 	for _, hiddenName := range []string{
-		"agent_delegate", "chat_start", "chat_get_status", "chat_interrupt", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
+		"agent_delegate", "chat_start", "chat_get_status", "chat_interrupt", "chat_steer", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
 		"memory_timeline", "memory_update", "memory_write", "memory_read", "memory_promote", "memory_search", "memory_consolidate", "memory_forget",
 	} {
 		if visibleNames[hiddenName] {

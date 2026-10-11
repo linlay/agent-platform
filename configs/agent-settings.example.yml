@@ -51,6 +51,7 @@ planning-mode:
     - agent_invoke
     - chat_start
     - chat_interrupt
+    - chat_steer
     - chat_manage
     - automation_manage
     - catalog_manage

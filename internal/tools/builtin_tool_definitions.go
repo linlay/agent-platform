@@ -72,6 +72,7 @@ var requiredBuiltinToolNames = []string{
 	"chat_start",
 	"chat_get_status",
 	"chat_interrupt",
+	"chat_steer",
 }
 
 func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {

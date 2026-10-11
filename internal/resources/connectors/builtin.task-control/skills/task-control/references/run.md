@@ -1,6 +1,6 @@
 # Independent runs
 
-Use chat_start, chat_get_status and chat_interrupt in an ordinary native main root Run with builtin.task-control mounted. These tools take top-level arguments, not `{action,args}`.
+Use chat_start, chat_get_status, chat_interrupt and chat_steer in an ordinary native main root Run with builtin.task-control mounted. These tools take top-level arguments, not `{action,args}`.
 
 In user requests, conversation, dialogue and chat are synonyms for Chat, including their Chinese equivalents. A request to open, create or start a new or separate conversation means chat_start without chatId. It is not an agent_invoke or agent_delegate child call.
 
@@ -54,8 +54,25 @@ When the run awaits human approval, tell the user to handle it in the target Cha
 
 `{runId, message?}` interrupts such a run. message is an optional string with the reason or detail attached to the interrupt request. Interrupting does not close or delete the Chat.
 
+## chat_steer
+
+`{runId, message}` sends updated instructions to an independent run previously created by chat_start for the same calling Agent and subject. Both fields are required non-empty strings. No other arguments are accepted.
+
+- runId identifies the target execution, not the Chat. A later ordinary root Run of the same initiating Agent and subject can steer it while active.
+- message updates the task goal, scope or priority. It does not change tools, model, accessLevel or editing permissions. The tool needs no approval and does not compare caller and target permission levels. Existing target tool approvals still apply.
+- The result has action `steer`, accepted, status, detail, run and steerId. The handler derives steerId deterministically from the calling runId and toolId. Find the same ID in the target Chat's request.steer event to observe handling; accepted alone does not mean the target has consumed the input or completed the task. No extra consumption acknowledgment exists.
+- Every first invocation outcome is frozen, including accepted:false and executionState:unknown. Replaying the same invocation and arguments returns that outcome without sending again; changed arguments return idempotency_conflict. Unlike chat_start, a definite rejection is not retried within that invocation. The first outcome remains until the process ends, including after the caller Run ends. Idempotency is process-local, not a guarantee across restart. A new tool invocation is a new operation; do not automatically resend an uncertain outcome.
+- Forwarding errors or timeouts return executionState:unknown. Source is not sent upstream. Inspect the target before deciding whether another instruction is needed.
+- Native inputs keep role user and unchanged message text. Optional event/JSONL source records type agent, agentKey, chatId, runId and toolId from trusted Runtime caller context. HTTP/WS input cannot supply source. The metadata is not sent to the model.
+- Current model/tool work finishes normally before consumption. An active root wait can wake; active native planning can be superseded and replanned, still requiring user confirmation. Ordinary question/approval/form waits are not answered by steer. Suspended waits after restart still need submit.
+- Ended or closed runs return accepted:false. This tool never starts another Run or continues a Chat automatically. To continue an ended Chat, explicitly use chat_start with chatId. After planning approval creates an execution Run, use its new runId.
+- TEAM receives instructions in its coordinator root; this tool does not address members or revoke work already started.
+- BTW read-only policy rejects this tool. Shipped planning-mode.exclude-tools excludes it from the caller's planning Run; this is independent of target planning state.
+
+Example: `{"runId":"<runId returned by chat_start>","message":"Prioritize backend authorization and access tests; defer the management UI."}`
+
 ## Boundaries
 
-- chat_get_status and chat_interrupt accept only runs created by chat_start for the same calling Agent and subject. They cannot address the current run, arbitrary runs, or agent_invoke/agent_delegate child tasks.
-- A run created by chat_start cannot call any of these three tools.
+- chat_get_status, chat_interrupt and chat_steer accept only runs created by chat_start for the same calling Agent and subject. They cannot address the current run, arbitrary runs, or agent_invoke/agent_delegate child tasks.
+- A run created by chat_start cannot call any of these four tools.
 - After a transport timeout or unknown outcome from chat_start, inspect existing Chats with chat_query before starting again; a repeated call starts another run.

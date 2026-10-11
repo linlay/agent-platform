@@ -16,6 +16,7 @@ const (
 	StartToolName     = "chat_start"
 	StatusToolName    = "chat_get_status"
 	InterruptToolName = "chat_interrupt"
+	SteerToolName     = "chat_steer"
 )
 
 type idempotentStart struct {
@@ -47,6 +48,7 @@ type ToolHandler struct {
 	mu          sync.Mutex
 	idempotency map[string]*idempotentStart
 	reviews     map[string]startReview
+	steers      map[string]*idempotentSteer
 }
 
 type Runtime interface {
@@ -54,6 +56,7 @@ type Runtime interface {
 	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
 	GetRunStatus(string) (contracts.RunSnapshot, error)
 	Interrupt(context.Context, runtimetypes.InterruptCommand) (runtimetypes.InterruptResult, error)
+	Steer(context.Context, runtimetypes.SteerCommand) (runtimetypes.SteerResult, error)
 }
 
 func NewToolHandler(service Runtime, runs contracts.RunManager) *ToolHandler {
@@ -62,11 +65,12 @@ func NewToolHandler(service Runtime, runs contracts.RunManager) *ToolHandler {
 		runs:        runs,
 		idempotency: map[string]*idempotentStart{},
 		reviews:     map[string]startReview{},
+		steers:      map[string]*idempotentSteer{},
 	}
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{StartToolName, StatusToolName, InterruptToolName}
+	return []string{StartToolName, StatusToolName, InterruptToolName, SteerToolName}
 }
 
 func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
@@ -81,8 +85,10 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 		return h.status(args, origin)
 	case InterruptToolName:
 		return h.interrupt(ctx, args, origin)
+	case SteerToolName:
+		return h.steer(ctx, args, origin)
 	default:
-		return errorResult("invalid_tool", "tool must be chat_start, chat_get_status, or chat_interrupt"), nil
+		return errorResult("invalid_tool", "tool must be chat_start, chat_get_status, chat_interrupt, or chat_steer"), nil
 	}
 }
 
@@ -93,7 +99,7 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 	}
 	session := execCtx.Session
 	if session.RunOrigin != nil {
-		result := errorResult("run_chaining_not_allowed", "a run created by chat_start cannot call Chat tools; return the request to the initiating ordinary main Agent Run to query, start or interrupt its owned runs; changing runId cannot remove this restriction")
+		result := errorResult("run_chaining_not_allowed", "a run created by chat_start cannot call Chat tools; return the request to an ordinary main Agent Run of the initiating Agent to query, start, interrupt or steer its owned runs; changing runId cannot remove this restriction")
 		return contracts.RunOrigin{}, &result
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner)

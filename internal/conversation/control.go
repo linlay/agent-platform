@@ -18,16 +18,19 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/conversationexport"
 )
 
 type ControlCaller struct{ Subject, ChatID, AgentKey, RunID, ToolID string }
 type ControlMessage struct {
-	RunID     string `json:"runId"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Offset    int    `json:"offset,omitempty"`
-	Continued bool   `json:"continued,omitempty"`
+	SteerID   string                  `json:"steerId,omitempty"`
+	Source    *queryinput.SteerSource `json:"source,omitempty"`
+	RunID     string                  `json:"runId"`
+	Role      string                  `json:"role"`
+	Content   string                  `json:"content"`
+	Offset    int                     `json:"offset,omitempty"`
+	Continued bool                    `json:"continued,omitempty"`
 }
 type controlCursor struct {
 	Fingerprint string `json:"f"`
@@ -186,7 +189,7 @@ func (s *Service) ControlMessages(c ControlCaller, id string, archived bool) (*c
 				continue
 			}
 			if n.Text != "" {
-				messages = append(messages, ControlMessage{RunID: turn.RunID, Role: n.Role, Content: n.Text})
+				messages = append(messages, ControlMessage{RunID: turn.RunID, Role: n.Role, Content: n.Text, SteerID: n.SteerID, Source: n.Source.Clone()})
 			}
 		}
 	}
@@ -432,7 +435,14 @@ func (s *Service) ControlSearch(c ControlCaller, args map[string]any) (map[strin
 				original := []rune(m.Content)
 				end = min(end, len(original))
 				start = min(start, end)
-				hits = append(hits, map[string]any{"chatId": id, "runId": m.RunID, "role": m.Role, "snippet": string(original[start:end])})
+				hit := map[string]any{"chatId": id, "runId": m.RunID, "role": m.Role, "snippet": string(original[start:end])}
+				if m.Source != nil {
+					hit["source"] = m.Source.Payload()
+				}
+				if m.SteerID != "" {
+					hit["steerId"] = m.SteerID
+				}
+				hits = append(hits, hit)
 			}
 		}
 		if cur.Offset < len(messages) {

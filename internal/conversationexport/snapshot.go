@@ -9,6 +9,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
@@ -89,31 +90,33 @@ type TurnV1 struct {
 }
 
 type NodeV1 struct {
-	ID              string     `json:"id"`
-	Kind            string     `json:"kind"`
-	Role            string     `json:"role,omitempty"`
-	Text            string     `json:"text,omitempty"`
-	At              int64      `json:"at"`
-	RunID           string     `json:"runId"`
-	TaskID          string     `json:"taskId,omitempty"`
-	ReasoningLabel  string     `json:"reasoningLabel,omitempty"`
-	ContentID       string     `json:"contentId,omitempty"`
-	ToolID          string     `json:"toolId,omitempty"`
-	ToolName        string     `json:"toolName,omitempty"`
-	ToolLabel       string     `json:"toolLabel,omitempty"`
-	Description     string     `json:"description,omitempty"`
-	ArgsText        string     `json:"argsText,omitempty"`
-	ResultText      string     `json:"resultText,omitempty"`
-	ResultIsCode    bool       `json:"resultIsCode,omitempty"`
-	Status          string     `json:"status,omitempty"`
-	StartedAt       int64      `json:"startedAt,omitempty"`
-	EndedAt         int64      `json:"endedAt,omitempty"`
-	DurationMs      int64      `json:"durationMs,omitempty"`
-	SourcePublishID string     `json:"sourcePublishId,omitempty"`
-	SourceQuery     string     `json:"sourceQuery,omitempty"`
-	SourceCount     int        `json:"sourceCount,omitempty"`
-	ChunkCount      int        `json:"chunkCount,omitempty"`
-	Sources         []SourceV1 `json:"sources,omitempty"`
+	SteerID         string                  `json:"steerId,omitempty"`
+	Source          *queryinput.SteerSource `json:"source,omitempty"`
+	ID              string                  `json:"id"`
+	Kind            string                  `json:"kind"`
+	Role            string                  `json:"role,omitempty"`
+	Text            string                  `json:"text,omitempty"`
+	At              int64                   `json:"at"`
+	RunID           string                  `json:"runId"`
+	TaskID          string                  `json:"taskId,omitempty"`
+	ReasoningLabel  string                  `json:"reasoningLabel,omitempty"`
+	ContentID       string                  `json:"contentId,omitempty"`
+	ToolID          string                  `json:"toolId,omitempty"`
+	ToolName        string                  `json:"toolName,omitempty"`
+	ToolLabel       string                  `json:"toolLabel,omitempty"`
+	Description     string                  `json:"description,omitempty"`
+	ArgsText        string                  `json:"argsText,omitempty"`
+	ResultText      string                  `json:"resultText,omitempty"`
+	ResultIsCode    bool                    `json:"resultIsCode,omitempty"`
+	Status          string                  `json:"status,omitempty"`
+	StartedAt       int64                   `json:"startedAt,omitempty"`
+	EndedAt         int64                   `json:"endedAt,omitempty"`
+	DurationMs      int64                   `json:"durationMs,omitempty"`
+	SourcePublishID string                  `json:"sourcePublishId,omitempty"`
+	SourceQuery     string                  `json:"sourceQuery,omitempty"`
+	SourceCount     int                     `json:"sourceCount,omitempty"`
+	ChunkCount      int                     `json:"chunkCount,omitempty"`
+	Sources         []SourceV1              `json:"sources,omitempty"`
 }
 
 type SourceV1 struct {
@@ -363,6 +366,20 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 		}
 		id := fmt.Sprintf("node_%d_%d", event.Seq, ordinal)
 		switch event.Type {
+		case "request.steer":
+			var source *queryinput.SteerSource
+			if raw := event.Value("source"); raw != nil {
+				data, err := json.Marshal(raw)
+				if err != nil || json.Unmarshal(data, &source) != nil {
+					return SnapshotDocument{}, ErrInvalidTimeline
+				}
+			}
+			// Preserve the historical projection for human steers; only the new
+			// Agent instruction carries provenance into the export timeline.
+			if source == nil {
+				continue
+			}
+			turn.Nodes = append(turn.Nodes, NodeV1{ID: id, Kind: "message", Role: "user", Text: event.String("message"), At: event.Timestamp, RunID: runID, SteerID: event.String("steerId"), Source: source})
 		case "reasoning.snapshot", "content.snapshot", "planning.snapshot":
 			text := event.String("text")
 			if strings.TrimSpace(text) == "" {

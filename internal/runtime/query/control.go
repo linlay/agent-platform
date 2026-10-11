@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/apperrors"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
@@ -37,7 +38,7 @@ func (s *Service) Submit(_ context.Context, command runtimetypes.SubmitCommand) 
 	return submitResultToRuntime(response), nil
 }
 
-func (s *Service) Steer(_ context.Context, command runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
+func (s *Service) Steer(ctx context.Context, command runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
 	if strings.TrimSpace(command.RunID) == "" {
 		return runtimetypes.SteerResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId is required")
 	}
@@ -51,12 +52,29 @@ func (s *Service) Steer(_ context.Context, command runtimetypes.SteerCommand) (r
 		return runtimetypes.SteerResult{}, statusErr
 	}
 	status, _ := s.deps.Runs.RunStatus(req.RunID)
+	if caller := command.AgentCaller; caller != nil {
+		if err := ctx.Err(); err != nil {
+			return runtimetypes.SteerResult{}, &contracts.RunToolError{Code: "chat_steer_cancelled", Message: err.Error(), ExecutionState: "not_started"}
+		}
+		if strings.TrimSpace(caller.AgentKey) == "" || strings.TrimSpace(caller.ChatID) == "" || strings.TrimSpace(caller.RunID) == "" || strings.TrimSpace(caller.ToolID) == "" {
+			return runtimetypes.SteerResult{}, &contracts.RunToolError{Code: "run_context_required", Message: "chat_steer requires trusted Agent caller identity", ExecutionState: "not_started"}
+		}
+		if caller.RunID == req.RunID || status.RunOrigin == nil || status.RunOrigin.AgentKey != caller.AgentKey || status.RunOrigin.Subject != caller.Subject {
+			return runtimetypes.SteerResult{}, &contracts.RunToolError{Code: "run_not_owned", Message: "run was not created by chat_start for this caller and subject", ExecutionState: "not_started"}
+		}
+		// Event provenance is Runtime-owned; external SteerRequest decoding never
+		// populates Source, and the model receives only Message/References.
+		req.Source = &queryinput.SteerSource{Type: "agent", AgentKey: caller.AgentKey, ChatID: caller.ChatID, RunID: caller.RunID, ToolID: caller.ToolID}
+	}
 	if req.ChatID != "" && req.ChatID != status.ChatID {
 		return runtimetypes.SteerResult{}, &statusError{Status: 400, Message: "chatId does not match run"}
 	}
 	req.ChatID = status.ChatID
 	if response, statusErr, ok := s.deps.Proxy.Steer(req); ok {
 		if statusErr != nil {
+			if command.AgentCaller != nil {
+				return runtimetypes.SteerResult{}, &contracts.RunToolError{Code: "run_steer_outcome_unknown", Message: statusErr.Error(), ExecutionState: "unknown", RunID: req.RunID, ChatID: req.ChatID}
+			}
 			return runtimetypes.SteerResult{}, statusErr
 		}
 		return runtimetypes.SteerResult{Accepted: response.Accepted, Status: response.Status, RunID: response.RunID, SteerID: response.SteerID, Detail: response.Detail}, nil

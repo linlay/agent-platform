@@ -49,7 +49,7 @@ func TestNativeConnectorCatalogLocalized(t *testing.T) {
 					want, tools = tc.web, 15
 				}
 				if item.ID == connector.TaskControlConnectorID {
-					tools = 7
+					tools = 8
 					want = "Task Control"
 					if tc.desktop == "平台控制" {
 						want = "任务管理"

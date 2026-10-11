@@ -13,12 +13,13 @@ Tool definitions only name a capability. Read the reference for a tool before ca
 
 | Tools | Reference |
 | --- | --- |
-| chat_start, chat_get_status, chat_interrupt | [independent runs](references/run.md) |
+| chat_start, chat_get_status, chat_interrupt, chat_steer | [independent runs](references/run.md) |
 | chat_query, chat_manage | [conversations](references/chat.md) |
 | automation_query, automation_manage | [automation](references/automation.md) |
 
 - chat_start starts an independent root run and returns chatId/runId immediately. Omit chatId for a new Chat; provide it only to continue an existing target-owned Chat. Omit agentKey to use the current calling Agent; an explicit agentKey selects that exact catalog Agent.  The target continues when the caller is interrupted.
-- chat_get_status reads the status/result of a run previously created by chat_start for this calling Agent and subject; chat_interrupt interrupts that run. Both take runId, not chatId. They cannot control arbitrary or current runs, or agent_invoke/agent_delegate children. Runs created by chat_start cannot chain these three execution tools.
+- chat_get_status reads the status/result of a run previously created by chat_start for this calling Agent and subject; chat_interrupt interrupts that run. Both take runId, not chatId. They cannot control arbitrary or current runs, or agent_invoke/agent_delegate children. Runs created by chat_start cannot chain these four execution tools.
+- chat_steer sends non-empty updated instructions to an owned active run, taking runId and message. It needs no approval and does not compare permission levels. It returns the first invocation outcome even when rejected; do not replay to attempt enqueue again. Its deterministic steerId links the result to the target request.steer event.
 - chat_start accepts an optional per-run modelKey and reasoningEffort for Agent targets; list valid keys with chat_query `models`.
 - chat_query reads conversations, visible history and artifacts, and lists selectable models. Its current action reads the current Chat; use chat_get_status to follow a launched run.
 - chat_manage renames, pins, archives, restores, forks, exports or deletes Chats. Fork copies history; it does not submit a new task. Use chat_start to execute in the resulting Chat.

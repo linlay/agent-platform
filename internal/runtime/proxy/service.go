@@ -10,7 +10,9 @@ import (
 
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/httpclient"
+	"agent-platform/internal/stream"
 )
 
 // Route is the transport-neutral runtime record for one active proxy run.
@@ -28,6 +30,44 @@ type Route struct {
 	Timeout          time.Duration
 	SendQueue        chan map[string]any
 	Done             chan struct{}
+	steerMu          sync.Mutex
+	steerSources     map[string]*queryinput.SteerSource
+}
+
+// RememberSteerSource stores local provenance before forwarding. It never
+// changes the upstream request and is discarded with this active route.
+func (r *Route) RememberSteerSource(id string, source *queryinput.SteerSource) {
+	if r == nil || source == nil {
+		return
+	}
+	r.steerMu.Lock()
+	defer r.steerMu.Unlock()
+	if r.steerSources == nil {
+		r.steerSources = map[string]*queryinput.SteerSource{}
+	}
+	r.steerSources[id] = source.Clone()
+}
+
+func (r *Route) DecorateSteerEvent(event stream.EventData) stream.EventData {
+	if r == nil || event.Type != "request.steer" {
+		return event
+	}
+	r.steerMu.Lock()
+	source := r.steerSources[event.String("steerId")].Clone()
+	r.steerMu.Unlock()
+	// Upstream provenance is untrusted locally. Only a matching local Agent
+	// invocation can add source; do not invent an event when forwarding.
+	payload := make(map[string]any, len(event.Payload)+1)
+	for key, value := range event.Payload {
+		if key != "source" {
+			payload[key] = value
+		}
+	}
+	if source != nil {
+		payload["source"] = source.Payload()
+	}
+	event.Payload = payload
+	return event
 }
 
 func NewRoute(runID, chatID, agentKey string) *Route {

@@ -112,7 +112,7 @@ Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符�
 
 ## Desktop 反向 Provider
 
-平台控制连接器提供 9 个静态工具，各自 action 枚举固定；看板连接器 `builtin.kanban-control` 独立提供 `desktop_kanban` 的 6 个动作；知识库检索连接器 `builtin.kbase-control` 提供 4 个只读的固定参数工具；任务管理连接器 `builtin.task-control` 提供 7 个工具（5 个 Chat、2 个 Automation），其中三个 Chat 执行工具使用直接参数，其余使用 action/args；网页连接器提供 15 个固定参数工具。Desktop 动作在内部映射到原有反向请求，注册表由 internal/connector/control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
+平台控制连接器提供 9 个静态工具，各自 action 枚举固定；看板连接器 `builtin.kanban-control` 独立提供 `desktop_kanban` 的 6 个动作；知识库检索连接器 `builtin.kbase-control` 提供 4 个只读的固定参数工具；任务管理连接器 `builtin.task-control` 提供 8 个工具（6 个 Chat、2 个 Automation），其中四个 Chat 执行工具使用直接参数，其余使用 action/args；网页连接器提供 15 个固定参数工具。Desktop 动作在内部映射到原有反向请求，注册表由 internal/connector/control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
 
 `platform_inspect.checkConnector` 是显式的 HTTP MCP 诊断动作，参数 `connectorId` 与可选 `component`（默认 main），仅普通 native 主 Run 可调用。检查使用保存的连接器配置和内部凭据、独立短期 MCP SDK 会话，分别返回包校验、初始化/协商版本、分页工具发现结果，远端阶段限时 30 秒。它不依赖 Agent 挂载、不改变运行时工具目录，也不执行业务工具或启动 stdio/CLI；支持 no_auth/mcp/oauth/token。需授权模式下，缺少授权、401 或明确的 insufficient_scope 返回 authorization_required 与现有详情页路径，用户登录后另轮回读和重试；no_auth 下的认证拒绝返回 authentication_mismatch，普通 403 返回 permission_denied，后续超时和网络失败保留真实分类。检查有意按只读诊断免审批，但会携带对应凭据联网，未增加网络目标白名单或内网隔离，完整权限边界见 [平台控制连接器](Platform控制工具设计.md)。查询连接器源码的授权快照和 runtimeStatus 保持本地/缓存读取，不隐式联网；HTTP 200/401 本身不能代替 MCP 协议验收。
 
