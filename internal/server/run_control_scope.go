@@ -35,7 +35,7 @@ func wsControlScope(conn *ws.Conn) controlscope.Scope {
 	}
 	return controlscope.Scope{Transport: "ws", Lane: conn.QueryLane(), Subject: target.Subject, Boundary: boundary}
 }
-func (s *Server) validateRunControl(runID string, caller controlscope.Scope) *statusError {
+func (s *Server) validateRunControl(runID string, caller controlscope.Scope, authenticatedDesktopMain bool) *statusError {
 	if strings.TrimSpace(runID) == "" {
 		return btwStatusError(400, "invalid_request", "runId is required")
 	}
@@ -46,13 +46,24 @@ func (s *Server) validateRunControl(runID string, caller controlscope.Scope) *st
 		}
 		return btwStatusError(500, "run_control_identity_unavailable", "cannot read run control identity")
 	}
-	if code := controlscope.Check(owner, caller); code != "" {
+	// In-process Runs retain their immutable empty identity. Authorize the
+	// authenticated Desktop Main separately without claiming or rewriting it.
+	code := controlscope.Check(owner, caller)
+	if owner == (controlscope.Scope{}) {
+		if authenticatedDesktopMain && caller.Transport == "ws" && caller.Lane == "main" && caller.Subject != "" && caller.Boundary != "" {
+			return nil
+		}
+		if code == "" {
+			code = "run_control_identity_mismatch"
+		}
+	}
+	if code != "" {
 		return btwStatusError(403, code, "request does not match run control identity")
 	}
 	return nil
 }
 func (s *Server) validateWSRunControl(conn *ws.Conn, requestID, runID string) bool {
-	if err := s.validateRunControl(runID, wsControlScope(conn)); err != nil {
+	if err := s.validateRunControl(runID, wsControlScope(conn), conn.IsAuthenticatedDesktopMain()); err != nil {
 		s.sendWSStatusError(conn, requestID, err)
 		conn.CompleteRequest(requestID)
 		return false
@@ -60,7 +71,7 @@ func (s *Server) validateWSRunControl(conn *ws.Conn, requestID, runID string) bo
 	return true
 }
 func (s *Server) validateHTTPRunControl(w http.ResponseWriter, r *http.Request, runID string) bool {
-	if err := s.validateRunControl(runID, httpControlScope(r.Context(), "")); err != nil {
+	if err := s.validateRunControl(runID, httpControlScope(r.Context(), ""), false); err != nil {
 		writeStatusError(w, err)
 		return false
 	}

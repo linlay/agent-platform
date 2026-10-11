@@ -403,6 +403,8 @@ Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane�
 
 归属不绑定 sessionId 或 surfaceId，同 lane 重连/关窗重开可按 lastSeq attach。归属文件在 Run 结束后保留；planning 后续执行 Run 继承源 Run 归属，等待项跨进程恢复仍使用原记录。内部 Run 调度与控制走内部调用路径，不由客户端声明内部身份。
 
+Automation 等内部 Run 的全空控制归属允许受信任 Desktop Main 通过独立授权执行上述五种 WS 控制，控制和观察不改写 Run 归属；该授权在 token 到期后立即失效，不等待心跳关闭连接。认证、设备和来源限制见[鉴权与安全边界](鉴权与安全边界.md)。
+
 每条 WS 连接最多一个 Run stream（终端类订阅独立）；query 在准备 Chat/启动 Run 前原子预留名额，attach 同样申请名额。已有 stream 时返回 409 `active_stream_exists`（同一 Run 重复观察仍为 `duplicate_observe`）。冲突错误的结构化 diagnostics 返回所属 lane、连接诊断 ID、旧流的 Run/请求/stream 身份、占用起始时间和预留或已绑定状态；尚未生成 Run 时仍可按请求 ID 定位。切换 Run 必须先 detach 或等待旧 stream 终态；detach 不终止后台 Run。main/btw/explain 三条连接可以同时各有一个 stream。
 
 后台启动使用 main lane 的 `/api/query` 并在 payload 传 `detached:true`：Platform 不预留、不创建 Run stream，Run 注册并开始执行后返回普通 `response`，`data` 为 `{accepted:true, status:"running", runId, chatId, agentKey, startedAt}`，启动失败返回与普通 query 相同的 error frame。它不受 `active_stream_exists` 约束，可以与本连接已有的 stream 以及其他 detached Run 并行；Run 控制归属仍绑定发起连接的 lane，后续状态由全局 `run.started` / `run.finished` / `chat.updated` Push 收敛，需要逐条输出时再 `/api/attach`。btw/explain lane 传 `detached:true` 返回 400 `invalid_request`，HTTP `POST /api/query` 传 `detached:true` 返回 400 `detached_ws_required`，均不创建 Chat。

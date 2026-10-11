@@ -2,6 +2,7 @@ package ws
 
 import (
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"agent-platform/internal/contracts"
@@ -13,6 +14,26 @@ const (
 	desktopBTWClientSource     = "desktop-btw"
 	desktopExplainClientSource = "desktop-explain"
 )
+
+// IsAuthenticatedDesktopMain excludes the explicit auth-disabled development
+// mode accepted by Desktop target routing. Run control requires a real identity.
+func (c *Conn) IsAuthenticatedDesktopMain() bool {
+	if c == nil {
+		return false
+	}
+	c.authMu.RLock()
+	auth := c.auth
+	c.authMu.RUnlock()
+	if auth.AuthDisabled || !auth.DeviceIDVerified || strings.TrimSpace(auth.Subject) == "" {
+		return false
+	}
+	// Control authorization must not wait for heartbeat cleanup of expired tokens.
+	if auth.ExpiresAt > 0 && time.Now().UnixMilli() >= auth.ExpiresAt {
+		return false
+	}
+	_, ok := c.authenticatedDesktopMainTarget()
+	return ok
+}
 
 func (c *Conn) IsDesktopBTW() bool {
 	_, ok := c.authenticatedDesktopLaneTarget(desktopBTWClientSource)

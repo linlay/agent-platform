@@ -157,11 +157,11 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 			t.Fatal(err)
 		}
 		fresh := &Server{deps: fixture.server.deps}
-		if err := fresh.validateRunControl(runs[lane], owner); err != nil {
+		if err := fresh.validateRunControl(runs[lane], owner, false); err != nil {
 			t.Fatal(err)
 		}
 		owner.Boundary = "device:another"
-		if err := fresh.validateRunControl(runs[lane], owner); err == nil || err.Code != "run_control_identity_mismatch" {
+		if err := fresh.validateRunControl(runs[lane], owner, false); err == nil || err.Code != "run_control_identity_mismatch" {
 			t.Fatalf("device bypass: %v", err)
 		}
 	}
@@ -230,7 +230,7 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 
 func TestMissingRunScopeIsRejectedWithoutClaim(t *testing.T) {
 	fixture := newTestFixture(t)
-	if err := fixture.server.validateRunControl("legacy", controlscope.Scope{Transport: "ws", Lane: "main"}); err == nil || err.Code != "run_control_identity_unavailable" {
+	if err := fixture.server.validateRunControl("legacy", controlscope.Scope{Transport: "ws", Lane: "main"}, false); err == nil || err.Code != "run_control_identity_unavailable" {
 		t.Fatalf("legacy accepted: %v", err)
 	}
 	if _, err := fixture.server.runControlScopes().Load("legacy"); err == nil {
