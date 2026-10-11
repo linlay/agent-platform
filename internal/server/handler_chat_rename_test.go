@@ -45,6 +45,7 @@ func TestRenamedOldActionRoutesAreRemoved(t *testing.T) {
 	_, server := newChatRenameTestServer(t)
 	for _, path := range []string{
 		"/api/agent-create",
+		"/api/chat/prepare",
 		"/api/chat-delete",
 		"/api/automation-toggle",
 		"/api/memory/records",

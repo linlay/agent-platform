@@ -508,14 +508,15 @@ func validateJournal(journal upgradeJournal, runtimeRoot, stateDir string) error
 		return fmt.Errorf("unfinished runtime resource transaction has an unsafe backup path")
 	}
 	for _, target := range journal.Targets {
-		if !contains(append(append([]string{}, resourceScopes...), "VERSION"), target.RelativePath) {
+		if target.RelativePath != "VERSION" && !contains(resourceScopes, target.RelativePath) {
 			return fmt.Errorf("unfinished runtime resource transaction has an unsafe target %q", target.RelativePath)
 		}
 	}
 	for relative := range journal.PathModes {
 		cleaned := filepath.ToSlash(filepath.Clean(filepath.FromSlash(relative)))
 		first := strings.SplitN(cleaned, "/", 2)[0]
-		if cleaned != relative || (first != "VERSION" && !contains(resourceScopes, first)) {
+		if strings.ContainsAny(relative, "\\\x00") || cleaned != relative ||
+			(first == "VERSION" && relative != "VERSION") || (first != "VERSION" && !contains(resourceScopes, first)) {
 			return fmt.Errorf("unfinished runtime resource transaction has an unsafe permission path %q", relative)
 		}
 	}
