@@ -16,7 +16,6 @@ import (
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/rootpaths"
 	runtimetypes "agent-platform/internal/runtime/types"
-	"agent-platform/internal/runtimeskills"
 	"agent-platform/internal/sandbox"
 )
 
@@ -445,16 +444,7 @@ func BuildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 		if !ok {
 			continue
 		}
-		block := SkillCatalogBlock(definition, def.SkillInstructionsPath(definition.ID))
-		if def.RuntimeRevision != "" && !def.IsConnectorSkill(definition.ID) {
-			if dir, err := runtimeskills.Resolve(def.RuntimeDir, definition.ID); err == nil {
-				block += "\nhostDirectory: " + dir
-				if HasRuntimeSandbox(def.Runtime) {
-					block += "\ncontainerDirectory: /skills/" + definition.ID
-				}
-			}
-		}
-		blocks = append(blocks, block)
+		blocks = append(blocks, SkillCatalogBlock(definition, def.SkillInstructionsPath(definition.ID)))
 	}
 	for _, skill := range mustUseSkills {
 		normalized := strings.ToLower(strings.TrimSpace(skill.ID))
@@ -480,7 +470,7 @@ func BuildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appe
 		}
 	}
 	sections = append(sections, strings.TrimSpace(appendConfig.Skill.CatalogHeader))
-	sections = append(sections, strings.Join(blocks, "\n\n---\n\n"))
+	sections = append(sections, strings.Join(blocks, "\n\n"))
 	return strings.Join(sections, "\n\n")
 }
 
@@ -489,8 +479,8 @@ func SkillCatalogBlock(definition catalog.SkillDefinition, skillPath string) str
 		"skillId: " + definition.ID,
 		"path: " + strings.TrimSpace(skillPath),
 	}
-	if strings.TrimSpace(definition.Name) != "" {
-		lines = append(lines, "name: "+strings.TrimSpace(definition.Name))
+	if name := strings.TrimSpace(definition.Name); name != "" && name != definition.ID {
+		lines = append(lines, "name: "+name)
 	}
 	if strings.TrimSpace(definition.Description) != "" {
 		lines = append(lines, "description: "+strings.TrimSpace(definition.Description))

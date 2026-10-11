@@ -36,6 +36,10 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 目录字段按需精简：键名已能说明用途的目录不带注释；`agents_dir`、`models_dir`、`providers_dir`、`connectors_center_dir` 只在当前 Agent 挂载 `builtin.platform-control` 时输出，`automations_dir` 对所有 Agent 输出。`skills_dir` 等于 `agent_dir/skills`、`ru_agents_dir` 是 `agent_dir` 的上级、`chats_dir` 是 `chat_dir` 的上级时不单独成行，其中前两项并入 `agent_dir` 的注释；不满足该关系（例如 Container Hub 的 `/agents`）时仍单独输出。
 
+技能目录的 `path` 使用逻辑别名：已配置的普通 Skill 为 `@skills/<id>/SKILL.md`，连接器 Skill 为 `@connectors/<connectorId>/skills/<id>/SKILL.md`，本次额外选中的共享 Skill 为 `@skills-center/<id>/SKILL.md`。不输出带内容摘要的 `ru-skills` 宿主路径或容器路径。每个 Skill 块以 `skillId:` 开头，块之间留一个空行；`name` 与 `skillId` 相同时省略，不同时保留。
+
+Bash 不展开命令文本中的别名：运行 Skill 脚本时把 `cwd` 设为该 `SKILL.md` 所在的别名目录，并使用相对脚本路径。普通 Skill 的 `@skills/<id>` 在 Host 解析到本 Run 的共享 Skill 快照，在 Container 解析到 `/skills/<id>`；连接器 Skill 和额外共享 Skill 分别使用对应的 `@connectors/...` 和 `@skills-center/<id>` 目录。
+
 ## 路径配置
 
 `ru-agents` 固定使用 `<AP_RUNTIME_DIR>/ru-agents`，不提供单独环境变量或 YAML 覆盖。其位置随 `AP_RUNTIME_DIR` 一起调整。

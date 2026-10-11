@@ -42,6 +42,18 @@ func TestSkillExecutionFormsAndLevels(t *testing.T) {
 		}
 	}
 }
+
+// Configured ordinary skills use @skills paths in the catalog; their scripts
+// can use the skill directory alias as cwd rather than a host path.
+func TestSkillScriptRunsFromSkillAliasCwd(t *testing.T) {
+	ctx, file := skillFixture(t)
+	ctx.Session.SkillDirs = map[string]string{"selected": filepath.Dir(filepath.Dir(file))}
+	p := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, "sh scripts/task.sh", "@skills/selected", nil, ctx)
+	if !p.Allowed() || p.RuleKey != "bash-access:skill-script" || len(ApprovalRules(p)) != 0 {
+		t.Fatalf("%+v", p)
+	}
+}
+
 func TestSkillDoesNotGrantOtherRequirements(t *testing.T) {
 	ctx, file := skillFixture(t)
 	for _, command := range []string{"sh selected/scripts/task.sh; sh foreign.sh", "sh selected/scripts/task.sh > /outside-review/result", "sh selected/scripts/task.sh; touch /outside-review/result", "sh -c 'sh foreign.sh'"} {

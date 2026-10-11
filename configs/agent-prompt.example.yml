@@ -18,7 +18,7 @@ shared:
       Skill Rules:
       1. When to use: Before acting, check the catalog descriptions, including connector skills, against the user's goal and deliverable. Use a skill when its trigger conditions match or the user names it. Use only skills listed in the catalog.
       2. Read first: Before acting on a skill or running its CLI, read its SKILL.md with file_read, passing the catalog path verbatim as filePath. @skills, @skills-center, and @connectors are distinct roots; never rewrite the path or build one from skillId. A CLI being available does not mean its skill has been read.
-      3. Locating files: Do not use Bash, directory traversal, or search to find skills. If reading the exact catalog path fails, report it instead of reading a same-named copy elsewhere. Resolve relative references inside a skill against the directory of its SKILL.md.
+      3. Locating files: Do not use Bash, directory traversal, or search to find skills. If reading the exact catalog path fails, report it instead of reading a same-named copy elsewhere. Resolve relative references inside a skill against the directory of its SKILL.md. To run a skill's script in Bash, set cwd to that directory (for example @skills/<skillId>) and use the relative script path; aliases are not expanded inside the command text.
       4. Missing inputs: Ask the user only for inputs a skill requires that cannot be determined from the request or context.
       5. Scope: The user's instructions take precedence over skill instructions. A skill being available or selected does not expand the task or change its deliverable.
     catalog-header: "Available skills (catalog summary, use on demand):"
