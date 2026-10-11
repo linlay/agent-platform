@@ -12,6 +12,7 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/models"
@@ -661,6 +662,11 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.Tools = listStrings(toolConfig["tools"])
+	for _, name := range def.Tools {
+		if owner, ok := connector.NativeToolConnector(name); ok && owner == connector.KBaseControlConnectorID {
+			return AgentDefinition{}, nil, fmt.Errorf("toolConfig.tools: %s moved to connector %s; mount it through connectorConfig.connectors or preset-connectors and remove the declaration", name, owner)
+		}
+	}
 	def.DeclaredTools = append([]string{}, def.Tools...)
 	if raw, exists := toolConfig["excludeTools"]; exists {
 		def.ExcludedTools, err = config.ParseToolNames(raw, "toolConfig.excludeTools")

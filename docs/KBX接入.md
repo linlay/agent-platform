@@ -21,13 +21,12 @@ kbaseConfig:
     candidateFloor: 30
     candidateMultiplier: 4
     candidateMax: 500
-toolConfig:
-  tools:
-    - kbase_search
-    - kbase_files
-    - kbase_read
-    - kbase_status
+connectorConfig:
+  connectors:
+    - builtin.kbase-control
 ```
+
+四个知识检索工具由 `builtin.kbase-control` 提供；专用 KBASE 在分发示例中经 `kbase.preset-connectors` 自动挂载，可省略上面的 `connectorConfig`。
 
 示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；Run 开始检查库就绪状态，工具每次调用重新检查当前绑定与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。知识检索的来源范围不冻结到旧 Run；下一次查询按当前配置重新授权。文件编辑是独立边界：专用 Host KBASE 的 editable collection canonical 目录与说明在 Run 启动时冻结，库修改仅影响下次 Run，不能中途扩大文件授权。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
 

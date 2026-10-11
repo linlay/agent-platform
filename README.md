@@ -296,7 +296,7 @@ TEAM 是普通 Agent，统一用 `agentKey` 调用，可直接回答、使用工
 
 原生连接器由 `connector.json` 的 `type: native` 和连接器 ID 对应的源码工具表装配，不使用 `native.json`。`builtin.platform-control` 提供平台治理能力；`run_env` 独立提供当前普通 native root Run 的 list/set/unset/update/explain，由通过 preset 或 Agent 显式声明挂载，分发示例列入全局 preset-tools，可通过 excludeTools 排除。动态值仅影响后续命令、不继承到子任务或其他 Run。旧 platform-control 配置段已移除。详见 [Run 环境工具](docs/Run环境工具.md)。
 
-四个内嵌原生连接器 platform-control/task-control/kanban-control/web-control 统一从 `0.4.0` 开始使用 Platform 版本系列，发布时统一维护源码清单版本；外部 dbx/httpx 保持独立项目版本。详见 [内嵌连接器来源](docs/连接器.md#desktop-内嵌连接器来源)。
+五个内嵌原生连接器 platform-control/task-control/kanban-control/kbase-control/web-control 统一从 `0.4.0` 开始使用 Platform 版本系列，发布时统一维护源码清单版本；外部 dbx/httpx 保持独立项目版本。详见 [内嵌连接器来源](docs/连接器.md#desktop-内嵌连接器来源)。
 
 ## 4. 部署
 
@@ -423,5 +423,7 @@ docker compose logs -f
 `builtin.task-control`（任务管理）独立提供五个 Chat 工具和两个 Automation 工具；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
 平台管理与自动化的操作说明由相应内置连接器 Skill 承载，包含自动化时间/Cron 工作流、YAML 维护及 Provider/Model/外部连接器配置参考，不需要额外挂载外部 platform-admin 或 platform-automation Skill。自动化更新、时区和审批契约见 [自动化](docs/自动化.md#task-control-管理工具)。
+
+`builtin.kbase-control`（知识库检索）独立提供 `kbase_search/kbase_files/kbase_read/kbase_status` 四个只读工具及配套 Skill，不依赖 Desktop；仍读取 Agent 的固定 `kbaseConfig.libraryId` 绑定，库管理工具留在 `builtin.platform-control`，详见 [连接器](docs/连接器.md#kbase-control-知识库检索)。
 
 `builtin.kanban-control`（看板控制）独立提供 `desktop_kanban` 的六个看板动作，依赖 Desktop；原 `builtin.platform-control` 挂载不再授予看板能力。需要看板的 Agent 应显式挂载新连接器，详见 [连接器](docs/连接器.md#kanban-control-看板控制)。

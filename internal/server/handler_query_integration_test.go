@@ -165,7 +165,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 }
 
 func TestNativeEmptyToolAllowlistExposesNoTools(t *testing.T) {
-	excludedTools := []string{"run_env", "bash", "file_read", "kbase_search", "kbase_files", "kbase_read", "kbase_status", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	excludedTools := []string{"run_env", "bash", "file_read", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	exclusionConfig := "toolConfig:\n  tools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n  excludeTools:\n    - " + strings.Join(excludedTools, "\n    - ") + "\n"
 
 	for _, mode := range []string{"GENERAL", "CODER", "KBASE"} {

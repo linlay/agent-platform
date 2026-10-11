@@ -61,11 +61,17 @@ func TestNativeConnectorCatalogLocalized(t *testing.T) {
 						want = "看板控制"
 					}
 				}
+				if item.ID == connector.KBaseControlConnectorID {
+					tools, want = 4, "Knowledge Base"
+					if tc.desktop == "平台控制" {
+						want = "知识库检索"
+					}
+				}
 				if item.Name != want || item.I18N != nil || !item.Builtin || !item.ReadOnly || item.AuthMode != connector.AuthNoAuth || len(item.NativeTools) != tools || len(item.Skills) != 1 || len(item.MutuallyExclusiveWith) != 0 {
 					t.Fatalf("%s: %+v", tc.locale, item)
 				}
 			}
-			if found != 4 {
+			if found != 5 {
 				t.Fatalf("native connectors: %d", found)
 			}
 		}

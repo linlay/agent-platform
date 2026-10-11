@@ -4,6 +4,7 @@ import "strings"
 
 const (
 	KanbanControlConnectorID   = "builtin.kanban-control"
+	KBaseControlConnectorID    = "builtin.kbase-control"
 	TaskControlConnectorID     = "builtin.task-control"
 	PlatformControlConnectorID = "builtin.platform-control"
 	WebControlConnectorID      = "builtin.web-control"
@@ -13,6 +14,7 @@ const (
 // a native connector mounts. Tool names never come from the package itself.
 var nativeConnectorTools = map[string][]string{
 	KanbanControlConnectorID:   {"desktop_kanban"},
+	KBaseControlConnectorID:    {"kbase_search", "kbase_files", "kbase_read", "kbase_status"},
 	TaskControlConnectorID:     {"chat_start", "chat_get_status", "chat_interrupt", "chat_query", "chat_manage", "automation_query", "automation_manage"},
 	PlatformControlConnectorID: {"catalog_query", "catalog_manage", "kbase_library_query", "kbase_library_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market"},
 	WebControlConnectorID: {
@@ -31,7 +33,7 @@ func IsNative(id string) bool {
 
 // NativeConnectorIDs lists the embedded native connectors in stable order.
 func NativeConnectorIDs() []string {
-	return []string{KanbanControlConnectorID, PlatformControlConnectorID, TaskControlConnectorID, WebControlConnectorID}
+	return []string{KanbanControlConnectorID, KBaseControlConnectorID, PlatformControlConnectorID, TaskControlConnectorID, WebControlConnectorID}
 }
 
 // NativeToolConnector returns the native connector that owns a Platform tool.

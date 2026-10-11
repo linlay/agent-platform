@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 )
 
@@ -71,7 +72,9 @@ func TestRouterRejectsLegacyBeforeBackend(t *testing.T) {
 		{"file_write", map[string]any{"filePath": "new", "file_path": "old", "content": "must not write"}},
 		{"kbase_files", map[string]any{"head_limit": 0}},
 	} {
-		result, err := router.Invoke(context.Background(), tc.tool, tc.args, nil)
+		// kbase_files is a native connector tool, so the router needs its mount.
+		execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{NativeConnectorTools: map[string]string{"kbase_files": connector.KBaseControlConnectorID}, ConnectorDirs: map[string]string{connector.KBaseControlConnectorID: t.TempDir()}}}
+		result, err := router.Invoke(context.Background(), tc.tool, tc.args, execCtx)
 		if err != nil || result.Error != "invalid_tool_arguments" {
 			t.Fatalf("unexpected result: %#v %v", result, err)
 		}

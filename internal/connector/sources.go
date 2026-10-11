@@ -16,6 +16,7 @@ type Sources struct {
 	BuiltinRoot  string
 	// Native directories are verified, leased packages from the running binary.
 	NativeKanbanControlDir   string
+	NativeKBaseControlDir    string
 	NativeTaskControlDir     string
 	NativePlatformControlDir string
 	NativeWebControlDir      string
@@ -137,6 +138,8 @@ func (s Sources) embeddedNativeDir(id string) string {
 	switch id {
 	case KanbanControlConnectorID:
 		return s.NativeKanbanControlDir
+	case KBaseControlConnectorID:
+		return s.NativeKBaseControlDir
 	case TaskControlConnectorID:
 		return s.NativeTaskControlDir
 	case PlatformControlConnectorID:

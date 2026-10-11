@@ -97,7 +97,7 @@ func TestAdminToolsListHidesPrivateEmbeddedBuiltins(t *testing.T) {
 			t.Errorf("private embedded builtin tool %q appeared in /api/admin/tools", hiddenName)
 		}
 	}
-	for _, publicName := range []string{"bash", "file_read", "kbase_search", "web_fetch"} {
+	for _, publicName := range []string{"bash", "file_read", "web_fetch"} {
 		if !visible[publicName] {
 			t.Errorf("public embedded builtin tool %q is missing from /api/admin/tools", publicName)
 		}

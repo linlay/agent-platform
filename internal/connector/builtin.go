@@ -76,6 +76,8 @@ func BuiltinSkillConnector(name string) string {
 	switch strings.ToLower(name) {
 	case "kanban-control":
 		return KanbanControlConnectorID
+	case "kbase-control":
+		return KBaseControlConnectorID
 	case "task-control":
 		return TaskControlConnectorID
 	case "desktop-action", "platform-control":

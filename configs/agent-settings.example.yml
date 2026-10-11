@@ -95,12 +95,10 @@ coder:
     file: AGENTS.md
 
 kbase:
-  preset-tools:
-    - kbase_search
-    - kbase_files
-    - kbase_read
-    - kbase_status
-  preset-connectors: []
+  preset-tools: []
+  # kbase_search/files/read/status belong to builtin.kbase-control.
+  preset-connectors:
+    - builtin.kbase-control
   default-agent:
     # Optional default modelKey for new KBASE agents; leave empty to require explicit configuration.
     modelKey:

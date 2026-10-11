@@ -372,7 +372,7 @@ func TestAgentCreateKBaseGeneratesKeyAndName(t *testing.T) {
 	if len(writtenTools) != 6 || writtenTools[0] != "datetime" || writtenTools[1] != "file_read" {
 		t.Fatalf("KBASE creation must write its tools explicitly, got %#v", created.Definition["toolConfig"])
 	}
-	for _, tool := range []string{"file_read", "file_edit", "kbase_search"} {
+	for _, tool := range []string{"file_read", "file_edit"} {
 		loaded, _ := fixture.registry.AgentDefinition(created.Key)
 		if !slices.Contains(loaded.Tools, tool) {
 			t.Fatalf("created KBASE agent is missing %s: %#v", tool, created.Tools)

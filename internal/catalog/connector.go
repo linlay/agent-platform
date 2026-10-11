@@ -121,9 +121,13 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 			if !pkg.Builtin {
 				return fmt.Errorf("native capabilities require a trusted builtin source")
 			}
-			def.ConnectorNativeTools = append(def.ConnectorNativeTools, pkg.NativeTools()...)
 			for _, tool := range pkg.NativeTools() {
-				def.addConnectorToolBinding(tool)
+				excluded := containsString(def.ExcludedTools, tool)
+				def.addConnectorToolBinding(tool, excluded)
+				if excluded {
+					continue
+				}
+				def.ConnectorNativeTools = append(def.ConnectorNativeTools, tool)
 				if !containsString(def.Tools, tool) {
 					def.Tools = append(def.Tools, tool)
 				}

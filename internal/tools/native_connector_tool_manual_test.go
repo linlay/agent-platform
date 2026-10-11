@@ -24,6 +24,10 @@ var nativeToolManualChapters = map[string]nativeToolManualChapter{
 	"desktop_kanban":       {file: "references/kanban.md"},
 	"catalog_query":        {file: "references/catalog.md"},
 	"catalog_manage":       {file: "references/catalog.md"},
+	"kbase_search":         {file: "references/retrieval.md", marker: "## kbase_search"},
+	"kbase_files":          {file: "references/retrieval.md", marker: "## kbase_files"},
+	"kbase_read":           {file: "references/retrieval.md", marker: "## kbase_read"},
+	"kbase_status":         {file: "references/retrieval.md", marker: "## kbase_status"},
 	"kbase_library_query":  {file: "references/knowledge-libraries.md"},
 	"kbase_library_manage": {file: "references/knowledge-libraries.md"},
 	"platform_inspect":     {file: "SKILL.md"},
@@ -124,8 +128,8 @@ func TestNativeConnectorToolsDeferToTheirSkill(t *testing.T) {
 			t.Errorf("%s schema field %s is missing from %s (%s)", def.Name, field, chapter.file, chapter.marker)
 		}
 	}
-	if checked != 34 {
-		t.Fatalf("checked %d native connector tools, want 34", checked)
+	if checked != 38 {
+		t.Fatalf("checked %d native connector tools, want 38", checked)
 	}
 }
 

@@ -4,7 +4,7 @@ i18n:
     label: "Knowledge Base Status"
   zh-CN:
     label: "知识库状态"
-description: Inspect the bound library ID and its KBX readiness, automatic maintenance state, stale/degraded flags and file count. An unavailable chunk count is omitted and marked chunksKnown=false.
+description: "Inspect the bound knowledge library's readiness and maintenance state. Read the kbase-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:

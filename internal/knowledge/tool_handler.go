@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/toolinput"
 )
 
 // ToolService is the narrow KBASE operation surface required by the five
@@ -40,14 +42,39 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 	case ToolSearch:
 		return h.invokeSearch(ctx, agentKey, args)
 	case ToolFiles:
+		if err := rejectUnknownArguments(args, filesArgumentNames); err != nil {
+			return kbaseToolFailure(err), nil
+		}
 		return h.invokeFiles(agentKey, args)
 	case ToolRead:
+		if err := rejectUnknownArguments(args, readArgumentNames); err != nil {
+			return kbaseToolFailure(err), nil
+		}
 		return h.invokeRead(agentKey, args)
 	case ToolStatus:
+		if err := rejectUnknownArguments(args, nil); err != nil {
+			return kbaseToolFailure(err), nil
+		}
 		return h.invokeStatus(agentKey)
 	default:
 		return contracts.ToolExecutionResult{Output: "tool not registered: " + toolName, Error: "tool_not_registered", ExitCode: -1}, nil
 	}
+}
+
+var (
+	filesArgumentNames = []string{"mode", "path", "pattern", "status", "type", "depth", "headLimit", "offset"}
+	readArgumentNames  = []string{"chunkId", "path", "offset", "limit"}
+)
+
+// rejectUnknownArguments mirrors the kbase_search contract: the schema's
+// additionalProperties:false is not enforced before the handler runs.
+func rejectUnknownArguments(args map[string]any, allowed []string) error {
+	for name := range args {
+		if !slices.Contains(allowed, name) {
+			return toolinput.Unknown("", allowed)
+		}
+	}
+	return nil
 }
 
 func (h *ToolHandler) requireContext(toolName string, execCtx *contracts.ExecutionContext) (string, *contracts.ToolExecutionResult) {

@@ -4,7 +4,7 @@ i18n:
     label: "Search Knowledge Base"
   zh-CN:
     label: "搜索知识库"
-description: Search the current Agent KBX knowledge base using hybrid, full-text, vector, or graph retrieval. Filters apply before recall and cannot widen the Agent scope. Results include evidence for verification. Vector and graph methods require their indexes; they never silently fall back. Search offset/cursor pagination is unavailable.
+description: "Search the bound knowledge library by hybrid, full-text, vector or graph retrieval. Read the kbase-control skill before use."
 tags: [knowledge-base, search]
 clientVisible: true
 readOnly: true
@@ -13,7 +13,7 @@ inputSchema:
   properties:
     query:
       type: string
-      description: Required. Search query.
+      description: "Required. Search query."
     method:
       type: string
       enum:
@@ -22,69 +22,69 @@ inputSchema:
         - vsearch
         - gsearch
       default: query
-      description: query combines available lexical, vector, and graph recall with explicit degradation. search is local full-text BM25 for exact terms and identifiers, with no model calls. vsearch is strict vector similarity. gsearch retrieves entity relationships and source evidence from an already-built complete graph; Platform refresh does not build graphs.
+      description: "Retrieval method."
     collections:
       type: array
       minItems: 1
       items:
         type: string
         minLength: 1
-      description: Explicit collection names within the bound library. Omit to use defaultQuery collections; explicit selection can include defaultQuery=false collections. Never widens the library binding.
+      description: "Collections to search."
     rerank:
       type: boolean
-      description: query only. Override the merged library/Agent rerank setting. Requires a configured library reranker when true; false disables it.
+      description: "Override the rerank setting."
     queryExpansion:
       type: boolean
-      description: query/vsearch only. Override the merged expansion setting. Requires a configured library queryExpansion model when true; false disables it.
+      description: "Override the query expansion setting."
     limit:
       type: integer
       minimum: 1
       maximum: 50
-      description: Maximum number of chunks to return. Defaults to library retrieval topK with explicit Agent overrides.
+      description: "Maximum chunks to return."
     candidateLimit:
       type: integer
       minimum: 1
       maximum: 2000
-      description: Candidate budget for query/search/vsearch, at least the effective limit and no greater than the merged library/Agent candidateMax ceiling (raised to the effective limit if needed). Omit to use the merged retrieval budget. Not available for gsearch.
+      description: "Candidate budget."
     exclude:
       type: array
       items:
         type: string
         minLength: 1
-      description: Hard lexical document exclusions for query/search/vsearch. Each entry is a KBX lexical expression; any matching document is excluded. Not a path glob. Not available for gsearch.
+      description: "Lexical expressions that exclude matching documents."
     intent:
       type: string
-      description: Positive context hint for query/search/vsearch. Does not replace hard exclusions or filters. Not available for gsearch.
+      description: "Positive context hint."
     minScore:
       type: number
-      description: Minimum KBX ranking score for query/search/vsearch. Scores are method-dependent and are not factual confidence. Not available for gsearch.
+      description: "Minimum ranking score."
     filter:
       type: string
-      description: KBX filter expression or JSON string, ANDed with all path filters and Agent include/exclude policy. Examples are 'project = payments and owner exists', 'sys.size >= 1024', or '(ext = md or ext = pdf) and not path ^= deprecated'. Typed metadata fields must already exist in the index. Supported by all four methods.
+      description: "KBX filter expression or JSON string."
     recencyWeight:
       type: number
       minimum: 0
       maximum: 1
-      description: Freshness weight for query/search/vsearch; 0 preserves relevance-only ranking. Not available for gsearch.
+      description: "Freshness weight."
     recencyHalfLifeDays:
       type: number
       exclusiveMinimum: 0
-      description: Freshness half-life in days for query/search/vsearch, default 90. Not available for gsearch.
+      description: "Freshness half-life in days."
     noGraph:
       type: boolean
-      description: query only. Set true to restrict hybrid retrieval to lexical and vector channels. Omitted or false allows recall from an available graph.
+      description: "Disable graph recall."
     entities:
       type: array
       items:
         type: string
         minLength: 1
-      description: gsearch only. Stable entity keys or unique exact entity names/aliases. Omit to link entities from the query.
+      description: "Graph entity keys or exact names."
     relations:
       type: array
       items:
         type: string
         minLength: 1
-      description: gsearch only. Allowed graph schema predicate IDs, such as depends_on. Omit to use all available relations.
+      description: "Allowed graph predicate IDs."
     direction:
       type: string
       enum:
@@ -92,21 +92,21 @@ inputSchema:
         - out
         - in
         - both
-      description: gsearch only. Relationship direction relative to linked entities; default auto.
+      description: "Relationship direction."
     maxHops:
       type: integer
       minimum: 1
       maximum: 3
-      description: gsearch only. Maximum relationship hops; default 2. Returned graph explanations preserve nodes, edges, and original evidence.
+      description: "Maximum relationship hops."
     pathPrefix:
       type: string
-      description: Collection-prefixed directory prefix applied before recall, such as docs/. Matching is case-sensitive and respects directory boundaries.
+      description: "Collection-prefixed directory prefix."
     pathGlob:
       type: string
-      description: KBX glob matched against collection/relativePath indexed paths. Supports *, ?, and **.
+      description: "Glob over collection/relativePath."
     type:
       type: string
-      description: Case-insensitive final file extension filter such as md or .pdf, applied before recall.
+      description: "File extension filter."
   required:
     - query
   additionalProperties: false

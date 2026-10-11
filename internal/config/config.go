@@ -98,6 +98,7 @@ type PathsConfig struct {
 	BuiltinConnectorsDir string
 	// Native Desktop package paths are set only by embedded resource assembly.
 	NativeKanbanControlDir   string
+	NativeKBaseControlDir    string
 	NativeTaskControlDir     string
 	NativePlatformControlDir string
 	NativeWebControlDir      string

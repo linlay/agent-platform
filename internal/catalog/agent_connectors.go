@@ -89,6 +89,7 @@ func (r *FileRegistry) PrepareAgentConnector(key, id string, enabled bool) (Agen
 		ExternalRoot:             r.cfg.Paths.EffectiveConnectorsCenterDir(),
 		BuiltinRoot:              r.cfg.Paths.BuiltinConnectorsDir,
 		NativeKanbanControlDir:   r.cfg.Paths.NativeKanbanControlDir,
+		NativeKBaseControlDir:    r.cfg.Paths.NativeKBaseControlDir,
 		NativeTaskControlDir:     r.cfg.Paths.NativeTaskControlDir,
 		NativePlatformControlDir: r.cfg.Paths.NativePlatformControlDir,
 		NativeWebControlDir:      r.cfg.Paths.NativeWebControlDir,

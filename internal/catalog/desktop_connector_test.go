@@ -1,9 +1,12 @@
 package catalog
 
 import (
+	"agent-platform/internal/api"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -151,5 +154,67 @@ func TestKanbanControlMountIsIndependent(t *testing.T) {
 	}
 	if task.SkillInstructionsPath("kanban-control") != "@connectors/builtin.kanban-control/skills/kanban-control/SKILL.md" {
 		t.Fatal("missing task skill")
+	}
+}
+
+func TestKBaseControlMountAndExclusion(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{
+		ModePresets: map[string]config.AgentPresets{"kbase": {Connectors: []string{connector.KBaseControlConnectorID}}},
+		Paths:       config.PathsConfig{AgentsDir: filepath.Join(root, "agents"), RUAgentsDir: filepath.Join(root, "ru-agents"), ConnectorsCenterDir: filepath.Join(root, "connectors-center"), SkillsCenterDir: filepath.Join(root, "skills-center")},
+	}
+	release, err := cfg.Paths.PrepareNativeConnectors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	head := "\nname: Test\nmodelConfig:\n  modelKey: test\n"
+	// The KBASE preset mounts the connector; GENERAL mounts explicitly and excludes one tool.
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "preset", "agent.yml"), "key: preset"+head+"mode: KBASE\nkbaseConfig:\n  libraryId: docs\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(workspace)+"\n")
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "partial", "agent.yml"), "key: partial"+head+"mode: GENERAL\ntoolConfig:\n  excludeTools:\n    - kbase_status\nconnectorConfig:\n  connectors:\n    - builtin.kbase-control\n")
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "plain", "agent.yml"), "key: plain"+head+"mode: GENERAL\n")
+	// A standalone declaration no longer grants the tool.
+	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "legacy", "agent.yml"), "key: legacy"+head+"mode: GENERAL\ntoolConfig:\n  tools:\n    - kbase_search\n")
+	r, err := newVersionTestRegistry(t, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preset, ok := r.AgentDefinition("preset")
+	if !ok || len(preset.ConnectorNativeTools) != 4 {
+		t.Fatalf("preset mount: %v %v", ok, preset.ConnectorNativeTools)
+	}
+	for _, name := range []string{"kbase_search", "kbase_files", "kbase_read", "kbase_status"} {
+		if !containsString(preset.Tools, name) {
+			t.Fatalf("preset is missing %s: %v", name, preset.Tools)
+		}
+	}
+	if preset.SkillInstructionsPath("kbase-control") != "@connectors/builtin.kbase-control/skills/kbase-control/SKILL.md" {
+		t.Fatal("missing kbase-control skill")
+	}
+	partial, ok := r.AgentDefinition("partial")
+	if !ok || len(partial.ConnectorNativeTools) != 3 || containsString(partial.Tools, "kbase_status") || containsString(partial.ConnectorNativeTools, "kbase_status") || !containsString(partial.Tools, "kbase_search") {
+		t.Fatalf("exclusion must remove the connector tool: %v %v", partial.Tools, partial.ConnectorNativeTools)
+	}
+	found := false
+	for _, binding := range partial.EffectiveToolBindings() {
+		if binding.Name == "kbase_status" {
+			found = binding.Source == "connector" && binding.Excluded && !binding.Active
+		}
+	}
+	if !found {
+		t.Fatalf("excluded connector tool must stay listed: %+v", partial.EffectiveToolBindings())
+	}
+	if plain, _ := r.AgentDefinition("plain"); containsString(plain.Tools, "kbase_search") {
+		t.Fatalf("unmounted Agent received knowledge tools: %v", plain.Tools)
+	}
+	if _, ok := r.AgentDefinition("legacy"); ok {
+		t.Fatal("standalone kbase tool declaration must be rejected")
+	}
+	if err := validatePresetTools([]string{"kbase_search"}, []api.ToolDetailResponse{{Name: "kbase_search"}}); err == nil || !strings.Contains(err.Error(), "preset-connectors") {
+		t.Fatalf("preset-tools must reject connector tools: %v", err)
 	}
 }

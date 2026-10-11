@@ -15,14 +15,14 @@ func (p PathsConfig) EffectiveConnectorStateDir() string {
 }
 
 func (p PathsConfig) ConnectorSources() connector.Sources {
-	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeKanbanControlDir: p.NativeKanbanControlDir, NativeTaskControlDir: p.NativeTaskControlDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveConnectorStateDir()}
+	return connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeKanbanControlDir: p.NativeKanbanControlDir, NativeKBaseControlDir: p.NativeKBaseControlDir, NativeTaskControlDir: p.NativeTaskControlDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveConnectorStateDir()}
 }
 
 func validateConnectorPaths(p PathsConfig) error {
 	if err := p.ConnectorSources().ValidateRoots(); err != nil {
 		return err
 	}
-	if err := (connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeKanbanControlDir: p.NativeKanbanControlDir, NativeTaskControlDir: p.NativeTaskControlDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveStateDir()}).ValidateRoots(); err != nil {
+	if err := (connector.Sources{ExternalRoot: p.EffectiveConnectorsCenterDir(), BuiltinRoot: p.BuiltinConnectorsDir, NativeKanbanControlDir: p.NativeKanbanControlDir, NativeKBaseControlDir: p.NativeKBaseControlDir, NativeTaskControlDir: p.NativeTaskControlDir, NativePlatformControlDir: p.NativePlatformControlDir, NativeWebControlDir: p.NativeWebControlDir, StateRoot: p.EffectiveStateDir()}).ValidateRoots(); err != nil {
 		return fmt.Errorf("AP_RUNTIME_STATE_DIR: %w", err)
 	}
 	// Connector sources and persistent state must stay outside generated Agents
@@ -65,9 +65,18 @@ func (p *PathsConfig) PrepareNativeConnectors() (func(), error) {
 		release()
 		return nil, err
 	}
+	kbase, releaseKBase, err := p.ConnectorSources().InstallEmbeddedKBaseControl()
+	if err != nil {
+		releaseKanban()
+		releaseTask()
+		releaseWeb()
+		release()
+		return nil, err
+	}
 	p.NativeKanbanControlDir = kanban.Dir
+	p.NativeKBaseControlDir = kbase.Dir
 	p.NativeTaskControlDir = task.Dir
 	p.NativePlatformControlDir = pkg.Dir
 	p.NativeWebControlDir = web.Dir
-	return func() { releaseKanban(); releaseTask(); releaseWeb(); release() }, nil
+	return func() { releaseKBase(); releaseKanban(); releaseTask(); releaseWeb(); release() }, nil
 }

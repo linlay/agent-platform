@@ -9,6 +9,7 @@ import (
 
 type stubToolService struct {
 	agentKey      string
+	called        string
 	searchOptions SearchOptions
 	filesOptions  FilesOptions
 	readOptions   ReadOptions
@@ -25,16 +26,19 @@ func (s *stubToolService) Search(_ context.Context, agentKey string, _ string, o
 }
 
 func (s *stubToolService) Files(_ string, options FilesOptions) (FilesResult, error) {
+	s.called = ToolFiles
 	s.filesOptions = options
 	return s.filesResult, nil
 }
 
 func (s *stubToolService) Read(_ string, options ReadOptions) (ReadResult, error) {
+	s.called = ToolRead
 	s.readOptions = options
 	return s.readResult, nil
 }
 
 func (s *stubToolService) Status(_ string) (Status, error) {
+	s.called = ToolStatus
 	return s.statusResult, nil
 }
 
@@ -175,5 +179,25 @@ func TestToolHandlerReturnsExplicitUnavailableResult(t *testing.T) {
 	}
 	if result.Error != "kbase_unavailable" || result.ExitCode != -1 || result.Structured["stale"] != true || result.Structured["unavailable"] != true {
 		t.Fatalf("unexpected unavailable result: %#v", result)
+	}
+}
+
+func TestFilesReadStatusRejectUnknownFieldsBeforeService(t *testing.T) {
+	for tool, known := range map[string]map[string]any{
+		ToolFiles:  {"mode": "tree", "path": "docs/", "pattern": "**", "status": "active", "type": "md", "depth": 3, "headLimit": 0, "offset": 1},
+		ToolRead:   {"path": "docs/a.md", "offset": 1, "limit": 20},
+		ToolStatus: {},
+	} {
+		s := &stubToolService{}
+		if r, err := NewToolHandler(s).Invoke(context.Background(), tool, known, kbaseToolExecutionContext()); err != nil || r.Error != "" || s.called != tool {
+			t.Fatalf("%s declared fields: result=%+v called=%q err=%v", tool, r, s.called, err)
+		}
+		for _, name := range []string{"libraryId", "agentKey", "head_limit"} {
+			s = &stubToolService{}
+			r, err := NewToolHandler(s).Invoke(context.Background(), tool, map[string]any{name: "x"}, kbaseToolExecutionContext())
+			if err != nil || r.Error != "kbase_invalid_request" || s.called != "" {
+				t.Fatalf("%s.%s: result=%+v called=%q err=%v", tool, name, r, s.called, err)
+			}
+		}
 	}
 }

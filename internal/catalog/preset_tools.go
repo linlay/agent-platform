@@ -18,8 +18,11 @@ func validatePresetTools(names []string, definitions []api.ToolDetailResponse) e
 		if !registered[name] {
 			return fmt.Errorf("preset-tools: tool %q is not registered locally", name)
 		}
-		_, native := connector.NativeToolConnector(name)
-		if strings.HasPrefix(name, "_") || name == "agent_delegate" || native {
+		owner, native := connector.NativeToolConnector(name)
+		if native {
+			return fmt.Errorf("preset-tools: tool %q belongs to connector %s; list it under preset-connectors", name, owner)
+		}
+		if strings.HasPrefix(name, "_") || name == "agent_delegate" {
 			return fmt.Errorf("preset-tools: tool %q requires an internal session or connector mount", name)
 		}
 	}
@@ -59,12 +62,13 @@ func (d *AgentDefinition) applyPresetTools(presets []string) {
 	}
 }
 
-// Mounted connector tools can reintroduce an excluded declaration. Excluded
-// describes the YAML exclusion; Active describes the effective capability.
-func (d *AgentDefinition) addConnectorToolBinding(name string) {
+// toolConfig.excludeTools also removes a mounted native connector's tool; the
+// binding stays listed so the exclusion remains visible.
+func (d *AgentDefinition) addConnectorToolBinding(name string, excluded bool) {
 	for i := range d.ToolBindings {
 		if d.ToolBindings[i].Name == name {
-			d.ToolBindings[i].Active = true
+			d.ToolBindings[i].Active = !excluded
+			d.ToolBindings[i].Excluded = excluded
 			d.ToolBindings[i].Removable = false
 			if d.ToolBindings[i].Source != "preset" {
 				d.ToolBindings[i].Source = "connector"
@@ -72,7 +76,7 @@ func (d *AgentDefinition) addConnectorToolBinding(name string) {
 			return
 		}
 	}
-	d.ToolBindings = append(d.ToolBindings, api.AgentToolBinding{Name: name, Source: "connector", Active: true})
+	d.ToolBindings = append(d.ToolBindings, api.AgentToolBinding{Name: name, Source: "connector", Excluded: excluded, Active: !excluded})
 }
 
 func (d AgentDefinition) EffectiveToolBindings() []api.AgentToolBinding {

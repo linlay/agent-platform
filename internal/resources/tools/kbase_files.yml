@@ -4,7 +4,7 @@ i18n:
     label: "Browse Knowledge Base Files"
   zh-CN:
     label: "浏览知识库文件"
-description: List files and compact directory tree entries from the current KBX index. This reads indexed KBX metadata only, not the host filesystem.
+description: "List indexed files or a directory tree from the bound knowledge library. Read the kbase-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:
@@ -16,29 +16,29 @@ inputSchema:
         - files
         - tree
       default: files
-      description: files returns a flat path list; tree returns compact directory and file entries.
+      description: "Flat list or tree."
     path:
       type: string
-      description: Collection-prefixed directory or path prefix. Defaults to the knowledge base root.
+      description: "Collection-prefixed directory or path prefix."
     pattern:
       type: string
-      description: KBASE glob matched relative to path. Defaults to **. Supports *, ?, and **.
+      description: "Glob relative to path."
     status:
       type: string
       enum:
         - active
       default: active
-      description: KBX currently exposes active indexed files only.
+      description: "Index status filter."
     type:
       type: string
-      description: Optional file extension filter such as md or .pdf.
+      description: "File extension filter."
     depth:
       type: integer
-      description: Maximum tree depth for mode=tree. Defaults to 2 and is capped at 8.
+      description: "Maximum tree depth."
     headLimit:
       type: integer
-      description: Maximum number of entries to return after offset. Defaults to 100; 0 means unlimited.
+      description: "Maximum entries to return."
     offset:
       type: integer
-      description: Number of entries to skip before applying headLimit.
+      description: "Entries to skip."
   additionalProperties: false

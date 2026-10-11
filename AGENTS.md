@@ -126,7 +126,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 - `internal/skillsexec` 为 Agent YAML 已配置普通 Skill 和本次 `mustUseSkills` 选中 Skill 的 `scripts/**` 保存独立的本 Run 内存执行凭据，绑定 Agent/Run/执行环境、严格现存 canonical 路径和实际字节 SHA-256。复用通用解释器与脚本入口识别，仅免对应入口 opaque 审批（`bash-access:skill-script`）；Host 启动前复验，Container 使用选中技能 Host–guest 映射与容器摘要。内容不匹配撤销，不落盘、不复制技能、不跨 Run/子调用继承，同 Run 压缩保留，恢复同 Run 不重建凭据。外围 Shell、hard block、readonly 与 KBASE mutation gate 不变；Host 不隔离脚本内部访问，入口摘要不锁定完整依赖图。
 - 脚本入口策略对所有 Agent 相同，bootstrap 没有特权。`scriptstate` 自写证明只在当前 Chat 目录内取消执行审批；可信技能入口仍按 `skillsexec` 核验。命令语义统一由 `internal/shellanalysis` 描述（选项、操作数角色、递归、删除、远端修改、Git 子命令与配置依赖），`bash -c`/`env -S` 递归分析；破坏性操作、Git 可执行配置写入与远端修改分别由 `approvals.destructive/executable-config/remote-mutation` 决定。批准绑定精确调用、canonical cwd、环境、access level 和内容 SHA-256；普通路径规则不扩到父目录。复杂 Shell 与远端 mutation 仅单次批准。Host 启动前重新核对，Container 使用实际 guest 摘要；不隔离任意代码内部访问。
 - Catalog 按资源根保留独立 watcher（重叠根合并），事件统一分类排队并串行 reload。技能/连接器 ZIP 在发布保护区外解压校验，区内重新检查当前状态；快照和普通保存不暂停监听，目录 mutation 只暂停对应根。API 与 watcher 通过加载前后一致的内容指纹去重，恢复监听只做对应类别差异检查，不无条件全量 reload；失败及加载期间变化不确认新状态。现有 skills→agents/ru-agents 组装和活动租约保护保留。管理入口保护不覆盖 Bash/外部编辑器直接写盘，详见 [Agent运行时组装](docs/Agent运行时组装.md#技能包事务与目录监听)。
-- 普通 Native Agent 工具只来自全局/mode preset、Agent 显式声明与连接器自身工具；Skills、运行环境、Memory、KBASE capability 和 CODER 阶段不得隐式补工具或恢复被排除工具。专用 memory_read/memory_search/memory_write/memory_update 已下线；Agent 通过 memx 获取记忆、file_write/file_edit 修改 Markdown，仍受现有工具和路径权限约束，不自动授予工具；KBASE 工具由 kbase.preset-tools 示例提供，GENERAL/CODER 自行声明。内部 planning、TEAM 和 PLAN-EXECUTE 协议工具保留，参见 [智能体配置](docs/智能体配置说明.md)。
+- 普通 Native Agent 工具只来自全局/mode preset、Agent 显式声明与连接器自身工具；Skills、运行环境、Memory、KBASE capability 和 CODER 阶段不得隐式补工具或恢复被排除工具。专用 memory_read/memory_search/memory_write/memory_update 已下线；Agent 通过 memx 获取记忆、file_write/file_edit 修改 Markdown，仍受现有工具和路径权限约束，不自动授予工具；四个知识检索工具归 `builtin.kbase-control`，分发示例经 kbase.preset-connectors 挂载，GENERAL/CODER 显式挂载；单独声明工具名硬失败，`toolConfig.excludeTools` 对原生连接器工具同样生效。内部 planning、TEAM 和 PLAN-EXECUTE 协议工具保留，参见 [智能体配置](docs/智能体配置说明.md)。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - Native `ANTHROPIC` 的显式思考配置使用 `thinking.type: adaptive`、`thinking.display: summarized` 与 `output_config.effort`，由有效 stage 的 reasoning 设置控制，不按模型名分支；请求构造在合并 compat 后统一设置，累计 token 用量由协议适配映射到现有 usage 事件；模型级 `maxOutputTokens` 作为 Anthropic 默认请求预算与输出能力上限，不按模型名推断，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
 - TEAM 是公开 mode：通用机制归 `internal/agent`，调度归 `internal/agent/team`。总控与成员一起冻结版本和租约；成员不可为 TEAM/ACP、不可带 agent_invoke。规划 Run 禁用 agent_delegate，执行 Run 可委派。详见 [智能体配置](docs/智能体配置说明.md#team-agent-配置)。
@@ -188,7 +188,7 @@ make test
 
 原生连接器仅通过 `connector.json` 的 `type: native` 与已注册 ID 识别，工具归属以 `internal/connector/native.go` 为唯一事实源；不再维护 `native.json` capabilities 声明，旧文件明确拒绝。
 
-四个内嵌原生连接器 platform-control/task-control/kanban-control/web-control 从 `0.4.0` 开始使用 Platform 版本系列，Platform 发布时统一维护其源码 `connector.json` 版本；不进入外部 builtin/connector lock。dbx/httpx 保持独立项目版本。
+五个内嵌原生连接器 platform-control/task-control/kanban-control/kbase-control/web-control 从 `0.4.0` 开始使用 Platform 版本系列，Platform 发布时统一维护其源码 `connector.json` 版本；不进入外部 builtin/connector lock。dbx/httpx 保持独立项目版本。
 
 Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-local-builtins`，修改其源码资源后正常 `make run-local` 即可生效。`builtin.httpx`、`builtin.dbx` 和其他外部可执行组件仍按既有流程准备、校验缓存。旧缓存中的 Desktop 条目仍接受完整性校验，但应用装配始终选择当前程序内嵌版本；发布阶段从已校验的输出副本移除该旧条目，不改原缓存。运行时资源导入校验复用相同内嵌装配流程。
 
@@ -210,6 +210,8 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 `builtin.task-control`（任务管理）独立提供五个 Chat 工具和两个 Automation 工具；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
 自动化行为、自然语言时间/Cron 与 YAML 契约归 task-control 的按需 references；Provider/Model 和外部连接器组件配置维护参考归 platform-control。Skill 不增加工具或文件权限，不应恢复外部 platform-admin/platform-automation 的重复路由。具体自动化更新与时区语义见 [自动化](docs/自动化.md#task-control-管理工具)。
+
+`builtin.kbase-control`（知识库检索）独立提供 `kbase_search/kbase_files/kbase_read/kbase_status` 四个只读工具及配套 Skill，不依赖 Desktop；仍读取 Agent 的固定 `kbaseConfig.libraryId` 绑定，库管理工具留在 `builtin.platform-control`，详见 [连接器](docs/连接器.md#kbase-control-知识库检索)。
 
 `builtin.kanban-control`（看板控制）独立提供 `desktop_kanban` 的六个看板动作，依赖 Desktop；原 `builtin.platform-control` 挂载不再授予看板能力。需要看板的 Agent 应显式挂载新连接器，详见 [连接器](docs/连接器.md#kanban-control-看板控制)。
 

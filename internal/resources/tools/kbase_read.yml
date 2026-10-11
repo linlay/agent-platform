@@ -4,7 +4,7 @@ i18n:
     label: "Read Knowledge Base Excerpt"
   zh-CN:
     label: "读取知识库片段"
-description: Read the exact KBX evidence range by chunkId, or read the indexed extracted text by source path. Line numbers refer to extracted text.
+description: "Read an evidence range by chunkId or indexed text by source path. Read the kbase-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:
@@ -12,14 +12,14 @@ inputSchema:
   properties:
     chunkId:
       type: string
-      description: Content-addressed chunkId or evidenceId returned by kbase_search, including graph edge evidenceId, or nextEvidence from a previous read. Returns that exact range. Do not combine with offset or limit.
+      description: "Evidence locator from a search hit or a previous read."
     path:
       type: string
-      description: Collection-prefixed source path.
+      description: "Collection-prefixed source path."
     offset:
       type: integer
-      description: One-based source line offset when reading by path.
+      description: "One-based line offset."
     limit:
       type: integer
-      description: Maximum source lines when reading by path.
+      description: "Maximum lines."
   additionalProperties: false
