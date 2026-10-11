@@ -101,6 +101,23 @@ func TestMergedPromptsAndKBX(t *testing.T) {
 		t.Fatal(c.KBX)
 	}
 }
+
+func TestAgentPromptsRejectRetiredKBaseCapabilityPrompt(t *testing.T) {
+	for _, value := range []string{"legacy rules", "''", "null", "{}"} {
+		t.Run(value, func(t *testing.T) {
+			cfg := Config{KBasePrompts: KBasePromptsConfig{SystemPrompt: "current prompt"}}
+			body := "kbase:\n  system-prompt: replacement\n  capability-prompt: " + value + "\n"
+			err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body))
+			if err == nil || !strings.Contains(err.Error(), "unknown or retired field") || !strings.Contains(err.Error(), ".kbase.capability-prompt") {
+				t.Fatalf("retired capability-prompt accepted or misclassified: %v", err)
+			}
+			if cfg.KBasePrompts.SystemPrompt != "current prompt" {
+				t.Fatal("rejected prompt configuration changed the active prompt")
+			}
+		})
+	}
+}
+
 func TestMigrationPreservesRawValuesAndRejectsConflicts(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "configs")

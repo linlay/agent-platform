@@ -424,6 +424,6 @@ docker compose logs -f
 
 平台管理与自动化的操作说明由相应内置连接器 Skill 承载，包含自动化时间/Cron 工作流、YAML 维护及 Provider/Model/外部连接器配置参考，不需要额外挂载外部 platform-admin 或 platform-automation Skill。自动化更新、时区和审批契约见 [自动化](docs/自动化.md#task-control-管理工具)。
 
-`builtin.kbase-control`（知识库检索）独立提供 `kbase_search/kbase_files/kbase_read/kbase_status` 四个只读工具及配套 Skill，不依赖 Desktop；仍读取 Agent 的固定 `kbaseConfig.libraryId` 绑定，库管理工具留在 `builtin.platform-control`，详见 [连接器](docs/连接器.md#kbase-control-知识库检索)。
+`builtin.kbase-control`（知识库检索）独立提供 `kbase_list/kbase_search/kbase_files/kbase_read/kbase_status` 五个只读工具及配套 Skill，不依赖 Desktop；检索工具显式传入 `libraryId`，库管理工具留在 `builtin.platform-control`。检索规则由工具说明与配套 Skill 承载，挂载连接器不追加 system prompt 规则，绑定或选库时仅追加库元数据；旧 `kbase.capability-prompt` 配置键出现即拒绝加载。详见 [连接器](docs/连接器.md#kbase-control-知识库检索) 与 [Agent 配置合并](docs/Agent配置合并.md)。
 
 `builtin.kanban-control`（看板控制）独立提供 `desktop_kanban` 的六个看板动作，依赖 Desktop；原 `builtin.platform-control` 挂载不再授予看板能力。需要看板的 Agent 应显式挂载新连接器，详见 [连接器](docs/连接器.md#kanban-control-看板控制)。

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -35,11 +36,22 @@ func TestKnowledgeSelectionUnboundAgentAndFrozenRun(t *testing.T) {
 	if strings.Join(result.MustUseKbases, ",") != "a,b" || len(result.KnowledgeLibraries) != 2 || result.KBaseBindingLibraryID != "" {
 		t.Fatalf("selection: %+v", result)
 	}
-	prompt := strings.Join(result.CapabilityPrompts, "\n")
-	for _, text := range []string{"产品文档", "发布规则", "版本说明", "libraryId", "each required library"} {
-		if !strings.Contains(prompt, text) {
-			t.Fatalf("missing %q: %s", text, prompt)
-		}
+	const prefix = "Knowledge library context:\n"
+	if len(result.CapabilityPrompts) != 1 || !strings.HasPrefix(result.CapabilityPrompts[0], prefix) {
+		t.Fatalf("expected one library metadata section: %v", result.CapabilityPrompts)
+	}
+	var metadata struct {
+		BoundLibraryID    string            `json:"boundLibraryId"`
+		RequiredLibraries []api.KBaseOption `json:"requiredLibraries"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(result.CapabilityPrompts[0], prefix)), &metadata); err != nil {
+		t.Fatalf("library context must contain only JSON metadata after its label: %v", err)
+	}
+	if metadata.BoundLibraryID != "" || len(metadata.RequiredLibraries) != 2 || metadata.RequiredLibraries[0].Name != a.Name ||
+		metadata.RequiredLibraries[0].Description != a.Description || len(metadata.RequiredLibraries[0].Collections) != 1 ||
+		metadata.RequiredLibraries[0].Collections[0].Description != "版本说明" ||
+		metadata.RequiredLibraries[1].ID != b.ID {
+		t.Fatalf("library metadata lost selected library details: %+v", metadata)
 	}
 	if result.ScopedFilePolicy != nil {
 		t.Fatal("temporary library selection granted KBASE write roots")
@@ -51,6 +63,33 @@ func TestKnowledgeSelectionUnboundAgentAndFrozenRun(t *testing.T) {
 	delete(lookup, "a")
 	if _, err = builder.ResolveKbases(def, []string{"a", "b"}); err == nil || !strings.Contains(err.Error(), `"a"`) {
 		t.Fatalf("invalid library must reject whole request: %v", err)
+	}
+}
+
+func TestKBaseConnectorMountWithoutLibraryContextAddsNoPrompt(t *testing.T) {
+	for _, mode := range []string{"GENERAL", "CODER", "PLAN-EXECUTE"} {
+		t.Run(mode, func(t *testing.T) {
+			builder := New(Dependencies{
+				Config: config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(t.TempDir(), "chats")}},
+				KnowledgeLibrary: func(id string) (api.KBaseOption, error) {
+					t.Fatalf("connector mounting must not discover libraries: %s", id)
+					return api.KBaseOption{}, nil
+				},
+			})
+			def := catalog.AgentDefinition{
+				Key: "general", Mode: mode, Tools: []string{"kbase_list", "kbase_search"},
+				Connectors: []string{connector.KBaseControlConnectorID},
+				Workspace:  catalog.AgentWorkspaceConfig{Root: t.TempDir()},
+			}
+			request := runtimetypes.QueryCommand{AgentKey: def.Key, ChatID: "chat-1", RunID: "run-1"}
+			session, err := builder.BuildQuerySession(context.Background(), request, chat.Summary{ChatID: request.ChatID}, def, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(session.CapabilityPrompts) != 0 || len(session.KnowledgeLibraries) != 0 || session.KBaseBindingLibraryID != "" {
+				t.Fatalf("connector mount injected library context: prompts=%v libraries=%v binding=%q", session.CapabilityPrompts, session.KnowledgeLibraries, session.KBaseBindingLibraryID)
+			}
+		})
 	}
 }
 

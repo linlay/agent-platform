@@ -49,9 +49,8 @@ func DefaultPromptAppendConfig() PromptAppendConfig {
 // KBaseModePrompts are the configured parts added around a dedicated KBASE
 // Agent's system prompt. They have no source defaults.
 type KBaseModePrompts struct {
-	Capability string
-	Workspace  string
-	Editing    string
+	Workspace string
+	Editing   string
 }
 
 type RuntimeRequestContext struct {

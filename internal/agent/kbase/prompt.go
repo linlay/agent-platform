@@ -17,7 +17,7 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 		return ""
 	}
 	// Every part comes from agent-prompt.yml; an empty part is skipped.
-	parts := []string{session.KBaseModePrompts.Capability, session.ModeSystemPrompt, session.KBaseModePrompts.Workspace}
+	parts := []string{session.ModeSystemPrompt, session.KBaseModePrompts.Workspace}
 	if editing {
 		parts = append(parts, session.KBaseModePrompts.Editing)
 	}

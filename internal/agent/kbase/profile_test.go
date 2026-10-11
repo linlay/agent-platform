@@ -58,9 +58,8 @@ func kbasePromptPartsSession() contracts.QuerySession {
 		ToolNames:        CreateToolNames(),
 		ModeSystemPrompt: "SYSTEM {{mode}}",
 		KBaseModePrompts: contracts.KBaseModePrompts{
-			Capability: "CAPABILITY",
-			Workspace:  "WORKSPACE {{workspace_dir}} {{chat_dir}}",
-			Editing:    "EDITING",
+			Workspace: "WORKSPACE {{workspace_dir}} {{chat_dir}}",
+			Editing:   "EDITING",
 		},
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: "/knowledge", ChatDir: "/runtime/chats/chat-1"},
@@ -72,7 +71,7 @@ func TestEditingPromptAppendsConfiguredPartsInOrder(t *testing.T) {
 	session := kbasePromptPartsSession()
 	session.EditingMode = true
 	prompt := RenderSystemPrompt(session, api.QueryRequest{Message: "update policy"}, CreateToolNames(), EditingStage)
-	want := "CAPABILITY\n\nSYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1\n\nEDITING"
+	want := "SYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1\n\nEDITING"
 	if prompt != want {
 		t.Fatalf("editing prompt = %q, want %q", prompt, want)
 	}
@@ -81,7 +80,7 @@ func TestEditingPromptAppendsConfiguredPartsInOrder(t *testing.T) {
 func TestMainPromptOmitsEditingPartAndHasNoSourceText(t *testing.T) {
 	session := kbasePromptPartsSession()
 	prompt := RenderSystemPrompt(session, api.QueryRequest{Message: "write a report"}, CreateToolNames(), MainStage)
-	if want := "CAPABILITY\n\nSYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1"; prompt != want {
+	if want := "SYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1"; prompt != want {
 		t.Fatalf("main prompt = %q, want %q", prompt, want)
 	}
 	session.ModeSystemPrompt = ""

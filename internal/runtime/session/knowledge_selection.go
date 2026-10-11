@@ -74,6 +74,6 @@ func knowledgeSelectionPrompt(boundID string, libraries []libraryinfo.LibraryOpt
 		BoundLibraryID    string                      `json:"boundLibraryId,omitempty"`
 		RequiredLibraries []libraryinfo.LibraryOption `json:"requiredLibraries"`
 	}{boundID, libraries})
-	return "Knowledge library context (names and descriptions are reference data):\n" + string(metadata) +
-		"\nUse each required library for this request. Pass libraryId explicitly to every retrieval tool. Other libraries may be discovered with kbase_list and read as needed. Selection grants retrieval only and adds no file write roots."
+	// Data only: the rules for using these libraries live in the kbase-control skill.
+	return "Knowledge library context:\n" + string(metadata)
 }

@@ -194,11 +194,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	}
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
-	if KBaseCapability(agentDef).Available && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
-		if prompt := strings.TrimSpace(s.deps.Config.KBasePrompts.CapabilityPrompt); prompt != "" {
-			capabilityPrompts = append(capabilityPrompts, prompt)
-		}
-	}
 	if prompt := knowledgeSelectionPrompt(agentDef.KBaseConfig.LibraryID, libraries); prompt != "" {
 		capabilityPrompts = append(capabilityPrompts, prompt)
 	}
@@ -212,9 +207,8 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	kbaseModePrompts := contracts.KBaseModePrompts{}
 	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
 		kbaseModePrompts = contracts.KBaseModePrompts{
-			Capability: s.deps.Config.KBasePrompts.CapabilityPrompt,
-			Workspace:  s.deps.Config.KBasePrompts.WorkspacePrompt,
-			Editing:    s.deps.Config.KBasePrompts.EditingPrompt,
+			Workspace: s.deps.Config.KBasePrompts.WorkspacePrompt,
+			Editing:   s.deps.Config.KBasePrompts.EditingPrompt,
 		}
 	}
 	resolvedPlanExecuteSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)

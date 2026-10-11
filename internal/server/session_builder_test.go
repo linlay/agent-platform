@@ -252,10 +252,9 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 			SystemPrompt: "configured coder system prompt",
 		},
 		KBasePrompts: config.KBasePromptsConfig{
-			SystemPrompt:     "configured kbase system prompt",
-			CapabilityPrompt: "configured capability",
-			WorkspacePrompt:  "configured workspace",
-			EditingPrompt:    "configured editing",
+			SystemPrompt:    "configured kbase system prompt",
+			WorkspacePrompt: "configured workspace",
+			EditingPrompt:   "configured editing",
 		},
 	}
 	registry, err := newRuntimeTestRegistry(t, cfg, nil)
@@ -287,7 +286,7 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	if session.ModeSystemPrompt != "configured kbase system prompt" {
 		t.Fatalf("kbase system prompt = %q, want configured prompt", session.ModeSystemPrompt)
 	}
-	if want := (contracts.KBaseModePrompts{Capability: "configured capability", Workspace: "configured workspace", Editing: "configured editing"}); session.KBaseModePrompts != want {
+	if want := (contracts.KBaseModePrompts{Workspace: "configured workspace", Editing: "configured editing"}); session.KBaseModePrompts != want {
 		t.Fatalf("kbase mode prompts = %#v, want %#v", session.KBaseModePrompts, want)
 	}
 	if session.KBaseBindingLibraryID != "research" || len(session.CapabilityPrompts) != 1 {
@@ -384,8 +383,7 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{
-		Paths:        config.PathsConfig{ChatsDir: filepath.Join(root, "chats")},
-		KBasePrompts: config.KBasePromptsConfig{CapabilityPrompt: "configured capability"},
+		Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")},
 	}
 	workspace := filepath.Join(root, "knowledge")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -415,7 +413,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build query session: %v", err)
 	}
-	if session.KBaseBindingLibraryID == "" || len(session.CapabilityPrompts) != 2 || session.CapabilityPrompts[0] != "configured capability" {
+	if session.KBaseBindingLibraryID == "" || len(session.CapabilityPrompts) != 1 {
 		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseBindingLibraryID, session.CapabilityPrompts)
 	}
 	for _, stage := range []contracts.StageSettings{session.ResolvedPlanExecuteSettings.Plan, session.ResolvedPlanExecuteSettings.Execute} {
@@ -430,7 +428,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		t.Fatalf("ordinary Agent KBASE capability workspace = %q, want %q", got, workspace)
 	}
 	def.KBaseConfig.Enabled = false
-	if session.KBaseBindingLibraryID == "" || len(session.CapabilityPrompts) != 2 {
+	if session.KBaseBindingLibraryID == "" || len(session.CapabilityPrompts) != 1 {
 		t.Fatal("mutating the catalog definition changed an existing session snapshot")
 	}
 }

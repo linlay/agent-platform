@@ -23,7 +23,7 @@ Method:
   - search is local full-text BM25 for exact terms and identifiers, with no model calls.
   - vsearch is strict vector similarity.
   - gsearch retrieves entity relationships and source evidence from an already-built complete graph. Platform refresh does not build graphs.
-  - vsearch and gsearch require their indexes and never silently fall back; switch method explicitly when one is unavailable.
+  - vsearch and gsearch require their indexes and never silently fall back. When a method or capability is unavailable, report it and switch method explicitly; never change methods silently or retry in the hope it recovers.
 
 Scope, supported by all four methods:
 
