@@ -88,7 +88,7 @@ func (e *LibraryEngine) UpdateLibrary(ctx context.Context, db string, definition
 			wanted[c.Name] = c.SourcePath
 		}
 		for _, c := range old.Collections {
-			if wanted[c.Name] != c.Path {
+			if sourcePath, ok := wanted[c.Name]; !ok || !collectionSourceMatchesWorkspace(c.Path, sourcePath) {
 				if _, err = e.runner.Run(ctx, db, cfg, "collection", "remove", c.Name); err != nil {
 					return err
 				}

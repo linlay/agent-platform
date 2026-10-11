@@ -256,7 +256,7 @@ function Invoke-ProgramRuntimeResourceSync {
   }
   foreach ($item in $nativeOutput) {
     if ($item -is [System.Management.Automation.ErrorRecord] -and
-        [string]$item.FullyQualifiedErrorId -eq 'NativeCommandError') {
+        @('NativeCommandError', 'NativeCommandErrorMessage') -contains [string]$item.FullyQualifiedErrorId) {
       Write-Output ([string]$item)
       continue
     }

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -395,5 +396,51 @@ func TestLibraryUpdateNotStartedBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestLibraryEquivalentCollectionPathPreservesIncrementalUpdate(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "index.sqlite")
+	if err := os.WriteFile(db, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "source")
+	if runtime.GOOS == "windows" {
+		alias = `\\?\` + source
+	} else if err := os.Symlink(source, alias); err != nil {
+		t.Fatal(err)
+	}
+	f := &maintenanceFake{collection: map[string]any{"name": "research", "path": alias}}
+	e := NewLibraryEngine()
+	e.runner = f
+	if err := e.UpdatePaths(context.Background(), db, []kbases.Collection{{Name: "research", SourcePath: source}}, map[string][]string{"research": {"note.md"}}); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(f.calls, "\n")
+	for _, operation := range []string{"collection remove", "collection add"} {
+		if strings.Contains(joined, operation) {
+			t.Fatalf("equivalent source was re-registered: %s", joined)
+		}
+	}
+	if !strings.Contains(joined, "update -c research --no-commands --paths-from") {
+		t.Fatalf("equivalent source lost incremental update: %s", joined)
+	}
+}
+
+func TestRefreshRejectsForeignCollectionSource(t *testing.T) {
+	m, l := newTestManager(t)
+	f := &maintenanceFake{collection: map[string]any{"name": "workspace", "path": t.TempDir()}}
+	m.runner = f
+	if err := m.performRefresh(context.Background(), &collectionUpdate{library: l}, &updatePaths{}); err == nil || err.Error() != "KBX source identity does not match collection" {
+		t.Fatalf("foreign source accepted: %v", err)
+	}
+	for _, call := range f.calls {
+		if strings.HasPrefix(call, "update ") || strings.HasPrefix(call, "collection set-") {
+			t.Fatalf("mutated a foreign source: %s", call)
+		}
 	}
 }
