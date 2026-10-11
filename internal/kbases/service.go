@@ -33,7 +33,7 @@ var collectionNamePattern = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63
 type Collection struct {
 	DefaultQuery *bool                   `json:"defaultQuery,omitempty"`
 	Description  string                  `json:"description,omitempty"`
-	Editable     bool                    `json:"editable,omitempty"`
+	Editable     bool                    `json:"editable"`
 	Name         string                  `json:"name"`
 	SourcePath   string                  `json:"sourcePath"`
 	Include      []string                `json:"include"`
@@ -42,6 +42,7 @@ type Collection struct {
 }
 
 type Definition struct {
+	BaseRevision   string                       `json:"baseRevision,omitempty"`
 	Retrieval      *knowledge.RetrievalSettings `json:"retrieval,omitempty"`
 	VectorsPending bool                         `json:"vectorsPending,omitempty"`
 	Chunk          *knowledge.ChunkSettings     `json:"chunk,omitempty"`
@@ -67,6 +68,7 @@ type Definition struct {
 	InvalidID      bool     `json:"invalidId,omitempty"`
 }
 type Input struct {
+	BaseRevision string                       `json:"baseRevision,omitempty"`
 	Retrieval    *knowledge.RetrievalSettings `json:"retrieval,omitempty"`
 	Chunk        *knowledge.ChunkSettings     `json:"chunk,omitempty"`
 	TextEncoding *string                      `json:"textEncoding,omitempty"`
@@ -89,21 +91,23 @@ type Engine interface {
 	Read(context.Context, string, string, string, int, ...string) (json.RawMessage, error)
 }
 type Service struct {
-	root        string
-	runtimeRoot string // Persistent per-library data, directly below ru-kbases.
-	engine      Engine
-	ctx         context.Context
-	mu          sync.RWMutex
-	busy        map[string]bool
-	locks       sync.Map
-	tasks       sync.Map
-	held        sync.Map
-	started     bool
-	gate        chan struct{}
-	options     Options
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	admission   sync.Mutex // Serialize worker admission against shutdown.
+	root             string
+	runtimeRoot      string // Persistent per-library data, directly below ru-kbases.
+	engine           Engine
+	ctx              context.Context
+	mu               sync.RWMutex
+	busy             map[string]bool
+	locks            sync.Map
+	tasks            sync.Map
+	held             sync.Map
+	started          bool
+	gate             chan struct{}
+	options          Options
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	admission        sync.Mutex // Serialize worker admission against shutdown.
+	management       sync.Mutex // Serialize management baselines, deduplication and receipts.
+	receiptCleanupAt time.Time  // Protected by management.
 }
 
 func New(ctx context.Context, root, runtimeRoot string, engine Engine, options ...Options) (*Service, error) {
@@ -310,20 +314,32 @@ func (s *Service) Get(id string) (Definition, error) {
 			return diagnostic(d, id, err), nil
 		}
 		if _, runErr := s.runtimeDirectory(id, false); runErr == nil && errors.Is(err, ErrNotFound) {
-			return diagnostic(Definition{Orphaned: true}, id, fmt.Errorf("orphaned runtime data: configuration is missing")), nil
+			revision, revisionErr := s.configurationRevision(id)
+			if revisionErr != nil {
+				return Definition{}, revisionErr
+			}
+			return diagnostic(Definition{Orphaned: true, BaseRevision: revision}, id, fmt.Errorf("orphaned runtime data: configuration is missing")), nil
 		}
 	}
 	return d, err
 }
-func (s *Service) Create(in Input) (Definition, error) { return s.create(in, false) }
+func (s *Service) Create(in Input) (Definition, error) {
+	s.management.Lock()
+	defer s.management.Unlock()
+	return s.create(in, false, nil)
+}
 func (s *Service) CreateHeld(in Input) (Definition, func(), error) {
-	d, err := s.create(in, true)
+	s.management.Lock()
+	defer s.management.Unlock()
+	d, err := s.create(in, true, nil)
 	if err != nil {
 		return d, nil, err
 	}
 	return d, func() { s.held.Delete(d.ID) }, nil
 }
-func (s *Service) create(in Input, held bool) (Definition, error) {
+func (s *Service) create(in Input, held bool, approved []Collection) (out Definition, resultErr error) {
+	started := false
+	defer func() { resultErr = managementFailure(resultErr, started) }()
 	if err := validate(in); err != nil {
 		return Definition{}, err
 	}
@@ -341,6 +357,9 @@ func (s *Service) create(in Input, held bool) (Definition, error) {
 		source, err := s.canonicalSource(collections[i].SourcePath)
 		if err != nil {
 			return Definition{}, fmt.Errorf("collection %s: %w", collections[i].Name, err)
+		}
+		if approved != nil && (i >= len(approved) || source != approved[i].SourcePath) {
+			return Definition{}, fmt.Errorf("%w: canonical source changed before creation", ErrApprovalStale)
 		}
 		collections[i].SourcePath = source
 	}
@@ -367,6 +386,7 @@ func (s *Service) create(in Input, held bool) (Definition, error) {
 		return Definition{}, err
 	}
 	dir := filepath.Join(root, d.ID)
+	started = true
 	if err := os.Mkdir(dir, 0700); err != nil {
 		return Definition{}, err
 	}
@@ -390,9 +410,20 @@ func (s *Service) create(in Input, held bool) (Definition, error) {
 		s.held.Delete(d.ID)
 		return Definition{}, errors.Join(err, os.RemoveAll(runDir), os.RemoveAll(dir))
 	}
+	d.BaseRevision, err = s.configurationRevision(d.ID)
+	if err != nil {
+		return d, err
+	}
 	return d, nil
 }
 func (s *Service) Edit(id string, in Input) (Definition, error) {
+	s.management.Lock()
+	defer s.management.Unlock()
+	return s.edit(id, in, nil, false)
+}
+func (s *Service) edit(id string, in Input, approved []Collection, replaceSettings bool) (out Definition, resultErr error) {
+	started := false
+	defer func() { resultErr = managementFailure(resultErr, started) }()
 	if err := validate(in); err != nil {
 		return Definition{}, err
 	}
@@ -401,6 +432,11 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 		return Definition{}, ErrBusy
 	}
 	defer lock.Unlock()
+	if in.BaseRevision != "" {
+		if err := s.checkRevision(id, in.BaseRevision); err != nil {
+			return Definition{}, err
+		}
+	}
 	if s.isBusy(id) {
 		return Definition{}, ErrBusy
 	}
@@ -432,10 +468,13 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 		}
 		for i, c := range collections {
 			// Unchanged sources need not be online to edit display metadata.
-			if existing[c.Name] != c.SourcePath {
+			if existing[c.Name] != c.SourcePath || approved != nil {
 				source, err := s.canonicalSource(c.SourcePath)
 				if err != nil {
 					return d, fmt.Errorf("collection %s: %w", c.Name, err)
+				}
+				if approved != nil && (i >= len(approved) || source != approved[i].SourcePath) {
+					return d, fmt.Errorf("%w: canonical source changed before update", ErrApprovalStale)
 				}
 				collections[i].SourcePath = source
 			}
@@ -449,12 +488,19 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 			d.SourcePath = collections[0].SourcePath
 		}
 	}
+	if replaceSettings {
+		// Control patches have already produced a complete desired configuration;
+		// omitted settings here were explicitly removed by the patch. HTTP edits
+		// retain their sparse-input contract.
+		d.Chunk, d.Models, d.Retrieval, d.TextEncoding = nil, nil, nil, ""
+	}
 	if err := applyLibrarySettings(&d, in); err != nil {
 		return d, err
 	}
 	d.Name = strings.TrimSpace(in.Name)
 	d.Description = in.Description
 	d.UpdatedAt = time.Now().UnixMilli()
+	started = true
 	if err := s.saveConfiguration(d); err != nil {
 		return d, err
 	}
@@ -465,11 +511,31 @@ func (s *Service) Edit(id string, in Input) (Definition, error) {
 	return loaded, nil
 }
 func (s *Service) Delete(id string) error {
+	s.management.Lock()
+	defer s.management.Unlock()
+	return s.delete(id, "")
+}
+func (s *Service) DeleteRevision(id, revision string) error {
+	s.management.Lock()
+	defer s.management.Unlock()
+	if revision == "" {
+		return fmt.Errorf("baseRevision is required")
+	}
+	return s.delete(id, revision)
+}
+func (s *Service) delete(id, revision string) (resultErr error) {
+	started := false
+	defer func() { resultErr = managementFailure(resultErr, started) }()
 	lock := s.libraryLock(id)
 	if !lock.TryLock() {
 		return ErrBusy
 	}
 	defer lock.Unlock()
+	if revision != "" {
+		if err := s.checkRevision(id, revision); err != nil {
+			return err
+		}
+	}
 	if s.isBusy(id) {
 		return ErrBusy
 	}
@@ -490,6 +556,7 @@ func (s *Service) Delete(id string) error {
 		return ErrNotFound
 	}
 	// Quarantine before recursive deletion: partial cleanup must never expose a ready index.
+	started = true
 	if runErr == nil {
 		if err := quarantineAndRemove(runDir); err != nil {
 			return err

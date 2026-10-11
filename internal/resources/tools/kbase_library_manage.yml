@@ -1,0 +1,34 @@
+name: "kbase_library_manage"
+i18n:
+  en:
+    label: "Manage Knowledge Libraries"
+  zh-CN:
+    label: "管理知识库"
+description: "Create, update or delete library definitions and source grants. Read the platform-control skill before use."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+confirmationRules:
+  - when:
+      /action: delete
+    view: {key: resource_delete_review}
+  - view: {key: platform_control_review}
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      type: "string"
+      enum:
+        - "create"
+        - "update"
+        - "delete"
+    args:
+      type: "object"
+      description: "See its skill."
+  required:
+    - "action"
+  additionalProperties: false

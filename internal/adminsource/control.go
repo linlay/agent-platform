@@ -57,12 +57,13 @@ type ControlPlan struct {
 	exists              bool
 }
 type ControlService struct {
-	Reload     func(context.Context, string) error
-	Coordinate func(context.Context, string, func(context.Context) error) error
-	Mutations  *Service
-	Config     config.Config
-	Registry   catalog.Registry
-	Models     *models.ModelRegistry
+	Reload          func(context.Context, string) error
+	Coordinate      func(context.Context, string, func(context.Context) error) error
+	Mutations       *Service
+	Config          config.Config
+	Registry        catalog.Registry
+	Models          *models.ModelRegistry
+	ValidateLibrary func(string) error
 }
 
 func controlHash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
@@ -328,6 +329,9 @@ func (s *ControlService) Validate(t ControlTarget, content string) error {
 		}
 		m, e := parseDefinition(content)
 		if e != nil {
+			return e
+		}
+		if e = ValidateKnowledgeBinding(m, s.ValidateLibrary); e != nil {
 			return e
 		}
 		if s.Registry != nil {

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
 	"agent-platform/internal/artifactpusher"
@@ -290,7 +291,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}()
 	libraryEngine := kbx.NewLibraryEngineWithSource(kbxConfig)
-	kbasesService, err := kbases.New(backgroundCtx, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, libraryEngine, kbases.Options{ChatsDir: cfg.Paths.ChatsDir, StateDir: cfg.Paths.StateDir, RuntimeDir: filepath.Dir(cfg.Paths.KBasesDir), References: func(id string) []string {
+	kbasesService, err := kbases.New(backgroundCtx, cfg.Paths.KBasesDir, cfg.Paths.RUKBasesDir, libraryEngine, kbases.Options{ChatsDir: cfg.Paths.ChatsDir, StateDir: cfg.Paths.StateDir, RuntimeDir: filepath.Dir(cfg.Paths.KBasesDir), ProtectedPaths: accesspolicy.PlatformProtectedPaths(cfg), References: func(id string) []string {
 		refs := []string{}
 		for _, a := range registry.AdminAgents() {
 			binding := contracts.AnyMapNode(a.Definition["kbaseConfig"])
@@ -401,7 +402,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("register run_env tool: %w", err)
 	}
 	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID, ReceiptDir: filepath.Join(cfg.Paths.EffectiveStateDir(), "automation-control")}
-	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation}, conversationService, modelRegistry).ConfigureAutomation(automationService)
+	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation, ValidateLibrary: kbasesService.ValidateBinding}, conversationService, modelRegistry).ConfigureAutomation(automationService).ConfigureLibraries(kbasesService)
 	controlHandler.RuntimeSnapshot = func() map[string]any {
 		statuses := []map[string]any{}
 		for _, server := range mcpRegistry.Servers() {

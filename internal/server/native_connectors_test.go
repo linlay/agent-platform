@@ -44,7 +44,7 @@ func TestNativeConnectorCatalogLocalized(t *testing.T) {
 					continue
 				}
 				found++
-				want, tools := tc.desktop, 9
+				want, tools := tc.desktop, 11
 				if item.ID == connector.WebControlConnectorID {
 					want, tools = tc.web, 15
 				}

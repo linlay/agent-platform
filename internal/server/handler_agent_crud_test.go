@@ -17,7 +17,9 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/ws"
+	"context"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -346,9 +348,11 @@ func TestAgentCreateKBaseGeneratesKeyAndName(t *testing.T) {
 	}
 
 	beforeCreate := time.Now().Unix()
+	libraryID := installTestKnowledgeLibrary(t, fixture.server)
 	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"definition": map[string]any{
-			"mode": "KBASE",
+			"mode":        "KBASE",
+			"kbaseConfig": map[string]any{"libraryId": libraryID},
 			"modelConfig": map[string]any{
 				"modelKey": "mock-model",
 			},
@@ -450,9 +454,11 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 		t.Fatalf("create workspace dir: %v", err)
 	}
 
+	libraryID := installTestKnowledgeLibrary(t, fixture.server)
 	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"definition": map[string]any{
-			"mode": "KBASE",
+			"mode":        "KBASE",
+			"kbaseConfig": map[string]any{"libraryId": libraryID},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},
@@ -477,8 +483,8 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected created kbase agent in registry")
 	}
-	if def.KBaseConfig.Enabled {
-		t.Fatal("missing libraryId must not create an Agent index")
+	if !def.KBaseConfig.Enabled || def.KBaseConfig.LibraryID != libraryID {
+		t.Fatal("library binding was not preserved")
 	}
 
 	icon, iconOk := created.Definition["icon"].(map[string]any)
@@ -514,6 +520,7 @@ func TestAgentCreateKBasePreservesExplicitModelAndLibraryBinding(t *testing.T) {
 		t.Fatalf("create workspace dir: %v", err)
 	}
 
+	libraryID := installTestKnowledgeLibrary(t, fixture.server)
 	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"definition": map[string]any{
 			"mode": "KBASE",
@@ -526,7 +533,7 @@ func TestAgentCreateKBasePreservesExplicitModelAndLibraryBinding(t *testing.T) {
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},
-			"kbaseConfig": map[string]any{"libraryId": "research"},
+			"kbaseConfig": map[string]any{"libraryId": libraryID},
 		},
 	})
 	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
@@ -545,7 +552,7 @@ func TestAgentCreateKBasePreservesExplicitModelAndLibraryBinding(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected created kbase agent in registry")
 	}
-	if def.KBaseConfig.LibraryID != "research" || !def.KBaseConfig.Enabled {
+	if def.KBaseConfig.LibraryID != libraryID || !def.KBaseConfig.Enabled {
 		t.Fatalf("binding: %+v", def.KBaseConfig)
 	}
 }
@@ -649,10 +656,12 @@ func TestAgentCreateKBaseWithExplicitNamePreservesUserValue(t *testing.T) {
 		t.Fatalf("create workspace dir: %v", err)
 	}
 
+	libraryID := installTestKnowledgeLibrary(t, fixture.server)
 	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"definition": map[string]any{
-			"name": "我的自定义知识库",
-			"mode": "KBASE",
+			"name":        "我的自定义知识库",
+			"mode":        "KBASE",
+			"kbaseConfig": map[string]any{"libraryId": libraryID},
 			"modelConfig": map[string]any{
 				"modelKey": "mock-model",
 			},
@@ -2092,4 +2101,19 @@ func TestTEAMAgentHTTPCRUD(t *testing.T) {
 	if deleted["deleted"] != true {
 		t.Fatalf("delete=%#v", deleted)
 	}
+}
+
+func installTestKnowledgeLibrary(t *testing.T, server *Server) string {
+	t.Helper()
+	svc, err := kbases.New(context.Background(), t.TempDir(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close(context.Background()) })
+	server.deps.KBases = svc
+	d, err := svc.Create(kbases.Input{Name: "Test library", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d.ID
 }

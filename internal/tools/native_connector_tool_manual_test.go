@@ -21,38 +21,40 @@ type nativeToolManualChapter struct {
 // top-level arguments are checked against their own heading or list item, so
 // an argument documented for another tool does not count as coverage.
 var nativeToolManualChapters = map[string]nativeToolManualChapter{
-	"desktop_kanban":     {file: "references/kanban.md"},
-	"catalog_query":      {file: "references/catalog.md"},
-	"catalog_manage":     {file: "references/catalog.md"},
-	"platform_inspect":   {file: "SKILL.md"},
-	"desktop_shell":      {file: "references/shell.md"},
-	"desktop_settings":   {file: "references/settings.md"},
-	"desktop_site":       {file: "references/website.md"},
-	"desktop_webapp":     {file: "references/webapp.md"},
-	"desktop_service":    {file: "references/control-center.md"},
-	"desktop_market":     {file: "references/market.md"},
-	"chat_start":         {file: "references/run.md", marker: "## chat_start"},
-	"chat_get_status":    {file: "references/run.md", marker: "## chat_get_status"},
-	"chat_interrupt":     {file: "references/run.md", marker: "## chat_interrupt"},
-	"chat_query":         {file: "references/chat.md"},
-	"chat_manage":        {file: "references/chat.md"},
-	"automation_query":   {file: "references/automation.md"},
-	"automation_manage":  {file: "references/automation.md"},
-	"workpanel_state":    {file: "references/workpanel.md", marker: "- `workpanel_state`:"},
-	"workpanel_open":     {file: "references/workpanel.md", marker: "- `workpanel_open`:"},
-	"workpanel_close":    {file: "references/workpanel.md", marker: "- `workpanel_close`:"},
-	"surface_list":       {file: "references/surface.md", marker: "- `surface_list`:"},
-	"surface_state":      {file: "references/surface.md", marker: "- `surface_state`:"},
-	"surface_navigate":   {file: "references/surface.md", marker: "- `surface_navigate`:"},
-	"surface_activate":   {file: "references/surface.md", marker: "- `surface_activate`:"},
-	"surface_close":      {file: "references/surface.md", marker: "- `surface_close`:"},
-	"surface_screenshot": {file: "references/surface.md", marker: "- `surface_screenshot`:"},
-	"surface_evaluate":   {file: "references/surface.md", marker: "- `surface_evaluate`:"},
-	"surface_click":      {file: "references/surface.md", marker: "- `surface_click`:"},
-	"surface_element":    {file: "references/surface.md", marker: "- `surface_element`:"},
-	"surface_cdp":        {file: "references/surface.md", marker: "- `surface_cdp`:"},
-	"awcp_manual":        {file: "references/awcp.md", marker: "## Read The Directory"},
-	"awcp_invoke":        {file: "references/awcp.md", marker: "## Invoke The Selected Action"},
+	"desktop_kanban":       {file: "references/kanban.md"},
+	"catalog_query":        {file: "references/catalog.md"},
+	"catalog_manage":       {file: "references/catalog.md"},
+	"kbase_library_query":  {file: "references/knowledge-libraries.md"},
+	"kbase_library_manage": {file: "references/knowledge-libraries.md"},
+	"platform_inspect":     {file: "SKILL.md"},
+	"desktop_shell":        {file: "references/shell.md"},
+	"desktop_settings":     {file: "references/settings.md"},
+	"desktop_site":         {file: "references/website.md"},
+	"desktop_webapp":       {file: "references/webapp.md"},
+	"desktop_service":      {file: "references/control-center.md"},
+	"desktop_market":       {file: "references/market.md"},
+	"chat_start":           {file: "references/run.md", marker: "## chat_start"},
+	"chat_get_status":      {file: "references/run.md", marker: "## chat_get_status"},
+	"chat_interrupt":       {file: "references/run.md", marker: "## chat_interrupt"},
+	"chat_query":           {file: "references/chat.md"},
+	"chat_manage":          {file: "references/chat.md"},
+	"automation_query":     {file: "references/automation.md"},
+	"automation_manage":    {file: "references/automation.md"},
+	"workpanel_state":      {file: "references/workpanel.md", marker: "- `workpanel_state`:"},
+	"workpanel_open":       {file: "references/workpanel.md", marker: "- `workpanel_open`:"},
+	"workpanel_close":      {file: "references/workpanel.md", marker: "- `workpanel_close`:"},
+	"surface_list":         {file: "references/surface.md", marker: "- `surface_list`:"},
+	"surface_state":        {file: "references/surface.md", marker: "- `surface_state`:"},
+	"surface_navigate":     {file: "references/surface.md", marker: "- `surface_navigate`:"},
+	"surface_activate":     {file: "references/surface.md", marker: "- `surface_activate`:"},
+	"surface_close":        {file: "references/surface.md", marker: "- `surface_close`:"},
+	"surface_screenshot":   {file: "references/surface.md", marker: "- `surface_screenshot`:"},
+	"surface_evaluate":     {file: "references/surface.md", marker: "- `surface_evaluate`:"},
+	"surface_click":        {file: "references/surface.md", marker: "- `surface_click`:"},
+	"surface_element":      {file: "references/surface.md", marker: "- `surface_element`:"},
+	"surface_cdp":          {file: "references/surface.md", marker: "- `surface_cdp`:"},
+	"awcp_manual":          {file: "references/awcp.md", marker: "## Read The Directory"},
+	"awcp_invoke":          {file: "references/awcp.md", marker: "## Invoke The Selected Action"},
 }
 
 // Native connector tools only name a capability and point at the connector
@@ -122,8 +124,8 @@ func TestNativeConnectorToolsDeferToTheirSkill(t *testing.T) {
 			t.Errorf("%s schema field %s is missing from %s (%s)", def.Name, field, chapter.file, chapter.marker)
 		}
 	}
-	if checked != 32 {
-		t.Fatalf("checked %d native connector tools, want 32", checked)
+	if checked != 34 {
+		t.Fatalf("checked %d native connector tools, want 34", checked)
 	}
 }
 

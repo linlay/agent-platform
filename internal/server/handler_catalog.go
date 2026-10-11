@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/adminsource"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -271,6 +272,9 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (r
 			}
 		}()
 	}
+	if err := s.validateKnowledgeBinding(definition); err != nil {
+		return api.AgentDetailResponse{}, err
+	}
 	if _, err := editor.CreateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
@@ -302,6 +306,17 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 		return fmt.Errorf("runtimeConfig.acpBridgeId requires engine: acp")
 	}
 	return knowledge.ValidateConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
+}
+
+func (s *Server) validateKnowledgeBinding(definition map[string]any) error {
+	var validate func(string) error
+	if s.deps.KBases != nil {
+		validate = s.deps.KBases.ValidateBinding
+	}
+	if err := adminsource.ValidateKnowledgeBinding(definition, validate); err != nil {
+		return newAgentStatusError(http.StatusBadRequest, "invalid_knowledge_binding", err.Error())
+	}
+	return nil
 }
 
 func agentDefinitionToolNames(definition map[string]any) []string {
@@ -423,6 +438,9 @@ func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (a
 	if err := catalog.NormalizeAgentReasoningConfig("agent definition", definition); err != nil {
 		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
+	if err := s.validateKnowledgeBinding(definition); err != nil {
+		return api.AgentDetailResponse{}, err
+	}
 	if _, err := editor.UpdateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
@@ -445,6 +463,9 @@ func (s *Server) updateAgentName(ctx context.Context, key string, name string) (
 	}
 	definition := contracts.CloneMap(files.Definition)
 	definition["name"] = name
+	if err := s.validateKnowledgeBinding(definition); err != nil {
+		return api.AgentDetailResponse{}, err
+	}
 	if _, err := editor.UpdateEditableAgent(key, definition, &files.SoulPrompt, &files.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
@@ -570,6 +591,9 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 		delete(modelConfig, "serviceTier")
 	}
 	definition["modelConfig"] = modelConfig
+	if err := s.validateKnowledgeBinding(definition); err != nil {
+		return api.AgentModelConfigResponse{}, err
+	}
 
 	if _, err := editor.UpdateEditableAgent(key, definition, &files.SoulPrompt, &files.AgentsPrompt); err != nil {
 		return api.AgentModelConfigResponse{}, mapAgentEditError(err)

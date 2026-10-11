@@ -4,7 +4,7 @@ Use catalog_query for discovery and catalog_manage for approved source changes, 
 
 ## Queries
 
-- resourceTypes: `{}` returns the supported resource types and list/get/validate/apply/delete capabilities. These are type-level capabilities; instance restrictions and approval still apply.
+- resourceTypes: `{}` returns the supported resource types and list/get/validate/apply/delete capabilities, plus relatedCapabilities for separate knowledge library tools. Read [knowledge libraries](knowledge-libraries.md) for their independent service workflow. These are type-level capabilities; instance restrictions and approval still apply.
 - list: `{resourceType, status?, limit?, cursor?}`. Types: agent, team, skill, connector, model, provider, tool, mcp. status is all (default), valid, invalid. `limit` must be a JSON integer in range 1–100; omit it to use the default 20. Use `"limit":50`, never `"limit":"50"`; string values are rejected. Returns items, nextCursor, total (after status filtering), hasMore. Follow nextCursor with the same resourceType/status until empty before claiming a complete count; total is per request, not a frozen multi-page snapshot. Invalid entries may include diagnostics.
 - get: `{resourceType, resourceKey, path?}`. Editable sources return content, baseRevision, redactedPaths and editable. Providers/models/tools/MCP components and built-in connectors are read-only. Provider/MCP do not accept path.
 - defaults: `{type:"general"|"coder"|"kbase"}` returns creation defaults and available models. These defaults do not supply the user's project directory; `ready` describes configured defaults, not a complete project candidate.
@@ -43,7 +43,7 @@ catalog_manage apply pauses for one-time human approval in default mode; auto_ap
 
 Start with `catalog_query defaults {type:"general"|"coder"|"kbase"}` for the requested mode and preserve its current `definitionDefaults` when composing the candidate. Defaults are a partial definition: add `key`, `name`, and the user's workspace. The YAML `key` must exactly match `args.resourceKey`; `name` is the display name, not the identifier. Use `name`, not `displayName`, for the Agent's display name.
 
-For example, the following is a complete minimal project creation request for `catalog_manage`. Replace the example model key with an available model from defaults and the workspace with the user's existing directory; merge any additional current defaults before submitting. This example uses GENERAL; use the requested mode and its defaults for CODER or KBASE.
+For example, the following is a complete minimal project creation request for `catalog_manage`. Replace the example model key with an available model from defaults and the workspace with the user's existing directory; merge any additional current defaults before submitting. This example uses GENERAL; CODER can use the same shape with its mode/defaults. KBASE additionally requires kbaseConfig.libraryId: first create/reuse a library using [knowledge libraries](knowledge-libraries.md), then bind the real returned ID. KBASE defaults include this missing field and are not ready before binding.
 
 ```json
 {

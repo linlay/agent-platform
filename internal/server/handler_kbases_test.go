@@ -19,6 +19,22 @@ func TestKBasesHTTP(t *testing.T) {
 	s := &Server{deps: Dependencies{KBases: service}}
 	request := func(method, path, body string, want int) json.RawMessage {
 		t.Helper()
+		if method == "PUT" || method == "DELETE" {
+			id := strings.TrimPrefix(path, "/api/admin/kbases/")
+			current, e := service.Get(id)
+			if e == nil {
+				if method == "DELETE" {
+					path += "?baseRevision=" + current.BaseRevision
+				} else {
+					var fields map[string]any
+					if json.Unmarshal([]byte(body), &fields) == nil {
+						fields["baseRevision"] = current.BaseRevision
+						b, _ := json.Marshal(fields)
+						body = string(b)
+					}
+				}
+			}
+		}
 		r := httptest.NewRecorder()
 		s.handleKBases(r, httptest.NewRequest(method, path, strings.NewReader(body)))
 		if r.Code != want {
@@ -151,7 +167,7 @@ func TestKBasesHTTPDiagnosticsAndDeletion(t *testing.T) {
 	}
 	for _, id := range []string{bad.ID, orphan.ID} {
 		recorder = httptest.NewRecorder()
-		server.handleKBases(recorder, httptest.NewRequest("DELETE", "/api/admin/kbases/"+id, nil))
+		server.handleKBases(recorder, httptest.NewRequest("DELETE", "/api/admin/kbases/"+id+"?baseRevision="+revisionForTest(t, service, id), nil))
 		if recorder.Code != 200 {
 			t.Fatal(recorder.Body.String())
 		}
@@ -176,12 +192,12 @@ func TestKBasesTemplateEndpointsReturnNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := &Server{deps: Dependencies{KBases: service}}
-	input, _ := json.Marshal(kbases.Input{Name: "Attempt", SourcePath: t.TempDir()})
+	input, _ := json.Marshal(kbases.Input{Name: "Attempt", SourcePath: t.TempDir(), BaseRevision: "missing"})
 	for _, request := range []struct{ method, path string }{
 		{"GET", "/api/admin/kbases/example"},
 		{"PUT", "/api/admin/kbases/example"},
 		{"POST", "/api/admin/kbases/example/refresh"},
-		{"DELETE", "/api/admin/kbases/example"},
+		{"DELETE", "/api/admin/kbases/example?baseRevision=missing"},
 	} {
 		recorder := httptest.NewRecorder()
 		server.handleKBases(recorder, httptest.NewRequest(request.method, request.path, strings.NewReader(string(input))))
@@ -194,5 +210,52 @@ func TestKBasesTemplateEndpointsReturnNotFound(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(templateDir, "library.yml")); !os.IsNotExist(err) {
 		t.Fatal("template became live")
+	}
+}
+
+func revisionForTest(t *testing.T, service *kbases.Service, id string) string {
+	t.Helper()
+	d, err := service.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.BaseRevision == "" {
+		t.Fatal("missing configuration revision")
+	}
+	return d.BaseRevision
+}
+
+func TestKBasesHTTPRequiresCurrentRevisionAndReportsUnindexedStatus(t *testing.T) {
+	svc, err := kbases.New(context.Background(), t.TempDir(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := svc.Create(kbases.Input{Name: "Library", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{deps: Dependencies{KBases: svc}}
+	for _, tc := range []struct {
+		method, suffix, body string
+		want                 int
+	}{
+		{"PUT", "", `{"name":"Changed"}`, 400},
+		{"DELETE", "", "", 400},
+		{"PUT", "", `{"name":"Changed","baseRevision":"stale"}`, 409},
+		{"DELETE", "?baseRevision=stale", "", 409},
+		{"GET", "/status", "", 200},
+	} {
+		w := httptest.NewRecorder()
+		s.handleKBases(w, httptest.NewRequest(tc.method, "/api/admin/kbases/"+d.ID+tc.suffix, strings.NewReader(tc.body)))
+		if w.Code != tc.want {
+			t.Fatalf("%s %s: %d %s", tc.method, tc.suffix, w.Code, w.Body.String())
+		}
+		if tc.suffix == "/status" && (!strings.Contains(w.Body.String(), `"state":"unindexed"`) || !strings.Contains(w.Body.String(), `"statsAvailable":false`)) {
+			t.Fatal(w.Body.String())
+		}
+	}
+	current, err := svc.Get(d.ID)
+	if err != nil || current.BaseRevision != d.BaseRevision || current.Name != d.Name {
+		t.Fatalf("rejected writes changed the library: %+v %v", current, err)
 	}
 }

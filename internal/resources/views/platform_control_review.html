@@ -5,9 +5,9 @@
 <body><div id="review" aria-live="polite"></div><script>/* REVIEW_SCRIPT */</script><script>
 Review.mount(u=>{
  const {t,form:f}=u;
- const types={agent:t('智能体','agent'),team:t('团队','team'),skill:t('技能','skill'),connector:t('连接器','connector'),provider:t('服务商','provider'),model:t('模型','model')};
+ const types={agent:t('智能体','agent'),team:t('团队','team'),skill:t('技能','skill'),connector:t('连接器','connector'),provider:t('服务商','provider'),model:t('模型','model'),knowledge_library:t('知识库','knowledge library')};
  const labels={name:t('名称','Name'),description:t('说明','Description'),model:t('模型','Model'),modelConfig:t('模型设置','Model settings'),mode:t('类型','Type'),engine:t('运行引擎','Engine'),prompt:t('指令','Instructions'),systemPrompt:t('系统指令','System instructions'),instructions:t('指令','Instructions'),toolConfig:t('工具','Tools'),connectorConfig:t('连接器','Connectors'),skillConfig:t('技能','Skills'),hostAccess:t('本机访问','Host access'),accessLevel:t('运行权限','Permissions'),runtimeConfig:t('运行设置','Runtime settings'),enabled:t('启用状态','Enabled'),members:t('团队成员','Team members'),provider:t('服务商','Provider'),baseUrl:t('服务地址','Service URL')};
- const critical=key=>/tool|connector|skill|access|permission|runtime/i.test(key);
+ const critical=key=>/tool|connector|skill|access|permission|runtime|kbase|library|collections/i.test(key);
  const simple=value=>{
   let s=String(value).trim();
   if(/^\|[-+]?\n/.test(s)) {
@@ -41,6 +41,10 @@ Review.mount(u=>{
  u.title((create?t('创建','Create '):t('修改','Update '))+(types[f.resourceType]||t('资源','resource')));
  const name=(create?next?.name:old?.name)||next?.name;
  u.target(name?simple(name):f.resourceKey);
+ if(f.resourceType==='knowledge_library'){
+  Review.librarySources(u,f.sourcePermissions);
+  u.notice(t('include/exclude 控制索引范围；editable 授予整个来源目录的编辑范围，仅在 Host KBASE 编辑 Run 生效。','include/exclude control indexing; editable grants the source directory scope only during a Host KBASE editing Run.'));
+ }
  if(f.isProject)u.field(t('项目类型','Project type'),t('项目智能体','Project agent'));
  if(f.path&&!['agent.yml','team.yml'].includes(f.path))u.field(t('文件','File'),f.path);
  if(old&&next){

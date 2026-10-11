@@ -968,6 +968,12 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 	}
 	def.KBaseConfig.Enabled = def.KBaseConfig.LibraryID != ""
 	def.KBaseRequirement = knowledge.RequirementOptional
+	if def.Mode == agentkbase.Mode && def.Engine != AgentEngineACP {
+		if err := agentkbase.ValidateLibraryID(def.KBaseConfig.LibraryID); err != nil {
+			return err
+		}
+		def.KBaseRequirement = knowledge.RequirementRequired
+	}
 	if def.KBaseConfig.Enabled && (def.Engine == AgentEngineACP || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode)) {
 		return fmt.Errorf("kbaseConfig.libraryId requires a native agent")
 	}

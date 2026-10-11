@@ -5,10 +5,11 @@
 <body><div id="review" aria-live="polite"></div><script>/* REVIEW_SCRIPT */</script><script>
 Review.mount(u=>{
  const {t,form:f}=u;
- const types={agent:t('智能体','agent'),team:t('团队','team'),skill:t('技能','skill'),connector:t('连接器','connector'),provider:t('服务商','provider'),model:t('模型','model')};
+ const types={agent:t('智能体','agent'),team:t('团队','team'),skill:t('技能','skill'),connector:t('连接器','connector'),provider:t('服务商','provider'),model:t('模型','model'),knowledge_library:t('知识库','knowledge library')};
  u.title(t('删除','Delete ')+(types[f.resourceType]||t('资源','resource')));
  u.target(f.resourceKey);
- u.field(t('删除范围','Scope'),f.path||t('完整定义及目录','Complete definition and directory'),{critical:true});
+ u.field(t('删除范围','Scope'),f.resourceType==='knowledge_library'?t('库配置和索引；保留来源目录','Library definition and index; source directories are retained'):(f.path||t('完整定义及目录','Complete definition and directory')),{critical:true});
+ if(f.resourceType==='knowledge_library')Review.librarySources(u,f.sourcePermissions);
 
 });
 </script></body></html>

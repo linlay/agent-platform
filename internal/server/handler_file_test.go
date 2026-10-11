@@ -456,7 +456,7 @@ func writeAgentFileTestAgent(t *testing.T, path string, key string, mode string,
 		"  workspaceRoot: "+filepath.ToSlash(workspace),
 	)
 	if strings.EqualFold(mode, "KBASE") {
-		lines = append(lines, "kbaseConfig:")
+		lines = append(lines, "kbaseConfig:", "  libraryId: workspace-library")
 	}
 	content := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

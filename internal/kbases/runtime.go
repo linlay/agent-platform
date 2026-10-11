@@ -18,6 +18,7 @@ import (
 // Options are deployment-owned; an Agent binding never changes source permissions.
 type Options struct {
 	ChatsDir, StateDir, RuntimeDir string
+	ProtectedPaths                 []string
 	References                     func(string) []string
 	Debounce, ReconcileInterval    time.Duration
 }
@@ -49,6 +50,18 @@ func (s *Service) validateSource(source string) error {
 	for _, root := range []string{s.root, s.runtimeRoot, s.options.StateDir} {
 		if root != "" && canonicalWithin(root, source) {
 			return fmt.Errorf("knowledge source must not overlap kbases, ru-kbases or the protected state directory")
+		}
+	}
+	for _, raw := range append([]string{s.options.StateDir}, s.options.ProtectedPaths...) {
+		if raw == "" {
+			continue
+		}
+		protected, err := pathutil.Canonicalize(raw)
+		if err != nil {
+			return fmt.Errorf("cannot resolve protected knowledge source boundary")
+		}
+		if overlaps(protected.Host, source) {
+			return fmt.Errorf("knowledge source contains or overlaps protected platform state or identity")
 		}
 	}
 	return nil

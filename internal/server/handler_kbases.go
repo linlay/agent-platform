@@ -58,11 +58,15 @@ func (s *Server) handleKBases(w http.ResponseWriter, r *http.Request) {
 			if !decode(&input) {
 				return
 			}
+			if input.BaseRevision == "" {
+				writeJSON(w, 400, api.Failure(400, "baseRevision is required; read the library before updating"))
+				return
+			}
 			result, err = service.Edit(parts[0], input)
 		case http.MethodDelete:
 			unlock := s.adminSources.LockAgentMutation()
 			defer unlock()
-			err = service.Delete(parts[0])
+			err = service.DeleteRevision(parts[0], r.URL.Query().Get("baseRevision"))
 			result = map[string]bool{"deleted": err == nil}
 		default:
 			w.Header().Set("Allow", "GET, PUT, DELETE")
@@ -89,7 +93,11 @@ func (s *Server) handleKBases(w http.ResponseWriter, r *http.Request) {
 			if !method(http.MethodGet) {
 				return
 			}
-			result, err = service.Read(r.Context(), parts[0], parts[1], r.URL.Query().Get("ref"), 0)
+			if parts[1] == "status" {
+				result, err = service.LibraryStatus(r.Context(), parts[0])
+			} else {
+				result, err = service.Read(r.Context(), parts[0], parts[1], r.URL.Query().Get("ref"), 0)
+			}
 		default:
 			writeJSON(w, 404, api.Failure(404, "not found"))
 			return
@@ -108,7 +116,7 @@ func (s *Server) handleKBases(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 409, api.Failure(409, err.Error(), map[string]any{"agents": referenced.Agents}))
 			return
 		}
-		if errors.Is(err, kbases.ErrBusy) {
+		if errors.Is(err, kbases.ErrBusy) || kbases.IsRevisionConflict(err) {
 			status = 409
 		}
 		writeJSON(w, status, api.Failure(status, err.Error()))

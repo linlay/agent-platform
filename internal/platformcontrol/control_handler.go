@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/models"
 	"agent-platform/internal/toolinput"
 )
@@ -136,6 +137,9 @@ func controlChange(action string, p map[string]any) adminsource.ControlChange {
 	return c
 }
 func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args map[string]any, e *contracts.ExecutionContext) (*contracts.ToolApproval, error) {
+	if tool == "kbase_library_manage" {
+		return h.prepareLibraryApproval(ctx, tool, args, e)
+	}
 	if tool == "automation_manage" {
 		return h.prepareAutomationApproval(ctx, tool, args, e)
 	}
@@ -187,6 +191,8 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 	}
 	var value any
 	switch tool {
+	case "kbase_library_query", "kbase_library_manage":
+		value, err = h.invokeLibrary(ctx, tool, action, p, e)
 	case "automation_query", "automation_manage":
 		value, err = h.invokeAutomation(tool, action, p, e)
 	case "catalog_query":
@@ -229,6 +235,12 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 	}
 	if err != nil {
 		failure := controlInputFailure("control_failed", err, "execution")
+		if kbases.IsRevisionConflict(err) {
+			failure = controlInputFailure("revision_conflict", err, "execution")
+		}
+		if strings.HasPrefix(err.Error(), "approval_required:") {
+			failure = controlInputFailure("approval_required", err, "authorization")
+		}
 		var mutation *contracts.MutationError
 		if errors.As(err, &mutation) && mutation.State != "not_started" {
 			if mutation.State == "rolled_back" {

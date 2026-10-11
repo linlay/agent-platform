@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
 )
 
 const adminSourceMaxTextBytes int64 = 1 << 20
@@ -199,6 +200,17 @@ func (s *Server) writeAdminAgentTextSource(ctx context.Context, target api.Admin
 		return api.AdminSourceResponse{}, mapAdminSourceAgentError(err)
 	}
 	if err := requireAdminAgentYAMLSource(current); err != nil {
+		return api.AdminSourceResponse{}, err
+	}
+	tree, err := config.LoadYAMLTreeBytes([]byte(content))
+	if err != nil {
+		return api.AdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
+	}
+	definition, ok := tree.(map[string]any)
+	if !ok {
+		return api.AdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", "agent source must be a mapping")
+	}
+	if err := s.validateKnowledgeBinding(definition); err != nil {
 		return api.AdminSourceResponse{}, err
 	}
 	file, err := editor.WriteEditableAgentSource(target.Key, content, baseSHA256)

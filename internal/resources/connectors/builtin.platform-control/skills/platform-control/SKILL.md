@@ -1,11 +1,15 @@
 ---
 name: platform-control
-description: Manage Platform definitions, diagnostics, and Desktop applications using the mounted platform control connector.
+description: Manage Platform definitions, knowledge libraries, diagnostics, and Desktop applications using the mounted platform control connector.
 ---
 
 Use `{action,args}` with the appropriate tool. Use catalog_query resourceTypes to discover the supported resource/operation matrix. Read [catalog](references/catalog.md) before catalog discovery or changes. Desktop validates action arguments; Platform reviews routine management actions while Desktop confirms host-impacting and market operations. Page/WorkPanel operations use the separate web-control connector.
 
-Catalog tools require an ordinary native root Run. Standalone exposes only catalog_query, catalog_manage and platform_inspect. Kanban tools belong to builtin.kanban-control. Chat and Automation tools belong to the separate builtin.task-control connector. Never substitute files or shell commands to bypass a rejected management operation.
+Catalog and knowledge library tools require an ordinary native root Run. Standalone exposes catalog_query, catalog_manage, platform_inspect, kbase_library_query and kbase_library_manage. Kanban tools belong to builtin.kanban-control. Chat and Automation tools belong to the separate builtin.task-control connector. Never substitute files or shell commands to bypass a rejected or unavailable management operation, probe local HTTP endpoints, or search .env/identity files for tokens.
+
+Before creating or repairing a knowledge Agent, read [knowledge libraries](references/knowledge-libraries.md). Find or create the library first, bind its returned libraryId, then verify the Agent binding and library index status separately. workspaceRoot is not a knowledge source, and opening the first Chat does not create an index. Missing tools mean the workflow is incomplete; report the missing capability.
+
+Knowledge library creation, deletion and updates changing canonical sources, filters or editable always require human review, even in auto_approve/full_access. Only updates preserving the source grants may follow the access level's automatic approval policy. Equivalent library reuse grants no new access.
 
 catalog_manage apply and routine Desktop management use Platform review in default mode and allow server-side auto approval in auto_approve/full_access. catalog_manage delete always require explicit human approval. Prepare the exact candidate; a changed baseline requires a new review. Market resource management, service lifecycle, and WebApp install/uninstall/publish keep Desktop confirmation. Unknown execution outcomes require reading state before retrying.
 
@@ -20,6 +24,7 @@ Tool definitions only name a capability. Read the reference for a tool before ca
 | Tool | Reference |
 | --- | --- |
 | catalog_query, catalog_manage | [catalog](references/catalog.md) |
+| kbase_library_query, kbase_library_manage | [knowledge libraries](references/knowledge-libraries.md) |
 | platform_inspect | the platform_inspect paragraph above |
 | desktop_shell | [shell](references/shell.md) |
 | desktop_settings | [settings](references/settings.md) |

@@ -14,7 +14,7 @@ const (
 var nativeConnectorTools = map[string][]string{
 	KanbanControlConnectorID:   {"desktop_kanban"},
 	TaskControlConnectorID:     {"chat_start", "chat_get_status", "chat_interrupt", "chat_query", "chat_manage", "automation_query", "automation_manage"},
-	PlatformControlConnectorID: {"catalog_query", "catalog_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market"},
+	PlatformControlConnectorID: {"catalog_query", "catalog_manage", "kbase_library_query", "kbase_library_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market"},
 	WebControlConnectorID: {
 		"workpanel_state", "workpanel_open", "workpanel_close",
 		"surface_list", "surface_state", "surface_navigate", "surface_activate", "surface_close",

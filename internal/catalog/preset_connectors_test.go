@@ -25,6 +25,9 @@ func TestPresetConnectorMountAndSourceIsolation(t *testing.T) {
 		path := filepath.Join(cfg.Paths.AgentsDir, key, "agent.yml")
 		source := "# user comment\nkey: " + key + "\nname: Test\nmode: " + mode + "\nmodelConfig:\n  modelKey: test\n"
 		source += "runtimeConfig:\n  workspaceRoot: " + t.TempDir() + "\n"
+		if mode == AgentModeKBase {
+			source += "kbaseConfig:\n  libraryId: research\n"
+		}
 		writeRuntimeAssemblerFile(t, path, source)
 	}
 	r, err := newVersionTestRegistry(t, cfg, nil)

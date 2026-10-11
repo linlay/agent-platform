@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
+	"agent-platform/internal/kbases"
 	"agent-platform/internal/models"
 	"agent-platform/internal/observability"
 )
@@ -28,6 +29,7 @@ const (
 )
 
 type ToolHandler struct {
+	libraries       *kbases.Service
 	automations     *automation.Service
 	RuntimeSnapshot func() map[string]any
 	cfg             config.Config
@@ -47,7 +49,7 @@ func NewToolHandler(cfg config.Config, registry catalog.Registry, chats ChatPinS
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{"automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage", "platform_inspect"}
+	return []string{"automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage", "platform_inspect", "kbase_library_query", "kbase_library_manage"}
 }
 
 func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
@@ -88,7 +90,7 @@ func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
 			ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort,
 		})
 		definition = agentkbase.ApplyCreateToolDefaults(definition)
-		missing := missingDefinitionFields(definition, "modelConfig.modelKey")
+		missing := missingDefinitionFields(definition, "modelConfig.modelKey", "kbaseConfig.libraryId")
 		return successResult(map[string]any{
 			"path":               path,
 			"keyPrefix":          agentkbase.CreatePrefix,

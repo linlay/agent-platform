@@ -13,7 +13,7 @@ func catalogResourceTypes() map[string]any {
 		editable := typ == "agent" || typ == "skill" || typ == "connector"
 		items = append(items, map[string]any{"resourceType": typ, "list": true, "get": true, "validate": editable, "apply": editable, "delete": editable})
 	}
-	return map[string]any{"items": items, "limitations": []string{"Capabilities describe resource types; built-ins, calling Agent, references and source revisions further restrict writes.", "provider/model list valid means loaded locally, not credential verification or remote availability.", "mcp lists locally declared connector components, not Agent sessions or remotely discovered tools/resources/prompts; invalid connector packages fail enumeration.", "skill lists skill-center members; package metadata and Agent-local/connector-owned skills have no independent catalog target."}}
+	return map[string]any{"items": items, "relatedCapabilities": []map[string]any{{"resourceType": "knowledge_library", "queryTool": "kbase_library_query", "manageTool": "kbase_library_manage", "actions": []string{"list", "get", "status", "validate", "create", "update", "delete"}}}, "limitations": []string{"Capabilities describe resource types; built-ins, calling Agent, references and source revisions further restrict writes.", "provider/model list valid means loaded locally, not credential verification or remote availability.", "mcp lists locally declared connector components, not Agent sessions or remotely discovered tools/resources/prompts; invalid connector packages fail enumeration.", "skill lists skill-center members; package metadata and Agent-local/connector-owned skills have no independent catalog target."}}
 }
 
 func publicMCPComponent(pkg connector.Package, name string) map[string]any {

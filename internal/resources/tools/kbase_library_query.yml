@@ -1,0 +1,30 @@
+name: "kbase_library_query"
+i18n:
+  en:
+    label: "Query Knowledge Libraries"
+  zh-CN:
+    label: "查询知识库管理状态"
+description: "List libraries, inspect lifecycle status and validate sources. Read the platform-control skill before use."
+clientVisible: true
+explicitOnly: true
+readOnly: true
+operationAware: true
+tags:
+  - "platform"
+  - "management"
+inputSchema:
+  type: "object"
+  properties:
+    action:
+      type: "string"
+      enum:
+        - "list"
+        - "get"
+        - "status"
+        - "validate"
+    args:
+      type: "object"
+      description: "See its skill."
+  required:
+    - "action"
+  additionalProperties: false

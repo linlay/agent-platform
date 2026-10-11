@@ -88,6 +88,14 @@ func TestProviderDiscoveryAndPagination(t *testing.T) {
 	if len(matrix["items"].([]any)) != 7 {
 		t.Fatal(matrix)
 	}
+	related := matrix["relatedCapabilities"].([]any)
+	if len(related) != 1 {
+		t.Fatal("knowledge library capability is not discoverable", matrix)
+	}
+	library := related[0].(map[string]any)
+	if library["resourceType"] != "knowledge_library" || library["queryTool"] != "kbase_library_query" || library["manageTool"] != "kbase_library_manage" {
+		t.Fatal("knowledge library capability has inconsistent routing", library)
+	}
 }
 
 func TestMCPComponentsAreNotConnectors(t *testing.T) {

@@ -7,6 +7,13 @@ type ControlAction struct {
 }
 
 var controlActions = []ControlAction{
+	{"kbase_library_query", "list", true},
+	{"kbase_library_query", "get", true},
+	{"kbase_library_query", "status", true},
+	{"kbase_library_query", "validate", true},
+	{"kbase_library_manage", "create", false},
+	{"kbase_library_manage", "update", false},
+	{"kbase_library_manage", "delete", false},
 	{"automation_query", "list", true},
 	{"automation_query", "get", true},
 	{"automation_query", "executions", true},
@@ -142,7 +149,7 @@ func ControlActionOwner(action string) string {
 }
 func IsPlatformRootTool(tool string) bool {
 	switch tool {
-	case "chat_start", "chat_get_status", "chat_interrupt", "automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage":
+	case "chat_start", "chat_get_status", "chat_interrupt", "automation_query", "automation_manage", "catalog_query", "catalog_manage", "chat_query", "chat_manage", "kbase_library_query", "kbase_library_manage":
 		return true
 	}
 	return false

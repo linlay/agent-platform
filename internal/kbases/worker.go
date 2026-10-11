@@ -104,6 +104,9 @@ func (s *Service) Start() error {
 	return nil
 }
 func (s *Service) scanTasks(debounce, interval time.Duration) {
+	if err := s.cleanupControlReceipts(time.Now()); err != nil {
+		log.Printf("[kbases] control receipts: %v", err)
+	}
 	definitions, err := s.List()
 	if err != nil {
 		log.Printf("[kbases] reconcile: %v", err)

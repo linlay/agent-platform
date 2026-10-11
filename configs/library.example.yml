@@ -65,7 +65,8 @@ collections:
     name: "ai"
 
     # Platform 主机上的绝对目录，必须已存在。
-    # 不能与 Chats 目录重叠，不能位于 StateDir、库配置或运行数据目录内。
+    # 不能与 Chats、StateDir、identity 文件重叠或包含它们；不能位于库配置或运行数据目录内。
+    # 加载存量库也执行此校验；exclude 不能豁免受保护路径。
     sourcePath: "/absolute/path/to/AI建设文档"
 
     # 集合说明：供专用 KBASE 的 Run 提示词使用；修改不重建索引。

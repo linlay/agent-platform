@@ -55,13 +55,13 @@ func TestCreateAgentWithLibraryAndReferencedDelete(t *testing.T) {
 		t.Fatalf("creation rollback: %+v %v", libraries, err)
 	}
 	w = httptest.NewRecorder()
-	f.server.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/admin/kbases/"+id, nil))
+	f.server.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/admin/kbases/"+id+"?baseRevision="+d.BaseRevision, nil))
 	if w.Code != 409 || !bytes.Contains(w.Body.Bytes(), []byte("library-owner")) {
 		t.Fatalf("reference guard: %d %s", w.Code, w.Body.String())
 	}
 	postAgentJSON[map[string]any](t, f.server, "/api/admin/agents/delete", map[string]any{"key": created.Key})
 	w = httptest.NewRecorder()
-	f.server.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/admin/kbases/"+id, nil))
+	f.server.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/admin/kbases/"+id+"?baseRevision="+d.BaseRevision, nil))
 	if w.Code != 200 {
 		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
 	}

@@ -166,6 +166,8 @@ func (s *Service) loadConfiguration(id string, allowUnavailable bool) (Definitio
 	if err != nil {
 		return d, fmt.Errorf("library.yml is required (legacy library.json is unsupported): %w", err)
 	}
+	sum := sha256.Sum256(b)
+	d.BaseRevision = hex.EncodeToString(sum[:])
 	d.CreatedAt, d.UpdatedAt = info.ModTime().UnixMilli(), info.ModTime().UnixMilli()
 	tree, err := config.LoadYAMLTreeBytesWithOptions(b, config.YAMLTreeOptions{
 		RejectDuplicateKeys: true, DecodeDoubleQuotedEscapes: true, DecodeSingleQuotedEscapes: true, DisableEnvInterpolation: true,
