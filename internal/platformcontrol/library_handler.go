@@ -60,7 +60,7 @@ func normalizeLibraryBooleans(p map[string]any) error {
 				if !ok {
 					continue
 				}
-				fields := map[string]string{"editable": "b", "defaultQuery": "b"}
+				fields := map[string]string{"defaultQuery": "b"}
 				toolinput.NormalizeBooleanFields(c, fields)
 				for key, kind := range fields {
 					if value, exists := c[key]; exists {

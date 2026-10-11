@@ -57,11 +57,10 @@ func sourceGrantDigest(collections []Collection) string {
 	type grant struct {
 		SourcePath       string
 		Include, Exclude []string
-		Editable         bool
 	}
 	grants := make([]grant, 0, len(collections))
 	for _, c := range collections {
-		g := grant{SourcePath: c.SourcePath, Include: append([]string(nil), c.Include...), Exclude: append([]string(nil), c.Exclude...), Editable: c.Editable}
+		g := grant{SourcePath: c.SourcePath, Include: append([]string(nil), c.Include...), Exclude: append([]string(nil), c.Exclude...)}
 		sort.Strings(g.Include)
 		sort.Strings(g.Exclude)
 		grants = append(grants, g)

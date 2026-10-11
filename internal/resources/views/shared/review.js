@@ -157,7 +157,6 @@ const Review = (() => {
       ui.field(t('来源目录', 'Source directory') + ' · ' + String(collection.name || ''), collection.sourcePath, {critical: true});
       ui.field('include', collection.include, {critical: true});
       ui.field('exclude', collection.exclude, {critical: true});
-      ui.field(t('允许编辑（editable）', 'Editable'), collection.editable === true, {critical: true});
     }
   }
   return {mount, librarySources};

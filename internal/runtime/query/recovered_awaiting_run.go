@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	sessionbuild "agent-platform/internal/runtime/session"
@@ -201,7 +202,11 @@ func (s *Service) RegisterRecoveredAwaitingRun(item chat.PendingAwaitingWithChat
 	}
 	owner := contracts.AgentRunOwner(admission.AgentKey)
 
-	editingMode := original.EditingMode != nil && *original.EditingMode
+	editingMode := agentbuiltin.WorkspaceEditingDefault(admission.AgentDef.Mode)
+	if original.EditingMode != nil {
+		editingMode = *original.EditingMode
+	}
+	editingMode = editingMode && !(original.PlanningMode != nil && *original.PlanningMode)
 	session := contracts.QuerySession{
 		RequestID:       original.RequestID,
 		RunID:           item.RunID,
@@ -210,9 +215,10 @@ func (s *Service) RegisterRecoveredAwaitingRun(item chat.PendingAwaitingWithChat
 		ChatID:          item.ChatID,
 		AgentKey:        admission.AgentKey,
 
-		RunOwner:    owner,
-		AccessLevel: sessionbuild.NormalizedAccessLevel(original.AccessLevel),
-		EditingMode: editingMode,
+		RunOwner:          owner,
+		AccessLevel:       sessionbuild.NormalizedAccessLevel(original.AccessLevel),
+		EditingMode:       editingMode,
+		WorkspaceReadOnly: !editingMode,
 	}
 	if !sessionbuild.IsProxyRoutedAgent(admission.AgentDef) && sessionbuild.ContainsTool(admission.AgentDef.Tools, "run_env") {
 		session.RunEnvironment = s.deps.Sessions.NewRunEnvironmentScope()

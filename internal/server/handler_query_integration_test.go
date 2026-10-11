@@ -757,15 +757,13 @@ func TestQueryAcceptsPlanningModeForGeneralAgent(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsEditingModeForNonKBaseAgent(t *testing.T) {
+func TestQueryAcceptsWorkspaceEditingModeForGeneralAgent(t *testing.T) {
 	fixture := newTestFixture(t)
-	enabled := true
-	req := api.QueryRequest{Message: "hello", AgentKey: "mock-agent", EditingMode: &enabled}
-
-	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
-	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || statusErr.Code != "editing_mode_unsupported" {
-		t.Fatalf("expected non-KBASE editingMode rejection, got %#v", err)
+	for _, enabled := range []bool{true, false} {
+		req := api.QueryRequest{Message: "hello", AgentKey: "mock-agent", EditingMode: &enabled}
+		if _, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com"); err != nil {
+			t.Fatalf("GENERAL editingMode=%v must be admitted: %v", enabled, err)
+		}
 	}
 }
 

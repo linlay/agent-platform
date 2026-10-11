@@ -40,9 +40,10 @@ func Descriptor() agentcontract.ModeDescriptor {
 		MainCacheKey: MainCacheKey,
 		CreatePrefix: CreatePrefix,
 		Profile: agentcontract.ModeProfile{
-			IconName:    DefaultIconName,
-			ContextTags: DefaultContextTags(),
-			Budget:      DefaultBudget(),
+			WorkspaceReadOnly: true,
+			IconName:          DefaultIconName,
+			ContextTags:       DefaultContextTags(),
+			Budget:            DefaultBudget(),
 		},
 		Capabilities: agentcontract.ModeCapabilities{
 			RunAsChild: true,

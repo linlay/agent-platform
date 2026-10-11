@@ -23,6 +23,21 @@ func libraryHandler(t *testing.T) *ToolHandler {
 	return NewToolHandler(config.Config{}, nil, nil).ConfigureControl(&adminsource.ControlService{Mutations: adminsource.NewService()}, nil, nil).ConfigureLibraries(s)
 }
 
+func TestLibraryManagementRejectsRemovedEditableBeforeReview(t *testing.T) {
+	h := libraryHandler(t)
+	for _, editable := range []any{false, true, "false", "true"} {
+		args := map[string]any{"action": "create", "args": map[string]any{
+			"definition": map[string]any{"name": "Docs", "collections": []any{
+				map[string]any{"name": "docs", "sourcePath": t.TempDir(), "editable": editable},
+			}},
+		}}
+		plan, err := h.PrepareToolApproval(context.Background(), "kbase_library_manage", args, controlExecution())
+		if err == nil || plan != nil {
+			t.Fatalf("removed editable=%v reached approval: %+v %v", editable, plan, err)
+		}
+	}
+}
+
 func TestLibraryManagementSourceChangesAlwaysRequireHumanReview(t *testing.T) {
 	h := libraryHandler(t)
 	source := t.TempDir()
@@ -52,10 +67,9 @@ func TestLibraryManagementSourceChangesAlwaysRequireHumanReview(t *testing.T) {
 			{"source", func(_, c map[string]any) { c["sourcePath"] = t.TempDir() }, true},
 			{"include", func(_, c map[string]any) { c["include"] = []any{"**/*.md"} }, true},
 			{"exclude", func(_, c map[string]any) { c["exclude"] = []any{} }, true},
-			{"editable", func(_, c map[string]any) { c["editable"] = "true" }, true},
 		} {
 			t.Run(level+"/"+tc.name, func(t *testing.T) {
-				collection := map[string]any{"name": "docs", "sourcePath": source, "include": []any{"**/*.md", "**/*.txt"}, "exclude": []any{"private/**", "build/**"}, "editable": false}
+				collection := map[string]any{"name": "docs", "sourcePath": source, "include": []any{"**/*.md", "**/*.txt"}, "exclude": []any{"private/**", "build/**"}}
 				patch := map[string]any{"collections": []any{collection}}
 				tc.change(patch, collection)
 				args := map[string]any{"action": "update", "args": map[string]any{"libraryId": d.ID, "baseRevision": d.BaseRevision, "patch": patch}}
@@ -96,7 +110,7 @@ func TestKBASEDefaultsDeclareMissingLibraryBinding(t *testing.T) {
 func TestLibraryManagementApprovalAndStatusBeforeIndex(t *testing.T) {
 	h := libraryHandler(t)
 	e := controlExecution()
-	args := map[string]any{"action": "create", "args": map[string]any{"definition": map[string]any{"name": "Docs", "collections": []any{map[string]any{"name": "docs", "sourcePath": t.TempDir(), "editable": "true"}}}}}
+	args := map[string]any{"action": "create", "args": map[string]any{"definition": map[string]any{"name": "Docs", "collections": []any{map[string]any{"name": "docs", "sourcePath": t.TempDir(), "defaultQuery": "false"}}}}}
 	plan, err := h.PrepareToolApproval(context.Background(), "kbase_library_manage", args, e)
 	if err != nil || plan == nil || plan.AllowAutoApprove {
 		t.Fatalf("create approval: %#v %v", plan, err)
@@ -106,7 +120,7 @@ func TestLibraryManagementApprovalAndStatusBeforeIndex(t *testing.T) {
 		t.Fatalf("review configuration is not renderable: %#v %v", plan.Form, err)
 	}
 	permissions := plan.Form["sourcePermissions"].([]kbases.Collection)
-	if !permissions[0].Editable || !filepath.IsAbs(permissions[0].SourcePath) || len(permissions[0].Include) == 0 {
+	if permissions[0].DefaultQuery == nil || *permissions[0].DefaultQuery || !filepath.IsAbs(permissions[0].SourcePath) || len(permissions[0].Include) == 0 {
 		t.Fatal("source grant is not explicit")
 	}
 	result, _ := h.Invoke(context.Background(), "kbase_library_manage", args, e)

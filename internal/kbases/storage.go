@@ -377,9 +377,6 @@ func (s *Service) saveConfiguration(d Definition) error {
 		if c.Description != "" {
 			fmt.Fprintf(&b, "    description: %s\n", quote(c.Description))
 		}
-		if c.Editable {
-			fmt.Fprintln(&b, "    editable: true")
-		}
 		for _, field := range []struct {
 			name   string
 			values []string

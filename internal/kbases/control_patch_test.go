@@ -43,7 +43,7 @@ func TestLibraryControlPatchRemovesOptionalSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, err = s.Get(id)
-	if err != nil || d.Chunk != nil || d.Models != nil || d.Retrieval != nil || d.TextEncoding != "" || d.Description != "Preserve this" || !d.Collections[0].Editable {
+	if err != nil || d.Chunk != nil || d.Models != nil || d.Retrieval != nil || d.TextEncoding != "" || d.Description != "Preserve this" {
 		t.Fatalf("top-level removal not persisted or lost source metadata: %+v %v", d, err)
 	}
 }

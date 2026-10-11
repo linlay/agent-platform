@@ -6,6 +6,8 @@
 
 普通内置类型为 GENERAL、CODER、KBASE、TEAM；`engine` 缺省 native，显式 acp 使用外部 bridge，不由 acpBridgeId 推断。TEAM 是带成员委派能力的公开 Agent。历史 REACT 只兼容读取，新配置与 API 输入使用 GENERAL。
 
+设计约束：GENERAL/CODER/KBASE/TEAM 的 mode 只提供模板与默认值，不应隐式提供运行时功能或目录授权。当前剩余 mode 专属分支须逐项审查，不能因已有实现而扩展该契约。
+
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
 Memory 由 Platform worker 调用 memx 维护分层 Agent daily/summary 与总体 summary（agents→summarize→consolidate），预算使用 memory.summary.global/agent；旧 worker.summary-max-chars 拒绝，分层管理 API 尚未完成；上下文由 contextConfig.tags 的 memory-global/memory-agent 独立选择，memoryConfig.enabled 仅控制采集，支持定时增量与手工日期范围任务（独立进度、配置模型）；知识库通过受管 KBX CLI 读取和维护，Platform 管理目录监听、库级自动维护与重启对账。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
@@ -84,7 +86,7 @@ cmd/agent-platform/main.go
 
 `docs/` 是特色能力的主说明区；当前项目事实文件 `AGENTS.md` 只保留事实总览、开发入口和专题索引。
 
-知识库以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。专用 Native KBASE 通过一个 `kbaseConfig.libraryId` 固定绑定库；普通 Native Agent 挂载 `builtin.kbase-control` 后可按 `libraryId` 检索任意可读库，非空 `mustUseKbases` 固化本 Run 必须使用的库（最多 8 个），不授予额外工具或写权限，Workspace 与来源解耦；知识库服务按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude、库级与集合逐字段合并的 chunk、库级 textEncoding 纳入来源指纹；description/editable 不计入，models.embedding 从共享 registry 选择模型并覆盖 runtime 默认，模型合同变化仅重建全库向量、全文仍可读；retrieval 按库默认→匹配固定绑定库的 Agent 显式覆盖→单次调用合并，models.reranker/queryExpansion 和 collection.defaultQuery 下次查询生效、不计入指纹；默认排除不禁止显式选择或回读；库删除有引用时 409。旧 Agent enabled/storage 等字段与 AP_RUNTIME_KBASE_DIR 硬切；旧 ru-kbases/libraries 层与 runtime/kbase 索引目录完全忽略，不进行旧布局检查、不加载、不迁移，知识库服务按库配置自动在新布局生成索引。见 [知识库](docs/知识库.md) 与 [KBX 接入](docs/KBX接入.md)。
+知识库以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。专用 Native KBASE 通过一个 `kbaseConfig.libraryId` 固定绑定库；普通 Native Agent 挂载 `builtin.kbase-control` 后可按 `libraryId` 检索任意可读库，非空 `mustUseKbases` 固化本 Run 必须使用的库（最多 8 个），不授予额外工具或写权限，Workspace 与来源解耦；知识库服务按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude、库级与集合逐字段合并的 chunk、库级 textEncoding 纳入来源指纹；description 不计入，models.embedding 从共享 registry 选择模型并覆盖 runtime 默认，模型合同变化仅重建全库向量、全文仍可读；retrieval 按库默认→匹配固定绑定库的 Agent 显式覆盖→单次调用合并，models.reranker/queryExpansion 和 collection.defaultQuery 下次查询生效、不计入指纹；默认排除不禁止显式选择或回读；库删除有引用时 409。旧 Agent enabled/storage 等字段与 AP_RUNTIME_KBASE_DIR 硬切；旧 ru-kbases/libraries 层与 runtime/kbase 索引目录完全忽略，不进行旧布局检查、不加载、不迁移，知识库服务按库配置自动在新布局生成索引。见 [知识库](docs/知识库.md) 与 [KBX 接入](docs/KBX接入.md)。
 
 ## 5. 数据结构
 
@@ -138,7 +140,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 - 连接器包版本由资源发布方维护；Platform 不根据来源市场或重新打包动作推断版本，不用 CLI 或 Skill 版本替代连接器版本。具体服务适配应留在连接器资源包，项目文档只描述通用契约。
 - kbase-control 提供 list/search/files/read/status，四个检索工具均必填 libraryId；Agent refresh REST、kbase_refresh 和 kbase.refreshTerminal 已删除，知识库服务自动维护同批提供。查询预算不改变库索引范围。
 - `kbase_search` 支持 query/search/vsearch/gsearch，复合过滤与 Agent 范围取交集；纯全文不解析模型配置，严格向量/图检索不静默回退。图关系和边证据保留并检查来源范围；Platform 尚不自动建图，共享库绑定已接入，重排和查询扩展通过库 models.reranker/queryExpansion 接入；reranker 引用 registry type: reranker（必填 reranker.endpointPath），扩展引用 OPENAI Chat Completions。参数和验证边界见 [KBX 接入](docs/KBX接入.md)。
-- 专用 KBASE 的 Workspace 始终是最终 canonical `runtimeConfig.workspaceRoot`，当前 Chat 目录只保存在 `ChatDir`；main/editing 两种 stage 使用 `agent.yml` 声明的同一组工具，没有固定工具集。KBASE editing 是 Workspace 与可编辑 collection mutation 的 Run 授权，不是 Agent 配置。仅专用 Host KBASE 在 Run 启动时冻结绑定库 editable（缺省 false）collection 的 canonical 目录和 description；与 Workspace 取并集，库修改下次 Run 生效，普通 Agent 不获额外权限，容器不自动挂载。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路；session 冻结的 `ScopedFilePolicy` 只负责会话工具准入、Workspace 识别、`WorkspaceMutationEnabled`、Workspace/可编辑 collection 已有文件先读后写和新文件父目录已存在，不覆盖 AccessPlan，也不限制文本扩展名或编码。`accessLevel`、hostAccess 与 HITL 按通用规则作用于 external，但不能替代 `editingMode:true`；工具集由 `agent.yml` 决定，声明了 Bash 也不能绕过未开启 editing 时的 Workspace 只读。
+- editingMode 是四种 Native Agent 的通用 Workspace 编辑开关；mode 只能提供模板默认值，显式 true/false 不按 mode 限制。省略时 KBASE 默认 false，GENERAL/CODER/TEAM 默认 true，规划 Run 始终只读。Workspace 始终是最终 canonical runtimeConfig.workspaceRoot，当前 Chat 目录独立；library.collections[].editable 与 collection Run 授权链路已删除，旧字段在 YAML/API 输入拒绝。来源目录的文件/Bash 权限统一由 Workspace、hostAccess 与 AccessPolicy/HITL 决定，绑定/选库不增加读写根，容器挂载须显式配置。当前 KBASE 结构化文件工具仍保留已有文件先读后写、新文件父目录存在的附加保护，此 mode 特殊行为待单独审查；不覆盖 AccessPlan，也不限制文本扩展名或编码。
 - 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。
 
 ## 8. 开发流程
@@ -171,7 +173,7 @@ make test
 - Markdown Memory 代码缺省开启，分发 runtime.example.yml 显式关闭，部署需在 runtime.yml 开启，Agent 采集须显式启用 memoryConfig.enabled，上下文独立通过 contextConfig.tags 的 memory-global/memory-agent 选择；旧 SQLite/管理工具配置明确拒绝，不提供历史迁移。Owner 与长期记忆只在新 Native Run 读取；文件编辑无需 catalog 重载。
 - 文件工具权限独立于 Bash 权限，普通越权路径通过 HITL approval 兜底；readonly、临时根逃逸与其他 hard block 不产生可放宽的 HITL。
 - `AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR` 与 `AP_ACCESS_TOKEN` 为 Platform 保留变量。Agent/Skill/run.env/调用配置共用 `shellenv.UnsafeOverride`；技能 `.runtime-env.json` 的 PATH 只追加额外目录。Host 工具环境按 `bash.inherit-env` 名单继承，`SSH_AUTH_SOCK` 仅给 Git 网络操作，默认 Bash 无登录 profile。AP_ACCESS_TOKEN 仅在验证的 oneid-token 直接 CLI 和对应 MCP 身份链路即时注入，不进入普通 Host Shell。有效 StateDir 与 identity 文件三档均拒绝普通工具读写；完整隔离与敏感读取例外尚未落地，见 [AccessPolicy 与 HITL 边界](docs/AccessPolicy与HITL改造.md)。
-- 专用 KBASE 未开启 editing 时 Workspace 可读但不可 mutation，当前 Chat 目录仍按 `@chat` 可读写；开启后 Workspace mutation 在 shipped default policy 下免逐次 HITL。external 和其他 chatId 默认进入 HITL，`writeRoots`、hostAccess、`full_access` 或 approval 可按通用策略放宽；这些授权不能放宽非 editing KBASE Workspace，管理员显式 block 仍优先。Workspace mutation 不触发同步索引 hook，KBASE watcher 按 debounce 与 change set 异步刷新。
+- 四种 Native Agent 的 Workspace mutation 均受 editingMode 控制：显式 false 硬拒绝 Workspace mutation，当前 Chat 目录按 `@chat` 可读写；显式 true 时 Workspace mutation 在 shipped default policy 下免逐次 HITL。external 和其他 chatId 默认进入 HITL，`writeRoots`、hostAccess、`full_access` 或 approval 按通用策略作用于 external，不能放宽 editing=false 的 Workspace；管理员显式 block 仍优先。文件 mutation 不触发同步知识索引 hook，库 watcher 按 debounce 与 change set 异步刷新。
 - MCP registry 同时支持 `streamable-http` 与 `stdio`，版本兼容范围由锁定的官方 SDK 校验：优先请求 `2025-11-25`，接受 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，缺失、无效及未知版本仍拒绝并关闭连接。必须保留 SDK 原始 Connection，使协商版本、HTTP 协议头和 SSE 状态更新生效；日志记录实际协商版本。本地 YAML/重复 Key/transport 契约错误仍使启动或热重载硬失败；合法配置发布后，远端初始化、`tools/list` 与 availability 重试由单 worker 后台执行，`pending/syncing/unavailable` 不影响 Platform 基础健康。旧 external stdio 私有协议没有兼容期；`service.yml`、`type: external`、`external:` 或 `kind: external-service` 会使启动/热重载硬失败。平台、新版 stdio server 二进制和 registry 配置必须同批发布。
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；TEAM 的执行 Run 只自动注入 session-local embedded builtin `agent_delegate`，plan 工具来自普通配置或 preset。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
 - flat plan task 按数组顺序执行且同时最多一个 `in_progress`；最前面的非终态 task 可由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，`in_progress` 可进入任一终态，终态重试必须追加新 task。TEAM 的 plan task 表示顺序阶段，但当前阶段内部仍可通过单次 `agent_delegate` 按 `maxParallel` 并行执行成员。

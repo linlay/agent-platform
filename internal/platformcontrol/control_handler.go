@@ -169,7 +169,6 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		}
 		if plan.KnowledgeBinding != nil {
 			form["knowledgeBinding"] = plan.KnowledgeBinding
-			allowAutoApprove = allowAutoApprove && !plan.KnowledgeBinding.RequiresHuman
 		}
 		if action == "apply" && plan.Change.ResourceType == "agent" && (plan.Change.Path == "" || plan.Change.Path == "agent.yml") {
 			form["permissionFields"] = []string{"toolConfig", "connectorConfig", "skillConfig", "hostAccess", "accessLevel"}

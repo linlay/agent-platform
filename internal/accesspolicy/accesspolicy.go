@@ -162,19 +162,19 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if mode == ReadAccess {
 		roots = append(roots, session.RunAccessRoots.ReadRoots...)
 	}
-	if mode == WriteAccess && sessionWorkspaceEditingDisabled(session) && PathInSessionMutationScope(session, realCandidate.Host) {
+	if mode == WriteAccess && sessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
 		return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionBlock, WorkspaceEditingDisabledReason), nil
 	}
 	if mode == WriteAccess && IsExecutableConfigPath(realCandidate) {
 		decision := decisionForAction(level.Approvals.ExecutableConfig)
-		if decision == DecisionAllow && sessionWorkspaceEditingDisabled(session) && PathInSessionMutationScope(session, realCandidate.Host) {
+		if decision == DecisionAllow && sessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
 			decision = DecisionBlock
 		}
 		if decision != DecisionAllow {
 			return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, decision, "Git hooks and configuration are executed by later Git commands"), nil
 		}
 	}
-	if mode == WriteAccess && PathInSessionMutationScope(session, realCandidate.Host) {
+	if mode == WriteAccess && PathInSessionWorkspace(session, realCandidate.Host) {
 		// Workspace mutation is a resolved session capability (editing), not an
 		// access-level root: approvals and full_access cannot enable it.
 		if sessionWorkspaceEditingDisabled(session) {
@@ -184,15 +184,7 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 		if err != nil {
 			return PathPlan{}, err
 		}
-		if root, ok := SessionEditableCollectionRoot(session, realCandidate.Host); ok {
-			workspace = pathutil.Canonical{Host: root, Key: pathutil.CanonicalKey(root)}
-		}
 		return buildPathPlan(mode, rawPath, realCandidate, workspace, accessLevel, DecisionAllow, ""), nil
-	}
-	if mode == ReadAccess {
-		if root, ok := SessionEditableCollectionRoot(session, realCandidate.Host); ok {
-			return buildPathPlan(mode, rawPath, realCandidate, pathutil.Canonical{Host: root, Key: pathutil.CanonicalKey(root)}, accessLevel, DecisionAllow, ""), nil
-		}
 	}
 	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
 	if ok {
@@ -715,9 +707,7 @@ func cleanAbs(path string) string {
 	return path
 }
 
-// WorkspaceEditingDisabledReason keeps the KBASE editingMode wording that
-// clients and tests already recognize while applying to every mode.
-const WorkspaceEditingDisabledReason = "workspace editing is disabled for this run (KBASE workspace mutation requires editingMode=true)"
+const WorkspaceEditingDisabledReason = "workspace editing is disabled for this run (Workspace mutation requires editingMode=true)"
 
 // WorkspaceEditingDisabled reports the resolved editing capability. KBASE's
 // ScopedFilePolicy is one source; any mode may set WorkspaceReadOnly.

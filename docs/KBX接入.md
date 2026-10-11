@@ -4,7 +4,7 @@
 
 知识库是唯一索引所有者。`internal/kbases` 按 library ID 管理配置、目录监听、维护调度和状态；`internal/kbx.LibraryEngine` 调用受管 CLI 维护；`internal/kbx.Manager` 把显式 libraryId 解析为数据库和允许的 collection 集合，保留过滤、chunk/evidence 分页与图证据查询。`internal/knowledge` 只保存中立配置、DTO、工具和引用发布契约，不依赖 catalog、不持有索引或进程。
 
-Native GENERAL/CODER/KBASE（及 PLAN-EXECUTE）通过 builtin.kbase-control 使用知识工具，普通 Agent 省略固定绑定仍可按 libraryId 检索。专用 KBASE 必须配置 kbaseConfig.libraryId；配置不能隐式授予工具。固定绑定至多一个库，一个库可包含 1–32 个 collection，并被多个 Agent 共用。Workspace 与知识范围无关；KBASE 的 Workspace 仍决定项目展示和相对路径；专用 Host KBASE 可在 Run 启动时额外冻结 editable collection 目录，editingMode 控制两者的 mutation。
+Native GENERAL/CODER/KBASE（及 PLAN-EXECUTE）通过 builtin.kbase-control 使用知识工具，普通 Agent 省略固定绑定仍可按 libraryId 检索。专用 KBASE 当前仍要求 kbaseConfig.libraryId；配置不能隐式授予工具。固定绑定至多一个库，一个库可包含 1–32 个 collection，并被多个 Agent 共用。Workspace 与知识范围无关；library 来源不授予文件读写权限，editingMode 仅控制本次 Workspace 编辑。
 
 ```yaml
 key: kbase-tmmsin
@@ -28,7 +28,7 @@ connectorConfig:
 
 四个知识检索工具由 `builtin.kbase-control` 提供；专用 KBASE 在分发示例中经 `kbase.preset-connectors` 自动挂载，可省略上面的 `connectorConfig`。
 
-示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；专用 KBASE 在 Run 开始检查绑定库就绪状态，mustUseKbases 的选择逐库检查可读性；工具每次调用重新检查指定库与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。知识检索的来源范围不冻结到旧 Run；下一次查询按当前配置重新授权。文件编辑是独立边界：专用 Host KBASE 的 editable collection canonical 目录与说明在 Run 启动时冻结，库修改仅影响下次 Run，不能中途扩大文件授权。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
+示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；专用 KBASE 在 Run 开始检查绑定库就绪状态，mustUseKbases 的选择逐库检查可读性；工具每次调用重新检查指定库与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。知识检索的来源范围不冻结到旧 Run；下一次查询按当前配置重新授权。文件编辑是独立边界：库绑定、选库与配置变更均不扩大文件授权，Workspace 与 external 目录沿用通用访问策略。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
 
 ## 维护生命周期
 
@@ -78,9 +78,9 @@ KBX_ACCEPTANCE_BIN=/absolute/managed/bin KBX_KBASES_TEST_BIN=/absolute/managed/b
 
 ## Collection 元数据与指纹分类
 
-collection 支持 `description`（可选文本，最多 4000 字节）和 `editable`（boolean，缺省 false）。二者不计入来源/向量指纹，管理 API 与 WebClient 表单保留这些字段。授权只适用于专用 KBASE 的 Host Run，需 editingMode；不向普通 Agent 授权，也不自动挂载容器。索引 include/exclude 不等于文件编辑范围，详见 [KBASE 编辑模式](KBASE编辑模式.md)。
+collection 支持 description（可选文本，最多 4000 字节），不计入来源/向量指纹。旧 editable 字段与 KBASE collection 文件授权链路已删除，YAML/API 输入均拒绝旧字段；include/exclude 只定义索引范围，来源目录的文件权限独立计算。详见 [Workspace 编辑开关](KBASE编辑模式.md)。
 
-知识库服务显式投影来源字段；有效 chunk/textEncoding 属于来源指纹，embedding 合同属于向量指纹。只有向量变化时不撤销已提交全文，向量错误/中断独立降级；collection description/editable 不参与指纹。retrieval、models.reranker/queryExpansion 与 defaultQuery 下次查询生效，不计入指纹；graph/metadata 等未实现字段继续严格拒绝。
+知识库服务显式投影来源字段；有效 chunk/textEncoding 属于来源指纹，embedding 合同属于向量指纹。只有向量变化时不撤销已提交全文，向量错误/中断独立降级；collection description 不参与指纹。retrieval、models.reranker/queryExpansion 与 defaultQuery 下次查询生效，不计入指纹；graph/metadata 等未实现字段继续严格拒绝。
 
 ## 检索配置合并与可选模型
 

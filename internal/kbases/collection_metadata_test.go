@@ -14,7 +14,7 @@ func TestCollectionMetadataPreservesReadyIndexAndRunSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ready := waitState(t, s, d.ID, "ready")
-	old, err := s.RunCollections(d.ID)
+	old, err := s.Get(d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,6 @@ func TestCollectionMetadataPreservesReadyIndexAndRunSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.Collections[0].Editable = true
 	d.Collections[0].Description = "规范\n多行说明: \"text\""
 	d, err = s.Edit(d.ID, Input{Name: d.Name, Collections: d.Collections})
 	if err != nil || d.State != "ready" || d.IndexedAt != ready.IndexedAt {
@@ -31,11 +30,11 @@ func TestCollectionMetadataPreservesReadyIndexAndRunSnapshot(t *testing.T) {
 	if got := s.fingerprint(d.Collections); got != state.AppliedFingerprint {
 		t.Fatalf("fingerprint changed %s != %s", got, state.AppliedFingerprint)
 	}
-	current, err := s.RunCollections(d.ID)
-	if err != nil || !current[0].Editable || current[0].Description != d.Collections[0].Description {
+	current, err := s.Get(d.ID)
+	if err != nil || current.Collections[0].Description != d.Collections[0].Description {
 		t.Fatalf("snapshot: %+v %v", current, err)
 	}
-	if old[0].Editable || old[0].Description != "" {
+	if old.Collections[0].Description != "" {
 		t.Fatal("old snapshot mutated")
 	}
 	d.Collections[0].Include = []string{"**/*.txt"}
@@ -53,7 +52,7 @@ func TestCollectionMetadataStrictParsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, suffix := range []string{"    editable: \"true\"\n", "    description: true\n", "    editable: true\n    editable: false\n", "    futureField: true\n", "models:\n  graphExtraction:\n    modelKey: future\n"} {
+	for _, suffix := range []string{"    editable: true\n", "    editable: false\n", "    description: true\n", "    editable: true\n    editable: false\n", "    futureField: true\n", "models:\n  graphExtraction:\n    modelKey: future\n"} {
 		if err := os.WriteFile(file, append(append([]byte{}, raw...), []byte(suffix)...), 0600); err != nil {
 			t.Fatal(err)
 		}

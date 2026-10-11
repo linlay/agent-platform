@@ -16,6 +16,8 @@ type ModeProfile struct {
 	ToolNames   []string
 	ContextTags []string
 	Budget      map[string]any
+	// WorkspaceReadOnly is a template default; explicit editingMode overrides it.
+	WorkspaceReadOnly bool
 }
 
 // ModeDescriptor is the static contract owned by a built-in mode.

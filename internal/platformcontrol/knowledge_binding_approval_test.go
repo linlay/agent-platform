@@ -41,7 +41,7 @@ func bindingCandidate(mode, id, name, workspace string) string {
 	return fmt.Sprintf("key: candidate\nname: %s\nmode: %s\nmodelConfig:\n  modelKey: test\nruntimeConfig:\n  workspaceRoot: %q\n%s", name, mode, workspace, binding)
 }
 
-func TestCatalogEditableLibraryBindingRequiresHumanApproval(t *testing.T) {
+func TestCatalogLibraryBindingUsesOrdinaryApprovalForEveryMode(t *testing.T) {
 	for _, level := range []string{"default", "auto_approve", "full_access"} {
 		for _, tc := range []struct {
 			name, beforeMode, afterMode string
@@ -49,15 +49,15 @@ func TestCatalogEditableLibraryBindingRequiresHumanApproval(t *testing.T) {
 			human                       bool
 		}{
 			{"new-readonly", "", "KBASE", "", "readonly", false},
-			{"new-editable", "", "KBASE", "", "editable", true},
-			{"general-editable", "", "GENERAL", "", "editable", true},
-			{"coder-editable", "", "CODER", "", "editable", true},
-			{"attach-existing", "GENERAL", "GENERAL", "", "editable", true},
-			{"switch-editable", "KBASE", "KBASE", "readonly", "editable", true},
+			{"new-editable", "", "KBASE", "", "editable", false},
+			{"general-editable", "", "GENERAL", "", "editable", false},
+			{"coder-editable", "", "CODER", "", "editable", false},
+			{"attach-existing", "GENERAL", "GENERAL", "", "editable", false},
+			{"switch-editable", "KBASE", "KBASE", "readonly", "editable", false},
 			{"switch-readonly", "KBASE", "KBASE", "editable", "readonly", false},
 			{"same-editable-metadata", "KBASE", "KBASE", "editable", "editable", false},
-			{"enable-kbase", "GENERAL", "KBASE", "editable", "editable", true},
-			{"enable-kbase-from-coder", "CODER", "KBASE", "editable", "editable", true},
+			{"enable-kbase", "GENERAL", "KBASE", "editable", "editable", false},
+			{"enable-kbase-from-coder", "CODER", "KBASE", "editable", "editable", false},
 			{"enable-readonly-kbase", "GENERAL", "KBASE", "readonly", "readonly", false},
 			{"unbind-general", "GENERAL", "GENERAL", "editable", "", false},
 		} {
@@ -66,7 +66,7 @@ func TestCatalogEditableLibraryBindingRequiresHumanApproval(t *testing.T) {
 				workspace := t.TempDir()
 				ids := map[string]string{}
 				for _, name := range []string{"readonly", "editable"} {
-					library, err := libraries.Create(kbases.Input{Name: name, Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Editable: name == "editable"}}})
+					library, err := libraries.Create(kbases.Input{Name: name, Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir()}}})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -93,18 +93,12 @@ func TestCatalogEditableLibraryBindingRequiresHumanApproval(t *testing.T) {
 				if err != nil || plan == nil || plan.AllowAutoApprove == tc.human {
 					t.Fatalf("incorrect binding approval: %+v %v", plan, err)
 				}
-				if tc.human {
-					review, ok := plan.Form["knowledgeBinding"].(*adminsource.KnowledgeBindingReview)
-					if !ok || !review.RequiresHuman || review.LibraryID != ids[tc.after] || review.BaseRevision == "" || !review.SourcePermissions[0].Editable || !filepath.IsAbs(review.SourcePermissions[0].SourcePath) {
-						t.Fatalf("missing frozen library grant: %+v", plan.Form)
-					}
-				}
 			})
 		}
 	}
 }
 
-func TestCatalogReadOnlyBindingApprovalCannotSurviveEditableChange(t *testing.T) {
+func TestCatalogBindingApprovalCannotSurviveSourceChange(t *testing.T) {
 	h, libraries := knowledgeCatalogHandler(t)
 	d, err := libraries.Create(kbases.Input{Name: "Docs", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir()}}})
 	if err != nil {
@@ -116,7 +110,7 @@ func TestCatalogReadOnlyBindingApprovalCannotSurviveEditableChange(t *testing.T)
 	if err != nil || !old.AllowAutoApprove {
 		t.Fatalf("readonly binding: %+v %v", old, err)
 	}
-	d.Collections[0].Editable = true
+	d.Collections[0].Include = []string{"**/*.txt"}
 	if _, err := libraries.Edit(d.ID, kbases.Input{Name: d.Name, BaseRevision: d.BaseRevision, Collections: d.Collections}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +123,7 @@ func TestCatalogReadOnlyBindingApprovalCannotSurviveEditableChange(t *testing.T)
 		t.Fatalf("candidate published with stale library approval: %v", err)
 	}
 	current, err := h.PrepareToolApproval(context.Background(), "catalog_manage", args, execution)
-	if err != nil || current.AllowAutoApprove || current.Fingerprint == old.Fingerprint {
+	if err != nil || !current.AllowAutoApprove || current.Fingerprint == old.Fingerprint {
 		t.Fatalf("editable change did not require fresh human approval: %+v %v", current, err)
 	}
 	execution.ToolApprovals = map[string]bool{current.Fingerprint: true}

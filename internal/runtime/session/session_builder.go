@@ -49,7 +49,11 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 			return contracts.QuerySession{}, err
 		}
 	}
-	editingMode := agentbuiltin.KBaseEditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode) && !planningModeRequested
+	editingMode := agentbuiltin.WorkspaceEditingDefault(agentDef.Mode)
+	if req.EditingMode != nil {
+		editingMode = *req.EditingMode
+	}
+	editingMode = editingMode && !planningModeRequested
 	libraries, err := s.ResolveKbases(agentDef, req.MustUseKbases)
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -215,15 +219,8 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	resolvedPlanningSettings := contracts.ResolvePlanningModeSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)
 
 	var scopedFilePolicy *contracts.ScopedFilePolicy
-	var kbaseCollectionsPrompt string
 	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
-		roots, prompt, err := s.knowledgeScope(agentDef)
-		if err != nil {
-			return contracts.QuerySession{}, err
-		}
-		kbaseCollectionsPrompt = prompt
 		scopedFilePolicy = &contracts.ScopedFilePolicy{
-			EditableCollectionRoots:  roots,
 			WorkspaceRoot:            resolvedWorkspaceRoot,
 			WorkspaceMutationEnabled: editingMode,
 			RequireExistingParent:    true,
@@ -261,6 +258,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		PlanningExcludeTools:      append([]string(nil), planningMode.ExcludeTools...),
 		PlanExecuteExcludeTools:   append([]string(nil), planningMode.ExecuteExcludeTools...),
 		EditingMode:               editingMode,
+		WorkspaceReadOnly:         !editingMode,
 		ScopedFilePolicy:          scopedFilePolicy,
 
 		Created:                     options.Created,
@@ -296,7 +294,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		SummaryPrompt:               agentDef.SummaryPrompt,
 		ModeSystemPrompt:            agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
 		KBaseModePrompts:            kbaseModePrompts,
-		KBaseCollectionsPrompt:      kbaseCollectionsPrompt,
 		RuntimeEnvironmentID:        ExtractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:                ExtractRuntimeField(agentDef.Runtime, "level"),
 		RuntimeExtraMounts:          RuntimeConnectorMounts(RuntimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && HasRuntimeSandbox(agentDef.Runtime)), agentDef),

@@ -66,22 +66,25 @@ func TestKBasesHTTP(t *testing.T) {
 	request("GET", "/api/admin/kbases/missing", "", 404)
 	request("DELETE", "/api/admin/kbases/"+d.ID, "", 200)
 	request("GET", "/api/admin/kbases/"+d.ID, "", 404)
-	input, _ = json.Marshal(kbases.Input{Name: "Combined", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Description: "Editable docs", Editable: true}, {Name: "reports", SourcePath: t.TempDir()}}})
+	for _, editable := range []bool{false, true} {
+		removed, _ := json.Marshal(map[string]any{"name": "Invalid", "collections": []any{map[string]any{"name": "docs", "sourcePath": t.TempDir(), "editable": editable}}})
+		request("POST", "/api/admin/kbases", string(removed), 400)
+	}
+	input, _ = json.Marshal(kbases.Input{Name: "Combined", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Description: "Source docs"}, {Name: "reports", SourcePath: t.TempDir()}}})
 	raw = request("POST", "/api/admin/kbases", string(input), 200)
 	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 {
 		t.Fatalf("multiple collections: %s %v", raw, err)
 	}
-	if !d.Collections[0].Editable || d.Collections[0].Description != "Editable docs" {
+	if d.Collections[0].Description != "Source docs" {
 		t.Fatalf("metadata lost on create: %s", raw)
 	}
-	d.Collections[0].Editable = false
-	d.Collections[0].Description = "Read-only docs"
+	d.Collections[0].Description = "Updated docs"
 	input, _ = json.Marshal(kbases.Input{Name: "Edited", Collections: []kbases.Collection{d.Collections[0], {Name: "notes", SourcePath: t.TempDir()}}})
 	raw = request("PUT", "/api/admin/kbases/"+d.ID, string(input), 200)
 	if err = json.Unmarshal(raw, &d); err != nil || len(d.Collections) != 2 || d.Collections[1].Name != "notes" || d.State != "unindexed" {
 		t.Fatalf("edited collections: %s %v", raw, err)
 	}
-	if d.Collections[0].Editable || d.Collections[0].Description != "Read-only docs" {
+	if d.Collections[0].Description != "Updated docs" {
 		t.Fatalf("metadata lost on edit: %s", raw)
 	}
 

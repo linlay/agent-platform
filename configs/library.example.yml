@@ -69,13 +69,10 @@ collections:
     # 加载存量库也执行此校验；exclude 不能豁免受保护路径。
     sourcePath: "/absolute/path/to/AI建设文档"
 
-    # 集合说明：供专用 KBASE 的 Run 提示词使用；修改不重建索引。
+    # 集合说明：供知识库目录与选库元数据使用；修改不重建索引。
     description: "现行技术规范，规范类问题优先查这里"
 
-    # 缺省 false。仅专用 KBASE 的 Host Run 开启 editingMode 后授予此目录写权限。
-    # 与 Workspace 取并集；不扩大 Workspace，不自动挂载到容器。
-    # Run 启动时冻结 canonical 目录；修改此开关在下次 Run 生效，不重建索引。
-    editable: true
+    # 来源目录仅定义索引范围，不授予 Agent 文件读写权限；旧 editable 字段已删除。
 
     # 缺省 true。false 仍照常索引；默认检索不选它，显式 collections 可查询。
     # 修改在下次查询生效，不影响浏览、回读、编辑权限或索引指纹。
@@ -115,7 +112,7 @@ collections:
     sourcePath: "/absolute/path/to/研发中心各条线述职"
 
 # 以上字段中，name（集合）、sourcePath、include、exclude、有效 chunk 和 textEncoding 计入来源指纹：
-# 修改后立即撤销旧范围的读取并重新对账。库与集合的 description、库的 name、collection editable 和集合顺序不计入。
+# 修改后立即撤销旧范围的读取并重新对账。库与集合的 description、库的 name、集合顺序不计入。
 #
 # models.embedding 的有效模型合同计入向量指纹，变化后只重建全库向量，全文仍可读。
 # endpoint/modelId/dimension/prompt 的改变触发向量重建；密钥、超时和 batchSize 下次调用生效。

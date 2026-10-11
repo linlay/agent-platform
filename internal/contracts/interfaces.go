@@ -403,15 +403,14 @@ type QuerySession struct {
 	PendingSystemInitKeys       map[string]bool
 
 	// Prompt files loaded from agent directory.
-	SoulPrompt             string
-	AgentsPrompt           string
-	WorkspaceAgentsPrompt  string
-	PlanPrompt             string
-	ExecutePrompt          string
-	SummaryPrompt          string
-	ModeSystemPrompt       string
-	KBaseModePrompts       KBaseModePrompts
-	KBaseCollectionsPrompt string
+	SoulPrompt            string
+	AgentsPrompt          string
+	WorkspaceAgentsPrompt string
+	PlanPrompt            string
+	ExecutePrompt         string
+	SummaryPrompt         string
+	ModeSystemPrompt      string
+	KBaseModePrompts      KBaseModePrompts
 
 	RuntimeEnvironmentID string
 	RuntimeLevel         string
@@ -467,10 +466,7 @@ type SandboxExtraMount struct {
 // Path authorization remains owned by AccessPolicy. WorkspaceRoot identifies
 // the dedicated KBASE workspace for workspace-specific mutation safeguards.
 type ScopedFilePolicy struct {
-	WorkspaceRoot string
-	// EditableCollectionRoots are canonical Host paths frozen at Run admission.
-	// Never re-resolve these roots after admission (a replaced symlink is not a grant).
-	EditableCollectionRoots  []string
+	WorkspaceRoot            string
 	WorkspaceMutationEnabled bool
 	RequireExistingParent    bool
 }

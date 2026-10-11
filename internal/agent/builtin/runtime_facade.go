@@ -65,8 +65,11 @@ func NativePlanning(mode, acpBridgeID string) bool {
 func PlanningModeEnabled(mode string, requested bool) bool {
 	return requested && PlanningModeSupported(mode)
 }
-func KBaseEditingModeEnabled(mode string, requested bool) bool {
-	return kbase.EditingModeEnabled(mode, requested)
+
+// WorkspaceEditingDefault reads a template value, never a mode-specific grant.
+func WorkspaceEditingDefault(mode string) bool {
+	descriptor, ok := Lookup(mode)
+	return !ok || !descriptor.Profile.WorkspaceReadOnly
 }
 func PlanContinuationDecision(mode string, answer map[string]any) string {
 	return planmode.PlanningContinuationDecision(mode, answer)

@@ -49,7 +49,7 @@ func TestCatalogKnowledgeBindingRecheckedAfterStaging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := libraries.Create(kbases.Input{Name: "Editable library", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Editable: true}}})
+	d, err := libraries.Create(kbases.Input{Name: "Editable library", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir()}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestCatalogKnowledgeBindingRecheckedAfterStaging(t *testing.T) {
 	s.LibraryDefinition = func(id string) (kbases.Definition, error) {
 		reads++
 		if reads == 3 {
-			d.Collections[0].Editable = false
+			d.Collections[0].Include = []string{"**/*.txt"}
 			if _, err := libraries.Edit(id, kbases.Input{Name: d.Name, BaseRevision: d.BaseRevision, Collections: d.Collections}); err != nil {
 				t.Fatal(err)
 			}
@@ -68,8 +68,8 @@ func TestCatalogKnowledgeBindingRecheckedAfterStaging(t *testing.T) {
 	change := ControlChange{ControlTarget: ControlTarget{ResourceType: "agent", ResourceKey: "candidate"}, Action: "apply",
 		Content: fmt.Sprintf("key: candidate\nmode: KBASE\nmodelConfig:\n  modelKey: test\nruntimeConfig:\n  workspaceRoot: %q\nkbaseConfig:\n  libraryId: %s\n", t.TempDir(), d.ID)}
 	plan, err := s.Prepare(change, "caller")
-	if err != nil || plan.KnowledgeBinding == nil || !plan.KnowledgeBinding.RequiresHuman {
-		t.Fatalf("missing editable binding approval: %+v %v", plan, err)
+	if err != nil || plan.KnowledgeBinding == nil {
+		t.Fatalf("missing library binding review: %+v %v", plan, err)
 	}
 	_, err = s.Apply(context.Background(), change, "caller", plan.Digest)
 	var failure *contracts.MutationError
@@ -80,7 +80,7 @@ func TestCatalogKnowledgeBindingRecheckedAfterStaging(t *testing.T) {
 		t.Fatalf("stale library binding was published: %v", err)
 	}
 	current, err := s.Prepare(change, "caller")
-	if err != nil || current.Digest == plan.Digest || current.KnowledgeBinding.RequiresHuman {
+	if err != nil || current.Digest == plan.Digest {
 		t.Fatalf("fresh definition baseline was not used: %+v %v", current, err)
 	}
 	if _, err := s.Apply(context.Background(), change, "caller", current.Digest); err != nil {
@@ -105,7 +105,7 @@ func TestCatalogKnowledgeBindingApprovalIgnoresIndexState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := libraries.Create(kbases.Input{Name: "Library", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Editable: true}}})
+	d, err := libraries.Create(kbases.Input{Name: "Library", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir()}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,13 +125,13 @@ func TestCatalogKnowledgeBindingApprovalIgnoresIndexState(t *testing.T) {
 	}
 }
 
-func TestCatalogRepairingACPBindingRequiresHumanApproval(t *testing.T) {
+func TestCatalogRepairingEngineDoesNotAddLibraryGrant(t *testing.T) {
 	s := controlFixture(t)
 	libraries, err := kbases.New(context.Background(), t.TempDir(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := libraries.Create(kbases.Input{Name: "Library", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Editable: true}}})
+	d, err := libraries.Create(kbases.Input{Name: "Library", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir()}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,8 +144,8 @@ func TestCatalogRepairingACPBindingRequiresHumanApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan, err := s.Prepare(ControlChange{ControlTarget: target, Action: "apply", Content: content, BaseRevision: current.BaseRevision}, "caller")
-	if err != nil || plan.KnowledgeBinding == nil || !plan.KnowledgeBinding.RequiresHuman {
-		t.Fatalf("native KBASE activation bypassed binding review: %+v %v", plan, err)
+	if err != nil || plan.KnowledgeBinding != nil {
+		t.Fatalf("engine change added a library grant: %+v %v", plan, err)
 	}
 }
 
@@ -155,7 +155,7 @@ func TestCatalogBindingApprovalFreezesCanonicalDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := libraries.Create(kbases.Input{Name: "Library", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir(), Editable: true}}})
+	d, err := libraries.Create(kbases.Input{Name: "Library", Collections: []kbases.Collection{{Name: "docs", SourcePath: t.TempDir()}}})
 	if err != nil {
 		t.Fatal(err)
 	}

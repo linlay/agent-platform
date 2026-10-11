@@ -94,6 +94,12 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 			Title: prepared.Req.Scene.Title,
 		}
 	}
+	// Persist the request's editing intent, before planning makes this Run
+	// read-only, so an approved plan can execute with the intended capability.
+	editingMode := agentbuiltin.WorkspaceEditingDefault(prepared.AgentDef.Mode)
+	if prepared.Req.EditingMode != nil {
+		editingMode = *prepared.Req.EditingMode
+	}
 	assembler := stream.NewAssembler(stream.StreamRequest{
 		RequestID: prepared.Req.RequestID,
 		RunID:     prepared.Req.RunID,
@@ -109,7 +115,7 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		Params:             prepared.Req.Params,
 		Model:              prepared.Req.Model,
 		PlanningMode:       prepared.Session.PlanningMode,
-		EditingMode:        prepared.Session.EditingMode,
+		EditingMode:        editingMode,
 		MustUseSkills:      prepared.Session.MustUseSkills,
 		MustUseKbases:      prepared.Session.MustUseKbases,
 		IncludeUsage:       prepared.Req.IncludeUsage,
@@ -487,18 +493,6 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	}
 	if req.PlanningMode != nil && *req.PlanningMode && !agentbuiltin.PlanningModeSupported(agentDef.Mode) {
 		return queryAdmission{}, &statusError{Status: 400, Message: "planningMode is only supported for GENERAL, CODER, KBASE and TEAM agents"}
-	}
-	if req.EditingMode != nil && *req.EditingMode && !agentbuiltin.IsKBaseMode(agentDef.Mode) {
-		const code = "editing_mode_unsupported"
-		const message = "editingMode is only supported for dedicated KBASE agents"
-		return queryAdmission{}, &statusError{
-			Status:  400,
-			Code:    code,
-			Message: message,
-			Data: map[string]any{
-				"error": map[string]any{"code": code, "message": message},
-			},
-		}
 	}
 	req.MustUseKbases = sessionbuild.NormalizeMustUseKbases(req.MustUseKbases)
 	if _, err := s.deps.Sessions.ResolveKbases(agentDef, req.MustUseKbases); err != nil {

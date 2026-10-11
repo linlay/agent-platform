@@ -421,7 +421,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 			t.Fatalf("KBASE capability expanded explicit stage tools: %v", stage.Tools)
 		}
 	}
-	if session.ScopedFilePolicy != nil || session.EditingMode {
+	if session.ScopedFilePolicy != nil || !session.EditingMode {
 		t.Fatalf("ordinary Agent capability must not inherit dedicated KBASE editing policy: %#v", session.ScopedFilePolicy)
 	}
 	if got := session.WorkspaceRoot; got != absTestPath(t, workspace) {

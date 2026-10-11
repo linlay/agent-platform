@@ -23,7 +23,7 @@ func controlLibraryService(t *testing.T) *Service {
 }
 
 func createArguments(source string) map[string]any {
-	return map[string]any{"definition": map[string]any{"name": "Documents", "description": "Preserve this", "collections": []any{map[string]any{"name": "docs", "sourcePath": source, "editable": true}}}}
+	return map[string]any{"definition": map[string]any{"name": "Documents", "description": "Preserve this", "collections": []any{map[string]any{"name": "docs", "sourcePath": source}}}}
 }
 
 func TestLibraryControlStatusRevisionPatchAndReplay(t *testing.T) {
@@ -74,7 +74,7 @@ func TestLibraryControlStatusRevisionPatchAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, _ = s.Get(id)
-	if d.Name != "Renamed" || d.Description != "Preserve this" || !d.Collections[0].Editable || updated["baseRevision"] == revision {
+	if d.Name != "Renamed" || d.Description != "Preserve this" || updated["baseRevision"] == revision {
 		t.Fatalf("partial patch lost fields: %+v", d)
 	}
 	if _, err := s.PrepareControl("update", update, "stale"); !errors.Is(err, ErrRevisionConflict) {
@@ -134,13 +134,8 @@ func TestLibraryControlConcurrentReuseAndDifferentScope(t *testing.T) {
 		t.Fatalf("libraries: %d", len(list))
 	}
 	args := createArguments(source)
-	args["definition"].(map[string]any)["collections"].([]any)[0].(map[string]any)["editable"] = false
-	plan, err := s.PrepareControl("create", args, "different")
-	if err != nil || plan.Reused {
-		t.Fatalf("different grants silently reused: %#v %v", plan, err)
-	}
 	args["definition"].(map[string]any)["collections"].([]any)[0].(map[string]any)["include"] = []string{"**/*.pdf"}
-	plan, err = s.PrepareControl("create", args, "different-filter")
+	plan, err := s.PrepareControl("create", args, "different-filter")
 	if err != nil || plan.Reused {
 		t.Fatalf("different scope silently reused: %#v %v", plan, err)
 	}
@@ -223,7 +218,6 @@ func TestLibraryControlReuseComparesNormalizedSourcesAndConfiguration(t *testing
 		{"collection-name", func(_ map[string]any, c map[string]any) { c["name"] = "other-docs" }},
 		{"include", func(_ map[string]any, c map[string]any) { c["include"] = []any{"**/*.pdf"} }},
 		{"exclude", func(_ map[string]any, c map[string]any) { c["exclude"] = []any{} }},
-		{"editable", func(_ map[string]any, c map[string]any) { c["editable"] = true }},
 		{"collection-description", func(_ map[string]any, c map[string]any) { c["description"] = "Different editing scope description" }},
 		{"default-query", func(_ map[string]any, c map[string]any) { c["defaultQuery"] = false }},
 		{"chunk", func(_ map[string]any, c map[string]any) { c["chunk"] = map[string]any{"maxChars": 3000} }},

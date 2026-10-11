@@ -52,7 +52,7 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 	}
 }
 
-func TestAssemblerBootstrapPreservesEditingModeOnlyWhenEnabled(t *testing.T) {
+func TestAssemblerBootstrapPreservesResolvedWorkspaceEditingMode(t *testing.T) {
 	editing := NewAssembler(StreamRequest{
 		RequestID: "req_edit", RunID: "run_edit", ChatID: "chat_edit",
 		AgentKey: "docs", Message: "edit", Role: "user", EditingMode: true,
@@ -64,8 +64,8 @@ func TestAssemblerBootstrapPreservesEditingModeOnlyWhenEnabled(t *testing.T) {
 		RequestID: "req_read", RunID: "run_read", ChatID: "chat_read",
 		AgentKey: "docs", Message: "read", Role: "user",
 	}).Bootstrap()[0].ToData()
-	if _, ok := readOnly["editingMode"]; ok {
-		t.Fatalf("editingMode=false must be omitted, got %#v", readOnly)
+	if readOnly["editingMode"] != false {
+		t.Fatalf("editingMode=false must be preserved, got %#v", readOnly)
 	}
 }
 

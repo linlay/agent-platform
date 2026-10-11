@@ -137,9 +137,9 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 	if a.request.PlanningMode {
 		queryPayload["planningMode"] = true
 	}
-	if a.request.EditingMode {
-		queryPayload["editingMode"] = true
-	}
+	// Persist the resolved request intent, including false, for Run recovery
+	// and execution after plan approval.
+	queryPayload["editingMode"] = a.request.EditingMode
 	if len(a.request.MustUseSkills) > 0 {
 		queryPayload["mustUseSkills"] = append([]string(nil), a.request.MustUseSkills...)
 	}

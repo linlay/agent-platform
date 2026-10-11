@@ -33,7 +33,6 @@ var collectionNamePattern = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63
 type Collection struct {
 	DefaultQuery *bool                   `json:"defaultQuery,omitempty"`
 	Description  string                  `json:"description,omitempty"`
-	Editable     bool                    `json:"editable"`
 	Name         string                  `json:"name"`
 	SourcePath   string                  `json:"sourcePath"`
 	Include      []string                `json:"include"`

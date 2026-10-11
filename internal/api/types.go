@@ -1423,7 +1423,7 @@ type ActiveRunInfo struct {
 	OldestSeq    int64  `json:"oldestSeq"`
 	StartedAt    int64  `json:"startedAt"`
 	PlanningMode bool   `json:"planningMode,omitempty"`
-	EditingMode  bool   `json:"editingMode,omitempty"`
+	EditingMode  bool   `json:"editingMode"`
 }
 
 type FeedbackRequest struct {

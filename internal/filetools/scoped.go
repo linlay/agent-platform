@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
 )
@@ -32,7 +31,7 @@ func ScopedPolicyErrorCode(err error) string {
 func ValidateScopedRead(_ contracts.QuerySession, _ string, _ bool) error {
 	// Dedicated KBASE reads use the same AccessPolicy as every other file-tool
 	// read. editingMode only gates mutations whose canonical target is inside
-	// the KBASE source.
+	// the Workspace.
 	return nil
 }
 
@@ -48,8 +47,7 @@ func ValidateScopedWrite(session contracts.QuerySession, path string) error {
 	if err != nil {
 		return scopedError("kbase_editing_path_outside_workspace", err.Error())
 	}
-	_, inCollection := accesspolicy.SessionEditableCollectionRoot(session, path)
-	if !inWorkspace && !inCollection {
+	if !inWorkspace {
 		return nil
 	}
 	if !policy.WorkspaceMutationEnabled {
@@ -80,8 +78,7 @@ func ScopedPathInSource(session contracts.QuerySession, path string) bool {
 		return false
 	}
 	inside, err := scopedPathWithinRoot(policy.WorkspaceRoot, path)
-	_, inCollection := accesspolicy.SessionEditableCollectionRoot(session, path)
-	return (err == nil && inside) || inCollection
+	return err == nil && inside
 }
 
 func scopedPathWithinRoot(root string, path string) (bool, error) {

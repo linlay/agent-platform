@@ -56,9 +56,5 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 		AvailableTools:     toolNames,
 		UserRequest:        req.Message,
 	})
-	rendered := agentcontract.RenderPromptTemplate(prompt, values)
-	if session.KBaseCollectionsPrompt != "" {
-		rendered += "\n\n" + session.KBaseCollectionsPrompt
-	}
-	return rendered
+	return agentcontract.RenderPromptTemplate(prompt, values)
 }
