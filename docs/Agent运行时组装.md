@@ -34,6 +34,8 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 模型的 system runtime context 同样保持这条边界：`agents_dir` 指向可编辑事实源 `agents/`，`ru_agents_dir` 指向 Platform 生成且禁止人工编辑的 `ru-agents/`，`agent_dir` 指向当前 Agent 的 `ru-agents/<agentKey>/<revision>` 运行目录，`connectors_dir` 使用逻辑入口 `@connectors`，按当前 Agent 的挂载快照解析到共享包。Host/local 普通运行可同时看到源目录与生成目录；Container Hub 不默认暴露 Agent 事实源，已有 `platform: agents` 挂载仍只提供生成目录 `/agents`，并在上下文中标记为 `ru_agents_dir`。沙箱治理任务缺少 `agents_dir` 时必须停止，不能从 `/agents`、`runtime_home` 或相邻目录推断事实源。
 
+目录字段按需精简：键名已能说明用途的目录不带注释；`agents_dir`、`models_dir`、`providers_dir`、`connectors_center_dir` 只在当前 Agent 挂载 `builtin.platform-control` 时输出，`automations_dir` 对所有 Agent 输出。`skills_dir` 等于 `agent_dir/skills`、`ru_agents_dir` 是 `agent_dir` 的上级、`chats_dir` 是 `chat_dir` 的上级时不单独成行，其中前两项并入 `agent_dir` 的注释；不满足该关系（例如 Container Hub 的 `/agents`）时仍单独输出。
+
 ## 路径配置
 
 `ru-agents` 固定使用 `<AP_RUNTIME_DIR>/ru-agents`，不提供单独环境变量或 YAML 覆盖。其位置随 `AP_RUNTIME_DIR` 一起调整。

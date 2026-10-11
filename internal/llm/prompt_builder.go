@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/agent/planmode"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
 )
@@ -197,14 +198,38 @@ func toolNamesFromDefinitions(definitions []api.ToolDetailResponse, fallback []s
 	return names
 }
 
+// localTimezoneName returns an IANA timezone name or the current UTC offset.
+// "Local" uses TZ or the /etc/localtime zoneinfo link to recover its name.
 func localTimezoneName() string {
 	tz := time.Local.String()
+	if zone := normalizeTimezoneName(tz); zone != "" {
+		return zone
+	}
 	if tz == "Local" {
-		if zone := strings.TrimSpace(os.Getenv("TZ")); zone != "" {
-			tz = zone
+		if zone := normalizeTimezoneName(os.Getenv("TZ")); zone != "" {
+			return zone
+		}
+		if target, err := os.Readlink("/etc/localtime"); err == nil {
+			if zone := normalizeTimezoneName(target); zone != "" {
+				return zone
+			}
 		}
 	}
-	return tz
+	return "UTC" + time.Now().Format("-07:00")
+}
+
+func normalizeTimezoneName(value string) string {
+	zone := strings.TrimPrefix(strings.TrimSpace(value), ":")
+	if _, name, ok := strings.Cut(filepath.ToSlash(zone), "/zoneinfo/"); ok {
+		zone = name
+	}
+	if zone == "" || zone == "Local" {
+		return ""
+	}
+	if _, err := time.LoadLocation(zone); err != nil {
+		return ""
+	}
+	return zone
 }
 
 func buildAgentIdentitySection(session QuerySession) string {
@@ -322,62 +347,105 @@ func buildSessionSection(session QuerySession) string {
 const chatDirDescription = "Current chat files, artifacts, temporary code and files; scripts written here with file_write run without approval"
 
 func appendContextPaths(lines *[]string, session QuerySession) {
+	// Platform source directories only matter to Agents that can manage them.
+	platform := session.ConnectorDirs[connector.PlatformControlConnectorID] != ""
 	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
-		appendSandboxContextPaths(lines, session.RuntimeContext.SandboxPaths, session.RuntimeContext.LocalMode)
+		appendSandboxContextPaths(lines, session.RuntimeContext.SandboxPaths, session.RuntimeContext.LocalMode, platform)
 		return
 	}
-	appendLocalContextPaths(lines, session.RuntimeContext.LocalPaths)
+	appendLocalContextPaths(lines, session.RuntimeContext.LocalPaths, platform)
 }
 
-func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bool) {
+func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bool, platform bool) {
 	rootDirDesc := "Container home directory"
-	panDirDesc := "Mounted user drive"
 	if localMode {
-		rootDirDesc = "Root directory"
-		panDirDesc = "User drive directory"
+		rootDirDesc = ""
 	}
 	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "Relative path base / permission workspace root")
 	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, chatDirDescription)
 	appendContextDir(lines, "root_dir", paths.RootDir, rootDirDesc)
-	appendContextDir(lines, "skills_dir", paths.SkillsDir, "Current Agent private skills")
-	appendContextDir(lines, "agent_dir", paths.AgentDir, "Current Agent runtime directory")
-	appendContextDir(lines, "owner_dir", paths.OwnerDir, "Owner profile directory")
-	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "Shared skills catalog")
-	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Editable Agent source directory")
-	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform-generated Agent execution directory; do not edit manually")
-	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "Automation configuration directory")
-	appendContextDir(lines, "chats_dir", paths.ChatsDir, "Chat records directory")
-	appendContextDir(lines, "memory_dir", paths.MemoryDir, "Memory storage directory")
-	appendContextDir(lines, "models_dir", paths.ModelsDir, "Model registry directory")
-	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "Provider registry directory")
-	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "External connector package sources")
-	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "Mounted connectors resolved to shared read-only packages from the Run snapshot; use full paths listed in the skill catalog")
-	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
+	appendAgentContextDirs(lines, paths.AgentDir, paths.SkillsDir, paths.RUAgentsDir, paths.AgentDir, paths.SkillsDir, paths.RUAgentsDir)
+	appendContextDir(lines, "owner_dir", paths.OwnerDir, "")
+	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "")
+	if platform {
+		appendContextDir(lines, "agents_dir", paths.AgentsDir, "Editable Agent sources")
+	}
+	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "")
+	if !pathWithin(paths.ChatsDir, paths.ChatDir) {
+		appendContextDir(lines, "chats_dir", paths.ChatsDir, "")
+	}
+	appendContextDir(lines, "memory_dir", paths.MemoryDir, "")
+	if platform {
+		appendContextDir(lines, "models_dir", paths.ModelsDir, "")
+		appendContextDir(lines, "providers_dir", paths.ProvidersDir, "")
+		appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "Editable connector package sources")
+	}
+	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, connectorsDirDescription)
+	appendContextDir(lines, "pan_dir", paths.PanDir, "")
 }
 
 // appendLocalContextPaths lists the runtime root once as an absolute path and
 // shows directories under it as @runtime paths, which the tools resolve.
-func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
+func appendLocalContextPaths(lines *[]string, paths LocalPaths, platform bool) {
 	local := paths
 	paths = runtimeQualifiedLocalPaths(paths)
-	appendContextDir(lines, "runtime_dir", local.RuntimeHome, "Runtime root; @runtime resolves here (use the absolute path inside shell commands)")
+	appendContextDir(lines, "runtime_dir", local.RuntimeHome, "@runtime resolves here; use the absolute path inside shell commands")
 	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "Relative path base / permission workspace root")
 	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, chatDirDescription)
-	appendContextDir(lines, "root_dir", paths.RootDir, "Root directory")
-	appendContextDir(lines, "skills_dir", paths.SkillsDir, "Current Agent private skills")
-	appendContextDir(lines, "agent_dir", paths.AgentDir, "Current Agent runtime directory")
-	appendContextDir(lines, "owner_dir", paths.OwnerDir, "Owner profile directory")
-	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "Shared skills catalog")
-	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Editable Agent source directory")
-	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform-generated Agent execution directory; do not edit manually")
-	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "Automation configuration directory")
-	appendContextDir(lines, "chats_dir", paths.ChatsDir, "Chat records directory")
-	appendContextDir(lines, "memory_dir", paths.MemoryDir, "Memory storage directory")
-	appendContextDir(lines, "models_dir", paths.ModelsDir, "Model registry directory")
-	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "Provider registry directory")
-	appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "External connector package sources")
-	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "Mounted connectors resolved to shared read-only packages from the Run snapshot; use full paths listed in the skill catalog")
-	appendContextDir(lines, "pan_dir", paths.PanDir, "User drive directory")
+	appendContextDir(lines, "root_dir", paths.RootDir, "")
+	appendAgentContextDirs(lines, paths.AgentDir, paths.SkillsDir, paths.RUAgentsDir, local.AgentDir, local.SkillsDir, local.RUAgentsDir)
+	appendContextDir(lines, "owner_dir", paths.OwnerDir, "")
+	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "")
+	if platform {
+		appendContextDir(lines, "agents_dir", paths.AgentsDir, "Editable Agent sources")
+	}
+	appendContextDir(lines, "automations_dir", paths.AutomationsDir, "")
+	if !pathWithin(local.ChatsDir, local.ChatDir) {
+		appendContextDir(lines, "chats_dir", paths.ChatsDir, "")
+	}
+	appendContextDir(lines, "memory_dir", paths.MemoryDir, "")
+	if platform {
+		appendContextDir(lines, "models_dir", paths.ModelsDir, "")
+		appendContextDir(lines, "providers_dir", paths.ProvidersDir, "")
+		appendContextDir(lines, "connectors_center_dir", paths.ConnectorsCenterDir, "Editable connector package sources")
+	}
+	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, connectorsDirDescription)
+	appendContextDir(lines, "pan_dir", paths.PanDir, "")
+}
+
+const connectorsDirDescription = "Mounted read-only connector packages; use full paths listed in the skill catalog"
+
+// appendAgentContextDirs folds skills_dir and ru_agents_dir into the agent_dir
+// line when they are its skills/ child and its ancestor; otherwise each keeps
+// its own line. The shown values may be @runtime-qualified, the raw ones decide
+// containment.
+func appendAgentContextDirs(lines *[]string, agentDir, skillsDir, ruAgentsDir, rawAgentDir, rawSkillsDir, rawRUAgentsDir string) {
+	generated := pathWithin(rawRUAgentsDir, rawAgentDir)
+	skillsInside := strings.TrimSpace(rawAgentDir) != "" && filepath.Clean(rawSkillsDir) == filepath.Join(filepath.Clean(rawAgentDir), "skills")
+	if !skillsInside {
+		appendContextDir(lines, "skills_dir", skillsDir, "Current Agent private skills")
+	}
+	desc := "Current Agent runtime directory"
+	if generated {
+		desc += "; platform-generated, do not edit"
+	}
+	if skillsInside {
+		desc += "; private skills in skills/"
+	}
+	appendContextDir(lines, "agent_dir", agentDir, desc)
+	if !generated {
+		appendContextDir(lines, "ru_agents_dir", ruAgentsDir, "Platform-generated Agent execution directory; do not edit manually")
+	}
+}
+
+// pathWithin reports whether child is strictly under parent.
+func pathWithin(parent, child string) bool {
+	parent, child = strings.TrimSpace(parent), strings.TrimSpace(child)
+	if parent == "" || child == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func runtimeQualifiedLocalPaths(paths LocalPaths) LocalPaths {
@@ -403,10 +471,10 @@ func runtimeQualifiedPath(home, value string) string {
 	if value == "" {
 		return value
 	}
-	rel, err := filepath.Rel(filepath.Clean(home), filepath.Clean(value))
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+	if !pathWithin(home, value) {
 		return value
 	}
+	rel, _ := filepath.Rel(filepath.Clean(home), filepath.Clean(value))
 	return "@runtime/" + filepath.ToSlash(rel)
 }
 
@@ -418,12 +486,17 @@ func appendSemanticRoot(lines *[]string, key, value, desc string) {
 	*lines = append(*lines, key+": "+value+" # "+desc)
 }
 
-// appendContextDir adds a dir entry only if mounted (non-empty), with a description.
+// appendContextDir adds a dir entry only if mounted (non-empty). The
+// description is optional: a key that already names its directory gets none.
 func appendContextDir(lines *[]string, key, value, desc string) {
 	if strings.TrimSpace(value) == "" {
 		return
 	}
-	*lines = append(*lines, key+": "+strings.TrimSpace(value)+" # "+desc)
+	line := key + ": " + strings.TrimSpace(value)
+	if desc != "" {
+		line += " # " + desc
+	}
+	*lines = append(*lines, line)
 }
 
 func buildSessionOwnerSection(session QuerySession) string {

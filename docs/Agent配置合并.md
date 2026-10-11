@@ -78,7 +78,7 @@ Platform 从 runtime.yml 读取默认模型选择，并允许 library.yml 的 mo
 环境头部配置位于 `agent-prompt.yml -> shared.runtime`，示例见 `configs/agent-prompt.example.yml`。只有两个设置：
 
 - `default-locale`：无客户端语言时使用，缺省 `zh-CN`；支持现有语言归一化规则，例如 `en-US` 归为 `en`。
-- `environment-prompt-template`：环境头部模板，只接受 `{{os}}`、`{{arch}}`、`{{timezone}}`、`{{locale}}` 四个占位符，可在双大括号内留空格。
+- `environment-prompt-template`：环境头部模板，只接受 `{{os}}`、`{{arch}}`、`{{timezone}}`、`{{locale}}` 四个占位符，可在双大括号内留空格。`{{timezone}}` 输出 IANA 时区名，无法取得时回退为 `UTC±hh:mm`，不输出 `Local`。
 
 省略设置使用默认值；显式空白、null、错误类型、不支持的语言、未知或残缺占位符均报错。已有配置文件 YAML 损坏会阻止启动。目录字段由运行时在模板之后追加，说明固定为英文；模板不负责目录布局。是否注入环境段仍由 Agent 的 `contextConfig.tags` 中是否包含 `system` 控制。
 

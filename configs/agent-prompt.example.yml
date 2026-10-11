@@ -6,8 +6,7 @@ shared:
     default-locale: zh-CN
     environment-prompt-template: |
       Runtime Context: System Environment
-      os: {{os}}
-      arch: {{arch}}
+      os: {{os}}/{{arch}}
       timezone: {{timezone}}
       language: {{locale}}
 

@@ -4,8 +4,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/knowledge"
 )
@@ -567,9 +569,10 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 
 func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T) {
 	section := buildSystemEnvironmentSection(QuerySession{
-		ChatID:    "chat-1",
-		RunID:     "run-1",
-		RequestID: "req-1",
+		ChatID:        "chat-1",
+		RunID:         "run-1",
+		RequestID:     "req-1",
+		ConnectorDirs: map[string]string{connector.PlatformControlConnectorID: "/connectors/platform-control"},
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
 			LocalPaths: LocalPaths{
@@ -612,7 +615,7 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 	if strings.Contains(section, "workspace_dir: /workspace") {
 		t.Fatalf("expected local paths instead of sandbox paths, got %q", section)
 	}
-	if !strings.Contains(section, "agents_dir: /Users/tester/Project/app/runtime/agents # Editable Agent source directory") {
+	if !strings.Contains(section, "agents_dir: /Users/tester/Project/app/runtime/agents # Editable Agent sources") {
 		t.Fatalf("expected editable agents source in system environment, got %q", section)
 	}
 	if !strings.Contains(section, "ru_agents_dir: /Users/tester/Project/app/runtime/ru-agents # Platform-generated Agent execution directory; do not edit manually") {
@@ -627,15 +630,104 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 	if strings.Contains(section, "chatId:") || strings.Contains(section, "runId:") || strings.Contains(section, "requestId:") {
 		t.Fatalf("expected system environment to exclude session identifiers, got %q", section)
 	}
+	if strings.Contains(section, "skills_dir:") || !strings.Contains(section, "agent_dir: /Users/tester/Project/app/runtime/agents/demo-agent # Current Agent runtime directory; private skills in skills/") {
+		t.Fatalf("expected skills_dir folded into agent_dir, got %q", section)
+	}
+	if strings.Contains("\n"+section, "\nchats_dir:") {
+		t.Fatalf("expected chats_dir implied by chat_dir, got %q", section)
+	}
+	for _, bare := range []string{
+		"root_dir: /Users/tester/Project/app/runtime/root\n",
+		"owner_dir: /Users/tester/Project/app/runtime/owner\n",
+		"automations_dir: /Users/tester/Project/app/runtime/automations\n",
+		"memory_dir: /Users/tester/Project/app/runtime/memory\n",
+		"models_dir: /Users/tester/Project/app/runtime/registries/models\n",
+		"providers_dir: /Users/tester/Project/app/runtime/registries/providers\n",
+	} {
+		if !strings.Contains(section, bare) {
+			t.Fatalf("expected self-describing %q without a comment, got %q", bare, section)
+		}
+	}
 	assertOrderedSubstrings(t, section, []string{
 		"workspace_dir:",
 		"chat_dir:",
 		"root_dir:",
-		"skills_dir:",
 		"agent_dir:",
 		"owner_dir:",
 	})
 	assertLastField(t, section, "pan_dir:")
+}
+
+func TestBuildSystemEnvironmentSectionLimitsPlatformSourcesToPlatformControl(t *testing.T) {
+	paths := LocalPaths{
+		AgentsDir: "/runtime/agents", AutomationsDir: "/runtime/automations", ModelsDir: "/runtime/registries/models",
+		ProvidersDir: "/runtime/registries/providers", ConnectorsCenterDir: "/runtime/connectors-center",
+	}
+	sandbox := SandboxPaths{
+		WorkspaceDir: "/workspace", AgentsDir: "/agents-src", AutomationsDir: "/automations", ModelsDir: "/models",
+		ProvidersDir: "/providers", ConnectorsCenterDir: "/connectors-center",
+	}
+	mounted := map[string]string{connector.PlatformControlConnectorID: "/connectors/platform-control"}
+	for _, session := range []QuerySession{
+		{RuntimeContext: RuntimeRequestContext{LocalPaths: paths}},
+		{AgentHasRuntimeSandbox: true, RuntimeContext: RuntimeRequestContext{SandboxPaths: sandbox}},
+	} {
+		section := "\n" + buildSystemEnvironmentSection(session)
+		for _, key := range []string{"agents_dir:", "models_dir:", "providers_dir:", "connectors_center_dir:"} {
+			if strings.Contains(section, "\n"+key) {
+				t.Fatalf("expected %s only with platform-control, got %q", key, section)
+			}
+		}
+		if !strings.Contains(section, "\nautomations_dir:") {
+			t.Fatalf("expected automations_dir for every Agent, got %q", section)
+		}
+		session.ConnectorDirs = mounted
+		section = "\n" + buildSystemEnvironmentSection(session)
+		for _, key := range []string{"agents_dir:", "automations_dir:", "models_dir:", "providers_dir:", "connectors_center_dir:"} {
+			if !strings.Contains(section, "\n"+key) {
+				t.Fatalf("expected %s with platform-control, got %q", key, section)
+			}
+		}
+	}
+}
+
+func TestLocalTimezoneNameIsNormalized(t *testing.T) {
+	got := localTimezoneName()
+	if got == "" || got == "Local" {
+		t.Fatalf("expected an informative timezone, got %q", got)
+	}
+	if _, err := time.LoadLocation(got); err == nil {
+		return
+	}
+	if _, err := time.Parse("UTC-07:00", got); err != nil {
+		t.Fatalf("expected an IANA timezone or UTC offset, got %q", got)
+	}
+}
+
+func TestNormalizeTimezoneName(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  string
+	}{
+		{value: "Asia/Shanghai", want: "Asia/Shanghai"},
+		{value: ":Asia/Shanghai", want: "Asia/Shanghai"},
+		{value: " UTC ", want: "UTC"},
+		{value: ":/usr/share/zoneinfo/Asia/Shanghai", want: "Asia/Shanghai"},
+		{value: "/var/db/timezone/zoneinfo/Asia/Shanghai", want: "Asia/Shanghai"},
+		{value: "../usr/share/zoneinfo/Asia/Shanghai", want: "Asia/Shanghai"},
+		{value: "Local"},
+		{value: ":Local"},
+		{value: "China Standard Time"},
+		{value: "/etc/localtime"},
+		{value: "Invalid/Timezone"},
+		{},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			if got := normalizeTimezoneName(tc.value); got != tc.want {
+				t.Fatalf("normalizeTimezoneName(%q) = %q, want %q", tc.value, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestBuildSystemEnvironmentSectionSeparatesExplicitWorkspaceAndChatDir(t *testing.T) {
@@ -721,6 +813,11 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 	}
 	if !strings.Contains(section, "ru_agents_dir: /agents # Platform-generated Agent execution directory; do not edit manually") {
 		t.Fatalf("expected existing /agents mount to be identified as generated runtime content, got %q", section)
+	}
+	for _, expected := range []string{"skills_dir: /skills #", "chats_dir: /chats\n"} {
+		if !strings.Contains(section, expected) {
+			t.Fatalf("expected independent sandbox mount %q to remain visible, got %q", expected, section)
+		}
 	}
 	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
 		t.Fatalf("expected tools_dir and viewports_dir to be removed, got %q", section)
@@ -974,23 +1071,31 @@ func TestSystemEnvironmentShowsRuntimeRelativeLocalPaths(t *testing.T) {
 		ChatDir:      filepath.Join(home, "chats", "chat-1"),
 		ChatsDir:     filepath.Join(home, "chats"),
 		PanDir:       filepath.Join(string(filepath.Separator)+"srv", "runtime-pan"),
-	})
+		AgentDir:     filepath.Join(home, "ru-agents", "demo", "rev-1"),
+		SkillsDir:    filepath.Join(home, "ru-agents", "demo", "rev-1", "skills"),
+		RUAgentsDir:  filepath.Join(home, "ru-agents"),
+	}, false)
 	got := strings.Join(lines, "\n")
 	for _, expected := range []string{
 		"runtime_dir: " + home + " #",
 		"workspace_dir: " + workspace + " #",
 		"chat_dir: @runtime/chats/chat-1 #",
-		"chats_dir: @runtime/chats #",
-		"pan_dir: " + filepath.Join(string(filepath.Separator)+"srv", "runtime-pan") + " #",
+		"agent_dir: @runtime/ru-agents/demo/rev-1 # Current Agent runtime directory; platform-generated, do not edit; private skills in skills/",
+		"pan_dir: " + filepath.Join(string(filepath.Separator)+"srv", "runtime-pan"),
 	} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("expected %q in:\n%s", expected, got)
 		}
 	}
+	for _, folded := range []string{"chats_dir:", "skills_dir:", "ru_agents_dir:"} {
+		if strings.Contains(got, folded) {
+			t.Fatalf("expected %q folded into its child line:\n%s", folded, got)
+		}
+	}
 
 	lines = lines[:0]
 	chatDir := filepath.Join(home, "chats", "chat-1")
-	appendLocalContextPaths(&lines, LocalPaths{ChatDir: chatDir})
+	appendLocalContextPaths(&lines, LocalPaths{ChatDir: chatDir}, false)
 	if got := strings.Join(lines, "\n"); strings.Contains(got, "@runtime") || !strings.Contains(got, "chat_dir: "+chatDir) {
 		t.Fatalf("expected absolute paths without a runtime root, got:\n%s", got)
 	}
