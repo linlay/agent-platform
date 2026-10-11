@@ -71,4 +71,27 @@ The HTTP creation endpoint remains `POST /api/admin/agents/create`; project call
 
 ## Create an HTTP MCP connector
 
-Supply a complete connector.json candidate plus mcpUrl to apply (or validate). Use type:"mcp" and auth_mode:"mcp" for standard OAuth discovery, or explicitly "no_auth" for a public endpoint. The server generates mcp.json with a main HTTP component; both files appear in the approval and contribute to its digest. mcpUrl is creation-only, requires an absent resource, and does not allow URL userinfo or fragments. Before approval, creation applies the same local validation as login: OAuth requires HTTPS except HTTP localhost, 127.0.0.1, and ::1; no_auth continues to accept HTTP(S). Authentication runs separately through the existing connector authorization UI and .well-known discovery; never put tokens into candidate files. Saving does not mean authentication or remote tool discovery succeeded.
+When the user supplies an HTTP MCP endpoint and asks to create a connector, use the catalog creation workflow below. The endpoint is configuration input; creating the connector does not require opening it as a webpage or finding a creation form.
+
+1. Prepare a complete connector.json candidate with type:"mcp". Generate an ID, name, and initial package version when the user has not supplied them. The id must exactly match resourceKey, must not use the reserved builtin.* namespace, and must be absent from the connector catalog. Check for ID conflicts with catalog_query list {resourceType:"connector"}; follow pagination as needed. Choose another ID for a new connector rather than overwriting an existing package. The initial package version belongs to this connector definition, not the remote MCP server.
+2. Write auth_mode:"mcp" by default for standard OAuth discovery. Change it only when the user explicitly specifies another authentication mode. This mcpUrl creation shortcut currently accepts mcp and no_auth; use no_auth only when the user explicitly chooses unauthenticated access. For another requested mode, explain the shortcut's limitation and use the existing authorized connector package workflow when available; never silently substitute mcp or no_auth. Credentials belong in the connector authorization interface, not candidate files or Chat text. Omitting auth_mode in a package still means delegated authentication, so write the chosen mode explicitly.
+3. Pass the endpoint as mcpUrl to catalog_query validate, with resourceType:"connector", resourceKey, and the complete candidate content. mcpUrl must be an absolute HTTP(S) URL without userinfo or fragments. MCP OAuth requires HTTPS except HTTP localhost, 127.0.0.1, and ::1; no_auth accepts HTTP(S). Validation checks the local definition and does not contact the remote endpoint.
+4. Submit the same candidate and mcpUrl through catalog_manage apply under the current approval policy. Omit baseRevision only for the new absent resource. The server generates mcp.json with a main HTTP component; both files appear in the approval and contribute to its digest. mcpUrl is creation-only and cannot replace an existing connector's endpoint. If publication reports an unknown outcome, inspect the source before retrying.
+5. Check the apply status, then read back catalog_query get {resourceType:"connector",resourceKey:"<id>"} and the declared component with {resourceType:"mcp",resourceKey:"<id>/main"}. Verify the manifest and component declaration before reporting creation. Component discovery does not return the endpoint URL or prove remote availability.
+6. If authorization is required, guide the user to the connector's existing authorization interface. In Desktop, read [shell navigation](shell.md) and use desktop_shell navigate.toRoute {route:"/connectors/<id>"}; in Standalone, direct the user to the same connector detail page. The user starts login there, and auth_mode:mcp uses .well-known discovery and the existing OAuth flow. An anonymous HTTP 401 alone is not evidence that the user must supply a Token; use the authorization flow's actual result. Report creation, authorization, Agent mounting, and runtime tool availability separately. When the user's task includes using the connector, use the existing Agent connector management interface to mount it and verify runtime MCP status in a new Run; the calling Agent's source remains protected from catalog writes.
+
+For example, this complete catalog_manage request creates a new connector. Replace the ID, name, and endpoint with the candidate for the user's request. First send the same args to catalog_query with action:"validate", then submit action:"apply":
+
+```json
+{
+  "action": "apply",
+  "args": {
+    "resourceType": "connector",
+    "resourceKey": "example-mcp",
+    "mcpUrl": "https://example.com/mcp",
+    "content": "{\"id\":\"example-mcp\",\"name\":\"Example MCP\",\"version\":\"1.0.0\",\"type\":\"mcp\",\"auth_mode\":\"mcp\"}"
+  }
+}
+```
+
+Saving a package confirms neither authorization nor remote tool discovery. An unmounted connector can be successfully created without an Agent-scoped MCP session.

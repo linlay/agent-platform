@@ -1,9 +1,13 @@
 ---
 name: platform-control
-description: Manage Platform definitions, knowledge libraries, diagnostics, and Desktop applications using the mounted platform control connector.
+description: "Discover, create, and manage Platform Agents, skills, connectors, and knowledge libraries. Create HTTP MCP connectors from server URLs. Inspect runtime diagnostics and manage Desktop applications."
 ---
 
 Use `{action,args}` with the appropriate tool. Use catalog_query resourceTypes to discover the supported resource/operation matrix. Read [catalog](references/catalog.md) before catalog discovery or changes. Desktop validates action arguments; Platform reviews routine management actions while Desktop confirms host-impacting and market operations. Page/WorkPanel operations use the separate web-control connector.
+
+When the user asks to create, add, or configure a Platform connector, use this skill. This includes creating an HTTP MCP connector from a server URL supplied by the user. For HTTP MCP creation, read the [creation workflow](references/catalog.md#create-an-http-mcp-connector) before preparing its definition; the supplied URL is the connector's endpoint configuration.
+
+Prepare and validate the complete candidate, submit it through catalog_manage, and verify the published result. Continue with the connector authorization interface when authorization is required.
 
 Catalog and knowledge library tools require an ordinary native root Run. Standalone exposes catalog_query, catalog_manage, platform_inspect, kbase_library_query and kbase_library_manage. Kanban tools belong to builtin.kanban-control. Chat and Automation tools belong to the separate builtin.task-control connector. Never substitute files or shell commands to bypass a rejected or unavailable management operation, probe local HTTP endpoints, or search .env/identity files for tokens.
 
