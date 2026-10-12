@@ -148,6 +148,14 @@ func formatResult(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
+func toolResultModelOutput(payload map[string]any) *string {
+	output, ok := payload["modelOutput"].(string)
+	if !ok {
+		return nil
+	}
+	return &output
+}
+
 func durationMsPointer(value any, payload map[string]any) *int64 {
 	if payload == nil {
 		return nil

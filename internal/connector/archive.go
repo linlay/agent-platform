@@ -17,6 +17,7 @@ const maxArchiveBytes int64 = 256 << 20
 
 var ErrArchiveTooLarge = errors.New("connector ZIP exceeds size or file count limits")
 var ErrPackageExists = errors.New("connector already installed; overwrite is required")
+var ErrArchiveIdentityMismatch = errors.New("connector ZIP identity does not match the expected package")
 
 // PreparedArchive owns a validated unpublished connector tree. Publication
 // rechecks current installed packages under the connector operation lock.
@@ -31,6 +32,24 @@ func (p *PreparedArchive) Close() {
 	if !p.keepStage {
 		_ = os.RemoveAll(p.stage)
 	}
+}
+
+// ValidateExpectedIdentity checks the unpublished package without changing its
+// manifest. Each empty expectation leaves that part of the identity unrestricted.
+func (p *PreparedArchive) ValidateExpectedIdentity(id, version string) error {
+	if id != "" && !ValidID(id) {
+		return fmt.Errorf("expectedId must be a valid connector id")
+	}
+	if version != "" && !validVersion(version) {
+		return fmt.Errorf("expectedVersion must be a SemVer version")
+	}
+	if id != "" && p.pkg.ID != id {
+		return fmt.Errorf("%w: expected id %q, received %q", ErrArchiveIdentityMismatch, id, p.pkg.ID)
+	}
+	if version != "" && p.pkg.Version != version {
+		return fmt.Errorf("%w: expected version %q, received %q", ErrArchiveIdentityMismatch, version, p.pkg.Version)
+	}
+	return nil
 }
 
 // ImportArchive publishes a fully validated package while sharing the same

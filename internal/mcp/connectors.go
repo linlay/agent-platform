@@ -105,12 +105,12 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	}
 	tree["serverKey"] = connector.ServerKey(pkg.ID, name)
 	if disabled, exists := component["disabled"]; exists {
-		value, ok := disabled.(bool)
+		_, ok := disabled.(bool)
 		if !ok {
 			return ServerDefinition{}, fmt.Errorf("disabled must be boolean")
 		}
-		tree["enabled"] = !value
 	}
+	tree["enabled"] = ConnectorComponentEnabled(component)
 	switch component["type"] {
 	case "streamableHttp", "http":
 		if hasAnyKey(component, "command", "args", "env", "staticEnv", "runtime") {
@@ -308,6 +308,17 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		server.SetupError = "connector runtime preparation is not implemented; provide a prepared command without runtime requirements"
 	}
 	return server, nil
+}
+
+// ConnectorComponentEnabled accepts the package's component schema, before it
+// is converted to a registry tree. A declared disabled flag overrides platform.
+// The normal package validation rejects non-boolean disabled values.
+func ConnectorComponentEnabled(component map[string]any) bool {
+	if disabled, ok := component["disabled"].(bool); ok {
+		return !disabled
+	}
+	platform, _ := component["platform"].(map[string]any)
+	return firstBool(platform["enabled"], true)
 }
 
 func cloneAuthComponent(original map[string]any) map[string]any {

@@ -89,6 +89,12 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 		"toolName": input.ToolName,
 		"result":   buildToolResultValue(input),
 	}
+	if len(input.ContentBlocks) > 0 {
+		payload["contentBlocks"] = input.ContentBlocks
+		if input.ModelOutput != nil {
+			payload["modelOutput"] = *input.ModelOutput
+		}
+	}
 	if input.View != nil {
 		payload["view"] = input.View.Map()
 	}

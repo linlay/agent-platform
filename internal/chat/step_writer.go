@@ -231,16 +231,18 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 				"taskId": w.toolTaskIDs[toolID],
 			},
 		}, StoredMessage{
-			Role:         "tool",
-			View:         cloneStringAnyMap(anyMap(event.Value("view"))),
-			ViewError:    event.String("viewError"),
-			Name:         toolName,
-			ToolCallID:   toolID,
-			Content:      textContent(formatResult(event.Value("result"))),
-			ToolID:       toolID,
-			DurationMs:   durationMs,
-			Ts:           &ts,
-			InternalOnly: boolFromAny(event.Value("internalOnly")),
+			Role:          "tool",
+			View:          cloneStringAnyMap(anyMap(event.Value("view"))),
+			ViewError:     event.String("viewError"),
+			Name:          toolName,
+			ToolCallID:    toolID,
+			Content:       textContent(formatResult(event.Value("result"))),
+			ContentBlocks: cloneAnySliceDeep(anySlice(event.Value("contentBlocks"))),
+			ModelOutput:   toolResultModelOutput(event.Payload),
+			ToolID:        toolID,
+			DurationMs:    durationMs,
+			Ts:            &ts,
+			InternalOnly:  boolFromAny(event.Value("internalOnly")),
 		})
 		w.needNewMsgID = true
 		if toolName == "wait" {

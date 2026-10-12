@@ -27,6 +27,16 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
+	expectedID, err := connectorImportExpectedField(r.MultipartForm.Value, "expectedId")
+	if err != nil {
+		s.writeConnectorError(w, err)
+		return
+	}
+	expectedVersion, err := connectorImportExpectedField(r.MultipartForm.Value, "expectedVersion")
+	if err != nil {
+		s.writeConnectorError(w, err)
+		return
+	}
 	overwrite := false
 	if raw := r.FormValue("overwrite"); raw != "" {
 		var err error
@@ -53,6 +63,10 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer prepared.Close()
+	if err := prepared.ValidateExpectedIdentity(expectedID, expectedVersion); err != nil {
+		s.writeConnectorError(w, err)
+		return
+	}
 	pkg, err := withCatalogDirectoryTransaction(r.Context(), s, "connectors", func(ctx context.Context) (connector.Package, error) {
 		return prepared.Publish(ctx, overwrite, mcp.ValidateConnectorPackages, func() error {
 			if s.deps.CatalogReloader != nil {
@@ -75,6 +89,17 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.writeAgentHTTPResponse(w, response, nil)
+}
+
+func connectorImportExpectedField(fields map[string][]string, name string) (string, error) {
+	values, present := fields[name]
+	if !present {
+		return "", nil
+	}
+	if len(values) != 1 || values[0] == "" {
+		return "", errors.New(name + " must be supplied once with a nonempty value")
+	}
+	return values[0], nil
 }
 
 func (s *Server) handleConnectorAuth(w http.ResponseWriter, r *http.Request) {
@@ -168,6 +193,8 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, connector.ErrArchiveIdentityMismatch):
+		code = "connector_identity_mismatch"
 	case errors.Is(err, connectorauth.ErrAuthNotRequired):
 		status, code = http.StatusConflict, "connector_auth_not_required"
 	case errors.Is(err, connector.ErrPackageNotFound):

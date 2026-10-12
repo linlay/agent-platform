@@ -608,7 +608,10 @@ type ToolExecutionResult struct {
 	Output string
 	// Structured is the original business payload used by streams, persistence,
 	// and application consumers. Model-output compaction must not mutate it.
-	Structured        map[string]any
+	Structured map[string]any
+	// ContentBlocks retains ordered MCP content independently of the business
+	// payload, so supplemental content cannot change its declared outputSchema.
+	ContentBlocks     []any
 	RawParams         any
 	HITL              map[string]any
 	Error             string

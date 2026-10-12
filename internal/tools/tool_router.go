@@ -414,17 +414,18 @@ func normalizeMCPResult(toolName string, payload any) ToolExecutionResult {
 			return mcpToolErrorResult(toolName, mapped)
 		}
 		if structured, ok := mapped["structuredContent"]; ok && structured != nil {
-			return payloadToToolResult(structured)
+			result := payloadToToolResult(structured)
+			return withMCPContentBlocks(result, mapped, false)
 		}
 		if items, ok := mapped["content"].([]any); ok && len(items) > 0 {
 			first := items[0]
 			if contentMap, ok := first.(map[string]any); ok {
 				if strings.EqualFold(strings.TrimSpace(AnyStringNode(contentMap["type"])), "text") {
-					return ToolExecutionResult{Output: AnyStringNode(contentMap["text"]), ExitCode: 0}
+					return withMCPContentBlocks(ToolExecutionResult{Output: AnyStringNode(contentMap["text"]), ExitCode: 0}, mapped, true)
 				}
-				return payloadToToolResult(contentMap)
+				return withMCPContentBlocks(payloadToToolResult(contentMap), mapped, true)
 			}
-			return payloadToToolResult(first)
+			return withMCPContentBlocks(payloadToToolResult(first), mapped, true)
 		}
 		return payloadToToolResult(mapped)
 	}
@@ -452,12 +453,13 @@ func mcpToolErrorResult(toolName string, payload map[string]any) ToolExecutionRe
 	resultPayload["code"] = code
 	resultPayload["error"] = code
 	resultPayload["message"] = message
-	return ToolExecutionResult{
+	result := ToolExecutionResult{
 		Output:     MarshalJSON(resultPayload),
 		Structured: resultPayload,
 		Error:      code,
 		ExitCode:   -1,
 	}
+	return withMCPContentBlocks(result, payload, false)
 }
 
 func payloadToToolResult(payload any) ToolExecutionResult {
@@ -481,10 +483,18 @@ func extractMCPErrorMessage(payload map[string]any) string {
 		return message
 	}
 	if items, ok := payload["content"].([]any); ok && len(items) > 0 {
-		if contentMap, ok := items[0].(map[string]any); ok {
-			if text := AnyStringNode(contentMap["text"]); strings.TrimSpace(text) != "" {
-				return text
+		var messages []string
+		for _, item := range items {
+			if contentMap, ok := item.(map[string]any); ok {
+				if strings.EqualFold(AnyStringNode(contentMap["type"]), "text") {
+					if text := AnyStringNode(contentMap["text"]); strings.TrimSpace(text) != "" {
+						messages = append(messages, text)
+					}
+				}
 			}
+		}
+		if len(messages) > 0 {
+			return strings.Join(messages, "\n")
 		}
 	}
 	return "MCP tool call failed"

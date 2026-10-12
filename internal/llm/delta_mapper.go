@@ -205,6 +205,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		sseResult := sseResultValue(value.Result)
 		resultError := value.Result.Error
 		resultExitCode := value.Result.ExitCode
+		var modelOutput *string
+		if len(value.Result.ContentBlocks) > 0 {
+			output := value.Result.Output
+			modelOutput = &output
+		}
 		return []stream.StreamInput{stream.ToolResult{
 			View:            value.View,
 			ViewError:       value.ViewError,
@@ -213,6 +218,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			Result:          sseResult,
+			ContentBlocks:   value.Result.ContentBlocks,
+			ModelOutput:     modelOutput,
 			Hitl:            CloneMap(value.Result.HITL),
 			Error:           resultError,
 			ExitCode:        resultExitCode,

@@ -87,6 +87,8 @@ type ToolResult struct {
 	ToolLabel       string
 	ToolDescription string
 	Result          any
+	ContentBlocks   []any
+	ModelOutput     *string
 	Hitl            map[string]any
 	Error           string
 	ExitCode        int

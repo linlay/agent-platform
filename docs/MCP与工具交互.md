@@ -34,9 +34,13 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 工具 YAML 根级不再接受 `type`、`kind`、`toolAction`、`submitResultFormat`。`view` 是展示引用，不决定工具路由、等待或结果格式；旧 `viewportType/viewportKey` 直接拒绝。MCP 工具在 catalog 中固定返回 `sourceType: mcp`、`sourceCategory: mcp` 和对应 `serverKey`；MCP view 元数据也不会自动产生 awaiting。`/api/admin/tools` 不返回 `kind` 或内部 `meta`。MCP `annotations.readOnlyHint:true` 会映射为平台 `meta.readOnly:true`，供 BTW 只读门禁使用。
 
-`tools/call` 优先使用 `structuredContent` 形成 `ToolExecutionResult.Structured`，否则读取 text content。`ToolExecutionResult.Output` 是实现最终回送模型的文本，LLM 层不会按 YAML 二次格式化。`isError:true` 会形成失败的工具结果；如果 `structuredContent.error` 或 `structuredContent.code` 存在，平台保留该业务错误码，例如 qiuerscript 的 `last_digest_required`、`method_not_found` 与 `digest_mismatch`，不会统一降级为 `mcp_tool_error`。
+`tools/call` 优先使用 `structuredContent` 形成 `ToolExecutionResult.Structured`，业务对象保持原字段，不混入传输内容或平台字段。全部 MCP `content` 按原顺序独立保留在 `ContentBlocks` 中；`ToolExecutionResult.Output` 是实现最终回送模型的文本，包含所有 text 及非文本块的类型、引用和元信息。image/audio 的 `data`、嵌入资源的 `blob` 在模型文本中只保留省略标记和长度，原块继续保存在工具记录中；平台不因此自动下载资源或将媒体作为模型图像/音频输入。常见的单段 text、空内容以及与结构化对象完全重复的 text 保持原输出语义。LLM 层不会按 YAML 二次格式化。
 
-工具定义可选声明 `outputSchema`。没有 `outputSchema` 的 MCP 或 Desktop action result 按不透明 JSON 透传；平台不会根据 `createdAt`、`timestamp`、`iso` 等字段名猜测时间语义。
+带 MCP 内容块的 `tool.result` 增加可选 `contentBlocks` 和 `modelOutput`：`result` 沿用业务结果，`contentBlocks` 保存完整的有序内容，`modelOutput` 保存本次实际回送模型的文本。Chat 的工具消息分别保留业务内容、内容块及可选内部 `_modelOutput`；冷回放恢复内容块，后续模型历史使用保存的模型文本，并去除应用侧字段。旧消息没有这些字段时沿用原读取方式，不改写历史。已有客户端可以忽略新增字段，不需要新的媒体展示协议。
+
+`isError:true` 会形成失败的工具结果；如果 `structuredContent.error` 或 `structuredContent.code` 存在，平台保留该业务错误码，例如 qiuerscript 的 `last_digest_required`、`method_not_found` 与 `digest_mismatch`，不会统一降级为 `mcp_tool_error`。结构化业务 `message` 仍为主错误说明，全部补充内容进入模型文本及记录；没有结构化说明时按顺序合并全部 text 错误说明。
+
+工具定义可选声明 `outputSchema`，校验继续只作用于业务 `Structured`，独立内容块不改变其 Schema。没有 `outputSchema` 的 MCP 或 Desktop action result 按不透明 JSON 透传；平台不会根据 `createdAt`、`timestamp`、`iso` 等字段名猜测时间语义。
 
 本地 `plan_add_tasks`、`plan_get_tasks`、`plan_update_task` 使用有序、单活动任务状态机。新 task 固定为 `init` 且不会自动启动；只允许最前面的非终态 task 由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，且只有当前活动 task 可由 `in_progress` 进入任一终态。相同状态更新幂等，终态重试通过追加新 task 表达。非法更新不改变内存或 snapshot，工具结果分别使用稳定错误码 `plan_task_predecessor_incomplete`、`plan_task_not_current`、`invalid_plan_task_transition`，并在 structured result 中返回未变化的 plan 和状态诊断。 Plan 状态转移错误额外提供 `message` 与 `recovery`，明确本次更新未生效、当前/阻塞任务及纠正方向；应直接使用返回快照纠正调用，必要时再调用 `plan_get_tasks`，不要原样重试或为解除阻塞将任务标为完成。`plan_update_task` 成功时向模型返回与 Structured 相同的 JSON 快照（`planId`、`plan`、有活动项时的 `currentTaskId`），不再只返回 `OK`；`plan_add_tasks` 的新增任务文本返回保持不变。
 

@@ -300,10 +300,14 @@ type SubmitLine struct {
 // ---------------------------------------------------------------------------
 
 type StoredMessage struct {
-	View             map[string]any   `json:"view,omitempty"`
-	ViewError        string           `json:"viewError,omitempty"`
-	Role             string           `json:"role"`
-	Content          []ContentPart    `json:"content,omitempty"`
+	View          map[string]any `json:"view,omitempty"`
+	ViewError     string         `json:"viewError,omitempty"`
+	Role          string         `json:"role"`
+	Content       []ContentPart  `json:"content,omitempty"`
+	ContentBlocks []any          `json:"contentBlocks,omitempty"`
+	// ModelOutput preserves the text actually returned to the model while Content
+	// continues to store the original business result for application replay.
+	ModelOutput      *string          `json:"_modelOutput,omitempty"`
 	Approval         *StepApproval    `json:"approval,omitempty"`
 	ReasoningContent []ContentPart    `json:"reasoning_content,omitempty"`
 	ToolCalls        []StoredToolCall `json:"tool_calls,omitempty"`

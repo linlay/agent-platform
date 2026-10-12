@@ -219,6 +219,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 					if parts, ok := m["content"].([]any); ok {
 						msg["content"] = extractTextFromContent(parts)
 					}
+					applyStoredToolModelOutput(msg)
 				}
 				messages = append(messages, msg)
 			}
@@ -377,6 +378,9 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 				msg["content"] = extractTextFromContent(parts)
 			}
 		}
+		if role == "tool" {
+			applyStoredToolModelOutput(msg)
+		}
 		if role == "user" || role == "assistant" {
 			if parts, ok := msg["reasoning_content"].([]any); ok {
 				msg["reasoning_content"] = normalizeReasoningContent(parts)
@@ -385,6 +389,15 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 		out = append(out, msg)
 	}
 	return out
+}
+
+func applyStoredToolModelOutput(message map[string]any) {
+	if output, ok := message["_modelOutput"].(string); ok {
+		message["content"] = output
+	}
+	// These fields are application evidence, not model API message attributes.
+	delete(message, "_modelOutput")
+	delete(message, "contentBlocks")
 }
 
 func finalAssistantMessageFromStep(line map[string]any, runID string, actorAgentKey string) map[string]any {
