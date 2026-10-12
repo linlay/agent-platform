@@ -3,6 +3,7 @@
 package conversation
 
 import (
+	"agent-platform/internal/operationstate"
 	"errors"
 	"os"
 	"strings"
@@ -15,7 +16,7 @@ import (
 var ErrNotConfigured = errors.New("conversation service is not configured")
 
 type Service struct {
-	ControlStateDir string // private persistent receipts, under Platform .state
+	ControlReceipts *operationstate.Receipts[ControlReceipt] // fork/export outcomes for this process
 	controlMutation sync.Mutex
 	mutationOwner   *Service
 	Chats           chat.Store
@@ -291,7 +292,7 @@ func (s *Service) LockMutation() func() {
 // WithDependencies creates an explicit view without copying synchronization state.
 // This supports embedders replacing transport dependencies while sharing the same lock.
 func (s *Service) WithDependencies(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Archiver, runs contracts.RunManager, notifications contracts.NotificationSink) *Service {
-	view := &Service{ControlStateDir: s.ControlStateDir, Chats: s.Chats, Archives: s.Archives, Archiver: s.Archiver, Runs: s.Runs, Notifications: notifications, mutationOwner: s}
+	view := &Service{ControlReceipts: s.ControlReceipts, Chats: s.Chats, Archives: s.Archives, Archiver: s.Archiver, Runs: s.Runs, Notifications: notifications, mutationOwner: s}
 	if chats != nil {
 		view.Chats = chats
 	}
@@ -305,4 +306,10 @@ func (s *Service) WithDependencies(chats chat.Store, archives *chat.ArchiveStore
 		view.Runs = runs
 	}
 	return view
+}
+
+// ControlReceipt is the remembered outcome of one fork or export invocation.
+type ControlReceipt struct {
+	Digest string
+	Result map[string]any
 }

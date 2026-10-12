@@ -1,6 +1,7 @@
 package app
 
 import (
+	"agent-platform/internal/operationstate"
 	"context"
 	"errors"
 	"fmt"
@@ -398,11 +399,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
 	conversationService.Notifications = notifications
-	conversationService.ControlStateDir = filepath.Join(cfg.Paths.EffectiveStateDir(), "conversation-control")
+	conversationService.ControlReceipts = &operationstate.Receipts[conversation.ControlReceipt]{}
 	if err := toolExecutor.RegisterHandler(runenvops.NewToolHandler(cfg.RunEnv)); err != nil {
 		return nil, fmt.Errorf("register run_env tool: %w", err)
 	}
-	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID, ReceiptDir: filepath.Join(cfg.Paths.EffectiveStateDir(), "automation-control")}
+	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID}
 	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation, ValidateLibrary: kbasesService.ValidateBinding, LibraryDefinition: kbasesService.BindingDefinition}, conversationService, modelRegistry).ConfigureAutomation(automationService).ConfigureLibraries(kbasesService)
 	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithIdentityFile(cfg.IdentityFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
 	controlHandler.ConfigureConnectors(connectorAuth, mcp.NewConnectorChecker(cfg.Paths.ConnectorSources()))

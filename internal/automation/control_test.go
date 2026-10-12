@@ -16,7 +16,7 @@ import (
 
 func controlService(t *testing.T) *Service {
 	t.Helper()
-	return &Service{Registry: NewRegistry(t.TempDir()), ReceiptDir: t.TempDir(), DefaultZoneID: "Asia/Shanghai"}
+	return &Service{Registry: NewRegistry(t.TempDir()), DefaultZoneID: "Asia/Shanghai"}
 }
 func createArgs() map[string]any {
 	return map[string]any{"name": "工作日报", "agentKey": "assistant", "cron": "0 18 * * 1-5", "enabled": false, "query": map[string]any{"message": "  整理工作记录\n保持原文  "}}
@@ -60,8 +60,8 @@ func TestControlCreateReplayUpdateAndDelete(t *testing.T) {
 	}
 	result := applyTestControl(t, s, "create", args, "create-call")
 	id, revision := controlResult(t, result)
-	// Replay survives a new service instance and never allocates another task.
-	restarted := &Service{Registry: s.Registry, ReceiptDir: s.ReceiptDir, DefaultZoneID: s.DefaultZoneID}
+	// Replaying the invocation returns the first result and never allocates another task.
+	restarted := s
 	second := applyTestControl(t, restarted, "create", args, "create-call")
 	id2, _ := controlResult(t, second)
 	if id != id2 {
@@ -119,11 +119,7 @@ func TestControlInterruptedIntentDoesNotReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, _ := s.receiptPath("interrupted")
-	b, _ := json.Marshal(controlReceipt{RequestDigest: plan.RequestDigest, Plan: *plan, State: "started"})
-	if err = os.WriteFile(path, b, 0600); err != nil {
-		t.Fatal(err)
-	}
+	s.receipts.Store("interrupted", controlReceipt{RequestDigest: plan.RequestDigest, Plan: *plan, State: "started"})
 	if _, err = s.PrepareControl("create", args, "interrupted"); err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("expected uncertain result: %v", err)
 	}

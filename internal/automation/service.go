@@ -3,6 +3,7 @@ package automation
 import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/operationstate"
 	"agent-platform/internal/timecontract"
 	"crypto/rand"
 	"encoding/hex"
@@ -22,7 +23,7 @@ type Service struct {
 	Orchestrator  *Orchestrator
 	History       ExecutionHistoryReader
 	DefaultZoneID string
-	ReceiptDir    string
+	receipts      operationstate.Receipts[controlReceipt]
 }
 type StatusError struct {
 	Status        int

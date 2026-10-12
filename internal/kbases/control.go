@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -220,26 +219,14 @@ func mergeControlPatch(base, patch map[string]any) error {
 	return nil
 }
 
-func (s *Service) receiptPath(key string) (string, error) {
-	if key == "" || s.options.StateDir == "" {
-		return "", fmt.Errorf("knowledge library invocation identity and protected state directory are required")
+func (s *Service) controlReceipt(key string) (*controlReceipt, error) {
+	if key == "" {
+		return nil, fmt.Errorf("knowledge library invocation identity is required")
 	}
-	return filepath.Join(s.options.StateDir, "kbases-control", controlDigest(key)+".json"), nil
-}
-
-func readReceipt(path string) (*controlReceipt, error) {
-	b, _, err := readRegular(path)
-	if os.IsNotExist(err) {
-		return nil, nil
+	if receipt, ok := s.receipts.Load(key); ok {
+		return &receipt, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	var receipt controlReceipt
-	if err := json.Unmarshal(b, &receipt); err != nil {
-		return nil, err
-	}
-	return &receipt, nil
+	return nil, nil
 }
 
 func (s *Service) PrepareControl(action string, args map[string]any, key string) (*ControlPlan, error) {
@@ -251,11 +238,7 @@ func (s *Service) PrepareControl(action string, args map[string]any, key string)
 func (s *Service) prepareControl(action string, args map[string]any, key string) (*ControlPlan, error) {
 	requestDigest := controlDigest([]any{action, args})
 	if key != "" {
-		path, err := s.receiptPath(key)
-		if err != nil {
-			return nil, err
-		}
-		r, err := readReceipt(path)
+		r, err := s.controlReceipt(key)
 		if err != nil {
 			return nil, err
 		}
@@ -382,7 +365,7 @@ func (s *Service) prepareControl(action string, args map[string]any, key string)
 }
 
 // ExecuteControl rechecks the candidate under the same gate as HTTP mutations.
-// A durable intent is never replayed after an interrupted outcome.
+// An invocation whose outcome is unknown is never replayed.
 func (s *Service) ExecuteControl(action string, args map[string]any, key string, authorize func(string) bool) (map[string]any, error) {
 	s.management.Lock()
 	defer s.management.Unlock()
@@ -390,29 +373,18 @@ func (s *Service) ExecuteControl(action string, args map[string]any, key string,
 	if err != nil {
 		return nil, err
 	}
-	path, err := s.receiptPath(key)
+	previous, err := s.controlReceipt(key)
 	if err != nil {
 		return nil, err
 	}
 	if p.Completed {
-		r, err := readReceipt(path)
-		if err != nil {
-			return nil, err
-		}
-		return r.Result, nil
+		return previous.Result, nil
 	}
 	if !p.Reused && (authorize == nil || !authorize(p.Digest)) {
 		return nil, fmt.Errorf("approval_required: approve this exact library definition and baseline")
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, err
-	}
 	r := controlReceipt{Plan: *p, State: "started"}
-	b, _ := json.Marshal(r)
-	if err := atomicWrite(dir, filepath.Base(path), b); err != nil {
-		return nil, err
-	}
+	s.receipts.Store(key, r)
 	var d Definition
 	if p.Reused {
 		d, err = s.Get(p.After.ID)
@@ -429,9 +401,7 @@ func (s *Service) ExecuteControl(action string, args map[string]any, key string,
 	if err != nil {
 		var failure *contracts.MutationError
 		if (errors.As(err, &failure) && failure.State == "not_started") || p.Reused {
-			if cleanupErr := os.Remove(path); cleanupErr != nil && !os.IsNotExist(cleanupErr) {
-				return nil, &contracts.MutationError{State: "not_started", Err: errors.Join(err, fmt.Errorf("receipt cleanup failed: %w", cleanupErr))}
-			}
+			s.receipts.Delete(key)
 			return nil, err
 		}
 		return nil, &contracts.MutationError{State: "unknown", Err: err}
@@ -443,10 +413,7 @@ func (s *Service) ExecuteControl(action string, args map[string]any, key string,
 		result["library"], result["baseRevision"] = d, d.BaseRevision
 	}
 	r.State, r.Result = "completed", result
-	b, _ = json.Marshal(r)
-	if err := atomicWrite(dir, filepath.Base(path), b); err != nil {
-		return nil, &contracts.MutationError{State: "unknown", Err: err}
-	}
+	s.receipts.Store(key, r)
 	return result, nil
 }
 

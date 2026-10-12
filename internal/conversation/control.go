@@ -645,47 +645,28 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 		}
 		digest := controlDigest(map[string]any{"action": action, "args": args, "subject": c.Subject})
 		stem := "control-" + controlDigest([]string{c.RunID, c.ToolID})[:32]
-		if s.ControlStateDir == "" {
-			return nil, fmt.Errorf("private receipt storage unavailable")
+		if s.ControlReceipts == nil {
+			return nil, fmt.Errorf("invocation receipts unavailable")
 		}
-		receiptDir := s.ControlStateDir
-		for _, path := range []string{s.Chats.ChatDir(c.ChatID), receiptDir} {
-			if info, err := os.Lstat(path); err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.IsDir()) {
-				return nil, fmt.Errorf("invalid Chat storage directory")
-			} else if err != nil && !os.IsNotExist(err) {
-				return nil, err
-			}
+		if info, err := os.Lstat(s.Chats.ChatDir(c.ChatID)); err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.IsDir()) {
+			return nil, fmt.Errorf("invalid Chat storage directory")
+		} else if err != nil && !os.IsNotExist(err) {
+			return nil, err
 		}
 		if e = os.MkdirAll(s.Chats.ChatDir(c.ChatID), 0700); e != nil {
 			return nil, e
 		}
-		if e = os.MkdirAll(receiptDir, 0700); e != nil {
-			return nil, e
-		}
-		receiptPath := filepath.Join(receiptDir, stem+".json")
-		var receipt struct {
-			Digest  string         `json:"digest"`
-			Result  map[string]any `json:"result"`
-			Started bool           `json:"started"`
-		}
-		if b, e := os.ReadFile(receiptPath); e == nil {
-			if json.Unmarshal(b, &receipt) != nil || receipt.Digest != digest {
+		receipt, resuming := s.ControlReceipts.Load(stem)
+		if resuming {
+			if receipt.Digest != digest {
 				return nil, fmt.Errorf("idempotency_conflict")
 			}
 			if receipt.Result != nil {
 				return receipt.Result, nil
 			}
-		} else if !os.IsNotExist(e) {
-			return nil, e
-		}
-		resuming := receipt.Started
-		if !receipt.Started {
+		} else {
 			receipt.Digest = digest
-			receipt.Started = true
-			b, _ := json.Marshal(receipt)
-			if e = controlAtomicFile(receiptPath, b); e != nil {
-				return nil, e
-			}
+			s.ControlReceipts.Store(stem, receipt)
 		}
 		if action == "fork" {
 			if existing, e := s.Chats.Summary(stem); e != nil {
@@ -714,10 +695,7 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 					}
 					result = map[string]any{"chatId": id, "url": filename, "format": format, "sizeBytes": info.Size()}
 					receipt.Result = result
-					b, _ := json.Marshal(receipt)
-					if e = controlAtomicFile(receiptPath, b); e != nil {
-						return nil, e
-					}
+					s.ControlReceipts.Store(stem, receipt)
 					return result, nil
 				} else if !os.IsNotExist(err) {
 					return nil, err
@@ -780,12 +758,8 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 			result = map[string]any{"chatId": id, "url": filename, "format": format, "sizeBytes": len(body)}
 		}
 		state = "committed"
-		receipt.Digest = digest
 		receipt.Result = result
-		b, _ := json.Marshal(receipt)
-		if e = controlAtomicFile(receiptPath, b); e != nil {
-			return nil, e
-		}
+		s.ControlReceipts.Store(stem, receipt)
 	default:
 		return nil, fmt.Errorf("unsupported action")
 	}

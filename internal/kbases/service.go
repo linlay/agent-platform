@@ -2,6 +2,7 @@
 package kbases
 
 import (
+	"agent-platform/internal/operationstate"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -90,23 +91,23 @@ type Engine interface {
 	Read(context.Context, string, string, string, int, ...string) (json.RawMessage, error)
 }
 type Service struct {
-	root             string
-	runtimeRoot      string // Persistent per-library data, directly below ru-kbases.
-	engine           Engine
-	ctx              context.Context
-	mu               sync.RWMutex
-	busy             map[string]bool
-	locks            sync.Map
-	tasks            sync.Map
-	held             sync.Map
-	started          bool
-	gate             chan struct{}
-	options          Options
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	admission        sync.Mutex // Serialize worker admission against shutdown.
-	management       sync.Mutex // Serialize management baselines, deduplication and receipts.
-	receiptCleanupAt time.Time  // Protected by management.
+	root        string
+	runtimeRoot string // Persistent per-library data, directly below ru-kbases.
+	engine      Engine
+	ctx         context.Context
+	mu          sync.RWMutex
+	busy        map[string]bool
+	locks       sync.Map
+	tasks       sync.Map
+	held        sync.Map
+	started     bool
+	gate        chan struct{}
+	options     Options
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	admission   sync.Mutex // Serialize worker admission against shutdown.
+	management  sync.Mutex // Serialize management baselines, deduplication and receipts.
+	receipts    operationstate.Receipts[controlReceipt]
 }
 
 func New(ctx context.Context, root, runtimeRoot string, engine Engine, options ...Options) (*Service, error) {

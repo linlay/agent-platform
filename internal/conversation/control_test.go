@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"agent-platform/internal/chat"
+	"agent-platform/internal/operationstate"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -29,7 +30,7 @@ func controlChatFixture(t *testing.T) (*Service, *chat.FileStore, ControlCaller)
 		}
 	}
 	service := NewService(store, nil, nil, nil)
-	service.ControlStateDir = t.TempDir()
+	service.ControlReceipts = &operationstate.Receipts[ControlReceipt]{}
 	return service, store, ControlCaller{Subject: "user", ChatID: "current", AgentKey: "agent", RunID: "caller-run", ToolID: "tool-1"}
 }
 func controlAppendRun(t *testing.T, store *chat.FileStore, id, run, answer string) {

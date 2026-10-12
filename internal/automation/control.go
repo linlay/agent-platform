@@ -52,25 +52,14 @@ func strictDecode(v any, out any) error {
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(out)
 }
-func (s *Service) receiptPath(key string) (string, error) {
-	if strings.TrimSpace(key) == "" || s.ReceiptDir == "" {
-		return "", fmt.Errorf("automation control receipt storage unavailable")
+func (s *Service) controlReceipt(key string) (*controlReceipt, error) {
+	if strings.TrimSpace(key) == "" {
+		return nil, fmt.Errorf("automation invocation identity required")
 	}
-	return filepath.Join(s.ReceiptDir, digestJSON(key)+".json"), nil
-}
-func readControlReceipt(path string) (*controlReceipt, error) {
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
+	if receipt, ok := s.receipts.Load(key); ok {
+		return &receipt, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	var r controlReceipt
-	if err = json.Unmarshal(b, &r); err != nil {
-		return nil, err
-	}
-	return &r, nil
+	return nil, nil
 }
 func (s *Service) PrepareControl(action string, args map[string]any, key string) (*ControlPlan, error) {
 	if err := s.AutomationDepsReady(); err != nil {
@@ -83,11 +72,7 @@ func (s *Service) PrepareControl(action string, args map[string]any, key string)
 func (s *Service) prepareControl(action string, args map[string]any, key string) (*ControlPlan, error) {
 	requestDigest := digestJSON([]any{action, args})
 	if key != "" {
-		path, err := s.receiptPath(key)
-		if err != nil {
-			return nil, err
-		}
-		receipt, err := readControlReceipt(path)
+		receipt, err := s.controlReceipt(key)
 		if err != nil {
 			return nil, err
 		}
@@ -211,8 +196,8 @@ func (s *Service) detailForDefinition(def Definition) (api.AutomationDetailRespo
 	return api.AutomationDetailResponse{AutomationSummaryResponse: summary, Query: mapAutomationQuery(def.Query)}, nil
 }
 
-// ExecuteControl serializes HTTP/tool management and writes a durable intent before any side effect.
-// An interrupted intent is never replayed automatically after a process restart.
+// ExecuteControl serializes HTTP/tool management and records the intent before any side effect.
+// An invocation whose outcome is unknown is never replayed.
 func (s *Service) ExecuteControl(action string, args map[string]any, key string, authorize func(string) bool) (any, error) {
 	if err := s.AutomationDepsReady(); err != nil {
 		return nil, err
@@ -226,11 +211,7 @@ func (s *Service) ExecuteControl(action string, args map[string]any, key string,
 	if !authorize(p.Digest) {
 		return nil, fmt.Errorf("approval_required: approve this exact invocation and baseline")
 	}
-	path, err := s.receiptPath(key)
-	if err != nil {
-		return nil, err
-	}
-	receipt, err := readControlReceipt(path)
+	receipt, err := s.controlReceipt(key)
 	if err != nil {
 		return nil, err
 	}
@@ -238,13 +219,7 @@ func (s *Service) ExecuteControl(action string, args map[string]any, key string,
 		return receipt.Result, nil
 	}
 	receipt = &controlReceipt{RequestDigest: p.RequestDigest, Plan: *p, State: "started"}
-	if err = os.MkdirAll(s.ReceiptDir, 0700); err != nil {
-		return nil, err
-	}
-	b, _ := json.Marshal(receipt)
-	if err = writeFileAtomic(path, b, 0600); err != nil {
-		return nil, err
-	}
+	s.receipts.Store(key, *receipt)
 	var result any
 	if action == "trigger" {
 		// Check the latest baseline, then dispatch the approved immutable snapshot.
@@ -277,10 +252,7 @@ func (s *Service) ExecuteControl(action string, args map[string]any, key string,
 	}
 	receipt.State = "completed"
 	receipt.Result = result
-	b, _ = json.Marshal(receipt)
-	if err = writeFileAtomic(path, b, 0600); err != nil {
-		return nil, &contracts.MutationError{State: "unknown", Err: err}
-	}
+	s.receipts.Store(key, *receipt)
 	return result, nil
 }
 func (s *Service) ControlGet(id string) (map[string]any, error) {

@@ -105,7 +105,7 @@ Desktop 对这些动作仅在可信内部 agentPlatform 调用上下文下豁免
 
 list/search 按 Chat ID 的稳定顺序使用存储层 keyset 分页，游标不再包含全部 ID，使用进程内随机密钥认证加密以隐藏扫描到的其他用户 ID，重启后需重新查询；不跟随 UI 的置顶/手工排序。单页至多扫描 100 个列表候选，权限过滤后可能为空但仍有 nextCursor。search 每次至多扫描 50 个会话、16 MiB 历史，在会话之间检查 2 秒期限；超过 8 MiB 的单会话显式列在 skippedChatIds，返回 incomplete，不能宣称无结果。命中片段至多 500 Unicode 字符，并围绕命中位置。read 使用 continuation cursor；read 在 16,000 字符预算内切分长消息，返回 offset/continued，冻结已读消息边界的内容摘要，历史被改动后要求重新开始。artifacts 复用已认证 Chat 资源接口。归档列表分页覆盖全部记录。
 
-rename/setPinned 可以操作当前 Chat，置顶复用现有服务与 chats.order.changed。archive/delete/fork 拒绝当前调用 Chat、活动 Run 和 pending HITL。删除审批同时绑定摘要和历史内容版本。fork/export 使用 Run/tool ID 派生结果路径和持久收据，同一次调用不会产生多个副本，参数变更冲突。export 输出当前 Chat 下的正文 Markdown 或标准完整 snapshot JSON。未完成的 fork 收据无法证明已存在目标来源时返回 idempotency_conflict，不认领现有目标、不覆盖或删除。HTTP 与工具的归档、恢复、置顶、删除、改名、复制共用修改锁；Service 依赖视图显式共享锁，不复制 sync.Mutex。
+rename/setPinned 可以操作当前 Chat，置顶复用现有服务与 chats.order.changed。archive/delete/fork 拒绝当前调用 Chat、活动 Run 和 pending HITL。删除审批同时绑定摘要和历史内容版本。fork/export 使用 Run/tool ID 派生结果路径和进程内收据（不落盘；旧的 `<StateDir>/conversation-control/` 可手动删除），同一次调用不会产生多个副本，参数变更冲突。export 输出当前 Chat 下的正文 Markdown 或标准完整 snapshot JSON。未完成的 fork 收据无法证明已存在目标来源时返回 idempotency_conflict，不认领现有目标、不覆盖或删除。HTTP 与工具的归档、恢复、置顶、删除、改名、复制共用修改锁；Service 依赖视图显式共享锁，不复制 sync.Mutex。
 
 archive/restore 同时支持单个 `chatId` 或 `chatIds`（1–100 个互异 ID，两者互斥）。请求格式先整体验证，再逐项检查权限并执行；失败继续，返回 total/succeeded/failed 和含错误、executionState 的逐项结果，不回滚已成功项。单项响应兼容原契约。
 
@@ -113,7 +113,7 @@ archive/restore 同时支持单个 `chatId` 或 `chatIds`（1–100 个互异 ID
 
 runtimeStatus 返回配置启用状态、目录数量、运行模式/uptime、MCP 的已有同步快照、连接器本地 configured 状态与 KBASE sidecar 快照，不触发联网探测。暂未注入的组件明确返回 unavailable；Container Hub 的 enabled 不是健康探测。securityExplain 解释本 Run 挂载、动作与文件访问策略，不授予权限。
 
-Run 准入与 Chat mutation 之间尚无覆盖所有入口的统一并发事务。`@chat/` 在 Workspace 外的 Desktop 预览仍受原协议限制。任意多文件事务没有全局崩溃恢复日志；来源发布和 fork/export 通过已有原子落盘及收据恢复边界处理。真实 Desktop、Windows、Container Hub 与第三方 MCP OAuth 仍需目标环境联调。
+Run 准入与 Chat mutation 之间尚无覆盖所有入口的统一并发事务。`@chat/` 在 Workspace 外的 Desktop 预览仍受原协议限制。任意多文件事务没有全局崩溃恢复日志；来源发布沿用已有原子落盘边界，fork/export 在同一进程内通过收据去重；重启不恢复未完成调用。真实 Desktop、Windows、Container Hub 与第三方 MCP OAuth 仍需目标环境联调。
 
 搜索不提供向量化摘要、流式分段全文索引或单会话中途取消；分页不冻结全库快照，新增 ID 位于游标之前时需重新查询。snapshot 不打包产物字节，归档附件元数据尚未单独恢复。
 

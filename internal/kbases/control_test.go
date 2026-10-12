@@ -2,7 +2,6 @@ package kbases
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -250,14 +249,7 @@ func TestLibraryControlUnknownReceiptAndInvalidBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, _ := s.receiptPath("interrupted")
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := json.Marshal(controlReceipt{Plan: *plan, State: "started"})
-	if err := os.WriteFile(path, b, 0600); err != nil {
-		t.Fatal(err)
-	}
+	s.receipts.Store("interrupted", controlReceipt{Plan: *plan, State: "started"})
 	if _, err := s.ExecuteControl("create", args, "interrupted", func(string) bool { return true }); err == nil {
 		t.Fatal("interrupted mutation replayed automatically")
 	}
@@ -343,12 +335,8 @@ func assertUnstartedControl(t *testing.T, s *Service, key string, err error) {
 	if errors.As(err, &failure) && failure.State != "not_started" {
 		t.Fatalf("known rejection reported as %s: %v", failure.State, err)
 	}
-	path, pathErr := s.receiptPath(key)
-	if pathErr != nil {
-		t.Fatal(pathErr)
-	}
-	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
-		t.Fatalf("known rejection retained its receipt: %v", statErr)
+	if _, retained := s.receipts.Load(key); retained {
+		t.Fatal("known rejection retained its receipt")
 	}
 }
 

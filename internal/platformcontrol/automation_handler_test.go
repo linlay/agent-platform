@@ -58,7 +58,7 @@ func TestAutomationRemainingRunsNullAdmissionOnlyOnUpdate(t *testing.T) {
 }
 
 func TestAutomationToolAdmissionApprovalAndPolicy(t *testing.T) {
-	h := NewToolHandler(config.Config{}, nil, nil).ConfigureAutomation(&automation.Service{Registry: automation.NewRegistry(t.TempDir()), ReceiptDir: t.TempDir(), DefaultZoneID: "UTC"})
+	h := NewToolHandler(config.Config{}, nil, nil).ConfigureAutomation(&automation.Service{Registry: automation.NewRegistry(t.TempDir()), DefaultZoneID: "UTC"})
 	args := map[string]any{"action": "create", "args": map[string]any{"name": "Task", "agentKey": "agent", "cron": "0 9 * * *", "enabled": "false", "query": map[string]any{"message": "hello", "hidden": "false"}}}
 	e := controlExecution()
 	ctx := context.Background()
