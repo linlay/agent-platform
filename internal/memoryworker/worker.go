@@ -376,5 +376,6 @@ func makeBatches(r chat.RunSummary, project string, messages []chat.MemoryMessag
 	return batches
 }
 
-// StateRoot is deliberately separate from Markdown content and chat storage.
-func StateRoot(stateDir string) string { return filepath.Join(stateDir, "memory-worker") }
+// StateRoot keeps the worker's scan progress beside memx's own receipts in the
+// memory directory. It holds no credentials; losing it only causes a rescan.
+func StateRoot(memoryDir string) string { return filepath.Join(memoryDir, ".worker") }

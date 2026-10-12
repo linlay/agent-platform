@@ -436,7 +436,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
 	sessions := runtimesession.New(runtimesession.Dependencies{KnowledgeLibrary: kbasesService.LibraryOption, ValidateKnowledge: knowledgeManager.ValidateRunLibrary, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
 	memoryClient := memoryworker.Client{Root: cfg.Paths.MemoryDir, Timezone: cfg.Memory.Timezone, ConfigDir: filepath.Join(cfg.Paths.StateDir, "memx")}
-	memoryWorker := memoryworker.New(cfg.Memory, memoryworker.StateRoot(cfg.Paths.StateDir), chatStore,
+	memoryWorker := memoryworker.New(cfg.Memory, memoryworker.StateRoot(cfg.Paths.MemoryDir), chatStore,
 		memoryClient,
 		&memoryworker.ModelConfigSync{ModelKey: cfg.Memory.Worker.ModelKey, Models: modelRegistry, TimeoutSeconds: cfg.Memory.Worker.TimeoutSeconds, Client: memoryClient},
 		func(key string) (string, bool) {

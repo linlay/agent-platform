@@ -9,7 +9,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
 ├── agents/                         # Agent 定义与 Agent 自有 Skill
 ├── connectors-center/              # 导入、下载的外部连接器原包
 ├── ru-connectors/<id>/<digest>/     # 跨 Agent 共享的完整运行包
-├── .state/                         # Platform 通用持久化运行状态
+├── .state/                         # 凭据与身份：连接器凭据、身份票据、含密钥的受管配置
 │   └── connectors/<id>/            # 连接器授权与受管 CLI 状态
 ├── skills-center/                  # 共享 Skill；.package/ 保存技能包控制状态
 ├── ru-skills/<digest>/             # 普通 Skill 的共享只读内容快照

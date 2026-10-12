@@ -47,11 +47,6 @@ func (s *Service) abandonPersistedRuns() error {
 			s.finishRunConnectorPins(run.RunID, run.ChatID)
 		}
 	}
-	remaining, err := s.deps.Chats.LoadAllPendingAwaitings()
-	if err != nil {
-		return err
-	}
-	s.sweepRunConnectorSnapshots(remaining)
 	return nil
 }
 

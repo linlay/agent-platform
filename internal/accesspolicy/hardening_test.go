@@ -116,3 +116,32 @@ func TestRunGrantsDoNotBroadenToParentOrChangedScript(t *testing.T) {
 		t.Fatal("changed content reused grant")
 	}
 }
+
+func TestPreviewRecordsHardBlockAcrossLevels(t *testing.T) {
+	s := policyFixture(t)
+	preview := filepath.Join(s.WorkspaceRoot, "ru-previews")
+	if err := os.MkdirAll(preview, 0700); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(preview, "record.json")
+	if err := os.WriteFile(record, []byte(`{"shareUrl":"test"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.ProtectedPaths = PlatformProtectedPaths(config.Config{Paths: config.PathsConfig{
+		StateDir: filepath.Join(t.TempDir(), ".state"), RUPreviewsDir: preview,
+	}})
+	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		s.AccessLevel = level
+		for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
+			plan, err := BuildPathPlan(config.DefaultAccessPolicyConfig(), s, mode, record)
+			if err != nil || !plan.Blocked() {
+				t.Fatalf("%s %s: %+v %v", level, mode, plan, err)
+			}
+		}
+		for _, command := range []string{"cat ru-previews/record.json", "touch ru-previews/new.json", "tar -cf archive.tar ru-previews"} {
+			if plan := ReviewBashCommand(config.DefaultAccessPolicyConfig(), s, command, s.WorkspaceRoot, nil); !plan.Blocked() {
+				t.Fatalf("preview access %s at %s: %+v", command, level, plan)
+			}
+		}
+	}
+}

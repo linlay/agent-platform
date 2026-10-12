@@ -30,6 +30,7 @@ func defaultConfig(options LoadOptions) Config {
 		MemoryDir:           filepath.Join(runtimeRoot, "memory"),
 		KBasesDir:           filepath.Join(runtimeRoot, "kbases"),
 		RUKBasesDir:         filepath.Join(runtimeRoot, "ru-kbases"),
+		RUPreviewsDir:       filepath.Join(runtimeRoot, "ru-previews"),
 		PanDir:              filepath.Join(runtimeRoot, "pan"),
 		SkillsCenterDir:     filepath.Join(runtimeRoot, "skills-center"),
 	}
@@ -351,6 +352,7 @@ func (c *Config) normalize(configRoot string) error {
 		return err
 	}
 	c.Paths.RUKBasesDir = filepath.Clean(runKBasesDir)
+	c.Paths.RUPreviewsDir = filepath.Clean(c.Paths.EffectiveRUPreviewsDir())
 	c.Paths.PanDir = filepath.Clean(c.Paths.PanDir)
 	c.Paths.SkillsCenterDir = filepath.Clean(c.Paths.SkillsCenterDir)
 

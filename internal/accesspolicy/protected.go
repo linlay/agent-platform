@@ -8,8 +8,9 @@ import (
 
 // PlatformProtectedPaths is assembled from deployment configuration, never
 // from model arguments or a public query field. It covers the platform's own
-// secrets: the effective StateDir (connector credentials, run control state and
-// the default identity file) and a separately configured identity file.
+// secrets: the effective StateDir (connector credentials and the default
+// identity file), a separately configured identity file, and the document
+// preview records, whose share links open the previewed documents.
 func PlatformProtectedPaths(cfg config.Config) []string {
 	state := cfg.Paths.EffectiveStateDir()
 	identity := cfg.IdentityFile
@@ -17,7 +18,7 @@ func PlatformProtectedPaths(cfg config.Config) []string {
 		identity, _ = config.ResolveIdentityFile(state, "")
 	}
 	var paths []string
-	for _, p := range []string{state, identity} {
+	for _, p := range []string{state, identity, cfg.Paths.EffectiveRUPreviewsDir()} {
 		if strings.TrimSpace(p) != "" {
 			paths = append(paths, p)
 		}

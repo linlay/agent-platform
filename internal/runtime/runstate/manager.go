@@ -11,8 +11,8 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/runenv"
+	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/stream"
 
 	"agent-platform/internal/interaction"

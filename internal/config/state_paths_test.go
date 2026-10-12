@@ -40,9 +40,10 @@ func TestStateDirectoryEnvironmentAndFixedRuntimeLayout(t *testing.T) {
 					cfg.Paths.ToolsDir: "tools",
 					cfg.Paths.OwnerDir: "owner", cfg.Paths.RootDir: "root",
 					cfg.Paths.AutomationsDir: "automations", cfg.Paths.SkillsCenterDir: "skills-center",
-					cfg.Paths.ConnectorsCenterDir: "connectors-center",
-					cfg.Paths.KBasesDir:           "kbases",
-					cfg.Paths.RUKBasesDir:         "ru-kbases",
+					cfg.Paths.ConnectorsCenterDir:      "connectors-center",
+					cfg.Paths.KBasesDir:                "kbases",
+					cfg.Paths.RUKBasesDir:              "ru-kbases",
+					cfg.Paths.EffectiveRUPreviewsDir(): "ru-previews",
 				} {
 					if path != filepath.Join(runtimeRoot, child) {
 						t.Fatalf("%s escaped fixed runtime layout: %s", child, path)
@@ -76,4 +77,17 @@ func TestKBasesExpandsRuntimeHome(t *testing.T) {
 			t.Fatal(cfg.Paths.KBasesDir)
 		}
 	})
+}
+
+func TestStateEnvironmentCannotOverlapPreviewRecords(t *testing.T) {
+	root := t.TempDir()
+	for _, state := range []string{filepath.Join(root, "ru-previews"), filepath.Join(root, "ru-previews", "credentials")} {
+		t.Run(filepath.Base(state), func(t *testing.T) {
+			withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": root, "AP_RUNTIME_STATE_DIR": state}, func() {
+				if _, err := Load(LoadOptions{ConfigDir: t.TempDir()}); err == nil {
+					t.Fatal("state environment overlapped preview records")
+				}
+			})
+		})
+	}
 }

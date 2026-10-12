@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"agent-platform/internal/catalog"
-	"agent-platform/internal/chat"
 	"agent-platform/internal/connector"
 )
 
+// runConnectorSnapshot is the connector mounts and tools a Run was admitted
+// with. It is held in process memory until the Run ends, so a Run resumed
+// after waiting for the user keeps its original package versions. Nothing is
+// written to disk: a restart cancels every unfinished Run.
 type runConnectorSnapshot struct {
 	RunID  string                      `json:"runId"`
 	Agents []catalog.ConnectorSnapshot `json:"agents"`
@@ -27,35 +29,7 @@ func (s *Service) finishRunConnectorPins(runID, chatID string) {
 		}
 	}
 	_ = os.Remove(s.connectorSources().RunPinPath(runID))
-	// The snapshot only serves a suspended Run; RUNS already rejects Run ID reuse.
-	_ = os.Remove(s.connectorSnapshotPath(runID))
-}
-
-// sweepRunConnectorSnapshots removes snapshots left by Runs that can no longer
-// resume. Current-process Runs and pending awaitings keep their snapshots.
-func (s *Service) sweepRunConnectorSnapshots(pending []chat.PendingAwaitingWithChat) {
-	if s.deps.Config.Paths.EffectiveStateDir() == "" {
-		return
-	}
-	keep := make(map[string]bool, len(pending))
-	for _, item := range pending {
-		keep[filepath.Base(s.connectorSnapshotPath(item.RunID))] = true
-	}
-	dir := filepath.Dir(s.connectorSnapshotPath(""))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if entry.Type().IsRegular() && filepath.Ext(entry.Name()) == ".json" && !keep[entry.Name()] {
-			path := filepath.Join(dir, entry.Name())
-			var snapshot runConnectorSnapshot
-			if connector.ReadJSON(path, &snapshot) == nil && s.hasProcessRun(snapshot.RunID) {
-				continue
-			}
-			_ = os.Remove(path)
-		}
-	}
+	s.connectorSnapshots.Delete(runID)
 }
 
 func (s *Service) FreezeRunConnectors(prepared preparedQuery) error {
@@ -77,60 +51,23 @@ func (s *Service) FreezeRunConnectors(prepared preparedQuery) error {
 	if len(mounts) == 0 {
 		return nil
 	}
-	path := s.connectorSnapshotPath(snapshot.RunID)
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		return err
-	}
 	// Bind once: resuming an existing Run must retain its original package versions.
-	if previous, err := os.ReadFile(path); err == nil {
-		if string(previous) != string(data) {
+	if previous, held := s.connectorSnapshots.Load(snapshot.RunID); held {
+		before, _ := json.Marshal(previous)
+		after, _ := json.Marshal(snapshot)
+		if string(before) != string(after) {
 			return fmt.Errorf("run connector snapshot conflict")
 		}
-		return s.connectorSources().PinRun(snapshot.RunID, mounts)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".snapshot-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Link(f.Name(), path); err != nil {
-		return err
+	} else {
+		s.connectorSnapshots.Store(snapshot.RunID, snapshot)
 	}
 	return s.connectorSources().PinRun(snapshot.RunID, mounts)
 }
 
-func (s *Service) connectorSnapshotPath(runID string) string {
-	return filepath.Join(s.deps.Config.Paths.EffectiveStateDir(), "run-connectors", filepath.Base(s.connectorSources().RunPinPath(runID)))
-}
-
 func (s *Service) RestoreRunConnectors(runID string, def *catalog.AgentDefinition) error {
-	var snapshot runConnectorSnapshot
-	err := connector.ReadJSON(s.connectorSnapshotPath(runID), &snapshot)
-	if os.IsNotExist(err) {
+	snapshot, held := s.connectorSnapshots.Load(runID)
+	if !held {
 		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if snapshot.RunID != runID {
-		return fmt.Errorf("run connector snapshot identity mismatch")
 	}
 	for _, agent := range snapshot.Agents {
 		if agent.AgentKey == def.Key {

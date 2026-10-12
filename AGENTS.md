@@ -100,7 +100,7 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 Automation 定义目录中的 `executions.db` 是 schema V2 的旁路执行历史库。已知旧版在后台创建一致性备份后重建为空 V2，不迁移旧行；History 初始化、备份和写入失败不得阻止 Platform、Automation 调度或 Query/Run。`AUTOMATION_EXECUTIONS` 保存触发快照、`chatId/runId`、真实 `finishReason` 和完整助手结果，列表只读取摘要，详情按需读取全文。
 
-Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以总体 summary.md、agents/<agentKey>/summary.md 和 agents/<agentKey>/daily/YYYY-MM-DD.md 为当前 memx 内容源（管理端 daily/search 仍为旧布局，分层接入待完成）；用户资料位于 owner/OWNER.md。memx 管理收据及恢复日志，Platform worker 进度位于 `.state/memory-worker`。旧 memory.md 仅在 summary 缺失时复制并保留备份；旧数据库不迁移。
+Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，以总体 summary.md、agents/<agentKey>/summary.md 和 agents/<agentKey>/daily/YYYY-MM-DD.md 为当前 memx 内容源（管理端 daily/search 仍为旧布局，分层接入待完成）；用户资料位于 owner/OWNER.md。memx 管理收据及恢复日志，Platform worker 进度位于记忆目录的 `.worker/`。旧 memory.md 仅在 summary 缺失时复制并保留备份；旧数据库不迁移。
 
 KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Agent 不拥有索引。知识工具路径为 collection/relativePath，引用 ID 包含 libraryId。原文通过已发布来源的专用 Chat API 回读，不扩大 Workspace 文件权限。
 

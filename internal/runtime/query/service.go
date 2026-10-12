@@ -1,6 +1,7 @@
 package query
 
 import (
+	"agent-platform/internal/operationstate"
 	"context"
 	"errors"
 	"strings"
@@ -67,6 +68,8 @@ type Service struct {
 	backgroundCtx     context.Context
 	deferredAwaitings DeferredAwaitingStore
 	ticketService     proxy.TicketIssuer
+
+	connectorSnapshots operationstate.Receipts[runConnectorSnapshot]
 }
 
 func NewService(deps Dependencies) *Service {

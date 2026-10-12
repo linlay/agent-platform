@@ -11,7 +11,7 @@ import (
 	"agent-platform/internal/connector"
 )
 
-func TestRunConnectorSnapshotRetainsVersionAcrossRestart(t *testing.T) {
+func TestRunConnectorSnapshotRetainsVersionAcrossCatalogReload(t *testing.T) {
 	for _, name := range []string{"platform-control", "web-control"} {
 		t.Run(name, func(t *testing.T) { testRunConnectorSnapshotRetainsVersion(t, name) })
 	}
@@ -63,12 +63,12 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 		t.Fatal(err)
 	}
 	if restored.ConnectorMounts[0].Dir != old.ConnectorMounts[0].Dir {
-		t.Fatal("restart silently switched package version")
+		t.Fatal("catalog reload silently switched package version")
 	}
 	if got := runtimeNativeConnectorTools(restored); got[tool] != "builtin."+name {
 		t.Fatalf("restored authorization: %v", got)
 	}
 	if len(fresh.ConnectorRuntimes()) < 2 {
-		t.Fatal("old MCP/runtime version absent after restart")
+		t.Fatal("old MCP/runtime version absent after catalog rebuild")
 	}
 }

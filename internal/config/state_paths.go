@@ -27,8 +27,9 @@ func resolveStatePath(configRoot, value string) (string, error) {
 	return filepath.Clean(abs), nil
 }
 
-// EffectiveStateDir is the Platform-wide persistent operational state root.
-// Modules own their namespace beneath it; business data keeps its own roots.
+// EffectiveStateDir is the credential and identity root: connector credentials
+// and login state, the identity ticket, and managed configuration that carries
+// model keys. Run state, receipts and progress records do not belong here.
 func (p PathsConfig) EffectiveStateDir() string {
 	if value := strings.TrimSpace(p.StateDir); value != "" {
 		return value
@@ -37,6 +38,19 @@ func (p PathsConfig) EffectiveStateDir() string {
 		if value := strings.TrimSpace(candidate); value != "" {
 			return filepath.Join(filepath.Dir(value), ".state")
 		}
+	}
+	return ""
+}
+
+// EffectiveRUPreviewsDir holds the records of document preview copies kept on
+// the preview service. It persists across restarts so those copies can be
+// reclaimed, and is protected because each record carries a share link.
+func (p PathsConfig) EffectiveRUPreviewsDir() string {
+	if value := strings.TrimSpace(p.RUPreviewsDir); value != "" {
+		return value
+	}
+	if state := p.EffectiveStateDir(); state != "" {
+		return filepath.Join(filepath.Dir(state), "ru-previews")
 	}
 	return ""
 }

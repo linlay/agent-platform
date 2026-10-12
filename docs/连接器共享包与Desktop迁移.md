@@ -8,8 +8,7 @@ runtime/
 ├── ru-connectors/<id>/<contentDigest>/      # 完整共享运行包
 ├── ru-agents/<agentKey>/connectors/<id>.json # 挂载引用
 └── .state/
-    ├── connectors/<id>/                    # 配置、凭证与 CLI 私有状态
-    └── run-connectors/<runIdHash>.json      # 等待中 Run 的私有挂载快照，Run 结束即删除
+    └── connectors/<id>/                    # 配置、凭证与 CLI 私有状态
 ```
 
 CLI 内置来源为 Platform verified bundle 的 connectors 目录，其源码清单与技能位于相邻 `agent-platform-builtins/{dbx,httpx}/connector/`；native `builtin.platform-control` 与 `builtin.web-control` 的清单和技能各自完整保存在 `internal/resources/connectors/<id>/`，随程序内嵌。共享包包含清单、技能及其资源、适用的 bin/libs；运行引用和快照不保存凭据。模型通过 `@connectors/<id>/...` 访问当前 Agent 已挂载的包；Container 只读映射对应 `/connectors/<id>`。
@@ -20,9 +19,9 @@ CLI 内置来源为 Platform verified bundle 的 connectors 目录，其源码�
 
 Catalog 发布期间持有装配锁；当前挂载、活动 Run/Terminal 和 MCP session 保留包租约。连接器内容更新可以发布新的挂载快照，旧调用继续使用旧包。普通 Agent 文件的变更仍遵守活动运行目录租约。MCP 路由按 Agent、连接器组件及包版本隔离，共享文件不意味着共享 MCP 会话。
 
-Run 的挂载快照保存在私有状态目录，持久引用位于共享根 `.run-pins`；等待用户输入时保留引用，以支持同进程续接；Platform 重启取消旧 Run 后释放其引用与快照。回收仅删除内容校验通过且没有引用、租约的版本，未知或被改动的目录保留。启动终态对账成功后释放已取消 Run 的持久引用；对账失败时保留引用，当前不会按时间强制清理它们。
+Run 的挂载快照只保存在 Platform 进程内存中，Run 结束即清除；持久引用位于共享根 `.run-pins`。等待用户输入时保留两者，以支持同进程续接；Platform 重启取消旧 Run 后释放其引用，快照随进程结束。旧的 `.state/run-connectors` 不再读取或写入，可手动删除。回收仅删除内容校验通过且没有引用、租约的版本，未知或被改动的目录保留。启动终态对账成功后释放已取消 Run 的持久引用；对账失败时保留引用，当前不会按时间强制清理它们。
 
-MCP 绑定按挂载来源区分校验：当前 Agent 和活动运行的挂载包加载失败仍阻止绑定，错误包含 Agent key 和连接器 ID；仅来自历史 Run 持久引用的包加载失败时记录警告并跳过，不阻止 Platform 启动。该来源标记由运行时读取持久引用时赋予，不接受配置或持久 JSON 设置。等待中 Run 的引用与快照保留到该 Run 结束，同进程续接时仍严格校验原始包，不自动替换；Run 结束后两者一并删除，启动时取消历史 Run 并清理遗留快照。有效的历史 MCP 包继续建立版本路由；后续 MCP 组件配置校验仍保持严格。
+MCP 绑定按挂载来源区分校验：当前 Agent 和活动运行的挂载包加载失败仍阻止绑定，错误包含 Agent key 和连接器 ID；仅来自历史 Run 持久引用的包加载失败时记录警告并跳过，不阻止 Platform 启动。该来源标记由运行时读取持久引用时赋予，不接受配置或持久 JSON 设置。等待中 Run 的引用与快照保留到该 Run 结束，同进程续接时仍严格校验原始包，不自动替换；Run 结束后两者一并删除，启动时取消历史 Run 并释放其持久引用；旧磁盘快照由部署方清理。有效的历史 MCP 包继续建立版本路由；后续 MCP 组件配置校验仍保持严格。
 
 共享包路径通过统一文件访问策略只读；未挂载包不获得文件读取或 CLI 专属免审权。Host Bash 仍遵循现有宿主执行模型，不提供操作系统级沙箱隔离。
 

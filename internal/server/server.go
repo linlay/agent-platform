@@ -299,7 +299,7 @@ func New(deps Dependencies) (*Server, error) {
 		s.wsHandler = s.newWSHandler(hub)
 	}
 	if deps.Config.DocumentPreview.Enabled {
-		preview, err := documentpreview.New(deps.Config.DocumentPreview, deps.Config.Paths.StateDir)
+		preview, err := documentpreview.New(deps.Config.DocumentPreview, deps.Config.Paths.EffectiveRUPreviewsDir())
 		if err != nil {
 			return nil, fmt.Errorf("initialize document preview: %w", err)
 		}

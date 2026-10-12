@@ -26,14 +26,15 @@ type Service struct {
 	locks  map[string]chan struct{}
 }
 
-func New(c Config, stateDir string) (*Service, error) {
+// New keeps its records directly in dir, the runtime ru-previews directory.
+func New(c Config, dir string) (*Service, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	s := &Service{config: c.normalized(), dir: filepath.Join(stateDir, "document-preview"), slots: make(chan struct{}, 2), locks: map[string]chan struct{}{}}
+	s := &Service{config: c.normalized(), dir: dir, slots: make(chan struct{}, 2), locks: map[string]chan struct{}{}}
 	if c.Enabled {
-		if stateDir == "" {
-			return nil, fmt.Errorf("document-preview state directory is required")
+		if dir == "" {
+			return nil, fmt.Errorf("document-preview record directory is required")
 		}
 		if err := os.MkdirAll(s.dir, 0700); err != nil {
 			return nil, err

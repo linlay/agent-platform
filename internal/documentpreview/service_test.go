@@ -192,7 +192,7 @@ func TestEveryRequestRechecksAccessAndSurvivesRestart(t *testing.T) {
 	if err == nil || h.uploads.Load() != 1 {
 		t.Fatal("cached result bypassed access")
 	}
-	restarted, err := New(s.config, filepath.Dir(s.dir))
+	restarted, err := New(s.config, s.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
