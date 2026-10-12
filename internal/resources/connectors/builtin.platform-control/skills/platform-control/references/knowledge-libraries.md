@@ -54,6 +54,6 @@ kbaseConfig:
 
 Replace the model with an available key and merge defaults before submitting this example. Tool availability comes from declared tools and mode presets; library binding does not inject tools. Preserve the user's requested workspace rather than assuming it is the source.
 
-For an existing unbound KBASE, read its full source, create/reuse the explicitly requested source library, add libraryId while retaining all other configuration, validate/apply using the source revision, and recheck binding/status. The diagnostic "KBASE requires kbaseConfig.libraryId" describes a repairable configuration error. Do not bypass it by changing mode.
+An unbound Agent of any mode, including KBASE, is valid and needs no repair. Bind an existing Agent only when the user asks for a fixed library: read its full source, create/reuse the explicitly requested source library, add libraryId while retaining all other configuration, validate/apply using the source revision, and recheck binding/status.
 
 The service automatically watches, reconciles and indexes libraries after creation. There is no separate model-facing trigger-index tool, and the first Chat does not create the library or index. If the management tools are absent, report the missing capability and unfinished checks. Never use curl/local interfaces, file mutations or token discovery as a fallback.

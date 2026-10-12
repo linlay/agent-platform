@@ -43,9 +43,9 @@ For agent.yml, adding or changing kbaseConfig.libraryId follows the ordinary app
 
 ## Create an Agent definition
 
-Start with `catalog_query defaults {type:"general"|"coder"|"kbase"}` for the requested mode and preserve its current `definitionDefaults` when composing the candidate. Defaults are a partial definition: add `key`, `name`, and the user's workspace. The YAML `key` must exactly match `args.resourceKey`; `name` is the display name, not the identifier. Use `name`, not `displayName`, for the Agent's display name.
+Start with `catalog_query defaults {type:"general"|"coder"|"kbase"}` for the requested mode and preserve its current `definitionDefaults` when composing the candidate. Defaults are a partial definition: add `key`, `name`, and the user's workspace if requested. Neither Workspace nor library binding is required by mode. The YAML `key` must exactly match `args.resourceKey`; `name` is the display name, not the identifier. Use `name`, not `displayName`, for the Agent's display name.
 
-For example, the following is a complete minimal project creation request for `catalog_manage`. Replace the example model key with an available model from defaults and the workspace with the user's existing directory; merge any additional current defaults before submitting. This example uses GENERAL; CODER can use the same shape with its mode/defaults. KBASE additionally requires kbaseConfig.libraryId: first create/reuse a library using [knowledge libraries](knowledge-libraries.md), then bind the real returned ID. KBASE defaults include this missing field and are not ready before binding.
+For example, the following is a complete minimal project creation request for `catalog_manage`. Replace the example model key with an available model from defaults and the workspace with the user's existing directory; merge any additional current defaults before submitting. This example uses GENERAL; CODER can use the same shape with its mode/defaults. KBASE uses the same shape too. `kbaseConfig.libraryId` is optional for every mode, including KBASE: add it only when the user wants a fixed library, by first creating/reusing a library using [knowledge libraries](knowledge-libraries.md) and binding the real returned ID. Never add a binding the user did not ask for.
 
 ```json
 {
