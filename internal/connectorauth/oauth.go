@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -262,6 +263,7 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	}
 	var registrationEndpoint string
 	var discoveredIssuer string
+	registrationGrants := []string{"authorization_code", "refresh_token"}
 	if pkg.AuthMode == connector.AuthMCP {
 		var requiredScopes []string
 		prm, asm, err := m.discover(ctx, resource, oauthDestination(pkg), settings, &requiredScopes)
@@ -276,6 +278,10 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 		}
 		cfg.Endpoint.AuthURL, cfg.Endpoint.TokenURL = asm.AuthorizationEndpoint, asm.TokenEndpoint
 		discoveredIssuer = asm.Issuer
+		// Preserve refresh registration for servers that omit this optional field.
+		if asm.GrantTypesSupported != nil && !slices.Contains(asm.GrantTypesSupported, "refresh_token") {
+			registrationGrants = []string{"authorization_code"}
+		}
 		dir, dirErr := StateDir(pkg.PersistentRoot(), pkg.ID)
 		if dirErr != nil {
 			return dirErr
@@ -307,10 +313,10 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	if cfg.ClientID == "" {
 		registration, err := oauthex.RegisterClient(ctx, registrationEndpoint, &oauthex.ClientRegistrationMetadata{
 			ClientName: "Agent Platform", RedirectURIs: []string{redirect}, ApplicationType: "native",
-			TokenEndpointAuthMethod: "none", GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"}, Scope: strings.Join(scopes, " "),
+			TokenEndpointAuthMethod: "none", GrantTypes: registrationGrants, ResponseTypes: []string{"code"}, Scope: strings.Join(scopes, " "),
 		}, m.client)
 		if err != nil {
-			return fmt.Errorf("OAuth dynamic client registration failed")
+			return oauthRegistrationError(err)
 		}
 		if registration.ClientID == "" {
 			return fmt.Errorf("OAuth registration returned no client id")
@@ -404,6 +410,30 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 		return fmt.Errorf("authorization was canceled or signed out")
 	}
 	return saveCredential(m.sources.PersistentRoot(), pkg.ID, oauthCredential{Generation: currentState.Generation, MCP: pkg.AuthMode == connector.AuthMCP, Resource: resource, Destination: oauthDestination(pkg), Config: cfg, Token: token})
+}
+
+func oauthRegistrationError(err error) error {
+	message := "OAuth dynamic client registration failed"
+	var registrationError *oauthex.ClientRegistrationError
+	if errors.As(err, &registrationError) {
+		if code := oauthRegistrationErrorDetail(registrationError.ErrorCode, 128); code != "" {
+			message += ": " + code
+		}
+		if description := oauthRegistrationErrorDetail(registrationError.ErrorDescription, 512); description != "" {
+			message += ": " + description
+		}
+	}
+	// Other SDK errors can contain entire upstream response bodies.
+	return errors.New(message)
+}
+
+func oauthRegistrationErrorDetail(value string, maxRunes int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	runes := []rune(value)
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes]) + "…"
+	}
+	return value
 }
 
 // ValidatePackage checks local authentication declarations without network I/O.
