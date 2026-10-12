@@ -1,7 +1,7 @@
 package server
 
 import (
-	"path/filepath"
+	"sync"
 	"testing"
 
 	"agent-platform/internal/chat"
@@ -14,13 +14,10 @@ import (
 // start time and is intentionally rejected by the public time contract.
 func startServerFixtureRun(t testing.TB, store chat.Store, chatID, runID string, startedAt int64, scopes ...controlscope.Scope) {
 	t.Helper()
-	scope := controlscope.Scope{Transport: "http", Lane: "main"}
+	// Control identities live in the run manager, not in Chat storage; a
+	// fixture that needs one registers it for the server under test.
 	if len(scopes) > 0 {
-		scope = scopes[0]
-	}
-	controls := controlscope.Store{Root: filepath.Join(filepath.Dir(store.ChatDir(chatID)), ".state", "run-controls")}
-	if err := controls.Bind(runID, scope); err != nil {
-		t.Fatal(err)
+		fixtureRunScopes.Store(runID, scopes[0])
 	}
 	recorder, ok := store.(chat.RunStartRecorder)
 	if !ok {
@@ -48,4 +45,19 @@ func completeServerFixtureRun(t testing.TB, store chat.Store, completion chat.Ru
 	}
 	startServerFixtureRun(t, store, completion.ChatID, completion.RunID, completion.StartedAtMillis)
 	return store.OnRunCompleted(completion)
+}
+
+// fixtureRunScopes carries scopes requested through startServerFixtureRun to
+// bindFixtureRunScopes, which has the server those Runs belong to.
+var fixtureRunScopes sync.Map
+
+func bindFixtureRunScopes(t testing.TB, s *Server) {
+	t.Helper()
+	fixtureRunScopes.Range(func(runID, scope any) bool {
+		if err := s.runControlScopes().Bind(runID.(string), scope.(controlscope.Scope)); err != nil {
+			t.Fatal(err)
+		}
+		fixtureRunScopes.Delete(runID)
+		return true
+	})
 }

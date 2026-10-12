@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"agent-platform/internal/runtime/controlscope"
@@ -12,11 +11,7 @@ import (
 )
 
 func (s *Server) runControlScopes() controlscope.Store {
-	root := s.deps.Config.Paths.StateDir
-	if root == "" {
-		root = filepath.Join(s.deps.Config.Paths.ChatsDir, ".state")
-	}
-	return controlscope.Store{Root: filepath.Join(root, "run-controls")}
+	return controlscope.NewStore(s.deps.Runs)
 }
 func httpControlScope(ctx context.Context, lane string) controlscope.Scope {
 	scope := controlscope.Scope{Transport: "http", Lane: lane}
@@ -42,7 +37,7 @@ func (s *Server) validateRunControl(runID string, caller controlscope.Scope, aut
 	owner, err := s.runControlScopes().Load(runID)
 	if err != nil {
 		if errors.Is(err, controlscope.ErrMissing) {
-			return btwStatusError(http.StatusConflict, "run_control_identity_unavailable", "run has no persisted control identity")
+			return btwStatusError(http.StatusConflict, "run_control_identity_unavailable", "run has no control identity")
 		}
 		return btwStatusError(500, "run_control_identity_unavailable", "cannot read run control identity")
 	}

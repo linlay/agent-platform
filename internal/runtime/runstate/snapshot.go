@@ -3,6 +3,7 @@ package runstate
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -15,23 +16,8 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 	runID = strings.TrimSpace(runID)
 	status, ok := runs.RunStatus(runID)
 	if !ok {
-		if reader, valid := runs.(interface {
-			StoredRunSnapshot(string) (contracts.RunSnapshot, error)
-		}); valid {
-			if snapshot, err := reader.StoredRunSnapshot(runID); err == nil {
-				if chats != nil {
-					if detail, err := chats.LoadChat(snapshot.ChatID); err == nil {
-						events := []stream.EventData{}
-						for _, event := range detail.Events {
-							if event.String("runId") == runID {
-								events = append(events, event)
-							}
-						}
-						ApplyEventSnapshot(&snapshot, events)
-					}
-				}
-				return snapshot, nil
-			}
+		if snapshot, found := recordedSnapshot(runs, chats, runID); found {
+			return snapshot, nil
 		}
 		return contracts.RunSnapshot{}, &contracts.RunToolError{Code: "run_not_found", Message: "run not found"}
 	}
@@ -108,6 +94,48 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 		}
 	}
 	return snapshot, nil
+}
+
+// recordedSnapshot describes a Run this process no longer tracks, from its
+// Chat record. A Run without a completion was cut off, so it is interrupted.
+func recordedSnapshot(runs contracts.RunManager, chats chat.Store, runID string) (contracts.RunSnapshot, bool) {
+	reader, ok := chats.(interface {
+		LoadRunRecord(string) (*chat.RunRecord, error)
+	})
+	if !ok {
+		return contracts.RunSnapshot{}, false
+	}
+	record, err := reader.LoadRunRecord(runID)
+	if err != nil || record == nil {
+		return contracts.RunSnapshot{}, false
+	}
+	snapshot := contracts.RunSnapshot{RunID: record.RunID, ChatID: record.ChatID, AgentKey: record.AgentKey, AccessLevel: record.AccessLevel, StartedAt: record.StartedAt, CompletedAt: record.CompletedAt}
+	if origins, ok := runs.(interface {
+		RecordedRunOrigin(string) *contracts.RunOrigin
+	}); ok {
+		snapshot.Origin = origins.RecordedRunOrigin(runID)
+	}
+	switch {
+	case record.CompletedAt == 0:
+		snapshot.Status, snapshot.CompletedAt = "interrupted", time.Now().UnixMilli()
+	case record.FinishReason == "complete":
+		snapshot.Status = "completed"
+	case record.FinishReason == "error":
+		snapshot.Status = "failed"
+	default:
+		snapshot.Status = "interrupted"
+	}
+	if detail, err := chats.LoadChat(record.ChatID); err == nil {
+		events := []stream.EventData{}
+		for _, event := range detail.Events {
+			if event.String("runId") == runID {
+				events = append(events, event)
+				snapshot.LastSeq = max(snapshot.LastSeq, event.Seq)
+			}
+		}
+		ApplyEventSnapshot(&snapshot, events)
+	}
+	return snapshot, true
 }
 
 func PublicStatus(state contracts.RunLoopState) string {

@@ -13,11 +13,10 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-// Synthetic fixtures bypass query admission, so explicitly seed its durable identity.
+// Synthetic fixtures bypass query admission, so explicitly seed the process-local identity.
 func bindTestRunControl(t testing.TB, s *Server, runID, transport, boundary string) {
 	t.Helper()
-	if s.deps.Config.Paths.StateDir == "" && s.deps.Config.Paths.ChatsDir == "" {
-		s.deps.Config.Paths.StateDir = t.TempDir()
+	if s.deps.Runtime == nil {
 		bindTestRuntime(s)
 	}
 	if err := s.runControlScopes().Bind(runID, controlscope.Scope{Transport: transport, Lane: "main", Boundary: boundary}); err != nil {

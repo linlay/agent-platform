@@ -116,6 +116,20 @@ type QueryLine struct {
 	Type     string           `json:"_type"`
 }
 
+// RunRecord is what the chat store knows about a Run once the process no
+// longer holds it: the RUNS lifecycle row and the admitted access level.
+// Identity (control scope, chat_start caller subject) is deliberately absent:
+// it is never written to Chat storage.
+type RunRecord struct {
+	ChatID       string
+	RunID        string
+	AgentKey     string
+	StartedAt    int64
+	CompletedAt  int64
+	FinishReason string
+	AccessLevel  string
+}
+
 const (
 	StepLineTypeReact     = "react"
 	StepLineTypeReactTool = "react-tool"

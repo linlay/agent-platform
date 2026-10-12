@@ -230,12 +230,10 @@ func (s *Service) RegisterRecoveredAwaitingRun(item chat.PendingAwaitingWithChat
 			}
 		}
 	}
-	if reader, ok := s.deps.Runs.(interface {
-		StoredRunSnapshot(string) (contracts.RunSnapshot, error)
+	if origins, ok := s.deps.Runs.(interface {
+		RecordedRunOrigin(string) *contracts.RunOrigin
 	}); ok {
-		if saved, err := reader.StoredRunSnapshot(item.RunID); err == nil {
-			session.RunOrigin = saved.Origin
-		}
+		session.RunOrigin = origins.RecordedRunOrigin(item.RunID)
 	}
 	initialSeq := s.PersistedRunLiveSeq(item.ChatID, item.RunID)
 	recovered, err := runs.RegisterRecoveredAwaiting(s.backgroundCtx, session, item.AwaitingID, initialSeq)

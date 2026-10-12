@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 	runopspkg "agent-platform/internal/runops"
+	"agent-platform/internal/runtime/controlscope"
 )
 
 func TestChatStartOptionalSettings(t *testing.T) {
@@ -506,6 +507,14 @@ func TestChatStartAuditUsesAcceptedParentBaseline(t *testing.T) {
 
 // narrowRunManager hides the atomic acceptance point of the real manager.
 type narrowRunManager struct{ contracts.RunManager }
+
+// Control identities are unrelated to the acceptance point and stay visible.
+func (m narrowRunManager) BindRunControlScope(runID string, scope controlscope.Scope) controlscope.Scope {
+	return m.RunManager.(controlscope.Live).BindRunControlScope(runID, scope)
+}
+func (m narrowRunManager) RunControlScope(runID string) (controlscope.Scope, bool) {
+	return m.RunManager.(controlscope.Live).RunControlScope(runID)
+}
 
 func TestChatStartRefusesRunManagerWithoutAtomicAcceptance(t *testing.T) {
 	fixture, _ := chatStartFixture(t, "auto_approve")

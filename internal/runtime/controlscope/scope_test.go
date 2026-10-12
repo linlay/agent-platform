@@ -7,8 +7,33 @@ import (
 	"testing"
 )
 
-func TestImmutableScopeSurvivesRestartAndConcurrentClaim(t *testing.T) {
-	store := Store{Root: t.TempDir()}
+type liveScopes struct {
+	mu     sync.Mutex
+	scopes map[string]Scope
+}
+
+func (l *liveScopes) BindRunControlScope(runID string, scope Scope) Scope {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if old, ok := l.scopes[runID]; ok {
+		return old
+	}
+	if l.scopes == nil {
+		l.scopes = map[string]Scope{}
+	}
+	l.scopes[runID] = scope
+	return scope
+}
+
+func (l *liveScopes) RunControlScope(runID string) (Scope, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	scope, ok := l.scopes[runID]
+	return scope, ok
+}
+
+func TestScopeIsImmutableUnderConcurrentClaim(t *testing.T) {
+	store := Store{Live: &liveScopes{}}
 	a := Scope{Transport: "ws", Lane: "btw", Subject: "user", Boundary: "device"}
 	b := a
 	b.Lane = "explain"
@@ -16,7 +41,7 @@ func TestImmutableScopeSurvivesRestartAndConcurrentClaim(t *testing.T) {
 	results := make(chan error, 2)
 	for _, scope := range []Scope{a, b} {
 		wg.Add(1)
-		go func(scope Scope) { defer wg.Done(); results <- store.Bind("../run", scope) }(scope)
+		go func(scope Scope) { defer wg.Done(); results <- store.Bind("run", scope) }(scope)
 	}
 	wg.Wait()
 	close(results)
@@ -33,17 +58,19 @@ func TestImmutableScopeSurvivesRestartAndConcurrentClaim(t *testing.T) {
 	if success != 1 || conflict != 1 {
 		t.Fatalf("claims: %d/%d", success, conflict)
 	}
-	restored, err := (Store{Root: store.Root}).Load("../run")
-	if err != nil || (restored != a && restored != b) {
-		t.Fatalf("restore: %#v %v", restored, err)
+	owner, err := store.Load("run")
+	if err != nil || (owner != a && owner != b) {
+		t.Fatalf("owner: %#v %v", owner, err)
 	}
-	if err := store.Bind("../run", restored); err != nil {
+	if err := store.Bind("run", owner); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Load("missing"); !errors.Is(err, ErrMissing) {
 		t.Fatal(err)
 	}
+
 }
+
 func TestControlScopeMatrix(t *testing.T) {
 	for _, transport := range []string{"http", "ws"} {
 		for _, lane := range []string{"main", "btw", "explain"} {
@@ -78,7 +105,7 @@ func TestInProcessCreationHasNoNetworkTransport(t *testing.T) {
 	if scope.Transport != "" || scope.Lane != "" {
 		t.Fatalf("unexpected network origin: %#v", scope)
 	}
-	store := Store{Root: t.TempDir()}
+	store := Store{Live: &liveScopes{}}
 	if err := store.Bind("in-process", scope); err != nil {
 		t.Fatal(err)
 	}

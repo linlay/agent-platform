@@ -228,7 +228,7 @@ func (s *Service) RegisterPreparedQuery(ctx context.Context, prepared preparedQu
 		if errors.Is(err, controlscope.ErrConflict) {
 			return registeredQueryRun{}, btwStatusError(409, "run_control_identity_conflict", err.Error())
 		}
-		return registeredQueryRun{}, btwStatusError(500, "run_control_identity_unavailable", "cannot persist run control identity")
+		return registeredQueryRun{}, btwStatusError(500, "run_control_identity_unavailable", "cannot record run control identity")
 	}
 	if registrar, ok := s.deps.Runs.(contracts.ExclusiveRunRegistrar); ok {
 		registration, err := registrar.RegisterExclusiveForChat(ctx, prepared.Session)

@@ -399,9 +399,9 @@ BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、at
 
 Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane，连接 source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`。三者发起 Run 统一发送 route `/api/query`：Platform 根据已认证连接身份将 main 送入普通 query，将 btw/explain 送入隐藏只读分支，payload 不能覆盖 lane。旁聊沿用 BTW payload（含可选 `btwId`），同一连接可先后创建、续问和 attach 不同分支 Run，但同一时刻只能观察一个 Run stream。HTTP 统一使用 `POST /api/query`，body 的 `lane` 缺省或 `main` 执行主聊天、`btw` 执行隐藏分支；`explain` 返回 403 `explain_ws_required`，其他值返回 400 `invalid_lane`，均不创建 Chat。网页仍使用 SSE，也支持 `stream:false` JSON。旧 HTTP/WS `/api/btw` 入口已删除，Platform、Desktop 与 WebClient 配套发布。attach、detach、steer、interrupt、access-level 在既有 agent/team owner 校验之外，执行下述 Run 控制归属校验。
 
-以下控制归属限制不适用于 HITL Submit。Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，保存在 `.state/run-controls/<runId哈希>.json`；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
+以下控制归属限制不适用于 HITL Submit。Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，只保存在 Platform 进程内存中，不写入 `.state`、`chats.db` 或 Chat JSONL；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
 
-归属不绑定 sessionId 或 surfaceId，同 lane 重连/关窗重开可按 lastSeq attach。归属文件在 Run 结束后保留；planning 后续执行 Run 继承源 Run 归属，跨进程重启取消旧等待项；新 Query 建立新的控制归属。内部 Run 调度与控制走内部调用路径，不由客户端声明内部身份。
+归属不绑定 sessionId 或 surfaceId，同 lane 重连/关窗重开可按 lastSeq attach。归属在进程存活期间保留，Run 结束后仍可查到；planning 后续执行 Run 继承源 Run 归属，跨进程重启取消旧等待项；新 Query 建立新的控制归属。内部 Run 调度与控制走内部调用路径，不由客户端声明内部身份。
 
 Automation 等内部 Run 的全空控制归属允许受信任 Desktop Main 通过独立授权执行上述五种 WS 控制，控制和观察不改写 Run 归属；该授权在 token 到期后立即失效，不等待心跳关闭连接。认证、设备和来源限制见[鉴权与安全边界](鉴权与安全边界.md)。
 

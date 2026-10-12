@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/stream"
 
@@ -43,7 +44,8 @@ type managedRun struct {
 }
 
 type Manager struct {
-	recordRoot            string
+	controlScopes         map[string]controlscope.Scope
+	runOrigins            map[string]contracts.RunOrigin
 	mu                    sync.Mutex
 	runs                  map[string]*managedRun
 	reaperStop            chan struct{}
@@ -199,7 +201,12 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 		startedAt:         startedAt,
 		activeSince:       startedAt,
 	}
-	m.saveRunRecord(m.runs[session.RunID])
+	if session.RunOrigin != nil {
+		if m.runOrigins == nil {
+			m.runOrigins = map[string]contracts.RunOrigin{}
+		}
+		m.runOrigins[session.RunID] = *session.RunOrigin
+	}
 	if lifetime := session.ResolvedBudget.LifetimeTimeout; lifetime > 0 {
 		m.runs[session.RunID].lifetimeTimer = time.AfterFunc(max(time.Duration(0), time.Until(startedAt.Add(time.Duration(lifetime)*time.Second))), func() {
 			control.Interrupt(contracts.InterruptInfo{Source: contracts.InterruptSourceUnknown, Reason: contracts.InterruptReasonRunExpired, Detail: "run lifetime exceeded"})
@@ -474,7 +481,6 @@ func (m *Manager) Finish(runID string) {
 			state.lifetimeTimer.Stop()
 		}
 		state.completedAt = time.Now()
-		m.saveRunRecord(state)
 	}
 	m.mu.Unlock()
 	if ok {

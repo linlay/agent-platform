@@ -175,7 +175,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
-	runManager := runstate.NewManager().WithStateRoot(cfg.Paths.StateDir)
+	runManager := runstate.NewManager()
 	runtimeService := agentruntime.NewService()
 	proxyRuntime := runtimeproxy.NewService()
 	wsHub := ws.NewHub()

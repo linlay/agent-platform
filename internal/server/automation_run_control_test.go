@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -117,14 +115,7 @@ func TestRunningAutomationAllowsAllDesktopMainControls(t *testing.T) {
 	if err != nil || owner != (controlscope.Scope{}) {
 		t.Fatalf("Automation owner: %#v %v", owner, err)
 	}
-	ownerFiles, err := filepath.Glob(filepath.Join(fixture.server.runControlScopes().Root, "*.json"))
-	if err != nil || len(ownerFiles) != 1 {
-		t.Fatalf("owner files: %v %v", ownerFiles, err)
-	}
-	before, err := os.ReadFile(ownerFiles[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := owner
 	signToken := func(expiresAt int64) string {
 		return mustSignRS256JWT(t, privateKey, map[string]any{
 			"sub": "desktop-user", "scope": "app", "deviceId": "desktop-device", "iss": "automation-control-test", "exp": expiresAt,
@@ -231,8 +222,8 @@ func TestRunningAutomationAllowsAllDesktopMainControls(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Automation did not finish after interrupt")
 	}
-	after, err := os.ReadFile(ownerFiles[0])
-	if err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("Desktop control rewrote the persisted identity: %q %v", after, err)
+	after, err := fixture.server.runControlScopes().Load(start.RunID)
+	if err != nil || after != before {
+		t.Fatalf("Desktop control rewrote the Run identity: %#v %v", after, err)
 	}
 }
