@@ -65,10 +65,6 @@ func TestAppStartupIgnoresLegacyRuntimeSourcesAndState(t *testing.T) {
 	// Conflicting and malformed legacy content must neither block startup nor
 	// overwrite the current package or credentials.
 	files := map[string]string{
-		"ru-kbases/libraries/demo/index.sqlite":             "invalid legacy shared index",
-		"ru-kbases/libraries/demo/state.json":               "invalid legacy shared state",
-		"kbase/demo/index.sqlite":                           "invalid legacy Agent index",
-		"kbase/demo/state.json":                             "invalid legacy Agent state",
 		"connectors-center/demo/connector.json":             `{"id":"demo","name":"Current Demo","version":"2.0.0","type":"cli","auth_mode":"none"}`,
 		"connectors-center/demo/cli.json":                   `{}`,
 		".state/connectors/demo/credentials.json":           `{"TOKEN":"current-state"}`,

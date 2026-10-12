@@ -232,7 +232,7 @@ func TestOrphansAndExplicitDeletion(t *testing.T) {
 
 func TestBothRootsAndRuntimeSymlinksAreProtected(t *testing.T) {
 	s := newStorageService(t, testEngine{})
-	for _, root := range []string{s.root, s.runtimeRoot, filepath.Join(s.runtimeRoot, "libraries"), filepath.Dir(s.runtimeRoot)} {
+	for _, root := range []string{s.root, s.runtimeRoot, filepath.Dir(s.runtimeRoot)} {
 		if _, err := s.Create(Input{Name: "Unsafe", SourcePath: root}); err == nil {
 			t.Fatalf("overlap accepted: %s", root)
 		}
@@ -257,7 +257,7 @@ func TestBothRootsAndRuntimeSymlinksAreProtected(t *testing.T) {
 	}
 }
 
-func TestLegacyJSONIsRejectedAndYAMLStringsRoundTrip(t *testing.T) {
+func TestYAMLStringsRoundTrip(t *testing.T) {
 	s := newStorageService(t, testEngine{})
 	d := createFixture(t, s)
 	d.Name = "Name # \"quoted\""
@@ -266,13 +266,6 @@ func TestLegacyJSONIsRejectedAndYAMLStringsRoundTrip(t *testing.T) {
 	actual, err := s.Get(d.ID)
 	if err != nil || actual.Name != d.Name || actual.Description != d.Description {
 		t.Fatalf("round trip: %+v %v", actual, err)
-	}
-	if err := os.Rename(filepath.Join(s.root, d.ID, "library.yml"), filepath.Join(s.root, d.ID, "library.json")); err != nil {
-		t.Fatal(err)
-	}
-	list, err := s.List()
-	if err != nil || len(list) != 1 || !strings.Contains(list[0].Error, "legacy library.json is unsupported") {
-		t.Fatalf("legacy accepted: %+v %v", list, err)
 	}
 }
 

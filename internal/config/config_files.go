@@ -163,9 +163,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	if _, exists := values["kbase"]; exists {
-		return fmt.Errorf("runtime.kbase retired; use runtime.kbx for KBX settings")
-	}
 	if raw, exists := values["kbx"]; exists {
 		if err := c.applyKBXValues(raw); err != nil {
 			return err

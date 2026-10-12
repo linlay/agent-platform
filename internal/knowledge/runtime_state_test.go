@@ -6,20 +6,20 @@ import (
 )
 
 func TestRuntimeStatePreservesSidecarJSONContract(t *testing.T) {
-	state := RuntimeState{Engine: "kbx", Available: true, ProtocolVersion: 2, EngineVersion: "fixture", LanceDBVersion: "legacy", LastError: "diagnostic"}
+	state := RuntimeState{Engine: "kbx", Available: true, ProtocolVersion: 2, EngineVersion: "fixture", LastError: "diagnostic"}
 	b, err := json.Marshal(struct {
 		Sidecar RuntimeState `json:"sidecar"`
 	}{state})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"sidecar":{"engine":"kbx","available":true,"protocolVersion":2,"engineVersion":"fixture","lancedbVersion":"legacy","lastError":"diagnostic"}}`
+	want := `{"sidecar":{"engine":"kbx","available":true,"protocolVersion":2,"engineVersion":"fixture","lastError":"diagnostic"}}`
 	if string(b) != want {
 		t.Fatalf("sidecar JSON changed: %s", b)
 	}
 	b, err = json.Marshal(RuntimeState{Engine: "kbx", Available: true})
 	if err != nil || string(b) != `{"engine":"kbx","available":true}` {
-		t.Fatalf("empty compatibility fields must remain omitted: %s, %v", b, err)
+		t.Fatalf("empty optional fields must remain omitted: %s, %v", b, err)
 	}
 }
 

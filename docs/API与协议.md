@@ -657,7 +657,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 库管理 REST `/api/admin/kbases` 与当前 Agent 的检索 status 分开，契约见 [知识库](知识库.md#http-契约)。库 GET 返回配置内容修订 baseRevision；更新在 JSON 中必传，删除在 query 中必传，过期修订返回 409。库管理 status 在首次索引前也返回 state/error/indexedAt/degraded，就绪后附加 statistics；模型通过 builtin.platform-control 的 kbase_library_query/manage 使用同一服务，管理工具的参数和审批顺序见随包 Skill 手册。
 
-KBASE status API 接受有 libraryId 绑定的 Native Agent；未绑定或未知 Agent 返回 404。四个只读工具 search/files/read/status 复用中心库，Agent refresh REST、kbase_refresh 和 kbase.refreshTerminal 已删除。source ID 为 kbase:<libraryId>/<collection>/<relativePath>，事件保留 libraryId 和 agentKey。`POST /api/chat/sources/read` 接收 chatId/sourceId/offset/limit，`POST /api/chat/sources/file` 接收 chatId/sourceId 下载当前源文件；检查 Chat 权限、实际发布记录和当前库绑定，不借 Workspace `/api/resource` 权限。
+KBASE status API 接受有 libraryId 绑定的 Native Agent；未绑定或未知 Agent 返回 404。四个只读工具 search/files/read/status 复用中心库。source ID 为 kbase:<libraryId>/<collection>/<relativePath>，事件保留 libraryId 和 agentKey。`POST /api/chat/sources/read` 接收 chatId/sourceId/offset/limit，`POST /api/chat/sources/file` 接收 chatId/sourceId 下载当前源文件；检查 Chat 权限、实际发布记录和当前库绑定，不借 Workspace `/api/resource` 权限。
 
 启用 KBASE capability 的 Agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按检索来源聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
 

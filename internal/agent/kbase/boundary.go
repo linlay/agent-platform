@@ -21,7 +21,7 @@ var structuredFileToolNames = []string{
 // CreateToolNames is the tool list written into agent.yml when a KBASE agent
 // is created without one. Effective tools come from presets, explicit Agent
 // declarations and mounted connectors; binding a library never adds tools.
-// This legacy creation default is never applied at load time.
+// This creation default is never applied at load time.
 func CreateToolNames() []string {
 	return append([]string{ToolDatetime}, structuredFileToolNames...)
 }

@@ -346,7 +346,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 - `destination + mode`：覆盖非保留的默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 
-发布前运行 `make audit-workspace-chat`，只读列出旧 `working-directory`、无 Workspace 的 CODER/sandbox/KBASE、`workspaceRoot:@chat`、旧 `kbaseConfig.source`、非法 Workspace/Chats 关系和保留挂载冲突；对合法但无 Workspace 且挂载路径工具的普通 Agent，还会输出非阻断诊断，提示必须显式提供 Bash `cwd`、glob/grep `path` 和语义根路径。Workspace 与库来源独立；库来源要求与 ChatsRoot 完全分离。
+发布前运行 `make audit-workspace-chat`，只读检查 Workspace 配置、Container Hub sandbox 缺少 Workspace、非法 Workspace/Chats 关系、保留挂载冲突和 Team 成员引用缺失，并提示容器需要屏蔽的目录。普通 Agent 可省略 Workspace；挂载路径工具时会得到非阻断诊断，提示必须显式提供 Bash `cwd`、glob/grep `path` 和语义根路径。Workspace 与库来源独立；库来源要求与 ChatsRoot 完全分离。
 
 `configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。除 `AP_CONTAINER_HUB_BASE_URL` 外，Container Hub token、environment id、超时和 sandbox 策略统一写入 `container-hub.*`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
@@ -418,7 +418,7 @@ docker compose logs -f
 
 参见 [完整文档索引](docs/README.md)，按配置、运行时、协议、权限、连接器、知识库、构建和验证分类。历史报告单列，不能作为当前能力或本轮测试通过的依据。
 
-知识库配置位于 kbases/<id>/library.yml，索引位于持久的 ru-kbases/<id>/，不可随 ru-agents 清空。一个库可含多个 collection、被多个 Agent 共用；来源过滤和切块由库统一配置。collection description 不触发索引重建；旧 editable 字段已删除，库定义不授予来源目录文件权限。有引用的库禁止删除。旧 ru-kbases/libraries/ 和 runtime/kbase 完全忽略，不进行旧布局检查或阻止启动。知识库服务按库配置自动在新布局生成索引，不迁移旧索引，见 [知识库](docs/知识库.md)。
+知识库配置位于 kbases/<id>/library.yml，索引位于持久的 ru-kbases/<id>/，不可随 ru-agents 清空。一个库可含多个 collection、被多个 Agent 共用；来源过滤和切块由库统一配置。collection description 不触发索引重建；旧 editable 字段已删除，库定义不授予来源目录文件权限。有引用的库禁止删除。知识库服务按库配置自动生成和维护索引，见 [知识库](docs/知识库.md)。
 
 `builtin.task-control`（任务管理）独立提供六个 Chat 工具和两个 Automation 工具，含 `chat_steer` 运行目标调整；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 

@@ -68,15 +68,13 @@ func overlaps(a, b string) bool {
 	return pathutil.WithinRoot(left, right) || pathutil.WithinRoot(right, left)
 }
 
-// Only a live YAML definition or a diagnosable legacy definition identifies a library.
+// Only a library.yml definition identifies a library.
 // A template-only directory must never be editable or deletable through the library API.
 func hasDefinition(dir string) (bool, error) {
-	for _, name := range []string{"library.yml", "library.json"} {
-		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
-			return true, nil
-		} else if !os.IsNotExist(err) {
-			return false, err
-		}
+	if _, err := os.Lstat(filepath.Join(dir, "library.yml")); err == nil {
+		return true, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
 	}
 	return false, nil
 }
@@ -164,7 +162,7 @@ func (s *Service) loadConfiguration(id string, allowUnavailable bool) (Definitio
 	}
 	b, info, err := readRegular(filepath.Join(dir, "library.yml"))
 	if err != nil {
-		return d, fmt.Errorf("library.yml is required (legacy library.json is unsupported): %w", err)
+		return d, fmt.Errorf("library.yml is required: %w", err)
 	}
 	sum := sha256.Sum256(b)
 	d.BaseRevision = hex.EncodeToString(sum[:])

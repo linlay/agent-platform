@@ -1,4 +1,4 @@
-// Package kbx adapts the managed KBX CLI. It never starts the retired KBASE engine.
+// Package kbx adapts the managed KBX CLI.
 package kbx
 
 import (

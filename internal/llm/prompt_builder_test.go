@@ -295,7 +295,7 @@ func TestBuildSystemPromptHasNoSourceKBasePromptWhenConfigEmpty(t *testing.T) {
 		ToolNames: []string{"kbase_search", "kbase_read"},
 	}, api.QueryRequest{}, "", PromptBuildOptions{Stage: "kbase"})
 
-	for _, unexpected := range []string{"KBASE Mode", "Knowledge Base Capability", "KBASE File Workspace", "kbase_refresh"} {
+	for _, unexpected := range []string{"KBASE Mode", "Knowledge Base Capability", "KBASE File Workspace"} {
 		if strings.Contains(prompt, unexpected) {
 			t.Fatalf("did not expect source KBASE text %q, got %q", unexpected, prompt)
 		}

@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -655,9 +654,6 @@ const (
 )
 
 func Load(optionValues ...LoadOptions) (Config, error) {
-	if _, exists := os.LookupEnv("AP_RUNTIME_KBASE_DIR"); exists {
-		return Config{}, fmt.Errorf("AP_RUNTIME_KBASE_DIR was removed; use kbases/<id>/library.yml and ru-kbases/<id>")
-	}
 	options := LoadOptions{}
 	if len(optionValues) > 0 {
 		options = optionValues[0]

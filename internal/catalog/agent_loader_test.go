@@ -1438,7 +1438,7 @@ func TestDedicatedKBaseLoadsConfiguredWorkspace(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsRemovedKBaseSource(t *testing.T) {
+func TestParseAgentFileRejectsUnsupportedKBaseSource(t *testing.T) {
 	workspace := t.TempDir()
 	sourceRoot := t.TempDir()
 	path := filepath.Join(t.TempDir(), "agent.yml")
@@ -1448,8 +1448,8 @@ func TestParseAgentFileRejectsRemovedKBaseSource(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.source was removed") {
-		t.Fatalf("expected removed KBASE source rejection, got %v", err)
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.source is not supported") {
+		t.Fatalf("expected unsupported KBASE source rejection, got %v", err)
 	}
 }
 
@@ -1564,11 +1564,11 @@ func TestFlatAgentRejectsRelativeKBaseWorkspace(t *testing.T) {
 	}
 }
 
-func TestLibraryBindingRejectsLegacyFieldsAndNonNative(t *testing.T) {
+func TestLibraryBindingRejectsUnsupportedFieldsAndNonNative(t *testing.T) {
 	for _, field := range []string{"enabled: true", "enabled: false", "storage: {}", "chunk: {}", "include: []", "embedding: {}", "tags: []"} {
 		path := filepath.Join(t.TempDir(), "agent.yml")
 		os.WriteFile(path, []byte("key: docs\nmode: GENERAL\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  "+field+"\n"), 0600)
-		if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "removed") {
+		if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "is not supported") {
 			t.Fatal(field, err)
 		}
 	}
@@ -1608,7 +1608,7 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileIgnoresRemovedKBaseEmbeddingFields(t *testing.T) {
+func TestParseAgentFileRejectsUnsupportedKBaseEmbeddingFields(t *testing.T) {
 	workspace := t.TempDir()
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -1626,21 +1626,8 @@ func TestParseAgentFileIgnoresRemovedKBaseEmbeddingFields(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "embedding was removed") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.embedding is not supported") {
 		t.Fatal(err)
-	}
-}
-
-func TestParseAgentFileRejectsLegacyKBaseSource(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: docs\nmode: KBASE\nkbaseConfig:\n  source:\n    root: @chat\n"), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "kbaseConfig.source was removed") {
-		t.Fatalf("expected legacy KBASE source rejection, got %v", err)
 	}
 }
 

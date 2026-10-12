@@ -93,15 +93,15 @@ var libraryIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 func ValidateConfigSchema(node map[string]any) error {
 	for key := range node {
 		if key != "libraryId" && key != "retrieval" {
-			return fmt.Errorf("kbaseConfig.%s was removed; bind libraryId and configure source filters/chunking in kbases/<id>/library.yml, embedding in library models (runtime.kbx supplies defaults)", key)
+			return fmt.Errorf("kbaseConfig.%s is not supported; only libraryId and retrieval are accepted, source filters, chunking and embedding belong to kbases/<id>/library.yml", key)
 		}
 	}
 	if len(node) == 0 {
 		return nil
 	}
 	id, ok := node["libraryId"].(string)
-	if !ok || !libraryIDPattern.MatchString(id) || id == "libraries" {
-		return fmt.Errorf("kbaseConfig.libraryId must be a valid library ID (libraries is reserved)")
+	if !ok || !libraryIDPattern.MatchString(id) {
+		return fmt.Errorf("kbaseConfig.libraryId must be a valid library ID")
 	}
 	if raw, exists := node["retrieval"]; exists {
 		if _, ok := raw.(map[string]any); !ok {

@@ -273,7 +273,7 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		t.Fatalf("expected runtime example not to expose server port config")
 	}
 	if strings.Contains(runtimeExample, "\nkbase:\n") {
-		t.Fatalf("expected runtime example to move kbase behavior settings to kbase-settings.example.yml")
+		t.Fatalf("expected runtime example to use kbx for knowledge runtime settings")
 	}
 	for _, forbidden := range []string{
 		"anthropic:\n",
@@ -2224,11 +2224,4 @@ func TestRunEnvHardCutConfiguration(t *testing.T) {
 			t.Fatalf("independence %#v %v", cfg.RunEnv, err)
 		}
 	})
-}
-
-func TestRejectRemovedAgentIndexRuntimeDirectory(t *testing.T) {
-	t.Setenv("AP_RUNTIME_KBASE_DIR", "")
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "AP_RUNTIME_KBASE_DIR was removed") {
-		t.Fatalf("legacy directory must fail even if empty: %v", err)
-	}
 }

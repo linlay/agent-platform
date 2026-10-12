@@ -6,6 +6,5 @@ type RuntimeState struct {
 	Available       bool   `json:"available"`
 	ProtocolVersion int    `json:"protocolVersion,omitempty"`
 	EngineVersion   string `json:"engineVersion,omitempty"`
-	LanceDBVersion  string `json:"lancedbVersion,omitempty"`
 	LastError       string `json:"lastError,omitempty"`
 }

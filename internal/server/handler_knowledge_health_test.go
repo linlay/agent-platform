@@ -78,9 +78,6 @@ func TestKnowledgeHealthKeepsSidecarJSONAndRequiredSemantics(t *testing.T) {
 			if data.KBASE.Required != tc.required || string(state["engine"]) != `"kbx"` || string(state["available"]) != map[bool]string{true: "true", false: "false"}[tc.available] || data.KBASE.Degraded != !tc.available {
 				t.Fatalf("health contract changed: %s", response.Data)
 			}
-			if _, exists := state["lancedbVersion"]; exists {
-				t.Fatalf("KBX must omit unavailable runtime version: %s", response.Data)
-			}
 		})
 	}
 }

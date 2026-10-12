@@ -119,7 +119,7 @@ func TestToolHandlerSearchPreservesWireAndPublishesSources(t *testing.T) {
 	}
 }
 
-func TestToolHandlerFilesReadStatusAndRefresh(t *testing.T) {
+func TestToolHandlerFilesReadStatus(t *testing.T) {
 	service := &stubToolService{
 		filesResult:  FilesResult{LibraryID: "research", Tool: ToolFiles, Mode: "tree", HeadLimit: 25, Results: []FileEntry{{Type: "file", Path: "docs/a.md"}}},
 		readResult:   ReadResult{LibraryID: "research", Found: true, ChunkID: "chunk_1", Path: "docs/a.md", Content: "text"},
@@ -152,11 +152,6 @@ func TestToolHandlerFilesReadStatusAndRefresh(t *testing.T) {
 		if result.Structured["libraryId"] != "research" {
 			t.Fatalf("lost library identity: %+v", result)
 		}
-	}
-
-	refresh, err := handler.Invoke(context.Background(), "kbase_refresh", map[string]any{"libraryId": "docs", "force": true}, execCtx)
-	if err != nil || refresh.Error != "tool_not_registered" {
-		t.Fatalf("removed refresh result=%#v err=%v", refresh, err)
 	}
 }
 
