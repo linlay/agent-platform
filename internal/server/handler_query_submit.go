@@ -125,8 +125,8 @@ func apperrorsStatus(err *apperrors.Error, fallback int) int {
 }
 
 func steerDecodeErrorMessage(err error) string {
-	if errors.Is(err, queryinput.ErrRemovedReferenceSelection) {
-		return queryinput.RemovedReferenceSelectionMessage
+	if errors.Is(err, queryinput.ErrUnknownField) {
+		return err.Error()
 	}
 	return "invalid steer payload"
 }

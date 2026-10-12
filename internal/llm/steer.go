@@ -67,7 +67,10 @@ func (e *LLMAgentEngine) materializeHistorySteer(raw map[string]any, session con
 		return raw
 	}
 	encoded, err := json.Marshal(input)
-	var steer api.SteerRequest
+	// Persisted input carries trusted event metadata in addition to wire fields.
+	// Decode history independently of the strict public request DTO.
+	type historySteer api.SteerRequest
+	var steer historySteer
 	if err != nil || json.Unmarshal(encoded, &steer) != nil {
 		return raw
 	}

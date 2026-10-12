@@ -2,27 +2,9 @@ package queryinput
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 )
-
-var ErrRemovedReferenceSelection = errors.New(RemovedReferenceSelectionMessage)
-
-const RemovedReferenceSelectionMessage = "mustUseSkills and mustUseKbases have been removed; use references"
-
-func RejectRemovedReferenceKeys(data []byte) error {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return err
-	}
-	for key := range fields {
-		if strings.EqualFold(key, "mustUseSkills") || strings.EqualFold(key, "mustUseKbases") {
-			return ErrRemovedReferenceSelection
-		}
-	}
-	return nil
-}
 
 func ReferenceIdentity(ref Reference) string {
 	kind := strings.ToLower(strings.TrimSpace(ref.Type))

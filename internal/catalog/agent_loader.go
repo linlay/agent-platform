@@ -607,11 +607,6 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if !ok {
 		return AgentDefinition{}, nil, fmt.Errorf("agent file must be a map")
 	}
-	for _, key := range []string{"mustUseSkills", "mustUseKbases"} {
-		if _, exists := root[key]; exists {
-			return AgentDefinition{}, nil, fmt.Errorf("%s has been removed; use query references", key)
-		}
-	}
 	def := AgentDefinition{
 		Key:              stringNode(root["key"]),
 		Name:             stringNode(root["name"]),

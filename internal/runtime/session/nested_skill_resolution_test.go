@@ -22,7 +22,7 @@ func (c nestedSkillCatalog) SkillDefinition(id string) (catalog.SkillDefinition,
 	return def, ok
 }
 
-func TestMustUsePackageMembersKeepExactKeysAndIndependentRoots(t *testing.T) {
+func TestReferencePackageMembersKeepExactKeysAndIndependentRoots(t *testing.T) {
 	root := t.TempDir()
 	center := nestedSkillCatalog{}
 	for _, key := range []string{"demo", "suite/demo"} {

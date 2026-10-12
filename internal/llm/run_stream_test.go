@@ -7241,3 +7241,21 @@ func TestPrepareToolCall_InvokeAgentsCarriesExplicitRequiredLibraries(t *testing
 		t.Fatalf("explicit libraries lost: %+v", invoke.Tasks[0])
 	}
 }
+
+func TestInvokeTaskRejectsUnknownFields(t *testing.T) {
+	for _, value := range []string{"null", "[]"} {
+		stream := &llmRunStream{
+			engine:  &LLMAgentEngine{tools: stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}}, interactions: toolinteraction.NewDefaultRegistry()},
+			execCtx: &contracts.ExecutionContext{},
+		}
+		invocation, _, message := stream.prepareToolCall(openAIToolCall{
+			ID: "invoke", Type: "function", Function: openAIFunctionCall{
+				Name:      contracts.InvokeAgentsToolName,
+				Arguments: `{"tasks":[{"subAgentKey":"writer","task":"summarize","unexpectedOption":` + value + `}]}`,
+			},
+		})
+		if invocation != nil || message == nil || !strings.Contains(fmt.Sprint(message), "unknown field") {
+			t.Fatalf("value=%s invocation=%#v message=%v", value, invocation, message)
+		}
+	}
+}

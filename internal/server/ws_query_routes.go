@@ -51,8 +51,8 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 	req.Payload = payload
 	queryRequest, err := ws.DecodePayload[api.QueryRequest](req)
 	if err != nil {
-		if errors.Is(err, queryinput.ErrRemovedReferenceSelection) {
-			conn.SendError(req.ID, "reference_selection_fields_removed", http.StatusBadRequest, queryinput.RemovedReferenceSelectionMessage, nil)
+		if errors.Is(err, queryinput.ErrUnknownField) {
+			conn.SendError(req.ID, "unknown_field", http.StatusBadRequest, err.Error(), nil)
 			return
 		}
 		if errors.Is(err, api.ErrRequiredSkillKeysRemoved) {
@@ -129,8 +129,8 @@ func (s *Server) wsQueryDetached(ctx context.Context, conn *ws.Conn, req ws.Requ
 	req.Payload = payload
 	queryRequest, err := ws.DecodePayload[api.QueryRequest](req)
 	if err != nil {
-		if errors.Is(err, queryinput.ErrRemovedReferenceSelection) {
-			conn.SendError(req.ID, "reference_selection_fields_removed", http.StatusBadRequest, queryinput.RemovedReferenceSelectionMessage, nil)
+		if errors.Is(err, queryinput.ErrUnknownField) {
+			conn.SendError(req.ID, "unknown_field", http.StatusBadRequest, err.Error(), nil)
 			return
 		}
 		if errors.Is(err, api.ErrRequiredSkillKeysRemoved) {

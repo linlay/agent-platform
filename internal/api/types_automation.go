@@ -2,8 +2,6 @@ package api
 
 import (
 	"agent-platform/internal/contracts/queryinput"
-	"bytes"
-	"encoding/json"
 )
 
 type AutomationListRequest struct {
@@ -180,14 +178,9 @@ type AutomationExecutionRequest struct {
 }
 
 func (r *AutomationQueryRequest) UnmarshalJSON(data []byte) error {
-	if err := queryinput.RejectRemovedReferenceKeys(data); err != nil {
-		return err
-	}
 	type plain AutomationQueryRequest
 	var value plain
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&value); err != nil {
+	if err := queryinput.DecodeStrictJSON(data, &value); err != nil {
 		return err
 	}
 	*r = AutomationQueryRequest(value)

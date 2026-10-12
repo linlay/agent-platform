@@ -62,10 +62,10 @@ func TestResolveReferencedSkillsSupportsConfiguredAndCenterSkills(t *testing.T) 
 
 	got, err := resolveReferencedSkills(def, centerDir, center, []string{" design ", "DESIGN", " PDF ", "pdf", ""})
 	if err != nil {
-		t.Fatalf("resolve must-use skills: %v", err)
+		t.Fatalf("resolve referenced skills: %v", err)
 	}
 	if strings.Join(got.IDs, ",") != "design,pdf" {
-		t.Fatalf("unexpected must-use skills %#v", got.IDs)
+		t.Fatalf("unexpected referenced skills %#v", got.IDs)
 	}
 	if !got.HasExtraSkills || len(got.Skills) != 2 {
 		t.Fatalf("unexpected resolution %#v", got)
@@ -87,15 +87,15 @@ func TestResolveReferencedSkillsSupportsConfiguredAndCenterSkills(t *testing.T) 
 	if got.Skills[0].RootPath != designRoot.Host || got.Skills[1].RootPath != pdfRoot.Host {
 		t.Fatalf("unexpected canonical skill roots: %#v", got.Skills)
 	}
-	runAccess, err := mustUseSkillRunAccess(got.Skills)
+	runAccess, err := referencedSkillRunAccess(got.Skills)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(runAccess.ReadRoots, ",") != strings.Join([]string{designRoot.Host, pdfRoot.Host}, ",") ||
 		strings.Join(runAccess.ReadonlyRoots, ",") != strings.Join(runAccess.ReadRoots, ",") {
-		t.Fatalf("unexpected must-use run access %#v", runAccess)
+		t.Fatalf("unexpected reference run access %#v", runAccess)
 	}
-	emptyAccess, err := mustUseSkillRunAccess(nil)
+	emptyAccess, err := referencedSkillRunAccess(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,15 +103,15 @@ func TestResolveReferencedSkillsSupportsConfiguredAndCenterSkills(t *testing.T) 
 		t.Fatalf("empty selection must not create run access roots: %#v", emptyAccess)
 	}
 	if _, err := resolveReferencedSkills(def, centerDir, center, []string{"missing"}); err == nil {
-		t.Fatal("expected missing must-use skill to fail")
+		t.Fatal("expected missing referenced skill to fail")
 	}
 }
 
-func TestMustUseRejectsMountedConnectorSkillEvenIfAlsoInConfiguredList(t *testing.T) {
+func TestReferenceRejectsMountedConnectorSkillEvenIfAlsoInConfiguredList(t *testing.T) {
 	key := "wecomcli-shared"
 	def := catalog.AgentDefinition{Skills: []string{key}, ConnectorSkills: []catalog.ConnectorSkill{{ID: key, ConnectorID: "wecom", Name: key}}}
 	if _, err := resolveReferencedSkills(def, t.TempDir(), testSkillCenter{}, []string{strings.ToUpper(key)}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
-		t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
+		t.Fatalf("connector skill accepted by skill references: %v", err)
 	}
 }
 
@@ -155,7 +155,7 @@ func TestRuntimeExtraMountsForSkillReferencesAddsOneReadonlyCenterMount(t *testi
 	}
 }
 
-func TestMustUseRejectsLegacyBuiltinSkillNames(t *testing.T) {
+func TestReferenceRejectsLegacyBuiltinSkillNames(t *testing.T) {
 	for _, key := range []string{"builtin-httpx", "builtin-dbx", "BUILTIN-DBX"} {
 		def := catalog.AgentDefinition{Skills: []string{key}}
 		if _, err := resolveReferencedSkills(def, t.TempDir(), testSkillCenter{}, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {

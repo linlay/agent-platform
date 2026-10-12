@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -63,11 +64,14 @@ func TestChatSteerNativeModesAndLaterCaller(t *testing.T) {
 
 func TestSteerSourceCannotBeDecodedFromClientInput(t *testing.T) {
 	var request queryinput.SteerRequest
-	if err := json.Unmarshal([]byte(`{"runId":"target","agentKey":"agent","message":"change","source":{"type":"agent","agentKey":"forged","chatId":"forged","runId":"forged","toolId":"forged"}}`), &request); err != nil {
-		t.Fatal(err)
+	if err := json.Unmarshal([]byte(`{"runId":"target","agentKey":"agent","message":"change","source":{"type":"agent","agentKey":"forged","chatId":"forged","runId":"forged","toolId":"forged"}}`), &request); !errors.Is(err, queryinput.ErrUnknownField) {
+		t.Fatalf("client provenance must be rejected: %v", err)
 	}
 	if request.Source != nil {
 		t.Fatal("client supplied trusted provenance")
+	}
+	if err := json.Unmarshal([]byte(`{"runId":"target","agentKey":"agent","message":"change"}`), &request); err != nil {
+		t.Fatal(err)
 	}
 	runs := runstate.NewManager()
 	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{RunID: "target", ChatID: "chat", AgentKey: "agent", RunOwner: contracts.AgentRunOwner("agent")})

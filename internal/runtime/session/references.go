@@ -42,28 +42,24 @@ func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.Qu
 	def.InteractionConfig = &policy
 	remote := IsProxyRoutedAgent(def) || def.Engine == catalog.AgentEngineACP || catalog.AgentIsChannelMode(def.Mode)
 	for _, ref := range refs {
+		if remote && (ref.Type == "chat" || ref.Type == "kbase" || ref.Type == "skill") {
+			return grant, fmt.Errorf("%s references are unsupported by this execution backend", ref.Type)
+		}
 		if err := policy.ValidateReference(ref.Type); err != nil {
 			return grant, err
-		}
-		if remote && (ref.Type == "chat" || ref.Type == "kbase" || steer && ref.Type == "skill") {
-			return grant, fmt.Errorf("%s references are unsupported by this execution backend", ref.Type)
 		}
 		if session.SubTaskID != "" && ref.Type == "chat" {
 			return grant, fmt.Errorf("chat references are unsupported in child tasks")
 		}
 		switch ref.Type {
 		case "skill":
-			if remote {
-				grant.References = append(grant.References, queryinput.Reference{Type: "skill", ID: ref.ID})
-				continue
-			}
 			resolved, err := b.ResolveSkills(def, []string{ref.ID})
 			if err != nil {
-				return grant, err
+				return grant, ReferencedSkillUnavailableStatus(err)
 			}
 			roots, err := ReferencedSkillRunAccess(resolved.Skills)
 			if err != nil {
-				return grant, err
+				return grant, ReferencedSkillUnavailableStatus(err)
 			}
 			grant.Roots.ReadRoots = append(grant.Roots.ReadRoots, roots.ReadRoots...)
 			grant.Roots.ReadonlyRoots = append(grant.Roots.ReadonlyRoots, roots.ReadonlyRoots...)

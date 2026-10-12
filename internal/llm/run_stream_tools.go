@@ -142,12 +142,8 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 				deltas, openAIMessage := preparedToolErrorResult(toolID, toolCall.Function.Name, message, "invalid_tool_arguments")
 				return nil, deltas, openAIMessage
 			}
-			if _, old := taskMap["mustUseKbases"]; old {
-				deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, queryinput.RemovedReferenceSelectionMessage, "invalid_tool_arguments")
-				return nil, deltas, message
-			}
-			if _, old := taskMap["mustUseSkills"]; old {
-				deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, queryinput.RemovedReferenceSelectionMessage, "invalid_tool_arguments")
+			if err := queryinput.ValidateFields("task", taskMap, "subAgentKey", "task", "taskName", "files", "references"); err != nil {
+				deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, err.Error(), "invalid_tool_arguments")
 				return nil, deltas, message
 			}
 			var refs []api.Reference

@@ -33,7 +33,7 @@ func TestAgentSkillsReturnsGlobalCatalogWithConfiguredFlags(t *testing.T) {
 	assertAgentSkillsResponse(t, envelope.Data)
 
 	body := recorder.Body.String()
-	for _, forbidden := range []string{`"items"`, `"meta"`, `"mustUseSource"`, `"agentHasSkill"`} {
+	for _, forbidden := range []string{`"items"`, `"meta"`, `"unexpectedSource"`, `"agentHasSkill"`} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("response must not contain %s: %s", forbidden, body)
 		}

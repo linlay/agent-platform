@@ -21,6 +21,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 
 	"github.com/robfig/cron/v3"
 )
@@ -352,10 +353,8 @@ func (r *Registry) validateAgent(agentKey string) error {
 }
 
 func parseQuery(node map[string]any) (Query, error) {
-	for key := range node {
-		if key == "mustUseKbases" || key == "mustUseSkills" {
-			return Query{}, fmt.Errorf("query.%s has been removed; use references", key)
-		}
+	if err := queryinput.ValidateFields("query", node, "message", "requestId", "chatId", "role", "hidden", "accessLevel", "references", "params", "scene"); err != nil {
+		return Query{}, err
 	}
 	message := automationMessageNode(node["message"])
 	if strings.TrimSpace(message) == "" {

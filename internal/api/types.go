@@ -289,9 +289,6 @@ const RequiredSkillKeysRemovedMessage = "requiredSkillKeys has been removed; use
 var ErrRequiredSkillKeysRemoved = errors.New(RequiredSkillKeysRemovedMessage)
 
 func (r *QueryRequest) UnmarshalJSON(data []byte) error {
-	if err := queryinput.RejectRemovedReferenceKeys(data); err != nil {
-		return err
-	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
@@ -301,7 +298,7 @@ func (r *QueryRequest) UnmarshalJSON(data []byte) error {
 	}
 	type queryRequestAlias QueryRequest
 	var decoded queryRequestAlias
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := queryinput.DecodeStrictJSON(data, &decoded); err != nil {
 		return err
 	}
 	*r = QueryRequest(decoded)

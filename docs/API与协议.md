@@ -388,9 +388,9 @@ editingMode 只认顶层 JSON boolean，是 GENERAL/CODER/KBASE/TEAM 的通用 W
 
 `GET /api/kbases?agentKey=...` 与主 WS `/api/kbases`（payload `{agentKey}`）返回 `{agentKey, capability:{available,reason?}, boundLibraryId?, libraries:[{id,name,description?,collections:[{name,description?}],readable,indexing,degraded,unavailableReason?}]}`。目标需挂载 builtin.kbase-control。库选择通过 `references:[{type:"kbase",id:"library-id"}]` 提交；不开启入口不影响既有检索工具。
 
-HTTP/WS 的 mustUseSkills、mustUseKbases 出现即拒绝（包括 null、[]），错误提示改用 references。requiredSkillKeys 继续拒绝。工具 chat_start、agent_invoke、agent_delegate 与 Automation query 均使用 references；子任务只接受 skill/kbase，chat 拒绝。TEAM 总控支持三类引用；ACP/PROXY/CHANNEL query 只透传 skill，chat/kbase 拒绝，steer 三类都拒绝。只有 ACP bridge 边界保留向既有 mustUseSkills 转换。
+HTTP/WS 的 query/steer 请求拒绝未知字段，包括值为 null 或空数组的字段；HTTP query 返回 unknown_field，其他入口同样给出未知字段说明。requiredSkillKeys 继续按既有删除字段协议拒绝。chat_start、agent_invoke、agent_delegate 与 Automation query 均使用 references；子任务只接受 skill/kbase，chat 拒绝。TEAM 总控支持三类定位引用；ACP/PROXY/CHANNEL 的 query 与 steer 均拒绝 skill/kbase/chat，只接受文件、选区与站点。
 
-所有调用与控制只使用根 `agentKey`。已有 Chat 归属固定；成员事件上的 key 不授予根控制权限。TEAM 的成员若不存在、为 TEAM/ACP、不支持子任务或携带 agent_invoke，整个请求返回 503。活动 Run 使用冻结版本，延迟批准和重启恢复重新校验当前版本。旧 teamId 字段从 DTO 删除，按未知字段忽略；不检测旧配置。
+所有调用与控制只使用根 `agentKey`。已有 Chat 归属固定；成员事件上的 key 不授予根控制权限。TEAM 的成员若不存在、为 TEAM/ACP、不支持子任务或携带 agent_invoke，整个请求返回 503。活动 Run 使用冻结版本，延迟批准和重启恢复重新校验当前版本。query/steer 中的未声明字段拒绝；其他入口沿用各自 DTO 校验，不检测旧配置。
 
 
 HTTP `POST /api/query` 的 `lane:"btw"` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索和 JSONL 都不会被 BTW 更新。
@@ -1180,7 +1180,7 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
 
 ### Agent 发起的 steer 来源
 
-builtin.task-control 的 chat_steer 接收 `{runId,message}`。公开 request.steer 在 SSE、WS 与 `/api/chat` events 中新增可选 `source:{type:"agent",agentKey,chatId,runId,toolId}`；这些是发起方身份，事件顶层 chatId/runId 是目标身份。role 仍为 user，message 与模型输入不添加来源标注。HTTP/WS `/api/steer` 的 Source 为内部不可解码字段，客户端传入会被忽略；普通人类 steer 不产生 source。JSONL 将 source 保存在 steer 对象中，不含 source 的现有记录继续读取。
+builtin.task-control 的 chat_steer 接收 `{runId,message}`。公开 request.steer 在 SSE、WS 与 `/api/chat` events 中新增可选 `source:{type:"agent",agentKey,chatId,runId,toolId}`；这些是发起方身份，事件顶层 chatId/runId 是目标身份。role 仍为 user，message 与模型输入不添加来源标注。HTTP/WS `/api/steer` 的 Source 为内部不可解码字段，客户端传入时按未知字段拒绝；普通人类 steer 不产生 source。JSONL 将 source 保存在 steer 对象中，不含 source 的现有记录继续读取。
 
 ```json
 {

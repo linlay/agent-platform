@@ -692,7 +692,7 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","references":[{"type":"skill","id":" remote-only "},{"type":"skill","id":"REMOTE-ONLY"}]}`)
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","references":[{"type":"selection","id":"selected-text","text":"selected source"}]}`)
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -721,9 +721,7 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 	encodedRefs, _ := json.Marshal(inner["references"])
 	var forwardedRefs []api.Reference
 	_ = json.Unmarshal(encodedRefs, &forwardedRefs)
-	skills := queryinput.ResourceIDs(forwardedRefs, "skill")
-	ok = len(skills) > 0
-	if !ok || len(skills) != 1 || skills[0] != "remote-only" {
+	if len(forwardedRefs) != 1 || forwardedRefs[0].Type != "selection" || forwardedRefs[0].Text != "selected source" {
 		t.Fatalf("expected normalized remote references, got %#v", inner["references"])
 	}
 }

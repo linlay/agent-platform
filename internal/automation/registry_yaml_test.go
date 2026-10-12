@@ -52,6 +52,15 @@ func TestRegistryPersistLoadPreservesQueryMessageExactly(t *testing.T) {
 	}
 }
 
+func TestAutomationQueryRejectsUnknownFields(t *testing.T) {
+	for _, value := range []any{nil, []any{}, []any{"resource"}} {
+		_, err := parseQuery(map[string]any{"message": "hello", "unexpectedOption": value})
+		if err == nil || !strings.Contains(err.Error(), "unknown field") {
+			t.Fatalf("value=%#v error=%v", value, err)
+		}
+	}
+}
+
 func TestRegistryPersistOmitsEmptyAutomationDefaults(t *testing.T) {
 	root := t.TempDir()
 	registry := NewRegistry(root)

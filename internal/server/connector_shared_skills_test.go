@@ -129,7 +129,7 @@ func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 				}
 			}
 			if _, err := resolveReferencedSkills(def, fixture.server.deps.Config.Paths.SkillsCenterDir, fixture.server.deps.Registry, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
-				t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
+				t.Fatalf("connector skill accepted by skill references: %v", err)
 			}
 		})
 	}

@@ -102,3 +102,20 @@ func TestRestoreRunReferencesRevalidatesOnlyThisRunsAcceptedSteers(t *testing.T)
 		t.Fatal("reconstructed script credentials")
 	}
 }
+
+func TestRemoteReferenceAdmissionRejectsLocalResourceIdentities(t *testing.T) {
+	builder := New(Dependencies{})
+	for _, def := range []catalog.AgentDefinition{
+		{Mode: "CODER", Engine: catalog.AgentEngineACP},
+		{Mode: "PROXY"}, {Mode: "CHANNEL"},
+	} {
+		for _, steer := range []bool{false, true} {
+			for _, kind := range []string{"skill", "kbase", "chat"} {
+				grant, err := builder.PrepareRunReferences(context.Background(), contracts.QuerySession{}, def, queryinput.MakeReferences(kind, []string{"local-resource"}), steer, true)
+				if err == nil || !strings.Contains(err.Error(), "unsupported") || len(grant.References) != 0 {
+					t.Fatalf("mode=%s engine=%s steer=%v type=%s grant=%+v err=%v", def.Mode, def.Engine, steer, kind, grant, err)
+				}
+			}
+		}
+	}
+}

@@ -225,3 +225,5 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 管理详情及管理端创建、修改、改名响应不返回顶层 tools，独立工具信息统一由 toolBindings 表达；definition.toolConfig 保持原始编辑语义。使用端 /api/agent.tools 继续返回运行时工具 ID 数组。
 
 - Query/steer、chat_start、agent_invoke 与 Automation 使用统一 references。定位、授权、累计限额、压缩和恢复边界以 [引用协议](docs/引用协议.md) 为准；选中资源不注入 system prompt，旧独立选择字段出现即拒绝。
+
+非 Native 执行后端（ACP/PROXY/CHANNEL）不支持本地 skill/kbase/chat 定位引用，query 与 steer 均拒绝；attachment 的对应入口始终关闭，显式配置不扩大后端能力。公开请求 DTO 与工具/Automation query 拒绝未知字段；历史事件按内部快照读取，不套用外部请求校验。

@@ -4,7 +4,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"encoding/json"
 )
 
 // Caller is the authenticated runtime identity supplied by a transport or an
@@ -81,17 +80,4 @@ type QueryResult struct {
 	Content      string
 	FullText     string
 	ErrorMessage string
-}
-
-func (r *QueryCommand) UnmarshalJSON(data []byte) error {
-	if err := queryinput.RejectRemovedReferenceKeys(data); err != nil {
-		return err
-	}
-	type plain QueryCommand
-	var value plain
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	*r = QueryCommand(value)
-	return nil
 }

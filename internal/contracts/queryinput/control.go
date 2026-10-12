@@ -235,6 +235,16 @@ type SteerRequest struct {
 	PreparedMessages []map[string]any `json:"-"`
 }
 
+func (r *SteerRequest) UnmarshalJSON(data []byte) error {
+	type plain SteerRequest
+	var decoded plain
+	if err := DecodeStrictJSON(data, &decoded); err != nil {
+		return err
+	}
+	*r = SteerRequest(decoded)
+	return nil
+}
+
 // SteerSource records provenance without changing the user role or model input.
 type SteerSource struct {
 	Type     string `json:"type"`

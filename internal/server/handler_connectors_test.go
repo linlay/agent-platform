@@ -70,7 +70,7 @@ func TestConnectorDefinitionSaveConflictAndRollback(t *testing.T) {
 	}
 }
 
-func TestConnectorSkillsExcludedFromMustUseCatalog(t *testing.T) {
+func TestConnectorSkillsExcludedFromReferenceCatalog(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
 		cfg.Paths.BuiltinConnectorsDir = t.TempDir()
 		if err := connectortest.WriteCLI(filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin.dbx"), "dbx", "1.0.0"); err != nil {

@@ -425,7 +425,7 @@ func TestAssemblerSyntheticQueryIncludesReferencedSkills(t *testing.T) {
 	refs, ok := payload["references"].([]queryinput.Reference)
 	keys := queryinput.ResourceIDs(refs, "skill")
 	if !ok || len(keys) != 1 || keys[0] != "product-design" {
-		t.Fatalf("mustUseSkills = %#v", payload["references"])
+		t.Fatalf("skill references = %#v", payload["references"])
 	}
 }
 

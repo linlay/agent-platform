@@ -32,10 +32,10 @@ func TestQueryRequestUsesResourceReferences(t *testing.T) {
 		t.Fatal(request)
 	}
 	encoded, _ := json.Marshal(request)
-	if strings.Contains(string(encoded), "mustUse") || !strings.Contains(string(encoded), "references") {
+	if !strings.Contains(string(encoded), "references") {
 		t.Fatal(string(encoded))
 	}
-	for _, key := range []string{"mustUseSkills", "mustUseKbases"} {
+	for _, key := range []string{"unexpectedResource", "unexpectedOption"} {
 		for _, value := range []string{"null", "[]", "[\"id\"]"} {
 			if err := json.Unmarshal([]byte(`{"message":"hi","`+key+`":`+value+`}`), &request); err == nil {
 				t.Fatalf("accepted %s=%s", key, value)

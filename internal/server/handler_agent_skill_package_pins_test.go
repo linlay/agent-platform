@@ -48,7 +48,7 @@ func TestAgentSkillPackagePinsHTTPPreserveSharedOrderAndExecutionBoundary(t *tes
 	}
 	definition, _ := f.server.deps.Registry.AgentDefinition("mock-agent")
 	if _, err := resolveReferencedSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office"}); err == nil {
-		t.Fatal("pinned package ID accepted by mustUseSkills")
+		t.Fatal("pinned package ID accepted by skill references")
 	}
 	if resolved, err := resolveReferencedSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office/center-extra", "center-extra"}); err != nil || !reflect.DeepEqual(resolved.IDs, []string{"office/center-extra", "center-extra"}) {
 		t.Fatalf("concrete skill identities changed: %+v %v", resolved, err)

@@ -94,7 +94,7 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 			}
 			for i, route := range routes {
 				id := fmt.Sprintf("cross-%s-%s-%d", from, to, i)
-				sendSelectionLaneRequest(t, conns[from], id, route, map[string]any{"runId": runs[to], "agentKey": "mock-agent", "message": "change", "awaitingId": "unknown", "accessLevel": "full_access"})
+				sendSelectionLaneRequest(t, conns[from], id, route, validRunControlPayload(route, map[string]any{"runId": runs[to], "agentKey": "mock-agent", "message": "change", "awaitingId": "unknown", "accessLevel": "full_access"}))
 				f := readID(conns[from], id)
 				if f.Frame != "error" || f.Code != 403 || f.Type != "run_lane_mismatch" {
 					t.Fatalf("%s %s -> %s: %#v", route, from, to, f)
@@ -117,7 +117,7 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 				continue
 			}
 			method, path := http.MethodPost, route
-			body := marshalPayload(map[string]any{"runId": runs[lane], "agentKey": "mock-agent", "message": "change", "awaitingId": "unknown", "accessLevel": "full_access", "lane": lane})
+			body := marshalPayload(validRunControlPayload(route, map[string]any{"runId": runs[lane], "agentKey": "mock-agent", "message": "change", "awaitingId": "unknown", "accessLevel": "full_access", "lane": lane}))
 			if route == "/api/attach" {
 				method = http.MethodGet
 				path += "?runId=" + runs[lane] + "&agentKey=mock-agent"
@@ -132,7 +132,7 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 	// WS cannot control the existing HTTP parent run.
 	for i, route := range routes {
 		id := fmt.Sprintf("http-owner-%d", i)
-		sendSelectionLaneRequest(t, conns["main"], id, route, map[string]any{"runId": parentSummary.LastRunID, "agentKey": "mock-agent", "message": "change", "awaitingId": "unknown", "accessLevel": "full_access"})
+		sendSelectionLaneRequest(t, conns["main"], id, route, validRunControlPayload(route, map[string]any{"runId": parentSummary.LastRunID, "agentKey": "mock-agent", "message": "change", "awaitingId": "unknown", "accessLevel": "full_access"}))
 		if f := readID(conns["main"], id); f.Code != 403 || f.Type != "run_transport_mismatch" {
 			t.Fatalf("WS -> HTTP %s: %#v", route, f)
 		}
@@ -236,4 +236,19 @@ func TestMissingRunScopeIsRejectedWithoutClaim(t *testing.T) {
 	if _, err := fixture.server.runControlScopes().Load("legacy"); err == nil {
 		t.Fatal("control request claimed missing identity")
 	}
+}
+
+func validRunControlPayload(route string, payload map[string]any) map[string]any {
+	if route != "/api/steer" {
+		return payload
+	}
+	result := make(map[string]any, len(payload))
+	for key, value := range payload {
+		switch key {
+		case "accessLevel", "lastSeq", "awaitingId", "lane":
+			continue
+		}
+		result[key] = value
+	}
+	return result
 }

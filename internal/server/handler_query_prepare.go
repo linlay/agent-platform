@@ -77,9 +77,9 @@ func decodeQueryRequest(r *http.Request) (api.QueryRequest, error) {
 				},
 			}
 		}
-		if errors.Is(err, queryinput.ErrRemovedReferenceSelection) {
-			const code = "reference_selection_fields_removed"
-			return api.QueryRequest{}, &statusError{Status: http.StatusBadRequest, Code: code, Message: queryinput.RemovedReferenceSelectionMessage, Data: map[string]any{"error": map[string]any{"code": code, "message": queryinput.RemovedReferenceSelectionMessage}}}
+		if errors.Is(err, queryinput.ErrUnknownField) {
+			const code = "unknown_field"
+			return api.QueryRequest{}, &statusError{Status: http.StatusBadRequest, Code: code, Message: err.Error(), Data: map[string]any{"error": map[string]any{"code": code, "message": err.Error()}}}
 		}
 		message := "invalid request body"
 		if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {

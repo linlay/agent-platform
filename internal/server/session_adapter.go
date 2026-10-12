@@ -30,11 +30,6 @@ func (s *Server) buildCompactSession(ctx context.Context, req api.QueryRequest, 
 	return result, sessionRequestError(err)
 }
 
-func mustUseSkillUnavailableStatus(err error) *statusError {
-	e := session.ReferencedSkillUnavailableStatus(err)
-	return &statusError{Status: e.Status, Code: e.Code, Message: e.Message, Data: e.Data}
-}
-
 func buildAuthIdentity(principal *Principal) *contracts.AuthIdentity {
 	if principal == nil {
 		return nil

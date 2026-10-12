@@ -32,7 +32,7 @@ func TestRejectMalformedInteractionConfig(t *testing.T) {
 	}
 }
 
-func TestMustUseKbasesDefaultsAndBooleanOverride(t *testing.T) {
+func TestReferenceKbasesDefaultsAndBooleanOverride(t *testing.T) {
 	for _, mode := range []string{"GENERAL", "CODER", "KBASE", "TEAM", "PROXY", "CHANNEL"} {
 		c, err := Parse(mode, nil)
 		if err != nil {
@@ -43,12 +43,26 @@ func TestMustUseKbasesDefaultsAndBooleanOverride(t *testing.T) {
 			t.Fatalf("%s default: %+v", mode, c)
 		}
 		c, err = Parse(mode, map[string]any{"attachment": map[string]any{"kbases": true}})
-		if err != nil || !c.Attachment.Kbases {
+		if err != nil || c.Attachment.Kbases != (mode != "PROXY" && mode != "CHANNEL") {
 			t.Fatalf("override %s: %+v %v", mode, c, err)
 		}
 	}
-	if _, err := Parse("GENERAL", map[string]any{"mustUseKbases": "true"}); err == nil {
-		t.Fatal("nonboolean switch accepted")
+	if _, err := Parse("GENERAL", map[string]any{"unexpectedOption": "true"}); err == nil {
+		t.Fatal("unknown switch accepted")
+	}
+}
+
+func TestRemoteBackendsDoNotExposeLocalResourceReferences(t *testing.T) {
+	for _, backend := range []struct {
+		mode string
+		acp  bool
+	}{{"CODER", true}, {"PROXY", false}, {"CHANNEL", false}} {
+		for _, raw := range []any{nil, map[string]any{"attachment": map[string]any{"skills": true, "kbases": true, "chatRecords": true}}} {
+			c, err := ParseForEngine(backend.mode, backend.acp, raw)
+			if err != nil || c.Attachment.Skills || c.Attachment.Kbases || c.Attachment.ChatRecords || !c.Attachment.LocalFiles {
+				t.Fatalf("backend=%+v config=%+v err=%v", backend, c, err)
+			}
+		}
 	}
 }
 

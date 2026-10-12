@@ -401,8 +401,8 @@ type SkillResolution struct {
 }
 
 func ReferencedSkillUnavailableStatus(err error) *runtimetypes.RequestError {
-	const code = "must_use_skill_unavailable"
-	message := "must-use skill is unavailable"
+	const code = "skill_reference_unavailable"
+	message := "referenced skill is unavailable"
 	if err != nil && strings.TrimSpace(err.Error()) != "" {
 		message = err.Error()
 	}
@@ -518,14 +518,14 @@ func ResolveReferencedSkills(def catalog.AgentDefinition, centerDir string, cent
 		if configuredKey, ok := configured[normalized]; ok {
 			rootPath, err := ResolveConfiguredSkillRoot(def.RuntimeDir, configuredKey)
 			if err != nil {
-				return SkillResolution{}, fmt.Errorf("resolve must-use skill %q root: %w", configuredKey, err)
+				return SkillResolution{}, fmt.Errorf("resolve referenced skill %q root: %w", configuredKey, err)
 			}
 			definition, found, err := catalog.ResolveRuntimeSkillDefinition(def.RuntimeDir, configuredKey)
 			if err != nil {
-				return SkillResolution{}, fmt.Errorf("resolve must-use skill %q: %w", configuredKey, err)
+				return SkillResolution{}, fmt.Errorf("resolve referenced skill %q: %w", configuredKey, err)
 			}
 			if !found {
-				return SkillResolution{}, fmt.Errorf("must-use skill %q could not be resolved from agent runtime", configuredKey)
+				return SkillResolution{}, fmt.Errorf("referenced skill %q could not be resolved from agent runtime", configuredKey)
 			}
 			result.Skills = append(result.Skills, ReferencedSkill{
 				ID:               definition.ID,
@@ -539,18 +539,18 @@ func ResolveReferencedSkills(def catalog.AgentDefinition, centerDir string, cent
 
 		centerKey, ok := ResolveCenterSkillID(center, requestedKey)
 		if !ok {
-			return SkillResolution{}, fmt.Errorf("must-use skill %q is unavailable in the active skills center", requestedKey)
+			return SkillResolution{}, fmt.Errorf("referenced skill %q is unavailable in the active skills center", requestedKey)
 		}
 		rootPath, err := ResolveReferencedSkillRoot(centerDir, centerKey)
 		if err != nil {
-			return SkillResolution{}, fmt.Errorf("resolve must-use center skill %q root: %w", centerKey, err)
+			return SkillResolution{}, fmt.Errorf("resolve referenced center skill %q root: %w", centerKey, err)
 		}
 		definition, found, err := catalog.ResolveSkillDefinition("", centerDir, centerKey)
 		if err != nil {
-			return SkillResolution{}, fmt.Errorf("resolve must-use center skill %q: %w", centerKey, err)
+			return SkillResolution{}, fmt.Errorf("resolve referenced center skill %q: %w", centerKey, err)
 		}
 		if !found {
-			return SkillResolution{}, fmt.Errorf("must-use skill %q could not be resolved from the skills center", centerKey)
+			return SkillResolution{}, fmt.Errorf("referenced skill %q could not be resolved from the skills center", centerKey)
 		}
 		result.Skills = append(result.Skills, ReferencedSkill{
 			ID:               definition.ID,
@@ -601,14 +601,14 @@ func ReferencedSkillRunAccess(skills []ReferencedSkill) (contracts.RunAccessRoot
 	for _, skill := range skills {
 		root, err := pathutil.Canonicalize(strings.TrimSpace(skill.RootPath))
 		if err != nil {
-			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: %w", skill.ID, err)
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve referenced skill %q run access root: %w", skill.ID, err)
 		}
 		info, err := os.Stat(root.Host)
 		if err != nil {
-			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: %w", skill.ID, err)
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve referenced skill %q run access root: %w", skill.ID, err)
 		}
 		if !info.IsDir() {
-			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: not a directory", skill.ID)
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve referenced skill %q run access root: not a directory", skill.ID)
 		}
 		if _, duplicate := seen[root.Key]; duplicate {
 			continue

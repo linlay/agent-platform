@@ -27,13 +27,13 @@ var resourceFileName = session.ResourceFileName
 
 type skillCenterCatalog = session.SkillCenterCatalog
 type resolvedReferencedSkill = session.ReferencedSkill
-type mustUseSkillResolution = session.SkillResolution
+type referencedSkillResolution = session.SkillResolution
 
 var buildSkillCatalogPrompt = session.BuildSkillCatalogPrompt
 var skillCatalogBlock = session.SkillCatalogBlock
 var normalizeReferencedSkills = session.NormalizeReferencedSkills
 var resolveReferencedSkillRoot = session.ResolveReferencedSkillRoot
-var mustUseSkillRunAccess = session.ReferencedSkillRunAccess
+var referencedSkillRunAccess = session.ReferencedSkillRunAccess
 var resolveCenterSkillID = session.ResolveCenterSkillID
 var resolveLocalPaths = session.ResolveLocalPaths
 var ensureChatDir = session.EnsureChatDir

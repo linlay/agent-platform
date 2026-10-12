@@ -30,4 +30,4 @@ A changed or removed definition causes revision_conflict. Read again and obtain 
 
 query.references is an optional list of typed resource locators (skill, kbase and chat), saved with the automation query and revalidated against the current target Agent, resource availability and Chat ownership at each execution. It does not inherit the creating Chat's choices.
 
-The removed query.mustUseSkills and query.mustUseKbases keys are rejected, even when null or empty. Each execution establishes its own reference grants.
+Automation query objects reject all undeclared fields, including null or empty values. Each execution establishes its own reference grants.

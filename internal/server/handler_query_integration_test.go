@@ -326,16 +326,16 @@ func TestQueryChatSourceCannotBeSpoofedByExternalPayload(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "unknown field") {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	summary, err := fixture.chats.Summary("chat-source-spoof")
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}
-	if summary == nil || summary.Source != api.ChatSourceQuery {
-		t.Fatalf("expected external payload to create query source, got %#v", summary)
+	if summary != nil {
+		t.Fatalf("spoofed request created a chat, got %#v", summary)
 	}
 }
 
@@ -704,7 +704,7 @@ func TestQueryNonStreamReturnsFailureWhenRunErrors(t *testing.T) {
 	}
 }
 
-func TestQuerySteamTypoDoesNotDisableSSE(t *testing.T) {
+func TestQueryRejectsMisspelledStreamField(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
@@ -715,14 +715,8 @@ func TestQuerySteamTypoDoesNotDisableSSE(t *testing.T) {
 
 	server.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "text/event-stream") {
-		t.Fatalf("expected sse content type, got %q", got)
-	}
-	if !strings.Contains(rec.Body.String(), "data: "+stream.DoneSentinel) {
-		t.Fatalf("expected sse done sentinel, got %s", rec.Body.String())
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "unknown field") {
+		t.Fatalf("expected unknown field rejection, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -981,8 +975,8 @@ func TestQueryRejectsUnavailableReferencedSkillWithExplicitCode(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"code":"must_use_skill_unavailable"`) {
-		t.Fatalf("expected must_use_skill_unavailable, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"code":"skill_reference_unavailable"`) {
+		t.Fatalf("expected skill_reference_unavailable, got %s", rec.Body.String())
 	}
 }
 
@@ -1022,7 +1016,7 @@ func TestQueryExtraReferencedSkillAddsCenterContextAndReadonlyMount(t *testing.T
 		t.Fatalf("complete preparation: %v", err)
 	}
 	if strings.Join(queryinput.ResourceIDs(prepared.Session.RuntimeContext.References, "skill"), ",") != "mock-skill,center-extra" {
-		t.Fatalf("mustUseSkills = %#v", queryinput.ResourceIDs(prepared.Session.RuntimeContext.References, "skill"))
+		t.Fatalf("skill references = %#v", queryinput.ResourceIDs(prepared.Session.RuntimeContext.References, "skill"))
 	}
 	wantRunRoots := []string{
 		mustCanonicalTestPath(t, runtimeSkillTestPath(t, prepared.AgentDef.RuntimeDir, "mock-skill")),
@@ -1031,7 +1025,7 @@ func TestQueryExtraReferencedSkillAddsCenterContextAndReadonlyMount(t *testing.T
 	}
 	if !sameStringSet(prepared.Session.ReferenceAccessRoots().ReadRoots, wantRunRoots) ||
 		!sameStringSet(prepared.Session.ReferenceAccessRoots().ReadonlyRoots, wantRunRoots) {
-		t.Fatalf("must-use run access roots = %#v, want %#v", prepared.Session.ReferenceAccessRoots(), wantRunRoots)
+		t.Fatalf("reference run access roots = %#v, want %#v", prepared.Session.ReferenceAccessRoots(), wantRunRoots)
 	}
 	if prepared.Session.RuntimeContext.LocalPaths.SkillsCenterDir != fixture.cfg.Paths.SkillsCenterDir {
 		t.Fatalf("local skills-center = %q", prepared.Session.RuntimeContext.LocalPaths.SkillsCenterDir)
@@ -1059,7 +1053,7 @@ func TestQueryExtraReferencedSkillAddsCenterContextAndReadonlyMount(t *testing.T
 			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.Session.SkillHookDirs)
 		}
 	}
-	if strings.Contains(prepared.Session.SkillCatalogPrompt, "center-extra") || strings.Contains(prepared.Session.SkillCatalogPrompt, "Must-use") {
+	if strings.Contains(prepared.Session.SkillCatalogPrompt, "center-extra") || strings.Contains(prepared.Session.SkillCatalogPrompt, "[References]") {
 		t.Fatalf("selected resources entered system catalog: %s", prepared.Session.SkillCatalogPrompt)
 	}
 	current, _ := json.Marshal(prepared.Session.CurrentMessages)

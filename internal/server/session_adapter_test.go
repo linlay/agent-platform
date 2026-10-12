@@ -35,7 +35,7 @@ func (s *Server) buildCurrentMessages(req api.QueryRequest, input contracts.Quer
 	return testSessionBuilder(s).BuildCurrentMessages(queryCommandFromAPI(req), input)
 }
 
-func (s *Server) resolveQueryReferencedSkills(def catalog.AgentDefinition, requested []string) (mustUseSkillResolution, error) {
+func (s *Server) resolveQueryReferencedSkills(def catalog.AgentDefinition, requested []string) (referencedSkillResolution, error) {
 	return testSessionBuilder(s).ResolveSkills(def, requested)
 }
 
@@ -43,7 +43,7 @@ func (s *Server) newRunEnvironmentScope() *runenv.Scope {
 	return testSessionBuilder(s).NewRunEnvironmentScope()
 }
 
-func resolveReferencedSkills(def catalog.AgentDefinition, dir string, registry legacySkillCatalog, requested []string) (mustUseSkillResolution, error) {
+func resolveReferencedSkills(def catalog.AgentDefinition, dir string, registry legacySkillCatalog, requested []string) (referencedSkillResolution, error) {
 	return session.ResolveReferencedSkills(def, dir, skillCatalogAdapter{registry}, requested)
 }
 

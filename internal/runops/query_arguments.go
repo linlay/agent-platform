@@ -40,8 +40,6 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 				}
 				request.ReasoningEffort = effort
 			}
-		case "mustUseSkills", "mustUseKbases":
-			return invalid(queryinput.RemovedReferenceSelectionMessage)
 		case "references":
 			if value == nil {
 				return invalid("references must be an array")

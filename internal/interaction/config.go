@@ -51,6 +51,18 @@ func DefaultsForEngine(mode string, acp bool) Config {
 	// offered by default only where a Run is read-only unless asked otherwise.
 	c.ShowEditingMode = strings.EqualFold(strings.TrimSpace(mode), "KBASE") && !acp
 	c.ShowTerminal = strings.EqualFold(strings.TrimSpace(mode), "CODER")
+	return applyBackendAttachmentCapabilities(c, mode, acp)
+}
+
+// Local resource identities cannot be resolved by a remote execution backend.
+// Explicit entry overrides do not add a capability to that backend.
+func applyBackendAttachmentCapabilities(c Config, mode string, acp bool) Config {
+	mode = strings.ToUpper(strings.TrimSpace(mode))
+	if acp || mode == "PROXY" || mode == "CHANNEL" {
+		c.Attachment.Skills = false
+		c.Attachment.Kbases = false
+		c.Attachment.ChatRecords = false
+	}
 	return c
 }
 
@@ -105,7 +117,7 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 		}
 		*target = b
 	}
-	return c, nil
+	return applyBackendAttachmentCapabilities(c, mode, acp), nil
 }
 
 func (c Config) Validate(model bool, accessLevel string, skills bool) error {

@@ -157,7 +157,7 @@ func TestRunningAutomationAllowsAllDesktopMainControls(t *testing.T) {
 		conn := dial(source, token)
 		for i, route := range routes {
 			id := fmt.Sprintf("reject-%s-%d", source, i)
-			sendSelectionLaneRequest(t, conn, id, route, payload)
+			sendSelectionLaneRequest(t, conn, id, route, validRunControlPayload(route, payload))
 			if frame := readID(conn, id); frame.Frame != platformws.FrameError || frame.Code != 403 || frame.Type != "run_transport_mismatch" {
 				t.Fatalf("%s %s authorized: %#v", source, route, frame)
 			}
@@ -171,7 +171,7 @@ func TestRunningAutomationAllowsAllDesktopMainControls(t *testing.T) {
 		if route == "/api/attach" {
 			method, path = http.MethodGet, route+"?runId="+start.RunID+"&agentKey=mock-agent"
 		}
-		req := httptest.NewRequest(method, path, bytes.NewReader(marshalPayload(payload)))
+		req := httptest.NewRequest(method, path, bytes.NewReader(marshalPayload(validRunControlPayload(route, payload))))
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)
@@ -186,7 +186,7 @@ func TestRunningAutomationAllowsAllDesktopMainControls(t *testing.T) {
 	time.Sleep(time.Until(expiresAt) + 10*time.Millisecond)
 	for i, route := range routes {
 		id := fmt.Sprintf("reject-expired-%d", i)
-		sendSelectionLaneRequest(t, conn, id, route, payload)
+		sendSelectionLaneRequest(t, conn, id, route, validRunControlPayload(route, payload))
 		if frame := readID(conn, id); frame.Frame != platformws.FrameError || frame.Code != 403 || frame.Type != "run_transport_mismatch" {
 			t.Fatalf("expired Desktop Main %s authorized: %#v", route, frame)
 		}
@@ -198,7 +198,7 @@ func TestRunningAutomationAllowsAllDesktopMainControls(t *testing.T) {
 	var attachID string
 	for i, route := range []string{"/api/access-level", "/api/steer", "/api/attach", "/api/detach", "/api/attach"} {
 		id := fmt.Sprintf("allowed-%d", i)
-		sendSelectionLaneRequest(t, conn, id, route, payload)
+		sendSelectionLaneRequest(t, conn, id, route, validRunControlPayload(route, payload))
 		frame := readID(conn, id)
 		if route == "/api/attach" {
 			attachID = id
