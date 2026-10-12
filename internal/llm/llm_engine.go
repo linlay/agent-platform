@@ -167,7 +167,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	e.restorePlanTasksForRun(execCtx, &session, options.Stage, effectiveDefs)
 	cacheKey := sessionSystemInitCacheKey(session, options.Stage)
 	cachedSystem, cachedTools, cacheOK := resolveCachedSystemInit(session, cacheKey)
-	if cacheOK && !session.PromptSnapshotRestored && !cachedSystemInitHasPlanTaskContext(cachedSystem, session.PlanTaskContext) {
+	if cacheOK && !cachedSystemInitHasPlanTaskContext(cachedSystem, session.PlanTaskContext) {
 		cacheOK = false
 	}
 	if cacheOK && !cachedToolsCompatibleWithStageOverride(options.ToolNames, cachedTools) {

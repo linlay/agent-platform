@@ -62,6 +62,7 @@ type StepWriter struct {
 	pendingReasoningEffort  string
 	pendingSystemRef        map[string]any
 	pendingSystemInit       *QueryLineSystem
+	runLocale               string
 	modelTurnCommitRequired bool
 	modelTurnCommitted      bool
 	modelTurnRunSeq         int
@@ -99,6 +100,11 @@ func (w *StepWriter) SetPendingSystemInit(line *QueryLineSystem) {
 	}
 	cloned := cloneQueryLineSystem(*line)
 	w.pendingSystemInit = &cloned
+}
+
+// SetRunLocale records the Run's prompt language on its query line.
+func (w *StepWriter) SetRunLocale(locale string) {
+	w.runLocale = strings.TrimSpace(locale)
 }
 
 func (w *StepWriter) SetPendingQueryMessages(messages []map[string]any) {
@@ -575,6 +581,7 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		RunID:     w.runID,
 		UpdatedAt: event.Timestamp,
 		LiveSeq:   event.Seq,
+		Locale:    w.runLocale,
 		Query:     query,
 		Messages:  messages,
 		System:    system,

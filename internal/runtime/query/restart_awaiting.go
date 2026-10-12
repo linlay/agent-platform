@@ -52,13 +52,18 @@ func (s *Service) persistRestartAwaitingToolResults(
 		if toolName == "" {
 			return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: tool %s has no name", item.ChatID, item.AwaitingID, toolID)
 		}
-		result, err := json.Marshal(map[string]any{
+		payload := map[string]any{
 			"error":      errorCode,
 			"exitCode":   -1,
 			"output":     output,
-			"executed":   false,
 			"awaitingId": item.AwaitingID,
-		})
+		}
+		// A crash can interrupt an already started sibling call in this batch.
+		// Only a known timeout may claim that execution did not start.
+		if errorCode != "runtime_restarted" {
+			payload["executed"] = false
+		}
+		result, err := json.Marshal(payload)
 		if err != nil {
 			return err
 		}
@@ -98,7 +103,7 @@ func (s *Service) persistRestartAwaitingToolResults(
 	return nil
 }
 
-func (s *Service) completeRestartAwaitingRun(item chat.PendingAwaitingWithChat, resolvedAt int64) error {
+func (s *Service) completeRestartAwaitingRun(item chat.PendingAwaitingWithChat, resolvedAt int64, interrupted bool) error {
 	runs, err := s.deps.Chats.ListRuns(item.ChatID)
 	if err != nil {
 		return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: list runs: %w", item.ChatID, item.AwaitingID, err)
@@ -134,6 +139,13 @@ func (s *Service) completeRestartAwaitingRun(item chat.PendingAwaitingWithChat, 
 	if query != nil {
 		initialMessage = strings.TrimSpace(contracts.AnyStringNode(query.Query["message"]))
 	}
+	assistantText := ""
+	if store, ok := s.deps.Chats.(chat.InterruptedRunStore); ok && interrupted {
+		assistantText, err = store.CloseInterruptedRunTools(item.ChatID, item.RunID, resolvedAt)
+		if err != nil {
+			return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: close interrupted tools: %w", item.ChatID, item.AwaitingID, err)
+		}
+	}
 	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
 		ChatID:    item.ChatID,
 		RunID:     item.RunID,
@@ -141,6 +153,7 @@ func (s *Service) completeRestartAwaitingRun(item chat.PendingAwaitingWithChat, 
 		AgentMode: summary.AgentMode,
 
 		InitialMessage:  initialMessage,
+		AssistantText:   assistantText,
 		FinishReason:    "cancel",
 		StartedAtMillis: startedAt,
 		UpdatedAtMillis: resolvedAt,
@@ -251,7 +264,7 @@ func (s *Service) persistTerminalAwaiting(
 	if err := s.persistRestartAwaitingToolResults(item, step, answer, resolvedAt); err != nil {
 		return err
 	}
-	if err := s.completeRestartAwaitingRun(item, resolvedAt); err != nil {
+	if err := s.completeRestartAwaitingRun(item, resolvedAt, restartTerminalAwaitingCode(answer) == "runtime_restarted"); err != nil {
 		return err
 	}
 	if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {

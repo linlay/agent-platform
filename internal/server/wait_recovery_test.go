@@ -1,16 +1,11 @@
 package server
 
 import (
-	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/querymessages"
-	"agent-platform/internal/runenv"
-	"agent-platform/internal/runtime/runstate"
-	"agent-platform/internal/tools"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,52 +17,6 @@ import (
 	"testing"
 	"time"
 )
-
-func TestWaitRestartContinuesSameRun(t *testing.T) {
-	var calls atomic.Int32
-	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Error(err)
-		}
-		if err := validateAwaitingToolPairs(payload["messages"]); err != nil {
-			t.Error(err)
-		}
-		calls.Add(1)
-		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"resumed wait"},"finish_reason":"stop"}]}`, "[DONE]")
-	}, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) { cfg.PresetTools = append(cfg.PresetTools, "wait") }})
-	now := time.Now().UnixMilli()
-	seedDeferredAwaitingPayload(t, fixture.chats, "wait-chat", "wait-run", "wait-call", "wait", 0, now, map[string]any{"startedAt": now, "deadlineAt": now + 500, "description": "test recovery", "match": "any", "conditions": []any{}, "waitCheckpoint": contracts.WaitCheckpoint{StartedAt: now, Budget: contracts.NormalizeBudget(contracts.Budget{})}})
-	if err := fixture.chats.AppendQueryLine("wait-chat", chat.QueryLine{ChatID: "wait-chat", RunID: "wait-run", UpdatedAt: now, Type: "query", Query: map[string]any{"runId": "wait-run", "chatId": "wait-chat", "agentKey": "mock-agent", "role": "user", "message": "wait then continue"}}); err != nil {
-		t.Fatal(err)
-	}
-	runs := runstate.NewManager()
-	defer runs.Finish("wait-run")
-	_, err := newRuntimeServer(deferredRestartDependencies(fixture, runs, fixture.chats, nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		status, ok := runs.RunStatus("wait-run")
-		if ok && status.CompletedAt > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if calls.Load() != 1 {
-		detail, _ := fixture.chats.LoadChat("wait-chat")
-		t.Fatalf("model calls=%d detail=%+v", calls.Load(), detail)
-	}
-	summary, err := fixture.chats.Summary("wait-chat")
-	if err != nil || summary.PendingAwaiting != nil {
-		t.Fatalf("pending wait remains: %+v %v", summary, err)
-	}
-	status, ok := runs.RunStatus("wait-run")
-	if !ok || status.StartedAt != now || status.CompletedAt == 0 {
-		t.Fatalf("run identity changed: %+v", status)
-	}
-}
 
 func TestLiveWaitBlankSteerContinuesSameRun(t *testing.T) {
 	var calls atomic.Int32
@@ -161,93 +110,4 @@ func (s runEnvWaitCheckpointSink) EmitToolOutput(context.Context, contracts.Tool
 func (s runEnvWaitCheckpointSink) EmitToolWait(_ context.Context, w contracts.ToolWait) error {
 	s.checkpoints <- w.Checkpoint
 	return nil
-}
-
-func TestWaitRestartWithRunEnvSnapshots(t *testing.T) {
-	for _, state := range []string{"empty", "cleared", "nonempty"} {
-		t.Run(state, func(t *testing.T) {
-			scope := runenv.NewScope(runenv.Limits{})
-			if state != "empty" {
-				if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "A", Value: "x"}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if state == "cleared" {
-				if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationUnset, Name: "A"}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			control := contracts.NewRunControl(context.Background(), "wait-run")
-			defer control.Finish()
-			sink := runEnvWaitCheckpointSink{make(chan *contracts.WaitCheckpoint, 2)}
-			started := time.Now()
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				_, _ = (&tools.RuntimeToolExecutor{}).Invoke(context.Background(), "wait", map[string]any{"offset": "1H", "description": "等待测试目标"}, &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "wait-run", ToolNames: []string{"wait", "run_env"}}, RunEnvironment: scope, RunControl: control, StartedAt: started, ToolOutputSink: sink})
-			}()
-			var checkpoint *contracts.WaitCheckpoint
-			select {
-			case checkpoint = <-sink.checkpoints:
-			case <-time.After(time.Second):
-				t.Fatal("no wait checkpoint")
-			}
-			control.EnqueueSteer(api.SteerRequest{})
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-				t.Fatal("steer failed")
-			}
-			scope.Destroy()
-			runs := runstate.NewManager()
-			defer runs.Finish("wait-run")
-			var calls atomic.Int32
-			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-				calls.Add(1)
-				recovered, ok := runs.RunEnvironment("wait-run")
-				if !ok {
-					t.Error("missing recovered scope")
-				} else {
-					v, revision, err := recovered.Snapshot()
-					if err != nil || len(v) != 0 || revision != 0 {
-						t.Errorf("recovered snapshot %#v %d %v", v, revision, err)
-					}
-				}
-				writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"resumed"},"finish_reason":"stop"}]}`, "[DONE]")
-			}, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
-				cfg.PresetTools = append(cfg.PresetTools, "wait", "run_env")
-				// run_env is independent of connector configuration.
-			}})
-			now := started.UnixMilli()
-			seedDeferredAwaitingPayload(t, fixture.chats, "wait-chat", "wait-run", "wait-call", "wait", 0, now, map[string]any{"startedAt": now, "deadlineAt": time.Now().UnixMilli() + 200, "description": "env recovery", "match": "any", "conditions": []any{}, "waitCheckpoint": checkpoint})
-			if err := fixture.chats.AppendQueryLine("wait-chat", chat.QueryLine{ChatID: "wait-chat", RunID: "wait-run", UpdatedAt: now, Type: "query", Query: map[string]any{"runId": "wait-run", "chatId": "wait-chat", "agentKey": "mock-agent", "role": "user", "message": "wait"}}); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := newRuntimeServer(deferredRestartDependencies(fixture, runs, fixture.chats, nil)); err != nil {
-				t.Fatal(err)
-			}
-			if state == "nonempty" {
-				assertRestartTerminalizedAwaiting(t, fixture.chats, "wait-chat", "wait-run", "wait-call", "runtime_restarted")
-				if calls.Load() != 0 {
-					t.Fatal("unrecoverable wait called model")
-				}
-				return
-			}
-			deadline := time.Now().Add(8 * time.Second)
-			for time.Now().Before(deadline) {
-				status, ok := runs.RunStatus("wait-run")
-				if ok && status.CompletedAt > 0 {
-					break
-				}
-				time.Sleep(20 * time.Millisecond)
-			}
-			if calls.Load() != 1 {
-				t.Fatalf("calls %d", calls.Load())
-			}
-			summary, err := fixture.chats.Summary("wait-chat")
-			if err != nil || summary.PendingAwaiting != nil {
-				t.Fatalf("pending %#v %v", summary, err)
-			}
-		})
-	}
 }

@@ -12,7 +12,7 @@
 
 HTTP 和 WebSocket query 使用同一顶层 boolean。`params.editingMode` 无效；本次设置不写 Agent 配置、不从历史 Chat 继承。规划 Run 始终只读，批准后的普通执行 Run 使用原请求的编辑设置。
 
-Run 会冻结解析后的 Workspace 编辑能力。`request.query` 持久化按模板解析后的请求值（含 false），用于普通续接和批准计划后的执行；JSONL、replay/export 与恢复不会把显式 false 当成省略。`activeRun.editingMode` 返回当前 Run 的实际能力，规划 Run 为 false。历史事件缺少字段时使用模板默认值。
+Run 会冻结解析后的 Workspace 编辑能力。`request.query` 持久化按模板解析后的请求值（含 false），用于同进程续接和批准计划后的执行；JSONL、replay/export 与恢复不会把显式 false 当成省略。`activeRun.editingMode` 返回当前 Run 的实际能力，规划 Run 为 false。Platform 重启统一取消未完成 Run；下一次 Query 使用新请求与当前模板默认值。
 
 ## 目录权限
 
@@ -32,6 +32,6 @@ Run 会冻结解析后的 Workspace 编辑能力。`request.query` 持久化按�
 
 ## 仍待审查的 mode 特殊行为
 
-KBASE 原有的 `ScopedFilePolicy`（强制先读后写、新文件父目录必须存在、专用错误码、专属工具集准入）已移除，文件工具行为与其他 mode 完全一致。KBASE 的 main/editing prompt 与 cache 分支仍按 mode 切换 stage，尚未改造，待单独处理。
+KBASE 原有的 `ScopedFilePolicy`（强制先读后写、新文件父目录必须存在、专用错误码、专属工具集准入）已移除，文件工具行为与其他 mode 完全一致。editingMode 只是本次 Run 的编辑状态，不是一种运行形态：KBASE 不再有 `kbase-editing` stage 与 `kbase:editing` cache key，`agent-prompt.yml` 的 `kbase.editing-prompt` 已删除（出现即拒绝加载，相关要求并入 `workspace-prompt`），四种 mode 的 system-init fingerprint 都不含 editingMode；editing_mode 模板变量也已删除，配置出现即拒绝加载。切换编辑不改变 system prompt、cache key 或 fingerprint；模型通过被拒绝的写入得知当前只读。历史 JSONL 中的 `kbase:editing` 快照不迁移，仍可按引用回放。
 
 权限回归入口：`internal/runtime/session/workspace_editing_test.go`、`internal/accesspolicy/capability_test.go`、`internal/tools/kbase_editing_adversarial_test.go`。

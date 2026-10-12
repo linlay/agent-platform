@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/agent/planmode"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
@@ -105,12 +104,8 @@ func (s *prefixedAgentStream) Close() error {
 type builtinMode struct{ stage string }
 
 func (m builtinMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
-	stage := strings.TrimSpace(m.stage)
-	if agentkbase.IsMode(session.Mode) {
-		stage = agentkbase.RuntimeStage(session.EditingMode)
-	}
 	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
-		Stage: stage,
+		Stage: strings.TrimSpace(m.stage),
 	})
 }
 

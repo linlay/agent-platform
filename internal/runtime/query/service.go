@@ -84,7 +84,7 @@ func NewService(deps Dependencies) *Service {
 	}
 	return &Service{deps: deps, backgroundCtx: deps.BackgroundContext, deferredAwaitings: deps.DeferredAwaitings, ticketService: deps.ResourceTickets}
 }
-func (s *Service) Reconcile() error { return s.hydrateDeferredAwaitings() }
+func (s *Service) Reconcile() error { return s.abandonPersistedRuns() }
 func (s *Service) AttachRun(_ context.Context, ref runtimetypes.RunRef, afterSeq int64) (*runtimetypes.Subscription, error) {
 	if s == nil || s.deps.Runs == nil {
 		return nil, ErrNotConfigured

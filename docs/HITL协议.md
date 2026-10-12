@@ -46,7 +46,7 @@ assistant tool_calls[]
 
 仍有原生 planning 执行者的活动 Run 在生成计划和等待确认期间都接受 steer。正在进行的模型调用先正常结束；若生成候选计划期间有尚未消费的 steer，后端跳过旧计划的确认，收尾旧 `finalize_planning` tool result，在同一 Run 内按 FIFO 注入文字/冻结图片并进入下一版 planning。若旧确认已经发布，steer 会唤醒等待并输出 `awaiting.answer(status:"error", error.code:"planning_superseded")`；两种情况都会发布 `planning.superseded { planningId, planningFile, awaitingId, reason:"steer" }`，不伪造 `request.submit` 或用户 reject。新计划需要重新确认；用户要求停止时模型可以直接结束规划。拒绝后的反馈阶段同样支持 steer。
 
-steer 准入与 planning submit 使用同一临界区：steer 先被接受，旧 awaiting 立即变为已解决，迟到的 approve 返回 `409 already_resolved`；approve 先被接受并确定新 execution Run，旧 Run 的后续 steer 返回 `accepted:false,status:"unmatched"`，客户端应使用新的 execution RunID。确认框发布与 steer 同时发生时，旧框可能短暂出现，但随后必须由同一 awaiting 的失效 answer 关闭，不能启动执行。该机制不把普通 question/approval/form 改成可被 steer 自动回答，也不新增跨进程 suspended 等待项的 steer 恢复路径；后者仍通过 submit 恢复。
+steer 准入与 planning submit 使用同一临界区：steer 先被接受，旧 awaiting 立即变为已解决，迟到的 approve 返回 `409 already_resolved`；approve 先被接受并确定新 execution Run，旧 Run 的后续 steer 返回 `accepted:false,status:"unmatched"`，客户端应使用新的 execution RunID。确认框发布与 steer 同时发生时，旧框可能短暂出现，但随后必须由同一 awaiting 的失效 answer 关闭，不能启动执行。该机制不把普通 question/approval/form 改成可被 steer 自动回答，Platform 重启后旧等待项已取消，submit 与 steer 均不重建历史执行者。
 
 同一 assistant turn 的 `tool_calls[]` 是 awaiting 原子批次：只要其中任意工具需要 `question` / `approval` / `form` 等等待态，整组工具都会暂停，确认前不执行任何 sibling tool。planning confirmation 使用 `mode:"planning"`，由 `finalize_planning` 专门产生；它永久等待，不使用 HITL timeout。`approval` 类型的 builtin 等待项可合并为一个 `awaiting.ask(mode:"approval", approvals:[...])`；不同 mode 的等待项按原始 `tool_calls[]` 顺序逐个等待。全部等待项进入终态后，后端才开始执行本组工具：approve 的工具与无需确认的 sibling 正常执行，reject / timeout 的工具生成 synthetic tool result。
 
@@ -62,19 +62,15 @@ question/approval 取消提交 `params: []`；form/planning 关闭使用 `param:
 
 ## 跨进程重启
 
-Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同一 awaiting 的物理 step、answer、matching tool result 与 run completion 做幂等对账。`question` 在未超时或 `timeout=0` 时恢复，`planning` 不受停机时长或历史 timeout 字段影响，始终恢复。可恢复项不只注册 deferred submit：启动 hydration 还会为原公开 `runId` 注册真实的 suspended active run，保留原 `startedAt`、公开 owner、access level 与 run scope，状态为 `WAITING_SUBMIT`，EventBus cursor 从该 run 已持久化的最大 `liveSeq` 开始。因此重启后 `/api/chat` 会同时返回权威 `awaiting` 与可 attach 的 `activeRun`，客户端应在用户点击提交之前立即使用 `activeRun.lastSeq` attach。
+Platform 重启统一取消所有未完成 Run，包括 question、planning、approval、form、wait、子任务和 TEAM；不恢复执行者、等待计时器或条件监听，也不自动执行停机前已提交的答案或已批准的计划。
 
-恢复后的 question 与 planning reject 提交会原子 claim suspended run，状态短暂进入 `RESUMING`；`request.submit` 和 `awaiting.answer` 先按连续 live seq 持久化并发布到同一 EventBus，再从原 query、raw messages、ask 与答案重建 continuation。该路径保持原公开 `runId`，不重复发布 `run.started`，已在 submit 前 attach 的连接会直接收到后续 reasoning/content/tool 事件。native CODER planning approve 则先在旧 suspended planning run 上持久化并发布 submit、answer、tool result 与 `run.complete`，关闭旧 attach 后再启动新 execution run。
+启动时以 pending summary 和未完成 RUNS 记录为入口，按 chatId/runId/awaitingId 串行幂等收尾：为等待项补写 awaiting.answer(status:error,error.code:runtime_restarted)，补齐缺失工具结果，保存 finishReason:cancel，再清除 pending。已有答案、工具结果、聊天正文和原 startedAt 保留；无法确定执行状态的普通工具调用只标记结果未记录，不声称未执行。
 
-`approval` / `form` 不跨进程恢复：已超时写 `error.code:"timeout"`，未超时写 `error.code:"runtime_restarted"`。run env set/unset 不使用专用 HITL。已超时的 `question` 同样写 `timeout`；无法从持久化 task/tool 上下文安全确定子智能体或 Team continuation 的 `question` / `planning` 写 `runtime_restarted`。这些自动终态不伪造 `request.submit`，而是依次持久化 `awaiting.answer(status:"error")`、同原因且 `executed:false` 的 matching tool result、`finishReason:"cancel"` 的 run completion，最后清除 pending summary。任一步写入失败都会中止 Server 初始化；再次启动会从已有记录继续，不重复写 answer、result 或 completion。
+任一步持久化失败会中止初始化；再次启动仅补齐缺失步骤，不重复取消记录。悬空 pending 直接清除。已提交但尚未完成的 Run 同样取消，旧 submit 重试返回 awaiting_interrupted；已完成收据的回读不会重建执行者。
 
-run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久化。重启恢复 question/planning 时，原公开 RunID 与 HITL continuation 流程保持不变，但 root Scope 固定从 revision 0 的空动态层开始；历史 set/unset 不从 Chat 重放。native planning approve 创建新的 execute RunID，同样不继承旧 planning run 的动态值。
+重启后 Chat 不返回旧 activeRun 或可提交 awaiting，用户可以直接发起新 Query，由当前 Agent 配置解析新 Run。历史 ask 和计划仅保留为历史内容，不再拥有可提交权限。run.env、临时授权和旧 Run 的其他进程状态不恢复。
 
-恢复后的 question 剩余 timeout 由 suspended run supervisor 继续计时；`/api/interrupt` 和 reaper 也由同一 supervisor 收口。终态会按 `awaiting.answer -> tool.result(s) -> run.cancel` 的顺序发布到已 attach 连接，然后 freeze EventBus 并移除 active run。Platform 自身关闭仅取消进程内 supervisor，不伪造用户中断，pending 留给下次 hydration。
-
-所有自动终态入口共用收尾路由：成功取得恢复 claim 才能替 suspended run 持久化并发布终态；claim 失败必须重新确认运行时所有权，已被其他流程接管或已激活的 continuation 不得退回重启补写。竞争中的读取保留 pending，重复提交返回既有 `already_resolved` 冲突。只有明确没有运行时执行者的遗留等待项允许直接补写；continuation 协调器按 `chatId/runId/awaitingId` 串行处理，并在取得锁后重新读取 answer、matching tool results 与 completion。写入失败保留 pending，重试只补齐缺失步骤。此协调仅覆盖单 Platform 进程，不改变原始历史，也不对已污染 JSONL 做去重或迁移。
-
-没有 pending summary 的孤立历史 `awaiting.ask` 不迁移、也不恢复为活动态。`/api/chat.awaiting` 是客户端判断可提交状态的唯一事实源；历史 ask 只保留用于时间线和匹配完整交互内容。
+浏览器刷新、断线或同 lane 重连不等同于 Platform 重启：当前进程持有的 live Run、同进程计划批准及 continuation 仍按原协议工作。Reconcile 跳过当前进程持有的 Run，不替其执行流程补写超时或取消结果。
 
 ## 配置与接口
 

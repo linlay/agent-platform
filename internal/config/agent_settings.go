@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/connector"
 )
 
@@ -48,6 +49,22 @@ func configText(values map[string]any, key, path string) (string, error) {
 		return "", fmt.Errorf("%s.%s must be a string", path, key)
 	}
 	return value, nil
+}
+
+func validatePromptTemplates(value any, path string) error {
+	switch node := value.(type) {
+	case string:
+		if err := agentcontract.ValidatePromptTemplate(node); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	case map[string]any:
+		for key, child := range node {
+			if err := validatePromptTemplates(child, path+"."+key); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 func parseAgentPresets(values map[string]any, path string) (AgentPresets, error) {
 	var out AgentPresets
@@ -236,6 +253,9 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err != nil {
 		return err
 	}
+	if err := validatePromptTemplates(v, path); err != nil {
+		return err
+	}
 	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "reference", "tool-appendix", "plan-execute", "btw", "planning-mode")
 	if err != nil {
 		return err
@@ -263,7 +283,7 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err != nil {
 		return err
 	}
-	kbase, err := optionalConfigMap(v, "kbase", path, "system-prompt", "workspace-prompt", "editing-prompt")
+	kbase, err := optionalConfigMap(v, "kbase", path, "system-prompt", "workspace-prompt")
 	if err != nil {
 		return err
 	}

@@ -30,7 +30,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 技能包保存在 `skills-center/<package-id>/`，包根 `package.json` 必须包含 `name` 与 `skills:[{"id":"pdf"}]` 成员清单。成员 id 为包内单段目录名，至少保存 id，其他扩展属性原样保留；名称、描述和版本读取成员 SKILL.md。Platform 按清单加载包下一层成员，生成精确技能 ID `<package-id>/<skill-id>`，不递归发现技能，不加载未声明目录；声明但缺失、不可读取或不安全的成员保留管理诊断，不使整包消失。顶层 `<skill-id>` 与包内同名技能可共存，安装、更新、编辑和卸载分别作用于精确 id；包更新只替换该包目录，不接管或覆盖顶层同名技能。普通技能内的 `sub-skills` 暂不扫描。技能包目录本身不可执行，也不能通过单技能接口覆盖；隐藏 staging 和 backup 不进入 Skill Catalog，临时 ZIP 不持久化。Platform 在首次启动 Catalog、开始监听目录前迁移旧 `.package` 记录：复制成员到新包目录，保留原顶层技能以兼容旧 Agent 短 id 引用，旧清单移入可恢复备份并记录路径。迁移完成后幂等；目标同名冲突保留原记录和已有目录，记录 skill_package_migration_conflict 并跳过该项，继续迁移其他包，不阻断服务启动。其他迁移错误仍保留备份并报告，不覆盖已有目录。普通查询和热重载不触发迁移。已安装 package.json 缺少 skills 时，启动阶段补齐一次显式声明，并在技能根外保留原文件备份；已有 skills 的无效清单不自动修复。旧 .package 的缺失成员声明同样保留为诊断占位。
 
-`ru-agents` 与 `ru-skills` 是进程内中间产物，不保存历史，不进入 release bundle、环境资源包或 overlay。启动清空重建，不新增 `.state` 定义快照、Run pin 或格式迁移。跨重启等待确认的 Run 沿用现有恢复流程，重新绑定当前 Agent 与普通 Skill；连接器仍使用现有持久快照恢复。
+`ru-agents` 与 `ru-skills` 是进程内中间产物，不保存历史，不进入 release bundle、环境资源包或 overlay。启动清空重建，不新增 `.state` 定义快照、Run pin 或格式迁移。Platform 重启统一取消未完成 Run，不重新绑定历史 Agent、Skill 或连接器执行快照；新请求使用当前发布定义。
 
 模型的 system runtime context 同样保持这条边界：`agents_dir` 指向可编辑事实源 `agents/`，`ru_agents_dir` 指向 Platform 生成且禁止人工编辑的 `ru-agents/`，`agent_dir` 指向当前 Agent 的 `ru-agents/<agentKey>/<revision>` 运行目录，`connectors_dir` 使用逻辑入口 `@connectors`，按当前 Agent 的挂载快照解析到共享包。Host/local 普通运行可同时看到源目录与生成目录；Container Hub 不默认暴露 Agent 事实源，已有 `platform: agents` 挂载仍只提供生成目录 `/agents`，并在上下文中标记为 `ru_agents_dir`。沙箱治理任务缺少 `agents_dir` 时必须停止，不能从 `/agents`、`runtime_home` 或相邻目录推断事实源。
 
@@ -100,7 +100,7 @@ Agent runtimeConfig.env
   < Platform reserved context
 ```
 
-后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启后的续接 run 从空动态层开始。`references` 中的 skill 引用不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；普通 Host Shell 不自动获得 `AP_ACCESS_TOKEN`；经验证的单条直接 oneid-token CLI 调用在独立子进程中使用该变量，已挂载 oneid-token stdio MCP 也在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
+后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启取消未完成 Run；新 Run 从空动态层开始。`references` 中的 skill 引用不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；普通 Host Shell 不自动获得 `AP_ACCESS_TOKEN`；经验证的单条直接 oneid-token CLI 调用在独立子进程中使用该变量，已挂载 oneid-token stdio MCP 也在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
 
 ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子任务 session 时即使复用相同 RunID 也禁止取得 root Scope。`chat_start` 新 root、子 Agent、TEAM 成员、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 与长期服务都不继承。
 
@@ -113,7 +113,7 @@ ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子�
 - 配置解析、校验或组装失败时，继续使用最近成功版本，管理端保留来源错误并显示 `runtime_last_good_version`。删除来源阻止新准入，旧租约继续收尾。首次启动无有效版本时仍不可用。
 - 管理 Meta 提供 `runtimeRevision`、`runtimeSynchronized`、`runtimeRetainedVersions`、`runtimeLeaseCount`。这些描述进程内状态，不形成历史记录。全树损坏不允许以最近成功版本为由绕过校验。
 - 发布、引用计数及 GC 使用同一进程内互斥边界。释放租约仅在至少一个版本引用计数归零时触发回收扫描；扫描与删除仍在锁内进行，重载后的回收不变。准入先在锁内冻结定义、捕获可信摘要并保留临时租约，再在锁外做全树校验；临时引用阻止 GC 或修复替换该版本，校验失败释放引用并拒绝准入。准入的版本选择以保留临时租约时为准。目录 watcher 仍串行重载，组装并发上限为 1；reload 的组装与校验仍持锁，会阻塞新的版本选择。本地绑定失败恢复原 Catalog；连接器版本化 MCP、Run pin 与回收仍使用现有机制。
-- 同一进程内冻结 Agent 定义、自有文件、普通 Skill 和已冻结 TEAM 总控与成员定义；不新增模型/Provider、独立工具、全局 MCP、Memory、Owner 或知识内容的历史冻结保证。重启后等待 Run 使用当前定义继续，不因本次改造主动终结；原有安全校验和恢复错误仍生效。
+- 同一进程内冻结 Agent 定义、自有文件、普通 Skill 和已冻结 TEAM 总控与成员定义；不新增模型/Provider、独立工具、全局 MCP、Memory、Owner 或知识内容的历史冻结保证。Platform 重启统一取消未完成 Run；下一次 Query 使用当前定义和完整的普通准入校验。
 
 `agents/`、`skills-center/`、`connectors-center/` 变化沿用现有级联。生成目录不监听、不提交、不打包。大 Skill 的全树摘要会增加准入及重载 I/O，锁外校验允许并发但不消除磁盘带宽竞争。缺失 Skill 引用元数据或冻结 Agent 路径时直接失败，不回退到旧目录布局。
 

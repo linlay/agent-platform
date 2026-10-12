@@ -7,7 +7,6 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/interaction"
 	"agent-platform/internal/runtime/query"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
@@ -63,12 +62,6 @@ func (s *Server) freezeRunConnectors(prepared preparedQuery) error {
 }
 func (s *Server) restoreRunConnectors(runID string, def *catalog.AgentDefinition) error {
 	return testQueryService(s).RestoreRunConnectors(runID, def)
-}
-func (s *Server) runInteractionPolicies() interaction.Store {
-	return testQueryService(s).RunInteractionPolicies()
-}
-func (s *Server) restoredInteractionPolicy(runID, mode string, query *chat.QueryLine) (*interaction.Config, error) {
-	return testQueryService(s).RestoredInteractionPolicy(runID, mode, query)
 }
 func (s *Server) PrepareRunStart(ctx context.Context, request contracts.RunStartRequest) (contracts.RunStartPlan, error) {
 	return testQueryService(s).PrepareRunStart(ctx, request)

@@ -230,7 +230,6 @@ type CoderPromptsConfig struct {
 type KBasePromptsConfig struct {
 	SystemPrompt    string
 	WorkspacePrompt string
-	EditingPrompt   string
 }
 
 type CoderSettingsConfig struct {

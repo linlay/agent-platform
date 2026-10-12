@@ -12,8 +12,8 @@ func TestKBaseHasNoFixedToolBoundary(t *testing.T) {
 	if tools := Descriptor().Profile.ToolNames; len(tools) != 0 {
 		t.Fatalf("KBASE must not supply load-time tool defaults: %#v", tools)
 	}
-	if got := EditingSystemInitSpec().ToolNames; len(got) != 0 {
-		t.Fatalf("editing stage must use the agent's declared tools: %#v", got)
+	if got := MainSystemInitSpec().ToolNames; len(got) != 0 {
+		t.Fatalf("the main stage must use the agent's declared tools: %#v", got)
 	}
 	want := []string{ToolDatetime, "file_read", "file_glob", "file_grep", "file_write", "file_edit"}
 	if !reflect.DeepEqual(CreateToolNames(), want) {
@@ -35,17 +35,6 @@ func TestApplyCreateToolDefaultsOnlyWhenToolsAreNotDeclared(t *testing.T) {
 	}
 }
 
-func TestEditingProfileUsesIndependentStageCacheAndExactTools(t *testing.T) {
-	if RuntimeStage(true) != EditingStage || SystemInitCacheKey(EditingStage) != EditingCacheKey {
-		t.Fatalf("unexpected editing stage/cache: %q %q", RuntimeStage(true), SystemInitCacheKey(EditingStage))
-	}
-	spec := EditingSystemInitSpec()
-	if spec.CacheKey != EditingCacheKey || spec.FingerprintStage != EditingStage ||
-		spec.PromptStage != EditingStage || spec.Mode != MainStage || spec.Stage != "editing" {
-		t.Fatalf("unexpected editing system-init spec: %#v", spec)
-	}
-}
-
 // Every KBASE prompt part comes from agent-prompt.yml; the mode only orders and
 // renders the configured parts.
 func kbasePromptPartsSession() contracts.QuerySession {
@@ -56,7 +45,6 @@ func kbasePromptPartsSession() contracts.QuerySession {
 		ModeSystemPrompt: "SYSTEM {{mode}}",
 		KBaseModePrompts: contracts.KBaseModePrompts{
 			Workspace: "WORKSPACE {{workspace_dir}} {{chat_dir}}",
-			Editing:   "EDITING",
 		},
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: "/knowledge", ChatDir: "/runtime/chats/chat-1"},
@@ -64,17 +52,17 @@ func kbasePromptPartsSession() contracts.QuerySession {
 	}
 }
 
-func TestEditingPromptAppendsConfiguredPartsInOrder(t *testing.T) {
+func TestPromptDoesNotDependOnEditingMode(t *testing.T) {
 	session := kbasePromptPartsSession()
+	readOnly := RenderSystemPrompt(session, api.QueryRequest{Message: "update policy"}, CreateToolNames(), MainStage)
 	session.EditingMode = true
-	prompt := RenderSystemPrompt(session, api.QueryRequest{Message: "update policy"}, CreateToolNames(), EditingStage)
-	want := "SYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1\n\nEDITING"
-	if prompt != want {
-		t.Fatalf("editing prompt = %q, want %q", prompt, want)
+	editing := RenderSystemPrompt(session, api.QueryRequest{Message: "update policy"}, CreateToolNames(), MainStage)
+	if readOnly != editing || readOnly != "SYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1" {
+		t.Fatalf("editingMode changed the prompt: %q vs %q", readOnly, editing)
 	}
 }
 
-func TestMainPromptOmitsEditingPartAndHasNoSourceText(t *testing.T) {
+func TestMainPromptHasNoSourceText(t *testing.T) {
 	session := kbasePromptPartsSession()
 	prompt := RenderSystemPrompt(session, api.QueryRequest{Message: "write a report"}, CreateToolNames(), MainStage)
 	if want := "SYSTEM KBASE\n\nWORKSPACE /knowledge /runtime/chats/chat-1"; prompt != want {

@@ -159,6 +159,8 @@ func TestStartRunIgnoresCatalogVisibility(t *testing.T) {
 	if started.AgentKey != "mock-agent" || started.RunID == "" {
 		t.Fatalf("unexpected run %#v", started)
 	}
+	// Keep the fixture alive until the asynchronous Run stops writing files.
+	waitRunTerminal(t, fixture.server, started.RunID)
 }
 
 func TestRunSelfTargetChatRules(t *testing.T) {

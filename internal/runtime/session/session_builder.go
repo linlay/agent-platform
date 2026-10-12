@@ -186,7 +186,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
 		kbaseModePrompts = contracts.KBaseModePrompts{
 			Workspace: s.deps.Config.KBasePrompts.WorkspacePrompt,
-			Editing:   s.deps.Config.KBasePrompts.EditingPrompt,
 		}
 	}
 	resolvedPlanExecuteSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
@@ -306,9 +305,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 			return contracts.QuerySession{}, fmt.Errorf("load OWNER.md: %w", err)
 		}
 		session.OwnerPrompt, session.OwnerPromptLoaded = owner.Content, true
-	}
-	if err := s.restorePromptLocale(&session); err != nil {
-		return contracts.QuerySession{}, err
 	}
 	if options.IncludeMemory && s.deps.Config.Memory.Enabled && !IsProxyRoutedAgent(agentDef) && catalog.AgentEngineForAPI(agentDef) == catalog.AgentEngineNative {
 		for _, layer := range []struct {

@@ -50,7 +50,6 @@ func DefaultPromptAppendConfig() PromptAppendConfig {
 // Agent's system prompt. They have no source defaults.
 type KBaseModePrompts struct {
 	Workspace string
-	Editing   string
 }
 
 type RuntimeRequestContext struct {

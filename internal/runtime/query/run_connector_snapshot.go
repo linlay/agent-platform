@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/connector"
 )
 
@@ -26,7 +27,35 @@ func (s *Service) finishRunConnectorPins(runID, chatID string) {
 		}
 	}
 	_ = os.Remove(s.connectorSources().RunPinPath(runID))
-	// Retain the small immutable snapshot to reject conflicting Run ID reuse.
+	// The snapshot only serves a suspended Run; RUNS already rejects Run ID reuse.
+	_ = os.Remove(s.connectorSnapshotPath(runID))
+}
+
+// sweepRunConnectorSnapshots removes snapshots left by Runs that can no longer
+// resume. Current-process Runs and pending awaitings keep their snapshots.
+func (s *Service) sweepRunConnectorSnapshots(pending []chat.PendingAwaitingWithChat) {
+	if s.deps.Config.Paths.EffectiveStateDir() == "" {
+		return
+	}
+	keep := make(map[string]bool, len(pending))
+	for _, item := range pending {
+		keep[filepath.Base(s.connectorSnapshotPath(item.RunID))] = true
+	}
+	dir := filepath.Dir(s.connectorSnapshotPath(""))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.Type().IsRegular() && filepath.Ext(entry.Name()) == ".json" && !keep[entry.Name()] {
+			path := filepath.Join(dir, entry.Name())
+			var snapshot runConnectorSnapshot
+			if connector.ReadJSON(path, &snapshot) == nil && s.hasProcessRun(snapshot.RunID) {
+				continue
+			}
+			_ = os.Remove(path)
+		}
+	}
 }
 
 func (s *Service) FreezeRunConnectors(prepared preparedQuery) error {

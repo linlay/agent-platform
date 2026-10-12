@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -11,12 +12,22 @@ type PromptContext struct {
 	AgentName          string
 	Mode               string
 	PlanningMode       bool
-	EditingMode        bool
 	WorkspaceDir       string
 	ChatDir            string
 	AvailableTools     []string
 	LanguagePreference string
 	UserRequest        string
+}
+
+var retiredEditingPlaceholder = regexp.MustCompile(`\{\{\s*editing_mode\s*\}\}`)
+
+// ValidatePromptTemplate rejects retired Run-state placeholders instead of
+// leaving an unresolved literal in the model's system instructions.
+func ValidatePromptTemplate(prompt string) error {
+	if retiredEditingPlaceholder.MatchString(prompt) {
+		return fmt.Errorf("editing_mode is a retired prompt variable; Workspace editing is controlled by Run permissions")
+	}
+	return nil
 }
 
 func RenderPromptTemplate(prompt string, values map[string]string) string {
@@ -46,7 +57,6 @@ func CommonPromptValues(ctx PromptContext) map[string]string {
 		"agent_name":          strings.TrimSpace(ctx.AgentName),
 		"mode":                strings.TrimSpace(ctx.Mode),
 		"planning_mode":       fmt.Sprintf("%t", ctx.PlanningMode),
-		"editing_mode":        fmt.Sprintf("%t", ctx.EditingMode),
 		"workspace_dir":       workspaceDir,
 		"chat_dir":            chatDir,
 		"current_date":        time.Now().Format("2006-01-02"),

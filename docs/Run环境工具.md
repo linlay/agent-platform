@@ -34,9 +34,9 @@ Native GENERAL/CODER/KBASE/TEAM 通过全局/mode preset 或 Agent 自身声明�
 
 环境优先级：继承的 Host 环境 < Agent 环境 < 按顺序叠加的 Skill 环境 < 当前动态层 < 调用级环境 < Platform 保留上下文。unset 只移除动态层，后续新进程可能重新看到低层同名值。
 
-Scope 仅影响后续适用的 Host 工具进程和 Container 新 command，不修改 Platform 进程环境；子 Agent、其他 Run、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 和已启动进程不继承。终态销毁，重启不从历史工具调用恢复变量或收据。question/planning 恢复入口依当前有效挂载重新创建空 Scope，revision=0。
+Scope 仅影响后续适用的 Host 工具进程和 Container 新 command，不修改 Platform 进程环境；子 Agent、其他 Run、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 和已启动进程不继承。终态销毁，重启不从历史工具调用恢复变量或收据。Platform 重启取消旧 Run；新 Query 根据当前有效挂载创建空 Scope，revision=0。
 
-wait 参数、机制、检查点和 steer 不变：现有检查只看动态快照非空或读取失败。空 Scope 可恢复；set 后全部 unset 即使 revision>0 也可恢复，恢复后 revision=0；非空 Scope 的 wait 重启沿用不可恢复等待的失败终态。
+wait 的同进程等待和 steer 行为不变。Platform 重启统一取消未完成 wait，与 Scope 是否为空、revision 和历史 set/unset 无关，不恢复等待或动态环境。
 
 ## 配置与硬切发布
 

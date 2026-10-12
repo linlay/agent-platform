@@ -42,6 +42,13 @@ type RunStartReader interface {
 	LoadRunStartedAt(chatID string, runID string) (int64, error)
 }
 
+// InterruptedRunStore exposes durable lifecycle records and closes unfinished
+// tool calls without executing them. Runtime owns the restart decision.
+type InterruptedRunStore interface {
+	LoadUnfinishedRuns() ([]RunStart, error)
+	CloseInterruptedRunTools(chatID, runID string, completedAt int64) (string, error)
+}
+
 // AwaitingRecoveryReader exposes the physical step that produced an
 // awaiting. It is optional because only the production FileStore participates
 // in restart reconciliation; lightweight test and branch stores need not

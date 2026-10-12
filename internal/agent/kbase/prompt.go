@@ -12,15 +12,12 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 	if !IsMode(session.Mode) {
 		return ""
 	}
-	editing := strings.EqualFold(strings.TrimSpace(stage), EditingStage)
-	if !editing && !strings.EqualFold(strings.TrimSpace(stage), MainStage) {
+	if !strings.EqualFold(strings.TrimSpace(stage), MainStage) {
 		return ""
 	}
-	// Every part comes from agent-prompt.yml; an empty part is skipped.
+	// Every part comes from agent-prompt.yml; an empty part is skipped. The
+	// prompt never depends on editingMode, which only changes what may be written.
 	parts := []string{session.ModeSystemPrompt, session.KBaseModePrompts.Workspace}
-	if editing {
-		parts = append(parts, session.KBaseModePrompts.Editing)
-	}
 	sections := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if part = strings.TrimSpace(part); part != "" {
@@ -50,7 +47,6 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 		AgentName:          session.AgentName,
 		Mode:               session.Mode,
 		PlanningMode:       session.PlanningMode,
-		EditingMode:        session.EditingMode,
 		WorkspaceDir:       workspaceDir,
 		ChatDir:            chatDir,
 		AvailableTools:     toolNames,

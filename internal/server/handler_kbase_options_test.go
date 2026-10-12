@@ -101,7 +101,9 @@ func TestKBaseOptionsHTTPWSAndQueryAdmission(t *testing.T) {
 			t.Fatalf("unreadable summary: %+v", option)
 		}
 	}
-	for _, forbidden := range []string{"sourcePath", "editable", "baseRevision", filepath.Base(library.Collections[0].SourcePath)} {
+	// Match whole fields/values: a numeric TempDir basename may occur inside
+	// an unrelated generated library ID.
+	for _, forbidden := range []string{`"sourcePath":`, `"editable":`, `"baseRevision":`, `"` + filepath.Base(library.Collections[0].SourcePath) + `"`, library.Collections[0].SourcePath} {
 		if strings.Contains(rec.Body.String(), forbidden) {
 			t.Fatalf("management field leaked: %s", rec.Body.String())
 		}

@@ -77,6 +77,7 @@ func (e *ProxyExecutor) launch(prepared runtimetypes.PreparedQuery, registered r
 	e.Routes.Register(route)
 	writer := chat.NewStepWriter(e.Chats, prepared.Req.ChatID, prepared.Req.RunID, prepared.AgentDef.Mode)
 	writer.SetPendingSystemInit(prepared.SystemInitLine)
+	writer.SetRunLocale(prepared.Session.Locale)
 	writer.SetPendingQueryMessages(prepared.Session.CurrentMessages)
 	var chatUsage chat.UsageData
 	if prepared.Summary.Usage != nil {

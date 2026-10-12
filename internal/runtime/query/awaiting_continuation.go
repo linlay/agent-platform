@@ -180,12 +180,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	// agent after admission.
 
 	req.AgentKey = agentKey
-	// Prefer private state; older Runs may still have a query snapshot.
-	frozen, restoreErr := s.RestoredInteractionPolicy(sourceRunID, agentDef.Mode, originalQuery)
-	if restoreErr != nil {
-		return false, restoreErr
-	}
-	if frozen != nil {
+	if frozen := s.FrozenInteractionPolicy(sourceRunID); frozen != nil {
 		agentDef.InteractionConfig = frozen
 	}
 	if !newExecutionRun {
@@ -193,13 +188,13 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 			return false, err
 		}
 	}
+	// A Run keeps the language of its query line; the submitting client's
+	// language applies only to Runs recorded before that field existed.
 	locale := submitReq.Locale
-	if newExecutionRun {
-		var err error
-		locale, err = s.deps.Sessions.RunPromptLocale(sourceRunID)
-		if err != nil {
-			return false, err
-		}
+	if originalQuery != nil && originalQuery.Locale != "" {
+		locale = originalQuery.Locale
+	} else if newExecutionRun {
+		locale = ""
 	}
 	if owner, err := s.runControlScopes().Load(sourceRunID); err == nil {
 		req.Identity = &contracts.AuthIdentity{Subject: owner.Subject}
@@ -341,6 +336,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
+	stepWriter.SetRunLocale(session.Locale)
 	transferredRuntime = true
 	runexec.StartNative(runexec.NativeOptions{
 		RunCtx:            runCtx,

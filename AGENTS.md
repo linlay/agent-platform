@@ -6,7 +6,7 @@
 
 普通内置类型为 GENERAL、CODER、KBASE、TEAM；`engine` 缺省 native，显式 acp 使用外部 bridge，不由 acpBridgeId 推断。TEAM 是带成员委派能力的公开 Agent。历史 REACT 只兼容读取，新配置与 API 输入使用 GENERAL。
 
-设计约束：GENERAL/CODER/KBASE/TEAM 的 mode 写在 agent.yml 中，只在加载时提供默认值，不提供运行时功能、目录授权、必填校验或专属逻辑。mode 不要求 Workspace 或知识库绑定；项目规则文件、expectedBranch、文件变更 hook、子 Agent 调用、阶段与预算键对四种 mode 一致。尚存的 mode 分支（KBASE editing stage/cache、ACP 内部落为 CODER、TEAM 编排）见 docs/mode-capability-audit.html，不能因已有实现而扩展。
+设计约束：GENERAL/CODER/KBASE/TEAM 的 mode 写在 agent.yml 中，只在加载时提供默认值，不提供运行时功能、目录授权、必填校验或专属逻辑。mode 不要求 Workspace 或知识库绑定；项目规则文件、expectedBranch、文件变更 hook、子 Agent 调用、阶段与预算键对四种 mode 一致。editingMode 只是 Run 的编辑状态，不影响 stage、system-init cache key、fingerprint 或 system prompt；规划才是独立的运行形态。尚存的 mode 分支（ACP 内部落为 CODER、TEAM 编排）见 docs/mode-capability-audit.html，不能因已有实现而扩展。
 
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
@@ -164,7 +164,7 @@ make test
 ## 9. 已知约束与注意事项
 
 - `configs/` 下配置启动时读取，运行中修改需要重启 runtime。
-- `agents/`、`skills-center/` 与 runtime 的外部 `connectors-center/` 是可编辑事实源；Platform 内置连接器及其技能随包只读，`builtin.*` 为平台保留命名空间；Agent 使用 `ru-agents/<key>/<revision>` 的进程内版本目录，普通 Skill 按内容摘要共享于只读 `ru-skills/<digest>`，Agent 的 skills 目录只保存引用；连接器继续使用既有 `ru-connectors/<id>/<contentDigest>` 机制。运行目录不提交、不打包、不允许人工编辑；启动清空重建 ru-agents 与 ru-skills，不跨重启保留历史或新增持久 pin。热重载发布新版本不等待旧 Run，租约绑定具体版本，旧版本无引用后回收；无效来源继续使用最近成功版本并报告未同步，来源删除拒绝新准入。Team 子任务与仍持有租约的执行器内续接继承冻结版本；规划 Run 已结束、通过延迟提交批准启动执行时使用当前发布版本；重启后等待 Run 沿用当前定义恢复，连接器恢复契约不变。Agent 版本整树与共享 Skill 全树复验、去除写权限、损坏拒绝新租约，仍在使用时不原地修复；静态 .config 只读，状态不得写入。Host 任意脚本仍不具备完整隔离。凭证与受管 CLI 状态留在 `.state/connectors`，不随 Agent 重建或删除。Query/steer 的目录授权例外是 skill 引用：所有选中 Skill 的 canonical 目录获得本 run trusted read + readonly roots；未配置 Skill 还必须从当前有效 skills-center catalog 重新验证；attachment.skills 开启时固定暴露 `@skills-center`。Container 去重后挂载整个 `/skills-center` 为只读，但未选中兄弟目录不获得免审读授权。该例外不合并额外 Skill 的 `.config`、`.runtime-env.json`、`.bash-hooks`，不增加 Tool/MCP/Agent hostAccess/accessLevel；TEAM 总控同样支持。
+- `agents/`、`skills-center/` 与 runtime 的外部 `connectors-center/` 是可编辑事实源；Platform 内置连接器及其技能随包只读，`builtin.*` 为平台保留命名空间；Agent 使用 `ru-agents/<key>/<revision>` 的进程内版本目录，普通 Skill 按内容摘要共享于只读 `ru-skills/<digest>`，Agent 的 skills 目录只保存引用；连接器继续使用既有 `ru-connectors/<id>/<contentDigest>` 机制。运行目录不提交、不打包、不允许人工编辑；启动清空重建 ru-agents 与 ru-skills，不跨重启保留历史或新增持久 pin。热重载发布新版本不等待旧 Run，租约绑定具体版本，旧版本无引用后回收；无效来源继续使用最近成功版本并报告未同步，来源删除拒绝新准入。Team 子任务与仍持有租约的执行器内续接继承冻结版本；规划 Run 已结束、通过延迟提交批准启动执行时使用当前发布版本；Platform 重启统一取消所有未完成 Run，清除等待项，保留聊天历史；下一次 Query 使用当前定义，不恢复历史执行或动态环境。Agent 版本整树与共享 Skill 全树复验、去除写权限、损坏拒绝新租约，仍在使用时不原地修复；静态 .config 只读，状态不得写入。Host 任意脚本仍不具备完整隔离。凭证与受管 CLI 状态留在 `.state/connectors`，不随 Agent 重建或删除。Query/steer 的目录授权例外是 skill 引用：所有选中 Skill 的 canonical 目录获得本 run trusted read + readonly roots；未配置 Skill 还必须从当前有效 skills-center catalog 重新验证；attachment.skills 开启时固定暴露 `@skills-center`。Container 去重后挂载整个 `/skills-center` 为只读，但未选中兄弟目录不获得免审读授权。该例外不合并额外 Skill 的 `.config`、`.runtime-env.json`、`.bash-hooks`，不增加 Tool/MCP/Agent hostAccess/accessLevel；TEAM 总控同样支持。
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件使用 `@chat/<relativePath>`，裸 `<relativePath>` 与之等价；Workspace 文件使用 `@workspace/<relativePath>`，也可引用普通 Agent Workspace 或冻结临时根内的实际 Host 绝对路径与 HTTP(S)/data/blob；别名由 WebClient 渲染时解析，Markdown 不使用 `@temp`、`@runtime`。真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
@@ -185,7 +185,7 @@ make test
 - 当前 KBASE 只对文本抽取结果做 embedding/FTS；PDF/DOCX/PPTX/HTML 均是先抽取文本，不得宣称支持图片、音频或视频语义检索。
 - SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。仅在 `app.New` 启动装配期，`chats.db`、`archive.db` 的标记恰为 `0/0`，且表、列语义、约束、索引、触发器和 FTS 对象完整匹配当前 DDL 时，服务才会在事务中写入当前标记；列物理顺序不影响比较。运行期仅验证，绝不认领、迁移、删除或修复。其他标记组合或结构差异拒绝并阻止启动。KBX 数据合同由受管 CLI 校验。
 
-客户端入口由后端决定：`interactionConfig.showPlanningMode/showEditingMode/showTerminal` 是 mode 提供默认值、agent.yml 可覆盖的展示开关，不做请求准入；默认规划入口四种 Native 都展示，编辑入口只有 KBASE 展示，终端入口只有 CODER 展示。编辑开关在客户端初始为关闭，展示时显式发送、隐藏时省略并由后端取 Agent 默认。WebClient 不得按 mode 或 engine 判断入口，项目入口按 `workspaceDir` 判断。`activeRun` 返回本次 Run 的 planningMode 与 editingMode 供刷新后还原，`request.query` 中的 editingMode 仍是恢复依据。
+客户端入口由后端决定：`interactionConfig.showPlanningMode/showEditingMode/showTerminal` 是 mode 提供默认值、agent.yml 可覆盖的展示开关，不做请求准入；默认规划入口四种 Native 都展示，编辑入口只有 KBASE 展示，终端入口只有 CODER 展示。编辑开关在客户端初始为关闭，展示时显式发送、隐藏时省略并由后端取 Agent 默认。WebClient 不得按 mode 或 engine 判断入口，项目入口按 `workspaceDir` 判断。`activeRun` 返回本次 Run 的 planningMode 与 editingMode 供刷新后还原，`request.query` 中的 editingMode 供同进程续接与计划批准后的执行使用；Platform 重启不恢复未完成 Run。
 
 `/api/agent` 的 tools、skills、connectors 均为 ID 数组：tools/skills 反映已发布运行时，connectors 反映已保存的非预置挂载；不返回技能展示对象或 toolBindings，后者仅由管理详情与保存响应返回。连接器使用与管理接口分离：使用接口仅返回前端展示和选择所需字段，并过滤平台预置；管理接口保留完整信息，预置挂载只读。隐藏目录不改变运行时自动挂载，非预置 builtin 仍可选择。接口和错误契约见 [连接器](docs/连接器.md#使用目录与管理目录)。
 

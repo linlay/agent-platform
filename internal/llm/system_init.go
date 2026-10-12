@@ -119,9 +119,6 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 	default:
 		if descriptor, ok := agentbuiltin.Lookup(session.Mode); ok {
 			stage := descriptor.MainStage
-			if agentkbase.IsMode(session.Mode) {
-				stage = agentkbase.RuntimeStage(session.EditingMode)
-			}
 			return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, stage)}
 		}
 		stage := "react"
@@ -193,8 +190,10 @@ func profileRuntimeStage(session contracts.QuerySession, profile contracts.Syste
 		}
 		return "react"
 	}
+	// History written before editing stopped being a Run form still carries
+	// the retired KBASE "editing" profile; it reads as the ordinary main stage.
 	if mode == agentkbase.MainStage && stage == "editing" {
-		return agentkbase.EditingStage
+		return agentkbase.MainStage
 	}
 	return stage
 }
@@ -275,9 +274,6 @@ func SystemInitCacheKey(mode string, stage string) string {
 	if normalizedMode == "plan-execute" {
 		return normalizedMode + ":" + normalizedPlanExecuteStage(stage)
 	}
-	if normalizedMode == agentkbase.MainStage {
-		return agentkbase.SystemInitCacheKey(stage)
-	}
 	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
 		return descriptor.MainCacheKey
 	}
@@ -326,9 +322,8 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"toolDefinitions":               stableToolDefinitions(toolDefs),
 		"teamRuntime":                   session.TeamRuntime,
 	}
-	if session.EditingMode {
-		payload["editingMode"] = true
-	}
+	// editingMode is deliberately absent: it changes what a Run may write, not
+	// the system prompt or tools, so toggling it never rewrites the snapshot.
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
@@ -352,14 +347,11 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 		Tools:         openAIToolSpecsToAny(specs),
 		Initial:       true,
 	}
-	if spec, ok := agentbuiltin.SystemInitSpec(session.Mode, session.EditingMode); ok {
+	if spec, ok := agentbuiltin.SystemInitSpec(session.Mode); ok {
 		profile.CacheKey = spec.CacheKey
 		profile.Mode = spec.Mode
 		profile.Stage = spec.Stage
 		profile.Initial = spec.Initial
-		if agentkbase.IsMode(session.Mode) && session.EditingMode {
-			profile.Fingerprint = ComputeSystemInitFingerprint(session, spec.FingerprintStage, effectiveDefs)
-		}
 	}
 	if session.ConfirmedPlanRun {
 		profile.CacheKey = sessionSystemInitCacheKey(session, stage)

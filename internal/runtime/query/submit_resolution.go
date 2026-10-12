@@ -1,7 +1,6 @@
 package query
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -181,20 +180,8 @@ func (s *Service) resolvePersistedAwaitingSubmit(req queryinput.SubmitRequest) (
 		return queryinput.SubmitResponse{}, true, awaitingSubmitConflictError(req, chatID, "interrupted", "awaiting_interrupted", "awaiting was interrupted by a Platform restart")
 	}
 	if strings.TrimSpace(req.SubmitID) != "" && strings.TrimSpace(latest.SubmitID) == strings.TrimSpace(req.SubmitID) {
-		mode := firstNonBlank(sessionbuild.StringValue(latest.Answer["mode"]), sessionbuild.StringValue(latest.Submit["mode"]))
-		deferred := DeferredAwaiting{
-			ChatID:     chatID,
-			RunID:      req.RunID,
-			AwaitingID: req.AwaitingID,
-			Mode:       mode,
-		}
-		continued, continueErr := s.startAwaitingContinuation(deferred, req, latest.Answer)
-		if continueErr != nil {
-			if _, ok := continueErr.(*statusError); ok {
-				return queryinput.SubmitResponse{}, true, continueErr
-			}
-			log.Printf("[server][awaiting] continue accepted submit failed chatId=%s runId=%s awaitingId=%s submitId=%s err=%v", chatID, req.RunID, req.AwaitingID, req.SubmitID, continueErr)
-		}
+		// A durable receipt may acknowledge a repeated submit, but it cannot
+		// recreate an executor or approve a plan from a previous process.
 		return queryinput.SubmitResponse{
 			Accepted:   true,
 			Status:     "accepted",
@@ -202,7 +189,7 @@ func (s *Service) resolvePersistedAwaitingSubmit(req queryinput.SubmitRequest) (
 			RunID:      req.RunID,
 			AwaitingID: req.AwaitingID,
 			SubmitID:   req.SubmitID,
-			Continued:  continued,
+			Continued:  false,
 			Detail:     "Tool interaction submit accepted",
 		}, true, nil
 	}
@@ -531,138 +518,6 @@ func (s *Service) broadcastDeferredAwaitingAnswer(deferred DeferredAwaiting, nor
 		payload["mode"] = deferred.Mode
 	}
 	s.deps.Notifications.Broadcast("awaiting.answered", payload)
-}
-
-func (s *Service) hydrateDeferredAwaitings() error {
-	if s == nil || s.deps.Chats == nil || s.deferredAwaitings == nil {
-		return nil
-	}
-
-	items, err := s.deps.Chats.LoadAllPendingAwaitings()
-	if err != nil {
-		return fmt.Errorf("load pending awaitings: %w", err)
-	}
-	for _, item := range items {
-		if contracts.AwaitingHasLiveExecutor(s.deps.Runs, item.RunID, item.AwaitingID) {
-			continue
-		}
-		nowMs := time.Now().UnixMilli()
-		if mode := strings.ToLower(strings.TrimSpace(item.Mode)); mode != "" && !isAwaitingGateMode(mode) {
-			log.Printf("[server][awaiting] clearing non-restorable pending awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, item.Mode)
-			if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
-				return fmt.Errorf("clear non-restorable awaiting chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
-			}
-			continue
-		}
-		latest, err := s.deps.Chats.LoadLatestAwaitingSubmit(item.ChatID, item.AwaitingID)
-		if err != nil {
-			return fmt.Errorf("load awaiting answer chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
-		}
-		step, err := s.LoadPersistedAwaitingStep(item.ChatID, item.AwaitingID)
-		if err != nil {
-			return fmt.Errorf("load awaiting step chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
-		}
-		if item.Mode == "wait" {
-			if err := s.hydrateWait(item, step); err != nil {
-				return err
-			}
-			continue
-		}
-		if latest != nil {
-			if restartTerminalAwaitingCode(latest.Answer) != "" {
-				if _, err := s.FinishTerminalAwaiting(item, latest.Answer, latest.UpdatedAt); err != nil {
-					return err
-				}
-			} else if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
-				return fmt.Errorf("clear answered awaiting chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
-			}
-			continue
-		}
-		ask, err := s.deps.Chats.LoadAwaitingAsk(item.ChatID, item.AwaitingID)
-		if err != nil {
-			return fmt.Errorf("load awaiting ask chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
-		}
-		if ask == nil && step != nil {
-			ask = step.Ask
-		}
-		if ask == nil {
-			log.Printf("[server][awaiting] clearing dangling pending awaiting chatId=%s awaitingId=%s", item.ChatID, item.AwaitingID)
-			if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
-				return fmt.Errorf("clear dangling awaiting chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
-			}
-			continue
-		}
-		if ask.Payload == nil {
-			ask.Payload = map[string]any{}
-		}
-		if strings.TrimSpace(ask.RunID) == "" {
-			ask.RunID = item.RunID
-		}
-		if strings.TrimSpace(ask.Mode) == "" {
-			ask.Mode = item.Mode
-		}
-		if strings.TrimSpace(sessionbuild.StringValue(ask.Payload["runId"])) == "" && strings.TrimSpace(item.RunID) != "" {
-			ask.Payload["runId"] = item.RunID
-		}
-		if strings.TrimSpace(sessionbuild.StringValue(ask.Payload["mode"])) == "" && strings.TrimSpace(item.Mode) != "" {
-			ask.Payload["mode"] = item.Mode
-		}
-		effectiveMode := firstNonBlank(item.Mode, ask.Mode, sessionbuild.StringValue(ask.Payload["mode"]))
-		if !isAwaitingGateMode(effectiveMode) {
-			log.Printf("[server][awaiting] clearing non-restorable pending awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, effectiveMode)
-			if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
-				return fmt.Errorf("clear invalid awaiting chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
-			}
-			continue
-		}
-		timeoutSec := contracts.AnyIntNode(ask.Payload["timeout"])
-		if awaitingTimeoutApplies(effectiveMode) && timeoutSec > 0 && nowMs-item.CreatedAt > int64(timeoutSec)*1000 {
-			log.Printf("[server][awaiting] terminalizing expired deferred awaiting chatId=%s awaitingId=%s age=%dms timeout=%ds", item.ChatID, item.AwaitingID, nowMs-item.CreatedAt, timeoutSec)
-			answer := contracts.AwaitingTimeoutAnswer(effectiveMode, int64(timeoutSec), maxInt64((nowMs-item.CreatedAt)/1000, int64(timeoutSec)))
-			if _, err := s.FinishTerminalAwaiting(item, answer, nowMs); err != nil {
-				return err
-			}
-			continue
-		}
-		if !isContinuableDeferredAwaitingMode(effectiveMode) {
-			log.Printf("[server][awaiting] terminalizing non-continuable deferred awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, effectiveMode)
-			answer := contracts.AwaitingErrorAnswer(effectiveMode, "runtime_restarted", "Platform restarted while waiting; submit the operation again")
-			errorPayload := contracts.AnyMapNode(answer["error"])
-			errorPayload["reason"] = "runtime_restarted"
-			if _, err := s.FinishTerminalAwaiting(item, answer, nowMs); err != nil {
-				return err
-			}
-			continue
-		}
-		if !persistedAwaitingCanContinue(step, item.AwaitingID) {
-			answer := contracts.AwaitingErrorAnswer(effectiveMode, "runtime_restarted", "Platform could not reconstruct the persisted awaiting context")
-			errorPayload := contracts.AnyMapNode(answer["error"])
-			errorPayload["reason"] = "continuation_context_unavailable"
-			if _, err := s.FinishTerminalAwaiting(item, answer, nowMs); err != nil {
-				return err
-			}
-			continue
-		}
-		recoveryItem := item
-		recoveryItem.RunID = firstNonBlank(item.RunID, ask.RunID)
-		recoveryItem.Mode = effectiveMode
-		recovered, err := s.RegisterRecoveredAwaitingRun(recoveryItem)
-		if err != nil {
-			return fmt.Errorf("register recovered awaiting run chatId=%s runId=%s awaitingId=%s: %w", recoveryItem.ChatID, recoveryItem.RunID, recoveryItem.AwaitingID, err)
-		}
-		supervisorCtx, cancelSupervisor := context.WithCancel(s.backgroundCtx)
-		s.deferredAwaitings.Register(DeferredAwaiting{
-			ChatID:           item.ChatID,
-			AwaitingID:       item.AwaitingID,
-			RunID:            recoveryItem.RunID,
-			Mode:             effectiveMode,
-			CreatedAt:        item.CreatedAt,
-			Ask:              ask,
-			SupervisorCancel: cancelSupervisor,
-		})
-		go s.superviseRecoveredAwaiting(supervisorCtx, recoveryItem, step, recovered)
-	}
-	return nil
 }
 
 func (s *Service) prepareActiveSubmitContinuation(req queryinput.SubmitRequest, awaiting contracts.AwaitingSubmitContext) (queryinput.SubmitRequest, error) {

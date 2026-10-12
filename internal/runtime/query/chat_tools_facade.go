@@ -227,9 +227,13 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 	if subject := strings.TrimSpace(request.Origin.Subject); subject != "" {
 		runCtx = runtimetypes.WithIdentity(runCtx, &contracts.AuthIdentity{Subject: subject})
 	}
-	locale, err := s.deps.Sessions.RunPromptLocale(parentRunID)
+	locale := ""
+	parentQuery, err := s.deps.Chats.LoadRunQuery(request.Origin.ChatID, parentRunID)
 	if err != nil {
 		return contracts.RunSnapshot{}, runNotStarted(err)
+	}
+	if parentQuery != nil {
+		locale = parentQuery.Locale
 	}
 	// Target admission runs before the approval is spent, so a rejected target
 	// never burns a human approval. It creates no Chat.

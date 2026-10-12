@@ -105,12 +105,15 @@ type QueryLine struct {
 	TaskToolID  string `json:"taskToolId,omitempty"`
 	SubAgentKey string `json:"subAgentKey,omitempty"`
 
-	Presentation string           `json:"presentation,omitempty"`
-	RootContent  bool             `json:"rootContent,omitempty"`
-	Query        map[string]any   `json:"query"`
-	Messages     []map[string]any `json:"messages,omitempty"`
-	System       *QueryLineSystem `json:"system,omitempty"`
-	Type         string           `json:"_type"`
+	Presentation string `json:"presentation,omitempty"`
+	RootContent  bool   `json:"rootContent,omitempty"`
+	// Locale is the prompt language frozen for this Run. It sits beside Query
+	// so it is never replayed to clients as part of request.query.
+	Locale   string           `json:"locale,omitempty"`
+	Query    map[string]any   `json:"query"`
+	Messages []map[string]any `json:"messages,omitempty"`
+	System   *QueryLineSystem `json:"system,omitempty"`
+	Type     string           `json:"_type"`
 }
 
 const (

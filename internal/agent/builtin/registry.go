@@ -26,14 +26,11 @@ func Lookup(mode string) (agentcontract.ModeDescriptor, bool) {
 	}
 }
 
-func SystemInitSpec(mode string, editingMode bool) (agentcontract.SystemInitSpec, bool) {
+func SystemInitSpec(mode string) (agentcontract.SystemInitSpec, bool) {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case coder.Mode:
 		return coder.MainSystemInitSpec(), true
 	case kbase.Mode:
-		if editingMode {
-			return kbase.EditingSystemInitSpec(), true
-		}
 		return kbase.MainSystemInitSpec(), true
 	case agentteam.Mode:
 		return agentteam.MainSystemInitSpec(), true

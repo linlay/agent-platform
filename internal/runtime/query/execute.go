@@ -25,6 +25,7 @@ func (s *Service) LocalRunExecutorParams(
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.Req.ChatID, prepared.Req.RunID, prepared.AgentDef.Mode)
 	stepWriter.SetPendingSystemInit(prepared.SystemInitLine)
+	stepWriter.SetRunLocale(prepared.Session.Locale)
 	stepWriter.SetPendingQueryMessages(prepared.Session.CurrentMessages)
 	var onUnreadChanged func(chat.Summary)
 	var onContinuation func(contracts.DeltaRunContinuation) (string, error)

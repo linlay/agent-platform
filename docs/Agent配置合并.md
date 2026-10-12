@@ -3,7 +3,7 @@
 ## 配置归属
 
 - `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
-- `configs/agent-prompt.yml`：`shared`（runtime/skill/reference/tool-appendix/plan-execute/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW、PLAN-EXECUTE 的指令文本同样只来自本文件：缺失时规划与 BTW 不带指令，PLAN-EXECUTE 模板只保留任务与请求数据；技能目录、披露和工具附录标题仅保留极简标签作为兜底。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 和仅在 editing 时追加的 `kbase.editing-prompt` 按此顺序拼接，三项都没有源码兜底。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
+- `configs/agent-prompt.yml`：`shared`（runtime/skill/reference/tool-appendix/plan-execute/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW、PLAN-EXECUTE 的指令文本同样只来自本文件：缺失时规划与 BTW 不带指令，PLAN-EXECUTE 模板只保留任务与请求数据；技能目录、披露和工具附录标题仅保留极简标签作为兜底。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 按此顺序拼接，两项都没有源码兜底。`kbase.editing-prompt` 已删除，出现即拒绝加载；旧部署应删除该键，并按需将通用文件修改要求合并到 `kbase.workspace-prompt`。`editingMode` 不再选择独立的 KBASE stage 或 cache key；模板变量 `{{editing_mode}}` 已删除，配置出现即拒绝加载。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
 - `configs/tools.yml`：访问策略、Bash/FileTools/run-env，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
 
@@ -84,7 +84,7 @@ Platform 从 runtime.yml 读取默认模型选择，并允许 library.yml 的 mo
 
 Desktop 的全局语言仍通过连接握手和 `/api/locale` 同步，不增加任何业务请求字段。新的 Native Run 从当前客户端语言生成提示词；无语言头的 HTTP 请求和 Automation 使用上述默认值。子智能体、Team 成员及 `chat_start` 继承父 Run 的提示词语言。CODER/KBASE/TEAM 的 `language_preference` 与环境段使用同一归一化语言。
 
-Run 首次准备的语言、环境模板及各阶段 system-init 存于受保护的 `<StateDir>/run-prompts/`，沿用现有 Run 私有快照的写入方式。普通工具循环复用已生成的消息；同 Run 的 submit、跨设备恢复及 wait 重启恢复读取快照，不按提交客户端语言重新渲染。Planning 转执行复用已准备的执行阶段；若创建新的执行 Run，则继承源 Run 的语言。快照损坏报错，不静默重建；旧 Run 没有这种快照时沿用原准备路径，不改写历史数据。
+Run 首次准备的语言写入该 Run 在 Chat JSONL 中 `query` 行的顶层 `locale` 字段，与 `system` 并列，不属于 `query` 对象，因此不随 `request.query` 回放给客户端。普通工具循环复用已生成的消息；同进程同 Run 的 submit 和跨设备重连读取该字段，不按提交客户端语言重新渲染；创建新的执行 Run 或 `chat_start` 子 Run 时继承源 Run 的语言。环境模板与各阶段 system-init 不再单独落盘：已使用的阶段保存在 JSONL 的 `system` 快照中，尚未使用的阶段在恢复时按当前配置与 Agent 定义渲染，与工具、模型的恢复规则一致。没有 `locale` 字段的旧 Run 沿用提交方语言或默认语言，不改写历史数据。旧的 `<StateDir>/run-prompts/` 目录不再读取或写入，可手动删除。
 
 新 Run 仍通过既有 system-init 内容比较决定是否复用。指纹覆盖实际渲染内容、工具和请求配置；语言相同但模板、上下文等内容变化也会产生新版本。历史回放与导出使用精确 systemRef；遇到旧数据中同一引用对应不同内容时明确报错，不猜测版本。
 

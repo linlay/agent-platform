@@ -1,33 +1,19 @@
 package query
 
-import (
-	"errors"
-	"path/filepath"
+import "agent-platform/internal/interaction"
 
-	"agent-platform/internal/chat"
-	"agent-platform/internal/interaction"
-)
-
-func (s *Service) RestoredInteractionPolicy(runID, mode string, query *chat.QueryLine) (*interaction.Config, error) {
-	frozen, err := s.RunInteractionPolicies().Load(runID)
-	if err == nil {
-		return &frozen, nil
+// FrozenInteractionPolicy returns the interactionConfig a Run was admitted
+// with while this process still holds that Run. Nothing is persisted: restart
+// cancels old Runs, and a new query uses the Agent's current definition.
+func (s *Service) FrozenInteractionPolicy(runID string) *interaction.Config {
+	reader, ok := s.deps.Runs.(interface {
+		RunInteractionConfig(string) (interaction.Config, bool)
+	})
+	if !ok {
+		return nil
 	}
-	if !errors.Is(err, interaction.ErrMissing) {
-		return nil, err
+	if frozen, found := reader.RunInteractionConfig(runID); found {
+		return &frozen
 	}
-	if query != nil {
-		if raw, exists := query.Query["interactionConfig"]; exists {
-			frozen, err := interaction.Parse(mode, raw)
-			if err != nil {
-				return nil, err
-			}
-			return &frozen, nil
-		}
-	}
-	return nil, nil
-}
-
-func (s *Service) RunInteractionPolicies() interaction.Store {
-	return interaction.Store{Root: filepath.Join(filepath.Dir(s.runControlScopes().Root), "run-interactions")}
+	return nil
 }

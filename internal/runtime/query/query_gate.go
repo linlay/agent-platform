@@ -230,11 +230,6 @@ func (s *Service) RegisterPreparedQuery(ctx context.Context, prepared preparedQu
 		}
 		return registeredQueryRun{}, btwStatusError(500, "run_control_identity_unavailable", "cannot persist run control identity")
 	}
-	if prepared.Session.InteractionConfig != nil {
-		if err := s.RunInteractionPolicies().Bind(prepared.Req.RunID, *prepared.Session.InteractionConfig); err != nil {
-			return registeredQueryRun{}, btwStatusError(500, "run_interaction_policy_unavailable", "cannot persist run interaction policy")
-		}
-	}
 	if registrar, ok := s.deps.Runs.(contracts.ExclusiveRunRegistrar); ok {
 		registration, err := registrar.RegisterExclusiveForChat(ctx, prepared.Session)
 		if err != nil {

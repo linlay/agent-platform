@@ -282,7 +282,7 @@ Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详�
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `channel#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
-`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`，并与列表 summary 一样返回 owner `agentKey`、可选 `mode`、`lastRunId`、`lastRunContent` 和完整 `read { isRead, readAt?, readRunId? }`；客户端不得从 runs、events 或本机时间推断这些字段。该详情 summary 是外部路由直接打开未进入列表缓存的 Chat 时的权威 read 基线。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取；没有顶层 `awaiting` 的历史 ask 不可提交。Platform 重启时，未超时/无限等待的 question 与永久 planning 可恢复，approval/form 会按 timeout 或 runtime restart 原因终态化。可恢复 question/planning 还会同时返回同一 `runId` 的 `activeRun`，其 `state:"WAITING_SUBMIT"`、`startedAt` 保留原 run 时刻，且对应 Platform 内已真实注册的 suspended run，不是 API 层合成摘要。
+`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`，并与列表 summary 一样返回 owner `agentKey`、可选 `mode`、`lastRunId`、`lastRunContent` 和完整 `read { isRead, readAt?, readRunId? }`；客户端不得从 runs、events 或本机时间推断这些字段。该详情 summary 是外部路由直接打开未进入列表缓存的 Chat 时的权威 read 基线。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在当前进程的活动等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取；没有顶层 `awaiting` 的历史 ask 不可提交。Platform 重启统一取消全部未完成 Run，包括 question/planning/approval/form/wait，清除 pending，保留历史内容并补齐中断结果与取消记录；不会注册历史 activeRun，也不会自动执行已提交的答案或计划。浏览器重连仍可 attach 当前进程的 live Run。
 
 单 Chat 已读由显示 Main Chat 内容的 WebClient 调用 `/api/read { chatId, runId? }` 发起；Platform 按现有单调 `readRunId` 规则先持久化，再广播字段完整的 `chat.read`。Run 完成准备发送 `chat.unread` 时，服务端必须重新读取当前 summary；如果 `readRunId` 已覆盖 `lastRunId`，不得发送与持久化状态矛盾的 unread。消费者用 `RunIDAfter(lastRunId, readRunId)` 与 `readAt/createdAt` 合并迟到 Push。Agent 级 `/api/read { agentKey }` 只用于用户显式“全部标为已读”，成功后广播 `chat.read_all`。
 
@@ -312,7 +312,7 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 
 `/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 
-`/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。run 摘要带本次 Run 启动时的选择：`planningMode`（为 true 时返回）和解析后的 `editingMode:true|false`，方便客户端刷新或重连后还原；`request.query` 事件中的 `editingMode` 仍是 Run 恢复和计划批准后执行的依据。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
+`/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。run 摘要带本次 Run 启动时的选择：`planningMode`（为 true 时返回）和解析后的 `editingMode:true|false`，方便客户端刷新或重连后还原；`request.query` 事件中的 `editingMode` 仍是 同进程续接和计划批准后执行的依据。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
 `/api/agent` 返回顶层 `modelKey`、`reasoningEffort`、可选 `serviceTier`。模型 key 原样反映配置，ACP 详情不访问上游模型列表、不自动回退到其他模型。思考读取 Agent 顶层 `modelConfig.reasoning`：显式 `enabled:false` 返回 `NONE`，否则返回规范化 `effort`，未配置回退 `MEDIUM`；不代表 stageSettings 或单次 query 的覆盖结果。未设置服务等级时省略 `serviceTier`。不返回 `model`、`selected*`、`modelConfig`、`modelOptions`，meta 不重复返回 modelKey/modelKeys/providerKey/protocol。
 
@@ -378,7 +378,7 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 | POST | `/api/access-level` | body: 根 `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 | POST | `/api/compact` | body: `requestId`、`chatId`、`trigger:"manual"`、`level:"summary"` | 无活动 Run 时压缩历史；活动 native root Run 时阻塞到安全点压缩结束 |
 
-`POST /api/submit` 成功仍返回 200。已知终态返回 409，`msg` / `data.errorCode` 为 `awaiting_expired`、`awaiting_interrupted` 或 `already_resolved`；`data` 同时包含 `chatId`、`runId`、`awaitingId`、`status`、`detail` 与结构化 `error`。真正不存在或 awaiting 身份不匹配返回 400 `unknown_awaiting`。同一 `submitId` 在 answer 已持久化但 continuation 尚未恢复完成的崩溃窗口内仍可作为幂等重试继续完成原提交，不会重复写 submit/answer。
+`POST /api/submit` 成功仍返回 200。已知终态返回 409，`msg` / `data.errorCode` 为 `awaiting_expired`、`awaiting_interrupted` 或 `already_resolved`；`data` 同时包含 `chatId`、`runId`、`awaitingId`、`status`、`detail` 与结构化 `error`。真正不存在或 awaiting 身份不匹配返回 400 `unknown_awaiting`。同一进程内的 submitId 重试保持幂等；Platform 重启后旧等待项返回 awaiting_interrupted，已完成的持久收据可回读但不重建执行者。
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 
@@ -390,7 +390,7 @@ editingMode 只认顶层 JSON boolean，是 GENERAL/CODER/KBASE/TEAM 的通用 W
 
 HTTP/WS 的 query/steer 请求拒绝未知字段，包括值为 null 或空数组的字段；HTTP query 返回 unknown_field，其他入口同样给出未知字段说明。requiredSkillKeys 继续按既有删除字段协议拒绝。chat_start、agent_invoke、agent_delegate 与 Automation query 均使用 references；子任务只接受 skill/kbase，chat 拒绝。TEAM 总控支持三类定位引用；ACP/PROXY/CHANNEL 的 query 与 steer 均拒绝 skill/kbase/chat，只接受文件、选区与站点。
 
-所有调用与控制只使用根 `agentKey`。已有 Chat 归属固定；成员事件上的 key 不授予根控制权限。TEAM 的成员若不存在、为 TEAM/ACP、不支持子任务或携带 agent_invoke，整个请求返回 503。活动 Run 使用冻结版本，延迟批准和重启恢复重新校验当前版本。query/steer 中的未声明字段拒绝；其他入口沿用各自 DTO 校验，不检测旧配置。
+所有调用与控制只使用根 `agentKey`。已有 Chat 归属固定；成员事件上的 key 不授予根控制权限。TEAM 的成员若不存在、为 TEAM/ACP、不支持子任务或携带 agent_invoke，整个请求返回 503。活动 Run 使用冻结版本，同进程延迟批准重新校验当前版本；重启取消未完成 Run。query/steer 中的未声明字段拒绝；其他入口沿用各自 DTO 校验，不检测旧配置。
 
 
 HTTP `POST /api/query` 的 `lane:"btw"` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索和 JSONL 都不会被 BTW 更新。
@@ -401,7 +401,7 @@ Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane�
 
 以下控制归属限制不适用于 HITL Submit。Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，保存在 `.state/run-controls/<runId哈希>.json`；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
 
-归属不绑定 sessionId 或 surfaceId，同 lane 重连/关窗重开可按 lastSeq attach。归属文件在 Run 结束后保留；planning 后续执行 Run 继承源 Run 归属，等待项跨进程恢复仍使用原记录。内部 Run 调度与控制走内部调用路径，不由客户端声明内部身份。
+归属不绑定 sessionId 或 surfaceId，同 lane 重连/关窗重开可按 lastSeq attach。归属文件在 Run 结束后保留；planning 后续执行 Run 继承源 Run 归属，跨进程重启取消旧等待项；新 Query 建立新的控制归属。内部 Run 调度与控制走内部调用路径，不由客户端声明内部身份。
 
 Automation 等内部 Run 的全空控制归属允许受信任 Desktop Main 通过独立授权执行上述五种 WS 控制，控制和观察不改写 Run 归属；该授权在 token 到期后立即失效，不等待心跳关闭连接。认证、设备和来源限制见[鉴权与安全边界](鉴权与安全边界.md)。
 
@@ -487,7 +487,7 @@ Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行
 
 实时 SSE / WS stream 中所有工具统一使用 `tool.start → tool.args × N → tool.end → tool.snapshot → tool.output × 0..N → tool.result` 生命周期，不再存在 `action.*` 事件。`tool.end` / `tool.snapshot` 只表示调用参数已经完整；只有唯一的 `tool.result` 收口执行结果。`tool.output` 是可选过程输出，当前只有 Native Host `bash` 发送，Container Hub `bash` 与 `bash_sandbox` 仍只返回最终结果；工具输入 Schema、模型参数和配置均未增加开关。
 
-原生 `wait` 通过 `tool.wait` 和 `tool.wait.update` 发送等待期限、说明与条件进度，仍由唯一 `tool.result` 收口。用户输入（`/api/steer`）提前唤醒后在同一 Run 继续，没有专用的跳过接口；空白 steer 表示“继续”：照常入队、发布 `message` 为空的 `request.steer` 并持久化，模型输入补充继续指令。参数、断线快照、预算和重启恢复规则见 [原生等待工具](原生等待工具.md)。
+原生 `wait` 通过 `tool.wait` 和 `tool.wait.update` 发送等待期限、说明与条件进度，仍由唯一 `tool.result` 收口。用户输入（`/api/steer`）提前唤醒后在同一 Run 继续，没有专用的跳过接口；空白 steer 表示“继续”：照常入队、发布 `message` 为空的 `request.steer` 并持久化，模型输入补充继续指令。参数、断线快照、预算和重启取消规则见 [原生等待工具](原生等待工具.md)。
 
 `tool.output` 的公开结构如下；`taskId` 只在 Team / Plan task 范围内携带：
 
@@ -683,7 +683,7 @@ KBASE status API 接受有 libraryId 绑定的 Native Agent；未绑定或未知
 
 KBASE 工具读取当前 Agent 的 KBX active 索引内容。`kbase_search.method` 为 query（缺省混合）/search（全文）/vsearch（向量）/gsearch（图关系）；支持 pathPrefix/pathGlob/type/filter，过滤在召回前与库 collection 策略取交集。query/search/vsearch 另支持 exclude/intent/minScore/candidateLimit/recencyWeight/recencyHalfLifeDays，query 可用 noGraph 关闭图召回；gsearch 支持 entities/relations/direction/maxHops 并保留 graph 关系路径与边证据。不适用所选方法的参数明确拒绝；offset/cursor 不支持，不返回伪造的 matchCount 或分页完成标志。结果返回 method、实际召回通道和降级；仅有预算 trace 的方法返回 candidateBudgetExhausted。vsearch/gsearch 要求对应能力可用，不自动回退；Platform 尚不自动建图。详细参数见 [KBX 接入](KBX接入.md#查询路径与引用)。`kbase_files` 浏览 active 文件清单，支持 path/pattern/type、files/tree、depth/headLimit/offset；`kbase_read.chunkId` 接受 chunkId/evidenceId/nextEvidence 精确回读，或使用 path 与一基行号分页，拒绝跨库、越界和被排除的内容。
 
-专用 KBASE 的 main/editing stage 使用 Agent 有效工具集合，没有固定文件工具集。Workspace 固定为本 run 冻结的 runtimeConfig.workspaceRoot，相对路径从 Workspace 解析，当前 Chat 目录通过 @chat 使用。未开启 editing 时 Workspace mutation 与其他 mode 一样返回 file_write_path_blocked / file_edit_path_blocked；hostAccess、writeRoots、approval 和 full_access 不能替代这一 gate。
+专用 KBASE 只有一个 main stage（editingMode 不切换 stage 或 cache key），使用 Agent 有效工具集合，没有固定文件工具集。Workspace 固定为本 run 冻结的 runtimeConfig.workspaceRoot，相对路径从 Workspace 解析，当前 Chat 目录通过 @chat 使用。未开启 editing 时 Workspace mutation 与其他 mode 一样返回 file_write_path_blocked / file_edit_path_blocked；hostAccess、writeRoots、approval 和 full_access 不能替代这一 gate。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
@@ -1207,7 +1207,7 @@ chat_steer 不审批、不比较双方权限档位，保留目标原有工具授
 
 活动原生 planning Run（GENERAL/CODER/KBASE）的一轮规划结束不会关闭 Run 的 steer 队列。生成候选计划期间入队的 steer 会在当前模型调用结束后使该计划失效，并在同一 Run 中生成新 revision；等待确认期间收到 steer 也会立即使旧确认失效并唤醒规划。旧计划失效统一发布 `planning.superseded`，字段为 `planningId`、`planningFile`、`awaitingId`、`reason:"steer"`；客户端应将该计划标为已失效，不再允许执行。已有确认框还会收到 `awaiting.answer(status:"error", error.code:"planning_superseded")`，没有确认框时不会补造 `awaiting.ask` 或 `request.submit`。
 
-steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 返回 `409 already_resolved`；approve 先被接受并创建 execution continuation 时，旧 Run 的 steer 返回 `accepted:false,status:"unmatched"`。后续指令应发往新 execution Run。新计划仍需重新确认。此行为适用于仍有 planning 执行者的活动 Run，跨进程 suspended 等待项仍通过 submit 恢复；完整时序见 [HITL协议](HITL协议.md)。
+steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 返回 `409 already_resolved`；approve 先被接受并创建 execution continuation 时，旧 Run 的 steer 返回 `accepted:false,status:"unmatched"`。后续指令应发往新 execution Run。新计划仍需重新确认。此行为适用于仍有 planning 执行者的活动 Run，跨进程重启统一取消等待项，不通过 submit 恢复；完整时序见 [HITL协议](HITL协议.md)。
 
 ### 附件 steer
 

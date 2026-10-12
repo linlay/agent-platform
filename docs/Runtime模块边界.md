@@ -40,9 +40,9 @@ run tools ────────┘                    ├> runexec
 
 `runtime/runstate.Manager` 是生产与集成测试唯一的 RunManager 实现，统一由 `runstate.NewManager()` 创建；同一运行环境的 Query、控制接口与客户端目标绑定共享该实例。`contracts` 保留 `RunManager` 等接口、`RunControl`、错误与不透明 `CompactControlHandle`，依赖方向固定为 `runstate -> contracts`，不提供旧 Manager 的别名或转发构造函数。
 
-Manager 行为测试位于 `runtime/runstate` 同包，回收测试可以直接调整私有时间状态并调用回收逻辑，不为测试扩展生产接口。`contracts` 中的纯 RunControl 和 owner 契约测试继续保留。Server fixture 固定持有 `*runstate.Manager`；模拟重启时显式注入新 Manager，只从持久化存储恢复 awaiting、原始开始时间和事件游标，不复用旧实例中的 Run、claim 或 compact 状态。
+Manager 行为测试位于 `runtime/runstate` 同包，回收测试可以直接调整私有时间状态并调用回收逻辑，不为测试扩展生产接口。`contracts` 中的纯 RunControl 和 owner 契约测试继续保留。Server fixture 固定持有 `*runstate.Manager`；模拟重启时显式注入新 Manager，幂等取消持久化未完成 Run 并保留原始开始时间，不注册历史 awaiting，也不复用旧实例中的 Run、claim 或 compact 状态。
 
-恢复等待项统一使用 `runstate.NewDeferredAwaitingStore()` 创建的内存存储。`app.New` 创建后注入 Query 服务。Server 测试 fixture 也注入同一存储。存储持有等待记录、supervisor 取消函数和按等待项串行的 resolution coordinator；Chat 持久化读取、恢复 claim、supervisor 与终态补写全部由 `runtime/query` 负责，App 绑定 Runtime 后调用 `Reconcile`。
+等待项协调统一使用 `runstate.NewDeferredAwaitingStore()` 创建的内存存储。`app.New` 创建后注入 Query 服务。Server 测试 fixture 也注入同一存储。存储持有等待记录、supervisor 取消函数和按等待项串行的 resolution coordinator；Chat 持久化读取、当前进程 continuation 仲裁与重启终态补写全部由 `runtime/query` 负责，App 绑定 Runtime 后调用 `Reconcile`。
 
 异步 Query 的稳定时序是：
 

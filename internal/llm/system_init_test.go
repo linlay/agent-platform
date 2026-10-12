@@ -63,15 +63,19 @@ func TestSystemInitFingerprintIgnoresReferenceSelection(t *testing.T) {
 	}
 }
 
-func TestEditingModeChangesSystemInitFingerprint(t *testing.T) {
-	session := fingerprintTestSession()
-	session.Mode = agentkbase.Mode
-	session.KBaseBindingLibraryID = "docs"
-	changed := session
-	changed.EditingMode = true
-	tools := []api.ToolDetailResponse{{Name: "kbase_search", Description: "search"}}
-	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first == second {
-		t.Fatal("editingMode must change the system-init fingerprint")
+func TestEditingModeDoesNotChangeSystemInit(t *testing.T) {
+	for _, mode := range []string{"GENERAL", "CODER", "KBASE", "TEAM"} {
+		session := fingerprintTestSession()
+		session.Mode = mode
+		changed := session
+		changed.EditingMode = true
+		tools := []api.ToolDetailResponse{{Name: "file_write", Description: "write"}}
+		if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first != second {
+			t.Fatalf("%s: editingMode must not change the system-init fingerprint", mode)
+		}
+		if first, second := sessionSystemInitCacheKey(session, ""), sessionSystemInitCacheKey(changed, ""); first != second {
+			t.Fatalf("%s: editingMode must not change the cache key: %q vs %q", mode, first, second)
+		}
 	}
 }
 
@@ -549,29 +553,31 @@ func TestKBaseSystemPromptChangesFingerprint(t *testing.T) {
 	}
 }
 
-func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
+func TestKBaseEditingReusesTheMainSystemInitProfile(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "KBASE"
-	session.EditingMode = true
 	session.WorkspaceRoot = "/knowledge"
-	session.KBaseModePrompts.Editing = "KBASE Editing Mode"
+	session.KBaseModePrompts.Workspace = "KBASE File Workspace"
 	session.ToolNames = agentkbase.CreateToolNames()
-	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames)+1)
-	for _, name := range append(append([]string(nil), session.ToolNames...), "bash") {
+	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames))
+	for _, name := range session.ToolNames {
 		toolDefs = append(toolDefs, api.ToolDetailResponse{Name: name, Description: name})
 	}
-
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "edit policy"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
-	if len(profiles) != 1 {
-		t.Fatalf("expected one editing profile, got %#v", profiles)
+	build := func(editing bool) contracts.SystemInitProfile {
+		session.EditingMode = editing
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "edit policy"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+		if len(profiles) != 1 {
+			t.Fatalf("expected one profile, got %#v", profiles)
+		}
+		return profiles[0]
 	}
-	profile := profiles[0]
-	if profile.CacheKey != agentkbase.EditingCacheKey || profile.Mode != agentkbase.MainStage || profile.Stage != "editing" {
-		t.Fatalf("unexpected editing profile: %#v", profile)
+	readOnly, editing := build(false), build(true)
+	if editing.CacheKey != agentkbase.MainCacheKey || editing.Stage != "main" {
+		t.Fatalf("editing must use the main slot: %#v", editing)
 	}
-	assertToolNames(t, profile.Tools, agentkbase.CreateToolNames())
-	if !strings.Contains(profile.SystemMessage["content"].(string), "KBASE Editing Mode") {
-		t.Fatalf("editing prompt missing from profile: %#v", profile.SystemMessage)
+	if editing.CacheKey != readOnly.CacheKey || editing.Fingerprint != readOnly.Fingerprint ||
+		editing.SystemMessage["content"] != readOnly.SystemMessage["content"] {
+		t.Fatal("toggling editingMode must not change the stored system snapshot")
 	}
 }
 
@@ -583,7 +589,6 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 	session.ToolNames = agentkbase.CreateToolNames()
 	session.KBaseModePrompts = contracts.KBaseModePrompts{
 		Workspace: "configured workspace part {{chat_dir}}",
-		Editing:   "configured editing part",
 	}
 	session.RuntimeContext.LocalPaths = contracts.LocalPaths{
 		WorkspaceDir: "/knowledge",
@@ -605,8 +610,7 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 	}
 	assertToolNames(t, profile.Tools, agentkbase.CreateToolNames())
 	content, _ := profile.SystemMessage["content"].(string)
-	if !strings.Contains(content, "configured workspace part /runtime/chats/chat-1") ||
-		strings.Contains(content, "configured editing part") {
+	if !strings.Contains(content, "configured workspace part /runtime/chats/chat-1") {
 		t.Fatalf("unexpected main KBASE prompt: %s", content)
 	}
 }

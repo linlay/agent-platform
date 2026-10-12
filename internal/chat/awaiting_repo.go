@@ -331,6 +331,7 @@ func loadRunQueryFromLines(lines []map[string]any, chatID string, runID string) 
 			ChatID:    lineChatID,
 			RunID:     runID,
 			UpdatedAt: int64FromAny(line["updatedAt"]),
+			Locale:    strings.TrimSpace(stringValue(line["locale"])),
 			Query:     cloneStringAnyMap(query),
 		}
 	}
