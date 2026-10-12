@@ -163,3 +163,58 @@ func TestChatStartDefaultsTargetBeforeReviewAndIdempotency(t *testing.T) {
 		t.Fatalf("changed target was accepted: %#v %v starts=%d", result, err, service.starts)
 	}
 }
+
+func TestChatStartInheritsCurrentRunModelBeforeReviewAndStart(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		args                 map[string]any
+		agent, model, effort string
+	}{
+		{"message only", map[string]any{"message": "task"}, "zenmi", "run-model", "HIGH"},
+		{"other agent", map[string]any{"message": "task", "agentKey": "worker"}, "worker", "run-model", "HIGH"},
+		{"continue", map[string]any{"message": "task", "chatId": "existing"}, "zenmi", "run-model", "HIGH"},
+		{"model only", map[string]any{"message": "task", "modelKey": "override"}, "zenmi", "override", "HIGH"},
+		{"effort only", map[string]any{"message": "task", "reasoningEffort": "LOW"}, "zenmi", "run-model", "LOW"},
+		{"disable", map[string]any{"message": "task", "reasoningEffort": "NONE"}, "zenmi", "run-model", "NONE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := newFakeRunToolService()
+			handler := NewToolHandler(service, nil)
+			exec := runToolExecContext("alice", "inherit")
+			exec.Session.ModelKey = "agent-default"
+			exec.CurrentModel = &queryinput.QueryModelOptions{Key: "run-model", ReasoningEffort: "HIGH"}
+			result, err := handler.Invoke(context.Background(), StartToolName, tc.args, exec)
+			if err != nil || result.Error != "" {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+			req := service.requests[0]
+			if req.AgentKey != tc.agent || req.ModelKey != tc.model || req.ReasoningEffort != tc.effort {
+				t.Fatalf("effective request=%#v", req)
+			}
+			// Effective inherited values participate in idempotency.
+			exec.CurrentModel.Key = "changed"
+			exec.CurrentModel.ReasoningEffort = "MAX"
+			result, err = handler.Invoke(context.Background(), StartToolName, tc.args, exec)
+			if err != nil || result.Error != "idempotency_conflict" || service.starts != 1 {
+				t.Fatalf("replay=%#v err=%v starts=%d", result, err, service.starts)
+			}
+		})
+	}
+	service := newFakeRunToolService()
+	handler := NewToolHandler(service, nil)
+	exec := runToolExecContext("alice", "inherit-review")
+	exec.CurrentModel = &queryinput.QueryModelOptions{Key: "run-model", ReasoningEffort: "NONE"}
+	args := map[string]any{"message": "task", "accessLevel": "full_access"}
+	approval, err := handler.PrepareToolApproval(context.Background(), StartToolName, args, exec)
+	if err != nil || approval == nil || approval.Form["modelKey"] != "run-model" || approval.Form["reasoningEffort"] != "NONE" {
+		t.Fatalf("approval=%#v err=%v", approval, err)
+	}
+	exec.ToolApprovals = map[string]bool{approval.Fingerprint: true}
+	result, err := handler.Invoke(context.Background(), StartToolName, args, exec)
+	if err != nil || result.Error != "" || service.starts != 1 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if req := service.requests[0]; req.ModelKey != "run-model" || req.ReasoningEffort != "NONE" || req.Review == nil {
+		t.Fatalf("reviewed request=%#v", req)
+	}
+}

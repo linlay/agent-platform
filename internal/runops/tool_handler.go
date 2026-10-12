@@ -123,7 +123,7 @@ func startKey(origin contracts.RunOrigin) string {
 	return origin.RunID + "\x00" + origin.ToolID
 }
 
-func startRequest(args map[string]any, origin contracts.RunOrigin) (contracts.RunStartRequest, error) {
+func startRequest(args map[string]any, origin contracts.RunOrigin, execCtx *contracts.ExecutionContext) (contracts.RunStartRequest, error) {
 	request, err := parseQueryArguments(args)
 	if err != nil {
 		return request, err
@@ -132,6 +132,16 @@ func startRequest(args map[string]any, origin contracts.RunOrigin) (contracts.Ru
 	request.AgentKey = strings.TrimSpace(contracts.AnyStringNode(args["agentKey"]))
 	request.ChatID = strings.TrimSpace(contracts.AnyStringNode(args["chatId"]))
 	request.Origin = origin
+	// Resolve each omitted field from the actual executing model before review
+	// and idempotency, including when the caller selects another Agent.
+	if execCtx != nil && execCtx.CurrentModel != nil {
+		if request.ModelKey == "" {
+			request.ModelKey = execCtx.CurrentModel.Key
+		}
+		if request.ReasoningEffort == "" {
+			request.ReasoningEffort = execCtx.CurrentModel.ReasoningEffort
+		}
+	}
 	if origin.RunID == "" || origin.ToolID == "" {
 		return request, &contracts.RunToolError{Code: "run_context_required", Message: "query requires parent runId and toolId"}
 	}
@@ -151,7 +161,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 	if errResult != nil {
 		return nil, nil
 	}
-	request, err := startRequest(args, origin)
+	request, err := startRequest(args, origin, execCtx)
 	if execCtx != nil {
 		request.ReferenceReadScope = execCtx.Session.ReferencesScope
 	}
@@ -228,7 +238,7 @@ func (h *ToolHandler) query(
 	origin contracts.RunOrigin,
 	execCtx *contracts.ExecutionContext,
 ) (contracts.ToolExecutionResult, error) {
-	request, parseErr := startRequest(args, origin)
+	request, parseErr := startRequest(args, origin, execCtx)
 	if parseErr != nil {
 		return resultFromError(parseErr), nil
 	}

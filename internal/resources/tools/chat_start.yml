@@ -4,7 +4,7 @@ i18n:
     label: "Start Chat Run"
   zh-CN:
     label: "发起会话运行"
-description: "Start an independent Agent run in a new or existing Chat. Omit agentKey to use the current calling Agent. Read the task-control skill before use."
+description: "Start an independent Agent run. Only message is required. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -51,7 +51,7 @@ inputSchema:
     modelKey:
       type: string
       minLength: 1
-      description: "Registered model key for this run. List keys with chat_query models."
+      description: "Optional model override; defaults to the calling Run model. List keys with chat_query models."
     reasoningEffort:
       type: string
       enum:
@@ -61,7 +61,7 @@ inputSchema:
         - HIGH
         - XHIGH
         - MAX
-      description: "Reasoning effort for this run."
+      description: "Optional reasoning override; defaults to the calling Run effort, including NONE."
     chatName:
       type: string
       minLength: 1

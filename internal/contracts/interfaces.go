@@ -518,6 +518,8 @@ type ToolWaitSink interface {
 }
 
 type ExecutionContext struct {
+	// CurrentModel is the trusted effective model of the executing stage, never tool input.
+	CurrentModel *queryinput.QueryModelOptions `json:"-"`
 	// ToolApprovals are exact one-shot handler approvals, never model input.
 	ToolApprovals map[string]bool
 	// AuthoredScripts is shared only by tool invocations of this run; never serialized.

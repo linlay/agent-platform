@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/modelclient"
@@ -133,6 +134,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	execCtx.Request = req
 	execCtx.Session = session
+	execCtx.CurrentModel = currentRunModelOptions(modelKey, stageSettings)
 	execCtx.AccessLevel = session.AccessLevel
 	execCtx.ToolExecutionPolicy = session.ToolExecutionPolicy
 	execCtx.RunLimits = session.RunLimits
@@ -714,4 +716,17 @@ func sandboxBashAsPublicBash(defs []api.ToolDetailResponse) (api.ToolDetailRespo
 func isToolDefinitionNamed(def api.ToolDetailResponse, name string) bool {
 	needle := strings.ToLower(strings.TrimSpace(name))
 	return strings.EqualFold(strings.TrimSpace(def.Name), needle) || strings.EqualFold(strings.TrimSpace(def.Key), needle)
+}
+
+// currentRunModelOptions captures logical effort before provider-specific mapping.
+// NONE must be explicit so a target with reasoning enabled cannot turn it back on.
+func currentRunModelOptions(modelKey string, settings StageSettings) *queryinput.QueryModelOptions {
+	effort := ReasoningEffortNone
+	if settings.ReasoningEnabled {
+		effort, _ = NormalizeReasoningEffort(settings.ReasoningEffort)
+		if effort == "" {
+			effort = ReasoningEffortMedium
+		}
+	}
+	return &queryinput.QueryModelOptions{Key: modelKey, ReasoningEffort: effort}
 }
