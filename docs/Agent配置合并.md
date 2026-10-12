@@ -37,7 +37,7 @@ agent-settings 顶层 `planning-mode` 对原生 GENERAL、CODER、KBASE 统一�
 
 `<mode>.default-agent.modelKey/reasoningEffort` 只在创建时补全，已有 Agent 不受动态覆盖。GENERAL/CODER 的 budget 语义不变。kbase 节表示 KBASE Agent，不是知识库引擎。
 
-GENERAL/CODER 的 `workspace-agents` 仅接受非空 `file`：声明即自动读取，省略整个节点即不读取；enabled 已删除。不自动读取不限制工具按权限主动读文件。GENERAL 无具体 Workspace 或使用 @root 时不读取；CODER 显式 projectConfig.promptFiles 仍优先。示例仅为 CODER 声明 AGENTS.md。
+GENERAL/CODER/KBASE/TEAM 的 `workspace-agents` 仅接受非空 `file`：声明即自动读取，省略整个节点即不读取；enabled 已删除。它是 mode 的模板默认值，加载逻辑对四种 mode 相同。不自动读取不限制工具按权限主动读文件。无具体 Workspace 或使用 @root 时不读取；任何 mode 显式配置的 projectConfig.promptFiles 优先；ACP 由 bridge 管理项目规则。`projectConfig.git.expectedBranch` 同样对所有 mode 生效。示例仅为 CODER 声明 AGENTS.md。
 
 `acp-bridges` 位于顶层，配置类型独立于 CODER。Desktop 注册仅修改目标 bridge，保留其他节点、环境变量表达式及插件归属；仍需重启激活。现有 ACP mode 准入未扩展。
 

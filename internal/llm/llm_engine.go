@@ -10,7 +10,6 @@ import (
 	"time"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/agent/planmode"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
@@ -378,15 +377,15 @@ func budgetStageForName(session QuerySession, stage string) string {
 	if strings.Contains(normalized, "plan") {
 		return "plan"
 	}
-	if strings.Contains(normalized, "execute") || normalized == agentcoder.MainStage {
+	// Every ordinary native Agent shares one main-loop budget stage, so
+	// stageSettings.execute.budget means the same thing in every mode.
+	if strings.Contains(normalized, "execute") || agentbuiltin.PlanningModeSupported(session.Mode) {
 		return "execute"
 	}
 	if normalized == "" {
 		normalized = strings.ToLower(strings.TrimSpace(session.Mode))
 	}
 	switch normalized {
-	case agentcoder.MainStage:
-		return "execute"
 	case "react", "oneshot", "":
 		return "react"
 	default:
@@ -402,7 +401,9 @@ func stageSettingsForSession(session QuerySession, stage string) StageSettings {
 	if planmode.IsPlanningStage(stage) && agentbuiltin.PlanningModeSupported(session.Mode) {
 		return session.ResolvedPlanningSettings.Planning
 	}
-	if agentcoder.IsMode(session.Mode) && (session.PlanningMode || strings.EqualFold(strings.TrimSpace(stage), agentcoder.MainStage)) {
+	// An ordinary native Run reads stageSettings.execute in every mode; only
+	// the context summary keeps its own optional stage.
+	if agentbuiltin.PlanningModeSupported(session.Mode) && !strings.Contains(strings.ToLower(stage), "summary") {
 		return session.ResolvedPlanningSettings.Execute
 	}
 	return planExecuteStageSettingsForName(session.ResolvedPlanExecuteSettings, stage)

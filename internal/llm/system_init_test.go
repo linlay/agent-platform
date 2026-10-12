@@ -61,23 +61,15 @@ func TestSystemInitFingerprintChangesWithRequiredSkills(t *testing.T) {
 	}
 }
 
-func TestKBaseReadOnlyFingerprintIgnoresEditingPolicySnapshot(t *testing.T) {
+func TestEditingModeChangesSystemInitFingerprint(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = agentkbase.Mode
 	session.KBaseBindingLibraryID = "docs"
 	changed := session
-	changed.ScopedFilePolicy = &contracts.ScopedFilePolicy{
-		WorkspaceRoot:         "/knowledge",
-		RequireExistingParent: true,
-	}
-	tools := []api.ToolDetailResponse{{Name: "kbase_search", Description: "search"}}
-	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first != second {
-		t.Fatalf("read-only KBASE fingerprint must remain unchanged, got %q and %q", first, second)
-	}
-
 	changed.EditingMode = true
+	tools := []api.ToolDetailResponse{{Name: "kbase_search", Description: "search"}}
 	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first == second {
-		t.Fatal("editing KBASE fingerprint must include the editing policy snapshot")
+		t.Fatal("editingMode must change the system-init fingerprint")
 	}
 }
 
@@ -562,10 +554,6 @@ func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
 	session.WorkspaceRoot = "/knowledge"
 	session.KBaseModePrompts.Editing = "KBASE Editing Mode"
 	session.ToolNames = agentkbase.CreateToolNames()
-	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
-		WorkspaceRoot:            "/knowledge",
-		WorkspaceMutationEnabled: true,
-	}
 	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames)+1)
 	for _, name := range append(append([]string(nil), session.ToolNames...), "bash") {
 		toolDefs = append(toolDefs, api.ToolDetailResponse{Name: name, Description: name})
@@ -599,10 +587,7 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 		WorkspaceDir: "/knowledge",
 		ChatDir:      "/runtime/chats/chat-1",
 	}
-	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
-		WorkspaceRoot:         "/knowledge",
-		RequireExistingParent: true,
-	}
+	session.WorkspaceReadOnly = true
 	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames)+1)
 	for _, name := range append(append([]string(nil), session.ToolNames...), "bash") {
 		toolDefs = append(toolDefs, api.ToolDetailResponse{Name: name, Description: name})

@@ -9,7 +9,6 @@ import (
 	"unicode"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
@@ -128,9 +127,6 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 	if err := assembler.resolveConnectors(&def); err != nil {
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_connector", err)
 		return err
-	}
-	if strings.EqualFold(def.Mode, AgentModeKBase) && !kbaseAgentHasFileTool(def.Tools) {
-		log.Printf("[catalog][agents] warning code=kbase_file_tools_missing agent=%q message=KBASE effective tools contain none of %v; check preset-tools, toolConfig.tools and excludeTools", def.Key, agentkbase.StructuredFileToolNames())
 	}
 	runtimeDir, err := assembler.assemble(source, def, definition)
 	if err != nil {
@@ -635,7 +631,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	interactionConfig, err := interaction.Parse(mode, root["interactionConfig"])
+	interactionConfig, err := interaction.ParseForEngine(mode, engine == AgentEngineACP, root["interactionConfig"])
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -762,7 +758,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	hasRuntimeSandbox := strings.TrimSpace(stringNode(def.Runtime["environmentId"])) != ""
-	if err := validateAgentModeWorkspace(def.Mode, def.Workspace, def.KBaseConfig, hasRuntimeSandbox); err != nil {
+	if err := validateSandboxWorkspace(def.Workspace, hasRuntimeSandbox); err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	if err := validateAgentWorkspace(def.Workspace); err != nil {
@@ -973,26 +969,10 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 		return nil
 	}
 	def.KBaseConfig.Enabled = def.KBaseConfig.LibraryID != ""
-	def.KBaseRequirement = knowledge.RequirementOptional
-	if def.Mode == agentkbase.Mode && def.Engine != AgentEngineACP {
-		if err := agentkbase.ValidateLibraryID(def.KBaseConfig.LibraryID); err != nil {
-			return err
-		}
-		def.KBaseRequirement = knowledge.RequirementRequired
-	}
 	if def.KBaseConfig.Enabled && (def.Engine == AgentEngineACP || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode)) {
 		return fmt.Errorf("kbaseConfig.libraryId requires a native agent")
 	}
 	return nil
-}
-
-func kbaseAgentHasFileTool(tools []string) bool {
-	for _, name := range agentkbase.StructuredFileToolNames() {
-		if containsString(tools, name) {
-			return true
-		}
-	}
-	return false
 }
 
 func validateReservedBashToolNames(tools []string) error {
@@ -1106,15 +1086,6 @@ func validatePlanningConfig(mode string, root map[string]any) error {
 				return fmt.Errorf("stageSettings.%s modelKey is unsupported; use modelConfig.modelKey", stage)
 			}
 		}
-	}
-	if !strings.EqualFold(strings.TrimSpace(mode), "CODER") {
-		return nil
-	}
-	if _, exists := stageSettings["plan"]; exists {
-		return fmt.Errorf("CODER stageSettings.plan is unsupported; use stageSettings.planning")
-	}
-	if _, exists := mapNode(mapNode(root["budget"])["stages"])["plan"]; exists {
-		return fmt.Errorf("CODER budget.stages.plan is unsupported; use budget.stages.planning")
 	}
 	return nil
 }

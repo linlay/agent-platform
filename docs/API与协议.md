@@ -312,7 +312,7 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 
 `/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 
-`/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。run 摘要始终带解析后的 `editingMode:true|false`，方便客户端重连后恢复 Workspace 编辑状态。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
+`/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。run 摘要带本次 Run 启动时的选择：`planningMode`（为 true 时返回）和解析后的 `editingMode:true|false`，方便客户端刷新或重连后还原；`request.query` 事件中的 `editingMode` 仍是 Run 恢复和计划批准后执行的依据。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
 `/api/agent` 返回顶层 `modelKey`、`reasoningEffort`、可选 `serviceTier`。模型 key 原样反映配置，ACP 详情不访问上游模型列表、不自动回退到其他模型。思考读取 Agent 顶层 `modelConfig.reasoning`：显式 `enabled:false` 返回 `NONE`，否则返回规范化 `effort`，未配置回退 `MEDIUM`；不代表 stageSettings 或单次 query 的覆盖结果。未设置服务等级时省略 `serviceTier`。不返回 `model`、`selected*`、`modelConfig`、`modelOptions`，meta 不重复返回 modelKey/modelKeys/providerKey/protocol。
 
@@ -687,7 +687,7 @@ KBASE status API 接受有 libraryId 绑定的 Native Agent；未绑定或未知
 
 KBASE 工具读取当前 Agent 的 KBX active 索引内容。`kbase_search.method` 为 query（缺省混合）/search（全文）/vsearch（向量）/gsearch（图关系）；支持 pathPrefix/pathGlob/type/filter，过滤在召回前与库 collection 策略取交集。query/search/vsearch 另支持 exclude/intent/minScore/candidateLimit/recencyWeight/recencyHalfLifeDays，query 可用 noGraph 关闭图召回；gsearch 支持 entities/relations/direction/maxHops 并保留 graph 关系路径与边证据。不适用所选方法的参数明确拒绝；offset/cursor 不支持，不返回伪造的 matchCount 或分页完成标志。结果返回 method、实际召回通道和降级；仅有预算 trace 的方法返回 candidateBudgetExhausted。vsearch/gsearch 要求对应能力可用，不自动回退；Platform 尚不自动建图。详细参数见 [KBX 接入](KBX接入.md#查询路径与引用)。`kbase_files` 浏览 active 文件清单，支持 path/pattern/type、files/tree、depth/headLimit/offset；`kbase_read.chunkId` 接受 chunkId/evidenceId/nextEvidence 精确回读，或使用 path 与一基行号分页，拒绝跨库、越界和被排除的内容。
 
-专用 KBASE 的 main/editing stage 使用 Agent 有效工具集合，没有固定文件工具集。Workspace 固定为本 run 冻结的 runtimeConfig.workspaceRoot，相对路径从 Workspace 解析，当前 Chat 目录通过 @chat 使用。未开启 editing 时 Workspace mutation 返回 kbase_editing_mode_required；hostAccess、writeRoots、approval 和 full_access 不能替代这一 gate。
+专用 KBASE 的 main/editing stage 使用 Agent 有效工具集合，没有固定文件工具集。Workspace 固定为本 run 冻结的 runtimeConfig.workspaceRoot，相对路径从 Workspace 解析，当前 Chat 目录通过 @chat 使用。未开启 editing 时 Workspace mutation 与其他 mode 一样返回 file_write_path_blocked / file_edit_path_blocked；hostAccess、writeRoots、approval 和 full_access 不能替代这一 gate。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
@@ -743,7 +743,7 @@ Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`
 
 `/api/file` 与 `/api/agent/open-directory` 的 `directoryType:"workspace"` 都使用 `runtimeConfig.workspaceRoot`。`path` 可以是 Workspace 相对路径，也可以是宿主机绝对路径；绝对路径经 canonical 解析后必须分类为 Workspace，进入整个 ChatsRoot 会返回 `path_crosses_chat_root`，`..` 与 symlink escape 会返回 forbidden。默认响应使用统一 JSON 包裹，文本文件内联 `content`，二进制/PDF/图片只返回 metadata 与 `contentUrl`；`response=content` 时直接返回文件字节流，不使用 JSON 包裹。文件 JSON 与内容流共用文档元数据解析器，返回一致的 `documentKind/contentKind/mimeType/revision/sizeBytes`；Markdown 与普通文本 MIME 明确声明 UTF-8。该接口不读取 KBASE 索引库，也不扩大 `hostAccess.readRoots`。
 
-Project 的 tree/changes/diff 三个端点是只读 HTTP 数据面，只接受服务端从 `agentKey` 解析出的精确 `mode: CODER|KBASE`，不接受 Team、其他 mode 或客户端 `workspaceRoot`。所有 `path` 都是 Workspace 相对 POSIX 路径：拒绝绝对路径、反斜杠、`..`、ChatsRoot、symlink 逃逸和 device file。KBASE 不要求 `editingMode:true`。
+Project 的 tree/changes/diff 三个端点是只读 HTTP 数据面，对服务端从 `agentKey` 解析出的任何具有真实 Workspace 的 Agent 可用，不按 mode 限制，也不接受客户端 `workspaceRoot`；没有 Workspace 时返回 `invalid_request`。所有 `path` 都是 Workspace 相对 POSIX 路径：拒绝绝对路径、反斜杠、`..`、ChatsRoot、symlink 逃逸和 device file。KBASE 不要求 `editingMode:true`。
 
 `GET /api/project/git?agentKey=...` 是独立的只读 HTTP/WS 查询，不扩展 `/api/agents`、`/api/agent`，不扫描工作区改动。仅按 catalog 中真实 `Workspace.Root` 解析 canonical 目录及 ChatsRoot 边界，不按 CODER/KBASE mode 限制；没有目录也不会退回 Agent 配置目录或当前进程目录。
 
@@ -757,9 +757,9 @@ Project 的 tree/changes/diff 三个端点是只读 HTTP 数据面，只接受�
 | `no_workspace` | Agent 未配置稳定项目目录 |
 | `unavailable` | 目录或 Git 读取失败；`reason` 为 `workspace_unavailable`、`git_unavailable`、`probe_failed` 或 `probe_timeout` |
 
-参数错误、未知 Agent、文件系统权限拒绝仍走已有 HTTP 错误包裹。需要宿主 PATH 中可用的 Git；Git 不可用不会阻塞 Agent 列表/详情。探测限时 3 秒，清除继承的 Git 路由/配置环境变量，支持仓库子目录与 worktree；损坏 `.git` 不作为普通非 Git 目录。接口不执行分支切换、创建、checkout、索引刷新或项目写入，响应 `Cache-Control: no-store`。`projectConfig.git.expectedBranch` 保持原 CODER 运行约束，既不决定探测资格，也不作为实际分支的回退值。
+参数错误、未知 Agent、文件系统权限拒绝仍走已有 HTTP 错误包裹。需要宿主 PATH 中可用的 Git；Git 不可用不会阻塞 Agent 列表/详情。探测限时 3 秒，清除继承的 Git 路由/配置环境变量，支持仓库子目录与 worktree；损坏 `.git` 不作为普通非 Git 目录。接口不执行分支切换、创建、checkout、索引刷新或项目写入，响应 `Cache-Control: no-store`。`projectConfig.git.expectedBranch` 是对所有 mode 生效的运行约束，既不决定探测资格，也不作为实际分支的回退值。
 
-`GET /api/project/git/branches` 按需返回 `{git,branches,canChange,blockedReason?,expectedBranch?}`。`branches` 为本地分支名数组，包含空仓库当前尚未产生提交的分支；不 fetch、不列远端分支。`git.revision` 绑定解析后的项目目录、当前 HEAD 状态、分支及提交，是客户端操作前置条件。CODER 的 `expectedBranch` 仅提示既有运行约束，不会被写操作修改。
+`GET /api/project/git/branches` 按需返回 `{git,branches,canChange,blockedReason?,expectedBranch?}`。`branches` 为本地分支名数组，包含空仓库当前尚未产生提交的分支；不 fetch、不列远端分支。`git.revision` 绑定解析后的项目目录、当前 HEAD 状态、分支及提交，是客户端操作前置条件。`expectedBranch`（任何 mode 配置后都会返回）仅提示既有运行约束，不会被写操作修改。
 
 `POST /api/project/git/branches` 请求 `{agentKey,operation:"switch"|"create",branch,expectedRevision}`。`switch` 仅切换已有本地分支；`create` 从当前 HEAD 创建并切换（空仓库可创建新的初始分支）。分支名须通过 Git ref 格式校验，拒绝选项注入及不合法名称。请求缺少 revision、非法操作或名称返回 400；HEAD/目录已变返回 409 `revision_conflict`，同仓库并行操作返回 `git_busy`，重复名称返回 `branch_exists`，目标不存在返回 `branch_not_found`。成功返回新的 Git 快照。
 

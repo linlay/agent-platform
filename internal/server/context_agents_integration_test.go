@@ -165,7 +165,7 @@ func TestWebSocketQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 func TestUnavailableContextAgentDoesNotHideRequiredWorkspaceFailure(t *testing.T) {
 	cfg := testPromptContextConfig(t)
 	server := &Server{deps: Dependencies{Config: cfg, Registry: testCatalogRegistry{}}}
-	_, err := server.buildRuntimeRequestContext(runtimeRequestContextInput{AgentKey: "coder", ChatID: "chat", Definition: catalog.AgentDefinition{Key: "coder", Mode: "CODER", ContextTags: []string{"agents"}}})
+	_, err := server.buildRuntimeRequestContext(runtimeRequestContextInput{AgentKey: "coder", ChatID: "chat", Definition: catalog.AgentDefinition{Key: "coder", Mode: "CODER", Runtime: map[string]any{"environmentId": "toolbox"}, ContextTags: []string{"agents"}}})
 	if err == nil || !strings.Contains(err.Error(), "workspace_unavailable") {
 		t.Fatalf("required workspace failure was lost: %v", err)
 	}

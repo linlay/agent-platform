@@ -24,9 +24,6 @@ func (t *RuntimeToolExecutor) checkWaitCondition(ctx context.Context, c WaitCond
 		if access.Blocked || filetools.IsBlockedDeviceFile(access.Path) || (!access.AllowedByWhitelist && !access.AutoApproved) {
 			return false, "", fmt.Errorf("wait file condition requires an allowed read path")
 		}
-		if err := filetools.ValidateScopedRead(session, access.Path, false); err != nil {
-			return false, "", err
-		}
 		info, err := os.Stat(access.Path)
 		if os.IsNotExist(err) {
 			return false, "missing", nil

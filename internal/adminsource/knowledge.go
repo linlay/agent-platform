@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	agentkbase "agent-platform/internal/agent/kbase"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
@@ -46,21 +44,12 @@ func (s *ControlService) prepareKnowledgeBindingReview(after, before string) (*K
 	return &KnowledgeBindingReview{LibraryID: library.ID, BaseRevision: library.BaseRevision, SourcePermissions: library.Collections}, nil
 }
 
-// ValidateKnowledgeBinding belongs at management entry points. Catalog loading
-// checks the mode requirement without depending on the library service.
+// ValidateKnowledgeBinding belongs at management entry points. A binding is
+// optional for every mode; a configured one must name a valid library.
 func ValidateKnowledgeBinding(definition map[string]any, validate func(string) error) error {
-	mode, engine, err := catalog.ParseAgentModeAndEngine(contracts.AnyStringNode(definition["mode"]), contracts.AnyStringNode(definition["engine"]))
-	if err != nil {
-		return err
-	}
 	cfg, err := knowledge.ParseConfig(contracts.AnyMapNode(definition["kbaseConfig"]))
 	if err != nil {
 		return err
-	}
-	if mode == agentkbase.Mode && engine != catalog.AgentEngineACP {
-		if err := agentkbase.ValidateLibraryID(cfg.LibraryID); err != nil {
-			return err
-		}
 	}
 	if cfg.LibraryID == "" {
 		return nil

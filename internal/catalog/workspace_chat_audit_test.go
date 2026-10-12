@@ -20,7 +20,6 @@ func TestAuditWorkspaceChatConfigReportsBlockingMigrationIssues(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeAuditAgent(t, agentsDir, "coder", "key: coder\nmode: CODER\nmodelConfig:\n  modelKey: mock\n")
 	writeAuditAgent(t, agentsDir, "reserved", "key: reserved\nmode: GENERAL\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(workspace)+"\n  sandboxMounts:\n    - source: "+filepath.ToSlash(source)+"\n      destination: /chat/cache\n      mode: rw\n")
 	writeAuditAgent(t, agentsDir, "overlap", "key: overlap\nmode: GENERAL\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(chatsDir)+"\n")
 	writeAuditAgent(t, agentsDir, "kbase-dual", "key: kbase-dual\nmode: KBASE\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(workspace)+"\nkbaseConfig:\n  source:\n    root: "+filepath.ToSlash(source)+"\n")
@@ -37,7 +36,6 @@ func TestAuditWorkspaceChatConfigReportsBlockingMigrationIssues(t *testing.T) {
 		got[finding.AgentKey+":"+finding.Code] = true
 	}
 	for _, want := range []string{
-		"coder:invalid_workspace_chat_config",
 		"reserved:reserved_sandbox_mount",
 		"overlap:workspace_chats_overlap",
 		"kbase-dual:invalid_workspace_chat_config",

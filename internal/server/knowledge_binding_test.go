@@ -11,12 +11,12 @@ import (
 	"agent-platform/internal/api"
 )
 
-func TestKnowledgeBindingRequiredOnlyForKBASEAndCheckedAtManagement(t *testing.T) {
+func TestKnowledgeBindingOptionalForEveryModeAndCheckedAtManagement(t *testing.T) {
 	for _, tc := range []struct {
 		mode, binding string
 		want          int
 	}{
-		{"KBASE", "", 400}, {"KBASE", "missing-library", 400},
+		{"KBASE", "", 200}, {"KBASE", "missing-library", 400},
 		{"GENERAL", "", 200}, {"CODER", "", 200},
 		{"GENERAL", "missing-library", 400}, {"CODER", "missing-library", 400},
 		{"KBASE", "valid", 200}, {"GENERAL", "valid", 200}, {"CODER", "valid", 200},
@@ -100,7 +100,7 @@ func TestKBASECombinedLibraryCreationAndUpdateRechecksBinding(t *testing.T) {
 	if err := f.server.deps.KBases.ValidateBinding(id); err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range []any{nil, map[string]any{"libraryId": "missing-library"}} {
+	for _, value := range []any{map[string]any{"libraryId": "missing-library"}} {
 		created.Definition["kbaseConfig"] = value
 		body, _ := json.Marshal(map[string]any{"key": created.Key, "definition": created.Definition})
 		w := httptest.NewRecorder()

@@ -1,4 +1,4 @@
-package coder
+package agent
 
 import (
 	"os"
@@ -25,7 +25,6 @@ func TestLoadWorkspacePromptUsesExplicitProjectFiles(t *testing.T) {
 	}
 
 	got, err := LoadWorkspacePrompt(WorkspacePromptPolicy{
-		Mode:          Mode,
 		AgentDir:      agentDir,
 		WorkspaceRoot: workspace,
 		ProjectPromptFiles: []ProjectPromptFile{
@@ -45,36 +44,39 @@ func TestLoadWorkspacePromptUsesExplicitProjectFiles(t *testing.T) {
 	}
 }
 
-func TestLoadWorkspacePromptFallbackAndBackendBoundary(t *testing.T) {
+func TestLoadWorkspacePromptRulesFileIsOptInAndProjectOnly(t *testing.T) {
 	workspace := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte(" workspace rules \n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	policy := WorkspacePromptPolicy{
-		Mode:                    Mode,
 		WorkspaceRoot:           workspace,
+		ProjectDir:              workspace,
 		WorkspaceAgentsEnabled:  true,
 		WorkspaceAgentsFileName: "AGENTS.md",
 	}
 	got, err := LoadWorkspacePrompt(policy)
 	if err != nil || got != "workspace rules" {
-		t.Fatalf("native fallback prompt=%q err=%v", got, err)
+		t.Fatalf("rules file prompt=%q err=%v", got, err)
 	}
-	policy.ACPBridgeID = "codex"
-	if got, err := LoadWorkspacePrompt(policy); err != nil || got != "" {
-		t.Fatalf("ACP backend must skip local workspace prompts, got %q err=%v", got, err)
-	}
-	policy.ACPBridgeID = ""
-	policy.Mode = "REACT"
-	if got, err := LoadWorkspacePrompt(policy); err != nil || got != "" {
-		t.Fatalf("non-CODER must skip workspace prompts, got %q err=%v", got, err)
+	disabled := policy
+	disabled.WorkspaceAgentsEnabled = false
+	chatType := policy
+	chatType.ProjectDir = ""
+	missing := policy
+	missing.WorkspaceAgentsFileName = "MISSING.md"
+	for name, p := range map[string]WorkspacePromptPolicy{"disabled": disabled, "chat type": chatType, "missing file": missing} {
+		if got, err := LoadWorkspacePrompt(p); err != nil || got != "" {
+			t.Fatalf("%s: prompt=%q err=%v, want empty", name, got, err)
+		}
 	}
 }
 
 func TestLoadWorkspacePromptRejectsTraversal(t *testing.T) {
+	workspace := t.TempDir()
 	_, err := LoadWorkspacePrompt(WorkspacePromptPolicy{
-		Mode:                    Mode,
-		WorkspaceRoot:           t.TempDir(),
+		WorkspaceRoot:           workspace,
+		ProjectDir:              workspace,
 		WorkspaceAgentsEnabled:  true,
 		WorkspaceAgentsFileName: "../AGENTS.md",
 	})
@@ -92,7 +94,7 @@ func TestValidateWorkspaceGitSupportsDirectoryAndGitFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	policy := WorkspaceGitPolicy{Mode: Mode, WorkspaceRoot: workspace, ExpectedBranch: "main"}
+	policy := WorkspaceGitPolicy{WorkspaceRoot: workspace, ExpectedBranch: "main"}
 	if err := ValidateWorkspaceGit(policy); err != nil {
 		t.Fatalf("directory git metadata: %v", err)
 	}
@@ -108,10 +110,10 @@ func TestValidateWorkspaceGitSupportsDirectoryAndGitFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+metadata+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateWorkspaceGit(WorkspaceGitPolicy{Mode: Mode, WorkspaceRoot: worktree, ExpectedBranch: "feature"}); err != nil {
+	if err := ValidateWorkspaceGit(WorkspaceGitPolicy{WorkspaceRoot: worktree, ExpectedBranch: "feature"}); err != nil {
 		t.Fatalf("git file metadata: %v", err)
 	}
-	if err := ValidateWorkspaceGit(WorkspaceGitPolicy{Mode: Mode, WorkspaceRoot: worktree, ExpectedBranch: "main"}); err == nil || !strings.Contains(err.Error(), "workspace git branch mismatch") {
+	if err := ValidateWorkspaceGit(WorkspaceGitPolicy{WorkspaceRoot: worktree, ExpectedBranch: "main"}); err == nil || !strings.Contains(err.Error(), "workspace git branch mismatch") {
 		t.Fatalf("expected branch mismatch, got %v", err)
 	}
 }

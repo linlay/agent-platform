@@ -4884,10 +4884,6 @@ func TestKBaseExternalWriteUsesCommonApprovalBeforeExecutor(t *testing.T) {
 				ChatDir:      chatDir,
 			},
 		},
-		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			WorkspaceRoot:            root,
-			WorkspaceMutationEnabled: true,
-		},
 	}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
@@ -4938,10 +4934,7 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: source},
 		},
-		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			WorkspaceRoot:         source,
-			RequireExistingParent: true,
-		},
+		WorkspaceReadOnly: true,
 	}
 	stream := &llmRunStream{
 		session: session,

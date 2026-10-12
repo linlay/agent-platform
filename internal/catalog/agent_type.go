@@ -12,7 +12,6 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/deprecation"
-	"agent-platform/internal/knowledge"
 )
 
 const AgentModeCoder = agentcoder.Mode
@@ -313,13 +312,9 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 	return nil
 }
 
-func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, kbaseConfig knowledge.Config, hasRuntimeSandbox bool) error {
-	if strings.EqualFold(mode, "KBASE") && strings.TrimSpace(workspace.Root) == "" {
-		return fmt.Errorf("runtimeConfig.workspaceRoot is required for KBASE agents")
-	}
-	if agentcoder.IsMode(mode) && strings.TrimSpace(workspace.Root) == "" {
-		return fmt.Errorf("runtimeConfig.workspaceRoot is required for CODER agents")
-	}
+// validateSandboxWorkspace is a capability dependency: a Container Hub
+// sandbox mounts the Workspace. No mode requires a Workspace by itself.
+func validateSandboxWorkspace(workspace AgentWorkspaceConfig, hasRuntimeSandbox bool) error {
 	if hasRuntimeSandbox && strings.TrimSpace(workspace.Root) == "" {
 		return fmt.Errorf("runtimeConfig.workspaceRoot is required for Container Hub sandbox agents")
 	}

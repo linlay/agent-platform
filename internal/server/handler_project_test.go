@@ -88,7 +88,7 @@ func TestProjectTreeRejectsUnsupportedPathsAndStaleCursor(t *testing.T) {
 		code  int
 		match string
 	}{
-		{name: "unsupported mode", url: projectTreeURL("root-workspace", "", "", 200), code: http.StatusBadRequest, match: "project browsing only supports"},
+		{name: "no workspace", url: projectTreeURL("react-no-workspace", "", "", 200), code: http.StatusBadRequest, match: "not a stable directory"},
 		{name: "parent escape", url: projectTreeURL("coder-file", "../", "", 200), code: http.StatusForbidden, match: "outside agent workspace"},
 		{name: "absolute path", url: projectTreeURL("coder-file", coderWorkspace, "", 200), code: http.StatusBadRequest, match: "workspace-relative"},
 		{name: "stale cursor", url: projectTreeURL("coder-file", "", first.NextCursor, 1), code: http.StatusConflict, match: "changed while paging"},

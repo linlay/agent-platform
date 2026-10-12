@@ -44,8 +44,10 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	planningModeRequested := agentbuiltin.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode)
 	// A planning Run never mutates the Workspace; editing takes effect in the
 	// Run that executes the confirmed plan, which keeps the request's editingMode.
-	if agentbuiltin.IsKBaseMode(agentDef.Mode) && s.deps.ValidateKnowledge != nil {
-		if err := s.deps.ValidateKnowledge(agentDef.Key); err != nil {
+	// A fixed library binding is explicit configuration, so it is checked for
+	// every mode; no mode requires a binding by itself.
+	if agentDef.KBaseConfig.LibraryID != "" && s.deps.ValidateKnowledge != nil {
+		if err := s.deps.ValidateKnowledge(agentDef.KBaseConfig.LibraryID); err != nil {
 			return contracts.QuerySession{}, err
 		}
 	}
@@ -132,33 +134,24 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		}
 	}
 	resolvedWorkspaceRoot := strings.TrimSpace(runtimeContext.LocalPaths.WorkspaceDir)
-	if err := agentbuiltin.CoderValidateWorkspaceGit(agentbuiltin.CoderWorkspaceGitPolicy{
-		Mode:           agentDef.Mode,
-		WorkspaceRoot:  resolvedWorkspaceRoot,
-		ExpectedBranch: agentDef.Project.Git.ExpectedBranch,
-	}); err != nil {
-		return contracts.QuerySession{}, err
-	}
-	workspaceAgentsPrompt, err := agentbuiltin.CoderLoadWorkspacePrompt(agentbuiltin.CoderWorkspacePromptPolicy{
-		Mode:                    agentDef.Mode,
-		ACPBridgeID:             agentDef.ACPBridgeID,
-		AgentDir:                agentDef.RuntimeDir,
-		WorkspaceRoot:           resolvedWorkspaceRoot,
-		ProjectPromptFiles:      CoderProjectPromptFiles(agentDef.Project.PromptFiles),
-		WorkspaceAgentsEnabled:  s.deps.Config.CoderSettings.WorkspaceAgents.Enabled,
-		WorkspaceAgentsFileName: s.deps.Config.CoderSettings.WorkspaceAgents.File,
-	})
-	if err != nil {
-		return contracts.QuerySession{}, err
-	}
-	if workspaceAgentsPrompt == "" && agentDef.Workspace.ProjectDir() != "" {
-		// Only project-type general agents have a project rules file; chat-type
-		// agents (no Workspace or @root) never read one.
-		workspaceAgentsPrompt, err = agentbuiltin.GeneralLoadWorkspacePrompt(agentbuiltin.GeneralWorkspacePromptPolicy{
-			Mode:                    agentDef.Mode,
+	// Project settings are explicit configuration and apply to every mode; an
+	// ACP bridge owns its own project instructions.
+	workspaceAgentsPrompt := ""
+	if agentDef.Engine != catalog.AgentEngineACP {
+		if err := agentbuiltin.ValidateWorkspaceGit(agentbuiltin.WorkspaceGitPolicy{
+			WorkspaceRoot:  resolvedWorkspaceRoot,
+			ExpectedBranch: agentDef.Project.Git.ExpectedBranch,
+		}); err != nil {
+			return contracts.QuerySession{}, err
+		}
+		workspaceAgents := s.deps.Config.WorkspaceAgentsForMode(agentDef.Mode)
+		workspaceAgentsPrompt, err = agentbuiltin.LoadWorkspacePrompt(agentbuiltin.WorkspacePromptPolicy{
+			AgentDir:                agentDef.RuntimeDir,
 			WorkspaceRoot:           resolvedWorkspaceRoot,
-			WorkspaceAgentsEnabled:  s.deps.Config.GeneralSettings.WorkspaceAgents.Enabled,
-			WorkspaceAgentsFileName: s.deps.Config.GeneralSettings.WorkspaceAgents.File,
+			ProjectDir:              agentDef.Workspace.ProjectDir(),
+			ProjectPromptFiles:      ProjectPromptFiles(agentDef.Project.PromptFiles),
+			WorkspaceAgentsEnabled:  workspaceAgents.Enabled,
+			WorkspaceAgentsFileName: workspaceAgents.File,
 		})
 		if err != nil {
 			return contracts.QuerySession{}, err
@@ -218,15 +211,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	resolvedPlanExecuteSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
 	resolvedPlanningSettings := contracts.ResolvePlanningModeSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)
 
-	var scopedFilePolicy *contracts.ScopedFilePolicy
-	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
-		scopedFilePolicy = &contracts.ScopedFilePolicy{
-			WorkspaceRoot:            resolvedWorkspaceRoot,
-			WorkspaceMutationEnabled: editingMode,
-			RequireExistingParent:    true,
-		}
-	}
-
 	planningMode := s.deps.Config.PlanningMode.Effective()
 	session := contracts.QuerySession{
 		RequestID:                 req.RequestID,
@@ -259,7 +243,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		PlanExecuteExcludeTools:   append([]string(nil), planningMode.ExecuteExcludeTools...),
 		EditingMode:               editingMode,
 		WorkspaceReadOnly:         !editingMode,
-		ScopedFilePolicy:          scopedFilePolicy,
 
 		Created:                     options.Created,
 		ConnectorDirs:               RuntimeConnectorDirs(agentDef),
@@ -487,13 +470,13 @@ func ResolvedModeCapabilities(def catalog.AgentDefinition) agentcontract.ModeCap
 	return catalog.ResolvedModeCapabilities(def)
 }
 
-func CoderProjectPromptFiles(files []catalog.AgentProjectPromptFile) []agentbuiltin.CoderProjectPromptFile {
+func ProjectPromptFiles(files []catalog.AgentProjectPromptFile) []agentbuiltin.ProjectPromptFile {
 	if len(files) == 0 {
 		return nil
 	}
-	out := make([]agentbuiltin.CoderProjectPromptFile, 0, len(files))
+	out := make([]agentbuiltin.ProjectPromptFile, 0, len(files))
 	for _, file := range files {
-		out = append(out, agentbuiltin.CoderProjectPromptFile{Source: file.Source, Path: file.Path})
+		out = append(out, agentbuiltin.ProjectPromptFile{Source: file.Source, Path: file.Path})
 	}
 	return out
 }

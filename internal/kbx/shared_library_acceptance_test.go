@@ -144,8 +144,12 @@ func TestLiveSharedLibraryLifecycle(t *testing.T) {
 	if _, err = libraryService.Edit(d.ID, kbases.Input{Name: d.Name, Collections: d.Collections}); err != nil {
 		t.Fatal(err)
 	}
-	if err = m.ValidateRun("docs"); err == nil {
+	// The Run validates the library it froze, not the Agent's current binding.
+	if err = m.ValidateRunLibrary(d.ID); err == nil {
 		t.Fatal("changed scope remained readable")
+	}
+	if err = m.ValidateRunLibrary(""); err != nil {
+		t.Fatalf("an unbound Run has nothing to validate: %v", err)
 	}
 	wait(func(s kbases.Definition) bool {
 		return s.State == "ready" && !s.Degraded && s.IndexedAt > lastIndexed

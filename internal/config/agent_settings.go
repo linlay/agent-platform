@@ -165,11 +165,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	for _, mode := range []string{"general", "coder", "kbase", "team"} {
-		keys := []string{"preset-tools", "preset-connectors", "default-agent"}
-		if mode != "kbase" {
-			keys = append(keys, "workspace-agents")
-		}
-		v, err := optionalConfigMap(values, mode, path, keys...)
+		v, err := optionalConfigMap(values, mode, path, "preset-tools", "preset-connectors", "default-agent", "workspace-agents")
 		if err != nil {
 			return err
 		}
@@ -197,6 +193,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 			if d.Budget != nil {
 				return fmt.Errorf("%s.kbase.default-agent.budget is unsupported", path)
 			}
+			c.KBase.WorkspaceAgents = w
 			c.KBase.DefaultAgent.ModelKey = d.ModelKey
 			c.KBase.DefaultAgent.ReasoningEffort = d.ReasoningEffort
 		}

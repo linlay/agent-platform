@@ -709,17 +709,13 @@ func cleanAbs(path string) string {
 
 const WorkspaceEditingDisabledReason = "workspace editing is disabled for this run (Workspace mutation requires editingMode=true)"
 
-// WorkspaceEditingDisabled reports the resolved editing capability. KBASE's
-// ScopedFilePolicy is one source; any mode may set WorkspaceReadOnly.
+// WorkspaceEditingDisabled reports the resolved editing capability.
 func WorkspaceEditingDisabled(session QuerySession) bool {
 	return sessionWorkspaceEditingDisabled(session)
 }
 
 func sessionWorkspaceEditingDisabled(session QuerySession) bool {
-	if session.WorkspaceReadOnly {
-		return true
-	}
-	return session.ScopedFilePolicy != nil && !session.ScopedFilePolicy.WorkspaceMutationEnabled
+	return session.WorkspaceReadOnly
 }
 
 // IsExecutableConfigPath matches Git metadata that later Git commands execute

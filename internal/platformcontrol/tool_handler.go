@@ -92,7 +92,7 @@ func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
 			ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort,
 		})
 		definition = agentkbase.ApplyCreateToolDefaults(definition)
-		missing := missingDefinitionFields(definition, "modelConfig.modelKey", "kbaseConfig.libraryId")
+		missing := missingDefinitionFields(definition, "modelConfig.modelKey")
 		return successResult(map[string]any{
 			"path":               path,
 			"keyPrefix":          agentkbase.CreatePrefix,

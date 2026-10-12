@@ -4,7 +4,7 @@
 
 知识库是唯一索引所有者。`internal/kbases` 按 library ID 管理配置、目录监听、维护调度和状态；`internal/kbx.LibraryEngine` 调用受管 CLI 维护；`internal/kbx.Manager` 把显式 libraryId 解析为数据库和允许的 collection 集合，保留过滤、chunk/evidence 分页与图证据查询。`internal/knowledge` 只保存中立配置、DTO、工具和引用发布契约，不依赖 catalog、不持有索引或进程。
 
-Native GENERAL/CODER/KBASE（及 PLAN-EXECUTE）通过 builtin.kbase-control 使用知识工具，普通 Agent 省略固定绑定仍可按 libraryId 检索。专用 KBASE 当前仍要求 kbaseConfig.libraryId；配置不能隐式授予工具。固定绑定至多一个库，一个库可包含 1–32 个 collection，并被多个 Agent 共用。Workspace 与知识范围无关；library 来源不授予文件读写权限，editingMode 仅控制本次 Workspace 编辑。
+Native GENERAL/CODER/KBASE（及 PLAN-EXECUTE）通过 builtin.kbase-control 使用知识工具，普通 Agent 省略固定绑定仍可按 libraryId 检索。KBASE 同样不要求 kbaseConfig.libraryId，配置了固定绑定的 Agent 在 Run 启动时校验该库；配置不能隐式授予工具。固定绑定至多一个库，一个库可包含 1–32 个 collection，并被多个 Agent 共用。Workspace 与知识范围无关；library 来源不授予文件读写权限，editingMode 仅控制本次 Workspace 编辑。
 
 ```yaml
 key: kbase-tmmsin

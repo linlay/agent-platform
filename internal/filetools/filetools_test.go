@@ -191,10 +191,6 @@ func TestBuildAccessPlanFromPolicyPreservesAccessPolicyForKBaseWrites(t *testing
 			ReadRoots:  []string{hostDir},
 			WriteRoots: []string{hostDir},
 		},
-		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			WorkspaceRoot:            workspace,
-			WorkspaceMutationEnabled: true,
-		},
 	}
 
 	for _, test := range []struct {

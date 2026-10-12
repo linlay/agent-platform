@@ -154,9 +154,9 @@ func TestAuthoredReadonlyAndHardBlockPriority(t *testing.T) {
 	if got := ReviewBashCommand(blockOpaque, ctx.Session, "sh './task with space.sh'", "", nil, ctx); !got.Blocked() {
 		t.Fatalf("explicit opaque block bypassed: %+v", got)
 	}
-	ctx.Session.ScopedFilePolicy = &ScopedFilePolicy{WorkspaceRoot: ctx.Session.WorkspaceRoot}
+	ctx.Session.WorkspaceReadOnly = true
 	if got := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, "sh './task with space.sh'; touch workspace.txt", "", nil, ctx); !got.Blocked() {
-		t.Fatalf("KBASE gate: %+v", got)
+		t.Fatalf("editing gate: %+v", got)
 	}
 }
 

@@ -128,9 +128,6 @@ func TestKBaseAgentUsesDeclaredToolsLikeAnyNativeAgent(t *testing.T) {
 	if len(def.Tools) != 2 {
 		t.Fatalf("undeclared tool was added: %#v", def.Tools)
 	}
-	if !kbaseAgentHasFileTool(def.Tools) || kbaseAgentHasFileTool([]string{"kbase_search", "datetime"}) {
-		t.Fatalf("file tool detection is wrong for %#v", def.Tools)
-	}
 }
 
 func TestEditableDefinitionRejectsLegacyReact(t *testing.T) {

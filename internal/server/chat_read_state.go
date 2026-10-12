@@ -28,11 +28,14 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 		RunID:    activeRun.RunID,
 		AgentKey: activeRun.AgentKey,
 
-		State:       string(activeRun.State),
-		LastSeq:     activeRun.LastSeq,
-		OldestSeq:   activeRun.OldestSeq,
-		StartedAt:   activeRun.StartedAt,
-		EditingMode: activeRun.EditingMode,
+		State:     string(activeRun.State),
+		LastSeq:   activeRun.LastSeq,
+		OldestSeq: activeRun.OldestSeq,
+		StartedAt: activeRun.StartedAt,
+		// Both are the choices this Run was started with, so a client that
+		// reloads mid-Run shows them without replaying events.
+		PlanningMode: activeRun.PlanningMode,
+		EditingMode:  activeRun.EditingMode,
 	}
 }
 

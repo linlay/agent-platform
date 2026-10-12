@@ -96,12 +96,21 @@ func (m *Manager) ValidateAgent(key string) error {
 	return nil
 }
 
-func (m *Manager) ValidateRun(key string) error {
-	l, err := m.resolve(key)
-	if err != nil {
-		return err
+// ValidateRunLibrary checks the library a Run froze at admission. It never
+// re-reads the Agent's current binding, which a reload may have changed.
+func (m *Manager) ValidateRunLibrary(libraryID string) error {
+	libraryID = strings.TrimSpace(libraryID)
+	if libraryID == "" {
+		return nil
 	}
-	l.release()
+	if m.options.KBases == nil {
+		return unavailable("knowledge library service unavailable")
+	}
+	_, _, release, err := m.options.KBases.Acquire(libraryID)
+	if err != nil {
+		return unavailable(err.Error())
+	}
+	release()
 	return nil
 }
 

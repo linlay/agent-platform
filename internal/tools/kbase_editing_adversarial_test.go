@@ -283,7 +283,7 @@ func TestKBaseEditingAdversarialReadApprovalCannotBeReusedForWrite(t *testing.T)
 	}
 }
 
-func TestKBaseAdversarialForbiddenToolsCannotBeInjectedInEitherStage(t *testing.T) {
+func TestKBaseAdversarialUnmountedToolsCannotBeInjectedInEitherStage(t *testing.T) {
 	source := t.TempDir()
 	executor := fileToolExecutor(source, false)
 	for _, editing := range []bool{false, true} {
@@ -306,7 +306,7 @@ func TestKBaseAdversarialForbiddenToolsCannotBeInjectedInEitherStage(t *testing.
 					if err != nil {
 						t.Fatal(err)
 					}
-					if result.Error != "kbase_editing_tool_unsupported" {
+					if result.Error != "tool_not_mounted" {
 						t.Fatalf("injected tool %q was not rejected by the executor: %#v", toolName, result)
 					}
 				})
@@ -341,7 +341,7 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Structured["error"] != "kbase_editing_mode_required" {
+		if result.Structured["error"] != toolName+"_path_blocked" {
 			t.Fatalf("source mutation escaped editingMode gate: %#v", result)
 		}
 	}
@@ -492,10 +492,6 @@ func cloneKBaseAdversarialContext(base *contracts.ExecutionContext) *contracts.E
 	cloned.Session.RuntimeHostAccess = contracts.HostAccessRoots{
 		ReadRoots:  append([]string(nil), base.Session.RuntimeHostAccess.ReadRoots...),
 		WriteRoots: append([]string(nil), base.Session.RuntimeHostAccess.WriteRoots...),
-	}
-	if base.Session.ScopedFilePolicy != nil {
-		policy := *base.Session.ScopedFilePolicy
-		cloned.Session.ScopedFilePolicy = &policy
 	}
 	cloned.ReadFileState = nil
 	cloned.FileReadApprovals = nil

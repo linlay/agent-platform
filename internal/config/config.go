@@ -263,7 +263,8 @@ type ACPBridgeConfig struct {
 }
 
 type KBaseConfig struct {
-	DefaultAgent KBaseDefaultAgentConfig
+	WorkspaceAgents CoderWorkspaceAgentsConfig
+	DefaultAgent    KBaseDefaultAgentConfig
 }
 
 type KBaseDefaultAgentConfig struct {
@@ -833,6 +834,23 @@ func (c PlanningModeConfig) Effective() PlanningModeConfig {
 }
 
 type KBXConfig struct{ Embedding KBXEmbeddingConfig }
+
+// WorkspaceAgentsForMode returns the project rules file default of a mode's
+// agent-settings section. It is a template default, not a mode capability.
+func (c Config) WorkspaceAgentsForMode(mode string) CoderWorkspaceAgentsConfig {
+	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case "", "GENERAL", "REACT":
+		return c.GeneralSettings.WorkspaceAgents
+	case "CODER":
+		return c.CoderSettings.WorkspaceAgents
+	case "KBASE":
+		return c.KBase.WorkspaceAgents
+	case "TEAM":
+		return c.TeamSettings.WorkspaceAgents
+	default:
+		return CoderWorkspaceAgentsConfig{}
+	}
+}
 
 func (c Config) PresetsForMode(mode string) AgentPresets {
 	mode = strings.TrimSpace(mode)

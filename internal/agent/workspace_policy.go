@@ -1,4 +1,4 @@
-package coder
+package agent
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// ProjectPromptFile is the CODER-owned view of a configured project prompt.
+// ProjectPromptFile is the mode-neutral view of a configured project prompt.
 // Catalog adapters should copy only these fields into the policy input.
 type ProjectPromptFile struct {
 	Source string
@@ -15,26 +15,24 @@ type ProjectPromptFile struct {
 }
 
 type WorkspacePromptPolicy struct {
-	Mode                    string
-	ACPBridgeID             string
-	AgentDir                string
-	WorkspaceRoot           string
+	AgentDir      string
+	WorkspaceRoot string
+	// ProjectDir is the public project directory; it is empty for chat-type
+	// agents (no Workspace or @root), which have no project rules file.
+	ProjectDir              string
 	ProjectPromptFiles      []ProjectPromptFile
 	WorkspaceAgentsEnabled  bool
 	WorkspaceAgentsFileName string
 }
 
-// LoadWorkspacePrompt resolves CODER project instructions without depending on
-// catalog or server types. Explicit project prompt files take precedence over
-// the workspace AGENTS fallback.
+// LoadWorkspacePrompt resolves project instructions for any native agent.
+// Explicit project prompt files take precedence over the project rules file,
+// whose switch and file name are configuration defaults of the agent's mode.
 func LoadWorkspacePrompt(policy WorkspacePromptPolicy) (string, error) {
-	if !IsNativeBackend(policy.Mode, policy.ACPBridgeID) {
-		return "", nil
-	}
 	if len(policy.ProjectPromptFiles) > 0 {
 		return loadConfiguredProjectPrompts(policy)
 	}
-	if !policy.WorkspaceAgentsEnabled {
+	if !policy.WorkspaceAgentsEnabled || strings.TrimSpace(policy.ProjectDir) == "" {
 		return "", nil
 	}
 	workspaceRoot := strings.TrimSpace(policy.WorkspaceRoot)
@@ -43,7 +41,7 @@ func LoadWorkspacePrompt(policy WorkspacePromptPolicy) (string, error) {
 	}
 	fileName := strings.TrimSpace(policy.WorkspaceAgentsFileName)
 	if fileName == "" {
-		return "", fmt.Errorf("coder workspace agents file is empty")
+		return "", fmt.Errorf("workspace agents file is empty")
 	}
 	if filepath.IsAbs(fileName) {
 		fileName = filepath.Base(fileName)
@@ -131,15 +129,13 @@ func cleanRelativePromptPath(path string) (string, error) {
 }
 
 type WorkspaceGitPolicy struct {
-	Mode           string
 	WorkspaceRoot  string
 	ExpectedBranch string
 }
 
+// ValidateWorkspaceGit enforces an explicitly configured expectedBranch for
+// every mode; without the setting there is nothing to check.
 func ValidateWorkspaceGit(policy WorkspaceGitPolicy) error {
-	if !IsMode(policy.Mode) {
-		return nil
-	}
 	expectedBranch := strings.TrimSpace(policy.ExpectedBranch)
 	if expectedBranch == "" {
 		return nil

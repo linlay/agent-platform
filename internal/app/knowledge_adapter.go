@@ -37,7 +37,6 @@ func (s knowledgeCatalogSource) Agent(key string) (knowledge.AgentSpec, bool) {
 	}
 	return knowledge.AgentSpec{
 		Key:           definition.Key,
-		Requirement:   definition.KBaseRequirement,
 		WorkspaceRoot: definition.Workspace.Root,
 		Config:        definition.KBaseConfig,
 	}, true

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/agent/planmode"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
@@ -299,7 +298,7 @@ func resolveStageSystemPrompt(session QuerySession, stage string) string {
 	if planmode.IsPlanningStage(stage) && agentbuiltin.PlanningModeSupported(session.Mode) {
 		return strings.TrimSpace(session.ResolvedPlanningSettings.Planning.SystemPrompt)
 	}
-	if agentcoder.IsMode(session.Mode) && session.PlanningMode {
+	if agentbuiltin.PlanningModeSupported(session.Mode) && !strings.EqualFold(strings.TrimSpace(stage), "summary") {
 		return strings.TrimSpace(session.ResolvedPlanningSettings.Execute.SystemPrompt)
 	}
 	settings := session.ResolvedPlanExecuteSettings

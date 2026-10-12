@@ -25,9 +25,3 @@ var structuredFileToolNames = []string{
 func CreateToolNames() []string {
 	return append([]string{ToolDatetime}, structuredFileToolNames...)
 }
-
-// StructuredFileToolNames lists the file tools a KBASE agent needs to browse
-// and edit its Workspace. The catalog warns when none of them is declared.
-func StructuredFileToolNames() []string {
-	return append([]string(nil), structuredFileToolNames...)
-}

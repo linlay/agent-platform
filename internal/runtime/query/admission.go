@@ -162,10 +162,8 @@ func applyQueryModelOptionsToRawStageSettings(mode string, raw map[string]any, m
 		out["reasoningEffort"] = reasoningEffort
 	}
 	stages := []string{"plan", "execute", "summary"}
-	if agentbuiltin.IsCoderMode(mode) {
+	if agentbuiltin.PlanningModeSupported(mode) {
 		stages = []string{"planning", "execute"}
-	} else if agentbuiltin.PlanningModeSupported(mode) {
-		stages = append(stages, "planning")
 	}
 	for _, stage := range stages {
 		nested := contracts.CloneMap(contracts.AnyMapNode(out[stage]))

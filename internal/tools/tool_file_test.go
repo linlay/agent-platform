@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
@@ -1071,14 +1070,14 @@ func (h *recordingFileChangeHook) AfterFileChange(_ context.Context, event contr
 	return h.result
 }
 
-func TestKBaseEditingFileToolsEnforceSourceMutationRulesWithoutIndexHook(t *testing.T) {
+func TestKBaseEditingFileToolsFollowGlobalReadBeforeWrite(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "policy.md")
 	if err := os.WriteFile(path, []byte("refund: 7 days\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	executor := fileToolExecutor(root, false)
-	executor.cfg.FileTools.RequireReadBeforeWrite = false
+	executor.cfg.FileTools.RequireReadBeforeWrite = true
 	execCtx := kbaseEditingExecutionContext(root)
 
 	unread, err := executor.invokeWrite(context.Background(), map[string]any{
@@ -1089,7 +1088,7 @@ func TestKBaseEditingFileToolsEnforceSourceMutationRulesWithoutIndexHook(t *test
 		t.Fatal(err)
 	}
 	if unread.Structured["error"] != "file_write_not_read" {
-		t.Fatalf("KBASE editing must enforce read-before-write independently of global config: %#v", unread.Structured)
+		t.Fatalf("global read-before-write must apply to KBASE like any mode: %#v", unread.Structured)
 	}
 
 	read, err := executor.invokeRead(map[string]any{"filePath": "policy.md", "addLineNumbers": false}, execCtx)
@@ -1125,7 +1124,7 @@ func TestKBaseEditingFileToolsEnforceSourceMutationRulesWithoutIndexHook(t *test
 	}
 }
 
-func TestKBaseEditingPreservesGenericEncodingAndRejectsMissingParent(t *testing.T) {
+func TestKBaseEditingPreservesGenericEncodingAndCreatesMissingParent(t *testing.T) {
 	root := t.TempDir()
 	nonUTF8 := filepath.Join(root, "legacy.txt")
 	if err := os.WriteFile(nonUTF8, encodeTextFixture(t, simplifiedchinese.GB18030, "标题=旧值\n"), 0o644); err != nil {
@@ -1157,20 +1156,20 @@ func TestKBaseEditingPreservesGenericEncodingAndRejectsMissingParent(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if write.Structured["error"] != "kbase_editing_parent_missing" {
-		t.Fatalf("expected missing parent rejection, got %#v", write.Structured)
+	if write.Error != "" || write.Structured["status"] != "written" {
+		t.Fatalf("missing parent must be created as in every mode, got %#v", write.Structured)
 	}
 }
 
-func TestKBaseEditingHardToolSetRejectsBash(t *testing.T) {
+func TestUnmountedToolIsRejectedByCommonAdmission(t *testing.T) {
 	root := t.TempDir()
 	executor := fileToolExecutor(root, false)
 	result, err := executor.Invoke(context.Background(), "bash", map[string]any{"command": "pwd"}, kbaseEditingExecutionContext(root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Error != "kbase_editing_tool_unsupported" {
-		t.Fatalf("expected hard KBASE tool-set rejection, got %#v", result)
+	if result.Error != "tool_not_mounted" {
+		t.Fatalf("expected common tool admission rejection, got %#v", result)
 	}
 }
 
@@ -1269,7 +1268,7 @@ func TestKBaseReadOnlyFileToolsAllowSourceReadsAndChatMutationsButRejectSourceMu
 			if invokeErr != nil {
 				t.Fatal(invokeErr)
 			}
-			if result.Structured["error"] != "kbase_editing_mode_required" {
+			if result.Structured["error"] != test.tool+"_path_blocked" {
 				t.Fatalf("source mutation was not gated: %#v", result)
 			}
 		})
@@ -1458,19 +1457,14 @@ func kbaseExecutionContext(root string, editing bool) *contracts.ExecutionContex
 				"kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "datetime",
 				"file_read", "file_glob", "file_grep", "file_write", "file_edit",
 			},
-			ModeCapabilities: agentcontract.ModeCapabilities{},
-			WorkspaceRoot:    root,
-			AccessLevel:      contracts.AccessLevelFullAccess,
+			WorkspaceRoot:     root,
+			WorkspaceReadOnly: !editing,
+			AccessLevel:       contracts.AccessLevelFullAccess,
 			RuntimeContext: contracts.RuntimeRequestContext{
 				LocalPaths: contracts.LocalPaths{
 					WorkspaceDir: root,
 					ChatDir:      filepath.Join(filepath.Dir(root), "chats", "chat-edit"),
 				},
-			},
-			ScopedFilePolicy: &contracts.ScopedFilePolicy{
-				WorkspaceRoot:            root,
-				WorkspaceMutationEnabled: editing,
-				RequireExistingParent:    true,
 			},
 		},
 	}
@@ -1490,9 +1484,8 @@ func TestInvokeWriteRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 	}}
 	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		Mode:             "CODER",
-		ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
-		WorkspaceRoot:    root,
+		Mode:          "CODER",
+		WorkspaceRoot: root,
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
@@ -1526,10 +1519,9 @@ func TestInvokeWriteSkipsWorkspaceHooksForCoderChatFile(t *testing.T) {
 	hook := &recordingFileChangeHook{result: contracts.FileChangeHookResult{Name: "lsp_diagnostics", Status: "ok"}}
 	executor := fileToolExecutor(workspace, false).WithFileChangeHooks(hook)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		Mode:             "CODER",
-		ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
-		WorkspaceRoot:    workspace,
-		ChatRoot:         chatDir,
+		Mode:          "CODER",
+		WorkspaceRoot: workspace,
+		ChatRoot:      chatDir,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
 				WorkspaceDir: workspace,
@@ -1563,9 +1555,8 @@ func TestInvokeEditRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 	hook := &recordingFileChangeHook{result: contracts.FileChangeHookResult{Name: "lsp_diagnostics", Status: "ok"}}
 	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		Mode:             "CODER",
-		ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
-		WorkspaceRoot:    root,
+		Mode:          "CODER",
+		WorkspaceRoot: root,
 	}}
 	if _, err := executor.invokeRead(map[string]any{"filePath": "main.go", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
@@ -1589,7 +1580,7 @@ func TestInvokeEditRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 	assertLineStats(t, hook.events[0].LineStats, 1, 1, 1)
 }
 
-func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T) {
+func TestFileChangeHookRunsForAnyModeAndSkipsMissingWorkspaceAndFailedWrite(t *testing.T) {
 	root := t.TempDir()
 	hook := &recordingFileChangeHook{result: contracts.FileChangeHookResult{Name: "lsp_diagnostics", Status: "ok"}}
 	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
@@ -1601,15 +1592,17 @@ func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T)
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "REACT", WorkspaceRoot: root}}); err != nil {
 		t.Fatalf("invokeWrite non coder: %v", err)
 	}
-	if len(hook.events) != 0 {
-		t.Fatalf("expected non-CODER write to skip hooks, got %#v", hook.events)
+	// Hooks follow configuration and the Workspace, never the mode.
+	if len(hook.events) != 1 {
+		t.Fatalf("expected non-CODER Workspace write to run hooks, got %#v", hook.events)
 	}
+	hook.events = nil
 
 	if _, err := executor.invokeWrite(context.Background(), map[string]any{
 		"filePath":    "notes2.txt",
 		"content":     "hello",
 		"description": "写入普通文件",
-	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER", ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true}}}); err != nil {
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER"}}); err != nil {
 		t.Fatalf("invokeWrite missing workspace: %v", err)
 	}
 	if len(hook.events) != 0 {
@@ -1623,7 +1616,7 @@ func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T)
 		"filePath":    "existing.txt",
 		"content":     "new",
 		"description": "写入已有文件",
-	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER", ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true}, WorkspaceRoot: root}})
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER", WorkspaceRoot: root}})
 	if err != nil {
 		t.Fatalf("invokeWrite failed write: %v", err)
 	}

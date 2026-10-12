@@ -18,9 +18,19 @@ type Config struct {
 	MustUseSkills bool       `json:"mustUseSkills"`
 	Connectors    bool       `json:"connectors"`
 	Attachment    Attachment `json:"attachment"`
+	// The show* fields only decide whether a client offers an entry. They never
+	// gate a request: editingMode and planningMode stay valid API parameters.
+	ShowEditingMode  bool `json:"showEditingMode"`
+	ShowPlanningMode bool `json:"showPlanningMode"`
+	ShowTerminal     bool `json:"showTerminal"`
 }
 
-func Defaults(mode string) Config {
+// Defaults returns the template defaults of a mode for a native agent.
+func Defaults(mode string) Config { return DefaultsForEngine(mode, false) }
+
+// DefaultsForEngine also applies the engine: an ACP bridge owns Workspace
+// editing, so the editing entry is never offered by default there.
+func DefaultsForEngine(mode string, acp bool) Config {
 	c := Config{Model: true, AccessLevel: true, MustUseSkills: true, MustUseKbases: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true}}
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "KBASE":
@@ -33,11 +43,21 @@ func Defaults(mode string) Config {
 	if mode := strings.ToUpper(strings.TrimSpace(mode)); mode == "KBASE" || mode == "TEAM" || mode == "PROXY" || mode == "CHANNEL" {
 		c.MustUseKbases = false
 	}
+	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case "", "GENERAL", "REACT", "CODER", "KBASE", "TEAM":
+		c.ShowPlanningMode = true
+	}
+	// The editing toggle starts off and is sent explicitly once shown, so it is
+	// offered by default only where a Run is read-only unless asked otherwise.
+	c.ShowEditingMode = strings.EqualFold(strings.TrimSpace(mode), "KBASE") && !acp
+	c.ShowTerminal = strings.EqualFold(strings.TrimSpace(mode), "CODER")
 	return c
 }
 
-func Parse(mode string, raw any) (Config, error) {
-	c := Defaults(mode)
+func Parse(mode string, raw any) (Config, error) { return ParseForEngine(mode, false, raw) }
+
+func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
+	c := DefaultsForEngine(mode, acp)
 	if raw == nil {
 		return c, nil
 	}
@@ -45,7 +65,8 @@ func Parse(mode string, raw any) (Config, error) {
 	if !ok {
 		return c, fmt.Errorf("interactionConfig must be an object")
 	}
-	fields := map[string]*bool{"model": &c.Model, "accessLevel": &c.AccessLevel, "mustUseSkills": &c.MustUseSkills, "mustUseKbases": &c.MustUseKbases, "connectors": &c.Connectors}
+	fields := map[string]*bool{"model": &c.Model, "accessLevel": &c.AccessLevel, "mustUseSkills": &c.MustUseSkills, "mustUseKbases": &c.MustUseKbases, "connectors": &c.Connectors,
+		"showEditingMode": &c.ShowEditingMode, "showPlanningMode": &c.ShowPlanningMode, "showTerminal": &c.ShowTerminal}
 	for key, value := range node {
 		if key == "attachment" {
 			attachment, ok := value.(map[string]any)

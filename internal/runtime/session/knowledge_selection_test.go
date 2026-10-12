@@ -53,9 +53,6 @@ func TestKnowledgeSelectionUnboundAgentAndFrozenRun(t *testing.T) {
 		metadata.RequiredLibraries[1].ID != b.ID {
 		t.Fatalf("library metadata lost selected library details: %+v", metadata)
 	}
-	if result.ScopedFilePolicy != nil {
-		t.Fatal("temporary library selection granted KBASE write roots")
-	}
 	request.MustUseKbases[0] = "changed"
 	if result.MustUseKbases[0] != "a" {
 		t.Fatal("selection aliases caller input")

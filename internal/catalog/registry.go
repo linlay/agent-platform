@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
@@ -78,7 +79,6 @@ type AgentDefinition struct {
 	Workspace            AgentWorkspaceConfig
 	Project              AgentProjectConfig
 	KBaseConfig          knowledge.Config
-	KBaseRequirement     knowledge.Requirement
 	ContextTags          []string
 	Budget               map[string]any
 	StageSettings        map[string]any
@@ -625,23 +625,23 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			Description:    def.Description,
 			Role:           def.Role,
 		}
-		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
-			summary.DefaultModelKey, summary.DefaultReasoningEffort = agentSummaryCoderDefaults(def)
+		// Every ordinary Agent reports its model defaults the same way.
+		if agentbuiltin.PlanningModeSupported(def.Mode) {
+			summary.DefaultModelKey, summary.DefaultReasoningEffort = agentSummaryModelDefaults(def)
 		}
 		items = append(items, summary)
 	}
 	return items
 }
 
-func agentSummaryCoderDefaults(def AgentDefinition) (string, string) {
+func agentSummaryModelDefaults(def AgentDefinition) (string, string) {
 	settings := contracts.ResolvePlanningModeSettings(def.StageSettings, 0)
 	// Every Run of the Agent uses its own model.
 	modelKey := def.ModelKey
-	reasoningEffort := firstNonBlankString(
-		settings.Execute.ReasoningEffort,
-		settings.Planning.ReasoningEffort,
-	)
-	if strings.TrimSpace(reasoningEffort) == "" && agentSummaryReasoningDisabled(def.StageSettings) {
+	// An ordinary Run reads stageSettings.execute, so the summary does too; an
+	// explicit reasoning.enabled:false there wins over any effort.
+	reasoningEffort := settings.Execute.ReasoningEffort
+	if agentSummaryReasoningDisabled(def.StageSettings) {
 		reasoningEffort = "NONE"
 	}
 	if strings.TrimSpace(reasoningEffort) == "" {
@@ -651,15 +651,11 @@ func agentSummaryCoderDefaults(def AgentDefinition) (string, string) {
 }
 
 func agentSummaryReasoningDisabled(raw map[string]any) bool {
-	for _, key := range []string{"execute", "planning"} {
-		node := contracts.AnyMapNode(raw[key])
-		modelConfig := contracts.AnyMapNode(node["modelConfig"])
-		reasoning := contracts.AnyMapNode(modelConfig["reasoning"])
-		if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {
-			return true
-		}
-	}
-	return false
+	node := contracts.AnyMapNode(raw["execute"])
+	modelConfig := contracts.AnyMapNode(node["modelConfig"])
+	reasoning := contracts.AnyMapNode(modelConfig["reasoning"])
+	enabled, ok := reasoning["enabled"].(bool)
+	return ok && !enabled
 }
 
 func firstNonBlankString(values ...string) string {
@@ -1059,5 +1055,5 @@ func (d AgentDefinition) Interaction() interaction.Config {
 	if d.InteractionConfig != nil {
 		return *d.InteractionConfig
 	}
-	return interaction.Defaults(d.Mode)
+	return interaction.DefaultsForEngine(d.Mode, d.Engine == AgentEngineACP)
 }

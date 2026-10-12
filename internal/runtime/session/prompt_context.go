@@ -72,10 +72,6 @@ type ContextInput struct {
 
 func (s *Builder) BuildContext(input ContextInput) (contracts.RuntimeRequestContext, error) {
 	workspaceRoot := EffectiveLocalWorkspaceRoot(input.Definition)
-	if strings.EqualFold(catalog.NormalizeAgentModeForRuntime(input.Definition.Mode), catalog.AgentModeCoder) &&
-		strings.TrimSpace(workspaceRoot) == "" {
-		return contracts.RuntimeRequestContext{}, fmt.Errorf("workspace_unavailable: CODER requires a workspace")
-	}
 	if HasRuntimeSandbox(input.Definition.Runtime) && strings.TrimSpace(workspaceRoot) == "" {
 		return contracts.RuntimeRequestContext{}, fmt.Errorf("workspace_unavailable: Container Hub sandbox requires a workspace")
 	}

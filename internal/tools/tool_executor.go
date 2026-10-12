@@ -187,13 +187,6 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 	if execCtx != nil && execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 	}
-	if execCtx != nil && execCtx.Session.ScopedFilePolicy != nil && !sessionToolAllowed(execCtx.Session.ToolNames, toolName) {
-		return ToolExecutionResult{
-			Output:   "tool is outside the dedicated KBASE run tool set",
-			Error:    "kbase_editing_tool_unsupported",
-			ExitCode: -1,
-		}, nil
-	}
 	if execCtx != nil && !execCtx.Session.AllowsTool(toolName) {
 		return ToolNotMountedResult(toolName), nil
 	}
@@ -287,16 +280,6 @@ func runtimeToolUsesCompactModelOutput(toolName string) bool {
 	default:
 		return false
 	}
-}
-
-func sessionToolAllowed(toolNames []string, requested string) bool {
-	requested = strings.TrimSpace(requested)
-	for _, toolName := range toolNames {
-		if strings.TrimSpace(toolName) == requested {
-			return true
-		}
-	}
-	return false
 }
 
 func hasRuntimeSandbox(session QuerySession) bool {

@@ -252,10 +252,6 @@ func (s Service) resolveWorkspace(agentKey string) (workspace, error) {
 	if !ok {
 		return workspace{}, Error{Status: http.StatusNotFound, Code: "not_found", Message: "agent not found"}
 	}
-	mode := strings.ToUpper(strings.TrimSpace(def.Mode))
-	if mode != catalog.AgentModeCoder && mode != catalog.AgentModeKBase {
-		return workspace{}, Error{Status: http.StatusBadRequest, Code: "project_not_supported", Message: "project browsing only supports CODER or KBASE agents"}
-	}
 	return s.resolveDefinitionWorkspace(def)
 }
 

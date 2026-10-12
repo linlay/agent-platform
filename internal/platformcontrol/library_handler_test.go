@@ -96,14 +96,15 @@ func TestLibraryManagementSourceChangesAlwaysRequireHumanReview(t *testing.T) {
 	}
 }
 
-func TestKBASEDefaultsDeclareMissingLibraryBinding(t *testing.T) {
+func TestKBASEDefaultsDoNotRequireLibraryBinding(t *testing.T) {
 	cfg := config.Config{}
 	cfg.KBase.DefaultAgent.ModelKey = "chat-model"
 	h := NewToolHandler(cfg, nil, nil)
 	result := h.get(KBaseCreationPath)
-	missing := result.Structured["missingFields"].([]string)
-	if result.Structured["ready"] != false || !slices.Contains(missing, "kbaseConfig.libraryId") {
-		t.Fatalf("unbound defaults advertised ready: %+v", result)
+	// A binding is optional for every mode, so it is never a missing field.
+	missing, _ := result.Structured["missingFields"].([]string)
+	if result.Structured["ready"] != true || slices.Contains(missing, "kbaseConfig.libraryId") {
+		t.Fatalf("KBASE defaults still require a library binding: %+v", result)
 	}
 }
 

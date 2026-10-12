@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/pathutil"
 )
 
@@ -82,9 +81,7 @@ func (s Service) GitBranches(ctx context.Context, agentKey string) (api.ProjectG
 	}
 	result.BlockedReason = gitChangeBlocked(ctx, ws)
 	result.CanChange = result.BlockedReason == ""
-	if strings.EqualFold(ws.definition.Mode, catalog.AgentModeCoder) {
-		result.ExpectedBranch = ws.definition.Project.Git.ExpectedBranch
-	}
+	result.ExpectedBranch = ws.definition.Project.Git.ExpectedBranch
 	return result, nil
 }
 

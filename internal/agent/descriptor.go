@@ -6,9 +6,8 @@ import "strings"
 // are resolved once when a query session is built so downstream packages do
 // not need to infer policy from mode strings.
 type ModeCapabilities struct {
-	InvokeChildren  bool
-	RunAsChild      bool
-	FileChangeHooks bool
+	InvokeChildren bool
+	RunAsChild     bool
 }
 
 type ModeProfile struct {

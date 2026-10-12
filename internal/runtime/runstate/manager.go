@@ -173,8 +173,9 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 		ChatID:   session.ChatID,
 		AgentKey: owner.AgentKey,
 
-		ScopeID:     strings.TrimSpace(session.RunScopeID),
-		EditingMode: session.EditingMode,
+		ScopeID:      strings.TrimSpace(session.RunScopeID),
+		PlanningMode: session.PlanningMode,
+		EditingMode:  session.EditingMode,
 	}
 	startedAt := time.Now()
 	if session.StartedAtMillis != 0 {
@@ -561,6 +562,7 @@ func (m *Manager) RunStatus(runID string) (contracts.RunStatusInfo, bool) {
 		ObserverCount: eventBus.ObserverCount(),
 		StartedAt:     startedAt.UnixMilli(),
 		RunOrigin:     runOrigin,
+		PlanningMode:  run.PlanningMode,
 		EditingMode:   run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = control.AccessLevelSnapshot()
@@ -725,6 +727,7 @@ func runStatusInfoFromManagedRun(state *managedRun) contracts.RunStatusInfo {
 		ObserverCount: state.eventBus.ObserverCount(),
 		StartedAt:     state.startedAt.UnixMilli(),
 		RunOrigin:     cloneRunOrigin(state.runOrigin),
+		PlanningMode:  state.run.PlanningMode,
 		EditingMode:   state.run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()

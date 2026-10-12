@@ -1224,8 +1224,8 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if !strings.Contains(string(data), `"agentConfigDir":`) {
 		t.Fatalf("summary json should include agentConfigDir, got %s", data)
 	}
-	if strings.Contains(string(data), "defaultModelKey") || strings.Contains(string(data), "defaultReasoningEffort") {
-		t.Fatalf("non-CODER summary should omit CODER defaults, got %s", data)
+	if !strings.Contains(string(data), `"defaultModelKey":"agent-model"`) || !strings.Contains(string(data), "defaultReasoningEffort") {
+		t.Fatalf("every native summary should include model defaults, got %s", data)
 	}
 	if _, err := NormalizeAgentSummaryScope("missing"); !errors.Is(err, ErrInvalidAgentSummaryScope) {
 		t.Fatalf("invalid scope error = %v, want ErrInvalidAgentSummaryScope", err)
@@ -1279,13 +1279,33 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 }
 
 func TestAgentSummaryCoderDefaultsFallbackToModelConfigAndMedium(t *testing.T) {
-	modelKey, reasoningEffort := agentSummaryCoderDefaults(AgentDefinition{
+	modelKey, reasoningEffort := agentSummaryModelDefaults(AgentDefinition{
 		Key:      "coder",
 		Mode:     AgentModeCoder,
 		ModelKey: "agent-model",
 	})
 	if modelKey != "agent-model" || reasoningEffort != "MEDIUM" {
 		t.Fatalf("unexpected CODER fallback defaults model=%q reasoning=%q", modelKey, reasoningEffort)
+	}
+}
+
+func TestAgentSummaryReasoningFollowsExecuteStage(t *testing.T) {
+	stage := func(reasoning map[string]any) map[string]any {
+		return map[string]any{"modelConfig": map[string]any{"reasoning": reasoning}}
+	}
+	// An ordinary Run reads execute: its explicit off wins over planning's effort.
+	_, effort := agentSummaryModelDefaults(AgentDefinition{Mode: AgentModeGeneral, StageSettings: map[string]any{
+		"execute":  stage(map[string]any{"enabled": false}),
+		"planning": stage(map[string]any{"effort": "HIGH"}),
+	}})
+	if effort != "NONE" {
+		t.Fatalf("execute reasoning off must report NONE, got %q", effort)
+	}
+	_, effort = agentSummaryModelDefaults(AgentDefinition{Mode: AgentModeGeneral, StageSettings: map[string]any{
+		"planning": stage(map[string]any{"effort": "HIGH", "enabled": false}),
+	}})
+	if effort != "MEDIUM" {
+		t.Fatalf("planning settings must not leak into the summary, got %q", effort)
 	}
 }
 

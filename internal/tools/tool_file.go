@@ -35,9 +35,6 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
 	}
-	if err := filetools.ValidateScopedRead(accessSession, access.Path, false); err != nil {
-		return scopedFileToolError(err), nil
-	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_read_approval_required", "read超出允许目录", access), nil
 	}
@@ -188,14 +185,6 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if err != nil {
 		return filePathResolutionError("file_write_invalid_plan", err), nil
 	}
-	// Administrator blocks come first; an editing-gate block reports the
-	// dedicated KBASE/editing error code from the scoped policy when present.
-	if access.Blocked && !filetools.EditingGateBlocked(access) {
-		return fileToolError("file_write_path_blocked", access.Reason), nil
-	}
-	if err := filetools.ValidateScopedWrite(accessSession, access.Path); err != nil {
-		return scopedFileToolError(err), nil
-	}
 	if access.Blocked {
 		return fileToolError("file_write_path_blocked", access.Reason), nil
 	}
@@ -206,7 +195,6 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if err != nil {
 		return fileToolError("file_write_invalid_plan", err.Error()), nil
 	}
-	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
 	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAllowedBySessionTemp(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
 		result := structuredResultWithExit(map[string]any{
@@ -220,7 +208,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		result.Error = "file_write_approval_required"
 		return result, nil
 	}
-	if t.cfg.FileTools.RequireReadBeforeWrite || scopedSource {
+	if t.cfg.FileTools.RequireReadBeforeWrite {
 		if result, ok := t.validateReadBeforeWrite(plan.FilePath, execCtx); ok {
 			return result, nil
 		}
@@ -257,18 +245,8 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if len(writeBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
 		return fileToolError("file_write_invalid_plan", "encoded content exceeds max write bytes"), nil
 	}
-	if accessSession.ScopedFilePolicy != nil {
-		if err := filetools.ValidateScopedWrite(accessSession, plan.FilePath); err != nil {
-			return scopedFileToolError(err), nil
-		}
-		if filetools.ScopedPathInSource(accessSession, plan.FilePath) != scopedSource {
-			return fileToolError("file_write_path_blocked", "file path crossed the KBASE source boundary before mutation"), nil
-		}
-	}
-	if !scopedSource {
-		if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
-			return fileToolError("file_write_failed", err.Error()), nil
-		}
+	if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
+		return fileToolError("file_write_failed", err.Error()), nil
 	}
 	if err := atomicWriteFile(plan.FilePath, writeBytes); err != nil {
 		return fileToolError("file_write_failed", err.Error()), nil
@@ -326,14 +304,6 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		return filePathResolutionError("file_edit_invalid_plan", err), nil
 	}
 	access.CommandText = "file_edit " + access.Path
-	// Administrator blocks come first; an editing-gate block reports the
-	// dedicated KBASE/editing error code from the scoped policy when present.
-	if access.Blocked && !filetools.EditingGateBlocked(access) {
-		return fileToolError("file_edit_path_blocked", access.Reason), nil
-	}
-	if err := filetools.ValidateScopedWrite(accessSession, access.Path); err != nil {
-		return scopedFileToolError(err), nil
-	}
 	if access.Blocked {
 		return fileToolError("file_edit_path_blocked", access.Reason), nil
 	}
@@ -344,7 +314,6 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if err != nil {
 		return fileToolError("file_edit_invalid_plan", err.Error()), nil
 	}
-	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
 	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAllowedBySessionTemp(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
 		result := structuredResultWithExit(map[string]any{
@@ -358,7 +327,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		result.Error = "file_edit_approval_required"
 		return result, nil
 	}
-	if t.cfg.FileTools.RequireReadBeforeWrite || scopedSource {
+	if t.cfg.FileTools.RequireReadBeforeWrite {
 		if result, ok := t.validateReadBeforeFileMutation(plan.FilePath, execCtx, "file_edit"); ok {
 			return result, nil
 		}
@@ -441,18 +410,8 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if len(updatedBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
 		return fileToolError("file_edit_content_too_large", "edited content exceeds max write bytes"), nil
 	}
-	if accessSession.ScopedFilePolicy != nil {
-		if err := filetools.ValidateScopedWrite(accessSession, plan.FilePath); err != nil {
-			return scopedFileToolError(err), nil
-		}
-		if filetools.ScopedPathInSource(accessSession, plan.FilePath) != scopedSource {
-			return fileToolError("file_edit_path_blocked", "file path crossed the KBASE source boundary before mutation"), nil
-		}
-	}
-	if !scopedSource {
-		if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
-			return fileToolError("file_edit_failed", err.Error()), nil
-		}
+	if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
+		return fileToolError("file_edit_failed", err.Error()), nil
 	}
 	if err := atomicWriteFile(plan.FilePath, updatedBytes); err != nil {
 		return fileToolError("file_edit_failed", err.Error()), nil
@@ -506,9 +465,6 @@ func (t *RuntimeToolExecutor) appendFileChangeHookResults(ctx context.Context, e
 	if t == nil || len(t.fileChangeHooks) == 0 || execCtx == nil {
 		return
 	}
-	if !execCtx.Session.ModeCapabilities.FileChangeHooks {
-		return
-	}
 	if strings.TrimSpace(event.WorkspaceRoot) == "" {
 		return
 	}
@@ -529,14 +485,6 @@ func (t *RuntimeToolExecutor) appendFileChangeHookResults(ctx context.Context, e
 	if len(results) > 0 {
 		payload["hooks"] = results
 	}
-}
-
-func scopedFileToolError(err error) ToolExecutionResult {
-	code := filetools.ScopedPolicyErrorCode(err)
-	if code == "" {
-		code = "kbase_editing_policy_rejected"
-	}
-	return fileToolError(code, err.Error())
 }
 
 func fileChangeHookResultEmpty(result FileChangeHookResult) bool {
@@ -589,8 +537,7 @@ func writeAllowedBySessionWorkspace(execCtx *ExecutionContext, path string) bool
 	if execCtx == nil {
 		return false
 	}
-	return filetools.ScopedPathInSource(execCtx.Session, path) ||
-		filetools.PathInSessionWorkspace(execCtx.Session, path) ||
+	return filetools.PathInSessionWorkspace(execCtx.Session, path) ||
 		filetools.PathInSessionChat(execCtx.Session, path)
 }
 

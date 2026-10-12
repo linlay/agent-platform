@@ -51,3 +51,27 @@ func TestMustUseKbasesDefaultsAndBooleanOverride(t *testing.T) {
 		t.Fatal("nonboolean switch accepted")
 	}
 }
+
+func TestEntryVisibilityDefaultsAndOverrides(t *testing.T) {
+	for _, mode := range []string{"GENERAL", "CODER", "KBASE", "TEAM"} {
+		c := Defaults(mode)
+		if !c.ShowPlanningMode || c.ShowEditingMode != (mode == "KBASE") || c.ShowTerminal != (mode == "CODER") {
+			t.Fatalf("%s entry defaults = %+v", mode, c)
+		}
+	}
+	if c := DefaultsForEngine("KBASE", true); !c.ShowPlanningMode || c.ShowEditingMode {
+		t.Fatalf("ACP entry defaults = %+v", c)
+	}
+	if c := Defaults("PROXY"); c.ShowPlanningMode || c.ShowEditingMode || c.ShowTerminal {
+		t.Fatalf("PROXY must not offer entries by default: %+v", c)
+	}
+	// An explicit value wins over the mode's default in both directions.
+	c, err := Parse("KBASE", map[string]any{"showEditingMode": false, "showTerminal": true})
+	if err != nil || c.ShowEditingMode || !c.ShowTerminal || !c.ShowPlanningMode {
+		t.Fatalf("explicit override = %+v err=%v", c, err)
+	}
+	// The entries are display-only: they never reject a request.
+	if err := c.Validate(false, "default", false); err != nil {
+		t.Fatalf("entry visibility must not gate requests: %v", err)
+	}
+}

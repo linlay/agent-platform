@@ -58,9 +58,6 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
 	}
-	if err := filetools.ValidateScopedRead(accessSession, access.Path, true); err != nil {
-		return scopedFileToolError(err), nil
-	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_read_approval_required", "grep超出允许目录", access), nil
 	}

@@ -317,7 +317,6 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 		KBaseConfig: knowledge.Config{
 			Enabled: true,
 		},
-		KBaseRequirement: knowledge.RequirementRequired,
 	}
 	enabled := true
 	server := &Server{deps: Dependencies{Config: cfg}}
@@ -343,9 +342,8 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if !reflect.DeepEqual(session.ToolNames, wantTools) {
 		t.Fatalf("editing tools = %#v, want %#v", session.ToolNames, wantTools)
 	}
-	if session.ScopedFilePolicy == nil || session.ScopedFilePolicy.WorkspaceRoot != canonicalSource ||
-		!session.ScopedFilePolicy.WorkspaceMutationEnabled || !session.ScopedFilePolicy.RequireExistingParent {
-		t.Fatalf("unexpected scoped file policy: %#v", session.ScopedFilePolicy)
+	if session.WorkspaceReadOnly {
+		t.Fatal("editingMode=true must leave the Workspace writable")
 	}
 
 	disabled := false
@@ -355,8 +353,8 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build read-only session: %v", err)
 	}
-	if readOnly.EditingMode || readOnly.ScopedFilePolicy == nil || readOnly.ScopedFilePolicy.WorkspaceMutationEnabled {
-		t.Fatalf("read-only KBASE must retain a source mutation gate: %#v", readOnly.ScopedFilePolicy)
+	if readOnly.EditingMode || !readOnly.WorkspaceReadOnly {
+		t.Fatalf("editingMode=false must gate Workspace mutation: %#v", readOnly.WorkspaceReadOnly)
 	}
 	if readOnly.WorkspaceRoot != canonicalSource || readOnly.RuntimeContext.LocalPaths.WorkspaceDir != canonicalSource {
 		t.Fatalf("read-only KBASE workspace must remain the source root: %#v", readOnly.RuntimeContext.LocalPaths)
@@ -375,7 +373,7 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build params-only session: %v", err)
 	}
-	if paramsOnly.EditingMode || paramsOnly.ScopedFilePolicy == nil || paramsOnly.ScopedFilePolicy.WorkspaceMutationEnabled {
+	if paramsOnly.EditingMode || !paramsOnly.WorkspaceReadOnly {
 		t.Fatalf("params.editingMode must not enable KBASE editing: %#v", paramsOnly)
 	}
 }
@@ -401,7 +399,6 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		KBaseConfig: knowledge.Config{
 			Enabled: true, LibraryID: "research",
 		},
-		KBaseRequirement: knowledge.RequirementOptional,
 	}
 	server := &Server{deps: Dependencies{Config: cfg}}
 	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
@@ -421,8 +418,8 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 			t.Fatalf("KBASE capability expanded explicit stage tools: %v", stage.Tools)
 		}
 	}
-	if session.ScopedFilePolicy != nil || !session.EditingMode {
-		t.Fatalf("ordinary Agent capability must not inherit dedicated KBASE editing policy: %#v", session.ScopedFilePolicy)
+	if session.WorkspaceReadOnly || !session.EditingMode {
+		t.Fatalf("GENERAL defaults to an editable Workspace: readOnly=%v", session.WorkspaceReadOnly)
 	}
 	if got := session.WorkspaceRoot; got != absTestPath(t, workspace) {
 		t.Fatalf("ordinary Agent KBASE capability workspace = %q, want %q", got, workspace)

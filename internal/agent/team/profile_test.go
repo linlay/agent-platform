@@ -12,7 +12,7 @@ func TestDescriptorDefinesPublicTeamMode(t *testing.T) {
 	if descriptor.CreatePrefix != "team" {
 		t.Fatalf("TEAM must be creatable as an ordinary agent, prefix=%q", descriptor.CreatePrefix)
 	}
-	if !descriptor.Capabilities.InvokeChildren || descriptor.Capabilities.RunAsChild || descriptor.Capabilities.FileChangeHooks {
+	if !descriptor.Capabilities.InvokeChildren || descriptor.Capabilities.RunAsChild {
 		t.Fatalf("unexpected TEAM capabilities %#v", descriptor.Capabilities)
 	}
 	if len(descriptor.Profile.ToolNames) != 0 {

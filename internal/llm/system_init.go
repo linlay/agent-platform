@@ -331,7 +331,6 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 	}
 	if session.EditingMode {
 		payload["editingMode"] = true
-		payload["scopedFilePolicy"] = session.ScopedFilePolicy
 	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)

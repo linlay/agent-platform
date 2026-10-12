@@ -236,7 +236,7 @@ func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T)
 	}
 }
 
-func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
+func TestParseCoderUsesPlanningStageWithoutModeSpecificStageRejection(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.ToSlash(t.TempDir())
 	planningPath := filepath.Join(root, "planning.yml")
@@ -261,8 +261,9 @@ func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
 	if err := os.WriteFile(legacyPath, []byte(legacyConfig), 0o644); err != nil {
 		t.Fatalf("write legacy config: %v", err)
 	}
-	if _, err := parseAgentDefinitionForTest(legacyPath); err == nil || !strings.Contains(err.Error(), "stageSettings.plan is unsupported") {
-		t.Fatalf("expected legacy CODER plan stage rejection, got %v", err)
+	// CODER validates stage names exactly like every other native mode.
+	if _, err := parseAgentDefinitionForTest(legacyPath); err != nil {
+		t.Fatalf("CODER must not add a mode-specific stage rejection, got %v", err)
 	}
 
 	for _, stage := range []string{"planning", "execute"} {
@@ -1210,55 +1211,30 @@ func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsCoderWithoutWorkspace(t *testing.T) {
+func TestParseAgentFileAcceptsCoderWithoutWorkspace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\n"), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for CODER") {
-		t.Fatalf("expected CODER workspace requirement, got %v", err)
+	// mode only supplies defaults; it never requires a Workspace.
+	def, err := parseAgentDefinitionForTest(path)
+	if err != nil || def.Workspace.Root != "" {
+		t.Fatalf("CODER without Workspace must load: root=%q err=%v", def.Workspace.Root, err)
 	}
 }
 
-func TestAgentModeWorkspaceAdmissionMatrix(t *testing.T) {
+func TestOnlySandboxRequiresWorkspace(t *testing.T) {
 	workspace := AgentWorkspaceConfig{Root: "/workspace"}
-	enabledKBase := knowledge.Config{Enabled: true}
-	tests := []struct {
-		name        string
-		mode        string
-		workspace   AgentWorkspaceConfig
-		kbase       knowledge.Config
-		sandbox     bool
-		wantErr     bool
-		errContains string
-	}{
-		{name: "coder host requires workspace", mode: AgentModeCoder, wantErr: true, errContains: "workspaceRoot is required for CODER"},
-		{name: "coder host accepts workspace", mode: AgentModeCoder, workspace: workspace},
-		{name: "react host may omit workspace", mode: "GENERAL"},
-		{name: "plan execute host may omit workspace", mode: "PLAN_EXECUTE"},
-		{name: "proxy host may omit workspace", mode: AgentModeProxy},
-		{name: "channel host may omit workspace", mode: AgentModeChannel},
-		{name: "react sandbox requires workspace", mode: "GENERAL", sandbox: true, wantErr: true, errContains: "workspaceRoot is required for Container Hub sandbox"},
-		{name: "plan execute sandbox accepts workspace", mode: "PLAN_EXECUTE", workspace: workspace, sandbox: true},
-		{name: "kbase uses workspace", mode: AgentModeKBase, workspace: workspace, kbase: enabledKBase},
-		{name: "kbase requires workspace", mode: AgentModeKBase, kbase: enabledKBase, wantErr: true, errContains: "runtimeConfig.workspaceRoot is required"},
+	if err := validateSandboxWorkspace(AgentWorkspaceConfig{}, false); err != nil {
+		t.Fatalf("host agent may omit workspace: %v", err)
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := validateAgentModeWorkspace(test.mode, test.workspace, test.kbase, test.sandbox)
-			if test.wantErr {
-				if err == nil || !strings.Contains(err.Error(), test.errContains) {
-					t.Fatalf("expected error containing %q, got %v", test.errContains, err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected admission error: %v", err)
-			}
-		})
+	if err := validateSandboxWorkspace(workspace, true); err != nil {
+		t.Fatalf("sandbox agent with workspace: %v", err)
+	}
+	if err := validateSandboxWorkspace(AgentWorkspaceConfig{}, true); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for Container Hub sandbox") {
+		t.Fatalf("expected sandbox workspace requirement, got %v", err)
 	}
 }
 
@@ -1311,7 +1287,7 @@ func TestParseAgentFileRejectsInvalidKBaseRetrievalConfig(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileKBaseRequiresLibraryBinding(t *testing.T) {
+func TestParseAgentFileKBaseBindingIsOptional(t *testing.T) {
 	workspace := t.TempDir()
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -1327,9 +1303,10 @@ func TestParseAgentFileKBaseRequiresLibraryBinding(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "KBASE requires kbaseConfig.libraryId") {
-		t.Fatalf("expected missing binding diagnostic, got %v", err)
+	// A binding is optional for every mode, including KBASE.
+	def, err := parseAgentDefinitionForTest(path)
+	if err != nil || def.KBaseConfig.Enabled {
+		t.Fatalf("KBASE without a binding must load unbound: enabled=%v err=%v", def.KBaseConfig.Enabled, err)
 	}
 }
 
@@ -1411,8 +1388,8 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 	if !ok {
 		t.Fatalf("zenmi missing; admin=%#v", admin["zenmi"])
 	}
-	if !def.KBaseConfig.Enabled || def.KBaseRequirement != knowledge.RequirementOptional {
-		t.Fatalf("unexpected capability: enabled=%v requirement=%q", def.KBaseConfig.Enabled, def.KBaseRequirement)
+	if !def.KBaseConfig.Enabled {
+		t.Fatalf("unexpected capability: enabled=%v", def.KBaseConfig.Enabled)
 	}
 	if def.Workspace.Root != filepath.Clean(knowledgeDir) {
 		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, knowledgeDir)
@@ -1619,7 +1596,7 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse %s capability: %v", mode, err)
 			}
-			if !def.KBaseConfig.Enabled || def.KBaseRequirement != knowledge.RequirementOptional {
+			if !def.KBaseConfig.Enabled {
 				t.Fatalf("unexpected %s capability: %#v", mode, def.KBaseConfig)
 			}
 			for _, tool := range knowledge.CapabilityToolNames() {
@@ -1651,19 +1628,6 @@ func TestParseAgentFileIgnoresRemovedKBaseEmbeddingFields(t *testing.T) {
 
 	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "embedding was removed") {
 		t.Fatal(err)
-	}
-}
-
-func TestParseAgentFileRejectsKBaseWithoutWorkspace(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: docs\nmode: KBASE\nkbaseConfig:\n  libraryId: research\n"), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "workspaceRoot is required") {
-		t.Fatalf("expected KBASE workspace error, got %v", err)
 	}
 }
 
@@ -1946,8 +1910,8 @@ func TestParseAgentFileRejectsSandboxCoderWithoutHostWorkspace(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for CODER") {
-		t.Fatalf("expected sandbox CODER workspace requirement, got %v", err)
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for Container Hub sandbox") {
+		t.Fatalf("expected sandbox workspace requirement, got %v", err)
 	}
 }
 

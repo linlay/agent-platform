@@ -6,7 +6,7 @@
 
 普通内置类型为 GENERAL、CODER、KBASE、TEAM；`engine` 缺省 native，显式 acp 使用外部 bridge，不由 acpBridgeId 推断。TEAM 是带成员委派能力的公开 Agent。历史 REACT 只兼容读取，新配置与 API 输入使用 GENERAL。
 
-设计约束：GENERAL/CODER/KBASE/TEAM 的 mode 只提供模板与默认值，不应隐式提供运行时功能或目录授权。当前剩余 mode 专属分支须逐项审查，不能因已有实现而扩展该契约。
+设计约束：GENERAL/CODER/KBASE/TEAM 的 mode 写在 agent.yml 中，只在加载时提供默认值，不提供运行时功能、目录授权、必填校验或专属逻辑。mode 不要求 Workspace 或知识库绑定；项目规则文件、expectedBranch、文件变更 hook、子 Agent 调用、阶段与预算键对四种 mode 一致。尚存的 mode 分支（KBASE editing stage/cache、ACP 内部落为 CODER、TEAM 编排）见 docs/mode-capability-audit.html，不能因已有实现而扩展。
 
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
@@ -49,7 +49,7 @@ cmd/agent-platform/main.go
 - `internal/conversation`、`adminsource`、`chatresource` 分别负责会话/归档编排、源码 mutation 事务、Chat 资源解析和 mutation；Chat 资源沿用 principal/Chat 权限，不借用连接器授权。`internal/chat` 保存会话与回放数据。
 - `internal/connector` 校验、导入和编辑中立连接器包；`connectorauth` 负责部署级授权与 CLI 准备；`connectorops` 提供调用方中立的 CLI/MCP 执行与短期授权，不持有 WebApp、appId、Chat 或页面生命周期，不注册业务 operation/profile。旧包/凭据/MCP 目录迁移和 connector-migrate 命令已移除，`connectormigrate` 仅保留独立 Desktop 工具声明调整。包、挂载与凭据边界见 [连接器](docs/连接器.md)、[安装与授权](docs/连接器安装与授权.md) 和 [执行协议](docs/连接器执行协议.md)。
 - `internal/view` 负责内置与连接器两种来源的 VIEW 定义、声明资源、模板获取与 Chat 快照，无工具执行或 HITL 决策职责；纯 VIEW 不授予 Bash/PATH。
-- `internal/platformcontrol` 维护平台控制操作，知识库管理工具直接调用 kbases.Service，来源审批、配置修订与幂等收据归库服务；KBASE 必须绑定 libraryId，存在性校验归管理入口，catalog loader 只判必填。`runenvops` 是独立 run_env handler，`runenv` 保存进程内 Scope、revision、限额与幂等收据；`toolpolicy` 提供中立调度属性。
+- `internal/platformcontrol` 维护平台控制操作，知识库管理工具直接调用 kbases.Service，来源审批、配置修订与幂等收据归库服务；libraryId 绑定对所有 mode 可选，配置后的存在性校验归管理入口，Run 启动按绑定而非 mode 校验。`runenvops` 是独立 run_env handler，`runenv` 保存进程内 Scope、revision、限额与幂等收据；`toolpolicy` 提供中立调度属性。
 - `internal/memory` 负责 Markdown 文件、revision 与查询，不持有知识索引；`memoryworker` 调度已完成 Chat、同步模型配置并调用 memx，不自行生成记忆文件，不依赖 Server。参见 [记忆系统](docs/记忆系统.md)。
 - `internal/kbases` 负责知识库定义、collection 来源、持久状态、目录监听和维护调度。`internal/kbx` 是知识库执行门面，使用受管 CLI 与 chunk/evidence 协议，Platform worker 按库 ID 管理监听、update/embed 和重启对账；不运行 kbx watch。`internal/knowledge` 保存中立的 capability 配置、DTO、工具处理器、路径过滤和引用发布契约，不持有索引、存储或进程管理，不得 import agent 或 catalog。`internal/agent/kbase` 保存专用 KBASE mode 规则。对外 KBASE mode、工具、REST 和 sidecar JSON 字段由这些模块提供。参见 [KBX 接入](docs/KBX接入.md)。
 - `internal/config` 负责配置装载；`httpclient` 统一出站客户端与代理，不修改全局 Transport 或进程环境，内部服务直连；代理平台限制见 [HTTP 客户端与系统代理](docs/HTTP客户端与系统代理.md)。
@@ -86,7 +86,7 @@ cmd/agent-platform/main.go
 
 `docs/` 是特色能力的主说明区；当前项目事实文件 `AGENTS.md` 只保留事实总览、开发入口和专题索引。
 
-知识库以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。专用 Native KBASE 通过一个 `kbaseConfig.libraryId` 固定绑定库；普通 Native Agent 挂载 `builtin.kbase-control` 后可按 `libraryId` 检索任意可读库，非空 `mustUseKbases` 固化本 Run 必须使用的库（最多 8 个），不授予额外工具或写权限，Workspace 与来源解耦；知识库服务按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude、库级与集合逐字段合并的 chunk、库级 textEncoding 纳入来源指纹；description 不计入，models.embedding 从共享 registry 选择模型并覆盖 runtime 默认，模型合同变化仅重建全库向量、全文仍可读；retrieval 按库默认→匹配固定绑定库的 Agent 显式覆盖→单次调用合并，models.reranker/queryExpansion 和 collection.defaultQuery 下次查询生效、不计入指纹；默认排除不禁止显式选择或回读；库删除有引用时 409。旧 Agent enabled/storage 等字段与 AP_RUNTIME_KBASE_DIR 硬切；旧 ru-kbases/libraries 层与 runtime/kbase 索引目录完全忽略，不进行旧布局检查、不加载、不迁移，知识库服务按库配置自动在新布局生成索引。见 [知识库](docs/知识库.md) 与 [KBX 接入](docs/KBX接入.md)。
+知识库以 `<AP_RUNTIME_DIR>/kbases/<id>/library.yml` 保存来源配置，以 `ru-kbases/<id>/` 保存 KBX 数据和状态。`ru-kbases` 跨重启保留，不能按 `ru-*` 清理。任何 Native Agent 可通过一个可选的 `kbaseConfig.libraryId` 固定绑定库（KBASE 不强制）；普通 Native Agent 挂载 `builtin.kbase-control` 后可按 `libraryId` 检索任意可读库，非空 `mustUseKbases` 固化本 Run 必须使用的库（最多 8 个），不授予额外工具或写权限，Workspace 与来源解耦；知识库服务按库自动监听、500ms 合并、五分钟及重启对账。普通内容刷新保持已提交内容可读，全文完成而 embedding 失败时 degraded；范围变化、未知 partial 或中断禁读并重试。collection 的 include/exclude、库级与集合逐字段合并的 chunk、库级 textEncoding 纳入来源指纹；description 不计入，models.embedding 从共享 registry 选择模型并覆盖 runtime 默认，模型合同变化仅重建全库向量、全文仍可读；retrieval 按库默认→匹配固定绑定库的 Agent 显式覆盖→单次调用合并，models.reranker/queryExpansion 和 collection.defaultQuery 下次查询生效、不计入指纹；默认排除不禁止显式选择或回读；库删除有引用时 409。旧 Agent enabled/storage 等字段与 AP_RUNTIME_KBASE_DIR 硬切；旧 ru-kbases/libraries 层与 runtime/kbase 索引目录完全忽略，不进行旧布局检查、不加载、不迁移，知识库服务按库配置自动在新布局生成索引。见 [知识库](docs/知识库.md) 与 [KBX 接入](docs/KBX接入.md)。
 
 ## 5. 数据结构
 
@@ -140,7 +140,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 - 连接器包版本由资源发布方维护；Platform 不根据来源市场或重新打包动作推断版本，不用 CLI 或 Skill 版本替代连接器版本。具体服务适配应留在连接器资源包，项目文档只描述通用契约。
 - kbase-control 提供 list/search/files/read/status，四个检索工具均必填 libraryId；Agent refresh REST、kbase_refresh 和 kbase.refreshTerminal 已删除，知识库服务自动维护同批提供。查询预算不改变库索引范围。
 - `kbase_search` 支持 query/search/vsearch/gsearch，复合过滤与 Agent 范围取交集；纯全文不解析模型配置，严格向量/图检索不静默回退。图关系和边证据保留并检查来源范围；Platform 尚不自动建图，共享库绑定已接入，重排和查询扩展通过库 models.reranker/queryExpansion 接入；reranker 引用 registry type: reranker（必填 reranker.endpointPath），扩展引用 OPENAI Chat Completions。参数和验证边界见 [KBX 接入](docs/KBX接入.md)。
-- editingMode 是四种 Native Agent 的通用 Workspace 编辑开关；mode 只能提供模板默认值，显式 true/false 不按 mode 限制。省略时 KBASE 默认 false，GENERAL/CODER/TEAM 默认 true，规划 Run 始终只读。Workspace 始终是最终 canonical runtimeConfig.workspaceRoot，当前 Chat 目录独立；library.collections[].editable 与 collection Run 授权链路已删除，旧字段在 YAML/API 输入拒绝。来源目录的文件/Bash 权限统一由 Workspace、hostAccess 与 AccessPolicy/HITL 决定，绑定/选库不增加读写根，容器挂载须显式配置。当前 KBASE 结构化文件工具仍保留已有文件先读后写、新文件父目录存在的附加保护，此 mode 特殊行为待单独审查；不覆盖 AccessPlan，也不限制文本扩展名或编码。
+- editingMode 是四种 Native Agent 的通用 Workspace 编辑开关；mode 只能提供模板默认值，显式 true/false 不按 mode 限制。省略时 KBASE 默认 false，GENERAL/CODER/TEAM 默认 true，规划 Run 始终只读。Workspace 始终是最终 canonical runtimeConfig.workspaceRoot，当前 Chat 目录独立；library.collections[].editable 与 collection Run 授权链路已删除，旧字段在 YAML/API 输入拒绝。来源目录的文件/Bash 权限统一由 Workspace、hostAccess 与 AccessPolicy/HITL 决定，绑定/选库不增加读写根，容器挂载须显式配置。KBASE 专属的结构化文件附加保护已删除，文件工具对四种 mode 行为一致，先读后写只跟随 file-tools 全局配置。
 - 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。
 
 ## 8. 开发流程
@@ -184,6 +184,8 @@ make test
 - `/healthz` 报告 KBX 维护能力；单个库或 Agent 绑定失效不使平台返回 503，Run 与工具独立检查库是否就绪。
 - 当前 KBASE 只对文本抽取结果做 embedding/FTS；PDF/DOCX/PPTX/HTML 均是先抽取文本，不得宣称支持图片、音频或视频语义检索。
 - SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。仅在 `app.New` 启动装配期，`chats.db`、`archive.db` 的标记恰为 `0/0`，且表、列语义、约束、索引、触发器和 FTS 对象完整匹配当前 DDL 时，服务才会在事务中写入当前标记；列物理顺序不影响比较。运行期仅验证，绝不认领、迁移、删除或修复。其他标记组合或结构差异拒绝并阻止启动。KBX 数据合同由受管 CLI 校验。
+
+客户端入口由后端决定：`interactionConfig.showPlanningMode/showEditingMode/showTerminal` 是 mode 提供默认值、agent.yml 可覆盖的展示开关，不做请求准入；默认规划入口四种 Native 都展示，编辑入口只有 KBASE 展示，终端入口只有 CODER 展示。编辑开关在客户端初始为关闭，展示时显式发送、隐藏时省略并由后端取 Agent 默认。WebClient 不得按 mode 或 engine 判断入口，项目入口按 `workspaceDir` 判断。`activeRun` 返回本次 Run 的 planningMode 与 editingMode 供刷新后还原，`request.query` 中的 editingMode 仍是恢复依据。
 
 `/api/agent` 的 tools、skills、connectors 均为 ID 数组：tools/skills 反映已发布运行时，connectors 反映已保存的非预置挂载；不返回技能展示对象或 toolBindings，后者仅由管理详情与保存响应返回。连接器使用与管理接口分离：使用接口仅返回前端展示和选择所需字段，并过滤平台预置；管理接口保留完整信息，预置挂载只读。隐藏目录不改变运行时自动挂载，非预置 builtin 仍可选择。接口和错误契约见 [连接器](docs/连接器.md#使用目录与管理目录)。
 

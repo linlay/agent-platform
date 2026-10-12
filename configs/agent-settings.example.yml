@@ -96,6 +96,7 @@ coder:
     file: AGENTS.md
 
 kbase:
+  # workspace-agents is accepted here and under general/team with the same meaning.
   preset-tools: []
   # kbase_search/files/read/status belong to builtin.kbase-control.
   preset-connectors:

@@ -188,7 +188,7 @@ func TestKBasePlanningRunDoesNotEnableWorkspaceEditing(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build session: %v", err)
 		}
-		return session.PlanningMode, session.EditingMode, session.ScopedFilePolicy != nil && session.ScopedFilePolicy.WorkspaceMutationEnabled, session.ConfirmedPlanRun, session.ToolNames
+		return session.PlanningMode, session.EditingMode, !session.WorkspaceReadOnly, session.ConfirmedPlanRun, session.ToolNames
 	}
 
 	planning, editing, mutation, confirmed, _ := build(api.QueryRequest{RunID: "run-plan", PlanningMode: &enabled, EditingMode: &enabled})

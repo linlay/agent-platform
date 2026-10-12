@@ -370,7 +370,6 @@ type QuerySession struct {
 	// plan; ToolNames already has the execution exclusions applied.
 	ConfirmedPlanRun bool
 	EditingMode      bool
-	ScopedFilePolicy *ScopedFilePolicy
 
 	Created                     bool
 	Subject                     string
@@ -460,15 +459,6 @@ type SandboxExtraMount struct {
 	Source      string
 	Destination string
 	Mode        string
-}
-
-// ScopedFilePolicy is a run-scoped gate for dedicated structured file tools.
-// Path authorization remains owned by AccessPolicy. WorkspaceRoot identifies
-// the dedicated KBASE workspace for workspace-specific mutation safeguards.
-type ScopedFilePolicy struct {
-	WorkspaceRoot            string
-	WorkspaceMutationEnabled bool
-	RequireExistingParent    bool
 }
 
 type HostAccessRoots struct {
@@ -687,8 +677,9 @@ type ActiveRun struct {
 	ChatID   string
 	AgentKey string
 
-	ScopeID     string
-	EditingMode bool
+	ScopeID      string
+	PlanningMode bool
+	EditingMode  bool
 }
 
 type RunStatusInfo struct {
@@ -704,6 +695,7 @@ type RunStatusInfo struct {
 	CompletedAt        int64
 	AccessLevel        string
 	AccessLevelVersion int64
+	PlanningMode       bool
 	EditingMode        bool
 	RunOrigin          *RunOrigin `json:"-"`
 }

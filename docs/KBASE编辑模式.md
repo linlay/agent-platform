@@ -32,6 +32,6 @@ Run 会冻结解析后的 Workspace 编辑能力。`request.query` 持久化按�
 
 ## 仍待审查的 mode 特殊行为
 
-当前 KBASE 的结构化文件工具仍通过 Workspace 范围的 `ScopedFilePolicy` 要求已有文件完整先读后写、新文件父目录已存在，并保留专用错误码。这个遗留行为没有推广给其他 mode，须在 mode 能力审查中单独决定保留为通用规则、改为显式配置或移除。KBASE 的 main/editing prompt 与 cache 分支也仍待单独审查。
+KBASE 原有的 `ScopedFilePolicy`（强制先读后写、新文件父目录必须存在、专用错误码、专属工具集准入）已移除，文件工具行为与其他 mode 完全一致。KBASE 的 main/editing prompt 与 cache 分支仍按 mode 切换 stage，尚未改造，待单独处理。
 
 权限回归入口：`internal/runtime/session/workspace_editing_test.go`、`internal/accesspolicy/capability_test.go`、`internal/tools/kbase_editing_adversarial_test.go`。

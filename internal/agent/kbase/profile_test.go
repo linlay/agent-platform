@@ -36,9 +36,6 @@ func TestApplyCreateToolDefaultsOnlyWhenToolsAreNotDeclared(t *testing.T) {
 }
 
 func TestEditingProfileUsesIndependentStageCacheAndExactTools(t *testing.T) {
-	if Descriptor().Capabilities.FileChangeHooks {
-		t.Fatal("KBASE mode must not enable synchronous file-change hooks")
-	}
 	if RuntimeStage(true) != EditingStage || SystemInitCacheKey(EditingStage) != EditingCacheKey {
 		t.Fatalf("unexpected editing stage/cache: %q %q", RuntimeStage(true), SystemInitCacheKey(EditingStage))
 	}

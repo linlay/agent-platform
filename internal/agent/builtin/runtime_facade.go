@@ -3,6 +3,7 @@ package builtin
 import (
 	"strings"
 
+	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/agent/coder"
 	"agent-platform/internal/agent/general"
 	"agent-platform/internal/agent/kbase"
@@ -26,14 +27,13 @@ type PlanContinuationRequestInput = planmode.ContinuationRequestInput
 type CoderCreateDefaults = coder.CreateDefaults
 type KBaseCreateDefaults = kbase.CreateDefaults
 type GeneralCreateDefaults = general.CreateDefaults
-type GeneralWorkspacePromptPolicy = general.WorkspacePromptPolicy
 type TeamMemberSpec = agentteam.MemberSpec
 type TeamPromptConfig = agentteam.PromptConfig
 type CoderACPBridgeConfig = coder.ACPBridgeConfig
 type CoderACPRoutingConfig = coder.ACPRoutingConfig
-type CoderProjectPromptFile = coder.ProjectPromptFile
-type CoderWorkspacePromptPolicy = coder.WorkspacePromptPolicy
-type CoderWorkspaceGitPolicy = coder.WorkspaceGitPolicy
+type ProjectPromptFile = agentcontract.ProjectPromptFile
+type WorkspacePromptPolicy = agentcontract.WorkspacePromptPolicy
+type WorkspaceGitPolicy = agentcontract.WorkspaceGitPolicy
 
 func IsCoderMode(mode string) bool     { return coder.IsMode(mode) }
 func IsKBaseMode(mode string) bool     { return kbase.IsMode(mode) }
@@ -125,9 +125,6 @@ func ApplyCoderCreateDefaults(definition map[string]any, defaults CoderCreateDef
 func ApplyGeneralCreateDefaults(definition map[string]any, defaults GeneralCreateDefaults) map[string]any {
 	return general.ApplyCreateDefaults(definition, defaults)
 }
-func GeneralLoadWorkspacePrompt(policy GeneralWorkspacePromptPolicy) (string, error) {
-	return general.LoadWorkspacePrompt(policy)
-}
 func ApplyKBaseCreateDefaults(definition map[string]any, defaults KBaseCreateDefaults) map[string]any {
 	return kbase.ApplyCreateDefaults(definition, defaults)
 }
@@ -140,11 +137,11 @@ func CoderResolveACPBridge(bridgeID string, lookup func(string) (CoderACPBridgeC
 func CoderResolveACPModelOptions(mode, modelKey string, existing *api.QueryModelOptions, resolve func(string) string) *api.QueryModelOptions {
 	return coder.ResolveACPModelOptions(mode, modelKey, existing, resolve)
 }
-func CoderValidateWorkspaceGit(policy CoderWorkspaceGitPolicy) error {
-	return coder.ValidateWorkspaceGit(policy)
+func ValidateWorkspaceGit(policy WorkspaceGitPolicy) error {
+	return agentcontract.ValidateWorkspaceGit(policy)
 }
-func CoderLoadWorkspacePrompt(policy CoderWorkspacePromptPolicy) (string, error) {
-	return coder.LoadWorkspacePrompt(policy)
+func LoadWorkspacePrompt(policy WorkspacePromptPolicy) (string, error) {
+	return agentcontract.LoadWorkspacePrompt(policy)
 }
 func KBaseCreateToolNames() []string         { return kbase.CreateToolNames() }
 func TeamDefaultBudget() map[string]any      { return agentteam.DefaultBudget() }
