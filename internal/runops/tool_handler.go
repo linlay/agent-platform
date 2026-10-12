@@ -132,9 +132,11 @@ func startRequest(args map[string]any, origin contracts.RunOrigin, execCtx *cont
 	request.AgentKey = strings.TrimSpace(contracts.AnyStringNode(args["agentKey"]))
 	request.ChatID = strings.TrimSpace(contracts.AnyStringNode(args["chatId"]))
 	request.Origin = origin
-	// Resolve each omitted field from the actual executing model before review
-	// and idempotency, including when the caller selects another Agent.
-	if execCtx != nil && execCtx.CurrentModel != nil {
+	// A start that stays on the calling Agent resolves each omitted field from
+	// the actual executing model before review and idempotency. Another Agent
+	// keeps its own configured model and effort unless the call names them.
+	sameAgent := request.AgentKey == "" || request.AgentKey == strings.TrimSpace(origin.AgentKey)
+	if sameAgent && execCtx != nil && execCtx.CurrentModel != nil {
 		if request.ModelKey == "" {
 			request.ModelKey = execCtx.CurrentModel.Key
 		}

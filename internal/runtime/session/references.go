@@ -10,13 +10,14 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	"agent-platform/internal/interaction"
 	"agent-platform/internal/runtime/reference"
 	"agent-platform/internal/skillsexec"
 )
 
 // PrepareRunReferences resolves locator types using trusted catalog/storage
 // metadata. Files keep their existing query/steer-specific validation boundary.
-func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.QuerySession, def catalog.AgentDefinition, refs []queryinput.Reference, steer, scripts bool) (result contracts.ReferenceGrant, prepareErr error) {
+func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.QuerySession, def catalog.AgentDefinition, refs []queryinput.Reference, steer, scripts, skipInteraction bool) (result contracts.ReferenceGrant, prepareErr error) {
 	defer func() {
 		if prepareErr != nil {
 			var request *runtimetypes.RequestError
@@ -39,7 +40,14 @@ func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.Qu
 	if session.InteractionConfig != nil {
 		policy = *session.InteractionConfig
 	}
+	// A sandbox mounts /skills-center from the Agent's own switch; skipping the
+	// policy cannot add that mount to the Run.
+	skillsUnmounted := skipInteraction && !policy.Attachment.Skills && HasRuntimeSandbox(def.Runtime) && !PromptContextHasPlatformMount(def.Runtime["sandboxMounts"], "skills-center")
 	def.InteractionConfig = &policy
+	if skipInteraction {
+		def = WithoutAttachmentPolicy(def)
+		policy = *def.InteractionConfig
+	}
 	remote := IsProxyRoutedAgent(def) || def.Engine == catalog.AgentEngineACP || catalog.AgentIsChannelMode(def.Mode)
 	for _, ref := range refs {
 		if remote && (ref.Type == "chat" || ref.Type == "kbase" || ref.Type == "skill") {
@@ -56,6 +64,10 @@ func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.Qu
 			resolved, err := b.ResolveSkills(def, []string{ref.ID})
 			if err != nil {
 				return grant, ReferencedSkillUnavailableStatus(err)
+			}
+			// Skills configured on the Agent live in its own runtime directory.
+			if skillsUnmounted && resolved.HasExtraSkills {
+				return grant, fmt.Errorf("skill references are unavailable: this Agent's sandbox does not mount skills-center")
 			}
 			roots, err := ReferencedSkillRunAccess(resolved.Skills)
 			if err != nil {
@@ -102,6 +114,16 @@ func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.Qu
 	return grant, nil
 }
 
+// WithoutAttachmentPolicy returns a copy whose reference entries are all open,
+// for a trusted Agent tool entry. The caller's definition and any frozen Run
+// snapshot are left unchanged.
+func WithoutAttachmentPolicy(def catalog.AgentDefinition) catalog.AgentDefinition {
+	policy := def.Interaction()
+	policy.Attachment = interaction.Attachment{LocalFiles: true, Skills: true, Kbases: true, ChatRecords: true}
+	def.InteractionConfig = &policy
+	return def
+}
+
 // BindReferencePreparer captures the Run's frozen definition and interaction
 // policy. The resulting callback prepares a transaction, never commits it.
 func (b *Builder) BindReferencePreparer(session *contracts.QuerySession, def catalog.AgentDefinition, scripts bool) {
@@ -122,7 +144,7 @@ func (b *Builder) BindReferencePreparer(session *contracts.QuerySession, def cat
 				return req, fmt.Errorf("message is required for skill, kbase or site references")
 			}
 		}
-		grant, err := b.PrepareRunReferences(context.Background(), frozen, def, req.References, true, scripts)
+		grant, err := b.PrepareRunReferences(context.Background(), frozen, def, req.References, true, scripts, req.Source.FromAgent())
 		if err != nil {
 			return req, err
 		}

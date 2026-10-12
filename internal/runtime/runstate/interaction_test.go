@@ -3,6 +3,7 @@ package runstate
 import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/interaction"
 	"context"
 	"testing"
@@ -22,5 +23,10 @@ func TestInteractionPolicyFrozenForActiveRun(t *testing.T) {
 	steer := m.Steer(api.SteerRequest{RunID: "interaction-run", References: []api.Reference{{Type: "chat"}}})
 	if steer.Accepted || steer.Status != "interaction_disabled" {
 		t.Fatalf("steer ack: %+v", steer)
+	}
+	// chat_steer is a trusted Agent entry and is not gated by the user policy.
+	steer = m.Steer(api.SteerRequest{RunID: "interaction-run", References: []api.Reference{{Type: "chat"}}, Source: &queryinput.SteerSource{Type: "agent"}})
+	if steer.Status == "interaction_disabled" {
+		t.Fatalf("agent steer ack: %+v", steer)
 	}
 }

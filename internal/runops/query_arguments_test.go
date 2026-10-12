@@ -171,7 +171,11 @@ func TestChatStartInheritsCurrentRunModelBeforeReviewAndStart(t *testing.T) {
 		agent, model, effort string
 	}{
 		{"message only", map[string]any{"message": "task"}, "zenmi", "run-model", "HIGH"},
-		{"other agent", map[string]any{"message": "task", "agentKey": "worker"}, "worker", "run-model", "HIGH"},
+		{"same agent named", map[string]any{"message": "task", "agentKey": "zenmi"}, "zenmi", "run-model", "HIGH"},
+		{"other agent", map[string]any{"message": "task", "agentKey": "worker"}, "worker", "", ""},
+		{"other agent continue", map[string]any{"message": "task", "agentKey": "worker", "chatId": "existing"}, "worker", "", ""},
+		{"other agent model only", map[string]any{"message": "task", "agentKey": "worker", "modelKey": "override"}, "worker", "override", ""},
+		{"other agent effort only", map[string]any{"message": "task", "agentKey": "worker", "reasoningEffort": "LOW"}, "worker", "", "LOW"},
 		{"continue", map[string]any{"message": "task", "chatId": "existing"}, "zenmi", "run-model", "HIGH"},
 		{"model only", map[string]any{"message": "task", "modelKey": "override"}, "zenmi", "override", "HIGH"},
 		{"effort only", map[string]any{"message": "task", "reasoningEffort": "LOW"}, "zenmi", "run-model", "LOW"},
@@ -191,11 +195,16 @@ func TestChatStartInheritsCurrentRunModelBeforeReviewAndStart(t *testing.T) {
 			if req.AgentKey != tc.agent || req.ModelKey != tc.model || req.ReasoningEffort != tc.effort {
 				t.Fatalf("effective request=%#v", req)
 			}
-			// Effective inherited values participate in idempotency.
+			// Effective inherited values participate in idempotency; a start
+			// for another Agent does not depend on the caller's model.
+			wantReplay := "idempotency_conflict"
+			if tc.agent != "zenmi" {
+				wantReplay = ""
+			}
 			exec.CurrentModel.Key = "changed"
 			exec.CurrentModel.ReasoningEffort = "MAX"
 			result, err = handler.Invoke(context.Background(), StartToolName, tc.args, exec)
-			if err != nil || result.Error != "idempotency_conflict" || service.starts != 1 {
+			if err != nil || result.Error != wantReplay || service.starts != 1 {
 				t.Fatalf("replay=%#v err=%v starts=%d", result, err, service.starts)
 			}
 		})

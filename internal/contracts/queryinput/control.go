@@ -254,6 +254,12 @@ type SteerSource struct {
 	ToolID   string `json:"toolId"`
 }
 
+// FromAgent reports a steer sent through chat_steer. interactionConfig limits
+// what a user may select, so it does not apply to that trusted tool entry.
+func (s *SteerSource) FromAgent() bool {
+	return s != nil && s.Type == "agent"
+}
+
 func (s *SteerSource) Clone() *SteerSource {
 	if s == nil {
 		return nil

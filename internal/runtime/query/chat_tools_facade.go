@@ -208,7 +208,10 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 		AccessLevel:     plan.AccessLevel,
 		References:      append([]queryinput.Reference(nil), request.References...),
 		InitialChatName: strings.TrimSpace(request.ChatName),
-		ChatSource:      queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
+		// The target's interactionConfig limits user selection only; model
+		// validity, permission review and reference authorization still apply.
+		SkipInteractionPolicy: true,
+		ChatSource:            queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
 	}
 	if modelKey, effort := strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort); modelKey != "" || effort != "" {
 		req.Model = &runtimetypes.QueryModelOptions{Key: modelKey, ReasoningEffort: effort}
