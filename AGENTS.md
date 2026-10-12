@@ -134,7 +134,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 - TEAM 是公开 mode：通用机制归 `internal/agent`，调度归 `internal/agent/team`。总控与成员一起冻结版本和租约；成员不可为 TEAM/ACP、不可带 agent_invoke。规划 Run 禁用 agent_delegate，执行 Run 可委派。详见 [智能体配置](docs/智能体配置说明.md#team-agent-配置)。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
 - 内置工具的显式 boolean 字段兼容精确字符串 `"true"` / `"false"`，公共方法归 `internal/toolinput`，在相关校验和审批前归一化；不转换普通文本或 MCP/开放参数，不放宽 HTTP/WS API 类型，详见 [MCP与工具交互](docs/MCP与工具交互.md#内置工具布尔参数兼容)。
-- Agent 创建复用 `/api/admin/agents/create`；请求级 `isProject:true` 强制具体、现存且非 canonical 文件系统根的 Workspace，拒绝 `@root`。模型的 catalog validate/apply 使用同名 boolean，审批绑定并在发布前复验；标志不写入 `agent.yml`，Projects 仍按公开 `workspaceDir` 判断。省略或 false 保留普通 Agent 契约，详见 [智能体创建](docs/智能体配置说明.md#智能体创建)。
+- Agent 创建复用 `/api/admin/agents/create`；所有项目创建（包括知识库项目）必须写入 `runtimeConfig.workspaceRoot` 并传请求级 `isProject:true`，强制具体、现存且非 canonical 文件系统根的 Workspace，拒绝 `@root`。模型的 catalog validate/apply 使用同名 boolean，审批绑定并在发布前复验；知识来源与 Workspace 独立不免除项目目录要求。标志不写入 `agent.yml`，Projects 仍按公开 `workspaceDir` 判断。省略或 false 保留普通 Agent 契约，详见 [智能体创建](docs/智能体配置说明.md#智能体创建)。
 - AWCP 遵循网站手册渐进披露：固定工具 `awcp_manual` 返回目录/章节说明，章节请求携带 `section` 与 `revision`，页面通过 `surfaceId` 在 Run grant 内选择，通用 `awcp_invoke` 接收内联 `revision/action/args` 或互斥的 `paramsFile`；文件仅含这三个字段，复用 CDP 文件权限、审批和大小限制，wire 只发送解析后的 JSON。网站说明只作为工具结果，`internal/llm` 不得加入 AWCP 专属状态、动态 Schema、纠错预算或调度分支；授权页面与业务校验留在工具/Desktop/网站边界。详见 [MCP与工具交互](docs/MCP与工具交互.md)。
 - Desktop 普通 Action 白名单跟随 `desktop/src/shared/desktop-actions.ts`，排除仅限 WebApp page 的动作；相邻仓库存在时工具测试直接核对上游定义，CI 可通过 `DESKTOP_SOURCE` 指定 checkout，见 [MCP与工具交互](docs/MCP与工具交互.md)。
 - 连接器包版本由资源发布方维护；Platform 不根据来源市场或重新打包动作推断版本，不用 CLI 或 Skill 版本替代连接器版本。具体服务适配应留在连接器资源包，项目文档只描述通用契约。

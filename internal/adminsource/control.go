@@ -692,6 +692,11 @@ func (s *ControlService) applyLocked(ctx context.Context, c ControlChange, calle
 			return nil, fmt.Errorf("approval_stale: bound library definition or source permissions changed")
 		}
 	}
+	if p.Change.IsProject {
+		if e = s.ValidateProject(p.Change.ControlTarget, p.Change.Content); e != nil {
+			return nil, e
+		}
+	}
 	backup := stage + "-backup"
 	state = "unknown"
 	if p.exists {

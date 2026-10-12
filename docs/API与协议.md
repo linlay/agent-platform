@@ -126,7 +126,7 @@ TEAM 正常出现在 `/api/agents`，详情 `/api/agent` 带 `teamConfig`；scop
 
 ### Admin
 
-Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.workspaceRoot` 是具体、现存且非 canonical 文件系统/驱动器/共享根的绝对目录，拒绝 `@root`；失败在写盘前返回 HTTP 400 `invalid_project_workspace`。省略或 false 保留普通 Agent 契约，标志不持久化。具体创建与模型工具的同名校验见 [智能体创建](智能体配置说明.md#智能体创建)。
+Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.workspaceRoot` 显式为非空字符串，指向具体、现存且非 canonical 文件系统/驱动器/共享根的绝对目录，拒绝缺字段、null、非字符串、空白值与 `@root`；失败在写盘前返回 HTTP 400 `invalid_project_workspace`。模型工具的 validate/apply 携带同名标志时复用后端强校验：validate 返回无效候选，apply 在审批前拒绝，并在实际发布前再次核验目录；知识库绑定及 access level 均不豁免。省略或 false 保留普通 Agent 契约，标志不持久化。具体创建与模型工具的同名校验见 [智能体创建](智能体配置说明.md#智能体创建)。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|

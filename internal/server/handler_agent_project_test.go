@@ -15,30 +15,34 @@ import (
 
 func TestCreateProjectRejectsInvalidWorkspaceBeforeWriting(t *testing.T) {
 	workspace := t.TempDir()
-	for _, root := range []string{"", "@root", filepath.VolumeName(workspace) + string(os.PathSeparator), "relative-project", filepath.Join(workspace, "missing")} {
-		t.Run(root, func(t *testing.T) {
-			fixture := newTestFixture(t)
-			body, _ := json.Marshal(map[string]any{
-				"key": "project-candidate", "isProject": true,
-				"definition": map[string]any{
-					"mode": "GENERAL", "modelConfig": map[string]any{"modelKey": "mock-model"},
-					"runtimeConfig": map[string]any{"workspaceRoot": root},
-				},
-			})
-			rec := httptest.NewRecorder()
-			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
-			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_project_workspace") {
-				t.Fatalf("unexpected response: %d %s", rec.Code, rec.Body.String())
-			}
-			if _, err := os.Stat(filepath.Join(fixture.server.deps.Config.Paths.AgentsDir, "project-candidate")); !os.IsNotExist(err) {
-				t.Fatalf("invalid project wrote an Agent directory: %v", err)
+	for _, mode := range []string{"GENERAL", "CODER", "KBASE", "TEAM"} {
+		t.Run(mode, func(t *testing.T) {
+			for _, root := range []string{"", "@root", filepath.VolumeName(workspace) + string(os.PathSeparator), "relative-project", filepath.Join(workspace, "missing")} {
+				t.Run(root, func(t *testing.T) {
+					fixture := newTestFixture(t)
+					body, _ := json.Marshal(map[string]any{
+						"key": "project-candidate", "isProject": true,
+						"definition": map[string]any{
+							"mode": mode, "modelConfig": map[string]any{"modelKey": "mock-model"},
+							"runtimeConfig": map[string]any{"workspaceRoot": root},
+						},
+					})
+					rec := httptest.NewRecorder()
+					fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+					if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_project_workspace") {
+						t.Fatalf("unexpected response: %d %s", rec.Code, rec.Body.String())
+					}
+					if _, err := os.Stat(filepath.Join(fixture.server.deps.Config.Paths.AgentsDir, "project-candidate")); !os.IsNotExist(err) {
+						t.Fatalf("invalid project wrote an Agent directory: %v", err)
+					}
+				})
 			}
 		})
 	}
 }
 
 func TestCreateProjectPublishesWorkspaceIdentityWithoutPersistingIntent(t *testing.T) {
-	for _, mode := range []string{"GENERAL", "CODER"} {
+	for _, mode := range []string{"GENERAL", "CODER", "KBASE"} {
 		t.Run(mode, func(t *testing.T) {
 			fixture := newTestFixture(t)
 			workspace := t.TempDir()

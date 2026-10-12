@@ -88,6 +88,51 @@ func TestCatalogKnowledgeBindingRecheckedAfterStaging(t *testing.T) {
 	}
 }
 
+func TestCatalogProjectWorkspaceRecheckedAfterStaging(t *testing.T) {
+	s := controlFixture(t)
+	libraries, err := kbases.New(context.Background(), t.TempDir(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	library, err := libraries.Create(kbases.Input{Name: "Docs", SourcePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	s.ValidateLibrary = libraries.ValidateBinding
+	reads := 0
+	s.LibraryDefinition = func(id string) (kbases.Definition, error) {
+		reads++
+		if reads == 3 {
+			if err := os.Remove(workspace); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return libraries.BindingDefinition(id)
+	}
+	change := ControlChange{
+		ControlTarget: ControlTarget{ResourceType: "agent", ResourceKey: "project-agent"},
+		Action:        "apply",
+		IsProject:     true,
+		Content:       fmt.Sprintf("key: project-agent\nmode: KBASE\nmodelConfig:\n  modelKey: test\nruntimeConfig:\n  workspaceRoot: %q\nkbaseConfig:\n  libraryId: %s\n", workspace, library.ID),
+	}
+	plan, err := s.Prepare(change, "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Apply(context.Background(), change, "caller", plan.Digest)
+	var failure *contracts.MutationError
+	if !errors.As(err, &failure) || failure.State != "not_started" || !strings.Contains(err.Error(), "workspaceRoot must be an existing directory") {
+		t.Fatalf("project whose Workspace disappeared after staging was published: %v", err)
+	}
+	if reads != 3 {
+		t.Fatalf("did not reach publication revalidation: reads=%d", reads)
+	}
+	if _, err := os.Stat(filepath.Join(s.Config.Paths.AgentsDir, "project-agent")); !os.IsNotExist(err) {
+		t.Fatalf("invalid project wrote an Agent directory: %v", err)
+	}
+}
+
 func TestCatalogKnowledgeBindingReviewCannotBeSkipped(t *testing.T) {
 	s := controlFixture(t)
 	s.ValidateLibrary = func(string) error { return nil }
