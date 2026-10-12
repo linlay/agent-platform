@@ -708,8 +708,7 @@ func runtimeQueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser, References: references,
 		Params: contracts.CloneMap(req.Params), Scene: scene, Stream: req.Stream, IncludeUsage: req.IncludeUsage,
 		IncludeFullText: req.IncludeFullText, PlanningMode: req.PlanningMode, EditingMode: req.EditingMode,
-		MustUseSkills: append([]string(nil), req.MustUseSkills...),
-		MustUseKbases: append([]string(nil), req.MustUseKbases...), AccessLevel: req.AccessLevel, Model: model,
+		AccessLevel: req.AccessLevel, Model: model,
 		SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped, ChatSource: req.ChatSource,
 		TrustedQueryMetadata: contracts.CloneMap(req.TrustedQueryMetadata),
 	}

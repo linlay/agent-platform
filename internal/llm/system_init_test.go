@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/models"
 )
 
@@ -50,14 +51,15 @@ func TestSystemInitFingerprintIgnoresRequestDynamicContext(t *testing.T) {
 	}
 }
 
-func TestSystemInitFingerprintChangesWithRequiredSkills(t *testing.T) {
+func TestSystemInitFingerprintIgnoresReferenceSelection(t *testing.T) {
 	session := fingerprintTestSession()
 	changed := session
-	changed.MustUseSkills = []string{"skill-a"}
+	changed.ReferencesScope = contracts.NewRunReferences(nil)
+	_ = changed.ReferencesScope.Commit(contracts.ReferenceGrant{References: queryinput.MakeReferences("skill", []string{"skill-a"})})
 
 	tools := []api.ToolDetailResponse{{Name: "bash", Description: "run shell"}}
-	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first == second {
-		t.Fatal("required skill selection must change the system-init fingerprint")
+	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first != second {
+		t.Fatal("reference selection changed the system-init fingerprint")
 	}
 }
 

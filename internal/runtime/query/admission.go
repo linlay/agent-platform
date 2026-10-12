@@ -116,8 +116,6 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		Model:              prepared.Req.Model,
 		PlanningMode:       prepared.Session.PlanningMode,
 		EditingMode:        editingMode,
-		MustUseSkills:      prepared.Session.MustUseSkills,
-		MustUseKbases:      prepared.Session.MustUseKbases,
 		IncludeUsage:       prepared.Req.IncludeUsage,
 		IncludeFullText:    prepared.Req.IncludeFullText,
 		AccessLevel:        prepared.Session.AccessLevel,
@@ -492,16 +490,12 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if req.PlanningMode != nil && *req.PlanningMode && !agentbuiltin.PlanningModeSupported(agentDef.Mode) {
 		return queryAdmission{}, &statusError{Status: 400, Message: "planningMode is only supported for GENERAL, CODER, KBASE and TEAM agents"}
 	}
-	req.MustUseKbases = sessionbuild.NormalizeMustUseKbases(req.MustUseKbases)
-	if _, err := s.deps.Sessions.ResolveKbases(agentDef, req.MustUseKbases); err != nil {
+	if _, err := s.deps.Sessions.ResolveKbases(agentDef, queryinput.ResourceIDs(req.References, "kbase")); err != nil {
 		return queryAdmission{}, err
 	}
-	req.MustUseSkills = sessionbuild.NormalizeMustUseSkills(req.MustUseSkills)
-	mustUseSkills, err := s.deps.Sessions.ResolveSkills(agentDef, req.MustUseSkills)
-	if err != nil {
-		return queryAdmission{}, sessionbuild.MustUseSkillUnavailableStatus(err)
+	if _, err := s.deps.Sessions.ResolveSkills(agentDef, queryinput.ResourceIDs(req.References, "skill")); err != nil {
+		return queryAdmission{}, sessionbuild.ReferencedSkillUnavailableStatus(err)
 	}
-	req.MustUseSkills = mustUseSkills.IDs
 	preparedReferences, err := s.deps.References.Prepare(ctx, chatID, req.References)
 	if err != nil {
 		return queryAdmission{}, err
@@ -537,6 +531,10 @@ func hasQueryReferenceContent(references []runtimetypes.Reference) bool {
 		switch strings.ToLower(strings.TrimSpace(reference.Type)) {
 		case "selection":
 			if _, err := queryinput.NormalizeSelectionReference(reference); err == nil {
+				return true
+			}
+		case "chat":
+			if strings.TrimSpace(reference.ID) != "" {
 				return true
 			}
 		case "", "file":

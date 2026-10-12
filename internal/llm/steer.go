@@ -29,7 +29,14 @@ func (e *LLMAgentEngine) steerPreparer(session contracts.QuerySession, vision bo
 		if req.RunID != runID || (strings.TrimSpace(req.ChatID) != "" && req.ChatID != chatID) {
 			return req, fmt.Errorf("steer does not match the active run/chat")
 		}
-		refs, blocks, err := chatresource.PrepareSteerReferences(chatID, chatDir, container, req.References)
+		if session.PrepareReferenceSteer != nil {
+			var err error
+			req, err = session.PrepareReferenceSteer(req)
+			if err != nil {
+				return req, err
+			}
+		}
+		refs, blocks, err := prepareSteerMedia(chatID, chatDir, container, req.References)
 		if err != nil {
 			return req, err
 		}
@@ -80,6 +87,10 @@ func (e *LLMAgentEngine) materializeHistorySteer(raw map[string]any, session con
 		var prepared []api.Reference
 		var images []map[string]any
 		var prepareErr error
+		if ref.Type == "skill" || ref.Type == "kbase" || ref.Type == "chat" || ref.Type == "site" {
+			refs = append(refs, ref)
+			continue
+		}
 		if !chat.ValidChatID(chatID) {
 			prepareErr = fmt.Errorf("invalid chat identity")
 		} else {
@@ -135,4 +146,25 @@ func (e *LLMAgentEngine) BindSteerPreparer(session contracts.QuerySession, contr
 	}
 	control.SetSteerPreparer(e.steerPreparer(session, model.IsVision))
 	return nil
+}
+
+// Locator resources are prepared by Runtime. This boundary assembles only files
+// and image blocks, preserving the reference order.
+func prepareSteerMedia(chatID, chatDir string, container bool, references []api.Reference) ([]api.Reference, []map[string]any, error) {
+	refs := []api.Reference{}
+	blocks := []map[string]any{}
+	for _, ref := range references {
+		switch ref.Type {
+		case "skill", "kbase", "chat", "site":
+			refs = append(refs, ref)
+		default:
+			prepared, images, err := chatresource.PrepareSteerReferences(chatID, chatDir, container, []api.Reference{ref})
+			if err != nil {
+				return nil, nil, err
+			}
+			refs = append(refs, prepared...)
+			blocks = append(blocks, images...)
+		}
+	}
+	return refs, blocks, nil
 }

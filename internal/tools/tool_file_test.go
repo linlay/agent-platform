@@ -48,7 +48,7 @@ func TestInvokeReadReadsAllowedFileWithLineRange(t *testing.T) {
 	}
 }
 
-func TestMustUseSkillRunAccessAllowsSelectedReadsAndBlocksMutations(t *testing.T) {
+func TestReferencedSkillRunAccessAllowsSelectedReadsAndBlocksMutations(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	center := filepath.Join(root, "skills-center")

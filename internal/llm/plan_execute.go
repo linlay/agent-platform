@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/plantasks"
+	"agent-platform/internal/referenceprompt"
 )
 
 // Fallbacks carry only the run data; the instructions live in agent-prompt.yml.
@@ -189,7 +190,7 @@ func (s *planPipelineStream) startTaskStream(task *PlanTask) error {
 	}
 	messages = append(messages, openAIMessage{Role: "system", Content: systemPrompt})
 	messages = append(messages, s.executeMessages...)
-	messages = append(messages, openAIMessage{Role: "user", Content: taskPrompt})
+	messages = append(messages, openAIMessage{Role: "user", Content: referenceprompt.FormatUserMessage(taskPrompt, s.session.ReferencesScope.References())})
 
 	req := s.req
 	req.Message = taskPrompt

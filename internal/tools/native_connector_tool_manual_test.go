@@ -186,7 +186,7 @@ func TestNativeConnectorManualCoverageDetectsOmissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ tool, name, field string }{
-		{"chat_start", "mustUseSkills", "mustUseSkills"},
+		{"chat_start", "references", "references"},
 		{"surface_navigate", "ignoreCache", "ignoreCache"},
 		{"automation_manage", "hidden", "args.query.hidden"},
 	} {

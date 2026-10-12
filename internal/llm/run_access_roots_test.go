@@ -9,7 +9,7 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestMustUseSkillRunAccessSkipsReadHITLAndBlocksMutation(t *testing.T) {
+func TestReferencedSkillRunAccessSkipsReadHITLAndBlocksMutation(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	skills := filepath.Join(root, "skills")

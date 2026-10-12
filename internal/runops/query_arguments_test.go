@@ -1,6 +1,7 @@
 package runops
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"context"
 	"testing"
 )
@@ -13,8 +14,8 @@ func TestChatStartOptionalArgumentsAndStrictValidation(t *testing.T) {
 	}{
 		{"omitted", nil, ""},
 		{"explicit default", map[string]any{"accessLevel": "default"}, ""},
-		{"all optional", map[string]any{"accessLevel": "auto_approve", "chatName": "测试", "mustUseSkills": []any{"demo"}}, ""},
-		{"empty skills", map[string]any{"mustUseSkills": []any{}}, ""},
+		{"all optional", map[string]any{"accessLevel": "auto_approve", "chatName": "测试", "references": []any{map[string]any{"type": "skill", "id": "demo"}}}, ""},
+		{"empty skills", map[string]any{"references": []any{}}, ""},
 		{"model", map[string]any{"modelKey": " fast ", "reasoningEffort": "high"}, ""},
 		{"effort only", map[string]any{"reasoningEffort": "NONE"}, ""},
 		{"wrong effort", map[string]any{"reasoningEffort": "extreme"}, "invalid_request"},
@@ -31,9 +32,9 @@ func TestChatStartOptionalArgumentsAndStrictValidation(t *testing.T) {
 		{"wrong level", map[string]any{"accessLevel": "auto"}, "invalid_request"},
 		{"empty level", map[string]any{"accessLevel": " "}, "invalid_request"},
 		{"wrong message", map[string]any{"message": 42}, "invalid_request"},
-		{"wrong skills", map[string]any{"mustUseSkills": "demo"}, "invalid_request"},
-		{"empty skill ID", map[string]any{"mustUseSkills": []any{" "}}, "invalid_request"},
-		{"null skills", map[string]any{"mustUseSkills": nil}, "invalid_request"},
+		{"wrong skills", map[string]any{"references": "demo"}, "invalid_request"},
+		{"empty skill ID", map[string]any{"references": []any{map[string]any{"type": "skill", "id": " "}}}, "invalid_request"},
+		{"null skills", map[string]any{"references": nil}, "invalid_request"},
 		{"empty name", map[string]any{"chatName": " "}, "invalid_request"},
 		{"name with continuation", map[string]any{"chatName": "test", "chatId": "existing"}, "invalid_request"},
 	} {
@@ -54,7 +55,7 @@ func TestChatStartOptionalArgumentsAndStrictValidation(t *testing.T) {
 			if tc.code == "" {
 				if tc.name == "all optional" {
 					req := service.requests[0]
-					if req.AccessLevel != "auto_approve" || req.ChatName != "测试" || len(req.MustUseSkills) != 1 || req.MustUseSkills[0] != "demo" {
+					if req.AccessLevel != "auto_approve" || req.ChatName != "测试" || len(queryinput.ResourceIDs(req.References, "skill")) != 1 || queryinput.ResourceIDs(req.References, "skill")[0] != "demo" {
 						t.Fatalf("options not forwarded: %#v", req)
 					}
 				}

@@ -294,8 +294,6 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"agentDescription":              session.AgentDescription,
 		"mode":                          normalizedSystemInitMode(session.Mode),
 		"kbaseBindingLibraryId":         session.KBaseBindingLibraryID,
-		"mustUseKbases":                 sortedStrings(session.MustUseKbases),
-		"knowledgeLibraries":            session.KnowledgeLibraries,
 		"kbaseRetrievalConfig":          session.KBaseRetrievalConfig,
 		"capabilityPrompts":             session.CapabilityPrompts,
 		"stage":                         strings.TrimSpace(stage),
@@ -303,7 +301,6 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"toolNames":                     sortedStrings(session.ToolNames),
 		"connectorBinDirs":              session.ConnectorBinDirs,
 		"skillIDs":                      sortedStrings(session.SkillIDs),
-		"mustUseSkills":                 sortedStrings(session.MustUseSkills),
 		"contextTags":                   sortedStrings(session.ContextTags),
 		"budget":                        session.Budget,
 		"stageSettings":                 session.StageSettings,
@@ -398,7 +395,7 @@ func buildExecuteSystemInitProfile(session contracts.QuerySession, settings cont
 	if systemPrompt == "" {
 		systemPrompt = "Execute the current task."
 	}
-	systemPrompt = joinPromptSections(buildRuntimePathPolicySection(session, effectiveDefs), systemPrompt)
+	systemPrompt = joinPromptSections(buildRuntimePathPolicySection(session, effectiveDefs), effectivePromptAppendConfig(session.PromptAppend).Reference.ProtocolPrompt, systemPrompt)
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
 		AgentKey:      strings.TrimSpace(session.AgentKey),

@@ -23,17 +23,18 @@ type entry struct {
 	size                                   int64
 }
 type Scope struct {
-	mu    sync.Mutex
-	owner scriptstate.Owner
-	roots []Root
-	files map[string]entry
+	mu     sync.Mutex
+	owner  scriptstate.Owner
+	roots  []Root
+	files  map[string]entry
+	issued map[string]bool
 }
 
 // New snapshots existing regular files under scripts. Unreadable or escaping
 // entries receive no grant; they continue through the ordinary execution policy.
 // No files are created and no proof is reconstructed from conversation history.
 func New(owner scriptstate.Owner, roots []Root) *Scope {
-	s := &Scope{owner: owner, files: map[string]entry{}}
+	s := &Scope{owner: owner, files: map[string]entry{}, issued: map[string]bool{}}
 	if owner.Agent == "" || owner.Run == "" {
 		return s
 	}
@@ -66,6 +67,7 @@ func New(owner scriptstate.Owner, roots []Root) *Scope {
 				return nil
 			}
 			s.files[canonical] = entry{source: source, canonical: canonical, scripts: scripts, root: root, hash: hash, size: size}
+			s.issued[canonical] = true
 			return nil
 		})
 	}
@@ -77,7 +79,48 @@ func (s *Scope) Roots() []Root {
 	if s == nil {
 		return nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return append([]Root(nil), s.roots...)
+}
+
+// Merge commits previously prepared entries without I/O. Issued paths include
+// revoked entries, so a repeated reference cannot revive stale credentials.
+func (s *Scope) Merge(prepared *Scope) {
+	if s == nil || prepared == nil || s == prepared {
+		return
+	}
+	prepared.mu.Lock()
+	owner := prepared.owner
+	roots := append([]Root(nil), prepared.roots...)
+	files := make(map[string]entry, len(prepared.files))
+	for key, value := range prepared.files {
+		files[key] = value
+	}
+	prepared.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.owner != owner {
+		return
+	}
+	for _, root := range roots {
+		found := false
+		for _, current := range s.roots {
+			if current.Host == root.Host {
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.roots = append(s.roots, root)
+		}
+	}
+	for key, value := range files {
+		if !s.issued[key] {
+			s.issued[key] = true
+			s.files[key] = value
+		}
+	}
 }
 
 // Matches permanently revokes an observed stale entry. Container callers must
@@ -123,6 +166,8 @@ func (s *Scope) HostPath(guest string) (string, bool) {
 		return "", false
 	}
 	guest = path.Clean(guest)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, r := range s.roots {
 		if r.Guest == "" {
 			continue

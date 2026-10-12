@@ -47,13 +47,6 @@ func renderDefinition(def Definition) []byte {
 		writeYAMLKeyValue(&b, 2, "hidden", *def.Query.Hidden)
 	}
 	writeYAMLExactString(&b, 2, "message", def.Query.Message)
-	if len(def.Query.MustUseKbases) > 0 {
-		ids := make([]any, 0, len(def.Query.MustUseKbases))
-		for _, id := range def.Query.MustUseKbases {
-			ids = append(ids, id)
-		}
-		writeYAMLKeyValue(&b, 2, "mustUseKbases", ids)
-	}
 	if len(def.Query.Params) > 0 {
 		writeYAMLKeyValue(&b, 2, "params", def.Query.Params)
 	}

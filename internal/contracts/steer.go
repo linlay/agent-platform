@@ -97,7 +97,7 @@ func (c *RunControl) PrepareAndEnqueueSteer(req api.SteerRequest) (bool, error) 
 			return false, err
 		}
 	}
-	return c.EnqueueSteer(req), nil
+	return c.enqueueSteer(req)
 }
 
 // SteerAvailable observes queued input without consuming it. Every waiter wakes;

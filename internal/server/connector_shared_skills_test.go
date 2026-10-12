@@ -128,7 +128,7 @@ func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 					t.Fatal("center namesake must not be marked as a configured ordinary skill")
 				}
 			}
-			if _, err := resolveMustUseSkills(def, fixture.server.deps.Config.Paths.SkillsCenterDir, fixture.server.deps.Registry, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
+			if _, err := resolveReferencedSkills(def, fixture.server.deps.Config.Paths.SkillsCenterDir, fixture.server.deps.Registry, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
 				t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
 			}
 		})

@@ -28,6 +28,7 @@ import (
 	"agent-platform/internal/stream"
 	platformws "agent-platform/internal/ws"
 
+	"agent-platform/internal/contracts/queryinput"
 	gws "github.com/gorilla/websocket"
 )
 
@@ -117,11 +118,6 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 				break
 			}
 			t.Fatalf("decode jsonl: %v", err)
-		}
-		if _, ok := line["query"]; ok {
-			if policy, err := server.runInteractionPolicies().Load(stringValue(line["runId"])); err != nil || !policy.Model {
-				t.Fatalf("missing private Run policy: %+v %v", policy, err)
-			}
 		}
 		liveSeq := int64(contracts.AnyIntNode(line["liveSeq"]))
 		if liveSeq > 0 && !publicSeqs[liveSeq] {
@@ -910,9 +906,8 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 
 	body := bytes.NewBufferString(`{
 		"message":"include request context",
-		"mustUseSkills":[" mock-skill ","MOCK-SKILL"],
-		"params":{"channel":"desktop","nested":{"enabled":true}},
-		"references":[{"id":"ref_1","type":"file","name":"notes.txt","path":"@workspace/notes.txt","mimeType":"text/plain"}]
+				"params":{"channel":"desktop","nested":{"enabled":true}},
+		"references":[{"type":"skill","id":" mock-skill "},{"type":"skill","id":"MOCK-SKILL"},{"id":"ref_1","type":"file","name":"notes.txt","path":"@workspace/notes.txt","mimeType":"text/plain"}]
 	}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -973,11 +968,11 @@ func TestQueryRejectsRemovedRequiredSkillIDsWithExplicitCode(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsUnavailableMustUseSkillWithExplicitCode(t *testing.T) {
+func TestQueryRejectsUnavailableReferencedSkillWithExplicitCode(t *testing.T) {
 	fixture := newTestFixture(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
 		"message":"must use unavailable skill",
-		"mustUseSkills":["missing-skill"]
+		"references":[{"type":"skill","id":"missing-skill"}]
 	}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -991,20 +986,20 @@ func TestQueryRejectsUnavailableMustUseSkillWithExplicitCode(t *testing.T) {
 	}
 }
 
-func TestQuerySupportsMustUseSkillsForTEAM(t *testing.T) {
+func TestQuerySupportsReferencedSkillsForTEAM(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: setupOrchestratedTeamRuntime(t)})
-	req := api.QueryRequest{AgentKey: "research", Message: "team", MustUseSkills: []string{"mock-skill"}}
+	req := api.QueryRequest{AgentKey: "research", Message: "team", References: queryinput.MakeReferences("skill", []string{"mock-skill"})}
 	admission, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer admission.Release()
-	if len(admission.Req.MustUseSkills) != 1 || admission.AgentDef.Mode != "TEAM" {
+	if len(queryinput.ResourceIDs(admission.Req.References, "skill")) != 1 || admission.AgentDef.Mode != "TEAM" {
 		t.Fatalf("admission=%#v", admission)
 	}
 }
 
-func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
+func TestQueryExtraReferencedSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{
 		setupRuntime: func(_ string, cfg *config.Config) {
 			writeTestSkill(t, cfg.Paths.SkillsCenterDir, "center-extra")
@@ -1017,7 +1012,7 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 			}
 		},
 	})
-	req := api.QueryRequest{Message: "use both", AgentKey: "mock-agent", MustUseSkills: []string{"mock-skill", "center-extra"}}
+	req := api.QueryRequest{Message: "use both", AgentKey: "mock-agent", References: queryinput.MakeReferences("skill", []string{"mock-skill", "center-extra"})}
 	admission, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 	if err != nil {
 		t.Fatalf("prepare admission: %v", err)
@@ -1026,17 +1021,17 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete preparation: %v", err)
 	}
-	if strings.Join(prepared.Session.MustUseSkills, ",") != "mock-skill,center-extra" {
-		t.Fatalf("mustUseSkills = %#v", prepared.Session.MustUseSkills)
+	if strings.Join(queryinput.ResourceIDs(prepared.Session.RuntimeContext.References, "skill"), ",") != "mock-skill,center-extra" {
+		t.Fatalf("mustUseSkills = %#v", queryinput.ResourceIDs(prepared.Session.RuntimeContext.References, "skill"))
 	}
 	wantRunRoots := []string{
 		mustCanonicalTestPath(t, runtimeSkillTestPath(t, prepared.AgentDef.RuntimeDir, "mock-skill")),
 		absTestPath(t, filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "center-extra")),
 		mustCanonicalTestPath(t, prepared.AgentDef.RuntimeDir),
 	}
-	if !reflect.DeepEqual(prepared.Session.RunAccessRoots.ReadRoots, wantRunRoots) ||
-		!reflect.DeepEqual(prepared.Session.RunAccessRoots.ReadonlyRoots, wantRunRoots) {
-		t.Fatalf("must-use run access roots = %#v, want %#v", prepared.Session.RunAccessRoots, wantRunRoots)
+	if !sameStringSet(prepared.Session.ReferenceAccessRoots().ReadRoots, wantRunRoots) ||
+		!sameStringSet(prepared.Session.ReferenceAccessRoots().ReadonlyRoots, wantRunRoots) {
+		t.Fatalf("must-use run access roots = %#v, want %#v", prepared.Session.ReferenceAccessRoots(), wantRunRoots)
 	}
 	if prepared.Session.RuntimeContext.LocalPaths.SkillsCenterDir != fixture.cfg.Paths.SkillsCenterDir {
 		t.Fatalf("local skills-center = %q", prepared.Session.RuntimeContext.LocalPaths.SkillsCenterDir)
@@ -1064,23 +1059,24 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.Session.SkillHookDirs)
 		}
 	}
-	for _, expected := range []string{
-		"path: @skills/mock-skill/SKILL.md",
-		"path: @skills-center/center-extra/SKILL.md",
-		"None may be skipped",
-	} {
-		if !strings.Contains(prepared.Session.SkillCatalogPrompt, expected) {
-			t.Fatalf("expected %q in prompt: %s", expected, prepared.Session.SkillCatalogPrompt)
-		}
+	if strings.Contains(prepared.Session.SkillCatalogPrompt, "center-extra") || strings.Contains(prepared.Session.SkillCatalogPrompt, "Must-use") {
+		t.Fatalf("selected resources entered system catalog: %s", prepared.Session.SkillCatalogPrompt)
 	}
+	current, _ := json.Marshal(prepared.Session.CurrentMessages)
+	if !strings.Contains(string(current), "@skills-center/center-extra/SKILL.md") {
+		t.Fatalf("user reference pointer missing: %s", current)
+	}
+
 }
 
 func assertRequestQueryContext(t *testing.T, message map[string]any) {
 	t.Helper()
-	mustUseSkills, ok := message["mustUseSkills"].([]any)
-	if !ok || len(mustUseSkills) != 1 || mustUseSkills[0] != "mock-skill" {
-		t.Fatalf("expected normalized mustUseSkills, got %#v", message)
+	encodedRefs, _ := json.Marshal(message["references"])
+	var selectedRefs []api.Reference
+	if json.Unmarshal(encodedRefs, &selectedRefs) != nil || len(queryinput.ResourceIDs(selectedRefs, "skill")) != 1 {
+		t.Fatalf("skill references missing: %#v", message)
 	}
+
 	if _, exists := message["requiredSkillKeys"]; exists {
 		t.Fatalf("request.query must not expose removed requiredSkillKeys: %#v", message)
 	}
@@ -1096,10 +1092,10 @@ func assertRequestQueryContext(t *testing.T, message map[string]any) {
 		t.Fatalf("expected request.query params.nested.enabled true, got %#v", params)
 	}
 	references, ok := message["references"].([]any)
-	if !ok || len(references) != 1 {
-		t.Fatalf("expected request.query single reference, got %#v", message)
+	if !ok || len(references) != 2 {
+		t.Fatalf("expected request.query skill and file references, got %#v", message)
 	}
-	reference, ok := references[0].(map[string]any)
+	reference, ok := references[1].(map[string]any)
 	if !ok {
 		t.Fatalf("expected request.query reference object, got %#v", references[0])
 	}
@@ -1115,7 +1111,7 @@ func TestQueryRejectsRemovedSandboxPathReferenceField(t *testing.T) {
 	fixture := newTestFixture(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
 		"message":"bad reference",
-		"references":[{"id":"ref_1","sandboxPath":"/workspace/notes.txt"}]
+		"references":[{"type":"skill","id":" mock-skill "},{"type":"skill","id":"MOCK-SKILL"},{"id":"ref_1","sandboxPath":"/workspace/notes.txt"}]
 	}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -4212,4 +4208,22 @@ func TestInterruptCancelsActiveRunAndSkipsRunComplete(t *testing.T) {
 	if chatsResp.Data[0].LastRunID != runID || chatsResp.Data[0].LastRunContent != "" {
 		t.Fatalf("expected interrupted run to discard the uncommitted partial summary, got %#v", chatsResp.Data[0])
 	}
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, value := range a {
+		found := false
+		for _, want := range b {
+			if value == want {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }

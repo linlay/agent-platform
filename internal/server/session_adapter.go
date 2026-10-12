@@ -31,7 +31,7 @@ func (s *Server) buildCompactSession(ctx context.Context, req api.QueryRequest, 
 }
 
 func mustUseSkillUnavailableStatus(err error) *statusError {
-	e := session.MustUseSkillUnavailableStatus(err)
+	e := session.ReferencedSkillUnavailableStatus(err)
 	return &statusError{Status: e.Status, Code: e.Code, Message: e.Message, Data: e.Data}
 }
 

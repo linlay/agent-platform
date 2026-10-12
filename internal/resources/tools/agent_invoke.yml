@@ -29,13 +29,22 @@ inputSchema:
           taskName:
             type: string
             description: Optional. Short title shown in the task panel while the sub-agent is active.
-          mustUseKbases:
+          references:
             type: array
-            maxItems: 8
+            description: "Explicit skill and knowledge library references for this child task. Chat references are unsupported."
             items:
-              type: string
-              minLength: 1
-            description: Optional. Knowledge library IDs required by this task; parent selections are not inherited.
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: "Required. Resource kind: skill or knowledge library."
+                  enum: [skill, kbase]
+                id:
+                  description: "Required. Exact resource ID."
+                  type: string
+                  minLength: 1
+              required: [type, id]
+              additionalProperties: false
           files:
             type: array
             description: Optional. Local files the sub-agent must inspect. Cross-agent files are materialized through the current Chat; PROXY/CHANNEL adapters receive ticketed resource URLs.

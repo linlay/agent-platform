@@ -1,6 +1,6 @@
 # Retrieval
 
-kbase_list discovers all libraries. The other four tools require an explicit libraryId and may read any existing readable library. mustUseKbases specifies the libraries required for the current Run; it is not an allowlist. Every tool rejects fields it does not declare, before the library is read. Booleans are native JSON values.
+kbase_list discovers all libraries. The other four tools require an explicit libraryId and may read any existing readable library. User references with type kbase identify the libraries required for that message; it is not an allowlist. Every tool rejects fields it does not declare, before the library is read. Booleans are native JSON values.
 
 ## kbase_list
 

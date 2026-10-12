@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 func TestRegistryPersistLoadPreservesQueryMessageExactly(t *testing.T) {
@@ -184,7 +185,7 @@ func TestRegistryPreservesEnvironmentExpressionQueryMessage(t *testing.T) {
 
 func TestAutomationRequiredLibrariesPersistAndExecute(t *testing.T) {
 	registry := NewRegistry(t.TempDir())
-	def := Definition{ID: "kb-run", Name: "KB Run", Enabled: true, Cron: "0 17 * * 5", AgentKey: "general", Query: automationQueryFromRequest(api.AutomationQueryRequest{Message: "retrieve", MustUseKbases: []string{" a ", "b", "a", " "}})}
+	def := Definition{ID: "kb-run", Name: "KB Run", Enabled: true, Cron: "0 17 * * 5", AgentKey: "general", Query: automationQueryFromRequest(api.AutomationQueryRequest{Message: "retrieve", References: queryinput.MakeReferences("kbase", []string{" a ", "b", "a", " "})})}
 	if err := registry.Persist(def); err != nil {
 		t.Fatal(err)
 	}
@@ -193,11 +194,11 @@ func TestAutomationRequiredLibrariesPersistAndExecute(t *testing.T) {
 		t.Fatalf("load: %+v %v", definitions, err)
 	}
 	got := definitions[0]
-	if strings.Join(got.Query.MustUseKbases, ",") != "a,b" || strings.Join(got.ToQueryRequest().MustUseKbases, ",") != "a,b" || strings.Join(mapAutomationQuery(got.Query).MustUseKbases, ",") != "a,b" {
+	if strings.Join(queryinput.ResourceIDs(got.Query.References, "kbase"), ",") != "a,b" || strings.Join(queryinput.ResourceIDs(got.ToQueryRequest().References, "kbase"), ",") != "a,b" || strings.Join(queryinput.ResourceIDs(mapAutomationQuery(got.Query).References, "kbase"), ",") != "a,b" {
 		t.Fatalf("selection was lost: %+v", got.Query)
 	}
-	applyAutomationUpdate(&got, api.UpdateAutomationRequest{Query: &api.AutomationQueryRequest{Message: "clear", MustUseKbases: []string{}}})
-	if len(got.Query.MustUseKbases) != 0 {
+	applyAutomationUpdate(&got, api.UpdateAutomationRequest{Query: &api.AutomationQueryRequest{Message: "clear", References: queryinput.MakeReferences("kbase", []string{})}})
+	if len(queryinput.ResourceIDs(got.Query.References, "kbase")) != 0 {
 		t.Fatal("empty update did not clear libraries")
 	}
 }

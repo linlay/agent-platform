@@ -29,7 +29,7 @@ func TestChatStartSchemaKeepsNewArgumentsOptional(t *testing.T) {
 		t.Fatal("chat_start is missing optional agentKey")
 	}
 
-	for _, key := range []string{"accessLevel", "mustUseSkills", "chatName", "modelKey", "reasoningEffort"} {
+	for _, key := range []string{"accessLevel", "references", "chatName", "modelKey", "reasoningEffort"} {
 		if _, ok := properties[key]; !ok {
 			t.Fatalf("missing %s", key)
 		}

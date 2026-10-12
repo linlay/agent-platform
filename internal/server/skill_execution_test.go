@@ -37,7 +37,7 @@ func TestSkillExecutionConfiguredAndSelectedOnly(t *testing.T) {
 	configured = filepath.Join(installRuntimeSkillFixture(t, runtimeDir, "configured"), "scripts", "task.sh")
 	def := catalog.AgentDefinition{Key: "a", RuntimeDir: runtimeDir, Skills: []string{"configured"}}
 	session := contracts.QuerySession{AgentKey: "a", RunID: "r"}
-	selected := []resolvedMustUseSkill{{ID: "extra", RootPath: filepath.Dir(filepath.Dir(extra)), Extra: true}, {ID: "configured", RootPath: filepath.Dir(filepath.Dir(configured))}}
+	selected := []resolvedReferencedSkill{{ID: "extra", RootPath: filepath.Dir(filepath.Dir(extra)), Extra: true}, {ID: "configured", RootPath: filepath.Dir(filepath.Dir(configured))}}
 	session.SkillScripts = buildSkillScriptScope(session, def, selected)
 	ctx := contracts.ExecutionContext{Session: session}
 	for _, p := range []string{configured, extra} {

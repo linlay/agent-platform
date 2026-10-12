@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -79,15 +80,12 @@ func ResolveRunStartAccessLevel(requested string, parent string) (string, bool) 
 // It excludes parent permission state so a legitimate retry stays idempotent,
 // and keeps omitted accessLevel distinct from an explicit default.
 func RunStartRequestDigest(request RunStartRequest) string {
-	skills := make([]string, 0, len(request.MustUseSkills))
-	for _, id := range request.MustUseSkills {
-		skills = append(skills, strings.TrimSpace(id))
-	}
-	libraries := NormalizeRequiredLibraries(request.MustUseKbases)
+	refs, _ := queryinput.NormalizeResourceReferences(request.References)
+	encoded, _ := json.Marshal(refs)
 	return digestStrings("run-start-request",
 		strings.TrimSpace(request.AgentKey), strings.TrimSpace(request.ChatID),
 		strings.TrimSpace(request.Message), strings.TrimSpace(request.AccessLevel), strings.TrimSpace(request.ChatName),
-		strings.Join(skills, "\x00"), strings.Join(libraries, "\x00"), strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort))
+		string(encoded), strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort))
 }
 
 // RunStartApprovalDigest identifies exactly what a reviewer approved: the

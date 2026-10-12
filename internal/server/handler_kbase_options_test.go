@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/kbases"
 	"agent-platform/internal/ws"
 )
@@ -115,40 +116,40 @@ func TestKBaseOptionsHTTPWSAndQueryAdmission(t *testing.T) {
 	if !reflect.DeepEqual(fromWS, body.Data) {
 		t.Fatalf("HTTP/WS mismatch: %+v / %+v", fromWS, body.Data)
 	}
-	request := api.QueryRequest{AgentKey: "mock-agent", Message: "使用知识库", MustUseKbases: []string{" " + library.ID + " ", library.ID, " "}}
+	request := api.QueryRequest{AgentKey: "mock-agent", Message: "使用知识库", References: queryinput.MakeReferences("kbase", []string{" " + library.ID + " ", library.ID, " "})}
 	admission, err := f.server.prepareQueryAdmissionRequest(context.Background(), request, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	admission.Release()
-	if !reflect.DeepEqual(admission.Req.MustUseKbases, []string{library.ID}) {
-		t.Fatalf("normalization: %+v", admission.Req.MustUseKbases)
+	if !reflect.DeepEqual(queryinput.ResourceIDs(admission.Req.References, "kbase"), []string{library.ID}) {
+		t.Fatalf("normalization: %+v", queryinput.ResourceIDs(admission.Req.References, "kbase"))
 	}
-	request.MustUseKbases = []string{library.ID, unreadable.ID}
+	request.References = queryinput.MakeReferences("kbase", []string{library.ID, unreadable.ID})
 	if _, err = f.server.prepareQueryAdmissionRequest(context.Background(), request, false, "", ""); err == nil || !strings.Contains(err.Error(), unreadable.ID) {
 		t.Fatalf("partial unreadable selection accepted: %v", err)
 	}
-	request.MustUseKbases = []string{library.ID}
+	request.References = queryinput.MakeReferences("kbase", []string{library.ID})
 	request.Lane = "btw"
 	rec = httptest.NewRecorder()
 	payload, _ := json.Marshal(request)
 	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(string(payload))))
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "BTW does not accept mustUseKbases") {
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "BTW does not accept skill, kbase or chat references") {
 		t.Fatal("BTW selection accepted")
 	}
 	policy := def.Interaction()
-	policy.MustUseKbases = false
+	policy.Attachment.Kbases = false
 	def.InteractionConfig = &policy
 	f.server.deps.Registry = kbaseOptionsRegistry{Registry: f.registry, definition: def}
 	bindTestRuntime(f.server)
 	request.Lane = ""
-	request.MustUseKbases = []string{}
+	request.References = queryinput.MakeReferences("kbase", []string{})
 	admission, err = f.server.prepareQueryAdmissionRequest(context.Background(), request, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	admission.Release()
-	request.MustUseKbases = []string{library.ID}
+	request.References = queryinput.MakeReferences("kbase", []string{library.ID})
 	if _, err = f.server.prepareQueryAdmissionRequest(context.Background(), request, false, "", ""); err == nil {
 		t.Fatal("disabled nonempty selection accepted")
 	}

@@ -32,18 +32,22 @@ inputSchema:
         - auto_approve
         - full_access
       description: "Permission level for this run. Above the caller Run level requires human approval."
-    mustUseKbases:
+    references:
       type: array
+      description: "Resources selected for this task. Each item must be used; no tools or unrelated permissions are added."
       items:
-        type: string
-        minLength: 1
-      description: "Required knowledge library IDs."
-    mustUseSkills:
-      type: array
-      items:
-        type: string
-        minLength: 1
-      description: "Required skill IDs."
+        type: object
+        properties:
+          type:
+            type: string
+            description: "Required. Resource kind."
+            enum: [skill, kbase, chat]
+          id:
+            description: "Required. Exact resource ID."
+            type: string
+            minLength: 1
+        required: [type, id]
+        additionalProperties: false
     modelKey:
       type: string
       minLength: 1

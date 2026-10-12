@@ -12,7 +12,6 @@ func (s *Server) prepareQueryReferences(ctx context.Context, chatID string, refs
 }
 
 var prepareSiteReference = reference.PrepareSiteReference
-var buildChatReferenceContext = reference.BuildChatReferenceContext
 
 func (s *Server) prepareChatReference(ctx context.Context, chatID string, ref api.Reference) (api.Reference, error) {
 	return reference.New(s.deps.Chats).PrepareChatReference(ctx, chatID, ref)

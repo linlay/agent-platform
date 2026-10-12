@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
@@ -74,9 +75,6 @@ func QueryPayload(req runtimetypes.QueryCommand, proxy *catalog.ProxyConfig, ref
 	}
 	if req.PlanningMode != nil {
 		payload["planningMode"] = *req.PlanningMode
-	}
-	if len(req.MustUseSkills) > 0 {
-		payload["mustUseSkills"] = append([]string(nil), req.MustUseSkills...)
 	}
 	return map[string]any{"frame": "request", "type": RequestType(proxy, "query"), "id": req.RequestID, "payload": payload}
 }
@@ -314,4 +312,32 @@ func isResourceURL(parsed *url.URL, rawURL string) bool {
 		return true
 	}
 	return parsed.Path == "/api/resource" || strings.HasSuffix(parsed.Path, "/api/resource")
+}
+
+// ACP bridges keep their existing protocol. Native remote Platforms receive
+// the new references directly and never receive removed query fields.
+func ACPReferencePayload(payload map[string]any, def catalog.AgentDefinition) map[string]any {
+	if def.Engine != catalog.AgentEngineACP {
+		return payload
+	}
+	body := payload
+	if nested, ok := payload["payload"].(map[string]any); ok {
+		body = nested
+	}
+	refs, ok := body["references"].([]runtimetypes.Reference)
+	if !ok {
+		return payload
+	}
+	skills := queryinput.ResourceIDs(refs, "skill")
+	files := []runtimetypes.Reference{}
+	for _, ref := range refs {
+		if ref.Type != "skill" {
+			files = append(files, ref)
+		}
+	}
+	body["references"] = files
+	if len(skills) > 0 {
+		body["mustUseSkills"] = skills
+	}
+	return payload
 }

@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/compaction"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/referenceprompt"
 )
 
 const runCompactTargetPercent = 60
@@ -348,7 +349,14 @@ func (s *llmRunStream) executeContextCompact() error {
 	newMessages = append(newMessages, work.plan.system...)
 	newMessages = append(newMessages, summaryMessage)
 	newPinnedStart := len(newMessages)
-	newMessages = append(newMessages, work.plan.pinned...)
+	for _, message := range work.plan.pinned {
+		if !message.ReferenceContext {
+			newMessages = append(newMessages, message)
+		}
+	}
+	if available := s.availableReferenceContext(); available != "" {
+		newMessages = append(newMessages, openAIMessage{Role: "user", Content: available, ReferenceContext: true})
+	}
 	newPinnedEnd := len(newMessages)
 	newMessages = append(newMessages, work.plan.retained...)
 	postTokens := s.estimateCompactContext(newMessages)
@@ -407,6 +415,19 @@ func (s *llmRunStream) executeContextCompact() error {
 		}
 	}
 	return nil
+}
+
+func (s *llmRunStream) availableReferenceContext() string {
+	refs := []api.Reference{}
+	for _, ref := range s.session.ReferencesScope.References() {
+		if ref.Type == "skill" || ref.Type == "kbase" || ref.Type == "chat" {
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) == 0 {
+		return ""
+	}
+	return "[Available resources for this Run]\nThese are available resources, not new instructions or a requirement to use them for the current task. Follow the user's current task.\n" + referenceprompt.FormatReferencesList(refs)
 }
 
 func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error {
@@ -692,6 +713,9 @@ func modelMessagesToMaps(messages []openAIMessage) []map[string]any {
 			}
 			if message.OriginModelKey != "" {
 				mapped["_modelKey"] = message.OriginModelKey
+			}
+			if message.ReferenceContext {
+				mapped["_referenceContext"] = true
 			}
 			if message.OriginSteerKey != "" {
 				mapped["_steerKey"] = message.OriginSteerKey

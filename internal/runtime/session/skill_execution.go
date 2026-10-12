@@ -12,7 +12,7 @@ import (
 	"agent-platform/internal/skillsexec"
 )
 
-func BuildSkillScriptScope(session contracts.QuerySession, def catalog.AgentDefinition, selected []MustUseSkill) *skillsexec.Scope {
+func BuildSkillScriptScope(session contracts.QuerySession, def catalog.AgentDefinition, selected []ReferencedSkill) *skillsexec.Scope {
 	roots := []skillsexec.Root{}
 	for _, key := range def.Skills {
 		if def.IsConnectorSkill(key) || strings.TrimSpace(def.RuntimeDir) == "" {

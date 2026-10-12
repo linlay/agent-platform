@@ -23,20 +23,24 @@ func TestFailureCanCarryStructuredError(t *testing.T) {
 	}
 }
 
-func TestQueryRequestUsesMustUseSkills(t *testing.T) {
+func TestQueryRequestUsesResourceReferences(t *testing.T) {
 	var request QueryRequest
-	if err := json.Unmarshal([]byte(`{"message":"hi","mustUseSkills":["pdf","ppt-master"]}`), &request); err != nil {
-		t.Fatalf("unmarshal query: %v", err)
+	if err := json.Unmarshal([]byte(`{"message":"hi","references":[{"type":"skill","id":"pdf"},{"type":"kbase","id":"docs"}]}`), &request); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Join(request.MustUseSkills, ",") != "pdf,ppt-master" {
-		t.Fatalf("mustUseSkills = %#v", request.MustUseSkills)
+	if len(request.References) != 2 {
+		t.Fatal(request)
 	}
-	encoded, err := json.Marshal(request)
-	if err != nil {
-		t.Fatalf("marshal query: %v", err)
+	encoded, _ := json.Marshal(request)
+	if strings.Contains(string(encoded), "mustUse") || !strings.Contains(string(encoded), "references") {
+		t.Fatal(string(encoded))
 	}
-	if strings.Contains(string(encoded), "requiredSkillKeys") || !strings.Contains(string(encoded), "mustUseSkills") {
-		t.Fatalf("encoded query = %s", encoded)
+	for _, key := range []string{"mustUseSkills", "mustUseKbases"} {
+		for _, value := range []string{"null", "[]", "[\"id\"]"} {
+			if err := json.Unmarshal([]byte(`{"message":"hi","`+key+`":`+value+`}`), &request); err == nil {
+				t.Fatalf("accepted %s=%s", key, value)
+			}
+		}
 	}
 }
 

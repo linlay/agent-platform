@@ -11,6 +11,22 @@ import (
 	"agent-platform/internal/scriptstate"
 )
 
+func TestPreparedMergeCannotReviveRevokedScript(t *testing.T) {
+	root, file, owner := fixture(t)
+	scope := New(owner, []Root{{Host: root}})
+	if err := os.WriteFile(file, []byte("changed"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if scope.Matches(owner, file, "", false) {
+		t.Fatal("changed script matched")
+	}
+	prepared := New(owner, []Root{{Host: root}})
+	scope.Merge(prepared)
+	if scope.Matches(owner, file, "", false) {
+		t.Fatal("merge revived revoked credential")
+	}
+}
+
 func fixture(t *testing.T) (string, string, scriptstate.Owner) {
 	t.Helper()
 	root := t.TempDir()

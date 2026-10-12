@@ -24,8 +24,8 @@ func (s *Server) kbaseOptions(agentKey string) (api.KBaseOptionsResponse, int, e
 		return api.KBaseOptionsResponse{}, 404, errUnknownKBaseAgent
 	}
 	response := api.KBaseOptionsResponse{AgentKey: agentKey, Capability: sessionbuild.KBaseCapability(def), BoundLibraryID: def.KBaseConfig.LibraryID, Libraries: []api.KBaseOption{}}
-	if !def.Interaction().MustUseKbases {
-		response.Capability = api.KBaseCapability{Reason: "interactionConfig.mustUseKbases is disabled"}
+	if !def.Interaction().Attachment.Kbases {
+		response.Capability = api.KBaseCapability{Reason: "interactionConfig.attachment.kbases is disabled"}
 	}
 	if s.deps.KBases == nil {
 		response.Capability = api.KBaseCapability{Reason: "knowledge library service unavailable"}

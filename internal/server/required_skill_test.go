@@ -45,7 +45,7 @@ func writeTestSkill(t *testing.T, root string, id string) {
 	}
 }
 
-func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
+func TestResolveReferencedSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 	centerDir := t.TempDir()
 	runtimeDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	writeTestSkill(t, filepath.Join(runtimeDir, "skills"), "design")
@@ -60,7 +60,7 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 		"pdf": {ID: "pdf", Name: "PDF"},
 	}
 
-	got, err := resolveMustUseSkills(def, centerDir, center, []string{" design ", "DESIGN", " PDF ", "pdf", ""})
+	got, err := resolveReferencedSkills(def, centerDir, center, []string{" design ", "DESIGN", " PDF ", "pdf", ""})
 	if err != nil {
 		t.Fatalf("resolve must-use skills: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 	if len(emptyAccess.ReadRoots) != 0 || len(emptyAccess.ReadonlyRoots) != 0 {
 		t.Fatalf("empty selection must not create run access roots: %#v", emptyAccess)
 	}
-	if _, err := resolveMustUseSkills(def, centerDir, center, []string{"missing"}); err == nil {
+	if _, err := resolveReferencedSkills(def, centerDir, center, []string{"missing"}); err == nil {
 		t.Fatal("expected missing must-use skill to fail")
 	}
 }
@@ -110,20 +110,20 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 func TestMustUseRejectsMountedConnectorSkillEvenIfAlsoInConfiguredList(t *testing.T) {
 	key := "wecomcli-shared"
 	def := catalog.AgentDefinition{Skills: []string{key}, ConnectorSkills: []catalog.ConnectorSkill{{ID: key, ConnectorID: "wecom", Name: key}}}
-	if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{strings.ToUpper(key)}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
+	if _, err := resolveReferencedSkills(def, t.TempDir(), testSkillCenter{}, []string{strings.ToUpper(key)}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
 		t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
 	}
 }
 
-func TestResolveMustUseSkillsRevalidatesCenterContent(t *testing.T) {
+func TestResolveReferencedSkillsRevalidatesCenterContent(t *testing.T) {
 	centerDir := t.TempDir()
 	center := testSkillCenter{"pdf": {ID: "pdf"}}
-	if _, err := resolveMustUseSkills(catalog.AgentDefinition{Key: "coder"}, centerDir, center, []string{"pdf"}); err == nil {
+	if _, err := resolveReferencedSkills(catalog.AgentDefinition{Key: "coder"}, centerDir, center, []string{"pdf"}); err == nil {
 		t.Fatal("expected catalog entry without current SKILL.md to fail")
 	}
 }
 
-func TestResolveMustUseSkillsRejectsSkillRootSymlinkEscape(t *testing.T) {
+func TestResolveReferencedSkillsRejectsSkillRootSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink setup is not portable on Windows")
 	}
@@ -134,38 +134,20 @@ func TestResolveMustUseSkillsRejectsSkillRootSymlinkEscape(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	center := testSkillCenter{"pdf": {ID: "pdf"}}
-	if _, err := resolveMustUseSkills(catalog.AgentDefinition{Key: "coder"}, centerDir, center, []string{"pdf"}); err == nil || !strings.Contains(err.Error(), "escapes") {
+	if _, err := resolveReferencedSkills(catalog.AgentDefinition{Key: "coder"}, centerDir, center, []string{"pdf"}); err == nil || !strings.Contains(err.Error(), "escapes") {
 		t.Fatalf("expected escaped center skill root rejection, got %v", err)
 	}
 }
 
-func TestBuildMustUseSkillConstraintIsMandatory(t *testing.T) {
-	got := buildMustUseSkillConstraint([]resolvedMustUseSkill{{
-		ID:               "design",
-		InstructionsPath: "@skills/design/SKILL.md",
-	}})
-	for _, expected := range []string{
-		"Must-use skills for this run:",
-		"skillId: design",
-		"path: @skills/design/SKILL.md",
-		"must read the complete SKILL.md",
-		"None may be skipped",
-	} {
-		if !strings.Contains(got, expected) {
-			t.Fatalf("expected %q in constraint %q", expected, got)
-		}
-	}
-}
-
-func TestRuntimeExtraMountsForMustUseSkillsAddsOneReadonlyCenterMount(t *testing.T) {
-	mounts := runtimeExtraMountsForMustUseSkills([]map[string]any{
+func TestRuntimeExtraMountsForSkillReferencesAddsOneReadonlyCenterMount(t *testing.T) {
+	mounts := runtimeExtraMountsForReferencedSkills([]map[string]any{
 		{"platform": "teams", "mode": "ro"},
 	}, true)
 	if len(mounts) != 2 || mounts[1] != (contracts.SandboxExtraMount{Platform: "skills-center", Mode: "ro"}) {
 		t.Fatalf("mounts = %#v", mounts)
 	}
 
-	mounts = runtimeExtraMountsForMustUseSkills([]map[string]any{
+	mounts = runtimeExtraMountsForReferencedSkills([]map[string]any{
 		{"platform": "skills-center", "mode": "rw"},
 	}, true)
 	if len(mounts) != 1 || mounts[0].Mode != "ro" {
@@ -176,7 +158,7 @@ func TestRuntimeExtraMountsForMustUseSkillsAddsOneReadonlyCenterMount(t *testing
 func TestMustUseRejectsLegacyBuiltinSkillNames(t *testing.T) {
 	for _, key := range []string{"builtin-httpx", "builtin-dbx", "BUILTIN-DBX"} {
 		def := catalog.AgentDefinition{Skills: []string{key}}
-		if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
+		if _, err := resolveReferencedSkills(def, t.TempDir(), testSkillCenter{}, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
 			t.Fatalf("legacy builtin skill accepted: %s %v", key, err)
 		}
 	}

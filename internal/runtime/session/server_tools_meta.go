@@ -86,7 +86,7 @@ func RuntimeExtraMounts(value any) []contracts.SandboxExtraMount {
 	return out
 }
 
-func RuntimeExtraMountsForMustUseSkills(value any, includeSkillsCenter bool) []contracts.SandboxExtraMount {
+func RuntimeExtraMountsForSkillReferences(value any, includeSkillsCenter bool) []contracts.SandboxExtraMount {
 	mounts := RuntimeExtraMounts(value)
 	if !includeSkillsCenter {
 		return mounts

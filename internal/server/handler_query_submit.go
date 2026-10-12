@@ -8,6 +8,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
@@ -34,7 +35,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 	var req api.SteerRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid steer payload"))
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, steerDecodeErrorMessage(err)))
 		return
 	}
 	if !s.validateHTTPRunControl(w, r, req.RunID) {
@@ -121,4 +122,11 @@ func apperrorsStatus(err *apperrors.Error, fallback int) int {
 		return status
 	}
 	return fallback
+}
+
+func steerDecodeErrorMessage(err error) string {
+	if errors.Is(err, queryinput.ErrRemovedReferenceSelection) {
+		return queryinput.RemovedReferenceSelectionMessage
+	}
+	return "invalid steer payload"
 }

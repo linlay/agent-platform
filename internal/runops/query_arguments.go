@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/models"
 )
 
@@ -40,28 +41,17 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 				request.ReasoningEffort = effort
 			}
 		case "mustUseSkills", "mustUseKbases":
-			var items []any
-			switch values := value.(type) {
-			case []any:
-				items = values
-			case []string:
-				for _, id := range values {
-					items = append(items, id)
-				}
-			default:
-				return invalid(key + " must be an array of non-empty IDs")
+			return invalid(queryinput.RemovedReferenceSelectionMessage)
+		case "references":
+			if value == nil {
+				return invalid("references must be an array")
 			}
-			for _, item := range items {
-				id, ok := item.(string)
-				if !ok || strings.TrimSpace(id) == "" {
-					return invalid(key + " must contain non-empty strings")
-				}
-				if key == "mustUseKbases" {
-					request.MustUseKbases = append(request.MustUseKbases, strings.TrimSpace(id))
-				} else {
-					request.MustUseSkills = append(request.MustUseSkills, strings.TrimSpace(id))
-				}
+			refs, err := queryinput.LocatorReferences(value, true)
+			if err != nil {
+				return invalid(err.Error())
 			}
+			request.References = refs
+
 		default:
 			message := fmt.Sprintf("unknown chat_start argument %q", key)
 			if key == "taskName" {

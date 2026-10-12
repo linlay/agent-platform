@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/kbases"
@@ -32,7 +33,7 @@ func rootCaller(e *contracts.ExecutionContext) bool {
 	return e != nil && contracts.OrdinaryNativeRoot(e.Session)
 }
 func controlCaller(e *contracts.ExecutionContext) conversation.ControlCaller {
-	return conversation.ControlCaller{Subject: e.Session.Subject, ChatID: e.Session.ChatID, AgentKey: e.Session.AgentKey, RunID: e.Session.RunID, ToolID: e.CurrentToolID}
+	return conversation.ControlCaller{Subject: e.Session.Subject, ChatID: e.Session.ChatID, AgentKey: e.Session.AgentKey, RunID: e.Session.RunID, ToolID: e.CurrentToolID, ReferencedChats: queryinput.ResourceIDs(e.Session.ReferencesScope.References(), "chat")}
 }
 func controlFail(code, message, stage string) contracts.ToolExecutionResult {
 	r := errorResult(code, message)

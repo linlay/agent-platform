@@ -106,6 +106,11 @@ func (s *Service) resumeWait(ctx context.Context, item chat.PendingAwaitingWithC
 	if err = s.RestoreRunConnectors(item.RunID, &admission.AgentDef); err != nil {
 		return err
 	}
+	ownerScope, ownerErr := s.runControlScopes().Load(item.RunID)
+	if ownerErr != nil {
+		return ownerErr
+	}
+	req.Identity = &contracts.AuthIdentity{Subject: ownerScope.Subject}
 	session, err := s.deps.Sessions.BuildQuerySession(ctx, req, admission.Summary, admission.AgentDef, sessionbuild.Options{DisableSkillScriptGrants: true, IncludeHistory: true})
 	if err != nil {
 		return err
@@ -119,6 +124,9 @@ func (s *Service) resumeWait(ctx context.Context, item chat.PendingAwaitingWithC
 		return err
 	} else if frozen != nil {
 		session.InteractionConfig = frozen
+	}
+	if err := s.deps.Sessions.RestoreSteerReferences(&session, admission.AgentDef); err != nil {
+		return err
 	}
 	if preparer, ok := s.deps.Agent.(contracts.RunSteerPreparer); ok {
 		if err := preparer.BindSteerPreparer(session, recovered.Control); err != nil {

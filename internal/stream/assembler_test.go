@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"strings"
 	"testing"
 )
@@ -380,14 +381,14 @@ func TestAssemblerBootstrapIncludesPlanningModeWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestAssemblerBootstrapIncludesMustUseSkills(t *testing.T) {
+func TestAssemblerBootstrapIncludesReferencedSkills(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
-		RequestID:     "req-required-skill",
-		RunID:         "run-required-skill",
-		ChatID:        "chat-required-skill",
-		AgentKey:      "coder",
-		Message:       "design this",
-		MustUseSkills: []string{"product-design"},
+		RequestID:  "req-required-skill",
+		RunID:      "run-required-skill",
+		ChatID:     "chat-required-skill",
+		AgentKey:   "coder",
+		Message:    "design this",
+		References: queryinput.MakeReferences("skill", []string{"product-design"}),
 	})
 	events := assembler.Bootstrap()
 	if len(events) == 0 {
@@ -397,18 +398,19 @@ func TestAssemblerBootstrapIncludesMustUseSkills(t *testing.T) {
 	if payload["type"] != "request.query" {
 		t.Fatalf("expected request.query bootstrap, got %#v", payload)
 	}
-	keys, ok := payload["mustUseSkills"].([]string)
+	refs, ok := payload["references"].([]queryinput.Reference)
+	keys := queryinput.ResourceIDs(refs, "skill")
 	if !ok || len(keys) != 1 || keys[0] != "product-design" {
 		t.Fatalf("required skill IDs missing from request.query: %#v", payload)
 	}
 }
 
-func TestAssemblerSyntheticQueryIncludesMustUseSkills(t *testing.T) {
+func TestAssemblerSyntheticQueryIncludesReferencedSkills(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
-		RequestID:     "request-1",
-		RunID:         "run-1",
-		ChatID:        "chat-1",
-		MustUseSkills: []string{"product-design"},
+		RequestID:  "request-1",
+		RunID:      "run-1",
+		ChatID:     "chat-1",
+		References: queryinput.MakeReferences("skill", []string{"product-design"}),
 	})
 
 	events := assembler.Consume(SyntheticQuery{
@@ -420,9 +422,10 @@ func TestAssemblerSyntheticQueryIncludesMustUseSkills(t *testing.T) {
 		t.Fatalf("unexpected events: %#v", events)
 	}
 	payload := events[0].Payload
-	keys, ok := payload["mustUseSkills"].([]string)
+	refs, ok := payload["references"].([]queryinput.Reference)
+	keys := queryinput.ResourceIDs(refs, "skill")
 	if !ok || len(keys) != 1 || keys[0] != "product-design" {
-		t.Fatalf("mustUseSkills = %#v", payload["mustUseSkills"])
+		t.Fatalf("mustUseSkills = %#v", payload["references"])
 	}
 }
 
@@ -496,13 +499,13 @@ func assertEmissionTypes(t *testing.T, emissions []EventEmission, want ...string
 }
 
 func TestAssemblerCarriesRequiredLibrariesAcrossBootstrapAndSyntheticQuery(t *testing.T) {
-	assembler := NewAssembler(StreamRequest{RequestID: "r", RunID: "run", ChatID: "chat", MustUseKbases: []string{"a", "b"}})
+	assembler := NewAssembler(StreamRequest{RequestID: "r", RunID: "run", ChatID: "chat", References: queryinput.MakeReferences("kbase", []string{"a", "b"})})
 	bootstrap := assembler.Bootstrap()
-	if ids, ok := bootstrap[0].ToData()["mustUseKbases"].([]string); !ok || strings.Join(ids, ",") != "a,b" {
+	if refs, ok := bootstrap[0].ToData()["references"].([]queryinput.Reference); !ok || strings.Join(queryinput.ResourceIDs(refs, "kbase"), ",") != "a,b" {
 		t.Fatalf("bootstrap: %+v", bootstrap[0])
 	}
 	synthetic := assembler.Consume(SyntheticQuery{Role: "user", Message: "continue"})
-	if ids, ok := synthetic[0].Payload["mustUseKbases"].([]string); !ok || strings.Join(ids, ",") != "a,b" {
+	if refs, ok := synthetic[0].Payload["references"].([]queryinput.Reference); !ok || strings.Join(queryinput.ResourceIDs(refs, "kbase"), ",") != "a,b" {
 		t.Fatalf("synthetic: %+v", synthetic)
 	}
 }

@@ -88,9 +88,6 @@ func NewProxyEventRecorder(
 	if req.PlanningMode != nil {
 		queryPayload["planningMode"] = *req.PlanningMode
 	}
-	if len(req.MustUseSkills) > 0 {
-		queryPayload["mustUseSkills"] = append([]string(nil), req.MustUseSkills...)
-	}
 	for key, value := range req.TrustedQueryMetadata {
 		if _, reserved := queryPayload[key]; !reserved {
 			queryPayload[key] = value

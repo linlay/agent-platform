@@ -16,8 +16,10 @@ import (
 )
 
 func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.QueryCommand) (preparedQuery, *statusError) {
-	if len(sessionbuild.NormalizeMustUseKbases(input.MustUseKbases)) > 0 {
-		return preparedQuery{}, btwStatusError(400, "btw_kbases_unsupported", "BTW does not accept mustUseKbases")
+	for _, ref := range input.References {
+		if kind := strings.ToLower(strings.TrimSpace(ref.Type)); kind == "skill" || kind == "kbase" || kind == "chat" {
+			return preparedQuery{}, btwStatusError(400, "btw_references_unsupported", "BTW does not accept skill, kbase or chat references")
+		}
 	}
 	input.ChatID = strings.TrimSpace(input.ChatID)
 	input.SideQueryID = strings.TrimSpace(input.SideQueryID)

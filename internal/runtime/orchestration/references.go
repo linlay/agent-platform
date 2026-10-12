@@ -3,6 +3,7 @@
 package orchestration
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"strings"
 
 	runtimetypes "agent-platform/internal/runtime/types"
@@ -43,7 +44,10 @@ func ReferenceIdentityKeys(reference runtimetypes.Reference) []string {
 			keys = append(keys, prefix+value)
 		}
 	}
-	appendKey("id:", reference.ID)
+	appendKey("id:"+strings.ToLower(strings.TrimSpace(reference.Type))+":", strings.TrimSpace(reference.ID))
+	if reference.Type == "skill" || reference.Type == "kbase" || reference.Type == "chat" {
+		return []string{queryinput.ReferenceIdentity(reference)}
+	}
 	appendKey("sha256:", reference.SHA256)
 	appendKey("path:", reference.Path)
 	appendKey("url:", reference.URL)

@@ -86,7 +86,7 @@ func (d *Driver) Stream(runCtx context.Context, prepared runtimetypes.PreparedQu
 		events.Error(err)
 		return
 	}
-	if err := upstream.WriteJSON(QueryPayloadWithWorkspace(prepared.Req, prepared.AgentDef.ProxyConfig, proxyReferences, prepared.Session.WorkspaceRoot)); err != nil {
+	if err := upstream.WriteJSON(ACPReferencePayload(QueryPayloadWithWorkspace(prepared.Req, prepared.AgentDef.ProxyConfig, proxyReferences, prepared.Session.WorkspaceRoot), prepared.AgentDef)); err != nil {
 		events.Error(fmt.Errorf("proxy websocket write failed: %w", err))
 		return
 	}
@@ -199,7 +199,7 @@ func (d *Driver) runInboundChannel(
 		return
 	}
 
-	initial := QueryPayloadWithWorkspace(prepared.Req, proxy, proxyReferences, prepared.Session.WorkspaceRoot)
+	initial := ACPReferencePayload(QueryPayloadWithWorkspace(prepared.Req, proxy, proxyReferences, prepared.Session.WorkspaceRoot), prepared.AgentDef)
 	frames, cleanup, err := upstream.OpenRequest(initial)
 	if err != nil {
 		events.Error(fmt.Errorf("channel %s request failed: %w", proxy.ChannelID, err))
@@ -342,10 +342,7 @@ func (d *Driver) runSSE(
 	if prepared.Req.PlanningMode != nil {
 		bodyPayload["planningMode"] = *prepared.Req.PlanningMode
 	}
-	if len(prepared.Req.MustUseSkills) > 0 {
-		bodyPayload["mustUseSkills"] = append([]string(nil), prepared.Req.MustUseSkills...)
-	}
-	body, err := json.Marshal(bodyPayload)
+	body, err := json.Marshal(ACPReferencePayload(bodyPayload, prepared.AgentDef))
 	if err != nil {
 		resolveStartup(err)
 		events.Error(err)

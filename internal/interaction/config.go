@@ -8,16 +8,16 @@ import (
 
 type Attachment struct {
 	LocalFiles  bool `json:"localFiles"`
+	Skills      bool `json:"skills"`
+	Kbases      bool `json:"kbases"`
 	ChatRecords bool `json:"chatRecords"`
 }
 
 type Config struct {
-	Model         bool       `json:"model"`
-	AccessLevel   bool       `json:"accessLevel"`
-	MustUseKbases bool       `json:"mustUseKbases"`
-	MustUseSkills bool       `json:"mustUseSkills"`
-	Connectors    bool       `json:"connectors"`
-	Attachment    Attachment `json:"attachment"`
+	Model       bool       `json:"model"`
+	AccessLevel bool       `json:"accessLevel"`
+	Connectors  bool       `json:"connectors"`
+	Attachment  Attachment `json:"attachment"`
 	// The show* fields only decide whether a client offers an entry. They never
 	// gate a request: editingMode and planningMode stay valid API parameters.
 	ShowEditingMode  bool `json:"showEditingMode"`
@@ -31,7 +31,7 @@ func Defaults(mode string) Config { return DefaultsForEngine(mode, false) }
 // DefaultsForEngine also applies the engine: an ACP bridge owns Workspace
 // editing, so the editing entry is never offered by default there.
 func DefaultsForEngine(mode string, acp bool) Config {
-	c := Config{Model: true, AccessLevel: true, MustUseSkills: true, MustUseKbases: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true}}
+	c := Config{Model: true, AccessLevel: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true, Skills: true, Kbases: true}}
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "KBASE":
 		c.Model, c.AccessLevel, c.Connectors, c.Attachment.ChatRecords = false, false, false, false
@@ -40,8 +40,8 @@ func DefaultsForEngine(mode string, acp bool) Config {
 	case "PROXY", "CHANNEL":
 		c.Model = false
 	}
-	if mode := strings.ToUpper(strings.TrimSpace(mode)); mode == "KBASE" || mode == "TEAM" || mode == "PROXY" || mode == "CHANNEL" {
-		c.MustUseKbases = false
+	if mode := strings.ToUpper(strings.TrimSpace(mode)); mode == "KBASE" || mode == "PROXY" || mode == "CHANNEL" {
+		c.Attachment.Kbases = false
 	}
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "", "GENERAL", "REACT", "CODER", "KBASE", "TEAM":
@@ -65,7 +65,7 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 	if !ok {
 		return c, fmt.Errorf("interactionConfig must be an object")
 	}
-	fields := map[string]*bool{"model": &c.Model, "accessLevel": &c.AccessLevel, "mustUseSkills": &c.MustUseSkills, "mustUseKbases": &c.MustUseKbases, "connectors": &c.Connectors,
+	fields := map[string]*bool{"model": &c.Model, "accessLevel": &c.AccessLevel, "connectors": &c.Connectors,
 		"showEditingMode": &c.ShowEditingMode, "showPlanningMode": &c.ShowPlanningMode, "showTerminal": &c.ShowTerminal}
 	for key, value := range node {
 		if key == "attachment" {
@@ -76,6 +76,10 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 			for name, v := range attachment {
 				var target *bool
 				switch name {
+				case "skills":
+					target = &c.Attachment.Skills
+				case "kbases":
+					target = &c.Attachment.Kbases
 				case "localFiles":
 					target = &c.Attachment.LocalFiles
 				case "chatRecords":
@@ -111,8 +115,8 @@ func (c Config) Validate(model bool, accessLevel string, skills bool) error {
 	if !c.AccessLevel && accessLevel != "" && accessLevel != "default" {
 		return fmt.Errorf("interactionConfig.accessLevel is disabled")
 	}
-	if skills && !c.MustUseSkills {
-		return fmt.Errorf("interactionConfig.mustUseSkills is disabled")
+	if skills && !c.Attachment.Skills {
+		return fmt.Errorf("interactionConfig.attachment.skills is disabled")
 	}
 	return nil
 }
@@ -120,6 +124,14 @@ func (c Config) Validate(model bool, accessLevel string, skills bool) error {
 // References uses the same type classification as query reference preparation.
 func (c Config) ValidateReference(kind string) error {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "skill":
+		if !c.Attachment.Skills {
+			return fmt.Errorf("interactionConfig.attachment.skills is disabled")
+		}
+	case "kbase":
+		if !c.Attachment.Kbases {
+			return fmt.Errorf("interactionConfig.attachment.kbases is disabled")
+		}
 	case "chat":
 		if !c.Attachment.ChatRecords {
 			return fmt.Errorf("interactionConfig.attachment.chatRecords is disabled")

@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/runtime/controlscope"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
@@ -50,6 +51,10 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 	req.Payload = payload
 	queryRequest, err := ws.DecodePayload[api.QueryRequest](req)
 	if err != nil {
+		if errors.Is(err, queryinput.ErrRemovedReferenceSelection) {
+			conn.SendError(req.ID, "reference_selection_fields_removed", http.StatusBadRequest, queryinput.RemovedReferenceSelectionMessage, nil)
+			return
+		}
 		if errors.Is(err, api.ErrRequiredSkillKeysRemoved) {
 			conn.SendError(req.ID, "required_skill_keys_removed", http.StatusBadRequest, api.RequiredSkillKeysRemovedMessage, nil)
 		} else if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {
@@ -124,6 +129,10 @@ func (s *Server) wsQueryDetached(ctx context.Context, conn *ws.Conn, req ws.Requ
 	req.Payload = payload
 	queryRequest, err := ws.DecodePayload[api.QueryRequest](req)
 	if err != nil {
+		if errors.Is(err, queryinput.ErrRemovedReferenceSelection) {
+			conn.SendError(req.ID, "reference_selection_fields_removed", http.StatusBadRequest, queryinput.RemovedReferenceSelectionMessage, nil)
+			return
+		}
 		if errors.Is(err, api.ErrRequiredSkillKeysRemoved) {
 			conn.SendError(req.ID, "required_skill_keys_removed", http.StatusBadRequest, api.RequiredSkillKeysRemovedMessage, nil)
 		} else if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {
@@ -300,7 +309,7 @@ func (s *Server) wsSteer(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	req.Payload = payloadData
 	payload, err := ws.DecodePayload[api.SteerRequest](req)
 	if err != nil {
-		conn.SendError(req.ID, "invalid_request", 400, "invalid steer payload", nil)
+		conn.SendError(req.ID, "invalid_request", 400, steerDecodeErrorMessage(err), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}

@@ -129,45 +129,6 @@ func TestPrepareSiteReferenceRejectsUnscopedEntryKey(t *testing.T) {
 	}
 }
 
-func TestBuildChatReferenceContextKeepsCompactSummaryAndRecentConversation(t *testing.T) {
-	messages := []map[string]any{{
-		"role":    "user",
-		"content": "以下是此前对话的上下文压缩摘要。\n\ncompact facts",
-	}}
-	for index := 0; index < 15; index++ {
-		role := "user"
-		if index%2 == 1 {
-			role = "assistant"
-		}
-		messages = append(messages, map[string]any{
-			"role":    role,
-			"content": "message-" + string(rune('a'+index)),
-		})
-	}
-	messages = append(messages, map[string]any{
-		"role":    "tool",
-		"content": "private tool output",
-	})
-
-	got := buildChatReferenceContext(chat.Summary{
-		ChatID:   "chat-source",
-		ChatName: "Source chat",
-	}, messages)
-	for _, expected := range []string{
-		`Referenced chat "Source chat" (chat-source).`,
-		"[compact summary]",
-		"compact facts",
-		"message-o",
-	} {
-		if !strings.Contains(got, expected) {
-			t.Fatalf("expected %q in context:\n%s", expected, got)
-		}
-	}
-	if strings.Contains(got, "message-a") || strings.Contains(got, "private tool output") {
-		t.Fatalf("context did not enforce recent user/assistant window:\n%s", got)
-	}
-}
-
 func TestPrepareChatReferenceRejectsSelfReference(t *testing.T) {
 	server := &Server{}
 	_, err := server.prepareChatReference(
@@ -232,10 +193,10 @@ func TestPrepareChatReferenceReloadsTrustedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare chat reference: %v", err)
 	}
-	contextText := strings.TrimSpace(got.Meta["context"].(string))
-	if got.Name == "spoofed name" || !strings.Contains(contextText, "trusted reload") || !strings.Contains(contextText, "trusted answer") || strings.Contains(contextText, "spoofed context") {
-		t.Fatalf("chat reference was not rebuilt from trusted storage: %#v", got)
+	if _, body := got.Meta["context"]; body || got.Name == "spoofed name" {
+		t.Fatalf("chat pointer includes body or untrusted metadata: %#v", got)
 	}
+
 }
 
 func TestPrepareChatReferenceRejectsAnotherQueryPrincipal(t *testing.T) {

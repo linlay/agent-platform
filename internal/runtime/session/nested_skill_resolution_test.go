@@ -38,7 +38,7 @@ func TestMustUsePackageMembersKeepExactKeysAndIndependentRoots(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "suite", "package.json"), []byte(`{"name":"suite","skills":[{"key":"demo"}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := ResolveMustUseSkills(catalog.AgentDefinition{}, root, center, []string{"demo", "suite/demo", "suite/demo"})
+	result, err := ResolveReferencedSkills(catalog.AgentDefinition{}, root, center, []string{"demo", "suite/demo", "suite/demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,18 +51,18 @@ func TestMustUsePackageMembersKeepExactKeysAndIndependentRoots(t *testing.T) {
 	if result.Skills[1].InstructionsPath != "@skills-center/suite/demo/SKILL.md" {
 		t.Fatal(result.Skills[1].InstructionsPath)
 	}
-	access, err := MustUseSkillRunAccess(result.Skills)
+	access, err := ReferencedSkillRunAccess(result.Skills)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = access
 	// Removing the independent skill must not fall back to the package member.
 	delete(center, "demo")
-	if _, err := ResolveMustUseSkills(catalog.AgentDefinition{}, root, center, []string{"demo"}); err == nil {
+	if _, err := ResolveReferencedSkills(catalog.AgentDefinition{}, root, center, []string{"demo"}); err == nil {
 		t.Fatal("short-name alias resolved package member")
 	}
 	for _, key := range []string{"suite/../demo", "suite/demo/deeper", "suite//demo"} {
-		if _, err := ResolveMustUseSkillRoot(root, key); err == nil {
+		if _, err := ResolveReferencedSkillRoot(root, key); err == nil {
 			t.Errorf("unsafe root accepted %q", key)
 		}
 	}
@@ -78,7 +78,7 @@ func TestConfiguredPackageMemberUsesRuntimeCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	installRuntimeSkillFixture(t, runtime, "suite/demo")
-	result, err := ResolveMustUseSkills(catalog.AgentDefinition{RuntimeDir: runtime, Skills: []string{"suite/demo"}}, "", nil, []string{"suite/demo"})
+	result, err := ResolveReferencedSkills(catalog.AgentDefinition{RuntimeDir: runtime, Skills: []string{"suite/demo"}}, "", nil, []string{"suite/demo"})
 	if err != nil || len(result.Skills) != 1 {
 		t.Fatalf("%+v %v", result, err)
 	}

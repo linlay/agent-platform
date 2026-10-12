@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/interaction"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
@@ -28,33 +28,20 @@ func TestKnowledgeSelectionUnboundAgentAndFrozenRun(t *testing.T) {
 		return api.KBaseOption{}, errors.New("missing")
 	}})
 	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", Tools: []string{"kbase_list", "kbase_search"}, Connectors: []string{connector.KBaseControlConnectorID}}
-	request := runtimetypes.QueryCommand{AgentKey: def.Key, ChatID: "chat-1", RunID: "run-1", MustUseKbases: []string{" a ", "b", "a", " "}}
+	request := runtimetypes.QueryCommand{AgentKey: def.Key, ChatID: "chat-1", RunID: "run-1", References: queryinput.MakeReferences("kbase", []string{" a ", "b", "a", " "})}
 	result, err := builder.BuildQuerySession(context.Background(), request, chat.Summary{ChatID: request.ChatID}, def, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(result.MustUseKbases, ",") != "a,b" || len(result.KnowledgeLibraries) != 2 || result.KBaseBindingLibraryID != "" {
-		t.Fatalf("selection: %+v", result)
+	refs := result.RuntimeContext.References
+	if strings.Join(queryinput.ResourceIDs(refs, "kbase"), ",") != "a,b" || len(result.CapabilityPrompts) != 0 || result.KBaseBindingLibraryID != "" {
+		t.Fatalf("selection leaked into system context: %+v", result)
 	}
-	const prefix = "Knowledge library context:\n"
-	if len(result.CapabilityPrompts) != 1 || !strings.HasPrefix(result.CapabilityPrompts[0], prefix) {
-		t.Fatalf("expected one library metadata section: %v", result.CapabilityPrompts)
+	if refs[0].Name != a.Name || refs[0].Meta["description"] != a.Description || refs[1].ID != b.ID {
+		t.Fatalf("reference metadata: %#v", refs)
 	}
-	var metadata struct {
-		BoundLibraryID    string            `json:"boundLibraryId"`
-		RequiredLibraries []api.KBaseOption `json:"requiredLibraries"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(result.CapabilityPrompts[0], prefix)), &metadata); err != nil {
-		t.Fatalf("library context must contain only JSON metadata after its label: %v", err)
-	}
-	if metadata.BoundLibraryID != "" || len(metadata.RequiredLibraries) != 2 || metadata.RequiredLibraries[0].Name != a.Name ||
-		metadata.RequiredLibraries[0].Description != a.Description || len(metadata.RequiredLibraries[0].Collections) != 1 ||
-		metadata.RequiredLibraries[0].Collections[0].Description != "版本说明" ||
-		metadata.RequiredLibraries[1].ID != b.ID {
-		t.Fatalf("library metadata lost selected library details: %+v", metadata)
-	}
-	request.MustUseKbases[0] = "changed"
-	if result.MustUseKbases[0] != "a" {
+	request.References[0].ID = "changed"
+	if refs[0].ID != "a" {
 		t.Fatal("selection aliases caller input")
 	}
 	delete(lookup, "a")
@@ -83,8 +70,8 @@ func TestKBaseConnectorMountWithoutLibraryContextAddsNoPrompt(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(session.CapabilityPrompts) != 0 || len(session.KnowledgeLibraries) != 0 || session.KBaseBindingLibraryID != "" {
-				t.Fatalf("connector mount injected library context: prompts=%v libraries=%v binding=%q", session.CapabilityPrompts, session.KnowledgeLibraries, session.KBaseBindingLibraryID)
+			if len(session.CapabilityPrompts) != 0 || session.KBaseBindingLibraryID != "" {
+				t.Fatalf("connector mount injected library context: prompts=%v libraries=%v binding=%q", session.CapabilityPrompts, session.RuntimeContext.References, session.KBaseBindingLibraryID)
 			}
 		})
 	}
@@ -94,7 +81,7 @@ func TestKnowledgeSelectionGatesAndEmptySelection(t *testing.T) {
 	builder := New(Dependencies{KnowledgeLibrary: func(id string) (api.KBaseOption, error) { return api.KBaseOption{ID: id, Readable: id != "bad"}, nil }})
 	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", Connectors: []string{connector.KBaseControlConnectorID}}
 	c := interaction.Defaults(def.Mode)
-	c.MustUseKbases = false
+	c.Attachment.Kbases = false
 	def.InteractionConfig = &c
 	if _, err := builder.ResolveKbases(def, []string{" ", ""}); err != nil {
 		t.Fatal(err)
@@ -102,13 +89,13 @@ func TestKnowledgeSelectionGatesAndEmptySelection(t *testing.T) {
 	if _, err := builder.ResolveKbases(def, []string{"a"}); err == nil {
 		t.Fatal("disabled selection accepted")
 	}
-	c.MustUseKbases = true
+	c.Attachment.Kbases = true
 	def.Connectors = nil
 	if _, err := builder.ResolveKbases(def, []string{"a"}); err == nil {
 		t.Fatal("selection implicitly mounted connector")
 	}
 	def.Connectors = []string{connector.KBaseControlConnectorID}
-	for _, mode := range []string{"TEAM", "PROXY", "CHANNEL"} {
+	for _, mode := range []string{"PROXY", "CHANNEL"} {
 		def.Mode = mode
 		if _, err := builder.ResolveKbases(def, []string{"a"}); err == nil {
 			t.Fatalf("unsupported %s accepted", mode)

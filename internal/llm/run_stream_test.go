@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/view"
 	"bufio"
 	"context"
@@ -256,7 +257,11 @@ func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 		engine: &LLMAgentEngine{
 			tools: executor,
 		},
-		session: contracts.QuerySession{RunID: "run_1", MustUseKbases: []string{"parent"}},
+		session: contracts.QuerySession{RunID: "run_1", ReferencesScope: func() *contracts.RunReferences {
+			s := contracts.NewRunReferences(nil)
+			_ = s.Commit(contracts.ReferenceGrant{References: queryinput.MakeReferences("kbase", []string{"parent"})})
+			return s
+		}()},
 		execCtx: &contracts.ExecutionContext{
 			StartedAt: time.Now(),
 		},
@@ -2267,7 +2272,7 @@ func TestPrepareToolCall_InvokeAgentsReturnsBatchPrelude(t *testing.T) {
 	if invoke.MainToolID != "tool_1" || len(invoke.Tasks) != 1 || invoke.Tasks[0].SubAgentKey != "writer" || invoke.Tasks[0].TaskText != "Write a short summary" || invoke.Tasks[0].TaskName != "总结" {
 		t.Fatalf("unexpected invoke delta %#v", invoke)
 	}
-	if len(invoke.Tasks[0].MustUseKbases) != 0 {
+	if len(queryinput.ResourceIDs(invoke.Tasks[0].References, "kbase")) != 0 {
 		t.Fatal("omitted libraries inherited from parent")
 	}
 }
@@ -7197,7 +7202,11 @@ func TestPrepareToolCall_InvokeAgentsCarriesExplicitRequiredLibraries(t *testing
 			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
 			interactions: toolinteraction.NewDefaultRegistry(),
 		},
-		session: contracts.QuerySession{RunID: "run_1", MustUseKbases: []string{"parent"}},
+		session: contracts.QuerySession{RunID: "run_1", ReferencesScope: func() *contracts.RunReferences {
+			s := contracts.NewRunReferences(nil)
+			_ = s.Commit(contracts.ReferenceGrant{References: queryinput.MakeReferences("kbase", []string{"parent"})})
+			return s
+		}()},
 		execCtx: &contracts.ExecutionContext{},
 	}
 
@@ -7206,7 +7215,7 @@ func TestPrepareToolCall_InvokeAgentsCarriesExplicitRequiredLibraries(t *testing
 		Type: "function",
 		Function: openAIFunctionCall{
 			Name:      contracts.InvokeAgentsToolName,
-			Arguments: `{"tasks":[{"subAgentKey":"writer","task":"Write a short summary","taskName":"总结","mustUseKbases":[" a ","b","a"]}]}`,
+			Arguments: `{"tasks":[{"subAgentKey":"writer","task":"Write a short summary","taskName":"总结","references":[{"type":"kbase","id":" a "},{"type":"kbase","id":"b"},{"type":"kbase","id":"a"}]}]}`,
 		},
 	})
 	if toolMsg != nil {
@@ -7228,7 +7237,7 @@ func TestPrepareToolCall_InvokeAgentsCarriesExplicitRequiredLibraries(t *testing
 	if invoke.MainToolID != "tool_1" || len(invoke.Tasks) != 1 || invoke.Tasks[0].SubAgentKey != "writer" || invoke.Tasks[0].TaskText != "Write a short summary" || invoke.Tasks[0].TaskName != "总结" {
 		t.Fatalf("unexpected invoke delta %#v", invoke)
 	}
-	if strings.Join(invoke.Tasks[0].MustUseKbases, ",") != "a,b" {
+	if strings.Join(queryinput.ResourceIDs(invoke.Tasks[0].References, "kbase"), ",") != "a,b" {
 		t.Fatalf("explicit libraries lost: %+v", invoke.Tasks[0])
 	}
 }

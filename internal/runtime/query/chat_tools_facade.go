@@ -73,6 +73,11 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	if err != nil {
 		return contracts.RunStartPlan{}, runNotStarted(err)
 	}
+	for _, id := range queryinput.ResourceIDs(request.References, "chat") {
+		if request.Origin.Subject == "" && id != request.Origin.ChatID && !request.ReferenceReadScope.CanReadChat(id) {
+			return fail("chat_reference_forbidden", "chat_start cannot grant access to an unreferenced Chat")
+		}
+	}
 	agentKey := request.AgentKey
 	plan := contracts.RunStartPlan{RequestedAccessLevel: strings.TrimSpace(request.AccessLevel)}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
@@ -201,8 +206,7 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 		Role:            queryinput.QueryRoleUser,
 		Message:         strings.TrimSpace(request.Message),
 		AccessLevel:     plan.AccessLevel,
-		MustUseSkills:   append([]string(nil), request.MustUseSkills...),
-		MustUseKbases:   append([]string(nil), request.MustUseKbases...),
+		References:      append([]queryinput.Reference(nil), request.References...),
 		InitialChatName: strings.TrimSpace(request.ChatName),
 		ChatSource:      queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
 	}

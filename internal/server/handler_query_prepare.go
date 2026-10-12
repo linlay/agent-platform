@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
@@ -75,6 +76,10 @@ func decodeQueryRequest(r *http.Request) (api.QueryRequest, error) {
 					"error": map[string]any{"code": code, "message": api.RequiredSkillKeysRemovedMessage},
 				},
 			}
+		}
+		if errors.Is(err, queryinput.ErrRemovedReferenceSelection) {
+			const code = "reference_selection_fields_removed"
+			return api.QueryRequest{}, &statusError{Status: http.StatusBadRequest, Code: code, Message: queryinput.RemovedReferenceSelectionMessage, Data: map[string]any{"error": map[string]any{"code": code, "message": queryinput.RemovedReferenceSelectionMessage}}}
 		}
 		message := "invalid request body"
 		if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {

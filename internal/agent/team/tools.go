@@ -8,6 +8,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 var (
@@ -19,10 +20,11 @@ var (
 )
 
 type TaskSpec struct {
-	AgentKey string   `json:"agentKey"`
-	Task     string   `json:"task,omitempty"`
-	TaskName string   `json:"taskName,omitempty"`
-	Files    []string `json:"files,omitempty"`
+	References []api.Reference `json:"references,omitempty"`
+	AgentKey   string          `json:"agentKey"`
+	Task       string          `json:"task,omitempty"`
+	TaskName   string          `json:"taskName,omitempty"`
+	Files      []string        `json:"files,omitempty"`
 }
 
 type DelegateArgs struct {
@@ -143,11 +145,16 @@ func parseDelegate(args DelegateArgs, members []MemberSpec) (Dispatch, error) {
 			seenFiles[file] = struct{}{}
 			files = append(files, file)
 		}
+		refs, err := queryinput.LocatorReferences(task.References, false)
+		if err != nil {
+			return Dispatch{}, fmt.Errorf("%w: %v", ErrInvalidArguments, err)
+		}
 		tasks = append(tasks, TaskSpec{
-			AgentKey: canonical,
-			Task:     strings.TrimSpace(task.Task),
-			TaskName: strings.TrimSpace(task.TaskName),
-			Files:    files,
+			References: refs,
+			AgentKey:   canonical,
+			Task:       strings.TrimSpace(task.Task),
+			TaskName:   strings.TrimSpace(task.TaskName),
+			Files:      files,
 		})
 	}
 	return Dispatch{Tasks: tasks}, nil

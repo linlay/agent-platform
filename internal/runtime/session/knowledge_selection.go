@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/connector"
@@ -13,17 +12,17 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
-const MaxMustUseKbases = 8
+const MaxLibraryReferences = 8
 
-func NormalizeMustUseKbases(ids []string) []string {
+func NormalizeReferencedKbases(ids []string) []string {
 	return contracts.NormalizeRequiredLibraries(ids)
 }
 
 // The directory and admission share the existing native connector mount gate.
 // Tool exclusions remain the router's responsibility; selection grants no tools.
 func KBaseCapability(def catalog.AgentDefinition) libraryinfo.Capability {
-	if def.Engine == catalog.AgentEngineACP || IsProxyRoutedAgent(def) || catalog.AgentIsChannelMode(def.Mode) || strings.EqualFold(def.Mode, "TEAM") {
-		return libraryinfo.Capability{Reason: "mustUseKbases is unsupported for this agent"}
+	if def.Engine == catalog.AgentEngineACP || IsProxyRoutedAgent(def) || catalog.AgentIsChannelMode(def.Mode) {
+		return libraryinfo.Capability{Reason: "kbase references are unsupported for this agent"}
 	}
 	if !slices.Contains(def.Connectors, connector.KBaseControlConnectorID) {
 		return libraryinfo.Capability{Reason: "mount builtin.kbase-control to select knowledge libraries"}
@@ -32,21 +31,21 @@ func KBaseCapability(def catalog.AgentDefinition) libraryinfo.Capability {
 }
 
 func (s *Builder) ResolveKbases(def catalog.AgentDefinition, ids []string) ([]libraryinfo.LibraryOption, error) {
-	ids = NormalizeMustUseKbases(ids)
+	ids = NormalizeReferencedKbases(ids)
 	if len(ids) == 0 {
 		return []libraryinfo.LibraryOption{}, nil
 	}
 	fail := func(message string) ([]libraryinfo.LibraryOption, error) {
 		return nil, &runtimetypes.RequestError{Status: 400, Code: "kbase_selection_unavailable", Message: message}
 	}
-	if !def.Interaction().MustUseKbases {
-		return fail("interactionConfig.mustUseKbases is disabled")
+	if !def.Interaction().Attachment.Kbases {
+		return fail("interactionConfig.attachment.kbases is disabled")
 	}
 	if capability := KBaseCapability(def); !capability.Available {
 		return fail(capability.Reason)
 	}
-	if len(ids) > MaxMustUseKbases {
-		return fail(fmt.Sprintf("mustUseKbases accepts at most %d libraries", MaxMustUseKbases))
+	if len(ids) > MaxLibraryReferences {
+		return fail(fmt.Sprintf("kbase references accept at most %d libraries", MaxLibraryReferences))
 	}
 	if s.deps.KnowledgeLibrary == nil {
 		return fail("knowledge library service unavailable")
@@ -67,13 +66,10 @@ func (s *Builder) ResolveKbases(def catalog.AgentDefinition, ids []string) ([]li
 }
 
 func knowledgeSelectionPrompt(boundID string, libraries []libraryinfo.LibraryOption) string {
-	if boundID == "" && len(libraries) == 0 {
+	if boundID == "" {
 		return ""
 	}
-	metadata, _ := json.Marshal(struct {
-		BoundLibraryID    string                      `json:"boundLibraryId,omitempty"`
-		RequiredLibraries []libraryinfo.LibraryOption `json:"requiredLibraries"`
-	}{boundID, libraries})
+	metadata, _ := json.Marshal(map[string]string{"boundLibraryId": boundID})
 	// Data only: the rules for using these libraries live in the kbase-control skill.
 	return "Knowledge library context:\n" + string(metadata)
 }

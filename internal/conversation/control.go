@@ -22,7 +22,10 @@ import (
 	"agent-platform/internal/conversationexport"
 )
 
-type ControlCaller struct{ Subject, ChatID, AgentKey, RunID, ToolID string }
+type ControlCaller struct {
+	Subject, ChatID, AgentKey, RunID, ToolID string
+	ReferencedChats                          []string
+}
 type ControlMessage struct {
 	SteerID   string                  `json:"steerId,omitempty"`
 	Source    *queryinput.SteerSource `json:"source,omitempty"`
@@ -61,7 +64,7 @@ func controlLimit(args map[string]any) (int, error) {
 func controlString(m map[string]any, k string) string { v, _ := m[k].(string); return v }
 func controlBool(m map[string]any, k string) bool     { v, _ := m[k].(bool); return v }
 func controlPage(args map[string]any, c ControlCaller) (controlCursor, error) {
-	normalized := map[string]any{"subject": c.Subject, "current": c.ChatID, "agent": c.AgentKey}
+	normalized := map[string]any{"subject": c.Subject, "current": c.ChatID, "agent": c.AgentKey, "run": c.RunID}
 	for k, v := range args {
 		if k != "cursor" && k != "limit" {
 			normalized[k] = v
@@ -155,7 +158,50 @@ func (s *Service) ResolveControlChat(c ControlCaller, id string, archived bool) 
 	return summary, nil
 }
 func (s *Service) ControlMessages(c ControlCaller, id string, archived bool) (*chat.Summary, []ControlMessage, error) {
+	return s.controlMessages(c, id, archived, false)
+}
+
+func (s *Service) ResolveQueryChat(c ControlCaller, id string, archived bool) (*chat.Summary, error) {
+	if c.Subject != "" || id == "" || id == c.ChatID {
+		return s.ResolveControlChat(c, id, archived)
+	}
+	allowed := false
+	for _, grant := range c.ReferencedChats {
+		if grant == id {
+			allowed = true
+			break
+		}
+	}
+	if !allowed || !chat.ValidChatID(id) {
+		return nil, fmt.Errorf("chat_forbidden")
+	}
+	var summary *chat.Summary
+	var err error
+	if archived {
+		if s.Archives == nil {
+			return nil, ErrNotConfigured
+		}
+		summary, err = s.Archives.ControlSummary(id)
+	} else {
+		summary, err = s.Chats.Summary(id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if summary == nil {
+		return nil, chat.ErrChatNotFound
+	}
+	if strings.HasPrefix(summary.Source, "query:") {
+		return nil, fmt.Errorf("chat_forbidden")
+	}
+	return summary, nil
+}
+
+func (s *Service) controlMessages(c ControlCaller, id string, archived bool, referenced bool) (*chat.Summary, []ControlMessage, error) {
 	summary, e := s.ResolveControlChat(c, id, archived)
+	if referenced {
+		summary, e = s.ResolveQueryChat(c, id, archived)
+	}
 	if e != nil {
 		return nil, nil, e
 	}
@@ -198,7 +244,7 @@ func (s *Service) ControlMessages(c ControlCaller, id string, archived bool) (*c
 func (s *Service) ControlRead(c ControlCaller, args map[string]any) (map[string]any, error) {
 	id := controlString(args, "chatId")
 	archived := controlBool(args, "archived")
-	summary, e := s.ResolveControlChat(c, id, archived)
+	summary, e := s.ResolveQueryChat(c, id, archived)
 	if e != nil {
 		return nil, e
 	}
@@ -209,7 +255,7 @@ func (s *Service) ControlRead(c ControlCaller, args map[string]any) (map[string]
 	if view != "messages" {
 		return nil, fmt.Errorf("view must be summary or messages")
 	}
-	_, messages, e := s.ControlMessages(c, id, archived)
+	_, messages, e := s.controlMessages(c, id, archived, true)
 	if e != nil {
 		return nil, e
 	}
@@ -381,7 +427,7 @@ func (s *Service) ControlSearch(c ControlCaller, args map[string]any) (map[strin
 			break
 		}
 		scanned++
-		sum, err := s.ResolveControlChat(c, id, archived)
+		sum, err := s.ResolveQueryChat(c, id, archived)
 		if err != nil && target != "" {
 			return nil, err
 		}
@@ -411,7 +457,7 @@ func (s *Service) ControlSearch(c ControlCaller, args map[string]any) (map[strin
 			}
 			budget -= size
 		}
-		_, messages, err := s.ControlMessages(c, id, archived)
+		_, messages, err := s.controlMessages(c, id, archived, true)
 		if err != nil {
 			return nil, err
 		}

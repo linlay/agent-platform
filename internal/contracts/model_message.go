@@ -1,6 +1,7 @@
 package contracts
 
 type ModelMessage struct {
+	ReferenceContext   bool            `json:"-"`
 	OriginSteerKey     string          `json:"-"`
 	EncryptedReasoning []ReasoningPart `json:"-"`
 	OriginModelKey     string          `json:"-"`

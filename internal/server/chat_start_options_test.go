@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	runopspkg "agent-platform/internal/runops"
 )
 
@@ -24,7 +25,7 @@ func TestChatStartOptionalSettings(t *testing.T) {
 	_, parent, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "full_access"})
 	defer fixture.runs.Finish("parent")
 	for _, level := range []string{"", "default", "auto_approve", "full_access"} {
-		req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "run message", AccessLevel: level, MustUseSkills: []string{"mock-skill"}, ChatName: "自定义名称 " + level, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "tool"}}
+		req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "run message", AccessLevel: level, ChatName: "自定义名称 " + level, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "tool"}, References: queryinput.MakeReferences("skill", []string{"mock-skill"})}
 		started, err := fixture.server.StartRun(context.Background(), req)
 		if err != nil {
 			t.Fatal(err)
@@ -42,7 +43,7 @@ func TestChatStartOptionalSettings(t *testing.T) {
 			t.Fatalf("query not persisted: %v", loadErr)
 		}
 		raw, _ := json.Marshal(persisted.Query)
-		if !strings.Contains(string(raw), `"mustUseSkills":["mock-skill"]`) {
+		if !strings.Contains(string(raw), `"type":"skill"`) {
 			t.Fatalf("skill selection lost: %s", raw)
 		}
 		if finished.AccessLevel != expected {
@@ -242,7 +243,7 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			data = append(data, []byte("\ninteractionConfig:\n  accessLevel: false\n  mustUseSkills: false\n")...)
+			data = append(data, []byte("\ninteractionConfig:\n  accessLevel: false\n  attachment:\n    skills: false\n")...)
 			if err := os.WriteFile(path, data, 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -259,7 +260,7 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 	}{
 		{contracts.RunStartRequest{AgentKey: "mock-agent"}, "interaction_disabled"},
 		{contracts.RunStartRequest{AgentKey: "mock-agent", AccessLevel: "full_access"}, "interaction_disabled"},
-		{contracts.RunStartRequest{AgentKey: "mock-agent", MustUseSkills: []string{"demo"}}, "interaction_disabled"},
+		{contracts.RunStartRequest{AgentKey: "mock-agent", References: queryinput.MakeReferences("skill", []string{"demo"})}, "interaction_disabled"},
 		{contracts.RunStartRequest{AgentKey: "mock-agent", ChatID: "existing", ChatName: "name"}, "invalid_request"},
 	} {
 		tc.request.Message = "test"
@@ -275,8 +276,8 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 		t.Fatalf("rejected options created chats: %#v %v", chats, listErr)
 	}
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
-		AgentKey: "mock-agent", Message: "explicit default remains allowed", AccessLevel: "default", MustUseSkills: []string{},
-		Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "default"},
+		AgentKey: "mock-agent", Message: "explicit default remains allowed", AccessLevel: "default",
+		Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "default"}, References: queryinput.MakeReferences("skill", []string{}),
 	})
 	if err != nil || started.AccessLevel != "default" {
 		t.Fatalf("default rejected: %#v %v", started, err)

@@ -71,7 +71,7 @@ func writeBuiltinResources(dir, id, source, version string) error {
 }
 
 // BuiltinSkillConnector identifies the retired standalone copies of bundled
-// skills. These names cannot grant a connector through mustUseSkills.
+// skills. These names cannot grant a connector through skill references.
 func BuiltinSkillConnector(name string) string {
 	switch strings.ToLower(name) {
 	case "kanban-control":

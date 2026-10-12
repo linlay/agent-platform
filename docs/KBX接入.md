@@ -28,7 +28,7 @@ connectorConfig:
 
 四个知识检索工具由 `builtin.kbase-control` 提供；专用 KBASE 在分发示例中经 `kbase.preset-connectors` 自动挂载，可省略上面的 `connectorConfig`。
 
-示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；专用 KBASE 在 Run 开始检查绑定库就绪状态，mustUseKbases 的选择逐库检查可读性；工具每次调用重新检查指定库与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。知识检索的来源范围不冻结到旧 Run；下一次查询按当前配置重新授权。文件编辑是独立边界：库绑定、选库与配置变更均不扩大文件授权，Workspace 与 external 目录沿用通用访问策略。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
+示例模型键须替换为部署中的有效模型。绑定 ID 在 catalog 只检查格式；专用 KBASE 在 Run 开始检查绑定库就绪状态，kbase 引用 的选择逐库检查可读性；工具每次调用重新检查指定库与已应用来源指纹。删除或破坏配置只使该库和依赖调用失败，管理端显示 warning，不因为单个绑定失效把 `/healthz` 变成 503。知识检索的来源范围不冻结到旧 Run；下一次查询按当前配置重新授权。文件编辑是独立边界：库绑定、选库与配置变更均不扩大文件授权，Workspace 与 external 目录沿用通用访问策略。ACP、PROXY、CHANNEL 不支持 Native 知识工具。
 
 ## 维护生命周期
 

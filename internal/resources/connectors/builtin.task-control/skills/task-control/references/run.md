@@ -6,10 +6,10 @@ In user requests, conversation, dialogue and chat are synonyms for Chat, includi
 
 ## chat_start
 
-- mustUseKbases: optional required library IDs for the new Run. Empty or omitted means no temporary requirement. The target Agent must enable interactionConfig.mustUseKbases and mount builtin.kbase-control; all selected libraries are revalidated at admission. This selection is independent of the parent Run.
+- kbase references: optional required library IDs for the new Run. Empty or omitted means no temporary requirement. The target Agent must enable interactionConfig.kbase references and mount builtin.kbase-control; all selected libraries are revalidated at admission. This selection is independent of the parent Run.
 
 
-`{message, agentKey?, chatId?, accessLevel?, mustUseSkills?, mustUseKbases?, chatName?, modelKey?, reasoningEffort?}` starts an independent root run for a catalog Agent and returns chatId and runId immediately. It does not wait for the target result, and the target continues if the caller run is interrupted.
+`{message, agentKey?, chatId?, accessLevel?, references?, chatName?, modelKey?, reasoningEffort?}` starts an independent root run for a catalog Agent and returns chatId and runId immediately. It does not wait for the target result, and the target continues if the caller run is interrupted.
 
 - message: required non-empty string. The task message sent to the target.
 - agentKey: optional non-empty string holding the exact catalog Agent key. Omission uses the current calling Agent from trusted runtime context. Explicit empty, null or non-string values are rejected.
@@ -17,7 +17,7 @@ In user requests, conversation, dialogue and chat are synonyms for Chat, includi
 - chatId: non-empty string. Omit it to create a new Chat. Provide it only when the user asks to continue a specific existing Chat owned by the selected target. Omitting agentKey still selects the current calling Agent and requires that Chat to have the same owner. Never reuse the current chatId for a request to open a new Chat.
 - chatName: non-empty string naming a new Chat. Pass it only when the user specifies a name; otherwise normal naming applies. Cannot be combined with chatId. taskName is not supported.
 - accessLevel: `"default"`, `"auto_approve"` or `"full_access"`, for this run only. Pass it only when the user explicitly requests a permission level. Omission inherits the parent Run's current level at invocation time and does not follow later changes. Automatic approval means auto_approve, not full_access; destructive operations may still require approval. Target admission applies to all levels. See Permission review below.
-- mustUseSkills: array of non-empty skill ID strings required for an ordinary Agent run. Empty or omitted means none. Connector skills do not support this selection.
+- references: array of resource locators `{type,id}`. `type` is skill, kbase or chat; `id` is the exact resource ID. Skills are ordinary Skills, never connector skills. Each reference is used for the task. Empty or omitted means none. Chat references may only name Chats the calling Run can already read; an anonymous caller cannot create a new Chat grant through this tool. References grant no additional tools or access level.
 - modelKey: non-empty string holding a registered model key, for this run only. Pass it only when the user asks for a specific model; omission uses the target Agent's configured model. It is the `modelKey` returned by chat_query `models`, not a provider model ID; never guess a key. Separate calls may use different models, and continuing a Chat with chatId may use a different model than its earlier runs.
 - reasoningEffort: `"NONE"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"XHIGH"` or `"MAX"`, for this run only. `"NONE"` disables reasoning. Pass it only when the user asks for it; omission keeps the target's setting. Can be used without modelKey.
 

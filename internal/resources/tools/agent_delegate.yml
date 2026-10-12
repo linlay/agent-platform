@@ -35,6 +35,22 @@ inputSchema:
           taskName:
             type: string
             description: Optional. Task title used for progress events.
+          references:
+            type: array
+            description: "Explicit skill and knowledge library references for this child task. Chat references are unsupported."
+            items:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: "Required. Resource kind: skill or knowledge library."
+                  enum: [skill, kbase]
+                id:
+                  description: "Required. Exact resource ID."
+                  type: string
+                  minLength: 1
+              required: [type, id]
+              additionalProperties: false
           files:
             type: array
             maxItems: 10

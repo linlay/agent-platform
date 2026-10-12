@@ -8,7 +8,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
 	"agent-platform/internal/connector"
-	"agent-platform/internal/knowledge/libraryinfo"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/scriptstate"
 	"agent-platform/internal/skillsexec"
@@ -359,7 +359,6 @@ type QuerySession struct {
 	SupportsContextCompaction bool `json:"-"`
 	KBaseBindingLibraryID     string
 	KBaseRetrievalConfig      string
-	KnowledgeLibraries        []libraryinfo.LibraryOption
 	CapabilityPrompts         []string
 	PlanningMode              bool
 	// PlanningExcludeTools and PlanExecuteExcludeTools are the configured tools
@@ -374,8 +373,6 @@ type QuerySession struct {
 	Created                     bool
 	Subject                     string
 	SkillIDs                    []string
-	MustUseSkills               []string
-	MustUseKbases               []string
 	ConnectorCLIEntries         []connector.CLIEntry `json:"-"`
 	ConnectorBinDirs            []string
 	ConnectorEnv                map[string]string                 `json:"-"`
@@ -418,7 +415,9 @@ type QuerySession struct {
 	// RunAccessRoots contains trusted, run-scoped path grants assembled by the
 	// Platform. It is runtime-only so protocol callers cannot forge additional
 	// access. ReadonlyRoots are hard mutation blocks for the lifetime of the run.
-	RunAccessRoots RunAccessRoots `json:"-"`
+	RunAccessRoots        RunAccessRoots                                                 `json:"-"`
+	ReferencesScope       *RunReferences                                                 `json:"-"`
+	PrepareReferenceSteer func(queryinput.SteerRequest) (queryinput.SteerRequest, error) `json:"-"`
 	// WorkspaceReadOnly is the resolved editing=false capability. When set, no
 	// approval or access level may mutate the Workspace, and programs whose
 	// effects cannot be analyzed may not run inside it.
@@ -712,13 +711,13 @@ type RunOrigin struct {
 }
 
 type RunStartRequest struct {
-	AccessLevel   string
-	MustUseSkills []string
-	MustUseKbases []string
-	ChatName      string
-	AgentKey      string
-	ChatID        string
-	Message       string
+	References         []queryinput.Reference
+	ReferenceReadScope *RunReferences `json:"-"`
+	AccessLevel        string
+	ChatName           string
+	AgentKey           string
+	ChatID             string
+	Message            string
 	// ModelKey and ReasoningEffort override the target's model for this Run only.
 	ModelKey        string
 	ReasoningEffort string

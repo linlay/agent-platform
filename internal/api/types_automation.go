@@ -1,5 +1,11 @@
 package api
 
+import (
+	"agent-platform/internal/contracts/queryinput"
+	"bytes"
+	"encoding/json"
+)
+
 type AutomationListRequest struct {
 	Tag string `json:"tag,omitempty"`
 }
@@ -44,13 +50,13 @@ type AutomationExecutionHistoryStatus struct {
 }
 
 type AutomationQueryResponse struct {
-	MustUseKbases []string       `json:"mustUseKbases,omitempty"`
-	AccessLevel   string         `json:"accessLevel,omitempty"`
-	Message       string         `json:"message"`
-	ChatID        string         `json:"chatId,omitempty"`
-	Role          string         `json:"role,omitempty"`
-	Hidden        *bool          `json:"hidden,omitempty"`
-	Params        map[string]any `json:"params,omitempty"`
+	References  []Reference    `json:"references,omitempty"`
+	AccessLevel string         `json:"accessLevel,omitempty"`
+	Message     string         `json:"message"`
+	ChatID      string         `json:"chatId,omitempty"`
+	Role        string         `json:"role,omitempty"`
+	Hidden      *bool          `json:"hidden,omitempty"`
+	Params      map[string]any `json:"params,omitempty"`
 }
 
 type AutomationExecutionBrief struct {
@@ -113,13 +119,13 @@ type CreateAutomationRequest struct {
 }
 
 type AutomationQueryRequest struct {
-	MustUseKbases []string       `json:"mustUseKbases,omitempty"`
-	AccessLevel   string         `json:"accessLevel,omitempty"`
-	Message       string         `json:"message"`
-	ChatID        string         `json:"chatId,omitempty"`
-	Role          string         `json:"role,omitempty"`
-	Hidden        *bool          `json:"hidden,omitempty"`
-	Params        map[string]any `json:"params,omitempty"`
+	References  []Reference    `json:"references,omitempty"`
+	AccessLevel string         `json:"accessLevel,omitempty"`
+	Message     string         `json:"message"`
+	ChatID      string         `json:"chatId,omitempty"`
+	Role        string         `json:"role,omitempty"`
+	Hidden      *bool          `json:"hidden,omitempty"`
+	Params      map[string]any `json:"params,omitempty"`
 }
 
 type UpdateAutomationRequest struct {
@@ -171,4 +177,19 @@ type AutomationExecutionsRequest struct {
 type AutomationExecutionRequest struct {
 	ExecutionID string `json:"executionId"`
 	ID          string `json:"id,omitempty"`
+}
+
+func (r *AutomationQueryRequest) UnmarshalJSON(data []byte) error {
+	if err := queryinput.RejectRemovedReferenceKeys(data); err != nil {
+		return err
+	}
+	type plain AutomationQueryRequest
+	var value plain
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	*r = AutomationQueryRequest(value)
+	return nil
 }

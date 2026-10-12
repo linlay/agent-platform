@@ -214,6 +214,7 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 				TaskText:    taskText,
 				TaskName:    taskName,
 				Files:       append([]string(nil), task.Files...),
+				References:  append([]runtimetypes.Reference(nil), task.References...),
 			},
 			AgentDef:  agentDef,
 			TaskID:    fmt.Sprintf("%s_t_%d", strings.TrimSpace(o.Session.RunID), taskIndex),
@@ -404,6 +405,7 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 				TaskText:    taskText,
 				TaskName:    taskName,
 				Files:       append([]string(nil), spec.Files...),
+				References:  append([]runtimetypes.Reference(nil), spec.References...),
 			},
 			AgentDef:   def,
 			TaskID:     fmt.Sprintf("%s_team_t_%d", strings.TrimSpace(o.Session.RunID), index),
@@ -745,14 +747,14 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 	}
 
 	subReq := runtimetypes.QueryCommand{
-		RequestID:     task.RequestID,
-		RunID:         o.Session.RunID,
-		ChatID:        o.Session.ChatID,
-		AgentKey:      task.Spec.SubAgentKey,
-		MustUseKbases: append([]string(nil), task.Spec.MustUseKbases...),
-		Role:          queryinput.QueryRoleUser,
-		Message:       task.Spec.TaskText,
-		AccessLevel:   o.Session.AccessLevel,
+		RequestID:   task.RequestID,
+		RunID:       o.Session.RunID,
+		ChatID:      o.Session.ChatID,
+		AgentKey:    task.Spec.SubAgentKey,
+		References:  append([]runtimetypes.Reference(nil), task.Spec.References...),
+		Role:        queryinput.QueryRoleUser,
+		Message:     task.Spec.TaskText,
+		AccessLevel: o.Session.AccessLevel,
 	}
 	if options.InheritOriginalContext {
 		subReq.Role = o.Request.Role
@@ -761,9 +763,13 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		}
 		subReq.Scene = o.Request.Scene
 	}
-	baseReferences := []runtimetypes.Reference(nil)
+	baseReferences := append([]runtimetypes.Reference(nil), task.Spec.References...)
 	if options.InheritOriginalContext {
-		baseReferences = append(baseReferences, o.Request.References...)
+		for _, ref := range o.Request.References {
+			if ref.Type != "chat" && ref.Type != "skill" && ref.Type != "kbase" {
+				baseReferences = append(baseReferences, ref)
+			}
+		}
 	}
 	if len(task.Spec.Files) > 0 || len(baseReferences) > 0 {
 		references, err := proxy.PrepareReferences(o.Chats, o.ResourceTickets, proxy.ReferenceOptions{

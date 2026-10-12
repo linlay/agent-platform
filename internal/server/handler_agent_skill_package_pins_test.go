@@ -47,10 +47,10 @@ func TestAgentSkillPackagePinsHTTPPreserveSharedOrderAndExecutionBoundary(t *tes
 		t.Fatal("package ID resolved as an executable skill")
 	}
 	definition, _ := f.server.deps.Registry.AgentDefinition("mock-agent")
-	if _, err := resolveMustUseSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office"}); err == nil {
+	if _, err := resolveReferencedSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office"}); err == nil {
 		t.Fatal("pinned package ID accepted by mustUseSkills")
 	}
-	if resolved, err := resolveMustUseSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office/center-extra", "center-extra"}); err != nil || !reflect.DeepEqual(resolved.IDs, []string{"office/center-extra", "center-extra"}) {
+	if resolved, err := resolveReferencedSkills(definition, f.cfg.Paths.SkillsCenterDir, f.server.deps.Registry, []string{"office/center-extra", "center-extra"}); err != nil || !reflect.DeepEqual(resolved.IDs, []string{"office/center-extra", "center-extra"}) {
 		t.Fatalf("concrete skill identities changed: %+v %v", resolved, err)
 	}
 	// A fresh store reads the same mixed order without migration or changing other users.

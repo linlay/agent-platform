@@ -21,8 +21,7 @@ func queryRequestFromRuntime(cmd runtimetypes.QueryCommand) api.QueryRequest {
 		Role: cmd.Role, Hidden: cmd.Hidden, Message: cmd.Message, SourceUser: cmd.SourceUser, References: references,
 		Params: contracts.CloneMap(cmd.Params), Scene: scene, Stream: cmd.Stream, IncludeUsage: cmd.IncludeUsage,
 		IncludeFullText: cmd.IncludeFullText, PlanningMode: cmd.PlanningMode, EditingMode: cmd.EditingMode,
-		MustUseSkills: append([]string(nil), cmd.MustUseSkills...),
-		MustUseKbases: append([]string(nil), cmd.MustUseKbases...), AccessLevel: cmd.AccessLevel, Model: model,
+		AccessLevel: cmd.AccessLevel, Model: model,
 		SyntheticQueryBootstrapped: cmd.SyntheticQueryBootstrapped, ChatSource: cmd.ChatSource,
 		TrustedQueryMetadata: contracts.CloneMap(cmd.TrustedQueryMetadata),
 	}
@@ -42,9 +41,7 @@ func queryCommandFromAPI(req api.QueryRequest) runtimetypes.QueryCommand {
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser,
 		References: runtimeReferencesFromAPI(req.References), Params: contracts.CloneMap(req.Params), Scene: scene,
 		Stream: req.Stream, IncludeUsage: req.IncludeUsage, IncludeFullText: req.IncludeFullText,
-		PlanningMode: req.PlanningMode, EditingMode: req.EditingMode, MustUseSkills: append([]string(nil), req.MustUseSkills...),
-		MustUseKbases: append([]string(nil), req.MustUseKbases...),
-		AccessLevel:   req.AccessLevel, Model: model, SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped,
+		PlanningMode: req.PlanningMode, EditingMode: req.EditingMode, AccessLevel: req.AccessLevel, Model: model, SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped,
 		ChatSource: req.ChatSource, TrustedQueryMetadata: contracts.CloneMap(req.TrustedQueryMetadata),
 	}
 }

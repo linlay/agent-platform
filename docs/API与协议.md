@@ -92,7 +92,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `GET /api/skills` 返回全局有效技能中心目录，响应为 `{agentKey,skills,pinned,packages?}`。每项包含 `id/displayName/configured` 与可选 `description/icon/version/revision`；不返回 `name`，未配置显示名称时由服务端回退到 SKILL.md 的 `name`；不返回 `items/meta`。可选 `agentKey` 仅计算当前智能体是否已配置该技能，不筛选或重排目录；不存在的 Agent 返回 404 `agent_not_found`。不传时 `agentKey:""`、所有 `configured:false`，仍返回完整目录。技能按中心稳定顺序返回，不追加 Agent 私有技能；`skills` 和 `pinned` 均不为 null。`configured` 表示已配置，并不表示本次必须使用。
 
-`packages` 是技能包声明成员与当前文件状态的展示投影，每项为 `{id,name,displayName,description?,version?,skills:[{id,version?}],missingSkillIds,status}`。包信息读 package.json，成员信息读自身 SKILL.md；name 与 skills 成员列表必填，缺少展示名时回退 name。成员 ID 为 `<package>/<skill>`，只包含当前有效的共享包成员，连接器与 Agent 私有技能不能由同短名混入。HTTP/WS 列表与置顶写响应提供相同投影；置顶写保留原有空 skills 响应语义。客户端将包选择展开为具体完整 ID 并去重，query mustUseSkills 不接受包 ID。不增加 SQL 存储或单独的包执行链路。
+`packages` 是技能包声明成员与当前文件状态的展示投影，每项为 `{id,name,displayName,description?,version?,skills:[{id,version?}],missingSkillIds,status}`。包信息读 package.json，成员信息读自身 SKILL.md；name 与 skills 成员列表必填，缺少展示名时回退 name。成员 ID 为 `<package>/<skill>`，只包含当前有效的共享包成员，连接器与 Agent 私有技能不能由同短名混入。HTTP/WS 列表与置顶写响应提供相同投影；置顶写保留原有空 skills 响应语义。客户端将包选择展开为具体完整 ID 并去重，query 的 skill 引用不接受包 ID。不增加 SQL 存储或单独的包执行链路。
 
 普通 Agent 摘要中的 `workspaceDir` 表示该 Agent 的运行工作区，`agentConfigDir` 表示 catalog 已解析的 Agent 配置目录；两者互不替代。`agentConfigDir` 原样返回运行时 `AgentDefinition.AgentDir`，为空时省略。`/api/agent` 继续通过现有的 `source.agentDir` 返回编辑来源目录，不新增顶层字段。
 
@@ -348,7 +348,7 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 | POST | `/api/automation/execution` | body: `executionId`（兼容 `id`） | 单条 execution 与完整 query/result 内容 |
 
-`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`accessLevel`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
+`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`accessLevel`、`references`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
 
 Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 同样是 epoch milliseconds。这些 `*At` 字段是排序、计算和客户端本地化的唯一权威时间。对应的 `nextFireTime`、`startedTime`、`completedTime` 均由 Platform 按 `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）转换为 `YYYY-MM-DD HH:mm:ss`，只用于阅读，不保留毫秒或时区信息。
 
@@ -370,7 +370,7 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`btwId`（旁聊续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`role`、`references`、`mustUseSkills`、`mustUseKbases`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`btwId`（旁聊续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: 根 `agentKey`、`runId`、`awaitingId`，以及 `params`（question/approval 的数组）或 `param`（planning/form 的单个对象），二选一 | HITL submit ack |
 | POST | `/api/steer` | body: 根 `agentKey`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
@@ -384,15 +384,11 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 
 editingMode 只认顶层 JSON boolean，是 GENERAL/CODER/KBASE/TEAM 的通用 Workspace 编辑开关。显式 true/false 一致生效；省略时使用模板默认值（KBASE false，其他 true），规划 Run 始终只读。它只控制最终 runtimeConfig.workspaceRoot 的 mutation，不增加来源目录授权、不补工具、不改变 external 或当前 Chat 的通用权限，params.editingMode 不生效。request.query、JSONL 与 replay/export 保留按模板解析后的请求值（含 false），用于普通续接和计划批准后的执行；activeRun 返回当前 Run 的实际值，规划 Run 为 false。该字段不写 Agent 配置、不从上一轮继承。
 
-`mustUseKbases` 是本次 Run 必须使用的知识库 ID 数组，trim、忽略空值并按精确 ID 去重，最多 8 个。`interactionConfig.mustUseKbases:false` 只拒绝规范化后的非空选择；空数组与省略均接受。目标需挂载 `builtin.kbase-control`，每个选中库需存在且可读，否则整个请求 HTTP 400、`kbase_selection_unavailable`，不部分放行。选择不限制工具读取其他开放库，不自动挂载连接器或授予文件权限；四个检索工具每次必填 `libraryId`。TEAM/ACP/PROXY/CHANNEL 和 BTW 暂不支持非空选择。选择进入 Session、system-init fingerprint、request.query 持久化/回放和 synthetic query；规划批准后的执行沿用原选择。`chat_start`、Automation `query` 和 `agent_invoke.tasks[]` 均可显式传入，子 Run 不自动继承父选择。
+`references` 统一表示本条消息指定的资源。skill/kbase/chat 客户端只传 type 和 id，服务端补齐可信元数据；Chat 正文不随请求拼接，智能体通过 task-control 的 chat_query read/search 按需读取。引用按类型与规范化 ID 去重，整个 Run 累计上限为技能 32、知识库 8、对话 32；steer 超限整条拒绝且不留下授权。技能目录只读授权和脚本入口凭据、知识库可读性、Chat 身份与授权边界见 [引用协议](引用协议.md)。选择列表只进入用户消息，不进入 system prompt 或 fingerprint；固定绑定库 boundLibraryId 保留。
 
-`GET /api/kbases?agentKey=...` 与主 WS `/api/kbases`（payload `{agentKey}`）返回统一包裹的数据 `{agentKey, capability:{available,reason?}, boundLibraryId?, libraries:[{id,name,description?,collections:[{name,description?}],readable,indexing,degraded,unavailableReason?}]}`。空列表为 `[]`，状态布尔值不省略，目录不包含 sourcePath/baseRevision。与 `/api/agent` 的输入开关一起供 WebClient 决定选库入口。细节见 [知识库](知识库.md#通用-agent-本次选库)。
+`GET /api/kbases?agentKey=...` 与主 WS `/api/kbases`（payload `{agentKey}`）返回 `{agentKey, capability:{available,reason?}, boundLibraryId?, libraries:[{id,name,description?,collections:[{name,description?}],readable,indexing,degraded,unavailableReason?}]}`。目标需挂载 builtin.kbase-control。库选择通过 `references:[{type:"kbase",id:"library-id"}]` 提交；不开启入口不影响既有检索工具。
 
-`mustUseSkills` 是单次 run 的强制 Skill 数组。服务端对各项 trim、忽略空值、按大小写不敏感去重并保留首次出现顺序，不设置额外数量上限。已经配置在目标 Agent 的 Skill 从当前 Agent 版本的引用解析至 `ru-skills/<digest>`，模型看到的指令路径为 `@skills/<key>/SKILL.md`；未配置的额外 Skill 必须存在于当前有效 skills-center catalog，并从共享技能中心解析为 `@skills-center/<key>/SKILL.md`。任一项缺失、无合法 `SKILL.md` 或当前无法解析时，整个请求在 run 启动前以 HTTP 400、`msg=must_use_skill_unavailable` 失败，不会部分执行或静默降级。
-
-每个 must-use Skill（包括已配置 Skill）都会解析为最终 canonical 目录，并在当前 run 建立 trusted read + readonly roots：选中目录内的 `SKILL.md`、scripts、references 与 assets 免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，symlink 逃逸按最终目标重新判权；run readonly 不能被 writeRoots、hostAccess、`full_access` 或 exact/rule approval 放宽。存在额外 Skill 时，Container session 仍只追加一次整个 skills-center 的只读挂载 `/skills-center`，已有显式 `platform: skills-center` 挂载会去重并按只读使用；整个 mount 只表示容器可见性。系统 Prompt 会列出每个 Skill 的精确 `path`，并要求全部读取和遵循。额外 Skill 不参与 Agent `.config`、`.runtime-env.json` 或 `.bash-hooks` 合并，不增加 Tool、MCP、Agent hostAccess、其他 mount 或 `accessLevel`；平台也不生成内容快照，continuation 会按当前 catalog 和磁盘内容重新验证。
-
-规范化后的 `mustUseSkills` 会进入 session、system-init fingerprint、live/persist/replay 的 `request.query`、synthetic query，以及 Proxy/Channel 转发 payload。Proxy、Channel 与 ACP 路由入口只负责规范化和透传，不用本机 catalog 代替远端判定；真正执行 query 的 Platform 按上述规则解析、挂载和失败。orchestrated Team 的非空数组返回 HTTP 400、`must_use_skills_unsupported`。旧字段 `requiredSkillKeys` 已删除；HTTP 与 WebSocket query 入口只要出现该字段（即使为空）都会返回 `required_skill_keys_removed`，不会按未知字段忽略。
+HTTP/WS 的 mustUseSkills、mustUseKbases 出现即拒绝（包括 null、[]），错误提示改用 references。requiredSkillKeys 继续拒绝。工具 chat_start、agent_invoke、agent_delegate 与 Automation query 均使用 references；子任务只接受 skill/kbase，chat 拒绝。TEAM 总控支持三类引用；ACP/PROXY/CHANNEL query 只透传 skill，chat/kbase 拒绝，steer 三类都拒绝。只有 ACP bridge 边界保留向既有 mustUseSkills 转换。
 
 所有调用与控制只使用根 `agentKey`。已有 Chat 归属固定；成员事件上的 key 不授予根控制权限。TEAM 的成员若不存在、为 TEAM/ACP、不支持子任务或携带 agent_invoke，整个请求返回 503。活动 Run 使用冻结版本，延迟批准和重启恢复重新校验当前版本。旧 teamId 字段从 DTO 删除，按未知字段忽略；不检测旧配置。
 
@@ -450,7 +446,7 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 
 Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 
-- Chat：`{ "type": "chat", "id": "chatId", "name": "会话名", "meta": { "agentKey": "...", "updatedAt": 0 } }`。服务端忽略客户端提供的上下文，按可信 chatId 重新读取 compact 摘要和最近 12 条用户/助手消息；拒绝当前 chat 自引用、失效 chat 和跨 query principal 访问。
+- Chat：客户端提交 `{ "type": "chat", "id": "chatId" }`，服务端补齐名称、Agent 和更新时间。只传定位信息，不读取历史正文或写 meta.context；拒绝自引用、失效 Chat 和跨 principal，匿名只能显式引用无归属 Chat。chat_query read/search 按本 Run 授权读取，管理操作权限不变。
 - Site：`{ "type": "site", "id": "entryKey", "name": "站点名", "url": "https://...", "meta": { "kind": "website|webapp", "updatedAt": 0 } }`。服务端只注入经过字段白名单校验的名称、类型、入口标识和 HTTP(S) URL，不抓取页面内容。
 
 文件引用的 `url` 只用于平台资源下载、ticket 与 gateway 数据面，不进入模型 prompt；只有 Site 引用的可信指针 URL 会作为引用元数据展示给模型。
@@ -1172,7 +1168,7 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
 }
 ```
 
-同一用户的全部 Agent 共用一份 order，不存在 agentKey 维度；不同用户的记录互相隔离，接口只返回当前用户的记录。旧 version 1 文件及现存技能、成员 id 原样保留，不迁移为包 ID，也不从成员偏好合成包置顶；包 ID 直接加入同一字符串数组。未写入前 GET 返回空列表，不创建文件；重启后读取原文件，损坏或未知版本不自动覆写。技能中心只加载技能目录，order.json 与原子写临时文件均不触发技能/Agent 重载。置顶只影响可见条目的展示顺序，不改变 Agent 技能配置、Query mustUseSkills 或技能权限；包 ID 不进入 SkillDefinition，也不能作为 mustUseSkills 执行，选择包执行时仍须展开为有效成员的完整 id。
+同一用户的全部 Agent 共用一份 order，不存在 agentKey 维度；不同用户的记录互相隔离，接口只返回当前用户的记录。旧 version 1 文件及现存技能、成员 id 原样保留，不迁移为包 ID，也不从成员偏好合成包置顶；包 ID 直接加入同一字符串数组。未写入前 GET 返回空列表，不创建文件；重启后读取原文件，损坏或未知版本不自动覆写。技能中心只加载技能目录，order.json 与原子写临时文件均不触发技能/Agent 重载。置顶只影响可见条目的展示顺序，不改变 Agent 技能配置、Query skill 引用 或技能权限；包 ID 不进入 SkillDefinition，也不能作为 skill 引用执行，选择包执行时仍须展开为有效成员的完整 id。
 
 ### 连接器中心置顶顺序
 
@@ -1215,7 +1211,7 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 ### 附件 steer
 
-`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，也可以完全空白（无文字、无引用）表示继续；同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件或选区引用，仅最后一次主 Run 明确异常结束或取消后允许完全空白表示继续；空 query 的 message 保持为空，仅模型输入补充英文继续指令，steer 接受完全空白，表示继续（公开 message 为空，模型输入补充独立的“立即进行下一步”指令）。`chatId` 缺省时从 Run 补齐，提供时必须匹配。仅接受当前 Chat 的文件资源相对 URL；Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
+`POST /api/steer` 和普通 WebSocket `/api/steer` 共用 Runtime 入口。图片和普通文件先通过 `/api/upload` 上传到当前 Chat，随后将返回引用放入可选 `references: Reference[]`；`message` 可为空，也可以完全空白（无文字、无引用）表示继续；同一主 Chat 的首次 query 要求非空正文，后续 query 可只带有效文件、对话或选区引用，仅最后一次主 Run 明确异常结束或取消后允许完全空白表示继续；空 query 的 message 保持为空，仅模型输入补充英文继续指令，steer 接受完全空白，表示继续（公开 message 为空，模型输入补充独立的“立即进行下一步”指令）。`chatId` 缺省时从 Run 补齐，提供时必须匹配。skill/kbase/chat/site 经 Runtime 类型准入；文件仅接受当前 Chat 的资源相对 URL。技能或知识库引用不能单独充当空正文的可发送内容。Host/Container 路径由冻结的 Run 环境重新解析，不信任客户端 path/MIME。格式及单图 20 MiB 上限复用多模态 loader。
 
 普通 native Agent 与 Team 协调器在原有安全点接收纯图片、纯普通文件或混合附件。HTML/MD 等普通文件作为经校验的引用供工具按需读取，不要求视觉模型；不会自动执行 HTML。图片在实际文件类型检查后走多模态 loader；视觉模型接收图片块，非视觉模型仅接收图片文件引用，供已配置的图片识别工具按需读取，不因缺少原生视觉能力拒绝 steer。任一资源不可用时整条拒绝（ack `accepted:false,status:invalid_reference`）；未支持的远端 PROXY/CHANNEL 附件路径返回 `unsupported`。校验期间 Run 已结束返回 `unmatched`。视觉模型的图片在准入时读取并冻结，入队后同名文件修改不会替换图片输入；普通文件以及非视觉模型的图片仅将引用元数据与路径放入模型上下文，工具读取时获得文件的当时内容。`accepted:true` 表示已入队；实际消费仍以 `request.steer` 事件确认，不新增已消费或持久队列保证。
 

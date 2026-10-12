@@ -26,16 +26,15 @@ var referenceName = session.ReferenceName
 var resourceFileName = session.ResourceFileName
 
 type skillCenterCatalog = session.SkillCenterCatalog
-type resolvedMustUseSkill = session.MustUseSkill
+type resolvedReferencedSkill = session.ReferencedSkill
 type mustUseSkillResolution = session.SkillResolution
 
 var buildSkillCatalogPrompt = session.BuildSkillCatalogPrompt
 var skillCatalogBlock = session.SkillCatalogBlock
-var normalizeMustUseSkills = session.NormalizeMustUseSkills
-var resolveMustUseSkillRoot = session.ResolveMustUseSkillRoot
-var mustUseSkillRunAccess = session.MustUseSkillRunAccess
+var normalizeReferencedSkills = session.NormalizeReferencedSkills
+var resolveReferencedSkillRoot = session.ResolveReferencedSkillRoot
+var mustUseSkillRunAccess = session.ReferencedSkillRunAccess
 var resolveCenterSkillID = session.ResolveCenterSkillID
-var buildMustUseSkillConstraint = session.BuildMustUseSkillConstraint
 var resolveLocalPaths = session.ResolveLocalPaths
 var ensureChatDir = session.EnsureChatDir
 var chatDirPath = session.ChatDirPath
@@ -61,7 +60,7 @@ var isResourceURL = session.IsResourceURL
 var normalizedAgentTools = session.NormalizedAgentTools
 var normalizeRuntimeMount = session.NormalizeRuntimeMount
 var runtimeExtraMounts = session.RuntimeExtraMounts
-var runtimeExtraMountsForMustUseSkills = session.RuntimeExtraMountsForMustUseSkills
+var runtimeExtraMountsForReferencedSkills = session.RuntimeExtraMountsForSkillReferences
 var nullableStringValue = session.NullableStringValue
 var extractRuntimeField = session.ExtractRuntimeField
 

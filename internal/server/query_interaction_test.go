@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/interaction"
 )
 
@@ -35,8 +36,8 @@ func TestInteractionAdmission(t *testing.T) {
 			}
 		})
 	}
-	c.MustUseSkills = false
-	if err := validateInteractionInput(c, api.QueryRequest{MustUseSkills: []string{"skill"}}); err == nil {
+	c.Attachment.Skills = false
+	if err := validateInteractionInput(c, api.QueryRequest{References: queryinput.MakeReferences("skill", []string{"skill"})}); err == nil {
 		t.Fatal("accepted disabled skills")
 	}
 	c.Attachment.LocalFiles = false
@@ -52,7 +53,7 @@ func TestAgentInteractionDetailAndQueryHTTP(t *testing.T) {
 	agent := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "interaction-agent", "definition": map[string]any{
 			"key": "interaction-agent", "name": "Interaction", "mode": "GENERAL", "modelConfig": map[string]any{"modelKey": "mock-model"},
-			"interactionConfig": map[string]any{"model": false, "accessLevel": false, "mustUseSkills": false, "connectors": false, "attachment": map[string]any{"localFiles": false, "chatRecords": false}},
+			"interactionConfig": map[string]any{"model": false, "accessLevel": false, "connectors": false, "attachment": map[string]any{"localFiles": false, "chatRecords": false, "skills": false, "kbases": false}},
 		},
 	})
 	rec := httptest.NewRecorder()
@@ -61,11 +62,11 @@ func TestAgentInteractionDetailAndQueryHTTP(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Code != 200 || detail.Data.InteractionConfig.Model || detail.Data.InteractionConfig.AccessLevel || detail.Data.InteractionConfig.MustUseSkills || detail.Data.InteractionConfig.Connectors || detail.Data.InteractionConfig.Attachment.LocalFiles || detail.Data.InteractionConfig.Attachment.ChatRecords {
+	if rec.Code != 200 || detail.Data.InteractionConfig.Model || detail.Data.InteractionConfig.AccessLevel || detail.Data.InteractionConfig.Attachment.Skills || detail.Data.InteractionConfig.Connectors || detail.Data.InteractionConfig.Attachment.LocalFiles || detail.Data.InteractionConfig.Attachment.ChatRecords {
 		t.Fatalf("detail: %s", rec.Body.String())
 	}
 	for _, extra := range []map[string]any{
-		{"model": map[string]any{"key": "mock-model"}}, {"accessLevel": "full_access"}, {"mustUseSkills": []string{"skill"}}, {"references": []map[string]any{{"type": "file", "url": "file.txt"}}}, {"references": []map[string]any{{"type": "chat", "id": "other-chat"}}},
+		{"model": map[string]any{"key": "mock-model"}}, {"accessLevel": "full_access"}, {"references": []api.Reference{{Type: "skill", ID: "skill"}}}, {"references": []map[string]any{{"type": "file", "url": "file.txt"}}}, {"references": []map[string]any{{"type": "chat", "id": "other-chat"}}},
 	} {
 		extra["agentKey"] = agent.Key
 		extra["message"] = "hello"

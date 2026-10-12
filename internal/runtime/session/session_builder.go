@@ -16,6 +16,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/interaction"
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/memory"
@@ -56,23 +57,10 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		editingMode = *req.EditingMode
 	}
 	editingMode = editingMode && !planningModeRequested
-	libraries, err := s.ResolveKbases(agentDef, req.MustUseKbases)
-	if err != nil {
-		return contracts.QuerySession{}, err
-	}
-	req.MustUseKbases = NormalizeMustUseKbases(req.MustUseKbases)
-	mustUseSkills, err := s.ResolveSkills(agentDef, req.MustUseSkills)
-	if err != nil {
-		return contracts.QuerySession{}, MustUseSkillUnavailableStatus(err)
-	}
-	runAccessRoots, err := MustUseSkillRunAccess(mustUseSkills.Skills)
-	if err != nil {
-		return contracts.QuerySession{}, MustUseSkillUnavailableStatus(err)
-	}
+	runAccessRoots := contracts.RunAccessRoots{}
 	if err := AddConnectorAccessRoots(&runAccessRoots, agentDef); err != nil {
 		return contracts.QuerySession{}, err
 	}
-	req.MustUseSkills = mustUseSkills.IDs
 	if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
 		return contracts.QuerySession{}, err
 	}
@@ -117,7 +105,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		References:         req.References,
 		Principal:          principal,
 		Definition:         agentDef,
-		ExposeSkillsCenter: mustUseSkills.HasExtraSkills,
+		ExposeSkillsCenter: agentDef.Interaction().Attachment.Skills,
 	})
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -125,14 +113,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	req.References = runtimeContext.References
 
 	promptAppend := BuildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
-	skillCatalogPrompt := BuildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsCenterDir, promptAppend, mustUseSkills.Skills...)
-	if mustUseSkillConstraint := BuildMustUseSkillConstraint(mustUseSkills.Skills); mustUseSkillConstraint != "" {
-		if skillCatalogPrompt != "" {
-			skillCatalogPrompt += "\n\n" + mustUseSkillConstraint
-		} else {
-			skillCatalogPrompt = mustUseSkillConstraint
-		}
-	}
+	skillCatalogPrompt := BuildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsCenterDir, promptAppend)
 	resolvedWorkspaceRoot := strings.TrimSpace(runtimeContext.LocalPaths.WorkspaceDir)
 	// Project settings are explicit configuration and apply to every mode; an
 	// ACP bridge owns its own project instructions.
@@ -191,7 +172,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	}
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
-	if prompt := knowledgeSelectionPrompt(agentDef.KBaseConfig.LibraryID, libraries); prompt != "" {
+	if prompt := knowledgeSelectionPrompt(agentDef.KBaseConfig.LibraryID, nil); prompt != "" {
 		capabilityPrompts = append(capabilityPrompts, prompt)
 	}
 	retrievalConfig, err := json.Marshal(struct {
@@ -244,17 +225,15 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		EditingMode:               editingMode,
 		WorkspaceReadOnly:         !editingMode,
 
-		Created:                     options.Created,
-		ConnectorDirs:               RuntimeConnectorDirs(agentDef),
-		SkillDirs:                   RuntimeSkillDirs(agentDef),
-		SharedSkillsRoot:            s.deps.Config.Paths.EffectiveRUSkillsDir(),
-		SharedConnectorsRoot:        s.deps.Config.Paths.ConnectorSources().SharedRoot(),
-		NativeConnectorTools:        RuntimeNativeConnectorTools(agentDef),
-		ConnectorCLIEntries:         append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
-		SkillIDs:                    append([]string(nil), agentDef.EffectiveSkills()...),
-		MustUseSkills:               append([]string(nil), req.MustUseSkills...),
-		MustUseKbases:               append([]string(nil), req.MustUseKbases...),
-		KnowledgeLibraries:          libraries,
+		Created:              options.Created,
+		ConnectorDirs:        RuntimeConnectorDirs(agentDef),
+		SkillDirs:            RuntimeSkillDirs(agentDef),
+		SharedSkillsRoot:     s.deps.Config.Paths.EffectiveRUSkillsDir(),
+		SharedConnectorsRoot: s.deps.Config.Paths.ConnectorSources().SharedRoot(),
+		NativeConnectorTools: RuntimeNativeConnectorTools(agentDef),
+		ConnectorCLIEntries:  append([]connector.CLIEntry(nil), agentDef.ConnectorCLIEntries...),
+		SkillIDs:             append([]string(nil), agentDef.EffectiveSkills()...),
+
 		ConnectorBinDirs:            append([]string(nil), agentDef.ConnectorBinDirs...),
 		ConnectorEnv:                agentconfig.Merge(agentDef.ConnectorEnv),
 		ConnectorCredentials:        agentDef.ConnectorCredentials,
@@ -279,7 +258,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		KBaseModePrompts:            kbaseModePrompts,
 		RuntimeEnvironmentID:        ExtractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:                ExtractRuntimeField(agentDef.Runtime, "level"),
-		RuntimeExtraMounts:          RuntimeConnectorMounts(RuntimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && HasRuntimeSandbox(agentDef.Runtime)), agentDef),
+		RuntimeExtraMounts:          RuntimeConnectorMounts(RuntimeExtraMountsForSkillReferences(agentDef.Runtime["sandboxMounts"], agentDef.Interaction().Attachment.Skills && HasRuntimeSandbox(agentDef.Runtime)), agentDef),
 		RuntimeHostAccess:           RuntimeHostAccess(agentDef.HostAccess),
 		RunAccessRoots:              runAccessRoots,
 		AgentHasRuntimeSandbox:      HasRuntimeSandbox(agentDef.Runtime),
@@ -301,7 +280,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		}
 	}
 	if !options.DisableSkillScriptGrants && !IsProxyRoutedAgent(agentDef) && !agentbuiltin.IsCoderACPBackend(agentDef.Mode, agentDef.ACPBridgeID) {
-		session.SkillScripts = BuildSkillScriptScope(session, agentDef, mustUseSkills.Skills)
+		session.SkillScripts = BuildSkillScriptScope(session, agentDef, nil)
 	}
 	if options.SubTaskID == "" && !IsProxyRoutedAgent(agentDef) && ContainsTool(agentDef.Tools, "run_env") {
 		if existing, ok := LookupRunEnvironment(s.deps.Runs, req.RunID); ok {
@@ -357,6 +336,29 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 			*layer.target = memory.SummaryPrompt(doc, layer.key != "", session.Locale)
 		}
 	}
+	session.ReferencesScope = contracts.NewRunReferences(session.SkillScripts)
+	if options.DisableSkillScriptGrants {
+		// Same-Run recovery revalidates each recorded pointer independently.
+		// Invalid resources remain visible, but receive no restored grant.
+		for _, ref := range req.References {
+			grant, err := s.PrepareRunReferences(ctx, session, agentDef, []queryinput.Reference{ref}, false, false)
+			if err == nil {
+				_ = session.ReferencesScope.Commit(grant)
+			}
+		}
+	} else {
+		grant, err := s.PrepareRunReferences(ctx, session, agentDef, req.References, false, true)
+		if err != nil {
+			return contracts.QuerySession{}, err
+		}
+		if err = session.ReferencesScope.Commit(grant); err != nil {
+			return contracts.QuerySession{}, err
+		}
+		req.References = grant.References
+	}
+	session.RuntimeContext.References = req.References
+	bScripts := !options.DisableSkillScriptGrants
+	s.BindReferencePreparer(&session, agentDef, bScripts)
 	session.CurrentMessages = s.BuildCurrentMessages(req, session)
 	if err := s.ConfigureViews(&session, agentDef); err != nil {
 		return contracts.QuerySession{}, err

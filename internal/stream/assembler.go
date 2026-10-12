@@ -21,8 +21,6 @@ type StreamRequest struct {
 	Model           any
 	PlanningMode    bool
 	EditingMode     bool
-	MustUseSkills   []string
-	MustUseKbases   []string
 	IncludeUsage    bool
 	IncludeFullText bool
 	AccessLevel     string
@@ -140,12 +138,6 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 	// Persist the resolved request intent, including false, for Run recovery
 	// and execution after plan approval.
 	queryPayload["editingMode"] = a.request.EditingMode
-	if len(a.request.MustUseSkills) > 0 {
-		queryPayload["mustUseSkills"] = append([]string(nil), a.request.MustUseSkills...)
-	}
-	if len(a.request.MustUseKbases) > 0 {
-		queryPayload["mustUseKbases"] = append([]string(nil), a.request.MustUseKbases...)
-	}
 	if a.request.IncludeUsage {
 		queryPayload["includeUsage"] = true
 	}
@@ -206,6 +198,9 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 		"role":    value.Role,
 		"message": value.Message,
 	}
+	if !isEmptyValue(request.References) {
+		payload["references"] = request.References
+	}
 	if len(value.Messages) > 0 {
 		payload["messages"] = cloneMessagePayloads(value.Messages)
 	}
@@ -220,12 +215,6 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 	}
 	if value.Hidden {
 		payload["hidden"] = true
-	}
-	if len(request.MustUseSkills) > 0 {
-		payload["mustUseSkills"] = append([]string(nil), request.MustUseSkills...)
-	}
-	if len(request.MustUseKbases) > 0 {
-		payload["mustUseKbases"] = append([]string(nil), request.MustUseKbases...)
 	}
 	for key, item := range request.QueryMetadata {
 		if _, reserved := payload[key]; reserved {

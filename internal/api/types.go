@@ -268,8 +268,6 @@ type QueryRequest struct {
 	IncludeFullText bool               `json:"includeFullText,omitempty"`
 	PlanningMode    *bool              `json:"planningMode,omitempty"`
 	EditingMode     *bool              `json:"editingMode,omitempty"`
-	MustUseSkills   []string           `json:"mustUseSkills,omitempty"`
-	MustUseKbases   []string           `json:"mustUseKbases,omitempty"`
 	AccessLevel     string             `json:"accessLevel,omitempty"`
 	Model           *QueryModelOptions `json:"model,omitempty"`
 
@@ -286,11 +284,14 @@ type QueryRequest struct {
 	TrustedQueryMetadata map[string]any `json:"-"`
 }
 
-const RequiredSkillKeysRemovedMessage = "requiredSkillKeys has been removed; use mustUseSkills"
+const RequiredSkillKeysRemovedMessage = "requiredSkillKeys has been removed; use references"
 
 var ErrRequiredSkillKeysRemoved = errors.New(RequiredSkillKeysRemovedMessage)
 
 func (r *QueryRequest) UnmarshalJSON(data []byte) error {
+	if err := queryinput.RejectRemovedReferenceKeys(data); err != nil {
+		return err
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err

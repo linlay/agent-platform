@@ -146,7 +146,7 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 
 	if mode == WriteAccess {
 		readonlyRoots := append([]string(nil), level.ReadonlyRoots...)
-		readonlyRoots = append(readonlyRoots, session.RunAccessRoots.ReadonlyRoots...)
+		readonlyRoots = append(readonlyRoots, session.ReferenceAccessRoots().ReadonlyRoots...)
 		if readonlyRoot, readonly := firstAllowedRoot(session, workspaceRoot, readonlyRoots, realCandidate); readonly {
 			return buildPathPlan(mode, rawPath, realCandidate, readonlyRoot, accessLevel, DecisionBlock, "path is under a readonly root"), nil
 		}
@@ -160,7 +160,7 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	}
 	roots = appendSessionHostAccessRoots(roots, session, mode)
 	if mode == ReadAccess {
-		roots = append(roots, session.RunAccessRoots.ReadRoots...)
+		roots = append(roots, session.ReferenceAccessRoots().ReadRoots...)
 	}
 	if mode == WriteAccess && sessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
 		return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionBlock, WorkspaceEditingDisabledReason), nil

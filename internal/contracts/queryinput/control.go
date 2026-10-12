@@ -227,6 +227,8 @@ type SteerRequest struct {
 
 	Message    string      `json:"message"`
 	References []Reference `json:"references,omitempty"`
+	// CommitReferences is prepared by Runtime and invoked atomically with enqueue.
+	CommitReferences func() error `json:"-"`
 	// Source is constructed by Runtime from a trusted Agent caller, never from wire input.
 	Source *SteerSource `json:"-"`
 	// PreparedMessages is an immutable, server-prepared input; never accepted from the wire.

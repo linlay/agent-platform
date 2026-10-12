@@ -165,6 +165,12 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	req := adapter.QueryCommand(agentbuiltin.BuildPlanContinuationRequest(continuationInput))
 	if planningApprove {
 		req = adapter.QueryCommand(agentbuiltin.BuildConfirmedPlanRequest(continuationInput))
+		if newExecutionRun {
+			req.References, err = s.deps.Sessions.RunRequestReferences(chatID, sourceRunID, req.References)
+			if err != nil {
+				return false, err
+			}
+		}
 	} else if planningReject {
 		planningMode := true
 		req.PlanningMode = &planningMode
@@ -195,6 +201,9 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 			return false, err
 		}
 	}
+	if owner, err := s.runControlScopes().Load(sourceRunID); err == nil {
+		req.Identity = &contracts.AuthIdentity{Subject: owner.Subject}
+	}
 	session, err := s.deps.Sessions.BuildQuerySession(context.Background(), req, summary, agentDef, sessionbuild.Options{
 		DisableSkillScriptGrants: !newExecutionRun,
 		Created:                  false,
@@ -205,6 +214,11 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	})
 	if err != nil {
 		return false, err
+	}
+	if !newExecutionRun {
+		if err := s.deps.Sessions.RestoreSteerReferences(&session, agentDef); err != nil {
+			return false, err
+		}
 	}
 	if !sessionbuild.IsProxyAgentMode(agentDef.Mode) {
 		ApplyQueryModelOptionsToSession(req.Model, &session)

@@ -543,16 +543,27 @@ func completeCompactControlState(state *compactControlState, response api.Compac
 }
 
 func (c *RunControl) EnqueueSteer(req api.SteerRequest) bool {
+	accepted, _ := c.enqueueSteer(req)
+	return accepted
+}
+
+func (c *RunControl) enqueueSteer(req api.SteerRequest) (bool, error) {
 	if c == nil || c.interrupted.Load() || c.finished.Load() {
-		return false
+		return false, nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.interrupted.Load() || c.finished.Load() || c.steerClosed {
-		return false
+		return false, nil
 	}
 	if len(req.References) > 0 && len(req.PreparedMessages) != 1 {
-		return false
+		return false, nil
+	}
+	if req.CommitReferences != nil {
+		if err := req.CommitReferences(); err != nil {
+			return false, err
+		}
+		req.CommitReferences = nil
 	}
 	c.steerQueue = append(c.steerQueue, cloneSteerInput(req))
 	if c.steerAvailable != nil {
@@ -564,7 +575,7 @@ func (c *RunControl) EnqueueSteer(req api.SteerRequest) bool {
 			c.supersedePlanningLocked(awaiting)
 		}
 	}
-	return true
+	return true, nil
 }
 
 func (c *RunControl) DrainSteers() []api.SteerRequest {

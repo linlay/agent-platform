@@ -254,7 +254,6 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 		KBasePrompts: config.KBasePromptsConfig{
 			SystemPrompt:    "configured kbase system prompt",
 			WorkspacePrompt: "configured workspace",
-			EditingPrompt:   "configured editing",
 		},
 	}
 	registry, err := newRuntimeTestRegistry(t, cfg, nil)
@@ -286,7 +285,7 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	if session.ModeSystemPrompt != "configured kbase system prompt" {
 		t.Fatalf("kbase system prompt = %q, want configured prompt", session.ModeSystemPrompt)
 	}
-	if want := (contracts.KBaseModePrompts{Workspace: "configured workspace", Editing: "configured editing"}); session.KBaseModePrompts != want {
+	if want := (contracts.KBaseModePrompts{Workspace: "configured workspace"}); session.KBaseModePrompts != want {
 		t.Fatalf("kbase mode prompts = %#v, want %#v", session.KBaseModePrompts, want)
 	}
 	if session.KBaseBindingLibraryID != "research" || len(session.CapabilityPrompts) != 1 {

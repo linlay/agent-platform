@@ -10,11 +10,11 @@ func TestModeDefaultsAndOverrides(t *testing.T) {
 				t.Fatal(err)
 			}
 			kbase := mode == "KBASE"
-			if c.Model == kbase || c.AccessLevel == kbase || c.Connectors == kbase || !c.MustUseSkills || !c.Attachment.LocalFiles || c.Attachment.ChatRecords != (mode == "REACT") {
+			if c.Model == kbase || c.AccessLevel == kbase || c.Connectors == kbase || !c.Attachment.Skills || !c.Attachment.LocalFiles || c.Attachment.ChatRecords != (mode == "REACT") {
 				t.Fatalf("defaults: %+v", c)
 			}
-			overridden, err := Parse(mode, map[string]any{"model": false, "mustUseSkills": false, "attachment": map[string]any{"localFiles": false}})
-			if err != nil || overridden.Model || overridden.MustUseSkills || overridden.Attachment.LocalFiles || overridden.AccessLevel != c.AccessLevel {
+			overridden, err := Parse(mode, map[string]any{"model": false, "attachment": map[string]any{"localFiles": false, "skills": false}})
+			if err != nil || overridden.Model || overridden.Attachment.Skills || overridden.Attachment.LocalFiles || overridden.AccessLevel != c.AccessLevel {
 				t.Fatalf("override: %+v %v", overridden, err)
 			}
 		})
@@ -38,12 +38,12 @@ func TestMustUseKbasesDefaultsAndBooleanOverride(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := mode == "GENERAL" || mode == "CODER"
-		if c.MustUseKbases != want {
+		want := mode == "GENERAL" || mode == "CODER" || mode == "TEAM"
+		if c.Attachment.Kbases != want {
 			t.Fatalf("%s default: %+v", mode, c)
 		}
-		c, err = Parse(mode, map[string]any{"mustUseKbases": true})
-		if err != nil || !c.MustUseKbases {
+		c, err = Parse(mode, map[string]any{"attachment": map[string]any{"kbases": true}})
+		if err != nil || !c.Attachment.Kbases {
 			t.Fatalf("override %s: %+v %v", mode, c, err)
 		}
 	}

@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"context"
 	"errors"
 	"testing"
@@ -23,15 +24,15 @@ func TestResolveRunStartAccessLevel(t *testing.T) {
 }
 
 func TestRunStartDigestsSeparateIdempotencyFromApproval(t *testing.T) {
-	base := RunStartRequest{AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}}
+	base := RunStartRequest{AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"})}
 	request := RunStartRequestDigest(base)
 	for name, changed := range map[string]RunStartRequest{
-		"message":          {AgentKey: "a", Message: "other", MustUseSkills: []string{"s"}},
-		"target":           {AgentKey: "b", Message: "m", MustUseSkills: []string{"s"}},
-		"explicit default": {AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}, AccessLevel: AccessLevelDefault},
-		"chat":             {AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}, ChatID: "c"},
+		"message":          {AgentKey: "a", Message: "other", References: queryinput.MakeReferences("skill", []string{"s"})},
+		"target":           {AgentKey: "b", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"})},
+		"explicit default": {AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"}), AccessLevel: AccessLevelDefault},
+		"chat":             {AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"}), ChatID: "c"},
 		"skills":           {AgentKey: "a", Message: "m"},
-		"libraries":        {AgentKey: "a", Message: "m", MustUseSkills: []string{"s"}, MustUseKbases: []string{"kb"}},
+		"libraries":        {AgentKey: "a", Message: "m", References: append(queryinput.MakeReferences("skill", []string{"s"}), queryinput.MakeReferences("kbase", []string{"kb"})...)},
 	} {
 		if RunStartRequestDigest(changed) == request {
 			t.Fatalf("%s did not change the request digest", name)

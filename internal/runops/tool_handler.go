@@ -152,6 +152,9 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		return nil, nil
 	}
 	request, err := startRequest(args, origin)
+	if execCtx != nil {
+		request.ReferenceReadScope = execCtx.Session.ReferencesScope
+	}
 	if err != nil {
 		return nil, nil
 	}
@@ -185,8 +188,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		"parentAccessLevel": plan.ParentAccessLevel,
 		"accessLevel":       plan.AccessLevel,
 		"message":           request.Message,
-		"mustUseSkills":     append([]string{}, request.MustUseSkills...),
-		"mustUseKbases":     append([]string{}, request.MustUseKbases...),
+		"references":        request.References,
 		"modelKey":          request.ModelKey,
 		"reasoningEffort":   request.ReasoningEffort,
 	}

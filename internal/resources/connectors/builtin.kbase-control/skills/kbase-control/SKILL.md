@@ -5,7 +5,7 @@ description: Search, browse and read knowledge libraries by ID, and cite the evi
 
 # Knowledge Base
 
-Requires builtin.kbase-control mounted. The five tools are read-only and operate on library KBX indexes, never on the host filesystem. An Agent does not need a fixed library binding. Each retrieval call must specify libraryId, even when only one library is selected. Required libraries in the Run context must each be used; other open libraries may be read as needed.
+Requires builtin.kbase-control mounted. The five tools are read-only and operate on library KBX indexes, never on the host filesystem. An Agent does not need a fixed library binding. Each retrieval call must specify libraryId, even when only one library is selected. Each kbase reference in the user message must be used for that message; other open libraries may be read as needed.
 
 | Tool | Use it to | Reference |
 | --- | --- | --- |
