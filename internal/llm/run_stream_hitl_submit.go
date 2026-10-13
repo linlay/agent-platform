@@ -189,7 +189,7 @@ func (s *llmRunStream) tryResolvePendingAccessLevelApproval(invocation *prepared
 		Answer:     s.accessLevelAutoApprovalAnswer(awaitingID, invocation, match, accessLevel),
 	})
 	s.applyHITLDecision(invocation, match, awaitingID, "auto_approved", "accessLevel="+accessLevel, true)
-	if request := invocation.shownApproval; request != nil && request.kind == approvalKindFileAccess && request.fileAccessPlan != nil && request.fileAccessPlan.Mode == filetools.ReadAccess {
+	if request := invocation.shownApproval; invocation.toolApprovalInputPath != "" && request != nil && request.kind == approvalKindFileAccess && request.fileAccessPlan != nil && request.fileAccessPlan.Mode == filetools.ReadAccess {
 		invocation.approvalDecision = ""
 		return true, s.executeAfterFileAccessApproval(invocation)
 	}

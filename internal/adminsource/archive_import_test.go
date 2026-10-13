@@ -4,10 +4,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func connectorImportPlan(t *testing.T, s *ControlService) *ArchiveImportPlan {
@@ -35,6 +39,77 @@ func connectorImportPlan(t *testing.T, s *ControlService) *ArchiveImportPlan {
 	}
 	t.Cleanup(plan.Close)
 	return plan
+}
+
+func TestArchiveImportReceiptLifetimeWaitsForMutationAndKeepsOtherRuns(t *testing.T) {
+	s := controlFixture(t)
+	first, cancelFirst := context.WithCancel(t.Context())
+	second, cancelSecond := context.WithCancel(t.Context())
+	defer cancelSecond()
+	s.importReceipts.Store("first", archiveImportReceipt{RequestDigest: "one", Result: map[string]any{"status": "applied"}})
+	s.importReceipts.Store("second", archiveImportReceipt{RequestDigest: "two", Result: map[string]any{"status": "applied"}})
+	s.BindArchiveImportLifetime("first", first)
+	s.BindArchiveImportLifetime("first", first)
+	s.BindArchiveImportLifetime("second", second)
+	unlock := s.Mutations.LockSourceMutation()
+	cancelFirst()
+	if _, _, found := s.ImportReceipt("first", "one"); !found {
+		unlock()
+		t.Fatal("in-flight mutation receipt was removed early")
+	}
+	// Simulate the receipt written by a mutation that was already executing when
+	// cancellation arrived. Cleanup must wait and then remove that final receipt.
+	s.importReceipts.Store("first", archiveImportReceipt{RequestDigest: "one", Result: map[string]any{"status": "committed"}})
+	unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, _, found := s.ImportReceipt("first", "one"); !found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("ended Run retained import receipt")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err, found := s.ImportReceipt("second", "two"); err != nil || !found {
+		t.Fatal("cleanup removed another Run's receipt")
+	}
+}
+
+func TestStreamingTreeRevisionPreservesExistingDigestAndBounds(t *testing.T) {
+	root := t.TempDir()
+	files := []struct {
+		name string
+		data []byte
+	}{
+		{"a.bin", bytes.Repeat([]byte("archive data"), 1<<16)},
+		{"nested/b.md", []byte("text")},
+	}
+	legacy := sha256.New()
+	var size int64
+	for _, file := range files {
+		path := filepath.Join(root, filepath.FromSlash(file.name))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, file.data, 0640); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(legacy, "%s\x00%d\x00%d\x00", file.name, info.Mode().Perm(), len(file.data))
+		legacy.Write(file.data)
+		size += info.Size()
+	}
+	got, exists, err := treeRevisionWithLimit(root, size)
+	if err != nil || !exists || got != hex.EncodeToString(legacy.Sum(nil)) {
+		t.Fatalf("streaming revision changed contract: %s %v", got, err)
+	}
+	if _, _, err := treeRevisionWithLimit(root, size-1); err == nil {
+		t.Fatal("tree size bound was bypassed")
+	}
 }
 
 func TestArchiveImportRejectsChangedStagingBeforeConsumingApproval(t *testing.T) {

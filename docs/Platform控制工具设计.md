@@ -34,11 +34,13 @@ Agent 发现复用 `catalog_query.list`（resourceType=agent），条目增加 k
 
 `catalog_manage.import` 接受 `{resourceType:"skill"|"connector", archivePath, overwrite?}`，普通 native main root 可用，规划执行策略拒绝。来源 ZIP 先经过通用文件读取权限；审批准备阶段也不读取未授权或受保护的路径。外部来源可能先出现读取审批，再出现包导入审阅，两者使用不同 awaitingId，读取批准不授予发布权限。输入路径属于 Runtime 主机，支持文件别名；目录需由已有文件工具发现并选定单个 ZIP。
 
+导入审阅沿用 apply 的自动批准策略：default 需要人工批准，auto_approve / full_access 允许自动批准，包括带 CLI 的连接器；发布成功后可执行包内声明的 CLI 准备命令。自动批准仍须通过来源读取权限、包校验及审批内容复验，不放宽受保护路径等硬拒绝。
+
 后端从包内定义识别 ID 与版本，Skill 自动区分单技能与技能包；Connector 使用 `connector.json`。目标固定为 `skills-center/<id>/` 或 `connectors-center/<id>/`，不提供 targetDir，连接器技能随原包保留。版本不增加目标目录层。默认拒绝重名，`overwrite:true` 审阅整目录替换。
 
-`internal/platformcontrol` 处理工具准入、文件访问与审批；`internal/adminsource` 持有导入应用事务与进程内调用收据，复用 `internal/catalog` 的技能暂存/发布和 `internal/connector` 的连接器校验/发布。解压和完整校验在 Catalog 保护外，发布按 Agent mutation → source mutation → 对应 Catalog directory mutation → 资源操作锁协调。审批绑定规范来源路径、ZIP SHA-256、解压树摘要、已安装整树版本及调用身份，发布前复验；内置包、符号链接、非法归档仍由现有校验拒绝。包摘要审阅包含连接器声明的 CLI 准备信息。
+`internal/platformcontrol` 处理工具准入、文件访问与审批；通过中立的 `ToolApprovalInputPlanner` 向工具路由声明审阅前必需读取的文件，只校验参数、不读取内容。LLM 仅为该声明安排读取授权，再进入业务审阅，不解析 catalog 的 action/args，也不改变普通 file_write/file_edit 的批准后路径。`internal/adminsource` 持有导入应用事务与调用收据，复用 `internal/catalog` 的技能暂存/发布和 `internal/connector` 的连接器校验/发布。解压和完整校验在 Catalog 保护外，发布按 Agent mutation → source mutation → 对应 Catalog directory mutation → 资源操作锁协调。审批绑定规范来源路径、后端解析的目标目录、ZIP SHA-256、解压树摘要、已安装整树版本及调用身份，发布前复验；内置包、符号链接、非法归档仍由现有校验拒绝。包摘要审阅包含连接器声明的 CLI 准备信息，页面直接显示后端 targetPath，不重复判断安装目录。
 
-成功返回 `status:applied`、`executionState:committed`、`installed:true`、`resourceType/resourceKey/kind/id/version/archiveSha256/baseRevision`。CLI 另返回异步 `preparation`；准备失败不回滚已导入包，授权及 Agent 挂载独立。相同调用身份重放已记录结果，不再次发布或启动准备；参数变更返回幂等冲突。reload 失败恢复来源，明确区分 not_started/rolled_back/unknown/committed；结果未知时先回读。收据只在当前进程内保存，不新增持久执行恢复或断电事务承诺。真实 Desktop/Windows 交互仍需目标环境联调。
+成功返回 `status:applied`、`executionState:committed`、`installed:true`、`resourceType/resourceKey/kind/id/version/archiveSha256/baseRevision/targetPath`。CLI 另返回异步 `preparation`；准备失败不回滚已导入包，授权及 Agent 挂载独立。相同调用身份重放已记录结果，不再次发布或启动准备；参数变更返回幂等冲突。reload 失败恢复来源，明确区分 not_started/rolled_back/unknown/committed；结果未知时先回读。工具调用收据绑定调用者 Run 的生命周期，结束时等待在途来源 mutation 完成后释放，仅保留进程内去重，不新增持久执行恢复或断电事务承诺。目录摘要按现有格式流式计算，不把单个大文件整体读入内存；审批和执行仍分别解压复验，未承诺大包耗时。客户端按完整 awaitingId 匹配，两次审批独立标识；真实 Desktop/Windows 交互仍需目标环境联调。
 
 ## Catalog 源文件事务
 

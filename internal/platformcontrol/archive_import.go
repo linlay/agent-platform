@@ -17,6 +17,19 @@ import (
 	"agent-platform/internal/filetools"
 )
 
+// Only this handler knows which management action has an archive input. The
+// declaration is validated before the common loop considers any file access.
+func (h *ToolHandler) ToolApprovalInputPath(tool string, args map[string]any, e *contracts.ExecutionContext) (string, error) {
+	if tool != "catalog_manage" || args["action"] != "import" {
+		return "", nil
+	}
+	_, p, err := h.admitted(tool, args, e)
+	if err != nil {
+		return "", err
+	}
+	return stringValue(p, "archivePath"), nil
+}
+
 func archiveImportInvocation(e *contracts.ExecutionContext) string {
 	if e == nil || e.CurrentToolID == "" || e.Session.RunID == "" {
 		return ""
@@ -127,6 +140,7 @@ func (h *ToolHandler) prepareArchiveImportApproval(ctx context.Context, p map[st
 		"action": "import", "resourceType": plan.Request.ResourceType, "resourceKey": plan.ResourceKey, "kind": plan.Kind,
 		"archivePath": plan.Request.ArchivePath, "archiveSha256": plan.ArchiveSHA256, "version": plan.Version,
 		"overwrite": plan.Request.Overwrite, "baseRevision": plan.BaseRevision, "before": string(before), "after": string(after),
+		"targetPath": plan.TargetPath(),
 	}}, nil
 }
 
@@ -136,6 +150,10 @@ func (h *ToolHandler) invokeArchiveImport(ctx context.Context, p map[string]any,
 	}
 	key, requestDigest := archiveImportInvocation(e), archiveImportRequestDigest(p)
 	if result, err, found := h.sources.ImportReceipt(key, requestDigest); found {
+		h.bindArchiveImportReceipt(ctx, key, e)
+		if err == nil && result["kind"] == "connector" {
+			h.addConnectorConnection(ctx, stringValue(result, "id"), result)
+		}
 		return result, err
 	}
 	plan, access, err := h.prepareArchiveImport(ctx, p, e)
@@ -149,8 +167,19 @@ func (h *ToolHandler) invokeArchiveImport(ctx context.Context, p map[string]any,
 		}
 		return access.AllowedByWhitelist || access.AutoApproved || filetools.ConsumeReadApproval(e, access)
 	})
+	h.bindArchiveImportReceipt(ctx, key, e)
 	if err == nil && plan.Kind == "connector" {
 		h.addConnectorConnection(ctx, plan.ResourceKey, result)
 	}
 	return result, err
+}
+
+func (h *ToolHandler) bindArchiveImportReceipt(ctx context.Context, key string, e *contracts.ExecutionContext) {
+	control := e.RunControl
+	if control == nil {
+		control = contracts.RunControlFromContext(ctx)
+	}
+	if control != nil {
+		h.sources.BindArchiveImportLifetime(key, control.Context())
+	}
 }

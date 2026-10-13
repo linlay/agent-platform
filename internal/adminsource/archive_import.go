@@ -49,10 +49,36 @@ func (p *ArchiveImportPlan) Close() {
 	}
 }
 
+func (p *ArchiveImportPlan) TargetPath() string { return p.root }
+
 type archiveImportReceipt struct {
 	RequestDigest string
 	Result        map[string]any
 	Err           error
+	lifetimeBound bool
+}
+
+// BindArchiveImportLifetime releases only this invocation after its Run ends.
+// The source mutation lock makes cancellation wait for an in-flight publication
+// and its receipt, rather than deleting early and allowing a duplicate apply.
+func (s *ControlService) BindArchiveImportLifetime(invocation string, lifetime context.Context) {
+	if invocation == "" || lifetime == nil || lifetime.Done() == nil {
+		return
+	}
+	unlock := s.Mutations.LockSourceMutation()
+	receipt, exists := s.importReceipts.Load(invocation)
+	if !exists || receipt.lifetimeBound {
+		unlock()
+		return
+	}
+	receipt.lifetimeBound = true
+	s.importReceipts.Store(invocation, receipt)
+	unlock()
+	context.AfterFunc(lifetime, func() {
+		unlock := s.Mutations.LockSourceMutation()
+		defer unlock()
+		s.importReceipts.Delete(invocation)
+	})
 }
 
 // ImportReceipt returns only the outcome of this exact invocation. It does not
@@ -231,7 +257,7 @@ func (s *ControlService) PrepareArchiveImport(ctx context.Context, req ArchiveIm
 	if exists {
 		p.Before["baseRevision"] = revision
 	}
-	data, err := json.Marshal([]any{req, p.ResourceKey, p.Kind, p.Version, p.ArchiveSHA256, p.candidateRevision, revision, p.After})
+	data, err := json.Marshal([]any{req, p.root, p.ResourceKey, p.Kind, p.Version, p.ArchiveSHA256, p.candidateRevision, revision, p.After})
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +332,7 @@ func (s *ControlService) ApplyArchiveImport(ctx context.Context, p *ArchiveImpor
 		}
 		err := p.publish(ctx, check)
 		if err == nil {
-			result = map[string]any{"status": "applied", "executionState": "committed", "resourceType": p.Request.ResourceType, "resourceKey": p.ResourceKey, "kind": p.Kind, "id": p.ResourceKey, "version": p.Version, "installed": true, "archiveSha256": p.ArchiveSHA256}
+			result = map[string]any{"status": "applied", "executionState": "committed", "resourceType": p.Request.ResourceType, "resourceKey": p.ResourceKey, "kind": p.Kind, "id": p.ResourceKey, "version": p.Version, "installed": true, "archiveSha256": p.ArchiveSHA256, "targetPath": p.root}
 			if p.Connector != nil && p.Connector.CLI != nil {
 				if s.PrepareConnector == nil {
 					result["preparation"] = map[string]any{"connectorId": p.ResourceKey, "status": "failed", "message": "CLI preparation service unavailable; the package was imported."}

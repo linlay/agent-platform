@@ -18,6 +18,8 @@ HITL 使用统一 awaiting 协议，保留 `mode` 字段，不引入 `kind`。�
 
 `/api/submit` 顶层固定为公开 owner + `runId + awaitingId + param/params`。所有 Run（包括 TEAM）的 owner 均为根 `agentKey`。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
 
+`awaitingId` 是等待项的不透明标识，客户端必须完整保存并原样提交，不从 tool ID 推导。同一工具先进行输入文件读取审批、再进行业务审阅时，两次等待使用独立标识；后续审阅使用随机标识，避免与其他工具 ID 的后缀重名。已解决的读取等待不能批准后续审阅。
+
 `/api/chats` 摘要、`/api/agents?includeChats=...` 的 `chats[]` 与 `/api/chat` 详情中的 `awaiting` 都来自持久化等待态；当 `awaiting.status == "awaiting"` 时，表示该 chat 当前有可恢复的等待项，`mode` 为 `question`、`approval`、`form` 或 `planning`。完整等待内容仍以 `events` 中的 `awaiting.ask` 为准。
 
 子智能体 HITL 沿用主 run：普通 `agent_invoke` 和 TEAM 成员都不会注册独立 active run，`awaiting.ask.runId` 是主 `runId`，`taskId` 表示子任务归属。对子智能体等待项，前端看到和提交的 public `awaitingId` 形如 `taskId:rawAwaitingId`；后端 submit 时会映射回子工具实际等待的 `rawAwaitingId`。兼容旧前端把 `taskId` 放进 `/api/submit.runId` 的 payload，但推荐提交 `awaiting.ask.runId` 中的主 `runId`。

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/url"
 	"os"
@@ -197,13 +198,31 @@ func treeRevisionWithLimit(root string, maxBytes int64) (string, bool, error) {
 		if total > maxBytes {
 			return fmt.Errorf("resource exceeds management size limit")
 		}
-		b, e := os.ReadFile(path)
+		file, e := os.Open(path)
 		if e != nil {
 			return e
 		}
+		defer file.Close()
+		opened, e := file.Stat()
+		if e != nil {
+			return e
+		}
+		if !os.SameFile(info, opened) || opened.Size() != info.Size() || opened.Mode() != info.Mode() {
+			return fmt.Errorf("resource changed while computing revision")
+		}
 		rel, _ := filepath.Rel(root, path)
-		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", filepath.ToSlash(rel), info.Mode().Perm(), len(b))
-		h.Write(b)
+		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", filepath.ToSlash(rel), info.Mode().Perm(), info.Size())
+		count, e := io.Copy(h, io.LimitReader(file, info.Size()+1))
+		if e != nil {
+			return e
+		}
+		after, e := file.Stat()
+		if e != nil {
+			return e
+		}
+		if count != info.Size() || after.Size() != info.Size() || after.Mode() != info.Mode() || !after.ModTime().Equal(opened.ModTime()) {
+			return fmt.Errorf("resource changed while computing revision")
+		}
 		return nil
 	})
 	return hex.EncodeToString(h.Sum(nil)), true, err

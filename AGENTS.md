@@ -145,7 +145,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 
 ## 8. 开发流程
 
-`catalog_manage.import` 为普通 Native root 提供 Skill/Skill 包与 Connector ZIP 导入；输入仅资源类型、ZIP 路径与覆盖意图，包身份、摘要和安装基准由后端识别并绑定审批。来源读取审批先于包审阅，正式目标固定为 skills-center 或 connectors-center，连接器技能留在包内；复用 Catalog 目录事务、回滚与独立 CLI 准备，收据只在进程内，不恢复未完成调用。契约见 [Platform 控制工具](docs/Platform控制工具设计.md#zip-包导入)。
+`catalog_manage.import` 为普通 Native root 提供 Skill/Skill 包与 Connector ZIP 导入；输入仅资源类型、ZIP 路径与覆盖意图，包身份、摘要和安装基准由后端识别并绑定审批。Handler 经中立 ToolApprovalInputPlanner 声明审阅输入，LLM 不识别 catalog 参数形状；来源读取审批先于包审阅，正式目标固定为 skills-center 或 connectors-center，连接器技能留在包内；复用 Catalog 目录事务、回滚与独立 CLI 准备，进程内收据随调用 Run 结束清理，不恢复未完成调用。契约见 [Platform 控制工具](docs/Platform控制工具设计.md#zip-包导入)。
 
 本地开发：
 

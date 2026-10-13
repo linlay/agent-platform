@@ -1,7 +1,7 @@
 package llm
 
 import (
-	"strconv"
+	"crypto/rand"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -53,7 +53,7 @@ func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvo
 	if invocation != nil && invocation.approvalDecision != "" && invocation.shownApproval != nil {
 		return *invocation.shownApproval, true
 	}
-	if plan := s.lookupFileAccessPlan(invocation); plan != nil && plan.Mode == filetools.ReadAccess && s.fileAccessPlanNeedsApproval(*plan) {
+	if plan := s.lookupFileAccessPlan(invocation); invocation.toolApprovalInputPath != "" && plan != nil && plan.Mode == filetools.ReadAccess && s.fileAccessPlanNeedsApproval(*plan) {
 		return s.fileAccessApprovalRequest(invocation, *plan), true
 	}
 	if request, ok := s.toolApprovalRequest(invocation); ok {
@@ -150,7 +150,9 @@ func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error 
 	s.hitlAwaitingID = buildHITLAwaitingID(invocation.toolID)
 	invocation.approvalSequence++
 	if invocation.approvalSequence > 1 {
-		s.hitlAwaitingID += "_" + strconv.Itoa(invocation.approvalSequence)
+		// A provider's sibling tool ID may itself end in "_2". Subsequent
+		// reviews need an independent identity, not a suffix of the tool ID.
+		s.hitlAwaitingID = "await_" + rand.Text()
 	}
 
 	args := s.approvalRequestArgs(request)

@@ -1075,7 +1075,7 @@ func (s *llmRunStream) handleDeferredToolInvocation(invocation *preparedToolInvo
 }
 
 func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
-	if plan := s.lookupFileAccessPlan(invocation); plan != nil && plan.Mode == filetools.ReadAccess && s.fileAccessPlanNeedsApproval(*plan) {
+	if plan := s.lookupFileAccessPlan(invocation); invocation.toolApprovalInputPath != "" && plan != nil && plan.Mode == filetools.ReadAccess && s.fileAccessPlanNeedsApproval(*plan) {
 		return s.handleBuiltInApprovalRequest(s.fileAccessApprovalRequest(invocation, *plan))
 	}
 	s.prepareToolApproval(invocation)

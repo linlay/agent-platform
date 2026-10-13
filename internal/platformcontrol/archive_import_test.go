@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/connectorauth"
@@ -44,6 +45,38 @@ func importZIP(t *testing.T, path string, files map[string]string) {
 	}
 	if err := os.WriteFile(path, buffer.Bytes(), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestArchiveImportReceiptIsReleasedWhenCallerRunFinishes(t *testing.T) {
+	h, e, path := importFixture(t)
+	e.RunControl = contracts.NewRunControl(t.Context(), e.Session.RunID)
+	defer e.RunControl.Finish()
+	importZIP(t, path, map[string]string{"SKILL.md": "---\nname: demo\ndescription: Demo\n---\nUse it."})
+	args := importArgs("skill", path, false)
+	approveImport(t, h, e, args)
+	r, err := h.Invoke(t.Context(), "catalog_manage", args, e)
+	if err != nil || r.Error != "" {
+		t.Fatalf("import: %#v %v", r, err)
+	}
+	key := archiveImportInvocation(e)
+	request := archiveImportRequestDigest(args["args"].(map[string]any))
+	if _, _, found := h.sources.ImportReceipt(key, request); !found {
+		t.Fatal("active Run lost its receipt")
+	}
+	e.RunControl.Finish()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, _, found := h.sources.ImportReceipt(key, request); !found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("finished Run retained receipt")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(h.cfg.Paths.SkillsCenterDir, "demo", "SKILL.md")); err != nil {
+		t.Fatal("receipt cleanup removed installed package")
 	}
 }
 
@@ -100,8 +133,15 @@ func TestArchiveImportPublishesDetectedIdentityToItsCenter(t *testing.T) {
 			}
 			args := importArgs(resourceType, path, "false")
 			approval := approveImport(t, h, e, args)
+			declared, declareErr := h.ToolApprovalInputPath("catalog_manage", args, e)
+			if declareErr != nil || declared != path {
+				t.Fatalf("review input: %s %v", declared, declareErr)
+			}
 			if !approval.AllowAutoApprove || approval.Form["resourceKey"] != id || approval.Form["kind"] != typ {
 				t.Fatalf("bad review: %#v", approval)
+			}
+			if destination, ok := approval.Form["targetPath"].(string); !ok || filepath.Base(destination) != id || filepath.Base(filepath.Dir(destination)) != filepath.Base(target) {
+				t.Fatalf("review destination was not backend-selected: %#v", approval.Form["targetPath"])
 			}
 			if _, err := os.Stat(filepath.Join(target, id)); !os.IsNotExist(err) {
 				t.Fatal("review published candidate")
