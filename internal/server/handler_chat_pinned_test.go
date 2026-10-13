@@ -68,7 +68,7 @@ func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
 	yes, no := true, false
 	updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{Operation: "set_pinned", ChatID: "tool-pin", Pinned: &yes}, 200)
 	writeChatOrderWSRequest(t, conn, "noop-check", map[string]any{})
-	assertChatOrderWSResponse(t, conn, "noop-check", "manual")
+	assertChatOrderWSResponse(t, conn, "noop-check", "recent")
 	updateChatOrderHTTP(t, fixture.server, api.UpdateChatOrderRequest{Operation: "set_pinned", ChatID: "tool-pin", Pinned: &no}, 200)
 	if err := conn.ReadJSON(&push); err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestChatPinToolSharesHTTPStateAndWebSocketNotifications(t *testing.T) {
 		t.Fatalf("HTTP push: %+v", push)
 	}
 	writeChatOrderWSRequest(t, conn, "single-push-check", map[string]any{})
-	assertChatOrderWSResponse(t, conn, "single-push-check", "manual")
+	assertChatOrderWSResponse(t, conn, "single-push-check", "recent")
 }
 
 func TestChatPinnedHTTPAndWSFilterBeforeLimits(t *testing.T) {
@@ -150,7 +150,7 @@ func TestChatPinnedHTTPAndWSFilterBeforeLimits(t *testing.T) {
 	if push.Type != "chats.order.changed" {
 		t.Fatalf("pin push: %+v", push)
 	}
-	assertChatOrderWSResponse(t, conn, "unpin", "manual")
+	assertChatOrderWSResponse(t, conn, "unpin", "recent")
 	writeChatsLimitWSRequest(t, conn, "unpinned", map[string]any{"pinned": false, "mode": "GENERAL", "limit": 8})
 	assertChatsLimitWSResponse(t, conn, "unpinned", []string{"chat-11", "chat-08", "chat-07", "chat-06", "chat-05", "chat-04", "chat-03", "chat-02"})
 	writeChatsLimitWSRequest(t, conn, "pins", map[string]any{"pinned": true})
