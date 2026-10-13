@@ -41,7 +41,9 @@ Cross-built targets never change the canonical lock.
 
 With no target selector, builds the current host target. --all requests the
 six target matrix; currently KBX release supports only darwin/amd64,
-darwin/arm64 and windows/amd64, so unsupported targets fail before building.
+darwin/arm64, windows/amd64 and linux/amd64, so unsupported targets fail
+before building. linux/amd64 must be built on a native linux/amd64 host; use
+scripts/sync-linux-builtins.sh to run this script in the pinned builder image.
 Supported cross-builds require the relevant Rust target, linker,
 and SDK to be provisioned on this machine. ripgrep is consumed from its locked
 vendor artifact because the sibling collection currently carries no ripgrep
@@ -122,7 +124,7 @@ if [[ ${#TARGETS[@]} -eq 0 ]]; then
 fi
 for target in "${TARGETS[@]}"; do
   case "$target" in
-    darwin/amd64|darwin/arm64|windows/amd64) ;;
+    darwin/amd64|darwin/arm64|windows/amd64|linux/amd64) ;;
     *) die "KBX release does not support $target yet; no builtin cache was changed" ;;
   esac
 done

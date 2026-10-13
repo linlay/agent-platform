@@ -307,7 +307,7 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 	}
 	if component.Name == "kbx" {
 		switch goos + "/" + goarch {
-		case "darwin/arm64", "darwin/amd64", "windows/amd64":
+		case "darwin/arm64", "darwin/amd64", "windows/amd64", "linux/amd64":
 		default:
 			return builtins.Target{}, fmt.Errorf("KBX release does not support %s/%s", goos, goarch)
 		}

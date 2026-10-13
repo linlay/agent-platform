@@ -25,7 +25,7 @@ RUN apt-get update && \
 WORKDIR /opt
 
 COPY --from=go-build --chown=10001:10001 /out/agent-platform /opt/backend/agent-platform
-# Run scripts/sync-local-builtins.sh --target linux/<arch> before building this
+# Run scripts/sync-linux-builtins.sh (linux/amd64 only) before building this
 # image. Docker selects that verified Linux cache and never compiles Rust.
 COPY --chown=10001:10001 build/builtins/${TARGETOS}-${TARGETARCH}/ /opt/
 
