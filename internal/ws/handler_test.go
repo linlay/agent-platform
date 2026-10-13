@@ -118,3 +118,31 @@ func TestAuthRefreshOmitsAbsentExpiryAndUsesEpochMilliseconds(t *testing.T) {
 		}
 	})
 }
+
+func TestExtractTokenSources(t *testing.T) {
+	cases := []struct {
+		name            string
+		prepare         func(*http.Request)
+		token, protocol string
+		wantErr         bool
+	}{
+		{"subprotocol", func(r *http.Request) { r.Header.Set("Sec-WebSocket-Protocol", "bearer.sub-token") }, "sub-token", "bearer.sub-token", false},
+		{"authorization header", func(r *http.Request) { r.Header.Set("Authorization", "Bearer header-token") }, "header-token", "", false},
+		{"query", func(r *http.Request) { r.URL.RawQuery = "token=query-token" }, "query-token", "", false},
+		{"header wins over query", func(r *http.Request) {
+			r.Header.Set("Authorization", "Bearer header-token")
+			r.URL.RawQuery = "token=query-token"
+		}, "header-token", "", false},
+		{"missing", func(*http.Request) {}, "", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			tc.prepare(req)
+			token, protocol, err := extractToken(req)
+			if (err != nil) != tc.wantErr || token != tc.token || protocol != tc.protocol {
+				t.Fatalf("extractToken = %q, %q, %v", token, protocol, err)
+			}
+		})
+	}
+}

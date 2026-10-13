@@ -43,14 +43,13 @@ func WebSocketTarget(proxy *catalog.ProxyConfig) (string, http.Header, error) {
 	if !directWS {
 		parsed.Path = strings.TrimRight(parsed.Path, "/") + "/ws"
 	}
-	query := parsed.Query()
-	if proxy.Token != "" {
-		query.Set("token", proxy.Token)
-	}
-	parsed.RawQuery = query.Encode()
+	// The token travels in headers only: URLs end up in proxy and access logs.
+	// The bearer subprotocol is what Platform upstreams read on a WebSocket
+	// upgrade; Authorization covers upstreams that authenticate the HTTP request.
 	header := http.Header{}
 	if proxy.Token != "" {
 		header.Set("Authorization", "Bearer "+proxy.Token)
+		header.Set("Sec-WebSocket-Protocol", "bearer."+proxy.Token)
 	}
 	return parsed.String(), header, nil
 }

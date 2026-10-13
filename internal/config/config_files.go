@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -54,6 +55,24 @@ func (c *Config) applyAuthValues(values map[string]any) {
 	c.Auth.JWKSURI = stringValue(anyValue(values["jwks-uri"], c.Auth.JWKSURI), c.Auth.JWKSURI)
 	c.Auth.Issuer = stringValue(anyValue(values["issuer"], c.Auth.Issuer), c.Auth.Issuer)
 	c.Auth.JWKSCacheSeconds = intValue(anyValue(values["jwks-cache-seconds"], c.Auth.JWKSCacheSeconds), c.Auth.JWKSCacheSeconds)
+	c.Auth.Audience = strings.TrimSpace(stringValue(anyValue(values["audience"], c.Auth.Audience), c.Auth.Audience))
+	c.Auth.AllowedSubjects = listValue(values["allowed-subjects"], c.Auth.AllowedSubjects)
+	c.Auth.RequireExpiry = boolValue(anyValue(values["require-expiry"], c.Auth.RequireExpiry), c.Auth.RequireExpiry)
+}
+
+func (c *Config) applyServerValues(values map[string]any) error {
+	// Other server keys stay ignored: the port only comes from SERVER_PORT.
+	raw := strings.TrimSpace(stringValue(values["public-base-url"], ""))
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+		parsed.User != nil || strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("server.public-base-url must be an http(s) origin without path, query or credentials")
+	}
+	c.Server.PublicBaseURL = parsed.Scheme + "://" + parsed.Host
+	return nil
 }
 
 func (c *Config) applyResourceValues(values map[string]any) {
@@ -189,6 +208,11 @@ func (c *Config) applyRuntimeFile(path string) error {
 	}
 	if auth, ok := values["auth"].(map[string]any); ok && len(auth) > 0 {
 		c.applyAuthValues(auth)
+	}
+	if server, ok := values["server"].(map[string]any); ok && len(server) > 0 {
+		if err := c.applyServerValues(server); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	if resource, ok := values["resource"].(map[string]any); ok && len(resource) > 0 {
 		c.applyResourceValues(resource)

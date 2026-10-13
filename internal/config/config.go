@@ -89,6 +89,9 @@ func ParseRuntimeMode(value string) (RuntimeMode, error) {
 
 type ServerConfig struct {
 	Port string
+	// PublicBaseURL is the externally visible origin. When set, it replaces
+	// the request Host and X-Forwarded-* headers wherever a base URL is built.
+	PublicBaseURL string
 }
 
 type PathsConfig struct {
@@ -438,6 +441,12 @@ type AuthConfig struct {
 	Issuer             string
 	JWKSCacheSeconds   int
 	LocalPublicKeyFile string
+	// Audience, when set, must appear in the token's aud claim.
+	Audience string
+	// AllowedSubjects, when non-empty, lists the only subjects this instance accepts.
+	AllowedSubjects []string
+	// RequireExpiry rejects tokens without a valid exp claim.
+	RequireExpiry bool
 }
 
 type ResourceTicketConfig struct {

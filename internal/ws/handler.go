@@ -17,6 +17,7 @@ import (
 
 type Handler struct {
 	cfg              config.WebSocketConfig
+	publicBaseURL    string
 	hub              *Hub
 	authenticator    TokenAuthenticator
 	defaultLocale    string
@@ -37,6 +38,15 @@ func NewHandler(cfg config.WebSocketConfig, hub *Hub, authenticator TokenAuthent
 		},
 		routes: map[string]RouteHandler{},
 	}
+}
+
+// SetPublicBaseURL fixes the origin reported to connections instead of
+// deriving it from client-controlled request headers.
+func (h *Handler) SetPublicBaseURL(baseURL string) {
+	if h == nil {
+		return
+	}
+	h.publicBaseURL = strings.TrimSpace(baseURL)
 }
 
 func (h *Handler) SetDefaultLocale(locale string) {
@@ -110,7 +120,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		conn.SetLifecycleCallbacks(h.channelLifecycle)
 	}
 	conn.SetLocale(wsLocaleFromRequest(r, h.defaultLocale))
-	conn.SetRequestBaseURL(wsRequestBaseURL(r))
+	if h.publicBaseURL != "" {
+		conn.SetRequestBaseURL(h.publicBaseURL)
+	} else {
+		conn.SetRequestBaseURL(wsRequestBaseURL(r))
+	}
 	conn.SetClientInfo(r.RemoteAddr, r.UserAgent())
 	conn.SetClientMetadata(source, deviceID)
 	conn.SetClientSurfaceID(surfaceID)
@@ -195,6 +209,11 @@ func extractToken(r *http.Request) (string, string, error) {
 			if token != "" {
 				return token, trimmed, nil
 			}
+		}
+	}
+	if authorization := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(authorization, "Bearer ") {
+		if token := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")); token != "" {
+			return token, "", nil
 		}
 	}
 	token := strings.TrimSpace(r.URL.Query().Get("token"))
