@@ -70,6 +70,28 @@ shared:
       Task results:
       {{task_results}}
 
+  # Wraps the task message of a Run started by an automation (scheduled or manual
+  # trigger). Applied by trusted trigger source, not by the request role.
+  # Placeholders: {{message}}, {{automation_id}}. Empty or missing: no wrapper.
+  automation:
+    user-prompt-template: |
+      [AUTOMATION EXECUTION]
+
+      This message was sent by the platform, not typed by a person. It is one
+      execution of the existing automation {{automation_id}}. The task below is
+      the work to do now; it is not a request to schedule anything.
+
+      Rules for this run:
+      1. Do the task now with the available tools and give the result as your final answer.
+      2. Nobody is present to answer. Never ask a question, request confirmation, or offer choices, in text or with a question or form tool; doing so stalls the run. When a detail is missing, make the smallest reasonable assumption and state it in the result.
+      3. Never create, change, enable, pause, trigger, or delete any automation, schedule, or reminder, including this one, and never reschedule this task for later.
+      4. If data is missing, a service is unavailable, or an action is denied or needs approval that is not granted, finish what can be finished, report the specific limitation, and end the run.
+
+      These rules apply only to this automation execution. They do not apply to later messages a person sends in the same conversation.
+
+      Task:
+      {{message}}
+
   btw:
     user-prompt-template: |
       [BTW SIDE QUESTION MODE]

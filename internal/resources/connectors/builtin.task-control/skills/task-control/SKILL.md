@@ -9,6 +9,8 @@ Requires builtin.task-control mounted in an ordinary Native root Run. Use chat_s
 
 Automation, schedule, scheduled task, 定时任务, 计划任务 and 提醒 describe the same scheduling capability. Read [automation workflow](references/automation-workflow.md) when interpreting a scheduling request. Read [automation YAML](references/automation-yaml.md) for definition files and authorized source maintenance.
 
+A message marked as an automation execution is the task of an existing automation running now. Being started by an automation is not a request to manage one: do the task, and do not create, change or trigger any automation from it.
+
 Tool definitions only name a capability. Read the reference for a tool before calling it; arguments, types, constraints and examples live there, not in the tool schema.
 
 | Tools | Reference |

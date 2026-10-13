@@ -4,6 +4,8 @@ Use this workflow for automations, schedules, scheduled tasks, 定时任务, 计
 
 ## Intent and executor
 
+This workflow applies only when a person asks to manage a task. When the current Run is itself an automation execution, do not use it: carry out the task message and leave every automation unchanged.
+
 1. Identify whether the user wants to create, inspect, change, enable, pause, trigger or delete a task. Ask for missing time information only when creating or changing its schedule. A request to list, pause or delete an identified task needs no new time.
 2. Unless the user specifies an executor, use the current Agent. Obtain its exact key from Agent Identity. A different Agent or Team requires an explicit request and an actual available key or ID; do not substitute a candidate automatically. Use catalog_query only when that tool is available. If an explicit target cannot be resolved, ask for the missing identity.
 3. Preserve the requested action, object and necessary context in query.message. A request to remind the user must remain a reminder; a request to execute, check or generate something must retain that action. This is a general intent rule, not a list of topic-specific behaviors.

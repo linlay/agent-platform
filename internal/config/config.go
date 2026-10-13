@@ -181,6 +181,7 @@ type PromptsConfig struct {
 	ToolAppendix ToolAppendixPromptsConfig
 	PlanExecute  PlanExecutePromptsConfig
 	BTW          BTWPromptsConfig
+	Automation   AutomationPromptsConfig
 	PlanningMode PlanningModePromptsConfig
 }
 
@@ -219,6 +220,13 @@ type PlanExecutePromptsConfig struct {
 type BTWPromptsConfig struct {
 	UserPromptTemplate string
 	FinalAnswerPrompt  string
+}
+
+// AutomationPromptsConfig wraps the task message of a Run started by an
+// automation. It is a user-level instruction and never contributes to the
+// system-init cache key.
+type AutomationPromptsConfig struct {
+	UserPromptTemplate string
 }
 
 type CoderPromptsConfig struct {

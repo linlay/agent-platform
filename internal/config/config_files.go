@@ -705,6 +705,9 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 	if planningMode, _ := values["planning-mode"].(map[string]any); len(planningMode) > 0 {
 		c.Prompts.PlanningMode.PlanningPrompt = stringValue(anyValue(planningMode["planning-prompt"], c.Prompts.PlanningMode.PlanningPrompt), c.Prompts.PlanningMode.PlanningPrompt)
 	}
+	if automationPrompts, _ := values["automation"].(map[string]any); len(automationPrompts) > 0 {
+		c.Prompts.Automation.UserPromptTemplate = stringValue(anyValue(automationPrompts["user-prompt-template"], c.Prompts.Automation.UserPromptTemplate), c.Prompts.Automation.UserPromptTemplate)
+	}
 	btwPrompts, _ := values["btw"].(map[string]any)
 	if len(btwPrompts) > 0 {
 		c.Prompts.BTW.UserPromptTemplate = stringValue(anyValue(btwPrompts["user-prompt-template"], c.Prompts.BTW.UserPromptTemplate), c.Prompts.BTW.UserPromptTemplate)

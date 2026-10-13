@@ -256,7 +256,7 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err := validatePromptTemplates(v, path); err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "reference", "tool-appendix", "plan-execute", "btw", "planning-mode")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "reference", "tool-appendix", "plan-execute", "automation", "btw", "planning-mode")
 	if err != nil {
 		return err
 	}
@@ -265,6 +265,7 @@ func (c *Config) applyAgentPromptFile(path string) error {
 		"reference":     {"protocol-prompt", "advanced-protocol-prompt"},
 		"tool-appendix": {"tool-description-title", "after-call-hint-title"},
 		"plan-execute":  {"task-execution-prompt-template", "plan-user-prompt-template", "summary-system-prompt", "summary-user-prompt-template"},
+		"automation":    {"user-prompt-template"},
 		"btw":           {"user-prompt-template", "final-answer-prompt"},
 		"planning-mode": {"planning-prompt"},
 	}

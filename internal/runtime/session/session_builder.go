@@ -438,6 +438,9 @@ func (s *Builder) BuildCurrentMessages(req runtimetypes.QueryCommand, session co
 		RequestID:          session.RequestID,
 		AgentKey:           session.AgentKey,
 
+		AutomationID:                 querymessages.AutomationIDFromChatSource(req.ChatSource),
+		AutomationUserPromptTemplate: s.deps.Config.Prompts.Automation.UserPromptTemplate,
+
 		Scene: req.Scene,
 	})
 }
