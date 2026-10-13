@@ -1,0 +1,3 @@
+# One instance per line: <host> 127.0.0.1:<AP_PORT of that instance>;
+# Maintained by ap-ingress.sh add/remove. Hosts not listed here are dropped.
+linlay.ap.example.com 127.0.0.1:11949;

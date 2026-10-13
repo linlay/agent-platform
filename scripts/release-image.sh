@@ -132,7 +132,9 @@ cp "$IMAGE_ASSETS_DIR/load.sh" "$bundle_stage/load.sh"
 cp "$IMAGE_ASSETS_DIR/DEPLOY.md" "$bundle_stage/DEPLOY.md"
 sed "s/__VERSION__/$VERSION/" "$IMAGE_ASSETS_DIR/env.example" >"$bundle_stage/.env.example"
 cp "$REPO_ROOT"/configs/*.example.yml "$REPO_ROOT"/configs/*.example.pem "$bundle_stage/configs/"
-chmod +x "$bundle_stage/load.sh"
+mkdir -p "$bundle_stage/ingress-nginx"
+cp "$SCRIPT_DIR"/release-assets/ingress-nginx/* "$bundle_stage/ingress-nginx/"
+chmod +x "$bundle_stage/load.sh" "$bundle_stage/ingress-nginx/ap-ingress.sh"
 
 python3 - "$bundle_stage" "$archive_name" "$verified_builtins/builtins.manifest.json" \
   "$VERSION" "$revision" "$created" "$PLATFORM" "$reference" "$image_id" <<'PY'

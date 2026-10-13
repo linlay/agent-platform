@@ -9,6 +9,7 @@ manifest.json                                 版本、commit、builtin 版本�
 compose.yml                                   部署用 Compose，不含 build
 .env.example                                  部署参数模板
 configs/*.example.*                           配置模板
+ingress-nginx/                                主机 nginx 入口配置与脚本
 load.sh                                       校验并导入镜像
 ```
 
@@ -27,13 +28,14 @@ cp .env.example .env && chmod 600 .env
 for f in configs/*.example.yml; do cp "$f" "${f/.example/}"; done
 ```
 
-启动前需要处理的四处：
+启动前需要处理的五处：
 
 | 位置 | 要做的事 |
 | --- | --- |
 | `.env` 的 `AP_INSTANCE_NAME` | 本实例的名字（小写字母、数字、连字符），Compose 项目名为 `agent-platform-<名字>`，在这台主机上必须唯一，设定后不要再改；未填写时 Compose 拒绝启动。同一主机上两个实例同名时，`docker compose up` 会替换掉另一个实例的容器。同时确认 `AP_PORT` 不与其他实例冲突 |
 | `.env` 的 `AP_CHAT_RESOURCE_TICKET_SECRET` | 资源访问票据的签名密钥，填入随机值，例如 `openssl rand -hex 32` |
 | `configs/local-public-key.pem` | 放入签发访问 token 的 RSA 公钥；模板里的示例 PEM 不是有效密钥 |
+| `configs/runtime.yml` 的 `auth` 与 `resource` | 对公网开放的实例必须绑定主人：`auth.allowed-subjects` 填主人的 token `sub`，`auth.audience` 填签发方写入的 `aud`，`auth.require-expiry: true`；`resource.public-base-url` 填实例的公网地址。不配置时，任何持有该签发方有效 token 的人都能访问本实例 |
 | `configs/runtime.yml` 的 `document-preview` | 填写 `api-base-url` 与 `public-base-url`，或把 `enabled` 改为 `false` |
 
 模型、Provider 和其他能力按需在 `configs/` 与运行目录的 registries 中配置。`configs/` 以只读方式挂载，修改后需要重启容器。
@@ -56,7 +58,7 @@ docker compose up -d
 docker compose ps        # 等到 STATUS 为 healthy
 ```
 
-服务默认只发布在 `127.0.0.1:11949`，由本机的 TLS 反向代理转发。反向代理需要支持 WebSocket 升级，并关闭对 SSE 响应的缓冲。不要把 `AP_BIND_ADDRESS` 改成公网地址来直接对外提供明文 HTTP。
+服务默认只发布在 `127.0.0.1:11949`，由本机的 TLS 反向代理转发。`ingress-nginx/` 提供基于主机 nginx 的入口配置与增删实例的脚本，步骤见 `ingress-nginx/INGRESS.md`。反向代理需要支持 WebSocket 升级，并关闭对 SSE 响应的缓冲。不要把 `AP_BIND_ADDRESS` 改成公网地址来直接对外提供明文 HTTP。
 
 ## 5. 运行方式
 

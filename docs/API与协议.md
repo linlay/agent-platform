@@ -817,7 +817,8 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - 入口：`GET /ws`，HTTP upgrade 为 WebSocket。
 - 鉴权：复用 HTTP token 校验链路。
 - Desktop 旁聊连接必须验证 `connected.data.lane` 与预期 `btw`/`explain` 一致后，才发送 `/api/query`。缺少或不匹配时明确拒绝，不回退到主聊天或重发。普通连接返回 `main`，该字段不接受 payload 覆盖。
-- token 可通过 `Sec-WebSocket-Protocol: bearer.<token>` 或 query token 传递；服务端会在握手成功时回写匹配的 subprotocol。
+- token 可通过 `Sec-WebSocket-Protocol: bearer.<token>`、`Authorization: Bearer <token>` 请求头或 query token 传递，按此顺序取第一个；服务端会在握手成功时回写匹配的 subprotocol。URL 会进入代理与访问日志，能设置请求头或子协议的客户端不应使用 query token；PROXY 上游连接只使用请求头与子协议。
+- `runtime.yml` 的 `auth.audience`、`auth.allowed-subjects`、`auth.require-expiry` 可把实例绑定到指定的 `aud` 与 `sub` 并要求 `exp`，对 HTTP 与 WebSocket（含 `auth.refresh`）同样生效，不满足时按未认证处理；默认不启用。`resource.public-base-url` 配置后，资源地址使用该固定值，不读取请求的 `Host` 与 `X-Forwarded-*` 头。
 - 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`。普通 source 转小写后只用于监控和日志展示，不参与权限或能力声明；Desktop 的 `desktop-main` / `desktop-btw` / `desktop-explain` 是三个受限 lane 标识，但仍必须同时通过 app scope、JWT device claim 与握手 deviceId 校验，`source` 本身绝不构成授权。
 - WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。Desktop Broker 不再按 Main Chat、Copilot 或 WebView surface 创建连接：同一设备只登记一个 `desktop-main`，并在首次使用对应能力时分别登记 `desktop-btw`、`desktop-explain`，随后跨 Chat/Run 复用。
 - `desktop-main` 是唯一 Desktop Main 默认 target，接收全局 Push 和反向 Desktop Action/CDP；`desktop-btw` / `desktop-explain` 不参与默认 target replacement，不接收这些 Push/request。第二条相同 Desktop lane 连接只替换该 lane 的旧连接，main、btw、explain 可以同时存活。

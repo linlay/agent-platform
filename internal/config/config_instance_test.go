@@ -8,7 +8,7 @@ import (
 func TestRuntimeFileInstanceAuthAndPublicOrigin(t *testing.T) {
 	c := &Config{}
 	yaml := "auth:\n  audience: instance-a\n  allowed-subjects: [owner, admin]\n  require-expiry: true\n" +
-		"server:\n  public-base-url: https://linlay.ap.example.com/\n"
+		"resource:\n  public-base-url: https://linlay.ap.example.com/\n"
 	if err := c.applyRuntimeFile(configFixture(t, "runtime.yml", yaml)); err != nil {
 		t.Fatalf("applyRuntimeFile: %v", err)
 	}
@@ -20,12 +20,12 @@ func TestRuntimeFileInstanceAuthAndPublicOrigin(t *testing.T) {
 	}
 }
 
-func TestRuntimeFileRejectsInvalidServerSection(t *testing.T) {
+func TestRuntimeFileRejectsInvalidPublicBaseURL(t *testing.T) {
 	for _, yaml := range []string{
-		"server:\n  public-base-url: linlay.ap.example.com\n",
-		"server:\n  public-base-url: https://linlay.ap.example.com/app\n",
-		"server:\n  public-base-url: https://user:pass@linlay.ap.example.com\n",
-		"server:\n  public-base-url: ftp://linlay.ap.example.com\n",
+		"resource:\n  public-base-url: linlay.ap.example.com\n",
+		"resource:\n  public-base-url: https://linlay.ap.example.com/app\n",
+		"resource:\n  public-base-url: https://user:pass@linlay.ap.example.com\n",
+		"resource:\n  public-base-url: ftp://linlay.ap.example.com\n",
 	} {
 		if err := (&Config{}).applyRuntimeFile(configFixture(t, "runtime.yml", yaml)); err == nil {
 			t.Fatalf("expected %q to be rejected", yaml)

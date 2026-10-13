@@ -60,8 +60,8 @@ func (c *Config) applyAuthValues(values map[string]any) {
 	c.Auth.RequireExpiry = boolValue(anyValue(values["require-expiry"], c.Auth.RequireExpiry), c.Auth.RequireExpiry)
 }
 
-func (c *Config) applyServerValues(values map[string]any) error {
-	// Other server keys stay ignored: the port only comes from SERVER_PORT.
+func (c *Config) applyResourceValues(values map[string]any) error {
+	c.ResourceTicket.TTLSeconds = int64Value(anyValue(values["ticket-ttl-seconds"], c.ResourceTicket.TTLSeconds), c.ResourceTicket.TTLSeconds)
 	raw := strings.TrimSpace(stringValue(values["public-base-url"], ""))
 	if raw == "" {
 		return nil
@@ -69,14 +69,10 @@ func (c *Config) applyServerValues(values map[string]any) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
 		parsed.User != nil || strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return fmt.Errorf("server.public-base-url must be an http(s) origin without path, query or credentials")
+		return fmt.Errorf("resource.public-base-url must be an http(s) origin without path, query or credentials")
 	}
 	c.Server.PublicBaseURL = parsed.Scheme + "://" + parsed.Host
 	return nil
-}
-
-func (c *Config) applyResourceValues(values map[string]any) {
-	c.ResourceTicket.TTLSeconds = int64Value(anyValue(values["ticket-ttl-seconds"], c.ResourceTicket.TTLSeconds), c.ResourceTicket.TTLSeconds)
 }
 
 func (c *Config) applyContainerHubValues(values map[string]any) error {
@@ -209,13 +205,10 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if auth, ok := values["auth"].(map[string]any); ok && len(auth) > 0 {
 		c.applyAuthValues(auth)
 	}
-	if server, ok := values["server"].(map[string]any); ok && len(server) > 0 {
-		if err := c.applyServerValues(server); err != nil {
+	if resource, ok := values["resource"].(map[string]any); ok && len(resource) > 0 {
+		if err := c.applyResourceValues(resource); err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-	}
-	if resource, ok := values["resource"].(map[string]any); ok && len(resource) > 0 {
-		c.applyResourceValues(resource)
 	}
 	if containerHub, ok := values["container-hub"].(map[string]any); ok && len(containerHub) > 0 {
 		if err := c.applyContainerHubValues(containerHub); err != nil {

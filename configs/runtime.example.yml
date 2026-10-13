@@ -17,9 +17,15 @@ auth:
   # jwks-uri:
   # issuer:
   # jwks-cache-seconds: 0
+  # 实例绑定（默认均不启用）。对公网开放的实例应三项都配置：
+  # audience: app-api          # token 的 aud 必须包含该值
+  # allowed-subjects: []       # 非空时只接受列表内的 sub，其他用户的有效 token 也拒绝
+  # require-expiry: false      # true 时拒绝没有 exp 的 token
 
 resource:
   ticket-ttl-seconds: 86400
+  # 实例的公网地址。配置后生成资源地址时不再读取请求的 Host 与 X-Forwarded-* 头。
+  # public-base-url: https://<实例名>.<域名>
 
 budget:
   # 单次 run 执行耗时上限；原生 wait 与 CODER planning confirmation 的等待时间不计入。
