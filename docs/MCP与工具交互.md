@@ -302,10 +302,11 @@ i18n:
 | surface_navigate / surface_screenshot / surface_evaluate | ignoreCache / fullPage / awaitPromise |
 | ask_user_question | questions[].allowFreeText、questions[].options[].recommended |
 | chat_query / chat_manage | 各 action 声明的 archived、pinned |
+| desktop_site / site.setPinned | args.pinned |
 | catalog_query.validate / catalog_manage.apply | args.isProject |
 | automation_query / automation_manage | 各 action 声明的 args.enabled、args.query.hidden |
 
-字段与适用 action 仍以工具 Schema 和运行时契约为准；Desktop 通用 action 的开放 args、AWCP/CDP 业务参数不依据字段名猜测类型。
+字段与适用 action 仍以工具 Schema 和运行时契约为准；`desktop_site / site.setPinned` 显式声明 `args.pinned`，在审批表单、指纹生成与执行前复用公共布尔转换；其他 Desktop 通用 action 的开放 args、AWCP/CDP 业务参数不依据字段名猜测类型，Desktop 与 HTTP/WS API 仍校验原生 boolean。
 
 ## 独立输入表单 ask_user_form
 

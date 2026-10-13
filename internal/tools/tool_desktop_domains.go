@@ -49,6 +49,7 @@ func (t *RuntimeToolExecutor) invokeDesktopDomain(ctx context.Context, tool stri
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return fail("desktop_unsupported_runtime", "Desktop domain tools require Desktop runtime")
 	}
+	normalizeDesktopControlBooleans(tool, action, args)
 	if desktopControlReviewAction(tool, action) && !ConsumeToolApproval(execCtx, desktopControlFingerprint(execCtx, tool, args)) {
 		return desktopActionErrorResult("approval_required", "action requires one-time approval of this invocation", map[string]any{"stage": "authorization", "executionState": "not_started"}), nil
 	}

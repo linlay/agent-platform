@@ -55,6 +55,7 @@ func (t *RuntimeToolExecutor) PrepareToolApproval(ctx context.Context, tool stri
 	if err := toolinput.Validate(args, map[string]string{"action": "s!", "args": "o"}, ""); err != nil {
 		return nil, err
 	}
+	normalizeDesktopControlBooleans(tool, action, args)
 	params, _ := args["args"].(map[string]any)
 	for _, key := range desktopActionReservedArgFields {
 		if _, exists := params[key]; exists {
