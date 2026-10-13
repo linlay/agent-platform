@@ -1421,6 +1421,7 @@ func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
 		"desktop.webapp.unpublish",
 		"desktop.webapp.updatePreferences",
 		"desktop.website.add",
+		"desktop.site.setPinned",
 		"desktop.website.list",
 		"desktop.website.open",
 		"desktop.website.remove",
@@ -1437,8 +1438,8 @@ func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 83 {
-		t.Fatalf("desktop action count = %d, want 83", len(actions))
+	if len(actions) != 84 {
+		t.Fatalf("desktop action count = %d, want 84", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{

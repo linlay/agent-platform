@@ -7,6 +7,13 @@
 <script>
 Review.mount(u=>{
  const {t,args:a,current:c,action}=u,add=action==='website.add',remove=action==='website.remove';
+ if(action==='site.setPinned'){
+  u.title(a.pinned===true?t('置顶入口','Pin an entry'):t('取消入口置顶','Unpin an entry'));
+  u.target(c.label||t('所选入口','Selected entry'),'',c.label?'':a.entryKey);
+  u.change(t('导航置顶','Navigation pin'),'pinned',a.pinned,v=>v===true?t('已置顶','Pinned'):v===false?t('未置顶','Not pinned'):u.format(v));
+  u.notice(a.pinned===true?t('新置顶的入口会出现在主导航最前面。','A newly pinned entry appears first in the main navigation.'):t('取消后入口按原顺序回到网站 / 应用列表。','The entry returns to its original position in the Sites list.'));
+  u.required(a.entryKey,t('入口标识','Entry key'));u.extras(a,['entryKey','pinned']);return;
+ }
  let p=Object.keys(u.record(a.input)).length?u.record(a.input):Object.keys(u.record(a.patch)).length?u.record(a.patch):a;
  if(!['id','label','name','url','copilotAgentKey','agentKey'].some(k=>u.own(p,k))){
   if(Object.keys(u.record(p.item)).length)p=u.record(p.item);

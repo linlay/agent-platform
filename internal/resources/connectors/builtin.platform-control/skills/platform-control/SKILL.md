@@ -25,6 +25,8 @@ Read [configuration maintenance](references/configuration.md) for explicitly req
 
 Tool definitions only name a capability. Read the reference for a tool before calling it; action arguments, types, constraints and examples live there, not in the tool schema.
 
+For a website or WebApp identified by its display name, discover it with `desktop_site` action `site.list` first. Read [website entries and navigation pins](references/website.md) for matching and pinning; use the returned real `id` or `entryKey`, never a guessed identity. `site.list` includes installed WebApps even when they are stopped.
+
 | Tool | Reference |
 | --- | --- |
 | catalog_query, catalog_manage | [catalog](references/catalog.md) |

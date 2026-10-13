@@ -11,12 +11,14 @@
 | platform_inspect | runtimeStatus/securityExplain/checkConnector | 前两项支持受信任子任务/Team；checkConnector 仅普通 native main root |
 | desktop_shell | 9 个外壳动作 | Desktop |
 | desktop_settings | 16 个设置动作 | Desktop |
-| desktop_site | 6 个网站条目动作 | Desktop |
+| desktop_site | 7 个站点发现、网站条目与导航置顶动作 | Desktop |
 | desktop_webapp | 16 个应用动作 | Desktop |
 | desktop_service | 12 个服务动作 | Desktop |
 | desktop_market | 15 个市场动作 | Desktop |
 
 全部工具使用固定 `{action,args}`，action 枚举来自 `internal/connector/control_actions.go`；顶层未知字段拒绝。Catalog/Chat/Automation/Inspect 还严格检查动作参数类型与字段。Desktop 保留动作字段校验；日常管理的确认由 Platform 接管，重影响动作继续使用 Desktop 确认，适配器添加 `desktop.` 传输前缀。`agent.update`、`skill.update` 不再暴露给模型。不同工具的 action 不互相兼容。
+
+Website/WebApp 的名称发现共用 `desktop_site` 的 `site.list`，返回真实 id、entryKey 与 pinned；WebApp 停止运行也仍在列表中。导航置顶使用 `site.setPinned {entryKey,pinned}`，由 Desktop Main 校验现存入口并与 UI 共用导航偏好提交，返回当前目标的置顶状态；回读 `site.list` 验证。新置顶进入主导航最前，取消后恢复原 Sites 顺序，重复同一状态不重排。日常管理审批沿用 Platform 规则，Desktop 只在可信 Platform 调用中豁免重复确认。具体发现与使用流程归连接器 Skill，平台不推测 WebApp id 或替代 Desktop 写本地偏好文件；两端需配套发布。
 
 平台、任务与看板连接器的 `action/args` 管理工具，`description` 只说明能力和对应 Skill 入口，不重复动作清单、参数表、示例或业务约束；`args.description` 只指向对应 Skill 手册。动作参数、类型、默认值、审批边界和重试规则由 Skill 及其 references 说明，模型应先读技能入口，再读本次操作所需章节。静态 Schema 保留现有枚举与类型校验，服务端继续负责执行准入。
 

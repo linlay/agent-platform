@@ -76,6 +76,7 @@ var controlActions = []ControlAction{
 	{"desktop_settings", "copilot.getPagePreferences", true},
 	{"desktop_settings", "copilot.setPagePreference", false},
 	{"desktop_site", "site.list", true},
+	{"desktop_site", "site.setPinned", false},
 	{"desktop_site", "website.list", true},
 	{"desktop_site", "website.add", false},
 	{"desktop_site", "website.update", false},
