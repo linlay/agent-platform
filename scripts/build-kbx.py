@@ -19,11 +19,15 @@ TARGETS = {
 }
 
 
+def native_release_key():
+    machine = {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'x64', 'amd64': 'x64'}.get(platform.machine().lower())
+    system = {'linux': 'linux', 'darwin': 'macos', 'win32': 'windows'}.get(sys.platform)
+    return '{}-{}'.format(system, machine)
+
+
 def validate_linux_binary(data):
-    """KBX's own release tool has no Linux target; check the ELF header here."""
-    if data[:4] != b'\x7fELF':
-        raise ValueError('Expected an ELF executable.')
-    if len(data) < 20 or data[4] != 2 or data[5] != 1:
+    """Fallback for the locked KBX 0.1.1, whose release tool predates Linux targets."""
+    if len(data) < 20 or data[:6] != b'\x7fELF\x02\x01':
         raise ValueError('Expected a 64-bit little-endian ELF executable.')
     kind, machine = struct.unpack_from('<HH', data, 16)
     if kind not in (2, 3) or machine != 0x3e:
@@ -61,12 +65,11 @@ def run(args):
     package = next(p for p in metadata['packages'] if p['name'] == 'kbx' and Path(p['manifest_path']).resolve() == source / 'Cargo.toml')
     binary = 'kbx.exe' if args.target.startswith('windows/') else 'kbx'
     data = (target_dir / triple / 'release' / binary).read_bytes()
-    if release_key == 'linux-x64':
-        validate_linux_binary(data)
-    else:
+    if release_key in release.TARGETS:
         release.validate_binary(data, release_key)
-    native = release_key == 'linux-x64' or (sys.platform == 'win32' and release_key == 'windows-x64') or (sys.platform == 'darwin' and release_key == ('macos-arm64' if release.platform.machine() == 'arm64' else 'macos-x64'))
-    if native:
+    else:
+        validate_linux_binary(data)
+    if release_key == native_release_key():
         subprocess.run([str(target_dir / triple / 'release' / binary), 'search', '--filter-help'], check=True, stdout=subprocess.DEVNULL)
     notices = ['Third-party dependency license inventory (Cargo metadata).', '']
     for p in sorted(metadata['packages'], key=lambda p: (p['name'], p['version'])):

@@ -383,7 +383,7 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-云端完整镜像、用户实例隔离、HTTPS 接入和 Desktop 离线任务的待实施提案见 [云端部署与持续任务架构设计](./docs/云端部署与持续任务架构设计.md)。其中 linux/amd64 builtin cache 与运行镜像已可构建，实例隔离、HTTPS 入口和持久云端 Job 尚未完成，不能将该设计视为已交付部署能力。
+云端完整镜像、用户实例隔离、HTTPS 接入和 Desktop 离线任务的待实施提案见 [云端部署与持续任务架构设计](./docs/云端部署与持续任务架构设计.md)。其中 linux/amd64 builtin cache 与运行镜像已可构建，`make release-image` 产出离线部署包；2026-10-13 已在真实 Ubuntu linux/amd64 服务器通过导入、健康检查、部署加固、中文 PDF 全文检索与数据持久化验收，真实模型会话、embedding 向量检索、httpx 调用、Memory 采集及隔离样本的摘要链路也已验证；剩余未验证项见 [服务器验收记录](./docs/版本化打包方案.md#linux-服务器验收记录)。用户实例隔离、HTTPS 入口和持久云端 Job 尚未完成，不能将该设计视为已交付部署能力。
 
 知识库是 Native Agent 可组合的公共检索能力，挂载 `builtin.kbase-control` 后通过 `kbase_list` 发现库，四个检索工具均必填 `libraryId`；普通 Agent 可用 `references` 中的 kbase 引用 选择本 Run 必须使用的库（最多 8 个），无须固定绑定；固定绑定对所有 mode（含 KBASE）可选，配置后管理入口核验库定义存在且有效。Workspace 保持独立，KBASE 的 Workspace 继续用于项目展示与 editing。显式挂载 builtin.platform-control 后可通过 kbase_library_query/manage 创建、复用、编辑、删除库及核验索引状态；工具具备来源审批、修订校验和调用幂等，详见 [知识库](docs/知识库.md)。知识配置不隐式授予工具，详见 [智能体配置](docs/智能体配置说明.md)。
 

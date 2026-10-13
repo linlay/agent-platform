@@ -1,0 +1,47 @@
+# Deployment Compose for the released image. It never builds: the image comes
+# from load.sh (or a registry) and is selected by AP_IMAGE_VERSION in .env.
+# One Compose project per instance: a shared project name would make `up`
+# replace another instance's container.
+name: agent-platform-${AP_INSTANCE_NAME:?set AP_INSTANCE_NAME in .env}
+
+services:
+  agent-platform:
+    image: agent-platform:${AP_IMAGE_VERSION:?set AP_IMAGE_VERSION in .env}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Loopback by default: a TLS reverse proxy on this host forwards to it.
+    ports:
+      - "${AP_BIND_ADDRESS:-127.0.0.1}:${AP_PORT:-11949}:8080"
+    env_file:
+      - .env
+    environment:
+      HOME: /home/agent
+    tmpfs:
+      - /tmp:exec,mode=1777,size=${AP_TMP_SIZE:-1g}
+      - /home/agent:exec,uid=10001,gid=10001,mode=0700,size=${AP_HOME_SIZE:-512m}
+    volumes:
+      - type: bind
+        source: ./configs
+        target: /opt/configs
+        read_only: true
+      - type: bind
+        source: ${AP_DATA_DIR:-./data}/runtime
+        target: /opt/runtime
+      - type: bind
+        source: ${AP_DATA_DIR:-./data}/workspaces
+        target: /opt/workspaces
+    mem_limit: ${AP_MEMORY_LIMIT:-4g}
+    cpus: ${AP_CPU_LIMIT:-2}
+    pids_limit: ${AP_PIDS_LIMIT:-1024}
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

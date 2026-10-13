@@ -1,21 +1,24 @@
-.git
-.gitignore
-.DS_Store
-**/.DS_Store
-**/target
-dist
+# Allowlist: nothing reaches the builder unless it is named below. Real
+# configs, keys, .env and runtime data therefore can never enter an image.
+*
+
+!go.mod
+!go.sum
+!cmd/
+!internal/
+
+# Verified Linux builtin caches only (see scripts/sync-linux-builtins.sh).
+!build/
 build/*
 !build/builtins/
-!build/builtins/**
-build/builtins/.gocache
-build/builtins/.gomodcache
-build/builtins/.cargo-target
-release-local
-runtime
-run
-chats
-memory
-pan
-logs
-*.log
-.env
+build/builtins/*
+!build/builtins/linux-amd64/
+!build/builtins/linux-arm64/
+
+# Non-secret templates only.
+!configs/
+configs/*
+!configs/*.example.yml
+!configs/*.example.pem
+
+**/.DS_Store

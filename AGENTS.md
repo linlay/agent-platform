@@ -157,7 +157,7 @@ make run
 make test
 ```
 
-首次运行、更新相邻 builtin 或 release 前先同步本机 `build/builtins/<host>/` cache。linux/amd64 cache 由 `make sync-builtins-linux` 在固定构建容器内生成，容器内即原生 linux/amd64 主机，不放宽正式 lock 规则；linux/arm64 仍不支持。`make run`、`make build-local`、`make release` 只消费已校验的 cache，不得重新引入 builtin/Rust 构建。release 原样复制完整连接器包，不从 Platform 源码补写清单或技能；同步脚本不写 `release-local/`。
+首次运行、更新相邻 builtin 或 release 前先同步本机 `build/builtins/<host>/` cache。linux/amd64 cache 由 `make sync-builtins-linux` 在固定构建容器内生成，容器内即原生 linux/amd64 主机，不放宽正式 lock 规则；linux/arm64 仍不支持。`make release-image` 从该 cache 构建 linux/amd64 镜像并产出离线部署包；`.dockerignore` 是白名单，新增需要进入镜像的路径必须显式放行。`make run`、`make build-local`、`make release` 只消费已校验的 cache，不得重新引入 builtin/Rust 构建。release 原样复制完整连接器包，不从 Platform 源码补写清单或技能；同步脚本不写 `release-local/`。
 
 正式 lock 的 host 限制、精确 `yes`、干净版本、稳定归档固化与并发校验必须保留，交叉构建不得写其他平台 SHA。完整同步、发布命令与目标平台限制见 [版本化打包方案](docs/版本化打包方案.md#2-发布命令)；不要在此另行维护组件版本或平台清单。
 

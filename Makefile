@@ -37,7 +37,7 @@ LOCAL_BACKEND_BIN := $(LOCAL_BACKEND_DIR)/$(LOCAL_BINARY)
 LOCAL_PLUGINS_DIR := $(LOCAL_RELEASE_ROOT)/plugins
 LOCAL_BUILTINS_BIN := build/builtins/$(LOCAL_GOOS)-$(ARCH)/bin
 
-.PHONY: run build-local run-local audit-workspace-chat test test-memory-integration test-integration test-program-deploy test-release-program-clean sync-builtins-linux docker-build docker-up docker-down release release-program release-program-all clean
+.PHONY: run build-local run-local audit-workspace-chat test test-memory-integration test-integration test-program-deploy test-release-program-clean sync-builtins-linux release-image docker-build docker-up docker-down release release-program release-program-all clean
 
 ifeq ($(OS),Windows_NT)
 run: run-local
@@ -110,6 +110,9 @@ endif
 
 sync-builtins-linux:
 	scripts/sync-linux-builtins.sh
+
+release-image:
+	scripts/release-image.sh
 
 docker-build:
 	VERSION=$(VERSION) docker compose -f $(COMPOSE_FILE) build
