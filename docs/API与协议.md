@@ -1254,6 +1254,10 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 本地读取权限变化只阻止后续预览请求，不会实时撤销已签发的公开分享；链接仍受一天有效期约束。配置和副本回收规则见 [配置化说明](配置化说明.md#office-在线预览服务)。
 
+### 连接器 ZIP 导入身份校验
+
+`POST /api/admin/connectors/import` 的 multipart `file` 接收单个 ZIP；可选 `overwrite`、`expectedId`、`expectedVersion`。后两者与包内清单不符时返回 HTTP 409，`data.code: connector_identity_mismatch`，不发布、不准备 CLI。导入目标由 Platform 固定为 `connectors-center/<id>/`。Agent 的 Skill/Connector ZIP 导入复用这些发布机制，通过 `catalog_manage.import {resourceType,archivePath,overwrite?}` 调用；审批、文件权限及进程内收据见 [ZIP 包导入](Platform控制工具设计.md#zip-包导入)。
+
 ### CLI 独立准备
 
 `/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。

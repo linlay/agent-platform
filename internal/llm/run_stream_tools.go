@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
@@ -1074,6 +1075,9 @@ func (s *llmRunStream) handleDeferredToolInvocation(invocation *preparedToolInvo
 }
 
 func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
+	if plan := s.lookupFileAccessPlan(invocation); plan != nil && plan.Mode == filetools.ReadAccess && s.fileAccessPlanNeedsApproval(*plan) {
+		return s.handleBuiltInApprovalRequest(s.fileAccessApprovalRequest(invocation, *plan))
+	}
 	s.prepareToolApproval(invocation)
 	if invocation.toolApprovalErr != nil {
 		result := ToolExecutionResult{Error: "tool_review_failed", Output: invocation.toolApprovalErr.Error(), ExitCode: -1}

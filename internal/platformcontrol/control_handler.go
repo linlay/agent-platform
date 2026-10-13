@@ -52,6 +52,7 @@ var argumentFields = map[string]map[string]string{
 	"catalog_query.validate":      {"resourceType": "s!", "resourceKey": "s!", "content": "s!", "path": "s", "mcpUrl": "s", "isProject": "b"},
 	"catalog_manage.apply":        {"resourceType": "s!", "resourceKey": "s!", "path": "s", "content": "s!", "baseRevision": "s", "preservePaths": "a", "mcpUrl": "s", "isProject": "b"},
 	"catalog_manage.delete":       {"resourceType": "s!", "resourceKey": "s!", "baseRevision": "s!"},
+	"catalog_manage.import":       {"resourceType": "s!", "archivePath": "s!", "overwrite": "b"},
 	"chat_query.current":          {},
 	"chat_query.list":             {"scope": "s", "archived": "b", "pinned": "b", "limit": "n", "cursor": "s"},
 	"chat_query.search":           {"query": "s!", "scope": "s", "chatId": "s", "archived": "b", "limit": "n", "cursor": "s"},
@@ -152,6 +153,9 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 	if err != nil {
 		return nil, err
 	}
+	if tool == "catalog_manage" && action == "import" {
+		return h.prepareArchiveImportApproval(ctx, p, e)
+	}
 	var digest string
 	var form map[string]any
 	allowAutoApprove := tool == "catalog_manage" && action == "apply"
@@ -204,6 +208,10 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 	case "catalog_query":
 		value, err = h.catalogQuery(ctx, action, p)
 	case "catalog_manage":
+		if action == "import" {
+			value, err = h.invokeArchiveImport(ctx, p, e)
+			break
+		}
 		var plan *adminsource.ControlPlan
 		if h.sources == nil {
 			err = fmt.Errorf("catalog unavailable")

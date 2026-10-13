@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"strconv"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -51,6 +52,9 @@ func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvo
 	}
 	if invocation != nil && invocation.approvalDecision != "" && invocation.shownApproval != nil {
 		return *invocation.shownApproval, true
+	}
+	if plan := s.lookupFileAccessPlan(invocation); plan != nil && plan.Mode == filetools.ReadAccess && s.fileAccessPlanNeedsApproval(*plan) {
+		return s.fileAccessApprovalRequest(invocation, *plan), true
 	}
 	if request, ok := s.toolApprovalRequest(invocation); ok {
 		return request, true
@@ -144,6 +148,10 @@ func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error 
 	s.hitlPendingCall = invocation
 	s.hitlMatch = &result
 	s.hitlAwaitingID = buildHITLAwaitingID(invocation.toolID)
+	invocation.approvalSequence++
+	if invocation.approvalSequence > 1 {
+		s.hitlAwaitingID += "_" + strconv.Itoa(invocation.approvalSequence)
+	}
 
 	args := s.approvalRequestArgs(request)
 	s.hitlAwaitArgs = CloneMap(args)

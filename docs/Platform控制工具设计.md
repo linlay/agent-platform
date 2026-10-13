@@ -7,7 +7,7 @@
 | 工具 | action | 执行环境 |
 | --- | --- | --- |
 | catalog_query | resourceTypes/list/get/defaults/validate | 普通 native main root |
-| catalog_manage | apply/delete | 普通 native main root |
+| catalog_manage | apply/delete/import | 普通 native main root |
 | platform_inspect | runtimeStatus/securityExplain/checkConnector | 前两项支持受信任子任务/Team；checkConnector 仅普通 native main root |
 | desktop_shell | 9 个外壳动作 | Desktop |
 | desktop_settings | 16 个设置动作 | Desktop |
@@ -27,6 +27,16 @@ Standalone 隐藏七个 Desktop 工具；Catalog/Chat/Automation 在子任务、
 看板工具 `desktop_kanban` 已迁入独立的 `builtin.kanban-control`。Chat 与 Automation 已迁入独立的 `builtin.task-control`，原有服务和审批实现继续复用；本文相关章节保留协议说明，不代表它们仍由 platform-control 挂载。
 
 Agent 发现复用 `catalog_query.list`（resourceType=agent），条目增加 key/name/role/description/mode/invocable，包含当前 Agent，包含公开 TEAM Agent；不按旧候选配置过滤。invocable 复用 agent_invoke 的静态目标校验，不代表调用者权限，chat_start 的目标契约不变。旧候选字段与标签忽略并提供一条非阻断管理 warning，不再常驻注入 prompt。分页默认 20，公共入口校验 limit 为 1–100 整数，内部切片前另做 1–100 防御夹取。管理诊断沿用现有 SourcePath/错误详情契约，可能暴露 Host 源路径，不应宣称为路径脱敏接口；新弃用告警不携带路径或候选值。完整说明见 [Agent 发现](智能体配置说明.md#agent-发现与旧候选配置)。
+
+## ZIP 包导入
+
+`catalog_manage.import` 接受 `{resourceType:"skill"|"connector", archivePath, overwrite?}`，普通 native main root 可用，规划执行策略拒绝。来源 ZIP 先经过通用文件读取权限；审批准备阶段也不读取未授权或受保护的路径。外部来源可能先出现读取审批，再出现包导入审阅，两者使用不同 awaitingId，读取批准不授予发布权限。输入路径属于 Runtime 主机，支持文件别名；目录需由已有文件工具发现并选定单个 ZIP。
+
+后端从包内定义识别 ID 与版本，Skill 自动区分单技能与技能包；Connector 使用 `connector.json`。目标固定为 `skills-center/<id>/` 或 `connectors-center/<id>/`，不提供 targetDir，连接器技能随原包保留。版本不增加目标目录层。默认拒绝重名，`overwrite:true` 审阅整目录替换。
+
+`internal/platformcontrol` 处理工具准入、文件访问与审批；`internal/adminsource` 持有导入应用事务与进程内调用收据，复用 `internal/catalog` 的技能暂存/发布和 `internal/connector` 的连接器校验/发布。解压和完整校验在 Catalog 保护外，发布按 Agent mutation → source mutation → 对应 Catalog directory mutation → 资源操作锁协调。审批绑定规范来源路径、ZIP SHA-256、解压树摘要、已安装整树版本及调用身份，发布前复验；内置包、符号链接、非法归档仍由现有校验拒绝。包摘要审阅包含连接器声明的 CLI 准备信息。
+
+成功返回 `status:applied`、`executionState:committed`、`installed:true`、`resourceType/resourceKey/kind/id/version/archiveSha256/baseRevision`。CLI 另返回异步 `preparation`；准备失败不回滚已导入包，授权及 Agent 挂载独立。相同调用身份重放已记录结果，不再次发布或启动准备；参数变更返回幂等冲突。reload 失败恢复来源，明确区分 not_started/rolled_back/unknown/committed；结果未知时先回读。收据只在当前进程内保存，不新增持久执行恢复或断电事务承诺。真实 Desktop/Windows 交互仍需目标环境联调。
 
 ## Catalog 源文件事务
 

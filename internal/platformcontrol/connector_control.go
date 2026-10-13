@@ -20,6 +20,11 @@ type ConnectorChecker interface {
 
 func (h *ToolHandler) ConfigureConnectors(connections ConnectorConnectionReader, checker ConnectorChecker) *ToolHandler {
 	h.connectorConnections, h.connectorChecker = connections, checker
+	if preparer, ok := connections.(interface {
+		StartPreparation(string) (connectorauth.Preparation, error)
+	}); ok && h.sources != nil {
+		h.sources.PrepareConnector = preparer.StartPreparation
+	}
 	return h
 }
 

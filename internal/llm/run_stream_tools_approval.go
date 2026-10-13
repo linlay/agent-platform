@@ -197,6 +197,10 @@ func (s *llmRunStream) fileAccessPlanNeedsApproval(plan filetools.AccessPlan) bo
 
 func fileAccessPlanInput(toolName string, args map[string]any) (filetools.AccessMode, string, bool) {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "catalog_manage":
+		params, ok := args["args"].(map[string]any)
+		path, hasPath := params["archivePath"].(string)
+		return filetools.ReadAccess, path, ok && args["action"] == "import" && hasPath && strings.TrimSpace(path) != ""
 	case "file_read":
 		return filetools.ReadAccess, mapStringArg(args, "filePath"), strings.TrimSpace(mapStringArg(args, "filePath")) != ""
 	case "surface_cdp":
@@ -293,6 +297,12 @@ func (s *llmRunStream) executeApprovedFileAccessInvocation(invocation *preparedT
 }
 
 func (s *llmRunStream) executeAfterFileAccessApproval(invocation *preparedToolInvocation) error {
+	// Reading an input and reviewing the resulting business change are separate
+	// grants. Prepare the business review only after input access is authorized.
+	invocation.shownApproval = nil
+	if handled, err := s.handleToolApprovalBeforeInvoke(invocation); handled || err != nil {
+		return err
+	}
 	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) && !filetools.HasWriteApproval(s.execCtx, *plan) {
 		return s.emitApprovalRequestDeltas(s.fileWriteApprovalRequest(invocation, *plan))
 	}

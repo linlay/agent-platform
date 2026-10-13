@@ -21,6 +21,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbases"
 	"agent-platform/internal/models"
+	"agent-platform/internal/operationstate"
 	"agent-platform/internal/pathutil"
 )
 
@@ -59,6 +60,7 @@ type ControlPlan struct {
 	exists              bool
 }
 type ControlService struct {
+	importReceipts    operationstate.Receipts[archiveImportReceipt]
 	Reload            func(context.Context, string) error
 	Coordinate        func(context.Context, string, func(context.Context) error) error
 	Mutations         *Service
@@ -67,6 +69,7 @@ type ControlService struct {
 	Models            *models.ModelRegistry
 	ValidateLibrary   func(string) error
 	LibraryDefinition func(string) (kbases.Definition, error)
+	PrepareConnector  func(string) (connectorauth.Preparation, error)
 }
 
 func controlHash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
@@ -162,6 +165,10 @@ func (s *ControlService) resolve(t ControlTarget) (root, rel string, err error) 
 	return root, rel, nil
 }
 func treeRevision(root string) (string, bool, error) {
+	return treeRevisionWithLimit(root, 64<<20)
+}
+
+func treeRevisionWithLimit(root string, maxBytes int64) (string, bool, error) {
 	if _, err := os.Lstat(root); os.IsNotExist(err) {
 		return "", false, nil
 	} else if err != nil {
@@ -187,7 +194,7 @@ func treeRevision(root string) (string, bool, error) {
 			return e
 		}
 		total += info.Size()
-		if total > 64<<20 {
+		if total > maxBytes {
 			return fmt.Errorf("resource exceeds management size limit")
 		}
 		b, e := os.ReadFile(path)

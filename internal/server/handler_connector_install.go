@@ -53,6 +53,13 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer prepared.Close()
+	candidate := prepared.Package()
+	for field, actual := range map[string]string{"expectedId": candidate.ID, "expectedVersion": candidate.Version} {
+		if expected := r.FormValue(field); expected != "" && expected != actual {
+			s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusConflict, "connector_identity_mismatch", field+" does not match the ZIP manifest"))
+			return
+		}
+	}
 	pkg, err := withCatalogDirectoryTransaction(r.Context(), s, "connectors", func(ctx context.Context) (connector.Package, error) {
 		return prepared.Publish(ctx, overwrite, mcp.ValidateConnectorPackages, func() error {
 			if s.deps.CatalogReloader != nil {

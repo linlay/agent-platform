@@ -191,6 +191,7 @@ type preparedToolInvocation struct {
 	fileAccessPlan        *filetools.AccessPlan
 	fileWritePlan         *filetools.WritePlan
 	approvalDecision      string
+	approvalSequence      int
 	hostBashAuthorization *hostBashAuthorization
 	hitlDecision          *hitlDecisionState
 	queuedResult          *ToolExecutionResult

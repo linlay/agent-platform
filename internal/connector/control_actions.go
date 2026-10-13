@@ -32,6 +32,7 @@ var controlActions = []ControlAction{
 	{"catalog_query", "validate", true},
 	{"catalog_manage", "apply", false},
 	{"catalog_manage", "delete", false},
+	{"catalog_manage", "import", false},
 	{"chat_query", "current", true},
 	{"chat_query", "list", true},
 	{"chat_query", "search", true},

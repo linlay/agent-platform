@@ -204,6 +204,13 @@ type PreparedEditableSkillPackage struct {
 
 func (p *PreparedEditableSkillPackage) Close() { _ = os.RemoveAll(p.stagingRoot) }
 
+// Preview returns the package and member identities of the validated candidate.
+func (p *PreparedEditableSkillPackage) Preview() (SkillPackageRecord, error) {
+	return scanPackageAt(p.candidate, p.packageID)
+}
+
+func (p *PreparedEditableSkillPackage) CandidateDirectory() string { return p.candidate }
+
 func (r *FileRegistry) PrepareEditableSkillPackageArchive(packageID, version string, source io.ReaderAt, size int64) (*PreparedEditableSkillPackage, error) {
 	if r == nil {
 		return nil, fmt.Errorf("skill registry is not configured")
@@ -325,7 +332,7 @@ func (p *PreparedEditableSkillPackage) Begin() (*EditableSkillPackageMutation, S
 	m := &EditableSkillPackageMutation{root: root, backupRoot: backup, stagingRoot: p.stagingRoot, unlock: r.skillPackageMu.Unlock}
 	owned = true
 	fail := func(err error) (*EditableSkillPackageMutation, SkillPackageRecord, error) {
-		return nil, SkillPackageRecord{}, errors.Join(err, m.Rollback())
+		return nil, SkillPackageRecord{}, rollbackArchiveBegin(m, err)
 	}
 	if exists {
 		if err := m.backupSkill(p.packageID); err != nil {
