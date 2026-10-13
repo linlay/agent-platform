@@ -106,6 +106,64 @@ func TestWaitEventsAnyAllAndTimeout(t *testing.T) {
 		t.Fatal(result)
 	}
 }
+
+func TestWaitConditionCountLimit(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, def := range defs {
+		if def.Name == "wait" {
+			found = true
+			properties := AnyMapNode(def.Parameters["properties"])
+			conditions := AnyMapNode(properties["conditions"])
+			if AnyIntNode(conditions["minItems"]) != 1 || AnyIntNode(conditions["maxItems"]) != 16 {
+				t.Fatalf("unexpected wait conditions schema: %#v", conditions)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing wait tool definition")
+	}
+	provider := &testConditions{}
+	provider.count.Store(1)
+	executor := (&RuntimeToolExecutor{}).WithWaitConditionProvider(provider)
+	for _, count := range []int{0, 1, 9, 16, 17} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			conditions := make([]WaitCondition, count)
+			for i := range conditions {
+				conditions[i] = WaitCondition{Type: "run.terminal", RunID: fmt.Sprintf("run-%d", i)}
+			}
+			result, err := executor.invokeWait(context.Background(), map[string]any{
+				"description": "等待全部独立任务完成", "offset": "1S", "conditions": conditions, "match": "all",
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if count == 0 || count == 17 {
+				if result.Error != "invalid_wait_arguments" || !strings.Contains(result.Output, "1 to 16") {
+					t.Fatalf("expected condition count validation error, got %+v", result)
+				}
+				return
+			}
+			if result.Error != "" || result.Structured["reason"] != "event" {
+				t.Fatalf("expected all conditions to complete, got %+v", result)
+			}
+			states := result.Structured["conditions"].([]WaitConditionState)
+			indexes := result.Structured["matchedConditionIndexes"].([]int)
+			if len(states) != count || len(indexes) != count {
+				t.Fatalf("incomplete condition results: %+v", result)
+			}
+			for i, state := range states {
+				if !state.Satisfied || state.Condition != conditions[i] || indexes[i] != i {
+					t.Fatalf("condition %d was not matched correctly: %+v", i, result)
+				}
+			}
+		})
+	}
+}
+
 func TestWaitPastDateAndLifetime(t *testing.T) {
 	result, _ := (&RuntimeToolExecutor{}).invokeWait(context.Background(), map[string]any{"description": "等待测试目标", "base": "2020-01-01"}, nil)
 	if result.Structured["reason"] != "elapsed" || result.Structured["dateOnly"] != true || result.Structured["deadlineAlreadyPassed"] != true {

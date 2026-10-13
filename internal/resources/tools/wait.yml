@@ -32,7 +32,7 @@ inputSchema:
       description: Optional event conditions that may complete the wait before its time limit.
       type: array
       minItems: 1
-      maxItems: 8
+      maxItems: 16
       items:
         type: object
         properties:
